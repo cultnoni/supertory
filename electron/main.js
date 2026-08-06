@@ -3,7 +3,7 @@
  * Starts the bundled PyInstaller backend (or local Python in dev), then loads the UI.
  * Packaged builds check for updates via electron-updater (GitHub Releases).
  */
-const { app, BrowserWindow, shell, ipcMain, dialog } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog, Menu } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -315,6 +315,7 @@ function createMainWindow() {
     minHeight: 640,
     show: false,
     title: "SuperTory",
+    autoHideMenuBar: true,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -475,11 +476,21 @@ function setupAutoUpdater() {
 
   autoUpdater.on("checking-for-update", () => {
     console.log("[supertory] checking for update…");
-    sendUpdateStatus({ phase: "checking", message: "업데이트 확인 중…" });
+    // 수동(관리자) 확인일 때만 UI에 표시 — 백그라운드 자동 확인은 하지 않음.
+    if (!manualUpdateCheck) return;
+    sendUpdateStatus({
+      phase: "checking",
+      message: "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.",
+    });
   });
 
   autoUpdater.on("update-available", (info) => {
     console.log("[supertory] update available:", info?.version);
+    // 베타 기간: 자동 알림 없음. 관리자 「업데이트 확인」으로만 안내.
+    if (!manualUpdateCheck) {
+      console.log("[supertory] update available ignored (auto-check disabled)");
+      return;
+    }
     // Ask user; only then download.
     promptInstallUpdate(info)
       .then((accepted) => {
@@ -501,10 +512,11 @@ function setupAutoUpdater() {
 
   autoUpdater.on("update-not-available", (info) => {
     console.log("[supertory] no update available", info?.version || "");
+    if (!manualUpdateCheck) return;
     sendUpdateStatus({
       phase: "none",
       version: info?.version,
-      message: "최신 버전을 사용 중입니다.",
+      message: "현재 최신 버전이네요. 새 버전이 있으면 안내가 떠요.",
     });
   });
 
@@ -566,21 +578,8 @@ function setupAutoUpdater() {
     return;
   }
 
-  // Startup check (slight delay so the UI can bind update listeners).
-  setTimeout(() => {
-    if (!updateFeedConfigured) return;
-    autoUpdater.checkForUpdates().catch((error) => {
-      console.warn(
-        "[supertory] checkForUpdates failed:",
-        error?.message || error
-      );
-      sendUpdateStatus({
-        phase: "unavailable",
-        message: "시작 시 업데이트를 확인하지 못했습니다.",
-        error: String(error?.message || error),
-      });
-    });
-  }, 2500);
+  // 베타: 시작/주기 자동 확인·알림 끔. 관리는 관리자 「업데이트 확인」만.
+  console.log("[supertory] auto update check disabled; use admin「업데이트 확인」");
 }
 
 /** Apply feed URL from env / update-feed.json / package.json. */
@@ -628,7 +627,10 @@ function setupIpc() {
     }
     manualUpdateCheck = true;
     try {
-      sendUpdateStatus({ phase: "checking", message: "업데이트 확인 중…" });
+      sendUpdateStatus({
+        phase: "checking",
+        message: "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.",
+      });
       const result = await autoUpdater.checkForUpdates();
       return {
         ok: true,
@@ -652,6 +654,8 @@ function setupIpc() {
 
 async function bootstrap() {
   setupIpc();
+  // Remove default File / Edit / View / Window / Help menu bar.
+  Menu.setApplicationMenu(null);
 
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
@@ -684,7 +688,12 @@ async function bootstrap() {
   }
 }
 
-app.whenReady().then(bootstrap);
+app.whenReady().then(() => {
+  if (process.platform === "win32") {
+    app.setAppUserModelId("com.supertory.app");
+  }
+  return bootstrap();
+});
 
 app.on("before-quit", () => {
   isQuitting = true;

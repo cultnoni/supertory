@@ -1,6 +1,6 @@
 {
   "name": "supertory",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "SuperTory — local-only Korean writing app (Scrivener-like)",
   "main": "electron/main.js",
   "author": "SuperTory",

@@ -5252,6 +5252,7 @@ function renderIdeaBank() {
   if (!state.projectId) {
     list.innerHTML = `<p class="idea-sticky-empty">작품을 선택하면 메모를 쓸 수 있어요.</p>`;
     if ($("newIdeaButton")) $("newIdeaButton").disabled = true;
+    renderHeaderIdeaBar();
     return;
   }
   if ($("newIdeaButton")) $("newIdeaButton").disabled = false;
@@ -5270,6 +5271,7 @@ function renderIdeaBank() {
   }
   if (state.ideaBoardOpen) renderIdeaBoard();
   renderSettingsCodex();
+  renderHeaderIdeaBar();
 }
 
 function hideCenterViewsForIdeaBoard() {
@@ -5658,10 +5660,12 @@ function focusAiAssistant() {
   setAiPanelOpen(true);
   if ($("aiMode")) {
     if (state.toryFocusSceneId) $("aiMode").value = "analyze";
-    else $("aiMode").value = state.sceneId ? "continue" : "free";
+    else $("aiMode").value = "free";
   }
   refreshAiStatus().catch(handleError);
   updateToryFocusUi();
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+  if (typeof updateContinuePanelVisibility === "function") updateContinuePanelVisibility();
   $("aiPrompt")?.focus();
 }
 
@@ -11550,6 +11554,7 @@ function removeBookmarkById(bookmarkId) {
 function renderBookmarkBar(options = {}) {
   const bar = $("bookmarkBar");
   if (!bar) return;
+  applyHeaderNoticeVisibility();
   if (!state.projectId) {
     bar.innerHTML = "";
     return;
@@ -11592,6 +11597,72 @@ function renderBookmarkBar(options = {}) {
       showBookmarkContextMenu(event.clientX, event.clientY, btn.dataset.bookmarkId);
     });
   });
+}
+
+const HEADER_NOTICE_STORAGE = {
+  ideas: "supertory.headerIdeaNoticeHidden",
+  bookmarks: "supertory.headerBookmarkNoticeHidden",
+};
+
+function isHeaderNoticeHidden(kind) {
+  try {
+    return sessionStorage.getItem(HEADER_NOTICE_STORAGE[kind]) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setHeaderNoticeHidden(kind, hidden) {
+  try {
+    if (hidden) sessionStorage.setItem(HEADER_NOTICE_STORAGE[kind], "1");
+    else sessionStorage.removeItem(HEADER_NOTICE_STORAGE[kind]);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applyHeaderNoticeVisibility() {
+  const idea = $("headerIdeaNotice");
+  const bookmarks = $("headerBookmarkNotice");
+  idea?.classList.toggle("is-dismissed", isHeaderNoticeHidden("ideas"));
+  bookmarks?.classList.toggle("is-dismissed", isHeaderNoticeHidden("bookmarks"));
+}
+
+function renderHeaderIdeaBar() {
+  const bar = $("headerIdeaBar");
+  if (!bar) return;
+  applyHeaderNoticeVisibility();
+  if (!state.projectId) {
+    bar.innerHTML = `<span class="header-idea-empty">작품을 선택하세요</span>`;
+    return;
+  }
+  if (!state.ideas.length) {
+    bar.innerHTML = `<span class="header-idea-empty">아직 메모가 없어요</span>`;
+    return;
+  }
+  bar.innerHTML = state.ideas.slice(0, 8).map((idea) => {
+    const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || "메모");
+    return `<button type="button" class="header-idea-chip color-${escapeHtml(idea.color || "yellow")}" data-header-idea="${idea.id}" title="${label}" role="listitem">${label}</button>`;
+  }).join("");
+  bar.querySelectorAll("[data-header-idea]").forEach((btn) => {
+    btn.addEventListener("click", () => openIdeaBoard(Number(btn.dataset.headerIdea)));
+  });
+}
+
+function setupHeaderNotices() {
+  applyHeaderNoticeVisibility();
+  document.querySelectorAll("[data-header-notice]").forEach((btn) => {
+    if (btn.dataset.bound === "1") return;
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      const kind = btn.dataset.headerNotice;
+      if (!HEADER_NOTICE_STORAGE[kind]) return;
+      setHeaderNoticeHidden(kind, true);
+      applyHeaderNoticeVisibility();
+    });
+  });
+  renderHeaderIdeaBar();
 }
 
 function markBookmarkedTargets() {
@@ -22630,7 +22701,9 @@ function handleAppUpdateStatus(payload) {
   const hint = $("adminUpdateStatusHint");
 
   if (phase === "checking") {
-    if (hint) hint.textContent = message || "업데이트 확인 중…";
+    if (hint) {
+      hint.textContent = message || "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.";
+    }
     return;
   }
   if (phase === "available") {
@@ -22675,7 +22748,9 @@ function handleAppUpdateStatus(payload) {
     return;
   }
   if (phase === "none") {
-    if (hint) hint.textContent = message || "최신 버전을 사용 중입니다.";
+    if (hint) {
+      hint.textContent = message || "현재 최신 버전이네요. 새 버전이 있으면 안내가 떠요.";
+    }
     if (message && !/최신/.test(message)) toast(message);
     return;
   }
@@ -22711,7 +22786,8 @@ function setupAutoUpdateUi() {
       return;
     }
     btn.disabled = true;
-    if (hint) hint.textContent = "업데이트 확인 중…";
+    // 결과 대기 중 문구. 실제 최신/업데이트 여부는 onUpdateStatus(phase)가 덮어씀.
+    if (hint) hint.textContent = "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.";
     try {
       const result = await window.electronAPI.checkForUpdates();
       if (result?.reason === "dev") {
@@ -22725,9 +22801,9 @@ function setupAutoUpdateUi() {
       } else if (result?.ok === false && result?.error) {
         if (hint) hint.textContent = "업데이트 확인에 실패했습니다.";
         toast(`업데이트 확인 실패: ${result.error}`);
-      } else if (hint) {
-        hint.textContent = "확인 요청을 보냈습니다. 새 버전이 있으면 안내가 뜹니다.";
       }
+      // ok인 경우: IPC 반환 시점에 update-not-available 등이 이미 왔을 수 있음.
+      // 대기 문구로 다시 덮어쓰지 않고 handleAppUpdateStatus 결과를 유지한다.
     } catch (error) {
       handleError(error);
     } finally {
@@ -22738,7 +22814,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.0.0";
+const APP_VERSION_FALLBACK = "1.0.1";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -23678,6 +23754,7 @@ setupPurposePicker();
 setupKeywordBox();
 setupProofReportModal();
 setupWritingLog();
+setupHeaderNotices();
 renderBookmarkBar();
 setupSceneAutoSave();
 setupBinderSwitch();

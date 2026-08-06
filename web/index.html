@@ -35,231 +35,234 @@
         <span>새 글쓰기 · 문서 가져오기</span>
       </div>
     </div>
-    <header>
-      <div class="brand">
-        <!-- SuperTORY mascot: cute acorn with glasses, holding a pen -->
-        <svg class="brand-logo" viewBox="0 0 56 56" width="32" height="32" aria-hidden="true" focusable="false">
-          <defs>
-            <linearGradient id="logoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#fff8ef"/>
-              <stop offset="100%" stop-color="#f0e0cc"/>
-            </linearGradient>
-            <linearGradient id="acornBody" x1="30%" y1="10%" x2="70%" y2="100%">
-              <stop offset="0%" stop-color="#f0b56a"/>
-              <stop offset="55%" stop-color="#d98a3c"/>
-              <stop offset="100%" stop-color="#b86a28"/>
-            </linearGradient>
-            <linearGradient id="acornCap" x1="0%" y1="0%" x2="0%" y2="100%">
-              <stop offset="0%" stop-color="#8b5a2b"/>
-              <stop offset="100%" stop-color="#5c3a18"/>
-            </linearGradient>
-            <linearGradient id="penBody" x1="0%" y1="0%" x2="100%" y2="100%">
-              <stop offset="0%" stop-color="#6e9fd4"/>
-              <stop offset="100%" stop-color="#3d6fa8"/>
-            </linearGradient>
-          </defs>
-          <circle cx="28" cy="28" r="26" fill="url(#logoGlow)" stroke="#e4d5c2" stroke-width="1.5"/>
-          <!-- soft sparkles -->
-          <circle cx="11" cy="14" r="1.2" fill="#c98a5a" opacity="0.45"/>
-          <circle cx="45" cy="13" r="1" fill="#8d3e2f" opacity="0.35"/>
-          <!-- acorn body -->
-          <ellipse cx="27" cy="32" rx="12.5" ry="14.5" fill="url(#acornBody)" stroke="#9a5a22" stroke-width="0.8"/>
-          <ellipse cx="23" cy="28" rx="3.2" ry="4.5" fill="#f7c98a" opacity="0.35"/>
-          <!-- cap -->
-          <ellipse cx="27" cy="19.5" rx="14" ry="7.2" fill="url(#acornCap)" stroke="#4a2c12" stroke-width="0.7"/>
-          <path d="M14.5 18.5 Q27 24 39.5 18.5" fill="none" stroke="#3d2410" stroke-width="0.6" opacity="0.45"/>
-          <path d="M16 16.2 Q27 20.5 38 16.2" fill="none" stroke="#3d2410" stroke-width="0.45" opacity="0.3"/>
-          <!-- stem -->
-          <path d="M27 12.8 C27 9.5 29.5 7.2 32 6.5" fill="none" stroke="#4a2c12" stroke-width="2" stroke-linecap="round"/>
-          <ellipse cx="32.3" cy="6.2" rx="2.2" ry="1.5" fill="#3d2410" transform="rotate(-25 32.3 6.2)"/>
-          <!-- face -->
-          <circle cx="22.5" cy="29.5" r="2.1" fill="#3a2412"/>
-          <circle cx="31.5" cy="29.5" r="2.1" fill="#3a2412"/>
-          <circle cx="23.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
-          <circle cx="32.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
-          <!-- rosy cheeks -->
-          <ellipse cx="18.8" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
-          <ellipse cx="35.2" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
-          <!-- smile -->
-          <path d="M24 34.8 Q27 37.2 30 34.8" fill="none" stroke="#5a3218" stroke-width="1.15" stroke-linecap="round"/>
-          <!-- round glasses -->
-          <circle cx="22.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
-          <circle cx="31.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
-          <path d="M26.6 29.5 H27.4" stroke="#3d3d48" stroke-width="1.2" stroke-linecap="round"/>
-          <path d="M18.4 29.2 H16.6" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
-          <path d="M35.6 29.2 H37.4" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
-          <!-- glass shine -->
-          <path d="M20.2 27.6 L21.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
-          <path d="M29.2 27.6 L30.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
-          <!-- little arms + pen -->
-          <path d="M15.5 34 C12.5 35.5 12 38.5 14 40.5" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
-          <path d="M38.5 34 C41.5 35.2 43.5 37.5 42.2 40.2" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
-          <!-- pen held in right arm -->
-          <g transform="translate(41.5 38.5) rotate(38)">
-            <rect x="-1.3" y="-9" width="2.6" height="14" rx="1.1" fill="url(#penBody)" stroke="#2f5480" stroke-width="0.4"/>
-            <rect x="-1.3" y="-11.2" width="2.6" height="2.4" rx="0.6" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.35"/>
-            <path d="M-1.1 5 L0 9.2 L1.1 5 Z" fill="#d4af37" stroke="#6e5210" stroke-width="0.35"/>
-            <line x1="0" y1="5.2" x2="0" y2="8.2" stroke="#5c450c" stroke-width="0.45"/>
-          </g>
-          <!-- tiny hand grip -->
-          <circle cx="40.2" cy="40.2" r="1.6" fill="#e8a84a" stroke="#9a5a22" stroke-width="0.4"/>
-        </svg>
-        <span class="brand-name">SuperTORY</span>
-      </div>
-      <div class="header-actions">
-        <div class="create-menu" id="createMenu">
+    <header class="app-chrome">
+      <div class="app-titlebar">
+        <div class="brand">
+          <!-- SuperTORY mascot: cute acorn with glasses, holding a pen -->
+          <svg class="brand-logo" viewBox="0 0 56 56" width="22" height="22" aria-hidden="true" focusable="false">
+            <defs>
+              <linearGradient id="logoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#fff8ef"/>
+                <stop offset="100%" stop-color="#f0e0cc"/>
+              </linearGradient>
+              <linearGradient id="acornBody" x1="30%" y1="10%" x2="70%" y2="100%">
+                <stop offset="0%" stop-color="#f0b56a"/>
+                <stop offset="55%" stop-color="#d98a3c"/>
+                <stop offset="100%" stop-color="#b86a28"/>
+              </linearGradient>
+              <linearGradient id="acornCap" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#8b5a2b"/>
+                <stop offset="100%" stop-color="#5c3a18"/>
+              </linearGradient>
+              <linearGradient id="penBody" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#6e9fd4"/>
+                <stop offset="100%" stop-color="#3d6fa8"/>
+              </linearGradient>
+            </defs>
+            <circle cx="28" cy="28" r="26" fill="url(#logoGlow)" stroke="#e4d5c2" stroke-width="1.5"/>
+            <circle cx="11" cy="14" r="1.2" fill="#c98a5a" opacity="0.45"/>
+            <circle cx="45" cy="13" r="1" fill="#8d3e2f" opacity="0.35"/>
+            <ellipse cx="27" cy="32" rx="12.5" ry="14.5" fill="url(#acornBody)" stroke="#9a5a22" stroke-width="0.8"/>
+            <ellipse cx="23" cy="28" rx="3.2" ry="4.5" fill="#f7c98a" opacity="0.35"/>
+            <ellipse cx="27" cy="19.5" rx="14" ry="7.2" fill="url(#acornCap)" stroke="#4a2c12" stroke-width="0.7"/>
+            <path d="M14.5 18.5 Q27 24 39.5 18.5" fill="none" stroke="#3d2410" stroke-width="0.6" opacity="0.45"/>
+            <path d="M16 16.2 Q27 20.5 38 16.2" fill="none" stroke="#3d2410" stroke-width="0.45" opacity="0.3"/>
+            <path d="M27 12.8 C27 9.5 29.5 7.2 32 6.5" fill="none" stroke="#4a2c12" stroke-width="2" stroke-linecap="round"/>
+            <ellipse cx="32.3" cy="6.2" rx="2.2" ry="1.5" fill="#3d2410" transform="rotate(-25 32.3 6.2)"/>
+            <circle cx="22.5" cy="29.5" r="2.1" fill="#3a2412"/>
+            <circle cx="31.5" cy="29.5" r="2.1" fill="#3a2412"/>
+            <circle cx="23.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
+            <circle cx="32.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
+            <ellipse cx="18.8" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
+            <ellipse cx="35.2" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
+            <path d="M24 34.8 Q27 37.2 30 34.8" fill="none" stroke="#5a3218" stroke-width="1.15" stroke-linecap="round"/>
+            <circle cx="22.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
+            <circle cx="31.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
+            <path d="M26.6 29.5 H27.4" stroke="#3d3d48" stroke-width="1.2" stroke-linecap="round"/>
+            <path d="M18.4 29.2 H16.6" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
+            <path d="M35.6 29.2 H37.4" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
+            <path d="M20.2 27.6 L21.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
+            <path d="M29.2 27.6 L30.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
+            <path d="M15.5 34 C12.5 35.5 12 38.5 14 40.5" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
+            <path d="M38.5 34 C41.5 35.2 43.5 37.5 42.2 40.2" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
+            <g transform="translate(41.5 38.5) rotate(38)">
+              <rect x="-1.3" y="-9" width="2.6" height="14" rx="1.1" fill="url(#penBody)" stroke="#2f5480" stroke-width="0.4"/>
+              <rect x="-1.3" y="-11.2" width="2.6" height="2.4" rx="0.6" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.35"/>
+              <path d="M-1.1 5 L0 9.2 L1.1 5 Z" fill="#d4af37" stroke="#6e5210" stroke-width="0.35"/>
+              <line x1="0" y1="5.2" x2="0" y2="8.2" stroke="#5c450c" stroke-width="0.45"/>
+            </g>
+            <circle cx="40.2" cy="40.2" r="1.6" fill="#e8a84a" stroke="#9a5a22" stroke-width="0.4"/>
+          </svg>
+          <span class="brand-name">SuperTORY</span>
+        </div>
+        <div class="header-actions">
+          <button id="adminModeButton" class="icon-btn header-gear-btn" type="button" title="관리자 모드" aria-label="관리자 모드" aria-haspopup="dialog" aria-controls="adminModal">
+            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.08a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.72a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.62.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.23.09.5 0 .62-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+            </svg>
+          </button>
           <button
-            id="createMenuButton"
-            class="icon-btn header-plus-btn"
+            id="uiThemeToggleButton"
+            class="icon-btn header-theme-btn"
             type="button"
-            title="새 글쓰기 / 문서 가져오기 / 작품 내보내기"
-            aria-label="추가"
-            aria-haspopup="menu"
-            aria-expanded="false"
-            aria-controls="createMenuDropdown"
-          ><span class="header-plus-glyph" aria-hidden="true">+</span></button>
-          <div id="createMenuDropdown" class="create-menu-dropdown hidden" role="menu" aria-label="추가 메뉴">
-            <button type="button" role="menuitem" id="newProjectButton" data-create-action="new">
-              <span class="create-menu-icon" aria-hidden="true">
-                <!-- blank page + pen -->
-                <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                  <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M9.2 16.2l5.6-5.6 1.35 1.35-5.6 5.6H9.2v-1.35z"/>
-                </svg>
-              </span>
-              <span class="create-menu-text">
-                <strong>새 글쓰기</strong>
-                <span>새 작품을 만듭니다</span>
-              </span>
-            </button>
-            <button type="button" role="menuitem" id="importDocumentButton" data-create-action="import">
-              <span class="create-menu-icon" aria-hidden="true">
-                <!-- document with download arrow -->
-                <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                  <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 10.2v5.4M9.6 13.4L12 15.8l2.4-2.4"/>
-                </svg>
-              </span>
-              <span class="create-menu-text">
-                <strong>문서 가져오기</strong>
-                <span>원고·초고 파일을 작품으로 불러옵니다</span>
-              </span>
-            </button>
-            <button type="button" role="menuitem" id="importProofButton" data-create-action="import-proof">
-              <span class="create-menu-icon" aria-hidden="true">
-                <!-- checklist / proof document -->
-                <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                  <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 11.2l1.35 1.35L12.7 10"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 15.4l1.35 1.35L12.7 14.2"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M14.2 11.5h2.3M14.2 15.7h2.3"/>
-                </svg>
-              </span>
-              <span class="create-menu-text">
-                <strong>교정본 가져오기</strong>
-                <span>편집 교정고 · 토리가 회차 식별 후 비교합니다</span>
-              </span>
-            </button>
-            <button type="button" role="menuitem" id="exportDocumentButton" data-create-action="export">
-              <span class="create-menu-icon" aria-hidden="true">
-                <!-- document with upload / share out -->
-                <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                  <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                  <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 15.8V10.4M9.6 12.6L12 10.2l2.4 2.4"/>
-                </svg>
-              </span>
-              <span class="create-menu-text">
-                <strong>작품 내보내기</strong>
-                <span>Word·한글·텍스트 등으로 저장</span>
-              </span>
-            </button>
+            title="데이 모드"
+            aria-label="데이/다크 모드 전환"
+            aria-pressed="false"
+          >
+            <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="4" fill="currentColor"/>
+              <path fill="currentColor" d="M12 2.5a1 1 0 0 1 1 1V5a1 1 0 1 1-2 0V3.5a1 1 0 0 1 1-1zm0 14a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1zM3.5 11a1 1 0 0 0 0 2H5a1 1 0 1 0 0-2H3.5zm14 0a1 1 0 1 0 0 2H19a1 1 0 1 0 0-2h-1.5zM5.64 5.64a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 1 1-1.41 1.41L5.64 7.05a1 1 0 0 1 0-1.41zm10.25 10.25a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zM18.36 5.64a1 1 0 0 1 0 1.41l-1.06 1.06a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.11 15.89a1 1 0 0 1 0 1.41L7.05 18.36a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/>
+            </svg>
+            <svg class="theme-icon theme-icon-moon hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M20.2 14.35A8.2 8.2 0 0 1 9.65 3.8a.75.75 0 0 0-.95-.95A9.7 9.7 0 1 0 21.15 15.3a.75.75 0 0 0-.95-.95z"/>
+            </svg>
+          </button>
+          <div class="create-menu" id="createMenu">
+            <button
+              id="createMenuButton"
+              class="icon-btn header-plus-btn"
+              type="button"
+              title="새 글쓰기 / 문서 가져오기 / 작품 내보내기"
+              aria-label="추가 · 시작하기"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="createMenuDropdown"
+            ><span class="header-plus-glyph" aria-hidden="true">+</span></button>
+            <div id="createMenuDropdown" class="create-menu-dropdown hidden" role="menu" aria-label="추가 메뉴">
+              <button type="button" role="menuitem" id="newProjectButton" data-create-action="new">
+                <span class="create-menu-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M9.2 16.2l5.6-5.6 1.35 1.35-5.6 5.6H9.2v-1.35z"/>
+                  </svg>
+                </span>
+                <span class="create-menu-text">
+                  <strong>새 글쓰기</strong>
+                  <span>새 작품을 만듭니다</span>
+                </span>
+              </button>
+              <button type="button" role="menuitem" id="importDocumentButton" data-create-action="import">
+                <span class="create-menu-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 10.2v5.4M9.6 13.4L12 15.8l2.4-2.4"/>
+                  </svg>
+                </span>
+                <span class="create-menu-text">
+                  <strong>문서 가져오기</strong>
+                  <span>원고·초고 파일을 작품으로 불러옵니다</span>
+                </span>
+              </button>
+              <button type="button" role="menuitem" id="importProofButton" data-create-action="import-proof">
+                <span class="create-menu-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 11.2l1.35 1.35L12.7 10"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 15.4l1.35 1.35L12.7 14.2"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M14.2 11.5h2.3M14.2 15.7h2.3"/>
+                  </svg>
+                </span>
+                <span class="create-menu-text">
+                  <strong>교정본 가져오기</strong>
+                  <span>편집 교정고 · 토리가 회차 식별 후 비교합니다</span>
+                </span>
+              </button>
+              <button type="button" role="menuitem" id="exportDocumentButton" data-create-action="export">
+                <span class="create-menu-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 15.8V10.4M9.6 12.6L12 10.2l2.4 2.4"/>
+                  </svg>
+                </span>
+                <span class="create-menu-text">
+                  <strong>작품 내보내기</strong>
+                  <span>Word·한글·텍스트 등으로 저장</span>
+                </span>
+              </button>
+            </div>
           </div>
         </div>
-        <button id="adminModeButton" class="icon-btn header-gear-btn" type="button" title="관리자 모드" aria-label="관리자 모드" aria-haspopup="dialog" aria-controls="adminModal">
-          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-            <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.08a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.72a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.62.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.23.09.5 0 .62-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
-          </svg>
-        </button>
-        <button
-          id="uiThemeToggleButton"
-          class="icon-btn header-theme-btn"
-          type="button"
-          title="데이 모드"
-          aria-label="데이/다크 모드 전환"
-          aria-pressed="false"
-        >
-          <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-            <circle cx="12" cy="12" r="4" fill="currentColor"/>
-            <path fill="currentColor" d="M12 2.5a1 1 0 0 1 1 1V5a1 1 0 1 1-2 0V3.5a1 1 0 0 1 1-1zm0 14a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1zM3.5 11a1 1 0 0 0 0 2H5a1 1 0 1 0 0-2H3.5zm14 0a1 1 0 1 0 0 2H19a1 1 0 1 0 0-2h-1.5zM5.64 5.64a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 1 1-1.41 1.41L5.64 7.05a1 1 0 0 1 0-1.41zm10.25 10.25a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zM18.36 5.64a1 1 0 0 1 0 1.41l-1.06 1.06a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.11 15.89a1 1 0 0 1 0 1.41L7.05 18.36a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/>
-          </svg>
-          <svg class="theme-icon theme-icon-moon hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
-            <path fill="currentColor" d="M20.2 14.35A8.2 8.2 0 0 1 9.65 3.8a.75.75 0 0 0-.95-.95A9.7 9.7 0 1 0 21.15 15.3a.75.75 0 0 0-.95-.95z"/>
-          </svg>
-        </button>
       </div>
-      <label class="project-picker" title="우클릭으로 작품 순서를 바꿀 수 있어요">작품
-        <select id="projectSelect" aria-label="작품 선택" title="우클릭: 작품 순서 변경"></select>
-      </label>
-      <label class="purpose-picker" title="소설·에세이 등 작품 종류 (나중에 바꿀 수 있어요)">
-        <select id="purposeSelect" aria-label="작품 종류" disabled>
-          <option value="general_novel">일반소설</option>
-        </select>
-      </label>
-      <div class="genre-picker" id="genrePicker" title="우클릭으로 장르를 바꿀 수 있어요" data-mode="fiction">
-        <label class="genre-field" id="mainGenreField">
-          <select id="mainGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
-            <option value="">장르</option>
-          </select>
-          <button
-            type="button"
-            id="mainGenreDisplay"
-            class="genre-display"
-            aria-label="메인 장르 (우클릭으로 변경)"
-            title="우클릭: 장르 변경"
-            disabled
-          >장르</button>
-          <input
-            type="text"
-            id="mainGenreCustom"
-            class="genre-custom-input hidden"
-            maxlength="40"
-            placeholder="직접 입력"
-            aria-label="직접 입력"
-            disabled
-          >
+      <div class="app-toolbar">
+        <label class="project-picker" title="우클릭으로 작품 순서를 바꿀 수 있어요">작품
+          <select id="projectSelect" aria-label="작품 선택" title="우클릭: 작품 순서 변경"></select>
         </label>
-        <label class="genre-field" id="subGenreField">
-          <select id="subGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
-            <option value="">세부</option>
+        <label class="purpose-picker" title="소설·에세이 등 작품 종류 (나중에 바꿀 수 있어요)">
+          <select id="purposeSelect" aria-label="작품 종류" disabled>
+            <option value="general_novel">일반소설</option>
           </select>
-          <button
-            type="button"
-            id="subGenreDisplay"
-            class="genre-display"
-            aria-label="서브 장르 (우클릭으로 변경)"
-            title="우클릭: 세부 장르 변경"
-            disabled
-          >세부</button>
-          <input
-            type="text"
-            id="subGenreCustom"
-            class="genre-custom-input hidden"
-            maxlength="40"
-            placeholder="직접 입력"
-            aria-label="직접 입력"
-            disabled
-          >
         </label>
+        <div class="genre-picker" id="genrePicker" title="우클릭으로 장르를 바꿀 수 있어요" data-mode="fiction">
+          <label class="genre-field" id="mainGenreField">
+            <select id="mainGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+              <option value="">장르</option>
+            </select>
+            <button
+              type="button"
+              id="mainGenreDisplay"
+              class="genre-display"
+              aria-label="메인 장르 (우클릭으로 변경)"
+              title="우클릭: 장르 변경"
+              disabled
+            >장르</button>
+            <input
+              type="text"
+              id="mainGenreCustom"
+              class="genre-custom-input hidden"
+              maxlength="40"
+              placeholder="직접 입력"
+              aria-label="직접 입력"
+              disabled
+            >
+          </label>
+          <label class="genre-field" id="subGenreField">
+            <select id="subGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+              <option value="">세부</option>
+            </select>
+            <button
+              type="button"
+              id="subGenreDisplay"
+              class="genre-display"
+              aria-label="서브 장르 (우클릭으로 변경)"
+              title="우클릭: 세부 장르 변경"
+              disabled
+            >세부</button>
+            <input
+              type="text"
+              id="subGenreCustom"
+              class="genre-custom-input hidden"
+              maxlength="40"
+              placeholder="직접 입력"
+              aria-label="직접 입력"
+              disabled
+            >
+          </label>
+        </div>
+        <div class="header-notice-strip" id="headerNoticeStrip">
+          <section class="header-notice header-idea-notice" id="headerIdeaNotice" aria-label="아이디어 메모">
+            <div class="header-notice-head">
+              <span class="header-notice-title">메모</span>
+              <button type="button" class="header-notice-close" data-header-notice="ideas" title="메모 알림 닫기" aria-label="메모 알림 닫기">×</button>
+            </div>
+            <div class="header-notice-body header-idea-bar" id="headerIdeaBar" role="list"></div>
+          </section>
+          <section class="header-notice header-bookmark-notice" id="headerBookmarkNotice" aria-label="북마크">
+            <div class="header-notice-head">
+              <span class="header-notice-title">북마크</span>
+              <button type="button" class="header-notice-close" data-header-notice="bookmarks" title="북마크 알림 닫기" aria-label="북마크 알림 닫기">×</button>
+            </div>
+            <div id="bookmarkBar" class="header-notice-body bookmark-bar" role="toolbar" aria-label="북마크"></div>
+          </section>
+        </div>
       </div>
-      <div id="bookmarkBar" class="bookmark-bar" role="toolbar" aria-label="북마크"></div>
     </header>
 
     <main>
@@ -1585,6 +1588,7 @@
             <form id="aiForm" class="ai-panel-form">
               <label>무엇을 도와드릴까요?
                 <select id="aiMode" aria-label="AI 도움 방식">
+                  <option value="free" selected>직접 요청하기</option>
                   <option value="continue">이어서 쓰기</option>
                   <option value="rewrite">문장 다듬기</option>
                   <option value="summarize">씬 요약</option>
@@ -1595,7 +1599,6 @@
                   <option value="plottwist">반전 &amp; 개연성 검사기</option>
                   <option value="worldscan">세계관 수호자 스캔</option>
                   <option value="dupcheck">중복 체크</option>
-                  <option value="free">직접 요청하기</option>
                 </select>
               </label>
 

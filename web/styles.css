@@ -117,16 +117,32 @@ body {
 }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
-header {
+header.app-chrome {
   flex: 0 0 auto;
-  height: 44px;
+  height: auto;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 8px 0 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  padding: 0;
   border-bottom: 1px solid var(--line);
   background: var(--header-bg);
   z-index: 20;
+}
+.app-titlebar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 34px;
+  padding: 2px 8px 2px 10px;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+}
+.app-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 2px 8px 4px 10px;
 }
 .brand {
   display: flex;
@@ -137,19 +153,22 @@ header {
 }
 .brand-logo {
   flex: 0 0 auto;
-  width: 30px;
-  height: 30px;
+  width: 22px;
+  height: 22px;
   display: block;
   filter: drop-shadow(0 1px 2px #00000014);
 }
 .brand-name {
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 16px;
+  font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
   line-height: 1;
   color: var(--ink);
   white-space: nowrap;
+}
+.app-titlebar .header-actions {
+  margin-left: auto;
 }
 .icon-btn {
   flex: 0 0 auto;
@@ -342,24 +361,116 @@ header {
   opacity: 0.55;
   cursor: not-allowed;
 }
-/* Fixed colored bookmarks — flexes/scrolls so genre pickers don't crowd them out */
+/* Header notice strip: idea memos | bookmarks (half / half, dismissible) */
+.header-notice-strip {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+  margin-left: 4px;
+}
+.header-notice {
+  flex: 1 1 50%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 2px 6px 3px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+}
+.header-notice.is-dismissed {
+  display: none !important;
+}
+.header-notice-strip:has(.header-idea-notice.is-dismissed):not(:has(.header-bookmark-notice.is-dismissed)) .header-bookmark-notice,
+.header-notice-strip:has(.header-bookmark-notice.is-dismissed):not(:has(.header-idea-notice.is-dismissed)) .header-idea-notice {
+  flex-basis: 100%;
+}
+.header-notice-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 16px;
+}
+.header-notice-title {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+  line-height: 1;
+}
+.header-notice-close {
+  margin-left: auto;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.header-notice-close:hover {
+  background: var(--surface-3);
+  color: var(--ink);
+}
+.header-notice-body {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 24px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+}
+.header-idea-bar .header-idea-chip {
+  flex: 0 0 auto;
+  max-width: 120px;
+  padding: 3px 7px;
+  border: 1px solid #00000018;
+  border-radius: 5px;
+  font-size: 11px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--ink);
+  background: #fff8c8;
+  box-shadow: 0 1px 1px #00000012;
+}
+.header-idea-bar .header-idea-chip.color-yellow { background: #fff3a8; }
+.header-idea-bar .header-idea-chip.color-pink { background: #ffd6e4; }
+.header-idea-bar .header-idea-chip.color-blue { background: #d6e8ff; }
+.header-idea-bar .header-idea-chip.color-green { background: #d8f0d0; }
+.header-idea-bar .header-idea-chip.color-purple { background: #e8d8ff; }
+.header-idea-bar .header-idea-empty {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}
 .bookmark-bar {
   display: flex;
   align-items: center;
   gap: 5px;
   flex: 1 1 auto;
-  min-width: 48px;
-  max-width: min(360px, 28vw);
+  min-width: 0;
+  max-width: none;
   overflow-x: auto;
   overflow-y: hidden;
-  padding: 2px 4px;
+  padding: 0;
   scrollbar-width: thin;
 }
-.bookmark-bar:empty {
-  display: none;
-  min-width: 0;
-  max-width: 0;
-  padding: 0;
+.bookmark-bar:empty::before {
+  content: "북마크가 없어요";
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
 }
 .bookmark-chip {
   flex: 0 0 auto;
@@ -467,8 +578,8 @@ body[data-ui-theme="dark"] .header-theme-btn {
 .create-menu-dropdown {
   position: absolute;
   top: calc(100% + 6px);
-  left: 0;
-  right: auto;
+  left: auto;
+  right: 0;
   z-index: 45;
   min-width: 220px;
   padding: 6px;
@@ -10070,15 +10181,15 @@ body[data-ui-theme="dark"] .proof-diff-card {
   body.binder-panel-collapsed main { grid-template-columns: minmax(0, 1fr) var(--ai-panel-width); }
   body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: minmax(0, 1fr); }
   header { padding: 0 8px; gap: 6px; }
-  .brand-name { font-size: 14px; }
-  .brand-logo { width: 26px; height: 26px; }
+  .brand-name { font-size: 12px; }
+  .brand-logo { width: 20px; height: 20px; }
   .project-picker select { min-width: 90px; max-width: 140px; }
   .purpose-picker-label { display: none; }
   .purpose-picker select { min-width: 64px; max-width: 88px; font-size: 11px; }
   .genre-field-label { display: none; } /* save horizontal space */
   .genre-display { min-width: 64px; max-width: 88px; font-size: 11px; }
   .genre-custom-input { width: 72px; max-width: 88px; font-size: 11px; }
-  .bookmark-bar { max-width: min(220px, 22vw); }
+  .header-notice-strip { min-width: 120px; }
   .scene-workspace.split-active {
     flex-direction: column;
   }
