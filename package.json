@@ -1,0 +1,75 @@
+{
+  "name": "supertory",
+  "version": "1.0.0",
+  "description": "SuperTory — local-only Korean writing app (Scrivener-like)",
+  "main": "electron/main.js",
+  "author": "SuperTory",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build:backend": "python scripts/build_backend.py",
+    "build:win": "npm run build:backend && electron-builder --win nsis"
+  },
+  "dependencies": {
+    "electron-updater": "^6.6.2"
+  },
+  "devDependencies": {
+    "electron": "^37.2.0",
+    "electron-builder": "^26.0.12"
+  },
+  "build": {
+    "appId": "com.supertory.app",
+    "productName": "SuperTory",
+    "copyright": "Copyright © SuperTory",
+    "directories": {
+      "output": "dist",
+      "buildResources": "assets"
+    },
+    "files": [
+      "electron/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "backend-dist/supertory-server",
+        "to": "supertory-server"
+      },
+      {
+        "from": "update-feed.json",
+        "to": "update-feed.json"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "assets/icon.ico",
+      "artifactName": "${productName}-Setup-${version}.${ext}"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "SuperTory",
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "installerHeaderIcon": "assets/icon.ico"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "cultnoni",
+        "repo": "supertory",
+        "releaseType": "release"
+      }
+    ]
+  }
+}

@@ -1,0 +1,7 @@
+# Optional parsers for 교정고 pipeline (HWP / DOCX with comments)
+# Install:  python -m pip install -r requirements-proof.txt
+python-docx>=1.1.0
+olefile>=0.46
+six>=1.16.0
+# pyhwp is published as pre-release
+pyhwp>=0.1b15

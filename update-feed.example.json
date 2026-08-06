@@ -1,0 +1,6 @@
+{
+  "provider": "github",
+  "owner": "CHANGE_ME_OWNER",
+  "repo": "CHANGE_ME_REPO",
+  "releaseType": "release"
+}

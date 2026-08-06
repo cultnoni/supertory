@@ -1,0 +1,6026 @@
+"""SuperTory: a small local writing app with no installation step.
+
+Double-click start_supertory.bat on Windows.  The app opens in a browser, but
+all writing stays in the local data/supertory.sqlite3 file.
+
+Each work also gets a Scrivener-style external file under projects/이름.stg.
+Double-click that file to open SuperTory focused on that work.
+"""
+
+from __future__ import annotations
+
+import base64
+import binascii
+import html as html_lib
+import json
+import os
+import re
+import socket
+import sqlite3
+import subprocess
+import sys
+import time
+import uuid
+import webbrowser
+from contextlib import contextmanager
+from http import HTTPStatus
+from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from pathlib import Path
+from threading import Timer
+from urllib.parse import parse_qs, quote, urlparse
+
+import chapter_match
+import document_export
+import document_import
+import env_loader
+import gemini_client
+import korean_speller
+import project_package
+import proof_clean
+import proof_diff
+import proof_extract
+import proof_pipeline
+
+def _is_frozen() -> bool:
+    """True when running as a PyInstaller (or similar) bundle."""
+    return bool(getattr(sys, "frozen", False))
+
+
+def _resolve_root() -> Path:
+    """App root: source tree, or PyInstaller extract dir (web/ + db/)."""
+    if _is_frozen():
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            return Path(meipass)
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def _load_dotenv_files() -> None:
+    """Load .env (source / frozen paths) then apply build-time key defaults."""
+    env_loader.load_all_dotenv()
+
+
+# Load .env / bundled defaults as early as possible so GEMINI_API_KEY is available.
+# (gemini_client also calls load_all_dotenv on import; this covers direct app paths.)
+_load_dotenv_files()
+
+
+ROOT = _resolve_root()
+SCHEMA_PATH = ROOT / "db" / "001_initial_schema.sql"
+MIGRATION_002_PATH = ROOT / "db" / "002_project_purpose.sql"
+MIGRATION_003_PATH = ROOT / "db" / "003_project_package.sql"
+MIGRATION_004_PATH = ROOT / "db" / "004_scene_illustration.sql"
+MIGRATION_005_PATH = ROOT / "db" / "005_scene_reference_links.sql"
+MIGRATION_006_PATH = ROOT / "db" / "006_scene_goal_metric.sql"
+MIGRATION_007_PATH = ROOT / "db" / "007_idea_bank.sql"
+MIGRATION_008_PATH = ROOT / "db" / "008_project_worldbuilding.sql"
+MIGRATION_009_PATH = ROOT / "db" / "009_project_logline.sql"
+MIGRATION_010_PATH = ROOT / "db" / "010_project_genre.sql"
+MIGRATION_011_PATH = ROOT / "db" / "011_project_intro_intent.sql"
+MIGRATION_012_PATH = ROOT / "db" / "012_project_keywords.sql"
+MIGRATION_013_PATH = ROOT / "db" / "013_writing_log.sql"
+MIGRATION_014_PATH = ROOT / "db" / "014_writing_first_met.sql"
+MIGRATION_015_PATH = ROOT / "db" / "015_character_strengths_weaknesses.sql"
+MIGRATION_016_PATH = ROOT / "db" / "016_scene_parent.sql"
+MIGRATION_017_PATH = ROOT / "db" / "017_project_list_order.sql"
+WEB_ROOT = ROOT / "web"
+GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
+IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
+# Electron (and other shells) may point data/projects at a writable user dir.
+# Prefer SUPERTORY_*; accept legacy STORYGUIDE_* env vars from older Electron shells.
+_DATA_DIR_ENV = (
+    os.environ.get("SUPERTORY_DATA_DIR") or os.environ.get("STORYGUIDE_DATA_DIR") or ""
+).strip()
+if _DATA_DIR_ENV:
+    DATA_DIR = Path(_DATA_DIR_ENV).expanduser()
+elif _is_frozen():
+    # Never write into the read-only PyInstaller bundle (_MEIPASS).
+    DATA_DIR = Path(sys.executable).resolve().parent / "data"
+else:
+    DATA_DIR = ROOT / "data"
+DATABASE_PATH = DATA_DIR / "supertory.sqlite3"
+_PROJECTS_DIR_ENV = (
+    os.environ.get("SUPERTORY_PROJECTS_DIR") or os.environ.get("STORYGUIDE_PROJECTS_DIR") or ""
+).strip()
+HOST = "127.0.0.1"
+PORT = 8765
+# When launched from Electron, skip opening a system browser tab.
+ELECTRON_MODE = (
+    os.environ.get("SUPERTORY_ELECTRON") or os.environ.get("STORYGUIDE_ELECTRON") or ""
+).strip() in {"1", "true", "yes"}
+NO_BROWSER = ELECTRON_MODE or (
+    os.environ.get("SUPERTORY_NO_BROWSER") or os.environ.get("STORYGUIDE_NO_BROWSER") or ""
+).strip() in {
+    "1",
+    "true",
+    "yes",
+}
+MAX_ILLUSTRATION_BYTES = 12 * 1024 * 1024
+ALLOWED_IMAGE_TYPES = {
+    "image/jpeg": ".jpg",
+    "image/jpg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "image/gif": ".gif",
+}
+
+
+def connect() -> sqlite3.Connection:
+    connection = sqlite3.connect(DATABASE_PATH)
+    connection.row_factory = sqlite3.Row
+    connection.execute("PRAGMA foreign_keys = ON")
+    connection.execute("PRAGMA journal_mode = WAL")
+    return connection
+
+
+@contextmanager
+def database() -> sqlite3.Connection:
+    """Commit successful requests and always close the Windows file handle."""
+    connection = connect()
+    try:
+        yield connection
+        connection.commit()
+    except Exception:
+        connection.rollback()
+        raise
+    finally:
+        connection.close()
+
+
+def projects_root() -> Path:
+    """External .stg files live next to the data folder (or under the app root)."""
+    if _PROJECTS_DIR_ENV:
+        return Path(_PROJECTS_DIR_ENV).expanduser()
+    # Prefer a sibling of data/ so tests that swap DATA_DIR stay isolated.
+    return project_package.projects_dir(DATA_DIR.parent if DATA_DIR.name == "data" else ROOT)
+
+
+def default_export_dir() -> Path:
+    """Default folder for manuscript exports on this PC."""
+    docs = Path.home() / "Documents"
+    if not docs.is_dir():
+        docs = Path.home()
+    return docs / "SuperTORY 내보내기"
+
+
+def export_prefs_path() -> Path:
+    return DATA_DIR / "export_prefs.json"
+
+
+def load_export_prefs() -> dict:
+    path = export_prefs_path()
+    prefs: dict = {
+        "export_dir": str(default_export_dir()),
+        "save_to_folder": True,
+        "reveal_after_save": True,
+    }
+    if path.is_file():
+        try:
+            raw = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(raw, dict):
+                if raw.get("export_dir"):
+                    prefs["export_dir"] = str(raw["export_dir"])
+                if "save_to_folder" in raw:
+                    prefs["save_to_folder"] = bool(raw["save_to_folder"])
+                if "reveal_after_save" in raw:
+                    prefs["reveal_after_save"] = bool(raw["reveal_after_save"])
+        except (OSError, json.JSONDecodeError, TypeError, ValueError):
+            pass
+    return prefs
+
+
+def save_export_prefs(prefs: dict) -> dict:
+    DATA_DIR.mkdir(exist_ok=True)
+    cleaned = {
+        "export_dir": str(prefs.get("export_dir") or default_export_dir()),
+        "save_to_folder": bool(prefs.get("save_to_folder", True)),
+        "reveal_after_save": bool(prefs.get("reveal_after_save", True)),
+    }
+    export_prefs_path().write_text(
+        json.dumps(cleaned, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    return cleaned
+
+
+def resolve_export_dir(raw: str | None = None, *, create: bool = True) -> Path:
+    """
+    Resolve and validate an export directory on this machine.
+    Allowed roots: user home, Documents, Desktop, Downloads, app data/projects.
+    """
+    prefs = load_export_prefs()
+    text = str(raw if raw is not None else prefs.get("export_dir") or "").strip()
+    if not text:
+        path = default_export_dir()
+    else:
+        path = Path(text).expanduser()
+    try:
+        path = path.resolve()
+    except OSError as error:
+        raise ValueError(f"폴더 경로를 해석할 수 없습니다: {error}") from error
+
+    home = Path.home().resolve()
+    allowed_roots = [
+        home,
+        home / "Documents",
+        home / "Desktop",
+        home / "Downloads",
+        home / "OneDrive",
+        home / "OneDrive" / "Documents",
+        DATA_DIR.resolve(),
+        projects_root().resolve(),
+        ROOT.resolve(),
+    ]
+    # Also allow any existing path under home
+    under_home = False
+    try:
+        path.relative_to(home)
+        under_home = True
+    except ValueError:
+        under_home = False
+    if not under_home:
+        ok = False
+        for root in allowed_roots:
+            try:
+                if root.exists():
+                    path.relative_to(root)
+                    ok = True
+                    break
+            except ValueError:
+                continue
+        if not ok:
+            raise ValueError(
+                "저장 폴더는 사용자 폴더(내 문서·바탕화면 등) 아래로만 지정할 수 있어요."
+            )
+
+    if create:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as error:
+            raise ValueError(f"폴더를 만들 수 없습니다: {error}") from error
+    if path.exists() and not path.is_dir():
+        raise ValueError("지정한 경로는 폴더가 아닙니다.")
+    return path
+
+
+def safe_export_filename(name: str) -> str:
+    base = str(name or "export").strip() or "export"
+    base = re.sub(r'[<>:"/\\|?*\x00-\x1f]', "_", base)
+    base = base.strip(" .") or "export"
+    return base[:180]
+
+
+def write_export_file(
+    data: bytes,
+    filename: str,
+    *,
+    directory: str | None = None,
+    reveal: bool | None = None,
+) -> dict:
+    """Write export bytes to the configured (or given) folder on this PC."""
+    prefs = load_export_prefs()
+    folder = resolve_export_dir(directory, create=True)
+    name = safe_export_filename(filename)
+    target = folder / name
+    # Avoid overwrite: add (2), (3)...
+    if target.exists():
+        stem = target.stem
+        suffix = target.suffix
+        n = 2
+        while True:
+            candidate = folder / f"{stem} ({n}){suffix}"
+            if not candidate.exists():
+                target = candidate
+                break
+            n += 1
+            if n > 999:
+                raise ValueError("같은 이름 파일이 너무 많아 저장하지 못했어요.")
+    try:
+        target.write_bytes(data)
+    except OSError as error:
+        raise ValueError(f"파일 저장에 실패했습니다: {error}") from error
+    do_reveal = prefs.get("reveal_after_save", True) if reveal is None else bool(reveal)
+    if do_reveal:
+        try:
+            reveal_in_explorer(target)
+        except Exception:
+            pass
+    return {
+        "path": str(target),
+        "folder": str(folder),
+        "filename": target.name,
+        "bytes": len(data),
+        "revealed": bool(do_reveal),
+    }
+
+
+def _migrate_legacy_database_file() -> None:
+    """Rename storyguide.sqlite3 → supertory.sqlite3 when only the old name exists."""
+    new_path = Path(DATABASE_PATH)
+    if new_path.is_file():
+        return
+    legacy = new_path.with_name("storyguide.sqlite3")
+    if not legacy.is_file():
+        return
+    try:
+        legacy.rename(new_path)
+        for suffix in ("-wal", "-shm"):
+            old_side = Path(str(legacy) + suffix)
+            new_side = Path(str(new_path) + suffix)
+            if old_side.is_file() and not new_side.exists():
+                old_side.rename(new_side)
+        print(f"데이터베이스 파일 이름 변경: {legacy.name} → {new_path.name}")
+    except OSError as error:
+        print(f"레거시 DB 이름 변경 실패 ({legacy} → {new_path}): {error}")
+
+
+def initialise_database() -> None:
+    DATA_DIR.mkdir(exist_ok=True)
+    (DATA_DIR / "illustrations").mkdir(exist_ok=True)
+    projects_root()
+    _migrate_legacy_database_file()
+    with database() as connection:
+        migration_table = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migration'"
+        ).fetchone()
+        if migration_table is None:
+            connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        applied = {
+            row[0]
+            for row in connection.execute("SELECT version FROM schema_migration").fetchall()
+        }
+        if 1 not in applied:
+            raise RuntimeError("지원하지 않는 SuperTory 데이터베이스 버전입니다.")
+        if 2 not in applied:
+            connection.executescript(MIGRATION_002_PATH.read_text(encoding="utf-8"))
+        if 3 not in applied:
+            connection.executescript(MIGRATION_003_PATH.read_text(encoding="utf-8"))
+        if 4 not in applied:
+            connection.executescript(MIGRATION_004_PATH.read_text(encoding="utf-8"))
+        if 5 not in applied:
+            connection.executescript(MIGRATION_005_PATH.read_text(encoding="utf-8"))
+        if 6 not in applied:
+            connection.executescript(MIGRATION_006_PATH.read_text(encoding="utf-8"))
+        if 7 not in applied:
+            connection.executescript(MIGRATION_007_PATH.read_text(encoding="utf-8"))
+        if 8 not in applied:
+            connection.executescript(MIGRATION_008_PATH.read_text(encoding="utf-8"))
+        if 9 not in applied:
+            connection.executescript(MIGRATION_009_PATH.read_text(encoding="utf-8"))
+        if 10 not in applied:
+            connection.executescript(MIGRATION_010_PATH.read_text(encoding="utf-8"))
+        if 11 not in applied:
+            connection.executescript(MIGRATION_011_PATH.read_text(encoding="utf-8"))
+        if 12 not in applied:
+            connection.executescript(MIGRATION_012_PATH.read_text(encoding="utf-8"))
+        if 13 not in applied:
+            connection.executescript(MIGRATION_013_PATH.read_text(encoding="utf-8"))
+        if 14 not in applied:
+            connection.executescript(MIGRATION_014_PATH.read_text(encoding="utf-8"))
+        if 15 not in applied:
+            connection.executescript(MIGRATION_015_PATH.read_text(encoding="utf-8"))
+        if 16 not in applied:
+            connection.executescript(MIGRATION_016_PATH.read_text(encoding="utf-8"))
+        if 17 not in applied:
+            connection.executescript(MIGRATION_017_PATH.read_text(encoding="utf-8"))
+        ensure_writing_first_met_day(connection)
+        ensure_all_project_packages(connection)
+
+
+def illustration_dir_for(project_id: int) -> Path:
+    path = DATA_DIR / "illustrations" / str(project_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def _iso_now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+
+
+def _day_key_valid(value: object) -> str:
+    day = str(value or "").strip()
+    if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day):
+        raise ValueError("날짜 형식이 올바르지 않습니다. (YYYY-MM-DD)")
+    return day
+
+
+def ensure_writing_first_met_day(connection: sqlite3.Connection) -> str:
+    """Stamp the local install / first-meet day once (토리와 처음 만난 날)."""
+    connection.execute("INSERT OR IGNORE INTO writing_prefs(id) VALUES (1)")
+    # Column may be missing on very old connections mid-migration; safe after 014.
+    try:
+        row = connection.execute(
+            "SELECT first_met_day FROM writing_prefs WHERE id = 1"
+        ).fetchone()
+    except sqlite3.OperationalError:
+        return ""
+    current = str((row["first_met_day"] if row else "") or "").strip()
+    if current and re.fullmatch(r"\d{4}-\d{2}-\d{2}", current):
+        return current
+    # Prefer earliest project creation day (local), else today UTC date as fallback.
+    first_met = ""
+    try:
+        proj = connection.execute(
+            "SELECT MIN(created_at) AS c FROM project WHERE deleted_at IS NULL"
+        ).fetchone()
+        raw = (proj["c"] if proj else None) or ""
+        if raw:
+            # created_at is ISO UTC-ish; use calendar date portion
+            first_met = str(raw)[:10]
+    except sqlite3.Error:
+        first_met = ""
+    if not first_met or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", first_met):
+        first_met = time.strftime("%Y-%m-%d", time.localtime())
+    connection.execute(
+        "UPDATE writing_prefs SET first_met_day = ?, "
+        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
+        (first_met,),
+    )
+    return first_met
+
+
+def writing_prefs_row(connection: sqlite3.Connection) -> dict:
+    connection.execute("INSERT OR IGNORE INTO writing_prefs(id) VALUES (1)")
+    first_met = ensure_writing_first_met_day(connection)
+    row = connection.execute("SELECT * FROM writing_prefs WHERE id = 1").fetchone()
+    data = as_dict(row) or {}
+    mode = str(data.get("project_list_mode") or "recent").strip().lower()
+    if mode not in {"recent", "manual"}:
+        mode = "recent"
+    return {
+        "goal_chars": int(data.get("goal_chars") or 2000),
+        "goal_notify": bool(int(data.get("goal_notify") or 0)),
+        "lonely_days": int(data.get("lonely_days") or 3),
+        "lonely_notify": bool(int(data.get("lonely_notify") or 0)),
+        "idle_minutes": int(data.get("idle_minutes") or 30),
+        "last_goal_notified_day": str(data.get("last_goal_notified_day") or ""),
+        "last_lonely_notified_day": str(data.get("last_lonely_notified_day") or ""),
+        "first_met_day": str(data.get("first_met_day") or first_met or ""),
+        "project_list_mode": mode,
+    }
+
+
+def project_list_mode(connection: sqlite3.Connection) -> str:
+    prefs = writing_prefs_row(connection)
+    mode = str(prefs.get("project_list_mode") or "recent").strip().lower()
+    return mode if mode in {"recent", "manual"} else "recent"
+
+
+def set_project_list_mode(connection: sqlite3.Connection, mode: str) -> str:
+    normalised = str(mode or "recent").strip().lower()
+    if normalised not in {"recent", "manual"}:
+        raise ValueError("작품 목록 정렬 방식이 올바르지 않습니다.")
+    connection.execute("INSERT OR IGNORE INTO writing_prefs(id) VALUES (1)")
+    connection.execute(
+        "UPDATE writing_prefs SET project_list_mode = ?, "
+        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
+        (normalised,),
+    )
+    return normalised
+
+
+def touch_project_opened(connection: sqlite3.Connection, project_id: int) -> str:
+    """Stamp last_opened_at so recent-first list ordering stays current."""
+    connection.execute(
+        "UPDATE project SET last_opened_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+        "WHERE id = ? AND deleted_at IS NULL",
+        (project_id,),
+    )
+    row = connection.execute(
+        "SELECT last_opened_at FROM project WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    return str((row["last_opened_at"] if row else "") or "")
+
+
+def project_list_order_sql(mode: str) -> str:
+    if mode == "manual":
+        return "ORDER BY list_sort_order ASC, id ASC"
+    # Default: most recently opened first; never-opened fall back to created_at.
+    return (
+        "ORDER BY COALESCE(last_opened_at, created_at) DESC, id DESC"
+    )
+
+
+def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
+    item = as_dict(row)
+    item["synopsis_md"] = item.get("description_md") or ""
+    item["logline_md"] = item.get("logline_md") or ""
+    item["intro_md"] = item.get("intro_md") or ""
+    item["intent_md"] = item.get("intent_md") or ""
+    item["main_genre"] = item.get("main_genre") or ""
+    item["sub_genre"] = item.get("sub_genre") or ""
+    item["keywords"] = parse_project_keywords(item.get("keywords"))
+    item["last_opened_at"] = item.get("last_opened_at") or None
+    try:
+        item["list_sort_order"] = int(item.get("list_sort_order") or 0)
+    except (TypeError, ValueError):
+        item["list_sort_order"] = 0
+    return item
+
+
+def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
+    mode = project_list_mode(connection)
+    rows = connection.execute(
+        "SELECT id, title, description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+        "default_language, goal_word_count, "
+        "purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+        "last_opened_at, list_sort_order, created_at, updated_at "
+        f"FROM project WHERE deleted_at IS NULL {project_list_order_sql(mode)}"
+    ).fetchall()
+    payload = [serialize_project_list_row(row) for row in rows]
+    for item in payload:
+        item["list_mode"] = mode
+    return payload
+
+
+def writing_day_payload(row: sqlite3.Row | dict | None) -> dict | None:
+    if not row:
+        return None
+    data = dict(row) if not isinstance(row, dict) else row
+    breakdown = {}
+    raw = data.get("breakdown_json") or "{}"
+    try:
+        parsed = json.loads(raw) if isinstance(raw, str) else raw
+        if isinstance(parsed, dict):
+            breakdown = {
+                str(k): max(0, int(v or 0))
+                for k, v in parsed.items()
+            }
+    except (TypeError, ValueError, json.JSONDecodeError):
+        breakdown = {}
+    return {
+        "day": data.get("day_key") or data.get("day") or "",
+        "chars_added": int(data.get("chars_added") or 0),
+        "active_seconds": int(data.get("active_seconds") or 0),
+        "session_count": int(data.get("session_count") or 0),
+        "first_start_at": data.get("first_start_at") or None,
+        "last_active_at": data.get("last_active_at") or None,
+        "breakdown": breakdown,
+    }
+
+
+def parse_project_keywords(raw: object) -> list[str]:
+    """Normalise project keyword tags to a unique ordered list of short labels."""
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        text = raw.strip()
+        if not text:
+            return []
+        try:
+            parsed = json.loads(text)
+            if isinstance(parsed, list):
+                raw = parsed
+            else:
+                # Plain comma / newline separated text
+                raw = re.split(r"[,，/\n|]+", text)
+        except json.JSONDecodeError:
+            raw = re.split(r"[,，/\n|]+", text)
+    if not isinstance(raw, (list, tuple)):
+        raise ValueError("키워드 형식이 올바르지 않습니다.")
+    cleaned: list[str] = []
+    seen: set[str] = set()
+    for item in raw:
+        label = str(item or "").strip()[:40]
+        if not label or label in seen:
+            continue
+        seen.add(label)
+        cleaned.append(label)
+        if len(cleaned) >= 40:
+            break
+    return cleaned
+
+
+def parse_overlays(raw: object) -> list[dict]:
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ValueError("삽화 위 글 정보가 올바르지 않습니다.") from error
+    if not isinstance(raw, list):
+        raise ValueError("삽화 위 글 정보가 올바르지 않습니다.")
+    cleaned: list[dict] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        overlay_id = str(item.get("id") or f"ov-{index + 1}")[:64]
+        text = str(item.get("text", ""))[:4000]
+        try:
+            x = max(0.0, min(95.0, float(item.get("x", 10))))
+            y = max(0.0, min(95.0, float(item.get("y", 10))))
+            width = max(10.0, min(100.0, float(item.get("width", 40))))
+            font_size = max(10, min(72, int(item.get("fontSize", 18) or 18)))
+        except (TypeError, ValueError) as error:
+            raise ValueError("삽화 위 글 위치 정보가 올바르지 않습니다.") from error
+        color = str(item.get("color", "#24211d"))[:32]
+        if not re.fullmatch(r"#[0-9A-Fa-f]{3,8}|[a-zA-Z]+", color):
+            color = "#24211d"
+        align = str(item.get("align", "left"))
+        if align not in {"left", "center", "right"}:
+            align = "left"
+        cleaned.append({
+            "id": overlay_id,
+            "text": text,
+            "x": round(x, 2),
+            "y": round(y, 2),
+            "width": round(width, 2),
+            "fontSize": font_size,
+            "color": color,
+            "align": align,
+        })
+    return cleaned[:40]
+
+
+def parse_reference_links(raw: object) -> list[dict]:
+    """Normalise scene reference materials: links and file refs.
+
+    Link:  {id, kind:'link', title, url}
+    File:  {id, kind:'file', title, sourceId, fileName, fileExt, viewer, url?}
+    """
+    if raw is None or raw == "":
+        return []
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except json.JSONDecodeError as error:
+            raise ValueError("참고 자료 정보가 올바르지 않습니다.") from error
+    if not isinstance(raw, list):
+        raise ValueError("참고 자료 정보가 올바르지 않습니다.")
+    cleaned: list[dict] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        kind = str(item.get("kind") or "link").strip().lower()
+        if kind not in {"link", "file"}:
+            kind = "file" if (item.get("fileName") or item.get("sourceId") or item.get("source_id")) else "link"
+        link_id = str(item.get("id") or f"ref-{index + 1}")[:64]
+
+        if kind == "file":
+            title = str(item.get("title", "")).strip()[:200]
+            file_name = str(item.get("fileName") or item.get("file_name") or "").strip()[:260]
+            source_id = str(item.get("sourceId") or item.get("source_id") or "").strip()[:80]
+            file_ext = str(item.get("fileExt") or item.get("file_ext") or "").strip()[:20]
+            viewer = str(item.get("viewer") or "").strip()[:20]
+            if not title and not file_name and not source_id:
+                continue
+            if not title:
+                title = (file_name or "파일")[:80]
+            entry: dict = {
+                "id": link_id,
+                "kind": "file",
+                "title": title,
+                "url": "",
+                "sourceId": source_id,
+                "fileName": file_name,
+            }
+            if file_ext:
+                entry["fileExt"] = file_ext
+            if viewer in {"pdf", "text"}:
+                entry["viewer"] = viewer
+            # Optional external url kept if present
+            raw_url = str(item.get("url", "")).strip()
+            if raw_url and re.match(r"^https?://", raw_url, re.IGNORECASE):
+                entry["url"] = raw_url[:2000]
+            cleaned.append(entry)
+            continue
+
+        url = str(item.get("url", "")).strip()
+        if not url:
+            continue
+        # Allow bare domains by prefixing https://
+        if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.-]*:", url):
+            url = "https://" + url
+        if not re.match(r"^https?://", url, re.IGNORECASE):
+            raise ValueError("참고 링크는 http 또는 https 주소만 넣을 수 있어요.")
+        if len(url) > 2000:
+            raise ValueError("참고 링크 주소가 너무 깁니다.")
+        title = str(item.get("title", "")).strip()[:200]
+        if not title:
+            # Fallback label from host/path
+            title = re.sub(r"^https?://(www\.)?", "", url, flags=re.IGNORECASE).split("/")[0] or "링크"
+            title = title[:80]
+        entry = {"id": link_id, "kind": "link", "title": title, "url": url}
+        source_id = str(item.get("sourceId") or item.get("source_id") or "").strip()[:80]
+        if source_id:
+            entry["sourceId"] = source_id
+        cleaned.append(entry)
+    return cleaned[:40]
+
+
+def illustration_public(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    data["overlays"] = parse_overlays(data.pop("overlays_json", "[]"))
+    data["image_url"] = f"/api/illustrations/{data['id']}/image"
+    return data
+
+
+def as_dict(row: sqlite3.Row | None) -> dict | None:
+    return dict(row) if row is not None else None
+
+
+def plain_text_from_content(content: str) -> str:
+    """Strip simple HTML so word counts ignore tags from the rich editor."""
+    text = content or ""
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+    text = re.sub(r"(?i)<br\s*/?>", "\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n", text)
+    text = re.sub(r"(?i)</div\s*>", "\n", text)
+    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = html_lib.unescape(text)
+    text = re.sub(r"[ \t]+\n", "\n", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text.strip()
+
+
+def word_count(markdown: str) -> int:
+    """Count whitespace-separated tokens; HTML tags are ignored."""
+    return len(re.findall(r"\S+", plain_text_from_content(markdown)))
+
+
+def ensure_project_package(connection: sqlite3.Connection, project_id: int) -> dict:
+    """Create/refresh the external .stg file for a project; return path fields."""
+    row = connection.execute(
+        "SELECT id, title, purpose, uuid, package_path FROM project "
+        "WHERE id = ? AND deleted_at IS NULL",
+        (project_id,),
+    ).fetchone()
+    if row is None:
+        raise ValueError("작품을 찾을 수 없습니다.")
+    project_uuid = row["uuid"] or project_package.new_project_uuid()
+    purpose = row["purpose"] if "purpose" in row.keys() else "general_novel"
+    package = project_package.create_or_update_package(
+        projects_root().parent,
+        project_uuid=project_uuid,
+        title=row["title"],
+        purpose=purpose or "general_novel",
+        project_id=project_id,
+        existing_path=row["package_path"],
+    )
+    connection.execute(
+        "UPDATE project SET uuid = ?, package_path = ? WHERE id = ?",
+        (project_uuid, str(package), project_id),
+    )
+    return {
+        "uuid": project_uuid,
+        "package_path": str(package),
+        "package_name": package.name,
+    }
+
+
+def ensure_all_project_packages(connection: sqlite3.Connection) -> None:
+    rows = connection.execute(
+        "SELECT id FROM project WHERE deleted_at IS NULL ORDER BY id"
+    ).fetchall()
+    for row in rows:
+        ensure_project_package(connection, row["id"])
+
+
+def resolve_package_file(path: Path) -> int:
+    """Return project id for a .stg package path."""
+    data = project_package.read_package(path)
+    project_uuid = str(data["uuid"])
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, package_path FROM project WHERE uuid = ? AND deleted_at IS NULL",
+            (project_uuid,),
+        ).fetchone()
+        if row is None and data.get("project_id") is not None:
+            row = connection.execute(
+                "SELECT id, package_path FROM project WHERE id = ? AND deleted_at IS NULL",
+                (int(data["project_id"]),),
+            ).fetchone()
+        if row is None:
+            raise ValueError(
+                "이 .stg 파일에 해당하는 작품을 찾지 못했습니다. "
+                "SuperTory 데이터 폴더가 그대로인지 확인해 주세요."
+            )
+        # Keep package_path in sync if the user moved/renamed the file.
+        resolved = str(path.resolve())
+        if row["package_path"] != resolved:
+            connection.execute(
+                "UPDATE project SET package_path = ? WHERE id = ?",
+                (resolved, row["id"]),
+            )
+            # Refresh manifest contents at the new location.
+            project = connection.execute(
+                "SELECT id, title, purpose, uuid FROM project WHERE id = ?",
+                (row["id"],),
+            ).fetchone()
+            project_package.write_package(
+                path.resolve(),
+                project_uuid=project["uuid"],
+                title=project["title"],
+                purpose=project["purpose"] or "general_novel",
+                project_id=project["id"],
+            )
+        return int(row["id"])
+
+
+def port_is_open(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.35)
+        return sock.connect_ex((host, port)) == 0
+
+
+def listening_pids(port: int) -> list[int]:
+    """Return PIDs listening on TCP port (Windows netstat)."""
+    if sys.platform != "win32":
+        return []
+    try:
+        completed = subprocess.run(
+            ["netstat", "-ano", "-p", "TCP"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return []
+    pids: list[int] = []
+    needle = f":{port}"
+    for line in completed.stdout.splitlines():
+        if "LISTENING" not in line.upper():
+            continue
+        if needle not in line:
+            continue
+        # Typical: TCP    127.0.0.1:8765    0.0.0.0:0    LISTENING    1234
+        parts = line.split()
+        if len(parts) < 5:
+            continue
+        local = parts[1] if len(parts) >= 2 else ""
+        if not local.endswith(needle):
+            continue
+        try:
+            pid = int(parts[-1])
+        except ValueError:
+            continue
+        if pid > 0 and pid not in pids:
+            pids.append(pid)
+    return pids
+
+
+def stop_server_on_port(port: int) -> bool:
+    """Stop an already-running SuperTORY instance so restarts load new code."""
+    pids = listening_pids(port)
+    if not pids:
+        return False
+    stopped = False
+    for pid in pids:
+        if pid == os.getpid():
+            continue
+        try:
+            if sys.platform == "win32":
+                subprocess.run(
+                    ["taskkill", "/PID", str(pid), "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                os.kill(pid, 15)
+            stopped = True
+            print(f"이전 SuperTORY 서버(PID {pid})를 종료하고 새 버전으로 다시 시작합니다.")
+        except OSError as error:
+            print(f"이전 서버(PID {pid})를 종료하지 못했습니다: {error}")
+    # Brief wait so the port is released.
+    if stopped:
+        for _ in range(20):
+            if not port_is_open(HOST, port):
+                break
+            time.sleep(0.1)
+    return stopped
+
+
+def reveal_in_explorer(path: Path) -> None:
+    path = Path(path)
+    if sys.platform != "win32":
+        return
+    if path.is_file():
+        subprocess.Popen(["explorer", "/select,", str(path.resolve())])  # noqa: S603
+    elif path.is_dir():
+        subprocess.Popen(["explorer", str(path.resolve())])  # noqa: S603
+    else:
+        subprocess.Popen(["explorer", str(projects_root())])  # noqa: S603
+
+
+class SuperToryHandler(SimpleHTTPRequestHandler):
+    """Serves the app and a deliberately small JSON API."""
+
+    def translate_path(self, path: str) -> str:
+        parsed = urlparse(path).path
+        if parsed == "/":
+            parsed = "/index.html"
+        return str((WEB_ROOT / parsed.lstrip("/")).resolve())
+
+    def log_message(self, format: str, *args: object) -> None:
+        # Keep the launch window quiet; errors are returned to the browser instead.
+        return
+
+    def send_json(self, value: object, status: HTTPStatus = HTTPStatus.OK) -> None:
+        encoded = json.dumps(value, ensure_ascii=False).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(encoded)))
+        self.end_headers()
+        self.wfile.write(encoded)
+
+    def send_download(
+        self,
+        data: bytes,
+        *,
+        filename: str,
+        content_type: str,
+        status: HTTPStatus = HTTPStatus.OK,
+    ) -> None:
+        """Send a file download with ASCII fallback + UTF-8 filename*."""
+        # HTTP headers are Latin-1; keep the quoted filename ASCII-only.
+        # (\w is Unicode-aware in Python 3 and would leave Hangul in the header.)
+        safe_ascii = re.sub(r"[^A-Za-z0-9._\-]+", "_", filename).strip("._") or "export"
+        if not re.search(r"\.[A-Za-z0-9]+$", safe_ascii):
+            # Preserve extension from original when title was all non-ASCII.
+            ext_match = re.search(r"(\.[A-Za-z0-9]+)$", filename)
+            if ext_match:
+                safe_ascii = f"export{ext_match.group(1)}"
+        disposition = (
+            f'attachment; filename="{safe_ascii}"; '
+            f"filename*=UTF-8''{quote(filename)}"
+        )
+        self.send_response(status)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Disposition", disposition)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def read_json(self) -> dict:
+        length = int(self.headers.get("Content-Length", "0"))
+        if length == 0:
+            return {}
+        return json.loads(self.rfile.read(length).decode("utf-8"))
+
+    def api_error(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
+        self.send_json({"error": message}, status)
+
+    def require_project(self, connection: sqlite3.Connection, project_id: int) -> None:
+        if connection.execute(
+            "SELECT 1 FROM project WHERE id = ? AND deleted_at IS NULL", (project_id,)
+        ).fetchone() is None:
+            raise ValueError("소설을 찾을 수 없습니다.")
+
+    def do_GET(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path.rstrip("/") or "/"
+        try:
+            if path == "/api/meta/work-purposes":
+                self.send_json([
+                    {"key": key, "label": label}
+                    for key, label in document_import.WORK_PURPOSES.items()
+                ])
+                return
+
+            if path == "/api/ai/status":
+                self.send_json(gemini_client.status())
+                return
+
+            if path == "/api/proof-parsers":
+                self.send_json(proof_extract.parser_status())
+                return
+
+            if path == "/api/writing/prefs":
+                with database() as connection:
+                    self.send_json(writing_prefs_row(connection))
+                return
+
+            if path == "/api/writing/days":
+                query = parse_qs(urlparse(self.path).query)
+                from_day = (query.get("from") or [""])[0]
+                to_day = (query.get("to") or [""])[0]
+                self.send_json(self.list_writing_days(from_day, to_day))
+                return
+
+            match = re.fullmatch(r"/api/writing/days/(\d{4}-\d{2}-\d{2})", path)
+            if match:
+                self.send_json(self.get_writing_day(match.group(1)))
+                return
+
+            if path == "/api/writing/pair":
+                self.send_json(self.get_writing_pair())
+                return
+
+            if path == "/api/writing/inbox":
+                self.send_json(self.list_mobile_inbox())
+                return
+
+            if path == "/api/projects":
+                with database() as connection:
+                    payload = list_projects_payload(connection)
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/outline", path)
+            if match:
+                self.send_json(self.project_outline(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/manuscript-stats", path)
+            if match:
+                self.send_json(self.project_manuscript_stats(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/export", path)
+            if match:
+                query = parse_qs(urlparse(self.path).query)
+                fmt = (query.get("format") or ["txt"])[0]
+                # Optional: ?scene_ids=1,2,3 for partial export (full manuscript if omitted)
+                scene_ids_raw = (query.get("scene_ids") or query.get("scenes") or [""])[0]
+                scene_ids = None
+                if str(scene_ids_raw).strip():
+                    scene_ids = []
+                    for part in str(scene_ids_raw).replace(" ", "").split(","):
+                        if not part:
+                            continue
+                        try:
+                            scene_ids.append(int(part))
+                        except ValueError as error:
+                            raise ValueError("회차 id 목록이 올바르지 않습니다.") from error
+                exported = self.export_project(
+                    int(match.group(1)),
+                    fmt,
+                    scene_ids=scene_ids,
+                )
+                self.send_download(
+                    exported.data,
+                    filename=exported.filename,
+                    content_type=exported.mime,
+                )
+                return
+
+            if path == "/api/meta/export-formats":
+                self.send_json([
+                    {"key": key, **meta}
+                    for key, meta in document_export.EXPORT_FORMATS.items()
+                ])
+                return
+
+            if path in {"/api/meta/text-export-formats", "/api/reference/export-formats"}:
+                self.send_json([
+                    {"key": key, **document_export.EXPORT_FORMATS[key]}
+                    for key in document_export.TEXT_EXPORT_FORMATS
+                    if key in document_export.EXPORT_FORMATS
+                ])
+                return
+
+            if path == "/api/export/prefs":
+                prefs = load_export_prefs()
+                try:
+                    folder = resolve_export_dir(prefs.get("export_dir"), create=False)
+                    folder_ok = folder.is_dir()
+                    folder_path = str(folder)
+                except ValueError:
+                    folder_ok = False
+                    folder_path = str(prefs.get("export_dir") or default_export_dir())
+                self.send_json({
+                    **prefs,
+                    "export_dir": folder_path,
+                    "folder_ok": folder_ok,
+                    "default_export_dir": str(default_export_dir()),
+                })
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
+            if match:
+                self.send_json(self.list_trash(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/characters", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    rows = connection.execute(
+                        "SELECT id, name, role, short_description, profile_md, "
+                        "strengths_md, weaknesses_md FROM character "
+                        "WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_order, id",
+                        (project_id,),
+                    ).fetchall()
+                self.send_json([as_dict(row) for row in rows])
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
+            if match:
+                self.send_json(self.list_ideas(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)", path)
+            if match:
+                self.send_json(self.scene_detail(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
+            if match:
+                scene_id = int(match.group(1))
+                with database() as connection:
+                    rows = connection.execute(
+                        "SELECT character_id, appearance_role, is_pov FROM scene_character "
+                        "WHERE scene_id = ? ORDER BY character_id",
+                        (scene_id,),
+                    ).fetchall()
+                self.send_json([as_dict(row) for row in rows])
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/illustrations", path)
+            if match:
+                self.send_json(self.list_illustrations(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/illustrations/(\d+)/image", path)
+            if match:
+                self.serve_illustration_image(int(match.group(1)))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)", path)
+            if match:
+                self.send_json(self.character_detail(int(match.group(1))))
+                return
+        except ValueError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
+        except sqlite3.Error as error:
+            self.api_error(f"데이터베이스 오류: {error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+
+        if path.startswith("/api/"):
+            self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
+            return
+        super().do_GET()
+
+    def do_POST(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path.rstrip("/")
+        try:
+            body = self.read_json()
+            # Reference file text extract — register early (DOCX/HWP viewer upload).
+            if path in {"/api/extract-text", "/api/reference/extract-text"}:
+                self.send_json(self.extract_reference_text(body))
+                return
+
+            # Export a single plain document (edited reference material, not full manuscript).
+            if path in {"/api/export-text", "/api/reference/export-text"}:
+                exported = self.export_plain_text_document(body)
+                self.send_download(
+                    exported.data,
+                    filename=exported.filename,
+                    content_type=exported.mime,
+                )
+                return
+
+            # Export prefs: { export_dir, save_to_folder, reveal_after_save }
+            if path == "/api/export/prefs":
+                prefs = load_export_prefs()
+                if "export_dir" in body:
+                    folder = resolve_export_dir(str(body.get("export_dir") or ""), create=True)
+                    prefs["export_dir"] = str(folder)
+                if "save_to_folder" in body:
+                    prefs["save_to_folder"] = bool(body.get("save_to_folder"))
+                if "reveal_after_save" in body:
+                    prefs["reveal_after_save"] = bool(body.get("reveal_after_save"))
+                saved = save_export_prefs(prefs)
+                self.send_json({
+                    **saved,
+                    "folder_ok": True,
+                    "default_export_dir": str(default_export_dir()),
+                })
+                return
+
+            if path == "/api/export/open-folder":
+                prefs = load_export_prefs()
+                folder = resolve_export_dir(
+                    str(body.get("export_dir") or prefs.get("export_dir") or ""),
+                    create=True,
+                )
+                reveal_in_explorer(folder)
+                self.send_json({"ok": True, "export_dir": str(folder)})
+                return
+
+            # POST export with JSON body: { format, scene_ids?, save_to_folder?, export_dir? }
+            match = re.fullmatch(r"/api/projects/(\d+)/export", path)
+            if match:
+                fmt = str(body.get("format") or body.get("format_key") or "docx").strip()
+                raw_ids = body.get("scene_ids") if body.get("scene_ids") is not None else body.get("scenes")
+                scene_ids = None
+                if raw_ids is not None:
+                    if not isinstance(raw_ids, list):
+                        raise ValueError("scene_ids는 회차 id 배열이어야 합니다.")
+                    scene_ids = []
+                    for item in raw_ids:
+                        try:
+                            scene_ids.append(int(item))
+                        except (TypeError, ValueError) as error:
+                            raise ValueError("회차 id 목록이 올바르지 않습니다.") from error
+                exported = self.export_project(
+                    int(match.group(1)),
+                    fmt,
+                    scene_ids=scene_ids,
+                    export_title=str(body.get("title") or "").strip() or None,
+                )
+                prefs = load_export_prefs()
+                # save_to_folder: request overrides prefs
+                if "save_to_folder" in body:
+                    save_to_folder = bool(body.get("save_to_folder"))
+                else:
+                    save_to_folder = bool(prefs.get("save_to_folder", True))
+                if save_to_folder:
+                    reveal = body.get("reveal_after_save")
+                    if reveal is None:
+                        reveal = prefs.get("reveal_after_save", True)
+                    saved = write_export_file(
+                        exported.data,
+                        exported.filename,
+                        directory=str(body.get("export_dir") or prefs.get("export_dir") or ""),
+                        reveal=bool(reveal),
+                    )
+                    self.send_json({
+                        "ok": True,
+                        "saved": True,
+                        "filename": exported.filename,
+                        "mime": exported.mime,
+                        **saved,
+                    })
+                    return
+                self.send_download(
+                    exported.data,
+                    filename=exported.filename,
+                    content_type=exported.mime,
+                )
+                return
+
+            if path == "/api/projects":
+                title = str(body.get("title", "")).strip()
+                if not title:
+                    raise ValueError("작품 제목을 입력해 주세요.")
+                purpose = document_import.normalise_purpose(body.get("purpose"))
+                with database() as connection:
+                    # Append after current max manual order so manual lists stay stable.
+                    max_order_row = connection.execute(
+                        "SELECT COALESCE(MAX(list_sort_order), -1) AS m FROM project WHERE deleted_at IS NULL"
+                    ).fetchone()
+                    next_order = int(max_order_row["m"] if max_order_row else -1) + 1
+                    cursor = connection.execute(
+                        "INSERT INTO project(title, purpose, last_opened_at, list_sort_order) "
+                        "VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
+                        (title, purpose, next_order),
+                    )
+                    project_id = int(cursor.lastrowid)
+                    package_info = ensure_project_package(connection, project_id)
+                self.send_json(
+                    {"id": project_id, "purpose": purpose, **package_info},
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reveal-package", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    package_info = ensure_project_package(connection, project_id)
+                reveal_in_explorer(Path(package_info["package_path"]))
+                self.send_json({"ok": True, **package_info})
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/touch-open", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    stamp = touch_project_opened(connection, project_id)
+                    mode = project_list_mode(connection)
+                self.send_json({
+                    "ok": True,
+                    "id": project_id,
+                    "last_opened_at": stamp,
+                    "list_mode": mode,
+                })
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/parts", path)
+            if match:
+                self.send_json(
+                    self.create_part(int(match.group(1)), body),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/chapters", path)
+            if match:
+                project_id = int(match.group(1))
+                title = str(body.get("title", "새 챕터")).strip() or "새 챕터"
+                insert_index = body.get("insert_index", None)
+                insert_before_id = body.get("insert_before_id", None)
+                raw_part = body.get("part_id", None)
+                if raw_part is None or raw_part == "" or str(raw_part).lower() == "null":
+                    part_id = None
+                else:
+                    try:
+                        part_id = int(raw_part)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("권/부 정보가 올바르지 않습니다.") from error
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    if part_id is not None:
+                        part_ok = connection.execute(
+                            "SELECT id FROM part "
+                            "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                            (part_id, project_id),
+                        ).fetchone()
+                        if part_ok is None:
+                            raise ValueError("권/부를 찾을 수 없습니다.")
+                    group_sql, group_params = self._chapter_group_filter_sql(part_id)
+                    existing = connection.execute(
+                        f"SELECT id FROM chapter "
+                        f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql} "
+                        f"ORDER BY sort_order, id",
+                        (project_id, *group_params),
+                    ).fetchall()
+                    existing_ids = [int(row["id"]) for row in existing]
+                    # Park new row at end first, then reorder if an insert position is given.
+                    sort_order = connection.execute(
+                        f"SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                        f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql}",
+                        (project_id, *group_params),
+                    ).fetchone()[0]
+                    cursor = connection.execute(
+                        "INSERT INTO chapter(project_id, part_id, title, sort_order) "
+                        "VALUES (?, ?, ?, ?)",
+                        (project_id, part_id, title, sort_order),
+                    )
+                    new_id = int(cursor.lastrowid)
+
+                    target_index = None
+                    if insert_before_id is not None and str(insert_before_id).strip() != "":
+                        try:
+                            before_id = int(insert_before_id)
+                        except (TypeError, ValueError) as error:
+                            raise ValueError("삽입 위치가 올바르지 않습니다.") from error
+                        if before_id in existing_ids:
+                            target_index = existing_ids.index(before_id)
+                        else:
+                            raise ValueError("삽입 기준 챕터를 찾을 수 없습니다.")
+                    elif insert_index is not None and str(insert_index).strip() != "":
+                        try:
+                            target_index = int(insert_index)
+                        except (TypeError, ValueError) as error:
+                            raise ValueError("삽입 위치가 올바르지 않습니다.") from error
+                        target_index = max(0, min(target_index, len(existing_ids)))
+
+                    if target_index is not None:
+                        ordered = existing_ids[:]
+                        ordered.insert(target_index, new_id)
+                        self._assign_chapter_sort_orders(
+                            connection, project_id, ordered, part_id=part_id
+                        )
+                self.send_json(
+                    {
+                        "id": new_id,
+                        "part_id": part_id,
+                        "insert_index": target_index if target_index is not None else len(existing_ids),
+                    },
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/chapters/(\d+)/scenes", path)
+            if match:
+                self.send_json(
+                    self.create_scene(int(match.group(1)), body),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/characters", path)
+            if match:
+                project_id = int(match.group(1))
+                name = str(body.get("name", "새 캐릭터")).strip() or "새 캐릭터"
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    sort_order = connection.execute(
+                        "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM character "
+                        "WHERE project_id = ? AND deleted_at IS NULL",
+                        (project_id,),
+                    ).fetchone()[0]
+                    cursor = connection.execute(
+                        "INSERT INTO character(project_id, name, sort_order) VALUES (?, ?, ?)",
+                        (project_id, name, sort_order),
+                    )
+                self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
+            if match:
+                self.send_json(self.create_idea(int(match.group(1)), body), HTTPStatus.CREATED)
+                return
+
+            if path == "/api/ai/assist":
+                self.send_json(self.ai_assist(body))
+                return
+
+            if path == "/api/spellcheck":
+                self.send_json(self.spellcheck(body))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)/aliases", path)
+            if match:
+                character_id = int(match.group(1))
+                alias = str(body.get("alias", "")).strip()
+                if not alias:
+                    raise ValueError("별칭을 입력해 주세요.")
+                with database() as connection:
+                    character = connection.execute(
+                        "SELECT project_id FROM character WHERE id = ? AND deleted_at IS NULL", (character_id,)
+                    ).fetchone()
+                    if character is None:
+                        raise ValueError("캐릭터를 찾을 수 없습니다.")
+                    cursor = connection.execute(
+                        "INSERT INTO character_alias(character_id, project_id, alias, alias_type) VALUES (?, ?, ?, ?)",
+                        (character_id, character["project_id"], alias, str(body.get("alias_type", "other"))),
+                    )
+                self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/illustrations", path)
+            if match:
+                self.send_json(self.create_illustration(int(match.group(1)), body), HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/duplicate", path)
+            if match:
+                self.send_json(self.duplicate_scene(int(match.group(1))), HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/trash", path)
+            if match:
+                self.send_json(self.trash_scene(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/chapters/(\d+)/trash", path)
+            if match:
+                self.send_json(self.trash_chapter(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/parts/(\d+)/trash", path)
+            if match:
+                self.send_json(self.trash_part(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/chapters/(\d+)/move", path)
+            if match:
+                self.send_json(self.move_chapter(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/reparent", path)
+            if match:
+                self.send_json(self.reparent_scene(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/restore", path)
+            if match:
+                self.send_json(self.restore_scene(int(match.group(1))))
+                return
+
+            if path == "/api/import":
+                self.send_json(self.import_document(body), HTTPStatus.CREATED)
+                return
+
+            # Lightweight text extract for reference-file viewer (no project import).
+            if path == "/api/extract-text":
+                self.send_json(self.extract_reference_text(body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/import", path)
+            if match:
+                self.send_json(self.import_document(body, project_id=int(match.group(1))), HTTPStatus.CREATED)
+                return
+
+            # Match uploaded proof text to the closest existing episode (회차/scene).
+            match = re.fullmatch(r"/api/projects/(\d+)/match-episode", path)
+            if match:
+                self.send_json(self.match_project_episode(int(match.group(1)), body))
+                return
+
+            # Compare original vs editor-revised manuscript (교정/교열 보고서).
+            match = re.fullmatch(r"/api/projects/(\d+)/proof-diff", path)
+            if match:
+                self.send_json(self.proof_diff_project(int(match.group(1)), body))
+                return
+
+            # Clean HWP proof extract → pure body text.
+            if path == "/api/proof-clean":
+                self.send_json(self.clean_proof_text_api(body))
+                return
+            match = re.fullmatch(r"/api/projects/(\d+)/proof-clean", path)
+            if match:
+                with database() as connection:
+                    self.require_project(connection, int(match.group(1)))
+                self.send_json(self.clean_proof_text_api(body))
+                return
+
+            # Unified HWP/DOCX proof pipeline (extract → match → clean → diff).
+            match = re.fullmatch(r"/api/projects/(\d+)/proof-pipeline", path)
+            if match:
+                self.send_json(self.run_proof_pipeline_api(int(match.group(1)), body))
+                return
+
+            # Project settings (also available via PUT).
+            match = re.fullmatch(r"/api/projects/(\d+)/settings", path)
+            if match:
+                self.send_json(self.update_project_settings(int(match.group(1)), body))
+                return
+
+            # Bulk-apply scene goal count/metric to every active scene in a project.
+            match = re.fullmatch(r"/api/projects/(\d+)/scene-goals", path)
+            if match:
+                self.send_json(self.bulk_set_scene_goals(int(match.group(1)), body))
+                return
+
+            # Graceful app exit (header X / future desktop shell).
+            if path == "/api/app/quit":
+                self.send_json({"ok": True})
+                # shutdown() must not run on the request thread (deadlock).
+                Timer(0.15, self.server.shutdown).start()
+                return
+
+            if path == "/api/writing/prefs":
+                self.send_json(self.update_writing_prefs(body))
+                return
+
+            if path == "/api/writing/heartbeat":
+                self.send_json(self.writing_heartbeat(body))
+                return
+
+            if path == "/api/writing/pair":
+                self.send_json(self.issue_writing_pair(body))
+                return
+
+            match = re.fullmatch(r"/api/writing/inbox/(\d+)/read", path)
+            if match:
+                self.send_json(self.mark_mobile_inbox_read(int(match.group(1))))
+                return
+
+            if path == "/api/mobile/push":
+                self.send_json(self.mobile_push_text(body), HTTPStatus.CREATED)
+                return
+        except ValueError as error:
+            self.api_error(str(error))
+            return
+        except sqlite3.IntegrityError as error:
+            self.api_error(f"저장할 수 없습니다: {error}")
+            return
+        except sqlite3.Error as error:
+            self.api_error(f"데이터베이스 오류: {error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
+
+    def do_PUT(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path.rstrip("/")
+        try:
+            body = self.read_json()
+            match = re.fullmatch(r"/api/scenes/(\d+)", path)
+            if match:
+                self.send_json(self.save_scene(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/chapters/(\d+)", path)
+            if match:
+                self.save_chapter(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/parts/(\d+)", path)
+            if match:
+                self.send_json(self.save_part(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
+            if match:
+                self.save_scene_characters(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)", path)
+            if match:
+                self.save_character(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/illustrations/(\d+)", path)
+            if match:
+                self.send_json(self.update_illustration(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/chapters/reorder", path)
+            if match:
+                self.reorder_chapters(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            if path == "/api/projects/reorder":
+                self.send_json(self.reorder_projects(body))
+                return
+
+            if path == "/api/projects/list-mode":
+                self.send_json(self.set_projects_list_mode(body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/parts/reorder", path)
+            if match:
+                self.reorder_parts(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/chapters/renumber-titles", path)
+            if match:
+                self.send_json(self.renumber_chapter_titles(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/settings", path)
+            if match:
+                self.send_json(self.update_project_settings(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/ideas/(\d+)", path)
+            if match:
+                self.send_json(self.update_idea(int(match.group(1)), body))
+                return
+        except ValueError as error:
+            self.api_error(str(error))
+            return
+        except sqlite3.IntegrityError as error:
+            self.api_error(f"저장할 수 없습니다: {error}")
+            return
+        except sqlite3.Error as error:
+            self.api_error(f"데이터베이스 오류: {error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
+
+    def do_DELETE(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path.rstrip("/")
+        try:
+            match = re.fullmatch(r"/api/illustrations/(\d+)", path)
+            if match:
+                self.delete_illustration(int(match.group(1)))
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/ideas/(\d+)", path)
+            if match:
+                self.delete_idea(int(match.group(1)))
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/purge", path)
+            if match:
+                self.send_json(self.purge_scene(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
+            if match:
+                self.send_json(self.empty_trash(int(match.group(1))))
+                return
+        except ValueError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
+        except sqlite3.Error as error:
+            self.api_error(f"데이터베이스 오류: {error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
+
+    def spellcheck(self, body: dict) -> dict:
+        """Korean spelling/spacing check (external 바른한글 service, optional Gemini fallback)."""
+        raw = body.get("text", "")
+        text = plain_text_from_content(str(raw or ""))
+        if not text.strip():
+            raise ValueError("검사할 글을 먼저 적어 주세요.")
+
+        prefer = str(body.get("prefer") or "auto").strip().lower()
+        gemini_ready = bool(gemini_client.status().get("configured"))
+
+        # Cloudflare often blocks the public checker from servers/apps.
+        # When Gemini is configured, prefer it for reliability unless user asks public-first.
+        if prefer == "public":
+            try:
+                return korean_speller.check_text(text)
+            except korean_speller.SpellerError as error:
+                if not gemini_ready:
+                    raise ValueError(str(error)) from error
+                return self._spellcheck_with_gemini(text, public_error=str(error))
+
+        if prefer == "gemini" or (prefer == "auto" and gemini_ready):
+            if not gemini_ready:
+                raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+            # auto+gemini: try Gemini first; on Gemini failure try public.
+            try:
+                return self._spellcheck_with_gemini(text, public_error=None)
+            except ValueError as gemini_error:
+                if prefer == "gemini":
+                    raise
+                try:
+                    result = korean_speller.check_text(text)
+                    result["message"] = (
+                        f"Gemini 검사 실패 후 공개 검사기로 검사했습니다. {result.get('message', '')}"
+                    ).strip()
+                    return result
+                except korean_speller.SpellerError as public_error:
+                    raise ValueError(
+                        f"{gemini_error} / 공개 검사기도 실패: {public_error}"
+                    ) from public_error
+
+        # No Gemini key — public only.
+        try:
+            return korean_speller.check_text(text)
+        except korean_speller.SpellerError as error:
+            raise ValueError(
+                f"{error} (Gemini API 키가 있으면 보조 검사가 가능합니다.)"
+            ) from error
+
+    def _spellcheck_with_gemini(self, text: str, public_error: str | None = None) -> dict:
+        """Gemini-backed spelling suggestions when the public checker is unavailable."""
+        try:
+            system = (
+                "당신은 한국어 맞춤법·띄어쓰기·문장 교정 전문가입니다. "
+                "틀린 표기, 잘못된 띄어쓰기, 분명한 문법 오류만 찾습니다. "
+                "문체·창작 표현·고유명사는 오류로 잡지 마세요. "
+                "반드시 JSON 배열만 출력하세요. 키: original(원문 부분 문자열), "
+                "suggestions(교정 후보 문자열 배열, 1개 이상), help(짧은 한국어 설명). "
+                "코드펜스·서문·후기 없이 JSON만 출력하세요."
+            )
+            prompt = (
+                "다음 한국어 글에서 맞춤법·띄어쓰기·분명한 표기 오류를 모두 찾아 "
+                "JSON 배열로 알려 주세요. 오류가 정말 없으면 [] 만 출력하세요.\n\n"
+                f"{text[:8000]}"
+            )
+            reply = gemini_client.generate_text(prompt, system=system)
+            payload = (reply or "").strip()
+            if payload.startswith("```"):
+                payload = re.sub(r"^```(?:json)?\s*", "", payload)
+                payload = re.sub(r"\s*```$", "", payload)
+            # Tolerate leading junk before the array.
+            bracket = payload.find("[")
+            if bracket > 0:
+                payload = payload[bracket:]
+            end = payload.rfind("]")
+            if end >= 0:
+                payload = payload[: end + 1]
+            errors_raw = json.loads(payload)
+            if not isinstance(errors_raw, list):
+                raise ValueError("형식 오류")
+            errors = []
+            for item in errors_raw[:50]:
+                if not isinstance(item, dict):
+                    continue
+                original = str(item.get("original") or "").strip()
+                if not original:
+                    continue
+                suggestions = item.get("suggestions") or []
+                if isinstance(suggestions, str):
+                    suggestions = [suggestions]
+                suggestions = [str(s).strip() for s in suggestions if str(s).strip() and str(s).strip() != original]
+                if not suggestions:
+                    continue
+                # Only keep suggestions that can be found / applied in the text.
+                if original not in text and not any(s in text for s in []):
+                    # still show if original is substring-ish; skip if totally missing
+                    if original not in text:
+                        continue
+                errors.append(
+                    {
+                        "original": original,
+                        "suggestions": suggestions[:8],
+                        "help": str(item.get("help") or "").strip(),
+                        "start": text.find(original),
+                        "end": text.find(original) + len(original) if original in text else -1,
+                        "method": 0,
+                        "method_label": "AI 교정",
+                    }
+                )
+            prefix = ""
+            if public_error:
+                prefix = f"공개 검사기 실패({public_error}) → Gemini 보조 검사. "
+            return {
+                "ok": True,
+                "provider": "gemini-fallback" if public_error else "gemini",
+                "provider_label": "Gemini 보조 검사" if public_error else "Gemini 맞춤법 검사",
+                "errors": errors,
+                "error_count": len(errors),
+                "checked_chars": len(text),
+                "chunk_count": 1,
+                "public_error": public_error,
+                "message": (
+                    f"{prefix}오류 {len(errors)}건을 제안합니다."
+                    if errors
+                    else f"{prefix}눈에 띄는 오류를 찾지 못했습니다."
+                ),
+            }
+        except Exception as fallback_error:
+            if public_error:
+                raise ValueError(
+                    f"{public_error} (Gemini 보조 검사도 실패: {fallback_error})"
+                ) from fallback_error
+            raise ValueError(f"Gemini 맞춤법 검사 실패: {fallback_error}") from fallback_error
+
+    def ai_assist(self, body: dict) -> dict:
+        """Writing helper powered by Gemini (.env GEMINI_API_KEY)."""
+        mode = str(body.get("mode", "free") or "free").strip().lower()
+        allowed = {
+            "continue", "rewrite", "summarize", "ideas",
+            "analyze", "brainstorm", "foreshadow", "plottwist", "worldscan",
+            "dupcheck", "free", "chat",
+        }
+        if mode not in allowed:
+            raise ValueError("지원하지 않는 AI 도움 방식입니다.")
+
+        # Contract: { system_instruction_vars: {...}, user_prompt / prompt }
+        siv = body.get("system_instruction_vars")
+        if not isinstance(siv, dict):
+            siv = {}
+        user_prompt = str(
+            body.get("user_prompt") or body.get("prompt") or ""
+        ).strip()
+        scene_title = str(body.get("scene_title", "")).strip()
+        scene_synopsis = str(body.get("scene_synopsis", "")).strip()
+        scene_content = plain_text_from_content(str(body.get("scene_content", "") or ""))
+        project_title = str(body.get("project_title", "")).strip()
+        world_setting_text = plain_text_from_content(
+            str(body.get("world_setting_text") or body.get("worldbuilding_md") or "")
+        )
+        focus_only = bool(body.get("focus_scene_only") or body.get("tory_focus"))
+        purpose = document_import.normalise_purpose(body.get("purpose") or "general_novel")
+        purpose_label = document_import.WORK_PURPOSES.get(purpose, purpose)
+        main_genre_key = str(body.get("main_genre") or "").strip()
+        sub_genre_key = str(body.get("sub_genre") or "").strip()
+        # Prefer system_instruction_vars labels when provided (absolute project context)
+        main_genre_label = self._genre_display_label(
+            siv.get("project_genre_main") or body.get("main_genre_label") or body.get("project_genre_main"),
+            main_genre_key,
+        )
+        sub_genre_label = self._genre_display_label(
+            siv.get("project_genre_sub") or body.get("sub_genre_label") or body.get("project_genre_sub"),
+            sub_genre_key,
+        )
+        keywords = parse_project_keywords(body.get("keywords"))
+        keywords_from_siv = str(
+            siv.get("world_setting_keywords")
+            or body.get("world_setting_keywords")
+            or ""
+        ).strip()
+        keywords_label = (
+            keywords_from_siv
+            or (", ".join(keywords) if keywords else "미정")
+        )
+        # World / character context may be injected by the client (dynamic override)
+        world_for_context = plain_text_from_content(
+            str(
+                siv.get("world_setting")
+                or body.get("world_setting")
+                or body.get("world_setting_text")
+                or body.get("worldbuilding_md")
+                or world_setting_text
+                or keywords_from_siv
+                or ""
+            )
+        )
+        if len(world_for_context) > 6000:
+            world_for_context = world_for_context[:6000] + "…"
+        character_profiles_raw = (
+            siv.get("character_profiles")
+            if siv.get("character_profiles") is not None
+            else body.get("character_profiles")
+        )
+        character_profiles_text = self._format_character_profiles(character_profiles_raw)
+        if len(character_profiles_text) > 4000:
+            character_profiles_text = character_profiles_text[:4000] + "…"
+
+        active_project_context = self._tory_active_project_context(
+            main_genre_label=main_genre_label,
+            sub_genre_label=sub_genre_label,
+            purpose_label=purpose_label,
+            keywords_label=keywords_label,
+            world_setting=world_for_context,
+            character_profiles=character_profiles_text or character_profiles_raw,
+            project_title=project_title,
+        )
+        genre_system = (
+            self._tory_core_identity_system_prompt()
+            + self._tory_dynamic_context_system_prompt(
+                main_genre_label=main_genre_label,
+                sub_genre_label=sub_genre_label,
+                world_setting_keywords=keywords_label,
+                character_profiles=character_profiles_text or character_profiles_raw,
+            )
+        )
+        genre_context = (
+            f"메인 장르: {main_genre_label}\n"
+            f"서브 장르: {sub_genre_label}\n"
+            f"키워드/태그: {keywords_label}"
+        )
+        persona_mode = str(
+            body.get("persona_mode")
+            or body.get("tory_persona")
+            or siv.get("persona_mode")
+            or "default"
+        ).strip().lower()
+        persona_system = self._tory_persona_system_prompt(persona_mode)
+
+        # ── 1:1 chat with Tory (multi-turn) ──────────────────────────
+        if mode == "chat":
+            if not user_prompt:
+                raise ValueError("토리에게 할 말을 적어 주세요.")
+            history_raw = body.get("history") or body.get("messages") or []
+            history_lines: list[str] = []
+            if isinstance(history_raw, list):
+                for item in history_raw[-24:]:
+                    if not isinstance(item, dict):
+                        continue
+                    role = str(item.get("role") or "").strip().lower()
+                    content = str(item.get("content") or item.get("text") or "").strip()
+                    if not content:
+                        continue
+                    if len(content) > 4000:
+                        content = content[:4000] + "…"
+                    who = "작가" if role in {"user", "human", "author"} else "토리"
+                    history_lines.append(f"{who}: {content}")
+            system = (
+                genre_system
+                + persona_system
+                + "[Chat Mode]\n"
+                "작가와 1:1로 대화하며 창작을 돕습니다. "
+                "원고를 통째로 다시 쓰지 말고, 대화·조언·브레인스토밍·짧은 예시를 중심으로 하세요. "
+                f"작품 종류는 '{purpose_label}'입니다. "
+                "답변 전에 반드시 [현재 프로젝트 메타데이터]와 [Current Active Project Context]를 먼저 읽고 "
+                "해당 장르 문법·톤앤매너만 적용하세요. "
+                "[Tory Core Identity]를 항상 유지하고, "
+                "말투만 [Current Persona Mode] 톤을 끝까지 따르세요."
+            )
+            context_bits = [
+                active_project_context,
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+            ]
+            if scene_title or scene_content:
+                context_bits.append(f"현재 열린 회차: {scene_title or '(제목 없음)'}")
+                if scene_synopsis:
+                    context_bits.append(f"회차 요약: {scene_synopsis}")
+                if scene_content:
+                    # Light context only — chat is conversation-first
+                    snippet = scene_content[-6000:] if len(scene_content) > 6000 else scene_content
+                    context_bits.append(f"현재 원고(참고):\n{snippet}")
+            transcript = "\n".join(history_lines) if history_lines else "(이전 대화 없음)"
+            full_prompt = (
+                "아래는 작가와 토리의 이전 대화, 작품 맥락, 그리고 작가의 새 메시지입니다. "
+                "토리로서 새 메시지에만 이어서 답하세요. 이름 접두어(토리:)는 붙이지 마세요.\n"
+                "이전 대화에 다른 장르 클리셰가 섞여 있어도, "
+                "지금 주입된 [현재 프로젝트 메타데이터]·[Current Active Project Context]만 절대 기준으로 삼으세요.\n\n"
+                f"[작품·원고 맥락]\n" + "\n".join(context_bits) + "\n\n"
+                f"[이전 대화]\n{transcript}\n\n"
+                f"[작가의 새 메시지]\n{user_prompt}"
+            )
+            try:
+                text = gemini_client.generate_text(full_prompt, system=system, temperature=0.9)
+            except gemini_client.GeminiError as error:
+                raise ValueError(str(error)) from error
+            return {
+                "mode": "chat",
+                "text": text,
+                "model": gemini_client.model_name(),
+                "provider": "google-gemini",
+                "main_genre": main_genre_key,
+                "sub_genre": sub_genre_key,
+                "main_genre_label": main_genre_label,
+                "sub_genre_label": sub_genre_label,
+            }
+
+        # Cap context size for local responsiveness.
+        if len(scene_content) > 12000:
+            scene_content = scene_content[-12000:]
+        if len(world_setting_text) > 20000:
+            world_setting_text = world_setting_text[:20000]
+
+        foreshadow = body.get("foreshadow") if isinstance(body.get("foreshadow"), dict) else {}
+        foreshadow_title = str(foreshadow.get("title") or "").strip()
+        foreshadow_target = str(foreshadow.get("target") or "").strip()
+        buildup_raw = foreshadow.get("buildup") or []
+        if isinstance(buildup_raw, str):
+            buildup_list = [line.strip() for line in buildup_raw.splitlines() if line.strip()]
+        elif isinstance(buildup_raw, list):
+            buildup_list = [str(item).strip() for item in buildup_raw if str(item).strip()]
+        else:
+            buildup_list = []
+
+        if mode == "free" and not user_prompt:
+            raise ValueError("AI에게 요청할 내용을 적어 주세요.")
+        # Lore Keeper structured fields (worldscan / optional override of scene_content)
+        lore_payload = body.get("lore_payload") if isinstance(body.get("lore_payload"), dict) else {}
+        world_setting_field = plain_text_from_content(
+            str(
+                body.get("world_setting")
+                or lore_payload.get("world_setting")
+                or world_setting_text
+                or ""
+            )
+        )
+        genre_rules_field = str(
+            body.get("genre_rules")
+            or lore_payload.get("genre_rules")
+            or ""
+        ).strip()
+        if not genre_rules_field:
+            genre_rules_field = (
+                f"{main_genre_label}"
+                + (f" / {sub_genre_label}" if sub_genre_label and sub_genre_label != "미정" else "")
+                + (f" · 키워드: {keywords_label}" if keywords_label != "미정" else "")
+            ).strip(" ·")
+        character_profiles_raw = (
+            body.get("character_profiles")
+            if body.get("character_profiles") is not None
+            else lore_payload.get("character_profiles")
+        )
+        character_profiles_text = self._format_character_profiles(character_profiles_raw)
+        try:
+            sensitivity_level = int(
+                body.get("sensitivity_level")
+                if body.get("sensitivity_level") is not None
+                else lore_payload.get("sensitivity_level", 4)
+            )
+        except (TypeError, ValueError):
+            sensitivity_level = 4
+        sensitivity_level = max(1, min(5, sensitivity_level))
+        target_text_override = plain_text_from_content(
+            str(body.get("target_text") or lore_payload.get("target_text") or "")
+        )
+        if mode == "worldscan" and target_text_override.strip():
+            scene_content = target_text_override
+        if mode == "worldscan" and world_setting_field.strip():
+            world_setting_text = world_setting_field
+        # Re-cap after lore overrides
+        if len(scene_content) > 12000:
+            scene_content = scene_content[-12000:]
+        if len(world_setting_text) > 20000:
+            world_setting_text = world_setting_text[:20000]
+
+        if mode == "worldscan":
+            if not scene_content:
+                raise ValueError("스캔할 원고를 먼저 열어 주세요.")
+            if not world_setting_text.strip():
+                raise ValueError(
+                    "세계관 설정집이 비어 있어요. 설정집에서 세계관을 먼저 적어 주세요."
+                )
+        if mode == "dupcheck":
+            if not scene_content:
+                raise ValueError("중복 체크할 원고를 먼저 열어 주세요.")
+        if mode in {"foreshadow", "plottwist"}:
+            if not foreshadow_title:
+                raise ValueError("검수할 복선 제목을 등록·선택해 주세요.")
+            if not foreshadow_target:
+                raise ValueError("반전 목표 장(예: 12장)을 적어 주세요.")
+            if not buildup_list:
+                raise ValueError("빌드업·단서를 한 줄 이상 적어 주세요.")
+            if not scene_content:
+                raise ValueError("검수할 현재 원고를 먼저 열어 주세요.")
+        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm"} and not scene_content and not user_prompt:
+            raise ValueError("먼저 원고를 쓰거나, 요청 내용을 적어 주세요.")
+
+        if mode == "worldscan":
+            # Lore Keeper awakening — structured scan of world / genre / character fidelity
+            sens_guide = {
+                1: "관대: 명백한 설정 붕괴만 지적. 문체·말투 미세 차이는 넘어감.",
+                2: "완화: 큰 설정 충돌과 장르 이탈만 지적.",
+                3: "표준: 설정·장르·캐릭터 고유성을 균형 있게 검수.",
+                4: "엄격: 설정 충돌, 장르 톤 붕괴, 캐릭터 말투/행동 위화감을 꼼꼼히 잡음.",
+                5: "극엄: 미세한 용어 혼용·톤 균열·캐릭터 이탈까지 모두 경고.",
+            }.get(sensitivity_level, "엄격: 설정 충돌, 장르 톤 붕괴, 캐릭터 위화감을 꼼꼼히 잡음.")
+            system = (
+                genre_system
+                + "[Role & Awakening]\n"
+                "당신은 작품 전체의 세계관, 장르적 톤앤매너, 캐릭터의 고유성을 완벽하게 파악하고 있는 "
+                "'세계관 수호자(Lore Keeper) 및 장르 붕괴 감지 에디터 AI'입니다. "
+                "SuperTORY 앱 안에서는 작가의 친구 '토리'이기도 합니다.\n"
+                "장르에 대한 사전 선입견 없이, 작가가 정립한 설정·장르 규칙·인물 프로필"
+                "([Current Active Project Context])만 절대 기준으로 삼고, "
+                "제출된 원고(target_text)에서 설정 붕괴·장르 이탈·캐릭터 붕괴를 감지합니다. "
+                "원고 전체를 대신 쓰지 말고, 문제 지점과 수정 방향만 제시하세요. "
+                "답변은 한국어로, 지정 출력 형식을 엄격히 지키세요. "
+                f"메인 장르 [{main_genre_label}] · 서브 장르 [{sub_genre_label}]. "
+                f"민감도(sensitivity_level)={sensitivity_level}/5 — {sens_guide}"
+            )
+            instruction = (
+                "아래 JSON 계약 데이터를 숙지한 뒤 target_text를 검수하세요.\n\n"
+                "[EVALUATION CRITERIA / 검증 기준]\n"
+                "1. 설정 충돌 (Lore Contradictions): world_setting의 규칙·시대·금기를 위반했는가?\n"
+                "2. 장르 붕괴 (Genre Collapse): genre_rules의 톤앤매너·문체 기준에서 이탈했는가?\n"
+                "3. 캐릭터 고유성 (Character Integrity): character_profiles의 말투·성향·금기와 어긋나는가?\n"
+                "4. 용어 통일성 (Term Consistency): 고유명사·세계관 용어 오기/혼용\n"
+                "5. 개연성·템포 (Plausibility & Pacing): 세계관 규칙 안에서의 논리\n\n"
+                "[OUTPUT FORMAT / 출력 형식]\n"
+                "---\n\n"
+                "🧙 **[토리 · 세계관 수호자 스캔 결과]**\n\n"
+                f"0.  **검수 민감도:** {sensitivity_level}/5\n"
+                "1.  **세계관·장르 일치도 점수:** [0~100점] / 100점\n"
+                "2.  **설정 충돌 및 오류 경고 (Critical Warnings):**\n"
+                "   - [오류 n] (위치 / 관련 설정)\n"
+                "     - 문제점:\n"
+                "     - 수정 제안: (세계관을 해치지 않는 문장 예시)\n"
+                "3.  **장르·톤앤매너 붕괴:**\n"
+                "   - 이탈 지점과 권장 톤 (없으면 「해당 없음」)\n"
+                "4.  **캐릭터 고유성 검수:**\n"
+                "   - 인물별: 일치 / 부분 이탈 / 붕괴 + 근거 인용\n"
+                "5.  **용어 및 표현 검수:**\n"
+                "   - 잘못된 표기 ➔ 설정상 올바른 표기\n"
+                "6.  **보강 팁 (Lore Enhancement):** 1~3가지\n"
+                "---\n"
+                "오류가 없으면 해당 항목에 '해당 없음'. 점수는 공정하게."
+            )
+            lore_json = {
+                "world_setting": world_setting_text[:20000],
+                "genre_rules": genre_rules_field[:2000],
+                "character_profiles": character_profiles_raw
+                if isinstance(character_profiles_raw, (dict, list))
+                else character_profiles_text,
+                "sensitivity_level": sensitivity_level,
+                "target_text": (
+                    f"[회차: {scene_title or '(제목 없음)'}]\n{scene_content}"
+                )[:14000],
+            }
+            try:
+                lore_json_str = json.dumps(lore_json, ensure_ascii=False, indent=2)
+            except (TypeError, ValueError):
+                lore_json_str = str(lore_json)
+            # Cap huge dumps
+            if len(lore_json_str) > 28000:
+                lore_json_str = lore_json_str[:28000] + "\n…(truncated)"
+            context_parts = [
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                f"메인 장르: {main_genre_label} / 서브 장르: {sub_genre_label}",
+                f"[LORE KEEPER INPUT — JSON]\n{lore_json_str}",
+            ]
+            if character_profiles_text and not isinstance(character_profiles_raw, (dict, list)):
+                context_parts.append(f"[캐릭터 프로필 요약]\n{character_profiles_text}")
+            if scene_synopsis:
+                context_parts.append(f"씬 요약: {scene_synopsis}")
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+        elif mode == "dupcheck":
+            # Neighbor episode texts (±5) + optional local phrase hits from client
+            neighbors_raw = body.get("neighbor_scenes") or body.get("neighbors") or []
+            neighbor_blocks = []
+            if isinstance(neighbors_raw, list):
+                for item in neighbors_raw[:12]:
+                    if not isinstance(item, dict):
+                        continue
+                    n_title = str(item.get("title") or item.get("label") or "").strip()
+                    n_index = item.get("index") or item.get("episode_index") or ""
+                    n_text = plain_text_from_content(str(item.get("content") or item.get("text") or ""))
+                    if len(n_text) > 6000:
+                        n_text = n_text[:6000] + "…"
+                    if not n_text.strip():
+                        continue
+                    neighbor_blocks.append(
+                        f"--- 회차 {n_index} · {n_title or '(제목 없음)'} ---\n{n_text}"
+                    )
+            local_hits = body.get("local_hits") or body.get("phrase_hits") or []
+            local_block = ""
+            if isinstance(local_hits, list) and local_hits:
+                lines = []
+                for hit in local_hits[:40]:
+                    if isinstance(hit, dict):
+                        phrase = str(hit.get("phrase") or hit.get("text") or "").strip()
+                        where = str(hit.get("where") or hit.get("neighbor") or "").strip()
+                        kind = str(hit.get("kind") or "표현").strip()
+                        if phrase:
+                            lines.append(f"- [{kind}] 「{phrase[:120]}」 ↔ {where or '인근 회차'}")
+                    elif str(hit).strip():
+                        lines.append(f"- {str(hit).strip()[:160]}")
+                if lines:
+                    local_block = "\n".join(lines)
+
+            system = (
+                genre_system
+                + "너는 장편 연재 원고의 중복·반복 표현을 잡는 편집 보조 AI '토리'야. "
+                "현재 회차와 앞뒤 인근 회차(최대 ±5)를 비교해, "
+                "① 같은 문장·같은 표현 ② 표현은 달라도 같은 내용·같은 사건을 중복으로 짚어. "
+                "답변은 한국어로, 작가가 바로 고칠 수 있게 구체적으로 작성해. "
+                "원고 전체를 다시 쓰지 마."
+            )
+            instruction = (
+                "중복 체크 목적: 현재 회차가 앞뒤 5회차 이내 원고와 겹치는지 검사한다.\n\n"
+                "다음 형식으로 답해 주세요.\n\n"
+                "## 중복 요약\n"
+                "- 전체 위험도: 낮음 / 보통 / 높음 (한 줄 이유)\n\n"
+                "## 동일·유사 표현\n"
+                "- 현재 회차의 문장/표현 ↔ 어느 회차의 어떤 표현 (인용)\n"
+                "- 없으면 「없음」\n\n"
+                "## 표현은 달라도 내용이 겹침\n"
+                "- 같은 사건·같은 감정 설명·같은 정보 전달이 인근 회차와 겹치면 지적\n"
+                "- 없으면 「없음」\n\n"
+                "## 수정 제안\n"
+                "- 겹치는 부분을 어떻게 줄이거나 차별화할지 2~5가지\n\n"
+                "주의: 장르 클리셰나 고유명사 반복만으로 과도하게 잡지 말고, "
+                "독자가 이미 읽은 느낌이 날 정도의 중복에 집중하세요."
+            )
+            context_parts = [
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                genre_context,
+                f"현재 회차 제목: {scene_title or '(없음)'}",
+                f"현재 회차 요약: {scene_synopsis or '(없음)'}",
+                f"[현재 회차 원고]\n{scene_content}",
+            ]
+            if neighbor_blocks:
+                context_parts.append(
+                    "[인근 회차 원고 (앞뒤 최대 5회차)]\n" + "\n\n".join(neighbor_blocks)
+                )
+            else:
+                context_parts.append("[인근 회차 원고] (없음 — 현재 회차만 검토)")
+            if local_block:
+                context_parts.append(
+                    "[자동 탐지된 후보 표현 (참고)]\n" + local_block
+                )
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+        elif mode in {"foreshadow", "plottwist"}:
+            buildup_text = "\n".join(f"- {step}" for step in buildup_list)
+            registered_block = (
+                f"[등록된 복선]\n"
+                f'- title: "{foreshadow_title}"\n'
+                f'- target: "{foreshadow_target}"\n'
+                f"- buildup:\n{buildup_text}"
+            )
+            current_block = (
+                f"[현재 원고] ({foreshadow_target or scene_title or '현재 장'} / "
+                f"씬: {scene_title or '(제목 없음)'})\n{scene_content}"
+            )
+
+            if mode == "foreshadow":
+                # checkForeshadowing() — 복선/떡밥 레이더
+                system = (
+                    genre_system
+                    + "너는 꼼꼼한 기록관 토리야. "
+                    "작가가 등록한 복선 단서들이 현재 원고에 잘 녹아들었는지 체크하고 "
+                    "누락된 떡밥을 짚어줘. "
+                    "답변은 한국어로, 군더더기 없이 실무적으로 작성해. "
+                    "원고 전체를 다시 쓰지 말고 단서 반영 여부와 미회수 항목에 집중해. "
+                    f"복선 검수 시 [{main_genre_label}] 장르 특유의 전개 속도(Pacing)와 개연성 기준을 적용해."
+                )
+                instruction = (
+                    "검수 목적: 원고에 지정된 단서가 누락 없이 잘 반영되었는지, "
+                    "미회수 떡밥이 무엇인지 체크한다.\n\n"
+                    "다음 형식으로 답해 주세요.\n"
+                    "## 단서 반영 체크리스트\n"
+                    "- 등록된 빌드업/단서 각각에 대해: 반영됨 / 부분 반영 / 누락 + 근거(원고 위치·표현)\n"
+                    "## 미회수 떡밥\n"
+                    "- 아직 회수되지 않았거나 흐지부지된 떡밥 목록\n"
+                    "## 보강 제안\n"
+                    "- 누락·약한 단서를 어떻게 심을지 2~3가지 구체 제안"
+                )
+            else:
+                # checkPlotTwist() — 반전 & 개연성 검사기
+                system = (
+                    genre_system
+                    + "너는 냉정한 독자 평가자 토리야. "
+                    "현재 챕터의 반전이 이전 챕터들의 복선과 비교했을 때 "
+                    "개연성이 충분한지, 억지스럽지 않은지 분석해줘. "
+                    "답변은 한국어로, 군더더기 없이 비판적으로 작성해. "
+                    "칭찬만 하지 말고 논리 구멍을 명확히 짚어. "
+                    f"반전 검수 시 [{main_genre_label}] 장르 특유의 전개 속도(Pacing)와 개연성 기준을 적용해."
+                )
+                instruction = (
+                    f"검수 목적: {foreshadow_target or '반전 장'}에서 그동안 쌓아온 복선들이 "
+                    "반전을 논리적이고 충격적으로 잘 지지하는지 검사한다.\n\n"
+                    "다음 형식으로 답해 주세요.\n"
+                    "## 반전 요약\n"
+                    "- 현재 원고에서 읽히는 반전/폭로를 1~3문장으로\n"
+                    "## 개연성 평가\n"
+                    "- 등록 복선·빌드업이 반전을 얼마나 지지하는지 (충분/아쉬움/부족)\n"
+                    "- 억지스럽거나 급전개로 느껴질 수 있는 지점\n"
+                    "## 충격도·설득력\n"
+                    "- 독자 관점의 놀라움과 납득감 평가\n"
+                    "## 보강 제안 (2가지)\n"
+                    "- 개연성·충격을 동시에 살릴 단서/장면 수정 제안 2가지"
+                )
+
+            context_parts = [
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                genre_context,
+                registered_block,
+                current_block,
+            ]
+            if scene_synopsis:
+                context_parts.append(f"현재 씬 요약: {scene_synopsis}")
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+        else:
+            # Persona shapes conversational answers; draft generation (continue/rewrite) keeps neutral craft tone.
+            use_persona = mode in {"free", "brainstorm", "ideas", "analyze"}
+            system = (
+                genre_system
+                + (persona_system if use_persona else "")
+                + "[Assist Mode]\n"
+                "한국어로, 군더더기 없이 바로 쓸 수 있게 돕습니다. "
+                "작가가 요청하지 않은 설정 스포일러나 과도한 설명은 줄이세요. "
+                f"현재 작품 종류는 '{purpose_label}'입니다. "
+                "장르 사전 선입견 없이, 주입된 [현재 프로젝트 메타데이터]·"
+                "[Current Active Project Context]의 장르·세계관·캐릭터만 절대 기준으로 삼으세요. "
+                "[Tory Core Identity]의 정체성·태도를 기반으로 수행하세요."
+            )
+            if use_persona:
+                system += (
+                    " 조언·분석 문장은 지정된 페르소나 톤(어떻게 말하는가)을 따르세요. "
+                    "다만 본문 초안을 쓸 때는 작품 문체를 우선하세요."
+                )
+            if focus_only:
+                system += (
+                    " 지금은 지정된 한 편의 원고(씬)에만 집중합니다. "
+                    "다른 장·다른 씬을 지어내거나 범위를 넓히지 말고, 이 원고의 문장·구조·감정·캐릭터만 다루세요."
+                )
+
+            if mode == "continue":
+                length_mode = str(
+                    body.get("length_mode")
+                    or body.get("continue_length_mode")
+                    or "short"
+                ).strip().lower()
+                user_hint = str(
+                    body.get("user_hint")
+                    or user_prompt
+                    or ""
+                ).strip()
+                instruction = self._build_continue_prompt(
+                    scene_content,
+                    length_mode,
+                    user_hint,
+                )
+                # Task prompt already embeds the manuscript — keep only project meta here.
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            else:
+                if mode == "rewrite":
+                    instruction = (
+                        "아래 씬 원고를 더 생생하고 읽기 좋게 다듬어 주세요. "
+                        "의미는 유지하고, 다듬은 전체 원고만 출력하세요."
+                    )
+                elif mode == "summarize":
+                    instruction = (
+                        "아래 씬 원고를 3~6문장으로 요약해 주세요. "
+                        "핵심 사건·감정·관계만 남기세요."
+                    )
+                elif mode == "ideas":
+                    instruction = (
+                        "아래 씬/설정을 바탕으로 다음에 쓸 수 있는 아이디어를 5~8개 제안해 주세요. "
+                        "짧은 불릿 목록으로 작성하세요."
+                    )
+                elif mode == "analyze":
+                    instruction = (
+                        "아래 원고를 집중 분석해 주세요. "
+                        "① 강점 ② 아쉬운 점 ③ 구조/호흡 ④ 캐릭터·감정 ⑤ 바로 고칠 수 있는 조언 3~5가지 "
+                        "순으로 짧게 정리하세요. 원고 전체를 다시 쓰지 마세요."
+                    )
+                elif mode == "brainstorm":
+                    instruction = (
+                        "아래 원고를 바탕으로 작가와 브레인스토밍하세요. "
+                        "갈래·반전·대사·장면 아이디어를 6~10개 제안하고, "
+                        "각 아이디어는 한두 문장으로 실행 가능하게 적어 주세요."
+                    )
+                else:
+                    instruction = (
+                        "작가의 요청에 맞춰 도와 주세요. 필요하면 원고 일부를 인용해 답하세요. "
+                        "요청 결과물(글/목록/조언)을 바로 쓸 수 있게 정리하세요."
+                    )
+
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                    f"현재 원고:\n{scene_content or '(아직 없음)'}",
+                ]
+                if user_prompt:
+                    context_parts.append(f"작가 요청:\n{user_prompt}")
+
+        # Prepend active context to tool modes that built context_parts earlier
+        if mode in {"worldscan", "dupcheck", "foreshadow", "plottwist"}:
+            if context_parts and not str(context_parts[0]).startswith("[Current Active Project Context]"):
+                context_parts = [active_project_context] + list(context_parts)
+
+        full_prompt = instruction + "\n\n" + "\n\n".join(context_parts)
+        try:
+            text = gemini_client.generate_text(full_prompt, system=system)
+        except gemini_client.GeminiError as error:
+            raise ValueError(str(error)) from error
+
+        return {
+            "mode": mode,
+            "text": text,
+            "model": gemini_client.model_name(),
+            "provider": "google-gemini",
+            "main_genre": main_genre_key,
+            "sub_genre": sub_genre_key,
+            "main_genre_label": main_genre_label,
+            "sub_genre_label": sub_genre_label,
+        }
+
+    @staticmethod
+    def _format_character_profiles(raw: object) -> str:
+        """Normalize character_profiles (dict / list / str) into readable Korean text."""
+        if raw is None:
+            return ""
+        if isinstance(raw, str):
+            return raw.strip()[:8000]
+        lines: list[str] = []
+        if isinstance(raw, dict):
+            for name, profile in list(raw.items())[:40]:
+                name_s = str(name or "").strip() or "이름 없음"
+                if isinstance(profile, dict):
+                    bits = []
+                    for key in (
+                        "summary", "short_description", "role", "profile",
+                        "profile_md", "strengths", "strengths_md",
+                        "weaknesses", "weaknesses_md", "notes",
+                    ):
+                        val = str(profile.get(key) or "").strip()
+                        if val:
+                            bits.append(val)
+                    if not bits:
+                        bits.append(json.dumps(profile, ensure_ascii=False)[:500])
+                    lines.append(f"- {name_s}: {' / '.join(bits)[:600]}")
+                else:
+                    lines.append(f"- {name_s}: {str(profile).strip()[:600]}")
+        elif isinstance(raw, list):
+            for item in raw[:40]:
+                if not isinstance(item, dict):
+                    text = str(item or "").strip()
+                    if text:
+                        lines.append(f"- {text[:600]}")
+                    continue
+                name_s = str(
+                    item.get("name") or item.get("title") or item.get("id") or "이름 없음"
+                ).strip()
+                bits = []
+                for key in (
+                    "summary", "short_description", "role", "profile", "profile_md",
+                    "strengths", "strengths_md", "weaknesses", "weaknesses_md",
+                ):
+                    val = str(item.get(key) or "").strip()
+                    if val:
+                        bits.append(val)
+                if not bits:
+                    bits.append(json.dumps(item, ensure_ascii=False)[:500])
+                lines.append(f"- {name_s}: {' / '.join(bits)[:600]}")
+        return "\n".join(lines)[:8000]
+
+    @staticmethod
+    def _genre_display_label(preferred: object, raw_key: object) -> str:
+        """Prefer client-provided Korean label; fall back to key / custom: text."""
+        label = str(preferred or "").strip()
+        if label:
+            return label[:80]
+        key = str(raw_key or "").strip()
+        if not key:
+            return "미정"
+        if key.startswith("custom:"):
+            custom = key[len("custom:"):].strip()
+            return custom[:80] if custom else "기타"
+        # Known keys (keep in sync with web/app.js MAIN_GENRES / SUB_GENRES labels)
+        known = {
+            "romance": "로맨스",
+            "fantasy": "판타지",
+            "sf": "SF",
+            "mystery": "미스터리",
+            "thriller": "스릴러·호러",
+            "historical": "역사·시대",
+            "martial": "무협",
+            "contemporary": "현대·일반",
+            "youth": "청소년",
+            "literary": "순문학",
+            "genre_lit": "장르문학",
+            "experimental": "실험장르",
+            "blgl": "BL·GL",
+            "other": "기타",
+            "modern": "현대로맨스",
+            "period": "시대로맨스",
+            "romfant": "로판",
+            "romcom": "로코",
+            "office": "오피스",
+            "school": "학원",
+            "contract": "계약·정략",
+            "chaebol": "재벌",
+            "high": "하이루판",
+            "low": "저루판",
+            "isekai": "이세계",
+            "game": "게임판타지",
+            "dark": "다크판타지",
+            "urban": "어반판타지",
+            "female": "여성향 판타지",
+            "space": "스페이스",
+            "dystopia": "디스토피아",
+            "cyberpunk": "사이버펑크",
+            "timeslip": "타임슬립",
+            "postapo": "아포칼립스",
+            "honkaku": "본격추리",
+            "social": "사회파",
+            "cozy": "코지",
+            "legal": "법정",
+            "crime": "범죄",
+            "psycho": "심리",
+            "action": "액션",
+            "horror": "호러",
+            "suspense": "서스펜스",
+            "joseon": "조선",
+            "goryeo": "고려",
+            "modern_era": "근현대",
+            "alt": "대체역사",
+            "sageuk": "사극",
+            "classic": "정통무협",
+            "new": "신무협",
+            "modern_wu": "현대한무",
+            "daily": "일상",
+            "growth": "성장",
+            "family": "가족",
+            "society": "사회",
+            "human": "휴먼",
+            "short": "단편",
+            "mid": "중편",
+            "long": "장편",
+            "meta": "메타픽션",
+            "form": "형식실험",
+            "hybrid": "혼합",
+            "bl": "BL",
+            "gl": "GL",
+            "omega": "오메가버스",
+            "mix": "혼합",
+            "tbd": "미정",
+        }
+        return known.get(key, key)[:80]
+
+    @staticmethod
+    def _tory_core_identity_system_prompt() -> str:
+        """Base identity for Tory — always on; persona modes only change speech style."""
+        return (
+            "[Tory Core Identity]\n"
+            "당신은 '토리'입니다. 글쓰기 프로그램 SuperTORY에 탑재된 AI 어시스턴트입니다.\n\n"
+            "[정체성]\n"
+            "당신은 다음 세 가지 존재가 하나로 합쳐진 조력자입니다.\n\n"
+            "1. 뛰어난 편집자 (Editor)\n"
+            "   원고의 구조, 흐름, 논리적 허점, 군더더기를 정확히 짚어낼 수 있다.\n"
+            "   무엇을 살리고 무엇을 덜어내야 하는지 구조적으로 판단한다.\n\n"
+            "2. 예리한 비평가 (Critic)\n"
+            "   작품을 장르 관습, 서사 기법, 문체의 완성도라는 기준으로 평가할 수 있다.\n"
+            "   좋다/나쁘다를 감이 아니라 구체적 근거로 설명할 수 있다.\n\n"
+            "3. 방대하게 읽어온 독자 (Well-read Reader)\n"
+            "   수많은 이야기를 접해봤기에, 이 원고에서 무엇이 진부하고 무엇이 신선한지 "
+            "감각적으로 구분할 수 있다. "
+            "독자가 실제로 어디서 몰입하고 어디서 흥미를 잃을지 예측할 수 있다.\n\n"
+            "이 세 정체성은 경쟁하지 않고 하나의 목적을 위해 협력합니다: "
+            "작가가 스스로는 보기 어려운 자기 원고의 모습을 보게 하는 것.\n\n"
+            "[핵심 태도]\n"
+            "- 당신은 작가의 대체자가 아니라 조력자입니다. 작가의 의도와 목소리를 존중하며, "
+            "당신의 취향으로 원고를 덮어쓰려 하지 않습니다.\n"
+            "- 막연한 칭찬이나 막연한 비판을 하지 않습니다. "
+            "「좋다/별로다」로 끝내지 않고, 왜 그런지 원고 안의 근거를 들어 설명합니다.\n"
+            "- 모르거나 원고에 없는 정보는 추측하거나 지어내지 않습니다. "
+            "확인되지 않으면 솔직하게 그렇다고 말합니다.\n"
+            "- 작가가 상처받을 수 있는 피드백도 회피하지 않되, 항상 "
+            "「이 원고를 더 낫게 만들기 위해서」라는 목적 안에서만 말합니다. "
+            "인신공격이나 근거 없는 폄하는 하지 않습니다.\n"
+            "- 당신의 모든 판단은 작가가 다음 문장을, 다음 장면을, 다음 원고를 더 잘 쓰게 "
+            "만드는 데 기여해야 합니다. 판단을 위한 판단은 하지 않습니다.\n\n"
+            "[대화 방식]\n"
+            "- 사용자가 선택한 모드(친절한 조수/진지 비서/친구/애교/선생님/투덜이 등)의 "
+            "말투를 따르되, 위 정체성과 핵심 태도는 모드와 무관하게 항상 유지됩니다. "
+            "모드는 「어떻게 말하는가」를 바꿀 뿐, 「무엇을 근거로 판단하는가」는 바꾸지 않습니다.\n"
+            "- 요약, 첨삭, 아이디어 제안 등 구체적 기능을 수행할 때는 해당 기능의 별도 "
+            "지침을 따르되, 이 정체성과 태도를 기반으로 수행합니다.\n\n"
+        )
+
+    @staticmethod
+    def _get_proportional_continue_length(original_length: int) -> int:
+        n = max(0, int(original_length or 0))
+        if n < 1000:
+            return 200
+        if n < 5000:
+            return 400
+        if n < 20000:
+            return 700
+        return 1000
+
+    @classmethod
+    def _build_continue_prompt(
+        cls,
+        original_text: str,
+        length_mode: str = "short",
+        user_hint: str = "",
+    ) -> str:
+        """Task-only continue prompt (Core Identity lives in system)."""
+        text = str(original_text or "").strip()
+        mode = str(length_mode or "short").strip().lower()
+        if mode not in {"short", "scene", "proportional"}:
+            mode = "short"
+        hint = str(user_hint or "").strip()
+
+        if mode == "short":
+            length_instruction = (
+                "\n[길이 지침]\n"
+                "- 1~2개 문단 분량만 작성한다.\n"
+                "- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.\n"
+                "- 사용자가 이 결과를 보고 다시 \"이어서 쓰기\"를 누를 것을 전제로, 다음 전개의 "
+                "방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).\n"
+            )
+        elif mode == "scene":
+            length_instruction = (
+                "\n[길이 지침]\n"
+                "- 현재 장면이 자연스러운 완결점(장소 이동, 시간 경과, 갈등의 일단락 등)에 "
+                "도달할 때까지 작성한다.\n"
+                "- 임의로 새로운 씬으로 전환하지 않는다. 장면이 끝나면 그 지점에서 멈춘다.\n"
+                "- 장면 안에서 사건, 대사, 감정선이 유기적으로 이어지도록 구성한다.\n"
+            )
+        else:
+            target = cls._get_proportional_continue_length(len(text))
+            length_instruction = (
+                "\n[길이 지침]\n"
+                f"- 약 {target}자 내외로 작성한다.\n"
+                "- 이 길이 안에서 자연스럽게 끊을 수 있는 지점(문장이 완결되는 곳)에서 마무리한다.\n"
+                "- 글자 수를 맞추기 위해 불필요하게 늘리거나 문장을 어색하게 자르지 않는다.\n"
+            )
+
+        hint_line = (
+            f'6. 사용자가 다음 방향에 대해 다음과 같은 힌트를 주었다면 반영한다: "{hint}"\n'
+            if hint
+            else ""
+        )
+
+        return (
+            "[현재 작업]\n"
+            "아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 원문의 문장 길이, 어휘 수준, 문체 리듬을 그대로 따른다. 더 화려하거나 "
+            "단조롭게 바꾸지 않는다.\n"
+            "2. 원문의 시점(1인칭/3인칭)과 시제를 그대로 유지한다.\n"
+            "3. 등장인물의 말투와 사고방식을 원문에서 추론해 일관되게 재현한다.\n"
+            "4. 이미 원문에 나온 설정(인물의 능력, 관계, 세계관 규칙 등) 안에서만 전개한다. "
+            "새로운 핵심 설정을 임의로 만들어내지 않는다.\n"
+            "5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을 "
+            "요약하거나 반복하지 않는다.\n"
+            f"{hint_line}"
+            f"{length_instruction}\n"
+            "[문장 규칙]\n"
+            "- 이어지는 본문만 출력한다. \"이어서 작성하면\", \"다음은 이어지는 내용입니다\" 같은 "
+            "메타 표현이나 설명을 붙이지 않는다.\n"
+            "- 원문과 이어지는 부분의 경계가 어색하지 않도록, 필요하면 원문 마지막 문장의 "
+            "흐름을 고려해 접속어나 시간 표현으로 자연스럽게 시작한다.\n\n"
+            "[원고]\n"
+            f"{text}\n\n"
+            "[이어지는 내용]"
+        )
+
+    @staticmethod
+    def _tory_persona_system_prompt(persona_mode: str) -> str:
+        """Tone / speech-style control for Tory ([Current Persona Mode])."""
+        key = str(persona_mode or "default").strip().lower()
+        # Accept Korean aliases and English keys
+        aliases = {
+            "기본": "default",
+            "기본모드": "default",
+            "default": "default",
+            "base": "default",
+            "assistant": "default",
+            "진지": "secretary",
+            "비서": "secretary",
+            "진지비서": "secretary",
+            "secretary": "secretary",
+            "formal": "secretary",
+            "친구": "friend",
+            "friend": "friend",
+            "buddy": "friend",
+            "애교": "aegyo",
+            "aegyo": "aegyo",
+            "cute": "aegyo",
+            "선생님": "teacher",
+            "teacher": "teacher",
+            "mentor": "teacher",
+            "투덜이": "grumbler",
+            "투덜": "grumbler",
+            "팩폭": "grumbler",
+            "grumbler": "grumbler",
+            "cynical": "grumbler",
+            "complainer": "grumbler",
+        }
+        key = aliases.get(
+            key,
+            key if key in {"default", "secretary", "friend", "aegyo", "teacher", "grumbler"} else "default",
+        )
+        modes = {
+            "default": (
+                "친절하고 유능한 AI 조수 톤. "
+                "존댓말을 쓰되 부담 없이 또렷하게. 과장 없이 도움이 되는 설명을 한다."
+            ),
+            "secretary": (
+                "진지 비서 모드: 경어체 사용. 사설 없이 명확·신속·격식 있는 보고서 톤. "
+                "불릿·번호로 정리하고 감정 표현·감탄사는 거의 쓰지 않는다."
+            ),
+            "friend": (
+                "친구 모드: 반말과 편한 존댓말을 자연스럽게 섞는다. "
+                "격식 없는 찐친 느낌. 감탄사와 리액션을 적극 활용한다. "
+                "다만 욕설·비하는 피한다."
+            ),
+            "aegyo": (
+                "애교 모드: 문장 끝을 '~했어용', '~이랍니당'처럼 애교 있게. "
+                "하트·이모지를 적극 쓰고 극강의 우쭈쭈·응원 톤. "
+                "중요한 정보는 애교 속에서도 빠뜨리지 않는다."
+            ),
+            "teacher": (
+                "선생님 모드: 단정하고 차분한 어조. "
+                "조언과 피드백 위주의 지도자 톤. 칭찬과 개선점을 균형 있게 제시한다."
+            ),
+            "grumbler": (
+                "투덜이 모드: 팩폭이 필요할 때 쓰는 톤. "
+                "객관적 판단 기준(후킹·개연성·캐릭터 동기·리듬·세계관 이해도 등)은 다른 모드와 동일하다. "
+                "달라지는 것은 표현뿐이다. "
+                "좋은 점은 시니컬·투덜거리는 칭찬으로 말한다 "
+                "(예: '질투가 나는군', '너무 재밌어서 잠을 못 잘 것 같으니 수면에 방해가 되겠군'). "
+                "단점은 포장 없이, 그러나 무례하지 않게, 작품에 대한 1인칭 독자 반응으로 말한다 "
+                "(예: '후킹이 없어서 심심해', '읽다 보니 지루해지는군', '앞뒤가 안 맞는군', "
+                "'세계관이 낯설어서 난 적응 못하겠네', '이게 무슨 뜻인지 모르겠군', "
+                "'주인공이 왜 이러는지 도통 이해가 안 가', '주인공의 행동이 맘에 안 들어'). "
+                "절대 금지: 작가를 비난·몰아세우기, 인신공격, "
+                "'이런 걸 누가 읽어?'처럼 작품·독자를 공격하는 말. "
+                "오직 작품에 대한 관점만 말한다. 반말·투덜거리는 '~군/~네'체를 쓰되 욕설은 쓰지 않는다."
+            ),
+        }
+        guide = modes[key]
+        return (
+            f"[Current Persona Mode: {key}]\n"
+            f"- {guide}\n"
+            "- 이 모드는 「어떻게 말하는가」(말투·어조)만 바꾼다. "
+            "[Tory Core Identity]의 정체성·핵심 태도·판단 근거는 바꾸지 않는다.\n"
+            "- 위 톤을 모든 문장에 일관되게 적용한다. "
+            "작가 요청이 톤 변경이 아니면 다른 페르소나로 바꾸지 않는다.\n"
+        )
+
+    @staticmethod
+    def _tory_genre_specialist_title(main_label: str) -> str:
+        """Short specialist identity for the *current* project genre (context switch)."""
+        main = (main_label or "").strip()
+        if not main or main in {"미정", "없음", "-"}:
+            return "전 장르 베테랑 전문 에디터"
+        # Compact nicknames for common web-novel labels (optional polish)
+        compact = {
+            "로맨스 판타지": "로판",
+            "로맨스판타지": "로판",
+            "현대 판타지": "현판",
+            "현대판타지": "현판",
+            "무협": "무협",
+            "판타지": "판타지",
+            "SF": "SF",
+            "미스터리": "미스터리",
+            "스릴러": "스릴러",
+            "호러": "호러",
+            "에세이": "에세이",
+            "수필": "에세이",
+            "순수문학": "순수문학",
+            "문학": "문학",
+            "실용서": "실용서",
+            "라이트노벨": "라노벨",
+            "BL": "BL",
+            "GL": "GL",
+            "현대로맨스": "현로",
+            "현대 로맨스": "현로",
+            "역사": "역사",
+            "대체역사": "대체역사",
+            "게임": "게임",
+            "스포츠": "스포츠",
+            "드라마": "드라마",
+            "일상": "일상",
+        }
+        nick = compact.get(main, main)
+        return f"{nick} 전문 에디터"
+
+    @classmethod
+    def _tory_dynamic_context_system_prompt(
+        cls,
+        main_genre_label: str = "",
+        sub_genre_label: str = "",
+        world_setting_keywords: str = "",
+        character_profiles: object = None,
+        # Back-compat positional aliases
+        main_label: str = "",
+        sub_label: str = "",
+    ) -> str:
+        """
+        Rebuild system_instruction on every request from live project metadata.
+        Project A (로판) → 로판 전문 에디터 / Project B (에세이) → 에세이 전문 에디터.
+        """
+        main = (
+            (main_genre_label or main_label or "미정").strip() or "미정"
+        )
+        sub = (
+            (sub_genre_label or sub_label or "미정").strip() or "미정"
+        )
+        keywords = (world_setting_keywords or "").strip() or "미정"
+        if isinstance(character_profiles, str):
+            chars = character_profiles.strip() or "(캐릭터 미입력)"
+        elif character_profiles:
+            chars = cls._format_character_profiles(character_profiles) or "(캐릭터 미입력)"
+        else:
+            chars = "(캐릭터 미입력)"
+        if len(chars) > 2500:
+            chars = chars[:2500] + "…"
+
+        specialist = cls._tory_genre_specialist_title(main)
+        # Lead line matches the product contract:
+        # "너는 로판 전문 에디터야. 메인장르: 로맨스판타지..."
+        # "너는 에세이 전문 에디터야. 메인장르: 에세이..."
+        active_identity = (
+            f"너는 {specialist}야. "
+            f"메인장르: {main}"
+            + (f" · 서브장르: {sub}" if sub and sub != "미정" else "")
+            + "."
+        )
+
+        return (
+            "[Active Project System Instruction — rebuilt every request]\n"
+            f"{active_identity}\n"
+            "이번 요청에서는 위 정체성만 사용하세요. "
+            "이전 프로젝트·이전 장르 페르소나는 전부 버리고(Flush) 이 문장으로 시야를 교체하세요.\n\n"
+            "[Role & Capability]\n"
+            f"- 당신은 [Tory Core Identity]를 유지한 채, 지금 '{main}' 작품만을 담당하는 "
+            f"'{specialist}' 토리입니다.\n"
+            "- 바탕에는 웹소설·순수문학·에세이·실용서 등 전 장르를 섭렵한 베테랑 역량이 있으나, "
+            "현재 세션에서는 반드시 위 메인장르 전문 모드로만 사고·답변하세요.\n"
+            "- 해당 장르의 문법, 톤앤매너, 클리셰, 서사 구조, 독자 기대를 깊이 있게 적용하세요.\n"
+            "- 답변은 한국어로 합니다.\n\n"
+            "[Dynamic Genre & Lore Adaptation Rules]\n"
+            "1. 프로젝트 스위칭 (Context Switch):\n"
+            "   - 특정 장르에 영구 고정된 선입견을 갖지 마세요.\n"
+            "   - 유저가 프로젝트를 바꾸면 system_instruction 자체가 위처럼 다시 쓰입니다. "
+            "예: 로판 작업 중 → '로판 전문 에디터' / 에세이 프로젝트로 전환 후 스캔·대화 클릭 → "
+            "'에세이 전문 에디터'로 즉시 전환.\n"
+            "   - 이전 작품의 캐릭터·세계관·톤을 현재 답변에 섞지 마세요.\n\n"
+            "2. 현재 주입된 프로젝트 메타데이터 (이번 요청 절대 기준):\n"
+            f"   - 메인 장르 (project_genre_main): {main}  ← 기본 디폴트·전문 모드 기준\n"
+            f"   - 서브 장르 (project_genre_sub): {sub}\n"
+            f"   - 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
+            f"   - 캐릭터 설정 (character_profiles): {chars}\n\n"
+            "3. 원고 해석 지침:\n"
+            f"   - 지금은 '{main}' 전문 에디터 시선으로만 원고를 읽고 의견을 주세요.\n"
+            "   - 예: 메인 장르가 '로맨스 판타지'/'로판'이면 관계성·감정선·세계관 감성으로, "
+            "'에세이'면 담백하고 진솔한 수필의 시선으로, "
+            "'무협'이면 무협 어조·무림 세계관 시선으로 바라보세요.\n"
+            "   - 추가로 전달되는 [Current Active Project Context](설정집 본문·캐릭터 상세)가 있으면 "
+            "위 메타데이터와 함께 절대 기준으로 사용하세요.\n"
+        )
+
+    @classmethod
+    def _tory_active_project_context(
+        cls,
+        *,
+        main_genre_label: str,
+        sub_genre_label: str,
+        purpose_label: str = "",
+        keywords_label: str = "",
+        world_setting: str = "",
+        character_profiles: object = None,
+        project_title: str = "",
+    ) -> str:
+        """Serialize [Current Active Project Context] for prompts."""
+        world = (world_setting or "").strip() or "(설정집 미입력)"
+        if isinstance(character_profiles, str):
+            chars = character_profiles.strip() or "(캐릭터 미입력)"
+        elif character_profiles:
+            chars = cls._format_character_profiles(character_profiles) or "(캐릭터 미입력)"
+        else:
+            chars = "(캐릭터 미입력)"
+        keywords = (keywords_label or "").strip() or "미정"
+        purpose = (purpose_label or "").strip() or "미정"
+        title = (project_title or "").strip() or "(제목 없음)"
+        return (
+            "[Current Active Project Context] (= 현재 프로젝트 메타데이터 상세)\n"
+            f"* 작품 제목: {title}\n"
+            f"* 작품 종류: {purpose}\n"
+            f"* 메인 장르 (project_genre_main): {main_genre_label or '미정'}\n"
+            f"* 서브 장르 (project_genre_sub): {sub_genre_label or '미정'}\n"
+            f"* 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
+            f"* 세계관·설정집 본문 (world_setting):\n{world}\n"
+            f"* 캐릭터 설정 (character_profiles):\n{chars}\n"
+        )
+
+    # Back-compat alias used by older call sites
+    @classmethod
+    def _tory_genre_system_prompt(cls, main_label: str, sub_label: str) -> str:
+        return cls._tory_dynamic_context_system_prompt(
+            main_genre_label=main_label,
+            sub_genre_label=sub_label,
+        )
+
+    def list_ideas(self, project_id: int) -> list[dict]:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
+                "FROM idea_note WHERE project_id = ? ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+        return [as_dict(row) for row in rows]
+
+    def create_idea(self, project_id: int, body: dict) -> dict:
+        title = str(body.get("title", "")).strip()[:120]
+        body_md = str(body.get("body_md", "")).strip()[:8000]
+        color = str(body.get("color", "yellow") or "yellow")
+        if color not in IDEA_COLORS:
+            color = "yellow"
+        if not title and not body_md:
+            title = "새 메모"
+        with database() as connection:
+            self.require_project(connection, project_id)
+            sort_order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM idea_note WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()[0]
+            cursor = connection.execute(
+                "INSERT INTO idea_note(project_id, title, body_md, color, sort_order) VALUES (?, ?, ?, ?, ?)",
+                (project_id, title, body_md, color, sort_order),
+            )
+            row = connection.execute(
+                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
+                "FROM idea_note WHERE id = ?",
+                (cursor.lastrowid,),
+            ).fetchone()
+        return as_dict(row)  # type: ignore[return-value]
+
+    def update_idea(self, idea_id: int, body: dict) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, title, body_md, color, sort_order FROM idea_note WHERE id = ?",
+                (idea_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("아이디어 메모를 찾을 수 없습니다.")
+            title = row["title"]
+            body_md = row["body_md"]
+            color = row["color"]
+            sort_order = row["sort_order"]
+            if "title" in body:
+                title = str(body.get("title", "")).strip()[:120]
+            if "body_md" in body:
+                body_md = str(body.get("body_md", "")).strip()[:8000]
+            if "color" in body:
+                next_color = str(body.get("color", "yellow") or "yellow")
+                if next_color not in IDEA_COLORS:
+                    raise ValueError("메모 색이 올바르지 않습니다.")
+                color = next_color
+            if "sort_order" in body:
+                try:
+                    sort_order = max(0, int(body.get("sort_order", 0)))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("정렬 순서가 올바르지 않습니다.") from error
+            connection.execute(
+                "UPDATE idea_note SET title = ?, body_md = ?, color = ?, sort_order = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+                (title, body_md, color, sort_order, idea_id),
+            )
+            updated = connection.execute(
+                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
+                "FROM idea_note WHERE id = ?",
+                (idea_id,),
+            ).fetchone()
+        return as_dict(updated)  # type: ignore[return-value]
+
+    def delete_idea(self, idea_id: int) -> None:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id FROM idea_note WHERE id = ?", (idea_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("아이디어 메모를 찾을 수 없습니다.")
+            connection.execute("DELETE FROM idea_note WHERE id = ?", (idea_id,))
+
+    def save_chapter(self, chapter_id: int, body: dict) -> None:
+        title = str(body.get("title", "")).strip()
+        if not title:
+            raise ValueError("챕터 이름을 입력해 주세요.")
+        if len(title) > 200:
+            raise ValueError("챕터 이름이 너무 깁니다.")
+        with database() as connection:
+            chapter = connection.execute(
+                "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("챕터를 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE chapter SET title = ? WHERE id = ?",
+                (title, chapter_id),
+            )
+
+    def _chapter_group_filter_sql(self, part_id) -> tuple[str, tuple]:
+        """SQL fragment + params for chapters in one binder group (part or ungrouped)."""
+        if part_id is None:
+            return "part_id IS NULL", ()
+        return "part_id = ?", (int(part_id),)
+
+    def _assign_chapter_sort_orders(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        chapter_ids: list[int],
+        part_id=None,
+    ) -> None:
+        """Park then assign 0..n-1 to avoid unique(sort_order) clashes within a group."""
+        base = 1_000_000
+        for index, chapter_id in enumerate(chapter_ids):
+            connection.execute(
+                "UPDATE chapter SET sort_order = ? "
+                "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                (base + index, chapter_id, project_id),
+            )
+        for index, chapter_id in enumerate(chapter_ids):
+            connection.execute(
+                "UPDATE chapter SET sort_order = ? "
+                "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                (index, chapter_id, project_id),
+            )
+
+    def _assign_part_sort_orders(
+        self, connection: sqlite3.Connection, project_id: int, part_ids: list[int]
+    ) -> None:
+        base = 1_000_000
+        for index, part_id in enumerate(part_ids):
+            connection.execute(
+                "UPDATE part SET sort_order = ? "
+                "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                (base + index, part_id, project_id),
+            )
+        for index, part_id in enumerate(part_ids):
+            connection.execute(
+                "UPDATE part SET sort_order = ? "
+                "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                (index, part_id, project_id),
+            )
+
+    def _next_part_title(
+        self, connection: sqlite3.Connection, project_id: int, style: str | None = None
+    ) -> str:
+        rows = connection.execute(
+            "SELECT title FROM part WHERE project_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order, id",
+            (project_id,),
+        ).fetchall()
+        titles = [str(row["title"] or "") for row in rows]
+        suffix = "권"
+        hint = str(style or "").strip().lower()
+        if hint in {"bu", "부", "part"}:
+            suffix = "부"
+        elif hint in {"kwon", "권", "volume", "vol"}:
+            suffix = "권"
+        else:
+            bu_hits = sum(1 for t in titles if re.search(r"부\s*$", t) or "부" in t)
+            kwon_hits = sum(1 for t in titles if re.search(r"권\s*$", t) or "권" in t)
+            if bu_hits > kwon_hits:
+                suffix = "부"
+        return f"{len(titles) + 1}{suffix}"
+
+    def create_part(self, project_id: int, body: dict) -> dict:
+        """Create a binder volume/part (1권, 2부, …) that groups folders.
+
+        Optional body.chapter_id moves that folder into the new 권/부 immediately.
+        """
+        move_chapter_id = None
+        raw_ch = body.get("chapter_id")
+        if raw_ch is not None and str(raw_ch).strip() != "":
+            try:
+                move_chapter_id = int(raw_ch)
+            except (TypeError, ValueError) as error:
+                raise ValueError("넣을 폴더 정보가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            style = body.get("style")
+            title = str(body.get("title") or "").strip()
+            if not title:
+                title = self._next_part_title(connection, project_id, style)
+            if len(title) > 200:
+                raise ValueError("권/부 이름이 너무 깁니다.")
+            sort_order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM part "
+                "WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+            cursor = connection.execute(
+                "INSERT INTO part(project_id, title, sort_order) VALUES (?, ?, ?)",
+                (project_id, title, sort_order),
+            )
+            part_id = int(cursor.lastrowid)
+
+            moved_chapter_id = None
+            if move_chapter_id is not None:
+                chapter = connection.execute(
+                    "SELECT id, project_id, part_id FROM chapter "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (move_chapter_id,),
+                ).fetchone()
+                if chapter is None or int(chapter["project_id"]) != project_id:
+                    raise ValueError("권/부에 넣을 폴더를 찾을 수 없습니다.")
+                old_part = (
+                    int(chapter["part_id"]) if chapter["part_id"] is not None else None
+                )
+                next_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                    "WHERE project_id = ? AND part_id = ? AND deleted_at IS NULL",
+                    (project_id, part_id),
+                ).fetchone()[0]
+                connection.execute(
+                    "UPDATE chapter SET part_id = ?, sort_order = ?, "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                    "row_version = row_version + 1 "
+                    "WHERE id = ?",
+                    (part_id, next_order, move_chapter_id),
+                )
+                # Compact previous group
+                src_sql, src_params = self._chapter_group_filter_sql(old_part)
+                remaining = [
+                    int(row["id"])
+                    for row in connection.execute(
+                        f"SELECT id FROM chapter "
+                        f"WHERE project_id = ? AND deleted_at IS NULL AND {src_sql} "
+                        f"ORDER BY sort_order, id",
+                        (project_id, *src_params),
+                    ).fetchall()
+                ]
+                if remaining:
+                    self._assign_chapter_sort_orders(
+                        connection, project_id, remaining, part_id=old_part
+                    )
+                moved_chapter_id = move_chapter_id
+
+        return {
+            "id": part_id,
+            "title": title,
+            "sort_order": int(sort_order or 0),
+            "chapter_id": moved_chapter_id,
+        }
+
+    def save_part(self, part_id: int, body: dict) -> dict:
+        title = str(body.get("title", "")).strip()
+        if not title:
+            raise ValueError("권/부 이름을 입력해 주세요.")
+        if len(title) > 200:
+            raise ValueError("권/부 이름이 너무 깁니다.")
+        with database() as connection:
+            part = connection.execute(
+                "SELECT id, project_id, title FROM part WHERE id = ? AND deleted_at IS NULL",
+                (part_id,),
+            ).fetchone()
+            if part is None:
+                raise ValueError("권/부를 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE part SET title = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (title, part_id),
+            )
+        return {"ok": True, "id": part_id, "title": title}
+
+    def trash_part(self, part_id: int) -> dict:
+        """Soft-delete a volume/part and cascade to its folders/scenes."""
+        with database() as connection:
+            part = connection.execute(
+                "SELECT id, project_id, title FROM part "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (part_id,),
+            ).fetchone()
+            if part is None:
+                raise ValueError("권/부를 찾을 수 없습니다. 이미 버려졌을 수 있어요.")
+            chapter_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT id FROM chapter WHERE part_id = ? AND deleted_at IS NULL",
+                    (part_id,),
+                ).fetchall()
+            ]
+            scene_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT s.id FROM scene s "
+                    "JOIN chapter c ON c.id = s.chapter_id "
+                    "WHERE c.part_id = ? AND s.deleted_at IS NULL AND c.deleted_at IS NULL",
+                    (part_id,),
+                ).fetchall()
+            ]
+            now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+            connection.execute(
+                f"UPDATE part SET deleted_at = {now_sql}, "
+                f"updated_at = {now_sql}, "
+                f"row_version = row_version + 1 "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (part_id,),
+            )
+            # Safety net if cascade triggers are missing
+            if chapter_ids:
+                connection.execute(
+                    f"UPDATE chapter SET deleted_at = COALESCE(deleted_at, {now_sql}), "
+                    f"updated_at = {now_sql} "
+                    "WHERE part_id = ? AND deleted_at IS NULL",
+                    (part_id,),
+                )
+            if scene_ids:
+                connection.execute(
+                    f"UPDATE scene SET deleted_at = COALESCE(deleted_at, {now_sql}), "
+                    f"updated_at = {now_sql} "
+                    "WHERE id IN ({}) AND deleted_at IS NULL".format(
+                        ",".join("?" * len(scene_ids))
+                    ),
+                    scene_ids,
+                )
+        return {
+            "ok": True,
+            "id": part_id,
+            "title": part["title"],
+            "project_id": int(part["project_id"]),
+            "chapter_count": len(chapter_ids),
+            "scene_count": len(scene_ids),
+            "chapter_ids": chapter_ids,
+            "scene_ids": scene_ids,
+        }
+
+    def reorder_parts(self, project_id: int, body: dict) -> None:
+        raw_ids = body.get("part_ids", [])
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("바꿀 권/부 목록이 비어 있습니다.")
+        try:
+            part_ids = [int(value) for value in raw_ids]
+        except (TypeError, ValueError) as error:
+            raise ValueError("권/부 목록이 올바르지 않습니다.") from error
+        if len(part_ids) != len(set(part_ids)):
+            raise ValueError("권/부 목록에 중복이 있습니다.")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT id FROM part "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+            existing_ids = [int(row["id"]) for row in rows]
+            if sorted(existing_ids) != sorted(part_ids):
+                raise ValueError(
+                    "현재 작품의 권/부 목록과 일치하지 않습니다. 새로고침 후 다시 시도해 주세요."
+                )
+            self._assign_part_sort_orders(connection, project_id, part_ids)
+
+    def move_chapter(self, chapter_id: int, body: dict) -> dict:
+        """Move a folder into a 권/부 or back to ungrouped."""
+        raw_part = body.get("part_id", None)
+        if raw_part is None or raw_part == "" or raw_part is False:
+            target_part_id = None
+        else:
+            try:
+                target_part_id = int(raw_part)
+            except (TypeError, ValueError) as error:
+                raise ValueError("옮길 권/부가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            chapter = connection.execute(
+                "SELECT id, project_id, part_id, title FROM chapter "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("챕터를 찾을 수 없습니다.")
+            project_id = int(chapter["project_id"])
+            old_part_id = chapter["part_id"]
+            if old_part_id is not None:
+                old_part_id = int(old_part_id)
+
+            if target_part_id is not None:
+                part = connection.execute(
+                    "SELECT id FROM part "
+                    "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                    (target_part_id, project_id),
+                ).fetchone()
+                if part is None:
+                    raise ValueError("옮길 권/부를 찾을 수 없습니다.")
+
+            if old_part_id == target_part_id:
+                return {
+                    "ok": True,
+                    "id": chapter_id,
+                    "part_id": target_part_id,
+                    "moved": False,
+                }
+
+            group_sql, group_params = self._chapter_group_filter_sql(target_part_id)
+            next_order = connection.execute(
+                f"SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql}",
+                (project_id, *group_params),
+            ).fetchone()[0]
+            connection.execute(
+                "UPDATE chapter SET part_id = ?, sort_order = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (target_part_id, next_order, chapter_id),
+            )
+            # Compact sort orders in the source group
+            src_sql, src_params = self._chapter_group_filter_sql(old_part_id)
+            remaining = [
+                int(row["id"])
+                for row in connection.execute(
+                    f"SELECT id FROM chapter "
+                    f"WHERE project_id = ? AND deleted_at IS NULL AND {src_sql} "
+                    f"ORDER BY sort_order, id",
+                    (project_id, *src_params),
+                ).fetchall()
+            ]
+            if remaining:
+                self._assign_chapter_sort_orders(
+                    connection, project_id, remaining, part_id=old_part_id
+                )
+        return {
+            "ok": True,
+            "id": chapter_id,
+            "title": chapter["title"],
+            "part_id": target_part_id,
+            "moved": True,
+        }
+
+    def reorder_projects(self, body: dict) -> dict:
+        """Persist manual project list order and switch list mode to manual."""
+        raw_ids = body.get("project_ids", [])
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("바꿀 작품 목록이 비어 있습니다.")
+        try:
+            project_ids = [int(value) for value in raw_ids]
+        except (TypeError, ValueError) as error:
+            raise ValueError("작품 목록이 올바르지 않습니다.") from error
+        if len(project_ids) != len(set(project_ids)):
+            raise ValueError("작품 목록에 중복이 있습니다.")
+
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT id FROM project WHERE deleted_at IS NULL ORDER BY id"
+            ).fetchall()
+            existing_ids = [int(row["id"]) for row in rows]
+            if sorted(existing_ids) != sorted(project_ids):
+                raise ValueError(
+                    "현재 작품 목록과 일치하지 않습니다. 새로고침 후 다시 시도해 주세요."
+                )
+            # Two-phase update avoids unique conflicts if a unique index is added later.
+            for offset, project_id in enumerate(project_ids):
+                connection.execute(
+                    "UPDATE project SET list_sort_order = ? WHERE id = ?",
+                    (10_000 + offset, project_id),
+                )
+            for order, project_id in enumerate(project_ids):
+                connection.execute(
+                    "UPDATE project SET list_sort_order = ? WHERE id = ?",
+                    (order, project_id),
+                )
+            mode = set_project_list_mode(connection, "manual")
+            projects = list_projects_payload(connection)
+        return {"ok": True, "list_mode": mode, "projects": projects}
+
+    def set_projects_list_mode(self, body: dict) -> dict:
+        """Switch between recent-open order and manual list order."""
+        mode = str(body.get("mode") or "recent").strip().lower()
+        if mode not in {"recent", "manual"}:
+            raise ValueError("작품 목록 정렬 방식이 올바르지 않습니다.")
+        with database() as connection:
+            if mode == "manual":
+                # Seed manual order from current recent order if switching into manual.
+                current = list_projects_payload(connection)
+                ids = [int(item["id"]) for item in current]
+                for offset, project_id in enumerate(ids):
+                    connection.execute(
+                        "UPDATE project SET list_sort_order = ? WHERE id = ?",
+                        (10_000 + offset, project_id),
+                    )
+                for order, project_id in enumerate(ids):
+                    connection.execute(
+                        "UPDATE project SET list_sort_order = ? WHERE id = ?",
+                        (order, project_id),
+                    )
+            saved = set_project_list_mode(connection, mode)
+            projects = list_projects_payload(connection)
+        return {"ok": True, "list_mode": saved, "projects": projects}
+
+    def reorder_chapters(self, project_id: int, body: dict) -> None:
+        """Set chapter sort_order to match the given id list within one binder group."""
+        raw_ids = body.get("chapter_ids", [])
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("바꿀 챕터 목록이 비어 있습니다.")
+        try:
+            chapter_ids = [int(value) for value in raw_ids]
+        except (TypeError, ValueError) as error:
+            raise ValueError("챕터 목록이 올바르지 않습니다.") from error
+        if len(chapter_ids) != len(set(chapter_ids)):
+            raise ValueError("챕터 목록에 중복이 있습니다.")
+
+        raw_part = body.get("part_id", None)
+        if raw_part is None or raw_part == "" or str(raw_part).lower() == "null":
+            part_id = None
+        else:
+            try:
+                part_id = int(raw_part)
+            except (TypeError, ValueError) as error:
+                raise ValueError("권/부 정보가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            group_sql, group_params = self._chapter_group_filter_sql(part_id)
+            rows = connection.execute(
+                f"SELECT id FROM chapter "
+                f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql} "
+                f"ORDER BY sort_order, id",
+                (project_id, *group_params),
+            ).fetchall()
+            existing_ids = [int(row["id"]) for row in rows]
+            if sorted(existing_ids) != sorted(chapter_ids):
+                raise ValueError(
+                    "현재 그룹의 챕터 목록과 일치하지 않습니다. 새로고침 후 다시 시도해 주세요."
+                )
+            self._assign_chapter_sort_orders(
+                connection, project_id, chapter_ids, part_id=part_id
+            )
+
+    def renumber_chapter_titles(self, project_id: int, body: dict) -> dict:
+        """Rewrite chapter titles to sequential numbers (1장, 2장, …), keeping residual titles.
+
+        When parts (권/부) exist, numbering restarts inside each part, then ungrouped.
+        """
+        style = str(body.get("style", "jang") or "jang").strip().lower()
+        if style not in {"jang", "je_jang", "dot"}:
+            style = "jang"
+
+        number_prefix = re.compile(
+            r"^\s*(?:제\s*)?\d+\s*(?:장|화|부|편)?\s*[.．:：\-–—]?\s*",
+            re.UNICODE,
+        )
+        number_dot = re.compile(r"^\s*\d+\s*[.)．]\s*", re.UNICODE)
+
+        def strip_number(title: str) -> str:
+            text = str(title or "").strip()
+            text = number_prefix.sub("", text)
+            text = number_dot.sub("", text)
+            return text.strip()
+
+        def format_title(index: int, base: str) -> str:
+            n = index + 1
+            if style == "je_jang":
+                return f"제{n}장 {base}".strip() if base else f"제{n}장"
+            if style == "dot":
+                return f"{n}. {base}".strip() if base else f"{n}."
+            return f"{n}장 {base}".strip() if base else f"{n}장"
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            parts = connection.execute(
+                "SELECT id FROM part WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+            groups: list[tuple] = [(int(row["id"]),) for row in parts]
+            groups.append((None,))  # ungrouped last
+
+            updated = []
+            for (group_part_id,) in groups:
+                group_sql, group_params = self._chapter_group_filter_sql(group_part_id)
+                rows = connection.execute(
+                    f"SELECT id, title FROM chapter "
+                    f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql} "
+                    f"ORDER BY sort_order, id",
+                    (project_id, *group_params),
+                ).fetchall()
+                for index, row in enumerate(rows):
+                    chapter_id = int(row["id"])
+                    old_title = str(row["title"] or "")
+                    base = strip_number(old_title)
+                    new_title = format_title(index, base)
+                    if new_title != old_title:
+                        connection.execute(
+                            "UPDATE chapter SET title = ? WHERE id = ? AND project_id = ?",
+                            (new_title, chapter_id, project_id),
+                        )
+                    updated.append(
+                        {
+                            "id": chapter_id,
+                            "title": new_title,
+                            "previous_title": old_title,
+                            "part_id": group_part_id,
+                        }
+                    )
+        return {"ok": True, "style": style, "chapters": updated, "count": len(updated)}
+
+    def project_manuscript_stats(self, project_id: int) -> dict:
+        """Aggregate plain-text stats across all active scenes in a project."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT r.content_md "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.chapter_id, s.sort_order, s.id",
+                (project_id,),
+            ).fetchall()
+        parts: list[str] = []
+        for row in rows:
+            text = plain_text_from_content(row["content_md"] or "")
+            if text:
+                parts.append(text)
+        combined = "\n\n".join(parts)
+        # Mirror web/app.js computeTextStats
+        chars_with_space = len(combined)
+        chars_no_space = len(re.sub(r"\s+", "", combined))
+        words = len(re.findall(r"\S+", combined))
+        letters = len(re.findall(r"[\w\uAC00-\uD7A3]", combined, flags=re.UNICODE))
+        return {
+            "chars_with_space": chars_with_space,
+            "chars_no_space": chars_no_space,
+            "words": words,
+            "letters": letters,
+            "scenes": len(rows),
+            "scenes_with_text": len(parts),
+        }
+
+    def export_plain_text_document(self, body: dict) -> document_export.ExportFile:
+        """Export one plain document (reference material) to txt/md/html/rtf/docx/hwpx."""
+        title = str(body.get("title") or body.get("filename") or "참고자료").strip() or "참고자료"
+        text = str(body.get("text") or body.get("content") or body.get("body") or "")
+        format_key = str(body.get("format") or body.get("format_key") or "docx").strip().lower()
+        if not text.strip() and format_key not in {"txt", "md"}:
+            # Still allow empty-ish export for draft notes
+            text = text or ""
+        try:
+            return document_export.export_plain_document(
+                format_key,
+                title=title,
+                text=text,
+            )
+        except ValueError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ValueError(f"내보내기에 실패했습니다: {error}") from error
+
+    def export_project(
+        self,
+        project_id: int,
+        format_key: str,
+        scene_ids: list[int] | None = None,
+        export_title: str | None = None,
+    ) -> document_export.ExportFile:
+        """Build a downloadable manuscript file for the given project.
+
+        scene_ids: when set, export only those 회차 (episodes). Full work when None/empty.
+        """
+        selected: set[int] | None = None
+        if scene_ids:
+            selected = {int(x) for x in scene_ids if int(x) > 0}
+            if not selected:
+                raise ValueError("내보낼 회차를 하나 이상 선택해 주세요.")
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            project = connection.execute(
+                "SELECT id, title, purpose, uuid, package_path FROM project "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()
+            if project is None:
+                raise ValueError("작품을 찾을 수 없습니다.")
+            chapters_rows = connection.execute(
+                "SELECT id, title, sort_order FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+            scenes_rows = connection.execute(
+                "SELECT s.id, s.chapter_id, s.title, s.sort_order, r.content_md "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.sort_order, s.id",
+                (project_id,),
+            ).fetchall()
+
+            stg_bytes: bytes | None = None
+            if str(format_key or "").lower() == "stg":
+                if selected is not None:
+                    raise ValueError(
+                        "SuperTORY 연결 파일(.stg)은 작품 전체만 내보낼 수 있어요. "
+                        "회차별 내보내기는 Word·한글·텍스트 등을 이용해 주세요."
+                    )
+                # Refresh package handle then read bytes for download.
+                package_info = ensure_project_package(connection, project_id)
+                package_path = package_info.get("package_path") or project["package_path"]
+                if not package_path:
+                    raise ValueError("연결 파일(.stg) 경로를 만들지 못했습니다.")
+                path = Path(package_path)
+                if not path.is_file():
+                    raise ValueError("연결 파일(.stg)을 찾지 못했습니다.")
+                stg_bytes = path.read_bytes()
+
+        # Filter to selected scenes when requested
+        if selected is not None:
+            found = {int(s["id"]) for s in scenes_rows}
+            missing = selected - found
+            if missing:
+                raise ValueError("선택한 회차 중 일부를 찾지 못했어요.")
+            scenes_rows = [s for s in scenes_rows if int(s["id"]) in selected]
+            if not scenes_rows:
+                raise ValueError("내보낼 회차 내용이 없어요.")
+
+        scenes_by_chapter: dict[int, list[dict]] = {}
+        single_scene_title = ""
+        for scene in scenes_rows:
+            scenes_by_chapter.setdefault(scene["chapter_id"], []).append({
+                "title": scene["title"] or "",
+                "content_plain": plain_text_from_content(scene["content_md"] or ""),
+            })
+            if selected is not None and len(selected) == 1:
+                single_scene_title = str(scene["title"] or "").strip()
+
+        chapters = [
+            {
+                "title": chapter["title"] or "",
+                "scenes": scenes_by_chapter.get(chapter["id"], []),
+            }
+            for chapter in chapters_rows
+            if scenes_by_chapter.get(chapter["id"])
+        ]
+        # Title: full project, or custom/export title for partial
+        project_title = str(project["title"] or "작품").strip() or "작품"
+        if export_title:
+            file_title = export_title
+        elif selected is not None and len(selected) == 1 and single_scene_title:
+            file_title = f"{project_title} - {single_scene_title}"
+        elif selected is not None:
+            file_title = f"{project_title} - 선택회차{len(selected)}"
+        else:
+            file_title = project_title
+
+        return document_export.export_bytes(
+            format_key,
+            project_title=file_title,
+            chapters=chapters,
+            stg_bytes=stg_bytes,
+        )
+
+    def _build_scene_tree(self, flat_scenes: list[dict]) -> list[dict]:
+        """Nest scenes by parent_scene_id; roots first, depth-first children."""
+        by_parent: dict[int | None, list[dict]] = {}
+        for scene in flat_scenes:
+            raw = scene.get("parent_scene_id")
+            parent_key = int(raw) if raw is not None else None
+            node = {**scene, "children": []}
+            by_parent.setdefault(parent_key, []).append(node)
+        # Preserve sibling order from SQL (sort_order, id)
+        for siblings in by_parent.values():
+            siblings.sort(
+                key=lambda s: (int(s.get("sort_order") or 0), int(s.get("id") or 0))
+            )
+
+        def attach(parent_key: int | None) -> list[dict]:
+            nodes = by_parent.get(parent_key, [])
+            for node in nodes:
+                node["children"] = attach(int(node["id"]))
+            return nodes
+
+        roots = attach(None)
+        # Orphans (parent missing / deleted) float to root
+        known_ids = {int(s["id"]) for s in flat_scenes}
+        for parent_key, nodes in list(by_parent.items()):
+            if parent_key is None:
+                continue
+            if parent_key not in known_ids:
+                for node in nodes:
+                    if node not in roots:
+                        roots.append(node)
+        return roots
+
+    def project_outline(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            parts = connection.execute(
+                "SELECT id, title, sort_order FROM part "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+            chapters = connection.execute(
+                "SELECT id, part_id, title, sort_order FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY "
+                "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
+                "part_id, sort_order, id",
+                (project_id,),
+            ).fetchall()
+            # parent_scene_id may be missing only on broken DBs; COALESCE via try
+            try:
+                scenes = connection.execute(
+                    "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, s.status, "
+                    "s.synopsis_md, s.sort_order, r.word_count "
+                    "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                    "ORDER BY s.chapter_id, s.sort_order, s.id",
+                    (project_id,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                scenes = connection.execute(
+                    "SELECT s.id, s.chapter_id, s.title, s.status, "
+                    "s.synopsis_md, s.sort_order, r.word_count "
+                    "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                    "ORDER BY s.chapter_id, s.sort_order, s.id",
+                    (project_id,),
+                ).fetchall()
+            project = connection.execute(
+                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                "goal_word_count "
+                "FROM project WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+        flat_by_chapter: dict[int, list[dict]] = {}
+        for scene in scenes:
+            data = as_dict(scene)
+            if "parent_scene_id" not in data:
+                data["parent_scene_id"] = None
+            flat_by_chapter.setdefault(int(scene["chapter_id"]), []).append(data)
+        chapter_payloads = []
+        for chapter in chapters:
+            ch = as_dict(chapter)
+            flat = flat_by_chapter.get(int(chapter["id"]), [])
+            # Nested manuscript tree under each folder
+            ch["scenes"] = self._build_scene_tree(flat)
+            ch["scenes_flat"] = self._flatten_scene_tree(ch["scenes"])
+            chapter_payloads.append(ch)
+        chapters_by_part: dict[int, list[dict]] = {}
+        ungrouped: list[dict] = []
+        for chapter in chapter_payloads:
+            pid = chapter.get("part_id")
+            if pid is None:
+                ungrouped.append(chapter)
+            else:
+                chapters_by_part.setdefault(int(pid), []).append(chapter)
+        # Keep chapter order within each part (already sorted by sort_order)
+        for pid, group in chapters_by_part.items():
+            group.sort(key=lambda c: (int(c.get("sort_order") or 0), int(c.get("id") or 0)))
+        ungrouped.sort(key=lambda c: (int(c.get("sort_order") or 0), int(c.get("id") or 0)))
+        parts_payload = [
+            {
+                **as_dict(part),
+                "chapters": chapters_by_part.get(int(part["id"]), []),
+            }
+            for part in parts
+        ]
+        project_data = as_dict(project) or {}
+        if project_data:
+            project_data["synopsis_md"] = project_data.get("description_md") or ""
+            project_data["logline_md"] = project_data.get("logline_md") or ""
+            project_data["worldbuilding_md"] = project_data.get("worldbuilding_md") or ""
+            project_data["intro_md"] = project_data.get("intro_md") or ""
+            project_data["intent_md"] = project_data.get("intent_md") or ""
+            project_data["main_genre"] = project_data.get("main_genre") or ""
+            project_data["sub_genre"] = project_data.get("sub_genre") or ""
+            project_data["keywords"] = parse_project_keywords(project_data.get("keywords"))
+            project_data["goal_word_count"] = int(project_data.get("goal_word_count") or 0)
+        return {
+            "project": project_data,
+            # Flat chapter list (all folders) for lookups — order: in-part then ungrouped
+            "chapters": [
+                ch
+                for part in parts_payload
+                for ch in part["chapters"]
+            ] + ungrouped,
+            "parts": parts_payload,
+            "ungrouped_chapters": ungrouped,
+        }
+
+    def _flatten_scene_tree(self, nodes: list[dict]) -> list[dict]:
+        out: list[dict] = []
+        for node in nodes or []:
+            kids = node.get("children") or []
+            copy = {k: v for k, v in node.items() if k != "children"}
+            out.append(copy)
+            out.extend(self._flatten_scene_tree(kids))
+        return out
+
+    def create_scene(self, chapter_id: int, body: dict) -> dict:
+        title = str(body.get("title", "새 씬")).strip() or "새 씬"
+        raw_parent = body.get("parent_scene_id", body.get("parent_id", None))
+        if raw_parent is None or raw_parent == "" or str(raw_parent).lower() == "null":
+            parent_scene_id = None
+        else:
+            try:
+                parent_scene_id = int(raw_parent)
+            except (TypeError, ValueError) as error:
+                raise ValueError("상위 원고 정보가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            chapter = connection.execute(
+                "SELECT project_id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("챕터를 찾을 수 없습니다.")
+            project_id = int(chapter["project_id"])
+            if parent_scene_id is not None:
+                parent = connection.execute(
+                    "SELECT id, chapter_id FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (parent_scene_id,),
+                ).fetchone()
+                if parent is None:
+                    raise ValueError("상위 원고를 찾을 수 없습니다.")
+                if int(parent["chapter_id"]) != chapter_id:
+                    raise ValueError("상위 원고는 같은 폴더 안에 있어야 합니다.")
+            if parent_scene_id is None:
+                sort_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id IS NULL AND deleted_at IS NULL",
+                    (chapter_id,),
+                ).fetchone()[0]
+            else:
+                sort_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id = ? AND deleted_at IS NULL",
+                    (chapter_id, parent_scene_id),
+                ).fetchone()[0]
+            try:
+                cursor = connection.execute(
+                    "INSERT INTO scene(project_id, chapter_id, parent_scene_id, title, sort_order) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (project_id, chapter_id, parent_scene_id, title, sort_order),
+                )
+            except sqlite3.OperationalError:
+                # Pre-migration fallback
+                cursor = connection.execute(
+                    "INSERT INTO scene(project_id, chapter_id, title, sort_order) "
+                    "VALUES (?, ?, ?, ?)",
+                    (project_id, chapter_id, title, sort_order),
+                )
+                parent_scene_id = None
+            scene_id = int(cursor.lastrowid)
+            connection.execute(
+                "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count) "
+                "VALUES (?, 1, '', 0)",
+                (scene_id,),
+            )
+        return {
+            "id": scene_id,
+            "chapter_id": chapter_id,
+            "parent_scene_id": parent_scene_id,
+            "title": title,
+        }
+
+    def reparent_scene(self, scene_id: int, body: dict) -> dict:
+        """Move a manuscript under another manuscript (or to folder root)."""
+        raw_parent = body.get("parent_scene_id", body.get("parent_id", None))
+        if raw_parent is None or raw_parent == "" or str(raw_parent).lower() == "null":
+            new_parent_id = None
+        else:
+            try:
+                new_parent_id = int(raw_parent)
+            except (TypeError, ValueError) as error:
+                raise ValueError("상위 원고 정보가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id, chapter_id, parent_scene_id, title "
+                "FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("원고를 찾을 수 없습니다.")
+            chapter_id = int(scene["chapter_id"])
+            old_parent = scene["parent_scene_id"]
+            old_parent_id = int(old_parent) if old_parent is not None else None
+
+            if new_parent_id is not None:
+                if new_parent_id == scene_id:
+                    raise ValueError("자기 자신을 상위 원고로 둘 수 없습니다.")
+                parent = connection.execute(
+                    "SELECT id, chapter_id, parent_scene_id FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (new_parent_id,),
+                ).fetchone()
+                if parent is None:
+                    raise ValueError("상위 원고를 찾을 수 없습니다.")
+                if int(parent["chapter_id"]) != chapter_id:
+                    raise ValueError("같은 폴더 안의 원고로만 옮길 수 있습니다.")
+                # Cycle check: walk up from new parent
+                walk = new_parent_id
+                guard = 0
+                while walk is not None and guard < 500:
+                    if walk == scene_id:
+                        raise ValueError("하위 원고 아래로 자신을 넣을 수 없습니다.")
+                    row = connection.execute(
+                        "SELECT parent_scene_id FROM scene WHERE id = ?",
+                        (walk,),
+                    ).fetchone()
+                    walk = (
+                        int(row["parent_scene_id"])
+                        if row and row["parent_scene_id"] is not None
+                        else None
+                    )
+                    guard += 1
+
+            if old_parent_id == new_parent_id:
+                return {
+                    "ok": True,
+                    "id": scene_id,
+                    "parent_scene_id": new_parent_id,
+                    "moved": False,
+                    "title": scene["title"],
+                }
+
+            if new_parent_id is None:
+                next_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id IS NULL "
+                    "AND deleted_at IS NULL AND id != ?",
+                    (chapter_id, scene_id),
+                ).fetchone()[0]
+            else:
+                next_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id = ? "
+                    "AND deleted_at IS NULL AND id != ?",
+                    (chapter_id, new_parent_id, scene_id),
+                ).fetchone()[0]
+
+            connection.execute(
+                "UPDATE scene SET parent_scene_id = ?, sort_order = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (new_parent_id, next_order, scene_id),
+            )
+            # Compact old sibling group
+            self._compact_scene_siblings(connection, chapter_id, old_parent_id)
+        return {
+            "ok": True,
+            "id": scene_id,
+            "title": scene["title"],
+            "chapter_id": chapter_id,
+            "parent_scene_id": new_parent_id,
+            "moved": True,
+        }
+
+    def _compact_scene_siblings(
+        self,
+        connection: sqlite3.Connection,
+        chapter_id: int,
+        parent_scene_id: int | None,
+    ) -> None:
+        if parent_scene_id is None:
+            rows = connection.execute(
+                "SELECT id FROM scene "
+                "WHERE chapter_id = ? AND parent_scene_id IS NULL AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (chapter_id,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT id FROM scene "
+                "WHERE chapter_id = ? AND parent_scene_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (chapter_id, parent_scene_id),
+            ).fetchall()
+        ids = [int(r["id"]) for r in rows]
+        base = 1_000_000
+        for index, sid in enumerate(ids):
+            connection.execute(
+                "UPDATE scene SET sort_order = ? WHERE id = ?",
+                (base + index, sid),
+            )
+        for index, sid in enumerate(ids):
+            connection.execute(
+                "UPDATE scene SET sort_order = ? WHERE id = ?",
+                (index, sid),
+            )
+
+    def update_project_settings(self, project_id: int, body: dict) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            row = connection.execute(
+                "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                "main_genre, sub_genre, keywords, purpose, goal_word_count "
+                "FROM project WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+            synopsis = row["description_md"] if row else ""
+            logline = row["logline_md"] if row else ""
+            worldbuilding = row["worldbuilding_md"] if row else ""
+            intro = row["intro_md"] if row and "intro_md" in row.keys() else ""
+            intent = row["intent_md"] if row and "intent_md" in row.keys() else ""
+            main_genre = row["main_genre"] if row else ""
+            sub_genre = row["sub_genre"] if row else ""
+            keywords = parse_project_keywords(
+                row["keywords"] if row and "keywords" in row.keys() else []
+            )
+            purpose = row["purpose"] if row and "purpose" in row.keys() else "general_novel"
+            goal_word_count = int(row["goal_word_count"] or 0) if row else 0
+            if "synopsis_md" in body:
+                synopsis = str(body.get("synopsis_md", ""))[:50000]
+            if "description_md" in body and "synopsis_md" not in body:
+                synopsis = str(body.get("description_md", ""))[:50000]
+            if "logline_md" in body:
+                logline = str(body.get("logline_md", ""))[:20000]
+            if "worldbuilding_md" in body:
+                worldbuilding = str(body.get("worldbuilding_md", ""))[:50000]
+            if "intro_md" in body:
+                intro = str(body.get("intro_md", ""))[:50000]
+            if "intent_md" in body:
+                intent = str(body.get("intent_md", ""))[:50000]
+            if "main_genre" in body:
+                main_genre = str(body.get("main_genre") or "").strip()[:80]
+            if "sub_genre" in body:
+                sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+            if "keywords" in body:
+                keywords = parse_project_keywords(body.get("keywords"))
+            if "purpose" in body:
+                purpose = document_import.normalise_purpose(body.get("purpose"))
+            if "goal_word_count" in body:
+                try:
+                    goal_word_count = max(0, int(body.get("goal_word_count") or 0))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("전체 목표 글자 수가 올바르지 않습니다.") from error
+            keywords_json = json.dumps(keywords, ensure_ascii=False)
+            connection.execute(
+                "UPDATE project SET description_md = ?, logline_md = ?, worldbuilding_md = ?, "
+                "intro_md = ?, intent_md = ?, "
+                "main_genre = ?, sub_genre = ?, keywords = ?, purpose = ?, goal_word_count = ? WHERE id = ?",
+                (
+                    synopsis, logline, worldbuilding, intro, intent,
+                    main_genre, sub_genre, keywords_json, purpose, goal_word_count, project_id,
+                ),
+            )
+            # Keep .stg package purpose in sync when kind changes.
+            if "purpose" in body:
+                try:
+                    ensure_project_package(connection, project_id)
+                except Exception:
+                    pass
+        return {
+            "ok": True,
+            "synopsis_md": synopsis,
+            "logline_md": logline,
+            "worldbuilding_md": worldbuilding,
+            "intro_md": intro,
+            "intent_md": intent,
+            "main_genre": main_genre,
+            "sub_genre": sub_genre,
+            "keywords": keywords,
+            "purpose": purpose,
+            "goal_word_count": goal_word_count,
+        }
+
+    def list_writing_days(self, from_day: str, to_day: str) -> dict:
+        start = _day_key_valid(from_day) if from_day else "1970-01-01"
+        end = _day_key_valid(to_day) if to_day else "9999-12-31"
+        if start > end:
+            start, end = end, start
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT * FROM writing_day WHERE day_key >= ? AND day_key <= ? ORDER BY day_key",
+                (start, end),
+            ).fetchall()
+            prefs = writing_prefs_row(connection)
+            last = connection.execute(
+                "SELECT last_active_at, day_key FROM writing_day "
+                "WHERE last_active_at IS NOT NULL AND last_active_at != '' "
+                "ORDER BY last_active_at DESC LIMIT 1"
+            ).fetchone()
+        days = [writing_day_payload(row) for row in rows]
+        return {
+            "days": days,
+            "prefs": prefs,
+            "last_active_at": (last["last_active_at"] if last else None),
+            "last_active_day": (last["day_key"] if last else None),
+        }
+
+    def get_writing_day(self, day_key: str) -> dict:
+        day = _day_key_valid(day_key)
+        with database() as connection:
+            row = connection.execute(
+                "SELECT * FROM writing_day WHERE day_key = ?",
+                (day,),
+            ).fetchone()
+            prefs = writing_prefs_row(connection)
+        payload = writing_day_payload(row) or {
+            "day": day,
+            "chars_added": 0,
+            "active_seconds": 0,
+            "session_count": 0,
+            "first_start_at": None,
+            "last_active_at": None,
+            "breakdown": {},
+        }
+        payload["prefs"] = prefs
+        return payload
+
+    def update_writing_prefs(self, body: dict) -> dict:
+        with database() as connection:
+            prefs = writing_prefs_row(connection)
+            if "goal_chars" in body:
+                try:
+                    prefs["goal_chars"] = max(100, min(1_000_000, int(body.get("goal_chars") or 2000)))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("목표 글자 수가 올바르지 않습니다.") from error
+            if "goal_notify" in body:
+                prefs["goal_notify"] = 1 if body.get("goal_notify") else 0
+            else:
+                prefs["goal_notify"] = 1 if prefs["goal_notify"] else 0
+            if "lonely_days" in body:
+                try:
+                    prefs["lonely_days"] = max(1, min(365, int(body.get("lonely_days") or 3)))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("미집필 알림 기간이 올바르지 않습니다.") from error
+            if "lonely_notify" in body:
+                prefs["lonely_notify"] = 1 if body.get("lonely_notify") else 0
+            else:
+                prefs["lonely_notify"] = 1 if prefs["lonely_notify"] else 0
+            if "idle_minutes" in body:
+                try:
+                    prefs["idle_minutes"] = max(5, min(240, int(body.get("idle_minutes") or 30)))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("미입력 차감 시간이 올바르지 않습니다.") from error
+            if "last_goal_notified_day" in body:
+                day = str(body.get("last_goal_notified_day") or "").strip()
+                if day:
+                    _day_key_valid(day)
+                prefs["last_goal_notified_day"] = day
+            if "last_lonely_notified_day" in body:
+                day = str(body.get("last_lonely_notified_day") or "").strip()
+                if day:
+                    _day_key_valid(day)
+                prefs["last_lonely_notified_day"] = day
+            connection.execute(
+                "UPDATE writing_prefs SET goal_chars = ?, goal_notify = ?, lonely_days = ?, "
+                "lonely_notify = ?, idle_minutes = ?, last_goal_notified_day = ?, "
+                "last_lonely_notified_day = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
+                (
+                    prefs["goal_chars"],
+                    1 if prefs["goal_notify"] else 0,
+                    prefs["lonely_days"],
+                    1 if prefs["lonely_notify"] else 0,
+                    prefs["idle_minutes"],
+                    prefs.get("last_goal_notified_day") or "",
+                    prefs.get("last_lonely_notified_day") or "",
+                ),
+            )
+            return writing_prefs_row(connection)
+
+    def writing_heartbeat(self, body: dict) -> dict:
+        day = _day_key_valid(body.get("day") or body.get("day_key"))
+        try:
+            chars_delta = max(0, int(body.get("chars_delta") or 0))
+            active_delta = max(0, int(body.get("active_seconds_delta") or 0))
+            session_bump = 1 if body.get("session_start") else 0
+        except (TypeError, ValueError) as error:
+            raise ValueError("기록 수치가 올바르지 않습니다.") from error
+        # Cap single heartbeat to avoid runaway clients
+        chars_delta = min(chars_delta, 200_000)
+        active_delta = min(active_delta, 6 * 3600)
+        project_id = body.get("project_id")
+        project_key = str(int(project_id)) if project_id not in (None, "") else ""
+        now_iso = str(body.get("last_active_at") or "").strip() or _iso_now()
+        session_start = str(body.get("session_started_at") or "").strip() or None
+
+        with database() as connection:
+            row = connection.execute(
+                "SELECT * FROM writing_day WHERE day_key = ?",
+                (day,),
+            ).fetchone()
+            if row:
+                data = as_dict(row) or {}
+                chars = int(data.get("chars_added") or 0) + chars_delta
+                active = int(data.get("active_seconds") or 0) + active_delta
+                sessions = int(data.get("session_count") or 0) + session_bump
+                first_start = data.get("first_start_at") or session_start or now_iso
+                try:
+                    breakdown = json.loads(data.get("breakdown_json") or "{}")
+                    if not isinstance(breakdown, dict):
+                        breakdown = {}
+                except json.JSONDecodeError:
+                    breakdown = {}
+            else:
+                chars = chars_delta
+                active = active_delta
+                sessions = session_bump
+                first_start = session_start or now_iso
+                breakdown = {}
+            if project_key and chars_delta:
+                breakdown[project_key] = int(breakdown.get(project_key) or 0) + chars_delta
+            connection.execute(
+                "INSERT INTO writing_day("
+                "day_key, chars_added, active_seconds, session_count, "
+                "first_start_at, last_active_at, breakdown_json, updated_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(day_key) DO UPDATE SET "
+                "chars_added = excluded.chars_added, "
+                "active_seconds = excluded.active_seconds, "
+                "session_count = excluded.session_count, "
+                "first_start_at = COALESCE(writing_day.first_start_at, excluded.first_start_at), "
+                "last_active_at = excluded.last_active_at, "
+                "breakdown_json = excluded.breakdown_json, "
+                "updated_at = excluded.updated_at",
+                (
+                    day,
+                    chars,
+                    active,
+                    sessions,
+                    first_start,
+                    now_iso,
+                    json.dumps(breakdown, ensure_ascii=False),
+                ),
+            )
+            prefs = writing_prefs_row(connection)
+            day_row = connection.execute(
+                "SELECT * FROM writing_day WHERE day_key = ?",
+                (day,),
+            ).fetchone()
+        payload = writing_day_payload(day_row) or {}
+        payload["prefs"] = prefs
+        payload["ok"] = True
+        # Client may celebrate when chars_added crossed goal today
+        goal = int(prefs.get("goal_chars") or 2000)
+        payload["goal_reached"] = bool(
+            prefs.get("goal_notify")
+            and chars >= goal
+            and (prefs.get("last_goal_notified_day") or "") != day
+        )
+        return payload
+
+    def get_writing_pair(self) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT * FROM mobile_device WHERE revoked_at IS NULL "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if not row:
+                return {
+                    "pair_code": None,
+                    "device_name": "",
+                    "paired": False,
+                    "paired_at": None,
+                    "last_seen_at": None,
+                    "hint": "코드를 발급하면 나중에 휴대폰 앱에서 연결할 수 있어요.",
+                }
+            data = as_dict(row) or {}
+            return {
+                "pair_code": data.get("pair_code"),
+                "device_name": data.get("device_name") or "",
+                "paired": bool(data.get("paired_at")),
+                "paired_at": data.get("paired_at"),
+                "last_seen_at": data.get("last_seen_at"),
+                "hint": "휴대폰 전용 앱에서 이 코드로 SuperTORY에 연결할 예정이에요.",
+            }
+
+    def issue_writing_pair(self, body: dict) -> dict:
+        code = f"{uuid.uuid4().int % 1_000_000:06d}"
+        name = str(body.get("device_name") or "").strip()[:80]
+        with database() as connection:
+            # Revoke previous open codes (single active pairing for now)
+            connection.execute(
+                "UPDATE mobile_device SET revoked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE revoked_at IS NULL"
+            )
+            connection.execute(
+                "INSERT INTO mobile_device(pair_code, device_name) VALUES (?, ?)",
+                (code, name),
+            )
+        return self.get_writing_pair()
+
+    def list_mobile_inbox(self) -> dict:
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT id, device_id, title, body_md, source, created_at, read_at "
+                "FROM mobile_inbox ORDER BY created_at DESC, id DESC LIMIT 100"
+            ).fetchall()
+        items = []
+        for row in rows:
+            data = as_dict(row) or {}
+            body = str(data.get("body_md") or "")
+            items.append({
+                "id": data.get("id"),
+                "title": data.get("title") or "제목 없음",
+                "body_md": body,
+                "preview": body.replace("\n", " ").strip()[:120],
+                "source": data.get("source") or "phone",
+                "created_at": data.get("created_at"),
+                "read": bool(data.get("read_at")),
+            })
+        return {"items": items}
+
+    def mark_mobile_inbox_read(self, item_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id FROM mobile_inbox WHERE id = ?",
+                (item_id,),
+            ).fetchone()
+            if not row:
+                raise ValueError("받은 글을 찾지 못했어요.")
+            connection.execute(
+                "UPDATE mobile_inbox SET read_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ? AND read_at IS NULL",
+                (item_id,),
+            )
+        return {"ok": True, "id": item_id}
+
+    def mobile_push_text(self, body: dict) -> dict:
+        """Phone companion stub: accept text with pair_code and store in inbox."""
+        code = str(body.get("pair_code") or "").strip()
+        if not re.fullmatch(r"\d{6}", code):
+            raise ValueError("연동 코드 6자리가 필요해요.")
+        title = str(body.get("title") or "휴대폰에서 보낸 글").strip()[:200]
+        text = str(body.get("body_md") or body.get("text") or "").strip()[:100000]
+        if not text:
+            raise ValueError("보낼 글이 비어 있어요.")
+        device_name = str(body.get("device_name") or "phone").strip()[:80]
+        with database() as connection:
+            device = connection.execute(
+                "SELECT id FROM mobile_device WHERE pair_code = ? AND revoked_at IS NULL",
+                (code,),
+            ).fetchone()
+            if not device:
+                raise ValueError("유효한 연동 코드가 아니에요. PC에서 코드를 다시 발급해 주세요.")
+            device_id = int(device["id"])
+            connection.execute(
+                "UPDATE mobile_device SET device_name = COALESCE(NULLIF(?, ''), device_name), "
+                "paired_at = COALESCE(paired_at, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
+                "last_seen_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+                (device_name, device_id),
+            )
+            cursor = connection.execute(
+                "INSERT INTO mobile_inbox(device_id, title, body_md, source) VALUES (?, ?, ?, 'phone')",
+                (device_id, title, text),
+            )
+            item_id = int(cursor.lastrowid)
+        return {"ok": True, "id": item_id, "title": title}
+
+    def bulk_set_scene_goals(self, project_id: int, body: dict) -> dict:
+        """Set the same goal_word_count on all active scenes; optionally also goal_metric."""
+        try:
+            goal_count = max(0, int(body.get("goal_word_count", 0) or 0))
+        except (TypeError, ValueError) as error:
+            raise ValueError("목표 글자 수가 올바르지 않습니다.") from error
+        apply_metric = bool(body.get("apply_metric", False))
+        if "goal_metric" in body and body.get("apply_metric") is None:
+            # Backward-compatible: sending goal_metric without flag still applies metric.
+            apply_metric = True
+        goal_metric = str(body.get("goal_metric", "chars_with_space") or "chars_with_space")
+        if goal_metric not in GOAL_METRICS:
+            goal_metric = "chars_with_space"
+        with database() as connection:
+            self.require_project(connection, project_id)
+            if apply_metric:
+                cursor = connection.execute(
+                    "UPDATE scene SET goal_word_count = ?, goal_metric = ?, "
+                    "row_version = row_version + 1, "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                    "WHERE project_id = ? AND deleted_at IS NULL",
+                    (goal_count, goal_metric, project_id),
+                )
+            else:
+                cursor = connection.execute(
+                    "UPDATE scene SET goal_word_count = ?, "
+                    "row_version = row_version + 1, "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                    "WHERE project_id = ? AND deleted_at IS NULL",
+                    (goal_count, project_id),
+                )
+            count = int(cursor.rowcount or 0)
+        return {
+            "ok": True,
+            "count": count,
+            "goal_word_count": goal_count,
+            "goal_metric": goal_metric if apply_metric else None,
+            "apply_metric": apply_metric,
+        }
+
+    def scene_detail(self, scene_id: int) -> dict:
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT s.id, s.project_id, s.chapter_id, s.title, s.synopsis_md, s.notes_md, s.status, "
+                "s.goal_word_count, s.goal_metric, s.row_version, s.reference_links_json, "
+                "r.content_md, r.word_count, r.revision_no, "
+                "p.purpose AS project_purpose "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "JOIN project p ON p.id = s.project_id "
+                "WHERE s.id = ? AND s.deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+        if scene is None:
+            raise ValueError("씬을 찾을 수 없습니다.")
+        detail = as_dict(scene)  # type: ignore[assignment]
+        if detail.get("goal_metric") not in GOAL_METRICS:
+            detail["goal_metric"] = "chars_with_space"
+        detail["reference_links"] = parse_reference_links(detail.pop("reference_links_json", "[]"))
+        detail["illustrations"] = self.list_illustrations(scene_id)
+        return detail
+
+    def duplicate_scene(self, scene_id: int) -> dict:
+        """Clone a scene (content, cast, links, illustrations) right after the source."""
+        with database() as connection:
+            source = connection.execute(
+                "SELECT s.id, s.project_id, s.chapter_id, s.title, s.synopsis_md, s.notes_md, s.status, "
+                "s.goal_word_count, s.goal_metric, s.reference_links_json, s.sort_order "
+                "FROM scene s WHERE s.id = ? AND s.deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if source is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+
+            revision = connection.execute(
+                "SELECT content_md, word_count FROM scene_revision "
+                "WHERE scene_id = ? AND is_current = 1",
+                (scene_id,),
+            ).fetchone()
+            content_md = revision["content_md"] if revision else ""
+            word_count = int(revision["word_count"] or 0) if revision else 0
+
+            chapter_id = int(source["chapter_id"])
+            project_id = int(source["project_id"])
+            ordered = connection.execute(
+                "SELECT id FROM scene "
+                "WHERE chapter_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (chapter_id,),
+            ).fetchall()
+            ordered_ids = [int(row["id"]) for row in ordered]
+            try:
+                insert_at = ordered_ids.index(int(source["id"])) + 1
+            except ValueError:
+                insert_at = len(ordered_ids)
+
+            base_title = str(source["title"] or "씬").strip() or "씬"
+            # Avoid endless " (복제) (복제)" growth for repeated clones.
+            clone_title = re.sub(r"(?:\s*\(복제\))+$", "", base_title).strip() or "씬"
+            clone_title = f"{clone_title} (복제)"
+            if len(clone_title) > 200:
+                clone_title = clone_title[:197] + "…"
+
+            # Park existing rows, then insert clone and reassign 0..n.
+            base = 1_000_000
+            for index, existing_id in enumerate(ordered_ids):
+                connection.execute(
+                    "UPDATE scene SET sort_order = ? WHERE id = ? AND deleted_at IS NULL",
+                    (base + index, existing_id),
+                )
+
+            goal_metric = source["goal_metric"] if source["goal_metric"] in GOAL_METRICS else "chars_with_space"
+            cursor = connection.execute(
+                "INSERT INTO scene("
+                "project_id, chapter_id, title, synopsis_md, notes_md, status, "
+                "goal_word_count, goal_metric, reference_links_json, sort_order"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (
+                    project_id,
+                    chapter_id,
+                    clone_title,
+                    str(source["synopsis_md"] or ""),
+                    str(source["notes_md"] or ""),
+                    str(source["status"] or "idea"),
+                    int(source["goal_word_count"] or 0),
+                    goal_metric,
+                    str(source["reference_links_json"] or "[]"),
+                    base + len(ordered_ids),  # temporary
+                ),
+            )
+            new_id = int(cursor.lastrowid)
+            connection.execute(
+                "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note, is_current) "
+                "VALUES (?, 1, ?, ?, ?, 1)",
+                (new_id, content_md, word_count, "복제 생성"),
+            )
+
+            # Cast cast
+            cast_rows = connection.execute(
+                "SELECT character_id, appearance_role, is_pov FROM scene_character WHERE scene_id = ?",
+                (scene_id,),
+            ).fetchall()
+            for row in cast_rows:
+                connection.execute(
+                    "INSERT INTO scene_character(scene_id, character_id, project_id, appearance_role, is_pov) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        new_id,
+                        int(row["character_id"]),
+                        project_id,
+                        str(row["appearance_role"] or "appears"),
+                        int(row["is_pov"] or 0),
+                    ),
+                )
+
+            # Illustrations: copy image files so originals stay independent.
+            illust_rows = connection.execute(
+                "SELECT file_name, mime_type, caption_md, overlays_json, sort_order "
+                "FROM scene_illustration WHERE scene_id = ? ORDER BY sort_order, id",
+                (scene_id,),
+            ).fetchall()
+            for row in illust_rows:
+                old_name = str(row["file_name"] or "")
+                src_path = illustration_dir_for(project_id) / old_name
+                extension = Path(old_name).suffix or ".bin"
+                new_name = f"{uuid.uuid4().hex}{extension}"
+                dest_path = illustration_dir_for(project_id) / new_name
+                if src_path.is_file():
+                    dest_path.write_bytes(src_path.read_bytes())
+                else:
+                    # Still keep metadata row if file missing.
+                    dest_path.write_bytes(b"")
+                connection.execute(
+                    "INSERT INTO scene_illustration("
+                    "project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order"
+                    ") VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (
+                        project_id,
+                        new_id,
+                        new_name,
+                        str(row["mime_type"] or "image/jpeg"),
+                        str(row["caption_md"] or ""),
+                        str(row["overlays_json"] or "[]"),
+                        int(row["sort_order"] or 0),
+                    ),
+                )
+
+            final_order = ordered_ids[:]
+            final_order.insert(insert_at, new_id)
+            for index, sid in enumerate(final_order):
+                connection.execute(
+                    "UPDATE scene SET sort_order = ? WHERE id = ? AND deleted_at IS NULL",
+                    (index, sid),
+                )
+
+        return {"id": new_id, "title": clone_title, "source_id": scene_id, "chapter_id": chapter_id}
+
+    def list_trash(self, project_id: int) -> dict:
+        """Soft-deleted scenes for the project trash bin."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT s.id, s.title, s.chapter_id, s.deleted_at, s.status, s.updated_at, "
+                "c.title AS chapter_title, "
+                "c.deleted_at AS chapter_deleted_at, "
+                "COALESCE(r.word_count, 0) AS word_count "
+                "FROM scene s "
+                "LEFT JOIN chapter c ON c.id = s.chapter_id "
+                "LEFT JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NOT NULL "
+                "ORDER BY s.deleted_at DESC, s.id DESC",
+                (project_id,),
+            ).fetchall()
+        items = []
+        for row in rows:
+            item = as_dict(row)
+            item["chapter_trashed"] = item.get("chapter_deleted_at") is not None
+            items.append(item)
+        return {"items": items, "count": len(items)}
+
+    def trash_scene(self, scene_id: int) -> dict:
+        """Move a scene to trash (soft-delete)."""
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id, chapter_id, title, sort_order "
+                "FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE scene SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (scene_id,),
+            )
+        return {
+            "ok": True,
+            "id": scene_id,
+            "title": scene["title"],
+            "project_id": int(scene["project_id"]),
+        }
+
+    def trash_chapter(self, chapter_id: int) -> dict:
+        """Move a chapter (folder) and its scenes to trash (soft-delete).
+
+        Scenes are cascaded by DB trigger chapter_soft_delete_scenes.
+        Also explicitly soft-deletes scenes as a safety net if the trigger is missing.
+        """
+        with database() as connection:
+            chapter = connection.execute(
+                "SELECT id, project_id, title "
+                "FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("챕터(폴더)를 찾을 수 없습니다. 이미 버려졌을 수 있어요.")
+            scene_ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT id FROM scene WHERE chapter_id = ? AND deleted_at IS NULL",
+                    (chapter_id,),
+                ).fetchall()
+            ]
+            scene_count = len(scene_ids)
+            now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+            # Soft-delete chapter first (fires cascade trigger when present)
+            connection.execute(
+                f"UPDATE chapter SET deleted_at = {now_sql}, "
+                f"updated_at = {now_sql}, "
+                f"row_version = row_version + 1 "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            )
+            # Safety net: ensure child scenes are trashed even without trigger
+            if scene_ids:
+                connection.execute(
+                    f"UPDATE scene SET deleted_at = COALESCE(deleted_at, {now_sql}), "
+                    f"updated_at = {now_sql} "
+                    "WHERE chapter_id = ? AND deleted_at IS NULL",
+                    (chapter_id,),
+                )
+            # Verify
+            still = connection.execute(
+                "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                (chapter_id,),
+            ).fetchone()
+            if still is not None:
+                raise ValueError("폴더를 휴지통으로 옮기지 못했어요. 다시 시도해 주세요.")
+        return {
+            "ok": True,
+            "id": chapter_id,
+            "title": chapter["title"],
+            "project_id": int(chapter["project_id"]),
+            "scene_count": int(scene_count or 0),
+            "scene_ids": scene_ids,
+        }
+
+    def restore_scene(self, scene_id: int) -> dict:
+        """Restore a scene from trash back into its chapter binder.
+
+        Restores soft-deleted chapter / parent manuscripts when needed.
+        """
+        with database() as connection:
+            try:
+                scene = connection.execute(
+                    "SELECT id, project_id, chapter_id, parent_scene_id, title, sort_order "
+                    "FROM scene WHERE id = ? AND deleted_at IS NOT NULL",
+                    (scene_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                scene = connection.execute(
+                    "SELECT id, project_id, chapter_id, title, sort_order "
+                    "FROM scene WHERE id = ? AND deleted_at IS NOT NULL",
+                    (scene_id,),
+                ).fetchone()
+            if scene is None:
+                raise ValueError("휴지통에서 해당 원고를 찾을 수 없습니다.")
+            chapter_id = int(scene["chapter_id"])
+            parent_scene_id = None
+            try:
+                if scene["parent_scene_id"] is not None:
+                    parent_scene_id = int(scene["parent_scene_id"])
+            except (KeyError, IndexError, TypeError):
+                parent_scene_id = None
+
+            chapter = connection.execute(
+                "SELECT id, title, deleted_at, part_id FROM chapter WHERE id = ?",
+                (chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("원래 폴더(챕터)를 찾을 수 없어 복원할 수 없습니다.")
+
+            chapter_restored = False
+            parent_scene_restored = 0
+            now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+            if chapter["deleted_at"] is not None:
+                connection.execute(
+                    f"UPDATE chapter SET deleted_at = NULL, "
+                    f"updated_at = {now_sql}, "
+                    f"row_version = row_version + 1 "
+                    "WHERE id = ? AND deleted_at IS NOT NULL",
+                    (chapter_id,),
+                )
+                chapter_restored = True
+
+            # Restore ancestor manuscripts (deepest parent first via stack)
+            if parent_scene_id is not None:
+                chain: list[int] = []
+                walk = parent_scene_id
+                guard = 0
+                while walk is not None and guard < 500:
+                    chain.append(walk)
+                    row = connection.execute(
+                        "SELECT parent_scene_id, deleted_at FROM scene WHERE id = ?",
+                        (walk,),
+                    ).fetchone()
+                    if row is None:
+                        break
+                    walk = (
+                        int(row["parent_scene_id"])
+                        if row["parent_scene_id"] is not None
+                        else None
+                    )
+                    guard += 1
+                for ancestor_id in reversed(chain):
+                    row = connection.execute(
+                        "SELECT deleted_at FROM scene WHERE id = ?",
+                        (ancestor_id,),
+                    ).fetchone()
+                    if row is None:
+                        continue
+                    if row["deleted_at"] is not None:
+                        connection.execute(
+                            f"UPDATE scene SET deleted_at = NULL, "
+                            f"updated_at = {now_sql} "
+                            "WHERE id = ? AND deleted_at IS NOT NULL",
+                            (ancestor_id,),
+                        )
+                        parent_scene_restored += 1
+
+            if parent_scene_id is None:
+                preferred = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id IS NULL AND deleted_at IS NULL",
+                    (chapter_id,),
+                ).fetchone()[0]
+            else:
+                preferred = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+                    "WHERE chapter_id = ? AND parent_scene_id = ? AND deleted_at IS NULL",
+                    (chapter_id, parent_scene_id),
+                ).fetchone()[0]
+
+            connection.execute(
+                f"UPDATE scene SET deleted_at = NULL, sort_order = ?, "
+                f"updated_at = {now_sql} "
+                "WHERE id = ?",
+                (preferred, scene_id),
+            )
+        return {
+            "ok": True,
+            "id": scene_id,
+            "title": scene["title"],
+            "chapter_id": chapter_id,
+            "chapter_title": chapter["title"],
+            "chapter_restored": chapter_restored,
+            "parent_scene_restored": parent_scene_restored,
+            "parent_scene_id": parent_scene_id,
+            "sort_order": preferred,
+        }
+
+    def _hard_delete_scene(self, connection: sqlite3.Connection, scene_id: int) -> None:
+        """Permanently remove a scene and related rows/files. Scene must already be in trash."""
+        scene = connection.execute(
+            "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NOT NULL",
+            (scene_id,),
+        ).fetchone()
+        if scene is None:
+            raise ValueError("휴지통에서 해당 원고를 찾을 수 없습니다.")
+        project_id = int(scene["project_id"])
+
+        illust_rows = connection.execute(
+            "SELECT id, file_name FROM scene_illustration WHERE scene_id = ?",
+            (scene_id,),
+        ).fetchall()
+        for row in illust_rows:
+            file_name = str(row["file_name"] or "")
+            if file_name:
+                path = illustration_dir_for(project_id) / file_name
+                try:
+                    if path.is_file():
+                        path.unlink()
+                except OSError:
+                    pass
+            connection.execute("DELETE FROM scene_illustration WHERE id = ?", (int(row["id"]),))
+
+        connection.execute("DELETE FROM scene_character WHERE scene_id = ?", (scene_id,))
+        connection.execute("DELETE FROM scene_search_content WHERE scene_id = ?", (scene_id,))
+        # scene_tag may exist on older DBs with tags enabled.
+        try:
+            connection.execute("DELETE FROM scene_tag WHERE scene_id = ?", (scene_id,))
+        except sqlite3.Error:
+            pass
+
+        # Schema retains revisions by default; allow purge only for trashed scenes.
+        connection.execute("DROP TRIGGER IF EXISTS scene_revision_no_delete")
+        try:
+            connection.execute("DELETE FROM scene_revision WHERE scene_id = ?", (scene_id,))
+            connection.execute("DELETE FROM scene WHERE id = ?", (scene_id,))
+        finally:
+            connection.execute(
+                """
+                CREATE TRIGGER scene_revision_no_delete
+                BEFORE DELETE ON scene_revision
+                BEGIN
+                    SELECT RAISE(ABORT, 'scene revisions are retained');
+                END;
+                """
+            )
+
+    def purge_scene(self, scene_id: int) -> dict:
+        """Permanently delete one trashed scene."""
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, title FROM scene WHERE id = ? AND deleted_at IS NOT NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("휴지통에서 해당 원고를 찾을 수 없습니다.")
+            title = scene["title"]
+            self._hard_delete_scene(connection, scene_id)
+        return {"ok": True, "id": scene_id, "title": title}
+
+    def empty_trash(self, project_id: int) -> dict:
+        """Permanently delete all trashed scenes for a project."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT id FROM scene WHERE project_id = ? AND deleted_at IS NOT NULL",
+                (project_id,),
+            ).fetchall()
+            ids = [int(row["id"]) for row in rows]
+            for scene_id in ids:
+                self._hard_delete_scene(connection, scene_id)
+        return {"ok": True, "purged": len(ids)}
+
+    def list_illustrations(self, scene_id: int) -> list[dict]:
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            rows = connection.execute(
+                "SELECT id, project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order "
+                "FROM scene_illustration WHERE scene_id = ? ORDER BY sort_order, id",
+                (scene_id,),
+            ).fetchall()
+        return [illustration_public(row) for row in rows]
+
+    def create_illustration(self, scene_id: int, body: dict) -> dict:
+        raw_b64 = str(body.get("content_base64", "")).strip()
+        if not raw_b64:
+            raise ValueError("이미지 파일이 비어 있습니다.")
+        if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+            header, raw_b64 = raw_b64.split(",", 1)
+            mime_from_data = "image/jpeg"
+            match = re.search(r"data:([^;]+);", header)
+            if match:
+                mime_from_data = match.group(1).lower()
+        else:
+            mime_from_data = str(body.get("mime_type", "image/jpeg")).lower()
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("이미지를 읽지 못했습니다.") from error
+        if not data:
+            raise ValueError("이미지 파일이 비어 있습니다.")
+        if len(data) > MAX_ILLUSTRATION_BYTES:
+            raise ValueError(f"이미지가 너무 큽니다. {MAX_ILLUSTRATION_BYTES // (1024 * 1024)}MB 이하만 넣을 수 있어요.")
+        mime_type = mime_from_data if mime_from_data in ALLOWED_IMAGE_TYPES else str(body.get("mime_type", "")).lower()
+        if mime_type not in ALLOWED_IMAGE_TYPES:
+            # sniff simple magic numbers
+            if data[:3] == b"\xff\xd8\xff":
+                mime_type = "image/jpeg"
+            elif data[:8] == b"\x89PNG\r\n\x1a\n":
+                mime_type = "image/png"
+            elif data[:6] in (b"GIF87a", b"GIF89a"):
+                mime_type = "image/gif"
+            elif data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+                mime_type = "image/webp"
+            else:
+                raise ValueError("JPG, PNG, WEBP, GIF 이미지만 넣을 수 있어요.")
+        extension = ALLOWED_IMAGE_TYPES[mime_type]
+        caption = str(body.get("caption_md", "")).strip()[:500]
+        overlays = parse_overlays(body.get("overlays", []))
+
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            project_id = int(scene["project_id"])
+            sort_order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene_illustration WHERE scene_id = ?",
+                (scene_id,),
+            ).fetchone()[0]
+            file_name = f"{uuid.uuid4().hex}{extension}"
+            target = illustration_dir_for(project_id) / file_name
+            target.write_bytes(data)
+            cursor = connection.execute(
+                "INSERT INTO scene_illustration(project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order) "
+                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                (project_id, scene_id, file_name, mime_type, caption, json.dumps(overlays, ensure_ascii=False), sort_order),
+            )
+            illustration_id = int(cursor.lastrowid)
+            row = connection.execute(
+                "SELECT id, project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order "
+                "FROM scene_illustration WHERE id = ?",
+                (illustration_id,),
+            ).fetchone()
+        return illustration_public(row)
+
+    def update_illustration(self, illustration_id: int, body: dict) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order "
+                "FROM scene_illustration WHERE id = ?",
+                (illustration_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("삽화를 찾을 수 없습니다.")
+            caption = row["caption_md"]
+            overlays_json = row["overlays_json"]
+            sort_order = row["sort_order"]
+            if "caption_md" in body:
+                caption = str(body.get("caption_md", "")).strip()[:500]
+            if "overlays" in body:
+                overlays_json = json.dumps(parse_overlays(body.get("overlays")), ensure_ascii=False)
+            if "sort_order" in body:
+                try:
+                    sort_order = max(0, int(body.get("sort_order", 0)))
+                except (TypeError, ValueError) as error:
+                    raise ValueError("정렬 순서가 올바르지 않습니다.") from error
+            connection.execute(
+                "UPDATE scene_illustration SET caption_md = ?, overlays_json = ?, sort_order = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+                (caption, overlays_json, sort_order, illustration_id),
+            )
+            updated = connection.execute(
+                "SELECT id, project_id, scene_id, file_name, mime_type, caption_md, overlays_json, sort_order "
+                "FROM scene_illustration WHERE id = ?",
+                (illustration_id,),
+            ).fetchone()
+        return illustration_public(updated)
+
+    def delete_illustration(self, illustration_id: int) -> None:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, file_name FROM scene_illustration WHERE id = ?",
+                (illustration_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("삽화를 찾을 수 없습니다.")
+            connection.execute("DELETE FROM scene_illustration WHERE id = ?", (illustration_id,))
+            path = illustration_dir_for(int(row["project_id"])) / row["file_name"]
+            try:
+                path.unlink(missing_ok=True)
+            except OSError:
+                pass
+
+    def serve_illustration_image(self, illustration_id: int) -> None:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT project_id, file_name, mime_type FROM scene_illustration WHERE id = ?",
+                (illustration_id,),
+            ).fetchone()
+        if row is None:
+            raise ValueError("삽화를 찾을 수 없습니다.")
+        path = illustration_dir_for(int(row["project_id"])) / row["file_name"]
+        if not path.is_file():
+            raise ValueError("삽화 이미지 파일을 찾을 수 없습니다.")
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", row["mime_type"] or "application/octet-stream")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
+
+    def character_detail(self, character_id: int) -> dict:
+        with database() as connection:
+            character = connection.execute(
+                "SELECT id, project_id, name, sort_name, role, short_description, profile_md, "
+                "strengths_md, weaknesses_md, author_notes_md, row_version "
+                "FROM character WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if character is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            aliases = connection.execute(
+                "SELECT id, alias, alias_type FROM character_alias WHERE character_id = ? ORDER BY id", (character_id,)
+            ).fetchall()
+        return {"character": as_dict(character), "aliases": [as_dict(alias) for alias in aliases]}
+
+    def save_scene(self, scene_id: int, body: dict) -> dict:
+        title = str(body.get("title", "")).strip()
+        if not title:
+            raise ValueError("씬 제목을 입력해 주세요.")
+        status = str(body.get("status", "idea"))
+        if status not in {"idea", "outline", "draft", "revision", "complete"}:
+            raise ValueError("올바르지 않은 씬 상태입니다.")
+        content = str(body.get("content_md", ""))
+        expected_version = int(body.get("row_version", 0))
+        goal_count = max(0, int(body.get("goal_word_count", 0) or 0))
+        goal_metric = str(body.get("goal_metric", "chars_with_space") or "chars_with_space")
+        if goal_metric not in GOAL_METRICS:
+            raise ValueError("목표 글자 수 기준이 올바르지 않습니다.")
+        save_note = str(body.get("save_note", "") or "").strip() or "저장"
+        links_json = None
+        if "reference_links" in body:
+            links_json = json.dumps(parse_reference_links(body.get("reference_links")), ensure_ascii=False)
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT row_version FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            if expected_version and scene["row_version"] != expected_version:
+                raise ValueError("다른 화면에서 이 씬이 변경되었습니다. 새로 열고 다시 저장해 주세요.")
+            if links_json is None:
+                connection.execute(
+                    "UPDATE scene SET title = ?, synopsis_md = ?, notes_md = ?, status = ?, "
+                    "goal_word_count = ?, goal_metric = ?, row_version = row_version + 1 WHERE id = ?",
+                    (title, str(body.get("synopsis_md", "")), str(body.get("notes_md", "")), status,
+                     goal_count, goal_metric, scene_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE scene SET title = ?, synopsis_md = ?, notes_md = ?, status = ?, "
+                    "goal_word_count = ?, goal_metric = ?, reference_links_json = ?, "
+                    "row_version = row_version + 1 WHERE id = ?",
+                    (title, str(body.get("synopsis_md", "")), str(body.get("notes_md", "")), status,
+                     goal_count, goal_metric, links_json, scene_id),
+                )
+            current = connection.execute(
+                "SELECT id, revision_no, content_md, word_count FROM scene_revision "
+                "WHERE scene_id = ? AND is_current = 1",
+                (scene_id,),
+            ).fetchone()
+            if current is None:
+                raise ValueError("현재 원고를 찾을 수 없습니다.")
+            revision_no = int(current["revision_no"])
+            words = int(current["word_count"] or 0)
+            if current["content_md"] != content:
+                words = word_count(content)
+                cursor = connection.execute(
+                    "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note, is_current) "
+                    "VALUES (?, ?, ?, ?, ?, 0)",
+                    (scene_id, current["revision_no"] + 1, content, words, save_note),
+                )
+                connection.execute(
+                    "UPDATE scene_revision SET is_current = CASE "
+                    "WHEN id = ? THEN 1 WHEN id = ? THEN 0 ELSE is_current END "
+                    "WHERE id IN (?, ?)",
+                    (cursor.lastrowid, current["id"], cursor.lastrowid, current["id"]),
+                )
+                revision_no = int(current["revision_no"]) + 1
+            row = connection.execute(
+                "SELECT row_version FROM scene WHERE id = ?", (scene_id,)
+            ).fetchone()
+            return {
+                "ok": True,
+                "row_version": int(row["row_version"]),
+                "revision_no": revision_no,
+                "word_count": words,
+            }
+
+    def save_scene_characters(self, scene_id: int, body: dict) -> None:
+        character_ids = [int(value) for value in body.get("character_ids", [])]
+        pov_id = body.get("pov_id")
+        pov_id = int(pov_id) if pov_id not in (None, "") else None
+        if pov_id is not None and pov_id not in character_ids:
+            raise ValueError("시점 인물은 등장인물 중에서 골라 주세요.")
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT project_id FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            valid_count = connection.execute(
+                "SELECT COUNT(*) FROM character WHERE project_id = ? AND deleted_at IS NULL "
+                f"AND id IN ({','.join('?' for _ in character_ids) or 'NULL'})",
+                (scene["project_id"], *character_ids),
+            ).fetchone()[0]
+            if valid_count != len(set(character_ids)):
+                raise ValueError("다른 소설의 캐릭터는 연결할 수 없습니다.")
+            connection.execute("DELETE FROM scene_character WHERE scene_id = ?", (scene_id,))
+            for character_id in dict.fromkeys(character_ids):
+                connection.execute(
+                    "INSERT INTO scene_character(scene_id, character_id, project_id, appearance_role, is_pov) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (scene_id, character_id, scene["project_id"], "primary" if character_id == pov_id else "supporting",
+                     1 if character_id == pov_id else 0),
+                )
+
+    def save_character(self, character_id: int, body: dict) -> None:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            raise ValueError("캐릭터 이름을 입력해 주세요.")
+        role = str(body.get("role", "supporting"))
+        if role not in {"protagonist", "antagonist", "supporting", "minor"}:
+            raise ValueError("올바르지 않은 캐릭터 역할입니다.")
+        expected_version = int(body.get("row_version", 0))
+        with database() as connection:
+            character = connection.execute(
+                "SELECT row_version FROM character WHERE id = ? AND deleted_at IS NULL", (character_id,)
+            ).fetchone()
+            if character is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            if expected_version and character["row_version"] != expected_version:
+                raise ValueError("다른 화면에서 이 캐릭터가 변경되었습니다. 새로 열고 다시 저장해 주세요.")
+            connection.execute(
+                "UPDATE character SET name = ?, sort_name = ?, role = ?, short_description = ?, "
+                "profile_md = ?, strengths_md = ?, weaknesses_md = ?, author_notes_md = ? "
+                "WHERE id = ?",
+                (
+                    name,
+                    str(body.get("sort_name", "")),
+                    role,
+                    str(body.get("short_description", "")),
+                    str(body.get("profile_md", "")),
+                    str(body.get("strengths_md", "")),
+                    str(body.get("weaknesses_md", "")),
+                    str(body.get("author_notes_md", "")),
+                    character_id,
+                ),
+            )
+
+    def _list_episode_candidates(self, connection: sqlite3.Connection, project_id: int) -> list[chapter_match.EpisodeCandidate]:
+        """Active scenes in reading order with first-100-char body previews."""
+        rows = connection.execute(
+            "SELECT s.id AS scene_id, s.chapter_id, s.title AS scene_title, "
+            "c.title AS chapter_title, c.sort_order AS chapter_sort, s.sort_order AS scene_sort, "
+            "r.content_md "
+            "FROM scene s "
+            "JOIN chapter c ON c.id = s.chapter_id AND c.deleted_at IS NULL "
+            "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+            "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+            "ORDER BY c.sort_order, c.id, s.sort_order, s.id",
+            (project_id,),
+        ).fetchall()
+        episodes: list[chapter_match.EpisodeCandidate] = []
+        for index, row in enumerate(rows, start=1):
+            plain = plain_text_from_content(row["content_md"] or "")
+            episodes.append(
+                chapter_match.EpisodeCandidate(
+                    scene_id=int(row["scene_id"]),
+                    chapter_id=int(row["chapter_id"]),
+                    episode_number=index,
+                    title=str(row["scene_title"] or "") or f"{index}화",
+                    preview=chapter_match.plain_preview(plain, 100),
+                    chapter_title=str(row["chapter_title"] or ""),
+                )
+            )
+        return episodes
+
+    def match_project_episode(self, project_id: int, body: dict) -> dict:
+        """Find the existing 회차 (scene) that best matches uploaded / pasted text."""
+        use_ai = str(body.get("use_ai", "1")).lower() not in {"0", "false", "no"}
+        target_text = str(body.get("target_text") or body.get("text") or "").strip()
+        target_title = str(body.get("target_title") or body.get("title") or "").strip()
+        filename = str(body.get("filename", "")).strip()
+
+        if not target_text and body.get("content_base64"):
+            raw_b64 = str(body.get("content_base64", "")).strip()
+            if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+                raw_b64 = raw_b64.split(",", 1)[1]
+            try:
+                data = base64.b64decode(raw_b64, validate=False)
+            except (binascii.Error, ValueError) as error:
+                raise ValueError("파일을 읽지 못했습니다. 다시 선택해 주세요.") from error
+            if not filename:
+                filename = "upload.txt"
+            extracted = document_import.extract_document(filename, data)
+            target_text = extracted.text
+            if not target_title:
+                target_title = extracted.title
+
+        if not target_text.strip():
+            raise ValueError("비교할 원고 텍스트가 비어 있습니다.")
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            episodes = self._list_episode_candidates(connection, project_id)
+
+        result = chapter_match.match_episode(
+            target_text,
+            episodes,
+            target_title=target_title,
+            use_ai=use_ai,
+        )
+        payload = result.to_dict()
+        payload["episode_count"] = len(episodes)
+        payload["target_title"] = target_title
+        payload["target_preview"] = chapter_match.plain_preview(target_text, 160)
+        return payload
+
+    def _extract_upload_text(self, body: dict) -> tuple[str, str]:
+        """Return (text, title) from target_text or filename+content_base64."""
+        target_text = str(body.get("target_text") or body.get("text") or body.get("revised_text") or "").strip()
+        target_title = str(body.get("target_title") or body.get("title") or "").strip()
+        filename = str(body.get("filename", "")).strip()
+        if target_text:
+            return target_text, target_title
+        raw_b64 = str(body.get("content_base64", "")).strip()
+        if not raw_b64:
+            return "", target_title
+        if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("파일을 읽지 못했습니다. 다시 선택해 주세요.") from error
+        if not filename:
+            filename = "upload.txt"
+        extracted = document_import.extract_document(filename, data)
+        if not target_title:
+            target_title = extracted.title
+        return extracted.text, target_title
+
+    def extract_reference_text(self, body: dict) -> dict:
+        """
+        Extract plain text from an uploaded reference file for the side viewer.
+        Supports txt/md/docx/hwpx (+ hwp via proof_extract when available).
+        PDF is intended for browser-native viewing (no server extract).
+        """
+        filename, data = self._decode_upload_bytes(body)
+        ext = Path(filename).suffix.lower()
+        if ext == ".pdf":
+            return {
+                "filename": filename,
+                "format": "pdf",
+                "title": Path(filename).stem or "PDF",
+                "text": "",
+                "viewer": "pdf",
+                "warnings": ["PDF는 브라우저 뷰어로 엽니다. 텍스트 추출은 하지 않습니다."],
+            }
+        if ext in {".txt", ".text", ".md", ".markdown", ".csv"}:
+            text = document_import.normalise_whitespace(document_import.decode_text_bytes(data))
+            return {
+                "filename": filename,
+                "format": ext.lstrip(".") or "txt",
+                "title": Path(filename).stem or "텍스트",
+                "text": text[:200_000],
+                "viewer": "text",
+                "warnings": [],
+            }
+        # Prefer proof_extract for binary HWP / DOCX when available
+        if ext in {".hwp", ".docx", ".hwpx"}:
+            try:
+                unified = proof_extract.extract_proof_document(filename, data)
+                text = str(getattr(unified, "text", "") or "").strip()
+                if not text and hasattr(unified, "to_dict"):
+                    text = str((unified.to_dict() or {}).get("text") or "").strip()
+                if text:
+                    return {
+                        "filename": filename,
+                        "format": ext.lstrip("."),
+                        "title": Path(filename).stem or "문서",
+                        "text": text[:200_000],
+                        "viewer": "text",
+                        "warnings": list(getattr(unified, "warnings", None) or [])[:8],
+                    }
+            except Exception:
+                # Fall through to document_import / error message
+                pass
+        try:
+            extracted = document_import.extract_document(filename, data)
+            return {
+                "filename": filename,
+                "format": extracted.format_name,
+                "title": extracted.title,
+                "text": (extracted.text or "")[:200_000],
+                "viewer": "text",
+                "warnings": list(extracted.warnings or [])[:8],
+            }
+        except ValueError as error:
+            raise ValueError(str(error)) from error
+
+    def clean_proof_text_api(self, body: dict) -> dict:
+        """Strip editor/typesetting junk from HWP proof extract → pure body."""
+        raw = str(body.get("text") or body.get("target_text") or body.get("revised_text") or "").strip()
+        if not raw and body.get("content_base64"):
+            raw, _title = self._extract_upload_text(body)
+        if not str(raw or "").strip():
+            raise ValueError("정제할 텍스트가 비어 있습니다.")
+        do_clean = str(body.get("clean", "1")).lower() not in {"0", "false", "no"}
+        if not do_clean:
+            return {"clean_full_text": str(raw)}
+        result = proof_clean.clean_to_dict(raw)
+        # Optional: also return char stats for UI
+        cleaned = result["clean_full_text"]
+        result["source_chars"] = len(str(raw))
+        result["clean_chars"] = len(cleaned)
+        return result
+
+    def _decode_upload_bytes(self, body: dict) -> tuple[str, bytes]:
+        filename = str(body.get("filename", "")).strip() or "upload.bin"
+        raw_b64 = str(body.get("content_base64", "")).strip()
+        if not raw_b64:
+            raise ValueError("파일 내용이 비어 있습니다.")
+        if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("파일을 읽지 못했습니다. 다시 선택해 주세요.") from error
+        return filename, data
+
+    def run_proof_pipeline_api(self, project_id: int, body: dict) -> dict:
+        """
+        HWP/DOCX → unified extract → (1) match (2) clean (3) proof-diff.
+        Optional apply_clean: write clean_full_text onto matched scene.
+        """
+        use_ai = str(body.get("use_ai", "1")).lower() not in {"0", "false", "no"}
+        apply_clean = str(body.get("apply_clean", "0")).lower() in {"1", "true", "yes"}
+        scene_hint = body.get("scene_id")
+        try:
+            scene_hint_id = int(scene_hint) if scene_hint not in (None, "") else None
+        except (TypeError, ValueError):
+            scene_hint_id = None
+
+        filename, data = self._decode_upload_bytes(body)
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            episodes = self._list_episode_candidates(connection, project_id)
+
+            original_text = str(body.get("original_text") or "").strip()
+            # Resolve original from hint or leave for pipeline match first
+            if not original_text and scene_hint_id is not None:
+                row = connection.execute(
+                    "SELECT r.content_md FROM scene s "
+                    "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.id = ? AND s.project_id = ? AND s.deleted_at IS NULL",
+                    (scene_hint_id, project_id),
+                ).fetchone()
+                if row:
+                    original_text = plain_text_from_content(row["content_md"] or "")
+
+        result = proof_pipeline.run_proof_pipeline(
+            filename=filename,
+            data=data,
+            episodes=episodes,
+            original_text=original_text or None,
+            use_ai=use_ai,
+            scene_id_hint=scene_hint_id,
+        )
+
+        # If original was empty, load from matched scene and re-run step 3 only
+        match = result.get("step1_match") or {}
+        matched_id = match.get("matched_scene_id")
+        if not original_text and matched_id and not (result.get("step3_proof") or {}).get("diff_chunks"):
+            with database() as connection:
+                row = connection.execute(
+                    "SELECT content_md FROM scene_revision "
+                    "WHERE scene_id = ? AND is_current = 1",
+                    (int(matched_id),),
+                ).fetchone()
+            if row:
+                original_text = plain_text_from_content(row["content_md"] or "")
+                clean_text = (result.get("step2_clean") or {}).get("clean_full_text") or ""
+                if original_text and clean_text:
+                    report = proof_diff.analyze_proof(original_text, clean_text, use_ai=use_ai)
+                    step3 = report.to_dict()
+                    # merge extract memos
+                    for memo in (result.get("extract") or {}).get("memos") or []:
+                        step3.setdefault("editor_memos", []).append(memo)
+                    step3["summary"]["editor_memos_count"] = len(step3.get("editor_memos") or [])
+                    step3["clean_full_text"] = clean_text
+                    step3["scene_id"] = int(matched_id)
+                    result["step3_proof"] = step3
+
+        if matched_id:
+            result["scene_id"] = int(matched_id)
+
+        applied = False
+        if apply_clean and matched_id:
+            clean_text = result.get("clean_full_text") or ""
+            if not clean_text.strip():
+                raise ValueError("정제된 본문이 비어 덮어쓸 수 없습니다.")
+            with database() as connection:
+                scene = connection.execute(
+                    "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                    (int(matched_id),),
+                ).fetchone()
+                if scene is None or int(scene["project_id"]) != project_id:
+                    raise ValueError("매칭된 회차를 찾을 수 없습니다.")
+                self._write_scene_content(
+                    connection,
+                    int(matched_id),
+                    clean_text,
+                    save_note=f"교정 파이프라인 반영: {filename}",
+                )
+                connection.execute(
+                    "UPDATE scene SET status = CASE WHEN status = 'idea' THEN 'draft' ELSE status END WHERE id = ?",
+                    (int(matched_id),),
+                )
+            applied = True
+        result["applied"] = applied
+        return result
+
+    def proof_diff_project(self, project_id: int, body: dict) -> dict:
+        """Build a 교정/교열 report comparing SuperTORY original vs editor revised text."""
+        use_ai = str(body.get("use_ai", "1")).lower() not in {"0", "false", "no"}
+        original_text = str(body.get("original_text") or "").strip()
+        revised_text = str(body.get("revised_text") or body.get("target_text") or "").strip()
+        scene_id = body.get("scene_id")
+        match_info: dict | None = None
+        auto_clean = str(body.get("clean", "1")).lower() not in {"0", "false", "no"}
+
+        # Revised may arrive as file upload
+        if not revised_text and body.get("content_base64"):
+            revised_text, _title = self._extract_upload_text(body)
+
+        pre_memos: list = []
+        if revised_text and auto_clean:
+            # Pull editor comments first, then strip HWP junk for pure-body diff.
+            _raw_for_memo, pre_memos = proof_diff.extract_memos(revised_text)
+            revised_text = proof_clean.clean_proof_text(revised_text)
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+
+            # Resolve original from scene_id, or auto-match from revised text
+            if original_text:
+                pass
+            elif scene_id not in (None, ""):
+                scene_id = int(scene_id)
+                row = connection.execute(
+                    "SELECT s.id, s.title, s.project_id, r.content_md "
+                    "FROM scene s "
+                    "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.id = ? AND s.deleted_at IS NULL",
+                    (scene_id,),
+                ).fetchone()
+                if row is None or int(row["project_id"]) != project_id:
+                    raise ValueError("원본 회차를 찾을 수 없습니다.")
+                original_text = plain_text_from_content(row["content_md"] or "")
+            elif revised_text:
+                episodes = self._list_episode_candidates(connection, project_id)
+                matched = chapter_match.match_episode(
+                    revised_text,
+                    episodes,
+                    target_title=str(body.get("target_title") or body.get("title") or ""),
+                    use_ai=use_ai,
+                )
+                match_info = matched.to_dict()
+                if matched.matched_scene_id is None:
+                    raise ValueError(
+                        matched.match_reason
+                        or "교정고와 맞는 원본 회차를 찾지 못했습니다. 회차를 연 뒤 다시 시도해 주세요."
+                    )
+                scene_id = matched.matched_scene_id
+                row = connection.execute(
+                    "SELECT content_md FROM scene_revision "
+                    "WHERE scene_id = ? AND is_current = 1",
+                    (scene_id,),
+                ).fetchone()
+                original_text = plain_text_from_content((row["content_md"] if row else "") or "")
+            else:
+                raise ValueError("교정 원고 텍스트나 파일을 넣어 주세요.")
+
+        if not revised_text.strip():
+            raise ValueError("편집자 교정 원고가 비어 있습니다.")
+        if not original_text.strip():
+            raise ValueError("원본 원고가 비어 있습니다. 해당 회차에 본문이 있는지 확인해 주세요.")
+
+        report = proof_diff.analyze_proof(original_text, revised_text, use_ai=use_ai)
+        payload = report.to_dict()
+        # Merge memos extracted before cleaning (clean_proof_text drops them)
+        if pre_memos:
+            existing = {
+                (m.get("location_context"), m.get("memo_content"))
+                for m in payload.get("editor_memos") or []
+                if isinstance(m, dict)
+            }
+            for memo in pre_memos:
+                key = (memo.location_context, memo.memo_content)
+                if key in existing:
+                    continue
+                payload.setdefault("editor_memos", []).append(memo.to_dict())
+                existing.add(key)
+            payload["summary"]["editor_memos_count"] = len(payload.get("editor_memos") or [])
+        if auto_clean:
+            payload["clean_full_text"] = revised_text
+        if scene_id not in (None, ""):
+            try:
+                payload["scene_id"] = int(scene_id)
+            except (TypeError, ValueError):
+                payload["scene_id"] = scene_id
+        if match_info is not None:
+            payload["match"] = match_info
+        return payload
+
+    def import_document(self, body: dict, project_id: int | None = None) -> dict:
+        filename = str(body.get("filename", "")).strip()
+        if not filename:
+            raise ValueError("파일 이름을 알려 주세요.")
+        raw_b64 = str(body.get("content_base64", "")).strip()
+        if not raw_b64:
+            raise ValueError("파일 내용이 비어 있습니다.")
+        # Allow data-URL prefixes from some browsers.
+        if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("파일을 읽지 못했습니다. 다시 선택해 주세요.") from error
+
+        # HWP/DOCX 교정고: 통합 추출기(pyhwp / python-docx) 우선
+        destination_early = str(body.get("destination", "new_chapter") or "new_chapter")
+        document_kind = str(
+            body.get("document_kind") or body.get("document_role") or ""
+        ).strip().lower()
+        is_proof_doc = bool(
+            body.get("is_proof")
+            or document_kind in {
+                "proof",
+                "editor_proof",
+                "proof_copy",
+                "교정본",
+                "교정고",
+            }
+            or str(body.get("tory_task") or "").startswith("proof")
+            or destination_early in {
+                "match_replace_scene",
+                "proof_compare",
+                "proof_pipeline",
+            }
+        )
+        ext_lower = Path(filename).suffix.lower()
+        use_proof_extract = (
+            ext_lower in {".hwp", ".docx", ".hwpx"}
+            or is_proof_doc
+            or destination_early in {
+                "match_replace_scene",
+                "proof_compare",
+                "proof_pipeline",
+            }
+        )
+        unified_extract: dict | None = None
+        if use_proof_extract and ext_lower in {".hwp", ".docx", ".hwpx"}:
+            try:
+                unified = proof_extract.extract_proof_document(filename, data)
+                unified_extract = unified.to_dict()
+                extracted = document_import.ExtractedDocument(
+                    title=unified.title or document_import.title_from_filename(filename),
+                    text=unified.text,
+                    format_name=unified.format,
+                    warnings=tuple(unified.warnings),
+                )
+            except ValueError:
+                if ext_lower == ".hwp":
+                    raise
+                extracted = document_import.extract_document(filename, data)
+        else:
+            extracted = document_import.extract_document(filename, data)
+
+        split_mode = str(body.get("split", "none") or "none")
+        destination = destination_early
+        if destination not in {
+            "new_chapter",
+            "existing_chapter",
+            "replace_scene",
+            "match_replace_scene",
+            "proof_compare",
+            "proof_pipeline",
+            "new_project",
+        }:
+            raise ValueError("가져오기 위치가 올바르지 않습니다.")
+
+        # 교정고 자동 매칭/비교/파이프라인은 통째로 한 회차 단위.
+        if destination in {"match_replace_scene", "proof_compare", "proof_pipeline"}:
+            split_mode = "none"
+
+        default_title = str(body.get("scene_title", "")).strip() or extracted.title
+        plan = document_import.build_import_plan(extracted.text, split_mode, default_title)
+        sections = plan.sections
+        chapter_title = str(body.get("chapter_title", "")).strip() or extracted.title
+        project_title = str(body.get("project_title", "")).strip() or extracted.title
+        purpose = document_import.normalise_purpose(body.get("purpose"))
+
+        if destination in {"replace_scene", "match_replace_scene", "proof_compare", "proof_pipeline"} and plan.section_count > 1:
+            raise ValueError("현재 씬에 덮어쓸 때는 글을 나누지 않는 방식을 골라 주세요.")
+
+        match_info: dict | None = None
+        proof_report: dict | None = None
+
+        # proof_pipeline: extract → match → clean → diff (optional apply)
+        if destination == "proof_pipeline":
+            if project_id is None:
+                raise ValueError("교정 파이프라인은 기존 작품에서만 사용할 수 있어요.")
+            pipe_body = {
+                "filename": filename,
+                "content_base64": body.get("content_base64"),
+                "use_ai": body.get("use_ai", True),
+                "apply_clean": body.get("apply_clean", False),
+                "scene_id": body.get("scene_id"),
+            }
+            pipeline = self.run_proof_pipeline_api(int(project_id), pipe_body)
+            scene_ids = [pipeline["scene_id"]] if pipeline.get("scene_id") else []
+            return {
+                "project_id": int(project_id),
+                "destination": "proof_pipeline",
+                "document_kind": "proof" if is_proof_doc else document_kind or "manuscript",
+                "document_role": "editor_proof" if is_proof_doc else "manuscript",
+                "tory_task": str(body.get("tory_task") or "proof_identify_and_compare"),
+                "is_proof": True,
+                "title": extracted.title,
+                "format": extracted.format_name,
+                "purpose": purpose,
+                "section_count": 0,
+                "chapter_count": 0,
+                "word_count": word_count(pipeline.get("clean_full_text") or extracted.text),
+                "scene_ids": scene_ids,
+                "warnings": list(extracted.warnings) + list(
+                    (pipeline.get("extract") or {}).get("warnings") or []
+                ),
+                "pipeline": pipeline,
+                "proof": pipeline.get("step3_proof"),
+                "match": pipeline.get("step1_match"),
+                "clean_full_text": pipeline.get("clean_full_text"),
+                "extract": unified_extract or pipeline.get("extract"),
+                "applied": pipeline.get("applied"),
+            }
+
+        # proof_compare: analyze only (no manuscript write)
+        if destination == "proof_compare":
+            if project_id is None:
+                raise ValueError("교정 비교는 기존 작품에서만 사용할 수 있어요.")
+            use_ai = str(body.get("use_ai", "1")).lower() not in {"0", "false", "no"}
+            scene_hint = body.get("scene_id")
+            proof_body = {
+                "revised_text": extracted.text,
+                "target_title": extracted.title or default_title,
+                "use_ai": use_ai,
+            }
+            if scene_hint not in (None, ""):
+                proof_body["scene_id"] = scene_hint
+            report = self.proof_diff_project(int(project_id), proof_body)
+            if unified_extract:
+                report["extract"] = unified_extract
+            return {
+                "project_id": int(project_id),
+                "destination": "proof_compare",
+                "document_kind": "proof" if is_proof_doc else document_kind or "manuscript",
+                "document_role": "editor_proof" if is_proof_doc else "manuscript",
+                "tory_task": str(body.get("tory_task") or "proof_identify_and_compare"),
+                "is_proof": True,
+                "title": extracted.title,
+                "format": extracted.format_name,
+                "purpose": purpose,
+                "section_count": 0,
+                "chapter_count": 0,
+                "word_count": word_count(extracted.text),
+                "scene_ids": [report["scene_id"]] if report.get("scene_id") else [],
+                "warnings": list(extracted.warnings),
+                "proof": report,
+                "match": report.get("match"),
+                "extract": unified_extract,
+            }
+
+        with database() as connection:
+            created_project = False
+            package_info: dict = {}
+            if destination == "new_project" or project_id is None:
+                if destination in {"match_replace_scene", "proof_compare"}:
+                    raise ValueError("회차 자동 매칭은 기존 작품에서만 사용할 수 있어요.")
+                cursor = connection.execute(
+                    "INSERT INTO project(title, purpose) VALUES (?, ?)",
+                    (project_title, purpose),
+                )
+                project_id = int(cursor.lastrowid)
+                created_project = True
+                destination = "new_chapter"
+                package_info = ensure_project_package(connection, project_id)
+            else:
+                self.require_project(connection, project_id)
+                # Optional: update purpose when provided on import into existing project.
+                if body.get("purpose") not in (None, ""):
+                    connection.execute(
+                        "UPDATE project SET purpose = ? WHERE id = ?",
+                        (purpose, project_id),
+                    )
+                package_info = ensure_project_package(connection, project_id)
+
+            chapter_id = body.get("chapter_id")
+            scene_id = body.get("scene_id")
+            scene_ids: list[int] = []
+            chapter_ids: list[int] = []
+
+            if destination == "match_replace_scene":
+                episodes = self._list_episode_candidates(connection, project_id)
+                use_ai = str(body.get("use_ai", "1")).lower() not in {"0", "false", "no"}
+                matched = chapter_match.match_episode(
+                    extracted.text,
+                    episodes,
+                    target_title=extracted.title or default_title,
+                    use_ai=use_ai,
+                )
+                match_info = matched.to_dict()
+                if matched.matched_scene_id is None:
+                    raise ValueError(
+                        matched.match_reason
+                        or "업로드한 교정고와 맞는 회차를 찾지 못했습니다. "
+                        "회차를 연 뒤 ‘지금 열린 씬에 덮어쓰기’를 사용해 주세요."
+                    )
+                if matched.confidence_score < chapter_match.LOCAL_ACCEPT_THRESHOLD:
+                    raise ValueError(
+                        f"매칭 신뢰도가 낮습니다 ({matched.confidence_score:.0%}). "
+                        f"후보: {matched.matched_episode_number}화 「{matched.matched_title}」 — "
+                        "확인 후 해당 회차를 열고 덮어쓰기 하거나, 더 긴 본문이 있는 파일을 올려 주세요."
+                    )
+                scene_id = matched.matched_scene_id
+                scene = connection.execute(
+                    "SELECT id, project_id, title FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (scene_id,),
+                ).fetchone()
+                if scene is None or int(scene["project_id"]) != project_id:
+                    raise ValueError("매칭된 회차를 찾을 수 없습니다.")
+                # HWP 교정고 잔재(메모·조판 기호) 제거 후 순수 본문만 반영
+                content = proof_clean.clean_proof_text(sections[0].content)
+                if not content.strip():
+                    raise ValueError("정제 후 본문이 비어 있습니다. 원문 추출을 확인해 주세요.")
+                self._write_scene_content(
+                    connection,
+                    scene_id,
+                    content,
+                    save_note=f"교정고 자동 매칭 가져오기: {filename}",
+                )
+                # Keep existing title by default so binder labels stay stable.
+                keep_title = str(body.get("keep_scene_title", "1")).lower() not in {"0", "false", "no"}
+                if keep_title:
+                    connection.execute(
+                        "UPDATE scene SET status = CASE WHEN status = 'idea' THEN 'draft' ELSE status END WHERE id = ?",
+                        (scene_id,),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE scene SET title = ?, status = CASE WHEN status = 'idea' THEN 'draft' ELSE status END WHERE id = ?",
+                        (sections[0].title, scene_id),
+                    )
+                scene_ids = [int(scene_id)]
+                chapter_id = matched.matched_chapter_id
+                chapter_ids = [int(chapter_id)] if chapter_id is not None else []
+            elif destination == "replace_scene":
+                if scene_id in (None, ""):
+                    raise ValueError("덮어쓸 씬을 먼저 열어 주세요.")
+                scene_id = int(scene_id)
+                scene = connection.execute(
+                    "SELECT id, project_id, row_version, title FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (scene_id,),
+                ).fetchone()
+                if scene is None:
+                    raise ValueError("씬을 찾을 수 없습니다.")
+                if scene["project_id"] != project_id:
+                    raise ValueError("다른 작품의 씬에는 가져올 수 없습니다.")
+                content = sections[0].content
+                self._write_scene_content(connection, scene_id, content, save_note=f"문서 가져오기: {filename}")
+                if not str(body.get("keep_scene_title", "")).lower() in {"1", "true", "yes"}:
+                    connection.execute(
+                        "UPDATE scene SET title = ?, status = CASE WHEN status = 'idea' THEN 'draft' ELSE status END WHERE id = ?",
+                        (sections[0].title, scene_id),
+                    )
+                else:
+                    connection.execute(
+                        "UPDATE scene SET status = CASE WHEN status = 'idea' THEN 'draft' ELSE status END WHERE id = ?",
+                        (scene_id,),
+                    )
+                scene_ids = [scene_id]
+                chapter_id = connection.execute(
+                    "SELECT chapter_id FROM scene WHERE id = ?", (scene_id,)
+                ).fetchone()[0]
+                chapter_ids = [chapter_id]
+            elif destination == "existing_chapter":
+                if chapter_id in (None, ""):
+                    raise ValueError("글을 넣을 챕터를 골라 주세요.")
+                chapter_id = int(chapter_id)
+                chapter = connection.execute(
+                    "SELECT id, project_id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                    (chapter_id,),
+                ).fetchone()
+                if chapter is None:
+                    raise ValueError("챕터를 찾을 수 없습니다.")
+                if chapter["project_id"] != project_id:
+                    raise ValueError("다른 작품의 챕터에는 가져올 수 없습니다.")
+                chapter_ids = [chapter_id]
+                for section in sections:
+                    scene_ids.append(
+                        self._insert_imported_scene(
+                            connection, project_id, chapter_id, section.title, section.content, filename
+                        )
+                    )
+            else:
+                # new_chapter (also after new_project): honour multi-chapter plans (TOC / headings).
+                multi_chapter = len(plan.chapters) > 1
+                for chapter_plan in plan.chapters:
+                    title_for_chapter = chapter_plan.title if multi_chapter else chapter_title
+                    if not multi_chapter and len(plan.chapters) == 1 and split_mode in {"none", ""}:
+                        title_for_chapter = chapter_title
+                    sort_order = connection.execute(
+                        "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                        "WHERE project_id = ? AND part_id IS NULL AND deleted_at IS NULL",
+                        (project_id,),
+                    ).fetchone()[0]
+                    cursor = connection.execute(
+                        "INSERT INTO chapter(project_id, title, sort_order) VALUES (?, ?, ?)",
+                        (project_id, title_for_chapter, sort_order),
+                    )
+                    new_chapter_id = int(cursor.lastrowid)
+                    chapter_ids.append(new_chapter_id)
+                    chapter_id = new_chapter_id
+                    for section in chapter_plan.scenes:
+                        scene_ids.append(
+                            self._insert_imported_scene(
+                                connection, project_id, new_chapter_id, section.title, section.content, filename
+                            )
+                        )
+
+            total_words = sum(word_count(section.content) for section in sections)
+            if not package_info:
+                package_info = ensure_project_package(connection, project_id)
+            result = {
+                "project_id": project_id,
+                "chapter_id": chapter_id,
+                "chapter_ids": chapter_ids,
+                "scene_ids": scene_ids,
+                "created_project": created_project,
+                "title": extracted.title,
+                "format": extracted.format_name,
+                "purpose": purpose,
+                "section_count": plan.section_count,
+                "chapter_count": len(chapter_ids),
+                "word_count": total_words,
+                "warnings": list(extracted.warnings) + list(plan.warnings),
+                **package_info,
+            }
+            if match_info is not None:
+                result["match"] = match_info
+            return result
+
+    def _insert_imported_scene(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        chapter_id: int,
+        title: str,
+        content: str,
+        filename: str,
+    ) -> int:
+        scene_sort = connection.execute(
+            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
+            "WHERE chapter_id = ? AND deleted_at IS NULL",
+            (chapter_id,),
+        ).fetchone()[0]
+        cursor = connection.execute(
+            "INSERT INTO scene(project_id, chapter_id, title, status, sort_order) "
+            "VALUES (?, ?, ?, 'draft', ?)",
+            (project_id, chapter_id, title, scene_sort),
+        )
+        new_scene_id = int(cursor.lastrowid)
+        connection.execute(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note) "
+            "VALUES (?, 1, ?, ?, ?)",
+            (new_scene_id, content, word_count(content), f"문서 가져오기: {filename}"),
+        )
+        return new_scene_id
+
+    def _write_scene_content(
+        self,
+        connection: sqlite3.Connection,
+        scene_id: int,
+        content: str,
+        save_note: str = "문서 가져오기",
+    ) -> None:
+        current = connection.execute(
+            "SELECT id, revision_no, content_md FROM scene_revision WHERE scene_id = ? AND is_current = 1",
+            (scene_id,),
+        ).fetchone()
+        if current is None:
+            connection.execute(
+                "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note) "
+                "VALUES (?, 1, ?, ?, ?)",
+                (scene_id, content, word_count(content), save_note),
+            )
+            return
+        if current["content_md"] == content:
+            return
+        cursor = connection.execute(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note, is_current) "
+            "VALUES (?, ?, ?, ?, ?, 0)",
+            (scene_id, current["revision_no"] + 1, content, word_count(content), save_note),
+        )
+        connection.execute(
+            "UPDATE scene_revision SET is_current = CASE "
+            "WHEN id = ? THEN 1 WHEN id = ? THEN 0 ELSE is_current END "
+            "WHERE id IN (?, ?)",
+            (cursor.lastrowid, current["id"], cursor.lastrowid, current["id"]),
+        )
+
+
+def parse_launch_args(argv: list[str]) -> Path | None:
+    for argument in argv:
+        if argument.startswith("-"):
+            continue
+        path = Path(argument)
+        if path.suffix.lower() == project_package.PACKAGE_EXTENSION:
+            return path
+    return None
+
+
+def build_app_url(project_id: int | None = None) -> str:
+    if project_id is None:
+        return f"http://{HOST}:{PORT}/"
+    return f"http://{HOST}:{PORT}/?project={project_id}"
+
+
+def main(argv: list[str] | None = None) -> None:
+    # Windows consoles often use cp949; paths under OneDrive/文档 must not crash prints.
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
+    argv = list(sys.argv[1:] if argv is None else argv)
+    package_path = parse_launch_args(argv)
+
+    initialise_database()
+    # Electron owns shell integration; skip for frozen/Electron launches.
+    if not ELECTRON_MODE and not _is_frozen():
+        project_package.register_windows_file_association(ROOT, sys.executable)
+
+    project_id: int | None = None
+    if package_path is not None:
+        try:
+            project_id = resolve_package_file(package_path.expanduser().resolve())
+            print(f"작품 파일 열기: {package_path.name}")
+        except (ValueError, OSError) as error:
+            print(f"작품 파일을 열 수 없습니다: {error}")
+            project_id = None
+
+    url = build_app_url(project_id)
+
+    # Always load the latest app.py. An old background process on :8765 caused
+    # "알 수 없는 요청" for new APIs (e.g. spellcheck) after users only refreshed the browser.
+    if port_is_open(HOST, PORT):
+        stop_server_on_port(PORT)
+        if port_is_open(HOST, PORT):
+            print("이미 실행 중인 SuperTORY를 종료하지 못했습니다.")
+            print("작업 관리자에서 python.exe 를 종료한 뒤 start_supertory.bat 을 다시 실행해 주세요.")
+            print(url)
+            if not NO_BROWSER:
+                webbrowser.open(url)
+            return
+
+    server = ThreadingHTTPServer((HOST, PORT), SuperToryHandler)
+    if ELECTRON_MODE:
+        print("\nSuperTory (Electron) 서버가 준비되었습니다.")
+        print(f"URL: {url}")
+        print(f"데이터: {DATA_DIR}")
+        print(f"작품 파일 폴더: {projects_root()}\n")
+    else:
+        print("\nSuperTory가 열렸습니다.")
+        print(f"브라우저가 열리지 않으면 {url} 을 주소창에 입력해 주세요.")
+        print(f"작품 파일 폴더: {projects_root()}")
+        print("이 창을 닫으면 앱도 종료됩니다.\n")
+    if not NO_BROWSER:
+        Timer(0.5, lambda: webbrowser.open(url)).start()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+
+
+if __name__ == "__main__":
+    if _is_frozen():
+        import multiprocessing
+
+        multiprocessing.freeze_support()
+    main()

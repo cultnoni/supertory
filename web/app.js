@@ -1,0 +1,23715 @@
+/* One-time: rename localStorage keys storyguide.* → supertory.* (product rebrand). */
+(function migrateLegacyStorageKeys() {
+  try {
+    const toMove = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith("storyguide.")) toMove.push(key);
+    }
+    for (const key of toMove) {
+      const next = `supertory.${key.slice("storyguide.".length)}`;
+      if (localStorage.getItem(next) === null) {
+        localStorage.setItem(next, localStorage.getItem(key));
+      }
+      localStorage.removeItem(key);
+    }
+  } catch (_) {
+    /* private mode / blocked storage */
+  }
+})();
+
+const state = {
+  projects: [],
+  /** @type {"recent"|"manual"} 작품 목록 정렬 — 기본은 최근 작업순 */
+  projectListMode: "recent",
+  projectId: null,
+  sceneId: null,
+  characterId: null,
+  scene: null,
+  character: null,
+  characters: [],
+  sceneMembers: [],
+  outline: [],
+  /** @type {Array<{id:number,title:string,chapters:any[]}>} 권·부 상위 상자 */
+  parts: [],
+  /** @type {any[]} 권/부에 속하지 않은 챕터 폴더 */
+  ungroupedChapters: [],
+  outlineProjectId: null, // projectId that state.outline currently belongs to
+  projectPurpose: null,
+  mainGenre: "",
+  subGenre: "",
+  /** @type {string[]} 설정집 키워드 태그 */
+  keywords: [],
+  illustrations: [],
+  referenceLinks: [],
+  ideas: [],
+  ideaBoardOpen: false,
+  keywordBoardOpen: false,
+  synopsisMd: "",
+  loglineMd: "",
+  introMd: "",
+  intentMd: "",
+  worldbuildingMd: "",
+  openSettingsSection: null,
+  settingsDocKind: null, // "synopsis" | "logline" | "world" | "intro" | "intent" when main editor open
+  characterBoardOpen: false,
+  activeBinder: "manuscript", // "manuscript" | "settings"
+  splitEnabled: false,
+  splitMode: null, // "split" | "popup"
+  splitKind: "scene", // "scene" | "source" — side pane shows another scene or reference file
+  splitSceneId: null,
+  splitScene: null,
+  splitSourceId: null, // reference source file id when splitKind === "source"
+  splitEditEnabled: false, // free-edit other scene; sticky until turned off
+  toryFocusSceneId: null, // binder “토리로 분석하기” focus target
+  toryFocusSceneTitle: "",
+  /** Browser-like open episode tabs: [{ sceneId, title }] */
+  episodeTabs: [],
+  /** Project-wide manuscript goal (goal_word_count on project). */
+  projectGoalCount: 0,
+};
+
+const $ = (id) => document.getElementById(id);
+
+/**
+ * JSON API helper. Network / server failures become Error with:
+ *   isNetwork | isServer | offlineSafe
+ * so callers can fall back to local draft storage without losing work.
+ */
+async function api(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body != null && !headers["Content-Type"]) {
+    headers["Content-Type"] = "application/json";
+  }
+  let response;
+  try {
+    response = await fetch(path, {
+      ...options,
+      headers,
+    });
+  } catch (networkError) {
+    const err = new Error(
+      "서버에 연결할 수 없습니다. 작성 중인 글은 이 기기에 안전하게 보관됩니다.",
+    );
+    err.isNetwork = true;
+    err.offlineSafe = true;
+    err.cause = networkError;
+    throw err;
+  }
+
+  let data = {};
+  const rawText = await response.text().catch(() => "");
+  if (rawText) {
+    try {
+      data = JSON.parse(rawText);
+    } catch (_) {
+      data = { error: rawText.slice(0, 200) || "응답을 해석하지 못했습니다." };
+    }
+  }
+  if (!response.ok) {
+    const err = new Error(
+      (data && data.error) || `저장 중 문제가 생겼습니다. (${response.status})`,
+    );
+    err.status = response.status;
+    err.isServer = response.status >= 500;
+    err.offlineSafe = response.status >= 500 || response.status === 0 || response.status === 408 || response.status === 429;
+    throw err;
+  }
+  return data;
+}
+
+function isOnlineNow() {
+  try {
+    return navigator.onLine !== false;
+  } catch (_) {
+    return true;
+  }
+}
+
+function isOfflineSafeError(error) {
+  if (!error) return false;
+  if (error.isNetwork || error.offlineSafe) return true;
+  const msg = String(error.message || error || "");
+  return /failed to fetch|networkerror|load failed|offline|연결/i.test(msg);
+}
+
+function toast(message) {
+  const element = $("toast");
+  element.textContent = message;
+  element.classList.add("show");
+  window.clearTimeout(toast.timer);
+  toast.timer = window.setTimeout(() => element.classList.remove("show"), 2600);
+}
+
+function escapeHtml(text) {
+  return String(text).replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;", "<": "&lt;", ">": "&gt;", "'": "&#39;", '"': "&quot;",
+  }[character]));
+}
+
+function looksLikeHtml(text) {
+  return /<\/?[a-z][\s\S]*>/i.test(String(text || ""));
+}
+
+function plainTextFromHtml(html) {
+  const host = document.createElement("div");
+  host.innerHTML = html || "";
+  return (host.innerText || host.textContent || "").replace(/\u00a0/g, " ").trim();
+}
+
+function sanitizeEditorHtml(html) {
+  const host = document.createElement("div");
+  host.innerHTML = html || "";
+  host.querySelectorAll("script, style, iframe, object, embed, link, meta").forEach((node) => node.remove());
+  host.querySelectorAll("*").forEach((node) => {
+    [...node.attributes].forEach((attr) => {
+      const name = attr.name.toLowerCase();
+      const value = attr.value || "";
+      if (name.startsWith("on") || name === "srcdoc") node.removeAttribute(attr.name);
+      if ((name === "href" || name === "src") && /^\s*javascript:/i.test(value)) {
+        node.removeAttribute(attr.name);
+      }
+    });
+  });
+  return host.innerHTML;
+}
+
+function setEditorContent(raw, editorEl = null) {
+  const editor = editorEl || $("sceneContent");
+  if (!editor) return;
+  const text = raw == null ? "" : String(raw);
+  if (!text.trim()) {
+    editor.innerHTML = "";
+  } else if (looksLikeHtml(text)) {
+    editor.innerHTML = sanitizeEditorHtml(text);
+  } else {
+    editor.innerHTML = escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
+  }
+  // Re-attach edit/delete controls on loaded footnotes.
+  if (typeof hydrateFootnoteUi === "function") hydrateFootnoteUi(editor);
+  updateEditorPlaceholder(editor);
+}
+
+function stripFindHitMarkup(html) {
+  // Find highlights must never be persisted into manuscript HTML.
+  if (!html || !/find-hit/i.test(html)) return html || "";
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  host.querySelectorAll("mark.find-hit").forEach((mark) => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    parent.removeChild(mark);
+  });
+  host.normalize?.();
+  return host.innerHTML;
+}
+
+function getEditorContent(editorEl = null) {
+  const editor = editorEl || $("sceneContent");
+  if (!editor) return "";
+  // Clone so open find-highlights are not written into saved content.
+  const raw = stripFindHitMarkup(editor.innerHTML || "");
+  const html = raw
+    .replace(/^(?:<br\s*\/?>|\s|&nbsp;|\u200b)*$/i, "")
+    .trim();
+  if (!html) return "";
+  // Keep image-only or sparse markup content (do not wipe on auto-save).
+  const plain = plainTextFromHtml(html);
+  const hasImage = /<img\b/i.test(html);
+  const hasMarkup = /<[a-z][\s\S]*>/i.test(html);
+  if (!plain && !hasImage && !hasMarkup) return "";
+  return sanitizeEditorHtml(raw);
+}
+
+function getEditorPlainText(editorEl = null) {
+  const editor = editorEl || $("sceneContent");
+  if (!editor) return "";
+  return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
+}
+
+function isSettingsDocMainOpen() {
+  return Boolean($("synopsisWorkspace") && !$("synopsisWorkspace").classList.contains("hidden"));
+}
+
+/** @deprecated use isSettingsDocMainOpen */
+function isSynopsisMainOpen() {
+  return isSettingsDocMainOpen();
+}
+
+function getActiveRichEditor() {
+  if (isSettingsDocMainOpen()) return $("synopsisContent");
+  return $("sceneContent");
+}
+
+const SETTINGS_DOC_META = {
+  intro: {
+    title: "작품소개",
+    hint: "작품을 한눈에 소개하는 글을 본문처럼 넓게 편집합니다.",
+    placeholder: "작품을 한눈에 소개하는 글을 여기에 적어 보세요.",
+    stateKey: "introMd",
+    apiField: "intro_md",
+    sidebarId: "projectIntro",
+    toastLabel: "작품소개",
+  },
+  intent: {
+    title: "기획의도",
+    hint: "왜 이 작품을 쓰는지, 전하고 싶은 메시지를 본문처럼 넓게 편집합니다.",
+    placeholder: "기획 의도·테마·전하고 싶은 메시지를 여기에 적어 보세요.",
+    stateKey: "intentMd",
+    apiField: "intent_md",
+    sidebarId: "projectIntent",
+    toastLabel: "기획의도",
+  },
+  synopsis: {
+    title: "시놉시스",
+    hint: "작품 전체 줄거리를 본문처럼 넓게 편집합니다.",
+    placeholder: "작품 전체 줄거리·시놉시스를 여기에 본문처럼 적어 보세요.",
+    stateKey: "synopsisMd",
+    apiField: "synopsis_md",
+    sidebarId: "projectSynopsis",
+    toastLabel: "시놉시스",
+  },
+  logline: {
+    title: "로그라인",
+    hint: "한두 문장으로 작품의 핵심 매력을 정리합니다.",
+    placeholder: "예: 기억을 잃은 탐정이 자신의 과거를 쫓다 도시의 비밀에 맞선다.",
+    stateKey: "loglineMd",
+    apiField: "logline_md",
+    sidebarId: "projectLogline",
+    toastLabel: "로그라인",
+  },
+  world: {
+    title: "세계관",
+    hint: "시대·장소·규칙·역사 등 세계 설정을 본문처럼 넓게 편집합니다.",
+    placeholder: "시대, 장소, 규칙, 역사 등 세계관 설정을 여기에 적어 보세요.",
+    stateKey: "worldbuildingMd",
+    apiField: "worldbuilding_md",
+    sidebarId: "projectWorldbuilding",
+    toastLabel: "세계관",
+  },
+};
+
+const COUNT_METRIC_LABEL = {
+  chars_with_space: "공백포함",
+  chars_no_space: "공백제외",
+  words: "단어",
+  letters: "글자",
+};
+
+const STAT_DISPLAY_KEY = "supertory.statDisplay";
+const STAT_SCOPE_KEY = "supertory.statScope"; // "current" | "project"
+const SPACE_MODES = ["with", "without", "both"]; // 공백포함 / 공백제외 / 둘 다
+const UNIT_MODES = ["words", "letters", "both"]; // 단어 / 글자 / 둘 다
+const DEFAULT_STAT_DISPLAY = { space: "with", unit: "words" };
+
+function loadStatDisplay() {
+  try {
+    const raw = localStorage.getItem(STAT_DISPLAY_KEY);
+    if (!raw) return { ...DEFAULT_STAT_DISPLAY };
+    const parsed = JSON.parse(raw);
+    const space = SPACE_MODES.includes(parsed?.space) ? parsed.space : DEFAULT_STAT_DISPLAY.space;
+    const unit = UNIT_MODES.includes(parsed?.unit) ? parsed.unit : DEFAULT_STAT_DISPLAY.unit;
+    return { space, unit };
+  } catch (_) {
+    return { ...DEFAULT_STAT_DISPLAY };
+  }
+}
+
+function saveStatDisplay(display) {
+  try {
+    localStorage.setItem(STAT_DISPLAY_KEY, JSON.stringify(display));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function loadStatScope() {
+  try {
+    const v = localStorage.getItem(STAT_SCOPE_KEY);
+    if (v === "project" || v === "current") return v;
+  } catch (_) {
+    /* ignore */
+  }
+  return "current";
+}
+
+function saveStatScope(scope) {
+  try {
+    localStorage.setItem(STAT_SCOPE_KEY, scope);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+let statDisplay = loadStatDisplay();
+let statScope = loadStatScope(); // "current" | "project"
+
+function isStatVisible(key) {
+  if (key === "chars_with_space") return statDisplay.space === "with" || statDisplay.space === "both";
+  if (key === "chars_no_space") return statDisplay.space === "without" || statDisplay.space === "both";
+  if (key === "words") return statDisplay.unit === "words" || statDisplay.unit === "both";
+  if (key === "letters") return statDisplay.unit === "letters" || statDisplay.unit === "both";
+  if (key === "scenes") return statScope === "project";
+  return false;
+}
+
+function cycleSpaceMode() {
+  const i = SPACE_MODES.indexOf(statDisplay.space);
+  statDisplay = { ...statDisplay, space: SPACE_MODES[(i + 1) % SPACE_MODES.length] };
+  saveStatDisplay(statDisplay);
+  applyStatDisplayVisibility();
+  updateSceneStats();
+}
+
+function cycleUnitMode() {
+  const i = UNIT_MODES.indexOf(statDisplay.unit);
+  statDisplay = { ...statDisplay, unit: UNIT_MODES[(i + 1) % UNIT_MODES.length] };
+  saveStatDisplay(statDisplay);
+  applyStatDisplayVisibility();
+  updateSceneStats();
+}
+
+function applyStatDisplayVisibility() {
+  document.querySelectorAll("#statsCounts .stat-chip[data-stat]").forEach((node) => {
+    const key = node.dataset.stat;
+    if (!key) return;
+    node.classList.toggle("is-hidden-stat", !isStatVisible(key));
+  });
+}
+
+function setGoalMetric(metric) {
+  if (!COUNT_METRIC_LABEL[metric]) return;
+  if ($("sceneGoalMetric")) $("sceneGoalMetric").value = metric;
+  document.querySelectorAll("#statsCounts .stat-chip[data-stat]").forEach((node) => {
+    const key = node.dataset.stat;
+    node.classList.toggle("is-goal-metric", key === metric);
+    node.classList.toggle("is-active", key === metric);
+  });
+  updateSceneStats();
+  if (state.sceneId && statScope === "current") markSceneDirty();
+}
+
+function computeTextStats(plainText) {
+  const text = String(plainText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  // Spread for proper Unicode code points (Hangul, emoji, etc.)
+  const charsWithSpace = [...text].length;
+  const charsNoSpace = [...text.replace(/\s/g, "")].length;
+  const words = (text.trim().match(/\S+/g) || []).length;
+  // Letters: Hangul, letters, numbers — no spaces/punctuation/symbols.
+  const letters = (text.match(/[\p{L}\p{N}\p{Script=Hangul}]/gu) || []).length;
+  return {
+    chars_with_space: charsWithSpace,
+    chars_no_space: charsNoSpace,
+    words,
+    letters,
+  };
+}
+
+function formatStatNumber(n) {
+  const num = Number(n) || 0;
+  try {
+    return num.toLocaleString("ko-KR");
+  } catch (_) {
+    return String(num);
+  }
+}
+
+function getGoalMetric() {
+  const metric = $("sceneGoalMetric")?.value || "chars_with_space";
+  return COUNT_METRIC_LABEL[metric] ? metric : "chars_with_space";
+}
+
+function isProjectStatsScope() {
+  return statScope === "project";
+}
+
+function syncStatsScopeUi() {
+  const btn = $("statsScopeToggle");
+  const label = $("statsGoalLabel");
+  const bar = $("manuscriptStatusBar");
+  const isProject = isProjectStatsScope();
+  if (btn) {
+    btn.textContent = isProject ? "전체" : "현재";
+    btn.title = isProject
+      ? "작품 전체 표시 중 · 클릭하면 현재 원고"
+      : "현재 원고 표시 중 · 클릭하면 작품 전체";
+    btn.setAttribute("aria-pressed", isProject ? "true" : "false");
+    btn.classList.toggle("is-project", isProject);
+  }
+  if (label) label.textContent = "목표";
+  if (bar) bar.classList.toggle("is-scope-project", isProject);
+  // Mirror stored goals into the single visible input.
+  const goalVal = isProject
+    ? Math.max(0, Number($("projectGoalCount")?.value || state.projectGoalCount || 0) || 0)
+    : Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0);
+  if ($("statsGoalInput")) $("statsGoalInput").value = String(goalVal);
+  applyStatDisplayVisibility();
+}
+
+function toggleStatsScope() {
+  statScope = isProjectStatsScope() ? "current" : "project";
+  saveStatScope(statScope);
+  syncStatsScopeUi();
+  updateSceneStats();
+  if (isProjectStatsScope()) scheduleProjectManuscriptStats();
+}
+
+/** Excess unit word for overflow labels (100자 초과 / 100단어 초과). */
+function goalExcessUnitWord(metric) {
+  return metric === "words" ? "단어" : "자";
+}
+
+/**
+ * Bucket excess into 100-unit steps once goal is met.
+ * e.g. excess 150 → "100자 초과", 250 → "200자 초과".
+ * Returns "" when excess < 100.
+ */
+function formatGoalExcessLabel(excess, metric) {
+  const over = Math.max(0, Math.floor(Number(excess) || 0));
+  if (over < 100) return "";
+  const bucket = Math.floor(over / 100) * 100;
+  return `${formatStatNumber(bucket)}${goalExcessUnitWord(metric)} 초과`;
+}
+
+/**
+ * Red overlay fill after goal: restarts from 0% and climbs again by (excess / goal).
+ * Caps at 100% of a second “lap” (value ≥ 2× goal → full red).
+ */
+function goalOverflowPercent(value, goal) {
+  if (!(goal > 0) || !(value > goal)) return 0;
+  const excess = value - goal;
+  return Math.min(100, Math.round((excess / goal) * 100));
+}
+
+function updateGoalProgressUi({ value, goal, metric }) {
+  const percent = goal > 0 ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+  const complete = goal > 0 && value >= goal;
+  const inProgress = goal > 0 && value < goal;
+  const excess = goal > 0 ? Math.max(0, value - goal) : 0;
+  const overGoal = excess > 0;
+  const overflowPct = goalOverflowPercent(value, goal);
+  const excessLabel = complete ? formatGoalExcessLabel(excess, metric) : "";
+
+  const fill = $("sceneGoalBarFill");
+  const overflow = $("sceneGoalBarOverflow");
+  const bar = $("sceneGoalBar");
+  const label = $("sceneGoalProgressLabel");
+  const overflowLabel = $("sceneGoalOverflowLabel");
+  const statusBar = $("manuscriptStatusBar");
+
+  if (fill) {
+    // Base fill stays full once goal is reached; red layer shows overshoot.
+    fill.style.width = goal > 0 ? `${Math.min(100, percent)}%` : "0%";
+    fill.classList.toggle("is-complete", complete && !overGoal);
+    fill.classList.toggle("is-progress", inProgress);
+    fill.classList.toggle("is-empty", goal <= 0);
+    // Keep complete coloring under red when overshooting.
+    if (complete) fill.classList.add("is-complete");
+  }
+  if (overflow) {
+    overflow.style.width = overGoal ? `${overflowPct}%` : "0%";
+    overflow.classList.toggle("is-empty", !overGoal);
+    overflow.title = overGoal
+      ? `목표 초과 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} · 빨간 게이지 ${overflowPct}%`
+      : "";
+  }
+  if (statusBar) {
+    statusBar.classList.toggle("is-complete", complete && !overGoal);
+    statusBar.classList.toggle("is-progress", inProgress);
+    statusBar.classList.toggle("is-over", overGoal);
+  }
+  if (bar) {
+    bar.setAttribute("aria-valuenow", String(overGoal ? 100 + overflowPct : percent));
+    bar.setAttribute("aria-valuemax", "100");
+    bar.setAttribute(
+      "aria-label",
+      goal <= 0
+        ? "목표 없음"
+        : overGoal
+          ? `${COUNT_METRIC_LABEL[metric] || metric} 목표 ${goal} 달성 후 ${excess}${goalExcessUnitWord(metric)} 초과`
+          : `${COUNT_METRIC_LABEL[metric] || metric} 목표 ${goal} 중 ${value} (${percent}%)`,
+    );
+  }
+  if (label) {
+    label.classList.toggle("is-complete", complete);
+    label.classList.toggle("is-progress", inProgress);
+    const metricLabel = COUNT_METRIC_LABEL[metric] || metric;
+    const valTxt = formatStatNumber(value);
+    let text;
+    if (goal <= 0) text = `${metricLabel} ${valTxt}`;
+    else if (complete) text = `${valTxt}/${formatStatNumber(goal)} 달성`;
+    else text = `${valTxt}/${formatStatNumber(goal)} · ${percent}%`;
+    label.textContent = text;
+    label.title = excessLabel ? `${text} · ${excessLabel}` : text;
+  }
+  if (overflowLabel) {
+    if (excessLabel) {
+      overflowLabel.textContent = excessLabel;
+      overflowLabel.classList.remove("hidden");
+      overflowLabel.title = `목표보다 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} 많음`;
+    } else {
+      overflowLabel.textContent = "";
+      overflowLabel.classList.add("hidden");
+      overflowLabel.title = "";
+    }
+  }
+  // Re-apply solid/gradient fill after class changes (empty/progress/complete).
+  applyGoalBarColorsToDom();
+}
+
+function updateSceneStats() {
+  const sceneStats = computeTextStats(getEditorPlainText());
+  const metric = getGoalMetric();
+  const isProject = isProjectStatsScope();
+  const projectStats = projectStatsCache || {
+    chars_with_space: 0,
+    chars_no_space: 0,
+    words: 0,
+    letters: 0,
+    scenes: 0,
+  };
+  const stats = isProject ? projectStats : sceneStats;
+  const goal = isProject
+    ? Math.max(0, Number($("projectGoalCount")?.value || state.projectGoalCount || 0) || 0)
+    : Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0);
+  const value = stats[metric] ?? 0;
+
+  document.querySelectorAll("#statsCounts .stat-chip[data-stat]").forEach((node) => {
+    const key = node.dataset.stat;
+    const strong = node.querySelector("strong");
+    if (!strong) return;
+    if (key === "scenes") strong.textContent = formatStatNumber(projectStats.scenes ?? 0);
+    else strong.textContent = formatStatNumber(stats[key] ?? 0);
+    node.classList.toggle("is-goal-metric", key === metric);
+    node.classList.toggle("is-active", key === metric);
+  });
+
+  updateGoalProgressUi({ value, goal, metric });
+  updateReadingTimeUi(stats);
+}
+
+/* —— Reading time (right of char counts) —— */
+// ~200 wpm (words); Korean-heavy text falls back to ~500 chars/min (no spaces).
+const READING_WPM = 200;
+const READING_CPM = 500;
+
+function formatReadingTimeLabel(stats) {
+  const words = Number(stats?.words || 0) || 0;
+  const chars = Number(stats?.chars_no_space || 0) || 0;
+  let minutesFloat = words / READING_WPM;
+  // Sparse English tokens but long Hangul runs → prefer character estimate.
+  if (chars > 0 && (words < 8 || chars / Math.max(words, 1) > 8)) {
+    minutesFloat = chars / READING_CPM;
+  }
+  if (!Number.isFinite(minutesFloat) || minutesFloat <= 0) return "약 0분";
+  if (minutesFloat < 1) {
+    const sec = Math.max(1, Math.round(minutesFloat * 60));
+    return `약 ${sec}초`;
+  }
+  if (minutesFloat < 10) {
+    const m = Math.floor(minutesFloat);
+    const sec = Math.round((minutesFloat - m) * 60);
+    if (sec === 0) return `약 ${m}분`;
+    if (sec === 60) return `약 ${m + 1}분`;
+    return `약 ${m}분 ${sec}초`;
+  }
+  return `약 ${Math.round(minutesFloat)}분`;
+}
+
+function updateReadingTimeUi(stats) {
+  const el = $("statsReadingTime");
+  if (!el) return;
+  const label = formatReadingTimeLabel(stats);
+  el.textContent = label;
+  const words = Number(stats?.words || 0) || 0;
+  const chars = Number(stats?.chars_no_space || 0) || 0;
+  el.title = `예상 읽기 시간 · 단어 ${formatStatNumber(words)} · 공백제외 ${formatStatNumber(chars)}자\n(분당 약 ${READING_WPM}단어 / 한글 약 ${READING_CPM}자)`;
+}
+
+/* —— Goal gauge colors (right-click): solid + gradient —— */
+const GOAL_BAR_COLOR_KEY = "supertory.goalBarColors.v2";
+const GOAL_BAR_SOLID_PRESETS = [
+  { id: "yellow", hex: "#f5c518", label: "노랑" },
+  { id: "orange", hex: "#f39c12", label: "주황" },
+  { id: "red", hex: "#e74c3c", label: "빨강" },
+  { id: "pink", hex: "#e84393", label: "분홍" },
+  { id: "blue", hex: "#3498db", label: "파랑" },
+  { id: "purple", hex: "#9b59b6", label: "보라" },
+  { id: "green", hex: "#2f9e4f", label: "초록" },
+  { id: "teal", hex: "#1abc9c", label: "청록" },
+  { id: "gray", hex: "#7f8c8d", label: "회색" },
+];
+const GOAL_BAR_GRADIENT_PRESETS = [
+  { id: "sun", from: "#ffe08a", to: "#f5c518", label: "햇살" },
+  { id: "sunset", from: "#f5c518", to: "#e74c3c", label: "노을" },
+  { id: "fire", from: "#f39c12", to: "#c0392b", label: "불꽃" },
+  { id: "ocean", from: "#3498db", to: "#1abc9c", label: "바다" },
+  { id: "sky", from: "#74b9ff", to: "#0984e3", label: "하늘" },
+  { id: "violet", from: "#a29bfe", to: "#6c5ce7", label: "보라빛" },
+  { id: "forest", from: "#55efc4", to: "#00b894", label: "숲" },
+  { id: "mint", from: "#81ecec", to: "#00cec9", label: "민트" },
+  { id: "berry", from: "#fd79a8", to: "#e84393", label: "베리" },
+  { id: "gold", from: "#fdcb6e", to: "#e17055", label: "골드" },
+];
+const GOAL_BAR_COLOR_DEFAULTS = {
+  progress: { mode: "solid", hex: "#f5c518", id: "yellow" },
+  complete: { mode: "solid", hex: "#2f9e4f", id: "green" },
+};
+let goalBarColors = {
+  progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
+  complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
+};
+
+function normalizeGoalColorEntry(raw, fallback) {
+  if (!raw || typeof raw !== "object") {
+    // Migrate v1 string hex → solid
+    if (typeof raw === "string" && /^#/.test(raw)) {
+      return { mode: "solid", hex: raw, id: "" };
+    }
+    return { ...fallback };
+  }
+  if (raw.mode === "gradient" && raw.from && raw.to) {
+    return {
+      mode: "gradient",
+      from: raw.from,
+      to: raw.to,
+      id: raw.id || "",
+    };
+  }
+  if (raw.hex) {
+    return { mode: "solid", hex: raw.hex, id: raw.id || "" };
+  }
+  return { ...fallback };
+}
+
+function loadGoalBarColors() {
+  try {
+    const raw = localStorage.getItem(GOAL_BAR_COLOR_KEY);
+    if (!raw) {
+      // Try migrate old key
+      const old = localStorage.getItem("supertory.goalBarColors");
+      if (old) {
+        const parsed = JSON.parse(old);
+        return {
+          progress: normalizeGoalColorEntry(parsed?.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
+          complete: normalizeGoalColorEntry(parsed?.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
+        };
+      }
+      return {
+        progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
+        complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
+      };
+    }
+    const parsed = JSON.parse(raw);
+    return {
+      progress: normalizeGoalColorEntry(parsed?.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
+      complete: normalizeGoalColorEntry(parsed?.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
+    };
+  } catch (_) {
+    return {
+      progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
+      complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
+    };
+  }
+}
+
+function saveGoalBarColors(colors) {
+  goalBarColors = {
+    progress: normalizeGoalColorEntry(colors.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
+    complete: normalizeGoalColorEntry(colors.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
+  };
+  try {
+    localStorage.setItem(GOAL_BAR_COLOR_KEY, JSON.stringify(goalBarColors));
+  } catch (_) {
+    /* ignore */
+  }
+  applyGoalBarColorsToDom();
+  syncGoalBarSwatchActive();
+}
+
+function goalEntryCssBackground(entry) {
+  if (!entry) return "#f5c518";
+  if (entry.mode === "gradient") {
+    return `linear-gradient(90deg, ${entry.from} 0%, ${entry.to} 100%)`;
+  }
+  const hex = entry.hex || "#f5c518";
+  // Soft 3-stop shine without color-mix (broader browser support)
+  return `linear-gradient(90deg, ${hex}cc 0%, ${hex} 55%, ${hex} 100%)`;
+}
+
+function goalEntryLabelColor(entry) {
+  if (!entry) return "#8a6a12";
+  if (entry.mode === "gradient") return entry.to || entry.from || "#8a6a12";
+  return entry.hex || "#8a6a12";
+}
+
+function applyGoalBarColorsToDom() {
+  const fill = $("sceneGoalBarFill");
+  const label = $("sceneGoalProgressLabel");
+  if (!fill) return;
+
+  const isEmpty = fill.classList.contains("is-empty");
+  const isComplete = fill.classList.contains("is-complete");
+  if (isEmpty) {
+    fill.style.background = "transparent";
+    fill.style.backgroundImage = "none";
+  } else if (isComplete) {
+    fill.style.background = goalEntryCssBackground(goalBarColors.complete);
+  } else {
+    fill.style.background = goalEntryCssBackground(goalBarColors.progress);
+  }
+
+  if (label) {
+    if (label.classList.contains("is-complete")) {
+      label.style.color = goalEntryLabelColor(goalBarColors.complete);
+    } else if (label.classList.contains("is-progress")) {
+      label.style.color = goalEntryLabelColor(goalBarColors.progress);
+    } else {
+      label.style.color = "";
+    }
+  }
+}
+
+function hideGoalBarColorMenu() {
+  $("goalBarColorMenu")?.classList.add("hidden");
+}
+
+function syncGoalBarSwatchActive() {
+  const menu = $("goalBarColorMenu");
+  if (!menu) return;
+  menu.querySelectorAll("[data-goal-preset]").forEach((btn) => {
+    const kind = btn.dataset.goalKind;
+    const mode = btn.dataset.goalMode;
+    const id = btn.dataset.goalPreset;
+    const entry = goalBarColors[kind];
+    let active = false;
+    if (entry && entry.mode === mode) {
+      if (mode === "solid") active = entry.id === id || entry.hex === btn.dataset.goalHex;
+      else active = entry.id === id
+        || (entry.from === btn.dataset.goalFrom && entry.to === btn.dataset.goalTo);
+    }
+    btn.classList.toggle("is-active", active);
+  });
+}
+
+function showGoalBarColorMenu(anchorEl) {
+  const menu = $("goalBarColorMenu");
+  if (!menu || !anchorEl) return;
+  hideFormatApplyAllMenu?.();
+  ensureGoalBarSwatchesFilled();
+  syncGoalBarSwatchActive();
+  menu.classList.remove("hidden");
+  const rect = anchorEl.getBoundingClientRect();
+  const pad = 8;
+  const mw = menu.offsetWidth || 240;
+  const mh = menu.offsetHeight || 280;
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + mw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - mw - pad);
+  if (top + mh > window.innerHeight - pad) top = Math.max(pad, rect.top - mh - 4);
+  menu.style.left = `${Math.max(pad, left)}px`;
+  menu.style.top = `${Math.max(pad, top)}px`;
+}
+
+function ensureGoalBarSwatchesFilled() {
+  const fillSolid = (hostId, kind) => {
+    const host = $(hostId);
+    if (!host || host.dataset.filled === "1") return;
+    host.innerHTML = GOAL_BAR_SOLID_PRESETS.map((c) => `
+      <button type="button" class="goal-bar-swatch" data-goal-preset="${c.id}"
+        data-goal-kind="${kind}" data-goal-mode="solid" data-goal-hex="${c.hex}"
+        title="${c.label}" aria-label="${c.label}"
+        style="background-color:${c.hex} !important; background-image:none !important;"></button>
+    `).join("");
+    host.dataset.filled = "1";
+  };
+  const fillGrad = (hostId, kind) => {
+    const host = $(hostId);
+    if (!host || host.dataset.filled === "1") return;
+    host.innerHTML = GOAL_BAR_GRADIENT_PRESETS.map((c) => `
+      <button type="button" class="goal-bar-swatch goal-bar-swatch-grad" data-goal-preset="${c.id}"
+        data-goal-kind="${kind}" data-goal-mode="gradient"
+        data-goal-from="${c.from}" data-goal-to="${c.to}"
+        title="${c.label}" aria-label="${c.label}"
+        style="background-image:linear-gradient(90deg, ${c.from}, ${c.to}) !important; background-color:transparent !important;"></button>
+    `).join("");
+    host.dataset.filled = "1";
+  };
+  fillSolid("goalBarProgressSolid", "progress");
+  fillGrad("goalBarProgressGrad", "progress");
+  fillSolid("goalBarCompleteSolid", "complete");
+  fillGrad("goalBarCompleteGrad", "complete");
+}
+
+function setupGoalBarColorMenu() {
+  goalBarColors = loadGoalBarColors();
+  ensureGoalBarSwatchesFilled();
+  applyGoalBarColorsToDom();
+
+  $("statusBarProgress")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = $("statusBarProgress");
+    setUiFeatureCtxTarget?.(target);
+    showGoalBarColorMenu(target);
+  });
+  // Also allow right-click directly on the bar fill.
+  $("sceneGoalBar")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const target = $("statusBarProgress") || $("sceneGoalBar");
+    setUiFeatureCtxTarget?.(target);
+    showGoalBarColorMenu(target);
+  });
+
+  const menu = $("goalBarColorMenu");
+  if (menu && menu.dataset.bound !== "1") {
+    menu.dataset.bound = "1";
+    menu.addEventListener("mousedown", (event) => {
+      // Keep menu open; avoid status-bar blur quirks.
+      event.stopPropagation();
+    });
+    menu.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const swatch = event.target.closest("[data-goal-preset]");
+      if (swatch) {
+        const kind = swatch.dataset.goalKind;
+        const mode = swatch.dataset.goalMode;
+        if (!kind || !mode) return;
+        let entry;
+        if (mode === "gradient") {
+          entry = {
+            mode: "gradient",
+            from: swatch.dataset.goalFrom,
+            to: swatch.dataset.goalTo,
+            id: swatch.dataset.goalPreset || "",
+          };
+        } else {
+          entry = {
+            mode: "solid",
+            hex: swatch.dataset.goalHex,
+            id: swatch.dataset.goalPreset || "",
+          };
+        }
+        saveGoalBarColors({ ...goalBarColors, [kind]: entry });
+        return;
+      }
+      if (event.target.closest("[data-goal-color-reset]")) {
+        saveGoalBarColors({
+          progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
+          complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
+        });
+        hideGoalBarColorMenu();
+        toast("게이지 색을 기본값으로 돌렸습니다.");
+      }
+    });
+  }
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#goalBarColorMenu, #statusBarProgress, #sceneGoalBar")) return;
+    hideGoalBarColorMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideGoalBarColorMenu();
+  });
+  window.addEventListener("blur", hideGoalBarColorMenu);
+  window.addEventListener("resize", hideGoalBarColorMenu);
+}
+
+let projectStatsTimer = null;
+let projectStatsInFlight = false;
+let projectStatsNeedsRefresh = false;
+let projectStatsCache = null;
+let projectGoalSaveTimer = null;
+
+function renderProjectManuscriptStats(stats, { stale = false } = {}) {
+  if (!stats) return;
+  projectStatsCache = stats;
+  if (stale) {
+    const scenesChip = document.querySelector('#statsCounts [data-stat="scenes"]');
+    if (scenesChip) scenesChip.title = "전체 집계를 불러오지 못함 · 서버 재시작 후 새로고침";
+  }
+  // Repaint when the footer is showing project totals.
+  if (isProjectStatsScope()) updateSceneStats();
+}
+
+function scheduleProjectManuscriptStats() {
+  if (!state.projectId) return;
+  if (projectStatsTimer) window.clearTimeout(projectStatsTimer);
+  projectStatsTimer = window.setTimeout(() => {
+    refreshProjectManuscriptStats().catch(() => { /* quiet */ });
+  }, 500);
+}
+
+async function refreshProjectManuscriptStats() {
+  if (!state.projectId) return;
+  if (projectStatsInFlight) {
+    projectStatsNeedsRefresh = true;
+    return;
+  }
+  projectStatsInFlight = true;
+  projectStatsNeedsRefresh = false;
+  const projectId = state.projectId;
+  try {
+    const stats = await api(`/api/projects/${projectId}/manuscript-stats`);
+    if (Number(state.projectId) !== Number(projectId)) return;
+    renderProjectManuscriptStats(stats);
+  } catch (error) {
+    if (projectStatsCache) {
+      renderProjectManuscriptStats(projectStatsCache, { stale: true });
+    } else {
+      renderProjectManuscriptStats(
+        {
+          chars_with_space: 0,
+          chars_no_space: 0,
+          words: 0,
+          letters: 0,
+          scenes: 0,
+          scenes_with_text: 0,
+        },
+        { stale: true },
+      );
+    }
+  } finally {
+    projectStatsInFlight = false;
+    if (projectStatsNeedsRefresh) {
+      projectStatsNeedsRefresh = false;
+      scheduleProjectManuscriptStats();
+    }
+  }
+}
+
+function syncProjectGoalFromState() {
+  const project = state.projects?.find((p) => Number(p.id) === Number(state.projectId));
+  const goal = Math.max(0, Number(state.projectGoalCount ?? project?.goal_word_count ?? 0) || 0);
+  state.projectGoalCount = goal;
+  if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
+  if (isProjectStatsScope() && $("statsGoalInput")) {
+    $("statsGoalInput").value = String(goal);
+  }
+}
+
+function scheduleProjectGoalSave() {
+  if (!state.projectId) return;
+  if (projectGoalSaveTimer) window.clearTimeout(projectGoalSaveTimer);
+  projectGoalSaveTimer = window.setTimeout(() => {
+    persistProjectGoal().catch(handleError);
+  }, 600);
+}
+
+async function persistProjectGoal() {
+  if (!state.projectId) return;
+  const goal = Math.max(0, Number($("projectGoalCount")?.value || state.projectGoalCount || 0) || 0);
+  state.projectGoalCount = goal;
+  if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
+  const result = await api(`/api/projects/${state.projectId}/settings`, {
+    method: "PUT",
+    body: JSON.stringify({ goal_word_count: goal }),
+  });
+  const project = state.projects?.find((p) => Number(p.id) === Number(state.projectId));
+  if (project) project.goal_word_count = goal;
+  if (result?.goal_word_count != null && project) {
+    project.goal_word_count = Number(result.goal_word_count) || 0;
+  }
+  updateSceneStats();
+}
+
+function onStatsGoalInput() {
+  const goal = Math.max(0, Number($("statsGoalInput")?.value || 0) || 0);
+  if (isProjectStatsScope()) {
+    if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
+    state.projectGoalCount = goal;
+    updateSceneStats();
+    scheduleProjectGoalSave();
+  } else {
+    if ($("sceneGoalCount")) $("sceneGoalCount").value = String(goal);
+    updateSceneStats();
+    if (state.sceneId) markSceneDirty();
+  }
+}
+
+/* —— Bulk-apply scene goals (right-click on 목표) —— */
+function hideGoalBulkMenu() {
+  $("goalBulkMenu")?.classList.add("hidden");
+}
+
+function showGoalBulkMenu(anchorEl) {
+  const menu = $("goalBulkMenu");
+  if (!menu || !anchorEl) return;
+  hideGoalBarColorMenu?.();
+  hideFormatApplyAllMenu?.();
+  const goal = Math.max(0, Number($("statsGoalInput")?.value || $("sceneGoalCount")?.value || 0) || 0);
+  const metric = getGoalMetric();
+  const metricLabel = COUNT_METRIC_LABEL[metric] || metric;
+  const label = $("goalBulkMenuLabel");
+  if (label) {
+    label.textContent = `목표 ${formatStatNumber(goal)} · ${metricLabel}`;
+  }
+  menu.classList.remove("hidden");
+  const rect = anchorEl.getBoundingClientRect();
+  const pad = 8;
+  const mw = menu.offsetWidth || 240;
+  const mh = menu.offsetHeight || 100;
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + mw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - mw - pad);
+  if (top + mh > window.innerHeight - pad) top = Math.max(pad, rect.top - mh - 4);
+  menu.style.left = `${Math.max(pad, left)}px`;
+  menu.style.top = `${Math.max(pad, top)}px`;
+}
+
+async function bulkApplySceneGoals({ includeMetric = false } = {}) {
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  const goal = Math.max(0, Number($("statsGoalInput")?.value || $("sceneGoalCount")?.value || 0) || 0);
+  const metric = getGoalMetric();
+  const metricLabel = COUNT_METRIC_LABEL[metric] || metric;
+  const unitHint = metric === "words" ? "단어" : "자";
+  const msg = includeMetric
+    ? `모든 씬에 목표 ${formatStatNumber(goal)}${unitHint} · 기준「${metricLabel}」을(를) 일괄 적용할까요?`
+    : `모든 씬에 목표 ${formatStatNumber(goal)}${unitHint}을(를) 일괄 적용할까요?\n(집계 기준은 각 씬 설정을 유지합니다)`;
+  if (!window.confirm(msg)) return;
+
+  const body = { goal_word_count: goal };
+  if (includeMetric) body.goal_metric = metric;
+
+  try {
+    // When only count is applied, still send current metric only if API requires it —
+    // backend defaults metric when omitted... our API always sets metric from body.
+    // So for count-only we need backend to keep existing metrics.
+    const result = await api(`/api/projects/${state.projectId}/scene-goals`, {
+      method: "POST",
+      body: JSON.stringify(includeMetric
+        ? { goal_word_count: goal, goal_metric: metric, apply_metric: true }
+        : { goal_word_count: goal, apply_metric: false }),
+    });
+    const n = Number(result?.count || 0) || 0;
+    // Keep open scene fields in sync.
+    if ($("sceneGoalCount")) $("sceneGoalCount").value = String(goal);
+    if ($("statsGoalInput") && !isProjectStatsScope()) $("statsGoalInput").value = String(goal);
+    if (includeMetric && $("sceneGoalMetric") && result?.goal_metric) {
+      $("sceneGoalMetric").value = result.goal_metric;
+    }
+    if (state.scene) {
+      state.scene.goal_word_count = goal;
+      if (includeMetric && result?.goal_metric) state.scene.goal_metric = result.goal_metric;
+      // Server bumped row_version for every scene; keep open scene in sync.
+      if (state.scene.row_version != null) {
+        state.scene.row_version = Number(state.scene.row_version) + 1;
+      }
+    }
+    // Bulk already persisted goals — clear dirty only if nothing else is pending content edits.
+    // (Do not force clean; user may still have unsaved manuscript text.)
+    updateSceneStats();
+    toast(n ? `목표를 씬 ${n}개에 적용했습니다.` : "적용할 씬이 없어요.");
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function setupGoalBulkMenu() {
+  const host = $("statusBarGoalControls");
+  host?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setUiFeatureCtxTarget?.(host);
+    showGoalBulkMenu(host);
+  });
+  // Input often swallows contextmenu — bind explicitly too.
+  $("statsGoalInput")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setUiFeatureCtxTarget?.(host || $("statsGoalInput"));
+    showGoalBulkMenu(host || $("statsGoalInput"));
+  });
+  $("statsGoalLabel")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setUiFeatureCtxTarget?.(host || $("statsGoalLabel"));
+    showGoalBulkMenu(host || $("statsGoalLabel"));
+  });
+
+  const menu = $("goalBulkMenu");
+  if (menu && menu.dataset.bound !== "1") {
+    menu.dataset.bound = "1";
+    menu.addEventListener("click", (event) => {
+      const item = event.target.closest?.("[data-goal-bulk]");
+      if (!item) return;
+      const mode = item.dataset.goalBulk;
+      hideGoalBulkMenu();
+      if (mode === "all-scenes") {
+        bulkApplySceneGoals({ includeMetric: false }).catch(handleError);
+      } else if (mode === "all-scenes-metric") {
+        bulkApplySceneGoals({ includeMetric: true }).catch(handleError);
+      }
+    });
+  }
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#goalBulkMenu, #statusBarGoalControls")) return;
+    hideGoalBulkMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideGoalBulkMenu();
+  });
+  window.addEventListener("blur", hideGoalBulkMenu);
+  window.addEventListener("resize", hideGoalBulkMenu);
+}
+
+/* —— Find in current manuscript (돋보기) —— */
+let findMatches = [];
+let findIndex = -1;
+
+function clearFindHighlights(editor = $("sceneContent")) {
+  if (!editor) return;
+  editor.querySelectorAll("mark.find-hit").forEach((mark) => {
+    const parent = mark.parentNode;
+    if (!parent) return;
+    while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+    parent.removeChild(mark);
+    parent.normalize?.();
+  });
+  findMatches = [];
+  findIndex = -1;
+}
+
+function updateFindCountUi() {
+  const el = $("findCount");
+  if (!el) return;
+  if (!findMatches.length) {
+    el.textContent = "0/0";
+    return;
+  }
+  el.textContent = `${findIndex + 1}/${findMatches.length}`;
+}
+
+function setFindCurrent(index) {
+  if (!findMatches.length) {
+    findIndex = -1;
+    updateFindCountUi();
+    return;
+  }
+  findMatches.forEach((m) => m.classList.remove("find-hit-current"));
+  findIndex = ((index % findMatches.length) + findMatches.length) % findMatches.length;
+  const mark = findMatches[findIndex];
+  mark.classList.add("find-hit-current");
+  try {
+    mark.scrollIntoView({ block: "center", behavior: "smooth", inline: "nearest" });
+  } catch (_) {
+    mark.scrollIntoView(true);
+  }
+  updateFindCountUi();
+}
+
+function runFindInEditor(query) {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  clearFindHighlights(editor);
+  const q = String(query || "");
+  if (!q) {
+    updateFindCountUi();
+    return;
+  }
+  const needle = q.toLowerCase();
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue || !node.nodeValue.trim()) return NodeFilter.FILTER_REJECT;
+      if (node.parentElement?.closest?.("mark.find-hit")) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const textNodes = [];
+  while (walker.nextNode()) textNodes.push(walker.currentNode);
+
+  const marks = [];
+  for (const node of textNodes) {
+    const text = node.nodeValue;
+    const lower = text.toLowerCase();
+    let from = 0;
+    const parts = [];
+    while (from < text.length) {
+      const at = lower.indexOf(needle, from);
+      if (at < 0) {
+        parts.push(document.createTextNode(text.slice(from)));
+        break;
+      }
+      if (at > from) parts.push(document.createTextNode(text.slice(from, at)));
+      const mark = document.createElement("mark");
+      mark.className = "find-hit";
+      mark.textContent = text.slice(at, at + q.length);
+      parts.push(mark);
+      marks.push(mark);
+      from = at + q.length;
+    }
+    if (parts.length === 1 && parts[0].nodeType === 3) continue;
+    const parent = node.parentNode;
+    if (!parent) continue;
+    for (const p of parts) parent.insertBefore(p, node);
+    parent.removeChild(node);
+  }
+  findMatches = marks;
+  if (findMatches.length) setFindCurrent(0);
+  else updateFindCountUi();
+}
+
+function openFindBar() {
+  const bar = $("findBar");
+  const toggle = $("findToggleButton");
+  if (!bar) return;
+  bar.classList.remove("hidden");
+  toggle?.setAttribute("aria-expanded", "true");
+  requestAnimationFrame(() => {
+    $("findInput")?.focus();
+    $("findInput")?.select();
+  });
+  const q = $("findInput")?.value || "";
+  if (q) runFindInEditor(q);
+}
+
+function closeFindBar() {
+  const bar = $("findBar");
+  const toggle = $("findToggleButton");
+  bar?.classList.add("hidden");
+  toggle?.setAttribute("aria-expanded", "false");
+  clearFindHighlights();
+  updateFindCountUi();
+}
+
+function setupFindBar() {
+  $("findToggleButton")?.addEventListener("click", () => {
+    if ($("findBar")?.classList.contains("hidden")) openFindBar();
+    else closeFindBar();
+  });
+  $("findCloseButton")?.addEventListener("click", closeFindBar);
+  $("findNextButton")?.addEventListener("click", () => setFindCurrent(findIndex + 1));
+  $("findPrevButton")?.addEventListener("click", () => setFindCurrent(findIndex - 1));
+  let findTimer = null;
+  $("findInput")?.addEventListener("input", () => {
+    if (findTimer) window.clearTimeout(findTimer);
+    findTimer = window.setTimeout(() => runFindInEditor($("findInput")?.value || ""), 120);
+  });
+  $("findInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      if (event.shiftKey) setFindCurrent(findIndex - 1);
+      else setFindCurrent(findIndex + 1);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeFindBar();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (event.key.toLowerCase() !== "f") return;
+    // Only when scene editor is visible
+    if ($("sceneWorkspace")?.classList.contains("hidden")) return;
+    if (isFocusWriteOpen()) return;
+    if (typeof isViewerOpen === "function" && isViewerOpen()) return;
+    event.preventDefault();
+    openFindBar();
+  });
+}
+
+function setupSceneStats() {
+  syncStatsScopeUi();
+  applyStatDisplayVisibility();
+  setupGoalBarColorMenu();
+  setupGoalBulkMenu();
+  $("statsScopeToggle")?.addEventListener("click", toggleStatsScope);
+  $("sceneGoalMetric")?.addEventListener("change", updateSceneStats);
+  $("statsGoalInput")?.addEventListener("input", onStatsGoalInput);
+  $("sceneContent")?.addEventListener("input", updateSceneStats);
+
+  let statChipClickTimer = null;
+  const onStatChipClick = (event) => {
+    const chip = event.target.closest(".stat-chip");
+    if (!chip || chip.classList.contains("stat-chip-static")) return;
+    const group = chip.dataset.group;
+    if (!group) return;
+    // Defer so double-click can cancel and set goal metric instead.
+    if (statChipClickTimer) window.clearTimeout(statChipClickTimer);
+    statChipClickTimer = window.setTimeout(() => {
+      statChipClickTimer = null;
+      if (group === "space") cycleSpaceMode();
+      else if (group === "unit") cycleUnitMode();
+    }, 220);
+  };
+  const onStatChipDblClick = (event) => {
+    const chip = event.target.closest(".stat-chip");
+    if (!chip || chip.classList.contains("stat-chip-static")) return;
+    const metric = chip.dataset.stat;
+    if (!COUNT_METRIC_LABEL[metric]) return;
+    event.preventDefault();
+    if (statChipClickTimer) {
+      window.clearTimeout(statChipClickTimer);
+      statChipClickTimer = null;
+    }
+    setGoalMetric(metric);
+    toast(`목표 기준: ${COUNT_METRIC_LABEL[metric]}`);
+  };
+  $("statsCounts")?.addEventListener("click", onStatChipClick);
+  $("statsCounts")?.addEventListener("dblclick", onStatChipDblClick);
+
+  setupFindBar();
+}
+
+function updateEditorPlaceholder(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  const empty = !plainTextFromHtml(editor.innerHTML) && !editor.querySelector("img");
+  editor.classList.toggle("placeholder-on", empty);
+}
+
+function focusEditor(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  editor?.focus();
+}
+
+function restoreSelection(range) {
+  if (!range) return;
+  const selection = window.getSelection();
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function currentEditorRange(editorEl = null) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+  const range = selection.getRangeAt(0);
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !editor.contains(range.commonAncestorContainer)) return null;
+  return range;
+}
+
+/** Last non-empty selection in a rich editor — survives toolbar clicks that collapse the live selection. */
+let lastEditorSelection = { editor: null, range: null };
+
+function rememberLastEditorSelection(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return null;
+  try {
+    const range = currentEditorRange(editor);
+    if (!range || range.collapsed) return lastEditorSelection.range;
+    // cloneRange so later DOM edits don't invalidate the live range object
+    const cloned = range.cloneRange();
+    lastEditorSelection = { editor, range: cloned };
+    formatPaletteRange = cloned;
+    formatPaletteEditor = editor;
+    return cloned;
+  } catch (_) {
+    return lastEditorSelection.range;
+  }
+}
+
+function getUsableEditorRange(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return null;
+  const live = currentEditorRange(editor);
+  if (live && !live.collapsed) return live;
+  if (
+    lastEditorSelection.range
+    && !lastEditorSelection.range.collapsed
+    && lastEditorSelection.editor === editor
+  ) {
+    try {
+      // Ensure range is still attached to the document
+      if (editor.contains(lastEditorSelection.range.commonAncestorContainer)) {
+        return lastEditorSelection.range;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+  }
+  if (formatPaletteRange && !formatPaletteRange.collapsed) {
+    try {
+      if (editor.contains(formatPaletteRange.commonAncestorContainer)) {
+        return formatPaletteRange;
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return live;
+}
+
+function wrapSelectionWithSpan(styles) {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return false;
+  const range = selection.getRangeAt(0);
+  const editor = getActiveRichEditor() || $("sceneContent");
+  if (!editor || !editor.contains(range.commonAncestorContainer)) return false;
+
+  if (range.collapsed) {
+    // Apply style for upcoming typing via a styled span caret.
+    const span = document.createElement("span");
+    Object.assign(span.style, styles);
+    span.appendChild(document.createTextNode("\u200b"));
+    range.insertNode(span);
+    const next = document.createRange();
+    next.setStart(span.firstChild, 1);
+    next.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(next);
+    return true;
+  }
+
+  const fragment = range.extractContents();
+  const span = document.createElement("span");
+  Object.assign(span.style, styles);
+  span.appendChild(fragment);
+  range.insertNode(span);
+  selection.removeAllRanges();
+  const next = document.createRange();
+  next.selectNodeContents(span);
+  selection.addRange(next);
+  return true;
+}
+
+function applyEditorCommand(command, value = null) {
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* older engines */
+  }
+  document.execCommand(command, false, value);
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
+function applyFontFamily(font) {
+  if (!font) return;
+  // fontName is still the most reliable cross-browser path.
+  document.execCommand("styleWithCSS", false, "true");
+  document.execCommand("fontName", false, font);
+  updateEditorPlaceholder();
+}
+
+function applyFontSize(size) {
+  if (!size) return;
+  wrapSelectionWithSpan({ fontSize: size });
+  updateEditorPlaceholder();
+}
+
+/** Select all content inside a contenteditable, apply, then restore caret best-effort. */
+function withEditorSelectAll(editor, fn) {
+  if (!editor) return;
+  focusEditor(editor);
+  const selection = window.getSelection();
+  const prev = selection?.rangeCount ? selection.getRangeAt(0).cloneRange() : null;
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+    fn();
+  } finally {
+    try {
+      if (prev && selection) {
+        selection.removeAllRanges();
+        selection.addRange(prev);
+      }
+    } catch (_) {
+      /* ignore restore failures */
+    }
+  }
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+  updateEditorPlaceholder(editor);
+  updateFormatButtonState();
+}
+
+function applyFontFamilyToEntireDocument(font, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !font) return;
+  editor.style.fontFamily = font;
+  withEditorSelectAll(editor, () => applyFontFamily(font));
+}
+
+function applyFontSizeToEntireDocument(size, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !size) return;
+  editor.style.fontSize = size;
+  withEditorSelectAll(editor, () => applyFontSize(size));
+}
+
+function applyLineHeightToEntireDocument(value, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !value) return;
+  setStoredLineHeight(value);
+  applyEditorWideLineHeight(value, [editor]);
+  // Also stamp block children so pasted/exported HTML keeps spacing.
+  editor.querySelectorAll("p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre").forEach((el) => {
+    if (el.closest(".fn-footer")) return;
+    el.style.lineHeight = value;
+  });
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+  updateEditorPlaceholder(editor);
+}
+
+let formatApplyAllKind = null; // "font" | "size" | "lineHeight"
+let formatApplyAllValue = "";
+let formatApplyAllEditor = null;
+
+function hideFormatApplyAllMenu() {
+  $("formatApplyAllMenu")?.classList.add("hidden");
+  formatApplyAllKind = null;
+  formatApplyAllValue = "";
+  formatApplyAllEditor = null;
+}
+
+function showFormatApplyAllMenu(kind, value, anchorEl, editor) {
+  const menu = $("formatApplyAllMenu");
+  const label = $("formatApplyAllLabel");
+  const btn = $("formatApplyAllButton");
+  if (!menu || !btn || !value) return;
+  hideGoalBarColorMenu?.();
+  formatApplyAllKind = kind;
+  formatApplyAllValue = value;
+  formatApplyAllEditor = editor || getActiveRichEditor() || $("sceneContent");
+  const kindLabel = kind === "font" ? "글꼴" : kind === "size" ? "크기" : "줄간격";
+  const shortVal = kind === "font"
+    ? (value.split(",")[0] || value).replace(/['"]/g, "").trim()
+    : value;
+  if (label) label.textContent = `${kindLabel}: ${shortVal}`;
+  btn.textContent = `전체 문서에 ${kindLabel} 적용`;
+  menu.classList.remove("hidden");
+  const rect = anchorEl.getBoundingClientRect();
+  const pad = 8;
+  const mw = menu.offsetWidth || 180;
+  const mh = menu.offsetHeight || 80;
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + mw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - mw - pad);
+  if (top + mh > window.innerHeight - pad) top = Math.max(pad, rect.top - mh - 4);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function setupFormatApplyAllMenu() {
+  const menu = $("formatApplyAllMenu");
+  if (!menu || menu.dataset.bound === "1") return;
+  menu.dataset.bound = "1";
+  $("formatApplyAllButton")?.addEventListener("click", () => {
+    const editor = formatApplyAllEditor || getActiveRichEditor() || $("sceneContent");
+    const kind = formatApplyAllKind;
+    const value = formatApplyAllValue;
+    hideFormatApplyAllMenu();
+    if (!editor || !value) return;
+    if (kind === "font") applyFontFamilyToEntireDocument(value, editor);
+    else if (kind === "size") applyFontSizeToEntireDocument(value, editor);
+    else if (kind === "lineHeight") applyLineHeightToEntireDocument(value, editor);
+    toast("전체 문서에 적용했습니다.");
+    if (editor.id === "sceneContent" && state.sceneId) markSceneDirty();
+    else if (editor.id === "synopsisContent") markSynopsisDirty?.();
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#formatApplyAllMenu")) return;
+    hideFormatApplyAllMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideFormatApplyAllMenu();
+  });
+  window.addEventListener("blur", hideFormatApplyAllMenu);
+  window.addEventListener("resize", hideFormatApplyAllMenu);
+}
+
+/* —— Paragraph styles (본문 / 제목 / 인용 / 캡션) —— */
+const PARAGRAPH_STYLES = {
+  p: { tag: "p", label: "본문" },
+  h1: { tag: "h1", label: "제목 1" },
+  h2: { tag: "h2", label: "제목 2" },
+  h3: { tag: "h3", label: "제목 3" },
+  blockquote: { tag: "blockquote", label: "인용" },
+  caption: { tag: "p", label: "캡션", className: "sg-caption" },
+};
+
+function getBlockElementForParagraph(node, editor) {
+  let el = node?.nodeType === 3 ? node.parentElement : node;
+  const blockRe = /^(P|DIV|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|LI|PRE)$/i;
+  while (el && el !== editor) {
+    if (el.nodeType === 1 && blockRe.test(el.tagName) && el.parentElement) {
+      // Prefer block that is a direct child of editor when possible.
+      if (el.parentElement === editor || blockRe.test(el.parentElement.tagName) === false) {
+        return el;
+      }
+    }
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function detectParagraphStyle(editor) {
+  if (!editor) return "p";
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return "p";
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return "p";
+  const block = getBlockElementForParagraph(range.commonAncestorContainer, editor);
+  if (!block) return "p";
+  if (block.classList?.contains("sg-caption")) return "caption";
+  const tag = (block.tagName || "").toLowerCase();
+  if (tag === "h1" || tag === "h2" || tag === "h3") return tag;
+  if (tag === "blockquote") return "blockquote";
+  return "p";
+}
+
+function applyParagraphStyle(styleKey, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  const style = PARAGRAPH_STYLES[styleKey] || PARAGRAPH_STYLES.p;
+  if (!editor) return;
+  focusEditor(editor);
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* ignore */
+  }
+
+  const selection = window.getSelection();
+  let block = null;
+  if (selection?.rangeCount) {
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      block = getBlockElementForParagraph(range.commonAncestorContainer, editor);
+    }
+  }
+
+  // formatBlock expects tag name with angle brackets in most browsers.
+  const formatTag = style.tag === "p" ? "p" : style.tag;
+  try {
+    document.execCommand("formatBlock", false, `<${formatTag}>`);
+  } catch (_) {
+    try {
+      document.execCommand("formatBlock", false, formatTag);
+    } catch (__) {
+      /* ignore */
+    }
+  }
+
+  // Re-find block after formatBlock and set/clear caption class.
+  if (selection?.rangeCount) {
+    block = getBlockElementForParagraph(selection.getRangeAt(0).commonAncestorContainer, editor);
+  }
+  if (block && editor.contains(block)) {
+    block.classList.remove("sg-caption");
+    if (style.className) {
+      // Ensure we are on a paragraph-like node for caption.
+      if (block.tagName !== "P" && block.tagName !== "DIV") {
+        try {
+          document.execCommand("formatBlock", false, "<p>");
+        } catch (_) {
+          /* ignore */
+        }
+        if (selection?.rangeCount) {
+          block = getBlockElementForParagraph(selection.getRangeAt(0).commonAncestorContainer, editor);
+        }
+      }
+      block?.classList?.add(style.className);
+    }
+  }
+
+  updateEditorPlaceholder(editor);
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function syncParagraphStyleSelect(toolbar, editor) {
+  if (!toolbar || !editor) return;
+  const select = toolbar.querySelector("#formatParagraphStyle, [data-role='format-paragraph']");
+  if (!select) return;
+  const key = detectParagraphStyle(editor);
+  if ([...select.options].some((o) => o.value === key)) select.value = key;
+  else select.value = "p";
+}
+
+/* —— Line height (줄간격) —— */
+const LINE_HEIGHT_STORAGE_KEY = "supertory.editorLineHeight";
+const DEFAULT_LINE_HEIGHT = "1.8";
+const LINE_HEIGHT_BLOCK_RE = /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|SECTION|ARTICLE|PRE)$/i;
+
+function getStoredLineHeight() {
+  try {
+    const v = localStorage.getItem(LINE_HEIGHT_STORAGE_KEY);
+    if (v && /^\d+(\.\d+)?$/.test(v)) return v;
+  } catch (_) {
+    /* ignore */
+  }
+  return DEFAULT_LINE_HEIGHT;
+}
+
+function setStoredLineHeight(value) {
+  try {
+    if (value) localStorage.setItem(LINE_HEIGHT_STORAGE_KEY, value);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function syncLineHeightSelects(value) {
+  const v = value || DEFAULT_LINE_HEIGHT;
+  document.querySelectorAll("#formatLineHeight, [data-role='format-line-height']").forEach((select) => {
+    if (!select) return;
+    // Keep select in sync even if custom value was stored.
+    if (![...select.options].some((o) => o.value === v)) {
+      const opt = document.createElement("option");
+      opt.value = v;
+      opt.textContent = v;
+      select.appendChild(opt);
+    }
+    select.value = v;
+  });
+}
+
+function applyEditorWideLineHeight(value, editors = null) {
+  const lh = value || DEFAULT_LINE_HEIGHT;
+  const list = editors || [
+    $("sceneContent"),
+    $("synopsisContent"),
+    $("focusWriteEditor"),
+    $("splitSceneBodyEditor"),
+  ].filter(Boolean);
+  list.forEach((el) => {
+    if (el) el.style.lineHeight = lh;
+  });
+  syncLineHeightSelects(lh);
+}
+
+function collectLineHeightBlocks(editor, range) {
+  const blocks = new Set();
+  if (!editor || !range) return blocks;
+
+  const addBlockForNode = (node) => {
+    let el = node?.nodeType === 3 ? node.parentElement : node;
+    while (el && el !== editor) {
+      if (el.nodeType === 1 && LINE_HEIGHT_BLOCK_RE.test(el.tagName)) {
+        // Prefer the outermost block that is a direct child of the editor,
+        // otherwise the nearest block ancestor.
+        let outer = el;
+        let walk = el.parentElement;
+        while (walk && walk !== editor) {
+          if (walk.nodeType === 1 && LINE_HEIGHT_BLOCK_RE.test(walk.tagName)) outer = walk;
+          walk = walk.parentElement;
+        }
+        blocks.add(outer);
+        return;
+      }
+      el = el.parentElement;
+    }
+  };
+
+  if (range.collapsed) {
+    addBlockForNode(range.startContainer);
+    return blocks;
+  }
+
+  try {
+    const walker = document.createTreeWalker(editor, NodeFilter.SHOW_ELEMENT, {
+      acceptNode(node) {
+        if (!LINE_HEIGHT_BLOCK_RE.test(node.tagName)) return NodeFilter.FILTER_SKIP;
+        try {
+          if (range.intersectsNode(node)) return NodeFilter.FILTER_ACCEPT;
+        } catch (_) {
+          /* ignore */
+        }
+        return NodeFilter.FILTER_SKIP;
+      },
+    });
+    let node = walker.nextNode();
+    while (node) {
+      // Prefer outermost block under the editor to avoid nested duplicates.
+      addBlockForNode(node);
+      node = walker.nextNode();
+    }
+  } catch (_) {
+    addBlockForNode(range.commonAncestorContainer);
+  }
+
+  if (!blocks.size) {
+    addBlockForNode(range.startContainer);
+    addBlockForNode(range.endContainer);
+  }
+  return blocks;
+}
+
+function applyLineHeight(value, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !value) return;
+
+  const selection = window.getSelection();
+  const range = selection && selection.rangeCount
+    ? selection.getRangeAt(0)
+    : null;
+  const inEditor = range && editor.contains(range.commonAncestorContainer);
+
+  // Non-collapsed selection → paragraph/block line-height (saved with manuscript).
+  if (inEditor && range && !range.collapsed) {
+    const blocks = collectLineHeightBlocks(editor, range);
+    if (blocks.size) {
+      blocks.forEach((block) => {
+        block.style.lineHeight = value;
+      });
+    } else {
+      // Bare text + <br> manuscript: wrap selection.
+      wrapSelectionWithSpan({ lineHeight: value });
+    }
+    updateEditorPlaceholder(editor);
+    try {
+      editor.dispatchEvent(new Event("input", { bubbles: true }));
+    } catch (_) {
+      /* ignore */
+    }
+    return;
+  }
+
+  // Caret only / no selection → editor-wide view preference (remembered).
+  setStoredLineHeight(value);
+  applyEditorWideLineHeight(value);
+  updateEditorPlaceholder(editor);
+}
+
+/* Text / highlight colors: left-click apply, right-click palette */
+const FORMAT_PRESET_COLORS = [
+  { key: "red", hex: "#e74c3c", label: "빨강" },
+  { key: "blue", hex: "#3498db", label: "파랑" },
+  { key: "yellow", hex: "#f1c40f", label: "노랑" },
+  { key: "green", hex: "#27ae60", label: "초록" },
+  { key: "gray", hex: "#7f8c8d", label: "회색" },
+];
+const FORMAT_COLOR_DEFAULTS = {
+  text: "#e74c3c",
+  highlight: "#f1c40f",
+};
+const formatColorState = {
+  text: FORMAT_COLOR_DEFAULTS.text,
+  highlight: FORMAT_COLOR_DEFAULTS.highlight,
+};
+let formatPaletteKind = null; // "text" | "highlight"
+let formatPaletteRange = null;
+let formatPaletteEditor = null;
+/** "editor" | "tory-chat" — palette applies to manuscript or 토리 대화 형광펜 */
+let formatPaletteTarget = "editor";
+
+function applyTextColor(color) {
+  if (!color) return;
+  applyEditorCommand("foreColor", color);
+}
+
+function applyHighlight(color) {
+  if (!color) return;
+  document.execCommand("styleWithCSS", false, "true");
+  // Prefer hiliteColor; fall back to backColor.
+  if (!document.execCommand("hiliteColor", false, color)) {
+    document.execCommand("backColor", false, color);
+  }
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
+function clearHighlight() {
+  document.execCommand("styleWithCSS", false, "true");
+  if (!document.execCommand("hiliteColor", false, "transparent")) {
+    document.execCommand("backColor", false, "transparent");
+  }
+  // Also strip highlight background from selected spans (more reliable than transparent alone).
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (editor && selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (!range.collapsed && editor.contains(range.commonAncestorContainer)) {
+        const root = range.commonAncestorContainer.nodeType === 1
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+        root?.querySelectorAll?.("[style*='background']").forEach((el) => {
+          if (!range.intersectsNode || range.intersectsNode(el)) {
+            el.style.backgroundColor = "";
+            el.style.background = "";
+          }
+        });
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
+function normalizeCssColor(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  try {
+    const probe = document.createElement("span");
+    probe.style.color = raw;
+    probe.style.display = "none";
+    document.body.appendChild(probe);
+    const computed = getComputedStyle(probe).color;
+    probe.remove();
+    return String(computed || "").replace(/\s+/g, "").toLowerCase();
+  } catch (_) {
+    return raw.replace(/\s+/g, "").toLowerCase();
+  }
+}
+
+function selectionHasHighlight() {
+  try {
+    const values = [
+      document.queryCommandValue("hiliteColor"),
+      document.queryCommandValue("backColor"),
+    ];
+    for (const raw of values) {
+      const v = String(raw || "").trim().toLowerCase();
+      if (!v) continue;
+      if (v === "transparent" || v === "rgba(0, 0, 0, 0)" || v === "rgba(0,0,0,0)") continue;
+      if (v === "initial" || v === "inherit" || v === "unset") continue;
+      // Page/editor white background is not a highlighter mark.
+      if (v === "rgb(255, 255, 255)" || v === "rgb(255,255,255)" || v === "#ffffff" || v === "white") continue;
+      if (v === "rgb(255, 253, 248)" || v === "rgb(255,253,248)") continue; // ivory page
+      return true;
+    }
+    // Fallback: look at computed style of selection anchor.
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount) {
+      let node = selection.anchorNode;
+      if (node && node.nodeType === 3) node = node.parentElement;
+      while (node && node !== document.body) {
+        if (node.nodeType === 1) {
+          const bg = getComputedStyle(node).backgroundColor;
+          const n = String(bg || "").replace(/\s+/g, "").toLowerCase();
+          if (n && n !== "transparent" && n !== "rgba(0,0,0,0)"
+            && n !== "rgb(255,255,255)" && n !== "rgb(255,253,248)") {
+            // Ignore if same as editor page background.
+            const editor = getActiveRichEditor() || $("sceneContent");
+            const pageBg = editor ? getComputedStyle(editor).backgroundColor : "";
+            if (normalizeCssColor(bg) !== normalizeCssColor(pageBg)) return true;
+          }
+        }
+        node = node.parentElement;
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function selectionHasTextColor() {
+  try {
+    const raw = document.queryCommandValue("foreColor");
+    if (!raw) return false;
+    const ink = (typeof themeDefaultInk === "function" ? themeDefaultInk() : "")
+      || getComputedStyle(document.body).getPropertyValue("--page-ink").trim()
+      || "#24211d";
+    const a = normalizeCssColor(raw);
+    const b = normalizeCssColor(ink);
+    if (!a) return false;
+    // Black-ish defaults often reported as rgb(0,0,0) — treat close to ink as none.
+    if (a === b) return false;
+    if ((a === "rgb(0,0,0)" || a === "rgb(36,33,29)") && (b.includes("36,33,29") || b.includes("0,0,0") || b.includes("31,31,31"))) {
+      return false;
+    }
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function clearTextColor() {
+  // Reset selection to page default ink (removes "custom" text color).
+  let ink = getComputedStyle(document.body).getPropertyValue("--page-ink").trim();
+  if (!ink && typeof themeDefaultInk === "function") ink = themeDefaultInk();
+  if (!ink) ink = "#24211d";
+  document.execCommand("styleWithCSS", false, "true");
+  document.execCommand("foreColor", false, ink);
+  // Strip explicit color from nested spans in the selection when possible.
+  try {
+    const selection = window.getSelection();
+    const editor = getActiveRichEditor() || $("sceneContent");
+    if (editor && selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (!range.collapsed && editor.contains(range.commonAncestorContainer)) {
+        const root = range.commonAncestorContainer.nodeType === 1
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+        root?.querySelectorAll?.("[style*='color']").forEach((el) => {
+          try {
+            if (!range.intersectsNode || range.intersectsNode(el)) {
+              el.style.color = "";
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        });
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
+function setFormatColorState(kind, color) {
+  if (kind !== "text" && kind !== "highlight") return;
+  if (!color) return;
+  formatColorState[kind] = color;
+  document.querySelectorAll(`[data-color-bar="${kind}"]`).forEach((bar) => {
+    bar.style.setProperty("--bar-color", color);
+  });
+  document.querySelectorAll(`[data-color-kind="${kind}"]`).forEach((btn) => {
+    if (kind === "text") {
+      const icon = btn.querySelector(".format-a-icon");
+      if (icon) icon.style.borderBottomColor = color;
+    }
+  });
+  if (kind === "highlight" && typeof syncToryChatHighlightBar === "function") {
+    try { syncToryChatHighlightBar(); } catch (_) { /* defined later */ }
+  }
+}
+
+/**
+ * Apply color/highlight to selection.
+ * Left-click always paints the current color (simple: drag → click).
+ * Pass toggle:true to clear when already highlighted (palette clear is preferred).
+ * Palette picks always apply (forceApply: true).
+ */
+function applyFormatColorToSelection(kind, color, editorEl = null, options = {}) {
+  const editor = editorEl || getActiveRichEditor() || lastEditorSelection.editor || $("sceneContent");
+  if (!editor) return;
+  focusEditor(editor);
+  const usable = getUsableEditorRange(editor);
+  if (usable) {
+    try { restoreSelection(usable); } catch (_) { /* ignore */ }
+  }
+  const range = getUsableEditorRange(editor);
+  if (!range || range.collapsed) {
+    toast("문장을 드래그해 선택한 뒤 형광펜을 눌러 주세요.");
+    return;
+  }
+  try { restoreSelection(range); } catch (_) { /* ignore */ }
+
+  // Default: always apply (forceApply). Toggle-clear only when explicitly requested.
+  const forceApply = options.forceApply !== false;
+  const allowToggle = Boolean(options.toggle);
+  const next = color || formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
+
+  if (kind === "highlight") {
+    if (allowToggle && !forceApply && selectionHasHighlight()) {
+      clearHighlight();
+      formatPaletteRange = currentEditorRange(editor) || formatPaletteRange;
+      rememberLastEditorSelection(editor);
+      return;
+    }
+    setFormatColorState("highlight", next);
+    applyHighlight(next);
+  } else {
+    if (allowToggle && !forceApply && selectionHasTextColor()) {
+      clearTextColor();
+      formatPaletteRange = currentEditorRange(editor) || formatPaletteRange;
+      rememberLastEditorSelection(editor);
+      return;
+    }
+    setFormatColorState("text", next);
+    applyTextColor(next);
+  }
+  formatPaletteRange = currentEditorRange(editor) || range;
+  rememberLastEditorSelection(editor);
+  // Ensure autosave / dirty tracking (execCommand may not fire input in all browsers)
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function hideFormatColorPalette() {
+  $("formatColorPalette")?.classList.add("hidden");
+  formatPaletteKind = null;
+  formatPaletteTarget = "editor";
+}
+
+function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
+  const palette = $("formatColorPalette");
+  if (!palette || !anchorEl) return;
+  formatPaletteKind = kind;
+  formatPaletteTarget = options.target === "tory-chat" ? "tory-chat" : "editor";
+  if (formatPaletteTarget === "tory-chat") {
+    formatPaletteEditor = null;
+    formatPaletteRange = null;
+  } else {
+    formatPaletteEditor = editorEl || getActiveRichEditor() || $("sceneContent");
+    formatPaletteRange = currentEditorRange(formatPaletteEditor);
+  }
+  const label = $("formatColorPaletteLabel");
+  if (label) label.textContent = kind === "highlight" ? "형광펜 색" : "글자색";
+  const clearBtn = $("formatPaletteClearButton");
+  if (clearBtn) {
+    clearBtn.textContent = kind === "highlight" ? "형광 지우기" : "기본 색";
+    clearBtn.hidden = false;
+  }
+  const current = formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
+  if ($("formatColorCustomPicker")) $("formatColorCustomPicker").value = current;
+  palette.querySelectorAll(".format-swatch").forEach((btn) => {
+    btn.classList.toggle("is-active", (btn.dataset.swatch || "").toLowerCase() === current.toLowerCase());
+  });
+  palette.classList.remove("hidden");
+  const rect = anchorEl.getBoundingClientRect();
+  const pad = 8;
+  const pr = palette.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + pr.width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pr.width - pad);
+  if (top + pr.height > window.innerHeight - pad) top = Math.max(pad, rect.top - pr.height - 4);
+  palette.style.left = `${left}px`;
+  palette.style.top = `${top}px`;
+}
+
+function setupFormatColorPalette() {
+  setFormatColorState("text", formatColorState.text);
+  setFormatColorState("highlight", formatColorState.highlight);
+
+  const palette = $("formatColorPalette");
+  if (!palette || palette.dataset.bound === "1") return;
+  palette.dataset.bound = "1";
+
+  palette.addEventListener("mousedown", (event) => {
+    // Keep editor / chat selection while interacting with palette.
+    event.preventDefault();
+  });
+
+  palette.addEventListener("click", (event) => {
+    const swatch = event.target.closest("[data-swatch]");
+    if (swatch && formatPaletteKind) {
+      if (formatPaletteTarget === "tory-chat" && formatPaletteKind === "highlight") {
+        applyToryChatHighlight(swatch.dataset.swatch);
+        hideFormatColorPalette();
+        return;
+      }
+      applyFormatColorToSelection(formatPaletteKind, swatch.dataset.swatch, formatPaletteEditor, { forceApply: true });
+      hideFormatColorPalette();
+      return;
+    }
+    if (event.target.closest("[data-palette-custom]")) {
+      $("formatColorCustomPicker")?.click();
+      return;
+    }
+    if (event.target.closest("[data-palette-clear]") && formatPaletteKind) {
+      if (formatPaletteTarget === "tory-chat" && formatPaletteKind === "highlight") {
+        clearToryChatHighlight();
+        hideFormatColorPalette();
+        return;
+      }
+      if (formatPaletteEditor) {
+        focusEditor(formatPaletteEditor);
+        if (formatPaletteRange) {
+          try { restoreSelection(formatPaletteRange); } catch (_) { /* ignore */ }
+        }
+      }
+      if (formatPaletteKind === "highlight") clearHighlight();
+      else clearTextColor();
+      hideFormatColorPalette();
+    }
+  });
+
+  $("formatColorCustomPicker")?.addEventListener("input", (event) => {
+    if (!formatPaletteKind) return;
+    if (formatPaletteTarget === "tory-chat" && formatPaletteKind === "highlight") {
+      // Preview bar only while dragging custom color; apply once on change
+      setFormatColorState("highlight", event.target.value);
+      return;
+    }
+    applyFormatColorToSelection(formatPaletteKind, event.target.value, formatPaletteEditor, { forceApply: true });
+  });
+  $("formatColorCustomPicker")?.addEventListener("change", (event) => {
+    if (formatPaletteTarget === "tory-chat" && formatPaletteKind === "highlight") {
+      applyToryChatHighlight(event.target?.value);
+    }
+    hideFormatColorPalette();
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#formatColorPalette, [data-color-kind], #formatColorCustomPicker, #toryChatHighlightButton")) return;
+    hideFormatColorPalette();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideFormatColorPalette();
+  });
+  window.addEventListener("blur", hideFormatColorPalette);
+  window.addEventListener("resize", hideFormatColorPalette);
+}
+
+function contentToPreviewHtml(content) {
+  if (!content || !String(content).trim()) {
+    return escapeHtml("아직 쓴 원고가 없어요.");
+  }
+  if (looksLikeHtml(content)) {
+    return sanitizeEditorHtml(content);
+  }
+  return escapeHtml(content).replace(/\r\n|\r|\n/g, "<br>");
+}
+
+function updateFormatButtonState(toolbarEl = null) {
+  const states = [
+    ["bold", "bold"],
+    ["italic", "italic"],
+    ["underline", "underline"],
+    ["justifyLeft", "justifyLeft"],
+    ["justifyCenter", "justifyCenter"],
+    ["justifyRight", "justifyRight"],
+  ];
+  const root = toolbarEl || document;
+  try {
+    for (const [format, command] of states) {
+      root.querySelectorAll(`[data-format="${format}"]`).forEach((button) => {
+        button.classList.toggle("active", document.queryCommandState(command));
+      });
+    }
+    let inList = false;
+    try {
+      inList = document.queryCommandState("insertUnorderedList")
+        || document.queryCommandState("insertOrderedList");
+    } catch (_) {
+      inList = false;
+    }
+    root.querySelectorAll('[data-format="list"]').forEach((button) => {
+      button.classList.toggle("active", inList);
+    });
+  } catch (_) {
+    /* ignore when selection is outside */
+  }
+
+  // Reflect active font / size in the selects (no separate "글꼴/크기" labels).
+  const toolbars = toolbarEl
+    ? [toolbarEl]
+    : [$("formatToolbar"), $("synopsisFormatToolbar")].filter(Boolean);
+  for (const toolbar of toolbars) {
+    if (!toolbar) continue;
+    const editorId = toolbar.id === "synopsisFormatToolbar" ? "synopsisContent" : "sceneContent";
+    const editor = $(editorId) || getActiveRichEditor() || $("sceneContent");
+    if (editor) syncFormatFontSizeSelects(toolbar, editor);
+  }
+}
+
+/* —— Unified list styles (bullet + number + symbols) —— */
+const LIST_STYLE_STORAGE_KEY = "supertory.listStyle";
+const LIST_STYLES = [
+  // Bullets / symbols
+  { key: "disc", kind: "ul", label: "점", preview: "•", css: "disc" },
+  { key: "circle", kind: "ul", label: "동그라미", preview: "○", css: "circle" },
+  { key: "square", kind: "ul", label: "네모", preview: "■", css: "square" },
+  { key: "dash", kind: "ul", label: "대시", preview: "–", css: '"– "' },
+  { key: "dot", kind: "ul", label: "가운데점", preview: "·", css: '"· "' },
+  { key: "star", kind: "ul", label: "별", preview: "★", css: '"★ "' },
+  { key: "hollow-star", kind: "ul", label: "빈 별", preview: "☆", css: '"☆ "' },
+  { key: "diamond", kind: "ul", label: "마름모", preview: "◆", css: '"◆ "' },
+  { key: "arrow", kind: "ul", label: "화살표", preview: "►", css: '"► "' },
+  { key: "tri", kind: "ul", label: "삼각형", preview: "▸", css: '"▸ "' },
+  { key: "check", kind: "ul", label: "체크", preview: "✓", css: '"✓ "' },
+  { key: "note", kind: "ul", label: "참고", preview: "※", css: '"※ "' },
+  { key: "heart", kind: "ul", label: "하트", preview: "♥", css: '"♥ "' },
+  { key: "flower", kind: "ul", label: "꽃", preview: "❀", css: '"❀ "' },
+  { key: "box", kind: "ul", label: "빈 칸", preview: "☐", css: '"☐ "' },
+  { key: "hand", kind: "ul", label: "손가락", preview: "☞", css: '"☞ "' },
+  // Numbers
+  { key: "decimal", kind: "ol", label: "1. 2. 3.", preview: "1.", css: "decimal" },
+  { key: "decimal-zero", kind: "ol", label: "01. 02.", preview: "01.", css: "decimal-leading-zero" },
+  { key: "lower-alpha", kind: "ol", label: "a. b. c.", preview: "a.", css: "lower-alpha" },
+  { key: "upper-alpha", kind: "ol", label: "A. B. C.", preview: "A.", css: "upper-alpha" },
+  { key: "lower-roman", kind: "ol", label: "i. ii. iii.", preview: "i.", css: "lower-roman" },
+  { key: "upper-roman", kind: "ol", label: "I. II. III.", preview: "I.", css: "upper-roman" },
+];
+const LIST_STYLE_BY_KEY = Object.fromEntries(LIST_STYLES.map((s) => [s.key, s]));
+let formatListStyleKey = "disc";
+let formatListPaletteEditor = null;
+let formatListPaletteRange = null;
+
+function getListStyle(key = formatListStyleKey) {
+  return LIST_STYLE_BY_KEY[key] || LIST_STYLE_BY_KEY.disc;
+}
+
+function loadStoredListStyle() {
+  try {
+    const key = localStorage.getItem(LIST_STYLE_STORAGE_KEY);
+    if (key && LIST_STYLE_BY_KEY[key]) formatListStyleKey = key;
+  } catch (_) {
+    /* ignore */
+  }
+  return formatListStyleKey;
+}
+
+function saveListStyle(key) {
+  if (!LIST_STYLE_BY_KEY[key]) return;
+  formatListStyleKey = key;
+  try {
+    localStorage.setItem(LIST_STYLE_STORAGE_KEY, key);
+  } catch (_) {
+    /* ignore */
+  }
+  updateListButtonMarks();
+  document.querySelectorAll("#formatListPalette [data-list-style]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.listStyle === key);
+  });
+}
+
+function updateListButtonMarks() {
+  const style = getListStyle();
+  document.querySelectorAll("[data-list-mark]").forEach((el) => {
+    el.textContent = style.preview || "•";
+  });
+  document.querySelectorAll(".format-list-btn").forEach((btn) => {
+    btn.title = `목록 (${style.label}) · 클릭: 적용 · 우클릭: 기호 선택`;
+  });
+}
+
+function findListAncestor(node, editor) {
+  let el = node?.nodeType === 3 ? node.parentElement : node;
+  while (el && el !== editor) {
+    if (el.nodeType === 1 && (el.tagName === "UL" || el.tagName === "OL")) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function replaceListTag(list, tagName) {
+  if (!list || !list.parentNode) return list;
+  const next = document.createElement(tagName);
+  // Preserve known attributes/styles useful for list markers.
+  if (list.getAttribute("style")) next.setAttribute("style", list.getAttribute("style"));
+  if (list.dataset.listStyle) next.dataset.listStyle = list.dataset.listStyle;
+  while (list.firstChild) next.appendChild(list.firstChild);
+  list.parentNode.replaceChild(next, list);
+  return next;
+}
+
+function applyCssListStyle(list, style) {
+  if (!list || !style) return;
+  list.style.listStyleType = style.css;
+  list.style.listStylePosition = "outside";
+  list.dataset.listStyle = style.key;
+}
+
+function removeListAtSelection(editor = getActiveRichEditor() || $("sceneContent")) {
+  if (!editor) return;
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* ignore */
+  }
+  if (document.queryCommandState("insertOrderedList")) {
+    document.execCommand("insertOrderedList", false, null);
+  } else if (document.queryCommandState("insertUnorderedList")) {
+    document.execCommand("insertUnorderedList", false, null);
+  }
+  updateEditorPlaceholder(editor);
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+  updateFormatButtonState();
+}
+
+function applyListStyle(styleKey, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  const style = getListStyle(styleKey);
+  if (!editor || !style) return;
+  saveListStyle(style.key);
+
+  focusEditor(editor);
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* ignore */
+  }
+
+  const selection = window.getSelection();
+  let list = null;
+  if (selection?.rangeCount) {
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      list = findListAncestor(range.commonAncestorContainer, editor);
+    }
+  }
+
+  const needOl = style.kind === "ol";
+  if (!list) {
+    document.execCommand(needOl ? "insertOrderedList" : "insertUnorderedList", false, null);
+    if (selection?.rangeCount) {
+      list = findListAncestor(selection.getRangeAt(0).commonAncestorContainer, editor);
+    }
+    // Fallback: nearest list inside editor
+    if (!list) {
+      const lists = editor.querySelectorAll(needOl ? "ol" : "ul");
+      list = lists[lists.length - 1] || null;
+    }
+  } else if ((list.tagName === "OL") !== needOl) {
+    list = replaceListTag(list, needOl ? "OL" : "UL");
+  } else if (list.dataset.listStyle === style.key) {
+    // Same style again → toggle list off.
+    removeListAtSelection(editor);
+    return;
+  }
+
+  if (list) applyCssListStyle(list, style);
+
+  updateEditorPlaceholder(editor);
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+  updateFormatButtonState();
+}
+
+function hideFormatListPalette() {
+  const palette = $("formatListPalette");
+  if (!palette) return;
+  palette.classList.add("hidden");
+  document.querySelectorAll(".format-list-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function showFormatListPalette(anchorBtn, editor = null) {
+  const palette = $("formatListPalette");
+  if (!palette || !anchorBtn) return;
+  hideFormatColorPalette?.();
+  formatListPaletteEditor = editor || getActiveRichEditor() || $("sceneContent");
+  formatListPaletteRange = currentEditorRange(formatListPaletteEditor);
+
+  document.querySelectorAll("#formatListPalette [data-list-style]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.listStyle === formatListStyleKey);
+  });
+
+  palette.classList.remove("hidden");
+  anchorBtn.setAttribute("aria-expanded", "true");
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const pad = 8;
+  const pw = palette.offsetWidth || 240;
+  const ph = palette.offsetHeight || 280;
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+  if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 4);
+  palette.style.left = `${Math.max(pad, left)}px`;
+  palette.style.top = `${Math.max(pad, top)}px`;
+}
+
+function setupFormatListPalette() {
+  loadStoredListStyle();
+  updateListButtonMarks();
+
+  const bulletHost = $("formatListBulletOptions");
+  const numberHost = $("formatListNumberOptions");
+  if (bulletHost && !bulletHost.dataset.filled) {
+    bulletHost.innerHTML = LIST_STYLES.filter((s) => s.kind === "ul").map((style) => `
+      <button type="button" class="format-list-option" role="menuitem"
+        data-list-style="${style.key}" title="${escapeHtml(style.label)}">
+        <span class="format-list-option-preview">${escapeHtml(style.preview)}</span>
+        <span class="format-list-option-label">${escapeHtml(style.label)}</span>
+      </button>
+    `).join("");
+    bulletHost.dataset.filled = "1";
+  }
+  if (numberHost && !numberHost.dataset.filled) {
+    numberHost.innerHTML = LIST_STYLES.filter((s) => s.kind === "ol").map((style) => `
+      <button type="button" class="format-list-option" role="menuitem"
+        data-list-style="${style.key}" title="${escapeHtml(style.label)}">
+        <span class="format-list-option-preview">${escapeHtml(style.preview)}</span>
+        <span class="format-list-option-label">${escapeHtml(style.label)}</span>
+      </button>
+    `).join("");
+    numberHost.dataset.filled = "1";
+  }
+
+  const palette = $("formatListPalette");
+  if (!palette || palette.dataset.bound === "1") {
+    updateListButtonMarks();
+    return;
+  }
+  palette.dataset.bound = "1";
+
+  palette.addEventListener("mousedown", (event) => {
+    // Keep editor selection while interacting with palette.
+    event.preventDefault();
+  });
+
+  palette.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-list-style]");
+    if (option) {
+      const editor = formatListPaletteEditor || getActiveRichEditor() || $("sceneContent");
+      focusEditor(editor);
+      if (formatListPaletteRange) {
+        try { restoreSelection(formatListPaletteRange); } catch (_) { /* ignore */ }
+      }
+      applyListStyle(option.dataset.listStyle, editor);
+      hideFormatListPalette();
+      return;
+    }
+    if (event.target.closest("[data-list-remove]")) {
+      const editor = formatListPaletteEditor || getActiveRichEditor() || $("sceneContent");
+      focusEditor(editor);
+      if (formatListPaletteRange) {
+        try { restoreSelection(formatListPaletteRange); } catch (_) { /* ignore */ }
+      }
+      removeListAtSelection(editor);
+      hideFormatListPalette();
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#formatListPalette, .format-list-btn")) return;
+    hideFormatListPalette();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideFormatListPalette();
+  });
+  window.addEventListener("blur", hideFormatListPalette);
+  window.addEventListener("resize", hideFormatListPalette);
+}
+
+/** Manuscript / settings-doc font menu (system fonts with safe fallbacks). */
+const FONT_OPTIONS = [
+  {
+    group: "한글",
+    fonts: [
+      { value: '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif', label: "맑은 고딕" },
+      { value: "Batang, 'Apple Myungjo', serif", label: "바탕" },
+      { value: "Gungsuh, 'Nanum Myeongjo', serif", label: "궁서" },
+      { value: "Dotum, 'Apple SD Gothic Neo', sans-serif", label: "돋움" },
+      { value: "Gulim, 'Apple SD Gothic Neo', sans-serif", label: "굴림" },
+      { value: '"Nanum Gothic", "Malgun Gothic", sans-serif', label: "나눔고딕" },
+      { value: '"Nanum Myeongjo", Batang, serif', label: "나눔명조" },
+      { value: '"Nanum Barun Gothic", "Malgun Gothic", sans-serif', label: "나눔바른고딕" },
+      { value: '"NanumSquare", "Nanum Square", "Malgun Gothic", sans-serif', label: "나눔스퀘어" },
+      { value: '"KoPub Batang", "KoPubBatang", Batang, serif', label: "KoPub 바탕체" },
+      { value: '"RIDIBatang", "리디바탕", Batang, serif', label: "리디바탕" },
+      { value: '"KCC-eunyoung", "KCC은영체", "KCC eunyoung", cursive', label: "KCC은영체" },
+      { value: '"Pretendard", "Pretendard Variable", "Malgun Gothic", sans-serif', label: "Pretendard" },
+      { value: '"Spoqa Han Sans Neo", "SpoqaHanSansNeo", "Malgun Gothic", sans-serif', label: "Spoqa Han Sans Neo" },
+      { value: '"Source Han Sans KR", "본고딕", "Noto Sans CJK KR", "Noto Sans KR", sans-serif', label: "본고딕" },
+      { value: '"Noto Sans KR", "Malgun Gothic", sans-serif', label: "Noto Sans KR" },
+      { value: '"Noto Serif KR", Batang, serif', label: "Noto Serif KR" },
+    ],
+  },
+  {
+    group: "본문 · 산세리프",
+    fonts: [
+      { value: "Arial, Helvetica, sans-serif", label: "Arial" },
+      { value: '"Segoe UI", "Malgun Gothic", sans-serif', label: "Segoe UI" },
+      { value: "Calibri, 'Segoe UI', sans-serif", label: "Calibri" },
+      { value: "Candara, Calibri, sans-serif", label: "Candara" },
+      { value: "Corbel, 'Segoe UI', sans-serif", label: "Corbel" },
+      { value: "Verdana, Geneva, sans-serif", label: "Verdana" },
+      { value: "Tahoma, Geneva, sans-serif", label: "Tahoma" },
+      { value: '"Trebuchet MS", "Segoe UI", sans-serif', label: "Trebuchet MS" },
+      { value: '"Lucida Sans Unicode", "Lucida Grande", sans-serif', label: "Lucida Sans" },
+      { value: "Optima, Candara, sans-serif", label: "Optima" },
+    ],
+  },
+  {
+    group: "본문 · 세리프",
+    fonts: [
+      { value: "Georgia, 'Times New Roman', serif", label: "Georgia" },
+      { value: '"Times New Roman", Times, serif', label: "Times New Roman" },
+      { value: "Cambria, Georgia, serif", label: "Cambria" },
+      { value: "Constantia, Georgia, serif", label: "Constantia" },
+      { value: "Garamond, 'Times New Roman', serif", label: "Garamond" },
+      { value: '"Palatino Linotype", Palatino, serif', label: "Palatino" },
+      { value: '"Book Antiqua", Palatino, serif', label: "Book Antiqua" },
+      { value: '"Bookman Old Style", Georgia, serif', label: "Bookman" },
+      { value: '"Century Schoolbook", Cambria, serif', label: "Century Schoolbook" },
+    ],
+  },
+  {
+    group: "고정폭 · 코드",
+    fonts: [
+      { value: '"Courier New", Courier, monospace', label: "Courier New" },
+      { value: "Consolas, 'Courier New', monospace", label: "Consolas" },
+      { value: '"Lucida Console", Monaco, monospace', label: "Lucida Console" },
+      { value: '"Cascadia Mono", Consolas, monospace', label: "Cascadia Mono" },
+      { value: '"D2Coding", "D2Coding ligature", Consolas, monospace', label: "D2Coding" },
+      { value: "Menlo, Monaco, monospace", label: "Menlo" },
+    ],
+  },
+  {
+    group: "손글씨 · 장식",
+    fonts: [
+      { value: '"Comic Sans MS", "Segoe Print", cursive', label: "Comic Sans MS" },
+      { value: '"Segoe Print", "Comic Sans MS", cursive', label: "Segoe Print" },
+      { value: '"Segoe Script", "Brush Script MT", cursive', label: "Segoe Script" },
+      { value: '"Brush Script MT", cursive', label: "Brush Script" },
+      { value: "Impact, Haettenschweiler, sans-serif", label: "Impact" },
+      { value: '"Arial Black", Gadget, sans-serif', label: "Arial Black" },
+    ],
+  },
+];
+
+/** Editor CSS defaults (must match .rich-editor in styles.css). */
+const EDITOR_DEFAULT_FONT = 'Georgia, "Malgun Gothic", serif';
+const EDITOR_DEFAULT_FONT_LABEL = "Georgia";
+const EDITOR_DEFAULT_SIZE = "17px";
+
+function populateFormatFontSelects() {
+  document.querySelectorAll(".format-font-select, #formatFont, [data-role='format-font']").forEach((select) => {
+    if (!select || select.dataset.fontsFilled === "1") return;
+    select.innerHTML = "";
+    for (const group of FONT_OPTIONS) {
+      const og = document.createElement("optgroup");
+      og.label = group.group;
+      for (const font of group.fonts) {
+        const opt = document.createElement("option");
+        opt.value = font.value;
+        opt.textContent = font.label;
+        // Preview the face when the OS has it installed.
+        opt.style.fontFamily = font.value;
+        // Prefer Georgia as the visible default (matches .rich-editor).
+        if (font.label === EDITOR_DEFAULT_FONT_LABEL || font.value.startsWith("Georgia")) {
+          opt.selected = true;
+        }
+        og.appendChild(opt);
+      }
+      select.appendChild(og);
+    }
+    // Ensure Georgia (or first face) is selected if nothing matched.
+    if (!select.value && select.options.length) {
+      const georgia = [...select.options].find((o) => /georgia/i.test(o.value) || o.textContent === "Georgia");
+      if (georgia) select.value = georgia.value;
+      else select.selectedIndex = 0;
+    }
+    select.dataset.fontsFilled = "1";
+  });
+}
+
+function normalizeFontToken(value) {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/['"]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function firstFontFamilyToken(fontFamily) {
+  const raw = String(fontFamily || "").split(",")[0] || "";
+  return normalizeFontToken(raw);
+}
+
+function matchFontSelectValue(select, fontFamily) {
+  if (!select) return;
+  const needle = firstFontFamilyToken(fontFamily);
+  if (!needle) return;
+  let best = "";
+  for (const opt of select.options) {
+    if (!opt.value) continue;
+    const token = firstFontFamilyToken(opt.value);
+    if (!token) continue;
+    if (needle === token || needle.includes(token) || token.includes(needle)) {
+      best = opt.value;
+      break;
+    }
+  }
+  if (best) {
+    select.value = best;
+    // Reflect face in the closed select control.
+    select.style.fontFamily = best;
+  }
+}
+
+function matchSizeSelectValue(select, sizePx) {
+  if (!select) return;
+  const raw = String(sizePx || "").trim().toLowerCase();
+  if (!raw) return;
+  // Accept "17px", "17", "17.0px"
+  const num = parseFloat(raw);
+  if (!Number.isFinite(num)) return;
+  const asPx = `${Math.round(num)}px`;
+  const hit = [...select.options].find((o) => o.value === asPx);
+  if (hit) {
+    select.value = asPx;
+  } else {
+    // Inject a temporary option so the current size is visible.
+    let extra = select.querySelector('option[data-temp-size="1"]');
+    if (!extra) {
+      extra = document.createElement("option");
+      extra.dataset.tempSize = "1";
+      select.appendChild(extra);
+    }
+    extra.value = asPx;
+    extra.textContent = String(Math.round(num));
+    select.value = asPx;
+  }
+}
+
+function getSelectionStyleProbe(editor) {
+  if (!editor) return null;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount) return editor;
+  const node = selection.anchorNode || selection.focusNode;
+  if (!node) return editor;
+  let el = node.nodeType === 1 ? node : node.parentElement;
+  while (el && el !== editor) {
+    if (el.nodeType === 1) return el;
+    el = el.parentElement;
+  }
+  return editor;
+}
+
+function syncFormatFontSizeSelects(toolbar, editor) {
+  if (!toolbar || !editor) return;
+  const fontSelect = toolbar.querySelector("#formatFont, [data-role='format-font'], .format-font-select");
+  const sizeSelect = toolbar.querySelector("#formatSize, [data-role='format-size']");
+  const probe = getSelectionStyleProbe(editor);
+  let fontFamily = "";
+  let fontSize = "";
+  try {
+    const cmdFont = document.queryCommandValue("fontName");
+    if (cmdFont && cmdFont !== "false" && cmdFont !== "null") fontFamily = cmdFont;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const cs = window.getComputedStyle(probe || editor);
+    if (!fontFamily) fontFamily = cs.fontFamily || "";
+    fontSize = cs.fontSize || "";
+  } catch (_) {
+    fontFamily = fontFamily || EDITOR_DEFAULT_FONT;
+    fontSize = fontSize || EDITOR_DEFAULT_SIZE;
+  }
+  if (fontSelect) matchFontSelectValue(fontSelect, fontFamily || EDITOR_DEFAULT_FONT);
+  if (sizeSelect) matchSizeSelectValue(sizeSelect, fontSize || EDITOR_DEFAULT_SIZE);
+  syncParagraphStyleSelect(toolbar, editor);
+}
+
+function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
+  if (!editor || !toolbar) return;
+
+  let savedRange = null;
+  const fontSelect = toolbar.querySelector("#formatFont, [data-role='format-font']");
+  const sizeSelect = toolbar.querySelector("#formatSize, [data-role='format-size']");
+  const lineHeightSelect = toolbar.querySelector("#formatLineHeight, [data-role='format-line-height']");
+  const paragraphSelect = toolbar.querySelector("#formatParagraphStyle, [data-role='format-paragraph']");
+
+  // Restore remembered editor-wide line spacing.
+  const storedLh = getStoredLineHeight();
+  editor.style.lineHeight = storedLh;
+  if (lineHeightSelect) {
+    if (![...lineHeightSelect.options].some((o) => o.value === storedLh)) {
+      const opt = document.createElement("option");
+      opt.value = storedLh;
+      opt.textContent = storedLh;
+      lineHeightSelect.appendChild(opt);
+    }
+    lineHeightSelect.value = storedLh;
+  }
+
+  const rememberSelection = () => {
+    // Prefer live selection; fall back to last non-empty drag selection.
+    const live = currentEditorRange(editor);
+    if (live && !live.collapsed) {
+      savedRange = live.cloneRange();
+    } else if (lastEditorSelection.editor === editor && lastEditorSelection.range && !lastEditorSelection.range.collapsed) {
+      savedRange = lastEditorSelection.range;
+    } else {
+      savedRange = live;
+    }
+    if (savedRange && !savedRange.collapsed) {
+      formatPaletteRange = savedRange;
+      formatPaletteEditor = editor;
+      lastEditorSelection = { editor, range: savedRange };
+    }
+  };
+
+  const useSavedSelection = (fn) => {
+    focusEditor(editor);
+    const range = (savedRange && !savedRange.collapsed)
+      ? savedRange
+      : getUsableEditorRange(editor);
+    if (range) {
+      try { restoreSelection(range); } catch (_) { /* ignore */ }
+    }
+    fn();
+    savedRange = currentEditorRange(editor) || savedRange;
+    formatPaletteRange = savedRange;
+    if (savedRange && !savedRange.collapsed) {
+      lastEditorSelection = { editor, range: savedRange };
+    }
+    updateEditorPlaceholder(editor);
+    updateFormatButtonState(toolbar);
+  };
+
+  // Keep last drag selection even after the caret collapses.
+  const onEditorSelectionCommit = () => {
+    rememberLastEditorSelection(editor);
+    const r = lastEditorSelection.range;
+    if (r && !r.collapsed) {
+      savedRange = r;
+      formatPaletteRange = r;
+      formatPaletteEditor = editor;
+    }
+  };
+  editor.addEventListener("mouseup", onEditorSelectionCommit);
+  editor.addEventListener("keyup", onEditorSelectionCommit);
+  editor.addEventListener("touchend", onEditorSelectionCommit, { passive: true });
+  document.addEventListener("selectionchange", () => {
+    if (document.activeElement === editor || editor.contains(document.activeElement)) {
+      onEditorSelectionCommit();
+    }
+  });
+
+  toolbar.addEventListener("mousedown", (event) => {
+    if (event.target.closest("button")) {
+      rememberSelection();
+      // Prevent toolbar focus from wiping the selection before click handler runs.
+      event.preventDefault();
+      return;
+    }
+    if (event.target.closest("select, input")) {
+      rememberSelection();
+    }
+  });
+
+  toolbar.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-format]");
+    if (!button || !toolbar.contains(button)) return;
+    const format = button.dataset.format;
+    if (format === "undo" || format === "redo") {
+      focusEditor(editor);
+      if (savedRange) restoreSelection(savedRange);
+      applyEditorCommand(format);
+      updateEditorPlaceholder(editor);
+      return;
+    }
+    // Text color / highlight: left-click paints last-chosen color (no right-click needed).
+    if (format === "textColor" || format === "highlight") {
+      const kind = button.dataset.colorKind || (format === "highlight" ? "highlight" : "text");
+      useSavedSelection(() => {
+        applyFormatColorToSelection(kind, formatColorState[kind], editor, { forceApply: true });
+      });
+      return;
+    }
+    // List: left-click applies last-chosen marker/number style.
+    if (format === "list") {
+      useSavedSelection(() => {
+        applyListStyle(formatListStyleKey, editor);
+      });
+      return;
+    }
+    useSavedSelection(() => {
+      if (format === "bold") applyEditorCommand("bold");
+      else if (format === "italic") applyEditorCommand("italic");
+      else if (format === "underline") applyEditorCommand("underline");
+      else if (format === "justifyLeft") applyEditorCommand("justifyLeft");
+      else if (format === "justifyCenter") applyEditorCommand("justifyCenter");
+      else if (format === "justifyRight") applyEditorCommand("justifyRight");
+    });
+  });
+
+  // Right-click on color / highlight / list icon → palette (+ hide footer)
+  toolbar.addEventListener("contextmenu", (event) => {
+    const listBtn = event.target.closest(".format-list-btn, [data-format='list']");
+    if (listBtn && toolbar.contains(listBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      rememberSelection();
+      setUiFeatureCtxTarget?.(listBtn);
+      showFormatListPalette(listBtn, editor);
+      return;
+    }
+    const button = event.target.closest("[data-color-kind]");
+    if (!button || !toolbar.contains(button)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    rememberSelection();
+    setUiFeatureCtxTarget?.(button);
+    const kind = button.dataset.colorKind;
+    showFormatColorPalette(kind, button, editor);
+  });
+
+  fontSelect?.addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (!value) return;
+    useSavedSelection(() => applyFontFamily(value));
+    event.target.style.fontFamily = value;
+  });
+  sizeSelect?.addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (!value) return;
+    useSavedSelection(() => applyFontSize(value));
+  });
+  lineHeightSelect?.addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (!value) return;
+    useSavedSelection(() => applyLineHeight(value, editor));
+  });
+  paragraphSelect?.addEventListener("change", (event) => {
+    const value = event.target.value || "p";
+    useSavedSelection(() => applyParagraphStyle(value, editor));
+  });
+
+  // Right-click font / size / line-height → apply to entire document (+ hide footer)
+  const onFormatSelectContextMenu = (event, kind) => {
+    const select = event.currentTarget;
+    const value = select?.value;
+    if (!value) return;
+    event.preventDefault();
+    event.stopPropagation();
+    rememberSelection();
+    setUiFeatureCtxTarget?.(select);
+    showFormatApplyAllMenu(kind, value, select, editor);
+  };
+  fontSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "font"));
+  sizeSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "size"));
+  lineHeightSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "lineHeight"));
+
+  // Seed selects with the editor's actual current face/size/paragraph style.
+  syncFormatFontSizeSelects(toolbar, editor);
+
+  editor.addEventListener("input", () => {
+    updateEditorPlaceholder(editor);
+    updateFormatButtonState(toolbar);
+    onInput?.();
+  });
+  editor.addEventListener("mousedown", () => {
+    if (editor.getAttribute("contenteditable") !== "true") {
+      editor.setAttribute("contenteditable", "true");
+    }
+  });
+  page?.addEventListener("mousedown", (event) => {
+    if (event.target.closest(`#${editor.id}`)) return;
+    if (event.button !== 0) return;
+    editor.setAttribute("contenteditable", "true");
+    editor.focus();
+  });
+  editor.addEventListener("keyup", () => updateFormatButtonState(toolbar));
+  editor.addEventListener("mouseup", () => updateFormatButtonState(toolbar));
+  editor.addEventListener("focus", () => updateFormatButtonState(toolbar));
+  editor.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const key = event.key.toLowerCase();
+    if (key === "b") {
+      event.preventDefault();
+      applyEditorCommand("bold");
+    } else if (key === "i") {
+      event.preventDefault();
+      applyEditorCommand("italic");
+    } else if (key === "u") {
+      event.preventDefault();
+      applyEditorCommand("underline");
+    } else if (key === "z" && !event.shiftKey) {
+      event.preventDefault();
+      applyEditorCommand("undo");
+    } else if (key === "y" || (key === "z" && event.shiftKey)) {
+      event.preventDefault();
+      applyEditorCommand("redo");
+    }
+    updateEditorPlaceholder(editor);
+    updateFormatButtonState(toolbar);
+  });
+  updateEditorPlaceholder(editor);
+}
+
+function setupRichEditor() {
+  populateFormatFontSelects();
+  setupFormatColorPalette();
+  setupFormatListPalette();
+  setupFormatApplyAllMenu();
+  setupRichEditorSurface({
+    editor: $("sceneContent"),
+    toolbar: $("formatToolbar"),
+    page: $("manuscriptPage"),
+    onInput: () => {
+      updateSceneStats();
+      markSceneDirty();
+    },
+  });
+  setupRichEditorSurface({
+    editor: $("synopsisContent"),
+    toolbar: $("synopsisFormatToolbar"),
+    page: $("synopsisPage"),
+    onInput: () => {
+      markSynopsisDirty();
+    },
+  });
+}
+
+const statusLabel = { idea: "아이디어", outline: "개요", draft: "초고", revision: "수정", complete: "완성" };
+const roleLabel = { protagonist: "주인공", antagonist: "대립 인물", supporting: "조연", minor: "단역" };
+const purposeLabel = {
+  general_novel: "일반소설",
+  web_novel: "웹소설",
+  fairy_tale: "동화",
+  short_story: "단편",
+  essay: "에세이",
+  translation: "번역",
+  nonfiction: "정보 전달",
+  paper: "논문",
+  autobiography: "자서전·회고록",
+  poetry: "시",
+  script: "시나리오·희곡",
+  diary: "일기·기록",
+  report: "보고서",
+  column: "칼럼·비평",
+  other: "기타",
+};
+
+/* Curated language list for 번역 (source / target). */
+const WORK_LANGUAGES = [
+  { key: "ko", label: "한국어" },
+  { key: "en", label: "영어" },
+  { key: "ja", label: "일본어" },
+  { key: "zh", label: "중국어(간체)" },
+  { key: "zh_tw", label: "중국어(번체)" },
+  { key: "es", label: "스페인어" },
+  { key: "fr", label: "프랑스어" },
+  { key: "de", label: "독일어" },
+  { key: "ru", label: "러시아어" },
+  { key: "pt", label: "포르투갈어" },
+  { key: "it", label: "이탈리아어" },
+  { key: "vi", label: "베트남어" },
+  { key: "th", label: "태국어" },
+  { key: "id", label: "인도네시아어" },
+  { key: "ar", label: "아랍어" },
+  { key: "hi", label: "힌디어" },
+  { key: "other", label: "기타" },
+];
+
+/* 동화: 대상 연령 */
+const FAIRY_TALE_AUDIENCES = [
+  { key: "preschool", label: "유아용" },
+  { key: "elementary", label: "초등용" },
+];
+const FAIRY_TALE_SUBS = [
+  { key: "adventure", label: "모험" },
+  { key: "lesson", label: "교훈" },
+  { key: "animal", label: "동물" },
+  { key: "fantasy", label: "환상" },
+  { key: "daily", label: "일상" },
+  { key: "other", label: "기타" },
+];
+
+/** 19금 is only for general novel / web novel / short story */
+function purposeAllowsAdult19(purpose = state.projectPurpose) {
+  const p = normalizePurposeKey(purpose);
+  return p === "general_novel" || p === "web_novel" || p === "short_story";
+}
+
+function withAdult19Option(subs) {
+  const list = Array.isArray(subs) ? [...subs] : [];
+  if (!purposeAllowsAdult19()) {
+    return list.filter((g) => g.key !== "adult19");
+  }
+  if (list.some((g) => g.key === "adult19")) return list;
+  // Insert before "기타" when present
+  const otherIdx = list.findIndex((g) => g.key === "other");
+  if (otherIdx >= 0) {
+    list.splice(otherIdx, 0, ADULT19);
+    return list;
+  }
+  list.push(ADULT19);
+  return list;
+}
+
+/* Header main/sub genre taxonomy (keys stored on project; free text uses custom: prefix) */
+const GENRE_CUSTOM_PREFIX = "custom:";
+const ADULT19 = { key: "adult19", label: "19금" };
+const MAIN_GENRES = [
+  { key: "romance", label: "로맨스" },
+  { key: "fantasy", label: "판타지" },
+  { key: "sf", label: "SF" },
+  { key: "mystery", label: "미스터리" },
+  { key: "thriller", label: "스릴러·호러" },
+  { key: "historical", label: "역사·시대" },
+  { key: "martial", label: "무협" },
+  { key: "contemporary", label: "현대·일반" },
+  { key: "youth", label: "청소년" },
+  { key: "literary", label: "순문학" },
+  { key: "genre_lit", label: "장르문학" },
+  { key: "experimental", label: "실험장르" },
+  { key: "blgl", label: "BL·GL" },
+  { key: "other", label: "기타" },
+];
+const SUB_GENRES = {
+  romance: [
+    { key: "modern", label: "현대로맨스" },
+    { key: "period", label: "시대로맨스" },
+    { key: "romfant", label: "로판" },
+    { key: "romcom", label: "로코" },
+    { key: "genre_lit", label: "장르문학" },
+    { key: "office", label: "오피스" },
+    { key: "school", label: "학원" },
+    { key: "contract", label: "계약·정략" },
+    { key: "chaebol", label: "재벌" },
+    { key: "other", label: "기타" },
+  ],
+  fantasy: [
+    { key: "high", label: "하이루판" },
+    { key: "low", label: "저루판" },
+    { key: "isekai", label: "이세계" },
+    { key: "game", label: "게임판타지" },
+    { key: "dark", label: "다크판타지" },
+    { key: "urban", label: "어반판타지" },
+    { key: "female", label: "여성향 판타지" },
+    { key: "other", label: "기타" },
+  ],
+  sf: [
+    { key: "space", label: "스페이스" },
+    { key: "dystopia", label: "디스토피아" },
+    { key: "cyberpunk", label: "사이버펑크" },
+    { key: "timeslip", label: "타임슬립" },
+    { key: "postapo", label: "아포칼립스" },
+    { key: "other", label: "기타" },
+  ],
+  mystery: [
+    { key: "honkaku", label: "본격추리" },
+    { key: "social", label: "사회파" },
+    { key: "cozy", label: "코지" },
+    { key: "legal", label: "법정" },
+    { key: "crime", label: "범죄" },
+    { key: "other", label: "기타" },
+  ],
+  thriller: [
+    { key: "psycho", label: "심리" },
+    { key: "action", label: "액션" },
+    { key: "horror", label: "호러" },
+    { key: "suspense", label: "서스펜스" },
+    { key: "other", label: "기타" },
+  ],
+  historical: [
+    { key: "joseon", label: "조선" },
+    { key: "goryeo", label: "고려" },
+    { key: "modern_era", label: "근현대" },
+    { key: "alt", label: "대체역사" },
+    { key: "sageuk", label: "사극" },
+    { key: "other", label: "기타" },
+  ],
+  martial: [
+    { key: "classic", label: "정통무협" },
+    { key: "new", label: "신무협" },
+    { key: "modern_wu", label: "현대한무" },
+    { key: "other", label: "기타" },
+  ],
+  contemporary: [
+    { key: "daily", label: "일상" },
+    { key: "growth", label: "성장" },
+    { key: "family", label: "가족" },
+    { key: "society", label: "사회" },
+    { key: "human", label: "휴먼" },
+    { key: "other", label: "기타" },
+  ],
+  youth: [
+    { key: "school", label: "학원" },
+    { key: "growth", label: "성장" },
+    { key: "fantasy", label: "판타지" },
+    { key: "romance", label: "로맨스" },
+    { key: "other", label: "기타" },
+  ],
+  literary: [
+    { key: "short", label: "단편" },
+    { key: "mid", label: "중편" },
+    { key: "long", label: "장편" },
+    { key: "experimental", label: "실험" },
+    { key: "other", label: "기타" },
+  ],
+  genre_lit: [
+    { key: "sf", label: "SF" },
+    { key: "other", label: "기타" },
+  ],
+  experimental: [
+    { key: "meta", label: "메타픽션" },
+    { key: "form", label: "형식실험" },
+    { key: "hybrid", label: "혼합" },
+    { key: "other", label: "기타" },
+  ],
+  blgl: [
+    { key: "bl", label: "BL" },
+    { key: "gl", label: "GL" },
+    { key: "omega", label: "오메가버스" },
+    { key: "other", label: "기타" },
+  ],
+  other: [
+    { key: "mix", label: "혼합" },
+    { key: "tbd", label: "미정" },
+    { key: "other", label: "기타" },
+  ],
+};
+
+/**
+ * How the two header dropdowns behave for the current work purpose.
+ * - fiction: 일반소설 / 웹소설 / 단편 → 메인·서브 장르
+ * - translation: 원문 언어 · 번역문 언어
+ * - fairy_tale: 유아용 / 초등용 (대상만)
+ * - none: 종류만 선택 (추가 칸 숨김)
+ */
+function getPurposeCategoryMode(purpose = state.projectPurpose) {
+  const p = normalizePurposeKey(purpose);
+  if (p === "translation") return "translation";
+  if (p === "fairy_tale") return "fairy_tale";
+  if (
+    p === "general_novel"
+    || p === "web_novel"
+    || p === "short_story"
+  ) return "fiction";
+  return "none";
+}
+
+function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
+  if (mode === "translation") return "원문 언어 · 번역문 언어";
+  if (mode === "fairy_tale") return "동화 대상 (유아용 / 초등용)";
+  if (mode === "fiction") return "메인 · 서브 장르";
+  return "장르";
+}
+
+function updateGenrePickerVisibility() {
+  const picker = $("genrePicker");
+  if (!picker) return;
+  const mode = getPurposeCategoryMode();
+  const show = mode === "fiction" || mode === "translation" || mode === "fairy_tale";
+  picker.classList.toggle("hidden", !show);
+  picker.setAttribute("aria-hidden", show ? "false" : "true");
+  picker.dataset.mode = mode;
+  picker.title = genrePickerTitleForMode(mode);
+  // 동화: 대상(유아용/초등용)만 — 두 번째 칸 숨김
+  // 번역: 원문 + 번역문 둘 다
+  // 소설류: 메인 + 서브
+  const subField = $("subGenreSelect")?.closest?.(".genre-field");
+  if (subField) {
+    subField.classList.toggle("hidden", mode === "fairy_tale" || mode === "none");
+  }
+  const mainField = $("mainGenreSelect")?.closest?.(".genre-field");
+  if (mainField) {
+    mainField.classList.toggle("hidden", mode === "none");
+  }
+  if (!show) {
+    if ($("mainGenreSelect")) $("mainGenreSelect").disabled = true;
+    if ($("subGenreSelect")) $("subGenreSelect").disabled = true;
+    if ($("mainGenreDisplay")) $("mainGenreDisplay").disabled = true;
+    if ($("subGenreDisplay")) $("subGenreDisplay").disabled = true;
+    $("mainGenreCustom")?.classList.add("hidden");
+    $("subGenreCustom")?.classList.add("hidden");
+  }
+}
+
+function normalizePurposeKey(purpose) {
+  const p = String(purpose || "").trim();
+  if (p === "novel") return "general_novel"; // legacy DB value
+  if (purposeLabel[p]) return p;
+  return "general_novel";
+}
+
+function isKnownLanguage(key) {
+  return WORK_LANGUAGES.some((g) => g.key === key);
+}
+
+function isKnownFairyAudience(key) {
+  return FAIRY_TALE_AUDIENCES.some((g) => g.key === key);
+}
+
+function isKnownMainGenre(key) {
+  return MAIN_GENRES.some((g) => g.key === key);
+}
+
+function isKnownSubGenre(mainKey, key) {
+  const k = String(key || "");
+  if (!k) return false;
+  return (SUB_GENRES[mainKey] || []).some((g) => g.key === k)
+    || FAIRY_TALE_SUBS.some((g) => g.key === k)
+    || isKnownLanguage(k);
+}
+
+function isCustomGenreValue(value) {
+  return String(value || "").startsWith(GENRE_CUSTOM_PREFIX);
+}
+
+function customGenreText(value) {
+  const raw = String(value || "");
+  if (isCustomGenreValue(raw)) return raw.slice(GENRE_CUSTOM_PREFIX.length);
+  // Legacy free-text (unknown key) treated as custom label.
+  if (raw && !isKnownMainGenre(raw) && !isKnownLanguage(raw) && !isKnownFairyAudience(raw) && raw !== "other") {
+    return raw;
+  }
+  return "";
+}
+
+function toCustomGenreValue(text) {
+  const trimmed = String(text || "").trim().slice(0, 40);
+  return trimmed ? `${GENRE_CUSTOM_PREFIX}${trimmed}` : "other";
+}
+
+function mainGenreLabel(key = state.mainGenre) {
+  const value = String(key || "").trim();
+  if (!value) return "미정";
+  if (isCustomGenreValue(value)) return customGenreText(value) || "기타";
+  return MAIN_GENRES.find((g) => g.key === value)?.label
+    || WORK_LANGUAGES.find((g) => g.key === value)?.label
+    || FAIRY_TALE_AUDIENCES.find((g) => g.key === value)?.label
+    || value;
+}
+
+function subGenreLabel(mainKey = state.mainGenre, subKey = state.subGenre) {
+  const value = String(subKey || "").trim();
+  if (!value) return "미정";
+  if (isCustomGenreValue(value)) return customGenreText(value) || "기타";
+  if (value === "adult19") return "19금";
+  if (WORK_LANGUAGES.some((g) => g.key === value)) {
+    return WORK_LANGUAGES.find((g) => g.key === value)?.label || value;
+  }
+  if (FAIRY_TALE_SUBS.some((g) => g.key === value)) {
+    return FAIRY_TALE_SUBS.find((g) => g.key === value)?.label || value;
+  }
+  const listKey = isKnownMainGenre(mainKey) ? mainKey : "other";
+  return (SUB_GENRES[listKey] || []).find((g) => g.key === value)?.label || value;
+}
+
+function resolveMainGenreSelectValue(stored, mode = getPurposeCategoryMode()) {
+  const value = String(stored || "");
+  if (!value) return "";
+  if (mode === "none") return "";
+  if (mode === "translation") {
+    if (isKnownLanguage(value)) return value;
+    return "other";
+  }
+  if (mode === "fairy_tale") {
+    if (isKnownFairyAudience(value)) return value;
+    return "";
+  }
+  // fiction
+  if (isKnownMainGenre(value)) return value;
+  return "other"; // custom free-text or custom: prefix
+}
+
+function resolveSubGenreSelectValue(mainKey, stored, mode = getPurposeCategoryMode()) {
+  const value = String(stored || "");
+  if (!value) return "";
+  if (mode === "none" || mode === "fairy_tale") return "";
+  if (mode === "translation") {
+    if (isKnownLanguage(value)) return value;
+    return "other";
+  }
+  // fiction
+  if (value === "adult19") {
+    return purposeAllowsAdult19() ? "adult19" : "";
+  }
+  if (isKnownSubGenre(mainKey, value)) return value;
+  if (isKnownSubGenre(mainKey === "other" ? "other" : mainKey, value)) return value;
+  return "other";
+}
+
+function updateGenreCustomVisibility() {
+  const hasProject = Boolean(state.projectId);
+  const mode = getPurposeCategoryMode();
+  const mainSelect = $("mainGenreSelect");
+  const subSelect = $("subGenreSelect");
+  const mainCustom = $("mainGenreCustom");
+  const subCustom = $("subGenreCustom");
+  const mainKey = mainSelect?.value || "";
+  const subKey = subSelect?.value || "";
+  // Translation / fairy tale: custom only when "기타" language/sub is chosen
+  const showMainCustom = hasProject && mainKey === "other";
+  const showSubCustom = hasProject && Boolean(mainKey) && subKey === "other";
+  if (mainCustom) {
+    mainCustom.classList.toggle("hidden", !showMainCustom);
+    mainCustom.disabled = !showMainCustom;
+    if (!showMainCustom) mainCustom.value = "";
+    if (mode === "translation") mainCustom.placeholder = "원문 언어 직접 입력";
+    else if (mode === "fairy_tale") mainCustom.placeholder = "대상 직접 입력";
+    else mainCustom.placeholder = "직접 입력";
+  }
+  if (subCustom) {
+    subCustom.classList.toggle("hidden", !showSubCustom);
+    subCustom.disabled = !showSubCustom;
+    if (!showSubCustom) subCustom.value = "";
+    if (mode === "translation") subCustom.placeholder = "번역 언어 직접 입력";
+    else subCustom.placeholder = "직접 입력";
+  }
+}
+
+function fillMainGenreSelect(selectedStored = "") {
+  const select = $("mainGenreSelect");
+  if (!select) return;
+  const mode = getPurposeCategoryMode();
+  if (mode === "none") {
+    select.innerHTML = `<option value="">—</option>`;
+    select.value = "";
+    select.disabled = true;
+    return;
+  }
+  const selectValue = resolveMainGenreSelectValue(selectedStored, mode);
+  let placeholder = "메인 장르";
+  let options = MAIN_GENRES;
+  if (mode === "translation") {
+    placeholder = "원문 언어";
+    options = WORK_LANGUAGES;
+  } else if (mode === "fairy_tale") {
+    placeholder = "유아용 / 초등용";
+    options = FAIRY_TALE_AUDIENCES;
+  }
+  select.setAttribute("aria-label", placeholder);
+  select.title = placeholder;
+  select.innerHTML = [
+    `<option value="">${escapeHtml(placeholder)}</option>`,
+    ...options.map((g) =>
+      `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`
+    ),
+  ].join("");
+  if ([...select.options].some((o) => o.value === selectValue)) select.value = selectValue;
+  else select.value = "";
+  select.disabled = !state.projectId;
+  const mainCustom = $("mainGenreCustom");
+  if (mainCustom) {
+    // 동화 대상은 고정 2개 — 직접 입력 칸 불필요
+    if (mode === "fairy_tale") {
+      mainCustom.classList.add("hidden");
+      mainCustom.disabled = true;
+      mainCustom.value = "";
+    } else if (selectValue === "other") {
+      mainCustom.value = isCustomGenreValue(selectedStored)
+        ? customGenreText(selectedStored)
+        : (selectedStored && selectedStored !== "other" ? String(selectedStored) : "");
+    } else {
+      mainCustom.value = "";
+    }
+  }
+}
+
+function fillSubGenreSelect(mainKey = "", selectedStored = "") {
+  const select = $("subGenreSelect");
+  if (!select) return;
+  const mode = getPurposeCategoryMode();
+  if (mode === "none" || mode === "fairy_tale") {
+    // 동화는 대상만 선택
+    select.innerHTML = `<option value="">—</option>`;
+    select.value = "";
+    select.disabled = true;
+    $("subGenreCustom")?.classList.add("hidden");
+    if ($("subGenreCustom")) $("subGenreCustom").disabled = true;
+    return;
+  }
+  let placeholder = "서브 장르";
+  let subs = [];
+  let listKey = mainKey;
+
+  if (mode === "translation") {
+    placeholder = "번역문 언어";
+    subs = WORK_LANGUAGES;
+    listKey = "lang";
+  } else if (mode === "fiction") {
+    // 일반소설 · 웹소설 · 단편 only; 19금 available in subs
+    listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
+    const baseSubs = SUB_GENRES[listKey] || [];
+    subs = withAdult19Option(baseSubs);
+  } else {
+    subs = [];
+    listKey = "";
+  }
+
+  select.setAttribute("aria-label", placeholder);
+  if (!listKey || !subs.length) {
+    select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`;
+    select.value = "";
+    select.disabled = !state.projectId || !listKey;
+    const subCustom = $("subGenreCustom");
+    if (subCustom) {
+      subCustom.value = "";
+      subCustom.classList.add("hidden");
+      subCustom.disabled = true;
+    }
+    return;
+  }
+  select.innerHTML = [
+    `<option value="">${escapeHtml(placeholder)}</option>`,
+    ...subs.map((g) =>
+      `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`
+    ),
+  ].join("");
+  const selectValue = resolveSubGenreSelectValue(
+    mode === "translation" ? "lang" : listKey,
+    selectedStored,
+    mode,
+  );
+  // adult19 is always valid if present in list
+  if ([...select.options].some((o) => o.value === selectValue)) select.value = selectValue;
+  else if (selectedStored === "adult19" && [...select.options].some((o) => o.value === "adult19")) {
+    select.value = "adult19";
+  } else select.value = "";
+  select.disabled = !state.projectId;
+  const subCustom = $("subGenreCustom");
+  if (subCustom) {
+    if (select.value === "other") {
+      subCustom.value = isCustomGenreValue(selectedStored)
+        ? customGenreText(selectedStored)
+        : (selectedStored && selectedStored !== "other" ? String(selectedStored) : "");
+    } else {
+      subCustom.value = "";
+    }
+  }
+}
+
+function readGenreValuesFromUi() {
+  const mainSelect = $("mainGenreSelect")?.value || "";
+  const subSelect = $("subGenreSelect")?.value || "";
+  const mainCustom = ($("mainGenreCustom")?.value || "").trim();
+  const subCustom = ($("subGenreCustom")?.value || "").trim();
+  let main = mainSelect;
+  let sub = subSelect;
+  if (mainSelect === "other") {
+    main = mainCustom ? toCustomGenreValue(mainCustom) : "other";
+  }
+  if (subSelect === "other") {
+    sub = subCustom ? toCustomGenreValue(subCustom) : "other";
+  }
+  return { main, sub };
+}
+
+function syncGenrePickerFromState() {
+  // Ensure purpose is normalized before mode checks
+  if (state.projectPurpose) {
+    state.projectPurpose = normalizePurposeKey(state.projectPurpose);
+  }
+  updateGenrePickerVisibility();
+  const mode = getPurposeCategoryMode();
+  const hasProject = Boolean(state.projectId);
+  if (mode === "none") {
+    updateGenreCustomVisibility();
+    syncGenreDisplayButtons();
+    return;
+  }
+  const main = $("mainGenreSelect");
+  const sub = $("subGenreSelect");
+  fillMainGenreSelect(state.mainGenre || "");
+  if (main) main.disabled = !hasProject;
+  if (mode === "fairy_tale") {
+    // 대상만 — 서브 비움
+    fillSubGenreSelect("", "");
+    updateGenreCustomVisibility();
+    syncGenreDisplayButtons();
+    return;
+  }
+  if (mode === "translation") {
+    // Always show both language lists (원문 / 번역문)
+    fillSubGenreSelect("lang", state.subGenre || "");
+    if (sub) sub.disabled = !hasProject;
+    updateGenreCustomVisibility();
+    if (hasProject) {
+      const mainCustom = $("mainGenreCustom");
+      const subCustom = $("subGenreCustom");
+      if (mainCustom && main?.value === "other") {
+        mainCustom.classList.remove("hidden");
+        mainCustom.disabled = false;
+        mainCustom.value = isCustomGenreValue(state.mainGenre)
+          ? customGenreText(state.mainGenre)
+          : (state.mainGenre && state.mainGenre !== "other" && !isKnownLanguage(state.mainGenre)
+            ? state.mainGenre
+            : mainCustom.value);
+      }
+      if (subCustom && sub?.value === "other") {
+        subCustom.classList.remove("hidden");
+        subCustom.disabled = false;
+        subCustom.value = isCustomGenreValue(state.subGenre)
+          ? customGenreText(state.subGenre)
+          : (state.subGenre && state.subGenre !== "other" && !isKnownLanguage(state.subGenre)
+            ? state.subGenre
+            : subCustom.value);
+      }
+    }
+    syncGenreDisplayButtons();
+    return;
+  }
+  // fiction
+  const mainKeyForSubs = resolveMainGenreSelectValue(state.mainGenre || "", mode);
+  const subListKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || "");
+  fillSubGenreSelect(subListKey, state.subGenre || "");
+  if (sub && !hasProject) sub.disabled = true;
+  updateGenreCustomVisibility();
+  if (hasProject) {
+    const mainCustom = $("mainGenreCustom");
+    const subCustom = $("subGenreCustom");
+    if (mainCustom && main?.value === "other") {
+      mainCustom.classList.remove("hidden");
+      mainCustom.disabled = false;
+      mainCustom.value = isCustomGenreValue(state.mainGenre)
+        ? customGenreText(state.mainGenre)
+        : (state.mainGenre && state.mainGenre !== "other" && !isKnownMainGenre(state.mainGenre)
+          ? state.mainGenre
+          : mainCustom.value);
+    }
+    if (subCustom && sub?.value === "other") {
+      subCustom.classList.remove("hidden");
+      subCustom.disabled = false;
+      const listKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : "other";
+      subCustom.value = isCustomGenreValue(state.subGenre)
+        ? customGenreText(state.subGenre)
+        : (state.subGenre && state.subGenre !== "other" && !isKnownSubGenre(listKey, state.subGenre)
+          ? state.subGenre
+          : subCustom.value);
+    }
+  }
+  syncGenreDisplayButtons();
+}
+
+let genrePersistTimer = null;
+function schedulePersistProjectGenre() {
+  if (genrePersistTimer) window.clearTimeout(genrePersistTimer);
+  genrePersistTimer = window.setTimeout(() => {
+    persistProjectGenre({ quiet: true }).catch(handleError);
+  }, 400);
+}
+
+async function persistProjectGenre({ quiet = true } = {}) {
+  if (!state.projectId) return;
+  const { main, sub } = readGenreValuesFromUi();
+  state.mainGenre = main;
+  state.subGenre = sub;
+  await api(`/api/projects/${state.projectId}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ main_genre: main, sub_genre: sub }),
+  });
+  const project = state.projects.find((p) => p.id === state.projectId);
+  if (project) {
+    project.main_genre = main;
+    project.sub_genre = sub;
+  }
+  syncGenreDisplayButtons();
+  if (!quiet) toast("장르를 저장했습니다.");
+}
+
+function syncGenreDisplayButtons() {
+  const mainSelect = $("mainGenreSelect");
+  const subSelect = $("subGenreSelect");
+  const mainBtn = $("mainGenreDisplay");
+  const subBtn = $("subGenreDisplay");
+  const mode = getPurposeCategoryMode();
+  const hasProject = Boolean(state.projectId);
+
+  if (mainBtn) {
+    const opt = mainSelect?.selectedOptions?.[0];
+    let label = (opt && opt.value)
+      ? String(opt.textContent || "").trim()
+      : (mainSelect?.options?.[0]?.textContent || "장르").trim();
+    if (mainSelect?.value === "other") {
+      const custom = ($("mainGenreCustom")?.value || "").trim();
+      if (custom) label = custom;
+    }
+    mainBtn.textContent = label || "장르";
+    mainBtn.disabled = !hasProject || mode === "none";
+    mainBtn.title = hasProject
+      ? "우클릭: 장르 변경"
+      : "작품을 먼저 선택해 주세요";
+  }
+  if (subBtn) {
+    const opt = subSelect?.selectedOptions?.[0];
+    let label = (opt && opt.value)
+      ? String(opt.textContent || "").trim()
+      : (subSelect?.options?.[0]?.textContent || "세부").trim();
+    if (subSelect?.value === "other") {
+      const custom = ($("subGenreCustom")?.value || "").trim();
+      if (custom) label = custom;
+    }
+    subBtn.textContent = label || "세부";
+    const subHidden = mode === "fairy_tale" || mode === "none";
+    subBtn.disabled = !hasProject || subHidden || Boolean(subSelect?.disabled);
+    subBtn.title = hasProject
+      ? (mode === "translation" ? "우클릭: 번역문 언어 변경" : "우클릭: 세부 장르 변경")
+      : "작품을 먼저 선택해 주세요";
+  }
+}
+
+function confirmGenreChange() {
+  return window.confirm(
+    "토리가 새로운 장르 기준으로 다시 학습해야해요. 정말로 바꾸시겠어요?",
+  );
+}
+
+function hideGenreContextMenu() {
+  $("genreContextMenu")?.classList.add("hidden");
+}
+
+function placeGenreContextMenu(clientX, clientY) {
+  const menu = $("genreContextMenu");
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = Number(clientX) || 12;
+  let top = Number(clientY) || 12;
+  const w = rect.width || 200;
+  const h = rect.height || 160;
+  if (left + w > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - w - pad);
+  if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function getGenreMenuOptions(kind = "main") {
+  const mode = getPurposeCategoryMode();
+  if (mode === "none") return { title: "장르", options: [] };
+  if (kind === "main") {
+    if (mode === "translation") {
+      return { title: "원문 언어 선택", options: WORK_LANGUAGES };
+    }
+    if (mode === "fairy_tale") {
+      return { title: "동화 대상 선택", options: FAIRY_TALE_AUDIENCES };
+    }
+    return { title: "메인 장르 선택", options: MAIN_GENRES };
+  }
+  // sub
+  if (mode === "translation") {
+    return { title: "번역문 언어 선택", options: WORK_LANGUAGES };
+  }
+  if (mode === "fairy_tale") {
+    return { title: "세부", options: [] };
+  }
+  const mainKey = $("mainGenreSelect")?.value || "";
+  const listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
+  const baseSubs = SUB_GENRES[listKey] || [];
+  const options = typeof withAdult19Option === "function"
+    ? withAdult19Option(baseSubs)
+    : baseSubs;
+  return {
+    title: mainKey ? "서브 장르 선택" : "먼저 메인 장르를 선택하세요",
+    options: listKey ? options : [],
+  };
+}
+
+function showGenreContextMenu(kind, clientX, clientY) {
+  const menu = $("genreContextMenu");
+  const host = $("genreContextMenuItems");
+  const labelEl = $("genreContextMenuLabel");
+  if (!menu || !host) return;
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  const { title, options } = getGenreMenuOptions(kind);
+  if (labelEl) labelEl.textContent = title;
+  const select = kind === "main" ? $("mainGenreSelect") : $("subGenreSelect");
+  const current = select?.value || "";
+  const rows = [
+    {
+      key: "",
+      label: kind === "main"
+        ? (getPurposeCategoryMode() === "translation" ? "원문 언어 (미정)" : "메인 장르 (미정)")
+        : (getPurposeCategoryMode() === "translation" ? "번역문 언어 (미정)" : "서브 장르 (미정)"),
+    },
+    ...options,
+  ];
+  host.innerHTML = rows.map((opt) => {
+    const key = String(opt.key ?? "");
+    const active = key === current ? " is-active" : "";
+    return `<button type="button" role="menuitem" class="${active.trim()}" data-genre-kind="${escapeHtml(kind)}" data-genre-key="${escapeHtml(key)}">
+      <strong>${escapeHtml(opt.label)}</strong>
+    </button>`;
+  }).join("");
+  placeGenreContextMenu(clientX, clientY);
+}
+
+function applyMainGenreChoice(mainKey) {
+  const mode = getPurposeCategoryMode();
+  const select = $("mainGenreSelect");
+  if (!select || !state.projectId) return;
+  const next = String(mainKey || "");
+  if (select.value === next) return;
+  if (!confirmGenreChange()) return;
+
+  select.value = next;
+  state.mainGenre = next === "other" ? "other" : next;
+  if (mode === "fairy_tale") {
+    state.subGenre = "";
+    fillSubGenreSelect("", "");
+    updateGenreCustomVisibility();
+    syncGenreDisplayButtons();
+    persistProjectGenre({ quiet: false }).catch(handleError);
+    return;
+  }
+  if (mode === "translation") {
+    const keepSub = state.subGenre || "";
+    fillSubGenreSelect("lang", keepSub);
+    updateGenreCustomVisibility();
+    syncGenreDisplayButtons();
+    if (next === "other") {
+      $("mainGenreCustom")?.focus();
+      schedulePersistProjectGenre();
+      return;
+    }
+    persistProjectGenre({ quiet: false }).catch(handleError);
+    return;
+  }
+  // fiction
+  state.subGenre = "";
+  fillSubGenreSelect(next, "");
+  updateGenreCustomVisibility();
+  syncGenreDisplayButtons();
+  if (next === "other") {
+    $("mainGenreCustom")?.focus();
+    schedulePersistProjectGenre();
+    return;
+  }
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function applySubGenreChoice(subKey) {
+  const select = $("subGenreSelect");
+  if (!select || !state.projectId) return;
+  const next = String(subKey || "");
+  if (select.value === next) return;
+  if (!confirmGenreChange()) return;
+
+  select.value = next;
+  state.subGenre = next === "other" ? "other" : next;
+  updateGenreCustomVisibility();
+  syncGenreDisplayButtons();
+  if (next === "other") {
+    $("subGenreCustom")?.focus();
+    schedulePersistProjectGenre();
+    return;
+  }
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function setupGenrePicker() {
+  fillMainGenreSelect("");
+  fillSubGenreSelect("", "");
+  updateGenreCustomVisibility();
+  syncGenreDisplayButtons();
+
+  // Native <select> stays hidden — changes come from right-click menu.
+  const onCustomInput = () => {
+    syncGenreDisplayButtons();
+    schedulePersistProjectGenre();
+  };
+  $("mainGenreCustom")?.addEventListener("input", onCustomInput);
+  $("subGenreCustom")?.addEventListener("input", onCustomInput);
+  $("mainGenreCustom")?.addEventListener("change", () => persistProjectGenre({ quiet: true }).catch(handleError));
+  $("subGenreCustom")?.addEventListener("change", () => persistProjectGenre({ quiet: true }).catch(handleError));
+
+  const bindDisplay = (btnId, kind) => {
+    const btn = $(btnId);
+    if (!btn || btn.dataset.genreCtxBound === "1") return;
+    btn.dataset.genreCtxBound = "1";
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (btn.disabled) return;
+      toast("우클릭으로 장르를 바꿀 수 있어요.");
+    });
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (btn.disabled) return;
+      showGenreContextMenu(kind, event.clientX, event.clientY);
+    });
+  };
+  bindDisplay("mainGenreDisplay", "main");
+  bindDisplay("subGenreDisplay", "sub");
+
+  $("genreContextMenu")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-genre-kind]");
+    if (!item) return;
+    event.preventDefault();
+    const kind = item.dataset.genreKind || "main";
+    const key = item.dataset.genreKey ?? "";
+    hideGenreContextMenu();
+    if (kind === "sub") applySubGenreChoice(key);
+    else applyMainGenreChoice(key);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#genreContextMenu, #mainGenreDisplay, #subGenreDisplay")) {
+      hideGenreContextMenu();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideGenreContextMenu();
+  });
+
+  syncGenrePickerFromState();
+}
+
+function projectOptionLabel(project) {
+  // Title only — purpose is already shown in the adjacent 「종류」 picker.
+  return String(project?.title || "제목 없음").trim() || "제목 없음";
+}
+
+function normalizeKeywordList(raw) {
+  let list = raw;
+  if (typeof list === "string") {
+    const text = list.trim();
+    if (!text) return [];
+    try {
+      const parsed = JSON.parse(text);
+      list = Array.isArray(parsed) ? parsed : text.split(/[,，/\n|]+/);
+    } catch (_) {
+      list = text.split(/[,，/\n|]+/);
+    }
+  }
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  const seen = new Set();
+  for (const item of list) {
+    const label = String(item || "").trim().slice(0, 40);
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    out.push(label);
+    if (out.length >= KEYWORD_MAX) break;
+  }
+  return out;
+}
+
+function isKeywordSelected(label) {
+  return state.keywords.includes(label);
+}
+
+function setKeywordPickerOpen(open) {
+  const panel = $("keywordPickerPanel");
+  const toggle = $("keywordPickerToggle");
+  if (!panel) return;
+  panel.classList.toggle("hidden", !open);
+  if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) {
+    renderKeywordCatalog();
+    // Ensure the keywords settings box is open so the picker is visible.
+    if (state.openSettingsSection !== "keywords") {
+      setOpenSettingsSection("keywords");
+    }
+  }
+}
+
+function keywordChipsHtml() {
+  if (!state.keywords.length) return "";
+  return state.keywords
+    .map((label) => `
+      <span class="keyword-chip" data-keyword="${escapeHtml(label)}">
+        <span class="keyword-chip-label">${escapeHtml(label)}</span>
+        <button type="button" class="keyword-chip-remove" data-keyword-remove="${escapeHtml(label)}" title="제거" aria-label="${escapeHtml(label)} 제거">×</button>
+      </span>
+    `)
+    .join("");
+}
+
+function keywordCatalogHtml() {
+  return KEYWORD_CATALOG.map((group) => `
+    <div class="keyword-category" data-keyword-group="${escapeHtml(group.key)}">
+      <span class="keyword-category-title">${escapeHtml(group.title)}</span>
+      <div class="keyword-tag-list">
+        ${group.tags.map((tag) => {
+          const selected = isKeywordSelected(tag);
+          return `<button type="button" class="keyword-tag${selected ? " is-selected" : ""}" data-keyword-tag="${escapeHtml(tag)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(tag)}</button>`;
+        }).join("")}
+      </div>
+    </div>
+  `).join("");
+}
+
+function renderKeywordChips() {
+  const html = keywordChipsHtml();
+  for (const id of ["keywordChipList", "keywordBoardChipList"]) {
+    const list = $(id);
+    if (list) list.innerHTML = html;
+  }
+}
+
+function renderKeywordCatalog() {
+  const html = keywordCatalogHtml();
+  for (const id of ["keywordCatalog", "keywordBoardCatalog"]) {
+    const catalog = $(id);
+    if (catalog) catalog.innerHTML = html;
+  }
+}
+
+function renderKeywordBox() {
+  renderKeywordChips();
+  const panel = $("keywordPickerPanel");
+  if ((panel && !panel.classList.contains("hidden")) || state.keywordBoardOpen) {
+    renderKeywordCatalog();
+  }
+}
+
+function hideKeywordBoard() {
+  state.keywordBoardOpen = false;
+  $("keywordBoard")?.classList.add("hidden");
+}
+
+function hideCenterViewsForKeywordBoard() {
+  $("welcome")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  hideSynopsisMain();
+  closeSceneToolsDrawer();
+  void closeSplitView();
+  $("keywordBoard")?.classList.remove("hidden");
+}
+
+function closeKeywordBoard() {
+  hideKeywordBoard();
+  if (state.sceneId) {
+    openScene(state.sceneId).catch(handleError);
+  } else if (state.characterId) {
+    openCharacter(state.characterId).catch(handleError);
+  } else {
+    showWelcome();
+  }
+}
+
+function openKeywordBoard() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  state.keywordBoardOpen = true;
+  state.ideaBoardOpen = false;
+  state.characterBoardOpen = false;
+  setActiveBinder("settings");
+  state.openSettingsSection = "keywords";
+  applySettingsSectionState();
+  hideCenterViewsForKeywordBoard();
+  renderKeywordBox();
+  renderKeywordCatalog();
+}
+
+function renderKeywordBoard() {
+  if (!state.keywordBoardOpen) return;
+  renderKeywordChips();
+  renderKeywordCatalog();
+}
+
+let keywordPersistTimer = null;
+function schedulePersistProjectKeywords() {
+  if (keywordPersistTimer) window.clearTimeout(keywordPersistTimer);
+  keywordPersistTimer = window.setTimeout(() => {
+    persistProjectKeywords({ quiet: true }).catch(handleError);
+  }, 350);
+}
+
+async function persistProjectKeywords({ quiet = true } = {}) {
+  if (!state.projectId) return;
+  const keywords = normalizeKeywordList(state.keywords);
+  state.keywords = keywords;
+  await api(`/api/projects/${state.projectId}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ keywords }),
+  });
+  const project = state.projects.find((p) => p.id === state.projectId);
+  if (project) project.keywords = [...keywords];
+  if (!quiet) toast("키워드를 저장했습니다.");
+}
+
+function addProjectKeyword(label) {
+  const cleaned = String(label || "").trim().slice(0, 40);
+  if (!cleaned) return false;
+  if (state.keywords.includes(cleaned)) return false;
+  if (state.keywords.length >= KEYWORD_MAX) {
+    toast(`키워드는 최대 ${KEYWORD_MAX}개까지 넣을 수 있어요.`);
+    return false;
+  }
+  state.keywords = [...state.keywords, cleaned];
+  renderKeywordBox();
+  schedulePersistProjectKeywords();
+  return true;
+}
+
+function removeProjectKeyword(label) {
+  const cleaned = String(label || "").trim();
+  if (!cleaned) return;
+  state.keywords = state.keywords.filter((item) => item !== cleaned);
+  renderKeywordBox();
+  schedulePersistProjectKeywords();
+}
+
+function toggleProjectKeyword(label) {
+  if (isKeywordSelected(label)) removeProjectKeyword(label);
+  else addProjectKeyword(label);
+}
+
+function setupKeywordBox() {
+  const toggle = $("keywordPickerToggle");
+  const closeBtn = $("keywordPickerClose");
+  const catalog = $("keywordCatalog");
+  const chips = $("keywordChipList");
+  const customInput = $("keywordCustomInput");
+  const customAdd = $("keywordCustomAdd");
+  const boardCatalog = $("keywordBoardCatalog");
+  const boardChips = $("keywordBoardChipList");
+  const boardCustomInput = $("keywordBoardCustomInput");
+  const boardCustomAdd = $("keywordBoardCustomAdd");
+
+  toggle?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!state.projectId) {
+      toast("먼저 작품을 선택해 주세요.");
+      return;
+    }
+    const panel = $("keywordPickerPanel");
+    const open = Boolean(panel?.classList.contains("hidden"));
+    setKeywordPickerOpen(open);
+  });
+  closeBtn?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setKeywordPickerOpen(false);
+  });
+  $("keywordBoardCloseButton")?.addEventListener("click", () => closeKeywordBoard());
+
+  const onCatalogClick = (event) => {
+    const btn = event.target.closest?.("[data-keyword-tag]");
+    if (!btn || !state.projectId) return;
+    event.preventDefault();
+    toggleProjectKeyword(btn.getAttribute("data-keyword-tag") || "");
+  };
+  catalog?.addEventListener("click", onCatalogClick);
+  boardCatalog?.addEventListener("click", onCatalogClick);
+
+  const onChipsClick = (event) => {
+    const btn = event.target.closest?.("[data-keyword-remove]");
+    if (!btn || !state.projectId) return;
+    event.preventDefault();
+    event.stopPropagation();
+    removeProjectKeyword(btn.getAttribute("data-keyword-remove") || "");
+  };
+  chips?.addEventListener("click", onChipsClick);
+  boardChips?.addEventListener("click", onChipsClick);
+
+  const bindCustomCommit = (input, addBtn) => {
+    const commitCustom = () => {
+      if (!state.projectId) {
+        toast("먼저 작품을 선택해 주세요.");
+        return;
+      }
+      const value = input?.value || "";
+      if (addProjectKeyword(value) && input) input.value = "";
+    };
+    addBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      commitCustom();
+    });
+    input?.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        commitCustom();
+      }
+    });
+  };
+  bindCustomCommit(customInput, customAdd);
+  bindCustomCommit(boardCustomInput, boardCustomAdd);
+
+  renderKeywordBox();
+}
+
+function fillPurposeSelect(selected = "general_novel") {
+  const select = $("purposeSelect");
+  if (!select) return;
+  const keys = Object.keys(purposeLabel);
+  const value = normalizePurposeKey(selected);
+  select.innerHTML = keys
+    .map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(purposeLabel[key])}</option>`)
+    .join("");
+  select.value = keys.includes(value) ? value : "general_novel";
+}
+
+function syncPurposePickerFromState() {
+  const select = $("purposeSelect");
+  if (!select) return;
+  const hasProject = Boolean(state.projectId);
+  const purpose = normalizePurposeKey(
+    state.projectPurpose
+    || state.projects.find((p) => p.id === state.projectId)?.purpose
+    || "general_novel",
+  );
+  fillPurposeSelect(purpose);
+  select.disabled = !hasProject;
+}
+
+function refreshProjectSelectOptions() {
+  const select = $("projectSelect");
+  if (!select || !state.projects.length) return;
+  const current = state.projectId;
+  select.innerHTML = state.projects
+    .map((project) => `<option value="${project.id}">${escapeHtml(projectOptionLabel(project))}</option>`)
+    .join("");
+  if (current) select.value = String(current);
+}
+
+function applyProjectsListPayload(projects, listMode = null) {
+  state.projects = Array.isArray(projects) ? projects : [];
+  if (listMode === "recent" || listMode === "manual") {
+    state.projectListMode = listMode;
+  } else if (state.projects[0]?.list_mode === "recent" || state.projects[0]?.list_mode === "manual") {
+    state.projectListMode = state.projects[0].list_mode;
+  }
+  refreshProjectSelectOptions();
+}
+
+function bumpOpenedProjectInLocalList(projectId, lastOpenedAt = null) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || !state.projects.length) return;
+  const idx = state.projects.findIndex((p) => Number(p.id) === id);
+  if (idx < 0) return;
+  const item = state.projects[idx];
+  if (lastOpenedAt) item.last_opened_at = lastOpenedAt;
+  if (state.projectListMode !== "recent") {
+    refreshProjectSelectOptions();
+    return;
+  }
+  if (idx === 0) {
+    refreshProjectSelectOptions();
+    return;
+  }
+  state.projects.splice(idx, 1);
+  state.projects.unshift(item);
+  refreshProjectSelectOptions();
+}
+
+async function markProjectOpened(projectId = state.projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  try {
+    const result = await api(`/api/projects/${id}/touch-open`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (result?.list_mode === "recent" || result?.list_mode === "manual") {
+      state.projectListMode = result.list_mode;
+    }
+    bumpOpenedProjectInLocalList(id, result?.last_opened_at || null);
+  } catch (_) {
+    // Opening must not fail because of list bookkeeping.
+  }
+}
+
+async function persistProjectListOrder(projectIds, { toastMessage = "" } = {}) {
+  const result = await api("/api/projects/reorder", {
+    method: "PUT",
+    body: JSON.stringify({ project_ids: projectIds }),
+  });
+  applyProjectsListPayload(result?.projects || [], result?.list_mode || "manual");
+  if (state.projectId) {
+    const select = $("projectSelect");
+    if (select) select.value = String(state.projectId);
+  }
+  if (toastMessage) toast(toastMessage);
+  return result;
+}
+
+async function setProjectListMode(mode, { toastMessage = "" } = {}) {
+  const result = await api("/api/projects/list-mode", {
+    method: "PUT",
+    body: JSON.stringify({ mode }),
+  });
+  applyProjectsListPayload(result?.projects || [], result?.list_mode || mode);
+  if (state.projectId) {
+    const select = $("projectSelect");
+    if (select) select.value = String(state.projectId);
+  }
+  if (toastMessage) toast(toastMessage);
+  return result;
+}
+
+async function moveProjectInList(direction) {
+  if (!state.projects.length || !state.projectId) {
+    toast("옮길 작품이 없어요.");
+    return;
+  }
+  const ids = state.projects.map((p) => Number(p.id));
+  const idx = ids.indexOf(Number(state.projectId));
+  if (idx < 0) return;
+  let next = idx;
+  if (direction === "up") next = Math.max(0, idx - 1);
+  else if (direction === "down") next = Math.min(ids.length - 1, idx + 1);
+  else if (direction === "top") next = 0;
+  else if (direction === "bottom") next = ids.length - 1;
+  else return;
+  if (next === idx) {
+    toast(direction === "up" || direction === "top" ? "이미 맨 위예요." : "이미 맨 아래예요.");
+    return;
+  }
+  const reordered = ids.slice();
+  const [moved] = reordered.splice(idx, 1);
+  reordered.splice(next, 0, moved);
+  const labels = {
+    up: "작품을 한 칸 위로 옮겼어요.",
+    down: "작품을 한 칸 아래로 옮겼어요.",
+    top: "작품을 맨 위로 옮겼어요.",
+    bottom: "작품을 맨 아래로 옮겼어요.",
+  };
+  await persistProjectListOrder(reordered, { toastMessage: labels[direction] || "작품 순서를 바꿨어요." });
+}
+
+function setupProjectListContextMenu() {
+  const select = $("projectSelect");
+  if (!select || select.dataset.projectListMenuBound === "1") return;
+  select.dataset.projectListMenuBound = "1";
+  select.addEventListener("contextmenu", (event) => {
+    if (!state.projects.length) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const items = [
+      {
+        label: "한 칸 위로",
+        hint: "목록에서 현재 작품 이동",
+        run: () => { moveProjectInList("up").catch(handleError); },
+      },
+      {
+        label: "한 칸 아래로",
+        hint: "목록에서 현재 작품 이동",
+        run: () => { moveProjectInList("down").catch(handleError); },
+      },
+      {
+        label: "맨 위로",
+        hint: "목록 맨 앞",
+        run: () => { moveProjectInList("top").catch(handleError); },
+      },
+      {
+        label: "맨 아래로",
+        hint: "목록 맨 끝",
+        run: () => { moveProjectInList("bottom").catch(handleError); },
+      },
+    ];
+    if (state.projectListMode === "manual") {
+      items.push({
+        label: "최근 작업순으로 정렬",
+        hint: "시스템 기본값으로 되돌리기",
+        run: () => {
+          setProjectListMode("recent", { toastMessage: "최근 작업한 작품 순서로 정렬했어요." })
+            .catch(handleError);
+        },
+      });
+    }
+    if (typeof showUiFeatureContextMenu === "function") {
+      showUiFeatureContextMenu(event.clientX, event.clientY, select, items);
+    }
+  });
+}
+
+async function persistProjectPurpose({ quiet = true } = {}) {
+  if (!state.projectId) return;
+  const select = $("purposeSelect");
+  const purpose = normalizePurposeKey(select?.value || state.projectPurpose || "general_novel");
+  const result = await api(`/api/projects/${state.projectId}/settings`, {
+    method: "POST",
+    body: JSON.stringify({ purpose }),
+  });
+  const next = normalizePurposeKey(result?.purpose || purpose);
+  state.projectPurpose = next;
+  const project = state.projects.find((p) => p.id === state.projectId);
+  if (project) project.purpose = next;
+  refreshProjectSelectOptions();
+  if (!quiet) toast(`작품 종류를 ${purposeLabel[next] || next}(으)로 바꿨어요.`);
+}
+
+function setupPurposePicker() {
+  fillPurposeSelect("general_novel");
+  $("purposeSelect")?.addEventListener("change", () => {
+    if (!state.projectId) return;
+    const prevPurpose = normalizePurposeKey(state.projectPurpose);
+    const prevMode = getPurposeCategoryMode(prevPurpose);
+    const nextPurpose = normalizePurposeKey($("purposeSelect").value || "general_novel");
+    const nextMode = getPurposeCategoryMode(nextPurpose);
+    // 즉시 모드 반영: 번역 → 원문/번역 언어, 동화 → 유아용/초등용
+    state.projectPurpose = nextPurpose;
+    if (prevMode !== nextMode || nextMode === "none") {
+      state.mainGenre = "";
+      state.subGenre = "";
+    }
+    syncGenrePickerFromState();
+    persistProjectPurpose({ quiet: false })
+      .then(async () => {
+        if (prevMode !== nextMode || nextMode === "none") {
+          await persistProjectGenre({ quiet: true });
+        }
+        syncGenrePickerFromState();
+      })
+      .catch((error) => {
+        // 저장 실패 시 종류·장르 UI 되돌림
+        state.projectPurpose = prevPurpose;
+        syncPurposePickerFromState();
+        syncGenrePickerFromState();
+        handleError(error);
+      });
+  });
+  syncPurposePickerFromState();
+  syncGenrePickerFromState();
+}
+
+function preferredProjectFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  const raw = params.get("project");
+  if (!raw) return null;
+  const id = Number(raw);
+  return Number.isFinite(id) ? id : null;
+}
+
+async function loadProjects(preferredId = null) {
+  const projects = await api("/api/projects");
+  applyProjectsListPayload(projects);
+  const select = $("projectSelect");
+  if (!state.projects.length) {
+    select.innerHTML = "<option>아직 만든 작품이 없어요</option>";
+  }
+  const fromUrl = preferredProjectFromUrl();
+  // URL / 명시 선호 ID가 없으면 목록 첫 작품(최근 작업 또는 수동 1번)을 연다.
+  const chosen = preferredId || fromUrl || state.projects[0]?.id || null;
+  state.projectId = chosen && state.projects.some((project) => project.id === Number(chosen))
+    ? Number(chosen)
+    : (state.projects[0]?.id || null);
+  if (state.projectId) {
+    select.value = state.projectId;
+    loadEpisodeTabsFromStorage();
+    await loadProject();
+    if (fromUrl && Number(fromUrl) === state.projectId) {
+      const project = state.projects.find((item) => item.id === state.projectId);
+      if (project?.package_name || project?.package_path) {
+        const name = project.package_name || String(project.package_path).split(/[/\\]/).pop();
+        toast(`작품 파일에서 열었어요: ${name}`);
+      }
+    }
+  } else {
+    showWelcome();
+  }
+}
+
+async function loadProject() {
+  if (!state.projectId) return;
+  const projectIdAtStart = state.projectId;
+  const [outline, characters, ideas] = await Promise.all([
+    api(`/api/projects/${state.projectId}/outline`),
+    api(`/api/projects/${state.projectId}/characters`),
+    api(`/api/projects/${state.projectId}/ideas`),
+  ]);
+  // Ignore stale responses if the user switched works mid-flight.
+  if (state.projectId !== projectIdAtStart) return;
+  state.characters = characters;
+  state.outline = outline.chapters || [];
+  state.parts = Array.isArray(outline.parts) ? outline.parts : [];
+  state.ungroupedChapters = Array.isArray(outline.ungrouped_chapters)
+    ? outline.ungrouped_chapters
+    : (state.parts.length ? [] : (state.outline || []));
+  state.outlineProjectId = projectIdAtStart;
+  // Drop cached episode HTML from the previous work.
+  if (typeof clearViewerEpisodeCache === "function") clearViewerEpisodeCache();
+  state.ideas = ideas;
+  state.synopsisMd = outline.project?.synopsis_md || outline.project?.description_md || "";
+  state.loglineMd = outline.project?.logline_md || "";
+  state.introMd = outline.project?.intro_md || "";
+  state.intentMd = outline.project?.intent_md || "";
+  state.worldbuildingMd = outline.project?.worldbuilding_md || "";
+  state.projectPurpose = normalizePurposeKey(
+    outline.project?.purpose || state.projects.find((p) => p.id === state.projectId)?.purpose || "general_novel",
+  );
+  // Keep episode tabs valid for this outline.
+  renderEpisodeChrome();
+  const fromList = state.projects.find((p) => p.id === state.projectId);
+  if (fromList && outline.project?.purpose) fromList.purpose = outline.project.purpose;
+  state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
+  state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
+  state.keywords = normalizeKeywordList(
+    outline.project?.keywords ?? fromList?.keywords ?? [],
+  );
+  if (fromList) fromList.keywords = [...state.keywords];
+  syncPurposePickerFromState();
+  syncGenrePickerFromState();
+  refreshProjectSelectOptions();
+  renderOutline(outline.chapters);
+  renderCharacters();
+  renderIdeaBank();
+  renderKeywordBox();
+  renderSettingsCodex();
+  $("newChapterButton").disabled = false;
+  if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
+  $("newCharacterButton").disabled = false;
+  $("newIdeaButton").disabled = false;
+  updateIllustrationPanelVisibility();
+  // Project-level goal + full-manuscript footer stats.
+  if (outline.project?.goal_word_count != null) {
+    state.projectGoalCount = Math.max(0, Number(outline.project.goal_word_count) || 0);
+  } else {
+    const fromList = state.projects.find((p) => p.id === state.projectId);
+    state.projectGoalCount = Math.max(0, Number(fromList?.goal_word_count || 0) || 0);
+  }
+  syncProjectGoalFromState();
+  syncStatsScopeUi();
+  scheduleProjectManuscriptStats();
+  updateSceneStats();
+  if (typeof renderToryChatMessages === "function") renderToryChatMessages();
+  if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+  // Record open time for recent-first list (manual mode keeps fixed order).
+  markProjectOpened(projectIdAtStart).catch(() => {});
+}
+
+function previewLines(text, count = 2) {
+  const lines = String(text || "")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .map((line) => line.trim())
+    .filter((line) => line.length > 0);
+  if (!lines.length) return [];
+  return lines.slice(0, count);
+}
+
+function renderPreviewElement(element, lines, emptyText) {
+  if (!element) return;
+  if (!lines.length) {
+    element.innerHTML = `<span class="preview-empty">${escapeHtml(emptyText)}</span>`;
+    return;
+  }
+  element.innerHTML = lines
+    .map((line) => `<span class="preview-line">${escapeHtml(line)}</span>`)
+    .join("");
+}
+
+function renderSettingsCodex() {
+  // Ideas preview: first two sticky titles/bodies as two lines.
+  const ideaLines = [];
+  for (const idea of state.ideas) {
+    if (ideaLines.length >= 2) break;
+    const title = String(idea.title || "").trim();
+    const body = String(idea.body_md || "").replace(/\s+/g, " ").trim();
+    ideaLines.push(title || body || "빈 메모");
+  }
+  renderPreviewElement($("ideasPreview"), ideaLines, "아직 메모가 없어요");
+
+  const baits = loadBaits();
+  const baitLines = baits.slice(0, 2).map((bait) => {
+    const head = (bait.summary || bait.quote || "떡밥").replace(/\s+/g, " ").trim();
+    const recover = bait.recoverAt ? ` · 회수 ${bait.recoverAt}` : "";
+    return `${head.slice(0, 42)}${head.length > 42 ? "…" : ""}${recover}`;
+  });
+  renderPreviewElement(
+    $("baitsPreview"),
+    baitLines,
+    "본문 드래그 → 우클릭 → 떡밥 던지기",
+  );
+  renderBaitList();
+  if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+
+  // Previews hidden by CSS; keep sync for any future use.
+  renderPreviewElement($("introPreview"), [], "작품소개·기획의도");
+  renderPreviewElement($("logsynPreview"), [], "로그라인·시놉시스");
+  renderPreviewElement(
+    $("keywordsPreview"),
+    state.keywords.length ? [state.keywords.slice(0, 6).join(" · ")] : [],
+    "키워드 태그를 골라 보세요 · 더블클릭 또는 →",
+  );
+  renderKeywordBox();
+  renderPreviewElement(
+    $("worldPreview"),
+    previewLines(
+      looksLikeHtml(state.worldbuildingMd) ? plainTextFromHtml(state.worldbuildingMd) : state.worldbuildingMd,
+      2,
+    ),
+    "세계관을 적어 보세요 · 더블클릭 또는 →",
+  );
+
+  // Characters: name + first line, in order (up to 2 entries for the 2-line preview)
+  const characterLines = [];
+  for (const character of state.characters) {
+    if (characterLines.length >= 2) break;
+    const name = String(character.name || "이름 없음").trim();
+    const first = String(character.short_description || "").trim()
+      || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
+      || "";
+    characterLines.push(first ? `${name} — ${first}` : name);
+  }
+  renderPreviewElement($("charactersPreview"), characterLines, "아직 인물이 없어요 · 더블클릭 또는 →");
+
+  const sources = loadSources();
+  const sourceLines = sources.slice(0, 2).map((src) => {
+    const head = String(src.title || "자료").replace(/\s+/g, " ").trim();
+    return head.length > 48 ? `${head.slice(0, 48)}…` : head;
+  });
+  renderPreviewElement(
+    $("sourcesPreview"),
+    sourceLines,
+    "참고 책·기사·영상 출처를 모아 두세요",
+  );
+  renderSourceList();
+  renderToryVaultList();
+
+  if (!isSettingsDocMainOpen()) {
+    syncSettingsDocSidebarFromState("intro");
+    syncSettingsDocSidebarFromState("intent");
+    syncSettingsDocSidebarFromState("synopsis");
+    syncSettingsDocSidebarFromState("logline");
+    syncSettingsDocSidebarFromState("world");
+  } else {
+    // Keep inactive sidebars in sync while editing one main doc.
+    for (const kind of ["intro", "intent", "synopsis", "logline", "world"]) {
+      if (kind !== state.settingsDocKind) syncSettingsDocSidebarFromState(kind);
+    }
+  }
+
+  applySettingsSectionOrder();
+  applySettingsSectionState();
+  if (state.characterBoardOpen) renderCharacterBoard();
+  renderBookmarkBar();
+  markBookmarkedTargets();
+}
+
+function applySettingsSectionState() {
+  const openKey = state.openSettingsSection;
+  document.querySelectorAll(".settings-box").forEach((box) => {
+    const key = box.dataset.settingsSection;
+    const isOpen = Boolean(openKey && key === openKey);
+    box.classList.toggle("is-open", isOpen);
+    const toggle = box.querySelector("[data-settings-toggle]");
+    const body = box.querySelector(".settings-box-body");
+    if (toggle) toggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
+    if (body) {
+      // Prefer class-driven display; keep hidden attribute for accessibility only.
+      if (isOpen) {
+        body.removeAttribute("hidden");
+        body.hidden = false;
+      } else {
+        body.setAttribute("hidden", "");
+        body.hidden = true;
+      }
+      body.style.removeProperty("display");
+      body.style.removeProperty("height");
+      body.style.removeProperty("max-height");
+      body.style.removeProperty("overflow");
+    }
+    // Never let flex layout crush open content.
+    box.style.flex = "0 0 auto";
+    box.style.flexShrink = "0";
+    box.style.height = "auto";
+    box.style.maxHeight = "none";
+    box.style.overflow = "visible";
+  });
+  // After layout: grow textareas to full content height (scrollHeight needs display≠none).
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!openKey) return;
+      const openBox = document.querySelector(`.settings-box.is-open[data-settings-section="${openKey}"]`);
+      const body = openBox?.querySelector(".settings-box-body");
+      if (!body) return;
+      body.querySelectorAll("textarea").forEach((ta) => autoResizeSettingsSidebarTextarea(ta));
+    });
+  });
+}
+
+function setOpenSettingsSection(sectionKey) {
+  state.openSettingsSection = state.openSettingsSection === sectionKey ? null : sectionKey;
+  if (state.openSettingsSection) setActiveBinder("settings");
+  applySettingsSectionState();
+  // 키워드 박스를 열면 태그 피커도 바로 펼침
+  if (state.openSettingsSection === "keywords" && state.projectId) {
+    setKeywordPickerOpen(true);
+  } else if (typeof setKeywordPickerOpen === "function") {
+    setKeywordPickerOpen(false);
+  }
+  try {
+    localStorage.setItem("supertory.openSettingsSection", state.openSettingsSection || "");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function getSettingsDocMeta(kind) {
+  return SETTINGS_DOC_META[kind] || SETTINGS_DOC_META.synopsis;
+}
+
+const SETTINGS_DOC_TO_SECTION = {
+  intro: "intro",
+  intent: "intro",
+  synopsis: "logsyn",
+  logline: "logsyn",
+  world: "world",
+};
+
+const SETTINGS_DOC_SIBLINGS = {
+  intro: ["intro", "intent"],
+  intent: ["intro", "intent"],
+  synopsis: ["logline", "synopsis"],
+  logline: ["logline", "synopsis"],
+  world: ["world"],
+};
+
+function pullSettingsDocFromSidebar(kind) {
+  const meta = getSettingsDocMeta(kind);
+  const el = $(meta.sidebarId);
+  if (!el) return state[meta.stateKey] || "";
+  const value = el.value || "";
+  state[meta.stateKey] = value;
+  return value;
+}
+
+function pullSettingsDocFamilyFromSidebar(kind) {
+  const family = SETTINGS_DOC_SIBLINGS[kind] || [kind];
+  for (const k of family) pullSettingsDocFromSidebar(k);
+}
+
+function getSettingsDocTextForSave(kind = state.settingsDocKind || "synopsis") {
+  const meta = getSettingsDocMeta(kind);
+  // Prefer live DOM: sidebar if focused, else main editor when that kind is open, else sidebar, else state.
+  const sidebar = $(meta.sidebarId);
+  const mainOpen = isSettingsDocMainOpen() && state.settingsDocKind === kind && $("synopsisContent");
+  if (sidebar && document.activeElement === sidebar) {
+    return sidebar.value || "";
+  }
+  if (mainOpen) {
+    return getEditorContent($("synopsisContent"));
+  }
+  if (sidebar) return sidebar.value || "";
+  return state[meta.stateKey] || "";
+}
+
+function autoResizeSettingsSidebarTextarea(el) {
+  if (!el || el.tagName !== "TEXTAREA") return;
+  // Temporarily free height so scrollHeight reflects full content.
+  el.style.height = "0px";
+  el.style.overflowY = "hidden";
+  const minPx = 64;
+  const next = Math.max(minPx, el.scrollHeight + 2);
+  el.style.height = `${next}px`;
+}
+
+function syncSettingsDocSidebarFromState(kind) {
+  const meta = getSettingsDocMeta(kind);
+  const el = $(meta.sidebarId);
+  if (!el || document.activeElement === el) return;
+  const raw = state[meta.stateKey] || "";
+  el.value = looksLikeHtml(raw) ? plainTextFromHtml(raw) : raw;
+  autoResizeSettingsSidebarTextarea(el);
+}
+
+/** Push current state into main editor when it shows the same settings doc. */
+function syncSettingsDocMainFromState(kind, { force = false } = {}) {
+  if (!isSettingsDocMainOpen() || state.settingsDocKind !== kind) return;
+  const editor = $("synopsisContent");
+  if (!editor) return;
+  if (!force && document.activeElement === editor) return;
+  const raw = state[getSettingsDocMeta(kind).stateKey] || "";
+  suppressSynopsisDirty = true;
+  setEditorContent(raw, editor);
+  suppressSynopsisDirty = false;
+}
+
+function syncSynopsisSidebarFromState() {
+  syncSettingsDocSidebarFromState("synopsis");
+}
+
+let synopsisDirty = false;
+let synopsisAutoSaveTimer = null;
+let synopsisAutoSaveInFlight = false;
+let suppressSynopsisDirty = false;
+/** Per-kind pending autosave so concurrent fields don't drop saves. */
+const settingsDocPending = Object.create(null);
+
+function setSynopsisSaveStatus(text) {
+  if ($("synopsisSaveInfo")) $("synopsisSaveInfo").textContent = text;
+}
+
+function markSynopsisDirty() {
+  if (suppressSynopsisDirty || !state.projectId) return;
+  synopsisDirty = true;
+  setSynopsisSaveStatus("저장 대기 중…");
+  if (synopsisAutoSaveTimer) window.clearTimeout(synopsisAutoSaveTimer);
+  synopsisAutoSaveTimer = window.setTimeout(() => {
+    persistSettingsDoc(state.settingsDocKind || "synopsis", { quiet: true }).catch(handleError);
+  }, 1200);
+}
+
+function scheduleSettingsDocAutoSave(kind) {
+  if (!state.projectId || !kind) return;
+  if (settingsDocPending[kind]) window.clearTimeout(settingsDocPending[kind]);
+  settingsDocPending[kind] = window.setTimeout(() => {
+    settingsDocPending[kind] = null;
+    persistSettingsDoc(kind, { quiet: true }).catch(handleError);
+  }, 900);
+}
+
+async function persistSettingsDoc(kind, options = {}) {
+  const quiet = Boolean(options.quiet);
+  const meta = getSettingsDocMeta(kind);
+  if (!state.projectId) {
+    if (!quiet) toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+  // Wait briefly if another save is in flight (avoid dropping manual save).
+  if (synopsisAutoSaveInFlight) {
+    if (quiet) {
+      scheduleSettingsDocAutoSave(kind);
+      return null;
+    }
+    for (let i = 0; i < 40 && synopsisAutoSaveInFlight; i += 1) {
+      await new Promise((r) => window.setTimeout(r, 50));
+    }
+  }
+  synopsisAutoSaveInFlight = true;
+  if (quiet) setSynopsisSaveStatus("자동 저장 중…");
+  try {
+    // Always take latest from DOM/state right before request.
+    const value = getSettingsDocTextForSave(kind);
+    state[meta.stateKey] = value;
+    const result = await api(`/api/projects/${state.projectId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ [meta.apiField]: value }),
+    });
+    const saved = result[meta.apiField] != null ? result[meta.apiField] : value;
+    state[meta.stateKey] = saved;
+    // Keep other fields from API if returned.
+    if (result.synopsis_md != null && kind !== "synopsis") state.synopsisMd = result.synopsis_md;
+    if (result.logline_md != null && kind !== "logline") state.loglineMd = result.logline_md;
+    if (result.intro_md != null && kind !== "intro") state.introMd = result.intro_md;
+    if (result.intent_md != null && kind !== "intent") state.intentMd = result.intent_md;
+    if (result.worldbuilding_md != null && kind !== "world") state.worldbuildingMd = result.worldbuilding_md;
+    if (state.settingsDocKind === kind) synopsisDirty = false;
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setSynopsisSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
+    // Sync the other surface (sidebar ↔ main) without clobbering the focused control.
+    syncSettingsDocSidebarFromState(kind);
+    // Refresh main pane when it is editing this same document.
+    if (isSettingsDocMainOpen() && state.settingsDocKind === kind) {
+      syncSettingsDocMainFromState(kind, { force: true });
+    }
+    if (!quiet) toast(`${meta.toastLabel}을(를) 저장했습니다.`);
+    return result;
+  } catch (error) {
+    if (quiet) {
+      setSynopsisSaveStatus("자동 저장 실패 — 다시 시도");
+      scheduleSettingsDocAutoSave(kind);
+    }
+    throw error;
+  } finally {
+    synopsisAutoSaveInFlight = false;
+  }
+}
+
+async function persistSynopsis(options = {}) {
+  return persistSettingsDoc(state.settingsDocKind || "synopsis", options);
+}
+
+async function saveProjectSynopsis() {
+  await persistSettingsDoc("synopsis", { quiet: false });
+}
+
+async function saveProjectLogline() {
+  await persistSettingsDoc("logline", { quiet: false });
+}
+
+async function saveProjectWorldbuilding() {
+  await persistSettingsDoc("world", { quiet: false });
+}
+
+function hideSynopsisMain() {
+  $("synopsisWorkspace")?.classList.add("hidden");
+  state.settingsDocKind = null;
+}
+
+function hideCharacterBoard() {
+  state.characterBoardOpen = false;
+  $("characterBoard")?.classList.add("hidden");
+}
+
+async function closeSynopsisMain() {
+  if (synopsisDirty && state.settingsDocKind) {
+    try {
+      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  hideSynopsisMain();
+  if (state.characterBoardOpen) {
+    openCharacterBoard().catch(handleError);
+    return;
+  }
+  if (state.sceneId) {
+    showSceneEditorPane();
+  } else if (state.characterId) {
+    openCharacter(state.characterId).catch(handleError);
+  } else {
+    showWelcome();
+  }
+}
+
+function applySettingsDocChrome(kind) {
+  const meta = getSettingsDocMeta(kind);
+  if ($("settingsDocMainTitle")) $("settingsDocMainTitle").textContent = meta.title;
+  if ($("settingsDocMainHint")) $("settingsDocMainHint").textContent = meta.hint;
+  const editor = $("synopsisContent");
+  if (editor) {
+    editor.setAttribute("aria-label", meta.title);
+    editor.dataset.placeholder = meta.placeholder;
+  }
+  const pane = $("synopsisWorkspace");
+  if (pane) {
+    pane.dataset.settingsDoc = kind;
+    pane.setAttribute("aria-label", `${meta.title} 편집`);
+  }
+}
+
+async function openSettingsDocMain(kind = "synopsis") {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!SETTINGS_DOC_META[kind]) kind = "synopsis";
+
+  // Always pull sibling textareas first so logline/intent aren't left only in the DOM.
+  pullSettingsDocFamilyFromSidebar(kind);
+
+  // Flush previous settings doc if switching kinds.
+  if (isSettingsDocMainOpen() && state.settingsDocKind && state.settingsDocKind !== kind) {
+    try {
+      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
+    } catch (_) {
+      /* continue */
+    }
+  }
+  // Flush the target kind (and siblings) so main opens with saved content.
+  for (const k of (SETTINGS_DOC_SIBLINGS[kind] || [kind])) {
+    try {
+      await persistSettingsDoc(k, { quiet: true });
+    } catch (_) {
+      /* continue */
+    }
+  }
+
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: "자동 저장" });
+    } catch (_) {
+      /* continue */
+    }
+  }
+
+  setActiveBinder("settings");
+  state.openSettingsSection = SETTINGS_DOC_TO_SECTION[kind] || kind;
+  applySettingsSectionState();
+  state.settingsDocKind = kind;
+  state.characterBoardOpen = false;
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  closeSplitView().catch(() => {});
+
+  applySettingsDocChrome(kind);
+  $("synopsisWorkspace")?.classList.remove("hidden");
+
+  const meta = getSettingsDocMeta(kind);
+  suppressSynopsisDirty = true;
+  // Force re-read after persist: sidebar first, then state.
+  const loadText = pullSettingsDocFromSidebar(kind) || state[meta.stateKey] || "";
+  state[meta.stateKey] = loadText;
+  setEditorContent(loadText, $("synopsisContent"));
+  // Keep sibling sidebars in sync too.
+  for (const k of (SETTINGS_DOC_SIBLINGS[kind] || [kind])) {
+    syncSettingsDocSidebarFromState(k);
+  }
+  synopsisDirty = false;
+  suppressSynopsisDirty = false;
+  setSynopsisSaveStatus("편집 중");
+
+  requestAnimationFrame(() => {
+    const editor = $("synopsisContent");
+    if (!editor) return;
+    editor.setAttribute("contenteditable", "true");
+    try {
+      editor.focus({ preventScroll: true });
+    } catch (_) {
+      editor.focus();
+    }
+  });
+}
+
+async function openSynopsisMain() {
+  return openSettingsDocMain("synopsis");
+}
+
+function renderCharacterBoard() {
+  const grid = $("characterBoardGrid");
+  if (!grid) return;
+  if (!state.characters.length) {
+    grid.innerHTML = `<p class="character-board-empty">아직 인물이 없어요.<br>+ 캐릭터로 첫 인물을 만들어 보세요.</p>`;
+    return;
+  }
+  grid.innerHTML = state.characters.map((character) => {
+    const name = escapeHtml(character.name || "이름 없음");
+    const role = escapeHtml(roleLabel[character.role] || character.role || "");
+    const summary = escapeHtml(
+      String(character.short_description || "").trim()
+      || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
+      || "소개를 적어 보세요."
+    );
+    const active = Number(state.characterId) === Number(character.id) ? "is-active" : "";
+    return `
+      <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" title="${name}">
+        <span class="character-board-card-name">${name}</span>
+        <span class="character-board-card-role">${role}</span>
+        <span class="character-board-card-summary">${summary}</span>
+      </button>`;
+  }).join("");
+  grid.querySelectorAll("[data-character-board]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openCharacter(button.dataset.characterBoard).catch(handleError);
+    });
+  });
+}
+
+async function openCharacterBoard() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+
+  if (isSettingsDocMainOpen() && synopsisDirty && state.settingsDocKind) {
+    try {
+      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
+    } catch (_) {
+      /* continue */
+    }
+  }
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: "자동 저장" });
+    } catch (_) {
+      /* continue */
+    }
+  }
+
+  setActiveBinder("settings");
+  state.openSettingsSection = "characters";
+  applySettingsSectionState();
+  state.characterBoardOpen = true;
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  state.sceneId = null;
+  hideSynopsisMain();
+
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  await closeSplitView().catch(() => {});
+
+  $("characterBoard")?.classList.remove("hidden");
+  renderCharacterBoard();
+}
+
+async function closeCharacterBoard() {
+  hideCharacterBoard();
+  if (state.characterId) {
+    openCharacter(state.characterId).catch(handleError);
+  } else if (state.sceneId) {
+    showSceneEditorPane();
+  } else {
+    showWelcome();
+  }
+}
+
+function bindSettingsDocSidebarInput(kind) {
+  const meta = getSettingsDocMeta(kind);
+  const el = $(meta.sidebarId);
+  if (!el || el.dataset.settingsBound === "1") return;
+  el.dataset.settingsBound = "1";
+  const pushToStateAndMaybeMain = () => {
+    state[meta.stateKey] = el.value;
+    // Keep main editor in sync when the same document is open on the main pane.
+    if (isSettingsDocMainOpen() && state.settingsDocKind === kind) {
+      const main = $("synopsisContent");
+      if (main && document.activeElement !== main) {
+        suppressSynopsisDirty = true;
+        setEditorContent(el.value, main);
+        suppressSynopsisDirty = false;
+      } else if (main && document.activeElement === main) {
+        // Main has focus — don't clobber; state still updated for save.
+      } else if (main) {
+        suppressSynopsisDirty = true;
+        setEditorContent(el.value, main);
+        suppressSynopsisDirty = false;
+      }
+    }
+  };
+  el.addEventListener("input", () => {
+    autoResizeSettingsSidebarTextarea(el);
+    pushToStateAndMaybeMain();
+    scheduleSettingsDocAutoSave(kind);
+  });
+  // Blur/change flush — catches last keystrokes before leaving the field.
+  el.addEventListener("change", () => {
+    pushToStateAndMaybeMain();
+    scheduleSettingsDocAutoSave(kind);
+  });
+  el.addEventListener("blur", () => {
+    pushToStateAndMaybeMain();
+  });
+}
+
+function setupSettingsCodex() {
+  try {
+    const stored = localStorage.getItem("supertory.openSettingsSection");
+    if (stored) state.openSettingsSection = stored;
+  } catch (_) {
+    /* ignore */
+  }
+  document.querySelectorAll("[data-settings-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = button.dataset.settingsToggle;
+      if (key) setOpenSettingsSection(key);
+    });
+  });
+  /* Also allow clicking the header chrome (outside toggle/main) to expand */
+  document.querySelectorAll(".settings-box-header").forEach((header) => {
+    header.addEventListener("click", (event) => {
+      if (event.target.closest("[data-settings-main]")) return;
+      if (event.target.closest("[data-settings-toggle]")) return;
+      const box = header.closest(".settings-box");
+      const key = box?.dataset?.settingsSection;
+      if (key) setOpenSettingsSection(key);
+    });
+  });
+  /* Circle → icon: open this settings section on the main workspace */
+  document.querySelectorAll("[data-settings-main]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = button.dataset.settingsMain;
+      const meta = SETTINGS_BOOKMARK_META[key];
+      if (!meta?.open) return;
+      Promise.resolve(meta.open()).catch(handleError);
+    });
+  });
+  document.querySelectorAll("[data-open-settings-doc]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = button.dataset.openSettingsDoc;
+      if (!kind) return;
+      // Snapshot this field (+ siblings) before opening main.
+      pullSettingsDocFamilyFromSidebar(kind);
+      openSettingsDocMain(kind).catch(handleError);
+    });
+  });
+  document.querySelectorAll("[data-save-settings-doc]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = button.dataset.saveSettingsDoc;
+      if (!kind) return;
+      // Snapshot textarea into state immediately, then save (psychological + real).
+      pullSettingsDocFromSidebar(kind);
+      persistSettingsDoc(kind, { quiet: false })
+        .then(() => {
+          // If main is showing this doc, force-refresh from state.
+          syncSettingsDocMainFromState(kind);
+        })
+        .catch(handleError);
+    });
+  });
+  $("saveSynopsisMainButton")?.addEventListener("click", () => {
+    persistSettingsDoc(state.settingsDocKind || "synopsis", { quiet: false }).catch(handleError);
+  });
+  $("closeSynopsisMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
+  $("worldPreview")?.addEventListener("dblclick", () => openSettingsDocMain("world").catch(handleError));
+  $("charactersPreview")?.addEventListener("dblclick", () => openCharacterBoard().catch(handleError));
+  $("keywordsPreview")?.addEventListener("dblclick", () => openKeywordBoard());
+  $("closeCharacterBoardButton")?.addEventListener("click", () => closeCharacterBoard().catch(handleError));
+  $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
+  bindSettingsDocSidebarInput("intro");
+  bindSettingsDocSidebarInput("intent");
+  bindSettingsDocSidebarInput("synopsis");
+  bindSettingsDocSidebarInput("logline");
+  bindSettingsDocSidebarInput("world");
+  // Migrate stored open section keys
+  if (state.openSettingsSection === "synopsis" || state.openSettingsSection === "logline") {
+    state.openSettingsSection = "logsyn";
+  }
+  setupSettingsSectionDrag();
+  applySettingsSectionOrder();
+  applySettingsSectionState();
+}
+
+const IDEA_COLORS = [
+  { key: "yellow", label: "노랑" },
+  { key: "pink", label: "분홍" },
+  { key: "blue", label: "파랑" },
+  { key: "green", label: "초록" },
+  { key: "orange", label: "주황" },
+  { key: "purple", label: "보라" },
+];
+
+function ideaPreview(text, max = 90) {
+  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "내용을 적어 보세요…";
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
+function renderIdeaBank() {
+  const list = $("ideaNoteList");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = `<p class="idea-sticky-empty">작품을 선택하면 메모를 쓸 수 있어요.</p>`;
+    if ($("newIdeaButton")) $("newIdeaButton").disabled = true;
+    return;
+  }
+  if ($("newIdeaButton")) $("newIdeaButton").disabled = false;
+  if (!state.ideas.length) {
+    list.innerHTML = `<p class="idea-sticky-empty">아직 메모가 없어요.<br>+ 메모로 아이디어를 남겨 보세요.</p>`;
+  } else {
+    list.innerHTML = state.ideas.map((idea) => `
+      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}">
+        <span class="idea-sticky-title">${escapeHtml(idea.title || "제목 없음")}</span>
+        <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
+      </button>
+    `).join("");
+    list.querySelectorAll("[data-idea]").forEach((button) => {
+      button.addEventListener("click", () => openIdeaBoard(Number(button.dataset.idea)));
+    });
+  }
+  if (state.ideaBoardOpen) renderIdeaBoard();
+  renderSettingsCodex();
+}
+
+function hideCenterViewsForIdeaBoard() {
+  $("welcome").classList.add("hidden");
+  $("sceneWorkspace").classList.add("hidden");
+  $("characterEditor").classList.add("hidden");
+  hideSynopsisMain();
+  hideCharacterBoard();
+  hideKeywordBoard();
+  $("ideaBoard").classList.remove("hidden");
+  closeSceneToolsDrawer();
+  void closeSplitView();
+}
+
+function closeIdeaBoard() {
+  state.ideaBoardOpen = false;
+  $("ideaBoard").classList.add("hidden");
+  if (state.sceneId) {
+    openScene(state.sceneId).catch(handleError);
+  } else if (state.characterId) {
+    openCharacter(state.characterId).catch(handleError);
+  } else {
+    showWelcome();
+  }
+}
+
+function openIdeaBoard(focusId = null) {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  state.ideaBoardOpen = true;
+  state.keywordBoardOpen = false;
+  setActiveBinder("settings");
+  hideCenterViewsForIdeaBoard();
+  renderIdeaBoard(focusId);
+}
+
+const IDEA_CARD_SIZE_PREFIX = "supertory.ideaCardSize.v1.";
+const IDEA_CARD_DEFAULT_W = 240;
+const IDEA_CARD_DEFAULT_H = 220;
+const IDEA_CARD_MIN_W = 180;
+const IDEA_CARD_MIN_H = 140;
+const IDEA_CARD_MAX_W = 900;
+const IDEA_CARD_MAX_H = 900;
+
+function ideaCardSizeKey(ideaId) {
+  const project = state.projectId != null ? Number(state.projectId) : 0;
+  return `${IDEA_CARD_SIZE_PREFIX}${project}.${Number(ideaId) || 0}`;
+}
+
+function loadIdeaCardSize(ideaId) {
+  try {
+    const raw = localStorage.getItem(ideaCardSizeKey(ideaId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const w = Math.round(Number(parsed?.w));
+    const h = Math.round(Number(parsed?.h));
+    if (!Number.isFinite(w) || !Number.isFinite(h)) return null;
+    return {
+      w: Math.min(IDEA_CARD_MAX_W, Math.max(IDEA_CARD_MIN_W, w)),
+      h: Math.min(IDEA_CARD_MAX_H, Math.max(IDEA_CARD_MIN_H, h)),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveIdeaCardSize(ideaId, width, height) {
+  const w = Math.round(Number(width));
+  const h = Math.round(Number(height));
+  if (!Number.isFinite(w) || !Number.isFinite(h)) return;
+  try {
+    localStorage.setItem(
+      ideaCardSizeKey(ideaId),
+      JSON.stringify({
+        w: Math.min(IDEA_CARD_MAX_W, Math.max(IDEA_CARD_MIN_W, w)),
+        h: Math.min(IDEA_CARD_MAX_H, Math.max(IDEA_CARD_MIN_H, h)),
+      }),
+    );
+  } catch (_) {
+    /* quota */
+  }
+}
+
+function clearIdeaCardSize(ideaId) {
+  try {
+    localStorage.removeItem(ideaCardSizeKey(ideaId));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applyIdeaCardSize(card, ideaId) {
+  if (!card) return;
+  const saved = loadIdeaCardSize(ideaId);
+  const w = saved?.w || IDEA_CARD_DEFAULT_W;
+  const h = saved?.h || IDEA_CARD_DEFAULT_H;
+  card.style.width = `${w}px`;
+  card.style.height = `${h}px`;
+}
+
+/**
+ * Watch card box size (native CSS resize: both) and persist per idea.
+ * Also supports optional custom corner drag via data-role="idea-resize".
+ */
+function bindIdeaCardResize(card, ideaId) {
+  if (!card || !ideaId) return;
+  // Avoid stacking observers if re-bound (e.g. color change)
+  if (card._ideaResizeObserver) {
+    try { card._ideaResizeObserver.disconnect(); } catch (_) { /* ignore */ }
+    card._ideaResizeObserver = null;
+  }
+  applyIdeaCardSize(card, ideaId);
+
+  let saveTimer = null;
+  const persist = () => {
+    const rect = card.getBoundingClientRect();
+    if (rect.width < 40 || rect.height < 40) return;
+    saveIdeaCardSize(ideaId, rect.width, rect.height);
+  };
+  const schedulePersist = () => {
+    if (saveTimer) window.clearTimeout(saveTimer);
+    saveTimer = window.setTimeout(persist, 120);
+  };
+
+  if (typeof ResizeObserver !== "undefined") {
+    const ro = new ResizeObserver(() => {
+      card.classList.add("is-resizing");
+      schedulePersist();
+      window.clearTimeout(card._ideaResizeClassTimer);
+      card._ideaResizeClassTimer = window.setTimeout(() => {
+        card.classList.remove("is-resizing");
+      }, 180);
+    });
+    ro.observe(card);
+    card._ideaResizeObserver = ro;
+  } else {
+    card.addEventListener("mouseup", persist);
+  }
+
+  // Custom drag handle (works even when native resize corner is hard to grab)
+  const handle = card.querySelector('[data-role="idea-resize"]');
+  if (handle && handle.dataset.bound !== "1") {
+    handle.dataset.bound = "1";
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const startX = event.clientX;
+      const startY = event.clientY;
+      const startW = card.offsetWidth;
+      const startH = card.offsetHeight;
+      card.classList.add("is-resizing");
+      const onMove = (ev) => {
+        const dw = ev.clientX - startX;
+        const dh = ev.clientY - startY;
+        const nextW = Math.min(IDEA_CARD_MAX_W, Math.max(IDEA_CARD_MIN_W, startW + dw));
+        const nextH = Math.min(IDEA_CARD_MAX_H, Math.max(IDEA_CARD_MIN_H, startH + dh));
+        card.style.width = `${nextW}px`;
+        card.style.height = `${nextH}px`;
+      };
+      const onUp = () => {
+        document.removeEventListener("pointermove", onMove);
+        document.removeEventListener("pointerup", onUp);
+        card.classList.remove("is-resizing");
+        persist();
+      };
+      document.addEventListener("pointermove", onMove);
+      document.addEventListener("pointerup", onUp);
+      try { handle.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    });
+  }
+
+  const resetBtn = card.querySelector('[data-role="reset-idea-size"]');
+  if (resetBtn && resetBtn.dataset.bound !== "1") {
+    resetBtn.dataset.bound = "1";
+    resetBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      clearIdeaCardSize(ideaId);
+      card.style.width = `${IDEA_CARD_DEFAULT_W}px`;
+      card.style.height = `${IDEA_CARD_DEFAULT_H}px`;
+      toast("메모 크기를 기본값으로 돌렸어요.");
+    });
+  }
+}
+
+function renderIdeaBoard(focusId = null) {
+  const grid = $("ideaBoardGrid");
+  if (!grid || !state.ideaBoardOpen) return;
+  if (!state.ideas.length) {
+    grid.innerHTML = `<p class="hint">메모가 없습니다. + 메모를 눌러 첫 포스트잇을 만들어 보세요.</p>`;
+    return;
+  }
+  grid.innerHTML = state.ideas.map((idea) => {
+    const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+    return `
+    <article
+      class="idea-card color-${escapeHtml(colorKey)}"
+      data-idea-card="${idea.id}"
+      data-idea-color="${escapeHtml(colorKey)}"
+      title="우클릭: 메모 색 · 모서리 드래그: 크기"
+    >
+      <div class="idea-card-top">
+        <input type="text" data-role="idea-title" value="${escapeHtml(idea.title || "")}" placeholder="제목 (예: 결말 아이디어)">
+      </div>
+      <textarea data-role="idea-body" placeholder="러프하게 적어 두세요…">${escapeHtml(idea.body_md || "")}</textarea>
+      <div class="idea-card-actions">
+        <button type="button" class="idea-card-size-reset" data-role="reset-idea-size" title="기본 크기로">크기 초기화</button>
+        <button type="button" data-role="save-idea">저장</button>
+        <button type="button" data-role="delete-idea">삭제</button>
+      </div>
+      <button type="button" class="idea-card-resize-hint" data-role="idea-resize" title="끌어서 크기 조절" aria-label="메모 크기 조절"></button>
+    </article>`;
+  }).join("");
+
+  grid.querySelectorAll("[data-idea-card]").forEach((card) => {
+    const id = Number(card.dataset.ideaCard);
+    bindIdeaCardResize(card, id);
+    card.querySelector('[data-role="save-idea"]').addEventListener("click", () => {
+      saveIdeaFromCard(card).catch(handleError);
+    });
+    card.querySelector('[data-role="delete-idea"]').addEventListener("click", () => {
+      deleteIdea(id).catch(handleError);
+    });
+    card.addEventListener("contextmenu", (event) => {
+      // Don't steal browser menu from text selection inside inputs if needed —
+      // always own the menu on the sticky for color pick.
+      event.preventDefault();
+      event.stopPropagation();
+      showIdeaColorMenu(event.clientX, event.clientY, card);
+    });
+  });
+
+  if (focusId) {
+    const focusCard = grid.querySelector(`[data-idea-card="${focusId}"]`);
+    focusCard?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    focusCard?.querySelector('[data-role="idea-body"]')?.focus();
+  }
+}
+
+let ideaColorMenuCard = null;
+
+function hideIdeaColorMenu() {
+  $("ideaColorMenu")?.classList.add("hidden");
+  ideaColorMenuCard = null;
+}
+
+function showIdeaColorMenu(clientX, clientY, card) {
+  const menu = $("ideaColorMenu");
+  if (!menu || !card) return;
+  ideaColorMenuCard = card;
+  const current = card.dataset.ideaColor || "yellow";
+  menu.querySelectorAll("[data-idea-color-pick]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.ideaColorPick === current);
+  });
+  // Hide other context menus
+  try { hideDesktopContextMenu?.(); } catch (_) { /* ignore */ }
+  try { hideBinderContextMenu?.(); } catch (_) { /* ignore */ }
+  try { hideSettingsContextMenu?.(); } catch (_) { /* ignore */ }
+  try { hideBookmarkContextMenu?.(); } catch (_) { /* ignore */ }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + (rect.width || 180) > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - (rect.width || 180) - pad);
+  }
+  if (top + (rect.height || 80) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (rect.height || 80) - pad);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function applyIdeaCardColor(card, colorKey, { save = true } = {}) {
+  if (!card || !colorKey) return;
+  const key = IDEA_COLORS.some((c) => c.key === colorKey) ? colorKey : "yellow";
+  const size = { w: card.offsetWidth, h: card.offsetHeight };
+  card.dataset.ideaColor = key;
+  card.className = `idea-card color-${key}`;
+  card.style.width = `${size.w}px`;
+  card.style.height = `${size.h}px`;
+  // Keep resize observer alive after className reset
+  const id = Number(card.dataset.ideaCard);
+  if (id) bindIdeaCardResize(card, id);
+  if (save) {
+    saveIdeaFromCard(card, { quiet: true }).catch(handleError);
+  }
+}
+
+async function createIdeaNote() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const colors = IDEA_COLORS.map((item) => item.key);
+  const color = colors[state.ideas.length % colors.length];
+  const idea = await api(`/api/projects/${state.projectId}/ideas`, {
+    method: "POST",
+    body: JSON.stringify({ title: "새 메모", body_md: "", color }),
+  });
+  state.ideas.push(idea);
+  state.openSettingsSection = "ideas";
+  renderIdeaBank();
+  openIdeaBoard(idea.id);
+  toast("새 포스트잇 메모를 만들었어요.");
+}
+
+async function saveIdeaFromCard(card, options = {}) {
+  const quiet = Boolean(options.quiet);
+  const id = Number(card.dataset.ideaCard);
+  const title = card.querySelector('[data-role="idea-title"]')?.value || "";
+  const body_md = card.querySelector('[data-role="idea-body"]')?.value || "";
+  const color = card.dataset.ideaColor
+    || (card.className.match(/color-(\w+)/) || [])[1]
+    || "yellow";
+  const updated = await api(`/api/ideas/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ title, body_md, color }),
+  });
+  const index = state.ideas.findIndex((item) => item.id === id);
+  if (index >= 0) state.ideas[index] = updated;
+  renderIdeaBank();
+  if (!quiet) toast("메모를 저장했습니다.");
+}
+
+async function deleteIdea(id) {
+  if (!window.confirm("이 메모를 삭제할까요?")) return;
+  await api(`/api/ideas/${id}`, { method: "DELETE", body: JSON.stringify({}) });
+  state.ideas = state.ideas.filter((item) => item.id !== id);
+  renderIdeaBank();
+  if (state.ideaBoardOpen) renderIdeaBoard();
+  toast("메모를 삭제했습니다.");
+}
+
+function setupIdeaBank() {
+  $("newIdeaButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
+  $("ideaBoardAddButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
+  $("ideaBoardCloseButton")?.addEventListener("click", closeIdeaBoard);
+
+  // Idea sticky color menu (right-click)
+  const menu = $("ideaColorMenu");
+  if (menu && menu.dataset.bound !== "1") {
+    menu.dataset.bound = "1";
+    menu.addEventListener("click", (event) => {
+      const pick = event.target.closest?.("[data-idea-color-pick]");
+      if (!pick || !ideaColorMenuCard) return;
+      event.preventDefault();
+      const key = pick.dataset.ideaColorPick;
+      applyIdeaCardColor(ideaColorMenuCard, key, { save: true });
+      hideIdeaColorMenu();
+      toast(`메모 색: ${IDEA_COLORS.find((c) => c.key === key)?.label || key}`);
+    });
+    document.addEventListener("mousedown", (event) => {
+      if (!menu.classList.contains("hidden") && !event.target.closest?.("#ideaColorMenu")) {
+        hideIdeaColorMenu();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") hideIdeaColorMenu();
+    });
+  }
+}
+
+async function refreshAiStatus() {
+  const line = $("aiStatusLine");
+  if (!line) return;
+  const setAiEnabled = (on) => {
+    if ($("aiSubmitButton")) $("aiSubmitButton").disabled = !on;
+    if ($("toryChatSendButton")) $("toryChatSendButton").disabled = !on;
+    if ($("toryChatInput")) $("toryChatInput").disabled = !on;
+  };
+  try {
+    const status = await api("/api/ai/status");
+    if (status.configured) {
+      line.textContent = `Gemini 연결됨 · 모델 ${status.model || "gemini"}`;
+      setAiEnabled(true);
+    } else {
+      line.textContent = "Gemini API 키가 없습니다. 프로젝트 폴더 .env 에 GEMINI_API_KEY를 넣어 주세요.";
+      setAiEnabled(false);
+    }
+  } catch (error) {
+    line.textContent = error.message || "AI 상태를 확인하지 못했습니다.";
+    setAiEnabled(false);
+  }
+}
+
+function focusAiAssistant() {
+  setAiPanelOpen(true);
+  if ($("aiMode")) {
+    if (state.toryFocusSceneId) $("aiMode").value = "analyze";
+    else $("aiMode").value = state.sceneId ? "continue" : "free";
+  }
+  refreshAiStatus().catch(handleError);
+  updateToryFocusUi();
+  $("aiPrompt")?.focus();
+}
+
+function updateToryFocusUi() {
+  const banner = $("toryFocusBanner");
+  const label = $("toryFocusSceneLabel");
+  const panel = $("aiPanel");
+  const focused = Boolean(state.toryFocusSceneId);
+  banner?.classList.toggle("hidden", !focused);
+  panel?.classList.toggle("is-tory-focus", focused);
+  if (label) {
+    label.textContent = focused
+      ? (state.toryFocusSceneTitle || `씬 #${state.toryFocusSceneId}`)
+      : "";
+  }
+  // Highlight focused scene in binder when present.
+  document.querySelectorAll(".scene-link.is-tory-focus").forEach((el) => {
+    el.classList.remove("is-tory-focus");
+  });
+  if (focused) {
+    document
+      .querySelector(`.scene-link[data-scene="${state.toryFocusSceneId}"]`)
+      ?.classList.add("is-tory-focus");
+  }
+}
+
+function clearToryFocus({ silent = false } = {}) {
+  state.toryFocusSceneId = null;
+  state.toryFocusSceneTitle = "";
+  updateToryFocusUi();
+  if (!silent) toast("토리 집중 분석을 해제했어요.");
+}
+
+async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
+  const id = Number(sceneId);
+  if (!id) return;
+  // Open the manuscript so context matches the focused scene.
+  try {
+    await openScene(id);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  state.toryFocusSceneId = id;
+  state.toryFocusSceneTitle = sceneTitle
+    || state.scene?.title
+    || $("sceneTitle")?.value
+    || `씬 #${id}`;
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "analyze";
+  if ($("aiPrompt") && !$("aiPrompt").value.trim()) {
+    $("aiPrompt").value = "이 원고의 강점과 약점, 다음에 살릴 포인트, 바로 고칠 수 있는 조언을 부탁해.";
+  }
+  updateToryFocusUi();
+  refreshAiStatus().catch(handleError);
+  toast("이 원고에 집중 분석이 연결됐어요. 오른쪽 패널에서 분석을 이어 가세요.");
+  requestAnimationFrame(() => $("aiPrompt")?.focus());
+}
+
+const CUSTOM_ANALYZE_STORAGE_KEY = "supertory.customAnalyzeMenu";
+
+function loadCustomAnalyzeItems() {
+  try {
+    const raw = localStorage.getItem(CUSTOM_ANALYZE_STORAGE_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((item) => item && item.id && String(item.title || "").trim())
+      .map((item) => ({
+        id: String(item.id),
+        title: String(item.title || "").trim().slice(0, 40),
+        prompt: String(item.prompt || "").trim().slice(0, 2000),
+      }))
+      .slice(0, 20);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveCustomAnalyzeItems(items) {
+  try {
+    localStorage.setItem(CUSTOM_ANALYZE_STORAGE_KEY, JSON.stringify(items.slice(0, 20)));
+  } catch (_) { /* ignore */ }
+}
+
+function renderCustomAnalyzeMenuItems() {
+  const list = $("analyzeCustomList");
+  const divider = $("analyzeCustomDivider");
+  if (!list) return;
+  const items = loadCustomAnalyzeItems();
+  if (divider) divider.hidden = !items.length;
+  if (!items.length) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const preview = String(item.prompt || "").replace(/\s+/g, " ").trim();
+    const short = preview.length > 42 ? `${preview.slice(0, 42)}…` : preview;
+    return `
+    <div class="analyze-custom-row">
+      <button type="button" role="menuitem" class="analyze-custom-run" data-analyze-action="custom-run" data-custom-id="${escapeHtml(item.id)}" title="${escapeHtml(preview)}">
+        <strong class="analyze-custom-title">${escapeHtml(item.title)}</strong>
+        <span class="analyze-custom-preview">${escapeHtml(short)}</span>
+      </button>
+      <button type="button" class="analyze-custom-delete" data-analyze-action="custom-delete" data-custom-id="${escapeHtml(item.id)}" title="이 항목 삭제" aria-label="삭제">×</button>
+    </div>`;
+  }).join("");
+}
+
+function openCustomAnalyzeModal() {
+  $("customAnalyzeTitle") && ($("customAnalyzeTitle").value = "");
+  $("customAnalyzePrompt") && ($("customAnalyzePrompt").value = "");
+  $("customAnalyzeModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => $("customAnalyzeTitle")?.focus());
+}
+
+function closeCustomAnalyzeModal() {
+  $("customAnalyzeModal")?.classList.add("hidden");
+}
+
+function addCustomAnalyzeItem({ title, prompt }) {
+  const name = String(title || "").trim().slice(0, 40);
+  const text = String(prompt || "").trim().slice(0, 2000);
+  if (!name || !text) {
+    toast("이름과 요청 내용을 모두 적어 주세요.");
+    return false;
+  }
+  const items = loadCustomAnalyzeItems();
+  items.push({
+    id: `ca_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 7)}`,
+    title: name,
+    prompt: text,
+  });
+  saveCustomAnalyzeItems(items);
+  renderCustomAnalyzeMenuItems();
+  toast(`「${name}」을(를) 분석 메뉴에 추가했어요.`);
+  return true;
+}
+
+function deleteCustomAnalyzeItem(id) {
+  const next = loadCustomAnalyzeItems().filter((item) => item.id !== id);
+  saveCustomAnalyzeItems(next);
+  renderCustomAnalyzeMenuItems();
+  toast("분석 메뉴 항목을 삭제했어요.");
+}
+
+async function runCustomAnalyzeItem(id) {
+  const item = loadCustomAnalyzeItems().find((x) => x.id === id);
+  if (!item) {
+    toast("항목을 찾지 못했어요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    return;
+  }
+  if (!item.prompt) {
+    toast("이 항목에 요청 내용이 없어요. 삭제 후 다시 추가해 주세요.");
+    return;
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "free";
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+  if ($("aiPrompt")) $("aiPrompt").value = item.prompt;
+  toast(`「${item.title}」 분석을 요청합니다…`);
+  // Call the same path as the AI form submit (requestSubmit can be unreliable)
+  const fakeEvent = { preventDefault() {} };
+  await submitAiAssist(fakeEvent);
+}
+
+function closeAnalyzeMenu() {
+  $("analyzeMenuDropdown")?.classList.add("hidden");
+  $("analyzeMenuButton")?.setAttribute("aria-expanded", "false");
+}
+
+function toggleAnalyzeMenu() {
+  const menu = $("analyzeMenuDropdown");
+  const btn = $("analyzeMenuButton");
+  if (!menu || !btn) return;
+  const open = menu.classList.contains("hidden");
+  // Close other feature menus so only one is open.
+  if (typeof closeViewModeMenu === "function") closeViewModeMenu();
+  if (open) {
+    renderCustomAnalyzeMenuItems();
+    menu.classList.remove("hidden");
+    btn.setAttribute("aria-expanded", "true");
+  } else {
+    closeAnalyzeMenu();
+  }
+}
+
+function setupAnalyzeMenu() {
+  renderCustomAnalyzeMenuItems();
+  $("analyzeMenuButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleAnalyzeMenu();
+  });
+  $("analyzeMenuDropdown")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-analyze-action]");
+    if (!item) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = item.dataset.analyzeAction;
+    if (action === "custom-delete") {
+      const id = item.dataset.customId;
+      if (id) deleteCustomAnalyzeItem(id);
+      return;
+    }
+    closeAnalyzeMenu();
+    if (action === "custom-add") {
+      openCustomAnalyzeModal();
+      return;
+    }
+    if (action === "custom-run") {
+      const id = item.dataset.customId;
+      if (id) runCustomAnalyzeItem(id).catch(handleError);
+      return;
+    }
+    if (action === "worldscan") {
+      runWorldScan().catch(handleError);
+      return;
+    }
+    if (action === "dupcheck") {
+      runDuplicateCheck().catch(handleError);
+      return;
+    }
+    // Default: focus analyze
+    if (!state.sceneId) {
+      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      return;
+    }
+    const title = state.scene?.title || $("sceneTitle")?.value || "";
+    startToryAnalyzeForScene(state.sceneId, title).catch(handleError);
+  });
+  $("customAnalyzeForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const ok = addCustomAnalyzeItem({
+      title: $("customAnalyzeTitle")?.value || "",
+      prompt: $("customAnalyzePrompt")?.value || "",
+    });
+    if (ok) closeCustomAnalyzeModal();
+  });
+  document.querySelectorAll("[data-close-custom-analyze]").forEach((el) => {
+    el.addEventListener("click", closeCustomAnalyzeModal);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#analyzeMenuControl")) closeAnalyzeMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if ($("customAnalyzeModal") && !$("customAnalyzeModal").classList.contains("hidden")) {
+      event.preventDefault();
+      closeCustomAnalyzeModal();
+      return;
+    }
+    closeAnalyzeMenu();
+  });
+}
+
+/** Normalize manuscript text for phrase / similarity matching. */
+function normalizeDupText(raw) {
+  return String(raw || "")
+    .replace(/\s+/g, " ")
+    .replace(/[“”"']/g, "")
+    .replace(/[…·・]/g, " ")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Collect phrase / near-duplicate hits between current text and neighbor episodes.
+ * - Exact / near-exact multi-char phrases (8+ chars)
+ * - Sentence-level overlap even when wording is shortened
+ */
+function collectLocalDuplicateHits(currentPlain, neighbors) {
+  const hits = [];
+  const seen = new Set();
+  const curNorm = normalizeDupText(currentPlain);
+  if (curNorm.length < 12) return hits;
+
+  // Sliding windows of 8–16 chars (Korean-friendly, no word split required)
+  const windows = new Set();
+  for (let len = 10; len <= 18; len += 2) {
+    for (let i = 0; i + len <= curNorm.length; i += Math.max(2, Math.floor(len / 3))) {
+      const w = curNorm.slice(i, i + len).trim();
+      if (w.length < 10) continue;
+      // Skip pure punctuation/numbers
+      if (!/[가-힣a-z]/i.test(w)) continue;
+      windows.add(w);
+    }
+  }
+
+  const curSentences = String(currentPlain || "")
+    .split(/(?<=[.!?…。！？\n])\s+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 12)
+    .slice(0, 80);
+
+  for (const nb of neighbors) {
+    const nbPlain = String(nb.content || "");
+    const nbNorm = normalizeDupText(nbPlain);
+    if (!nbNorm) continue;
+    const where = `${nb.index || "?"}화 · ${nb.title || "회차"}`;
+
+    for (const w of windows) {
+      if (!nbNorm.includes(w)) continue;
+      const key = `p:${w}:${where}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      hits.push({ kind: "표현", phrase: w, where });
+      if (hits.length >= 36) return hits;
+    }
+
+    // Sentence-ish overlap: long shared substrings
+    for (const sent of curSentences) {
+      const sn = normalizeDupText(sent);
+      if (sn.length < 14) continue;
+      // Check if a substantial middle chunk of the sentence appears in neighbor
+      const midLen = Math.min(28, Math.max(14, Math.floor(sn.length * 0.55)));
+      const mid = sn.slice(0, midLen);
+      if (mid.length >= 14 && nbNorm.includes(mid)) {
+        const key = `s:${mid}:${where}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        hits.push({
+          kind: "내용",
+          phrase: sent.slice(0, 80) + (sent.length > 80 ? "…" : ""),
+          where,
+        });
+        if (hits.length >= 36) return hits;
+      }
+    }
+  }
+  return hits;
+}
+
+/**
+ * Duplicate check: compare current episode with ±5 neighbors for
+ * repeated expressions and similar content (wording may differ).
+ */
+async function runDuplicateCheck() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("체크할 원고(씬)를 먼저 열어 주세요.");
+    return;
+  }
+  const sceneContent = getEditorContent() || "";
+  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  if (!scenePlain) {
+    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요.");
+    return;
+  }
+
+  const sequence = getEpisodeSequence();
+  const idx = findEpisodeIndex(state.sceneId, sequence);
+  if (idx < 0) {
+    toast("목차에서 현재 회차 위치를 찾지 못했어요.");
+    return;
+  }
+
+  const range = [];
+  for (let d = -5; d <= 5; d += 1) {
+    if (d === 0) continue;
+    const ep = sequence[idx + d];
+    if (ep) range.push(ep);
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "dupcheck";
+  updateForeshadowPanelVisibility();
+
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "중복 체크 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "중복 체크 중…";
+  }
+  if ($("aiResult")) {
+    $("aiResult").value = range.length
+      ? `앞뒤 ${range.length}개 회차와 비교하는 중…`
+      : "인근 회차가 없어 현재 회차만 검토합니다…";
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    // Load neighbor manuscript texts (skip current; use live editor for current)
+    const neighbors = [];
+    await Promise.all(range.map(async (ep) => {
+      try {
+        const detail = await api(`/api/scenes/${ep.sceneId}`);
+        const raw = detail?.content_md || "";
+        const plain = (looksLikeHtml(raw) ? plainTextFromHtml(raw) : String(raw || "")).trim();
+        if (!plain) return;
+        neighbors.push({
+          sceneId: ep.sceneId,
+          index: ep.index,
+          title: ep.label || ep.shortLabel || detail?.title || `${ep.index}화`,
+          content: plain.slice(0, 8000),
+        });
+      } catch (_) {
+        /* skip missing scene */
+      }
+    }));
+    // Stable order by episode index
+    neighbors.sort((a, b) => Number(a.index) - Number(b.index));
+
+    const localHits = collectLocalDuplicateHits(scenePlain, neighbors);
+    const project = state.projects.find((item) => item.id === state.projectId);
+    const mainGenre = state.mainGenre || project?.main_genre || "";
+    const subGenre = state.subGenre || project?.sub_genre || "";
+
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "dupcheck",
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+        scene_content: sceneContent,
+        neighbor_scenes: neighbors,
+        local_hits: localHits,
+        prompt: "",
+      }),
+    });
+
+    let text = result.text || "(결과 없음)";
+    if (localHits.length) {
+      const preview = localHits.slice(0, 8).map((h) =>
+        `· [${h.kind}] 「${h.phrase}」 — ${h.where}`
+      ).join("\n");
+      text = `📋 자동 탐지 후보 ${localHits.length}건 (일부)\n${preview}\n\n---\n\n${text}`;
+    } else if (!neighbors.length) {
+      text = `ℹ️ 비교할 앞뒤 회차가 없습니다. (현재 회차만 검토)\n\n${text}`;
+    }
+
+    if ($("aiResult")) $("aiResult").value = text;
+    $("aiResultWrap")?.classList.remove("hidden");
+    if (isAiResultModalOpen()) syncAiResultModalBody();
+    toast(neighbors.length
+      ? `중복 체크 완료 · 인근 ${neighbors.length}회차 비교`
+      : "중복 체크 완료 · 인근 회차 없음");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/** World lore scan: compare worldbuilding settings vs current manuscript. */
+async function runWorldScan() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("스캔할 원고(씬)를 먼저 열어 주세요.");
+    return;
+  }
+  const worldRaw = state.worldbuildingMd
+    || $("projectWorldbuilding")?.value
+    || "";
+  const worldText = (looksLikeHtml(worldRaw) ? plainTextFromHtml(worldRaw) : String(worldRaw || "")).trim();
+  if (!worldText) {
+    toast("설정집 · 세계관이 비어 있어요. 세계관을 먼저 적어 주세요.");
+    setActiveBinder("settings");
+    state.openSettingsSection = "world";
+    applySettingsSectionState();
+    return;
+  }
+  const sceneContent = getEditorContent() || "";
+  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  if (!scenePlain) {
+    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 스캔해 주세요.");
+    return;
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "worldscan";
+  updateForeshadowPanelVisibility();
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "스캔 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "세계관 수호자 스캔 중…";
+  }
+  if ($("aiResult")) $("aiResult").value = "세계관·장르·캐릭터 프로필과 원고를 대조하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const lore = buildLoreKeeperPayload({
+      worldText,
+      sceneContent,
+      mainGenre,
+      subGenre,
+    });
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "worldscan",
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+        scene_content: sceneContent,
+        prompt: "",
+        ...lore,
+      }),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    $("aiResultWrap")?.classList.remove("hidden");
+    if (isAiResultModalOpen()) syncAiResultModalBody();
+    toast("세계관 수호자 스캔이 끝났어요. 오른쪽 패널에서 결과를 확인하세요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/**
+ * Live project context for Dynamic Context Overriding (all Tory AI modes).
+ * Sends genre / world / characters so the model never relies on genre stereotypes.
+ */
+function buildToryProjectContextPayload(options = {}) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = options.mainGenre || state.mainGenre || project?.main_genre || "";
+  const subGenre = options.subGenre || state.subGenre || project?.sub_genre || "";
+  const keywords = normalizeKeywordList(state.keywords || project?.keywords || []);
+
+  let worldText = options.worldText;
+  if (worldText == null) {
+    const worldRaw = state.worldbuildingMd || $("projectWorldbuilding")?.value || "";
+    worldText = looksLikeHtml(worldRaw) ? plainTextFromHtml(worldRaw) : String(worldRaw || "");
+  }
+  worldText = String(worldText || "").trim().slice(0, 6000);
+
+  const characterProfiles = {};
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  for (const ch of chars.slice(0, 40)) {
+    const name = String(ch.name || "").trim() || `인물#${ch.id || "?"}`;
+    const parts = [];
+    if (ch.role) {
+      const roleMap = {
+        protagonist: "주인공",
+        antagonist: "대립 인물",
+        supporting: "조연",
+        minor: "단역",
+      };
+      parts.push(roleMap[ch.role] || ch.role);
+    }
+    if (ch.short_description) parts.push(String(ch.short_description).trim());
+    if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
+      const full = state.character.character;
+      if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
+      if (full.strengths_md) parts.push(`강점: ${String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+      if (full.weaknesses_md) parts.push(`약점: ${String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+    } else {
+      if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
+      if (ch.strengths_md) parts.push(`강점: ${String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+      if (ch.weaknesses_md) parts.push(`약점: ${String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+    }
+    characterProfiles[name] = parts.filter(Boolean).join(" · ") || "설정 미기입";
+  }
+
+  const project_genre_main = mainGenreLabel(mainGenre);
+  const project_genre_sub = subGenreLabel(mainGenre, subGenre);
+  const world_setting_keywords = keywords.slice(0, 20).join(", ");
+  // Contract shape expected by Dynamic Context Overriding:
+  // { system_instruction_vars: { project_genre_main, project_genre_sub, ... }, user_prompt }
+  const system_instruction_vars = {
+    project_genre_main,
+    project_genre_sub,
+    world_setting_keywords,
+    character_profiles: characterProfiles,
+    world_setting: worldText,
+  };
+  return {
+    system_instruction_vars,
+    world_setting: worldText,
+    world_setting_text: worldText,
+    character_profiles: characterProfiles,
+    project_genre_main,
+    project_genre_sub,
+    world_setting_keywords,
+  };
+}
+
+/**
+ * Lore Keeper input contract for worldscan:
+ * {
+ *   world_setting, genre_rules, character_profiles,
+ *   sensitivity_level (1–5, default 4), target_text
+ * }
+ */
+function buildLoreKeeperPayload(options = {}) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = options.mainGenre || state.mainGenre || project?.main_genre || "";
+  const subGenre = options.subGenre || state.subGenre || project?.sub_genre || "";
+  const mainLabel = mainGenreLabel(mainGenre);
+  const subLabel = subGenreLabel(mainGenre, subGenre);
+  const keywords = normalizeKeywordList(state.keywords || project?.keywords || []);
+
+  let worldText = options.worldText;
+  if (worldText == null) {
+    const worldRaw = state.worldbuildingMd || $("projectWorldbuilding")?.value || "";
+    worldText = looksLikeHtml(worldRaw) ? plainTextFromHtml(worldRaw) : String(worldRaw || "");
+  }
+  worldText = String(worldText || "").trim();
+
+  let sceneContent = options.sceneContent;
+  if (sceneContent == null) {
+    sceneContent = state.sceneId ? getEditorContent() : "";
+  }
+  const targetText = (
+    looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : String(sceneContent || "")
+  ).trim();
+
+  const genreBits = [];
+  if (mainLabel && mainLabel !== "미정") genreBits.push(mainLabel);
+  if (subLabel && subLabel !== "미정") genreBits.push(subLabel);
+  if (keywords.length) genreBits.push(`키워드: ${keywords.slice(0, 12).join(", ")}`);
+  // Optional freeform tone note from AI prompt field
+  const extraTone = String($("aiPrompt")?.value || "").trim();
+  const genreRules = genreBits.length
+    ? genreBits.join(" / ") + (extraTone ? ` · 작가 메모: ${extraTone.slice(0, 200)}` : "")
+    : (extraTone || "장르 미정 — 원고 톤을 스스로 추정하되, 과한 장르 이탈은 경고");
+
+  const characterProfiles = {};
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  for (const ch of chars.slice(0, 40)) {
+    const name = String(ch.name || "").trim() || `인물#${ch.id || "?"}`;
+    const parts = [];
+    if (ch.role) {
+      const roleMap = {
+        protagonist: "주인공",
+        antagonist: "대립 인물",
+        supporting: "조연",
+        minor: "단역",
+      };
+      parts.push(roleMap[ch.role] || ch.role);
+    }
+    if (ch.short_description) parts.push(String(ch.short_description).trim());
+    // Detail fields may only exist after openCharacter — try list fields + open editor state
+    if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
+      const full = state.character.character;
+      if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
+      if (full.strengths_md) parts.push(`강점: ${String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+      if (full.weaknesses_md) parts.push(`약점: ${String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+    } else {
+      if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
+      if (ch.strengths_md) parts.push(`강점: ${String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+      if (ch.weaknesses_md) parts.push(`약점: ${String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+    }
+    characterProfiles[name] = parts.filter(Boolean).join(" · ") || "설정 미기입";
+  }
+
+  // Prefer a slightly higher bar by default (strict lore + tone), matching sample sensitivity 4
+  let sensitivity = 4;
+  try {
+    const raw = localStorage.getItem("supertory.loreSensitivity");
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 1 && n <= 5) sensitivity = Math.round(n);
+  } catch (_) {
+    /* ignore */
+  }
+
+  return {
+    world_setting: worldText,
+    world_setting_text: worldText,
+    genre_rules: genreRules,
+    character_profiles: characterProfiles,
+    sensitivity_level: sensitivity,
+    target_text: targetText,
+    lore_payload: {
+      world_setting: worldText,
+      genre_rules: genreRules,
+      character_profiles: characterProfiles,
+      sensitivity_level: sensitivity,
+      target_text: targetText,
+    },
+  };
+}
+
+const FORESHADOW_STORAGE_PREFIX = "supertory.foreshadows.";
+
+function foreshadowStorageKey(projectId = state.projectId) {
+  return `${FORESHADOW_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadForeshadows() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(foreshadowStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((item) => item && item.id && item.title) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveForeshadows(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(foreshadowStorageKey(), JSON.stringify(list));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function parseBuildupLines(text) {
+  return String(text || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+function renderForeshadowSelect(selectedId = "") {
+  const select = $("foreshadowSelect");
+  if (!select) return;
+  const list = loadForeshadows();
+  const options = [
+    `<option value="">복선을 선택하거나 아래에서 추가</option>`,
+    ...list.map((item) => {
+      const label = `${item.title}${item.target ? ` → ${item.target}` : ""}`;
+      const sel = item.id === selectedId ? " selected" : "";
+      return `<option value="${escapeHtml(item.id)}"${sel}>${escapeHtml(label)}</option>`;
+    }),
+  ];
+  select.innerHTML = options.join("");
+}
+
+function fillForeshadowForm(item) {
+  if ($("foreshadowTitle")) $("foreshadowTitle").value = item?.title || "";
+  if ($("foreshadowTarget")) $("foreshadowTarget").value = item?.target || "";
+  if ($("foreshadowBuildup")) {
+    $("foreshadowBuildup").value = Array.isArray(item?.buildup) ? item.buildup.join("\n") : "";
+  }
+}
+
+function getForeshadowFormData() {
+  return {
+    title: ($("foreshadowTitle")?.value || "").trim(),
+    target: ($("foreshadowTarget")?.value || "").trim(),
+    buildup: parseBuildupLines($("foreshadowBuildup")?.value || ""),
+  };
+}
+
+function isForeshadowToolMode(mode = $("aiMode")?.value || "") {
+  return mode === "foreshadow" || mode === "plottwist";
+}
+
+function getContinueLengthMode() {
+  const checked = document.querySelector('input[name="continueLengthMode"]:checked');
+  const raw = String(checked?.value || "short").trim().toLowerCase();
+  return raw === "scene" || raw === "proportional" ? raw : "short";
+}
+
+function getContinueUserHint() {
+  return String($("continueHint")?.value || "").trim();
+}
+
+function updateContinuePanelVisibility() {
+  const mode = $("aiMode")?.value || "";
+  const panel = $("continuePanel");
+  const promptWrap = $("aiPromptWrap");
+  const show = mode === "continue";
+  panel?.classList.toggle("hidden", !show);
+  // Continue uses dedicated hint field; hide generic extra-request box to avoid duplication.
+  promptWrap?.classList.toggle("hidden", show);
+}
+
+function updateForeshadowPanelVisibility() {
+  const mode = $("aiMode")?.value || "";
+  const panel = $("foreshadowPanel");
+  if (!panel) return;
+  const show = isForeshadowToolMode(mode);
+  panel.classList.toggle("hidden", !show);
+
+  const titleEl = $("foreshadowPanelTitle");
+  const hintEl = $("foreshadowPanelHint");
+  const modeHint = $("foreshadowModeHint");
+  const prompt = $("aiPrompt");
+
+  if (mode === "foreshadow") {
+    if (titleEl) titleEl.textContent = "복선/떡밥 레이더";
+    if (hintEl) hintEl.textContent = "등록 단서가 현재 원고에 잘 녹아 있는지, 미회수 떡밥을 짚습니다.";
+    if (modeHint) {
+      modeHint.textContent = "현재 열린 원고에 단서가 반영됐는지 검사합니다. 단서를 심은 장·반전 전 원고를 열고 실행하세요.";
+    }
+    if (prompt) {
+      prompt.placeholder = "추가 요청 (선택) 예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.";
+    }
+  } else if (mode === "plottwist") {
+    if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
+    if (hintEl) hintEl.textContent = "반전 장 원고가 쌓아 온 복선으로 충분히 지지되는지 냉정히 평가합니다.";
+    if (modeHint) {
+      modeHint.textContent = "반전이 터지는 장의 원고를 연 뒤 실행하세요. 등록 빌드업과 비교해 개연성을 검사합니다.";
+    }
+    if (prompt) {
+      prompt.placeholder = "추가 요청 (선택) 예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.";
+    }
+  } else if (prompt) {
+    prompt.placeholder = "예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘.";
+  }
+
+  if (show) renderForeshadowSelect($("foreshadowSelect")?.value || "");
+  updateContinuePanelVisibility();
+}
+
+function saveForeshadowFromForm() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const data = getForeshadowFormData();
+  if (!data.title) return toast("복선 제목을 적어 주세요.");
+  if (!data.target) return toast("반전 목표 장(예: 12장)을 적어 주세요.");
+  if (!data.buildup.length) return toast("빌드업 단계를 한 줄 이상 적어 주세요.");
+
+  const list = loadForeshadows();
+  const selectedId = $("foreshadowSelect")?.value || "";
+  let item = list.find((f) => f.id === selectedId);
+  if (item) {
+    item.title = data.title;
+    item.target = data.target;
+    item.buildup = data.buildup;
+  } else {
+    item = {
+      id: `fs-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+      title: data.title,
+      target: data.target,
+      buildup: data.buildup,
+    };
+    list.push(item);
+  }
+  saveForeshadows(list);
+  renderForeshadowSelect(item.id);
+  toast(`복선 「${item.title}」을(를) 저장했어요.`);
+  return item;
+}
+
+function deleteSelectedForeshadow() {
+  const selectedId = $("foreshadowSelect")?.value || "";
+  if (!selectedId) return toast("삭제할 복선을 먼저 선택해 주세요.");
+  const list = loadForeshadows();
+  const item = list.find((f) => f.id === selectedId);
+  if (!item) return;
+  if (!window.confirm(`복선 「${item.title}」을(를) 삭제할까요?`)) return;
+  saveForeshadows(list.filter((f) => f.id !== selectedId));
+  renderForeshadowSelect("");
+  fillForeshadowForm(null);
+  toast("복선을 삭제했어요.");
+}
+
+function getSelectedForeshadow() {
+  const selectedId = $("foreshadowSelect")?.value || "";
+  if (selectedId) {
+    const found = loadForeshadows().find((f) => f.id === selectedId);
+    if (found) return found;
+  }
+  // Fall back to form contents (unsaved draft).
+  const data = getForeshadowFormData();
+  if (data.title && data.target && data.buildup.length) {
+    return { id: "", ...data };
+  }
+  return null;
+}
+
+function setupForeshadowPanel() {
+  $("aiMode")?.addEventListener("change", updateForeshadowPanelVisibility);
+  $("foreshadowSelect")?.addEventListener("change", () => {
+    const id = $("foreshadowSelect")?.value || "";
+    const item = loadForeshadows().find((f) => f.id === id);
+    fillForeshadowForm(item || null);
+  });
+  $("foreshadowSaveButton")?.addEventListener("click", () => {
+    saveForeshadowFromForm();
+  });
+  $("foreshadowDeleteButton")?.addEventListener("click", () => {
+    deleteSelectedForeshadow();
+  });
+  updateForeshadowPanelVisibility();
+}
+
+async function submitAiAssist(event) {
+  event.preventDefault();
+  const mode = $("aiMode").value;
+  const prompt = mode === "continue"
+    ? getContinueUserHint()
+    : $("aiPrompt").value.trim();
+  if (mode === "free" && !prompt) {
+    toast("직접 요청하기는 내용을 적어 주세요.");
+    return;
+  }
+  // If TORY focus is set to another scene, open it so content matches.
+  if (state.toryFocusSceneId && state.sceneId !== state.toryFocusSceneId) {
+    try {
+      await openScene(state.toryFocusSceneId);
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  }
+
+  let foreshadow = null;
+  if (isForeshadowToolMode(mode)) {
+    // Persist form before review so the selection stays.
+    const formData = getForeshadowFormData();
+    if (formData.title && formData.target && formData.buildup.length) {
+      foreshadow = saveForeshadowFromForm() || getSelectedForeshadow();
+    } else {
+      foreshadow = getSelectedForeshadow();
+    }
+    if (!foreshadow) {
+      toast("복선 제목·목표 장·빌드업(단서)을 입력하거나 저장된 복선을 선택해 주세요.");
+      return;
+    }
+    if (!state.sceneId) {
+      toast(
+        mode === "plottwist"
+          ? "반전이 일어나는 장의 원고를 먼저 열어 주세요."
+          : "검수할 원고를 먼저 열어 주세요."
+      );
+      return;
+    }
+  }
+
+  if (mode === "continue" && !state.sceneId) {
+    toast("이어 쓰려면 먼저 씬을 열어 주세요.");
+    return;
+  }
+
+  const continueLengthMode = mode === "continue" ? getContinueLengthMode() : null;
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const body = {
+    mode,
+    prompt,
+    user_prompt: prompt,
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+    scene_title: state.scene?.title || $("sceneTitle")?.value || state.toryFocusSceneTitle || "",
+    scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+    scene_content: state.sceneId ? getEditorContent() : "",
+    focus_scene_only: Boolean(state.toryFocusSceneId),
+    tory_focus: Boolean(state.toryFocusSceneId),
+    focus_scene_id: state.toryFocusSceneId || state.sceneId || null,
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+  };
+  if (mode === "continue") {
+    body.length_mode = continueLengthMode;
+    body.continue_length_mode = continueLengthMode;
+    body.user_hint = prompt;
+  }
+  // Dynamic context override: always inject live project genre / world / characters
+  Object.assign(body, buildToryProjectContextPayload());
+  if (mode === "worldscan") {
+    Object.assign(body, buildLoreKeeperPayload());
+  }
+  if (foreshadow) {
+    body.foreshadow = {
+      title: foreshadow.title,
+      target: foreshadow.target,
+      buildup: foreshadow.buildup || [],
+    };
+  }
+  const button = $("aiSubmitButton");
+  button.disabled = true;
+  button.textContent = mode === "foreshadow"
+    ? "떡밥 레이더 가동 중…"
+    : mode === "plottwist"
+      ? "반전 개연성 검사 중…"
+      : mode === "worldscan"
+        ? "세계관 수호자 스캔 중…"
+        : mode === "dupcheck"
+          ? "중복 체크 중…"
+          : mode === "continue"
+            ? "이어서 쓰는 중…"
+            : "생각 중…";
+  try {
+    // Panel-driven dupcheck: attach ±5 neighbors when user picks mode from AI form
+    if (mode === "dupcheck" && !body.neighbor_scenes) {
+      const sequence = getEpisodeSequence();
+      const idx = findEpisodeIndex(state.sceneId, sequence);
+      const range = [];
+      if (idx >= 0) {
+        for (let d = -5; d <= 5; d += 1) {
+          if (d === 0) continue;
+          const ep = sequence[idx + d];
+          if (ep) range.push(ep);
+        }
+      }
+      const neighbors = [];
+      await Promise.all(range.map(async (ep) => {
+        try {
+          const detail = await api(`/api/scenes/${ep.sceneId}`);
+          const raw = detail?.content_md || "";
+          const plain = (looksLikeHtml(raw) ? plainTextFromHtml(raw) : String(raw || "")).trim();
+          if (!plain) return;
+          neighbors.push({
+            sceneId: ep.sceneId,
+            index: ep.index,
+            title: ep.label || ep.shortLabel || detail?.title || `${ep.index}화`,
+            content: plain.slice(0, 8000),
+          });
+        } catch (_) { /* skip */ }
+      }));
+      neighbors.sort((a, b) => Number(a.index) - Number(b.index));
+      body.neighbor_scenes = neighbors;
+      const plainCur = (looksLikeHtml(body.scene_content) ? plainTextFromHtml(body.scene_content) : String(body.scene_content || "")).trim();
+      body.local_hits = collectLocalDuplicateHits(plainCur, neighbors);
+    }
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    $("aiResult").value = result.text || "";
+    $("aiResultWrap").classList.remove("hidden");
+    if (isAiResultModalOpen()) syncAiResultModalBody();
+    toast(
+      mode === "foreshadow"
+        ? "복선/떡밥 레이더 검수가 끝났어요."
+        : mode === "plottwist"
+          ? "반전 & 개연성 검사가 끝났어요."
+          : mode === "worldscan"
+            ? "세계관 수호자 스캔이 끝났어요."
+          : mode === "continue"
+            ? "이어서 쓴 초안을 받았어요."
+          : state.toryFocusSceneId
+            ? "토리 집중 분석 응답을 받았어요."
+            : "AI 응답을 받았어요."
+    );
+  } catch (error) {
+    handleError(error);
+  } finally {
+    button.disabled = false;
+    button.textContent = "토리에게 물어보기";
+  }
+}
+
+function insertAiResultIntoEditor() {
+  const text = $("aiResult").value.trim();
+  if (!text) return toast("넣을 결과가 없어요.");
+  if (!state.sceneId) {
+    toast("원고에 넣으려면 먼저 씬을 열어 주세요. 복사 버튼을 써도 됩니다.");
+    return;
+  }
+  const editor = $("sceneContent");
+  if (!editor) return;
+  editor.focus();
+  const plain = getEditorPlainText();
+  const needsBreak = plain && !plain.endsWith("\n");
+  const chunk = (needsBreak ? "\n\n" : "") + text;
+  // Prefer insert at caret; fall back to append.
+  const selection = window.getSelection();
+  let inserted = false;
+  if (selection && selection.rangeCount > 0) {
+    const range = selection.getRangeAt(0);
+    if (editor.contains(range.commonAncestorContainer)) {
+      range.deleteContents();
+      const node = document.createTextNode(chunk);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      inserted = true;
+    }
+  }
+  if (!inserted) {
+    const html = escapeHtml(chunk).replace(/\r\n|\r|\n/g, "<br>");
+    editor.innerHTML = (editor.innerHTML || "") + (editor.innerHTML ? "<br><br>" : "") + html;
+  }
+  updateEditorPlaceholder();
+  updateSceneStats();
+  markSceneDirty();
+  toast("원고에 넣었어요. 자동 저장됩니다.");
+}
+
+async function copyAiResult() {
+  const text = $("aiResult").value;
+  if (!text) return;
+  try {
+    await navigator.clipboard.writeText(text);
+    toast("결과를 복사했어요.");
+  } catch (_) {
+    $("aiResult").select();
+    document.execCommand("copy");
+    toast("결과를 복사했어요.");
+  }
+}
+
+function isAiResultModalOpen() {
+  const modal = $("aiResultModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
+function syncAiResultModalBody() {
+  const body = $("aiResultModalBody");
+  if (!body) return;
+  const text = String($("aiResult")?.value || "");
+  body.textContent = text || "(결과가 비어 있어요.)";
+}
+
+function openAiResultModal() {
+  const text = String($("aiResult")?.value || "").trim();
+  if (!text) {
+    toast("크게 볼 결과가 없어요. 먼저 분석을 실행해 주세요.");
+    return;
+  }
+  const modal = $("aiResultModal");
+  if (!modal) return;
+  syncAiResultModalBody();
+  modal.classList.remove("hidden");
+  // Focus readable body for keyboard scroll / a11y
+  requestAnimationFrame(() => {
+    $("aiResultModalBody")?.focus?.();
+  });
+}
+
+function closeAiResultModal() {
+  $("aiResultModal")?.classList.add("hidden");
+}
+
+function setupAiResultModal() {
+  const modal = $("aiResultModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+
+  $("aiResultExpandButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openAiResultModal();
+  });
+
+  modal.querySelectorAll("[data-close-ai-result]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeAiResultModal();
+    });
+  });
+
+  $("aiResultModalCopyButton")?.addEventListener("click", () => {
+    copyAiResult().catch(handleError);
+  });
+  $("aiResultModalCollectButton")?.addEventListener("click", () => {
+    collectToToryVault({ text: $("aiResult")?.value || "" });
+  });
+  $("aiResultModalInsertButton")?.addEventListener("click", () => {
+    insertAiResultIntoEditor();
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isAiResultModalOpen()) {
+      event.preventDefault();
+      closeAiResultModal();
+    }
+  });
+}
+
+function setupAiAssist() {
+  $("aiForm")?.addEventListener("submit", (event) => submitAiAssist(event).catch(handleError));
+  $("aiInsertButton")?.addEventListener("click", insertAiResultIntoEditor);
+  $("aiCopyButton")?.addEventListener("click", () => copyAiResult().catch(handleError));
+  $("aiCollectResultButton")?.addEventListener("click", () => {
+    collectToToryVault({ text: $("aiResult")?.value || "" });
+  });
+  $("clearToryFocusButton")?.addEventListener("click", () => clearToryFocus());
+  setupAiResultModal();
+  setupForeshadowPanel();
+  setupToryChat();
+  setupToryNotifyCenter();
+  updateToryFocusUi();
+  refreshAiStatus().catch(handleError);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   토리 1:1 대화 + 오른쪽 하단 알림 센터
+   ═══════════════════════════════════════════════════════════ */
+const TORY_CHAT_STORAGE_PREFIX = "supertory.toryChat.";
+const TORY_CHAT_ARCHIVE_PREFIX = "supertory.toryChatArchive.";
+const TORY_NOTIFY_STORAGE_PREFIX = "supertory.toryNotifs.";
+const TORY_CHAT_MAX_MESSAGES = 80;
+const TORY_CHAT_ARCHIVE_MAX = 40;
+let toryChatSending = false;
+let toryChatHistoryViewId = null;
+
+let toryChatPopupOpen = false;
+
+function setAiPanelTab(tab, { skipPopupClose = false } = {}) {
+  const next = tab === "chat" ? "chat" : "tools";
+  const toolsView = $("aiToolsView");
+  const chatView = $("aiChatView");
+  const toolsTab = $("aiTabTools");
+  const chatTab = $("aiTabChat");
+  const isChat = next === "chat";
+
+  // Panel chat: ensure chat UI lives in the side panel (not floating popup)
+  if (isChat && toryChatPopupOpen && !skipPopupClose) {
+    closeToryChatPopup({ restorePanelTab: false });
+  }
+  if (isChat) {
+    restoreToryChatToPanel();
+  }
+
+  toolsView?.classList.toggle("hidden", isChat);
+  chatView?.classList.toggle("hidden", !isChat);
+  if (toolsView) toolsView.hidden = isChat;
+  if (chatView) chatView.hidden = !isChat;
+  toolsTab?.classList.toggle("is-active", !isChat);
+  chatTab?.classList.toggle("is-active", isChat || toryChatPopupOpen);
+  if (toolsTab) toolsTab.setAttribute("aria-selected", isChat ? "false" : "true");
+  if (chatTab) chatTab.setAttribute("aria-selected", isChat || toryChatPopupOpen ? "true" : "false");
+  if (isChat) {
+    renderToryChatMessages();
+    requestAnimationFrame(() => $("toryChatInput")?.focus());
+  }
+}
+
+function restoreToryChatToPanel() {
+  const chat = $("aiChatView");
+  const body = document.querySelector("#aiPanel .ai-panel-body");
+  if (!chat || !body) return;
+  if (chat.parentElement === body) return;
+  body.appendChild(chat);
+}
+
+function openToryChatPopup(options = {}) {
+  const popup = $("toryChatPopup");
+  const host = $("toryChatPopupBody");
+  const chat = $("aiChatView");
+  if (!popup || !host || !chat) return;
+
+  // Side panel stays on tools while chat floats
+  setAiPanelTab("tools", { skipPopupClose: true });
+  host.appendChild(chat);
+  chat.classList.remove("hidden");
+  chat.hidden = false;
+  popup.classList.remove("hidden");
+  popup.hidden = false;
+  toryChatPopupOpen = true;
+  $("aiTabChat")?.classList.add("is-active");
+  $("aiTabChat")?.setAttribute("aria-selected", "true");
+  // In popup, hide "팝업창 보기" (already there) — optional visual: keep for re-open after close
+  $("toryChatPopupOpenButton")?.classList.add("hidden");
+
+  // Default size/position if not yet set
+  if (!popup.style.width) {
+    popup.style.width = `${Math.min(420, window.innerWidth - 32)}px`;
+  }
+  if (!popup.style.height) {
+    popup.style.height = `${Math.min(Math.round(window.innerHeight * 0.62), 560)}px`;
+  }
+  if (!popup.style.left && !popup.style.right) {
+    popup.style.right = "24px";
+    popup.style.top = "72px";
+    popup.style.left = "auto";
+  }
+
+  const input = $("toryChatInput");
+  if (options.prefill != null && input) {
+    const text = String(options.prefill).slice(0, 4000);
+    input.value = text;
+    const caret = Number.isFinite(options.caret)
+      ? Math.max(0, Math.min(text.length, options.caret))
+      : text.length;
+    requestAnimationFrame(() => {
+      try {
+        input.focus();
+        input.setSelectionRange(caret, caret);
+      } catch (_) {
+        input.focus();
+      }
+    });
+  } else {
+    requestAnimationFrame(() => input?.focus());
+  }
+
+  renderToryChatMessages();
+  if (!options.silent) {
+    toast(
+      options.prefill
+        ? "선택 문장을 질문칸에 넣었어요. 다듬은 뒤 보내기를 눌러 주세요."
+        : "토리 대화를 팝업으로 열었어요. 모서리로 크기를 조절할 수 있어요.",
+    );
+  }
+}
+
+/**
+ * Manuscript selection → 1:1 chat popup with quote prefilled (do not auto-send).
+ */
+function askToryFromSelection() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
+  if (!raw) {
+    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  // Quote in the question box; leave room below so the author can add a question before send.
+  const quote = raw.replace(/\s+\n/g, "\n").trim().slice(0, 3500);
+  const prefill = `「${quote}」\n\n`;
+  openToryChatPopup({ prefill, caret: prefill.length });
+}
+
+function closeToryChatPopup({ restorePanelTab = true } = {}) {
+  const popup = $("toryChatPopup");
+  if (!popup) return;
+  toryChatPopupOpen = false;
+  restoreToryChatToPanel();
+  $("toryChatPopupOpenButton")?.classList.remove("hidden");
+  popup.classList.add("hidden");
+  popup.hidden = true;
+  if (restorePanelTab) {
+    // Return chat view to panel so user can continue there
+    setAiPanelTab("chat", { skipPopupClose: true });
+  }
+}
+
+function setupToryChatPopupChrome() {
+  const popup = $("toryChatPopup");
+  const dragBar = $("toryChatPopupDrag");
+  const resizeHandle = $("toryChatPopupResize");
+  if (!popup) return;
+
+  let drag = null;
+  let resize = null;
+  const MIN_W = 300;
+  const MIN_H = 280;
+
+  const lockGeom = () => {
+    const rect = popup.getBoundingClientRect();
+    popup.style.left = `${Math.round(rect.left)}px`;
+    popup.style.top = `${Math.round(rect.top)}px`;
+    popup.style.right = "auto";
+    popup.style.bottom = "auto";
+    popup.style.width = `${Math.round(rect.width)}px`;
+    popup.style.height = `${Math.round(rect.height)}px`;
+    return rect;
+  };
+
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockGeom();
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("tory-chat-popup-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+
+  resizeHandle?.addEventListener("pointerdown", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = lockGeom();
+    resize = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startW: rect.width,
+      startH: rect.height,
+      pointerId: event.pointerId,
+    };
+    try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  });
+
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = popup.getBoundingClientRect().width || MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      popup.style.left = `${Math.round(left)}px`;
+      popup.style.top = `${Math.round(top)}px`;
+      popup.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      const maxW = window.innerWidth - 16;
+      const maxH = window.innerHeight - 16;
+      const nextW = Math.min(maxW, Math.max(MIN_W, resize.startW + (event.clientX - resize.startX)));
+      const nextH = Math.min(maxH, Math.max(MIN_H, resize.startH + (event.clientY - resize.startY)));
+      popup.style.width = `${Math.round(nextW)}px`;
+      popup.style.height = `${Math.round(nextH)}px`;
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("tory-chat-popup-dragging");
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+    }
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+
+  $("toryChatPopupClose")?.addEventListener("click", () => {
+    closeToryChatPopup({ restorePanelTab: true });
+    toast("팝업 대화를 닫았어요.");
+  });
+}
+
+function toryChatStorageKey(projectId = state.projectId) {
+  return `${TORY_CHAT_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function toryChatArchiveKey(projectId = state.projectId) {
+  return `${TORY_CHAT_ARCHIVE_PREFIX}${projectId || "0"}`;
+}
+
+function loadToryChatHistory() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(toryChatStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((m) => m && (m.role === "user" || m.role === "tory") && String(m.content || m.contentHtml || "").trim())
+      .map((m) => ({
+        role: m.role === "user" ? "user" : "tory",
+        content: String(m.content || "").trim() || plainTextFromChatHtml(m.contentHtml || ""),
+        contentHtml: m.contentHtml ? String(m.contentHtml) : "",
+        at: m.at || "",
+      }))
+      .slice(-TORY_CHAT_MAX_MESSAGES);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveToryChatHistory(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(
+      toryChatStorageKey(),
+      JSON.stringify((list || []).slice(-TORY_CHAT_MAX_MESSAGES)),
+    );
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function plainTextFromChatHtml(html) {
+  if (!html) return "";
+  const div = document.createElement("div");
+  div.innerHTML = String(html);
+  return (div.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+/** Allow only marks / breaks inside chat bubble HTML. */
+function sanitizeToryChatHtml(html) {
+  const root = document.createElement("div");
+  root.innerHTML = String(html || "");
+  const walk = (node) => {
+    const kids = [...node.childNodes];
+    for (const child of kids) {
+      if (child.nodeType === Node.TEXT_NODE) continue;
+      if (child.nodeType !== Node.ELEMENT_NODE) {
+        child.remove();
+        continue;
+      }
+      const tag = child.tagName.toLowerCase();
+      if (tag === "br") continue;
+      if (tag === "mark" || (tag === "span" && child.classList.contains("tory-chat-hl"))) {
+        const bg = child.style?.backgroundColor || child.getAttribute("data-hl") || "";
+        child.removeAttribute("style");
+        child.removeAttribute("class");
+        child.className = "tory-chat-hl";
+        if (bg) child.style.backgroundColor = bg;
+        walk(child);
+        continue;
+      }
+      // unwrap unknown tags, keep text
+      while (child.firstChild) node.insertBefore(child.firstChild, child);
+      child.remove();
+    }
+  };
+  walk(root);
+  return root.innerHTML;
+}
+
+function loadToryChatArchives() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(toryChatArchiveKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((s) => s && s.id && Array.isArray(s.messages) && s.messages.length)
+      .map((s) => ({
+        id: String(s.id),
+        title: String(s.title || "이전 대화").trim() || "이전 대화",
+        messages: s.messages
+          .filter((m) => m && (m.role === "user" || m.role === "tory") && String(m.content || m.contentHtml || "").trim())
+          .map((m) => ({
+            role: m.role === "user" ? "user" : "tory",
+            content: String(m.content || "").trim() || plainTextFromChatHtml(m.contentHtml || ""),
+            contentHtml: m.contentHtml ? String(m.contentHtml) : "",
+            at: m.at || "",
+          })),
+        archivedAt: s.archivedAt || s.createdAt || "",
+        messageCount: Number(s.messageCount) || (s.messages || []).length,
+      }))
+      .slice(0, TORY_CHAT_ARCHIVE_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveToryChatArchives(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(
+      toryChatArchiveKey(),
+      JSON.stringify((list || []).slice(0, TORY_CHAT_ARCHIVE_MAX)),
+    );
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function titleFromToryChatMessages(messages) {
+  const firstUser = (messages || []).find((m) => m.role === "user" && m.content);
+  if (!firstUser) return "이전 대화";
+  const t = String(firstUser.content).replace(/\s+/g, " ").trim();
+  return t.length > 42 ? `${t.slice(0, 42)}…` : t;
+}
+
+/** Archive current chat (if any), then optionally clear. Returns archived session or null. */
+function archiveCurrentToryChat({ clearAfter = true } = {}) {
+  if (!state.projectId) return null;
+  const messages = loadToryChatHistory();
+  if (!messages.length) return null;
+  const session = {
+    id: `tch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    title: titleFromToryChatMessages(messages),
+    messages: messages.slice(),
+    archivedAt: new Date().toISOString(),
+    messageCount: messages.length,
+  };
+  const archives = loadToryChatArchives();
+  archives.unshift(session);
+  saveToryChatArchives(archives);
+  if (clearAfter) {
+    saveToryChatHistory([]);
+    renderToryChatMessages();
+  }
+  return session;
+}
+
+function formatToryChatArchiveWhen(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${y}.${m}.${day} ${hh}:${mm}`;
+  } catch (_) {
+    return "";
+  }
+}
+
+function showToryChatHistoryListView() {
+  toryChatHistoryViewId = null;
+  $("toryChatHistoryList")?.classList.remove("hidden");
+  $("toryChatHistoryListActions")?.classList.remove("hidden");
+  $("toryChatHistoryDetail")?.classList.add("hidden");
+  renderToryChatHistoryList();
+}
+
+function renderToryChatHistoryList() {
+  const list = $("toryChatHistoryList");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 대화 히스토리를 볼 수 있어요.</p>`;
+    return;
+  }
+  const archives = loadToryChatArchives();
+  if (!archives.length) {
+    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 대화가 없어요.<br>「대화 지우기」를 하면 여기에 남습니다.</p>`;
+    return;
+  }
+  list.innerHTML = archives.map((s) => {
+    const when = formatToryChatArchiveWhen(s.archivedAt);
+    const count = s.messageCount || s.messages.length;
+    return `
+      <button type="button" class="tory-chat-history-item" data-tory-chat-archive="${escapeHtml(s.id)}">
+        <strong>${escapeHtml(s.title)}</strong>
+        <span class="count">${count}개</span>
+        <span class="meta">${when ? `보관 ${escapeHtml(when)}` : "이전 대화"}</span>
+      </button>`;
+  }).join("");
+}
+
+function openToryChatHistoryDetail(archiveId) {
+  const session = loadToryChatArchives().find((s) => s.id === archiveId);
+  if (!session) {
+    toast("대화를 찾지 못했어요.");
+    showToryChatHistoryListView();
+    return;
+  }
+  toryChatHistoryViewId = session.id;
+  $("toryChatHistoryList")?.classList.add("hidden");
+  $("toryChatHistoryListActions")?.classList.add("hidden");
+  const detail = $("toryChatHistoryDetail");
+  detail?.classList.remove("hidden");
+  if ($("toryChatHistoryDetailTitle")) {
+    $("toryChatHistoryDetailTitle").textContent = session.title;
+  }
+  const box = $("toryChatHistoryDetailMessages");
+  if (box) {
+    box.innerHTML = session.messages.map((m) => {
+      const isUser = m.role === "user";
+      const who = isUser ? "나" : "토리";
+      const cls = isUser ? "is-user" : "is-tory";
+      const body = isUser
+        ? escapeHtml(m.content)
+        : (m.contentHtml
+          ? sanitizeToryChatHtml(m.contentHtml)
+          : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
+      return `<div class="tory-chat-bubble ${cls}"><span class="tory-chat-bubble-meta">${who}</span><div class="tory-chat-bubble-body">${body}</div></div>`;
+    }).join("");
+    box.scrollTop = 0;
+  }
+}
+
+function openToryChatHistoryModal() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const modal = $("toryChatHistoryModal");
+  if (!modal) return;
+  showToryChatHistoryListView();
+  modal.classList.remove("hidden");
+}
+
+function closeToryChatHistoryModal() {
+  $("toryChatHistoryModal")?.classList.add("hidden");
+  toryChatHistoryViewId = null;
+}
+
+function restoreToryChatArchive(archiveId) {
+  const session = loadToryChatArchives().find((s) => s.id === archiveId);
+  if (!session) return toast("대화를 찾지 못했어요.");
+  const current = loadToryChatHistory();
+  if (current.length) {
+    const ok = window.confirm(
+      "지금 진행 중인 대화가 있어요.\n현재 대화를 히스토리에 보관한 뒤, 선택한 대화를 불러올까요?",
+    );
+    if (!ok) return;
+    archiveCurrentToryChat({ clearAfter: true });
+  }
+  saveToryChatHistory(session.messages);
+  renderToryChatMessages();
+  closeToryChatHistoryModal();
+  // Ensure chat UI is visible
+  if (toryChatPopupOpen) {
+    requestAnimationFrame(() => $("toryChatInput")?.focus());
+  } else {
+    setAiPanelTab("chat");
+  }
+  toast("이전 대화를 불러왔어요. 이어서 이야기할 수 있어요.");
+}
+
+function deleteToryChatArchive(archiveId) {
+  const archives = loadToryChatArchives().filter((s) => s.id !== archiveId);
+  saveToryChatArchives(archives);
+  toast("히스토리에서 삭제했어요.");
+  showToryChatHistoryListView();
+}
+
+function setupToryChatHistoryUi() {
+  document.querySelectorAll("[data-close-tory-chat-history]").forEach((el) => {
+    el.addEventListener("click", closeToryChatHistoryModal);
+  });
+  $("toryChatHistoryBackButton")?.addEventListener("click", () => showToryChatHistoryListView());
+  $("toryChatHistoryList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-tory-chat-archive]");
+    if (!btn) return;
+    openToryChatHistoryDetail(btn.dataset.toryChatArchive);
+  });
+  $("toryChatHistoryRestoreButton")?.addEventListener("click", () => {
+    if (toryChatHistoryViewId) restoreToryChatArchive(toryChatHistoryViewId);
+  });
+  $("toryChatHistoryDeleteButton")?.addEventListener("click", () => {
+    if (!toryChatHistoryViewId) return;
+    if (!window.confirm("이 대화 기록을 완전히 삭제할까요?")) return;
+    deleteToryChatArchive(toryChatHistoryViewId);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("toryChatHistoryModal")?.classList.contains("hidden")) {
+      // If detail open, go back to list first
+      if (toryChatHistoryViewId && !$("toryChatHistoryDetail")?.classList.contains("hidden")) {
+        showToryChatHistoryListView();
+        return;
+      }
+      closeToryChatHistoryModal();
+    }
+  });
+}
+
+function renderToryChatMessages() {
+  const box = $("toryChatMessages");
+  if (!box) return;
+  const history = loadToryChatHistory();
+  if (!history.length) {
+    box.innerHTML = `<p class="tory-chat-empty">플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.</p>`;
+    return;
+  }
+  box.innerHTML = history.map((m, index) => {
+    const isUser = m.role === "user";
+    const who = isUser ? "나" : "토리";
+    const cls = isUser ? "is-user" : "is-tory";
+    const body = isUser
+      ? escapeHtml(m.content)
+      : (m.contentHtml
+        ? sanitizeToryChatHtml(m.contentHtml)
+        : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
+    return `<div class="tory-chat-bubble ${cls}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}"><span class="tory-chat-bubble-meta">${who}</span><div class="tory-chat-bubble-body">${body}</div></div>`;
+  }).join("");
+  box.scrollTop = box.scrollHeight;
+  syncToryChatHighlightBar();
+}
+
+/** Saved selection for palette (selection can drop on some browsers). */
+let toryChatSavedHighlight = null;
+
+function syncToryChatHighlightBar() {
+  const bar = $("toryChatHighlightBar");
+  if (!bar) return;
+  const color = (typeof formatColorState !== "undefined" && formatColorState.highlight)
+    || (typeof FORMAT_COLOR_DEFAULTS !== "undefined" && FORMAT_COLOR_DEFAULTS.highlight)
+    || "#f1c40f";
+  bar.style.background = color;
+}
+
+function getToryChatSelectionInfo() {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+  const range = sel.getRangeAt(0);
+  let node = range.commonAncestorContainer;
+  if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+  const bubble = node?.closest?.(".tory-chat-bubble.is-tory");
+  if (!bubble || !bubble.closest("#toryChatMessages")) return null;
+  const body = bubble.querySelector(".tory-chat-bubble-body");
+  if (!body) return null;
+  const startOk = body === range.startContainer || body.contains(range.startContainer);
+  const endOk = body === range.endContainer || body.contains(range.endContainer);
+  if (!startOk || !endOk) return null;
+  const index = Number(bubble.dataset.msgIndex);
+  if (!Number.isFinite(index)) return null;
+  return { range, bubble, body, index, text: sel.toString() };
+}
+
+function captureToryChatHighlightSelection() {
+  const info = getToryChatSelectionInfo();
+  if (!info) {
+    toryChatSavedHighlight = null;
+    return null;
+  }
+  try {
+    toryChatSavedHighlight = {
+      range: info.range.cloneRange(),
+      index: info.index,
+      body: info.body,
+      text: info.text,
+    };
+  } catch (_) {
+    toryChatSavedHighlight = { range: info.range, index: info.index, body: info.body, text: info.text };
+  }
+  return toryChatSavedHighlight;
+}
+
+function resolveToryChatHighlightInfo() {
+  const live = getToryChatSelectionInfo();
+  if (live) {
+    captureToryChatHighlightSelection();
+    return live;
+  }
+  const saved = toryChatSavedHighlight;
+  if (!saved?.range || !saved?.body || !document.contains(saved.body)) {
+    toryChatSavedHighlight = null;
+    return null;
+  }
+  return {
+    range: saved.range,
+    bubble: saved.body.closest?.(".tory-chat-bubble"),
+    body: saved.body,
+    index: saved.index,
+    text: saved.text || "",
+  };
+}
+
+function persistToryChatBubbleHtml(msgIndex, bodyEl) {
+  const list = loadToryChatHistory();
+  const item = list[msgIndex];
+  if (!item || item.role !== "tory" || !bodyEl) return;
+  const html = sanitizeToryChatHtml(bodyEl.innerHTML);
+  item.contentHtml = html;
+  item.content = plainTextFromChatHtml(html) || item.content;
+  saveToryChatHistory(list);
+}
+
+function applyToryChatHighlight(color) {
+  const info = resolveToryChatHighlightInfo();
+  if (!info) {
+    toast("토리 답변에서 칠할 부분을 드래그한 뒤 형광펜을 눌러 주세요.");
+    return;
+  }
+  const next = color
+    || (typeof formatColorState !== "undefined" && formatColorState.highlight)
+    || (typeof FORMAT_COLOR_DEFAULTS !== "undefined" && FORMAT_COLOR_DEFAULTS.highlight)
+    || "#f1c40f";
+  if (typeof setFormatColorState === "function") {
+    setFormatColorState("highlight", next);
+  }
+  const mark = document.createElement("mark");
+  mark.className = "tory-chat-hl";
+  mark.style.backgroundColor = next;
+  try {
+    info.range.surroundContents(mark);
+  } catch (_) {
+    // Selection crosses elements — extract and wrap
+    try {
+      const frag = info.range.extractContents();
+      mark.appendChild(frag);
+      info.range.insertNode(mark);
+    } catch (err) {
+      toast("선택 구간에 형광펜을 칠하지 못했어요. 다시 드래그해 주세요.");
+      return;
+    }
+  }
+  window.getSelection()?.removeAllRanges();
+  toryChatSavedHighlight = null;
+  persistToryChatBubbleHtml(info.index, info.body);
+  syncToryChatHighlightBar();
+  toast("형광펜으로 칠했어요.");
+}
+
+function clearToryChatHighlight() {
+  const info = resolveToryChatHighlightInfo();
+  if (!info) {
+    toast("지울 형광펜 부분을 토리 답변에서 드래그해 주세요.");
+    return;
+  }
+  const marks = [...info.body.querySelectorAll("mark.tory-chat-hl, span.tory-chat-hl, .tory-chat-hl")];
+  let cleared = 0;
+  marks.forEach((el) => {
+    try {
+      if (typeof info.range.intersectsNode === "function" && !info.range.intersectsNode(el)) return;
+    } catch (_) {
+      /* ignore range errors */
+    }
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+    try { parent.normalize(); } catch (_) { /* ignore */ }
+    cleared += 1;
+  });
+  if (!cleared) {
+    // Selection fully inside a mark that may not be listed if nested oddly
+    let node = info.range.commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    const wrap = node?.closest?.("mark.tory-chat-hl, .tory-chat-hl");
+    if (wrap && info.body.contains(wrap)) {
+      const parent = wrap.parentNode;
+      while (wrap.firstChild) parent.insertBefore(wrap.firstChild, wrap);
+      parent.removeChild(wrap);
+      try { parent.normalize(); } catch (_) { /* ignore */ }
+      cleared = 1;
+    }
+  }
+  window.getSelection()?.removeAllRanges();
+  toryChatSavedHighlight = null;
+  persistToryChatBubbleHtml(info.index, info.body);
+  syncToryChatHighlightBar();
+  if (cleared) toast("형광펜을 지웠어요.");
+  else toast("선택한 구간에 형광펜이 없어요.");
+}
+
+function collectFromToryChat() {
+  // Prefer selection inside chat (tory or user), else last tory message
+  const sel = window.getSelection();
+  let text = "";
+  if (sel && !sel.isCollapsed && sel.rangeCount) {
+    const range = sel.getRangeAt(0);
+    let node = range.commonAncestorContainer;
+    if (node.nodeType === Node.TEXT_NODE) node = node.parentElement;
+    if (node?.closest?.("#toryChatMessages, #toryChatHistoryDetailMessages")) {
+      text = sel.toString().trim();
+    }
+  }
+  if (!text) {
+    const history = loadToryChatHistory();
+    for (let i = history.length - 1; i >= 0; i -= 1) {
+      if (history[i].role === "tory" && history[i].content) {
+        text = history[i].content;
+        break;
+      }
+    }
+  }
+  if (!text) {
+    toast("수집할 토리 답변이 없어요. 대화를 하거나 문장을 드래그해 주세요.");
+    return;
+  }
+  collectToToryVault({
+    text,
+    title: "토리 · 대화 수집",
+    mode: "chat",
+    prompt: "",
+  });
+}
+
+async function sendToryChatMessage(event) {
+  if (event) event.preventDefault();
+  if (toryChatSending) return;
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const input = $("toryChatInput");
+  const text = (input?.value || "").trim();
+  if (!text) return toast("메시지를 적어 주세요.");
+
+  const history = loadToryChatHistory();
+  // History sent to API excludes the new user message (server appends it as prompt)
+  const apiHistory = history.map((m) => ({
+    role: m.role === "user" ? "user" : "model",
+    content: m.content,
+  }));
+
+  history.push({ role: "user", content: text, at: new Date().toISOString() });
+  saveToryChatHistory(history);
+  if (input) input.value = "";
+  renderToryChatMessages();
+
+  // Pending bubble
+  const box = $("toryChatMessages");
+  if (box) {
+    const pending = document.createElement("div");
+    pending.className = "tory-chat-bubble is-tory is-pending";
+    pending.id = "toryChatPending";
+    pending.innerHTML = `<span class="tory-chat-bubble-meta">토리</span><div class="tory-chat-bubble-body">생각 중…</div>`;
+    box.appendChild(pending);
+    box.scrollTop = box.scrollHeight;
+  }
+
+  toryChatSending = true;
+  const sendBtn = $("toryChatSendButton");
+  if (sendBtn) {
+    sendBtn.disabled = true;
+    sendBtn.textContent = "생각 중…";
+  }
+
+  try {
+    const project = state.projects.find((item) => item.id === state.projectId);
+    const mainGenre = state.mainGenre || project?.main_genre || "";
+    const subGenre = state.subGenre || project?.sub_genre || "";
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "chat",
+        prompt: text,
+        user_prompt: text,
+        history: apiHistory,
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+        scene_content: state.sceneId ? getEditorContent() : "",
+        persona_mode: getToryPersonaMode(),
+        ...buildToryProjectContextPayload(),
+      }),
+    });
+    const reply = String(result.text || "").trim() || "(응답이 비어 있어요.)";
+    const next = loadToryChatHistory();
+    next.push({ role: "tory", content: reply, at: new Date().toISOString() });
+    saveToryChatHistory(next);
+    renderToryChatMessages();
+  } catch (error) {
+    // Drop the pending user message only if we want retry — keep user msg, add error note
+    const next = loadToryChatHistory();
+    next.push({
+      role: "tory",
+      content: `죄송해요, 지금은 답을 못 했어요. ${error.message || "잠시 후 다시 시도해 주세요."}`,
+      at: new Date().toISOString(),
+    });
+    saveToryChatHistory(next);
+    renderToryChatMessages();
+    handleError(error);
+  } finally {
+    toryChatSending = false;
+    if (sendBtn) {
+      sendBtn.disabled = false;
+      sendBtn.textContent = "보내기";
+    }
+    $("toryChatPending")?.remove();
+  }
+}
+
+const TORY_PERSONA_STORAGE_KEY = "supertory.toryPersonaMode";
+const TORY_PERSONA_MODES = ["default", "secretary", "friend", "aegyo", "teacher", "grumbler"];
+
+function getToryPersonaMode() {
+  try {
+    const raw = (localStorage.getItem(TORY_PERSONA_STORAGE_KEY) || "default").trim().toLowerCase();
+    return TORY_PERSONA_MODES.includes(raw) ? raw : "default";
+  } catch (_) {
+    return "default";
+  }
+}
+
+function setToryPersonaMode(mode, { silent = false } = {}) {
+  const next = TORY_PERSONA_MODES.includes(mode) ? mode : "default";
+  try {
+    localStorage.setItem(TORY_PERSONA_STORAGE_KEY, next);
+  } catch (_) {
+    /* ignore */
+  }
+  syncToryPersonaMenuUi();
+  if (!silent) {
+    const labels = {
+      default: "친절한 조수",
+      secretary: "진지 비서",
+      friend: "친구",
+      aegyo: "애교",
+      teacher: "선생님",
+      grumbler: "투덜이",
+    };
+    toast(`토리 모드: ${labels[next] || next}`);
+  }
+}
+
+function hideToryPersonaMenu() {
+  $("toryPersonaMenu")?.classList.add("hidden");
+}
+
+function syncToryPersonaMenuUi() {
+  const current = getToryPersonaMode();
+  document.querySelectorAll("#toryPersonaMenu [data-tory-persona]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.toryPersona === current);
+  });
+}
+
+function showToryPersonaMenu(clientX, clientY) {
+  const menu = $("toryPersonaMenu");
+  if (!menu) return;
+  hideToryPersonaMenu();
+  syncToryPersonaMenuUi();
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + (rect.width || 220) > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - (rect.width || 220) - pad);
+  }
+  if (top + (rect.height || 200) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (rect.height || 200) - pad);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function setupToryPersonaSelect() {
+  // Persona is chosen via right-click on 도우미 tab (no always-visible bar)
+  $("aiTabTools")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setUiFeatureCtxTarget?.($("aiTabTools"));
+    showToryPersonaMenu(event.clientX, event.clientY);
+  });
+  $("toryPersonaMenu")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-tory-persona]");
+    if (!item) return;
+    event.preventDefault();
+    setToryPersonaMode(item.dataset.toryPersona || "default");
+    hideToryPersonaMenu();
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.("#toryPersonaMenu, #aiTabTools")) hideToryPersonaMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideToryPersonaMenu();
+  });
+  syncToryPersonaMenuUi();
+}
+
+function clearToryChatHistory() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!loadToryChatHistory().length) return toast("지울 대화가 없어요.");
+  if (!window.confirm("현재 대화를 비울까요?\n내용은 히스토리에 보관됩니다.")) return;
+  const saved = archiveCurrentToryChat({ clearAfter: true });
+  toast(saved ? "대화를 지우고 히스토리에 보관했어요." : "대화를 지웠어요.");
+}
+
+function setupToryChat() {
+  setupToryPersonaSelect();
+  setupToryChatPopupChrome();
+  setupToryChatHistoryUi();
+
+  $("aiTabTools")?.addEventListener("click", () => {
+    hideToryPersonaMenu();
+    setAiPanelTab("tools");
+  });
+
+  $("aiTabChat")?.addEventListener("click", () => {
+    hideToryPersonaMenu();
+    if (toryChatPopupOpen) {
+      // Popup already open — focus input there
+      requestAnimationFrame(() => $("toryChatInput")?.focus());
+      return;
+    }
+    setAiPanelTab("chat");
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      if (!$("toryChatHistoryModal")?.classList.contains("hidden")) return;
+      if (toryChatPopupOpen && !$("toryChatPopup")?.classList.contains("hidden")) {
+        const otherModal = document.querySelector(".modal:not(.hidden)");
+        if (!otherModal) closeToryChatPopup({ restorePanelTab: true });
+      }
+    }
+  });
+
+  $("toryChatForm")?.addEventListener("submit", (event) => {
+    sendToryChatMessage(event).catch(handleError);
+  });
+  $("toryChatClearButton")?.addEventListener("click", clearToryChatHistory);
+  // Event delegation: buttons may move with chat into popup
+  document.addEventListener("click", (event) => {
+    const hlBtn = event.target.closest?.("#toryChatHighlightButton");
+    if (hlBtn) {
+      event.preventDefault();
+      captureToryChatHighlightSelection();
+      applyToryChatHighlight();
+      return;
+    }
+    const collectBtn = event.target.closest?.("#toryChatCollectButton");
+    if (collectBtn) {
+      event.preventDefault();
+      collectFromToryChat();
+      return;
+    }
+    const openBtn = event.target.closest?.("#toryChatPopupOpenButton");
+    if (openBtn) {
+      event.preventDefault();
+      openToryChatPopup();
+      return;
+    }
+    const histBtn = event.target.closest?.("#toryChatHistoryButton");
+    if (histBtn) {
+      event.preventDefault();
+      openToryChatHistoryModal();
+    }
+  });
+  document.addEventListener("contextmenu", (event) => {
+    const hlBtn = event.target.closest?.("#toryChatHighlightButton");
+    if (!hlBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    captureToryChatHighlightSelection();
+    if (typeof showFormatColorPalette === "function") {
+      showFormatColorPalette("highlight", hlBtn, null, { target: "tory-chat" });
+    } else {
+      applyToryChatHighlight("#f1c40f");
+    }
+  });
+  $("toryChatInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendToryChatMessage().catch(handleError);
+    }
+  });
+  setAiPanelTab("tools");
+  renderToryChatMessages();
+  syncToryChatHighlightBar();
+}
+
+/* —— 토리 알림 센터 (떡밥 + 수동) —— */
+const TORY_NOTIFY_COLLAPSE_KEY = "supertory.toryNotifyCollapsed";
+let toryNotifyFilter = "all"; // all | on | bait | custom
+
+function toryNotifyStorageKey(projectId = state.projectId) {
+  return `${TORY_NOTIFY_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadCustomToryNotifs() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(toryNotifyStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((n) => n && n.id)
+      .map((n) => ({
+        id: String(n.id),
+        type: "custom",
+        title: String(n.title || "").trim() || "알림",
+        message: String(n.message || "").trim(),
+        sceneId: n.sceneId != null && n.sceneId !== "" ? Number(n.sceneId) || null : null,
+        note: String(n.note || "").trim(),
+        enabled: n.enabled !== false && n.enabled !== 0 && n.enabled !== "0" && n.enabled !== "false",
+        createdAt: n.createdAt || "",
+      }));
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveCustomToryNotifs(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(toryNotifyStorageKey(), JSON.stringify(list || []));
+  } catch (_) {
+    /* ignore */
+  }
+  renderToryNotifyList();
+}
+
+/** Unified list: bait recovery notifies + manual custom notifies. */
+function getUnifiedToryNotifs() {
+  const items = [];
+  for (const bait of loadBaits()) {
+    // Show baits that have a recovery scene OR explicit recover note (planning)
+    const hasRecoverScene = Number(bait.recoverSceneId) > 0;
+    const hasRecoverNote = Boolean(String(bait.recoverAt || "").trim());
+    if (!hasRecoverScene && !hasRecoverNote && bait.notifyOnRecover === false) continue;
+    if (!hasRecoverScene && !hasRecoverNote) continue;
+    const title = (bait.summary || bait.quote || "떡밥 회수").replace(/\s+/g, " ").trim().slice(0, 80);
+    const sceneTitle = hasRecoverScene
+      ? (sceneTitleById(bait.recoverSceneId) || `씬 #${bait.recoverSceneId}`)
+      : "";
+    items.push({
+      id: `bait:${bait.id}`,
+      type: "bait",
+      baitId: bait.id,
+      title: title || "떡밥 회수",
+      message: (bait.recoverContent || bait.quote || "").replace(/\s+/g, " ").trim(),
+      sceneId: hasRecoverScene ? Number(bait.recoverSceneId) : null,
+      sceneLabel: sceneTitle || bait.recoverAt || "회수 회차 미정",
+      note: bait.recoverAt || "",
+      enabled: hasRecoverScene ? bait.notifyOnRecover !== false : false,
+      createdAt: bait.createdAt || "",
+    });
+  }
+  for (const n of loadCustomToryNotifs()) {
+    items.push({
+      ...n,
+      type: "custom",
+      sceneLabel: n.sceneId
+        ? (sceneTitleById(n.sceneId) || `씬 #${n.sceneId}`)
+        : (n.note || "회차 미정"),
+    });
+  }
+  items.sort((a, b) => {
+    // Due for current scene first, then enabled, then newest
+    const aDue = state.sceneId && Number(a.sceneId) === Number(state.sceneId) ? 1 : 0;
+    const bDue = state.sceneId && Number(b.sceneId) === Number(state.sceneId) ? 1 : 0;
+    if (aDue !== bDue) return bDue - aDue;
+    if (Boolean(a.enabled) !== Boolean(b.enabled)) return a.enabled ? -1 : 1;
+    return String(b.createdAt || "").localeCompare(String(a.createdAt || ""));
+  });
+  return items;
+}
+
+function filterToryNotifs(items) {
+  const filter = toryNotifyFilter || "all";
+  if (filter === "on") return items.filter((i) => i.enabled);
+  if (filter === "bait") return items.filter((i) => i.type === "bait");
+  if (filter === "custom") return items.filter((i) => i.type === "custom");
+  return items;
+}
+
+function setToryNotifyFilter(filter) {
+  toryNotifyFilter = ["all", "on", "bait", "custom"].includes(filter) ? filter : "all";
+  document.querySelectorAll("[data-tory-notif-filter]").forEach((btn) => {
+    const active = btn.dataset.toryNotifFilter === toryNotifyFilter;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  renderToryNotifyList();
+}
+
+function loadToryNotifyCollapsed() {
+  try {
+    return localStorage.getItem(TORY_NOTIFY_COLLAPSE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyToryNotifyCollapsed(collapsed) {
+  const box = $("toryNotifyBox");
+  const btn = $("toryNotifyCollapseButton");
+  box?.classList.toggle("is-collapsed", Boolean(collapsed));
+  if (btn) {
+    btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+    btn.title = collapsed ? "알림 패널 펼치기" : "알림 패널 접기";
+  }
+  try {
+    localStorage.setItem(TORY_NOTIFY_COLLAPSE_KEY, collapsed ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function updateToryNotifyCountUi(onCount, total) {
+  const countEl = $("toryNotifyCount");
+  if (!countEl) return;
+  countEl.innerHTML = `
+    <span class="tory-notify-stat is-on" title="켜진 알림">${onCount}</span>
+    <span class="tory-notify-stat-sep">/</span>
+    <span class="tory-notify-stat is-total" title="전체 알림">${total}</span>`;
+}
+
+function renderToryNotifyDueBanner(items) {
+  const banner = $("toryNotifyDueBanner");
+  if (!banner) return;
+  if (!state.projectId || !state.sceneId) {
+    banner.classList.add("hidden");
+    banner.innerHTML = "";
+    return;
+  }
+  const due = items.filter(
+    (i) => i.enabled && Number(i.sceneId) === Number(state.sceneId),
+  );
+  if (!due.length) {
+    banner.classList.add("hidden");
+    banner.innerHTML = "";
+    return;
+  }
+  const sceneName = escapeHtml(
+    state.scene?.title || $("sceneTitle")?.value || sceneTitleById(state.sceneId) || "이 회차",
+  );
+  banner.innerHTML = `<strong>지금 회차 알림 ${due.length}건</strong> · ${sceneName}`;
+  banner.classList.remove("hidden");
+}
+
+function renderToryNotifyCard(item) {
+  const isBait = item.type === "bait";
+  const isDue = Boolean(
+    item.enabled && state.sceneId && Number(item.sceneId) === Number(state.sceneId),
+  );
+  const typeLabel = isBait ? "떡밥 회수" : "수동 알림";
+  const typeClass = isBait ? "is-bait" : "is-custom";
+  const title = escapeHtml(item.title || "알림");
+  const msg = escapeHtml((item.message || "").replace(/\s+/g, " ").trim().slice(0, 140));
+  const sceneLabel = escapeHtml(item.sceneLabel || "회차 미정");
+  const sceneChipClass = isDue ? "is-due" : (item.sceneId ? "" : "is-muted");
+  const sceneChip = item.sceneId
+    ? `<span class="tory-notify-chip ${sceneChipClass}" title="알림 회차">📖 ${sceneLabel}</span>`
+    : `<span class="tory-notify-chip is-muted" title="회차 미정">📖 ${sceneLabel}</span>`;
+  const statusChip = item.enabled
+    ? (isDue
+      ? `<span class="tory-notify-chip is-due">지금 알림</span>`
+      : `<span class="tory-notify-chip">알림 켜짐</span>`)
+    : `<span class="tory-notify-chip is-muted">꺼짐</span>`;
+  const switchDisabled = isBait && !item.sceneId;
+  const switchHtml = `
+    <label class="tory-switch" title="${item.enabled ? "알림 끄기" : "알림 켜기"}">
+      <input type="checkbox" data-tory-notif-toggle="${escapeHtml(item.id)}"
+        ${item.enabled ? "checked" : ""} ${switchDisabled ? "disabled" : ""}
+        aria-label="${item.enabled ? "알림 끄기" : "알림 켜기"}">
+      <span class="tory-switch-track" aria-hidden="true"></span>
+    </label>`;
+  const foot = [];
+  if (item.sceneId) {
+    foot.push(`<button type="button" class="secondary" data-tory-notif-open-scene="${Number(item.sceneId)}">회차 열기</button>`);
+  }
+  if (isBait) {
+    foot.push(`<button type="button" class="secondary" data-tory-notif-open-bait="${escapeHtml(item.baitId || "")}">떡밥 수정</button>`);
+  } else {
+    foot.push(`<button type="button" class="secondary" data-tory-notif-edit="${escapeHtml(item.id)}">수정</button>`);
+    foot.push(`<button type="button" class="secondary is-danger" data-tory-notif-delete="${escapeHtml(item.id)}">삭제</button>`);
+  }
+  return `
+    <article class="tory-notify-card ${item.enabled ? "is-on" : "is-off"}${isDue ? " is-due" : ""}"
+      data-tory-notif-id="${escapeHtml(item.id)}" data-type="${escapeHtml(item.type)}">
+      <div class="tory-notify-card-top">
+        <span class="tory-notify-type ${typeClass}">${typeLabel}</span>
+        ${switchHtml}
+      </div>
+      <div class="tory-notify-card-title">${title}</div>
+      <div class="tory-notify-card-meta">${sceneChip}${statusChip}</div>
+      ${msg ? `<p class="tory-notify-card-msg">${msg}</p>` : ""}
+      <div class="tory-notify-card-foot">${foot.join("")}</div>
+    </article>`;
+}
+
+function renderToryNotifyList() {
+  const list = $("toryNotifyList");
+  if (!list) return;
+  if (!state.projectId) {
+    updateToryNotifyCountUi(0, 0);
+    renderToryNotifyDueBanner([]);
+    list.innerHTML = `
+      <div class="tory-notify-empty">
+        <span class="tory-notify-empty-icon" aria-hidden="true">🔔</span>
+        <strong>작품을 먼저 선택해 주세요</strong>
+        <p>선택한 작품의 떡밥·수동 알림이 여기에 모입니다.</p>
+      </div>`;
+    return;
+  }
+
+  const all = getUnifiedToryNotifs();
+  const onCount = all.filter((i) => i.enabled).length;
+  updateToryNotifyCountUi(onCount, all.length);
+  renderToryNotifyDueBanner(all);
+
+  const items = filterToryNotifs(all);
+  if (!all.length) {
+    list.innerHTML = `
+      <div class="tory-notify-empty">
+        <span class="tory-notify-empty-icon" aria-hidden="true">🪄</span>
+        <strong>아직 알림이 없어요</strong>
+        <p>떡밥 회수 알림을 켜 두거나,<br><b>알림 만들기</b>로 수동 알림을 추가해 보세요.</p>
+      </div>`;
+    return;
+  }
+  if (!items.length) {
+    list.innerHTML = `
+      <div class="tory-notify-empty">
+        <span class="tory-notify-empty-icon" aria-hidden="true">🔎</span>
+        <strong>이 필터에 해당하는 알림이 없어요</strong>
+        <p>다른 필터를 고르거나 새 알림을 만들어 보세요.</p>
+      </div>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => renderToryNotifyCard(item)).join("");
+}
+
+function fillToryNotifySceneSelect(selected = "") {
+  const sel = $("toryNotifyEditScene");
+  if (!sel) return;
+  const scenes = typeof allScenes === "function" ? allScenes() : [];
+  if (!scenes.length) {
+    sel.innerHTML = `<option value="">(회차가 없어요)</option>`;
+    return;
+  }
+  sel.innerHTML = [`<option value="">(아직 미정 — 목록에만 저장)</option>`]
+    .concat(scenes.map((scene) => {
+      const id = Number(scene.id);
+      const label = escapeHtml(scene.title || `씬 #${id}`);
+      const chapter = scene.chapterTitle ? `${escapeHtml(scene.chapterTitle)} · ` : "";
+      return `<option value="${id}">${chapter}${label}</option>`;
+    }))
+    .join("");
+  if (selected) sel.value = String(selected);
+}
+
+function openToryNotifyEditModal(item = null) {
+  const modal = $("toryNotifyEditModal");
+  if (!modal) return;
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  fillToryNotifySceneSelect(item?.sceneId || state.sceneId || "");
+  if ($("toryNotifyEditId")) $("toryNotifyEditId").value = item?.id || "";
+  if ($("toryNotifyEditTitleInput")) $("toryNotifyEditTitleInput").value = item?.title || "";
+  if ($("toryNotifyEditMessage")) $("toryNotifyEditMessage").value = item?.message || "";
+  if ($("toryNotifyEditNote")) $("toryNotifyEditNote").value = item?.note || "";
+  if ($("toryNotifyEditEnabled")) $("toryNotifyEditEnabled").checked = item ? item.enabled !== false : true;
+  if ($("toryNotifyEditTitle")) {
+    $("toryNotifyEditTitle").textContent = item ? "알림 수정" : "알림 만들기";
+  }
+  if ($("toryNotifyEditSave")) {
+    $("toryNotifyEditSave").textContent = item ? "저장" : "알림 저장";
+  }
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => $("toryNotifyEditTitleInput")?.focus());
+}
+
+function closeToryNotifyEditModal() {
+  $("toryNotifyEditModal")?.classList.add("hidden");
+}
+
+function saveToryNotifyFromModal(event) {
+  if (event) event.preventDefault();
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const editId = ($("toryNotifyEditId")?.value || "").trim();
+  const title = ($("toryNotifyEditTitleInput")?.value || "").trim();
+  if (!title) return toast("알림 제목을 적어 주세요.");
+  const message = ($("toryNotifyEditMessage")?.value || "").trim();
+  const sceneId = Number($("toryNotifyEditScene")?.value || 0) || null;
+  const note = ($("toryNotifyEditNote")?.value || "").trim();
+  const enabled = Boolean($("toryNotifyEditEnabled")?.checked);
+  const list = loadCustomToryNotifs();
+  if (editId) {
+    const item = list.find((n) => n.id === editId);
+    if (!item) return toast("수정할 알림을 찾지 못했어요.");
+    item.title = title;
+    item.message = message;
+    item.sceneId = sceneId;
+    item.note = note;
+    item.enabled = enabled;
+    saveCustomToryNotifs(list);
+    closeToryNotifyEditModal();
+    toast("알림을 수정했어요.");
+    return;
+  }
+  list.unshift({
+    id: `tn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    type: "custom",
+    title,
+    message,
+    sceneId,
+    note,
+    enabled,
+    createdAt: new Date().toISOString(),
+  });
+  saveCustomToryNotifs(list);
+  closeToryNotifyEditModal();
+  toast(sceneId ? "알림을 저장했어요. 해당 회차를 열면 토리가 알려 줘요." : "알림을 목록에 저장했어요.");
+}
+
+function flipUnifiedToryNotif(id) {
+  if (String(id).startsWith("bait:")) {
+    const baitId = String(id).slice(5);
+    const list = loadBaits();
+    const item = list.find((b) => b.id === baitId);
+    if (!item) return;
+    if (!Number(item.recoverSceneId)) {
+      toast("회수 예정 회차를 먼저 지정해 주세요.");
+      renderToryNotifyList();
+      return;
+    }
+    const currentlyOn = item.notifyOnRecover !== false;
+    item.notifyOnRecover = !currentlyOn;
+    saveBaits(list);
+    renderBaitList();
+    renderToryNotifyList();
+    toast(item.notifyOnRecover ? "떡밥 알림을 켰어요." : "떡밥 알림을 껐어요.");
+    return;
+  }
+  const list = loadCustomToryNotifs();
+  const item = list.find((n) => n.id === id);
+  if (!item) return;
+  item.enabled = !item.enabled;
+  saveCustomToryNotifs(list);
+  toast(item.enabled ? "알림을 켰어요." : "알림을 껐어요.");
+}
+
+function setupToryNotifyCenter() {
+  $("toryNotifyAddButton")?.addEventListener("click", () => openToryNotifyEditModal(null));
+  $("toryNotifyEditForm")?.addEventListener("submit", (event) => saveToryNotifyFromModal(event));
+  document.querySelectorAll("[data-close-tory-notify-edit]").forEach((el) => {
+    el.addEventListener("click", closeToryNotifyEditModal);
+  });
+  $("toryNotifyCollapseButton")?.addEventListener("click", () => {
+    const box = $("toryNotifyBox");
+    applyToryNotifyCollapsed(!box?.classList.contains("is-collapsed"));
+  });
+  document.querySelectorAll("[data-tory-notif-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => setToryNotifyFilter(btn.dataset.toryNotifFilter || "all"));
+  });
+
+  $("toryNotifyList")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("input[data-tory-notif-toggle]");
+    if (!input) return;
+    flipUnifiedToryNotif(input.dataset.toryNotifToggle);
+  });
+
+  $("toryNotifyList")?.addEventListener("click", (event) => {
+    // Ignore clicks on the switch label (handled by change)
+    if (event.target.closest?.(".tory-switch")) return;
+
+    const openSceneBtn = event.target.closest?.("[data-tory-notif-open-scene]");
+    if (openSceneBtn) {
+      const sid = Number(openSceneBtn.dataset.toryNotifOpenScene);
+      if (sid) openScene(sid).catch(handleError);
+      return;
+    }
+    const editBtn = event.target.closest?.("[data-tory-notif-edit]");
+    if (editBtn) {
+      const id = editBtn.dataset.toryNotifEdit;
+      const item = loadCustomToryNotifs().find((n) => n.id === id);
+      if (item) openToryNotifyEditModal(item);
+      return;
+    }
+    const delBtn = event.target.closest?.("[data-tory-notif-delete]");
+    if (delBtn) {
+      const id = delBtn.dataset.toryNotifDelete;
+      if (!window.confirm("이 알림을 삭제할까요?")) return;
+      saveCustomToryNotifs(loadCustomToryNotifs().filter((n) => n.id !== id));
+      toast("알림을 삭제했어요.");
+      return;
+    }
+    const baitBtn = event.target.closest?.("[data-tory-notif-open-bait]");
+    if (baitBtn) {
+      const baitId = baitBtn.dataset.toryNotifOpenBait;
+      const item = loadBaits().find((b) => b.id === baitId);
+      if (!item) return toast("떡밥을 찾지 못했어요.");
+      setActiveBinder("settings");
+      state.openSettingsSection = "baits";
+      applySettingsSectionState();
+      renderBaitList();
+      openBaitModal(item);
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("toryNotifyEditModal")?.classList.contains("hidden")) {
+      closeToryNotifyEditModal();
+    }
+  });
+
+  applyToryNotifyCollapsed(loadToryNotifyCollapsed());
+  setToryNotifyFilter("all");
+}
+
+/* ═══════════════════════════════════════════════════════════
+   글쓰기 기록 · 달력 · 목표 응원 · 폰 연동 기반
+   ═══════════════════════════════════════════════════════════ */
+const writingTracker = {
+  prefs: {
+    goal_chars: 2000,
+    goal_notify: true,
+    lonely_days: 3,
+    lonely_notify: true,
+    idle_minutes: 30,
+    last_goal_notified_day: "",
+    last_lonely_notified_day: "",
+    first_met_day: "",
+    /** 기록 버튼에 경과 시간 표시 (false면 「기록중」만) */
+    show_timer: true,
+  },
+  /** 기록 버튼으로 켠 활성 타이머 모드 */
+  recording: false,
+  pendingChars: 0,
+  pendingActive: 0,
+  /** 현재 기록 세션에서 버튼에 표시할 누적 초 (flush와 무관) */
+  sessionDisplaySeconds: 0,
+  pendingSessionStart: false,
+  sessionStartedAt: null,
+  lastActivityAt: 0,
+  lastTickAt: 0,
+  lastPlainLen: null,
+  dayKey: "",
+  dayCharsKnown: 0,
+  tickTimer: null,
+  flushTimer: null,
+  uiTimer: null,
+  flushing: false,
+  calYear: 0,
+  calMonth: 0, // 0-11
+  selectedDay: "",
+  daysMap: /** @type {Record<string, object>} */ ({}),
+  cheerTimer: null,
+};
+
+function localDayKey(date = new Date()) {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function formatActiveDuration(seconds) {
+  const s = Math.max(0, Math.floor(Number(seconds) || 0));
+  if (s < 60) return `${s}초`;
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const rem = s % 60;
+  if (h > 0) return rem ? `${h}시간 ${m}분 ${rem}초` : (m ? `${h}시간 ${m}분` : `${h}시간`);
+  return rem ? `${m}분 ${rem}초` : `${m}분`;
+}
+
+function formatLocalTimeFromIso(iso) {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    // maybe already local-ish string
+    const m = String(iso).match(/T(\d{2}):(\d{2})/);
+    if (m) return `${m[1]}:${m[2]}`;
+    return String(iso);
+  }
+  return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+
+function formatKoreanDateLabel(dayKey) {
+  const m = String(dayKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dayKey || "날짜";
+  return `${Number(m[1])}년 ${Number(m[2])}월 ${Number(m[3])}일`;
+}
+
+function idleLimitMs() {
+  return Math.max(5, Number(writingTracker.prefs.idle_minutes) || 30) * 60 * 1000;
+}
+
+function ensureWritingDayBucket() {
+  const today = localDayKey();
+  if (writingTracker.dayKey && writingTracker.dayKey !== today) {
+    // midnight rollover — flush previous day first
+    flushWritingHeartbeat({ force: true }).catch(() => {});
+    writingTracker.pendingChars = 0;
+    writingTracker.pendingActive = 0;
+    writingTracker.pendingSessionStart = false;
+    writingTracker.sessionStartedAt = null;
+    writingTracker.dayCharsKnown = 0;
+  }
+  writingTracker.dayKey = today;
+}
+
+function noteWritingActivityFromEditor() {
+  if (!writingTracker.recording) return;
+  if (!state.sceneId) return;
+  const plain = getEditorPlainText() || "";
+  const len = plain.length;
+  ensureWritingDayBucket();
+  const now = Date.now();
+  if (writingTracker.lastPlainLen == null) {
+    writingTracker.lastPlainLen = len;
+  } else {
+    const delta = len - writingTracker.lastPlainLen;
+    if (delta > 0) {
+      writingTracker.pendingChars += delta;
+      writingTracker.dayCharsKnown += delta;
+      maybeCelebrateWritingGoal();
+    }
+    writingTracker.lastPlainLen = len;
+  }
+  const wasIdle = !writingTracker.lastActivityAt
+    || (now - writingTracker.lastActivityAt) >= idleLimitMs();
+  if (wasIdle || !writingTracker.sessionStartedAt) {
+    writingTracker.sessionStartedAt = new Date().toISOString();
+    writingTracker.pendingSessionStart = true;
+    writingTracker.lastTickAt = now;
+  }
+  writingTracker.lastActivityAt = now;
+  updateWritingLogButtonUi();
+}
+
+function writingTick() {
+  if (!writingTracker.recording) {
+    writingTracker.lastTickAt = Date.now();
+    return;
+  }
+  ensureWritingDayBucket();
+  const now = Date.now();
+  if (!writingTracker.lastActivityAt) {
+    writingTracker.lastTickAt = now;
+    updateWritingLogButtonUi();
+    return;
+  }
+  if ((now - writingTracker.lastActivityAt) >= idleLimitMs()) {
+    // SuperTORY open but idle — do not count time (차감)
+    writingTracker.lastTickAt = now;
+    updateWritingLogButtonUi();
+    return;
+  }
+  const prev = writingTracker.lastTickAt || now;
+  const add = Math.max(0, Math.min(30, Math.round((now - prev) / 1000)));
+  if (add > 0) {
+    writingTracker.pendingActive += add;
+    writingTracker.sessionDisplaySeconds += add;
+  }
+  writingTracker.lastTickAt = now;
+  updateWritingLogButtonUi();
+}
+
+function formatRecordingClock(totalSeconds) {
+  const s = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const sec = s % 60;
+  if (h > 0) {
+    return `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}`;
+  }
+  return `${m}:${String(sec).padStart(2, "0")}`;
+}
+
+function liveRecordingSeconds() {
+  let sec = writingTracker.sessionDisplaySeconds || 0;
+  if (!writingTracker.recording) return sec;
+  const now = Date.now();
+  if (
+    writingTracker.lastActivityAt
+    && writingTracker.lastTickAt
+    && (now - writingTracker.lastActivityAt) < idleLimitMs()
+  ) {
+    sec += Math.max(0, Math.floor((now - writingTracker.lastTickAt) / 1000));
+  }
+  return sec;
+}
+
+const WRITING_SHOW_TIMER_KEY = "supertory.writingShowTimer";
+
+function loadShowTimerPref() {
+  try {
+    const raw = localStorage.getItem(WRITING_SHOW_TIMER_KEY);
+    if (raw === "0" || raw === "false") return false;
+    if (raw === "1" || raw === "true") return true;
+  } catch (_) {
+    /* ignore */
+  }
+  return true; // default: show timer
+}
+
+function saveShowTimerPref(show) {
+  const on = Boolean(show);
+  writingTracker.prefs.show_timer = on;
+  try {
+    localStorage.setItem(WRITING_SHOW_TIMER_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function isWritingTimerVisible() {
+  return writingTracker.prefs.show_timer !== false;
+}
+
+function updateWritingLogButtonUi() {
+  const btn = $("writingLogButton");
+  if (!btn) return;
+  const on = Boolean(writingTracker.recording);
+  const showTimer = isWritingTimerVisible();
+  btn.classList.toggle("is-recording", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.title = on
+    ? "클릭: 기록 정지 · 우클릭: 달력·설정"
+    : "클릭: 기록 시작/정지 · 우클릭: 달력·설정";
+  if (on) {
+    if (!showTimer) {
+      btn.textContent = "기록중";
+    } else {
+      const clock = formatRecordingClock(liveRecordingSeconds());
+      const idle = writingTracker.lastActivityAt
+        && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
+      btn.textContent = idle ? `기록 일시정지 ${clock}` : `기록 ${clock}`;
+    }
+  } else {
+    btn.textContent = "기록";
+  }
+}
+
+function startWritingUiTimer() {
+  if (writingTracker.uiTimer) return;
+  writingTracker.uiTimer = window.setInterval(() => {
+    // Only need per-second refresh when the clock is visible on the button
+    if (writingTracker.recording && isWritingTimerVisible()) {
+      updateWritingLogButtonUi();
+    }
+  }, 1000);
+}
+
+function stopWritingUiTimer() {
+  if (writingTracker.uiTimer) {
+    window.clearInterval(writingTracker.uiTimer);
+    writingTracker.uiTimer = null;
+  }
+}
+
+function toggleWritingRecording() {
+  if (writingTracker.recording) {
+    // stop
+    writingTick();
+    writingTracker.recording = false;
+    stopWritingUiTimer();
+    updateWritingLogButtonUi();
+    flushWritingHeartbeat({ force: true }).catch(() => {});
+    toast("기록을 멈췄어요. 우클릭으로 달력을 볼 수 있어요.");
+    return;
+  }
+  // start — new visible session clock
+  ensureWritingDayBucket();
+  writingTracker.recording = true;
+  writingTracker.sessionDisplaySeconds = 0;
+  const now = Date.now();
+  writingTracker.lastActivityAt = now;
+  writingTracker.lastTickAt = now;
+  writingTracker.sessionStartedAt = new Date().toISOString();
+  writingTracker.pendingSessionStart = true;
+  writingTracker.lastPlainLen = state.sceneId
+    ? (getEditorPlainText() || "").length
+    : writingTracker.lastPlainLen;
+  startWritingUiTimer();
+  updateWritingLogButtonUi();
+  toast("기록 시작! 타이머가 켜졌어요. 다시 누르면 정지합니다.");
+}
+
+async function flushWritingHeartbeat({ force = false } = {}) {
+  if (writingTracker.flushing) return;
+  const chars = writingTracker.pendingChars;
+  const active = writingTracker.pendingActive;
+  const sessionStart = writingTracker.pendingSessionStart;
+  if (!force && chars <= 0 && active <= 0 && !sessionStart) return;
+  if (chars <= 0 && active <= 0 && !sessionStart) return;
+  ensureWritingDayBucket();
+  writingTracker.flushing = true;
+  const payload = {
+    day: writingTracker.dayKey,
+    chars_delta: chars,
+    active_seconds_delta: active,
+    session_start: sessionStart,
+    session_started_at: writingTracker.sessionStartedAt,
+    last_active_at: writingTracker.lastActivityAt
+      ? new Date(writingTracker.lastActivityAt).toISOString()
+      : new Date().toISOString(),
+    project_id: state.projectId || null,
+  };
+  // optimistic clear
+  writingTracker.pendingChars = 0;
+  writingTracker.pendingActive = 0;
+  writingTracker.pendingSessionStart = false;
+  try {
+    const result = await api("/api/writing/heartbeat", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (result?.prefs) applyWritingPrefs(result.prefs);
+    if (result?.chars_added != null) {
+      writingTracker.dayCharsKnown = Math.max(
+        writingTracker.dayCharsKnown,
+        Number(result.chars_added) || 0,
+      );
+    }
+    if (result?.goal_reached) {
+      await celebrateWritingGoal(result.chars_added || writingTracker.dayCharsKnown);
+    } else {
+      maybeCelebrateWritingGoal();
+    }
+    // refresh open calendar day if same
+    if (
+      $("writingLogModal")
+      && !$("writingLogModal").classList.contains("hidden")
+      && writingTracker.selectedDay === writingTracker.dayKey
+    ) {
+      await selectWritingDay(writingTracker.dayKey, { silent: true });
+    }
+  } catch (error) {
+    // re-queue on failure
+    writingTracker.pendingChars += chars;
+    writingTracker.pendingActive += active;
+    writingTracker.pendingSessionStart = writingTracker.pendingSessionStart || sessionStart;
+    if (force) console.warn("writing heartbeat failed", error);
+  } finally {
+    writingTracker.flushing = false;
+  }
+}
+
+function applyWritingPrefs(prefs) {
+  if (!prefs || typeof prefs !== "object") return;
+  const showTimer = loadShowTimerPref();
+  writingTracker.prefs = {
+    goal_chars: Math.max(100, Number(prefs.goal_chars) || 2000),
+    goal_notify: prefs.goal_notify !== false && prefs.goal_notify !== 0,
+    lonely_days: Math.max(1, Number(prefs.lonely_days) || 3),
+    lonely_notify: prefs.lonely_notify !== false && prefs.lonely_notify !== 0,
+    idle_minutes: Math.max(5, Number(prefs.idle_minutes) || 30),
+    last_goal_notified_day: String(prefs.last_goal_notified_day || ""),
+    last_lonely_notified_day: String(prefs.last_lonely_notified_day || ""),
+    first_met_day: String(prefs.first_met_day || "").trim(),
+    show_timer: showTimer,
+  };
+  syncWritingPrefsForm();
+  updateWritingLogButtonUi();
+}
+
+function isFirstMetDay(dayKey) {
+  const met = String(writingTracker.prefs.first_met_day || "").trim();
+  return Boolean(met && dayKey && met === dayKey);
+}
+
+const CAL_ACORN_SVG = (
+  '<svg class="cal-acorn-svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">'
+  + '<ellipse cx="24" cy="16" rx="14" ry="8" fill="#6b3f1a"/>'
+  + '<path d="M12 16c0 12 5 24 12 24s12-12 12-24" fill="#c47a2c"/>'
+  + '<ellipse cx="24" cy="16" rx="14" ry="5.5" fill="#8b5a2b"/>'
+  + '<path d="M24 3v7" stroke="#4a2c12" stroke-width="2.2" stroke-linecap="round"/>'
+  + "</svg>"
+);
+
+function syncWritingPrefsForm() {
+  const p = writingTracker.prefs;
+  if ($("writingGoalChars")) $("writingGoalChars").value = String(p.goal_chars);
+  if ($("writingGoalNotify")) $("writingGoalNotify").checked = Boolean(p.goal_notify);
+  if ($("writingLonelyDays")) $("writingLonelyDays").value = String(p.lonely_days);
+  if ($("writingLonelyNotify")) $("writingLonelyNotify").checked = Boolean(p.lonely_notify);
+  if ($("writingIdleMinutes")) $("writingIdleMinutes").value = String(p.idle_minutes);
+  if ($("writingShowTimer")) $("writingShowTimer").checked = p.show_timer !== false;
+}
+
+function maybeCelebrateWritingGoal() {
+  const p = writingTracker.prefs;
+  if (!p.goal_notify) return;
+  const day = localDayKey();
+  if (p.last_goal_notified_day === day) return;
+  const total = writingTracker.dayCharsKnown + writingTracker.pendingChars;
+  if (total < (p.goal_chars || 2000)) return;
+  celebrateWritingGoal(total).catch(handleError);
+}
+
+async function celebrateWritingGoal(totalChars) {
+  const p = writingTracker.prefs;
+  if (!p.goal_notify) return;
+  const day = localDayKey();
+  if (p.last_goal_notified_day === day) return;
+  const goal = p.goal_chars || 2000;
+  p.last_goal_notified_day = day;
+  try {
+    await api("/api/writing/prefs", {
+      method: "POST",
+      body: JSON.stringify({ last_goal_notified_day: day }),
+    });
+  } catch (_) {
+    /* ignore mark failure */
+  }
+  showToryCheer(
+    "연속 목표 달성!",
+    `${goal.toLocaleString("ko-KR")}자 달성! 오늘 ${Number(totalChars || goal).toLocaleString("ko-KR")}자까지 썼어요.\n토리가 응원해요. 잠깐 쉬어도, 다시 오면 기다릴게요 ✨`,
+  );
+  tryDesktopNotification(
+    "SuperTORY · 목표 달성",
+    `${goal.toLocaleString("ko-KR")}자 달성! 토리가 응원해요.`,
+  );
+}
+
+function showToryCheer(title, message) {
+  const card = $("toryCheerCard");
+  if (!card) {
+    toast(message);
+    return;
+  }
+  if ($("toryCheerTitle")) $("toryCheerTitle").textContent = title || "토리의 응원";
+  if ($("toryCheerMessage")) $("toryCheerMessage").textContent = message || "";
+  card.classList.remove("hidden");
+  if (writingTracker.cheerTimer) window.clearTimeout(writingTracker.cheerTimer);
+  writingTracker.cheerTimer = window.setTimeout(() => hideToryCheer(), 10000);
+}
+
+function hideToryCheer() {
+  $("toryCheerCard")?.classList.add("hidden");
+  if (writingTracker.cheerTimer) {
+    window.clearTimeout(writingTracker.cheerTimer);
+    writingTracker.cheerTimer = null;
+  }
+}
+
+function tryDesktopNotification(title, body) {
+  try {
+    if (!("Notification" in window)) return;
+    if (Notification.permission === "granted") {
+      // eslint-disable-next-line no-new
+      new Notification(title, { body });
+    } else if (Notification.permission === "default") {
+      Notification.requestPermission().then((perm) => {
+        if (perm === "granted") {
+          // eslint-disable-next-line no-new
+          new Notification(title, { body });
+        }
+      }).catch(() => {});
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+async function checkLonelyWriter() {
+  try {
+    const data = await api("/api/writing/days?from=1970-01-01&to=9999-12-31");
+    if (data?.prefs) applyWritingPrefs(data.prefs);
+    const p = writingTracker.prefs;
+    if (!p.lonely_notify) return;
+    const today = localDayKey();
+    if (p.last_lonely_notified_day === today) return;
+    const lastDay = data?.last_active_day || null;
+    if (!lastDay) {
+      // never wrote — skip nagging on first launch
+      return;
+    }
+    const last = new Date(`${lastDay}T12:00:00`);
+    const now = new Date(`${today}T12:00:00`);
+    const diffDays = Math.floor((now - last) / (24 * 3600 * 1000));
+    if (diffDays < (p.lonely_days || 3)) return;
+    p.last_lonely_notified_day = today;
+    try {
+      await api("/api/writing/prefs", {
+        method: "POST",
+        body: JSON.stringify({ last_lonely_notified_day: today }),
+      });
+    } catch (_) { /* ignore */ }
+    showToryCheer(
+      "토리가 외로워요…",
+      `${diffDays}일 동안 글이 없었어요.\n조금만 써 주면 토리가 기뻐할 거예요. 휴대폰 앱이 생기면 거기로도 불러줄게요.`,
+    );
+    tryDesktopNotification("SuperTORY", "토리가 외로워요… 오늘 한 줄만 써볼까요?");
+  } catch (_) {
+    /* offline / first run */
+  }
+}
+
+function setWritingLogTab(tab) {
+  document.querySelectorAll(".writing-log-tab").forEach((btn) => {
+    const on = btn.dataset.writingTab === tab;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll(".writing-log-pane").forEach((pane) => {
+    pane.classList.toggle("hidden", pane.dataset.writingPane !== tab);
+  });
+  if (tab === "phone") refreshWritingPhonePane().catch(handleError);
+  if (tab === "settings") syncWritingPrefsForm();
+  if (tab === "stats") refreshWritingStatsPane().catch(handleError);
+}
+
+function shiftLocalDayKey(dayKey, deltaDays) {
+  const m = String(dayKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dayKey;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  d.setDate(d.getDate() + deltaDays);
+  return localDayKey(d);
+}
+
+/** Monday-start week key: YYYY-MM-DD of that Monday */
+function weekStartKey(dayKey) {
+  const m = String(dayKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return dayKey;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const dow = d.getDay(); // 0 Sun .. 6 Sat
+  const offset = dow === 0 ? -6 : 1 - dow;
+  d.setDate(d.getDate() + offset);
+  return localDayKey(d);
+}
+
+function monthKeyFromDay(dayKey) {
+  return String(dayKey || "").slice(0, 7); // YYYY-MM
+}
+
+function formatWeekLabel(mondayKey) {
+  const sun = shiftLocalDayKey(mondayKey, 6);
+  const a = String(mondayKey).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  const b = String(sun).match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!a || !b) return mondayKey;
+  return `${Number(a[2])}/${Number(a[3])}–${Number(b[2])}/${Number(b[3])}`;
+}
+
+function formatMonthLabel(ym) {
+  const m = String(ym || "").match(/^(\d{4})-(\d{2})$/);
+  if (!m) return ym;
+  return `${m[1]}년 ${Number(m[2])}월`;
+}
+
+function aggregateWritingDays(daysList) {
+  const byDay = {};
+  for (const row of daysList || []) {
+    const key = row?.day;
+    if (!key) continue;
+    byDay[key] = {
+      day: key,
+      chars: Number(row.chars_added) || 0,
+      seconds: Number(row.active_seconds) || 0,
+      sessions: Number(row.session_count) || 0,
+    };
+  }
+  // Fold in pending today
+  const today = localDayKey();
+  if (!byDay[today]) {
+    byDay[today] = { day: today, chars: 0, seconds: 0, sessions: 0 };
+  }
+  byDay[today].chars += writingTracker.pendingChars || 0;
+  byDay[today].seconds += writingTracker.pendingActive || 0;
+  if (writingTracker.pendingSessionStart) byDay[today].sessions += 1;
+
+  const dayRows = Object.values(byDay)
+    .filter((r) => r.chars > 0 || r.seconds > 0 || r.sessions > 0)
+    .sort((a, b) => (a.day < b.day ? 1 : -1));
+
+  const weekMap = {};
+  const monthMap = {};
+  for (const r of dayRows) {
+    const wk = weekStartKey(r.day);
+    if (!weekMap[wk]) weekMap[wk] = { key: wk, chars: 0, seconds: 0, days: 0 };
+    weekMap[wk].chars += r.chars;
+    weekMap[wk].seconds += r.seconds;
+    weekMap[wk].days += 1;
+    const mk = monthKeyFromDay(r.day);
+    if (!monthMap[mk]) monthMap[mk] = { key: mk, chars: 0, seconds: 0, days: 0 };
+    monthMap[mk].chars += r.chars;
+    monthMap[mk].seconds += r.seconds;
+    monthMap[mk].days += 1;
+  }
+  const weekRows = Object.values(weekMap).sort((a, b) => (a.key < b.key ? 1 : -1));
+  const monthRows = Object.values(monthMap).sort((a, b) => (a.key < b.key ? 1 : -1));
+  return { byDay, dayRows, weekRows, monthRows, today };
+}
+
+function renderWritingStatsTable(container, rows, columns) {
+  if (!container) return;
+  if (!rows.length) {
+    container.innerHTML = `<p class="hint writing-stats-empty">아직 집계할 기록이 없어요. 기록 버튼을 켜고 글을 써 보세요.</p>`;
+    return;
+  }
+  const head = columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join("");
+  const body = rows.map((row) => {
+    const tds = columns.map((c) => `<td>${c.render(row)}</td>`).join("");
+    const cur = row.isCurrent ? " is-current" : "";
+    return `<tr class="${cur}">${tds}</tr>`;
+  }).join("");
+  container.innerHTML = `
+    <table class="writing-stats-table">
+      <thead><tr>${head}</tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  `;
+}
+
+async function refreshWritingStatsPane() {
+  const highlights = $("writingStatsHighlights");
+  const dailyEl = $("writingStatsDaily");
+  const weeklyEl = $("writingStatsWeekly");
+  const monthlyEl = $("writingStatsMonthly");
+  if (!dailyEl || !weeklyEl || !monthlyEl) return;
+
+  // Load enough history for monthly view (about 2 years)
+  const to = localDayKey();
+  const fromDate = new Date();
+  fromDate.setFullYear(fromDate.getFullYear() - 2);
+  const from = localDayKey(fromDate);
+  let days = [];
+  try {
+    const data = await api(
+      `/api/writing/days?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`,
+    );
+    if (data?.prefs) applyWritingPrefs(data.prefs);
+    days = data?.days || [];
+  } catch (error) {
+    handleError(error);
+  }
+
+  const { byDay, dayRows, weekRows, monthRows, today } = aggregateWritingDays(days);
+  const thisWeek = weekStartKey(today);
+  const thisMonth = monthKeyFromDay(today);
+  const todayRec = byDay[today] || { chars: 0, seconds: 0 };
+  const weekRec = weekRows.find((w) => w.key === thisWeek) || { chars: 0, seconds: 0 };
+  const monthRec = monthRows.find((m) => m.key === thisMonth) || { chars: 0, seconds: 0 };
+
+  if (highlights) {
+    highlights.innerHTML = `
+      <div class="writing-stats-card">
+        <strong>오늘 (일간)</strong>
+        <div class="stats-chars">${(todayRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <div class="stats-time">${escapeHtml(formatActiveDuration(todayRec.seconds || 0))}</div>
+      </div>
+      <div class="writing-stats-card">
+        <strong>이번 주 (주간)</strong>
+        <div class="stats-chars">${(weekRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <div class="stats-time">${escapeHtml(formatActiveDuration(weekRec.seconds || 0))}</div>
+      </div>
+      <div class="writing-stats-card">
+        <strong>이번 달 (월별)</strong>
+        <div class="stats-chars">${(monthRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <div class="stats-time">${escapeHtml(formatActiveDuration(monthRec.seconds || 0))}</div>
+      </div>
+    `;
+  }
+
+  const dailyView = dayRows.slice(0, 31).map((r) => ({
+    ...r,
+    isCurrent: r.day === today,
+    label: r.day === today
+      ? `${formatKoreanDateLabel(r.day)} (오늘)`
+      : formatKoreanDateLabel(r.day),
+  }));
+  renderWritingStatsTable(dailyEl, dailyView, [
+    { label: "날짜", render: (r) => escapeHtml(r.label) },
+    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
+    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+  ]);
+
+  const weeklyView = weekRows.slice(0, 26).map((r) => ({
+    ...r,
+    isCurrent: r.key === thisWeek,
+    label: r.key === thisWeek
+      ? `${formatWeekLabel(r.key)} (이번 주)`
+      : formatWeekLabel(r.key),
+  }));
+  renderWritingStatsTable(weeklyEl, weeklyView, [
+    { label: "주 (월–일)", render: (r) => escapeHtml(r.label) },
+    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
+    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+  ]);
+
+  const monthlyView = monthRows.slice(0, 24).map((r) => ({
+    ...r,
+    isCurrent: r.key === thisMonth,
+    label: r.key === thisMonth
+      ? `${formatMonthLabel(r.key)} (이번 달)`
+      : formatMonthLabel(r.key),
+  }));
+  renderWritingStatsTable(monthlyEl, monthlyView, [
+    { label: "월", render: (r) => escapeHtml(r.label) },
+    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
+    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+  ]);
+}
+
+async function openWritingLogModal() {
+  const modal = $("writingLogModal");
+  if (!modal) return;
+  const now = new Date();
+  if (!writingTracker.calYear) {
+    writingTracker.calYear = now.getFullYear();
+    writingTracker.calMonth = now.getMonth();
+  }
+  setWritingLogTab("calendar");
+  modal.classList.remove("hidden");
+  await loadWritingCalendarMonth();
+  const today = localDayKey();
+  await selectWritingDay(today);
+}
+
+function closeWritingLogModal() {
+  $("writingLogModal")?.classList.add("hidden");
+}
+
+async function loadWritingCalendarMonth() {
+  const y = writingTracker.calYear;
+  const m = writingTracker.calMonth;
+  if ($("writingCalTitle")) $("writingCalTitle").textContent = `${y}.${m + 1}`;
+  const from = `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  const lastDate = new Date(y, m + 1, 0).getDate();
+  const to = `${y}-${String(m + 1).padStart(2, "0")}-${String(lastDate).padStart(2, "0")}`;
+  try {
+    const data = await api(`/api/writing/days?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+    if (data?.prefs) applyWritingPrefs(data.prefs);
+    writingTracker.daysMap = {};
+    for (const day of data?.days || []) {
+      if (day?.day) writingTracker.daysMap[day.day] = day;
+    }
+  } catch (error) {
+    handleError(error);
+    writingTracker.daysMap = {};
+  }
+  renderWritingCalendarGrid();
+}
+
+function renderWritingCalendarGrid() {
+  const grid = $("writingCalGrid");
+  if (!grid) return;
+  const y = writingTracker.calYear;
+  const m = writingTracker.calMonth;
+  const firstDow = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const today = localDayKey();
+  let maxChars = 1;
+  Object.values(writingTracker.daysMap).forEach((d) => {
+    maxChars = Math.max(maxChars, Number(d.chars_added) || 0);
+  });
+  const cells = [];
+  for (let i = 0; i < firstDow; i += 1) {
+    cells.push(`<button type="button" class="writing-cal-cell is-muted" disabled tabindex="-1"></button>`);
+  }
+  for (let day = 1; day <= daysInMonth; day += 1) {
+    const key = `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+    const rec = writingTracker.daysMap[key];
+    const chars = Number(rec?.chars_added) || 0;
+    const heat = chars > 0 ? Math.max(12, Math.round((chars / maxChars) * 55)) : 0;
+    const firstMet = isFirstMetDay(key);
+    const classes = [
+      "writing-cal-cell",
+      key === today ? "is-today" : "",
+      key === writingTracker.selectedDay ? "is-selected" : "",
+      chars > 0 ? "has-write" : "",
+      firstMet ? "is-first-met" : "",
+    ].filter(Boolean).join(" ");
+    const titleBits = [key];
+    if (firstMet) titleBits.push("토리와 처음 만난 날");
+    if (chars) titleBits.push(`${chars}자`);
+    cells.push(
+      `<button type="button" class="${classes}" data-day="${key}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}">`
+      + `<span>${day}</span>`
+      + `${firstMet ? CAL_ACORN_SVG : (chars > 0 ? '<span class="cal-dot"></span>' : "")}`
+      + `</button>`,
+    );
+  }
+  grid.innerHTML = cells.join("");
+}
+
+async function selectWritingDay(dayKey, { silent = false } = {}) {
+  writingTracker.selectedDay = dayKey;
+  renderWritingCalendarGrid();
+  if ($("writingDayTitle")) $("writingDayTitle").textContent = formatKoreanDateLabel(dayKey);
+  let rec = writingTracker.daysMap[dayKey];
+  // include unsent pending for today
+  let chars = Number(rec?.chars_added) || 0;
+  let active = Number(rec?.active_seconds) || 0;
+  let sessions = Number(rec?.session_count) || 0;
+  let start = rec?.first_start_at || null;
+  if (dayKey === localDayKey()) {
+    chars += writingTracker.pendingChars;
+    active += writingTracker.pendingActive;
+    if (writingTracker.pendingSessionStart) sessions += 1;
+    if (!start && writingTracker.sessionStartedAt) start = writingTracker.sessionStartedAt;
+  }
+  if (!silent) {
+    try {
+      const detail = await api(`/api/writing/days/${encodeURIComponent(dayKey)}`);
+      if (detail) {
+        writingTracker.daysMap[dayKey] = detail;
+        chars = Number(detail.chars_added) || 0;
+        active = Number(detail.active_seconds) || 0;
+        sessions = Number(detail.session_count) || 0;
+        start = detail.first_start_at || start;
+        if (dayKey === localDayKey()) {
+          chars += writingTracker.pendingChars;
+          active += writingTracker.pendingActive;
+        }
+        if (detail.prefs) applyWritingPrefs(detail.prefs);
+      }
+    } catch (_) {
+      /* use cache */
+    }
+  }
+  if ($("writingDayChars")) {
+    $("writingDayChars").textContent = chars
+      ? `${chars.toLocaleString("ko-KR")}자`
+      : "0자";
+  }
+  if ($("writingDayStart")) {
+    $("writingDayStart").textContent = start ? formatLocalTimeFromIso(start) : "—";
+  }
+  if ($("writingDayActive")) {
+    $("writingDayActive").textContent = formatActiveDuration(active);
+  }
+  if ($("writingDaySessions")) {
+    $("writingDaySessions").textContent = String(sessions || 0);
+  }
+  if ($("writingDayHint")) {
+    const idle = writingTracker.prefs.idle_minutes || 30;
+    $("writingDayHint").textContent =
+      `미입력 ${idle}분 이상은 집필 시간에서 제외됩니다. 순증가 글자만 집계합니다.`;
+  }
+  const firstMetBanner = $("writingFirstMetBanner");
+  if (firstMetBanner) {
+    firstMetBanner.classList.toggle("hidden", !isFirstMetDay(dayKey));
+  }
+  if (isFirstMetDay(dayKey) && $("writingDayTitle")) {
+    $("writingDayTitle").textContent = `${formatKoreanDateLabel(dayKey)} · 첫 만남`;
+  }
+}
+
+async function saveWritingPrefsFromForm() {
+  const showTimer = Boolean($("writingShowTimer")?.checked);
+  saveShowTimerPref(showTimer);
+  const body = {
+    goal_chars: Number($("writingGoalChars")?.value || 2000),
+    goal_notify: Boolean($("writingGoalNotify")?.checked),
+    lonely_days: Number($("writingLonelyDays")?.value || 3),
+    lonely_notify: Boolean($("writingLonelyNotify")?.checked),
+    idle_minutes: Number($("writingIdleMinutes")?.value || 30),
+  };
+  const prefs = await api("/api/writing/prefs", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  applyWritingPrefs(prefs);
+  // Re-apply timer visibility after server prefs merge
+  saveShowTimerPref(showTimer);
+  updateWritingLogButtonUi();
+  toast("기록 설정을 저장했어요.");
+}
+
+async function refreshWritingPhonePane() {
+  try {
+    const pair = await api("/api/writing/pair");
+    if ($("writingPairCode")) {
+      $("writingPairCode").textContent = pair?.pair_code || "————";
+    }
+    if ($("writingPairHint")) {
+      $("writingPairHint").textContent = pair?.hint
+        || (pair?.paired
+          ? `연결됨${pair.device_name ? ` · ${pair.device_name}` : ""}`
+          : "코드를 발급하면 앱 연동 준비가 됩니다.");
+    }
+  } catch (error) {
+    if ($("writingPairHint")) $("writingPairHint").textContent = "연동 정보를 불러오지 못했어요.";
+  }
+  try {
+    const inbox = await api("/api/writing/inbox");
+    renderWritingInbox(inbox?.items || []);
+  } catch (_) {
+    renderWritingInbox([]);
+  }
+}
+
+function renderWritingInbox(items) {
+  const list = $("writingInboxList");
+  if (!list) return;
+  if (!items.length) {
+    list.innerHTML = `<p class="hint writing-inbox-empty">아직 받은 글이 없어요.<br>앱에서 「토리에게 보내기」하면 여기에 표시됩니다.</p>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const when = item.created_at ? formatLocalTimeFromIso(item.created_at) : "";
+    const datePart = String(item.created_at || "").slice(0, 10);
+    return `
+      <article class="writing-inbox-item${item.read ? "" : " is-unread"}" data-inbox-id="${item.id}">
+        <div class="writing-inbox-item-head">
+          <strong>${escapeHtml(item.title || "제목 없음")}</strong>
+          <span>${escapeHtml(datePart)} ${escapeHtml(when)}</span>
+        </div>
+        <p class="writing-inbox-preview">${escapeHtml(item.preview || "")}</p>
+        <button type="button" class="secondary" data-inbox-copy="${item.id}">내용 복사</button>
+      </article>
+    `;
+  }).join("");
+  list._inboxItems = items;
+}
+
+async function issueWritingPairCode() {
+  const pair = await api("/api/writing/pair", {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  if ($("writingPairCode")) $("writingPairCode").textContent = pair?.pair_code || "————";
+  if ($("writingPairHint")) {
+    $("writingPairHint").textContent = pair?.hint || "새 코드를 발급했어요. 이전 코드는 무효입니다.";
+  }
+  toast("연동 코드를 발급했어요.");
+}
+
+function setupWritingLog() {
+  const modal = $("writingLogModal");
+  if (!modal || modal.dataset.bound === "1") {
+    // still start tracker timers once
+  } else {
+    modal.dataset.bound = "1";
+    modal.querySelectorAll("[data-close-writing-log]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeWritingLogModal();
+      });
+    });
+    document.querySelectorAll(".writing-log-tab").forEach((btn) => {
+      btn.addEventListener("click", () => setWritingLogTab(btn.dataset.writingTab || "calendar"));
+    });
+    $("writingCalPrev")?.addEventListener("click", async () => {
+      writingTracker.calMonth -= 1;
+      if (writingTracker.calMonth < 0) {
+        writingTracker.calMonth = 11;
+        writingTracker.calYear -= 1;
+      }
+      await loadWritingCalendarMonth();
+    });
+    $("writingCalNext")?.addEventListener("click", async () => {
+      writingTracker.calMonth += 1;
+      if (writingTracker.calMonth > 11) {
+        writingTracker.calMonth = 0;
+        writingTracker.calYear += 1;
+      }
+      await loadWritingCalendarMonth();
+    });
+    $("writingCalGrid")?.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-day]");
+      if (!btn) return;
+      selectWritingDay(btn.getAttribute("data-day") || "").catch(handleError);
+    });
+    $("writingPrefsSave")?.addEventListener("click", () => {
+      saveWritingPrefsFromForm().catch(handleError);
+    });
+    $("writingPairRefresh")?.addEventListener("click", () => {
+      issueWritingPairCode().catch(handleError);
+    });
+    $("writingInboxList")?.addEventListener("click", async (event) => {
+      const btn = event.target.closest?.("[data-inbox-copy]");
+      if (!btn) return;
+      const id = Number(btn.getAttribute("data-inbox-copy"));
+      const items = $("writingInboxList")?._inboxItems || [];
+      const item = items.find((x) => Number(x.id) === id);
+      if (!item) return;
+      try {
+        await navigator.clipboard.writeText(item.body_md || item.preview || "");
+        toast("받은 글 내용을 복사했어요. 원고에 붙여 넣으세요.");
+      } catch (_) {
+        toast("복사에 실패했어요.");
+      }
+      try {
+        await api(`/api/writing/inbox/${id}/read`, { method: "POST", body: "{}" });
+        btn.closest(".writing-inbox-item")?.classList.remove("is-unread");
+      } catch (_) { /* ignore */ }
+    });
+    $("toryCheerClose")?.addEventListener("click", () => hideToryCheer());
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && modal && !modal.classList.contains("hidden")) {
+        closeWritingLogModal();
+      }
+    });
+  }
+
+  // 우클릭: 달력·설정 또는 기능 숨기기
+  const logBtn = $("writingLogButton");
+  if (logBtn && logBtn.dataset.writingBound !== "1") {
+    logBtn.dataset.writingBound = "1";
+    logBtn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      setUiFeatureCtxTarget?.(logBtn);
+      if (typeof showUiFeatureContextMenu === "function") {
+        showUiFeatureContextMenu(event.clientX, event.clientY, logBtn, [{
+          label: "기록 달력·설정",
+          hint: "글쓰기 기록 열기",
+          run: () => { openWritingLogModal().catch(handleError); },
+        }]);
+      } else {
+        openWritingLogModal().catch(handleError);
+      }
+    });
+  }
+  writingTracker.prefs.show_timer = loadShowTimerPref();
+  updateWritingLogButtonUi();
+
+  // Track manuscript typing only while recording is on
+  const onEditorInput = () => noteWritingActivityFromEditor();
+  $("sceneContent")?.addEventListener("input", onEditorInput);
+  // focus-write / synopsis don't count as "manuscript writing session" for now
+
+  if (!writingTracker.tickTimer) {
+    writingTracker.lastTickAt = Date.now();
+    writingTracker.tickTimer = window.setInterval(() => {
+      writingTick();
+    }, 15000);
+  }
+  if (!writingTracker.flushTimer) {
+    writingTracker.flushTimer = window.setInterval(() => {
+      flushWritingHeartbeat().catch(() => {});
+    }, 60000);
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      writingTick();
+      flushWritingHeartbeat({ force: true }).catch(() => {});
+    }
+  });
+  window.addEventListener("beforeunload", () => {
+    writingTick();
+    // best-effort sync beacon
+    try {
+      const chars = writingTracker.pendingChars;
+      const active = writingTracker.pendingActive;
+      if (chars > 0 || active > 0 || writingTracker.pendingSessionStart) {
+        const body = JSON.stringify({
+          day: localDayKey(),
+          chars_delta: chars,
+          active_seconds_delta: active,
+          session_start: writingTracker.pendingSessionStart,
+          session_started_at: writingTracker.sessionStartedAt,
+          last_active_at: new Date().toISOString(),
+          project_id: state.projectId || null,
+        });
+        if (navigator.sendBeacon) {
+          const blob = new Blob([body], { type: "application/json" });
+          navigator.sendBeacon("/api/writing/heartbeat", blob);
+        }
+      }
+    } catch (_) { /* ignore */ }
+  });
+
+  // load prefs + lonely check
+  api("/api/writing/prefs")
+    .then((prefs) => {
+      applyWritingPrefs(prefs);
+      return checkLonelyWriter();
+    })
+    .catch(() => {});
+}
+
+/* —— Bookmarks (up to 10 unique colors, header strip) —— */
+const BOOKMARK_STORAGE_PREFIX = "supertory.bookmarks.";
+const BOOKMARK_MAX = 10;
+const BOOKMARK_COLORS = [
+  { key: "red", hex: "#e74c3c", label: "빨강" },
+  { key: "orange", hex: "#e67e22", label: "주황" },
+  { key: "amber", hex: "#f1c40f", label: "노랑" },
+  { key: "green", hex: "#27ae60", label: "초록" },
+  { key: "teal", hex: "#1abc9c", label: "청록" },
+  { key: "blue", hex: "#3498db", label: "파랑" },
+  { key: "indigo", hex: "#5c6bc0", label: "남색" },
+  { key: "purple", hex: "#9b59b6", label: "보라" },
+  { key: "pink", hex: "#e91e8c", label: "분홍" },
+  { key: "brown", hex: "#8d6e63", label: "갈색" },
+];
+const SETTINGS_BOOKMARK_META = {
+  ideas: { title: "아이디어뱅크", open: () => openIdeaBoard() },
+  baits: { title: "떡밥모음", open: async () => {
+    setActiveBinder("settings");
+    state.openSettingsSection = "baits";
+    applySettingsSectionState();
+    renderBaitList();
+  } },
+  intro: {
+    title: "작품소개/기획의도",
+    open: async () => {
+      setActiveBinder("settings");
+      state.openSettingsSection = "intro";
+      applySettingsSectionState();
+      return openSettingsDocMain("intro");
+    },
+  },
+  intent: {
+    title: "기획의도",
+    open: () => openSettingsDocMain("intent"),
+  },
+  logsyn: {
+    title: "로그라인/시놉시스",
+    open: async () => {
+      setActiveBinder("settings");
+      state.openSettingsSection = "logsyn";
+      applySettingsSectionState();
+      return openSettingsDocMain("synopsis");
+    },
+  },
+  keywords: { title: "키워드", open: () => openKeywordBoard() },
+  // Per-doc keys (field → buttons / bookmarks)
+  synopsis: { title: "시놉시스", open: () => openSettingsDocMain("synopsis") },
+  logline: { title: "로그라인", open: () => openSettingsDocMain("logline") },
+  world: { title: "세계관", open: () => openSettingsDocMain("world") },
+  characters: { title: "캐릭터", open: () => openCharacterBoard() },
+  sources: { title: "참고자료/출처", open: async () => {
+    setActiveBinder("settings");
+    state.openSettingsSection = "sources";
+    applySettingsSectionState();
+    renderSourceList();
+  } },
+  toryVault: { title: "토리의 수집창고", open: async () => {
+    setActiveBinder("settings");
+    state.openSettingsSection = "toryVault";
+    applySettingsSectionState();
+    renderToryVaultList();
+  } },
+};
+
+/* —— 떡밥모음 (본문 드래그 → 우클릭 던지기) —— */
+const BAIT_STORAGE_PREFIX = "supertory.baits.";
+const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
+const DEFAULT_SETTINGS_ORDER = ["ideas", "baits", "intro", "logsyn", "keywords", "world", "characters", "toryVault", "sources"];
+
+/**
+ * 설정집 키워드 카탈로그 (장르·하위 태그).
+ * 라벨 문자열을 그대로 저장하며, 나중에 항목만 추가하면 됩니다.
+ */
+const KEYWORD_CATALOG = [
+  {
+    key: "fantasy",
+    title: "판타지",
+    tags: [
+      "이세계", "회/빙/환", "마법사", "이종족", "요괴", "영지물", "게임", "기사물", "저승",
+      "황제/황태자", "공작/북부공작", "기사", "성녀", "차원이", "상태창/시스템",
+      "레이드/던전물", "아카데미", "헌터물", "먼치킨(초강력 주인공)", "천재/재능",
+      "착각물", "신분상승", "대성장",
+    ],
+  },
+  {
+    key: "romance",
+    title: "로맨스",
+    tags: [
+      "연상연하", "하렘물", "계약관계", "정략결혼", "귀족", "하녀", "육아물", "악녀",
+      "집착남", "다정남", "차도남/까칠남", "짝사랑", "계약연애/계약결혼", "사내연애",
+      "소꿉친구", "재회물", "삼각관계", "잔잔물", "애증", "후회남", "상처녀/상처남",
+      "달달물", "구원물", "오해/갈등", "힐링", "흑막남주", "집착남주",
+      "능력녀/걸크러시", "궁정로맨스", "가짜 딸/진짜 딸",
+    ],
+  },
+  {
+    key: "blgl",
+    title: "BL · GL",
+    tags: ["BL", "GL"],
+  },
+  {
+    key: "mystery",
+    title: "미스터리 · 스릴러",
+    tags: ["추리/미스테리", "서스펜스"],
+  },
+  {
+    key: "sf",
+    title: "SF",
+    tags: [
+      "SF", "사이보그", "사이버펑크",
+      "우주/스페이스 오페라", "아포칼립스/디스토피아", "AI/인공지능", "가상현실(VR)",
+      "스팀펑크", "멀티버스", "시간여행/타임루프", "크리처/외계인",
+    ],
+  },
+  {
+    key: "wuxia",
+    title: "무협",
+    tags: [
+      "마도/사파", "정파", "천마", "마교", "기연", "낭만", "문파/세가",
+      "천하제일", "은원관계", "약육강식", "성장물",
+    ],
+  },
+  {
+    key: "history",
+    title: "역사 · 대체역사",
+    tags: [
+      "대대적인 역사개변(대체역사)", "조선시대", "삼국지", "제국/전쟁",
+      "정치가/책사", "군주/왕", "현대 지식 활용(과학/기술 전파)",
+    ],
+  },
+  {
+    key: "tone",
+    title: "분위기 · 소재",
+    tags: ["복수물", "혐관", "정치물", "코미디", "노예", "19금", "피폐"],
+  },
+];
+
+const KEYWORD_MAX = 40;
+const SOURCE_STORAGE_PREFIX = "supertory.sources.";
+const SOURCE_FILE_DB_NAME = "supertory-source-files";
+const SOURCE_FILE_STORE = "files";
+const SOURCE_FILE_MAX_BYTES = 15 * 1024 * 1024;
+const SOURCE_FILE_EXTS = new Set([
+  ".pdf", ".doc", ".docx", ".hwp", ".hwpx", ".txt", ".text", ".md", ".markdown", ".rtf", ".odt",
+]);
+const TORY_VAULT_STORAGE_PREFIX = "supertory.toryVault.";
+
+/** Object URL for the open PDF in split source viewer (revoked on close). */
+let splitSourceObjectUrl = null;
+/** Pending File from source modal (not yet saved). */
+let pendingSourceFile = null;
+/** Text-mode reference material: SuperTORY edit (not native Word). */
+let splitSourceEditEnabled = false;
+let splitSourceDirty = false;
+let splitSourceSaveTimer = null;
+/** Current open reference viewer mode: "pdf" | "text" | "" */
+let splitSourceViewerMode = "";
+
+function toryVaultStorageKey(projectId = state.projectId) {
+  return `${TORY_VAULT_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadToryVault() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(toryVaultStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((item) => item && item.id) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveToryVault(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(toryVaultStorageKey(), JSON.stringify(list));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function aiModeLabel(mode) {
+  const map = {
+    continue: "이어 쓰기",
+    rewrite: "다듬기",
+    summarize: "요약",
+    ideas: "아이디어",
+    analyze: "분석",
+    brainstorm: "브레인스토밍",
+    foreshadow: "복선 레이더",
+    plottwist: "반전·개연성",
+    worldscan: "세계관 수호자 스캔",
+    dupcheck: "중복 체크",
+    free: "직접 요청",
+  };
+  return map[mode] || mode || "토리";
+}
+
+function collectToToryVault(options = {}) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+  const resultText = String(options.text ?? $("aiResult")?.value ?? "").trim();
+  const promptText = String(options.prompt ?? $("aiPrompt")?.value ?? "").trim();
+  const body = resultText || promptText;
+  if (!body) {
+    toast("수집할 내용이 없어요. 토리에게 물어보거나 요청을 적어 주세요.");
+    return null;
+  }
+  const mode = String(options.mode || $("aiMode")?.value || "free");
+  const sceneTitle = state.scene?.title || $("sceneTitle")?.value || state.toryFocusSceneTitle || "";
+  const list = loadToryVault();
+  const item = {
+    id: `vault-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    title: options.title
+      || (resultText ? `토리 · ${aiModeLabel(mode)}` : `요청 · ${aiModeLabel(mode)}`)
+      || "수집 메모",
+    body,
+    prompt: promptText,
+    mode,
+    sceneTitle,
+    createdAt: new Date().toISOString(),
+  };
+  list.unshift(item);
+  // Cap growth
+  if (list.length > 200) list.length = 200;
+  saveToryVault(list);
+  renderToryVaultList();
+  renderSettingsCodex();
+  toast("토리 수집창고에 넣었어요.");
+  return item;
+}
+
+function renderToryVaultList() {
+  const listEl = $("toryVaultList");
+  if (!listEl) return;
+  const items = loadToryVault();
+  if (!items.length) {
+    listEl.innerHTML = `<p class="hint tory-vault-empty">아직 수집한 내용이 없어요.<br>토리 결과 아래 <strong>수집</strong>으로 아이디어를 담아 보세요.</p>`;
+    return;
+  }
+  listEl.innerHTML = items.map((item) => {
+    const when = item.createdAt
+      ? new Date(item.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "";
+    const mode = escapeHtml(aiModeLabel(item.mode));
+    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : "";
+    const body = escapeHtml(item.body || "");
+    return `
+      <article class="tory-vault-card" data-vault-id="${escapeHtml(item.id)}">
+        <div class="tory-vault-card-meta">
+          <strong>${escapeHtml(item.title || "수집")}</strong>
+          <span>${mode}</span>
+          ${scene ? `<span>씬: ${scene}</span>` : ""}
+          ${when ? `<span>${escapeHtml(when)}</span>` : ""}
+        </div>
+        <div class="tory-vault-card-body">${body}</div>
+        <div class="tory-vault-card-actions">
+          <button type="button" class="secondary" data-vault-copy="${escapeHtml(item.id)}">복사</button>
+          <button type="button" class="secondary" data-vault-delete="${escapeHtml(item.id)}">삭제</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function setupToryVault() {
+  $("newToryVaultButton")?.addEventListener("click", () => {
+    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+    const text = window.prompt("수집창고에 넣을 메모를 적어 주세요.");
+    if (text === null) return;
+    const body = text.trim();
+    if (!body) return toast("내용이 비어 있어요.");
+    collectToToryVault({ text: body, title: "직접 메모", mode: "note", prompt: "" });
+    setActiveBinder("settings");
+    state.openSettingsSection = "toryVault";
+    applySettingsSectionState();
+  });
+  $("clearToryVaultButton")?.addEventListener("click", () => {
+    if (!state.projectId) return;
+    if (!loadToryVault().length) return toast("비울 수집이 없어요.");
+    if (!window.confirm("토리 수집창고를 모두 비울까요?")) return;
+    saveToryVault([]);
+    renderToryVaultList();
+    renderSettingsCodex();
+    toast("수집창고를 비웠어요.");
+  });
+  $("toryVaultList")?.addEventListener("click", (event) => {
+    const copyId = event.target.closest?.("[data-vault-copy]")?.dataset?.vaultCopy;
+    const delId = event.target.closest?.("[data-vault-delete]")?.dataset?.vaultDelete;
+    if (copyId) {
+      const item = loadToryVault().find((v) => v.id === copyId);
+      if (!item?.body) return;
+      navigator.clipboard?.writeText(item.body).then(
+        () => toast("복사했어요."),
+        () => {
+          try {
+            const ta = document.createElement("textarea");
+            ta.value = item.body;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand("copy");
+            ta.remove();
+            toast("복사했어요.");
+          } catch (_) {
+            toast("복사에 실패했어요.");
+          }
+        },
+      );
+      return;
+    }
+    if (delId) {
+      if (!window.confirm("이 수집을 삭제할까요?")) return;
+      saveToryVault(loadToryVault().filter((v) => v.id !== delId));
+      renderToryVaultList();
+      renderSettingsCodex();
+      toast("삭제했어요.");
+    }
+  });
+  renderToryVaultList();
+}
+
+function sourceStorageKey(projectId = state.projectId) {
+  return `${SOURCE_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadSources() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(sourceStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((item) => item && item.id) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveSources(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(sourceStorageKey(), JSON.stringify(list));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function normalizeSourceUrl(url) {
+  const value = String(url || "").trim();
+  if (!value) return "";
+  if (/^https?:\/\//i.test(value)) return value;
+  if (/^[\w.-]+\.[\w.-]+/.test(value)) return `https://${value}`;
+  return value;
+}
+
+function sourceFileExt(name = "") {
+  const m = String(name || "").toLowerCase().match(/(\.[a-z0-9]+)$/);
+  return m ? m[1] : "";
+}
+
+function sourceFileKindLabel(ext = "") {
+  const e = String(ext || "").toLowerCase();
+  if (e === ".pdf") return "PDF";
+  if (e === ".docx" || e === ".doc") return "Word";
+  if (e === ".hwp" || e === ".hwpx") return "한글";
+  if (e === ".txt" || e === ".text" || e === ".md" || e === ".markdown") return "텍스트";
+  if (e === ".rtf") return "RTF";
+  if (e === ".odt") return "ODT";
+  return "파일";
+}
+
+function formatSourceFileSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function openSourceFilesDb() {
+  return new Promise((resolve, reject) => {
+    if (!window.indexedDB) {
+      reject(new Error("이 브라우저는 파일 저장(IndexedDB)을 지원하지 않아요."));
+      return;
+    }
+    const req = indexedDB.open(SOURCE_FILE_DB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(SOURCE_FILE_STORE)) {
+        db.createObjectStore(SOURCE_FILE_STORE);
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("파일 저장소를 열지 못했어요."));
+  });
+}
+
+function sourceFileDbKey(sourceId, projectId = state.projectId) {
+  return `${projectId || 0}:${sourceId}`;
+}
+
+async function putSourceFileBlob(sourceId, record) {
+  const db = await openSourceFilesDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SOURCE_FILE_STORE, "readwrite");
+    tx.objectStore(SOURCE_FILE_STORE).put(record, sourceFileDbKey(sourceId));
+    tx.oncomplete = () => resolve(true);
+    tx.onerror = () => reject(tx.error || new Error("파일 저장에 실패했어요."));
+  });
+}
+
+async function getSourceFileBlob(sourceId) {
+  const db = await openSourceFilesDb();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction(SOURCE_FILE_STORE, "readonly");
+    const req = tx.objectStore(SOURCE_FILE_STORE).get(sourceFileDbKey(sourceId));
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = () => reject(req.error || new Error("파일을 읽지 못했어요."));
+  });
+}
+
+async function deleteSourceFileBlob(sourceId) {
+  try {
+    const db = await openSourceFilesDb();
+    return new Promise((resolve) => {
+      const tx = db.transaction(SOURCE_FILE_STORE, "readwrite");
+      tx.objectStore(SOURCE_FILE_STORE).delete(sourceFileDbKey(sourceId));
+      tx.oncomplete = () => resolve(true);
+      tx.onerror = () => resolve(false);
+    });
+  } catch (_) {
+    return false;
+  }
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const b64 = result.includes(",") ? result.split(",", 1)[1] : result;
+      resolve(b64);
+    };
+    reader.onerror = () => reject(reader.error || new Error("파일을 읽지 못했어요."));
+    reader.readAsDataURL(file);
+  });
+}
+
+/** Inflate raw DEFLATE (zip method 8) via browser DecompressionStream. */
+async function inflateRawDeflate(u8) {
+  if (typeof DecompressionStream === "undefined") {
+    throw new Error("이 브라우저는 DOCX 압축 해제를 지원하지 않아요.");
+  }
+  const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
+  const ab = await new Response(stream).arrayBuffer();
+  return new Uint8Array(ab);
+}
+
+/**
+ * Minimal ZIP local-file scan (enough for DOCX word/document.xml).
+ * @returns {Record<string, { method: number, data: Uint8Array }>}
+ */
+function scanZipLocalEntries(arrayBuffer) {
+  const u8 = new Uint8Array(arrayBuffer);
+  const out = {};
+  let i = 0;
+  while (i + 30 < u8.length) {
+    // PK\x03\x04 local file header
+    if (u8[i] !== 0x50 || u8[i + 1] !== 0x4b) {
+      i += 1;
+      continue;
+    }
+    if (u8[i + 2] === 0x01 && u8[i + 3] === 0x02) break; // central directory
+    if (u8[i + 2] === 0x05 && u8[i + 3] === 0x06) break; // end of central
+    if (!(u8[i + 2] === 0x03 && u8[i + 3] === 0x04)) {
+      i += 1;
+      continue;
+    }
+    const view = new DataView(arrayBuffer, i, Math.min(30, u8.length - i));
+    const method = view.getUint16(8, true);
+    const compSize = view.getUint32(18, true);
+    const nameLen = view.getUint16(26, true);
+    const extraLen = view.getUint16(28, true);
+    const nameStart = i + 30;
+    if (nameStart + nameLen > u8.length) break;
+    const name = new TextDecoder("utf-8").decode(u8.subarray(nameStart, nameStart + nameLen));
+    const dataStart = nameStart + nameLen + extraLen;
+    const dataEnd = dataStart + compSize;
+    if (dataEnd > u8.length) break;
+    out[name] = { method, data: u8.subarray(dataStart, dataEnd) };
+    i = dataEnd;
+  }
+  return out;
+}
+
+function docxXmlToPlainText(xml) {
+  return String(xml || "")
+    .replace(/<\/w:p>/gi, "\n")
+    .replace(/<w:br\b[^>]*\/?>/gi, "\n")
+    .replace(/<w:tab\b[^>]*\/?>/gi, "\t")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, "\"")
+    .replace(/&apos;/g, "'")
+    .replace(/&#(\d+);/g, (_, n) => {
+      const code = Number(n);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/&#x([0-9a-fA-F]+);/g, (_, n) => {
+      const code = parseInt(n, 16);
+      return Number.isFinite(code) ? String.fromCharCode(code) : "";
+    })
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Client-side DOCX → plain text (no server). */
+async function extractDocxTextClient(arrayBuffer) {
+  const entries = scanZipLocalEntries(arrayBuffer);
+  const entry = entries["word/document.xml"];
+  if (!entry) throw new Error("DOCX 본문(document.xml)을 찾지 못했어요.");
+  let xmlBytes;
+  if (entry.method === 0) {
+    xmlBytes = entry.data;
+  } else if (entry.method === 8) {
+    xmlBytes = await inflateRawDeflate(entry.data);
+  } else {
+    throw new Error(`지원하지 않는 DOCX 압축 방식입니다 (${entry.method}).`);
+  }
+  const xml = new TextDecoder("utf-8").decode(xmlBytes);
+  const text = docxXmlToPlainText(xml);
+  if (!text) throw new Error("DOCX에서 글자를 꺼내지 못했어요.");
+  return text;
+}
+
+/**
+ * Extract plain text for reference viewer.
+ * DOCX: browser-first (works even if old server lacks /api/extract-text).
+ * Other office formats: server /api/extract-text (+ alias).
+ */
+async function extractReferenceTextFromFile(file, arrayBuffer = null) {
+  const name = file?.name || "upload.bin";
+  const ext = sourceFileExt(name);
+  const buf = arrayBuffer || (await file.arrayBuffer());
+
+  // Client-side DOCX — avoids "알 수 없는 요청" when server is outdated
+  if (ext === ".docx") {
+    try {
+      const text = await extractDocxTextClient(buf);
+      return {
+        filename: name,
+        format: "docx",
+        title: name.replace(/\.[^.]+$/, "") || "문서",
+        text,
+        viewer: "text",
+        warnings: [],
+      };
+    } catch (clientErr) {
+      // fall through to server
+      console.warn("[supertory] client docx extract failed", clientErr);
+    }
+  }
+
+  const b64 = await fileToBase64(file instanceof File ? file : new File([buf], name));
+  const payload = JSON.stringify({
+    filename: name,
+    content_base64: b64,
+  });
+  try {
+    return await api("/api/extract-text", { method: "POST", body: payload });
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    // Alias path (same handler) — in case of path normalize differences
+    if (/알 수 없는 요청|404|not found/i.test(msg)) {
+      try {
+        return await api("/api/reference/extract-text", { method: "POST", body: payload });
+      } catch (error2) {
+        const msg2 = String(error2?.message || error2 || "");
+        if (/알 수 없는 요청|404|not found/i.test(msg2)) {
+          throw new Error(
+            "DOCX/한글 추출 API를 찾을 수 없습니다. SuperTORY 서버 창을 종료한 뒤 start_supertory.bat 으로 다시 실행해 주세요. (브라우저만 새로고침하면 예전 서버가 남을 수 있어요.)",
+          );
+        }
+        throw error2;
+      }
+    }
+    throw error;
+  }
+}
+
+function revokeSplitSourceObjectUrl() {
+  if (splitSourceObjectUrl) {
+    try { URL.revokeObjectURL(splitSourceObjectUrl); } catch (_) { /* ignore */ }
+    splitSourceObjectUrl = null;
+  }
+  const iframe = $("splitSourcePdf");
+  if (iframe) iframe.removeAttribute("src");
+}
+
+function setSplitSourceUiMode(isSource) {
+  const viewer = $("splitViewer");
+  const sourceView = $("splitSourceViewer");
+  const sceneBody = $("splitSceneBodyEditor");
+  const titleInput = $("splitSceneTitleInput");
+  const sceneSelect = $("splitSceneSelect");
+  const editBtn = $("toggleSplitEditButton");
+  const caption = viewer?.querySelector?.(".split-scene-caption");
+  viewer?.classList.toggle("is-source-file", Boolean(isSource));
+  sourceView?.classList.toggle("hidden", !isSource);
+  if (sceneBody) {
+    sceneBody.classList.toggle("hidden", Boolean(isSource));
+    // Extra hard-hide so empty "이 씬의 원고가…" placeholder never steals height
+    if (isSource) {
+      sceneBody.setAttribute("hidden", "");
+      sceneBody.style.display = "none";
+      sceneBody.style.minHeight = "0";
+      sceneBody.style.height = "0";
+      sceneBody.style.flex = "none";
+    } else {
+      sceneBody.removeAttribute("hidden");
+      sceneBody.style.removeProperty("display");
+      sceneBody.style.removeProperty("min-height");
+      sceneBody.style.removeProperty("height");
+      sceneBody.style.removeProperty("flex");
+    }
+  }
+  // Keep title bar visible for reference files — shows uploaded file name
+  if (titleInput) {
+    titleInput.classList.remove("hidden");
+    titleInput.readOnly = Boolean(isSource) || !state.splitEditEnabled;
+    titleInput.tabIndex = isSource ? -1 : (state.splitEditEnabled ? 0 : -1);
+    if (isSource) {
+      titleInput.placeholder = "파일명";
+      titleInput.setAttribute("aria-label", "참고자료 파일명");
+    } else {
+      titleInput.placeholder = "씬 제목";
+      titleInput.setAttribute("aria-label", "다른 씬 제목");
+    }
+  }
+  if (sceneSelect) {
+    sceneSelect.disabled = Boolean(isSource);
+    sceneSelect.closest(".split-scene-label")?.classList.toggle("hidden", Boolean(isSource));
+  }
+  if (editBtn) {
+    editBtn.classList.toggle("hidden", Boolean(isSource));
+    if (isSource) {
+      editBtn.disabled = true;
+      editBtn.setAttribute("aria-pressed", "false");
+    } else {
+      editBtn.disabled = false;
+    }
+  }
+  if (caption) caption.textContent = isSource ? "참고자료 파일" : "함께 볼 씬";
+}
+
+/** Display name for open reference file (prefer real file name). */
+function getSplitSourceDisplayName(src) {
+  if (!src) return "참고자료";
+  const fileName = String(src.fileName || "").trim();
+  const title = String(src.title || "").trim();
+  // Prefer uploaded file name; fall back to saved title
+  return fileName || title || "참고자료";
+}
+
+function renderSourceList() {
+  const list = $("sourceList");
+  if (!list) return;
+  const sources = loadSources();
+  if (!sources.length) {
+    list.innerHTML = `<p class="hint source-empty">아직 자료가 없어요.<br>+ 자료로 링크 또는 파일을 추가해 보세요.</p>`;
+    return;
+  }
+  list.innerHTML = sources.map((src) => {
+    const title = escapeHtml(src.title || "제목 없음");
+    const url = String(src.url || "").trim();
+    const note = escapeHtml(src.note || "");
+    const isFile = src.kind === "file" || Boolean(src.fileName);
+    const ext = sourceFileExt(src.fileName || src.fileExt || "");
+    const kindLabel = isFile ? sourceFileKindLabel(ext || src.fileExt) : "";
+    const meta = isFile
+      ? `<div class="source-card-meta"><span class="source-file-badge">${escapeHtml(kindLabel)}</span> ${escapeHtml(src.fileName || "")}${src.fileSize ? ` · ${escapeHtml(formatSourceFileSize(src.fileSize))}` : ""}</div>`
+      : "";
+    const urlHtml = url
+      ? `<a class="source-card-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`
+      : "";
+    const isPdf = isFile && (src.viewer === "pdf" || sourceFileExt(src.fileName || src.fileExt || "") === ".pdf");
+    const openBtn = isFile
+      ? `<button type="button" class="primary" data-source-open="${escapeHtml(src.id)}" title="작성 화면 옆에 펼쳐 보기">펼치기</button>`
+      : "";
+    const exportBtns = isFile && !isPdf
+      ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="Word로 내보내기">DOCX</button>
+         <button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="hwpx" title="한글로 내보내기">HWPX</button>`
+      : "";
+    return `
+      <article class="source-card ${isFile ? "is-file" : ""}" data-source-id="${escapeHtml(src.id)}">
+        <div class="source-card-title">${title}</div>
+        ${meta}
+        ${urlHtml}
+        ${note ? `<div class="source-card-note">${note}</div>` : ""}
+        <div class="source-card-actions">
+          ${openBtn}
+          ${exportBtns}
+          <button type="button" class="secondary" data-source-edit="${escapeHtml(src.id)}">수정</button>
+          <button type="button" class="secondary" data-source-delete="${escapeHtml(src.id)}">삭제</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function openSourceModal(options = {}) {
+  const modal = $("sourceModal");
+  if (!modal) return;
+  pendingSourceFile = null;
+  $("sourceEditId").value = options.id || "";
+  $("sourceTitle").value = options.title || "";
+  $("sourceUrl").value = options.url || "";
+  $("sourceNote").value = options.note || "";
+  if ($("sourceFileInput")) $("sourceFileInput").value = "";
+  const current = $("sourceFileCurrent");
+  if (current) {
+    if (options.fileName) {
+      current.textContent = `저장된 파일: ${options.fileName}${options.fileSize ? ` (${formatSourceFileSize(options.fileSize)})` : ""} · 새 파일을 고르면 교체됩니다`;
+      current.classList.remove("hidden");
+    } else {
+      current.textContent = "";
+      current.classList.add("hidden");
+    }
+  }
+  $("sourceModalTitle").textContent = options.id ? "참고자료/출처 수정" : "참고자료/출처 추가";
+  $("sourceSaveButton").textContent = options.id ? "저장" : "추가";
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => $("sourceTitle")?.focus());
+}
+
+function closeSourceModal() {
+  $("sourceModal")?.classList.add("hidden");
+  pendingSourceFile = null;
+  if ($("sourceFileInput")) $("sourceFileInput").value = "";
+}
+
+async function saveSourceFromModal(event) {
+  if (event) event.preventDefault();
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const title = ($("sourceTitle")?.value || "").trim();
+  if (!title) return toast("자료 제목을 적어 주세요.");
+  const url = normalizeSourceUrl($("sourceUrl")?.value || "");
+  const note = ($("sourceNote")?.value || "").trim();
+  const editId = ($("sourceEditId")?.value || "").trim();
+  const file = pendingSourceFile || $("sourceFileInput")?.files?.[0] || null;
+  const list = loadSources();
+  const saveBtn = $("sourceSaveButton");
+  if (saveBtn) {
+    saveBtn.disabled = true;
+    saveBtn.textContent = file ? "파일 처리 중…" : "저장 중…";
+  }
+
+  try {
+    if (file) {
+      const ext = sourceFileExt(file.name);
+      if (!SOURCE_FILE_EXTS.has(ext)) {
+        toast("지원 형식: PDF, DOCX, HWP/HWPX, TXT, MD, RTF, ODT");
+        return;
+      }
+      if (file.size > SOURCE_FILE_MAX_BYTES) {
+        toast(`파일이 너무 커요. ${SOURCE_FILE_MAX_BYTES / (1024 * 1024)}MB 이하만 올려 주세요.`);
+        return;
+      }
+    }
+
+    let fileMeta = null;
+    let fileRecord = null;
+    if (file) {
+      const ext = sourceFileExt(file.name);
+      const mime = file.type
+        || (ext === ".pdf" ? "application/pdf"
+          : ext === ".docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            : "application/octet-stream");
+      const buffer = await file.arrayBuffer();
+      const blob = new Blob([buffer], { type: mime });
+      let textContent = "";
+      let viewer = ext === ".pdf" ? "pdf" : "text";
+      let warnings = [];
+      if (ext === ".pdf") {
+        viewer = "pdf";
+      } else if (ext === ".txt" || ext === ".text" || ext === ".md" || ext === ".markdown") {
+        textContent = new TextDecoder("utf-8").decode(buffer);
+        viewer = "text";
+      } else if (ext === ".doc") {
+        throw new Error("옛 Word(.doc)는 DOCX로 저장한 뒤 올려 주세요.");
+      } else {
+        const extracted = await extractReferenceTextFromFile(file, buffer);
+        textContent = String(extracted.text || "");
+        viewer = extracted.viewer === "pdf" ? "pdf" : "text";
+        warnings = Array.isArray(extracted.warnings) ? extracted.warnings : [];
+        if (!textContent && viewer === "text") {
+          throw new Error(warnings[0] || "파일에서 글자를 꺼내지 못했어요.");
+        }
+      }
+      fileMeta = {
+        kind: "file",
+        fileName: file.name,
+        fileExt: ext,
+        fileMime: mime,
+        fileSize: file.size,
+        viewer,
+        warnings: warnings.slice(0, 4),
+      };
+      fileRecord = {
+        blob,
+        mime,
+        fileName: file.name,
+        textContent: textContent.slice(0, 200000),
+        viewer,
+        savedAt: Date.now(),
+      };
+    }
+
+    if (editId) {
+      const item = list.find((s) => s.id === editId);
+      if (!item) return toast("수정할 자료를 찾지 못했어요.");
+      item.title = title;
+      item.url = url;
+      item.note = note;
+      if (fileMeta && fileRecord) {
+        Object.assign(item, fileMeta);
+        await putSourceFileBlob(item.id, fileRecord);
+      }
+      saveSources(list);
+      closeSourceModal();
+      renderSourceList();
+      renderSettingsCodex();
+      toast(fileMeta ? "참고자료 파일을 업데이트했어요." : "참고자료/출처를 수정했어요.");
+      return;
+    }
+
+    const id = `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const item = {
+      id,
+      title,
+      url,
+      note,
+      kind: fileMeta ? "file" : "link",
+      createdAt: new Date().toISOString(),
+      ...(fileMeta || {}),
+    };
+    if (fileRecord) await putSourceFileBlob(id, fileRecord);
+    list.unshift(item);
+    saveSources(list);
+    closeSourceModal();
+    setActiveBinder("settings");
+    state.openSettingsSection = "sources";
+    applySettingsSectionState();
+    renderSourceList();
+    renderSettingsCodex();
+    toast(fileMeta
+      ? "파일을 참고자료에 넣었어요. 「펼쳐 보기」로 작성 옆에 열어 보세요."
+      : "참고자료/출처를 추가했어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (saveBtn) {
+      saveBtn.disabled = false;
+      saveBtn.textContent = editId ? "저장" : "추가";
+    }
+  }
+}
+
+function hideSplitSourceExportMenu() {
+  $("splitSourceExportMenu")?.classList.add("hidden");
+  $("splitSourceExportButton")?.setAttribute("aria-expanded", "false");
+}
+
+function getSplitSourcePlainText() {
+  const textEl = $("splitSourceText");
+  if (!textEl || textEl.classList.contains("hidden")) return "";
+  return (textEl.innerText || textEl.textContent || "").replace(/\u00a0/g, " ");
+}
+
+function applySplitSourceEditUi() {
+  const textEl = $("splitSourceText");
+  const btn = $("splitSourceEditButton");
+  const canEdit = splitSourceViewerMode === "text";
+  const on = Boolean(canEdit && splitSourceEditEnabled);
+  if (textEl) {
+    textEl.setAttribute("contenteditable", on ? "true" : "false");
+    textEl.spellcheck = on;
+    textEl.classList.toggle("is-editing", on);
+    textEl.setAttribute("aria-label", on ? "참고자료 본문 (편집 중)" : "참고자료 본문 (읽기 전용)");
+    // Force normal-editor caret (CSS also overrides .split-body-editor transparent caret)
+    textEl.style.outline = "none";
+    textEl.style.boxShadow = "none";
+    textEl.style.caretColor = on ? "var(--page-ink)" : "transparent";
+  }
+  $("splitViewer")?.classList.toggle("source-text-editing", on);
+  if (btn) {
+    btn.disabled = !canEdit;
+    btn.classList.toggle("hidden", !canEdit);
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.textContent = on ? "편집 중" : "편집";
+    btn.title = !canEdit
+      ? "PDF는 SuperTORY에서 글자 편집이 불가합니다"
+      : on
+        ? "편집 중 — 누르면 읽기 전용으로 돌아갑니다"
+        : "텍스트로 불러온 참고자료를 SuperTORY에서 편집합니다";
+  }
+  $("splitSourceExportButton")?.classList.toggle("hidden", !canEdit && splitSourceViewerMode !== "text" && splitSourceViewerMode !== "pdf");
+  // PDF: still allow downloading original via export only if we re-download blob - hide export for pure pdf native, or allow "원본 PDF" later
+  if (splitSourceViewerMode === "pdf") {
+    $("splitSourceExportButton")?.classList.add("hidden");
+  } else if (splitSourceViewerMode === "text") {
+    $("splitSourceExportButton")?.classList.remove("hidden");
+  }
+}
+
+async function saveSplitSourceText({ quiet = false } = {}) {
+  if (!state.splitSourceId || splitSourceViewerMode !== "text") return false;
+  const text = getSplitSourcePlainText();
+  let record = null;
+  try {
+    record = await getSourceFileBlob(state.splitSourceId);
+  } catch (_) {
+    record = null;
+  }
+  const src = loadSources().find((s) => s.id === state.splitSourceId);
+  const nextRecord = {
+    blob: record?.blob || null,
+    mime: record?.mime || "text/plain",
+    fileName: record?.fileName || src?.fileName || "note.txt",
+    textContent: text.slice(0, 200000),
+    viewer: "text",
+    savedAt: Date.now(),
+  };
+  await putSourceFileBlob(state.splitSourceId, nextRecord);
+  splitSourceDirty = false;
+  if (!quiet) setSplitSaveStatus("참고자료 저장됨");
+  else setSplitSaveStatus(splitSourceEditEnabled ? "참고자료 · 편집 중 · 저장됨" : "참고자료 · 저장됨");
+  return true;
+}
+
+function markSplitSourceDirty() {
+  if (!splitSourceEditEnabled || splitSourceViewerMode !== "text") return;
+  splitSourceDirty = true;
+  setSplitSaveStatus("참고자료 · 저장 대기 중…");
+  if (splitSourceSaveTimer) window.clearTimeout(splitSourceSaveTimer);
+  splitSourceSaveTimer = window.setTimeout(() => {
+    saveSplitSourceText({ quiet: true }).catch(handleError);
+  }, 800);
+}
+
+async function setSplitSourceEditEnabled(enabled, { silent = false } = {}) {
+  if (splitSourceViewerMode !== "text") {
+    if (!silent) toast("텍스트로 불러온 자료만 SuperTORY에서 편집할 수 있어요.");
+    return;
+  }
+  if (splitSourceEditEnabled && !enabled && splitSourceDirty) {
+    await saveSplitSourceText({ quiet: true });
+  }
+  splitSourceEditEnabled = Boolean(enabled);
+  applySplitSourceEditUi();
+  setSplitSaveStatus(
+    splitSourceEditEnabled ? "참고자료 · 편집 중 (SuperTORY)" : "참고자료 · 읽기 전용",
+  );
+  if (!silent) {
+    toast(splitSourceEditEnabled
+      ? "참고자료 편집 모드예요. 수정 후 내보내기로 Word·한글 파일로 받을 수 있어요."
+      : "참고자료 읽기 전용으로 전환했어요.");
+  }
+  if (splitSourceEditEnabled) {
+    requestAnimationFrame(() => {
+      const el = $("splitSourceText");
+      if (!el) return;
+      el.focus();
+      // Place caret at end so typing works like the main editor
+      try {
+        const sel = window.getSelection();
+        const range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+        sel?.removeAllRanges();
+        sel?.addRange(range);
+      } catch (_) { /* ignore */ }
+    });
+  }
+}
+
+/**
+ * Download one reference document (not full manuscript).
+ * format: docx | hwpx | txt | md | rtf | html
+ */
+async function exportReferencePlainText({ title, text, formatKey }) {
+  const key = String(formatKey || "docx").toLowerCase();
+  const body = {
+    title: String(title || "참고자료").slice(0, 200),
+    text: String(text || ""),
+    format: key,
+  };
+  let response;
+  try {
+    response = await fetch("/api/export-text", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  } catch (_) {
+    throw new Error("내보내기 서버에 연결하지 못했어요. SuperTORY를 다시 실행해 주세요.");
+  }
+  if (!response.ok) {
+    let message = "내보내기에 실패했습니다.";
+    try {
+      const err = await response.json();
+      if (err?.error) message = err.error;
+    } catch (_) { /* ignore */ }
+    if (/알 수 없는 요청|404/i.test(message)) {
+      message = "내보내기 API를 찾을 수 없습니다. SuperTORY 서버를 종료한 뒤 다시 실행해 주세요.";
+    }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  let filename = `${body.title}.${key === "hwpx" ? "hwpx" : key}`;
+  const dispo = response.headers.get("Content-Disposition") || "";
+  const m = dispo.match(/filename\*=UTF-8''([^;]+)|filename="([^"]+)"/i);
+  if (m) {
+    try {
+      filename = decodeURIComponent(m[1] || m[2] || filename);
+    } catch (_) { /* keep */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast(`${filename} 내려받기를 시작했어요.`);
+}
+
+async function exportOpenSplitSource(formatKey) {
+  if (state.splitKind !== "source" || !state.splitSourceId) {
+    return toast("내보낼 참고자료가 열려 있지 않아요.");
+  }
+  if (splitSourceViewerMode !== "text") {
+    return toast("텍스트로 불러온 자료만 Word·한글로 내보낼 수 있어요.");
+  }
+  if (splitSourceDirty || splitSourceEditEnabled) {
+    await saveSplitSourceText({ quiet: true });
+  }
+  const src = loadSources().find((s) => s.id === state.splitSourceId);
+  const title = src?.title || src?.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+  const text = getSplitSourcePlainText();
+  if (!text.trim()) return toast("내보낼 내용이 비어 있어요.");
+  hideSplitSourceExportMenu();
+  await exportReferencePlainText({ title, text, formatKey });
+}
+
+async function exportSourceById(sourceId, formatKey) {
+  const src = loadSources().find((s) => s.id === sourceId);
+  if (!src) return toast("자료를 찾지 못했어요.");
+  // If this source is open and dirty, save first
+  if (state.splitSourceId === sourceId && splitSourceViewerMode === "text") {
+    if (splitSourceDirty || splitSourceEditEnabled) {
+      await saveSplitSourceText({ quiet: true });
+    }
+    const text = getSplitSourcePlainText();
+    const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+    await exportReferencePlainText({ title, text, formatKey });
+    return;
+  }
+  const record = await getSourceFileBlob(sourceId);
+  if (!record) return toast("이 기기에 파일 본문이 없어요.");
+  if ((record.viewer || src.viewer) === "pdf") {
+    return toast("PDF는 SuperTORY 텍스트 내보내기 대상이 아니에요. 원본 PDF를 보관해 주세요.");
+  }
+  const text = String(record.textContent || "");
+  if (!text.trim()) return toast("내보낼 글자가 없어요.");
+  const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+  await exportReferencePlainText({ title, text, formatKey });
+}
+
+async function openSourceFileInSplit(sourceId, mode = "split") {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.sceneId) return toast("먼저 작성 중인 회차를 열어 주세요. 옆에 자료를 펼칩니다.");
+  const src = loadSources().find((s) => s.id === sourceId);
+  if (!src || (src.kind !== "file" && !src.fileName)) {
+    return toast("파일 자료를 찾지 못했어요.");
+  }
+  await flushSplitEdits();
+  if (splitSourceDirty) {
+    try { await saveSplitSourceText({ quiet: true }); } catch (_) { /* ignore */ }
+  }
+  revokeSplitSourceObjectUrl();
+  splitSourceEditEnabled = false;
+  splitSourceDirty = false;
+  splitSourceViewerMode = "";
+  hideSplitSourceExportMenu();
+  state.splitEnabled = true;
+  state.splitMode = mode === "popup" ? "popup" : "split";
+  state.splitKind = "source";
+  state.splitSourceId = sourceId;
+  state.splitSceneId = null;
+  state.splitScene = null;
+  if (state.splitEditEnabled) setSplitEditEnabled(false, { silent: true });
+  applySplitLayout();
+  closeViewModeMenu();
+  await renderSplitSourceViewer();
+  toast(state.splitMode === "popup"
+    ? "참고자료를 팝업으로 열었어요. 텍스트 자료는 편집·내보내기가 가능해요."
+    : "참고자료를 옆에 펼쳤어요. 텍스트 자료는 편집 후 Word·한글로 내보낼 수 있어요.");
+}
+
+async function renderSplitSourceViewer() {
+  if (!state.splitEnabled || state.splitKind !== "source") return;
+  const src = loadSources().find((s) => s.id === state.splitSourceId);
+  if (!src) {
+    await closeSplitView();
+    toast("참고자료 파일을 찾지 못해 보기를 닫았어요.");
+    return;
+  }
+  setSplitSourceUiMode(true);
+  updateSplitChrome();
+  applySplitEditMode();
+
+  const badge = $("splitSourceBadge");
+  const nameEl = $("splitSourceFileName");
+  const pdf = $("splitSourcePdf");
+  const textEl = $("splitSourceText");
+  const msg = $("splitSourceMessage");
+  const ext = sourceFileExt(src.fileName || src.fileExt || "");
+  if (badge) badge.textContent = sourceFileKindLabel(ext);
+  if (nameEl) nameEl.textContent = src.fileName || src.title || "파일";
+  if (pdf) pdf.classList.add("hidden");
+  if (textEl) {
+    textEl.classList.add("hidden");
+    textEl.innerHTML = "";
+  }
+  if (msg) {
+    msg.classList.add("hidden");
+    msg.textContent = "";
+  }
+
+  let record = null;
+  try {
+    record = await getSourceFileBlob(src.id);
+  } catch (error) {
+    splitSourceViewerMode = "";
+    applySplitSourceEditUi();
+    if (msg) {
+      msg.classList.remove("hidden");
+      msg.textContent = "저장된 파일을 읽지 못했어요. 자료를 다시 업로드해 주세요.";
+    }
+    return;
+  }
+  if (!record) {
+    splitSourceViewerMode = "";
+    applySplitSourceEditUi();
+    if (msg) {
+      msg.classList.remove("hidden");
+      msg.textContent = "이 기기에 파일 본문이 없어요. 수정에서 파일을 다시 올려 주세요.";
+    }
+    return;
+  }
+
+  const viewer = record.viewer || src.viewer || (ext === ".pdf" ? "pdf" : "text");
+  if (viewer === "pdf" && record.blob) {
+    splitSourceViewerMode = "pdf";
+    splitSourceEditEnabled = false;
+    revokeSplitSourceObjectUrl();
+    splitSourceObjectUrl = URL.createObjectURL(record.blob);
+    if (pdf) {
+      pdf.src = splitSourceObjectUrl;
+      pdf.classList.remove("hidden");
+    }
+    setSplitSaveStatus("참고자료 · PDF 뷰어 (편집 불가)");
+  } else {
+    splitSourceViewerMode = "text";
+    const plain = String(record.textContent || "");
+    if (!plain.trim()) {
+      if (msg) {
+        msg.classList.remove("hidden");
+        msg.textContent = (src.warnings && src.warnings[0])
+          || "이 파일에서 표시할 글자를 찾지 못했어요.";
+      }
+      // Still allow empty editable note
+      if (textEl) {
+        textEl.innerHTML = "";
+        textEl.classList.remove("hidden");
+      }
+    } else if (textEl) {
+      textEl.innerHTML = escapeHtml(plain).replace(/\r\n|\r|\n/g, "<br>");
+      textEl.classList.remove("hidden");
+    }
+    setSplitSaveStatus(
+      splitSourceEditEnabled ? "참고자료 · 편집 중 (SuperTORY)" : "참고자료 · 읽기 전용 · 편집·내보내기 가능",
+    );
+  }
+
+  applySplitSourceEditUi();
+
+  const displayName = getSplitSourceDisplayName(src);
+  if (nameEl) nameEl.textContent = displayName;
+  if ($("splitSceneTitleInput")) {
+    const titleEl = $("splitSceneTitleInput");
+    titleEl.classList.remove("hidden");
+    titleEl.readOnly = true;
+    titleEl.value = displayName;
+    titleEl.title = displayName;
+    titleEl.placeholder = "파일명";
+  }
+  if (state.splitMode === "split") {
+    requestAnimationFrame(() => layoutSplitPrimaryPane());
+  }
+}
+
+function setupSplitSourceEditor() {
+  if (setupSplitSourceEditor._bound) return;
+  setupSplitSourceEditor._bound = true;
+
+  $("splitSourceEditButton")?.addEventListener("click", () => {
+    setSplitSourceEditEnabled(!splitSourceEditEnabled).catch(handleError);
+  });
+  $("splitSourceText")?.addEventListener("input", () => markSplitSourceDirty());
+  $("splitSourceExportButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (splitSourceViewerMode !== "text") {
+      toast("텍스트로 불러온 자료만 형식을 골라 내보낼 수 있어요.");
+      return;
+    }
+    const menu = $("splitSourceExportMenu");
+    if (!menu) return;
+    const open = menu.classList.contains("hidden");
+    hideSplitSourceExportMenu();
+    if (open) {
+      menu.classList.remove("hidden");
+      $("splitSourceExportButton")?.setAttribute("aria-expanded", "true");
+    }
+  });
+  $("splitSourceExportMenu")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-source-export]");
+    if (!btn) return;
+    event.preventDefault();
+    exportOpenSplitSource(btn.dataset.sourceExport).catch(handleError);
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest?.(".split-source-export-wrap")) {
+      hideSplitSourceExportMenu();
+    }
+  });
+}
+
+function setupSourceCollection() {
+  $("newSourceButton")?.addEventListener("click", () => openSourceModal({}));
+  $("sourceForm")?.addEventListener("submit", (event) => {
+    saveSourceFromModal(event).catch(handleError);
+  });
+  $("sourceFileInput")?.addEventListener("change", () => {
+    const file = $("sourceFileInput")?.files?.[0] || null;
+    pendingSourceFile = file;
+    const current = $("sourceFileCurrent");
+    if (!current) return;
+    if (file) {
+      current.textContent = `선택: ${file.name} (${formatSourceFileSize(file.size)})`;
+      current.classList.remove("hidden");
+      // Prefill title from filename when empty
+      if (!($("sourceTitle")?.value || "").trim()) {
+        const stem = String(file.name || "").replace(/\.[^.]+$/, "").trim();
+        if (stem && $("sourceTitle")) $("sourceTitle").value = stem.slice(0, 200);
+      }
+    } else {
+      current.textContent = "";
+      current.classList.add("hidden");
+    }
+  });
+  document.querySelectorAll("[data-close-source]").forEach((el) => {
+    el.addEventListener("click", closeSourceModal);
+  });
+  $("sourceList")?.addEventListener("click", (event) => {
+    const openBtn = event.target.closest?.("[data-source-open]");
+    if (openBtn) {
+      openSourceFileInSplit(openBtn.dataset.sourceOpen, "split").catch(handleError);
+      return;
+    }
+    const exportBtn = event.target.closest?.("[data-source-export-id]");
+    if (exportBtn) {
+      exportSourceById(
+        exportBtn.dataset.sourceExportId,
+        exportBtn.dataset.sourceExportFmt || "docx",
+      ).catch(handleError);
+      return;
+    }
+    const editBtn = event.target.closest?.("[data-source-edit]");
+    if (editBtn) {
+      const item = loadSources().find((s) => s.id === editBtn.dataset.sourceEdit);
+      if (item) openSourceModal(item);
+      return;
+    }
+    const delBtn = event.target.closest?.("[data-source-delete]");
+    if (delBtn) {
+      const id = delBtn.dataset.sourceDelete;
+      const list = loadSources();
+      const item = list.find((s) => s.id === id);
+      if (!item) return;
+      if (!window.confirm(`「${item.title || "이 자료"}」을(를) 삭제할까요?`)) return;
+      deleteSourceFileBlob(id).catch(() => {});
+      if (state.splitSourceId === id) {
+        closeSplitView().catch(handleError);
+      }
+      saveSources(list.filter((s) => s.id !== id));
+      renderSourceList();
+      renderSettingsCodex();
+      toast("참고자료/출처를 삭제했어요.");
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("sourceModal")?.classList.contains("hidden")) {
+      closeSourceModal();
+    }
+  });
+  renderSourceList();
+  setupSplitSourceEditor();
+}
+let pendingBaitQuote = "";
+
+function baitStorageKey(projectId = state.projectId) {
+  return `${BAIT_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadBaits() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(baitStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((item) => item && item.id)
+      .map((item) => normalizeBaitItem(item));
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveBaits(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(baitStorageKey(), JSON.stringify(list));
+  } catch (_) {
+    /* ignore */
+  }
+  // Keep binder icons in sync
+  if (typeof renderOutline === "function" && Array.isArray(state.outline) && state.outline.length) {
+    renderOutline(state.outline);
+  }
+  if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+}
+
+/** Normalize legacy bait records to the richer shape. */
+function normalizeBaitItem(raw) {
+  const item = { ...(raw || {}) };
+  // plant = from manuscript; idea = pre-writing plan from settings
+  if (item.kind !== "idea" && item.kind !== "plant") {
+    item.kind = item.quote || item.sourceSceneId ? "plant" : "idea";
+  }
+  // sourceSceneId is where the bait sentence lives (icon anchor — not episode order)
+  if (item.sourceSceneId == null && item.plantSceneId != null) {
+    item.sourceSceneId = item.plantSceneId;
+  }
+  item.plantSceneId = item.plantSceneId != null ? Number(item.plantSceneId) || null : (
+    item.sourceSceneId != null ? Number(item.sourceSceneId) || null : null
+  );
+  item.sourceSceneId = item.plantSceneId;
+  item.recoverSceneId = item.recoverSceneId != null && item.recoverSceneId !== ""
+    ? Number(item.recoverSceneId) || null
+    : null;
+  item.notifyOnRecover = item.notifyOnRecover !== false && item.notifyOnRecover !== 0
+    && item.notifyOnRecover !== "0" && item.notifyOnRecover !== "false";
+  item.recoverContent = item.recoverContent || item.ideaRecover || "";
+  item.plantAtNote = item.plantAtNote || "";
+  item.recoverAt = item.recoverAt || "";
+  item.summary = item.summary || "";
+  item.quote = item.quote || item.throwContent || item.ideaThrow || "";
+  return item;
+}
+
+/** Scene ids that have planted bait text (yellow 떡).
+ *  Only manuscript plants (drag → 떡밥 던지기), keyed by stored plantSceneId.
+ *  Idea “예상 회차” does not get a yellow badge — no planted sentence yet.
+ *  Reordering/shifting episodes does not move the badge (scene id, not order). */
+function getBaitPlantSceneIds() {
+  const ids = new Set();
+  for (const bait of loadBaits()) {
+    if (bait.kind === "idea") continue;
+    const id = Number(bait.plantSceneId || bait.sourceSceneId);
+    if (id > 0) ids.add(id);
+  }
+  return ids;
+}
+
+/** Scene ids scheduled for recovery (red 떡) — plant or idea, by recoverSceneId. */
+function getBaitRecoverSceneIds() {
+  const ids = new Set();
+  for (const bait of loadBaits()) {
+    const id = Number(bait.recoverSceneId);
+    if (id > 0) ids.add(id);
+  }
+  return ids;
+}
+
+function fillBaitSceneSelects(selectedPlant = "", selectedRecover = "") {
+  const optionsHtml = (() => {
+    const scenes = typeof allScenes === "function" ? allScenes() : [];
+    if (!scenes.length) {
+      return `<option value="">(회차가 없어요)</option>`;
+    }
+    return [`<option value="">(미정)</option>`]
+      .concat(scenes.map((scene) => {
+        const id = Number(scene.id);
+        const label = escapeHtml(scene.title || `씬 #${id}`);
+        const chapter = scene.chapterTitle ? `${escapeHtml(scene.chapterTitle)} · ` : "";
+        return `<option value="${id}">${chapter}${label}</option>`;
+      }))
+      .join("");
+  })();
+  const plantSel = $("baitPlantSceneSelect");
+  const recoverSel = $("baitRecoverSceneSelect");
+  if (plantSel) {
+    plantSel.innerHTML = optionsHtml;
+    if (selectedPlant) plantSel.value = String(selectedPlant);
+  }
+  if (recoverSel) {
+    recoverSel.innerHTML = optionsHtml;
+    if (selectedRecover) recoverSel.value = String(selectedRecover);
+  }
+}
+
+function setBaitModalMode(mode) {
+  const isIdea = mode === "idea";
+  if ($("baitMode")) $("baitMode").value = isIdea ? "idea" : "plant";
+  $("baitPlantFields")?.classList.toggle("hidden", isIdea);
+  $("baitIdeaFields")?.classList.toggle("hidden", !isIdea);
+  if ($("baitModalHint")) {
+    $("baitModalHint").innerHTML = isIdea
+      ? "본문 작성 전 <strong>아이디어 떡밥</strong>을 적어 둡니다. 던지기·회수 내용과 예상 회차를 저장하세요."
+      : "본문에서 잡은 문장이 설정집 <strong>떡밥모음</strong>에 들어갑니다. 회수 예정 회차와 알림을 설정하세요.";
+  }
+  if ($("baitModalTitle")) {
+    // keep title from openBaitModal
+  }
+  // plant mode: quote required; idea mode: throw content required
+  if ($("baitQuote")) $("baitQuote").required = !isIdea;
+}
+
+function settingsOrderKey(projectId = state.projectId) {
+  return `${SETTINGS_ORDER_PREFIX}${projectId || "0"}`;
+}
+
+function loadSettingsOrder() {
+  try {
+    const raw = localStorage.getItem(settingsOrderKey());
+    const arr = raw ? JSON.parse(raw) : null;
+    if (!Array.isArray(arr) || !arr.length) return [...DEFAULT_SETTINGS_ORDER];
+    // Migrate old section keys → intro / logsyn
+    const mapped = [];
+    let sawLogsyn = false;
+    for (const key of arr) {
+      if (key === "synopsis" || key === "logline") {
+        if (!sawLogsyn) {
+          mapped.push("logsyn");
+          sawLogsyn = true;
+        }
+        continue;
+      }
+      mapped.push(key);
+    }
+    // Keep known sections, append any missing defaults.
+    const known = new Set(DEFAULT_SETTINGS_ORDER);
+    const ordered = mapped.filter((key) => known.has(key));
+    for (const key of DEFAULT_SETTINGS_ORDER) {
+      if (!ordered.includes(key)) ordered.push(key);
+    }
+    // Prefer 토리 수집창고 between characters and sources when it was only appended last.
+    const vaultAt = ordered.indexOf("toryVault");
+    const charsAt = ordered.indexOf("characters");
+    const sourcesAt = ordered.indexOf("sources");
+    if (vaultAt >= 0 && charsAt >= 0 && sourcesAt >= 0) {
+      const between = vaultAt > charsAt && vaultAt < sourcesAt;
+      // Old default put vault after sources (or at end) — snap once to characters → vault → sources.
+      if (!between && vaultAt > sourcesAt) {
+        ordered.splice(vaultAt, 1);
+        const insertAt = ordered.indexOf("characters") + 1;
+        ordered.splice(insertAt, 0, "toryVault");
+      }
+    }
+    return ordered;
+  } catch (_) {
+    return [...DEFAULT_SETTINGS_ORDER];
+  }
+}
+
+function saveSettingsOrder(order) {
+  try {
+    localStorage.setItem(settingsOrderKey(state.projectId || 0), JSON.stringify(order));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applySettingsSectionOrder() {
+  const accordion = $("settingsAccordion");
+  if (!accordion) return;
+  const order = loadSettingsOrder();
+  order.forEach((key) => {
+    const box = accordion.querySelector(`.settings-box[data-settings-section="${key}"]`);
+    if (box) accordion.appendChild(box);
+  });
+}
+
+function setupSettingsSectionDrag() {
+  const accordion = $("settingsAccordion");
+  if (!accordion || accordion.dataset.orderDragBound === "1") return;
+  accordion.dataset.orderDragBound = "1";
+  let dragged = null;
+  let dragEnabledBox = null;
+
+  const clear = () => {
+    accordion.querySelectorAll(".settings-box").forEach((box) => {
+      box.classList.remove("is-dragging", "drag-over-before", "drag-over-after");
+      // Keep HTML5 drag disabled until grip is used (avoids accidental text drags).
+      box.setAttribute("draggable", "false");
+    });
+    dragEnabledBox = null;
+  };
+
+  const boxes = () => [...accordion.querySelectorAll(".settings-box[data-settings-section]")];
+
+  // Default: section not draggable; grip enables drag for this pointer sequence.
+  boxes().forEach((box) => box.setAttribute("draggable", "false"));
+
+  accordion.addEventListener("pointerdown", (event) => {
+    const handle = event.target.closest?.(".settings-drag-handle");
+    if (!handle || !accordion.contains(handle)) return;
+    const box = handle.closest(".settings-box");
+    if (!box) return;
+    // Grip is outside the toggle button so HTML5 drag can start reliably.
+    event.stopPropagation();
+    boxes().forEach((el) => el.setAttribute("draggable", el === box ? "true" : "false"));
+    dragEnabledBox = box;
+  });
+
+  // If user pressed grip but didn't drag, disable again.
+  document.addEventListener("pointerup", () => {
+    if (!dragged && dragEnabledBox) {
+      dragEnabledBox.setAttribute("draggable", "false");
+      dragEnabledBox = null;
+    }
+  });
+
+  accordion.addEventListener("dragstart", (event) => {
+    const box = event.target.closest?.(".settings-box");
+    if (!box || !accordion.contains(box)) return;
+    // Only when grip armed this box.
+    if (dragEnabledBox !== box && !event.target.closest?.(".settings-drag-handle")) {
+      event.preventDefault();
+      return;
+    }
+    dragged = box;
+    box.classList.add("is-dragging");
+    try {
+      event.dataTransfer.effectAllowed = "move";
+      event.dataTransfer.setData("text/plain", box.dataset.settingsSection || "settings");
+    } catch (_) {
+      /* ignore */
+    }
+  });
+
+  accordion.addEventListener("dragend", () => {
+    dragged = null;
+    clear();
+  });
+
+  accordion.addEventListener("dragover", (event) => {
+    if (!dragged) return;
+    event.preventDefault();
+    try { event.dataTransfer.dropEffect = "move"; } catch (_) { /* ignore */ }
+    const box = event.target.closest?.(".settings-box");
+    if (!box || box === dragged || !accordion.contains(box)) return;
+    const rect = box.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    boxes().forEach((other) => {
+      other.classList.toggle("drag-over-before", other === box && before);
+      other.classList.toggle("drag-over-after", other === box && !before);
+    });
+  });
+
+  accordion.addEventListener("drop", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!dragged) {
+      clear();
+      return;
+    }
+    const box = event.target.closest?.(".settings-box");
+    if (box && box !== dragged && accordion.contains(box)) {
+      const rect = box.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      if (before) accordion.insertBefore(dragged, box);
+      else accordion.insertBefore(dragged, box.nextSibling);
+    }
+    const order = boxes()
+      .map((el) => el.dataset.settingsSection)
+      .filter(Boolean);
+    if (order.length) {
+      saveSettingsOrder(order);
+      // Persist even when no project is selected (fallback key "0").
+      if (!state.projectId) {
+        try {
+          localStorage.setItem(`${SETTINGS_ORDER_PREFIX}0`, JSON.stringify(order));
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      toast("설정집 폴더 순서를 바꿨어요.");
+    }
+    dragged = null;
+    clear();
+  });
+
+  // Header click to expand must not fight with grip (grip is no longer inside toggle).
+  accordion.querySelectorAll(".settings-box-header").forEach((header) => {
+    header.addEventListener("click", (event) => {
+      if (event.target.closest?.(".settings-drag-handle")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }, true);
+  });
+}
+
+function sceneTitleById(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return "";
+  for (const chapter of state.outline || []) {
+    let found = "";
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      if (Number(scene.id) === id) found = scene.title || `씬 #${id}`;
+    });
+    if (found) return found;
+  }
+  return "";
+}
+
+function renderBaitList() {
+  const list = $("baitList");
+  if (!list) return;
+  const baits = loadBaits();
+  if (!baits.length) {
+    list.innerHTML = `<p class="hint bait-empty">아직 떡밥이 없어요.<br>본문 드래그 → 우클릭 던지기, 또는 + 떡밥으로 아이디어를 적어 보세요.</p>`;
+    return;
+  }
+  list.innerHTML = baits.map((bait) => {
+    const kind = bait.kind === "idea" ? "idea" : "plant";
+    const quote = escapeHtml(bait.quote || "");
+    const summary = escapeHtml(bait.summary || "");
+    const recoverContent = escapeHtml(bait.recoverContent || "");
+    const plantTitle = bait.plantSceneId
+      ? escapeHtml(sceneTitleById(bait.plantSceneId) || bait.sourceTitle || `씬 #${bait.plantSceneId}`)
+      : escapeHtml(bait.plantAtNote || bait.sourceTitle || "(심은 회차 미정)");
+    const recoverTitle = bait.recoverSceneId
+      ? escapeHtml(sceneTitleById(bait.recoverSceneId) || `씬 #${bait.recoverSceneId}`)
+      : escapeHtml(bait.recoverAt || "(회수 예정 미정)");
+    const notify = bait.notifyOnRecover !== false;
+    const kindLabel = kind === "idea" ? "아이디어" : "본문 심기";
+    return `
+      <article class="bait-card bait-kind-${kind}" data-bait-id="${escapeHtml(bait.id)}">
+        <div class="bait-card-kind">${kindLabel}${notify && bait.recoverSceneId ? " · 알림 켜짐" : ""}</div>
+        <div class="bait-card-quote">${quote || "(내용 없음)"}</div>
+        <div class="bait-card-meta">
+          ${summary ? `<div><strong>간략</strong> ${summary}</div>` : ""}
+          ${recoverContent ? `<div><strong>회수 내용</strong> ${recoverContent}</div>` : ""}
+          <div><strong>심은/예상 회차</strong> ${plantTitle}</div>
+          <div><strong>회수 예정</strong> ${recoverTitle}</div>
+        </div>
+        <div class="bait-card-actions">
+          <button type="button" class="secondary" data-bait-edit="${escapeHtml(bait.id)}">수정</button>
+          <button type="button" class="secondary" data-bait-delete="${escapeHtml(bait.id)}">삭제</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function openBaitModal(options = {}) {
+  const modal = $("baitModal");
+  if (!modal) return;
+  const mode = options.kind === "idea" || options.mode === "idea" ? "idea" : "plant";
+  $("baitEditId").value = options.id || "";
+  setBaitModalMode(mode);
+  fillBaitSceneSelects(
+    options.plantSceneId || options.sourceSceneId || "",
+    options.recoverSceneId || "",
+  );
+  if ($("baitQuote")) $("baitQuote").value = options.quote || "";
+  if ($("baitSummary")) $("baitSummary").value = options.summary || "";
+  if ($("baitIdeaThrow")) {
+    $("baitIdeaThrow").value = options.quote || options.throwContent || options.ideaThrow || "";
+  }
+  if ($("baitIdeaRecover")) $("baitIdeaRecover").value = options.recoverContent || "";
+  if ($("baitPlantAtNote")) $("baitPlantAtNote").value = options.plantAtNote || "";
+  if ($("baitRecoverAt")) $("baitRecoverAt").value = options.recoverAt || "";
+  if ($("baitNotifyOnRecover")) {
+    $("baitNotifyOnRecover").checked = options.notifyOnRecover !== false;
+  }
+  $("baitNotifyRow")?.classList.remove("hidden");
+  if (options.id) {
+    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? "아이디어 떡밥 수정" : "떡밥 수정";
+    if ($("baitSaveButton")) $("baitSaveButton").textContent = "저장";
+  } else {
+    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? "아이디어 떡밥" : "떡밥 던지기";
+    if ($("baitSaveButton")) $("baitSaveButton").textContent = "떡밥모음에 넣기";
+  }
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    if (mode === "idea") ($("baitIdeaThrow") || $("baitSummary"))?.focus();
+    else ($("baitSummary") || $("baitQuote"))?.focus();
+  });
+}
+
+function closeBaitModal() {
+  $("baitModal")?.classList.add("hidden");
+  pendingBaitQuote = "";
+}
+
+function saveBaitFromModal(event) {
+  if (event) event.preventDefault();
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const mode = ($("baitMode")?.value || "plant") === "idea" ? "idea" : "plant";
+  const editId = ($("baitEditId")?.value || "").trim();
+  const summary = ($("baitSummary")?.value || "").trim();
+  const recoverAt = ($("baitRecoverAt")?.value || "").trim();
+  const recoverSceneId = Number($("baitRecoverSceneSelect")?.value || 0) || null;
+  const plantSceneIdRaw = Number($("baitPlantSceneSelect")?.value || 0) || null;
+  const plantAtNote = ($("baitPlantAtNote")?.value || "").trim();
+  const notifyOnRecover = Boolean($("baitNotifyOnRecover")?.checked);
+  const list = loadBaits();
+
+  let quote = "";
+  let recoverContent = "";
+  let plantSceneId = null;
+  let sourceTitle = "";
+
+  if (mode === "idea") {
+    quote = ($("baitIdeaThrow")?.value || "").trim();
+    recoverContent = ($("baitIdeaRecover")?.value || "").trim();
+    if (!quote) return toast("떡밥 던지기 내용을 적어 주세요.");
+    plantSceneId = plantSceneIdRaw;
+    sourceTitle = plantSceneId ? sceneTitleById(plantSceneId) : plantAtNote;
+  } else {
+    quote = ($("baitQuote")?.value || "").trim();
+    if (!quote) return toast("떡밥 문장을 적어 주세요.");
+    if (editId) {
+      const prev = list.find((b) => b.id === editId);
+      plantSceneId = prev?.plantSceneId || prev?.sourceSceneId || state.sceneId || null;
+    } else {
+      plantSceneId = state.sceneId || null;
+    }
+    sourceTitle = state.scene?.title || $("sceneTitle")?.value || sceneTitleById(plantSceneId) || "";
+  }
+
+  if (editId) {
+    const item = list.find((b) => b.id === editId);
+    if (!item) return toast("수정할 떡밥을 찾지 못했어요.");
+    item.kind = mode;
+    item.quote = quote;
+    item.summary = summary;
+    item.recoverContent = recoverContent;
+    item.recoverAt = recoverAt;
+    item.recoverSceneId = recoverSceneId;
+    item.plantSceneId = plantSceneId ? Number(plantSceneId) : null;
+    item.sourceSceneId = item.plantSceneId;
+    item.plantAtNote = plantAtNote;
+    item.sourceTitle = sourceTitle || item.sourceTitle || "";
+    item.notifyOnRecover = notifyOnRecover;
+    saveBaits(list);
+    closeBaitModal();
+    renderBaitList();
+    renderSettingsCodex();
+    toast("떡밥을 수정했어요.");
+    return;
+  }
+
+  const item = {
+    id: `bait-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    kind: mode,
+    quote,
+    summary,
+    recoverContent,
+    recoverAt,
+    recoverSceneId,
+    plantSceneId: plantSceneId ? Number(plantSceneId) : null,
+    sourceSceneId: plantSceneId ? Number(plantSceneId) : null,
+    plantAtNote,
+    sourceTitle: sourceTitle || "",
+    notifyOnRecover,
+    createdAt: new Date().toISOString(),
+  };
+  list.unshift(item);
+  saveBaits(list);
+  closeBaitModal();
+  setActiveBinder("settings");
+  state.openSettingsSection = "baits";
+  applySettingsSectionState();
+  renderBaitList();
+  renderSettingsCodex();
+  toast(mode === "idea" ? "아이디어 떡밥을 저장했어요." : "떡밥모음에 넣었어요.");
+}
+
+function getSelectedManuscriptText() {
+  const editor = $("sceneContent");
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+    // Fall back to stored range text if menu stole focus.
+    if (manuscriptContextRange && !manuscriptContextRange.collapsed) {
+      try {
+        return manuscriptContextRange.toString().trim();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return "";
+  }
+  if (editor && !editor.contains(selection.anchorNode) && !editor.contains(selection.focusNode)) {
+    if (manuscriptContextRange && !manuscriptContextRange.collapsed) {
+      try {
+        return manuscriptContextRange.toString().trim();
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    return "";
+  }
+  return (selection.toString() || "").trim();
+}
+
+/** Open an online dictionary for the selected word/phrase. */
+function lookupDictionaryFromSelection() {
+  const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
+  if (!raw) {
+    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  // Collapse whitespace; keep a sensible query length for dictionary URLs.
+  const query = raw.replace(/\s+/g, " ").slice(0, 80);
+  // Daum 사전: Korean + English (and other) in one search.
+  const url = `https://dic.daum.net/search.do?q=${encodeURIComponent(query)}`;
+  try {
+    window.open(url, "_blank", "noopener,noreferrer");
+  } catch (_) {
+    toast("사전 창을 열 수 없어요. 팝업이 막혔는지 확인해 주세요.");
+    return;
+  }
+  toast(`사전에서 「${query.length > 18 ? `${query.slice(0, 18)}…` : query}」 검색`);
+}
+
+function throwBaitFromSelection() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.sceneId) return toast("떡밥을 심을 회차를 먼저 열어 주세요.");
+  const quote = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
+  if (!quote) {
+    toast("본문에서 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  // Prefill summary with a short clip of the quote.
+  const summary = quote.length > 40 ? `${quote.slice(0, 40)}…` : quote;
+  openBaitModal({
+    kind: "plant",
+    quote,
+    summary,
+    recoverAt: "",
+    plantSceneId: state.sceneId,
+    sourceSceneId: state.sceneId,
+    notifyOnRecover: true,
+  });
+}
+
+/* —— SuperTORY 떡밥 회수 알림 —— */
+const baitNotifyShownThisSession = new Set(); // `${projectId}:${sceneId}` once per session
+
+function hideBaitNotifyModal() {
+  $("baitNotifyModal")?.classList.add("hidden");
+}
+
+function showBaitRecoverNotify(sceneId, entries) {
+  const modal = $("baitNotifyModal");
+  const listEl = $("baitNotifyList");
+  if (!modal || !listEl || !entries.length) return;
+  const hasBait = entries.some((e) => e.kind === "bait");
+  const hasCustom = entries.some((e) => e.kind === "custom");
+  if ($("baitNotifyLead")) {
+    if (hasBait && hasCustom) {
+      $("baitNotifyLead").textContent = "이번 회차에서 확인할 토리 알림이 있어요!";
+    } else if (hasCustom && !hasBait) {
+      $("baitNotifyLead").textContent = "이번 회차에 설정해 둔 알림이 있어요!";
+    } else {
+      $("baitNotifyLead").textContent = "이번 회차에서 떡밥 회수 예정이 있어요!";
+    }
+  }
+  listEl.innerHTML = entries.map((b) => {
+    const title = escapeHtml((b.title || "알림").replace(/\s+/g, " ").trim().slice(0, 80));
+    const detail = escapeHtml((b.detail || "").replace(/\s+/g, " ").trim().slice(0, 120));
+    const tag = b.kind === "bait" ? "떡밥" : "알림";
+    return `<li><strong>[${tag}] ${title}</strong>${detail && detail !== title ? `<span>${detail}</span>` : ""}</li>`;
+  }).join("");
+  // Footer: open baits if bait present, else just dismiss
+  const openVault = $("baitNotifyOpenVault");
+  if (openVault) {
+    openVault.textContent = hasBait ? "떡밥모음 열기" : "알림 목록 보기";
+    openVault.dataset.notifyAction = hasBait ? "baits" : "notify-list";
+  }
+  modal.classList.remove("hidden");
+}
+
+function maybeNotifyBaitRecovery(sceneId) {
+  const id = Number(sceneId);
+  if (!id || !state.projectId) return;
+  const key = `${state.projectId}:${id}`;
+  if (baitNotifyShownThisSession.has(key)) return;
+
+  const entries = [];
+  for (const b of loadBaits()) {
+    if (Number(b.recoverSceneId) === id && b.notifyOnRecover !== false) {
+      entries.push({
+        kind: "bait",
+        title: (b.summary || b.quote || "떡밥").replace(/\s+/g, " ").trim(),
+        detail: (b.recoverContent || b.quote || "").replace(/\s+/g, " ").trim(),
+      });
+    }
+  }
+  for (const n of loadCustomToryNotifs()) {
+    if (Number(n.sceneId) === id && n.enabled !== false) {
+      entries.push({
+        kind: "custom",
+        title: n.title || "알림",
+        detail: (n.message || n.note || "").replace(/\s+/g, " ").trim(),
+      });
+    }
+  }
+  if (!entries.length) return;
+  baitNotifyShownThisSession.add(key);
+  // Slight delay so the scene UI settles first
+  window.setTimeout(() => showBaitRecoverNotify(id, entries), 280);
+}
+
+function setupBaitCollection() {
+  $("newBaitButton")?.addEventListener("click", () => {
+    // Settings manual entry = idea planning (not the same as body drag-plant)
+    openBaitModal({ kind: "idea", quote: "", summary: "", recoverAt: "", notifyOnRecover: true });
+  });
+  $("baitForm")?.addEventListener("submit", (event) => saveBaitFromModal(event));
+  document.querySelectorAll("[data-close-bait]").forEach((el) => {
+    el.addEventListener("click", closeBaitModal);
+  });
+  document.querySelectorAll("[data-close-bait-notify]").forEach((el) => {
+    el.addEventListener("click", hideBaitNotifyModal);
+  });
+  $("baitNotifyOpenVault")?.addEventListener("click", () => {
+    hideBaitNotifyModal();
+    const action = $("baitNotifyOpenVault")?.dataset?.notifyAction || "baits";
+    if (action === "notify-list") {
+      setAiPanelOpen(true);
+      renderToryNotifyList();
+      $("toryNotifyBox")?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+      return;
+    }
+    setActiveBinder("settings");
+    state.openSettingsSection = "baits";
+    applySettingsSectionState();
+    renderBaitList();
+  });
+  $("baitList")?.addEventListener("click", (event) => {
+    const editBtn = event.target.closest?.("[data-bait-edit]");
+    if (editBtn) {
+      const id = editBtn.dataset.baitEdit;
+      const item = loadBaits().find((b) => b.id === id);
+      if (!item) return;
+      openBaitModal(item);
+      return;
+    }
+    const delBtn = event.target.closest?.("[data-bait-delete]");
+    if (delBtn) {
+      const id = delBtn.dataset.baitDelete;
+      const list = loadBaits();
+      const item = list.find((b) => b.id === id);
+      if (!item) return;
+      if (!window.confirm("이 떡밥을 삭제할까요?")) return;
+      saveBaits(list.filter((b) => b.id !== id));
+      renderBaitList();
+      renderSettingsCodex();
+      toast("떡밥을 삭제했어요.");
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !$("baitModal")?.classList.contains("hidden")) {
+      closeBaitModal();
+    }
+    if (event.key === "Escape" && !$("baitNotifyModal")?.classList.contains("hidden")) {
+      hideBaitNotifyModal();
+    }
+  });
+  setupSettingsSectionDrag();
+  applySettingsSectionOrder();
+  renderBaitList();
+}
+
+function bookmarkStorageKey(projectId = state.projectId) {
+  return `${BOOKMARK_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadBookmarks() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(bookmarkStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .filter((item) => item && item.color && item.type)
+      .slice(0, BOOKMARK_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveBookmarks(list) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(bookmarkStorageKey(), JSON.stringify(list.slice(0, BOOKMARK_MAX)));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function bookmarkColorMeta(key) {
+  return BOOKMARK_COLORS.find((c) => c.key === key) || BOOKMARK_COLORS[0];
+}
+
+function nextFreeBookmarkColor(list) {
+  const used = new Set(list.map((b) => b.color));
+  return BOOKMARK_COLORS.find((c) => !used.has(c.key)) || null;
+}
+
+function bookmarkKey(item) {
+  if (!item) return "";
+  if (item.type === "scene") return `scene:${item.sceneId}`;
+  if (item.type === "settings") return `settings:${item.section}`;
+  return "";
+}
+
+function findBookmark(list, type, targetId) {
+  if (type === "scene") {
+    return list.find((b) => b.type === "scene" && Number(b.sceneId) === Number(targetId));
+  }
+  if (type === "settings") {
+    return list.find((b) => b.type === "settings" && b.section === targetId);
+  }
+  return null;
+}
+
+function isOutlineReadyForBookmarks() {
+  // Never treat an empty/foreign outline as "all scenes missing" — that wiped bookmarks on refresh/switch.
+  return Boolean(
+    state.projectId
+    && state.outlineProjectId
+    && Number(state.outlineProjectId) === Number(state.projectId)
+  );
+}
+
+function sanitizeBookmarks(list) {
+  // Settings folders can always be validated; scenes only after outline for THIS project is loaded.
+  if (!isOutlineReadyForBookmarks()) {
+    return (list || []).filter((item) => {
+      if (!item || !item.type) return false;
+      if (item.type === "settings") return Boolean(SETTINGS_BOOKMARK_META[item.section]);
+      if (item.type === "scene") return Boolean(item.sceneId); // keep until we can verify
+      return false;
+    });
+  }
+  const sceneIds = new Set();
+  for (const chapter of state.outline || []) {
+    walkSceneTree(chapter.scenes || [], (scene) => sceneIds.add(Number(scene.id)));
+  }
+  return (list || []).filter((item) => {
+    if (!item || !item.type) return false;
+    if (item.type === "scene") return sceneIds.has(Number(item.sceneId));
+    if (item.type === "settings") return Boolean(SETTINGS_BOOKMARK_META[item.section]);
+    return false;
+  });
+}
+
+function getSceneTitleById(sceneId) {
+  for (const chapter of state.outline || []) {
+    let found = "";
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      if (Number(scene.id) === Number(sceneId)) found = scene.title || "원고";
+    });
+    if (found) return found;
+  }
+  return "원고";
+}
+
+function addOrToggleBookmark(entry) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+  let list = loadBookmarks();
+  const existing = findBookmark(
+    list,
+    entry.type,
+    entry.type === "scene" ? entry.sceneId : entry.section,
+  );
+  if (existing) {
+    list = list.filter((b) => bookmarkKey(b) !== bookmarkKey(existing));
+    saveBookmarks(list);
+    renderBookmarkBar();
+    markBookmarkedTargets();
+    toast("북마크를 해제했어요.");
+    return null;
+  }
+  if (list.length >= BOOKMARK_MAX) {
+    toast(`북마크는 최대 ${BOOKMARK_MAX}개까지, 색마다 하나씩 쓸 수 있어요.`);
+    return null;
+  }
+  const color = nextFreeBookmarkColor(list);
+  if (!color) {
+    toast("남은 북마크 색이 없어요.");
+    return null;
+  }
+  const item = {
+    id: `bm-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    type: entry.type,
+    color: color.key,
+    title: entry.title || "",
+    sceneId: entry.type === "scene" ? Number(entry.sceneId) : undefined,
+    section: entry.type === "settings" ? entry.section : undefined,
+  };
+  list.push(item);
+  saveBookmarks(list);
+  renderBookmarkBar();
+  markBookmarkedTargets();
+  toast(`${color.label} 북마크로 고정했어요.`);
+  return item;
+}
+
+function removeBookmarkById(bookmarkId) {
+  let list = loadBookmarks().filter((b) => b.id !== bookmarkId);
+  saveBookmarks(list);
+  renderBookmarkBar();
+  markBookmarkedTargets();
+  toast("북마크를 해제했어요.");
+}
+
+function renderBookmarkBar(options = {}) {
+  const bar = $("bookmarkBar");
+  if (!bar) return;
+  if (!state.projectId) {
+    bar.innerHTML = "";
+    return;
+  }
+  const raw = loadBookmarks();
+  const list = sanitizeBookmarks(raw);
+  // Only persist cleanup when outline for this project is loaded.
+  // Earlier bug: empty outline on refresh/switch deleted all scene bookmarks from localStorage.
+  const canPersistCleanup = options.persistSanitize !== false && isOutlineReadyForBookmarks();
+  if (canPersistCleanup && list.length !== raw.length) {
+    saveBookmarks(list);
+  }
+
+  bar.innerHTML = list.map((item) => {
+    const color = bookmarkColorMeta(item.color);
+    const title = escapeHtml(item.title || (item.type === "scene" ? "원고" : "설정"));
+    const kind = item.type === "scene" ? "원고" : "설정집";
+    const active = item.type === "scene" && Number(item.sceneId) === Number(state.sceneId)
+      ? "is-active"
+      : "";
+    return `
+      <button
+        type="button"
+        class="bookmark-chip ${active}"
+        data-bookmark-id="${escapeHtml(item.id)}"
+        style="--bm-color:${color.hex}"
+        title="${title} (${kind} · ${color.label}) — 우클릭: 메뉴"
+        aria-label="${title} 북마크"
+      ></button>`;
+  }).join("");
+
+  bar.querySelectorAll("[data-bookmark-id]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      openBookmark(btn.dataset.bookmarkId).catch(handleError);
+    });
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showBookmarkContextMenu(event.clientX, event.clientY, btn.dataset.bookmarkId);
+    });
+  });
+}
+
+function markBookmarkedTargets() {
+  const list = loadBookmarks();
+  const sceneMap = new Map(
+    list.filter((b) => b.type === "scene").map((b) => [Number(b.sceneId), b.color]),
+  );
+  const settingsMap = new Map(
+    list.filter((b) => b.type === "settings").map((b) => [b.section, b.color]),
+  );
+
+  document.querySelectorAll(".scene-link[data-scene]").forEach((el) => {
+    const colorKey = sceneMap.get(Number(el.dataset.scene));
+    el.classList.toggle("is-bookmarked", Boolean(colorKey));
+    if (colorKey) el.style.setProperty("--bm-color", bookmarkColorMeta(colorKey).hex);
+    else el.style.removeProperty("--bm-color");
+  });
+
+  document.querySelectorAll(".settings-box[data-settings-section]").forEach((box) => {
+    const section = box.dataset.settingsSection;
+    const colorKey = settingsMap.get(section);
+    box.classList.toggle("is-bookmarked", Boolean(colorKey));
+    if (colorKey) box.style.setProperty("--bm-color", bookmarkColorMeta(colorKey).hex);
+    else box.style.removeProperty("--bm-color");
+  });
+}
+
+async function openBookmark(bookmarkId) {
+  const item = loadBookmarks().find((b) => b.id === bookmarkId);
+  if (!item) {
+    renderBookmarkBar();
+    return toast("북마크를 찾을 수 없어요.");
+  }
+  if (item.type === "scene") {
+    await openScene(item.sceneId);
+    return;
+  }
+  if (item.type === "settings") {
+    const meta = SETTINGS_BOOKMARK_META[item.section];
+    if (!meta) return toast("설정 항목을 열 수 없어요.");
+    setActiveBinder("settings");
+    state.openSettingsSection = item.section;
+    applySettingsSectionState();
+    await meta.open();
+  }
+}
+
+let bookmarkContextId = null;
+
+function hideBookmarkContextMenu() {
+  $("bookmarkContextMenu")?.classList.add("hidden");
+  bookmarkContextId = null;
+}
+
+function showBookmarkContextMenu(clientX, clientY, bookmarkId) {
+  const menu = $("bookmarkContextMenu");
+  if (!menu || !bookmarkId) return;
+  hideBinderContextMenu();
+  hideSettingsContextMenu();
+  hideDesktopContextMenu();
+  bookmarkContextId = bookmarkId;
+  const chip = document.querySelector(`[data-bookmark-id="${CSS.escape?.(bookmarkId) || bookmarkId}"]`);
+  setUiFeatureCtxTarget?.(chip);
+  const item = loadBookmarks().find((b) => b.id === bookmarkId);
+  if ($("bookmarkContextMenuLabel")) {
+    const title = (item?.title || "북마크").trim() || "북마크";
+    $("bookmarkContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
+  }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + (rect.width || 220) > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - (rect.width || 220) - pad);
+  }
+  if (top + (rect.height || 120) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (rect.height || 120) - pad);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+/* —— Left binder manuscript context menu (복제 / 토리 분석 / 북마크) —— */
+let binderContextScene = null; // { id, title, chapterId, parentSceneId }
+let binderContextChapter = null; // { id, title }
+
+function hideBinderContextMenu() {
+  $("binderContextMenu")?.classList.add("hidden");
+  binderContextScene = null;
+}
+
+function hideChapterContextMenu() {
+  $("chapterContextMenu")?.classList.add("hidden");
+  binderContextChapter = null;
+}
+
+let binderContextPart = null; // { id, title }
+
+function hidePartContextMenu() {
+  $("partContextMenu")?.classList.add("hidden");
+  binderContextPart = null;
+}
+
+function showChapterContextMenu(clientX, clientY, chapter) {
+  const menu = $("chapterContextMenu");
+  if (!menu || !chapter?.id) return;
+  hideBinderContextMenu();
+  hidePartContextMenu();
+  hideDesktopContextMenu();
+  hideSettingsContextMenu();
+  hideBookmarkContextMenu();
+  const title = String(chapter.title || "폴더").trim() || "폴더";
+  const partId = chapter.partId != null && chapter.partId !== ""
+    ? Number(chapter.partId)
+    : null;
+  binderContextChapter = { id: Number(chapter.id), title, partId };
+  if ($("chapterContextMenuLabel")) {
+    $("chapterContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
+  }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 240;
+  const height = rect.height || 220;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
+  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function showPartContextMenu(clientX, clientY, part) {
+  const menu = $("partContextMenu");
+  if (!menu || !part?.id) return;
+  hideBinderContextMenu();
+  hideChapterContextMenu();
+  hideDesktopContextMenu();
+  hideSettingsContextMenu();
+  hideBookmarkContextMenu();
+  const title = String(part.title || "권/부").trim() || "권/부";
+  binderContextPart = { id: Number(part.id), title };
+  if ($("partContextMenuLabel")) {
+    $("partContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
+  }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 240;
+  const height = rect.height || 160;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
+  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function showBinderContextMenu(clientX, clientY, scene) {
+  const menu = $("binderContextMenu");
+  if (!menu || !scene?.id) return;
+  hideChapterContextMenu();
+  hidePartContextMenu();
+  hideDesktopContextMenu();
+  hideSettingsContextMenu();
+  hideBookmarkContextMenu();
+  const title = String(scene.title || "원고").trim() || "원고";
+  binderContextScene = {
+    id: Number(scene.id),
+    title,
+    chapterId: scene.chapterId != null ? Number(scene.chapterId) : null,
+    parentSceneId: scene.parentSceneId != null && scene.parentSceneId !== ""
+      ? Number(scene.parentSceneId)
+      : null,
+  };
+  if ($("binderContextMenuLabel")) {
+    $("binderContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
+  }
+  const promoteBtn = menu.querySelector('[data-binder-action="promote"]');
+  if (promoteBtn) {
+    promoteBtn.classList.toggle("hidden", !binderContextScene.parentSceneId);
+  }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 240;
+  const height = rect.height || 280;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
+  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+async function trashChapter(chapterId, chapterTitle = "") {
+  const id = Number(chapterId);
+  if (!Number.isFinite(id) || id <= 0) {
+    toast("폴더를 찾지 못했어요.");
+    return;
+  }
+  const chapter = (state.outline || []).find((c) => Number(c.id) === id);
+  // Strip UI suffixes from title attribute (e.g. " · 챕터 완결 (더블클릭…)")
+  let label = String(chapterTitle || chapter?.title || "이 폴더").trim() || "이 폴더";
+  label = label.replace(/\s*·\s*챕터 완결.*$/u, "").replace(/\s*\(더블클릭.*$/u, "").trim() || "이 폴더";
+  const sceneIds = flattenChapterScenes(chapter).map((s) => Number(s.id)).filter((n) => n > 0);
+  const sceneCount = sceneIds.length;
+  const ok = window.confirm(
+    sceneCount > 0
+      ? `「${label}」 폴더와 안의 회차 ${sceneCount}개를 휴지통에 버리시겠습니까?\n\n안의 원고도 함께 버려집니다. 나중에 관리자 모드 → 휴지통에서 회차를 되살리면 폴더도 함께 돌아옵니다.`
+      : `「${label}」 폴더를 휴지통에 버리시겠습니까?`,
+  );
+  if (!ok) return;
+
+  // If an open scene lives in this chapter, flush then clear
+  const openSceneId = Number(state.sceneId);
+  const openInChapter = sceneIds.includes(openSceneId);
+  if (openInChapter && sceneDirty && openSceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: "폴더 버리기 전 저장" });
+    } catch (_) { /* still trash */ }
+  }
+
+  let result;
+  try {
+    result = await api(`/api/chapters/${id}/trash`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    if (/알 수 없는 요청|404/i.test(msg) || Number(error?.status) === 404) {
+      throw new Error(
+        "폴더 버리기 API를 찾을 수 없습니다. SuperTORY 서버 창을 종료한 뒤 start_supertory.bat 으로 다시 실행해 주세요.",
+      );
+    }
+    throw error;
+  }
+
+  if (openInChapter) {
+    state.sceneId = null;
+    state.scene = null;
+    sceneDirty = false;
+    if (openSceneId) {
+      try { removeEpisodeTab?.(openSceneId); } catch (_) { /* ignore */ }
+    }
+  }
+  // Drop episode tabs for trashed scenes
+  if (Array.isArray(state.episodeTabs) && sceneIds.length) {
+    const drop = new Set(sceneIds);
+    state.episodeTabs = state.episodeTabs.filter((t) => !drop.has(Number(t.sceneId)));
+    try { renderEpisodeChrome?.(); } catch (_) { /* ignore */ }
+  }
+  if (state.splitSceneId && sceneIds.includes(Number(state.splitSceneId))) {
+    try { await closeSplitView(); } catch (_) { /* ignore */ }
+  }
+  if (state.toryFocusSceneId && sceneIds.includes(Number(state.toryFocusSceneId))) {
+    clearToryFocus({ silent: true });
+  }
+
+  // Optimistic binder update so the folder disappears even if a full reload lags
+  if (Array.isArray(state.outline)) {
+    state.outline = state.outline.filter((c) => Number(c.id) !== id);
+    try { renderOutline(state.outline); } catch (_) { /* ignore */ }
+  }
+
+  await loadProject();
+  if (openInChapter) showWelcome();
+  const n = Number(result?.scene_count ?? sceneCount ?? 0);
+  toast(n > 0
+    ? `「${label}」 폴더와 회차 ${n}개를 휴지통으로 옮겼어요.`
+    : `「${label}」 폴더를 휴지통으로 옮겼어요.`);
+  if (!$("adminModal")?.classList.contains("hidden")) {
+    loadTrashList().catch(handleError);
+  }
+}
+
+function startRenameChapter(chapterId) {
+  const id = Number(chapterId);
+  if (!id) return;
+  const btn = document.querySelector(`[data-rename-chapter="${id}"]`);
+  if (!btn) return;
+  // Trigger existing double-click rename flow if present
+  try {
+    btn.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
+  } catch (_) {
+    const current = (btn.textContent || "").trim();
+    const next = window.prompt("폴더(챕터) 이름을 입력하세요.", current);
+    if (next === null) return;
+    const title = next.trim() || current;
+    api(`/api/chapters/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ title }),
+    }).then(() => loadProject()).then(() => toast("폴더 이름을 바꿨어요.")).catch(handleError);
+  }
+}
+
+async function duplicateScene(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  // Flush current scene edits first so the clone sees latest content if it's the open one.
+  if (sceneDirty && state.sceneId === id) {
+    try {
+      await persistScene({ quiet: true, saveNote: "복제 전 저장" });
+    } catch (_) {
+      /* still try duplicate */
+    }
+  }
+  const result = await api(`/api/scenes/${id}/duplicate`, {
+    method: "POST",
+    body: "{}",
+  });
+  await loadProject();
+  if (result?.id) {
+    await openScene(result.id);
+    toast(`「${result.title || "복제본"}」을 만들었어요.`);
+  } else {
+    toast("원고를 복제했어요.");
+  }
+}
+
+async function trashScene(sceneId, sceneTitle = "") {
+  const id = Number(sceneId);
+  if (!id) return;
+  const label = (sceneTitle || "이 원고").trim() || "이 원고";
+  const ok = window.confirm(
+    `「${label}」을(를) 휴지통에 버리시겠습니까?\n\n나중에 관리자 모드 → 휴지통에서 복원할 수 있습니다.`,
+  );
+  if (!ok) return;
+
+  if (sceneDirty && state.sceneId === id) {
+    try {
+      await persistScene({ quiet: true, saveNote: "버리기 전 저장" });
+    } catch (_) {
+      /* still trash */
+    }
+  }
+
+  await api(`/api/scenes/${id}/trash`, { method: "POST", body: "{}" });
+
+  if (state.toryFocusSceneId === id) clearToryFocus({ silent: true });
+  if (state.splitSceneId === id) {
+    try {
+      await closeSplitView();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  const wasOpen = state.sceneId === id;
+  if (wasOpen) {
+    state.sceneId = null;
+    state.scene = null;
+    sceneDirty = false;
+  }
+  await loadProject();
+  if (wasOpen) showWelcome();
+  toast(`「${label}」을(를) 휴지통으로 옮겼어요.`);
+  // Refresh trash list if admin is open.
+  if (!$("adminModal")?.classList.contains("hidden")) {
+    loadTrashList().catch(handleError);
+  }
+}
+
+function formatTrashDate(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso.endsWith("Z") ? iso : `${iso}Z`);
+    if (Number.isNaN(d.getTime())) return String(iso);
+    return d.toLocaleString("ko-KR", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  } catch (_) {
+    return String(iso);
+  }
+}
+
+async function loadTrashList() {
+  const list = $("trashList");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint trash-empty">작품을 선택하면 휴지통을 볼 수 있어요.</p>`;
+    return;
+  }
+  list.innerHTML = `<p class="hint trash-empty">불러오는 중…</p>`;
+  try {
+    const data = await api(`/api/projects/${state.projectId}/trash`);
+    const items = data.items || [];
+    if (!items.length) {
+      list.innerHTML = `<p class="hint trash-empty">휴지통이 비어 있어요.</p>`;
+      return;
+    }
+    list.innerHTML = items.map((item) => {
+      const title = escapeHtml(item.title || "제목 없음");
+      const chapterLabel = item.chapter_title || "챕터 없음";
+      const chapter = escapeHtml(
+        item.chapter_trashed ? `${chapterLabel} (폴더도 휴지통)` : chapterLabel,
+      );
+      const when = escapeHtml(formatTrashDate(item.deleted_at));
+      const words = Number(item.word_count || 0);
+      return `
+        <div class="trash-item" data-trash-id="${item.id}">
+          <div class="trash-item-main">
+            <span class="trash-item-title" title="${title}">${title}</span>
+            <span class="trash-item-meta">${chapter} · ${words}어절${when ? ` · ${when}` : ""}</span>
+          </div>
+          <div class="trash-item-actions">
+            <button type="button" class="secondary" data-trash-restore="${item.id}">되살리기</button>
+            <button type="button" class="secondary admin-danger-btn" data-trash-purge="${item.id}">완전 삭제</button>
+          </div>
+        </div>`;
+    }).join("");
+  } catch (error) {
+    list.innerHTML = `<p class="hint trash-empty">휴지통을 불러오지 못했어요.</p>`;
+    throw error;
+  }
+}
+
+async function restoreTrashedScene(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const result = await api(`/api/scenes/${id}/restore`, { method: "POST", body: "{}" });
+  await loadProject();
+  await loadTrashList();
+  if (result.chapter_restored) {
+    toast(`「${result.title || "원고"}」와 폴더 「${result.chapter_title || ""}」을(를) 되살렸어요.`);
+  } else {
+    toast(`「${result.title || "원고"}」을(를) 되살렸어요.`);
+  }
+  if (result.id) openScene(result.id).catch(handleError);
+}
+
+async function purgeTrashedScene(sceneId, title = "") {
+  const id = Number(sceneId);
+  if (!id) return;
+  const label = title || "이 원고";
+  const ok = window.confirm(
+    `「${label}」을(를) 완전히 삭제할까요?\n\n이 작업은 되돌릴 수 없습니다.`,
+  );
+  if (!ok) return;
+  await api(`/api/scenes/${id}/purge`, { method: "DELETE" });
+  await loadTrashList();
+  toast("완전히 삭제했어요.");
+}
+
+async function emptyProjectTrash() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const ok = window.confirm(
+    "휴지통을 비울까요?\n\n보관 중인 모든 원고가 완전히 삭제되며 되돌릴 수 없습니다.",
+  );
+  if (!ok) return;
+  const result = await api(`/api/projects/${state.projectId}/trash`, { method: "DELETE" });
+  await loadTrashList();
+  toast(result.purged ? `휴지통에서 ${result.purged}개를 완전히 삭제했어요.` : "휴지통이 이미 비어 있어요.");
+}
+
+function setupBinderContextMenu() {
+  const outline = $("outline");
+  if (!outline || outline.dataset.binderCtxBound === "1") return;
+  outline.dataset.binderCtxBound = "1";
+
+  outline.addEventListener("contextmenu", (event) => {
+    const sceneBtn = event.target.closest?.("[data-scene]");
+    if (!sceneBtn || !outline.contains(sceneBtn)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const title =
+      sceneBtn.getAttribute("title")
+      || sceneBtn.querySelector(".scene-title")?.textContent
+      || "";
+    const parentRaw = sceneBtn.dataset.parentScene;
+    showBinderContextMenu(event.clientX, event.clientY, {
+      id: sceneBtn.dataset.scene,
+      title: title.trim(),
+      chapterId: sceneBtn.dataset.chapterId || sceneBtn.closest?.(".outline-chapter")?.dataset?.chapterId,
+      parentSceneId: parentRaw === "" || parentRaw == null ? null : parentRaw,
+    });
+  });
+
+  $("binderContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-binder-action]");
+    if (!button || !binderContextScene) return;
+    event.preventDefault();
+    const action = button.dataset.binderAction;
+    const scene = { ...binderContextScene };
+    hideBinderContextMenu();
+    if (action === "add-child") {
+      const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
+      if (!chapterId) return toast("폴더를 찾지 못했어요.");
+      createScene(chapterId, { parentSceneId: scene.id }).catch(handleError);
+    } else if (action === "promote") {
+      reparentScene(scene.id, null).catch(handleError);
+    } else if (action === "create-part") {
+      const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
+      if (!chapterId) return toast("폴더를 찾지 못했어요.");
+      window.setTimeout(() => {
+        createPart({ chapterId }).catch(handleError);
+      }, 30);
+    } else if (action === "move-chapter-to-part") {
+      const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
+      if (!chapterId) return toast("폴더를 찾지 못했어요.");
+      const ch = (state.outline || []).find((c) => Number(c.id) === Number(chapterId));
+      window.setTimeout(() => {
+        moveChapterToPart(chapterId, ch?.part_id ?? null).catch(handleError);
+      }, 30);
+    } else if (action === "bookmark") {
+      addOrToggleBookmark({
+        type: "scene",
+        sceneId: scene.id,
+        title: scene.title || getSceneTitleById(scene.id),
+      });
+    } else if (action === "duplicate") {
+      duplicateScene(scene.id).catch(handleError);
+    } else if (action === "export") {
+      openExportModalForScenes(
+        [scene.id],
+        scene.title || getSceneTitleById(scene.id) || "회차",
+      );
+    } else if (action === "tory-analyze") {
+      startToryAnalyzeForScene(scene.id, scene.title).catch(handleError);
+    } else if (action === "trash") {
+      trashScene(scene.id, scene.title).catch(handleError);
+    }
+  });
+
+  $("chapterContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-chapter-action]");
+    if (!button || !binderContextChapter) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = button.dataset.chapterAction;
+    const chapter = { ...binderContextChapter };
+    hideChapterContextMenu();
+    if (action === "add-scene") {
+      setChapterCollapsed(chapter.id, false);
+      createScene(chapter.id).catch(handleError);
+    } else if (action === "rename") {
+      window.setTimeout(() => startRenameChapter(chapter.id), 0);
+    } else if (action === "create-part") {
+      window.setTimeout(() => {
+        createPart({ chapterId: chapter.id }).catch(handleError);
+      }, 30);
+    } else if (action === "move-to-part") {
+      window.setTimeout(() => {
+        moveChapterToPart(chapter.id, chapter.partId).catch(handleError);
+      }, 30);
+    } else if (action === "trash") {
+      window.setTimeout(() => {
+        trashChapter(chapter.id, chapter.title).catch(handleError);
+      }, 30);
+    }
+  });
+
+  $("partContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-part-action]");
+    if (!button || !binderContextPart) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const action = button.dataset.partAction;
+    const part = { ...binderContextPart };
+    hidePartContextMenu();
+    if (action === "add-chapter") {
+      setPartCollapsed(part.id, false);
+      createChapter({ partId: part.id }).catch(handleError);
+    } else if (action === "rename") {
+      window.setTimeout(() => {
+        const btn = document.querySelector(`[data-rename-part="${part.id}"]`);
+        if (btn) beginPartRename(btn).catch(handleError);
+        else {
+          const next = window.prompt("권/부 이름", part.title || "");
+          if (next === null) return;
+          api(`/api/parts/${part.id}`, {
+            method: "PUT",
+            body: JSON.stringify({ title: next.trim() || part.title }),
+          }).then(() => loadProject()).then(() => toast("권/부 이름을 바꿨어요.")).catch(handleError);
+        }
+      }, 0);
+    } else if (action === "trash") {
+      window.setTimeout(() => {
+        trashPart(part.id, part.title).catch(handleError);
+      }, 30);
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (!event.target.closest("#binderContextMenu")) hideBinderContextMenu();
+    if (!event.target.closest("#chapterContextMenu")) hideChapterContextMenu();
+    if (!event.target.closest("#partContextMenu")) hidePartContextMenu();
+    if (!event.target.closest("#settingsContextMenu")) hideSettingsContextMenu();
+    if (!event.target.closest("#bookmarkContextMenu, #bookmarkBar")) hideBookmarkContextMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      hideBinderContextMenu();
+      hideChapterContextMenu();
+      hidePartContextMenu();
+      hideSettingsContextMenu();
+      hideBookmarkContextMenu();
+    }
+  });
+  window.addEventListener("blur", () => {
+    hideBinderContextMenu();
+    hideChapterContextMenu();
+    hidePartContextMenu();
+    hideSettingsContextMenu();
+    hideBookmarkContextMenu();
+  });
+  window.addEventListener("resize", () => {
+    hideBinderContextMenu();
+    hideChapterContextMenu();
+    hidePartContextMenu();
+    hideSettingsContextMenu();
+    hideBookmarkContextMenu();
+  });
+}
+
+/* —— Settings binder folder context menu —— */
+let settingsContextSection = null;
+
+function hideSettingsContextMenu() {
+  $("settingsContextMenu")?.classList.add("hidden");
+  settingsContextSection = null;
+}
+
+function showSettingsContextMenu(clientX, clientY, section, title) {
+  const menu = $("settingsContextMenu");
+  if (!menu || !section) return;
+  hideBinderContextMenu();
+  hideBookmarkContextMenu();
+  hideDesktopContextMenu();
+  settingsContextSection = section;
+  if ($("settingsContextMenuLabel")) {
+    const label = (title || SETTINGS_BOOKMARK_META[section]?.title || "설정").trim();
+    $("settingsContextMenuLabel").textContent = label.length > 28 ? `${label.slice(0, 28)}…` : label;
+  }
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + (rect.width || 220) > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - (rect.width || 220) - pad);
+  }
+  if (top + (rect.height || 120) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (rect.height || 120) - pad);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function setupSettingsContextMenu() {
+  const accordion = $("settingsAccordion");
+  if (!accordion || accordion.dataset.settingsCtxBound === "1") return;
+  accordion.dataset.settingsCtxBound = "1";
+
+  accordion.addEventListener("contextmenu", (event) => {
+    const box = event.target.closest?.(".settings-box[data-settings-section]");
+    if (!box || !accordion.contains(box)) return;
+    // Don't steal from nested interactive controls unnecessarily, but allow on whole box.
+    event.preventDefault();
+    event.stopPropagation();
+    const section = box.dataset.settingsSection;
+    const title =
+      box.querySelector(".settings-box-title")?.textContent?.trim()
+      || SETTINGS_BOOKMARK_META[section]?.title
+      || section;
+    setUiFeatureCtxTarget?.(box);
+    showSettingsContextMenu(event.clientX, event.clientY, section, title);
+  });
+
+  $("settingsContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-settings-action]");
+    if (!button || !settingsContextSection) return;
+    event.preventDefault();
+    const action = button.dataset.settingsAction;
+    const section = settingsContextSection;
+    const title = SETTINGS_BOOKMARK_META[section]?.title || section;
+    hideSettingsContextMenu();
+    if (action === "bookmark") {
+      addOrToggleBookmark({ type: "settings", section, title });
+    } else if (action === "open-main") {
+      const meta = SETTINGS_BOOKMARK_META[section];
+      if (!meta) return;
+      setActiveBinder("settings");
+      state.openSettingsSection = section;
+      applySettingsSectionState();
+      Promise.resolve(meta.open()).catch(handleError);
+    }
+  });
+
+  $("bookmarkContextMenu")?.addEventListener("click", (event) => {
+    const button = event.target.closest?.("[data-bookmark-action]");
+    if (!button || !bookmarkContextId) return;
+    event.preventDefault();
+    const action = button.dataset.bookmarkAction;
+    const id = bookmarkContextId;
+    hideBookmarkContextMenu();
+    if (action === "open") openBookmark(id).catch(handleError);
+    else if (action === "remove") removeBookmarkById(id);
+  });
+}
+
+const DESKTOP_THEME_KEY = "supertory.desktopTheme";
+const DESKTOP_CUSTOM_COLOR_KEY = "supertory.desktopCustomColor";
+const DESKTOP_INK_KEY = "supertory.pageInk";
+/** "all" = whole project default · "scene" = current episode only */
+const PAGE_THEME_SCOPE_KEY = "supertory.pageThemeScope";
+const SCENE_PAGE_THEME_PREFIX = "supertory.scenePageTheme.v1.";
+const DESKTOP_THEMES = new Set([
+  "ivory", "white", "gray", "sepia", "mint", "lavender", "night", "chalkboard", "custom",
+]);
+const THEME_DEFAULT_INK = {
+  ivory: "#24211d",
+  white: "#1f1f1f",
+  gray: "#22262b",
+  sepia: "#3b2f1d",
+  mint: "#1f322b",
+  lavender: "#2c2438",
+  night: "#f2ebe3",
+  chalkboard: "#ffffff",
+};
+
+function getPageThemeScope() {
+  try {
+    const raw = localStorage.getItem(PAGE_THEME_SCOPE_KEY);
+    return raw === "scene" ? "scene" : "all";
+  } catch (_) {
+    return "all";
+  }
+}
+
+function setPageThemeScope(scope) {
+  const next = scope === "scene" ? "scene" : "all";
+  try {
+    localStorage.setItem(PAGE_THEME_SCOPE_KEY, next);
+  } catch (_) {
+    /* ignore */
+  }
+  syncPageThemeScopeUi();
+  return next;
+}
+
+function syncPageThemeScopeUi() {
+  const scope = getPageThemeScope();
+  const all = $("pageThemeScopeAll");
+  const scene = $("pageThemeScopeScene");
+  if (all) all.checked = scope === "all";
+  if (scene) scene.checked = scope === "scene";
+  // Disable "current scene" when no scene is open
+  if (scene) {
+    scene.disabled = !state.sceneId;
+    const label = scene.closest("label");
+    if (label) label.style.opacity = state.sceneId ? "1" : "0.45";
+  }
+}
+
+function scenePageThemeKey(sceneId = state.sceneId, projectId = state.projectId) {
+  return `${SCENE_PAGE_THEME_PREFIX}${projectId || 0}.${Number(sceneId) || 0}`;
+}
+
+function getScenePageTheme(sceneId = state.sceneId) {
+  if (!sceneId) return null;
+  try {
+    const raw = localStorage.getItem(scenePageThemeKey(sceneId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || !DESKTOP_THEMES.has(parsed.theme)) return null;
+    return {
+      theme: parsed.theme,
+      customColor: parsed.customColor || null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function setScenePageTheme(sceneId, theme, customColor = null) {
+  if (!sceneId || !DESKTOP_THEMES.has(theme)) return;
+  try {
+    localStorage.setItem(scenePageThemeKey(sceneId), JSON.stringify({
+      theme,
+      customColor: theme === "custom" ? (customColor || "#fffdf8") : null,
+      updatedAt: Date.now(),
+    }));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function clearScenePageTheme(sceneId = state.sceneId) {
+  if (!sceneId) return;
+  try {
+    localStorage.removeItem(scenePageThemeKey(sceneId));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function getGlobalPageTheme() {
+  let theme = "ivory";
+  let customColor = "#fffdf8";
+  try {
+    const stored = localStorage.getItem(DESKTOP_THEME_KEY);
+    if (stored && DESKTOP_THEMES.has(stored)) theme = stored;
+    customColor = localStorage.getItem(DESKTOP_CUSTOM_COLOR_KEY) || customColor;
+  } catch (_) {
+    /* ignore */
+  }
+  return { theme, customColor };
+}
+
+/**
+ * Re-apply page colors for the open scene:
+ * scene override if any, otherwise the project-wide (global) theme.
+ */
+function refreshManuscriptPageTheme({ announce = false } = {}) {
+  const global = getGlobalPageTheme();
+  const override = state.sceneId ? getScenePageTheme(state.sceneId) : null;
+  if (override) {
+    applyDesktopTheme(override.theme, override.customColor, {
+      announce: false,
+      persistGlobal: false,
+      persistScene: false,
+    });
+    if (announce) toast("이 회차에 저장된 페이지 색을 적용했어요.");
+    return;
+  }
+  applyDesktopTheme(global.theme, global.customColor, {
+    announce: false,
+    persistGlobal: false,
+    persistScene: false,
+  });
+}
+
+function getSavedPageInk() {
+  try {
+    const raw = localStorage.getItem(DESKTOP_INK_KEY);
+    return raw && /^#[0-9a-fA-F]{6}$/.test(raw) ? raw : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function themeDefaultInk(theme = document.body.dataset.pageTheme || "ivory", customColor = null) {
+  if (theme === "custom") {
+    const color = customColor
+      || $("desktopColorPicker")?.value
+      || "#fffdf8";
+    return isColorDark(color) ? "#ffffff" : "#24211d";
+  }
+  return THEME_DEFAULT_INK[theme] || THEME_DEFAULT_INK.ivory;
+}
+
+function syncPageInkUi(color) {
+  const picker = $("pageInkColorPicker");
+  const swatch = $("pageInkSwatch");
+  const value = color || themeDefaultInk();
+  if (picker) picker.value = value;
+  if (swatch) swatch.style.background = value;
+}
+
+function applyPageInk(color, options = {}) {
+  // Default body text color for the writing pane (not selection formatting).
+  const editor = $("sceneContent");
+  const reset = Boolean(options.reset);
+  let next = String(color || "").trim();
+  if (reset || !next) {
+    try { localStorage.removeItem(DESKTOP_INK_KEY); } catch (_) { /* ignore */ }
+    document.body.style.removeProperty("--page-ink");
+    if (editor) {
+      editor.style.color = "";
+      editor.style.caretColor = "";
+    }
+    syncPageInkUi(themeDefaultInk());
+    if (options.announce) toast("기본 글자색을 테마 기본으로 돌렸어요.");
+    return themeDefaultInk();
+  }
+  if (!next.startsWith("#")) next = `#${next}`;
+  if (!/^#[0-9a-fA-F]{6}$/.test(next)) return getSavedPageInk() || themeDefaultInk();
+  try { localStorage.setItem(DESKTOP_INK_KEY, next); } catch (_) { /* ignore */ }
+  // Inline on body so it overrides theme CSS custom properties.
+  document.body.style.setProperty("--page-ink", next);
+  if (editor) {
+    editor.style.color = next;
+    editor.style.caretColor = next;
+  }
+  syncPageInkUi(next);
+  if (options.announce) toast("본문 기본 글자색을 바꿨어요.");
+  return next;
+}
+
+function applyChalkboardEditorDefaults(enabled) {
+  // Prefer saved custom ink; otherwise light ink on dark page themes.
+  const saved = getSavedPageInk();
+  if (saved) {
+    applyPageInk(saved, { announce: false });
+    return;
+  }
+  const editor = $("sceneContent");
+  if (enabled) {
+    if (editor) {
+      editor.style.color = "#ffffff";
+      editor.style.caretColor = "#ffffff";
+    }
+    syncPageInkUi("#ffffff");
+  } else {
+    if (editor) {
+      editor.style.color = "";
+      editor.style.caretColor = "";
+    }
+    document.body.style.removeProperty("--page-ink");
+    syncPageInkUi(themeDefaultInk());
+  }
+}
+
+function applyDesktopTheme(theme, customColor = null, options = {}) {
+  // Affects ONLY the manuscript body sheet (.manuscript-page / .rich-editor).
+  const next = DESKTOP_THEMES.has(theme) ? theme : "ivory";
+  const scope = options.scope || getPageThemeScope();
+  const fromUser = Boolean(options.fromUser);
+  const announce = Boolean(options.announce);
+  // persistGlobal defaults true unless explicitly false (visual-only refresh)
+  const persistGlobal = options.persistGlobal !== false && !(fromUser && scope === "scene");
+
+  if (fromUser && scope === "scene" && !state.sceneId) {
+    toast("현재 회차에만 적용하려면 먼저 회차를 열어 주세요.");
+    return;
+  }
+
+  document.body.dataset.pageTheme = next;
+  delete document.body.dataset.desktopTheme;
+
+  if (next === "custom") {
+    const color = customColor || "#fffdf8";
+    const ink = isColorDark(color) ? "#ffffff" : "#24211d";
+    document.documentElement.style.setProperty("--page-bg", color);
+    document.documentElement.style.setProperty("--page-editor-bg", color);
+    document.documentElement.style.setProperty("--page-ink", ink);
+    document.documentElement.style.setProperty("--page-line", isColorDark(color) ? "#4a4540" : "#e4ddd2");
+    const swatch = $("customSwatch");
+    if (swatch) swatch.style.background = color;
+    if ($("desktopColorPicker")) $("desktopColorPicker").value = color;
+  } else {
+    document.documentElement.style.removeProperty("--page-bg");
+    document.documentElement.style.removeProperty("--page-editor-bg");
+    document.documentElement.style.removeProperty("--page-ink");
+    document.documentElement.style.removeProperty("--page-line");
+  }
+
+  // Custom default ink (if any) wins; else dark themes get light ink.
+  const savedInk = getSavedPageInk();
+  if (savedInk) {
+    applyPageInk(savedInk, { announce: false });
+  } else {
+    applyChalkboardEditorDefaults(next === "chalkboard" || next === "night" || (next === "custom" && isColorDark(customColor || $("desktopColorPicker")?.value || "#fffdf8")));
+  }
+
+  document.querySelectorAll("#desktopContextMenu [data-desktop-theme]").forEach((button) => {
+    button.classList.toggle("is-active", button.dataset.desktopTheme === next);
+  });
+
+  if (fromUser && scope === "scene" && state.sceneId) {
+    setScenePageTheme(state.sceneId, next, customColor);
+    if (announce) toast("현재 회차에만 페이지 색을 적용했어요.");
+    return;
+  }
+
+  if (persistGlobal) {
+    try {
+      localStorage.setItem(DESKTOP_THEME_KEY, next);
+      if (next === "custom" && customColor) {
+        localStorage.setItem(DESKTOP_CUSTOM_COLOR_KEY, customColor);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+    // Project-wide: drop this scene override so it follows the shared default.
+    if (fromUser && scope === "all" && state.sceneId) {
+      clearScenePageTheme(state.sceneId);
+    }
+    if (announce) {
+      toast(fromUser
+        ? "전체 작품 기본 페이지 색을 바꿨어요."
+        : "본문 페이지 색을 바꿨어요.");
+    }
+  }
+}
+
+function isColorDark(hex) {
+  const raw = String(hex || "").replace("#", "");
+  if (raw.length !== 6) return false;
+  const r = parseInt(raw.slice(0, 2), 16);
+  const g = parseInt(raw.slice(2, 4), 16);
+  const b = parseInt(raw.slice(4, 6), 16);
+  // Relative luminance approximation.
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
+  return luminance < 0.45;
+}
+
+/** Caret/range to restore when inserting from the manuscript context menu. */
+let manuscriptContextRange = null;
+
+function hideDesktopContextMenu() {
+  const menu = $("desktopContextMenu");
+  if (!menu) return;
+  menu.classList.add("hidden");
+  menu.classList.remove("is-text-selection");
+}
+
+/** Footnote currently targeted by context menu (ref or footer item). */
+let pendingFootnoteId = null;
+
+function fnEscapeId(id) {
+  try {
+    return CSS.escape(String(id || ""));
+  } catch (_) {
+    return String(id || "").replace(/"/g, '\\"');
+  }
+}
+
+function hydrateFootnoteUi(editor = $("sceneContent")) {
+  if (!editor) return;
+  const footer = editor.querySelector(".fn-footer");
+  if (footer) {
+    footer.contentEditable = "false";
+    footer.querySelectorAll(".fn-item").forEach((item) => {
+      const id = item.dataset.fnId;
+      if (!id) return;
+      // Older footnotes may lack action buttons / structure.
+      if (!item.querySelector(".fn-item-actions")) {
+        const body = item.querySelector(".fn-text")?.textContent
+          || item.textContent?.replace(/^\s*\d+\s*/, "")
+          || "";
+        const num = item.dataset.fnNum
+          || item.querySelector(".fn-num")?.textContent
+          || "?";
+        const anchor = item.title?.replace(/^원문:\s*/, "") || "";
+        const next = buildFootnoteFooterItem(id, num, body.trim(), anchor);
+        item.replaceWith(next);
+      }
+    });
+  }
+  renumberFootnotesInEditor(editor);
+}
+
+function renumberFootnotesInEditor(editor = $("sceneContent")) {
+  if (!editor) return;
+  const refs = [...editor.querySelectorAll("sup.fn-ref")];
+  const footer = editor.querySelector(".fn-footer");
+  refs.forEach((ref, index) => {
+    const num = index + 1;
+    ref.textContent = String(num);
+    ref.dataset.fnNum = String(num);
+    const id = ref.dataset.fnId;
+    if (footer && id) {
+      const item = footer.querySelector(`.fn-item[data-fn-id="${fnEscapeId(id)}"]`);
+      if (item) {
+        const mark = item.querySelector(".fn-num");
+        if (mark) mark.textContent = String(num);
+        item.dataset.fnNum = String(num);
+      }
+    }
+  });
+  // Drop orphan footer rows (no matching ref).
+  if (footer) {
+    footer.querySelectorAll(".fn-item[data-fn-id]").forEach((item) => {
+      const id = item.dataset.fnId;
+      if (!id || !editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(id)}"]`)) {
+        item.remove();
+      }
+    });
+    if (!footer.querySelector(".fn-item")) footer.remove();
+  }
+}
+
+function ensureFootnoteFooter(editor) {
+  let footer = editor.querySelector(".fn-footer");
+  if (footer) return footer;
+  footer = document.createElement("div");
+  footer.className = "fn-footer";
+  footer.contentEditable = "false";
+  footer.setAttribute("data-fn-footer", "1");
+  const title = document.createElement("div");
+  title.className = "fn-footer-title";
+  title.textContent = "각주";
+  footer.appendChild(title);
+  editor.appendChild(footer);
+  return footer;
+}
+
+function buildFootnoteFooterItem(id, num, body, anchorText = "") {
+  const item = document.createElement("div");
+  item.className = "fn-item";
+  item.dataset.fnId = id;
+  item.dataset.fnNum = String(num);
+
+  const numEl = document.createElement("span");
+  numEl.className = "fn-num";
+  numEl.textContent = String(num);
+
+  const textEl = document.createElement("span");
+  textEl.className = "fn-text";
+  textEl.textContent = body;
+
+  const actions = document.createElement("div");
+  actions.className = "fn-item-actions";
+  const editBtn = document.createElement("button");
+  editBtn.type = "button";
+  editBtn.className = "fn-action-btn";
+  editBtn.dataset.fnEdit = id;
+  editBtn.title = "각주 수정";
+  editBtn.textContent = "수정";
+  const delBtn = document.createElement("button");
+  delBtn.type = "button";
+  delBtn.className = "fn-action-btn fn-action-danger";
+  delBtn.dataset.fnDelete = id;
+  delBtn.title = "각주 삭제";
+  delBtn.textContent = "삭제";
+  actions.appendChild(editBtn);
+  actions.appendChild(delBtn);
+
+  if (anchorText) item.title = `원문: ${anchorText}`;
+
+  const main = document.createElement("div");
+  main.className = "fn-item-main";
+  main.appendChild(numEl);
+  main.appendChild(document.createTextNode(" "));
+  main.appendChild(textEl);
+
+  item.appendChild(main);
+  item.appendChild(actions);
+  return item;
+}
+
+function getFootnoteNoteText(editor, fnId) {
+  if (!editor || !fnId) return "";
+  const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
+  const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
+  const fromItem = item?.querySelector(".fn-text")?.textContent || "";
+  return (fromItem || ref?.title || "").trim();
+}
+
+function editFootnoteById(fnId) {
+  const editor = $("sceneContent");
+  if (!editor || !fnId) return;
+  const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
+  const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
+  if (!ref && !item) {
+    toast("수정할 각주를 찾지 못했어요.");
+    return;
+  }
+  const current = getFootnoteNoteText(editor, fnId);
+  const num = ref?.dataset.fnNum || item?.dataset.fnNum || "?";
+  const next = window.prompt(`각주 ${num} 내용을 수정하세요.`, current);
+  if (next === null) return;
+  const body = next.trim();
+  if (!body) {
+    toast("각주 내용이 비어 있어요. 삭제하려면 삭제를 이용해 주세요.");
+    return;
+  }
+  if (ref) ref.title = body;
+  if (item) {
+    const textEl = item.querySelector(".fn-text");
+    if (textEl) textEl.textContent = body;
+  }
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast(`각주 ${num}을(를) 수정했어요.`);
+}
+
+function deleteFootnoteById(fnId, options = {}) {
+  const editor = $("sceneContent");
+  if (!editor || !fnId) return;
+  const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
+  const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
+  if (!ref && !item) {
+    toast("삭제할 각주를 찾지 못했어요.");
+    return;
+  }
+  const num = ref?.dataset.fnNum || item?.dataset.fnNum || "";
+  if (options.confirm !== false) {
+    if (!window.confirm(num ? `각주 ${num}을(를) 삭제할까요?` : "이 각주를 삭제할까요?")) return;
+  }
+  ref?.remove();
+  item?.remove();
+  renumberFootnotesInEditor(editor);
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast(num ? `각주 ${num}을(를) 삭제했어요.` : "각주를 삭제했어요.");
+}
+
+function findFootnoteIdFromEventTarget(target) {
+  const el = target?.closest?.("sup.fn-ref, .fn-item");
+  return el?.dataset?.fnId || null;
+}
+
+function addFootnoteFromSelection() {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  if (!state.sceneId) {
+    toast("각주를 달려면 먼저 씬을 열어 주세요.");
+    return;
+  }
+  editor.focus();
+  restoreManuscriptContextRange();
+  const selection = window.getSelection();
+  let range = null;
+  if (selection && selection.rangeCount > 0) {
+    const current = selection.getRangeAt(0);
+    if (editor.contains(current.commonAncestorContainer)) range = current;
+  }
+  if (!range && manuscriptContextRange) range = manuscriptContextRange;
+  if (!range) {
+    toast("각주를 달 위치를 선택한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  // Don't place footnotes inside the footer block.
+  const inFooter = (node) => {
+    const el = node?.nodeType === 1 ? node : node?.parentElement;
+    return Boolean(el?.closest?.(".fn-footer"));
+  };
+  if (inFooter(range.commonAncestorContainer) || inFooter(range.startContainer)) {
+    toast("각주 영역에는 각주를 달 수 없어요. 본문에서 선택해 주세요.");
+    return;
+  }
+
+  const anchorText = String(selection?.toString() || "").trim();
+  const note = window.prompt(
+    anchorText
+      ? `「${anchorText.length > 40 ? `${anchorText.slice(0, 40)}…` : anchorText}」에 달 각주 내용을 적어 주세요.`
+      : "각주 내용을 적어 주세요.",
+    "",
+  );
+  if (note === null) return;
+  const body = note.trim();
+  if (!body) {
+    toast("각주 내용이 비어 있어요.");
+    return;
+  }
+
+  const id = `fn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const existingCount = editor.querySelectorAll("sup.fn-ref").length;
+  const num = existingCount + 1;
+
+  const sup = document.createElement("sup");
+  sup.className = "fn-ref";
+  sup.dataset.fnId = id;
+  sup.dataset.fnNum = String(num);
+  sup.contentEditable = "false";
+  sup.title = body;
+  sup.textContent = String(num);
+
+  // Insert marker after the selection (or at caret).
+  const insertRange = range.cloneRange();
+  insertRange.collapse(false);
+  insertRange.insertNode(sup);
+  // Caret after the marker
+  const after = document.createRange();
+  after.setStartAfter(sup);
+  after.collapse(true);
+  selection?.removeAllRanges();
+  selection?.addRange(after);
+  manuscriptContextRange = after.cloneRange();
+
+  const footer = ensureFootnoteFooter(editor);
+  // Keep footer at the end of the editor.
+  editor.appendChild(footer);
+  footer.appendChild(buildFootnoteFooterItem(id, num, body, anchorText));
+
+  renumberFootnotesInEditor(editor);
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast(`각주 ${num}을(를) 달았어요.`);
+}
+
+function setupFootnoteInteractions() {
+  const editor = $("sceneContent");
+  if (!editor || editor.dataset.fnActionsBound === "1") return;
+  editor.dataset.fnActionsBound = "1";
+  editor.addEventListener("click", (event) => {
+    const editId = event.target.closest?.("[data-fn-edit]")?.dataset?.fnEdit;
+    const delId = event.target.closest?.("[data-fn-delete]")?.dataset?.fnDelete;
+    if (editId) {
+      event.preventDefault();
+      event.stopPropagation();
+      editFootnoteById(editId);
+      return;
+    }
+    if (delId) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteFootnoteById(delId);
+    }
+  });
+  // Double-click marker or footer text to edit quickly.
+  editor.addEventListener("dblclick", (event) => {
+    const id = findFootnoteIdFromEventTarget(event.target);
+    if (!id) return;
+    if (event.target.closest?.("[data-fn-edit], [data-fn-delete]")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    editFootnoteById(id);
+  });
+}
+
+function showDesktopContextMenu(clientX, clientY) {
+  const menu = $("desktopContextMenu");
+  if (!menu) return;
+  hideBinderContextMenu();
+  menu.classList.remove("hidden");
+  const pad = 8;
+  // Measure after showing so size is correct.
+  const rect = menu.getBoundingClientRect();
+  let left = clientX;
+  let top = clientY;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - rect.width - pad);
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - rect.height - pad);
+  }
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function captureManuscriptRangeFromEvent(event) {
+  const editor = $("sceneContent");
+  if (!editor) return null;
+  let range = null;
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount > 0) {
+    const current = selection.getRangeAt(0);
+    if (editor.contains(current.commonAncestorContainer)) {
+      range = current.cloneRange();
+    }
+  }
+  if (!range) {
+    // Place caret near the click when there is no in-editor selection.
+    if (document.caretRangeFromPoint) {
+      range = document.caretRangeFromPoint(event.clientX, event.clientY);
+    } else if (document.caretPositionFromPoint) {
+      const pos = document.caretPositionFromPoint(event.clientX, event.clientY);
+      if (pos) {
+        range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+      }
+    }
+    if (range && !editor.contains(range.commonAncestorContainer)) {
+      range = null;
+    }
+  }
+  if (!range) {
+    range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+  }
+  return range;
+}
+
+function restoreManuscriptContextRange() {
+  const editor = $("sceneContent");
+  if (!editor || !manuscriptContextRange) return false;
+  try {
+    editor.focus();
+    const selection = window.getSelection();
+    selection.removeAllRanges();
+    selection.addRange(manuscriptContextRange);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function insertNodeAtManuscriptContext(node) {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange();
+  const selection = window.getSelection();
+  let range = null;
+  if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).commonAncestorContainer)) {
+    range = selection.getRangeAt(0);
+  } else if (manuscriptContextRange) {
+    range = manuscriptContextRange;
+  }
+  if (!range) {
+    editor.appendChild(node);
+  } else {
+    range.deleteContents();
+    range.insertNode(node);
+    // Place caret after the inserted node.
+    const after = document.createRange();
+    after.setStartAfter(node);
+    after.collapse(true);
+    selection.removeAllRanges();
+    selection.addRange(after);
+    manuscriptContextRange = after.cloneRange();
+  }
+  // Ensure a trailing break so typing after the image is easy.
+  if (node.parentNode && node.nextSibling == null) {
+    node.parentNode.appendChild(document.createElement("br"));
+  }
+  updateEditorPlaceholder();
+  updateSceneStats();
+}
+
+function setupDesktopThemeMenu() {
+  const global = getGlobalPageTheme();
+  applyDesktopTheme(global.theme, global.customColor, {
+    announce: false,
+    persistGlobal: false,
+  });
+  // If a scene is already open (rare at boot), prefer its override.
+  refreshManuscriptPageTheme();
+  syncPageThemeScopeUi();
+
+  $("pageThemeScopeAll")?.addEventListener("change", () => {
+    if ($("pageThemeScopeAll")?.checked) setPageThemeScope("all");
+  });
+  $("pageThemeScopeScene")?.addEventListener("change", () => {
+    if ($("pageThemeScopeScene")?.checked) {
+      if (!state.sceneId) {
+        toast("현재 회차에만 적용하려면 먼저 회차를 열어 주세요.");
+        setPageThemeScope("all");
+        return;
+      }
+      setPageThemeScope("scene");
+    }
+  });
+
+  const openManuscriptMenu = (clientX, clientY, event = null) => {
+    if (event) manuscriptContextRange = captureManuscriptRangeFromEvent(event);
+    // Capture selected text before the menu steals focus.
+    pendingBaitQuote = getSelectedManuscriptText();
+    const hasSelection = Boolean(pendingBaitQuote);
+    const menu = $("desktopContextMenu");
+    // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
+    menu?.classList.toggle("is-text-selection", hasSelection);
+    syncPageThemeScopeUi();
+    // Bookmark current open scene (same system as binder right-click)
+    const bmBtn = $("bookmarkSceneMenuItem");
+    const bmTitle = $("bookmarkSceneMenuTitle");
+    const bmHint = $("bookmarkSceneMenuHint");
+    if (bmBtn) {
+      const sceneOk = Boolean(state.sceneId);
+      const already = sceneOk
+        ? Boolean(findBookmark(loadBookmarks(), "scene", state.sceneId))
+        : false;
+      bmBtn.disabled = !sceneOk || hasSelection;
+      bmBtn.style.opacity = sceneOk && !hasSelection ? "1" : "0.45";
+      bmBtn.title = hasSelection
+        ? "선택 문장 메뉴에서는 사용할 수 없어요"
+        : sceneOk
+          ? (already ? "이 회차 북마크를 해제합니다" : "상단 색 북마크에 이 회차를 고정합니다")
+          : "북마크하려면 먼저 회차를 열어 주세요";
+      if (bmTitle) bmTitle.textContent = already ? "북마크 해제" : "북마크하기";
+      if (bmHint) {
+        bmHint.textContent = already
+          ? "상단 북마크 목록에서 이 회차를 뺍니다"
+          : "상단 색 북마크에 이 회차를 고정합니다";
+      }
+    }
+    const dictItem = $("lookupDictMenuItem");
+    if (dictItem) {
+      dictItem.disabled = !hasSelection;
+      dictItem.title = hasSelection
+        ? `「${pendingBaitQuote.slice(0, 24)}${pendingBaitQuote.length > 24 ? "…" : ""}」 사전 검색`
+        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+      dictItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const askToryItem = $("askToryMenuItem");
+    if (askToryItem) {
+      askToryItem.disabled = !hasSelection;
+      askToryItem.title = hasSelection
+        ? "선택 문장을 토리 1:1 대화 질문칸에 넣고 팝업으로 엽니다"
+        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+      askToryItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const throwItem = $("throwBaitMenuItem");
+    if (throwItem) {
+      throwItem.disabled = !hasSelection;
+      throwItem.title = hasSelection
+        ? "선택 문장을 설정집 떡밥모음에 넣습니다"
+        : "먼저 본문에서 문장을 드래그로 선택하세요";
+      throwItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const footnoteItem = $("addFootnoteMenuItem");
+    const editFnItem = $("editFootnoteMenuItem");
+    const deleteFnItem = $("deleteFootnoteMenuItem");
+    const sceneOk = Boolean(state.sceneId);
+    if (footnoteItem) {
+      // Hide "add" when targeting an existing footnote; show edit/delete instead.
+      const targetingFn = Boolean(pendingFootnoteId);
+      footnoteItem.classList.toggle("hidden", targetingFn);
+      // 선택 후: 각주 활성 / 빈 우클릭: 각주 달기 가능(캐럿 위치)
+      const canAdd = sceneOk && !targetingFn;
+      footnoteItem.disabled = !canAdd;
+      footnoteItem.style.opacity = canAdd ? "1" : "0.45";
+      footnoteItem.title = !sceneOk
+        ? "각주를 달려면 먼저 씬을 열어 주세요"
+        : hasSelection
+          ? "선택한 문장에 각주를 답니다"
+          : "선택 위치(또는 드래그한 문장)에 각주를 답니다";
+    }
+    if (editFnItem) {
+      editFnItem.classList.toggle("hidden", !pendingFootnoteId);
+      editFnItem.disabled = !pendingFootnoteId;
+    }
+    if (deleteFnItem) {
+      deleteFnItem.classList.toggle("hidden", !pendingFootnoteId);
+      deleteFnItem.disabled = !pendingFootnoteId;
+    }
+    // Keep ink picker in sync with current default body color.
+    syncPageInkUi(getSavedPageInk() || themeDefaultInk(document.body.dataset.pageTheme || "ivory"));
+    showDesktopContextMenu(clientX, clientY);
+  };
+
+  $("manuscriptPage")?.addEventListener("contextmenu", (event) => {
+    // Custom menu: insert image + bait + footnotes + page color + default ink.
+    event.preventDefault();
+    pendingFootnoteId = findFootnoteIdFromEventTarget(event.target);
+    openManuscriptMenu(event.clientX, event.clientY, event);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#desktopContextMenu, #inlineImageFile, #pageInkColorPicker, #desktopColorPicker")) {
+      hideDesktopContextMenu();
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideDesktopContextMenu();
+  });
+  window.addEventListener("blur", hideDesktopContextMenu);
+  window.addEventListener("resize", hideDesktopContextMenu);
+
+  $("desktopContextMenu")?.addEventListener("click", (event) => {
+    if (event.target.closest("#pageInkColorPicker, #pageInkResetButton, .context-ink-row")) {
+      // Ink controls handle themselves; don't treat as theme click.
+      if (event.target.closest("#pageInkResetButton")) {
+        event.preventDefault();
+        applyPageInk(null, { reset: true, announce: true });
+      }
+      return;
+    }
+
+    const actionBtn = event.target.closest("[data-context-action]");
+    if (actionBtn) {
+      const action = actionBtn.dataset.contextAction;
+      if (action === "bookmark") {
+        hideDesktopContextMenu();
+        if (!state.sceneId) {
+          toast("북마크하려면 먼저 회차를 열어 주세요.");
+          return;
+        }
+        const title = state.scene?.title
+          || $("sceneTitle")?.value
+          || getSceneTitleById(state.sceneId)
+          || "원고";
+        addOrToggleBookmark({
+          type: "scene",
+          sceneId: state.sceneId,
+          title,
+        });
+      } else if (action === "export-scene") {
+        hideDesktopContextMenu();
+        openExportModalForCurrentScene();
+      } else if (action === "lookup-dict") {
+        hideDesktopContextMenu();
+        lookupDictionaryFromSelection();
+      } else if (action === "ask-tory") {
+        hideDesktopContextMenu();
+        askToryFromSelection();
+      } else if (action === "insert-image") {
+        hideDesktopContextMenu();
+        if (!state.sceneId) {
+          toast("이미지를 넣으려면 먼저 씬을 열어 주세요.");
+          return;
+        }
+        $("inlineImageFile")?.click();
+      } else if (action === "throw-bait") {
+        hideDesktopContextMenu();
+        throwBaitFromSelection();
+      } else if (action === "add-footnote") {
+        hideDesktopContextMenu();
+        pendingFootnoteId = null;
+        addFootnoteFromSelection();
+      } else if (action === "edit-footnote") {
+        hideDesktopContextMenu();
+        const id = pendingFootnoteId;
+        pendingFootnoteId = null;
+        if (id) editFootnoteById(id);
+        else toast("수정할 각주를 찾지 못했어요.");
+      } else if (action === "delete-footnote") {
+        hideDesktopContextMenu();
+        const id = pendingFootnoteId;
+        pendingFootnoteId = null;
+        if (id) deleteFootnoteById(id);
+        else toast("삭제할 각주를 찾지 못했어요.");
+      }
+      return;
+    }
+
+    const button = event.target.closest("[data-desktop-theme]");
+    if (!button) return;
+    const next = button.dataset.desktopTheme;
+    if (next === "custom") {
+      $("desktopColorPicker")?.click();
+      return;
+    }
+    applyDesktopTheme(next, null, { announce: true, fromUser: true });
+    hideDesktopContextMenu();
+  });
+
+  $("desktopColorPicker")?.addEventListener("input", (event) => {
+    applyDesktopTheme("custom", event.target.value, { announce: false, fromUser: true });
+  });
+  $("desktopColorPicker")?.addEventListener("change", () => {
+    hideDesktopContextMenu();
+    const scope = getPageThemeScope();
+    toast(scope === "scene" && state.sceneId
+      ? "현재 회차에만 직접 고른 페이지 색을 적용했어요."
+      : "전체 작품 기본으로 직접 고른 페이지 색을 적용했어요.");
+  });
+
+  $("pageInkColorPicker")?.addEventListener("input", (event) => {
+    applyPageInk(event.target.value, { announce: false });
+  });
+  $("pageInkColorPicker")?.addEventListener("change", (event) => {
+    applyPageInk(event.target.value, { announce: true });
+  });
+  $("pageInkResetButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyPageInk(null, { reset: true, announce: true });
+  });
+
+  setupFootnoteInteractions();
+}
+
+function isFairyTaleProject() {
+  return state.projectPurpose === "fairy_tale"
+    || state.scene?.project_purpose === "fairy_tale"
+    || state.projects.find((p) => p.id === state.projectId)?.purpose === "fairy_tale";
+}
+
+function updateIllustrationPanelVisibility() {
+  // External illustration panel removed — images are inserted inline via right-click.
+  const panel = $("illustrationPanel");
+  if (panel) panel.classList.add("hidden");
+}
+
+function newOverlayId() {
+  return `ov-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function collectOverlaysFromCard(card) {
+  return [...card.querySelectorAll(".illustration-overlay")].map((node) => ({
+    id: node.dataset.overlayId || newOverlayId(),
+    text: node.innerText.replace(/\u00a0/g, " ").trimEnd(),
+    x: Number(node.dataset.x || 10),
+    y: Number(node.dataset.y || 10),
+    width: Number(node.dataset.width || 40),
+    fontSize: Number(node.dataset.fontSize || 18),
+    color: node.dataset.color || "#24211d",
+    align: node.dataset.align || "left",
+  }));
+}
+
+function placeOverlayNode(stage, overlay) {
+  const node = document.createElement("div");
+  node.className = "illustration-overlay";
+  node.contentEditable = "true";
+  node.spellcheck = true;
+  node.dataset.overlayId = overlay.id || newOverlayId();
+  node.dataset.x = String(overlay.x ?? 10);
+  node.dataset.y = String(overlay.y ?? 10);
+  node.dataset.width = String(overlay.width ?? 40);
+  node.dataset.fontSize = String(overlay.fontSize ?? 18);
+  node.dataset.color = overlay.color || "#24211d";
+  node.dataset.align = overlay.align || "left";
+  node.style.left = `${overlay.x ?? 10}%`;
+  node.style.top = `${overlay.y ?? 10}%`;
+  node.style.width = `${overlay.width ?? 40}%`;
+  node.style.fontSize = `${overlay.fontSize ?? 18}px`;
+  node.style.color = overlay.color || "#24211d";
+  node.style.textAlign = overlay.align || "left";
+  node.textContent = overlay.text || "";
+  if (!overlay.text) node.dataset.placeholder = "여기에 글을 쓰세요";
+  stage.appendChild(node);
+  enableOverlayInteractions(node, stage);
+  return node;
+}
+
+function enableOverlayInteractions(node, stage) {
+  let drag = null;
+
+  node.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    // Double-click / focus for typing: don't start drag if already editing.
+    if (node.classList.contains("editing") || event.detail > 1) return;
+    const rect = stage.getBoundingClientRect();
+    drag = {
+      startX: event.clientX,
+      startY: event.clientY,
+      originX: Number(node.dataset.x || 0),
+      originY: Number(node.dataset.y || 0),
+      moved: false,
+      pointerId: event.pointerId,
+    };
+    node.setPointerCapture?.(event.pointerId);
+    event.preventDefault();
+  });
+
+  node.addEventListener("pointermove", (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const rect = stage.getBoundingClientRect();
+    const dx = ((event.clientX - drag.startX) / rect.width) * 100;
+    const dy = ((event.clientY - drag.startY) / rect.height) * 100;
+    if (Math.abs(dx) + Math.abs(dy) > 0.4) drag.moved = true;
+    if (!drag.moved) return;
+    const x = Math.max(0, Math.min(90, drag.originX + dx));
+    const y = Math.max(0, Math.min(90, drag.originY + dy));
+    node.dataset.x = String(Math.round(x * 10) / 10);
+    node.dataset.y = String(Math.round(y * 10) / 10);
+    node.style.left = `${node.dataset.x}%`;
+    node.style.top = `${node.dataset.y}%`;
+  });
+
+  const endDrag = (event) => {
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    const wasMoved = drag.moved;
+    drag = null;
+    if (!wasMoved) {
+      node.classList.add("editing");
+      node.focus();
+    }
+  };
+  node.addEventListener("pointerup", endDrag);
+  node.addEventListener("pointercancel", endDrag);
+  node.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    node.classList.add("editing");
+    node.focus();
+  });
+  node.addEventListener("blur", () => {
+    node.classList.remove("editing");
+  });
+  node.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      node.blur();
+    }
+  });
+}
+
+function renderIllustrations() {
+  // No external panel — images live inline in the manuscript HTML.
+  updateIllustrationPanelVisibility();
+}
+
+async function uploadIllustration(file) {
+  if (!state.sceneId) return toast("먼저 씬을 열어 주세요.");
+  if (!file) return;
+  if (!file.type.startsWith("image/")) return toast("이미지 파일만 넣을 수 있어요.");
+  const contentBase64 = await fileToBase64(file);
+  const created = await api(`/api/scenes/${state.sceneId}/illustrations`, {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      mime_type: file.type,
+      content_base64: contentBase64,
+      caption_md: "",
+      overlays: [],
+    }),
+  });
+  state.illustrations.push(created);
+  return created;
+}
+
+async function insertInlineImageFromFile(file) {
+  if (!file) return;
+  toast("이미지를 넣는 중…");
+  try {
+    const created = await uploadIllustration(file);
+    if (!created?.image_url) {
+      toast("이미지를 넣지 못했어요.");
+      return;
+    }
+    const img = document.createElement("img");
+    img.src = created.image_url;
+    img.alt = file.name || "본문 이미지";
+    img.className = "inline-manuscript-image";
+    img.draggable = false;
+    img.loading = "lazy";
+    insertNodeAtManuscriptContext(img);
+    markSceneDirty();
+  toast("본문에 이미지를 넣었어요. 자동 저장됩니다.");
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function setupIllustrationPanel() {
+  // Right-click → 이미지 넣기 uses #inlineImageFile.
+  $("inlineImageFile")?.addEventListener("change", () => {
+    const file = $("inlineImageFile").files?.[0];
+    $("inlineImageFile").value = "";
+    if (!file) return;
+    insertInlineImageFromFile(file).catch(handleError);
+  });
+}
+
+function newLinkId() {
+  return `link-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+/** Filter for scene 참고 자료 panel: all | link | file */
+let referenceKindFilter = "all";
+
+function normalizeReferenceItem(raw = {}) {
+  const kind = raw.kind === "file" || raw.fileName || raw.sourceId
+    ? "file"
+    : "link";
+  return {
+    id: raw.id || newLinkId(),
+    kind,
+    title: String(raw.title || "").trim(),
+    url: String(raw.url || "").trim(),
+    sourceId: String(raw.sourceId || raw.source_id || "").trim(),
+    fileName: String(raw.fileName || raw.file_name || "").trim(),
+    fileExt: String(raw.fileExt || raw.file_ext || "").trim(),
+    viewer: raw.viewer === "pdf" || raw.viewer === "text" ? raw.viewer : "",
+    note: String(raw.note || "").trim(),
+  };
+}
+
+/**
+ * Mirror a scene reference item into project settings 참고자료/출처.
+ * Returns the project source id used.
+ */
+function upsertProjectSourceFromReference(item) {
+  if (!state.projectId || !item) return "";
+  const list = loadSources();
+  const kind = item.kind === "file" ? "file" : "link";
+  const title = String(item.title || "").trim()
+    || (kind === "file" ? (item.fileName || "파일") : "")
+    || "참고 자료";
+  const url = kind === "link" ? normalizeSourceUrl(item.url || "") : String(item.url || "").trim();
+  const sceneLabel = state.scene?.title || $("sceneTitle")?.value || "";
+  const noteBits = [];
+  if (item.note) noteBits.push(item.note);
+  if (sceneLabel) noteBits.push(`회차: ${sceneLabel}`);
+  const note = noteBits.join(" · ").slice(0, 2000);
+
+  let existing = null;
+  if (item.sourceId) existing = list.find((s) => s.id === item.sourceId) || null;
+  if (!existing && kind === "link" && url) {
+    existing = list.find((s) => (s.kind || "link") !== "file" && normalizeSourceUrl(s.url || "") === url) || null;
+  }
+  if (!existing && kind === "file" && item.fileName) {
+    existing = list.find((s) => s.kind === "file" && s.fileName === item.fileName && s.title === title) || null;
+  }
+
+  if (existing) {
+    existing.title = title || existing.title;
+    existing.kind = kind;
+    if (kind === "link") existing.url = url;
+    if (note && !String(existing.note || "").includes(sceneLabel)) {
+      existing.note = [existing.note, note].filter(Boolean).join("\n").slice(0, 2000);
+    }
+    if (kind === "file") {
+      if (item.fileName) existing.fileName = item.fileName;
+      if (item.fileExt) existing.fileExt = item.fileExt;
+      if (item.viewer) existing.viewer = item.viewer;
+    }
+    saveSources(list);
+    try { renderSourceList(); renderSettingsCodex(); } catch (_) { /* ignore */ }
+    return existing.id;
+  }
+
+  const id = item.sourceId || `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  const entry = {
+    id,
+    title,
+    url: kind === "link" ? url : "",
+    note,
+    kind,
+    createdAt: new Date().toISOString(),
+  };
+  if (kind === "file") {
+    entry.fileName = item.fileName || "";
+    entry.fileExt = item.fileExt || sourceFileExt(item.fileName || "");
+    entry.viewer = item.viewer || (entry.fileExt === ".pdf" ? "pdf" : "text");
+    if (item.fileSize) entry.fileSize = item.fileSize;
+    if (item.fileMime) entry.fileMime = item.fileMime;
+  }
+  list.unshift(entry);
+  saveSources(list);
+  try { renderSourceList(); renderSettingsCodex(); } catch (_) { /* ignore */ }
+  return id;
+}
+
+function scheduleReferenceSourcesSync(index) {
+  const item = state.referenceLinks[index];
+  if (!item) return;
+  // Debounce via microtask + dirty; full sync on meaningful blur/save
+  const sourceId = upsertProjectSourceFromReference(normalizeReferenceItem(item));
+  if (sourceId) item.sourceId = sourceId;
+}
+
+function renderReferenceLinks() {
+  const list = $("referenceLinkList");
+  if (!list) return;
+  // Ensure kinds on legacy items
+  state.referenceLinks = (state.referenceLinks || []).map((item) => normalizeReferenceItem(item));
+  try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
+
+  document.querySelectorAll(".reference-kind-tab").forEach((btn) => {
+    const on = btn.dataset.refKindFilter === referenceKindFilter;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+
+  const filtered = state.referenceLinks
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => referenceKindFilter === "all" || item.kind === referenceKindFilter);
+
+  if (!filtered.length) {
+    const emptyMsg = referenceKindFilter === "file"
+      ? "아직 파일이 없어요. + 파일로 PDF·Word·한글·텍스트를 올려 보세요."
+      : referenceKindFilter === "link"
+        ? "아직 링크가 없어요. + 링크로 주소를 붙여 두세요."
+        : "아직 참고 자료가 없어요. + 링크 또는 + 파일로 추가해 보세요.";
+    list.innerHTML = `<p class="reference-link-empty">${emptyMsg}<br><span class="hint">설정집 참고자료에도 함께 저장됩니다.</span></p>`;
+    return;
+  }
+
+  list.innerHTML = filtered.map(({ item, index }) => {
+    if (item.kind === "file") {
+      const ext = item.fileExt || sourceFileExt(item.fileName || "");
+      const badge = sourceFileKindLabel(ext);
+      const canTextExport = item.viewer !== "pdf" && ext !== ".pdf";
+      const exportBtn = canTextExport
+        ? `<button type="button" class="secondary" data-role="export-file" data-export-fmt="docx" title="Word로 내보내기">DOCX</button>`
+        : "";
+      return `
+        <div class="reference-link-row is-file" data-link-index="${index}" data-ref-kind="file">
+          <span class="reference-kind-pill">${escapeHtml(badge)}</span>
+          <div class="reference-row-main">
+            <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="자료 제목" aria-label="파일 제목">
+            <span class="reference-file-name" title="${escapeHtml(item.fileName || "")}">${escapeHtml(item.fileName || "파일")}</span>
+          </div>
+          <div class="reference-row-actions">
+            <button type="button" class="primary" data-role="open-file" title="옆에 펼쳐 보기">펼치기</button>
+            ${exportBtn}
+            <button type="button" class="secondary" data-role="remove-link" title="이 회차에서 제거">삭제</button>
+          </div>
+        </div>`;
+    }
+    return `
+      <div class="reference-link-row is-link" data-link-index="${index}" data-ref-kind="link">
+        <span class="reference-kind-pill">링크</span>
+        <div class="reference-row-main">
+          <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="제목" aria-label="링크 제목">
+          <input data-role="link-url" value="${escapeHtml(item.url || "")}" placeholder="https://..." aria-label="링크 주소">
+        </div>
+        <div class="reference-row-actions">
+          <a class="link-open secondary" href="${escapeHtml(item.url || "#")}" target="_blank" rel="noopener noreferrer" ${item.url ? "" : "tabindex='-1' aria-disabled='true'"}>열기</a>
+          <button type="button" class="secondary" data-role="remove-link" title="이 회차에서 제거">삭제</button>
+        </div>
+      </div>`;
+  }).join("");
+
+  list.querySelectorAll(".reference-link-row").forEach((row) => {
+    const index = Number(row.dataset.linkIndex);
+    row.querySelector('[data-role="link-title"]')?.addEventListener("input", (event) => {
+      if (!state.referenceLinks[index]) return;
+      state.referenceLinks[index].title = event.target.value;
+      markSceneDirty();
+    });
+    row.querySelector('[data-role="link-title"]')?.addEventListener("change", () => {
+      scheduleReferenceSourcesSync(index);
+    });
+    row.querySelector('[data-role="link-url"]')?.addEventListener("input", (event) => {
+      if (!state.referenceLinks[index]) return;
+      state.referenceLinks[index].url = event.target.value;
+      state.referenceLinks[index].kind = "link";
+      const open = row.querySelector(".link-open");
+      const url = event.target.value.trim();
+      if (open) {
+        open.href = url || "#";
+        if (url) open.removeAttribute("aria-disabled");
+        else open.setAttribute("aria-disabled", "true");
+      }
+      markSceneDirty();
+    });
+    row.querySelector('[data-role="link-url"]')?.addEventListener("change", () => {
+      scheduleReferenceSourcesSync(index);
+    });
+    row.querySelector('[data-role="open-file"]')?.addEventListener("click", () => {
+      const item = state.referenceLinks[index];
+      const sid = item?.sourceId;
+      if (!sid) return toast("파일 본문을 찾지 못했어요. 설정집에서 다시 올려 주세요.");
+      openSourceFileInSplit(sid, "split").catch(handleError);
+    });
+    row.querySelector('[data-role="export-file"]')?.addEventListener("click", () => {
+      const item = state.referenceLinks[index];
+      const sid = item?.sourceId;
+      if (!sid) return toast("파일 본문을 찾지 못했어요.");
+      const fmt = row.querySelector('[data-role="export-file"]')?.dataset?.exportFmt || "docx";
+      exportSourceById(sid, fmt).catch(handleError);
+    });
+    row.querySelector('[data-role="remove-link"]')?.addEventListener("click", () => {
+      // Remove from this scene only — keep project 설정집 copy
+      state.referenceLinks.splice(index, 1);
+      renderReferenceLinks();
+      markSceneDirty();
+      toast("이 회차 참고 자료에서 뺐어요. 설정집 참고자료에는 그대로 있습니다.");
+    });
+  });
+}
+
+function collectReferenceLinksFromState() {
+  return state.referenceLinks
+    .map((raw) => {
+      const item = normalizeReferenceItem(raw);
+      if (item.kind === "file") {
+        return {
+          id: item.id || newLinkId(),
+          kind: "file",
+          title: item.title || item.fileName || "파일",
+          url: item.url || "",
+          sourceId: item.sourceId || "",
+          fileName: item.fileName || "",
+          fileExt: item.fileExt || sourceFileExt(item.fileName || ""),
+          viewer: item.viewer || "",
+        };
+      }
+      return {
+        id: item.id || newLinkId(),
+        kind: "link",
+        title: item.title,
+        url: item.url,
+        sourceId: item.sourceId || "",
+      };
+    })
+    .filter((item) => {
+      if (item.kind === "file") return Boolean(item.sourceId || item.fileName || item.title);
+      return Boolean(String(item.url || "").trim());
+    });
+}
+
+/** Before scene save: push all current refs into project sources. */
+function syncAllReferencesToProjectSources() {
+  if (!state.projectId) return;
+  (state.referenceLinks || []).forEach((raw, index) => {
+    const item = normalizeReferenceItem(raw);
+    if (item.kind === "link" && !item.url) return;
+    if (item.kind === "file" && !item.sourceId && !item.fileName) return;
+    const sourceId = upsertProjectSourceFromReference(item);
+    if (sourceId && state.referenceLinks[index]) {
+      state.referenceLinks[index].sourceId = sourceId;
+    }
+  });
+}
+
+function addReferenceLink() {
+  state.referenceLinks.push({ id: newLinkId(), kind: "link", title: "", url: "", sourceId: "" });
+  referenceKindFilter = referenceKindFilter === "file" ? "all" : referenceKindFilter;
+  renderReferenceLinks();
+  markSceneDirty();
+  const rows = document.querySelectorAll('.reference-link-row[data-ref-kind="link"]');
+  const last = rows[rows.length - 1];
+  last?.querySelector('[data-role="link-url"]')?.focus();
+}
+
+async function addReferenceFileFromPicker(file) {
+  if (!file) return;
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.sceneId) return toast("회차를 연 뒤 참고 자료를 추가해 주세요.");
+
+  const ext = sourceFileExt(file.name);
+  if (!SOURCE_FILE_EXTS.has(ext)) {
+    return toast("지원 형식: PDF, DOCX, HWP/HWPX, TXT, MD, RTF, ODT");
+  }
+  if (file.size > SOURCE_FILE_MAX_BYTES) {
+    return toast(`파일이 너무 커요. ${SOURCE_FILE_MAX_BYTES / (1024 * 1024)}MB 이하만 올려 주세요.`);
+  }
+
+  const stem = String(file.name || "").replace(/\.[^.]+$/, "").trim() || "파일";
+  const mime = file.type
+    || (ext === ".pdf" ? "application/pdf"
+      : ext === ".docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : "application/octet-stream");
+  const buffer = await file.arrayBuffer();
+  const blob = new Blob([buffer], { type: mime });
+  let textContent = "";
+  let viewer = ext === ".pdf" ? "pdf" : "text";
+  let warnings = [];
+
+  if (ext === ".pdf") {
+    viewer = "pdf";
+  } else if (ext === ".txt" || ext === ".text" || ext === ".md" || ext === ".markdown") {
+    textContent = new TextDecoder("utf-8").decode(buffer);
+    viewer = "text";
+  } else if (ext === ".doc") {
+    throw new Error("옛 Word(.doc)는 DOCX로 저장한 뒤 올려 주세요.");
+  } else {
+    try {
+      const extracted = await extractReferenceTextFromFile(file, buffer);
+      textContent = String(extracted.text || "");
+      viewer = extracted.viewer === "pdf" ? "pdf" : "text";
+      warnings = Array.isArray(extracted.warnings) ? extracted.warnings : [];
+      if (!textContent && viewer === "text") {
+        throw new Error(warnings[0] || "파일에서 글자를 꺼내지 못했어요.");
+      }
+    } catch (err) {
+      throw err instanceof Error ? err : new Error(String(err || "파일 처리 실패"));
+    }
+  }
+
+  const sourceId = `src-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+  await putSourceFileBlob(sourceId, {
+    blob,
+    mime,
+    fileName: file.name,
+    textContent: textContent.slice(0, 200000),
+    viewer,
+    savedAt: Date.now(),
+  });
+
+  const sceneItem = {
+    id: newLinkId(),
+    kind: "file",
+    title: stem.slice(0, 200),
+    url: "",
+    sourceId,
+    fileName: file.name,
+    fileExt: ext,
+    viewer,
+    fileSize: file.size,
+    fileMime: mime,
+  };
+  // Project 설정집 보관
+  upsertProjectSourceFromReference(sceneItem);
+  state.referenceLinks.push(sceneItem);
+  referenceKindFilter = referenceKindFilter === "link" ? "all" : referenceKindFilter;
+  renderReferenceLinks();
+  markSceneDirty();
+  toast("파일을 참고 자료에 넣었어요. 설정집에도 함께 저장됐습니다.");
+}
+
+function setupReferenceLinks() {
+  $("addReferenceLinkButton")?.addEventListener("click", addReferenceLink);
+  $("addReferenceFileButton")?.addEventListener("click", () => {
+    $("referenceFileInput")?.click();
+  });
+  $("referenceFileInput")?.addEventListener("change", () => {
+    const file = $("referenceFileInput")?.files?.[0] || null;
+    if ($("referenceFileInput")) $("referenceFileInput").value = "";
+    if (!file) return;
+    addReferenceFileFromPicker(file).catch(handleError);
+  });
+  document.querySelectorAll(".reference-kind-tab").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      referenceKindFilter = btn.dataset.refKindFilter || "all";
+      renderReferenceLinks();
+    });
+  });
+}
+
+const AI_PANEL_STORAGE_KEY = "supertory.aiPanelOpen";
+const BINDER_PANEL_STORAGE_KEY = "supertory.binderPanelOpen";
+const BINDER_STORAGE_KEY = "supertory.activeBinder";
+
+function isAiPanelOpen() {
+  return !document.body.classList.contains("ai-panel-collapsed");
+}
+
+function setAiPanelOpen(open) {
+  document.body.classList.toggle("ai-panel-collapsed", !open);
+  $("expandAiPanelButton")?.classList.toggle("hidden", open);
+  try {
+    localStorage.setItem(AI_PANEL_STORAGE_KEY, open ? "1" : "0");
+  } catch (_) {
+    /* private mode */
+  }
+  if (open) refreshAiStatus().catch(handleError);
+}
+
+function setupAiPanelToggle() {
+  let preferred = true;
+  try {
+    const stored = localStorage.getItem(AI_PANEL_STORAGE_KEY);
+    if (stored === "0") preferred = false;
+    if (stored === "1") preferred = true;
+  } catch (_) {
+    preferred = true;
+  }
+  setAiPanelOpen(preferred);
+  $("collapseAiPanelButton")?.addEventListener("click", () => setAiPanelOpen(false));
+  $("expandAiPanelButton")?.addEventListener("click", () => setAiPanelOpen(true));
+}
+
+function isBinderPanelOpen() {
+  return !document.body.classList.contains("binder-panel-collapsed");
+}
+
+function setBinderPanelOpen(open) {
+  document.body.classList.toggle("binder-panel-collapsed", !open);
+  $("expandBinderPanelButton")?.classList.toggle("hidden", open);
+  try {
+    localStorage.setItem(BINDER_PANEL_STORAGE_KEY, open ? "1" : "0");
+  } catch (_) {
+    /* private mode */
+  }
+  // Split layout may need a reflow after side panels change.
+  if (typeof applySplitLayout === "function" && state.splitEnabled && state.splitMode === "split") {
+    requestAnimationFrame(() => {
+      try {
+        ensureSplitLeftWidth?.();
+        layoutSplitPrimaryPane?.();
+      } catch (_) {
+        /* ignore */
+      }
+    });
+  }
+}
+
+function setupBinderPanelToggle() {
+  let preferred = true;
+  try {
+    const stored = localStorage.getItem(BINDER_PANEL_STORAGE_KEY);
+    if (stored === "0") preferred = false;
+    if (stored === "1") preferred = true;
+  } catch (_) {
+    preferred = true;
+  }
+  setBinderPanelOpen(preferred);
+  $("collapseBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(false));
+  $("expandBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(true));
+}
+
+const TOOL_PANEL_TITLES = {
+  notes: "작가 메모",
+  characters: "등장 인물",
+  links: "참고 자료",
+  spellcheck: "철자 · 맞춤법",
+};
+
+function getAuthorNotesText() {
+  return String($("sceneNotes")?.value || state.scene?.notes_md || "");
+}
+
+/** Count non-empty lines in author notes (1 line → 1, 2 lines → 2). */
+function countAuthorNotesLines(text = getAuthorNotesText()) {
+  const raw = String(text || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!raw.trim()) return 0;
+  // Count lines that have any non-whitespace content.
+  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
+  return lines.length || 0;
+}
+
+function updateAuthorNotesBadge() {
+  const badge = $("authorNotesCount");
+  const chip = $("authorNotesChip");
+  if (!badge) return;
+  if (!state.sceneId) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "작가 메모";
+      chip.setAttribute("aria-label", "작가 메모");
+    }
+    return;
+  }
+  const lines = countAuthorNotesLines();
+  if (!lines) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "작가 메모";
+      chip.setAttribute("aria-label", "작가 메모");
+    }
+    return;
+  }
+  badge.textContent = lines > 99 ? "99+" : String(lines);
+  badge.classList.remove("hidden");
+  if (chip) {
+    chip.title = `작가 메모 · ${lines}줄`;
+    chip.setAttribute("aria-label", `작가 메모 ${lines}줄`);
+  }
+}
+
+/** Count usable scene reference materials (links with URL + file entries). */
+function countReferenceMaterials(list = state.referenceLinks) {
+  if (!Array.isArray(list)) return 0;
+  return list.filter((raw) => {
+    const item = typeof normalizeReferenceItem === "function"
+      ? normalizeReferenceItem(raw)
+      : raw;
+    if (!item) return false;
+    if (item.kind === "file") {
+      return Boolean(item.sourceId || item.fileName || item.title);
+    }
+    return Boolean(String(item.url || "").trim());
+  }).length;
+}
+
+function updateReferenceMaterialsBadge() {
+  const badge = $("referenceMaterialsCount");
+  const chip = $("referenceMaterialsChip");
+  if (!badge) return;
+  if (!state.sceneId) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "참고 자료 (링크·파일)";
+      chip.setAttribute("aria-label", "참고 자료");
+    }
+    return;
+  }
+  const n = countReferenceMaterials();
+  if (!n) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "참고 자료 (링크·파일)";
+      chip.setAttribute("aria-label", "참고 자료");
+    }
+    return;
+  }
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.classList.remove("hidden");
+  if (chip) {
+    chip.title = `참고 자료 · ${n}개`;
+    chip.setAttribute("aria-label", `참고 자료 ${n}개`);
+  }
+}
+
+function setupSceneToolsDrawerDrag() {
+  const drawer = $("sceneToolsDrawer");
+  const head = $("sceneToolsDrawerHead");
+  if (!drawer || !head || head.dataset.dragBound === "1") return;
+  head.dataset.dragBound = "1";
+
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    // Free drag — may overlap binder / other panels; no viewport clamp.
+    const left = event.clientX - drag.offsetX;
+    const top = event.clientY - drag.offsetY;
+    drawer.style.position = "fixed";
+    drawer.style.left = `${left}px`;
+    drawer.style.top = `${top}px`;
+    drawer.style.right = "auto";
+    drawer.style.zIndex = "80";
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    drag = null;
+    drawer.classList.remove("is-dragging");
+    document.removeEventListener("pointermove", onMove);
+    document.removeEventListener("pointerup", onUp);
+  };
+
+  head.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    // Don't start drag from the close button.
+    if (event.target.closest("#closeSceneToolsDrawer, button.panel-collapse-btn, a, input, textarea, select")) return;
+    const drawerRect = drawer.getBoundingClientRect();
+    drag = {
+      offsetX: event.clientX - drawerRect.left,
+      offsetY: event.clientY - drawerRect.top,
+    };
+    // Switch to fixed positioning so the panel can leave the workspace (e.g. over binder).
+    drawer.style.position = "fixed";
+    drawer.style.left = `${drawerRect.left}px`;
+    drawer.style.top = `${drawerRect.top}px`;
+    drawer.style.right = "auto";
+    drawer.style.zIndex = "80";
+    drawer.classList.add("is-dragging");
+    try { head.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
+    document.addEventListener("pointermove", onMove);
+    document.addEventListener("pointerup", onUp);
+    event.preventDefault();
+  });
+}
+
+function closeViewModeMenu() {
+  $("viewModeDropdown")?.classList.add("hidden");
+  $("splitModeDropdown")?.classList.add("hidden");
+  $("splitViewButton")?.setAttribute("aria-expanded", "false");
+  $("switchSplitModeButton")?.setAttribute("aria-expanded", "false");
+}
+
+function openViewModeMenu(which = "main") {
+  closeViewModeMenu();
+  if (typeof closeAnalyzeMenu === "function") closeAnalyzeMenu();
+  $("viewModeCloseItem")?.classList.toggle("hidden", !state.splitEnabled);
+  if (which === "split") {
+    $("splitModeDropdown")?.classList.remove("hidden");
+    $("switchSplitModeButton")?.setAttribute("aria-expanded", "true");
+  } else {
+    $("viewModeDropdown")?.classList.remove("hidden");
+    $("splitViewButton")?.setAttribute("aria-expanded", "true");
+  }
+}
+
+function toggleViewModeMenu(which = "main") {
+  const menu = which === "split" ? $("splitModeDropdown") : $("viewModeDropdown");
+  if (!menu) return;
+  if (menu.classList.contains("hidden")) openViewModeMenu(which);
+  else closeViewModeMenu();
+}
+
+function closeSceneToolsDrawer() {
+  $("sceneToolsDrawer")?.classList.add("hidden");
+  document.querySelectorAll("[data-tool-panel]").forEach((panel) => {
+    panel.classList.add("hidden");
+  });
+  document.querySelectorAll(".feature-chip[data-tools-action]").forEach((chip) => {
+    chip.classList.remove("is-active");
+  });
+}
+
+function openSceneToolsDrawer(toolKey) {
+  const drawer = $("sceneToolsDrawer");
+  if (!drawer) return;
+  if (!state.sceneId) {
+    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    return;
+  }
+  // Toggle closed if same panel is already open.
+  const current = drawer.querySelector(`[data-tool-panel="${toolKey}"]:not(.hidden)`);
+  if (!drawer.classList.contains("hidden") && current) {
+    closeSceneToolsDrawer();
+    return;
+  }
+  drawer.classList.remove("hidden");
+  document.querySelectorAll("[data-tool-panel]").forEach((panel) => {
+    panel.classList.toggle("hidden", panel.dataset.toolPanel !== toolKey);
+  });
+  document.querySelectorAll(".feature-chip[data-tools-action]").forEach((chip) => {
+    chip.classList.toggle("is-active", chip.dataset.toolsAction === toolKey);
+  });
+  if ($("sceneToolsDrawerTitle")) {
+    $("sceneToolsDrawerTitle").textContent = TOOL_PANEL_TITLES[toolKey] || "기능";
+  }
+  // Author notes popup: focus field when opened.
+  if (toolKey === "notes") {
+    requestAnimationFrame(() => $("sceneNotes")?.focus());
+  }
+}
+
+/* —— 큰 창: editable focus writing (restored) —— */
+function isFocusWriteOpen() {
+  return Boolean($("focusWriteModal") && !$("focusWriteModal").classList.contains("hidden"));
+}
+
+function openFocusWrite() {
+  if (!state.sceneId) {
+    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    return;
+  }
+  const modal = $("focusWriteModal");
+  const focusEd = $("focusWriteEditor");
+  const mainEd = $("sceneContent");
+  if (!modal || !focusEd || !mainEd) return;
+
+  const title = $("sceneTitle")?.value?.trim()
+    || state.scene?.title
+    || "본문";
+  if ($("focusWriteTitle")) $("focusWriteTitle").textContent = title || "큰 창";
+  if ($("focusWriteSaveInfo")) $("focusWriteSaveInfo").textContent = "";
+
+  focusEd.innerHTML = mainEd.innerHTML || "";
+  focusEd.setAttribute("contenteditable", "true");
+  focusEd.spellcheck = true;
+  applyEditorWideLineHeight(getStoredLineHeight(), [focusEd]);
+  updateEditorPlaceholder(focusEd);
+  modal.classList.remove("hidden");
+  document.body.classList.add("focus-write-open");
+
+  requestAnimationFrame(() => {
+    focusEd.setAttribute("contenteditable", "true");
+    try {
+      focusEd.focus({ preventScroll: true });
+    } catch (_) {
+      focusEd.focus();
+    }
+  });
+}
+
+function closeFocusWrite() {
+  const modal = $("focusWriteModal");
+  const focusEd = $("focusWriteEditor");
+  const mainEd = $("sceneContent");
+  if (!modal) return;
+
+  // Sync focus editor → main before closing.
+  if (focusEd && mainEd && state.sceneId) {
+    mainEd.innerHTML = focusEd.innerHTML || "";
+    updateEditorPlaceholder(mainEd);
+    updateSceneStats();
+    markSceneDirty();
+  }
+  modal.classList.add("hidden");
+  document.body.classList.remove("focus-write-open");
+  requestAnimationFrame(() => {
+    try {
+      mainEd?.focus({ preventScroll: true });
+    } catch (_) {
+      mainEd?.focus();
+    }
+  });
+}
+
+function setupFocusWrite() {
+  const focusEd = $("focusWriteEditor");
+  if (focusEd && focusEd.dataset.focusBound !== "1") {
+    focusEd.dataset.focusBound = "1";
+    focusEd.addEventListener("input", () => {
+      if (!isFocusWriteOpen()) return;
+      const mainEd = $("sceneContent");
+      if (!mainEd || !state.sceneId) return;
+      mainEd.innerHTML = focusEd.innerHTML || "";
+      updateEditorPlaceholder(mainEd);
+      updateEditorPlaceholder(focusEd);
+      updateSceneStats();
+      markSceneDirty();
+      if ($("focusWriteSaveInfo") && sceneDirty) {
+        $("focusWriteSaveInfo").textContent = "저장 대기…";
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-close-focus-write]").forEach((el) => {
+    el.addEventListener("click", () => closeFocusWrite());
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (isViewerOpen()) return; // viewer has its own Esc handler
+    if (!isFocusWriteOpen()) return;
+    event.preventDefault();
+    closeFocusWrite();
+  });
+}
+
+/* —— 뷰어 모드: PDF / phone / e-ink (view-only) —— */
+const VIEWER_MODE_KEY = "supertory.viewerMode";
+const VIEWER_SETTINGS_KEY = "supertory.viewerSettings";
+const VIEWER_MODES = ["pdf", "book", "phone", "eink"];
+const VIEWER_MODE_META = {
+  pdf: { label: "PDF", hint: "A4 비율 고정 · 크기로 확대/축소 · 스크롤로 다음 장 · 편집 불가" },
+  book: { label: "종이책", hint: "펼친 양면 · 장 넘김 · 책 크기 조절 · 스크롤 없음 · 편집 불가" },
+  phone: { label: "핸드폰", hint: "책 넘김 또는 스크롤 · 글자·바탕·크기 조절 · 편집 불가" },
+  eink: { label: "리더기", hint: "책 넘김 또는 스크롤 · 글자·크기 조절 · 편집 불가" },
+};
+// A4 @ 96dpi = 210×297mm → 794 × 1123 px (logical page; scale only zooms display)
+const A4_WIDTH_PX = 794;
+const A4_HEIGHT_PX = 1123;
+const A4_ASPECT = A4_WIDTH_PX / A4_HEIGHT_PX; // ≈ 0.707
+
+const defaultViewerSettings = () => ({
+  mode: "pdf",
+  pdfFont: 14,
+  pdfLineHeight: 1.8,
+  pdfMargin: 56,
+  pdfScale: 90,
+  bookFont: 15,
+  bookLineHeight: 1.8,
+  bookMargin: 36,
+  bookW: 900,
+  bookH: 560,
+  bookPaper: "cream",
+  phoneFont: 15,
+  phoneLineHeight: 1.7,
+  phoneW: 390,
+  phoneH: 780,
+  phoneBg: "#fffdf8",
+  phoneInk: "#24211d",
+  /** "page" = 화면 단위 책 넘김 · "scroll" = 아래로 스크롤 */
+  phoneFlow: "page",
+  einkFont: 17,
+  einkLineHeight: 1.8,
+  einkW: 420,
+  einkH: 720,
+  einkStyle: "paper",
+  /** "page" = 화면 단위 책 넘김 · "scroll" = 아래로 스크롤 */
+  einkFlow: "page",
+});
+
+/** 리더기(E-ink) 바탕·잉크 프리셋 — CSS data-eink-style 과 동일 */
+const VIEWER_EINK_STYLES = {
+  paper: { bg: "#f7f4ec", ink: "#1a1a1a" },
+  warm: { bg: "#f0e6d2", ink: "#2a2218" },
+  gray: { bg: "#e4e4e4", ink: "#222222" },
+  dark: { bg: "#1e1e1e", ink: "#c8c8c8" },
+};
+
+function getViewerEinkPalette(styleKey = viewerSettings.einkStyle) {
+  return VIEWER_EINK_STYLES[styleKey] || VIEWER_EINK_STYLES.paper;
+}
+
+/** Clear phone/eink CSS vars so mode switches don't leave stale inline colors. */
+function clearViewerPageColorVars(...els) {
+  for (const el of els) {
+    if (!el?.style) continue;
+    el.style.removeProperty("--viewer-page-bg");
+    el.style.removeProperty("--viewer-page-ink");
+  }
+}
+
+function applyViewerPageColors(el, bg, ink) {
+  if (!el?.style) return;
+  if (bg) el.style.setProperty("--viewer-page-bg", bg);
+  else el.style.removeProperty("--viewer-page-bg");
+  if (ink) el.style.setProperty("--viewer-page-ink", ink);
+  else el.style.removeProperty("--viewer-page-ink");
+}
+
+function clampViewerLineHeight(value, fallback = 1.8) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(2.5, Math.max(1.0, Math.round(n * 10) / 10));
+}
+
+function formatViewerLineHeightLabel(value) {
+  return clampViewerLineHeight(value).toFixed(1);
+}
+
+let viewerSettings = defaultViewerSettings();
+let viewerResize = null;
+/** Paper-book page-turn state (0-based spread index). */
+let bookSpreadIndex = 0;
+let bookSpreadCount = 1;
+let bookPageLayoutTimer = null;
+/** Paginated leaf HTML (one entry per half-page). */
+let bookPages = [];
+let bookPageMetrics = { m: 36, fontPx: 15, lineHeight: 1.8 };
+/** True while a 3D page-flip animation is running. */
+let bookFlipBusy = false;
+let bookFlipTimer = null;
+const BOOK_FLIP_MS = 720;
+/** Viewer manuscript scope: "scene" | "full" */
+let viewerScope = "scene";
+let viewerTocOpen = false;
+/** sceneId → normalized HTML (other scenes only; current always from editor) */
+const viewerEpisodeCache = new Map();
+let viewerLoadToken = 0;
+/** After book re-layout, jump to this scene id if set */
+let viewerPendingJumpSceneId = null;
+/** PDF / phone / e-ink discrete pages (HTML per leaf). */
+let devicePages = [];
+let devicePageIndex = 0;
+let devicePageCount = 1;
+let devicePageLayoutTimer = null;
+let devicePageMetrics = { padY: 24, padX: 24, fontPx: 14, lineHeight: 1.8 };
+/** When true, ignore scroll→index sync (programmatic jump). */
+let devicePageScrollLock = false;
+
+function isViewerOpen() {
+  return Boolean($("viewerModal") && !$("viewerModal").classList.contains("hidden"));
+}
+
+function clearViewerEpisodeCache() {
+  viewerEpisodeCache.clear();
+}
+
+function normalizeViewerHtml(raw) {
+  const text = raw == null ? "" : String(raw);
+  if (!text.trim()) return "";
+  const stripped = stripFindHitMarkup(text);
+  if (looksLikeHtml(stripped)) return sanitizeEditorHtml(stripped);
+  return escapeHtml(stripped).replace(/\r\n|\r|\n/g, "<br>");
+}
+
+function getViewerEpisodeLabel(ep) {
+  if (!ep) return "본문";
+  return formatEpisodeNavLabel(ep, ep.label || ep.shortLabel || `${ep.index || ""}화`);
+}
+
+function wrapViewerEpisode(ep, bodyHtml, { showTitle = true } = {}) {
+  const id = Number(ep?.sceneId) || 0;
+  const title = escapeHtml(getViewerEpisodeLabel(ep));
+  const titleBlock = showTitle
+    ? `<h2 class="viewer-episode-title" data-viewer-scene="${id}" id="viewer-episode-${id}">${title}</h2>`
+    : `<span class="viewer-episode-anchor" data-viewer-scene="${id}" id="viewer-episode-${id}" hidden></span>`;
+  const body = (bodyHtml && String(bodyHtml).trim())
+    ? bodyHtml
+    : `<p class="viewer-empty-scene">（본문 없음）</p>`;
+  return `<section class="viewer-episode" data-viewer-scene="${id}">${titleBlock}<div class="viewer-episode-body">${body}</div></section>`;
+}
+
+async function fetchViewerEpisodeHtml(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return "";
+  // Always use live editor for the open scene (unsaved edits included).
+  if (id === Number(state.sceneId)) {
+    return normalizeViewerHtml(getEditorContent() || $("sceneContent")?.innerHTML || "");
+  }
+  if (viewerEpisodeCache.has(id)) return viewerEpisodeCache.get(id);
+  const detail = await api(`/api/scenes/${id}`);
+  const html = normalizeViewerHtml(detail?.content_md || "");
+  viewerEpisodeCache.set(id, html);
+  return html;
+}
+
+async function buildViewerBodyHtml(scope) {
+  const sequence = getEpisodeSequence();
+  if (scope !== "full") {
+    const ep = sequence.find((e) => Number(e.sceneId) === Number(state.sceneId))
+      || {
+        sceneId: Number(state.sceneId),
+        index: 1,
+        label: $("sceneTitle")?.value?.trim() || state.scene?.title || "본문",
+        shortLabel: $("sceneTitle")?.value?.trim() || state.scene?.title || "본문",
+      };
+    const html = normalizeViewerHtml(getEditorContent() || $("sceneContent")?.innerHTML || "");
+    return wrapViewerEpisode(ep, html, { showTitle: false });
+  }
+  if (!sequence.length) {
+    return `<p class="hint">목차에 회차가 없습니다. 왼쪽 바인더에서 씬을 추가해 주세요.</p>`;
+  }
+  const parts = await Promise.all(sequence.map(async (ep) => {
+    try {
+      const html = await fetchViewerEpisodeHtml(ep.sceneId);
+      return wrapViewerEpisode(ep, html, { showTitle: true });
+    } catch (_) {
+      return wrapViewerEpisode(ep, `<p class="viewer-empty-scene">불러오기 실패</p>`, { showTitle: true });
+    }
+  }));
+  return parts.join(`<div class="viewer-episode-break" aria-hidden="true"></div>`);
+}
+
+function syncViewerScopeTabs() {
+  const scope = viewerScope === "full" ? "full" : "scene";
+  viewerScope = scope;
+  document.querySelectorAll("#viewerScopeTabs [data-viewer-scope]").forEach((btn) => {
+    const on = btn.dataset.viewerScope === scope;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function setViewerTocOpen(open) {
+  viewerTocOpen = Boolean(open);
+  const panel = $("viewerTocPanel");
+  const toggle = $("viewerTocToggle");
+  if (panel) panel.classList.toggle("hidden", !viewerTocOpen);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", viewerTocOpen ? "true" : "false");
+    toggle.classList.toggle("is-active", viewerTocOpen);
+  }
+}
+
+function renderViewerToc() {
+  const list = $("viewerTocList");
+  const hint = $("viewerTocHint");
+  if (!list) return;
+  const sequence = getEpisodeSequence();
+  const currentId = Number(state.sceneId) || 0;
+  if (!sequence.length) {
+    list.innerHTML = `<p class="hint" style="padding:6px 4px;margin:0">표시할 회차가 없습니다.</p>`;
+    if (hint) hint.textContent = "회차를 누르면 이동합니다";
+    return;
+  }
+  if (hint) {
+    hint.textContent = viewerScope === "full"
+      ? "회차를 누르면 해당 위치로 이동합니다"
+      : "다른 회차 선택 시 전체 원고로 전환됩니다";
+  }
+  list.innerHTML = sequence.map((ep) => {
+    const isCurrent = Number(ep.sceneId) === currentId;
+    const label = escapeHtml(getViewerEpisodeLabel(ep));
+    return `
+      <button type="button" class="viewer-toc-item${isCurrent ? " is-current" : ""}"
+        data-viewer-toc-scene="${ep.sceneId}" title="${label}">
+        <span class="viewer-toc-index">${ep.index}</span>
+        <span class="viewer-toc-label">${label}</span>
+      </button>`;
+  }).join("");
+}
+
+function highlightViewerTocCurrent(sceneId = null) {
+  const id = sceneId != null ? Number(sceneId) : Number(state.sceneId);
+  document.querySelectorAll("#viewerTocList .viewer-toc-item").forEach((btn) => {
+    btn.classList.toggle("is-current", Number(btn.dataset.viewerTocScene) === id);
+  });
+}
+
+function findBookSpreadIndexForScene(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return -1;
+  // Prefer scanning paginated HTML (works even mid-flip / after layout).
+  for (let i = 0; i < bookPages.length; i += 1) {
+    const html = bookPages[i] || "";
+    if (
+      html.includes(`data-viewer-scene="${id}"`)
+      || html.includes(`id="viewer-episode-${id}"`)
+    ) {
+      return Math.floor(i / 2);
+    }
+  }
+  const track = $("bookTrack");
+  if (!track) return -1;
+  const spreads = track.querySelectorAll(".book-base, .book-flip-leaf");
+  for (let i = 0; i < spreads.length; i += 1) {
+    if (spreads[i].querySelector(`[data-viewer-scene="${id}"]`)) {
+      return bookSpreadIndex;
+    }
+  }
+  return -1;
+}
+
+function findDevicePageIndexForScene(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return -1;
+  for (let i = 0; i < devicePages.length; i += 1) {
+    const html = devicePages[i] || "";
+    if (
+      html.includes(`data-viewer-scene="${id}"`)
+      || html.includes(`id="viewer-episode-${id}"`)
+    ) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function jumpViewerToScene(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  highlightViewerTocCurrent(id);
+
+  const mode = viewerSettings.mode;
+  if (mode === "book") {
+    const idx = findBookSpreadIndexForScene(id);
+    if (idx >= 0) {
+      showBookSpreadInstant(idx);
+      return;
+    }
+    viewerPendingJumpSceneId = id;
+    scheduleBookPageLayout({ resetPage: false });
+    return;
+  }
+
+  // phone/eink continuous scroll: jump inside viewerBody
+  if ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode)) {
+    const body = $("viewerBody");
+    const el = body?.querySelector(`#viewer-episode-${id}`)
+      || body?.querySelector(`[data-viewer-scene="${id}"]`);
+    if (el) {
+      try {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      } catch (_) {
+        el.scrollIntoView(true);
+      }
+      updateDevicePagerUi();
+      return;
+    }
+  }
+
+  if (mode === "pdf" || ((mode === "phone" || mode === "eink") && isDevicePagedMode(mode))) {
+    const idx = findDevicePageIndexForScene(id);
+    if (idx >= 0) {
+      showDevicePage(idx, { smooth: true });
+      return;
+    }
+    viewerPendingJumpSceneId = id;
+    scheduleDevicePageLayout({ resetPage: false });
+    return;
+  }
+
+  const body = $("viewerBody");
+  const el = body?.querySelector(`#viewer-episode-${id}`)
+    || body?.querySelector(`[data-viewer-scene="${id}"]`);
+  if (!el) return;
+  try {
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
+  } catch (_) {
+    el.scrollIntoView(true);
+  }
+}
+
+async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {}) {
+  const body = $("viewerBody");
+  if (!body || !isViewerOpen()) return;
+  const token = ++viewerLoadToken;
+  const scope = viewerScope === "full" ? "full" : "scene";
+  viewerScope = scope;
+  syncViewerScopeTabs();
+
+  if (scope === "full") {
+    body.innerHTML = `<p class="hint">전체 원고를 불러오는 중…</p>`;
+    if ($("viewerTitle")) $("viewerTitle").textContent = "뷰어 · 전체 원고";
+    if ($("viewerTocHint")) $("viewerTocHint").textContent = "불러오는 중…";
+  }
+
+  let html;
+  try {
+    html = await buildViewerBodyHtml(scope);
+  } catch (error) {
+    if (token !== viewerLoadToken) return;
+    handleError(error);
+    body.innerHTML = `<p class="hint">원고를 불러오지 못했습니다.</p>`;
+    return;
+  }
+  if (token !== viewerLoadToken || !isViewerOpen()) return;
+
+  body.innerHTML = html;
+  body.setAttribute("contenteditable", "false");
+  applyEditorWideLineHeight(getStoredLineHeight(), [body]);
+
+  if (scope === "full") {
+    const n = getEpisodeSequence().length;
+    if ($("viewerTitle")) $("viewerTitle").textContent = `뷰어 · 전체 원고 (${n}화)`;
+  } else {
+    const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "본문";
+    if ($("viewerTitle")) $("viewerTitle").textContent = `뷰어 · ${title}`;
+  }
+
+  renderViewerToc();
+
+  const jumpId = jumpToSceneId != null ? Number(jumpToSceneId) : null;
+  if (jumpId) viewerPendingJumpSceneId = jumpId;
+
+  const mode = viewerSettings.mode;
+  if (mode === "book") {
+    scheduleBookPageLayout({ resetPage: resetBook && !jumpId });
+  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
+    if (jumpId) viewerPendingJumpSceneId = jumpId;
+    scheduleDevicePageLayout({ resetPage: resetBook && !jumpId });
+  } else {
+    if (jumpId) {
+      requestAnimationFrame(() => {
+        if (token !== viewerLoadToken) return;
+        jumpViewerToScene(jumpId);
+        viewerPendingJumpSceneId = null;
+      });
+    } else if (resetBook) {
+      const stage = $("viewerStage");
+      const scroll = $("viewerScroll");
+      if (stage) stage.scrollTop = 0;
+      if (scroll) scroll.scrollTop = 0;
+    }
+  }
+}
+
+async function setViewerScope(scope, { jumpToSceneId = null } = {}) {
+  const next = scope === "full" ? "full" : "scene";
+  viewerScope = next;
+  syncViewerScopeTabs();
+  // Opening full manuscript: show TOC and refresh episode cache for latest saved text.
+  if (next === "full") {
+    clearViewerEpisodeCache();
+    if (!viewerTocOpen) setViewerTocOpen(true);
+  }
+  await applyViewerContent({
+    resetBook: true,
+    jumpToSceneId: jumpToSceneId != null ? jumpToSceneId : null,
+  });
+}
+
+async function onViewerTocSelect(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  if (viewerScope !== "full") {
+    // Jump only works across episodes in full manuscript; switch scope then jump.
+    await setViewerScope("full", { jumpToSceneId: id });
+    return;
+  }
+  jumpViewerToScene(id);
+}
+
+function loadViewerSettings() {
+  const base = defaultViewerSettings();
+  try {
+    const raw = localStorage.getItem(VIEWER_SETTINGS_KEY);
+    if (!raw) return base;
+    const parsed = JSON.parse(raw);
+    const merged = { ...base, ...parsed };
+    merged.phoneFlow = normalizeDeviceFlow(merged.phoneFlow, "page");
+    merged.einkFlow = normalizeDeviceFlow(merged.einkFlow, "page");
+    return merged;
+  } catch (_) {
+    return base;
+  }
+}
+
+function saveViewerSettings() {
+  try {
+    localStorage.setItem(VIEWER_SETTINGS_KEY, JSON.stringify(viewerSettings));
+    localStorage.setItem(VIEWER_MODE_KEY, viewerSettings.mode);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function syncViewerControlValues() {
+  const s = viewerSettings;
+  const setRange = (id, val, labelId) => {
+    if ($(id)) $(id).value = String(val);
+    if ($(labelId)) $(labelId).textContent = String(val);
+  };
+  setRange("viewerPdfFont", s.pdfFont, "viewerPdfFontVal");
+  setRange("viewerPdfMargin", s.pdfMargin, "viewerPdfMarginVal");
+  setRange("viewerPdfScale", s.pdfScale ?? 90, "viewerPdfScaleVal");
+  setRange("viewerPdfLineHeight", clampViewerLineHeight(s.pdfLineHeight, 1.8), "viewerPdfLineHeightVal");
+  if ($("viewerPdfLineHeightVal")) {
+    $("viewerPdfLineHeightVal").textContent = formatViewerLineHeightLabel(s.pdfLineHeight ?? 1.8);
+  }
+  setRange("viewerBookFont", s.bookFont, "viewerBookFontVal");
+  setRange("viewerBookMargin", s.bookMargin, "viewerBookMarginVal");
+  setRange("viewerBookW", s.bookW, "viewerBookWVal");
+  setRange("viewerBookH", s.bookH, "viewerBookHVal");
+  setRange("viewerBookLineHeight", clampViewerLineHeight(s.bookLineHeight, 1.8), "viewerBookLineHeightVal");
+  if ($("viewerBookLineHeightVal")) {
+    $("viewerBookLineHeightVal").textContent = formatViewerLineHeightLabel(s.bookLineHeight ?? 1.8);
+  }
+  setRange("viewerPhoneFont", s.phoneFont, "viewerPhoneFontVal");
+  setRange("viewerPhoneW", s.phoneW, "viewerPhoneWVal");
+  setRange("viewerPhoneH", s.phoneH, "viewerPhoneHVal");
+  setRange("viewerPhoneLineHeight", clampViewerLineHeight(s.phoneLineHeight, 1.7), "viewerPhoneLineHeightVal");
+  if ($("viewerPhoneLineHeightVal")) {
+    $("viewerPhoneLineHeightVal").textContent = formatViewerLineHeightLabel(s.phoneLineHeight ?? 1.7);
+  }
+  setRange("viewerEinkFont", s.einkFont, "viewerEinkFontVal");
+  setRange("viewerEinkW", s.einkW, "viewerEinkWVal");
+  setRange("viewerEinkH", s.einkH, "viewerEinkHVal");
+  setRange("viewerEinkLineHeight", clampViewerLineHeight(s.einkLineHeight, 1.8), "viewerEinkLineHeightVal");
+  if ($("viewerEinkLineHeightVal")) {
+    $("viewerEinkLineHeightVal").textContent = formatViewerLineHeightLabel(s.einkLineHeight ?? 1.8);
+  }
+  if ($("viewerBookPaper")) $("viewerBookPaper").value = s.bookPaper || "cream";
+  if ($("viewerPhoneBg")) $("viewerPhoneBg").value = s.phoneBg;
+  if ($("viewerPhoneFlow")) $("viewerPhoneFlow").value = s.phoneFlow === "scroll" ? "scroll" : "page";
+  if ($("viewerEinkStyle")) $("viewerEinkStyle").value = s.einkStyle;
+  if ($("viewerEinkFlow")) $("viewerEinkFlow").value = s.einkFlow === "scroll" ? "scroll" : "page";
+}
+
+/** phone/eink: page-turn vs continuous scroll-down */
+function isDeviceScrollFlow(mode = viewerSettings.mode) {
+  if (mode === "phone") return (viewerSettings.phoneFlow || "page") === "scroll";
+  if (mode === "eink") return (viewerSettings.einkFlow || "page") === "scroll";
+  return false;
+}
+
+function normalizeDeviceFlow(value, fallback = "page") {
+  return value === "scroll" ? "scroll" : (fallback === "scroll" ? "scroll" : "page");
+}
+
+function applyViewerLayout() {
+  const mode = VIEWER_MODES.includes(viewerSettings.mode) ? viewerSettings.mode : "pdf";
+  viewerSettings.mode = mode;
+  const stage = $("viewerStage");
+  const frame = $("viewerFrame");
+  const body = $("viewerBody");
+  if (!stage || !frame || !body) return;
+
+  stage.dataset.viewerMode = mode;
+  document.querySelectorAll("#viewerModeTabs [data-viewer-mode]").forEach((btn) => {
+    const on = btn.dataset.viewerMode === mode;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll("[data-viewer-controls]").forEach((el) => {
+    el.classList.toggle("hidden", el.dataset.viewerControls !== mode);
+  });
+  const meta = VIEWER_MODE_META[mode] || VIEWER_MODE_META.pdf;
+  if ($("viewerHint")) $("viewerHint").textContent = meta.hint;
+
+  // Reset inline sizes then apply per mode (must clear minHeight leftover from PDF)
+  frame.style.width = "";
+  frame.style.height = "";
+  frame.style.minHeight = "";
+  frame.style.maxWidth = "";
+  frame.style.maxHeight = "";
+  frame.style.flex = "";
+  body.style.fontSize = "";
+  body.style.padding = "";
+  body.style.paddingLeft = "";
+  body.style.paddingRight = "";
+  body.style.background = "";
+  body.style.color = "";
+  body.style.minHeight = "";
+  body.style.height = "";
+  body.style.display = "";
+  frame.style.background = "";
+  frame.style.boxShadow = "";
+  frame.style.overflow = "";
+  // Phone mode writes inline --viewer-page-* vars; clear so eink/book CSS presets work.
+  clearViewerPageColorVars(body, stage, frame);
+
+  const scroll = $("viewerScroll");
+  if (scroll) {
+    scroll.style.flex = "";
+    scroll.style.minHeight = "";
+    scroll.style.height = "";
+    scroll.style.overflow = "";
+  }
+
+  // Available height inside the stage (for clamping device height)
+  const stageH = stage.clientHeight || Math.round(window.innerHeight * 0.7);
+  const maxDeviceH = Math.max(480, stageH - 24);
+
+  if (mode === "pdf") {
+    // Stack of discrete A4 sheets (fixed 210×297 aspect). pdfScale only zooms.
+    const scale = Math.min(120, Math.max(55, Number(viewerSettings.pdfScale) || 90)) / 100;
+    viewerSettings.pdfScale = Math.round(scale * 100);
+    const sheetW = Math.round(A4_WIDTH_PX * scale);
+    frame.style.width = `${sheetW}px`;
+    frame.style.maxWidth = "100%";
+    frame.style.minHeight = "0";
+    frame.style.height = "auto";
+    frame.style.overflow = "visible";
+    frame.style.background = "transparent";
+    frame.style.boxShadow = "none";
+    body.style.fontSize = `${viewerSettings.pdfFont}px`;
+    body.style.minHeight = "";
+    body.style.height = "";
+    body.style.display = "none";
+    if (scroll) {
+      scroll.style.overflow = "visible";
+      scroll.style.minHeight = "0";
+      scroll.style.height = "auto";
+      scroll.style.flex = "0 0 auto";
+      scroll.style.width = "100%";
+    }
+    stage.removeAttribute("data-eink-style");
+    stage.removeAttribute("data-book-paper");
+    if ($("viewerPdfScaleVal")) $("viewerPdfScaleVal").textContent = String(viewerSettings.pdfScale);
+    scheduleDevicePageLayout({ resetPage: false });
+  } else if (mode === "book") {
+    // Open hardcover: fixed page size (W×H). Vertical slider = book size, not scroll.
+    // Text flows as multi-column pages → flip with prev/next (no scroll-down).
+    viewerSettings.bookW = Math.min(1040, Math.max(640, Number(viewerSettings.bookW) || 900));
+    viewerSettings.bookH = Math.min(900, Math.max(420, Number(viewerSettings.bookH) || 560));
+    viewerSettings.bookFont = Math.min(22, Math.max(12, Number(viewerSettings.bookFont) || 15));
+    viewerSettings.bookMargin = Math.min(64, Math.max(20, Number(viewerSettings.bookMargin) || 36));
+    const paper = viewerSettings.bookPaper || "cream";
+    const w = Math.min(viewerSettings.bookW, stage.clientWidth ? stage.clientWidth - 32 : viewerSettings.bookW);
+    const h = Math.min(viewerSettings.bookH, maxDeviceH);
+    frame.style.width = `${w}px`;
+    frame.style.maxWidth = "100%";
+    frame.style.height = `${h}px`;
+    frame.style.minHeight = `${h}px`;
+    frame.style.maxHeight = `${h}px`;
+    frame.style.overflow = "hidden";
+    body.style.fontSize = `${viewerSettings.bookFont}px`;
+    const m = viewerSettings.bookMargin;
+    body.style.padding = `${m}px ${m}px ${m}px ${m}px`;
+    body.style.minHeight = "";
+    body.style.height = "";
+    if (scroll) {
+      scroll.style.flex = "1 1 auto";
+      scroll.style.minHeight = "0";
+      scroll.style.height = "100%";
+      scroll.style.overflow = "hidden";
+    }
+    stage.dataset.bookPaper = paper;
+    stage.removeAttribute("data-eink-style");
+    if ($("viewerBookWVal")) $("viewerBookWVal").textContent = String(viewerSettings.bookW);
+    if ($("viewerBookHVal")) $("viewerBookHVal").textContent = String(viewerSettings.bookH);
+    // Defer column metrics until frame has real size
+    scheduleBookPageLayout();
+  } else if (mode === "phone") {
+    viewerSettings.phoneFlow = normalizeDeviceFlow(viewerSettings.phoneFlow, "page");
+    viewerSettings.phoneH = Math.min(900, Math.max(480, Number(viewerSettings.phoneH) || 780));
+    viewerSettings.phoneW = Math.min(430, Math.max(280, Number(viewerSettings.phoneW) || 390));
+    const h = Math.min(viewerSettings.phoneH, maxDeviceH);
+    const scrollFlow = viewerSettings.phoneFlow === "scroll";
+    frame.style.width = `${viewerSettings.phoneW}px`;
+    frame.style.height = `${h}px`;
+    frame.style.minHeight = `${h}px`;
+    frame.style.maxHeight = `${h}px`;
+    frame.style.maxWidth = "100%";
+    frame.style.overflow = "hidden";
+    body.style.fontSize = `${viewerSettings.phoneFont}px`;
+    body.style.minHeight = "0";
+    body.style.height = "auto";
+    body.style.columnCount = "";
+    body.style.columnGap = "";
+    body.style.padding = scrollFlow ? "16px 16px 28px" : "";
+    body.style.lineHeight = String(clampViewerLineHeight(viewerSettings.phoneLineHeight, 1.7));
+    const phoneBg = viewerSettings.phoneBg || "#fffdf8";
+    const phoneInk = viewerSettings.phoneInk || "#24211d";
+    applyViewerPageColors(body, phoneBg, phoneInk);
+    applyViewerPageColors(stage, phoneBg, phoneInk);
+    body.style.background = phoneBg;
+    body.style.color = phoneInk;
+    if (scroll) {
+      scroll.style.flex = "1 1 auto";
+      scroll.style.minHeight = "0";
+      scroll.style.height = "100%";
+      scroll.style.overflow = scrollFlow ? "auto" : "hidden";
+    }
+    stage.dataset.viewerFlow = scrollFlow ? "scroll" : "page";
+    stage.removeAttribute("data-eink-style");
+    stage.removeAttribute("data-book-paper");
+    if ($("viewerPhoneHVal")) $("viewerPhoneHVal").textContent = String(viewerSettings.phoneH);
+    if (scrollFlow) {
+      // Continuous manuscript — no page stack
+      body.style.display = "";
+    } else {
+      body.style.display = "none";
+      scheduleDevicePageLayout({ resetPage: false });
+    }
+  } else {
+    // eink — page-turn or scroll-down (same as phone)
+    viewerSettings.einkFlow = normalizeDeviceFlow(viewerSettings.einkFlow, "page");
+    viewerSettings.einkH = Math.min(900, Math.max(480, Number(viewerSettings.einkH) || 720));
+    viewerSettings.einkW = Math.min(560, Math.max(300, Number(viewerSettings.einkW) || 420));
+    const h = Math.min(viewerSettings.einkH, maxDeviceH);
+    const scrollFlow = viewerSettings.einkFlow === "scroll";
+    frame.style.width = `${viewerSettings.einkW}px`;
+    frame.style.height = `${h}px`;
+    frame.style.minHeight = `${h}px`;
+    frame.style.maxHeight = `${h}px`;
+    frame.style.maxWidth = "100%";
+    frame.style.overflow = "hidden";
+    body.style.fontSize = `${viewerSettings.einkFont}px`;
+    body.style.minHeight = "0";
+    body.style.height = "auto";
+    body.style.columnCount = "";
+    body.style.columnGap = "";
+    body.style.padding = scrollFlow ? "20px 18px 32px" : "";
+    body.style.lineHeight = String(clampViewerLineHeight(viewerSettings.einkLineHeight, 1.8));
+    if (scroll) {
+      scroll.style.flex = "1 1 auto";
+      scroll.style.minHeight = "0";
+      scroll.style.height = "100%";
+      scroll.style.overflow = scrollFlow ? "auto" : "hidden";
+    }
+    const einkStyle = VIEWER_EINK_STYLES[viewerSettings.einkStyle]
+      ? viewerSettings.einkStyle
+      : "paper";
+    viewerSettings.einkStyle = einkStyle;
+    stage.dataset.einkStyle = einkStyle;
+    stage.dataset.viewerFlow = scrollFlow ? "scroll" : "page";
+    const palette = getViewerEinkPalette(einkStyle);
+    applyViewerPageColors(body, palette.bg, palette.ink);
+    applyViewerPageColors(stage, palette.bg, palette.ink);
+    body.style.background = palette.bg;
+    body.style.color = palette.ink;
+    stage.removeAttribute("data-book-paper");
+    if ($("viewerEinkHVal")) $("viewerEinkHVal").textContent = String(viewerSettings.einkH);
+    if ($("viewerEinkStyle") && $("viewerEinkStyle").value !== einkStyle) {
+      $("viewerEinkStyle").value = einkStyle;
+    }
+    if (scrollFlow) {
+      body.style.display = "";
+    } else {
+      body.style.display = "none";
+      scheduleDevicePageLayout({ resetPage: false });
+    }
+  }
+
+  // Book track vs page stack vs continuous body
+  const track = $("bookTrack");
+  const pageStack = $("viewerPageStack");
+  const deviceScroll = (mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode);
+  if (mode === "book") {
+    if (track) track.hidden = false;
+    if (pageStack) {
+      pageStack.hidden = true;
+      pageStack.innerHTML = "";
+    }
+    body.style.display = "none";
+    stage.removeAttribute("data-viewer-flow");
+  } else if (deviceScroll) {
+    cancelBookFlipAnimation();
+    if (track) {
+      track.hidden = true;
+      track.innerHTML = "";
+      track.style.transform = "";
+      track.style.width = "";
+    }
+    if (pageStack) {
+      pageStack.hidden = true;
+      pageStack.innerHTML = "";
+    }
+    body.style.display = "";
+    body.style.columnCount = "";
+    body.style.columnGap = "";
+    body.style.columnWidth = "";
+    body.style.columnFill = "";
+    body.style.width = "";
+    body.style.maxWidth = "";
+    body.style.transform = "";
+    // Reset scroll position when switching into scroll mode
+    if (scroll) {
+      requestAnimationFrame(() => {
+        try { scroll.scrollTop = 0; } catch (_) { /* ignore */ }
+      });
+    }
+    updateDevicePagerUi();
+  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
+    cancelBookFlipAnimation();
+    if (track) {
+      track.hidden = true;
+      track.innerHTML = "";
+      track.style.transform = "";
+      track.style.width = "";
+    }
+    if (pageStack) pageStack.hidden = false;
+    body.style.display = "none";
+    if (mode === "pdf") stage.removeAttribute("data-viewer-flow");
+  } else {
+    cancelBookFlipAnimation();
+    if (track) {
+      track.hidden = true;
+      track.innerHTML = "";
+      track.style.transform = "";
+      track.style.width = "";
+    }
+    if (pageStack) {
+      pageStack.hidden = true;
+      pageStack.innerHTML = "";
+    }
+    body.style.display = "";
+    body.style.columnCount = "";
+    body.style.columnGap = "";
+    body.style.columnWidth = "";
+    body.style.columnFill = "";
+    body.style.width = "";
+    body.style.maxWidth = "";
+    body.style.transform = "";
+    stage.removeAttribute("data-viewer-flow");
+  }
+  saveViewerSettings();
+}
+
+function scheduleBookPageLayout({ resetPage = false } = {}) {
+  if (bookPageLayoutTimer) window.clearTimeout(bookPageLayoutTimer);
+  bookPageLayoutTimer = window.setTimeout(() => {
+    bookPageLayoutTimer = null;
+    layoutBookPages({ resetPage });
+  }, 50);
+}
+
+function scheduleDevicePageLayout({ resetPage = false } = {}) {
+  if (devicePageLayoutTimer) window.clearTimeout(devicePageLayoutTimer);
+  devicePageLayoutTimer = window.setTimeout(() => {
+    devicePageLayoutTimer = null;
+    layoutDevicePages({ resetPage });
+  }, 50);
+}
+
+function isDevicePagedMode(mode = viewerSettings.mode) {
+  // phone/eink scroll-down uses continuous body, not discrete page stack
+  if (mode === "phone" || mode === "eink") {
+    return !isDeviceScrollFlow(mode);
+  }
+  return mode === "pdf";
+}
+
+function getDevicePageScrollHost() {
+  // PDF: stage scrolls through stacked A4 sheets
+  // phone/eink: viewerScroll scrolls/snaps through screen pages
+  if (viewerSettings.mode === "pdf") return $("viewerStage");
+  return $("viewerScroll");
+}
+
+function setViewerBookNavVisible(visible) {
+  const prev = $("viewerBookPrev");
+  const next = $("viewerBookNext");
+  [prev, next].forEach((btn) => {
+    if (!btn) return;
+    btn.hidden = !visible;
+    btn.setAttribute("aria-hidden", visible ? "false" : "true");
+    if (!visible) btn.disabled = true;
+  });
+}
+
+function updateDevicePagerUi() {
+  const mode = viewerSettings.mode;
+  const pager = $("viewerBookPager");
+  const prev = $("viewerBookPrev");
+  const next = $("viewerBookNext");
+  if (mode === "book") return; // book has its own updater
+
+  if (mode === "pdf") {
+    // PDF: scroll only — hide side nav buttons; show page index in pager + hint
+    setViewerBookNavVisible(false);
+    const label = `${devicePageIndex + 1} / ${devicePageCount} 장`;
+    if (pager) {
+      pager.textContent = label;
+      pager.title = `A4 ${devicePageCount}장 · 스크롤로 이동`;
+    }
+    if ($("viewerHint")) {
+      $("viewerHint").textContent = `A4 페이지 ${label} · 스크롤 또는 ↓/PgDn`;
+    }
+    return;
+  }
+
+  if (mode === "phone" || mode === "eink") {
+    if (isDeviceScrollFlow(mode)) {
+      // 스크롤 다운: 책넘김 버튼 숨김 (휠·터치 스크롤만)
+      setViewerBookNavVisible(false);
+      if (pager) {
+        pager.textContent = "스크롤";
+        pager.title = "아래로 스크롤하여 읽기";
+      }
+      const meta = VIEWER_MODE_META[mode] || {};
+      if ($("viewerHint")) {
+        $("viewerHint").textContent = `${meta.label || mode} · 스크롤 다운 · 휠·스와이프로 이동`;
+      }
+      return;
+    }
+    setViewerBookNavVisible(true);
+    if (pager) {
+      pager.textContent = `${devicePageIndex + 1} / ${devicePageCount}`;
+      pager.title = `페이지 ${devicePageIndex + 1} / ${devicePageCount}`;
+    }
+    if (prev) prev.disabled = devicePageIndex <= 0;
+    if (next) next.disabled = devicePageIndex >= devicePageCount - 1;
+    if ($("viewerHint")) {
+      const meta = VIEWER_MODE_META[mode] || {};
+      $("viewerHint").textContent = `${meta.label || mode} · 책 넘김 · 휠·버튼·스와이프`;
+    }
+  }
+}
+
+/** Scroll phone/eink continuous body by roughly one viewport (scroll-down mode). */
+function scrollDeviceViewport(delta) {
+  if (!isViewerOpen()) return;
+  if (!isDeviceScrollFlow()) return;
+  const scroll = $("viewerScroll");
+  if (!scroll) return;
+  const dir = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+  if (!dir) return;
+  const step = Math.max(120, Math.round(scroll.clientHeight * 0.88));
+  scroll.scrollBy({ top: dir * step, behavior: "smooth" });
+  window.setTimeout(() => updateDevicePagerUi(), 320);
+}
+
+function paintDevicePageStack() {
+  const stack = $("viewerPageStack");
+  const mode = viewerSettings.mode;
+  if (!stack || !isDevicePagedMode(mode)) return;
+
+  stack.hidden = false;
+  stack.innerHTML = "";
+  stack.className = "viewer-page-stack";
+  stack.dataset.pageMode = mode;
+
+  const metrics = devicePageMetrics;
+  const pages = devicePages.length ? devicePages : [""];
+
+  if (mode === "pdf") {
+    stack.classList.add("is-pdf-stack");
+    const scale = Math.min(120, Math.max(55, Number(metrics.scale) || Number(viewerSettings.pdfScale) || 90)) / 100;
+    const padT = Math.round(metrics.padY * 0.85);
+    const padB = Math.round(metrics.padY * 1.1);
+    const padX = metrics.padX;
+    pages.forEach((html, i) => {
+      // Wrapper reserves scaled layout space so aspect ratio stays A4 (794×1123).
+      const wrap = document.createElement("div");
+      wrap.className = "pdf-sheet-wrap";
+      wrap.dataset.pageIndex = String(i);
+      wrap.style.width = `${Math.round(A4_WIDTH_PX * scale)}px`;
+      wrap.style.height = `${Math.round(A4_HEIGHT_PX * scale)}px`;
+
+      const sheet = document.createElement("article");
+      sheet.className = "pdf-sheet";
+      sheet.dataset.pageIndex = String(i);
+      sheet.setAttribute("aria-label", `${i + 1}페이지`);
+      sheet.style.width = `${A4_WIDTH_PX}px`;
+      sheet.style.height = `${A4_HEIGHT_PX}px`;
+      sheet.style.transform = `scale(${scale})`;
+      sheet.style.transformOrigin = "top left";
+
+      const inner = document.createElement("div");
+      inner.className = "pdf-sheet-inner";
+      inner.style.padding = `${padT}px ${padX}px ${padB}px ${padX}px`;
+      inner.style.fontSize = `${metrics.fontPx}px`;
+      inner.style.lineHeight = String(metrics.lineHeight || 1.8);
+      inner.innerHTML = html || "";
+      sheet.appendChild(inner);
+      wrap.appendChild(sheet);
+      stack.appendChild(wrap);
+    });
+  } else {
+    // phone / eink: one full-screen page at a time (page-turn, no scroll)
+    stack.classList.add("is-device-stack");
+    const scroll = $("viewerScroll");
+    const sheetH = Math.max(120, scroll?.clientHeight || 400);
+    const active = Math.min(Math.max(0, devicePageIndex), Math.max(0, pages.length - 1));
+    const lh = metrics.lineHeight || 1.7;
+    pages.forEach((html, i) => {
+      const sheet = document.createElement("article");
+      sheet.className = `device-sheet${i === active ? " is-active" : ""}`;
+      sheet.dataset.pageIndex = String(i);
+      sheet.setAttribute("aria-label", `${i + 1}페이지`);
+      sheet.setAttribute("aria-hidden", i === active ? "false" : "true");
+      sheet.style.height = `${sheetH}px`;
+      sheet.style.minHeight = `${sheetH}px`;
+      sheet.style.maxHeight = `${sheetH}px`;
+      const inner = document.createElement("div");
+      inner.className = "device-sheet-inner";
+      inner.style.padding = `${metrics.padY}px ${metrics.padX}px`;
+      inner.style.fontSize = `${metrics.fontPx}px`;
+      inner.style.lineHeight = String(lh);
+      inner.innerHTML = html || "";
+      sheet.appendChild(inner);
+      stack.appendChild(sheet);
+    });
+  }
+}
+
+function syncDevicePageIndexFromScroll() {
+  if (devicePageScrollLock) return;
+  if (!isDevicePagedMode() || !isViewerOpen()) return;
+  const host = getDevicePageScrollHost();
+  const stack = $("viewerPageStack");
+  if (!host || !stack) return;
+  const selector = viewerSettings.mode === "pdf" ? ".pdf-sheet-wrap" : ".device-sheet";
+  const sheets = stack.querySelectorAll(selector);
+  if (!sheets.length) return;
+
+  const hostRect = host.getBoundingClientRect();
+  const focusY = hostRect.top + Math.min(hostRect.height * 0.35, 80);
+  let best = 0;
+  let bestDist = Infinity;
+  sheets.forEach((sheet, i) => {
+    const r = sheet.getBoundingClientRect();
+    const dist = Math.abs(r.top - focusY);
+    if (dist < bestDist) {
+      bestDist = dist;
+      best = i;
+    }
+  });
+  if (best !== devicePageIndex) {
+    devicePageIndex = best;
+    updateDevicePagerUi();
+  }
+}
+
+function showDevicePage(index, { smooth = false, direction = 0 } = {}) {
+  if (!isDevicePagedMode() || !isViewerOpen()) return;
+  const stack = $("viewerPageStack");
+  if (!stack) return;
+
+  const max = Math.max(0, devicePageCount - 1);
+  const prevIndex = devicePageIndex;
+  const i = Math.min(Math.max(0, Number(index) || 0), max);
+  devicePageIndex = i;
+
+  if (viewerSettings.mode === "pdf") {
+    const host = getDevicePageScrollHost();
+    const sheet = stack.querySelector(`.pdf-sheet-wrap[data-page-index="${i}"]`)
+      || stack.querySelectorAll(".pdf-sheet-wrap")[i];
+    if (!sheet) {
+      updateDevicePagerUi();
+      return;
+    }
+    devicePageScrollLock = true;
+    const behavior = smooth ? "smooth" : "auto";
+    try {
+      const stage = $("viewerStage");
+      if (stage) {
+        const stageTop = stage.getBoundingClientRect().top;
+        const sheetTop = sheet.getBoundingClientRect().top;
+        const nextTop = stage.scrollTop + (sheetTop - stageTop) - 12;
+        stage.scrollTo({ top: Math.max(0, nextTop), behavior });
+      }
+    } catch (_) {
+      try { sheet.scrollIntoView(true); } catch (__) { /* ignore */ }
+    }
+    updateDevicePagerUi();
+    window.setTimeout(() => {
+      devicePageScrollLock = false;
+      syncDevicePageIndexFromScroll();
+    }, smooth ? 420 : 80);
+    return;
+  }
+
+  // phone / eink: swap visible page (no scroll)
+  const sheets = stack.querySelectorAll(".device-sheet");
+  if (!sheets.length) {
+    updateDevicePagerUi();
+    return;
+  }
+  const dir = direction || (i > prevIndex ? 1 : i < prevIndex ? -1 : 0);
+  sheets.forEach((sheet, n) => {
+    const on = n === i;
+    sheet.classList.toggle("is-active", on);
+    sheet.setAttribute("aria-hidden", on ? "false" : "true");
+    sheet.classList.remove("turn-from-next", "turn-from-prev");
+    if (on && smooth && dir) {
+      sheet.classList.add(dir > 0 ? "turn-from-next" : "turn-from-prev");
+      // Restart animation
+      // eslint-disable-next-line no-unused-expressions
+      sheet.offsetWidth;
+      sheet.classList.add("is-turning");
+      window.setTimeout(() => sheet.classList.remove("is-turning", "turn-from-next", "turn-from-prev"), 280);
+    }
+  });
+  // Keep scroll host pinned (in case of residual scroll position)
+  const scroll = $("viewerScroll");
+  if (scroll) scroll.scrollTop = 0;
+  updateDevicePagerUi();
+}
+
+function turnDevicePage(delta) {
+  if (!isViewerOpen()) return;
+  // phone/eink scroll-down: move by viewport instead of discrete pages
+  if (isDeviceScrollFlow()) {
+    scrollDeviceViewport(delta);
+    return;
+  }
+  if (!isDevicePagedMode()) return;
+  const dir = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+  if (!dir) return;
+  const next = devicePageIndex + dir;
+  if (next < 0 || next >= devicePageCount) return;
+  showDevicePage(next, {
+    smooth: viewerSettings.mode !== "pdf",
+    direction: dir,
+  });
+}
+
+function layoutDevicePages({ resetPage = false } = {}) {
+  if (!isViewerOpen() || !isDevicePagedMode()) return;
+  const mode = viewerSettings.mode;
+  const body = $("viewerBody");
+  const stack = $("viewerPageStack");
+  const scroll = $("viewerScroll");
+  if (!body || !stack) return;
+
+  // Ensure source HTML is available (body is display:none but still in DOM)
+  const sourceHtml = body.innerHTML || "";
+  let innerW;
+  let innerH;
+  let fontPx;
+  let padX;
+  let padY;
+
+  let lineHeight = 1.8;
+  if (mode === "pdf") {
+    // Always paginate at logical A4 (794×1123). Display zoom is separate (pdfScale).
+    fontPx = Math.min(22, Math.max(11, Number(viewerSettings.pdfFont) || 14));
+    lineHeight = clampViewerLineHeight(viewerSettings.pdfLineHeight, 1.8);
+    viewerSettings.pdfLineHeight = lineHeight;
+    padX = Math.min(96, Math.max(24, Number(viewerSettings.pdfMargin) || 56));
+    padY = padX;
+    const padT = Math.round(padY * 0.85);
+    const padB = Math.round(padY * 1.1);
+    innerW = Math.max(40, A4_WIDTH_PX - padX * 2);
+    innerH = Math.max(40, A4_HEIGHT_PX - padT - padB);
+  } else if (mode === "phone") {
+    fontPx = Math.min(24, Math.max(12, Number(viewerSettings.phoneFont) || 15));
+    lineHeight = clampViewerLineHeight(viewerSettings.phoneLineHeight, 1.7);
+    viewerSettings.phoneLineHeight = lineHeight;
+    padX = 16;
+    padY = 16;
+    // Measure against the scroll viewport (screen area inside phone chrome)
+    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.phoneW) || 390) - 6);
+    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.phoneH) || 780) - 48);
+    if (vw < 40 || vh < 40) {
+      scheduleDevicePageLayout({ resetPage });
+      return;
+    }
+    innerW = Math.max(40, vw - padX * 2);
+    innerH = Math.max(40, vh - padY * 2);
+  } else {
+    // eink
+    fontPx = Math.min(26, Math.max(13, Number(viewerSettings.einkFont) || 17));
+    lineHeight = clampViewerLineHeight(viewerSettings.einkLineHeight, 1.8);
+    viewerSettings.einkLineHeight = lineHeight;
+    padX = 20;
+    padY = 22;
+    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.einkW) || 420) - 4);
+    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.einkH) || 720) - 4);
+    if (vw < 40 || vh < 40) {
+      scheduleDevicePageLayout({ resetPage });
+      return;
+    }
+    innerW = Math.max(40, vw - padX * 2);
+    innerH = Math.max(40, vh - padY * 2);
+  }
+
+  const scalePct = Math.min(120, Math.max(55, Number(viewerSettings.pdfScale) || 90));
+  devicePageMetrics = {
+    padX,
+    padY,
+    fontPx,
+    scale: mode === "pdf" ? scalePct : 100,
+    lineHeight,
+    fontFamily: mode === "pdf"
+      ? '"Malgun Gothic","Noto Serif KR",Georgia,serif'
+      : 'Georgia,"Noto Serif KR","Malgun Gothic",serif',
+  };
+  devicePages = paginateHtmlToPages(sourceHtml, innerW, innerH, fontPx, {
+    lineHeight: devicePageMetrics.lineHeight,
+    fontFamily: devicePageMetrics.fontFamily,
+  });
+  devicePageCount = Math.max(1, devicePages.length);
+  if (resetPage) devicePageIndex = 0;
+  devicePageIndex = Math.min(Math.max(0, devicePageIndex), devicePageCount - 1);
+
+  paintDevicePageStack();
+
+  if (viewerPendingJumpSceneId != null) {
+    const jumpId = Number(viewerPendingJumpSceneId);
+    viewerPendingJumpSceneId = null;
+    const jumpIdx = findDevicePageIndexForScene(jumpId);
+    if (jumpIdx >= 0) devicePageIndex = jumpIdx;
+    highlightViewerTocCurrent(jumpId);
+  }
+
+  // After DOM paint, align scroll host to current page
+  requestAnimationFrame(() => {
+    showDevicePage(devicePageIndex, { smooth: false });
+  });
+}
+
+/**
+ * Split rich HTML into page-sized chunks that fit a fixed (width × height) box.
+ * Splits long text and oversized elements across pages so content continues
+ * instead of being clipped on a single sheet.
+ */
+function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts = {}) {
+  const pages = [];
+  const lineHeight = styleOpts.lineHeight || 1.75;
+  const fontFamily = styleOpts.fontFamily
+    || '"Malgun Gothic","Noto Serif KR",Georgia,serif';
+  const measureHost = document.createElement("div");
+  measureHost.setAttribute("aria-hidden", "true");
+  measureHost.style.cssText = [
+    "position:absolute",
+    "left:-10000px",
+    "top:0",
+    "visibility:hidden",
+    `width:${Math.max(40, pageWidth)}px`,
+    `height:${Math.max(40, pageHeight)}px`,
+    "overflow:hidden",
+    "box-sizing:border-box",
+    `font-size:${fontSizePx}px`,
+    `font-family:${fontFamily}`,
+    `line-height:${lineHeight}`,
+    "white-space:pre-wrap",
+    "word-break:break-word",
+  ].join(";");
+  document.body.appendChild(measureHost);
+
+  const source = document.createElement("div");
+  source.innerHTML = html || "";
+  const queue = [...source.childNodes].filter((n) => {
+    if (n.nodeType === 3) return String(n.textContent || "").replace(/\u200b/g, "").length > 0;
+    return n.nodeType === 1;
+  });
+
+  const overflows = () => measureHost.scrollHeight > pageHeight + 0.5
+    || measureHost.scrollWidth > pageWidth + 0.5;
+
+  let page = document.createElement("div");
+  measureHost.appendChild(page);
+
+  const sealPage = () => {
+    pages.push(page.innerHTML.trim());
+    measureHost.innerHTML = "";
+    page = document.createElement("div");
+    measureHost.appendChild(page);
+  };
+
+  const pageHasContent = () => {
+    if (!page.childNodes.length) return false;
+    const t = (page.textContent || "").replace(/\u200b/g, "").trim();
+    if (t) return true;
+    return Boolean(page.querySelector("img, br, hr, table, svg, video"));
+  };
+
+  const tryAppendTo = (parent, node) => {
+    const clone = node.cloneNode(true);
+    parent.appendChild(clone);
+    if (!overflows()) return true;
+    parent.removeChild(clone);
+    return false;
+  };
+
+  const ATOMIC_TAGS = new Set([
+    "IMG", "HR", "TABLE", "THEAD", "TBODY", "TR", "TD", "TH",
+    "SVG", "VIDEO", "IFRAME", "CANVAS", "INPUT", "BUTTON", "SELECT", "TEXTAREA",
+  ]);
+
+  /** Binary-split text into parent so overflow continues on later pages. */
+  const appendTextInto = (parent, fullText) => {
+    let rest = String(fullText || "");
+    if (!rest) return;
+    while (rest.length) {
+      let lo = 1;
+      let hi = rest.length;
+      let best = 0;
+      while (lo <= hi) {
+        const mid = (lo + hi) >> 1;
+        const probe = document.createTextNode(rest.slice(0, mid));
+        parent.appendChild(probe);
+        const ok = !overflows();
+        parent.removeChild(probe);
+        if (ok) {
+          best = mid;
+          lo = mid + 1;
+        } else {
+          hi = mid - 1;
+        }
+      }
+      if (best <= 0) {
+        if (pageHasContent()) {
+          // Close current page; keep going with same parent tag via new page.
+          sealPage();
+          // After seal, parent is detached — caller must reopen wrappers.
+          // Return remaining text so caller can resume.
+          return rest;
+        }
+        // Empty page: force at least one character so we make progress.
+        best = Math.min(1, rest.length) || 1;
+      }
+      parent.appendChild(document.createTextNode(rest.slice(0, best)));
+      rest = rest.slice(best);
+      if (rest.length) {
+        sealPage();
+        return rest;
+      }
+    }
+    return "";
+  };
+
+  /**
+   * Place a node into the current page. If it does not fit, split across pages.
+   * openAncestors: array of element nodes (shallow clones) wrapping the content
+   * so nested structure is preserved when spanning pages.
+   */
+  const placeNode = (node, openAncestors = []) => {
+    if (!node) return;
+
+    // Ensure wrapper chain exists on current page
+    const ensureWrappers = () => {
+      let parent = page;
+      const live = [];
+      for (const anc of openAncestors) {
+        const el = anc.cloneNode(false);
+        parent.appendChild(el);
+        live.push(el);
+        parent = el;
+      }
+      return { parent, live };
+    };
+
+    if (node.nodeType === 3) {
+      let rest = String(node.textContent || "");
+      while (rest) {
+        const { parent } = ensureWrappers();
+        const leftover = appendTextInto(parent, rest);
+        if (!leftover) break;
+        rest = leftover;
+        // page was sealed; wrappers were discarded — loop recreates them
+      }
+      return;
+    }
+
+    if (node.nodeType !== 1) return;
+
+    // Try placing the whole node (with wrappers) first
+    {
+      const { parent, live } = ensureWrappers();
+      if (tryAppendTo(parent, node)) return;
+      // Undo empty wrappers if nothing was added
+      live.forEach((el) => {
+        if (el.parentNode && !el.childNodes.length) el.remove();
+      });
+    }
+
+    // Need a clean page if current page already has content
+    if (pageHasContent()) {
+      sealPage();
+      const { parent, live } = ensureWrappers();
+      if (tryAppendTo(parent, node)) return;
+      live.forEach((el) => {
+        if (el.parentNode && !el.childNodes.length) el.remove();
+      });
+    }
+
+    // Atomic oversized node: force onto its own page (may clip, but rare)
+    if (ATOMIC_TAGS.has(node.tagName) || node.tagName === "BR") {
+      const { parent } = ensureWrappers();
+      parent.appendChild(node.cloneNode(true));
+      sealPage();
+      return;
+    }
+
+    // Split children into clones of this element across pages
+    const kids = [...node.childNodes];
+    if (!kids.length) {
+      const { parent } = ensureWrappers();
+      parent.appendChild(node.cloneNode(false));
+      return;
+    }
+
+    const nextAncestors = openAncestors.concat([node]);
+    for (const kid of kids) {
+      if (kid.nodeType === 3 && !String(kid.textContent || "").replace(/\u200b/g, "").length) {
+        continue;
+      }
+      placeNode(kid, nextAncestors);
+    }
+  };
+
+  for (const node of queue) {
+    placeNode(node, []);
+  }
+  if (pageHasContent() || !pages.length) {
+    pages.push(page.innerHTML.trim());
+  }
+
+  measureHost.remove();
+  return pages.length ? pages : [""];
+}
+
+function cancelBookFlipAnimation() {
+  if (bookFlipTimer) {
+    window.clearTimeout(bookFlipTimer);
+    bookFlipTimer = null;
+  }
+  bookFlipBusy = false;
+  const track = $("bookTrack");
+  track?.querySelectorAll(".book-flip-leaf").forEach((el) => el.remove());
+  track?.querySelector(".book-viewport")?.classList.remove("is-flipping");
+}
+
+function ensureBookViewport(track, vh) {
+  track.hidden = false;
+  track.style.width = "100%";
+  track.style.height = `${vh}px`;
+  track.style.transform = "";
+  track.style.transition = "none";
+  let viewport = track.querySelector(".book-viewport");
+  if (!viewport) {
+    track.innerHTML = `
+      <div class="book-viewport">
+        <div class="book-base">
+          <div class="book-page book-page-left"><div class="book-page-inner"></div></div>
+          <div class="book-page book-page-right"><div class="book-page-inner"></div></div>
+        </div>
+      </div>`;
+    viewport = track.querySelector(".book-viewport");
+  }
+  return viewport;
+}
+
+function fillBookPageElement(pageEl, html, metrics = bookPageMetrics) {
+  if (!pageEl) return;
+  let inner = pageEl.querySelector(":scope > .book-page-inner");
+  if (!inner) {
+    inner = document.createElement("div");
+    inner.className = "book-page-inner";
+    pageEl.appendChild(inner);
+  }
+  const m = metrics.m;
+  const fontPx = metrics.fontPx;
+  inner.style.padding = `${m}px`;
+  inner.style.fontSize = `${fontPx}px`;
+  inner.style.lineHeight = String(metrics.lineHeight || 1.8);
+  inner.innerHTML = html || "";
+}
+
+function makeBookFlipFace(faceClass, html, metrics = bookPageMetrics) {
+  const face = document.createElement("div");
+  face.className = `book-flip-face ${faceClass}`;
+  const inner = document.createElement("div");
+  inner.className = "book-page-inner";
+  inner.style.padding = `${metrics.m}px`;
+  inner.style.fontSize = `${metrics.fontPx}px`;
+  inner.style.lineHeight = String(metrics.lineHeight || 1.8);
+  inner.innerHTML = html || "";
+  face.appendChild(inner);
+  return face;
+}
+
+function paintBookSpread(index) {
+  const track = $("bookTrack");
+  const viewport = track?.querySelector(".book-viewport");
+  if (!viewport) return;
+  const left = viewport.querySelector(".book-page-left");
+  const right = viewport.querySelector(".book-page-right");
+  const i = Math.min(Math.max(0, index), Math.max(0, bookSpreadCount - 1));
+  fillBookPageElement(left, bookPages[i * 2] || "", bookPageMetrics);
+  fillBookPageElement(right, bookPages[i * 2 + 1] || "", bookPageMetrics);
+}
+
+/** Jump to a spread without animation (TOC, Home/End, re-layout). */
+function showBookSpreadInstant(index) {
+  cancelBookFlipAnimation();
+  bookSpreadIndex = Math.min(Math.max(0, Number(index) || 0), Math.max(0, bookSpreadCount - 1));
+  paintBookSpread(bookSpreadIndex);
+  updateBookPagerUi();
+}
+
+function prefersReducedBookMotion() {
+  try {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * 3D page-flip: text stays painted on each face; only the leaf rotates around the spine.
+ * direction > 0: turn forward (right leaf → left)
+ * direction < 0: turn backward (left leaf → right)
+ */
+function animateBookFlip(direction, toIndex) {
+  const track = $("bookTrack");
+  const viewport = track?.querySelector(".book-viewport");
+  if (!viewport) {
+    showBookSpreadInstant(toIndex);
+    return;
+  }
+  const fromIndex = bookSpreadIndex;
+  if (fromIndex === toIndex) return;
+
+  const fromL = bookPages[fromIndex * 2] || "";
+  const fromR = bookPages[fromIndex * 2 + 1] || "";
+  const toL = bookPages[toIndex * 2] || "";
+  const toR = bookPages[toIndex * 2 + 1] || "";
+
+  const baseLeft = viewport.querySelector(".book-page-left");
+  const baseRight = viewport.querySelector(".book-page-right");
+  if (!baseLeft || !baseRight) {
+    showBookSpreadInstant(toIndex);
+    return;
+  }
+
+  cancelBookFlipAnimation();
+  bookFlipBusy = true;
+  updateBookPagerUi();
+  viewport.classList.add("is-flipping");
+
+  // Remove stale leaves
+  viewport.querySelectorAll(".book-flip-leaf").forEach((el) => el.remove());
+
+  const leaf = document.createElement("div");
+  leaf.className = "book-flip-leaf";
+  leaf.setAttribute("aria-hidden", "true");
+
+  if (direction > 0) {
+    // Under: left stays current; right shows destination right as leaf peels away.
+    fillBookPageElement(baseLeft, fromL, bookPageMetrics);
+    fillBookPageElement(baseRight, toR, bookPageMetrics);
+    leaf.classList.add("is-forward");
+    // Front of turning leaf = current right; back = next left
+    leaf.appendChild(makeBookFlipFace("book-flip-front", fromR, bookPageMetrics));
+    leaf.appendChild(makeBookFlipFace("book-flip-back", toL, bookPageMetrics));
+  } else {
+    // Under: right stays current; left shows destination left as leaf peels away.
+    fillBookPageElement(baseLeft, toL, bookPageMetrics);
+    fillBookPageElement(baseRight, fromR, bookPageMetrics);
+    leaf.classList.add("is-backward");
+    // Front of turning leaf = current left; back = previous right
+    leaf.appendChild(makeBookFlipFace("book-flip-front", fromL, bookPageMetrics));
+    leaf.appendChild(makeBookFlipFace("book-flip-back", toR, bookPageMetrics));
+  }
+
+  viewport.appendChild(leaf);
+
+  let finished = false;
+  const finish = () => {
+    if (finished) return;
+    finished = true;
+    if (bookFlipTimer) {
+      window.clearTimeout(bookFlipTimer);
+      bookFlipTimer = null;
+    }
+    leaf.remove();
+    viewport.classList.remove("is-flipping");
+    bookSpreadIndex = toIndex;
+    bookFlipBusy = false;
+    paintBookSpread(bookSpreadIndex);
+    updateBookPagerUi();
+  };
+
+  const onEnd = (event) => {
+    if (event.target !== leaf) return;
+    if (event.propertyName && event.propertyName !== "transform") return;
+    finish();
+  };
+  leaf.addEventListener("transitionend", onEnd);
+
+  // Kick off transition on next frames so initial pose paints first
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      if (!leaf.isConnected) return;
+      leaf.classList.add("is-flipped");
+    });
+  });
+
+  bookFlipTimer = window.setTimeout(finish, BOOK_FLIP_MS + 120);
+}
+
+function layoutBookPages({ resetPage = false } = {}) {
+  if (viewerSettings.mode !== "book" || !isViewerOpen()) return;
+  const scroll = $("viewerScroll");
+  const body = $("viewerBody");
+  const track = $("bookTrack");
+  if (!scroll || !body || !track) return;
+
+  const vw = scroll.clientWidth;
+  const vh = scroll.clientHeight;
+  if (vw < 80 || vh < 80) return;
+
+  const m = Math.min(64, Math.max(20, Number(viewerSettings.bookMargin) || 36));
+  const fontPx = Math.min(22, Math.max(12, Number(viewerSettings.bookFont) || 15));
+  const lineHeight = clampViewerLineHeight(viewerSettings.bookLineHeight, 1.8);
+  viewerSettings.bookLineHeight = lineHeight;
+  bookPageMetrics = { m, fontPx, lineHeight };
+  // Exact half split at center spine
+  const pageW = Math.floor(vw / 2);
+  const pageH = vh;
+  const innerW = Math.max(40, pageW - m * 2);
+  const innerH = Math.max(40, pageH - m * 2);
+
+  const sourceHtml = body.innerHTML || "";
+  bookPages = paginateHtmlToPages(sourceHtml, innerW, innerH, fontPx, {
+    lineHeight,
+    fontFamily: "Georgia,'Noto Serif KR','Malgun Gothic',serif",
+  });
+
+  // Pair into spreads: left = even index, right = odd
+  bookSpreadCount = Math.max(1, Math.ceil(bookPages.length / 2));
+  if (resetPage) bookSpreadIndex = 0;
+  bookSpreadIndex = Math.min(Math.max(0, bookSpreadIndex), bookSpreadCount - 1);
+
+  cancelBookFlipAnimation();
+  ensureBookViewport(track, vh);
+
+  // Honor TOC jump after pages are built
+  if (viewerPendingJumpSceneId != null) {
+    const jumpId = Number(viewerPendingJumpSceneId);
+    viewerPendingJumpSceneId = null;
+    const jumpIdx = findBookSpreadIndexForScene(jumpId);
+    if (jumpIdx >= 0) bookSpreadIndex = jumpIdx;
+    highlightViewerTocCurrent(jumpId);
+  }
+
+  paintBookSpread(bookSpreadIndex);
+  updateBookPagerUi();
+}
+
+/** @deprecated name kept for call sites — instant paint, no slide */
+function applyBookSpreadTransform() {
+  showBookSpreadInstant(bookSpreadIndex);
+}
+
+function updateBookPagerUi() {
+  const pager = $("viewerBookPager");
+  if (pager) {
+    // Show leaf range: spread 0 → pages 1–2, etc.
+    const leftNo = bookSpreadIndex * 2 + 1;
+    const rightNo = bookSpreadIndex * 2 + 2;
+    const totalLeaves = Math.max(leftNo, bookSpreadCount * 2);
+    const flipping = bookFlipBusy ? " · 넘기는 중" : "";
+    pager.textContent = `${leftNo}–${rightNo} 쪽 · ${bookSpreadIndex + 1}/${bookSpreadCount} 장${flipping}`;
+    pager.title = `전체 약 ${totalLeaves}쪽`;
+  }
+  setViewerBookNavVisible(true);
+  const prev = $("viewerBookPrev");
+  const next = $("viewerBookNext");
+  if (prev) prev.disabled = bookFlipBusy || bookSpreadIndex <= 0;
+  if (next) next.disabled = bookFlipBusy || bookSpreadIndex >= bookSpreadCount - 1;
+}
+
+function turnBookSpread(delta) {
+  if (viewerSettings.mode !== "book" || !isViewerOpen()) return;
+  if (bookFlipBusy) return;
+  const dir = delta > 0 ? 1 : delta < 0 ? -1 : 0;
+  if (!dir) return;
+  const next = bookSpreadIndex + dir;
+  if (next < 0 || next >= bookSpreadCount) return;
+  if (prefersReducedBookMotion()) {
+    showBookSpreadInstant(next);
+    return;
+  }
+  animateBookFlip(dir, next);
+}
+
+function openViewerMode(preferredMode = null) {
+  if (!state.sceneId) {
+    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    return;
+  }
+  const modal = $("viewerModal");
+  const body = $("viewerBody");
+  const mainEd = $("sceneContent");
+  if (!modal || !body || !mainEd) return;
+
+  viewerSettings = loadViewerSettings();
+  if (preferredMode && VIEWER_MODES.includes(preferredMode)) {
+    viewerSettings.mode = preferredMode;
+  }
+  syncViewerControlValues();
+  syncViewerScopeTabs();
+  setViewerTocOpen(viewerTocOpen);
+  renderViewerToc();
+
+  const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "본문";
+  if ($("viewerTitle")) {
+    $("viewerTitle").textContent = viewerScope === "full"
+      ? "뷰어 · 전체 원고"
+      : `뷰어 · ${title}`;
+  }
+
+  bookSpreadIndex = 0;
+  viewerPendingJumpSceneId = null;
+  if (viewerScope === "full") clearViewerEpisodeCache();
+  modal.classList.remove("hidden");
+  document.body.classList.add("viewer-open");
+  document.body.classList.toggle("viewer-maximized", isViewerMaximized());
+  // Sync maximize button label in case preference was restored before button existed
+  setViewerMaximized(isViewerMaximized(), { relayout: false });
+  applyViewerLayout();
+  applyViewerContent({ resetBook: true }).catch(handleError);
+}
+
+function closeViewerMode() {
+  $("viewerModal")?.classList.add("hidden");
+  document.body.classList.remove("viewer-open");
+  viewerResize = null;
+  viewerLoadToken += 1;
+  viewerPendingJumpSceneId = null;
+  cancelBookFlipAnimation();
+  // Keep maximize preference, but clear transient body class
+  document.body.classList.remove("viewer-maximized");
+}
+
+function isViewerMaximized() {
+  return Boolean($("viewerModal")?.classList.contains("is-maximized"));
+}
+
+function setViewerMaximized(on, { relayout = true } = {}) {
+  const modal = $("viewerModal");
+  const btn = $("viewerMaximizeButton");
+  const maximized = Boolean(on);
+  modal?.classList.toggle("is-maximized", maximized);
+  document.body.classList.toggle("viewer-maximized", maximized && isViewerOpen());
+  if (btn) {
+    btn.classList.toggle("is-active", maximized);
+    btn.setAttribute("aria-pressed", maximized ? "true" : "false");
+    btn.textContent = maximized ? "창 모드" : "최대화";
+    btn.title = maximized ? "원래 창 크기로" : "뷰어 창 최대화";
+  }
+  try {
+    localStorage.setItem("supertory.viewerMaximized", maximized ? "1" : "0");
+  } catch (_) { /* ignore */ }
+
+  if (!relayout || !isViewerOpen()) return;
+  // Stage size changed — reflow pages after layout settles
+  requestAnimationFrame(() => {
+    applyViewerLayout();
+    if (viewerSettings.mode === "book") scheduleBookPageLayout({ resetPage: false });
+    else if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: false });
+  });
+}
+
+function toggleViewerMaximized() {
+  setViewerMaximized(!isViewerMaximized());
+}
+
+function setupViewerMode() {
+  viewerSettings = loadViewerSettings();
+  // Restore maximize preference
+  try {
+    if (localStorage.getItem("supertory.viewerMaximized") === "1") {
+      setViewerMaximized(true, { relayout: false });
+    }
+  } catch (_) { /* ignore */ }
+
+  // Book icon on format toolbar (right of find)
+  $("viewerModeButton")?.addEventListener("click", () => {
+    openViewerMode();
+  });
+
+  $("viewerMaximizeButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleViewerMaximized();
+  });
+
+  $("viewerModeTabs")?.addEventListener("click", (event) => {
+    const tab = event.target.closest?.("[data-viewer-mode]");
+    if (!tab) return;
+    viewerSettings.mode = tab.dataset.viewerMode;
+    if (viewerSettings.mode === "book") bookSpreadIndex = 0;
+    if (isDevicePagedMode()) devicePageIndex = 0;
+    applyViewerLayout();
+    if (viewerSettings.mode === "book") scheduleBookPageLayout({ resetPage: true });
+    else if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: true });
+  });
+
+  // Current scene vs full manuscript
+  $("viewerScopeTabs")?.addEventListener("click", (event) => {
+    const tab = event.target.closest?.("[data-viewer-scope]");
+    if (!tab) return;
+    const next = tab.dataset.viewerScope === "full" ? "full" : "scene";
+    if (next === viewerScope) return;
+    setViewerScope(next).catch(handleError);
+  });
+
+  $("viewerTocToggle")?.addEventListener("click", () => {
+    setViewerTocOpen(!viewerTocOpen);
+    if (viewerTocOpen) renderViewerToc();
+  });
+
+  $("viewerTocList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-viewer-toc-scene]");
+    if (!btn) return;
+    const id = Number(btn.dataset.viewerTocScene);
+    if (!Number.isFinite(id) || id <= 0) return;
+    onViewerTocSelect(id).catch(handleError);
+  });
+
+  const bindRange = (id, key, labelId, { isLineHeight = false } = {}) => {
+    $(id)?.addEventListener("input", () => {
+      let v = Number($(id).value);
+      if (!Number.isFinite(v)) return;
+      if (isLineHeight) {
+        v = clampViewerLineHeight(v, 1.8);
+        viewerSettings[key] = v;
+        if ($(labelId)) $(labelId).textContent = formatViewerLineHeightLabel(v);
+      } else {
+        viewerSettings[key] = v;
+        if ($(labelId)) $(labelId).textContent = String(v);
+      }
+      applyViewerLayout();
+      if (viewerSettings.mode === "book"
+        && (key === "bookFont" || key === "bookMargin" || key === "bookW" || key === "bookH"
+          || key === "bookLineHeight")) {
+        scheduleBookPageLayout({ resetPage: false });
+      }
+      if (isDevicePagedMode()
+        && (key === "pdfFont" || key === "pdfMargin" || key === "pdfLineHeight"
+          || key === "phoneFont" || key === "phoneW" || key === "phoneH" || key === "phoneLineHeight"
+          || key === "einkFont" || key === "einkW" || key === "einkH" || key === "einkLineHeight")) {
+        scheduleDevicePageLayout({ resetPage: false });
+      }
+    });
+  };
+  bindRange("viewerPdfFont", "pdfFont", "viewerPdfFontVal");
+  bindRange("viewerPdfLineHeight", "pdfLineHeight", "viewerPdfLineHeightVal", { isLineHeight: true });
+  bindRange("viewerPdfMargin", "pdfMargin", "viewerPdfMarginVal");
+  // PDF size slider: zoom only (A4 ratio fixed, page breaks stay put)
+  $("viewerPdfScale")?.addEventListener("input", () => {
+    const v = Number($("viewerPdfScale").value);
+    if (!Number.isFinite(v)) return;
+    viewerSettings.pdfScale = Math.min(120, Math.max(55, v));
+    if ($("viewerPdfScaleVal")) $("viewerPdfScaleVal").textContent = String(viewerSettings.pdfScale);
+    saveViewerSettings();
+    if (viewerSettings.mode !== "pdf" || !isViewerOpen()) return;
+    const scale = viewerSettings.pdfScale / 100;
+    const frame = $("viewerFrame");
+    if (frame) {
+      frame.style.width = `${Math.round(A4_WIDTH_PX * scale)}px`;
+      frame.style.maxWidth = "100%";
+    }
+    devicePageMetrics = { ...devicePageMetrics, scale: viewerSettings.pdfScale };
+    paintDevicePageStack();
+    requestAnimationFrame(() => showDevicePage(devicePageIndex, { smooth: false }));
+  });
+  bindRange("viewerBookFont", "bookFont", "viewerBookFontVal");
+  bindRange("viewerBookLineHeight", "bookLineHeight", "viewerBookLineHeightVal", { isLineHeight: true });
+  bindRange("viewerBookMargin", "bookMargin", "viewerBookMarginVal");
+  bindRange("viewerBookW", "bookW", "viewerBookWVal");
+  bindRange("viewerBookH", "bookH", "viewerBookHVal");
+  bindRange("viewerPhoneFont", "phoneFont", "viewerPhoneFontVal");
+  bindRange("viewerPhoneLineHeight", "phoneLineHeight", "viewerPhoneLineHeightVal", { isLineHeight: true });
+  bindRange("viewerPhoneW", "phoneW", "viewerPhoneWVal");
+  bindRange("viewerPhoneH", "phoneH", "viewerPhoneHVal");
+  bindRange("viewerEinkFont", "einkFont", "viewerEinkFontVal");
+  bindRange("viewerEinkLineHeight", "einkLineHeight", "viewerEinkLineHeightVal", { isLineHeight: true });
+  bindRange("viewerEinkW", "einkW", "viewerEinkWVal");
+  bindRange("viewerEinkH", "einkH", "viewerEinkHVal");
+
+  $("viewerBookPaper")?.addEventListener("change", () => {
+    viewerSettings.bookPaper = $("viewerBookPaper").value || "cream";
+    applyViewerLayout();
+    scheduleBookPageLayout({ resetPage: false });
+  });
+
+  $("viewerBookPrev")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (viewerSettings.mode === "book") turnBookSpread(-1);
+    else if (viewerSettings.mode === "phone" || viewerSettings.mode === "eink") turnDevicePage(-1);
+  });
+  $("viewerBookNext")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (viewerSettings.mode === "book") turnBookSpread(1);
+    else if (viewerSettings.mode === "phone" || viewerSettings.mode === "eink") turnDevicePage(1);
+  });
+
+  // Click left/right page area to turn (book + phone/eink page mode; not PDF / not scroll-down)
+  $("viewerScroll")?.addEventListener("click", (event) => {
+    if (!isViewerOpen()) return;
+    if (event.target.closest?.(".viewer-book-nav, .viewer-resize-handle")) return;
+    const mode = viewerSettings.mode;
+    if (mode !== "book" && mode !== "phone" && mode !== "eink") return;
+    // Continuous scroll: don't steal clicks for page turns
+    if ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode)) return;
+    const scroll = $("viewerScroll");
+    if (!scroll) return;
+    const rect = scroll.getBoundingClientRect();
+    const x = event.clientX - rect.left;
+    if (x < rect.width * 0.42) {
+      if (mode === "book") turnBookSpread(-1);
+      else turnDevicePage(-1);
+    } else if (x > rect.width * 0.58) {
+      if (mode === "book") turnBookSpread(1);
+      else turnDevicePage(1);
+    }
+  });
+
+  // Book: wheel = page turn. phone/eink page mode: wheel = page turn.
+  // phone/eink scroll mode: natural free scroll (do not preventDefault).
+  $("viewerScroll")?.addEventListener("wheel", (event) => {
+    if (!isViewerOpen()) return;
+    const mode = viewerSettings.mode;
+    if (mode === "book") {
+      event.preventDefault();
+      if (Math.abs(event.deltaY) < 4 && Math.abs(event.deltaX) < 4) return;
+      if (event.deltaY > 0 || event.deltaX > 0) turnBookSpread(1);
+      else turnBookSpread(-1);
+      return;
+    }
+    if (mode === "phone" || mode === "eink") {
+      if (isDeviceScrollFlow(mode)) {
+        // Native scroll; refresh pager affordances after a beat
+        window.setTimeout(() => updateDevicePagerUi(), 80);
+        return;
+      }
+      event.preventDefault();
+      if (Math.abs(event.deltaY) < 4 && Math.abs(event.deltaX) < 4) return;
+      if (event.deltaY > 0 || event.deltaX > 0) turnDevicePage(1);
+      else turnDevicePage(-1);
+    }
+  }, { passive: false });
+
+  // Scroll-down mode: update prev/next enable state while user scrolls
+  $("viewerScroll")?.addEventListener("scroll", () => {
+    if (!isViewerOpen()) return;
+    if (!isDeviceScrollFlow()) return;
+    updateDevicePagerUi();
+  }, { passive: true });
+
+  $("viewerStage")?.addEventListener("scroll", () => {
+    if (!isViewerOpen()) return;
+    if (viewerSettings.mode === "pdf") syncDevicePageIndexFromScroll();
+  }, { passive: true });
+
+  // Touch swipe: book horizontal; phone/eink page mode = page turn; scroll mode = native pan
+  let bookTouch = null;
+  $("viewerScroll")?.addEventListener("touchstart", (event) => {
+    const mode = viewerSettings.mode;
+    if (mode !== "book" && mode !== "phone" && mode !== "eink") return;
+    // Continuous scroll uses native touch scrolling
+    if ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode)) return;
+    const t = event.changedTouches?.[0];
+    if (!t) return;
+    bookTouch = { x: t.clientX, y: t.clientY, mode };
+  }, { passive: true });
+  $("viewerScroll")?.addEventListener("touchend", (event) => {
+    if (!bookTouch || !isViewerOpen()) return;
+    const t = event.changedTouches?.[0];
+    if (!t) return;
+    const dx = t.clientX - bookTouch.x;
+    const dy = t.clientY - bookTouch.y;
+    const mode = bookTouch.mode;
+    bookTouch = null;
+    if (mode === "book") {
+      if (Math.abs(dx) < 40 || Math.abs(dx) < Math.abs(dy)) return;
+      if (dx < 0) turnBookSpread(1);
+      else turnBookSpread(-1);
+      return;
+    }
+    // phone / eink page-turn: swipe in either axis turns page
+    if (Math.abs(dx) < 36 && Math.abs(dy) < 36) return;
+    if (Math.abs(dx) >= Math.abs(dy)) {
+      if (dx < 0) turnDevicePage(1);
+      else turnDevicePage(-1);
+    } else {
+      if (dy < 0) turnDevicePage(1);
+      else turnDevicePage(-1);
+    }
+  }, { passive: true });
+  $("viewerPhoneBg")?.addEventListener("change", () => {
+    const sel = $("viewerPhoneBg");
+    viewerSettings.phoneBg = sel.value;
+    const opt = sel.selectedOptions?.[0];
+    viewerSettings.phoneInk = opt?.dataset?.ink || "#24211d";
+    applyViewerLayout();
+    if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: false });
+  });
+  $("viewerPhoneFlow")?.addEventListener("change", () => {
+    viewerSettings.phoneFlow = normalizeDeviceFlow($("viewerPhoneFlow")?.value, "page");
+    applyViewerLayout();
+    if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: true });
+  });
+  $("viewerEinkStyle")?.addEventListener("change", () => {
+    viewerSettings.einkStyle = $("viewerEinkStyle").value || "paper";
+    applyViewerLayout();
+    if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: false });
+  });
+  $("viewerEinkFlow")?.addEventListener("change", () => {
+    viewerSettings.einkFlow = normalizeDeviceFlow($("viewerEinkFlow")?.value, "page");
+    applyViewerLayout();
+    if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: true });
+  });
+
+  // Drag resize for book / phone / eink (document-level move so vertical drag keeps working)
+  const handle = $("viewerResizeHandle");
+  const onResizeMove = (event) => {
+    if (!viewerResize) return;
+    if (viewerResize.pointerId != null && event.pointerId !== viewerResize.pointerId) return;
+    event.preventDefault();
+    const dw = event.clientX - viewerResize.startX;
+    const dh = event.clientY - viewerResize.startY;
+    let w = Math.round(viewerResize.startW + dw);
+    let h = Math.round(viewerResize.startH + dh);
+    if (viewerResize.mode === "phone") {
+      w = Math.min(430, Math.max(280, w));
+      h = Math.min(900, Math.max(480, h));
+      viewerSettings.phoneW = w;
+      viewerSettings.phoneH = h;
+    } else if (viewerResize.mode === "book") {
+      w = Math.min(1040, Math.max(640, w));
+      h = Math.min(900, Math.max(420, h));
+      viewerSettings.bookW = w;
+      viewerSettings.bookH = h;
+    } else {
+      w = Math.min(560, Math.max(300, w));
+      h = Math.min(900, Math.max(480, h));
+      viewerSettings.einkW = w;
+      viewerSettings.einkH = h;
+    }
+    syncViewerControlValues();
+    applyViewerLayout();
+    if (viewerResize?.mode === "book") scheduleBookPageLayout({ resetPage: false });
+    else if (viewerResize?.mode === "phone" || viewerResize?.mode === "eink") {
+      scheduleDevicePageLayout({ resetPage: false });
+    }
+  };
+  const onResizeEnd = (event) => {
+    if (!viewerResize) return;
+    if (viewerResize.pointerId != null && event.pointerId != null
+      && event.pointerId !== viewerResize.pointerId) return;
+    const wasBook = viewerResize.mode === "book";
+    const wasDevice = viewerResize.mode === "phone" || viewerResize.mode === "eink";
+    viewerResize = null;
+    document.removeEventListener("pointermove", onResizeMove, true);
+    document.removeEventListener("pointerup", onResizeEnd, true);
+    document.removeEventListener("pointercancel", onResizeEnd, true);
+    saveViewerSettings();
+    if (wasBook) scheduleBookPageLayout({ resetPage: false });
+    else if (wasDevice) scheduleDevicePageLayout({ resetPage: false });
+  };
+  handle?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    const mode = viewerSettings.mode;
+    if (mode !== "phone" && mode !== "eink" && mode !== "book") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const frame = $("viewerFrame");
+    if (!frame) return;
+    const rect = frame.getBoundingClientRect();
+    viewerResize = {
+      mode,
+      startX: event.clientX,
+      startY: event.clientY,
+      startW: rect.width,
+      startH: rect.height,
+      pointerId: event.pointerId,
+    };
+    document.addEventListener("pointermove", onResizeMove, true);
+    document.addEventListener("pointerup", onResizeEnd, true);
+    document.addEventListener("pointercancel", onResizeEnd, true);
+    try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  });
+
+  document.querySelectorAll("[data-close-viewer]").forEach((el) => {
+    el.addEventListener("click", closeViewerMode);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!isViewerOpen()) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeViewerMode();
+      return;
+    }
+    const mode = viewerSettings.mode;
+    if (mode === "book") {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        turnBookSpread(1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        turnBookSpread(-1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        showBookSpreadInstant(0);
+      } else if (event.key === "End") {
+        event.preventDefault();
+        showBookSpreadInstant(Math.max(0, bookSpreadCount - 1));
+      }
+      return;
+    }
+    if (mode === "phone" || mode === "eink") {
+      if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        turnDevicePage(1);
+      } else if (event.key === "ArrowLeft" || event.key === "PageUp") {
+        event.preventDefault();
+        turnDevicePage(-1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        showDevicePage(0, { smooth: false });
+      } else if (event.key === "End") {
+        event.preventDefault();
+        showDevicePage(Math.max(0, devicePageCount - 1), { smooth: false });
+      }
+      return;
+    }
+    // PDF: arrow/page keys scroll one A4 sheet at a time (no side buttons)
+    if (mode === "pdf") {
+      if (event.key === "ArrowDown" || event.key === "PageDown" || event.key === " ") {
+        event.preventDefault();
+        turnDevicePage(1);
+      } else if (event.key === "ArrowUp" || event.key === "PageUp") {
+        event.preventDefault();
+        turnDevicePage(-1);
+      } else if (event.key === "Home") {
+        event.preventDefault();
+        showDevicePage(0, { smooth: false });
+      } else if (event.key === "End") {
+        event.preventDefault();
+        showDevicePage(Math.max(0, devicePageCount - 1), { smooth: false });
+      }
+    }
+  });
+}
+
+function handleToolsAction(action) {
+  if (action === "import") {
+    openImportModal();
+    return;
+  }
+  if (action === "focus-write") {
+    openFocusWrite();
+    return;
+  }
+  if (action === "viewer-mode") {
+    openViewerMode();
+    return;
+  }
+  if (action === "world-scan") {
+    // Kept for binder / legacy tools; prefer Analyze menu → 세계관 스캔.
+    runWorldScan().catch(handleError);
+    return;
+  }
+  if (action === "tory-analyze") {
+    if (!state.sceneId) {
+      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      return;
+    }
+    const title = state.scene?.title || $("sceneTitle")?.value || "";
+    startToryAnalyzeForScene(state.sceneId, title).catch(handleError);
+    return;
+  }
+  if (action === "writing-log") {
+    toggleWritingRecording();
+    return;
+  }
+  if (action === "notes" || action === "characters" || action === "links" || action === "spellcheck") {
+    openSceneToolsDrawer(action);
+    if (action === "spellcheck") {
+      // Auto-run when opening an empty result panel for convenience.
+      const list = $("spellcheckResultList");
+      if (list && !list.dataset.hasResults) {
+        runSpellcheck().catch(handleError);
+      }
+    }
+  }
+}
+
+function setBrowserSpellcheckEnabled(enabled) {
+  const on = Boolean(enabled);
+  ["sceneContent", "synopsisContent", "splitSceneBodyEditor"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.setAttribute("spellcheck", on ? "true" : "false");
+    el.spellcheck = on;
+  });
+  try {
+    localStorage.setItem("supertory.browserSpellcheck", on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function replaceTextInContentEditable(editor, original, replacement) {
+  if (!editor || !original) return false;
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const value = node.nodeValue || "";
+    const idx = value.indexOf(original);
+    if (idx >= 0) {
+      node.nodeValue = value.slice(0, idx) + replacement + value.slice(idx + original.length);
+      return true;
+    }
+    node = walker.nextNode();
+  }
+  // Fallback: plain text replace once (may lose some rich spans if not found in text nodes).
+  const plain = editor.innerText || "";
+  const at = plain.indexOf(original);
+  if (at < 0) return false;
+  // Last resort: replace first HTML text occurrence carefully
+  const html = editor.innerHTML || "";
+  const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const next = html.replace(new RegExp(escaped), () => {
+    // Keep simple text; if original had no tags this is fine.
+    return replacement
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;");
+  });
+  if (next === html) return false;
+  editor.innerHTML = next;
+  return true;
+}
+
+function renderSpellcheckResults(payload) {
+  const list = $("spellcheckResultList");
+  const status = $("spellcheckStatus");
+  if (!list) return;
+  const errors = payload?.errors || [];
+  list.dataset.hasResults = "1";
+  if (status) {
+    const provider = payload?.provider_label || payload?.provider || "";
+    status.textContent = provider
+      ? `${payload.message || ""} · ${provider}`
+      : (payload?.message || "");
+  }
+  if (!errors.length) {
+    list.innerHTML = `<p class="hint spellcheck-empty">${escapeHtml(payload?.message || "오류가 없습니다.")}</p>`;
+    return;
+  }
+  list.innerHTML = errors.map((err, index) => {
+    const original = escapeHtml(err.original || "");
+    const help = escapeHtml(err.help || "");
+    const method = escapeHtml(err.method_label || "교정");
+    const suggestions = (err.suggestions || []).map((s) => `
+      <button type="button" data-spell-apply="${index}" data-suggestion="${escapeHtml(s)}" title="이 표현으로 바꾸기">
+        ${escapeHtml(s)}
+      </button>`).join("");
+    return `
+      <article class="spellcheck-item" data-spell-index="${index}">
+        <div class="spellcheck-item-head">
+          <span class="spellcheck-original">${original}</span>
+          <span class="spellcheck-method">${method}</span>
+        </div>
+        ${help ? `<p class="spellcheck-help">${help}</p>` : ""}
+        <div class="spellcheck-suggestions">
+          ${suggestions || `<span class="hint">제안 없음</span>`}
+        </div>
+      </article>`;
+  }).join("");
+
+  // stash raw errors for apply handlers
+  list._spellErrors = errors;
+}
+
+async function runSpellcheck(options = {}) {
+  const prefer = options.prefer || "auto"; // auto | gemini
+  const editor = getActiveRichEditor() || $("sceneContent");
+  if (!editor) return toast("검사할 편집기가 없어요.");
+  const text = getEditorPlainText(editor).trim();
+  if (!text) return toast("검사할 글을 먼저 적어 주세요.");
+
+  const status = $("spellcheckStatus");
+  const button = $("runSpellcheckButton");
+  const publicBtn = $("runSpellcheckPublicButton");
+  if (status) {
+    status.textContent = prefer === "gemini"
+      ? "Gemini로 검사 중…"
+      : prefer === "public"
+        ? "공개 맞춤법 검사기에 연결 중…"
+        : "맞춤법 검사 중… (Gemini 우선)";
+  }
+  if (button) {
+    button.disabled = true;
+    if (prefer !== "public") button.textContent = "검사 중…";
+  }
+  if (publicBtn) publicBtn.disabled = true;
+  try {
+    const result = await api("/api/spellcheck", {
+      method: "POST",
+      body: JSON.stringify({ text, prefer }),
+    });
+    renderSpellcheckResults(result);
+    toast(result.error_count ? `맞춤법 제안 ${result.error_count}건` : "맞춤법 검사 완료");
+  } catch (error) {
+    let message = error.message || "검사에 실패했습니다.";
+    // Old Python process (before spellcheck was added) returns this for unknown routes.
+    if (/알 수 없는 요청/.test(message)) {
+      message = "맞춤법 API를 찾을 수 없습니다. SuperTORY(서버) 창을 종료한 뒤 다시 실행해 주세요. 브라우저만 새로고침하면 예전 서버가 그대로 남을 수 있습니다.";
+    }
+    if (status) status.textContent = message;
+    const list = $("spellcheckResultList");
+    if (list) {
+      list.dataset.hasResults = "1";
+      list.innerHTML = `<p class="hint spellcheck-empty">${escapeHtml(message)}</p>`;
+    }
+    throw new Error(message);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = "검사하기";
+    }
+    if (publicBtn) publicBtn.disabled = false;
+  }
+}
+
+function setupSpellcheckPanel() {
+  // Restore browser underline preference.
+  let browserOn = true;
+  try {
+    const stored = localStorage.getItem("supertory.browserSpellcheck");
+    if (stored === "0") browserOn = false;
+  } catch (_) {
+    browserOn = true;
+  }
+  setBrowserSpellcheckEnabled(browserOn);
+  const toggle = $("browserSpellcheckToggle");
+  if (toggle) {
+    toggle.checked = browserOn;
+    toggle.addEventListener("change", () => {
+      setBrowserSpellcheckEnabled(toggle.checked);
+      toast(toggle.checked ? "브라우저 철자 밑줄을 켰어요." : "브라우저 철자 밑줄을 껐어요.");
+    });
+  }
+
+  $("runSpellcheckButton")?.addEventListener("click", () => runSpellcheck({ prefer: "auto" }).catch(handleError));
+  $("runSpellcheckPublicButton")?.addEventListener("click", () => runSpellcheck({ prefer: "public" }).catch(handleError));
+  $("spellcheckResultList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-spell-apply]");
+    if (!btn) return;
+    event.preventDefault();
+    const list = $("spellcheckResultList");
+    const errors = list?._spellErrors || [];
+    const index = Number(btn.dataset.spellApply);
+    const err = errors[index];
+    const suggestion = btn.dataset.suggestion || "";
+    if (!err?.original || !suggestion) return;
+    const editor = getActiveRichEditor() || $("sceneContent");
+    if (!editor) return;
+    const ok = replaceTextInContentEditable(editor, err.original, suggestion);
+    if (!ok) {
+      toast("본문에서 해당 표현을 찾지 못했어요. 직접 고쳐 주세요.");
+      return;
+    }
+    updateEditorPlaceholder(editor);
+    if (editor.id === "sceneContent") {
+      updateSceneStats();
+      markSceneDirty();
+    } else if (editor.id === "synopsisContent") {
+      markSynopsisDirty();
+    } else if (editor.id === "splitSceneBodyEditor") {
+      markSplitDirty?.();
+    }
+    toast(`「${err.original}」→「${suggestion}」로 바꿨어요.`);
+  });
+}
+
+/* ── Manuscript toolbar collapse (format + feature bars) ── */
+const MS_TOOLBAR_COLLAPSE_KEY = "supertory.msToolbarCollapsed";
+
+function loadMsToolbarCollapsed() {
+  try {
+    const raw = localStorage.getItem(MS_TOOLBAR_COLLAPSE_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== "object") return { format: false, feature: false };
+    return {
+      format: Boolean(obj.format),
+      feature: Boolean(obj.feature),
+    };
+  } catch (_) {
+    return { format: false, feature: false };
+  }
+}
+
+function saveMsToolbarCollapsed(stateMap) {
+  try {
+    localStorage.setItem(MS_TOOLBAR_COLLAPSE_KEY, JSON.stringify(stateMap));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = true } = {}) {
+  const key = which === "feature" ? "feature" : "format";
+  const shell = document.querySelector(`.ms-toolbar-shell[data-toolbar-shell="${key}"]`);
+  const reopen = key === "format" ? $("formatToolbarReopenButton") : $("sceneFeatureBarReopenButton");
+  if (!shell) return;
+  shell.classList.toggle("is-collapsed", Boolean(collapsed));
+  reopen?.classList.toggle("hidden", !collapsed);
+  // Hide find bar when format tools are collapsed (it sits under that bar)
+  if (key === "format" && collapsed) {
+    $("findBar")?.classList.add("hidden");
+    $("findToggleButton")?.setAttribute("aria-expanded", "false");
+  }
+  if (persist) {
+    const map = loadMsToolbarCollapsed();
+    map[key] = Boolean(collapsed);
+    saveMsToolbarCollapsed(map);
+  }
+  if (toastMsg && collapsed) {
+    toast(key === "format" ? "서식 도구를 숨겼어요." : "기능 바를 숨겼어요.");
+  }
+}
+
+function setupManuscriptToolbarCollapse() {
+  const map = loadMsToolbarCollapsed();
+  applyMsToolbarCollapsed("format", map.format, { persist: false, toastMsg: false });
+  applyMsToolbarCollapsed("feature", map.feature, { persist: false, toastMsg: false });
+
+  document.querySelectorAll("[data-toolbar-hide]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applyMsToolbarCollapsed(btn.dataset.toolbarHide || "format", true);
+    });
+  });
+  document.querySelectorAll("[data-toolbar-show]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applyMsToolbarCollapsed(btn.dataset.toolbarShow || "format", false, { toastMsg: false });
+      toast(btn.dataset.toolbarShow === "feature" ? "기능 바를 다시 열었어요." : "서식 도구를 다시 열었어요.");
+    });
+  });
+}
+
+function setupSceneFeatureBar() {
+  // import is opened from the header + create menu (setupCreateMenu)
+  setupManuscriptToolbarCollapse();
+
+  $("sceneFeatureBar")?.addEventListener("click", (event) => {
+    // Don't treat hide button as a tools action
+    if (event.target.closest?.("[data-toolbar-hide]")) return;
+    const actionBtn = event.target.closest("[data-tools-action]");
+    if (actionBtn) {
+      event.preventDefault();
+      handleToolsAction(actionBtn.dataset.toolsAction);
+    }
+  });
+  $("closeSceneToolsDrawer")?.addEventListener("click", closeSceneToolsDrawer);
+  setupSceneToolsDrawerDrag();
+  $("sceneNotes")?.addEventListener("input", () => {
+    updateAuthorNotesBadge();
+  });
+  updateAuthorNotesBadge();
+  updateReferenceMaterialsBadge();
+  setupSpellcheckPanel();
+
+  $("splitViewButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (!state.sceneId) {
+      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      return;
+    }
+    toggleViewModeMenu("main");
+  });
+  $("switchSplitModeButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleViewModeMenu("split");
+  });
+
+  const onViewModePick = (event) => {
+    const button = event.target.closest("[data-view-mode]");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    closeViewModeMenu();
+    handleViewModeChoice(button.dataset.viewMode).catch(handleError);
+  };
+  $("viewModeDropdown")?.addEventListener("click", onViewModePick);
+  $("splitModeDropdown")?.addEventListener("click", onViewModePick);
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest(".view-mode-control")) closeViewModeMenu();
+  });
+}
+
+function setActiveBinder(binderKey) {
+  const key = binderKey === "settings" ? "settings" : "manuscript";
+  state.activeBinder = key;
+  const manuscript = $("manuscriptBinder");
+  const settings = $("settingsBinder");
+  const tabManuscript = $("binderTabManuscript");
+  const tabSettings = $("binderTabSettings");
+  const showSettings = key === "settings";
+  manuscript?.classList.toggle("hidden", showSettings);
+  settings?.classList.toggle("hidden", !showSettings);
+  tabManuscript?.classList.toggle("is-active", !showSettings);
+  tabSettings?.classList.toggle("is-active", showSettings);
+  tabManuscript?.setAttribute("aria-selected", showSettings ? "false" : "true");
+  tabSettings?.setAttribute("aria-selected", showSettings ? "true" : "false");
+  try {
+    localStorage.setItem(BINDER_STORAGE_KEY, key);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function setupBinderSwitch() {
+  let preferred = "manuscript";
+  try {
+    const stored = localStorage.getItem(BINDER_STORAGE_KEY);
+    if (stored === "settings" || stored === "manuscript") preferred = stored;
+  } catch (_) {
+    preferred = "manuscript";
+  }
+  setActiveBinder(preferred);
+  document.querySelectorAll("[data-binder]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setActiveBinder(button.dataset.binder);
+    });
+  });
+}
+
+const OUTLINE_WIDTH_STORAGE_KEY = "supertory.outlineWidth";
+const OUTLINE_WIDTH_MIN = 180;
+const OUTLINE_WIDTH_MAX = 480;
+
+function applyOutlineWidth(widthPx) {
+  const width = Math.max(OUTLINE_WIDTH_MIN, Math.min(OUTLINE_WIDTH_MAX, Math.round(widthPx)));
+  document.documentElement.style.setProperty("--outline-width", `${width}px`);
+  return width;
+}
+
+function setupOutlineResizer() {
+  const resizer = $("outlineResizer");
+  if (!resizer) return;
+
+  try {
+    const stored = Number(localStorage.getItem(OUTLINE_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= OUTLINE_WIDTH_MIN) {
+      applyOutlineWidth(stored);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    const next = applyOutlineWidth(event.clientX - drag.startX + drag.startWidth);
+    drag.currentWidth = next;
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    document.body.classList.remove("outline-resizing");
+    try {
+      localStorage.setItem(OUTLINE_WIDTH_STORAGE_KEY, String(drag.currentWidth || OUTLINE_WIDTH_MIN));
+    } catch (_) {
+      /* ignore */
+    }
+    drag = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (!isBinderPanelOpen()) return;
+    const panel = $("outlinePanel");
+    const startWidth = panel ? panel.getBoundingClientRect().width : 250;
+    drag = {
+      startX: event.clientX,
+      startWidth,
+      currentWidth: startWidth,
+    };
+    document.body.classList.add("outline-resizing");
+    resizer.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    event.preventDefault();
+  });
+}
+
+async function revealCurrentPackage() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const result = await api(`/api/projects/${state.projectId}/reveal-package`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  toast(`탐색기에서 열었어요: ${result.package_name || "작품 파일"}`);
+}
+
+const BINDER_COLLAPSE_PREFIX = "supertory.binderCollapsed.";
+
+function binderCollapseStorageKey(projectId = state.projectId) {
+  return `${BINDER_COLLAPSE_PREFIX}${projectId || "0"}`;
+}
+
+/** Walk nested scene tree depth-first. */
+function walkSceneTree(nodes, visit, depth = 0) {
+  for (const scene of nodes || []) {
+    visit(scene, depth);
+    if (scene.children?.length) walkSceneTree(scene.children, visit, depth + 1);
+  }
+}
+
+function flattenChapterScenes(chapter) {
+  if (!chapter) return [];
+  // Prefer live tree so status / completeness stay correct after binder sync.
+  const out = [];
+  walkSceneTree(chapter.scenes || [], (scene) => out.push(scene));
+  if (out.length) return out;
+  if (Array.isArray(chapter.scenes_flat) && chapter.scenes_flat.length) {
+    return chapter.scenes_flat;
+  }
+  return [];
+}
+
+function flattenAllOutlineScenes() {
+  const out = [];
+  for (const chapter of state.outline || []) {
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      out.push({ ...scene, chapterId: chapter.id, chapterTitle: chapter.title });
+    });
+  }
+  return out;
+}
+
+function findChapterIdForScene(sceneId) {
+  const id = Number(sceneId);
+  for (const chapter of state.outline || []) {
+    let found = false;
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      if (Number(scene.id) === id) found = true;
+    });
+    if (found) return Number(chapter.id);
+  }
+  return null;
+}
+
+function getCollapsedChapterIds() {
+  if (!state.projectId) return new Set();
+  try {
+    const raw = localStorage.getItem(binderCollapseStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set((Array.isArray(arr) ? arr : []).map(Number).filter((id) => id > 0));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function binderSceneCollapseStorageKey() {
+  return `supertory.binderSceneCollapsed.${state.projectId || 0}`;
+}
+
+function getCollapsedSceneIds() {
+  if (!state.projectId) return new Set();
+  try {
+    const raw = localStorage.getItem(binderSceneCollapseStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set((Array.isArray(arr) ? arr : []).map(Number).filter((id) => id > 0));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function setSceneCollapsed(sceneId, collapsed) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const set = getCollapsedSceneIds();
+  if (collapsed) set.add(id);
+  else set.delete(id);
+  try {
+    localStorage.setItem(binderSceneCollapseStorageKey(), JSON.stringify([...set]));
+  } catch (_) { /* ignore */ }
+}
+
+function toggleSceneExpanded(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const wasCollapsed = getCollapsedSceneIds().has(id);
+  setSceneCollapsed(id, !wasCollapsed);
+  const expanded = wasCollapsed; // we just expanded if it was collapsed
+  const host = $("outline")?.querySelector(`.scene-tree-item[data-scene-node="${id}"]`);
+  if (host) {
+    host.classList.toggle("is-collapsed", !expanded);
+    const kids = host.querySelector(":scope > .scene-children");
+    if (kids) {
+      kids.hidden = !expanded;
+      kids.classList.toggle("is-collapsed", !expanded);
+    }
+    const twistie = host.querySelector(":scope > .scene-row .scene-twistie");
+    if (twistie) twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
+  }
+}
+
+function persistCollapsedChapterIds(collapsedSet) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(binderCollapseStorageKey(), JSON.stringify([...collapsedSet]));
+  } catch (_) {
+    /* ignore quota / private mode */
+  }
+}
+
+function setChapterCollapsed(chapterId, collapsed) {
+  const id = Number(chapterId);
+  if (!id) return;
+  const collapsedSet = getCollapsedChapterIds();
+  if (collapsed) collapsedSet.add(id);
+  else collapsedSet.delete(id);
+  persistCollapsedChapterIds(collapsedSet);
+}
+
+function binderPartCollapseStorageKey() {
+  return `supertory.binderPartCollapsed.${state.projectId || 0}`;
+}
+
+function getCollapsedPartIds() {
+  if (!state.projectId) return new Set();
+  try {
+    const raw = localStorage.getItem(binderPartCollapseStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    return new Set((Array.isArray(arr) ? arr : []).map(Number).filter((id) => id > 0));
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function persistCollapsedPartIds(collapsedSet) {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(binderPartCollapseStorageKey(), JSON.stringify([...collapsedSet]));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function setPartCollapsed(partId, collapsed) {
+  const id = Number(partId);
+  if (!id) return;
+  const collapsedSet = getCollapsedPartIds();
+  if (collapsed) collapsedSet.add(id);
+  else collapsedSet.delete(id);
+  persistCollapsedPartIds(collapsedSet);
+}
+
+function togglePartExpanded(partId) {
+  const id = Number(partId);
+  if (!id) return;
+  const section = $("outline")?.querySelector(`.outline-part[data-part-id="${id}"]`);
+  const expanded = section?.dataset?.expanded !== "true";
+  setPartCollapsed(id, !expanded);
+  if (section) applyPartExpandedState(section, expanded);
+}
+
+function applyPartExpandedState(section, expanded) {
+  if (!section) return;
+  section.classList.toggle("is-collapsed", !expanded);
+  section.dataset.expanded = expanded ? "true" : "false";
+  const twistie = section.querySelector(".part-twistie");
+  if (twistie) {
+    twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
+    twistie.title = expanded ? "폴더 목록 접기" : "폴더 목록 펼치기";
+  }
+  const children = section.querySelector(".part-children");
+  if (children) {
+    children.hidden = !expanded;
+    children.classList.toggle("is-collapsed", !expanded);
+  }
+}
+
+/** Chapters in binder display order: parts first, then ungrouped. */
+function getBinderChaptersInOrder() {
+  const out = [];
+  for (const part of state.parts || []) {
+    for (const chapter of part.chapters || []) out.push(chapter);
+  }
+  for (const chapter of state.ungroupedChapters || []) out.push(chapter);
+  if (!out.length && Array.isArray(state.outline)) return state.outline.slice();
+  return out;
+}
+
+/** Ensure the chapter (and ancestor manuscripts) holding the active scene is visible. */
+function ensureActiveSceneChapterExpanded(chapters) {
+  if (!state.sceneId || !Array.isArray(chapters)) return;
+  const targetId = Number(state.sceneId);
+  for (const chapter of chapters) {
+    const path = [];
+    let found = false;
+    const walk = (nodes, ancestors) => {
+      for (const scene of nodes || []) {
+        const next = ancestors.concat(Number(scene.id));
+        if (Number(scene.id) === targetId) {
+          found = true;
+          path.push(...ancestors);
+          return true;
+        }
+        if (walk(scene.children || [], next)) return true;
+      }
+      return false;
+    };
+    walk(chapter.scenes || [], []);
+    if (found) {
+      setChapterCollapsed(chapter.id, false);
+      if (chapter.part_id != null) setPartCollapsed(chapter.part_id, false);
+      for (const ancestorId of path) setSceneCollapsed(ancestorId, false);
+      return;
+    }
+  }
+}
+
+function applyChapterExpandedState(section, expanded) {
+  if (!section) return;
+  const chapterId = section.dataset.chapterId;
+  section.classList.toggle("is-collapsed", !expanded);
+  section.dataset.expanded = expanded ? "true" : "false";
+  const twistie = section.querySelector(".chapter-twistie");
+  if (twistie) {
+    twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
+    twistie.title = expanded ? "씬 목록 접기" : "씬 목록 펼치기";
+    twistie.setAttribute("aria-label", expanded ? "씬 목록 접기" : "씬 목록 펼치기");
+  }
+  const children = section.querySelector(".chapter-children");
+  if (children) {
+    children.hidden = !expanded;
+    children.classList.toggle("is-collapsed", !expanded);
+  }
+  if (chapterId) setChapterCollapsed(chapterId, !expanded);
+}
+
+function toggleChapterExpanded(chapterId) {
+  const outline = $("outline");
+  const section = outline?.querySelector(`.outline-chapter[data-chapter-id="${chapterId}"]`);
+  if (!section) return;
+  const expanded = section.dataset.expanded !== "true";
+  applyChapterExpandedState(section, expanded);
+}
+
+/**
+ * Push open-scene meta (status, title, …) into outline state and re-render the binder
+ * so the left list stays in sync without waiting for a full loadProject().
+ */
+function syncOpenSceneToOutlineBinder(patch = {}) {
+  const sceneId = Number(patch.sceneId ?? state.sceneId);
+  if (!sceneId) return false;
+
+  const nextStatus = patch.status != null
+    ? String(patch.status)
+    : ($("sceneStatus")?.value || state.scene?.status || null);
+  const nextTitle = patch.title != null
+    ? String(patch.title)
+    : ($("sceneTitle")?.value?.trim() || state.scene?.title || null);
+
+  const applyToScene = (scene) => {
+    if (!scene || Number(scene.id) !== sceneId) return false;
+    if (nextStatus != null) scene.status = nextStatus;
+    if (nextTitle != null && nextTitle !== "") scene.title = nextTitle;
+    return true;
+  };
+
+  // Walk binder chapters (parts + ungrouped) and flat outline — same objects, but
+  // scenes_flat is a separate snapshot that must be updated too.
+  const seenChapter = new Set();
+  const chapters = [];
+  for (const ch of [
+    ...getBinderChaptersInOrder(),
+    ...(Array.isArray(state.outline) ? state.outline : []),
+  ]) {
+    const id = Number(ch?.id);
+    if (!id || seenChapter.has(id)) continue;
+    seenChapter.add(id);
+    chapters.push(ch);
+  }
+
+  let found = false;
+  for (const chapter of chapters) {
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      if (applyToScene(scene)) found = true;
+    });
+    if (Array.isArray(chapter.scenes_flat)) {
+      for (const scene of chapter.scenes_flat) {
+        if (applyToScene(scene)) found = true;
+      }
+    }
+  }
+
+  if (state.scene && Number(state.scene.id || state.sceneId) === sceneId) {
+    if (nextStatus != null) state.scene.status = nextStatus;
+    if (nextTitle != null && nextTitle !== "") state.scene.title = nextTitle;
+  }
+
+  if (!found) return false;
+  renderOutline(state.outline);
+  return true;
+}
+
+function renderSceneTreeHtml(scenes, {
+  chapterId,
+  depth = 0,
+  collapsedScenes,
+  baitPlantIds,
+  baitRecoverIds,
+  parentSceneId = null,
+}) {
+  const list = Array.isArray(scenes) ? scenes : [];
+  if (!list.length) {
+    return depth === 0
+      ? `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`
+      : "";
+  }
+  return list.map((scene, index) => {
+    const isLast = index === list.length - 1;
+    const isComplete = scene.status === "complete";
+    const statusText = statusLabel[scene.status] || scene.status || "";
+    const statusMarkup = isComplete
+      ? `<span class="scene-complete-badge" title="완성" aria-label="완성">완</span>`
+      : `<span class="scene-status">${escapeHtml(statusText)}</span>`;
+    const sid = Number(scene.id);
+    const kids = scene.children || [];
+    const hasKids = kids.length > 0;
+    const childCollapsed = collapsedScenes.has(sid);
+    const childExpanded = !childCollapsed;
+    const hasPlant = baitPlantIds.has(sid);
+    const hasRecover = baitRecoverIds.has(sid);
+    const baitIcons = [
+      hasPlant
+        ? `<span class="scene-bait-badge is-plant" title="이 회차에 심은 떡밥이 있어요" aria-label="떡밥 심음">떡</span>`
+        : "",
+      hasRecover
+        ? `<span class="scene-bait-badge is-recover" title="이 회차에 떡밥 회수 예정" aria-label="떡밥 회수 예정">떡</span>`
+        : "",
+    ].join("");
+    const baitTitleBits = [
+      hasPlant ? "떡밥 심음" : "",
+      hasRecover ? "떡밥 회수 예정" : "",
+    ].filter(Boolean).join(" · ");
+    const titleExtra = [isComplete ? "완성" : "", baitTitleBits].filter(Boolean).join(" · ");
+    const parentAttr = parentSceneId != null ? String(parentSceneId) : "";
+    const twistie = hasKids
+      ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 원고 접기" : "하위 원고 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
+      : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
+    const childrenHtml = hasKids
+      ? `<div class="scene-children ${childExpanded ? "" : "is-collapsed"}" ${childExpanded ? "" : "hidden"} data-parent-scene="${sid}">
+          ${renderSceneTreeHtml(kids, {
+            chapterId,
+            depth: depth + 1,
+            collapsedScenes,
+            baitPlantIds,
+            baitRecoverIds,
+            parentSceneId: sid,
+          })}
+        </div>`
+      : "";
+    return `
+      <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasKids ? "" : "is-leaf"} ${childExpanded || !hasKids ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
+        <div class="scene-row">
+          <span class="tree-guide" aria-hidden="true"></span>
+          ${twistie}
+          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(scene.title)}${titleExtra ? ` · ${titleExtra}` : ""} · 끌어 다른 원고 위에 놓으면 하위 원고">
+            ${statusMarkup}
+            ${baitIcons}
+            <span class="scene-title">${escapeHtml(scene.title)}</span>
+          </button>
+        </div>
+        ${childrenHtml}
+      </div>`;
+  }).join("");
+}
+
+function renderChapterOutlineHtml(chapter, { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds }) {
+  const scenes = chapter.scenes || [];
+  const hasScenes = scenes.length > 0;
+  const expanded = !collapsed.has(Number(chapter.id));
+  const flat = flattenChapterScenes(chapter);
+  const allComplete = hasScenes && flat.length > 0 && flat.every((scene) => scene.status === "complete");
+  const sceneItems = hasScenes
+    ? renderSceneTreeHtml(scenes, {
+        chapterId: chapter.id,
+        depth: 0,
+        collapsedScenes,
+        baitPlantIds,
+        baitRecoverIds,
+        parentSceneId: null,
+      })
+    : `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`;
+
+  const hasParentPart = chapter.part_id != null && chapter.part_id !== "";
+  const partAttr = hasParentPart
+    ? ` data-part-id="${Number(chapter.part_id)}"`
+    : ' data-part-id=""';
+  // Sub-folder under top box → level-1; ungrouped top folder → level-0
+  const folderLevel = hasParentPart ? "is-level-1" : "is-level-0";
+  return `
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}" data-chapter-id="${chapter.id}"${partAttr} data-expanded="${expanded ? "true" : "false"}" draggable="true">
+      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}">
+        <span class="chapter-drag-handle" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+        <button
+          type="button"
+          class="chapter-twistie"
+          data-toggle-chapter="${chapter.id}"
+          aria-expanded="${expanded ? "true" : "false"}"
+          title="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
+          aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
+        ><span class="twistie-glyph" aria-hidden="true"></span></button>
+        <button type="button" draggable="true" class="chapter-title folder-title-box ${folderLevel} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 · 우클릭: 메뉴 · 끌어 다른 폴더로 이동)">${escapeHtml(chapter.title)}</button>
+        <button type="button" class="chapter-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
+      </div>
+      <div class="chapter-children ${expanded ? "" : "is-collapsed"}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
+        ${sceneItems}
+      </div>
+    </section>`;
+}
+
+function renderOutline(chaptersArg) {
+  const outline = $("outline");
+  if (!outline) return;
+  const parts = Array.isArray(state.parts) ? state.parts : [];
+  const ungrouped = Array.isArray(state.ungroupedChapters)
+    ? state.ungroupedChapters
+    : (Array.isArray(chaptersArg) ? chaptersArg : (state.outline || []));
+  const flatChapters = getBinderChaptersInOrder();
+  if (!flatChapters.length && !parts.length) {
+    outline.innerHTML = "<p class='hint'>아직 챕터가 없어요.<br>위의 + 챕터를 눌러 주세요.</p>";
+    try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
+    return;
+  }
+
+  ensureActiveSceneChapterExpanded(flatChapters);
+  const collapsed = getCollapsedChapterIds();
+  const collapsedScenes = getCollapsedSceneIds();
+  const collapsedParts = getCollapsedPartIds();
+  const baitPlantIds = typeof getBaitPlantSceneIds === "function" ? getBaitPlantSceneIds() : new Set();
+  const baitRecoverIds = typeof getBaitRecoverSceneIds === "function" ? getBaitRecoverSceneIds() : new Set();
+  const chapterOpts = { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds };
+
+  try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
+  try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
+
+  const partBlocks = parts.map((part) => {
+    const chapters = part.chapters || [];
+    const partExpanded = !collapsedParts.has(Number(part.id));
+    const chapterHtml = chapters.length
+      ? chapters.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")
+      : `<p class="hint part-empty-hint">이 상위 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
+    return `
+    <section class="outline-part ${partExpanded ? "" : "is-collapsed"}" data-part-id="${part.id}" data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
+      <div class="part-row">
+        <span class="part-drag-handle" draggable="true" title="끌어 권/부 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+        <button
+          type="button"
+          class="part-twistie chapter-twistie"
+          data-toggle-part="${part.id}"
+          aria-expanded="${partExpanded ? "true" : "false"}"
+          title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
+        ><span class="twistie-glyph" aria-hidden="true"></span></button>
+        <button type="button" class="part-title folder-title-box is-level-0" data-rename-part="${part.id}" title="${escapeHtml(part.title)} (더블클릭: 이름 변경 · 우클릭: 폴더 메뉴)">${escapeHtml(part.title)}</button>
+        <button type="button" class="part-add-chapter" data-part-add-chapter="${part.id}" title="이 폴더 안에 하위 폴더 추가">+</button>
+      </div>
+      <div class="part-children ${partExpanded ? "" : "is-collapsed"}" ${partExpanded ? "" : "hidden"} data-part-chapters="${part.id}" role="group" aria-label="${escapeHtml(part.title)} 폴더">
+        ${chapterHtml}
+      </div>
+    </section>`;
+  }).join("");
+
+  const ungroupedHtml = ungrouped.length
+    ? `
+    <div class="outline-ungrouped ${parts.length ? "" : "is-flat"}" data-part-chapters="" data-part-id="">
+      ${parts.length ? `<div class="outline-ungrouped-label">미분류 (상위 폴더 밖)</div>` : ""}
+      ${ungrouped.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")}
+    </div>`
+    : (parts.length
+      ? `<p class="hint outline-ungrouped-empty">미분류 폴더 없음 · 우클릭으로 상위 폴더에 넣거나 뺄 수 있어요.</p>`
+      : "");
+
+  outline.innerHTML = `${partBlocks}${ungroupedHtml}`;
+
+  try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
+  try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
+
+  outline.querySelectorAll("[data-toggle-chapter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      toggleChapterExpanded(button.dataset.toggleChapter);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  outline.querySelectorAll("[data-toggle-part]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      togglePartExpanded(button.dataset.togglePart);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  outline.querySelectorAll("[data-toggle-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      toggleSceneExpanded(button.dataset.toggleScene);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  outline.querySelectorAll("[data-chapter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      setChapterCollapsed(button.dataset.chapter, false);
+      createScene(button.dataset.chapter).catch(handleError);
+    });
+  });
+  outline.querySelectorAll("[data-part-add-chapter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      const partId = Number(button.dataset.partAddChapter);
+      setPartCollapsed(partId, false);
+      createChapter({ partId }).catch(handleError);
+    });
+  });
+  outline.querySelectorAll(".chapter-row").forEach((row) => {
+    row.addEventListener("contextmenu", (event) => {
+      if (event.target.closest?.("[data-scene]")) return;
+      const section = row.closest?.(".outline-chapter");
+      const chapterId = section?.dataset?.chapterId;
+      if (!chapterId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const titleBtn = row.querySelector("[data-rename-chapter]");
+      const partRaw = section?.dataset?.partId;
+      showChapterContextMenu(event.clientX, event.clientY, {
+        id: chapterId,
+        title: titleBtn?.textContent || titleBtn?.getAttribute("title") || "",
+        partId: partRaw === "" || partRaw == null ? null : Number(partRaw),
+      });
+    });
+  });
+  outline.querySelectorAll(".part-row").forEach((row) => {
+    row.addEventListener("contextmenu", (event) => {
+      const section = row.closest?.(".outline-part");
+      const partId = section?.dataset?.partId;
+      if (!partId) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const titleBtn = row.querySelector("[data-rename-part]");
+      showPartContextMenu(event.clientX, event.clientY, {
+        id: partId,
+        title: titleBtn?.textContent || titleBtn?.getAttribute("title") || "",
+      });
+    });
+  });
+  outline.querySelectorAll("[data-scene]").forEach((button) => {
+    button.addEventListener("click", () => openScene(button.dataset.scene).catch(handleError));
+  });
+  outline.querySelectorAll("[data-rename-chapter]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      beginChapterRename(button).catch(handleError);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  outline.querySelectorAll("[data-rename-part]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
+      button.classList.add("is-selected");
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      beginPartRename(button).catch(handleError);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  injectChapterInsertSlots(outline);
+  setupChapterDragAndDrop(outline);
+  setupPartDragAndDrop(outline);
+  setupSceneNestDragAndDrop(outline);
+  setupNewChapterDrag();
+  setupBinderContextMenu();
+  updateChapterInsertBanner();
+  updateToryFocusUi();
+  renderBookmarkBar();
+  markBookmarkedTargets();
+}
+
+async function beginChapterRename(titleButton) {
+  const chapterId = Number(titleButton.dataset.renameChapter);
+  if (!chapterId) return;
+  const section = titleButton.closest(".outline-chapter");
+  const row = titleButton.closest(".chapter-row");
+  if (!row || row.querySelector(".chapter-rename-input")) return;
+
+  const original = state.outline.find((chapter) => chapter.id === chapterId)?.title
+    || titleButton.textContent
+    || "";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "chapter-rename-input";
+  input.value = original;
+  input.setAttribute("aria-label", "챕터 이름 수정");
+  input.maxLength = 200;
+  titleButton.replaceWith(input);
+  input.focus();
+  input.select();
+
+  // While renaming, disable chapter drag so the input is usable.
+  if (section) section.draggable = false;
+
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const nextTitle = input.value.trim();
+    if (section) section.draggable = true;
+    if (!save || !nextTitle || nextTitle === original) {
+      await loadProject();
+      return;
+    }
+    try {
+      await api(`/api/chapters/${chapterId}`, {
+        method: "PUT",
+        body: JSON.stringify({ title: nextTitle }),
+      });
+      const chapter = state.outline.find((item) => item.id === chapterId);
+      if (chapter) chapter.title = nextTitle;
+      await loadProject();
+      toast("챕터 이름을 바꿨어요.");
+    } catch (error) {
+      await loadProject();
+      throw error;
+    }
+  };
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true).catch(handleError);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false).catch(handleError);
+    }
+  });
+  input.addEventListener("blur", () => {
+    finish(true).catch(handleError);
+  });
+  input.addEventListener("mousedown", (event) => event.stopPropagation());
+  input.addEventListener("click", (event) => event.stopPropagation());
+}
+
+function chapterGroupContainer(section) {
+  return section?.closest?.("[data-part-chapters]") || section?.parentElement || null;
+}
+
+function chapterGroupPartId(containerOrSection) {
+  const el = containerOrSection?.closest?.("[data-part-chapters]")
+    || containerOrSection?.closest?.(".outline-part")
+    || containerOrSection;
+  if (!el || !el.dataset) return null;
+  if (Object.prototype.hasOwnProperty.call(el.dataset, "partChapters")) {
+    const raw = el.dataset.partChapters;
+    if (raw === "" || raw == null) return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  }
+  if (el.classList?.contains("outline-part") && el.dataset.partId) {
+    const n = Number(el.dataset.partId);
+    return Number.isFinite(n) ? n : null;
+  }
+  const raw = el.dataset.partId;
+  if (raw === "" || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Drop target for folder (chapter) drag: sibling reorder or move into another top folder. */
+function resolveChapterDropTarget(outline, clientX, clientY, eventTarget) {
+  if (!outline) return null;
+  const x = Number(clientX);
+  const y = Number(clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  let el = eventTarget && eventTarget.nodeType === 1
+    ? eventTarget
+    : null;
+  try {
+    const stack = document.elementsFromPoint(x, y) || [];
+    // Prefer a node under the pointer that is not the dragging chapter itself.
+    const preferred = stack.find((node) => (
+      node
+      && node.nodeType === 1
+      && outline.contains(node)
+      && !(chapterDragEl && (node === chapterDragEl || chapterDragEl.contains(node)))
+    ));
+    if (preferred) el = preferred;
+    else if (!el) el = stack.find((node) => node && node.nodeType === 1 && outline.contains(node)) || null;
+  } catch (_) {
+    if (!el) {
+      try { el = document.elementFromPoint(x, y); } catch (__) { el = null; }
+    }
+  }
+  if (!el || !outline.contains(el)) {
+    // Fall through to geometry hit-test below.
+    el = null;
+  }
+
+  // Sibling chapter reorder (never treat the dragged chapter as a drop anchor).
+  const chapterEl = el?.closest?.(".outline-chapter");
+  if (
+    chapterEl
+    && outline.contains(chapterEl)
+    && chapterEl !== chapterDragEl
+    && !chapterEl.classList.contains("is-dragging")
+  ) {
+    const container = chapterGroupContainer(chapterEl);
+    const rect = chapterEl.getBoundingClientRect();
+    const before = y < rect.top + rect.height / 2;
+    return {
+      partId: chapterGroupPartId(container || chapterEl),
+      container,
+      relativeTo: chapterEl,
+      before,
+      partEl: chapterEl.closest?.(".outline-part") || null,
+    };
+  }
+
+  // Any point inside a top-level folder box counts as a drop into that folder.
+  for (const partEl of outline.querySelectorAll(":scope > .outline-part")) {
+    const rect = partEl.getBoundingClientRect();
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) continue;
+    const container = partEl.querySelector("[data-part-chapters]") || partEl;
+    return {
+      partId: Number(partEl.dataset.partId) || null,
+      container,
+      relativeTo: null,
+      before: false,
+      partEl,
+    };
+  }
+
+  // Ungrouped zone (or empty-ungrouped hint) → part_id null
+  const ungrouped = outline.querySelector(".outline-ungrouped");
+  if (ungrouped) {
+    const rect = ungrouped.getBoundingClientRect();
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return {
+        partId: null,
+        container: ungrouped,
+        relativeTo: null,
+        before: false,
+        partEl: null,
+      };
+    }
+  }
+  const ungroupedEmpty = outline.querySelector(".outline-ungrouped-empty");
+  if (ungroupedEmpty) {
+    const rect = ungroupedEmpty.getBoundingClientRect();
+    if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) {
+      return {
+        partId: null,
+        container: ungrouped || ungroupedEmpty,
+        relativeTo: null,
+        before: false,
+        partEl: null,
+      };
+    }
+  }
+
+  // Closest()-based fallback when geometry misses (e.g. transformed scroll edge).
+  const partEl = el?.closest?.(".outline-part");
+  if (partEl && outline.contains(partEl)) {
+    const container = partEl.querySelector("[data-part-chapters]") || partEl;
+    return {
+      partId: Number(partEl.dataset.partId) || null,
+      container,
+      relativeTo: null,
+      before: false,
+      partEl,
+    };
+  }
+  const ungroupedClosest = el?.closest?.(".outline-ungrouped, .outline-ungrouped-empty");
+  if (ungroupedClosest && outline.contains(ungroupedClosest)) {
+    const container = ungroupedClosest.classList?.contains("outline-ungrouped")
+      ? ungroupedClosest
+      : (ungrouped || ungroupedClosest);
+    return {
+      partId: null,
+      container,
+      relativeTo: null,
+      before: false,
+      partEl: null,
+    };
+  }
+  return null;
+}
+
+let chapterDragEl = null;
+
+function clearChapterDropMarkers(outline = $("outline")) {
+  outline?.querySelectorAll(".outline-chapter").forEach((section) => {
+    section.classList.remove("drag-over-before", "drag-over-after", "is-dragging");
+  });
+  outline?.querySelectorAll(".outline-part.is-folder-drop, .outline-ungrouped.is-folder-drop").forEach((el) => {
+    el.classList.remove("is-folder-drop");
+  });
+}
+
+function setupChapterDragAndDrop(outline) {
+  if (!outline) return;
+  // Bind once with delegation — supports cross-folder moves after re-render.
+  if (outline.dataset.chapterDragBound === "1") return;
+  outline.dataset.chapterDragBound = "1";
+
+  outline.addEventListener("dragstart", (event) => {
+    if (event.target.closest?.(".scene-tree-item, .chapter-children")) return;
+    if (chapterInsertDragActive) return;
+
+    const section = event.target.closest?.(".outline-chapter");
+    if (!section || !outline.contains(section)) return;
+    if (event.target.closest?.("button.chapter-add-scene, button[data-chapter], .chapter-insert-slot, input, textarea")) {
+      event.preventDefault();
+      return;
+    }
+
+    event.stopPropagation();
+    chapterDragEl = section;
+    section.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", `chapter:${section.dataset.chapterId || ""}`);
+      event.dataTransfer.setData(
+        "application/x-supertory-chapter",
+        String(section.dataset.chapterId || ""),
+      );
+    } catch (_) { /* ignore */ }
+    try {
+      event.dataTransfer.setDragImage(section, 20, 12);
+    } catch (_) { /* ignore */ }
+  }, true);
+
+  outline.addEventListener("dragend", () => {
+    chapterDragEl = null;
+    clearChapterDropMarkers(outline);
+  }, true);
+
+  outline.addEventListener("dragover", (event) => {
+    if (!chapterDragEl || chapterInsertDragActive) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    const target = resolveChapterDropTarget(outline, event.clientX, event.clientY, event.target);
+    if (!target) return;
+    if (target.relativeTo === chapterDragEl) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    try { event.dataTransfer.dropEffect = "move"; } catch (_) { /* ignore */ }
+
+    clearChapterDropMarkers(outline);
+    chapterDragEl.classList.add("is-dragging");
+
+    const fromPartId = chapterGroupPartId(chapterGroupContainer(chapterDragEl) || chapterDragEl);
+    const toPartId = target.partId;
+    const sameGroup = fromPartId === toPartId || (fromPartId == null && toPartId == null);
+
+    if (sameGroup && target.relativeTo) {
+      target.relativeTo.classList.toggle("drag-over-before", target.before);
+      target.relativeTo.classList.toggle("drag-over-after", !target.before);
+      return;
+    }
+
+    // Cross-folder (or same-folder empty area): highlight the whole destination box.
+    const partBox = target.partEl
+      || (toPartId != null
+        ? outline.querySelector(`.outline-part[data-part-id="${toPartId}"]`)
+        : null);
+    const ungroupedBox = toPartId == null
+      ? outline.querySelector(".outline-ungrouped, .outline-ungrouped-empty")
+      : null;
+    if (partBox) partBox.classList.add("is-folder-drop");
+    if (ungroupedBox) ungroupedBox.classList.add("is-folder-drop");
+    if (sameGroup && target.relativeTo) {
+      target.relativeTo.classList.toggle("drag-over-before", target.before);
+      target.relativeTo.classList.toggle("drag-over-after", !target.before);
+    } else if (!sameGroup && target.relativeTo) {
+      target.relativeTo.classList.toggle("drag-over-before", target.before);
+      target.relativeTo.classList.toggle("drag-over-after", !target.before);
+    }
+  }, true);
+
+  outline.addEventListener("drop", (event) => {
+    if (!chapterDragEl || chapterInsertDragActive) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    const dragged = chapterDragEl;
+    const target = resolveChapterDropTarget(outline, event.clientX, event.clientY, event.target);
+    if (!target || target.relativeTo === dragged) {
+      clearChapterDropMarkers(outline);
+      chapterDragEl = null;
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+
+    const chapterId = Number(dragged.dataset.chapterId);
+    if (!chapterId || !state.projectId) {
+      chapterDragEl = null;
+      clearChapterDropMarkers(outline);
+      return;
+    }
+
+    const fromPartId = chapterGroupPartId(chapterGroupContainer(dragged) || dragged);
+    const toPartId = target.partId;
+    const sameGroup = fromPartId === toPartId || (fromPartId == null && toPartId == null);
+
+    const run = async () => {
+      try {
+        if (!sameGroup) {
+          await api(`/api/chapters/${chapterId}/move`, {
+            method: "POST",
+            body: JSON.stringify({ part_id: toPartId }),
+          });
+        }
+
+        // After cross-folder move, reload then place next to drop sibling if any
+        if (!sameGroup) {
+          await loadProject();
+          if (target.relativeTo) {
+            const outlineNow = $("outline");
+            const movedEl = outlineNow?.querySelector(`.outline-chapter[data-chapter-id="${chapterId}"]`);
+            const relId = Number(target.relativeTo.dataset.chapterId);
+            const relEl = outlineNow?.querySelector(`.outline-chapter[data-chapter-id="${relId}"]`);
+            const container = movedEl ? chapterGroupContainer(movedEl) : null;
+            if (movedEl && relEl && container && container.contains(relEl) && container.contains(movedEl)) {
+              const siblings = [...container.querySelectorAll(":scope > .outline-chapter")];
+              const without = siblings.filter((n) => n !== movedEl);
+              let insertAt = without.indexOf(relEl);
+              if (insertAt < 0) insertAt = without.length;
+              if (!target.before) insertAt += 1;
+              without.splice(insertAt, 0, movedEl);
+              without.forEach((node) => container.appendChild(node));
+              await reorderChapters(
+                without.map((n) => Number(n.dataset.chapterId)),
+                toPartId,
+              );
+              toast("폴더를 옮기고 순서를 맞췄어요.");
+              return;
+            }
+          }
+          toast("폴더를 옮겼어요.");
+          return;
+        }
+
+        // Same group: reorder next to sibling
+        if (target.relativeTo && target.container) {
+          const chapters = [...target.container.querySelectorAll(":scope > .outline-chapter")];
+          const fromIndex = chapters.indexOf(dragged);
+          let toIndex = chapters.indexOf(target.relativeTo);
+          if (fromIndex >= 0 && toIndex >= 0) {
+            chapters.splice(fromIndex, 1);
+            toIndex = chapters.indexOf(target.relativeTo);
+            if (toIndex < 0) toIndex = chapters.length;
+            const insertAt = target.before ? toIndex : toIndex + 1;
+            chapters.splice(insertAt, 0, dragged);
+            target.container.querySelectorAll(":scope > .chapter-insert-slot").forEach((s) => s.remove());
+            chapters.forEach((node) => target.container.appendChild(node));
+            injectChapterInsertSlots($("outline"));
+            await reorderChapters(
+              chapters.map((n) => Number(n.dataset.chapterId)),
+              toPartId,
+            );
+            return;
+          }
+        }
+
+        // Same group, empty area of the folder box → move to end
+        if (target.container) {
+          const chapters = [...target.container.querySelectorAll(":scope > .outline-chapter")];
+          const fromIndex = chapters.indexOf(dragged);
+          if (fromIndex >= 0 && fromIndex !== chapters.length - 1) {
+            chapters.splice(fromIndex, 1);
+            chapters.push(dragged);
+            target.container.querySelectorAll(":scope > .chapter-insert-slot").forEach((s) => s.remove());
+            chapters.forEach((node) => target.container.appendChild(node));
+            injectChapterInsertSlots($("outline"));
+            await reorderChapters(
+              chapters.map((n) => Number(n.dataset.chapterId)),
+              toPartId,
+            );
+            return;
+          }
+        }
+      } catch (error) {
+        handleError(error);
+        loadProject().catch(handleError);
+      } finally {
+        chapterDragEl = null;
+        clearChapterDropMarkers($("outline"));
+      }
+    };
+
+    run();
+  }, true);
+}
+
+function setupPartDragAndDrop(outline) {
+  if (!outline) return;
+  let dragged = null;
+  const clearDropMarkers = () => {
+    outline.querySelectorAll(".outline-part").forEach((section) => {
+      section.classList.remove("drag-over-before", "drag-over-after", "is-dragging");
+    });
+  };
+
+  // Bind once with delegation so chapter→folder drops are not blocked by part.draggable.
+  if (outline.dataset.partDragBound === "1") return;
+  outline.dataset.partDragBound = "1";
+
+  outline.addEventListener("dragstart", (event) => {
+    if (chapterDragEl || chapterInsertDragActive) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    if (event.target.closest?.(".scene-tree-item, .chapter-children, .outline-chapter")) return;
+    const handle = event.target.closest?.(".part-drag-handle");
+    if (!handle || !outline.contains(handle)) return;
+    const section = handle.closest?.(".outline-part");
+    if (!section || !outline.contains(section)) return;
+    event.stopPropagation();
+    dragged = section;
+    section.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", `part:${section.dataset.partId || ""}`);
+      event.dataTransfer.setData("application/x-supertory-part", String(section.dataset.partId || ""));
+    } catch (_) { /* ignore */ }
+    try {
+      event.dataTransfer.setDragImage(section, 20, 12);
+    } catch (_) { /* ignore */ }
+  }, true);
+
+  outline.addEventListener("dragend", (event) => {
+    if (!dragged) return;
+    if (event.target.closest?.(".part-drag-handle, .outline-part") || event.target === dragged) {
+      dragged = null;
+      clearDropMarkers();
+    }
+  }, true);
+
+  outline.addEventListener("dragover", (event) => {
+    if (!dragged || !dragged.classList?.contains("outline-part")) return;
+    if (chapterDragEl) return;
+    const section = event.target.closest?.(".outline-part");
+    if (!section || !outline.contains(section) || section === dragged) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const rect = section.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    section.classList.toggle("drag-over-before", before);
+    section.classList.toggle("drag-over-after", !before);
+    outline.querySelectorAll(".outline-part").forEach((other) => {
+      if (other !== section) other.classList.remove("drag-over-before", "drag-over-after");
+    });
+  }, true);
+
+  outline.addEventListener("drop", (event) => {
+    if (!dragged || !dragged.classList?.contains("outline-part")) return;
+    if (chapterDragEl) return;
+    const section = event.target.closest?.(".outline-part");
+    if (!section || !outline.contains(section)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    if (dragged === section || !state.projectId) {
+      clearDropMarkers();
+      dragged = null;
+      return;
+    }
+    const rect = section.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    const parts = [...outline.querySelectorAll(":scope > .outline-part")];
+    const fromIndex = parts.indexOf(dragged);
+    let toIndex = parts.indexOf(section);
+    if (fromIndex < 0 || toIndex < 0) {
+      clearDropMarkers();
+      dragged = null;
+      return;
+    }
+    parts.splice(fromIndex, 1);
+    toIndex = parts.indexOf(section);
+    if (toIndex < 0) {
+      clearDropMarkers();
+      dragged = null;
+      return;
+    }
+    const insertAt = before ? toIndex : toIndex + 1;
+    parts.splice(insertAt, 0, dragged);
+    const ungrouped = outline.querySelector(".outline-ungrouped, .outline-ungrouped-empty");
+    parts.forEach((node) => outline.insertBefore(node, ungrouped || null));
+    clearDropMarkers();
+    const partIds = parts.map((node) => Number(node.dataset.partId));
+    const finished = dragged;
+    dragged = null;
+    reorderParts(partIds).catch((error) => {
+      handleError(error);
+      loadProject().catch(handleError);
+    });
+    finished?.classList.remove("is-dragging");
+  }, true);
+}
+
+async function reorderChapters(chapterIds, partId = null) {
+  if (!state.projectId || !chapterIds.length) return;
+  await api(`/api/projects/${state.projectId}/chapters/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ chapter_ids: chapterIds, part_id: partId }),
+  });
+  await loadProject();
+  toast("챕터 순서를 바꿨어요.");
+}
+
+async function reorderParts(partIds) {
+  if (!state.projectId || !partIds.length) return;
+  await api(`/api/projects/${state.projectId}/parts/reorder`, {
+    method: "PUT",
+    body: JSON.stringify({ part_ids: partIds }),
+  });
+  await loadProject();
+  toast("권/부 순서를 바꿨어요.");
+}
+
+function renderCharacters() {
+  const list = $("characterList");
+  if (!list) return;
+  list.innerHTML = state.characters.length ? state.characters.map((character) => {
+    const firstLine = String(character.short_description || "").trim()
+      || String(character.profile_md || "").split(/\n/).map((line) => line.trim()).find(Boolean)
+      || roleLabel[character.role]
+      || "";
+    return `
+    <button class="character-link ${state.characterId === character.id ? "active" : ""}" data-character="${character.id}" title="${escapeHtml(character.name)}">
+      <span class="character-name">${escapeHtml(character.name)}</span>
+      <span class="character-role">${escapeHtml(firstLine)}</span>
+    </button>`;
+  }).join("") : "<p class='hint'>아직 인물이 없어요.<br>+ 캐릭터를 눌러 주세요.</p>";
+  list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character)));
+  renderSettingsCodex();
+}
+
+function showWelcome() {
+  void closeSplitView();
+  state.sceneId = null;
+  state.characterId = null;
+  state.illustrations = [];
+  state.referenceLinks = [];
+  if (!state.ideaBoardOpen) {
+    $("ideaBoard")?.classList.add("hidden");
+  }
+  if (!state.keywordBoardOpen) {
+    $("keywordBoard")?.classList.add("hidden");
+  }
+  hideCharacterBoard();
+  $("welcome").classList.remove("hidden");
+  $("sceneWorkspace").classList.add("hidden");
+  $("characterEditor").classList.add("hidden");
+  hideSynopsisMain();
+  $("newChapterButton").disabled = !state.projectId;
+  if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = !state.projectId;
+  $("newCharacterButton").disabled = !state.projectId;
+  $("newIdeaButton").disabled = !state.projectId;
+  syncPurposePickerFromState();
+  syncGenrePickerFromState();
+  closeViewModeMenu();
+  closeSceneToolsDrawer();
+  updateAuthorNotesBadge();
+  updateReferenceMaterialsBadge();
+  renderEpisodeChrome();
+  updateSplitChrome();
+  updateIllustrationPanelVisibility();
+  if (state.ideaBoardOpen) {
+    $("welcome").classList.add("hidden");
+    $("ideaBoard")?.classList.remove("hidden");
+    $("keywordBoard")?.classList.add("hidden");
+  } else if (state.keywordBoardOpen) {
+    $("welcome").classList.add("hidden");
+    $("keywordBoard")?.classList.remove("hidden");
+    $("ideaBoard")?.classList.add("hidden");
+  }
+  updateWelcomeGuideUi();
+}
+
+/* —— Welcome screen: animated Tory + +button guide —— */
+const WELCOME_GUIDE_DISMISS_KEY = "supertory.welcomePlusGuideDismissed";
+const WELCOME_SPEECH_LINES = [
+  "토리와 함께",
+  "왼쪽 위 + 를 눌러 봐요!",
+  "새 글쓰기부터 시작하면 돼요",
+  "써 둔 글이 있으면 가져오기도 가능!",
+  "준비되면 같이 써 봐요",
+];
+let welcomeSpeechTimer = null;
+let welcomeSpeechIndex = 0;
+let welcomeGuideDismissedSession = false;
+
+function isWelcomeScreenVisible() {
+  const el = $("welcome");
+  return Boolean(el && !el.classList.contains("hidden"));
+}
+
+function isWelcomeGuideDismissed() {
+  if (welcomeGuideDismissedSession) return true;
+  try {
+    return sessionStorage.getItem(WELCOME_GUIDE_DISMISS_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setWelcomeGuideDismissed(dismissed) {
+  welcomeGuideDismissedSession = Boolean(dismissed);
+  try {
+    sessionStorage.setItem(WELCOME_GUIDE_DISMISS_KEY, dismissed ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function positionWelcomePlusGuide() {
+  const guide = $("welcomePlusGuide");
+  const plus = $("createMenuButton");
+  if (!guide || !plus) return;
+  if (!isWelcomeScreenVisible() || isWelcomeGuideDismissed()) {
+    guide.classList.add("hidden");
+    guide.style.visibility = "";
+    return;
+  }
+  const rect = plus.getBoundingClientRect();
+  if (rect.width < 2 || rect.height < 2 || rect.bottom < 0) {
+    guide.classList.add("hidden");
+    return;
+  }
+
+  // Layout: arrow (tip up) stacked on bubble — arrow always centered on bubble.
+  // Whole stack is centered under +, then nudged right so tip sits on the + glyph.
+  const arrow = guide.querySelector(".welcome-plus-guide-arrow");
+  if (arrow) {
+    arrow.style.marginLeft = "";
+    arrow.style.marginRight = "";
+    arrow.style.alignSelf = "";
+  }
+
+  guide.classList.remove("hidden");
+  guide.style.visibility = "hidden";
+  guide.style.left = "0px";
+  guide.style.top = "0px";
+
+  const guideW = guide.offsetWidth || 148;
+  const guideH = guide.offsetHeight || 96;
+  const pad = 6;
+  // Optical center of + button (glyph sits a hair right of box center on some fonts)
+  const plusCenterX = rect.left + rect.width / 2 + 1;
+  // Previous right nudge, then user asked ~3mm left (1mm ≈ 3.78px → 3mm ≈ 11px)
+  const rightNudge = 10;
+  const leftNudgeMm = 3;
+  const leftNudgePx = leftNudgeMm * 3.78;
+  let left = plusCenterX - guideW / 2 + rightNudge - leftNudgePx;
+  left = Math.max(pad, Math.min(left, window.innerWidth - guideW - pad));
+  let top = rect.bottom + 1;
+  if (top + guideH > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - guideH - pad);
+  }
+
+  guide.style.left = `${Math.round(left)}px`;
+  guide.style.top = `${Math.round(top)}px`;
+  guide.style.visibility = "visible";
+}
+
+function updateWelcomeGuideUi() {
+  if (!isWelcomeScreenVisible()) {
+    $("welcomePlusGuide")?.classList.add("hidden");
+    stopWelcomeSpeechCycle();
+    return;
+  }
+  startWelcomeSpeechCycle();
+  // Double rAF: wait for header/layout paint so getBoundingClientRect is correct
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => positionWelcomePlusGuide());
+  });
+}
+
+function startWelcomeSpeechCycle() {
+  const speech = $("welcomeSpeech");
+  if (!speech) return;
+  if (welcomeSpeechTimer) return;
+  welcomeSpeechIndex = 0;
+  speech.textContent = WELCOME_SPEECH_LINES[0];
+  welcomeSpeechTimer = window.setInterval(() => {
+    if (!isWelcomeScreenVisible()) {
+      stopWelcomeSpeechCycle();
+      return;
+    }
+    welcomeSpeechIndex = (welcomeSpeechIndex + 1) % WELCOME_SPEECH_LINES.length;
+    speech.textContent = WELCOME_SPEECH_LINES[welcomeSpeechIndex];
+  }, 3200);
+}
+
+function stopWelcomeSpeechCycle() {
+  if (welcomeSpeechTimer) {
+    window.clearInterval(welcomeSpeechTimer);
+    welcomeSpeechTimer = null;
+  }
+}
+
+function dismissWelcomePlusGuide() {
+  setWelcomeGuideDismissed(true);
+  $("welcomePlusGuide")?.classList.add("hidden");
+}
+
+function setupWelcomeScreen() {
+  // Header + opens create menu; hide the floating guide when user engages it
+  $("createMenuButton")?.addEventListener("click", () => {
+    if (isWelcomeScreenVisible()) dismissWelcomePlusGuide();
+  });
+  window.addEventListener("resize", () => {
+    if (isWelcomeScreenVisible()) positionWelcomePlusGuide();
+  });
+  window.addEventListener("load", () => updateWelcomeGuideUi());
+  const welcome = $("welcome");
+  if (welcome && typeof MutationObserver !== "undefined") {
+    const mo = new MutationObserver(() => updateWelcomeGuideUi());
+    mo.observe(welcome, { attributes: true, attributeFilter: ["class"] });
+  }
+}
+
+function openNewProjectModal() {
+  const modal = $("newProjectModal");
+  if (!modal) return;
+  const titleInput = $("newProjectTitle");
+  const purposeSelect = $("newProjectPurpose");
+  if (titleInput) titleInput.value = "";
+  if (purposeSelect) {
+    const keys = Object.keys(purposeLabel);
+    purposeSelect.innerHTML = keys
+      .map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(purposeLabel[key])}</option>`)
+      .join("");
+    purposeSelect.value = "general_novel";
+  }
+  const submit = $("newProjectSubmitButton");
+  if (submit) {
+    submit.disabled = false;
+    submit.textContent = "만들기";
+  }
+  modal.classList.remove("hidden");
+  window.setTimeout(() => titleInput?.focus(), 0);
+}
+
+function closeNewProjectModal() {
+  $("newProjectModal")?.classList.add("hidden");
+  const submit = $("newProjectSubmitButton");
+  if (submit) {
+    submit.disabled = false;
+    submit.textContent = "만들기";
+  }
+}
+
+async function submitNewProject(event) {
+  event?.preventDefault?.();
+  const title = String($("newProjectTitle")?.value || "").trim();
+  if (!title) {
+    toast("작품 제목을 적어 주세요.");
+    $("newProjectTitle")?.focus();
+    return;
+  }
+  const purpose = normalizePurposeKey($("newProjectPurpose")?.value || "general_novel");
+  const submit = $("newProjectSubmitButton");
+  if (submit) {
+    submit.disabled = true;
+    submit.textContent = "만드는 중…";
+  }
+  try {
+    const project = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify({ title, purpose }),
+    });
+    closeNewProjectModal();
+    await loadProjects(project.id);
+    const packageNote = project.package_name ? ` 파일: projects\\${project.package_name}` : "";
+    toast(`새 ${purposeLabel[purpose] || "작품"}이 만들어졌어요.${packageNote}`);
+  } catch (error) {
+    if (submit) {
+      submit.disabled = false;
+      submit.textContent = "만들기";
+    }
+    throw error;
+  }
+}
+
+function setupNewProjectModal() {
+  $("newProjectForm")?.addEventListener("submit", (event) => {
+    submitNewProject(event).catch(handleError);
+  });
+  document.querySelectorAll("[data-close-new-project]").forEach((element) => {
+    element.addEventListener("click", closeNewProjectModal);
+  });
+}
+
+/** Open the new-project modal (Electron-safe; no window.prompt). */
+function createProject() {
+  openNewProjectModal();
+}
+
+/** Pending insert position for +챕터 drag/click: 0 = top, n = after last. null = append. */
+let pendingChapterInsertIndex = null;
+let chapterInsertDragActive = false;
+let suppressNextNewChapterClick = false;
+
+function clearChapterInsertTarget() {
+  pendingChapterInsertIndex = null;
+  chapterInsertDragActive = false;
+  updateChapterInsertBanner();
+  clearChapterInsertMarkers();
+  $("outline")?.classList.remove("is-chapter-insert-drag");
+  $("newChapterButton")?.classList.remove("is-dragging-source");
+}
+
+function clearChapterInsertMarkers() {
+  const outline = $("outline");
+  if (!outline) return;
+  outline.querySelectorAll(".chapter-insert-slot").forEach((slot) => {
+    slot.classList.remove("is-active");
+  });
+  outline.querySelectorAll(".outline-chapter").forEach((section) => {
+    section.classList.remove("drag-insert-before", "drag-insert-after");
+  });
+}
+
+function insertableChaptersList() {
+  // +챕터 drag insert targets ungrouped folders when 권/부 boxes exist.
+  if ((state.parts || []).length) {
+    return Array.isArray(state.ungroupedChapters) ? state.ungroupedChapters : [];
+  }
+  return Array.isArray(state.outline) ? state.outline : [];
+}
+
+function describeChapterInsertIndex(index) {
+  const chapters = insertableChaptersList();
+  if (!chapters.length) return "맨 위(첫 챕터)";
+  if (index == null || index >= chapters.length) {
+    const last = chapters[chapters.length - 1];
+    return `맨 아래 (${last?.title || "마지막"} 다음)`;
+  }
+  if (index <= 0) {
+    return `"${chapters[0]?.title || "첫 챕터"}" 앞`;
+  }
+  const before = chapters[index - 1];
+  const after = chapters[index];
+  return `"${before?.title || "?"}" 와 "${after?.title || "?"}" 사이`;
+}
+
+function updateChapterInsertBanner() {
+  const banner = $("chapterInsertBanner");
+  const text = $("chapterInsertBannerText");
+  if (!banner || !text) return;
+  if (pendingChapterInsertIndex == null) {
+    banner.classList.add("hidden");
+    return;
+  }
+  banner.classList.remove("hidden");
+  text.textContent = `삽입 위치: ${describeChapterInsertIndex(pendingChapterInsertIndex)} · + 챕터를 누르면 여기에 추가`;
+}
+
+function setPendingChapterInsertIndex(index) {
+  const chapters = insertableChaptersList();
+  const max = chapters.length;
+  pendingChapterInsertIndex = Math.max(0, Math.min(Number(index) || 0, max));
+  updateChapterInsertBanner();
+  // Highlight the matching slot after render if present.
+  const outline = $("outline");
+  if (!outline) return;
+  clearChapterInsertMarkers();
+  const slot = outline.querySelector(`.chapter-insert-slot[data-insert-index="${pendingChapterInsertIndex}"]`);
+  slot?.classList.add("is-active");
+}
+
+function injectChapterInsertSlots(outline) {
+  if (!outline) return;
+  // When 권/부 boxes exist, insert slots only apply to ungrouped folders.
+  const host = (state.parts || []).length
+    ? (outline.querySelector(".outline-ungrouped") || null)
+    : outline;
+  if (!host) return;
+  const chapters = [...host.querySelectorAll(":scope > .outline-chapter")];
+  // Slot before first
+  const makeSlot = (index) => {
+    const slot = document.createElement("div");
+    slot.className = "chapter-insert-slot";
+    slot.dataset.insertIndex = String(index);
+    slot.setAttribute("aria-hidden", "true");
+    // Click does nothing — insert position is only set by dragging +챕터.
+    slot.addEventListener("dragover", (event) => {
+      if (!chapterInsertDragActive) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      clearChapterInsertMarkers();
+      slot.classList.add("is-active");
+    });
+    slot.addEventListener("drop", (event) => {
+      if (!chapterInsertDragActive) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setPendingChapterInsertIndex(index);
+      chapterInsertDragActive = false;
+      // Avoid accidental click-create right after drop; user clicks +챕터 next.
+      suppressNextNewChapterClick = true;
+      window.setTimeout(() => { suppressNextNewChapterClick = false; }, 0);
+      $("newChapterButton")?.classList.remove("is-dragging-source");
+      clearChapterInsertMarkers();
+      slot.classList.add("is-active");
+      toast(`삽입 위치: ${describeChapterInsertIndex(index)}. + 챕터를 누르면 여기에 추가됩니다.`);
+    });
+    return slot;
+  };
+
+  // Rebuild: insert slots between chapters without destroying structure mid-loop.
+  // Keep non-chapter chrome (e.g. "미분류 폴더" label) at the top of host.
+  const keepNodes = [...host.childNodes].filter(
+    (node) => !(node.nodeType === 1 && (
+      node.classList?.contains("outline-chapter")
+      || node.classList?.contains("chapter-insert-slot")
+    )),
+  );
+  const fragment = document.createDocumentFragment();
+  keepNodes.forEach((node) => fragment.appendChild(node));
+  fragment.appendChild(makeSlot(0));
+  chapters.forEach((section, index) => {
+    fragment.appendChild(section);
+    fragment.appendChild(makeSlot(index + 1));
+  });
+  host.replaceChildren(fragment);
+
+  if (pendingChapterInsertIndex != null) {
+    const slot = host.querySelector(`.chapter-insert-slot[data-insert-index="${pendingChapterInsertIndex}"]`);
+    slot?.classList.add("is-active");
+  }
+}
+
+function setupNewChapterDrag() {
+  const button = $("newChapterButton");
+  if (!button || button.dataset.dragBound === "1") return;
+  button.dataset.dragBound = "1";
+  button.draggable = true;
+
+  button.addEventListener("dragstart", (event) => {
+    if (!state.projectId) {
+      event.preventDefault();
+      toast("먼저 새 작품을 만들어 주세요.");
+      return;
+    }
+    chapterInsertDragActive = true;
+    button.classList.add("is-dragging-source");
+    event.dataTransfer.effectAllowed = "copy";
+    try {
+      event.dataTransfer.setData("text/plain", "supertory-new-chapter");
+      event.dataTransfer.setData("application/x-supertory-new-chapter", "1");
+    } catch (_) {
+      /* ignore */
+    }
+    // Show drop slots only while dragging +챕터 (not on click between folders).
+    const outline = $("outline");
+    outline?.classList.add("is-chapter-insert-drag");
+  });
+
+  button.addEventListener("dragend", () => {
+    chapterInsertDragActive = false;
+    button.classList.remove("is-dragging-source");
+    // Keep pending position highlight if set; clear only pure drag-over states.
+    const outline = $("outline");
+    outline?.classList.remove("is-chapter-insert-drag");
+    outline?.querySelectorAll(".chapter-insert-slot").forEach((slot) => {
+      const idx = Number(slot.dataset.insertIndex);
+      slot.classList.toggle("is-active", pendingChapterInsertIndex != null && idx === pendingChapterInsertIndex);
+    });
+  });
+
+  const outline = $("outline");
+  if (outline && outline.dataset.insertDropBound !== "1") {
+    outline.dataset.insertDropBound = "1";
+    outline.addEventListener("dragover", (event) => {
+      if (!chapterInsertDragActive) return;
+      event.preventDefault();
+      event.dataTransfer.dropEffect = "copy";
+      const section = event.target.closest?.(".outline-chapter");
+      if (!section || !outline.contains(section)) return;
+      const chapters = [...outline.querySelectorAll(":scope > .outline-chapter")];
+      const index = chapters.indexOf(section);
+      if (index < 0) return;
+      const rect = section.getBoundingClientRect();
+      const before = event.clientY < rect.top + rect.height / 2;
+      const insertIndex = before ? index : index + 1;
+      clearChapterInsertMarkers();
+      const slot = outline.querySelector(`.chapter-insert-slot[data-insert-index="${insertIndex}"]`);
+      slot?.classList.add("is-active");
+      section.classList.toggle("drag-insert-before", before);
+      section.classList.toggle("drag-insert-after", !before);
+    });
+    outline.addEventListener("drop", (event) => {
+      if (!chapterInsertDragActive) return;
+      // Slot handlers handle their own drops; this is fallback for chapter rows.
+      if (event.target.closest?.(".chapter-insert-slot")) return;
+      event.preventDefault();
+      const section = event.target.closest?.(".outline-chapter");
+      const chapters = [...outline.querySelectorAll(":scope > .outline-chapter")];
+      let insertIndex = chapters.length;
+      if (section && outline.contains(section)) {
+        const index = chapters.indexOf(section);
+        const rect = section.getBoundingClientRect();
+        const before = event.clientY < rect.top + rect.height / 2;
+        insertIndex = before ? index : index + 1;
+      }
+      setPendingChapterInsertIndex(insertIndex);
+      chapterInsertDragActive = false;
+      suppressNextNewChapterClick = true;
+      window.setTimeout(() => { suppressNextNewChapterClick = false; }, 0);
+      $("newChapterButton")?.classList.remove("is-dragging-source");
+      toast(`삽입 위치: ${describeChapterInsertIndex(insertIndex)}. + 챕터를 누르면 여기에 추가됩니다.`);
+    });
+  }
+
+  $("clearChapterInsertButton")?.addEventListener("click", () => {
+    clearChapterInsertTarget();
+    toast("삽입 위치를 취소했어요. 클릭 추가는 맨 아래에 붙습니다.");
+  });
+}
+
+function openRenumberChaptersModal(message) {
+  const modal = $("renumberChaptersModal");
+  if (!modal) return;
+  if (message && $("renumberChaptersMessage")) {
+    $("renumberChaptersMessage").innerHTML = message;
+  } else if ($("renumberChaptersMessage")) {
+    $("renumberChaptersMessage").innerHTML =
+      "목록 번호를 재정렬 하시겠습니까?<br>현재 바인더 순서대로 챕터 제목 앞의 순번을 새로 매깁니다.";
+  }
+  modal.classList.remove("hidden");
+}
+
+function closeRenumberChaptersModal() {
+  $("renumberChaptersModal")?.classList.add("hidden");
+}
+
+async function renumberChapterTitles(style = "jang") {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.outline?.length) return toast("정리할 챕터가 없어요.");
+  const result = await api(`/api/projects/${state.projectId}/chapters/renumber-titles`, {
+    method: "PUT",
+    body: JSON.stringify({ style }),
+  });
+  await loadProject();
+  toast(`챕터 순번을 다시 매겼어요. (${result.count || state.outline.length}개)`);
+}
+
+/* —— 바인더 목차: 폴더 개수 + 우클릭 글자 크기 + 안내 팁(닫기) —— */
+const OUTLINE_TITLE_FONT_KEY = "supertory.outlineTitleFontSize";
+const OUTLINE_TITLE_FONT_MIN = 11;
+const OUTLINE_TITLE_FONT_MAX = 18;
+const OUTLINE_TITLE_FONT_DEFAULT = 12;
+const OUTLINE_TIP_HIDDEN_KEY = "supertory.outlineTipHidden";
+
+function getOutlineTitleFontSize() {
+  try {
+    const n = Number(localStorage.getItem(OUTLINE_TITLE_FONT_KEY));
+    if (Number.isFinite(n) && n >= OUTLINE_TITLE_FONT_MIN && n <= OUTLINE_TITLE_FONT_MAX) {
+      return Math.round(n);
+    }
+  } catch (_) { /* ignore */ }
+  return OUTLINE_TITLE_FONT_DEFAULT;
+}
+
+function applyOutlineTitleFontSize(sizePx, { persist = true } = {}) {
+  const size = Math.max(
+    OUTLINE_TITLE_FONT_MIN,
+    Math.min(
+      OUTLINE_TITLE_FONT_MAX,
+      Math.round(Number(sizePx) || getOutlineTitleFontSize() || OUTLINE_TITLE_FONT_DEFAULT),
+    ),
+  );
+  const root = $("manuscriptBinder") || $("outline");
+  if (root) root.style.setProperty("--outline-title-size", `${size}px`);
+  if ($("outline")) $("outline").style.setProperty("--outline-title-size", `${size}px`);
+  if ($("outlineTitleFontValue")) $("outlineTitleFontValue").textContent = String(size);
+  document.querySelectorAll("#outlineTitleFontMenu [data-outline-font]").forEach((btn) => {
+    btn.classList.toggle("is-active", Number(btn.dataset.outlineFont) === size);
+  });
+  if (persist) {
+    try { localStorage.setItem(OUTLINE_TITLE_FONT_KEY, String(size)); } catch (_) { /* ignore */ }
+  }
+  return size;
+}
+
+function hideOutlineTitleFontMenu() {
+  $("outlineTitleFontMenu")?.classList.add("hidden");
+}
+
+function showOutlineTitleFontMenu(clientX, clientY) {
+  const menu = $("outlineTitleFontMenu");
+  if (!menu) return;
+  applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
+  menu.classList.remove("hidden");
+
+  // Measure after show; place under 목차 heading (or near cursor)
+  const pad = 8;
+  const anchor = $("outlineTocHeading") || document.querySelector(".outline-toc-heading");
+  const ar = anchor?.getBoundingClientRect?.();
+  let left = ar ? ar.left : (Number(clientX) || 12);
+  let top = ar ? ar.bottom + 4 : (Number(clientY) || 12);
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 180;
+  const height = rect.height || 170;
+  if (left + width > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - width - pad);
+  }
+  if (top + height > window.innerHeight - pad) {
+    top = ar
+      ? Math.max(pad, ar.top - height - 4)
+      : Math.max(pad, window.innerHeight - height - pad);
+  }
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function updateOutlineFolderCount() {
+  const folderEl = $("outlineFolderCount");
+  const sceneEl = $("outlineSceneCount");
+  const folderN = Array.isArray(state.outline) ? state.outline.length : 0;
+  let sceneN = 0;
+  try {
+    sceneN = flattenAllOutlineScenes().length;
+  } catch (_) {
+    for (const chapter of state.outline || []) {
+      sceneN += flattenChapterScenes(chapter).length;
+    }
+  }
+  if (folderEl) {
+    folderEl.textContent = String(folderN);
+    folderEl.setAttribute("aria-label", `폴더 ${folderN}개`);
+    folderEl.title = `폴더 ${folderN}개`;
+  }
+  if (sceneEl) {
+    sceneEl.textContent = String(sceneN);
+    sceneEl.setAttribute("aria-label", `원고 ${sceneN}개`);
+    sceneEl.title = `원고 ${sceneN}개`;
+  }
+  const heading = $("outlineTocHeading");
+  if (heading) {
+    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 우클릭: 글자 크기`;
+  }
+}
+
+function isOutlineTipHidden() {
+  try {
+    return localStorage.getItem(OUTLINE_TIP_HIDDEN_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setOutlineTipHidden(hidden) {
+  try {
+    if (hidden) localStorage.setItem(OUTLINE_TIP_HIDDEN_KEY, "1");
+    else localStorage.removeItem(OUTLINE_TIP_HIDDEN_KEY);
+  } catch (_) { /* ignore */ }
+  syncOutlineTipBox();
+}
+
+function syncOutlineTipBox() {
+  const box = $("outlineTipBox");
+  if (!box) return;
+  box.classList.toggle("hidden", isOutlineTipHidden());
+}
+
+function isOutlineFontMenuTarget(target) {
+  return Boolean(
+    target?.closest?.(
+      "#outlineTocHeading, .outline-toc-heading, .outline-title-control, #outlineTitleFontMenu",
+    ),
+  );
+}
+
+function setupOutlineBinderChrome() {
+  if (setupOutlineBinderChrome._bound) return;
+  setupOutlineBinderChrome._bound = true;
+  applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
+  syncOutlineTipBox();
+  updateOutlineFolderCount();
+
+  $("outlineTipDismiss")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setOutlineTipHidden(true);
+  });
+
+  // 목차 / 폴더 개수 우클릭 → 글자 크기 + 숨기기 (capture: 다른 핸들러에 가로채이지 않게)
+  const openFontMenu = (event) => {
+    if (!isOutlineFontMenuTarget(event.target)) return;
+    // Only the heading area, not the whole panel tools
+    if (!event.target.closest?.(
+      "#outlineTocHeading, .outline-toc-heading, #outlineFolderCount, .outline-folder-count, #outlineSceneCount, .outline-scene-count, .outline-count-badges",
+    )) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    const hideTarget = event.target.closest?.(
+      "#outlineFolderCount, .outline-folder-count, #outlineSceneCount, .outline-scene-count, .outline-count-badges, #outlineTocHeading",
+    );
+    setUiFeatureCtxTarget?.(hideTarget);
+    showOutlineTitleFontMenu(event.clientX, event.clientY);
+  };
+  document.addEventListener("contextmenu", openFontMenu, true);
+
+  $("outlineTitleFontDown")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyOutlineTitleFontSize(getOutlineTitleFontSize() - 1);
+  });
+  $("outlineTitleFontUp")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyOutlineTitleFontSize(getOutlineTitleFontSize() + 1);
+  });
+  $("outlineTitleFontMenu")?.addEventListener("click", (event) => {
+    const preset = event.target.closest?.("[data-outline-font]");
+    if (!preset) {
+      event.stopPropagation();
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    applyOutlineTitleFontSize(preset.dataset.outlineFont);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest?.("#outlineTitleFontMenu")) return;
+    hideOutlineTitleFontMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideOutlineTitleFontMenu();
+  });
+  window.addEventListener("resize", hideOutlineTitleFontMenu);
+  window.addEventListener("blur", hideOutlineTitleFontMenu);
+}
+
+function setupRenumberChaptersModal() {
+  $("renumberChaptersButton")?.addEventListener("click", () => {
+    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+    if (!state.outline?.length) return toast("정리할 챕터가 없어요.");
+    openRenumberChaptersModal();
+  });
+  document.querySelectorAll("[data-close-renumber]").forEach((el) => {
+    el.addEventListener("click", closeRenumberChaptersModal);
+  });
+  $("confirmRenumberChaptersButton")?.addEventListener("click", () => {
+    const style = $("renumberStyleSelect")?.value || "jang";
+    closeRenumberChaptersModal();
+    renumberChapterTitles(style).catch(handleError);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!$("renumberChaptersModal")?.classList.contains("hidden")) {
+      closeRenumberChaptersModal();
+    }
+  });
+}
+
+/**
+ * +챕터 통합:
+ * - 루트: 상위 폴더 상자(part) + 그 안 하위 폴더(chapter) 1개
+ * - 상위 폴더 안(+): 하위 폴더(chapter)만 추가
+ * - 삽입 위치 지정 시: 미분류 하위 폴더로 추가
+ */
+async function createChapter(options = {}) {
+  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  const partId = options.partId != null && options.partId !== ""
+    ? Number(options.partId)
+    : null;
+  const insertIndex = partId != null
+    ? null
+    : (options.insertIndex != null ? options.insertIndex : pendingChapterInsertIndex);
+  const placed = insertIndex != null;
+  const partTitle = partId != null
+    ? (state.parts || []).find((p) => Number(p.id) === partId)?.title
+    : null;
+
+  // Inside a top folder → only add a sub-folder (chapter)
+  if (partId != null) {
+    const placeHint = `\n(상위 폴더 「${partTitle || ""}」 안에 하위 폴더로 추가됩니다.)`;
+    const title = window.prompt(`폴더 이름을 적어 주세요.${placeHint}`, "새 폴더");
+    if (title === null) return;
+    await api(`/api/projects/${state.projectId}/chapters`, {
+      method: "POST",
+      body: JSON.stringify({ title: title.trim() || "새 폴더", part_id: partId }),
+    });
+    setPartCollapsed(partId, false);
+    await loadProject();
+    toast(`「${partTitle || "상위 폴더"}」 안에 폴더를 만들었어요.`);
+    return;
+  }
+
+  // Mid-list insert → ungrouped chapter folder
+  if (placed) {
+    const placeHint = `\n(위치: ${describeChapterInsertIndex(insertIndex)})`;
+    const title = window.prompt(`폴더 이름을 적어 주세요.${placeHint}`, "새 폴더");
+    if (title === null) return;
+    await api(`/api/projects/${state.projectId}/chapters`, {
+      method: "POST",
+      body: JSON.stringify({
+        title: title.trim() || "새 폴더",
+        insert_index: Number(insertIndex),
+      }),
+    });
+    clearChapterInsertTarget();
+    await loadProject();
+    toast("선택한 위치에 폴더를 넣었어요.");
+    if ((state.outline?.length || 0) >= 2) {
+      openRenumberChaptersModal(
+        "목록 번호를 재정렬 하시겠습니까?<br>"
+        + "중간에 폴더를 넣었으므로, 현재 바인더 순서대로 제목 앞 순번을 다시 맞출 수 있습니다."
+      );
+    }
+    return;
+  }
+
+  // Root +챕터: top-level folder box (part) + one sub-folder (chapter) for manuscripts
+  const n = (state.parts || []).length + 1;
+  const defaultTitle = `${n}장`;
+  const title = window.prompt(
+    "폴더 이름을 적어 주세요.\n(상위 폴더 상자가 만들어지고, 그 안에 원고를 둘 하위 폴더가 생깁니다.)",
+    defaultTitle,
+  );
+  if (title === null) return;
+  const name = title.trim() || defaultTitle;
+  const part = await api(`/api/projects/${state.projectId}/parts`, {
+    method: "POST",
+    body: JSON.stringify({ title: name }),
+  });
+  await api(`/api/projects/${state.projectId}/chapters`, {
+    method: "POST",
+    body: JSON.stringify({ title: name, part_id: part.id }),
+  });
+  clearChapterInsertTarget();
+  await loadProject();
+  toast(`「${name}」 폴더를 만들었어요. 옆 + 로 원고를 추가하세요.`);
+}
+
+/** Wrap an existing sub-folder into a new top-level folder box. */
+async function createPart(options = {}) {
+  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  const chapterId = options.chapterId != null ? Number(options.chapterId) : null;
+  const n = (state.parts || []).length + 1;
+  const defaultTitle = `${n}장`;
+  const hint = chapterId
+    ? "\n(이 폴더를 새 상위 폴더 상자 안으로 넣습니다.)"
+    : "\n(여러 하위 폴더를 묶는 상위 폴더 상자입니다.)";
+  const chosen = window.prompt(`상위 폴더 이름을 적어 주세요.${hint}`, defaultTitle);
+  if (chosen === null) return;
+  const title = chosen.trim() || defaultTitle;
+  const body = { title };
+  if (chapterId) body.chapter_id = chapterId;
+  const result = await api(`/api/projects/${state.projectId}/parts`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  await loadProject();
+  toast(chapterId
+    ? `「${result.title || title}」 상자를 만들고 폴더를 넣었어요.`
+    : `「${result.title || title}」 상위 폴더를 만들었어요.`);
+}
+
+async function moveChapterToPart(chapterId, currentPartId = null) {
+  const id = Number(chapterId);
+  if (!id) return;
+  const parts = state.parts || [];
+  if (!parts.length) {
+    const make = window.confirm(
+      "아직 상위 폴더가 없어요. 지금 만들고 이 폴더를 넣을까요?",
+    );
+    if (!make) return;
+    await createPart({ chapterId: id });
+    return;
+  }
+  const lines = [
+    "옮길 상위 폴더를 숫자로 고르세요.",
+    "0 = 미분류 (상위 폴더 밖)",
+    ...parts.map((p, i) => `${i + 1} = ${p.title}`),
+  ];
+  const current = currentPartId != null
+    ? (parts.findIndex((p) => Number(p.id) === Number(currentPartId)) + 1)
+    : 0;
+  const pick = window.prompt(lines.join("\n"), String(current >= 0 ? current : 0));
+  if (pick === null) return;
+  const n = Number(String(pick).trim());
+  if (!Number.isFinite(n) || n < 0 || n > parts.length) {
+    toast("올바른 번호를 입력해 주세요.");
+    return;
+  }
+  const targetPartId = n === 0 ? null : parts[n - 1].id;
+  const result = await api(`/api/chapters/${id}/move`, {
+    method: "POST",
+    body: JSON.stringify({ part_id: targetPartId }),
+  });
+  await loadProject();
+  if (!result.moved) {
+    toast("이미 그 위치에 있어요.");
+    return;
+  }
+  const dest = targetPartId == null
+    ? "미분류"
+    : (parts.find((p) => Number(p.id) === Number(targetPartId))?.title || "상위 폴더");
+  toast(`「${result.title || "폴더"}」를 ${dest}(으)로 옮겼어요.`);
+}
+
+async function trashPart(partId, partTitle = "") {
+  const id = Number(partId);
+  if (!id) return;
+  const part = (state.parts || []).find((p) => Number(p.id) === id);
+  let label = String(partTitle || part?.title || "이 폴더").trim() || "이 폴더";
+  const chapterCount = (part?.chapters || []).length;
+  const sceneCount = (part?.chapters || []).reduce(
+    (sum, ch) => sum + flattenChapterScenes(ch).length,
+    0,
+  );
+  const ok = window.confirm(
+    chapterCount > 0
+      ? `「${label}」 상위 폴더와 안의 하위 폴더 ${chapterCount}개` +
+        (sceneCount ? ` (원고 ${sceneCount}개)` : "") +
+        "를 휴지통에 버리시겠습니까?\n\n안의 원고도 함께 버려집니다."
+      : `「${label}」 상위 폴더를 휴지통에 버리시겠습니까?`,
+  );
+  if (!ok) return;
+  const result = await api(`/api/parts/${id}/trash`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  });
+  await loadProject();
+  const n = Number(result?.chapter_count ?? chapterCount ?? 0);
+  toast(n > 0
+    ? `「${label}」 폴더와 하위 ${n}개를 휴지통으로 옮겼어요.`
+    : `「${label}」 폴더를 휴지통으로 옮겼어요.`);
+}
+
+async function beginPartRename(titleButton) {
+  const partId = Number(titleButton.dataset.renamePart);
+  if (!partId) return;
+  const section = titleButton.closest(".outline-part");
+  const row = titleButton.closest(".part-row");
+  if (!row || row.querySelector(".chapter-rename-input")) return;
+  const original = (state.parts || []).find((p) => Number(p.id) === partId)?.title
+    || titleButton.textContent
+    || "";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "chapter-rename-input part-rename-input";
+  input.value = original;
+  input.setAttribute("aria-label", "권/부 이름 수정");
+  input.maxLength = 200;
+  titleButton.replaceWith(input);
+  input.focus();
+  input.select();
+  if (section) section.draggable = false;
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const nextTitle = input.value.trim();
+    if (section) section.draggable = true;
+    if (!save || !nextTitle || nextTitle === original) {
+      await loadProject();
+      return;
+    }
+    try {
+      await api(`/api/parts/${partId}`, {
+        method: "PUT",
+        body: JSON.stringify({ title: nextTitle }),
+      });
+      await loadProject();
+      toast("권/부 이름을 바꿨어요.");
+    } catch (error) {
+      await loadProject();
+      throw error;
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true).catch(handleError);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false).catch(handleError);
+    }
+  });
+  input.addEventListener("blur", () => finish(true).catch(handleError));
+  input.addEventListener("mousedown", (event) => event.stopPropagation());
+  input.addEventListener("click", (event) => event.stopPropagation());
+}
+
+async function createScene(chapterId, options = {}) {
+  const parentSceneId = options.parentSceneId != null && options.parentSceneId !== ""
+    ? Number(options.parentSceneId)
+    : null;
+  const defaultTitle = parentSceneId ? "새 하위 원고" : "새 씬";
+  const hint = parentSceneId
+    ? "\n(선택한 원고의 하위로 만들어집니다.)"
+    : "";
+  const title = window.prompt(`씬 제목을 적어 주세요.${hint}`, defaultTitle);
+  if (title === null) return;
+  const body = { title: title.trim() || defaultTitle };
+  if (parentSceneId) body.parent_scene_id = parentSceneId;
+  const scene = await api(`/api/chapters/${chapterId}/scenes`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (parentSceneId) setSceneCollapsed(parentSceneId, false);
+  await loadProject();
+  await openScene(scene.id);
+  toast(parentSceneId
+    ? "하위 원고를 만들었어요."
+    : "새 씬이 준비됐어요. 가운데에 글을 써 보세요.");
+}
+
+async function reparentScene(sceneId, parentSceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const body = {
+    parent_scene_id: parentSceneId == null || parentSceneId === ""
+      ? null
+      : Number(parentSceneId),
+  };
+  const result = await api(`/api/scenes/${id}/reparent`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (body.parent_scene_id) setSceneCollapsed(body.parent_scene_id, false);
+  await loadProject();
+  if (!result.moved) {
+    toast("이미 그 위치에 있어요.");
+    return;
+  }
+  toast(body.parent_scene_id
+    ? `「${result.title || "원고"}」를 하위 원고로 옮겼어요.`
+    : `「${result.title || "원고"}」를 폴더 맨 위로 올렸어요.`);
+}
+
+/** Global state for manuscript nest-drag (survives re-renders). */
+let sceneNestDragId = null;
+
+function clearSceneNestDropUi(outline = $("outline")) {
+  outline?.querySelectorAll(".scene-link.is-drop-target, .scene-tree-item.is-dragging-scene").forEach((el) => {
+    el.classList.remove("is-drop-target", "is-dragging-scene");
+  });
+}
+
+function setupSceneNestDragAndDrop(outline) {
+  if (!outline) return;
+  // Bind once on #outline (delegation). Re-render keeps the same element.
+  if (outline.dataset.sceneNestBound === "1") return;
+  outline.dataset.sceneNestBound = "1";
+
+  outline.addEventListener("dragstart", (event) => {
+    if (event.target.closest?.("button.scene-twistie, button[data-toggle-scene]")) {
+      event.preventDefault();
+      return;
+    }
+    const item = event.target.closest?.(".scene-tree-item[data-scene-node]");
+    if (!item || !outline.contains(item)) return;
+    if (event.target.closest?.(".chapter-row, .part-row")) return;
+
+    const id = Number(item.dataset.sceneNode);
+    if (!id) return;
+
+    // Capture before any parent chapter/part handler sees this.
+    event.stopPropagation();
+    sceneNestDragId = id;
+    item.classList.add("is-dragging-scene");
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", `scene:${id}`);
+      event.dataTransfer.setData("application/x-supertory-scene", String(id));
+    } catch (_) { /* ignore */ }
+  }, true); // capture phase so chapter dragstart never kills this
+
+  outline.addEventListener("dragend", () => {
+    clearSceneNestDropUi(outline);
+    sceneNestDragId = null;
+  }, true);
+
+  outline.addEventListener("dragover", (event) => {
+    if (!sceneNestDragId) return;
+    const link = event.target.closest?.(".scene-link[data-scene]");
+    if (!link || !outline.contains(link)) return;
+    const targetId = Number(link.dataset.scene);
+    if (!targetId || targetId === sceneNestDragId) return;
+    // Cannot drop onto own descendant — still allow attempt; server rejects cycles.
+    event.preventDefault();
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = "move";
+    outline.querySelectorAll(".scene-link.is-drop-target").forEach((el) => {
+      if (el !== link) el.classList.remove("is-drop-target");
+    });
+    link.classList.add("is-drop-target");
+  }, true);
+
+  outline.addEventListener("dragleave", (event) => {
+    if (!sceneNestDragId) return;
+    const link = event.target.closest?.(".scene-link");
+    if (link && !link.contains(event.relatedTarget)) {
+      link.classList.remove("is-drop-target");
+    }
+  }, true);
+
+  outline.addEventListener("drop", (event) => {
+    if (!sceneNestDragId) return;
+    const link = event.target.closest?.(".scene-link[data-scene]");
+    if (!link || !outline.contains(link)) return;
+    const targetId = Number(link.dataset.scene);
+    event.preventDefault();
+    event.stopPropagation();
+    clearSceneNestDropUi(outline);
+    const movingId = sceneNestDragId;
+    sceneNestDragId = null;
+    if (!targetId || targetId === movingId) return;
+    reparentScene(movingId, targetId).catch((error) => {
+      handleError(error);
+      loadProject().catch(handleError);
+    });
+  }, true);
+}
+
+/* —— Episode sequence (회차) + browser-like tabs —— */
+const EPISODE_TABS_MAX = 14;
+const EPISODE_TABS_PREFIX = "supertory.episodeTabs.";
+
+function episodeTabsKey(projectId = state.projectId) {
+  return `${EPISODE_TABS_PREFIX}${projectId || "0"}`;
+}
+
+function loadEpisodeTabsFromStorage() {
+  if (!state.projectId) {
+    state.episodeTabs = [];
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(episodeTabsKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    state.episodeTabs = Array.isArray(arr)
+      ? arr
+        .filter((t) => t && Number(t.sceneId) > 0)
+        .map((t) => ({
+          sceneId: Number(t.sceneId),
+          title: String(t.title || "").trim() || `씬 #${t.sceneId}`,
+        }))
+        .slice(0, EPISODE_TABS_MAX)
+      : [];
+  } catch (_) {
+    state.episodeTabs = [];
+  }
+}
+
+function saveEpisodeTabsToStorage() {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(episodeTabsKey(), JSON.stringify(state.episodeTabs || []));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** Flatten outline scenes in binder order (depth-first) → episode list. */
+function getEpisodeSequence() {
+  const list = [];
+  let index = 0;
+  for (const chapter of state.outline || []) {
+    const flat = flattenChapterScenes(chapter);
+    for (const scene of flat) {
+      index += 1;
+      const chapterTitle = String(chapter.title || "").trim();
+      const sceneTitle = String(scene.title || "").trim();
+      let label = chapterTitle || sceneTitle || `${index}화`;
+      if (flat.length > 1 && sceneTitle && chapterTitle && sceneTitle !== chapterTitle) {
+        label = `${chapterTitle} · ${sceneTitle}`;
+      } else if (!chapterTitle && sceneTitle) {
+        label = sceneTitle;
+      }
+      const short = label.length > 22 ? `${label.slice(0, 22)}…` : label;
+      list.push({
+        sceneId: Number(scene.id),
+        chapterId: Number(chapter.id),
+        index,
+        label,
+        shortLabel: short,
+        chapterTitle,
+        sceneTitle,
+      });
+    }
+  }
+  return list;
+}
+
+/** All scene synopses in binder order (for 요약 list). */
+function getSynopsisSequence() {
+  const list = [];
+  let index = 0;
+  for (const chapter of state.outline || []) {
+    const chapterTitle = String(chapter.title || "").trim();
+    for (const scene of chapter.scenes || []) {
+      index += 1;
+      const sceneId = Number(scene.id);
+      const sceneTitle = String(scene.title || "").trim();
+      let title = chapterTitle || sceneTitle || `${index}화`;
+      if (chapterTitle && sceneTitle && sceneTitle !== chapterTitle) {
+        title = `${chapterTitle} · ${sceneTitle}`;
+      }
+      let synopsis = String(scene.synopsis_md || "").trim();
+      // Live field for the open scene.
+      if (sceneId === Number(state.sceneId) && $("sceneSynopsis")) {
+        synopsis = String($("sceneSynopsis").value || "").trim();
+      }
+      list.push({
+        sceneId,
+        chapterId: Number(chapter.id),
+        index,
+        title,
+        synopsis,
+      });
+    }
+  }
+  return list;
+}
+
+const TORY_SUMMARY_MIN_LENGTH = 100;
+let torySceneSummaryInFlight = false;
+
+function checkSummarizable(currentLength) {
+  if (currentLength < TORY_SUMMARY_MIN_LENGTH) {
+    const remaining = TORY_SUMMARY_MIN_LENGTH - currentLength;
+    return {
+      possible: false,
+      message: `아직 요약하기엔 짧아요. 100자까지 ${remaining}자 더 필요해요.`,
+    };
+  }
+  return { possible: true };
+}
+
+function getSummaryTargetLength(originalLength) {
+  if (originalLength < 500) return 60;
+  if (originalLength < 2000) return 80;
+  if (originalLength < 5000) return 100;
+  if (originalLength < 10000) return 130;
+  return 150;
+}
+
+function buildSummaryPrompt(originalText) {
+  const length = originalText.length;
+  const target = getSummaryTargetLength(length);
+
+  return `[현재 작업]
+아래 본문을 ${target}자 내외(최대 ${target + 15}자를 넘지 않도록)로 요약하세요.
+
+[판단 기준]
+1. 이 장면/문단이 전체 이야기에서 어떤 기능을 하는지 먼저 파악한다
+   (사건의 발단인가, 갈등의 심화인가, 전환점인가).
+2. 그 기능을 가장 잘 드러내는 핵심 사건 → 그로 인한 결과/의미 순으로 압축한다.
+3. 여러 정보 중 하나를 덜어내야 한다면, 서사적 기능이 약한 것부터 덜어낸다
+   (배경 묘사 > 부차적 인물 > 핵심 갈등과 무관한 디테일 순으로 우선 제거).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+
+[문장 규칙]
+5. 원문의 표현을 그대로 가져오지 말고 자신의 언어로 재서술한다. 단, 고유명사(인물명,
+   지명 등)는 원문 그대로 유지한다.
+6. "이 글은", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+7. 수식어, 감탄사, 접속사 남발을 피하고 명사형·서술형 위주로 간결하게 쓴다.
+8. 초안 작성 후 글자 수를 직접 세어 기준을 넘으면, 서사적 기능이 약한 정보부터
+   덜어내며 다시 압축한다. 이 과정은 출력하지 않는다.
+9. 완성된 요약문만 출력한다. 설명, 따옴표, 부연은 붙이지 않는다.
+
+[본문]
+${originalText}
+
+[요약]`;
+}
+
+const CONTINUE_LENGTH_MODES = {
+  short: {
+    label: "짧게 (한두 문단)",
+    instruction: `
+[길이 지침]
+- 1~2개 문단 분량만 작성한다.
+- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
+- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+  방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
+  },
+  scene: {
+    label: "길게 (한 씬 분량)",
+    instruction: `
+[길이 지침]
+- 현재 장면이 자연스러운 완결점(장소 이동, 시간 경과, 갈등의 일단락 등)에
+  도달할 때까지 작성한다.
+- 임의로 새로운 씬으로 전환하지 않는다. 장면이 끝나면 그 지점에서 멈춘다.
+- 장면 안에서 사건, 대사, 감정선이 유기적으로 이어지도록 구성한다.`,
+  },
+  proportional: {
+    label: "원고 길이 비례",
+    instruction: (target) => `
+[길이 지침]
+- 약 ${target}자 내외로 작성한다.
+- 이 길이 안에서 자연스럽게 끊을 수 있는 지점(문장이 완결되는 곳)에서 마무리한다.
+- 글자 수를 맞추기 위해 불필요하게 늘리거나 문장을 어색하게 자르지 않는다.`,
+  },
+};
+
+function getProportionalContinueLength(originalLength) {
+  if (originalLength < 1000) return 200;
+  if (originalLength < 5000) return 400;
+  if (originalLength < 20000) return 700;
+  return 1000;
+}
+
+function buildContinuePrompt(originalText, lengthMode, userHint = "") {
+  const modeConfig = CONTINUE_LENGTH_MODES[lengthMode];
+  const lengthInstruction =
+    lengthMode === "proportional"
+      ? modeConfig.instruction(getProportionalContinueLength(originalText.length))
+      : modeConfig.instruction;
+
+  return `[현재 작업]
+아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.
+
+[판단 기준]
+1. 원문의 문장 길이, 어휘 수준, 문체 리듬을 그대로 따른다. 더 화려하거나
+   단조롭게 바꾸지 않는다.
+2. 원문의 시점(1인칭/3인칭)과 시제를 그대로 유지한다.
+3. 등장인물의 말투와 사고방식을 원문에서 추론해 일관되게 재현한다.
+4. 이미 원문에 나온 설정(인물의 능력, 관계, 세계관 규칙 등) 안에서만 전개한다.
+   새로운 핵심 설정을 임의로 만들어내지 않는다.
+5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을
+   요약하거나 반복하지 않는다.
+${userHint ? `6. 사용자가 다음 방향에 대해 다음과 같은 힌트를 주었다면 반영한다: "${userHint}"` : ""}
+${lengthInstruction}
+
+[문장 규칙]
+- 이어지는 본문만 출력한다. "이어서 작성하면", "다음은 이어지는 내용입니다" 같은
+  메타 표현이나 설명을 붙이지 않는다.
+- 원문과 이어지는 부분의 경계가 어색하지 않도록, 필요하면 원문 마지막 문장의
+  흐름을 고려해 접속어나 시간 표현으로 자연스럽게 시작한다.
+
+[원고]
+${originalText}
+
+[이어지는 내용]`;
+}
+
+function getScenePlainForSummary() {
+  const raw = getEditorPlainText($("sceneContent"));
+  return String(raw || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n").trim();
+}
+
+function applyTorySummaryToField(summaryText) {
+  const cleaned = String(summaryText || "")
+    .trim()
+    .replace(/^["'「『]|["'」』]$/g, "")
+    .trim();
+  const field = $("sceneSynopsis");
+  if (!field || !cleaned) return "";
+  field.value = cleaned;
+  field.dispatchEvent(new Event("input", { bubbles: true }));
+  if (state.sceneId) markSceneDirty();
+  return cleaned;
+}
+
+async function runTorySceneSummary() {
+  if (torySceneSummaryInFlight) {
+    toast("이미 요약을 만들고 있어요.");
+    return;
+  }
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("먼저 목차에서 씬을 열어 주세요.");
+    return;
+  }
+
+  const originalText = getScenePlainForSummary();
+  const check = checkSummarizable(originalText.length);
+  if (!check.possible) {
+    toast(check.message);
+    return;
+  }
+
+  const existing = String($("sceneSynopsis")?.value || "").trim();
+  if (existing) {
+    const ok = window.confirm("이미 요약이 있어요. 토리가 새로 쓴 요약으로 바꿀까요?");
+    if (!ok) return;
+  }
+
+  const prompt = buildSummaryPrompt(originalText);
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const btn = $("synopsisListButton");
+  const prevTitle = btn?.title;
+  const prevLabel = btn?.textContent;
+
+  torySceneSummaryInFlight = true;
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = "요약 중…";
+    btn.title = "토리가 본문을 요약하는 중";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "free";
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+  if ($("aiPrompt")) $("aiPrompt").value = "토리야 요약해 줘 (본문 요약 → 요약 칸)";
+  if ($("aiResult")) $("aiResult").value = "본문을 요약하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "free",
+        prompt,
+        user_prompt: prompt,
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+        scene_synopsis: "",
+        // Prompt already embeds the body; avoid duplicating a huge manuscript.
+        scene_content: "",
+        persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+        ...(typeof buildToryProjectContextPayload === "function" ? buildToryProjectContextPayload() : {}),
+      }),
+    });
+    const applied = applyTorySummaryToField(result.text || "");
+    if ($("aiResult")) $("aiResult").value = applied || result.text || "(결과 없음)";
+    $("aiResultWrap")?.classList.remove("hidden");
+    if (isAiResultModalOpen()) syncAiResultModalBody();
+    if (applied) {
+      toast("토리가 요약을 요약 칸에 넣었어요.");
+    } else {
+      toast("요약 응답이 비어 있어요. 다시 시도해 주세요.");
+    }
+  } catch (error) {
+    if ($("aiResult")) $("aiResult").value = "";
+    handleError(error);
+  } finally {
+    torySceneSummaryInFlight = false;
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = prevLabel || "요약";
+      btn.title = prevTitle || "좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘";
+    }
+  }
+}
+
+function showSynopsisButtonContextMenu(clientX, clientY) {
+  const btn = $("synopsisListButton");
+  if (!btn) return;
+  setUiFeatureCtxTarget?.(btn);
+  if (typeof showUiFeatureContextMenu === "function") {
+    showUiFeatureContextMenu(clientX, clientY, btn, [{
+      label: "토리야 요약해 줘",
+      hint: "본문을 요약해 요약 칸에 넣기",
+      run: () => { runTorySceneSummary().catch(handleError); },
+    }]);
+  }
+}
+
+function isSynopsisListOpen() {
+  return Boolean($("synopsisListModal") && !$("synopsisListModal").classList.contains("hidden"));
+}
+
+function closeSynopsisList() {
+  $("synopsisListModal")?.classList.add("hidden");
+}
+
+function renderSynopsisListBody() {
+  const body = $("synopsisListBody");
+  if (!body) return;
+  if (!state.projectId) {
+    body.innerHTML = `<p class="synopsis-list-empty">작품을 먼저 선택해 주세요.</p>`;
+    return;
+  }
+  const items = getSynopsisSequence();
+  if (!items.length) {
+    body.innerHTML = `<p class="synopsis-list-empty">아직 씬이 없어요. 목차에서 씬을 만들어 보세요.</p>`;
+    return;
+  }
+  const currentId = Number(state.sceneId) || 0;
+  body.innerHTML = items.map((item) => {
+    const text = item.synopsis
+      ? escapeHtml(item.synopsis)
+      : "요약 없음";
+    const emptyClass = item.synopsis ? "" : " is-empty";
+    const currentClass = Number(item.sceneId) === currentId ? " is-current" : "";
+    return `
+      <button type="button" class="synopsis-list-item${currentClass}" data-synopsis-scene="${item.sceneId}">
+        <span class="synopsis-list-index">${item.index}</span>
+        <span class="synopsis-list-title">${escapeHtml(item.title)}</span>
+        <span class="synopsis-list-text${emptyClass}">${text}</span>
+      </button>
+    `;
+  }).join("");
+}
+
+async function openSynopsisList() {
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  // Refresh outline so synopses are up to date (includes synopsis_md).
+  try {
+    await loadProject();
+  } catch (_) {
+    /* show whatever we have */
+  }
+  // Keep live edit for current scene in the list.
+  if (state.sceneId && $("sceneSynopsis")) {
+    for (const chapter of state.outline || []) {
+      const scene = (chapter.scenes || []).find((s) => Number(s.id) === Number(state.sceneId));
+      if (scene) {
+        scene.synopsis_md = $("sceneSynopsis").value || "";
+        break;
+      }
+    }
+  }
+  renderSynopsisListBody();
+  $("synopsisListModal")?.classList.remove("hidden");
+}
+
+function setupSynopsisList() {
+  const synopsisBtn = $("synopsisListButton");
+  if (synopsisBtn) {
+    synopsisBtn.title = "좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘";
+  }
+  synopsisBtn?.addEventListener("click", () => {
+    openSynopsisList().catch(handleError);
+  });
+  if (synopsisBtn && synopsisBtn.dataset.torySummaryBound !== "1") {
+    synopsisBtn.dataset.torySummaryBound = "1";
+    synopsisBtn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      showSynopsisButtonContextMenu(event.clientX, event.clientY);
+    });
+  }
+  document.querySelectorAll("[data-close-synopsis-list]").forEach((el) => {
+    el.addEventListener("click", closeSynopsisList);
+  });
+  $("synopsisListBody")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-synopsis-scene]");
+    if (!btn) return;
+    const id = Number(btn.dataset.synopsisScene);
+    if (!Number.isFinite(id) || id <= 0) return;
+    closeSynopsisList();
+    openScene(id).catch(handleError);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!isSynopsisListOpen()) return;
+    event.preventDefault();
+    closeSynopsisList();
+  });
+  // Keep outline synopsis in sync while typing (for list view without save).
+  $("sceneSynopsis")?.addEventListener("input", () => {
+    if (!state.sceneId) return;
+    for (const chapter of state.outline || []) {
+      const scene = (chapter.scenes || []).find((s) => Number(s.id) === Number(state.sceneId));
+      if (scene) {
+        scene.synopsis_md = $("sceneSynopsis").value || "";
+        break;
+      }
+    }
+  });
+}
+
+function findEpisodeIndex(sceneId, sequence = getEpisodeSequence()) {
+  return sequence.findIndex((ep) => Number(ep.sceneId) === Number(sceneId));
+}
+
+function formatEpisodeNavLabel(ep, fallback) {
+  if (!ep) return fallback;
+  // Prefer “N화” prefix when title already contains it; else “N화 제목”
+  const raw = ep.label || ep.shortLabel || "";
+  if (/\d+\s*화/.test(raw) || /제\s*\d+\s*화/.test(raw)) {
+    return ep.shortLabel || raw;
+  }
+  return `${ep.index}화 ${ep.shortLabel || raw}`.trim();
+}
+
+/**
+ * When the center title is long, shrink prev/next label slots so the title
+ * keeps room. Pure CSS cannot grow an <input> from its text length.
+ */
+function syncEpisodeNavLayout() {
+  const bar = document.querySelector("#episodeChrome .episode-nav-bar");
+  const titleEl = $("sceneTitle");
+  const prevBtn = $("episodePrevButton");
+  const nextBtn = $("episodeNextButton");
+  if (!bar || !titleEl || !prevBtn || !nextBtn) return;
+  if (bar.clientWidth < 80) return;
+
+  const style = window.getComputedStyle(titleEl);
+  const canvas = syncEpisodeNavLayout._canvas
+    || (syncEpisodeNavLayout._canvas = document.createElement("canvas"));
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return;
+  ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+
+  const text = String(titleEl.value || "").trim() || String(titleEl.placeholder || "회차 제목");
+  const titleWant = Math.ceil(ctx.measureText(text).width) + 32; // input padding
+
+  const gap = 6;
+  const padX = 16;
+  const available = Math.max(0, bar.clientWidth - padX);
+  const minSide = 34; // chevron + a little room
+  const maxSide = Math.floor(available * 0.3);
+
+  // Short title → free the sides (show full prev/next labels)
+  if (titleWant < available * 0.38) {
+    prevBtn.style.maxWidth = "";
+    nextBtn.style.maxWidth = "";
+    titleEl.style.flex = "";
+    titleEl.style.minWidth = "";
+    return;
+  }
+
+  // Long title → give it what it needs; leftover split to prev/next (ellipsis)
+  const titleCap = Math.max(96, available - 2 * minSide - gap * 2);
+  const titleAlloc = Math.min(titleCap, titleWant);
+  let sideAlloc = Math.floor((available - titleAlloc - gap * 2) / 2);
+  sideAlloc = Math.max(minSide, Math.min(maxSide, sideAlloc));
+
+  prevBtn.style.maxWidth = `${sideAlloc}px`;
+  nextBtn.style.maxWidth = `${sideAlloc}px`;
+  titleEl.style.flex = `1 1 ${titleAlloc}px`;
+  titleEl.style.minWidth = `${Math.min(titleAlloc, titleCap)}px`;
+}
+
+let episodeNavLayoutTimer = null;
+function scheduleEpisodeNavLayout() {
+  if (episodeNavLayoutTimer) window.clearTimeout(episodeNavLayoutTimer);
+  episodeNavLayoutTimer = window.setTimeout(() => {
+    episodeNavLayoutTimer = null;
+    syncEpisodeNavLayout();
+  }, 16);
+}
+
+function upsertEpisodeTab(sceneId, title = "") {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const label = String(title || "").trim() || `씬 #${id}`;
+  const tabs = Array.isArray(state.episodeTabs) ? [...state.episodeTabs] : [];
+  const existing = tabs.find((t) => Number(t.sceneId) === id);
+  if (existing) {
+    existing.title = label || existing.title;
+  } else {
+    tabs.push({ sceneId: id, title: label });
+    while (tabs.length > EPISODE_TABS_MAX) tabs.shift();
+  }
+  state.episodeTabs = tabs;
+  saveEpisodeTabsToStorage();
+}
+
+function closeEpisodeTab(sceneId) {
+  const id = Number(sceneId);
+  const tabs = (state.episodeTabs || []).filter((t) => Number(t.sceneId) !== id);
+  const wasActive = Number(state.sceneId) === id;
+  state.episodeTabs = tabs;
+  saveEpisodeTabsToStorage();
+  renderEpisodeChrome();
+  if (!wasActive) return;
+  // Switch to nearest remaining tab, or leave editor.
+  if (tabs.length) {
+    const next = tabs[tabs.length - 1];
+    openScene(next.sceneId).catch(handleError);
+  } else {
+    // Keep workspace but no scene — go welcome for this project.
+    void (async () => {
+      if (sceneDirty) {
+        try {
+          cancelScheduledAutoSave();
+          await persistScene({ quiet: true, saveNote: "자동 저장" });
+        } catch (_) { /* ignore */ }
+      }
+      state.sceneId = null;
+      state.scene = null;
+      showWelcome();
+    })();
+  }
+}
+
+function renderEpisodeChrome() {
+  const chrome = $("episodeChrome");
+  const tabBar = $("episodeTabBar");
+  const prevBtn = $("episodePrevButton");
+  const nextBtn = $("episodeNextButton");
+  const prevLabel = $("episodePrevLabel");
+  const nextLabel = $("episodeNextLabel");
+  if (!chrome) return;
+
+  const inScene = Boolean(state.sceneId) && !$("sceneWorkspace")?.classList.contains("hidden");
+  chrome.classList.toggle("hidden", !inScene);
+  if (!inScene) return;
+
+  const sequence = getEpisodeSequence();
+  const idx = findEpisodeIndex(state.sceneId, sequence);
+  const prev = idx > 0 ? sequence[idx - 1] : null;
+  const next = idx >= 0 && idx < sequence.length - 1 ? sequence[idx + 1] : null;
+
+  if (prevBtn) {
+    prevBtn.disabled = !prev;
+    prevBtn.title = prev ? `이전 회차: ${prev.label}` : "이전 회차 없음";
+  }
+  if (nextBtn) {
+    nextBtn.disabled = !next;
+    nextBtn.title = next ? `다음 회차: ${next.label}` : "다음 회차 없음";
+  }
+  if (prevLabel) prevLabel.textContent = prev ? formatEpisodeNavLabel(prev, "이전") : "이전 회차";
+  if (nextLabel) nextLabel.textContent = next ? formatEpisodeNavLabel(next, "다음") : "다음 회차";
+  // Recalc side widths so a long center title squeezes prev/next labels.
+  scheduleEpisodeNavLayout();
+
+  // Tabs
+  if (tabBar) {
+    const validIds = new Set(sequence.map((ep) => ep.sceneId));
+    // Drop tabs for deleted scenes
+    const tabs = (state.episodeTabs || []).filter((t) => validIds.has(Number(t.sceneId)));
+    if (tabs.length !== (state.episodeTabs || []).length) {
+      state.episodeTabs = tabs;
+      saveEpisodeTabsToStorage();
+    }
+    // Refresh titles from sequence when possible
+    const titleById = new Map(sequence.map((ep) => [ep.sceneId, ep.shortLabel || ep.label]));
+    tabBar.innerHTML = tabs.map((tab) => {
+      const id = Number(tab.sceneId);
+      const title = titleById.get(id) || tab.title || `씬 #${id}`;
+      const active = id === Number(state.sceneId);
+      return `
+        <div class="episode-tab${active ? " is-active" : ""}" role="tab" aria-selected="${active ? "true" : "false"}" data-episode-tab="${id}" title="${escapeHtml(title)}">
+          <span class="episode-tab-title">${escapeHtml(title)}</span>
+          <button type="button" class="episode-tab-close" data-episode-close="${id}" title="탭 닫기" aria-label="탭 닫기">×</button>
+        </div>`;
+    }).join("");
+  }
+}
+
+function setupEpisodeChrome() {
+  loadEpisodeTabsFromStorage();
+  $("episodePrevButton")?.addEventListener("click", () => {
+    const sequence = getEpisodeSequence();
+    const idx = findEpisodeIndex(state.sceneId, sequence);
+    if (idx > 0) openScene(sequence[idx - 1].sceneId).catch(handleError);
+  });
+  $("episodeNextButton")?.addEventListener("click", () => {
+    const sequence = getEpisodeSequence();
+    const idx = findEpisodeIndex(state.sceneId, sequence);
+    if (idx >= 0 && idx < sequence.length - 1) {
+      openScene(sequence[idx + 1].sceneId).catch(handleError);
+    }
+  });
+  // Live: long center title shrinks prev/next labels
+  $("sceneTitle")?.addEventListener("input", scheduleEpisodeNavLayout);
+  window.addEventListener("resize", scheduleEpisodeNavLayout);
+  $("episodeTabBar")?.addEventListener("click", (event) => {
+    const closeId = event.target.closest?.("[data-episode-close]")?.dataset?.episodeClose;
+    if (closeId) {
+      event.preventDefault();
+      event.stopPropagation();
+      closeEpisodeTab(Number(closeId));
+      return;
+    }
+    const tab = event.target.closest?.("[data-episode-tab]");
+    if (!tab) return;
+    const id = Number(tab.dataset.episodeTab);
+    if (id && id !== Number(state.sceneId)) openScene(id).catch(handleError);
+  });
+  // Middle-click closes tab (browser-like).
+  $("episodeTabBar")?.addEventListener("auxclick", (event) => {
+    if (event.button !== 1) return;
+    const tab = event.target.closest?.("[data-episode-tab]");
+    if (!tab) return;
+    event.preventDefault();
+    closeEpisodeTab(Number(tab.dataset.episodeTab));
+  });
+  renderEpisodeChrome();
+}
+
+function showSceneEditorPane() {
+  state.ideaBoardOpen = false;
+  state.characterBoardOpen = false;
+  state.keywordBoardOpen = false;
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  hideSynopsisMain();
+  const workspace = $("sceneWorkspace");
+  if (workspace) {
+    workspace.classList.remove("hidden");
+    // Solo edit mode unless split is intentionally on.
+    if (!state.splitEnabled || state.splitMode !== "split") {
+      workspace.classList.remove("split-active");
+    }
+  }
+  if (!state.splitEnabled) {
+    const viewer = $("splitViewer");
+    if (viewer) {
+      viewer.classList.add("hidden");
+      viewer.classList.remove("popup-mode");
+    }
+    $("splitPaneResizer")?.classList.add("hidden");
+  }
+  closeSceneToolsDrawer();
+  // Restore full editor chrome (title / format / feature bar / body)
+  if (!(state.splitEnabled && state.splitMode === "split")) {
+    clearSplitPrimaryPaneLayout();
+  }
+  const form = $("sceneEditor");
+  if (form) {
+    form.scrollTop = 0;
+  }
+  ["episode-chrome", "editor-meta", "format-toolbar", "scene-feature-bar", "writing-block", "manuscript-status-bar"].forEach((cls) => {
+    document.querySelectorAll(`#sceneWorkspace .${cls}`).forEach((el) => {
+      if (!(state.splitEnabled && state.splitMode === "split")) {
+        el.style.removeProperty("display");
+        el.style.removeProperty("visibility");
+        el.style.removeProperty("max-height");
+        el.style.removeProperty("height");
+        el.style.removeProperty("min-height");
+        el.style.removeProperty("flex");
+        el.style.removeProperty("overflow");
+      }
+      el.classList.remove("hidden");
+    });
+  });
+  renderEpisodeChrome();
+  const editor = $("sceneContent");
+  if (editor) {
+    editor.setAttribute("contenteditable", "true");
+    editor.setAttribute("spellcheck", "true");
+    editor.removeAttribute("readonly");
+    editor.removeAttribute("disabled");
+    editor.style.pointerEvents = "auto";
+    editor.style.userSelect = "text";
+    editor.style.display = "block";
+    editor.style.visibility = "visible";
+    editor.tabIndex = 0;
+  }
+}
+
+function fillSceneEditorFields(scene) {
+  suppressSceneDirty = true;
+  if ($("sceneTitle")) $("sceneTitle").value = scene.title || "";
+  if ($("sceneStatus")) $("sceneStatus").value = scene.status || "idea";
+  if ($("sceneSynopsis")) $("sceneSynopsis").value = scene.synopsis_md || "";
+  setEditorContent(scene.content_md || "");
+  if ($("sceneNotes")) $("sceneNotes").value = scene.notes_md || "";
+  updateAuthorNotesBadge();
+  updateReferenceMaterialsBadge();
+  if ($("sceneGoalMetric")) {
+    $("sceneGoalMetric").value = scene.goal_metric && COUNT_METRIC_LABEL[scene.goal_metric]
+      ? scene.goal_metric
+      : "chars_with_space";
+  }
+  if ($("sceneGoalCount")) $("sceneGoalCount").value = String(scene.goal_word_count || 0);
+  if (!isProjectStatsScope() && $("statsGoalInput")) {
+    $("statsGoalInput").value = String(scene.goal_word_count || 0);
+  }
+  sceneDirty = false;
+  suppressSceneDirty = false;
+}
+
+async function openScene(sceneId) {
+  const nextId = Number(sceneId);
+  if (!Number.isFinite(nextId) || nextId <= 0) {
+    toast("씬을 열 수 없어요.");
+    return;
+  }
+
+  // Flush pending edits before leaving the current scene.
+  if (sceneDirty && state.sceneId && state.sceneId !== nextId) {
+    ensureLocalDraftSaved("scene-switch");
+    cancelScheduledAutoSave();
+    try {
+      await persistScene({ quiet: true, saveNote: "자동 저장" });
+    } catch (_) {
+      /* local draft kept for previous scene; continue */
+    }
+  }
+
+  setActiveBinder("manuscript");
+  const previousSceneId = state.sceneId;
+  state.characterId = null;
+
+  let detail;
+  let members;
+  let openedFromLocalOnly = false;
+  try {
+    // Show shell immediately so the center is never a blank dead pane.
+    showSceneEditorPane();
+    detail = await api(`/api/scenes/${nextId}`);
+    try {
+      members = await api(`/api/scenes/${nextId}/characters`);
+    } catch (_) {
+      members = [];
+    }
+  } catch (error) {
+    // Offline / server down: open local draft if we have one so work is never stranded.
+    const draft = await readLocalSceneDraft(nextId);
+    if (draft && (draft.content_md != null || draft.title)) {
+      openedFromLocalOnly = true;
+      detail = {
+        id: nextId,
+        title: draft.title || `씬 #${nextId}`,
+        status: draft.status || "draft",
+        synopsis_md: draft.synopsis_md || "",
+        notes_md: draft.notes_md || "",
+        content_md: draft.content_md || "",
+        reference_links: Array.isArray(draft.reference_links) ? draft.reference_links : [],
+        goal_word_count: draft.goal_word_count || 0,
+        goal_metric: draft.goal_metric || "chars_with_space",
+        row_version: draft.row_version ?? 0,
+        word_count: 0,
+        revision_no: 0,
+        illustrations: [],
+      };
+      members = [];
+      toast("서버에 연결할 수 없어 이 기기에 보관된 원고를 열었습니다.");
+    } else {
+      handleError(error);
+      return;
+    }
+  }
+
+  state.sceneId = nextId;
+  state.scene = detail;
+  state.sceneMembers = members || [];
+  state.illustrations = detail.illustrations || [];
+  state.referenceLinks = Array.isArray(detail.reference_links)
+    ? detail.reference_links.map((link) => normalizeReferenceItem(link))
+    : [];
+  if (detail.project_purpose) state.projectPurpose = normalizePurposeKey(detail.project_purpose);
+
+  if (state.splitEnabled && state.splitSceneId === state.sceneId && previousSceneId) {
+    state.splitSceneId = previousSceneId;
+  }
+
+  cancelScheduledAutoSave();
+  showSceneEditorPane();
+  fillSceneEditorFields(detail);
+  if (!openedFromLocalOnly) {
+    await maybeRestoreLocalDraft(detail);
+  } else {
+    sceneDirty = true;
+    setSceneSaveStatus("오프라인 보관본 — 연결 시 동기화");
+    scheduleAutoSave();
+  }
+  // Per-episode page color (if set) vs project-wide default
+  if (typeof refreshManuscriptPageTheme === "function") {
+    refreshManuscriptPageTheme();
+  }
+  // 떡밥·수동 알림 (토리 팝업) + 알림 센터 현재 회차 표시
+  if (typeof maybeNotifyBaitRecovery === "function") {
+    maybeNotifyBaitRecovery(nextId);
+  }
+  if (typeof renderToryNotifyList === "function") {
+    renderToryNotifyList();
+  }
+  // Baseline length so loading a scene does not count as "chars written".
+  writingTracker.lastPlainLen = (getEditorPlainText() || "").length;
+  // Register / update browser-like episode tab for this scene.
+  const tabTitle = detail.title
+    || detail.chapter_title
+    || $("sceneTitle")?.value
+    || `씬 #${nextId}`;
+  upsertEpisodeTab(nextId, tabTitle);
+  // Prefer chapter title from outline when available.
+  const ep = getEpisodeSequence().find((e) => e.sceneId === nextId);
+  if (ep?.label) upsertEpisodeTab(nextId, ep.shortLabel || ep.label);
+  renderEpisodeChrome();
+  renderSceneCharacters();
+  renderIllustrations();
+  renderReferenceLinks();
+  updateSceneStats();
+  updateSplitChrome();
+  applySplitLayout();
+
+  // Re-apply find highlights on the newly loaded scene if the find bar is open.
+  if (!$("findBar")?.classList.contains("hidden")) {
+    const q = $("findInput")?.value || "";
+    if (q) runFindInEditor(q);
+    else {
+      findMatches = [];
+      findIndex = -1;
+      updateFindCountUi();
+    }
+  } else {
+    findMatches = [];
+    findIndex = -1;
+  }
+
+  // Focus manuscript so typing works immediately.
+  requestAnimationFrame(() => {
+    const editor = $("sceneContent");
+    if (!editor) return;
+    editor.setAttribute("contenteditable", "true");
+    // Keep focus on find input when searching.
+    if (!$("findBar")?.classList.contains("hidden") && document.activeElement === $("findInput")) {
+      return;
+    }
+    try {
+      editor.focus({ preventScroll: true });
+    } catch (_) {
+      editor.focus();
+    }
+  });
+
+  // Refresh outline highlight without blocking the editor.
+  loadProject().then(() => {
+    // Outline refresh may update episode labels (chapter renames).
+    const refreshed = getEpisodeSequence().find((e) => e.sceneId === nextId);
+    if (refreshed?.label) upsertEpisodeTab(nextId, refreshed.shortLabel || refreshed.label);
+    renderEpisodeChrome();
+  }).catch(handleError);
+  if (state.splitEnabled) {
+    renderSplitViewer().catch(handleError);
+  }
+}
+
+function renderSceneCharacters() {
+  const memberIds = new Set(state.sceneMembers.map((member) => member.character_id));
+  const povId = state.sceneMembers.find((member) => member.is_pov)?.character_id || "";
+  $("sceneCharacterList").innerHTML = state.characters.length
+    ? state.characters.map((character) => `<label><input type="checkbox" value="${character.id}" ${memberIds.has(character.id) ? "checked" : ""}> ${escapeHtml(character.name)}</label>`).join("")
+    : "<span class='hint'>먼저 설정집 바인더에서 캐릭터를 만들어 주세요.</span>";
+  $("povSelect").innerHTML = "<option value=''>시점 인물 없음</option>" + state.characters
+    .map((character) => `<option value="${character.id}" ${Number(povId) === character.id ? "selected" : ""}>${escapeHtml(character.name)}</option>`).join("");
+}
+
+let sceneDirty = false;
+let autoSaveTimer = null;
+let autoSaveInFlight = false;
+let suppressSceneDirty = false;
+const AUTO_SAVE_DELAY_MS = 1200;
+const AUTO_SAVE_RETRY_MS = 5000;
+let localDraftWriteTimer = null;
+let onlineSyncTimer = null;
+let lastLocalDraftToastAt = 0;
+
+/* ── Offline-first local draft (never lose manuscript on API failure) ── */
+const LOCAL_DRAFT_PREFIX = "supertory.sceneDraft.v1.";
+const LOCAL_DRAFT_INDEX_KEY = "supertory.sceneDraftIndex.v1";
+const LOCAL_DRAFT_IDB_NAME = "supertory-drafts";
+const LOCAL_DRAFT_IDB_STORE = "scenes";
+const LOCAL_DRAFT_MAX_LS_CHARS = 1_800_000; // stay under typical 5MB quota with JSON overhead
+
+function localDraftKey(sceneId) {
+  return `${LOCAL_DRAFT_PREFIX}${Number(sceneId) || 0}`;
+}
+
+function captureSceneDraftSnapshot(extra = {}) {
+  if (!state.sceneId) return null;
+  const content = typeof getEditorContent === "function" ? getEditorContent() : "";
+  return {
+    v: 1,
+    sceneId: Number(state.sceneId),
+    projectId: state.projectId != null ? Number(state.projectId) : null,
+    title: $("sceneTitle")?.value || state.scene?.title || "제목 없음",
+    status: $("sceneStatus")?.value || state.scene?.status || "draft",
+    synopsis_md: $("sceneSynopsis")?.value || "",
+    notes_md: $("sceneNotes")?.value || "",
+    content_md: content,
+    reference_links: typeof collectReferenceLinksFromState === "function"
+      ? collectReferenceLinksFromState()
+      : [],
+    goal_word_count: Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0),
+    goal_metric: $("sceneGoalMetric")?.value || "chars_with_space",
+    row_version: state.scene?.row_version ?? null,
+    savedAt: Date.now(),
+    reason: extra.reason || "edit",
+    dirty: true,
+  };
+}
+
+function _readDraftIndex() {
+  try {
+    const raw = localStorage.getItem(LOCAL_DRAFT_INDEX_KEY);
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.map(Number).filter((n) => n > 0) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function _writeDraftIndex(ids) {
+  try {
+    const unique = [...new Set(ids.map(Number).filter((n) => n > 0))].slice(-80);
+    localStorage.setItem(LOCAL_DRAFT_INDEX_KEY, JSON.stringify(unique));
+  } catch (_) {
+    /* quota — ignore */
+  }
+}
+
+function _openDraftIdb() {
+  return new Promise((resolve, reject) => {
+    if (typeof indexedDB === "undefined") {
+      reject(new Error("no idb"));
+      return;
+    }
+    const req = indexedDB.open(LOCAL_DRAFT_IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(LOCAL_DRAFT_IDB_STORE)) {
+        db.createObjectStore(LOCAL_DRAFT_IDB_STORE, { keyPath: "sceneId" });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("idb open failed"));
+  });
+}
+
+function writeLocalSceneDraftIdb(snapshot) {
+  if (!snapshot?.sceneId) return Promise.resolve(false);
+  return _openDraftIdb()
+    .then((db) => new Promise((resolve) => {
+      try {
+        const tx = db.transaction(LOCAL_DRAFT_IDB_STORE, "readwrite");
+        tx.objectStore(LOCAL_DRAFT_IDB_STORE).put(snapshot);
+        tx.oncomplete = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve(true);
+        };
+        tx.onerror = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve(false);
+        };
+      } catch (_) {
+        resolve(false);
+      }
+    }))
+    .catch(() => false);
+}
+
+function readLocalSceneDraftIdb(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return Promise.resolve(null);
+  return _openDraftIdb()
+    .then((db) => new Promise((resolve) => {
+      try {
+        const tx = db.transaction(LOCAL_DRAFT_IDB_STORE, "readonly");
+        const req = tx.objectStore(LOCAL_DRAFT_IDB_STORE).get(id);
+        req.onsuccess = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve(req.result || null);
+        };
+        req.onerror = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve(null);
+        };
+      } catch (_) {
+        resolve(null);
+      }
+    }))
+    .catch(() => null);
+}
+
+function clearLocalSceneDraftIdb(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return Promise.resolve();
+  return _openDraftIdb()
+    .then((db) => new Promise((resolve) => {
+      try {
+        const tx = db.transaction(LOCAL_DRAFT_IDB_STORE, "readwrite");
+        tx.objectStore(LOCAL_DRAFT_IDB_STORE).delete(id);
+        tx.oncomplete = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve();
+        };
+        tx.onerror = () => {
+          try { db.close(); } catch (_) { /* ignore */ }
+          resolve();
+        };
+      } catch (_) {
+        resolve();
+      }
+    }))
+    .catch(() => {});
+}
+
+/**
+ * Synchronous local write — critical path for beforeunload / offline.
+ * Always attempt localStorage; large bodies go primarily to IndexedDB.
+ */
+function writeLocalSceneDraftSync(snapshot) {
+  if (!snapshot?.sceneId) return { ok: false, where: "none" };
+  const id = Number(snapshot.sceneId);
+  let lsOk = false;
+  try {
+    const json = JSON.stringify(snapshot);
+    if (json.length <= LOCAL_DRAFT_MAX_LS_CHARS) {
+      localStorage.setItem(localDraftKey(id), json);
+      lsOk = true;
+    } else {
+      // Store compact pointer in LS; full body only in IDB.
+      localStorage.setItem(localDraftKey(id), JSON.stringify({
+        v: 1,
+        sceneId: id,
+        projectId: snapshot.projectId,
+        title: snapshot.title,
+        savedAt: snapshot.savedAt,
+        row_version: snapshot.row_version,
+        dirty: true,
+        idbOnly: true,
+        contentLen: String(snapshot.content_md || "").length,
+      }));
+      lsOk = true;
+    }
+    const idx = _readDraftIndex();
+    if (!idx.includes(id)) {
+      idx.push(id);
+      _writeDraftIndex(idx);
+    }
+  } catch (_) {
+    lsOk = false;
+    try {
+      sessionStorage.setItem(localDraftKey(id), JSON.stringify({
+        ...snapshot,
+        content_md: String(snapshot.content_md || "").slice(0, 400_000),
+        truncated: true,
+      }));
+      lsOk = true;
+    } catch (__) {
+      /* last resort failed */
+    }
+  }
+  // Fire-and-forget IDB backup (does not block typing).
+  writeLocalSceneDraftIdb(snapshot);
+  return { ok: lsOk, where: lsOk ? "local" : "failed" };
+}
+
+function readLocalSceneDraftSync(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return null;
+  try {
+    const raw = localStorage.getItem(localDraftKey(id))
+      || sessionStorage.getItem(localDraftKey(id));
+    if (!raw) return null;
+    const data = JSON.parse(raw);
+    if (!data || data.sceneId !== id) return null;
+    return data;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function readLocalSceneDraft(sceneId) {
+  const id = Number(sceneId);
+  const fromLs = readLocalSceneDraftSync(id);
+  const fromIdb = await readLocalSceneDraftIdb(id);
+  if (fromIdb && fromLs) {
+    return (Number(fromIdb.savedAt) || 0) >= (Number(fromLs.savedAt) || 0) ? fromIdb : fromLs;
+  }
+  if (fromIdb?.idbOnly === false || (fromIdb && fromIdb.content_md != null)) return fromIdb;
+  if (fromLs && !fromLs.idbOnly) return fromLs;
+  if (fromIdb) return fromIdb;
+  return fromLs;
+}
+
+function clearLocalSceneDraft(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  try { localStorage.removeItem(localDraftKey(id)); } catch (_) { /* ignore */ }
+  try { sessionStorage.removeItem(localDraftKey(id)); } catch (_) { /* ignore */ }
+  _writeDraftIndex(_readDraftIndex().filter((n) => n !== id));
+  clearLocalSceneDraftIdb(id);
+}
+
+/** Snapshot current editor to device storage. Safe to call very often. */
+function ensureLocalDraftSaved(reason = "edit") {
+  if (!state.sceneId || !state.scene) return false;
+  try {
+    const snap = captureSceneDraftSnapshot({ reason });
+    if (!snap) return false;
+    const result = writeLocalSceneDraftSync(snap);
+    return Boolean(result.ok);
+  } catch (_) {
+    return false;
+  }
+}
+
+function scheduleLocalDraftWrite() {
+  if (localDraftWriteTimer) window.clearTimeout(localDraftWriteTimer);
+  // Micro-debounce: still near-instant so a crash loses almost nothing.
+  localDraftWriteTimer = window.setTimeout(() => {
+    localDraftWriteTimer = null;
+    ensureLocalDraftSaved("debounce");
+  }, 200);
+}
+
+function notifyLocalDraftKept(error) {
+  const now = Date.now();
+  if (now - lastLocalDraftToastAt < 8000) return;
+  lastLocalDraftToastAt = now;
+  const offline = isOfflineSafeError(error) || !isOnlineNow();
+  toast(
+    offline
+      ? "연결이 불안정해 이 기기에 원고를 보관했어요. 연결되면 자동으로 동기화합니다."
+      : "서버 저장에 실패해 이 기기에 원고를 보관했어요. 잠시 후 다시 시도합니다.",
+  );
+}
+
+/**
+ * After loading server scene, restore a newer local draft if present.
+ * Returns true if editor was restored from local storage.
+ */
+async function maybeRestoreLocalDraft(serverScene) {
+  const sceneId = Number(serverScene?.id || state.sceneId);
+  if (!sceneId) return false;
+  const draft = await readLocalSceneDraft(sceneId);
+  if (!draft || draft.content_md == null) return false;
+  if (draft.idbOnly && !draft.content_md) {
+    const idb = await readLocalSceneDraftIdb(sceneId);
+    if (!idb?.content_md) return false;
+    Object.assign(draft, idb);
+  }
+
+  const serverContent = String(serverScene?.content_md || "");
+  const localContent = String(draft.content_md || "");
+  if (!localContent && !draft.title) return false;
+
+  // Prefer local if dirty flag or content differs and draft is not ancient empty.
+  const contentDiffers = localContent !== serverContent
+    || String(draft.title || "") !== String(serverScene?.title || "")
+    || String(draft.notes_md || "") !== String(serverScene?.notes_md || "")
+    || String(draft.synopsis_md || "") !== String(serverScene?.synopsis_md || "");
+  if (!contentDiffers) {
+    clearLocalSceneDraft(sceneId);
+    return false;
+  }
+
+  // If local is empty and server has text, keep server (avoid wiping).
+  if (!localContent.trim() && serverContent.trim()) {
+    clearLocalSceneDraft(sceneId);
+    return false;
+  }
+
+  suppressSceneDirty = true;
+  if ($("sceneTitle") && draft.title != null) $("sceneTitle").value = draft.title;
+  if ($("sceneStatus") && draft.status) $("sceneStatus").value = draft.status;
+  if ($("sceneSynopsis") && draft.synopsis_md != null) $("sceneSynopsis").value = draft.synopsis_md;
+  if ($("sceneNotes") && draft.notes_md != null) $("sceneNotes").value = draft.notes_md;
+  setEditorContent(localContent);
+  if ($("sceneGoalCount") && draft.goal_word_count != null) {
+    $("sceneGoalCount").value = String(draft.goal_word_count || 0);
+  }
+  if ($("sceneGoalMetric") && draft.goal_metric) {
+    $("sceneGoalMetric").value = draft.goal_metric;
+  }
+  if (Array.isArray(draft.reference_links)) {
+    state.referenceLinks = draft.reference_links.map((link) => normalizeReferenceItem(link));
+    if (typeof renderReferenceLinks === "function") renderReferenceLinks();
+  }
+  suppressSceneDirty = false;
+  sceneDirty = true;
+  updateAuthorNotesBadge();
+  updateReferenceMaterialsBadge();
+  setSceneSaveStatus("이 기기 보관본 복구됨 — 동기화 대기");
+  toast("연결 전 편집 내용을 이 기기에서 복구했습니다. 서버에 동기화합니다.");
+  scheduleAutoSave();
+  return true;
+}
+
+function scheduleOnlineSync() {
+  if (onlineSyncTimer) window.clearTimeout(onlineSyncTimer);
+  onlineSyncTimer = window.setTimeout(() => {
+    onlineSyncTimer = null;
+    flushLocalDraftsToServer().catch(() => { /* ignore */ });
+  }, 400);
+}
+
+async function flushLocalDraftsToServer() {
+  if (!isOnlineNow()) return;
+  // Current open scene first
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: "오프라인 동기화" });
+    } catch (_) {
+      /* keep local */
+    }
+  }
+  if (splitDirty && state.splitSceneId) {
+    try {
+      await persistSplitScene({ quiet: true });
+    } catch (_) {
+      /* keep local */
+    }
+  }
+}
+
+function setSceneSaveStatus(text) {
+  // Footer no longer shows revision/word-count save chatter.
+  // Keep a short cue only in focus-write mode.
+  if ($("focusWriteSaveInfo") && typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    const t = String(text || "");
+    if (t.includes("실패") || t.includes("오프라인") || t.includes("보관")) {
+      $("focusWriteSaveInfo").textContent = t.includes("보관") ? "기기에 보관됨" : "저장 실패";
+    } else if (t.includes("대기") || t.includes("복구")) $("focusWriteSaveInfo").textContent = "저장 대기…";
+    else if (t.includes("중")) $("focusWriteSaveInfo").textContent = "저장 중…";
+    else if (t.includes("저장")) $("focusWriteSaveInfo").textContent = "저장됨";
+    else $("focusWriteSaveInfo").textContent = "";
+  }
+}
+
+function markSceneDirty() {
+  if (suppressSceneDirty || !state.sceneId || !state.scene) return;
+  sceneDirty = true;
+  // Local-first: device storage before any network hop.
+  scheduleLocalDraftWrite();
+  setSceneSaveStatus(isOnlineNow() ? "저장 대기 중…" : "오프라인 — 이 기기에 보관 중…");
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave() {
+  if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
+  autoSaveTimer = window.setTimeout(() => {
+    persistScene({ quiet: true, saveNote: "자동 저장" }).catch((error) => {
+      // Local draft already written; avoid noisy toasts on every quiet retry.
+      if (!isOfflineSafeError(error)) handleError(error);
+      else notifyLocalDraftKept(error);
+    });
+  }, AUTO_SAVE_DELAY_MS);
+}
+
+function cancelScheduledAutoSave() {
+  if (autoSaveTimer) {
+    window.clearTimeout(autoSaveTimer);
+    autoSaveTimer = null;
+  }
+}
+
+function buildSceneSaveBody(saveNote) {
+  // Keep 설정집 참고자료 in sync whenever the scene is saved
+  try { syncAllReferencesToProjectSources(); } catch (_) { /* ignore */ }
+  return {
+    title: $("sceneTitle")?.value || state.scene?.title || "제목 없음",
+    status: $("sceneStatus")?.value || "draft",
+    synopsis_md: $("sceneSynopsis")?.value || "",
+    notes_md: $("sceneNotes")?.value || "",
+    content_md: getEditorContent(),
+    reference_links: collectReferenceLinksFromState(),
+    goal_word_count: Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0),
+    goal_metric: $("sceneGoalMetric")?.value || "chars_with_space",
+    row_version: state.scene.row_version,
+    save_note: saveNote || "저장",
+  };
+}
+
+async function persistScene(options = {}) {
+  const quiet = Boolean(options.quiet);
+  const saveNote = options.saveNote || (quiet ? "자동 저장" : "저장");
+  if (!state.scene || !state.sceneId) return null;
+  if (autoSaveInFlight) {
+    if (quiet) scheduleAutoSave();
+    // Still refresh local snapshot while a flight is in progress.
+    ensureLocalDraftSaved("inflight");
+    return null;
+  }
+  // Ensure title is never empty (server requires it).
+  if (!$("sceneTitle")?.value?.trim()) {
+    if ($("sceneTitle")) $("sceneTitle").value = state.scene.title || "제목 없음";
+  }
+
+  // 1) LOCAL FIRST — always, before network.
+  const body = buildSceneSaveBody(saveNote);
+  const localSnap = {
+    v: 1,
+    sceneId: Number(state.sceneId),
+    projectId: state.projectId != null ? Number(state.projectId) : null,
+    title: body.title,
+    status: body.status,
+    synopsis_md: body.synopsis_md,
+    notes_md: body.notes_md,
+    content_md: body.content_md,
+    reference_links: body.reference_links,
+    goal_word_count: body.goal_word_count,
+    goal_metric: body.goal_metric,
+    row_version: body.row_version,
+    savedAt: Date.now(),
+    reason: saveNote,
+    dirty: true,
+  };
+  const localWrite = writeLocalSceneDraftSync(localSnap);
+  if (!localWrite.ok) {
+    console.warn("[supertory] local draft write failed — still attempting server save");
+  }
+
+  autoSaveInFlight = true;
+  if (quiet) {
+    setSceneSaveStatus(
+      isOnlineNow() ? "자동 저장 중…" : "오프라인 보관 중…",
+    );
+  }
+  try {
+    if (!isOnlineNow()) {
+      const offlineErr = new Error(
+        "오프라인 상태입니다. 원고는 이 기기에 보관되었고, 연결되면 자동 동기화됩니다.",
+      );
+      offlineErr.isNetwork = true;
+      offlineErr.offlineSafe = true;
+      throw offlineErr;
+    }
+
+    const saved = await api(`/api/scenes/${state.sceneId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    // Characters are secondary — failure must not discard content that already saved.
+    try {
+      const characterIds = [...document.querySelectorAll("#sceneCharacterList input:checked")].map((input) => Number(input.value));
+      await api(`/api/scenes/${state.sceneId}/characters`, {
+        method: "PUT",
+        body: JSON.stringify({ character_ids: characterIds, pov_id: $("povSelect")?.value || "" }),
+      });
+    } catch (charError) {
+      console.warn("[supertory] character membership save failed", charError);
+    }
+    if (saved && typeof saved === "object") {
+      if (saved.row_version != null) state.scene.row_version = saved.row_version;
+      if (saved.revision_no != null) state.scene.revision_no = saved.revision_no;
+      if (saved.word_count != null) state.scene.word_count = saved.word_count;
+      if (saved.status != null) state.scene.status = saved.status;
+      if (saved.title != null) state.scene.title = saved.title;
+    }
+    sceneDirty = false;
+    clearLocalSceneDraft(state.sceneId);
+    // Binder left rail: status / title must match the open scene immediately.
+    syncOpenSceneToOutlineBinder({
+      sceneId: state.sceneId,
+      status: body.status || saved?.status,
+      title: body.title || saved?.title,
+    });
+    const revision = state.scene.revision_no ?? "";
+    const words = state.scene.word_count ?? 0;
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setSceneSaveStatus(
+      quiet
+        ? `자동 저장됨 ${stamp} · 저장본 ${revision} · ${words}어절`
+        : `저장됨 ${stamp} · 저장본 ${revision} · ${words}어절`,
+    );
+    if ($("focusWriteSaveInfo") && isFocusWriteOpen()) {
+      $("focusWriteSaveInfo").textContent = quiet
+        ? `자동 저장됨 ${stamp}`
+        : `저장됨 ${stamp}`;
+    }
+    // Keep open tab title in sync with renames.
+    if (state.sceneId) {
+      const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "";
+      if (title) upsertEpisodeTab(state.sceneId, title);
+      renderEpisodeChrome();
+    }
+    // Refresh full-manuscript totals after content is saved.
+    scheduleProjectManuscriptStats();
+    if (!quiet) toast("저장했습니다.");
+    return saved;
+  } catch (error) {
+    // 2) Local already has the manuscript — never treat this as total loss.
+    ensureLocalDraftSaved(isOfflineSafeError(error) ? "offline" : "server-error");
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    if (isOfflineSafeError(error) || !isOnlineNow()) {
+      setSceneSaveStatus(`이 기기에 보관됨 ${stamp} — 연결 시 동기화`);
+      if (!quiet) notifyLocalDraftKept(error);
+      else notifyLocalDraftKept(error);
+      // Retry when network may recover (longer delay).
+      if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
+      autoSaveTimer = window.setTimeout(() => {
+        persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
+          notifyLocalDraftKept(error);
+        });
+      }, AUTO_SAVE_RETRY_MS);
+      // Do not rethrow for quiet autosave — work is safe locally.
+      if (quiet) return { localOnly: true, error };
+      const friendly = new Error(
+        error.message || "서버에 저장하지 못했지만, 원고는 이 기기에 보관되어 있습니다.",
+      );
+      friendly.offlineSafe = true;
+      friendly.localOnly = true;
+      throw friendly;
+    }
+    if (quiet) {
+      setSceneSaveStatus("자동 저장 실패 — 기기에 보관 · 재시도 예정");
+      scheduleAutoSave();
+      notifyLocalDraftKept(error);
+      return { localOnly: true, error };
+    }
+    throw error;
+  } finally {
+    autoSaveInFlight = false;
+  }
+}
+
+async function saveScene(event) {
+  if (event) event.preventDefault();
+  cancelScheduledAutoSave();
+  ensureLocalDraftSaved("manual");
+  try {
+    await persistScene({ quiet: false, saveNote: "수동 저장" });
+  } catch (error) {
+    if (error?.localOnly || isOfflineSafeError(error)) {
+      toast("서버 저장은 보류되었지만, 원고는 이 기기에 보관되어 있습니다.");
+      return;
+    }
+    throw error;
+  }
+}
+
+function setupSceneAutoSave() {
+  const dirtyEvents = ["input", "change"];
+  const fields = [
+    "sceneTitle", "sceneStatus", "sceneSynopsis", "sceneNotes",
+    "sceneGoalMetric", "sceneGoalCount", "sceneContent", "povSelect",
+  ];
+  fields.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    dirtyEvents.forEach((type) => {
+      el.addEventListener(type, () => markSceneDirty());
+    });
+  });
+  // Writing status bar → binder episode head must update immediately (not only after save).
+  $("sceneStatus")?.addEventListener("change", () => {
+    const status = $("sceneStatus")?.value || "draft";
+    syncOpenSceneToOutlineBinder({ status });
+    markSceneDirty();
+  });
+  // Some browsers fire input on <select> when using keyboard; keep binder in sync.
+  $("sceneStatus")?.addEventListener("input", () => {
+    const status = $("sceneStatus")?.value || "draft";
+    syncOpenSceneToOutlineBinder({ status });
+  });
+  // Title renames also reflect on the binder list (live, while typing ends on change/blur).
+  $("sceneTitle")?.addEventListener("change", () => {
+    const title = $("sceneTitle")?.value?.trim() || "";
+    if (title) syncOpenSceneToOutlineBinder({ title });
+  });
+  // Character checkboxes are re-rendered; use delegation.
+  $("sceneCharacterList")?.addEventListener("change", () => markSceneDirty());
+  // Reference links use delegated inputs.
+  $("referenceLinkList")?.addEventListener("input", () => markSceneDirty());
+  $("referenceLinkList")?.addEventListener("change", () => markSceneDirty());
+
+  // Extra safety: contenteditable sometimes fires only input.
+  $("sceneContent")?.addEventListener("blur", () => {
+    if (sceneDirty) {
+      ensureLocalDraftSaved("blur");
+      scheduleAutoSave();
+    }
+  });
+
+  // Flush: sync local draft ALWAYS; async server best-effort.
+  window.addEventListener("beforeunload", (event) => {
+    if (sceneDirty || splitDirty) {
+      ensureLocalDraftSaved("beforeunload");
+      if (splitDirty && state.splitSceneId) {
+        try {
+          const bodyEl = $("splitSceneBodyEditor");
+          const titleEl = $("splitSceneTitleInput");
+          writeLocalSceneDraftSync({
+            v: 1,
+            sceneId: Number(state.splitSceneId),
+            projectId: state.projectId != null ? Number(state.projectId) : null,
+            title: titleEl?.value || state.splitScene?.title || "",
+            status: state.splitScene?.status || "draft",
+            synopsis_md: state.splitScene?.synopsis_md || "",
+            notes_md: state.splitScene?.notes_md || "",
+            content_md: bodyEl ? getEditorContent(bodyEl) : (state.splitScene?.content_md || ""),
+            reference_links: state.splitScene?.reference_links || [],
+            goal_word_count: state.splitScene?.goal_word_count || 0,
+            goal_metric: state.splitScene?.goal_metric || "chars_with_space",
+            row_version: state.splitScene?.row_version ?? null,
+            savedAt: Date.now(),
+            reason: "beforeunload-split",
+            dirty: true,
+          });
+        } catch (_) {
+          /* ignore */
+        }
+      }
+      // Try keepalive PUT for current scene (may be ignored by browser).
+      try {
+        if (state.sceneId && state.scene && isOnlineNow()) {
+          const payload = JSON.stringify(buildSceneSaveBody("종료 전 저장"));
+          if (navigator.sendBeacon) {
+            const blob = new Blob([payload], { type: "application/json" });
+            // sendBeacon is POST-only; server expects PUT — skip if unsupported.
+            void blob;
+          }
+          // keepalive fetch PUT
+          fetch(`/api/scenes/${state.sceneId}`, {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: payload,
+            keepalive: true,
+          }).catch(() => { /* local draft remains */ });
+        }
+      } catch (_) {
+        /* ignore */
+      }
+      event.preventDefault();
+      event.returnValue = "";
+    }
+  });
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden") {
+      if (sceneDirty) {
+        ensureLocalDraftSaved("visibility");
+        cancelScheduledAutoSave();
+        persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
+          /* local draft already kept */
+        });
+      }
+      if (splitDirty) {
+        cancelSplitAutoSave();
+        persistSplitScene({ quiet: true }).catch(() => { /* ignore */ });
+      }
+    }
+  });
+
+  window.addEventListener("online", () => {
+    toast("연결되었습니다. 보관된 원고를 서버에 동기화합니다.");
+    scheduleOnlineSync();
+  });
+  window.addEventListener("offline", () => {
+    if (sceneDirty) ensureLocalDraftSaved("offline-event");
+    setSceneSaveStatus("오프라인 — 이 기기에 보관 중…");
+    toast("오프라인입니다. 작성 내용은 이 기기에 계속 저장됩니다.");
+  });
+
+  // pagehide is more reliable than beforeunload on mobile.
+  window.addEventListener("pagehide", () => {
+    if (sceneDirty) ensureLocalDraftSaved("pagehide");
+  });
+}
+
+async function createCharacter() {
+  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  const name = window.prompt("캐릭터 이름을 적어 주세요.", "새 캐릭터");
+  if (name === null) return;
+  const character = await api(`/api/projects/${state.projectId}/characters`, { method: "POST", body: JSON.stringify({ name }) });
+  state.openSettingsSection = "characters";
+  await loadProject();
+  await openCharacter(character.id);
+  toast("인물 설정을 적어 보세요.");
+}
+
+async function openCharacter(characterId) {
+  await closeSplitView();
+  state.ideaBoardOpen = false;
+  state.characterBoardOpen = false;
+  state.keywordBoardOpen = false;
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  hideSynopsisMain();
+  state.characterId = Number(characterId);
+  state.sceneId = null;
+  state.character = await api(`/api/characters/${characterId}`);
+  const character = state.character.character;
+  setActiveBinder("settings");
+  state.openSettingsSection = "characters";
+  applySettingsSectionState();
+  $("welcome").classList.add("hidden");
+  $("sceneWorkspace").classList.add("hidden");
+  $("characterEditor").classList.remove("hidden");
+  closeSceneToolsDrawer();
+  $("characterName").value = character.name;
+  $("characterSortName").value = character.sort_name;
+  $("characterRole").value = character.role;
+  $("characterSummary").value = character.short_description;
+  $("characterProfile").value = character.profile_md;
+  if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";
+  if ($("characterWeaknesses")) $("characterWeaknesses").value = character.weaknesses_md || "";
+  $("characterNotes").value = character.author_notes_md;
+  $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || "<span class='hint'>아직 별칭이 없어요.</span>";
+  $("characterInfo").textContent = "";
+  await loadProject();
+}
+
+async function saveCharacter(event) {
+  event.preventDefault();
+  if (!state.character) return;
+  await api(`/api/characters/${state.characterId}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      name: $("characterName").value,
+      sort_name: $("characterSortName").value,
+      role: $("characterRole").value,
+      short_description: $("characterSummary").value,
+      profile_md: $("characterProfile").value,
+      strengths_md: $("characterStrengths")?.value || "",
+      weaknesses_md: $("characterWeaknesses")?.value || "",
+      author_notes_md: $("characterNotes").value,
+      row_version: state.character.character.row_version,
+    }),
+  });
+  await openCharacter(state.characterId);
+  toast("인물 설정을 저장했습니다.");
+}
+
+async function addAlias() {
+  const alias = $("newAlias").value.trim();
+  if (!alias || !state.characterId) return;
+  await api(`/api/characters/${state.characterId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
+  $("newAlias").value = "";
+  await openCharacter(state.characterId);
+  toast("별칭을 추가했습니다.");
+}
+
+function allScenes() {
+  return flattenAllOutlineScenes().map((scene) => ({
+    ...scene,
+    chapterTitle: scene.chapterTitle,
+  }));
+}
+
+const SPLIT_EDIT_STORAGE_KEY = "supertory.splitEditEnabled";
+
+function loadSplitEditPreference() {
+  try {
+    state.splitEditEnabled = localStorage.getItem(SPLIT_EDIT_STORAGE_KEY) === "1";
+  } catch (_) {
+    state.splitEditEnabled = false;
+  }
+}
+
+function setSplitEditEnabled(enabled, options = {}) {
+  const next = Boolean(enabled);
+  const changed = state.splitEditEnabled !== next;
+  state.splitEditEnabled = next;
+  try {
+    localStorage.setItem(SPLIT_EDIT_STORAGE_KEY, next ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+  applySplitEditMode();
+  if (changed && !options.silent) {
+    toast(next
+      ? "다른 씬 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
+      : "다른 씬 자유 편집을 껐어요. 읽기 전용입니다.");
+  }
+}
+
+function applySplitEditMode() {
+  const viewer = $("splitViewer");
+  const body = $("splitSceneBodyEditor");
+  const title = $("splitSceneTitleInput");
+  const btn = $("toggleSplitEditButton");
+  const sourceMode = state.splitEnabled && state.splitKind === "source";
+  const on = Boolean(state.splitEditEnabled && state.splitEnabled && !sourceMode);
+  viewer?.classList.toggle("split-edit-on", on);
+  if (body) {
+    body.setAttribute("contenteditable", on ? "true" : "false");
+    body.spellcheck = on;
+  }
+  if (title) {
+    title.readOnly = !on;
+    title.tabIndex = on ? 0 : -1;
+  }
+  if (btn) {
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.classList.toggle("hidden", sourceMode);
+    btn.disabled = sourceMode;
+    // Short labels fit between "함께 볼 씬" and the split-mode control.
+    btn.textContent = on ? "편집 중" : "자유 편집";
+    btn.title = sourceMode
+      ? "참고자료는 패널 안 「편집」 버튼으로 수정하세요"
+      : on
+        ? "자유 편집 켜짐 — 누르면 읽기 전용으로 돌아갑니다"
+        : "다른 씬을 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다.";
+  }
+  if (sourceMode) applySplitSourceEditUi();
+}
+
+let splitDirty = false;
+let splitAutoSaveTimer = null;
+let splitAutoSaveInFlight = false;
+let suppressSplitDirty = false;
+
+function setSplitSaveStatus(text) {
+  if ($("splitSaveInfo")) $("splitSaveInfo").textContent = text || "";
+}
+
+function markSplitDirty() {
+  if (suppressSplitDirty || !state.splitEditEnabled || !state.splitSceneId) return;
+  splitDirty = true;
+  setSplitSaveStatus(isOnlineNow() ? "저장 대기 중…" : "오프라인 — 이 기기에 보관 중…");
+  // Immediate local snapshot for split editor.
+  try {
+    const bodyEl = $("splitSceneBodyEditor");
+    const titleEl = $("splitSceneTitleInput");
+    if (bodyEl) {
+      writeLocalSceneDraftSync({
+        v: 1,
+        sceneId: Number(state.splitSceneId),
+        projectId: state.projectId != null ? Number(state.projectId) : null,
+        title: titleEl?.value || state.splitScene?.title || "",
+        status: state.splitScene?.status || "draft",
+        synopsis_md: state.splitScene?.synopsis_md || "",
+        notes_md: state.splitScene?.notes_md || "",
+        content_md: getEditorContent(bodyEl),
+        reference_links: state.splitScene?.reference_links || [],
+        goal_word_count: state.splitScene?.goal_word_count || 0,
+        goal_metric: state.splitScene?.goal_metric || "chars_with_space",
+        row_version: state.splitScene?.row_version ?? null,
+        savedAt: Date.now(),
+        reason: "split-edit",
+        dirty: true,
+      });
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  if (splitAutoSaveTimer) window.clearTimeout(splitAutoSaveTimer);
+  splitAutoSaveTimer = window.setTimeout(() => {
+    persistSplitScene({ quiet: true }).catch((error) => {
+      if (!isOfflineSafeError(error)) handleError(error);
+      else notifyLocalDraftKept(error);
+    });
+  }, 1200);
+}
+
+function cancelSplitAutoSave() {
+  if (splitAutoSaveTimer) {
+    window.clearTimeout(splitAutoSaveTimer);
+    splitAutoSaveTimer = null;
+  }
+}
+
+async function persistSplitScene(options = {}) {
+  const quiet = Boolean(options.quiet);
+  if (!state.splitSceneId || !state.splitScene) return null;
+  if (!state.splitEditEnabled && quiet) return null;
+  if (splitAutoSaveInFlight) {
+    if (quiet) markSplitDirty();
+    return null;
+  }
+  const titleEl = $("splitSceneTitleInput");
+  const bodyEl = $("splitSceneBodyEditor");
+  if (!titleEl || !bodyEl) return null;
+  let title = (titleEl.value || "").trim();
+  if (!title) {
+    title = state.splitScene.title || "제목 없음";
+    titleEl.value = title;
+  }
+  const scene = state.splitScene;
+  const body = {
+    title,
+    status: scene.status || "draft",
+    synopsis_md: scene.synopsis_md || "",
+    notes_md: scene.notes_md || "",
+    content_md: getEditorContent(bodyEl),
+    reference_links: Array.isArray(scene.reference_links) ? scene.reference_links : [],
+    goal_word_count: Math.max(0, Number(scene.goal_word_count || 0) || 0),
+    goal_metric: scene.goal_metric || "chars_with_space",
+    row_version: scene.row_version,
+    save_note: quiet ? "자동 저장" : "저장",
+  };
+  // Local-first for split pane too.
+  writeLocalSceneDraftSync({
+    v: 1,
+    sceneId: Number(state.splitSceneId),
+    projectId: state.projectId != null ? Number(state.projectId) : null,
+    title: body.title,
+    status: body.status,
+    synopsis_md: body.synopsis_md,
+    notes_md: body.notes_md,
+    content_md: body.content_md,
+    reference_links: body.reference_links,
+    goal_word_count: body.goal_word_count,
+    goal_metric: body.goal_metric,
+    row_version: body.row_version,
+    savedAt: Date.now(),
+    reason: quiet ? "split-auto" : "split-manual",
+    dirty: true,
+  });
+
+  splitAutoSaveInFlight = true;
+  if (quiet) setSplitSaveStatus(isOnlineNow() ? "자동 저장 중…" : "오프라인 보관 중…");
+  try {
+    if (!isOnlineNow()) {
+      const offlineErr = new Error("오프라인 — 분할 창 원고를 기기에 보관했습니다.");
+      offlineErr.isNetwork = true;
+      offlineErr.offlineSafe = true;
+      throw offlineErr;
+    }
+    const saved = await api(`/api/scenes/${state.splitSceneId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    if (saved && typeof saved === "object") {
+      if (saved.row_version != null) state.splitScene.row_version = saved.row_version;
+      if (saved.revision_no != null) state.splitScene.revision_no = saved.revision_no;
+      if (saved.word_count != null) state.splitScene.word_count = saved.word_count;
+    }
+    state.splitScene.title = title;
+    state.splitScene.content_md = body.content_md;
+    splitDirty = false;
+    clearLocalSceneDraft(state.splitSceneId);
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setSplitSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
+    // Refresh outline titles if this scene is listed.
+    loadProject().catch(() => { /* ignore */ });
+    if (!quiet) toast("다른 씬을 저장했습니다.");
+    return saved;
+  } catch (error) {
+    if (quiet) {
+      setSplitSaveStatus(
+        isOfflineSafeError(error)
+          ? "이 기기에 보관됨 — 연결 시 동기화"
+          : "자동 저장 실패 — 기기에 보관 · 재시도",
+      );
+      markSplitDirty();
+      if (isOfflineSafeError(error)) return { localOnly: true, error };
+    }
+    if (isOfflineSafeError(error)) {
+      notifyLocalDraftKept(error);
+      if (quiet) return { localOnly: true, error };
+    }
+    throw error;
+  } finally {
+    splitAutoSaveInFlight = false;
+  }
+}
+
+async function flushSplitEdits() {
+  if (!splitDirty || !state.splitSceneId) return;
+  cancelSplitAutoSave();
+  try {
+    await persistSplitScene({ quiet: true });
+  } catch (_) {
+    /* keep going */
+  }
+}
+
+function updateSplitChrome() {
+  const mainBtn = $("splitViewButton");
+  const switchBtn = $("switchSplitModeButton");
+  const viewer = $("splitViewer");
+  if (!state.splitEnabled) {
+    if (mainBtn) {
+      mainBtn.textContent = "다른 씬 보기 ▾";
+      mainBtn.title = "다른 씬을 화면 나누기 또는 팝업으로 봅니다";
+      mainBtn.classList.remove("is-active");
+      mainBtn.disabled = !state.sceneId;
+    }
+    if (switchBtn) {
+      switchBtn.textContent = "보기 방식 ▾";
+      switchBtn.disabled = false;
+    }
+    $("viewModeCloseItem")?.classList.add("hidden");
+    applySplitEditMode();
+    return;
+  }
+  if (mainBtn) {
+    mainBtn.disabled = false;
+    mainBtn.classList.add("is-active");
+    if (state.splitMode === "popup") {
+      mainBtn.textContent = "팝업 중 ▾";
+      mainBtn.title = "팝업으로 보는 중 — 눌러 방식을 바꿉니다";
+    } else {
+      mainBtn.textContent = "화면 나누기 중 ▾";
+      mainBtn.title = "화면 나누기 중 — 눌러 방식을 바꿉니다";
+    }
+  }
+  if (switchBtn) {
+    switchBtn.disabled = false;
+    // Keep short so SuperTORY clip / narrow split pane does not hide the control.
+    if (state.splitMode === "popup") {
+      switchBtn.textContent = "팝업 ▾";
+      switchBtn.title = "보기 방식 · 팝업 중 (화면 나누기 / 닫기)";
+    } else {
+      switchBtn.textContent = "나누기 ▾";
+      switchBtn.title = "보기 방식 · 화면 나누기 중 (팝업 / 닫기)";
+    }
+  }
+  $("viewModeCloseItem")?.classList.remove("hidden");
+  viewer?.classList.toggle("popup-mode", state.splitMode === "popup");
+  applySplitEditMode();
+}
+
+/** Clear fixed popup geometry so split (side-by-side) layout can size the pane again. */
+function clearSplitViewerPopupStyles() {
+  const viewer = $("splitViewer");
+  if (!viewer) return;
+  viewer.style.top = "";
+  viewer.style.left = "";
+  viewer.style.right = "";
+  viewer.style.bottom = "";
+  viewer.style.width = "";
+  viewer.style.height = "";
+  viewer.style.position = "";
+  viewer.style.minWidth = "";
+  viewer.style.minHeight = "";
+  viewer.style.maxWidth = "";
+  viewer.style.maxHeight = "";
+}
+
+function applySplitLayout() {
+  const workspace = $("sceneWorkspace");
+  const viewer = $("splitViewer");
+  const resizer = $("splitPaneResizer");
+  if (!workspace || !viewer) return;
+  const splitOn = state.splitEnabled && state.splitMode === "split";
+  const popupOn = state.splitEnabled && state.splitMode === "popup";
+  workspace.classList.toggle("split-active", splitOn);
+  viewer.classList.toggle("popup-mode", popupOn);
+  viewer.classList.toggle("hidden", !state.splitEnabled);
+  resizer?.classList.toggle("hidden", !splitOn);
+  // Leaving popup → split: strip drag/resize inline styles or the pane vanishes off-layout
+  if (splitOn) {
+    clearSplitViewerPopupStyles();
+    requestAnimationFrame(() => {
+      ensureSplitLeftWidth();
+      layoutSplitPrimaryPane();
+      requestAnimationFrame(() => {
+        ensureSplitLeftWidth();
+        layoutSplitPrimaryPane();
+        // Source file pane may need a second pass after flex settles
+        if (state.splitKind === "source") {
+          setSplitSourceUiMode(true);
+          const textEl = $("splitSourceText");
+          if (textEl && !textEl.classList.contains("hidden")) {
+            textEl.style.minHeight = "";
+            textEl.style.display = "";
+            textEl.style.visibility = "";
+          }
+        }
+      });
+    });
+  } else {
+    clearSplitPrimaryPaneLayout();
+  }
+  // Entering popup with no geometry: CSS defaults apply once inline sizes are cleared
+  if (popupOn && !viewer.style.width) {
+    /* rely on .split-viewer.popup-mode CSS */
+  }
+  updateSplitChrome();
+  applySplitEditMode();
+  if (state.splitKind === "source") setSplitSourceUiMode(true);
+  const editor = $("sceneContent");
+  if (editor) {
+    editor.setAttribute("contenteditable", "true");
+    editor.style.pointerEvents = "auto";
+  }
+  const form = $("sceneEditor");
+  if (form) form.scrollTop = 0;
+}
+
+/** Measure left split pane and force the manuscript block to a real pixel height. */
+function layoutSplitPrimaryPane() {
+  if (!(state.splitEnabled && state.splitMode === "split")) return;
+  const column = document.querySelector(".scene-workspace.split-active .writing-column");
+  const form = $("sceneEditor");
+  const block = form?.querySelector(".writing-block");
+  const page = $("manuscriptPage");
+  const status = column?.querySelector(".manuscript-status-bar");
+  if (!column || !form || !block || !page) return;
+
+  const colH = column.clientHeight || column.getBoundingClientRect().height || 0;
+  if (colH < 80) return;
+
+  const statusH = status ? status.getBoundingClientRect().height : 0;
+  const formBudget = Math.max(200, Math.floor(colH - statusH - 4));
+  form.style.flex = "1 1 auto";
+  form.style.minHeight = "0";
+  form.style.height = `${formBudget}px`;
+  form.style.maxHeight = `${formBudget}px`;
+  form.style.overflow = "hidden";
+
+  // Sum chrome rows (meta / toolbar / feature). Writing block gets the rest.
+  const meta = form.querySelector(".editor-meta");
+  const toolbar = form.querySelector(".format-toolbar");
+  const feature = form.querySelector(".scene-feature-bar");
+  const chrome =
+    (meta ? meta.getBoundingClientRect().height : 0) +
+    (toolbar ? Math.min(toolbar.getBoundingClientRect().height, 96) : 0) +
+    (feature ? feature.getBoundingClientRect().height : 0) +
+    12;
+  const bodyH = Math.max(180, Math.floor(formBudget - chrome));
+
+  block.style.display = "flex";
+  block.style.flexDirection = "column";
+  block.style.flex = "none";
+  block.style.height = `${bodyH}px`;
+  block.style.minHeight = `${bodyH}px`;
+  block.style.maxHeight = `${bodyH}px`;
+  block.style.overflow = "hidden";
+  block.style.visibility = "visible";
+
+  page.style.display = "block";
+  page.style.height = "100%";
+  page.style.minHeight = `${Math.max(160, bodyH - 4)}px`;
+  page.style.overflowY = "auto";
+  page.style.visibility = "visible";
+
+  const content = $("sceneContent");
+  if (content) {
+    content.style.display = "block";
+    content.style.visibility = "visible";
+    // Fill manuscript sheet so the bottom is writable paper, not a dead solid band
+    content.style.minHeight = `${Math.max(160, bodyH - 8)}px`;
+    content.style.height = "auto";
+    content.setAttribute("contenteditable", "true");
+  }
+
+  // Right pane: force other-scene / reference body to consume remaining height
+  const splitContent = $("splitSceneContent");
+  const splitBody = $("splitSceneBodyEditor");
+  const sourceView = $("splitSourceViewer");
+  const sourceText = $("splitSourceText");
+  if (splitContent) {
+    splitContent.style.flex = "1 1 0";
+    splitContent.style.minHeight = "0";
+    splitContent.style.display = "flex";
+    splitContent.style.flexDirection = "column";
+    splitContent.style.overflow = "hidden";
+  }
+  if (state.splitKind === "source") {
+    if (splitBody) {
+      splitBody.classList.add("hidden");
+      splitBody.setAttribute("hidden", "");
+      splitBody.style.display = "none";
+    }
+    if (sourceView && !sourceView.classList.contains("hidden")) {
+      sourceView.style.flex = "1 1 0";
+      sourceView.style.minHeight = "0";
+      sourceView.style.display = "flex";
+      sourceView.style.flexDirection = "column";
+    }
+    if (sourceText && !sourceText.classList.contains("hidden")) {
+      sourceText.style.flex = "1 1 0";
+      sourceText.style.minHeight = "0";
+      sourceText.style.height = "100%";
+      sourceText.style.overflow = "auto";
+    }
+  } else if (splitBody && !splitBody.classList.contains("hidden")) {
+    splitBody.removeAttribute("hidden");
+    splitBody.style.display = "block";
+    splitBody.style.flex = "1 1 0";
+    splitBody.style.minHeight = "0";
+    splitBody.style.height = "100%";
+    splitBody.style.overflow = "auto";
+  }
+}
+
+function clearSplitPrimaryPaneLayout() {
+  const form = $("sceneEditor");
+  const block = form?.querySelector(".writing-block");
+  const page = $("manuscriptPage");
+  const content = $("sceneContent");
+  [form, block, page, content].forEach((el) => {
+    if (!el) return;
+    el.style.removeProperty("height");
+    el.style.removeProperty("min-height");
+    el.style.removeProperty("max-height");
+    el.style.removeProperty("flex");
+    el.style.removeProperty("overflow");
+    el.style.removeProperty("display");
+    el.style.removeProperty("visibility");
+  });
+  if (form) {
+    form.style.removeProperty("overflow");
+  }
+  // Clear side-pane height hacks applied during split layout
+  ["splitSceneContent", "splitSceneBodyEditor", "splitSourceViewer", "splitSourceText"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.style.removeProperty("height");
+    el.style.removeProperty("min-height");
+    el.style.removeProperty("max-height");
+    el.style.removeProperty("flex");
+    el.style.removeProperty("overflow");
+    el.style.removeProperty("display");
+    el.style.removeProperty("flex-direction");
+  });
+}
+
+const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";
+const SPLIT_LEFT_MIN = 240;
+const SPLIT_RIGHT_MIN = 200;
+const SPLIT_HANDLE = 10; // resizer + margins
+
+function applySplitLeftWidth(widthPx) {
+  const workspace = $("sceneWorkspace");
+  if (!workspace) return widthPx;
+  const total = workspace.getBoundingClientRect().width || window.innerWidth;
+  // Guard against zero/invalid container measurements (layout not ready yet).
+  if (!Number.isFinite(total) || total < SPLIT_LEFT_MIN + SPLIT_RIGHT_MIN + SPLIT_HANDLE) {
+    const fallback = Math.max(SPLIT_LEFT_MIN, Math.round(Number(widthPx) || total * 0.55 || 400));
+    workspace.style.setProperty("--split-left-width", `${fallback}px`);
+    return fallback;
+  }
+  const maxLeft = Math.max(SPLIT_LEFT_MIN, total - SPLIT_RIGHT_MIN - SPLIT_HANDLE);
+  const raw = Number(widthPx);
+  const preferred = Number.isFinite(raw) && raw > 0 ? raw : total * 0.55;
+  const width = Math.max(SPLIT_LEFT_MIN, Math.min(maxLeft, Math.round(preferred)));
+  workspace.style.setProperty("--split-left-width", `${width}px`);
+  return width;
+}
+
+function ensureSplitLeftWidth() {
+  const workspace = $("sceneWorkspace");
+  if (!workspace || !workspace.classList.contains("split-active")) return;
+  const current = workspace.style.getPropertyValue("--split-left-width").trim();
+  const parsed = current.endsWith("px") ? Number(current.slice(0, -2)) : Number(current);
+  if (Number.isFinite(parsed) && parsed >= SPLIT_LEFT_MIN) {
+    applySplitLeftWidth(parsed);
+    return;
+  }
+  try {
+    const stored = Number(localStorage.getItem(SPLIT_LEFT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= SPLIT_LEFT_MIN) {
+      applySplitLeftWidth(stored);
+      return;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const total = workspace.getBoundingClientRect().width || 800;
+  applySplitLeftWidth(total * 0.55);
+}
+
+function setupSplitPaneResizer() {
+  const resizer = $("splitPaneResizer");
+  if (!resizer) return;
+
+  try {
+    const stored = Number(localStorage.getItem(SPLIT_LEFT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= SPLIT_LEFT_MIN) {
+      applySplitLeftWidth(stored);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    const workspace = $("sceneWorkspace");
+    if (!workspace) return;
+    const left = workspace.getBoundingClientRect().left;
+    const next = applySplitLeftWidth(event.clientX - left);
+    drag.currentWidth = next;
+    layoutSplitPrimaryPane();
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    document.body.classList.remove("split-pane-resizing");
+    try {
+      localStorage.setItem(SPLIT_LEFT_WIDTH_STORAGE_KEY, String(drag.currentWidth || SPLIT_LEFT_MIN));
+    } catch (_) {
+      /* ignore */
+    }
+    drag = null;
+    layoutSplitPrimaryPane();
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (!(state.splitEnabled && state.splitMode === "split")) return;
+    const column = document.querySelector(".scene-workspace.split-active .writing-column");
+    const startWidth = column
+      ? column.getBoundingClientRect().width
+      : ($("sceneWorkspace")?.getBoundingClientRect().width || 800) * 0.55;
+    drag = {
+      currentWidth: startWidth,
+    };
+    document.body.classList.add("split-pane-resizing");
+    try { resizer.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    event.preventDefault();
+  });
+
+  window.addEventListener("resize", () => {
+    if (state.splitEnabled && state.splitMode === "split") {
+      ensureSplitLeftWidth();
+      layoutSplitPrimaryPane();
+    }
+  });
+}
+
+async function closeSplitView() {
+  await flushSplitEdits();
+  if (splitSourceDirty || splitSourceEditEnabled) {
+    try { await saveSplitSourceText({ quiet: true }); } catch (_) { /* ignore */ }
+  }
+  cancelSplitAutoSave();
+  if (splitSourceSaveTimer) {
+    window.clearTimeout(splitSourceSaveTimer);
+    splitSourceSaveTimer = null;
+  }
+  splitDirty = false;
+  splitSourceDirty = false;
+  splitSourceEditEnabled = false;
+  splitSourceViewerMode = "";
+  hideSplitSourceExportMenu();
+  setSplitSaveStatus("");
+  state.splitEnabled = false;
+  state.splitMode = null;
+  state.splitKind = "scene";
+  state.splitSceneId = null;
+  state.splitScene = null;
+  state.splitSourceId = null;
+  revokeSplitSourceObjectUrl();
+  $("splitViewer")?.classList.remove("source-text-editing");
+  setSplitSourceUiMode(false);
+  applySplitLayout();
+  closeViewModeMenu();
+  // Reset popup position/size for next open.
+  clearSplitViewerPopupStyles();
+}
+
+async function openSecondaryView(mode) {
+  if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
+  const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
+  if (!alternative) {
+    toast("다른 씬을 보려면 씬이 두 개 이상 필요해요.");
+    return;
+  }
+  await flushSplitEdits();
+  const previousMode = state.splitMode;
+  state.splitEnabled = true;
+  state.splitMode = mode === "popup" ? "popup" : "split";
+  state.splitKind = "scene";
+  state.splitSourceId = null;
+  revokeSplitSourceObjectUrl();
+  setSplitSourceUiMode(false);
+  if (!state.splitSceneId || state.splitSceneId === state.sceneId) {
+    state.splitSceneId = alternative.id;
+  }
+  applySplitLayout();
+  closeViewModeMenu();
+  await renderSplitViewer();
+  if (previousMode && previousMode !== state.splitMode) {
+    toast(state.splitMode === "popup" ? "팝업으로 바꿨어요." : "화면 나누기로 바꿨어요.");
+  } else {
+    toast(state.splitMode === "popup" ? "팝업으로 다른 씬을 열었어요." : "화면을 나눠 다른 씬을 열었어요.");
+  }
+}
+
+async function handleViewModeChoice(mode) {
+  if (mode === "close") {
+    await closeSplitView();
+    return;
+  }
+  if (mode !== "split" && mode !== "popup") return;
+  // If a reference file is open, keep the file and only switch layout (split ↔ popup)
+  if (state.splitEnabled && state.splitKind === "source" && state.splitSourceId) {
+    const nextMode = mode === "popup" ? "popup" : "split";
+    if (nextMode === "split") clearSplitViewerPopupStyles();
+    else if (nextMode === "popup") {
+      // Drop side-pane sticky sizing leftovers; popup CSS supplies defaults
+      clearSplitViewerPopupStyles();
+    }
+    state.splitMode = nextMode;
+    applySplitLayout();
+    setSplitSourceUiMode(true);
+    closeViewModeMenu();
+    await renderSplitSourceViewer();
+    // Re-layout after content paint (source text height)
+    if (nextMode === "split") {
+      requestAnimationFrame(() => {
+        ensureSplitLeftWidth();
+        layoutSplitPrimaryPane();
+      });
+    }
+    toast(state.splitMode === "popup" ? "참고자료를 팝업으로 바꿨어요." : "참고자료를 화면 나누기로 바꿨어요.");
+    return;
+  }
+  // Scene secondary view: also clear popup styles when switching to split
+  if (mode === "split") clearSplitViewerPopupStyles();
+  await openSecondaryView(mode);
+}
+
+async function switchSplitMode() {
+  // Open the mode menu so the user can choose split / popup / close.
+  if (!state.splitEnabled) {
+    if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    openViewModeMenu("main");
+    return;
+  }
+  openViewModeMenu("split");
+}
+
+function fillSplitSceneBody(scene) {
+  const body = $("splitSceneBodyEditor");
+  const title = $("splitSceneTitleInput");
+  if (title) title.value = scene?.title || "";
+  if (!body) return;
+
+  const raw = scene?.content_md != null ? String(scene.content_md) : "";
+  // Always write into the secondary editor (never touch main #sceneContent).
+  if (!raw.trim()) {
+    body.innerHTML = "";
+  } else if (looksLikeHtml(raw)) {
+    body.innerHTML = sanitizeEditorHtml(raw);
+  } else {
+    body.innerHTML = escapeHtml(raw).replace(/\r\n|\r|\n/g, "<br>");
+  }
+
+  // Safety net: if injection failed for any reason, fall back to preview HTML.
+  const plainAfter = (body.innerText || body.textContent || "").replace(/\s+/g, "");
+  if (!plainAfter && raw.trim()) {
+    body.innerHTML = contentToPreviewHtml(raw);
+  }
+
+  const empty = !plainTextFromHtml(body.innerHTML) && !body.querySelector("img");
+  body.classList.toggle("placeholder-on", empty);
+  // Colors come from CSS page theme variables (--page-ink / --page-editor-bg).
+  body.style.removeProperty("color");
+  body.style.removeProperty("background");
+  // Let flex fill the side pane — fixed min-height left a dead solid band below
+  body.style.minHeight = "";
+  body.style.height = "";
+  body.style.flex = "1 1 0";
+  body.style.display = "block";
+  body.style.visibility = "visible";
+  body.style.overflow = "auto";
+}
+
+async function renderSplitViewer() {
+  if (!state.splitEnabled) return;
+  if (state.splitKind === "source") {
+    await renderSplitSourceViewer();
+    return;
+  }
+  setSplitSourceUiMode(false);
+  const alternatives = allScenes().filter((scene) => scene.id !== state.sceneId);
+  if (!alternatives.length) {
+    await closeSplitView();
+    toast("다른 씬이 없어서 함께 보기를 닫았어요.");
+    return;
+  }
+  if (!alternatives.some((scene) => scene.id === state.splitSceneId)) {
+    state.splitSceneId = alternatives[0].id;
+  }
+  if ($("splitSceneSelect")) {
+    $("splitSceneSelect").innerHTML = alternatives.map((scene) =>
+      `<option value="${scene.id}" ${scene.id === state.splitSceneId ? "selected" : ""}>${escapeHtml(scene.chapterTitle)} · ${escapeHtml(scene.title)}</option>`
+    ).join("");
+  }
+  state.splitScene = await api(`/api/scenes/${state.splitSceneId}`);
+  const scene = state.splitScene;
+  suppressSplitDirty = true;
+  fillSplitSceneBody(scene);
+  splitDirty = false;
+  suppressSplitDirty = false;
+  setSplitSaveStatus(state.splitEditEnabled ? "편집 가능" : "읽기 전용");
+  updateSplitChrome();
+  applySplitEditMode();
+  if (state.splitMode === "split") {
+    requestAnimationFrame(() => layoutSplitPrimaryPane());
+  }
+}
+
+async function selectSplitScene() {
+  const nextId = Number($("splitSceneSelect").value);
+  if (nextId === state.splitSceneId) return;
+  await flushSplitEdits();
+  state.splitSceneId = nextId;
+  await renderSplitViewer();
+}
+
+function setupSplitEditMode() {
+  loadSplitEditPreference();
+  applySplitEditMode();
+
+  $("toggleSplitEditButton")?.addEventListener("click", async () => {
+    if (!state.splitEnabled) {
+      toast("먼저 다른 씬 보기를 켜 주세요.");
+      return;
+    }
+    if (state.splitKind === "source") {
+      toast("참고자료 파일은 뷰어 전용이에요. 수정할 수 없어요.");
+      return;
+    }
+    if (state.splitEditEnabled) {
+      await flushSplitEdits();
+      setSplitEditEnabled(false);
+      setSplitSaveStatus("읽기 전용");
+    } else {
+      setSplitEditEnabled(true);
+      setSplitSaveStatus("편집 가능");
+      requestAnimationFrame(() => {
+        $("splitSceneBodyEditor")?.focus();
+      });
+    }
+  });
+
+  $("splitSceneTitleInput")?.addEventListener("input", () => {
+    if (state.splitEditEnabled) markSplitDirty();
+  });
+  $("splitSceneBodyEditor")?.addEventListener("input", () => {
+    if (state.splitEditEnabled) {
+      updateEditorPlaceholder($("splitSceneBodyEditor"));
+      markSplitDirty();
+    }
+  });
+  $("splitSceneBodyEditor")?.addEventListener("keydown", (event) => {
+    if (!state.splitEditEnabled) {
+      // Block typing while read-only (some browsers still allow keys on contenteditable=false edges).
+      if (!event.ctrlKey && !event.metaKey && event.key.length === 1) event.preventDefault();
+      return;
+    }
+    if (!(event.ctrlKey || event.metaKey)) return;
+    const key = event.key.toLowerCase();
+    if (key === "b") { event.preventDefault(); applyEditorCommand("bold"); }
+    else if (key === "i") { event.preventDefault(); applyEditorCommand("italic"); }
+    else if (key === "u") { event.preventDefault(); applyEditorCommand("underline"); }
+    else if (key === "s") {
+      event.preventDefault();
+      persistSplitScene({ quiet: false }).catch(handleError);
+    }
+  });
+
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "hidden" && splitDirty && state.splitEditEnabled) {
+      cancelSplitAutoSave();
+      persistSplitScene({ quiet: true }).catch(() => { /* ignore */ });
+    }
+  });
+}
+
+function lockPopupViewerGeometry(viewer) {
+  if (!viewer) return null;
+  const rect = viewer.getBoundingClientRect();
+  // Convert right-based CSS positioning into explicit left/top/width/height
+  // so free dragging and resizing stay predictable.
+  viewer.style.left = `${Math.round(rect.left)}px`;
+  viewer.style.top = `${Math.round(rect.top)}px`;
+  viewer.style.right = "auto";
+  viewer.style.bottom = "auto";
+  viewer.style.width = `${Math.round(rect.width)}px`;
+  viewer.style.height = `${Math.round(rect.height)}px`;
+  return rect;
+}
+
+function setupPopupDragging() {
+  const heading = $("splitHeading");
+  const dragBar = $("splitPopupDragBar");
+  const viewer = $("splitViewer");
+  const resizeHandle = $("splitPopupResizeHandle");
+  if (!viewer) return;
+
+  let drag = null;
+  let resize = null;
+  const MIN_W = 280;
+  const MIN_H = 220;
+
+  const beginDrag = (event, captureEl) => {
+    if (state.splitMode !== "popup") return;
+    if (event.button != null && event.button !== 0) return;
+    // Don't start a move when interacting with form controls / edit surface / resize grip.
+    if (event.target.closest("button, select, input, textarea, option, [contenteditable='true'], .split-body-editor, .split-popup-resize-handle")) return;
+    const rect = lockPopupViewerGeometry(viewer);
+    if (!rect) return;
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("popup-dragging");
+    try { captureEl?.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  };
+
+  // Dedicated drag strip — always free to move the popup.
+  dragBar?.addEventListener("pointerdown", (event) => beginDrag(event, dragBar));
+  // Also allow dragging from empty heading chrome (not from select/buttons).
+  heading?.addEventListener("pointerdown", (event) => beginDrag(event, heading));
+
+  resizeHandle?.addEventListener("pointerdown", (event) => {
+    if (state.splitMode !== "popup") return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = lockPopupViewerGeometry(viewer);
+    if (!rect) return;
+    resize = {
+      startX: event.clientX,
+      startY: event.clientY,
+      startW: rect.width,
+      startH: rect.height,
+      pointerId: event.pointerId,
+    };
+    try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  });
+
+  const onPointerMove = (event) => {
+    if (state.splitMode !== "popup") return;
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = viewer.getBoundingClientRect().width || 280;
+      const vh = viewer.getBoundingClientRect().height || 220;
+      // Keep a slice of the window on-screen so it can always be grabbed again.
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const minTop = 0;
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(minTop, event.clientY - drag.offsetY));
+      viewer.style.left = `${Math.round(left)}px`;
+      viewer.style.top = `${Math.round(top)}px`;
+      viewer.style.right = "auto";
+      viewer.style.bottom = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      const maxW = window.innerWidth - 16;
+      const maxH = window.innerHeight - 16;
+      const nextW = Math.min(maxW, Math.max(MIN_W, resize.startW + (event.clientX - resize.startX)));
+      const nextH = Math.min(maxH, Math.max(MIN_H, resize.startH + (event.clientY - resize.startY)));
+      viewer.style.width = `${Math.round(nextW)}px`;
+      viewer.style.height = `${Math.round(nextH)}px`;
+    }
+  };
+
+  const onPointerUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("popup-dragging");
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+    }
+  };
+
+  window.addEventListener("pointermove", onPointerMove);
+  window.addEventListener("pointerup", onPointerUp);
+  window.addEventListener("pointercancel", onPointerUp);
+}
+
+function handleError(error) {
+  console.error(error);
+  // Never scare the writer into thinking manuscript is lost on network blips.
+  if (isOfflineSafeError(error) || error?.localOnly) {
+    ensureLocalDraftSaved("handleError");
+    toast(
+      error?.message
+      || "연결 문제로 서버 저장은 보류되었지만, 원고는 이 기기에 보관되어 있습니다.",
+    );
+    return;
+  }
+  toast(error.message || "문제가 생겼습니다. 다시 시도해 주세요.");
+}
+
+function fileToBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const result = String(reader.result || "");
+      const marker = "base64,";
+      const index = result.indexOf(marker);
+      resolve(index >= 0 ? result.slice(index + marker.length) : result);
+    };
+    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.readAsDataURL(file);
+  });
+}
+
+const EXPORT_FORMATS_UI = [
+  { key: "docx", label: "Word", ext: ".docx", hint: "Microsoft Word에서 열립니다", partialOk: true },
+  { key: "hwpx", label: "한글", ext: ".hwpx", hint: "한글 2014 이상 · .hwpx로 저장됩니다", partialOk: true },
+  { key: "rtf", label: "RTF", ext: ".rtf", hint: "Word·한글에서 열립니다", partialOk: true },
+  { key: "txt", label: "텍스트", ext: ".txt", hint: "메모장 등에서 바로 열립니다", partialOk: true },
+  { key: "md", label: "Markdown", ext: ".md", hint: "마크다운 편집기에서 열립니다", partialOk: true },
+  { key: "html", label: "HTML", ext: ".html", hint: "브라우저에서 바로 열립니다", partialOk: true },
+  { key: "stg", label: "SuperTORY 연결 파일", ext: ".stg", hint: "작품 전체만 · SuperTORY에서 열림", partialOk: false },
+];
+
+/** @type {{ scope: 'full'|'scenes', sceneIds: number[], lockScope: boolean, titleHint: string }} */
+let exportModalState = {
+  scope: "full",
+  sceneIds: [],
+  lockScope: false,
+  titleHint: "",
+};
+
+/** Local export folder prefs (from /api/export/prefs) */
+let exportPrefs = {
+  export_dir: "",
+  save_to_folder: true,
+  reveal_after_save: true,
+  default_export_dir: "",
+  folder_ok: false,
+};
+
+async function loadExportPrefs() {
+  try {
+    const data = await api("/api/export/prefs");
+    exportPrefs = {
+      export_dir: String(data.export_dir || ""),
+      save_to_folder: data.save_to_folder !== false,
+      reveal_after_save: data.reveal_after_save !== false,
+      default_export_dir: String(data.default_export_dir || ""),
+      folder_ok: Boolean(data.folder_ok),
+    };
+  } catch (_) {
+    /* keep previous / defaults */
+  }
+  syncExportManageUi();
+  return exportPrefs;
+}
+
+function syncExportManageUi() {
+  const input = $("exportDirInput");
+  const saveFolder = $("exportSaveToFolder");
+  const reveal = $("exportRevealAfter");
+  const hint = $("exportDirHint");
+  if (input && document.activeElement !== input) {
+    input.value = exportPrefs.export_dir || exportPrefs.default_export_dir || "";
+  }
+  if (saveFolder) saveFolder.checked = exportPrefs.save_to_folder !== false;
+  if (reveal) reveal.checked = exportPrefs.reveal_after_save !== false;
+  if (hint) {
+    const path = exportPrefs.export_dir || exportPrefs.default_export_dir || "(미설정)";
+    hint.textContent = exportPrefs.save_to_folder !== false
+      ? `지정 폴더에 저장합니다: ${path}`
+      : "브라우저 기본 다운로드 폴더로 받습니다. (경로 지정 안 함)";
+  }
+}
+
+async function saveExportPrefsFromUi() {
+  const dir = ($("exportDirInput")?.value || "").trim();
+  const saveToFolder = Boolean($("exportSaveToFolder")?.checked);
+  const revealAfter = Boolean($("exportRevealAfter")?.checked);
+  const data = await api("/api/export/prefs", {
+    method: "POST",
+    body: JSON.stringify({
+      export_dir: dir,
+      save_to_folder: saveToFolder,
+      reveal_after_save: revealAfter,
+    }),
+  });
+  exportPrefs = {
+    export_dir: String(data.export_dir || dir),
+    save_to_folder: data.save_to_folder !== false,
+    reveal_after_save: data.reveal_after_save !== false,
+    default_export_dir: String(data.default_export_dir || exportPrefs.default_export_dir || ""),
+    folder_ok: Boolean(data.folder_ok),
+  };
+  syncExportManageUi();
+  toast(`저장 폴더를 적용했어요.\n${exportPrefs.export_dir}`);
+  return exportPrefs;
+}
+
+function listExportEpisodes() {
+  // Prefer outline order; fall back to flat allScenes()
+  const episodes = [];
+  if (Array.isArray(state.outline) && state.outline.length) {
+    for (const chapter of state.outline) {
+      const chapterTitle = String(chapter.title || "챕터").trim() || "챕터";
+      const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : [];
+      for (const scene of scenes) {
+        const id = Number(scene.id);
+        if (!id) continue;
+        episodes.push({
+          id,
+          title: String(scene.title || `회차 #${id}`).trim() || `회차 #${id}`,
+          chapterTitle,
+          label: `${chapterTitle} · ${String(scene.title || `회차 #${id}`).trim()}`,
+        });
+      }
+    }
+  }
+  if (!episodes.length && typeof allScenes === "function") {
+    for (const scene of allScenes()) {
+      const id = Number(scene.id);
+      if (!id) continue;
+      episodes.push({
+        id,
+        title: String(scene.title || `회차 #${id}`).trim(),
+        chapterTitle: String(scene.chapterTitle || "").trim(),
+        label: scene.chapterTitle
+          ? `${scene.chapterTitle} · ${scene.title || id}`
+          : (scene.title || `회차 #${id}`),
+      });
+    }
+  }
+  return episodes;
+}
+
+function getExportScope() {
+  if (exportModalState.lockScope && exportModalState.scope === "scenes") return "scenes";
+  const full = $("exportScopeFull");
+  if (full?.checked) return "full";
+  return "scenes";
+}
+
+function getSelectedExportSceneIds() {
+  const list = $("exportSceneList");
+  if (!list) return [...exportModalState.sceneIds];
+  return [...list.querySelectorAll('input[type="checkbox"][data-export-scene]:checked')]
+    .map((el) => Number(el.dataset.exportScene))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+function syncExportScopeUi() {
+  const scope = getExportScope();
+  exportModalState.scope = scope;
+  const picker = $("exportScenePicker");
+  picker?.classList.toggle("hidden", scope !== "scenes");
+  // stg only for full project
+  $("exportFormatGrid")?.querySelectorAll("[data-export-format]").forEach((btn) => {
+    const key = btn.dataset.exportFormat;
+    const meta = EXPORT_FORMATS_UI.find((f) => f.key === key);
+    const allow = scope === "full" || meta?.partialOk !== false;
+    btn.disabled = !allow;
+    btn.classList.toggle("is-disabled-scope", !allow);
+    btn.title = allow
+      ? ""
+      : "이 형식은 작품 전체 내보내기에서만 사용할 수 있어요";
+  });
+  const fullRadio = $("exportScopeFull");
+  const scenesRadio = $("exportScopeScenes");
+  if (exportModalState.lockScope) {
+    if (fullRadio) fullRadio.disabled = exportModalState.scope !== "full";
+    if (scenesRadio) scenesRadio.disabled = exportModalState.scope !== "scenes";
+  } else {
+    if (fullRadio) fullRadio.disabled = false;
+    if (scenesRadio) scenesRadio.disabled = false;
+  }
+}
+
+function renderExportScenePicker() {
+  const list = $("exportSceneList");
+  if (!list) return;
+  const episodes = listExportEpisodes();
+  const selected = new Set(
+    (exportModalState.sceneIds || []).map((id) => Number(id)).filter(Boolean),
+  );
+  if (!episodes.length) {
+    list.innerHTML = `<p class="export-scene-empty">내보낼 회차가 없어요. 먼저 목차에 회차를 만들어 주세요.</p>`;
+    return;
+  }
+  // If nothing preselected in scenes mode, default to current open scene or all
+  if (!selected.size && exportModalState.scope === "scenes") {
+    if (state.sceneId) selected.add(Number(state.sceneId));
+  }
+  list.innerHTML = episodes.map((ep) => {
+    const checked = selected.has(ep.id) ? "checked" : "";
+    return `
+      <label class="export-scene-item">
+        <input type="checkbox" data-export-scene="${ep.id}" ${checked}>
+        <span>${escapeHtml(ep.label)}</span>
+      </label>`;
+  }).join("");
+}
+
+/**
+ * @param {{ scope?: 'full'|'scenes', sceneIds?: number[], lockScope?: boolean, titleHint?: string }} [options]
+ */
+function openExportModal(options = {}) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  exportModalState = {
+    scope: options.scope === "scenes" ? "scenes" : "full",
+    sceneIds: Array.isArray(options.sceneIds)
+      ? options.sceneIds.map((id) => Number(id)).filter((id) => id > 0)
+      : [],
+    lockScope: Boolean(options.lockScope),
+    titleHint: String(options.titleHint || "").trim(),
+  };
+
+  const project = state.projects.find((p) => p.id === state.projectId);
+  const label = $("exportProjectLabel");
+  if (label) {
+    if (exportModalState.scope === "scenes" && exportModalState.sceneIds.length === 1) {
+      const hint = exportModalState.titleHint || "선택 회차";
+      label.textContent = `내보낼 회차: ${hint} · 작품 「${project?.title || "작품"}」`;
+    } else if (exportModalState.scope === "scenes") {
+      label.textContent = `내보낼 작품: ${project?.title || "작품"} · 회차 선택`;
+    } else {
+      label.textContent = `내보낼 작품: ${project?.title || "작품"} · 전체 원고`;
+    }
+  }
+  const hint = $("exportModalHint");
+  if (hint) {
+    hint.textContent = exportModalState.scope === "scenes" && exportModalState.sceneIds.length === 1
+      ? "선택한 회차만 파일로 내려받습니다. 형식을 고르세요."
+      : "전체 원고 또는 선택한 회차만 파일로 내려받습니다. 받은 파일을 더블클릭하면 Word·한글·메모장 등에서 바로 열 수 있어요.";
+  }
+
+  const fullRadio = $("exportScopeFull");
+  const scenesRadio = $("exportScopeScenes");
+  if (fullRadio) fullRadio.checked = exportModalState.scope === "full";
+  if (scenesRadio) scenesRadio.checked = exportModalState.scope === "scenes";
+
+  renderExportScenePicker();
+  renderExportFormatGrid();
+  syncExportScopeUi();
+  loadExportPrefs().catch(() => { syncExportManageUi(); });
+
+  const status = $("exportStatus");
+  if (status) status.textContent = "";
+  $("exportModal")?.classList.remove("hidden");
+}
+
+/** Open export modal for one or more 회차 (from binder / writing page). */
+function openExportModalForScenes(sceneIds, titleHint = "") {
+  const ids = (Array.isArray(sceneIds) ? sceneIds : [sceneIds])
+    .map((id) => Number(id))
+    .filter((id) => id > 0);
+  if (!ids.length) {
+    toast("내보낼 회차를 찾지 못했어요.");
+    return;
+  }
+  openExportModal({
+    scope: "scenes",
+    sceneIds: ids,
+    lockScope: true,
+    titleHint: titleHint || (ids.length === 1 ? "이 회차" : `${ids.length}개 회차`),
+  });
+}
+
+function openExportModalForCurrentScene() {
+  if (!state.sceneId) {
+    toast("먼저 회차를 열어 주세요.");
+    return;
+  }
+  const title = state.scene?.title || $("sceneTitle")?.value || "현재 회차";
+  openExportModalForScenes([state.sceneId], title);
+}
+
+function closeExportModal() {
+  $("exportModal")?.classList.add("hidden");
+  const status = $("exportStatus");
+  if (status) status.textContent = "";
+  $("exportFormatGrid")?.querySelectorAll("button").forEach((btn) => {
+    btn.disabled = false;
+  });
+  exportModalState = { scope: "full", sceneIds: [], lockScope: false, titleHint: "" };
+}
+
+function renderExportFormatGrid() {
+  const grid = $("exportFormatGrid");
+  if (!grid) return;
+  grid.innerHTML = EXPORT_FORMATS_UI.map((fmt) => `
+    <button type="button" class="export-format-btn" role="listitem" data-export-format="${escapeHtml(fmt.key)}" data-partial-ok="${fmt.partialOk === false ? "0" : "1"}">
+      <strong>${escapeHtml(fmt.label)}</strong>
+      <span class="export-ext">${escapeHtml(fmt.ext)}</span>
+      <span>${escapeHtml(fmt.hint)}</span>
+    </button>
+  `).join("");
+  grid.querySelectorAll("[data-export-format]").forEach((button) => {
+    button.addEventListener("click", () => {
+      exportProjectAs(button.dataset.exportFormat).catch(handleError);
+    });
+  });
+}
+
+function setupExportModalUi() {
+  if (setupExportModalUi._bound) return;
+  setupExportModalUi._bound = true;
+  document.querySelectorAll('input[name="exportScope"]').forEach((radio) => {
+    radio.addEventListener("change", () => {
+      if (exportModalState.lockScope) {
+        // restore radios
+        if ($("exportScopeFull")) $("exportScopeFull").checked = exportModalState.scope === "full";
+        if ($("exportScopeScenes")) $("exportScopeScenes").checked = exportModalState.scope === "scenes";
+        return;
+      }
+      exportModalState.scope = getExportScope();
+      if (exportModalState.scope === "scenes" && !getSelectedExportSceneIds().length) {
+        renderExportScenePicker();
+      }
+      syncExportScopeUi();
+    });
+  });
+  $("exportSceneSelectAll")?.addEventListener("click", () => {
+    $("exportSceneList")?.querySelectorAll('input[type="checkbox"][data-export-scene]').forEach((el) => {
+      el.checked = true;
+    });
+  });
+  $("exportSceneSelectNone")?.addEventListener("click", () => {
+    $("exportSceneList")?.querySelectorAll('input[type="checkbox"][data-export-scene]').forEach((el) => {
+      el.checked = false;
+    });
+  });
+
+  $("exportDirSave")?.addEventListener("click", () => {
+    saveExportPrefsFromUi().catch(handleError);
+  });
+  $("exportDirDefault")?.addEventListener("click", () => {
+    if ($("exportDirInput") && exportPrefs.default_export_dir) {
+      $("exportDirInput").value = exportPrefs.default_export_dir;
+    }
+    saveExportPrefsFromUi().catch(handleError);
+  });
+  $("exportDirOpen")?.addEventListener("click", () => {
+    const dir = ($("exportDirInput")?.value || exportPrefs.export_dir || "").trim();
+    api("/api/export/open-folder", {
+      method: "POST",
+      body: JSON.stringify({ export_dir: dir }),
+    })
+      .then(() => toast("저장 폴더를 열었어요."))
+      .catch(handleError);
+  });
+  $("exportSaveToFolder")?.addEventListener("change", () => {
+    exportPrefs.save_to_folder = Boolean($("exportSaveToFolder")?.checked);
+    syncExportManageUi();
+    // Persist quietly
+    api("/api/export/prefs", {
+      method: "POST",
+      body: JSON.stringify({
+        export_dir: ($("exportDirInput")?.value || exportPrefs.export_dir || "").trim(),
+        save_to_folder: exportPrefs.save_to_folder,
+        reveal_after_save: Boolean($("exportRevealAfter")?.checked),
+      }),
+    }).then((data) => {
+      exportPrefs.export_dir = String(data.export_dir || exportPrefs.export_dir);
+      exportPrefs.folder_ok = Boolean(data.folder_ok);
+    }).catch(() => {});
+  });
+  $("exportRevealAfter")?.addEventListener("change", () => {
+    exportPrefs.reveal_after_save = Boolean($("exportRevealAfter")?.checked);
+    api("/api/export/prefs", {
+      method: "POST",
+      body: JSON.stringify({
+        export_dir: ($("exportDirInput")?.value || exportPrefs.export_dir || "").trim(),
+        save_to_folder: Boolean($("exportSaveToFolder")?.checked),
+        reveal_after_save: exportPrefs.reveal_after_save,
+      }),
+    }).catch(() => {});
+  });
+  $("exportDirInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveExportPrefsFromUi().catch(handleError);
+    }
+  });
+}
+
+async function exportProjectAs(formatKey) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const key = String(formatKey || "").trim().toLowerCase();
+  if (!key) return;
+  const scope = getExportScope();
+  let sceneIds = null;
+  if (scope === "scenes") {
+    sceneIds = getSelectedExportSceneIds();
+    if (!sceneIds.length) {
+      toast("내보낼 회차를 하나 이상 선택해 주세요.");
+      return;
+    }
+  }
+  if (key === "stg" && sceneIds) {
+    toast("SuperTORY 연결 파일(.stg)은 작품 전체만 내보낼 수 있어요.");
+    return;
+  }
+
+  const status = $("exportStatus");
+  const grid = $("exportFormatGrid");
+  const buttons = grid ? [...grid.querySelectorAll("button")] : [];
+  buttons.forEach((btn) => { btn.disabled = true; });
+  if (status) {
+    status.textContent = sceneIds
+      ? `선택한 회차 ${sceneIds.length}개를 파일로 만드는 중…`
+      : "전체 원고 파일을 만드는 중…";
+  }
+  try {
+    // Flush open scene so latest text is included when exporting current episode
+    if (sceneDirty && state.sceneId && (!sceneIds || sceneIds.includes(Number(state.sceneId)))) {
+      try {
+        await persistScene({ quiet: true, saveNote: "내보내기 전 저장" });
+      } catch (_) { /* still try export */ }
+    }
+
+    const saveToFolder = Boolean($("exportSaveToFolder")?.checked);
+    const exportDir = ($("exportDirInput")?.value || exportPrefs.export_dir || "").trim();
+    const body = {
+      format: key,
+      title: exportModalState.titleHint || "",
+      save_to_folder: saveToFolder,
+      export_dir: exportDir,
+      reveal_after_save: Boolean($("exportRevealAfter")?.checked),
+    };
+    if (sceneIds) body.scene_ids = sceneIds;
+
+    const response = await fetch(`/api/projects/${state.projectId}/export`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!response.ok) {
+      let message = "내보내기에 실패했습니다.";
+      try {
+        const err = await response.json();
+        if (err?.error) message = err.error;
+      } catch (_) {
+        /* ignore */
+      }
+      throw new Error(message);
+    }
+
+    const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+    // Folder save: server writes file and returns JSON { path, filename, ... }
+    if (saveToFolder || contentType.includes("application/json")) {
+      const result = await response.json();
+      if (!result?.ok && !result?.path) {
+        throw new Error(result?.error || "폴더에 저장하지 못했어요.");
+      }
+      const savedPath = result.path || result.filename || "";
+      if (status) {
+        status.textContent = sceneIds
+          ? `저장됨: ${savedPath} · 선택 회차 ${sceneIds.length}개`
+          : `저장됨: ${savedPath} · 전체 원고`;
+      }
+      toast(sceneIds
+        ? `선택한 회차를 저장했어요.\n${savedPath}`
+        : `작품 전체를 저장했어요.\n${savedPath}`);
+      // refresh prefs display if folder was created/normalized
+      if (result.folder) {
+        exportPrefs.export_dir = result.folder;
+        if ($("exportDirInput")) $("exportDirInput").value = result.folder;
+        syncExportManageUi();
+      }
+      return;
+    }
+
+    // Browser download path
+    const buffer = await response.arrayBuffer();
+    if (!buffer || buffer.byteLength < 4) {
+      throw new Error("내보낸 파일이 비어 있어요. 서버를 다시 실행한 뒤 시도해 주세요.");
+    }
+    const head = new Uint8Array(buffer.slice(0, 4));
+    const isZip = head[0] === 0x50 && head[1] === 0x4b; // PK
+    const isTextish = key === "txt" || key === "md" || key === "html" || key === "rtf";
+    if ((key === "docx" || key === "hwpx" || key === "stg") && !isZip) {
+      const preview = new TextDecoder("utf-8").decode(buffer.slice(0, 80));
+      throw new Error(
+        preview.trim().startsWith("{") || preview.includes("<!DOCTYPE") || preview.includes("<html")
+          ? "내보내기 응답이 파일이 아니라 오류 페이지예요. SuperTORY 서버를 종료한 뒤 다시 실행해 주세요."
+          : "내보낸 파일이 손상된 형식으로 내려왔어요. 서버를 다시 실행한 뒤 다시 내보내 주세요.",
+      );
+    }
+    const mime =
+      response.headers.get("Content-Type")
+      || (key === "docx"
+        ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        : key === "hwpx"
+          ? "application/hwp+zip"
+          : isTextish
+            ? "text/plain;charset=utf-8"
+            : "application/octet-stream");
+    const blob = new Blob([buffer], { type: mime });
+    let filename = `${(state.projects.find((p) => p.id === state.projectId)?.title || "작품")}.${key === "md" ? "md" : key}`;
+    const disposition = response.headers.get("Content-Disposition") || "";
+    const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
+    const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
+    if (utfMatch?.[1]) {
+      try { filename = decodeURIComponent(utfMatch[1]); } catch (_) { /* keep */ }
+    } else if (plainMatch?.[1]) {
+      filename = plainMatch[1];
+    }
+    const wantExt = key === "md" ? ".md" : `.${key}`;
+    if (!filename.toLowerCase().endsWith(wantExt)) {
+      filename = `${filename.replace(/\.[^.]+$/, "")}${wantExt}`;
+    }
+    const url = URL.createObjectURL(blob);
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = filename;
+    anchor.rel = "noopener";
+    document.body.appendChild(anchor);
+    anchor.click();
+    anchor.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1500);
+    if (status) {
+      status.textContent = sceneIds
+        ? `다운로드: ${filename} · 선택 회차 ${sceneIds.length}개`
+        : `다운로드: ${filename} · 전체 원고`;
+    }
+    toast(sceneIds ? "선택한 회차를 내보냈어요." : "작품 전체를 내보냈어요.");
+  } finally {
+    buttons.forEach((btn) => { btn.disabled = false; });
+    syncExportScopeUi();
+  }
+}
+
+/** @type {"document"|"proof"} */
+let importModalMode = "document";
+
+function openImportModal(options = {}) {
+  const mode = options.mode === "proof" ? "proof" : "document";
+  importModalMode = mode;
+
+  if (mode === "proof" && !state.projectId) {
+    toast("교정본 가져오기는 작품을 먼저 연 뒤 사용할 수 있어요. (+ 새 글쓰기 또는 작품 선택)");
+    return;
+  }
+
+  const modal = $("importModal");
+  $("importFile").value = "";
+  $("importFileName").textContent = "아직 고른 파일이 없어요.";
+  $("importProjectTitle").value = "";
+  $("importChapterTitle").value = "";
+  $("importSplit").value = "auto";
+  if ($("importApplyClean")) $("importApplyClean").checked = false;
+  if ($("importDocumentKind")) {
+    $("importDocumentKind").value = mode === "proof" ? "proof" : "manuscript";
+  }
+  modal?.setAttribute("data-import-mode", mode);
+
+  const current = state.projects.find((project) => project.id === state.projectId);
+  $("importPurpose").value = current?.purpose && purposeLabel[normalizePurposeKey(current.purpose)]
+    ? normalizePurposeKey(current.purpose)
+    : "general_novel";
+
+  // Title / hints for document vs proof
+  if ($("importModalTitle")) {
+    $("importModalTitle").textContent = mode === "proof" ? "교정본 가져오기" : "문서 가져오기";
+  }
+  $("importModalHint")?.classList.toggle("hidden", mode === "proof");
+  $("importProofBanner")?.classList.toggle("hidden", mode !== "proof");
+  if ($("importSubmitButton")) {
+    $("importSubmitButton").textContent = mode === "proof" ? "토리에게 교정 맡기기" : "가져오기";
+  }
+
+  const destination = $("importDestination");
+  if (mode === "proof") {
+    destination.value = "proof_pipeline";
+  } else if (!state.projectId) {
+    destination.value = "new_project";
+  } else {
+    destination.value = "new_chapter";
+  }
+  refreshImportDestinationOptions();
+  updateImportFormVisibility();
+  modal.classList.remove("hidden");
+}
+
+function closeImportModal() {
+  $("importModal").classList.add("hidden");
+  $("importSubmitButton").disabled = false;
+  $("importSubmitButton").textContent = importModalMode === "proof" ? "토리에게 교정 맡기기" : "가져오기";
+  importModalMode = "document";
+  $("importModal")?.setAttribute("data-import-mode", "document");
+  if ($("importDocumentKind")) $("importDocumentKind").value = "manuscript";
+}
+
+function refreshImportDestinationOptions() {
+  const select = $("importDestination");
+  const current = select.value;
+  const proofMode = importModalMode === "proof";
+  const options = proofMode
+    ? [
+      {
+        value: "proof_pipeline",
+        label: "토리 교정 파이프라인 (회차 식별 → 정제 → 비교) ★권장",
+        enabled: Boolean(state.projectId),
+      },
+      {
+        value: "proof_compare",
+        label: "교정 비교만 (보고서 · 덮어쓰기 안 함)",
+        enabled: Boolean(state.projectId),
+      },
+      {
+        value: "match_replace_scene",
+        label: "맞는 회차 찾아 교정본으로 덮어쓰기",
+        enabled: Boolean(state.projectId),
+      },
+    ]
+    : [
+      { value: "new_project", label: "새 작품으로 만들기", enabled: true },
+      { value: "new_chapter", label: "현재 작품에 새 챕터로 넣기", enabled: Boolean(state.projectId) },
+      { value: "existing_chapter", label: "현재 작품의 챕터에 새 씬으로 넣기", enabled: Boolean(state.projectId && state.outline.length) },
+      { value: "replace_scene", label: "지금 열린 씬에 덮어쓰기", enabled: Boolean(state.sceneId) },
+    ];
+  select.innerHTML = options
+    .filter((option) => option.enabled)
+    .map((option) => `<option value="${option.value}">${option.label}</option>`)
+    .join("");
+  if (options.some((option) => option.enabled && option.value === current)) {
+    select.value = current;
+  } else if (options.find((o) => o.enabled)) {
+    select.value = options.find((o) => o.enabled).value;
+  }
+  const chapterSelect = $("importChapterSelect");
+  chapterSelect.innerHTML = state.outline.map((chapter) =>
+    `<option value="${chapter.id}">${escapeHtml(chapter.title)}</option>`
+  ).join("") || "<option value=''>챕터가 없어요</option>";
+}
+
+function updateImportFormVisibility() {
+  const destination = $("importDestination").value;
+  const splitMode = $("importSplit").value;
+  const proofMode = importModalMode === "proof"
+    || destination === "proof_pipeline"
+    || destination === "proof_compare"
+    || destination === "match_replace_scene";
+
+  $("importChapterWrap").classList.toggle("hidden", destination !== "existing_chapter");
+  $("importProjectTitleWrap").classList.toggle("hidden", destination !== "new_project");
+  $("importMatchHint")?.classList.toggle("hidden", destination !== "match_replace_scene");
+  $("importProofHint")?.classList.toggle("hidden", destination !== "proof_compare");
+  $("importPipelineHint")?.classList.toggle("hidden", destination !== "proof_pipeline");
+  $("importApplyCleanWrap")?.classList.toggle("hidden", destination !== "proof_pipeline");
+
+  // Purpose / split less relevant for pure proof ingest
+  const purposeLabelEl = $("importPurpose")?.closest("label");
+  const purposeHint = purposeLabelEl?.nextElementSibling;
+  if (purposeLabelEl) purposeLabelEl.classList.toggle("hidden", importModalMode === "proof");
+  if (purposeHint?.classList?.contains("purpose-hint")) {
+    purposeHint.classList.toggle("hidden", importModalMode === "proof");
+  }
+  const splitLabel = $("importSplit")?.closest("label");
+  const splitHint = splitLabel?.nextElementSibling;
+  if (splitLabel) splitLabel.classList.toggle("hidden", proofMode);
+  if (splitHint?.classList?.contains("purpose-hint")) {
+    splitHint.classList.toggle("hidden", proofMode);
+  }
+
+  const showChapterTitle = (destination === "new_chapter" || destination === "new_project")
+    && (splitMode === "none" || splitMode === "blank_lines");
+  $("importChapterTitleWrap").classList.toggle("hidden", !showChapterTitle);
+  const split = $("importSplit");
+  if (
+    destination === "replace_scene"
+    || destination === "match_replace_scene"
+    || destination === "proof_compare"
+    || destination === "proof_pipeline"
+  ) {
+    split.value = "none";
+    split.disabled = true;
+  } else {
+    split.disabled = false;
+  }
+}
+
+function proofDiffTypeLabel(type) {
+  const map = {
+    typo: "오탈자",
+    modified: "문장 수정",
+    stylistic: "표현 교정",
+    added: "추가",
+    deleted: "삭제",
+  };
+  return map[type] || type || "수정";
+}
+
+let proofReportSceneId = null;
+
+function closeProofReportModal() {
+  $("proofReportModal")?.classList.add("hidden");
+  proofReportSceneId = null;
+}
+
+function openProofReportModal(report, { match = null } = {}) {
+  const modal = $("proofReportModal");
+  if (!modal || !report) return;
+  const summary = report.summary || {};
+  const overall = summary.overall_comment || "교정 비교 결과입니다.";
+  if ($("proofReportOverall")) $("proofReportOverall").textContent = overall;
+
+  const sumEl = $("proofReportSummary");
+  if (sumEl) {
+    const chips = [
+      ["오탈자", summary.typo_corrections_count],
+      ["문장·표현", summary.stylistic_edits_count],
+      ["추가·삭제", summary.structural_edits_count],
+      ["편집 메모", summary.editor_memos_count],
+    ];
+    sumEl.innerHTML = chips.map(([label, n]) => `
+      <span class="proof-stat-chip">
+        <strong>${escapeHtml(String(n ?? 0))}</strong>
+        <span>${escapeHtml(label)}</span>
+      </span>
+    `).join("");
+  }
+
+  const matchEl = $("proofReportMatch");
+  const m = match || report.match;
+  if (matchEl) {
+    if (m && (m.matched_episode_number != null || m.matched_title)) {
+      const conf = typeof m.confidence_score === "number"
+        ? ` · 신뢰도 ${Math.round(m.confidence_score * 100)}%`
+        : "";
+      matchEl.classList.remove("hidden");
+      matchEl.innerHTML = `비교 대상: <strong>${escapeHtml(String(m.matched_episode_number ?? "?"))}화</strong>`
+        + ` 「${escapeHtml(m.matched_title || "회차")}」${escapeHtml(conf)}`;
+    } else {
+      matchEl.classList.add("hidden");
+      matchEl.innerHTML = "";
+    }
+  }
+
+  const memos = Array.isArray(report.editor_memos) ? report.editor_memos : [];
+  const memosEl = $("proofReportMemos");
+  if (memosEl) {
+    if (!memos.length) {
+      memosEl.innerHTML = `<p class="hint">추출된 편집자 메모가 없습니다.</p>`;
+    } else {
+      memosEl.innerHTML = memos.map((memo) => `
+        <article class="proof-memo-card">
+          <div class="proof-memo-ctx">${escapeHtml(memo.location_context || "(위치 미상)")}</div>
+          <div class="proof-memo-body">${escapeHtml(memo.memo_content || "")}</div>
+        </article>
+      `).join("");
+    }
+  }
+
+  const diffs = Array.isArray(report.diff_chunks) ? report.diff_chunks : [];
+  const diffsEl = $("proofReportDiffs");
+  if (diffsEl) {
+    if (!diffs.length) {
+      diffsEl.innerHTML = `<p class="hint">눈에 띄는 수정 구간이 없습니다.</p>`;
+    } else {
+      diffsEl.innerHTML = diffs.map((chunk) => {
+        const type = escapeHtml(proofDiffTypeLabel(chunk.type));
+        const typeKey = escapeHtml(chunk.type || "modified");
+        const orig = escapeHtml(chunk.original || "—");
+        const rev = escapeHtml(chunk.revised || "—");
+        const reason = escapeHtml(chunk.reason || "");
+        return `
+          <article class="proof-diff-card type-${typeKey}">
+            <header>
+              <span class="proof-diff-type">${type}</span>
+              ${reason ? `<span class="proof-diff-reason">${reason}</span>` : ""}
+            </header>
+            <div class="proof-diff-cols">
+              <div class="proof-diff-orig"><span class="proof-diff-label">원본</span><p>${orig}</p></div>
+              <div class="proof-diff-rev"><span class="proof-diff-label">교정</span><p>${rev}</p></div>
+            </div>
+          </article>
+        `;
+      }).join("");
+    }
+  }
+
+  proofReportSceneId = report.scene_id || m?.matched_scene_id || null;
+  const openBtn = $("proofReportOpenScene");
+  if (openBtn) {
+    openBtn.hidden = !proofReportSceneId;
+  }
+  modal.classList.remove("hidden");
+}
+
+function setupProofReportModal() {
+  document.querySelectorAll("[data-close-proof-report]").forEach((el) => {
+    el.addEventListener("click", () => closeProofReportModal());
+  });
+  $("proofReportOpenScene")?.addEventListener("click", () => {
+    const id = proofReportSceneId;
+    closeProofReportModal();
+    if (id) openScene(id).catch(handleError);
+  });
+}
+
+async function submitImport(event) {
+  event.preventDefault();
+  const file = $("importFile").files?.[0];
+  if (!file) {
+    toast("가져올 파일을 먼저 골라 주세요.");
+    return;
+  }
+  const destination = $("importDestination").value;
+  if (destination !== "new_project" && !state.projectId) {
+    toast("먼저 작품을 만들거나, 새 작품으로 만들기를 골라 주세요.");
+    return;
+  }
+  if (destination === "replace_scene" && !state.sceneId) {
+    toast("덮어쓸 씬을 먼저 열어 주세요.");
+    return;
+  }
+  if ((destination === "match_replace_scene" || destination === "proof_compare" || destination === "proof_pipeline") && !state.projectId) {
+    toast("회차 자동 매칭은 작품을 연 뒤 사용할 수 있어요.");
+    return;
+  }
+  if (destination === "existing_chapter" && !$("importChapterSelect").value) {
+    toast("글을 넣을 챕터를 골라 주세요.");
+    return;
+  }
+
+  const submit = $("importSubmitButton");
+  const isProofJob = importModalMode === "proof"
+    || destination === "proof_pipeline"
+    || destination === "proof_compare"
+    || destination === "match_replace_scene";
+  submit.disabled = true;
+  const busyLabel = destination === "proof_pipeline"
+    ? "토리가 회차 식별·교정 비교 중…"
+    : destination === "proof_compare"
+      ? "토리가 교정 비교 중…"
+      : destination === "match_replace_scene"
+        ? "토리가 회차 찾는 중…"
+        : "가져오는 중…";
+  submit.textContent = busyLabel;
+  try {
+    const contentBase64 = await fileToBase64(file);
+    const documentKind = ($("importDocumentKind")?.value || (importModalMode === "proof" ? "proof" : "manuscript"));
+    const body = {
+      filename: file.name,
+      content_base64: contentBase64,
+      destination,
+      split: $("importSplit").value,
+      purpose: $("importPurpose").value,
+      project_title: $("importProjectTitle").value,
+      chapter_title: $("importChapterTitle").value,
+      chapter_id: $("importChapterSelect").value || null,
+      scene_id: state.sceneId,
+      keep_scene_title: destination === "match_replace_scene" ? true : undefined,
+      apply_clean: destination === "proof_pipeline" ? Boolean($("importApplyClean")?.checked) : undefined,
+      // Tory recognition: this file is editor proof / clean manuscript
+      document_kind: documentKind,
+      document_role: documentKind === "proof" ? "editor_proof" : "manuscript",
+      is_proof: documentKind === "proof" || isProofJob,
+      tory_task: documentKind === "proof" || isProofJob
+        ? "proof_identify_and_compare"
+        : "import_manuscript",
+    };
+    const path = destination === "new_project" || !state.projectId
+      ? "/api/import"
+      : `/api/projects/${state.projectId}/import`;
+    const result = await api(path, { method: "POST", body: JSON.stringify(body) });
+    closeImportModal();
+
+    if ((destination === "proof_compare" || destination === "proof_pipeline") && (result.proof || result.pipeline)) {
+      const proof = result.proof || result.pipeline?.step3_proof;
+      const match = result.match || result.pipeline?.step1_match;
+      if (proof) {
+        openProofReportModal(proof, { match });
+      }
+      // Surface match confidence for Tory identification
+      if (match && match.matched_episode_number != null) {
+        const conf = typeof match.confidence_score === "number"
+          ? ` (신뢰도 ${Math.round(match.confidence_score * 100)}%)`
+          : "";
+        setAiPanelOpen(true);
+        if ($("aiResult")) {
+          $("aiResult").value = [
+            "🪄 토리 · 교정본 식별 결과",
+            "",
+            `매칭 회차: ${match.matched_episode_number}화 「${match.matched_title || "회차"}」${conf}`,
+            match.method ? `식별 방법: ${match.method}` : "",
+            "",
+            "교정·교열 보고서 창에서 오탈자·문장 수정·편집 메모를 확인하세요.",
+            destination === "proof_pipeline" && !result.applied
+              ? "원고는 덮어쓰지 않았습니다. (정제 반영을 켰다면 회차에 반영됩니다.)"
+              : "",
+          ].filter(Boolean).join("\n");
+          $("aiResultWrap")?.classList.remove("hidden");
+        }
+      }
+      if (destination === "proof_pipeline" && result.applied && result.scene_ids?.length) {
+        await loadProjects(result.project_id);
+        await openScene(result.scene_ids[0]);
+        toast("토리 교정 완료 · 정제 본문을 회차에 반영했습니다.");
+      } else if (destination === "proof_pipeline") {
+        const parser = result.extract?.parser || result.pipeline?.extract?.parser || "";
+        toast(`토리 교정 파이프라인 완료${parser ? ` (${parser})` : ""}. 보고서 확인 · 원고 미변경.`);
+      } else {
+        toast("토리가 교정 비교 보고서를 만들었어요. 원고는 바꾸지 않았습니다.");
+      }
+      submit.disabled = false;
+      submit.textContent = "가져오기";
+      return;
+    }
+
+    await loadProjects(result.project_id);
+    if (result.scene_ids?.length) {
+      await openScene(result.scene_ids[0]);
+    }
+    const warning = result.warnings?.length ? ` (${result.warnings[0]})` : "";
+    const purpose = purposeLabel[result.purpose] || "";
+    const chapters = result.chapter_count ? `챕터 ${result.chapter_count}개 · ` : "";
+    const packageNote = result.package_name ? ` · 파일 ${result.package_name}` : "";
+    const match = result.match;
+    if (match && match.matched_episode_number != null) {
+      const conf = typeof match.confidence_score === "number"
+        ? ` · 신뢰도 ${Math.round(match.confidence_score * 100)}%`
+        : "";
+      toast(
+        `${match.matched_episode_number}화 「${match.matched_title || "회차"}」에 맞춰 덮어썼어요`
+        + `${conf} · ${result.word_count || 0}어절${packageNote}`,
+      );
+    } else {
+      toast(`문서를 가져왔어요. ${purpose ? `${purpose} · ` : ""}${chapters}씬 ${result.section_count}개 · ${result.word_count}어절${packageNote}${warning}`);
+    }
+  } catch (error) {
+    handleError(error);
+    submit.disabled = false;
+    submit.textContent = "가져오기";
+  }
+}
+
+function openAdminModal(tab = null) {
+  closeCreateMenu();
+  hideUiFeatureContextMenu();
+  $("adminModal")?.classList.remove("hidden");
+  if (tab) setAdminTab(tab);
+  updateFeatureHideCountUi();
+  renderHiddenFeaturesList();
+  refreshAdminInfoPanel();
+  refreshAdminAccountPanel();
+  loadTrashList().catch(handleError);
+}
+
+function closeAdminModal() {
+  $("adminModal")?.classList.add("hidden");
+}
+
+function setAdminTab(tabId) {
+  const id = String(tabId || "hidden");
+  document.querySelectorAll("#adminModal .admin-tab").forEach((btn) => {
+    const on = btn.dataset.adminTab === id;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  document.querySelectorAll("#adminModal .admin-panel").forEach((panel) => {
+    const on = panel.dataset.adminPanel === id;
+    panel.classList.toggle("is-active", on);
+    if (on) panel.removeAttribute("hidden");
+    else panel.setAttribute("hidden", "");
+  });
+  if (id === "trash") loadTrashList().catch(handleError);
+  if (id === "hidden") renderHiddenFeaturesList();
+  if (id === "info") {
+    refreshAdminInfoPanel();
+    renderAdminHelpManual();
+    renderAdminHelpQa();
+  }
+  if (id === "account") refreshAdminAccountPanel();
+}
+
+/* —— Auto-update UI (Electron + electron-updater) —— */
+function showAppUpdateBanner({ title, message, percent = null, sticky = false } = {}) {
+  const banner = $("appUpdateBanner");
+  if (!banner) {
+    if (message) toast(message);
+    return;
+  }
+  banner.hidden = false;
+  banner.classList.remove("hidden");
+  if ($("appUpdateBannerTitle")) $("appUpdateBannerTitle").textContent = title || "업데이트";
+  if ($("appUpdateBannerMessage")) $("appUpdateBannerMessage").textContent = message || "";
+  const wrap = $("appUpdateBannerProgressWrap");
+  const bar = $("appUpdateBannerBar");
+  if (wrap && bar && percent != null && Number.isFinite(Number(percent))) {
+    wrap.hidden = false;
+    const pct = Math.max(0, Math.min(100, Math.round(Number(percent))));
+    bar.style.width = `${pct}%`;
+  } else if (wrap) {
+    wrap.hidden = true;
+  }
+  window.clearTimeout(showAppUpdateBanner._timer);
+  if (!sticky) {
+    showAppUpdateBanner._timer = window.setTimeout(() => hideAppUpdateBanner(), 5000);
+  }
+}
+
+function hideAppUpdateBanner() {
+  const banner = $("appUpdateBanner");
+  if (!banner) return;
+  banner.classList.add("hidden");
+  banner.hidden = true;
+}
+
+function handleAppUpdateStatus(payload) {
+  if (!payload || typeof payload !== "object") return;
+  const phase = String(payload.phase || "");
+  const version = payload.version ? String(payload.version) : "";
+  const message = String(payload.message || "");
+  const percent = payload.percent != null ? Number(payload.percent) : null;
+  const hint = $("adminUpdateStatusHint");
+
+  if (phase === "checking") {
+    if (hint) hint.textContent = message || "업데이트 확인 중…";
+    return;
+  }
+  if (phase === "available") {
+    if (hint) {
+      hint.textContent = version
+        ? `새 버전 ${version}을(를) 사용할 수 있습니다.`
+        : (message || "새 업데이트가 있습니다.");
+    }
+    // Native dialog is shown by Electron main; toast as extra cue.
+    toast(message || "새로운 업데이트가 있습니다.");
+    return;
+  }
+  if (phase === "deferred") {
+    if (hint) hint.textContent = message || "업데이트를 나중에 설치할 수 있습니다.";
+    toast(message || "업데이트를 나중에 할게요.");
+    hideAppUpdateBanner();
+    return;
+  }
+  if (phase === "downloading") {
+    if (hint) {
+      hint.textContent = percent != null
+        ? `다운로드 중… ${Math.round(percent)}%`
+        : (message || "업데이트 다운로드 중…");
+    }
+    showAppUpdateBanner({
+      title: version ? `업데이트 ${version}` : "업데이트 다운로드",
+      message: message || "백그라운드에서 받는 중…",
+      percent: percent != null ? percent : 0,
+      sticky: true,
+    });
+    return;
+  }
+  if (phase === "downloaded" || phase === "installing") {
+    if (hint) hint.textContent = message || "설치를 위해 앱을 다시 시작합니다…";
+    showAppUpdateBanner({
+      title: "업데이트 설치",
+      message: message || "앱을 다시 시작합니다…",
+      percent: 100,
+      sticky: true,
+    });
+    toast(message || "업데이트를 설치하기 위해 다시 시작합니다.");
+    return;
+  }
+  if (phase === "none") {
+    if (hint) hint.textContent = message || "최신 버전을 사용 중입니다.";
+    if (message && !/최신/.test(message)) toast(message);
+    return;
+  }
+  if (phase === "unavailable") {
+    if (hint) hint.textContent = message || "업데이트를 지금은 확인할 수 없습니다.";
+    return;
+  }
+  if (phase === "error") {
+    if (hint) hint.textContent = message || "업데이트 확인에 실패했습니다.";
+    toast(message || "업데이트 확인에 실패했습니다.");
+    hideAppUpdateBanner();
+  }
+}
+
+function setupAutoUpdateUi() {
+  const btn = $("adminCheckUpdateButton");
+  if (btn?.dataset.updateBound === "1") return;
+  if (btn) btn.dataset.updateBound = "1";
+
+  if (window.electronAPI?.onUpdateStatus) {
+    try {
+      window.electronAPI.onUpdateStatus(handleAppUpdateStatus);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+
+  btn?.addEventListener("click", async () => {
+    const hint = $("adminUpdateStatusHint");
+    if (!window.electronAPI?.checkForUpdates) {
+      if (hint) hint.textContent = "업데이트 확인은 설치된 데스크톱 앱에서만 사용할 수 있어요.";
+      toast("업데이트 확인은 설치된 앱에서만 사용할 수 있어요.");
+      return;
+    }
+    btn.disabled = true;
+    if (hint) hint.textContent = "업데이트 확인 중…";
+    try {
+      const result = await window.electronAPI.checkForUpdates();
+      if (result?.reason === "dev") {
+        if (hint) hint.textContent = "개발 실행 중에는 자동 업데이트가 꺼져 있어요.";
+        toast("개발 모드에서는 업데이트를 확인하지 않습니다. 설치본에서 확인해 주세요.");
+      } else if (result?.reason === "not_configured") {
+        const msg = result.error
+          || "업데이트 서버가 설정되지 않았습니다. update-feed.json을 확인해 주세요.";
+        if (hint) hint.textContent = msg;
+        toast(msg);
+      } else if (result?.ok === false && result?.error) {
+        if (hint) hint.textContent = "업데이트 확인에 실패했습니다.";
+        toast(`업데이트 확인 실패: ${result.error}`);
+      } else if (hint) {
+        hint.textContent = "확인 요청을 보냈습니다. 새 버전이 있으면 안내가 뜹니다.";
+      }
+    } catch (error) {
+      handleError(error);
+    } finally {
+      btn.disabled = false;
+    }
+  });
+}
+
+/* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
+const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
+const APP_VERSION_FALLBACK = "1.0.0";
+/** @type {Map<string, string>} hideId → label */
+let featureHideMap = new Map();
+/** Last control targeted by a multi-item context menu (for footer “숨기기”). */
+let uiFeatureCtxTarget = null;
+let uiFeatureCtxMenuTarget = null;
+
+const UI_HIDEABLE_SELECTOR = [
+  "button",
+  ".feature-chip",
+  ".icon-btn",
+  ".format-btn",
+  ".compact-btn",
+  ".outline-action-btn",
+  ".stat-chip",
+  ".status-scope-btn",
+  ".scene-synopsis-label-btn",
+  ".outline-folder-count",
+  ".outline-scene-count",
+  ".outline-count-badges",
+  ".bookmark-chip",
+  ".settings-box[data-settings-section]",
+  "[data-ui-hide-label]",
+  "select.format-select",
+  ".format-toolbar select",
+  ".status-bar-field",
+  ".status-bar-progress",
+  "#statusBarProgress",
+  "#sceneGoalBar",
+  "#writingLogButton",
+].join(", ");
+
+function loadFeatureHideMap() {
+  const map = new Map();
+  try {
+    const raw = localStorage.getItem(FEATURE_HIDE_STORAGE_KEY);
+    if (!raw) return map;
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return map;
+    for (const item of arr) {
+      if (typeof item === "string" && item) {
+        map.set(item, labelFromHideId(item));
+      } else if (item && typeof item === "object" && item.id) {
+        map.set(String(item.id), String(item.label || labelFromHideId(item.id)));
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return map;
+}
+
+function saveFeatureHideMap() {
+  try {
+    const payload = [...featureHideMap.entries()].map(([id, label]) => ({ id, label }));
+    localStorage.setItem(FEATURE_HIDE_STORAGE_KEY, JSON.stringify(payload));
+  } catch (_) {
+    /* ignore */
+  }
+  updateFeatureHideCountUi();
+  renderHiddenFeaturesList();
+}
+
+function labelFromHideId(id) {
+  const s = String(id || "");
+  if (s.startsWith("id:")) return s.slice(3);
+  return "숨긴 기능";
+}
+
+function simpleUiHash(str) {
+  let h = 0;
+  const s = String(str || "");
+  for (let i = 0; i < s.length; i += 1) {
+    h = ((h << 5) - h) + s.charCodeAt(i);
+    h |= 0;
+  }
+  return Math.abs(h).toString(36);
+}
+
+function isFeatureHideExempt(el) {
+  if (!el || el.nodeType !== 1) return true;
+  if (el.classList?.contains("feature-hide-exempt")) return true;
+  if (el.closest?.(".context-menu, #adminModal, .modal, #outlineTitleFontMenu, #formatColorPalette, #formatListPalette, #uiFeatureContextMenu")) {
+    return true;
+  }
+  const id = el.id || "";
+  if (
+    id === "adminModeButton"
+    || id === "featureHideResetButton"
+    || id === "uiThemeToggleButton"
+    || id === "uiFeatureHideMenuItem"
+    || id === "adminContactDevButton"
+    || id === "adminHelpSearch"
+  ) {
+    return true;
+  }
+  if (el.dataset?.closeAdmin != null || el.classList?.contains("modal-close")) return true;
+  if (el.closest?.(".titlebar-controls")) return true;
+  return false;
+}
+
+function isManuscriptWritingSurface(target) {
+  if (!target?.closest) return false;
+  if (target.closest("#desktopContextMenu")) return true;
+  if (target.closest("#sceneContent, #splitSceneContent, #synopsisContent, #loglineContent, #worldContent, #introContent, #intentContent")) {
+    if (target.closest("[contenteditable='true'], .rich-editor, .manuscript-page")) return true;
+  }
+  if (target.closest("#manuscriptPage .rich-editor, #manuscriptPage [contenteditable='true']")) return true;
+  if (target.closest(".manuscript-sheet, .page-sheet") && !target.closest("button, .format-toolbar, .scene-feature-bar, .ms-toolbar-shell, .status-bar")) {
+    if (target.closest("[contenteditable], .rich-editor, p, .scene-body")) return true;
+  }
+  return false;
+}
+
+function ensureUiHideId(el) {
+  if (!el || el.nodeType !== 1) return "";
+  if (el.dataset.uiHideId) return el.dataset.uiHideId;
+  if (el.id) {
+    el.dataset.uiHideId = `id:${el.id}`;
+    return el.dataset.uiHideId;
+  }
+  const parts = [
+    el.tagName,
+    el.dataset.format || "",
+    el.dataset.toolsAction || "",
+    el.dataset.contextAction || "",
+    el.dataset.createAction || "",
+    el.dataset.colorKind || "",
+    el.dataset.uiHideLabel || "",
+    el.getAttribute("aria-label") || "",
+    el.getAttribute("title") || "",
+    (el.className && typeof el.className === "string" ? el.className : "") || "",
+    (el.textContent || "").replace(/\s+/g, " ").trim().slice(0, 48),
+  ].join("|");
+  el.dataset.uiHideId = `auto:${simpleUiHash(parts)}`;
+  return el.dataset.uiHideId;
+}
+
+function getUiFeatureLabel(el) {
+  if (!el) return "기능";
+  const explicit = el.dataset?.uiHideLabel || el.getAttribute?.("data-ui-hide-label");
+  if (explicit) return String(explicit).trim();
+  const aria = (el.getAttribute?.("aria-label") || "").trim();
+  if (aria) return aria.replace(/\s+/g, " ").slice(0, 60);
+  const title = (el.getAttribute?.("title") || "").trim().split(/[·|]/)[0].trim();
+  if (title) return title.slice(0, 60);
+  const strong = el.querySelector?.("strong")?.textContent?.trim();
+  if (strong) return strong.slice(0, 60);
+  const text = (el.textContent || "").replace(/\s+/g, " ").trim();
+  if (text) return text.slice(0, 48);
+  if (el.id) return el.id;
+  return "이름 없는 기능";
+}
+
+function findHideableControl(target) {
+  if (!target?.closest) return null;
+  const el = target.closest(UI_HIDEABLE_SELECTOR);
+  if (!el) return null;
+  if (isFeatureHideExempt(el)) return null;
+  if (el.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
+    return null;
+  }
+  if (el.closest?.("#outline") && el.matches?.("[data-scene], [data-rename-chapter], [data-rename-part], .scene-link, .folder-title-box, .part-title, .chapter-title")) {
+    return null;
+  }
+  return el;
+}
+
+function collectHideableControls(root = document) {
+  return [...root.querySelectorAll(UI_HIDEABLE_SELECTOR)].filter((el) => {
+    if (isFeatureHideExempt(el)) return false;
+    if (el.getAttribute("aria-hidden") === "true") return false;
+    if (el.type === "hidden") return false;
+    if (el.closest?.(".context-menu, #adminModal, .modal, #formatColorPalette, #formatListPalette")) return false;
+    if (el.closest?.("#outline") && el.matches?.("[data-scene], .scene-link, .folder-title-box, .part-title, .chapter-title")) {
+      return false;
+    }
+    return true;
+  });
+}
+
+function applyFeatureHideClasses() {
+  collectHideableControls().forEach((el) => {
+    const id = ensureUiHideId(el);
+    if (!id) return;
+    el.classList.toggle("ui-feature-hidden", featureHideMap.has(id));
+  });
+  ["adminModeButton", "featureHideResetButton", "uiThemeToggleButton", "adminContactDevButton"]
+    .forEach((id) => $(id)?.classList.add("feature-hide-exempt"));
+  updateFeatureHideCountUi();
+}
+
+function updateFeatureHideCountUi() {
+  const n = featureHideMap.size;
+  const hint = $("featureHideCountHint");
+  if (hint) hint.textContent = n ? `숨긴 기능 ${n}개` : "숨긴 기능 없음";
+}
+
+function hideUiFeatureElement(el, { quiet = false } = {}) {
+  if (!el || isFeatureHideExempt(el)) return false;
+  const id = ensureUiHideId(el);
+  if (!id) return false;
+  const label = getUiFeatureLabel(el);
+  featureHideMap.set(id, label);
+  el.classList.add("ui-feature-hidden");
+  saveFeatureHideMap();
+  if (!quiet) toast(`「${label}」을(를) 숨겼습니다.`);
+  return true;
+}
+
+function showUiFeatureById(hideId, { quiet = false } = {}) {
+  if (!hideId || !featureHideMap.has(hideId)) return false;
+  const label = featureHideMap.get(hideId) || "기능";
+  featureHideMap.delete(hideId);
+  saveFeatureHideMap();
+  applyFeatureHideClasses();
+  if (!quiet) toast(`「${label}」을(를) 다시 표시합니다.`);
+  return true;
+}
+
+function resetAllHiddenFeatures() {
+  if (!featureHideMap.size) {
+    toast("숨긴 기능이 없어요.");
+    return;
+  }
+  if (!window.confirm(`숨긴 기능 ${featureHideMap.size}개를 모두 다시 표시할까요?`)) return;
+  featureHideMap = new Map();
+  saveFeatureHideMap();
+  applyFeatureHideClasses();
+  toast("모든 기능을 다시 표시했습니다.");
+}
+
+function renderHiddenFeaturesList() {
+  const host = $("hiddenFeaturesList");
+  if (!host) return;
+  if (!featureHideMap.size) {
+    host.innerHTML = `<p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>`;
+    return;
+  }
+  const rows = [...featureHideMap.entries()]
+    .sort((a, b) => String(a[1]).localeCompare(String(b[1]), "ko"))
+    .map(([id, label]) => `
+      <div class="hidden-feature-item" data-hidden-id="${escapeHtml(id)}">
+        <div class="hidden-feature-main">
+          <span class="hidden-feature-title">${escapeHtml(label || labelFromHideId(id))}</span>
+          <span class="hidden-feature-id hint">${escapeHtml(id)}</span>
+        </div>
+        <button type="button" class="primary compact-btn" data-hidden-activate="${escapeHtml(id)}">활성화</button>
+      </div>
+    `).join("");
+  host.innerHTML = rows;
+}
+
+function setUiFeatureCtxTarget(el) {
+  uiFeatureCtxTarget = el && el.nodeType === 1 ? el : null;
+}
+
+function hideUiFeatureContextMenu() {
+  $("uiFeatureContextMenu")?.classList.add("hidden");
+  uiFeatureCtxMenuTarget = null;
+}
+
+function placeContextMenuEl(menu, clientX, clientY) {
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = Number(clientX) || 12;
+  let top = Number(clientY) || 12;
+  const w = rect.width || 220;
+  const h = rect.height || 120;
+  if (left + w > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - w - pad);
+  if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+/**
+ * @param {number} x
+ * @param {number} y
+ * @param {Element} el
+ * @param {{ label: string, hint?: string, run: () => void }[]} [extraItems]
+ */
+function showUiFeatureContextMenu(x, y, el, extraItems = []) {
+  const menu = $("uiFeatureContextMenu");
+  if (!menu || !el) return;
+  uiFeatureCtxMenuTarget = el;
+  setUiFeatureCtxTarget(el);
+  const labelEl = $("uiFeatureContextLabel");
+  if (labelEl) labelEl.textContent = getUiFeatureLabel(el);
+  const extraHost = $("uiFeatureContextExtra");
+  const divider = $("uiFeatureContextDivider");
+  if (extraHost) {
+    extraHost.innerHTML = "";
+    for (const item of extraItems) {
+      if (!item?.label) continue;
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("role", "menuitem");
+      btn.dataset.uiFeatureExtra = "1";
+      btn.innerHTML = `<strong>${escapeHtml(item.label)}</strong>${item.hint ? `<span>${escapeHtml(item.hint)}</span>` : ""}`;
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideUiFeatureContextMenu();
+        try { item.run?.(); } catch (err) { handleError(err); }
+      });
+      extraHost.appendChild(btn);
+    }
+  }
+  if (divider) divider.hidden = !(extraItems && extraItems.length);
+  placeContextMenuEl(menu, x, y);
+}
+
+function onUiFeatureHideAction() {
+  const el = uiFeatureCtxMenuTarget || uiFeatureCtxTarget;
+  hideUiFeatureContextMenu();
+  document.querySelectorAll(".context-menu:not(.hidden), #formatColorPalette:not(.hidden), #formatListPalette:not(.hidden), #outlineTitleFontMenu:not(.hidden)")
+    .forEach((m) => m.classList.add("hidden"));
+  if (!el) {
+    toast("숨길 기능을 찾지 못했어요.");
+    return;
+  }
+  hideUiFeatureElement(el);
+}
+
+function onGlobalUiFeatureContextMenu(event) {
+  if (event.defaultPrevented) return;
+  if (isManuscriptWritingSurface(event.target)) return;
+  if (event.target.closest?.("#projectSelect, .project-picker")) return;
+  if (event.target.closest?.([
+    "#adminModal",
+    "#uiFeatureContextMenu",
+    ".modal:not(.hidden)",
+    "#desktopContextMenu",
+    "#binderContextMenu",
+    "#chapterContextMenu",
+    "#partContextMenu",
+  ].join(", "))) return;
+
+  const el = findHideableControl(event.target);
+  if (!el) return;
+
+  // Outline heading / counts: let font menu open; set target for its footer hide
+  if (event.target.closest?.("#outlineTocHeading, .outline-toc-heading, #outlineFolderCount, #outlineSceneCount, .outline-count-badges, .outline-folder-count, .outline-scene-count")) {
+    setUiFeatureCtxTarget(
+      event.target.closest?.("#outlineFolderCount, .outline-folder-count")
+      || event.target.closest?.("#outlineSceneCount, .outline-scene-count")
+      || event.target.closest?.(".outline-count-badges")
+      || event.target.closest?.("#outlineTocHeading"),
+    );
+    return;
+  }
+
+  event.preventDefault();
+  event.stopPropagation();
+
+  const formatListBtn = el.closest?.(".format-list-btn, [data-format='list']") || (el.dataset?.format === "list" ? el : null);
+  const formatColorBtn = el.closest?.("[data-color-kind]") || (el.dataset?.colorKind ? el : null);
+  if (formatListBtn && formatListBtn.closest?.(".format-toolbar")) {
+    setUiFeatureCtxTarget(formatListBtn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, formatListBtn, [{
+      label: "목록 기호 선택",
+      hint: "글머리·번호 스타일",
+      run: () => {
+        const editor = $("sceneContent");
+        if (typeof showFormatListPalette === "function") showFormatListPalette(formatListBtn, editor);
+      },
+    }]);
+    return;
+  }
+  if (formatColorBtn && formatColorBtn.closest?.(".format-toolbar, .tory-chat-toolbar")) {
+    setUiFeatureCtxTarget(formatColorBtn);
+    const kind = formatColorBtn.dataset.colorKind || "text";
+    showUiFeatureContextMenu(event.clientX, event.clientY, formatColorBtn, [{
+      label: kind === "highlight" ? "형광펜 색 선택" : "글자색 선택",
+      hint: "팔레트 열기",
+      run: () => {
+        const editor = $("sceneContent");
+        if (typeof showFormatColorPalette === "function") {
+          showFormatColorPalette(
+            kind,
+            formatColorBtn,
+            editor,
+            formatColorBtn.closest?.("#toryChatHighlightButton, .tory-chat") ? { target: "tory-chat" } : undefined,
+          );
+        }
+      },
+    }]);
+    return;
+  }
+
+  if (el.id === "writingLogButton" || el.closest?.("#writingLogButton")) {
+    const btn = $("writingLogButton") || el;
+    setUiFeatureCtxTarget(btn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
+      label: "기록 달력·설정",
+      hint: "글쓰기 기록 열기",
+      run: () => { openWritingLogModal?.().catch?.(handleError); },
+    }]);
+    return;
+  }
+
+  if (el.id === "synopsisListButton" || el.closest?.("#synopsisListButton, .scene-synopsis-label-btn")) {
+    const btn = $("synopsisListButton") || el;
+    setUiFeatureCtxTarget(btn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
+      label: "토리야 요약해 줘",
+      hint: "본문을 요약해 요약 칸에 넣기",
+      run: () => { runTorySceneSummary().catch(handleError); },
+    }]);
+    return;
+  }
+
+  if (el.id === "statusBarProgress" || el.id === "sceneGoalBar" || el.closest?.("#statusBarProgress, #sceneGoalBar")) {
+    const btn = $("statusBarProgress") || el;
+    setUiFeatureCtxTarget(btn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
+      label: "게이지 색 선택",
+      run: () => { showGoalBarColorMenu?.(btn); },
+    }]);
+    return;
+  }
+
+  setUiFeatureCtxTarget(el);
+  showUiFeatureContextMenu(event.clientX, event.clientY, el, []);
+}
+
+function setupUiFeatureHideSystem() {
+  featureHideMap = loadFeatureHideMap();
+  applyFeatureHideClasses();
+  updateFeatureHideCountUi();
+  renderHiddenFeaturesList();
+
+  $("featureHideResetButton")?.addEventListener("click", resetAllHiddenFeatures);
+
+  $("hiddenFeaturesList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-hidden-activate]");
+    if (!btn) return;
+    event.preventDefault();
+    showUiFeatureById(btn.dataset.hiddenActivate);
+  });
+
+  $("uiFeatureHideMenuItem")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    onUiFeatureHideAction();
+  });
+
+  document.addEventListener("click", (event) => {
+    const hideBtn = event.target.closest?.("[data-ui-feature-hide]");
+    if (!hideBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    onUiFeatureHideAction();
+  });
+
+  document.addEventListener("contextmenu", onGlobalUiFeatureContextMenu, false);
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest?.("#uiFeatureContextMenu")) return;
+    hideUiFeatureContextMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideUiFeatureContextMenu();
+  });
+
+  let featureHideApplyTimer = null;
+  const mo = new MutationObserver(() => {
+    if (featureHideApplyTimer) return;
+    featureHideApplyTimer = window.setTimeout(() => {
+      featureHideApplyTimer = null;
+      applyFeatureHideClasses();
+    }, 120);
+  });
+  try {
+    mo.observe(document.body, { childList: true, subtree: true });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/* —— Admin: info / help / contact / account —— */
+const HELP_MANUAL_SECTIONS = [
+  {
+    id: "overview",
+    title: "SuperTory란?",
+    keywords: "소개 개요 용도 로컬 소설 에세이 원고 스크리브너",
+    body: [
+      "SuperTory는 설치형·로컬 우선 한국어 집필 앱입니다. 클라우드 계정 없이도 작품·회차·설정·아이디어를 이 기기에 저장합니다.",
+      "한 작품은 바인더(목차) 아래 폴더(챕터)와 원고(씬)로 구성됩니다. 설정집에는 시놉시스·로그라인·세계관·키워드·인물 등을 모아 둡니다.",
+      "선택적으로 Gemini 기반 토리(AI) 도움·교정·회차 매칭을 쓸 수 있습니다. 키가 번들에 포함되어 있으면 별도 입력 없이 바로 이용할 수 있습니다.",
+    ],
+  },
+  {
+    id: "start",
+    title: "시작하기",
+    keywords: "시작 작품 만들기 열기 종류 장르",
+    body: [
+      "상단에서 작품을 고르거나 새로 만듭니다. 작품 종류(소설·에세이 등)는 나중에 바꿀 수 있습니다.",
+      "왼쪽 바인더 「목차」에서 +챕터로 폴더를, 폴더 안 +로 회차 원고를 추가합니다.",
+      "가운데 편집기에서 제목과 본문을 작성하면 자동 저장됩니다. 네트워크가 끊겨도 기기 안 초안이 먼저 보관됩니다.",
+    ],
+  },
+  {
+    id: "binder",
+    title: "바인더 · 목차",
+    keywords: "바인더 목차 폴더 챕터 원고 씬 회차 순번 드래그 우클릭 개수",
+    body: [
+      "목차 옆 숫자 배지는 폴더 수·원고 수입니다. 우클릭하면 제목 글자 크기 조절과 표시 숨기기를 할 수 있습니다.",
+      "원고·폴더를 끌어 순서를 바꾸고, 우클릭 메뉴로 하위 원고·복제·내보내기·버리기 등을 합니다.",
+      "「순번 정리」로 챕터 제목 번호를 다시 맞출 수 있습니다. 상위 폴더(권·부)로 묶어 대규모 구조를 정리할 수도 있습니다.",
+    ],
+  },
+  {
+    id: "editor",
+    title: "작성 화면 · 서식",
+    keywords: "작성 편집 서식 굵게 글자색 형광펜 목록 목표 상태바",
+    body: [
+      "서식 툴바로 글꼴·크기·굵게·정렬·목록·글자색·형광펜을 적용합니다. 색·목록 아이콘은 우클릭으로 팔레트를 엽니다.",
+      "본문을 드래그한 뒤 우클릭하면 사전·떡밥·각주 등 작성용 메뉴가 열립니다. (이 메뉴에는 기능 숨기기가 없습니다.)",
+      "하단 상태바에서 글자 수·목표·진행 게이지를 확인합니다. 게이지 우클릭으로 색을, 목표 영역 우클릭으로 일괄 적용을 할 수 있습니다.",
+    ],
+  },
+  {
+    id: "settings",
+    title: "설정집",
+    keywords: "설정집 시놉시스 로그라인 세계관 키워드 인물 아이디어 보드",
+    body: [
+      "왼쪽 설정 탭에서 시놉시스·로그라인·세계관·소개/의도·키워드·인물·아이디어 뱅크를 관리합니다.",
+      "각 상자의 「메인에서 보기」로 가운데 화면을 넓게 쓸 수 있습니다. 아이디어는 포스트잇처럼 색·크기를 조절합니다.",
+    ],
+  },
+  {
+    id: "ai",
+    title: "토리(AI) · 교정",
+    keywords: "토리 AI 제미니 gemini 도우미 분석 교정 맞춤법",
+    body: [
+      "오른쪽 패널의 토리는 요약·다듬기·아이디어 확장 등 글쓰기 도움을 줍니다. 도우미 탭을 우클릭하면 말투(페르소나)를 고를 수 있습니다.",
+      "맞춤법·교정은 공개 검사기와 Gemini 중 환경에 맞게 동작합니다.",
+      "교정고 가져오기·회차 매칭·비교 보고서로 외부 수정본을 원고에 맞출 수 있습니다.",
+    ],
+  },
+  {
+    id: "import-export",
+    title: "가져오기 · 내보내기",
+    keywords: "가져오기 내보내기 워드 hwp docx 문서 stg 패키지",
+    body: [
+      "상단 + 메뉴에서 문서를 가져오거나 작품을 Word·한글·텍스트 등으로 내보냅니다.",
+      "작품은 projects 폴더의 .stg 패키지 핸들로도 열 수 있습니다. 원고 본문의 원본은 로컬 DB에 있습니다.",
+    ],
+  },
+  {
+    id: "hide-ui",
+    title: "기능 숨기기 · 화면 정리",
+    keywords: "숨기기 우클릭 숨긴기능 활성화 관리자",
+    body: [
+      "거의 모든 기능 버튼·보기 표시(폴더/원고 개수 포함)에서 우클릭 → 「이 기능 숨기기」로 화면을 단순하게 만들 수 있습니다.",
+      "이미 메뉴가 많은 버튼은 우클릭 메뉴 맨 아래에 숨기기가 있습니다.",
+      "숨긴 항목은 왼쪽 위 톱니바퀴(관리자) → 「숨긴 기능」에서 목록으로 보고 「활성화」로 되돌립니다.",
+    ],
+  },
+  {
+    id: "trash",
+    title: "휴지통",
+    keywords: "휴지통 버리기 복원 삭제",
+    body: [
+      "바인더에서 버린 원고는 휴지통에 보관됩니다. 관리자 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.",
+    ],
+  },
+  {
+    id: "viewer",
+    title: "뷰어 · 테마",
+    keywords: "뷰어 pdf 책 폰 전자잉크 다크모드 테마",
+    body: [
+      "원고를 PDF·책·휴대폰·전자잉크 스타일로 미리 볼 수 있습니다. 상단 테마 버튼으로 데이/다크 UI를 전환합니다.",
+    ],
+  },
+  {
+    id: "safety",
+    title: "저장 · 안전",
+    keywords: "저장 자동저장 로컬 초안 백업 안전",
+    body: [
+      "편집 시 기기 저장소에 먼저 초안을 남긴 뒤 서버(로컬 백엔드)에 저장합니다. 서버 오류가 있어도 작성 중이던 글이 바로 사라지지 않도록 설계되어 있습니다.",
+      "중요한 작품은 내보내기나 기기 백업을 정기적으로 해 두세요.",
+    ],
+  },
+];
+
+/** @type {{ id?: string, q: string, a: string }[]} */
+const HELP_QA_ITEMS = [
+  // 추후 업데이트로 항목 추가. 빈 배열이어도 UI 골격 유지.
+];
+
+function getAppVersionSync() {
+  try {
+    if (typeof window !== "undefined" && window.__SUPERTORY_VERSION) {
+      return String(window.__SUPERTORY_VERSION);
+    }
+  } catch (_) { /* ignore */ }
+  return APP_VERSION_FALLBACK;
+}
+
+async function resolveAppVersion() {
+  try {
+    if (window.electronAPI?.getVersion) {
+      const v = await window.electronAPI.getVersion();
+      if (v) {
+        window.__SUPERTORY_VERSION = String(v);
+        return String(v);
+      }
+    }
+  } catch (_) { /* ignore */ }
+  return getAppVersionSync();
+}
+
+function refreshAdminInfoPanel() {
+  resolveAppVersion().then((v) => {
+    if ($("adminAppVersion")) $("adminAppVersion").textContent = v;
+  });
+  const runtime = $("adminAppRuntime");
+  if (runtime) {
+    const isEl = Boolean(window.electronAPI);
+    runtime.textContent = isEl ? "데스크톱 앱 (Electron)" : "브라우저 · 로컬 서버";
+  }
+}
+
+function refreshAdminAccountPanel() {
+  if ($("adminUserStatus")) $("adminUserStatus").textContent = "로컬 사용자";
+  if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = "이 기기";
+  if ($("adminUserAccount")) $("adminUserAccount").textContent = "로그인 없음 (로컬)";
+  if ($("adminUserPlan")) $("adminUserPlan").textContent = "로컬 무료 (전체 기능)";
+  if ($("adminUserPlanPeriod")) $("adminUserPlanPeriod").textContent = "제한 없음";
+  if ($("adminUserPlanPerks")) {
+    $("adminUserPlanPerks").textContent = "로컬 저장 · AI(구성 시) · 가져오기/내보내기";
+  }
+  if ($("adminUserPaymentMethod")) $("adminUserPaymentMethod").textContent = "해당 없음";
+  if ($("adminUserPaymentLast")) $("adminUserPaymentLast").textContent = "—";
+  if ($("adminUserPaymentReceipt")) $("adminUserPaymentReceipt").textContent = "—";
+}
+
+function renderAdminHelpManual(filterText = "") {
+  const host = $("adminHelpManual");
+  if (!host) return;
+  const q = String(filterText || "").trim().toLowerCase();
+  const tokens = q ? q.split(/\s+/).filter(Boolean) : [];
+  const matched = HELP_MANUAL_SECTIONS.filter((sec) => {
+    if (!tokens.length) return true;
+    const hay = `${sec.title} ${sec.keywords} ${sec.body.join(" ")}`.toLowerCase();
+    return tokens.every((t) => hay.includes(t));
+  });
+  const hint = $("adminHelpSearchHint");
+  if (hint) {
+    hint.textContent = tokens.length
+      ? (matched.length ? `검색 결과 ${matched.length}개` : "검색 결과가 없습니다. 다른 단어를 시도해 보세요.")
+      : `설명서 ${HELP_MANUAL_SECTIONS.length}개 항목`;
+  }
+  if (!matched.length) {
+    host.innerHTML = `<p class="hint trash-empty">일치하는 도움말이 없습니다.</p>`;
+    return;
+  }
+  host.innerHTML = matched.map((sec) => `
+    <article class="admin-help-article" data-help-id="${escapeHtml(sec.id)}" id="help-sec-${escapeHtml(sec.id)}">
+      <h5 class="admin-help-article-title">${escapeHtml(sec.title)}</h5>
+      ${sec.body.map((p) => `<p>${escapeHtml(p)}</p>`).join("")}
+    </article>
+  `).join("");
+}
+
+function renderAdminHelpQa() {
+  const host = $("adminHelpQa");
+  if (!host) return;
+  if (!HELP_QA_ITEMS.length) {
+    host.innerHTML = `
+      <div class="admin-qa-empty">
+        <p class="hint">아직 등록된 Q&amp;A가 없습니다.</p>
+        <p class="hint">업데이트로 질문·답변이 추가되면 이 목록에 표시됩니다.</p>
+      </div>`;
+    return;
+  }
+  host.innerHTML = HELP_QA_ITEMS.map((item, index) => `
+    <details class="admin-qa-item" data-qa-id="${escapeHtml(item.id || String(index))}">
+      <summary>${escapeHtml(item.q)}</summary>
+      <div class="admin-qa-a">${escapeHtml(item.a)}</div>
+    </details>
+  `).join("");
+}
+
+/** Open mail client without showing the address in the UI. */
+function openDeveloperContact() {
+  const local = ["cult", "noni"].join("");
+  const host = ["gmail", "com"].join(".");
+  const to = `${local}\u0040${host}`;
+  const ver = getAppVersionSync();
+  const subject = encodeURIComponent(`[SuperTory] 문의 (v${ver})`);
+  const body = encodeURIComponent(
+    `앱 버전: ${ver}\n실행: ${window.electronAPI ? "Electron" : "브라우저"}\n\n문의 내용:\n`,
+  );
+  const href = `mailto:${to}?subject=${subject}&body=${body}`;
+  try {
+    const a = document.createElement("a");
+    a.href = href;
+    a.rel = "noopener";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    toast("메일 작성 창을 열었습니다.");
+  } catch (_) {
+    toast("메일 앱을 열 수 없습니다. 시스템 기본 메일 설정을 확인해 주세요.");
+  }
+}
+
+function setupAdminMode() {
+  $("adminModeButton")?.addEventListener("click", () => openAdminModal("hidden"));
+  document.querySelectorAll("[data-close-admin]").forEach((el) => {
+    el.addEventListener("click", closeAdminModal);
+  });
+  document.querySelectorAll("#adminModal .admin-tab").forEach((btn) => {
+    btn.addEventListener("click", () => setAdminTab(btn.dataset.adminTab));
+  });
+  $("adminHelpSearch")?.addEventListener("input", (event) => {
+    renderAdminHelpManual(event.target.value);
+  });
+  $("adminContactDevButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openDeveloperContact();
+  });
+  $("refreshTrashButton")?.addEventListener("click", () => {
+    loadTrashList().catch(handleError);
+  });
+  $("emptyTrashButton")?.addEventListener("click", () => {
+    emptyProjectTrash().catch(handleError);
+  });
+  $("trashList")?.addEventListener("click", (event) => {
+    const restoreBtn = event.target.closest?.("[data-trash-restore]");
+    if (restoreBtn) {
+      event.preventDefault();
+      restoreTrashedScene(restoreBtn.dataset.trashRestore).catch(handleError);
+      return;
+    }
+    const purgeBtn = event.target.closest?.("[data-trash-purge]");
+    if (purgeBtn) {
+      event.preventDefault();
+      const row = purgeBtn.closest(".trash-item");
+      const title = row?.querySelector(".trash-item-title")?.textContent || "";
+      purgeTrashedScene(purgeBtn.dataset.trashPurge, title).catch(handleError);
+    }
+  });
+  setupUiFeatureHideSystem();
+  renderAdminHelpManual();
+  renderAdminHelpQa();
+  refreshAdminInfoPanel();
+  refreshAdminAccountPanel();
+  setupAutoUpdateUi();
+}
+
+const UI_THEME_STORAGE_KEY = "supertory.uiTheme";
+
+function getUiTheme() {
+  const fromDom = document.documentElement.getAttribute("data-ui-theme")
+    || document.body?.getAttribute("data-ui-theme");
+  if (fromDom === "dark" || fromDom === "light") return fromDom;
+  try {
+    const stored = localStorage.getItem(UI_THEME_STORAGE_KEY);
+    if (stored === "dark" || stored === "light") return stored;
+  } catch (_) {
+    /* ignore */
+  }
+  return "light";
+}
+
+function updateUiThemeToggleButton(theme) {
+  const button = $("uiThemeToggleButton");
+  if (!button) return;
+  const isDark = theme === "dark";
+  button.setAttribute("aria-pressed", isDark ? "true" : "false");
+  button.title = isDark ? "다크 모드 (클릭하면 데이 모드)" : "데이 모드 (클릭하면 다크 모드)";
+  button.setAttribute("aria-label", isDark ? "다크 모드 — 데이 모드로 전환" : "데이 모드 — 다크 모드로 전환");
+  button.querySelector(".theme-icon-sun")?.classList.toggle("hidden", isDark);
+  button.querySelector(".theme-icon-moon")?.classList.toggle("hidden", !isDark);
+}
+
+function setUiTheme(theme, { announce = false } = {}) {
+  const next = theme === "dark" ? "dark" : "light";
+  document.documentElement.setAttribute("data-ui-theme", next);
+  document.body?.setAttribute("data-ui-theme", next);
+  try {
+    localStorage.setItem(UI_THEME_STORAGE_KEY, next);
+  } catch (_) {
+    /* private mode */
+  }
+  updateUiThemeToggleButton(next);
+  if (announce) {
+    toast(next === "dark" ? "다크 모드로 바꿨어요." : "데이 모드로 바꿨어요.");
+  }
+}
+
+function toggleUiTheme() {
+  setUiTheme(getUiTheme() === "dark" ? "light" : "dark", { announce: true });
+}
+
+function setupUiThemeToggle() {
+  setUiTheme(getUiTheme(), { announce: false });
+  $("uiThemeToggleButton")?.addEventListener("click", toggleUiTheme);
+}
+
+function closeCreateMenu() {
+  $("createMenuDropdown")?.classList.add("hidden");
+  $("createMenuButton")?.setAttribute("aria-expanded", "false");
+}
+
+function openCreateMenu() {
+  $("createMenuDropdown")?.classList.remove("hidden");
+  $("createMenuButton")?.setAttribute("aria-expanded", "true");
+}
+
+function toggleCreateMenu() {
+  const menu = $("createMenuDropdown");
+  if (!menu) return;
+  if (menu.classList.contains("hidden")) openCreateMenu();
+  else closeCreateMenu();
+}
+
+function setupCreateMenu() {
+  $("createMenuButton")?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    toggleCreateMenu();
+  });
+  $("createMenuDropdown")?.addEventListener("click", (event) => {
+    const item = event.target.closest("[data-create-action]");
+    if (!item) return;
+    event.preventDefault();
+    closeCreateMenu();
+    const action = item.dataset.createAction;
+    if (action === "new") createProject();
+    else if (action === "import") openImportModal({ mode: "document" });
+    else if (action === "import-proof") openImportModal({ mode: "proof" });
+    else if (action === "export") openExportModal();
+  });
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#createMenu")) closeCreateMenu();
+  });
+  document.querySelectorAll("[data-close-export]").forEach((element) => {
+    element.addEventListener("click", closeExportModal);
+  });
+  setupExportModalUi();
+}
+
+setupCreateMenu();
+setupNewProjectModal();
+setupWelcomeScreen();
+setupAdminMode();
+$("importDestination").addEventListener("change", updateImportFormVisibility);
+$("importSplit").addEventListener("change", updateImportFormVisibility);
+$("importFile").addEventListener("change", () => {
+  const file = $("importFile").files?.[0];
+  $("importFileName").textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))}KB)` : "아직 고른 파일이 없어요.";
+  if (file && !$("importProjectTitle").value) {
+    $("importProjectTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "새 소설";
+  }
+  if (file && !$("importChapterTitle").value) {
+    $("importChapterTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "가져온 글";
+  }
+});
+$("importForm").addEventListener("submit", (event) => submitImport(event).catch(handleError));
+document.querySelectorAll("[data-close-import]").forEach((element) => {
+  element.addEventListener("click", closeImportModal);
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (!$("adminModal")?.classList.contains("hidden")) {
+    closeAdminModal();
+    return;
+  }
+  if (!$("createMenuDropdown")?.classList.contains("hidden")) {
+    closeCreateMenu();
+    return;
+  }
+  if (!$("exportModal")?.classList.contains("hidden")) {
+    closeExportModal();
+    return;
+  }
+  if (!$("newProjectModal")?.classList.contains("hidden")) {
+    closeNewProjectModal();
+    return;
+  }
+  if (!$("importModal").classList.contains("hidden")) {
+    closeImportModal();
+    return;
+  }
+  if (!$("viewModeDropdown")?.classList.contains("hidden") || !$("splitModeDropdown")?.classList.contains("hidden")) {
+    closeViewModeMenu();
+    return;
+  }
+  if (!$("sceneToolsDrawer")?.classList.contains("hidden")) {
+    closeSceneToolsDrawer();
+    return;
+  }
+  hideDesktopContextMenu();
+});
+$("newChapterButton").addEventListener("click", () => {
+  if (suppressNextNewChapterClick) {
+    suppressNextNewChapterClick = false;
+    return;
+  }
+  createChapter().catch(handleError);
+});
+setupRenumberChaptersModal();
+setupOutlineBinderChrome();
+$("newCharacterButton").addEventListener("click", () => createCharacter().catch(handleError));
+$("closeSplitButton").addEventListener("click", () => closeSplitView().catch(handleError));
+$("splitSceneSelect").addEventListener("change", () => selectSplitScene().catch(handleError));
+setupPopupDragging();
+setupRichEditor();
+setupIllustrationPanel();
+setupReferenceLinks();
+setupSceneStats();
+setupSynopsisList();
+setupIdeaBank();
+setupSettingsCodex();
+setupAiAssist();
+setupDesktopThemeMenu();
+setupBaitCollection();
+setupSourceCollection();
+setupToryVault();
+setupAiPanelToggle();
+setupBinderPanelToggle();
+setupUiThemeToggle();
+setupBinderContextMenu();
+setupSettingsContextMenu();
+setupSceneFeatureBar();
+setupAnalyzeMenu();
+setupFocusWrite();
+setupViewerMode();
+setupGenrePicker();
+setupPurposePicker();
+setupKeywordBox();
+setupProofReportModal();
+setupWritingLog();
+renderBookmarkBar();
+setupSceneAutoSave();
+setupBinderSwitch();
+setupOutlineResizer();
+setupSplitPaneResizer();
+setupSplitEditMode();
+$("projectSelect").addEventListener("change", (event) => {
+  state.projectId = Number(event.target.value);
+  // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
+  state.outline = [];
+  state.parts = [];
+  state.ungroupedChapters = [];
+  state.outlineProjectId = null;
+  state.mainGenre = "";
+  state.subGenre = "";
+  state.keywords = [];
+  state.projectPurpose = state.projects.find((p) => p.id === state.projectId)?.purpose || null;
+  loadEpisodeTabsFromStorage();
+  syncPurposePickerFromState();
+  syncGenrePickerFromState();
+  renderKeywordBox();
+  showWelcome();
+  renderBookmarkBar({ persistSanitize: false });
+  renderForeshadowSelect("");
+  fillForeshadowForm(null);
+  loadProject().catch(handleError);
+});
+setupEpisodeChrome();
+setupProjectListContextMenu();
+$("sceneEditor").addEventListener("submit", (event) => saveScene(event).catch(handleError));
+$("characterEditor").addEventListener("submit", (event) => saveCharacter(event).catch(handleError));
+$("addAliasButton").addEventListener("click", () => addAlias().catch(handleError));
+$("newAlias").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addAlias().catch(handleError); } });
+
+loadProjects().catch(handleError);

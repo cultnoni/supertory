@@ -1,0 +1,205 @@
+"""Executable contract tests for db/001_initial_schema.sql.
+
+Run with: python -m unittest tests.test_schema
+"""
+
+from __future__ import annotations
+
+import sqlite3
+import unittest
+from pathlib import Path
+
+
+SCHEMA = Path(__file__).resolve().parents[1] / "db" / "001_initial_schema.sql"
+
+
+class SuperTorySchemaTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.db = sqlite3.connect(":memory:")
+        self.db.execute("PRAGMA foreign_keys = ON")
+        self.db.executescript(SCHEMA.read_text(encoding="utf-8"))
+        self.db.execute("INSERT INTO project(id, title) VALUES (1, 'Project A')")
+        self.db.execute("INSERT INTO project(id, title) VALUES (2, 'Project B')")
+
+    def tearDown(self) -> None:
+        self.db.close()
+
+    def assert_integrity_error(self, sql: str, parameters: tuple[object, ...] = ()) -> None:
+        with self.assertRaises(sqlite3.IntegrityError):
+            self.db.execute(sql, parameters)
+
+    def create_story(self) -> None:
+        self.db.execute("INSERT INTO part(id, project_id, title, sort_order) VALUES (10, 1, 'Part', 0)")
+        self.db.execute(
+            "INSERT INTO chapter(id, project_id, part_id, title, sort_order) VALUES (20, 1, 10, 'Chapter', 0)"
+        )
+        self.db.execute(
+            "INSERT INTO scene(id, project_id, chapter_id, title, sort_order) VALUES (30, 1, 20, 'Scene', 0)"
+        )
+
+    def create_character(self) -> None:
+        self.db.execute(
+            "INSERT INTO character(id, project_id, name, sort_order) VALUES (40, 1, 'Han', 0)"
+        )
+
+    def test_cross_project_links_and_active_order_are_rejected(self) -> None:
+        self.db.execute("INSERT INTO part(id, project_id, title, sort_order) VALUES (10, 1, 'Part', 0)")
+        self.assert_integrity_error(
+            "INSERT INTO chapter(project_id, part_id, title, sort_order) VALUES (2, 10, 'Wrong', 0)"
+        )
+        self.db.execute("INSERT INTO chapter(id, project_id, title, sort_order) VALUES (20, 1, 'One', 0)")
+        self.assert_integrity_error(
+            "INSERT INTO chapter(project_id, title, sort_order) VALUES (1, 'Two', 0)"
+        )
+        self.db.execute("INSERT INTO chapter(id, project_id, title, sort_order) VALUES (21, 1, 'Three', 1)")
+        self.assert_integrity_error(
+            "INSERT INTO scene(project_id, chapter_id, title, sort_order) VALUES (2, 21, 'Wrong scene', 0)"
+        )
+        self.db.execute("INSERT INTO character(id, project_id, name, sort_order) VALUES (40, 1, 'Han', 0)")
+        self.assert_integrity_error(
+            "INSERT INTO character_relationship(project_id, from_character_id, to_character_id, relationship_type) VALUES (2, 40, 40, 'wrong')"
+        )
+
+    def test_revisions_are_ordered_immutable_and_current(self) -> None:
+        self.create_story()
+        self.assert_integrity_error(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md) VALUES (30, 2, 'skip')"
+        )
+        self.db.execute(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count) VALUES (30, 1, 'first text', 2)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md) VALUES (30, 2, 'second')"
+        )
+        self.db.execute("UPDATE scene_revision SET is_current = 0 WHERE scene_id = 30 AND revision_no = 1")
+        self.db.execute(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md, is_current) VALUES (30, 2, 'second text', 1)"
+        )
+        current = self.db.execute(
+            "SELECT revision_no, content_md FROM v_current_scene_revision WHERE scene_id = 30"
+        ).fetchone()
+        self.assertEqual(current, (2, "second text"))
+        self.assert_integrity_error("UPDATE scene_revision SET content_md = 'mutated' WHERE revision_no = 1")
+
+    def test_scene_character_and_relationship_constraints(self) -> None:
+        self.create_story()
+        self.create_character()
+        self.db.execute("INSERT INTO character(id, project_id, name, sort_order) VALUES (41, 1, 'Min', 1)")
+        self.db.execute("INSERT INTO scene_character(scene_id, character_id, project_id, is_pov) VALUES (30, 40, 1, 1)")
+        self.assert_integrity_error(
+            "INSERT INTO scene_character(scene_id, character_id, project_id, is_pov) VALUES (30, 41, 1, 1)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_relationship(project_id, from_character_id, to_character_id, relationship_type) VALUES (1, 40, 40, 'self')"
+        )
+
+    def test_custom_field_type_and_required_field_view(self) -> None:
+        self.create_character()
+        self.db.execute(
+            "INSERT INTO character_field_definition(id, project_id, field_key, label, field_type, is_required, sort_order) VALUES (50, 1, 'age', 'Age', 'integer', 1, 0)"
+        )
+        self.assertEqual(
+            self.db.execute("SELECT character_id FROM v_character_required_fields_missing").fetchall(), [(40,)]
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_field_value(character_id, field_definition_id, project_id, text_value) VALUES (40, 50, 1, 'wrong')"
+        )
+        self.db.execute(
+            "INSERT INTO character_field_value(character_id, field_definition_id, project_id, integer_value) VALUES (40, 50, 1, 30)"
+        )
+        self.assertEqual(self.db.execute("SELECT * FROM v_character_required_fields_missing").fetchall(), [])
+
+    def test_all_custom_field_types_and_option_ownership(self) -> None:
+        self.create_character()
+        fields = [
+            (50, "bio", "text", 0),
+            (51, "notes", "markdown", 1),
+            (52, "age", "integer", 2),
+            (53, "height", "real", 3),
+            (54, "alive", "boolean", 4),
+            (55, "birth", "date", 5),
+            (56, "rank", "single_select", 6),
+            (57, "traits", "multi_select", 7),
+        ]
+        self.db.executemany(
+            "INSERT INTO character_field_definition(id, project_id, field_key, label, field_type, sort_order) VALUES (?, 1, ?, ?, ?, ?)",
+            [(field_id, key, key.title(), field_type, order) for field_id, key, field_type, order in fields],
+        )
+        self.db.execute(
+            "INSERT INTO character_field_option(id, project_id, field_definition_id, option_key, label, sort_order) VALUES (60, 1, 56, 'captain', 'Captain', 0)"
+        )
+        self.db.execute(
+            "INSERT INTO character_field_option(id, project_id, field_definition_id, option_key, label, sort_order) VALUES (61, 1, 57, 'brave', 'Brave', 0)"
+        )
+        values = [
+            (50, "text_value", "detective"),
+            (51, "text_value", "**private**"),
+            (52, "integer_value", 30),
+            (53, "real_value", 172.5),
+            (54, "boolean_value", 1),
+            (55, "date_value", "1990-01-02"),
+            (56, "option_id", 60),
+        ]
+        for definition_id, column, value in values:
+            self.db.execute(
+                f"INSERT INTO character_field_value(character_id, field_definition_id, project_id, {column}) VALUES (40, ?, 1, ?)",
+                (definition_id, value),
+            )
+        self.db.execute(
+            "INSERT INTO character_field_multi_option(character_id, field_definition_id, option_id, project_id) VALUES (40, 57, 61, 1)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_field_value(character_id, field_definition_id, project_id, option_id) VALUES (40, 57, 1, 61)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_field_multi_option(character_id, field_definition_id, option_id, project_id) VALUES (40, 56, 60, 1)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_field_option(project_id, field_definition_id, option_key, label, sort_order) VALUES (1, 50, 'bad', 'Bad', 0)"
+        )
+        self.assert_integrity_error(
+            "UPDATE character_field_definition SET field_type = 'text' WHERE id = 56"
+        )
+
+    def test_fts_tracks_current_content_and_soft_delete(self) -> None:
+        self.create_story()
+        self.db.execute(
+            "INSERT INTO scene_revision(scene_id, revision_no, content_md) VALUES (30, 1, 'moonlit harbor')"
+        )
+        self.assertEqual(
+            self.db.execute("SELECT rowid FROM scene_fts WHERE scene_fts MATCH 'moonlit'").fetchall(), [(30,)]
+        )
+        self.db.execute("UPDATE scene SET deleted_at = '2026-08-04T00:00:00.000Z' WHERE id = 30")
+        self.assertEqual(self.db.execute("SELECT rowid FROM scene_fts WHERE scene_fts MATCH 'moonlit'").fetchall(), [])
+        self.db.execute("UPDATE scene SET deleted_at = NULL WHERE id = 30")
+        self.assertEqual(
+            self.db.execute("SELECT rowid FROM scene_fts WHERE scene_fts MATCH 'moonlit'").fetchall(), [(30,)]
+        )
+
+    def test_character_alias_fts_tracks_changes(self) -> None:
+        self.create_character()
+        self.db.execute("INSERT INTO character_alias(character_id, project_id, alias) VALUES (40, 1, 'Shadow')")
+        self.assertEqual(
+            self.db.execute("SELECT rowid FROM character_fts WHERE character_fts MATCH 'shadow'").fetchall(), [(40,)]
+        )
+        self.db.execute("UPDATE character SET deleted_at = '2026-08-04T00:00:00.000Z' WHERE id = 40")
+        self.assertEqual(self.db.execute("SELECT rowid FROM character_fts WHERE character_fts MATCH 'shadow'").fetchall(), [])
+        self.db.execute("UPDATE character SET deleted_at = NULL WHERE id = 40")
+        self.assertEqual(
+            self.db.execute("SELECT rowid FROM character_fts WHERE character_fts MATCH 'shadow'").fetchall(), [(40,)]
+        )
+
+    def test_soft_delete_cascades_downward_and_touch_advances_version(self) -> None:
+        self.create_story()
+        original_version = self.db.execute("SELECT row_version FROM chapter WHERE id = 20").fetchone()[0]
+        self.db.execute("UPDATE part SET deleted_at = '2026-08-04T00:00:00.000Z' WHERE id = 10")
+        self.assertIsNotNone(self.db.execute("SELECT deleted_at FROM chapter WHERE id = 20").fetchone()[0])
+        self.assertIsNotNone(self.db.execute("SELECT deleted_at FROM scene WHERE id = 30").fetchone()[0])
+        self.assertGreater(
+            self.db.execute("SELECT row_version FROM chapter WHERE id = 20").fetchone()[0], original_version
+        )
+        self.assert_integrity_error("UPDATE chapter SET deleted_at = NULL WHERE id = 20")
+
+
+if __name__ == "__main__":
+    unittest.main()
