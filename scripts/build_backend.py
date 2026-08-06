@@ -103,6 +103,14 @@ def write_bundled_env() -> dict[str, str]:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
+
     ensure_pyinstaller()
     write_bundled_env()
 
