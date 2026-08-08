@@ -43,7 +43,11 @@ class IdeaBankApiTests(unittest.TestCase):
         return response.status, result
 
     def test_create_update_delete_idea_notes(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "아이디어 연습", "purpose": "novel"})
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "아이디어 연습", "purpose": "novel", "main_genre": "판타지"},
+        )
         self.assertEqual(status, 201)
 
         status, idea = self.request("POST", f"/api/projects/{project['id']}/ideas", {

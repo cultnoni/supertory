@@ -18,7 +18,8 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css">
+    <link rel="stylesheet" href="/styles.css?v=20260807-caption3">
+    <link rel="stylesheet" href="/vendor/driver.js/driver.css">
   </head>
   <body>
     <!-- First-run guide: sits under header +, arrow points UP at the button -->
@@ -35,38 +36,85 @@
         <span>새 글쓰기 · 문서 가져오기</span>
       </div>
     </div>
+
+    <!-- Welcome-screen ad-style popups (dismissible) -->
+    <div id="welcomeAdPopups" class="welcome-ad-popups hidden" aria-label="공지와 이벤트 팝업">
+      <aside
+        class="welcome-ad-popup is-event"
+        id="welcomeAdPopupEvent"
+        role="dialog"
+        aria-labelledby="welcomeAdPopupEventTitle"
+        data-ad-popup="event"
+        hidden
+      >
+        <div class="welcome-ad-popup-head">
+          <span class="welcome-ad-popup-badge is-event">EVENT</span>
+          <button type="button" class="welcome-ad-popup-close" data-ad-popup-close="event" title="닫기" aria-label="이벤트 팝업 닫기">×</button>
+        </div>
+        <div class="welcome-ad-popup-body">
+          <strong id="welcomeAdPopupEventTitle">피드백 이벤트</strong>
+          <p>
+            SuperTory를 쓰시며 불편하거나 아쉬운 점이 있으면 알려 주세요.
+            좋은 제안은 다음 업데이트에 반영하고, 감사 인사를 드릴 예정이에요.
+          </p>
+        </div>
+        <div class="welcome-ad-popup-foot">
+          <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="event">
+            오늘 하루 보지 않기
+          </button>
+        </div>
+      </aside>
+      <aside
+        class="welcome-ad-popup is-notice"
+        id="welcomeAdPopupNotice"
+        role="dialog"
+        aria-labelledby="welcomeAdPopupNoticeTitle"
+        data-ad-popup="notice"
+        hidden
+      >
+        <div class="welcome-ad-popup-head">
+          <span class="welcome-ad-popup-badge is-notice">공지</span>
+          <button type="button" class="welcome-ad-popup-close" data-ad-popup-close="notice" title="닫기" aria-label="공지 팝업 닫기">×</button>
+        </div>
+        <div class="welcome-ad-popup-body">
+          <strong id="welcomeAdPopupNoticeTitle">업데이트 관련 공지</strong>
+          <p>새 버전이 나오면 설정·정보에서 업데이트 할 수 있어요.</p>
+        </div>
+        <div class="welcome-ad-popup-foot">
+          <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="notice">
+            오늘 하루 보지 않기
+          </button>
+        </div>
+      </aside>
+    </div>
     <header class="app-chrome">
-      <div class="app-titlebar">
-        <div class="brand">
-          <!-- SuperTORY mascot: cute acorn with glasses, holding a pen -->
+      <div class="app-titlebar" aria-label="SuperTORY">
+        <div class="brand" title="SuperTORY">
           <svg class="brand-logo" viewBox="0 0 56 56" width="22" height="22" aria-hidden="true" focusable="false">
             <defs>
-              <linearGradient id="logoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="headerLogoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="#fff8ef"/>
                 <stop offset="100%" stop-color="#f0e0cc"/>
               </linearGradient>
-              <linearGradient id="acornBody" x1="30%" y1="10%" x2="70%" y2="100%">
+              <linearGradient id="headerAcornBody" x1="30%" y1="10%" x2="70%" y2="100%">
                 <stop offset="0%" stop-color="#f0b56a"/>
                 <stop offset="55%" stop-color="#d98a3c"/>
                 <stop offset="100%" stop-color="#b86a28"/>
               </linearGradient>
-              <linearGradient id="acornCap" x1="0%" y1="0%" x2="0%" y2="100%">
+              <linearGradient id="headerAcornCap" x1="0%" y1="0%" x2="0%" y2="100%">
                 <stop offset="0%" stop-color="#8b5a2b"/>
                 <stop offset="100%" stop-color="#5c3a18"/>
               </linearGradient>
-              <linearGradient id="penBody" x1="0%" y1="0%" x2="100%" y2="100%">
+              <linearGradient id="headerPenBody" x1="0%" y1="0%" x2="100%" y2="100%">
                 <stop offset="0%" stop-color="#6e9fd4"/>
                 <stop offset="100%" stop-color="#3d6fa8"/>
               </linearGradient>
             </defs>
-            <circle cx="28" cy="28" r="26" fill="url(#logoGlow)" stroke="#e4d5c2" stroke-width="1.5"/>
-            <circle cx="11" cy="14" r="1.2" fill="#c98a5a" opacity="0.45"/>
-            <circle cx="45" cy="13" r="1" fill="#8d3e2f" opacity="0.35"/>
-            <ellipse cx="27" cy="32" rx="12.5" ry="14.5" fill="url(#acornBody)" stroke="#9a5a22" stroke-width="0.8"/>
+            <circle cx="28" cy="28" r="26" fill="url(#headerLogoGlow)" stroke="#e4d5c2" stroke-width="1.5"/>
+            <ellipse cx="27" cy="32" rx="12.5" ry="14.5" fill="url(#headerAcornBody)" stroke="#9a5a22" stroke-width="0.8"/>
             <ellipse cx="23" cy="28" rx="3.2" ry="4.5" fill="#f7c98a" opacity="0.35"/>
-            <ellipse cx="27" cy="19.5" rx="14" ry="7.2" fill="url(#acornCap)" stroke="#4a2c12" stroke-width="0.7"/>
+            <ellipse cx="27" cy="19.5" rx="14" ry="7.2" fill="url(#headerAcornCap)" stroke="#4a2c12" stroke-width="0.7"/>
             <path d="M14.5 18.5 Q27 24 39.5 18.5" fill="none" stroke="#3d2410" stroke-width="0.6" opacity="0.45"/>
-            <path d="M16 16.2 Q27 20.5 38 16.2" fill="none" stroke="#3d2410" stroke-width="0.45" opacity="0.3"/>
             <path d="M27 12.8 C27 9.5 29.5 7.2 32 6.5" fill="none" stroke="#4a2c12" stroke-width="2" stroke-linecap="round"/>
             <ellipse cx="32.3" cy="6.2" rx="2.2" ry="1.5" fill="#3d2410" transform="rotate(-25 32.3 6.2)"/>
             <circle cx="22.5" cy="29.5" r="2.1" fill="#3a2412"/>
@@ -81,20 +129,19 @@
             <path d="M26.6 29.5 H27.4" stroke="#3d3d48" stroke-width="1.2" stroke-linecap="round"/>
             <path d="M18.4 29.2 H16.6" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
             <path d="M35.6 29.2 H37.4" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
-            <path d="M20.2 27.6 L21.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
-            <path d="M29.2 27.6 L30.4 26.5" stroke="#fff" stroke-width="0.9" stroke-linecap="round" opacity="0.65"/>
             <path d="M15.5 34 C12.5 35.5 12 38.5 14 40.5" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
             <path d="M38.5 34 C41.5 35.2 43.5 37.5 42.2 40.2" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
             <g transform="translate(41.5 38.5) rotate(38)">
-              <rect x="-1.3" y="-9" width="2.6" height="14" rx="1.1" fill="url(#penBody)" stroke="#2f5480" stroke-width="0.4"/>
+              <rect x="-1.3" y="-9" width="2.6" height="14" rx="1.1" fill="url(#headerPenBody)" stroke="#2f5480" stroke-width="0.4"/>
               <rect x="-1.3" y="-11.2" width="2.6" height="2.4" rx="0.6" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.35"/>
               <path d="M-1.1 5 L0 9.2 L1.1 5 Z" fill="#d4af37" stroke="#6e5210" stroke-width="0.35"/>
-              <line x1="0" y1="5.2" x2="0" y2="8.2" stroke="#5c450c" stroke-width="0.45"/>
             </g>
             <circle cx="40.2" cy="40.2" r="1.6" fill="#e8a84a" stroke="#9a5a22" stroke-width="0.4"/>
           </svg>
           <span class="brand-name">SuperTORY</span>
         </div>
+      </div>
+      <div class="app-toolbar">
         <div class="header-actions">
           <button id="adminModeButton" class="icon-btn header-gear-btn" type="button" title="관리자 모드" aria-label="관리자 모드" aria-haspopup="dialog" aria-controls="adminModal">
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
@@ -190,15 +237,21 @@
             </div>
           </div>
         </div>
-      </div>
-      <div class="app-toolbar">
         <label class="project-picker" title="우클릭으로 작품 순서를 바꿀 수 있어요">작품
           <select id="projectSelect" aria-label="작품 선택" title="우클릭: 작품 순서 변경"></select>
         </label>
-        <label class="purpose-picker" title="소설·에세이 등 작품 종류 (나중에 바꿀 수 있어요)">
-          <select id="purposeSelect" aria-label="작품 종류" disabled>
+        <label class="purpose-picker" title="우클릭으로 작품 종류를 바꿀 수 있어요">
+          <select id="purposeSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
             <option value="general_novel">일반소설</option>
           </select>
+          <button
+            type="button"
+            id="purposeDisplay"
+            class="genre-display purpose-display"
+            aria-label="작품 종류 (우클릭으로 변경)"
+            title="우클릭: 작품 종류 변경"
+            disabled
+          >일반소설</button>
         </label>
         <div class="genre-picker" id="genrePicker" title="우클릭으로 장르를 바꿀 수 있어요" data-mode="fiction">
           <label class="genre-field" id="mainGenreField">
@@ -247,14 +300,14 @@
           </label>
         </div>
         <div class="header-notice-strip" id="headerNoticeStrip">
-          <section class="header-notice header-idea-notice" id="headerIdeaNotice" aria-label="아이디어 메모">
+          <section class="header-notice header-idea-notice is-empty" id="headerIdeaNotice" aria-label="아이디어 메모">
             <div class="header-notice-head">
               <span class="header-notice-title">메모</span>
               <button type="button" class="header-notice-close" data-header-notice="ideas" title="메모 알림 닫기" aria-label="메모 알림 닫기">×</button>
             </div>
             <div class="header-notice-body header-idea-bar" id="headerIdeaBar" role="list"></div>
           </section>
-          <section class="header-notice header-bookmark-notice" id="headerBookmarkNotice" aria-label="북마크">
+          <section class="header-notice header-bookmark-notice is-empty" id="headerBookmarkNotice" aria-label="북마크">
             <div class="header-notice-head">
               <span class="header-notice-title">북마크</span>
               <button type="button" class="header-notice-close" data-header-notice="bookmarks" title="북마크 알림 닫기" aria-label="북마크 알림 닫기">×</button>
@@ -274,7 +327,7 @@
                 type="button"
                 role="tab"
                 id="binderTabManuscript"
-                class="binder-tab is-active"
+                class="binder-tab is-active feature-hide-exempt"
                 data-binder="manuscript"
                 aria-selected="true"
                 aria-controls="manuscriptBinder"
@@ -283,7 +336,7 @@
                 type="button"
                 role="tab"
                 id="binderTabSettings"
-                class="binder-tab"
+                class="binder-tab feature-hide-exempt"
                 data-binder="settings"
                 aria-selected="false"
                 aria-controls="settingsBinder"
@@ -304,7 +357,11 @@
                 <div
                   class="outline-toc-heading"
                   id="outlineTocHeading"
-                  title="우클릭: 목록 제목 글자 크기 조절"
+                  title="클릭: 목차 한눈에 보기 · 우클릭: 글자 크기"
+                  role="button"
+                  tabindex="0"
+                  aria-haspopup="dialog"
+                  aria-controls="outlineOverviewModal"
                 >
                   <h2>목차</h2>
                   <span class="outline-count-badges" title="우클릭: 글자 크기 · 기능 숨기기" data-ui-hide-label="목차 개수 표시">
@@ -327,13 +384,13 @@
                     id="newChapterButton"
                     class="outline-action-btn outline-action-btn-primary"
                     draggable="true"
-                    title="클릭: 맨 아래 추가 · 끌어다 놓기: 원하는 위치에 추가"
+                    title="클릭: 맨 아래 추가 · 끌어다 놓기: 원하는 위치에 바로 추가"
                   >+ 챕터</button>
                 </div>
               </div>
             </div>
             <div id="outlineTipBox" class="outline-tip-box" role="note">
-              <p class="outline-tip-text">+챕터: 상위 폴더 · 안쪽 +: 하위 폴더 · 원고 끌어서 위치 옮기기 · 우클릭: 기능 더 보기 · 목차 우클릭: 글자 크기</p>
+              <p class="outline-tip-text">+챕터: 폴더 · 안쪽 +: 하위 폴더 · 폴더·원고는 끌어 원하는 위치에 놓기 · 폴더명 더블클릭: 이름 변경 · 우클릭: 기능 더 보기</p>
               <button type="button" id="outlineTipDismiss" class="outline-tip-dismiss" title="이 안내 숨기기" aria-label="안내 닫기">×</button>
             </div>
             <div id="chapterInsertBanner" class="chapter-insert-banner hidden" role="status">
@@ -352,12 +409,13 @@
             </div>
 
             <p class="hint settings-order-hint">⋮⋮ 로 설정 폴더 순서를 바꿀 수 있어요.</p>
+
             <div class="settings-accordion" id="settingsAccordion">
               <section class="settings-box" data-settings-section="ideas" id="ideaBank" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="ideas" aria-expanded="false">
-                    <span class="settings-box-title">아이디어뱅크</span>
+                    <span class="settings-box-title">생각 수첩</span>
                   </button>
                   <button type="button" class="settings-main-open" data-settings-main="ideas" aria-label="메인에서 보기">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
@@ -370,27 +428,6 @@
                     <button type="button" id="newIdeaButton" class="secondary" title="새 메모">+ 메모</button>
                   </div>
                   <div id="ideaNoteList" class="idea-note-list"></div>
-                </div>
-              </section>
-
-              <section class="settings-box" data-settings-section="baits" id="baitBank" draggable="true">
-                <div class="settings-box-header">
-                  <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
-                  <button type="button" class="settings-box-toggle" data-settings-toggle="baits" aria-expanded="false">
-                    <span class="settings-box-title">떡밥모음</span>
-                  </button>
-                  <button type="button" class="settings-main-open" data-settings-main="baits" aria-label="메인에서 보기">
-                    <span class="settings-main-arrow" aria-hidden="true">→</span>
-                    <span class="settings-main-tip">메인에서 보기</span>
-                  </button>
-                </div>
-                <div class="settings-box-preview" id="baitsPreview"></div>
-                <div class="settings-box-body" id="baitsBody" hidden>
-                  <div class="settings-box-toolbar">
-                    <button type="button" id="newBaitButton" class="secondary" title="빈 떡밥 추가">+ 떡밥</button>
-                  </div>
-                  <p class="hint">본문 드래그 → 우클릭 <strong>떡밥 던지기</strong>, 또는 + 떡밥으로 <strong>작성 전 아이디어</strong>를 적어 두세요.</p>
-                  <div id="baitList" class="bait-list" aria-label="떡밥 목록"></div>
                 </div>
               </section>
 
@@ -440,12 +477,20 @@
                   </div>
                   <textarea id="projectLogline" rows="2" placeholder="예: 기억을 잃은 탐정이 자신의 과거를 쫓다 도시의 비밀에 맞선다."></textarea>
                   <div class="settings-field-head">
+                    <span class="settings-field-title">줄거리 개요</span>
+                  </div>
+                  <p class="hint settings-field-hint">전체 줄거리나 결말 방향을 간단히 적어두면, 투고·공모전용 시놉시스 작성 시 더 정확한 결과를 받을 수 있어요.</p>
+                  <textarea id="projectOutlineSummary" rows="4" placeholder="시작부터 결말까지 전체 줄거리를 간단히 적어 두세요."></textarea>
+                  <div class="settings-field-head">
                     <span class="settings-field-title">시놉시스</span>
                     <div class="settings-field-actions">
                       <button type="button" class="settings-inline-save" id="saveSynopsisButton" data-save-settings-doc="synopsis" title="저장 (자동 저장됨)">저장</button>
                       <button type="button" class="settings-inline-main" data-open-settings-doc="synopsis" title="메인에서 보기" aria-label="시놉시스 메인에서 보기">→</button>
                     </div>
                   </div>
+                  <button type="button" class="settings-ai-guide-link" id="submissionSynopsisGuideLink">
+                    작품의도와 로그라인, 기승전결 구조화도 토리가 제공해요.
+                  </button>
                   <textarea id="projectSynopsis" rows="4" placeholder="작품 전체 줄거리·시놉시스를 적어 두세요."></textarea>
                 </div>
               </section>
@@ -533,6 +578,58 @@
                 </div>
               </section>
 
+              <section class="settings-box" data-settings-section="baits" id="baitBank" draggable="true">
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="baits" aria-expanded="false">
+                    <span class="settings-box-title">떡밥모음</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="baits" aria-label="메인에서 보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                    <span class="settings-main-tip">메인에서 보기</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="baitsPreview"></div>
+                <div class="settings-box-body" id="baitsBody" hidden>
+                  <div class="settings-box-toolbar">
+                    <button type="button" id="newBaitButton" class="secondary" title="빈 떡밥 추가">+ 떡밥</button>
+                  </div>
+                  <p class="hint">본문 드래그 → 우클릭 <strong>떡밥 던지기</strong>, 또는 + 떡밥으로 <strong>작성 전 아이디어</strong>를 적어 두세요.</p>
+                  <div id="baitList" class="bait-list" aria-label="떡밥 목록"></div>
+                </div>
+              </section>
+
+              <section
+                class="settings-box"
+                data-settings-section="successProfile"
+                id="linkedSuccessProfilePanel"
+                draggable="true"
+                aria-label="흥행작 프로파일 연결"
+              >
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="successProfile" aria-expanded="false">
+                    <span class="settings-box-title">흥행작 프로파일 연결</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="successProfilePreview"></div>
+                <div class="settings-box-body" id="successProfileBody" hidden>
+                  <p class="hint">흥행 공식 분석으로 만든 프로파일을 이 작품에 연결하면, 도우미의 흥행 공식 참고·피드백에 활용할 수 있어요.</p>
+                  <p id="linkedSuccessProfileStatus" class="linked-success-profile-status hint">
+                    작품을 선택하면 연결 상태를 볼 수 있어요.
+                  </p>
+                  <div id="linkedSuccessProfileActions" class="linked-success-profile-actions hidden">
+                    <label id="linkedSuccessProfileSelectWrap" class="linked-success-profile-select-wrap hidden">
+                      <span class="sr-only">프로파일 선택</span>
+                      <select id="linkedSuccessProfileSelect" aria-label="흥행 프로파일 선택"></select>
+                    </label>
+                    <button type="button" class="secondary compact-btn" id="linkedSuccessProfileUnlinkButton" title="이 작품에서 연결 해제">
+                      연결 해제
+                    </button>
+                  </div>
+                </div>
+              </section>
+
               <section class="settings-box" data-settings-section="toryVault" id="toryVaultBank" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
@@ -588,7 +685,7 @@
         <div id="welcome" class="welcome-screen">
           <div class="welcome-card">
             <div class="welcome-mascot welcome-mascot-live" aria-hidden="true">
-              <svg class="welcome-mascot-svg" viewBox="0 0 56 56" width="104" height="104" focusable="false">
+              <svg class="welcome-mascot-svg" viewBox="0 0 56 56" width="88" height="88" focusable="false">
                 <defs>
                   <linearGradient id="welcomeLogoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
                     <stop offset="0%" stop-color="#fff8ef"/>
@@ -645,9 +742,15 @@
                 </g>
               </svg>
             </div>
-            <p class="welcome-mascot-hello" id="welcomeSpeech">토리와 함께</p>
-            <h1>글을 시작해 볼까요?</h1>
-            <p class="welcome-lead">왼쪽 위 <strong>+</strong> 버튼에서 <strong>새 글쓰기</strong>나 <strong>문서 가져오기</strong>를 눌러 주세요.</p>
+            <p class="welcome-mascot-hello" id="welcomeSpeech">반가워요 작가님</p>
+            <div class="welcome-tory-blurb">
+              <p>토리는 수퍼토리에 탑재된 AI 어시스턴트예요.</p>
+              <p class="welcome-tory-blurb-body">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하고, 많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 토리가 작가님의 글을 대신 써드리지는 않아요. 하지만 작품의 인물, 세계관, 줄거리 흐름을 기억해 스스로 보기 어려운 원고의 입체적인 모습을 보여드릴게요.</p>
+              <p class="welcome-tory-blurb-closing">창작의 즐거움은 작가님 몫이랍니다. ❤️</p>
+            </div>
+            <h1 class="welcome-card-title">
+              우리 함께 <span class="welcome-super-story">수퍼 스토리</span> 만들어 볼까요?
+            </h1>
           </div>
 
           <div class="welcome-tips" aria-label="시작 안내">
@@ -674,15 +777,15 @@
                 <p>글은 이 기기에 자동 저장됩니다. 본문을 우클릭하면 북마크·이미지·떡밥 등 바로가기 메뉴가 열려요.</p>
               </article>
             </div>
-            <p class="welcome-tips-foot hint">이 화면은 작품을 고르거나 회차를 열면 자연스럽게 사라져요.</p>
           </div>
+
         </div>
 
-        <div id="ideaBoard" class="idea-board hidden" aria-label="아이디어뱅크 보드">
+        <div id="ideaBoard" class="idea-board hidden" aria-label="생각 수첩 보드">
           <div class="idea-board-toolbar">
             <div>
-              <h2>아이디어뱅크</h2>
-              <p class="hint">포스트잇 메모를 크게 펼쳐 한눈에 볼 수 있어요. <span class="idea-resize-tip">모서리로 크기</span> · <span class="idea-resize-tip">우클릭으로 색</span>을 바꿀 수 있습니다.</p>
+              <h2>생각 수첩</h2>
+              <p class="hint">포스트잇 메모를 크게 펼쳐 한눈에 볼 수 있어요. <span class="idea-resize-tip">위 클립으로 색</span> · <span class="idea-resize-tip">모서리로 크기</span> · <span class="idea-resize-tip">우클릭으로도 색</span>을 바꿀 수 있습니다.</p>
             </div>
             <div class="idea-board-actions">
               <button type="button" id="ideaBoardAddButton" class="secondary">+ 메모</button>
@@ -748,7 +851,7 @@
               </div>
             </div>
             <form id="sceneEditor" class="editor">
-              <div class="editor-meta">
+              <div class="editor-meta ms-toolbar-shell" id="editorMetaShell" data-toolbar-shell="meta">
                 <div class="scene-synopsis-field">
                   <button
                     type="button"
@@ -757,6 +860,14 @@
                     title="좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘"
                   >요약</button>
                   <input id="sceneSynopsis" placeholder="예: 주인공이 낯선 편지를 발견한다." form="sceneEditor" aria-label="이 씬 요약">
+                  <button
+                    type="button"
+                    class="panel-collapse-btn ms-toolbar-collapse-btn"
+                    id="editorMetaHideButton"
+                    title="요약 칸 접기"
+                    aria-label="요약 칸 접기"
+                    data-toolbar-hide="meta"
+                  >∧</button>
                 </div>
               </div>
               <!-- hidden file input for right-click image insert in manuscript -->
@@ -765,6 +876,7 @@
               <!-- Fixed format toolbar: segmented groups, collapsible -->
               <div class="ms-toolbar-shell" id="formatToolbarShell" data-toolbar-shell="format">
               <div class="format-toolbar" id="formatToolbar" role="toolbar" aria-label="글자 서식">
+                <div class="format-toolbar-track">
                 <!-- 실행 취소 | 다시 실행 -->
                 <div class="format-seg" role="group" aria-label="실행 취소 · 다시 실행">
                   <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↩</button>
@@ -864,13 +976,18 @@
                     title="형광펜 · 문장 드래그 후 클릭하면 바로 칠해집니다 · 우클릭: 색 고르기"
                     aria-label="형광펜"
                   >
-                    <span class="format-hl-icon" aria-hidden="true">🖍</span>
+                    <span class="format-hl-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="m9 11-6 6v3h9l3-3"/>
+                        <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                      </svg>
+                    </span>
                     <span class="format-color-bar" data-color-bar="highlight"></span>
                   </button>
                 </div>
                 <!-- 찾기 · 뷰어 (독립) -->
                 <button type="button" class="format-btn format-find-btn format-btn-solo" id="findToggleButton" title="찾기 (Ctrl+F)" aria-label="찾기" aria-expanded="false" aria-controls="findBar">
-                  <span class="format-find-icon" aria-hidden="true">🔍</span>
+                  <span class="format-find-icon emoji-icon" aria-hidden="true">🔍</span>
                 </button>
                 <button
                   type="button"
@@ -879,7 +996,7 @@
                   title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 (편집 불가)"
                   aria-label="뷰어"
                 >
-                  <svg class="format-viewer-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <svg class="format-viewer-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
                     <path class="viewer-icon-cover-l" fill="currentColor" d="M11.2 5.35C9.85 4.4 8.25 3.9 6.2 3.9H4.3c-.7 0-1.25.55-1.25 1.25v11.2c0 .7.55 1.25 1.25 1.25h2.15c1.35 0 2.55.3 3.4.85.2.12.45.12.65 0 .12-.08.22-.15.35-.22V5.85c-.2-.15-.4-.3-.65-.5z"/>
                     <path class="viewer-icon-cover-r" fill="currentColor" d="M12.8 5.35c1.35-.95 2.95-1.45 5-1.45h1.9c.7 0 1.25.55 1.25 1.25v11.2c0 .7-.55 1.25-1.25 1.25H17.55c-1.35 0-2.55.3-3.4.85-.2.12-.45.12-.65 0-.12-.08-.22-.15-.35-.22V5.85c.2-.15.4-.3.65-.5z"/>
                     <path class="viewer-icon-page-l" fill="#fffdf8" d="M10.85 6.7c-.95-.6-2.1-.9-3.65-.9H4.55c-.2 0-.35.15-.35.35v9.85c0 .2.15.35.35.35h1.85c1.25 0 2.35.25 3.2.7.15.08.35.08.5 0 .1-.05.2-.12.3-.18V7c-.15-.1-.35-.2-.55-.3z"/>
@@ -888,9 +1005,7 @@
                     <path class="viewer-icon-lines" fill="none" stroke="currentColor" stroke-width="0.85" stroke-linecap="round" d="M5.85 8.65h3.2M5.85 10.45h3.2M5.85 12.25h2.45M14.95 8.65h3.2M14.95 10.45h3.2M15.7 12.25h2.45"/>
                   </svg>
                 </button>
-                <!-- spacer: push collapse to far right, aligned with feature bar ∧ -->
-                <span class="format-bar-spacer" aria-hidden="true"></span>
-                <!-- 접기: 바인더/SuperTORY와 같은 panel-collapse 스타일 · 기능 바와 세로 일렬 -->
+                </div>
                 <button
                   type="button"
                   class="panel-collapse-btn ms-toolbar-collapse-btn"
@@ -900,14 +1015,6 @@
                   data-toolbar-hide="format"
                 >∧</button>
               </div>
-              <button
-                type="button"
-                class="ms-toolbar-reopen hidden"
-                id="formatToolbarReopenButton"
-                title="서식 도구 다시 보이기"
-                aria-label="서식 도구 다시 보이기"
-                data-toolbar-show="format"
-              >서식 도구 ▾</button>
               </div>
               <div id="findBar" class="find-bar hidden" role="search" aria-label="원고 찾기">
                 <label class="find-bar-field">
@@ -923,6 +1030,7 @@
               <!-- Fixed scene tools: notes / cast / links / other-scene view (collapsible) -->
               <div class="ms-toolbar-shell" id="sceneFeatureBarShell" data-toolbar-shell="feature">
               <div class="scene-feature-bar" id="sceneFeatureBar" aria-label="씬 추가 기능">
+                <div class="scene-feature-bar-track">
                 <label class="status-clip" title="작성 상태" aria-label="작성 상태">
                   <select id="sceneStatus" form="sceneEditor" class="status-clip-select" aria-label="작성 상태">
                     <option value="idea">아이디어</option>
@@ -933,16 +1041,18 @@
                   </select>
                 </label>
                 <button
-                  type="button"
-                  class="feature-chip feature-chip-focus"
                   id="focusWriteButton"
                   data-tools-action="focus-write"
-                  title="큰 창에서 원고를 이어서 편집합니다"
+                  title="큰 창에서 원고를 이어서 편집합니다 (F10)"
+                  type="button"
+                  class="feature-chip feature-chip-focus"
                 >큰 창</button>
                 <button type="button" class="feature-chip" data-tools-action="notes" id="authorNotesChip" title="작가 메모">
                   작가 메모<span class="feature-chip-count hidden" id="authorNotesCount" aria-hidden="true"></span>
                 </button>
-                <button type="button" class="feature-chip" data-tools-action="characters" title="등장 인물">등장 인물</button>
+                <button type="button" class="feature-chip" data-tools-action="characters" id="sceneCharactersChip" title="이 회차에 등장하는 인물 연결">
+                  등장 인물<span class="feature-chip-count hidden" id="sceneCharactersCount" aria-hidden="true"></span>
+                </button>
                 <button type="button" class="feature-chip" data-tools-action="links" id="referenceMaterialsChip" title="참고 자료 (링크·파일)">
                   참고 자료<span class="feature-chip-count hidden" id="referenceMaterialsCount" aria-hidden="true"></span>
                 </button>
@@ -973,23 +1083,23 @@
                   >분석 ▾</button>
                   <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식">
                     <button type="button" role="menuitem" data-analyze-action="focus">
-                      <strong>집중 분석</strong>
-                      <span>강점·약점·다음 고칠 포인트를 살핍니다</span>
+                      <strong>피드백 요청</strong>
+                      <span>원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
                     </button>
                     <button type="button" role="menuitem" data-analyze-action="worldscan">
-                      <strong>세계관 수호자 스캔</strong>
-                      <span>세계관·장르 톤·캐릭터 고유성 붕괴를 감지합니다</span>
+                      <strong>설정 붕괴 감지기</strong>
+                      <span>세계관·캐릭터 설정과 어긋나는 지점을 찾아요</span>
                     </button>
                     <button type="button" role="menuitem" data-analyze-action="dupcheck">
                       <strong>중복 체크</strong>
-                      <span>앞뒤 5회차와 같은 표현·비슷한 내용을 찾습니다</span>
+                      <span>앞뒤 5회차와 같은 표현·비슷한 내용을 찾아요</span>
                     </button>
                     <div class="view-mode-dropdown-divider" id="analyzeCustomDivider" hidden></div>
                     <div id="analyzeCustomList" class="analyze-custom-list"></div>
                     <div class="view-mode-dropdown-divider"></div>
                     <button type="button" role="menuitem" data-analyze-action="custom-add">
                       <strong>직접 추가</strong>
-                      <span>자주 쓰는 분석 요청을 메뉴에 직접 넣습니다</span>
+                      <span>자주 쓰는 분석 요청을 메뉴에 직접 넣어요</span>
                     </button>
                   </div>
                 </div>
@@ -1000,24 +1110,24 @@
                     type="button"
                     aria-haspopup="menu"
                     aria-expanded="false"
-                    title="다른 씬을 화면 나누기 또는 팝업으로 봅니다"
-                  >다른 씬 보기 ▾</button>
-                  <div id="viewModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="다른 씬 보기 방식">
-                    <button type="button" role="menuitem" data-view-mode="split">
-                      <strong>↔ 화면 나누기</strong>
+                title="함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
+              >함께보기 ▾</button>
+                  <div id="viewModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="함께보기 방식">
+                    <button type="button" role="menuitem" data-view-mode="split" title="Ctrl+Alt+S">
+                      <strong>↔ 화면 나누기 <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd></strong>
                       <span>편집 화면 옆에 나란히 둡니다</span>
                     </button>
-                    <button type="button" role="menuitem" data-view-mode="popup">
-                      <strong>⧉ 팝업으로 보기</strong>
+                    <button type="button" role="menuitem" data-view-mode="popup" title="Ctrl+Alt+P">
+                      <strong>⧉ 팝업으로 보기 <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd></strong>
                       <span>떠 있는 창으로 참고합니다</span>
                     </button>
-                    <button type="button" role="menuitem" data-view-mode="close" id="viewModeCloseItem" class="hidden">
-                      <strong>닫기</strong>
-                      <span>다른 씬 보기를 끝냅니다</span>
+                    <button type="button" role="menuitem" data-view-mode="close" id="viewModeCloseItem" class="hidden" title="Esc">
+                      <strong>닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
+                      <span>함께보기를 끝냅니다</span>
                     </button>
                   </div>
                 </div>
-                <span class="feature-bar-spacer" aria-hidden="true"></span>
+                </div>
                 <button
                   type="button"
                   class="panel-collapse-btn ms-toolbar-collapse-btn"
@@ -1027,17 +1137,38 @@
                   data-toolbar-hide="feature"
                 >∧</button>
               </div>
-              <button
-                type="button"
-                class="ms-toolbar-reopen hidden"
-                id="sceneFeatureBarReopenButton"
-                title="기능 바 다시 보이기"
-                aria-label="기능 바 다시 보이기"
-                data-toolbar-show="feature"
-              >작성 상태 · 기능 ▾</button>
               </div>
 
               <div class="writing-block">
+                <div class="ms-chrome-reopen-strip" id="msChromeReopenStrip" hidden>
+                  <button
+                    type="button"
+                    class="ms-toolbar-reopen"
+                    id="editorMetaReopenButton"
+                    title="요약 칸 다시 보이기"
+                    aria-label="요약 칸 다시 보이기"
+                    data-toolbar-show="meta"
+                    hidden
+                  >요약 ▾</button>
+                  <button
+                    type="button"
+                    class="ms-toolbar-reopen"
+                    id="formatToolbarReopenButton"
+                    title="서식 도구 다시 보이기"
+                    aria-label="서식 도구 다시 보이기"
+                    data-toolbar-show="format"
+                    hidden
+                  >서식 도구 ▾</button>
+                  <button
+                    type="button"
+                    class="ms-toolbar-reopen"
+                    id="sceneFeatureBarReopenButton"
+                    title="기능 바 다시 보이기"
+                    aria-label="기능 바 다시 보이기"
+                    data-toolbar-show="feature"
+                    hidden
+                  >작성 상태 · 기능 ▾</button>
+                </div>
                 <div class="manuscript-page" id="manuscriptPage" title="오른쪽 클릭: 이미지 넣기 · 페이지 색">
                   <div
                     id="sceneContent"
@@ -1120,11 +1251,25 @@
               </div>
               <div class="tool-panel hidden" data-tool-panel="characters">
                 <div class="scene-characters">
-                  <label>이 씬에 등장하는 인물</label>
-                  <div id="sceneCharacterList" class="check-list"></div>
-                  <label class="pov-label">이 씬을 누구의 시점으로 쓸까요?
-                    <select id="povSelect" form="sceneEditor"><option value="">시점 인물 없음</option></select>
+                  <div class="scene-characters-head">
+                    <div>
+                      <label class="scene-characters-title">이 회차 등장 인물</label>
+                      <p class="hint scene-characters-hint">설정집에서 만든 인물을 체크한 뒤 <strong>저장</strong>을 누르면 이 회차에 연결됩니다.</p>
+                    </div>
+                    <button type="button" id="sceneCharacterCreateButton" class="secondary compact-btn" title="새 인물을 만들고 인물 작성 페이지로 이동">+ 인물</button>
+                  </div>
+                  <div id="sceneCharacterList" class="check-list scene-character-check-list" aria-label="등장 인물 선택"></div>
+                  <label class="pov-label">이 회차 시점 인물
+                    <select id="povSelect" form="sceneEditor" aria-label="시점 인물">
+                      <option value="">시점 인물 없음</option>
+                    </select>
                   </label>
+                  <div class="scene-characters-save-row">
+                    <p class="hint" id="sceneCharacterSaveHint">인물을 체크한 뒤 저장을 눌러 주세요.</p>
+                    <button type="button" id="sceneCharacterSaveButton" class="primary compact-btn" title="이 회차 등장 인물·시점 연결 저장">
+                      저장
+                    </button>
+                  </div>
                 </div>
               </div>
               <div class="tool-panel hidden" data-tool-panel="spellcheck">
@@ -1186,7 +1331,7 @@
             title="끌어 좌우 너비 조절"
           ></div>
 
-          <aside id="splitViewer" class="split-viewer hidden" aria-label="두 번째 씬 보기">
+          <aside id="splitViewer" class="split-viewer hidden" aria-label="함께보기">
             <div
               id="splitPopupDragBar"
               class="split-popup-drag-bar"
@@ -1199,12 +1344,12 @@
             <div class="split-heading" id="splitHeading">
               <div class="split-heading-main">
                 <div class="split-heading-title-row">
-                  <span class="split-scene-caption">함께 볼 씬</span>
+                  <span class="split-scene-caption">함께볼 회차</span>
                   <button
                     type="button"
                     id="toggleSplitEditButton"
                     class="secondary compact-btn split-edit-toggle"
-                    title="다른 씬을 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다."
+                    title="함께보는 회차를 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다."
                     aria-pressed="false"
                   >자유 편집</button>
                   <div class="split-heading-actions">
@@ -1218,41 +1363,41 @@
                         title="화면 나누기 / 팝업 선택 · 닫기"
                       >보기 방식 ▾</button>
                       <div id="splitModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="보기 방식">
-                        <button type="button" role="menuitem" data-view-mode="split">
-                          <strong>↔ 화면 나누기</strong>
+                        <button type="button" role="menuitem" data-view-mode="split" title="Ctrl+Alt+S">
+                          <strong>↔ 화면 나누기 <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd></strong>
                           <span>옆에 나란히 둡니다</span>
                         </button>
-                        <button type="button" role="menuitem" data-view-mode="popup">
-                          <strong>⧉ 팝업으로 보기</strong>
+                        <button type="button" role="menuitem" data-view-mode="popup" title="Ctrl+Alt+P">
+                          <strong>⧉ 팝업으로 보기 <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd></strong>
                           <span>떠 있는 창으로 둡니다</span>
                         </button>
-                        <button type="button" role="menuitem" data-view-mode="close">
-                          <strong>닫기</strong>
-                          <span>다른 씬 보기를 끝냅니다</span>
+                        <button type="button" role="menuitem" data-view-mode="close" title="Esc">
+                          <strong>닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
+                          <span>함께보기를 끝냅니다</span>
                         </button>
                       </div>
                     </div>
-                    <button id="closeSplitButton" type="button" title="다른 씬 보기 닫기">×</button>
+                    <button id="closeSplitButton" type="button" title="함께보기 닫기">×</button>
                   </div>
                 </div>
                 <label class="split-scene-label">
-                  <select id="splitSceneSelect" aria-label="함께 볼 씬"></select>
+                  <select id="splitSceneSelect" aria-label="함께볼 회차"></select>
                 </label>
               </div>
             </div>
             <!-- hidden titles kept for any legacy JS references -->
-            <span id="splitViewerTitle" class="hidden" hidden>다른 씬</span>
+            <span id="splitViewerTitle" class="hidden" hidden>함께보기</span>
             <span id="splitViewerModeHint" class="hidden" hidden></span>
             <div class="split-edit-bar">
               <span id="splitSaveInfo" class="save-info split-save-info"></span>
             </div>
-            <article id="splitSceneContent" class="split-scene-content" aria-label="다른 씬 내용">
+            <article id="splitSceneContent" class="split-scene-content" aria-label="함께보기 내용">
               <input
                 id="splitSceneTitleInput"
                 class="title-input split-scene-title-input"
                 type="text"
-                aria-label="다른 씬 제목"
-                placeholder="씬 제목"
+                aria-label="함께보기 제목"
+                placeholder="회차 제목"
                 readonly
               >
               <!-- Reference file viewer (PDF iframe / editable extracted text) inside split pane -->
@@ -1308,8 +1453,8 @@
                 spellcheck="true"
                 role="textbox"
                 aria-multiline="true"
-                aria-label="다른 씬 원고"
-                data-placeholder="이 씬의 원고가 여기 표시됩니다. 자유 편집을 켜면 바로 수정할 수 있어요."
+                aria-label="함께보기 원고"
+                data-placeholder="함께보는 회차의 원고가 여기 표시됩니다. 자유 편집을 켜면 바로 수정할 수 있어요."
               ></div>
             </article>
             <div
@@ -1330,6 +1475,18 @@
               <option value="supporting">조연</option>
               <option value="minor">단역</option>
             </select>
+          </div>
+          <div class="character-portrait-row" aria-label="캐릭터 이미지">
+            <div class="character-portrait-preview-wrap">
+              <img id="characterPortraitPreview" class="character-portrait-preview hidden" alt="캐릭터 이미지 미리보기">
+              <div id="characterPortraitEmpty" class="character-portrait-empty">이미지 없음</div>
+            </div>
+            <div class="character-portrait-actions">
+              <button type="button" id="characterPortraitAddButton" class="secondary compact-btn">이미지 추가</button>
+              <button type="button" id="characterPortraitClearButton" class="secondary compact-btn hidden">이미지 제거</button>
+              <input id="characterPortraitFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden>
+              <p class="hint">인물 참고용 사진·일러스트를 붙일 수 있어요.</p>
+            </div>
           </div>
           <label>정렬용 이름 <span class="small-note">(선택: 성을 앞에 두고 싶을 때만 적으세요)</span>
             <input id="characterSortName" placeholder="예: 김, 지은">
@@ -1359,9 +1516,12 @@
               <button id="addAliasButton" type="button" class="secondary">별칭 추가</button>
             </div>
           </section>
-          <div class="save-row">
+          <div class="save-row character-save-row">
             <span id="characterInfo" class="save-info"></span>
-            <button type="submit" class="primary">인물 설정 저장</button>
+            <div class="character-save-actions">
+              <button type="button" id="deleteCharacterButton" class="secondary admin-danger-btn">인물 삭제</button>
+              <button type="submit" class="primary">인물 설정 저장</button>
+            </div>
           </div>
         </form>
 
@@ -1468,7 +1628,12 @@
                 title="형광펜 · 문장 드래그 후 클릭하면 바로 칠해집니다 · 우클릭: 색 고르기"
                 aria-label="형광펜"
               >
-                <span class="format-hl-icon" aria-hidden="true">🖍</span>
+                <span class="format-hl-icon" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                    <path d="m9 11-6 6v3h9l3-3"/>
+                    <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                  </svg>
+                </span>
                 <span class="format-color-bar" data-color-bar="highlight"></span>
               </button>
             </div>
@@ -1506,8 +1671,19 @@
       </section>
 
       <aside id="aiPanel" class="ai-panel" aria-label="SuperTORY AI 도우미">
+        <div
+          class="ai-panel-resizer"
+          id="aiPanelResizer"
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="SuperTORY 너비 조절"
+          title="끌어 SuperTORY 너비 조절"
+        ></div>
         <div class="ai-panel-top">
-          <div class="panel-heading">
+          <div class="panel-heading ai-panel-heading">
+            <div class="panel-heading-actions">
+              <button id="collapseAiPanelButton" type="button" class="panel-collapse-btn" title="SuperTORY 닫기" aria-label="SuperTORY 닫기">⟩</button>
+            </div>
             <h2 class="ai-panel-title">
               <svg class="ai-mini-logo" viewBox="0 0 40 40" width="22" height="22" aria-hidden="true" focusable="false">
                 <defs>
@@ -1547,24 +1723,20 @@
               </svg>
               SuperTORY
             </h2>
-            <div class="panel-heading-actions">
-              <button id="collapseAiPanelButton" type="button" class="panel-collapse-btn" title="SuperTORY 닫기" aria-label="SuperTORY 닫기">⟩</button>
-            </div>
+            <span class="ai-panel-heading-balance" aria-hidden="true"></span>
           </div>
-          <p class="hint ai-panel-subtitle">AI Assistant · 글쓰기 도우미</p>
-          <p id="aiStatusLine" class="hint ai-status-line">Gemini 연결 상태를 확인하는 중…</p>
           <div id="toryFocusBanner" class="tory-focus-banner hidden" role="status">
             <div class="tory-focus-banner-main">
-              <strong>토리 집중 분석</strong>
+              <strong>피드백 요청</strong>
               <span id="toryFocusSceneLabel" class="tory-focus-scene-label">원고 선택됨</span>
             </div>
-            <p class="hint tory-focus-hint">이 원고에만 맞춰 분석·조언·브레인스토밍합니다. (토리 고도 기능은 추후 연결)</p>
-            <button type="button" id="clearToryFocusButton" class="secondary compact-btn tory-focus-clear">집중 해제</button>
+            <p class="hint tory-focus-hint">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</p>
+            <button type="button" id="clearToryFocusButton" class="secondary compact-btn tory-focus-clear">연결 해제</button>
           </div>
           <div class="ai-panel-tabs" role="tablist" aria-label="토리 모드">
             <button
               type="button"
-              class="ai-panel-tab is-active"
+              class="ai-panel-tab is-active feature-hide-exempt"
               id="aiTabTools"
               role="tab"
               aria-selected="true"
@@ -1573,111 +1745,147 @@
             >도우미</button>
             <button
               type="button"
-              class="ai-panel-tab"
+              class="ai-panel-tab feature-hide-exempt"
               id="aiTabChat"
               role="tab"
               aria-selected="false"
               data-ai-tab="chat"
             >토리와 대화</button>
           </div>
+          <div class="tory-priority-box" id="toryPriorityBox">
+            <button
+              type="button"
+              class="tory-priority-toggle"
+              id="toryPriorityToggle"
+              aria-expanded="false"
+              aria-controls="toryPriorityEditor"
+              title="작가 지침 작성"
+            >
+              <span class="tory-priority-toggle-label">작가 지침</span>
+              <span class="tory-priority-preview" id="toryPriorityPreview">클릭하여 작성</span>
+            </button>
+            <div class="tory-priority-editor" id="toryPriorityEditor" hidden>
+              <p class="hint tory-priority-hint">작업 목적에 맞는 범위에서 문체·톤 등에 참고합니다.</p>
+              <textarea
+                id="toryPriorityInput"
+                rows="4"
+                maxlength="4000"
+                placeholder="예: 주인공의 감정을 과장하지 말 것. / 반전을 미리 말하지 말 것. / 문체는 담백하게."
+                disabled
+              ></textarea>
+              <div class="tory-priority-editor-foot">
+                <p id="toryPrioritySaveHint" class="hint tory-priority-save-hint" aria-live="polite"></p>
+                <button type="button" class="secondary compact-btn" id="toryPriorityDoneButton">접기</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div class="ai-panel-body">
           <!-- Tools / one-shot assist -->
           <div id="aiToolsView" class="ai-panel-view" role="tabpanel" aria-labelledby="aiTabTools">
-            <form id="aiForm" class="ai-panel-form">
+            <form id="aiForm" class="ai-panel-form" novalidate>
               <label>무엇을 도와드릴까요?
                 <select id="aiMode" aria-label="AI 도움 방식">
                   <option value="free" selected>직접 요청하기</option>
-                  <option value="continue">이어서 쓰기</option>
-                  <option value="rewrite">문장 다듬기</option>
-                  <option value="summarize">씬 요약</option>
-                  <option value="ideas">다음 아이디어 제안</option>
-                  <option value="analyze">집중 분석·조언</option>
-                  <option value="brainstorm">브레인스토밍</option>
-                  <option value="foreshadow">복선/떡밥 레이더</option>
-                  <option value="plottwist">반전 &amp; 개연성 검사기</option>
-                  <option value="worldscan">세계관 수호자 스캔</option>
-                  <option value="dupcheck">중복 체크</option>
+                  <optgroup label="토리가 확인해줘요">
+                    <option value="summarize">회차 요약</option>
+                    <option value="foreshadow">떡밥·복선 탐색기</option>
+                    <option value="plottwist">반전 &amp; 개연성 검사기</option>
+                    <option value="worldscan">설정 붕괴 감지기</option>
+                    <option value="dupcheck">중복 체크</option>
+                  </optgroup>
+                  <optgroup label="토리가 도와줘요">
+                    <option value="ideas">다음 아이디어 제안</option>
+                    <option value="brainstorm">브레인스토밍</option>
+                    <option value="analyze">피드백 요청</option>
+                    <option value="successfeedback" class="ai-mode-success-opt">흥행 공식 피드백</option>
+                  </optgroup>
+                  <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
+                  <optgroup label="토리가 써줘요">
+                    <option value="continue">이어서 쓰기</option>
+                    <option value="rewrite">문장 다듬기</option>
+                    <option value="worlddesc">세계관 묘사</option>
+                    <option value="subsynopsis">투고·공모전용 시놉시스</option>
+                  </optgroup>
+                  <optgroup label="스페셜 기능">
+                    <option value="successpattern" class="ai-mode-success-opt">흥행 공식 분석</option>
+                  </optgroup>
+                  <optgroup label="토리와 새 무대를 찾아요">
+                    <option value="scriptadapt" class="ai-mode-coming-opt">🔒 영상 각본으로 바꾸기 · 준비중</option>
+                    <option value="audiobook" class="ai-mode-coming-opt">🔒 오디오북 낭독 대본으로 바꾸기 · 준비중</option>
+                    <option value="multilang" class="ai-mode-coming-opt">🔒 다국어 번역하기 · 준비중</option>
+                  </optgroup>
                 </select>
               </label>
 
-              <div id="foreshadowPanel" class="foreshadow-panel hidden" aria-label="복선 등록">
-                <div class="foreshadow-panel-head">
-                  <strong id="foreshadowPanelTitle">복선 목표 등록</strong>
-                  <span class="hint" id="foreshadowPanelHint">토리가 등록 단서와 현재 원고를 대조합니다.</span>
-                </div>
-                <label class="foreshadow-field">검수할 복선
-                  <select id="foreshadowSelect" aria-label="등록된 복선 선택">
-                    <option value="">복선을 선택하거나 아래에서 추가</option>
-                  </select>
-                </label>
-                <div class="foreshadow-edit-grid">
-                  <label class="foreshadow-field">복선 제목
-                    <input id="foreshadowTitle" type="text" maxlength="120" placeholder="예: 집사의 배신" autocomplete="off">
-                  </label>
-                  <label class="foreshadow-field">반전 목표 장
-                    <input id="foreshadowTarget" type="text" maxlength="80" placeholder="예: 12장" autocomplete="off">
-                  </label>
-                </div>
-                <label class="foreshadow-field">빌드업·단서 (한 줄에 하나)
-                  <textarea id="foreshadowBuildup" rows="3" placeholder="2장: 수상한 태도&#10;6장: 밤중에 외출"></textarea>
-                </label>
-                <div class="foreshadow-actions">
-                  <button type="button" id="foreshadowSaveButton" class="secondary compact-btn">복선 저장</button>
-                  <button type="button" id="foreshadowDeleteButton" class="secondary compact-btn">선택 삭제</button>
-                </div>
-                <p class="hint foreshadow-hint" id="foreshadowModeHint">현재 열린 원고를 기준으로 검수합니다. 원고를 먼저 열어 두세요.</p>
+              <div id="aiToolInlineHint" class="sp-inline-hint hidden" aria-label="도우미 설정 창 안내">
+                <p class="hint" id="aiToolInlineHintText">이 기능은 설정 창에서 진행해요. 창을 닫았다면 다시 열 수 있어요.</p>
+                <button type="button" class="secondary compact-btn" id="aiToolOpenButton">설정 창 열기</button>
               </div>
 
-              <div id="continuePanel" class="foreshadow-panel continue-panel hidden" aria-label="이어서 쓰기 옵션">
-                <div class="foreshadow-panel-head">
-                  <strong>이어 쓸 분량</strong>
-                  <span class="hint">원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.</span>
-                </div>
-                <fieldset class="continue-length-options" id="continueLengthOptions">
-                  <legend class="sr-only">이어 쓸 분량</legend>
-                  <label class="continue-length-option">
-                    <input type="radio" name="continueLengthMode" value="short" checked>
-                    <span>짧게 (한두 문단)</span>
-                  </label>
-                  <label class="continue-length-option">
-                    <input type="radio" name="continueLengthMode" value="scene">
-                    <span>길게 (한 씬 분량)</span>
-                  </label>
-                  <label class="continue-length-option">
-                    <input type="radio" name="continueLengthMode" value="proportional">
-                    <span>원고 길이 비례</span>
-                  </label>
-                </fieldset>
-                <label class="foreshadow-field">방향 힌트 (선택)
-                  <textarea id="continueHint" rows="2" maxlength="500" placeholder="예: 대화 위주로 / 긴장감을 높여 줘 / 다음엔 편지가 도착한다"></textarea>
-                </label>
+              <div id="successPatternInlineHint" class="sp-inline-hint hidden" aria-label="흥행 공식 분석 안내">
+                <p class="hint">흥행 공식 분석은 단계 안내 창에서 진행해요. 창을 닫았다면 다시 열 수 있어요.</p>
+                <button type="button" class="secondary compact-btn" id="spOpenWizardButton">분석 창 열기</button>
               </div>
 
-              <label id="aiPromptWrap">추가 요청 (선택)
-                <textarea id="aiPrompt" rows="4" placeholder="예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘."></textarea>
+              <div id="aiPromptWrap" class="ai-prompt-wrap">
+                <div class="ai-prompt-head">
+                  <span class="ai-result-label" id="aiPromptLabel">추가 요청 (선택)</span>
+                  <button
+                    type="button"
+                    class="secondary ai-result-expand-btn ai-prompt-expand-btn"
+                    id="aiPromptExpandButton"
+                    title="요청 내용을 크게 보기"
+                    aria-haspopup="dialog"
+                    aria-controls="aiPromptModal"
+                    data-ui-hide-label="요청 크게보기"
+                  >크게보기</button>
+                </div>
+                <label class="ai-prompt-field" for="aiPrompt">
+                  <span class="sr-only" id="aiPromptSrLabel">요청 내용</span>
+                  <textarea id="aiPrompt" rows="5" placeholder="예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘." aria-labelledby="aiPromptLabel"></textarea>
+                </label>
+              </div>
+              <label id="successProfileRefWrap" class="success-profile-ref-wrap hidden" for="successProfileRefCheck">
+                <input type="checkbox" id="successProfileRefCheck" autocomplete="off">
+                <span>흥행 공식 참고 (선택)</span>
               </label>
               <div class="ai-submit-row">
                 <button type="submit" class="primary ai-submit-btn" id="aiSubmitButton">토리에게 물어보기</button>
               </div>
             </form>
 
-            <div id="aiResultWrap" class="ai-result-wrap hidden">
+            <div id="aiResultWrap" class="ai-result-wrap is-empty">
               <div class="ai-result-head">
                 <span class="ai-result-label">결과</span>
-                <button type="button" class="secondary ai-result-expand-btn" id="aiResultExpandButton" title="결과를 팝업으로 크게 보기" aria-haspopup="dialog" aria-controls="aiResultModal">
-                  크게보기
-                </button>
+                <div class="ai-result-head-actions">
+                  <button type="button" class="secondary ai-result-expand-btn" id="aiResultHistoryButton" title="이전 결과 목록" aria-haspopup="dialog" aria-controls="aiResultHistoryModal">
+                    히스토리
+                  </button>
+                  <button type="button" class="secondary ai-result-expand-btn" id="aiResultExpandButton" title="결과를 팝업으로 크게 보기" aria-haspopup="dialog" aria-controls="aiResultModal">
+                    크게보기
+                  </button>
+                </div>
               </div>
+              <p id="submissionLengthWarn" class="hint hidden" aria-live="polite"></p>
               <label class="ai-result-field" for="aiResult">
                 <span class="sr-only">AI 결과</span>
-                <textarea id="aiResult" rows="10" readonly></textarea>
+                <textarea id="aiResult" rows="5" readonly placeholder="여기에서 답변을 보실 수 있어요"></textarea>
               </label>
               <div class="ai-result-actions">
                 <button type="button" class="secondary" id="aiCollectResultButton" title="이 결과를 토리 수집창고에 저장">수집</button>
                 <button type="button" class="secondary" id="aiCopyButton">복사</button>
                 <button type="button" class="primary" id="aiInsertButton">원고 끝에 넣기</button>
+              </div>
+              <div id="styleBlendOffer" class="style-blend-offer hidden" aria-label="스며듦 검사">
+                <p class="style-blend-guide">
+                  직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와
+                  잘 어우러지는지 별도 검사를 추천합니다.
+                </p>
+                <button type="button" class="secondary compact-btn" id="styleBlendCheckButton">스며듦 검사하기</button>
+                <p id="styleBlendStatus" class="hint style-blend-status hidden" aria-live="polite"></p>
+                <pre id="styleBlendResult" class="style-blend-result hidden" aria-label="스며듦 검사 결과"></pre>
               </div>
             </div>
           </div>
@@ -1693,7 +1901,12 @@
                   title="토리 답변 드래그 후 클릭: 형광펜 · 우클릭: 색 고르기"
                   aria-label="형광펜"
                 >
-                  <span class="tory-chat-hl-icon" aria-hidden="true">🖍</span>
+                  <span class="tory-chat-hl-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="m9 11-6 6v3h9l3-3"/>
+                      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                    </svg>
+                  </span>
                   <span class="tory-chat-hl-bar" id="toryChatHighlightBar" aria-hidden="true"></span>
                 </button>
                 <button type="button" class="secondary tory-chat-action-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화">
@@ -1705,7 +1918,19 @@
                 <button type="button" class="secondary tory-chat-action-btn" id="toryChatClearButton" title="현재 대화를 비우고 히스토리에 보관">
                   대화 지우기
                 </button>
+                <button
+                  type="button"
+                  class="secondary tory-chat-action-btn tory-chat-success-summon hidden"
+                  id="toryChatSuccessSummonButton"
+                  title="흥행 프로파일을 근거로 분석가 세션을 엽니다"
+                >
+                  흥행요인 분석가 소환
+                </button>
               </div>
+            </div>
+            <div id="toryChatSuccessBanner" class="tory-chat-success-banner hidden" role="status">
+              <span class="tory-chat-success-banner-text">흥행요인 분석가 세션 · 일반 대화와 히스토리가 분리됩니다</span>
+              <button type="button" class="secondary compact-btn" id="toryChatSuccessExitButton" title="일반 대화로 돌아가기">일반 대화로</button>
             </div>
             <div id="toryChatMessages" class="tory-chat-messages" aria-live="polite" aria-label="토리와의 대화"></div>
             <form id="toryChatForm" class="tory-chat-form">
@@ -1725,12 +1950,12 @@
               type="button"
               class="tory-notify-collapse-btn"
               id="toryNotifyCollapseButton"
-              title="알림 패널 접기/펼치기"
+              title="알림 패널 접기"
               aria-expanded="true"
               aria-controls="toryNotifyBody"
             >▾</button>
             <div class="tory-notify-head-main">
-              <span class="tory-notify-head-icon" aria-hidden="true">🔔</span>
+              <span class="tory-notify-head-icon emoji-icon" aria-hidden="true">🔔</span>
               <div class="tory-notify-head-text">
                 <strong>토리 알림</strong>
               </div>
@@ -1793,6 +2018,10 @@
       <div class="context-menu-label" id="genreContextMenuLabel">장르 선택</div>
       <div id="genreContextMenuItems" class="genre-context-menu-items"></div>
     </div>
+    <div id="purposeContextMenu" class="context-menu genre-context-menu hidden" role="menu" aria-label="작품 종류 선택">
+      <div class="context-menu-label">작품 종류 선택</div>
+      <div id="purposeContextMenuItems" class="genre-context-menu-items"></div>
+    </div>
 
     <!-- Tory persona (right-click 도우미 tab) -->
     <div id="toryPersonaMenu" class="context-menu tory-persona-menu hidden" role="menu" aria-label="토리 모드 선택">
@@ -1820,11 +2049,6 @@
       <button type="button" role="menuitem" data-tory-persona="grumbler">
         <strong>투덜이</strong>
         <span>팩폭 · 시니컬한 칭찬 · 단점 직설</span>
-      </button>
-      <div class="context-menu-divider" data-ui-hide-footer></div>
-      <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
-        <strong>이 기능 숨기기</strong>
-        <span>도우미 탭 버튼을 화면에서 감춥니다</span>
       </button>
     </div>
 
@@ -1980,7 +2204,18 @@
     </div>
 
     <div id="toryCheerCard" class="tory-cheer-card hidden" role="status" aria-live="polite">
-      <div class="tory-cheer-avatar" aria-hidden="true">🪶</div>
+      <div class="tory-cheer-avatar" aria-hidden="true">
+        <svg viewBox="0 0 40 40" width="28" height="28" focusable="false">
+          <ellipse cx="19.5" cy="23" rx="9" ry="10.5" fill="#d98a3c" stroke="#9a5a22" stroke-width="0.6"/>
+          <ellipse cx="19.5" cy="13.8" rx="10" ry="5.2" fill="#8b5a2b" stroke="#4a2c12" stroke-width="0.55"/>
+          <path d="M19.5 9 C19.5 6.6 21.2 5 23 4.5" fill="none" stroke="#4a2c12" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="16.2" cy="21.2" r="1.45" fill="#3a2412"/>
+          <circle cx="22.8" cy="21.2" r="1.45" fill="#3a2412"/>
+          <circle cx="16.6" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+          <circle cx="23.2" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+          <path d="M17.2 24.6 Q19.5 26.4 21.8 24.6" fill="none" stroke="#5a3218" stroke-width="0.9" stroke-linecap="round"/>
+        </svg>
+      </div>
       <div class="tory-cheer-body">
         <strong id="toryCheerTitle" class="tory-cheer-title">토리의 응원</strong>
         <p id="toryCheerMessage" class="tory-cheer-message"></p>
@@ -1995,13 +2230,390 @@
           <h2 id="aiResultModalTitle">SuperTORY 결과</h2>
           <button type="button" class="modal-close" data-close-ai-result title="닫기" aria-label="닫기">×</button>
         </div>
-        <p class="hint modal-hint">분석·조언 결과를 넓게 읽습니다. 닫아도 오른쪽 패널 결과는 그대로 남아요.</p>
+        <p class="hint modal-hint">결과를 넓게 읽어요. 닫아도 「결과」옆 히스토리에서 다시 볼 수 있어요.</p>
         <pre id="aiResultModalBody" class="ai-result-modal-body" tabindex="0" aria-label="AI 결과 본문"></pre>
+        <div id="styleBlendOfferModal" class="style-blend-offer hidden" aria-label="스며듦 검사">
+          <p class="style-blend-guide">
+            직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와
+            잘 어우러지는지 별도 검사를 추천합니다.
+          </p>
+          <button type="button" class="secondary compact-btn" id="styleBlendCheckButtonModal">스며듦 검사하기</button>
+          <p id="styleBlendStatusModal" class="hint style-blend-status hidden" aria-live="polite"></p>
+          <pre id="styleBlendResultModal" class="style-blend-result hidden" aria-label="스며듦 검사 결과"></pre>
+        </div>
         <div class="modal-actions ai-result-modal-actions">
           <button type="button" class="secondary" id="aiResultModalCollectButton" title="이 결과를 토리 수집창고에 저장">수집</button>
           <button type="button" class="secondary" id="aiResultModalCopyButton">복사</button>
           <button type="button" class="primary" id="aiResultModalInsertButton">원고에 넣기</button>
           <button type="button" class="secondary" data-close-ai-result>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="aiPromptModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aiPromptModalTitle">
+      <div class="modal-backdrop" data-close-ai-prompt></div>
+      <div class="modal-card ai-result-modal-card ai-prompt-modal-card">
+        <div class="modal-heading">
+          <h2 id="aiPromptModalTitle">요청 내용</h2>
+          <button type="button" class="modal-close" data-close-ai-prompt title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">요청을 넓게 적어요. 아래 버튼으로 바로 토리에게 물어볼 수 있어요.</p>
+        <textarea
+          id="aiPromptModalBody"
+          class="ai-result-modal-body ai-prompt-modal-body"
+          rows="12"
+          aria-label="요청 내용 크게 보기"
+          placeholder="토리에게 보낼 요청을 적어 주세요."
+        ></textarea>
+        <div class="modal-actions ai-result-modal-actions">
+          <button type="button" class="secondary" id="aiPromptModalClearButton" title="요청 내용 비우기">비우기</button>
+          <button type="button" class="secondary" data-close-ai-prompt>닫기</button>
+          <button type="button" class="primary" id="aiPromptModalSubmitButton" title="요청을 반영하고 토리에게 물어봅니다">토리에게 물어보기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="aiToolModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aiToolModalTitle">
+      <div class="modal-backdrop" data-close-ai-tool></div>
+      <div class="modal-card ai-tool-modal-card">
+        <div class="modal-heading">
+          <h2 id="aiToolModalTitle">도우미 설정</h2>
+          <button type="button" class="modal-close" data-close-ai-tool title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint" id="aiToolModalLead"></p>
+        <div id="aiToolModalBody" class="ai-tool-modal-body">
+          <div id="foreshadowPanel" class="foreshadow-panel hidden" aria-label="복선·반전 검수">
+            <div class="foreshadow-panel-head">
+              <strong id="foreshadowPanelTitle">떡밥·복선 탐색기</strong>
+              <span class="hint" id="foreshadowPanelHint">등록 단서가 현재 원고에 잘 녹아 있는지, 미회수 떡밥을 짚습니다.</span>
+            </div>
+            <label class="foreshadow-field" id="foreshadowSelectLabel">검수할 복선
+              <select id="foreshadowSelect" aria-label="등록된 복선 선택">
+                <option value="">복선을 선택하거나 아래에서 추가</option>
+              </select>
+            </label>
+            <div class="foreshadow-edit-grid">
+              <label class="foreshadow-field" id="foreshadowTitleLabel">복선 제목
+                <input id="foreshadowTitle" type="text" maxlength="120" placeholder="예: 집사의 배신" autocomplete="off">
+              </label>
+              <label class="foreshadow-field" id="foreshadowTargetLabel">반전 목표 장
+                <input id="foreshadowTarget" type="text" maxlength="80" placeholder="예: 12장" autocomplete="off">
+              </label>
+            </div>
+            <label class="foreshadow-field" id="foreshadowBuildupLabel">빌드업·단서 (한 줄에 하나)
+              <textarea id="foreshadowBuildup" rows="3" placeholder="2장: 수상한 태도&#10;6장: 밤중에 외출"></textarea>
+            </label>
+            <div class="foreshadow-actions">
+              <button type="button" id="foreshadowSaveButton" class="secondary compact-btn">복선 저장</button>
+              <button type="button" id="foreshadowDeleteButton" class="secondary compact-btn">선택 삭제</button>
+            </div>
+            <p class="hint foreshadow-hint" id="foreshadowModeHint">단서를 심은 장·반전 전 원고를 연 뒤 실행하세요. (반전 장 평가가 아닙니다)</p>
+          </div>
+
+          <div id="continuePanel" class="foreshadow-panel continue-panel hidden" aria-label="이어서 쓰기 옵션">
+            <div class="foreshadow-panel-head">
+              <strong>이어 쓸 페이지</strong>
+              <span class="hint">원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.</span>
+            </div>
+            <fieldset class="continue-length-options continue-source-options" id="continueSourceOptions">
+              <legend class="sr-only">이어 쓸 페이지</legend>
+              <label class="continue-length-option">
+                <input type="radio" name="continueSourceMode" value="current" checked>
+                <span>현재 작성 중인 페이지</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="continueSourceMode" value="other">
+                <span>다른 회차 지정</span>
+              </label>
+            </fieldset>
+            <label class="foreshadow-field continue-other-scene-wrap hidden" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
+              회차 선택
+              <select id="continueOtherSceneSelect" aria-label="이어 쓸 회차 선택">
+                <option value="">회차를 선택하세요</option>
+              </select>
+            </label>
+            <p class="hint foreshadow-hint" id="continueSourceHint">지금 편집 중인 회차 끝에서 이어 씁니다.</p>
+
+            <div class="foreshadow-panel-head continue-length-head">
+              <strong>이어 쓸 분량</strong>
+            </div>
+            <fieldset class="continue-length-options" id="continueLengthOptions">
+              <legend class="sr-only">이어 쓸 분량</legend>
+              <label class="continue-length-option">
+                <input type="radio" name="continueLengthMode" value="short" checked>
+                <span>짧게 (한두 문단)</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="continueLengthMode" value="scene">
+                <span>길게 (한 씬 분량)</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="continueLengthMode" value="proportional">
+                <span>원고 길이 비례</span>
+              </label>
+            </fieldset>
+            <label class="foreshadow-field">방향 힌트 (선택)
+              <textarea id="continueHint" rows="2" maxlength="500" placeholder="예: 대화 위주로 / 긴장감을 높여 줘 / 다음엔 편지가 도착한다"></textarea>
+            </label>
+          </div>
+
+          <div id="rewritePanel" class="foreshadow-panel rewrite-panel hidden" aria-label="문장 다듬기">
+            <div class="foreshadow-panel-head">
+              <strong>다듬을 문장 입력 방식</strong>
+              <span class="hint">본문 선택 또는 직접 쓴 문장을 다듬을 수 있어요. 결과는 원문과 비교한 뒤 적용합니다.</span>
+            </div>
+            <p class="hint rewrite-guide-note" id="rewriteGuideNote">
+              토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
+              대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
+            </p>
+            <fieldset class="continue-length-options rewrite-source-options" id="rewriteSourceOptions">
+              <legend class="sr-only">문장 입력 방식</legend>
+              <label class="continue-length-option">
+                <input type="radio" name="rewriteSourceMode" value="selection" checked>
+                <span>본문에서 선택</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="rewriteSourceMode" value="direct">
+                <span>직접 쓰기</span>
+              </label>
+            </fieldset>
+            <p class="hint foreshadow-hint" id="rewriteSelectionHint">
+              원고에서 다듬을 문장·문단을 드래그로 선택한 뒤 실행하세요. 우클릭 「문장 다듬기」도 동일합니다.
+            </p>
+            <label class="foreshadow-field rewrite-direct-wrap hidden" id="rewriteDirectWrap" for="rewriteDirectText">
+              다듬을 문장
+              <textarea
+                id="rewriteDirectText"
+                rows="5"
+                maxlength="8000"
+                placeholder="다듬고 싶은 문장·문단을 여기에 직접 입력하거나 붙여 넣으세요."
+              ></textarea>
+            </label>
+            <p class="hint foreshadow-hint hidden" id="rewriteDirectHint">
+              입력한 문장만 다듬습니다. 적용 시 선택 구간이 없으면 커서 위치에 넣거나 복사합니다.
+            </p>
+          </div>
+
+          <div id="brainstormPanel" class="foreshadow-panel brainstorm-panel hidden" aria-label="브레인스토밍 옵션">
+            <div class="foreshadow-panel-head">
+              <strong>브레인스토밍</strong>
+              <span class="hint">현재 회차를 바탕으로 작품 확장 아이디어를 넓게 탐색합니다.</span>
+            </div>
+            <label class="foreshadow-field">주제 (선택)
+              <textarea id="brainstormTopic" rows="2" maxlength="500" placeholder="비워 두면 자유 확장 · 예: 새로운 조연 인물 / 세계관 확장 / 관계 구도 변화"></textarea>
+            </label>
+            <p class="hint foreshadow-hint">주제를 적으면 그 방향으로 집중하고, 비우면 플롯·인물·세계관·주제 등 여러 층위를 자유롭게 제안합니다.</p>
+          </div>
+
+          <div id="worldDescPanel" class="foreshadow-panel world-desc-panel hidden" aria-label="세계관 묘사">
+            <div class="foreshadow-panel-head">
+              <strong>세계관 묘사</strong>
+              <span class="hint">묘사하려는 대상을 적으면, 이 작품 문체·설정에 맞는 문장을 제안합니다.</span>
+            </div>
+            <label class="foreshadow-field">묘사 대상 (필수)
+              <textarea id="worldDescSubject" rows="2" maxlength="500" placeholder="예: 왕궁 내부 묘사 / 마법 체계 설명 / 시장 골목의 분위기"></textarea>
+            </label>
+            <p class="hint foreshadow-hint">무엇을 그릴지 구체적으로 적어 주세요. 현재 열린 회차는 문체 참고용으로 함께 보냅니다.</p>
+          </div>
+
+          <div id="subsynopsisPanel" class="foreshadow-panel subsynopsis-panel hidden" aria-label="투고·공모전용 시놉시스">
+            <div class="foreshadow-panel-head">
+              <strong>투고·공모전용 시놉시스</strong>
+              <span class="hint">줄거리 개요와 글자수 안내를 만들어 드려요.</span>
+            </div>
+            <p class="hint foreshadow-hint">
+              작품의 개요·설정 정보를 바탕으로 투고·공모전에 쓸 시놉시스 초안을 작성합니다.
+              실행하면 줄거리 개요와 글자수 안내가 이어집니다. 추가 요청 칸은 쓰지 않아도 됩니다.
+            </p>
+          </div>
+        </div>
+        <div id="aiToolModalExtraPromptWrap" class="ai-tool-modal-extra hidden">
+          <label class="foreshadow-field" for="aiToolModalExtraPrompt">추가 요청 (선택)
+            <textarea id="aiToolModalExtraPrompt" rows="3" maxlength="2000" placeholder="예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘."></textarea>
+          </label>
+        </div>
+        <div class="modal-actions ai-tool-modal-actions">
+          <button type="button" class="secondary" data-close-ai-tool>닫기</button>
+          <button type="button" class="primary" id="aiToolModalSubmitButton">토리에게 물어보기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="successPatternModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="successPatternModalTitle">
+      <div class="modal-backdrop" data-close-sp-modal></div>
+      <div class="modal-card success-pattern-modal-card">
+        <div class="modal-heading">
+          <h2 id="successPatternModalTitle">흥행 공식 분석</h2>
+          <button type="button" class="modal-close" data-close-sp-modal title="닫기" aria-label="닫기">×</button>
+        </div>
+        <div id="successPatternWizard" class="success-pattern-wizard" aria-label="흥행 공식 분석 단계">
+          <div class="sp-wizard-head">
+            <strong id="spWizardTitle">단계 안내</strong>
+            <span class="hint" id="spWizardStepLabel">1 / 6</span>
+          </div>
+          <div class="sp-step-dots" id="spStepDots" aria-hidden="true"></div>
+
+          <div class="sp-step" data-sp-step="1">
+            <p class="sp-lead">
+              인기 있었던 완결작의 구조를 분석해서, 지금 쓰고 있는 신작 피드백에
+              참고 자료로 활용하는 기능이에요.
+            </p>
+            <p class="hint">
+              전체를 다 올리지 않아도 돼요. 앞부분·중간부분·결말부분 중 원하는
+              구간만 골라서 올리시면, 그 구간을 기준으로 구조를 분석해드려요.
+            </p>
+            <p class="hint">
+              업로드 가능한 분량은 아래 두 기준을 <strong>모두</strong> 따라요.
+            </p>
+            <ul class="sp-budget-list">
+              <li>화수 기준: 최대 <strong>50화</strong> (추천 30화)</li>
+              <li>글자수 기준: 최대 <strong>300,000자</strong> (추천 180,000자)</li>
+            </ul>
+            <p class="hint">회차 분량이 짧으면 화수를, 회차 분량이 길면 글자수를 더 눈여겨봐 주세요.</p>
+          </div>
+
+          <div class="sp-step hidden" data-sp-step="2">
+            <label class="foreshadow-field">작품명
+              <input id="spWorkTitle" type="text" maxlength="200" placeholder="분석할 완결작 제목" autocomplete="off">
+            </label>
+          </div>
+
+          <div class="sp-step hidden" data-sp-step="3">
+            <p class="hint">작품 규모를 어떤 기준으로 적을지 골라 주세요. (하나만 선택)</p>
+            <div class="sp-size-options" role="group" aria-label="규모 기준">
+              <label class="sp-check sp-size-check">
+                <input type="checkbox" id="spSizeByEpisode" data-sp-size-unit="episode" checked>
+                회차 수 기준
+              </label>
+              <div id="spSizeEpisodeFields" class="sp-size-fields">
+                <label class="foreshadow-field">총 회차 수
+                  <input id="spTotalChapters" type="number" min="1" max="9999" step="1" placeholder="예: 600" inputmode="numeric">
+                </label>
+              </div>
+
+              <label class="sp-check sp-size-check">
+                <input type="checkbox" id="spSizeByVolume" data-sp-size-unit="volume">
+                권 수 기준
+              </label>
+              <div id="spSizeVolumeFields" class="sp-size-fields hidden">
+                <label class="foreshadow-field">총 권 수
+                  <input id="spTotalVolumes" type="number" min="1" max="999" step="1" placeholder="예: 20" inputmode="numeric">
+                </label>
+                <label class="foreshadow-field">권당 평균 회차 (환산)
+                  <input id="spEpisodesPerVolume" type="number" min="1" max="200" step="1" value="10" placeholder="예: 10" inputmode="numeric">
+                </label>
+                <p class="hint" id="spSizeVolumeHint">구간 추천을 위해 회차로 환산해요. 예: 20권 × 10화 = 200화</p>
+              </div>
+            </div>
+            <p class="hint">다음 단계에서 구간 범위를 자동 추천할 때 사용해요.</p>
+          </div>
+
+          <div class="sp-step hidden" data-sp-step="4">
+            <p class="hint">분석할 구간을 고르세요. (복수 선택 가능)</p>
+            <div class="sp-section-checks" role="group" aria-label="구간 선택">
+              <label class="sp-check"><input type="checkbox" data-sp-section="front" checked> 앞부분</label>
+              <label class="sp-check"><input type="checkbox" data-sp-section="middle"> 중간부분</label>
+              <label class="sp-check"><input type="checkbox" data-sp-section="ending" checked> 결말부분</label>
+            </div>
+          </div>
+
+          <div class="sp-step hidden" data-sp-step="5">
+            <div id="spRangeRows" class="sp-range-rows"></div>
+            <div class="sp-budget-bar-wrap" aria-live="polite">
+              <div class="sp-budget-summary" id="spEpisodeBudgetSummary">합계: 0화 / 최대 50화</div>
+              <div class="sp-progress-track"><div class="sp-progress-fill" id="spEpisodeBudgetFill"></div></div>
+              <p class="sp-budget-msg" id="spEpisodeBudgetMsg"></p>
+            </div>
+          </div>
+
+          <div class="sp-step hidden" data-sp-step="6">
+            <div id="spUploadRows" class="sp-upload-rows"></div>
+            <div class="sp-budget-bar-wrap" aria-live="polite">
+              <div class="sp-budget-summary" id="spCharBudgetSummary">총 글자: 0 / 최대 300,000</div>
+              <div class="sp-progress-track"><div class="sp-progress-fill" id="spCharBudgetFill"></div></div>
+              <p class="sp-budget-msg" id="spCharBudgetMsg"></p>
+            </div>
+            <p class="hint" id="spAnalyzeStatus"></p>
+          </div>
+
+          <div class="sp-wizard-nav">
+            <button type="button" class="secondary compact-btn" id="spPrevButton">이전</button>
+            <button type="button" class="primary compact-btn" id="spNextButton">다음</button>
+            <button type="button" class="primary compact-btn hidden" id="spAnalyzeButton">분석 시작</button>
+          </div>
+          <input id="spFileInput" type="file" accept=".txt,.md,.docx,.hwpx,.odt,.rtf,.html,.htm,.epub,.csv" multiple hidden>
+        </div>
+        <div class="modal-actions success-pattern-modal-actions">
+          <button type="button" class="secondary" data-close-sp-modal>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="aiResultHistoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aiResultHistoryTitle">
+      <div class="modal-backdrop" data-close-ai-result-history></div>
+      <div class="modal-card tory-chat-history-modal-card ai-result-history-modal-card">
+        <div class="modal-heading">
+          <h2 id="aiResultHistoryTitle">결과 히스토리</h2>
+          <button type="button" class="modal-close" data-close-ai-result-history title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">이 작품에서 받은 SuperTORY 결과를 모아 둡니다. 항목을 누르면 다시 읽을 수 있어요.</p>
+        <div id="aiResultHistoryList" class="tory-chat-history-list" aria-label="결과 히스토리 목록"></div>
+        <div id="aiResultHistoryDetail" class="tory-chat-history-detail hidden" aria-label="결과 내용">
+          <div class="tory-chat-history-detail-head">
+            <button type="button" class="secondary compact-btn" id="aiResultHistoryBackButton">← 목록</button>
+            <strong id="aiResultHistoryDetailTitle">결과</strong>
+          </div>
+          <pre id="aiResultHistoryDetailBody" class="ai-result-modal-body ai-result-history-detail-body" tabindex="0" aria-label="보관된 결과 본문"></pre>
+          <div class="modal-actions tory-chat-history-detail-actions">
+            <button type="button" class="secondary" id="aiResultHistoryDeleteButton">이 기록 삭제</button>
+            <button type="button" class="secondary" id="aiResultHistoryCopyButton">복사</button>
+            <button type="button" class="primary" id="aiResultHistoryRestoreButton">다시 열기</button>
+          </div>
+        </div>
+        <div class="modal-actions" id="aiResultHistoryListActions">
+          <button type="button" class="secondary" id="aiResultHistoryClearButton">전체 비우기</button>
+          <button type="button" class="secondary" data-close-ai-result-history>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rewriteCompareModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rewriteCompareModalTitle">
+      <div class="modal-backdrop" data-close-rewrite-compare></div>
+      <div class="modal-card rewrite-compare-modal-card">
+        <div class="modal-heading">
+          <h2 id="rewriteCompareModalTitle">문장 다듬기 비교</h2>
+          <button type="button" class="modal-close" data-close-rewrite-compare title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint rewrite-guide-note" id="rewriteCompareGuide">
+          토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
+          대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
+        </p>
+        <p class="hint modal-hint" id="rewriteCompareHint">원문과 결과를 비교한 뒤 반영 여부를 고르세요.</p>
+        <div id="rewriteCompareReason" class="rewrite-compare-reason hidden" aria-live="polite"></div>
+        <div class="rewrite-compare-cols" aria-label="원문과 다듬은 결과 비교">
+          <section class="rewrite-compare-pane rewrite-compare-original">
+            <header>원문</header>
+            <pre id="rewriteCompareOriginal" class="rewrite-compare-text"></pre>
+          </section>
+          <section class="rewrite-compare-pane rewrite-compare-result">
+            <header id="rewriteCompareResultHeader">다듬은 결과</header>
+            <div id="rewriteCompareAltList" class="rewrite-alt-list hidden" aria-label="대안 표현 목록"></div>
+            <textarea id="rewriteCompareResult" class="rewrite-compare-text" rows="8" aria-label="다듬은 결과 (수정 가능)"></textarea>
+          </section>
+        </div>
+        <div id="rewriteStyleBlendOffer" class="style-blend-offer" aria-label="스며듦 검사">
+          <p class="style-blend-guide">
+            직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와
+            잘 어우러지는지 별도 검사를 추천합니다.
+          </p>
+          <button type="button" class="secondary compact-btn" id="rewriteStyleBlendCheckButton">스며듦 검사하기</button>
+          <p id="rewriteStyleBlendStatus" class="hint style-blend-status hidden" aria-live="polite"></p>
+          <pre id="rewriteStyleBlendResult" class="style-blend-result hidden" aria-label="스며듦 검사 결과"></pre>
+        </div>
+        <div class="modal-actions rewrite-compare-actions">
+          <button type="button" class="primary" id="rewriteCompareApplyButton">자동 문장 대체</button>
+          <button type="button" class="secondary" id="rewriteCompareCopyButton">복사</button>
+          <button type="button" class="secondary" id="rewriteCompareKeepButton">그대로 유지</button>
         </div>
       </div>
     </div>
@@ -2019,29 +2631,30 @@
         </p>
         <p id="exportProjectLabel" class="export-project-label">작품을 선택해 주세요.</p>
 
-        <section class="export-manage-box" aria-label="내보내기 관리">
+        <section class="export-manage-box" aria-label="내보내기 경로">
           <div class="export-manage-head">
-            <strong>내보내기 관리</strong>
-            <span class="hint">저장 위치를 지정할 수 있어요</span>
+            <strong>저장 경로</strong>
+            <span class="hint">비우면 다운로드 폴더</span>
           </div>
-          <label class="export-path-label">저장 폴더
+          <label class="export-path-label">내보내기 폴더
             <div class="export-path-row">
               <input
                 id="exportDirInput"
                 type="text"
                 spellcheck="false"
-                placeholder="예: C:\Users\이름\Documents\SuperTORY 내보내기"
+                placeholder="비우면 다운로드 폴더에 저장됩니다"
                 aria-label="내보내기 저장 폴더 경로"
               >
+              <button type="button" class="secondary compact-btn" id="exportDirBrowse" title="폴더 찾아보기">찾아보기</button>
               <button type="button" class="secondary compact-btn" id="exportDirSave" title="이 경로로 저장">적용</button>
-              <button type="button" class="secondary compact-btn" id="exportDirDefault" title="기본 폴더로">기본</button>
+              <button type="button" class="secondary compact-btn" id="exportDirDefault" title="다운로드 폴더로">기본</button>
               <button type="button" class="secondary compact-btn" id="exportDirOpen" title="탐색기에서 폴더 열기">열기</button>
             </div>
           </label>
           <div class="export-manage-options">
             <label class="export-manage-check">
               <input type="checkbox" id="exportSaveToFolder" checked>
-              <span>지정 폴더에 바로 저장</span>
+              <span>이 PC 폴더에 바로 저장</span>
             </label>
             <label class="export-manage-check">
               <input type="checkbox" id="exportRevealAfter" checked>
@@ -2049,7 +2662,7 @@
             </label>
           </div>
           <p class="hint export-manage-hint" id="exportDirHint">
-            체크하면 브라우저 다운로드 대신 이 PC 폴더에 파일이 생깁니다. (로컬 SuperTORY)
+            경로를 지정하지 않으면 다운로드 폴더에 저장됩니다. (로컬 SuperTORY)
           </p>
         </section>
 
@@ -2091,7 +2704,7 @@
           <h2 id="newProjectModalTitle">새 글쓰기</h2>
           <button type="button" class="modal-close" data-close-new-project title="닫기">×</button>
         </div>
-        <p class="hint modal-hint">작품 제목과 종류를 정하면 바로 쓸 수 있어요. 종류는 나중에 바꿀 수 있습니다.</p>
+        <p class="hint modal-hint">작품 제목과 종류·장르를 정하면 바로 쓸 수 있어요. 종류와 장르는 나중에 바꿀 수 있습니다.</p>
         <form id="newProjectForm" class="import-form">
           <label>작품 제목
             <input id="newProjectTitle" type="text" maxlength="120" placeholder="예: 별이 지는 밤" required autocomplete="off">
@@ -2116,6 +2729,22 @@
             </select>
           </label>
           <p class="hint purpose-hint">작품 성격에 맞게 골라 두면 나중에 찾기 쉬워요.</p>
+          <div class="modal-genre-block" id="newProjectGenreBlock">
+            <div class="modal-genre-notice" role="note">
+              <strong>장르 선택이 필요해요</strong>
+              <span>토리가 장르·분위기를 학습해 이어서 쓰기·분석·조언을 맞춰 줍니다. 비워 두면 토리 도움이 덜 정확해질 수 있어요.</span>
+            </div>
+            <label id="newProjectMainGenreWrap"><span class="modal-genre-label" id="newProjectMainGenreLabel">메인 장르</span>
+              <select id="newProjectMainGenre" required>
+                <option value="">장르를 선택해 주세요</option>
+              </select>
+            </label>
+            <label id="newProjectSubGenreWrap"><span class="modal-genre-label" id="newProjectSubGenreLabel">서브 장르</span>
+              <select id="newProjectSubGenre" required>
+                <option value="">세부 장르를 선택해 주세요</option>
+              </select>
+            </label>
+          </div>
           <div class="modal-actions">
             <button type="button" class="secondary" data-close-new-project>취소</button>
             <button type="submit" class="primary" id="newProjectSubmitButton">만들기</button>
@@ -2170,6 +2799,23 @@
           </label>
           <p class="hint purpose-hint">작품 성격에 맞게 골라 두면 나중에 찾기 쉬워요.</p>
 
+          <div class="modal-genre-block" id="importGenreBlock">
+            <div class="modal-genre-notice" role="note">
+              <strong>장르 선택이 필요해요</strong>
+              <span>토리가 장르·분위기를 학습해 이어서 쓰기·분석·조언을 맞춰 줍니다. 새 작품으로 만들 때 특히 중요해요.</span>
+            </div>
+            <label id="importMainGenreWrap"><span class="modal-genre-label" id="importMainGenreLabel">메인 장르</span>
+              <select id="importMainGenre" required>
+                <option value="">장르를 선택해 주세요</option>
+              </select>
+            </label>
+            <label id="importSubGenreWrap"><span class="modal-genre-label" id="importSubGenreLabel">서브 장르</span>
+              <select id="importSubGenre" required>
+                <option value="">세부 장르를 선택해 주세요</option>
+              </select>
+            </label>
+          </div>
+
           <label>어디에 넣을까요?
             <select id="importDestination">
               <option value="new_project">새 작품으로 만들기</option>
@@ -2212,16 +2858,16 @@
 
           <label>글을 어떻게 나눌까요?
             <select id="importSplit">
-              <option value="auto">자동 (목차 → 제목 → 통째로)</option>
-              <option value="toc">목차(차례)대로 챕터 만들기</option>
+              <option value="auto">자동 (목차 → 권/부/회차)</option>
+              <option value="toc">목차(차례)대로 권·부·회차 만들기</option>
               <option value="headings">제목(#, 제1장 등)마다 챕터로 나누기</option>
               <option value="blank_lines">빈 줄로 나뉜 단락마다 씬으로 나누기</option>
               <option value="none">통째로 한 씬</option>
             </select>
           </label>
           <p class="hint purpose-hint">
-            목차 모드는 글 앞의 ‘목차/차례’ 항목을 읽어, 본문에서 같은 제목을 찾아 챕터로 만듭니다.
-            들여쓴 하위 항목은 그 챕터 안의 씬이 됩니다.
+            목차·자동 모드는 맨 위 「목차」권과 1권·부·회차 계층으로 넣습니다.
+            부가 없으면 회차는 권 바로 아래 원고로 보이고, 목차가 없으면 휴리스틱(또는 AI)으로 구성합니다.
           </p>
 
           <div class="modal-actions">
@@ -2261,43 +2907,42 @@
       <div class="context-menu-label" id="binderContextMenuLabel">원고</div>
       <button type="button" role="menuitem" data-binder-action="add-child">
         <strong>하위 원고 만들기</strong>
-        <span>이 원고 아래에 새 하위 원고를 만듭니다</span>
+        <span>이 원고 아래에 새 하위 원고를 만들어요</span>
+      </button>
+      <button type="button" role="menuitem" data-binder-action="add-child-folder">
+        <strong>하위 폴더 만들기</strong>
+        <span>이 원고 아래에 새 폴더를 만들어요</span>
       </button>
       <button type="button" role="menuitem" data-binder-action="promote">
         <strong>상위 밖으로 빼기</strong>
-        <span>하위 관계를 끊고 폴더 최상위로 올립니다</span>
-      </button>
-      <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-binder-action="create-part">
-        <strong>상위 폴더로 묶기</strong>
-        <span>이 원고의 폴더를 새 상위 폴더 상자로 묶습니다</span>
-      </button>
-      <button type="button" role="menuitem" data-binder-action="move-chapter-to-part">
-        <strong>상위 폴더로 옮기기</strong>
-        <span>이 원고의 폴더를 다른 상위 폴더에 넣거나 미분류로 뺍니다</span>
+        <span>하위 관계를 끊고 폴더 최상위로 올려요</span>
       </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-binder-action="bookmark">
         <strong>북마크하기</strong>
-        <span>상단 색 북마크에 고정합니다</span>
+        <span>상단 색 북마크에 고정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-binder-action="pin-top" id="binderPinTopMenuItem">
+        <strong>상단 고정</strong>
+        <span>목차 맨 위에 고정해요</span>
       </button>
       <button type="button" role="menuitem" data-binder-action="duplicate">
         <strong>복제하기</strong>
-        <span>바로 아래에 같은 원고 사본을 만듭니다</span>
+        <span>바로 아래에 같은 원고 사본을 만들어요</span>
       </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-binder-action="export">
         <strong>이 회차 내보내기</strong>
-        <span>Word·한글 등 파일로 내려받습니다</span>
+        <span>Word·한글 등 파일로 내려받아요</span>
       </button>
       <button type="button" role="menuitem" data-binder-action="tory-analyze">
-        <strong>분석하기</strong>
-        <span>오른쪽 패널에서 이 원고를 집중 분석</span>
+        <strong>피드백 요청</strong>
+        <span>원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
       </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-binder-action="trash" class="binder-action-danger">
         <strong>버리기</strong>
-        <span>휴지통으로 옮깁니다 (하위 원고 포함, 나중에 복원 가능)</span>
+        <span>휴지통으로 옮겨요 (하위 원고 포함, 나중에 복원 가능)</span>
       </button>
     </div>
 
@@ -2317,11 +2962,11 @@
         <button type="button" role="menuitem" data-outline-font="16">16</button>
         <button type="button" role="menuitem" data-outline-font="18">18</button>
       </div>
-      <p class="hint outline-title-font-tip">폴더·원고 제목 글자 크기를 바꿉니다.</p>
+      <p class="hint outline-title-font-tip">폴더·원고 제목 글자 크기를 바꿔요.</p>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="outline-title-font-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 표시 숨기기</strong>
-        <span>목차 개수·관련 표시를 화면에서 감춥니다</span>
+        <span>목차 개수·관련 표시를 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2329,41 +2974,25 @@
       <div class="context-menu-label" id="chapterContextMenuLabel">폴더</div>
       <button type="button" role="menuitem" data-chapter-action="add-scene">
         <strong>회차 추가</strong>
-        <span>이 폴더 아래에 새 회차를 만듭니다</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="rename">
-        <strong>이름 변경</strong>
-        <span>폴더(챕터) 제목을 바꿉니다</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="create-part">
-        <strong>상위 폴더로 묶기</strong>
-        <span>이 폴더를 새 상위 폴더 상자로 묶습니다</span>
-      </button>
-      <button type="button" role="menuitem" data-chapter-action="move-to-part">
-        <strong>상위 폴더로 옮기기</strong>
-        <span>다른 상위 폴더에 넣거나 미분류로 뺍니다</span>
+        <span>이 폴더 아래에 새 회차를 만들어요</span>
       </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-chapter-action="trash" class="binder-action-danger">
         <strong>폴더 버리기</strong>
-        <span>안의 원고까지 휴지통으로 옮깁니다</span>
+        <span>안의 원고까지 휴지통으로 옮겨요</span>
       </button>
     </div>
 
-    <div id="partContextMenu" class="context-menu hidden" role="menu" aria-label="상위 폴더 메뉴">
-      <div class="context-menu-label" id="partContextMenuLabel">상위 폴더</div>
+    <div id="partContextMenu" class="context-menu hidden" role="menu" aria-label="폴더 메뉴">
+      <div class="context-menu-label" id="partContextMenuLabel">폴더</div>
       <button type="button" role="menuitem" data-part-action="add-chapter">
         <strong>하위 폴더 추가</strong>
-        <span>이 상자 안에 새 하위 폴더를 만듭니다</span>
-      </button>
-      <button type="button" role="menuitem" data-part-action="rename">
-        <strong>이름 변경</strong>
-        <span>상위 폴더 제목을 바꿉니다</span>
+        <span>이 상자 안에 새 하위 폴더를 만들어요</span>
       </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-part-action="trash" class="binder-action-danger">
         <strong>폴더 버리기</strong>
-        <span>안의 하위 폴더·원고까지 휴지통으로 옮깁니다</span>
+        <span>안의 하위 폴더·원고까지 휴지통으로 옮겨요</span>
       </button>
     </div>
 
@@ -2371,16 +3000,29 @@
       <div class="context-menu-label" id="settingsContextMenuLabel">설정</div>
       <button type="button" role="menuitem" data-settings-action="bookmark">
         <strong>북마크하기</strong>
-        <span>상단 색 북마크에 고정합니다</span>
+        <span>상단 색 북마크에 고정해요</span>
       </button>
       <button type="button" role="menuitem" data-settings-action="open-main">
         <strong>메인에서 보기</strong>
-        <span>가운데 화면에서 크게 엽니다</span>
+        <span>가운데 화면에서 크게 열어요</span>
+      </button>
+      <div class="context-menu-divider" data-settings-export-only></div>
+      <button type="button" role="menuitem" data-settings-action="export" data-export-format="docx" data-settings-export-only>
+        <strong>문서로 내보내기 · Word</strong>
+        <span>이 설정 내용을 .docx로 내려받아요</span>
+      </button>
+      <button type="button" role="menuitem" data-settings-action="export" data-export-format="hwpx" data-settings-export-only>
+        <strong>문서로 내보내기 · 한글</strong>
+        <span>이 설정 내용을 .hwpx로 내려받아요</span>
+      </button>
+      <button type="button" role="menuitem" data-settings-action="export" data-export-format="txt" data-settings-export-only>
+        <strong>문서로 내보내기 · 텍스트</strong>
+        <span>이 설정 내용을 .txt로 내려받아요</span>
       </button>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>설정집 관련 버튼을 화면에서 감춥니다</span>
+        <span>설정집 관련 버튼을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2388,16 +3030,16 @@
       <div class="context-menu-label" id="bookmarkContextMenuLabel">북마크</div>
       <button type="button" role="menuitem" data-bookmark-action="open">
         <strong>열기</strong>
-        <span>북마크한 항목으로 이동합니다</span>
+        <span>북마크한 항목으로 이동해요</span>
       </button>
       <button type="button" role="menuitem" data-bookmark-action="remove" class="binder-action-danger">
         <strong>북마크 해제</strong>
-        <span>상단 목록에서 제거합니다</span>
+        <span>상단 목록에서 제거해요</span>
       </button>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>이 북마크 칩을 화면에서 감춥니다</span>
+        <span>이 북마크 칩을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2418,7 +3060,7 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>글자색·형광펜 버튼을 화면에서 감춥니다</span>
+        <span>글자색·형광펜 버튼을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2433,7 +3075,7 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>목록 버튼을 화면에서 감춥니다</span>
+        <span>목록 버튼을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2443,7 +3085,7 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>글꼴·크기 선택 항목을 화면에서 감춥니다</span>
+        <span>글꼴·크기 선택 항목을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2454,7 +3096,7 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>목표 입력 영역을 화면에서 감춥니다</span>
+        <span>목표 입력 영역을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2468,11 +3110,11 @@
         <button type="button" class="idea-color-swatch color-orange" data-idea-color-pick="orange" title="주황" aria-label="주황"></button>
         <button type="button" class="idea-color-swatch color-purple" data-idea-color-pick="purple" title="보라" aria-label="보라"></button>
       </div>
-      <p class="hint idea-color-menu-hint">메모를 우클릭해 색을 바꿉니다.</p>
+      <p class="hint idea-color-menu-hint">메모를 우클릭해 색을 바꿔요.</p>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>이 메모 관련 표시를 감춥니다</span>
+        <span>이 메모 관련 표시를 감춰요</span>
       </button>
     </div>
 
@@ -2491,7 +3133,7 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>진행 게이지를 화면에서 감춥니다</span>
+        <span>진행 게이지를 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -2501,28 +3143,38 @@
       <div class="context-menu-label" data-ctx-full-only>이 회차</div>
       <button type="button" role="menuitem" data-context-action="bookmark" id="bookmarkSceneMenuItem" data-ctx-full-only>
         <strong id="bookmarkSceneMenuTitle">북마크하기</strong>
-        <span id="bookmarkSceneMenuHint">상단 색 북마크에 이 회차를 고정합니다</span>
+        <span id="bookmarkSceneMenuHint">상단 색 북마크에 이 회차를 고정해요</span>
       </button>
       <button type="button" role="menuitem" data-context-action="export-scene" id="exportSceneMenuItem" data-ctx-full-only>
         <strong>이 회차만 내보내기</strong>
-        <span>Word·한글 등 파일로 내려받습니다</span>
+        <span>Word·한글 등 파일로 내려받아요</span>
       </button>
       <div class="context-menu-divider" data-ctx-full-only></div>
       <div class="context-menu-label" data-ctx-full-only>본문 편집</div>
       <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-ok>
-        📖 사전 찾기
+        사전 찾기
       </button>
       <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-ok>
-        💬 토리에게 물어보기
+        토리에게 물어보기
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-context-action="rewrite-sentence"
+        id="rewriteSentenceMenuItem"
+        data-ctx-selection-ok
+        title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다."
+      >
+        문장 다듬기
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
-        🖼 이미지 넣기
+        이미지 넣기
       </button>
       <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-ok>
-        🎣 떡밥 던지기
+        떡밥 던지기
       </button>
       <button type="button" role="menuitem" data-context-action="add-footnote" id="addFootnoteMenuItem" data-ctx-selection-ok>
-        ※ 각주 달기
+        각주 달기
       </button>
       <button type="button" role="menuitem" data-context-action="edit-footnote" id="editFootnoteMenuItem" class="hidden" data-ctx-selection-ok>
         ✎ 각주 수정
@@ -2591,7 +3243,7 @@
       <div class="context-menu-divider" id="uiFeatureContextDivider" hidden></div>
       <button type="button" role="menuitem" data-ui-feature-action="hide" id="uiFeatureHideMenuItem">
         <strong>이 기능 숨기기</strong>
-        <span>화면에서 감춥니다 · 관리자 → 숨긴 기능에서 다시 켤 수 있어요</span>
+        <span>화면에서 감춰요 · 관리자 → 숨긴 기능에서 다시 켤 수 있어요</span>
       </button>
     </div>
 
@@ -2603,43 +3255,83 @@
           <button type="button" class="modal-close" data-close-admin title="닫기">×</button>
         </div>
         <p class="hint modal-hint">
-          숨긴 기능 복원 · 도움말 · 계정 안내 · 휴지통을 한곳에서 관리합니다.
+          정보·도움말 · 사용자 관리 · 숨긴 기능 · 휴지통을 한곳에서 관리합니다.
         </p>
 
         <div class="admin-tabs" role="tablist" aria-label="관리자 구역">
-          <button type="button" class="admin-tab is-active" role="tab" data-admin-tab="hidden" aria-selected="true">숨긴 기능</button>
-          <button type="button" class="admin-tab" role="tab" data-admin-tab="info" aria-selected="false">정보 · 도움말</button>
+          <button type="button" class="admin-tab is-active" role="tab" data-admin-tab="info" aria-selected="true">정보 · 도움말</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="account" aria-selected="false">사용자 관리</button>
+          <button type="button" class="admin-tab" role="tab" data-admin-tab="projects" aria-selected="false">작품 관리</button>
+          <button type="button" class="admin-tab" role="tab" data-admin-tab="hidden" aria-selected="false">숨긴 기능</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="trash" aria-selected="false">휴지통</button>
         </div>
 
-        <!-- 숨긴 기능 -->
-        <section class="admin-panel is-active" data-admin-panel="hidden" aria-label="숨긴 기능">
-          <div class="admin-section-box">
-            <div class="admin-trash-heading">
-              <div>
-                <h3 class="admin-section-title">숨긴 기능</h3>
-                <p class="hint">화면에서 감춘 버튼·표시 항목입니다. <strong>활성화</strong>하면 다시 나타납니다. 숨기려면 앱 안 버튼을 <strong>우클릭</strong>하세요.</p>
-              </div>
-              <div class="admin-trash-actions">
-                <button type="button" id="featureHideResetButton" class="secondary compact-btn">모두 다시 표시</button>
-              </div>
-            </div>
-            <p class="hint" id="featureHideCountHint">숨긴 기능 없음</p>
-            <div id="hiddenFeaturesList" class="hidden-features-list" aria-live="polite">
-              <p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>
-            </div>
-          </div>
-        </section>
-
         <!-- 정보 · 도움말 -->
-        <section class="admin-panel" data-admin-panel="info" aria-label="정보 도움말" hidden>
+        <section class="admin-panel is-active" data-admin-panel="info" aria-label="정보 · 도움말">
           <div class="admin-section-box admin-info-box">
             <div class="admin-trash-heading">
               <div>
                 <h3 class="admin-section-title">정보</h3>
                 <p class="hint">앱 버전과 사용 안내, 문의 창구입니다.</p>
               </div>
+            </div>
+            <div class="admin-tory-intro" aria-label="토리 소개">
+              <h4 class="admin-subsection-title admin-tory-intro-title">
+                <span class="admin-tory-mascot" aria-hidden="true">
+                  <svg class="admin-tory-mascot-svg" viewBox="0 0 56 56" width="28" height="28" focusable="false">
+                    <defs>
+                      <linearGradient id="adminToryLogoGlow" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#fff8ef"/>
+                        <stop offset="100%" stop-color="#f0e0cc"/>
+                      </linearGradient>
+                      <linearGradient id="adminToryAcornBody" x1="30%" y1="10%" x2="70%" y2="100%">
+                        <stop offset="0%" stop-color="#f0b56a"/>
+                        <stop offset="55%" stop-color="#d98a3c"/>
+                        <stop offset="100%" stop-color="#b86a28"/>
+                      </linearGradient>
+                      <linearGradient id="adminToryAcornCap" x1="0%" y1="0%" x2="0%" y2="100%">
+                        <stop offset="0%" stop-color="#8b5a2b"/>
+                        <stop offset="100%" stop-color="#5c3a18"/>
+                      </linearGradient>
+                      <linearGradient id="adminToryPenBody" x1="0%" y1="0%" x2="100%" y2="100%">
+                        <stop offset="0%" stop-color="#6e9fd4"/>
+                        <stop offset="100%" stop-color="#3d6fa8"/>
+                      </linearGradient>
+                    </defs>
+                    <circle cx="28" cy="28" r="26" fill="url(#adminToryLogoGlow)" stroke="#e4d5c2" stroke-width="1.5"/>
+                    <ellipse cx="27" cy="32" rx="12.5" ry="14.5" fill="url(#adminToryAcornBody)" stroke="#9a5a22" stroke-width="0.8"/>
+                    <ellipse cx="23" cy="28" rx="3.2" ry="4.5" fill="#f7c98a" opacity="0.35"/>
+                    <ellipse cx="27" cy="19.5" rx="14" ry="7.2" fill="url(#adminToryAcornCap)" stroke="#4a2c12" stroke-width="0.7"/>
+                    <path d="M14.5 18.5 Q27 24 39.5 18.5" fill="none" stroke="#3d2410" stroke-width="0.6" opacity="0.45"/>
+                    <path d="M27 12.8 C27 9.5 29.5 7.2 32 6.5" fill="none" stroke="#4a2c12" stroke-width="2" stroke-linecap="round"/>
+                    <ellipse cx="32.3" cy="6.2" rx="2.2" ry="1.5" fill="#3d2410" transform="rotate(-25 32.3 6.2)"/>
+                    <circle cx="22.5" cy="29.5" r="2.1" fill="#3a2412"/>
+                    <circle cx="31.5" cy="29.5" r="2.1" fill="#3a2412"/>
+                    <circle cx="23.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
+                    <circle cx="32.1" cy="28.9" r="0.7" fill="#fff" opacity="0.9"/>
+                    <ellipse cx="18.8" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
+                    <ellipse cx="35.2" cy="33.2" rx="2.2" ry="1.3" fill="#e8886a" opacity="0.55"/>
+                    <path d="M24 34.8 Q27 37.2 30 34.8" fill="none" stroke="#5a3218" stroke-width="1.15" stroke-linecap="round"/>
+                    <circle cx="22.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
+                    <circle cx="31.5" cy="29.5" r="4.1" fill="none" stroke="#3d3d48" stroke-width="1.25"/>
+                    <path d="M26.6 29.5 H27.4" stroke="#3d3d48" stroke-width="1.2" stroke-linecap="round"/>
+                    <path d="M18.4 29.2 H16.6" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
+                    <path d="M35.6 29.2 H37.4" stroke="#3d3d48" stroke-width="1.1" stroke-linecap="round"/>
+                    <path d="M15.5 34 C12.5 35.5 12 38.5 14 40.5" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
+                    <path d="M38.5 34 C41.5 35.2 43.5 37.5 42.2 40.2" fill="none" stroke="#c47a2c" stroke-width="2.2" stroke-linecap="round"/>
+                    <g transform="translate(41.5 38.5) rotate(38)">
+                      <rect x="-1.3" y="-9" width="2.6" height="14" rx="1.1" fill="url(#adminToryPenBody)" stroke="#2f5480" stroke-width="0.4"/>
+                      <rect x="-1.3" y="-11.2" width="2.6" height="2.4" rx="0.6" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.35"/>
+                      <path d="M-1.1 5 L0 9.2 L1.1 5 Z" fill="#d4af37" stroke="#6e5210" stroke-width="0.35"/>
+                    </g>
+                    <circle cx="40.2" cy="40.2" r="1.6" fill="#e8a84a" stroke="#9a5a22" stroke-width="0.4"/>
+                  </svg>
+                </span>
+                <span>토리</span>
+              </h4>
+              <p>토리는 수퍼토리에 탑재된 AI 어시스턴트예요.</p>
+              <p class="admin-tory-intro-body">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하고, 많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 토리가 작가님의 글을 대신 써드리지는 않아요. 하지만 작품의 인물, 세계관, 줄거리 흐름을 기억해 스스로 보기 어려운 원고의 입체적인 모습을 보여드릴게요.</p>
+              <p class="admin-tory-intro-closing">창작의 즐거움은 작가님 몫이랍니다. ❤️</p>
             </div>
             <dl class="admin-info-meta">
               <div class="admin-info-row">
@@ -2658,6 +3350,14 @@
                 <dt>데이터 보관</dt>
                 <dd>이 기기 (클라우드 필수 계정 없음)</dd>
               </div>
+              <div class="admin-info-row">
+                <dt>Gemini 연결</dt>
+                <dd id="adminGeminiStatus">확인 중…</dd>
+              </div>
+              <div class="admin-info-row">
+                <dt>Gemini 모델</dt>
+                <dd id="adminGeminiModel">—</dd>
+              </div>
             </dl>
             <div class="admin-update-row">
               <button type="button" id="adminCheckUpdateButton" class="secondary compact-btn">업데이트 확인</button>
@@ -2666,14 +3366,14 @@
 
             <div class="admin-help-block">
               <div class="admin-help-heading">
-                <h4 class="admin-subsection-title">도움말 · 사용 설명서</h4>
+                <h4 class="admin-subsection-title">SuperTory 사용 가이드</h4>
                 <label class="admin-help-search-label">
                   <span class="sr-only">도움말 검색</span>
                   <input
                     type="search"
                     id="adminHelpSearch"
                     class="admin-help-search"
-                    placeholder="검색 (예: 바인더, 내보내기, 토리…)"
+                    placeholder="검색어 입력 (예: 바인더, 하위 폴더, 토리, 교정고, 내보내기…)"
                     autocomplete="off"
                   >
                 </label>
@@ -2684,7 +3384,7 @@
 
             <div class="admin-help-block">
               <h4 class="admin-subsection-title">자주 묻는 질문 (Q&amp;A)</h4>
-              <p class="hint">업데이트로 항목이 추가될 예정입니다.</p>
+              <p class="hint">자주 묻는 내용만 모았습니다. 더 자세한 설명은 위 사용 설명서를 검색해 보세요.</p>
               <div id="adminHelpQa" class="admin-help-qa" aria-live="polite"></div>
             </div>
 
@@ -2692,6 +3392,12 @@
               <h4 class="admin-subsection-title">개발자에게 문의하기</h4>
               <p class="hint">오류 제보·개선 제안·사용 문의가 있으면 메일 앱이 열립니다. 연락처는 화면에 표시되지 않습니다.</p>
               <button type="button" id="adminContactDevButton" class="primary compact-btn">문의 메일 작성</button>
+            </div>
+
+            <div class="admin-help-block">
+              <h4 class="admin-subsection-title">튜토리얼</h4>
+              <p class="hint">놓치기 쉬운 숨겨진 기능을 화살표로 짚어 줍니다.</p>
+              <button type="button" id="adminReplayTutorialButton" class="secondary compact-btn">튜토리얼 다시 보기</button>
             </div>
           </div>
         </section>
@@ -2738,6 +3444,44 @@
           </div>
         </section>
 
+        <!-- 작품 관리 (삭제) -->
+        <section class="admin-panel" data-admin-panel="projects" aria-label="작품 관리" hidden>
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title">작품 관리</h3>
+                <p class="hint">로컬에 저장된 작품을 목록에서 지웁니다. 삭제한 작품은 선택 목록에서 사라집니다.</p>
+              </div>
+              <div class="admin-trash-actions">
+                <button type="button" id="refreshAdminProjectsButton" class="secondary compact-btn">새로고침</button>
+              </div>
+            </div>
+            <p class="hint" id="adminProjectsHint">작품을 선택해 삭제할 수 있어요.</p>
+            <div id="adminProjectList" class="admin-project-list" aria-live="polite">
+              <p class="hint trash-empty">불러오는 중…</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- 숨긴 기능 -->
+        <section class="admin-panel" data-admin-panel="hidden" aria-label="숨긴 기능" hidden>
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title">숨긴 기능</h3>
+                <p class="hint">화면에서 감춘 버튼·표시 항목입니다. <strong>활성화</strong>하면 다시 나타납니다. 숨기려면 앱 안 버튼을 <strong>우클릭</strong>하세요.</p>
+              </div>
+              <div class="admin-trash-actions">
+                <button type="button" id="featureHideResetButton" class="secondary compact-btn">모두 다시 표시</button>
+              </div>
+            </div>
+            <p class="hint" id="featureHideCountHint">숨긴 기능 없음</p>
+            <div id="hiddenFeaturesList" class="hidden-features-list" aria-live="polite">
+              <p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>
+            </div>
+          </div>
+        </section>
+
         <!-- 휴지통 -->
         <section class="admin-panel" data-admin-panel="trash" aria-label="휴지통" hidden>
           <div class="admin-section-box admin-trash-section">
@@ -2779,10 +3523,73 @@
       </div>
     </div>
 
+    <!-- 투고·공모전용 시놉시스: 줄거리 개요 확인 -->
+    <div id="outlineSummaryGateModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="outlineSummaryGateTitle">
+      <div class="modal-backdrop" data-close-outline-gate></div>
+      <div class="modal-card">
+        <div class="modal-heading">
+          <h2 id="outlineSummaryGateTitle">줄거리 개요 확인</h2>
+          <button type="button" class="modal-close" data-close-outline-gate title="닫기">×</button>
+        </div>
+        <p class="modal-hint">
+          최소한의 줄거리(시작부터 결말까지)가 없으면 결과 정확도가
+          낮을 수 있어요.
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" id="outlineGateOpenSettings">설정집에서 입력하기</button>
+          <button type="button" class="primary" id="outlineGateContinue">그래도 실행</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 투고·공모전용 시놉시스: 글자수 제한 -->
+    <div id="submissionLengthModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="submissionLengthTitle">
+      <div class="modal-backdrop" data-close-submission-length></div>
+      <div class="modal-card">
+        <div class="modal-heading">
+          <h2 id="submissionLengthTitle">글자수 제한</h2>
+          <button type="button" class="modal-close" data-close-submission-length title="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">제한이 없으면 비워 두세요. 비어 있으면 길이 제한 없이 작성합니다.</p>
+        <label class="submission-length-field">시놉시스 글자수 제한이 있나요? (없으면 비워두세요)
+          <span class="submission-length-input-row">
+            <input id="submissionSynopsisLimitInput" type="number" min="1" max="20000" inputmode="numeric" placeholder="">
+            <span>자</span>
+          </span>
+        </label>
+        <label class="submission-length-field">작품의도 글자수 제한이 있나요? (없으면 비워두세요)
+          <span class="submission-length-input-row">
+            <input id="submissionIntentLimitInput" type="number" min="1" max="10000" inputmode="numeric" placeholder="">
+            <span>자</span>
+          </span>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-submission-length>취소</button>
+          <button type="button" class="primary" id="submissionLengthConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Binder outline overview (목차 한눈에) -->
+    <div id="outlineOverviewModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="outlineOverviewTitle">
+      <div class="modal-backdrop" data-close-outline-overview></div>
+      <div class="modal-card outline-overview-modal-card">
+        <div class="modal-heading">
+          <h2 id="outlineOverviewTitle">목차</h2>
+          <button type="button" class="modal-close" data-close-outline-overview title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">폴더·원고 구조를 한눈에 봅니다. 원고를 누르면 해당 회차로 이동해요.</p>
+        <div id="outlineOverviewBody" class="outline-overview-body" aria-live="polite"></div>
+        <div class="modal-actions">
+          <button type="button" class="primary" data-close-outline-overview>닫기</button>
+        </div>
+      </div>
+    </div>
+
     <!-- 큰 창: editable focus writing (restored) -->
     <div id="focusWriteModal" class="modal focus-write-modal hidden" role="dialog" aria-modal="true" aria-labelledby="focusWriteTitle">
       <div class="modal-backdrop" data-close-focus-write></div>
-      <div class="focus-write-card" role="document">
+      <div class="focus-write-card" id="focusWriteCard" role="document">
         <div class="focus-write-head">
           <div class="focus-write-head-text">
             <h2 id="focusWriteTitle" class="focus-write-title">큰 창</h2>
@@ -2790,20 +3597,49 @@
           </div>
           <div class="focus-write-actions">
             <span id="focusWriteSaveInfo" class="save-info"></span>
+            <div class="view-mode-control focus-write-view-mode">
+              <button
+                type="button"
+                class="secondary compact-btn"
+                id="focusWriteSplitButton"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                title="함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
+              >함께보기 ▾</button>
+            </div>
+            <button
+              type="button"
+              class="secondary compact-btn"
+              id="focusWriteFullscreenButton"
+              title="전체보기 / 창 모드 (F11)"
+              aria-pressed="false"
+              aria-keyshortcuts="F11"
+            >전체보기</button>
             <button type="button" class="secondary compact-btn" id="focusWriteCloseButton" data-close-focus-write>닫기</button>
           </div>
         </div>
-        <div class="focus-write-page" id="focusWritePage">
+        <div class="focus-write-body" id="focusWriteBody">
+          <div class="focus-write-page" id="focusWritePage">
+            <div
+              id="focusWriteEditor"
+              class="rich-editor focus-write-editor"
+              contenteditable="true"
+              spellcheck="true"
+              role="textbox"
+              aria-multiline="true"
+              aria-label="큰 창 원고"
+              data-placeholder="여기에 원고를 이어서 써 보세요."
+            ></div>
+          </div>
           <div
-            id="focusWriteEditor"
-            class="rich-editor focus-write-editor"
-            contenteditable="true"
-            spellcheck="true"
-            role="textbox"
-            aria-multiline="true"
-            aria-label="큰 창 원고"
-            data-placeholder="여기에 원고를 이어서 써 보세요."
+            id="focusWriteSplitResizer"
+            class="split-pane-resizer focus-write-split-resizer hidden"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="큰 창 함께보기 너비 조절"
+            title="끌어 좌우 너비 조절"
           ></div>
+          <div id="focusWriteSplitSlot" class="focus-write-split-slot" hidden aria-label="큰 창 함께보기"></div>
         </div>
       </div>
     </div>
@@ -3093,12 +3929,27 @@
           <button type="button" class="modal-close" data-close-bait-notify title="닫기">×</button>
         </div>
         <div class="bait-notify-body">
-          <div class="bait-notify-avatar" aria-hidden="true">🪄</div>
+          <div class="bait-notify-avatar" aria-hidden="true">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+              <path d="M15 4v2"/>
+              <path d="M15 16v2"/>
+              <path d="M8 9h2"/>
+              <path d="M20 9h2"/>
+              <path d="m17.8 11.8 1.2 1.2"/>
+              <path d="m17.8 6.2 1.2-1.2"/>
+              <path d="m3 21 9-9"/>
+              <path d="M12.2 6.2 11 5"/>
+              <path d="M15 9h.01"/>
+              <path d="m14 14 6-6"/>
+            </svg>
+          </div>
           <p class="bait-notify-lead" id="baitNotifyLead">이번 회차에서 떡밥 회수 예정이 있어요!</p>
           <ul class="bait-notify-list" id="baitNotifyList"></ul>
         </div>
-        <div class="modal-actions">
+        <div class="modal-actions bait-notify-actions">
           <button type="button" class="secondary" id="baitNotifyOpenVault">떡밥모음 열기</button>
+          <button type="button" class="secondary" id="baitNotifySnooze1d" title="24시간 동안 이 회차 떡밥 알림을 쉬어요">1일 후 다시 알림</button>
+          <button type="button" class="secondary" id="baitNotifySnoozeNextOpen" title="나갔다가 이 회차를 다시 열 때만 알림">다음에 이 회차 열 때 다시 알림</button>
           <button type="button" class="primary" data-close-bait-notify>확인</button>
         </div>
       </div>
@@ -3202,6 +4053,26 @@
       </div>
     </div>
 
+    <div id="textPromptModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="textPromptModalTitle">
+      <div class="modal-backdrop" data-close-text-prompt></div>
+      <div class="modal-card text-prompt-modal-card">
+        <div class="modal-heading">
+          <h2 id="textPromptModalTitle">입력</h2>
+          <button type="button" class="modal-close" data-close-text-prompt title="닫기">×</button>
+        </div>
+        <p class="hint modal-hint text-prompt-message" id="textPromptModalMessage"></p>
+        <form id="textPromptForm" class="import-form">
+          <label id="textPromptFieldLabel"><span id="textPromptLabelText">이름</span>
+            <input id="textPromptInput" type="text" maxlength="120" autocomplete="off">
+          </label>
+          <div class="modal-actions">
+            <button type="button" class="secondary" data-close-text-prompt>취소</button>
+            <button type="submit" class="primary" id="textPromptSubmit">확인</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
     <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- Auto-update progress banner (Electron packaged builds) -->
@@ -3214,6 +4085,7 @@
         <div class="app-update-banner-bar" id="appUpdateBannerBar" style="width:0%"></div>
       </div>
     </div>
-    <script src="/app.js"></script>
+    <script src="/vendor/driver.js/driver.js.iife.js"></script>
+    <script src="/app.js?v=20260807-caption3"></script>
   </body>
 </html>

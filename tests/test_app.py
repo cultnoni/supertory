@@ -42,7 +42,9 @@ class SuperToryAppTests(unittest.TestCase):
         return response.status, result
 
     def test_writer_can_create_and_save_a_story(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "나의 소설"})
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "나의 소설", "main_genre": "판타지"}
+        )
         self.assertEqual(status, 201)
         project_id = project["id"]
 

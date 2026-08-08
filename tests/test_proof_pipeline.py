@@ -140,7 +140,7 @@ class ProofPipelineApiTests(unittest.TestCase):
         self.assertIn("python_docx", result)
 
     def test_pipeline_api_docx(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "파이프라인"})
+        status, project = self.request("POST", "/api/projects", {"title": "파이프라인", "main_genre": "판타지"})
         pid = project["id"]
         status, ch = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})
         status, scene = self.request("POST", f"/api/chapters/{ch['id']}/scenes", {"title": "제1화: 만남"})

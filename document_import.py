@@ -94,16 +94,37 @@ class ImportedChapter:
 
 @dataclass(frozen=True)
 class ImportPlan:
-    """How a document becomes project outline items."""
-    chapters: tuple[ImportedChapter, ...]
+    """How a document becomes project outline items.
+
+    When ``hierarchy`` is set (toc/auto), app.py inserts 목차 part + 권/부/회차.
+    ``chapters`` remains for flat modes (none/headings/blank_lines) and legacy callers.
+    """
+    chapters: tuple[ImportedChapter, ...] = ()
     warnings: tuple[str, ...] = ()
+    hierarchy: object | None = None  # import_hierarchy.HierarchyImportPlan | None
+
+    @property
+    def is_hierarchy(self) -> bool:
+        return self.hierarchy is not None
 
     @property
     def sections(self) -> list[ImportedSection]:
+        if self.hierarchy is not None:
+            from import_hierarchy import HierarchyImportPlan
+
+            if isinstance(self.hierarchy, HierarchyImportPlan):
+                items = [
+                    ImportedSection(title="목차", content=self.hierarchy.toc_text),
+                ]
+                for ep in self.hierarchy.all_episodes():
+                    items.append(ImportedSection(title=ep.title, content=ep.content))
+                return items
         return [scene for chapter in self.chapters for scene in chapter.scenes]
 
     @property
     def section_count(self) -> int:
+        if self.hierarchy is not None:
+            return int(getattr(self.hierarchy, "section_count", 0) or 0)
         return len(self.sections)
 
 
@@ -312,23 +333,8 @@ def build_import_plan(text: str, mode: str, default_title: str) -> ImportPlan:
             ),)
         )
 
-    if mode == "toc":
-        return _split_by_toc(cleaned, default_title)
-
-    if mode == "auto":
-        try:
-            return _split_by_toc(cleaned, default_title)
-        except ValueError:
-            sections = _split_by_headings(cleaned, default_title)
-            if len(sections) > 1:
-                return _plan_from_flat_sections(sections, default_title, as_chapters=True)
-            return ImportPlan(
-                chapters=(ImportedChapter(
-                    title=default_title,
-                    scenes=(ImportedSection(title=default_title, content=cleaned),),
-                ),),
-                warnings=("목차·제목을 찾지 못해 통째로 가져왔어요.",),
-            )
+    if mode in {"toc", "auto"}:
+        return _plan_with_hierarchy(cleaned, default_title, require_toc=(mode == "toc"))
 
     if mode == "headings":
         sections = _split_by_headings(cleaned, default_title)
@@ -340,6 +346,58 @@ def build_import_plan(text: str, mode: str, default_title: str) -> ImportPlan:
         return _plan_from_flat_sections(sections, default_title, as_chapters=False)
 
     raise ValueError("글 나누기 방식이 올바르지 않습니다.")
+
+
+def _plan_with_hierarchy(text: str, default_title: str, *, require_toc: bool) -> ImportPlan:
+    """Hierarchical 목차/권/부/회차 plan. ``toc`` mode errors if structure is empty."""
+    from import_hierarchy import HierarchyImportPlan, build_hierarchy_plan
+
+    hierarchy = build_hierarchy_plan(text, default_title)
+    assert isinstance(hierarchy, HierarchyImportPlan)
+    if require_toc and hierarchy.section_count <= 1 and not any(
+        folder.episodes for volume in hierarchy.volumes for folder in volume.folders
+    ) and hierarchy.prologue is None and hierarchy.epilogue is None:
+        raise ValueError(
+            "문서에서 목차(차례)를 찾지 못했습니다. "
+            "글 앞에 '목차'를 두고 항목을 나열하거나, 제목마다 나누기를 사용해 주세요."
+        )
+    # Compat flatten: one ImportedChapter per episode (legacy unit tests / flat consumers)
+    flat_chapters: list[ImportedChapter] = []
+    if hierarchy.prologue:
+        flat_chapters.append(
+            ImportedChapter(
+                title=hierarchy.prologue.title,
+                scenes=(ImportedSection(title=hierarchy.prologue.title, content=hierarchy.prologue.content),),
+            )
+        )
+    for volume in hierarchy.volumes:
+        for folder in volume.folders:
+            for ep in folder.episodes:
+                flat_chapters.append(
+                    ImportedChapter(
+                        title=ep.title,
+                        scenes=(ImportedSection(title=ep.title, content=ep.content),),
+                    )
+                )
+    if hierarchy.epilogue:
+        flat_chapters.append(
+            ImportedChapter(
+                title=hierarchy.epilogue.title,
+                scenes=(ImportedSection(title=hierarchy.epilogue.title, content=hierarchy.epilogue.content),),
+            )
+        )
+    if not flat_chapters:
+        flat_chapters.append(
+            ImportedChapter(
+                title=default_title,
+                scenes=(ImportedSection(title=default_title, content=text),),
+            )
+        )
+    return ImportPlan(
+        chapters=tuple(flat_chapters),
+        warnings=hierarchy.warnings,
+        hierarchy=hierarchy,
+    )
 
 
 def _plan_from_flat_sections(
@@ -416,7 +474,7 @@ class _TocEntry:
 
 
 def _split_by_toc(text: str, default_title: str) -> ImportPlan:
-    entries, body, warnings = _extract_toc_entries_and_body(text)
+    entries, body, warnings, _toc_block = _extract_toc_entries_and_body(text)
     if len(entries) < 2:
         raise ValueError(
             "문서에서 목차(차례)를 찾지 못했습니다. "
@@ -447,10 +505,100 @@ def _split_by_toc(text: str, default_title: str) -> ImportPlan:
     return ImportPlan(chapters=tuple(chapters), warnings=warnings)
 
 
-def _extract_toc_entries_and_body(text: str) -> tuple[list[_TocEntry], str, tuple[str, ...]]:
+def _struct_id(title: str) -> tuple[str, int | None] | None:
+    """Structural heading id: ('prologue', None), ('epilogue', None), ('장', 1), ('부', 2), …"""
+    raw = (title or "").strip()
+    if not raw:
+        return None
+    if re.match(r"^(?:프롤로그|서문|서장|머리말|서론|prologue)\b", raw, re.I):
+        return ("prologue", None)
+    if re.match(r"^(?:에필로그|맺음말|후기|결론|epilogue)\b", raw, re.I):
+        return ("epilogue", None)
+    m = re.match(
+        r"^(?:제\s*)?(\d+)\s*(장|부|화|회차|회|편)\b",
+        raw,
+        re.I,
+    )
+    if not m:
+        return None
+    unit = m.group(2)
+    if unit in {"회", "회차"}:
+        unit = "회"
+    return (unit, int(m.group(1)))
+
+
+def _is_heading_line(line: str, *, toc_title: str = "") -> bool:
+    """True if line looks like a section heading, not a long body paragraph."""
+    stripped = (line or "").strip()
+    if not stripped:
+        return False
+    limit = max(len(toc_title) + 24, 100) if toc_title else 100
+    return len(stripped) <= limit
+
+
+def _titles_compatible(toc_title: str, body_line: str) -> bool:
+    """Exact key match, or same 장/부/프롤로그 structural marker on a heading line."""
+    if _titles_match(toc_title, body_line):
+        return True
+    if not _is_heading_line(body_line, toc_title=toc_title):
+        return False
+    a = _struct_id(toc_title)
+    b = _struct_id(body_line)
+    if a and b and a == b:
+        return True
+    return False
+
+
+def _is_toc_structure_restart(existing_titles: list[str], new_title: str) -> bool:
+    """Detect body restart: e.g. 1장 again after 23장, or 프롤로그 again after 부/장."""
+    if len(existing_titles) < 4:
+        return False
+    new_id = _struct_id(new_title)
+    if not new_id:
+        return False
+    prev_ids = [sid for t in existing_titles if (sid := _struct_id(t))]
+    if not prev_ids:
+        return False
+
+    kind, num = new_id
+    if kind == "prologue":
+        had_prologue = any(p[0] == "prologue" for p in prev_ids)
+        had_body_struct = any(p[0] in {"장", "부", "화", "편", "회"} for p in prev_ids)
+        return had_prologue and had_body_struct
+
+    if kind in {"장", "화", "회", "편"} and num is not None:
+        prev_nums = [p[1] for p in prev_ids if p[0] == kind and p[1] is not None]
+        if prev_nums:
+            peak = max(prev_nums)
+            # Number sequence restarts (23장 … then 1장 in body)
+            if peak >= 3 and num < peak and num <= 2:
+                return True
+        # After several 부 headings, a lone early 장 may still be TOC — only restart
+        # when we already saw this unit climb past `num`.
+        return False
+
+    if kind == "부" and num is not None:
+        prev_parts = [p[1] for p in prev_ids if p[0] == "부" and p[1] is not None]
+        if prev_parts and num == 1 and max(prev_parts) >= 2:
+            return True
+    return False
+
+
+def _extract_toc_entries_and_body(
+    text: str,
+) -> tuple[list[_TocEntry], str, tuple[str, ...], str]:
+    """Return (entries, body, warnings, toc_block_text).
+
+    ``toc_block_text`` is the full front-matter + 목차 page used for the 목차 scene:
+    everything from the **start of the document through the last 목차 entry**
+    (book title, subtitle, author lines before 「목차」, then the 목차 list itself).
+
+    Body starts after the 목차 page. Heading lines that look like a structural
+    *restart* (1장 after 23장, second 프롤로그, …) are not absorbed into the TOC.
+    """
     lines = text.split("\n")
     heading_index = None
-    for index, line in enumerate(lines[:120]):
+    for index, line in enumerate(lines[:200]):
         if TOC_HEADING.match(line.strip()):
             heading_index = index
             break
@@ -461,31 +609,66 @@ def _extract_toc_entries_and_body(text: str) -> tuple[list[_TocEntry], str, tupl
 
     if heading_index is not None:
         # Collect TOC lines after the heading until body seems to begin.
+        # Long nonfiction TOCs (5부 × 5장+) need a generous window.
         raw_entries: list[tuple[int, str, int]] = []  # level, title, line_index
-        end = min(len(lines), heading_index + 1 + 100)
+        end = min(len(lines), heading_index + 1 + 250)
         cursor = heading_index + 1
+
+        def _existing_titles() -> list[str]:
+            return [t for _, t, _ in raw_entries]
+
         while cursor < end:
             line = lines[cursor]
             stripped = line.strip()
             if not stripped:
-                # Stop after blank line once we already have enough entries
-                # and the next non-empty looks like body restart of first title.
+                # Stop only when body clearly starts — NOT on every blank.
+                # Real TOCs use blank lines between 부/장 groups.
                 if len(raw_entries) >= 2:
-                    next_nonempty = next((lines[i].strip() for i in range(cursor + 1, end) if lines[i].strip()), "")
-                    if next_nonempty and raw_entries and _titles_match(next_nonempty, raw_entries[0][1]):
-                        break
+                    next_nonempty = next(
+                        (lines[i].strip() for i in range(cursor + 1, end) if lines[i].strip()),
+                        "",
+                    )
+                    if next_nonempty and raw_entries:
+                        cleaned_next = _clean_toc_title(next_nonempty)
+                        if _titles_compatible(raw_entries[0][1], next_nonempty) or (
+                            cleaned_next
+                            and _is_toc_structure_restart(_existing_titles(), cleaned_next)
+                        ):
+                            break
                     if next_nonempty and TOC_HEADING.match(next_nonempty):
                         cursor += 1
                         continue
-                    # Double blank often ends TOC.
-                    if cursor + 1 < len(lines) and not lines[cursor + 1].strip() and len(raw_entries) >= 2:
-                        cursor += 1
-                        break
+                    # Double blank + next line not TOC-like → end of TOC page
+                    if (
+                        cursor + 1 < len(lines)
+                        and not lines[cursor + 1].strip()
+                        and len(raw_entries) >= 2
+                    ):
+                        after = next(
+                            (
+                                lines[i].strip()
+                                for i in range(cursor + 2, min(end, cursor + 8))
+                                if lines[i].strip()
+                            ),
+                            "",
+                        )
+                        if after and (
+                            _titles_compatible(raw_entries[0][1], after)
+                            or not _looks_like_toc_entry(after)
+                            or _is_toc_structure_restart(
+                                _existing_titles(), _clean_toc_title(after)
+                            )
+                        ):
+                            cursor += 1
+                            break
                 cursor += 1
                 continue
             if _looks_like_toc_entry(stripped):
                 title = _clean_toc_title(stripped)
                 if title and not TOC_HEADING.match(title):
+                    # Body restart mid-stream (no blank): 1장 after 23장, etc.
+                    if _is_toc_structure_restart(_existing_titles(), title):
+                        break
                     level = _toc_level(line, title)
                     raw_entries.append((level, title, cursor))
                 cursor += 1
@@ -497,15 +680,20 @@ def _extract_toc_entries_and_body(text: str) -> tuple[list[_TocEntry], str, tupl
 
         if len(raw_entries) >= 2:
             entries = [_TocEntry(title=title, level=level) for level, title, _ in raw_entries]
+            last_entry_line = raw_entries[-1][2]
+            # 목차 씬: 문서 맨 앞(제목·부제 등) ~ 목차 마지막 항목까지.
+            # 「목차」 헤딩만 쓰면 앞 표지가 통째로 빠지므로 0부터 포함.
+            toc_block = "\n".join(lines[0 : last_entry_line + 1]).strip()
             body_start_line = cursor
-            # Prefer starting body at the first reappearance of the first title.
+            # Prefer starting body at the first reappearance of the first title
+            # (exact or structural: 프롤로그 ↔ 프롤로그: …).
             first_title = entries[0].title
             for index in range(cursor, len(lines)):
-                if _titles_match(lines[index].strip(), first_title):
+                if _titles_compatible(first_title, lines[index].strip()):
                     body_start_line = index
                     break
             body = "\n".join(lines[body_start_line:]).strip()
-            return entries, body or text, tuple(warnings)
+            return entries, body or text, tuple(warnings), toc_block
 
         warnings.append("목차 제목은 있으나 항목을 충분히 읽지 못해, 본문 제목으로 다시 시도합니다.")
 
@@ -521,16 +709,18 @@ def _extract_toc_entries_and_body(text: str) -> tuple[list[_TocEntry], str, tupl
     )
 
 
-def _guess_leading_toc(lines: list[str]) -> tuple[list[_TocEntry], str, tuple[str, ...]] | None:
+def _guess_leading_toc(
+    lines: list[str],
+) -> tuple[list[_TocEntry], str, tuple[str, ...], str] | None:
     """If the document starts with a short list of titles that reappear later, treat as TOC."""
-    candidates: list[tuple[int, str]] = []
-    for index, line in enumerate(lines[:40]):
+    candidates: list[tuple[int, str, int]] = []  # level, title, line_index
+    for index, line in enumerate(lines[:80]):
         stripped = line.strip()
         if not stripped:
             if len(candidates) >= 2:
                 break
             continue
-        if len(stripped) > 80:
+        if len(stripped) > 200:
             break
         if not _looks_like_toc_entry(stripped) and not re.match(
             r"^(제\s*\d+|Chapter\s+\d+|\d+\.|\d+\-\d+|#)", stripped, re.I
@@ -542,40 +732,42 @@ def _guess_leading_toc(lines: list[str]) -> tuple[list[_TocEntry], str, tuple[st
             continue
         title = _clean_toc_title(stripped)
         if title:
-            candidates.append((_toc_level(line, title), title))
-        if len(candidates) >= 30:
+            candidates.append((_toc_level(line, title), title, index))
+        if len(candidates) >= 60:
             break
 
     if len(candidates) < 2:
         return None
 
     body_text = "\n".join(lines)
-    # Need most titles to appear again after the candidate block.
-    block_end = 0
+    rest = "\n".join(lines[min(len(lines), 5 + len(candidates)) :])
     found = 0
-    for level, title in candidates:
-        # Search after a rough end of candidate region.
-        pass
-    # Find where first title reappears after line of last candidate.
-    # Approximate candidate region end as first 40 lines.
-    rest = "\n".join(lines[min(len(lines), 5 + len(candidates)):])
-    for _, title in candidates:
+    for _, title, _ in candidates:
         if _find_title_position(rest, title) is not None:
             found += 1
     if found < max(2, len(candidates) // 2 + 1):
         return None
 
-    entries = [_TocEntry(title=title, level=level) for level, title in candidates]
-    # Body = from first title occurrence in full text that allows ordered location.
+    entries = [_TocEntry(title=title, level=level) for level, title, _ in candidates]
     positions = _locate_titles_in_body(body_text, [e.title for e in entries])
     if sum(1 for p in positions if p is not None) < 2:
         return None
     first_pos = next(p for p in positions if p is not None)
-    return entries, body_text[first_pos:].strip(), ("앞에 있는 목록을 목차로 인식했어요.",)
+    last_line = candidates[-1][2]
+    toc_block = "\n".join(lines[0 : last_line + 1]).strip()
+    if not toc_block.lower().startswith("목") and "목차" not in toc_block[:20]:
+        toc_block = "목차\n\n" + toc_block
+    return (
+        entries,
+        body_text[first_pos:].strip(),
+        ("앞에 있는 목록을 목차로 인식했어요.",),
+        toc_block,
+    )
 
 
 def _looks_like_toc_entry(line: str) -> bool:
-    if len(line) > 100:
+    # Nonfiction 부 제목 can be long (subtitle after colon).
+    if len(line) > 200:
         return False
     if TOC_HEADING.match(line):
         return False
@@ -583,8 +775,14 @@ def _looks_like_toc_entry(line: str) -> bool:
     if TOC_PAGE_SUFFIX.search(line) and re.search(r"[\.·⋯…‧･ㆍ]{2,}\s*\d+\s*$", line):
         return True
     if re.match(
-        r"^(?:제\s*\d+\s*[장편부막절]|Chapter\s+\d+|CHAPTER\s+\d+|"
-        r"\d+(?:\.\d+)*\.?|부록|서문|서장|에필로그|프롤로그|머리말|맺음말|결론|서론|본론)",
+        r"^(?:"
+        r"제\s*\d+\s*[장편부막절]|"
+        r"Chapter\s+\d+|CHAPTER\s+\d+|"
+        r"\d+\s*(?:장|부|편|막|절|화|회|회차)\b|"
+        r"\d+(?:\.\d+)*\.?|"
+        r"부록|서문|서장|에필로그|프롤로그|머리말|맺음말|결론|서론|본론|"
+        r"\d+\s*부\s*를\s*마치"
+        r")",
         line,
         re.IGNORECASE,
     ):
@@ -634,38 +832,35 @@ def _title_key(title: str) -> str:
 
 
 def _find_title_position(text: str, title: str, start: int = 0) -> int | None:
+    """Find a body heading line for this TOC title (exact or structural 1장/1부/프롤로그)."""
     key = _title_key(title)
-    if not key:
+    if not key and not _struct_id(title):
         return None
-    # Scan line by line from start for a line whose key equals or starts with title key.
     offset = start
     remaining = text[start:]
     for line in remaining.split("\n"):
         stripped = line.strip()
-        line_key = _title_key(stripped)
-        if line_key == key or (line_key.startswith(key) and len(key) >= 2):
-            # Prefer exact-ish line matches (not long paragraphs).
-            if len(stripped) <= max(len(title) + 40, 120):
-                return offset
+        if stripped and _titles_compatible(title, stripped):
+            return offset
         offset += len(line) + 1
-    # Fallback: search cleaned substring occurrence on its own line already failed.
     return None
 
 
 def _locate_titles_in_body(body: str, titles: list[str]) -> list[int | None]:
+    """Locate each TOC title in body in order. Unmatched → None (empty episode, no inventing).
+
+    Does **not** re-scan from the start for out-of-order hits — that caused unfinished
+    manuscripts to glue leftover body into the wrong later 목차 items.
+    """
     positions: list[int | None] = []
     cursor = 0
     for title in titles:
         pos = _find_title_position(body, title, cursor)
-        if pos is None and cursor > 0:
-            # Allow out-of-order recovery once from the beginning for this title only.
-            pos = _find_title_position(body, title, 0)
-            if pos is not None and any(p is not None and p >= pos for p in positions):
-                # Would go backwards relative to previous — skip.
-                pos = None
         positions.append(pos)
         if pos is not None:
-            cursor = pos + 1
+            # Advance past this heading line so the next title cannot rematch it.
+            line_end = body.find("\n", pos)
+            cursor = (line_end + 1) if line_end >= 0 else (pos + 1)
     return positions
 
 
@@ -673,7 +868,7 @@ def _strip_leading_title_line(content: str, title: str) -> str:
     lines = content.split("\n")
     if not lines:
         return content
-    if _titles_match(lines[0].strip(), title):
+    if _titles_compatible(title, lines[0].strip()) or _titles_match(lines[0].strip(), title):
         return "\n".join(lines[1:]).lstrip("\n")
     return content
 

@@ -51,7 +51,11 @@ class IllustrationApiTests(unittest.TestCase):
         return response.status, json.loads(raw.decode("utf-8"))
 
     def test_create_update_and_delete_illustration_with_overlay(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "별빛 동화", "purpose": "fairy_tale"})
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "별빛 동화", "purpose": "fairy_tale", "main_genre": "판타지"},
+        )
         self.assertEqual(status, 201)
         status, chapter = self.request("POST", f"/api/projects/{project['id']}/chapters", {"title": "1장"})
         self.assertEqual(status, 201)

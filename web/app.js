@@ -43,6 +43,8 @@ const state = {
   illustrations: [],
   referenceLinks: [],
   ideas: [],
+  /** @type {any[]} 떡밥모음 (DB 캐시; loadBaits 동기 조회용) */
+  baits: [],
   ideaBoardOpen: false,
   keywordBoardOpen: false,
   synopsisMd: "",
@@ -50,6 +52,12 @@ const state = {
   introMd: "",
   intentMd: "",
   worldbuildingMd: "",
+  toryPriorityMd: "",
+  outlineSummary: "",
+  /** @type {number|null} project.linked_success_profile_id */
+  linkedSuccessProfileId: null,
+  /** @type {object|null} cached success_pattern_profile row */
+  linkedSuccessProfile: null,
   openSettingsSection: null,
   settingsDocKind: null, // "synopsis" | "logline" | "world" | "intro" | "intent" when main editor open
   characterBoardOpen: false,
@@ -70,6 +78,26 @@ const state = {
 };
 
 const $ = (id) => document.getElementById(id);
+
+/**
+ * Small inline SVG for chip icons only (회차 칩).
+ * Bell / wand / find use emoji again (pre-SVG look).
+ */
+const UI_ICON_PATHS = {
+  book: '<path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>',
+};
+
+function uiIcon(name, size = 20, extraClass = "") {
+  const body = UI_ICON_PATHS[name];
+  if (!body) return "";
+  const cls = ["ui-icon", name ? `ui-icon-${name}` : "", extraClass].filter(Boolean).join(" ");
+  return (
+    `<span class="${cls}" aria-hidden="true">`
+    + `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" `
+    + `stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false">`
+    + `${body}</svg></span>`
+  );
+}
 
 /**
  * JSON API helper. Network / server failures become Error with:
@@ -1258,6 +1286,9 @@ function openFindBar() {
   const bar = $("findBar");
   const toggle = $("findToggleButton");
   if (!bar) return;
+  if ($("formatToolbarShell")?.classList.contains("is-collapsed")) {
+    applyMsToolbarCollapsed("format", false, { toastMsg: false });
+  }
   bar.classList.remove("hidden");
   toggle?.setAttribute("aria-expanded", "true");
   requestAnimationFrame(() => {
@@ -3271,6 +3302,18 @@ function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
   return "장르";
 }
 
+/** Header genre <select>s are value stores only — never interactive dropdowns. */
+function lockHeaderGenreSelects() {
+  for (const id of ["mainGenreSelect", "subGenreSelect"]) {
+    const select = $(id);
+    if (!select) continue;
+    select.disabled = true;
+    select.setAttribute("aria-hidden", "true");
+    select.tabIndex = -1;
+    select.classList.add("genre-select-hidden");
+  }
+}
+
 function updateGenrePickerVisibility() {
   const picker = $("genrePicker");
   if (!picker) return;
@@ -3291,9 +3334,8 @@ function updateGenrePickerVisibility() {
   if (mainField) {
     mainField.classList.toggle("hidden", mode === "none");
   }
+  lockHeaderGenreSelects();
   if (!show) {
-    if ($("mainGenreSelect")) $("mainGenreSelect").disabled = true;
-    if ($("subGenreSelect")) $("subGenreSelect").disabled = true;
     if ($("mainGenreDisplay")) $("mainGenreDisplay").disabled = true;
     if ($("subGenreDisplay")) $("subGenreDisplay").disabled = true;
     $("mainGenreCustom")?.classList.add("hidden");
@@ -3465,7 +3507,7 @@ function fillMainGenreSelect(selectedStored = "") {
   ].join("");
   if ([...select.options].some((o) => o.value === selectValue)) select.value = selectValue;
   else select.value = "";
-  select.disabled = !state.projectId;
+  lockHeaderGenreSelects();
   const mainCustom = $("mainGenreCustom");
   if (mainCustom) {
     // 동화 대상은 고정 2개 — 직접 입력 칸 불필요
@@ -3491,7 +3533,7 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
     // 동화는 대상만 선택
     select.innerHTML = `<option value="">—</option>`;
     select.value = "";
-    select.disabled = true;
+    lockHeaderGenreSelects();
     $("subGenreCustom")?.classList.add("hidden");
     if ($("subGenreCustom")) $("subGenreCustom").disabled = true;
     return;
@@ -3518,7 +3560,7 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
   if (!listKey || !subs.length) {
     select.innerHTML = `<option value="">${escapeHtml(placeholder)}</option>`;
     select.value = "";
-    select.disabled = !state.projectId || !listKey;
+    lockHeaderGenreSelects();
     const subCustom = $("subGenreCustom");
     if (subCustom) {
       subCustom.value = "";
@@ -3543,7 +3585,7 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
   else if (selectedStored === "adult19" && [...select.options].some((o) => o.value === "adult19")) {
     select.value = "adult19";
   } else select.value = "";
-  select.disabled = !state.projectId;
+  lockHeaderGenreSelects();
   const subCustom = $("subGenreCustom");
   if (subCustom) {
     if (select.value === "other") {
@@ -3588,7 +3630,7 @@ function syncGenrePickerFromState() {
   const main = $("mainGenreSelect");
   const sub = $("subGenreSelect");
   fillMainGenreSelect(state.mainGenre || "");
-  if (main) main.disabled = !hasProject;
+  lockHeaderGenreSelects();
   if (mode === "fairy_tale") {
     // 대상만 — 서브 비움
     fillSubGenreSelect("", "");
@@ -3599,7 +3641,7 @@ function syncGenrePickerFromState() {
   if (mode === "translation") {
     // Always show both language lists (원문 / 번역문)
     fillSubGenreSelect("lang", state.subGenre || "");
-    if (sub) sub.disabled = !hasProject;
+    lockHeaderGenreSelects();
     updateGenreCustomVisibility();
     if (hasProject) {
       const mainCustom = $("mainGenreCustom");
@@ -3630,7 +3672,7 @@ function syncGenrePickerFromState() {
   const mainKeyForSubs = resolveMainGenreSelectValue(state.mainGenre || "", mode);
   const subListKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || "");
   fillSubGenreSelect(subListKey, state.subGenre || "");
-  if (sub && !hasProject) sub.disabled = true;
+  lockHeaderGenreSelects();
   updateGenreCustomVisibility();
   if (hasProject) {
     const mainCustom = $("mainGenreCustom");
@@ -3718,7 +3760,8 @@ function syncGenreDisplayButtons() {
     }
     subBtn.textContent = label || "세부";
     const subHidden = mode === "fairy_tale" || mode === "none";
-    subBtn.disabled = !hasProject || subHidden || Boolean(subSelect?.disabled);
+    // Header <select> is always disabled (value store) — do not gate the display button on it.
+    subBtn.disabled = !hasProject || subHidden;
     subBtn.title = hasProject
       ? (mode === "translation" ? "우클릭: 번역문 언어 변경" : "우클릭: 세부 장르 변경")
       : "작품을 먼저 선택해 주세요";
@@ -3783,6 +3826,7 @@ function getGenreMenuOptions(kind = "main") {
 }
 
 function showGenreContextMenu(kind, clientX, clientY) {
+  hidePurposeContextMenu();
   const menu = $("genreContextMenu");
   const host = $("genreContextMenuItems");
   const labelEl = $("genreContextMenuLabel");
@@ -3880,6 +3924,7 @@ function applySubGenreChoice(subKey) {
 function setupGenrePicker() {
   fillMainGenreSelect("");
   fillSubGenreSelect("", "");
+  lockHeaderGenreSelects();
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
 
@@ -3899,8 +3944,6 @@ function setupGenrePicker() {
     btn.dataset.genreCtxBound = "1";
     btn.addEventListener("click", (event) => {
       event.preventDefault();
-      if (btn.disabled) return;
-      toast("우클릭으로 장르를 바꿀 수 있어요.");
     });
     btn.addEventListener("contextmenu", (event) => {
       event.preventDefault();
@@ -3923,12 +3966,16 @@ function setupGenrePicker() {
     else applyMainGenreChoice(key);
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#genreContextMenu, #mainGenreDisplay, #subGenreDisplay")) {
+    if (!event.target.closest?.("#genreContextMenu, #purposeContextMenu, #mainGenreDisplay, #subGenreDisplay, #purposeDisplay")) {
       hideGenreContextMenu();
+      hidePurposeContextMenu();
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideGenreContextMenu();
+    if (event.key === "Escape") {
+      hideGenreContextMenu();
+      hidePurposeContextMenu();
+    }
   });
 
   syncGenrePickerFromState();
@@ -4211,19 +4258,133 @@ function fillPurposeSelect(selected = "general_novel") {
     .map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(purposeLabel[key])}</option>`)
     .join("");
   select.value = keys.includes(value) ? value : "general_novel";
+  select.disabled = true;
+  select.setAttribute("aria-hidden", "true");
+  select.tabIndex = -1;
+  select.classList.add("genre-select-hidden");
+}
+
+function syncPurposeDisplayButton() {
+  const select = $("purposeSelect");
+  const btn = $("purposeDisplay");
+  if (!btn) return;
+  const hasProject = Boolean(state.projectId);
+  const opt = select?.selectedOptions?.[0];
+  const label = (opt && opt.value)
+    ? String(opt.textContent || "").trim()
+    : (purposeLabel[normalizePurposeKey(state.projectPurpose)] || "작품 종류");
+  btn.textContent = label || "작품 종류";
+  btn.disabled = !hasProject;
+  btn.title = hasProject ? "우클릭: 작품 종류 변경" : "작품을 먼저 선택해 주세요";
 }
 
 function syncPurposePickerFromState() {
   const select = $("purposeSelect");
   if (!select) return;
-  const hasProject = Boolean(state.projectId);
   const purpose = normalizePurposeKey(
     state.projectPurpose
     || state.projects.find((p) => p.id === state.projectId)?.purpose
     || "general_novel",
   );
   fillPurposeSelect(purpose);
-  select.disabled = !hasProject;
+  syncPurposeDisplayButton();
+}
+
+function hidePurposeContextMenu() {
+  $("purposeContextMenu")?.classList.add("hidden");
+}
+
+function placePurposeContextMenu(clientX, clientY) {
+  const menu = $("purposeContextMenu");
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = Number(clientX) || 12;
+  let top = Number(clientY) || 12;
+  const w = rect.width || 200;
+  const h = rect.height || 160;
+  if (left + w > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - w - pad);
+  if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function showPurposeContextMenu(clientX, clientY) {
+  const host = $("purposeContextMenuItems");
+  const menu = $("purposeContextMenu");
+  if (!host || !menu) return;
+  hideGenreContextMenu();
+  const current = normalizePurposeKey($("purposeSelect")?.value || state.projectPurpose || "general_novel");
+  host.innerHTML = Object.keys(purposeLabel).map((key) => {
+    const active = key === current ? " is-active" : "";
+    return `<button type="button" role="menuitem" class="${active.trim()}" data-purpose-key="${escapeHtml(key)}"><strong>${escapeHtml(purposeLabel[key])}</strong></button>`;
+  }).join("");
+  placePurposeContextMenu(clientX, clientY);
+}
+
+function applyPurposeChoice(nextRaw) {
+  if (!state.projectId) return;
+  const prevPurpose = normalizePurposeKey(state.projectPurpose);
+  const prevMode = getPurposeCategoryMode(prevPurpose);
+  const nextPurpose = normalizePurposeKey(nextRaw || "general_novel");
+  const nextMode = getPurposeCategoryMode(nextPurpose);
+  if (nextPurpose === prevPurpose) return;
+  if (!confirmGenreChange()) {
+    syncPurposePickerFromState();
+    return;
+  }
+  state.projectPurpose = nextPurpose;
+  if (prevMode !== nextMode || nextMode === "none") {
+    state.mainGenre = "";
+    state.subGenre = "";
+  }
+  fillPurposeSelect(nextPurpose);
+  syncPurposeDisplayButton();
+  syncGenrePickerFromState();
+  persistProjectPurpose({ quiet: false })
+    .then(async () => {
+      if (prevMode !== nextMode || nextMode === "none") {
+        await persistProjectGenre({ quiet: true });
+      }
+      syncGenrePickerFromState();
+    })
+    .catch((error) => {
+      state.projectPurpose = prevPurpose;
+      syncPurposePickerFromState();
+      syncGenrePickerFromState();
+      handleError(error);
+    });
+}
+
+function setupPurposePicker() {
+  fillPurposeSelect("general_novel");
+  syncPurposeDisplayButton();
+
+  const btn = $("purposeDisplay");
+  if (btn && btn.dataset.purposeCtxBound !== "1") {
+    btn.dataset.purposeCtxBound = "1";
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+    });
+    btn.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (btn.disabled) return;
+      showPurposeContextMenu(event.clientX, event.clientY);
+    });
+  }
+
+  $("purposeContextMenu")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-purpose-key]");
+    if (!item) return;
+    event.preventDefault();
+    hidePurposeContextMenu();
+    applyPurposeChoice(item.dataset.purposeKey);
+  });
+
+  syncPurposePickerFromState();
+  syncGenrePickerFromState();
 }
 
 function refreshProjectSelectOptions() {
@@ -4403,46 +4564,88 @@ async function persistProjectPurpose({ quiet = true } = {}) {
   if (!quiet) toast(`작품 종류를 ${purposeLabel[next] || next}(으)로 바꿨어요.`);
 }
 
-function setupPurposePicker() {
-  fillPurposeSelect("general_novel");
-  $("purposeSelect")?.addEventListener("change", () => {
-    if (!state.projectId) return;
-    const prevPurpose = normalizePurposeKey(state.projectPurpose);
-    const prevMode = getPurposeCategoryMode(prevPurpose);
-    const nextPurpose = normalizePurposeKey($("purposeSelect").value || "general_novel");
-    const nextMode = getPurposeCategoryMode(nextPurpose);
-    // 즉시 모드 반영: 번역 → 원문/번역 언어, 동화 → 유아용/초등용
-    state.projectPurpose = nextPurpose;
-    if (prevMode !== nextMode || nextMode === "none") {
-      state.mainGenre = "";
-      state.subGenre = "";
-    }
-    syncGenrePickerFromState();
-    persistProjectPurpose({ quiet: false })
-      .then(async () => {
-        if (prevMode !== nextMode || nextMode === "none") {
-          await persistProjectGenre({ quiet: true });
-        }
-        syncGenrePickerFromState();
-      })
-      .catch((error) => {
-        // 저장 실패 시 종류·장르 UI 되돌림
-        state.projectPurpose = prevPurpose;
-        syncPurposePickerFromState();
-        syncGenrePickerFromState();
-        handleError(error);
-      });
-  });
-  syncPurposePickerFromState();
-  syncGenrePickerFromState();
-}
-
 function preferredProjectFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const raw = params.get("project");
   if (!raw) return null;
   const id = Number(raw);
   return Number.isFinite(id) ? id : null;
+}
+
+/* Remember last project + scene so relaunch opens the previous working screen. */
+const LAST_WORKSPACE_KEY = "supertory.lastWorkspace";
+
+function loadLastWorkspace() {
+  try {
+    const raw = localStorage.getItem(LAST_WORKSPACE_KEY);
+    const obj = raw ? JSON.parse(raw) : null;
+    if (!obj || typeof obj !== "object") return null;
+    const projectId = Number(obj.projectId);
+    const sceneId = obj.sceneId == null || obj.sceneId === "" ? null : Number(obj.sceneId);
+    return {
+      projectId: Number.isFinite(projectId) && projectId > 0 ? projectId : null,
+      sceneId: Number.isFinite(sceneId) && sceneId > 0 ? sceneId : null,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveLastWorkspace(overrides = {}) {
+  try {
+    const projectId = overrides.projectId !== undefined ? overrides.projectId : state.projectId;
+    const sceneId = overrides.sceneId !== undefined ? overrides.sceneId : state.sceneId;
+    const pid = Number(projectId);
+    if (!Number.isFinite(pid) || pid <= 0) return;
+    const sid = Number(sceneId);
+    localStorage.setItem(LAST_WORKSPACE_KEY, JSON.stringify({
+      projectId: pid,
+      sceneId: Number.isFinite(sid) && sid > 0 ? sid : null,
+      at: Date.now(),
+    }));
+  } catch (_) {
+    /* ignore quota / private mode */
+  }
+}
+
+function sceneExistsInCurrentOutline(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  if (typeof allScenes === "function") {
+    return allScenes().some((scene) => Number(scene.id) === id);
+  }
+  for (const chapter of state.outline || []) {
+    for (const scene of flattenChapterScenes(chapter)) {
+      if (Number(scene.id) === id) return true;
+    }
+  }
+  return false;
+}
+
+/** After a project loads at startup, reopen the last scene (or welcome). */
+async function restoreLastWorkspaceView() {
+  const last = loadLastWorkspace();
+  if (!state.projectId) {
+    showWelcome();
+    return;
+  }
+  let sceneId = last && Number(last.projectId) === Number(state.projectId)
+    ? last.sceneId
+    : null;
+  // Upgrade path: before lastWorkspace existed, episode tabs still remember open scenes.
+  if (!sceneId && Array.isArray(state.episodeTabs) && state.episodeTabs.length) {
+    const tabId = Number(state.episodeTabs[state.episodeTabs.length - 1]?.sceneId);
+    if (sceneExistsInCurrentOutline(tabId)) sceneId = tabId;
+  }
+  if (sceneId && sceneExistsInCurrentOutline(sceneId)) {
+    try {
+      await openScene(sceneId);
+      return;
+    } catch (_) {
+      /* fall through to welcome */
+    }
+  }
+  showWelcome();
 }
 
 async function loadProjects(preferredId = null) {
@@ -4453,8 +4656,9 @@ async function loadProjects(preferredId = null) {
     select.innerHTML = "<option>아직 만든 작품이 없어요</option>";
   }
   const fromUrl = preferredProjectFromUrl();
-  // URL / 명시 선호 ID가 없으면 목록 첫 작품(최근 작업 또는 수동 1번)을 연다.
-  const chosen = preferredId || fromUrl || state.projects[0]?.id || null;
+  const last = loadLastWorkspace();
+  // URL / 명시 선호 ID → 직전 작업 작품 → 목록 첫 작품(최근 작업 또는 수동 1번)
+  const chosen = preferredId || fromUrl || last?.projectId || state.projects[0]?.id || null;
   state.projectId = chosen && state.projects.some((project) => project.id === Number(chosen))
     ? Number(chosen)
     : (state.projects[0]?.id || null);
@@ -4462,6 +4666,11 @@ async function loadProjects(preferredId = null) {
     select.value = state.projectId;
     loadEpisodeTabsFromStorage();
     await loadProject();
+    // 새 작품 생성 직후(preferredId)는 호출측이 씬을 열 수 있으므로 복원하지 않음.
+    // URL로 특정 작품을 연 경우·일반 기동에서는 마지막 화면을 복원.
+    if (!preferredId) {
+      await restoreLastWorkspaceView();
+    }
     if (fromUrl && Number(fromUrl) === state.projectId) {
       const project = state.projects.find((item) => item.id === state.projectId);
       if (project?.package_name || project?.package_path) {
@@ -4494,6 +4703,16 @@ async function loadProject() {
   // Drop cached episode HTML from the previous work.
   if (typeof clearViewerEpisodeCache === "function") clearViewerEpisodeCache();
   state.ideas = ideas;
+  // 떡밥: localStorage → DB 마이그레이션 후 목록 로드 (캐시 채움)
+  if (typeof refreshBaitsFromServer === "function") {
+    try {
+      await refreshBaitsFromServer(projectIdAtStart);
+    } catch (baitErr) {
+      console.warn("떡밥 목록을 불러오지 못했어요.", baitErr);
+      state.baits = [];
+    }
+  }
+  if (state.projectId !== projectIdAtStart) return;
   state.synopsisMd = outline.project?.synopsis_md || outline.project?.description_md || "";
   state.loglineMd = outline.project?.logline_md || "";
   state.introMd = outline.project?.intro_md || "";
@@ -4506,6 +4725,36 @@ async function loadProject() {
   renderEpisodeChrome();
   const fromList = state.projects.find((p) => p.id === state.projectId);
   if (fromList && outline.project?.purpose) fromList.purpose = outline.project.purpose;
+  state.toryPriorityMd = outline.project?.tory_priority_md || fromList?.tory_priority_md || "";
+  if (fromList) fromList.tory_priority_md = state.toryPriorityMd;
+  syncToryPriorityInput();
+  state.outlineSummary = outline.project?.outline_summary || fromList?.outline_summary || "";
+  if (fromList) fromList.outline_summary = state.outlineSummary;
+  syncOutlineSummaryInput();
+  // 흥행 공식 참고: project.linked_success_profile_id
+  {
+    const rawLink = outline.project?.linked_success_profile_id ?? fromList?.linked_success_profile_id;
+    let linkId = null;
+    if (rawLink != null && rawLink !== "" && rawLink !== 0 && rawLink !== "0") {
+      const n = Number(rawLink);
+      if (Number.isFinite(n) && n > 0) linkId = n;
+    }
+    state.linkedSuccessProfileId = linkId;
+    if (fromList) fromList.linked_success_profile_id = linkId;
+    state.linkedSuccessProfile = null;
+    if (linkId) {
+      try {
+        await ensureLinkedSuccessProfile();
+      } catch (_) {
+        state.linkedSuccessProfile = null;
+      }
+    }
+    if (typeof updateSuccessProfileRefUi === "function") updateSuccessProfileRefUi();
+    if (typeof updateToryChatSuccessUi === "function") updateToryChatSuccessUi();
+    if (typeof renderLinkedSuccessProfileCard === "function") {
+      renderLinkedSuccessProfileCard().catch(() => {});
+    }
+  }
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
   state.keywords = normalizeKeywordList(
@@ -4519,12 +4768,13 @@ async function loadProject() {
   renderCharacters();
   renderIdeaBank();
   renderKeywordBox();
+  // Settings accordion open state is per work.
+  restoreOpenSettingsSection(projectIdAtStart);
   renderSettingsCodex();
   $("newChapterButton").disabled = false;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
   $("newCharacterButton").disabled = false;
   $("newIdeaButton").disabled = false;
-  updateIllustrationPanelVisibility();
   // Project-level goal + full-manuscript footer stats.
   if (outline.project?.goal_word_count != null) {
     state.projectGoalCount = Math.max(0, Number(outline.project.goal_word_count) || 0);
@@ -4587,6 +4837,9 @@ function renderSettingsCodex() {
   );
   renderBaitList();
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+  if (typeof renderLinkedSuccessProfileCard === "function") {
+    renderLinkedSuccessProfileCard().catch(() => {});
+  }
 
   // Previews hidden by CSS; keep sync for any future use.
   renderPreviewElement($("introPreview"), [], "작품소개·기획의도");
@@ -4651,6 +4904,55 @@ function renderSettingsCodex() {
   markBookmarkedTargets();
 }
 
+/** Per-project key for which settings accordion section is open. */
+function openSettingsSectionStorageKey(projectId = state.projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return `supertory.openSettingsSection.${id}`;
+}
+
+function normalizeOpenSettingsSectionKey(raw) {
+  const key = String(raw || "").trim();
+  if (!key) return null;
+  if (key === "synopsis" || key === "logline") return "logsyn";
+  return key;
+}
+
+/**
+ * Restore open settings folder for one work.
+ * Migrates legacy global key once into this project, then removes the global key
+ * so other works stay closed by default.
+ */
+function restoreOpenSettingsSection(projectId = state.projectId) {
+  state.openSettingsSection = null;
+  const storageKey = openSettingsSectionStorageKey(projectId);
+  if (!storageKey) return;
+  try {
+    let stored = localStorage.getItem(storageKey);
+    if (stored == null) {
+      const legacy = localStorage.getItem("supertory.openSettingsSection");
+      if (legacy != null && legacy !== "") {
+        localStorage.setItem(storageKey, legacy);
+        localStorage.removeItem("supertory.openSettingsSection");
+        stored = legacy;
+      }
+    }
+    state.openSettingsSection = normalizeOpenSettingsSectionKey(stored || "");
+  } catch (_) {
+    state.openSettingsSection = null;
+  }
+}
+
+function persistOpenSettingsSection(projectId = state.projectId) {
+  const storageKey = openSettingsSectionStorageKey(projectId);
+  if (!storageKey) return;
+  try {
+    localStorage.setItem(storageKey, state.openSettingsSection || "");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function applySettingsSectionState() {
   const openKey = state.openSettingsSection;
   document.querySelectorAll(".settings-box").forEach((box) => {
@@ -4681,6 +4983,8 @@ function applySettingsSectionState() {
     box.style.maxHeight = "none";
     box.style.overflow = "visible";
   });
+  // Remember open folder per work (not global across all projects).
+  persistOpenSettingsSection();
   // After layout: grow textareas to full content height (scrollHeight needs display≠none).
   requestAnimationFrame(() => {
     requestAnimationFrame(() => {
@@ -4702,11 +5006,6 @@ function setOpenSettingsSection(sectionKey) {
     setKeywordPickerOpen(true);
   } else if (typeof setKeywordPickerOpen === "function") {
     setKeywordPickerOpen(false);
-  }
-  try {
-    localStorage.setItem("supertory.openSettingsSection", state.openSettingsSection || "");
-  } catch (_) {
-    /* ignore */
   }
 }
 
@@ -5146,12 +5445,8 @@ function bindSettingsDocSidebarInput(kind) {
 }
 
 function setupSettingsCodex() {
-  try {
-    const stored = localStorage.getItem("supertory.openSettingsSection");
-    if (stored) state.openSettingsSection = stored;
-  } catch (_) {
-    /* ignore */
-  }
+  // Open section is restored per project in loadProject (not a global default).
+  if (state.projectId) restoreOpenSettingsSection(state.projectId);
   document.querySelectorAll("[data-settings-toggle]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
@@ -5222,13 +5517,15 @@ function setupSettingsCodex() {
   bindSettingsDocSidebarInput("synopsis");
   bindSettingsDocSidebarInput("logline");
   bindSettingsDocSidebarInput("world");
-  // Migrate stored open section keys
+  // Migrate stored open section keys (in-memory / already restored)
   if (state.openSettingsSection === "synopsis" || state.openSettingsSection === "logline") {
     state.openSettingsSection = "logsyn";
   }
   setupSettingsSectionDrag();
   applySettingsSectionOrder();
   applySettingsSectionState();
+  setupLinkedSuccessProfileCard();
+  renderLinkedSuccessProfileCard().catch(() => {});
 }
 
 const IDEA_COLORS = [
@@ -5466,6 +5763,17 @@ function renderIdeaBoard(focusId = null) {
   }
   grid.innerHTML = state.ideas.map((idea) => {
     const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+    const clipSwatches = IDEA_COLORS.map((c) => `
+      <button
+        type="button"
+        class="idea-clip-swatch color-${escapeHtml(c.key)}${c.key === colorKey ? " is-active" : ""}"
+        data-role="idea-clip"
+        data-idea-color-pick="${escapeHtml(c.key)}"
+        title="${escapeHtml(c.label)}"
+        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-pressed="${c.key === colorKey ? "true" : "false"}"
+      ></button>
+    `).join("");
     return `
     <article
       class="idea-card color-${escapeHtml(colorKey)}"
@@ -5473,6 +5781,9 @@ function renderIdeaBoard(focusId = null) {
       data-idea-color="${escapeHtml(colorKey)}"
       title="우클릭: 메모 색 · 모서리 드래그: 크기"
     >
+      <div class="idea-card-clips" role="group" aria-label="메모 색 클립">
+        ${clipSwatches}
+      </div>
       <div class="idea-card-top">
         <input type="text" data-role="idea-title" value="${escapeHtml(idea.title || "")}" placeholder="제목 (예: 결말 아이디어)">
       </div>
@@ -5494,6 +5805,17 @@ function renderIdeaBoard(focusId = null) {
     });
     card.querySelector('[data-role="delete-idea"]').addEventListener("click", () => {
       deleteIdea(id).catch(handleError);
+    });
+    card.querySelectorAll('[data-role="idea-clip"]').forEach((btn) => {
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        const key = btn.dataset.ideaColorPick;
+        if (!key) return;
+        applyIdeaCardColor(card, key, { save: true });
+        syncIdeaCardClips(card, key);
+        toast(`메모 색: ${IDEA_COLORS.find((c) => c.key === key)?.label || key}`);
+      });
     });
     card.addEventListener("contextmenu", (event) => {
       // Don't steal browser menu from text selection inside inputs if needed —
@@ -5554,12 +5876,23 @@ function applyIdeaCardColor(card, colorKey, { save = true } = {}) {
   card.className = `idea-card color-${key}`;
   card.style.width = `${size.w}px`;
   card.style.height = `${size.h}px`;
+  syncIdeaCardClips(card, key);
   // Keep resize observer alive after className reset
   const id = Number(card.dataset.ideaCard);
   if (id) bindIdeaCardResize(card, id);
   if (save) {
     saveIdeaFromCard(card, { quiet: true }).catch(handleError);
   }
+}
+
+function syncIdeaCardClips(card, colorKey) {
+  if (!card) return;
+  const key = colorKey || card.dataset.ideaColor || "yellow";
+  card.querySelectorAll('[data-role="idea-clip"]').forEach((btn) => {
+    const active = btn.dataset.ideaColorPick === key;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
 }
 
 async function createIdeaNote() {
@@ -5634,24 +5967,30 @@ function setupIdeaBank() {
 }
 
 async function refreshAiStatus() {
-  const line = $("aiStatusLine");
-  if (!line) return;
   const setAiEnabled = (on) => {
     if ($("aiSubmitButton")) $("aiSubmitButton").disabled = !on;
     if ($("toryChatSendButton")) $("toryChatSendButton").disabled = !on;
     if ($("toryChatInput")) $("toryChatInput").disabled = !on;
   };
+  const setAdminGemini = (statusText, modelText) => {
+    if ($("adminGeminiStatus")) $("adminGeminiStatus").textContent = statusText;
+    if ($("adminGeminiModel")) $("adminGeminiModel").textContent = modelText;
+  };
   try {
     const status = await api("/api/ai/status");
     if (status.configured) {
-      line.textContent = `Gemini 연결됨 · 모델 ${status.model || "gemini"}`;
+      const model = status.model || "gemini";
+      setAdminGemini("연결됨", model);
       setAiEnabled(true);
     } else {
-      line.textContent = "Gemini API 키가 없습니다. 프로젝트 폴더 .env 에 GEMINI_API_KEY를 넣어 주세요.";
+      setAdminGemini(
+        "API 키 없음 (.env 에 GEMINI_API_KEY)",
+        "—",
+      );
       setAiEnabled(false);
     }
   } catch (error) {
-    line.textContent = error.message || "AI 상태를 확인하지 못했습니다.";
+    setAdminGemini(error.message || "상태를 확인하지 못함", "—");
     setAiEnabled(false);
   }
 }
@@ -5696,7 +6035,7 @@ function clearToryFocus({ silent = false } = {}) {
   state.toryFocusSceneId = null;
   state.toryFocusSceneTitle = "";
   updateToryFocusUi();
-  if (!silent) toast("토리 집중 분석을 해제했어요.");
+  if (!silent) toast("피드백 요청 연결을 해제했어요.");
 }
 
 async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
@@ -5716,13 +6055,97 @@ async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
     || `씬 #${id}`;
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
-  if ($("aiPrompt") && !$("aiPrompt").value.trim()) {
-    $("aiPrompt").value = "이 원고의 강점과 약점, 다음에 살릴 포인트, 바로 고칠 수 있는 조언을 부탁해.";
-  }
+  updateForeshadowPanelVisibility();
   updateToryFocusUi();
   refreshAiStatus().catch(handleError);
-  toast("이 원고에 집중 분석이 연결됐어요. 오른쪽 패널에서 분석을 이어 가세요.");
-  requestAnimationFrame(() => $("aiPrompt")?.focus());
+  await runFocusedAnalysis({ alreadyFocused: true });
+}
+
+/** Feedback request (analyze): editor + reader view of the current scene. */
+async function runFocusedAnalysis(options = {}) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("피드백할 원고(씬)를 먼저 열어 주세요.");
+    return;
+  }
+  const sceneContent = getEditorContent() || "";
+  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  if (!scenePlain) {
+    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    return;
+  }
+
+  if (!options.alreadyFocused) {
+    state.toryFocusSceneId = Number(state.sceneId);
+    state.toryFocusSceneTitle = state.scene?.title || $("sceneTitle")?.value || "";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "analyze";
+  updateForeshadowPanelVisibility();
+  updateToryFocusUi();
+
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "피드백 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "피드백 요청 중…";
+  }
+  if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const assistBody = {
+      mode: "analyze",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: state.scene?.title || $("sceneTitle")?.value || state.toryFocusSceneTitle || "",
+      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_content: scenePlain,
+      prompt: "",
+      user_prompt: "",
+      focus_scene_only: true,
+      tory_focus: true,
+      focus_scene_id: state.sceneId,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "analyze", scenePlain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "analyze" });
+    toast("피드백 요청이 끝났어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
 }
 
 const CUSTOM_ANALYZE_STORAGE_KEY = "supertory.customAnalyzeMenu";
@@ -5837,8 +6260,94 @@ async function runCustomAnalyzeItem(id) {
 }
 
 function closeAnalyzeMenu() {
-  $("analyzeMenuDropdown")?.classList.add("hidden");
+  const menu = $("analyzeMenuDropdown");
+  menu?.classList.add("hidden");
+  clearFeatureDropdownPlacement(menu);
   $("analyzeMenuButton")?.setAttribute("aria-expanded", "false");
+}
+
+/** Place a feature-bar dropdown in the viewport (avoids overflow clipping). */
+let viewModeDropdownHomeParent = null;
+
+function ensureViewModeDropdownHome() {
+  const menu = $("viewModeDropdown");
+  if (!menu) return null;
+  if (!viewModeDropdownHomeParent || viewModeDropdownHomeParent === document.body) {
+    if (menu.parentElement && menu.parentElement !== document.body) {
+      viewModeDropdownHomeParent = menu.parentElement;
+    }
+  }
+  return viewModeDropdownHomeParent;
+}
+
+function portalViewModeDropdownToBody(enable) {
+  const menu = $("viewModeDropdown");
+  if (!menu) return;
+  const home = ensureViewModeDropdownHome();
+  if (enable) {
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  } else if (home && menu.parentElement !== home) {
+    home.appendChild(menu);
+  }
+}
+
+function clearFeatureDropdownPlacement(menu) {
+  if (!menu) return;
+  menu.style.position = "";
+  menu.style.left = "";
+  menu.style.right = "";
+  menu.style.top = "";
+  menu.style.bottom = "";
+  menu.style.maxHeight = "";
+  menu.style.width = "";
+  menu.style.minWidth = "";
+  menu.style.zIndex = "";
+  menu.classList.remove("is-fixed-dropdown");
+}
+
+function placeFeatureDropdown(menu, anchor) {
+  if (!menu || !anchor) return;
+  const rect = anchor.getBoundingClientRect();
+  const gap = 6;
+  const pad = 8;
+  const vw = window.innerWidth;
+  const vh = window.innerHeight;
+  const minW = Math.min(300, vw - pad * 2);
+  const preferredW = Math.max(minW, Math.min(340, rect.width + 80));
+
+  // 큰 창(z-index 45) 위에 메뉴가 오도록 body로 포털 + 높은 z-index
+  const overFocusWrite = typeof isFocusWriteOpen === "function" && isFocusWriteOpen()
+    && (anchor.id === "focusWriteSplitButton" || Boolean(anchor.closest?.("#focusWriteModal")));
+  if (menu.id === "viewModeDropdown") portalViewModeDropdownToBody(overFocusWrite);
+
+  menu.classList.add("is-fixed-dropdown");
+  menu.style.position = "fixed";
+  menu.style.zIndex = overFocusWrite ? "60" : "240";
+  menu.style.minWidth = `${minW}px`;
+  menu.style.width = `${preferredW}px`;
+  menu.style.right = "auto";
+  menu.style.bottom = "auto";
+
+  // Measure after visible (caller removes .hidden first)
+  const menuH = Math.min(menu.scrollHeight || 280, Math.floor(vh * 0.7));
+  const spaceBelow = vh - rect.bottom - pad;
+  const spaceAbove = rect.top - pad;
+  let top;
+  let maxH;
+  if (spaceBelow >= Math.min(180, menuH) || spaceBelow >= spaceAbove) {
+    top = rect.bottom + gap;
+    maxH = Math.max(120, spaceBelow - gap);
+  } else {
+    maxH = Math.max(120, spaceAbove - gap);
+    top = Math.max(pad, rect.top - gap - Math.min(menuH, maxH));
+  }
+  menu.style.maxHeight = `${Math.floor(maxH)}px`;
+
+  let left = rect.left;
+  if (left + preferredW > vw - pad) left = vw - pad - preferredW;
+  if (left < pad) left = pad;
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
 }
 
 function toggleAnalyzeMenu() {
@@ -5852,6 +6361,7 @@ function toggleAnalyzeMenu() {
     renderCustomAnalyzeMenuItems();
     menu.classList.remove("hidden");
     btn.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => placeFeatureDropdown(menu, btn));
   } else {
     closeAnalyzeMenu();
   }
@@ -5913,7 +6423,7 @@ function setupAnalyzeMenu() {
     el.addEventListener("click", closeCustomAnalyzeModal);
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#analyzeMenuControl")) closeAnalyzeMenu();
+    if (!event.target.closest?.("#analyzeMenuControl, #analyzeMenuDropdown")) closeAnalyzeMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -5924,6 +6434,13 @@ function setupAnalyzeMenu() {
     }
     closeAnalyzeMenu();
   });
+  const reposition = () => {
+    const menu = $("analyzeMenuDropdown");
+    const btn = $("analyzeMenuButton");
+    if (menu && btn && !menu.classList.contains("hidden")) placeFeatureDropdown(menu, btn);
+  };
+  window.addEventListener("resize", reposition);
+  window.addEventListener("scroll", reposition, true);
 }
 
 /** Normalize manuscript text for phrase / similarity matching. */
@@ -6004,8 +6521,8 @@ function collectLocalDuplicateHits(currentPlain, neighbors) {
 }
 
 /**
- * Duplicate check: compare current episode with ±5 neighbors for
- * repeated expressions and similar content (wording may differ).
+ * Duplicate check: compare current episode with ±4 neighbors for
+ * repeated expressions (within episode) and overlapping explanations (neighbors).
  */
 async function runDuplicateCheck() {
   if (!state.projectId) {
@@ -6031,7 +6548,7 @@ async function runDuplicateCheck() {
   }
 
   const range = [];
-  for (let d = -5; d <= 5; d += 1) {
+  for (let d = -4; d <= 4; d += 1) {
     if (d === 0) continue;
     const ep = sequence[idx + d];
     if (ep) range.push(ep);
@@ -6086,24 +6603,29 @@ async function runDuplicateCheck() {
     const mainGenre = state.mainGenre || project?.main_genre || "";
     const subGenre = state.subGenre || project?.sub_genre || "";
 
+    const assistBody = {
+      mode: "dupcheck",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_content: sceneContent,
+      neighbor_scenes: neighbors,
+      local_hits: localHits,
+      prompt: "",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "dupcheck", scenePlain);
+
     const result = await api("/api/ai/assist", {
       method: "POST",
-      body: JSON.stringify({
-        mode: "dupcheck",
-        project_title: project?.title || "",
-        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
-        main_genre: mainGenre,
-        sub_genre: subGenre,
-        main_genre_label: mainGenreLabel(mainGenre),
-        sub_genre_label: subGenreLabel(mainGenre, subGenre),
-        keywords: normalizeKeywordList(state.keywords),
-        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
-        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
-        scene_content: sceneContent,
-        neighbor_scenes: neighbors,
-        local_hits: localHits,
-        prompt: "",
-      }),
+      body: JSON.stringify(assistBody),
     });
 
     let text = result.text || "(결과 없음)";
@@ -6111,14 +6633,13 @@ async function runDuplicateCheck() {
       const preview = localHits.slice(0, 8).map((h) =>
         `· [${h.kind}] 「${h.phrase}」 — ${h.where}`
       ).join("\n");
-      text = `📋 자동 탐지 후보 ${localHits.length}건 (일부)\n${preview}\n\n---\n\n${text}`;
+      text = `자동 탐지 후보 ${localHits.length}건 (일부)\n${preview}\n\n---\n\n${text}`;
     } else if (!neighbors.length) {
       text = `ℹ️ 비교할 앞뒤 회차가 없습니다. (현재 회차만 검토)\n\n${text}`;
     }
 
     if ($("aiResult")) $("aiResult").value = text;
-    $("aiResultWrap")?.classList.remove("hidden");
-    if (isAiResultModalOpen()) syncAiResultModalBody();
+    revealAiAssistResult({ openModal: true, mode: "dupcheck" });
     toast(neighbors.length
       ? `중복 체크 완료 · 인근 ${neighbors.length}회차 비교`
       : "중복 체크 완료 · 인근 회차 없음");
@@ -6136,22 +6657,30 @@ async function runDuplicateCheck() {
   }
 }
 
-/** World lore scan: compare worldbuilding settings vs current manuscript. */
+/** Display name for assist mode worldscan (internal key kept for API compatibility). */
+const SETTING_BREAK_SCAN_LABEL = "설정 붕괴 감지기";
+const SETTING_BREAK_SCAN_BUSY = "설정 붕괴 감지 중…";
+
+/** World/character consistency scan: compare settings vs current manuscript. */
 async function runWorldScan() {
   if (!state.projectId) {
     toast("먼저 작품을 선택해 주세요.");
     return;
   }
   if (!state.sceneId) {
-    toast("스캔할 원고(씬)를 먼저 열어 주세요.");
+    toast("검사할 원고(씬)를 먼저 열어 주세요.");
     return;
   }
   const worldRaw = state.worldbuildingMd
     || $("projectWorldbuilding")?.value
     || "";
   const worldText = (looksLikeHtml(worldRaw) ? plainTextFromHtml(worldRaw) : String(worldRaw || "")).trim();
-  if (!worldText) {
-    toast("설정집 · 세계관이 비어 있어요. 세계관을 먼저 적어 주세요.");
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const hasChars = Array.isArray(state.characters) && state.characters.length > 0;
+  const hasKeywords = normalizeKeywordList(state.keywords || project?.keywords || []).length > 0;
+  if (!worldText && !mainGenre && !hasChars && !hasKeywords) {
+    toast("장르·세계관·캐릭터·키워드 중 하나 이상 설정해 주세요. 판단 근거가 필요해요.");
     setActiveBinder("settings");
     state.openSettingsSection = "world";
     applySettingsSectionState();
@@ -6160,28 +6689,26 @@ async function runWorldScan() {
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 스캔해 주세요.");
+    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
     return;
   }
 
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "worldscan";
   updateForeshadowPanelVisibility();
-  const project = state.projects.find((item) => item.id === state.projectId);
-  const mainGenre = state.mainGenre || project?.main_genre || "";
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "스캔 중…";
+    button.textContent = "검사 중…";
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "세계관 수호자 스캔 중…";
+    aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
-  if ($("aiResult")) $("aiResult").value = "세계관·장르·캐릭터 프로필과 원고를 대조하는 중…";
+  if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
   $("aiResultWrap")?.classList.remove("hidden");
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -6192,28 +6719,30 @@ async function runWorldScan() {
       mainGenre,
       subGenre,
     });
+    const assistBody = {
+      mode: "worldscan",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_content: sceneContent,
+      prompt: "",
+      ...lore,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "worldscan", scenePlain);
     const result = await api("/api/ai/assist", {
       method: "POST",
-      body: JSON.stringify({
-        mode: "worldscan",
-        project_title: project?.title || "",
-        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
-        main_genre: mainGenre,
-        sub_genre: subGenre,
-        main_genre_label: mainGenreLabel(mainGenre),
-        sub_genre_label: subGenreLabel(mainGenre, subGenre),
-        keywords: normalizeKeywordList(state.keywords),
-        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
-        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
-        scene_content: sceneContent,
-        prompt: "",
-        ...lore,
-      }),
+      body: JSON.stringify(assistBody),
     });
     if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
-    $("aiResultWrap")?.classList.remove("hidden");
-    if (isAiResultModalOpen()) syncAiResultModalBody();
-    toast("세계관 수호자 스캔이 끝났어요. 오른쪽 패널에서 결과를 확인하세요.");
+    revealAiAssistResult({ openModal: true, mode: "worldscan" });
+    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`);
   } catch (error) {
     handleError(error);
   } finally {
@@ -6284,6 +6813,7 @@ function buildToryProjectContextPayload(options = {}) {
     world_setting_keywords,
     character_profiles: characterProfiles,
     world_setting: worldText,
+    tory_priority_md: String(state.toryPriorityMd || "").trim(),
   };
   return {
     system_instruction_vars,
@@ -6293,11 +6823,13 @@ function buildToryProjectContextPayload(options = {}) {
     project_genre_main,
     project_genre_sub,
     world_setting_keywords,
+    tory_priority_md: String(state.toryPriorityMd || "").trim(),
+    project_id: state.projectId || null,
   };
 }
 
 /**
- * Lore Keeper input contract for worldscan:
+ * Lore input contract for worldscan (설정 붕괴 감지기):
  * {
  *   world_setting, genre_rules, character_profiles,
  *   sensitivity_level (1–5, default 4), target_text
@@ -6426,12 +6958,30 @@ function parseBuildupLines(text) {
     .slice(0, 30);
 }
 
+function setForeshadowLabelText(labelEl, text) {
+  if (!labelEl) return;
+  // Keep the control (select/input/textarea) as the last child; replace only the label text.
+  const control = labelEl.querySelector("select, input, textarea");
+  if (!control) {
+    labelEl.textContent = text;
+    return;
+  }
+  while (labelEl.firstChild && labelEl.firstChild !== control) {
+    labelEl.removeChild(labelEl.firstChild);
+  }
+  labelEl.insertBefore(document.createTextNode(`${text}\n`), control);
+}
+
 function renderForeshadowSelect(selectedId = "") {
   const select = $("foreshadowSelect");
   if (!select) return;
   const list = loadForeshadows();
+  const mode = $("aiMode")?.value || "";
+  const emptyLabel = mode === "plottwist"
+    ? "반전 복선을 선택하거나 아래에서 추가"
+    : "복선을 선택하거나 아래에서 추가";
   const options = [
-    `<option value="">복선을 선택하거나 아래에서 추가</option>`,
+    `<option value="">${emptyLabel}</option>`,
     ...list.map((item) => {
       const label = `${item.title}${item.target ? ` → ${item.target}` : ""}`;
       const sel = item.id === selectedId ? " selected" : "";
@@ -6464,6 +7014,9 @@ function isForeshadowToolMode(mode = $("aiMode")?.value || "") {
 function getContinueLengthMode() {
   const checked = document.querySelector('input[name="continueLengthMode"]:checked');
   const raw = String(checked?.value || "short").trim().toLowerCase();
+  if (typeof CONTINUE_LENGTH_MODES === "object" && CONTINUE_LENGTH_MODES && raw in CONTINUE_LENGTH_MODES) {
+    return raw;
+  }
   return raw === "scene" || raw === "proportional" ? raw : "short";
 }
 
@@ -6471,43 +7024,238 @@ function getContinueUserHint() {
   return String($("continueHint")?.value || "").trim();
 }
 
+/** "current" | "other" — which page to continue from. */
+function getContinueSourceMode() {
+  const checked = document.querySelector('input[name="continueSourceMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  return raw === "other" ? "other" : "current";
+}
+
+function getContinueOtherSceneId() {
+  const n = Number($("continueOtherSceneSelect")?.value || 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Resolve the scene id that continue mode should write from. */
+function getContinueTargetSceneId() {
+  if (getContinueSourceMode() === "other") {
+    return getContinueOtherSceneId();
+  }
+  return state.sceneId ? Number(state.sceneId) : null;
+}
+
+function renderContinueEpisodeOptions() {
+  const select = $("continueOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  // Restore previous pick, else prefer first non-current episode, else current.
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function updateContinueSourceUi() {
+  const other = getContinueSourceMode() === "other";
+  $("continueOtherSceneWrap")?.classList.toggle("hidden", !other);
+  const hint = $("continueSourceHint");
+  if (hint) {
+    if (other) {
+      const sel = $("continueOtherSceneSelect");
+      const label = sel?.selectedOptions?.[0]?.textContent?.trim() || "선택한 회차";
+      hint.textContent = sel?.value
+        ? `「${label}」 끝에서 이어 씁니다. 실행 시 해당 회차를 엽니다.`
+        : "이어 쓸 회차를 목록에서 골라 주세요.";
+    } else {
+      const cur = state.scene?.title || $("sceneTitle")?.value || "";
+      hint.textContent = cur
+        ? `지금 편집 중인 「${cur}」 끝에서 이어 씁니다.`
+        : "지금 편집 중인 회차 끝에서 이어 씁니다. 원고를 먼저 열어 두세요.";
+    }
+  }
+  if (other) renderContinueEpisodeOptions();
+}
+
+function setupContinueSourceUi() {
+  const host = $("continueSourceOptions");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("change", (event) => {
+    if (!event.target?.matches?.('input[name="continueSourceMode"]')) return;
+    updateContinueSourceUi();
+  });
+  $("continueOtherSceneSelect")?.addEventListener("change", () => updateContinueSourceUi());
+}
+
+function getBrainstormTopic() {
+  return String($("brainstormTopic")?.value || "").trim();
+}
+
+function getWorldDescSubject() {
+  return String($("worldDescSubject")?.value || "").trim();
+}
+
+/** Populate length radios from CONTINUE_LENGTH_MODES keys/labels. */
+function renderContinueLengthOptions() {
+  const fieldset = $("continueLengthOptions");
+  if (!fieldset || typeof CONTINUE_LENGTH_MODES !== "object" || !CONTINUE_LENGTH_MODES) return;
+  const current = getContinueLengthMode();
+  const options = Object.entries(CONTINUE_LENGTH_MODES).map(([key, cfg]) => {
+    const label = String(cfg?.label || key);
+    const checked = key === current ? " checked" : "";
+    return (
+      `<label class="continue-length-option">`
+      + `<input type="radio" name="continueLengthMode" value="${escapeHtml(key)}"${checked}>`
+      + `<span>${escapeHtml(label)}</span>`
+      + `</label>`
+    );
+  }).join("");
+  fieldset.innerHTML = `<legend class="sr-only">이어 쓸 분량</legend>${options}`;
+}
+
 function updateContinuePanelVisibility() {
   const mode = $("aiMode")?.value || "";
   const panel = $("continuePanel");
+  const rewritePanel = $("rewritePanel");
+  const brainstormPanel = $("brainstormPanel");
+  const worldDescPanel = $("worldDescPanel");
+  const subsynopsisPanel = $("subsynopsisPanel");
   const promptWrap = $("aiPromptWrap");
-  const show = mode === "continue";
-  panel?.classList.toggle("hidden", !show);
-  // Continue uses dedicated hint field; hide generic extra-request box to avoid duplication.
-  promptWrap?.classList.toggle("hidden", show);
+  const promptLabel = $("aiPromptLabel");
+  const prompt = $("aiPrompt");
+  const showContinue = mode === "continue";
+  const showRewrite = mode === "rewrite";
+  const showBrainstorm = mode === "brainstorm";
+  const showWorldDesc = mode === "worlddesc";
+  const showSubsynopsis = mode === "subsynopsis";
+  const toolPopup = typeof isAiToolPopupMode === "function" && isAiToolPopupMode(mode);
+  if (showContinue) {
+    renderContinueLengthOptions();
+    if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
+  }
+  // Panels for popup modes stay visible inside the modal only when that mode is active.
+  panel?.classList.toggle("hidden", !showContinue);
+  rewritePanel?.classList.toggle("hidden", !showRewrite);
+  brainstormPanel?.classList.toggle("hidden", !showBrainstorm);
+  worldDescPanel?.classList.toggle("hidden", !showWorldDesc);
+  subsynopsisPanel?.classList.toggle("hidden", !showSubsynopsis);
+  // Never leave HTML5 required on a hidden field — it blocks the whole form submit
+  // (including 투고·공모전용 시놉시스) without a visible error.
+  const worldSubject = $("worldDescSubject");
+  if (worldSubject) worldSubject.required = false;
+  // Dedicated panels / tool popups hide the free prompt box in the side form.
+  const showSuccessPattern = mode === "successpattern";
+  const hideSidePrompt = showContinue || showRewrite || showBrainstorm || showWorldDesc
+    || showSubsynopsis || showSuccessPattern || toolPopup || isForeshadowToolMode(mode);
+  promptWrap?.classList.toggle("hidden", hideSidePrompt);
+  // Side submit is hidden for wizard/tool popup modes (run from modal).
+  $("aiSubmitButton")?.classList.toggle("hidden", showSuccessPattern || toolPopup || isForeshadowToolMode(mode));
+  $("successPatternInlineHint")?.classList.toggle("hidden", !showSuccessPattern);
+  if (typeof updateAiToolPopupVisibility === "function") {
+    updateAiToolPopupVisibility();
+  }
+  if (typeof updateSuccessProfileRefUi === "function") {
+    updateSuccessProfileRefUi();
+  }
+  if (promptLabel) {
+    promptLabel.textContent = mode === "free" ? "요청 내용" : "추가 요청 (선택)";
+  }
+  if (prompt && mode === "free") {
+    prompt.placeholder = "예: 이 인물의 성격을 3줄로 정리해 줘. / 이 장면을 더 긴장감 있게 고쳐 줘.";
+  }
+  if (prompt && mode === "subsynopsis") {
+    prompt.placeholder = "추가 요청은 쓰지 않아도 됩니다. 실행하면 줄거리 개요·글자수 안내가 이어집니다.";
+  }
+}
+
+const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
+const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
+
+/** Highlight 흥행 공식 분석 / 흥행 공식 피드백 in the helper mode select. */
+function updateAiModeSuccessStyle() {
+  const sel = $("aiMode");
+  if (!sel) return;
+  const on = AI_SUCCESS_MODE_VALUES.has(sel.value);
+  sel.classList.toggle("is-success-mode", on);
+  const coming = AI_COMING_MODE_VALUES.has(sel.value);
+  sel.classList.toggle("is-coming-mode", coming);
 }
 
 function updateForeshadowPanelVisibility() {
   const mode = $("aiMode")?.value || "";
+  updateAiModeSuccessStyle();
   const panel = $("foreshadowPanel");
   if (!panel) return;
   const show = isForeshadowToolMode(mode);
   panel.classList.toggle("hidden", !show);
+  panel.dataset.toolMode = show ? mode : "";
 
   const titleEl = $("foreshadowPanelTitle");
   const hintEl = $("foreshadowPanelHint");
   const modeHint = $("foreshadowModeHint");
   const prompt = $("aiPrompt");
+  const saveBtn = $("foreshadowSaveButton");
+  const delBtn = $("foreshadowDeleteButton");
+  const titleInput = $("foreshadowTitle");
+  const targetInput = $("foreshadowTarget");
+  const buildupInput = $("foreshadowBuildup");
 
   if (mode === "foreshadow") {
-    if (titleEl) titleEl.textContent = "복선/떡밥 레이더";
-    if (hintEl) hintEl.textContent = "등록 단서가 현재 원고에 잘 녹아 있는지, 미회수 떡밥을 짚습니다.";
-    if (modeHint) {
-      modeHint.textContent = "현재 열린 원고에 단서가 반영됐는지 검사합니다. 단서를 심은 장·반전 전 원고를 열고 실행하세요.";
+    if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
+    if (hintEl) {
+      hintEl.textContent = "「단서가 원고에 심겼는지」를 봅니다. 반전 개연성 평가가 아닙니다.";
     }
+    if (modeHint) {
+      modeHint.textContent = "단서를 심은 장·반전 전 원고를 연 뒤 실행하세요. 등록 단서 반영 여부·잠재 복선·미회수 떡밥을 짚습니다.";
+    }
+    setForeshadowLabelText($("foreshadowSelectLabel"), "검수할 복선");
+    setForeshadowLabelText($("foreshadowTitleLabel"), "복선 제목");
+    setForeshadowLabelText($("foreshadowTargetLabel"), "반전 목표 장");
+    setForeshadowLabelText($("foreshadowBuildupLabel"), "빌드업·단서 (한 줄에 하나)");
+    if (titleInput) titleInput.placeholder = "예: 집사의 배신";
+    if (targetInput) targetInput.placeholder = "예: 12장";
+    if (buildupInput) buildupInput.placeholder = "2장: 수상한 태도\n6장: 밤중에 외출";
+    if (saveBtn) saveBtn.textContent = "복선 저장";
+    if (delBtn) delBtn.textContent = "선택 삭제";
+    panel.setAttribute("aria-label", "떡밥·복선 탐색기");
     if (prompt) {
       prompt.placeholder = "추가 요청 (선택) 예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.";
     }
   } else if (mode === "plottwist") {
     if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
-    if (hintEl) hintEl.textContent = "반전 장 원고가 쌓아 온 복선으로 충분히 지지되는지 냉정히 평가합니다.";
-    if (modeHint) {
-      modeHint.textContent = "반전이 터지는 장의 원고를 연 뒤 실행하세요. 등록 빌드업과 비교해 개연성을 검사합니다.";
+    if (hintEl) {
+      hintEl.textContent = "「반전이 억지인지」를 봅니다. 단서 심기 체크리스트가 아닙니다.";
     }
+    if (modeHint) {
+      modeHint.textContent = "반전이 터지는 장의 원고를 연 뒤 실행하세요. 등록 빌드업이 반전을 설득력 있게 지지하는지 평가합니다.";
+    }
+    setForeshadowLabelText($("foreshadowSelectLabel"), "평가할 반전 복선");
+    setForeshadowLabelText($("foreshadowTitleLabel"), "반전·폭로 제목");
+    setForeshadowLabelText($("foreshadowTargetLabel"), "반전 장 (지금 연 원고)");
+    setForeshadowLabelText($("foreshadowBuildupLabel"), "쌓아 둔 빌드업 근거 (한 줄에 하나)");
+    if (titleInput) titleInput.placeholder = "예: 묵연의 정체 폭로";
+    if (targetInput) targetInput.placeholder = "예: 12장 (반전이 터지는 장)";
+    if (buildupInput) {
+      buildupInput.placeholder = "2장: 은빛 문양\n6장: 달빛 암호\n9장: 빗물 없는 칼집";
+    }
+    if (saveBtn) saveBtn.textContent = "반전 복선 저장";
+    if (delBtn) delBtn.textContent = "선택 삭제";
+    panel.setAttribute("aria-label", "반전 & 개연성 검사기");
     if (prompt) {
       prompt.placeholder = "추가 요청 (선택) 예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.";
     }
@@ -6517,6 +7265,12 @@ function updateForeshadowPanelVisibility() {
 
   if (show) renderForeshadowSelect($("foreshadowSelect")?.value || "");
   updateContinuePanelVisibility();
+  if (typeof updateSuccessPatternWizardVisibility === "function") {
+    updateSuccessPatternWizardVisibility();
+  }
+  if (typeof updateSuccessProfileRefUi === "function") {
+    updateSuccessProfileRefUi();
+  }
 }
 
 function saveForeshadowFromForm() {
@@ -6577,6 +7331,7 @@ function getSelectedForeshadow() {
 
 function setupForeshadowPanel() {
   $("aiMode")?.addEventListener("change", updateForeshadowPanelVisibility);
+  $("aiMode")?.addEventListener("change", updateAiModeSuccessStyle);
   $("foreshadowSelect")?.addEventListener("change", () => {
     const id = $("foreshadowSelect")?.value || "";
     const item = loadForeshadows().find((f) => f.id === id);
@@ -6589,16 +7344,55 @@ function setupForeshadowPanel() {
     deleteSelectedForeshadow();
   });
   updateForeshadowPanelVisibility();
+  updateAiModeSuccessStyle();
 }
 
 async function submitAiAssist(event) {
   event.preventDefault();
   const mode = $("aiMode").value;
+  if (mode === "successpattern") {
+    // Wizard has its own 분석 시작 button.
+    if (successPatternState.step < 6) {
+      toast("흥행 공식 분석은 단계 안내를 따라 진행해 주세요.");
+    } else {
+      await runSuccessPatternAnalysis();
+    }
+    return;
+  }
+  if (mode === "successfeedback") {
+    await runSuccessFormulaFeedback();
+    return;
+  }
+  if (mode === "scriptadapt") {
+    toast("방송국, 기획사 투고를 위해 작품을 각본으로 변환해드려요. 곧 만나보실 수 있어요!");
+    return;
+  }
+  if (mode === "audiobook") {
+    toast("오디오북 플랫폼 투고를 위해 작품을 낭독 대본(화자 표시, 지문 처리)으로 변환해드려요. 곧 만나보실 수 있어요!");
+    return;
+  }
+  if (mode === "multilang") {
+    toast("해외 투고·출간을 위해 작품을 다른 언어로 번역해드려요. 곧 만나보실 수 있어요!");
+    return;
+  }
+  if (mode === "subsynopsis") {
+    await runSubmissionSynopsis();
+    return;
+  }
   const prompt = mode === "continue"
     ? getContinueUserHint()
-    : $("aiPrompt").value.trim();
+    : mode === "brainstorm"
+      ? getBrainstormTopic()
+      : mode === "worlddesc"
+        ? getWorldDescSubject()
+        : $("aiPrompt").value.trim();
   if (mode === "free" && !prompt) {
     toast("직접 요청하기는 내용을 적어 주세요.");
+    return;
+  }
+  if (mode === "worlddesc" && !prompt) {
+    toast("묘사 대상을 적어 주세요. 예: 왕궁 내부 묘사 / 마법 체계 설명");
+    $("worldDescSubject")?.focus();
     return;
   }
   // If TORY focus is set to another scene, open it so content matches.
@@ -6634,10 +7428,96 @@ async function submitAiAssist(event) {
     }
   }
 
-  if (mode === "continue" && !state.sceneId) {
-    toast("이어 쓰려면 먼저 씬을 열어 주세요.");
+  if (mode === "continue") {
+    const targetId = getContinueTargetSceneId();
+    if (!targetId) {
+      toast(
+        getContinueSourceMode() === "other"
+          ? "이어 쓸 회차를 선택해 주세요."
+          : "이어 쓰려면 먼저 씬을 열어 주세요.",
+      );
+      if (getContinueSourceMode() === "other") $("continueOtherSceneSelect")?.focus();
+      return;
+    }
+    // Open the chosen episode so content + insert target match.
+    if (Number(state.sceneId) !== Number(targetId)) {
+      try {
+        await openScene(targetId);
+      } catch (error) {
+        handleError(error);
+        return;
+      }
+    }
+  }
+
+  if (mode === "rewrite") {
+    const payload = typeof getRewriteAssistPayload === "function"
+      ? getRewriteAssistPayload()
+      : getRewriteSelectionPayload();
+    if (!payload?.selectedText) {
+      toast(
+        (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct")
+          ? "다듬을 문장을 직접 입력해 주세요."
+          : "다듬을 문장을 드래그로 선택한 뒤 실행해 주세요.",
+      );
+      if (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct") {
+        $("rewriteDirectText")?.focus();
+      }
+      return;
+    }
+    await executeRewriteAssist(payload);
     return;
   }
+
+  const sceneContentRaw = state.sceneId ? getEditorContent() : "";
+  const scenePlain = (looksLikeHtml(sceneContentRaw)
+    ? plainTextFromHtml(sceneContentRaw)
+    : String(sceneContentRaw || "")).trim();
+  if (mode === "continue" && !scenePlain) {
+    toast("이어 쓰려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "analyze" && !scenePlain) {
+    toast("피드백할 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "summarize" && !scenePlain) {
+    toast("회차 요약할 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "ideas" && !scenePlain) {
+    toast("다음 아이디어를 제안하려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "brainstorm" && !scenePlain) {
+    toast("브레인스토밍하려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "worlddesc" && !scenePlain) {
+    toast("문체 참고용으로 현재 회차 원고가 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+  if (mode === "dupcheck" && !scenePlain) {
+    toast("중복 체크할 원고를 먼저 열어 주세요.");
+    return;
+  }
+  if (mode === "worldscan" && !scenePlain) {
+    toast("설정 붕괴를 검사할 원고를 먼저 열어 주세요.");
+    return;
+  }
+  if (isForeshadowToolMode(mode) && !scenePlain) {
+    toast(
+      mode === "plottwist"
+        ? "반전이 일어나는 장의 원고를 먼저 열어 주세요."
+        : "검수할 원고를 먼저 열어 주세요.",
+    );
+    return;
+  }
+
+  const selectedManuscript = mode === "free"
+    ? (typeof getSelectedManuscriptText === "function" ? getSelectedManuscriptText() : "")
+    : "";
+  const freeSourceText = (selectedManuscript || scenePlain).trim();
 
   const continueLengthMode = mode === "continue" ? getContinueLengthMode() : null;
   const project = state.projects.find((item) => item.id === state.projectId);
@@ -6656,7 +7536,10 @@ async function submitAiAssist(event) {
     keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
     scene_title: state.scene?.title || $("sceneTitle")?.value || state.toryFocusSceneTitle || "",
     scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
-    scene_content: state.sceneId ? getEditorContent() : "",
+    scene_content: mode === "continue" || mode === "free" || mode === "analyze"
+      || mode === "ideas" || mode === "brainstorm" || mode === "worlddesc"
+      ? (mode === "free" ? freeSourceText : scenePlain)
+      : sceneContentRaw,
     focus_scene_only: Boolean(state.toryFocusSceneId),
     tory_focus: Boolean(state.toryFocusSceneId),
     focus_scene_id: state.toryFocusSceneId || state.sceneId || null,
@@ -6666,6 +7549,22 @@ async function submitAiAssist(event) {
     body.length_mode = continueLengthMode;
     body.continue_length_mode = continueLengthMode;
     body.user_hint = prompt;
+  }
+  if (mode === "brainstorm") {
+    body.user_topic = prompt;
+  }
+  if (mode === "worlddesc") {
+    body.target_subject = prompt;
+    body.user_topic = prompt;
+  }
+  if (mode === "free") {
+    body.user_request = prompt;
+    body.selection_only = Boolean(selectedManuscript);
+  }
+  if (mode === "summarize") {
+    // Detailed reading summary — no project index (same reason as one-line binder summary).
+    body.task_prompt = buildDetailedSceneSummaryPrompt(scenePlain);
+    body.scene_content = scenePlain;
   }
   // Dynamic context override: always inject live project genre / world / characters
   Object.assign(body, buildToryProjectContextPayload());
@@ -6682,24 +7581,34 @@ async function submitAiAssist(event) {
   const button = $("aiSubmitButton");
   button.disabled = true;
   button.textContent = mode === "foreshadow"
-    ? "떡밥 레이더 가동 중…"
+    ? "떡밥 탐색기 가동 중…"
     : mode === "plottwist"
       ? "반전 개연성 검사 중…"
       : mode === "worldscan"
-        ? "세계관 수호자 스캔 중…"
+        ? SETTING_BREAK_SCAN_BUSY
         : mode === "dupcheck"
           ? "중복 체크 중…"
+          : mode === "analyze"
+            ? "피드백 요청 중…"
+          : mode === "summarize"
+            ? "회차 요약 중…"
+          : mode === "ideas"
+            ? "다음 아이디어 제안 중…"
+          : mode === "brainstorm"
+            ? "브레인스토밍 중…"
+          : mode === "worlddesc"
+            ? "세계관 묘사 작성 중…"
           : mode === "continue"
             ? "이어서 쓰는 중…"
             : "생각 중…";
   try {
-    // Panel-driven dupcheck: attach ±5 neighbors when user picks mode from AI form
+    // Panel-driven dupcheck: attach ±4 neighbors when user picks mode from AI form
     if (mode === "dupcheck" && !body.neighbor_scenes) {
       const sequence = getEpisodeSequence();
       const idx = findEpisodeIndex(state.sceneId, sequence);
       const range = [];
       if (idx >= 0) {
-        for (let d = -5; d <= 5; d += 1) {
+        for (let d = -4; d <= 4; d += 1) {
           if (d === 0) continue;
           const ep = sequence[idx + d];
           if (ep) range.push(ep);
@@ -6725,24 +7634,42 @@ async function submitAiAssist(event) {
       const plainCur = (looksLikeHtml(body.scene_content) ? plainTextFromHtml(body.scene_content) : String(body.scene_content || "")).trim();
       body.local_hits = collectLocalDuplicateHits(plainCur, neighbors);
     }
+    if (INDEX_AWARE_ASSIST_MODES.has(mode)) {
+      const plainForIndex = (looksLikeHtml(body.scene_content)
+        ? plainTextFromHtml(body.scene_content)
+        : String(body.scene_content || "")).trim();
+      await attachIndexedPromptToAssistBody(body, mode, plainForIndex);
+    }
     const result = await api("/api/ai/assist", {
       method: "POST",
       body: JSON.stringify(body),
     });
     $("aiResult").value = result.text || "";
-    $("aiResultWrap").classList.remove("hidden");
-    if (isAiResultModalOpen()) syncAiResultModalBody();
+    if (mode === "continue") {
+      prepareStyleBlendOffer({
+        source: "continue",
+        referenceText: scenePlain,
+        targetText: result.text || "",
+      });
+    } else {
+      prepareStyleBlendOffer(null);
+    }
+    revealAiAssistResult({ openModal: true, mode });
     toast(
       mode === "foreshadow"
-        ? "복선/떡밥 레이더 검수가 끝났어요."
+        ? "떡밥·복선 탐색기 검수가 끝났어요."
         : mode === "plottwist"
           ? "반전 & 개연성 검사가 끝났어요."
           : mode === "worldscan"
-            ? "세계관 수호자 스캔이 끝났어요."
+            ? `${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`
           : mode === "continue"
             ? "이어서 쓴 초안을 받았어요."
-          : state.toryFocusSceneId
-            ? "토리 집중 분석 응답을 받았어요."
+          : mode === "worlddesc"
+            ? "세계관 묘사 제안을 받았어요."
+          : mode === "summarize"
+            ? "회차 요약을 받았어요."
+          : mode === "analyze" || state.toryFocusSceneId
+            ? "피드백 요청이 끝났어요."
             : "AI 응답을 받았어요."
     );
   } catch (error) {
@@ -6815,6 +7742,98 @@ function syncAiResultModalBody() {
   if (!body) return;
   const text = String($("aiResult")?.value || "");
   body.textContent = text || "(결과가 비어 있어요.)";
+  const showContinueBlend = Boolean(
+    pendingStyleBlendContext?.source === "continue"
+    && pendingStyleBlendContext?.referenceText
+    && pendingStyleBlendContext?.targetText
+  );
+  $("styleBlendOfferModal")?.classList.toggle("hidden", !showContinueBlend);
+}
+
+const AI_RESULT_HISTORY_PREFIX = "supertory.aiResultHistory.";
+const AI_RESULT_HISTORY_MAX = 40;
+let aiResultHistoryViewId = null;
+
+function aiResultHistoryKey(projectId = state.projectId) {
+  return `${AI_RESULT_HISTORY_PREFIX}${projectId || "0"}`;
+}
+
+function loadAiResultHistory(projectId = state.projectId) {
+  if (!projectId) return [];
+  try {
+    const raw = localStorage.getItem(aiResultHistoryKey(projectId));
+    const arr = raw ? JSON.parse(raw) : [];
+    return Array.isArray(arr) ? arr.filter((item) => item && item.id && item.text) : [];
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveAiResultHistory(list, projectId = state.projectId) {
+  if (!projectId) return;
+  try {
+    localStorage.setItem(aiResultHistoryKey(projectId), JSON.stringify(list.slice(0, AI_RESULT_HISTORY_MAX)));
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function isAiResultPendingText(text) {
+  const t = String(text || "").trim();
+  if (!t) return true;
+  if (t === "(결과 없음)") return true;
+  return /중…$|중\.\.\.$/.test(t);
+}
+
+function pushAiResultHistory(entry = {}) {
+  if (!state.projectId) return null;
+  const text = String(entry.text ?? $("aiResult")?.value ?? "").trim();
+  if (!text || isAiResultPendingText(text)) return null;
+  const mode = entry.mode || $("aiMode")?.value || "free";
+  const item = {
+    id: `arh-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+    mode,
+    modeLabel: entry.modeLabel || (typeof aiModeLabel === "function" ? aiModeLabel(mode) : mode),
+    sceneId: entry.sceneId != null ? Number(entry.sceneId) : (state.sceneId || null),
+    sceneTitle: String(entry.sceneTitle || state.scene?.title || $("sceneTitle")?.value || "").trim(),
+    text,
+    createdAt: new Date().toISOString(),
+  };
+  const list = loadAiResultHistory();
+  // Avoid consecutive duplicates of the same text+mode
+  if (list[0] && list[0].text === item.text && list[0].mode === item.mode) {
+    return list[0];
+  }
+  list.unshift(item);
+  saveAiResultHistory(list);
+  return item;
+}
+
+/** Show assist result in the right panel and open the large reader. */
+function revealAiAssistResult(options = {}) {
+  const openModal = options.openModal !== false;
+  const recordHistory = options.recordHistory !== false;
+  setAiPanelOpen(true);
+  try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
+  const wrap = $("aiResultWrap");
+  const text = String($("aiResult")?.value || "").trim();
+  wrap?.classList.remove("hidden");
+  wrap?.classList.toggle("is-empty", !text);
+  if (recordHistory && text && !isAiResultPendingText(text)) {
+    pushAiResultHistory({
+      mode: options.mode || $("aiMode")?.value || "free",
+      text,
+      sceneId: options.sceneId,
+      sceneTitle: options.sceneTitle,
+    });
+  }
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+  requestAnimationFrame(() => {
+    wrap?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    if (openModal && text && !isAiResultPendingText(text)) {
+      openAiResultModal();
+    }
+  });
 }
 
 function openAiResultModal() {
@@ -6827,14 +7846,140 @@ function openAiResultModal() {
   if (!modal) return;
   syncAiResultModalBody();
   modal.classList.remove("hidden");
-  // Focus readable body for keyboard scroll / a11y
   requestAnimationFrame(() => {
     $("aiResultModalBody")?.focus?.();
   });
 }
 
-function closeAiResultModal() {
+function closeAiResultModal({ quiet = false } = {}) {
+  const wasOpen = isAiResultModalOpen();
   $("aiResultModal")?.classList.add("hidden");
+  if (wasOpen && !quiet) {
+    toast("닫아도 「결과」옆 히스토리에서 다시 확인할 수 있어요.");
+  }
+}
+
+function isAiResultHistoryModalOpen() {
+  const modal = $("aiResultHistoryModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
+function formatAiResultHistoryWhen(iso) {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return "";
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    const hh = String(d.getHours()).padStart(2, "0");
+    const mm = String(d.getMinutes()).padStart(2, "0");
+    return `${y}.${m}.${day} ${hh}:${mm}`;
+  } catch (_) {
+    return "";
+  }
+}
+
+function showAiResultHistoryListView() {
+  aiResultHistoryViewId = null;
+  $("aiResultHistoryList")?.classList.remove("hidden");
+  $("aiResultHistoryListActions")?.classList.remove("hidden");
+  $("aiResultHistoryDetail")?.classList.add("hidden");
+  renderAiResultHistoryList();
+}
+
+function renderAiResultHistoryList() {
+  const list = $("aiResultHistoryList");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 결과 히스토리를 볼 수 있어요.</p>`;
+    return;
+  }
+  const items = loadAiResultHistory();
+  if (!items.length) {
+    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 결과가 없어요.<br>피드백·분석을 받으면 여기에 쌓입니다.</p>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const when = formatAiResultHistoryWhen(item.createdAt);
+    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : "원고";
+    const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || "결과");
+    const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 72));
+    return `
+      <button type="button" class="tory-chat-history-item" data-ai-result-history="${escapeHtml(item.id)}">
+        <strong>${label}</strong>
+        <span class="count">${when || ""}</span>
+        <span class="meta">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 72 ? "…" : ""}` : ""}</span>
+      </button>`;
+  }).join("");
+}
+
+function openAiResultHistoryDetail(entryId) {
+  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  if (!item) {
+    toast("결과를 찾지 못했어요.");
+    showAiResultHistoryListView();
+    return;
+  }
+  aiResultHistoryViewId = item.id;
+  $("aiResultHistoryList")?.classList.add("hidden");
+  $("aiResultHistoryListActions")?.classList.add("hidden");
+  const detail = $("aiResultHistoryDetail");
+  detail?.classList.remove("hidden");
+  if ($("aiResultHistoryDetailTitle")) {
+    const when = formatAiResultHistoryWhen(item.createdAt);
+    const label = item.modeLabel || aiModeLabel(item.mode) || "결과";
+    $("aiResultHistoryDetailTitle").textContent = when ? `${label} · ${when}` : label;
+  }
+  const body = $("aiResultHistoryDetailBody");
+  if (body) body.textContent = item.text || "(내용 없음)";
+}
+
+function openAiResultHistoryModal() {
+  const modal = $("aiResultHistoryModal");
+  if (!modal) return;
+  showAiResultHistoryListView();
+  modal.classList.remove("hidden");
+}
+
+function closeAiResultHistoryModal() {
+  $("aiResultHistoryModal")?.classList.add("hidden");
+  aiResultHistoryViewId = null;
+}
+
+function restoreAiResultHistoryEntry(entryId) {
+  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  if (!item) {
+    toast("결과를 찾지 못했어요.");
+    return;
+  }
+  if ($("aiResult")) $("aiResult").value = item.text || "";
+  closeAiResultHistoryModal();
+  revealAiAssistResult({
+    openModal: true,
+    recordHistory: false,
+    mode: item.mode,
+  });
+  toast("보관한 결과를 다시 열었어요.");
+}
+
+function deleteAiResultHistoryEntry(entryId) {
+  const list = loadAiResultHistory().filter((entry) => entry.id !== entryId);
+  saveAiResultHistory(list);
+  toast("기록을 삭제했어요.");
+  showAiResultHistoryListView();
+}
+
+function clearAiResultHistory() {
+  if (!state.projectId) return;
+  if (!loadAiResultHistory().length) {
+    toast("비울 히스토리가 없어요.");
+    return;
+  }
+  if (!window.confirm("이 작품의 결과 히스토리를 모두 지울까요?")) return;
+  saveAiResultHistory([]);
+  toast("결과 히스토리를 비웠어요.");
+  showAiResultHistoryListView();
 }
 
 function setupAiResultModal() {
@@ -6845,6 +7990,10 @@ function setupAiResultModal() {
   $("aiResultExpandButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openAiResultModal();
+  });
+  $("aiResultHistoryButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openAiResultHistoryModal();
   });
 
   modal.querySelectorAll("[data-close-ai-result]").forEach((el) => {
@@ -6864,11 +8013,155 @@ function setupAiResultModal() {
     insertAiResultIntoEditor();
   });
 
+  const historyModal = $("aiResultHistoryModal");
+  historyModal?.querySelectorAll("[data-close-ai-result-history]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeAiResultHistoryModal();
+    });
+  });
+  $("aiResultHistoryBackButton")?.addEventListener("click", () => showAiResultHistoryListView());
+  $("aiResultHistoryList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-ai-result-history]");
+    if (!btn) return;
+    openAiResultHistoryDetail(btn.getAttribute("data-ai-result-history"));
+  });
+  $("aiResultHistoryRestoreButton")?.addEventListener("click", () => {
+    if (aiResultHistoryViewId) restoreAiResultHistoryEntry(aiResultHistoryViewId);
+  });
+  $("aiResultHistoryDeleteButton")?.addEventListener("click", () => {
+    if (!aiResultHistoryViewId) return;
+    if (!window.confirm("이 결과 기록을 삭제할까요?")) return;
+    deleteAiResultHistoryEntry(aiResultHistoryViewId);
+  });
+  $("aiResultHistoryCopyButton")?.addEventListener("click", async () => {
+    const item = loadAiResultHistory().find((entry) => entry.id === aiResultHistoryViewId);
+    const text = String(item?.text || "").trim();
+    if (!text) return toast("복사할 내용이 없어요.");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("결과를 복사했어요.");
+    } catch (_) {
+      toast("복사에 실패했어요.");
+    }
+  });
+  $("aiResultHistoryClearButton")?.addEventListener("click", () => clearAiResultHistory());
+
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && isAiResultModalOpen()) {
+    if (event.key !== "Escape") return;
+    if (isAiResultHistoryModalOpen()) {
+      event.preventDefault();
+      if (aiResultHistoryViewId && !$("aiResultHistoryDetail")?.classList.contains("hidden")) {
+        showAiResultHistoryListView();
+      } else {
+        closeAiResultHistoryModal();
+      }
+      return;
+    }
+    if (isSuccessPatternModalOpen()) {
+      event.preventDefault();
+      closeSuccessPatternModal({ dismissed: true });
+      return;
+    }
+    if (isAiToolModalOpen()) {
+      event.preventDefault();
+      closeAiToolModal({ dismissed: true });
+      return;
+    }
+    if (isAiPromptModalOpen()) {
+      event.preventDefault();
+      closeAiPromptModal();
+      return;
+    }
+    if (isAiResultModalOpen()) {
       event.preventDefault();
       closeAiResultModal();
     }
+  });
+}
+
+function isAiPromptModalOpen() {
+  return Boolean($("aiPromptModal") && !$("aiPromptModal").classList.contains("hidden"));
+}
+
+function syncAiPromptFromModal() {
+  const panel = $("aiPrompt");
+  const body = $("aiPromptModalBody");
+  if (!panel || !body) return;
+  panel.value = body.value;
+}
+
+function syncAiPromptModalFromPanel() {
+  const panel = $("aiPrompt");
+  const body = $("aiPromptModalBody");
+  if (!panel || !body) return;
+  body.value = panel.value || "";
+  body.placeholder = panel.placeholder || "토리에게 보낼 요청을 적어 주세요.";
+  const label = String($("aiPromptLabel")?.textContent || "").trim() || "요청 내용";
+  if ($("aiPromptModalTitle")) $("aiPromptModalTitle").textContent = label;
+}
+
+function openAiPromptModal() {
+  if ($("aiPromptWrap")?.classList.contains("hidden")) {
+    toast("이 모드에서는 요청 칸을 쓰지 않아요.");
+    return;
+  }
+  const modal = $("aiPromptModal");
+  if (!modal) return;
+  syncAiPromptModalFromPanel();
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const body = $("aiPromptModalBody");
+    try {
+      body?.focus({ preventScroll: true });
+    } catch (_) {
+      body?.focus();
+    }
+    // Place caret at end for continued editing
+    if (body) {
+      const len = body.value.length;
+      try { body.setSelectionRange(len, len); } catch (_) { /* ignore */ }
+    }
+  });
+}
+
+function closeAiPromptModal({ quiet = true } = {}) {
+  const wasOpen = isAiPromptModalOpen();
+  syncAiPromptFromModal();
+  $("aiPromptModal")?.classList.add("hidden");
+  if (wasOpen && !quiet) toast("요청 내용을 반영했어요.");
+}
+
+function setupAiPromptModal() {
+  const modal = $("aiPromptModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+
+  $("aiPromptExpandButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openAiPromptModal();
+  });
+  modal.querySelectorAll("[data-close-ai-prompt]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeAiPromptModal();
+    });
+  });
+  $("aiPromptModalClearButton")?.addEventListener("click", () => {
+    if ($("aiPromptModalBody")) $("aiPromptModalBody").value = "";
+    syncAiPromptFromModal();
+    toast("요청 내용을 비웠어요.");
+  });
+  $("aiPromptModalSubmitButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    syncAiPromptFromModal();
+    closeAiPromptModal({ quiet: true });
+    const fakeEvent = { preventDefault() {} };
+    submitAiAssist(fakeEvent).catch(handleError);
+  });
+  // Live sync while editing in the large editor
+  $("aiPromptModalBody")?.addEventListener("input", () => {
+    syncAiPromptFromModal();
   });
 }
 
@@ -6880,12 +8173,497 @@ function setupAiAssist() {
     collectToToryVault({ text: $("aiResult")?.value || "" });
   });
   $("clearToryFocusButton")?.addEventListener("click", () => clearToryFocus());
+  setupToryPriorityField();
+  setupOutlineSummaryField();
+  setupSubmissionSynopsisUi();
+  setupStyleBlendUi();
   setupAiResultModal();
+  setupAiPromptModal();
+  setupAiToolModal();
+  setupContinueSourceUi();
+  setupRewriteSourceUi();
+  setupRewriteCompareModal();
   setupForeshadowPanel();
+  setupSuccessPatternWizard();
   setupToryChat();
   setupToryNotifyCenter();
   updateToryFocusUi();
   refreshAiStatus().catch(handleError);
+}
+
+let toryPrioritySaveTimer = null;
+let toryPrioritySaving = false;
+let outlineSummarySaveTimer = null;
+let outlineSummarySaving = false;
+let submissionSynopsisInFlight = false;
+
+function syncOutlineSummaryInput() {
+  const input = $("projectOutlineSummary");
+  if (!input) return;
+  const hasProject = Boolean(state.projectId);
+  input.disabled = !hasProject;
+  const next = hasProject ? String(state.outlineSummary || "") : "";
+  if (document.activeElement !== input) input.value = next;
+  if (!hasProject) {
+    input.placeholder = "작품을 선택하면 줄거리 개요를 적을 수 있어요.";
+  } else {
+    input.placeholder = "시작부터 결말까지 전체 줄거리를 간단히 적어 두세요.";
+  }
+}
+
+async function persistOutlineSummary({ quiet = true } = {}) {
+  if (!state.projectId || outlineSummarySaving) return;
+  const input = $("projectOutlineSummary");
+  const value = String(input?.value ?? state.outlineSummary ?? "").slice(0, 20000);
+  if (value === String(state.outlineSummary || "")) return;
+  outlineSummarySaving = true;
+  try {
+    const result = await api(`/api/projects/${state.projectId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ outline_summary: value }),
+    });
+    state.outlineSummary = result.outline_summary != null ? String(result.outline_summary) : value;
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (project) project.outline_summary = state.outlineSummary;
+    if (!quiet) toast("줄거리 개요를 저장했어요.");
+  } catch (error) {
+    throw error;
+  } finally {
+    outlineSummarySaving = false;
+  }
+}
+
+function setupOutlineSummaryField() {
+  const input = $("projectOutlineSummary");
+  if (!input || input.dataset.bound === "1") return;
+  input.dataset.bound = "1";
+  syncOutlineSummaryInput();
+  input.addEventListener("input", () => {
+    state.outlineSummary = String(input.value || "");
+    if (outlineSummarySaveTimer) window.clearTimeout(outlineSummarySaveTimer);
+    outlineSummarySaveTimer = window.setTimeout(() => {
+      persistOutlineSummary({ quiet: true }).catch(handleError);
+    }, 700);
+  });
+  input.addEventListener("blur", () => {
+    persistOutlineSummary({ quiet: true }).catch(handleError);
+  });
+}
+
+function openOutlineSummaryInSettings() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  setActiveBinder("settings");
+  state.openSettingsSection = "logsyn";
+  if (typeof applySettingsSectionState === "function") applySettingsSectionState();
+  if (typeof renderSettingsCodex === "function") renderSettingsCodex();
+  syncOutlineSummaryInput();
+  window.setTimeout(() => {
+    const input = $("projectOutlineSummary");
+    input?.focus();
+    input?.scrollIntoView({ block: "center", behavior: "smooth" });
+  }, 80);
+}
+
+function closeOutlineSummaryGateModal() {
+  $("outlineSummaryGateModal")?.classList.add("hidden");
+}
+
+function closeSubmissionLengthModal() {
+  $("submissionLengthModal")?.classList.add("hidden");
+}
+
+function promptOutlineSummaryGate() {
+  return new Promise((resolve) => {
+    const modal = $("outlineSummaryGateModal");
+    if (!modal) {
+      resolve("continue");
+      return;
+    }
+    modal.classList.remove("hidden");
+    const finish = (value) => {
+      closeOutlineSummaryGateModal();
+      cleanup();
+      resolve(value);
+    };
+    const onSettings = () => finish("settings");
+    const onContinue = () => finish("continue");
+    const onClose = () => finish("cancel");
+    const cleanup = () => {
+      $("outlineGateOpenSettings")?.removeEventListener("click", onSettings);
+      $("outlineGateContinue")?.removeEventListener("click", onContinue);
+      modal.querySelectorAll("[data-close-outline-gate]").forEach((el) => {
+        el.removeEventListener("click", onClose);
+      });
+    };
+    $("outlineGateOpenSettings")?.addEventListener("click", onSettings);
+    $("outlineGateContinue")?.addEventListener("click", onContinue);
+    modal.querySelectorAll("[data-close-outline-gate]").forEach((el) => {
+      el.addEventListener("click", onClose);
+    });
+  });
+}
+
+function promptSubmissionLengthLimits() {
+  return new Promise((resolve) => {
+    const modal = $("submissionLengthModal");
+    const synInput = $("submissionSynopsisLimitInput");
+    const intentInput = $("submissionIntentLimitInput");
+    if (!modal) {
+      resolve({ synopsisLengthLimit: null, intentLengthLimit: null });
+      return;
+    }
+    if (synInput) synInput.value = "";
+    if (intentInput) intentInput.value = "";
+    modal.classList.remove("hidden");
+    const parseLimit = (raw) => {
+      const text = String(raw ?? "").trim();
+      if (!text) return null;
+      const n = Number.parseInt(text, 10);
+      if (!Number.isFinite(n) || n <= 0) return null;
+      return n;
+    };
+    const finish = (value) => {
+      closeSubmissionLengthModal();
+      cleanup();
+      resolve(value);
+    };
+    const onConfirm = () => {
+      finish({
+        synopsisLengthLimit: parseLimit(synInput?.value),
+        intentLengthLimit: parseLimit(intentInput?.value),
+      });
+    };
+    const onCancel = () => finish(null);
+    const cleanup = () => {
+      $("submissionLengthConfirm")?.removeEventListener("click", onConfirm);
+      modal.querySelectorAll("[data-close-submission-length]").forEach((el) => {
+        el.removeEventListener("click", onCancel);
+      });
+    };
+    $("submissionLengthConfirm")?.addEventListener("click", onConfirm);
+    modal.querySelectorAll("[data-close-submission-length]").forEach((el) => {
+      el.addEventListener("click", onCancel);
+    });
+    window.setTimeout(() => synInput?.focus(), 0);
+  });
+}
+
+/**
+ * Exported for tests — empty outline should gate before API.
+ */
+function needsOutlineSummaryGate(outlineSummary = state.outlineSummary) {
+  return !String(outlineSummary || "").trim();
+}
+
+async function runSubmissionSynopsis(options = {}) {
+  if (submissionSynopsisInFlight) {
+    toast("이미 투고·공모전용 시놉시스를 작성 중이에요.");
+    return null;
+  }
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "subsynopsis";
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+
+  // Keep local textarea in sync before reading.
+  const liveOutline = String($("projectOutlineSummary")?.value ?? state.outlineSummary ?? "").trim();
+  state.outlineSummary = liveOutline;
+
+  if (needsOutlineSummaryGate(liveOutline) && !options.skipOutlineGate) {
+    const gate = await promptOutlineSummaryGate();
+    if (gate === "settings") {
+      openOutlineSummaryInSettings();
+      return { gated: true, action: "settings" };
+    }
+    if (gate !== "continue") {
+      return { gated: true, action: "cancel" };
+    }
+  }
+
+  const limits = options.limits
+    || await promptSubmissionLengthLimits();
+  if (!limits) return { gated: true, action: "cancel" };
+
+  const synopsisLengthLimit = limits.synopsisLengthLimit ?? null;
+  const intentLengthLimit = limits.intentLengthLimit ?? null;
+
+  submissionSynopsisInFlight = true;
+  const button = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "시놉시스 작성 중…";
+  }
+  if ($("aiResult")) $("aiResult").value = "투고·공모전용 자료를 작성하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  setSubmissionLengthWarn();
+
+  try {
+    const project = state.projects.find((item) => item.id === state.projectId);
+    const mainGenre = state.mainGenre || project?.main_genre || "";
+    const subGenre = state.subGenre || project?.sub_genre || "";
+    const taskPrompt = buildSubmissionSynopsisPrompt(
+      liveOutline,
+      synopsisLengthLimit,
+      intentLengthLimit,
+    );
+    const projectIndex = await ensureFreshProjectIndex();
+    // Index only — no manuscript body (avoid inventing off-outline facts from a single scene).
+    let indexedPrompt = taskPrompt;
+    if (hasUsableProjectIndex(projectIndex)) {
+      const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
+      const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
+      const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
+      const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
+      indexedPrompt = `
+[프로젝트 누적 정보 - 참고용]
+등장인물: ${JSON.stringify(characters)}
+세계관 설정: ${worldRules.join(", ")}
+지금까지 줄거리: ${timeline.join(" → ")}
+미회수 복선: ${openThreads.join(", ")}
+
+${taskPrompt}`;
+    }
+
+    const body = {
+      mode: "subsynopsis",
+      project_id: state.projectId,
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      outline_summary: liveOutline,
+      synopsis_length_limit: synopsisLengthLimit,
+      intent_length_limit: intentLengthLimit,
+      scene_content: "",
+      prompt: "",
+      task_prompt: taskPrompt,
+      indexed_prompt: indexedPrompt,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      ...buildToryProjectContextPayload(),
+    };
+
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const text = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = text;
+    setSubmissionLengthWarn(
+      buildSubmissionLengthWarnings(text, synopsisLengthLimit, intentLengthLimit),
+    );
+    revealAiAssistResult({ openModal: true, mode: "subsynopsis" });
+    toast("투고·공모전용 시놉시스를 받았어요.");
+    return { gated: false, text, result };
+  } catch (error) {
+    setSubmissionLengthWarn();
+    handleError(error);
+    return null;
+  } finally {
+    submissionSynopsisInFlight = false;
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "토리에게 물어보기";
+    }
+  }
+}
+
+/** Count body chars of a ## section (exclude ## / ### header lines; spaces kept). */
+function countSubmissionSectionBodyChars(text, sectionTitle) {
+  const lines = String(text || "").split(/\r?\n/);
+  const headerRe = new RegExp(`^##\\s*${sectionTitle}\\b`);
+  let start = -1;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (headerRe.test(lines[i].trim())) {
+      start = i + 1;
+      break;
+    }
+  }
+  if (start < 0) return 0;
+  const bodyLines = [];
+  for (let i = start; i < lines.length; i += 1) {
+    const line = lines[i];
+    const trimmed = line.trim();
+    if (/^##\s+\S/.test(trimmed)) break;
+    if (/^#{1,6}\s/.test(trimmed)) continue;
+    bodyLines.push(line);
+  }
+  return bodyLines.join("\n").replace(/^\s+|\s+$/g, "").length;
+}
+
+function buildSubmissionLengthWarnings(text, synopsisLengthLimit, intentLengthLimit) {
+  const lines = [];
+  if (synopsisLengthLimit != null && synopsisLengthLimit > 0) {
+    const actual = countSubmissionSectionBodyChars(text, "시놉시스");
+    if (actual > synopsisLengthLimit) {
+      lines.push(`⚠ 시놉시스 실제 글자 수: ${actual}자 (제한 ${synopsisLengthLimit}자 초과)`);
+    }
+  }
+  if (intentLengthLimit != null && intentLengthLimit > 0) {
+    const actual = countSubmissionSectionBodyChars(text, "작품의도");
+    if (actual > intentLengthLimit) {
+      lines.push(`⚠ 작품의도 실제 글자 수: ${actual}자 (제한 ${intentLengthLimit}자 초과)`);
+    }
+  }
+  return lines.join("\n");
+}
+
+function setSubmissionLengthWarn(message = "") {
+  const el = $("submissionLengthWarn");
+  if (!el) return;
+  const text = String(message || "").trim();
+  el.textContent = text;
+  el.style.whiteSpace = text ? "pre-line" : "";
+  el.classList.toggle("hidden", !text);
+}
+
+function setupSubmissionSynopsisUi() {
+  $("submissionSynopsisGuideLink")?.addEventListener("click", () => {
+    runSubmissionSynopsis().catch(handleError);
+  });
+}
+
+function toryPriorityPreviewText(raw) {
+  const cleaned = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "클릭하여 작성";
+  return cleaned.length > 42 ? `${cleaned.slice(0, 42)}…` : cleaned;
+}
+
+function syncToryPriorityPreview() {
+  const preview = $("toryPriorityPreview");
+  if (!preview) return;
+  if (!state.projectId) {
+    preview.textContent = "작품을 선택하세요";
+    preview.classList.remove("has-text");
+    return;
+  }
+  const text = String(state.toryPriorityMd || "").trim();
+  preview.textContent = toryPriorityPreviewText(text);
+  preview.classList.toggle("has-text", Boolean(text));
+}
+
+function setToryPriorityOpen(open) {
+  const box = $("toryPriorityBox");
+  const toggle = $("toryPriorityToggle");
+  const editor = $("toryPriorityEditor");
+  if (!box || !toggle || !editor) return;
+  const next = Boolean(open);
+  box.classList.toggle("is-open", next);
+  toggle.setAttribute("aria-expanded", next ? "true" : "false");
+  editor.hidden = !next;
+  if (next) {
+    syncToryPriorityInput();
+    window.setTimeout(() => $("toryPriorityInput")?.focus(), 0);
+  } else {
+    syncToryPriorityPreview();
+  }
+}
+
+function syncToryPriorityInput() {
+  const input = $("toryPriorityInput");
+  if (!input) return;
+  const hasProject = Boolean(state.projectId);
+  input.disabled = !hasProject;
+  const next = hasProject ? String(state.toryPriorityMd || "") : "";
+  if (document.activeElement !== input) input.value = next;
+  if (!hasProject) {
+    input.placeholder = "작품을 선택하면 작가 지침을 적을 수 있어요.";
+    const hint = $("toryPrioritySaveHint");
+    if (hint) hint.textContent = "";
+  } else {
+    input.placeholder = "예: 주인공의 감정을 과장하지 말 것. / 반전을 미리 말하지 말 것. / 문체는 담백하게.";
+  }
+  syncToryPriorityPreview();
+  const toggle = $("toryPriorityToggle");
+  if (toggle) toggle.disabled = !hasProject;
+}
+
+async function persistToryPriority({ quiet = true } = {}) {
+  if (!state.projectId || toryPrioritySaving) return;
+  const input = $("toryPriorityInput");
+  const value = String(input?.value ?? state.toryPriorityMd ?? "").slice(0, 4000);
+  if (value === String(state.toryPriorityMd || "")) {
+    const hint = $("toryPrioritySaveHint");
+    if (hint && !quiet) hint.textContent = "저장됨";
+    syncToryPriorityPreview();
+    return;
+  }
+  toryPrioritySaving = true;
+  const hint = $("toryPrioritySaveHint");
+  if (hint) hint.textContent = "저장 중…";
+  try {
+    const result = await api(`/api/projects/${state.projectId}/settings`, {
+      method: "PUT",
+      body: JSON.stringify({ tory_priority_md: value }),
+    });
+    state.toryPriorityMd = result.tory_priority_md != null ? String(result.tory_priority_md) : value;
+    const project = state.projects.find((item) => item.id === state.projectId);
+    if (project) project.tory_priority_md = state.toryPriorityMd;
+    if (hint) hint.textContent = state.toryPriorityMd.trim() ? "저장됨 · 작업에 맞게 참고합니다" : "비움 · 일반 기준으로 동작";
+    syncToryPriorityPreview();
+  } catch (error) {
+    if (hint) hint.textContent = "저장 실패";
+    throw error;
+  } finally {
+    toryPrioritySaving = false;
+  }
+}
+
+function setupToryPriorityField() {
+  const input = $("toryPriorityInput");
+  const toggle = $("toryPriorityToggle");
+  const done = $("toryPriorityDoneButton");
+  if (!input || input.dataset.bound === "1") return;
+  input.dataset.bound = "1";
+  syncToryPriorityInput();
+  setToryPriorityOpen(false);
+  const schedule = () => {
+    if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
+    toryPrioritySaveTimer = window.setTimeout(() => {
+      persistToryPriority({ quiet: true }).catch(handleError);
+    }, 700);
+  };
+  input.addEventListener("input", () => {
+    const preview = $("toryPriorityPreview");
+    if (preview && state.projectId) {
+      const draft = String(input.value || "").trim();
+      preview.textContent = toryPriorityPreviewText(draft);
+      preview.classList.toggle("has-text", Boolean(draft));
+    }
+    schedule();
+  });
+  input.addEventListener("change", () => {
+    if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
+    persistToryPriority({ quiet: false }).catch(handleError);
+  });
+  input.addEventListener("blur", () => {
+    if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
+    persistToryPriority({ quiet: true }).catch(handleError);
+  });
+  toggle?.addEventListener("click", () => {
+    if (!state.projectId) {
+      toast("먼저 작품을 선택해 주세요.");
+      return;
+    }
+    const open = toggle.getAttribute("aria-expanded") === "true";
+    setToryPriorityOpen(!open);
+  });
+  done?.addEventListener("click", () => {
+    if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
+    persistToryPriority({ quiet: true })
+      .catch(handleError)
+      .finally(() => setToryPriorityOpen(false));
+  });
 }
 
 /* ═══════════════════════════════════════════════════════════
@@ -6893,13 +8671,46 @@ function setupAiAssist() {
    ═══════════════════════════════════════════════════════════ */
 const TORY_CHAT_STORAGE_PREFIX = "supertory.toryChat.";
 const TORY_CHAT_ARCHIVE_PREFIX = "supertory.toryChatArchive.";
+/** successAnalysis live session: supertory.toryChat.successAnalysis.{projectId} */
+const TORY_CHAT_SUCCESS_STORAGE_PREFIX = "supertory.toryChat.successAnalysis.";
+const TORY_CHAT_SUCCESS_ARCHIVE_PREFIX = "supertory.toryChatArchive.successAnalysis.";
 const TORY_NOTIFY_STORAGE_PREFIX = "supertory.toryNotifs.";
 const TORY_CHAT_MAX_MESSAGES = 80;
 const TORY_CHAT_ARCHIVE_MAX = 40;
+/** @type {"general"|"successAnalysis"} active chat session kind */
+let toryChatMode = "general";
 let toryChatSending = false;
 let toryChatHistoryViewId = null;
 
 let toryChatPopupOpen = false;
+
+function normalizeToryChatMode(mode) {
+  const m = String(mode || toryChatMode || "general").trim();
+  return m === "successAnalysis" ? "successAnalysis" : "general";
+}
+
+function getToryChatMode() {
+  return normalizeToryChatMode(toryChatMode);
+}
+
+function setToryChatMode(mode, { quiet = false } = {}) {
+  const next = normalizeToryChatMode(mode);
+  if (next === "successAnalysis" && !getLinkedSuccessProfileId()) {
+    if (!quiet) toast("먼저 흥행 프로파일을 이 작품에 연결해 주세요.");
+    return false;
+  }
+  toryChatMode = next;
+  updateToryChatSuccessUi();
+  renderToryChatMessages();
+  if (!quiet) {
+    toast(
+      next === "successAnalysis"
+        ? "흥행요인 분석가 세션이에요. 일반 대화와 기록이 섞이지 않아요."
+        : "일반 토리 대화로 돌아왔어요.",
+    );
+  }
+  return true;
+}
 
 function setAiPanelTab(tab, { skipPopupClose = false } = {}) {
   const next = tab === "chat" ? "chat" : "tools";
@@ -7120,18 +8931,26 @@ function setupToryChatPopupChrome() {
   });
 }
 
-function toryChatStorageKey(projectId = state.projectId) {
-  return `${TORY_CHAT_STORAGE_PREFIX}${projectId || "0"}`;
+function toryChatStorageKey(projectId = state.projectId, chatMode = getToryChatMode()) {
+  const pid = projectId || "0";
+  if (normalizeToryChatMode(chatMode) === "successAnalysis") {
+    return `${TORY_CHAT_SUCCESS_STORAGE_PREFIX}${pid}`;
+  }
+  return `${TORY_CHAT_STORAGE_PREFIX}${pid}`;
 }
 
-function toryChatArchiveKey(projectId = state.projectId) {
-  return `${TORY_CHAT_ARCHIVE_PREFIX}${projectId || "0"}`;
+function toryChatArchiveKey(projectId = state.projectId, chatMode = getToryChatMode()) {
+  const pid = projectId || "0";
+  if (normalizeToryChatMode(chatMode) === "successAnalysis") {
+    return `${TORY_CHAT_SUCCESS_ARCHIVE_PREFIX}${pid}`;
+  }
+  return `${TORY_CHAT_ARCHIVE_PREFIX}${pid}`;
 }
 
-function loadToryChatHistory() {
+function loadToryChatHistory(chatMode = getToryChatMode()) {
   if (!state.projectId) return [];
   try {
-    const raw = localStorage.getItem(toryChatStorageKey());
+    const raw = localStorage.getItem(toryChatStorageKey(state.projectId, chatMode));
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
     return arr
@@ -7148,11 +8967,11 @@ function loadToryChatHistory() {
   }
 }
 
-function saveToryChatHistory(list) {
+function saveToryChatHistory(list, chatMode = getToryChatMode()) {
   if (!state.projectId) return;
   try {
     localStorage.setItem(
-      toryChatStorageKey(),
+      toryChatStorageKey(state.projectId, chatMode),
       JSON.stringify((list || []).slice(-TORY_CHAT_MAX_MESSAGES)),
     );
   } catch (_) {
@@ -7199,10 +9018,10 @@ function sanitizeToryChatHtml(html) {
   return root.innerHTML;
 }
 
-function loadToryChatArchives() {
+function loadToryChatArchives(chatMode = getToryChatMode()) {
   if (!state.projectId) return [];
   try {
-    const raw = localStorage.getItem(toryChatArchiveKey());
+    const raw = localStorage.getItem(toryChatArchiveKey(state.projectId, chatMode));
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
     return arr
@@ -7220,6 +9039,7 @@ function loadToryChatArchives() {
           })),
         archivedAt: s.archivedAt || s.createdAt || "",
         messageCount: Number(s.messageCount) || (s.messages || []).length,
+        chatMode: normalizeToryChatMode(chatMode),
       }))
       .slice(0, TORY_CHAT_ARCHIVE_MAX);
   } catch (_) {
@@ -7227,11 +9047,11 @@ function loadToryChatArchives() {
   }
 }
 
-function saveToryChatArchives(list) {
+function saveToryChatArchives(list, chatMode = getToryChatMode()) {
   if (!state.projectId) return;
   try {
     localStorage.setItem(
-      toryChatArchiveKey(),
+      toryChatArchiveKey(state.projectId, chatMode),
       JSON.stringify((list || []).slice(0, TORY_CHAT_ARCHIVE_MAX)),
     );
   } catch (_) {
@@ -7247,9 +9067,10 @@ function titleFromToryChatMessages(messages) {
 }
 
 /** Archive current chat (if any), then optionally clear. Returns archived session or null. */
-function archiveCurrentToryChat({ clearAfter = true } = {}) {
+function archiveCurrentToryChat({ clearAfter = true, chatMode = getToryChatMode() } = {}) {
   if (!state.projectId) return null;
-  const messages = loadToryChatHistory();
+  const mode = normalizeToryChatMode(chatMode);
+  const messages = loadToryChatHistory(mode);
   if (!messages.length) return null;
   const session = {
     id: `tch-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
@@ -7257,13 +9078,14 @@ function archiveCurrentToryChat({ clearAfter = true } = {}) {
     messages: messages.slice(),
     archivedAt: new Date().toISOString(),
     messageCount: messages.length,
+    chatMode: mode,
   };
-  const archives = loadToryChatArchives();
+  const archives = loadToryChatArchives(mode);
   archives.unshift(session);
-  saveToryChatArchives(archives);
+  saveToryChatArchives(archives, mode);
   if (clearAfter) {
-    saveToryChatHistory([]);
-    renderToryChatMessages();
+    saveToryChatHistory([], mode);
+    if (mode === getToryChatMode()) renderToryChatMessages();
   }
   return session;
 }
@@ -7299,9 +9121,11 @@ function renderToryChatHistoryList() {
     list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 대화 히스토리를 볼 수 있어요.</p>`;
     return;
   }
-  const archives = loadToryChatArchives();
+  const mode = getToryChatMode();
+  const archives = loadToryChatArchives(mode);
   if (!archives.length) {
-    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 대화가 없어요.<br>「대화 지우기」를 하면 여기에 남습니다.</p>`;
+    const kind = mode === "successAnalysis" ? "흥행요인 분석가" : "일반";
+    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 ${kind} 대화가 없어요.<br>「대화 지우기」를 하면 여기에 남습니다.</p>`;
     return;
   }
   list.innerHTML = archives.map((s) => {
@@ -7361,18 +9185,23 @@ function closeToryChatHistoryModal() {
   toryChatHistoryViewId = null;
 }
 
-function restoreToryChatArchive(archiveId) {
-  const session = loadToryChatArchives().find((s) => s.id === archiveId);
+function restoreToryChatArchive(archiveId, chatMode = getToryChatMode()) {
+  const mode = normalizeToryChatMode(chatMode);
+  const session = loadToryChatArchives(mode).find((s) => s.id === archiveId);
   if (!session) return toast("대화를 찾지 못했어요.");
-  const current = loadToryChatHistory();
+  // Restore into the archive's own mode session
+  if (mode !== getToryChatMode()) {
+    setToryChatMode(mode, { quiet: true });
+  }
+  const current = loadToryChatHistory(mode);
   if (current.length) {
     const ok = window.confirm(
       "지금 진행 중인 대화가 있어요.\n현재 대화를 히스토리에 보관한 뒤, 선택한 대화를 불러올까요?",
     );
     if (!ok) return;
-    archiveCurrentToryChat({ clearAfter: true });
+    archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
   }
-  saveToryChatHistory(session.messages);
+  saveToryChatHistory(session.messages, mode);
   renderToryChatMessages();
   closeToryChatHistoryModal();
   // Ensure chat UI is visible
@@ -7384,9 +9213,10 @@ function restoreToryChatArchive(archiveId) {
   toast("이전 대화를 불러왔어요. 이어서 이야기할 수 있어요.");
 }
 
-function deleteToryChatArchive(archiveId) {
-  const archives = loadToryChatArchives().filter((s) => s.id !== archiveId);
-  saveToryChatArchives(archives);
+function deleteToryChatArchive(archiveId, chatMode = getToryChatMode()) {
+  const mode = normalizeToryChatMode(chatMode);
+  const archives = loadToryChatArchives(mode).filter((s) => s.id !== archiveId);
+  saveToryChatArchives(archives, mode);
   toast("히스토리에서 삭제했어요.");
   showToryChatHistoryListView();
 }
@@ -7424,9 +9254,13 @@ function setupToryChatHistoryUi() {
 function renderToryChatMessages() {
   const box = $("toryChatMessages");
   if (!box) return;
-  const history = loadToryChatHistory();
+  updateToryChatSuccessUi();
+  const history = loadToryChatHistory(getToryChatMode());
   if (!history.length) {
-    box.innerHTML = `<p class="tory-chat-empty">플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.</p>`;
+    const empty = getToryChatMode() === "successAnalysis"
+      ? `흥행요인 분석가 세션이에요.<br>「재미요소가 뭐가 부족해?」「다음 화 훅은?」처럼 물어보세요.`
+      : `플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.`;
+    box.innerHTML = `<p class="tory-chat-empty">${empty}</p>`;
     return;
   }
   box.innerHTML = history.map((m, index) => {
@@ -7442,6 +9276,23 @@ function renderToryChatMessages() {
   }).join("");
   box.scrollTop = box.scrollHeight;
   syncToryChatHighlightBar();
+}
+
+function updateToryChatSuccessUi() {
+  const linked = Boolean(getLinkedSuccessProfileId());
+  const inSuccess = getToryChatMode() === "successAnalysis";
+  const summon = $("toryChatSuccessSummonButton");
+  const banner = $("toryChatSuccessBanner");
+  // Summon only when profile linked AND not already in that session
+  summon?.classList.toggle("hidden", !linked || inSuccess);
+  banner?.classList.toggle("hidden", !inSuccess);
+  $("aiChatView")?.classList.toggle("is-success-analysis", inSuccess);
+  // If profile unlinked while in session, fall back to general
+  if (inSuccess && !linked) {
+    toryChatMode = "general";
+    banner?.classList.add("hidden");
+    summon?.classList.add("hidden");
+  }
 }
 
 /** Saved selection for palette (selection can drop on some browsers). */
@@ -7638,11 +9489,16 @@ async function sendToryChatMessage(event) {
   if (event) event.preventDefault();
   if (toryChatSending) return;
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const chatMode = getToryChatMode();
+  if (chatMode === "successAnalysis" && !getLinkedSuccessProfileId()) {
+    setToryChatMode("general", { quiet: true });
+    return toast("흥행 프로파일 연결이 없어 일반 대화로 전환했어요.");
+  }
   const input = $("toryChatInput");
   const text = (input?.value || "").trim();
   if (!text) return toast("메시지를 적어 주세요.");
 
-  const history = loadToryChatHistory();
+  const history = loadToryChatHistory(chatMode);
   // History sent to API excludes the new user message (server appends it as prompt)
   const apiHistory = history.map((m) => ({
     role: m.role === "user" ? "user" : "model",
@@ -7650,7 +9506,7 @@ async function sendToryChatMessage(event) {
   }));
 
   history.push({ role: "user", content: text, at: new Date().toISOString() });
-  saveToryChatHistory(history);
+  saveToryChatHistory(history, chatMode);
   if (input) input.value = "";
   renderToryChatMessages();
 
@@ -7676,41 +9532,66 @@ async function sendToryChatMessage(event) {
     const project = state.projects.find((item) => item.id === state.projectId);
     const mainGenre = state.mainGenre || project?.main_genre || "";
     const subGenre = state.subGenre || project?.sub_genre || "";
+    const payload = {
+      mode: "chat",
+      chat_mode: chatMode,
+      prompt: text,
+      user_prompt: text,
+      history: apiHistory,
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_content: state.sceneId ? getEditorContent() : "",
+      persona_mode: getToryPersonaMode(),
+      ...buildToryProjectContextPayload(),
+    };
+    if (chatMode === "successAnalysis") {
+      const profile = await ensureLinkedSuccessProfile();
+      if (!profile) {
+        throw new Error("흥행 프로파일을 불러오지 못했어요. 연결을 확인해 주세요.");
+      }
+      // Flat shape for server (profile fields + factors)
+      payload.success_profile = {
+        reader_popularity_factors: profile.reader_popularity_factors || profile.profile?.reader_popularity_factors,
+        editor_popularity_factors: profile.editor_popularity_factors || profile.profile?.editor_popularity_factors,
+        must_follow_factors: profile.must_follow_factors || profile.profile?.must_follow_factors,
+        hook_style: profile.hook_style || profile.profile?.hook_style || "",
+        pacing_pattern: profile.pacing_pattern || profile.profile?.pacing_pattern || "",
+        dialogue_narration_balance:
+          profile.dialogue_narration_balance || profile.profile?.dialogue_narration_balance || "",
+        style_signature: profile.style_signature || profile.profile?.style_signature || "",
+        summary: profile.summary || profile.profile?.summary || "",
+      };
+      // Nested profile object merge for factor fallbacks
+      if (profile.profile && typeof profile.profile === "object") {
+        payload.success_profile = { ...profile.profile, ...payload.success_profile };
+      }
+      payload.linked_success_profile_id = getLinkedSuccessProfileId();
+    }
     const result = await api("/api/ai/assist", {
       method: "POST",
-      body: JSON.stringify({
-        mode: "chat",
-        prompt: text,
-        user_prompt: text,
-        history: apiHistory,
-        project_title: project?.title || "",
-        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
-        main_genre: mainGenre,
-        sub_genre: subGenre,
-        main_genre_label: mainGenreLabel(mainGenre),
-        sub_genre_label: subGenreLabel(mainGenre, subGenre),
-        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
-        scene_title: state.scene?.title || $("sceneTitle")?.value || "",
-        scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
-        scene_content: state.sceneId ? getEditorContent() : "",
-        persona_mode: getToryPersonaMode(),
-        ...buildToryProjectContextPayload(),
-      }),
+      body: JSON.stringify(payload),
     });
     const reply = String(result.text || "").trim() || "(응답이 비어 있어요.)";
-    const next = loadToryChatHistory();
+    const next = loadToryChatHistory(chatMode);
     next.push({ role: "tory", content: reply, at: new Date().toISOString() });
-    saveToryChatHistory(next);
+    saveToryChatHistory(next, chatMode);
     renderToryChatMessages();
   } catch (error) {
     // Drop the pending user message only if we want retry — keep user msg, add error note
-    const next = loadToryChatHistory();
+    const next = loadToryChatHistory(chatMode);
     next.push({
       role: "tory",
       content: `죄송해요, 지금은 답을 못 했어요. ${error.message || "잠시 후 다시 시도해 주세요."}`,
       at: new Date().toISOString(),
     });
-    saveToryChatHistory(next);
+    saveToryChatHistory(next, chatMode);
     renderToryChatMessages();
     handleError(error);
   } finally {
@@ -7813,9 +9694,10 @@ function setupToryPersonaSelect() {
 
 function clearToryChatHistory() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!loadToryChatHistory().length) return toast("지울 대화가 없어요.");
+  const mode = getToryChatMode();
+  if (!loadToryChatHistory(mode).length) return toast("지울 대화가 없어요.");
   if (!window.confirm("현재 대화를 비울까요?\n내용은 히스토리에 보관됩니다.")) return;
-  const saved = archiveCurrentToryChat({ clearAfter: true });
+  const saved = archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
   toast(saved ? "대화를 지우고 히스토리에 보관했어요." : "대화를 지웠어요.");
 }
 
@@ -7853,6 +9735,28 @@ function setupToryChat() {
     sendToryChatMessage(event).catch(handleError);
   });
   $("toryChatClearButton")?.addEventListener("click", clearToryChatHistory);
+  $("toryChatSuccessSummonButton")?.addEventListener("click", () => {
+    if (!getLinkedSuccessProfileId()) {
+      toast("흥행 프로파일이 연결된 작품에서만 쓸 수 있어요.");
+      updateToryChatSuccessUi();
+      return;
+    }
+    ensureLinkedSuccessProfile()
+      .then((profile) => {
+        if (!profile) {
+          toast("흥행 프로파일을 불러오지 못했어요.");
+          return;
+        }
+        setToryChatMode("successAnalysis");
+        setAiPanelTab("chat");
+        requestAnimationFrame(() => $("toryChatInput")?.focus());
+      })
+      .catch(handleError);
+  });
+  $("toryChatSuccessExitButton")?.addEventListener("click", () => {
+    setToryChatMode("general");
+  });
+  updateToryChatSuccessUi();
   // Event delegation: buttons may move with chat into popup
   document.addEventListener("click", (event) => {
     const hlBtn = event.target.closest?.("#toryChatHighlightButton");
@@ -8010,7 +9914,10 @@ function setToryNotifyFilter(filter) {
 
 function loadToryNotifyCollapsed() {
   try {
-    return localStorage.getItem(TORY_NOTIFY_COLLAPSE_KEY) === "1";
+    const raw = localStorage.getItem(TORY_NOTIFY_COLLAPSE_KEY);
+    // Default: open. Only collapse when user explicitly saved "1".
+    if (raw == null) return false;
+    return raw === "1";
   } catch (_) {
     return false;
   }
@@ -8075,8 +9982,8 @@ function renderToryNotifyCard(item) {
   const sceneLabel = escapeHtml(item.sceneLabel || "회차 미정");
   const sceneChipClass = isDue ? "is-due" : (item.sceneId ? "" : "is-muted");
   const sceneChip = item.sceneId
-    ? `<span class="tory-notify-chip ${sceneChipClass}" title="알림 회차">📖 ${sceneLabel}</span>`
-    : `<span class="tory-notify-chip is-muted" title="회차 미정">📖 ${sceneLabel}</span>`;
+    ? `<span class="tory-notify-chip ${sceneChipClass}" title="알림 회차">${uiIcon("book", 15)} ${sceneLabel}</span>`
+    : `<span class="tory-notify-chip is-muted" title="회차 미정">${uiIcon("book", 15)} ${sceneLabel}</span>`;
   const statusChip = item.enabled
     ? (isDue
       ? `<span class="tory-notify-chip is-due">지금 알림</span>`
@@ -8122,7 +10029,7 @@ function renderToryNotifyList() {
     renderToryNotifyDueBanner([]);
     list.innerHTML = `
       <div class="tory-notify-empty">
-        <span class="tory-notify-empty-icon" aria-hidden="true">🔔</span>
+        <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🔔</span>
         <strong>작품을 먼저 선택해 주세요</strong>
         <p>선택한 작품의 떡밥·수동 알림이 여기에 모입니다.</p>
       </div>`;
@@ -8138,7 +10045,7 @@ function renderToryNotifyList() {
   if (!all.length) {
     list.innerHTML = `
       <div class="tory-notify-empty">
-        <span class="tory-notify-empty-icon" aria-hidden="true">🪄</span>
+        <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🪄</span>
         <strong>아직 알림이 없어요</strong>
         <p>떡밥 회수 알림을 켜 두거나,<br><b>알림 만들기</b>로 수동 알림을 추가해 보세요.</p>
       </div>`;
@@ -8147,7 +10054,7 @@ function renderToryNotifyList() {
   if (!items.length) {
     list.innerHTML = `
       <div class="tory-notify-empty">
-        <span class="tory-notify-empty-icon" aria-hidden="true">🔎</span>
+        <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🔎</span>
         <strong>이 필터에 해당하는 알림이 없어요</strong>
         <p>다른 필터를 고르거나 새 알림을 만들어 보세요.</p>
       </div>`;
@@ -8241,8 +10148,7 @@ function saveToryNotifyFromModal(event) {
 function flipUnifiedToryNotif(id) {
   if (String(id).startsWith("bait:")) {
     const baitId = String(id).slice(5);
-    const list = loadBaits();
-    const item = list.find((b) => b.id === baitId);
+    const item = loadBaits().find((b) => b.id === baitId);
     if (!item) return;
     if (!Number(item.recoverSceneId)) {
       toast("회수 예정 회차를 먼저 지정해 주세요.");
@@ -8250,11 +10156,13 @@ function flipUnifiedToryNotif(id) {
       return;
     }
     const currentlyOn = item.notifyOnRecover !== false;
-    item.notifyOnRecover = !currentlyOn;
-    saveBaits(list);
-    renderBaitList();
-    renderToryNotifyList();
-    toast(item.notifyOnRecover ? "떡밥 알림을 켰어요." : "떡밥 알림을 껐어요.");
+    updateBaitOnServer(baitId, { ...item, notifyOnRecover: !currentlyOn })
+      .then(() => {
+        renderBaitList();
+        renderToryNotifyList();
+        toast(!currentlyOn ? "떡밥 알림을 켰어요." : "떡밥 알림을 껐어요.");
+      })
+      .catch(handleError);
     return;
   }
   const list = loadCustomToryNotifs();
@@ -8733,7 +10641,7 @@ async function celebrateWritingGoal(totalChars) {
   }
   showToryCheer(
     "연속 목표 달성!",
-    `${goal.toLocaleString("ko-KR")}자 달성! 오늘 ${Number(totalChars || goal).toLocaleString("ko-KR")}자까지 썼어요.\n토리가 응원해요. 잠깐 쉬어도, 다시 오면 기다릴게요 ✨`,
+    `${goal.toLocaleString("ko-KR")}자 달성! 오늘 ${Number(totalChars || goal).toLocaleString("ko-KR")}자까지 썼어요.\n토리가 응원해요. 잠깐 쉬어도, 다시 오면 기다릴게요.`,
   );
   tryDesktopNotification(
     "SuperTORY · 목표 달성",
@@ -9393,6 +11301,8 @@ function setupWritingLog() {
 /* —— Bookmarks (up to 10 unique colors, header strip) —— */
 const BOOKMARK_STORAGE_PREFIX = "supertory.bookmarks.";
 const BOOKMARK_MAX = 10;
+const PINNED_SCENES_STORAGE_PREFIX = "supertory.pinnedScenes.";
+const PINNED_SCENES_MAX = 30;
 const BOOKMARK_COLORS = [
   { key: "red", hex: "#e74c3c", label: "빨강" },
   { key: "orange", hex: "#e67e22", label: "주황" },
@@ -9406,13 +11316,24 @@ const BOOKMARK_COLORS = [
   { key: "brown", hex: "#8d6e63", label: "갈색" },
 ];
 const SETTINGS_BOOKMARK_META = {
-  ideas: { title: "아이디어뱅크", open: () => openIdeaBoard() },
+  ideas: { title: "생각 수첩", open: () => openIdeaBoard() },
   baits: { title: "떡밥모음", open: async () => {
     setActiveBinder("settings");
     state.openSettingsSection = "baits";
     applySettingsSectionState();
     renderBaitList();
   } },
+  successProfile: {
+    title: "흥행작 프로파일 연결",
+    open: async () => {
+      setActiveBinder("settings");
+      state.openSettingsSection = "successProfile";
+      applySettingsSectionState();
+      if (typeof renderLinkedSuccessProfileCard === "function") {
+        await renderLinkedSuccessProfileCard();
+      }
+    },
+  },
   intro: {
     title: "작품소개/기획의도",
     open: async () => {
@@ -9458,7 +11379,16 @@ const SETTINGS_BOOKMARK_META = {
 /* —— 떡밥모음 (본문 드래그 → 우클릭 던지기) —— */
 const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
-const DEFAULT_SETTINGS_ORDER = ["ideas", "baits", "intro", "logsyn", "keywords", "world", "characters", "toryVault", "sources"];
+// Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
+const DEFAULT_SETTINGS_ORDER = [
+  "ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "successProfile", "toryVault", "sources",
+];
+/** Prior factory defaults — snap exact matches once to the current DEFAULT. */
+const LEGACY_SETTINGS_ORDERS = [
+  ["ideas", "baits", "intro", "logsyn", "keywords", "world", "characters", "toryVault", "sources"],
+  ["ideas", "intro", "logsyn", "baits", "keywords", "world", "characters", "toryVault", "sources"],
+  ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "toryVault", "sources"],
+];
 
 /**
  * 설정집 키워드 카탈로그 (장르·하위 태그).
@@ -9470,7 +11400,7 @@ const KEYWORD_CATALOG = [
     title: "판타지",
     tags: [
       "이세계", "회/빙/환", "마법사", "이종족", "요괴", "영지물", "게임", "기사물", "저승",
-      "황제/황태자", "공작/북부공작", "기사", "성녀", "차원이", "상태창/시스템",
+      "황제/황태자", "공작/북부공작", "기사", "성녀", "차원이동", "상태창/시스템",
       "레이드/던전물", "아카데미", "헌터물", "먼치킨(초강력 주인공)", "천재/재능",
       "착각물", "신분상승", "대성장",
     ],
@@ -9575,19 +11505,1362 @@ function saveToryVault(list) {
 
 function aiModeLabel(mode) {
   const map = {
-    continue: "이어 쓰기",
-    rewrite: "다듬기",
-    summarize: "요약",
-    ideas: "아이디어",
-    analyze: "분석",
+    continue: "이어서 쓰기",
+    rewrite: "문장 다듬기",
+    summarize: "회차 요약",
+    ideas: "다음 아이디어 제안",
+    analyze: "피드백 요청",
     brainstorm: "브레인스토밍",
-    foreshadow: "복선 레이더",
-    plottwist: "반전·개연성",
-    worldscan: "세계관 수호자 스캔",
+    foreshadow: "떡밥·복선 탐색기",
+    plottwist: "반전 & 개연성 검사기",
+    worldscan: SETTING_BREAK_SCAN_LABEL,
+    worlddesc: "세계관 묘사",
     dupcheck: "중복 체크",
-    free: "직접 요청",
+    successpattern: "흥행 공식 분석",
+    successfeedback: "흥행 공식 피드백",
+    scriptadapt: "영상 각본으로 바꾸기",
+    audiobook: "오디오북 낭독 대본으로 바꾸기",
+    multilang: "다국어 번역하기",
+    subsynopsis: "투고·공모전용 시놉시스",
+    styleblend: "스며듦 검사",
+    free: "직접 요청하기",
   };
   return map[mode] || mode || "토리";
+}
+
+/* —— 흥행 공식 분석 wizard —— */
+const SP_MAX_EPISODES = 50;
+const SP_RECOMMENDED_EPISODES = 30;
+const SP_MAX_CHARS = 300000;
+const SP_RECOMMENDED_CHARS = 180000;
+const SP_SECTION_LABELS = { front: "앞부분", middle: "중간부분", ending: "결말부분" };
+
+const successPatternState = {
+  step: 1,
+  workTitle: "",
+  /** "episode" | "volume" — how the user defines work size in step 3 */
+  sizeUnit: "episode",
+  totalChapters: 0,
+  totalVolumes: 0,
+  episodesPerVolume: 10,
+  selected: ["front", "ending"],
+  ranges: {
+    front: { start: 1, end: 10 },
+    middle: { start: 1, end: 10 },
+    ending: { start: 1, end: 10 },
+  },
+  uploads: {
+    // key -> { episodes: [{title,text,length}], filename, totalChars }
+  },
+  pendingUploadKey: null,
+  analyzing: false,
+  /** User closed the step popup while still on this mode — don't force re-open. */
+  modalDismissed: false,
+};
+
+function checkCharacterBudget(uploadedSections) {
+  const allChapters = uploadedSections.flatMap((s) => s.chapters || s.episodes || []);
+  const lengths = allChapters.map((c) => {
+    if (typeof c === "string") return c.length;
+    return Number(c.length != null ? c.length : String(c.text || c.content || "").length) || 0;
+  });
+  const totalChars = lengths.reduce((sum, n) => sum + n, 0);
+  const avgCharsPerChapter = lengths.length ? totalChars / lengths.length : 0;
+
+  if (totalChars > SP_MAX_CHARS) {
+    const excessChars = totalChars - SP_MAX_CHARS;
+    const suggestedRemoval = Math.max(1, Math.ceil(excessChars / (avgCharsPerChapter || 1)));
+    return {
+      status: "blocked",
+      totalChars,
+      message: `현재 업로드된 총 글자수가 ${totalChars.toLocaleString()}자로, 최대 허용 글자수(${SP_MAX_CHARS.toLocaleString()}자)를 ${excessChars.toLocaleString()}자 초과했어요. 회차를 약 ${suggestedRemoval}개 정도 줄여주세요.`,
+      suggestedRemoval,
+    };
+  }
+  if (totalChars > SP_RECOMMENDED_CHARS) {
+    return {
+      status: "warning",
+      totalChars,
+      message: `현재 총 ${totalChars.toLocaleString()}자예요. 추천 분량(${SP_RECOMMENDED_CHARS.toLocaleString()}자)보다 많아서 처리 시간이 길어질 수 있어요. 그래도 진행은 가능해요.`,
+      suggestedRemoval: 0,
+    };
+  }
+  return { status: "ok", totalChars, message: "", suggestedRemoval: 0 };
+}
+
+function recommendSpRanges(totalChapters, windowSize = 10) {
+  const t = Math.max(1, Number(totalChapters) || 1);
+  const w = Math.max(1, Math.min(Number(windowSize) || 10, t));
+  const front = { start: 1, end: Math.min(w, t) };
+  const midCenter = Math.floor((t + 1) / 2);
+  let midStart = Math.max(1, midCenter - Math.floor(w / 2));
+  let midEnd = Math.min(t, midStart + w - 1);
+  midStart = Math.max(1, midEnd - w + 1);
+  const ending = { start: Math.max(1, t - w + 1), end: t };
+  return {
+    front,
+    middle: { start: midStart, end: midEnd },
+    ending,
+  };
+}
+
+function isSuccessPatternMode(mode = $("aiMode")?.value || "") {
+  return mode === "successpattern";
+}
+
+/** Multi-step / multi-question assist modes → auto open wizard popup. */
+const AI_WIZARD_POPUP_MODES = new Set(["successpattern"]);
+
+/** Tool modes that open the shared settings popup (not success-pattern wizard). */
+const AI_TOOL_POPUP_MODES = new Set([
+  "foreshadow",
+  "plottwist",
+  "brainstorm",
+  "continue",
+  "rewrite",
+  "worlddesc",
+  "subsynopsis",
+]);
+
+const AI_TOOL_MODAL_META = {
+  foreshadow: {
+    title: "떡밥·복선 탐색기",
+    lead: "단서를 심은 장·반전 전 원고를 연 뒤, 등록 단서 반영 여부와 잠재 복선을 점검합니다.",
+    panelId: "foreshadowPanel",
+    showExtraPrompt: true,
+    extraPlaceholder: "추가 요청 (선택) 예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.",
+    submitLabel: "토리에게 물어보기",
+  },
+  plottwist: {
+    title: "반전 & 개연성 검사기",
+    lead: "반전이 터지는 장의 원고를 연 뒤, 등록 빌드업이 반전을 설득력 있게 지지하는지 평가합니다.",
+    panelId: "foreshadowPanel",
+    showExtraPrompt: true,
+    extraPlaceholder: "추가 요청 (선택) 예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.",
+    submitLabel: "토리에게 물어보기",
+  },
+  brainstorm: {
+    title: "브레인스토밍",
+    lead: "현재 회차를 바탕으로 작품 확장 아이디어를 넓게 탐색합니다.",
+    panelId: "brainstormPanel",
+    showExtraPrompt: false,
+    submitLabel: "토리에게 물어보기",
+  },
+  continue: {
+    title: "이어서 쓰기",
+    lead: "이어 쓸 페이지와 분량을 고른 뒤 실행하세요. 원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.",
+    panelId: "continuePanel",
+    showExtraPrompt: false,
+    submitLabel: "이어서 쓰기",
+  },
+  rewrite: {
+    title: "문장 다듬기",
+    lead: "토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.",
+    panelId: "rewritePanel",
+    showExtraPrompt: false,
+    submitLabel: "문장 다듬기",
+  },
+  worlddesc: {
+    title: "세계관 묘사",
+    lead: "묘사 대상을 적으면 이 작품 문체·설정에 맞는 문장을 제안합니다.",
+    panelId: "worldDescPanel",
+    showExtraPrompt: false,
+    submitLabel: "토리에게 물어보기",
+  },
+  subsynopsis: {
+    title: "투고·공모전용 시놉시스",
+    lead: "작품 개요·설정을 바탕으로 투고·공모전용 시놉시스 초안을 작성합니다.",
+    panelId: "subsynopsisPanel",
+    showExtraPrompt: false,
+    submitLabel: "시놉시스 만들기",
+  },
+};
+
+const aiToolModalState = {
+  dismissed: false,
+  mode: "",
+};
+
+function isAiWizardPopupMode(mode = $("aiMode")?.value || "") {
+  return AI_WIZARD_POPUP_MODES.has(String(mode || ""));
+}
+
+function isAiToolPopupMode(mode = $("aiMode")?.value || "") {
+  return AI_TOOL_POPUP_MODES.has(String(mode || ""));
+}
+
+function isAiToolModalOpen() {
+  return Boolean($("aiToolModal") && !$("aiToolModal").classList.contains("hidden"));
+}
+
+function isSuccessPatternModalOpen() {
+  return Boolean($("successPatternModal") && !$("successPatternModal").classList.contains("hidden"));
+}
+
+function syncAiToolExtraPromptToForm() {
+  const extra = $("aiToolModalExtraPrompt");
+  const panel = $("aiPrompt");
+  if (!extra || !panel) return;
+  panel.value = extra.value || "";
+}
+
+function syncAiToolExtraPromptFromForm() {
+  const extra = $("aiToolModalExtraPrompt");
+  const panel = $("aiPrompt");
+  if (!extra || !panel) return;
+  extra.value = panel.value || "";
+}
+
+function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}) {
+  const m = String(mode || "");
+  if (!isAiToolPopupMode(m)) return;
+  const modal = $("aiToolModal");
+  if (!modal) {
+    console.warn("[SuperTory] #aiToolModal missing — hard-refresh or restart the app.");
+    return;
+  }
+  const meta = AI_TOOL_MODAL_META[m] || {};
+  aiToolModalState.dismissed = false;
+  aiToolModalState.mode = m;
+
+  // Close other overlapping assist modals so this one is visible.
+  if (typeof closeSuccessPatternModal === "function") {
+    try { closeSuccessPatternModal({ dismissed: false }); } catch (_) { /* ignore */ }
+  }
+
+  if ($("aiToolModalTitle")) $("aiToolModalTitle").textContent = meta.title || aiModeLabel(m);
+  if ($("aiToolModalLead")) $("aiToolModalLead").textContent = meta.lead || "";
+
+  // Show only the panel for this mode (foreshadow/plottwist share one panel).
+  ["foreshadowPanel", "continuePanel", "rewritePanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    const show = id === meta.panelId;
+    el.classList.toggle("hidden", !show);
+  });
+  if ((m === "foreshadow" || m === "plottwist") && typeof updateForeshadowPanelVisibility === "function") {
+    // Labels only — panel visibility is handled above; avoid re-entry loops by not relying on full chain.
+    // updateForeshadowPanelVisibility also toggles the shared panel; call after we force-show it.
+  }
+  if (m === "continue") {
+    if (typeof renderContinueLengthOptions === "function") renderContinueLengthOptions();
+    if (typeof setupContinueSourceUi === "function") setupContinueSourceUi();
+    if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
+  }
+  if (m === "rewrite") {
+    if (typeof setupRewriteSourceUi === "function") setupRewriteSourceUi();
+    if (typeof updateRewriteSourceUi === "function") updateRewriteSourceUi();
+  }
+  // Ensure foreshadow/plottwist labels match current mode after panel is shown.
+  if (m === "foreshadow" || m === "plottwist") {
+    const titleEl = $("foreshadowPanelTitle");
+    const hintEl = $("foreshadowPanelHint");
+    if (m === "foreshadow") {
+      if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
+      if (hintEl) hintEl.textContent = "「단서가 원고에 심겼는지」를 봅니다. 반전 개연성 평가가 아닙니다.";
+    } else {
+      if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
+      if (hintEl) hintEl.textContent = "「반전이 억지인지」를 봅니다. 단서 심기 체크리스트가 아닙니다.";
+    }
+  }
+
+  const extraWrap = $("aiToolModalExtraPromptWrap");
+  extraWrap?.classList.toggle("hidden", !meta.showExtraPrompt);
+  if (meta.showExtraPrompt) {
+    syncAiToolExtraPromptFromForm();
+    const extra = $("aiToolModalExtraPrompt");
+    if (extra) {
+      extra.placeholder = meta.extraPlaceholder || "추가 요청 (선택)";
+    }
+  }
+  const submitBtn = $("aiToolModalSubmitButton");
+  if (submitBtn) submitBtn.textContent = meta.submitLabel || "토리에게 물어보기";
+
+  modal.classList.remove("hidden");
+  modal.style.display = "grid";
+  modal.setAttribute("aria-hidden", "false");
+  requestAnimationFrame(() => {
+    const focusEl = modal.querySelector(
+      `#${meta.panelId || "aiToolModalBody"} textarea, #${meta.panelId || "aiToolModalBody"} input, #${meta.panelId || "aiToolModalBody"} select, #aiToolModalSubmitButton`,
+    );
+    try {
+      focusEl?.focus({ preventScroll: true });
+    } catch (_) {
+      focusEl?.focus();
+    }
+  });
+}
+
+function closeAiToolModal({ dismissed = true } = {}) {
+  if (isAiToolModalOpen() && $("aiToolModalExtraPromptWrap") && !$("aiToolModalExtraPromptWrap").classList.contains("hidden")) {
+    syncAiToolExtraPromptToForm();
+  }
+  const modal = $("aiToolModal");
+  if (modal) {
+    modal.classList.add("hidden");
+    modal.style.display = "";
+    modal.setAttribute("aria-hidden", "true");
+  }
+  if (dismissed && isAiToolPopupMode()) {
+    aiToolModalState.dismissed = true;
+  }
+}
+
+function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
+  const mode = $("aiMode")?.value || "";
+  const on = isAiToolPopupMode(mode);
+  const hint = $("aiToolInlineHint");
+  const hintText = $("aiToolInlineHintText");
+  hint?.classList.toggle("hidden", !on);
+  if (on && hintText) {
+    const label = (typeof aiModeLabel === "function" ? aiModeLabel(mode) : mode) || "이 기능";
+    hintText.textContent = `${label}은(는) 설정 창에서 진행해요. 창을 닫았다면 다시 열 수 있어요.`;
+  }
+  if (on) {
+    const modeChanged = aiToolModalState.mode !== mode;
+    if (forceOpen || modeChanged) {
+      aiToolModalState.dismissed = false;
+      openAiToolModal(mode);
+    } else if (!aiToolModalState.dismissed) {
+      openAiToolModal(mode);
+    }
+  } else {
+    aiToolModalState.dismissed = false;
+    aiToolModalState.mode = "";
+    closeAiToolModal({ dismissed: false });
+  }
+}
+
+function setupAiToolModal() {
+  const modal = $("aiToolModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+
+  modal.querySelectorAll("[data-close-ai-tool]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeAiToolModal({ dismissed: true });
+    });
+  });
+  $("aiToolOpenButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    const mode = $("aiMode")?.value || "";
+    if (!isAiToolPopupMode(mode)) return;
+    aiToolModalState.dismissed = false;
+    openAiToolModal(mode, { force: true });
+  });
+  $("aiToolModalSubmitButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    syncAiToolExtraPromptToForm();
+    // Keep modal open while running; close after successful result if desired.
+    const fakeEvent = { preventDefault() {} };
+    submitAiAssist(fakeEvent)
+      .then(() => {
+        // Leave open on validation toasts; close after a successful run when result exists.
+        if ($("aiResult")?.value?.trim()) {
+          closeAiToolModal({ dismissed: true });
+        }
+      })
+      .catch(handleError);
+  });
+  $("aiToolModalExtraPrompt")?.addEventListener("input", () => {
+    syncAiToolExtraPromptToForm();
+  });
+
+  const onModePick = () => {
+    const mode = $("aiMode")?.value || "";
+    if (isAiToolPopupMode(mode)) {
+      aiToolModalState.dismissed = false;
+      // Defer so other change handlers finish panel toggles first.
+      window.setTimeout(() => {
+        openAiToolModal(mode, { force: true });
+      }, 0);
+    } else {
+      updateAiToolPopupVisibility();
+    }
+  };
+  // Mode change: open tool popup for configured modes.
+  $("aiMode")?.addEventListener("change", onModePick);
+  // Some browsers only fire input; also catch re-select of same option via click+change.
+  $("aiMode")?.addEventListener("input", onModePick);
+
+  // If tools tab is opened while a popup mode is already selected, show the modal.
+  $("aiTabTools")?.addEventListener("click", () => {
+    window.setTimeout(() => {
+      const mode = $("aiMode")?.value || "";
+      if (isAiToolPopupMode(mode) && !aiToolModalState.dismissed) {
+        openAiToolModal(mode, { force: true });
+      }
+    }, 50);
+  });
+}
+
+function openSuccessPatternModal() {
+  const modal = $("successPatternModal");
+  if (!modal) return;
+  successPatternState.modalDismissed = false;
+  renderSuccessPatternStep();
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const focusEl =
+      $("spNextButton")
+      || $("spWorkTitle")
+      || modal.querySelector("input, button, textarea, select");
+    try {
+      focusEl?.focus({ preventScroll: true });
+    } catch (_) {
+      focusEl?.focus();
+    }
+  });
+}
+
+function closeSuccessPatternModal({ dismissed = true } = {}) {
+  $("successPatternModal")?.classList.add("hidden");
+  if (dismissed && isSuccessPatternMode()) {
+    successPatternState.modalDismissed = true;
+  }
+}
+
+function updateSuccessPatternWizardVisibility({ forceOpen = false } = {}) {
+  const on = isSuccessPatternMode();
+  $("successPatternInlineHint")?.classList.toggle("hidden", !on);
+  if (on) {
+    $("aiPromptWrap")?.classList.add("hidden");
+    $("aiSubmitButton")?.classList.add("hidden");
+    $("foreshadowPanel")?.classList.add("hidden");
+    $("continuePanel")?.classList.add("hidden");
+    $("rewritePanel")?.classList.add("hidden");
+    $("brainstormPanel")?.classList.add("hidden");
+    $("worldDescPanel")?.classList.add("hidden");
+    if (forceOpen || !successPatternState.modalDismissed) {
+      openSuccessPatternModal();
+    }
+  } else {
+    successPatternState.modalDismissed = false;
+    closeSuccessPatternModal({ dismissed: false });
+    // Other modes restore prompt/submit via updateContinuePanelVisibility
+  }
+}
+
+function getSpSelectedSections() {
+  return [...document.querySelectorAll("[data-sp-section]:checked")].map((el) => el.dataset.spSection);
+}
+
+function spEpisodeSpan(start, end) {
+  const s = Number(start) || 0;
+  const e = Number(end) || 0;
+  if (e < s) return 0;
+  return e - s + 1;
+}
+
+function spSelectedEpisodeTotal() {
+  let total = 0;
+  for (const key of getSpSelectedSections()) {
+    const r = successPatternState.ranges[key] || { start: 1, end: 1 };
+    total += spEpisodeSpan(r.start, r.end);
+  }
+  return total;
+}
+
+function checkSpEpisodeBudget(total = spSelectedEpisodeTotal()) {
+  if (total > SP_MAX_EPISODES) {
+    return {
+      status: "blocked",
+      total,
+      message: `선택한 구간 합계가 ${total}화로 최대 ${SP_MAX_EPISODES}화를 넘었어요. 범위를 줄여 주세요.`,
+    };
+  }
+  if (total > SP_RECOMMENDED_EPISODES) {
+    return {
+      status: "warning",
+      total,
+      message: "추천량보다 많아요, 비용이 늘어날 수 있어요",
+    };
+  }
+  return { status: "ok", total, message: "" };
+}
+
+function renderSpStepDots() {
+  const host = $("spStepDots");
+  if (!host) return;
+  host.innerHTML = [1, 2, 3, 4, 5, 6].map((n) => (
+    `<span class="sp-dot ${n === successPatternState.step ? "is-active" : ""} ${n < successPatternState.step ? "is-done" : ""}"></span>`
+  )).join("");
+}
+
+function renderSpRangeRows() {
+  const host = $("spRangeRows");
+  if (!host) return;
+  const selected = getSpSelectedSections();
+  successPatternState.selected = selected;
+  if (!selected.length) {
+    host.innerHTML = `<p class="hint">4단계에서 구간을 하나 이상 골라 주세요.</p>`;
+    return;
+  }
+  host.innerHTML = selected.map((key) => {
+    const r = successPatternState.ranges[key] || { start: 1, end: 10 };
+    const count = spEpisodeSpan(r.start, r.end);
+    return `
+      <div class="sp-range-row" data-sp-range="${key}">
+        <label class="sp-range-label">
+          <input type="checkbox" checked disabled> ${SP_SECTION_LABELS[key] || key}
+        </label>
+        <div class="sp-range-inputs">
+          <input type="number" min="1" data-sp-range-start="${key}" value="${r.start}" aria-label="${SP_SECTION_LABELS[key]} 시작 화">
+          <span>화 ~</span>
+          <input type="number" min="1" data-sp-range-end="${key}" value="${r.end}" aria-label="${SP_SECTION_LABELS[key]} 끝 화">
+          <span>화</span>
+          <span class="sp-range-count" data-sp-range-count="${key}">(${count}화)</span>
+        </div>
+      </div>`;
+  }).join("");
+  host.querySelectorAll("[data-sp-range-start], [data-sp-range-end]").forEach((input) => {
+    input.addEventListener("input", () => {
+      const key = input.dataset.spRangeStart || input.dataset.spRangeEnd;
+      const startEl = host.querySelector(`[data-sp-range-start="${key}"]`);
+      const endEl = host.querySelector(`[data-sp-range-end="${key}"]`);
+      let start = Math.max(1, Number(startEl?.value) || 1);
+      let end = Math.max(1, Number(endEl?.value) || start);
+      if (end < start) end = start;
+      successPatternState.ranges[key] = { start, end };
+      const countEl = host.querySelector(`[data-sp-range-count="${key}"]`);
+      if (countEl) countEl.textContent = `(${spEpisodeSpan(start, end)}화)`;
+      updateSpEpisodeBudgetUi();
+    });
+  });
+  updateSpEpisodeBudgetUi();
+}
+
+function updateSpEpisodeBudgetUi() {
+  const budget = checkSpEpisodeBudget();
+  const summary = $("spEpisodeBudgetSummary");
+  const fill = $("spEpisodeBudgetFill");
+  const msg = $("spEpisodeBudgetMsg");
+  if (summary) {
+    summary.textContent = `합계: ${budget.total}화 / 최대 ${SP_MAX_EPISODES}화  (추천 ${SP_RECOMMENDED_EPISODES}화 내외)`;
+  }
+  if (fill) {
+    const pct = Math.min(100, Math.round((budget.total / SP_MAX_EPISODES) * 100));
+    fill.style.width = `${pct}%`;
+    fill.classList.toggle("is-warn", budget.status === "warning");
+    fill.classList.toggle("is-blocked", budget.status === "blocked");
+  }
+  if (msg) {
+    msg.textContent = budget.message || "";
+    msg.classList.toggle("is-warn", budget.status === "warning");
+    msg.classList.toggle("is-blocked", budget.status === "blocked");
+  }
+  const next = $("spNextButton");
+  if (next && successPatternState.step === 5) {
+    next.disabled = budget.status === "blocked" || budget.total < 1;
+  }
+}
+
+function getSpUploadedSectionsForBudget() {
+  return getSpSelectedSections().map((key) => {
+    const up = successPatternState.uploads[key] || { episodes: [] };
+    return {
+      key,
+      chapters: (up.episodes || []).map((ep) => String(ep.text || "")),
+      episodes: up.episodes || [],
+    };
+  });
+}
+
+function updateSpCharBudgetUi() {
+  const budget = checkCharacterBudget(getSpUploadedSectionsForBudget());
+  const summary = $("spCharBudgetSummary");
+  const fill = $("spCharBudgetFill");
+  const msg = $("spCharBudgetMsg");
+  if (summary) {
+    summary.textContent = `총 글자: ${budget.totalChars.toLocaleString()} / 최대 ${SP_MAX_CHARS.toLocaleString()}  (추천 ${SP_RECOMMENDED_CHARS.toLocaleString()})`;
+  }
+  if (fill) {
+    const pct = Math.min(100, Math.round((budget.totalChars / SP_MAX_CHARS) * 100));
+    fill.style.width = `${pct}%`;
+    fill.classList.toggle("is-warn", budget.status === "warning");
+    fill.classList.toggle("is-blocked", budget.status === "blocked");
+  }
+  if (msg) {
+    msg.textContent = budget.message || "";
+    msg.classList.toggle("is-warn", budget.status === "warning");
+    msg.classList.toggle("is-blocked", budget.status === "blocked");
+  }
+  const analyzeBtn = $("spAnalyzeButton");
+  if (analyzeBtn) {
+    const allReady = getSpSelectedSections().every((key) => (successPatternState.uploads[key]?.episodes || []).length > 0);
+    analyzeBtn.disabled = !allReady || budget.status === "blocked" || successPatternState.analyzing;
+  }
+  return budget;
+}
+
+function bindSpDropzone(zone, key) {
+  if (!zone || !key) return;
+  const hasFiles = (e) =>
+    Array.from(e.dataTransfer?.types || []).some((t) => t === "Files" || t === "application/x-moz-file");
+
+  const setDrag = (on) => zone.classList.toggle("is-dragover", Boolean(on));
+
+  zone.addEventListener("dragenter", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    setDrag(true);
+  });
+  zone.addEventListener("dragover", (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      e.dataTransfer.dropEffect = "copy";
+    } catch (_) {
+      /* ignore */
+    }
+    setDrag(true);
+  });
+  zone.addEventListener("dragleave", (e) => {
+    // relatedTarget가 존 밖일 때만 해제 (자식 텍스트 노드 통과 시 깜빡임 방지)
+    const next = e.relatedTarget;
+    if (next && zone.contains(next)) return;
+    setDrag(false);
+  });
+  zone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setDrag(false);
+    const files = Array.from(e.dataTransfer?.files || []);
+    if (!files.length) {
+      toast("파일을 인식하지 못했어요. 다시 끌어다 놓거나 상자를 눌러 주세요.");
+      return;
+    }
+    parseSpSectionFiles(key, files).catch(handleError);
+  });
+  // 클릭·키보드로 파일 선택
+  const openPicker = (e) => {
+    e?.preventDefault?.();
+    successPatternState.pendingUploadKey = key;
+    $("spFileInput")?.click();
+  };
+  zone.addEventListener("click", openPicker);
+  zone.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === " ") openPicker(e);
+  });
+}
+
+function clearSpSectionUpload(key) {
+  if (!key || !successPatternState.uploads[key]) return;
+  delete successPatternState.uploads[key];
+  renderSpUploadRows();
+  toast(`${SP_SECTION_LABELS[key] || key} 업로드를 모두 지웠어요.`);
+}
+
+function clearSpEpisode(key, index) {
+  const up = successPatternState.uploads[key];
+  if (!up || !Array.isArray(up.episodes)) return;
+  const i = Number(index);
+  if (!Number.isFinite(i) || i < 0 || i >= up.episodes.length) return;
+  const removed = up.episodes[i];
+  up.episodes.splice(i, 1);
+  if (!up.episodes.length) {
+    delete successPatternState.uploads[key];
+    toast(`「${removed?.title || "회차"}」을(를) 지웠어요.`);
+  } else {
+    up.totalChars = up.episodes.reduce(
+      (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
+      0,
+    );
+    toast(`「${removed?.title || "회차"}」을(를) 목록에서 뺐어요. (${up.episodes.length}화 남음)`);
+  }
+  renderSpUploadRows();
+}
+
+function renderSpUploadRows() {
+  const host = $("spUploadRows");
+  if (!host) return;
+  const selected = getSpSelectedSections();
+  const zoneGuide = `
+    <span class="sp-dropzone-label">파일 드롭 또는 클릭</span>
+    <span class="sp-dropzone-hint">(docx, hwpx, txt, md)</span>`;
+
+  host.innerHTML = selected.map((key) => {
+    const up = successPatternState.uploads[key];
+    const r = successPatternState.ranges[key] || {};
+    const episodes = Array.isArray(up?.episodes) ? up.episodes : [];
+    const filled = episodes.length > 0;
+    let listHtml = "";
+    if (filled) {
+      const chars = episodes.reduce(
+        (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
+        0,
+      );
+      const items = episodes.map((ep, idx) => {
+        const title = escapeHtml(ep.title || `${idx + 1}화`);
+        const len = Number(ep.length) || String(ep.text || "").length;
+        const src = ep.sourceFile ? escapeHtml(ep.sourceFile) : "";
+        return `
+          <div class="sp-episode-item" data-sp-ep-row="${key}:${idx}">
+            <button
+              type="button"
+              class="sp-dropzone-clear"
+              data-sp-ep-clear="${key}"
+              data-sp-ep-index="${idx}"
+              title="이 회차 삭제"
+              aria-label="${title} 삭제"
+            >삭제</button>
+            <div class="sp-episode-meta">
+              <span class="sp-episode-title" title="${title}">${title}</span>
+              <span class="sp-episode-stats">${len.toLocaleString()}자${src ? ` · ${src}` : ""}</span>
+            </div>
+          </div>`;
+      }).join("");
+      listHtml = `
+        <div class="sp-episode-list" aria-label="업로드된 회차 목록">
+          ${items}
+        </div>
+        <div class="sp-episode-summary">${episodes.length}화 · ${chars.toLocaleString()}자</div>`;
+    }
+    return `
+      <div class="sp-upload-row" data-sp-upload="${key}">
+        <div class="sp-upload-head">
+          <strong>${SP_SECTION_LABELS[key] || key}</strong>
+          <span class="hint">${r.start || "?"}~${r.end || "?"}화</span>
+        </div>
+        ${listHtml}
+        <div
+          class="sp-dropzone${filled ? " is-filled-add" : ""}"
+          data-sp-drop="${key}"
+          tabindex="0"
+          role="button"
+          aria-label="${SP_SECTION_LABELS[key] || key} 파일 올리기"
+        >${zoneGuide}</div>
+      </div>`;
+  }).join("");
+
+  host.querySelectorAll("[data-sp-drop]").forEach((zone) => {
+    bindSpDropzone(zone, zone.dataset.spDrop);
+  });
+  host.querySelectorAll("[data-sp-ep-clear]").forEach((btn) => {
+    btn.addEventListener("click", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      clearSpEpisode(
+        btn.getAttribute("data-sp-ep-clear") || "",
+        btn.getAttribute("data-sp-ep-index"),
+      );
+    });
+  });
+  updateSpCharBudgetUi();
+}
+
+async function fileToBase64(file) {
+  const buf = await file.arrayBuffer();
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
+async function parseSpSectionFiles(key, files) {
+  const list = Array.from(files || []).filter(Boolean);
+  if (!key || !list.length) return;
+  let added = 0;
+  let lastError = null;
+  for (const file of list) {
+    try {
+      const n = await parseSpSectionFile(key, file, { quiet: list.length > 1 });
+      added += Number(n) || 0;
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  renderSpUploadRows();
+  if (added > 0) {
+    const total = successPatternState.uploads[key]?.episodes?.length || 0;
+    toast(
+      list.length > 1
+        ? `${SP_SECTION_LABELS[key]} ${list.length}개 파일 · +${added}화 (합계 ${total}화)`
+        : `${SP_SECTION_LABELS[key]} 완료 (${total}화)`,
+    );
+  } else if (lastError) {
+    handleError(lastError);
+  } else {
+    toast("회차를 나누지 못했어요. 제목 형식(제1화, # 제목 등)이 있는지 확인해 주세요.");
+  }
+}
+
+/** @returns {Promise<number>} added episode count */
+async function parseSpSectionFile(key, file, { quiet = false } = {}) {
+  if (!key || !file) return 0;
+  if (!quiet) toast(`${SP_SECTION_LABELS[key] || key} 파일을 읽는 중…`);
+  const content_base64 = await fileToBase64(file);
+  const result = await api("/api/success-pattern/parse", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      content_base64,
+      split_mode: "headings",
+    }),
+  });
+  const incoming = (result.episodes || []).map((ep, i) => ({
+    title: ep.title || `${i + 1}화`,
+    text: ep.text || "",
+    length: Number(ep.length) || String(ep.text || "").length,
+    sourceFile: file.name,
+  }));
+  if (!incoming.length) {
+    if (!quiet) {
+      toast("회차를 나누지 못했어요. 제목 형식(제1화, # 제목 등)이 있는지 확인해 주세요.");
+    }
+    return 0;
+  }
+  // Append: 여러 파일을 이어서 올릴 수 있음 (구간당 1파일 제한 아님)
+  const prev = Array.isArray(successPatternState.uploads[key]?.episodes)
+    ? successPatternState.uploads[key].episodes
+    : [];
+  const episodes = [...prev, ...incoming];
+  const totalChars = episodes.reduce((s, e) => s + (Number(e.length) || 0), 0);
+  successPatternState.uploads[key] = {
+    episodes,
+    filename: file.name,
+    totalChars,
+  };
+  if (!quiet) {
+    renderSpUploadRows();
+    toast(
+      prev.length
+        ? `${SP_SECTION_LABELS[key]} +${incoming.length}화 (합계 ${episodes.length}화)`
+        : `${SP_SECTION_LABELS[key]} 완료 (${episodes.length}화)`,
+    );
+  }
+  return incoming.length;
+}
+
+function renderSuccessPatternStep() {
+  const step = successPatternState.step;
+  document.querySelectorAll("#successPatternWizard [data-sp-step]").forEach((el) => {
+    const n = Number(el.dataset.spStep);
+    el.classList.toggle("hidden", n !== step);
+  });
+  if ($("spWizardStepLabel")) $("spWizardStepLabel").textContent = `${step} / 6`;
+  renderSpStepDots();
+  const prev = $("spPrevButton");
+  const next = $("spNextButton");
+  const analyze = $("spAnalyzeButton");
+  if (prev) prev.disabled = step <= 1 || successPatternState.analyzing;
+  if (next) {
+    next.classList.toggle("hidden", step >= 6);
+    next.disabled = successPatternState.analyzing;
+  }
+  if (analyze) analyze.classList.toggle("hidden", step < 6);
+
+  if (step === 3) {
+    syncSpSizeUnitUi();
+  }
+  if (step === 5) {
+    // Refresh recommended ranges when entering step 5
+    if (successPatternState.totalChapters > 0) {
+      const rec = recommendSpRanges(successPatternState.totalChapters);
+      for (const key of Object.keys(rec)) {
+        // Keep user edits if already set after total change — overwrite when total was just set
+        if (!successPatternState.ranges[key] || successPatternState._rangesFromTotal !== successPatternState.totalChapters) {
+          successPatternState.ranges[key] = rec[key];
+        }
+      }
+      successPatternState._rangesFromTotal = successPatternState.totalChapters;
+    }
+    renderSpRangeRows();
+  }
+  if (step === 6) {
+    renderSpUploadRows();
+  }
+}
+
+function getSpSizeUnit() {
+  return successPatternState.sizeUnit === "volume" ? "volume" : "episode";
+}
+
+function setSpSizeUnit(unit) {
+  const next = unit === "volume" ? "volume" : "episode";
+  successPatternState.sizeUnit = next;
+  const byEp = $("spSizeByEpisode");
+  const byVol = $("spSizeByVolume");
+  if (byEp) byEp.checked = next === "episode";
+  if (byVol) byVol.checked = next === "volume";
+  syncSpSizeUnitUi();
+  updateSpSizeVolumeHint();
+}
+
+function syncSpSizeUnitUi() {
+  const unit = getSpSizeUnit();
+  const byEp = $("spSizeByEpisode");
+  const byVol = $("spSizeByVolume");
+  if (byEp) byEp.checked = unit === "episode";
+  if (byVol) byVol.checked = unit === "volume";
+  $("spSizeEpisodeFields")?.classList.toggle("hidden", unit !== "episode");
+  $("spSizeVolumeFields")?.classList.toggle("hidden", unit !== "volume");
+  // Restore inputs from state when revisiting the step
+  if ($("spTotalChapters") && successPatternState.totalChapters > 0 && unit === "episode") {
+    if (!$("spTotalChapters").value) $("spTotalChapters").value = String(successPatternState.totalChapters);
+  }
+  if ($("spTotalVolumes") && successPatternState.totalVolumes > 0 && unit === "volume") {
+    if (!$("spTotalVolumes").value) $("spTotalVolumes").value = String(successPatternState.totalVolumes);
+  }
+  if ($("spEpisodesPerVolume")) {
+    const epv = Number(successPatternState.episodesPerVolume) || 10;
+    if (!$("spEpisodesPerVolume").value) $("spEpisodesPerVolume").value = String(epv);
+  }
+  updateSpSizeVolumeHint();
+}
+
+function updateSpSizeVolumeHint() {
+  const hint = $("spSizeVolumeHint");
+  if (!hint) return;
+  const vols = Math.max(0, Math.floor(Number($("spTotalVolumes")?.value) || successPatternState.totalVolumes || 0));
+  const epv = Math.max(1, Math.floor(Number($("spEpisodesPerVolume")?.value) || successPatternState.episodesPerVolume || 10));
+  if (vols > 0) {
+    hint.textContent = `구간 추천을 위해 회차로 환산해요. ${vols}권 × ${epv}화 = ${vols * epv}화`;
+  } else {
+    hint.textContent = `구간 추천을 위해 회차로 환산해요. 예: 20권 × ${epv}화 = ${20 * epv}화`;
+  }
+}
+
+function resolveSpTotalChaptersFromStep3() {
+  const unit = getSpSizeUnit();
+  if (unit === "volume") {
+    const vols = Math.floor(Number($("spTotalVolumes")?.value));
+    const epv = Math.floor(Number($("spEpisodesPerVolume")?.value));
+    if (!Number.isFinite(vols) || vols < 1) {
+      return { ok: false, message: "총 권 수를 1 이상으로 입력해 주세요.", focus: "spTotalVolumes" };
+    }
+    const per = Number.isFinite(epv) && epv >= 1 ? epv : 10;
+    const total = vols * per;
+    if (total < 1) {
+      return { ok: false, message: "권 수와 권당 회차를 확인해 주세요.", focus: "spTotalVolumes" };
+    }
+    return {
+      ok: true,
+      sizeUnit: "volume",
+      totalVolumes: vols,
+      episodesPerVolume: per,
+      totalChapters: total,
+    };
+  }
+  const n = Math.floor(Number($("spTotalChapters")?.value));
+  if (!Number.isFinite(n) || n < 1) {
+    return { ok: false, message: "총 회차 수를 1 이상으로 입력해 주세요.", focus: "spTotalChapters" };
+  }
+  return {
+    ok: true,
+    sizeUnit: "episode",
+    totalVolumes: 0,
+    episodesPerVolume: Number(successPatternState.episodesPerVolume) || 10,
+    totalChapters: n,
+  };
+}
+
+function validateSpStep(step) {
+  if (step === 2) {
+    const title = String($("spWorkTitle")?.value || "").trim();
+    if (!title) {
+      toast("작품명을 입력해 주세요.");
+      $("spWorkTitle")?.focus();
+      return false;
+    }
+    successPatternState.workTitle = title;
+    return true;
+  }
+  if (step === 3) {
+    // Ensure at least one unit checkbox is on
+    if (!$("spSizeByEpisode")?.checked && !$("spSizeByVolume")?.checked) {
+      toast("회차 수 기준 또는 권 수 기준을 선택해 주세요.");
+      return false;
+    }
+    const resolved = resolveSpTotalChaptersFromStep3();
+    if (!resolved.ok) {
+      toast(resolved.message);
+      $(resolved.focus)?.focus();
+      return false;
+    }
+    successPatternState.sizeUnit = resolved.sizeUnit;
+    successPatternState.totalVolumes = resolved.totalVolumes;
+    successPatternState.episodesPerVolume = resolved.episodesPerVolume;
+    successPatternState.totalChapters = resolved.totalChapters;
+    successPatternState.ranges = recommendSpRanges(successPatternState.totalChapters);
+    successPatternState._rangesFromTotal = successPatternState.totalChapters;
+    return true;
+  }
+  if (step === 4) {
+    const selected = getSpSelectedSections();
+    if (!selected.length) {
+      toast("구간을 하나 이상 선택해 주세요.");
+      return false;
+    }
+    successPatternState.selected = selected;
+    return true;
+  }
+  if (step === 5) {
+    const budget = checkSpEpisodeBudget();
+    if (budget.status === "blocked") {
+      toast(budget.message);
+      return false;
+    }
+    if (budget.total < 1) {
+      toast("화수 범위를 확인해 주세요.");
+      return false;
+    }
+    return true;
+  }
+  return true;
+}
+
+function formatSuccessProfileDisplay(profileRow, { usedMock = false } = {}) {
+  const profile = profileRow || {};
+  const p = (profile.profile && typeof profile.profile === "object")
+    ? { ...profile.profile }
+    : { ...profile };
+  const asList = (v) => {
+    if (Array.isArray(v)) return v.map((x) => String(x || "").trim()).filter(Boolean);
+    if (typeof v === "string" && v.trim()) return [v.trim()];
+    return [];
+  };
+  let reader = asList(p.reader_popularity_factors);
+  let editor = asList(p.editor_popularity_factors);
+  let must = asList(p.must_follow_factors);
+  // Live Gemini often fills pattern fields but omits factor arrays — surface them for UI.
+  if (!reader.length) {
+    if (p.hook_style) reader.push(`훅·끝맺음: ${p.hook_style}`);
+    if (p.summary) reader.push(String(p.summary).slice(0, 200));
+  }
+  if (!editor.length) {
+    if (p.pacing_pattern) editor.push(`전개: ${p.pacing_pattern}`);
+    if (p.dialogue_narration_balance) editor.push(`대사/지문: ${p.dialogue_narration_balance}`);
+    if (p.style_signature) editor.push(`문체: ${p.style_signature}`);
+  }
+  if (!must.length) {
+    if (p.hook_style) must.push("회차 끝 훅 유지");
+    if (p.style_signature) must.push("문체 리듬 유지");
+  }
+  const lines = [
+    `【흥행 공식 프로파일】 ${profile.work_title || p.work_title || "제목 없음"}`,
+    `총 회차(원작): ${profile.total_chapters ?? "—"}`,
+    profile.id ? `프로파일 ID: #${profile.id}` : "",
+    usedMock ? "(로컬 관찰 요약 · API 키가 없거나 일부 단계가 대체 분석되었습니다)" : "",
+    "",
+    "■ 독자 관점 요인",
+    ...(reader.length ? reader.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    "",
+    "■ 편집자·비평가 관점 요인",
+    ...(editor.length ? editor.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    "",
+    "■ 특히 놓치지 않아야 할 요인 (강조)",
+    ...(must.length ? must.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    "",
+    "■ 참고 패턴",
+    `  · 훅 스타일: ${p.hook_style || "(없음)"}`,
+    `  · 전개 패턴: ${p.pacing_pattern || "(없음)"}`,
+    `  · 대사/지문: ${p.dialogue_narration_balance || "(없음)"}`,
+    `  · 문체 특징: ${p.style_signature || "(없음)"}`,
+    "",
+    "■ 종합 요약",
+    p.summary || "(요약 없음)",
+  ].filter((x) => x !== undefined && x !== null);
+  return lines.join("\n");
+}
+
+/**
+ * 흥행 공식 피드백 — 현재 회차를 연결된 흥행 프로파일과 비교 분석.
+ * 체크박스와 무관하게 프로파일을 항상 참고 레이어로 붙입니다.
+ */
+async function runSuccessFormulaFeedback() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!getLinkedSuccessProfileId()) {
+    toast("연결된 흥행 프로파일이 없어요. 「스페셜 기능 → 흥행 공식 분석」으로 먼저 만들어 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("피드백할 원고(회차)를 먼저 열어 주세요.");
+    return;
+  }
+  const sceneContent = getEditorContent() || "";
+  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  if (!scenePlain) {
+    toast("현재 회차 원고가 비어 있어요.");
+    return;
+  }
+  const profile = await ensureLinkedSuccessProfile();
+  if (!profile) {
+    toast("흥행 프로파일을 불러오지 못했어요.");
+    return;
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "successfeedback";
+  updateForeshadowPanelVisibility();
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("aiSubmitButton");
+  const prev = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "흥행 공식 피드백 중…";
+  }
+  if ($("aiResult")) $("aiResult").value = "흥행 프로파일과 현재 회차를 비교하는 중…";
+  $("aiResultWrap")?.classList.remove("is-empty", "hidden");
+
+  try {
+    const assistBody = {
+      mode: "analyze",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_content: scenePlain,
+      prompt: "",
+      user_prompt: "흥행 프로파일을 근거로 현재 회차의 재미 요소·훅·전개·문체를 점검해 주세요.",
+      focus_scene_only: true,
+      tory_focus: true,
+      focus_scene_id: state.sceneId,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "analyze", scenePlain);
+    // Always apply success profile layer for this dedicated mode
+    const basePrompt = assistBody.indexed_prompt || scenePlain;
+    assistBody.indexed_prompt = buildTaskPromptWithSuccessProfile(basePrompt, profile);
+    assistBody.use_success_profile = true;
+    assistBody.linked_success_profile_id = getLinkedSuccessProfileId();
+
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    const text = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = text;
+    revealAiAssistResult({ openModal: true, mode: "successfeedback" });
+    pushAiResultHistory?.({
+      mode: "successfeedback",
+      modeLabel: "흥행 공식 피드백",
+      text,
+    });
+    toast("흥행 공식 피드백이 끝났어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prev || "토리에게 물어보기";
+    }
+  }
+}
+
+async function runSuccessPatternAnalysis() {
+  const selected = getSpSelectedSections();
+  for (const key of selected) {
+    if (!(successPatternState.uploads[key]?.episodes || []).length) {
+      toast(`${SP_SECTION_LABELS[key]} 파일을 먼저 올려 주세요.`);
+      return;
+    }
+  }
+  const charBudget = updateSpCharBudgetUi();
+  if (charBudget.status === "blocked") {
+    toast(charBudget.message);
+    return;
+  }
+  const sections = selected.map((key) => {
+    const r = successPatternState.ranges[key] || { start: 1, end: 1 };
+    const up = successPatternState.uploads[key];
+    return {
+      key,
+      start_ep: r.start,
+      end_ep: r.end,
+      episodes: (up.episodes || []).map((ep) => ({
+        title: ep.title,
+        text: ep.text,
+        length: ep.length,
+      })),
+    };
+  });
+  successPatternState.analyzing = true;
+  if ($("spAnalyzeStatus")) $("spAnalyzeStatus").textContent = "구조를 분석하는 중… (회차가 많으면 시간이 걸릴 수 있어요)";
+  updateSpCharBudgetUi();
+  try {
+    const result = await api("/api/success-pattern/run", {
+      method: "POST",
+      body: JSON.stringify({
+        work_title: successPatternState.workTitle,
+        total_chapters: successPatternState.totalChapters,
+        sections,
+      }),
+    });
+    const profile = result.profile || {};
+    const display = formatSuccessProfileDisplay(profile, { usedMock: Boolean(result.used_mock) });
+    if ($("aiResult")) {
+      $("aiResult").value = display;
+      $("aiResultWrap")?.classList.remove("is-empty", "hidden");
+    }
+    pushAiResultHistory?.({
+      mode: "successpattern",
+      modeLabel: "흥행 공식 분석",
+      text: display,
+    });
+    toast("흥행 공식 프로파일을 저장했어요.");
+    if ($("spAnalyzeStatus")) {
+      $("spAnalyzeStatus").textContent = `저장 완료 · 프로파일 #${profile.id || "?"}`;
+    }
+    // Refresh profile catalog so settings card dropdown includes the new one
+    successProfileCatalog = null;
+    successProfileCatalogAt = 0;
+    // 현재 작품이 열려 있으면 참고용으로 자동 연결 (체크박스는 기본 OFF)
+    if (state.projectId && profile.id) {
+      try {
+        await linkSuccessProfileToProject(profile.id, { quiet: true });
+        if ($("spAnalyzeStatus")) {
+          $("spAnalyzeStatus").textContent =
+            `저장 완료 · 프로파일 #${profile.id} · 이 작품에 연결됨 (도우미에서 「흥행 공식 참고」 선택 가능)`;
+        }
+        if ($("aiResult")) {
+          $("aiResult").value = `${display}\n\n——\n✓ 신작 프로젝트에 자동 연결됨 (linked_success_profile_id=${profile.id})`;
+        }
+      } catch (_) { /* ignore link failure */ }
+    } else if (typeof renderLinkedSuccessProfileCard === "function") {
+      renderLinkedSuccessProfileCard().catch(() => {});
+    }
+    // 결과 칸으로 시선 이동 — 단계 창은 닫음
+    closeSuccessPatternModal({ dismissed: true });
+    if (typeof revealAiAssistResult === "function") {
+      revealAiAssistResult({ openModal: true, mode: "successpattern" });
+    }
+  } finally {
+    successPatternState.analyzing = false;
+    updateSpCharBudgetUi();
+  }
+}
+
+function setupSuccessPatternWizard() {
+  $("aiMode")?.addEventListener("change", () => {
+    // Selecting a multi-step helper always opens its wizard popup once.
+    if (isSuccessPatternMode()) successPatternState.modalDismissed = false;
+    updateSuccessPatternWizardVisibility({ forceOpen: isSuccessPatternMode() });
+  });
+  $("spOpenWizardButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (!isSuccessPatternMode()) {
+      if ($("aiMode")) $("aiMode").value = "successpattern";
+      successPatternState.modalDismissed = false;
+      updateForeshadowPanelVisibility();
+      updateSuccessPatternWizardVisibility({ forceOpen: true });
+      return;
+    }
+    openSuccessPatternModal();
+  });
+  $("spPrevButton")?.addEventListener("click", () => {
+    if (successPatternState.step > 1) {
+      successPatternState.step -= 1;
+      renderSuccessPatternStep();
+    }
+  });
+  $("spNextButton")?.addEventListener("click", () => {
+    if (!validateSpStep(successPatternState.step)) return;
+    if (successPatternState.step < 6) {
+      successPatternState.step += 1;
+      renderSuccessPatternStep();
+    }
+  });
+  $("spAnalyzeButton")?.addEventListener("click", () => {
+    runSuccessPatternAnalysis().catch(handleError);
+  });
+  $("spFileInput")?.addEventListener("change", (event) => {
+    const files = Array.from(event.target.files || []);
+    const key = successPatternState.pendingUploadKey;
+    event.target.value = "";
+    if (files.length && key) parseSpSectionFiles(key, files).catch(handleError);
+  });
+  // Step 3: exclusive size-unit checkboxes (회차 수 / 권 수)
+  const bindSizeUnit = (el, unit) => {
+    el?.addEventListener("change", () => {
+      if (el.checked) {
+        setSpSizeUnit(unit);
+      } else {
+        // Keep one always selected — re-check if user unchecks the active one
+        el.checked = true;
+        setSpSizeUnit(unit);
+      }
+    });
+  };
+  bindSizeUnit($("spSizeByEpisode"), "episode");
+  bindSizeUnit($("spSizeByVolume"), "volume");
+  $("spTotalVolumes")?.addEventListener("input", updateSpSizeVolumeHint);
+  $("spEpisodesPerVolume")?.addEventListener("input", updateSpSizeVolumeHint);
+  syncSpSizeUnitUi();
+
+  document.querySelectorAll("[data-sp-section]").forEach((cb) => {
+    cb.addEventListener("change", () => {
+      successPatternState.selected = getSpSelectedSections();
+      // clear uploads for deselected
+      for (const key of Object.keys(successPatternState.uploads)) {
+        if (!successPatternState.selected.includes(key)) delete successPatternState.uploads[key];
+      }
+    });
+  });
+
+  const modal = $("successPatternModal");
+  if (modal && modal.dataset.bound !== "1") {
+    modal.dataset.bound = "1";
+    modal.querySelectorAll("[data-close-sp-modal]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeSuccessPatternModal({ dismissed: true });
+      });
+    });
+  }
+
+  // Electron/브라우저: 위자드 위 파일 드롭 시 페이지 이동 방지 + 드롭존으로 전달
+  const dropHost = $("successPatternModal") || $("successPatternWizard");
+  if (dropHost && dropHost.dataset.spDropGuard !== "1") {
+    dropHost.dataset.spDropGuard = "1";
+    const guard = (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types) return;
+      const isFile = Array.from(types).includes("Files") || Array.from(types).includes("application/x-moz-file");
+      if (!isFile) return;
+      e.preventDefault();
+      try {
+        e.dataTransfer.dropEffect = "copy";
+      } catch (_) {
+        /* ignore */
+      }
+    };
+    dropHost.addEventListener("dragover", guard);
+    dropHost.addEventListener("drop", (e) => {
+      const types = e.dataTransfer?.types;
+      if (!types || !Array.from(types).includes("Files")) return;
+      // 드롭존 밖 드롭은 무시하되 네비게이션은 막음
+      if (!e.target?.closest?.("[data-sp-drop]")) {
+        e.preventDefault();
+        e.stopPropagation();
+      }
+    });
+  }
+
+  // Do not auto-open on first bind (page load); only when mode is already successpattern.
+  if (isSuccessPatternMode()) {
+    updateSuccessPatternWizardVisibility();
+  } else {
+    $("successPatternInlineHint")?.classList.add("hidden");
+    closeSuccessPatternModal();
+  }
 }
 
 function collectToToryVault(options = {}) {
@@ -9661,14 +12934,23 @@ function renderToryVaultList() {
 function setupToryVault() {
   $("newToryVaultButton")?.addEventListener("click", () => {
     if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-    const text = window.prompt("수집창고에 넣을 메모를 적어 주세요.");
-    if (text === null) return;
-    const body = text.trim();
-    if (!body) return toast("내용이 비어 있어요.");
-    collectToToryVault({ text: body, title: "직접 메모", mode: "note", prompt: "" });
-    setActiveBinder("settings");
-    state.openSettingsSection = "toryVault";
-    applySettingsSectionState();
+    promptText({
+      title: "수집창고 메모",
+      message: "수집창고에 넣을 메모를 적어 주세요.",
+      label: "메모",
+      defaultValue: "",
+      placeholder: "짧은 메모",
+      maxlength: 2000,
+      confirmLabel: "넣기",
+    }).then((text) => {
+      if (text === null) return;
+      const body = text.trim();
+      if (!body) return toast("내용이 비어 있어요.");
+      collectToToryVault({ text: body, title: "직접 메모", mode: "note", prompt: "" });
+      setActiveBinder("settings");
+      state.openSettingsSection = "toryVault";
+      applySettingsSectionState();
+    }).catch(handleError);
   });
   $("clearToryVaultButton")?.addEventListener("click", () => {
     if (!state.projectId) return;
@@ -10029,7 +13311,7 @@ function setSplitSourceUiMode(isSource) {
       titleInput.setAttribute("aria-label", "참고자료 파일명");
     } else {
       titleInput.placeholder = "씬 제목";
-      titleInput.setAttribute("aria-label", "다른 씬 제목");
+      titleInput.setAttribute("aria-label", "함께보기 제목");
     }
   }
   if (sceneSelect) {
@@ -10045,7 +13327,7 @@ function setSplitSourceUiMode(isSource) {
       editBtn.disabled = false;
     }
   }
-  if (caption) caption.textContent = isSource ? "참고자료 파일" : "함께 볼 씬";
+  if (caption) caption.textContent = isSource ? "참고자료 파일" : "함께볼 회차";
 }
 
 /** Display name for open reference file (prefer real file name). */
@@ -10715,53 +13997,218 @@ function setupSourceCollection() {
   setupSplitSourceEditor();
 }
 let pendingBaitQuote = "";
+/** @type {string|null} last project id whose baits are in state.baits */
+let baitCacheProjectId = null;
+/** Bait ids currently shown in the recovery popup (for snooze actions). */
+let baitNotifyActiveSceneId = null;
+let baitNotifyActiveBaitIds = [];
 
 function baitStorageKey(projectId = state.projectId) {
   return `${BAIT_STORAGE_PREFIX}${projectId || "0"}`;
 }
 
-function loadBaits() {
-  if (!state.projectId) return [];
-  try {
-    const raw = localStorage.getItem(baitStorageKey());
-    const arr = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(arr)) return [];
-    return arr
-      .filter((item) => item && item.id)
-      .map((item) => normalizeBaitItem(item));
-  } catch (_) {
-    return [];
-  }
+function baitMigratedBackupKey(projectId = state.projectId) {
+  return `${BAIT_STORAGE_PREFIX}migrated.${projectId || "0"}`;
 }
 
-function saveBaits(list) {
-  if (!state.projectId) return;
-  try {
-    localStorage.setItem(baitStorageKey(), JSON.stringify(list));
-  } catch (_) {
-    /* ignore */
+/** Synchronous read of the in-memory DB cache (after refreshBaitsFromServer). */
+function loadBaits() {
+  if (!state.projectId) return [];
+  if (baitCacheProjectId != null && Number(baitCacheProjectId) !== Number(state.projectId)) {
+    return [];
   }
-  // Keep binder icons in sync
+  const list = Array.isArray(state.baits) ? state.baits : [];
+  return list.filter((item) => item && item.id).map((item) => normalizeBaitItem(item));
+}
+
+function setBaitCache(list, projectId = state.projectId) {
+  const normalized = (Array.isArray(list) ? list : [])
+    .filter((item) => item && item.id)
+    .map((item) => normalizeBaitItem(item));
+  state.baits = normalized;
+  baitCacheProjectId = projectId != null ? Number(projectId) : null;
+  // Keep binder icons + notify center in sync
   if (typeof renderOutline === "function" && Array.isArray(state.outline) && state.outline.length) {
     renderOutline(state.outline);
   }
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
 }
 
-/** Normalize legacy bait records to the richer shape. */
+/** @deprecated Prefer create/update/delete APIs. Kept for rare full-list rewrite paths. */
+function saveBaits(list) {
+  setBaitCache(list, state.projectId);
+}
+
+function readLocalBaitsRaw(projectId) {
+  try {
+    const raw = localStorage.getItem(baitStorageKey(projectId));
+    if (!raw) return null;
+    const arr = JSON.parse(raw);
+    return Array.isArray(arr) ? arr : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * One-shot: if this browser still has localStorage baits for the project,
+ * upsert them into SQLite then move the key to a backup.
+ */
+async function migrateLocalBaitsToDb(projectId) {
+  const pid = Number(projectId);
+  if (!pid) return { migrated: false, count: 0 };
+  const localItems = readLocalBaitsRaw(pid);
+  if (!localItems || !localItems.length) {
+    // Empty array still counts as "handled" — drop the key so we don't re-read.
+    try {
+      if (localStorage.getItem(baitStorageKey(pid)) != null) {
+        localStorage.removeItem(baitStorageKey(pid));
+      }
+    } catch (_) { /* ignore */ }
+    return { migrated: false, count: 0 };
+  }
+  const payloadItems = localItems
+    .filter((item) => item && (item.id || item.quote || item.summary))
+    .map((item) => {
+      const n = normalizeBaitItem(item);
+      return {
+        id: n.id,
+        kind: n.kind,
+        quote: n.quote || n.summary || "(내용 없음)",
+        summary: n.summary || "",
+        recover_content: n.recoverContent || "",
+        recover_at: n.recoverAt || "",
+        recover_scene_id: n.recoverSceneId,
+        plant_scene_id: n.plantSceneId,
+        source_scene_id: n.sourceSceneId || n.plantSceneId,
+        plant_at_note: n.plantAtNote || "",
+        source_title: n.sourceTitle || "",
+        notify_on_recover: n.notifyOnRecover !== false,
+        snooze_until: n.snoozeUntil || null,
+        created_at: n.createdAt || null,
+      };
+    });
+  if (!payloadItems.length) {
+    try { localStorage.removeItem(baitStorageKey(pid)); } catch (_) { /* ignore */ }
+    return { migrated: false, count: 0 };
+  }
+  const result = await api(`/api/projects/${pid}/baits/import`, {
+    method: "POST",
+    body: JSON.stringify({ items: payloadItems }),
+  });
+  // Backup then remove primary key so data is not lost if import is partial.
+  try {
+    const raw = localStorage.getItem(baitStorageKey(pid));
+    if (raw != null) {
+      localStorage.setItem(baitMigratedBackupKey(pid), raw);
+      localStorage.removeItem(baitStorageKey(pid));
+    }
+  } catch (_) { /* ignore */ }
+  return {
+    migrated: true,
+    count: Number(result?.total || payloadItems.length) || payloadItems.length,
+  };
+}
+
+async function refreshBaitsFromServer(projectId = state.projectId) {
+  const pid = Number(projectId);
+  if (!pid) {
+    setBaitCache([], null);
+    return [];
+  }
+  try {
+    await migrateLocalBaitsToDb(pid);
+  } catch (err) {
+    console.warn("localStorage 떡밥 마이그레이션 실패 — 서버 목록만 불러옵니다.", err);
+  }
+  if (Number(state.projectId) !== pid) return loadBaits();
+  const list = await api(`/api/projects/${pid}/baits`);
+  if (Number(state.projectId) !== pid) return loadBaits();
+  setBaitCache(list, pid);
+  return loadBaits();
+}
+
+function baitToApiBody(item) {
+  const n = normalizeBaitItem(item || {});
+  return {
+    id: n.id || undefined,
+    kind: n.kind === "idea" ? "idea" : "plant",
+    quote: n.quote || "",
+    summary: n.summary || "",
+    recover_content: n.recoverContent || "",
+    recover_at: n.recoverAt || "",
+    recover_scene_id: n.recoverSceneId,
+    plant_scene_id: n.plantSceneId,
+    source_scene_id: n.sourceSceneId || n.plantSceneId,
+    plant_at_note: n.plantAtNote || "",
+    source_title: n.sourceTitle || "",
+    notify_on_recover: n.notifyOnRecover !== false,
+    snooze_until: n.snoozeUntil || null,
+    created_at: n.createdAt || undefined,
+  };
+}
+
+async function createBaitOnServer(item) {
+  if (!state.projectId) throw new Error("작품을 먼저 선택해 주세요.");
+  const created = await api(`/api/projects/${state.projectId}/baits`, {
+    method: "POST",
+    body: JSON.stringify(baitToApiBody(item)),
+  });
+  const next = [normalizeBaitItem(created), ...loadBaits().filter((b) => b.id !== created.id)];
+  setBaitCache(next, state.projectId);
+  return normalizeBaitItem(created);
+}
+
+async function updateBaitOnServer(baitId, patch) {
+  const id = String(baitId || "").trim();
+  if (!id) throw new Error("떡밥 id가 없어요.");
+  const updated = await api(`/api/baits/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    body: JSON.stringify(baitToApiBody({ id, ...patch })),
+  });
+  const list = loadBaits();
+  const idx = list.findIndex((b) => b.id === id);
+  if (idx >= 0) list[idx] = normalizeBaitItem(updated);
+  else list.unshift(normalizeBaitItem(updated));
+  setBaitCache(list, state.projectId);
+  return normalizeBaitItem(updated);
+}
+
+async function deleteBaitOnServer(baitId) {
+  const id = String(baitId || "").trim();
+  if (!id) return;
+  await api(`/api/baits/${encodeURIComponent(id)}`, { method: "DELETE" });
+  setBaitCache(loadBaits().filter((b) => b.id !== id), state.projectId);
+}
+
+/** Normalize legacy / API bait records to the richer camelCase shape. */
 function normalizeBaitItem(raw) {
   const item = { ...(raw || {}) };
+  // Accept snake_case from API.
+  if (item.recover_content != null && item.recoverContent == null) item.recoverContent = item.recover_content;
+  if (item.recover_at != null && item.recoverAt == null) item.recoverAt = item.recover_at;
+  if (item.recover_scene_id != null && item.recoverSceneId == null) item.recoverSceneId = item.recover_scene_id;
+  if (item.plant_scene_id != null && item.plantSceneId == null) item.plantSceneId = item.plant_scene_id;
+  if (item.source_scene_id != null && item.sourceSceneId == null) item.sourceSceneId = item.source_scene_id;
+  if (item.plant_at_note != null && item.plantAtNote == null) item.plantAtNote = item.plant_at_note;
+  if (item.source_title != null && item.sourceTitle == null) item.sourceTitle = item.source_title;
+  if (item.notify_on_recover != null && item.notifyOnRecover == null) item.notifyOnRecover = item.notify_on_recover;
+  if (item.snooze_until != null && item.snoozeUntil == null) item.snoozeUntil = item.snooze_until;
+  if (item.created_at != null && item.createdAt == null) item.createdAt = item.created_at;
+
   // plant = from manuscript; idea = pre-writing plan from settings
   if (item.kind !== "idea" && item.kind !== "plant") {
-    item.kind = item.quote || item.sourceSceneId ? "plant" : "idea";
+    item.kind = item.quote || item.sourceSceneId || item.plantSceneId ? "plant" : "idea";
   }
   // sourceSceneId is where the bait sentence lives (icon anchor — not episode order)
   if (item.sourceSceneId == null && item.plantSceneId != null) {
     item.sourceSceneId = item.plantSceneId;
   }
-  item.plantSceneId = item.plantSceneId != null ? Number(item.plantSceneId) || null : (
-    item.sourceSceneId != null ? Number(item.sourceSceneId) || null : null
-  );
+  item.plantSceneId = item.plantSceneId != null && item.plantSceneId !== ""
+    ? Number(item.plantSceneId) || null
+    : (item.sourceSceneId != null && item.sourceSceneId !== ""
+      ? Number(item.sourceSceneId) || null
+      : null);
   item.sourceSceneId = item.plantSceneId;
   item.recoverSceneId = item.recoverSceneId != null && item.recoverSceneId !== ""
     ? Number(item.recoverSceneId) || null
@@ -10773,7 +14220,22 @@ function normalizeBaitItem(raw) {
   item.recoverAt = item.recoverAt || "";
   item.summary = item.summary || "";
   item.quote = item.quote || item.throwContent || item.ideaThrow || "";
+  item.snoozeUntil = item.snoozeUntil || null;
+  if (item.snoozeUntil === "") item.snoozeUntil = null;
   return item;
+}
+
+/** True when a bait recovery popup should be suppressed for this open. */
+function isBaitSnoozedNow(bait, sceneId, nowMs = Date.now()) {
+  const until = bait?.snoozeUntil;
+  if (!until) return false;
+  if (until === "next_open") {
+    // Suppress while still on (or re-opening without having left) the recovery scene.
+    return Number(bait.recoverSceneId) === Number(sceneId);
+  }
+  const ts = Date.parse(String(until));
+  if (!Number.isFinite(ts)) return false;
+  return nowMs < ts;
 }
 
 /** Scene ids that have planted bait text (yellow 떡).
@@ -10868,9 +14330,19 @@ function loadSettingsOrder() {
     }
     // Keep known sections, append any missing defaults.
     const known = new Set(DEFAULT_SETTINGS_ORDER);
-    const ordered = mapped.filter((key) => known.has(key));
+    let ordered = mapped.filter((key) => known.has(key));
     for (const key of DEFAULT_SETTINGS_ORDER) {
       if (!ordered.includes(key)) ordered.push(key);
+    }
+    // Snap exact previous factory defaults to the current default (keeps custom drag order).
+    for (const legacy of LEGACY_SETTINGS_ORDERS) {
+      if (
+        ordered.length === legacy.length
+        && legacy.every((key, i) => ordered[i] === key)
+      ) {
+        ordered = [...DEFAULT_SETTINGS_ORDER];
+        break;
+      }
     }
     // Prefer 토리 수집창고 between characters and sources when it was only appended last.
     const vaultAt = ordered.indexOf("toryVault");
@@ -10884,6 +14356,13 @@ function loadSettingsOrder() {
         const insertAt = ordered.indexOf("characters") + 1;
         ordered.splice(insertAt, 0, "toryVault");
       }
+    }
+    // Prefer 흥행작 프로파일 연결 right after 떡밥모음 when newly appended at end.
+    const successAt = ordered.indexOf("successProfile");
+    const baitsAt = ordered.indexOf("baits");
+    if (successAt >= 0 && baitsAt >= 0 && successAt !== baitsAt + 1 && successAt === ordered.length - 1) {
+      ordered.splice(successAt, 1);
+      ordered.splice(ordered.indexOf("baits") + 1, 0, "successProfile");
     }
     return ordered;
   } catch (_) {
@@ -11123,7 +14602,7 @@ function closeBaitModal() {
   pendingBaitQuote = "";
 }
 
-function saveBaitFromModal(event) {
+async function saveBaitFromModal(event) {
   if (event) event.preventDefault();
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
   const mode = ($("baitMode")?.value || "plant") === "idea" ? "idea" : "plant";
@@ -11159,56 +14638,71 @@ function saveBaitFromModal(event) {
     sourceTitle = state.scene?.title || $("sceneTitle")?.value || sceneTitleById(plantSceneId) || "";
   }
 
-  if (editId) {
-    const item = list.find((b) => b.id === editId);
-    if (!item) return toast("수정할 떡밥을 찾지 못했어요.");
-    item.kind = mode;
-    item.quote = quote;
-    item.summary = summary;
-    item.recoverContent = recoverContent;
-    item.recoverAt = recoverAt;
-    item.recoverSceneId = recoverSceneId;
-    item.plantSceneId = plantSceneId ? Number(plantSceneId) : null;
-    item.sourceSceneId = item.plantSceneId;
-    item.plantAtNote = plantAtNote;
-    item.sourceTitle = sourceTitle || item.sourceTitle || "";
-    item.notifyOnRecover = notifyOnRecover;
-    saveBaits(list);
+  const saveBtn = $("baitSaveButton");
+  if (saveBtn) saveBtn.disabled = true;
+  try {
+    if (editId) {
+      const item = list.find((b) => b.id === editId);
+      if (!item) return toast("수정할 떡밥을 찾지 못했어요.");
+      await updateBaitOnServer(editId, {
+        ...item,
+        kind: mode,
+        quote,
+        summary,
+        recoverContent,
+        recoverAt,
+        recoverSceneId,
+        plantSceneId: plantSceneId ? Number(plantSceneId) : null,
+        sourceSceneId: plantSceneId ? Number(plantSceneId) : null,
+        plantAtNote,
+        sourceTitle: sourceTitle || item.sourceTitle || "",
+        notifyOnRecover,
+      });
+      closeBaitModal();
+      renderBaitList();
+      renderSettingsCodex();
+      toast("떡밥을 수정했어요.");
+      return;
+    }
+
+    await createBaitOnServer({
+      kind: mode,
+      quote,
+      summary,
+      recoverContent,
+      recoverAt,
+      recoverSceneId,
+      plantSceneId: plantSceneId ? Number(plantSceneId) : null,
+      sourceSceneId: plantSceneId ? Number(plantSceneId) : null,
+      plantAtNote,
+      sourceTitle: sourceTitle || "",
+      notifyOnRecover,
+      snoozeUntil: null,
+    });
     closeBaitModal();
+    setActiveBinder("settings");
+    state.openSettingsSection = "baits";
+    applySettingsSectionState();
     renderBaitList();
     renderSettingsCodex();
-    toast("떡밥을 수정했어요.");
-    return;
+    toast(mode === "idea" ? "아이디어 떡밥을 저장했어요." : "떡밥모음에 넣었어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (saveBtn) saveBtn.disabled = false;
   }
-
-  const item = {
-    id: `bait-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
-    kind: mode,
-    quote,
-    summary,
-    recoverContent,
-    recoverAt,
-    recoverSceneId,
-    plantSceneId: plantSceneId ? Number(plantSceneId) : null,
-    sourceSceneId: plantSceneId ? Number(plantSceneId) : null,
-    plantAtNote,
-    sourceTitle: sourceTitle || "",
-    notifyOnRecover,
-    createdAt: new Date().toISOString(),
-  };
-  list.unshift(item);
-  saveBaits(list);
-  closeBaitModal();
-  setActiveBinder("settings");
-  state.openSettingsSection = "baits";
-  applySettingsSectionState();
-  renderBaitList();
-  renderSettingsCodex();
-  toast(mode === "idea" ? "아이디어 떡밥을 저장했어요." : "떡밥모음에 넣었어요.");
 }
 
-function getSelectedManuscriptText() {
-  const editor = $("sceneContent");
+/** Editor targeted by the last desktop context menu open (scene or settings doc). */
+let contextMenuEditor = null;
+
+function getContextRichEditor() {
+  if (contextMenuEditor && document.body.contains(contextMenuEditor)) return contextMenuEditor;
+  return getActiveRichEditor() || $("sceneContent");
+}
+
+function getSelectedManuscriptText(editorEl = null) {
+  const editor = editorEl || getContextRichEditor() || $("sceneContent");
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
     // Fall back to stored range text if menu stole focus.
@@ -11276,16 +14770,21 @@ function throwBaitFromSelection() {
 }
 
 /* —— SuperTORY 떡밥 회수 알림 —— */
-const baitNotifyShownThisSession = new Set(); // `${projectId}:${sceneId}` once per session
+const baitNotifyShownThisSession = new Set(); // `${projectId}:${sceneId}` once per session (확인 only)
 
 function hideBaitNotifyModal() {
   $("baitNotifyModal")?.classList.add("hidden");
+  // Keep active ids until snooze handlers finish; clear when fully dismissed without snooze.
 }
 
 function showBaitRecoverNotify(sceneId, entries) {
   const modal = $("baitNotifyModal");
   const listEl = $("baitNotifyList");
   if (!modal || !listEl || !entries.length) return;
+  baitNotifyActiveSceneId = Number(sceneId) || null;
+  baitNotifyActiveBaitIds = entries
+    .filter((e) => e.kind === "bait" && e.baitId)
+    .map((e) => String(e.baitId));
   const hasBait = entries.some((e) => e.kind === "bait");
   const hasCustom = entries.some((e) => e.kind === "custom");
   if ($("baitNotifyLead")) {
@@ -11309,38 +14808,113 @@ function showBaitRecoverNotify(sceneId, entries) {
     openVault.textContent = hasBait ? "떡밥모음 열기" : "알림 목록 보기";
     openVault.dataset.notifyAction = hasBait ? "baits" : "notify-list";
   }
+  const hasBaitIds = baitNotifyActiveBaitIds.length > 0;
+  $("baitNotifySnooze1d")?.classList.toggle("hidden", !hasBaitIds);
+  $("baitNotifySnoozeNextOpen")?.classList.toggle("hidden", !hasBaitIds);
   modal.classList.remove("hidden");
+}
+
+/** Clear next_open snooze on baits whose recovery scene is not the one we just opened. */
+async function clearBaitNextOpenExcept(sceneId) {
+  const id = Number(sceneId);
+  const toClear = loadBaits().filter(
+    (b) => b.snoozeUntil === "next_open" && Number(b.recoverSceneId) !== id,
+  );
+  if (!toClear.length) return;
+  await Promise.all(
+    toClear.map((b) => updateBaitOnServer(b.id, { ...b, snoozeUntil: null }).catch(() => null)),
+  );
 }
 
 function maybeNotifyBaitRecovery(sceneId) {
   const id = Number(sceneId);
   if (!id || !state.projectId) return;
   const key = `${state.projectId}:${id}`;
+  // Leaving a scene drops its session "already shown" flag so next_open / re-entry can work.
+  for (const seen of [...baitNotifyShownThisSession]) {
+    if (seen.startsWith(`${state.projectId}:`) && seen !== key) {
+      baitNotifyShownThisSession.delete(seen);
+    }
+  }
   if (baitNotifyShownThisSession.has(key)) return;
 
-  const entries = [];
-  for (const b of loadBaits()) {
-    if (Number(b.recoverSceneId) === id && b.notifyOnRecover !== false) {
-      entries.push({
-        kind: "bait",
-        title: (b.summary || b.quote || "떡밥").replace(/\s+/g, " ").trim(),
-        detail: (b.recoverContent || b.quote || "").replace(/\s+/g, " ").trim(),
-      });
-    }
+  // Persist next_open → clear when user has left that recovery scene.
+  clearBaitNextOpenExcept(id)
+    .catch(() => {})
+    .finally(() => {
+      if (Number(state.sceneId) !== id) return;
+      if (baitNotifyShownThisSession.has(key)) return;
+
+      const entries = [];
+      const nowMs = Date.now();
+      for (const b of loadBaits()) {
+        if (Number(b.recoverSceneId) !== id) continue;
+        if (b.notifyOnRecover === false) continue;
+        if (isBaitSnoozedNow(b, id, nowMs)) continue;
+        entries.push({
+          kind: "bait",
+          baitId: b.id,
+          title: (b.summary || b.quote || "떡밥").replace(/\s+/g, " ").trim(),
+          detail: (b.recoverContent || b.quote || "").replace(/\s+/g, " ").trim(),
+        });
+      }
+      for (const n of loadCustomToryNotifs()) {
+        if (Number(n.sceneId) === id && n.enabled !== false) {
+          entries.push({
+            kind: "custom",
+            title: n.title || "알림",
+            detail: (n.message || n.note || "").replace(/\s+/g, " ").trim(),
+          });
+        }
+      }
+      if (!entries.length) return;
+      baitNotifyShownThisSession.add(key);
+      window.setTimeout(() => {
+        if (Number(state.sceneId) !== id) return;
+        showBaitRecoverNotify(id, entries);
+      }, 280);
+    });
+}
+
+async function applyBaitNotifySnooze(mode) {
+  const ids = [...baitNotifyActiveBaitIds];
+  if (!ids.length) {
+    hideBaitNotifyModal();
+    return;
   }
-  for (const n of loadCustomToryNotifs()) {
-    if (Number(n.sceneId) === id && n.enabled !== false) {
-      entries.push({
-        kind: "custom",
-        title: n.title || "알림",
-        detail: (n.message || n.note || "").replace(/\s+/g, " ").trim(),
-      });
-    }
+  let snoozeUntil = null;
+  if (mode === "1d") {
+    snoozeUntil = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  } else if (mode === "next_open") {
+    snoozeUntil = "next_open";
+  } else {
+    hideBaitNotifyModal();
+    return;
   }
-  if (!entries.length) return;
-  baitNotifyShownThisSession.add(key);
-  // Slight delay so the scene UI settles first
-  window.setTimeout(() => showBaitRecoverNotify(id, entries), 280);
+  try {
+    await Promise.all(
+      ids.map((baitId) => {
+        const item = loadBaits().find((b) => b.id === baitId);
+        if (!item) return Promise.resolve();
+        return updateBaitOnServer(baitId, { ...item, snoozeUntil });
+      }),
+    );
+    // DB snooze owns re-show; drop session flag so leaving/returning is not blocked forever.
+    if (baitNotifyActiveSceneId && state.projectId) {
+      baitNotifyShownThisSession.delete(`${state.projectId}:${baitNotifyActiveSceneId}`);
+    }
+    hideBaitNotifyModal();
+    baitNotifyActiveBaitIds = [];
+    renderBaitList();
+    renderToryNotifyList();
+    toast(
+      mode === "1d"
+        ? "하루 뒤에 다시 알려 드릴게요."
+        : "이 회차를 나갔다가 다시 열면 알려 드릴게요.",
+    );
+  } catch (error) {
+    handleError(error);
+  }
 }
 
 function setupBaitCollection() {
@@ -11348,15 +14922,28 @@ function setupBaitCollection() {
     // Settings manual entry = idea planning (not the same as body drag-plant)
     openBaitModal({ kind: "idea", quote: "", summary: "", recoverAt: "", notifyOnRecover: true });
   });
-  $("baitForm")?.addEventListener("submit", (event) => saveBaitFromModal(event));
+  $("baitForm")?.addEventListener("submit", (event) => {
+    saveBaitFromModal(event).catch(handleError);
+  });
   document.querySelectorAll("[data-close-bait]").forEach((el) => {
     el.addEventListener("click", closeBaitModal);
   });
   document.querySelectorAll("[data-close-bait-notify]").forEach((el) => {
-    el.addEventListener("click", hideBaitNotifyModal);
+    el.addEventListener("click", () => {
+      // 확인: UI만 닫고 notifyOnRecover / snooze 유지. 세션 키는 이미 설정됨.
+      hideBaitNotifyModal();
+      baitNotifyActiveBaitIds = [];
+    });
+  });
+  $("baitNotifySnooze1d")?.addEventListener("click", () => {
+    applyBaitNotifySnooze("1d").catch(handleError);
+  });
+  $("baitNotifySnoozeNextOpen")?.addEventListener("click", () => {
+    applyBaitNotifySnooze("next_open").catch(handleError);
   });
   $("baitNotifyOpenVault")?.addEventListener("click", () => {
     hideBaitNotifyModal();
+    baitNotifyActiveBaitIds = [];
     const action = $("baitNotifyOpenVault")?.dataset?.notifyAction || "baits";
     if (action === "notify-list") {
       setAiPanelOpen(true);
@@ -11381,14 +14968,16 @@ function setupBaitCollection() {
     const delBtn = event.target.closest?.("[data-bait-delete]");
     if (delBtn) {
       const id = delBtn.dataset.baitDelete;
-      const list = loadBaits();
-      const item = list.find((b) => b.id === id);
+      const item = loadBaits().find((b) => b.id === id);
       if (!item) return;
       if (!window.confirm("이 떡밥을 삭제할까요?")) return;
-      saveBaits(list.filter((b) => b.id !== id));
-      renderBaitList();
-      renderSettingsCodex();
-      toast("떡밥을 삭제했어요.");
+      deleteBaitOnServer(id)
+        .then(() => {
+          renderBaitList();
+          renderSettingsCodex();
+          toast("떡밥을 삭제했어요.");
+        })
+        .catch(handleError);
     }
   });
   document.addEventListener("keydown", (event) => {
@@ -11397,6 +14986,7 @@ function setupBaitCollection() {
     }
     if (event.key === "Escape" && !$("baitNotifyModal")?.classList.contains("hidden")) {
       hideBaitNotifyModal();
+      baitNotifyActiveBaitIds = [];
     }
   });
   setupSettingsSectionDrag();
@@ -11499,6 +15089,186 @@ function getSceneTitleById(sceneId) {
   return "원고";
 }
 
+function findSceneNodeById(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return null;
+  let found = null;
+  walkBinderChapters(getBinderChaptersInOrder(), (chapter) => {
+    if (found) return;
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      if (!found && Number(scene.id) === id) found = scene;
+    });
+  });
+  return found;
+}
+
+/** Titles treated as “no real title” → show body first sentence in the binder. */
+const UNTITLED_SCENE_TITLES = new Set(["", "제목 없음", "새 씬", "새 하위 원고"]);
+
+function isUntitledSceneTitle(title) {
+  return UNTITLED_SCENE_TITLES.has(String(title || "").trim());
+}
+
+function firstSentenceFromPlain(plain) {
+  const compact = String(plain || "").replace(/\s+/g, " ").trim();
+  if (!compact) return "";
+  const matched = compact.match(/^(.+?(?:[.。!?？…]|$))(?:\s|$)/);
+  const sentence = (matched ? matched[1] : compact).trim();
+  return sentence;
+}
+
+function getOutlineSceneDisplay(scene) {
+  const rawTitle = String(scene?.title || "").trim();
+  const preview = firstSentenceFromPlain(
+    scene?.body_preview
+    || scene?.content_preview
+    || scene?.content_plain
+    || "",
+  );
+  if (!isUntitledSceneTitle(rawTitle)) {
+    return { label: rawTitle, tooltip: rawTitle, isPreview: false };
+  }
+  if (preview) {
+    return {
+      label: preview,
+      tooltip: preview,
+      isPreview: true,
+    };
+  }
+  return {
+    label: rawTitle || "제목 없음",
+    tooltip: rawTitle || "제목 없음",
+    isPreview: false,
+  };
+}
+
+function pinnedScenesStorageKey(projectId = state.projectId) {
+  return `${PINNED_SCENES_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadPinnedSceneIds() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(pinnedScenesStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .slice(0, PINNED_SCENES_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+function savePinnedSceneIds(ids) {
+  if (!state.projectId) return;
+  try {
+    const clean = (Array.isArray(ids) ? ids : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .slice(0, PINNED_SCENES_MAX);
+    localStorage.setItem(pinnedScenesStorageKey(), JSON.stringify(clean));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function sanitizePinnedSceneIds(ids = loadPinnedSceneIds()) {
+  const valid = new Set(
+    (typeof flattenAllOutlineScenes === "function"
+      ? flattenAllOutlineScenes()
+      : allScenes()
+    ).map((s) => Number(s.id)),
+  );
+  const next = (Array.isArray(ids) ? ids : [])
+    .map((id) => Number(id))
+    .filter((id) => valid.has(id));
+  // Deduplicate while preserving pin order (first = top).
+  const seen = new Set();
+  const unique = [];
+  for (const id of next) {
+    if (seen.has(id)) continue;
+    seen.add(id);
+    unique.push(id);
+  }
+  return unique.slice(0, PINNED_SCENES_MAX);
+}
+
+function isScenePinned(sceneId) {
+  return sanitizePinnedSceneIds().includes(Number(sceneId));
+}
+
+function pinSceneToTop(sceneId) {
+  const id = Number(sceneId);
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!Number.isFinite(id) || id <= 0) return;
+  // Newest pin goes first; previously pinned scenes shift down and stay until unpinned.
+  let list = sanitizePinnedSceneIds().filter((x) => x !== id);
+  list.unshift(id);
+  savePinnedSceneIds(list);
+  if (typeof renderOutline === "function" && Array.isArray(state.outline)) {
+    renderOutline(state.outline);
+  }
+  toast("상단에 고정했어요.");
+}
+
+function unpinSceneFromTop(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const before = sanitizePinnedSceneIds();
+  const list = before.filter((x) => x !== id);
+  if (list.length === before.length) return;
+  savePinnedSceneIds(list);
+  if (typeof renderOutline === "function" && Array.isArray(state.outline)) {
+    renderOutline(state.outline);
+  }
+  toast("상단 고정을 해제했어요.");
+}
+
+function toggleScenePin(sceneId) {
+  if (isScenePinned(sceneId)) unpinSceneFromTop(sceneId);
+  else pinSceneToTop(sceneId);
+}
+
+function renderPinnedOutlineSectionHtml() {
+  const pinnedIds = sanitizePinnedSceneIds();
+  if (pinnedIds.length !== loadPinnedSceneIds().length) {
+    savePinnedSceneIds(pinnedIds);
+  }
+  if (!pinnedIds.length) return "";
+  const rows = pinnedIds.map((sid) => {
+    const scene = findSceneNodeById(sid);
+    const display = getOutlineSceneDisplay(scene || { id: sid, title: getSceneTitleById(sid) });
+    const titleAttr = escapeHtml(display.tooltip);
+    const chapterId = findChapterIdForScene(sid) || "";
+    const active = Number(state.sceneId) === Number(sid) ? "active" : "";
+    const previewClass = display.isPreview ? " is-body-preview" : "";
+    return `
+      <div class="outline-pin-item" data-pinned-scene="${sid}">
+        <button
+          type="button"
+          class="scene-link outline-pin-link ${active}"
+          data-scene="${sid}"
+          data-chapter-id="${chapterId}"
+          data-pinned="1"
+          title="${titleAttr} · 상단 고정 · 우클릭: 고정 해제"
+        >
+          <span class="outline-pin-badge" aria-hidden="true">고</span>
+          <span class="scene-title${previewClass}">${escapeHtml(display.label)}</span>
+        </button>
+      </div>`;
+  }).join("");
+  return `
+    <section class="outline-pin-section" aria-label="상단 고정">
+      <div class="outline-pin-label">상단 고정</div>
+      <div class="outline-pin-list" role="list">${rows}</div>
+    </section>`;
+}
+
 function addOrToggleBookmark(entry) {
   if (!state.projectId) {
     toast("먼저 작품을 선택해 주세요.");
@@ -11551,12 +15321,20 @@ function removeBookmarkById(bookmarkId) {
   toast("북마크를 해제했어요.");
 }
 
+function setHeaderNoticeFillState(sectionId, hasItems) {
+  const section = $(sectionId);
+  if (!section) return;
+  section.classList.toggle("has-items", Boolean(hasItems));
+  section.classList.toggle("is-empty", !hasItems);
+}
+
 function renderBookmarkBar(options = {}) {
   const bar = $("bookmarkBar");
   if (!bar) return;
   applyHeaderNoticeVisibility();
   if (!state.projectId) {
     bar.innerHTML = "";
+    setHeaderNoticeFillState("headerBookmarkNotice", false);
     return;
   }
   const raw = loadBookmarks();
@@ -11568,6 +15346,7 @@ function renderBookmarkBar(options = {}) {
     saveBookmarks(list);
   }
 
+  setHeaderNoticeFillState("headerBookmarkNotice", list.length > 0);
   bar.innerHTML = list.map((item) => {
     const color = bookmarkColorMeta(item.color);
     const title = escapeHtml(item.title || (item.type === "scene" ? "원고" : "설정"));
@@ -11632,15 +15411,13 @@ function renderHeaderIdeaBar() {
   const bar = $("headerIdeaBar");
   if (!bar) return;
   applyHeaderNoticeVisibility();
-  if (!state.projectId) {
-    bar.innerHTML = `<span class="header-idea-empty">작품을 선택하세요</span>`;
+  const ideas = state.projectId ? state.ideas : [];
+  setHeaderNoticeFillState("headerIdeaNotice", ideas.length > 0);
+  if (!ideas.length) {
+    bar.innerHTML = "";
     return;
   }
-  if (!state.ideas.length) {
-    bar.innerHTML = `<span class="header-idea-empty">아직 메모가 없어요</span>`;
-    return;
-  }
-  bar.innerHTML = state.ideas.slice(0, 8).map((idea) => {
+  bar.innerHTML = ideas.slice(0, 8).map((idea) => {
     const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || "메모");
     return `<button type="button" class="header-idea-chip color-${escapeHtml(idea.color || "yellow")}" data-header-idea="${idea.id}" title="${label}" role="listitem">${label}</button>`;
   }).join("");
@@ -11846,6 +15623,18 @@ function showBinderContextMenu(clientX, clientY, scene) {
   if (promoteBtn) {
     promoteBtn.classList.toggle("hidden", !binderContextScene.parentSceneId);
   }
+  const pinBtn = menu.querySelector('[data-binder-action="pin-top"]');
+  if (pinBtn) {
+    const pinned = isScenePinned(binderContextScene.id);
+    const strong = pinBtn.querySelector("strong");
+    const span = pinBtn.querySelector("span");
+    if (strong) strong.textContent = pinned ? "상단 고정 해제" : "상단 고정";
+    if (span) {
+      span.textContent = pinned
+        ? "고정 목록에서 빼고 원래 위치로 둬요"
+        : "목차 맨 위에 고정해요";
+    }
+  }
   menu.classList.remove("hidden");
   const pad = 8;
   const rect = menu.getBoundingClientRect();
@@ -11951,13 +15740,19 @@ function startRenameChapter(chapterId) {
     btn.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
   } catch (_) {
     const current = (btn.textContent || "").trim();
-    const next = window.prompt("폴더(챕터) 이름을 입력하세요.", current);
-    if (next === null) return;
-    const title = next.trim() || current;
-    api(`/api/chapters/${id}`, {
-      method: "PUT",
-      body: JSON.stringify({ title }),
-    }).then(() => loadProject()).then(() => toast("폴더 이름을 바꿨어요.")).catch(handleError);
+    promptText({
+      title: "폴더 이름 바꾸기",
+      label: "폴더 이름",
+      defaultValue: current,
+      confirmLabel: "저장",
+    }).then((next) => {
+      if (next === null) return;
+      const title = next.trim() || current;
+      return api(`/api/chapters/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ title }),
+      }).then(() => loadProject()).then(() => toast("폴더 이름을 바꿨어요."));
+    }).catch(handleError);
   }
 }
 
@@ -12003,6 +15798,10 @@ async function trashScene(sceneId, sceneTitle = "") {
   }
 
   await api(`/api/scenes/${id}/trash`, { method: "POST", body: "{}" });
+
+  try {
+    savePinnedSceneIds(loadPinnedSceneIds().filter((x) => Number(x) !== id));
+  } catch (_) { /* ignore */ }
 
   if (state.toryFocusSceneId === id) clearToryFocus({ silent: true });
   if (state.splitSceneId === id) {
@@ -12158,27 +15957,18 @@ function setupBinderContextMenu() {
       const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
       if (!chapterId) return toast("폴더를 찾지 못했어요.");
       createScene(chapterId, { parentSceneId: scene.id }).catch(handleError);
+    } else if (action === "add-child-folder") {
+      createChapter({ parentSceneId: scene.id }).catch(handleError);
     } else if (action === "promote") {
       reparentScene(scene.id, null).catch(handleError);
-    } else if (action === "create-part") {
-      const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
-      if (!chapterId) return toast("폴더를 찾지 못했어요.");
-      window.setTimeout(() => {
-        createPart({ chapterId }).catch(handleError);
-      }, 30);
-    } else if (action === "move-chapter-to-part") {
-      const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
-      if (!chapterId) return toast("폴더를 찾지 못했어요.");
-      const ch = (state.outline || []).find((c) => Number(c.id) === Number(chapterId));
-      window.setTimeout(() => {
-        moveChapterToPart(chapterId, ch?.part_id ?? null).catch(handleError);
-      }, 30);
     } else if (action === "bookmark") {
       addOrToggleBookmark({
         type: "scene",
         sceneId: scene.id,
         title: scene.title || getSceneTitleById(scene.id),
       });
+    } else if (action === "pin-top") {
+      toggleScenePin(scene.id);
     } else if (action === "duplicate") {
       duplicateScene(scene.id).catch(handleError);
     } else if (action === "export") {
@@ -12204,16 +15994,6 @@ function setupBinderContextMenu() {
     if (action === "add-scene") {
       setChapterCollapsed(chapter.id, false);
       createScene(chapter.id).catch(handleError);
-    } else if (action === "rename") {
-      window.setTimeout(() => startRenameChapter(chapter.id), 0);
-    } else if (action === "create-part") {
-      window.setTimeout(() => {
-        createPart({ chapterId: chapter.id }).catch(handleError);
-      }, 30);
-    } else if (action === "move-to-part") {
-      window.setTimeout(() => {
-        moveChapterToPart(chapter.id, chapter.partId).catch(handleError);
-      }, 30);
     } else if (action === "trash") {
       window.setTimeout(() => {
         trashChapter(chapter.id, chapter.title).catch(handleError);
@@ -12232,19 +16012,6 @@ function setupBinderContextMenu() {
     if (action === "add-chapter") {
       setPartCollapsed(part.id, false);
       createChapter({ partId: part.id }).catch(handleError);
-    } else if (action === "rename") {
-      window.setTimeout(() => {
-        const btn = document.querySelector(`[data-rename-part="${part.id}"]`);
-        if (btn) beginPartRename(btn).catch(handleError);
-        else {
-          const next = window.prompt("권/부 이름", part.title || "");
-          if (next === null) return;
-          api(`/api/parts/${part.id}`, {
-            method: "PUT",
-            body: JSON.stringify({ title: next.trim() || part.title }),
-          }).then(() => loadProject()).then(() => toast("권/부 이름을 바꿨어요.")).catch(handleError);
-        }
-      }, 0);
     } else if (action === "trash") {
       window.setTimeout(() => {
         trashPart(part.id, part.title).catch(handleError);
@@ -12288,6 +16055,18 @@ function setupBinderContextMenu() {
 /* —— Settings binder folder context menu —— */
 let settingsContextSection = null;
 
+/** Settings sections that can export content as a document (keywords excluded). */
+const SETTINGS_EXPORTABLE_SECTIONS = new Set([
+  "ideas",
+  "intro",
+  "logsyn",
+  "world",
+  "characters",
+  "baits",
+  "toryVault",
+  "sources",
+]);
+
 function hideSettingsContextMenu() {
   $("settingsContextMenu")?.classList.add("hidden");
   settingsContextSection = null;
@@ -12304,6 +16083,11 @@ function showSettingsContextMenu(clientX, clientY, section, title) {
     const label = (title || SETTINGS_BOOKMARK_META[section]?.title || "설정").trim();
     $("settingsContextMenuLabel").textContent = label.length > 28 ? `${label.slice(0, 28)}…` : label;
   }
+  // 키워드는 태그 모음이라 문서 내보내기 메뉴를 숨김
+  const allowExport = SETTINGS_EXPORTABLE_SECTIONS.has(section);
+  menu.querySelectorAll("[data-settings-export-only]").forEach((el) => {
+    el.classList.toggle("hidden", !allowExport);
+  });
   menu.classList.remove("hidden");
   const pad = 8;
   const rect = menu.getBoundingClientRect();
@@ -12319,22 +16103,221 @@ function showSettingsContextMenu(clientX, clientY, section, title) {
   menu.style.top = `${top}px`;
 }
 
+function sanitizeExportFileTitle(name) {
+  return String(name || "설정")
+    .replace(/[\\/:*?"<>|]+/g, "_")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 80) || "설정";
+}
+
+function settingsDocPlainForExport(kind) {
+  const raw = typeof getSettingsDocTextForSave === "function"
+    ? getSettingsDocTextForSave(kind)
+    : "";
+  const text = looksLikeHtml(raw) ? plainTextFromHtml(raw) : String(raw || "");
+  return text.replace(/\r\n/g, "\n").trim();
+}
+
+function outlineSummaryPlainForExport() {
+  const live = $("projectOutlineSummary")?.value;
+  const raw = live != null ? live : (state.outlineSummary || "");
+  return String(raw || "").replace(/\r\n/g, "\n").trim();
+}
+
+function joinExportBlocks(blocks) {
+  return blocks
+    .map((b) => String(b || "").replace(/\s+$/g, ""))
+    .filter((b) => b.length)
+    .join("\n\n");
+}
+
+/**
+ * Build plain text for a settings-book section (키워드 제외).
+ * @returns {Promise<{ title: string, text: string }>}
+ */
+async function buildSettingsSectionExportPayload(section) {
+  const project = state.projects.find((p) => Number(p.id) === Number(state.projectId));
+  const projectTitle = String(project?.title || "작품").trim() || "작품";
+  const sectionTitle = SETTINGS_BOOKMARK_META[section]?.title || section;
+  const title = sanitizeExportFileTitle(`${projectTitle}_${sectionTitle}`);
+  const header = `${projectTitle} · ${sectionTitle}`;
+  let body = "";
+
+  if (section === "ideas") {
+    const ideas = Array.isArray(state.ideas) ? state.ideas : [];
+    if (!ideas.length) {
+      body = "(아직 메모가 없어요.)";
+    } else {
+      body = ideas.map((idea, i) => {
+        const t = String(idea.title || "").trim() || `메모 ${i + 1}`;
+        const b = String(idea.body_md || "").replace(/\r\n/g, "\n").trim();
+        return b ? `■ ${t}\n${b}` : `■ ${t}`;
+      }).join("\n\n");
+    }
+  } else if (section === "intro") {
+    const intro = settingsDocPlainForExport("intro");
+    const intent = settingsDocPlainForExport("intent");
+    body = joinExportBlocks([
+      intro ? `【작품소개】\n${intro}` : "",
+      intent ? `【기획의도】\n${intent}` : "",
+    ]) || "(작품소개·기획의도가 비어 있어요.)";
+  } else if (section === "logsyn") {
+    const logline = settingsDocPlainForExport("logline");
+    const outline = outlineSummaryPlainForExport();
+    const synopsis = settingsDocPlainForExport("synopsis");
+    body = joinExportBlocks([
+      logline ? `【로그라인】\n${logline}` : "",
+      outline ? `【줄거리 개요】\n${outline}` : "",
+      synopsis ? `【시놉시스】\n${synopsis}` : "",
+    ]) || "(로그라인·줄거리 개요·시놉시스가 비어 있어요.)";
+  } else if (section === "world") {
+    body = settingsDocPlainForExport("world") || "(세계관이 비어 있어요.)";
+  } else if (section === "characters") {
+    const list = Array.isArray(state.characters) ? state.characters : [];
+    if (!list.length) {
+      body = "(아직 인물이 없어요.)";
+    } else {
+      const parts = [];
+      for (const item of list) {
+        let ch = item;
+        let aliases = [];
+        try {
+          const detail = await api(`/api/characters/${item.id}`);
+          ch = detail?.character || detail || item;
+          aliases = Array.isArray(detail?.aliases) ? detail.aliases : [];
+        } catch (_) {
+          ch = item;
+        }
+        const name = String(ch.name || item.name || "이름 없음").trim();
+        const role = roleLabel[ch.role] || ch.role || "";
+        const lines = [`■ ${name}${role ? ` (${role})` : ""}`];
+        if (ch.sort_name) lines.push(`정렬 이름: ${ch.sort_name}`);
+        if (ch.short_description) lines.push(String(ch.short_description).trim());
+        if (aliases.length) {
+          lines.push(`별칭: ${aliases.map((a) => a.alias || a).filter(Boolean).join(", ")}`);
+        }
+        const profile = looksLikeHtml(ch.profile_md)
+          ? plainTextFromHtml(ch.profile_md)
+          : String(ch.profile_md || "").trim();
+        if (profile) lines.push(`\n[프로필]\n${profile}`);
+        const strengths = String(ch.strengths_md || "").trim();
+        if (strengths) lines.push(`\n[강점]\n${strengths}`);
+        const weaknesses = String(ch.weaknesses_md || "").trim();
+        if (weaknesses) lines.push(`\n[약점]\n${weaknesses}`);
+        const notes = String(ch.author_notes_md || "").trim();
+        if (notes) lines.push(`\n[작가 메모]\n${notes}`);
+        parts.push(lines.join("\n"));
+      }
+      body = parts.join("\n\n——\n\n");
+    }
+  } else if (section === "baits") {
+    if (typeof refreshBaitsFromServer === "function" && state.projectId) {
+      try {
+        await refreshBaitsFromServer(state.projectId);
+      } catch (_) { /* use cache */ }
+    }
+    const baits = typeof loadBaits === "function" ? loadBaits() : [];
+    if (!baits.length) {
+      body = "(아직 떡밥이 없어요.)";
+    } else {
+      body = baits.map((bait, i) => {
+        const head = String(bait.summary || "").trim() || `떡밥 ${i + 1}`;
+        const quote = String(bait.quote || "").replace(/\r\n/g, "\n").trim();
+        const lines = [`■ ${head}`];
+        if (quote && quote !== head) lines.push(quote);
+        if (bait.recoverAt) lines.push(`회수 시점: ${bait.recoverAt}`);
+        if (bait.recoverContent) lines.push(`회수 내용: ${bait.recoverContent}`);
+        if (bait.plantAtNote) lines.push(`심은 위치: ${bait.plantAtNote}`);
+        if (bait.sourceTitle) lines.push(`출처: ${bait.sourceTitle}`);
+        if (bait.notifyOnRecover) lines.push("회수 알림: 켜짐");
+        return lines.join("\n");
+      }).join("\n\n");
+    }
+  } else if (section === "toryVault") {
+    const items = typeof loadToryVault === "function" ? loadToryVault() : [];
+    if (!items.length) {
+      body = "(아직 수집한 내용이 없어요.)";
+    } else {
+      body = items.map((item, i) => {
+        const t = String(item.title || "").trim() || `수집 ${i + 1}`;
+        const mode = typeof aiModeLabel === "function" ? aiModeLabel(item.mode) : (item.mode || "");
+        const scene = item.sceneTitle ? ` · ${item.sceneTitle}` : "";
+        const b = String(item.body || "").replace(/\r\n/g, "\n").trim();
+        const prompt = String(item.prompt || "").replace(/\r\n/g, "\n").trim();
+        const lines = [`■ ${t}${mode ? ` (${mode}${scene})` : scene}`];
+        if (b) lines.push(b);
+        if (prompt && prompt !== b) lines.push(`\n[요청]\n${prompt}`);
+        return lines.join("\n");
+      }).join("\n\n——\n\n");
+    }
+  } else if (section === "sources") {
+    const sources = typeof loadSources === "function" ? loadSources() : [];
+    if (!sources.length) {
+      body = "(아직 참고자료가 없어요.)";
+    } else {
+      body = sources.map((src, i) => {
+        const t = String(src.title || src.fileName || `자료 ${i + 1}`).trim();
+        const lines = [`■ ${t}`];
+        if (src.url) lines.push(String(src.url).trim());
+        if (src.note || src.notes || src.body) {
+          lines.push(String(src.note || src.notes || src.body || "").trim());
+        }
+        if (src.fileName) lines.push(`파일: ${src.fileName}`);
+        if (src.kind || src.viewer) lines.push(`종류: ${src.kind || src.viewer}`);
+        return lines.join("\n");
+      }).join("\n\n");
+    }
+  } else {
+    throw new Error("이 설정은 문서로 내보낼 수 없어요.");
+  }
+
+  const text = joinExportBlocks([header, body]);
+  return { title, text };
+}
+
+async function exportSettingsSectionAsDocument(section, formatKey = "docx") {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!SETTINGS_EXPORTABLE_SECTIONS.has(section)) {
+    toast("키워드는 문서로 내보낼 수 없어요.");
+    return;
+  }
+  const { title, text } = await buildSettingsSectionExportPayload(section);
+  if (!String(text || "").trim()) {
+    toast("내보낼 내용이 없어요.");
+    return;
+  }
+  await exportReferencePlainText({
+    title,
+    text,
+    formatKey: String(formatKey || "docx").toLowerCase(),
+  });
+}
+
 function setupSettingsContextMenu() {
   const accordion = $("settingsAccordion");
   if (!accordion || accordion.dataset.settingsCtxBound === "1") return;
   accordion.dataset.settingsCtxBound = "1";
 
   accordion.addEventListener("contextmenu", (event) => {
-    const box = event.target.closest?.(".settings-box[data-settings-section]");
+    // 설정집 우클릭 메뉴는 섹션 제목(메인) 버튼에만 적용.
+    // 본문·미리보기·툴바·드래그 핸들·→메인 버튼에서는 열지 않음.
+    const mainBtn = event.target.closest?.(".settings-box-toggle[data-settings-toggle]");
+    if (!mainBtn || !accordion.contains(mainBtn)) return;
+    const box = mainBtn.closest?.(".settings-box[data-settings-section]");
     if (!box || !accordion.contains(box)) return;
-    // Don't steal from nested interactive controls unnecessarily, but allow on whole box.
     event.preventDefault();
     event.stopPropagation();
-    const section = box.dataset.settingsSection;
+    const section = box.dataset.settingsSection || mainBtn.dataset.settingsToggle;
     const title =
-      box.querySelector(".settings-box-title")?.textContent?.trim()
+      mainBtn.querySelector(".settings-box-title")?.textContent?.trim()
+      || box.querySelector(".settings-box-title")?.textContent?.trim()
       || SETTINGS_BOOKMARK_META[section]?.title
       || section;
+    // 숨기기는 제목 버튼만이 아니라 해당 설정 폴더 전체(박스)를 대상으로 함.
     setUiFeatureCtxTarget?.(box);
     showSettingsContextMenu(event.clientX, event.clientY, section, title);
   });
@@ -12356,6 +16339,9 @@ function setupSettingsContextMenu() {
       state.openSettingsSection = section;
       applySettingsSectionState();
       Promise.resolve(meta.open()).catch(handleError);
+    } else if (action === "export") {
+      const formatKey = button.dataset.exportFormat || "docx";
+      exportSettingsSectionAsDocument(section, formatKey).catch(handleError);
     }
   });
 
@@ -12811,8 +16797,31 @@ function getFootnoteNoteText(editor, fnId) {
   return (fromItem || ref?.title || "").trim();
 }
 
+function resolveFootnoteEditor(fnId) {
+  for (const id of ["sceneContent", "synopsisContent"]) {
+    const editor = $(id);
+    if (!editor || !fnId) continue;
+    if (
+      editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`)
+      || editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`)
+    ) {
+      return editor;
+    }
+  }
+  return getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
+}
+
+function markEditorContentDirty(editor) {
+  if (editor?.id === "synopsisContent") {
+    markSynopsisDirty();
+  } else {
+    updateSceneStats();
+    markSceneDirty();
+  }
+}
+
 function editFootnoteById(fnId) {
-  const editor = $("sceneContent");
+  const editor = resolveFootnoteEditor(fnId);
   if (!editor || !fnId) return;
   const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
   const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
@@ -12822,26 +16831,33 @@ function editFootnoteById(fnId) {
   }
   const current = getFootnoteNoteText(editor, fnId);
   const num = ref?.dataset.fnNum || item?.dataset.fnNum || "?";
-  const next = window.prompt(`각주 ${num} 내용을 수정하세요.`, current);
-  if (next === null) return;
-  const body = next.trim();
-  if (!body) {
-    toast("각주 내용이 비어 있어요. 삭제하려면 삭제를 이용해 주세요.");
-    return;
-  }
-  if (ref) ref.title = body;
-  if (item) {
-    const textEl = item.querySelector(".fn-text");
-    if (textEl) textEl.textContent = body;
-  }
-  updateEditorPlaceholder(editor);
-  updateSceneStats();
-  markSceneDirty();
-  toast(`각주 ${num}을(를) 수정했어요.`);
+  promptText({
+    title: `각주 ${num} 수정`,
+    message: `각주 ${num} 내용을 수정하세요.`,
+    label: "각주 내용",
+    defaultValue: current,
+    maxlength: 2000,
+    confirmLabel: "저장",
+  }).then((next) => {
+    if (next === null) return;
+    const body = next.trim();
+    if (!body) {
+      toast("각주 내용이 비어 있어요. 삭제하려면 삭제를 이용해 주세요.");
+      return;
+    }
+    if (ref) ref.title = body;
+    if (item) {
+      const textEl = item.querySelector(".fn-text");
+      if (textEl) textEl.textContent = body;
+    }
+    updateEditorPlaceholder(editor);
+    markEditorContentDirty(editor);
+    toast(`각주 ${num}을(를) 수정했어요.`);
+  }).catch(handleError);
 }
 
 function deleteFootnoteById(fnId, options = {}) {
-  const editor = $("sceneContent");
+  const editor = resolveFootnoteEditor(fnId);
   if (!editor || !fnId) return;
   const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
   const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
@@ -12857,8 +16873,7 @@ function deleteFootnoteById(fnId, options = {}) {
   item?.remove();
   renumberFootnotesInEditor(editor);
   updateEditorPlaceholder(editor);
-  updateSceneStats();
-  markSceneDirty();
+  markEditorContentDirty(editor);
   toast(num ? `각주 ${num}을(를) 삭제했어요.` : "각주를 삭제했어요.");
 }
 
@@ -12868,14 +16883,15 @@ function findFootnoteIdFromEventTarget(target) {
 }
 
 function addFootnoteFromSelection() {
-  const editor = $("sceneContent");
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
   if (!editor) return;
-  if (!state.sceneId) {
+  const isSettings = editor.id === "synopsisContent";
+  if (!isSettings && !state.sceneId) {
     toast("각주를 달려면 먼저 씬을 열어 주세요.");
     return;
   }
   editor.focus();
-  restoreManuscriptContextRange();
+  restoreManuscriptContextRange(editor);
   const selection = window.getSelection();
   let range = null;
   if (selection && selection.rangeCount > 0) {
@@ -12898,83 +16914,100 @@ function addFootnoteFromSelection() {
   }
 
   const anchorText = String(selection?.toString() || "").trim();
-  const note = window.prompt(
-    anchorText
+  // Preserve insert point before modal steals focus (Electron has no window.prompt).
+  const savedRange = range.cloneRange();
+  promptText({
+    title: "각주 달기",
+    message: anchorText
       ? `「${anchorText.length > 40 ? `${anchorText.slice(0, 40)}…` : anchorText}」에 달 각주 내용을 적어 주세요.`
       : "각주 내용을 적어 주세요.",
-    "",
-  );
-  if (note === null) return;
-  const body = note.trim();
-  if (!body) {
-    toast("각주 내용이 비어 있어요.");
-    return;
-  }
+    label: "각주 내용",
+    defaultValue: "",
+    maxlength: 2000,
+    confirmLabel: "달기",
+  }).then((note) => {
+    if (note === null) return;
+    const body = note.trim();
+    if (!body) {
+      toast("각주 내용이 비어 있어요.");
+      return;
+    }
+    if (!editor.isConnected || !document.body.contains(editor)) return;
 
-  const id = `fn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  const existingCount = editor.querySelectorAll("sup.fn-ref").length;
-  const num = existingCount + 1;
+    const id = `fn-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+    const existingCount = editor.querySelectorAll("sup.fn-ref").length;
+    const num = existingCount + 1;
 
-  const sup = document.createElement("sup");
-  sup.className = "fn-ref";
-  sup.dataset.fnId = id;
-  sup.dataset.fnNum = String(num);
-  sup.contentEditable = "false";
-  sup.title = body;
-  sup.textContent = String(num);
+    const sup = document.createElement("sup");
+    sup.className = "fn-ref";
+    sup.dataset.fnId = id;
+    sup.dataset.fnNum = String(num);
+    sup.contentEditable = "false";
+    sup.title = body;
+    sup.textContent = String(num);
 
-  // Insert marker after the selection (or at caret).
-  const insertRange = range.cloneRange();
-  insertRange.collapse(false);
-  insertRange.insertNode(sup);
-  // Caret after the marker
-  const after = document.createRange();
-  after.setStartAfter(sup);
-  after.collapse(true);
-  selection?.removeAllRanges();
-  selection?.addRange(after);
-  manuscriptContextRange = after.cloneRange();
+    try {
+      const insertRange = savedRange.cloneRange();
+      insertRange.collapse(false);
+      insertRange.insertNode(sup);
+    } catch (_) {
+      editor.appendChild(sup);
+    }
+    const after = document.createRange();
+    after.setStartAfter(sup);
+    after.collapse(true);
+    const sel = window.getSelection();
+    sel?.removeAllRanges();
+    sel?.addRange(after);
+    manuscriptContextRange = after.cloneRange();
 
-  const footer = ensureFootnoteFooter(editor);
-  // Keep footer at the end of the editor.
-  editor.appendChild(footer);
-  footer.appendChild(buildFootnoteFooterItem(id, num, body, anchorText));
+    const footer = ensureFootnoteFooter(editor);
+    editor.appendChild(footer);
+    footer.appendChild(buildFootnoteFooterItem(id, num, body, anchorText));
 
-  renumberFootnotesInEditor(editor);
-  updateEditorPlaceholder(editor);
-  updateSceneStats();
-  markSceneDirty();
-  toast(`각주 ${num}을(를) 달았어요.`);
+    renumberFootnotesInEditor(editor);
+    updateEditorPlaceholder(editor);
+    if (isSettings) {
+      markSynopsisDirty();
+    } else {
+      updateSceneStats();
+      markSceneDirty();
+    }
+    toast(`각주 ${num}을(를) 달았어요.`);
+  }).catch(handleError);
 }
 
 function setupFootnoteInteractions() {
-  const editor = $("sceneContent");
-  if (!editor || editor.dataset.fnActionsBound === "1") return;
-  editor.dataset.fnActionsBound = "1";
-  editor.addEventListener("click", (event) => {
-    const editId = event.target.closest?.("[data-fn-edit]")?.dataset?.fnEdit;
-    const delId = event.target.closest?.("[data-fn-delete]")?.dataset?.fnDelete;
-    if (editId) {
+  const bindEditor = (editor) => {
+    if (!editor || editor.dataset.fnActionsBound === "1") return;
+    editor.dataset.fnActionsBound = "1";
+    editor.addEventListener("click", (event) => {
+      const editId = event.target.closest?.("[data-fn-edit]")?.dataset?.fnEdit;
+      const delId = event.target.closest?.("[data-fn-delete]")?.dataset?.fnDelete;
+      if (editId) {
+        event.preventDefault();
+        event.stopPropagation();
+        editFootnoteById(editId);
+        return;
+      }
+      if (delId) {
+        event.preventDefault();
+        event.stopPropagation();
+        deleteFootnoteById(delId);
+      }
+    });
+    // Double-click marker or footer text to edit quickly.
+    editor.addEventListener("dblclick", (event) => {
+      const id = findFootnoteIdFromEventTarget(event.target);
+      if (!id) return;
+      if (event.target.closest?.("[data-fn-edit], [data-fn-delete]")) return;
       event.preventDefault();
       event.stopPropagation();
-      editFootnoteById(editId);
-      return;
-    }
-    if (delId) {
-      event.preventDefault();
-      event.stopPropagation();
-      deleteFootnoteById(delId);
-    }
-  });
-  // Double-click marker or footer text to edit quickly.
-  editor.addEventListener("dblclick", (event) => {
-    const id = findFootnoteIdFromEventTarget(event.target);
-    if (!id) return;
-    if (event.target.closest?.("[data-fn-edit], [data-fn-delete]")) return;
-    event.preventDefault();
-    event.stopPropagation();
-    editFootnoteById(id);
-  });
+      editFootnoteById(id);
+    });
+  };
+  bindEditor($("sceneContent"));
+  bindEditor($("synopsisContent"));
 }
 
 function showDesktopContextMenu(clientX, clientY) {
@@ -12997,8 +17030,8 @@ function showDesktopContextMenu(clientX, clientY) {
   menu.style.top = `${top}px`;
 }
 
-function captureManuscriptRangeFromEvent(event) {
-  const editor = $("sceneContent");
+function captureManuscriptRangeFromEvent(event, editorEl = null) {
+  const editor = editorEl || getContextRichEditor() || $("sceneContent");
   if (!editor) return null;
   let range = null;
   const selection = window.getSelection();
@@ -13032,8 +17065,8 @@ function captureManuscriptRangeFromEvent(event) {
   return range;
 }
 
-function restoreManuscriptContextRange() {
-  const editor = $("sceneContent");
+function restoreManuscriptContextRange(editorEl = null) {
+  const editor = editorEl || getContextRichEditor() || $("sceneContent");
   if (!editor || !manuscriptContextRange) return false;
   try {
     editor.focus();
@@ -13046,11 +17079,11 @@ function restoreManuscriptContextRange() {
   }
 }
 
-function insertNodeAtManuscriptContext(node) {
-  const editor = $("sceneContent");
+function insertNodeAtManuscriptContext(node, editorEl = null) {
+  const editor = editorEl || getContextRichEditor() || $("sceneContent");
   if (!editor) return;
   editor.focus();
-  restoreManuscriptContextRange();
+  restoreManuscriptContextRange(editor);
   const selection = window.getSelection();
   let range = null;
   if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).commonAncestorContainer)) {
@@ -13075,8 +17108,13 @@ function insertNodeAtManuscriptContext(node) {
   if (node.parentNode && node.nextSibling == null) {
     node.parentNode.appendChild(document.createElement("br"));
   }
-  updateEditorPlaceholder();
-  updateSceneStats();
+  updateEditorPlaceholder(editor);
+  if (editor.id === "synopsisContent") {
+    markSynopsisDirty?.();
+  } else {
+    updateSceneStats();
+    markSceneDirty?.();
+  }
 }
 
 function setupDesktopThemeMenu() {
@@ -13103,37 +17141,54 @@ function setupDesktopThemeMenu() {
     }
   });
 
-  const openManuscriptMenu = (clientX, clientY, event = null) => {
-    if (event) manuscriptContextRange = captureManuscriptRangeFromEvent(event);
+  const openManuscriptMenu = (clientX, clientY, event = null, editorEl = null) => {
+    const editor = editorEl
+      || event?.target?.closest?.("#sceneContent, #synopsisContent")
+      || getActiveRichEditor()
+      || $("sceneContent");
+    contextMenuEditor = editor;
+    if (event) manuscriptContextRange = captureManuscriptRangeFromEvent(event, editor);
     // Capture selected text before the menu steals focus.
-    pendingBaitQuote = getSelectedManuscriptText();
+    pendingBaitQuote = getSelectedManuscriptText(editor);
     const hasSelection = Boolean(pendingBaitQuote);
     const menu = $("desktopContextMenu");
+    const isSettingsDoc = Boolean(editor && editor.id === "synopsisContent");
     // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
     menu?.classList.toggle("is-text-selection", hasSelection);
+    menu?.classList.toggle("is-settings-doc", isSettingsDoc);
     syncPageThemeScopeUi();
     // Bookmark current open scene (same system as binder right-click)
     const bmBtn = $("bookmarkSceneMenuItem");
     const bmTitle = $("bookmarkSceneMenuTitle");
     const bmHint = $("bookmarkSceneMenuHint");
     if (bmBtn) {
-      const sceneOk = Boolean(state.sceneId);
+      const sceneOk = Boolean(state.sceneId) && !isSettingsDoc;
       const already = sceneOk
         ? Boolean(findBookmark(loadBookmarks(), "scene", state.sceneId))
         : false;
       bmBtn.disabled = !sceneOk || hasSelection;
       bmBtn.style.opacity = sceneOk && !hasSelection ? "1" : "0.45";
-      bmBtn.title = hasSelection
-        ? "선택 문장 메뉴에서는 사용할 수 없어요"
-        : sceneOk
-          ? (already ? "이 회차 북마크를 해제합니다" : "상단 색 북마크에 이 회차를 고정합니다")
-          : "북마크하려면 먼저 회차를 열어 주세요";
+      bmBtn.title = isSettingsDoc
+        ? "설정 문서에서는 회차 북마크를 쓸 수 없어요"
+        : hasSelection
+          ? "선택 문장 메뉴에서는 사용할 수 없어요"
+          : sceneOk
+            ? (already ? "이 회차 북마크를 해제해요" : "상단 색 북마크에 이 회차를 고정해요")
+            : "북마크하려면 먼저 회차를 열어 주세요";
       if (bmTitle) bmTitle.textContent = already ? "북마크 해제" : "북마크하기";
       if (bmHint) {
         bmHint.textContent = already
-          ? "상단 북마크 목록에서 이 회차를 뺍니다"
-          : "상단 색 북마크에 이 회차를 고정합니다";
+          ? "상단 북마크 목록에서 이 회차를 빼요"
+          : "상단 색 북마크에 이 회차를 고정해요";
       }
+    }
+    const exportBtn = $("exportSceneMenuItem");
+    if (exportBtn) {
+      exportBtn.disabled = isSettingsDoc || !state.sceneId;
+      exportBtn.style.opacity = (!isSettingsDoc && state.sceneId) ? "1" : "0.45";
+      exportBtn.title = isSettingsDoc
+        ? "설정 문서에서는 회차 내보내기를 쓸 수 없어요"
+        : "이 회차만 파일로 내려받아요";
     }
     const dictItem = $("lookupDictMenuItem");
     if (dictItem) {
@@ -13147,22 +17202,35 @@ function setupDesktopThemeMenu() {
     if (askToryItem) {
       askToryItem.disabled = !hasSelection;
       askToryItem.title = hasSelection
-        ? "선택 문장을 토리 1:1 대화 질문칸에 넣고 팝업으로 엽니다"
+        ? "선택 문장을 토리 1:1 대화 질문칸에 넣고 팝업으로 열어요"
         : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
       askToryItem.style.opacity = hasSelection ? "1" : "0.45";
     }
+    const rewriteItem = $("rewriteSentenceMenuItem");
+    if (rewriteItem) {
+      rewriteItem.disabled = !hasSelection;
+      rewriteItem.title = hasSelection
+        ? "토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다."
+        : "먼저 본문에서 다듬을 문장을 드래그로 선택하세요";
+      rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
     const throwItem = $("throwBaitMenuItem");
     if (throwItem) {
-      throwItem.disabled = !hasSelection;
-      throwItem.title = hasSelection
-        ? "선택 문장을 설정집 떡밥모음에 넣습니다"
-        : "먼저 본문에서 문장을 드래그로 선택하세요";
-      throwItem.style.opacity = hasSelection ? "1" : "0.45";
+      const canBait = hasSelection && Boolean(state.sceneId) && !isSettingsDoc;
+      throwItem.disabled = !canBait;
+      throwItem.title = isSettingsDoc
+        ? "설정 문서에서는 떡밥 던지기를 쓸 수 없어요"
+        : !state.sceneId
+          ? "떡밥을 심을 회차를 먼저 열어 주세요"
+          : hasSelection
+            ? "선택 문장을 설정집 떡밥모음에 넣어요"
+            : "먼저 본문에서 문장을 드래그로 선택하세요";
+      throwItem.style.opacity = canBait ? "1" : "0.45";
     }
     const footnoteItem = $("addFootnoteMenuItem");
     const editFnItem = $("editFootnoteMenuItem");
     const deleteFnItem = $("deleteFootnoteMenuItem");
-    const sceneOk = Boolean(state.sceneId);
+    const sceneOk = Boolean(state.sceneId) || isSettingsDoc;
     if (footnoteItem) {
       // Hide "add" when targeting an existing footnote; show edit/delete instead.
       const targetingFn = Boolean(pendingFootnoteId);
@@ -13172,7 +17240,7 @@ function setupDesktopThemeMenu() {
       footnoteItem.disabled = !canAdd;
       footnoteItem.style.opacity = canAdd ? "1" : "0.45";
       footnoteItem.title = !sceneOk
-        ? "각주를 달려면 먼저 씬을 열어 주세요"
+        ? "각주를 달려면 먼저 문서를 열어 주세요"
         : hasSelection
           ? "선택한 문장에 각주를 답니다"
           : "선택 위치(또는 드래그한 문장)에 각주를 답니다";
@@ -13194,7 +17262,14 @@ function setupDesktopThemeMenu() {
     // Custom menu: insert image + bait + footnotes + page color + default ink.
     event.preventDefault();
     pendingFootnoteId = findFootnoteIdFromEventTarget(event.target);
-    openManuscriptMenu(event.clientX, event.clientY, event);
+    openManuscriptMenu(event.clientX, event.clientY, event, $("sceneContent"));
+  });
+
+  // 세계관·시놉시스 등 설정 문서 메인 편집도 본문과 같은 바탕 우클릭 메뉴.
+  $("synopsisPage")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    pendingFootnoteId = findFootnoteIdFromEventTarget(event.target);
+    openManuscriptMenu(event.clientX, event.clientY, event, $("synopsisContent"));
   });
 
   document.addEventListener("click", (event) => {
@@ -13245,6 +17320,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "ask-tory") {
         hideDesktopContextMenu();
         askToryFromSelection();
+      } else if (action === "rewrite-sentence") {
+        hideDesktopContextMenu();
+        runRewriteFromSelection().catch(handleError);
       } else if (action === "insert-image") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
@@ -13316,12 +17394,6 @@ function isFairyTaleProject() {
   return state.projectPurpose === "fairy_tale"
     || state.scene?.project_purpose === "fairy_tale"
     || state.projects.find((p) => p.id === state.projectId)?.purpose === "fairy_tale";
-}
-
-function updateIllustrationPanelVisibility() {
-  // External illustration panel removed — images are inserted inline via right-click.
-  const panel = $("illustrationPanel");
-  if (panel) panel.classList.add("hidden");
 }
 
 function newOverlayId() {
@@ -13428,8 +17500,7 @@ function enableOverlayInteractions(node, stage) {
 }
 
 function renderIllustrations() {
-  // No external panel — images live inline in the manuscript HTML.
-  updateIllustrationPanelVisibility();
+  // External illustration panel removed — images live inline in the manuscript HTML.
 }
 
 async function uploadIllustration(file) {
@@ -13453,25 +17524,43 @@ async function uploadIllustration(file) {
 
 async function insertInlineImageFromFile(file) {
   if (!file) return;
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
   toast("이미지를 넣는 중…");
   try {
-    const created = await uploadIllustration(file);
-    if (!created?.image_url) {
-      toast("이미지를 넣지 못했어요.");
-      return;
+    let src = "";
+    if (editor?.id === "synopsisContent" || !state.sceneId) {
+      // Settings docs (세계관 등): embed as data URL (no scene illustration row).
+      src = await fileToDataUrl(file);
+    } else {
+      const created = await uploadIllustration(file);
+      if (!created?.image_url) {
+        toast("이미지를 넣지 못했어요.");
+        return;
+      }
+      src = created.image_url;
     }
     const img = document.createElement("img");
-    img.src = created.image_url;
+    img.src = src;
     img.alt = file.name || "본문 이미지";
     img.className = "inline-manuscript-image";
     img.draggable = false;
     img.loading = "lazy";
-    insertNodeAtManuscriptContext(img);
-    markSceneDirty();
-  toast("본문에 이미지를 넣었어요. 자동 저장됩니다.");
+    insertNodeAtManuscriptContext(img, editor);
+    toast(editor?.id === "synopsisContent"
+      ? "설정 문서에 이미지를 넣었어요. 자동 저장됩니다."
+      : "본문에 이미지를 넣었어요. 자동 저장됩니다.");
   } catch (error) {
     handleError(error);
   }
+}
+
+function fileToDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("이미지를 읽지 못했어요."));
+    reader.readAsDataURL(file);
+  });
 }
 
 function setupIllustrationPanel() {
@@ -14064,9 +18153,15 @@ function setupSceneToolsDrawerDrag() {
 }
 
 function closeViewModeMenu() {
-  $("viewModeDropdown")?.classList.add("hidden");
-  $("splitModeDropdown")?.classList.add("hidden");
+  const viewMenu = $("viewModeDropdown");
+  const splitMenu = $("splitModeDropdown");
+  viewMenu?.classList.add("hidden");
+  splitMenu?.classList.add("hidden");
+  clearFeatureDropdownPlacement(viewMenu);
+  clearFeatureDropdownPlacement(splitMenu);
+  portalViewModeDropdownToBody(false);
   $("splitViewButton")?.setAttribute("aria-expanded", "false");
+  $("focusWriteSplitButton")?.setAttribute("aria-expanded", "false");
   $("switchSplitModeButton")?.setAttribute("aria-expanded", "false");
 }
 
@@ -14075,11 +18170,17 @@ function openViewModeMenu(which = "main") {
   if (typeof closeAnalyzeMenu === "function") closeAnalyzeMenu();
   $("viewModeCloseItem")?.classList.toggle("hidden", !state.splitEnabled);
   if (which === "split") {
-    $("splitModeDropdown")?.classList.remove("hidden");
-    $("switchSplitModeButton")?.setAttribute("aria-expanded", "true");
+    const menu = $("splitModeDropdown");
+    const btn = $("switchSplitModeButton");
+    menu?.classList.remove("hidden");
+    btn?.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => placeFeatureDropdown(menu, btn));
   } else {
-    $("viewModeDropdown")?.classList.remove("hidden");
-    $("splitViewButton")?.setAttribute("aria-expanded", "true");
+    const menu = $("viewModeDropdown");
+    const btn = which === "focus" ? $("focusWriteSplitButton") : $("splitViewButton");
+    menu?.classList.remove("hidden");
+    btn?.setAttribute("aria-expanded", "true");
+    requestAnimationFrame(() => placeFeatureDropdown(menu, btn));
   }
 }
 
@@ -14127,11 +18228,57 @@ function openSceneToolsDrawer(toolKey) {
   if (toolKey === "notes") {
     requestAnimationFrame(() => $("sceneNotes")?.focus());
   }
+  // Cast panel: reload project characters + membership so newly created people show up.
+  if (toolKey === "characters") {
+    refreshSceneCharactersPanel().catch(handleError);
+  }
 }
 
 /* —— 큰 창: editable focus writing (restored) —— */
+const FOCUS_WRITE_FULLSCREEN_KEY = "supertory.focusWriteFullscreen";
+
 function isFocusWriteOpen() {
   return Boolean($("focusWriteModal") && !$("focusWriteModal").classList.contains("hidden"));
+}
+
+function loadFocusWriteFullscreen() {
+  try {
+    return localStorage.getItem(FOCUS_WRITE_FULLSCREEN_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function saveFocusWriteFullscreen(on) {
+  try {
+    localStorage.setItem(FOCUS_WRITE_FULLSCREEN_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function isFocusWriteFullscreen() {
+  return Boolean($("focusWriteModal")?.classList.contains("is-fullscreen"));
+}
+
+function applyFocusWriteFullscreen(on, { persist = true } = {}) {
+  const modal = $("focusWriteModal");
+  const btn = $("focusWriteFullscreenButton");
+  if (!modal) return;
+  const enabled = Boolean(on);
+  modal.classList.toggle("is-fullscreen", enabled);
+  document.body.classList.toggle("focus-write-fullscreen", enabled && isFocusWriteOpen());
+  // Clear any leftover inline caption inset from older builds.
+  const head = modal.querySelector(".focus-write-head");
+  if (head) head.style.removeProperty("padding-right");
+  if (btn) {
+    btn.setAttribute("aria-pressed", enabled ? "true" : "false");
+    btn.textContent = enabled ? "창 모드" : "전체보기";
+    btn.title = enabled
+      ? "큰 창 크기로 돌아가기 (F11)"
+      : "화면 전체를 쓰는 집중 모드 (F11)";
+  }
+  if (persist) saveFocusWriteFullscreen(enabled);
 }
 
 function openFocusWrite() {
@@ -14157,6 +18304,9 @@ function openFocusWrite() {
   updateEditorPlaceholder(focusEd);
   modal.classList.remove("hidden");
   document.body.classList.add("focus-write-open");
+  applyFocusWriteFullscreen(loadFocusWriteFullscreen(), { persist: false });
+  // Re-host 함께보기 inside / above 큰 창
+  if (state.splitEnabled) applySplitLayout();
 
   requestAnimationFrame(() => {
     focusEd.setAttribute("contenteditable", "true");
@@ -14183,6 +18333,10 @@ function closeFocusWrite() {
   }
   modal.classList.add("hidden");
   document.body.classList.remove("focus-write-open");
+  document.body.classList.remove("focus-write-fullscreen");
+  // Return 다른 씬 pane to the main workspace layout
+  if (state.splitEnabled) applySplitLayout();
+  else syncSplitViewerHost();
   requestAnimationFrame(() => {
     try {
       mainEd?.focus({ preventScroll: true });
@@ -14215,12 +18369,92 @@ function setupFocusWrite() {
     el.addEventListener("click", () => closeFocusWrite());
   });
 
+  $("focusWriteFullscreenButton")?.addEventListener("click", () => {
+    if (!isFocusWriteOpen()) return;
+    applyFocusWriteFullscreen(!isFocusWriteFullscreen());
+    toast(isFocusWriteFullscreen() ? "전체보기로 전환했어요." : "창 모드로 돌아왔어요.");
+  });
+
+  $("focusWriteSplitButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (!isFocusWriteOpen()) return;
+    if (!state.sceneId) {
+      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      return;
+    }
+    // Open explicitly (don't toggle-close on the same gesture that opened)
+    openViewModeMenu("focus");
+  });
+
   document.addEventListener("keydown", (event) => {
+    if (isViewerOpen()) return;
+
+    // F10: 큰 창 열기/닫기 (입력 필드에서는 무시 — contenteditable 제외하고는)
+    if (event.key === "F10") {
+      const tag = (event.target?.tagName || "").toLowerCase();
+      if (tag === "input" || tag === "textarea" || tag === "select") return;
+      event.preventDefault();
+      if (isFocusWriteOpen()) closeFocusWrite();
+      else openFocusWrite();
+      return;
+    }
+
+    // F11: 큰 창에서 전체보기 ↔ 창 모드
+    if (event.key === "F11" && isFocusWriteOpen()) {
+      event.preventDefault();
+      applyFocusWriteFullscreen(!isFocusWriteFullscreen());
+      toast(isFocusWriteFullscreen() ? "전체보기 (F11)" : "창 모드 (F11)");
+      return;
+    }
+
     if (event.key !== "Escape") return;
-    if (isViewerOpen()) return; // viewer has its own Esc handler
     if (!isFocusWriteOpen()) return;
     event.preventDefault();
+    // Esc: leave fullscreen → close other-scene popup → close 큰 창
+    if (isFocusWriteFullscreen()) {
+      applyFocusWriteFullscreen(false);
+      return;
+    }
+    if (state.splitEnabled && state.splitMode === "popup") {
+      closeSplitView().catch(handleError);
+      return;
+    }
     closeFocusWrite();
+  });
+}
+
+function setupViewModeShortcuts() {
+  document.addEventListener("keydown", (event) => {
+    // Esc: 함께보기 닫기 (큰 창 Esc 핸들러보다 나중에 와도, 큰 창이 열려 있으면 그쪽이 먼저 처리)
+    if (event.key === "Escape" && state.splitEnabled && !isFocusWriteOpen()) {
+      if (typeof isViewerOpen === "function" && isViewerOpen()) return;
+      if (!$("viewModeDropdown")?.classList.contains("hidden") || !$("splitModeDropdown")?.classList.contains("hidden")) {
+        return; // let menu-close handler run
+      }
+      // Defer slightly so other Esc handlers (modals) can win first via their own listeners
+      // Only close split when no higher modal is open
+      const blocked = ["adminModal", "exportModal", "newProjectModal", "textPromptModal", "importModal", "viewerModal"]
+        .some((id) => {
+          const el = $(id);
+          return el && !el.classList.contains("hidden");
+        });
+      if (blocked) return;
+      event.preventDefault();
+      closeSplitView().catch(handleError);
+      return;
+    }
+
+    if (!(event.ctrlKey || event.metaKey) || !event.altKey) return;
+    if (event.shiftKey) return;
+    const key = String(event.key || "").toLowerCase();
+    if (key !== "s" && key !== "p") return;
+    if (typeof isViewerOpen === "function" && isViewerOpen()) return;
+    if ($("sceneWorkspace")?.classList.contains("hidden") && !isFocusWriteOpen()) return;
+    if (!state.sceneId) return;
+    event.preventDefault();
+    closeViewModeMenu();
+    handleViewModeChoice(key === "s" ? "split" : "popup").catch(handleError);
   });
 }
 
@@ -16340,7 +20574,7 @@ function handleToolsAction(action) {
     return;
   }
   if (action === "world-scan") {
-    // Kept for binder / legacy tools; prefer Analyze menu → 세계관 스캔.
+    // Kept for binder / legacy tools; prefer Analyze menu → 설정 붕괴 감지기.
     runWorldScan().catch(handleError);
     return;
   }
@@ -16559,20 +20793,27 @@ function setupSpellcheckPanel() {
   });
 }
 
-/* ── Manuscript toolbar collapse (format + feature bars) ── */
+/* ── Manuscript toolbar collapse (meta / format / feature) ── */
 const MS_TOOLBAR_COLLAPSE_KEY = "supertory.msToolbarCollapsed";
+
+function normalizeMsToolbarKey(which) {
+  if (which === "feature") return "feature";
+  if (which === "meta" || which === "synopsis") return "meta";
+  return "format";
+}
 
 function loadMsToolbarCollapsed() {
   try {
     const raw = localStorage.getItem(MS_TOOLBAR_COLLAPSE_KEY);
     const obj = raw ? JSON.parse(raw) : null;
-    if (!obj || typeof obj !== "object") return { format: false, feature: false };
+    if (!obj || typeof obj !== "object") return { meta: false, format: false, feature: false };
     return {
+      meta: Boolean(obj.meta),
       format: Boolean(obj.format),
       feature: Boolean(obj.feature),
     };
   } catch (_) {
-    return { format: false, feature: false };
+    return { meta: false, format: false, feature: false };
   }
 }
 
@@ -16584,30 +20825,61 @@ function saveMsToolbarCollapsed(stateMap) {
   }
 }
 
+function msToolbarReopenButton(key) {
+  if (key === "meta") return $("editorMetaReopenButton");
+  if (key === "feature") return $("sceneFeatureBarReopenButton");
+  return $("formatToolbarReopenButton");
+}
+
+function syncMsChromeReopenStrip() {
+  const strip = $("msChromeReopenStrip");
+  if (!strip) return;
+  const anyVisible = Array.from(strip.querySelectorAll("[data-toolbar-show]")).some(
+    (btn) => !btn.hidden && !btn.classList.contains("hidden")
+  );
+  strip.hidden = !anyVisible;
+}
+
+function refreshManuscriptLayoutAfterChromeChange() {
+  if (state.splitEnabled && state.splitMode === "split" && typeof layoutSplitPrimaryPane === "function") {
+    requestAnimationFrame(() => layoutSplitPrimaryPane());
+  }
+}
+
 function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = true } = {}) {
-  const key = which === "feature" ? "feature" : "format";
+  const key = normalizeMsToolbarKey(which);
   const shell = document.querySelector(`.ms-toolbar-shell[data-toolbar-shell="${key}"]`);
-  const reopen = key === "format" ? $("formatToolbarReopenButton") : $("sceneFeatureBarReopenButton");
+  const reopen = msToolbarReopenButton(key);
   if (!shell) return;
   shell.classList.toggle("is-collapsed", Boolean(collapsed));
-  reopen?.classList.toggle("hidden", !collapsed);
+  if (reopen) {
+    reopen.hidden = !collapsed;
+    reopen.classList.toggle("hidden", !collapsed);
+  }
   // Hide find bar when format tools are collapsed (it sits under that bar)
   if (key === "format" && collapsed) {
     $("findBar")?.classList.add("hidden");
     $("findToggleButton")?.setAttribute("aria-expanded", "false");
   }
+  syncMsChromeReopenStrip();
   if (persist) {
     const map = loadMsToolbarCollapsed();
     map[key] = Boolean(collapsed);
     saveMsToolbarCollapsed(map);
   }
+  refreshManuscriptLayoutAfterChromeChange();
   if (toastMsg && collapsed) {
-    toast(key === "format" ? "서식 도구를 숨겼어요." : "기능 바를 숨겼어요.");
+    const msg =
+      key === "meta" ? "요약 칸을 숨겼어요."
+        : key === "format" ? "서식 도구를 숨겼어요."
+          : "기능 바를 숨겼어요.";
+    toast(msg);
   }
 }
 
 function setupManuscriptToolbarCollapse() {
   const map = loadMsToolbarCollapsed();
+  applyMsToolbarCollapsed("meta", map.meta, { persist: false, toastMsg: false });
   applyMsToolbarCollapsed("format", map.format, { persist: false, toastMsg: false });
   applyMsToolbarCollapsed("feature", map.feature, { persist: false, toastMsg: false });
 
@@ -16622,8 +20894,14 @@ function setupManuscriptToolbarCollapse() {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      applyMsToolbarCollapsed(btn.dataset.toolbarShow || "format", false, { toastMsg: false });
-      toast(btn.dataset.toolbarShow === "feature" ? "기능 바를 다시 열었어요." : "서식 도구를 다시 열었어요.");
+      const which = btn.dataset.toolbarShow || "format";
+      applyMsToolbarCollapsed(which, false, { toastMsg: false });
+      const key = normalizeMsToolbarKey(which);
+      toast(
+        key === "meta" ? "요약 칸을 다시 열었어요."
+          : key === "feature" ? "기능 바를 다시 열었어요."
+            : "서식 도구를 다시 열었어요."
+      );
     });
   });
 }
@@ -16675,8 +20953,22 @@ function setupSceneFeatureBar() {
   $("splitModeDropdown")?.addEventListener("click", onViewModePick);
 
   document.addEventListener("click", (event) => {
-    if (!event.target.closest(".view-mode-control")) closeViewModeMenu();
+    if (!event.target.closest(".view-mode-control, #viewModeDropdown, #splitModeDropdown, #focusWriteSplitButton")) {
+      closeViewModeMenu();
+    }
   });
+  const repositionViewMenus = () => {
+    const view = $("viewModeDropdown");
+    const viewBtn = (typeof isFocusWriteOpen === "function" && isFocusWriteOpen() && $("focusWriteSplitButton"))
+      ? $("focusWriteSplitButton")
+      : $("splitViewButton");
+    if (view && viewBtn && !view.classList.contains("hidden")) placeFeatureDropdown(view, viewBtn);
+    const split = $("splitModeDropdown");
+    const splitBtn = $("switchSplitModeButton");
+    if (split && splitBtn && !split.classList.contains("hidden")) placeFeatureDropdown(split, splitBtn);
+  };
+  window.addEventListener("resize", repositionViewMenus);
+  window.addEventListener("scroll", repositionViewMenus, true);
 }
 
 function setActiveBinder(binderKey) {
@@ -16697,6 +20989,9 @@ function setActiveBinder(binderKey) {
     localStorage.setItem(BINDER_STORAGE_KEY, key);
   } catch (_) {
     /* ignore */
+  }
+  if (showSettings && typeof renderLinkedSuccessProfileCard === "function") {
+    renderLinkedSuccessProfileCard().catch(() => {});
   }
 }
 
@@ -16780,6 +21075,72 @@ function setupOutlineResizer() {
   });
 }
 
+const AI_PANEL_WIDTH_STORAGE_KEY = "supertory.aiPanelWidth";
+const AI_PANEL_WIDTH_MIN = 240;
+const AI_PANEL_WIDTH_MAX = 560;
+
+function applyAiPanelWidth(widthPx) {
+  const width = Math.max(AI_PANEL_WIDTH_MIN, Math.min(AI_PANEL_WIDTH_MAX, Math.round(widthPx)));
+  document.documentElement.style.setProperty("--ai-panel-width", `${width}px`);
+  return width;
+}
+
+function setupAiPanelResizer() {
+  const resizer = $("aiPanelResizer");
+  if (!resizer) return;
+
+  try {
+    const stored = Number(localStorage.getItem(AI_PANEL_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= AI_PANEL_WIDTH_MIN) {
+      applyAiPanelWidth(stored);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    // Right panel: drag left edge leftward to widen
+    const next = applyAiPanelWidth(drag.startWidth + (drag.startX - event.clientX));
+    drag.currentWidth = next;
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    document.body.classList.remove("ai-panel-resizing");
+    try {
+      localStorage.setItem(AI_PANEL_WIDTH_STORAGE_KEY, String(drag.currentWidth || AI_PANEL_WIDTH_MIN));
+    } catch (_) {
+      /* ignore */
+    }
+    drag = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (typeof isAiPanelOpen === "function" && !isAiPanelOpen()) return;
+    if (document.body.classList.contains("ai-panel-collapsed")) return;
+    const panel = $("aiPanel");
+    const startWidth = panel ? panel.getBoundingClientRect().width : 300;
+    drag = {
+      startX: event.clientX,
+      startWidth,
+      currentWidth: startWidth,
+    };
+    document.body.classList.add("ai-panel-resizing");
+    resizer.setPointerCapture?.(event.pointerId);
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    event.preventDefault();
+  });
+}
+
 async function revealCurrentPackage() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
   const result = await api(`/api/projects/${state.projectId}/reveal-package`, {
@@ -16803,6 +21164,18 @@ function walkSceneTree(nodes, visit, depth = 0) {
   }
 }
 
+/** Walk top-level folders and folders nested under manuscripts. */
+function walkBinderChapters(chapters, visit) {
+  for (const chapter of chapters || []) {
+    visit(chapter);
+    walkSceneTree(chapter.scenes || [], (scene) => {
+      for (const nested of scene.child_chapters || []) {
+        walkBinderChapters([nested], visit);
+      }
+    });
+  }
+}
+
 function flattenChapterScenes(chapter) {
   if (!chapter) return [];
   // Prefer live tree so status / completeness stay correct after binder sync.
@@ -16817,24 +21190,24 @@ function flattenChapterScenes(chapter) {
 
 function flattenAllOutlineScenes() {
   const out = [];
-  for (const chapter of state.outline || []) {
+  walkBinderChapters(getBinderChaptersInOrder(), (chapter) => {
     walkSceneTree(chapter.scenes || [], (scene) => {
       out.push({ ...scene, chapterId: chapter.id, chapterTitle: chapter.title });
     });
-  }
+  });
   return out;
 }
 
 function findChapterIdForScene(sceneId) {
   const id = Number(sceneId);
-  for (const chapter of state.outline || []) {
-    let found = false;
+  let foundId = null;
+  walkBinderChapters(getBinderChaptersInOrder(), (chapter) => {
+    if (foundId != null) return;
     walkSceneTree(chapter.scenes || [], (scene) => {
-      if (Number(scene.id) === id) found = true;
+      if (foundId == null && Number(scene.id) === id) foundId = Number(chapter.id);
     });
-    if (found) return Number(chapter.id);
-  }
-  return null;
+  });
+  return foundId;
 }
 
 function getCollapsedChapterIds() {
@@ -16984,29 +21357,46 @@ function getBinderChaptersInOrder() {
 function ensureActiveSceneChapterExpanded(chapters) {
   if (!state.sceneId || !Array.isArray(chapters)) return;
   const targetId = Number(state.sceneId);
-  for (const chapter of chapters) {
-    const path = [];
-    let found = false;
-    const walk = (nodes, ancestors) => {
-      for (const scene of nodes || []) {
-        const next = ancestors.concat(Number(scene.id));
-        if (Number(scene.id) === targetId) {
-          found = true;
-          path.push(...ancestors);
-          return true;
-        }
-        if (walk(scene.children || [], next)) return true;
+  let found = false;
+  const path = [];
+  let hostChapter = null;
+
+  const walkScenes = (nodes, ancestors, chapter) => {
+    for (const scene of nodes || []) {
+      const next = ancestors.concat(Number(scene.id));
+      if (Number(scene.id) === targetId) {
+        found = true;
+        hostChapter = chapter;
+        path.push(...ancestors);
+        return true;
       }
-      return false;
-    };
-    walk(chapter.scenes || [], []);
-    if (found) {
-      setChapterCollapsed(chapter.id, false);
-      if (chapter.part_id != null) setPartCollapsed(chapter.part_id, false);
-      for (const ancestorId of path) setSceneCollapsed(ancestorId, false);
-      return;
+      for (const nested of scene.child_chapters || []) {
+        if (walkScenes(nested.scenes || [], next, nested)) return true;
+      }
+      if (walkScenes(scene.children || [], next, chapter)) return true;
     }
+    return false;
+  };
+
+  for (const chapter of chapters) {
+    if (walkScenes(chapter.scenes || [], [], chapter)) break;
   }
+  if (!found || !hostChapter) return;
+  setChapterCollapsed(hostChapter.id, false);
+  if (hostChapter.part_id != null) setPartCollapsed(hostChapter.part_id, false);
+  // Expand ancestor folders when the host itself is nested under a manuscript.
+  walkBinderChapters(chapters, (ch) => {
+    if (Number(ch.id) === Number(hostChapter.id)) return;
+    walkSceneTree(ch.scenes || [], (scene) => {
+      for (const nested of scene.child_chapters || []) {
+        if (Number(nested.id) === Number(hostChapter.id)) {
+          setChapterCollapsed(ch.id, false);
+          setSceneCollapsed(Number(scene.id), false);
+        }
+      }
+    });
+  });
+  for (const ancestorId of path) setSceneCollapsed(ancestorId, false);
 }
 
 function applyChapterExpandedState(section, expanded) {
@@ -17050,11 +21440,19 @@ function syncOpenSceneToOutlineBinder(patch = {}) {
   const nextTitle = patch.title != null
     ? String(patch.title)
     : ($("sceneTitle")?.value?.trim() || state.scene?.title || null);
+  const nextBodyPreview = patch.body_preview != null
+    ? String(patch.body_preview)
+    : (typeof getEditorPlainText === "function"
+      ? firstSentenceFromPlain(getEditorPlainText())
+      : null);
 
   const applyToScene = (scene) => {
     if (!scene || Number(scene.id) !== sceneId) return false;
     if (nextStatus != null) scene.status = nextStatus;
     if (nextTitle != null && nextTitle !== "") scene.title = nextTitle;
+    if (isUntitledSceneTitle(scene.title) && nextBodyPreview != null) {
+      scene.body_preview = nextBodyPreview;
+    }
     return true;
   };
 
@@ -17097,19 +21495,25 @@ function syncOpenSceneToOutlineBinder(patch = {}) {
 function renderSceneTreeHtml(scenes, {
   chapterId,
   depth = 0,
+  collapsed,
   collapsedScenes,
   baitPlantIds,
   baitRecoverIds,
+  pinnedSet,
   parentSceneId = null,
+  hasTrailingSiblings = false,
 }) {
   const list = Array.isArray(scenes) ? scenes : [];
+  const folderCollapse = collapsed instanceof Set ? collapsed : new Set();
   if (!list.length) {
     return depth === 0
       ? `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`
       : "";
   }
+  const pins = pinnedSet instanceof Set ? pinnedSet : new Set();
   return list.map((scene, index) => {
-    const isLast = index === list.length - 1;
+    // Not last if more scene siblings follow, or parent will render nested folders after this list.
+    const isLast = index === list.length - 1 && !hasTrailingSiblings;
     const isComplete = scene.status === "complete";
     const statusText = statusLabel[scene.status] || scene.status || "";
     const statusMarkup = isComplete
@@ -17117,11 +21521,15 @@ function renderSceneTreeHtml(scenes, {
       : `<span class="scene-status">${escapeHtml(statusText)}</span>`;
     const sid = Number(scene.id);
     const kids = scene.children || [];
+    const childFolders = Array.isArray(scene.child_chapters) ? scene.child_chapters : [];
     const hasKids = kids.length > 0;
+    const hasChildFolders = childFolders.length > 0;
+    const hasNest = hasKids || hasChildFolders;
     const childCollapsed = collapsedScenes.has(sid);
     const childExpanded = !childCollapsed;
     const hasPlant = baitPlantIds.has(sid);
     const hasRecover = baitRecoverIds.has(sid);
+    const isPinned = pins.has(sid);
     const baitIcons = [
       hasPlant
         ? `<span class="scene-bait-badge is-plant" title="이 회차에 심은 떡밥이 있어요" aria-label="떡밥 심음">떡</span>`
@@ -17130,36 +21538,62 @@ function renderSceneTreeHtml(scenes, {
         ? `<span class="scene-bait-badge is-recover" title="이 회차에 떡밥 회수 예정" aria-label="떡밥 회수 예정">떡</span>`
         : "",
     ].join("");
+    const pinIcon = isPinned
+      ? `<span class="scene-pin-badge" title="상단 고정됨" aria-label="상단 고정">고</span>`
+      : "";
     const baitTitleBits = [
       hasPlant ? "떡밥 심음" : "",
       hasRecover ? "떡밥 회수 예정" : "",
+      isPinned ? "상단 고정" : "",
     ].filter(Boolean).join(" · ");
     const titleExtra = [isComplete ? "완성" : "", baitTitleBits].filter(Boolean).join(" · ");
     const parentAttr = parentSceneId != null ? String(parentSceneId) : "";
-    const twistie = hasKids
-      ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 원고 접기" : "하위 원고 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
+    const display = getOutlineSceneDisplay(scene);
+    const titleClass = display.isPreview ? "scene-title is-body-preview" : "scene-title";
+    const twistie = hasNest
+      ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 접기" : "하위 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
       : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
-    const childrenHtml = hasKids
+    // Folders render after child manuscripts under the same parent.
+    const nestDepth = Math.min(depth + 1, 8);
+    const nestedFoldersHtml = hasChildFolders
+      ? childFolders.map((ch, folderIndex) => renderChapterOutlineHtml(ch, {
+          collapsed: folderCollapse,
+          collapsedScenes,
+          baitPlantIds,
+          baitRecoverIds,
+          pinnedSet: pins,
+          folderLevel: nestDepth >= 2 ? "is-level-2" : "is-level-1",
+          nestedUnderScene: true,
+          nestDepth,
+          isLastSibling: folderIndex === childFolders.length - 1,
+        })).join("")
+      : "";
+    const childrenHtml = hasNest
       ? `<div class="scene-children ${childExpanded ? "" : "is-collapsed"}" ${childExpanded ? "" : "hidden"} data-parent-scene="${sid}">
-          ${renderSceneTreeHtml(kids, {
+          ${hasKids ? renderSceneTreeHtml(kids, {
             chapterId,
             depth: depth + 1,
+            collapsed: folderCollapse,
             collapsedScenes,
             baitPlantIds,
             baitRecoverIds,
+            pinnedSet: pins,
             parentSceneId: sid,
-          })}
+            hasTrailingSiblings: hasChildFolders,
+          }) : ""}
+          ${nestedFoldersHtml}
         </div>`
       : "";
     return `
-      <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasKids ? "" : "is-leaf"} ${childExpanded || !hasKids ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
+      <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
         <div class="scene-row">
           <span class="tree-guide" aria-hidden="true"></span>
           ${twistie}
-          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(scene.title)}${titleExtra ? ` · ${titleExtra}` : ""} · 끌어 다른 원고 위에 놓으면 하위 원고">
+          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""} · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
             ${statusMarkup}
+            ${pinIcon}
             ${baitIcons}
-            <span class="scene-title">${escapeHtml(scene.title)}</span>
+            <span class="${titleClass}">${escapeHtml(display.label)}</span>
           </button>
         </div>
         ${childrenHtml}
@@ -17167,33 +21601,69 @@ function renderSceneTreeHtml(scenes, {
   }).join("");
 }
 
-function renderChapterOutlineHtml(chapter, { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds }) {
+function renderChapterOutlineHtml(chapter, {
+  collapsed,
+  collapsedScenes,
+  baitPlantIds,
+  baitRecoverIds,
+  pinnedSet,
+  folderLevel: folderLevelOverride = null,
+  nestedUnderScene = false,
+  nestDepth = 1,
+  isLastSibling = true,
+}) {
   const scenes = chapter.scenes || [];
   const hasScenes = scenes.length > 0;
-  const expanded = !collapsed.has(Number(chapter.id));
+  const transparent = Boolean(chapter.transparent) ||
+    String(chapter.notes_md || "").includes("supertory:transparent_volume");
+  const expanded = transparent ? true : !collapsed.has(Number(chapter.id));
   const flat = flattenChapterScenes(chapter);
   const allComplete = hasScenes && flat.length > 0 && flat.every((scene) => scene.status === "complete");
+  // Nested under a manuscript: keep staircase by starting children one step deeper.
+  const sceneDepth = nestedUnderScene ? Math.min(Number(nestDepth) + 1, 8) : 0;
   const sceneItems = hasScenes
     ? renderSceneTreeHtml(scenes, {
         chapterId: chapter.id,
-        depth: 0,
+        depth: sceneDepth,
+        collapsed,
         collapsedScenes,
         baitPlantIds,
         baitRecoverIds,
+        pinnedSet,
         parentSceneId: null,
       })
-    : `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`;
+    : (transparent
+      ? ""
+      : `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`);
 
   const hasParentPart = chapter.part_id != null && chapter.part_id !== "";
   const partAttr = hasParentPart
     ? ` data-part-id="${Number(chapter.part_id)}"`
     : ' data-part-id=""';
-  // Sub-folder under top box → level-1; ungrouped top folder → level-0
-  const folderLevel = hasParentPart ? "is-level-1" : "is-level-0";
+  // Sub-folder under top box → level-1; ungrouped top folder → level-0; under manuscript → level-2
+  const folderLevel = folderLevelOverride
+    || (hasParentPart ? "is-level-1" : "is-level-0");
+  const depthClass = nestedUnderScene ? ` depth-${Math.min(Number(nestDepth) || 1, 8)}` : "";
+  const lastClass = nestedUnderScene && isLastSibling ? " is-last" : "";
+  const nestClass = nestedUnderScene ? " is-nested-under-scene" : "";
+  const treeGuide = nestedUnderScene
+    ? `<span class="tree-guide" aria-hidden="true"></span>`
+    : "";
+  if (transparent) {
+    // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
+    return `
+    <section class="outline-chapter is-transparent-chapter${nestClass}${depthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
+      <div class="chapter-children" role="group" aria-label="원고">
+        ${sceneItems}
+        <button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
+      </div>
+    </section>`;
+  }
   return `
-    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}" data-chapter-id="${chapter.id}"${partAttr} data-expanded="${expanded ? "true" : "false"}" draggable="true">
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${depthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
       <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}">
-        <span class="chapter-drag-handle" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+        ${treeGuide}
+        ${nestedUnderScene ? "" : `<span class="chapter-drag-handle" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>`}
         <button
           type="button"
           class="chapter-twistie"
@@ -17202,7 +21672,7 @@ function renderChapterOutlineHtml(chapter, { collapsed, collapsedScenes, baitPla
           title="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
           aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
         ><span class="twistie-glyph" aria-hidden="true"></span></button>
-        <button type="button" draggable="true" class="chapter-title folder-title-box ${folderLevel} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 · 우클릭: 메뉴 · 끌어 다른 폴더로 이동)">${escapeHtml(chapter.title)}</button>
+        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box ${folderLevel} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 · 우클릭: 메뉴${nestedUnderScene ? "" : " · 끌어 다른 폴더로 이동"})">${escapeHtml(chapter.title)}</button>
         <button type="button" class="chapter-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
@@ -17231,7 +21701,8 @@ function renderOutline(chaptersArg) {
   const collapsedParts = getCollapsedPartIds();
   const baitPlantIds = typeof getBaitPlantSceneIds === "function" ? getBaitPlantSceneIds() : new Set();
   const baitRecoverIds = typeof getBaitRecoverSceneIds === "function" ? getBaitRecoverSceneIds() : new Set();
-  const chapterOpts = { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds };
+  const pinnedSet = new Set(sanitizePinnedSceneIds());
+  const chapterOpts = { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds, pinnedSet };
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
@@ -17241,11 +21712,11 @@ function renderOutline(chaptersArg) {
     const partExpanded = !collapsedParts.has(Number(part.id));
     const chapterHtml = chapters.length
       ? chapters.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")
-      : `<p class="hint part-empty-hint">이 상위 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
+      : `<p class="hint part-empty-hint">이 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
     return `
     <section class="outline-part ${partExpanded ? "" : "is-collapsed"}" data-part-id="${part.id}" data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
       <div class="part-row">
-        <span class="part-drag-handle" draggable="true" title="끌어 권/부 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+        <span class="part-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
         <button
           type="button"
           class="part-twistie chapter-twistie"
@@ -17265,14 +21736,14 @@ function renderOutline(chaptersArg) {
   const ungroupedHtml = ungrouped.length
     ? `
     <div class="outline-ungrouped ${parts.length ? "" : "is-flat"}" data-part-chapters="" data-part-id="">
-      ${parts.length ? `<div class="outline-ungrouped-label">미분류 (상위 폴더 밖)</div>` : ""}
+      ${parts.length ? `<div class="outline-ungrouped-label">미분류 (최상위 폴더 밖)</div>` : ""}
       ${ungrouped.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")}
     </div>`
     : (parts.length
-      ? `<p class="hint outline-ungrouped-empty">미분류 폴더 없음 · 우클릭으로 상위 폴더에 넣거나 뺄 수 있어요.</p>`
+      ? `<p class="hint outline-ungrouped-empty">미분류 폴더가 없어요.</p>`
       : "");
 
-  outline.innerHTML = `${partBlocks}${ungroupedHtml}`;
+  outline.innerHTML = `${renderPinnedOutlineSectionHtml()}${partBlocks}${ungroupedHtml}`;
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
@@ -17970,13 +22441,13 @@ function showWelcome() {
   $("newIdeaButton").disabled = !state.projectId;
   syncPurposePickerFromState();
   syncGenrePickerFromState();
+  syncToryPriorityInput();
   closeViewModeMenu();
   closeSceneToolsDrawer();
   updateAuthorNotesBadge();
   updateReferenceMaterialsBadge();
   renderEpisodeChrome();
   updateSplitChrome();
-  updateIllustrationPanelVisibility();
   if (state.ideaBoardOpen) {
     $("welcome").classList.add("hidden");
     $("ideaBoard")?.classList.remove("hidden");
@@ -17987,24 +22458,113 @@ function showWelcome() {
     $("ideaBoard")?.classList.add("hidden");
   }
   updateWelcomeGuideUi();
+  // Persist "project open, no scene" so relaunch can return to welcome for this work.
+  if (state.projectId) saveLastWorkspace({ sceneId: null });
 }
 
 /* —— Welcome screen: animated Tory + +button guide —— */
 const WELCOME_GUIDE_DISMISS_KEY = "supertory.welcomePlusGuideDismissed";
+/** Session-only dismiss for ad popups (X). "오늘 하루" uses localStorage date. */
+const WELCOME_AD_POPUP_IDS = ["event", "notice"];
+const WELCOME_AD_POPUP_SESSION_PREFIX = "supertory.welcomeAdPopup.session.";
+const WELCOME_AD_POPUP_TODAY_PREFIX = "supertory.welcomeAdPopup.today.";
+const WELCOME_AD_POPUP_VERSION = "v1"; // bump when content should re-show for all users
 const WELCOME_SPEECH_LINES = [
-  "토리와 함께",
-  "왼쪽 위 + 를 눌러 봐요!",
-  "새 글쓰기부터 시작하면 돼요",
+  "반가워요 작가님",
+  "먼저 왼쪽 위 +를 눌러봐요!",
+  "새 글 쓰기부터 시작하면 돼요.",
   "써 둔 글이 있으면 가져오기도 가능!",
-  "준비되면 같이 써 봐요",
+  "준비되면 같이 써봐요.",
+  "토리와 함께",
 ];
 let welcomeSpeechTimer = null;
 let welcomeSpeechIndex = 0;
 let welcomeGuideDismissedSession = false;
+/** @type {Record<string, boolean>} */
+const welcomeAdPopupSessionDismissed = {};
 
 function isWelcomeScreenVisible() {
   const el = $("welcome");
   return Boolean(el && !el.classList.contains("hidden"));
+}
+
+function welcomeAdPopupStorageKey(kind, scope) {
+  const prefix = scope === "today" ? WELCOME_AD_POPUP_TODAY_PREFIX : WELCOME_AD_POPUP_SESSION_PREFIX;
+  return `${prefix}${kind}.${WELCOME_AD_POPUP_VERSION}`;
+}
+
+function localDateKey() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
+
+function isWelcomeAdPopupDismissed(kind) {
+  if (welcomeAdPopupSessionDismissed[kind]) return true;
+  try {
+    if (sessionStorage.getItem(welcomeAdPopupStorageKey(kind, "session")) === "1") return true;
+    if (localStorage.getItem(welcomeAdPopupStorageKey(kind, "today")) === localDateKey()) return true;
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function dismissWelcomeAdPopup(kind, { today = false } = {}) {
+  if (!WELCOME_AD_POPUP_IDS.includes(kind)) return;
+  welcomeAdPopupSessionDismissed[kind] = true;
+  try {
+    sessionStorage.setItem(welcomeAdPopupStorageKey(kind, "session"), "1");
+    if (today) {
+      localStorage.setItem(welcomeAdPopupStorageKey(kind, "today"), localDateKey());
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const el = document.querySelector(`[data-ad-popup="${kind}"]`);
+  if (el) {
+    el.hidden = true;
+    el.setAttribute("aria-hidden", "true");
+  }
+  refreshWelcomeAdPopupsVisibility();
+}
+
+function refreshWelcomeAdPopupsVisibility() {
+  const host = $("welcomeAdPopups");
+  if (!host) return;
+  const onWelcome = isWelcomeScreenVisible();
+  let anyVisible = false;
+  for (const kind of WELCOME_AD_POPUP_IDS) {
+    const el = document.querySelector(`[data-ad-popup="${kind}"]`);
+    if (!el) continue;
+    const show = onWelcome && !isWelcomeAdPopupDismissed(kind);
+    el.hidden = !show;
+    el.setAttribute("aria-hidden", show ? "false" : "true");
+    if (show) anyVisible = true;
+  }
+  host.classList.toggle("hidden", !anyVisible);
+  host.setAttribute("aria-hidden", anyVisible ? "false" : "true");
+}
+
+function setupWelcomeAdPopups() {
+  const host = $("welcomeAdPopups");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("click", (e) => {
+    const closeBtn = e.target.closest?.("[data-ad-popup-close]");
+    if (closeBtn) {
+      e.preventDefault();
+      dismissWelcomeAdPopup(closeBtn.getAttribute("data-ad-popup-close") || "");
+      return;
+    }
+    const todayBtn = e.target.closest?.("[data-ad-popup-dismiss-today]");
+    if (todayBtn) {
+      e.preventDefault();
+      dismissWelcomeAdPopup(todayBtn.getAttribute("data-ad-popup-dismiss-today") || "", { today: true });
+    }
+  });
 }
 
 function isWelcomeGuideDismissed() {
@@ -18076,6 +22636,7 @@ function positionWelcomePlusGuide() {
 }
 
 function updateWelcomeGuideUi() {
+  refreshWelcomeAdPopupsVisibility();
   if (!isWelcomeScreenVisible()) {
     $("welcomePlusGuide")?.classList.add("hidden");
     stopWelcomeSpeechCycle();
@@ -18117,6 +22678,7 @@ function dismissWelcomePlusGuide() {
 }
 
 function setupWelcomeScreen() {
+  setupWelcomeAdPopups();
   // Header + opens create menu; hide the floating guide when user engages it
   $("createMenuButton")?.addEventListener("click", () => {
     if (isWelcomeScreenVisible()) dismissWelcomePlusGuide();
@@ -18130,6 +22692,7 @@ function setupWelcomeScreen() {
     const mo = new MutationObserver(() => updateWelcomeGuideUi());
     mo.observe(welcome, { attributes: true, attributeFilter: ["class"] });
   }
+  refreshWelcomeAdPopupsVisibility();
 }
 
 function openNewProjectModal() {
@@ -18145,6 +22708,7 @@ function openNewProjectModal() {
       .join("");
     purposeSelect.value = "general_novel";
   }
+  syncModalGenreFields("newProject", purposeSelect?.value || "general_novel");
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = false;
@@ -18172,6 +22736,12 @@ async function submitNewProject(event) {
     return;
   }
   const purpose = normalizePurposeKey($("newProjectPurpose")?.value || "general_novel");
+  const genres = readModalGenreValues("newProject", purpose);
+  if (!genres.ok) {
+    toast(genres.error || "장르를 선택해 주세요. 토리 학습에 필요해요.");
+    $(genres.focusId)?.focus();
+    return;
+  }
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = true;
@@ -18180,7 +22750,12 @@ async function submitNewProject(event) {
   try {
     const project = await api("/api/projects", {
       method: "POST",
-      body: JSON.stringify({ title, purpose }),
+      body: JSON.stringify({
+        title,
+        purpose,
+        main_genre: genres.main,
+        sub_genre: genres.sub,
+      }),
     });
     closeNewProjectModal();
     await loadProjects(project.id);
@@ -18202,6 +22777,14 @@ function setupNewProjectModal() {
   document.querySelectorAll("[data-close-new-project]").forEach((element) => {
     element.addEventListener("click", closeNewProjectModal);
   });
+  $("newProjectPurpose")?.addEventListener("change", () => {
+    syncModalGenreFields("newProject", $("newProjectPurpose")?.value || "general_novel");
+  });
+  $("newProjectMainGenre")?.addEventListener("change", () => {
+    syncModalGenreFields("newProject", $("newProjectPurpose")?.value || "general_novel", {
+      keepMain: true,
+    });
+  });
 }
 
 /** Open the new-project modal (Electron-safe; no window.prompt). */
@@ -18209,13 +22792,205 @@ function createProject() {
   openNewProjectModal();
 }
 
-/** Pending insert position for +챕터 drag/click: 0 = top, n = after last. null = append. */
-let pendingChapterInsertIndex = null;
+/** @type {{ resolve: ((value: string|null) => void) } | null} */
+let textPromptWaiter = null;
+
+/**
+ * Electron-safe text prompt (window.prompt is unavailable in Electron).
+ * @param {string | {
+ *   title?: string,
+ *   message?: string,
+ *   defaultValue?: string,
+ *   placeholder?: string,
+ *   label?: string,
+ *   maxlength?: number,
+ *   confirmLabel?: string,
+ * }} messageOrOptions
+ * @param {string} [defaultValue]
+ * @returns {Promise<string|null>} entered string, or null if cancelled
+ */
+function promptText(messageOrOptions, defaultValue = "") {
+  const opts = typeof messageOrOptions === "string"
+    ? { message: messageOrOptions, defaultValue }
+    : (messageOrOptions || {});
+  const modal = $("textPromptModal");
+  const input = $("textPromptInput");
+  if (!modal || !input) {
+    // Browser fallback (dev / non-Electron)
+    try {
+      return Promise.resolve(
+        window.prompt(opts.message || opts.title || "입력", opts.defaultValue ?? ""),
+      );
+    } catch (_) {
+      return Promise.resolve(null);
+    }
+  }
+  if (textPromptWaiter) {
+    textPromptWaiter.resolve(null);
+    textPromptWaiter = null;
+  }
+  const titleEl = $("textPromptModalTitle");
+  const messageEl = $("textPromptModalMessage");
+  const submitBtn = $("textPromptSubmit");
+  if (titleEl) titleEl.textContent = opts.title || "입력";
+  if (messageEl) {
+    messageEl.textContent = String(opts.message || "").trim();
+  }
+  const labelTextEl = $("textPromptLabelText");
+  if (labelTextEl) labelTextEl.textContent = opts.label || "이름";
+  input.maxLength = Number(opts.maxlength) > 0 ? Number(opts.maxlength) : 120;
+  input.placeholder = opts.placeholder || "";
+  input.value = opts.defaultValue != null ? String(opts.defaultValue) : "";
+  if (submitBtn) submitBtn.textContent = opts.confirmLabel || "확인";
+  modal.classList.remove("hidden");
+  window.setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 0);
+  return new Promise((resolve) => {
+    textPromptWaiter = { resolve };
+  });
+}
+
+function closeTextPromptModal(result = null) {
+  $("textPromptModal")?.classList.add("hidden");
+  const waiter = textPromptWaiter;
+  textPromptWaiter = null;
+  if (waiter) waiter.resolve(result);
+}
+
+function setupTextPromptModal() {
+  const form = $("textPromptForm");
+  if (!form || form.dataset.bound === "1") return;
+  form.dataset.bound = "1";
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const value = $("textPromptInput")?.value ?? "";
+    closeTextPromptModal(value);
+  });
+  document.querySelectorAll("[data-close-text-prompt]").forEach((el) => {
+    el.addEventListener("click", () => closeTextPromptModal(null));
+  });
+}
+
+/**
+ * Fill main/sub genre selects in new-project or import modal.
+ * @param {"newProject"|"import"} prefix
+ * @param {string} purpose
+ * @param {{ keepMain?: boolean, keepSub?: boolean, main?: string, sub?: string }} [opts]
+ */
+function syncModalGenreFields(prefix, purpose, opts = {}) {
+  const mode = getPurposeCategoryMode(purpose);
+  const mainSelect = $(`${prefix}MainGenre`);
+  const subSelect = $(`${prefix}SubGenre`);
+  const subWrap = $(`${prefix}SubGenreWrap`);
+  if (!mainSelect || !subSelect) return;
+
+  const prevMain = opts.keepMain ? mainSelect.value : (opts.main || "");
+  const prevSub = opts.keepSub || opts.keepMain ? subSelect.value : (opts.sub || "");
+
+  let mainOptions = MAIN_GENRES;
+  let mainLabel = "메인 장르";
+  let subLabel = "서브 장르";
+  let showSub = true;
+  if (mode === "translation") {
+    mainOptions = WORK_LANGUAGES;
+    mainLabel = "원문 언어";
+    subLabel = "번역문 언어";
+  } else if (mode === "fairy_tale") {
+    mainOptions = FAIRY_TALE_AUDIENCES;
+    mainLabel = "동화 대상";
+    showSub = false;
+  } else if (mode === "none") {
+    mainOptions = MAIN_GENRES;
+    mainLabel = "장르·분위기";
+    showSub = false;
+  }
+
+  if ($(`${prefix}MainGenreLabel`)) {
+    $(`${prefix}MainGenreLabel`).textContent = mainLabel;
+  }
+  if ($(`${prefix}SubGenreLabel`)) {
+    $(`${prefix}SubGenreLabel`).textContent = subLabel;
+  }
+  if (subWrap) {
+    subWrap.classList.toggle("hidden", !showSub);
+  }
+
+  const placeholderMain = mode === "translation"
+    ? "원문 언어를 선택해 주세요"
+    : mode === "fairy_tale"
+      ? "동화 대상을 선택해 주세요"
+      : "장르를 선택해 주세요";
+  mainSelect.innerHTML = `<option value="">${escapeHtml(placeholderMain)}</option>`
+    + mainOptions.map((g) => `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`).join("");
+  if (prevMain && mainOptions.some((g) => g.key === prevMain)) mainSelect.value = prevMain;
+  else mainSelect.value = "";
+  mainSelect.required = true;
+  mainSelect.disabled = false;
+
+  if (!showSub) {
+    subSelect.innerHTML = `<option value="">—</option>`;
+    subSelect.value = "";
+    subSelect.required = false;
+    subSelect.disabled = true;
+    return;
+  }
+
+  let subOptions = [];
+  if (mode === "translation") {
+    subOptions = WORK_LANGUAGES;
+  } else {
+    const mainKey = mainSelect.value;
+    const prevPurpose = state.projectPurpose;
+    state.projectPurpose = normalizePurposeKey(purpose);
+    subOptions = withAdult19Option(mainKey ? (SUB_GENRES[mainKey] || []) : []);
+    state.projectPurpose = prevPurpose;
+  }
+  const placeholderSub = mode === "translation"
+    ? "번역문 언어를 선택해 주세요"
+    : "세부 장르를 선택해 주세요";
+  subSelect.disabled = !subOptions.length;
+  subSelect.required = Boolean(subOptions.length);
+  subSelect.innerHTML = `<option value="">${escapeHtml(placeholderSub)}</option>`
+    + subOptions.map((g) => `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`).join("");
+  if (prevSub && subOptions.some((g) => g.key === prevSub)) subSelect.value = prevSub;
+  else subSelect.value = "";
+}
+
+/**
+ * @returns {{ ok: true, main: string, sub: string } | { ok: false, error: string, focusId: string }}
+ */
+function readModalGenreValues(prefix, purpose) {
+  const mode = getPurposeCategoryMode(purpose);
+  const main = String($(`${prefix}MainGenre`)?.value || "").trim();
+  const sub = String($(`${prefix}SubGenre`)?.value || "").trim();
+  if (!main) {
+    return {
+      ok: false,
+      error: "장르를 선택해 주세요. 토리가 학습하는 데 필요해요.",
+      focusId: `${prefix}MainGenre`,
+    };
+  }
+  if ((mode === "fiction" || mode === "translation") && !sub) {
+    return {
+      ok: false,
+      error: mode === "translation"
+        ? "번역문 언어를 선택해 주세요. 토리 학습에 필요해요."
+        : "서브 장르를 선택해 주세요. 토리 학습에 필요해요.",
+      focusId: `${prefix}SubGenre`,
+    };
+  }
+  return { ok: true, main, sub: (mode === "fiction" || mode === "translation") ? sub : "" };
+}
+
+/** Pending insert for +챕터: { partId, index } or null. */
+let pendingChapterInsert = null;
 let chapterInsertDragActive = false;
 let suppressNextNewChapterClick = false;
 
 function clearChapterInsertTarget() {
-  pendingChapterInsertIndex = null;
+  pendingChapterInsert = null;
   chapterInsertDragActive = false;
   updateChapterInsertBanner();
   clearChapterInsertMarkers();
@@ -18234,114 +23009,175 @@ function clearChapterInsertMarkers() {
   });
 }
 
-function insertableChaptersList() {
-  // +챕터 drag insert targets ungrouped folders when 권/부 boxes exist.
-  if ((state.parts || []).length) {
-    return Array.isArray(state.ungroupedChapters) ? state.ungroupedChapters : [];
+function chaptersInInsertGroup(partId) {
+  if (partId == null) {
+    if ((state.parts || []).length) {
+      return Array.isArray(state.ungroupedChapters) ? state.ungroupedChapters : [];
+    }
+    return Array.isArray(state.outline) ? state.outline : [];
   }
-  return Array.isArray(state.outline) ? state.outline : [];
+  const part = (state.parts || []).find((p) => Number(p.id) === Number(partId));
+  return part?.chapters || [];
 }
 
-function describeChapterInsertIndex(index) {
-  const chapters = insertableChaptersList();
-  if (!chapters.length) return "맨 위(첫 챕터)";
-  if (index == null || index >= chapters.length) {
+function describeChapterInsertTarget(target) {
+  if (!target) return "맨 아래";
+  const partId = target.partId == null ? null : Number(target.partId);
+  const index = Number(target.index) || 0;
+  const chapters = chaptersInInsertGroup(partId);
+  const partLabel = partId == null
+    ? ((state.parts || []).length ? "미분류" : "목차")
+    : ((state.parts || []).find((p) => Number(p.id) === partId)?.title || "폴더");
+  if (!chapters.length) return `「${partLabel}」 안 (첫 폴더)`;
+  if (index >= chapters.length) {
     const last = chapters[chapters.length - 1];
-    return `맨 아래 (${last?.title || "마지막"} 다음)`;
+    return `「${partLabel}」 · ${last?.title || "마지막"} 다음`;
   }
   if (index <= 0) {
-    return `"${chapters[0]?.title || "첫 챕터"}" 앞`;
+    return `「${partLabel}」 · ${chapters[0]?.title || "첫 폴더"} 앞`;
   }
   const before = chapters[index - 1];
   const after = chapters[index];
-  return `"${before?.title || "?"}" 와 "${after?.title || "?"}" 사이`;
+  return `「${partLabel}」 · ${before?.title || "?"} / ${after?.title || "?"} 사이`;
 }
 
 function updateChapterInsertBanner() {
   const banner = $("chapterInsertBanner");
   const text = $("chapterInsertBannerText");
   if (!banner || !text) return;
-  if (pendingChapterInsertIndex == null) {
+  if (!pendingChapterInsert) {
     banner.classList.add("hidden");
     return;
   }
   banner.classList.remove("hidden");
-  text.textContent = `삽입 위치: ${describeChapterInsertIndex(pendingChapterInsertIndex)} · + 챕터를 누르면 여기에 추가`;
+  text.textContent = `삽입 위치: ${describeChapterInsertTarget(pendingChapterInsert)} · + 챕터를 누르면 여기에 추가`;
 }
 
-function setPendingChapterInsertIndex(index) {
-  const chapters = insertableChaptersList();
+function setPendingChapterInsert(partId, index) {
+  const chapters = chaptersInInsertGroup(partId);
   const max = chapters.length;
-  pendingChapterInsertIndex = Math.max(0, Math.min(Number(index) || 0, max));
+  pendingChapterInsert = {
+    partId: partId == null || partId === "" ? null : Number(partId),
+    index: Math.max(0, Math.min(Number(index) || 0, max)),
+  };
   updateChapterInsertBanner();
-  // Highlight the matching slot after render if present.
   const outline = $("outline");
   if (!outline) return;
   clearChapterInsertMarkers();
-  const slot = outline.querySelector(`.chapter-insert-slot[data-insert-index="${pendingChapterInsertIndex}"]`);
-  slot?.classList.add("is-active");
+  highlightChapterInsertSlot(pendingChapterInsert);
+}
+
+function highlightChapterInsertSlot(target) {
+  if (!target) return;
+  const outline = $("outline");
+  if (!outline) return;
+  const partKey = target.partId == null ? "" : String(target.partId);
+  outline.querySelectorAll(".chapter-insert-slot").forEach((slot) => {
+    const samePart = String(slot.dataset.partId || "") === partKey;
+    const sameIndex = Number(slot.dataset.insertIndex) === Number(target.index);
+    slot.classList.toggle("is-active", samePart && sameIndex);
+  });
+}
+
+function chapterInsertHosts(outline) {
+  if (!outline) return [];
+  return [...outline.querySelectorAll("[data-part-chapters]")];
 }
 
 function injectChapterInsertSlots(outline) {
   if (!outline) return;
-  // When 권/부 boxes exist, insert slots only apply to ungrouped folders.
-  const host = (state.parts || []).length
-    ? (outline.querySelector(".outline-ungrouped") || null)
-    : outline;
-  if (!host) return;
-  const chapters = [...host.querySelectorAll(":scope > .outline-chapter")];
-  // Slot before first
-  const makeSlot = (index) => {
-    const slot = document.createElement("div");
-    slot.className = "chapter-insert-slot";
-    slot.dataset.insertIndex = String(index);
-    slot.setAttribute("aria-hidden", "true");
-    // Click does nothing — insert position is only set by dragging +챕터.
-    slot.addEventListener("dragover", (event) => {
-      if (!chapterInsertDragActive) return;
-      event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-      clearChapterInsertMarkers();
-      slot.classList.add("is-active");
-    });
-    slot.addEventListener("drop", (event) => {
-      if (!chapterInsertDragActive) return;
-      event.preventDefault();
-      event.stopPropagation();
-      setPendingChapterInsertIndex(index);
-      chapterInsertDragActive = false;
-      // Avoid accidental click-create right after drop; user clicks +챕터 next.
-      suppressNextNewChapterClick = true;
-      window.setTimeout(() => { suppressNextNewChapterClick = false; }, 0);
-      $("newChapterButton")?.classList.remove("is-dragging-source");
-      clearChapterInsertMarkers();
-      slot.classList.add("is-active");
-      toast(`삽입 위치: ${describeChapterInsertIndex(index)}. + 챕터를 누르면 여기에 추가됩니다.`);
-    });
-    return slot;
-  };
+  const hosts = chapterInsertHosts(outline);
+  if (!hosts.length) return;
 
-  // Rebuild: insert slots between chapters without destroying structure mid-loop.
-  // Keep non-chapter chrome (e.g. "미분류 폴더" label) at the top of host.
-  const keepNodes = [...host.childNodes].filter(
-    (node) => !(node.nodeType === 1 && (
-      node.classList?.contains("outline-chapter")
-      || node.classList?.contains("chapter-insert-slot")
-    )),
-  );
-  const fragment = document.createDocumentFragment();
-  keepNodes.forEach((node) => fragment.appendChild(node));
-  fragment.appendChild(makeSlot(0));
-  chapters.forEach((section, index) => {
-    fragment.appendChild(section);
-    fragment.appendChild(makeSlot(index + 1));
+  hosts.forEach((host) => {
+    const rawPart = host.dataset.partChapters;
+    const partId = rawPart === "" || rawPart == null ? null : Number(rawPart);
+    const chapters = [...host.querySelectorAll(":scope > .outline-chapter")];
+
+    const makeSlot = (index) => {
+      const slot = document.createElement("div");
+      slot.className = "chapter-insert-slot";
+      slot.dataset.insertIndex = String(index);
+      slot.dataset.partId = partId == null ? "" : String(partId);
+      slot.setAttribute("aria-hidden", "true");
+      slot.addEventListener("dragover", (event) => {
+        if (!chapterInsertDragActive) return;
+        event.preventDefault();
+        event.stopPropagation();
+        try { event.dataTransfer.dropEffect = "copy"; } catch (_) { /* ignore */ }
+        clearChapterInsertMarkers();
+        slot.classList.add("is-active");
+      });
+      slot.addEventListener("drop", (event) => {
+        if (!chapterInsertDragActive) return;
+        event.preventDefault();
+        event.stopPropagation();
+        finishNewChapterInsertDrop(partId, index);
+      });
+      return slot;
+    };
+
+    const keepNodes = [...host.childNodes].filter(
+      (node) => !(node.nodeType === 1 && (
+        node.classList?.contains("outline-chapter")
+        || node.classList?.contains("chapter-insert-slot")
+      )),
+    );
+    const fragment = document.createDocumentFragment();
+    keepNodes.forEach((node) => fragment.appendChild(node));
+    fragment.appendChild(makeSlot(0));
+    chapters.forEach((section, index) => {
+      fragment.appendChild(section);
+      fragment.appendChild(makeSlot(index + 1));
+    });
+    host.replaceChildren(fragment);
   });
-  host.replaceChildren(fragment);
 
-  if (pendingChapterInsertIndex != null) {
-    const slot = host.querySelector(`.chapter-insert-slot[data-insert-index="${pendingChapterInsertIndex}"]`);
-    slot?.classList.add("is-active");
+  if (pendingChapterInsert) highlightChapterInsertSlot(pendingChapterInsert);
+}
+
+function resolveNewChapterInsertDrop(outline, clientY, eventTarget) {
+  if (!outline) return null;
+  const section = eventTarget?.closest?.(".outline-chapter");
+  let host = eventTarget?.closest?.("[data-part-chapters]");
+  if (!host && section) host = chapterGroupContainer(section);
+  if (!host || !outline.contains(host)) return null;
+
+  const rawPart = host.dataset.partChapters;
+  const partId = rawPart === "" || rawPart == null ? null : Number(rawPart);
+  const chapters = [...host.querySelectorAll(":scope > .outline-chapter")];
+
+  if (section && host.contains(section)) {
+    const index = chapters.indexOf(section);
+    if (index < 0) return { partId, index: chapters.length, host, section: null, before: false };
+    const rect = section.getBoundingClientRect();
+    const before = clientY < rect.top + rect.height / 2;
+    return {
+      partId,
+      index: before ? index : index + 1,
+      host,
+      section,
+      before,
+    };
   }
+
+  // Empty group / between slots
+  return { partId, index: chapters.length, host, section: null, before: false };
+}
+
+function finishNewChapterInsertDrop(partId, index) {
+  chapterInsertDragActive = false;
+  suppressNextNewChapterClick = true;
+  window.setTimeout(() => { suppressNextNewChapterClick = false; }, 120);
+  $("newChapterButton")?.classList.remove("is-dragging-source");
+  $("outline")?.classList.remove("is-chapter-insert-drag");
+  clearChapterInsertMarkers();
+  setPendingChapterInsert(partId, index);
+  // Drop = create at that position immediately (prompt for name)
+  createChapter({
+    partId: partId == null ? null : Number(partId),
+    insertIndex: Number(index),
+  }).catch(handleError);
 }
 
 function setupNewChapterDrag() {
@@ -18365,7 +23201,6 @@ function setupNewChapterDrag() {
     } catch (_) {
       /* ignore */
     }
-    // Show drop slots only while dragging +챕터 (not on click between folders).
     const outline = $("outline");
     outline?.classList.add("is-chapter-insert-drag");
   });
@@ -18373,13 +23208,10 @@ function setupNewChapterDrag() {
   button.addEventListener("dragend", () => {
     chapterInsertDragActive = false;
     button.classList.remove("is-dragging-source");
-    // Keep pending position highlight if set; clear only pure drag-over states.
     const outline = $("outline");
     outline?.classList.remove("is-chapter-insert-drag");
-    outline?.querySelectorAll(".chapter-insert-slot").forEach((slot) => {
-      const idx = Number(slot.dataset.insertIndex);
-      slot.classList.toggle("is-active", pendingChapterInsertIndex != null && idx === pendingChapterInsertIndex);
-    });
+    if (pendingChapterInsert) highlightChapterInsertSlot(pendingChapterInsert);
+    else clearChapterInsertMarkers();
   });
 
   const outline = $("outline");
@@ -18387,42 +23219,30 @@ function setupNewChapterDrag() {
     outline.dataset.insertDropBound = "1";
     outline.addEventListener("dragover", (event) => {
       if (!chapterInsertDragActive) return;
+      if (event.target.closest?.(".chapter-insert-slot")) {
+        event.preventDefault();
+        try { event.dataTransfer.dropEffect = "copy"; } catch (_) { /* ignore */ }
+        return;
+      }
+      const drop = resolveNewChapterInsertDrop(outline, event.clientY, event.target);
+      if (!drop) return;
       event.preventDefault();
-      event.dataTransfer.dropEffect = "copy";
-      const section = event.target.closest?.(".outline-chapter");
-      if (!section || !outline.contains(section)) return;
-      const chapters = [...outline.querySelectorAll(":scope > .outline-chapter")];
-      const index = chapters.indexOf(section);
-      if (index < 0) return;
-      const rect = section.getBoundingClientRect();
-      const before = event.clientY < rect.top + rect.height / 2;
-      const insertIndex = before ? index : index + 1;
+      try { event.dataTransfer.dropEffect = "copy"; } catch (_) { /* ignore */ }
       clearChapterInsertMarkers();
-      const slot = outline.querySelector(`.chapter-insert-slot[data-insert-index="${insertIndex}"]`);
-      slot?.classList.add("is-active");
-      section.classList.toggle("drag-insert-before", before);
-      section.classList.toggle("drag-insert-after", !before);
+      highlightChapterInsertSlot({ partId: drop.partId, index: drop.index });
+      if (drop.section) {
+        drop.section.classList.toggle("drag-insert-before", drop.before);
+        drop.section.classList.toggle("drag-insert-after", !drop.before);
+      }
     });
     outline.addEventListener("drop", (event) => {
       if (!chapterInsertDragActive) return;
-      // Slot handlers handle their own drops; this is fallback for chapter rows.
       if (event.target.closest?.(".chapter-insert-slot")) return;
+      const drop = resolveNewChapterInsertDrop(outline, event.clientY, event.target);
+      if (!drop) return;
       event.preventDefault();
-      const section = event.target.closest?.(".outline-chapter");
-      const chapters = [...outline.querySelectorAll(":scope > .outline-chapter")];
-      let insertIndex = chapters.length;
-      if (section && outline.contains(section)) {
-        const index = chapters.indexOf(section);
-        const rect = section.getBoundingClientRect();
-        const before = event.clientY < rect.top + rect.height / 2;
-        insertIndex = before ? index : index + 1;
-      }
-      setPendingChapterInsertIndex(insertIndex);
-      chapterInsertDragActive = false;
-      suppressNextNewChapterClick = true;
-      window.setTimeout(() => { suppressNextNewChapterClick = false; }, 0);
-      $("newChapterButton")?.classList.remove("is-dragging-source");
-      toast(`삽입 위치: ${describeChapterInsertIndex(insertIndex)}. + 챕터를 누르면 여기에 추가됩니다.`);
+      event.stopPropagation();
+      finishNewChapterInsertDrop(drop.partId, drop.index);
     });
   }
 
@@ -18531,7 +23351,9 @@ function showOutlineTitleFontMenu(clientX, clientY) {
 function updateOutlineFolderCount() {
   const folderEl = $("outlineFolderCount");
   const sceneEl = $("outlineSceneCount");
-  const folderN = Array.isArray(state.outline) ? state.outline.length : 0;
+  const folderN = Array.isArray(state.outline)
+    ? state.outline.filter((ch) => !ch?.transparent && !String(ch?.notes_md || "").includes("supertory:transparent_volume")).length
+    : 0;
   let sceneN = 0;
   try {
     sceneN = flattenAllOutlineScenes().length;
@@ -18552,7 +23374,7 @@ function updateOutlineFolderCount() {
   }
   const heading = $("outlineTocHeading");
   if (heading) {
-    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 우클릭: 글자 크기`;
+    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 클릭: 한눈에 보기 · 우클릭: 글자 크기`;
   }
 }
 
@@ -18584,6 +23406,179 @@ function isOutlineFontMenuTarget(target) {
       "#outlineTocHeading, .outline-toc-heading, .outline-title-control, #outlineTitleFontMenu",
     ),
   );
+}
+
+function isOutlineOverviewOpen() {
+  return Boolean($("outlineOverviewModal") && !$("outlineOverviewModal").classList.contains("hidden"));
+}
+
+function closeOutlineOverview() {
+  $("outlineOverviewModal")?.classList.add("hidden");
+}
+
+function renderOutlineOverviewSceneTree(scenes, depth = 0) {
+  const list = Array.isArray(scenes) ? scenes : [];
+  const currentId = Number(state.sceneId) || 0;
+  return list.map((scene) => {
+    const display = typeof getOutlineSceneDisplay === "function"
+      ? getOutlineSceneDisplay(scene)
+      : { label: scene.title || "원고", isPreview: false };
+    const sid = Number(scene.id);
+    const depthClass = depth > 0 ? ` is-depth-${Math.min(depth, 5)}` : "";
+    const currentClass = sid === currentId ? " is-current" : "";
+    const previewClass = display.isPreview ? " is-body-preview" : "";
+    const kids = renderOutlineOverviewSceneTree(scene.children || [], depth + 1);
+    const nestedFolders = (scene.child_chapters || [])
+      .map((ch) => renderOutlineOverviewChapter(ch, "is-level-2"))
+      .join("");
+    return `
+      <button type="button" class="outline-overview-scene${depthClass}${currentClass}" data-overview-scene="${sid}" title="${escapeHtml(display.tooltip || display.label)}">
+        <span class="outline-overview-scene-label${previewClass}">${escapeHtml(display.label)}</span>
+      </button>
+      ${kids}
+      ${nestedFolders}`;
+  }).join("");
+}
+
+function renderOutlineOverviewChapter(chapter, folderLevel = "is-level-1") {
+  const transparent = Boolean(chapter.transparent)
+    || String(chapter.notes_md || "").includes("supertory:transparent_volume");
+  const scenesHtml = renderOutlineOverviewSceneTree(chapter.scenes || [], 0);
+  if (transparent) {
+    return scenesHtml || "";
+  }
+  return `
+    <button type="button" class="outline-overview-folder ${folderLevel}" data-overview-chapter="${chapter.id}" title="${escapeHtml(chapter.title || "폴더")}">
+      ${escapeHtml(chapter.title || "폴더")}
+    </button>
+    ${scenesHtml}`;
+}
+
+function renderOutlineOverviewBody() {
+  const body = $("outlineOverviewBody");
+  if (!body) return;
+  if (!state.projectId) {
+    body.innerHTML = `<p class="outline-overview-empty">작품을 먼저 선택해 주세요.</p>`;
+    return;
+  }
+  const parts = Array.isArray(state.parts) ? state.parts : [];
+  const ungrouped = Array.isArray(state.ungroupedChapters)
+    ? state.ungroupedChapters
+    : (state.outline || []);
+  const partBlocks = parts.map((part) => {
+    const chapters = part.chapters || [];
+    const chapterHtml = chapters.length
+      ? chapters.map((ch) => renderOutlineOverviewChapter(ch, "is-level-1")).join("")
+      : `<p class="outline-overview-empty" style="margin:6px 0">하위 폴더 없음</p>`;
+    return `
+      <section class="outline-overview-part">
+        <button type="button" class="outline-overview-part-title" data-overview-part="${part.id}" title="${escapeHtml(part.title || "폴더")}">
+          ${escapeHtml(part.title || "폴더")}
+        </button>
+        ${chapterHtml}
+      </section>`;
+  }).join("");
+
+  const ungroupedHtml = ungrouped.length
+    ? `
+      ${parts.length ? `<div class="outline-overview-ungrouped-label">미분류</div>` : ""}
+      ${ungrouped.map((ch) => renderOutlineOverviewChapter(ch, parts.length ? "is-level-1" : "is-level-0")).join("")}`
+    : "";
+
+  if (!partBlocks && !ungroupedHtml) {
+    body.innerHTML = `<p class="outline-overview-empty">아직 목차가 비어 있어요.<br>+ 챕터로 폴더를 만들어 보세요.</p>`;
+    return;
+  }
+  body.innerHTML = `${partBlocks}${ungroupedHtml}`;
+}
+
+function openOutlineOverview() {
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  renderOutlineOverviewBody();
+  $("outlineOverviewModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    $("outlineOverviewBody")?.querySelector?.(".outline-overview-scene.is-current")?.scrollIntoView?.({
+      block: "nearest",
+    });
+  });
+}
+
+function focusOutlineBinderTarget({ partId = null, chapterId = null, sceneId = null } = {}) {
+  const outline = $("outline");
+  if (!outline) return;
+  if (partId != null) {
+    setPartCollapsed?.(Number(partId), false);
+    const el = outline.querySelector(`.outline-part[data-part-id="${partId}"]`);
+    el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    el?.querySelector?.("[data-rename-part]")?.classList?.add("is-selected");
+    return;
+  }
+  if (chapterId != null) {
+    setChapterCollapsed?.(Number(chapterId), false);
+    const el = outline.querySelector(`.outline-chapter[data-chapter-id="${chapterId}"]`);
+    el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
+    el?.querySelector?.("[data-rename-chapter]")?.classList?.add("is-selected");
+  }
+}
+
+function setupOutlineOverview() {
+  if (setupOutlineOverview._bound) return;
+  setupOutlineOverview._bound = true;
+
+  const heading = $("outlineTocHeading");
+  heading?.addEventListener("click", (event) => {
+    // Count badges keep their own right-click menu; left click on heading opens overview
+    if (event.target.closest?.(".outline-count-badges, #outlineFolderCount, #outlineSceneCount")) {
+      // Still allow overview when clicking badges — one glance TOC
+    }
+    event.preventDefault();
+    openOutlineOverview();
+  });
+  heading?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    openOutlineOverview();
+  });
+
+  document.querySelectorAll("[data-close-outline-overview]").forEach((el) => {
+    el.addEventListener("click", closeOutlineOverview);
+  });
+
+  $("outlineOverviewBody")?.addEventListener("click", (event) => {
+    const sceneBtn = event.target.closest?.("[data-overview-scene]");
+    if (sceneBtn) {
+      const id = Number(sceneBtn.dataset.overviewScene);
+      if (!id) return;
+      closeOutlineOverview();
+      openScene(id).catch(handleError);
+      return;
+    }
+    const chapterBtn = event.target.closest?.("[data-overview-chapter]");
+    if (chapterBtn) {
+      const id = Number(chapterBtn.dataset.overviewChapter);
+      if (!id) return;
+      closeOutlineOverview();
+      focusOutlineBinderTarget({ chapterId: id });
+      return;
+    }
+    const partBtn = event.target.closest?.("[data-overview-part]");
+    if (partBtn) {
+      const id = Number(partBtn.dataset.overviewPart);
+      if (!id) return;
+      closeOutlineOverview();
+      focusOutlineBinderTarget({ partId: id });
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!isOutlineOverviewOpen()) return;
+    event.preventDefault();
+    closeOutlineOverview();
+  });
 }
 
 function setupOutlineBinderChrome() {
@@ -18673,57 +23668,86 @@ function setupRenumberChaptersModal() {
 
 /**
  * +챕터 통합:
- * - 루트: 상위 폴더 상자(part) + 그 안 하위 폴더(chapter) 1개
+ * - 루트 클릭: 상위 폴더 상자(part) + 그 안 하위 폴더(chapter) 1개
  * - 상위 폴더 안(+): 하위 폴더(chapter)만 추가
- * - 삽입 위치 지정 시: 미분류 하위 폴더로 추가
+ * - 끌어다 놓기 / 삽입 위치: 해당 그룹(상자·미분류) 안에 폴더 추가
  */
 async function createChapter(options = {}) {
   if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
-  const partId = options.partId != null && options.partId !== ""
-    ? Number(options.partId)
-    : null;
-  const insertIndex = partId != null
-    ? null
-    : (options.insertIndex != null ? options.insertIndex : pendingChapterInsertIndex);
-  const placed = insertIndex != null;
-  const partTitle = partId != null
-    ? (state.parts || []).find((p) => Number(p.id) === partId)?.title
-    : null;
 
-  // Inside a top folder → only add a sub-folder (chapter)
-  if (partId != null) {
-    const placeHint = `\n(상위 폴더 「${partTitle || ""}」 안에 하위 폴더로 추가됩니다.)`;
-    const title = window.prompt(`폴더 이름을 적어 주세요.${placeHint}`, "새 폴더");
-    if (title === null) return;
-    await api(`/api/projects/${state.projectId}/chapters`, {
-      method: "POST",
-      body: JSON.stringify({ title: title.trim() || "새 폴더", part_id: partId }),
+  if (options.parentSceneId != null && options.parentSceneId !== "") {
+    const parentSceneId = Number(options.parentSceneId);
+    if (!Number.isFinite(parentSceneId) || parentSceneId <= 0) {
+      return toast("상위 원고를 찾지 못했어요.");
+    }
+    const parentLabel = (typeof getSceneTitleById === "function" && getSceneTitleById(parentSceneId)) || "선택한 원고";
+    const title = await promptText({
+      title: "폴더 만들기",
+      message: `「${parentLabel}」 원고 아래에 만들어집니다.`,
+      label: "폴더 이름",
+      defaultValue: "새 폴더",
+      confirmLabel: "만들기",
     });
-    setPartCollapsed(partId, false);
-    await loadProject();
-    toast(`「${partTitle || "상위 폴더"}」 안에 폴더를 만들었어요.`);
-    return;
-  }
-
-  // Mid-list insert → ungrouped chapter folder
-  if (placed) {
-    const placeHint = `\n(위치: ${describeChapterInsertIndex(insertIndex)})`;
-    const title = window.prompt(`폴더 이름을 적어 주세요.${placeHint}`, "새 폴더");
     if (title === null) return;
     await api(`/api/projects/${state.projectId}/chapters`, {
       method: "POST",
       body: JSON.stringify({
         title: title.trim() || "새 폴더",
-        insert_index: Number(insertIndex),
+        parent_scene_id: parentSceneId,
       }),
     });
+    setSceneCollapsed(parentSceneId, false);
+    const hostChapterId = findChapterIdForScene(parentSceneId);
+    if (hostChapterId) setChapterCollapsed(hostChapterId, false);
+    await loadProject();
+    toast("원고 아래 폴더를 만들었어요.");
+    return;
+  }
+
+  const explicitPart = Object.prototype.hasOwnProperty.call(options, "partId");
+  const partId = explicitPart
+    ? (options.partId == null || options.partId === "" ? null : Number(options.partId))
+    : (pendingChapterInsert ? pendingChapterInsert.partId : null);
+
+  const insertIndex = options.insertIndex != null
+    ? Number(options.insertIndex)
+    : (pendingChapterInsert ? Number(pendingChapterInsert.index) : null);
+  const placed = insertIndex != null && Number.isFinite(insertIndex);
+  const partTitle = partId != null
+    ? (state.parts || []).find((p) => Number(p.id) === partId)?.title
+    : null;
+
+  // Drag/click insert into a known group (including ungrouped = partId null with placed)
+  if (placed || (explicitPart && partId != null)) {
+    const placeHint = placed
+      ? `위치: ${describeChapterInsertTarget({ partId, index: insertIndex })}`
+      : `폴더 「${partTitle || ""}」 안에 추가됩니다.`;
+    const title = await promptText({
+      title: "폴더 만들기",
+      message: placeHint,
+      label: "폴더 이름",
+      defaultValue: "새 폴더",
+      confirmLabel: "만들기",
+    });
+    if (title === null) return;
+    const body = { title: title.trim() || "새 폴더" };
+    if (partId != null) body.part_id = partId;
+    if (placed) body.insert_index = insertIndex;
+    await api(`/api/projects/${state.projectId}/chapters`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    if (partId != null) setPartCollapsed(partId, false);
     clearChapterInsertTarget();
     await loadProject();
-    toast("선택한 위치에 폴더를 넣었어요.");
-    if ((state.outline?.length || 0) >= 2) {
+    toast(partId != null
+      ? `「${partTitle || "폴더"}」 안에 폴더를 넣었어요.`
+      : "선택한 위치에 폴더를 넣었어요.");
+    const groupLen = chaptersInInsertGroup(partId).length;
+    if (groupLen >= 2) {
       openRenumberChaptersModal(
         "목록 번호를 재정렬 하시겠습니까?<br>"
-        + "중간에 폴더를 넣었으므로, 현재 바인더 순서대로 제목 앞 순번을 다시 맞출 수 있습니다."
+        + "중간에 폴더를 넣었으므로, 현재 바인더 순서대로 제목 앞 순번을 다시 맞출 수 있습니다.",
       );
     }
     return;
@@ -18732,10 +23756,13 @@ async function createChapter(options = {}) {
   // Root +챕터: top-level folder box (part) + one sub-folder (chapter) for manuscripts
   const n = (state.parts || []).length + 1;
   const defaultTitle = `${n}장`;
-  const title = window.prompt(
-    "폴더 이름을 적어 주세요.\n(상위 폴더 상자가 만들어지고, 그 안에 원고를 둘 하위 폴더가 생깁니다.)",
-    defaultTitle,
-  );
+  const title = await promptText({
+    title: "폴더 만들기",
+    message: "상위 폴더 상자가 만들어지고, 그 안에 원고를 둘 하위 폴더가 생깁니다.",
+    label: "폴더 이름",
+    defaultValue: defaultTitle,
+    confirmLabel: "만들기",
+  });
   if (title === null) return;
   const name = title.trim() || defaultTitle;
   const part = await api(`/api/projects/${state.projectId}/parts`, {
@@ -18758,9 +23785,15 @@ async function createPart(options = {}) {
   const n = (state.parts || []).length + 1;
   const defaultTitle = `${n}장`;
   const hint = chapterId
-    ? "\n(이 폴더를 새 상위 폴더 상자 안으로 넣습니다.)"
-    : "\n(여러 하위 폴더를 묶는 상위 폴더 상자입니다.)";
-  const chosen = window.prompt(`상위 폴더 이름을 적어 주세요.${hint}`, defaultTitle);
+    ? "이 폴더를 새 상위 폴더 상자 안으로 넣습니다."
+    : "여러 하위 폴더를 묶는 상위 폴더 상자입니다.";
+  const chosen = await promptText({
+    title: "상위 폴더 만들기",
+    message: hint,
+    label: "상위 폴더 이름",
+    defaultValue: defaultTitle,
+    confirmLabel: "만들기",
+  });
   if (chosen === null) return;
   const title = chosen.trim() || defaultTitle;
   const body = { title };
@@ -18795,7 +23828,13 @@ async function moveChapterToPart(chapterId, currentPartId = null) {
   const current = currentPartId != null
     ? (parts.findIndex((p) => Number(p.id) === Number(currentPartId)) + 1)
     : 0;
-  const pick = window.prompt(lines.join("\n"), String(current >= 0 ? current : 0));
+  const pick = await promptText({
+    title: "상위 폴더로 옮기기",
+    message: lines.join("\n"),
+    label: "번호",
+    defaultValue: String(current >= 0 ? current : 0),
+    confirmLabel: "옮기기",
+  });
   if (pick === null) return;
   const n = Number(String(pick).trim());
   if (!Number.isFinite(n) || n < 0 || n > parts.length) {
@@ -18907,10 +23946,13 @@ async function createScene(chapterId, options = {}) {
     ? Number(options.parentSceneId)
     : null;
   const defaultTitle = parentSceneId ? "새 하위 원고" : "새 씬";
-  const hint = parentSceneId
-    ? "\n(선택한 원고의 하위로 만들어집니다.)"
-    : "";
-  const title = window.prompt(`씬 제목을 적어 주세요.${hint}`, defaultTitle);
+  const title = await promptText({
+    title: parentSceneId ? "하위 원고 만들기" : "씬 만들기",
+    message: parentSceneId ? "선택한 원고의 하위로 만들어집니다." : "",
+    label: "제목",
+    defaultValue: defaultTitle,
+    confirmLabel: "만들기",
+  });
   if (title === null) return;
   const body = { title: title.trim() || defaultTitle };
   if (parentSceneId) body.parent_scene_id = parentSceneId;
@@ -18927,35 +23969,203 @@ async function createScene(chapterId, options = {}) {
 }
 
 async function reparentScene(sceneId, parentSceneId) {
-  const id = Number(sceneId);
-  if (!id) return;
-  const body = {
+  return moveScene(sceneId, {
     parent_scene_id: parentSceneId == null || parentSceneId === ""
       ? null
       : Number(parentSceneId),
-  };
-  const result = await api(`/api/scenes/${id}/reparent`, {
+  });
+}
+
+async function moveScene(sceneId, payload = {}) {
+  const id = Number(sceneId);
+  if (!id) return null;
+  const body = { ...payload };
+  const result = await api(`/api/scenes/${id}/move`, {
     method: "POST",
     body: JSON.stringify(body),
   });
   if (body.parent_scene_id) setSceneCollapsed(body.parent_scene_id, false);
+  if (body.chapter_id) setChapterCollapsed(body.chapter_id, false);
   await loadProject();
-  if (!result.moved) {
+  if (!result?.moved) {
     toast("이미 그 위치에 있어요.");
-    return;
+    return result;
   }
-  toast(body.parent_scene_id
-    ? `「${result.title || "원고"}」를 하위 원고로 옮겼어요.`
-    : `「${result.title || "원고"}」를 폴더 맨 위로 올렸어요.`);
+  const title = result.title || "원고";
+  if (result.parent_scene_id) {
+    toast(`「${title}」를 하위 원고로 옮겼어요.`);
+  } else {
+    toast(`「${title}」 위치를 바꿨어요.`);
+  }
+  return result;
 }
 
-/** Global state for manuscript nest-drag (survives re-renders). */
+/** Global state for manuscript drag-move (survives re-renders). */
 let sceneNestDragId = null;
 
 function clearSceneNestDropUi(outline = $("outline")) {
-  outline?.querySelectorAll(".scene-link.is-drop-target, .scene-tree-item.is-dragging-scene").forEach((el) => {
-    el.classList.remove("is-drop-target", "is-dragging-scene");
+  outline?.querySelectorAll(
+    ".scene-link.is-drop-target, .scene-link.is-drop-before, .scene-link.is-drop-after, "
+    + ".scene-tree-item.is-dragging-scene, .chapter-children.is-scene-drop, "
+    + ".outline-chapter.is-scene-drop",
+  ).forEach((el) => {
+    el.classList.remove(
+      "is-drop-target",
+      "is-drop-before",
+      "is-drop-after",
+      "is-dragging-scene",
+      "is-scene-drop",
+    );
   });
+}
+
+function collectSceneDescendantIds(rootId) {
+  const root = Number(rootId);
+  const out = new Set();
+  if (!root) return out;
+  const walk = (nodes) => {
+    for (const scene of nodes || []) {
+      const sid = Number(scene.id);
+      if (sid === root) {
+        const stack = [...(scene.children || [])];
+        while (stack.length) {
+          const cur = stack.pop();
+          const cid = Number(cur.id);
+          if (!cid || out.has(cid)) continue;
+          out.add(cid);
+          for (const ch of cur.children || []) stack.push(ch);
+        }
+        return true;
+      }
+      if (walk(scene.children || [])) return true;
+    }
+    return false;
+  };
+  for (const chapter of state.outline || []) {
+    if (walk(chapter.scenes || [])) break;
+  }
+  return out;
+}
+
+function resolveSceneMoveDrop(outline, clientX, clientY, eventTarget) {
+  if (!sceneNestDragId || !outline) return null;
+  const movingId = Number(sceneNestDragId);
+  const subtree = collectSceneDescendantIds(movingId);
+  subtree.add(movingId);
+
+  const pinHost = eventTarget?.closest?.(".outline-pin-section");
+  if (pinHost) return null;
+
+  const link = eventTarget?.closest?.(".scene-link[data-scene]:not([data-pinned])");
+  if (link && outline.contains(link)) {
+    const targetId = Number(link.dataset.scene);
+    if (!targetId || subtree.has(targetId)) return null;
+
+    const rect = link.getBoundingClientRect();
+    const ratio = (clientY - rect.top) / Math.max(rect.height, 1);
+    const chapterId = Number(link.dataset.chapterId);
+    if (!chapterId) return null;
+    const parentRaw = link.dataset.parentScene;
+    const parentOfTarget = parentRaw === "" || parentRaw == null ? null : Number(parentRaw);
+
+    if (ratio < 0.28) {
+      if (parentOfTarget != null && subtree.has(parentOfTarget)) return null;
+      return {
+        mode: "before",
+        chapterId,
+        parentSceneId: parentOfTarget,
+        beforeSceneId: targetId,
+        el: link,
+      };
+    }
+    if (ratio > 0.72) {
+      if (parentOfTarget != null && subtree.has(parentOfTarget)) return null;
+      return {
+        mode: "after",
+        chapterId,
+        parentSceneId: parentOfTarget,
+        afterSceneId: targetId,
+        el: link,
+      };
+    }
+    return {
+      mode: "nest",
+      chapterId,
+      parentSceneId: targetId,
+      el: link,
+    };
+  }
+
+  const chapterSection = eventTarget?.closest?.(".outline-chapter[data-chapter-id]");
+  if (chapterSection && outline.contains(chapterSection)) {
+    const chapterId = Number(chapterSection.dataset.chapterId);
+    if (!chapterId) return null;
+    const children = chapterSection.querySelector(":scope > .chapter-children");
+    // Prefer inserting relative to nearest scene row inside this chapter.
+    if (children) {
+      const sceneLinks = [...children.querySelectorAll(
+        ":scope .scene-tree-item[data-depth=\"0\"] > .scene-row > .scene-link[data-scene]:not([data-pinned])",
+      )];
+      if (sceneLinks.length) {
+        let nearest = null;
+        let best = Infinity;
+        for (const sceneLink of sceneLinks) {
+          const sid = Number(sceneLink.dataset.scene);
+          if (!sid || subtree.has(sid)) continue;
+          const rect = sceneLink.getBoundingClientRect();
+          const mid = rect.top + rect.height / 2;
+          const dist = Math.abs(clientY - mid);
+          if (dist < best) {
+            best = dist;
+            nearest = { link: sceneLink, rect, sid };
+          }
+        }
+        if (nearest) {
+          if (clientY < nearest.rect.top + nearest.rect.height / 2) {
+            return {
+              mode: "before",
+              chapterId,
+              parentSceneId: null,
+              beforeSceneId: nearest.sid,
+              el: nearest.link,
+            };
+          }
+          return {
+            mode: "after",
+            chapterId,
+            parentSceneId: null,
+            afterSceneId: nearest.sid,
+            el: nearest.link,
+          };
+        }
+      }
+    }
+    return {
+      mode: "chapter-root",
+      chapterId,
+      parentSceneId: null,
+      el: children || chapterSection,
+    };
+  }
+  return null;
+}
+
+function applySceneMoveDropHint(outline, drop) {
+  clearSceneNestDropUi(outline);
+  if (!drop) return;
+  const moving = outline.querySelector(`.scene-tree-item[data-scene-node="${sceneNestDragId}"]`);
+  moving?.classList.add("is-dragging-scene");
+  if (drop.mode === "before" && drop.el) {
+    drop.el.classList.add("is-drop-before");
+  } else if (drop.mode === "after" && drop.el) {
+    drop.el.classList.add("is-drop-after");
+  } else if (drop.mode === "nest" && drop.el) {
+    drop.el.classList.add("is-drop-target");
+  } else if (drop.mode === "chapter-root") {
+    const section = drop.el?.closest?.(".outline-chapter") || drop.el;
+    section?.classList.add("is-scene-drop");
+    section?.querySelector?.(":scope > .chapter-children")?.classList.add("is-scene-drop");
+  }
 }
 
 function setupSceneNestDragAndDrop(outline) {
@@ -18966,6 +24176,10 @@ function setupSceneNestDragAndDrop(outline) {
 
   outline.addEventListener("dragstart", (event) => {
     if (event.target.closest?.("button.scene-twistie, button[data-toggle-scene]")) {
+      event.preventDefault();
+      return;
+    }
+    if (event.target.closest?.(".outline-pin-section")) {
       event.preventDefault();
       return;
     }
@@ -18994,40 +24208,44 @@ function setupSceneNestDragAndDrop(outline) {
 
   outline.addEventListener("dragover", (event) => {
     if (!sceneNestDragId) return;
-    const link = event.target.closest?.(".scene-link[data-scene]");
-    if (!link || !outline.contains(link)) return;
-    const targetId = Number(link.dataset.scene);
-    if (!targetId || targetId === sceneNestDragId) return;
-    // Cannot drop onto own descendant — still allow attempt; server rejects cycles.
+    const drop = resolveSceneMoveDrop(outline, event.clientX, event.clientY, event.target);
+    if (!drop) return;
     event.preventDefault();
     event.stopPropagation();
-    event.dataTransfer.dropEffect = "move";
-    outline.querySelectorAll(".scene-link.is-drop-target").forEach((el) => {
-      if (el !== link) el.classList.remove("is-drop-target");
-    });
-    link.classList.add("is-drop-target");
+    try { event.dataTransfer.dropEffect = "move"; } catch (_) { /* ignore */ }
+    applySceneMoveDropHint(outline, drop);
   }, true);
 
   outline.addEventListener("dragleave", (event) => {
     if (!sceneNestDragId) return;
-    const link = event.target.closest?.(".scene-link");
-    if (link && !link.contains(event.relatedTarget)) {
-      link.classList.remove("is-drop-target");
-    }
+    const related = event.relatedTarget;
+    if (related && outline.contains(related)) return;
+    clearSceneNestDropUi(outline);
+    const moving = outline.querySelector(`.scene-tree-item[data-scene-node="${sceneNestDragId}"]`);
+    moving?.classList.add("is-dragging-scene");
   }, true);
 
   outline.addEventListener("drop", (event) => {
     if (!sceneNestDragId) return;
-    const link = event.target.closest?.(".scene-link[data-scene]");
-    if (!link || !outline.contains(link)) return;
-    const targetId = Number(link.dataset.scene);
+    const drop = resolveSceneMoveDrop(outline, event.clientX, event.clientY, event.target);
     event.preventDefault();
     event.stopPropagation();
     clearSceneNestDropUi(outline);
     const movingId = sceneNestDragId;
     sceneNestDragId = null;
-    if (!targetId || targetId === movingId) return;
-    reparentScene(movingId, targetId).catch((error) => {
+    if (!drop || !movingId) return;
+
+    const payload = {
+      chapter_id: drop.chapterId,
+      parent_scene_id: drop.parentSceneId == null ? null : Number(drop.parentSceneId),
+    };
+    if (drop.mode === "before" && drop.beforeSceneId) {
+      payload.before_scene_id = Number(drop.beforeSceneId);
+    } else if (drop.mode === "after" && drop.afterSceneId) {
+      payload.after_scene_id = Number(drop.afterSceneId);
+    }
+
+    moveScene(movingId, payload).catch((error) => {
       handleError(error);
       loadProject().catch(handleError);
     });
@@ -19187,6 +24405,774 @@ ${originalText}
 [요약]`;
 }
 
+/**
+ * Helper dropdown "회차 요약" (mode=summarize) — detailed reading summary (≈300–500자).
+ * Not for binder captions (buildSummaryPrompt) or indexing JSON (buildSceneSummaryPrompt).
+ * Task scope only — no Core Identity / no project index (avoid inventing off-page facts).
+ */
+function buildDetailedSceneSummaryPrompt(sceneContent) {
+  return `[현재 작업]
+아래 회차를 다시 읽지 않고도 내용을 제대로 파악할 수 있도록 요약하세요.
+바인더 캡션용 짧은 요약이 아니라, 이 회차에서 무슨 일이 있었는지 충분히
+설명하는 요약입니다.
+
+[판단 기준]
+1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을
+   순서대로 전달한다.
+2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.
+3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+5. 분량은 대략 300~500자 내외로, 이 회차의 복잡도에 맞게 조절한다.
+   짧은 회차를 억지로 늘리지 않고, 긴 회차를 무리해서 압축하지 않는다.
+
+[문장 규칙]
+6. "이 회차는", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+7. 완성된 요약문만 출력한다.
+
+[본문]
+${sceneContent}
+
+[요약]`;
+}
+
+/**
+ * Helper dropdown "투고·공모전용 시놉시스" (mode=subsynopsis).
+ * Uses project index + outline_summary only — no scene manuscript.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
+  const outlineBlock = outlineSummary
+    ? `[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n${outlineSummary}`
+    : `[작가가 제공한 줄거리 개요]\n(제공되지 않음 - 지금까지 쓰인 원고만
+       근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)`;
+
+  const synopsisLengthNote = synopsisLengthLimit
+    ? `시놉시스는 ${synopsisLengthLimit}자 이내로 작성한다.`
+    : `시놉시스 길이 제한은 없다. 내용을 충분히 전달할 수 있는 분량으로 작성한다.`;
+
+  const intentLengthNote = intentLengthLimit
+    ? `작품의도는 ${intentLengthLimit}자 이내로 작성한다.`
+    : `작품의도 길이 제한은 없다. 1~2문단 정도로 작성한다.`;
+
+  return `[현재 작업]
+투고·공모전 제출용 자료를 작성하세요. 아래 세 가지를 준비합니다.
+
+[작품의도]
+- 이 작품을 통해 작가가 전달하고자 하는 주제의식이나 문제의식을 정리한다.
+- ${intentLengthNote}
+- [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,
+  지어내지 않는다.
+
+[로그라인 후보]
+- 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.
+- 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.
+- 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.
+- 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.
+
+[시놉시스 - 기승전결 구조]
+- 이야기를 기(도입)-승(전개)-전(전환/절정)-결(결말) 순서로, 심사자가
+  전체 줄거리를 파악할 수 있도록 서술형으로 정리한다.
+- 이미 쓰인 부분은 [프로젝트 누적 정보]를, 결말을 포함해 아직 쓰이지
+  않은 부분은 [작가가 제공한 줄거리 개요]를 근거로 삼는다.
+- ${synopsisLengthNote}
+- 문학적 표현보다 명확한 전달을 우선한다. 반전이나 결말도 숨기지 않고
+  솔직하게 서술한다 (독자용 홍보문이 아니라 심사용 자료이므로).
+
+[출력 형식]
+## 작품의도
+(내용)
+
+## 로그라인 후보
+1. (로그라인) — [강조점]
+2. ...
+(5개)
+
+## 시놉시스
+### 기 (도입)
+(내용)
+### 승 (전개)
+(내용)
+### 전 (전환/절정)
+(내용)
+### 결 (결말)
+(내용)
+
+${outlineBlock}
+
+[제출용 자료]`;
+}
+
+/**
+ * Continue / rewrite follow-up: check whether new text blends with the author's voice.
+ * Task scope only — no Core Identity re-declaration, no project index.
+ */
+function buildStyleBlendCheckPrompt(referenceText, targetText) {
+  return `[현재 작업]
+아래 [비교 대상 텍스트]가 [기준 텍스트]와 문체·어투·리듬 면에서 자연스럽게
+어우러지는지 확인하세요.
+
+[판단 기준]
+1. 어휘 수준, 문장 길이의 리듬, 어투(존댓말/반말), 인물의 말투가 기준
+   텍스트와 일관되는지 비교한다.
+2. 기준 텍스트에서 비교 대상 텍스트로 넘어가는 경계 지점이 부자연스럽게
+   튀는지 특히 주의 깊게 본다.
+3. 상투적이거나 기계적으로 느껴지는 표현 패턴이 있는지 확인한다.
+   (예: 과도한 대구법, 상투적인 헤지 표현의 반복, 나열식 문장 구조 반복,
+   감정을 설명으로 덧붙이는 문장 등)
+4. 발견한 것을 "문제"로 단정하지 않는다. 관찰과 근거만 전달한다
+   ("~해 보여요", "~일 수 있어요" 표현을 쓴다).
+5. 특별히 튀는 부분이 없다면, 억지로 지적을 만들어내지 않고 자연스럽게
+   잘 어우러진다고 알려준다.
+
+[출력 형식]
+## 스며듦 체크 결과
+- 전반적 판단: 잘 어우러짐 / 약간 다르게 느껴짐 / 뚜렷하게 튐
+- 근거: (구체적인 문장이나 표현을 들어 설명)
+- (다르게 느껴지는 경우) 어느 지점이 특히 그런지, 왜 그런지
+
+이 결과는 문제 여부를 판정한 것이 아니라 관찰입니다. 유지할지 수정할지는
+작가님의 선택입니다.
+
+[기준 텍스트 - 원래 문체]
+${referenceText}
+
+[비교 대상 텍스트 - 새로 생성/수정된 부분]
+${targetText}
+
+[스며듦 체크 결과]`;
+}
+
+/**
+ * Helper dropdown "세계관 묘사" (mode=worlddesc).
+ * Task scope only — Core Identity / index applied by attachIndexedPromptToAssistBody.
+ */
+function buildWorldDescriptionPrompt(targetSubject, sceneContent) {
+  return `[현재 작업]
+아래 대상에 대해, 이 작품의 문체와 세계관에 맞는 묘사 문장을 작성하세요.
+작가가 원고에 바로 이어 붙이거나 참고해서 쓸 수 있는 수준으로 씁니다.
+
+[묘사 대상]
+${targetSubject}
+
+[판단 기준]
+1. 시스템 메시지의 장르·세계관 키워드와 [프로젝트 누적 정보]에 이미 확립된
+   설정(세계관 규칙, 지금까지 등장한 배경)에 부합하는 묘사를 만든다.
+   장르에 안 맞는 클리셰(예: 동양풍 세계관에 서구식 성 묘사)를 섞지 않는다.
+2. 현재 회차의 문체(문장 길이, 어휘 수준, 시점)와 어울리게 쓴다. 원고
+   전체와 톤이 튀지 않아야 한다.
+3. 오감(시각/청각/후각/촉각) 중 최소 2가지 이상을 활용해 입체적으로 묘사한다.
+   단, 모든 감각을 억지로 다 채우지 않는다.
+4. 정보 나열이 아니라 장면 속에서 자연스럽게 읽히는 묘사로 쓴다
+   ("이곳은 ~한 곳이다" 같은 설명체보다, 인물의 시선이나 행동에 녹인
+   묘사를 우선한다).
+5. 이미 확립된 설정과 모순되는 새로운 설정을 지어내지 않는다. 다만
+   기존 설정을 구체화하는 선에서는 세부 디테일을 자유롭게 채운다.
+
+[출력 형식]
+2~3개의 버전을 제공한다. 서로 다른 각도(예: 웅장함 강조 / 스산함 강조 /
+인물의 감정과 연결 등)로 다양화한다.
+
+**버전 1** [강조점: ...]
+(묘사 문장)
+
+**버전 2** [강조점: ...]
+(묘사 문장)
+
+**버전 3** [강조점: ...]
+(묘사 문장)
+
+[현재 회차 - 문체 참고용]
+${sceneContent}
+
+[묘사 제안]`;
+}
+
+/**
+ * Indexing task prompt for one scene (phase 1).
+ * Task scope only — Core Identity / Dynamic Context are applied by the API layer.
+ */
+function buildSceneSummaryPrompt(sceneContent, previousContext) {
+  const body = String(sceneContent ?? "");
+  const context = String(previousContext ?? "").trim() || "(누적 맥락 없음)";
+  return `[현재 작업]
+아래 회차 내용을 인덱싱용으로 구조화해 요약하세요. 이 결과는 작가에게
+보여지는 것이 아니라, 이후 다른 기능들이 참고할 내부 데이터로 사용됩니다.
+
+[출력 형식 - 반드시 JSON만 출력]
+{
+  "event_summary": "이 회차에서 일어난 핵심 사건 (100자 내외)",
+  "characters_involved": ["등장한 인물 이름들"],
+  "new_world_facts": ["이 회차에서 새로 확립된 설정이 있다면 나열, 없으면 빈 배열"],
+  "new_threads": ["이 회차에서 새로 생긴 복선/떡밥, 없으면 빈 배열"],
+  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"]
+}
+
+[판단 기준]
+1. 사실만 추출한다. 해석이나 평가를 덧붙이지 않는다.
+2. 이전 맥락과 비교해 "새로 생긴 것"과 "이미 있던 것"을 구분한다.
+3. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.
+
+[이전까지의 누적 맥락 - 참고용]
+${context}
+
+[이번 회차 본문]
+${body}
+
+[JSON 출력]`;
+}
+
+/** Modes that inject cumulative project_index into the assist prompt (phase 3). */
+const INDEX_AWARE_ASSIST_MODES = new Set([
+  "dupcheck",
+  "foreshadow",
+  "plottwist",
+  "worldscan",
+  "worlddesc",
+  "analyze",
+  "ideas",
+  "brainstorm",
+  "continue",
+  "free",
+  "rewrite",
+]);
+
+const INDEX_TASK_INSTRUCTIONS = {
+  dupcheck:
+    "현재 회차 안의 반복 표현과, 앞뒤 인근 회차(±4)와 겹치는 설명을 찾아 "
+    + "사실과 짧은 관찰만 전달하세요. 고치라고 지시하지 마세요.",
+  // Keep format headers aligned with app.py so client index wrap doesn't blur modes.
+  foreshadow:
+    "[모드: 떡밥·복선 탐색기 — 단서 심기 추적]\n"
+    + "이 모드는 반전 개연성 검사가 아닙니다. 「반전 요약」「개연성 평가」「충격도」 형식으로 쓰지 마세요.\n"
+    + "등록된 복선 단서를 하나도 빠짐없이 전부 체크하고, "
+    + "등록되지 않은 잠재 복선 후보와 인덱스의 미등록 미회수 떡밥도 알려주세요.\n"
+    + "필수 출력 형식: ## 등록된 단서 체크 / ## 토리가 포착한 잠재적 복선 후보 / "
+    + "## 등록 안 된 미회수 떡밥 / ## 보강 제안",
+  plottwist:
+    "[모드: 반전 & 개연성 검사기 — 반전 설득력 평가]\n"
+    + "이 모드는 떡밥·복선 탐색기가 아닙니다. 「등록된 단서 체크」「잠재적 복선 후보」 체크리스트를 만들지 마세요.\n"
+    + "등록된 복선 빌드업과 프로젝트 누적 정보(인덱스)를 근거로 "
+    + "현재 원고의 반전/폭로가 설득력 있게 지지되는지 평가하세요. 근거가 부족하면 그렇다고 명시하세요.\n"
+    + "필수 출력 형식: ## 반전 요약 / ## 개연성 평가 / ## 충격도·설득력 / ## 보강 제안 (2가지)",
+  worldscan:
+    "프로젝트 누적 정보와 설정·캐릭터를 참고해 "
+    + "원고의 세계관·캐릭터 일관성 붕괴를 점검하세요.",
+  worlddesc:
+    "지정한 대상에 대해 이 작품의 장르·세계관·문체에 맞는 묘사 문장을 제안하세요.",
+  analyze:
+    "현재 회차를 편집자·독자 관점에서 분석해 균형 잡힌 피드백을 주세요.",
+  ideas:
+    "현재 회차 흐름에서 자연스럽게 이어질 다음 전개 아이디어를 제안하세요.",
+  brainstorm:
+    "현재 회차를 바탕으로 작품을 확장할 아이디어를 넓게 브레인스토밍하세요.",
+};
+
+function hasUsableProjectIndex(projectIndex) {
+  if (!projectIndex || typeof projectIndex !== "object") return false;
+  const list = (value) => (Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : []);
+  return (
+    list(projectIndex.characters).length > 0
+    || list(projectIndex.world_rules).length > 0
+    || list(projectIndex.timeline).length > 0
+    || list(projectIndex.open_threads).length > 0
+  );
+}
+
+/**
+ * Wrap a Tory task with optional cumulative project index (phase 3).
+ * Empty / missing indexes yield no indexContext block (no `[]` shells).
+ */
+function buildTaskPromptWithIndex(taskInstruction, originalText, projectIndex) {
+  let indexContext = "";
+  if (hasUsableProjectIndex(projectIndex)) {
+    const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
+    const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
+    const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
+    const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
+    indexContext = `
+[프로젝트 누적 정보 - 참고용]
+등장인물: ${JSON.stringify(characters)}
+세계관 설정: ${worldRules.join(", ")}
+지금까지 줄거리: ${timeline.join(" → ")}
+미회수 복선: ${openThreads.join(", ")}
+`;
+  }
+
+  return `${indexContext}
+${taskInstruction}
+
+[본문]
+${originalText}`;
+}
+
+/** Modes that may optionally wrap with 흥행 공식 참고 (checkbox). */
+const SUCCESS_PROFILE_REF_MODES = new Set([
+  "ideas",
+  "brainstorm",
+  "worlddesc",
+  "worldscan",
+  "analyze",
+  "free",
+]);
+
+/**
+ * Pure optional layer: 흥행 공식 참고 block above an already-built task prompt.
+ * Does not touch Core Identity / index builders.
+ */
+function buildTaskPromptWithSuccessProfile(taskPrompt, successProfile) {
+  if (!successProfile) return taskPrompt;
+
+  const asList = (value) => {
+    if (Array.isArray(value)) return value.map((x) => String(x || "").trim()).filter(Boolean);
+    if (typeof value === "string" && value.trim()) return [value.trim()];
+    return [];
+  };
+
+  // Accept API row { profile: {...} } or flat profile object
+  let p = successProfile;
+  if (p && typeof p === "object" && p.profile && typeof p.profile === "object" && !p.hook_style) {
+    p = { ...p, ...p.profile };
+  }
+
+  let reader = asList(p.reader_popularity_factors);
+  let editor = asList(p.editor_popularity_factors);
+  const must = asList(p.must_follow_factors);
+  if (!reader.length && p.summary) reader = [String(p.summary).trim()];
+  if (!reader.length && p.hook_style) reader = [String(p.hook_style).trim()];
+  if (!editor.length && p.style_signature) editor = [String(p.style_signature).trim()];
+
+  const profileBlock = `[흥행 공식 참고 - 작가가 선택적으로 추가한 참고자료]
+아래는 작가의 이전 흥행작에서 관찰된 성공 요인입니다. 이번 작업의
+본래 목적을 벗어나지 않는 범위에서 참고하세요. 무리하게 모든 요인을
+반영하려 하지 않습니다.
+
+독자 관점: ${reader.join(", ") || "(기록 없음)"}
+편집자·비평가 관점: ${editor.join(", ") || "(기록 없음)"}
+${must.length ? `특히 놓치지 않아야 할 요인: ${must.join(", ")}` : ""}
+참고 패턴: 훅 스타일(${p.hook_style || ""}), 전개 속도(${p.pacing_pattern || ""}), 대사/지문 비중(${p.dialogue_narration_balance || ""}), 문체(${p.style_signature || ""})
+`;
+
+  return `${profileBlock}\n${taskPrompt}`;
+}
+
+function getLinkedSuccessProfileId() {
+  const fromState = state.linkedSuccessProfileId;
+  if (fromState) return Number(fromState) || null;
+  const project = state.projects.find((p) => Number(p.id) === Number(state.projectId));
+  const raw = project?.linked_success_profile_id;
+  if (raw == null || raw === "" || raw === 0 || raw === "0") return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+function isSuccessProfileRefChecked() {
+  return Boolean($("successProfileRefCheck")?.checked);
+}
+
+function updateSuccessProfileRefUi() {
+  const wrap = $("successProfileRefWrap");
+  const check = $("successProfileRefCheck");
+  if (!wrap) return;
+  const mode = $("aiMode")?.value || "";
+  const linked = getLinkedSuccessProfileId();
+  const show = Boolean(linked) && SUCCESS_PROFILE_REF_MODES.has(mode);
+  wrap.classList.toggle("hidden", !show);
+  if (!show && check) {
+    // Stay OFF when hidden so accidental wrap never applies
+    check.checked = false;
+  }
+}
+
+/** Resolve linked profile object for prompt wrap (cached on state). */
+async function ensureLinkedSuccessProfile() {
+  const id = getLinkedSuccessProfileId();
+  if (!id) return null;
+  if (
+    state.linkedSuccessProfile
+    && Number(state.linkedSuccessProfile.id) === Number(id)
+    && (state.linkedSuccessProfile.profile || state.linkedSuccessProfile.hook_style)
+  ) {
+    const row = state.linkedSuccessProfile;
+    return row.profile && typeof row.profile === "object"
+      ? { ...row.profile, ...row }
+      : row;
+  }
+  try {
+    const row = await api(`/api/success-pattern/profiles/${id}`);
+    state.linkedSuccessProfile = row;
+    state.linkedSuccessProfileId = id;
+    if (row?.profile && typeof row.profile === "object") {
+      return { ...row.profile, id: row.id, work_title: row.work_title };
+    }
+    return row;
+  } catch (_) {
+    return null;
+  }
+}
+
+async function linkSuccessProfileToProject(profileId, { quiet = false } = {}) {
+  if (!state.projectId) return null;
+  const id = profileId == null || profileId === "" ? null : Number(profileId);
+  const result = await api(`/api/projects/${state.projectId}/settings`, {
+    method: "PUT",
+    body: JSON.stringify({ linked_success_profile_id: id }),
+  });
+  state.linkedSuccessProfileId = result.linked_success_profile_id ?? id;
+  const project = state.projects.find((p) => Number(p.id) === Number(state.projectId));
+  if (project) project.linked_success_profile_id = state.linkedSuccessProfileId;
+  if (!state.linkedSuccessProfileId) {
+    state.linkedSuccessProfile = null;
+  } else if (
+    !state.linkedSuccessProfile
+    || Number(state.linkedSuccessProfile.id) !== Number(state.linkedSuccessProfileId)
+  ) {
+    await ensureLinkedSuccessProfile();
+  }
+  updateSuccessProfileRefUi();
+  if (typeof updateToryChatSuccessUi === "function") updateToryChatSuccessUi();
+  if (typeof renderLinkedSuccessProfileCard === "function") {
+    await renderLinkedSuccessProfileCard();
+  }
+  if (!quiet) {
+    toast(
+      state.linkedSuccessProfileId
+        ? "이 작품에 흥행 프로파일을 연결했어요. 도우미에서 「흥행 공식 참고」를 켤 수 있어요."
+        : "흥행 프로파일 연결을 해제했어요.",
+    );
+  }
+  return result;
+}
+
+/** Cache of all success profiles for the settings link card. */
+let successProfileCatalog = null;
+let successProfileCatalogAt = 0;
+
+async function listSuccessProfiles({ force = false } = {}) {
+  const now = Date.now();
+  if (!force && successProfileCatalog && now - successProfileCatalogAt < 15000) {
+    return successProfileCatalog;
+  }
+  try {
+    const list = await api("/api/success-pattern/profiles");
+    successProfileCatalog = Array.isArray(list) ? list : [];
+    successProfileCatalogAt = now;
+    return successProfileCatalog;
+  } catch (_) {
+    return successProfileCatalog || [];
+  }
+}
+
+/**
+ * Settings binder box: 흥행작 프로파일 연결 — show link status, unlink, switch (if 2+).
+ */
+async function renderLinkedSuccessProfileCard() {
+  const statusEl = $("linkedSuccessProfileStatus");
+  const actionsEl = $("linkedSuccessProfileActions");
+  const selectWrap = $("linkedSuccessProfileSelectWrap");
+  const selectEl = $("linkedSuccessProfileSelect");
+  const unlinkBtn = $("linkedSuccessProfileUnlinkButton");
+  const previewEl = $("successProfilePreview");
+  if (!statusEl && !previewEl) return;
+
+  const setPreview = (lines, emptyText) => {
+    if (typeof renderPreviewElement === "function") {
+      renderPreviewElement(previewEl, lines, emptyText);
+    }
+  };
+
+  if (!state.projectId) {
+    if (statusEl) {
+      statusEl.textContent = "작품을 선택하면 연결 상태를 볼 수 있어요.";
+      statusEl.classList.add("is-empty");
+    }
+    actionsEl?.classList.add("hidden");
+    selectWrap?.classList.add("hidden");
+    setPreview([], "작품을 선택하면 연결할 수 있어요");
+    return;
+  }
+
+  const linkedId = getLinkedSuccessProfileId();
+  const profiles = await listSuccessProfiles();
+  const linked = linkedId
+    ? (profiles.find((p) => Number(p.id) === Number(linkedId))
+      || state.linkedSuccessProfile
+      || null)
+    : null;
+
+  if (linkedId && linked) {
+    const title = String(linked.work_title || linked.title || "제목 없음").trim() || "제목 없음";
+    if (statusEl) {
+      statusEl.innerHTML = `연결됨: <strong>${escapeHtml(title)}</strong> <span class="linked-success-id">(#${linkedId})</span>`;
+      statusEl.classList.remove("is-empty");
+    }
+    actionsEl?.classList.remove("hidden");
+    unlinkBtn?.classList.remove("hidden");
+    setPreview([title], "연결된 프로파일 없음");
+  } else if (linkedId && !linked) {
+    if (statusEl) {
+      statusEl.innerHTML = `연결됨: <strong>#${linkedId}</strong> <span class="hint">(상세를 불러오지 못했어요)</span>`;
+      statusEl.classList.remove("is-empty");
+    }
+    actionsEl?.classList.remove("hidden");
+    unlinkBtn?.classList.remove("hidden");
+    setPreview([`프로파일 #${linkedId}`], "연결된 프로파일 없음");
+  } else {
+    if (statusEl) {
+      statusEl.textContent = "연결된 프로파일이 없어요. 스페셜 기능 › 흥행 공식 분석에서 만들거나, 아래에서 선택해 연결하세요.";
+      statusEl.classList.add("is-empty");
+    }
+    // Still show select if profiles exist (so user can connect without re-running wizard)
+    unlinkBtn?.classList.add("hidden");
+    if (profiles.length >= 1) {
+      actionsEl?.classList.remove("hidden");
+    } else {
+      actionsEl?.classList.add("hidden");
+    }
+    setPreview([], "연결된 프로파일 없음 · 흥행 공식 분석에서 만들기");
+  }
+
+  // Dropdown only when 2+ profiles (switch / pick connection)
+  if (selectEl && selectWrap) {
+    if (profiles.length >= 2) {
+      selectWrap.classList.remove("hidden");
+      const current = linkedId ? String(linkedId) : "";
+      selectEl.innerHTML = [
+        `<option value="">${linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"}</option>`,
+        ...profiles.map((p) => {
+          const id = Number(p.id);
+          const title = escapeHtml(String(p.work_title || "제목 없음").trim() || "제목 없음");
+          const selected = current && Number(current) === id ? " selected" : "";
+          return `<option value="${id}"${selected}>${title} (#${id})</option>`;
+        }),
+      ].join("");
+      actionsEl?.classList.remove("hidden");
+    } else if (profiles.length === 1 && !linkedId) {
+      // Single profile, not linked yet — still allow pick via select
+      selectWrap.classList.remove("hidden");
+      const only = profiles[0];
+      const id = Number(only.id);
+      const title = escapeHtml(String(only.work_title || "제목 없음").trim() || "제목 없음");
+      selectEl.innerHTML = [
+        `<option value="">프로파일 선택…</option>`,
+        `<option value="${id}">${title} (#${id})</option>`,
+      ].join("");
+      actionsEl?.classList.remove("hidden");
+    } else {
+      selectWrap.classList.add("hidden");
+      // No profiles and no link → hide action row entirely
+      if (!linkedId && profiles.length === 0) {
+        actionsEl?.classList.add("hidden");
+      }
+    }
+  }
+}
+
+function setupLinkedSuccessProfileCard() {
+  if ($("linkedSuccessProfilePanel")?.dataset.bound === "1") return;
+  if ($("linkedSuccessProfilePanel")) $("linkedSuccessProfilePanel").dataset.bound = "1";
+
+  $("linkedSuccessProfileUnlinkButton")?.addEventListener("click", () => {
+    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+    if (!getLinkedSuccessProfileId()) return toast("연결된 프로파일이 없어요.");
+    if (!window.confirm("이 작품에서 흥행 프로파일 연결을 해제할까요?")) return;
+    linkSuccessProfileToProject(null).catch(handleError);
+  });
+
+  $("linkedSuccessProfileSelect")?.addEventListener("change", (event) => {
+    const raw = event.target.value;
+    if (!raw) return;
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id <= 0) return;
+    if (Number(id) === Number(getLinkedSuccessProfileId())) return;
+    linkSuccessProfileToProject(id).catch(handleError);
+  });
+}
+
+/** Merge dirty summaries, then return the latest project_index (or null). */
+async function ensureFreshProjectIndex() {
+  if (!state.projectId) return null;
+  try {
+    await api(`/api/projects/${state.projectId}/index/merge`, {
+      method: "POST",
+      body: JSON.stringify({ only_if_dirty: true, quiet: true }),
+    });
+  } catch (_) {
+    /* assist endpoint also merges; keep going */
+  }
+  try {
+    return await api(`/api/projects/${state.projectId}/index`);
+  } catch (_) {
+    return null;
+  }
+}
+
+/**
+ * Attach indexed_prompt for index-aware modes.
+ * continue: buildContinuePrompt → buildTaskPromptWithIndex
+ * free: buildFreeRequestPrompt → buildTaskPromptWithIndex (직접 요청하기 only;
+ *   씬 요약 버튼은 runTorySceneSummary에서 free를 쓰지만 이 경로를 타지 않음)
+ * ideas: buildNextIdeaPrompt → buildTaskPromptWithIndex
+ * brainstorm: buildBrainstormPrompt → buildTaskPromptWithIndex
+ * P0 tools: short task instruction → buildTaskPromptWithIndex
+ * summarize mode / chat are intentionally skipped (no project index —
+ * summarize uses buildDetailedSceneSummaryPrompt without index wrap).
+ */
+async function attachIndexedPromptToAssistBody(body, mode, originalText) {
+  if (!body || !INDEX_AWARE_ASSIST_MODES.has(mode)) return body;
+  const projectIndex = await ensureFreshProjectIndex();
+  const plain = String(originalText || "").trim();
+  let taskInstruction = INDEX_TASK_INSTRUCTIONS[mode] || "";
+  if (mode === "continue") {
+    const lengthMode = String(
+      body.length_mode || body.continue_length_mode || "short"
+    ).trim().toLowerCase();
+    const userHint = String(
+      body.user_hint || body.user_prompt || body.prompt || ""
+    ).trim();
+    taskInstruction = buildContinuePrompt(plain, lengthMode, userHint);
+  } else if (mode === "free") {
+    const userRequest = String(
+      body.user_request || body.user_prompt || body.prompt || ""
+    ).trim();
+    taskInstruction = buildFreeRequestPrompt(plain, userRequest);
+  } else if (mode === "rewrite") {
+    taskInstruction = buildRewritePrompt(
+      plain,
+      body.context_before || "",
+      body.context_after || "",
+    );
+  } else if (mode === "worldscan") {
+    taskInstruction = buildSettingBreakScanPrompt(plain);
+  } else if (mode === "analyze") {
+    taskInstruction = buildFocusedAnalysisPrompt(plain);
+  } else if (mode === "ideas") {
+    taskInstruction = buildNextIdeaPrompt(plain);
+  } else if (mode === "brainstorm") {
+    const userTopic = String(
+      body.user_topic || body.user_prompt || body.prompt || ""
+    ).trim();
+    taskInstruction = buildBrainstormPrompt(plain, userTopic);
+  } else if (mode === "worlddesc") {
+    const subject = String(
+      body.target_subject || body.user_topic || body.user_prompt || body.prompt || ""
+    ).trim();
+    taskInstruction = buildWorldDescriptionPrompt(subject, plain);
+  }
+  let indexed = buildTaskPromptWithIndex(taskInstruction, plain, projectIndex);
+  // Optional layer (OFF by default): 흥행 공식 참고 — after index wrap only.
+  if (SUCCESS_PROFILE_REF_MODES.has(mode) && isSuccessProfileRefChecked()) {
+    const profile = await ensureLinkedSuccessProfile();
+    if (profile) {
+      indexed = buildTaskPromptWithSuccessProfile(indexed, profile);
+      body.use_success_profile = true;
+      body.linked_success_profile_id = getLinkedSuccessProfileId();
+    }
+  }
+  body.indexed_prompt = indexed;
+  if (hasUsableProjectIndex(projectIndex)) {
+    body.project_index = {
+      characters: Array.isArray(projectIndex.characters) ? projectIndex.characters : [],
+      world_rules: Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [],
+      timeline: Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [],
+      open_threads: Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [],
+    };
+  } else {
+    body.project_index = null;
+  }
+  if (!body.project_id && state.projectId) body.project_id = state.projectId;
+  return body;
+}
+
+/**
+ * Merge pending scene summaries into the cumulative project index (phase 2).
+ * Task scope only — Core Identity / Dynamic Context stay on the API layer.
+ */
+function buildIndexMergePrompt(existingIndex, newSceneSummaries) {
+  const existing = existingIndex && typeof existingIndex === "object" ? existingIndex : {};
+  const summaries = Array.isArray(newSceneSummaries) ? newSceneSummaries : [];
+  const existingText = JSON.stringify(existing, null, 2);
+  const summariesText = JSON.stringify(summaries, null, 2);
+  return `[현재 작업]
+기존 프로젝트 인덱스와 새로 생성된 회차 요약들을 통합해
+갱신된 프로젝트 인덱스를 만드세요. 결과는 내부 참고용이며 작가에게 그대로 보여주지 않습니다.
+
+[출력 형식 - 반드시 JSON만 출력]
+{
+  "characters": ["작품에 등장하는 인물 이름들"],
+  "world_rules": ["확립된 세계관·설정 규칙"],
+  "timeline": ["시간순 핵심 사건 요약"],
+  "open_threads": ["아직 회수되지 않은 복선/떡밥"]
+}
+
+[판단 기준]
+1. 사실만 유지한다. 해석·평가·추측을 넣지 않는다.
+2. 기존 인덱스의 정보를 보존하되, 새 요약의 신규 사실·회수된 떡밥을 반영한다.
+3. resolved_threads에 해당하는 항목은 open_threads에서 제거한다.
+4. new_world_facts와 new_threads의 내용이 실질적으로 같은 사실을 가리키면 중복으로 두 곳에 반영하지 말고, world_rules 또는 open_threads 중 더 적합한 한쪽에만 반영한다.
+5. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.
+
+[기존 프로젝트 인덱스]
+${existingText}
+
+[새로 추가할 회차 요약들]
+${summariesText}
+
+[JSON 출력]`;
+}
+
+const SCENE_INDEX_IDLE_MS = 5000;
+let sceneIndexIdleTimer = null;
+let sceneIndexInFlight = false;
+
+function cancelScheduledSceneIndex() {
+  if (sceneIndexIdleTimer) {
+    window.clearTimeout(sceneIndexIdleTimer);
+    sceneIndexIdleTimer = null;
+  }
+}
+
+function scheduleSceneIndexAfterSave(sceneId, contentMd) {
+  const id = Number(sceneId);
+  if (!id || !state.projectId) return;
+  const content = String(contentMd || "").replace(/\s+/g, " ").trim();
+  if (content.length < 20) return;
+  cancelScheduledSceneIndex();
+  sceneIndexIdleTimer = window.setTimeout(() => {
+    sceneIndexIdleTimer = null;
+    runSceneIndexSummary(id, contentMd).catch((error) => {
+      console.warn("[supertory] scene index summary failed", error);
+    });
+  }, SCENE_INDEX_IDLE_MS);
+}
+
+async function runSceneIndexSummary(sceneId, contentMd) {
+  if (!state.projectId || sceneIndexInFlight) return null;
+  const plain = String(contentMd || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  if (plain.length < 20) return null;
+  sceneIndexInFlight = true;
+  try {
+    let previousContext = "";
+    try {
+      const index = await api(`/api/projects/${state.projectId}/index`);
+      previousContext = index?.previous_context || "";
+    } catch (_) {
+      previousContext = "";
+    }
+    const prompt = buildSceneSummaryPrompt(contentMd, previousContext);
+    const result = await api(`/api/scenes/${sceneId}/summarize`, {
+      method: "POST",
+      body: JSON.stringify({
+        prompt,
+        content_md: contentMd,
+        previous_context: previousContext,
+      }),
+    });
+    return result;
+  } finally {
+    sceneIndexInFlight = false;
+  }
+}
+
 const CONTINUE_LENGTH_MODES = {
   short: {
     label: "짧게 (한두 문단)",
@@ -19223,11 +25209,183 @@ function getProportionalContinueLength(originalLength) {
   return 1000;
 }
 
+/**
+ * Feedback request / focused analysis (analyze mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildFocusedAnalysisPrompt(sceneContent) {
+  return `[현재 작업]
+아래 회차를 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.
+
+[분석 원칙]
+1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.
+2. 막연한 칭찬("좋아요", "잘 쓰셨어요")이나 막연한 비판("별로예요")을 하지 않는다.
+   반드시 원고 안의 구체적인 근거(어떤 장면, 어떤 문장, 어떤 흐름)를 들어 설명한다.
+3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지
+   방향을 함께 제시한다.
+4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지 않는다.
+   의도된 것으로 보이면 그 자체를 지적하지 않고, 의도가 실제로 잘 구현되고
+   있는지를 본다.
+5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.
+   장르 관습과 무관한 일반적 기준을 들이대지 않는다.
+
+[편집자 관점 - 구조와 기법]
+- 전개 속도: 정보/사건이 너무 빠르게 혹은 느리게 배치되지 않았는지
+- 장면 구성: 장면 전환, 시점 처리, 묘사와 대사의 균형이 적절한지
+- 문장 기법: 반복되는 문장 패턴, 어색한 리듬, 정보 과잉/부족 여부
+
+[독자 관점 - 몰입 경험]
+- 흥미 유지: 어느 지점에서 몰입이 잘 되고, 어느 지점에서 흥미가 떨어질 수 있는지
+- 감정적 반응: 의도된 감정(긴장, 설렘, 슬픔 등)이 실제로 전달되는지
+- 다음 화 기대감: 이 회차가 다음 내용을 궁금하게 만드는지
+
+[출력 형식]
+## 편집자 관점
+**좋은 점**
+- (구체적 근거와 함께 1~3개)
+**개선점**
+- (구체적 근거 + 방향 제안과 함께 1~3개)
+
+## 독자 관점
+**좋은 점**
+- (구체적 근거와 함께 1~3개)
+**개선점**
+- (구체적 근거 + 방향 제안과 함께 1~3개)
+
+## 한 줄 총평
+(이 회차 전체를 관통하는 핵심 조언 한 문장)
+
+[본문]
+${sceneContent}
+
+[분석 결과]`;
+}
+
+/**
+ * Next-idea suggestions (ideas mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaPrompt(sceneContent) {
+  return `[현재 작업]
+아래는 방금 작성된 회차입니다. 이 흐름에서 자연스럽게 이어질 다음 전개
+아이디어를 3~5개 제안하세요.
+
+[판단 기준]
+1. 지금 회차의 마지막 장면에서 개연성 있게 이어지는 전개만 제안한다.
+   원고의 전체 흐름과 동떨어진 뜬금없는 사건을 제안하지 않는다.
+2. [프로젝트 누적 정보]에 있는 인물 성격, 세계관 규칙, 미회수 복선을 참고해
+   그 작품다운 방향으로 제안한다. 미회수 복선이 있다면 그것을 회수하거나
+   진전시키는 아이디어를 최소 1개 포함한다.
+3. 후보들은 서로 겹치지 않게, 각기 다른 방향(예: 갈등 심화 / 관계 변화 /
+   새로운 정보 공개 / 반전 등)을 다루도록 다양성을 준다.
+4. 이미 회수된 떡밥이나 이미 밝혀진 정보를 다시 반복해서 제안하지 않는다.
+
+[출력 형식]
+각 후보는 아래 형식으로 제시한다.
+**후보 N: (짧은 제목)**
+- 무엇을 하는 전개인지 1~2문장
+- 왜 이 시점에 자연스러운지 (근거 1문장)
+
+후보 수는 3~5개로 하고, 마지막에 "이 중 어떤 방향이든 편하게 말씀해주시면
+더 구체적으로 함께 풀어볼게요." 같은 짧은 안내를 덧붙인다.
+
+[현재 회차 본문]
+${sceneContent}
+
+[다음 아이디어 제안]`;
+}
+
+/**
+ * Brainstorming (brainstorm mode): wide idea exploration, optional topic.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildBrainstormPrompt(sceneContent, userTopic = "") {
+  const topicInstruction = userTopic
+    ? `[작가가 지정한 주제]\n"${userTopic}"에 대해 집중적으로 브레인스토밍한다.`
+    : `[주제]\n작가가 특정 주제를 지정하지 않았다. 현재 회차와 지금까지의 흐름을
+       참고해, 이 작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.`;
+
+  return `[현재 작업]
+아래 원고를 바탕으로 이 작품에 적용할 수 있는 아이디어를 5~8개 브레인스토밍하세요.
+
+${topicInstruction}
+
+[판단 기준]
+1. "다음 회차에 바로 이어지는 전개"로 범위를 좁히지 않는다. 서브플롯, 반전,
+   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
+   아이디어를 던진다.
+2. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를
+   둔다. 다소 과감하거나 실험적인 아이디어도 배제하지 않는다.
+3. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다 (설정을 깨는 것과 설정을 확장하는 것은 다르다).
+4. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+   같은 층위의 아이디어만 나열하지 않는다.
+
+[출력 형식]
+각 아이디어는 아래 형식으로 제시한다.
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차 또는 최근 원고]
+${sceneContent}
+
+[브레인스토밍 결과]`;
+}
+
+/**
+ * Setting-break detector (worldscan): world / character consistency.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSettingBreakScanPrompt(originalText) {
+  return `[현재 작업]
+아래 원고에서 이 작품의 세계관 또는 캐릭터 설정과 어긋나는 지점을 찾아내세요.
+
+[판단 근거 우선순위]
+1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
+2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
+   지금까지 써온 말투)을 기준으로 삼는다.
+4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
+
+[세계관 검사 기준]
+5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
+   (예: 동양풍 세계관에 "드래곤"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
+   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
+   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
+   있다면 문제로 판단한다.
+
+[캐릭터 일관성 검사 기준]
+7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, "이 작품의 세계관 안에서 통용되는 규범"이다.
+   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
+   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
+   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
+   "그 인물 자신의 확립된 캐릭터"에서 벗어나는 지점이다.
+
+[출력 형식]
+발견된 항목이 있으면 아래 형식으로 나열한다.
+- 유형: [세계관 / 캐릭터]
+- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)
+- 문제: 무엇이 왜 어긋나는지
+- 제안: 어떻게 고치면 좋을지 짧게
+
+발견된 항목이 없으면 "이번 구간에서는 설정과 어긋나는 지점이 발견되지 않았습니다."라고만 답한다.
+과잉 지적하지 않는다. 확실한 것만 표시한다.
+
+[본문]
+${originalText}
+
+[검사 결과]`;
+}
+
 function buildContinuePrompt(originalText, lengthMode, userHint = "") {
-  const modeConfig = CONTINUE_LENGTH_MODES[lengthMode];
+  const modeKey = CONTINUE_LENGTH_MODES[lengthMode] ? lengthMode : "short";
+  const modeConfig = CONTINUE_LENGTH_MODES[modeKey];
   const lengthInstruction =
-    lengthMode === "proportional"
-      ? modeConfig.instruction(getProportionalContinueLength(originalText.length))
+    modeKey === "proportional"
+      ? modeConfig.instruction(getProportionalContinueLength(String(originalText || "").length))
       : modeConfig.instruction;
 
   return `[현재 작업]
@@ -19255,6 +25413,1015 @@ ${lengthInstruction}
 ${originalText}
 
 [이어지는 내용]`;
+}
+
+/**
+ * Free-form author request (직접 요청하기). Task scope only.
+ * Scene-summary button uses buildSummaryPrompt instead and must not call this.
+ */
+function buildFreeRequestPrompt(originalText, userRequest) {
+  return `[현재 작업]
+아래는 작가가 원고에 대해 직접 남긴 요청입니다. 이 요청에 최대한 구체적이고
+실질적으로 응답하세요.
+
+[요청 처리 원칙]
+1. 작가의 요청 의도를 최우선으로 따른다. 요청이 모호하면, 원고 맥락에서
+   가장 합리적인 해석으로 판단해 응답하고, 어떤 해석으로 답했는지 짧게 밝힌다.
+2. 요청과 무관한 부가 조언을 늘어놓지 않는다. 딱 필요한 만큼만 답한다.
+3. 원고에 없는 사실을 새로 지어내 단정하지 않는다. 추측이 필요한 경우
+   "~로 보입니다"처럼 추측임을 밝힌다.
+4. 요청이 원고와 무관한 일반 대화(잡담, 기술 질문 등)라면, 토리의 정체성
+   (편집자·비평가·독자)에 맞는 선에서 자연스럽게 응대한다.
+
+[본문]
+${originalText}
+
+[작가의 요청]
+${userRequest}
+
+[응답]`;
+}
+
+/**
+ * Polish a selected sentence/paragraph. Task scope only.
+ * contextBefore / contextAfter are reference-only (±~200 chars).
+ * Used by manuscript selection / right-click rewrite only — not direct-write.
+ * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
+ */
+function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "") {
+  return `[현재 작업]
+아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.
+
+[판단 기준]
+1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.
+2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.
+   - 불필요하게 반복되는 단어나 상투적 표현 제거
+   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)
+   - 의미가 모호하거나 어색한 조사·어순
+   - 상황과 안 맞는 과도한 수식어
+3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다.
+4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.
+
+[먼저 판단할 것 - 개선이 필요한가]
+문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.
+이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+
+[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
+왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
+("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서
+이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).
+그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
+장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
+
+[개선이 필요 없는 경우 - 대안 표현 제시]
+문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신
+같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
+이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
+문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
+
+[문장 규칙]
+5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.
+6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).
+
+[출력 형식]
+개선이 필요한 경우:
+## 다듬기 제안
+저는 (이유)로 다듬기가 필요해 보였어요.
+
+**다듬은 결과:** (다듬어진 문장)
+
+작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?
+
+개선이 필요 없는 경우:
+## 이미 좋은 문장이에요
+다른 표현으로 바꿔보고 싶으시다면 참고하세요.
+- 대안 1: ...
+- 대안 2: ...
+- 대안 3: ...
+
+[앞뒤 맥락 - 참고용, 다듬지 않음]
+...${contextBefore}
+
+[다듬을 문장]
+${selectedText}
+
+[뒤 맥락 - 참고용, 다듬지 않음]
+${contextAfter}...
+
+[결과]`;
+}
+
+/**
+ * Direct-write expression check (popup "직접 쓰기").
+ * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
+ * Needs-improvement path: short reason + question (same tone as rewrite).
+ */
+function buildPlainExpressionCheckPrompt(inputText) {
+  return `[현재 작업]
+아래 문장(들)에서 어색한 표현이나 부정확한 표현을 짚어 다듬을 수 있는지 판단하세요.
+특정 작품의 문맥이나 문체에 맞추는 작업이 아니라, 문장 자체의
+정확성과 자연스러움만 판단합니다.
+
+[판단 기준]
+1. 어색한 문장 구조나 어순을 찾는다 (번역체, 불필요한 피동/사동 표현 등).
+2. 의미가 불명확하거나 중의적으로 읽히는 표현을 찾는다.
+3. 잘못된 단어 선택이나 부정확한 어휘 사용을 찾는다.
+4. 문법적으로 어긋난 부분(조사, 어미, 호응 관계 등)을 찾는다.
+5. 특정 문체(격식체/구어체 등)로 통일하라고 요구하지 않는다. 원문의
+   문체 자체는 존중하고, 그 문체 안에서의 어색함·부정확성만 본다.
+
+[먼저 판단할 것 - 개선이 필요한가]
+문장에 실제로 위 기준에 해당하는 부분이 있는지 먼저 판단한다.
+이미 자연스럽고 정확한 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+
+[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
+왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
+("저는 ~한 이유로 다듬기가 필요해 보였어요" 같은 자연스러운 말투로).
+그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
+장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
+
+[개선이 필요 없는 경우]
+이미 자연스럽고 정확한 문장은 그대로 둔다 (억지로 고치지 않는다).
+필요하면 아주 가벼운 대안 표현을 2~3개만 제시해도 되지만, 필수 아니다.
+
+[문장 규칙]
+6. 개선이 필요 없는 경우엔 원문을 그대로 두거나, 대안만 간결히 제시한다.
+7. 다듬은 결과 본문에는 설명 문장을 섞지 않는다 (이유는 지정된 출력 칸에만).
+
+[출력 형식]
+개선이 필요한 경우:
+## 다듬기 제안
+저는 (이유)로 다듬기가 필요해 보였어요.
+
+**다듬은 결과:** (다듬어진 문장)
+
+작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?
+
+개선이 필요 없는 경우 (원문 유지):
+## 이미 좋은 문장이에요
+다른 표현으로 바꿔보고 싶으시다면 참고하세요.
+- 대안 1: ...
+- 대안 2: ...
+- 대안 3: ...
+
+또는 원문만 그대로 출력해도 됩니다.
+
+[입력 문장]
+${inputText}
+
+[결과]`;
+}
+
+/**
+ * Parse rewrite model output into polish vs alternatives presentation.
+ * @returns {{ kind: "polish"|"alternatives"|"plain", polished: string, reason: string, ask: string, alternatives: string[], displayText: string, title: string, resultHeader: string, hint: string }}
+ */
+function parseRewriteAssistDisplay(resultText) {
+  const raw = String(resultText || "").replace(/\r\n/g, "\n").trim();
+  const empty = {
+    kind: "plain",
+    polished: "",
+    reason: "",
+    ask: "",
+    alternatives: [],
+    displayText: "",
+    title: "문장 다듬기 비교",
+    resultHeader: "다듬은 결과",
+    hint: "원문과 결과를 비교한 뒤 반영 여부를 고르세요.",
+  };
+  if (!raw) return empty;
+
+  // Alternatives branch (good as-is)
+  if (/##\s*이미\s*좋은\s*문장/i.test(raw) || (/대안\s*1\s*[:：]/i.test(raw) && !/##\s*다듬기\s*제안/i.test(raw))) {
+    const alts = [];
+    const re = /(?:^|\n)\s*[-*]?\s*대안\s*(\d+)\s*[:：]\s*(.+?)(?=\n\s*[-*]?\s*대안\s*\d+\s*[:：]|\n##|\s*$)/gis;
+    let m;
+    while ((m = re.exec(raw)) !== null) {
+      const line = String(m[2] || "").replace(/\s+/g, " ").trim();
+      if (line) alts.push(line);
+    }
+    if (!alts.length) {
+      const after = raw.split(/##\s*이미\s*좋은\s*문장[^\n]*/i)[1] || raw;
+      for (const line of after.split("\n")) {
+        const t = line.replace(/^\s*[-*•]\s*/, "").replace(/^대안\s*\d+\s*[:：]\s*/, "").trim();
+        if (t && !/^다른 표현/.test(t) && t.length > 1) alts.push(t);
+      }
+    }
+    const unique = [...new Set(alts)].slice(0, 5);
+    return {
+      kind: "alternatives",
+      polished: unique[0] || "",
+      reason: "",
+      ask: "",
+      alternatives: unique,
+      displayText: unique[0] || raw,
+      title: "이미 좋은 문장이에요",
+      resultHeader: "대안 표현 (클릭해 선택)",
+      hint: "원문은 이미 충분해요. 바꾸고 싶을 때만 아래 대안을 고른 뒤 반영하세요.",
+    };
+  }
+
+  // Polish / proposal branch (new: ## 다듬기 제안)
+  if (/##\s*다듬기\s*제안/i.test(raw) || /\*\*다듬은\s*결과:\*\*/i.test(raw) || /##\s*다듬은\s*결과/i.test(raw)) {
+    let reason = "";
+    let polished = "";
+    let ask = "";
+
+    const reasonMatch = raw.match(
+      /##\s*다듬기\s*제안\s*\n+([\s\S]*?)(?=\n\s*\*\*다듬은\s*결과:\*\*|\n\s*다듬은\s*결과\s*[:：]|\n##\s)/i,
+    );
+    if (reasonMatch) {
+      reason = String(reasonMatch[1] || "").trim();
+    } else {
+      const r2 = raw.match(/(저는[\s\S]*?(?:보였어요|판단했어요|생각했어요)\.?)/);
+      if (r2) reason = r2[1].trim();
+    }
+
+    const polishMatch = raw.match(
+      /\*\*다듬은\s*결과:\*\*\s*([^\n]+(?:\n(?!작가님)[^\n]+)*)/i,
+    )
+      || raw.match(/다듬은\s*결과\s*[:：]\s*([^\n]+)/i)
+      || raw.match(/##\s*다듬은\s*결과\s*\n+([\s\S]*?)(?=\n\s*작가님|\n##|\s*$)/i);
+    if (polishMatch) {
+      polished = String(polishMatch[1] || "").trim();
+    }
+
+    const askMatch = raw.match(/(작가님의\s*생각은\s*어떤가요\?[^\n]*)/i);
+    if (askMatch) ask = askMatch[1].trim();
+    else if (/이 문장으로 대체하시겠어요/i.test(raw)) {
+      ask = "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?";
+    }
+
+    if (!polished) {
+      // Fallback: last non-empty line that isn't reason/ask/header
+      const lines = raw.split("\n").map((l) => l.trim()).filter(Boolean);
+      polished = lines.filter((l) =>
+        !/^#/.test(l)
+        && !/^저는/.test(l)
+        && !/^작가님/.test(l)
+        && !/\*\*/.test(l)
+        && !/대체하시겠어요/.test(l)
+      ).pop() || raw;
+    }
+
+    return {
+      kind: "polish",
+      polished,
+      reason,
+      ask: ask || "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?",
+      alternatives: [],
+      displayText: polished,
+      title: "다듬기 제안",
+      resultHeader: "다듬은 결과",
+      hint: reason
+        ? `${reason}${ask ? `\n\n${ask}` : ""}`
+        : (ask || "원문과 다듬은 결과를 비교한 뒤 반영 여부를 고르세요."),
+    };
+  }
+
+  // Plain polished text (legacy)
+  return {
+    kind: "plain",
+    polished: raw,
+    reason: "",
+    ask: "",
+    alternatives: [],
+    displayText: raw,
+    title: "문장 다듬기 비교",
+    resultHeader: "다듬은 결과",
+    hint: "원문과 결과를 비교한 뒤 반영 여부를 고르세요.",
+  };
+}
+
+const REWRITE_CONTEXT_CHARS = 200;
+let pendingRewriteState = null;
+let rewriteAssistInFlight = false;
+
+/** @type {{ source: string, referenceText: string, targetText: string } | null} */
+let pendingStyleBlendContext = null;
+let styleBlendInFlight = false;
+
+const STYLE_BLEND_GUIDE_TEXT = (
+  "직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와\n"
+  + "잘 어우러지는지 별도 검사를 추천합니다."
+);
+
+function setStyleBlendOfferVisible(show) {
+  $("styleBlendOffer")?.classList.toggle("hidden", !show);
+  $("styleBlendOfferModal")?.classList.toggle("hidden", !show);
+}
+
+function clearStyleBlendResultViews(scope = "continue") {
+  const clearPair = (statusId, resultId) => {
+    const status = $(statusId);
+    const result = $(resultId);
+    if (status) {
+      status.textContent = "";
+      status.classList.add("hidden");
+    }
+    if (result) {
+      result.textContent = "";
+      result.classList.add("hidden");
+    }
+  };
+  if (scope === "rewrite") {
+    clearPair("rewriteStyleBlendStatus", "rewriteStyleBlendResult");
+    return;
+  }
+  clearPair("styleBlendStatus", "styleBlendResult");
+  clearPair("styleBlendStatusModal", "styleBlendResultModal");
+}
+
+function prepareStyleBlendOffer(context) {
+  pendingStyleBlendContext = context && context.referenceText && context.targetText
+    ? {
+      source: String(context.source || "continue"),
+      referenceText: String(context.referenceText || "").trim(),
+      targetText: String(context.targetText || "").trim(),
+    }
+    : null;
+  const show = Boolean(pendingStyleBlendContext?.referenceText && pendingStyleBlendContext?.targetText);
+  if (pendingStyleBlendContext?.source === "rewrite") {
+    setStyleBlendOfferVisible(false);
+    clearStyleBlendResultViews("rewrite");
+    return;
+  }
+  clearStyleBlendResultViews("continue");
+  setStyleBlendOfferVisible(show);
+}
+
+function setStyleBlendLoading(scope, loading, message = "") {
+  const pairs = scope === "rewrite"
+    ? [["rewriteStyleBlendCheckButton", "rewriteStyleBlendStatus", "rewriteStyleBlendResult"]]
+    : [
+      ["styleBlendCheckButton", "styleBlendStatus", "styleBlendResult"],
+      ["styleBlendCheckButtonModal", "styleBlendStatusModal", "styleBlendResultModal"],
+    ];
+  for (const [btnId, statusId, resultId] of pairs) {
+    const button = $(btnId);
+    const status = $(statusId);
+    const result = $(resultId);
+    if (button) {
+      button.disabled = Boolean(loading);
+      button.textContent = loading ? "스며듦 검사 중…" : "스며듦 검사하기";
+    }
+    if (status) {
+      if (loading || message) {
+        status.textContent = message || "스며듦 검사 중… (별도 호출 · 잠시만 기다려 주세요)";
+        status.classList.remove("hidden");
+      } else {
+        status.textContent = "";
+        status.classList.add("hidden");
+      }
+    }
+    if (loading && result) {
+      result.textContent = "";
+      result.classList.add("hidden");
+    }
+  }
+}
+
+function paintStyleBlendResult(scope, text) {
+  const ids = scope === "rewrite"
+    ? [["rewriteStyleBlendStatus", "rewriteStyleBlendResult"]]
+    : [
+      ["styleBlendStatus", "styleBlendResult"],
+      ["styleBlendStatusModal", "styleBlendResultModal"],
+    ];
+  for (const [statusId, resultId] of ids) {
+    const status = $(statusId);
+    const result = $(resultId);
+    if (status) {
+      status.textContent = "스며듦 검사 완료";
+      status.classList.remove("hidden");
+    }
+    if (result) {
+      result.textContent = text || "(결과 없음)";
+      result.classList.remove("hidden");
+    }
+  }
+}
+
+async function runStyleBlendCheck(options = {}) {
+  if (styleBlendInFlight) {
+    toast("이미 스며듦 검사를 진행 중이에요.");
+    return null;
+  }
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+  const scope = options.scope
+    || (pendingStyleBlendContext?.source === "rewrite" ? "rewrite" : "continue");
+  let referenceText = String(options.referenceText || pendingStyleBlendContext?.referenceText || "").trim();
+  let targetText = String(options.targetText || pendingStyleBlendContext?.targetText || "").trim();
+  if (scope === "rewrite") {
+    targetText = String($("rewriteCompareResult")?.value || targetText).trim();
+    if (!referenceText && pendingRewriteState?.referenceText) {
+      referenceText = String(pendingRewriteState.referenceText || "").trim();
+    }
+  }
+  if (!referenceText || !targetText) {
+    toast("스며듦 검사에 필요한 기준·비교 텍스트가 없어요.");
+    return null;
+  }
+
+  styleBlendInFlight = true;
+  setStyleBlendLoading(scope, true);
+  try {
+    const project = state.projects.find((item) => item.id === state.projectId);
+    const mainGenre = state.mainGenre || project?.main_genre || "";
+    const subGenre = state.subGenre || project?.sub_genre || "";
+    const taskPrompt = buildStyleBlendCheckPrompt(referenceText, targetText);
+    const body = {
+      mode: "styleblend",
+      project_id: state.projectId,
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      reference_text: referenceText,
+      target_text: targetText,
+      scene_content: "",
+      task_prompt: taskPrompt,
+      prompt: "",
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      ...buildToryProjectContextPayload(),
+    };
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const text = String(result.text || "").trim() || "(결과 없음)";
+    setStyleBlendLoading(scope, false);
+    paintStyleBlendResult(scope, text);
+    toast("스며듦 검사가 끝났어요.");
+    return text;
+  } catch (error) {
+    setStyleBlendLoading(scope, false, "스며듦 검사에 실패했어요. 다시 시도해 주세요.");
+    handleError(error);
+    return null;
+  } finally {
+    styleBlendInFlight = false;
+    const buttons = scope === "rewrite"
+      ? ["rewriteStyleBlendCheckButton"]
+      : ["styleBlendCheckButton", "styleBlendCheckButtonModal"];
+    for (const id of buttons) {
+      const button = $(id);
+      if (button) {
+        button.disabled = false;
+        button.textContent = "스며듦 검사하기";
+      }
+    }
+  }
+}
+
+function setupStyleBlendUi() {
+  $("styleBlendCheckButton")?.addEventListener("click", () => {
+    runStyleBlendCheck({ scope: "continue" }).catch(handleError);
+  });
+  $("styleBlendCheckButtonModal")?.addEventListener("click", () => {
+    runStyleBlendCheck({ scope: "continue" }).catch(handleError);
+  });
+  $("rewriteStyleBlendCheckButton")?.addEventListener("click", () => {
+    runStyleBlendCheck({ scope: "rewrite" }).catch(handleError);
+  });
+  document.querySelectorAll(".style-blend-guide").forEach((el) => {
+    el.textContent = STYLE_BLEND_GUIDE_TEXT;
+  });
+}
+
+/** "selection" | "direct" — rewrite input mode in the tool popup. */
+function getRewriteSourceMode() {
+  const checked = document.querySelector('input[name="rewriteSourceMode"]:checked');
+  const raw = String(checked?.value || "selection").trim().toLowerCase();
+  return raw === "direct" ? "direct" : "selection";
+}
+
+function updateRewriteSourceUi() {
+  const direct = getRewriteSourceMode() === "direct";
+  $("rewriteDirectWrap")?.classList.toggle("hidden", !direct);
+  $("rewriteDirectHint")?.classList.toggle("hidden", !direct);
+  $("rewriteSelectionHint")?.classList.toggle("hidden", direct);
+}
+
+function setupRewriteSourceUi() {
+  const host = $("rewriteSourceOptions");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("change", (event) => {
+    if (!event.target?.matches?.('input[name="rewriteSourceMode"]')) return;
+    updateRewriteSourceUi();
+    if (getRewriteSourceMode() === "direct") {
+      requestAnimationFrame(() => {
+        try {
+          $("rewriteDirectText")?.focus({ preventScroll: true });
+        } catch (_) {
+          $("rewriteDirectText")?.focus();
+        }
+      });
+    }
+  });
+  updateRewriteSourceUi();
+}
+
+/** Selection + ±context for rewrite (dropdown and context-menu share this). */
+function getRewriteSelectionPayload() {
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return null;
+  let range = null;
+  try {
+    range = getUsableEditorRange(editor) || manuscriptContextRange;
+    if (range && range.collapsed) range = null;
+    if (range && !editor.contains(range.commonAncestorContainer)) range = null;
+  } catch (_) {
+    range = null;
+  }
+  let selectedText = "";
+  if (range) {
+    try {
+      selectedText = String(range.toString() || "").trim();
+    } catch (_) {
+      selectedText = "";
+    }
+  }
+  if (!selectedText) {
+    selectedText = String(
+      (typeof getSelectedManuscriptText === "function" ? getSelectedManuscriptText() : "")
+      || pendingBaitQuote
+      || ""
+    ).trim();
+  }
+  if (!selectedText) return null;
+
+  let contextBefore = "";
+  let contextAfter = "";
+  if (range) {
+    try {
+      const pre = document.createRange();
+      pre.selectNodeContents(editor);
+      pre.setEnd(range.startContainer, range.startOffset);
+      contextBefore = String(pre.toString() || "").slice(-REWRITE_CONTEXT_CHARS);
+      const post = document.createRange();
+      post.selectNodeContents(editor);
+      post.setStart(range.endContainer, range.endOffset);
+      contextAfter = String(post.toString() || "").slice(0, REWRITE_CONTEXT_CHARS);
+    } catch (_) {
+      /* plain fallback below */
+    }
+  }
+  if (!contextBefore && !contextAfter) {
+    const full = String(getEditorPlainText(editor) || "");
+    const idx = full.indexOf(selectedText);
+    if (idx >= 0) {
+      contextBefore = full.slice(Math.max(0, idx - REWRITE_CONTEXT_CHARS), idx);
+      contextAfter = full.slice(
+        idx + selectedText.length,
+        idx + selectedText.length + REWRITE_CONTEXT_CHARS,
+      );
+    }
+  }
+
+  let cloned = null;
+  if (range) {
+    try {
+      cloned = range.cloneRange();
+    } catch (_) {
+      cloned = null;
+    }
+  }
+  return {
+    selectedText,
+    contextBefore,
+    contextAfter,
+    range: cloned,
+    sourceMode: "selection",
+  };
+}
+
+/** Payload for rewrite from popup (selection or direct write). */
+function getRewriteAssistPayload() {
+  if (getRewriteSourceMode() === "direct") {
+    const text = String($("rewriteDirectText")?.value || "").trim();
+    if (!text) return null;
+    // Independent of manuscript position — no context / no index.
+    return {
+      selectedText: text,
+      contextBefore: "",
+      contextAfter: "",
+      range: null,
+      sourceMode: "direct",
+    };
+  }
+  return getRewriteSelectionPayload();
+}
+
+function closeRewriteCompareModal() {
+  $("rewriteCompareModal")?.classList.add("hidden");
+}
+
+function renderRewriteAlternativeList(alternatives = [], selectedIndex = 0) {
+  const list = $("rewriteCompareAltList");
+  if (!list) return;
+  const items = Array.isArray(alternatives) ? alternatives : [];
+  if (!items.length) {
+    list.innerHTML = "";
+    list.classList.add("hidden");
+    return;
+  }
+  list.classList.remove("hidden");
+  list.innerHTML = items.map((text, i) => {
+    const active = i === selectedIndex ? " is-selected" : "";
+    return (
+      `<button type="button" class="rewrite-alt-item${active}" data-rewrite-alt="${i}">`
+      + `<span class="rewrite-alt-label">대안 ${i + 1}</span>`
+      + `<span class="rewrite-alt-text">${escapeHtml(text)}</span>`
+      + `</button>`
+    );
+  }).join("");
+}
+
+function openRewriteCompareModal(originalText, resultText, options = {}) {
+  const parsed = options.parsed || parseRewriteAssistDisplay(resultText);
+  const kind = parsed.kind || "plain";
+  const sourceMode = String(options.sourceMode || pendingRewriteState?.sourceMode || "selection");
+  const isDirect = sourceMode === "direct";
+
+  if ($("rewriteCompareOriginal")) {
+    $("rewriteCompareOriginal").textContent = String(originalText || "");
+  }
+  if ($("rewriteCompareModalTitle")) {
+    $("rewriteCompareModalTitle").textContent = parsed.title || "문장 다듬기 비교";
+  }
+  if ($("rewriteCompareResultHeader")) {
+    $("rewriteCompareResultHeader").textContent = parsed.resultHeader || "다듬은 결과";
+  }
+
+  // Reason / ask banner (polish path)
+  const reasonEl = $("rewriteCompareReason");
+  const reasonBits = [parsed.reason, parsed.ask].filter(Boolean);
+  if (reasonEl) {
+    if (kind === "polish" && reasonBits.length) {
+      reasonEl.textContent = reasonBits.join("\n\n");
+      reasonEl.classList.remove("hidden");
+    } else if (kind === "alternatives") {
+      reasonEl.textContent = parsed.hint || "원문은 이미 충분해요. 대안을 골라 보세요.";
+      reasonEl.classList.remove("hidden");
+    } else {
+      reasonEl.textContent = "";
+      reasonEl.classList.add("hidden");
+    }
+  }
+  if ($("rewriteCompareHint")) {
+    $("rewriteCompareHint").textContent = isDirect
+      ? "직접 쓴 문장의 표현 점검 결과예요. 원고 위치가 없어 복사만 할 수 있어요."
+      : (kind === "alternatives"
+        ? "원문은 이미 충분해요. 바꾸고 싶을 때만 대안을 고른 뒤 반영하세요."
+        : "원문과 다듬은 결과를 비교한 뒤 반영 여부를 고르세요.");
+  }
+
+  const resultArea = $("rewriteCompareResult");
+  // Apply/copy target: polished sentence or first alternative (not the full prose block).
+  const display = String(parsed.displayText || parsed.polished || resultText || "");
+  if (resultArea) resultArea.value = display;
+
+  if (kind === "alternatives" && parsed.alternatives?.length) {
+    renderRewriteAlternativeList(parsed.alternatives, 0);
+    $("rewriteCompareResult")?.setAttribute("aria-label", "선택한 대안 표현 (수정 가능)");
+  } else {
+    renderRewriteAlternativeList([]);
+    $("rewriteCompareResult")?.setAttribute("aria-label", "다듬은 결과 (수정 가능)");
+  }
+
+  // Buttons: selection → replace / copy / keep ; direct → copy only
+  const applyBtn = $("rewriteCompareApplyButton");
+  const copyBtn = $("rewriteCompareCopyButton");
+  const keepBtn = $("rewriteCompareKeepButton");
+  if (isDirect) {
+    applyBtn?.classList.add("hidden");
+    keepBtn?.classList.add("hidden");
+    if (copyBtn) {
+      copyBtn.classList.remove("hidden");
+      copyBtn.textContent = "복사하기";
+    }
+  } else {
+    applyBtn?.classList.remove("hidden");
+    keepBtn?.classList.remove("hidden");
+    if (copyBtn) {
+      copyBtn.classList.remove("hidden");
+      copyBtn.textContent = "복사";
+    }
+    if (applyBtn) {
+      applyBtn.textContent = kind === "alternatives" ? "자동 문장 대체" : "자동 문장 대체";
+    }
+  }
+
+  // Style-blend: selection polish only
+  $("rewriteStyleBlendOffer")?.classList.toggle(
+    "hidden",
+    isDirect || kind === "alternatives",
+  );
+
+  $("rewriteCompareModal")?.classList.remove("hidden");
+}
+
+function applyPendingRewriteToEditor() {
+  const edited = String($("rewriteCompareResult")?.value || "").trim();
+  if (!edited) {
+    toast("적용할 다듬은 결과가 없어요.");
+    return false;
+  }
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
+  const isSettings = editor?.id === "synopsisContent";
+  if (!editor || (!isSettings && !state.sceneId)) {
+    toast("반영하려면 원고 또는 설정 문서를 열어 주세요.");
+    return false;
+  }
+  const range = pendingRewriteState?.range;
+  const original = String(pendingRewriteState?.original || "");
+  const sourceMode = String(pendingRewriteState?.sourceMode || "selection");
+  editor.focus();
+  let applied = false;
+  try {
+    if (range && editor.contains(range.commonAncestorContainer)) {
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      range.deleteContents();
+      const node = document.createTextNode(edited);
+      range.insertNode(node);
+      range.setStartAfter(node);
+      range.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+      applied = true;
+    }
+  } catch (_) {
+    applied = false;
+  }
+  // Direct-write path: insert at caret, else append.
+  if (!applied && sourceMode === "direct") {
+    try {
+      const selection = window.getSelection();
+      let insertRange = null;
+      if (selection && selection.rangeCount > 0) {
+        const r = selection.getRangeAt(0);
+        if (editor.contains(r.commonAncestorContainer)) insertRange = r;
+      }
+      if (!insertRange) {
+        insertRange = document.createRange();
+        insertRange.selectNodeContents(editor);
+        insertRange.collapse(false);
+      }
+      insertRange.deleteContents();
+      const node = document.createTextNode(edited);
+      insertRange.insertNode(node);
+      insertRange.setStartAfter(node);
+      insertRange.collapse(true);
+      selection?.removeAllRanges();
+      selection?.addRange(insertRange);
+      applied = true;
+    } catch (_) {
+      applied = false;
+    }
+  }
+  if (!applied) {
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(edited).catch(() => {});
+    }
+    toast(
+      sourceMode === "direct"
+        ? "편집기에 넣지 못해 결과를 복사해 두었어요. 직접 붙여 넣어 주세요."
+        : "선택 구간을 찾지 못해 결과를 복사해 두었어요. 직접 붙여 넣어 주세요.",
+    );
+    return false;
+  }
+  updateEditorPlaceholder(editor);
+  if (isSettings) {
+    markSynopsisDirty();
+  } else {
+    updateSceneStats();
+    markSceneDirty();
+  }
+  closeRewriteCompareModal();
+  toast("다듬은 문장으로 바꿨어요. 자동 저장됩니다.");
+  return true;
+}
+
+/**
+ * Shared rewrite runner for dropdown + context menu.
+ * Shows side-by-side compare UI; does not overwrite manuscript until Apply.
+ */
+async function executeRewriteAssist(payload) {
+  const selectedText = String(payload?.selectedText || "").trim();
+  if (!selectedText) {
+    toast(
+      payload?.sourceMode === "direct"
+        ? "다듬을 문장을 직접 입력해 주세요."
+        : "다듬을 문장을 드래그로 선택한 뒤 실행해 주세요.",
+    );
+    return null;
+  }
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return null;
+  }
+  if (rewriteAssistInFlight) {
+    toast("이미 문장을 다듬고 있어요.");
+    return null;
+  }
+
+  const isDirectWrite = String(payload?.sourceMode || "") === "direct";
+  const contextBefore = isDirectWrite ? "" : String(payload?.contextBefore || "");
+  const contextAfter = isDirectWrite ? "" : String(payload?.contextAfter || "");
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+
+  const body = {
+    mode: "rewrite",
+    prompt: "",
+    user_prompt: "",
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+    scene_title: isDirectWrite ? "" : (state.scene?.title || $("sceneTitle")?.value || ""),
+    scene_synopsis: isDirectWrite ? "" : (state.scene?.synopsis_md || $("sceneSynopsis")?.value || ""),
+    scene_content: selectedText,
+    context_before: contextBefore,
+    context_after: contextAfter,
+    selected_text: selectedText,
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    ...(isDirectWrite ? {} : buildToryProjectContextPayload()),
+  };
+
+  rewriteAssistInFlight = true;
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "rewrite";
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+  if ($("aiResult")) {
+    $("aiResult").value = isDirectWrite
+      ? "표현을 점검·다듬는 중…"
+      : "선택 문장을 다듬는 중…";
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = aiButton?.textContent;
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "문장 다듬는 중…";
+  }
+  const toolSubmit = $("aiToolModalSubmitButton");
+  const toolPrev = toolSubmit?.textContent;
+  if (toolSubmit) {
+    toolSubmit.disabled = true;
+    toolSubmit.textContent = "문장 다듬는 중…";
+  }
+
+  try {
+    if (isDirectWrite) {
+      // Independent expression check — do NOT use buildRewritePrompt / project_index.
+      body.indexed_prompt = buildPlainExpressionCheckPrompt(selectedText);
+      body.project_index = null;
+      body.skip_project_index = true;
+    } else {
+      // Manuscript selection / right-click path — buildRewritePrompt + optional index.
+      await attachIndexedPromptToAssistBody(body, "rewrite", selectedText);
+    }
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const polished = String(result.text || "").trim();
+    const fullScenePlain = isDirectWrite
+      ? ""
+      : String(
+        (looksLikeHtml(getEditorContent()) ? plainTextFromHtml(getEditorContent()) : getEditorContent())
+        || ""
+      ).trim();
+    // Prefer full episode as style reference; fall back to ±200 char window.
+    // Direct-write has no manuscript context — reference is the input itself only.
+    const referenceText = isDirectWrite
+      ? selectedText
+      : (fullScenePlain
+        || `${contextBefore}${selectedText}${contextAfter}`.trim()
+        || selectedText);
+    const displayParsed = parseRewriteAssistDisplay(polished);
+    const applyText = displayParsed.displayText || displayParsed.polished || polished;
+    pendingRewriteState = {
+      original: selectedText,
+      result: polished,
+      range: payload?.range || null,
+      referenceText,
+      contextBefore,
+      contextAfter,
+      sourceMode: payload?.sourceMode || "selection",
+      resultKind: displayParsed.kind,
+      alternatives: displayParsed.alternatives || [],
+      reason: displayParsed.reason || "",
+    };
+    pendingStyleBlendContext = (isDirectWrite || displayParsed.kind === "alternatives")
+      ? null
+      : {
+        source: "rewrite",
+        referenceText,
+        targetText: applyText,
+      };
+    clearStyleBlendResultViews("rewrite");
+    if ($("aiResult")) {
+      $("aiResult").value = polished
+        ? `【원문】\n${selectedText}\n\n【결과】\n${polished}`
+        : "(결과 없음)";
+    }
+    prepareStyleBlendOffer(null); // hide continue offer on panel
+    revealAiAssistResult({ openModal: false, mode: "rewrite" });
+    openRewriteCompareModal(selectedText, polished, {
+      parsed: displayParsed,
+      sourceMode: isDirectWrite ? "direct" : "selection",
+    });
+    if (!polished) {
+      toast("다듬기 응답이 비어 있어요.");
+    } else if (displayParsed.kind === "alternatives") {
+      toast(isDirectWrite
+        ? "이미 자연스러운 문장으로 보여요 · 필요하면 복사하세요."
+        : "이미 좋은 문장으로 보여요 · 대안을 고르거나 유지하세요.");
+    } else {
+      toast(isDirectWrite
+        ? "표현 점검 완료 · 복사해 쓰실 수 있어요."
+        : "다듬기 제안이 왔어요 · 대체·복사·유지 중 골라 주세요.");
+    }
+    return result;
+  } catch (error) {
+    if ($("aiResult")) $("aiResult").value = "";
+    handleError(error);
+    return null;
+  } finally {
+    rewriteAssistInFlight = false;
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = prevLabel || "토리에게 물어보기";
+    }
+    if (toolSubmit) {
+      toolSubmit.disabled = false;
+      toolSubmit.textContent = toolPrev || "문장 다듬기";
+    }
+  }
+}
+
+async function runRewriteFromSelection() {
+  const payload = getRewriteSelectionPayload();
+  if (!payload?.selectedText) {
+    toast("다듬을 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    return null;
+  }
+  return executeRewriteAssist(payload);
+}
+
+function setupRewriteCompareModal() {
+  document.querySelectorAll("[data-close-rewrite-compare]").forEach((el) => {
+    el.addEventListener("click", () => closeRewriteCompareModal());
+  });
+  $("rewriteCompareCopyButton")?.addEventListener("click", async () => {
+    const text = String($("rewriteCompareResult")?.value || "").trim();
+    if (!text) return toast("복사할 결과가 없어요.");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("결과를 복사했어요.");
+    } catch (_) {
+      toast("복사에 실패했어요.");
+    }
+  });
+  $("rewriteCompareApplyButton")?.addEventListener("click", () => {
+    applyPendingRewriteToEditor();
+  });
+  $("rewriteCompareKeepButton")?.addEventListener("click", () => {
+    closeRewriteCompareModal();
+    toast("원문을 그대로 유지했어요.");
+  });
+  $("rewriteCompareAltList")?.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("[data-rewrite-alt]");
+    if (!btn) return;
+    const idx = Number(btn.getAttribute("data-rewrite-alt"));
+    const alts = pendingRewriteState?.alternatives || [];
+    const text = alts[idx];
+    if (!text) return;
+    if ($("rewriteCompareResult")) $("rewriteCompareResult").value = text;
+    $("rewriteCompareAltList")?.querySelectorAll(".rewrite-alt-item").forEach((el, i) => {
+      el.classList.toggle("is-selected", i === idx);
+    });
+    if (pendingStyleBlendContext) {
+      pendingStyleBlendContext.targetText = text;
+    }
+  });
 }
 
 function getScenePlainForSummary() {
@@ -19347,8 +26514,7 @@ async function runTorySceneSummary() {
     });
     const applied = applyTorySummaryToField(result.text || "");
     if ($("aiResult")) $("aiResult").value = applied || result.text || "(결과 없음)";
-    $("aiResultWrap")?.classList.remove("hidden");
-    if (isAiResultModalOpen()) syncAiResultModalBody();
+    revealAiAssistResult({ openModal: true, mode: "summarize" });
     if (applied) {
       toast("토리가 요약을 요약 칸에 넣었어요.");
     } else {
@@ -19899,6 +27065,7 @@ async function openScene(sceneId) {
   renderReferenceLinks();
   updateSceneStats();
   updateSplitChrome();
+  saveLastWorkspace({ projectId: state.projectId, sceneId: nextId });
   applySplitLayout();
 
   // Re-apply find highlights on the newly loaded scene if the find bar is open.
@@ -19943,14 +27110,301 @@ async function openScene(sceneId) {
   }
 }
 
+const CHARACTER_ROLE_LABELS = {
+  protagonist: "주인공",
+  antagonist: "대립",
+  supporting: "조연",
+  minor: "단역",
+};
+
+function getSelectedSceneCharacterIds() {
+  return [...document.querySelectorAll("#sceneCharacterList input[type='checkbox']:checked")]
+    .map((input) => Number(input.value))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+function updateSceneCharactersBadge() {
+  const badge = $("sceneCharactersCount");
+  const chip = $("sceneCharactersChip");
+  if (!badge) return;
+  if (!state.sceneId) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "이 회차에 등장하는 인물 연결";
+      chip.setAttribute("aria-label", "등장 인물");
+    }
+    return;
+  }
+  const n = Array.isArray(state.sceneMembers) ? state.sceneMembers.length : 0;
+  if (!n) {
+    badge.textContent = "";
+    badge.classList.add("hidden");
+    if (chip) {
+      chip.title = "이 회차에 등장하는 인물 연결";
+      chip.setAttribute("aria-label", "등장 인물");
+    }
+    return;
+  }
+  badge.textContent = n > 99 ? "99+" : String(n);
+  badge.classList.remove("hidden");
+  if (chip) {
+    chip.title = `등장 인물 · ${n}명 연결됨`;
+    chip.setAttribute("aria-label", `등장 인물 ${n}명`);
+  }
+}
+
 function renderSceneCharacters() {
-  const memberIds = new Set(state.sceneMembers.map((member) => member.character_id));
-  const povId = state.sceneMembers.find((member) => member.is_pov)?.character_id || "";
-  $("sceneCharacterList").innerHTML = state.characters.length
-    ? state.characters.map((character) => `<label><input type="checkbox" value="${character.id}" ${memberIds.has(character.id) ? "checked" : ""}> ${escapeHtml(character.name)}</label>`).join("")
-    : "<span class='hint'>먼저 설정집 바인더에서 캐릭터를 만들어 주세요.</span>";
-  $("povSelect").innerHTML = "<option value=''>시점 인물 없음</option>" + state.characters
-    .map((character) => `<option value="${character.id}" ${Number(povId) === character.id ? "selected" : ""}>${escapeHtml(character.name)}</option>`).join("");
+  const list = $("sceneCharacterList");
+  const povSelect = $("povSelect");
+  if (!list) return;
+
+  const members = Array.isArray(state.sceneMembers) ? state.sceneMembers : [];
+  const memberIds = new Set(
+    members.map((member) => Number(member.character_id)).filter((id) => id > 0),
+  );
+  const povId = Number(members.find((member) => member.is_pov)?.character_id || 0) || "";
+  const characters = Array.isArray(state.characters) ? state.characters : [];
+
+  if (!characters.length) {
+    list.innerHTML = `
+      <p class="scene-characters-empty">
+        아직 만든 인물이 없어요.<br>
+        <strong>+ 인물</strong>을 누르면 인물 작성 페이지로 이동합니다.
+      </p>`;
+  } else {
+    list.innerHTML = characters.map((character) => {
+      const id = Number(character.id);
+      const linked = memberIds.has(id);
+      const role = CHARACTER_ROLE_LABELS[character.role] || character.role || "";
+      const name = escapeHtml(character.name || "이름 없음");
+      return `
+        <label class="scene-cast-item${linked ? " is-linked" : ""}" data-cast-id="${id}">
+          <input type="checkbox" value="${id}" ${linked ? "checked" : ""} aria-label="${name} 이 회차에 연결">
+          <span class="scene-cast-name" title="${name}">${name}</span>
+          ${role ? `<span class="scene-cast-role">${escapeHtml(role)}</span>` : ""}
+          <button type="button" class="secondary scene-cast-open" data-open-character="${id}" title="인물 설정 열기">설정</button>
+        </label>`;
+    }).join("");
+  }
+
+  if (povSelect) {
+    // POV choices: linked cast first, then all characters.
+    const linkedChars = characters.filter((c) => memberIds.has(Number(c.id)));
+    const pool = linkedChars.length ? linkedChars : characters;
+    povSelect.innerHTML = `<option value="">시점 인물 없음</option>${
+      pool.map((character) => {
+        const id = Number(character.id);
+        const selected = Number(povId) === id ? "selected" : "";
+        return `<option value="${id}" ${selected}>${escapeHtml(character.name || `인물 #${id}`)}</option>`;
+      }).join("")
+    }`;
+    // Keep selected POV even if not currently linked (edge case).
+    if (povId && !pool.some((c) => Number(c.id) === Number(povId))) {
+      const orphan = characters.find((c) => Number(c.id) === Number(povId));
+      if (orphan) {
+        const opt = document.createElement("option");
+        opt.value = String(povId);
+        opt.selected = true;
+        opt.textContent = orphan.name || `인물 #${povId}`;
+        povSelect.appendChild(opt);
+      }
+    }
+  }
+  updateSceneCharactersBadge();
+  // After re-render, restore save-row status (don't wipe dirty while editing).
+  if (!sceneCastDirty) {
+    setSceneCastSaveUi({ dirty: false });
+  } else {
+    setSceneCastSaveUi({ dirty: true });
+  }
+}
+
+async function refreshSceneCharactersPanel() {
+  if (!state.projectId || !state.sceneId) {
+    renderSceneCharacters();
+    return;
+  }
+  try {
+    const [characters, members] = await Promise.all([
+      api(`/api/projects/${state.projectId}/characters`),
+      api(`/api/scenes/${state.sceneId}/characters`).catch(() => []),
+    ]);
+    if (Array.isArray(characters)) state.characters = characters;
+    state.sceneMembers = Array.isArray(members) ? members : [];
+  } catch (error) {
+    console.warn("[supertory] cast panel refresh failed", error);
+  }
+  sceneCastDirty = false;
+  renderSceneCharacters();
+  setSceneCastSaveUi({ dirty: false });
+}
+
+let sceneCastSaveInFlight = false;
+let sceneCastSaveAgain = false;
+let sceneCastDirty = false;
+
+function setSceneCastSaveUi({ dirty = sceneCastDirty, saving = false, error = false, ok = false, message = "" } = {}) {
+  const hint = $("sceneCharacterSaveHint");
+  const btn = $("sceneCharacterSaveButton");
+  sceneCastDirty = Boolean(dirty);
+  if (hint) {
+    hint.classList.toggle("is-dirty", Boolean(dirty) && !saving && !error && !ok);
+    hint.classList.toggle("is-error", Boolean(error));
+    hint.classList.toggle("is-ok", Boolean(ok) && !error);
+    if (message) {
+      hint.textContent = message;
+    } else if (saving) {
+      hint.textContent = "등장 인물 연결을 저장하는 중…";
+    } else if (error) {
+      hint.textContent = "저장에 실패했어요. 다시 저장을 눌러 주세요.";
+    } else if (dirty) {
+      hint.textContent = "변경됨 · 저장을 눌러 이 회차에 반영하세요.";
+    } else if (ok) {
+      hint.textContent = "저장됨";
+    } else {
+      const n = Array.isArray(state.sceneMembers) ? state.sceneMembers.length : 0;
+      hint.textContent = n
+        ? `연결 ${n}명 · 인물을 체크한 뒤 저장하세요.`
+        : "인물을 체크한 뒤 저장을 눌러 주세요.";
+    }
+  }
+  if (btn) {
+    btn.disabled = saving || (!dirty && !error);
+    btn.textContent = saving ? "저장 중…" : "저장";
+    btn.title = dirty
+      ? "체크한 등장 인물·시점 연결을 이 회차에 저장합니다"
+      : "저장할 변경이 없어요";
+  }
+}
+
+function markSceneCastDirty() {
+  setSceneCastSaveUi({
+    dirty: true,
+    message: "변경됨 · 저장을 눌러 이 회차에 반영하세요.",
+  });
+}
+
+async function persistSceneCharacterLinks(options = {}) {
+  const quiet = Boolean(options.quiet);
+  if (!state.sceneId) {
+    toast("먼저 회차를 열어 주세요.");
+    return null;
+  }
+  if (sceneCastSaveInFlight) {
+    sceneCastSaveAgain = true;
+    return null;
+  }
+  const characterIds = getSelectedSceneCharacterIds();
+  let povId = $("povSelect")?.value || "";
+  // POV must be one of the linked cast (or empty).
+  if (povId && !characterIds.includes(Number(povId))) {
+    povId = "";
+    if ($("povSelect")) $("povSelect").value = "";
+  }
+  sceneCastSaveInFlight = true;
+  sceneCastSaveAgain = false;
+  setSceneCastSaveUi({ dirty: true, saving: true, message: "등장 인물 연결을 저장하는 중…" });
+  try {
+    await api(`/api/scenes/${state.sceneId}/characters`, {
+      method: "PUT",
+      body: JSON.stringify({
+        character_ids: characterIds,
+        pov_id: povId || "",
+      }),
+    });
+    // Re-read DOM in case the user toggled more while the request was in flight.
+    const latestIds = getSelectedSceneCharacterIds();
+    const latestPovRaw = $("povSelect")?.value || "";
+    const latestPov = latestPovRaw && latestIds.includes(Number(latestPovRaw))
+      ? latestPovRaw
+      : "";
+    // If selection drifted, save again once.
+    const idsChanged = latestIds.length !== characterIds.length
+      || latestIds.some((id) => !characterIds.includes(id));
+    if (idsChanged || String(latestPov) !== String(povId) || sceneCastSaveAgain) {
+      sceneCastSaveInFlight = false;
+      return persistSceneCharacterLinks({ quiet: true });
+    }
+    state.sceneMembers = latestIds.map((character_id) => ({
+      character_id,
+      appearance_role: Number(latestPov) === Number(character_id) ? "primary" : "supporting",
+      is_pov: Number(latestPov) === Number(character_id) ? 1 : 0,
+    }));
+    updateSceneCharactersBadge();
+    // Refresh linked styling (keeps checkboxes from current members).
+    renderSceneCharacters();
+    const n = latestIds.length;
+    setSceneCastSaveUi({
+      dirty: false,
+      ok: true,
+      message: n ? `저장됨 · 이 회차에 ${n}명 연결` : "저장됨 · 연결된 인물 없음",
+    });
+    if (!quiet) {
+      toast(n ? `등장 인물 ${n}명을 이 회차에 저장했어요.` : "이 회차 인물 연결을 저장했어요. (연결된 인물 없음)");
+    }
+    return state.sceneMembers;
+  } catch (error) {
+    setSceneCastSaveUi({
+      dirty: true,
+      error: true,
+      message: "저장에 실패했어요. 다시 저장을 눌러 주세요.",
+    });
+    throw error;
+  } finally {
+    sceneCastSaveInFlight = false;
+  }
+}
+
+/** Explicit save from the cast panel button. */
+async function saveSceneCharacterLinksFromButton() {
+  if (!state.sceneId) {
+    toast("먼저 회차를 열어 주세요.");
+    return;
+  }
+  // Allow save even if not marked dirty (user wants to force-save current checks).
+  sceneCastDirty = true;
+  await persistSceneCharacterLinks({ quiet: false });
+}
+
+async function createCharacterAndLinkToScene() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.sceneId) return toast("먼저 회차를 열어 주세요.");
+  const name = await promptText({
+    title: "이 회차에 인물 연결",
+    message: "새 인물 이름을 적으면 만들고, 이 회차에 연결한 뒤 인물 작성 페이지로 이동합니다.",
+    label: "이름",
+    defaultValue: "새 캐릭터",
+    confirmLabel: "만들고 작성하기",
+  });
+  if (name === null) return;
+  const displayName = name.trim() || "새 캐릭터";
+  const character = await api(`/api/projects/${state.projectId}/characters`, {
+    method: "POST",
+    body: JSON.stringify({ name: displayName }),
+  });
+  const newId = Number(character?.id);
+  if (!newId) {
+    toast("인물을 만들지 못했어요. 다시 시도해 주세요.");
+    return;
+  }
+  // Reload cast lists, then check the new character and save scene links.
+  await refreshSceneCharactersPanel();
+  const checkbox = document.querySelector(
+    `#sceneCharacterList input[type="checkbox"][value="${newId}"]`,
+  );
+  if (checkbox) checkbox.checked = true;
+  // Also keep previously linked members.
+  const ids = new Set(getSelectedSceneCharacterIds());
+  ids.add(newId);
+  // Ensure checkboxes match ids (in case render dropped one).
+  document.querySelectorAll("#sceneCharacterList input[type='checkbox']").forEach((input) => {
+    input.checked = ids.has(Number(input.value));
+  });
+  await persistSceneCharacterLinks({ quiet: true });
+  // Move to character editor so the author can fill profile (same as 설정집 + 캐릭터).
+  await openCharacter(newId);
+  toast(`「${displayName}」을(를) 만들고 이 회차에 연결했어요. 인물 설정을 적어 보세요.`);
 }
 
 let sceneDirty = false;
@@ -19959,9 +27413,12 @@ let autoSaveInFlight = false;
 let suppressSceneDirty = false;
 const AUTO_SAVE_DELAY_MS = 1200;
 const AUTO_SAVE_RETRY_MS = 5000;
+const AUTO_SAVE_RETRY_MAX_MS = 60000;
+let autoSaveFailStreak = 0;
 let localDraftWriteTimer = null;
 let onlineSyncTimer = null;
 let lastLocalDraftToastAt = 0;
+let localDraftToastShownForStreak = false;
 
 /* ── Offline-first local draft (never lose manuscript on API failure) ── */
 const LOCAL_DRAFT_PREFIX = "supertory.sceneDraft.v1.";
@@ -20213,10 +27670,37 @@ function scheduleLocalDraftWrite() {
   }, 200);
 }
 
+function resetAutoSaveFailStreak() {
+  autoSaveFailStreak = 0;
+  localDraftToastShownForStreak = false;
+}
+
+/** Back off retries so a stuck server cannot spam the network / keep the screen awake. */
+function scheduleAutoSaveRetry() {
+  if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
+  autoSaveFailStreak += 1;
+  const exp = Math.min(Math.max(autoSaveFailStreak - 1, 0), 4);
+  const delay = Math.min(AUTO_SAVE_RETRY_MAX_MS, AUTO_SAVE_RETRY_MS * (2 ** exp));
+  autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = null;
+    // Hidden / quitting: keep local draft only — don't hammer the API.
+    if (document.visibilityState === "hidden") {
+      ensureLocalDraftSaved("hidden-retry-skip");
+      return;
+    }
+    persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
+      /* persistScene schedules its own retry */
+    });
+  }, delay);
+}
+
 function notifyLocalDraftKept(error) {
   const now = Date.now();
-  if (now - lastLocalDraftToastAt < 8000) return;
+  // Once per failure streak, then at most once a minute (avoid toast loops).
+  if (localDraftToastShownForStreak && now - lastLocalDraftToastAt < 60000) return;
+  if (!localDraftToastShownForStreak && now - lastLocalDraftToastAt < 8000) return;
   lastLocalDraftToastAt = now;
+  localDraftToastShownForStreak = true;
   const offline = isOfflineSafeError(error) || !isOnlineNow();
   toast(
     offline
@@ -20338,13 +27822,18 @@ function markSceneDirty() {
 
 function scheduleAutoSave() {
   if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
+  // Fresh edits get a short delay; ongoing failure streak keeps its backoff timer.
+  const delay = autoSaveFailStreak > 0
+    ? Math.min(AUTO_SAVE_RETRY_MAX_MS, AUTO_SAVE_RETRY_MS * (2 ** Math.min(autoSaveFailStreak - 1, 4)))
+    : AUTO_SAVE_DELAY_MS;
   autoSaveTimer = window.setTimeout(() => {
+    autoSaveTimer = null;
     persistScene({ quiet: true, saveNote: "자동 저장" }).catch((error) => {
       // Local draft already written; avoid noisy toasts on every quiet retry.
-      if (!isOfflineSafeError(error)) handleError(error);
+      if (!isOfflineSafeError(error) && !error?.localOnly) handleError(error);
       else notifyLocalDraftKept(error);
     });
-  }, AUTO_SAVE_DELAY_MS);
+  }, delay);
 }
 
 function cancelScheduledAutoSave() {
@@ -20432,11 +27921,7 @@ async function persistScene(options = {}) {
     });
     // Characters are secondary — failure must not discard content that already saved.
     try {
-      const characterIds = [...document.querySelectorAll("#sceneCharacterList input:checked")].map((input) => Number(input.value));
-      await api(`/api/scenes/${state.sceneId}/characters`, {
-        method: "PUT",
-        body: JSON.stringify({ character_ids: characterIds, pov_id: $("povSelect")?.value || "" }),
-      });
+      await persistSceneCharacterLinks({ quiet: true });
     } catch (charError) {
       console.warn("[supertory] character membership save failed", charError);
     }
@@ -20449,6 +27934,7 @@ async function persistScene(options = {}) {
     }
     sceneDirty = false;
     clearLocalSceneDraft(state.sceneId);
+    resetAutoSaveFailStreak();
     // Binder left rail: status / title must match the open scene immediately.
     syncOpenSceneToOutlineBinder({
       sceneId: state.sceneId,
@@ -20476,6 +27962,10 @@ async function persistScene(options = {}) {
     }
     // Refresh full-manuscript totals after content is saved.
     scheduleProjectManuscriptStats();
+    // Project auto-index: debounce scene_summary regeneration after idle.
+    try {
+      scheduleSceneIndexAfterSave(state.sceneId, body.content_md);
+    } catch (_) { /* ignore */ }
     if (!quiet) toast("저장했습니다.");
     return saved;
   } catch (error) {
@@ -20484,15 +27974,8 @@ async function persistScene(options = {}) {
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (isOfflineSafeError(error) || !isOnlineNow()) {
       setSceneSaveStatus(`이 기기에 보관됨 ${stamp} — 연결 시 동기화`);
-      if (!quiet) notifyLocalDraftKept(error);
-      else notifyLocalDraftKept(error);
-      // Retry when network may recover (longer delay).
-      if (autoSaveTimer) window.clearTimeout(autoSaveTimer);
-      autoSaveTimer = window.setTimeout(() => {
-        persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
-          notifyLocalDraftKept(error);
-        });
-      }, AUTO_SAVE_RETRY_MS);
+      notifyLocalDraftKept(error);
+      scheduleAutoSaveRetry();
       // Do not rethrow for quiet autosave — work is safe locally.
       if (quiet) return { localOnly: true, error };
       const friendly = new Error(
@@ -20504,8 +27987,8 @@ async function persistScene(options = {}) {
     }
     if (quiet) {
       setSceneSaveStatus("자동 저장 실패 — 기기에 보관 · 재시도 예정");
-      scheduleAutoSave();
       notifyLocalDraftKept(error);
+      scheduleAutoSaveRetry();
       return { localOnly: true, error };
     }
     throw error;
@@ -20555,11 +28038,38 @@ function setupSceneAutoSave() {
   });
   // Title renames also reflect on the binder list (live, while typing ends on change/blur).
   $("sceneTitle")?.addEventListener("change", () => {
-    const title = $("sceneTitle")?.value?.trim() || "";
-    if (title) syncOpenSceneToOutlineBinder({ title });
+    const title = $("sceneTitle")?.value?.trim() || "제목 없음";
+    syncOpenSceneToOutlineBinder({ title });
   });
-  // Character checkboxes are re-rendered; use delegation.
-  $("sceneCharacterList")?.addEventListener("change", () => markSceneDirty());
+  // Character checkboxes: mark dirty → user presses 저장 (also saved with scene autosave).
+  $("sceneCharacterList")?.addEventListener("change", (event) => {
+    if (event.target?.closest?.("input[type='checkbox']")) {
+      const row = event.target.closest?.(".scene-cast-item");
+      if (row && event.target.type === "checkbox") {
+        row.classList.toggle("is-linked", event.target.checked);
+      }
+      markSceneDirty();
+      markSceneCastDirty();
+    }
+  });
+  $("sceneCharacterList")?.addEventListener("click", (event) => {
+    const openBtn = event.target.closest?.("[data-open-character]");
+    if (!openBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const id = Number(openBtn.dataset.openCharacter);
+    if (id) openCharacter(id).catch(handleError);
+  });
+  $("povSelect")?.addEventListener("change", () => {
+    markSceneDirty();
+    markSceneCastDirty();
+  });
+  $("sceneCharacterSaveButton")?.addEventListener("click", () => {
+    saveSceneCharacterLinksFromButton().catch(handleError);
+  });
+  $("sceneCharacterCreateButton")?.addEventListener("click", () => {
+    createCharacterAndLinkToScene().catch(handleError);
+  });
   // Reference links use delegated inputs.
   $("referenceLinkList")?.addEventListener("input", () => markSceneDirty());
   $("referenceLinkList")?.addEventListener("change", () => markSceneDirty());
@@ -20573,7 +28083,10 @@ function setupSceneAutoSave() {
   });
 
   // Flush: sync local draft ALWAYS; async server best-effort.
-  window.addEventListener("beforeunload", (event) => {
+  // Local draft is the safety net — do not block window close (that kept the
+  // screen awake / app stuck while retries + beforeunload fought each other).
+  window.addEventListener("beforeunload", () => {
+    cancelScheduledAutoSave();
     if (sceneDirty || splitDirty) {
       ensureLocalDraftSaved("beforeunload");
       if (splitDirty && state.splitSceneId) {
@@ -20605,11 +28118,6 @@ function setupSceneAutoSave() {
       try {
         if (state.sceneId && state.scene && isOnlineNow()) {
           const payload = JSON.stringify(buildSceneSaveBody("종료 전 저장"));
-          if (navigator.sendBeacon) {
-            const blob = new Blob([payload], { type: "application/json" });
-            // sendBeacon is POST-only; server expects PUT — skip if unsupported.
-            void blob;
-          }
           // keepalive fetch PUT
           fetch(`/api/scenes/${state.sceneId}`, {
             method: "PUT",
@@ -20621,8 +28129,6 @@ function setupSceneAutoSave() {
       } catch (_) {
         /* ignore */
       }
-      event.preventDefault();
-      event.returnValue = "";
     }
   });
   document.addEventListener("visibilitychange", () => {
@@ -20638,6 +28144,9 @@ function setupSceneAutoSave() {
         cancelSplitAutoSave();
         persistSplitScene({ quiet: true }).catch(() => { /* ignore */ });
       }
+    } else if (document.visibilityState === "visible") {
+      // Resume sync after screen sleep / app refocus without toast spam.
+      if (sceneDirty || splitDirty) scheduleOnlineSync();
     }
   });
 
@@ -20653,19 +28162,44 @@ function setupSceneAutoSave() {
 
   // pagehide is more reliable than beforeunload on mobile.
   window.addEventListener("pagehide", () => {
+    cancelScheduledAutoSave();
     if (sceneDirty) ensureLocalDraftSaved("pagehide");
   });
 }
 
 async function createCharacter() {
   if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
-  const name = window.prompt("캐릭터 이름을 적어 주세요.", "새 캐릭터");
+  const name = await promptText({
+    title: "캐릭터 만들기",
+    message: "캐릭터 이름을 적어 주세요.",
+    label: "이름",
+    defaultValue: "새 캐릭터",
+    confirmLabel: "만들기",
+  });
   if (name === null) return;
-  const character = await api(`/api/projects/${state.projectId}/characters`, { method: "POST", body: JSON.stringify({ name }) });
+  const character = await api(`/api/projects/${state.projectId}/characters`, { method: "POST", body: JSON.stringify({ name: name.trim() || "새 캐릭터" }) });
   state.openSettingsSection = "characters";
   await loadProject();
   await openCharacter(character.id);
   toast("인물 설정을 적어 보세요.");
+}
+
+function renderCharacterPortrait(character) {
+  const img = $("characterPortraitPreview");
+  const empty = $("characterPortraitEmpty");
+  const clearBtn = $("characterPortraitClearButton");
+  const url = String(character?.portrait_url || "").trim();
+  if (img) {
+    if (url) {
+      img.src = url;
+      img.classList.remove("hidden");
+    } else {
+      img.removeAttribute("src");
+      img.classList.add("hidden");
+    }
+  }
+  empty?.classList.toggle("hidden", Boolean(url));
+  clearBtn?.classList.toggle("hidden", !url);
 }
 
 async function openCharacter(characterId) {
@@ -20698,6 +28232,7 @@ async function openCharacter(characterId) {
   $("characterNotes").value = character.author_notes_md;
   $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || "<span class='hint'>아직 별칭이 없어요.</span>";
   $("characterInfo").textContent = "";
+  renderCharacterPortrait(character);
   await loadProject();
 }
 
@@ -20720,6 +28255,81 @@ async function saveCharacter(event) {
   });
   await openCharacter(state.characterId);
   toast("인물 설정을 저장했습니다.");
+}
+
+async function deleteCharacter() {
+  if (!state.characterId || !state.character?.character) return;
+  const name = String(state.character.character.name || "이 인물").trim() || "이 인물";
+  const ok = window.confirm(
+    `「${name}」 인물 설정을 삭제할까요?\n\n목록에서 사라지고, 회차에 연결된 등장 정보도 빠집니다.`,
+  );
+  if (!ok) return;
+  await api(`/api/characters/${state.characterId}`, { method: "DELETE" });
+  const deletedId = state.characterId;
+  state.characterId = null;
+  state.character = null;
+  $("characterEditor")?.classList.add("hidden");
+  await loadProject();
+  // Re-open character board if still on settings characters
+  state.openSettingsSection = "characters";
+  applySettingsSectionState();
+  await openCharacterBoard();
+  toast(`「${name}」을(를) 삭제했어요.`);
+  return deletedId;
+}
+
+async function uploadCharacterPortrait(file) {
+  if (!state.characterId) return toast("인물을 먼저 열어 주세요.");
+  if (!file) return;
+  if (!file.type.startsWith("image/")) return toast("이미지 파일만 올릴 수 있어요.");
+  toast("이미지를 올리는 중…");
+  const contentBase64 = await fileToBase64(file);
+  const result = await api(`/api/characters/${state.characterId}/portrait`, {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      mime_type: file.type,
+      content_base64: contentBase64,
+    }),
+  });
+  if (state.character?.character) {
+    state.character.character.portrait_url = result.portrait_url || "";
+    state.character.character.portrait_file = result.portrait_file || "";
+    state.character.character.row_version = result.row_version
+      || state.character.character.row_version;
+  }
+  renderCharacterPortrait(state.character?.character);
+  toast("캐릭터 이미지를 넣었어요.");
+}
+
+async function clearCharacterPortrait() {
+  if (!state.characterId) return;
+  if (!window.confirm("캐릭터 이미지를 제거할까요?")) return;
+  await api(`/api/characters/${state.characterId}/portrait`, { method: "DELETE" });
+  if (state.character?.character) {
+    state.character.character.portrait_url = "";
+    state.character.character.portrait_file = "";
+  }
+  renderCharacterPortrait(state.character?.character);
+  toast("캐릭터 이미지를 제거했어요.");
+}
+
+function setupCharacterPortraitUi() {
+  $("characterPortraitAddButton")?.addEventListener("click", () => {
+    $("characterPortraitFile")?.click();
+  });
+  $("characterPortraitClearButton")?.addEventListener("click", () => {
+    clearCharacterPortrait().catch(handleError);
+  });
+  $("characterPortraitFile")?.addEventListener("change", () => {
+    const file = $("characterPortraitFile")?.files?.[0];
+    if ($("characterPortraitFile")) $("characterPortraitFile").value = "";
+    if (!file) return;
+    uploadCharacterPortrait(file).catch(handleError);
+  });
+  $("deleteCharacterButton")?.addEventListener("click", () => {
+    deleteCharacter().catch(handleError);
+  });
 }
 
 async function addAlias() {
@@ -20760,8 +28370,8 @@ function setSplitEditEnabled(enabled, options = {}) {
   applySplitEditMode();
   if (changed && !options.silent) {
     toast(next
-      ? "다른 씬 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
-      : "다른 씬 자유 편집을 껐어요. 읽기 전용입니다.");
+      ? "함께보기 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
+      : "함께보기 자유 편집을 껐어요. 읽기 전용입니다.");
   }
 }
 
@@ -20786,13 +28396,13 @@ function applySplitEditMode() {
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     btn.classList.toggle("hidden", sourceMode);
     btn.disabled = sourceMode;
-    // Short labels fit between "함께 볼 씬" and the split-mode control.
+    // Short labels fit between "함께볼 회차" and the split-mode control.
     btn.textContent = on ? "편집 중" : "자유 편집";
     btn.title = sourceMode
       ? "참고자료는 패널 안 「편집」 버튼으로 수정하세요"
       : on
         ? "자유 편집 켜짐 — 누르면 읽기 전용으로 돌아갑니다"
-        : "다른 씬을 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다.";
+        : "함께보는 회차를 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다.";
   }
   if (sourceMode) applySplitSourceEditUi();
 }
@@ -20926,7 +28536,7 @@ async function persistSplitScene(options = {}) {
     setSplitSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
     // Refresh outline titles if this scene is listed.
     loadProject().catch(() => { /* ignore */ });
-    if (!quiet) toast("다른 씬을 저장했습니다.");
+    if (!quiet) toast("함께보는 회차를 저장했습니다.");
     return saved;
   } catch (error) {
     if (quiet) {
@@ -20958,17 +28568,75 @@ async function flushSplitEdits() {
   }
 }
 
+
+let splitViewerHomeParent = null;
+
+function ensureSplitViewerHomeParent() {
+  const viewer = $("splitViewer");
+  if (!viewer) return null;
+  const slot = $("focusWriteSplitSlot");
+  // Remember the original workspace parent (not the focus-write slot)
+  if (!splitViewerHomeParent || splitViewerHomeParent === slot) {
+    if (viewer.parentElement && viewer.parentElement !== slot) {
+      splitViewerHomeParent = viewer.parentElement;
+    }
+  }
+  return splitViewerHomeParent;
+}
+
+/** Keep #splitViewer in workspace (popup / normal) or inside 큰 창 (side split). */
+function syncSplitViewerHost() {
+  const viewer = $("splitViewer");
+  const slot = $("focusWriteSplitSlot");
+  const card = $("focusWriteCard");
+  if (!viewer) return;
+  const home = ensureSplitViewerHomeParent();
+  const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
+  const embedSplit = focusOpen && state.splitEnabled && state.splitMode === "split" && slot;
+
+  if (embedSplit) {
+    if (viewer.parentElement !== slot) slot.appendChild(viewer);
+    slot.hidden = false;
+    card?.classList.add("is-split");
+    viewer.classList.add("in-focus-write");
+    viewer.classList.remove("popup-mode");
+    // Clear fixed popup geometry so flex slot can size the pane
+    clearSplitViewerPopupStyles();
+  } else {
+    if (home && viewer.parentElement !== home) home.appendChild(viewer);
+    if (slot) slot.hidden = true;
+    card?.classList.remove("is-split");
+    viewer.classList.remove("in-focus-write");
+  }
+}
+
 function updateSplitChrome() {
   const mainBtn = $("splitViewButton");
+  const focusBtn = $("focusWriteSplitButton");
   const switchBtn = $("switchSplitModeButton");
   const viewer = $("splitViewer");
-  if (!state.splitEnabled) {
-    if (mainBtn) {
-      mainBtn.textContent = "다른 씬 보기 ▾";
-      mainBtn.title = "다른 씬을 화면 나누기 또는 팝업으로 봅니다";
-      mainBtn.classList.remove("is-active");
-      mainBtn.disabled = !state.sceneId;
+  const syncMainLike = (btn) => {
+    if (!btn) return;
+    if (!state.splitEnabled) {
+      btn.textContent = "함께보기 ▾";
+      btn.title = "함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)";
+      btn.classList.remove("is-active");
+      btn.disabled = !state.sceneId;
+      return;
     }
+    btn.disabled = false;
+    btn.classList.add("is-active");
+    if (state.splitMode === "popup") {
+      btn.textContent = "팝업 중 ▾";
+      btn.title = "팝업으로 보는 중 — Ctrl+Alt+S 화면 나누기 · Esc 닫기";
+    } else {
+      btn.textContent = "화면 나누기 중 ▾";
+      btn.title = "화면 나누기 중 — Ctrl+Alt+P 팝업 · Esc 닫기";
+    }
+  };
+  if (!state.splitEnabled) {
+    syncMainLike(mainBtn);
+    syncMainLike(focusBtn);
     if (switchBtn) {
       switchBtn.textContent = "보기 방식 ▾";
       switchBtn.disabled = false;
@@ -20977,26 +28645,17 @@ function updateSplitChrome() {
     applySplitEditMode();
     return;
   }
-  if (mainBtn) {
-    mainBtn.disabled = false;
-    mainBtn.classList.add("is-active");
-    if (state.splitMode === "popup") {
-      mainBtn.textContent = "팝업 중 ▾";
-      mainBtn.title = "팝업으로 보는 중 — 눌러 방식을 바꿉니다";
-    } else {
-      mainBtn.textContent = "화면 나누기 중 ▾";
-      mainBtn.title = "화면 나누기 중 — 눌러 방식을 바꿉니다";
-    }
-  }
+  syncMainLike(mainBtn);
+  syncMainLike(focusBtn);
   if (switchBtn) {
     switchBtn.disabled = false;
     // Keep short so SuperTORY clip / narrow split pane does not hide the control.
     if (state.splitMode === "popup") {
       switchBtn.textContent = "팝업 ▾";
-      switchBtn.title = "보기 방식 · 팝업 중 (화면 나누기 / 닫기)";
+      switchBtn.title = "보기 방식 · 팝업 중 (Ctrl+Alt+S 나누기 / Esc 닫기)";
     } else {
       switchBtn.textContent = "나누기 ▾";
-      switchBtn.title = "보기 방식 · 화면 나누기 중 (팝업 / 닫기)";
+      switchBtn.title = "보기 방식 · 화면 나누기 중 (Ctrl+Alt+P 팝업 / Esc 닫기)";
     }
   }
   $("viewModeCloseItem")?.classList.remove("hidden");
@@ -21025,15 +28684,20 @@ function applySplitLayout() {
   const workspace = $("sceneWorkspace");
   const viewer = $("splitViewer");
   const resizer = $("splitPaneResizer");
+  const focusResizer = $("focusWriteSplitResizer");
   if (!workspace || !viewer) return;
+  const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
   const splitOn = state.splitEnabled && state.splitMode === "split";
   const popupOn = state.splitEnabled && state.splitMode === "popup";
-  workspace.classList.toggle("split-active", splitOn);
+  // Side-by-side lives inside 큰 창 when focus-write is open — keep main workspace unsplit
+  workspace.classList.toggle("split-active", splitOn && !focusOpen);
+  syncSplitViewerHost();
   viewer.classList.toggle("popup-mode", popupOn);
   viewer.classList.toggle("hidden", !state.splitEnabled);
-  resizer?.classList.toggle("hidden", !splitOn);
+  resizer?.classList.toggle("hidden", !(splitOn && !focusOpen));
+  focusResizer?.classList.toggle("hidden", !(splitOn && focusOpen));
   // Leaving popup → split: strip drag/resize inline styles or the pane vanishes off-layout
-  if (splitOn) {
+  if (splitOn && !focusOpen) {
     clearSplitViewerPopupStyles();
     requestAnimationFrame(() => {
       ensureSplitLeftWidth();
@@ -21052,6 +28716,12 @@ function applySplitLayout() {
           }
         }
       });
+    });
+  } else if (splitOn && focusOpen) {
+    clearSplitViewerPopupStyles();
+    clearSplitPrimaryPaneLayout();
+    requestAnimationFrame(() => {
+      ensureFocusSplitRightWidth();
     });
   } else {
     clearSplitPrimaryPaneLayout();
@@ -21093,14 +28763,23 @@ function layoutSplitPrimaryPane() {
   form.style.maxHeight = `${formBudget}px`;
   form.style.overflow = "hidden";
 
-  // Sum chrome rows (meta / toolbar / feature). Writing block gets the rest.
-  const meta = form.querySelector(".editor-meta");
-  const toolbar = form.querySelector(".format-toolbar");
-  const feature = form.querySelector(".scene-feature-bar");
+  // Sum chrome rows still in the flow (meta / format / feature shells + find bar).
+  const meta = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="meta"], .editor-meta');
+  const formatShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
+  const featureShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="feature"]');
+  const findBar = $("findBar");
+  const visibleH = (el) => {
+    if (!el || el.classList.contains("is-collapsed") || el.classList.contains("hidden")) return 0;
+    if (el.hidden) return 0;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden") return 0;
+    return el.getBoundingClientRect().height || 0;
+  };
   const chrome =
-    (meta ? meta.getBoundingClientRect().height : 0) +
-    (toolbar ? Math.min(toolbar.getBoundingClientRect().height, 96) : 0) +
-    (feature ? feature.getBoundingClientRect().height : 0) +
+    visibleH(meta) +
+    visibleH(formatShell) +
+    visibleH(featureShell) +
+    visibleH(findBar) +
     12;
   const bodyH = Math.max(180, Math.floor(formBudget - chrome));
 
@@ -21205,6 +28884,9 @@ const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";
 const SPLIT_LEFT_MIN = 240;
 const SPLIT_RIGHT_MIN = 200;
 const SPLIT_HANDLE = 10; // resizer + margins
+const FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY = "supertory.focusSplitRightWidth";
+const FOCUS_SPLIT_RIGHT_MIN = 200;
+const FOCUS_SPLIT_LEFT_MIN = 280;
 
 function applySplitLeftWidth(widthPx) {
   const workspace = $("sceneWorkspace");
@@ -21244,6 +28926,53 @@ function ensureSplitLeftWidth() {
   }
   const total = workspace.getBoundingClientRect().width || 800;
   applySplitLeftWidth(total * 0.55);
+}
+
+/** 큰 창 함께보기: right pane width (px) via --focus-split-right-width on the card. */
+function applyFocusSplitRightWidth(widthPx) {
+  const card = $("focusWriteCard");
+  const body = $("focusWriteBody");
+  if (!card) return widthPx;
+  const total = body?.getBoundingClientRect().width
+    || card.getBoundingClientRect().width
+    || window.innerWidth;
+  if (!Number.isFinite(total) || total < FOCUS_SPLIT_LEFT_MIN + FOCUS_SPLIT_RIGHT_MIN + SPLIT_HANDLE) {
+    const fallback = Math.max(
+      FOCUS_SPLIT_RIGHT_MIN,
+      Math.round(Number(widthPx) || Math.min(480, total * 0.42) || 360),
+    );
+    card.style.setProperty("--focus-split-right-width", `${fallback}px`);
+    return fallback;
+  }
+  const maxRight = Math.max(FOCUS_SPLIT_RIGHT_MIN, total - FOCUS_SPLIT_LEFT_MIN - SPLIT_HANDLE);
+  const raw = Number(widthPx);
+  const preferred = Number.isFinite(raw) && raw > 0 ? raw : Math.min(480, total * 0.42);
+  const width = Math.max(FOCUS_SPLIT_RIGHT_MIN, Math.min(maxRight, Math.round(preferred)));
+  card.style.setProperty("--focus-split-right-width", `${width}px`);
+  return width;
+}
+
+function ensureFocusSplitRightWidth() {
+  const card = $("focusWriteCard");
+  if (!card || !card.classList.contains("is-split")) return;
+  const current = card.style.getPropertyValue("--focus-split-right-width").trim();
+  const parsed = current.endsWith("px") ? Number(current.slice(0, -2)) : Number(current);
+  if (Number.isFinite(parsed) && parsed >= FOCUS_SPLIT_RIGHT_MIN) {
+    applyFocusSplitRightWidth(parsed);
+    return;
+  }
+  try {
+    const stored = Number(localStorage.getItem(FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= FOCUS_SPLIT_RIGHT_MIN) {
+      applyFocusSplitRightWidth(stored);
+      return;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const body = $("focusWriteBody");
+  const total = body?.getBoundingClientRect().width || card.getBoundingClientRect().width || 960;
+  applyFocusSplitRightWidth(Math.min(480, total * 0.42));
 }
 
 function setupSplitPaneResizer() {
@@ -21289,6 +29018,7 @@ function setupSplitPaneResizer() {
   resizer.addEventListener("pointerdown", (event) => {
     if (event.button !== 0) return;
     if (!(state.splitEnabled && state.splitMode === "split")) return;
+    if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) return;
     const column = document.querySelector(".scene-workspace.split-active .writing-column");
     const startWidth = column
       ? column.getBoundingClientRect().width
@@ -21305,10 +29035,75 @@ function setupSplitPaneResizer() {
   });
 
   window.addEventListener("resize", () => {
-    if (state.splitEnabled && state.splitMode === "split") {
-      ensureSplitLeftWidth();
-      layoutSplitPrimaryPane();
+    if (!(state.splitEnabled && state.splitMode === "split")) return;
+    if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+      ensureFocusSplitRightWidth();
+      return;
     }
+    ensureSplitLeftWidth();
+    layoutSplitPrimaryPane();
+  });
+}
+
+/** 큰 창 함께보기 좌우 너비 조절 (본문 ↔ 함께보기 사이 핸들). */
+function setupFocusWriteSplitResizer() {
+  const resizer = $("focusWriteSplitResizer");
+  if (!resizer || resizer.dataset.bound === "1") return;
+  resizer.dataset.bound = "1";
+
+  try {
+    const stored = Number(localStorage.getItem(FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= FOCUS_SPLIT_RIGHT_MIN) {
+      applyFocusSplitRightWidth(stored);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    const body = $("focusWriteBody");
+    if (!body) return;
+    // Right pane width = distance from pointer to the body's right edge
+    const bodyRect = body.getBoundingClientRect();
+    const next = applyFocusSplitRightWidth(bodyRect.right - event.clientX);
+    drag.currentWidth = next;
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    document.body.classList.remove("split-pane-resizing");
+    try {
+      localStorage.setItem(
+        FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY,
+        String(drag.currentWidth || FOCUS_SPLIT_RIGHT_MIN),
+      );
+    } catch (_) {
+      /* ignore */
+    }
+    drag = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (!(state.splitEnabled && state.splitMode === "split")) return;
+    if (!(typeof isFocusWriteOpen === "function" && isFocusWriteOpen())) return;
+    const slot = $("focusWriteSplitSlot");
+    const startWidth = slot
+      ? slot.getBoundingClientRect().width
+      : FOCUS_SPLIT_RIGHT_MIN * 2;
+    drag = { currentWidth: startWidth };
+    document.body.classList.add("split-pane-resizing");
+    try { resizer.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    event.preventDefault();
   });
 }
 
@@ -21347,7 +29142,7 @@ async function openSecondaryView(mode) {
   if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
   const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
   if (!alternative) {
-    toast("다른 씬을 보려면 씬이 두 개 이상 필요해요.");
+    toast("함께보기를 쓰려면 회차가 두 개 이상 필요해요.");
     return;
   }
   await flushSplitEdits();
@@ -21366,8 +29161,12 @@ async function openSecondaryView(mode) {
   await renderSplitViewer();
   if (previousMode && previousMode !== state.splitMode) {
     toast(state.splitMode === "popup" ? "팝업으로 바꿨어요." : "화면 나누기로 바꿨어요.");
+  } else if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    toast(state.splitMode === "popup"
+      ? "큰 창 위에 함께보기를 팝업으로 열었어요."
+      : "큰 창 옆에 함께보기를 나란히 열었어요.");
   } else {
-    toast(state.splitMode === "popup" ? "팝업으로 다른 씬을 열었어요." : "화면을 나눠 다른 씬을 열었어요.");
+    toast(state.splitMode === "popup" ? "함께보기를 팝업으로 열었어요." : "화면을 나눠 함께보기를 열었어요.");
   }
 }
 
@@ -21461,7 +29260,7 @@ async function renderSplitViewer() {
   const alternatives = allScenes().filter((scene) => scene.id !== state.sceneId);
   if (!alternatives.length) {
     await closeSplitView();
-    toast("다른 씬이 없어서 함께 보기를 닫았어요.");
+    toast("함께볼 회차가 없어서 함께보기를 닫았어요.");
     return;
   }
   if (!alternatives.some((scene) => scene.id === state.splitSceneId)) {
@@ -21500,7 +29299,7 @@ function setupSplitEditMode() {
 
   $("toggleSplitEditButton")?.addEventListener("click", async () => {
     if (!state.splitEnabled) {
-      toast("먼저 다른 씬 보기를 켜 주세요.");
+      toast("먼저 함께보기를 켜 주세요.");
       return;
     }
     if (state.splitKind === "source") {
@@ -21568,6 +29367,21 @@ function lockPopupViewerGeometry(viewer) {
   return rect;
 }
 
+/** Titlebar / caption strip height — used so popup chrome stays clear of Electron drag region. */
+function getAppTitlebarInset() {
+  const bar = document.querySelector(".app-titlebar");
+  if (bar) {
+    const h = bar.getBoundingClientRect().height;
+    if (Number.isFinite(h) && h > 0) return Math.ceil(h);
+  }
+  // Electron titleBarOverlay often reports via env; fall back for is-electron shells.
+  if (document.documentElement.classList.contains("is-electron")
+    || document.body.classList.contains("is-electron")) {
+    return 32;
+  }
+  return 0;
+}
+
 function setupPopupDragging() {
   const heading = $("splitHeading");
   const dragBar = $("splitPopupDragBar");
@@ -21580,11 +29394,28 @@ function setupPopupDragging() {
   const MIN_W = 280;
   const MIN_H = 220;
 
+  // Keep Electron from treating this chrome as a window-move region.
+  const markNoDrag = (el) => {
+    if (!el) return;
+    try {
+      el.style.webkitAppRegion = "no-drag";
+      el.style.appRegion = "no-drag";
+    } catch (_) {
+      /* ignore */
+    }
+  };
+  markNoDrag(viewer);
+  markNoDrag(dragBar);
+  markNoDrag(heading);
+  markNoDrag(resizeHandle);
+
   const beginDrag = (event, captureEl) => {
     if (state.splitMode !== "popup") return;
     if (event.button != null && event.button !== 0) return;
     // Don't start a move when interacting with form controls / edit surface / resize grip.
     if (event.target.closest("button, select, input, textarea, option, [contenteditable='true'], .split-body-editor, .split-popup-resize-handle")) return;
+    // Stop bubbling so parent Electron drag regions never see this gesture.
+    event.stopPropagation();
     const rect = lockPopupViewerGeometry(viewer);
     if (!rect) return;
     drag = {
@@ -21597,7 +29428,7 @@ function setupPopupDragging() {
     event.preventDefault();
   };
 
-  // Dedicated drag strip — always free to move the popup.
+  // Dedicated drag strip — always free to move the popup (not the app window).
   dragBar?.addEventListener("pointerdown", (event) => beginDrag(event, dragBar));
   // Also allow dragging from empty heading chrome (not from select/buttons).
   heading?.addEventListener("pointerdown", (event) => beginDrag(event, heading));
@@ -21622,12 +29453,13 @@ function setupPopupDragging() {
     if (state.splitMode !== "popup") return;
     if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
       const vw = viewer.getBoundingClientRect().width || 280;
-      const vh = viewer.getBoundingClientRect().height || 220;
       // Keep a slice of the window on-screen so it can always be grabbed again.
+      // Prefer staying below the Electron titlebar so drag chrome never sits in app-region:drag.
+      const titleInset = getAppTitlebarInset();
       const maxLeft = Math.max(8, window.innerWidth - 48);
       const maxTop = Math.max(8, window.innerHeight - 40);
       const minLeft = Math.min(8, window.innerWidth - vw);
-      const minTop = 0;
+      const minTop = titleInset > 0 ? titleInset : 0;
       const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
       const top = Math.min(maxTop, Math.max(minTop, event.clientY - drag.offsetY));
       viewer.style.left = `${Math.round(left)}px`;
@@ -21743,34 +29575,40 @@ function syncExportManageUi() {
   if (saveFolder) saveFolder.checked = exportPrefs.save_to_folder !== false;
   if (reveal) reveal.checked = exportPrefs.reveal_after_save !== false;
   if (hint) {
-    const path = exportPrefs.export_dir || exportPrefs.default_export_dir || "(미설정)";
-    hint.textContent = exportPrefs.save_to_folder !== false
-      ? `지정 폴더에 저장합니다: ${path}`
-      : "브라우저 기본 다운로드 폴더로 받습니다. (경로 지정 안 함)";
+    const path = (exportPrefs.export_dir || exportPrefs.default_export_dir || "").trim();
+    if (exportPrefs.save_to_folder === false) {
+      hint.textContent = "브라우저 다운로드로 받습니다. (보통 다운로드 폴더)";
+    } else if (path) {
+      hint.textContent = `저장 위치: ${path}`;
+    } else {
+      hint.textContent = "경로를 비우면 다운로드 폴더에 저장됩니다.";
+    }
   }
 }
 
 async function saveExportPrefsFromUi() {
-  const dir = ($("exportDirInput")?.value || "").trim();
+  const rawDir = ($("exportDirInput")?.value || "").trim();
   const saveToFolder = Boolean($("exportSaveToFolder")?.checked);
   const revealAfter = Boolean($("exportRevealAfter")?.checked);
   const data = await api("/api/export/prefs", {
     method: "POST",
     body: JSON.stringify({
-      export_dir: dir,
+      export_dir: rawDir,
       save_to_folder: saveToFolder,
       reveal_after_save: revealAfter,
     }),
   });
   exportPrefs = {
-    export_dir: String(data.export_dir || dir),
+    export_dir: String(data.export_dir || rawDir || exportPrefs.default_export_dir || ""),
     save_to_folder: data.save_to_folder !== false,
     reveal_after_save: data.reveal_after_save !== false,
     default_export_dir: String(data.default_export_dir || exportPrefs.default_export_dir || ""),
     folder_ok: Boolean(data.folder_ok),
   };
   syncExportManageUi();
-  toast(`저장 폴더를 적용했어요.\n${exportPrefs.export_dir}`);
+  toast(rawDir
+    ? `저장 폴더를 적용했어요.\n${exportPrefs.export_dir}`
+    : `경로를 비워 두어 다운로드 폴더로 저장합니다.\n${exportPrefs.export_dir}`);
   return exportPrefs;
 }
 
@@ -22013,9 +29851,26 @@ function setupExportModalUi() {
   $("exportDirSave")?.addEventListener("click", () => {
     saveExportPrefsFromUi().catch(handleError);
   });
+  $("exportDirBrowse")?.addEventListener("click", async () => {
+    try {
+      const pick = window.electronAPI?.pickExportDirectory;
+      if (typeof pick !== "function") {
+        toast("폴더 찾아보기는 설치형 SuperTORY에서 사용할 수 있어요. 경로를 직접 입력해 주세요.");
+        $("exportDirInput")?.focus();
+        return;
+      }
+      const chosen = await pick();
+      if (!chosen) return;
+      if ($("exportDirInput")) $("exportDirInput").value = String(chosen);
+      await saveExportPrefsFromUi();
+    } catch (error) {
+      handleError(error);
+    }
+  });
   $("exportDirDefault")?.addEventListener("click", () => {
-    if ($("exportDirInput") && exportPrefs.default_export_dir) {
-      $("exportDirInput").value = exportPrefs.default_export_dir;
+    // Reset to Downloads (server default_export_dir)
+    if ($("exportDirInput")) {
+      $("exportDirInput").value = exportPrefs.default_export_dir || "";
     }
     saveExportPrefsFromUi().catch(handleError);
   });
@@ -22105,12 +29960,28 @@ async function exportProjectAs(formatKey) {
     const exportDir = ($("exportDirInput")?.value || exportPrefs.export_dir || "").trim();
     const body = {
       format: key,
-      title: exportModalState.titleHint || "",
+      // Do not send UI labels (「2개 회차」 등) as manuscript/file titles.
+      title: "",
       save_to_folder: saveToFolder,
       export_dir: exportDir,
       reveal_after_save: Boolean($("exportRevealAfter")?.checked),
     };
-    if (sceneIds) body.scene_ids = sceneIds;
+    if (sceneIds) {
+      body.scene_ids = sceneIds;
+      // Single-episode: use the real scene title for the download filename only.
+      const hint = String(exportModalState.titleHint || "").trim();
+      if (
+        sceneIds.length === 1
+        && hint
+        && hint !== "이 회차"
+        && hint !== "선택 회차"
+        && hint !== "현재 회차"
+        && !/^\d+개 회차$/.test(hint)
+        && !/^선택회차\d*$/.test(hint)
+      ) {
+        body.title = hint;
+      }
+    }
 
     const response = await fetch(`/api/projects/${state.projectId}/export`, {
       method: "POST",
@@ -22242,6 +30113,10 @@ function openImportModal(options = {}) {
   $("importPurpose").value = current?.purpose && purposeLabel[normalizePurposeKey(current.purpose)]
     ? normalizePurposeKey(current.purpose)
     : "general_novel";
+  syncModalGenreFields("import", $("importPurpose").value, {
+    main: current?.main_genre || "",
+    sub: current?.sub_genre || "",
+  });
 
   // Title / hints for document vs proof
   if ($("importModalTitle")) {
@@ -22328,6 +30203,8 @@ function updateImportFormVisibility() {
 
   $("importChapterWrap").classList.toggle("hidden", destination !== "existing_chapter");
   $("importProjectTitleWrap").classList.toggle("hidden", destination !== "new_project");
+  // Genre is only required when creating a brand-new project.
+  $("importGenreBlock")?.classList.toggle("hidden", destination !== "new_project" || proofMode);
   $("importMatchHint")?.classList.toggle("hidden", destination !== "match_replace_scene");
   $("importProofHint")?.classList.toggle("hidden", destination !== "proof_compare");
   $("importPipelineHint")?.classList.toggle("hidden", destination !== "proof_pipeline");
@@ -22507,6 +30384,23 @@ async function submitImport(event) {
     toast("글을 넣을 챕터를 골라 주세요.");
     return;
   }
+  const purpose = normalizePurposeKey($("importPurpose")?.value || "general_novel");
+  let mainGenre = "";
+  let subGenre = "";
+  if (destination === "new_project") {
+    const genres = readModalGenreValues("import", purpose);
+    if (!genres.ok) {
+      toast(genres.error || "장르를 선택해 주세요. 토리 학습에 필요해요.");
+      $(genres.focusId)?.focus();
+      return;
+    }
+    mainGenre = genres.main;
+    subGenre = genres.sub;
+  } else {
+    const current = state.projects.find((project) => project.id === state.projectId);
+    mainGenre = String(current?.main_genre || state.mainGenre || "").trim();
+    subGenre = String(current?.sub_genre || state.subGenre || "").trim();
+  }
 
   const submit = $("importSubmitButton");
   const isProofJob = importModalMode === "proof"
@@ -22530,7 +30424,9 @@ async function submitImport(event) {
       content_base64: contentBase64,
       destination,
       split: $("importSplit").value,
-      purpose: $("importPurpose").value,
+      purpose: purpose,
+      main_genre: mainGenre,
+      sub_genre: subGenre,
       project_title: $("importProjectTitle").value,
       chapter_title: $("importChapterTitle").value,
       chapter_id: $("importChapterSelect").value || null,
@@ -22565,7 +30461,7 @@ async function submitImport(event) {
         setAiPanelOpen(true);
         if ($("aiResult")) {
           $("aiResult").value = [
-            "🪄 토리 · 교정본 식별 결과",
+            "토리 · 교정본 식별 결과",
             "",
             `매칭 회차: ${match.matched_episode_number}화 「${match.matched_title || "회차"}」${conf}`,
             match.method ? `식별 방법: ${match.method}` : "",
@@ -22598,7 +30494,7 @@ async function submitImport(event) {
       await openScene(result.scene_ids[0]);
     }
     const warning = result.warnings?.length ? ` (${result.warnings[0]})` : "";
-    const purpose = purposeLabel[result.purpose] || "";
+    const purposeName = purposeLabel[result.purpose] || "";
     const chapters = result.chapter_count ? `챕터 ${result.chapter_count}개 · ` : "";
     const packageNote = result.package_name ? ` · 파일 ${result.package_name}` : "";
     const match = result.match;
@@ -22611,7 +30507,7 @@ async function submitImport(event) {
         + `${conf} · ${result.word_count || 0}어절${packageNote}`,
       );
     } else {
-      toast(`문서를 가져왔어요. ${purpose ? `${purpose} · ` : ""}${chapters}씬 ${result.section_count}개 · ${result.word_count}어절${packageNote}${warning}`);
+      toast(`문서를 가져왔어요. ${purposeName ? `${purposeName} · ` : ""}${chapters}씬 ${result.section_count}개 · ${result.word_count}어절${packageNote}${warning}`);
     }
   } catch (error) {
     handleError(error);
@@ -22630,6 +30526,7 @@ function openAdminModal(tab = null) {
   refreshAdminInfoPanel();
   refreshAdminAccountPanel();
   loadTrashList().catch(handleError);
+  if ((tab || "info") === "projects") renderAdminProjectList();
 }
 
 function closeAdminModal() {
@@ -22637,7 +30534,7 @@ function closeAdminModal() {
 }
 
 function setAdminTab(tabId) {
-  const id = String(tabId || "hidden");
+  const id = String(tabId || "info");
   document.querySelectorAll("#adminModal .admin-tab").forEach((btn) => {
     const on = btn.dataset.adminTab === id;
     btn.classList.toggle("is-active", on);
@@ -22651,12 +30548,75 @@ function setAdminTab(tabId) {
   });
   if (id === "trash") loadTrashList().catch(handleError);
   if (id === "hidden") renderHiddenFeaturesList();
+  if (id === "projects") renderAdminProjectList();
   if (id === "info") {
     refreshAdminInfoPanel();
-    renderAdminHelpManual();
+    renderAdminHelpManual($("adminHelpSearch")?.value || "");
     renderAdminHelpQa();
   }
   if (id === "account") refreshAdminAccountPanel();
+}
+
+function renderAdminProjectList() {
+  const list = $("adminProjectList");
+  const hint = $("adminProjectsHint");
+  if (!list) return;
+  const projects = Array.isArray(state.projects) ? state.projects : [];
+  if (hint) {
+    hint.textContent = projects.length
+      ? `작품 ${projects.length}개 · 삭제하면 목록에서 사라집니다.`
+      : "아직 작품이 없어요.";
+  }
+  if (!projects.length) {
+    list.innerHTML = `<p class="hint trash-empty">삭제할 작품이 없어요. 먼저 작품을 만들어 주세요.</p>`;
+    return;
+  }
+  list.innerHTML = projects.map((project) => {
+    const id = Number(project.id);
+    const title = escapeHtml(project.title || `작품 #${id}`);
+    const current = Number(state.projectId) === id;
+    const genre = escapeHtml(
+      [project.main_genre, project.sub_genre].filter(Boolean).join(" · ") || "장르 미정",
+    );
+    return `
+      <article class="admin-project-item${current ? " is-current" : ""}" data-admin-project="${id}">
+        <div class="admin-project-item-main">
+          <span class="admin-project-item-title">${title}${current ? " · 현재 작품" : ""}</span>
+          <span class="admin-project-item-meta">${genre}</span>
+        </div>
+        <div class="admin-project-item-actions">
+          <button type="button" class="secondary compact-btn admin-danger-btn" data-admin-delete-project="${id}">삭제</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+async function deleteProjectFromAdmin(projectId) {
+  const id = Number(projectId);
+  if (!id) return;
+  const project = (state.projects || []).find((p) => Number(p.id) === id);
+  const title = String(project?.title || `작품 #${id}`).trim();
+  const ok = window.confirm(
+    `「${title}」 작품을 삭제할까요?\n\n목록에서 사라지고 더 이상 선택할 수 없습니다.\n(로컬 DB에서 숨김 처리됩니다.)`,
+  );
+  if (!ok) return;
+  await api(`/api/projects/${id}`, { method: "DELETE" });
+  const wasCurrent = Number(state.projectId) === id;
+  toast(`「${title}」을(를) 삭제했어요.`);
+  if (wasCurrent) {
+    state.projectId = null;
+    state.sceneId = null;
+    state.characterId = null;
+    state.outline = [];
+    state.characters = [];
+    state.ideas = [];
+    state.baits = [];
+    $("characterEditor")?.classList.add("hidden");
+    $("sceneWorkspace")?.classList.add("hidden");
+    $("welcome")?.classList.remove("hidden");
+  }
+  await loadProjects(wasCurrent ? null : state.projectId);
+  renderAdminProjectList();
 }
 
 /* —— Auto-update UI (Electron + electron-updater) —— */
@@ -22814,7 +30774,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.0.1";
+const APP_VERSION_FALLBACK = "1.1.0";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -22900,6 +30860,18 @@ function isFeatureHideExempt(el) {
     return true;
   }
   const id = el.id || "";
+  // 본문·설정집·도우미·토리와 대화 탭: 우클릭 숨기기 비활성
+  if (
+    id === "binderTabManuscript"
+    || id === "binderTabSettings"
+    || id === "aiTabTools"
+    || id === "aiTabChat"
+  ) {
+    return true;
+  }
+  if (el.closest?.("#binderTabManuscript, #binderTabSettings, #aiTabTools, #aiTabChat")) {
+    return true;
+  }
   if (
     id === "adminModeButton"
     || id === "featureHideResetButton"
@@ -23152,7 +31124,15 @@ function onGlobalUiFeatureContextMenu(event) {
     "#binderContextMenu",
     "#chapterContextMenu",
     "#partContextMenu",
+    "#settingsContextMenu",
   ].join(", "))) return;
+
+  // 설정집 폴더: 우클릭 메뉴는 제목(메인) 버튼에만. 본문·미리보기·→메인 등에서는 숨기기 메뉴도 열지 않음.
+  const settingsBox = event.target.closest?.("#settingsAccordion .settings-box[data-settings-section]");
+  if (settingsBox) {
+    const onMainToggle = event.target.closest?.(".settings-box-toggle[data-settings-toggle]");
+    if (!onMainToggle) return;
+  }
 
   const el = findHideableControl(event.target);
   if (!el) return;
@@ -23300,70 +31280,90 @@ function setupUiFeatureHideSystem() {
 const HELP_MANUAL_SECTIONS = [
   {
     id: "overview",
-    title: "SuperTory란?",
-    keywords: "소개 개요 용도 로컬 소설 에세이 원고 스크리브너",
+    title: "SuperTory가 뭔가요?",
+    keywords: "소개 개요 용도 로컬 소설 에세이 원고 스크리브너 집필 설치 클라우드",
     body: [
-      "SuperTory는 설치형·로컬 우선 한국어 집필 앱입니다. 클라우드 계정 없이도 작품·회차·설정·아이디어를 이 기기에 저장합니다.",
-      "한 작품은 바인더(목차) 아래 폴더(챕터)와 원고(씬)로 구성됩니다. 설정집에는 시놉시스·로그라인·세계관·키워드·인물 등을 모아 둡니다.",
-      "선택적으로 Gemini 기반 토리(AI) 도움·교정·회차 매칭을 쓸 수 있습니다. 키가 번들에 포함되어 있으면 별도 입력 없이 바로 이용할 수 있습니다.",
+      "내 컴퓨터에 직접 설치해서 쓰는 집필 프로그램이에요. 클라우드 계정 없이도 작품, 회차, 설정, 아이디어를 내 기기에 저장합니다.",
+      "작품 구조는 이렇게 되어 있어요: 작품 → 바인더(목차) → 폴더(챕터) → 원고(씬). 원고 안에 또 하위 폴더를 만들어서 더 세분화할 수도 있어요.",
+      "설정집에는 시놉시스, 로그라인, 세계관, 키워드, 인물, 생각 수첩을 모아둘 수 있고, 원한다면 토리(Gemini 기반 AI)로 교정이나 회차 매칭도 할 수 있어요.",
     ],
   },
   {
     id: "start",
     title: "시작하기",
-    keywords: "시작 작품 만들기 열기 종류 장르",
+    keywords: "시작 작품 만들기 열기 종류 장르 purpose 우클릭 학습",
     body: [
-      "상단에서 작품을 고르거나 새로 만듭니다. 작품 종류(소설·에세이 등)는 나중에 바꿀 수 있습니다.",
-      "왼쪽 바인더 「목차」에서 +챕터로 폴더를, 폴더 안 +로 회차 원고를 추가합니다.",
-      "가운데 편집기에서 제목과 본문을 작성하면 자동 저장됩니다. 네트워크가 끊겨도 기기 안 초안이 먼저 보관됩니다.",
+      "상단에서 작품을 고르거나 새로 만드세요. 작품 종류(소설·에세이 등)와 장르는 나중에 언제든 바꿀 수 있어요.",
+      "단, 소설류에서 장르를 바꾸면 → 토리가 새 장르를 다시 학습해야 한다는 안내가 떠요. 작품 종류를 바꿀 때도 똑같은 안내가 나와요.",
+      "왼쪽 바인더 「목차」에서: +챕터 → 폴더 추가, 폴더/원고 안 + → 하위 폴더나 회차 추가. 가운데 편집기에 글을 쓰면 자동 저장돼요.",
     ],
   },
   {
     id: "binder",
-    title: "바인더 · 목차",
-    keywords: "바인더 목차 폴더 챕터 원고 씬 회차 순번 드래그 우클릭 개수",
+    title: "바인더 (목차)",
+    keywords: "바인더 목차 폴더 챕터 원고 씬 회차 하위폴더 순번 드래그 우클릭 개수 tree",
     body: [
-      "목차 옆 숫자 배지는 폴더 수·원고 수입니다. 우클릭하면 제목 글자 크기 조절과 표시 숨기기를 할 수 있습니다.",
-      "원고·폴더를 끌어 순서를 바꾸고, 우클릭 메뉴로 하위 원고·복제·내보내기·버리기 등을 합니다.",
-      "「순번 정리」로 챕터 제목 번호를 다시 맞출 수 있습니다. 상위 폴더(권·부)로 묶어 대규모 구조를 정리할 수도 있습니다.",
+      "목차 옆 숫자 배지 = 폴더 수 · 원고 수. 우클릭하면 → 제목 글자 크기 조절, 표시 숨기기 가능.",
+      "폴더/원고는 드래그로 순서 변경. 원고(씬)에서 「하위 폴더 만들기」로 그 아래에 폴더를 만들 수 있어요 (들여쓰기·연결선으로 계층 표시).",
+      "우클릭 메뉴에서: 복제 · 내보내기 · 버리기 등. 「순번 정리」 → 챕터 제목 번호 자동 정리. 상위 폴더(권·부)로 큰 구조 단위로 묶기 가능.",
     ],
   },
   {
     id: "editor",
     title: "작성 화면 · 서식",
-    keywords: "작성 편집 서식 굵게 글자색 형광펜 목록 목표 상태바",
+    keywords: "작성 편집 서식 굵게 글자색 형광펜 목록 목표 상태바 분할 팔레트",
     body: [
-      "서식 툴바로 글꼴·크기·굵게·정렬·목록·글자색·형광펜을 적용합니다. 색·목록 아이콘은 우클릭으로 팔레트를 엽니다.",
-      "본문을 드래그한 뒤 우클릭하면 사전·떡밥·각주 등 작성용 메뉴가 열립니다. (이 메뉴에는 기능 숨기기가 없습니다.)",
-      "하단 상태바에서 글자 수·목표·진행 게이지를 확인합니다. 게이지 우클릭으로 색을, 목표 영역 우클릭으로 일괄 적용을 할 수 있습니다.",
+      "서식 툴바: 글꼴·크기·굵게·정렬·목록·글자색·형광펜. 색상/목록 아이콘은 우클릭하면 팔레트가 열려요.",
+      "본문을 드래그 후 우클릭 → 사전·떡밥·각주 등 작성 메뉴 (이 메뉴는 숨기기 기능이 없어요).",
+      "하단 상태바에서 글자 수·목표·진행 게이지 확인. 게이지 우클릭 → 색 변경. 목표 영역 우클릭 → 일괄 적용.",
     ],
   },
   {
     id: "settings",
     title: "설정집",
-    keywords: "설정집 시놉시스 로그라인 세계관 키워드 인물 아이디어 보드",
+    keywords: "설정집 시놉시스 로그라인 세계관 키워드 인물 아이디어 보드 메인에서보기",
     body: [
-      "왼쪽 설정 탭에서 시놉시스·로그라인·세계관·소개/의도·키워드·인물·아이디어 뱅크를 관리합니다.",
-      "각 상자의 「메인에서 보기」로 가운데 화면을 넓게 쓸 수 있습니다. 아이디어는 포스트잇처럼 색·크기를 조절합니다.",
+      "왼쪽 설정 탭에서 관리 가능한 항목: 시놉시스 · 로그라인 · 세계관 · 소개/의도 · 키워드 · 인물 · 생각 수첩.",
+      "각 상자의 「메인에서 보기」 → 가운데 화면을 넓게 사용. 아이디어는 포스트잇처럼 색·크기 조절 가능.",
+      "항목도 우클릭으로 숨기거나 메뉴 열기 가능. 인물·키워드는 메인 화면에서 카드형으로 정리돼요.",
     ],
   },
   {
     id: "ai",
-    title: "토리(AI) · 교정",
-    keywords: "토리 AI 제미니 gemini 도우미 분석 교정 맞춤법",
+    title: "토리 (AI)",
+    keywords: "토리 AI 제미니 gemini 도우미 이어서쓰기 다듬기 아이디어 브레인스토밍 피드백 설정붕괴 중복 페르소나 인덱스",
     body: [
-      "오른쪽 패널의 토리는 요약·다듬기·아이디어 확장 등 글쓰기 도움을 줍니다. 도우미 탭을 우클릭하면 말투(페르소나)를 고를 수 있습니다.",
-      "맞춤법·교정은 공개 검사기와 Gemini 중 환경에 맞게 동작합니다.",
-      "교정고 가져오기·회차 매칭·비교 보고서로 외부 수정본을 원고에 맞출 수 있습니다.",
+      "오른쪽 패널의 토리가 해주는 것들: 이어서 쓰기, 문장 다듬기, 다음 아이디어 제안, 피드백, 브레인스토밍, 설정 붕괴 감지기, 중복 체크.",
+      "「다음 아이디어 제안」과 「브레인스토밍」은 작품 인덱스·설정·누적 정보를 참고해요. 브레인스토밍은 원하는 주제를 직접 적을 수도 있어요.",
+      "도우미 탭 우클릭 → 토리의 말투(페르소나) 선택 가능. Gemini가 연결되어 있어야 작동해요 → 연결 상태는 관리자 → 정보 · 도움말에서 확인.",
+    ],
+  },
+  {
+    id: "proof",
+    title: "교정 · 교정고",
+    keywords: "교정 교열 맞춤법 교정고 매칭 비교 파이프라인 hwp docx 정제",
+    body: [
+      "맞춤법·교정은 환경에 따라 공개 검사기 또는 Gemini로 동작.",
+      "문서 가져오기에서 선택 가능한 기능: 교정고 비교 분석 (기존 글을 덮어쓰지 않아요), 회차 매칭 후 치환, HWP/DOCX 교정 파이프라인 (매칭 → 정제 → 비교).",
+      "파이프라인은 교정고 본문을 정리하고, 회차에 맞춘 뒤, 비교 보고서를 만들어줘요. 실제 적용 여부는 가져오기 옵션에서 확인하세요.",
     ],
   },
   {
     id: "import-export",
     title: "가져오기 · 내보내기",
-    keywords: "가져오기 내보내기 워드 hwp docx 문서 stg 패키지",
+    keywords: "가져오기 내보내기 워드 hwp docx 문서 stg 패키지 word",
     body: [
-      "상단 + 메뉴에서 문서를 가져오거나 작품을 Word·한글·텍스트 등으로 내보냅니다.",
-      "작품은 projects 폴더의 .stg 패키지 핸들로도 열 수 있습니다. 원고 본문의 원본은 로컬 DB에 있습니다.",
+      "상단 + 메뉴에서 문서 가져오기 / 내보내기(Word·한글·텍스트 등).",
+      "작품은 projects 폴더의 .stg 패키지 핸들로도 열 수 있어요. 원고 본문 원본은 로컬 DB(data)에 저장돼요.",
+    ],
+  },
+  {
+    id: "viewer",
+    title: "뷰어 · 테마",
+    keywords: "뷰어 pdf 책 폰 전자잉크 eink 다크모드 테마 미리보기",
+    body: [
+      "원고를 PDF · 책 · 휴대폰 · 전자잉크 스타일로 미리보기 가능 (모드마다 페이지 색·잉크 설정이 따로 적용돼요).",
+      "상단 테마 버튼 → 데이/다크 UI 전환. 뷰어 설정은 이 기기에 기억돼요.",
     ],
   },
   {
@@ -23371,41 +31371,77 @@ const HELP_MANUAL_SECTIONS = [
     title: "기능 숨기기 · 화면 정리",
     keywords: "숨기기 우클릭 숨긴기능 활성화 관리자",
     body: [
-      "거의 모든 기능 버튼·보기 표시(폴더/원고 개수 포함)에서 우클릭 → 「이 기능 숨기기」로 화면을 단순하게 만들 수 있습니다.",
-      "이미 메뉴가 많은 버튼은 우클릭 메뉴 맨 아래에 숨기기가 있습니다.",
-      "숨긴 항목은 왼쪽 위 톱니바퀴(관리자) → 「숨긴 기능」에서 목록으로 보고 「활성화」로 되돌립니다.",
+      "대부분의 기능 버튼·표시(폴더/원고 개수 포함)에서 우클릭 → 「이 기능 숨기기」로 화면을 단순하게 만들 수 있어요.",
+      "메뉴가 이미 많은 버튼은 우클릭 메뉴 맨 아래에 숨기기가 있어요.",
+      "숨긴 항목 되돌리기: 왼쪽 위 톱니바퀴(관리자) → 「숨긴 기능」 → 목록에서 「활성화」.",
     ],
   },
   {
     id: "trash",
     title: "휴지통",
-    keywords: "휴지통 버리기 복원 삭제",
+    keywords: "휴지통 버리기 복원 삭제 폴더 cascade",
     body: [
-      "바인더에서 버린 원고는 휴지통에 보관됩니다. 관리자 → 휴지통에서 복원하거나 완전히 삭제할 수 있습니다.",
-    ],
-  },
-  {
-    id: "viewer",
-    title: "뷰어 · 테마",
-    keywords: "뷰어 pdf 책 폰 전자잉크 다크모드 테마",
-    body: [
-      "원고를 PDF·책·휴대폰·전자잉크 스타일로 미리 볼 수 있습니다. 상단 테마 버튼으로 데이/다크 UI를 전환합니다.",
+      "바인더에서 버린 폴더·원고는 휴지통에 보관돼요. 폴더를 버리면 안에 있던 원고·하위 폴더도 함께 이동해요.",
+      "관리자 → 휴지통에서: 복원하기, 「휴지통 비우기」로 완전 삭제 (되돌릴 수 없어요).",
     ],
   },
   {
     id: "safety",
     title: "저장 · 안전",
-    keywords: "저장 자동저장 로컬 초안 백업 안전",
+    keywords: "저장 자동저장 로컬 초안 백업 안전 indexeddb env api",
     body: [
-      "편집 시 기기 저장소에 먼저 초안을 남긴 뒤 서버(로컬 백엔드)에 저장합니다. 서버 오류가 있어도 작성 중이던 글이 바로 사라지지 않도록 설계되어 있습니다.",
-      "중요한 작품은 내보내기나 기기 백업을 정기적으로 해 두세요.",
+      "편집할 때 기기 저장소에 먼저 초안을 남긴 뒤 로컬 서버에 저장돼요. 서버에 오류가 나도 작성 중이던 글이 바로 사라지지 않도록 설계되어 있어요.",
+      "중요한 작품은 내보내기나 기기 백업을 정기적으로 해두세요. .env의 API 키, 실제 DB 파일은 공유하거나 커밋하지 마세요.",
+    ],
+  },
+  {
+    id: "admin",
+    title: "관리자 모드",
+    keywords: "관리자 정보 도움말 사용자 숨긴기능 휴지통 업데이트 문의",
+    body: [
+      "왼쪽 위 톱니바퀴를 누르면 관리자 모드가 열려요. 탭 순서: 정보 · 도움말 → 사용자 관리 → 숨긴 기능 → 휴지통.",
+      "정보 · 도움말: 버전 · Gemini 상태 · 사용 설명서 검색 · 문의 메일. 사용자 관리: 향후 계정·플랜용 자리 (지금은 로컬 미리보기만 가능).",
     ],
   },
 ];
 
 /** @type {{ id?: string, q: string, a: string }[]} */
 const HELP_QA_ITEMS = [
-  // 추후 업데이트로 항목 추가. 빈 배열이어도 UI 골격 유지.
+  {
+    id: "qa-local",
+    q: "데이터가 어디에 저장되나요?",
+    a: "이 기기의 로컬 DB에 저장됩니다. 클라우드 필수 계정은 없습니다. 작품 핸들은 projects/*.stg 이고, 원고 원본은 data 폴더의 SQLite에 있습니다.",
+  },
+  {
+    id: "qa-child-folder",
+    q: "원고 아래 하위 폴더는 어떻게 만드나요?",
+    a: "바인더에서 원고(씬)를 우클릭 → 「하위 폴더 만들기」를 고르거나, 해당 위치의 +로 추가합니다. 들여쓰기와 연결선으로 계층이 보입니다.",
+  },
+  {
+    id: "qa-genre",
+    q: "장르는 어떻게 바꾸나요?",
+    a: "소설류 작품에서는 상단 장르 버튼을 우클릭해 고릅니다. 바꾸면 토리가 새 장르 기준으로 다시 학습해야 한다는 확인이 나옵니다. 작품 종류(에세이 등) 변경 시에도 같은 안내가 있습니다.",
+  },
+  {
+    id: "qa-ai-ideas",
+    q: "다음 아이디어·브레인스토밍은 무엇을 보나요?",
+    a: "작품 인덱스·설정·누적 정보를 참고해 제안해요. 브레인스토밍은 원하는 주제를 직접 적을 수도 있어요. Gemini 연결이 필요합니다.",
+  },
+  {
+    id: "qa-proof",
+    q: "HWP/DOCX 교정고는 어떻게 넣나요?",
+    a: "문서 가져오기에서 「교정고 비교 분석」 또는 「HWP/DOCX 교정 파이프라인」을 선택합니다. 파이프라인은 매칭 → 정제 → 비교까지 한 흐름으로 처리합니다.",
+  },
+  {
+    id: "qa-hidden",
+    q: "버튼을 숨겼는데 어떻게 다시 켜나요?",
+    a: "관리자 모드 → 「숨긴 기능」에서 항목별 「활성화」를 누릅니다. 숨기려면 해당 버튼을 우클릭 → 「이 기능 숨기기」입니다.",
+  },
+  {
+    id: "qa-trash",
+    q: "버린 원고를 되돌릴 수 있나요?",
+    a: "관리자 → 휴지통에서 복원할 수 있습니다. 「휴지통 비우기」를 하면 완전히 삭제되어 되돌릴 수 없습니다.",
+  },
 ];
 
 function getAppVersionSync() {
@@ -23439,6 +31475,7 @@ function refreshAdminInfoPanel() {
     const isEl = Boolean(window.electronAPI);
     runtime.textContent = isEl ? "데스크톱 앱 (Electron)" : "브라우저 · 로컬 서버";
   }
+  refreshAiStatus().catch(handleError);
 }
 
 function refreshAdminAccountPanel() {
@@ -23527,8 +31564,193 @@ function openDeveloperContact() {
   }
 }
 
+/* —— First-run onboarding tutorial (driver.js) —— */
+const TUTORIAL_COMPLETED_KEY = "tutorial_completed";
+let onboardingDriver = null;
+let tutorialUiSnapshot = null;
+
+function isTutorialCompleted() {
+  try {
+    return localStorage.getItem(TUTORIAL_COMPLETED_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function markTutorialCompleted() {
+  try {
+    localStorage.setItem(TUTORIAL_COMPLETED_KEY, "1");
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function getDriverFactory() {
+  return window.driver?.js?.driver || window.driver?.driver || null;
+}
+
+function prepareTutorialUi() {
+  if (tutorialUiSnapshot) return;
+  tutorialUiSnapshot = {
+    welcomeHidden: $("welcome")?.classList.contains("hidden"),
+    workspaceHidden: $("sceneWorkspace")?.classList.contains("hidden"),
+    aiCollapsed: document.body.classList.contains("ai-panel-collapsed"),
+  };
+  closeAdminModal?.();
+  hideGenreContextMenu?.();
+  hidePurposeContextMenu?.();
+  hideUiFeatureContextMenu?.();
+  $("welcome")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.remove("hidden");
+  $("sceneWorkspace")?.classList.add("tutorial-force-visible");
+  if (typeof setAiPanelOpen === "function") setAiPanelOpen(true);
+  else document.body.classList.remove("ai-panel-collapsed");
+  // Feature bar may be collapsed — reopen shell if present
+  $("sceneFeatureBarShell")?.classList.remove("is-collapsed");
+  $("sceneFeatureBarReopenButton")?.classList.add("hidden");
+  if ($("sceneFeatureBarReopenButton")) $("sceneFeatureBarReopenButton").hidden = true;
+  syncMsChromeReopenStrip?.();
+}
+
+function restoreTutorialUi() {
+  const snap = tutorialUiSnapshot;
+  tutorialUiSnapshot = null;
+  $("sceneWorkspace")?.classList.remove("tutorial-force-visible");
+  if (!snap) return;
+  if (!snap.welcomeHidden) $("welcome")?.classList.remove("hidden");
+  if (snap.workspaceHidden) $("sceneWorkspace")?.classList.add("hidden");
+  if (snap.aiCollapsed) {
+    if (typeof setAiPanelOpen === "function") setAiPanelOpen(false);
+    else document.body.classList.add("ai-panel-collapsed");
+  }
+}
+
+function destroyOnboardingDriver() {
+  try {
+    onboardingDriver?.destroy?.();
+  } catch (_) {
+    /* ignore */
+  }
+  onboardingDriver = null;
+  restoreTutorialUi();
+}
+
+function buildOnboardingSteps() {
+  // Exact copy — do not polish.
+  return [
+    {
+      element: "#writingLogButton",
+      popover: {
+        title: "기록",
+        description: "지난 일주일 글자 수를 확인해요. 우클릭하면 더 많은 설정이 있어요.",
+        side: "bottom",
+        align: "start",
+      },
+    },
+    {
+      element: "#outlineTocHeading",
+      popover: {
+        title: "목차",
+        description: "클릭하면 목차를 한눈에 볼 수 있어요. 우클릭으로 바인더 글자 크기도 조절할 수 있어요.",
+        side: "right",
+        align: "start",
+      },
+    },
+    {
+      element: "#aiTabTools",
+      popover: {
+        title: "도우미",
+        description: "토리 모드를 설정할 수 있어요. 팩폭 잘하는 투덜이는 어때요?",
+        side: "left",
+        align: "start",
+      },
+    },
+    {
+      element: "#sceneContent",
+      popover: {
+        title: "떡밥",
+        description: "떡밥을 던져 놓으면 회수 시기를 놓치지 않아요. 사용해보실래요?",
+        side: "left",
+        align: "start",
+      },
+    },
+    {
+      element: "#outline",
+      popover: {
+        title: "바인더",
+        description: "폴더와 원고를 자유자재로 배치해요. 끌어다 놓기만 하세요.",
+        side: "right",
+        align: "center",
+      },
+    },
+    {
+      element: "#adminModeButton",
+      popover: {
+        title: "숨긴 기능",
+        description: "안 쓰는 기능은 숨길 수 있어요. 미니멀리스트를 위한 팁입니당~",
+        side: "bottom",
+        align: "end",
+      },
+    },
+  ];
+}
+
+/**
+ * @param {{ force?: boolean }} [options]
+ */
+function startOnboardingTutorial(options = {}) {
+  const force = Boolean(options.force);
+  if (!force && isTutorialCompleted()) return false;
+  const createDriver = getDriverFactory();
+  if (typeof createDriver !== "function") {
+    console.warn("[SuperTory] driver.js not loaded");
+    return false;
+  }
+  destroyOnboardingDriver();
+  prepareTutorialUi();
+
+  onboardingDriver = createDriver({
+    animate: true,
+    allowClose: true,
+    overlayOpacity: 0.55,
+    stagePadding: 8,
+    stageRadius: 8,
+    smoothScroll: true,
+    showProgress: true,
+    progressText: "{{current}} / {{total}}",
+    nextBtnText: "다음",
+    prevBtnText: "이전",
+    doneBtnText: "완료",
+    showButtons: ["next", "previous", "close"],
+    popoverClass: "supertory-tutorial-popover",
+    steps: buildOnboardingSteps(),
+    onPopoverRender: (popover) => {
+      if (popover?.closeButton) {
+        popover.closeButton.textContent = "건너뛰기";
+        popover.closeButton.setAttribute("aria-label", "건너뛰기");
+        popover.closeButton.title = "건너뛰기";
+        popover.closeButton.classList.add("driver-popover-skip-btn");
+      }
+    },
+    onDestroyed: () => {
+      markTutorialCompleted();
+      onboardingDriver = null;
+      restoreTutorialUi();
+    },
+  });
+  onboardingDriver.drive(0);
+  return true;
+}
+
+function maybeStartOnboardingTutorial() {
+  if (isTutorialCompleted()) return;
+  window.setTimeout(() => {
+    startOnboardingTutorial({ force: false });
+  }, 700);
+}
+
 function setupAdminMode() {
-  $("adminModeButton")?.addEventListener("click", () => openAdminModal("hidden"));
+  $("adminModeButton")?.addEventListener("click", () => openAdminModal("info"));
   document.querySelectorAll("[data-close-admin]").forEach((el) => {
     el.addEventListener("click", closeAdminModal);
   });
@@ -23541,6 +31763,11 @@ function setupAdminMode() {
   $("adminContactDevButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openDeveloperContact();
+  });
+  $("adminReplayTutorialButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeAdminModal();
+    window.setTimeout(() => startOnboardingTutorial({ force: true }), 120);
   });
   $("refreshTrashButton")?.addEventListener("click", () => {
     loadTrashList().catch(handleError);
@@ -23562,6 +31789,15 @@ function setupAdminMode() {
       const title = row?.querySelector(".trash-item-title")?.textContent || "";
       purgeTrashedScene(purgeBtn.dataset.trashPurge, title).catch(handleError);
     }
+  });
+  $("refreshAdminProjectsButton")?.addEventListener("click", () => {
+    loadProjects(state.projectId).then(() => renderAdminProjectList()).catch(handleError);
+  });
+  $("adminProjectList")?.addEventListener("click", (event) => {
+    const delBtn = event.target.closest?.("[data-admin-delete-project]");
+    if (!delBtn) return;
+    event.preventDefault();
+    deleteProjectFromAdmin(delBtn.dataset.adminDeleteProject).catch(handleError);
   });
   setupUiFeatureHideSystem();
   renderAdminHelpManual();
@@ -23597,6 +31833,21 @@ function updateUiThemeToggleButton(theme) {
   button.querySelector(".theme-icon-moon")?.classList.toggle("hidden", !isDark);
 }
 
+function syncElectronChrome() {
+  if (!window.electronAPI) return;
+  document.documentElement.classList.add("is-electron");
+  document.body?.classList.add("is-electron");
+  if (/Macintosh|Mac OS X/i.test(navigator.userAgent || "")) {
+    document.documentElement.classList.add("is-electron-mac");
+    document.body?.classList.add("is-electron-mac");
+  }
+  try {
+    window.electronAPI.setTitleBarTheme?.(getUiTheme());
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function setUiTheme(theme, { announce = false } = {}) {
   const next = theme === "dark" ? "dark" : "light";
   document.documentElement.setAttribute("data-ui-theme", next);
@@ -23607,6 +31858,11 @@ function setUiTheme(theme, { announce = false } = {}) {
     /* private mode */
   }
   updateUiThemeToggleButton(next);
+  try {
+    window.electronAPI?.setTitleBarTheme?.(next);
+  } catch (_) {
+    /* ignore */
+  }
   if (announce) {
     toast(next === "dark" ? "다크 모드로 바꿨어요." : "데이 모드로 바꿨어요.");
   }
@@ -23617,6 +31873,7 @@ function toggleUiTheme() {
 }
 
 function setupUiThemeToggle() {
+  syncElectronChrome();
   setUiTheme(getUiTheme(), { announce: false });
   $("uiThemeToggleButton")?.addEventListener("click", toggleUiTheme);
 }
@@ -23667,7 +31924,14 @@ setupCreateMenu();
 setupNewProjectModal();
 setupWelcomeScreen();
 setupAdminMode();
+setupCharacterPortraitUi();
 $("importDestination").addEventListener("change", updateImportFormVisibility);
+$("importPurpose")?.addEventListener("change", () => {
+  syncModalGenreFields("import", $("importPurpose")?.value || "general_novel");
+});
+$("importMainGenre")?.addEventListener("change", () => {
+  syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", { keepMain: true });
+});
 $("importSplit").addEventListener("change", updateImportFormVisibility);
 $("importFile").addEventListener("change", () => {
   const file = $("importFile").files?.[0];
@@ -23701,6 +31965,10 @@ document.addEventListener("keydown", (event) => {
     closeNewProjectModal();
     return;
   }
+  if (!$("textPromptModal")?.classList.contains("hidden")) {
+    closeTextPromptModal(null);
+    return;
+  }
   if (!$("importModal").classList.contains("hidden")) {
     closeImportModal();
     return;
@@ -23723,7 +31991,9 @@ $("newChapterButton").addEventListener("click", () => {
   createChapter().catch(handleError);
 });
 setupRenumberChaptersModal();
+setupTextPromptModal();
 setupOutlineBinderChrome();
+setupOutlineOverview();
 $("newCharacterButton").addEventListener("click", () => createCharacter().catch(handleError));
 $("closeSplitButton").addEventListener("click", () => closeSplitView().catch(handleError));
 $("splitSceneSelect").addEventListener("change", () => selectSplitScene().catch(handleError));
@@ -23748,6 +32018,7 @@ setupSettingsContextMenu();
 setupSceneFeatureBar();
 setupAnalyzeMenu();
 setupFocusWrite();
+setupViewModeShortcuts();
 setupViewerMode();
 setupGenrePicker();
 setupPurposePicker();
@@ -23759,7 +32030,9 @@ renderBookmarkBar();
 setupSceneAutoSave();
 setupBinderSwitch();
 setupOutlineResizer();
+setupAiPanelResizer();
 setupSplitPaneResizer();
+setupFocusWriteSplitResizer();
 setupSplitEditMode();
 $("projectSelect").addEventListener("change", (event) => {
   state.projectId = Number(event.target.value);
@@ -23771,6 +32044,8 @@ $("projectSelect").addEventListener("change", (event) => {
   state.mainGenre = "";
   state.subGenre = "";
   state.keywords = [];
+  state.toryPriorityMd = "";
+  syncToryPriorityInput();
   state.projectPurpose = state.projects.find((p) => p.id === state.projectId)?.purpose || null;
   loadEpisodeTabsFromStorage();
   syncPurposePickerFromState();
@@ -23790,3 +32065,4 @@ $("addAliasButton").addEventListener("click", () => addAlias().catch(handleError
 $("newAlias").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addAlias().catch(handleError); } });
 
 loadProjects().catch(handleError);
+maybeStartOnboardingTutorial();

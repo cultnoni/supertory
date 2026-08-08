@@ -82,7 +82,9 @@ class ProofDiffApiTests(unittest.TestCase):
         return response.status, result
 
     def test_proof_diff_api_with_scene(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "교정비교"})
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "교정비교", "main_genre": "판타지"}
+        )
         self.assertEqual(status, 201)
         pid = project["id"]
         status, ch = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})
@@ -113,7 +115,9 @@ class ProofDiffApiTests(unittest.TestCase):
         self.assertEqual(report["scene_id"], scene["id"])
 
     def test_import_proof_compare(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "교정가져오기"})
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "교정가져오기", "main_genre": "판타지"}
+        )
         pid = project["id"]
         status, ch = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})
         status, scene = self.request("POST", f"/api/chapters/{ch['id']}/scenes", {"title": "제1화: 만남"})

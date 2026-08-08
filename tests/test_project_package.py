@@ -85,7 +85,11 @@ class ProjectPackageApiTests(unittest.TestCase):
         return response.status, result
 
     def test_create_project_writes_stg_file(self) -> None:
-        status, project = self.request("POST", "/api/projects", {"title": "선밖에서", "purpose": "novel"})
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "선밖에서", "purpose": "novel", "main_genre": "판타지"},
+        )
         self.assertEqual(status, 201)
         self.assertIn("package_path", project)
         self.assertTrue(project["package_name"].endswith(".stg"))

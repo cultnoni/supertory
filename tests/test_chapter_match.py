@@ -109,7 +109,9 @@ class ChapterMatchApiTests(unittest.TestCase):
         return response.status, result
 
     def _seed_project(self) -> tuple[int, int, int]:
-        status, project = self.request("POST", "/api/projects", {"title": "매칭테스트"})
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "매칭테스트", "main_genre": "판타지"}
+        )
         self.assertEqual(status, 201)
         pid = project["id"]
         status, ch = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1부"})

@@ -134,24 +134,70 @@ function userProjectsDir() {
 }
 
 /**
- * Prefer the PyInstaller onedir bundle (no system Python required).
- * Fall back to local Python + app.py only in development.
+ * Prefer live app.py in development so web/ edits apply without rebuild.
+ * Packaged builds use the PyInstaller onedir bundle (no system Python).
  */
 function resolveBackendLaunch() {
-  const bundledCandidates = [];
+  const appPy = path.join(projectRoot(), "app.py");
 
+  function pythonLaunch() {
+    if (!fs.existsSync(appPy)) return null;
+    const candidates = [];
+    if (process.env.SUPERTORY_PYTHON) {
+      candidates.push(process.env.SUPERTORY_PYTHON);
+    }
+    candidates.push(
+      path.join(process.env.LOCALAPPDATA || "", "Python", "bin", "python.exe")
+    );
+    for (const candidate of candidates) {
+      if (candidate && fs.existsSync(candidate)) {
+        return {
+          kind: "python",
+          command: candidate,
+          args: [appPy],
+          cwd: projectRoot(),
+        };
+      }
+    }
+    if (process.platform === "win32") {
+      return {
+        kind: "python",
+        command: "py",
+        args: ["-3", appPy],
+        cwd: projectRoot(),
+      };
+    }
+    return {
+      kind: "python",
+      command: "python",
+      args: [appPy],
+      cwd: projectRoot(),
+    };
+  }
+
+  // Dev: always prefer source tree (web/styles.css, app.js stay live).
+  if (isDev) {
+    const live = pythonLaunch();
+    if (live) {
+      console.log("[supertory] backend: live app.py (dev)");
+      return live;
+    }
+  }
+
+  const bundledCandidates = [];
   if (!isDev) {
     bundledCandidates.push(
       path.join(process.resourcesPath, SERVER_DIR_NAME, SERVER_EXE_NAME)
     );
   }
-  // Dev convenience: if backend was pre-built, use it without system Python.
+  // Fallback when Python is unavailable: pre-built backend-dist.
   bundledCandidates.push(
     path.join(projectRoot(), "backend-dist", SERVER_DIR_NAME, SERVER_EXE_NAME)
   );
 
   for (const exePath of bundledCandidates) {
     if (fs.existsSync(exePath)) {
+      console.log("[supertory] backend: bundled", exePath);
       return {
         kind: "bundled",
         command: exePath,
@@ -161,49 +207,14 @@ function resolveBackendLaunch() {
     }
   }
 
-  // Development: run app.py with system Python.
-  const appPy = path.join(projectRoot(), "app.py");
-  if (!fs.existsSync(appPy)) {
-    throw new Error(
-      "백엔드를 찾을 수 없습니다.\n" +
-        `번들: resources/${SERVER_DIR_NAME}/${SERVER_EXE_NAME}\n` +
-        `또는 개발용: ${appPy}`
-    );
-  }
+  const live = pythonLaunch();
+  if (live) return live;
 
-  const candidates = [];
-  if (process.env.SUPERTORY_PYTHON) {
-    candidates.push(process.env.SUPERTORY_PYTHON);
-  }
-  candidates.push(
-    path.join(process.env.LOCALAPPDATA || "", "Python", "bin", "python.exe")
+  throw new Error(
+    "백엔드를 찾을 수 없습니다.\n" +
+      `번들: resources/${SERVER_DIR_NAME}/${SERVER_EXE_NAME}\n` +
+      `또는 개발용: ${appPy}`
   );
-
-  for (const candidate of candidates) {
-    if (candidate && fs.existsSync(candidate)) {
-      return {
-        kind: "python",
-        command: candidate,
-        args: [appPy],
-        cwd: projectRoot(),
-      };
-    }
-  }
-
-  if (process.platform === "win32") {
-    return {
-      kind: "python",
-      command: "py",
-      args: ["-3", appPy],
-      cwd: projectRoot(),
-    };
-  }
-  return {
-    kind: "python",
-    command: "python",
-    args: [appPy],
-    cwd: projectRoot(),
-  };
 }
 
 function waitForPort(host, port, timeoutMs = 90000) {
@@ -306,8 +317,30 @@ function stopBackendServer() {
   }
 }
 
+/** Match web `--header-bg` so the OS caption strip blends with app chrome. */
+const TITLEBAR_OVERLAY = {
+  light: { color: "#fffaf2", symbolColor: "#2a241c", height: 32 },
+  dark: { color: "#1e1b17", symbolColor: "#ece6dc", height: 32 },
+};
+
+function titleBarOverlayOptions(theme = "light") {
+  return theme === "dark" ? TITLEBAR_OVERLAY.dark : TITLEBAR_OVERLAY.light;
+}
+
 function createMainWindow() {
   const iconPath = path.join(projectRoot(), "assets", "icon.ico");
+  const win32Chrome =
+    process.platform === "win32"
+      ? {
+          titleBarStyle: "hidden",
+          titleBarOverlay: titleBarOverlayOptions("light"),
+        }
+      : process.platform === "darwin"
+        ? {
+            titleBarStyle: "hiddenInset",
+            trafficLightPosition: { x: 14, y: 10 },
+          }
+        : {};
   mainWindow = new BrowserWindow({
     width: 1400,
     height: 900,
@@ -316,7 +349,9 @@ function createMainWindow() {
     show: false,
     title: "SuperTory",
     autoHideMenuBar: true,
+    backgroundColor: "#fffaf2",
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    ...win32Chrome,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
@@ -332,6 +367,19 @@ function createMainWindow() {
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
     return { action: "deny" };
+  });
+
+  // File drag-drop onto the window must not navigate away from the SPA
+  // (otherwise 흥행 공식 분석 드롭존 등이 동작하지 않음).
+  mainWindow.webContents.on("will-navigate", (event, url) => {
+    try {
+      const current = mainWindow?.webContents?.getURL?.() || "";
+      if (url && current && url !== current) {
+        event.preventDefault();
+      }
+    } catch (_) {
+      event.preventDefault();
+    }
   });
 
   mainWindow.on("closed", () => {
@@ -612,6 +660,26 @@ function setupIpc() {
   });
   ipcMain.handle("supertory:get-version", () => app.getVersion());
   ipcMain.handle("supertory:is-packaged", () => app.isPackaged);
+  ipcMain.handle("supertory:set-titlebar-theme", (_event, theme) => {
+    if (!mainWindow || process.platform !== "win32") return false;
+    if (typeof mainWindow.setTitleBarOverlay !== "function") return false;
+    try {
+      mainWindow.setTitleBarOverlay(titleBarOverlayOptions(theme === "dark" ? "dark" : "light"));
+      return true;
+    } catch (error) {
+      console.warn("[supertory] setTitleBarOverlay failed:", error?.message || error);
+      return false;
+    }
+  });
+  /** Folder picker for export path (returns absolute path or null). */
+  ipcMain.handle("supertory:pick-export-directory", async () => {
+    const result = await dialog.showOpenDialog(mainWindow || undefined, {
+      title: "내보내기 폴더 선택",
+      properties: ["openDirectory", "createDirectory"],
+    });
+    if (result.canceled || !result.filePaths?.length) return null;
+    return result.filePaths[0];
+  });
   /** Manual re-check from UI (관리자 → 정보 등). */
   ipcMain.handle("supertory:check-for-updates", async () => {
     if (isDev) {

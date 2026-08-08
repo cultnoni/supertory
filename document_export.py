@@ -9,6 +9,7 @@ from __future__ import annotations
 import html as html_lib
 import io
 import re
+import sys
 import zipfile
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -61,7 +62,25 @@ EXPORT_FORMATS: dict[str, dict[str, str]] = {
 }
 
 # Hangul-openable blank package (mimetype + full header.xml + secPr).
-_HWPX_SKELETON_PATH = Path(__file__).resolve().parent / "assets" / "hwpx_skeleton.hwpx"
+def _hwpx_skeleton_path() -> Path:
+    """Resolve skeleton for source runs and PyInstaller frozen bundles."""
+    name = "hwpx_skeleton.hwpx"
+    candidates = [Path(__file__).resolve().parent / "assets" / name]
+    if getattr(sys, "frozen", False):
+        meipass = getattr(sys, "_MEIPASS", None)
+        if meipass:
+            candidates.insert(0, Path(meipass) / "assets" / name)
+        try:
+            candidates.append(Path(sys.executable).resolve().parent / "assets" / name)
+        except Exception:
+            pass
+    for path in candidates:
+        if path.is_file():
+            return path
+    return candidates[0]
+
+
+_HWPX_SKELETON_PATH = _hwpx_skeleton_path()
 
 
 @dataclass(frozen=True)
@@ -91,9 +110,16 @@ def build_blocks(
     *,
     project_title: str,
     chapters: list[dict],
+    include_title: bool = True,
 ) -> list[ManuscriptBlock]:
-    """chapters: [{title, scenes:[{title, content_plain}]}]"""
-    blocks: list[ManuscriptBlock] = [ManuscriptBlock("title", project_title or "무제")]
+    """chapters: [{title, scenes:[{title, content_plain}]}]
+
+    include_title: when False, skip the top-level document heading
+    (used for 회차 선택 내보내기 so UI labels like '선택회차2' never appear in the file body).
+    """
+    blocks: list[ManuscriptBlock] = []
+    if include_title:
+        blocks.append(ManuscriptBlock("title", project_title or "무제"))
     for chapter in chapters:
         chapter_title = str(chapter.get("title") or "").strip() or "챕터"
         blocks.append(ManuscriptBlock("chapter", chapter_title))
@@ -276,8 +302,20 @@ def build_docx(blocks: list[ManuscriptBlock]) -> bytes:
         elif block.kind == "scene":
             paragraphs.append(_docx_paragraph_xml(block.text, bold=True, size_half_points=24))
         else:
-            for para in (block.text or "").split("\n\n"):
-                paragraphs.append(_docx_paragraph_xml(para.strip()))
+            # Body: same blank-line policy as HWPX — \n\n(+ ) becomes one empty
+            # paragraph between text parts so Word shows a one-line gap.
+            body = str(block.text or "")
+            body = body.replace("\r\n", "\n").replace("\r", "\n")
+            body = body.strip("\n")
+            if body.strip():
+                parts = re.split(r"\n\s*\n+", body)
+                first = True
+                for part in parts:
+                    if not first:
+                        paragraphs.append(_docx_paragraph_xml(""))
+                    first = False
+                    # Single \n inside a part → soft breaks via _docx_paragraph_xml.
+                    paragraphs.append(_docx_paragraph_xml(part))
             paragraphs.append(_docx_paragraph_xml(""))
 
     body_inner = "".join(paragraphs)
@@ -348,7 +386,13 @@ def build_docx(blocks: list[ManuscriptBlock]) -> bytes:
 
 
 def _hwpx_paragraph_lines(blocks: list[ManuscriptBlock]) -> list[str]:
-    """Flatten manuscript blocks into Hangul paragraph lines."""
+    """Flatten manuscript blocks into Hangul paragraph lines.
+
+    Body text: each non-empty line becomes one paragraph. Blank lines in the
+    source (\\n\\n, including runs of more) insert a single empty paragraph so
+    Hangul keeps a visual gap between blocks (paraPr margin is often 0).
+    Leading/trailing empty paragraphs are stripped at the end.
+    """
     lines: list[str] = []
     for block in blocks:
         if block.kind in {"title", "chapter", "scene"}:
@@ -358,15 +402,23 @@ def _hwpx_paragraph_lines(blocks: list[ManuscriptBlock]) -> list[str]:
             lines.append("")
         else:
             body = sanitize_export_text(block.text or "")
-            chunks = [chunk.strip() for chunk in re.split(r"\n\s*\n", body) if chunk.strip()]
-            if not chunks and body.strip():
-                chunks = [body.strip()]
-            for chunk in chunks:
-                for line in chunk.split("\n"):
-                    lines.append(line.rstrip())
+            body = body.replace("\r\n", "\n").replace("\r", "\n")
+            body = body.strip("\n")
+            if body.strip():
+                # \n\n+ → one separator; keep one empty line between text parts.
+                parts = re.split(r"\n\s*\n+", body)
+                first = True
+                for part in parts:
+                    if not first:
+                        lines.append("")
+                    first = False
+                    for line in part.split("\n"):
+                        lines.append(line.rstrip())
             lines.append("")
     while lines and lines[-1] == "":
         lines.pop()
+    while lines and lines[0] == "":
+        lines.pop(0)
     if not lines:
         lines = [""]
     return lines
@@ -477,7 +529,7 @@ def validate_hwpx_package(data: bytes) -> list[str]:
 
 def build_hwpx(blocks: list[ManuscriptBlock]) -> bytes:
     """Build a Hangul-openable HWPX by cloning a known-good skeleton package."""
-    skeleton = _HWPX_SKELETON_PATH
+    skeleton = _hwpx_skeleton_path()
     if not skeleton.is_file():
         raise ValueError(
             "한글(HWPX) 내보내기 템플릿(assets/hwpx_skeleton.hwpx)을 찾지 못했습니다."
@@ -524,6 +576,7 @@ def export_bytes(
     project_title: str,
     chapters: list[dict],
     stg_bytes: bytes | None = None,
+    include_title: bool = True,
 ) -> ExportFile:
     key = (format_key or "").strip().lower()
     meta = EXPORT_FORMATS.get(key)
@@ -537,7 +590,11 @@ def export_bytes(
             raise ValueError("연결 파일(.stg)을 준비하지 못했습니다.")
         data = stg_bytes
     else:
-        blocks = build_blocks(project_title=project_title, chapters=chapters)
+        blocks = build_blocks(
+            project_title=project_title,
+            chapters=chapters,
+            include_title=include_title,
+        )
         if key == "txt":
             data = blocks_to_plain(blocks).encode("utf-8-sig")  # BOM for Notepad
         elif key == "md":

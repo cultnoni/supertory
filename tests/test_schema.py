@@ -200,6 +200,33 @@ class SuperTorySchemaTests(unittest.TestCase):
         )
         self.assert_integrity_error("UPDATE chapter SET deleted_at = NULL WHERE id = 20")
 
+    def test_project_index_and_scene_summary_tables(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "019_project_index.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.create_story()
+        self.db.execute(
+            "INSERT INTO project_index(project_id, characters_json, open_threads_json) "
+            "VALUES (1, '[\"Han\"]', '[\"편지\"]')"
+        )
+        self.db.execute(
+            "INSERT INTO scene_summary(scene_id, summary) VALUES (30, '{\"event_summary\":\"만남\"}')"
+        )
+        row = self.db.execute(
+            "SELECT characters_json, open_threads_json FROM project_index WHERE project_id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], '["Han"]')
+        summary = self.db.execute(
+            "SELECT summary FROM scene_summary WHERE scene_id = 30"
+        ).fetchone()[0]
+        self.assertIn("만남", summary)
+        # Cross-project / missing FK rejected
+        self.assert_integrity_error(
+            "INSERT INTO project_index(project_id) VALUES (999)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO scene_summary(scene_id, summary) VALUES (999, '{}')"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -44,14 +44,20 @@ class ProjectListOrderTests(unittest.TestCase):
         return status, result
 
     def test_recent_open_orders_list_and_manual_reorder(self) -> None:
-        status, a = self.request("POST", "/api/projects", {"title": "작품 A"})
-        self.assertEqual(status, 201)
+        status, a = self.request(
+            "POST", "/api/projects", {"title": "작품 A", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201, a)
         time.sleep(0.02)
-        status, b = self.request("POST", "/api/projects", {"title": "작품 B"})
-        self.assertEqual(status, 201)
+        status, b = self.request(
+            "POST", "/api/projects", {"title": "작품 B", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201, b)
         time.sleep(0.02)
-        status, c = self.request("POST", "/api/projects", {"title": "작품 C"})
-        self.assertEqual(status, 201)
+        status, c = self.request(
+            "POST", "/api/projects", {"title": "작품 C", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201, c)
 
         status, listed = self.request("GET", "/api/projects")
         self.assertEqual(status, 200)

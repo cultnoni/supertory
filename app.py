@@ -23,6 +23,7 @@ import time
 import uuid
 import webbrowser
 from contextlib import contextmanager
+from datetime import datetime, timezone
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -34,12 +35,14 @@ import document_export
 import document_import
 import env_loader
 import gemini_client
+import import_hierarchy
 import korean_speller
 import project_package
 import proof_clean
 import proof_diff
 import proof_extract
 import proof_pipeline
+import success_pattern
 
 def _is_frozen() -> bool:
     """True when running as a PyInstaller (or similar) bundle."""
@@ -84,6 +87,15 @@ MIGRATION_014_PATH = ROOT / "db" / "014_writing_first_met.sql"
 MIGRATION_015_PATH = ROOT / "db" / "015_character_strengths_weaknesses.sql"
 MIGRATION_016_PATH = ROOT / "db" / "016_scene_parent.sql"
 MIGRATION_017_PATH = ROOT / "db" / "017_project_list_order.sql"
+MIGRATION_018_PATH = ROOT / "db" / "018_tory_priority.sql"
+MIGRATION_019_PATH = ROOT / "db" / "019_project_index.sql"
+MIGRATION_020_PATH = ROOT / "db" / "020_project_index_queue.sql"
+MIGRATION_021_PATH = ROOT / "db" / "021_chapter_parent_scene.sql"
+MIGRATION_022_PATH = ROOT / "db" / "022_outline_summary.sql"
+MIGRATION_023_PATH = ROOT / "db" / "023_bait.sql"
+MIGRATION_024_PATH = ROOT / "db" / "024_character_portrait.sql"
+MIGRATION_025_PATH = ROOT / "db" / "025_success_pattern_profile.sql"
+MIGRATION_026_PATH = ROOT / "db" / "026_linked_success_profile.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -157,11 +169,14 @@ def projects_root() -> Path:
 
 
 def default_export_dir() -> Path:
-    """Default folder for manuscript exports on this PC."""
-    docs = Path.home() / "Documents"
-    if not docs.is_dir():
-        docs = Path.home()
-    return docs / "SuperTORY 내보내기"
+    """Default folder for manuscript exports: Downloads (다운로드)."""
+    home = Path.home()
+    for name in ("Downloads", "다운로드"):
+        candidate = home / name
+        if candidate.is_dir():
+            return candidate
+    # Prefer creating the common English name if neither exists yet.
+    return home / "Downloads"
 
 
 def export_prefs_path() -> Path:
@@ -384,12 +399,36 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_016_PATH.read_text(encoding="utf-8"))
         if 17 not in applied:
             connection.executescript(MIGRATION_017_PATH.read_text(encoding="utf-8"))
+        if 18 not in applied:
+            connection.executescript(MIGRATION_018_PATH.read_text(encoding="utf-8"))
+        if 19 not in applied:
+            connection.executescript(MIGRATION_019_PATH.read_text(encoding="utf-8"))
+        if 20 not in applied:
+            connection.executescript(MIGRATION_020_PATH.read_text(encoding="utf-8"))
+        if 21 not in applied:
+            connection.executescript(MIGRATION_021_PATH.read_text(encoding="utf-8"))
+        if 22 not in applied:
+            connection.executescript(MIGRATION_022_PATH.read_text(encoding="utf-8"))
+        if 23 not in applied:
+            connection.executescript(MIGRATION_023_PATH.read_text(encoding="utf-8"))
+        if 24 not in applied:
+            connection.executescript(MIGRATION_024_PATH.read_text(encoding="utf-8"))
+        if 25 not in applied:
+            connection.executescript(MIGRATION_025_PATH.read_text(encoding="utf-8"))
+        if 26 not in applied:
+            connection.executescript(MIGRATION_026_PATH.read_text(encoding="utf-8"))
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
 
 
 def illustration_dir_for(project_id: int) -> Path:
     path = DATA_DIR / "illustrations" / str(project_id)
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def character_portrait_dir_for(project_id: int) -> Path:
+    path = illustration_dir_for(project_id) / "characters"
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -480,18 +519,30 @@ def set_project_list_mode(connection: sqlite3.Connection, mode: str) -> str:
     return normalised
 
 
+def utc_timestamp_now() -> str:
+    """UTC timestamp with microseconds for list-order keys.
+
+    Prefer this over SQLite ``strftime(..., 'now')`` for ``last_opened_at``:
+    SQLite's ``now`` can collide at millisecond (or coarser) resolution when
+    projects are created/touched in rapid succession, and ties then fall through
+    to ``id DESC`` (wrong "recent open" order).
+    """
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+
+
 def touch_project_opened(connection: sqlite3.Connection, project_id: int) -> str:
     """Stamp last_opened_at so recent-first list ordering stays current."""
+    stamp = utc_timestamp_now()
     connection.execute(
-        "UPDATE project SET last_opened_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+        "UPDATE project SET last_opened_at = ? "
         "WHERE id = ? AND deleted_at IS NULL",
-        (project_id,),
+        (stamp, project_id),
     )
     row = connection.execute(
         "SELECT last_opened_at FROM project WHERE id = ?",
         (project_id,),
     ).fetchone()
-    return str((row["last_opened_at"] if row else "") or "")
+    return str((row["last_opened_at"] if row else "") or stamp)
 
 
 def project_list_order_sql(mode: str) -> str:
@@ -509,6 +560,15 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     item["logline_md"] = item.get("logline_md") or ""
     item["intro_md"] = item.get("intro_md") or ""
     item["intent_md"] = item.get("intent_md") or ""
+    item["tory_priority_md"] = item.get("tory_priority_md") or ""
+    item["outline_summary"] = item.get("outline_summary") or ""
+    try:
+        raw_link = item.get("linked_success_profile_id")
+        item["linked_success_profile_id"] = (
+            int(raw_link) if raw_link not in (None, "", 0, "0") else None
+        )
+    except (TypeError, ValueError):
+        item["linked_success_profile_id"] = None
     item["main_genre"] = item.get("main_genre") or ""
     item["sub_genre"] = item.get("sub_genre") or ""
     item["keywords"] = parse_project_keywords(item.get("keywords"))
@@ -522,11 +582,19 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
 
 def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     mode = project_list_mode(connection)
+    # linked_success_profile_id added in migration 026 — tolerate older DBs mid-migrate.
+    cols = "id, title, description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+    cols += "tory_priority_md, outline_summary, "
+    cols += "default_language, goal_word_count, "
+    cols += "purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+    cols += "last_opened_at, list_sort_order, created_at, updated_at"
+    try:
+        connection.execute("SELECT linked_success_profile_id FROM project LIMIT 1")
+        cols += ", linked_success_profile_id"
+    except sqlite3.OperationalError:
+        pass
     rows = connection.execute(
-        "SELECT id, title, description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-        "default_language, goal_word_count, "
-        "purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-        "last_opened_at, list_sort_order, created_at, updated_at "
+        f"SELECT {cols} "
         f"FROM project WHERE deleted_at IS NULL {project_list_order_sql(mode)}"
     ).fetchall()
     payload = [serialize_project_list_row(row) for row in rows]
@@ -734,6 +802,19 @@ def plain_text_from_content(content: str) -> str:
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
     return text.strip()
+
+
+def first_sentence_preview(content: str, limit: int = 160) -> str:
+    """First sentence (or line) of manuscript body for binder untitled titles."""
+    plain = plain_text_from_content(content or "")
+    if not plain:
+        return ""
+    compact = re.sub(r"\s+", " ", plain).strip()
+    match = re.match(r"^(.+?(?:[.。!?？…]|$))(?:\s|$)", compact)
+    sentence = (match.group(1) if match else compact).strip()
+    if len(sentence) > limit:
+        return sentence[: max(1, limit - 1)].rstrip() + "…"
+    return sentence
 
 
 def word_count(markdown: str) -> int:
@@ -986,6 +1067,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
+            if path == "/api/success-pattern/profiles":
+                self.send_json(self.list_success_pattern_profiles())
+                return
+
+            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
+            if match:
+                self.send_json(self.get_success_pattern_profile(int(match.group(1))))
+                return
+
+            if path == "/api/success-pattern/meta":
+                self.send_json({
+                    "max_total_episodes": success_pattern.MAX_TOTAL_EPISODES,
+                    "recommended_total_episodes": success_pattern.RECOMMENDED_TOTAL_EPISODES,
+                    "max_total_chars": success_pattern.MAX_TOTAL_CHARS,
+                    "recommended_total_chars": success_pattern.RECOMMENDED_TOTAL_CHARS,
+                    "default_window": success_pattern.DEFAULT_WINDOW,
+                    "section_labels": success_pattern.SECTION_LABELS,
+                })
+                return
+
             if path == "/api/proof-parsers":
                 self.send_json(proof_extract.parser_status())
                 return
@@ -1115,9 +1216,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_ideas(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/baits", path)
+            if match:
+                self.send_json(self.list_baits(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
             if match:
                 self.send_json(self.scene_detail(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/summary", path)
+            if match:
+                self.send_json(self.get_scene_summary(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/index", path)
+            if match:
+                self.send_json(self.get_project_index(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
@@ -1146,6 +1262,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(self.character_detail(int(match.group(1))))
                 return
+
+            match = re.fullmatch(r"/api/characters/(\d+)/portrait", path)
+            if match:
+                self.send_character_portrait(int(match.group(1)))
+                return
         except ValueError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -1165,6 +1286,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             # Reference file text extract — register early (DOCX/HWP viewer upload).
             if path in {"/api/extract-text", "/api/reference/extract-text"}:
                 self.send_json(self.extract_reference_text(body))
+                return
+
+            if path == "/api/success-pattern/recommend-ranges":
+                total = body.get("total_chapters") or body.get("totalChapters") or 1
+                window = body.get("window") or success_pattern.DEFAULT_WINDOW
+                self.send_json({
+                    "total_chapters": max(1, int(total)),
+                    "ranges": success_pattern.recommend_ranges(int(total), int(window)),
+                })
+                return
+
+            if path == "/api/success-pattern/parse":
+                self.send_json(self.parse_success_pattern_document(body))
+                return
+
+            if path == "/api/success-pattern/check-budget":
+                self.send_json(self.check_success_pattern_budget(body))
+                return
+
+            if path == "/api/success-pattern/run":
+                self.send_json(self.run_success_pattern_analysis(body))
                 return
 
             # Export a single plain document (edited reference material, not full manuscript).
@@ -1262,21 +1404,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if not title:
                     raise ValueError("작품 제목을 입력해 주세요.")
                 purpose = document_import.normalise_purpose(body.get("purpose"))
+                main_genre = str(body.get("main_genre") or "").strip()[:80]
+                sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+                if not main_genre:
+                    raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
                 with database() as connection:
                     # Append after current max manual order so manual lists stay stable.
                     max_order_row = connection.execute(
                         "SELECT COALESCE(MAX(list_sort_order), -1) AS m FROM project WHERE deleted_at IS NULL"
                     ).fetchone()
                     next_order = int(max_order_row["m"] if max_order_row else -1) + 1
+                    opened_stamp = utc_timestamp_now()
                     cursor = connection.execute(
-                        "INSERT INTO project(title, purpose, last_opened_at, list_sort_order) "
-                        "VALUES (?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), ?)",
-                        (title, purpose, next_order),
+                        "INSERT INTO project(title, purpose, main_genre, sub_genre, last_opened_at, list_sort_order) "
+                        "VALUES (?, ?, ?, ?, ?, ?)",
+                        (title, purpose, main_genre, sub_genre, opened_stamp, next_order),
                     )
                     project_id = int(cursor.lastrowid)
                     package_info = ensure_project_package(connection, project_id)
                 self.send_json(
-                    {"id": project_id, "purpose": purpose, **package_info},
+                    {
+                        "id": project_id,
+                        "purpose": purpose,
+                        "main_genre": main_genre,
+                        "sub_genre": sub_genre,
+                        **package_info,
+                    },
                     HTTPStatus.CREATED,
                 )
                 return
@@ -1320,6 +1473,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 title = str(body.get("title", "새 챕터")).strip() or "새 챕터"
                 insert_index = body.get("insert_index", None)
                 insert_before_id = body.get("insert_before_id", None)
+                raw_parent_scene = body.get("parent_scene_id", None)
+                parent_scene_id = None
+                if raw_parent_scene is not None and str(raw_parent_scene).strip() != "":
+                    try:
+                        parent_scene_id = int(raw_parent_scene)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("상위 원고 정보가 올바르지 않습니다.") from error
                 raw_part = body.get("part_id", None)
                 if raw_part is None or raw_part == "" or str(raw_part).lower() == "null":
                     part_id = None
@@ -1330,6 +1490,46 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         raise ValueError("권/부 정보가 올바르지 않습니다.") from error
                 with database() as connection:
                     self.require_project(connection, project_id)
+                    if parent_scene_id is not None:
+                        parent_scene = connection.execute(
+                            "SELECT s.id, s.project_id, c.part_id "
+                            "FROM scene s "
+                            "JOIN chapter c ON c.id = s.chapter_id "
+                            "WHERE s.id = ? AND s.deleted_at IS NULL "
+                            "AND c.deleted_at IS NULL",
+                            (parent_scene_id,),
+                        ).fetchone()
+                        if parent_scene is None or int(parent_scene["project_id"]) != project_id:
+                            raise ValueError("상위 원고를 찾을 수 없습니다.")
+                        # Inherit part from the manuscript's folder for trash/move consistency.
+                        part_id = (
+                            int(parent_scene["part_id"])
+                            if parent_scene["part_id"] is not None
+                            else None
+                        )
+                        sort_order = connection.execute(
+                            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                            "WHERE project_id = ? AND parent_scene_id = ? "
+                            "AND deleted_at IS NULL",
+                            (project_id, parent_scene_id),
+                        ).fetchone()[0]
+                        cursor = connection.execute(
+                            "INSERT INTO chapter("
+                            "project_id, part_id, parent_scene_id, title, sort_order"
+                            ") VALUES (?, ?, ?, ?, ?)",
+                            (project_id, part_id, parent_scene_id, title, sort_order),
+                        )
+                        new_id = int(cursor.lastrowid)
+                        self.send_json(
+                            {
+                                "id": new_id,
+                                "part_id": part_id,
+                                "parent_scene_id": parent_scene_id,
+                            },
+                            HTTPStatus.CREATED,
+                        )
+                        return
+
                     if part_id is not None:
                         part_ok = connection.execute(
                             "SELECT id FROM part "
@@ -1423,12 +1623,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.create_idea(int(match.group(1)), body), HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/baits", path)
+            if match:
+                self.send_json(self.create_bait(int(match.group(1)), body), HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/baits/import", path)
+            if match:
+                self.send_json(self.import_baits(int(match.group(1)), body))
+                return
+
             if path == "/api/ai/assist":
                 self.send_json(self.ai_assist(body))
                 return
 
             if path == "/api/spellcheck":
                 self.send_json(self.spellcheck(body))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)/portrait", path)
+            if match:
+                self.send_json(self.save_character_portrait(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/characters/(\d+)/aliases", path)
@@ -1460,6 +1675,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.duplicate_scene(int(match.group(1))), HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/scenes/(\d+)/summarize", path)
+            if match:
+                self.send_json(self.summarize_scene_for_index(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/index/merge", path)
+            if match:
+                self.send_json(self.merge_project_index(int(match.group(1)), body or {}))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/trash", path)
             if match:
                 self.send_json(self.trash_scene(int(match.group(1))))
@@ -1483,6 +1708,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/reparent", path)
             if match:
                 self.send_json(self.reparent_scene(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/move", path)
+            if match:
+                self.send_json(self.move_scene(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/restore", path)
@@ -1592,6 +1822,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.save_scene(int(match.group(1)), body))
                 return
 
+            match = re.fullmatch(r"/api/scenes/(\d+)/summary", path)
+            if match:
+                self.send_json(self.upsert_scene_summary(int(match.group(1)), body))
+                return
+
             match = re.fullmatch(r"/api/chapters/(\d+)", path)
             if match:
                 self.save_chapter(int(match.group(1)), body)
@@ -1654,6 +1889,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(self.update_idea(int(match.group(1)), body))
                 return
+
+            match = re.fullmatch(r"/api/baits/([^/]+)", path)
+            if match:
+                self.send_json(self.update_bait(match.group(1), body))
+                return
         except ValueError as error:
             self.api_error(str(error))
             return
@@ -1680,6 +1920,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True})
                 return
 
+            match = re.fullmatch(r"/api/baits/([^/]+)", path)
+            if match:
+                self.delete_bait(match.group(1))
+                self.send_json({"ok": True})
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/purge", path)
             if match:
                 self.send_json(self.purge_scene(int(match.group(1))))
@@ -1688,6 +1934,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
             if match:
                 self.send_json(self.empty_trash(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)", path)
+            if match:
+                self.send_json(self.trash_project(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)", path)
+            if match:
+                self.send_json(self.trash_character(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)/portrait", path)
+            if match:
+                self.send_json(self.clear_character_portrait(int(match.group(1))))
                 return
         except ValueError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -1836,10 +2097,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         allowed = {
             "continue", "rewrite", "summarize", "ideas",
             "analyze", "brainstorm", "foreshadow", "plottwist", "worldscan",
-            "dupcheck", "free", "chat",
+            "worlddesc", "dupcheck", "free", "chat", "subsynopsis", "styleblend",
         }
         if mode not in allowed:
             raise ValueError("지원하지 않는 AI 도움 방식입니다.")
+
+        # Deferred project-index merge before any Tory feature runs.
+        project_id_raw = body.get("project_id")
+        try:
+            project_id_for_index = int(project_id_raw) if project_id_raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            project_id_for_index = 0
+        index_merge_info = None
+        if project_id_for_index:
+            try:
+                index_merge_info = self.merge_project_index(
+                    project_id_for_index,
+                    {"quiet": True, "only_if_dirty": True},
+                )
+            except Exception:
+                index_merge_info = {"ok": False, "skipped": True}
 
         # Contract: { system_instruction_vars: {...}, user_prompt / prompt }
         siv = body.get("system_instruction_vars")
@@ -1902,6 +2179,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if len(character_profiles_text) > 4000:
             character_profiles_text = character_profiles_text[:4000] + "…"
 
+        tory_priority = str(
+            siv.get("tory_priority_md")
+            or body.get("tory_priority_md")
+            or body.get("author_priority")
+            or ""
+        ).strip()
+        # Prefer saved project value when client omitted it but project_id is known.
+        if not tory_priority:
+            project_id_raw = body.get("project_id")
+            try:
+                project_id_for_priority = int(project_id_raw) if project_id_raw not in (None, "") else 0
+            except (TypeError, ValueError):
+                project_id_for_priority = 0
+            if project_id_for_priority:
+                try:
+                    with database() as connection:
+                        self.require_project(connection, project_id_for_priority)
+                        prow = connection.execute(
+                            "SELECT tory_priority_md FROM project WHERE id = ?",
+                            (project_id_for_priority,),
+                        ).fetchone()
+                        if prow and "tory_priority_md" in prow.keys():
+                            tory_priority = str(prow["tory_priority_md"] or "").strip()
+                except Exception:
+                    tory_priority = tory_priority
+
         active_project_context = self._tory_active_project_context(
             main_genre_label=main_genre_label,
             sub_genre_label=sub_genre_label,
@@ -1912,7 +2215,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             project_title=project_title,
         )
         genre_system = (
-            self._tory_core_identity_system_prompt()
+            self._tory_author_priority_system_prompt(tory_priority)
+            + self._tory_core_identity_system_prompt()
             + self._tory_dynamic_context_system_prompt(
                 main_genre_label=main_genre_label,
                 sub_genre_label=sub_genre_label,
@@ -1937,6 +2241,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if mode == "chat":
             if not user_prompt:
                 raise ValueError("토리에게 할 말을 적어 주세요.")
+            chat_mode = str(
+                body.get("chat_mode") or body.get("chatMode") or body.get("chat_session") or "general"
+            ).strip()
+            is_success_analysis = chat_mode in {
+                "successAnalysis",
+                "success_analysis",
+                "successanalysis",
+                "success",
+            }
             history_raw = body.get("history") or body.get("messages") or []
             history_lines: list[str] = []
             if isinstance(history_raw, list):
@@ -1963,6 +2276,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "[Tory Core Identity]를 항상 유지하고, "
                 "말투만 [Current Persona Mode] 톤을 끝까지 따르세요."
             )
+            if is_success_analysis:
+                sp_raw = body.get("success_profile") or body.get("successProfile") or {}
+                if not isinstance(sp_raw, dict):
+                    sp_raw = {}
+                # Allow nested profile from API row
+                if isinstance(sp_raw.get("profile"), dict):
+                    nested = sp_raw.get("profile") or {}
+                    sp_raw = {**nested, **{k: v for k, v in sp_raw.items() if k != "profile"}}
+                system += "\n" + success_pattern.build_success_analyst_chat_scope(sp_raw)
             context_bits = [
                 active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
@@ -1992,6 +2314,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError(str(error)) from error
             return {
                 "mode": "chat",
+                "chat_mode": "successAnalysis" if is_success_analysis else "general",
                 "text": text,
                 "model": gemini_client.model_name(),
                 "provider": "google-gemini",
@@ -2071,11 +2394,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         if mode == "worldscan":
             if not scene_content:
-                raise ValueError("스캔할 원고를 먼저 열어 주세요.")
-            if not world_setting_text.strip():
-                raise ValueError(
-                    "세계관 설정집이 비어 있어요. 설정집에서 세계관을 먼저 적어 주세요."
-                )
+                raise ValueError("검사할 원고를 먼저 열어 주세요.")
+        if mode == "analyze":
+            if not scene_content:
+                raise ValueError("피드백할 원고를 먼저 열어 주세요.")
         if mode == "dupcheck":
             if not scene_content:
                 raise ValueError("중복 체크할 원고를 먼저 열어 주세요.")
@@ -2088,95 +2410,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError("빌드업·단서를 한 줄 이상 적어 주세요.")
             if not scene_content:
                 raise ValueError("검수할 현재 원고를 먼저 열어 주세요.")
-        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm"} and not scene_content and not user_prompt:
+        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm", "worlddesc"} and not scene_content and not user_prompt:
             raise ValueError("먼저 원고를 쓰거나, 요청 내용을 적어 주세요.")
+        if mode == "subsynopsis":
+            # Index + outline_summary only — manuscript not required.
+            pass
 
         if mode == "worldscan":
-            # Lore Keeper awakening — structured scan of world / genre / character fidelity
-            sens_guide = {
-                1: "관대: 명백한 설정 붕괴만 지적. 문체·말투 미세 차이는 넘어감.",
-                2: "완화: 큰 설정 충돌과 장르 이탈만 지적.",
-                3: "표준: 설정·장르·캐릭터 고유성을 균형 있게 검수.",
-                4: "엄격: 설정 충돌, 장르 톤 붕괴, 캐릭터 말투/행동 위화감을 꼼꼼히 잡음.",
-                5: "극엄: 미세한 용어 혼용·톤 균열·캐릭터 이탈까지 모두 경고.",
-            }.get(sensitivity_level, "엄격: 설정 충돌, 장르 톤 붕괴, 캐릭터 위화감을 꼼꼼히 잡음.")
-            system = (
-                genre_system
-                + "[Role & Awakening]\n"
-                "당신은 작품 전체의 세계관, 장르적 톤앤매너, 캐릭터의 고유성을 완벽하게 파악하고 있는 "
-                "'세계관 수호자(Lore Keeper) 및 장르 붕괴 감지 에디터 AI'입니다. "
-                "SuperTORY 앱 안에서는 작가의 친구 '토리'이기도 합니다.\n"
-                "장르에 대한 사전 선입견 없이, 작가가 정립한 설정·장르 규칙·인물 프로필"
-                "([Current Active Project Context])만 절대 기준으로 삼고, "
-                "제출된 원고(target_text)에서 설정 붕괴·장르 이탈·캐릭터 붕괴를 감지합니다. "
-                "원고 전체를 대신 쓰지 말고, 문제 지점과 수정 방향만 제시하세요. "
-                "답변은 한국어로, 지정 출력 형식을 엄격히 지키세요. "
-                f"메인 장르 [{main_genre_label}] · 서브 장르 [{sub_genre_label}]. "
-                f"민감도(sensitivity_level)={sensitivity_level}/5 — {sens_guide}"
-            )
-            instruction = (
-                "아래 JSON 계약 데이터를 숙지한 뒤 target_text를 검수하세요.\n\n"
-                "[EVALUATION CRITERIA / 검증 기준]\n"
-                "1. 설정 충돌 (Lore Contradictions): world_setting의 규칙·시대·금기를 위반했는가?\n"
-                "2. 장르 붕괴 (Genre Collapse): genre_rules의 톤앤매너·문체 기준에서 이탈했는가?\n"
-                "3. 캐릭터 고유성 (Character Integrity): character_profiles의 말투·성향·금기와 어긋나는가?\n"
-                "4. 용어 통일성 (Term Consistency): 고유명사·세계관 용어 오기/혼용\n"
-                "5. 개연성·템포 (Plausibility & Pacing): 세계관 규칙 안에서의 논리\n\n"
-                "[OUTPUT FORMAT / 출력 형식]\n"
-                "---\n\n"
-                "🧙 **[토리 · 세계관 수호자 스캔 결과]**\n\n"
-                f"0.  **검수 민감도:** {sensitivity_level}/5\n"
-                "1.  **세계관·장르 일치도 점수:** [0~100점] / 100점\n"
-                "2.  **설정 충돌 및 오류 경고 (Critical Warnings):**\n"
-                "   - [오류 n] (위치 / 관련 설정)\n"
-                "     - 문제점:\n"
-                "     - 수정 제안: (세계관을 해치지 않는 문장 예시)\n"
-                "3.  **장르·톤앤매너 붕괴:**\n"
-                "   - 이탈 지점과 권장 톤 (없으면 「해당 없음」)\n"
-                "4.  **캐릭터 고유성 검수:**\n"
-                "   - 인물별: 일치 / 부분 이탈 / 붕괴 + 근거 인용\n"
-                "5.  **용어 및 표현 검수:**\n"
-                "   - 잘못된 표기 ➔ 설정상 올바른 표기\n"
-                "6.  **보강 팁 (Lore Enhancement):** 1~3가지\n"
-                "---\n"
-                "오류가 없으면 해당 항목에 '해당 없음'. 점수는 공정하게."
-            )
-            lore_json = {
-                "world_setting": world_setting_text[:20000],
-                "genre_rules": genre_rules_field[:2000],
-                "character_profiles": character_profiles_raw
-                if isinstance(character_profiles_raw, (dict, list))
-                else character_profiles_text,
-                "sensitivity_level": sensitivity_level,
-                "target_text": (
-                    f"[회차: {scene_title or '(제목 없음)'}]\n{scene_content}"
-                )[:14000],
-            }
-            try:
-                lore_json_str = json.dumps(lore_json, ensure_ascii=False, indent=2)
-            except (TypeError, ValueError):
-                lore_json_str = str(lore_json)
-            # Cap huge dumps
-            if len(lore_json_str) > 28000:
-                lore_json_str = lore_json_str[:28000] + "\n…(truncated)"
+            # 설정 붕괴 감지기 — task prompt only (no Core Identity re-declaration).
+            indexed_worldscan = str(body.get("indexed_prompt") or "").strip()
+            system = genre_system
+            if indexed_worldscan:
+                instruction = indexed_worldscan
+            else:
+                instruction = self._build_setting_break_scan_prompt(scene_content)
             context_parts = [
+                active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
                 f"작품 종류: {purpose_label}",
-                f"메인 장르: {main_genre_label} / 서브 장르: {sub_genre_label}",
-                f"[LORE KEEPER INPUT — JSON]\n{lore_json_str}",
+                genre_context,
+                f"씬 제목: {scene_title or '(없음)'}",
+                f"씬 요약: {scene_synopsis or '(없음)'}",
             ]
-            if character_profiles_text and not isinstance(character_profiles_raw, (dict, list)):
-                context_parts.append(f"[캐릭터 프로필 요약]\n{character_profiles_text}")
-            if scene_synopsis:
-                context_parts.append(f"씬 요약: {scene_synopsis}")
+            if world_setting_text.strip():
+                context_parts.append(f"[설정집 · 세계관]\n{world_setting_text[:12000]}")
+            if character_profiles_text.strip():
+                context_parts.append(f"[캐릭터 프로필]\n{character_profiles_text[:8000]}")
+            elif isinstance(character_profiles_raw, (dict, list)) and character_profiles_raw:
+                try:
+                    profiles_dump = json.dumps(character_profiles_raw, ensure_ascii=False, indent=2)
+                except (TypeError, ValueError):
+                    profiles_dump = str(character_profiles_raw)
+                if len(profiles_dump) > 8000:
+                    profiles_dump = profiles_dump[:8000] + "\n…(truncated)"
+                context_parts.append(f"[캐릭터 프로필]\n{profiles_dump}")
             if user_prompt:
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            # Manuscript already embedded in indexed/task prompt — do not duplicate below.
         elif mode == "dupcheck":
-            # Neighbor episode texts (±5) + optional local phrase hits from client
+            # Neighbor episode texts (±4) + optional local phrase hits from client
             neighbors_raw = body.get("neighbor_scenes") or body.get("neighbors") or []
             neighbor_blocks = []
             if isinstance(neighbors_raw, list):
-                for item in neighbors_raw[:12]:
+                for item in neighbors_raw[:8]:
                     if not isinstance(item, dict):
                         continue
                     n_title = str(item.get("title") or item.get("label") or "").strip()
@@ -2207,27 +2483,41 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             system = (
                 genre_system
-                + "너는 장편 연재 원고의 중복·반복 표현을 잡는 편집 보조 AI '토리'야. "
-                "현재 회차와 앞뒤 인근 회차(최대 ±5)를 비교해, "
-                "① 같은 문장·같은 표현 ② 표현은 달라도 같은 내용·같은 사건을 중복으로 짚어. "
-                "답변은 한국어로, 작가가 바로 고칠 수 있게 구체적으로 작성해. "
-                "원고 전체를 다시 쓰지 마."
+                + "[Tory Core Identity]를 유지한 채, 지금은 원고의 중복을 찾아 관찰하는 역할에 집중하세요. "
+                "현재 회차 안에서 비슷한 표현이 반복되는지, 그리고 앞뒤 인근 회차(최대 ±4)와 "
+                "같은 정보를 다시 설명하는 부분이 있는지 찾아줘. "
+                "발견한 것을 고치라고 지시하지 말고, 사실과 짧은 관찰만 전달해. "
+                "어떻게 할지는 작가가 결정할 몫이야. "
+                "답변은 한국어로 간결하게 작성해."
             )
             instruction = (
-                "중복 체크 목적: 현재 회차가 앞뒤 5회차 이내 원고와 겹치는지 검사한다.\n\n"
+                "중복 체크 목적: 원고 안에서 반복되는 표현과, 앞뒤 인근 회차와 겹치는 "
+                "설명(정보)을 찾아 작가에게 보여준다. 무엇을 고칠지는 전적으로 작가의 "
+                "판단이므로, 반드시 고쳐야 한다고 단정하거나 지시하지 않는다.\n\n"
                 "다음 형식으로 답해 주세요.\n\n"
-                "## 중복 요약\n"
-                "- 전체 위험도: 낮음 / 보통 / 높음 (한 줄 이유)\n\n"
-                "## 동일·유사 표현\n"
-                "- 현재 회차의 문장/표현 ↔ 어느 회차의 어떤 표현 (인용)\n"
+                "## 중복 표현 (현재 회차 안에서)\n"
+                "- 비슷한 구조·어휘의 문장이 같은 회차 안에 반복되는 경우를 짚는다.\n"
+                "  (예: \"눈썹을 치켜떴다\" / \"눈썹을 찡그렸다\"처럼 유사한 동작 묘사가\n"
+                "  거듭될 때, \"머리가 바람에 휘날렸다\" / \"머리칼이 바람에 휘날리기\n"
+                "  시작했다\"처럼 표현만 살짝 바뀐 문장이 반복될 때)\n"
+                "- 각 항목: 문장 A ↔ 문장 B (위치) + 짧은 관찰 코멘트\n"
+                "  (예: \"바로 앞 문단에 나온 표현이라, 비슷한 표현이 또 나오면\n"
+                "  다소 반복적으로 느껴질 수 있어요.\")\n"
                 "- 없으면 「없음」\n\n"
-                "## 표현은 달라도 내용이 겹침\n"
-                "- 같은 사건·같은 감정 설명·같은 정보 전달이 인근 회차와 겹치면 지적\n"
+                "## 중복 설명 (앞뒤 4회차 이내)\n"
+                "- 같은 정보나 배경 설명이 인근 회차에서 이미 전달된 적 있는지 확인한다.\n"
+                "  (예: \"회귀자라서 알고 있었다\"는 설명이 여러 회차에서 각기 다른 문장으로\n"
+                "  반복 등장하는 경우)\n"
+                "- 각 항목: 현재 회차의 문장 ↔ 어느 회차의 어떤 설명 (인용) + 짧은 관찰 코멘트\n"
+                "  (예: \"이 정보는 3화에서 이미 전달돼서, 다시 설명하지 않아도 독자가\n"
+                "  알고 있을 가능성이 높아요.\")\n"
                 "- 없으면 「없음」\n\n"
-                "## 수정 제안\n"
-                "- 겹치는 부분을 어떻게 줄이거나 차별화할지 2~5가지\n\n"
-                "주의: 장르 클리셰나 고유명사 반복만으로 과도하게 잡지 말고, "
-                "독자가 이미 읽은 느낌이 날 정도의 중복에 집중하세요."
+                "주의:\n"
+                "- 발견한 것을 \"문제\"나 \"수정 필요\"로 단정하지 않는다. 사실을 보여주고\n"
+                "  짧은 관찰을 덧붙이는 데 그친다 (\"~해 보여요\", \"~일 수 있어요\" 같은\n"
+                "  표현을 쓴다).\n"
+                "- 장르 클리셰나 관용적 표현, 고유명사 반복만으로 과도하게 잡지 않는다.\n"
+                "- 정말 미묘하거나 확신이 없는 경우는 포함하지 않는다."
             )
             context_parts = [
                 f"작품 제목: {project_title or '(없음)'}",
@@ -2239,7 +2529,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ]
             if neighbor_blocks:
                 context_parts.append(
-                    "[인근 회차 원고 (앞뒤 최대 5회차)]\n" + "\n\n".join(neighbor_blocks)
+                    "[인근 회차 원고 (앞뒤 최대 4회차)]\n" + "\n\n".join(neighbor_blocks)
                 )
             else:
                 context_parts.append("[인근 회차 원고] (없음 — 현재 회차만 검토)")
@@ -2251,51 +2541,103 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
         elif mode in {"foreshadow", "plottwist"}:
             buildup_text = "\n".join(f"- {step}" for step in buildup_list)
-            registered_block = (
-                f"[등록된 복선]\n"
-                f'- title: "{foreshadow_title}"\n'
-                f'- target: "{foreshadow_target}"\n'
-                f"- buildup:\n{buildup_text}"
-            )
-            current_block = (
-                f"[현재 원고] ({foreshadow_target or scene_title or '현재 장'} / "
-                f"씬: {scene_title or '(제목 없음)'})\n{scene_content}"
-            )
+            if mode == "foreshadow":
+                registered_block = (
+                    f"[등록된 복선·단서 목록 — 단서 심기 검수용]\n"
+                    f'- title: "{foreshadow_title}"\n'
+                    f'- target: "{foreshadow_target}"\n'
+                    f"- buildup:\n{buildup_text}"
+                )
+                current_block = (
+                    f"[현재 원고 — 단서가 심겼는지 확인할 구간] "
+                    f"({foreshadow_target or scene_title or '현재 장'} / "
+                    f"씬: {scene_title or '(제목 없음)'})\n{scene_content}"
+                )
+            else:
+                registered_block = (
+                    f"[반전 지지용 등록 빌드업 — 개연성 평가 근거]\n"
+                    f'- title: "{foreshadow_title}"\n'
+                    f'- twist_chapter: "{foreshadow_target}"\n'
+                    f"- prior_buildup:\n{buildup_text}"
+                )
+                current_block = (
+                    f"[현재 원고 — 반전/폭로가 터지는 장] "
+                    f"({foreshadow_target or scene_title or '반전 장'} / "
+                    f"씬: {scene_title or '(제목 없음)'})\n{scene_content}"
+                )
 
             if mode == "foreshadow":
-                # checkForeshadowing() — 복선/떡밥 레이더
+                # checkForeshadowing() — 복선/떡밥 탐색기
                 system = (
                     genre_system
-                    + "너는 꼼꼼한 기록관 토리야. "
-                    "작가가 등록한 복선 단서들이 현재 원고에 잘 녹아들었는지 체크하고 "
-                    "누락된 떡밥을 짚어줘. "
+                    + "[Tory Core Identity]를 유지한 채, 지금은 서사 기법에 밝은 편집자의 시선으로 "
+                    "복선·떡밥을 추적하는 역할에 집중하세요. "
+                    "지금은 「반전 & 개연성 검사기」가 아닙니다. 반전이 억지인지 평가하지 마세요. "
+                    "작가가 등록한 복선 단서가 현재 원고에 빠짐없이 반영됐는지 반드시 전부 "
+                    "체크해. 이걸 놓치면 안 돼. "
+                    "그 다음, 등록되지 않았지만 복선으로 읽힐 수 있는 요소를 원고에서 직접 "
+                    "찾아내는 것과, 인덱스에 있지만 아직 등록 안 된 미회수 떡밥을 알려주는 것이 "
+                    "이 기능의 핵심 가치야. 서사 기법에 밝은 편집자의 눈으로 꼼꼼히 살펴봐. "
                     "답변은 한국어로, 군더더기 없이 실무적으로 작성해. "
-                    "원고 전체를 다시 쓰지 말고 단서 반영 여부와 미회수 항목에 집중해. "
-                    f"복선 검수 시 [{main_genre_label}] 장르 특유의 전개 속도(Pacing)와 개연성 기준을 적용해."
+                    f"복선 검수 시 [{main_genre_label}] 장르 특유의 전개 속도(Pacing)와 개연성 "
+                    "기준을 적용해."
                 )
                 instruction = (
-                    "검수 목적: 원고에 지정된 단서가 누락 없이 잘 반영되었는지, "
-                    "미회수 떡밥이 무엇인지 체크한다.\n\n"
-                    "다음 형식으로 답해 주세요.\n"
-                    "## 단서 반영 체크리스트\n"
-                    "- 등록된 빌드업/단서 각각에 대해: 반영됨 / 부분 반영 / 누락 + 근거(원고 위치·표현)\n"
-                    "## 미회수 떡밥\n"
-                    "- 아직 회수되지 않았거나 흐지부지된 떡밥 목록\n"
+                    "[모드: 떡밥·복선 탐색기]\n"
+                    "이 모드는 반전 개연성 평가가 아닙니다. "
+                    "「## 반전 요약」「## 개연성 평가」「## 충격도·설득력」 형식으로 쓰지 마세요.\n\n"
+                    "검수 목적: (1) 작가가 등록한 복선 단서가 원고에 빠짐없이 반영됐는지 확인하고,\n"
+                    "(2) 등록되지 않았지만 복선으로 읽힐 수 있는 요소를 원고에서 직접 찾아내며,\n"
+                    "(3) 인덱스에 기록된 미회수 복선 중 아직 등록되지 않은 것이 있으면 알려준다.\n\n"
+                    "[최우선 원칙]\n"
+                    "등록된 복선 목록은 하나도 빠짐없이 전부 체크해야 한다. 이 목록을 놓치는 것은\n"
+                    "이 기능이 실패하는 것과 같다. 목록에 있는 항목 수만큼 반드시 체크리스트\n"
+                    "항목이 나와야 한다.\n\n"
+                    "다음 형식으로 답해 주세요.\n\n"
+                    "## 등록된 단서 체크 (전체 필수)\n"
+                    "- 등록된 빌드업/단서 각각에 대해 빠짐없이: 반영됨 / 부분 반영 / 누락\n"
+                    "  + 근거(원고 위치·표현)\n"
+                    "- 등록된 항목 수와 여기 체크한 항목 수가 반드시 일치해야 한다.\n\n"
+                    "## 토리가 포착한 잠재적 복선 후보\n"
+                    "- 작가가 등록하지 않았지만, 원고 안에서 복선처럼 기능할 수 있는 요소를\n"
+                    "  직접 찾아낸다. 아래와 같은 신호를 특히 주의 깊게 본다.\n"
+                    "  - 서사적 비중에 비해 유독 자세히 묘사된 사물·장소·인물의 디테일\n"
+                    "  - 그 자리에서 바로 설명되지 않고 넘어가는 인물의 알쏭달쏭한 말이나 행동\n"
+                    "  - 우연이라기엔 지나치게 딱 들어맞는 상황\n"
+                    "  - 반복적으로 등장하는 이미지나 상징\n"
+                    "- 각 후보: 무엇을 봤는지(원고 인용) + 왜 복선으로 읽힐 수 있는지\n"
+                    "- 확신이 낮으면 \"~일 수도 있어 보여요\" 정도로 조심스럽게 표현한다.\n"
+                    "  없으면 「이번 구간에서는 새로 포착된 후보가 없습니다」\n\n"
+                    "## 등록 안 된 미회수 떡밥 (인덱스 기반)\n"
+                    "- [프로젝트 누적 정보]의 미회수 복선 중, 위 등록 목록에는 없지만 아직\n"
+                    "  회수되지 않은 것으로 보이는 항목이 있으면 \"이런 떡밥도 있는데 아직\n"
+                    "  등록 안 하셨어요, 확인해보세요\" 식으로 알려준다.\n"
+                    "- 인덱스에 근거가 명확할 때만 채우고, 애매하면 무리해서 채우지 않는다.\n"
+                    "- 없으면 「없음」\n\n"
                     "## 보강 제안\n"
-                    "- 누락·약한 단서를 어떻게 심을지 2~3가지 구체 제안"
+                    "- 누락되거나 약한 단서를 어떻게 심을지, 새로 포착된 후보를 어떻게\n"
+                    "  더 뚜렷하게 만들지 2~3가지 구체 제안"
                 )
             else:
                 # checkPlotTwist() — 반전 & 개연성 검사기
                 system = (
                     genre_system
-                    + "너는 냉정한 독자 평가자 토리야. "
-                    "현재 챕터의 반전이 이전 챕터들의 복선과 비교했을 때 "
-                    "개연성이 충분한지, 억지스럽지 않은지 분석해줘. "
+                    + "[Tory Core Identity]를 유지한 채, 지금은 냉정한 독자의 시선으로 "
+                    "반전과 개연성을 평가하는 역할에 집중하세요. "
+                    "지금은 「떡밥·복선 탐색기」가 아닙니다. 단서가 원고에 심겼는지 체크리스트를 만들지 마세요. "
+                    "등록된 복선의 빌드업과 프로젝트 누적 정보(인덱스)를 근거로, 현재 챕터의 "
+                    "반전이 그동안 쌓인 복선과 비교했을 때 개연성이 충분한지, 억지스럽지 "
+                    "않은지 분석해줘. 이전 챕터 원고 전문을 직접 참조하지 않으므로, 근거가 "
+                    "불충분해 판단이 어려운 경우 그렇다고 명시해. "
                     "답변은 한국어로, 군더더기 없이 비판적으로 작성해. "
                     "칭찬만 하지 말고 논리 구멍을 명확히 짚어. "
                     f"반전 검수 시 [{main_genre_label}] 장르 특유의 전개 속도(Pacing)와 개연성 기준을 적용해."
                 )
                 instruction = (
+                    "[모드: 반전 & 개연성 검사기]\n"
+                    "이 모드는 떡밥·복선 탐색기가 아닙니다. "
+                    "「## 등록된 단서 체크」「## 토리가 포착한 잠재적 복선 후보」"
+                    "「## 등록 안 된 미회수 떡밥」 형식의 체크리스트를 만들지 마세요.\n\n"
                     f"검수 목적: {foreshadow_target or '반전 장'}에서 그동안 쌓아온 복선들이 "
                     "반전을 논리적이고 충격적으로 잘 지지하는지 검사한다.\n\n"
                     "다음 형식으로 답해 주세요.\n"
@@ -2319,6 +2661,83 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ]
             if scene_synopsis:
                 context_parts.append(f"현재 씬 요약: {scene_synopsis}")
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+        elif mode == "subsynopsis":
+            # 투고·공모전용 시놉시스 — index + outline_summary only (no manuscript).
+            outline_summary = plain_text_from_content(
+                str(body.get("outline_summary") or "")
+            ).strip()
+            try:
+                synopsis_limit_raw = body.get("synopsis_length_limit")
+                synopsis_length_limit = (
+                    int(synopsis_limit_raw)
+                    if synopsis_limit_raw not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                synopsis_length_limit = None
+            try:
+                intent_limit_raw = body.get("intent_length_limit")
+                intent_length_limit = (
+                    int(intent_limit_raw)
+                    if intent_limit_raw not in (None, "")
+                    else None
+                )
+            except (TypeError, ValueError):
+                intent_length_limit = None
+            if synopsis_length_limit is not None and synopsis_length_limit <= 0:
+                synopsis_length_limit = None
+            if intent_length_limit is not None and intent_length_limit <= 0:
+                intent_length_limit = None
+
+            system = genre_system
+            indexed_sub = str(
+                body.get("indexed_prompt") or body.get("task_prompt") or ""
+            ).strip()
+            if indexed_sub:
+                instruction = indexed_sub
+            else:
+                instruction = self._build_submission_synopsis_prompt(
+                    outline_summary,
+                    synopsis_length_limit,
+                    intent_length_limit,
+                )
+            context_parts = [
+                active_project_context,
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                genre_context,
+            ]
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+        elif mode == "styleblend":
+            # 스며듦 검사 — reference vs target text only (no manuscript dump / no index).
+            reference_text = plain_text_from_content(
+                str(body.get("reference_text") or body.get("reference") or "")
+            ).strip()
+            target_text = plain_text_from_content(
+                str(body.get("target_text") or body.get("target") or scene_content or "")
+            ).strip()
+            if not reference_text:
+                raise ValueError("스며듦 검사에 필요한 기준 텍스트가 없어요.")
+            if not target_text:
+                raise ValueError("스며듦 검사에 필요한 비교 대상 텍스트가 없어요.")
+            if len(reference_text) > 12000:
+                reference_text = reference_text[-12000:]
+            if len(target_text) > 8000:
+                target_text = target_text[:8000]
+            system = genre_system
+            task = str(body.get("task_prompt") or body.get("indexed_prompt") or "").strip()
+            if not task:
+                task = self._build_style_blend_check_prompt(reference_text, target_text)
+            instruction = task
+            context_parts = [
+                active_project_context,
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                genre_context,
+            ]
             if user_prompt:
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
         else:
@@ -2357,11 +2776,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     or user_prompt
                     or ""
                 ).strip()
-                instruction = self._build_continue_prompt(
-                    scene_content,
-                    length_mode,
-                    user_hint,
-                )
+                # Prefer client-built buildContinuePrompt + buildTaskPromptWithIndex.
+                indexed_continue = str(body.get("indexed_prompt") or "").strip()
+                if indexed_continue:
+                    instruction = indexed_continue
+                else:
+                    instruction = self._build_continue_prompt(
+                        scene_content,
+                        length_mode,
+                        user_hint,
+                    )
                 # Task prompt already embeds the manuscript — keep only project meta here.
                 context_parts = [
                     active_project_context,
@@ -2371,40 +2795,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
-            else:
-                if mode == "rewrite":
-                    instruction = (
-                        "아래 씬 원고를 더 생생하고 읽기 좋게 다듬어 주세요. "
-                        "의미는 유지하고, 다듬은 전체 원고만 출력하세요."
+            elif mode == "analyze":
+                # 피드백 요청 — buildFocusedAnalysisPrompt + index (task only).
+                indexed_analyze = str(body.get("indexed_prompt") or "").strip()
+                system = genre_system + (persona_system if use_persona else "")
+                if focus_only:
+                    system += (
+                        " 지금은 지정된 한 편의 원고(씬)에만 집중합니다. "
+                        "다른 장·다른 씬을 지어내거나 범위를 넓히지 말고, 이 원고만 다루세요."
                     )
-                elif mode == "summarize":
-                    instruction = (
-                        "아래 씬 원고를 3~6문장으로 요약해 주세요. "
-                        "핵심 사건·감정·관계만 남기세요."
-                    )
-                elif mode == "ideas":
-                    instruction = (
-                        "아래 씬/설정을 바탕으로 다음에 쓸 수 있는 아이디어를 5~8개 제안해 주세요. "
-                        "짧은 불릿 목록으로 작성하세요."
-                    )
-                elif mode == "analyze":
-                    instruction = (
-                        "아래 원고를 집중 분석해 주세요. "
-                        "① 강점 ② 아쉬운 점 ③ 구조/호흡 ④ 캐릭터·감정 ⑤ 바로 고칠 수 있는 조언 3~5가지 "
-                        "순으로 짧게 정리하세요. 원고 전체를 다시 쓰지 마세요."
-                    )
-                elif mode == "brainstorm":
-                    instruction = (
-                        "아래 원고를 바탕으로 작가와 브레인스토밍하세요. "
-                        "갈래·반전·대사·장면 아이디어를 6~10개 제안하고, "
-                        "각 아이디어는 한두 문장으로 실행 가능하게 적어 주세요."
-                    )
+                if indexed_analyze:
+                    instruction = indexed_analyze
                 else:
-                    instruction = (
-                        "작가의 요청에 맞춰 도와 주세요. 필요하면 원고 일부를 인용해 답하세요. "
-                        "요청 결과물(글/목록/조언)을 바로 쓸 수 있게 정리하세요."
-                    )
-
+                    instruction = self._build_focused_analysis_prompt(scene_content)
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -2412,17 +2815,221 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     genre_context,
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
-                    f"현재 원고:\n{scene_content or '(아직 없음)'}",
                 ]
                 if user_prompt:
-                    context_parts.append(f"작가 요청:\n{user_prompt}")
+                    context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            elif mode == "ideas":
+                # 다음 아이디어 제안 — buildNextIdeaPrompt + index (task only).
+                indexed_ideas = str(body.get("indexed_prompt") or "").strip()
+                if indexed_ideas:
+                    instruction = indexed_ideas
+                else:
+                    instruction = self._build_next_idea_prompt(scene_content)
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+                if user_prompt:
+                    context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            elif mode == "brainstorm":
+                # 브레인스토밍 — buildBrainstormPrompt + index (task only).
+                indexed_brainstorm = str(body.get("indexed_prompt") or "").strip()
+                user_topic = str(
+                    body.get("user_topic") or user_prompt or ""
+                ).strip()
+                if indexed_brainstorm:
+                    instruction = indexed_brainstorm
+                else:
+                    instruction = self._build_brainstorm_prompt(scene_content, user_topic)
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            elif mode == "worlddesc":
+                # 세계관 묘사 도우미 — buildWorldDescriptionPrompt + index.
+                indexed_worlddesc = str(body.get("indexed_prompt") or "").strip()
+                target_subject = str(
+                    body.get("target_subject") or body.get("user_topic") or user_prompt or ""
+                ).strip()
+                if not target_subject and not indexed_worlddesc:
+                    raise ValueError("묘사 대상을 적어 주세요. 예: 왕궁 내부 묘사")
+                if indexed_worlddesc:
+                    instruction = indexed_worlddesc
+                else:
+                    instruction = self._build_world_description_prompt(
+                        target_subject, scene_content
+                    )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            elif mode == "free":
+                # 직접 요청하기: buildFreeRequestPrompt + index (씬 요약 버튼은
+                # indexed_prompt 없이 buildSummaryPrompt만 user_prompt로 보냄).
+                indexed_free = str(body.get("indexed_prompt") or "").strip()
+                user_request = str(
+                    body.get("user_request") or user_prompt or ""
+                ).strip()
+                if indexed_free:
+                    instruction = indexed_free
+                    context_parts = [
+                        active_project_context,
+                        f"작품 제목: {project_title or '(없음)'}",
+                        f"작품 종류: {purpose_label}",
+                        genre_context,
+                        f"씬 제목: {scene_title or '(없음)'}",
+                        f"씬 요약: {scene_synopsis or '(없음)'}",
+                    ]
+                else:
+                    # Fallback for summary button / older clients — no index wrap.
+                    if user_request and (
+                        "[현재 작업]" in user_request or "[요약]" in user_request
+                    ):
+                        instruction = user_request
+                        context_parts = [
+                            active_project_context,
+                            f"작품 제목: {project_title or '(없음)'}",
+                            f"작품 종류: {purpose_label}",
+                            genre_context,
+                            f"씬 제목: {scene_title or '(없음)'}",
+                        ]
+                    else:
+                        instruction = self._build_free_request_prompt(
+                            scene_content,
+                            user_request,
+                        )
+                        context_parts = [
+                            active_project_context,
+                            f"작품 제목: {project_title or '(없음)'}",
+                            f"작품 종류: {purpose_label}",
+                            genre_context,
+                            f"씬 제목: {scene_title or '(없음)'}",
+                            f"씬 요약: {scene_synopsis or '(없음)'}",
+                        ]
+            elif mode == "rewrite":
+                indexed_rewrite = str(body.get("indexed_prompt") or "").strip()
+                selected_text = plain_text_from_content(
+                    str(body.get("selected_text") or scene_content or "")
+                )
+                context_before = plain_text_from_content(
+                    str(body.get("context_before") or "")
+                )
+                context_after = plain_text_from_content(
+                    str(body.get("context_after") or "")
+                )
+                if indexed_rewrite:
+                    instruction = indexed_rewrite
+                else:
+                    instruction = self._build_rewrite_prompt(
+                        selected_text,
+                        context_before,
+                        context_after,
+                    )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            else:
+                if mode == "summarize":
+                    # 도우미 「회차 요약」— buildDetailedSceneSummaryPrompt (no index).
+                    # 바인더 한 줄 요약(buildSummaryPrompt / free)과 별개.
+                    detailed = str(
+                        body.get("task_prompt")
+                        or body.get("detailed_summary_prompt")
+                        or ""
+                    ).strip()
+                    if detailed:
+                        instruction = detailed
+                    else:
+                        instruction = self._build_detailed_scene_summary_prompt(scene_content)
+                    context_parts = [
+                        active_project_context,
+                        f"작품 제목: {project_title or '(없음)'}",
+                        f"작품 종류: {purpose_label}",
+                        genre_context,
+                        f"씬 제목: {scene_title or '(없음)'}",
+                    ]
+                    if user_prompt:
+                        context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+                    # Manuscript is already embedded in the task prompt — do not duplicate.
+                else:
+                    instruction = (
+                        "작가의 요청에 맞춰 도와 주세요. 필요하면 원고 일부를 인용해 답하세요. "
+                        "요청 결과물(글/목록/조언)을 바로 쓸 수 있게 정리하세요."
+                    )
+
+                    context_parts = [
+                        active_project_context,
+                        f"작품 제목: {project_title or '(없음)'}",
+                        f"작품 종류: {purpose_label}",
+                        genre_context,
+                        f"씬 제목: {scene_title or '(없음)'}",
+                        f"씬 요약: {scene_synopsis or '(없음)'}",
+                        f"현재 원고:\n{scene_content or '(아직 없음)'}",
+                    ]
+                    if user_prompt:
+                        context_parts.append(f"작가 요청:\n{user_prompt}")
 
         # Prepend active context to tool modes that built context_parts earlier
-        if mode in {"worldscan", "dupcheck", "foreshadow", "plottwist"}:
+        if mode in {"dupcheck", "foreshadow", "plottwist"}:
             if context_parts and not str(context_parts[0]).startswith("[Current Active Project Context]"):
                 context_parts = [active_project_context] + list(context_parts)
 
+        # Phase 3: client-built index + task + 본문 (buildTaskPromptWithIndex)
+        # worldscan already uses indexed_prompt as instruction (like continue/rewrite).
+        indexed_prompt = str(body.get("indexed_prompt") or "").strip()
+        if mode in {"dupcheck", "foreshadow", "plottwist"} and indexed_prompt:
+            filtered_parts = []
+            for part in context_parts:
+                text_part = str(part)
+                if text_part.startswith("[현재 회차 원고]") or text_part.startswith("[현재 원고]"):
+                    continue
+                if text_part.startswith("현재 원고:"):
+                    continue
+                filtered_parts.append(part)
+            context_parts = filtered_parts
+            insert_at = (
+                1
+                if context_parts
+                and str(context_parts[0]).startswith("[Current Active Project Context]")
+                else 0
+            )
+            context_parts.insert(insert_at, indexed_prompt)
+
         full_prompt = instruction + "\n\n" + "\n\n".join(context_parts)
+        dry_run = bool(body.get("dry_run") or body.get("debug_return_prompt"))
+        if dry_run:
+            return {
+                "mode": mode,
+                "text": "(dry_run)",
+                "dry_run": True,
+                "full_prompt": full_prompt,
+                "indexed_prompt_present": bool(indexed_prompt),
+                "indexed_prompt_has_index_block": "[프로젝트 누적 정보" in indexed_prompt,
+                "model": gemini_client.model_name(),
+                "provider": "google-gemini",
+                "main_genre": main_genre_key,
+                "sub_genre": sub_genre_key,
+                "main_genre_label": main_genre_label,
+                "sub_genre_label": sub_genre_label,
+                "index_merge": index_merge_info,
+            }
         try:
             text = gemini_client.generate_text(full_prompt, system=system)
         except gemini_client.GeminiError as error:
@@ -2437,6 +3044,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "sub_genre": sub_genre_key,
             "main_genre_label": main_genre_label,
             "sub_genre_label": sub_genre_label,
+            "index_merge": index_merge_info,
+            "indexed_prompt_present": bool(indexed_prompt),
         }
 
     @staticmethod
@@ -2573,6 +3182,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return known.get(key, key)[:80]
 
     @staticmethod
+    def _tory_author_priority_system_prompt(priority_text: str) -> str:
+        """Author guidance — prepended when filled in; applied selectively per task scope."""
+        text = str(priority_text or "").strip()
+        if not text:
+            return ""
+        if len(text) > 6000:
+            text = text[:6000] + "…"
+        return (
+            "[작가 지침 - 참고]\n"
+            f"{text}\n\n"
+            "※ 위 지침은 이번 작업의 목적과 판단 기준에 부합하는 범위에서만 반영하세요.\n"
+            "   작업 자체의 성격(예: 요약의 객관성, 사실 검증형 기능의 정확성)과\n"
+            "   충돌하는 지시는 무리하게 따르지 말고, 문체·톤 등 반영 가능한\n"
+            "   부분만 선택적으로 적용하세요.\n\n"
+        )
+
+    @staticmethod
     def _tory_core_identity_system_prompt() -> str:
         """Base identity for Tory — always on; persona modes only change speech style."""
         return (
@@ -2690,6 +3316,419 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[원고]\n"
             f"{text}\n\n"
             "[이어지는 내용]"
+        )
+
+    @staticmethod
+    def _build_free_request_prompt(original_text: str, user_request: str) -> str:
+        """Task-only free request prompt (Core Identity lives in system)."""
+        text = str(original_text or "").strip()
+        request = str(user_request or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 작가가 원고에 대해 직접 남긴 요청입니다. 이 요청에 최대한 구체적이고\n"
+            "실질적으로 응답하세요.\n\n"
+            "[요청 처리 원칙]\n"
+            "1. 작가의 요청 의도를 최우선으로 따른다. 요청이 모호하면, 원고 맥락에서\n"
+            "   가장 합리적인 해석으로 판단해 응답하고, 어떤 해석으로 답했는지 짧게 밝힌다.\n"
+            "2. 요청과 무관한 부가 조언을 늘어놓지 않는다. 딱 필요한 만큼만 답한다.\n"
+            "3. 원고에 없는 사실을 새로 지어내 단정하지 않는다. 추측이 필요한 경우\n"
+            "   \"~로 보입니다\"처럼 추측임을 밝힌다.\n"
+            "4. 요청이 원고와 무관한 일반 대화(잡담, 기술 질문 등)라면, 토리의 정체성\n"
+            "   (편집자·비평가·독자)에 맞는 선에서 자연스럽게 응대한다.\n\n"
+            f"[본문]\n{text}\n\n"
+            f"[작가의 요청]\n{request}\n\n"
+            "[응답]"
+        )
+
+    @staticmethod
+    def _build_rewrite_prompt(
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+    ) -> str:
+        """Task-only rewrite prompt (Core Identity lives in system).
+
+        Mirrors web/app.js buildRewritePrompt: polish if needed, else 2–3
+        tone-safe alternatives (no forced defects).
+        """
+        selected = str(selected_text or "").strip()
+        before = str(context_before or "")
+        after = str(context_after or "")
+        return (
+            "[현재 작업]\n"
+            "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
+            "2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.\n"
+            "   - 불필요하게 반복되는 단어나 상투적 표현 제거\n"
+            "   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)\n"
+            "   - 의미가 모호하거나 어색한 조사·어순\n"
+            "   - 상황과 안 맞는 과도한 수식어\n"
+            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
+            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
+            "4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.\n\n"
+            "[먼저 판단할 것 - 개선이 필요한가]\n"
+            "문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.\n"
+            "이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.\n\n"
+            "[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]\n"
+            "왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다\n"
+            '("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서\n'
+            '이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).\n'
+            "그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.\n"
+            "장황한 설명은 피하고 핵심 이유만 짧게 전달한다.\n\n"
+            "[개선이 필요 없는 경우 - 대안 표현 제시]\n"
+            '문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신\n'
+            "같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.\n"
+            '이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도\n'
+            "문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.\n\n"
+            "[문장 규칙]\n"
+            "5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.\n"
+            "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n\n"
+            "[출력 형식]\n"
+            "개선이 필요한 경우:\n"
+            "## 다듬기 제안\n"
+            "저는 (이유)로 다듬기가 필요해 보였어요.\n\n"
+            "**다듬은 결과:** (다듬어진 문장)\n\n"
+            "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?\n\n"
+            "개선이 필요 없는 경우:\n"
+            "## 이미 좋은 문장이에요\n"
+            "다른 표현으로 바꿔보고 싶으시다면 참고하세요.\n"
+            "- 대안 1: ...\n"
+            "- 대안 2: ...\n"
+            "- 대안 3: ...\n\n"
+            "[앞뒤 맥락 - 참고용, 다듬지 않음]\n"
+            f"...{before}\n\n"
+            "[다듬을 문장]\n"
+            f"{selected}\n\n"
+            "[뒤 맥락 - 참고용, 다듬지 않음]\n"
+            f"{after}...\n\n"
+            "[결과]"
+        )
+
+    @staticmethod
+    def _build_detailed_scene_summary_prompt(scene_content: str) -> str:
+        """Helper dropdown 회차 요약 (mode=summarize). Task only — no index."""
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 회차를 다시 읽지 않고도 내용을 제대로 파악할 수 있도록 요약하세요.\n"
+            "바인더 캡션용 짧은 요약이 아니라, 이 회차에서 무슨 일이 있었는지 충분히\n"
+            "설명하는 요약입니다.\n\n"
+            "[판단 기준]\n"
+            "1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을\n"
+            "   순서대로 전달한다.\n"
+            "2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.\n"
+            "3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).\n"
+            "4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.\n"
+            "5. 분량은 대략 300~500자 내외로, 이 회차의 복잡도에 맞게 조절한다.\n"
+            "   짧은 회차를 억지로 늘리지 않고, 긴 회차를 무리해서 압축하지 않는다.\n\n"
+            "[문장 규칙]\n"
+            "6. \"이 회차는\", \"본문에서는\" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.\n"
+            "7. 완성된 요약문만 출력한다.\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[요약]"
+        )
+
+    @staticmethod
+    def _build_submission_synopsis_prompt(
+        outline_summary: str,
+        synopsis_length_limit: int | None = None,
+        intent_length_limit: int | None = None,
+    ) -> str:
+        """투고·공모전용 시놉시스 task prompt. No Core Identity re-declaration."""
+        outline = str(outline_summary or "").strip()
+        if outline:
+            outline_block = (
+                "[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n" + outline
+            )
+        else:
+            outline_block = (
+                "[작가가 제공한 줄거리 개요]\n"
+                "(제공되지 않음 - 지금까지 쓰인 원고만\n"
+                "       근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)"
+            )
+        if synopsis_length_limit:
+            synopsis_length_note = (
+                f"시놉시스는 {int(synopsis_length_limit)}자 이내로 작성한다."
+            )
+        else:
+            synopsis_length_note = (
+                "시놉시스 길이 제한은 없다. 내용을 충분히 전달할 수 있는 분량으로 작성한다."
+            )
+        if intent_length_limit:
+            intent_length_note = (
+                f"작품의도는 {int(intent_length_limit)}자 이내로 작성한다."
+            )
+        else:
+            intent_length_note = (
+                "작품의도 길이 제한은 없다. 1~2문단 정도로 작성한다."
+            )
+        return (
+            "[현재 작업]\n"
+            "투고·공모전 제출용 자료를 작성하세요. 아래 세 가지를 준비합니다.\n\n"
+            "[작품의도]\n"
+            "- 이 작품을 통해 작가가 전달하고자 하는 주제의식이나 문제의식을 정리한다.\n"
+            f"- {intent_length_note}\n"
+            "- [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,\n"
+            "  지어내지 않는다.\n\n"
+            "[로그라인 후보]\n"
+            "- 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.\n"
+            "- 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.\n"
+            "- 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.\n"
+            "- 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.\n\n"
+            "[시놉시스 - 기승전결 구조]\n"
+            "- 이야기를 기(도입)-승(전개)-전(전환/절정)-결(결말) 순서로, 심사자가\n"
+            "  전체 줄거리를 파악할 수 있도록 서술형으로 정리한다.\n"
+            "- 이미 쓰인 부분은 [프로젝트 누적 정보]를, 결말을 포함해 아직 쓰이지\n"
+            "  않은 부분은 [작가가 제공한 줄거리 개요]를 근거로 삼는다.\n"
+            f"- {synopsis_length_note}\n"
+            "- 문학적 표현보다 명확한 전달을 우선한다. 반전이나 결말도 숨기지 않고\n"
+            "  솔직하게 서술한다 (독자용 홍보문이 아니라 심사용 자료이므로).\n\n"
+            "[출력 형식]\n"
+            "## 작품의도\n"
+            "(내용)\n\n"
+            "## 로그라인 후보\n"
+            "1. (로그라인) — [강조점]\n"
+            "2. ...\n"
+            "(5개)\n\n"
+            "## 시놉시스\n"
+            "### 기 (도입)\n"
+            "(내용)\n"
+            "### 승 (전개)\n"
+            "(내용)\n"
+            "### 전 (전환/절정)\n"
+            "(내용)\n"
+            "### 결 (결말)\n"
+            "(내용)\n\n"
+            f"{outline_block}\n\n"
+            "[제출용 자료]"
+        )
+
+    @staticmethod
+    def _build_style_blend_check_prompt(reference_text: str, target_text: str) -> str:
+        """스며듦 검사 task prompt. No Core Identity re-declaration."""
+        reference = str(reference_text or "").strip()
+        target = str(target_text or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 [비교 대상 텍스트]가 [기준 텍스트]와 문체·어투·리듬 면에서 자연스럽게\n"
+            "어우러지는지 확인하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 어휘 수준, 문장 길이의 리듬, 어투(존댓말/반말), 인물의 말투가 기준\n"
+            "   텍스트와 일관되는지 비교한다.\n"
+            "2. 기준 텍스트에서 비교 대상 텍스트로 넘어가는 경계 지점이 부자연스럽게\n"
+            "   튀는지 특히 주의 깊게 본다.\n"
+            "3. 상투적이거나 기계적으로 느껴지는 표현 패턴이 있는지 확인한다.\n"
+            "   (예: 과도한 대구법, 상투적인 헤지 표현의 반복, 나열식 문장 구조 반복,\n"
+            "   감정을 설명으로 덧붙이는 문장 등)\n"
+            "4. 발견한 것을 \"문제\"로 단정하지 않는다. 관찰과 근거만 전달한다\n"
+            "   (\"~해 보여요\", \"~일 수 있어요\" 표현을 쓴다).\n"
+            "5. 특별히 튀는 부분이 없다면, 억지로 지적을 만들어내지 않고 자연스럽게\n"
+            "   잘 어우러진다고 알려준다.\n\n"
+            "[출력 형식]\n"
+            "## 스며듦 체크 결과\n"
+            "- 전반적 판단: 잘 어우러짐 / 약간 다르게 느껴짐 / 뚜렷하게 튐\n"
+            "- 근거: (구체적인 문장이나 표현을 들어 설명)\n"
+            "- (다르게 느껴지는 경우) 어느 지점이 특히 그런지, 왜 그런지\n\n"
+            "이 결과는 문제 여부를 판정한 것이 아니라 관찰입니다. 유지할지 수정할지는\n"
+            "작가님의 선택입니다.\n\n"
+            "[기준 텍스트 - 원래 문체]\n"
+            f"{reference}\n\n"
+            "[비교 대상 텍스트 - 새로 생성/수정된 부분]\n"
+            f"{target}\n\n"
+            "[스며듦 체크 결과]"
+        )
+
+    @staticmethod
+    def _build_focused_analysis_prompt(scene_content: str) -> str:
+        """Feedback request / focused analysis (analyze). Task scope only."""
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 회차를 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.\n\n"
+            "[분석 원칙]\n"
+            "1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.\n"
+            "2. 막연한 칭찬(\"좋아요\", \"잘 쓰셨어요\")이나 막연한 비판(\"별로예요\")을 하지 않는다.\n"
+            "   반드시 원고 안의 구체적인 근거(어떤 장면, 어떤 문장, 어떤 흐름)를 들어 설명한다.\n"
+            "3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지\n"
+            "   방향을 함께 제시한다.\n"
+            "4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지 않는다.\n"
+            "   의도된 것으로 보이면 그 자체를 지적하지 않고, 의도가 실제로 잘 구현되고\n"
+            "   있는지를 본다.\n"
+            "5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.\n"
+            "   장르 관습과 무관한 일반적 기준을 들이대지 않는다.\n\n"
+            "[편집자 관점 - 구조와 기법]\n"
+            "- 전개 속도: 정보/사건이 너무 빠르게 혹은 느리게 배치되지 않았는지\n"
+            "- 장면 구성: 장면 전환, 시점 처리, 묘사와 대사의 균형이 적절한지\n"
+            "- 문장 기법: 반복되는 문장 패턴, 어색한 리듬, 정보 과잉/부족 여부\n\n"
+            "[독자 관점 - 몰입 경험]\n"
+            "- 흥미 유지: 어느 지점에서 몰입이 잘 되고, 어느 지점에서 흥미가 떨어질 수 있는지\n"
+            "- 감정적 반응: 의도된 감정(긴장, 설렘, 슬픔 등)이 실제로 전달되는지\n"
+            "- 다음 화 기대감: 이 회차가 다음 내용을 궁금하게 만드는지\n\n"
+            "[출력 형식]\n"
+            "## 편집자 관점\n"
+            "**좋은 점**\n"
+            "- (구체적 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (구체적 근거 + 방향 제안과 함께 1~3개)\n\n"
+            "## 독자 관점\n"
+            "**좋은 점**\n"
+            "- (구체적 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (구체적 근거 + 방향 제안과 함께 1~3개)\n\n"
+            "## 한 줄 총평\n"
+            "(이 회차 전체를 관통하는 핵심 조언 한 문장)\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+
+    @staticmethod
+    def _build_next_idea_prompt(scene_content: str) -> str:
+        """Next-idea suggestions (ideas mode). Task scope only."""
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 방금 작성된 회차입니다. 이 흐름에서 자연스럽게 이어질 다음 전개\n"
+            "아이디어를 3~5개 제안하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 지금 회차의 마지막 장면에서 개연성 있게 이어지는 전개만 제안한다.\n"
+            "   원고의 전체 흐름과 동떨어진 뜬금없는 사건을 제안하지 않는다.\n"
+            "2. [프로젝트 누적 정보]에 있는 인물 성격, 세계관 규칙, 미회수 복선을 참고해\n"
+            "   그 작품다운 방향으로 제안한다. 미회수 복선이 있다면 그것을 회수하거나\n"
+            "   진전시키는 아이디어를 최소 1개 포함한다.\n"
+            "3. 후보들은 서로 겹치지 않게, 각기 다른 방향(예: 갈등 심화 / 관계 변화 /\n"
+            "   새로운 정보 공개 / 반전 등)을 다루도록 다양성을 준다.\n"
+            "4. 이미 회수된 떡밥이나 이미 밝혀진 정보를 다시 반복해서 제안하지 않는다.\n\n"
+            "[출력 형식]\n"
+            "각 후보는 아래 형식으로 제시한다.\n"
+            "**후보 N: (짧은 제목)**\n"
+            "- 무엇을 하는 전개인지 1~2문장\n"
+            "- 왜 이 시점에 자연스러운지 (근거 1문장)\n\n"
+            "후보 수는 3~5개로 하고, 마지막에 \"이 중 어떤 방향이든 편하게 말씀해주시면\n"
+            "더 구체적으로 함께 풀어볼게요.\" 같은 짧은 안내를 덧붙인다.\n\n"
+            "[현재 회차 본문]\n"
+            f"{text}\n\n"
+            "[다음 아이디어 제안]"
+        )
+
+    @staticmethod
+    def _build_brainstorm_prompt(scene_content: str, user_topic: str = "") -> str:
+        """Brainstorming (brainstorm mode). Task scope only."""
+        text = str(scene_content or "").strip()
+        topic = str(user_topic or "").strip()
+        if topic:
+            topic_instruction = (
+                "[작가가 지정한 주제]\n"
+                f'"{topic}"에 대해 집중적으로 브레인스토밍한다.'
+            )
+        else:
+            topic_instruction = (
+                "[주제]\n"
+                "작가가 특정 주제를 지정하지 않았다. 현재 회차와 지금까지의 흐름을\n"
+                "       참고해, 이 작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다."
+            )
+        return (
+            "[현재 작업]\n"
+            "아래 원고를 바탕으로 이 작품에 적용할 수 있는 아이디어를 5~8개 브레인스토밍하세요.\n\n"
+            f"{topic_instruction}\n\n"
+            "[판단 기준]\n"
+            "1. \"다음 회차에 바로 이어지는 전개\"로 범위를 좁히지 않는다. 서브플롯, 반전,\n"
+            "   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서\n"
+            "   아이디어를 던진다.\n"
+            "2. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를\n"
+            "   둔다. 다소 과감하거나 실험적인 아이디어도 배제하지 않는다.\n"
+            "3. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+            "   범위 안에서 자유롭게 확장한다 (설정을 깨는 것과 설정을 확장하는 것은 다르다).\n"
+            "4. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n"
+            "   같은 층위의 아이디어만 나열하지 않는다.\n\n"
+            "[출력 형식]\n"
+            "각 아이디어는 아래 형식으로 제시한다.\n"
+            "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+            "- 무엇인지 1~2문장\n"
+            "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+            "[현재 회차 또는 최근 원고]\n"
+            f"{text}\n\n"
+            "[브레인스토밍 결과]"
+        )
+
+    @staticmethod
+    def _build_world_description_prompt(target_subject: str, scene_content: str) -> str:
+        """세계관 묘사 도우미 (worlddesc). Task scope only."""
+        subject = str(target_subject or "").strip()
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 대상에 대해, 이 작품의 문체와 세계관에 맞는 묘사 문장을 작성하세요.\n"
+            "작가가 원고에 바로 이어 붙이거나 참고해서 쓸 수 있는 수준으로 씁니다.\n\n"
+            "[묘사 대상]\n"
+            f"{subject}\n\n"
+            "[판단 기준]\n"
+            "1. 시스템 메시지의 장르·세계관 키워드와 [프로젝트 누적 정보]에 이미 확립된\n"
+            "   설정(세계관 규칙, 지금까지 등장한 배경)에 부합하는 묘사를 만든다.\n"
+            "   장르에 안 맞는 클리셰(예: 동양풍 세계관에 서구식 성 묘사)를 섞지 않는다.\n"
+            "2. 현재 회차의 문체(문장 길이, 어휘 수준, 시점)와 어울리게 쓴다. 원고\n"
+            "   전체와 톤이 튀지 않아야 한다.\n"
+            "3. 오감(시각/청각/후각/촉각) 중 최소 2가지 이상을 활용해 입체적으로 묘사한다.\n"
+            "   단, 모든 감각을 억지로 다 채우지 않는다.\n"
+            "4. 정보 나열이 아니라 장면 속에서 자연스럽게 읽히는 묘사로 쓴다\n"
+            "   (\"이곳은 ~한 곳이다\" 같은 설명체보다, 인물의 시선이나 행동에 녹인\n"
+            "   묘사를 우선한다).\n"
+            "5. 이미 확립된 설정과 모순되는 새로운 설정을 지어내지 않는다. 다만\n"
+            "   기존 설정을 구체화하는 선에서는 세부 디테일을 자유롭게 채운다.\n\n"
+            "[출력 형식]\n"
+            "2~3개의 버전을 제공한다. 서로 다른 각도(예: 웅장함 강조 / 스산함 강조 /\n"
+            "인물의 감정과 연결 등)로 다양화한다.\n\n"
+            "**버전 1** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "**버전 2** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "**버전 3** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "[현재 회차 - 문체 참고용]\n"
+            f"{text}\n\n"
+            "[묘사 제안]"
+        )
+
+    @staticmethod
+    def _build_setting_break_scan_prompt(original_text: str) -> str:
+        """Setting-break detector task prompt (worldscan). No Core Identity block."""
+        text = str(original_text or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 원고에서 이 작품의 세계관 또는 캐릭터 설정과 어긋나는 지점을 찾아내세요.\n\n"
+            "[판단 근거 우선순위]\n"
+            "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
+            "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
+            "   지금까지 써온 말투)을 기준으로 삼는다.\n"
+            "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
+            "[세계관 검사 기준]\n"
+            "5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.\n"
+            "   (예: 동양풍 세계관에 \"드래곤\"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)\n"
+            "6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나\n"
+            "   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도\n"
+            "   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여\n"
+            "   있다면 문제로 판단한다.\n\n"
+            "[캐릭터 일관성 검사 기준]\n"
+            "7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.\n"
+            "8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, \"이 작품의 세계관 안에서 통용되는 규범\"이다.\n"
+            "   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로\n"
+            "   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적\n"
+            "   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,\n"
+            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n\n"
+            "[출력 형식]\n"
+            "발견된 항목이 있으면 아래 형식으로 나열한다.\n"
+            "- 유형: [세계관 / 캐릭터]\n"
+            "- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)\n"
+            "- 문제: 무엇이 왜 어긋나는지\n"
+            "- 제안: 어떻게 고치면 좋을지 짧게\n\n"
+            "발견된 항목이 없으면 \"이번 구간에서는 설정과 어긋나는 지점이 발견되지 않았습니다.\"라고만 답한다.\n"
+            "과잉 지적하지 않는다. 확실한 것만 표시한다.\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[검사 결과]"
         )
 
     @staticmethod
@@ -3013,6 +4052,633 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError("아이디어 메모를 찾을 수 없습니다.")
             connection.execute("DELETE FROM idea_note WHERE id = ?", (idea_id,))
 
+    # ── bait (떡밥 던지기) ──────────────────────────────────────────────
+
+    @staticmethod
+    def _bait_optional_scene_id(value: object) -> int | None:
+        if value is None or value == "":
+            return None
+        try:
+            number = int(value)  # type: ignore[arg-type]
+        except (TypeError, ValueError) as error:
+            raise ValueError("회차 id가 올바르지 않습니다.") from error
+        return number if number > 0 else None
+
+    def _resolve_bait_scene_id(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        value: object,
+        *,
+        strict: bool = False,
+    ) -> int | None:
+        """Map a scene id to an active scene in this project.
+
+        Empty/null clears the link. Non-empty ids that do not match a live scene:
+        - strict=True (create/update UI): raise a clear validation error
+        - strict=False (localStorage import): drop the link so migration still succeeds
+        """
+        scene_id = self._bait_optional_scene_id(value)
+        if scene_id is None:
+            return None
+        row = connection.execute(
+            "SELECT id FROM scene WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+            (scene_id, project_id),
+        ).fetchone()
+        if row is None:
+            if strict:
+                raise ValueError(
+                    "이 작품에 없는 회차예요. 심기·회수 회차를 다시 골라 주세요."
+                )
+            # Soft-deleted / other project / missing: drop the link rather than fail import.
+            return None
+        return scene_id
+
+    def _serialize_bait_row(self, row: sqlite3.Row | dict) -> dict:
+        item = as_dict(row)
+        notify = item.get("notify_on_recover")
+        notify_on = notify not in (0, "0", False, "false", None)
+        return {
+            "id": str(item.get("id") or ""),
+            "project_id": int(item.get("project_id") or 0),
+            "kind": "idea" if item.get("kind") == "idea" else "plant",
+            "quote": item.get("quote") or "",
+            "summary": item.get("summary") or "",
+            "recover_content": item.get("recover_content") or "",
+            "recover_at": item.get("recover_at") or "",
+            "recover_scene_id": item.get("recover_scene_id"),
+            "plant_scene_id": item.get("plant_scene_id"),
+            "source_scene_id": item.get("source_scene_id"),
+            "plant_at_note": item.get("plant_at_note") or "",
+            "source_title": item.get("source_title") or "",
+            "notify_on_recover": notify_on,
+            "snooze_until": item.get("snooze_until") or None,
+            "created_at": item.get("created_at") or "",
+            # camelCase aliases for the existing frontend shape
+            "recoverContent": item.get("recover_content") or "",
+            "recoverAt": item.get("recover_at") or "",
+            "recoverSceneId": item.get("recover_scene_id"),
+            "plantSceneId": item.get("plant_scene_id"),
+            "sourceSceneId": item.get("source_scene_id"),
+            "plantAtNote": item.get("plant_at_note") or "",
+            "sourceTitle": item.get("source_title") or "",
+            "notifyOnRecover": notify_on,
+            "snoozeUntil": item.get("snooze_until") or None,
+            "createdAt": item.get("created_at") or "",
+        }
+
+    def _parse_bait_fields(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        body: dict,
+        *,
+        existing: dict | None = None,
+        strict_scenes: bool = True,
+    ) -> dict:
+        base = existing or {}
+        kind_raw = body.get("kind", base.get("kind") or "plant")
+        kind = "idea" if str(kind_raw or "plant") == "idea" else "plant"
+
+        def text_field(key: str, camel: str, limit: int) -> str:
+            if key in body:
+                return str(body.get(key) or "")[:limit]
+            if camel in body:
+                return str(body.get(camel) or "")[:limit]
+            return str(base.get(key) or "")[:limit]
+
+        quote = text_field("quote", "quote", 20000)
+        if not quote.strip() and not existing:
+            raise ValueError("떡밥 내용을 적어 주세요.")
+        if not quote.strip() and existing:
+            quote = str(existing.get("quote") or "")
+
+        summary = text_field("summary", "summary", 500)
+        recover_content = text_field("recover_content", "recoverContent", 8000)
+        recover_at = text_field("recover_at", "recoverAt", 200)
+        plant_at_note = text_field("plant_at_note", "plantAtNote", 200)
+        source_title = text_field("source_title", "sourceTitle", 200)
+
+        def scene_from(body_key: str, camel: str, base_key: str) -> int | None:
+            if body_key in body or camel in body:
+                raw = body.get(body_key) if body_key in body else body.get(camel)
+                return self._resolve_bait_scene_id(
+                    connection, project_id, raw, strict=strict_scenes
+                )
+            return self._bait_optional_scene_id(base.get(base_key))
+
+        recover_scene_id = scene_from("recover_scene_id", "recoverSceneId", "recover_scene_id")
+        plant_scene_id = scene_from("plant_scene_id", "plantSceneId", "plant_scene_id")
+        if "source_scene_id" in body or "sourceSceneId" in body:
+            source_scene_id = self._resolve_bait_scene_id(
+                connection,
+                project_id,
+                body.get("source_scene_id") if "source_scene_id" in body else body.get("sourceSceneId"),
+                strict=strict_scenes,
+            )
+        elif plant_scene_id is not None and (
+            "plant_scene_id" in body or "plantSceneId" in body
+        ):
+            source_scene_id = plant_scene_id
+        else:
+            source_scene_id = self._bait_optional_scene_id(base.get("source_scene_id"))
+            if source_scene_id is None:
+                source_scene_id = plant_scene_id
+
+        if "notify_on_recover" in body or "notifyOnRecover" in body:
+            raw_notify = body.get("notify_on_recover") if "notify_on_recover" in body else body.get("notifyOnRecover")
+            notify_on = 0 if raw_notify in (False, 0, "0", "false", "False", None, "") else 1
+        else:
+            notify_on = 0 if base.get("notify_on_recover") in (0, False, "0", "false") else 1
+
+        if "snooze_until" in body or "snoozeUntil" in body:
+            raw_snooze = body.get("snooze_until") if "snooze_until" in body else body.get("snoozeUntil")
+            if raw_snooze is None or raw_snooze == "":
+                snooze_until = None
+            else:
+                snooze_until = str(raw_snooze).strip()[:64] or None
+                if snooze_until and snooze_until != "next_open":
+                    # Allow ISO-ish timestamps; reject random long junk.
+                    snooze_until = snooze_until[:40]
+        else:
+            snooze_until = base.get("snooze_until")
+
+        bait_id = None
+        if "id" in body and body.get("id"):
+            bait_id = str(body.get("id")).strip()[:80]
+        elif existing:
+            bait_id = str(existing.get("id") or "")
+
+        created_at = None
+        if "created_at" in body or "createdAt" in body:
+            created_at = str(body.get("created_at") or body.get("createdAt") or "").strip()[:40] or None
+        elif existing:
+            created_at = existing.get("created_at")
+
+        return {
+            "id": bait_id,
+            "kind": kind,
+            "quote": quote,
+            "summary": summary,
+            "recover_content": recover_content,
+            "recover_at": recover_at,
+            "recover_scene_id": recover_scene_id,
+            "plant_scene_id": plant_scene_id,
+            "source_scene_id": source_scene_id,
+            "plant_at_note": plant_at_note,
+            "source_title": source_title,
+            "notify_on_recover": notify_on,
+            "snooze_until": snooze_until,
+            "created_at": created_at,
+        }
+
+    def list_baits(self, project_id: int) -> list[dict]:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
+                "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                "notify_on_recover, snooze_until, created_at "
+                "FROM bait WHERE project_id = ? "
+                "ORDER BY datetime(created_at) DESC, id DESC",
+                (project_id,),
+            ).fetchall()
+        return [self._serialize_bait_row(row) for row in rows]
+
+    def create_bait(self, project_id: int, body: dict) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            fields = self._parse_bait_fields(connection, project_id, body or {})
+            bait_id = fields["id"] or f"bait-{uuid.uuid4().hex[:16]}"
+            if connection.execute("SELECT 1 FROM bait WHERE id = ?", (bait_id,)).fetchone():
+                raise ValueError("이미 같은 id의 떡밥이 있어요.")
+            connection.execute(
+                "INSERT INTO bait("
+                "id, project_id, kind, quote, summary, recover_content, recover_at, "
+                "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                "notify_on_recover, snooze_until, created_at"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                "COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                (
+                    bait_id,
+                    project_id,
+                    fields["kind"],
+                    fields["quote"],
+                    fields["summary"],
+                    fields["recover_content"],
+                    fields["recover_at"],
+                    fields["recover_scene_id"],
+                    fields["plant_scene_id"],
+                    fields["source_scene_id"],
+                    fields["plant_at_note"],
+                    fields["source_title"],
+                    fields["notify_on_recover"],
+                    fields["snooze_until"],
+                    fields["created_at"],
+                ),
+            )
+            row = connection.execute(
+                "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
+                "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                "notify_on_recover, snooze_until, created_at FROM bait WHERE id = ?",
+                (bait_id,),
+            ).fetchone()
+        return self._serialize_bait_row(row)  # type: ignore[arg-type]
+
+    def import_baits(self, project_id: int, body: dict) -> dict:
+        """Upsert bait rows (used when migrating localStorage → SQLite)."""
+        items = body.get("items") if isinstance(body, dict) else None
+        if not isinstance(items, list):
+            raise ValueError("items 배열이 필요해요.")
+        imported = 0
+        updated = 0
+        with database() as connection:
+            self.require_project(connection, project_id)
+            for raw in items:
+                if not isinstance(raw, dict):
+                    continue
+                # Import is lenient: unknown scene ids are cleared, not rejected.
+                fields = self._parse_bait_fields(
+                    connection, project_id, raw, strict_scenes=False
+                )
+                bait_id = fields["id"] or f"bait-{uuid.uuid4().hex[:16]}"
+                existing = connection.execute(
+                    "SELECT id FROM bait WHERE id = ? AND project_id = ?",
+                    (bait_id, project_id),
+                ).fetchone()
+                if existing:
+                    connection.execute(
+                        "UPDATE bait SET kind = ?, quote = ?, summary = ?, recover_content = ?, "
+                        "recover_at = ?, recover_scene_id = ?, plant_scene_id = ?, source_scene_id = ?, "
+                        "plant_at_note = ?, source_title = ?, notify_on_recover = ?, snooze_until = ? "
+                        "WHERE id = ? AND project_id = ?",
+                        (
+                            fields["kind"],
+                            fields["quote"],
+                            fields["summary"],
+                            fields["recover_content"],
+                            fields["recover_at"],
+                            fields["recover_scene_id"],
+                            fields["plant_scene_id"],
+                            fields["source_scene_id"],
+                            fields["plant_at_note"],
+                            fields["source_title"],
+                            fields["notify_on_recover"],
+                            fields["snooze_until"],
+                            bait_id,
+                            project_id,
+                        ),
+                    )
+                    updated += 1
+                else:
+                    # Do not overwrite a row that belongs to another project.
+                    if connection.execute("SELECT 1 FROM bait WHERE id = ?", (bait_id,)).fetchone():
+                        bait_id = f"bait-{uuid.uuid4().hex[:16]}"
+                    connection.execute(
+                        "INSERT INTO bait("
+                        "id, project_id, kind, quote, summary, recover_content, recover_at, "
+                        "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                        "notify_on_recover, snooze_until, created_at"
+                        ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, "
+                        "COALESCE(?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')))",
+                        (
+                            bait_id,
+                            project_id,
+                            fields["kind"],
+                            fields["quote"],
+                            fields["summary"],
+                            fields["recover_content"],
+                            fields["recover_at"],
+                            fields["recover_scene_id"],
+                            fields["plant_scene_id"],
+                            fields["source_scene_id"],
+                            fields["plant_at_note"],
+                            fields["source_title"],
+                            fields["notify_on_recover"],
+                            fields["snooze_until"],
+                            fields["created_at"],
+                        ),
+                    )
+                    imported += 1
+        return {"ok": True, "imported": imported, "updated": updated, "total": imported + updated}
+
+    def update_bait(self, bait_id: str, body: dict) -> dict:
+        bait_id = str(bait_id or "").strip()
+        if not bait_id:
+            raise ValueError("떡밥 id가 없어요.")
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
+                "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                "notify_on_recover, snooze_until, created_at FROM bait WHERE id = ?",
+                (bait_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("떡밥을 찾을 수 없습니다.")
+            project_id = int(row["project_id"])
+            fields = self._parse_bait_fields(
+                connection,
+                project_id,
+                body or {},
+                existing=as_dict(row),
+            )
+            connection.execute(
+                "UPDATE bait SET kind = ?, quote = ?, summary = ?, recover_content = ?, "
+                "recover_at = ?, recover_scene_id = ?, plant_scene_id = ?, source_scene_id = ?, "
+                "plant_at_note = ?, source_title = ?, notify_on_recover = ?, snooze_until = ? "
+                "WHERE id = ?",
+                (
+                    fields["kind"],
+                    fields["quote"],
+                    fields["summary"],
+                    fields["recover_content"],
+                    fields["recover_at"],
+                    fields["recover_scene_id"],
+                    fields["plant_scene_id"],
+                    fields["source_scene_id"],
+                    fields["plant_at_note"],
+                    fields["source_title"],
+                    fields["notify_on_recover"],
+                    fields["snooze_until"],
+                    bait_id,
+                ),
+            )
+            updated = connection.execute(
+                "SELECT id, project_id, kind, quote, summary, recover_content, recover_at, "
+                "recover_scene_id, plant_scene_id, source_scene_id, plant_at_note, source_title, "
+                "notify_on_recover, snooze_until, created_at FROM bait WHERE id = ?",
+                (bait_id,),
+            ).fetchone()
+        return self._serialize_bait_row(updated)  # type: ignore[arg-type]
+
+    def delete_bait(self, bait_id: str) -> None:
+        bait_id = str(bait_id or "").strip()
+        if not bait_id:
+            raise ValueError("떡밥 id가 없어요.")
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id FROM bait WHERE id = ?", (bait_id,)
+            ).fetchone()
+            if row is None:
+                raise ValueError("떡밥을 찾을 수 없습니다.")
+            connection.execute("DELETE FROM bait WHERE id = ?", (bait_id,))
+
+    # ── success pattern (흥행 공식 분석) ─────────────────────────────────
+
+    def parse_success_pattern_document(self, body: dict) -> dict:
+        filename = str(body.get("filename") or body.get("file_name") or "upload.txt")
+        raw_b64 = body.get("content_base64") or body.get("contentBase64") or ""
+        if not raw_b64:
+            raise ValueError("파일 내용이 없어요.")
+        try:
+            data = base64.b64decode(str(raw_b64), validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("파일 데이터를 읽지 못했어요.") from error
+        split_mode = str(body.get("split_mode") or body.get("splitMode") or "headings")
+        episodes = success_pattern.parse_document_to_episodes(
+            filename, data, split_mode=split_mode
+        )
+        total_chars = sum(int(ep.get("length") or 0) for ep in episodes)
+        return {
+            "ok": True,
+            "filename": filename,
+            "episode_count": len(episodes),
+            "total_chars": total_chars,
+            "episodes": episodes,
+        }
+
+    def _normalize_uploaded_sections(self, body: dict) -> list[success_pattern.UploadedSection]:
+        raw_sections = body.get("sections") or body.get("uploaded_sections") or []
+        if not isinstance(raw_sections, list) or not raw_sections:
+            raise ValueError("분석할 구간 데이터가 없어요.")
+        sections: list[success_pattern.UploadedSection] = []
+        for raw in raw_sections:
+            if not isinstance(raw, dict):
+                continue
+            key = str(raw.get("key") or "").strip().lower()
+            if key not in success_pattern.SECTION_KEYS:
+                # accept Korean labels
+                for k, label in success_pattern.SECTION_LABELS.items():
+                    if key in {k, label}:
+                        key = k
+                        break
+            if key not in success_pattern.SECTION_KEYS:
+                raise ValueError(f"알 수 없는 구간입니다: {raw.get('key')}")
+            try:
+                start_ep = int(raw.get("start_ep") or raw.get("start") or 1)
+                end_ep = int(raw.get("end_ep") or raw.get("end") or start_ep)
+            except (TypeError, ValueError) as error:
+                raise ValueError("구간 화수 범위가 올바르지 않아요.") from error
+            episodes: list[success_pattern.EpisodeUnit] = []
+            for i, ep in enumerate(raw.get("episodes") or raw.get("chapters") or []):
+                if isinstance(ep, str):
+                    text = ep
+                    title = f"{i + 1}화"
+                elif isinstance(ep, dict):
+                    text = str(ep.get("text") or ep.get("content") or "")
+                    title = str(ep.get("title") or f"{i + 1}화")
+                else:
+                    continue
+                episodes.append(
+                    success_pattern.EpisodeUnit(title=title, text=text, index=i + 1)
+                )
+            sections.append(
+                success_pattern.UploadedSection(
+                    key=key,
+                    start_ep=start_ep,
+                    end_ep=end_ep,
+                    episodes=episodes,
+                )
+            )
+        if not sections:
+            raise ValueError("업로드된 구간이 없어요.")
+        return sections
+
+    def check_success_pattern_budget(self, body: dict) -> dict:
+        sections = self._normalize_uploaded_sections(body)
+        episode_total = sum(max(s.uploaded_count, s.episode_count) for s in sections)
+        # Prefer actual uploaded episode counts when present
+        uploaded_eps = sum(s.uploaded_count for s in sections)
+        if uploaded_eps:
+            episode_total = uploaded_eps
+        ep_budget = success_pattern.check_episode_budget(episode_total)
+        char_budget = success_pattern.check_character_budget(sections)
+        stats = success_pattern.compute_quantitative_stats(sections)
+        status = "ok"
+        if ep_budget["status"] == "blocked" or char_budget["status"] == "blocked":
+            status = "blocked"
+        elif ep_budget["status"] == "warning" or char_budget["status"] == "warning":
+            status = "warning"
+        return {
+            "status": status,
+            "episode_budget": ep_budget,
+            "character_budget": char_budget,
+            "stats": stats,
+        }
+
+    def run_success_pattern_analysis(self, body: dict) -> dict:
+        work_title = str(body.get("work_title") or body.get("workTitle") or "").strip()
+        if not work_title:
+            raise ValueError("작품명을 입력해 주세요.")
+        try:
+            total_chapters = int(body.get("total_chapters") or body.get("totalChapters") or 0)
+        except (TypeError, ValueError) as error:
+            raise ValueError("총 회차 수가 올바르지 않아요.") from error
+        if total_chapters < 1:
+            raise ValueError("총 회차 수를 1 이상으로 입력해 주세요.")
+
+        sections = self._normalize_uploaded_sections(body)
+        uploaded_eps = sum(s.uploaded_count for s in sections)
+        if uploaded_eps < 1:
+            raise ValueError("분석할 회차 본문이 없어요. 구간 파일을 올려 주세요.")
+
+        ep_budget = success_pattern.check_episode_budget(uploaded_eps)
+        if ep_budget["status"] == "blocked":
+            raise ValueError(ep_budget["message"])
+        char_budget = success_pattern.check_character_budget(sections)
+        if char_budget["status"] == "blocked":
+            raise ValueError(char_budget["message"])
+
+        dry_run = bool(body.get("dry_run") or body.get("dryRun"))
+        # Cap per-episode text sent to model
+        max_scene_chars = 12000
+        chapter_notes: list[dict] = []
+        for section in sections:
+            for ep in section.episodes:
+                content = ep.text or ""
+                if len(content) > max_scene_chars:
+                    content = content[:max_scene_chars] + "\n…(이하 생략)"
+                prompt = success_pattern.build_structural_observation_prompt(content)
+                if dry_run or not gemini_client.is_configured():
+                    note = success_pattern.mock_observation_note(ep.text or "")
+                    used_mock = True
+                else:
+                    try:
+                        # Task-only: no Tory Core Identity system block.
+                        raw = gemini_client.generate_text(
+                            prompt,
+                            system=None,
+                            temperature=0.35,
+                            max_output_tokens=1024,
+                        )
+                        note = success_pattern.extract_json_object(raw)
+                        used_mock = False
+                    except Exception:
+                        note = success_pattern.mock_observation_note(ep.text or "")
+                        used_mock = True
+                chapter_notes.append({
+                    "section_key": section.key,
+                    "section_label": section.label,
+                    "episode_title": ep.title,
+                    "episode_index": ep.index,
+                    "char_count": ep.length,
+                    "observation": note,
+                    "mock": used_mock,
+                })
+
+        quantitative = success_pattern.compute_quantitative_stats(sections)
+        merge_prompt = success_pattern.build_success_pattern_merge_prompt(
+            quantitative, chapter_notes
+        )
+        profile_mock = True
+        if dry_run or not gemini_client.is_configured() or any(n.get("mock") for n in chapter_notes):
+            profile = success_pattern.mock_merge_profile(quantitative, chapter_notes)
+        else:
+            try:
+                raw_profile = gemini_client.generate_text(
+                    merge_prompt,
+                    system=None,
+                    temperature=0.4,
+                    max_output_tokens=2048,
+                )
+                profile = success_pattern.extract_json_object(raw_profile)
+                profile_mock = False
+            except Exception:
+                profile = success_pattern.mock_merge_profile(quantitative, chapter_notes)
+                profile_mock = True
+
+        analyzed_sections = [
+            {
+                "key": s.key,
+                "label": s.label,
+                "start_ep": s.start_ep,
+                "end_ep": s.end_ep,
+                "episode_count": s.uploaded_count,
+                "char_count": s.char_count,
+            }
+            for s in sections
+        ]
+
+        with database() as connection:
+            cursor = connection.execute(
+                "INSERT INTO success_pattern_profile("
+                "work_title, total_chapters, analyzed_sections_json, profile_json, quantitative_json"
+                ") VALUES (?, ?, ?, ?, ?)",
+                (
+                    work_title[:200],
+                    total_chapters,
+                    json.dumps(analyzed_sections, ensure_ascii=False),
+                    json.dumps(profile, ensure_ascii=False),
+                    json.dumps(quantitative, ensure_ascii=False),
+                ),
+            )
+            profile_id = int(cursor.lastrowid)
+            row = connection.execute(
+                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
+                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
+                (profile_id,),
+            ).fetchone()
+        return {
+            "ok": True,
+            "profile": self._serialize_success_pattern_row(row),
+            "chapter_notes": chapter_notes,
+            "used_mock": profile_mock,
+            "episode_budget": ep_budget,
+            "character_budget": char_budget,
+        }
+
+    def _serialize_success_pattern_row(self, row: sqlite3.Row | dict | None) -> dict:
+        if row is None:
+            raise ValueError("프로파일을 찾을 수 없습니다.")
+        item = as_dict(row) or {}
+
+        def _loads(key: str, default):
+            raw = item.get(key)
+            if isinstance(raw, (dict, list)):
+                return raw
+            try:
+                return json.loads(raw or ("[]" if isinstance(default, list) else "{}"))
+            except (json.JSONDecodeError, TypeError):
+                return default
+
+        return {
+            "id": int(item.get("id") or 0),
+            "work_title": item.get("work_title") or "",
+            "total_chapters": item.get("total_chapters"),
+            "analyzed_sections": _loads("analyzed_sections_json", []),
+            "profile": _loads("profile_json", {}),
+            "quantitative": _loads("quantitative_json", {}),
+            "built_at": item.get("built_at") or "",
+        }
+
+    def list_success_pattern_profiles(self) -> list[dict]:
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
+                "quantitative_json, built_at FROM success_pattern_profile "
+                "ORDER BY datetime(built_at) DESC, id DESC LIMIT 100"
+            ).fetchall()
+        return [self._serialize_success_pattern_row(r) for r in rows]
+
+    def get_success_pattern_profile(self, profile_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
+                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
+                (profile_id,),
+            ).fetchone()
+        return self._serialize_success_pattern_row(row)
+
     def save_chapter(self, chapter_id: int, body: dict) -> None:
         title = str(body.get("title", "")).strip()
         if not title:
@@ -3032,10 +4698,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
 
     def _chapter_group_filter_sql(self, part_id) -> tuple[str, tuple]:
-        """SQL fragment + params for chapters in one binder group (part or ungrouped)."""
+        """SQL fragment + params for top-level chapters in one binder group.
+
+        Chapters nested under a manuscript (parent_scene_id set) are excluded.
+        """
         if part_id is None:
-            return "part_id IS NULL", ()
-        return "part_id = ?", (int(part_id),)
+            return "part_id IS NULL AND parent_scene_id IS NULL", ()
+        return "part_id = ? AND parent_scene_id IS NULL", (int(part_id),)
 
     def _assign_chapter_sort_orders(
         self,
@@ -3144,7 +4813,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 next_order = connection.execute(
                     "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
-                    "WHERE project_id = ? AND part_id = ? AND deleted_at IS NULL",
+                    "WHERE project_id = ? AND part_id = ? AND parent_scene_id IS NULL "
+                    "AND deleted_at IS NULL",
                     (project_id, part_id),
                 ).fetchone()[0]
                 connection.execute(
@@ -3668,14 +5338,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             for chapter in chapters_rows
             if scenes_by_chapter.get(chapter["id"])
         ]
-        # Title: full project, or custom/export title for partial
+        # Title: full project keeps a document heading.
+        # Partial (회차 선택) export omits the top heading so UI labels like
+        # "선택회차2" / "2개 회차" never appear inside the manuscript file.
         project_title = str(project["title"] or "작품").strip() or "작품"
-        if export_title:
-            file_title = export_title
-        elif selected is not None and len(selected) == 1 and single_scene_title:
+        include_doc_title = selected is None
+        raw_export_title = str(export_title or "").strip()
+        ui_hint = bool(
+            not raw_export_title
+            or raw_export_title in {"이 회차", "선택 회차", "현재 회차"}
+            or re.fullmatch(r"선택회차\d*", raw_export_title)
+            or re.fullmatch(r"\d+개 회차", raw_export_title)
+        )
+        if selected is None:
+            file_title = raw_export_title if not ui_hint else project_title
+        elif not ui_hint:
+            # Custom title only affects the download filename for partial exports
+            file_title = raw_export_title
+        elif len(selected) == 1 and single_scene_title:
             file_title = f"{project_title} - {single_scene_title}"
-        elif selected is not None:
-            file_title = f"{project_title} - 선택회차{len(selected)}"
         else:
             file_title = project_title
 
@@ -3684,6 +5365,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             project_title=file_title,
             chapters=chapters,
             stg_bytes=stg_bytes,
+            include_title=include_doc_title,
         )
 
     def _build_scene_tree(self, flat_scenes: list[dict]) -> list[dict]:
@@ -3718,6 +5400,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         roots.append(node)
         return roots
 
+    def _attach_child_chapters_to_scenes(
+        self,
+        scene_roots: list[dict],
+        by_parent_scene: dict[int, list[dict]],
+        flat_by_chapter: dict[int, list[dict]],
+    ) -> None:
+        """Attach folders nested under manuscripts (chapter.parent_scene_id)."""
+
+        def walk(nodes: list[dict]) -> None:
+            for node in nodes or []:
+                sid = int(node["id"])
+                nested_payloads: list[dict] = []
+                for ch in by_parent_scene.get(sid, []):
+                    ch_copy = dict(ch)
+                    flat = flat_by_chapter.get(int(ch_copy["id"]), [])
+                    ch_copy["scenes"] = self._build_scene_tree(flat)
+                    ch_copy["scenes_flat"] = self._flatten_scene_tree(ch_copy["scenes"])
+                    self._attach_child_chapters_to_scenes(
+                        ch_copy["scenes"], by_parent_scene, flat_by_chapter
+                    )
+                    nested_payloads.append(ch_copy)
+                node["child_chapters"] = nested_payloads
+                walk(node.get("children") or [])
+
+        walk(scene_roots)
+
     def project_outline(self, project_id: int) -> dict:
         with database() as connection:
             self.require_project(connection, project_id)
@@ -3727,19 +5435,31 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "ORDER BY sort_order, id",
                 (project_id,),
             ).fetchall()
-            chapters = connection.execute(
-                "SELECT id, part_id, title, sort_order FROM chapter "
-                "WHERE project_id = ? AND deleted_at IS NULL "
-                "ORDER BY "
-                "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
-                "part_id, sort_order, id",
-                (project_id,),
-            ).fetchall()
+            try:
+                chapters = connection.execute(
+                    "SELECT id, part_id, parent_scene_id, title, notes_md, sort_order "
+                    "FROM chapter "
+                    "WHERE project_id = ? AND deleted_at IS NULL "
+                    "ORDER BY "
+                    "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
+                    "part_id, sort_order, id",
+                    (project_id,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                chapters = connection.execute(
+                    "SELECT id, part_id, title, notes_md, sort_order FROM chapter "
+                    "WHERE project_id = ? AND deleted_at IS NULL "
+                    "ORDER BY "
+                    "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
+                    "part_id, sort_order, id",
+                    (project_id,),
+                ).fetchall()
             # parent_scene_id may be missing only on broken DBs; COALESCE via try
             try:
                 scenes = connection.execute(
                     "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, s.status, "
-                    "s.synopsis_md, s.sort_order, r.word_count "
+                    "s.synopsis_md, s.sort_order, r.word_count, "
+                    "substr(r.content_md, 1, 1200) AS content_head "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                     "ORDER BY s.chapter_id, s.sort_order, s.id",
@@ -3748,36 +5468,72 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             except sqlite3.OperationalError:
                 scenes = connection.execute(
                     "SELECT s.id, s.chapter_id, s.title, s.status, "
-                    "s.synopsis_md, s.sort_order, r.word_count "
+                    "s.synopsis_md, s.sort_order, r.word_count, "
+                    "substr(r.content_md, 1, 1200) AS content_head "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                     "ORDER BY s.chapter_id, s.sort_order, s.id",
                     (project_id,),
                 ).fetchall()
-            project = connection.execute(
-                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-                "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                "goal_word_count "
-                "FROM project WHERE id = ?",
-                (project_id,),
-            ).fetchone()
+            try:
+                project = connection.execute(
+                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                project = connection.execute(
+                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, goal_word_count "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
         flat_by_chapter: dict[int, list[dict]] = {}
+        untitled_titles = {"", "제목 없음", "새 씬", "새 하위 원고"}
         for scene in scenes:
             data = as_dict(scene)
             if "parent_scene_id" not in data:
                 data["parent_scene_id"] = None
+            title = str(data.get("title") or "").strip()
+            content_head = data.pop("content_head", None)
+            if title in untitled_titles:
+                data["body_preview"] = first_sentence_preview(content_head or "")
+            else:
+                data["body_preview"] = ""
             flat_by_chapter.setdefault(int(scene["chapter_id"]), []).append(data)
-        chapter_payloads = []
+
+        by_parent_scene: dict[int, list[dict]] = {}
+        top_level_chapters: list[dict] = []
         for chapter in chapters:
             ch = as_dict(chapter)
+            if "parent_scene_id" not in ch:
+                ch["parent_scene_id"] = None
             flat = flat_by_chapter.get(int(chapter["id"]), [])
-            # Nested manuscript tree under each folder
             ch["scenes"] = self._build_scene_tree(flat)
             ch["scenes_flat"] = self._flatten_scene_tree(ch["scenes"])
-            chapter_payloads.append(ch)
+            ch["transparent"] = import_hierarchy.is_transparent_chapter(
+                ch.get("notes_md"), ch.get("title")
+            )
+            raw_parent = ch.get("parent_scene_id")
+            if raw_parent is not None:
+                by_parent_scene.setdefault(int(raw_parent), []).append(ch)
+            else:
+                top_level_chapters.append(ch)
+
+        for group in by_parent_scene.values():
+            group.sort(key=lambda c: (int(c.get("sort_order") or 0), int(c.get("id") or 0)))
+
+        for ch in top_level_chapters:
+            self._attach_child_chapters_to_scenes(
+                ch["scenes"], by_parent_scene, flat_by_chapter
+            )
+
         chapters_by_part: dict[int, list[dict]] = {}
         ungrouped: list[dict] = []
-        for chapter in chapter_payloads:
+        for chapter in top_level_chapters:
             pid = chapter.get("part_id")
             if pid is None:
                 ungrouped.append(chapter)
@@ -3801,13 +5557,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             project_data["worldbuilding_md"] = project_data.get("worldbuilding_md") or ""
             project_data["intro_md"] = project_data.get("intro_md") or ""
             project_data["intent_md"] = project_data.get("intent_md") or ""
+            project_data["tory_priority_md"] = project_data.get("tory_priority_md") or ""
+            project_data["outline_summary"] = project_data.get("outline_summary") or ""
             project_data["main_genre"] = project_data.get("main_genre") or ""
             project_data["sub_genre"] = project_data.get("sub_genre") or ""
             project_data["keywords"] = parse_project_keywords(project_data.get("keywords"))
             project_data["goal_word_count"] = int(project_data.get("goal_word_count") or 0)
+            try:
+                link = project_data.get("linked_success_profile_id")
+                project_data["linked_success_profile_id"] = (
+                    int(link) if link not in (None, "", 0, "0") else None
+                )
+            except (TypeError, ValueError):
+                project_data["linked_success_profile_id"] = None
         return {
             "project": project_data,
-            # Flat chapter list (all folders) for lookups — order: in-part then ungrouped
+            # Flat chapter list (all top-level folders) for lookups — order: in-part then ungrouped
             "chapters": [
                 ch
                 for part in parts_payload
@@ -3896,104 +5661,51 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def reparent_scene(self, scene_id: int, body: dict) -> dict:
         """Move a manuscript under another manuscript (or to folder root)."""
-        raw_parent = body.get("parent_scene_id", body.get("parent_id", None))
-        if raw_parent is None or raw_parent == "" or str(raw_parent).lower() == "null":
-            new_parent_id = None
-        else:
-            try:
-                new_parent_id = int(raw_parent)
-            except (TypeError, ValueError) as error:
-                raise ValueError("상위 원고 정보가 올바르지 않습니다.") from error
+        return self.move_scene(scene_id, {
+            "parent_scene_id": body.get("parent_scene_id", body.get("parent_id", None)),
+        })
 
-        with database() as connection:
-            scene = connection.execute(
-                "SELECT id, project_id, chapter_id, parent_scene_id, title "
-                "FROM scene WHERE id = ? AND deleted_at IS NULL",
-                (scene_id,),
-            ).fetchone()
-            if scene is None:
-                raise ValueError("원고를 찾을 수 없습니다.")
-            chapter_id = int(scene["chapter_id"])
-            old_parent = scene["parent_scene_id"]
-            old_parent_id = int(old_parent) if old_parent is not None else None
+    @staticmethod
+    def _parse_optional_int(value, field_label: str) -> int | None:
+        if value is None or value == "" or str(value).lower() == "null":
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError) as error:
+            raise ValueError(f"{field_label}이(가) 올바르지 않습니다.") from error
 
-            if new_parent_id is not None:
-                if new_parent_id == scene_id:
-                    raise ValueError("자기 자신을 상위 원고로 둘 수 없습니다.")
-                parent = connection.execute(
-                    "SELECT id, chapter_id, parent_scene_id FROM scene "
-                    "WHERE id = ? AND deleted_at IS NULL",
-                    (new_parent_id,),
-                ).fetchone()
-                if parent is None:
-                    raise ValueError("상위 원고를 찾을 수 없습니다.")
-                if int(parent["chapter_id"]) != chapter_id:
-                    raise ValueError("같은 폴더 안의 원고로만 옮길 수 있습니다.")
-                # Cycle check: walk up from new parent
-                walk = new_parent_id
-                guard = 0
-                while walk is not None and guard < 500:
-                    if walk == scene_id:
-                        raise ValueError("하위 원고 아래로 자신을 넣을 수 없습니다.")
-                    row = connection.execute(
-                        "SELECT parent_scene_id FROM scene WHERE id = ?",
-                        (walk,),
-                    ).fetchone()
-                    walk = (
-                        int(row["parent_scene_id"])
-                        if row and row["parent_scene_id"] is not None
-                        else None
-                    )
-                    guard += 1
+    def _scene_descendant_ids(
+        self,
+        connection: sqlite3.Connection,
+        root_id: int,
+    ) -> set[int]:
+        """All active descendants of root (not including root)."""
+        found: set[int] = set()
+        frontier = [root_id]
+        guard = 0
+        while frontier and guard < 5000:
+            guard += 1
+            current = frontier.pop()
+            rows = connection.execute(
+                "SELECT id FROM scene WHERE parent_scene_id = ? AND deleted_at IS NULL",
+                (current,),
+            ).fetchall()
+            for row in rows:
+                child_id = int(row["id"])
+                if child_id in found:
+                    continue
+                found.add(child_id)
+                frontier.append(child_id)
+        return found
 
-            if old_parent_id == new_parent_id:
-                return {
-                    "ok": True,
-                    "id": scene_id,
-                    "parent_scene_id": new_parent_id,
-                    "moved": False,
-                    "title": scene["title"],
-                }
-
-            if new_parent_id is None:
-                next_order = connection.execute(
-                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
-                    "WHERE chapter_id = ? AND parent_scene_id IS NULL "
-                    "AND deleted_at IS NULL AND id != ?",
-                    (chapter_id, scene_id),
-                ).fetchone()[0]
-            else:
-                next_order = connection.execute(
-                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM scene "
-                    "WHERE chapter_id = ? AND parent_scene_id = ? "
-                    "AND deleted_at IS NULL AND id != ?",
-                    (chapter_id, new_parent_id, scene_id),
-                ).fetchone()[0]
-
-            connection.execute(
-                "UPDATE scene SET parent_scene_id = ?, sort_order = ?, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
-                "row_version = row_version + 1 "
-                "WHERE id = ?",
-                (new_parent_id, next_order, scene_id),
-            )
-            # Compact old sibling group
-            self._compact_scene_siblings(connection, chapter_id, old_parent_id)
-        return {
-            "ok": True,
-            "id": scene_id,
-            "title": scene["title"],
-            "chapter_id": chapter_id,
-            "parent_scene_id": new_parent_id,
-            "moved": True,
-        }
-
-    def _compact_scene_siblings(
+    def _list_scene_sibling_ids(
         self,
         connection: sqlite3.Connection,
         chapter_id: int,
         parent_scene_id: int | None,
-    ) -> None:
+        exclude_ids: set[int] | None = None,
+    ) -> list[int]:
+        exclude = exclude_ids or set()
         if parent_scene_id is None:
             rows = connection.execute(
                 "SELECT id FROM scene "
@@ -4008,33 +5720,275 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "ORDER BY sort_order, id",
                 (chapter_id, parent_scene_id),
             ).fetchall()
-        ids = [int(r["id"]) for r in rows]
+        return [int(r["id"]) for r in rows if int(r["id"]) not in exclude]
+
+    def _assign_scene_sibling_orders(
+        self,
+        connection: sqlite3.Connection,
+        chapter_id: int,
+        parent_scene_id: int | None,
+        ordered_ids: list[int],
+    ) -> None:
+        """Park then assign 0..n-1 within one sibling group."""
         base = 1_000_000
-        for index, sid in enumerate(ids):
+        for index, sid in enumerate(ordered_ids):
             connection.execute(
-                "UPDATE scene SET sort_order = ? WHERE id = ?",
-                (base + index, sid),
+                "UPDATE scene SET sort_order = ? WHERE id = ? AND chapter_id = ?",
+                (base + index, sid, chapter_id),
             )
-        for index, sid in enumerate(ids):
+        for index, sid in enumerate(ordered_ids):
             connection.execute(
                 "UPDATE scene SET sort_order = ? WHERE id = ?",
                 (index, sid),
             )
+        # Ensure parent pointers match (in case of drift).
+        for sid in ordered_ids:
+            connection.execute(
+                "UPDATE scene SET parent_scene_id = ? WHERE id = ?",
+                (parent_scene_id, sid),
+            )
+
+    def move_scene(self, scene_id: int, body: dict) -> dict:
+        """Move a manuscript anywhere: reorder, nest, promote, or change folder."""
+        before_id = self._parse_optional_int(
+            body.get("before_scene_id", body.get("before_id")),
+            "앞쪽 원고",
+        )
+        after_id = self._parse_optional_int(
+            body.get("after_scene_id", body.get("after_id")),
+            "뒤쪽 원고",
+        )
+        if before_id is not None and after_id is not None:
+            raise ValueError("앞쪽·뒤쪽 위치를 동시에 지정할 수 없습니다.")
+
+        parent_in_body = "parent_scene_id" in body or "parent_id" in body
+        raw_parent = body.get("parent_scene_id", body.get("parent_id", None))
+        requested_parent = (
+            self._parse_optional_int(raw_parent, "상위 원고")
+            if parent_in_body
+            else None
+        )
+
+        chapter_in_body = "chapter_id" in body
+        requested_chapter = (
+            self._parse_optional_int(body.get("chapter_id"), "폴더")
+            if chapter_in_body
+            else None
+        )
+        if chapter_in_body and requested_chapter is None:
+            raise ValueError("폴더 정보가 올바르지 않습니다.")
+
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id, chapter_id, parent_scene_id, title "
+                "FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("원고를 찾을 수 없습니다.")
+
+            project_id = int(scene["project_id"])
+            old_chapter_id = int(scene["chapter_id"])
+            old_parent_raw = scene["parent_scene_id"]
+            old_parent_id = int(old_parent_raw) if old_parent_raw is not None else None
+
+            anchor = None
+            anchor_kind = None
+            if before_id is not None:
+                anchor = connection.execute(
+                    "SELECT id, project_id, chapter_id, parent_scene_id FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (before_id,),
+                ).fetchone()
+                if anchor is None:
+                    raise ValueError("앞쪽 원고를 찾을 수 없습니다.")
+                anchor_kind = "before"
+            elif after_id is not None:
+                anchor = connection.execute(
+                    "SELECT id, project_id, chapter_id, parent_scene_id FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (after_id,),
+                ).fetchone()
+                if anchor is None:
+                    raise ValueError("뒤쪽 원고를 찾을 수 없습니다.")
+                anchor_kind = "after"
+
+            if anchor is not None:
+                if int(anchor["project_id"]) != project_id:
+                    raise ValueError("같은 작품 안의 원고로만 옮길 수 있습니다.")
+                new_chapter_id = (
+                    requested_chapter
+                    if chapter_in_body
+                    else int(anchor["chapter_id"])
+                )
+                if parent_in_body:
+                    new_parent_id = requested_parent
+                else:
+                    ap = anchor["parent_scene_id"]
+                    new_parent_id = int(ap) if ap is not None else None
+            else:
+                new_chapter_id = requested_chapter if chapter_in_body else old_chapter_id
+                if parent_in_body:
+                    new_parent_id = requested_parent
+                else:
+                    new_parent_id = old_parent_id
+
+            chapter = connection.execute(
+                "SELECT id, project_id FROM chapter "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (new_chapter_id,),
+            ).fetchone()
+            if chapter is None:
+                raise ValueError("폴더를 찾을 수 없습니다.")
+            if int(chapter["project_id"]) != project_id:
+                raise ValueError("같은 작품 안의 폴더로만 옮길 수 있습니다.")
+
+            if new_parent_id is not None:
+                if new_parent_id == scene_id:
+                    raise ValueError("자기 자신을 상위 원고로 둘 수 없습니다.")
+                parent = connection.execute(
+                    "SELECT id, project_id, chapter_id, parent_scene_id FROM scene "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    (new_parent_id,),
+                ).fetchone()
+                if parent is None:
+                    raise ValueError("상위 원고를 찾을 수 없습니다.")
+                if int(parent["project_id"]) != project_id:
+                    raise ValueError("같은 작품 안의 원고로만 옮길 수 있습니다.")
+                if int(parent["chapter_id"]) != new_chapter_id:
+                    raise ValueError("상위 원고와 같은 폴더로 옮겨 주세요.")
+                descendants = self._scene_descendant_ids(connection, scene_id)
+                if new_parent_id in descendants:
+                    raise ValueError("하위 원고 아래로 자신을 넣을 수 없습니다.")
+
+            subtree = self._scene_descendant_ids(connection, scene_id)
+            subtree.add(scene_id)
+            if anchor is not None and int(anchor["id"]) in subtree and anchor_kind:
+                # Dropping before/after own descendant would require illegal parent.
+                if new_parent_id in subtree:
+                    raise ValueError("자기 하위 구조 안으로는 그렇게 옮길 수 없습니다.")
+
+            exclude = set(subtree)
+            siblings = self._list_scene_sibling_ids(
+                connection, new_chapter_id, new_parent_id, exclude_ids=exclude
+            )
+
+            if anchor_kind == "before":
+                try:
+                    insert_at = siblings.index(before_id)
+                except ValueError as error:
+                    raise ValueError("앞쪽 원고가 같은 목록에 없습니다.") from error
+            elif anchor_kind == "after":
+                try:
+                    insert_at = siblings.index(after_id) + 1
+                except ValueError as error:
+                    raise ValueError("뒤쪽 원고가 같은 목록에 없습니다.") from error
+            else:
+                insert_at = len(siblings)
+
+            ordered = siblings[:insert_at] + [scene_id] + siblings[insert_at:]
+
+            # Detect no-op (same chapter/parent/order).
+            old_siblings = self._list_scene_sibling_ids(
+                connection, old_chapter_id, old_parent_id, exclude_ids=set()
+            )
+            same_place = (
+                old_chapter_id == new_chapter_id
+                and old_parent_id == new_parent_id
+                and old_siblings == ordered
+            )
+            if same_place:
+                return {
+                    "ok": True,
+                    "id": scene_id,
+                    "title": scene["title"],
+                    "chapter_id": new_chapter_id,
+                    "parent_scene_id": new_parent_id,
+                    "moved": False,
+                }
+
+            # Park mover with a unique temporary order, then relocate.
+            connection.execute(
+                "UPDATE scene SET sort_order = ? WHERE id = ?",
+                (9_000_000 + scene_id, scene_id),
+            )
+            connection.execute(
+                "UPDATE scene SET chapter_id = ?, parent_scene_id = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (new_chapter_id, new_parent_id, scene_id),
+            )
+            if new_chapter_id != old_chapter_id and subtree:
+                for sid in subtree:
+                    if sid == scene_id:
+                        continue
+                    connection.execute(
+                        "UPDATE scene SET chapter_id = ?, "
+                        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                        "row_version = row_version + 1 "
+                        "WHERE id = ?",
+                        (new_chapter_id, sid),
+                    )
+
+            self._assign_scene_sibling_orders(
+                connection, new_chapter_id, new_parent_id, ordered
+            )
+
+            if (old_chapter_id, old_parent_id) != (new_chapter_id, new_parent_id):
+                self._compact_scene_siblings(connection, old_chapter_id, old_parent_id)
+
+        return {
+            "ok": True,
+            "id": scene_id,
+            "title": scene["title"],
+            "chapter_id": new_chapter_id,
+            "parent_scene_id": new_parent_id,
+            "moved": True,
+        }
+
+    def _compact_scene_siblings(
+        self,
+        connection: sqlite3.Connection,
+        chapter_id: int,
+        parent_scene_id: int | None,
+    ) -> None:
+        ids = self._list_scene_sibling_ids(connection, chapter_id, parent_scene_id)
+        self._assign_scene_sibling_orders(connection, chapter_id, parent_scene_id, ids)
 
     def update_project_settings(self, project_id: int, body: dict) -> dict:
         with database() as connection:
             self.require_project(connection, project_id)
-            row = connection.execute(
-                "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                "main_genre, sub_genre, keywords, purpose, goal_word_count "
-                "FROM project WHERE id = ?",
-                (project_id,),
-            ).fetchone()
+            has_link_col = True
+            try:
+                row = connection.execute(
+                    "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, "
+                    "main_genre, sub_genre, keywords, purpose, goal_word_count, "
+                    "linked_success_profile_id "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                has_link_col = False
+                row = connection.execute(
+                    "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, "
+                    "main_genre, sub_genre, keywords, purpose, goal_word_count "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
             synopsis = row["description_md"] if row else ""
             logline = row["logline_md"] if row else ""
             worldbuilding = row["worldbuilding_md"] if row else ""
             intro = row["intro_md"] if row and "intro_md" in row.keys() else ""
             intent = row["intent_md"] if row and "intent_md" in row.keys() else ""
+            tory_priority = (
+                row["tory_priority_md"] if row and "tory_priority_md" in row.keys() else ""
+            )
+            outline_summary = (
+                row["outline_summary"] if row and "outline_summary" in row.keys() else ""
+            )
             main_genre = row["main_genre"] if row else ""
             sub_genre = row["sub_genre"] if row else ""
             keywords = parse_project_keywords(
@@ -4042,6 +5996,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
             purpose = row["purpose"] if row and "purpose" in row.keys() else "general_novel"
             goal_word_count = int(row["goal_word_count"] or 0) if row else 0
+            linked_success_profile_id = None
+            if has_link_col and row and "linked_success_profile_id" in row.keys():
+                raw_link = row["linked_success_profile_id"]
+                try:
+                    linked_success_profile_id = (
+                        int(raw_link) if raw_link not in (None, "", 0, "0") else None
+                    )
+                except (TypeError, ValueError):
+                    linked_success_profile_id = None
             if "synopsis_md" in body:
                 synopsis = str(body.get("synopsis_md", ""))[:50000]
             if "description_md" in body and "synopsis_md" not in body:
@@ -4054,6 +6017,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 intro = str(body.get("intro_md", ""))[:50000]
             if "intent_md" in body:
                 intent = str(body.get("intent_md", ""))[:50000]
+            if "tory_priority_md" in body:
+                tory_priority = str(body.get("tory_priority_md", ""))[:8000]
+            if "outline_summary" in body:
+                outline_summary = str(body.get("outline_summary", ""))[:20000]
             if "main_genre" in body:
                 main_genre = str(body.get("main_genre") or "").strip()[:80]
             if "sub_genre" in body:
@@ -4067,16 +6034,44 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     goal_word_count = max(0, int(body.get("goal_word_count") or 0))
                 except (TypeError, ValueError) as error:
                     raise ValueError("전체 목표 글자 수가 올바르지 않습니다.") from error
+            if has_link_col and "linked_success_profile_id" in body:
+                raw = body.get("linked_success_profile_id")
+                if raw in (None, "", 0, "0", False):
+                    linked_success_profile_id = None
+                else:
+                    try:
+                        linked_success_profile_id = int(raw)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("흥행 프로파일 연결 정보가 올바르지 않아요.") from error
+                    exists = connection.execute(
+                        "SELECT 1 FROM success_pattern_profile WHERE id = ?",
+                        (linked_success_profile_id,),
+                    ).fetchone()
+                    if exists is None:
+                        raise ValueError("연결할 흥행 프로파일을 찾을 수 없어요.")
             keywords_json = json.dumps(keywords, ensure_ascii=False)
-            connection.execute(
-                "UPDATE project SET description_md = ?, logline_md = ?, worldbuilding_md = ?, "
-                "intro_md = ?, intent_md = ?, "
-                "main_genre = ?, sub_genre = ?, keywords = ?, purpose = ?, goal_word_count = ? WHERE id = ?",
-                (
-                    synopsis, logline, worldbuilding, intro, intent,
-                    main_genre, sub_genre, keywords_json, purpose, goal_word_count, project_id,
-                ),
-            )
+            if has_link_col:
+                connection.execute(
+                    "UPDATE project SET description_md = ?, logline_md = ?, worldbuilding_md = ?, "
+                    "intro_md = ?, intent_md = ?, tory_priority_md = ?, outline_summary = ?, "
+                    "main_genre = ?, sub_genre = ?, keywords = ?, purpose = ?, goal_word_count = ?, "
+                    "linked_success_profile_id = ? WHERE id = ?",
+                    (
+                        synopsis, logline, worldbuilding, intro, intent, tory_priority, outline_summary,
+                        main_genre, sub_genre, keywords_json, purpose, goal_word_count,
+                        linked_success_profile_id, project_id,
+                    ),
+                )
+            else:
+                connection.execute(
+                    "UPDATE project SET description_md = ?, logline_md = ?, worldbuilding_md = ?, "
+                    "intro_md = ?, intent_md = ?, tory_priority_md = ?, outline_summary = ?, "
+                    "main_genre = ?, sub_genre = ?, keywords = ?, purpose = ?, goal_word_count = ? WHERE id = ?",
+                    (
+                        synopsis, logline, worldbuilding, intro, intent, tory_priority, outline_summary,
+                        main_genre, sub_genre, keywords_json, purpose, goal_word_count, project_id,
+                    ),
+                )
             # Keep .stg package purpose in sync when kind changes.
             if "purpose" in body:
                 try:
@@ -4090,11 +6085,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "worldbuilding_md": worldbuilding,
             "intro_md": intro,
             "intent_md": intent,
+            "tory_priority_md": tory_priority,
+            "outline_summary": outline_summary,
             "main_genre": main_genre,
             "sub_genre": sub_genre,
             "keywords": keywords,
             "purpose": purpose,
             "goal_word_count": goal_word_count,
+            "linked_success_profile_id": linked_success_profile_id,
         }
 
     def list_writing_days(self, from_day: str, to_day: str) -> dict:
@@ -5015,11 +7013,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _character_has_portrait_columns(self, connection: sqlite3.Connection) -> bool:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(character)").fetchall()
+        }
+        return "portrait_file" in cols
+
+    def _serialize_character_row(self, row: sqlite3.Row | dict) -> dict:
+        item = as_dict(row)
+        portrait_file = str(item.get("portrait_file") or "").strip()
+        item["portrait_file"] = portrait_file
+        item["portrait_mime"] = str(item.get("portrait_mime") or "").strip()
+        item["portrait_url"] = (
+            f"/api/characters/{item['id']}/portrait?v={item.get('row_version') or 1}"
+            if portrait_file
+            else ""
+        )
+        return item
+
     def character_detail(self, character_id: int) -> dict:
         with database() as connection:
+            has_portrait = self._character_has_portrait_columns(connection)
+            portrait_cols = ", portrait_file, portrait_mime" if has_portrait else ""
             character = connection.execute(
                 "SELECT id, project_id, name, sort_name, role, short_description, profile_md, "
-                "strengths_md, weaknesses_md, author_notes_md, row_version "
+                f"strengths_md, weaknesses_md, author_notes_md, row_version{portrait_cols} "
                 "FROM character WHERE id = ? AND deleted_at IS NULL",
                 (character_id,),
             ).fetchone()
@@ -5028,7 +7047,608 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             aliases = connection.execute(
                 "SELECT id, alias, alias_type FROM character_alias WHERE character_id = ? ORDER BY id", (character_id,)
             ).fetchall()
-        return {"character": as_dict(character), "aliases": [as_dict(alias) for alias in aliases]}
+            char_data = self._serialize_character_row(character)
+            if not has_portrait:
+                char_data["portrait_file"] = ""
+                char_data["portrait_mime"] = ""
+                char_data["portrait_url"] = ""
+        return {"character": char_data, "aliases": [as_dict(alias) for alias in aliases]}
+
+    def trash_project(self, project_id: int) -> dict:
+        """Soft-delete a whole work so it leaves the project picker (admin)."""
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, title FROM project WHERE id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("작품을 찾을 수 없습니다. 이미 삭제되었을 수 있어요.")
+            connection.execute(
+                "UPDATE project SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (project_id,),
+            )
+        return {
+            "ok": True,
+            "id": int(project_id),
+            "title": row["title"],
+        }
+
+    def trash_character(self, character_id: int) -> dict:
+        """Soft-delete a character and detach scene memberships."""
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, name FROM character WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다. 이미 삭제되었을 수 있어요.")
+            connection.execute(
+                "UPDATE character SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (character_id,),
+            )
+            connection.execute(
+                "DELETE FROM scene_character WHERE character_id = ?",
+                (character_id,),
+            )
+        return {
+            "ok": True,
+            "id": int(character_id),
+            "project_id": int(row["project_id"]),
+            "name": row["name"],
+        }
+
+    def save_character_portrait(self, character_id: int, body: dict) -> dict:
+        filename = str(body.get("filename") or body.get("file_name") or "portrait.jpg").strip()
+        mime = str(body.get("mime_type") or body.get("mime") or "image/jpeg").strip() or "image/jpeg"
+        raw_b64 = str(body.get("content_base64") or body.get("data") or "").strip()
+        if not raw_b64:
+            raise ValueError("이미지 데이터가 비어 있어요.")
+        if "," in raw_b64 and raw_b64.lower().startswith("data:"):
+            raw_b64 = raw_b64.split(",", 1)[1]
+        try:
+            data = base64.b64decode(raw_b64, validate=False)
+        except (binascii.Error, ValueError) as error:
+            raise ValueError("이미지 데이터를 읽지 못했어요.") from error
+        if not data:
+            raise ValueError("이미지 데이터가 비어 있어요.")
+        if len(data) > 12 * 1024 * 1024:
+            raise ValueError("이미지는 12MB 이하로 올려 주세요.")
+        if not mime.startswith("image/"):
+            raise ValueError("이미지 파일만 올릴 수 있어요.")
+        ext = Path(filename).suffix.lower()
+        if ext not in {".jpg", ".jpeg", ".png", ".webp", ".gif"}:
+            ext = {
+                "image/jpeg": ".jpg",
+                "image/png": ".png",
+                "image/webp": ".webp",
+                "image/gif": ".gif",
+            }.get(mime, ".jpg")
+        with database() as connection:
+            if not self._character_has_portrait_columns(connection):
+                raise ValueError("캐릭터 이미지 기능을 쓰려면 앱을 다시 시작해 주세요.")
+            row = connection.execute(
+                "SELECT id, project_id, portrait_file, row_version FROM character "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            project_id = int(row["project_id"])
+            old_name = str(row["portrait_file"] or "").strip()
+            file_name = f"char-{character_id}{ext}"
+            target = character_portrait_dir_for(project_id) / file_name
+            target.write_bytes(data)
+            if old_name and old_name != file_name:
+                old_path = character_portrait_dir_for(project_id) / old_name
+                try:
+                    if old_path.is_file():
+                        old_path.unlink()
+                except OSError:
+                    pass
+            connection.execute(
+                "UPDATE character SET portrait_file = ?, portrait_mime = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (file_name, mime, character_id),
+            )
+            version = connection.execute(
+                "SELECT row_version FROM character WHERE id = ?", (character_id,)
+            ).fetchone()
+        return {
+            "ok": True,
+            "id": character_id,
+            "portrait_file": file_name,
+            "portrait_mime": mime,
+            "portrait_url": f"/api/characters/{character_id}/portrait?v={int(version['row_version']) if version else 1}",
+            "row_version": int(version["row_version"]) if version else 1,
+        }
+
+    def clear_character_portrait(self, character_id: int) -> dict:
+        with database() as connection:
+            if not self._character_has_portrait_columns(connection):
+                raise ValueError("캐릭터 이미지 기능을 쓰려면 앱을 다시 시작해 주세요.")
+            row = connection.execute(
+                "SELECT id, project_id, portrait_file FROM character "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            old_name = str(row["portrait_file"] or "").strip()
+            if old_name:
+                path = character_portrait_dir_for(int(row["project_id"])) / old_name
+                try:
+                    if path.is_file():
+                        path.unlink()
+                except OSError:
+                    pass
+            connection.execute(
+                "UPDATE character SET portrait_file = '', portrait_mime = '', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "row_version = row_version + 1 "
+                "WHERE id = ?",
+                (character_id,),
+            )
+        return {"ok": True, "id": character_id, "portrait_url": ""}
+
+    def send_character_portrait(self, character_id: int) -> None:
+        with database() as connection:
+            if not self._character_has_portrait_columns(connection):
+                raise ValueError("캐릭터 이미지를 찾을 수 없습니다.")
+            row = connection.execute(
+                "SELECT project_id, portrait_file, portrait_mime FROM character "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None or not str(row["portrait_file"] or "").strip():
+                raise ValueError("캐릭터 이미지를 찾을 수 없습니다.")
+            path = character_portrait_dir_for(int(row["project_id"])) / row["portrait_file"]
+            if not path.is_file():
+                raise ValueError("캐릭터 이미지 파일을 찾을 수 없습니다.")
+            data = path.read_bytes()
+            mime = str(row["portrait_mime"] or "image/jpeg")
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", mime)
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=3600")
+        self.end_headers()
+        self.wfile.write(data)
+
+    # ── Project auto-index (scene_summary + project_index) ───────────────
+
+    @staticmethod
+    def _parse_json_list(raw: object, fallback: list | None = None) -> list:
+        if fallback is None:
+            fallback = []
+        if isinstance(raw, list):
+            return raw
+        text = str(raw or "").strip()
+        if not text:
+            return list(fallback)
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return list(fallback)
+        return data if isinstance(data, list) else list(fallback)
+
+    @staticmethod
+    def _parse_json_object(raw: object) -> dict:
+        if isinstance(raw, dict):
+            return raw
+        text = str(raw or "").strip()
+        if not text:
+            return {}
+        try:
+            data = json.loads(text)
+        except json.JSONDecodeError:
+            return {}
+        return data if isinstance(data, dict) else {}
+
+    @staticmethod
+    def _extract_json_object(text: str) -> dict:
+        cleaned = str(text or "").strip()
+        cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+        cleaned = re.sub(r"\s*```$", "", cleaned)
+        try:
+            data = json.loads(cleaned)
+            if isinstance(data, dict):
+                return data
+        except json.JSONDecodeError:
+            pass
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if not match:
+            raise ValueError("인덱싱 응답에서 JSON을 찾지 못했습니다.")
+        data = json.loads(match.group(0))
+        if not isinstance(data, dict):
+            raise ValueError("인덱싱 응답 JSON 형식이 올바르지 않습니다.")
+        return data
+
+    @staticmethod
+    def build_scene_summary_prompt(scene_content: str, previous_context: str) -> str:
+        body = str(scene_content or "")
+        context = str(previous_context or "").strip() or "(누적 맥락 없음)"
+        return (
+            "[현재 작업]\n"
+            "아래 회차 내용을 인덱싱용으로 구조화해 요약하세요. 이 결과는 작가에게\n"
+            "보여지는 것이 아니라, 이후 다른 기능들이 참고할 내부 데이터로 사용됩니다.\n\n"
+            "[출력 형식 - 반드시 JSON만 출력]\n"
+            "{\n"
+            '  "event_summary": "이 회차에서 일어난 핵심 사건 (100자 내외)",\n'
+            '  "characters_involved": ["등장한 인물 이름들"],\n'
+            '  "new_world_facts": ["이 회차에서 새로 확립된 설정이 있다면 나열, 없으면 빈 배열"],\n'
+            '  "new_threads": ["이 회차에서 새로 생긴 복선/떡밥, 없으면 빈 배열"],\n'
+            '  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"]\n'
+            "}\n\n"
+            "[판단 기준]\n"
+            "1. 사실만 추출한다. 해석이나 평가를 덧붙이지 않는다.\n"
+            '2. 이전 맥락과 비교해 "새로 생긴 것"과 "이미 있던 것"을 구분한다.\n'
+            "3. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.\n\n"
+            "[이전까지의 누적 맥락 - 참고용]\n"
+            f"{context}\n\n"
+            "[이번 회차 본문]\n"
+            f"{body}\n\n"
+            "[JSON 출력]"
+        )
+
+    @staticmethod
+    def build_index_merge_prompt(existing_index: dict, new_scene_summaries: list) -> str:
+        existing_text = json.dumps(existing_index or {}, ensure_ascii=False, indent=2)
+        summaries_text = json.dumps(new_scene_summaries or [], ensure_ascii=False, indent=2)
+        return (
+            "[현재 작업]\n"
+            "기존 프로젝트 인덱스와 새로 생성된 회차 요약들을 통합해 "
+            "갱신된 프로젝트 인덱스를 만드세요. "
+            "결과는 내부 참고용이며 작가에게 그대로 보여주지 않습니다.\n\n"
+            "[출력 형식 - 반드시 JSON만 출력]\n"
+            "{\n"
+            '  "characters": ["작품에 등장하는 인물 이름들"],\n'
+            '  "world_rules": ["확립된 세계관·설정 규칙"],\n'
+            '  "timeline": ["시간순 핵심 사건 요약"],\n'
+            '  "open_threads": ["아직 회수되지 않은 복선/떡밥"]\n'
+            "}\n\n"
+            "[판단 기준]\n"
+            "1. 사실만 유지한다. 해석·평가·추측을 넣지 않는다.\n"
+            "2. 기존 인덱스의 정보를 보존하되, 새 요약의 신규 사실·회수된 떡밥을 반영한다.\n"
+            "3. resolved_threads에 해당하는 항목은 open_threads에서 제거한다.\n"
+            "4. new_world_facts와 new_threads의 내용이 실질적으로 같은 사실을 가리키면 "
+            "중복으로 두 곳에 반영하지 말고, world_rules 또는 open_threads 중 "
+            "더 적합한 한쪽에만 반영한다.\n"
+            "5. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.\n\n"
+            "[기존 프로젝트 인덱스]\n"
+            f"{existing_text}\n\n"
+            "[새로 추가할 회차 요약들]\n"
+            f"{summaries_text}\n\n"
+            "[JSON 출력]"
+        )
+
+    def _ensure_project_index_row(self, connection: sqlite3.Connection, project_id: int) -> None:
+        connection.execute(
+            "INSERT OR IGNORE INTO project_index(project_id) VALUES (?)",
+            (project_id,),
+        )
+
+    def _mark_project_index_dirty(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        scene_id: int | None = None,
+    ) -> None:
+        self._ensure_project_index_row(connection, project_id)
+        row = connection.execute(
+            "SELECT pending_scene_ids_json FROM project_index WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        pending = self._parse_json_list(row["pending_scene_ids_json"] if row else "[]")
+        pending_ids = []
+        for item in pending:
+            try:
+                pending_ids.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        if scene_id is not None and int(scene_id) not in pending_ids:
+            pending_ids.append(int(scene_id))
+        connection.execute(
+            "UPDATE project_index SET index_dirty = 1, pending_scene_ids_json = ?, "
+            "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE project_id = ?",
+            (json.dumps(pending_ids, ensure_ascii=False), project_id),
+        )
+
+    def _project_index_previous_context(self, connection: sqlite3.Connection, project_id: int) -> str:
+        row = connection.execute(
+            "SELECT characters_json, world_rules_json, timeline_json, open_threads_json "
+            "FROM project_index WHERE project_id = ?",
+            (project_id,),
+        ).fetchone()
+        recent = connection.execute(
+            "SELECT s.title, ss.summary FROM scene_summary ss "
+            "JOIN scene s ON s.id = ss.scene_id "
+            "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+            "ORDER BY ss.updated_at DESC, ss.scene_id DESC LIMIT 8",
+            (project_id,),
+        ).fetchall()
+        parts: list[str] = []
+        if row:
+            chars = self._parse_json_list(row["characters_json"])
+            rules = self._parse_json_list(row["world_rules_json"])
+            timeline = self._parse_json_list(row["timeline_json"])
+            threads = self._parse_json_list(row["open_threads_json"])
+            if chars:
+                parts.append("인물: " + ", ".join(str(c) for c in chars[:40]))
+            if rules:
+                parts.append("설정: " + " / ".join(str(r) for r in rules[:20]))
+            if timeline:
+                parts.append("타임라인: " + " → ".join(str(t) for t in timeline[:20]))
+            if threads:
+                parts.append("열린 떡밥: " + " / ".join(str(t) for t in threads[:20]))
+        for item in reversed(list(recent)):
+            summary_obj = self._parse_json_object(item["summary"])
+            event = str(summary_obj.get("event_summary") or "").strip()
+            title = str(item["title"] or "").strip() or "회차"
+            if event:
+                parts.append(f"{title}: {event}")
+        return "\n".join(parts)
+
+    def get_project_index(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            self._ensure_project_index_row(connection, project_id)
+            row = connection.execute(
+                "SELECT project_id, characters_json, world_rules_json, timeline_json, "
+                "open_threads_json, last_synced_scene_id, index_dirty, "
+                "pending_scene_ids_json, updated_at "
+                "FROM project_index WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        data = as_dict(row) or {}
+        return {
+            "project_id": project_id,
+            "characters": self._parse_json_list(data.get("characters_json")),
+            "world_rules": self._parse_json_list(data.get("world_rules_json")),
+            "timeline": self._parse_json_list(data.get("timeline_json")),
+            "open_threads": self._parse_json_list(data.get("open_threads_json")),
+            "last_synced_scene_id": data.get("last_synced_scene_id"),
+            "index_dirty": int(data.get("index_dirty") or 0),
+            "pending_scene_ids": self._parse_json_list(data.get("pending_scene_ids_json")),
+            "updated_at": data.get("updated_at"),
+            "previous_context": self._project_index_previous_context_readonly(project_id),
+        }
+
+    def _project_index_previous_context_readonly(self, project_id: int) -> str:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            return self._project_index_previous_context(connection, project_id)
+
+    def get_scene_summary(self, scene_id: int) -> dict:
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("회차를 찾을 수 없습니다.")
+            row = connection.execute(
+                "SELECT scene_id, summary, updated_at FROM scene_summary WHERE scene_id = ?",
+                (scene_id,),
+            ).fetchone()
+        if row is None:
+            return {"scene_id": scene_id, "summary": None, "updated_at": None}
+        parsed = self._parse_json_object(row["summary"])
+        return {
+            "scene_id": scene_id,
+            "summary": parsed or row["summary"],
+            "summary_raw": row["summary"],
+            "updated_at": row["updated_at"],
+        }
+
+    def upsert_scene_summary(self, scene_id: int, body: dict) -> dict:
+        raw = body.get("summary")
+        if isinstance(raw, dict):
+            summary_obj = raw
+        else:
+            text = str(raw or "").strip()
+            if not text:
+                raise ValueError("요약 JSON이 비어 있습니다.")
+            summary_obj = self._extract_json_object(text) if text[:1] != "{" else self._parse_json_object(text)
+            if not summary_obj:
+                summary_obj = self._extract_json_object(text)
+        required = (
+            "event_summary",
+            "characters_involved",
+            "new_world_facts",
+            "new_threads",
+            "resolved_threads",
+        )
+        for key in required:
+            if key not in summary_obj:
+                summary_obj[key] = [] if key != "event_summary" else ""
+        summary_json = json.dumps(summary_obj, ensure_ascii=False)
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("회차를 찾을 수 없습니다.")
+            project_id = int(scene["project_id"])
+            connection.execute(
+                "INSERT INTO scene_summary(scene_id, summary, updated_at) VALUES (?, ?, "
+                "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(scene_id) DO UPDATE SET "
+                "summary = excluded.summary, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                (scene_id, summary_json),
+            )
+            self._mark_project_index_dirty(connection, project_id, scene_id)
+        return {
+            "scene_id": scene_id,
+            "project_id": project_id,
+            "summary": summary_obj,
+            "index_dirty": True,
+        }
+
+    def summarize_scene_for_index(self, scene_id: int, body: dict | None = None) -> dict:
+        """Build scene summary via Gemini and upsert scene_summary (+ dirty queue)."""
+        body = body or {}
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT s.id, s.project_id, s.title, r.content_md "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.id = ? AND s.deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("회차를 찾을 수 없습니다.")
+            project_id = int(scene["project_id"])
+            content = str(body.get("content_md") or scene["content_md"] or "")
+            content = plain_text_from_content(content).strip()
+            if len(content) < 20:
+                raise ValueError("인덱싱할 본문이 너무 짧습니다.")
+            previous = str(body.get("previous_context") or "").strip()
+            if not previous:
+                previous = self._project_index_previous_context(connection, project_id)
+            prompt = str(body.get("prompt") or "").strip()
+            if not prompt:
+                prompt = self.build_scene_summary_prompt(content, previous)
+
+        try:
+            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=2048)
+        except gemini_client.GeminiError as error:
+            raise ValueError(str(error)) from error
+
+        summary_obj = self._extract_json_object(raw)
+        result = self.upsert_scene_summary(scene_id, {"summary": summary_obj})
+        result["model"] = gemini_client.model_name()
+        result["raw_text"] = raw
+        result["prompt_chars"] = len(prompt)
+        return result
+
+    def merge_project_index(self, project_id: int, body: dict | None = None) -> dict:
+        """Merge pending scene_summary rows into project_index when dirty."""
+        body = body or {}
+        only_if_dirty = bool(body.get("only_if_dirty"))
+        quiet = bool(body.get("quiet"))
+        with database() as connection:
+            self.require_project(connection, project_id)
+            self._ensure_project_index_row(connection, project_id)
+            row = connection.execute(
+                "SELECT characters_json, world_rules_json, timeline_json, open_threads_json, "
+                "index_dirty, pending_scene_ids_json, last_synced_scene_id "
+                "FROM project_index WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            dirty = int(row["index_dirty"] or 0) if row else 0
+            pending = self._parse_json_list(row["pending_scene_ids_json"] if row else "[]")
+            if only_if_dirty and not dirty:
+                return {"ok": True, "merged": False, "reason": "not_dirty", "project_id": project_id}
+            if not pending:
+                # Fallback: all summaries newer than last sync — or all summaries
+                pending_rows = connection.execute(
+                    "SELECT ss.scene_id, ss.summary FROM scene_summary ss "
+                    "JOIN scene s ON s.id = ss.scene_id "
+                    "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                    "ORDER BY ss.updated_at, ss.scene_id",
+                    (project_id,),
+                ).fetchall()
+            else:
+                placeholders = ",".join("?" for _ in pending)
+                pending_rows = connection.execute(
+                    f"SELECT ss.scene_id, ss.summary FROM scene_summary ss "
+                    f"WHERE ss.scene_id IN ({placeholders}) ORDER BY ss.updated_at, ss.scene_id",
+                    [int(x) for x in pending],
+                ).fetchall()
+            if not pending_rows:
+                connection.execute(
+                    "UPDATE project_index SET index_dirty = 0, pending_scene_ids_json = '[]', "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE project_id = ?",
+                    (project_id,),
+                )
+                return {"ok": True, "merged": False, "reason": "no_summaries", "project_id": project_id}
+
+            existing_index = {
+                "characters": self._parse_json_list(row["characters_json"]),
+                "world_rules": self._parse_json_list(row["world_rules_json"]),
+                "timeline": self._parse_json_list(row["timeline_json"]),
+                "open_threads": self._parse_json_list(row["open_threads_json"]),
+            }
+            new_summaries = []
+            last_scene_id = None
+            for item in pending_rows:
+                last_scene_id = int(item["scene_id"])
+                parsed = self._parse_json_object(item["summary"])
+                if parsed:
+                    parsed = {**parsed, "scene_id": last_scene_id}
+                    new_summaries.append(parsed)
+
+        if not new_summaries:
+            return {"ok": True, "merged": False, "reason": "empty_summaries", "project_id": project_id}
+
+        prompt = str(body.get("prompt") or "").strip() or self.build_index_merge_prompt(
+            existing_index, new_summaries
+        )
+        try:
+            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=4096)
+        except gemini_client.GeminiError as error:
+            if quiet:
+                return {"ok": False, "merged": False, "error": str(error), "project_id": project_id}
+            raise ValueError(str(error)) from error
+
+        try:
+            merged = self._extract_json_object(raw)
+        except (ValueError, json.JSONDecodeError) as error:
+            if quiet:
+                return {"ok": False, "merged": False, "error": str(error), "project_id": project_id}
+            raise ValueError(str(error)) from error
+
+        characters = merged.get("characters")
+        world_rules = merged.get("world_rules")
+        timeline = merged.get("timeline")
+        open_threads = merged.get("open_threads")
+        if not isinstance(characters, list):
+            characters = existing_index["characters"]
+        if not isinstance(world_rules, list):
+            world_rules = existing_index["world_rules"]
+        if not isinstance(timeline, list):
+            timeline = existing_index["timeline"]
+        if not isinstance(open_threads, list):
+            open_threads = existing_index["open_threads"]
+
+        with database() as connection:
+            self._ensure_project_index_row(connection, project_id)
+            connection.execute(
+                "UPDATE project_index SET "
+                "characters_json = ?, world_rules_json = ?, timeline_json = ?, "
+                "open_threads_json = ?, last_synced_scene_id = ?, "
+                "index_dirty = 0, pending_scene_ids_json = '[]', "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE project_id = ?",
+                (
+                    json.dumps(characters, ensure_ascii=False),
+                    json.dumps(world_rules, ensure_ascii=False),
+                    json.dumps(timeline, ensure_ascii=False),
+                    json.dumps(open_threads, ensure_ascii=False),
+                    last_scene_id,
+                    project_id,
+                ),
+            )
+        return {
+            "ok": True,
+            "merged": True,
+            "project_id": project_id,
+            "index": {
+                "characters": characters,
+                "world_rules": world_rules,
+                "timeline": timeline,
+                "open_threads": open_threads,
+            },
+            "merged_scene_ids": [int(s["scene_id"]) for s in new_summaries if "scene_id" in s],
+            "model": gemini_client.model_name(),
+        }
 
     def save_scene(self, scene_id: int, body: dict) -> dict:
         title = str(body.get("title", "")).strip()
@@ -5705,9 +8325,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if destination == "new_project" or project_id is None:
                 if destination in {"match_replace_scene", "proof_compare"}:
                     raise ValueError("회차 자동 매칭은 기존 작품에서만 사용할 수 있어요.")
+                main_genre = str(body.get("main_genre") or "").strip()[:80]
+                sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+                if not main_genre:
+                    raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
+                # Explicit last_opened_at (μs) so import-created works sort correctly vs rapid creates.
+                max_order_row = connection.execute(
+                    "SELECT COALESCE(MAX(list_sort_order), -1) AS m FROM project WHERE deleted_at IS NULL"
+                ).fetchone()
+                next_order = int(max_order_row["m"] if max_order_row else -1) + 1
                 cursor = connection.execute(
-                    "INSERT INTO project(title, purpose) VALUES (?, ?)",
-                    (project_title, purpose),
+                    "INSERT INTO project(title, purpose, main_genre, sub_genre, last_opened_at, list_sort_order) "
+                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        project_title,
+                        purpose,
+                        main_genre,
+                        sub_genre,
+                        utc_timestamp_now(),
+                        next_order,
+                    ),
                 )
                 project_id = int(cursor.lastrowid)
                 created_project = True
@@ -5715,11 +8352,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 package_info = ensure_project_package(connection, project_id)
             else:
                 self.require_project(connection, project_id)
-                # Optional: update purpose when provided on import into existing project.
+                # Optional: update purpose / genre when provided on import into existing project.
                 if body.get("purpose") not in (None, ""):
                     connection.execute(
                         "UPDATE project SET purpose = ? WHERE id = ?",
                         (purpose, project_id),
+                    )
+                main_genre = str(body.get("main_genre") or "").strip()[:80]
+                sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+                if main_genre:
+                    connection.execute(
+                        "UPDATE project SET main_genre = ?, sub_genre = ? WHERE id = ?",
+                        (main_genre, sub_genre, project_id),
                     )
                 package_info = ensure_project_package(connection, project_id)
 
@@ -5727,6 +8371,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             scene_id = body.get("scene_id")
             scene_ids: list[int] = []
             chapter_ids: list[int] = []
+            part_ids: list[int] = []
+            used_hierarchy = False
 
             if destination == "match_replace_scene":
                 episodes = self._list_episode_candidates(connection, project_id)
@@ -5832,8 +8478,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             connection, project_id, chapter_id, section.title, section.content, filename
                         )
                     )
+            elif destination == "new_chapter" and plan.is_hierarchy and getattr(plan, "hierarchy", None) is not None:
+                inserted = self._insert_hierarchy_import(
+                    connection, project_id, plan.hierarchy, filename
+                )
+                scene_ids = inserted["scene_ids"]
+                chapter_ids = inserted["chapter_ids"]
+                chapter_id = chapter_ids[-1] if chapter_ids else None
+                part_ids = inserted["part_ids"]
+                used_hierarchy = True
             else:
-                # new_chapter (also after new_project): honour multi-chapter plans (TOC / headings).
+                # new_chapter (also after new_project): honour multi-chapter plans (headings…).
                 multi_chapter = len(plan.chapters) > 1
                 for chapter_plan in plan.chapters:
                     title_for_chapter = chapter_plan.title if multi_chapter else chapter_title
@@ -5876,9 +8531,99 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "warnings": list(extracted.warnings) + list(plan.warnings),
                 **package_info,
             }
+            if used_hierarchy:
+                result["hierarchy"] = True
+                result["toc_source"] = getattr(plan.hierarchy, "toc_source", None)
+                result["part_ids"] = part_ids
+                result["part_count"] = len(part_ids)
             if match_info is not None:
                 result["match"] = match_info
             return result
+
+    def _insert_hierarchy_import(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        hierarchy: import_hierarchy.HierarchyImportPlan,
+        filename: str,
+    ) -> dict:
+        """Insert 목차 part + prologue/volumes/epilogue from a hierarchy plan."""
+        scene_ids: list[int] = []
+        chapter_ids: list[int] = []
+        part_ids: list[int] = []
+
+        def next_part_sort() -> int:
+            return connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM part "
+                "WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+
+        def insert_part(title: str) -> int:
+            cursor = connection.execute(
+                "INSERT INTO part(project_id, title, sort_order) VALUES (?, ?, ?)",
+                (project_id, title, next_part_sort()),
+            )
+            part_id = int(cursor.lastrowid)
+            part_ids.append(part_id)
+            return part_id
+
+        def next_chapter_sort(part_id: int) -> int:
+            return connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+                "WHERE project_id = ? AND part_id = ? AND deleted_at IS NULL",
+                (project_id, part_id),
+            ).fetchone()[0]
+
+        def insert_chapter(
+            part_id: int,
+            title: str,
+            *,
+            transparent: bool = False,
+        ) -> int:
+            notes = (
+                import_hierarchy.TRANSPARENT_CHAPTER_MARKER
+                if transparent
+                else ""
+            )
+            cursor = connection.execute(
+                "INSERT INTO chapter(project_id, part_id, title, notes_md, sort_order) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (project_id, part_id, title, notes, next_chapter_sort(part_id)),
+            )
+            chapter_id = int(cursor.lastrowid)
+            chapter_ids.append(chapter_id)
+            return chapter_id
+
+        def insert_episode(chapter_id: int, title: str, content: str) -> None:
+            scene_ids.append(
+                self._insert_imported_scene(
+                    connection, project_id, chapter_id, title, content, filename
+                )
+            )
+
+        # 1) 목차만 권 밖 최상위 part
+        toc_part_id = insert_part(import_hierarchy.TOC_PART_TITLE)
+        toc_chapter_id = insert_chapter(toc_part_id, import_hierarchy.TOC_CHAPTER_TITLE)
+        insert_episode(toc_chapter_id, import_hierarchy.TOC_SCENE_TITLE, hierarchy.toc_text)
+
+        # 2) 권(들): 프롤로그·소개·부/장/화·에필로그·미정회차 모두 권 안에 문서 순서대로
+        for volume in hierarchy.volumes:
+            vol_part = insert_part(volume.title)
+            for folder in volume.folders:
+                ch_id = insert_chapter(
+                    vol_part,
+                    folder.title,
+                    transparent=folder.transparent,
+                )
+                for episode in folder.episodes:
+                    insert_episode(ch_id, episode.title, episode.content)
+
+        return {
+            "scene_ids": scene_ids,
+            "chapter_ids": chapter_ids,
+            "part_ids": part_ids,
+        }
 
     def _insert_imported_scene(
         self,

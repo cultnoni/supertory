@@ -102,6 +102,29 @@ def write_bundled_env() -> dict[str, str]:
     return selected
 
 
+def _clear_path(path: Path) -> None:
+    """Remove a build output path; if locked, rename it aside."""
+    if not path.exists():
+        return
+    try:
+        shutil.rmtree(path)
+        return
+    except OSError:
+        pass
+    trash = path.with_name(f"{path.name}.old_{os.getpid()}")
+    if trash.exists():
+        shutil.rmtree(trash, ignore_errors=True)
+    try:
+        path.rename(trash)
+        print(f"Note: could not delete locked {path.name}; moved aside to {trash.name}")
+    except OSError as exc:
+        raise SystemExit(
+            f"Cannot clear {path} (file in use). "
+            "Close SuperTory / Explorer windows on that folder, then retry.\n"
+            f"{exc}"
+        ) from exc
+
+
 def main() -> int:
     for stream in (sys.stdout, sys.stderr):
         reconfigure = getattr(stream, "reconfigure", None)
@@ -114,10 +137,8 @@ def main() -> int:
     ensure_pyinstaller()
     write_bundled_env()
 
-    if DIST.exists():
-        shutil.rmtree(DIST, ignore_errors=True)
-    if WORK.exists():
-        shutil.rmtree(WORK, ignore_errors=True)
+    _clear_path(DIST / SERVER_NAME)
+    _clear_path(WORK)
     DIST.mkdir(parents=True, exist_ok=True)
 
     cmd = [
