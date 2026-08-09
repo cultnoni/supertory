@@ -18,7 +18,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260807-caption3">
+    <link rel="stylesheet" href="/styles.css?v=20260809-ad-dismiss-permanent">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
   </head>
   <body>
@@ -57,8 +57,8 @@
           <p data-ad-popup-body="event"></p>
         </div>
         <div class="welcome-ad-popup-foot">
-          <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="event">
-            오늘 하루 보지 않기
+          <button type="button" class="welcome-ad-popup-dismiss-permanent" data-ad-popup-dismiss-permanent="event">
+            다시 보지 않기
           </button>
         </div>
       </aside>
@@ -79,8 +79,8 @@
           <p data-ad-popup-body="notice"></p>
         </div>
         <div class="welcome-ad-popup-foot">
-          <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="notice">
-            오늘 하루 보지 않기
+          <button type="button" class="welcome-ad-popup-dismiss-permanent" data-ad-popup-dismiss-permanent="notice">
+            다시 보지 않기
           </button>
         </div>
       </aside>
@@ -350,45 +350,62 @@
           </div>
 
           <div id="manuscriptBinder" class="binder-view" role="tabpanel" aria-labelledby="binderTabManuscript">
-            <div class="panel-heading">
-              <div class="outline-title-control">
-                <div
-                  class="outline-toc-heading"
-                  id="outlineTocHeading"
-                  title="클릭: 목차 한눈에 보기 · 우클릭: 글자 크기"
-                  role="button"
-                  tabindex="0"
-                  aria-haspopup="dialog"
-                  aria-controls="outlineOverviewModal"
-                >
-                  <h2>목차</h2>
-                  <span class="outline-count-badges" title="우클릭: 글자 크기 · 기능 숨기기" data-ui-hide-label="목차 개수 표시">
-                    <span class="outline-folder-count" id="outlineFolderCount" aria-label="폴더 개수" title="폴더 개수 · 우클릭: 숨기기 등" data-ui-hide-label="폴더 개수 표시">0</span>
-                    <span class="outline-scene-count" id="outlineSceneCount" aria-label="원고 개수" title="원고 개수 · 우클릭: 숨기기 등" data-ui-hide-label="원고 개수 표시">0</span>
-                  </span>
+            <div class="panel-heading outline-header-stack">
+              <div class="outline-header-title-row">
+                <div class="outline-title-control">
+                  <div
+                    class="outline-toc-heading"
+                    id="outlineTocHeading"
+                    title="클릭: 목차 한눈에 보기 · 우클릭: 글자 크기"
+                    role="button"
+                    tabindex="0"
+                    aria-haspopup="dialog"
+                    aria-controls="outlineOverviewModal"
+                  >
+                    <h2>목차</h2>
+                    <span class="outline-count-badges" title="우클릭: 글자 크기 · 기능 숨기기" data-ui-hide-label="목차 개수 표시">
+                      <span class="outline-folder-count" id="outlineFolderCount" aria-label="폴더 개수" title="폴더 개수 · 우클릭: 숨기기 등" data-ui-hide-label="폴더 개수 표시">0</span>
+                      <span class="outline-scene-count" id="outlineSceneCount" aria-label="원고 개수" title="원고 개수 · 우클릭: 숨기기 등" data-ui-hide-label="원고 개수 표시">0</span>
+                    </span>
+                  </div>
                 </div>
               </div>
-              <div class="panel-heading-actions outline-heading-actions">
-                <div class="outline-action-box" role="group" aria-label="목차 도구">
+              <div class="outline-header-tools-row panel-heading-actions outline-heading-actions">
+                <div class="outline-action-box outline-action-box-quad" role="group" aria-label="목차 도구">
+                  <button
+                    type="button"
+                    id="folderUndoButton"
+                    class="outline-action-btn outline-history-btn"
+                    title="실행 취소 (Ctrl+Z)"
+                    aria-label="실행 취소"
+                    disabled
+                  >실행 취소</button>
+                  <button
+                    type="button"
+                    id="folderRedoButton"
+                    class="outline-action-btn outline-history-btn"
+                    title="다시 실행 (Ctrl+Y)"
+                    aria-label="다시 실행"
+                    disabled
+                  >다시 실행</button>
                   <button
                     type="button"
                     id="renumberChaptersButton"
                     class="outline-action-btn"
                     title="챕터 제목 순번을 1장·2장… 순으로 다시 매깁니다"
                   >순번 정리</button>
-                  <span class="outline-action-sep" aria-hidden="true"></span>
                   <button
                     type="button"
                     id="newChapterButton"
                     class="outline-action-btn outline-action-btn-primary"
                     draggable="true"
-                    title="클릭: 맨 아래 추가 · 끌어다 놓기: 원하는 위치에 바로 추가"
-                  >+ 챕터</button>
+                    title="클릭: 맨 아래 폴더 추가 · 끌어다 놓기: 원하는 위치에 바로 추가"
+                  >+ 폴더</button>
                 </div>
               </div>
             </div>
             <div id="outlineTipBox" class="outline-tip-box" role="note">
-              <p class="outline-tip-text">+챕터: 폴더 · 안쪽 +: 하위 폴더 · 폴더·원고는 끌어 원하는 위치에 놓기 · 폴더명 더블클릭: 이름 변경 · 우클릭: 기능 더 보기</p>
+              <p class="outline-tip-text">+폴더: 폴더 추가 · 안쪽 +: 하위 폴더 · 폴더·원고는 끌어 원하는 위치에 놓기 (무한 중첩 가능) · 우클릭: 기능 더 보기</p>
               <button type="button" id="outlineTipDismiss" class="outline-tip-dismiss" title="이 안내 숨기기" aria-label="안내 닫기">×</button>
             </div>
             <div id="chapterInsertBanner" class="chapter-insert-banner hidden" role="status">
@@ -1066,7 +1083,7 @@
                   class="feature-chip"
                   id="writingLogButton"
                   data-tools-action="writing-log"
-                  title="클릭: 기록 시작/정지 · 우클릭: 달력·설정"
+                  title="클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
                   aria-pressed="false"
                 >기록</button>
                 <div class="analyze-menu-control feature-view-mode" id="analyzeMenuControl">
@@ -2153,7 +2170,20 @@
         </div>
 
         <div class="writing-log-pane hidden" data-writing-pane="settings">
-          <p class="hint">목표 달성·미집필 알림과 미입력 시간 차감을 조절합니다.</p>
+          <p class="hint">글자수·집필 시간 집계 방식, 목표 알림, 미입력 시간 차감을 조절합니다.</p>
+          <fieldset class="writing-pref-fieldset">
+            <legend>집계 방식</legend>
+            <label class="writing-pref-check">
+              <input type="checkbox" id="writingCharsAuto" checked>
+              글자수 자동집계
+            </label>
+            <p class="hint">체크 시 기록 버튼을 누르지 않아도 장면 본문 순증가 글자를 집계합니다. 해제하면 글자수 수동집계 — <strong>기록</strong>을 눌러야 글자수 집계가 시작됩니다.</p>
+            <label class="writing-pref-check">
+              <input type="checkbox" id="writingTimeAuto">
+              글쓴 시간 자동집계
+            </label>
+            <p class="hint">기본은 해제(수동): <strong>기록</strong>을 눌렀을 때만 집필 시간을 셉니다. 체크하면 기록 없이 입력 중일 때도 시간이 쌓입니다.</p>
+          </fieldset>
           <label class="writing-pref-field">연속 달성 목표 글자 수
             <input type="number" id="writingGoalChars" min="100" max="1000000" step="100" value="2000">
           </label>
@@ -2171,7 +2201,7 @@
           <label class="writing-pref-field">미입력 시 시간 차감 기준 (분)
             <input type="number" id="writingIdleMinutes" min="5" max="240" step="1" value="30">
           </label>
-          <p class="hint">기본 30분 — 이 시간 동안 키 입력이 없으면 집필 시간에서 제외합니다.</p>
+          <p class="hint">기본 30분 — 직접 바꿀 수 있습니다. 이 시간 동안 키 입력이 없으면 집필 시간에서 제외합니다.</p>
           <label class="writing-pref-check">
             <input type="checkbox" id="writingShowTimer" checked>
             기록 버튼에 타이머 표시
@@ -2916,6 +2946,10 @@
         <span>하위 관계를 끊고 폴더 최상위로 올려요</span>
       </button>
       <div class="context-menu-divider"></div>
+      <button type="button" role="menuitem" data-binder-action="rename">
+        <strong>이름 바꾸기</strong>
+        <span>이 회차 제목을 수정해요</span>
+      </button>
       <button type="button" role="menuitem" data-binder-action="bookmark">
         <strong>북마크하기</strong>
         <span>상단 색 북마크에 고정해요</span>
@@ -2929,17 +2963,17 @@
         <span>바로 아래에 같은 원고 사본을 만들어요</span>
       </button>
       <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-binder-action="export">
-        <strong>이 회차 내보내기</strong>
-        <span>Word·한글 등 파일로 내려받아요</span>
-      </button>
       <button type="button" role="menuitem" data-binder-action="tory-analyze">
         <strong>피드백 요청</strong>
         <span>원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
       </button>
+      <button type="button" role="menuitem" data-binder-action="export">
+        <strong>이 회차 내보내기</strong>
+        <span>Word·한글 등 파일로 내려받아요</span>
+      </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-binder-action="trash" class="binder-action-danger">
-        <strong>버리기</strong>
+        <strong>회차 버리기</strong>
         <span>휴지통으로 옮겨요 (하위 원고 포함, 나중에 복원 가능)</span>
       </button>
     </div>
@@ -2974,6 +3008,26 @@
         <strong>회차 추가</strong>
         <span>이 폴더 아래에 새 회차를 만들어요</span>
       </button>
+      <button type="button" role="menuitem" data-chapter-action="rename">
+        <strong>이름 바꾸기</strong>
+        <span>이 폴더 이름을 수정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-chapter-action="bookmark" id="chapterContextBookmarkItem">
+        <strong>북마크</strong>
+        <span>목록에서 북마크 표시를 켜요</span>
+      </button>
+      <button type="button" role="menuitem" data-chapter-action="color" id="chapterContextColorItem">
+        <strong>색상 표시</strong>
+        <span>제목 옆 색 점으로 표시해요</span>
+      </button>
+      <button type="button" role="menuitem" data-chapter-action="pin" id="chapterContextPinItem">
+        <strong>상단 고정</strong>
+        <span>같은 상위 안 목록 맨 위에 고정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-chapter-action="toggle-box" id="chapterContextBoxItem">
+        <strong>박스로 묶기</strong>
+        <span>테두리 상자 스타일을 켜거나 꺼요</span>
+      </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-chapter-action="trash" class="binder-action-danger">
         <strong>폴더 버리기</strong>
@@ -2987,11 +3041,46 @@
         <strong>하위 폴더 추가</strong>
         <span>이 상자 안에 새 하위 폴더를 만들어요</span>
       </button>
+      <button type="button" role="menuitem" data-part-action="rename">
+        <strong>이름 바꾸기</strong>
+        <span>이 폴더 이름을 수정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-part-action="bookmark" id="partContextBookmarkItem">
+        <strong>북마크</strong>
+        <span>목록에서 북마크 표시를 켜요</span>
+      </button>
+      <button type="button" role="menuitem" data-part-action="color" id="partContextColorItem">
+        <strong>색상 표시</strong>
+        <span>제목 옆 색 점으로 표시해요</span>
+      </button>
+      <button type="button" role="menuitem" data-part-action="pin" id="partContextPinItem">
+        <strong>상단 고정</strong>
+        <span>같은 상위 안 목록 맨 위에 고정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-part-action="toggle-box" id="partContextBoxItem">
+        <strong>박스로 묶기</strong>
+        <span>테두리 상자 스타일을 켜거나 꺼요</span>
+      </button>
       <div class="context-menu-divider"></div>
       <button type="button" role="menuitem" data-part-action="trash" class="binder-action-danger">
         <strong>폴더 버리기</strong>
         <span>안의 하위 폴더·원고까지 휴지통으로 옮겨요</span>
       </button>
+    </div>
+
+    <div id="folderColorMenu" class="context-menu idea-color-menu folder-color-menu hidden" role="menu" aria-label="폴더 색">
+      <div class="context-menu-label">폴더 색</div>
+      <div class="idea-color-swatches folder-color-swatches" role="group" aria-label="폴더 색 선택">
+        <button type="button" class="idea-color-swatch folder-color-swatch color-none" data-folder-color-pick="" title="없음" aria-label="색 없음"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-red" data-folder-color-pick="red" title="빨강" aria-label="빨강"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-orange" data-folder-color-pick="orange" title="주황" aria-label="주황"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-yellow" data-folder-color-pick="yellow" title="노랑" aria-label="노랑"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-green" data-folder-color-pick="green" title="초록" aria-label="초록"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-blue" data-folder-color-pick="blue" title="파랑" aria-label="파랑"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-purple" data-folder-color-pick="purple" title="보라" aria-label="보라"></button>
+        <button type="button" class="idea-color-swatch folder-color-swatch color-gray" data-folder-color-pick="gray" title="회색" aria-label="회색"></button>
+      </div>
+      <p class="hint idea-color-menu-hint">폴더 우클릭 → 색상 변경</p>
     </div>
 
     <div id="settingsContextMenu" class="context-menu hidden" role="menu" aria-label="설정집 메뉴">
@@ -4084,6 +4173,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260807-caption3"></script>
+    <script src="/app.js?v=20260809-ad-dismiss-permanent"></script>
   </body>
 </html>

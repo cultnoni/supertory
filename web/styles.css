@@ -1077,8 +1077,25 @@ body[data-ui-theme="dark"] .app-update-banner-progress {
   display: none;
 }
 
-/* Hidden features disappear in normal use */
-.ui-feature-hidden {
+/* Hidden features — high-specificity so component `display: … !important` cannot override */
+.ui-feature-hidden,
+button.ui-feature-hidden,
+.feature-chip.ui-feature-hidden,
+.icon-btn.ui-feature-hidden,
+.compact-btn.ui-feature-hidden,
+.format-btn.ui-feature-hidden,
+.stat-chip.ui-feature-hidden,
+.status-scope-btn.ui-feature-hidden,
+.outline-action-btn.ui-feature-hidden,
+#manuscriptBinder .panel-heading .outline-action-btn.ui-feature-hidden,
+#manuscriptBinder .outline-action-box .outline-action-btn.ui-feature-hidden,
+#manuscriptBinder .outline-action-box-quad > .outline-action-btn.ui-feature-hidden,
+.format-toolbar .format-btn.ui-feature-hidden,
+.format-toolbar select.ui-feature-hidden,
+.scene-feature-bar .feature-chip.ui-feature-hidden,
+.outline-folder-count.ui-feature-hidden,
+.outline-scene-count.ui-feature-hidden,
+.outline-count-badges.ui-feature-hidden {
   display: none !important;
 }
 .compact-btn {
@@ -1325,13 +1342,34 @@ aside { background: var(--panel); padding: 18px 14px; min-width: 0; }
 #manuscriptBinder > .hint {
   flex-shrink: 0;
 }
-#manuscriptBinder .panel-heading {
+/* Two-row binder header: title row + 4 equal tool buttons (fixes overflow) */
+#manuscriptBinder .panel-heading.outline-header-stack {
   margin-bottom: 0;
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: flex-start;
   gap: 6px;
   flex-wrap: nowrap;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+#manuscriptBinder .outline-header-title-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-width: 0;
+}
+#manuscriptBinder .outline-header-tools-row {
+  display: flex;
+  align-items: stretch;
+  width: 100%;
+  min-width: 0;
+  margin-left: 0 !important;
+  flex: 0 0 auto;
+  max-width: 100%;
 }
 #manuscriptBinder .panel-heading h2 {
   font-size: 16px;
@@ -1342,9 +1380,10 @@ aside { background: var(--panel); padding: 18px 14px; min-width: 0; }
 }
 .outline-title-control {
   position: relative;
-  flex: 1 1 auto;
+  flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
+  max-width: 100%;
 }
 .outline-toc-heading {
   display: inline-flex;
@@ -1565,11 +1604,12 @@ aside { background: var(--panel); padding: 18px 14px; min-width: 0; }
   flex: 0 0 auto;
   min-width: 0;
 }
-/* 순번 정리 / +챕터 — 한 상자 안 일관된 버튼 묶음 */
+/* Full-width 4-column tool strip under title */
 #manuscriptBinder .outline-heading-actions {
   flex: 0 0 auto;
-  margin-left: auto;
-  max-width: none;
+  margin-left: 0;
+  max-width: 100%;
+  width: 100%;
 }
 .outline-action-box {
   display: inline-flex;
@@ -1583,6 +1623,23 @@ aside { background: var(--panel); padding: 18px 14px; min-width: 0; }
       color-mix(in srgb, var(--selection) 35%, #fff) 100%);
   box-shadow: inset 0 1px 0 color-mix(in srgb, #fff 55%, transparent);
   overflow: hidden;
+}
+/* 실행취소 | 다시실행 | 순번 정리 | +챕터 — equal columns; hidden items reflow */
+.outline-action-box-quad {
+  display: grid !important;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  flex: 1 1 auto;
+}
+.outline-action-box-quad > .outline-action-btn {
+  min-width: 0 !important;
+  width: 100% !important;
+  border-right: 1px solid color-mix(in srgb, var(--line) 90%, #c4b39a) !important;
+}
+.outline-action-box-quad > .outline-action-btn:last-child {
+  border-right: 0 !important;
 }
 .outline-action-sep {
   width: 1px;
@@ -1603,15 +1660,28 @@ aside { background: var(--panel); padding: 18px 14px; min-width: 0; }
   font-weight: 750 !important;
   letter-spacing: -0.02em;
   line-height: 1.2 !important;
-  padding: 5px 10px !important;
+  padding: 5px 6px !important;
   min-height: 28px !important;
   height: 28px !important;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   box-sizing: border-box;
   cursor: pointer;
   display: inline-flex !important;
   align-items: center;
   justify-content: center;
+}
+/* History buttons use text labels; match 순번 정리 / +챕터 weight & size */
+#manuscriptBinder .panel-heading .outline-history-btn {
+  font-size: 11px !important;
+  font-weight: 750 !important;
+  letter-spacing: -0.03em;
+  padding: 5px 3px !important;
+}
+#manuscriptBinder .panel-heading .outline-action-box-quad .outline-action-btn {
+  font-size: 11px !important;
+  padding: 5px 3px !important;
 }
 #manuscriptBinder .panel-heading .outline-action-btn:hover:not(:disabled) {
   background: color-mix(in srgb, var(--selection) 70%, #fff) !important;
@@ -4849,10 +4919,17 @@ body.ai-panel-collapsed .ai-panel {
 .ai-panel.is-tory-focus {
   box-shadow: inset 3px 0 0 var(--accent);
 }
-#binderContextMenu {
+/* Binder-style context menus: scene, folder, part, feature-hide share one look */
+#binderContextMenu,
+#chapterContextMenu,
+#partContextMenu,
+#uiFeatureContextMenu {
   min-width: 240px;
 }
-#binderContextMenu button {
+#binderContextMenu button,
+#chapterContextMenu button,
+#partContextMenu button,
+#uiFeatureContextMenu button {
   display: grid;
   gap: 2px;
   width: 100%;
@@ -4861,25 +4938,117 @@ body.ai-panel-collapsed .ai-panel {
   border-radius: 8px;
   background: transparent;
   color: var(--ink);
-}
-#binderContextMenu button strong {
   font-size: 13px;
+  align-items: start;
 }
-#binderContextMenu button span {
+#binderContextMenu button strong,
+#chapterContextMenu button strong,
+#partContextMenu button strong,
+#uiFeatureContextMenu button strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+#binderContextMenu button span,
+#chapterContextMenu button span,
+#partContextMenu button span,
+#uiFeatureContextMenu button span {
   color: var(--muted);
   font-size: 11px;
   line-height: 1.35;
+  font-weight: 500;
 }
 .scene-link.is-tory-focus {
   box-shadow: inset 2px 0 0 var(--accent);
   background: color-mix(in srgb, var(--selection) 70%, transparent);
 }
-#binderContextMenu .binder-action-danger strong {
+/* Danger items: scene + folder context menus share the same red */
+.context-menu .binder-action-danger strong {
   color: #b33a2b;
 }
-body[data-ui-theme="dark"] #binderContextMenu .binder-action-danger strong,
-html[data-ui-theme="dark"] #binderContextMenu .binder-action-danger strong {
+body[data-ui-theme="dark"] .context-menu .binder-action-danger strong,
+html[data-ui-theme="dark"] .context-menu .binder-action-danger strong {
   color: #f0a090;
+}
+
+/* Folder accent color dot (title left) */
+.folder-color-dot {
+  flex: 0 0 auto;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin: 0 2px 0 1px;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--ink) 12%, transparent);
+}
+.folder-color-dot[data-folder-color="red"] { background: #c45c4a; }
+.folder-color-dot[data-folder-color="orange"] { background: #d4893a; }
+.folder-color-dot[data-folder-color="yellow"] { background: #c9a227; }
+.folder-color-dot[data-folder-color="green"] { background: #4a8f5c; }
+.folder-color-dot[data-folder-color="blue"] { background: #4a7ab0; }
+.folder-color-dot[data-folder-color="purple"] { background: #7a5ea8; }
+.folder-color-dot[data-folder-color="gray"] { background: #8a847a; }
+
+/* Folder bookmark ribbon (binder display only; no header chip) */
+.folder-bookmark-mark {
+  display: inline-block;
+  width: 8px;
+  height: 11px;
+  margin: 0 4px 0 1px;
+  vertical-align: -1px;
+  border-radius: 1px 1px 3px 3px;
+  background: var(--bm-color, #e74c3c);
+  clip-path: polygon(0 0, 100% 0, 100% 75%, 50% 100%, 0 75%);
+  flex: 0 0 auto;
+}
+
+/* Folder color swatches (palette popover) */
+.folder-color-swatch.color-none {
+  background: transparent;
+  border: 1.5px dashed color-mix(in srgb, var(--ink) 35%, transparent);
+  position: relative;
+}
+.folder-color-swatch.color-none::after {
+  content: "";
+  position: absolute;
+  left: 20%;
+  right: 20%;
+  top: 50%;
+  height: 1.5px;
+  background: color-mix(in srgb, var(--ink) 45%, transparent);
+  transform: rotate(-35deg);
+}
+.folder-color-swatch.color-red { background: #c45c4a; }
+.folder-color-swatch.color-orange { background: #d4893a; }
+.folder-color-swatch.color-yellow { background: #e8c84a; }
+.folder-color-swatch.color-green { background: #6bb57a; }
+.folder-color-swatch.color-blue { background: #6a9fd4; }
+.folder-color-swatch.color-purple { background: #9b7ec9; }
+.folder-color-swatch.color-gray { background: #9a948c; }
+
+/* Nested box-in-box: each outline-part keeps its own shell; tighten inner shells slightly */
+.outline-part .outline-part {
+  margin-top: 3px;
+  margin-bottom: 3px;
+  margin-right: 2px;
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface, #fffdf8));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 8%, transparent);
+}
+.outline-part .outline-part .outline-part {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface, #fffdf8));
+}
+.outline-chapter .outline-part {
+  margin-top: 3px;
+  margin-bottom: 3px;
+  border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
+  background: color-mix(in srgb, var(--accent) 4%, var(--surface, #fffdf8));
+}
+html[data-ui-theme="dark"] .outline-part .outline-part,
+html[data-ui-theme="dark"] .outline-chapter .outline-part,
+body[data-ui-theme="dark"] .outline-part .outline-part,
+body[data-ui-theme="dark"] .outline-chapter .outline-part {
+  background: color-mix(in srgb, var(--accent) 8%, var(--panel));
 }
 
 /* Admin modal — trash */
@@ -5188,8 +5357,9 @@ body[data-ui-theme="dark"] .folder-title-box.is-level-4 {
 .outline-part.drag-over-after {
   box-shadow: inset 0 -2px 0 0 var(--accent);
 }
-/* Drop target when dragging a sub-folder into another top folder */
-.outline-part.is-folder-drop {
+/* Drop target when dragging a folder into another (Scrivener inside zone) */
+.outline-part.is-folder-drop,
+.outline-chapter.is-folder-drop {
   outline: 2px dashed var(--accent);
   outline-offset: 1px;
   background: color-mix(in srgb, var(--accent) 12%, transparent);
@@ -5281,14 +5451,65 @@ body[data-ui-theme="dark"] .folder-title-box.is-level-4 {
 .part-children {
   display: flex;
   flex-direction: column;
-  gap: 0;
+  gap: 1px;
   margin: 0 0 2px;
-  padding: 0 2px 2px 8px;
+  padding: 1px 2px 3px 4px;
   min-width: 0;
 }
 .part-children.is-collapsed,
 .part-children[hidden] {
   display: none !important;
+}
+
+/* —— Binder nest depth (folder under folder): indent + rail + soft tone ——
+   Step ≈ 18px per level (margin 4 + padding 14). Box and non-box both. */
+.part-children > .outline-part,
+.part-children > .outline-chapter:not(.is-transparent-chapter),
+.chapter-children > .outline-part,
+.chapter-children > .outline-chapter:not(.is-transparent-chapter) {
+  position: relative;
+  margin-left: 4px;
+  margin-top: 1px;
+  margin-bottom: 1px;
+  padding-left: 14px;
+  border-left: 1px solid color-mix(in srgb, var(--line) 55%, var(--ink) 18%);
+  border-radius: 0 4px 4px 0;
+  box-sizing: border-box;
+}
+
+/* Soft depth wash (subtle; roots stay clean) */
+.outline-part.binder-depth-1,
+.outline-chapter.binder-depth-1:not(.is-transparent-chapter) {
+  background: color-mix(in srgb, var(--ink) 2.2%, transparent);
+}
+.outline-part.binder-depth-2,
+.outline-chapter.binder-depth-2:not(.is-transparent-chapter) {
+  background: color-mix(in srgb, var(--ink) 3.4%, transparent);
+}
+.outline-part.binder-depth-3,
+.outline-chapter.binder-depth-3:not(.is-transparent-chapter),
+.outline-part.binder-depth-4,
+.outline-chapter.binder-depth-4:not(.is-transparent-chapter),
+.outline-part.binder-depth-5,
+.outline-chapter.binder-depth-5:not(.is-transparent-chapter),
+.outline-part.binder-depth-6,
+.outline-chapter.binder-depth-6:not(.is-transparent-chapter),
+.outline-part.binder-depth-7,
+.outline-chapter.binder-depth-7:not(.is-transparent-chapter),
+.outline-part.binder-depth-8,
+.outline-chapter.binder-depth-8:not(.is-transparent-chapter) {
+  background: color-mix(in srgb, var(--ink) 4.5%, transparent);
+}
+
+html[data-ui-theme="dark"] .part-children > .outline-part,
+html[data-ui-theme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
+html[data-ui-theme="dark"] .chapter-children > .outline-part,
+html[data-ui-theme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter),
+body[data-ui-theme="dark"] .part-children > .outline-part,
+body[data-ui-theme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
+body[data-ui-theme="dark"] .chapter-children > .outline-part,
+body[data-ui-theme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter) {
+  border-left-color: color-mix(in srgb, var(--line) 70%, var(--ink) 12%);
 }
 .part-empty-hint {
   margin: 0;
@@ -5360,10 +5581,7 @@ body[data-ui-theme="dark"] .folder-title-box.is-level-4 {
 .outline-chapter.drag-over-after {
   box-shadow: inset 0 -2px 0 0 var(--accent);
 }
-.outline-part .outline-chapter {
-  /* Nested folder under 권/부 */
-  margin-left: 2px;
-}
+/* Nested folder indent is handled by binder-depth / part-children rules above. */
 .outline-chapter > .hint,
 .scene-empty-hint {
   margin: 0;
@@ -6473,7 +6691,7 @@ body[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .folder-title-bo
   margin-top: 0;
   padding-top: 6px;
 }
-.welcome-ad-popup-dismiss-today {
+.welcome-ad-popup-dismiss-permanent {
   margin: 0;
   padding: 3px 6px;
   border: none;
@@ -6486,7 +6704,7 @@ body[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .folder-title-bo
   text-decoration: underline;
   text-underline-offset: 2px;
 }
-.welcome-ad-popup-dismiss-today:hover {
+.welcome-ad-popup-dismiss-permanent:hover {
   color: var(--accent-dark);
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
@@ -6563,17 +6781,50 @@ html[data-ui-theme="dark"] .welcome-super-story {
   flex: 0 0 auto;
 }
 .welcome-plus-guide-bubble {
+  position: relative;
+  overflow: hidden; /* clip sheen to rounded box */
+  isolation: isolate;
   padding: 7px 11px;
   border-radius: 10px;
-  background: var(--surface);
+  background-color: var(--surface);
   border: 1.5px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   text-align: center;
   line-height: 1.25;
+  /* floating pulse only on the box (transform). shimmer uses ::after background-position */
   animation: welcome-bubble-pulse 1.8s ease-in-out infinite;
   flex: 0 0 auto;
   width: max-content;
 }
+/*
+ * Shimmer: full-bleed ::after with a diagonal bright band, swept via
+ * background-position (no transform — does not fight pulse scale on parent).
+ * Stronger peak + wider band + longer travel share of the 4s loop.
+ */
+.welcome-plus-guide-bubble::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 3;
+  background-image: linear-gradient(
+    125deg,
+    transparent 0%,
+    transparent 22%,
+    rgba(255, 255, 255, 0.22) 36%,
+    rgba(255, 255, 255, 0.78) 50%,
+    rgba(255, 255, 255, 0.22) 64%,
+    transparent 78%,
+    transparent 100%
+  );
+  background-repeat: no-repeat;
+  background-size: 240% 240%;
+  background-position: 130% 130%;
+  animation: welcome-bubble-shimmer 4s ease-in-out infinite;
+}
 .welcome-plus-guide-bubble strong {
+  position: relative;
+  z-index: 1;
   display: block;
   font-size: 12px;
   font-weight: 800;
@@ -6581,6 +6832,8 @@ html[data-ui-theme="dark"] .welcome-super-story {
   color: var(--accent-dark);
 }
 .welcome-plus-guide-bubble span {
+  position: relative;
+  z-index: 1;
   display: block;
   font-size: 10.5px;
   font-weight: 650;
@@ -6595,7 +6848,42 @@ html[data-ui-theme="dark"] .welcome-super-story {
   0%, 100% { transform: scale(1); }
   50% { transform: scale(1.03); }
 }
-html[data-ui-theme="dark"] .welcome-plus-guide-bubble,
+/*
+ * 4s loop: ~2.8s travel (0→70%), then ~1.2s rest.
+ * (was ~1.6s travel / 0→40% — too quick to read as a sheen pass)
+ */
+@keyframes welcome-bubble-shimmer {
+  0% {
+    background-position: 130% 130%;
+    opacity: 0;
+  }
+  4% {
+    opacity: 1;
+  }
+  70% {
+    background-position: -30% -30%;
+    opacity: 1;
+  }
+  78%, 100% {
+    background-position: -30% -30%;
+    opacity: 0;
+  }
+}
+html[data-ui-theme="dark"] .welcome-plus-guide-bubble {
+  background: var(--surface);
+}
+html[data-ui-theme="dark"] .welcome-plus-guide-bubble::after {
+  background-image: linear-gradient(
+    125deg,
+    transparent 0%,
+    transparent 22%,
+    rgba(255, 245, 235, 0.16) 36%,
+    rgba(255, 245, 235, 0.68) 50%,
+    rgba(255, 245, 235, 0.16) 64%,
+    transparent 78%,
+    transparent 100%
+  );
+}
 html[data-ui-theme="dark"] .welcome-tip-card {
   background: var(--surface);
 }
@@ -12590,6 +12878,23 @@ body[data-ui-theme="dark"] .proof-diff-card {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+}
+.writing-pref-fieldset {
+  margin: 10px 0 14px;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--selection) 28%, var(--surface, #fff));
+}
+.writing-pref-fieldset legend {
+  padding: 0 6px;
+  font-size: 13px;
+  font-weight: 700;
+}
+.writing-pref-fieldset .hint {
+  margin: 0 0 10px 26px;
+  font-size: 12px;
+  line-height: 1.45;
 }
 .writing-pref-actions { justify-content: flex-start; }
 .writing-pair-box {

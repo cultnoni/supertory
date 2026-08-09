@@ -57,6 +57,44 @@ TASK = (
     "현재 반전의 개연성을 점검하세요. 근거가 부족하면 그렇다고 명시하세요."
 )
 
+# Honesty signal for insufficient evidence (live wording varies).
+# Kept on evidence/buildup/probability language — not a free pass for any reply.
+HONEST_INSUFFICIENCY_RE = (
+    r"(?:"
+    r"근거\s*(?:가\s*)?(?:불충분|부족|없|모자|희박|결여|부재)|"
+    r"(?:빌드업|복선).{0,48}(?:부족|없|결여|부재|미약|약하|약함|희박|약해)|"
+    r"지지.{0,36}(?:부족|없|결여|약|안\s*됨|안됨|못함|못한다)|"
+    r"개연성.{0,28}(?:부족|없|희박|결여|약|고리.{0,16}(?:없|전혀))|"
+    r"납득감.{0,24}(?:없|제로|부족|희박|낮)|"
+    r"(?:연결\s*)?고리.{0,16}(?:없|전혀)|"
+    r"인과.{0,24}(?:없|전혀|성립\s*하지)|"
+    r"판단이\s*어렵|턱없이\s*부족|"
+    r"복선\s*설계가\s*누락|"
+    r"논리적\s*(?:단서|연관|연결).{0,20}(?:없|전혀|부족)"
+    r")"
+)
+
+# Captured live failures under the old .{0,12}-narrow pattern (2026-08-09).
+FIXTURE_HONEST_A = """
+## 반전 요약
+- 왕자가 문을 열며 자신이 용족의 마지막 후예이자 서연이 죽인 마왕의 아들이라는 사실을 폭로한다.
+
+## 개연성 평가
+- 등록 복선·빌드업이 반전을 얼마나 지지하는지: **부족**
+- 억지스럽거나 급전개로 느껴질 수 있는 지점:
+  - 등록된 빌드업은 "창밖이 조금 어두웠다" 단 한 줄뿐입니다.
+  - 개연성 고리가 전혀 마련되어 있지 않아, 서사적 맥락 없는 급작스러운 충격 요법에 가깝습니다.
+""".strip()
+
+FIXTURE_HONEST_B = """
+## 개연성 평가
+- 등록 복선·빌드업이 반전을 얼마나 지지하는지: **부족**
+- 판타지/무협 장르의 문법에서 '용족'과 '마왕'이라는 거대한 설정이 갑작스럽게 등장했으나,
+  이를 뒷받침할 사전 빌드업이 전적으로 결여되어 있습니다.
+- 빌드업이 부재하여 충격도가 극적으로 소모됩니다.
+- 납득감은 없습니다.
+""".strip()
+
 
 class PlotTwistTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -194,12 +232,16 @@ class PlotTwistTests(unittest.TestCase):
         print("\n===== (극단) 근거 거의 없는 반전 =====\n", text)
         self.assertIn("반전 요약", text)
         self.assertIn("개연성 평가", text)
-        self.assertRegex(
-            text,
-            r"근거\s*불충분|판단이\s*어렵|턱없이\s*부족|복선이\s*.{0,12}부족|"
-            r"근거가\s*(부족|없|모자|희박)|빌드업.{0,12}(없|부족)|"
-            r"지지\s*(할\s*)?(수\s*)?없|지지\s*정도.{0,20}부족|"
-            r"개연성이\s*(부족|없다|희박)|복선\s*설계가\s*누락|연결고리가\s*전혀",
+        self.assertRegex(text, HONEST_INSUFFICIENCY_RE)
+
+    def test_honest_insufficiency_pattern_accepts_live_wordings(self) -> None:
+        """Offline: regex covers real Gemini phrasings that used to fail."""
+        self.assertRegex(FIXTURE_HONEST_A, HONEST_INSUFFICIENCY_RE)
+        self.assertRegex(FIXTURE_HONEST_B, HONEST_INSUFFICIENCY_RE)
+        # Must not match a hollow “everything is fine” answer
+        self.assertNotRegex(
+            "## 개연성 평가\n- 등록 빌드업이 반전을 충분히 지지합니다.\n- 개연성이 탄탄합니다.",
+            HONEST_INSUFFICIENCY_RE,
         )
 
 

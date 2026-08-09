@@ -34,6 +34,14 @@ const state = {
   parts: [],
   /** @type {any[]} 권/부에 속하지 않은 챕터 폴더 */
   ungroupedChapters: [],
+  /**
+   * Unlimited-depth binder tree from outline.folders (folder.id).
+   * Preferred when non-empty or forceFoldersOutline.
+   * @type {any[]}
+   */
+  folders: [],
+  /** When true (localStorage / reparent incomplete), always prefer folders over legacy parts. */
+  forceFoldersOutline: false,
   outlineProjectId: null, // projectId that state.outline currently belongs to
   projectPurpose: null,
   mainGenre: "",
@@ -75,6 +83,12 @@ const state = {
   episodeTabs: [],
   /** Project-wide manuscript goal (goal_word_count on project). */
   projectGoalCount: 0,
+  /**
+   * Soft hints for binder undo/redo buttons (U4+).
+   * Synced from server on loadProject; adjusted after folder actions.
+   */
+  folderUndoHint: 0,
+  folderRedoHint: 0,
 };
 
 const $ = (id) => document.getElementById(id);
@@ -4699,6 +4713,8 @@ async function loadProject() {
   state.ungroupedChapters = Array.isArray(outline.ungrouped_chapters)
     ? outline.ungrouped_chapters
     : (state.parts.length ? [] : (state.outline || []));
+  state.folders = Array.isArray(outline.folders) ? outline.folders : [];
+  state.forceFoldersOutline = readForceFoldersOutline(projectIdAtStart);
   state.outlineProjectId = projectIdAtStart;
   // Drop cached episode HTML from the previous work.
   if (typeof clearViewerEpisodeCache === "function") clearViewerEpisodeCache();
@@ -4775,6 +4791,8 @@ async function loadProject() {
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
   $("newCharacterButton").disabled = false;
   $("newIdeaButton").disabled = false;
+  // U4: binder undo button from server stack (don't await — keep loadProject snappy)
+  refreshFolderUndoHintFromServer().catch(() => {});
   // Project-level goal + full-manuscript footer stats.
   if (outline.project?.goal_word_count != null) {
     state.projectGoalCount = Math.max(0, Number(outline.project.goal_word_count) || 0);
@@ -10251,13 +10269,17 @@ const writingTracker = {
     lonely_days: 3,
     lonely_notify: true,
     idle_minutes: 30,
+    /** 글자수 자동집계 (기본 true). false면 기록 버튼 ON일 때만 */
+    chars_auto: true,
+    /** 집필 시간 자동집계 (기본 false). false면 기록 버튼 ON일 때만 */
+    time_auto: false,
     last_goal_notified_day: "",
     last_lonely_notified_day: "",
     first_met_day: "",
     /** 기록 버튼에 경과 시간 표시 (false면 「기록중」만) */
     show_timer: true,
   },
-  /** 기록 버튼으로 켠 활성 타이머 모드 */
+  /** 기록 버튼으로 켠 활성 타이머 모드 (시간 수동·글자 수동 시 강제 집계) */
   recording: false,
   pendingChars: 0,
   pendingActive: 0,
@@ -10320,6 +10342,16 @@ function idleLimitMs() {
   return Math.max(5, Number(writingTracker.prefs.idle_minutes) || 30) * 60 * 1000;
 }
 
+/** 글자수: 자동 모드이거나 기록 버튼 ON */
+function shouldTrackWritingChars() {
+  return Boolean(writingTracker.prefs.chars_auto) || Boolean(writingTracker.recording);
+}
+
+/** 집필 시간: 자동 모드이거나 기록 버튼 ON */
+function shouldTrackWritingTime() {
+  return Boolean(writingTracker.prefs.time_auto) || Boolean(writingTracker.recording);
+}
+
 function ensureWritingDayBucket() {
   const today = localDayKey();
   if (writingTracker.dayKey && writingTracker.dayKey !== today) {
@@ -10335,8 +10367,10 @@ function ensureWritingDayBucket() {
 }
 
 function noteWritingActivityFromEditor() {
-  if (!writingTracker.recording) return;
   if (!state.sceneId) return;
+  const trackChars = shouldTrackWritingChars();
+  const trackTime = shouldTrackWritingTime();
+  if (!trackChars && !trackTime) return;
   const plain = getEditorPlainText() || "";
   const len = plain.length;
   ensureWritingDayBucket();
@@ -10344,27 +10378,31 @@ function noteWritingActivityFromEditor() {
   if (writingTracker.lastPlainLen == null) {
     writingTracker.lastPlainLen = len;
   } else {
-    const delta = len - writingTracker.lastPlainLen;
-    if (delta > 0) {
-      writingTracker.pendingChars += delta;
-      writingTracker.dayCharsKnown += delta;
-      maybeCelebrateWritingGoal();
+    if (trackChars) {
+      const delta = len - writingTracker.lastPlainLen;
+      if (delta > 0) {
+        writingTracker.pendingChars += delta;
+        writingTracker.dayCharsKnown += delta;
+        maybeCelebrateWritingGoal();
+      }
     }
     writingTracker.lastPlainLen = len;
   }
-  const wasIdle = !writingTracker.lastActivityAt
-    || (now - writingTracker.lastActivityAt) >= idleLimitMs();
-  if (wasIdle || !writingTracker.sessionStartedAt) {
-    writingTracker.sessionStartedAt = new Date().toISOString();
-    writingTracker.pendingSessionStart = true;
-    writingTracker.lastTickAt = now;
+  if (trackTime) {
+    const wasIdle = !writingTracker.lastActivityAt
+      || (now - writingTracker.lastActivityAt) >= idleLimitMs();
+    if (wasIdle || !writingTracker.sessionStartedAt) {
+      writingTracker.sessionStartedAt = new Date().toISOString();
+      writingTracker.pendingSessionStart = true;
+      writingTracker.lastTickAt = now;
+    }
+    writingTracker.lastActivityAt = now;
   }
-  writingTracker.lastActivityAt = now;
   updateWritingLogButtonUi();
 }
 
 function writingTick() {
-  if (!writingTracker.recording) {
+  if (!shouldTrackWritingTime()) {
     writingTracker.lastTickAt = Date.now();
     return;
   }
@@ -10385,7 +10423,10 @@ function writingTick() {
   const add = Math.max(0, Math.min(30, Math.round((now - prev) / 1000)));
   if (add > 0) {
     writingTracker.pendingActive += add;
-    writingTracker.sessionDisplaySeconds += add;
+    // Session clock on the button only while explicit recording is on
+    if (writingTracker.recording) {
+      writingTracker.sessionDisplaySeconds += add;
+    }
   }
   writingTracker.lastTickAt = now;
   updateWritingLogButtonUi();
@@ -10448,11 +10489,21 @@ function updateWritingLogButtonUi() {
   if (!btn) return;
   const on = Boolean(writingTracker.recording);
   const showTimer = isWritingTimerVisible();
+  const timeAuto = Boolean(writingTracker.prefs.time_auto);
+  const charsAuto = writingTracker.prefs.chars_auto !== false;
   btn.classList.toggle("is-recording", on);
   btn.setAttribute("aria-pressed", on ? "true" : "false");
-  btn.title = on
-    ? "클릭: 기록 정지 · 우클릭: 달력·설정"
-    : "클릭: 기록 시작/정지 · 우클릭: 달력·설정";
+  if (on) {
+    btn.title = "클릭: 집필 시간 기록 정지 · 우클릭: 달력·설정";
+  } else if (timeAuto) {
+    btn.title = charsAuto
+      ? "글자수·시간은 자동 집계 중 · 클릭: 타이머 표시 · 우클릭: 달력·설정"
+      : "시간은 자동 집계 중 · 클릭: 타이머/수동 글자 집계 · 우클릭: 달력·설정";
+  } else {
+    btn.title = charsAuto
+      ? "클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
+      : "클릭: 글자수·시간 기록 시작/정지 · 우클릭: 달력·설정";
+  }
   if (on) {
     if (!showTimer) {
       btn.textContent = "기록중";
@@ -10486,16 +10537,26 @@ function stopWritingUiTimer() {
 
 function toggleWritingRecording() {
   if (writingTracker.recording) {
-    // stop
+    // stop explicit recording (auto modes may keep counting)
     writingTick();
     writingTracker.recording = false;
     stopWritingUiTimer();
     updateWritingLogButtonUi();
     flushWritingHeartbeat({ force: true }).catch(() => {});
-    toast("기록을 멈췄어요. 우클릭으로 달력을 볼 수 있어요.");
+    const stillChars = shouldTrackWritingChars();
+    const stillTime = shouldTrackWritingTime();
+    if (stillChars && stillTime) {
+      toast("타이머를 멈췄어요. 글자수·시간은 자동 집계가 이어집니다.");
+    } else if (stillChars) {
+      toast("집필 시간 기록을 멈췄어요. 글자수는 자동으로 계속 집계됩니다.");
+    } else if (stillTime) {
+      toast("수동 기록을 멈췄어요. 글쓴 시간은 자동 집계가 이어집니다.");
+    } else {
+      toast("기록을 멈췄어요. 우클릭으로 달력을 볼 수 있어요.");
+    }
     return;
   }
-  // start — new visible session clock
+  // start — new visible session clock; forces both char + time while ON
   ensureWritingDayBucket();
   writingTracker.recording = true;
   writingTracker.sessionDisplaySeconds = 0;
@@ -10509,7 +10570,11 @@ function toggleWritingRecording() {
     : writingTracker.lastPlainLen;
   startWritingUiTimer();
   updateWritingLogButtonUi();
-  toast("기록 시작! 타이머가 켜졌어요. 다시 누르면 정지합니다.");
+  if (writingTracker.prefs.time_auto) {
+    toast("기록 타이머 표시! 다시 누르면 끕니다.");
+  } else {
+    toast("집필 시간 기록 시작! 다시 누르면 정지합니다.");
+  }
 }
 
 async function flushWritingHeartbeat({ force = false } = {}) {
@@ -10581,6 +10646,9 @@ function applyWritingPrefs(prefs) {
     lonely_days: Math.max(1, Number(prefs.lonely_days) || 3),
     lonely_notify: prefs.lonely_notify !== false && prefs.lonely_notify !== 0,
     idle_minutes: Math.max(5, Number(prefs.idle_minutes) || 30),
+    // Default: chars auto ON, time auto OFF (manual via 기록 button)
+    chars_auto: prefs.chars_auto !== false && prefs.chars_auto !== 0,
+    time_auto: prefs.time_auto === true || prefs.time_auto === 1,
     last_goal_notified_day: String(prefs.last_goal_notified_day || ""),
     last_lonely_notified_day: String(prefs.last_lonely_notified_day || ""),
     first_met_day: String(prefs.first_met_day || "").trim(),
@@ -10606,6 +10674,8 @@ const CAL_ACORN_SVG = (
 
 function syncWritingPrefsForm() {
   const p = writingTracker.prefs;
+  if ($("writingCharsAuto")) $("writingCharsAuto").checked = p.chars_auto !== false;
+  if ($("writingTimeAuto")) $("writingTimeAuto").checked = Boolean(p.time_auto);
   if ($("writingGoalChars")) $("writingGoalChars").value = String(p.goal_chars);
   if ($("writingGoalNotify")) $("writingGoalNotify").checked = Boolean(p.goal_notify);
   if ($("writingLonelyDays")) $("writingLonelyDays").value = String(p.lonely_days);
@@ -11077,6 +11147,8 @@ async function saveWritingPrefsFromForm() {
   const showTimer = Boolean($("writingShowTimer")?.checked);
   saveShowTimerPref(showTimer);
   const body = {
+    chars_auto: Boolean($("writingCharsAuto")?.checked),
+    time_auto: Boolean($("writingTimeAuto")?.checked),
     goal_chars: Number($("writingGoalChars")?.value || 2000),
     goal_notify: Boolean($("writingGoalNotify")?.checked),
     lonely_days: Number($("writingLonelyDays")?.value || 3),
@@ -11243,7 +11315,7 @@ function setupWritingLog() {
   writingTracker.prefs.show_timer = loadShowTimerPref();
   updateWritingLogButtonUi();
 
-  // Track manuscript typing only while recording is on
+  // Track manuscript typing when chars/time auto or 기록 is on
   const onEditorInput = () => noteWritingActivityFromEditor();
   $("sceneContent")?.addEventListener("input", onEditorInput);
   // focus-write / synopsis don't count as "manuscript writing session" for now
@@ -15537,11 +15609,348 @@ function hideChapterContextMenu() {
   binderContextChapter = null;
 }
 
-let binderContextPart = null; // { id, title }
+let binderContextPart = null; // { id, title, folderId, isBox, color, isPinned, isBookmarked }
 
 function hidePartContextMenu() {
   $("partContextMenu")?.classList.add("hidden");
   binderContextPart = null;
+}
+
+function hideFolderColorMenu() {
+  $("folderColorMenu")?.classList.add("hidden");
+}
+
+/** Walk state.folders for folder.id meta (color / pin / is_box). */
+function findFolderMetaInState(folderId) {
+  const want = Number(folderId);
+  if (!Number.isFinite(want) || want <= 0) return null;
+  const walk = (nodes) => {
+    for (const n of nodes || []) {
+      const fid = Number(n.folder_id != null ? n.folder_id : n.id);
+      if (fid === want) {
+        return {
+          folderId: fid,
+          color: n.color || null,
+          isPinned: Boolean(n.is_pinned),
+          isBox: Boolean(n.is_box),
+          isBookmarked: Boolean(n.is_bookmarked),
+          title: n.title || "",
+        };
+      }
+      const hit = walk(n.children || []);
+      if (hit) return hit;
+    }
+    return null;
+  };
+  return walk(state.folders || []);
+}
+
+function folderColorDotHtml(color) {
+  const c = String(color || "").trim().toLowerCase();
+  if (!c) return "";
+  return `<span class="folder-color-dot" data-folder-color="${escapeHtml(c)}" title="폴더 색" aria-hidden="true"></span>`;
+}
+
+function positionContextMenu(menu, clientX, clientY, fallbackH = 220) {
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 240;
+  const height = rect.height || fallbackH;
+  let left = clientX;
+  let top = clientY;
+  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
+  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function updateFolderContextToggleLabels(menu, { isBox, isPinned, isBookmarked, hasFolderId }) {
+  if (!menu) return;
+  const boxBtn = menu.querySelector("[data-chapter-action='toggle-box'], [data-part-action='toggle-box']");
+  const pinBtn = menu.querySelector("[data-chapter-action='pin'], [data-part-action='pin']");
+  const colorBtn = menu.querySelector("[data-chapter-action='color'], [data-part-action='color']");
+  const bmBtn = menu.querySelector("[data-chapter-action='bookmark'], [data-part-action='bookmark']");
+  if (boxBtn) {
+    boxBtn.classList.toggle("hidden", !hasFolderId);
+    const strong = boxBtn.querySelector("strong");
+    const span = boxBtn.querySelector("span");
+    if (strong) strong.textContent = isBox ? "박스 해제" : "박스로 묶기";
+    if (span) {
+      span.textContent = isBox
+        ? "테두리 상자 스타일을 꺼요"
+        : "테두리 상자 스타일을 켜요";
+    }
+  }
+  if (pinBtn) {
+    pinBtn.classList.toggle("hidden", !hasFolderId);
+    const strong = pinBtn.querySelector("strong");
+    const span = pinBtn.querySelector("span");
+    if (strong) strong.textContent = isPinned ? "고정 해제" : "상단 고정";
+    if (span) {
+      span.textContent = isPinned
+        ? "형제 목록 맨 위 고정을 풀어요"
+        : "같은 상위 안 목록 맨 위에 고정해요";
+    }
+  }
+  if (bmBtn) {
+    bmBtn.classList.toggle("hidden", !hasFolderId);
+    const strong = bmBtn.querySelector("strong");
+    const span = bmBtn.querySelector("span");
+    if (strong) strong.textContent = isBookmarked ? "북마크 해제" : "북마크";
+    if (span) {
+      span.textContent = isBookmarked
+        ? "목록 북마크 표시를 꺼요"
+        : "목록에서 북마크 표시를 켜요";
+    }
+  }
+  if (colorBtn) colorBtn.classList.toggle("hidden", !hasFolderId);
+}
+
+function folderBookmarkMarkHtml(isBookmarked) {
+  if (!isBookmarked) return "";
+  return `<span class="folder-bookmark-mark" title="북마크됨" aria-hidden="true"></span>`;
+}
+
+async function updateFolderFields(folderId, patch) {
+  const id = Number(folderId);
+  if (!Number.isFinite(id) || id <= 0) {
+    toast("폴더를 찾지 못했어요. (폴더 트리 id 필요)");
+    return null;
+  }
+  const result = await api(`/api/folders/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(patch),
+  });
+  noteFolderUndoAvailable();
+  await loadProject();
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// U4+: binder folder undo / redo (outside text fields + toolbar ↩ / ↪)
+// ---------------------------------------------------------------------------
+
+function isTextEditingFocus(target) {
+  const el = target || document.activeElement;
+  if (!el || el === document.body || el === document.documentElement) return false;
+  try {
+    if (el.isContentEditable) return true;
+    if (typeof el.closest === "function" && el.closest('[contenteditable="true"]')) {
+      return true;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const tag = String(el.tagName || "").toUpperCase();
+  if (tag === "TEXTAREA" || tag === "SELECT") return true;
+  if (tag === "INPUT") {
+    const type = String(el.type || "text").toLowerCase();
+    const nonText = new Set([
+      "button", "submit", "reset", "checkbox", "radio",
+      "file", "range", "color", "hidden", "image",
+    ]);
+    return !nonText.has(type);
+  }
+  return false;
+}
+
+function syncFolderHistoryButtons() {
+  const undoBtn = $("folderUndoButton");
+  const redoBtn = $("folderRedoButton");
+  const hasProject = !!state.projectId;
+  if (undoBtn) {
+    undoBtn.disabled = !hasProject || !(Number(state.folderUndoHint) > 0);
+  }
+  if (redoBtn) {
+    redoBtn.disabled = !hasProject || !(Number(state.folderRedoHint) > 0);
+  }
+}
+
+/** @deprecated use syncFolderHistoryButtons */
+function syncFolderUndoButton() {
+  syncFolderHistoryButtons();
+}
+
+function noteFolderUndoAvailable() {
+  // New action: redo history cleared on server; enable undo, clear redo hint
+  const n = Number(state.folderUndoHint) || 0;
+  state.folderUndoHint = Math.min(20, n + 1);
+  state.folderRedoHint = 0;
+  syncFolderHistoryButtons();
+}
+
+function noteFolderUndoUsed() {
+  const n = Number(state.folderUndoHint) || 0;
+  state.folderUndoHint = Math.max(0, n - 1);
+  const r = Number(state.folderRedoHint) || 0;
+  state.folderRedoHint = Math.min(20, r + 1);
+  syncFolderHistoryButtons();
+}
+
+function noteFolderRedoUsed() {
+  const r = Number(state.folderRedoHint) || 0;
+  state.folderRedoHint = Math.max(0, r - 1);
+  const n = Number(state.folderUndoHint) || 0;
+  state.folderUndoHint = Math.min(20, n + 1);
+  syncFolderHistoryButtons();
+}
+
+async function refreshFolderUndoHintFromServer() {
+  if (!state.projectId) {
+    state.folderUndoHint = 0;
+    state.folderRedoHint = 0;
+    syncFolderHistoryButtons();
+    return;
+  }
+  const projectId = state.projectId;
+  try {
+    const data = await api(`/api/projects/${projectId}/undo-status`);
+    if (state.projectId !== projectId) return;
+    state.folderUndoHint = data && data.can_undo ? 1 : 0;
+    state.folderRedoHint = data && data.can_redo ? 1 : 0;
+  } catch (error) {
+    if (state.projectId !== projectId) return;
+    const msg = String(error?.message || error || "");
+    const status = Number(error?.status) || 0;
+    // Stale server / missing route — do not leave buttons permanently dead after actions
+    if (status === 404 || /알 수 없는 요청/.test(msg)) {
+      console.warn(
+        "[folder history] undo-status API missing — restart SuperTORY server.",
+        error,
+      );
+    }
+    // Keep previous local hints on blip; if still zero after an action, noteFolderUndoAvailable still works
+  }
+  syncFolderHistoryButtons();
+}
+
+let folderHistoryInFlight = false;
+
+function handleFolderHistoryError(error, kind) {
+  const msg = String(error?.message || error || "");
+  const emptyRe = kind === "redo"
+    ? /다시 실행할 작업이 없어요/
+    : /되돌릴 작업이 없어요/;
+  if (emptyRe.test(msg)) {
+    if (kind === "redo") state.folderRedoHint = 0;
+    else state.folderUndoHint = 0;
+    syncFolderHistoryButtons();
+    toast(kind === "redo" ? "다시 실행할 작업이 없어요" : "되돌릴 작업이 없어요");
+    return;
+  }
+  if (/하위 항목이 있어/.test(msg)) {
+    toast(msg);
+    return;
+  }
+  if (/그 사이 폴더가 바뀌어/.test(msg) || /건너뛰/.test(msg)) {
+    if (kind === "redo") {
+      state.folderRedoHint = Math.max(0, (Number(state.folderRedoHint) || 0) - 1);
+    } else {
+      noteFolderUndoUsed();
+    }
+    refreshFolderUndoHintFromServer().catch(() => {});
+    toast(msg);
+    loadProject().catch(() => {});
+    return;
+  }
+  if (Number(error?.status) === 404 || /알 수 없는 요청/.test(msg)) {
+    toast("서버를 재시작해 주세요. (폴더 되돌리기 API가 없어요)");
+    return;
+  }
+  handleError(error);
+}
+
+async function runFolderUndo(options = {}) {
+  if (!state.projectId) {
+    if (!options.fromShortcut) toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (folderHistoryInFlight) return;
+  folderHistoryInFlight = true;
+  try {
+    const result = await api(`/api/projects/${state.projectId}/undo`, {
+      method: "POST",
+      body: "{}",
+    });
+    noteFolderUndoUsed();
+    await loadProject();
+    await refreshFolderUndoHintFromServer();
+    const label = (result && result.label_ko) ? String(result.label_ko) : "최근 작업";
+    toast(`되돌렸어요: ${label}`);
+  } catch (error) {
+    handleFolderHistoryError(error, "undo");
+  } finally {
+    folderHistoryInFlight = false;
+  }
+}
+
+async function runFolderRedo(options = {}) {
+  if (!state.projectId) {
+    if (!options.fromShortcut) toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (folderHistoryInFlight) return;
+  folderHistoryInFlight = true;
+  try {
+    const result = await api(`/api/projects/${state.projectId}/redo`, {
+      method: "POST",
+      body: "{}",
+    });
+    noteFolderRedoUsed();
+    await loadProject();
+    await refreshFolderUndoHintFromServer();
+    const label = (result && result.label_ko) ? String(result.label_ko) : "최근 작업";
+    toast(`다시 실행: ${label}`);
+  } catch (error) {
+    handleFolderHistoryError(error, "redo");
+  } finally {
+    folderHistoryInFlight = false;
+  }
+}
+
+function setupFolderUndoUi() {
+  if (setupFolderUndoUi._bound) return;
+  setupFolderUndoUi._bound = true;
+  $("folderUndoButton")?.addEventListener("click", () => {
+    runFolderUndo().catch(handleError);
+  });
+  $("folderRedoButton")?.addEventListener("click", () => {
+    runFolderRedo().catch(handleError);
+  });
+  document.addEventListener("keydown", (event) => {
+    if (!(event.ctrlKey || event.metaKey)) return;
+    if (event.altKey) return;
+    const key = String(event.key || "").toLowerCase();
+    // Editor / inputs / textareas: never steal write undo/redo
+    if (isTextEditingFocus(event.target)) return;
+    if (isTextEditingFocus(document.activeElement)) return;
+    if (!state.projectId) return;
+
+    const isUndo = key === "z" && !event.shiftKey;
+    const isRedo = key === "y" || (key === "z" && event.shiftKey);
+    if (!isUndo && !isRedo) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (isUndo) {
+      runFolderUndo({ fromShortcut: true }).catch(handleError);
+    } else {
+      runFolderRedo({ fromShortcut: true }).catch(handleError);
+    }
+  });
+  syncFolderHistoryButtons();
+}
+
+function showFolderColorMenu(clientX, clientY, folderId) {
+  const menu = $("folderColorMenu");
+  if (!menu || !folderId) return;
+  hideChapterContextMenu();
+  hidePartContextMenu();
+  hideBinderContextMenu();
+  menu.dataset.folderId = String(folderId);
+  positionContextMenu(menu, clientX, clientY, 120);
 }
 
 function showChapterContextMenu(clientX, clientY, chapter) {
@@ -15549,6 +15958,7 @@ function showChapterContextMenu(clientX, clientY, chapter) {
   if (!menu || !chapter?.id) return;
   hideBinderContextMenu();
   hidePartContextMenu();
+  hideFolderColorMenu();
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
@@ -15556,21 +15966,36 @@ function showChapterContextMenu(clientX, clientY, chapter) {
   const partId = chapter.partId != null && chapter.partId !== ""
     ? Number(chapter.partId)
     : null;
-  binderContextChapter = { id: Number(chapter.id), title, partId };
+  const folderId = chapter.folderId != null && chapter.folderId !== ""
+    ? Number(chapter.folderId)
+    : null;
+  const meta = folderId ? findFolderMetaInState(folderId) : null;
+  const isBox = chapter.isBox != null ? Boolean(chapter.isBox) : Boolean(meta?.isBox);
+  const isPinned = chapter.isPinned != null ? Boolean(chapter.isPinned) : Boolean(meta?.isPinned);
+  const isBookmarked = chapter.isBookmarked != null
+    ? Boolean(chapter.isBookmarked)
+    : Boolean(meta?.isBookmarked);
+  const color = chapter.color != null ? chapter.color : (meta?.color || null);
+  binderContextChapter = {
+    id: Number(chapter.id),
+    title,
+    partId,
+    folderId: Number.isFinite(folderId) ? folderId : null,
+    isBox,
+    isPinned,
+    isBookmarked,
+    color,
+  };
   if ($("chapterContextMenuLabel")) {
     $("chapterContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
   }
-  menu.classList.remove("hidden");
-  const pad = 8;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 240;
-  const height = rect.height || 220;
-  let left = clientX;
-  let top = clientY;
-  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
-  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  updateFolderContextToggleLabels(menu, {
+    isBox,
+    isPinned,
+    isBookmarked,
+    hasFolderId: Boolean(binderContextChapter.folderId),
+  });
+  positionContextMenu(menu, clientX, clientY, 300);
 }
 
 function showPartContextMenu(clientX, clientY, part) {
@@ -15578,25 +16003,40 @@ function showPartContextMenu(clientX, clientY, part) {
   if (!menu || !part?.id) return;
   hideBinderContextMenu();
   hideChapterContextMenu();
+  hideFolderColorMenu();
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
   const title = String(part.title || "권/부").trim() || "권/부";
-  binderContextPart = { id: Number(part.id), title };
+  const folderId = part.folderId != null && part.folderId !== ""
+    ? Number(part.folderId)
+    : null;
+  const meta = folderId ? findFolderMetaInState(folderId) : null;
+  const isBox = part.isBox != null ? Boolean(part.isBox) : (meta ? Boolean(meta.isBox) : true);
+  const isPinned = part.isPinned != null ? Boolean(part.isPinned) : Boolean(meta?.isPinned);
+  const isBookmarked = part.isBookmarked != null
+    ? Boolean(part.isBookmarked)
+    : Boolean(meta?.isBookmarked);
+  const color = part.color != null ? part.color : (meta?.color || null);
+  binderContextPart = {
+    id: Number(part.id),
+    title,
+    folderId: Number.isFinite(folderId) ? folderId : null,
+    isBox,
+    isPinned,
+    isBookmarked,
+    color,
+  };
   if ($("partContextMenuLabel")) {
     $("partContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
   }
-  menu.classList.remove("hidden");
-  const pad = 8;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 240;
-  const height = rect.height || 160;
-  let left = clientX;
-  let top = clientY;
-  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
-  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  updateFolderContextToggleLabels(menu, {
+    isBox,
+    isPinned,
+    isBookmarked,
+    hasFolderId: Boolean(binderContextPart.folderId),
+  });
+  positionContextMenu(menu, clientX, clientY, 300);
 }
 
 function showBinderContextMenu(clientX, clientY, scene) {
@@ -15604,6 +16044,7 @@ function showBinderContextMenu(clientX, clientY, scene) {
   if (!menu || !scene?.id) return;
   hideChapterContextMenu();
   hidePartContextMenu();
+  hideFolderColorMenu();
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
@@ -15635,17 +16076,74 @@ function showBinderContextMenu(clientX, clientY, scene) {
         : "목차 맨 위에 고정해요";
     }
   }
-  menu.classList.remove("hidden");
-  const pad = 8;
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 240;
-  const height = rect.height || 280;
-  let left = clientX;
-  let top = clientY;
-  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
-  if (top + height > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - height - pad);
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
+  positionContextMenu(menu, clientX, clientY, 320);
+}
+
+function startRenameScene(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const btn = document.querySelector(
+    `#outline .scene-link[data-scene="${id}"]:not([data-pinned])`,
+  ) || document.querySelector(`.scene-link[data-scene="${id}"]`);
+  if (!btn) {
+    toast("회차를 찾지 못했어요.");
+    return;
+  }
+  beginSceneRename(btn).catch(handleError);
+}
+
+async function beginSceneRename(titleButton) {
+  const sceneId = Number(titleButton.dataset.scene);
+  if (!sceneId) return;
+  const row = titleButton.closest(".scene-row") || titleButton.parentElement;
+  if (!row || row.querySelector(".scene-rename-input")) return;
+  const titleSpan = titleButton.querySelector(".scene-title");
+  const original = (titleSpan?.textContent || titleButton.textContent || "").trim();
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "chapter-rename-input scene-rename-input";
+  input.value = original;
+  input.setAttribute("aria-label", "회차 이름 수정");
+  input.maxLength = 200;
+  titleButton.replaceWith(input);
+  input.focus();
+  input.select();
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const nextTitle = input.value.trim();
+    if (!save || !nextTitle || nextTitle === original) {
+      await loadProject();
+      return;
+    }
+    try {
+      await api(`/api/scenes/${sceneId}`, {
+        method: "PUT",
+        body: JSON.stringify({ title: nextTitle }),
+      });
+      if (state.scene && Number(state.scene.id) === sceneId) {
+        state.scene.title = nextTitle;
+      }
+      await loadProject();
+      toast("회차 이름을 바꿨어요.");
+    } catch (error) {
+      await loadProject();
+      throw error;
+    }
+  };
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true).catch(handleError);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false).catch(handleError);
+    }
+  });
+  input.addEventListener("blur", () => finish(true).catch(handleError));
+  input.addEventListener("mousedown", (event) => event.stopPropagation());
+  input.addEventListener("click", (event) => event.stopPropagation());
 }
 
 async function trashChapter(chapterId, chapterTitle = "") {
@@ -15655,9 +16153,14 @@ async function trashChapter(chapterId, chapterTitle = "") {
     return;
   }
   const chapter = (state.outline || []).find((c) => Number(c.id) === id);
-  // Strip UI suffixes from title attribute (e.g. " · 챕터 완결 (더블클릭…)")
+  // Strip UI suffixes from title attribute (e.g. " · 완결 (우클릭…)")
   let label = String(chapterTitle || chapter?.title || "이 폴더").trim() || "이 폴더";
-  label = label.replace(/\s*·\s*챕터 완결.*$/u, "").replace(/\s*\(더블클릭.*$/u, "").trim() || "이 폴더";
+  label = label
+    .replace(/\s*·\s*완결.*$/u, "")
+    .replace(/\s*·\s*챕터 완결.*$/u, "")
+    .replace(/\s*\(우클릭.*$/u, "")
+    .replace(/\s*\(더블클릭.*$/u, "")
+    .trim() || "이 폴더";
   const sceneIds = flattenChapterScenes(chapter).map((s) => Number(s.id)).filter((n) => n > 0);
   const sceneCount = sceneIds.length;
   const ok = window.confirm(
@@ -15682,6 +16185,7 @@ async function trashChapter(chapterId, chapterTitle = "") {
       method: "POST",
       body: JSON.stringify({}),
     });
+    noteFolderUndoAvailable();
   } catch (error) {
     const msg = String(error?.message || error || "");
     if (/알 수 없는 요청|404/i.test(msg) || Number(error?.status) === 404) {
@@ -15734,26 +16238,22 @@ function startRenameChapter(chapterId) {
   const id = Number(chapterId);
   if (!id) return;
   const btn = document.querySelector(`[data-rename-chapter="${id}"]`);
-  if (!btn) return;
-  // Trigger existing double-click rename flow if present
-  try {
-    btn.dispatchEvent(new MouseEvent("dblclick", { bubbles: true, cancelable: true }));
-  } catch (_) {
-    const current = (btn.textContent || "").trim();
-    promptText({
-      title: "폴더 이름 바꾸기",
-      label: "폴더 이름",
-      defaultValue: current,
-      confirmLabel: "저장",
-    }).then((next) => {
-      if (next === null) return;
-      const title = next.trim() || current;
-      return api(`/api/chapters/${id}`, {
-        method: "PUT",
-        body: JSON.stringify({ title }),
-      }).then(() => loadProject()).then(() => toast("폴더 이름을 바꿨어요."));
-    }).catch(handleError);
+  if (!btn) {
+    toast("폴더를 찾지 못했어요.");
+    return;
   }
+  beginChapterRename(btn).catch(handleError);
+}
+
+function startRenamePart(partId) {
+  const id = Number(partId);
+  if (!id) return;
+  const btn = document.querySelector(`[data-rename-part="${id}"]`);
+  if (!btn) {
+    toast("폴더를 찾지 못했어요.");
+    return;
+  }
+  beginPartRename(btn).catch(handleError);
 }
 
 async function duplicateScene(sceneId) {
@@ -15953,7 +16453,9 @@ function setupBinderContextMenu() {
     const action = button.dataset.binderAction;
     const scene = { ...binderContextScene };
     hideBinderContextMenu();
-    if (action === "add-child") {
+    if (action === "rename") {
+      window.setTimeout(() => startRenameScene(scene.id), 0);
+    } else if (action === "add-child") {
       const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
       if (!chapterId) return toast("폴더를 찾지 못했어요.");
       createScene(chapterId, { parentSceneId: scene.id }).catch(handleError);
@@ -15990,8 +16492,33 @@ function setupBinderContextMenu() {
     event.stopPropagation();
     const action = button.dataset.chapterAction;
     const chapter = { ...binderContextChapter };
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    if (action === "color") {
+      hideChapterContextMenu();
+      if (!chapter.folderId) return toast("폴더 색을 바꿀 수 없어요.");
+      showFolderColorMenu(clientX, clientY, chapter.folderId);
+      return;
+    }
     hideChapterContextMenu();
-    if (action === "add-scene") {
+    if (action === "rename") {
+      window.setTimeout(() => startRenameChapter(chapter.id), 0);
+    } else if (action === "toggle-box") {
+      if (!chapter.folderId) return toast("박스를 바꿀 수 없어요.");
+      updateFolderFields(chapter.folderId, { is_box: !chapter.isBox })
+        .then(() => toast(chapter.isBox ? "박스를 해제했어요." : "박스로 묶었어요."))
+        .catch(handleError);
+    } else if (action === "pin") {
+      if (!chapter.folderId) return toast("고정을 바꿀 수 없어요.");
+      updateFolderFields(chapter.folderId, { is_pinned: !chapter.isPinned })
+        .then(() => toast(chapter.isPinned ? "고정을 해제했어요." : "상단에 고정했어요."))
+        .catch(handleError);
+    } else if (action === "bookmark") {
+      if (!chapter.folderId) return toast("북마크를 바꿀 수 없어요.");
+      updateFolderFields(chapter.folderId, { is_bookmarked: !chapter.isBookmarked })
+        .then(() => toast(chapter.isBookmarked ? "북마크를 해제했어요." : "북마크했어요."))
+        .catch(handleError);
+    } else if (action === "add-scene") {
       setChapterCollapsed(chapter.id, false);
       createScene(chapter.id).catch(handleError);
     } else if (action === "trash") {
@@ -16008,8 +16535,33 @@ function setupBinderContextMenu() {
     event.stopPropagation();
     const action = button.dataset.partAction;
     const part = { ...binderContextPart };
+    const clientX = event.clientX;
+    const clientY = event.clientY;
+    if (action === "color") {
+      hidePartContextMenu();
+      if (!part.folderId) return toast("폴더 색을 바꿀 수 없어요.");
+      showFolderColorMenu(clientX, clientY, part.folderId);
+      return;
+    }
     hidePartContextMenu();
-    if (action === "add-chapter") {
+    if (action === "rename") {
+      window.setTimeout(() => startRenamePart(part.id), 0);
+    } else if (action === "toggle-box") {
+      if (!part.folderId) return toast("박스를 바꿀 수 없어요.");
+      updateFolderFields(part.folderId, { is_box: !part.isBox })
+        .then(() => toast(part.isBox ? "박스를 해제했어요." : "박스로 묶었어요."))
+        .catch(handleError);
+    } else if (action === "pin") {
+      if (!part.folderId) return toast("고정을 바꿀 수 없어요.");
+      updateFolderFields(part.folderId, { is_pinned: !part.isPinned })
+        .then(() => toast(part.isPinned ? "고정을 해제했어요." : "상단에 고정했어요."))
+        .catch(handleError);
+    } else if (action === "bookmark") {
+      if (!part.folderId) return toast("북마크를 바꿀 수 없어요.");
+      updateFolderFields(part.folderId, { is_bookmarked: !part.isBookmarked })
+        .then(() => toast(part.isBookmarked ? "북마크를 해제했어요." : "북마크했어요."))
+        .catch(handleError);
+    } else if (action === "add-chapter") {
       setPartCollapsed(part.id, false);
       createChapter({ partId: part.id }).catch(handleError);
     } else if (action === "trash") {
@@ -16019,11 +16571,32 @@ function setupBinderContextMenu() {
     }
   });
 
+  // Folder color palette (once)
+  if (!$("folderColorMenu")?.dataset.bound) {
+    const fcm = $("folderColorMenu");
+    if (fcm) fcm.dataset.bound = "1";
+    $("folderColorMenu")?.addEventListener("click", (event) => {
+      const pick = event.target.closest?.("[data-folder-color-pick]");
+      if (!pick) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const folderId = Number($("folderColorMenu")?.dataset?.folderId);
+      const raw = pick.getAttribute("data-folder-color-pick");
+      const color = raw === "" || raw == null ? null : String(raw);
+      hideFolderColorMenu();
+      if (!folderId) return;
+      updateFolderFields(folderId, { color })
+        .then(() => toast(color ? "폴더 색을 바꿨어요." : "폴더 색을 없앴어요."))
+        .catch(handleError);
+    });
+  }
+
   document.addEventListener("click", (event) => {
     if (event.button != null && event.button !== 0) return;
     if (!event.target.closest("#binderContextMenu")) hideBinderContextMenu();
     if (!event.target.closest("#chapterContextMenu")) hideChapterContextMenu();
     if (!event.target.closest("#partContextMenu")) hidePartContextMenu();
+    if (!event.target.closest("#folderColorMenu")) hideFolderColorMenu();
     if (!event.target.closest("#settingsContextMenu")) hideSettingsContextMenu();
     if (!event.target.closest("#bookmarkContextMenu, #bookmarkBar")) hideBookmarkContextMenu();
   });
@@ -16032,12 +16605,14 @@ function setupBinderContextMenu() {
       hideBinderContextMenu();
       hideChapterContextMenu();
       hidePartContextMenu();
+      hideFolderColorMenu();
       hideSettingsContextMenu();
       hideBookmarkContextMenu();
     }
   });
   window.addEventListener("blur", () => {
     hideBinderContextMenu();
+    hideFolderColorMenu();
     hideChapterContextMenu();
     hidePartContextMenu();
     hideSettingsContextMenu();
@@ -21342,8 +21917,105 @@ function applyPartExpandedState(section, expanded) {
   }
 }
 
+/** localStorage: force folders outline for projects after non-legacy reparent. */
+function forceFoldersOutlineKey(projectId = state.projectId) {
+  return `supertory.forceFolders.${projectId || 0}`;
+}
+
+function readForceFoldersOutline(projectId = state.projectId) {
+  try {
+    return localStorage.getItem(forceFoldersOutlineKey(projectId)) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeForceFoldersOutline(projectId, on) {
+  try {
+    const key = forceFoldersOutlineKey(projectId);
+    if (on) localStorage.setItem(key, "1");
+    else localStorage.removeItem(key);
+  } catch (_) { /* ignore */ }
+}
+
+/** Prefer outline.folders when present or force flag is set. */
+function shouldUseFoldersOutline() {
+  if (!Array.isArray(state.folders)) return false;
+  if (state.forceFoldersOutline) return true;
+  return state.folders.length > 0;
+}
+
+/**
+ * Normalize API folder node for binder render.
+ * - folder_id: real folder.id (reparent)
+ * - id: legacy part/chapter source_id when mapped (rename/trash/scene APIs)
+ */
+function normalizeApiFolderNode(folder, depth = 0, parentPartSourceId = null) {
+  if (!folder || typeof folder !== "object") return folder;
+  const folderId = Number(folder.id);
+  const sourceKind = folder.source_kind || null;
+  const rawSid = folder.source_id;
+  const sourceId = rawSid != null && rawSid !== "" ? Number(rawSid) : null;
+  // is_box is a visual flag independent of hierarchy. Explicit false wins.
+  // Legacy part maps default to boxed when is_box omitted.
+  let isBox;
+  if (folder.is_box === false || folder.is_box === 0 || folder.is_box === "0") {
+    isBox = false;
+  } else if (folder.is_box === true || folder.is_box === 1 || folder.is_box === "1") {
+    isBox = true;
+  } else {
+    isBox = sourceKind === "part";
+  }
+  const legacyId = Number.isFinite(sourceId) && sourceId > 0 ? sourceId : folderId;
+  // part_id for child styling: if parent is source part, keep link even when unboxed
+  const nextParentPart = sourceKind === "part" ? legacyId : parentPartSourceId;
+  const kids = Array.isArray(folder.children) ? folder.children : [];
+  const color = folder.color != null && folder.color !== ""
+    ? String(folder.color).trim().toLowerCase()
+    : null;
+  return {
+    ...folder,
+    folder_id: folderId,
+    id: legacyId,
+    is_box: isBox,
+    is_pinned: folder.is_pinned ? 1 : 0,
+    is_bookmarked: folder.is_bookmarked ? 1 : 0,
+    color,
+    kind: isBox ? "part" : "chapter",
+    source_kind: sourceKind,
+    source_id: Number.isFinite(sourceId) ? sourceId : null,
+    part_id: isBox ? null : parentPartSourceId,
+    depth,
+    scenes: Array.isArray(folder.scenes) ? folder.scenes : [],
+    children: kids.map((ch) => normalizeApiFolderNode(ch, depth + 1, nextParentPart)),
+  };
+}
+
+function collectChaptersFromFolderForest(nodes, out = []) {
+  for (const node of nodes || []) {
+    if (!node) continue;
+    if (!binderFolderNodeIsBox(node)) {
+      out.push({
+        id: node.id,
+        title: node.title,
+        part_id: node.part_id,
+        notes_md: node.notes_md,
+        scenes: node.scenes || [],
+        folder_id: node.folder_id,
+      });
+    }
+    collectChaptersFromFolderForest(node.children || [], out);
+  }
+  return out;
+}
+
 /** Chapters in binder display order: parts first, then ungrouped. */
 function getBinderChaptersInOrder() {
+  if (shouldUseFoldersOutline()) {
+    const roots = (state.folders || []).map((f) => normalizeApiFolderNode(f));
+    const fromFolders = collectChaptersFromFolderForest(roots);
+    if (fromFolders.length) return fromFolders;
+  }
   const out = [];
   for (const part of state.parts || []) {
     for (const chapter of part.chapters || []) out.push(chapter);
@@ -21554,19 +22226,24 @@ function renderSceneTreeHtml(scenes, {
       ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 접기" : "하위 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
       : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
     // Folders render after child manuscripts under the same parent.
+    // Route through recursive binder renderer (non-box chapter path → same markup).
     const nestDepth = Math.min(depth + 1, 8);
     const nestedFoldersHtml = hasChildFolders
-      ? childFolders.map((ch, folderIndex) => renderChapterOutlineHtml(ch, {
-          collapsed: folderCollapse,
-          collapsedScenes,
-          baitPlantIds,
-          baitRecoverIds,
-          pinnedSet: pins,
-          folderLevel: nestDepth >= 2 ? "is-level-2" : "is-level-1",
-          nestedUnderScene: true,
-          nestDepth,
-          isLastSibling: folderIndex === childFolders.length - 1,
-        })).join("")
+      ? childFolders.map((ch, folderIndex) => renderBinderFolderNodeHtml(
+          asBinderFolderNode(ch, { isBox: false }),
+          {
+            collapsed: folderCollapse,
+            collapsedScenes,
+            baitPlantIds,
+            baitRecoverIds,
+            pinnedSet: pins,
+            folderLevel: nestDepth >= 2 ? "is-level-2" : "is-level-1",
+            nestedUnderScene: true,
+            nestDepth,
+            binderDepth: Math.min(nestDepth, 8),
+            isLastSibling: folderIndex === childFolders.length - 1,
+          },
+        )).join("")
       : "";
     const childrenHtml = hasNest
       ? `<div class="scene-children ${childExpanded ? "" : "is-collapsed"}" ${childExpanded ? "" : "hidden"} data-parent-scene="${sid}">
@@ -21601,15 +22278,178 @@ function renderSceneTreeHtml(scenes, {
   }).join("");
 }
 
+/**
+ * Phase 4-1: recursive binder folder render helpers.
+ * Outline API still returns legacy part→chapter (depth 2). These helpers walk
+ * an arbitrary tree so deeper nesting can plug in later without a second rewrite.
+ * With current data, DOM/classes match the previous fixed two-level loop.
+ */
+
+/** Tag a legacy outline node for the recursive renderer. */
+function asBinderFolderNode(node, { isBox = false } = {}) {
+  if (!node || typeof node !== "object") return node;
+  if (node.kind != null || Object.prototype.hasOwnProperty.call(node, "is_box")) {
+    return node;
+  }
+  return { ...node, kind: isBox ? "part" : "chapter", is_box: Boolean(isBox) };
+}
+
+/** Whether this binder node uses the box shell (visual is_box; independent of depth). */
+function binderFolderNodeIsBox(node) {
+  if (!node || typeof node !== "object") return false;
+  if (Object.prototype.hasOwnProperty.call(node, "is_box")) {
+    const v = node.is_box;
+    if (v === false || v === 0 || v === "0" || v === "false") return false;
+    return v === true || v === 1 || v === "1" || v === "true";
+  }
+  if (node.kind === "part") return true;
+  if (node.kind === "chapter") return false;
+  return false;
+}
+
+/**
+ * Immediate child folders under a binder node.
+ * - Box (part): legacy `chapters` (or future `children`)
+ * - Non-box chapter: only explicit nested lists (`children` / `child_folders`),
+ *   never legacy `chapters` (that field is the part→chapter list).
+ */
+function getBinderChildFolders(node) {
+  if (!node || typeof node !== "object") return [];
+  if (Array.isArray(node.children) && node.children.length) return node.children;
+  if (Array.isArray(node.child_folders) && node.child_folders.length) {
+    return node.child_folders;
+  }
+  if (binderFolderNodeIsBox(node) && Array.isArray(node.chapters)) {
+    return node.chapters;
+  }
+  return [];
+}
+
+/**
+ * Recursive binder folder node renderer.
+ * is_box → outline-part box shell; otherwise → chapter shell + scene leaves.
+ * Nested folder children are rendered by recursing into this same function.
+ */
+function renderBinderFolderNodeHtml(node, opts = {}) {
+  if (!node) return "";
+  const {
+    collapsed,
+    collapsedScenes,
+    collapsedParts,
+    baitPlantIds,
+    baitRecoverIds,
+    pinnedSet,
+    folderLevel = null,
+    nestedUnderScene = false,
+    nestDepth = 1,
+    binderDepth = 0,
+    isLastSibling = true,
+  } = opts;
+  const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
+  const depthClass = ` binder-depth-${depth}`;
+  const depthAttr = ` data-binder-depth="${depth}"`;
+
+  if (binderFolderNodeIsBox(node)) {
+    const childFolders = getBinderChildFolders(node);
+    const partExpanded = !(collapsedParts instanceof Set && collapsedParts.has(Number(node.id)));
+    const folderIdAttr = node.folder_id != null && node.folder_id !== ""
+      ? ` data-folder-id="${Number(node.folder_id)}"`
+      : "";
+    const colorKey = String(node.color || "").trim().toLowerCase();
+    const colorAttr = colorKey ? ` data-folder-color="${escapeHtml(colorKey)}"` : "";
+    const pinAttr = ` data-is-pinned="${node.is_pinned ? "1" : "0"}"`;
+    const bmOn = Boolean(node.is_bookmarked);
+    const bmAttr = ` data-is-bookmarked="${bmOn ? "1" : "0"}"`;
+    const boxAttr = ` data-is-box="1"`;
+    const sk = node.source_kind || "";
+    const sourceKindAttr = sk ? ` data-source-kind="${escapeHtml(sk)}"` : "";
+    // APIs: part source → part id attrs; chapter source boxed as shell still uses chapter APIs
+    const isChapterSource = sk === "chapter";
+    const renameAttr = isChapterSource
+      ? `data-rename-chapter="${node.id}"`
+      : `data-rename-part="${node.id}"`;
+    const toggleAttr = isChapterSource
+      ? `data-toggle-chapter="${node.id}"`
+      : `data-toggle-part="${node.id}"`;
+    const titleClass = isChapterSource
+      ? `chapter-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`
+      : `part-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`;
+    const addBtn = isChapterSource
+      ? `<button type="button" class="chapter-add-scene" data-chapter="${node.id}" title="원고 추가">+</button>`
+      : `<button type="button" class="part-add-chapter" data-part-add-chapter="${node.id}" title="이 폴더 안에 하위 폴더 추가">+</button>`;
+    const idAttrs = isChapterSource
+      ? ` data-chapter-id="${node.id}" data-part-id=""`
+      : ` data-part-id="${node.id}"`;
+    const childOpts = {
+      collapsed,
+      collapsedScenes,
+      collapsedParts,
+      baitPlantIds,
+      baitRecoverIds,
+      pinnedSet,
+      binderDepth: depth + 1,
+    };
+    const chapterHtml = childFolders.length
+      ? childFolders.map((ch, idx) => renderBinderFolderNodeHtml(
+          asBinderFolderNode(ch, { isBox: binderFolderNodeIsBox(ch) }),
+          {
+            ...childOpts,
+            folderLevel: binderFolderNodeIsBox(ch)
+              ? "is-level-0"
+              : (depth >= 1 ? "is-level-2" : "is-level-1"),
+            isLastSibling: idx === childFolders.length - 1,
+          },
+        )).join("")
+      : `<p class="hint part-empty-hint">이 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
+    return `
+    <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
+      <div class="part-row" draggable="true">
+        <span class="part-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+        <button
+          type="button"
+          class="part-twistie chapter-twistie"
+          ${toggleAttr}
+          aria-expanded="${partExpanded ? "true" : "false"}"
+          title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
+        ><span class="twistie-glyph" aria-hidden="true"></span></button>
+        ${folderColorDotHtml(colorKey)}
+        ${folderBookmarkMarkHtml(bmOn)}
+        <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (우클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
+        ${addBtn}
+      </div>
+      <div class="part-children ${partExpanded ? "" : "is-collapsed"}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
+        ${chapterHtml}
+      </div>
+    </section>`;
+  }
+
+  // Non-box folder: chapter shell + scene leaves (+ optional nested folders).
+  return renderChapterOutlineHtml(node, {
+    collapsed,
+    collapsedScenes,
+    collapsedParts,
+    baitPlantIds,
+    baitRecoverIds,
+    pinnedSet,
+    folderLevel,
+    nestedUnderScene,
+    nestDepth,
+    binderDepth: depth,
+    isLastSibling,
+  });
+}
+
 function renderChapterOutlineHtml(chapter, {
   collapsed,
   collapsedScenes,
+  collapsedParts,
   baitPlantIds,
   baitRecoverIds,
   pinnedSet,
   folderLevel: folderLevelOverride = null,
   nestedUnderScene = false,
   nestDepth = 1,
+  binderDepth = 0,
   isLastSibling = true,
 }) {
   const scenes = chapter.scenes || [];
@@ -21636,14 +22476,51 @@ function renderChapterOutlineHtml(chapter, {
       ? ""
       : `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`);
 
+  // Nested folders under this chapter (unlimited depth)
+  const nestedChildFolders = getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false }));
+  const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
+  const nestedChildFoldersHtml = nestedChildFolders.length
+    ? nestedChildFolders.map((ch, idx) => renderBinderFolderNodeHtml(
+        asBinderFolderNode(ch, { isBox: binderFolderNodeIsBox(ch) }),
+        {
+          collapsed,
+          collapsedScenes,
+          collapsedParts,
+          baitPlantIds,
+          baitRecoverIds,
+          pinnedSet,
+          binderDepth: depth + 1,
+          folderLevel: binderFolderNodeIsBox(ch)
+            ? "is-level-0"
+            : (depth >= 1 ? "is-level-2" : "is-level-1"),
+          isLastSibling: idx === nestedChildFolders.length - 1,
+        },
+      )).join("")
+    : "";
+  // Only inject a trailing block when nested folders exist (visual parity when empty).
+  const afterScenesHtml = nestedChildFoldersHtml ? `\n        ${nestedChildFoldersHtml}` : "";
+
   const hasParentPart = chapter.part_id != null && chapter.part_id !== "";
   const partAttr = hasParentPart
     ? ` data-part-id="${Number(chapter.part_id)}"`
     : ' data-part-id=""';
+  const folderIdAttr = chapter.folder_id != null && chapter.folder_id !== ""
+    ? ` data-folder-id="${Number(chapter.folder_id)}"`
+    : "";
+  const colorKey = String(chapter.color || "").trim().toLowerCase();
+  const colorAttr = colorKey ? ` data-folder-color="${escapeHtml(colorKey)}"` : "";
+  const pinAttr = ` data-is-pinned="${chapter.is_pinned ? "1" : "0"}"`;
+  const bmOn = Boolean(chapter.is_bookmarked);
+  const bmAttr = ` data-is-bookmarked="${bmOn ? "1" : "0"}"`;
+  const boxAttr = ` data-is-box="0"`;
+  const sk = chapter.source_kind || "chapter";
+  const sourceKindAttr = ` data-source-kind="${escapeHtml(sk)}"`;
   // Sub-folder under top box → level-1; ungrouped top folder → level-0; under manuscript → level-2
   const folderLevel = folderLevelOverride
     || (hasParentPart ? "is-level-1" : "is-level-0");
-  const depthClass = nestedUnderScene ? ` depth-${Math.min(Number(nestDepth) || 1, 8)}` : "";
+  const sceneNestDepthClass = nestedUnderScene ? ` depth-${Math.min(Number(nestDepth) || 1, 8)}` : "";
+  const binderDepthClass = ` binder-depth-${depth}`;
+  const binderDepthAttr = ` data-binder-depth="${depth}"`;
   const lastClass = nestedUnderScene && isLastSibling ? " is-last" : "";
   const nestClass = nestedUnderScene ? " is-nested-under-scene" : "";
   const treeGuide = nestedUnderScene
@@ -21652,18 +22529,18 @@ function renderChapterOutlineHtml(chapter, {
   if (transparent) {
     // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
     return `
-    <section class="outline-chapter is-transparent-chapter${nestClass}${depthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
+    <section class="outline-chapter is-transparent-chapter${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${boxAttr}${sourceKindAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
       <div class="chapter-children" role="group" aria-label="원고">
-        ${sceneItems}
+        ${sceneItems}${afterScenesHtml}
         <button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
       </div>
     </section>`;
   }
   return `
-    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${depthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
       <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}">
         ${treeGuide}
-        ${nestedUnderScene ? "" : `<span class="chapter-drag-handle" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>`}
+        ${nestedUnderScene ? "" : `<span class="chapter-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>`}
         <button
           type="button"
           class="chapter-twistie"
@@ -21672,11 +22549,13 @@ function renderChapterOutlineHtml(chapter, {
           title="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
           aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
         ><span class="twistie-glyph" aria-hidden="true"></span></button>
-        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box ${folderLevel} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 · 우클릭: 메뉴${nestedUnderScene ? "" : " · 끌어 다른 폴더로 이동"})">${escapeHtml(chapter.title)}</button>
+        ${folderColorDotHtml(colorKey)}
+        ${folderBookmarkMarkHtml(bmOn)}
+        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (우클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
         <button type="button" class="chapter-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
-        ${sceneItems}
+        ${sceneItems}${afterScenesHtml}
       </div>
     </section>`;
 }
@@ -21684,12 +22563,14 @@ function renderChapterOutlineHtml(chapter, {
 function renderOutline(chaptersArg) {
   const outline = $("outline");
   if (!outline) return;
+  const useFolders = shouldUseFoldersOutline();
   const parts = Array.isArray(state.parts) ? state.parts : [];
   const ungrouped = Array.isArray(state.ungroupedChapters)
     ? state.ungroupedChapters
     : (Array.isArray(chaptersArg) ? chaptersArg : (state.outline || []));
   const flatChapters = getBinderChaptersInOrder();
-  if (!flatChapters.length && !parts.length) {
+  const foldersEmpty = useFolders && !(state.folders || []).length;
+  if (foldersEmpty || (!useFolders && !flatChapters.length && !parts.length)) {
     outline.innerHTML = "<p class='hint'>아직 챕터가 없어요.<br>위의 + 챕터를 눌러 주세요.</p>";
     try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
     return;
@@ -21702,48 +22583,48 @@ function renderOutline(chaptersArg) {
   const baitPlantIds = typeof getBaitPlantSceneIds === "function" ? getBaitPlantSceneIds() : new Set();
   const baitRecoverIds = typeof getBaitRecoverSceneIds === "function" ? getBaitRecoverSceneIds() : new Set();
   const pinnedSet = new Set(sanitizePinnedSceneIds());
-  const chapterOpts = { collapsed, collapsedScenes, baitPlantIds, baitRecoverIds, pinnedSet };
+  const chapterOpts = {
+    collapsed,
+    collapsedScenes,
+    collapsedParts,
+    baitPlantIds,
+    baitRecoverIds,
+    pinnedSet,
+  };
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
 
-  const partBlocks = parts.map((part) => {
-    const chapters = part.chapters || [];
-    const partExpanded = !collapsedParts.has(Number(part.id));
-    const chapterHtml = chapters.length
-      ? chapters.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")
-      : `<p class="hint part-empty-hint">이 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
-    return `
-    <section class="outline-part ${partExpanded ? "" : "is-collapsed"}" data-part-id="${part.id}" data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
-      <div class="part-row">
-        <span class="part-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
-        <button
-          type="button"
-          class="part-twistie chapter-twistie"
-          data-toggle-part="${part.id}"
-          aria-expanded="${partExpanded ? "true" : "false"}"
-          title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
-        ><span class="twistie-glyph" aria-hidden="true"></span></button>
-        <button type="button" class="part-title folder-title-box is-level-0" data-rename-part="${part.id}" title="${escapeHtml(part.title)} (더블클릭: 이름 변경 · 우클릭: 폴더 메뉴)">${escapeHtml(part.title)}</button>
-        <button type="button" class="part-add-chapter" data-part-add-chapter="${part.id}" title="이 폴더 안에 하위 폴더 추가">+</button>
-      </div>
-      <div class="part-children ${partExpanded ? "" : "is-collapsed"}" ${partExpanded ? "" : "hidden"} data-part-chapters="${part.id}" role="group" aria-label="${escapeHtml(part.title)} 폴더">
-        ${chapterHtml}
-      </div>
-    </section>`;
-  }).join("");
-
-  const ungroupedHtml = ungrouped.length
-    ? `
+  let bodyHtml = "";
+  if (useFolders) {
+    // Canonical unlimited-depth tree (outline.folders → folder.id on data-folder-id)
+    const roots = (state.folders || []).map((f) => normalizeApiFolderNode(f));
+    bodyHtml = roots.map((node) => renderBinderFolderNodeHtml(
+      asBinderFolderNode(node, { isBox: binderFolderNodeIsBox(node) }),
+      chapterOpts,
+    )).join("");
+  } else {
+    // Legacy fallback: parts (boxes) + ungrouped chapters
+    const partBlocks = parts.map((part) => renderBinderFolderNodeHtml(
+      asBinderFolderNode(part, { isBox: true }),
+      chapterOpts,
+    )).join("");
+    const ungroupedHtml = ungrouped.length
+      ? `
     <div class="outline-ungrouped ${parts.length ? "" : "is-flat"}" data-part-chapters="" data-part-id="">
       ${parts.length ? `<div class="outline-ungrouped-label">미분류 (최상위 폴더 밖)</div>` : ""}
-      ${ungrouped.map((ch) => renderChapterOutlineHtml(ch, chapterOpts)).join("")}
+      ${ungrouped.map((ch) => renderBinderFolderNodeHtml(
+        asBinderFolderNode(ch, { isBox: false }),
+        chapterOpts,
+      )).join("")}
     </div>`
-    : (parts.length
-      ? `<p class="hint outline-ungrouped-empty">미분류 폴더가 없어요.</p>`
-      : "");
+      : (parts.length
+        ? `<p class="hint outline-ungrouped-empty">미분류 폴더가 없어요.</p>`
+        : "");
+    bodyHtml = `${partBlocks}${ungroupedHtml}`;
+  }
 
-  outline.innerHTML = `${renderPinnedOutlineSectionHtml()}${partBlocks}${ungroupedHtml}`;
+  outline.innerHTML = `${renderPinnedOutlineSectionHtml()}${bodyHtml}`;
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
@@ -21787,40 +22668,74 @@ function renderOutline(chaptersArg) {
       createChapter({ partId }).catch(handleError);
     });
   });
+  const openFolderContextFromSection = (event, section, row) => {
+    if (!section) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const folderRaw = section.dataset?.folderId;
+    const folderId = folderRaw === "" || folderRaw == null ? null : Number(folderRaw);
+    const isBoxRaw = section.dataset?.isBox;
+    const colorRaw = section.dataset?.folderColor;
+    const pinRaw = section.dataset?.isPinned;
+    const bmRaw = section.dataset?.isBookmarked;
+    const sk = section.dataset?.sourceKind || "";
+    const titleBtn = row.querySelector("[data-rename-chapter], [data-rename-part]");
+    const title = titleBtn?.textContent || titleBtn?.getAttribute("title") || "";
+    const isBox = isBoxRaw === "1" || isBoxRaw === "true";
+    const isPinned = pinRaw === "1" || pinRaw === "true";
+    const isBookmarked = bmRaw === "1" || bmRaw === "true";
+    const color = colorRaw || null;
+    // Prefer source_kind for API menu; boxed chapter still uses chapter menu
+    if (sk === "chapter" || section.dataset?.chapterId) {
+      const chapterId = section.dataset.chapterId
+        || titleBtn?.dataset?.renameChapter
+        || section.dataset.partId;
+      if (!chapterId) return;
+      const partRaw = section.dataset?.partId;
+      showChapterContextMenu(event.clientX, event.clientY, {
+        id: chapterId,
+        title,
+        partId: partRaw === "" || partRaw == null ? null : Number(partRaw),
+        folderId,
+        isBox,
+        isPinned,
+        isBookmarked,
+        color,
+      });
+      return;
+    }
+    const partId = section.dataset.partId
+      || titleBtn?.dataset?.renamePart
+      || section.dataset.chapterId;
+    if (!partId) return;
+    showPartContextMenu(event.clientX, event.clientY, {
+      id: partId,
+      title,
+      folderId,
+      isBox,
+      isPinned,
+      isBookmarked,
+      color,
+    });
+  };
   outline.querySelectorAll(".chapter-row").forEach((row) => {
     row.addEventListener("contextmenu", (event) => {
       if (event.target.closest?.("[data-scene]")) return;
       const section = row.closest?.(".outline-chapter");
-      const chapterId = section?.dataset?.chapterId;
-      if (!chapterId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const titleBtn = row.querySelector("[data-rename-chapter]");
-      const partRaw = section?.dataset?.partId;
-      showChapterContextMenu(event.clientX, event.clientY, {
-        id: chapterId,
-        title: titleBtn?.textContent || titleBtn?.getAttribute("title") || "",
-        partId: partRaw === "" || partRaw == null ? null : Number(partRaw),
-      });
+      openFolderContextFromSection(event, section, row);
     });
   });
   outline.querySelectorAll(".part-row").forEach((row) => {
     row.addEventListener("contextmenu", (event) => {
       const section = row.closest?.(".outline-part");
-      const partId = section?.dataset?.partId;
-      if (!partId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const titleBtn = row.querySelector("[data-rename-part]");
-      showPartContextMenu(event.clientX, event.clientY, {
-        id: partId,
-        title: titleBtn?.textContent || titleBtn?.getAttribute("title") || "",
-      });
+      openFolderContextFromSection(event, section, row);
     });
   });
   outline.querySelectorAll("[data-scene]").forEach((button) => {
     button.addEventListener("click", () => openScene(button.dataset.scene).catch(handleError));
   });
+  // Folder titles: single click = select only; rename via context menu.
+  // Do not stop mousedown propagation — that blocks HTML5 drag from the title.
   outline.querySelectorAll("[data-rename-chapter]").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.stopPropagation();
@@ -21828,12 +22743,6 @@ function renderOutline(chaptersArg) {
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
     });
-    button.addEventListener("dblclick", (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      beginChapterRename(button).catch(handleError);
-    });
-    button.addEventListener("mousedown", (event) => event.stopPropagation());
   });
   outline.querySelectorAll("[data-rename-part]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -21842,16 +22751,11 @@ function renderOutline(chaptersArg) {
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
     });
-    button.addEventListener("dblclick", (event) => {
-      event.stopPropagation();
-      event.preventDefault();
-      beginPartRename(button).catch(handleError);
-    });
-    button.addEventListener("mousedown", (event) => event.stopPropagation());
   });
   injectChapterInsertSlots(outline);
   setupChapterDragAndDrop(outline);
   setupPartDragAndDrop(outline);
+  setupFolderTreeDragAndDrop(outline);
   setupSceneNestDragAndDrop(outline);
   setupNewChapterDrag();
   setupBinderContextMenu();
@@ -21899,6 +22803,7 @@ async function beginChapterRename(titleButton) {
         method: "PUT",
         body: JSON.stringify({ title: nextTitle }),
       });
+      noteFolderUndoAvailable();
       const chapter = state.outline.find((item) => item.id === chapterId);
       if (chapter) chapter.title = nextTitle;
       await loadProject();
@@ -22089,12 +22994,20 @@ function setupChapterDragAndDrop(outline) {
   outline.dataset.chapterDragBound = "1";
 
   outline.addEventListener("dragstart", (event) => {
+    // folders-mode uses setupFolderTreeDragAndDrop + reparent API
+    if (shouldUseFoldersOutline()) return;
     if (event.target.closest?.(".scene-tree-item, .chapter-children")) return;
     if (chapterInsertDragActive) return;
 
     const section = event.target.closest?.(".outline-chapter");
     if (!section || !outline.contains(section)) return;
-    if (event.target.closest?.("button.chapter-add-scene, button[data-chapter], .chapter-insert-slot, input, textarea")) {
+    // Allow drag from title, ⋮⋮ handle, or row — not from +/twistie/inputs.
+    if (event.target.closest?.("button.chapter-add-scene, button[data-chapter], button.chapter-twistie, .chapter-insert-slot, input, textarea")) {
+      event.preventDefault();
+      return;
+    }
+    // Nested-under-scene chapters are not reparented via this path.
+    if (section.dataset.transparent === "true" || section.getAttribute("draggable") === "false") {
       event.preventDefault();
       return;
     }
@@ -22121,6 +23034,7 @@ function setupChapterDragAndDrop(outline) {
   }, true);
 
   outline.addEventListener("dragover", (event) => {
+    if (shouldUseFoldersOutline()) return;
     if (!chapterDragEl || chapterInsertDragActive) return;
     if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
     const target = resolveChapterDropTarget(outline, event.clientX, event.clientY, event.target);
@@ -22164,6 +23078,7 @@ function setupChapterDragAndDrop(outline) {
   }, true);
 
   outline.addEventListener("drop", (event) => {
+    if (shouldUseFoldersOutline()) return;
     if (!chapterDragEl || chapterInsertDragActive) return;
     if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
     const dragged = chapterDragEl;
@@ -22291,12 +23206,20 @@ function setupPartDragAndDrop(outline) {
   outline.dataset.partDragBound = "1";
 
   outline.addEventListener("dragstart", (event) => {
+    if (shouldUseFoldersOutline()) return;
     if (chapterDragEl || chapterInsertDragActive) return;
     if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
     if (event.target.closest?.(".scene-tree-item, .chapter-children, .outline-chapter")) return;
-    const handle = event.target.closest?.(".part-drag-handle");
-    if (!handle || !outline.contains(handle)) return;
-    const section = handle.closest?.(".outline-part");
+    // Unified with chapter: ⋮⋮ handle, title, or row (not twistie / + / rename input).
+    if (event.target.closest?.(".part-twistie, .part-add-chapter, input, textarea")) {
+      event.preventDefault();
+      return;
+    }
+    const dragSource = event.target.closest?.(
+      ".part-drag-handle, .part-title[data-rename-part], .part-row",
+    );
+    if (!dragSource || !outline.contains(dragSource)) return;
+    const section = dragSource.closest?.(".outline-part");
     if (!section || !outline.contains(section)) return;
     event.stopPropagation();
     dragged = section;
@@ -22313,13 +23236,17 @@ function setupPartDragAndDrop(outline) {
 
   outline.addEventListener("dragend", (event) => {
     if (!dragged) return;
-    if (event.target.closest?.(".part-drag-handle, .outline-part") || event.target === dragged) {
+    if (
+      event.target.closest?.(".part-drag-handle, .part-title, .part-row, .outline-part")
+      || event.target === dragged
+    ) {
       dragged = null;
       clearDropMarkers();
     }
   }, true);
 
   outline.addEventListener("dragover", (event) => {
+    if (shouldUseFoldersOutline()) return;
     if (!dragged || !dragged.classList?.contains("outline-part")) return;
     if (chapterDragEl) return;
     const section = event.target.closest?.(".outline-part");
@@ -22336,6 +23263,7 @@ function setupPartDragAndDrop(outline) {
   }, true);
 
   outline.addEventListener("drop", (event) => {
+    if (shouldUseFoldersOutline()) return;
     if (!dragged || !dragged.classList?.contains("outline-part")) return;
     if (chapterDragEl) return;
     const section = event.target.closest?.(".outline-part");
@@ -22377,6 +23305,264 @@ function setupPartDragAndDrop(outline) {
       loadProject().catch(handleError);
     });
     finished?.classList.remove("is-dragging");
+  }, true);
+}
+
+/** @type {HTMLElement|null} */
+let folderTreeDragEl = null;
+
+function clearFolderTreeDropMarkers(outline = $("outline")) {
+  outline?.querySelectorAll(
+    ".outline-part, .outline-chapter",
+  ).forEach((section) => {
+    section.classList.remove(
+      "drag-over-before",
+      "drag-over-after",
+      "is-dragging",
+      "is-folder-drop",
+    );
+  });
+}
+
+function folderSectionParentFolderId(section, outline) {
+  if (!section) return null;
+  let cur = section.parentElement;
+  while (cur && cur !== outline) {
+    if (cur.dataset?.folderId != null && cur.dataset.folderId !== "") {
+      const n = Number(cur.dataset.folderId);
+      if (Number.isFinite(n) && n > 0) return n;
+    }
+    cur = cur.parentElement;
+  }
+  return null;
+}
+
+function collectDomFolderSubtreeIds(section) {
+  const ids = new Set();
+  if (!section) return ids;
+  const root = Number(section.dataset?.folderId);
+  if (Number.isFinite(root) && root > 0) ids.add(root);
+  section.querySelectorAll?.("[data-folder-id]").forEach((el) => {
+    const n = Number(el.dataset.folderId);
+    if (Number.isFinite(n) && n > 0) ids.add(n);
+  });
+  return ids;
+}
+
+/**
+ * Scrivener-style folder drop zones (same ratios as scene move; scene code untouched).
+ * before <28% | inside 28–72% | after >72% of the target folder header/row height.
+ */
+function resolveFolderMoveDrop(outline, clientX, clientY, eventTarget) {
+  if (!folderTreeDragEl || !outline) return null;
+  const movingId = Number(folderTreeDragEl.dataset.folderId);
+  if (!Number.isFinite(movingId) || movingId <= 0) return null;
+  const subtree = collectDomFolderSubtreeIds(folderTreeDragEl);
+
+  const x = Number(clientX);
+  const y = Number(clientY);
+  if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+
+  let el = eventTarget && eventTarget.nodeType === 1 ? eventTarget : null;
+  try {
+    const stack = document.elementsFromPoint(x, y) || [];
+    const preferred = stack.find((node) => (
+      node
+      && node.nodeType === 1
+      && outline.contains(node)
+      && !(folderTreeDragEl && (node === folderTreeDragEl || folderTreeDragEl.contains(node)))
+    ));
+    if (preferred) el = preferred;
+    else if (!el) el = stack.find((node) => node && outline.contains(node)) || null;
+  } catch (_) { /* ignore */ }
+
+  const section = el?.closest?.(
+    ".outline-part[data-folder-id], .outline-chapter[data-folder-id]",
+  );
+  if (!section || !outline.contains(section)) return null;
+  if (section === folderTreeDragEl) return null;
+  if (section.dataset.transparent === "true") return null;
+
+  const targetId = Number(section.dataset.folderId);
+  if (!Number.isFinite(targetId) || targetId <= 0) return null;
+  if (subtree.has(targetId)) return null;
+
+  // Prefer the title row height for zone ratios (closer to Scrivener item hit).
+  const row = section.querySelector(":scope > .part-row, :scope > .chapter-row") || section;
+  const rect = row.getBoundingClientRect();
+  const ratio = (y - rect.top) / Math.max(rect.height, 1);
+
+  if (ratio < 0.28) {
+    return {
+      mode: "before",
+      position: "before",
+      folderId: movingId,
+      targetId,
+      new_parent_id: folderSectionParentFolderId(section, outline),
+      target_id: targetId,
+      el: section,
+    };
+  }
+  if (ratio > 0.72) {
+    return {
+      mode: "after",
+      position: "after",
+      folderId: movingId,
+      targetId,
+      new_parent_id: folderSectionParentFolderId(section, outline),
+      target_id: targetId,
+      el: section,
+    };
+  }
+  return {
+    mode: "inside",
+    position: "inside",
+    folderId: movingId,
+    targetId,
+    new_parent_id: targetId,
+    target_id: targetId,
+    el: section,
+  };
+}
+
+function applyFolderMoveDropHint(outline, drop) {
+  clearFolderTreeDropMarkers(outline);
+  folderTreeDragEl?.classList.add("is-dragging");
+  if (!drop?.el) return;
+  if (drop.mode === "before") {
+    drop.el.classList.add("drag-over-before");
+  } else if (drop.mode === "after") {
+    drop.el.classList.add("drag-over-after");
+  } else if (drop.mode === "inside") {
+    drop.el.classList.add("is-folder-drop");
+  }
+}
+
+/**
+ * Unlimited-depth folder DnD → POST /api/folders/{id}/reparent.
+ * Active only when shouldUseFoldersOutline(); legacy chapter/part DnD stays for fallback.
+ */
+function setupFolderTreeDragAndDrop(outline) {
+  if (!outline) return;
+  if (outline.dataset.folderTreeDragBound === "1") return;
+  outline.dataset.folderTreeDragBound = "1";
+
+  outline.addEventListener("dragstart", (event) => {
+    if (!shouldUseFoldersOutline()) return;
+    if (chapterInsertDragActive) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    // Scene rows only — do NOT blanket-block .chapter-children (nested folders live there).
+    const sceneItem = event.target.closest?.(".scene-tree-item");
+    const folderHeader = event.target.closest?.(
+      ":is(.outline-part, .outline-chapter)[data-folder-id] > .part-row, "
+      + ":is(.outline-part, .outline-chapter)[data-folder-id] > .chapter-row, "
+      + ".part-drag-handle, .chapter-drag-handle, "
+      + ".part-title[data-rename-part], .chapter-title[data-rename-chapter]",
+    );
+    if (sceneItem && !folderHeader) return;
+    if (event.target.closest?.(
+      "button.chapter-add-scene, button[data-chapter], button.chapter-twistie, "
+      + ".part-twistie, .part-add-chapter, .chapter-insert-slot, input, textarea",
+    )) {
+      event.preventDefault();
+      return;
+    }
+
+    const section = event.target.closest?.(
+      ".outline-part[data-folder-id], .outline-chapter[data-folder-id]",
+    );
+    if (!section || !outline.contains(section)) return;
+    if (section.dataset.transparent === "true") {
+      event.preventDefault();
+      return;
+    }
+    const folderId = Number(section.dataset.folderId);
+    if (!Number.isFinite(folderId) || folderId <= 0) return;
+
+    event.stopPropagation();
+    folderTreeDragEl = section;
+    section.classList.add("is-dragging");
+    event.dataTransfer.effectAllowed = "move";
+    try {
+      event.dataTransfer.setData("text/plain", `folder:${folderId}`);
+      event.dataTransfer.setData("application/x-supertory-folder", String(folderId));
+    } catch (_) { /* ignore */ }
+    try {
+      event.dataTransfer.setDragImage(section, 20, 12);
+    } catch (_) { /* ignore */ }
+  }, true);
+
+  outline.addEventListener("dragend", () => {
+    if (!folderTreeDragEl) return;
+    folderTreeDragEl = null;
+    clearFolderTreeDropMarkers(outline);
+  }, true);
+
+  outline.addEventListener("dragover", (event) => {
+    if (!shouldUseFoldersOutline() || !folderTreeDragEl) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    const drop = resolveFolderMoveDrop(
+      outline, event.clientX, event.clientY, event.target,
+    );
+    if (!drop) return;
+    event.preventDefault();
+    event.stopPropagation();
+    try { event.dataTransfer.dropEffect = "move"; } catch (_) { /* ignore */ }
+    applyFolderMoveDropHint(outline, drop);
+  }, true);
+
+  outline.addEventListener("dragleave", (event) => {
+    if (!folderTreeDragEl) return;
+    const related = event.relatedTarget;
+    if (related && outline.contains(related)) return;
+    clearFolderTreeDropMarkers(outline);
+    folderTreeDragEl?.classList.add("is-dragging");
+  }, true);
+
+  outline.addEventListener("drop", (event) => {
+    if (!shouldUseFoldersOutline() || !folderTreeDragEl) return;
+    if (typeof sceneNestDragId !== "undefined" && sceneNestDragId) return;
+    const drop = resolveFolderMoveDrop(
+      outline, event.clientX, event.clientY, event.target,
+    );
+    event.preventDefault();
+    event.stopPropagation();
+    clearFolderTreeDropMarkers(outline);
+    const moving = folderTreeDragEl;
+    folderTreeDragEl = null;
+    if (!drop || !moving || !state.projectId) return;
+
+    const folderId = Number(drop.folderId);
+    if (!folderId) return;
+
+    const body = {
+      new_parent_id: drop.new_parent_id,
+      position: drop.position,
+      target_id: drop.target_id,
+    };
+
+    (async () => {
+      try {
+        const result = await api(`/api/folders/${folderId}/reparent`, {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        if (result && result.folder_sync_complete === false) {
+          state.forceFoldersOutline = true;
+          writeForceFoldersOutline(state.projectId, true);
+        }
+        if (result && result.moved) noteFolderUndoAvailable();
+        await loadProject();
+        if (drop.mode === "inside") {
+          toast("폴더를 안으로 넣었어요.");
+        } else {
+          toast("폴더 위치를 바꿨어요.");
+        }
+      } catch (error) {
+        handleError(error);
+        loadProject().catch(handleError);
+      }
+    })();
   }, true);
 }
 
@@ -22439,6 +23625,12 @@ function showWelcome() {
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = !state.projectId;
   $("newCharacterButton").disabled = !state.projectId;
   $("newIdeaButton").disabled = !state.projectId;
+  if (!state.projectId) {
+    state.folderUndoHint = 0;
+    state.folderRedoHint = 0;
+  }
+  if (typeof syncFolderHistoryButtons === "function") syncFolderHistoryButtons();
+  else if (typeof syncFolderUndoButton === "function") syncFolderUndoButton();
   syncPurposePickerFromState();
   syncGenrePickerFromState();
   syncToryPriorityInput();
@@ -22464,10 +23656,14 @@ function showWelcome() {
 
 /* —— Welcome screen: animated Tory + +button guide —— */
 const WELCOME_GUIDE_DISMISS_KEY = "supertory.welcomePlusGuideDismissed";
-/** Session-only dismiss for ad popups (X). "오늘 하루" uses localStorage date. */
+/**
+ * Session-only dismiss for ad popups (X).
+ * "다시 보지 않기" stores kind+version in localStorage until feed version changes.
+ */
 const WELCOME_AD_POPUP_IDS = ["event", "notice"];
 const WELCOME_AD_POPUP_SESSION_PREFIX = "supertory.welcomeAdPopup.session.";
-const WELCOME_AD_POPUP_TODAY_PREFIX = "supertory.welcomeAdPopup.today.";
+/** Permanent (per version): supertory.welcomeAdPopup.dismissed.{kind}.{version} = "1" */
+const WELCOME_AD_POPUP_DISMISSED_PREFIX = "supertory.welcomeAdPopup.dismissed.";
 /** Remote feed (no rebuild). Local fallback: same-origin /notice-feed.json */
 const NOTICE_FEED_REMOTE_URL =
   "https://raw.githubusercontent.com/cultnoni/supertory/main/web/notice-feed.json";
@@ -22620,29 +23816,38 @@ function applyWelcomeAdFeedToDom() {
   }
 }
 
+/**
+ * @param {"session"|"dismissed"} scope
+ * session → sessionStorage (X close)
+ * dismissed → localStorage permanent until notice-feed version changes
+ */
 function welcomeAdPopupStorageKey(kind, scope) {
-  const prefix = scope === "today" ? WELCOME_AD_POPUP_TODAY_PREFIX : WELCOME_AD_POPUP_SESSION_PREFIX;
-  return `${prefix}${kind}.${welcomeAdItemVersion(kind)}`;
+  const version = welcomeAdItemVersion(kind);
+  if (scope === "dismissed") {
+    return `${WELCOME_AD_POPUP_DISMISSED_PREFIX}${kind}.${version}`;
+  }
+  return `${WELCOME_AD_POPUP_SESSION_PREFIX}${kind}.${version}`;
 }
 
 function isWelcomeAdPopupDismissed(kind) {
   if (welcomeAdPopupSessionDismissed[kind]) return true;
   try {
     if (sessionStorage.getItem(welcomeAdPopupStorageKey(kind, "session")) === "1") return true;
-    if (localStorage.getItem(welcomeAdPopupStorageKey(kind, "today")) === localDateKey()) return true;
+    // Current kind+version permanently dismissed ("다시 보지 않기")
+    if (localStorage.getItem(welcomeAdPopupStorageKey(kind, "dismissed")) === "1") return true;
   } catch (_) {
     /* ignore */
   }
   return false;
 }
 
-function dismissWelcomeAdPopup(kind, { today = false } = {}) {
+function dismissWelcomeAdPopup(kind, { permanent = false } = {}) {
   if (!WELCOME_AD_POPUP_IDS.includes(kind)) return;
   welcomeAdPopupSessionDismissed[kind] = true;
   try {
     sessionStorage.setItem(welcomeAdPopupStorageKey(kind, "session"), "1");
-    if (today) {
-      localStorage.setItem(welcomeAdPopupStorageKey(kind, "today"), localDateKey());
+    if (permanent) {
+      localStorage.setItem(welcomeAdPopupStorageKey(kind, "dismissed"), "1");
     }
   } catch (_) {
     /* ignore */
@@ -22686,10 +23891,13 @@ function setupWelcomeAdPopups() {
       dismissWelcomeAdPopup(closeBtn.getAttribute("data-ad-popup-close") || "");
       return;
     }
-    const todayBtn = e.target.closest?.("[data-ad-popup-dismiss-today]");
-    if (todayBtn) {
+    const permanentBtn = e.target.closest?.("[data-ad-popup-dismiss-permanent]");
+    if (permanentBtn) {
       e.preventDefault();
-      dismissWelcomeAdPopup(todayBtn.getAttribute("data-ad-popup-dismiss-today") || "", { today: true });
+      dismissWelcomeAdPopup(
+        permanentBtn.getAttribute("data-ad-popup-dismiss-permanent") || "",
+        { permanent: true },
+      );
     }
   });
   loadWelcomeAdFeed().catch(() => {
@@ -23409,7 +24617,15 @@ async function renumberChapterTitles(style = "jang") {
     method: "PUT",
     body: JSON.stringify({ style }),
   });
+  // Server logs folder.renumber_titles only when titles actually changed
+  const changed = Number(result?.changed);
+  if (changed > 0 && typeof noteFolderUndoAvailable === "function") {
+    noteFolderUndoAvailable();
+  }
   await loadProject();
+  if (typeof refreshFolderUndoHintFromServer === "function") {
+    refreshFolderUndoHintFromServer().catch(() => {});
+  }
   toast(`챕터 순번을 다시 매겼어요. (${result.count || state.outline.length}개)`);
 }
 
@@ -23830,6 +25046,7 @@ async function createChapter(options = {}) {
         parent_scene_id: parentSceneId,
       }),
     });
+    noteFolderUndoAvailable();
     setSceneCollapsed(parentSceneId, false);
     const hostChapterId = findChapterIdForScene(parentSceneId);
     if (hostChapterId) setChapterCollapsed(hostChapterId, false);
@@ -23871,6 +25088,7 @@ async function createChapter(options = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
+    noteFolderUndoAvailable();
     if (partId != null) setPartCollapsed(partId, false);
     clearChapterInsertTarget();
     await loadProject();
@@ -23903,10 +25121,12 @@ async function createChapter(options = {}) {
     method: "POST",
     body: JSON.stringify({ title: name }),
   });
+  noteFolderUndoAvailable(); // part create is undoable
   await api(`/api/projects/${state.projectId}/chapters`, {
     method: "POST",
     body: JSON.stringify({ title: name, part_id: part.id }),
   });
+  noteFolderUndoAvailable(); // chapter create
   clearChapterInsertTarget();
   await loadProject();
   toast(`「${name}」 폴더를 만들었어요. 옆 + 로 원고를 추가하세요.`);
@@ -23936,6 +25156,8 @@ async function createPart(options = {}) {
     method: "POST",
     body: JSON.stringify(body),
   });
+  // Policy A: create+chapter move does not log folder.create on server
+  if (!chapterId) noteFolderUndoAvailable();
   await loadProject();
   toast(chapterId
     ? `「${result.title || title}」 상자를 만들고 폴더를 넣었어요.`
@@ -24013,6 +25235,7 @@ async function trashPart(partId, partTitle = "") {
     method: "POST",
     body: JSON.stringify({}),
   });
+  noteFolderUndoAvailable();
   await loadProject();
   const n = Number(result?.chapter_count ?? chapterCount ?? 0);
   toast(n > 0
@@ -24054,6 +25277,7 @@ async function beginPartRename(titleButton) {
         method: "PUT",
         body: JSON.stringify({ title: nextTitle }),
       });
+      noteFolderUndoAvailable();
       await loadProject();
       toast("권/부 이름을 바꿨어요.");
     } catch (error) {
@@ -30908,7 +32132,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.1.0";
+const APP_VERSION_FALLBACK = "1.2.0";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -31074,18 +32298,66 @@ function getUiFeatureLabel(el) {
   return "이름 없는 기능";
 }
 
-function findHideableControl(target) {
-  if (!target?.closest) return null;
-  const el = target.closest(UI_HIDEABLE_SELECTOR);
-  if (!el) return null;
-  if (isFeatureHideExempt(el)) return null;
-  if (el.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
-    return null;
+/**
+ * Resolve a hideable control under the pointer.
+ * Disabled buttons often do not receive contextmenu — fall back to elementsFromPoint.
+ * @param {EventTarget|null} target
+ * @param {number} [clientX]
+ * @param {number} [clientY]
+ */
+function findHideableControl(target, clientX, clientY) {
+  const rejectIfBad = (el) => {
+    if (!el || el.nodeType !== 1) return null;
+    if (isFeatureHideExempt(el)) return null;
+    if (el.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
+      return null;
+    }
+    if (el.closest?.("#outline") && el.matches?.("[data-scene], [data-rename-chapter], [data-rename-part], .scene-link, .folder-title-box, .part-title, .chapter-title")) {
+      return null;
+    }
+    if (!el.matches?.(UI_HIDEABLE_SELECTOR) && !el.closest?.(UI_HIDEABLE_SELECTOR)) {
+      return null;
+    }
+    const hit = el.matches?.(UI_HIDEABLE_SELECTOR) ? el : el.closest(UI_HIDEABLE_SELECTOR);
+    if (!hit || isFeatureHideExempt(hit)) return null;
+    if (hit.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
+      return null;
+    }
+    return hit;
+  };
+
+  let el = null;
+  if (target?.closest) {
+    el = rejectIfBad(target.closest(UI_HIDEABLE_SELECTOR));
   }
-  if (el.closest?.("#outline") && el.matches?.("[data-scene], [data-rename-chapter], [data-rename-part], .scene-link, .folder-title-box, .part-title, .chapter-title")) {
-    return null;
+
+  // Disabled <button> often skips contextmenu; hit-test under cursor instead
+  const needHitTest = !el || (typeof el.disabled === "boolean" && el.disabled);
+  if (
+    needHitTest
+    && Number.isFinite(clientX)
+    && Number.isFinite(clientY)
+    && typeof document.elementsFromPoint === "function"
+  ) {
+    try {
+      const stack = document.elementsFromPoint(clientX, clientY) || [];
+      for (const node of stack) {
+        const found = rejectIfBad(
+          node?.matches?.(UI_HIDEABLE_SELECTOR)
+            ? node
+            : node?.closest?.(UI_HIDEABLE_SELECTOR),
+        );
+        if (found) {
+          el = found;
+          break;
+        }
+      }
+    } catch (_) {
+      /* ignore */
+    }
   }
-  return el;
+
+  return el || null;
 }
 
 function collectHideableControls(root = document) {
@@ -31268,7 +32540,7 @@ function onGlobalUiFeatureContextMenu(event) {
     if (!onMainToggle) return;
   }
 
-  const el = findHideableControl(event.target);
+  const el = findHideableControl(event.target, event.clientX, event.clientY);
   if (!el) return;
 
   // Outline heading / counts: let font menu open; set target for its footer hide
@@ -32128,6 +33400,7 @@ setupRenumberChaptersModal();
 setupTextPromptModal();
 setupOutlineBinderChrome();
 setupOutlineOverview();
+setupFolderUndoUi();
 $("newCharacterButton").addEventListener("click", () => createCharacter().catch(handleError));
 $("closeSplitButton").addEventListener("click", () => closeSplitView().catch(handleError));
 $("splitSceneSelect").addEventListener("change", () => selectSplitScene().catch(handleError));
@@ -32174,6 +33447,8 @@ $("projectSelect").addEventListener("change", (event) => {
   state.outline = [];
   state.parts = [];
   state.ungroupedChapters = [];
+  state.folders = [];
+  state.forceFoldersOutline = false;
   state.outlineProjectId = null;
   state.mainGenre = "";
   state.subGenre = "";

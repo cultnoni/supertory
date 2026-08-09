@@ -34,6 +34,7 @@ import chapter_match
 import document_export
 import document_import
 import env_loader
+import folder_tree
 import gemini_client
 import import_hierarchy
 import korean_speller
@@ -96,9 +97,15 @@ MIGRATION_023_PATH = ROOT / "db" / "023_bait.sql"
 MIGRATION_024_PATH = ROOT / "db" / "024_character_portrait.sql"
 MIGRATION_025_PATH = ROOT / "db" / "025_success_pattern_profile.sql"
 MIGRATION_026_PATH = ROOT / "db" / "026_linked_success_profile.sql"
+MIGRATION_027_PATH = ROOT / "db" / "027_writing_track_modes.sql"
+MIGRATION_028_PATH = ROOT / "db" / "028_folder_tree_parallel.sql"
+MIGRATION_029_PATH = ROOT / "db" / "029_folder_color_pin.sql"
+MIGRATION_030_PATH = ROOT / "db" / "030_folder_action_log.sql"
+MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
+FOLDER_COLORS = {"red", "orange", "yellow", "green", "blue", "purple", "gray"}
 # Electron (and other shells) may point data/projects at a writable user dir.
 # Prefer SUPERTORY_*; accept legacy STORYGUIDE_* env vars from older Electron shells.
 _DATA_DIR_ENV = (
@@ -417,6 +424,16 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_025_PATH.read_text(encoding="utf-8"))
         if 26 not in applied:
             connection.executescript(MIGRATION_026_PATH.read_text(encoding="utf-8"))
+        if 27 not in applied:
+            connection.executescript(MIGRATION_027_PATH.read_text(encoding="utf-8"))
+        if 28 not in applied:
+            connection.executescript(MIGRATION_028_PATH.read_text(encoding="utf-8"))
+        if 29 not in applied:
+            connection.executescript(MIGRATION_029_PATH.read_text(encoding="utf-8"))
+        if 30 not in applied:
+            connection.executescript(MIGRATION_030_PATH.read_text(encoding="utf-8"))
+        if 31 not in applied:
+            connection.executescript(MIGRATION_031_PATH.read_text(encoding="utf-8"))
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
 
@@ -487,12 +504,19 @@ def writing_prefs_row(connection: sqlite3.Connection) -> dict:
     mode = str(data.get("project_list_mode") or "recent").strip().lower()
     if mode not in {"recent", "manual"}:
         mode = "recent"
+    # Defaults: chars auto on, time only while "기록" is on (time_auto off).
+    chars_auto_raw = data.get("chars_auto")
+    time_auto_raw = data.get("time_auto")
+    chars_auto = True if chars_auto_raw is None else bool(int(chars_auto_raw))
+    time_auto = False if time_auto_raw is None else bool(int(time_auto_raw))
     return {
         "goal_chars": int(data.get("goal_chars") or 2000),
         "goal_notify": bool(int(data.get("goal_notify") or 0)),
         "lonely_days": int(data.get("lonely_days") or 3),
         "lonely_notify": bool(int(data.get("lonely_notify") or 0)),
         "idle_minutes": int(data.get("idle_minutes") or 30),
+        "chars_auto": chars_auto,
+        "time_auto": time_auto,
         "last_goal_notified_day": str(data.get("last_goal_notified_day") or ""),
         "last_lonely_notified_day": str(data.get("last_lonely_notified_day") or ""),
         "first_met_day": str(data.get("first_met_day") or first_met or ""),
@@ -1127,6 +1151,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.project_outline(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/undo-status", path)
+            if match:
+                self.send_json(self.project_undo_status(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/manuscript-stats", path)
             if match:
                 self.send_json(self.project_manuscript_stats(int(match.group(1))))
@@ -1492,7 +1521,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     self.require_project(connection, project_id)
                     if parent_scene_id is not None:
                         parent_scene = connection.execute(
-                            "SELECT s.id, s.project_id, c.part_id "
+                            "SELECT s.id, s.project_id, s.chapter_id, c.part_id "
                             "FROM scene s "
                             "JOIN chapter c ON c.id = s.chapter_id "
                             "WHERE s.id = ? AND s.deleted_at IS NULL "
@@ -1507,12 +1536,45 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             if parent_scene["part_id"] is not None
                             else None
                         )
+                        # Folder parent = host scene's chapter folder (promote under host folder)
+                        host_chapter_id = int(parent_scene["chapter_id"])
+                        host_folder_id = folder_tree.folder_id_for_source(
+                            connection, project_id, "chapter", host_chapter_id
+                        )
+                        if host_folder_id is None:
+                            self._mirror_project_folders(connection, project_id)
+                            host_folder_id = folder_tree.folder_id_for_source(
+                                connection, project_id, "chapter", host_chapter_id
+                            )
                         sort_order = connection.execute(
                             "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
                             "WHERE project_id = ? AND parent_scene_id = ? "
                             "AND deleted_at IS NULL",
                             (project_id, parent_scene_id),
                         ).fetchone()[0]
+                        try:
+                            folder_sort = folder_tree.next_folder_sibling_sort(
+                                connection, project_id, host_folder_id
+                            )
+                        except sqlite3.OperationalError:
+                            folder_sort = int(sort_order)
+                        folder_sort_order = max(int(sort_order), int(folder_sort))
+                        # 1) folder first
+                        try:
+                            new_folder_id = folder_tree._insert_folder(
+                                connection,
+                                project_id=project_id,
+                                parent_id=host_folder_id,
+                                title=title,
+                                notes_md="",
+                                is_box=0,
+                                sort_order=folder_sort_order,
+                                source_kind=None,
+                                source_id=None,
+                            )
+                        except sqlite3.OperationalError:
+                            new_folder_id = None
+                        # 2) legacy chapter
                         cursor = connection.execute(
                             "INSERT INTO chapter("
                             "project_id, part_id, parent_scene_id, title, sort_order"
@@ -1520,6 +1582,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             (project_id, part_id, parent_scene_id, title, sort_order),
                         )
                         new_id = int(cursor.lastrowid)
+                        # 3) bind
+                        if new_folder_id is not None:
+                            folder_tree.bind_folder_source(
+                                connection, new_folder_id, "chapter", new_id
+                            )
+                        else:
+                            self._mirror_project_folders(connection, project_id)
+                        self._log_folder_create(
+                            connection,
+                            project_id=project_id,
+                            folder_id=new_folder_id,
+                            source_kind="chapter",
+                            source_id=new_id,
+                            title=title,
+                        )
                         self.send_json(
                             {
                                 "id": new_id,
@@ -1552,12 +1629,52 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql}",
                         (project_id, *group_params),
                     ).fetchone()[0]
+                    parent_folder_id = None
+                    if part_id is not None:
+                        parent_folder_id = folder_tree.folder_id_for_source(
+                            connection, project_id, "part", int(part_id)
+                        )
+                        if parent_folder_id is None:
+                            self._mirror_project_folders(connection, project_id)
+                            parent_folder_id = folder_tree.folder_id_for_source(
+                                connection, project_id, "part", int(part_id)
+                            )
+                    try:
+                        folder_sort = folder_tree.next_folder_sibling_sort(
+                            connection, project_id, parent_folder_id
+                        )
+                    except sqlite3.OperationalError:
+                        folder_sort = int(sort_order)
+                    folder_sort_order = max(int(sort_order), int(folder_sort))
+                    # 1) folder first
+                    try:
+                        new_folder_id = folder_tree._insert_folder(
+                            connection,
+                            project_id=project_id,
+                            parent_id=parent_folder_id,
+                            title=title,
+                            notes_md="",
+                            is_box=0,
+                            sort_order=folder_sort_order,
+                            source_kind=None,
+                            source_id=None,
+                        )
+                    except sqlite3.OperationalError:
+                        new_folder_id = None
+                    # 2) legacy chapter
                     cursor = connection.execute(
                         "INSERT INTO chapter(project_id, part_id, title, sort_order) "
                         "VALUES (?, ?, ?, ?)",
                         (project_id, part_id, title, sort_order),
                     )
                     new_id = int(cursor.lastrowid)
+                    # 3) bind source_id to legacy chapter.id
+                    if new_folder_id is not None:
+                        folder_tree.bind_folder_source(
+                            connection, new_folder_id, "chapter", new_id
+                        )
+                    else:
+                        self._mirror_project_folders(connection, project_id)
 
                     target_index = None
                     if insert_before_id is not None and str(insert_before_id).strip() != "":
@@ -1582,6 +1699,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         self._assign_chapter_sort_orders(
                             connection, project_id, ordered, part_id=part_id
                         )
+                        folder_tree.reapply_chapter_folder_order(
+                            connection, project_id, ordered, parent_folder_id
+                        )
+                    self._log_folder_create(
+                        connection,
+                        project_id=project_id,
+                        folder_id=new_folder_id,
+                        source_kind="chapter",
+                        source_id=new_id,
+                        title=title,
+                    )
                 self.send_json(
                     {
                         "id": new_id,
@@ -1703,6 +1831,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/chapters/(\d+)/move", path)
             if match:
                 self.send_json(self.move_chapter(int(match.group(1)), body))
+                return
+
+            # Folder tree reparent (unlimited depth; may leave legacy part/chapter incomplete)
+            match = re.fullmatch(r"/api/folders/(\d+)/reparent", path)
+            if match:
+                self.send_json(self.reparent_folder(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/undo", path)
+            if match:
+                self.send_json(self.undo_project_folder_action(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/redo", path)
+            if match:
+                self.send_json(self.redo_project_folder_action(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/reparent", path)
@@ -1836,6 +1980,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/parts/(\d+)", path)
             if match:
                 self.send_json(self.save_part(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/folders/(\d+)", path)
+            if match:
+                self.send_json(self.save_folder(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
@@ -4680,6 +4829,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return self._serialize_success_pattern_row(row)
 
     def save_chapter(self, chapter_id: int, body: dict) -> None:
+        """Rename a chapter folder.
+
+        Pilot (3-3-b-1): write **folder first**, then legacy ``chapter`` (still dual-write).
+        """
         title = str(body.get("title", "")).strip()
         if not title:
             raise ValueError("챕터 이름을 입력해 주세요.")
@@ -4687,15 +4840,63 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             raise ValueError("챕터 이름이 너무 깁니다.")
         with database() as connection:
             chapter = connection.execute(
-                "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
+                "SELECT id, project_id, title FROM chapter WHERE id = ? AND deleted_at IS NULL",
                 (chapter_id,),
             ).fetchone()
             if chapter is None:
                 raise ValueError("챕터를 찾을 수 없습니다.")
+            project_id = int(chapter["project_id"])
+            old_title = str(chapter["title"] or "")
+            folder_id = None
+            try:
+                folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "chapter", int(chapter_id)
+                )
+            except sqlite3.OperationalError:
+                folder_id = None
+            # 1) Primary write: parallel folder row (source_kind/chapter map)
+            try:
+                cur = connection.execute(
+                    """
+                    UPDATE folder
+                    SET title = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE project_id = ?
+                      AND source_kind = 'chapter'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (title, project_id, int(chapter_id)),
+                )
+                folder_updated = cur.rowcount > 0
+            except sqlite3.OperationalError:
+                folder_updated = False
+            # 2) Legacy write: chapter table (compat / dual-write)
             connection.execute(
                 "UPDATE chapter SET title = ? WHERE id = ?",
                 (title, chapter_id),
             )
+            # If folder map was missing, rebuild once so outline folder path stays complete
+            if not folder_updated:
+                self._mirror_project_folders(connection, project_id)
+                try:
+                    folder_id = folder_tree.folder_id_for_source(
+                        connection, project_id, "chapter", int(chapter_id)
+                    )
+                except sqlite3.OperationalError:
+                    folder_id = None
+            if folder_id is not None and old_title != title:
+                short = old_title if len(old_title) <= 24 else old_title[:23] + "…"
+                folder_tree.append_folder_action_log(
+                    connection,
+                    project_id,
+                    "folder.rename",
+                    f"「{short or '폴더'}」 이름 변경",
+                    folder_tree.build_patch_action_payload(
+                        folder_id, "title", old_title, title
+                    ),
+                )
 
     def _chapter_group_filter_sql(self, part_id) -> tuple[str, tuple]:
         """SQL fragment + params for top-level chapters in one binder group.
@@ -4771,6 +4972,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         """Create a binder volume/part (1권, 2부, …) that groups folders.
 
         Optional body.chapter_id moves that folder into the new 권/부 immediately.
+        3-3-b-3: folder-first dual-write (insert folder, then part, then bind source_id).
         """
         move_chapter_id = None
         raw_ch = body.get("chapter_id")
@@ -4788,16 +4990,55 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 title = self._next_part_title(connection, project_id, style)
             if len(title) > 200:
                 raise ValueError("권/부 이름이 너무 깁니다.")
-            sort_order = connection.execute(
+            # Keep sort_order aligned across legacy part and root folders
+            part_sort = connection.execute(
                 "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM part "
                 "WHERE project_id = ? AND deleted_at IS NULL",
                 (project_id,),
             ).fetchone()[0]
+            try:
+                folder_sort = folder_tree.next_folder_sibling_sort(
+                    connection, project_id, None
+                )
+            except sqlite3.OperationalError:
+                folder_sort = int(part_sort)
+            sort_order = max(int(part_sort), int(folder_sort))
+
+            # 1) folder first (source bound after legacy id is known)
+            try:
+                new_folder_id = folder_tree._insert_folder(
+                    connection,
+                    project_id=project_id,
+                    parent_id=None,
+                    title=title,
+                    synopsis_md="",
+                    notes_md="",
+                    goal_word_count=0,
+                    is_box=1,
+                    sort_order=sort_order,
+                    source_kind=None,
+                    source_id=None,
+                )
+            except sqlite3.OperationalError:
+                new_folder_id = None
+
+            # 2) legacy part
             cursor = connection.execute(
                 "INSERT INTO part(project_id, title, sort_order) VALUES (?, ?, ?)",
                 (project_id, title, sort_order),
             )
             part_id = int(cursor.lastrowid)
+
+            # 3) bind map (folder.id ≠ part.id)
+            if new_folder_id is not None:
+                folder_tree.bind_folder_source(
+                    connection, new_folder_id, "part", part_id
+                )
+            else:
+                self._mirror_project_folders(connection, project_id)
+                new_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "part", part_id
+                )
 
             moved_chapter_id = None
             if move_chapter_id is not None:
@@ -4824,7 +5065,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "WHERE id = ?",
                     (part_id, next_order, move_chapter_id),
                 )
-                # Compact previous group
                 src_sql, src_params = self._chapter_group_filter_sql(old_part)
                 remaining = [
                     int(row["id"])
@@ -4839,7 +5079,61 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     self._assign_chapter_sort_orders(
                         connection, project_id, remaining, part_id=old_part
                     )
+                # Mirror move into folder tree without full rebuild when possible
+                ch_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "chapter", move_chapter_id
+                )
+                if ch_folder_id is not None and new_folder_id is not None:
+                    connection.execute(
+                        """
+                        UPDATE folder
+                        SET parent_id = ?,
+                            sort_order = ?,
+                            updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                            row_version = row_version + 1
+                        WHERE id = ?
+                        """,
+                        (new_folder_id, int(next_order), ch_folder_id),
+                    )
+                else:
+                    self._mirror_project_folders(connection, project_id)
                 moved_chapter_id = move_chapter_id
+
+            # U3: log folder.create only when no chapter was moved in (policy A)
+            if (
+                moved_chapter_id is None
+                and new_folder_id is not None
+                and folder_tree.action_log_table_ready(connection)
+            ):
+                short = title if len(title) <= 24 else title[:23] + "…"
+                try:
+                    fr = connection.execute(
+                        "SELECT parent_id, sort_order FROM folder WHERE id = ?",
+                        (int(new_folder_id),),
+                    ).fetchone()
+                    parent_id = None
+                    so = int(sort_order or 0)
+                    if fr is not None:
+                        raw_p = fr["parent_id"] if hasattr(fr, "keys") else fr[0]
+                        parent_id = int(raw_p) if raw_p is not None else None
+                        so = int(
+                            (fr["sort_order"] if hasattr(fr, "keys") else fr[1]) or 0
+                        )
+                    folder_tree.append_folder_action_log(
+                        connection,
+                        project_id,
+                        "folder.create",
+                        f"「{short or '폴더'}」 생성",
+                        folder_tree.build_create_action_payload(
+                            folder_id=int(new_folder_id),
+                            source_kind="part",
+                            source_id=int(part_id),
+                            parent_id=parent_id,
+                            sort_order=so,
+                        ),
+                    )
+                except sqlite3.OperationalError:
+                    pass
 
         return {
             "id": part_id,
@@ -4849,6 +5143,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         }
 
     def save_part(self, part_id: int, body: dict) -> dict:
+        """Rename a part (권/부) folder.
+
+        Pilot extension (3-3-b-2): write **folder first**, then legacy ``part`` (still dual-write).
+        """
         title = str(body.get("title", "")).strip()
         if not title:
             raise ValueError("권/부 이름을 입력해 주세요.")
@@ -4861,6 +5159,34 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ).fetchone()
             if part is None:
                 raise ValueError("권/부를 찾을 수 없습니다.")
+            project_id = int(part["project_id"])
+            old_title = str(part["title"] or "")
+            folder_id = None
+            try:
+                folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "part", int(part_id)
+                )
+            except sqlite3.OperationalError:
+                folder_id = None
+            # 1) Primary write: parallel folder row (source_kind/part map)
+            try:
+                cur = connection.execute(
+                    """
+                    UPDATE folder
+                    SET title = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE project_id = ?
+                      AND source_kind = 'part'
+                      AND source_id = ?
+                      AND deleted_at IS NULL
+                    """,
+                    (title, project_id, int(part_id)),
+                )
+                folder_updated = cur.rowcount > 0
+            except sqlite3.OperationalError:
+                folder_updated = False
+            # 2) Legacy write: part table (compat / dual-write)
             connection.execute(
                 "UPDATE part SET title = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
@@ -4868,10 +5194,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "WHERE id = ?",
                 (title, part_id),
             )
+            if not folder_updated:
+                self._mirror_project_folders(connection, project_id)
+                try:
+                    folder_id = folder_tree.folder_id_for_source(
+                        connection, project_id, "part", int(part_id)
+                    )
+                except sqlite3.OperationalError:
+                    folder_id = None
+            if folder_id is not None and old_title != title:
+                short = old_title if len(old_title) <= 24 else old_title[:23] + "…"
+                folder_tree.append_folder_action_log(
+                    connection,
+                    project_id,
+                    "folder.rename",
+                    f"「{short or '폴더'}」 이름 변경",
+                    folder_tree.build_patch_action_payload(
+                        folder_id, "title", old_title, title
+                    ),
+                )
         return {"ok": True, "id": part_id, "title": title}
 
     def trash_part(self, part_id: int) -> dict:
-        """Soft-delete a volume/part and cascade to its folders/scenes."""
+        """Soft-delete a volume/part and cascade to its folders/scenes.
+
+        3-3-b-4: folder-first soft-delete (folder subtree, then legacy part/chapter/scene).
+        """
         with database() as connection:
             part = connection.execute(
                 "SELECT id, project_id, title FROM part "
@@ -4880,6 +5228,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ).fetchone()
             if part is None:
                 raise ValueError("권/부를 찾을 수 없습니다. 이미 버려졌을 수 있어요.")
+            project_id = int(part["project_id"])
             chapter_ids = [
                 int(row[0])
                 for row in connection.execute(
@@ -4896,7 +5245,45 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     (part_id,),
                 ).fetchall()
             ]
+            # U3: snapshot before soft-delete
+            trash_payload = None
+            part_title = str(part["title"] or "")
+            try:
+                root_fid = folder_tree.folder_id_for_source(
+                    connection, project_id, "part", int(part_id)
+                )
+                if root_fid is not None and folder_tree.action_log_table_ready(
+                    connection
+                ):
+                    trash_payload = folder_tree.snapshot_folder_trash(
+                        connection,
+                        project_id,
+                        int(root_fid),
+                        part_ids=[int(part_id)],
+                        chapter_ids=chapter_ids,
+                        scene_ids=scene_ids,
+                    )
+            except (sqlite3.OperationalError, ValueError):
+                trash_payload = None
+
             now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+            # 1) folder first: part folder + descendants (chapter folders under it)
+            try:
+                folder_tree.soft_delete_folder_for_source(
+                    connection, project_id, "part", int(part_id), cascade_children=True
+                )
+                # Safety: soft-delete chapter folders by source_id even if tree parent drifted
+                for cid in chapter_ids:
+                    folder_tree.soft_delete_folder_for_source(
+                        connection,
+                        project_id,
+                        "chapter",
+                        cid,
+                        cascade_children=True,
+                    )
+            except sqlite3.OperationalError:
+                pass
+            # 2) legacy cascade
             connection.execute(
                 f"UPDATE part SET deleted_at = {now_sql}, "
                 f"updated_at = {now_sql}, "
@@ -4904,7 +5291,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "WHERE id = ? AND deleted_at IS NULL",
                 (part_id,),
             )
-            # Safety net if cascade triggers are missing
             if chapter_ids:
                 connection.execute(
                     f"UPDATE chapter SET deleted_at = COALESCE(deleted_at, {now_sql}), "
@@ -4921,11 +5307,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     ),
                     scene_ids,
                 )
+            if trash_payload is not None:
+                short = (
+                    part_title
+                    if len(part_title) <= 24
+                    else part_title[:23] + "…"
+                )
+                folder_tree.append_folder_action_log(
+                    connection,
+                    project_id,
+                    "folder.trash",
+                    f"「{short or '폴더'}」 버리기",
+                    trash_payload,
+                )
         return {
             "ok": True,
             "id": part_id,
             "title": part["title"],
-            "project_id": int(part["project_id"]),
+            "project_id": project_id,
             "chapter_count": len(chapter_ids),
             "scene_count": len(scene_ids),
             "chapter_ids": chapter_ids,
@@ -4933,6 +5332,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         }
 
     def reorder_parts(self, project_id: int, body: dict) -> None:
+        """3-3-b-5: folder-first part reorder, then legacy part.sort_order."""
         raw_ids = body.get("part_ids", [])
         if not isinstance(raw_ids, list) or not raw_ids:
             raise ValueError("바꿀 권/부 목록이 비어 있습니다.")
@@ -4955,10 +5355,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError(
                     "현재 작품의 권/부 목록과 일치하지 않습니다. 새로고침 후 다시 시도해 주세요."
                 )
+            # 1) folder first
+            try:
+                folder_tree.reapply_part_folder_order(connection, project_id, part_ids)
+            except sqlite3.OperationalError:
+                pass
+            # 2) legacy
             self._assign_part_sort_orders(connection, project_id, part_ids)
 
     def move_chapter(self, chapter_id: int, body: dict) -> dict:
-        """Move a folder into a 권/부 or back to ungrouped."""
+        """Move a folder into a 권/부 or back to ungrouped.
+
+        3-3-b-5: folder-first parent/sort update, then legacy chapter.part_id.
+        """
         raw_part = body.get("part_id", None)
         if raw_part is None or raw_part == "" or raw_part is False:
             target_part_id = None
@@ -5004,6 +5413,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 f"WHERE project_id = ? AND deleted_at IS NULL AND {group_sql}",
                 (project_id, *group_params),
             ).fetchone()[0]
+
+            # 1) folder first
+            folder_ok = False
+            try:
+                folder_ok = folder_tree.move_chapter_folder_to_part(
+                    connection,
+                    project_id,
+                    int(chapter_id),
+                    target_part_id,
+                    int(next_order),
+                )
+            except sqlite3.OperationalError:
+                folder_ok = False
+
+            # 2) legacy
             connection.execute(
                 "UPDATE chapter SET part_id = ?, sort_order = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
@@ -5011,7 +5435,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "WHERE id = ?",
                 (target_part_id, next_order, chapter_id),
             )
-            # Compact sort orders in the source group
+            # Compact sort orders in the source group (legacy + folder)
             src_sql, src_params = self._chapter_group_filter_sql(old_part_id)
             remaining = [
                 int(row["id"])
@@ -5026,6 +5450,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self._assign_chapter_sort_orders(
                     connection, project_id, remaining, part_id=old_part_id
                 )
+                try:
+                    folder_tree.recompact_chapter_folders_under_part(
+                        connection, project_id, old_part_id
+                    )
+                except sqlite3.OperationalError:
+                    pass
+            # Destination group compact for folder siblings
+            try:
+                folder_tree.recompact_chapter_folders_under_part(
+                    connection, project_id, target_part_id
+                )
+            except sqlite3.OperationalError:
+                pass
+            if not folder_ok:
+                self._mirror_project_folders(connection, project_id)
         return {
             "ok": True,
             "id": chapter_id,
@@ -5129,6 +5568,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError(
                     "현재 그룹의 챕터 목록과 일치하지 않습니다. 새로고침 후 다시 시도해 주세요."
                 )
+            parent_folder_id = None
+            if part_id is not None:
+                parent_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "part", int(part_id)
+                )
+            # 1) folder first
+            try:
+                folder_tree.reapply_chapter_folder_order(
+                    connection, project_id, chapter_ids, parent_folder_id
+                )
+            except sqlite3.OperationalError:
+                pass
+            # 2) legacy
             self._assign_chapter_sort_orders(
                 connection, project_id, chapter_ids, part_id=part_id
             )
@@ -5137,6 +5589,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         """Rewrite chapter titles to sequential numbers (1장, 2장, …), keeping residual titles.
 
         When parts (권/부) exist, numbering restarts inside each part, then ungrouped.
+        Logs one folder.renumber_titles undo entry when any title actually changes.
         """
         style = str(body.get("style", "jang") or "jang").strip().lower()
         if style not in {"jang", "je_jang", "dot"}:
@@ -5173,6 +5626,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             groups.append((None,))  # ungrouped last
 
             updated = []
+            changed_items: list[dict] = []
             for (group_part_id,) in groups:
                 group_sql, group_params = self._chapter_group_filter_sql(group_part_id)
                 rows = connection.execute(
@@ -5191,6 +5645,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             "UPDATE chapter SET title = ? WHERE id = ? AND project_id = ?",
                             (new_title, chapter_id, project_id),
                         )
+                        folder_id = None
+                        try:
+                            folder_id = folder_tree.folder_id_for_source(
+                                connection, project_id, "chapter", chapter_id
+                            )
+                        except sqlite3.OperationalError:
+                            folder_id = None
+                        changed_items.append(
+                            {
+                                "chapter_id": chapter_id,
+                                "folder_id": folder_id,
+                                "old": old_title,
+                                "new": new_title,
+                            }
+                        )
                     updated.append(
                         {
                             "id": chapter_id,
@@ -5199,7 +5668,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                             "part_id": group_part_id,
                         }
                     )
-        return {"ok": True, "style": style, "chapters": updated, "count": len(updated)}
+            self._mirror_project_folders(connection, project_id)
+            if changed_items and folder_tree.action_log_table_ready(connection):
+                folder_tree.append_folder_action_log(
+                    connection,
+                    project_id,
+                    "folder.renumber_titles",
+                    "순번 정리",
+                    folder_tree.build_renumber_titles_action_payload(
+                        style=style,
+                        items=changed_items,
+                    ),
+                )
+        return {
+            "ok": True,
+            "style": style,
+            "chapters": updated,
+            "count": len(updated),
+            "changed": len(changed_items),
+        }
 
     def project_manuscript_stats(self, project_id: int) -> dict:
         """Aggregate plain-text stats across all active scenes in a project."""
@@ -5426,37 +5913,1687 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         walk(scene_roots)
 
+    def _mirror_project_folders(
+        self, connection: sqlite3.Connection, project_id: int | None
+    ) -> None:
+        """Dual-write: rebuild folder tree + scene.folder_id from part/chapter for a project."""
+        if project_id is None:
+            return
+        try:
+            folder_tree.sync_project_folder_tree(connection, int(project_id))
+        except sqlite3.OperationalError:
+            # Schema not migrated yet (pre-028) — ignore
+            pass
+
     def project_outline(self, project_id: int) -> dict:
+        """Binder outline.
+
+        Prefer folder table when fully synced. Force folder path when the tree
+        is deeper than part→chapter (depth > 2) or no longer legacy-shaped
+        after reparent — never fall back to legacy in those cases.
+        """
         with database() as connection:
             self.require_project(connection, project_id)
-            parts = connection.execute(
-                "SELECT id, title, sort_order FROM part "
-                "WHERE project_id = ? AND deleted_at IS NULL "
-                "ORDER BY sort_order, id",
+            if not folder_tree.folder_table_ready(connection):
+                return self._project_outline_from_legacy(connection, project_id)
+            max_depth = folder_tree.max_folder_depth(connection, project_id)
+            legacy_ok = folder_tree.project_folder_tree_is_legacy_compatible(
+                connection, project_id
+            )
+            mapping_ok = folder_tree.project_folder_mapping_complete(
+                connection, project_id
+            )
+            # depth > 2 or non-legacy shape → folder only (legacy would misrepresent)
+            force_folder = max_depth > 2 or not legacy_ok
+            if force_folder or mapping_ok:
+                return self._project_outline_from_folder(connection, project_id)
+            return self._project_outline_from_legacy(connection, project_id)
+
+    def reparent_folder(self, folder_id: int, body: dict) -> dict:
+        """POST /api/folders/{id}/reparent — move folder among unlimited-depth tree.
+
+        Body: {
+          new_parent_id: number | null,  # null = root; omit to derive from target
+          position: "before" | "after" | "inside" | "index",
+          target_id: number,            # required for before/after; for inside = parent
+          index: number                 # required when position is "index" (undo)
+        }
+        """
+        if not isinstance(body, dict):
+            raise ValueError("요청 본문이 올바르지 않습니다.")
+        position = str(body.get("position") or "inside").strip().lower()
+
+        new_parent_id_provided = "new_parent_id" in body
+        raw_parent = body.get("new_parent_id", None)
+        if raw_parent is None or raw_parent == "" or raw_parent is False:
+            new_parent_id = None
+        else:
+            try:
+                new_parent_id = int(raw_parent)
+            except (TypeError, ValueError) as error:
+                raise ValueError("new_parent_id가 올바르지 않습니다.") from error
+
+        raw_target = body.get("target_id", None)
+        target_id = None
+        if raw_target is not None and raw_target != "":
+            try:
+                target_id = int(raw_target)
+            except (TypeError, ValueError) as error:
+                raise ValueError("target_id가 올바르지 않습니다.") from error
+
+        index_val = None
+        if "index" in body and body.get("index") is not None and body.get("index") != "":
+            try:
+                index_val = int(body.get("index"))
+            except (TypeError, ValueError) as error:
+                raise ValueError("index가 올바르지 않습니다.") from error
+
+        with database() as connection:
+            try:
+                result = folder_tree.reparent_folder(
+                    connection,
+                    int(folder_id),
+                    new_parent_id=new_parent_id,
+                    position=position,
+                    target_id=target_id,
+                    new_parent_id_provided=new_parent_id_provided,
+                    index=index_val,
+                )
+            except sqlite3.OperationalError as error:
+                raise ValueError(f"폴더를 옮길 수 없습니다: {error}") from error
+
+            # U2: log successful moves for undo (skip pure no-ops)
+            if result.get("moved") and folder_tree.action_log_table_ready(connection):
+                title_row = connection.execute(
+                    "SELECT title FROM folder WHERE id = ?",
+                    (int(folder_id),),
+                ).fetchone()
+                title = ""
+                if title_row is not None:
+                    title = str(
+                        title_row["title"]
+                        if hasattr(title_row, "keys")
+                        else title_row[0]
+                        or ""
+                    )
+                short = title if len(title) <= 24 else title[:23] + "…"
+                old_parent = result.get("old_parent_id")
+                new_parent = result.get("parent_id")
+                same_parent = old_parent == new_parent
+                action_label = (
+                    f"「{short or '폴더'}」 위치 변경"
+                    if same_parent
+                    else f"「{short or '폴더'}」 이동"
+                )
+                project_id = int(result.get("project_id") or 0)
+                if project_id:
+                    folder_tree.append_folder_action_log(
+                        connection,
+                        project_id,
+                        "folder.reparent",
+                        action_label,
+                        folder_tree.build_reparent_action_payload(
+                            folder_id=int(folder_id),
+                            old_parent_id=result.get("old_parent_id"),
+                            old_sort_order=int(result.get("old_sort_order") or 0),
+                            old_index=int(result.get("old_index") or 0),
+                            old_sibling_ids=list(result.get("old_sibling_ids") or []),
+                            new_parent_id=result.get("parent_id"),
+                            new_sort_order=int(result.get("sort_order") or 0),
+                            new_position=str(result.get("position") or position),
+                        ),
+                    )
+            # drop internal-only snapshot fields from HTTP response
+            for key in (
+                "old_parent_id",
+                "old_sort_order",
+                "old_index",
+                "old_sibling_ids",
+            ):
+                result.pop(key, None)
+            return result
+
+    def save_folder(self, folder_id: int, body: dict) -> dict:
+        """PUT /api/folders/{id} — partial update of color, is_pinned, is_box, is_bookmarked.
+
+        Body may include:
+          color: preset key | null | "" (clear)
+          is_pinned: bool | 0 | 1
+          is_box: bool | 0 | 1  (visual shell only; independent of parent/child)
+          is_bookmarked: bool | 0 | 1  (binder display only; no sort effect)
+        Does not change sort_order (pin only affects display ORDER BY).
+        """
+        if not isinstance(body, dict):
+            raise ValueError("요청 본문이 올바르지 않습니다.")
+        if not body:
+            raise ValueError("수정할 항목이 없습니다.")
+
+        updates: list[str] = []
+        params: list[object] = []
+
+        if "color" in body:
+            raw_color = body.get("color")
+            if raw_color is None or raw_color == "" or raw_color is False:
+                color_val = None
+            else:
+                color_val = str(raw_color).strip().lower()
+                if color_val not in FOLDER_COLORS:
+                    raise ValueError(
+                        "폴더 색이 올바르지 않습니다. "
+                        f"({', '.join(sorted(FOLDER_COLORS))} 또는 없음)"
+                    )
+            updates.append("color = ?")
+            params.append(color_val)
+
+        if "is_pinned" in body:
+            raw_pin = body.get("is_pinned")
+            if isinstance(raw_pin, str):
+                pin_val = 1 if raw_pin.strip().lower() in ("1", "true", "yes", "on") else 0
+            else:
+                pin_val = 1 if raw_pin else 0
+            updates.append("is_pinned = ?")
+            params.append(pin_val)
+
+        if "is_box" in body:
+            raw_box = body.get("is_box")
+            if isinstance(raw_box, str):
+                box_val = 1 if raw_box.strip().lower() in ("1", "true", "yes", "on") else 0
+            else:
+                box_val = 1 if raw_box else 0
+            updates.append("is_box = ?")
+            params.append(box_val)
+
+        if "is_bookmarked" in body:
+            raw_bm = body.get("is_bookmarked")
+            if isinstance(raw_bm, str):
+                bm_val = 1 if raw_bm.strip().lower() in ("1", "true", "yes", "on") else 0
+            else:
+                bm_val = 1 if raw_bm else 0
+            updates.append("is_bookmarked = ?")
+            params.append(bm_val)
+
+        if not updates:
+            raise ValueError(
+                "수정할 항목이 없습니다. "
+                "(color, is_pinned, is_box 또는 is_bookmarked)"
+            )
+
+        updates.append("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
+        updates.append("row_version = row_version + 1")
+        params.append(int(folder_id))
+
+        # Track field changes for undo (U1)
+        log_entries: list[tuple[str, str, dict]] = []
+
+        with database() as connection:
+            try:
+                row = connection.execute(
+                    """
+                    SELECT id, project_id, color, is_pinned, is_box, is_bookmarked, title
+                    FROM folder
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (int(folder_id),),
+                ).fetchone()
+            except sqlite3.OperationalError as error:
+                # Pre-029/031 columns, or missing folder table
+                try:
+                    row = connection.execute(
+                        """
+                        SELECT id, project_id, color, is_pinned, is_box, title
+                        FROM folder
+                        WHERE id = ? AND deleted_at IS NULL
+                        """,
+                        (int(folder_id),),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    try:
+                        row = connection.execute(
+                            """
+                            SELECT id, project_id, is_box, title
+                            FROM folder
+                            WHERE id = ? AND deleted_at IS NULL
+                            """,
+                            (int(folder_id),),
+                        ).fetchone()
+                    except sqlite3.OperationalError as err2:
+                        raise ValueError(
+                            "폴더 기능을 쓸 수 없습니다. "
+                            "앱을 재시작해 마이그레이션을 적용해 주세요."
+                        ) from err2
+                if "is_bookmarked" in body:
+                    raise ValueError(
+                        "폴더 북마크 기능이 아직 준비되지 않았습니다. "
+                        "앱을 재시작해 마이그레이션을 적용해 주세요."
+                    ) from error
+                if "color" in body or "is_pinned" in body:
+                    raise ValueError(
+                        "폴더 색/고정 기능이 아직 준비되지 않았습니다. "
+                        "앱을 재시작해 마이그레이션을 적용해 주세요."
+                    ) from error
+            if row is None:
+                raise ValueError("폴더를 찾을 수 없습니다.")
+
+            project_id = int(row["project_id"])
+            title_for_label = str(row["title"] or "폴더")
+            short = (
+                title_for_label
+                if len(title_for_label) <= 24
+                else title_for_label[:23] + "…"
+            )
+
+            def _norm_color(v):
+                if v is None or v == "":
+                    return None
+                return str(v).strip().lower() or None
+
+            if "color" in body:
+                try:
+                    old_color = _norm_color(row["color"])
+                except (KeyError, IndexError, TypeError):
+                    old_color = None
+                raw_color = body.get("color")
+                if raw_color is None or raw_color == "" or raw_color is False:
+                    new_color = None
+                else:
+                    new_color = str(raw_color).strip().lower()
+                if old_color != new_color:
+                    log_entries.append(
+                        (
+                            "folder.color",
+                            f"「{short}」 색 변경",
+                            folder_tree.build_patch_action_payload(
+                                int(folder_id), "color", old_color, new_color
+                            ),
+                        )
+                    )
+
+            if "is_pinned" in body:
+                try:
+                    old_pin = 1 if int(row["is_pinned"] or 0) else 0
+                except (KeyError, IndexError, TypeError):
+                    old_pin = 0
+                raw_pin = body.get("is_pinned")
+                if isinstance(raw_pin, str):
+                    new_pin = 1 if raw_pin.strip().lower() in ("1", "true", "yes", "on") else 0
+                else:
+                    new_pin = 1 if raw_pin else 0
+                if old_pin != new_pin:
+                    log_entries.append(
+                        (
+                            "folder.pin",
+                            f"「{short}」 " + ("상단 고정" if new_pin else "고정 해제"),
+                            folder_tree.build_patch_action_payload(
+                                int(folder_id), "is_pinned", old_pin, new_pin
+                            ),
+                        )
+                    )
+
+            if "is_box" in body:
+                try:
+                    old_box = 1 if int(row["is_box"] or 0) else 0
+                except (KeyError, IndexError, TypeError):
+                    old_box = 0
+                raw_box = body.get("is_box")
+                if isinstance(raw_box, str):
+                    new_box = 1 if raw_box.strip().lower() in ("1", "true", "yes", "on") else 0
+                else:
+                    new_box = 1 if raw_box else 0
+                if old_box != new_box:
+                    log_entries.append(
+                        (
+                            "folder.box",
+                            f"「{short}」 " + ("박스로 묶기" if new_box else "박스 해제"),
+                            folder_tree.build_patch_action_payload(
+                                int(folder_id), "is_box", old_box, new_box
+                            ),
+                        )
+                    )
+
+            if "is_bookmarked" in body:
+                try:
+                    old_bm = 1 if int(row["is_bookmarked"] or 0) else 0
+                except (KeyError, IndexError, TypeError):
+                    old_bm = 0
+                raw_bm = body.get("is_bookmarked")
+                if isinstance(raw_bm, str):
+                    new_bm = 1 if raw_bm.strip().lower() in ("1", "true", "yes", "on") else 0
+                else:
+                    new_bm = 1 if raw_bm else 0
+                if old_bm != new_bm:
+                    log_entries.append(
+                        (
+                            "folder.bookmark",
+                            f"「{short}」 " + ("북마크" if new_bm else "북마크 해제"),
+                            folder_tree.build_patch_action_payload(
+                                int(folder_id), "is_bookmarked", old_bm, new_bm
+                            ),
+                        )
+                    )
+
+            try:
+                connection.execute(
+                    f"UPDATE folder SET {', '.join(updates)} "
+                    "WHERE id = ? AND deleted_at IS NULL",
+                    params,
+                )
+            except sqlite3.OperationalError as error:
+                raise ValueError(f"폴더를 저장할 수 없습니다: {error}") from error
+
+            for type_, label, payload in log_entries:
+                folder_tree.append_folder_action_log(
+                    connection, project_id, type_, label, payload
+                )
+
+            try:
+                out = connection.execute(
+                    """
+                    SELECT id, project_id, parent_id, title, is_box, sort_order,
+                           color, is_pinned, is_bookmarked, source_kind, source_id
+                    FROM folder WHERE id = ?
+                    """,
+                    (int(folder_id),),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                try:
+                    out = connection.execute(
+                        """
+                        SELECT id, project_id, parent_id, title, is_box, sort_order,
+                               color, is_pinned, source_kind, source_id
+                        FROM folder WHERE id = ?
+                        """,
+                        (int(folder_id),),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    out = connection.execute(
+                        """
+                        SELECT id, project_id, parent_id, title, is_box, sort_order,
+                               source_kind, source_id
+                        FROM folder WHERE id = ?
+                        """,
+                        (int(folder_id),),
+                    ).fetchone()
+
+        data = as_dict(out) or {}
+        if "color" not in data:
+            data["color"] = None
+        if "is_pinned" not in data:
+            data["is_pinned"] = 0
+        else:
+            data["is_pinned"] = int(data.get("is_pinned") or 0)
+        if "is_bookmarked" not in data:
+            data["is_bookmarked"] = 0
+        else:
+            data["is_bookmarked"] = int(data.get("is_bookmarked") or 0)
+        data["is_box"] = 1 if int(data.get("is_box") or 0) else 0
+        if data.get("color") == "":
+            data["color"] = None
+        data["ok"] = True
+        return data
+
+    def project_undo_status(self, project_id: int) -> dict:
+        """GET /api/projects/{id}/undo-status — undo/redo availability for binder history."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            empty = {
+                "can_undo": False,
+                "can_redo": False,
+                "label_ko": None,
+                "redo_label_ko": None,
+                "type": None,
+                "redo_type": None,
+            }
+            if not folder_tree.action_log_table_ready(connection):
+                return empty
+            top = folder_tree.fetch_undo_stack_top(connection, project_id)
+            redo_top = folder_tree.fetch_redo_stack_top(connection, project_id)
+            out = dict(empty)
+            if top is not None:
+                out["can_undo"] = True
+                out["label_ko"] = str(
+                    top["label_ko"] if hasattr(top, "keys") else top[4] or ""
+                ) or None
+                out["type"] = str(
+                    top["type"] if hasattr(top, "keys") else top[3] or ""
+                ) or None
+            if redo_top is not None:
+                out["can_redo"] = True
+                out["redo_label_ko"] = str(
+                    redo_top["label_ko"] if hasattr(redo_top, "keys") else redo_top[4] or ""
+                ) or None
+                out["redo_type"] = str(
+                    redo_top["type"] if hasattr(redo_top, "keys") else redo_top[3] or ""
+                ) or None
+            return out
+
+    def undo_project_folder_action(self, project_id: int, body: dict | None = None) -> dict:
+        """POST /api/projects/{id}/undo — pop one U1/U2/U3 folder action and reverse it.
+
+        U1 collision: current != forward.new and != forward.old → skip entry.
+        U2 reparent: parent+index must still match forward (new) state.
+        Skip marks are committed before raising so they are not rolled back.
+        """
+        _ = body  # reserved for future options
+        # Raise only after DB transaction commits so "skip" marks are not rolled back.
+        pending_error: str | None = None
+        result: dict | None = None
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            if not folder_tree.action_log_table_ready(connection):
+                raise ValueError(
+                    "되돌리기 기능이 아직 준비되지 않았습니다. "
+                    "앱을 재시작해 주세요."
+                )
+            top = folder_tree.fetch_undo_stack_top(connection, project_id)
+            if top is None:
+                raise ValueError("되돌릴 작업이 없어요.")
+
+            log_id = int(top["id"] if hasattr(top, "keys") else top[0])
+            type_ = str(top["type"] if hasattr(top, "keys") else top[3])
+            label_ko = str(top["label_ko"] if hasattr(top, "keys") else top[4] or "")
+            raw_payload = top["payload_json"] if hasattr(top, "keys") else top[5]
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                folder_tree.mark_action_log_undone(connection, log_id)
+                pending_error = "되돌리기 기록이 손상되어 건너뛰었어요."
+                payload = None
+
+            if payload is not None and type_ not in folder_tree.UNDOABLE_ACTION_TYPES:
+                folder_tree.mark_action_log_undone(connection, log_id)
+                pending_error = "이 작업은 아직 되돌릴 수 없어요."
+                payload = None
+
+            if payload is not None and type_ == "folder.create":
+                result, pending_error = self._undo_folder_create_action(
+                    connection,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None and type_ == "folder.trash":
+                result, pending_error = self._undo_folder_trash_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None and type_ == "folder.renumber_titles":
+                result, pending_error = self._undo_folder_renumber_titles_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None and type_ in folder_tree.U2_ACTION_TYPES:
+                result, pending_error = self._undo_folder_reparent_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None:
+                result, pending_error = self._undo_folder_patch_action(
+                    connection,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+
+        if pending_error:
+            raise ValueError(pending_error)
+        if result is None:
+            raise ValueError("되돌리기에 실패했어요.")
+        return result
+
+    def redo_project_folder_action(self, project_id: int, body: dict | None = None) -> dict:
+        """POST /api/projects/{id}/redo — re-apply the most recently undone action."""
+        _ = body
+        pending_error: str | None = None
+        result: dict | None = None
+
+        with database() as connection:
+            self.require_project(connection, project_id)
+            if not folder_tree.action_log_table_ready(connection):
+                raise ValueError(
+                    "되돌리기 기능이 아직 준비되지 않았습니다. "
+                    "앱을 재시작해 주세요."
+                )
+            top = folder_tree.fetch_redo_stack_top(connection, project_id)
+            if top is None:
+                raise ValueError("다시 실행할 작업이 없어요.")
+
+            log_id = int(top["id"] if hasattr(top, "keys") else top[0])
+            type_ = str(top["type"] if hasattr(top, "keys") else top[3])
+            label_ko = str(top["label_ko"] if hasattr(top, "keys") else top[4] or "")
+            raw_payload = top["payload_json"] if hasattr(top, "keys") else top[5]
+            try:
+                payload = json.loads(raw_payload)
+            except (TypeError, ValueError):
+                folder_tree.delete_action_log(connection, log_id)
+                pending_error = "다시 실행 기록이 손상되어 건너뛰었어요."
+                payload = None
+
+            if payload is not None and type_ not in folder_tree.UNDOABLE_ACTION_TYPES:
+                folder_tree.delete_action_log(connection, log_id)
+                pending_error = "이 작업은 다시 실행할 수 없어요."
+                payload = None
+
+            if payload is not None and type_ == "folder.create":
+                result, pending_error = self._redo_folder_create_action(
+                    connection, log_id=log_id, type_=type_, label_ko=label_ko, payload=payload
+                )
+            elif payload is not None and type_ == "folder.trash":
+                result, pending_error = self._redo_folder_trash_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None and type_ == "folder.renumber_titles":
+                result, pending_error = self._redo_folder_renumber_titles_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None and type_ in folder_tree.U2_ACTION_TYPES:
+                result, pending_error = self._redo_folder_reparent_action(
+                    connection,
+                    project_id=project_id,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+            elif payload is not None:
+                result, pending_error = self._redo_folder_patch_action(
+                    connection,
+                    log_id=log_id,
+                    type_=type_,
+                    label_ko=label_ko,
+                    payload=payload,
+                )
+
+        if pending_error:
+            raise ValueError(pending_error)
+        if result is None:
+            raise ValueError("다시 실행에 실패했어요.")
+        return result
+
+    def _apply_chapter_title_bulk(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        items: list[dict],
+        *,
+        title_key: str,
+    ) -> None:
+        """Set chapter (+ mapped folder) titles from items[title_key]."""
+        now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+        for raw in items:
+            chapter_id = int(raw["chapter_id"])
+            title = str(raw.get(title_key) or "")
+            connection.execute(
+                """
+                UPDATE chapter SET title = ?
+                WHERE id = ? AND project_id = ? AND deleted_at IS NULL
+                """,
+                (title, chapter_id, project_id),
+            )
+            folder_id = raw.get("folder_id")
+            if folder_id is None:
+                try:
+                    folder_id = folder_tree.folder_id_for_source(
+                        connection, project_id, "chapter", chapter_id
+                    )
+                except sqlite3.OperationalError:
+                    folder_id = None
+            if folder_id is not None:
+                connection.execute(
+                    f"""
+                    UPDATE folder
+                    SET title = ?,
+                        updated_at = {now_sql},
+                        row_version = row_version + 1
+                    WHERE id = ? AND project_id = ? AND deleted_at IS NULL
+                    """,
+                    (title, int(folder_id), project_id),
+                )
+
+    def _undo_folder_renumber_titles_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Strict bulk restore of chapter titles after renumber."""
+        forward = payload.get("forward") or {}
+        reverse = payload.get("reverse") or {}
+        fwd_items = list(forward.get("items") or [])
+        rev_items = list(reverse.get("items") or [])
+        if not fwd_items or not rev_items:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "되돌리기 기록이 올바르지 않아 건너뛰었어요."
+
+        # Strict: every chapter must still show forward.new (or already old)
+        all_old = True
+        for it in fwd_items:
+            cid = int(it["chapter_id"])
+            old = str(it.get("old") or "")
+            new = str(it.get("new") or "")
+            row = connection.execute(
+                "SELECT title, deleted_at FROM chapter WHERE id = ? AND project_id = ?",
+                (cid, project_id),
+            ).fetchone()
+            if row is None or (
+                (row["deleted_at"] if hasattr(row, "keys") else row[1]) is not None
+            ):
+                folder_tree.mark_action_log_undone(connection, log_id)
+                return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+            current = str(
+                (row["title"] if hasattr(row, "keys") else row[0]) or ""
+            )
+            if current == old:
+                continue
+            all_old = False
+            if current != new:
+                folder_tree.mark_action_log_undone(connection, log_id)
+                return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        if all_old:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": 0,
+                "noop": True,
+            }, None
+
+        try:
+            self._apply_chapter_title_bulk(
+                connection, project_id, rev_items, title_key="title"
+            )
+        except sqlite3.Error as error:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, f"되돌리기에 실패했어요: {error}"
+
+        folder_tree.mark_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": 0,
+            "noop": False,
+            "count": len(rev_items),
+        }, None
+
+    def _redo_folder_renumber_titles_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Strict bulk re-apply renumbered titles."""
+        forward = payload.get("forward") or {}
+        fwd_items = list(forward.get("items") or [])
+        if not fwd_items:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "다시 실행 기록이 올바르지 않아 건너뛰었어요."
+
+        all_new = True
+        for it in fwd_items:
+            cid = int(it["chapter_id"])
+            old = str(it.get("old") or "")
+            new = str(it.get("new") or "")
+            row = connection.execute(
+                "SELECT title, deleted_at FROM chapter WHERE id = ? AND project_id = ?",
+                (cid, project_id),
+            ).fetchone()
+            if row is None or (
+                (row["deleted_at"] if hasattr(row, "keys") else row[1]) is not None
+            ):
+                folder_tree.delete_action_log(connection, log_id)
+                return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+            current = str(
+                (row["title"] if hasattr(row, "keys") else row[0]) or ""
+            )
+            if current == new:
+                continue
+            all_new = False
+            if current != old:
+                folder_tree.delete_action_log(connection, log_id)
+                return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        if all_new:
+            folder_tree.clear_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": 0,
+                "noop": True,
+            }, None
+
+        try:
+            self._apply_chapter_title_bulk(
+                connection, project_id, fwd_items, title_key="new"
+            )
+        except sqlite3.Error as error:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, f"다시 실행에 실패했어요: {error}"
+
+        folder_tree.clear_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": 0,
+            "noop": False,
+            "count": len(fwd_items),
+        }, None
+
+    def _redo_folder_patch_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Re-apply U1 patch forward.new."""
+        folder_id = int(payload.get("folder_id") or 0)
+        forward = payload.get("forward") or {}
+        field = str(forward.get("field") or "")
+        old_val = forward.get("old")
+        new_val = forward.get("new")
+        if not folder_id or not field:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "다시 실행 기록이 올바르지 않아 건너뛰었어요."
+
+        try:
+            row = connection.execute(
+                """
+                SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked, deleted_at
+                FROM folder WHERE id = ?
+                """,
+                (folder_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            try:
+                row = connection.execute(
+                    """
+                    SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                    FROM folder WHERE id = ?
+                    """,
+                    (folder_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = connection.execute(
+                    "SELECT id, project_id, title, is_box, deleted_at FROM folder WHERE id = ?",
+                    (folder_id,),
+                ).fetchone()
+
+        if row is None or (
+            hasattr(row, "keys") and row["deleted_at"] is not None
+        ):
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        def _get(r, key, default=None):
+            try:
+                if hasattr(r, "keys"):
+                    return r[key] if key in r.keys() else default
+                return default
+            except Exception:
+                return default
+
+        def _norm_field(name, val):
+            if name == "color":
+                if val is None or val == "":
+                    return None
+                return str(val).strip().lower() or None
+            if name in ("is_box", "is_pinned", "is_bookmarked"):
+                return 1 if val else 0
+            if name == "title":
+                return str(val or "")
+            return val
+
+        if field == "title":
+            current = _norm_field("title", _get(row, "title", ""))
+        elif field == "color":
+            current = _norm_field("color", _get(row, "color", None))
+        elif field == "is_box":
+            current = _norm_field("is_box", _get(row, "is_box", 0))
+        elif field == "is_pinned":
+            current = _norm_field("is_pinned", _get(row, "is_pinned", 0))
+        elif field == "is_bookmarked":
+            current = _norm_field("is_bookmarked", _get(row, "is_bookmarked", 0))
+        else:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "이 작업은 다시 실행할 수 없어요."
+
+        old_n = _norm_field(field, old_val)
+        new_n = _norm_field(field, new_val)
+
+        if current == new_n:
+            folder_tree.clear_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "noop": True,
+            }, None
+        if current != old_n:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        col_map = {
+            "title": "title",
+            "color": "color",
+            "is_box": "is_box",
+            "is_pinned": "is_pinned",
+            "is_bookmarked": "is_bookmarked",
+        }
+        col = col_map[field]
+        try:
+            connection.execute(
+                f"""
+                UPDATE folder
+                SET {col} = ?,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    row_version = row_version + 1
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (new_n, folder_id),
+            )
+        except sqlite3.OperationalError as error:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, f"다시 실행에 실패했어요: {error}"
+
+        if field == "title":
+            src = connection.execute(
+                "SELECT source_kind, source_id FROM folder WHERE id = ?",
+                (folder_id,),
+            ).fetchone()
+            if src is not None:
+                sk = src["source_kind"] if hasattr(src, "keys") else src[0]
+                sid = src["source_id"] if hasattr(src, "keys") else src[1]
+                if sk == "chapter" and sid is not None:
+                    connection.execute(
+                        "UPDATE chapter SET title = ? WHERE id = ? AND deleted_at IS NULL",
+                        (new_n, int(sid)),
+                    )
+                elif sk == "part" and sid is not None:
+                    connection.execute(
+                        "UPDATE part SET title = ?, "
+                        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                        "row_version = row_version + 1 "
+                        "WHERE id = ? AND deleted_at IS NULL",
+                        (new_n, int(sid)),
+                    )
+
+        folder_tree.clear_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": folder_id,
+            "noop": False,
+        }, None
+
+    def _redo_folder_reparent_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        folder_id = int(payload.get("folder_id") or 0)
+        forward = payload.get("forward") or {}
+        if not folder_id:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "다시 실행 기록이 올바르지 않아 건너뛰었어요."
+
+        old_parent_id = folder_tree._norm_parent_id(forward.get("old_parent_id"))
+        new_parent_id = folder_tree._norm_parent_id(forward.get("new_parent_id"))
+        try:
+            old_index = int(forward.get("old_index", forward.get("old_sort_order", 0)))
+        except (TypeError, ValueError):
+            old_index = 0
+        try:
+            new_sort_order = int(forward.get("new_sort_order", 0))
+        except (TypeError, ValueError):
+            new_sort_order = 0
+
+        row = folder_tree._load_active_folder(connection, folder_id)
+        if row is None:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+        if int(row["project_id"]) != int(project_id):
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        raw_cur = row["parent_id"]
+        cur_parent = int(raw_cur) if raw_cur is not None else None
+        cur_index = folder_tree.folder_sibling_index(
+            connection, project_id, folder_id, cur_parent
+        )
+        if cur_index is None:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        # Already at forward target
+        if cur_parent == new_parent_id and cur_index == new_sort_order:
+            folder_tree.clear_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "noop": True,
+            }, None
+
+        # Expect undo state (old parent+index)
+        if not (cur_parent == old_parent_id and cur_index == old_index):
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        try:
+            restore = folder_tree.reparent_folder(
+                connection,
+                folder_id,
+                new_parent_id=new_parent_id,
+                position="index",
+                new_parent_id_provided=True,
+                index=new_sort_order,
+            )
+        except ValueError as error:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, f"그 사이 폴더가 바뀌어 다시 실행할 수 없어요. ({error})"
+        except sqlite3.Error as error:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, f"다시 실행에 실패했어요: {error}"
+
+        folder_tree.clear_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": folder_id,
+            "noop": False,
+            "parent_id": restore.get("parent_id"),
+            "sort_order": restore.get("sort_order"),
+        }, None
+
+    def _redo_folder_create_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Redo create = restore soft-deleted empty folder (undo had trashed it)."""
+        folder_id = int(payload.get("folder_id") or 0)
+        if not folder_id:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "다시 실행 기록이 올바르지 않아 건너뛰었어요."
+
+        row = connection.execute(
+            """
+            SELECT id, project_id, parent_id, sort_order, source_kind, source_id, deleted_at
+            FROM folder WHERE id = ?
+            """,
+            (folder_id,),
+        ).fetchone()
+        if row is None:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        deleted = row["deleted_at"] if hasattr(row, "keys") else row[6]
+        project_id = int(row["project_id"] if hasattr(row, "keys") else row[1])
+        parent_raw = row["parent_id"] if hasattr(row, "keys") else row[2]
+        parent_id = int(parent_raw) if parent_raw is not None else None
+        sk = row["source_kind"] if hasattr(row, "keys") else row[4]
+        sid = row["source_id"] if hasattr(row, "keys") else row[5]
+        now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+
+        if deleted is None:
+            # already active
+            folder_tree.clear_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "noop": True,
+            }, None
+
+        # Parent must be active
+        if parent_id is not None:
+            prow = connection.execute(
+                "SELECT deleted_at FROM folder WHERE id = ?",
+                (parent_id,),
+            ).fetchone()
+            if prow is None or (
+                (prow["deleted_at"] if hasattr(prow, "keys") else prow[0]) is not None
+            ):
+                folder_tree.delete_action_log(connection, log_id)
+                return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        # Restore with temp sort then recompact
+        connection.execute(
+            f"""
+            UPDATE folder
+            SET deleted_at = NULL,
+                sort_order = ?,
+                updated_at = {now_sql},
+                row_version = row_version + 1
+            WHERE id = ?
+            """,
+            (9_000_000 + folder_id, folder_id),
+        )
+        if sk == "part" and sid is not None:
+            connection.execute(
+                f"""
+                UPDATE part SET deleted_at = NULL,
+                    updated_at = {now_sql},
+                    row_version = row_version + 1
+                WHERE id = ? AND deleted_at IS NOT NULL
+                """,
+                (int(sid),),
+            )
+        elif sk == "chapter" and sid is not None:
+            connection.execute(
+                f"""
+                UPDATE chapter SET deleted_at = NULL,
+                    updated_at = {now_sql},
+                    row_version = row_version + 1
+                WHERE id = ? AND deleted_at IS NOT NULL
+                """,
+                (int(sid),),
+            )
+        folder_tree.recompact_folder_siblings(connection, project_id, parent_id)
+        folder_tree.clear_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": folder_id,
+            "noop": False,
+        }, None
+
+    def _redo_folder_trash_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Redo trash = soft-delete cascade again from snapshot ids."""
+        reverse = payload.get("forward") or payload.get("reverse") or payload
+        root_id = int(reverse.get("root_folder_id") or payload.get("folder_id") or 0)
+        folder_ids = [int(x) for x in (reverse.get("folder_ids") or [])]
+        part_ids = [int(x) for x in (reverse.get("part_ids") or [])]
+        chapter_ids = [int(x) for x in (reverse.get("chapter_ids") or [])]
+        scene_ids = [int(x) for x in (reverse.get("scene_ids") or [])]
+        if not root_id:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "다시 실행 기록이 올바르지 않아 건너뛰었어요."
+        if root_id not in folder_ids:
+            folder_ids = [root_id] + [x for x in folder_ids if x != root_id]
+
+        root = connection.execute(
+            "SELECT id, project_id, deleted_at FROM folder WHERE id = ?",
+            (root_id,),
+        ).fetchone()
+        if root is None:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+        if int(root["project_id"] if hasattr(root, "keys") else root[1]) != int(
+            project_id
+        ):
+            folder_tree.delete_action_log(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 다시 실행할 수 없어요."
+
+        root_deleted = root["deleted_at"] if hasattr(root, "keys") else root[2]
+        if root_deleted is not None:
+            folder_tree.clear_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": root_id,
+                "noop": True,
+            }, None
+
+        now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
+        try:
+            folder_tree.soft_delete_folder_ids(connection, folder_ids)
+            for pid in part_ids:
+                connection.execute(
+                    f"""
+                    UPDATE part SET deleted_at = {now_sql},
+                        updated_at = {now_sql},
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (int(pid),),
+                )
+            for cid in chapter_ids:
+                connection.execute(
+                    f"""
+                    UPDATE chapter SET deleted_at = {now_sql},
+                        updated_at = {now_sql},
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (int(cid),),
+                )
+            if scene_ids:
+                ph = ",".join("?" * len(scene_ids))
+                connection.execute(
+                    f"""
+                    UPDATE scene SET deleted_at = COALESCE(deleted_at, {now_sql}),
+                        updated_at = {now_sql}
+                    WHERE id IN ({ph}) AND deleted_at IS NULL
+                    """,
+                    scene_ids,
+                )
+        except sqlite3.Error as error:
+            folder_tree.delete_action_log(connection, log_id)
+            return None, f"다시 실행에 실패했어요: {error}"
+
+        folder_tree.clear_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": root_id,
+            "noop": False,
+        }, None
+
+    def _log_folder_create(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        folder_id: int | None,
+        source_kind: str,
+        source_id: int,
+        title: str,
+    ) -> None:
+        """U3: append folder.create log for part/chapter creation."""
+        if folder_id is None:
+            try:
+                folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, source_kind, int(source_id)
+                )
+            except sqlite3.OperationalError:
+                folder_id = None
+        if folder_id is None or not folder_tree.action_log_table_ready(connection):
+            return
+        try:
+            fr = connection.execute(
+                "SELECT parent_id, sort_order FROM folder WHERE id = ?",
+                (int(folder_id),),
+            ).fetchone()
+            parent_id = None
+            so = 0
+            if fr is not None:
+                raw_p = fr["parent_id"] if hasattr(fr, "keys") else fr[0]
+                parent_id = int(raw_p) if raw_p is not None else None
+                so = int((fr["sort_order"] if hasattr(fr, "keys") else fr[1]) or 0)
+            short = title if len(title) <= 24 else title[:23] + "…"
+            folder_tree.append_folder_action_log(
+                connection,
+                project_id,
+                "folder.create",
+                f"「{short or '폴더'}」 생성",
+                folder_tree.build_create_action_payload(
+                    folder_id=int(folder_id),
+                    source_kind=source_kind,
+                    source_id=int(source_id),
+                    parent_id=parent_id,
+                    sort_order=so,
+                ),
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    def _undo_folder_create_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Reverse folder.create → soft-delete one folder (children block keeps stack)."""
+        folder_id = int(payload.get("folder_id") or 0)
+        if not folder_id:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "되돌리기 기록이 올바르지 않아 건너뛰었어요."
+
+        # Missing folder row → permanent conflict, drop stack entry
+        exists = connection.execute(
+            "SELECT id, deleted_at FROM folder WHERE id = ?",
+            (folder_id,),
+        ).fetchone()
+        if exists is None:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        try:
+            out = folder_tree.trash_one_created_folder(connection, folder_id)
+        except ValueError as error:
+            msg = str(error)
+            # Children present: keep stack entry so user can retry
+            if msg == folder_tree.CREATE_UNDO_BLOCKED_MSG or "하위 항목" in msg:
+                return None, msg
+            # Other permanent failures: skip
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, msg
+
+        folder_tree.mark_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": folder_id,
+            "skipped": False,
+            "noop": bool(out.get("noop")),
+        }, None
+
+    def _undo_folder_trash_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Reverse folder.trash → cascade restore from snapshot."""
+        try:
+            out = folder_tree.restore_folder_trash_snapshot(
+                connection, project_id, payload
+            )
+        except ValueError as error:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, str(error)
+        except sqlite3.Error as error:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, f"되돌리기에 실패했어요: {error}"
+
+        folder_tree.mark_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": int(out.get("folder_id") or payload.get("folder_id") or 0),
+            "skipped": False,
+            "noop": bool(out.get("noop")),
+            "restored_folders": out.get("restored_folders"),
+            "restored_scenes": out.get("restored_scenes"),
+        }, None
+
+    def _undo_folder_reparent_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: int,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Reverse one folder.reparent log entry. Returns (result, pending_error)."""
+        folder_id = int(payload.get("folder_id") or 0)
+        forward = payload.get("forward") or {}
+        reverse = payload.get("reverse") or {}
+        if not folder_id:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "되돌리기 기록이 올바르지 않아 건너뛰었어요."
+
+        old_parent_id = folder_tree._norm_parent_id(
+            reverse.get("parent_id", forward.get("old_parent_id"))
+        )
+        new_parent_id = folder_tree._norm_parent_id(forward.get("new_parent_id"))
+        try:
+            old_index = int(
+                reverse.get("index", forward.get("old_index", forward.get("old_sort_order", 0)))
+            )
+        except (TypeError, ValueError):
+            old_index = 0
+        try:
+            new_sort_order = int(forward.get("new_sort_order", -1))
+        except (TypeError, ValueError):
+            new_sort_order = -1
+
+        row = folder_tree._load_active_folder(connection, folder_id)
+        if row is None:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+        if int(row["project_id"]) != int(project_id):
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        raw_cur_parent = row["parent_id"]
+        cur_parent = (
+            int(raw_cur_parent) if raw_cur_parent is not None else None
+        )
+        cur_index = folder_tree.folder_sibling_index(
+            connection, project_id, folder_id, cur_parent
+        )
+        if cur_index is None:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        # Already at reverse target (parent + index)
+        if cur_parent == old_parent_id and cur_index == old_index:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "skipped": False,
+                "noop": True,
+            }, None
+
+        # Still in forward (post-move) state: same parent and same sibling index
+        if cur_parent == new_parent_id and cur_index == new_sort_order:
+            try:
+                restore = folder_tree.reparent_folder(
+                    connection,
+                    folder_id,
+                    new_parent_id=old_parent_id,
+                    position="index",
+                    new_parent_id_provided=True,
+                    index=old_index,
+                )
+            except ValueError as error:
+                folder_tree.mark_action_log_undone(connection, log_id)
+                return None, f"그 사이 폴더가 바뀌어 되돌릴 수 없어요. ({error})"
+            except sqlite3.OperationalError as error:
+                folder_tree.mark_action_log_undone(connection, log_id)
+                return None, f"되돌리기에 실패했어요: {error}"
+
+            # Undo reparent must not leave a second log entry
+            # (reparent_folder itself does not log — only the HTTP wrapper does)
+
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "skipped": False,
+                "noop": False,
+                "parent_id": restore.get("parent_id"),
+                "sort_order": restore.get("sort_order"),
+            }, None
+
+        # Parent/index no longer match forward state → conflict skip
+        folder_tree.mark_action_log_undone(connection, log_id)
+        return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+    def _undo_folder_patch_action(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        log_id: int,
+        type_: str,
+        label_ko: str,
+        payload: dict,
+    ) -> tuple[dict | None, str | None]:
+        """Reverse one U1 patch (rename/color/box/pin). Returns (result, pending_error)."""
+        folder_id = int(payload.get("folder_id") or 0)
+        forward = payload.get("forward") or {}
+        reverse = payload.get("reverse") or {}
+        field = str(forward.get("field") or "")
+        old_val = forward.get("old")
+        new_val = forward.get("new")
+        reverse_fields = reverse.get("fields") or {}
+
+        if not folder_id or not field:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "되돌리기 기록이 올바르지 않아 건너뛰었어요."
+
+        try:
+            row = connection.execute(
+                """
+                SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked, deleted_at
+                FROM folder WHERE id = ?
+                """,
+                (folder_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            try:
+                row = connection.execute(
+                    """
+                    SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                    FROM folder WHERE id = ?
+                    """,
+                    (folder_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                row = connection.execute(
+                    "SELECT id, project_id, title, is_box, deleted_at "
+                    "FROM folder WHERE id = ?",
+                    (folder_id,),
+                ).fetchone()
+
+        if row is None or (
+            hasattr(row, "keys") and row["deleted_at"] is not None
+        ):
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        def _get(r, key, default=None):
+            try:
+                if hasattr(r, "keys"):
+                    return r[key] if key in r.keys() else default
+                return default
+            except Exception:
+                return default
+
+        def _norm_field(name, val):
+            if name == "color":
+                if val is None or val == "":
+                    return None
+                return str(val).strip().lower() or None
+            if name in ("is_box", "is_pinned", "is_bookmarked"):
+                return 1 if val else 0
+            if name == "title":
+                return str(val or "")
+            return val
+
+        if field == "title":
+            current = _norm_field("title", _get(row, "title", ""))
+        elif field == "color":
+            current = _norm_field("color", _get(row, "color", None))
+        elif field == "is_box":
+            current = _norm_field("is_box", _get(row, "is_box", 0))
+        elif field == "is_pinned":
+            current = _norm_field("is_pinned", _get(row, "is_pinned", 0))
+        elif field == "is_bookmarked":
+            current = _norm_field("is_bookmarked", _get(row, "is_bookmarked", 0))
+        else:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "이 작업은 아직 되돌릴 수 없어요."
+
+        old_n = _norm_field(field, old_val)
+        new_n = _norm_field(field, new_val)
+
+        if current == old_n:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return {
+                "ok": True,
+                "label_ko": label_ko,
+                "type": type_,
+                "folder_id": folder_id,
+                "skipped": False,
+                "noop": True,
+            }, None
+        if current != new_n:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, "그 사이 폴더가 바뀌어 되돌릴 수 없어요."
+
+        restore_val = reverse_fields.get(field, old_val)
+        restore_val = _norm_field(field, restore_val)
+        col_map = {
+            "title": "title",
+            "color": "color",
+            "is_box": "is_box",
+            "is_pinned": "is_pinned",
+            "is_bookmarked": "is_bookmarked",
+        }
+        col = col_map[field]
+        try:
+            connection.execute(
+                f"""
+                UPDATE folder
+                SET {col} = ?,
+                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                    row_version = row_version + 1
+                WHERE id = ? AND deleted_at IS NULL
+                """,
+                (restore_val, folder_id),
+            )
+        except sqlite3.OperationalError as error:
+            folder_tree.mark_action_log_undone(connection, log_id)
+            return None, f"되돌리기에 실패했어요: {error}"
+
+        if field == "title":
+            src = connection.execute(
+                "SELECT source_kind, source_id FROM folder WHERE id = ?",
+                (folder_id,),
+            ).fetchone()
+            if src is not None:
+                sk = src["source_kind"] if hasattr(src, "keys") else src[0]
+                sid = src["source_id"] if hasattr(src, "keys") else src[1]
+                if sk == "chapter" and sid is not None:
+                    connection.execute(
+                        "UPDATE chapter SET title = ? "
+                        "WHERE id = ? AND deleted_at IS NULL",
+                        (restore_val, int(sid)),
+                    )
+                elif sk == "part" and sid is not None:
+                    connection.execute(
+                        "UPDATE part SET title = ?, "
+                        "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                        "row_version = row_version + 1 "
+                        "WHERE id = ? AND deleted_at IS NULL",
+                        (restore_val, int(sid)),
+                    )
+
+        folder_tree.mark_action_log_undone(connection, log_id)
+        return {
+            "ok": True,
+            "label_ko": label_ko,
+            "type": type_,
+            "folder_id": folder_id,
+            "skipped": False,
+            "noop": False,
+        }, None
+
+    def _project_meta_payload(self, project_row: sqlite3.Row | None) -> dict:
+        project_data = as_dict(project_row) or {}
+        if not project_data:
+            return project_data
+        project_data["synopsis_md"] = project_data.get("description_md") or ""
+        project_data["logline_md"] = project_data.get("logline_md") or ""
+        project_data["worldbuilding_md"] = project_data.get("worldbuilding_md") or ""
+        project_data["intro_md"] = project_data.get("intro_md") or ""
+        project_data["intent_md"] = project_data.get("intent_md") or ""
+        project_data["tory_priority_md"] = project_data.get("tory_priority_md") or ""
+        project_data["outline_summary"] = project_data.get("outline_summary") or ""
+        project_data["main_genre"] = project_data.get("main_genre") or ""
+        project_data["sub_genre"] = project_data.get("sub_genre") or ""
+        project_data["keywords"] = parse_project_keywords(project_data.get("keywords"))
+        project_data["goal_word_count"] = int(project_data.get("goal_word_count") or 0)
+        try:
+            link = project_data.get("linked_success_profile_id")
+            project_data["linked_success_profile_id"] = (
+                int(link) if link not in (None, "", 0, "0") else None
+            )
+        except (TypeError, ValueError):
+            project_data["linked_success_profile_id"] = None
+        return project_data
+
+    def _load_outline_project_row(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> sqlite3.Row | None:
+        try:
+            return connection.execute(
+                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
+                "FROM project WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+        except sqlite3.OperationalError:
+            return connection.execute(
+                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                "tory_priority_md, outline_summary, goal_word_count "
+                "FROM project WHERE id = ?",
+                (project_id,),
+            ).fetchone()
+
+    def _load_outline_scenes(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> list[sqlite3.Row]:
+        # Prefer folder_id when migration 028+ is present (one query either way).
+        try:
+            return connection.execute(
+                "SELECT s.id, s.chapter_id, s.folder_id, s.parent_scene_id, s.title, s.status, "
+                "s.synopsis_md, s.sort_order, r.word_count, "
+                "substr(r.content_md, 1, 1200) AS content_head "
+                "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.chapter_id, s.sort_order, s.id",
                 (project_id,),
             ).fetchall()
+        except sqlite3.OperationalError:
             try:
-                chapters = connection.execute(
-                    "SELECT id, part_id, parent_scene_id, title, notes_md, sort_order "
-                    "FROM chapter "
-                    "WHERE project_id = ? AND deleted_at IS NULL "
-                    "ORDER BY "
-                    "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
-                    "part_id, sort_order, id",
-                    (project_id,),
-                ).fetchall()
-            except sqlite3.OperationalError:
-                chapters = connection.execute(
-                    "SELECT id, part_id, title, notes_md, sort_order FROM chapter "
-                    "WHERE project_id = ? AND deleted_at IS NULL "
-                    "ORDER BY "
-                    "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
-                    "part_id, sort_order, id",
-                    (project_id,),
-                ).fetchall()
-            # parent_scene_id may be missing only on broken DBs; COALESCE via try
-            try:
-                scenes = connection.execute(
+                return connection.execute(
                     "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, s.status, "
                     "s.synopsis_md, s.sort_order, r.word_count, "
                     "substr(r.content_md, 1, 1200) AS content_head "
@@ -5466,7 +7603,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     (project_id,),
                 ).fetchall()
             except sqlite3.OperationalError:
-                scenes = connection.execute(
+                return connection.execute(
                     "SELECT s.id, s.chapter_id, s.title, s.status, "
                     "s.synopsis_md, s.sort_order, r.word_count, "
                     "substr(r.content_md, 1, 1200) AS content_head "
@@ -5475,25 +7612,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "ORDER BY s.chapter_id, s.sort_order, s.id",
                     (project_id,),
                 ).fetchall()
-            try:
-                project = connection.execute(
-                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                    "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
-                    "FROM project WHERE id = ?",
-                    (project_id,),
-                ).fetchone()
-            except sqlite3.OperationalError:
-                project = connection.execute(
-                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                    "tory_priority_md, outline_summary, goal_word_count "
-                    "FROM project WHERE id = ?",
-                    (project_id,),
-                ).fetchone()
+
+    def _assemble_outline_payload(
+        self,
+        *,
+        project_data: dict,
+        parts_rows: list[dict],
+        chapters_rows: list[dict],
+        scenes_rows: list[sqlite3.Row],
+    ) -> dict:
+        """Shared parts/chapters/scenes assembly (legacy-shaped)."""
         flat_by_chapter: dict[int, list[dict]] = {}
         untitled_titles = {"", "제목 없음", "새 씬", "새 하위 원고"}
-        for scene in scenes:
+        for scene in scenes_rows:
             data = as_dict(scene)
             if "parent_scene_id" not in data:
                 data["parent_scene_id"] = None
@@ -5507,11 +7638,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         by_parent_scene: dict[int, list[dict]] = {}
         top_level_chapters: list[dict] = []
-        for chapter in chapters:
-            ch = as_dict(chapter)
+        for chapter in chapters_rows:
+            ch = dict(chapter)
             if "parent_scene_id" not in ch:
                 ch["parent_scene_id"] = None
-            flat = flat_by_chapter.get(int(chapter["id"]), [])
+            flat = flat_by_chapter.get(int(ch["id"]), [])
             ch["scenes"] = self._build_scene_tree(flat)
             ch["scenes_flat"] = self._flatten_scene_tree(ch["scenes"])
             ch["transparent"] = import_hierarchy.is_transparent_chapter(
@@ -5539,40 +7670,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ungrouped.append(chapter)
             else:
                 chapters_by_part.setdefault(int(pid), []).append(chapter)
-        # Keep chapter order within each part (already sorted by sort_order)
         for pid, group in chapters_by_part.items():
             group.sort(key=lambda c: (int(c.get("sort_order") or 0), int(c.get("id") or 0)))
         ungrouped.sort(key=lambda c: (int(c.get("sort_order") or 0), int(c.get("id") or 0)))
         parts_payload = [
             {
-                **as_dict(part),
+                **part,
                 "chapters": chapters_by_part.get(int(part["id"]), []),
             }
-            for part in parts
+            for part in parts_rows
         ]
-        project_data = as_dict(project) or {}
-        if project_data:
-            project_data["synopsis_md"] = project_data.get("description_md") or ""
-            project_data["logline_md"] = project_data.get("logline_md") or ""
-            project_data["worldbuilding_md"] = project_data.get("worldbuilding_md") or ""
-            project_data["intro_md"] = project_data.get("intro_md") or ""
-            project_data["intent_md"] = project_data.get("intent_md") or ""
-            project_data["tory_priority_md"] = project_data.get("tory_priority_md") or ""
-            project_data["outline_summary"] = project_data.get("outline_summary") or ""
-            project_data["main_genre"] = project_data.get("main_genre") or ""
-            project_data["sub_genre"] = project_data.get("sub_genre") or ""
-            project_data["keywords"] = parse_project_keywords(project_data.get("keywords"))
-            project_data["goal_word_count"] = int(project_data.get("goal_word_count") or 0)
-            try:
-                link = project_data.get("linked_success_profile_id")
-                project_data["linked_success_profile_id"] = (
-                    int(link) if link not in (None, "", 0, "0") else None
-                )
-            except (TypeError, ValueError):
-                project_data["linked_success_profile_id"] = None
         return {
             "project": project_data,
-            # Flat chapter list (all top-level folders) for lookups — order: in-part then ungrouped
+            # Legacy-shaped fields (part → chapter). When folder depth > 2 or the
+            # tree is no longer legacy-compatible after reparent, these may be
+            # approximate or incomplete — prefer `folders` for binder UI.
             "chapters": [
                 ch
                 for part in parts_payload
@@ -5581,6 +7693,307 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "parts": parts_payload,
             "ungrouped_chapters": ungrouped,
         }
+
+    def _prepare_outline_scene_dicts(
+        self, scenes_rows: list[sqlite3.Row]
+    ) -> list[dict]:
+        """Normalize scene rows for outline trees (body_preview, parent_scene_id)."""
+        untitled_titles = {"", "제목 없음", "새 씬", "새 하위 원고"}
+        prepared: list[dict] = []
+        for scene in scenes_rows:
+            data = as_dict(scene)
+            if "parent_scene_id" not in data:
+                data["parent_scene_id"] = None
+            title = str(data.get("title") or "").strip()
+            content_head = data.pop("content_head", None)
+            if title in untitled_titles:
+                data["body_preview"] = first_sentence_preview(content_head or "")
+            else:
+                data["body_preview"] = ""
+            prepared.append(data)
+        return prepared
+
+    def _build_folders_tree_from_db(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        scenes_rows: list[sqlite3.Row] | None = None,
+    ) -> list[dict]:
+        """Unlimited-depth folder forest from bulk folder + scene queries (no N+1)."""
+        if not folder_tree.folder_table_ready(connection):
+            return []
+        folder_rows = folder_tree.load_project_folder_rows(connection, project_id)
+        if not folder_rows:
+            return []
+
+        # chapter source_id → folder id (for scenes missing folder_id)
+        chapter_folder_by_source: dict[int, int] = {}
+        for row in folder_rows:
+            if row.get("source_kind") == "chapter" and row.get("source_id") is not None:
+                chapter_folder_by_source[int(row["source_id"])] = int(row["id"])
+
+        if scenes_rows is None:
+            scenes_rows = self._load_outline_scenes(connection, project_id)
+        prepared = self._prepare_outline_scene_dicts(scenes_rows)
+        flat_by_folder: dict[int, list[dict]] = {}
+        for data in prepared:
+            # Prefer scene.folder_id; fall back to chapter→folder map
+            fid = data.get("folder_id")
+            if fid is not None and fid != "":
+                try:
+                    folder_key = int(fid)
+                except (TypeError, ValueError):
+                    folder_key = None
+            else:
+                folder_key = None
+            if folder_key is None:
+                ch_id = data.get("chapter_id")
+                if ch_id is not None:
+                    folder_key = chapter_folder_by_source.get(int(ch_id))
+            if folder_key is None:
+                continue
+            # Keep folder_id on payload for clients that reparent scenes later
+            data["folder_id"] = folder_key
+            flat_by_folder.setdefault(folder_key, []).append(data)
+
+        scenes_by_folder = {
+            fid: self._build_scene_tree(flats)
+            for fid, flats in flat_by_folder.items()
+        }
+        return folder_tree.build_folder_forest(folder_rows, scenes_by_folder)
+
+    def _synthesize_folders_from_legacy_shape(self, payload: dict) -> list[dict]:
+        """When folder rows are missing, mirror parts/chapters into a folders tree."""
+        roots: list[dict] = []
+        for part in payload.get("parts") or []:
+            children = []
+            for ch in part.get("chapters") or []:
+                children.append(
+                    {
+                        "id": int(ch["id"]),
+                        "title": ch.get("title") or "",
+                        "is_box": False,
+                        "synopsis_md": "",
+                        "notes_md": ch.get("notes_md") or "",
+                        "sort_order": int(ch.get("sort_order") or 0),
+                        "source_kind": "chapter",
+                        "source_id": int(ch["id"]),
+                        "children": [],
+                        "scenes": list(ch.get("scenes") or []),
+                    }
+                )
+            roots.append(
+                {
+                    "id": int(part["id"]),
+                    "title": part.get("title") or "",
+                    "is_box": True,
+                    "synopsis_md": "",
+                    "notes_md": "",
+                    "sort_order": int(part.get("sort_order") or 0),
+                    "source_kind": "part",
+                    "source_id": int(part["id"]),
+                    "children": children,
+                    "scenes": [],
+                }
+            )
+        for ch in payload.get("ungrouped_chapters") or []:
+            roots.append(
+                {
+                    "id": int(ch["id"]),
+                    "title": ch.get("title") or "",
+                    "is_box": False,
+                    "synopsis_md": "",
+                    "notes_md": ch.get("notes_md") or "",
+                    "sort_order": int(ch.get("sort_order") or 0),
+                    "source_kind": "chapter",
+                    "source_id": int(ch["id"]),
+                    "children": [],
+                    "scenes": list(ch.get("scenes") or []),
+                }
+            )
+        roots.sort(key=lambda n: (int(n.get("sort_order") or 0), int(n["id"])))
+        return roots
+
+    def _attach_folders_field(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        payload: dict,
+        scenes_rows: list[sqlite3.Row] | None = None,
+    ) -> dict:
+        """Add recursive `folders` tree; keep legacy parts/chapters fields intact."""
+        folders: list[dict] = []
+        if folder_tree.folder_table_ready(connection):
+            folders = self._build_folders_tree_from_db(
+                connection, project_id, scenes_rows=scenes_rows
+            )
+        if not folders:
+            folders = self._synthesize_folders_from_legacy_shape(payload)
+        payload["folders"] = folders
+        # Document legacy field limits for deep / reparented trees
+        payload["outline_shape"] = {
+            "folders": "canonical unlimited-depth binder tree (folder.id)",
+            "parts_chapters": (
+                "legacy part→chapter shape for older clients; "
+                "may be approximate or incomplete when depth > 2 "
+                "or after non-legacy folder reparent — prefer folders"
+            ),
+        }
+        return payload
+
+    def _project_outline_from_legacy(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> dict:
+        parts = connection.execute(
+            "SELECT id, title, sort_order FROM part "
+            "WHERE project_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order, id",
+            (project_id,),
+        ).fetchall()
+        try:
+            chapters = connection.execute(
+                "SELECT id, part_id, parent_scene_id, title, notes_md, sort_order "
+                "FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY "
+                "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
+                "part_id, sort_order, id",
+                (project_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            chapters = connection.execute(
+                "SELECT id, part_id, title, notes_md, sort_order FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY "
+                "CASE WHEN part_id IS NULL THEN 1 ELSE 0 END, "
+                "part_id, sort_order, id",
+                (project_id,),
+            ).fetchall()
+        scenes = self._load_outline_scenes(connection, project_id)
+        project = self._load_outline_project_row(connection, project_id)
+        payload = self._assemble_outline_payload(
+            project_data=self._project_meta_payload(project),
+            parts_rows=[as_dict(p) for p in parts],
+            chapters_rows=[as_dict(c) for c in chapters],
+            scenes_rows=scenes,
+        )
+        return self._attach_folders_field(
+            connection, project_id, payload, scenes_rows=scenes
+        )
+
+    def _project_outline_from_folder(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> dict:
+        """Read binder structure from folder; expose legacy part/chapter ids via source_id."""
+        part_folders = connection.execute(
+            """
+            SELECT id AS folder_id, source_id AS id, title, sort_order
+            FROM folder
+            WHERE project_id = ? AND deleted_at IS NULL
+              AND source_kind = 'part' AND source_id IS NOT NULL
+            ORDER BY sort_order, source_id
+            """,
+            (project_id,),
+        ).fetchall()
+        # chapter folders + legacy fields needed for parent_scene nesting / part_id
+        chapter_folders = connection.execute(
+            """
+            SELECT f.id AS folder_id, f.source_id AS id, f.title, f.notes_md,
+                   f.sort_order, f.parent_id,
+                   c.part_id, c.parent_scene_id
+            FROM folder f
+            JOIN chapter c ON c.id = f.source_id AND c.project_id = f.project_id
+            WHERE f.project_id = ? AND f.deleted_at IS NULL
+              AND f.source_kind = 'chapter' AND f.source_id IS NOT NULL
+            ORDER BY f.sort_order, f.source_id
+            """,
+            (project_id,),
+        ).fetchall()
+        folder_by_id = {
+            int(r["folder_id"]): r
+            for r in connection.execute(
+                """
+                SELECT id AS folder_id, source_kind, source_id, parent_id
+                FROM folder
+                WHERE project_id = ? AND deleted_at IS NULL
+                """,
+                (project_id,),
+            ).fetchall()
+        }
+        # Order chapters under each part by folder sibling order (parent = part folder)
+        part_folder_id_by_source = {
+            int(p["id"]): int(p["folder_id"]) for p in part_folders
+        }
+        chapters_rows: list[dict] = []
+        for ch in chapter_folders:
+            parent_folder_id = ch["parent_id"]
+            parent_meta = folder_by_id.get(int(parent_folder_id)) if parent_folder_id is not None else None
+            # Prefer live chapter.part_id for response field; order comes from folder
+            row = {
+                "id": int(ch["id"]),
+                "part_id": (
+                    int(ch["part_id"]) if ch["part_id"] is not None else None
+                ),
+                "parent_scene_id": (
+                    int(ch["parent_scene_id"])
+                    if ch["parent_scene_id"] is not None
+                    else None
+                ),
+                "title": ch["title"],
+                "notes_md": ch["notes_md"] or "",
+                "sort_order": int(ch["sort_order"] or 0),
+                "_parent_is_part": bool(
+                    parent_meta
+                    and parent_meta["source_kind"] == "part"
+                ),
+                "_parent_is_root": parent_folder_id is None,
+            }
+            # If mapped under a part folder, force part_id to that part's source id
+            if parent_meta and parent_meta["source_kind"] == "part" and parent_meta["source_id"] is not None:
+                row["part_id"] = int(parent_meta["source_id"])
+            chapters_rows.append(row)
+
+        # Stable order: under-part chapters by (part folder order, chapter folder sort)
+        # then ungrouped (parent root)
+        part_order = {int(p["id"]): i for i, p in enumerate(part_folders)}
+
+        def chapter_sort_key(c: dict) -> tuple:
+            if c.get("parent_scene_id") is not None:
+                return (2, 0, int(c.get("sort_order") or 0), int(c["id"]))
+            if c.get("part_id") is not None:
+                return (
+                    0,
+                    part_order.get(int(c["part_id"]), 9999),
+                    int(c.get("sort_order") or 0),
+                    int(c["id"]),
+                )
+            return (1, 0, int(c.get("sort_order") or 0), int(c["id"]))
+
+        chapters_rows.sort(key=chapter_sort_key)
+        # Strip private keys before assemble
+        clean_chapters = [
+            {k: v for k, v in c.items() if not k.startswith("_")}
+            for c in chapters_rows
+        ]
+        parts_rows = [
+            {
+                "id": int(p["id"]),
+                "title": p["title"],
+                "sort_order": int(p["sort_order"] or 0),
+            }
+            for p in part_folders
+        ]
+        scenes = self._load_outline_scenes(connection, project_id)
+        project = self._load_outline_project_row(connection, project_id)
+        payload = self._assemble_outline_payload(
+            project_data=self._project_meta_payload(project),
+            parts_rows=parts_rows,
+            chapters_rows=clean_chapters,
+            scenes_rows=scenes,
+        )
+        return self._attach_folders_field(
+            connection, project_id, payload, scenes_rows=scenes
+        )
 
     def _flatten_scene_tree(self, nodes: list[dict]) -> list[dict]:
         out: list[dict] = []
@@ -5632,14 +8045,38 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "WHERE chapter_id = ? AND parent_scene_id = ? AND deleted_at IS NULL",
                     (chapter_id, parent_scene_id),
                 ).fetchone()[0]
-            try:
-                cursor = connection.execute(
-                    "INSERT INTO scene(project_id, chapter_id, parent_scene_id, title, sort_order) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (project_id, chapter_id, parent_scene_id, title, sort_order),
+            # Resolve chapter's folder first (folder-first attachment for leaf scene)
+            chapter_folder_id = folder_tree.folder_id_for_source(
+                connection, project_id, "chapter", int(chapter_id)
+            )
+            if chapter_folder_id is None:
+                self._mirror_project_folders(connection, project_id)
+                chapter_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "chapter", int(chapter_id)
                 )
+            try:
+                if chapter_folder_id is not None:
+                    cursor = connection.execute(
+                        "INSERT INTO scene("
+                        "project_id, chapter_id, parent_scene_id, title, sort_order, folder_id"
+                        ") VALUES (?, ?, ?, ?, ?, ?)",
+                        (
+                            project_id,
+                            chapter_id,
+                            parent_scene_id,
+                            title,
+                            sort_order,
+                            chapter_folder_id,
+                        ),
+                    )
+                else:
+                    cursor = connection.execute(
+                        "INSERT INTO scene(project_id, chapter_id, parent_scene_id, title, sort_order) "
+                        "VALUES (?, ?, ?, ?, ?)",
+                        (project_id, chapter_id, parent_scene_id, title, sort_order),
+                    )
             except sqlite3.OperationalError:
-                # Pre-migration fallback
+                # Pre-migration fallback (no parent_scene / no folder_id column)
                 cursor = connection.execute(
                     "INSERT INTO scene(project_id, chapter_id, title, sort_order) "
                     "VALUES (?, ?, ?, ?)",
@@ -5652,6 +8089,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "VALUES (?, 1, '', 0)",
                 (scene_id,),
             )
+            # Ensure folder_id even if INSERT path lacked column on first try
+            if chapter_folder_id is not None:
+                try:
+                    connection.execute(
+                        "UPDATE scene SET folder_id = ? WHERE id = ? AND folder_id IS NULL",
+                        (chapter_folder_id, scene_id),
+                    )
+                except sqlite3.OperationalError:
+                    pass
         return {
             "id": scene_id,
             "chapter_id": chapter_id,
@@ -5907,11 +8353,29 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "moved": False,
                 }
 
+            # Resolve target chapter folder for folder_id (folder-first attachment)
+            target_folder_id = folder_tree.folder_id_for_source(
+                connection, project_id, "chapter", int(new_chapter_id)
+            )
+            if target_folder_id is None:
+                self._mirror_project_folders(connection, project_id)
+                target_folder_id = folder_tree.folder_id_for_source(
+                    connection, project_id, "chapter", int(new_chapter_id)
+                )
+
             # Park mover with a unique temporary order, then relocate.
             connection.execute(
                 "UPDATE scene SET sort_order = ? WHERE id = ?",
                 (9_000_000 + scene_id, scene_id),
             )
+            # folder_id first when column exists, then chapter/parent
+            try:
+                connection.execute(
+                    "UPDATE scene SET folder_id = ? WHERE id = ?",
+                    (target_folder_id, scene_id),
+                )
+            except sqlite3.OperationalError:
+                pass
             connection.execute(
                 "UPDATE scene SET chapter_id = ?, parent_scene_id = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
@@ -5923,6 +8387,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 for sid in subtree:
                     if sid == scene_id:
                         continue
+                    try:
+                        connection.execute(
+                            "UPDATE scene SET folder_id = ? WHERE id = ?",
+                            (target_folder_id, sid),
+                        )
+                    except sqlite3.OperationalError:
+                        pass
                     connection.execute(
                         "UPDATE scene SET chapter_id = ?, "
                         "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
@@ -6165,6 +8636,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     prefs["idle_minutes"] = max(5, min(240, int(body.get("idle_minutes") or 30)))
                 except (TypeError, ValueError) as error:
                     raise ValueError("미입력 차감 시간이 올바르지 않습니다.") from error
+            if "chars_auto" in body:
+                prefs["chars_auto"] = 1 if body.get("chars_auto") else 0
+            else:
+                prefs["chars_auto"] = 1 if prefs.get("chars_auto", True) else 0
+            if "time_auto" in body:
+                prefs["time_auto"] = 1 if body.get("time_auto") else 0
+            else:
+                prefs["time_auto"] = 1 if prefs.get("time_auto") else 0
             if "last_goal_notified_day" in body:
                 day = str(body.get("last_goal_notified_day") or "").strip()
                 if day:
@@ -6177,8 +8656,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 prefs["last_lonely_notified_day"] = day
             connection.execute(
                 "UPDATE writing_prefs SET goal_chars = ?, goal_notify = ?, lonely_days = ?, "
-                "lonely_notify = ?, idle_minutes = ?, last_goal_notified_day = ?, "
-                "last_lonely_notified_day = ?, "
+                "lonely_notify = ?, idle_minutes = ?, chars_auto = ?, time_auto = ?, "
+                "last_goal_notified_day = ?, last_lonely_notified_day = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
                 (
                     prefs["goal_chars"],
@@ -6186,6 +8665,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     prefs["lonely_days"],
                     1 if prefs["lonely_notify"] else 0,
                     prefs["idle_minutes"],
+                    1 if prefs.get("chars_auto", True) else 0,
+                    1 if prefs.get("time_auto") else 0,
                     prefs.get("last_goal_notified_day") or "",
                     prefs.get("last_lonely_notified_day") or "",
                 ),
@@ -6575,6 +9056,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     (index, sid),
                 )
 
+            self._mirror_project_folders(connection, project_id)
         return {"id": new_id, "title": clone_title, "source_id": scene_id, "chapter_id": chapter_id}
 
     def list_trash(self, project_id: int) -> dict:
@@ -6601,7 +9083,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return {"items": items, "count": len(items)}
 
     def trash_scene(self, scene_id: int) -> dict:
-        """Move a scene to trash (soft-delete)."""
+        """Move a scene to trash (soft-delete).
+
+        3-3-b-4: scenes have no folder row; soft-delete legacy only (folder_id left for audit).
+        """
         with database() as connection:
             scene = connection.execute(
                 "SELECT id, project_id, chapter_id, title, sort_order "
@@ -6610,6 +9095,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ).fetchone()
             if scene is None:
                 raise ValueError("씬을 찾을 수 없습니다.")
+            # No folder row for scenes — folder-first N/A; soft-delete scene only
             connection.execute(
                 "UPDATE scene SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
@@ -6626,8 +9112,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def trash_chapter(self, chapter_id: int) -> dict:
         """Move a chapter (folder) and its scenes to trash (soft-delete).
 
-        Scenes are cascaded by DB trigger chapter_soft_delete_scenes.
-        Also explicitly soft-deletes scenes as a safety net if the trigger is missing.
+        3-3-b-4: folder-first soft-delete of chapter folder (+ nested folders), then legacy.
+        Scenes are cascaded by DB trigger; also explicit safety net.
         """
         with database() as connection:
             chapter = connection.execute(
@@ -6637,6 +9123,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ).fetchone()
             if chapter is None:
                 raise ValueError("챕터(폴더)를 찾을 수 없습니다. 이미 버려졌을 수 있어요.")
+            project_id = int(chapter["project_id"])
             scene_ids = [
                 int(row[0])
                 for row in connection.execute(
@@ -6645,8 +9132,70 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ).fetchall()
             ]
             scene_count = len(scene_ids)
+            chapter_title = str(chapter["title"] or "")
+            trash_payload = None
+            try:
+                root_fid = folder_tree.folder_id_for_source(
+                    connection, project_id, "chapter", int(chapter_id)
+                )
+                if root_fid is not None and folder_tree.action_log_table_ready(
+                    connection
+                ):
+                    # Include nested chapter folders' scenes as well
+                    folder_ids_preview = folder_tree.collect_folder_descendant_ids(
+                        connection, int(root_fid)
+                    )
+                    nested_chapter_ids = [int(chapter_id)]
+                    for fid in folder_ids_preview:
+                        fr = connection.execute(
+                            "SELECT source_kind, source_id FROM folder WHERE id = ?",
+                            (int(fid),),
+                        ).fetchone()
+                        if fr is None:
+                            continue
+                        sk = fr["source_kind"] if hasattr(fr, "keys") else fr[0]
+                        sid = fr["source_id"] if hasattr(fr, "keys") else fr[1]
+                        if sk == "chapter" and sid is not None:
+                            nested_chapter_ids.append(int(sid))
+                    nested_chapter_ids = list(dict.fromkeys(nested_chapter_ids))
+                    all_scene_ids = list(scene_ids)
+                    if nested_chapter_ids:
+                        ph = ",".join("?" * len(nested_chapter_ids))
+                        extra = connection.execute(
+                            f"""
+                            SELECT id FROM scene
+                            WHERE chapter_id IN ({ph}) AND deleted_at IS NULL
+                            """,
+                            nested_chapter_ids,
+                        ).fetchall()
+                        for row in extra:
+                            sid = int(row["id"] if hasattr(row, "keys") else row[0])
+                            if sid not in all_scene_ids:
+                                all_scene_ids.append(sid)
+                    trash_payload = folder_tree.snapshot_folder_trash(
+                        connection,
+                        project_id,
+                        int(root_fid),
+                        part_ids=[],
+                        chapter_ids=nested_chapter_ids,
+                        scene_ids=all_scene_ids,
+                    )
+            except (sqlite3.OperationalError, ValueError):
+                trash_payload = None
+
             now_sql = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')"
-            # Soft-delete chapter first (fires cascade trigger when present)
+            # 1) folder first
+            try:
+                folder_tree.soft_delete_folder_for_source(
+                    connection,
+                    project_id,
+                    "chapter",
+                    int(chapter_id),
+                    cascade_children=True,
+                )
+            except sqlite3.OperationalError:
+                pass
+            # 2) legacy chapter + scenes
             connection.execute(
                 f"UPDATE chapter SET deleted_at = {now_sql}, "
                 f"updated_at = {now_sql}, "
@@ -6654,7 +9203,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "WHERE id = ? AND deleted_at IS NULL",
                 (chapter_id,),
             )
-            # Safety net: ensure child scenes are trashed even without trigger
             if scene_ids:
                 connection.execute(
                     f"UPDATE scene SET deleted_at = COALESCE(deleted_at, {now_sql}), "
@@ -6662,18 +9210,30 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "WHERE chapter_id = ? AND deleted_at IS NULL",
                     (chapter_id,),
                 )
-            # Verify
             still = connection.execute(
                 "SELECT id FROM chapter WHERE id = ? AND deleted_at IS NULL",
                 (chapter_id,),
             ).fetchone()
             if still is not None:
                 raise ValueError("폴더를 휴지통으로 옮기지 못했어요. 다시 시도해 주세요.")
+            if trash_payload is not None:
+                short = (
+                    chapter_title
+                    if len(chapter_title) <= 24
+                    else chapter_title[:23] + "…"
+                )
+                folder_tree.append_folder_action_log(
+                    connection,
+                    project_id,
+                    "folder.trash",
+                    f"「{short or '폴더'}」 버리기",
+                    trash_payload,
+                )
         return {
             "ok": True,
             "id": chapter_id,
             "title": chapter["title"],
-            "project_id": int(chapter["project_id"]),
+            "project_id": project_id,
             "scene_count": int(scene_count or 0),
             "scene_ids": scene_ids,
         }
@@ -8516,6 +11076,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             total_words = sum(word_count(section.content) for section in sections)
             if not package_info:
                 package_info = ensure_project_package(connection, project_id)
+            # Parallel folder map (outline may read folder when complete)
+            if not used_hierarchy:
+                try:
+                    folder_tree.sync_project_folder_tree(connection, project_id)
+                except sqlite3.OperationalError:
+                    pass
             result = {
                 "project_id": project_id,
                 "chapter_id": chapter_id,
@@ -8618,6 +11184,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 for episode in folder.episodes:
                     insert_episode(ch_id, episode.title, episode.content)
+
+        # Keep parallel folder tree in sync so outline can read via folder path.
+        try:
+            folder_tree.sync_project_folder_tree(connection, project_id)
+        except sqlite3.OperationalError:
+            pass
 
         return {
             "scene_ids": scene_ids,
