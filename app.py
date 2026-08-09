@@ -2244,8 +2244,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         """Writing helper powered by Gemini (.env GEMINI_API_KEY)."""
         mode = str(body.get("mode", "free") or "free").strip().lower()
         allowed = {
-            "continue", "rewrite", "summarize", "ideas",
-            "analyze", "brainstorm", "foreshadow", "plottwist", "worldscan",
+            "continue", "rewrite", "summarize", "summarize_multi",
+            "ideas", "ideas_next_exists",
+            "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
+            "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "dupcheck", "free", "chat", "subsynopsis", "styleblend",
         }
         if mode not in allowed:
@@ -2474,7 +2476,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             }
 
         # Cap context size for local responsiveness.
-        if len(scene_content) > 12000:
+        # multi modes: multi-episode bodies (per-episode cap client-side).
+        if mode in {"worldscan_multi", "analyze_multi", "summarize_multi"}:
+            if mode == "worldscan_multi":
+                multi_cap = 60000  # up to 5 × 12k
+            elif mode == "analyze_multi":
+                multi_cap = 36000  # up to 3 × 12k
+            else:
+                multi_cap = 240000  # up to 20 × 12k (summarize_multi)
+            if len(scene_content) > multi_cap:
+                scene_content = scene_content[:multi_cap]
+        elif len(scene_content) > 12000:
             scene_content = scene_content[-12000:]
         if len(world_setting_text) > 20000:
             world_setting_text = world_setting_text[:20000]
@@ -2535,8 +2547,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             scene_content = target_text_override
         if mode == "worldscan" and world_setting_field.strip():
             world_setting_text = world_setting_field
+        if mode == "worldscan_multi" and world_setting_field.strip():
+            world_setting_text = world_setting_field
         # Re-cap after lore overrides
-        if len(scene_content) > 12000:
+        if mode in {"worldscan_multi", "analyze_multi", "summarize_multi"}:
+            if mode == "worldscan_multi":
+                multi_cap = 60000
+            elif mode == "analyze_multi":
+                multi_cap = 36000
+            else:
+                multi_cap = 240000
+            if len(scene_content) > multi_cap:
+                scene_content = scene_content[:multi_cap]
+        elif len(scene_content) > 12000:
             scene_content = scene_content[-12000:]
         if len(world_setting_text) > 20000:
             world_setting_text = world_setting_text[:20000]
@@ -2544,9 +2567,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if mode == "worldscan":
             if not scene_content:
                 raise ValueError("검사할 원고를 먼저 열어 주세요.")
+        if mode == "worldscan_multi":
+            if not scene_content:
+                raise ValueError("검사할 원고를 먼저 열어 주세요.")
         if mode == "analyze":
             if not scene_content:
                 raise ValueError("피드백할 원고를 먼저 열어 주세요.")
+        if mode == "analyze_multi":
+            if not scene_content:
+                raise ValueError("피드백할 원고를 먼저 열어 주세요.")
+        if mode == "summarize_multi":
+            if not scene_content:
+                raise ValueError("요약할 원고를 먼저 열어 주세요.")
         if mode == "dupcheck":
             if not scene_content:
                 raise ValueError("중복 체크할 원고를 먼저 열어 주세요.")
@@ -2588,6 +2620,39 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             elif isinstance(character_profiles_raw, (dict, list)) and character_profiles_raw:
                 try:
                     profiles_dump = json.dumps(character_profiles_raw, ensure_ascii=False, indent=2)
+                except (TypeError, ValueError):
+                    profiles_dump = str(character_profiles_raw)
+                if len(profiles_dump) > 8000:
+                    profiles_dump = profiles_dump[:8000] + "\n…(truncated)"
+                context_parts.append(f"[캐릭터 프로필]\n{profiles_dump}")
+            if user_prompt:
+                context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            # Manuscript already embedded in indexed/task prompt — do not duplicate below.
+        elif mode == "worldscan_multi":
+            # Multi-episode setting-break scan — same lore context as worldscan, one call.
+            indexed_multi = str(body.get("indexed_prompt") or "").strip()
+            system = genre_system
+            if indexed_multi:
+                instruction = indexed_multi
+            else:
+                instruction = self._build_setting_break_scan_multi_prompt(scene_content)
+            context_parts = [
+                active_project_context,
+                f"작품 제목: {project_title or '(없음)'}",
+                f"작품 종류: {purpose_label}",
+                genre_context,
+                f"검사 회차: {scene_title or '(없음)'}",
+                f"씬 요약: {scene_synopsis or '(없음)'}",
+            ]
+            if world_setting_text.strip():
+                context_parts.append(f"[설정집 · 세계관]\n{world_setting_text[:12000]}")
+            if character_profiles_text.strip():
+                context_parts.append(f"[캐릭터 프로필]\n{character_profiles_text[:8000]}")
+            elif isinstance(character_profiles_raw, (dict, list)) and character_profiles_raw:
+                try:
+                    profiles_dump = json.dumps(
+                        character_profiles_raw, ensure_ascii=False, indent=2
+                    )
                 except (TypeError, ValueError):
                     profiles_dump = str(character_profiles_raw)
                 if len(profiles_dump) > 8000:
@@ -2891,7 +2956,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
         else:
             # Persona shapes conversational answers; draft generation (continue/rewrite) keeps neutral craft tone.
-            use_persona = mode in {"free", "brainstorm", "ideas", "analyze"}
+            use_persona = mode in {
+                "free", "brainstorm", "brainstorm_next_exists",
+                "ideas", "ideas_next_exists", "analyze", "analyze_multi",
+            }
             system = (
                 genre_system
                 + (persona_system if use_persona else "")
@@ -2927,6 +2995,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ).strip()
                 # Prefer client-built buildContinuePrompt + buildTaskPromptWithIndex.
                 indexed_continue = str(body.get("indexed_prompt") or "").strip()
+                style_mode = str(
+                    body.get("style_mode") or body.get("continue_style") or ""
+                ).strip()
                 if indexed_continue:
                     instruction = indexed_continue
                 else:
@@ -2934,6 +3005,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         scene_content,
                         length_mode,
                         user_hint,
+                        style_mode,
                     )
                 # Task prompt already embeds the manuscript — keep only project meta here.
                 context_parts = [
@@ -2967,6 +3039,29 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ]
                 if user_prompt:
                     context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            elif mode == "analyze_multi":
+                # Contiguous multi-episode feedback — task only (manuscript in instruction).
+                indexed_multi = str(body.get("indexed_prompt") or "").strip()
+                system = genre_system + (persona_system if use_persona else "")
+                if focus_only:
+                    system += (
+                        " 지금은 지정된 연속 회차 구간만 집중합니다. "
+                        "그 밖의 장·씬을 지어내거나 범위를 넓히지 말고, 이 구간만 다루세요."
+                    )
+                if indexed_multi:
+                    instruction = indexed_multi
+                else:
+                    instruction = self._build_focused_analysis_multi_prompt(scene_content)
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"검사 회차: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+                if user_prompt:
+                    context_parts.append(f"작가 추가 요청:\n{user_prompt}")
             elif mode == "ideas":
                 # 다음 아이디어 제안 — buildNextIdeaPrompt + index (task only).
                 indexed_ideas = str(body.get("indexed_prompt") or "").strip()
@@ -2981,6 +3076,37 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     genre_context,
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+                if user_prompt:
+                    context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            elif mode == "ideas_next_exists":
+                # 다음 회차 이미 있음 — 시작부 검토 + 대안 5 (task only).
+                indexed_next = str(body.get("indexed_prompt") or "").strip()
+                prev_tail = plain_text_from_content(
+                    str(body.get("prev_scene_tail") or scene_content or "")
+                )
+                next_text = plain_text_from_content(
+                    str(body.get("next_scene_content") or "")
+                )
+                if len(prev_tail) > 2000:
+                    prev_tail = prev_tail[-2000:]
+                if len(next_text) > 12000:
+                    next_text = next_text[:12000]
+                if indexed_next:
+                    instruction = indexed_next
+                else:
+                    instruction = self._build_next_idea_with_next_scene_prompt(
+                        prev_tail, next_text
+                    )
+                next_title = str(body.get("next_scene_title") or "").strip()
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"직전 회차 제목: {scene_title or '(없음)'}",
+                    f"직전 회차 요약: {scene_synopsis or '(없음)'}",
+                    f"다음 회차 제목: {next_title or '(없음)'}",
                 ]
                 if user_prompt:
                     context_parts.append(f"작가 추가 요청:\n{user_prompt}")
@@ -3001,6 +3127,36 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     genre_context,
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            elif mode == "brainstorm_next_exists":
+                # 다음 회차 있음 — C/D brainstorm (task only).
+                indexed_bn = str(body.get("indexed_prompt") or "").strip()
+                user_topic = str(
+                    body.get("user_topic") or user_prompt or ""
+                ).strip()
+                scene_full = plain_text_from_content(str(scene_content or ""))
+                next_text = plain_text_from_content(
+                    str(body.get("next_scene_content") or "")
+                )
+                if len(scene_full) > 12000:
+                    scene_full = scene_full[-12000:]
+                if len(next_text) > 12000:
+                    next_text = next_text[:12000]
+                if indexed_bn:
+                    instruction = indexed_bn
+                else:
+                    instruction = self._build_brainstorm_with_next_scene_prompt(
+                        scene_full, next_text, user_topic
+                    )
+                next_title = str(body.get("next_scene_title") or "").strip()
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"현재 회차 제목: {scene_title or '(없음)'}",
+                    f"현재 회차 요약: {scene_synopsis or '(없음)'}",
+                    f"다음 회차 제목: {next_title or '(없음)'}",
                 ]
             elif mode == "worlddesc":
                 # 세계관 묘사 도우미 — buildWorldDescriptionPrompt + index.
@@ -3113,6 +3269,34 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         f"작품 종류: {purpose_label}",
                         genre_context,
                         f"씬 제목: {scene_title or '(없음)'}",
+                    ]
+                    if user_prompt:
+                        context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+                    # Manuscript is already embedded in the task prompt — do not duplicate.
+                elif mode == "summarize_multi":
+                    # Multi-episode detailed summary — no project index.
+                    # Does not alter single-path summarize above.
+                    detailed = str(
+                        body.get("task_prompt")
+                        or body.get("detailed_summary_prompt")
+                        or ""
+                    ).strip()
+                    try:
+                        episode_count = int(body.get("episode_count") or 0)
+                    except (TypeError, ValueError):
+                        episode_count = 0
+                    if detailed:
+                        instruction = detailed
+                    else:
+                        instruction = self._build_detailed_scene_summary_multi_prompt(
+                            scene_content, episode_count
+                        )
+                    context_parts = [
+                        active_project_context,
+                        f"작품 제목: {project_title or '(없음)'}",
+                        f"작품 종류: {purpose_label}",
+                        genre_context,
+                        f"요약 회차: {scene_title or '(없음)'}",
                     ]
                     if user_prompt:
                         context_parts.append(f"작가 추가 요청:\n{user_prompt}")
@@ -3404,22 +3588,34 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         original_text: str,
         length_mode: str = "short",
         user_hint: str = "",
+        style_mode: str = "",
     ) -> str:
         """Task-only continue prompt (Core Identity lives in system)."""
         text = str(original_text or "").strip()
         mode = str(length_mode or "short").strip().lower()
-        if mode not in {"short", "scene", "proportional"}:
+        if mode not in {"short", "medium", "long", "scene", "proportional"}:
             mode = "short"
         hint = str(user_hint or "").strip()
+        style = str(style_mode or "").strip()
+
+        def _cap_length_instruction(limit: int) -> str:
+            return (
+                "\n[길이 지침]\n"
+                f"- 최대 {limit}자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.\n"
+                "- 상한을 다 채우려 하지 말고, 그 안에서 자연스럽게 끊을 수 있는 지점\n"
+                "  (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.\n"
+                "- 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.\n"
+                "- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.\n"
+                "- 사용자가 이 결과를 보고 다시 \"이어서 쓰기\"를 누를 것을 전제로, 다음 전개의\n"
+                "  방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).\n"
+            )
 
         if mode == "short":
-            length_instruction = (
-                "\n[길이 지침]\n"
-                "- 1~2개 문단 분량만 작성한다.\n"
-                "- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.\n"
-                "- 사용자가 이 결과를 보고 다시 \"이어서 쓰기\"를 누를 것을 전제로, 다음 전개의 "
-                "방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).\n"
-            )
+            length_instruction = _cap_length_instruction(700)
+        elif mode == "medium":
+            length_instruction = _cap_length_instruction(1200)
+        elif mode == "long":
+            length_instruction = _cap_length_instruction(2000)
         elif mode == "scene":
             length_instruction = (
                 "\n[길이 지침]\n"
@@ -3443,6 +3639,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             else ""
         )
 
+        style_block = ""
+        if style in {"후킹형", "전개형", "전환형"}:
+            style_block = (
+                "\n[전개 방향]\n"
+                "아래 세 가지 중 하나를 골라 그 방향으로 이어 쓴다.\n\n"
+                "- 후킹형: 다음 문장부터 긴장감, 호기심, 사건성을 끌어올린다. 평온한 묘사나\n"
+                "  설명보다 상황의 전환, 갈등의 조짐, 의미심장한 대사나 사건을 우선한다.\n"
+                "  다음 내용이 궁금해지도록 여운이나 긴장을 남기고 끝낸다.\n"
+                "- 전개형: 군더더기 묘사나 감정 서술을 줄이고, 사건과 정보를 효율적으로\n"
+                "  진행시킨다. 이야기를 앞으로 밀어붙이는 데 집중하며, 다음 사건이나\n"
+                "  전개로 자연스럽게 넘어간다.\n"
+                "- 전환형: 직전까지의 긴장이나 사건을 잠시 누그러뜨린다. 인물의 여운,\n"
+                "  잔잔한 디테일, 분위기나 장면의 전환으로 리듬을 조절한다. 다음 사건을\n"
+                "  준비하는 숨 고르는 구간으로 쓴다.\n\n"
+                f"지금 선택된 방향: {style}\n\n"
+                "작가가 힌트를 주었다면, 그 힌트가 다루는 내용(무엇이 일어나는지)을 항상\n"
+                "우선한다. 위 방향(후킹형/전개형/전환형)은 그 내용을 어떤 톤과 리듬으로\n"
+                "전개할지를 정하는 것이며, 힌트의 내용 자체를 바꾸거나 무시하지 않는다.\n"
+            )
+
         return (
             "[현재 작업]\n"
             "아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.\n\n"
@@ -3456,6 +3672,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을 "
             "요약하거나 반복하지 않는다.\n"
             f"{hint_line}"
+            f"{style_block}"
             f"{length_instruction}\n"
             "[문장 규칙]\n"
             "- 이어지는 본문만 출력한다. \"이어서 작성하면\", \"다음은 이어지는 내용입니다\" 같은 "
@@ -3577,6 +3794,46 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[본문]\n"
             f"{text}\n\n"
             "[요약]"
+        )
+
+    @staticmethod
+    def _build_detailed_scene_summary_multi_prompt(
+        combined_text: str,
+        episode_count: int = 0,
+    ) -> str:
+        """Multi-episode detailed summary (summarize_multi). Task only — no index."""
+        text = str(combined_text or "").strip()
+        n = int(episode_count) if episode_count else 0
+        if n <= 0:
+            n = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        return (
+            "[현재 작업]\n"
+            "아래는 여러 회차입니다. 각 회차를 다시 읽지 않고도 내용을 제대로 파악할\n"
+            "수 있도록, 회차마다 요약을 작성하세요. 바인더 캡션용 짧은 요약이 아니라,\n"
+            "각 회차에서 무슨 일이 있었는지 충분히 설명하는 요약입니다.\n\n"
+            "[판단 기준]\n"
+            "1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을\n"
+            "   순서대로 전달한다.\n"
+            "2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.\n"
+            "3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).\n"
+            "4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.\n"
+            "5. 분량은 회차당 대략 300~500자 내외로, 각 회차의 복잡도에 맞게 조절한다.\n"
+            "6. 각 회차의 요약은 그 회차 안의 내용만으로 작성한다. 다른 회차의 사건을\n"
+            "   섞어 넣거나 미리 언급하지 않는다.\n\n"
+            "[문장 규칙]\n"
+            "7. \"이 회차는\", \"본문에서는\" 같은 메타 표현으로 시작하지 않고 바로 내용으로\n"
+            "   시작한다.\n"
+            "8. 각 회차 요약 앞에 아래 [출력 형식]의 제목만 붙이고, 그 외 완성된 요약문만\n"
+            "   출력한다.\n\n"
+            "[출력 형식]\n"
+            "### {회차 제목 1}\n"
+            "{요약}\n\n"
+            "### {회차 제목 2}\n"
+            "{요약}\n\n"
+            "(선택한 회차 수만큼 반복)\n\n"
+            f"[본문 - {n}개 회차, 순서대로]\n"
+            f"{text}\n\n"
+            "[요약 결과]"
         )
 
     @staticmethod
@@ -3734,6 +3991,64 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
+    def _build_focused_analysis_multi_prompt(combined_text: str) -> str:
+        """Contiguous multi-episode feedback (analyze_multi). Task scope only."""
+        text = str(combined_text or "").strip()
+        episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        return (
+            "[현재 작업]\n"
+            "아래는 연속된 여러 회차입니다. 개별 회차 단위가 아니라, 이 구간 전체를\n"
+            "하나의 흐름으로 보고 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.\n\n"
+            "[분석 원칙]\n"
+            "1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.\n"
+            "2. 막연한 칭찬이나 막연한 비판을 하지 않는다. 반드시 몇 화의 어떤 장면·\n"
+            "   문장·흐름인지 구체적으로 짚어 설명한다.\n"
+            "3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지\n"
+            "   방향을 함께 제시한다. 대부분의 경우 방향 제안에 그치되, 장르 관습을\n"
+            "   명백히 벗어나거나 개연성이 무너지는 등 원문 자체가 그대로 두기 어려운\n"
+            "   수준이라고 판단되면, 문제를 정확히 설명한 뒤 대체 가능한 전개나 장면을\n"
+            "   직접 예시로 써서 제시한다. 다만 최종 선택은 작가의 몫임을 분명히 하고,\n"
+            "   이 경우에도 \"반드시 이렇게 고쳐야 한다\"고 단정하지 않는다.\n"
+            "4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지\n"
+            "   않는다. 의도가 실제로 잘 구현되고 있는지를 본다.\n"
+            "5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.\n\n"
+            "[편집자 관점 - 구조와 기법]\n"
+            "- 회차 간 강약 조절: 회차마다 긴장도·정보량이 적절히 완급 조절되는지,\n"
+            "  특정 화만 처지거나 과열되지 않는지\n"
+            "- 전개 속도: 이 구간 전체에서 사건이 너무 빠르게 혹은 느리게 배치되지\n"
+            "  않았는지\n"
+            "- 개연성: 회차를 넘어가며 사건·설정·인물 반응이 논리적으로 이어지는지\n"
+            "- 캐릭터 일관성: 여러 회차에 걸쳐 인물의 성격·말투·가치관이 일관되게\n"
+            "  유지되는지, 근거 없이 흔들리는 지점이 있는지\n"
+            "- 문장 기법: 회차마다 반복되는 문장 패턴이나 상투적 표현이 누적되고\n"
+            "  있지 않은지\n\n"
+            "[독자 관점 - 몰입 경험]\n"
+            "- 흡입력: 중간에 멈추지 않고 이 구간을 쭉 읽어나갈 만큼 매 화가 다음\n"
+            "  화를 궁금하게 만드는지, 흐름이 끊기는 지점이 있는지\n"
+            "- 감정적 반응: 의도된 감정이 회차를 거치며 축적되고 전달되는지\n"
+            "- 시장성: 이 흐름이 독자층에게 소구할 만한 훅과 페이스를 갖추고 있는지\n"
+            "  (장르 관습·연재 플랫폼 관행을 참고 기준으로 삼는다)\n\n"
+            "[출력 형식]\n"
+            "## 편집자 관점\n"
+            "**좋은 점**\n"
+            "- (몇 화의 어떤 부분인지 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (근거 + 구체적 수정 방향과 함께 1~3개)\n\n"
+            "## 독자 관점\n"
+            "**좋은 점**\n"
+            "- (근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (근거 + 구체적 수정 방향과 함께 1~3개)\n\n"
+            "## 회차 간 흐름 총평\n"
+            "이 구간 전체를 하나의 아크로 봤을 때 강약·속도·흡입력이 어떤지 3~5문장으로.\n\n"
+            "## 한 줄 총평\n"
+            "(이 구간 전체를 관통하는 핵심 조언 한 문장)\n\n"
+            f"[본문 - {episode_count}개 회차, 순서대로]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+
+    @staticmethod
     def _build_next_idea_prompt(scene_content: str) -> str:
         """Next-idea suggestions (ideas mode). Task scope only."""
         text = str(scene_content or "").strip()
@@ -3760,6 +4075,43 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[현재 회차 본문]\n"
             f"{text}\n\n"
             "[다음 아이디어 제안]"
+        )
+
+    @staticmethod
+    def _build_next_idea_with_next_scene_prompt(prev_tail: str, next_text: str) -> str:
+        """Next-idea when following episode already exists (ideas_next_exists)."""
+        prev = str(prev_tail or "").strip()
+        nxt = str(next_text or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 방금 마무리된 회차와, 그 다음으로 이미 작성된 회차의 시작 부분입니다.\n"
+            "다음 회차의 시작 전개가 적절한지 짧게 의견을 드리고, 이를 대체할 수 있는\n"
+            "다른 전개·묘사 아이디어를 5개 제안하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 직전 회차의 흐름(감정선, 사건의 여운, 마지막 장면)에서 다음 회차 시작이\n"
+            "   자연스럽게 이어지는지 평가한다.\n"
+            "2. 이미 매력적이고 개연성 있게 시작됐다면 그 점을 짧게 인정하고 넘어간다.\n"
+            "   억지로 문제를 만들어내지 않는다.\n"
+            "3. 평가와 별개로, 다른 방향에서 시작할 수 있는 후킹 있는 대안을 5개 제시한다.\n"
+            "   기존 시작부를 재활용한 변주(같은 장면, 다른 묘사)와, 아예 다른 지점에서\n"
+            "   시작하는 전개(다른 장면, 다른 사건)를 섞어서 다양성을 준다.\n"
+            "4. 각 대안이 왜 이 시점에 효과적인지 짧게 근거를 단다.\n"
+            "5. [프로젝트 누적 정보]의 인물 성격·세계관 규칙·미회수 복선을 참고해\n"
+            "   그 작품다운 방향을 벗어나지 않는다.\n\n"
+            "[출력 형식]\n"
+            "## 지금 시작부에 대한 의견\n"
+            "(2~3문장, 강요하지 않는 톤)\n\n"
+            "## 대체 가능한 다른 시작 5가지\n"
+            "**대안 N: (짧은 제목)**\n"
+            "- 어떤 전개/묘사로 시작하는지 1~2문장\n"
+            "- 왜 효과적인지 (근거 1문장)\n\n"
+            "마지막에 \"어떤 방향이든 편하게 골라주시면 이어서 함께 다듬어볼게요.\" 같은\n"
+            "짧은 안내를 덧붙인다.\n\n"
+            "[직전 회차 마지막 부분]\n"
+            f"{prev}\n\n"
+            "[다음 회차 시작부 (이미 작성됨)]\n"
+            f"{nxt}\n\n"
+            "[검토 결과]"
         )
 
     @staticmethod
@@ -3799,6 +4151,75 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
             "[현재 회차 또는 최근 원고]\n"
             f"{text}\n\n"
+            "[브레인스토밍 결과]"
+        )
+
+    @staticmethod
+    def _build_brainstorm_with_next_scene_prompt(
+        prev_tail: str, next_text: str, user_topic: str = ""
+    ) -> str:
+        """Brainstorm when next episode exists (brainstorm_next_exists). C/D by topic."""
+        scene_content = str(prev_tail or "").strip()
+        next_scene_content = str(next_text or "").strip()
+        topic = str(user_topic or "").strip()
+        if topic:
+            return (
+                "[현재 작업]\n"
+                "아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에\n"
+                "확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을\n"
+                "요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 아래 주제를 중심으로\n"
+                "이 지점에서 작품을 확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를\n"
+                "5~8개 제시하세요.\n\n"
+                "[작가가 지정한 주제]\n"
+                f'"{topic}"에 대해 집중적으로 브레인스토밍한다.\n\n'
+                "[판단 기준]\n"
+                "1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은\n"
+                "   참고 맥락일 뿐이다.\n"
+                "2. 지정된 주제를 중심으로 전개하되, 다음 회차의 방향을 살리는 아이디어와\n"
+                "   완전히 다른 방향으로 전환하는 아이디어를 균형 있게 섞는다.\n"
+                "3. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.\n"
+                "4. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+                "   범위 안에서 자유롭게 확장한다.\n"
+                "5. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n\n"
+                "[출력 형식]\n"
+                "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+                "- 무엇인지 1~2문장\n"
+                "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+                "[현재 회차]\n"
+                f"{scene_content}\n\n"
+                "[다음 회차 (이미 작성됨)]\n"
+                f"{next_scene_content}\n\n"
+                "[브레인스토밍 결과]"
+            )
+        return (
+            "[현재 작업]\n"
+            "아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에\n"
+            "확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을\n"
+            "요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 이 지점에서 작품을\n"
+            "확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를 5~8개 제시하세요.\n\n"
+            "[주제]\n"
+            "작가가 특정 주제를 지정하지 않았다. 두 회차의 흐름을 참고해, 이 지점에서\n"
+            "작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.\n\n"
+            "[판단 기준]\n"
+            "1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은\n"
+            "   참고 맥락일 뿐이다.\n"
+            "2. 다음 회차의 방향을 살리는 아이디어와, 완전히 다른 방향으로 전환하는\n"
+            "   아이디어를 균형 있게 섞는다.\n"
+            "3. \"다음 회차에 바로 이어지는 전개\"로만 범위를 좁히지 않는다. 서브플롯, 반전,\n"
+            "   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서\n"
+            "   아이디어를 던진다.\n"
+            "4. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.\n"
+            "5. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+            "   범위 안에서 자유롭게 확장한다.\n"
+            "6. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n\n"
+            "[출력 형식]\n"
+            "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+            "- 무엇인지 1~2문장\n"
+            "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+            "[현재 회차]\n"
+            f"{scene_content}\n\n"
+            "[다음 회차 (이미 작성됨)]\n"
+            f"{next_scene_content}\n\n"
             "[브레인스토밍 결과]"
         )
 
@@ -3866,7 +4287,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로\n"
             "   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적\n"
             "   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,\n"
-            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n\n"
+            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n"
+            "9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의\n"
+            "   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는\n"
+            "   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의\n"
+            "   시선에서 \"~처럼 보였다\", \"~같았다\"와 같이 주관적으로 포착된 인상은, 그 자체로\n"
+            "   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.\n\n"
             "[출력 형식]\n"
             "발견된 항목이 있으면 아래 형식으로 나열한다.\n"
             "- 유형: [세계관 / 캐릭터]\n"
@@ -3876,6 +4302,61 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "발견된 항목이 없으면 \"이번 구간에서는 설정과 어긋나는 지점이 발견되지 않았습니다.\"라고만 답한다.\n"
             "과잉 지적하지 않는다. 확실한 것만 표시한다.\n\n"
             "[본문]\n"
+            f"{text}\n\n"
+            "[검사 결과]"
+        )
+
+    @staticmethod
+    def _build_setting_break_scan_multi_prompt(combined_text: str) -> str:
+        """Multi-episode setting-break detector (worldscan_multi). No Core Identity."""
+        text = str(combined_text or "").strip()
+        episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        if episode_count < 1:
+            episode_count = 1
+        return (
+            "[현재 작업]\n"
+            "아래는 여러 회차입니다. 각 회차에서 이 작품의 세계관 또는 캐릭터 설정과\n"
+            "어긋나는 지점을 찾아내세요. 회차별로 구분해서 결과를 제시합니다.\n\n"
+            "[판단 근거 우선순위]\n"
+            "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
+            "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
+            "   지금까지 써온 말투)을 기준으로 삼는다.\n"
+            "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
+            "[세계관 검사 기준]\n"
+            "5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.\n"
+            "   (예: 동양풍 세계관에 \"드래곤\"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)\n"
+            "6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나\n"
+            "   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도\n"
+            "   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여\n"
+            "   있다면 문제로 판단한다.\n\n"
+            "[캐릭터 일관성 검사 기준]\n"
+            "7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.\n"
+            "8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, \"이 작품의 세계관 안에서 통용되는 규범\"이다.\n"
+            "   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로\n"
+            "   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적\n"
+            "   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,\n"
+            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n"
+            "9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의\n"
+            "   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는\n"
+            "   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의\n"
+            "   시선에서 \"~처럼 보였다\", \"~같았다\"와 같이 주관적으로 포착된 인상은, 그 자체로\n"
+            "   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.\n"
+            "10. 각 회차의 판정은 그 회차 안의 내용만을 근거로 한다. 다른 회차에서 발견한 문제를\n"
+            "    엉뚱한 회차의 결과에 섞어 넣지 않는다.\n\n"
+            "[출력 형식]\n"
+            "회차마다 아래 형식으로 결과를 제시한다.\n\n"
+            "### {회차 제목}\n"
+            "발견된 항목이 있으면 아래 형식으로 나열한다.\n"
+            "- 유형: [세계관 / 캐릭터]\n"
+            "- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)\n"
+            "- 문제: 무엇이 왜 어긋나는지\n"
+            "- 제안: 어떻게 고치면 좋을지 짧게\n\n"
+            "발견된 항목이 없으면 \"이 회차에서는 설정과 어긋나는 지점이 발견되지 않았습니다.\"\n"
+            "라고만 답한다.\n\n"
+            "(선택한 회차 수만큼 반복)\n\n"
+            "과잉 지적하지 않는다. 확실한 것만 표시한다.\n\n"
+            f"[본문 - {episode_count}개 회차, 순서대로]\n"
             f"{text}\n\n"
             "[검사 결과]"
         )

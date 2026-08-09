@@ -18,7 +18,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260809-ad-dismiss-permanent">
+    <link rel="stylesheet" href="/styles.css?v=20260810-brainstorm-confirm">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
   </head>
   <body>
@@ -1107,7 +1107,7 @@
                     </button>
                     <button type="button" role="menuitem" data-analyze-action="dupcheck">
                       <strong>중복 체크</strong>
-                      <span>앞뒤 5회차와 같은 표현·비슷한 내용을 찾아요</span>
+                      <span>앞뒤 4회차와 같은 표현·비슷한 내용을 찾아요</span>
                     </button>
                     <div class="view-mode-dropdown-divider" id="analyzeCustomDivider" hidden></div>
                     <div id="analyzeCustomList" class="analyze-custom-list"></div>
@@ -1871,9 +1871,9 @@
               </div>
             </form>
 
-            <div id="aiResultWrap" class="ai-result-wrap is-empty">
+            <div id="aiResultWrap" class="ai-result-wrap is-empty tory-helper-results">
               <div class="ai-result-head">
-                <span class="ai-result-label">결과</span>
+                <span class="ai-result-label tory-helper-section-label">결과</span>
                 <div class="ai-result-head-actions">
                   <button type="button" class="secondary ai-result-expand-btn" id="aiResultHistoryButton" title="이전 결과 목록" aria-haspopup="dialog" aria-controls="aiResultHistoryModal">
                     히스토리
@@ -1888,6 +1888,22 @@
                 <span class="sr-only">AI 결과</span>
                 <textarea id="aiResult" rows="5" readonly placeholder="여기에서 답변을 보실 수 있어요"></textarea>
               </label>
+              <div id="continueStyleResults" class="continue-style-results tory-helper-results hidden" aria-label="이어서 쓰기 스타일 결과">
+                <p class="tory-helper-section-label">스타일별 초안</p>
+                <p class="tory-helper-hint">후킹형 · 전개형 · 전환형 중 하나를 골라 원고에 넣을 수 있어요.</p>
+                <div id="continueStyleTabs" class="continue-style-tabs tory-helper-tabs" role="tablist" aria-label="이어 쓰기 스타일">
+                  <button type="button" class="continue-style-tab is-active" role="tab" data-continue-style-tab="후킹형" aria-selected="true">후킹형</button>
+                  <button type="button" class="continue-style-tab" role="tab" data-continue-style-tab="전개형" aria-selected="false">전개형</button>
+                  <button type="button" class="continue-style-tab" role="tab" data-continue-style-tab="전환형" aria-selected="false">전환형</button>
+                </div>
+                <label class="ai-result-field" for="continueStyleResultBody">
+                  <span class="sr-only">선택한 스타일 이어 쓰기 결과</span>
+                  <textarea id="continueStyleResultBody" rows="6" readonly placeholder="스타일별 이어 쓰기 결과"></textarea>
+                </label>
+                <div class="continue-style-actions">
+                  <button type="button" class="primary compact-btn" id="continueStyleInsertButton">이 버전을 원고에 넣기</button>
+                </div>
+              </div>
               <div class="ai-result-actions">
                 <button type="button" class="secondary" id="aiCollectResultButton" title="이 결과를 토리 수집창고에 저장">수집</button>
                 <button type="button" class="secondary" id="aiCopyButton">복사</button>
@@ -2251,14 +2267,14 @@
       <button type="button" class="tory-cheer-close" id="toryCheerClose" title="닫기" aria-label="닫기">×</button>
     </div>
 
-    <div id="aiResultModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aiResultModalTitle">
+    <div id="aiResultModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="aiResultModalTitle">
       <div class="modal-backdrop" data-close-ai-result></div>
-      <div class="modal-card ai-result-modal-card">
+      <div class="modal-card ai-result-modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="aiResultModalTitle">SuperTORY 결과</h2>
+          <h2 id="aiResultModalTitle" class="tory-helper-title">SuperTORY 결과</h2>
           <button type="button" class="modal-close" data-close-ai-result title="닫기" aria-label="닫기">×</button>
         </div>
-        <p class="hint modal-hint">결과를 넓게 읽어요. 닫아도 「결과」옆 히스토리에서 다시 볼 수 있어요.</p>
+        <p class="hint modal-hint tory-helper-lead">결과를 넓게 읽어요. 닫아도 「결과」옆 히스토리에서 다시 볼 수 있어요.</p>
         <pre id="aiResultModalBody" class="ai-result-modal-body" tabindex="0" aria-label="AI 결과 본문"></pre>
         <div id="styleBlendOfferModal" class="style-blend-offer hidden" aria-label="스며듦 검사">
           <p class="style-blend-guide">
@@ -2311,39 +2327,34 @@
         <p class="hint modal-hint" id="aiToolModalLead"></p>
         <div id="aiToolModalBody" class="ai-tool-modal-body">
           <div id="foreshadowPanel" class="foreshadow-panel hidden" aria-label="복선·반전 검수">
-            <div class="foreshadow-panel-head">
-              <strong id="foreshadowPanelTitle">떡밥·복선 탐색기</strong>
-              <span class="hint" id="foreshadowPanelHint">등록 단서가 현재 원고에 잘 녹아 있는지, 미회수 떡밥을 짚습니다.</span>
-            </div>
-            <label class="foreshadow-field" id="foreshadowSelectLabel">검수할 복선
+            <!-- 제목/리드는 #aiToolModalTitle·#aiToolModalLead — 패널 안 중복 제목 없음 -->
+            <p class="tory-helper-callout" id="foreshadowPanelHint">「단서가 원고에 심겼는지」를 봐요. 반전이 설득력 있는지는 반전 &amp; 개연성 검사기를 이용해 주세요.</p>
+            <span id="foreshadowPanelTitle" class="sr-only">떡밥·복선 탐색기</span>
+            <label class="foreshadow-field tory-helper-section-label" id="foreshadowSelectLabel">검수할 복선
               <select id="foreshadowSelect" aria-label="등록된 복선 선택">
                 <option value="">복선을 선택하거나 아래에서 추가</option>
               </select>
             </label>
             <div class="foreshadow-edit-grid">
-              <label class="foreshadow-field" id="foreshadowTitleLabel">복선 제목
+              <label class="foreshadow-field tory-helper-section-label" id="foreshadowTitleLabel">복선 제목
                 <input id="foreshadowTitle" type="text" maxlength="120" placeholder="예: 집사의 배신" autocomplete="off">
               </label>
-              <label class="foreshadow-field" id="foreshadowTargetLabel">반전 목표 장
+              <label class="foreshadow-field tory-helper-section-label" id="foreshadowTargetLabel">반전 목표 장
                 <input id="foreshadowTarget" type="text" maxlength="80" placeholder="예: 12장" autocomplete="off">
               </label>
             </div>
-            <label class="foreshadow-field" id="foreshadowBuildupLabel">빌드업·단서 (한 줄에 하나)
+            <label class="foreshadow-field tory-helper-section-label" id="foreshadowBuildupLabel">빌드업·단서 (한 줄에 하나)
               <textarea id="foreshadowBuildup" rows="3" placeholder="2장: 수상한 태도&#10;6장: 밤중에 외출"></textarea>
             </label>
             <div class="foreshadow-actions">
               <button type="button" id="foreshadowSaveButton" class="secondary compact-btn">복선 저장</button>
               <button type="button" id="foreshadowDeleteButton" class="secondary compact-btn">선택 삭제</button>
             </div>
-            <p class="hint foreshadow-hint" id="foreshadowModeHint">단서를 심은 장·반전 전 원고를 연 뒤 실행하세요. (반전 장 평가가 아닙니다)</p>
           </div>
 
           <div id="continuePanel" class="foreshadow-panel continue-panel hidden" aria-label="이어서 쓰기 옵션">
-            <div class="foreshadow-panel-head">
-              <strong>이어 쓸 페이지</strong>
-              <span class="hint">원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.</span>
-            </div>
-            <fieldset class="continue-length-options continue-source-options" id="continueSourceOptions">
+            <p class="tory-helper-section-label">이어 쓸 페이지</p>
+            <fieldset class="continue-length-options continue-source-options tory-helper-options" id="continueSourceOptions">
               <legend class="sr-only">이어 쓸 페이지</legend>
               <label class="continue-length-option">
                 <input type="radio" name="continueSourceMode" value="current" checked>
@@ -2354,47 +2365,51 @@
                 <span>다른 회차 지정</span>
               </label>
             </fieldset>
-            <label class="foreshadow-field continue-other-scene-wrap hidden" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
+            <label class="foreshadow-field continue-other-scene-wrap tory-other-scene-wrap tory-helper-section-label" id="continueOtherSceneWrap" for="continueOtherSceneSelect">
               회차 선택
               <select id="continueOtherSceneSelect" aria-label="이어 쓸 회차 선택">
                 <option value="">회차를 선택하세요</option>
               </select>
             </label>
-            <p class="hint foreshadow-hint" id="continueSourceHint">지금 편집 중인 회차 끝에서 이어 씁니다.</p>
+            <p class="hint foreshadow-hint tory-helper-hint" id="continueSourceHint">지금 편집 중인 회차 끝에서 이어 씁니다.</p>
 
-            <div class="foreshadow-panel-head continue-length-head">
-              <strong>이어 쓸 분량</strong>
-            </div>
-            <fieldset class="continue-length-options" id="continueLengthOptions">
+            <p class="tory-helper-section-label continue-length-head">이어 쓸 분량</p>
+            <fieldset class="continue-length-options continue-length-chips tory-helper-options" id="continueLengthOptions">
               <legend class="sr-only">이어 쓸 분량</legend>
-              <label class="continue-length-option">
+              <label class="continue-length-option continue-length-chip">
                 <input type="radio" name="continueLengthMode" value="short" checked>
-                <span>짧게 (한두 문단)</span>
+                <span>짧게</span>
               </label>
-              <label class="continue-length-option">
+              <label class="continue-length-option continue-length-chip">
+                <input type="radio" name="continueLengthMode" value="medium">
+                <span>중간</span>
+              </label>
+              <label class="continue-length-option continue-length-chip">
+                <input type="radio" name="continueLengthMode" value="long">
+                <span>길게</span>
+              </label>
+              <label class="continue-length-option continue-length-chip">
                 <input type="radio" name="continueLengthMode" value="scene">
-                <span>길게 (한 씬 분량)</span>
+                <span>장면까지</span>
               </label>
-              <label class="continue-length-option">
+              <label class="continue-length-option continue-length-chip">
                 <input type="radio" name="continueLengthMode" value="proportional">
-                <span>원고 길이 비례</span>
+                <span>자동 조절</span>
               </label>
             </fieldset>
-            <label class="foreshadow-field">방향 힌트 (선택)
+            <p class="hint tory-helper-hint hidden" id="continueSceneUntilHint">분량과 상관없이, 장면이 자연스럽게 끝나는 지점까지 이어 써요.</p>
+            <label class="foreshadow-field tory-helper-section-label">방향 힌트 (선택)
               <textarea id="continueHint" rows="2" maxlength="500" placeholder="예: 대화 위주로 / 긴장감을 높여 줘 / 다음엔 편지가 도착한다"></textarea>
             </label>
           </div>
 
           <div id="rewritePanel" class="foreshadow-panel rewrite-panel hidden" aria-label="문장 다듬기">
-            <div class="foreshadow-panel-head">
-              <strong>다듬을 문장 입력 방식</strong>
-              <span class="hint">본문 선택 또는 직접 쓴 문장을 다듬을 수 있어요. 결과는 원문과 비교한 뒤 적용합니다.</span>
-            </div>
-            <p class="hint rewrite-guide-note" id="rewriteGuideNote">
+            <p class="tory-helper-callout rewrite-guide-note" id="rewriteGuideNote">
               토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
               대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
             </p>
-            <fieldset class="continue-length-options rewrite-source-options" id="rewriteSourceOptions">
+            <p class="tory-helper-section-label">다듬을 문장 입력 방식</p>
+            <fieldset class="continue-length-options rewrite-source-options tory-helper-options" id="rewriteSourceOptions">
               <legend class="sr-only">문장 입력 방식</legend>
               <label class="continue-length-option">
                 <input type="radio" name="rewriteSourceMode" value="selection" checked>
@@ -2405,10 +2420,7 @@
                 <span>직접 쓰기</span>
               </label>
             </fieldset>
-            <p class="hint foreshadow-hint" id="rewriteSelectionHint">
-              원고에서 다듬을 문장·문단을 드래그로 선택한 뒤 실행하세요. 우클릭 「문장 다듬기」도 동일합니다.
-            </p>
-            <label class="foreshadow-field rewrite-direct-wrap hidden" id="rewriteDirectWrap" for="rewriteDirectText">
+            <label class="foreshadow-field rewrite-direct-wrap tory-helper-section-label" id="rewriteDirectWrap" for="rewriteDirectText">
               다듬을 문장
               <textarea
                 id="rewriteDirectText"
@@ -2417,46 +2429,31 @@
                 placeholder="다듬고 싶은 문장·문단을 여기에 직접 입력하거나 붙여 넣으세요."
               ></textarea>
             </label>
-            <p class="hint foreshadow-hint hidden" id="rewriteDirectHint">
-              입력한 문장만 다듬습니다. 적용 시 선택 구간이 없으면 커서 위치에 넣거나 복사합니다.
+            <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectHint">
+              입력하신 문장만 따로 점검해 드려요.
             </p>
           </div>
 
           <div id="brainstormPanel" class="foreshadow-panel brainstorm-panel hidden" aria-label="브레인스토밍 옵션">
-            <div class="foreshadow-panel-head">
-              <strong>브레인스토밍</strong>
-              <span class="hint">현재 회차를 바탕으로 작품 확장 아이디어를 넓게 탐색합니다.</span>
-            </div>
-            <label class="foreshadow-field">주제 (선택)
-              <textarea id="brainstormTopic" rows="2" maxlength="500" placeholder="비워 두면 자유 확장 · 예: 새로운 조연 인물 / 세계관 확장 / 관계 구도 변화"></textarea>
-            </label>
-            <p class="hint foreshadow-hint">주제를 적으면 그 방향으로 집중하고, 비우면 플롯·인물·세계관·주제 등 여러 층위를 자유롭게 제안합니다.</p>
+            <!-- 주제 입력은 병합 팝업 #brainstormTargetModal 의 #brainstormTopic 사용 -->
+            <p class="hint tory-helper-hint">회차·주제는 브레인스토밍 설정 창에서 고를 수 있어요.</p>
           </div>
 
           <div id="worldDescPanel" class="foreshadow-panel world-desc-panel hidden" aria-label="세계관 묘사">
-            <div class="foreshadow-panel-head">
-              <strong>세계관 묘사</strong>
-              <span class="hint">묘사하려는 대상을 적으면, 이 작품 문체·설정에 맞는 문장을 제안합니다.</span>
-            </div>
-            <label class="foreshadow-field">묘사 대상 (필수)
+            <label class="foreshadow-field tory-helper-section-label">묘사 대상 (필수)
               <textarea id="worldDescSubject" rows="2" maxlength="500" placeholder="예: 왕궁 내부 묘사 / 마법 체계 설명 / 시장 골목의 분위기"></textarea>
             </label>
-            <p class="hint foreshadow-hint">무엇을 그릴지 구체적으로 적어 주세요. 현재 열린 회차는 문체 참고용으로 함께 보냅니다.</p>
+            <p class="hint foreshadow-hint tory-helper-hint">묘사할 대상을 구체적으로 적어 주세요. 지금 작성 중인 회차의 문체를 참고해서 써 드려요.</p>
           </div>
 
           <div id="subsynopsisPanel" class="foreshadow-panel subsynopsis-panel hidden" aria-label="투고·공모전용 시놉시스">
-            <div class="foreshadow-panel-head">
-              <strong>투고·공모전용 시놉시스</strong>
-              <span class="hint">줄거리 개요와 글자수 안내를 만들어 드려요.</span>
-            </div>
-            <p class="hint foreshadow-hint">
-              작품의 개요·설정 정보를 바탕으로 투고·공모전에 쓸 시놉시스 초안을 작성합니다.
-              실행하면 줄거리 개요와 글자수 안내가 이어집니다. 추가 요청 칸은 쓰지 않아도 됩니다.
+            <p class="tory-helper-callout" id="subsynopsisPanelHint">
+              실행하면 줄거리 개요와 글자수 제한을 정하는 창이 이어져요.
             </p>
           </div>
         </div>
         <div id="aiToolModalExtraPromptWrap" class="ai-tool-modal-extra hidden">
-          <label class="foreshadow-field" for="aiToolModalExtraPrompt">추가 요청 (선택)
+          <label class="foreshadow-field tory-helper-section-label" for="aiToolModalExtraPrompt">추가 요청 (선택)
             <textarea id="aiToolModalExtraPrompt" rows="3" maxlength="2000" placeholder="예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘."></textarea>
           </label>
         </div>
@@ -2577,14 +2574,14 @@
       </div>
     </div>
 
-    <div id="aiResultHistoryModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="aiResultHistoryTitle">
+    <div id="aiResultHistoryModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="aiResultHistoryTitle">
       <div class="modal-backdrop" data-close-ai-result-history></div>
-      <div class="modal-card tory-chat-history-modal-card ai-result-history-modal-card">
+      <div class="modal-card tory-chat-history-modal-card ai-result-history-modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="aiResultHistoryTitle">결과 히스토리</h2>
+          <h2 id="aiResultHistoryTitle" class="tory-helper-title">결과 히스토리</h2>
           <button type="button" class="modal-close" data-close-ai-result-history title="닫기" aria-label="닫기">×</button>
         </div>
-        <p class="hint modal-hint">이 작품에서 받은 SuperTORY 결과를 모아 둡니다. 항목을 누르면 다시 읽을 수 있어요.</p>
+        <p class="tory-helper-lead">이 작품에서 받은 SuperTORY 결과를 모아 둡니다. 항목을 누르면 다시 읽을 수 있어요.</p>
         <div id="aiResultHistoryList" class="tory-chat-history-list" aria-label="결과 히스토리 목록"></div>
         <div id="aiResultHistoryDetail" class="tory-chat-history-detail hidden" aria-label="결과 내용">
           <div class="tory-chat-history-detail-head">
@@ -2605,32 +2602,35 @@
       </div>
     </div>
 
-    <div id="rewriteCompareModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="rewriteCompareModalTitle">
+    <div id="rewriteCompareModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="rewriteCompareModalTitle">
       <div class="modal-backdrop" data-close-rewrite-compare></div>
-      <div class="modal-card rewrite-compare-modal-card">
+      <div class="modal-card rewrite-compare-modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="rewriteCompareModalTitle">문장 다듬기 비교</h2>
+          <h2 id="rewriteCompareModalTitle" class="tory-helper-title">문장 다듬기 비교</h2>
           <button type="button" class="modal-close" data-close-rewrite-compare title="닫기" aria-label="닫기">×</button>
         </div>
-        <p class="hint modal-hint rewrite-guide-note" id="rewriteCompareGuide">
+        <p class="tory-helper-callout rewrite-guide-note" id="rewriteCompareGuide">
           토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
           대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
         </p>
-        <p class="hint modal-hint" id="rewriteCompareHint">원문과 결과를 비교한 뒤 반영 여부를 고르세요.</p>
-        <div id="rewriteCompareReason" class="rewrite-compare-reason hidden" aria-live="polite"></div>
+        <p class="tory-helper-lead" id="rewriteCompareHint">원문과 결과를 비교한 뒤 반영 여부를 고르세요.</p>
+        <div id="rewriteCompareReason" class="rewrite-compare-reason tory-helper-hint hidden" aria-live="polite"></div>
         <div class="rewrite-compare-cols" aria-label="원문과 다듬은 결과 비교">
           <section class="rewrite-compare-pane rewrite-compare-original">
-            <header>원문</header>
+            <header class="tory-helper-section-label">원문</header>
             <pre id="rewriteCompareOriginal" class="rewrite-compare-text"></pre>
           </section>
           <section class="rewrite-compare-pane rewrite-compare-result">
-            <header id="rewriteCompareResultHeader">다듬은 결과</header>
+            <header id="rewriteCompareResultHeader" class="tory-helper-section-label">다듬은 결과</header>
             <div id="rewriteCompareAltList" class="rewrite-alt-list hidden" aria-label="대안 표현 목록"></div>
             <textarea id="rewriteCompareResult" class="rewrite-compare-text" rows="8" aria-label="다듬은 결과 (수정 가능)"></textarea>
           </section>
         </div>
+        <p id="rewriteCompareDirectNote" class="hint modal-hint rewrite-direct-result-note tory-helper-hint hidden">
+          원고의 특정 위치와 연결되어 있지 않아서, 마음에 들면 복사해서 직접 원하는 곳에 붙여넣어 주세요.
+        </p>
         <div id="rewriteStyleBlendOffer" class="style-blend-offer" aria-label="스며듦 검사">
-          <p class="style-blend-guide">
+          <p class="style-blend-guide tory-helper-callout">
             직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와
             잘 어우러지는지 별도 검사를 추천합니다.
           </p>
@@ -2639,9 +2639,27 @@
           <pre id="rewriteStyleBlendResult" class="style-blend-result hidden" aria-label="스며듦 검사 결과"></pre>
         </div>
         <div class="modal-actions rewrite-compare-actions">
-          <button type="button" class="primary" id="rewriteCompareApplyButton">자동 문장 대체</button>
+          <button type="button" class="primary" id="rewriteCompareApplyButton">이 문장으로 바꿔요</button>
           <button type="button" class="secondary" id="rewriteCompareCopyButton">복사</button>
-          <button type="button" class="secondary" id="rewriteCompareKeepButton">그대로 유지</button>
+          <button type="button" class="secondary" id="rewriteCompareKeepButton">그대로 둘래요</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="rewriteLengthWarnModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="rewriteLengthWarnTitle">
+      <div class="modal-backdrop" data-close-rewrite-length-warn></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="rewriteLengthWarnTitle" class="tory-helper-title">분량이 꽤 많아요</h2>
+          <button type="button" class="modal-close" data-close-rewrite-length-warn title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-callout" id="rewriteLengthWarnBody">
+          선택하신 분량이 꽤 많아요. 문장 다듬기는 짧은 구간을 세밀하게 손보는 기능이라,
+          너무 길면 원래 문체가 흐려질 수 있어요. 그래도 계속하시겠어요?
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-rewrite-length-warn id="rewriteLengthWarnCancel">선택 다시 하기</button>
+          <button type="button" class="primary" id="rewriteLengthWarnContinue">계속 진행</button>
         </div>
       </div>
     </div>
@@ -3611,14 +3629,14 @@
     </div>
 
     <!-- 투고·공모전용 시놉시스: 줄거리 개요 확인 -->
-    <div id="outlineSummaryGateModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="outlineSummaryGateTitle">
+    <div id="outlineSummaryGateModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="outlineSummaryGateTitle">
       <div class="modal-backdrop" data-close-outline-gate></div>
-      <div class="modal-card">
+      <div class="modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="outlineSummaryGateTitle">줄거리 개요 확인</h2>
+          <h2 id="outlineSummaryGateTitle" class="tory-helper-title">줄거리 개요 확인</h2>
           <button type="button" class="modal-close" data-close-outline-gate title="닫기">×</button>
         </div>
-        <p class="modal-hint">
+        <p class="tory-helper-lead">
           최소한의 줄거리(시작부터 결말까지)가 없으면 결과 정확도가
           낮을 수 있어요.
         </p>
@@ -3630,28 +3648,28 @@
     </div>
 
     <!-- 투고·공모전용 시놉시스: 글자수 제한 -->
-    <div id="submissionLengthModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="submissionLengthTitle">
+    <div id="submissionLengthModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="submissionLengthTitle">
       <div class="modal-backdrop" data-close-submission-length></div>
-      <div class="modal-card">
+      <div class="modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="submissionLengthTitle">글자수 제한</h2>
+          <h2 id="submissionLengthTitle" class="tory-helper-title">글자수 제한</h2>
           <button type="button" class="modal-close" data-close-submission-length title="닫기">×</button>
         </div>
-        <p class="hint modal-hint">제한이 없으면 비워 두세요. 비어 있으면 길이 제한 없이 작성합니다.</p>
-        <label class="submission-length-field">시놉시스 글자수 제한이 있나요? (없으면 비워두세요)
+        <p class="tory-helper-lead">제한이 없으면 비워 두세요. 비어 있으면 길이 제한 없이 작성합니다.</p>
+        <label class="submission-length-field tory-helper-section-label">시놉시스 글자수 제한이 있나요? (없으면 비워두세요)
           <span class="submission-length-input-row">
             <input id="submissionSynopsisLimitInput" type="number" min="1" max="20000" inputmode="numeric" placeholder="">
             <span>자</span>
           </span>
         </label>
-        <label class="submission-length-field">작품의도 글자수 제한이 있나요? (없으면 비워두세요)
+        <label class="submission-length-field tory-helper-section-label">작품의도 글자수 제한이 있나요? (없으면 비워두세요)
           <span class="submission-length-input-row">
             <input id="submissionIntentLimitInput" type="number" min="1" max="10000" inputmode="numeric" placeholder="">
             <span>자</span>
           </span>
         </label>
         <div class="modal-actions">
-          <button type="button" class="secondary" data-close-submission-length>취소</button>
+          <button type="button" class="secondary" data-close-submission-length>닫기</button>
           <button type="button" class="primary" id="submissionLengthConfirm">확인</button>
         </div>
       </div>
@@ -3747,7 +3765,7 @@
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="eink" aria-selected="false">리더기</button>
           </div>
           <div class="viewer-scope-tabs" id="viewerScopeTabs" role="group" aria-label="원고 범위">
-            <button type="button" class="viewer-scope-tab is-active" data-viewer-scope="scene" aria-pressed="true">현재 씬</button>
+            <button type="button" class="viewer-scope-tab is-active" data-viewer-scope="scene" aria-pressed="true">현재 회차</button>
             <button type="button" class="viewer-scope-tab" data-viewer-scope="full" aria-pressed="false">전체 원고</button>
           </div>
           <div class="viewer-head-actions">
@@ -3764,8 +3782,11 @@
         </div>
         <div class="viewer-toc-panel hidden" id="viewerTocPanel" aria-label="회차 목차">
           <div class="viewer-toc-head">
-            <strong>목차</strong>
-            <span class="hint" id="viewerTocHint">회차를 누르면 이동합니다</span>
+            <div class="viewer-toc-head-text">
+              <strong>목차</strong>
+              <span class="hint" id="viewerTocHint">회차를 누르면 이동합니다</span>
+            </div>
+            <button type="button" class="secondary compact-btn viewer-toc-close" id="viewerTocClose" title="목차 닫기" aria-label="목차 닫기">닫기</button>
           </div>
           <div class="viewer-toc-list" id="viewerTocList"></div>
         </div>
@@ -3922,23 +3943,254 @@
       </div>
     </div>
 
-    <div id="customAnalyzeModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="customAnalyzeModalTitle">
-      <div class="modal-backdrop" data-close-custom-analyze></div>
-      <div class="modal-card">
+    <div id="dupcheckTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="dupcheckTargetModalTitle">
+      <div class="modal-backdrop" data-close-dupcheck-target></div>
+      <div class="modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="customAnalyzeModalTitle">분석 항목 직접 추가</h2>
+          <h2 id="dupcheckTargetModalTitle" class="tory-helper-title">중복체크</h2>
+          <button type="button" class="modal-close" data-close-dupcheck-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">기준 회차의 앞뒤 4회차까지 함께 살펴, 겹치는 표현이나 설명을 찾아 드려요.</p>
+        <p class="tory-helper-question">어떤 회차를 확인할까요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="dupcheckTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="dupcheckTargetCurrentLabel">
+            <input type="radio" name="dupcheckTargetMode" value="current" checked id="dupcheckTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="dupcheckTargetMode" value="other" id="dupcheckTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="dupcheckOtherSceneWrap" for="dupcheckOtherSceneSelect">
+          회차 선택
+          <select id="dupcheckOtherSceneSelect" aria-label="중복 체크 기준 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-dupcheck-target>닫기</button>
+          <button type="button" class="primary" id="dupcheckTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="ideasTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="ideasTargetModalTitle">
+      <div class="modal-backdrop" data-close-ideas-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="ideasTargetModalTitle" class="tory-helper-title">다음 아이디어 제안</h2>
+          <button type="button" class="modal-close" data-close-ideas-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">막힌 지점에서 다음 전개로 이어질 아이디어를 제안해 드려요.</p>
+        <p class="tory-helper-question">다음 아이디어가 필요한 부분은 어디인가요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="ideasTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="ideasTargetCurrentLabel">
+            <input type="radio" name="ideasTargetMode" value="current" checked id="ideasTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="ideasTargetMode" value="other" id="ideasTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="ideasOtherSceneWrap" for="ideasOtherSceneSelect">
+          회차 선택
+          <select id="ideasOtherSceneSelect" aria-label="다음 아이디어 제안 기준 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-ideas-target>닫기</button>
+          <button type="button" class="primary" id="ideasTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="brainstormTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="brainstormTargetModalTitle">
+      <div class="modal-backdrop" data-close-brainstorm-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="brainstormTargetModalTitle" class="tory-helper-title">브레인스토밍</h2>
+          <button type="button" class="modal-close" data-close-brainstorm-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">막힌 지점에서, 여러 방향의 확장 아이디어를 자유롭게 탐색해요.</p>
+        <p class="tory-helper-section-label">회차 선택</p>
+        <fieldset class="continue-length-options tory-helper-options" id="brainstormTargetOptions">
+          <legend class="sr-only">회차 선택</legend>
+          <label class="continue-length-option" id="brainstormTargetCurrentLabel">
+            <input type="radio" name="brainstormTargetMode" value="current" checked id="brainstormTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="brainstormTargetMode" value="other" id="brainstormTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="brainstormOtherSceneWrap" for="brainstormOtherSceneSelect">
+          회차 선택
+          <select id="brainstormOtherSceneSelect" aria-label="브레인스토밍 기준 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <label class="foreshadow-field tory-helper-section-label" for="brainstormTopic">주제 (선택)
+          <textarea id="brainstormTopic" rows="2" maxlength="500" placeholder="비워 두면 자유 확장 · 예: 새로운 조연 인물 / 세계관 확장 / 관계 구도 변화"></textarea>
+        </label>
+        <p class="hint foreshadow-hint tory-helper-hint">주제를 적으면 그 방향으로 집중하고, 비우면 플롯·인물·세계관·주제 등 여러 층위를 자유롭게 제안합니다.</p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-brainstorm-target>닫기</button>
+          <button type="button" class="primary" id="brainstormTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="analyzeTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="analyzeTargetModalTitle">
+      <div class="modal-backdrop" data-close-analyze-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="analyzeTargetModalTitle" class="tory-helper-title">피드백 요청</h2>
+          <button type="button" class="modal-close" data-close-analyze-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead" id="analyzeTargetLead">
+          편집자 관점과 독자 관점, 두 가지 피드백을 함께 드려요.
+        </p>
+        <p class="tory-helper-question">어떤 회차를 피드백 받을까요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="analyzeTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="analyzeTargetCurrentLabel">
+            <input type="radio" name="analyzeTargetMode" value="current" checked id="analyzeTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="analyzeTargetMode" value="other" id="analyzeTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="analyzeTargetMode" value="multi" id="analyzeTargetMulti">
+            <span>다중 회차 지정</span>
+          </label>
+        </fieldset>
+        <p class="hint foreshadow-hint tory-helper-hint hidden" id="analyzeMultiHint">
+          여러 회차를 선택하면 각각이 아니라, 전체를 하나의 흐름으로 본 피드백을 드려요.
+        </p>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="analyzeOtherSceneWrap" for="analyzeOtherSceneSelect">
+          회차 선택
+          <select id="analyzeOtherSceneSelect" aria-label="피드백 기준 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="foreshadow-field hidden" id="analyzeMultiSceneWrap" aria-label="다중 회차 선택">
+          <span class="hint tory-helper-hint">최대 3개 · 비연속 선택 가능</span>
+          <div id="analyzeMultiSceneList" class="analyze-multi-scene-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-analyze-target>닫기</button>
+          <button type="button" class="primary" id="analyzeTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="summarizeMultiTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="summarizeMultiTargetModalTitle">
+      <div class="modal-backdrop" data-close-summarize-multi-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="summarizeMultiTargetModalTitle" class="tory-helper-title">회차요약</h2>
+          <button type="button" class="modal-close" data-close-summarize-multi-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">선택한 회차를 다시 읽지 않아도 되게 자세히 요약해요.</p>
+        <p class="tory-helper-question">어떤 회차를 요약해 드릴까요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="summarizeMultiTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="summarizeMultiTargetCurrentLabel">
+            <input type="radio" name="summarizeMultiTargetMode" value="current" checked id="summarizeMultiTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="summarizeMultiTargetMode" value="other" id="summarizeMultiTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="summarizeMultiTargetMode" value="multi" id="summarizeMultiTargetMulti">
+            <span>다중 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="summarizeMultiOtherSceneWrap" for="summarizeMultiOtherSceneSelect">
+          회차 선택
+          <select id="summarizeMultiOtherSceneSelect" aria-label="요약할 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="foreshadow-field hidden" id="summarizeMultiSceneWrap" aria-label="다중 회차 선택">
+          <span class="hint tory-helper-hint">최대 20개 · 비연속 선택 가능</span>
+          <div id="summarizeMultiSceneList" class="summarize-multi-scene-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-summarize-multi-target>닫기</button>
+          <button type="button" class="primary" id="summarizeMultiTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="worldscanTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="worldscanTargetModalTitle">
+      <div class="modal-backdrop" data-close-worldscan-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="worldscanTargetModalTitle" class="tory-helper-title">설정 붕괴 감지기</h2>
+          <button type="button" class="modal-close" data-close-worldscan-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">캐릭터나 세계관 설정이 원고 안에서 흔들리지 않았는지 짚어 드려요.</p>
+        <p class="tory-helper-question">어떤 회차의 설정 붕괴가 걱정되세요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="worldscanTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="worldscanTargetCurrentLabel">
+            <input type="radio" name="worldscanTargetMode" value="current" checked id="worldscanTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="worldscanTargetMode" value="other" id="worldscanTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="worldscanTargetMode" value="multi" id="worldscanTargetMulti">
+            <span>다중 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="worldscanOtherSceneWrap" for="worldscanOtherSceneSelect">
+          회차 선택
+          <select id="worldscanOtherSceneSelect" aria-label="설정 붕괴 검사 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="foreshadow-field hidden" id="worldscanMultiSceneWrap" aria-label="다중 회차 선택">
+          <span class="hint tory-helper-hint">최대 5개 · 비연속 선택 가능</span>
+          <div id="worldscanMultiSceneList" class="worldscan-multi-scene-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-worldscan-target>닫기</button>
+          <button type="button" class="primary" id="worldscanTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="customAnalyzeModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="customAnalyzeModalTitle">
+      <div class="modal-backdrop" data-close-custom-analyze></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="customAnalyzeModalTitle" class="tory-helper-title">분석 항목 직접 추가</h2>
           <button type="button" class="modal-close" data-close-custom-analyze title="닫기">×</button>
         </div>
-        <p class="hint modal-hint">자주 쓰는 분석 요청을 메뉴에 넣어 두고, 한 번에 실행할 수 있어요.</p>
+        <p class="tory-helper-lead">자주 쓰는 분석 요청을 메뉴에 넣어 두고, 한 번에 실행할 수 있어요.</p>
         <form id="customAnalyzeForm" class="bait-form">
-          <label>메뉴 이름
+          <label class="tory-helper-section-label">메뉴 이름
             <input id="customAnalyzeTitle" type="text" maxlength="40" placeholder="예: 문체 점검" required>
           </label>
-          <label>요청 내용
+          <label class="tory-helper-section-label">요청 내용
             <textarea id="customAnalyzePrompt" rows="4" maxlength="2000" placeholder="예: 현재 원고의 문체 일관성과 어색한 표현을 짚어 줘." required></textarea>
           </label>
           <div class="modal-actions">
-            <button type="button" class="secondary" data-close-custom-analyze>취소</button>
+            <button type="button" class="secondary" data-close-custom-analyze>닫기</button>
             <button type="submit" class="primary" id="customAnalyzeSaveButton">메뉴에 추가</button>
           </div>
         </form>
@@ -4173,6 +4425,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260809-ad-dismiss-permanent"></script>
+    <script src="/app.js?v=20260810-brainstorm-confirm"></script>
   </body>
 </html>

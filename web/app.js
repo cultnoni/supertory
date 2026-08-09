@@ -6079,6 +6079,901 @@ async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
   await runFocusedAnalysis({ alreadyFocused: true });
 }
 
+const ANALYZE_MULTI_MAX = 3;
+
+/** "current" | "other" | "multi" */
+function getAnalyzeTargetMode() {
+  const checked = document.querySelector('input[name="analyzeTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  if (raw === "other" || raw === "multi") return raw;
+  return "current";
+}
+
+function renderAnalyzeEpisodeOptions() {
+  const select = $("analyzeOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function renderAnalyzeMultiEpisodeOptions() {
+  const host = $("analyzeMultiSceneList");
+  if (!host) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    return;
+  }
+  const prevChecked = new Set(
+    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((el) => String(el.value || "")),
+  );
+  host.innerHTML = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const checked = prevChecked.has(String(id)) ? " checked" : "";
+    return (
+      `<label class="tory-multi-episode-option analyze-multi-option">`
+      + `<input type="checkbox" name="analyzeMultiScene" value="${id}"${checked}>`
+      + `<span>${escapeHtml(label)}</span>`
+      + `</label>`
+    );
+  }).join("");
+  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+    box.addEventListener("change", () => {
+      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
+      if (checked.length > ANALYZE_MULTI_MAX) {
+        box.checked = false;
+        toast(`다중 회차는 최대 ${ANALYZE_MULTI_MAX}개까지 선택할 수 있어요.`);
+      }
+    });
+  });
+}
+
+/** Keep "다른 회차" select always visible; enable only when mode is other. */
+function setOtherSceneSelectActive(wrapId, selectId, active) {
+  const wrap = $(wrapId);
+  const select = $(selectId);
+  wrap?.classList.remove("hidden");
+  wrap?.classList.toggle("is-muted", !active);
+  if (select) select.disabled = !active;
+}
+
+function updateAnalyzeTargetUi() {
+  const mode = getAnalyzeTargetMode();
+  setOtherSceneSelectActive("analyzeOtherSceneWrap", "analyzeOtherSceneSelect", mode === "other");
+  $("analyzeMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
+  $("analyzeMultiHint")?.classList.toggle("hidden", mode !== "multi");
+  renderAnalyzeEpisodeOptions();
+  if (mode === "multi") renderAnalyzeMultiEpisodeOptions();
+}
+
+function openAnalyzeTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("analyzeTargetCurrent");
+  const otherRadio = $("analyzeTargetOther");
+  const multiRadio = $("analyzeTargetMulti");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  }
+  updateAnalyzeTargetUi();
+  $("analyzeTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const mode = getAnalyzeTargetMode();
+    if (mode === "other") $("analyzeOtherSceneSelect")?.focus();
+    else if (mode === "multi") $("analyzeMultiSceneList")?.querySelector("input")?.focus();
+    else $("analyzeTargetConfirm")?.focus();
+  });
+}
+
+function closeAnalyzeTargetModal() {
+  $("analyzeTargetModal")?.classList.add("hidden");
+}
+
+function resolveAnalyzeSelectedSceneIds() {
+  const mode = getAnalyzeTargetMode();
+  if (mode === "current") {
+    const id = state.sceneId ? Number(state.sceneId) : 0;
+    return id ? [id] : [];
+  }
+  if (mode === "other") {
+    const n = Number($("analyzeOtherSceneSelect")?.value || 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  const boxes = Array.from(
+    document.querySelectorAll('#analyzeMultiSceneList input[type="checkbox"]:checked'),
+  );
+  return boxes
+    .map((el) => Number(el.value || 0))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .slice(0, ANALYZE_MULTI_MAX);
+}
+
+function areContiguousInSequence(sceneIds) {
+  if (!Array.isArray(sceneIds) || sceneIds.length < 2) return false;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const order = new Map(sequence.map((ep, i) => [Number(ep.sceneId), i]));
+  const indices = sceneIds
+    .map((id) => order.get(Number(id)))
+    .filter((i) => i != null)
+    .sort((a, b) => a - b);
+  if (indices.length !== sceneIds.length) return false;
+  for (let i = 1; i < indices.length; i += 1) {
+    if (indices[i] !== indices[i - 1] + 1) return false;
+  }
+  return true;
+}
+
+function confirmAnalyzeTarget() {
+  let ids = resolveAnalyzeSelectedSceneIds();
+  if (!ids.length) {
+    toast(
+      getAnalyzeTargetMode() === "multi"
+        ? "피드백할 회차를 한 개 이상 선택해 주세요."
+        : "기준 회차를 선택해 주세요.",
+    );
+    return;
+  }
+  ids = typeof sortSceneIdsByEpisodeSequence === "function"
+    ? sortSceneIdsByEpisodeSequence(ids)
+    : ids;
+  closeAnalyzeTargetModal();
+  runAnalyzeFromSelection(ids).catch(handleError);
+}
+
+function setupAnalyzeTargetModal() {
+  const host = $("analyzeTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="analyzeTargetMode"]')) return;
+      updateAnalyzeTargetUi();
+    });
+  }
+  if ($("analyzeTargetConfirm") && $("analyzeTargetConfirm").dataset.bound !== "1") {
+    $("analyzeTargetConfirm").dataset.bound = "1";
+    $("analyzeTargetConfirm").addEventListener("click", () => confirmAnalyzeTarget());
+  }
+  document.querySelectorAll("[data-close-analyze-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeAnalyzeTargetModal);
+  });
+  if (!document.documentElement.dataset.analyzeTargetEscBound) {
+    document.documentElement.dataset.analyzeTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("analyzeTargetModal") && !$("analyzeTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeAnalyzeTargetModal();
+      }
+    });
+  }
+}
+
+async function runAnalyzeFromSelection(sceneIds) {
+  const ids = (Array.isArray(sceneIds) ? sceneIds : [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .slice(0, ANALYZE_MULTI_MAX);
+  if (!ids.length) {
+    toast("피드백할 회차를 선택해 주세요.");
+    return;
+  }
+  if (ids.length === 1) {
+    await runFocusedAnalysisForTarget(ids[0]);
+    return;
+  }
+  if (areContiguousInSequence(ids)) {
+    await runFocusedAnalysisMulti(ids);
+    return;
+  }
+  await runFocusedAnalysisBatch(ids);
+}
+
+/** Single selected episode → existing mode "analyze" (prompt builder unchanged). */
+async function runFocusedAnalysisForTarget(sceneId) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  let base;
+  try {
+    base = await loadSceneManuscriptForAssist(sceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  if (!base.plain) {
+    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    return;
+  }
+
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "피드백 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "피드백 요청 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "analyze";
+  updateForeshadowPanelVisibility();
+  if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const assistBody = {
+      mode: "analyze",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: base.plain,
+      prompt: "",
+      user_prompt: "",
+      focus_scene_only: true,
+      tory_focus: true,
+      focus_scene_id: Number(sceneId),
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "analyze", base.plain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "analyze" });
+    toast("피드백 요청이 끝났어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/** Non-contiguous 2–3 episodes: individual analyze calls, joined with separators. */
+async function runFocusedAnalysisBatch(sceneIds) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const ids = (Array.isArray(sceneIds) ? sceneIds : []).slice(0, ANALYZE_MULTI_MAX);
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "피드백 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "피드백 요청 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "analyze";
+  updateForeshadowPanelVisibility();
+  if ($("aiResult")) $("aiResult").value = `${ids.length}개 회차를 각각 살펴보는 중…`;
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  const blocks = [];
+  try {
+    for (let i = 0; i < ids.length; i += 1) {
+      const id = ids[i];
+      const ep = sequence.find((item) => Number(item.sceneId) === Number(id));
+      let base;
+      try {
+        base = await loadSceneManuscriptForAssist(id);
+      } catch (_) {
+        continue;
+      }
+      if (!base.plain) continue;
+      const label = `${ep?.index || "?"}화 · ${base.title || ep?.label || id}`;
+      if ($("aiResult")) {
+        $("aiResult").value = `${i + 1}/${ids.length} · ${label} 피드백 중…`;
+      }
+      const assistBody = {
+        mode: "analyze",
+        project_title: project?.title || "",
+        purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+        main_genre: mainGenre,
+        sub_genre: subGenre,
+        main_genre_label: mainGenreLabel(mainGenre),
+        sub_genre_label: subGenreLabel(mainGenre, subGenre),
+        keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+        scene_title: base.title || "",
+        scene_synopsis: base.synopsis || "",
+        scene_content: base.plain,
+        prompt: "",
+        user_prompt: "",
+        focus_scene_only: true,
+        tory_focus: true,
+        focus_scene_id: Number(id),
+        persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+        project_id: state.projectId || null,
+        ...buildToryProjectContextPayload(),
+      };
+      await attachIndexedPromptToAssistBody(assistBody, "analyze", base.plain);
+      const result = await api("/api/ai/assist", {
+        method: "POST",
+        body: JSON.stringify(assistBody),
+      });
+      blocks.push(`===== ${label} =====\n${result.text || "(결과 없음)"}`);
+    }
+    if (!blocks.length) {
+      toast("선택한 회차 원고가 비어 있어요.");
+      return;
+    }
+    const text = blocks.join("\n\n");
+    if ($("aiResult")) $("aiResult").value = text;
+    revealAiAssistResult({ openModal: true, mode: "analyze" });
+    toast(`피드백 요청이 끝났어요. · ${blocks.length}회차(개별)`);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/** Contiguous 2–3 episodes → mode "analyze_multi", single call. */
+async function runFocusedAnalysisMulti(sceneIds) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const ids = (Array.isArray(sceneIds) ? sceneIds : []).slice(0, ANALYZE_MULTI_MAX);
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const episodes = [];
+  for (const id of ids) {
+    try {
+      const loaded = await loadSceneManuscriptForAssist(id);
+      if (!loaded.plain) continue;
+      const ep = sequence.find((item) => Number(item.sceneId) === Number(id));
+      const title = loaded.title || ep?.label || ep?.shortLabel || `${ep?.index || "?"}화`;
+      const plain = loaded.plain.length > 12000 ? loaded.plain.slice(-12000) : loaded.plain;
+      episodes.push({
+        sceneId: id,
+        title,
+        plain,
+        index: ep?.index,
+      });
+    } catch (_) {
+      /* skip */
+    }
+  }
+  if (episodes.length < 2) {
+    if (episodes.length === 1) {
+      await runFocusedAnalysisForTarget(episodes[0].sceneId);
+    } else {
+      toast("선택한 회차 원고가 비어 있어요.");
+    }
+    return;
+  }
+
+  const combined = episodes.map((ep) => `### ${ep.title}\n${ep.plain}\n\n`).join("");
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "피드백 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "피드백 요청 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "analyze";
+  updateForeshadowPanelVisibility();
+  if ($("aiResult")) {
+    $("aiResult").value = `${episodes.length}개 연속 회차를 한 흐름으로 살펴보는 중…`;
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const assistBody = {
+      mode: "analyze_multi",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: episodes.map((ep) => ep.title).join(", "),
+      scene_synopsis: "",
+      scene_content: combined,
+      episode_count: episodes.length,
+      prompt: "",
+      user_prompt: "",
+      focus_scene_only: true,
+      tory_focus: true,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "analyze_multi", combined);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "analyze_multi" });
+    toast(`피드백 요청이 끝났어요. · ${episodes.length}회차(연속)`);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/* ── 회차 요약 (analyze 메뉴 → summarize / summarize_multi) ── */
+const SUMMARIZE_MULTI_MAX = 20;
+const SUMMARIZE_MULTI_WARN_AT = 10;
+
+/** "current" | "other" | "multi" */
+function getSummarizeMultiTargetMode() {
+  const checked = document.querySelector('input[name="summarizeMultiTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  if (raw === "other" || raw === "multi") return raw;
+  return "current";
+}
+
+function renderSummarizeMultiEpisodeOptions() {
+  const select = $("summarizeMultiOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function renderSummarizeMultiCheckboxList() {
+  const host = $("summarizeMultiSceneList");
+  if (!host) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    return;
+  }
+  const prevChecked = new Set(
+    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((el) => String(el.value || "")),
+  );
+  host.innerHTML = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const checked = prevChecked.has(String(id)) ? " checked" : "";
+    return (
+      `<label class="tory-multi-episode-option summarize-multi-option">`
+      + `<input type="checkbox" name="summarizeMultiScene" value="${id}"${checked}>`
+      + `<span>${escapeHtml(label)}</span>`
+      + `</label>`
+    );
+  }).join("");
+  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+    box.addEventListener("change", () => {
+      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
+      if (checked.length > SUMMARIZE_MULTI_MAX) {
+        box.checked = false;
+        toast(`다중 회차는 최대 ${SUMMARIZE_MULTI_MAX}개까지 선택할 수 있어요.`);
+        return;
+      }
+      if (checked.length >= SUMMARIZE_MULTI_WARN_AT && box.checked) {
+        toast(`${checked.length}개 회차예요. 요약에 시간이 좀 걸릴 수 있어요.`);
+      }
+    });
+  });
+}
+
+function updateSummarizeMultiTargetUi() {
+  const mode = getSummarizeMultiTargetMode();
+  setOtherSceneSelectActive(
+    "summarizeMultiOtherSceneWrap",
+    "summarizeMultiOtherSceneSelect",
+    mode === "other",
+  );
+  $("summarizeMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
+  renderSummarizeMultiEpisodeOptions();
+  if (mode === "multi") renderSummarizeMultiCheckboxList();
+}
+
+function openSummarizeMultiTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("summarizeMultiTargetCurrent");
+  const otherRadio = $("summarizeMultiTargetOther");
+  const multiRadio = $("summarizeMultiTargetMulti");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  }
+  updateSummarizeMultiTargetUi();
+  $("summarizeMultiTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const mode = getSummarizeMultiTargetMode();
+    if (mode === "other") $("summarizeMultiOtherSceneSelect")?.focus();
+    else if (mode === "multi") $("summarizeMultiSceneList")?.querySelector("input")?.focus();
+    else $("summarizeMultiTargetConfirm")?.focus();
+  });
+}
+
+function closeSummarizeMultiTargetModal() {
+  $("summarizeMultiTargetModal")?.classList.add("hidden");
+}
+
+function resolveSummarizeMultiSelectedSceneIds() {
+  const mode = getSummarizeMultiTargetMode();
+  if (mode === "current") {
+    const id = state.sceneId ? Number(state.sceneId) : 0;
+    return id ? [id] : [];
+  }
+  if (mode === "other") {
+    const n = Number($("summarizeMultiOtherSceneSelect")?.value || 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  const boxes = Array.from(
+    document.querySelectorAll('#summarizeMultiSceneList input[type="checkbox"]:checked'),
+  );
+  return boxes
+    .map((el) => Number(el.value || 0))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .slice(0, SUMMARIZE_MULTI_MAX);
+}
+
+function confirmSummarizeMultiTarget() {
+  let ids = resolveSummarizeMultiSelectedSceneIds();
+  if (!ids.length) {
+    toast(
+      getSummarizeMultiTargetMode() === "multi"
+        ? "요약할 회차를 한 개 이상 선택해 주세요."
+        : "기준 회차를 선택해 주세요.",
+    );
+    return;
+  }
+  ids = typeof sortSceneIdsByEpisodeSequence === "function"
+    ? sortSceneIdsByEpisodeSequence(ids)
+    : ids;
+  if (ids.length >= SUMMARIZE_MULTI_WARN_AT) {
+    toast(`${ids.length}개 회차 요약은 시간이 좀 걸릴 수 있어요.`);
+  }
+  closeSummarizeMultiTargetModal();
+  if (ids.length === 1) {
+    runDetailedSceneSummaryForTarget(ids[0]).catch(handleError);
+  } else {
+    runDetailedSceneSummaryMulti(ids).catch(handleError);
+  }
+}
+
+function setupSummarizeMultiTargetModal() {
+  const host = $("summarizeMultiTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="summarizeMultiTargetMode"]')) return;
+      updateSummarizeMultiTargetUi();
+    });
+  }
+  if ($("summarizeMultiTargetConfirm") && $("summarizeMultiTargetConfirm").dataset.bound !== "1") {
+    $("summarizeMultiTargetConfirm").dataset.bound = "1";
+    $("summarizeMultiTargetConfirm").addEventListener("click", () => confirmSummarizeMultiTarget());
+  }
+  document.querySelectorAll("[data-close-summarize-multi-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeSummarizeMultiTargetModal);
+  });
+  if (!document.documentElement.dataset.summarizeMultiTargetEscBound) {
+    document.documentElement.dataset.summarizeMultiTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("summarizeMultiTargetModal") && !$("summarizeMultiTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeSummarizeMultiTargetModal();
+      }
+    });
+  }
+}
+
+/** Single episode → existing mode "summarize" (prompt builder unchanged). */
+async function runDetailedSceneSummaryForTarget(sceneId) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  let base;
+  try {
+    base = await loadSceneManuscriptForAssist(sceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  if (!base.plain) {
+    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    return;
+  }
+
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "요약 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "회차 요약 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "summarize";
+  updateForeshadowPanelVisibility();
+  if ($("aiResult")) $("aiResult").value = "회차를 자세히 요약하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const plain = base.plain.length > 12000 ? base.plain.slice(-12000) : base.plain;
+    const assistBody = {
+      mode: "summarize",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: plain,
+      task_prompt: buildDetailedSceneSummaryPrompt(plain),
+      prompt: "",
+      user_prompt: "",
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    // summarize intentionally skips project index (same as panel mode).
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "summarize" });
+    toast("회차 요약을 받았어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/**
+ * 2–20 episodes (contiguous or not) → mode "summarize_multi", single LLM call.
+ * Does not batch; does not alter single-path summarize.
+ */
+async function runDetailedSceneSummaryMulti(sceneIds) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const ids = (
+    typeof sortSceneIdsByEpisodeSequence === "function"
+      ? sortSceneIdsByEpisodeSequence(sceneIds)
+      : (Array.isArray(sceneIds) ? sceneIds : [])
+  )
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .slice(0, SUMMARIZE_MULTI_MAX);
+  if (ids.length < 2) {
+    if (ids.length === 1) {
+      await runDetailedSceneSummaryForTarget(ids[0]);
+    } else {
+      toast("요약할 회차를 선택해 주세요.");
+    }
+    return;
+  }
+
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const episodes = [];
+  for (const id of ids) {
+    try {
+      const loaded = await loadSceneManuscriptForAssist(id);
+      if (!loaded.plain) continue;
+      const ep = sequence.find((item) => Number(item.sceneId) === Number(id));
+      const title = loaded.title || ep?.label || ep?.shortLabel || `${ep?.index || "?"}화`;
+      const plain = loaded.plain.length > 12000 ? loaded.plain.slice(-12000) : loaded.plain;
+      episodes.push({ sceneId: id, title, plain });
+    } catch (_) {
+      /* skip */
+    }
+  }
+  if (!episodes.length) {
+    toast("선택한 회차 원고가 비어 있어요.");
+    return;
+  }
+  if (episodes.length === 1) {
+    await runDetailedSceneSummaryForTarget(episodes[0].sceneId);
+    return;
+  }
+
+  const combined = episodes.map((ep) => `### ${ep.title}\n${ep.plain}\n\n`).join("");
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "요약 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = "회차 요약 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "summarize";
+  updateForeshadowPanelVisibility();
+  if ($("aiResult")) {
+    $("aiResult").value = `${episodes.length}개 회차를 자세히 요약하는 중…`;
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const assistBody = {
+      mode: "summarize_multi",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+      scene_title: episodes.map((ep) => ep.title).join(", "),
+      scene_synopsis: "",
+      scene_content: combined,
+      episode_count: episodes.length,
+      task_prompt: buildDetailedSceneSummaryMultiPrompt(combined, episodes.length),
+      prompt: "",
+      user_prompt: "",
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    // summarize_multi: no project index (same as single summarize).
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "summarize_multi" });
+    toast(`회차 요약을 받았어요. · ${episodes.length}회차`);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
 /** Feedback request (analyze): editor + reader view of the current scene. */
 async function runFocusedAnalysis(options = {}) {
   if (!state.projectId) {
@@ -6092,7 +6987,7 @@ async function runFocusedAnalysis(options = {}) {
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    toast("현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
     return;
   }
 
@@ -6538,28 +7433,813 @@ function collectLocalDuplicateHits(currentPlain, neighbors) {
   return hits;
 }
 
-/**
- * Duplicate check: compare current episode with ±4 neighbors for
- * repeated expressions (within episode) and overlapping explanations (neighbors).
- */
-async function runDuplicateCheck() {
+/** "current" | "other" — which episode to use as dupcheck baseline. */
+function getDupcheckTargetMode() {
+  const checked = document.querySelector('input[name="dupcheckTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  return raw === "other" ? "other" : "current";
+}
+
+function renderDupcheckEpisodeOptions() {
+  const select = $("dupcheckOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function updateDupcheckTargetUi() {
+  const other = getDupcheckTargetMode() === "other";
+  setOtherSceneSelectActive("dupcheckOtherSceneWrap", "dupcheckOtherSceneSelect", other);
+  renderDupcheckEpisodeOptions();
+}
+
+/** Open episode picker for panel-driven 중복 체크 (does not run the scan yet). */
+function openDupcheckTargetModal() {
   if (!state.projectId) {
     toast("먼저 작품을 선택해 주세요.");
     return;
   }
-  if (!state.sceneId) {
-    toast("체크할 원고(씬)를 먼저 열어 주세요.");
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("dupcheckTargetCurrent");
+  const otherRadio = $("dupcheckTargetOther");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+  }
+  updateDupcheckTargetUi();
+  $("dupcheckTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    if (getDupcheckTargetMode() === "other") {
+      $("dupcheckOtherSceneSelect")?.focus();
+    } else {
+      $("dupcheckTargetConfirm")?.focus();
+    }
+  });
+}
+
+function closeDupcheckTargetModal() {
+  $("dupcheckTargetModal")?.classList.add("hidden");
+}
+
+function confirmDupcheckTarget() {
+  let sceneId = null;
+  if (getDupcheckTargetMode() === "other") {
+    const n = Number($("dupcheckOtherSceneSelect")?.value || 0);
+    sceneId = Number.isFinite(n) && n > 0 ? n : null;
+    if (!sceneId) {
+      toast("기준 회차를 선택해 주세요.");
+      $("dupcheckOtherSceneSelect")?.focus();
+      return;
+    }
+  } else {
+    sceneId = state.sceneId ? Number(state.sceneId) : null;
+    if (!sceneId) {
+      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      return;
+    }
+  }
+  closeDupcheckTargetModal();
+  runDuplicateCheck(sceneId).catch(handleError);
+}
+
+function setupDupcheckTargetModal() {
+  const host = $("dupcheckTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="dupcheckTargetMode"]')) return;
+      updateDupcheckTargetUi();
+    });
+  }
+  if ($("dupcheckTargetConfirm") && $("dupcheckTargetConfirm").dataset.bound !== "1") {
+    $("dupcheckTargetConfirm").dataset.bound = "1";
+    $("dupcheckTargetConfirm").addEventListener("click", () => confirmDupcheckTarget());
+  }
+  document.querySelectorAll("[data-close-dupcheck-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeDupcheckTargetModal);
+  });
+  if (!document.documentElement.dataset.dupcheckTargetEscBound) {
+    document.documentElement.dataset.dupcheckTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("dupcheckTargetModal") && !$("dupcheckTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeDupcheckTargetModal();
+      }
+    });
+  }
+}
+
+/** Fixed UI notice for ideas_next_exists results (not part of the LLM prompt). */
+const IDEAS_NEXT_EXISTS_RESULT_NOTICE =
+  "토리는 전개를 억지로 바꾸지 않아요. 이미 충분히 완성도가 높다고 판단되면, 그 점을 먼저 말씀드리고 그래도 참고할 만한 다른 아이디어를 함께 제안해 드려요. 최종 선택은 작가님 몫입니다.";
+
+/** "current" | "other" — baseline episode for 다음 아이디어 제안. */
+function getIdeasTargetMode() {
+  const checked = document.querySelector('input[name="ideasTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  return raw === "other" ? "other" : "current";
+}
+
+function renderIdeasEpisodeOptions() {
+  const select = $("ideasOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
     return;
   }
-  const sceneContent = getEditorContent() || "";
-  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
-  if (!scenePlain) {
-    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요.");
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function updateIdeasTargetUi() {
+  const other = getIdeasTargetMode() === "other";
+  setOtherSceneSelectActive("ideasOtherSceneWrap", "ideasOtherSceneSelect", other);
+  renderIdeasEpisodeOptions();
+}
+
+function openIdeasTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("ideasTargetCurrent");
+  const otherRadio = $("ideasTargetOther");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+  }
+  updateIdeasTargetUi();
+  $("ideasTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    if (getIdeasTargetMode() === "other") {
+      $("ideasOtherSceneSelect")?.focus();
+    } else {
+      $("ideasTargetConfirm")?.focus();
+    }
+  });
+}
+
+function closeIdeasTargetModal() {
+  $("ideasTargetModal")?.classList.add("hidden");
+}
+
+function confirmIdeasTarget() {
+  let sceneId = null;
+  if (getIdeasTargetMode() === "other") {
+    const n = Number($("ideasOtherSceneSelect")?.value || 0);
+    sceneId = Number.isFinite(n) && n > 0 ? n : null;
+    if (!sceneId) {
+      toast("기준 회차를 선택해 주세요.");
+      $("ideasOtherSceneSelect")?.focus();
+      return;
+    }
+  } else {
+    sceneId = state.sceneId ? Number(state.sceneId) : null;
+    if (!sceneId) {
+      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      return;
+    }
+  }
+  closeIdeasTargetModal();
+  runNextIdeaSuggestion(sceneId).catch(handleError);
+}
+
+function setupIdeasTargetModal() {
+  const host = $("ideasTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="ideasTargetMode"]')) return;
+      updateIdeasTargetUi();
+    });
+  }
+  if ($("ideasTargetConfirm") && $("ideasTargetConfirm").dataset.bound !== "1") {
+    $("ideasTargetConfirm").dataset.bound = "1";
+    $("ideasTargetConfirm").addEventListener("click", () => confirmIdeasTarget());
+  }
+  document.querySelectorAll("[data-close-ideas-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeIdeasTargetModal);
+  });
+  if (!document.documentElement.dataset.ideasTargetEscBound) {
+    document.documentElement.dataset.ideasTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("ideasTargetModal") && !$("ideasTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeIdeasTargetModal();
+      }
+    });
+  }
+}
+
+/** Scene id chosen in brainstormTargetModal (before #aiToolModal topic panel). */
+let brainstormTargetSceneId = null;
+
+/** "current" | "other" — baseline episode for 브레인스토밍. */
+function getBrainstormTargetMode() {
+  const checked = document.querySelector('input[name="brainstormTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  return raw === "other" ? "other" : "current";
+}
+
+function renderBrainstormEpisodeOptions() {
+  const select = $("brainstormOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function updateBrainstormTargetUi() {
+  const other = getBrainstormTargetMode() === "other";
+  setOtherSceneSelectActive("brainstormOtherSceneWrap", "brainstormOtherSceneSelect", other);
+  renderBrainstormEpisodeOptions();
+}
+
+function openBrainstormTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("brainstormTargetCurrent");
+  const otherRadio = $("brainstormTargetOther");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+  }
+  updateBrainstormTargetUi();
+  $("brainstormTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    if (getBrainstormTargetMode() === "other") {
+      $("brainstormOtherSceneSelect")?.focus();
+    } else {
+      $("brainstormTargetConfirm")?.focus();
+    }
+  });
+}
+
+function closeBrainstormTargetModal() {
+  $("brainstormTargetModal")?.classList.add("hidden");
+}
+
+function confirmBrainstormTarget() {
+  let sceneId = null;
+  if (getBrainstormTargetMode() === "other") {
+    const n = Number($("brainstormOtherSceneSelect")?.value || 0);
+    sceneId = Number.isFinite(n) && n > 0 ? n : null;
+    if (!sceneId) {
+      toast("기준 회차를 선택해 주세요.");
+      $("brainstormOtherSceneSelect")?.focus();
+      return;
+    }
+  } else {
+    sceneId = state.sceneId ? Number(state.sceneId) : null;
+    if (!sceneId) {
+      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      return;
+    }
+  }
+  brainstormTargetSceneId = sceneId;
+  closeBrainstormTargetModal();
+  // 1-step UI: episode + topic already in this modal → run immediately.
+  runBrainstormSuggestion().catch(handleError);
+}
+
+function setupBrainstormTargetModal() {
+  const host = $("brainstormTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="brainstormTargetMode"]')) return;
+      updateBrainstormTargetUi();
+    });
+  }
+  if ($("brainstormTargetConfirm") && $("brainstormTargetConfirm").dataset.bound !== "1") {
+    $("brainstormTargetConfirm").dataset.bound = "1";
+    $("brainstormTargetConfirm").addEventListener("click", () => confirmBrainstormTarget());
+  }
+  document.querySelectorAll("[data-close-brainstorm-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeBrainstormTargetModal);
+  });
+  if (!document.documentElement.dataset.brainstormTargetEscBound) {
+    document.documentElement.dataset.brainstormTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("brainstormTargetModal") && !$("brainstormTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeBrainstormTargetModal();
+      }
+    });
+  }
+}
+
+/**
+ * Run brainstorm for the episode picked in brainstormTargetModal.
+ * - No next episode / empty next → mode "brainstorm" (existing prompt).
+ * - Next has content → mode "brainstorm_next_exists" (C/D prompts).
+ */
+async function runBrainstormSuggestion() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const baseSceneId = Number(brainstormTargetSceneId || state.sceneId);
+  if (!baseSceneId) {
+    toast("브레인스토밍할 회차를 먼저 선택해 주세요.");
+    openBrainstormTargetModal();
+    return;
+  }
+
+  let base;
+  try {
+    base = await loadSceneManuscriptForAssist(baseSceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  if (!base.plain) {
+    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 시도해 주세요.");
     return;
   }
 
   const sequence = getEpisodeSequence();
-  const idx = findEpisodeIndex(state.sceneId, sequence);
+  const idx = findEpisodeIndex(baseSceneId, sequence);
+  if (idx < 0) {
+    toast("목차에서 선택한 회차 위치를 찾지 못했어요.");
+    return;
+  }
+
+  const nextEp = sequence[idx + 1];
+  let nextMeta = null;
+  let nextPlain = "";
+  if (nextEp) {
+    try {
+      nextMeta = await loadSceneManuscriptForAssist(nextEp.sceneId);
+      nextPlain = String(nextMeta.plain || "").trim();
+    } catch (_) {
+      nextMeta = null;
+      nextPlain = "";
+    }
+  }
+
+  const userTopic = getBrainstormTopic();
+  if (!nextEp || !nextPlain) {
+    await runBrainstormForScene(base, userTopic);
+    return;
+  }
+  await runBrainstormNextExists(base, nextMeta, userTopic);
+}
+
+/** Existing brainstorm path (no next episode / empty next). */
+async function runBrainstormForScene(base, userTopic = "") {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("aiSubmitButton");
+  const toolBtn = $("aiToolModalSubmitButton");
+  const prevLabel = button?.textContent;
+  const prevTool = toolBtn?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "브레인스토밍 중…";
+  }
+  if (toolBtn) {
+    toolBtn.disabled = true;
+    toolBtn.textContent = "브레인스토밍 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "brainstorm";
+  if ($("aiResult")) $("aiResult").value = "작품 확장 아이디어를 브레인스토밍하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const assistBody = {
+      mode: "brainstorm",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: base.plain,
+      user_topic: userTopic,
+      prompt: userTopic,
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "brainstorm", base.plain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "brainstorm" });
+    toast("브레인스토밍 결과를 받았어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "토리에게 물어보기";
+    }
+    if (toolBtn) {
+      toolBtn.disabled = false;
+      toolBtn.textContent = prevTool || "토리에게 물어보기";
+    }
+  }
+}
+
+/** Next episode has text — C/D brainstorm prompts. */
+async function runBrainstormNextExists(base, next, userTopic = "") {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const nextPlain = String(next?.plain || "").trim();
+  const button = $("aiSubmitButton");
+  const toolBtn = $("aiToolModalSubmitButton");
+  const prevLabel = button?.textContent;
+  const prevTool = toolBtn?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "브레인스토밍 중…";
+  }
+  if (toolBtn) {
+    toolBtn.disabled = true;
+    toolBtn.textContent = "브레인스토밍 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "brainstorm";
+  if ($("aiResult")) $("aiResult").value = "현재·다음 회차를 참고해 브레인스토밍하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const assistBody = {
+      mode: "brainstorm_next_exists",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: base.plain,
+      next_scene_content: nextPlain,
+      next_scene_title: next?.title || "",
+      user_topic: userTopic,
+      prompt: userTopic,
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "brainstorm_next_exists", base.plain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "brainstorm_next_exists" });
+    toast("브레인스토밍 결과를 받았어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "토리에게 물어보기";
+    }
+    if (toolBtn) {
+      toolBtn.disabled = false;
+      toolBtn.textContent = prevTool || "토리에게 물어보기";
+    }
+  }
+}
+
+/** Last maxLen characters of manuscript (auto; no author choice). Default 2000. */
+function takeManuscriptTail(text, maxLen = 2000) {
+  const t = String(text || "").trim();
+  if (t.length <= maxLen) return t;
+  return t.slice(-maxLen);
+}
+
+/** Load title/synopsis/content for a scene; live editor when it is the open scene. */
+async function loadSceneManuscriptForAssist(sceneId) {
+  const id = Number(sceneId);
+  if (!id) {
+    return { sceneId: 0, title: "", synopsis: "", content: "", plain: "" };
+  }
+  if (Number(state.sceneId) === id) {
+    const content = getEditorContent() || "";
+    const plain = (looksLikeHtml(content) ? plainTextFromHtml(content) : content).trim();
+    return {
+      sceneId: id,
+      title: state.scene?.title || $("sceneTitle")?.value || "",
+      synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      content,
+      plain,
+    };
+  }
+  const detail = await api(`/api/scenes/${id}`);
+  const content = detail?.content_md || "";
+  const plain = (looksLikeHtml(content) ? plainTextFromHtml(content) : String(content || "")).trim();
+  return {
+    sceneId: id,
+    title: detail?.title || "",
+    synopsis: detail?.synopsis_md || "",
+    content,
+    plain,
+  };
+}
+
+/**
+ * After episode pick: branch on whether the next episode in binder order has text.
+ * - no next / empty next → existing mode "ideas"
+ * - next has content → mode "ideas_next_exists"
+ */
+async function runNextIdeaSuggestion(targetSceneId) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const baseSceneId = Number(targetSceneId);
+  if (!baseSceneId) {
+    toast("기준 회차를 선택해 주세요.");
+    return;
+  }
+
+  let base;
+  try {
+    base = await loadSceneManuscriptForAssist(baseSceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  if (!base.plain) {
+    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 시도해 주세요.");
+    return;
+  }
+
+  const sequence = getEpisodeSequence();
+  const idx = findEpisodeIndex(baseSceneId, sequence);
+  if (idx < 0) {
+    toast("목차에서 선택한 회차 위치를 찾지 못했어요.");
+    return;
+  }
+
+  const nextEp = sequence[idx + 1];
+  let nextPlain = "";
+  let nextMeta = null;
+  if (nextEp) {
+    try {
+      nextMeta = await loadSceneManuscriptForAssist(nextEp.sceneId);
+      nextPlain = String(nextMeta.plain || "").trim();
+    } catch (_) {
+      nextPlain = "";
+      nextMeta = null;
+    }
+  }
+
+  if (!nextEp || !nextPlain) {
+    await runIdeasForScene(base);
+    return;
+  }
+  await runIdeasNextExists(base, nextMeta);
+}
+
+/** Existing 다음 아이디어 제안 path (no next episode / empty next). */
+async function runIdeasForScene(base) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const button = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "다음 아이디어 제안 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "ideas";
+  if ($("aiResult")) $("aiResult").value = "다음 전개 아이디어를 생각하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const assistBody = {
+      mode: "ideas",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: base.plain,
+      prompt: "",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "ideas", base.plain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "ideas" });
+    toast("다음 아이디어 제안을 받았어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "토리에게 물어보기";
+    }
+  }
+}
+
+/** Next episode already has text — review start + alternative openings. */
+async function runIdeasNextExists(base, next) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const prevTail = takeManuscriptTail(base.plain, 2000);
+  const nextPlain = String(next?.plain || "").trim();
+  const button = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "다음 아이디어 제안 중…";
+  }
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "ideas";
+  if ($("aiResult")) {
+    $("aiResult").value = "다음 회차 시작부와 대안 전개를 살펴보는 중…";
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+
+  try {
+    const assistBody = {
+      mode: "ideas_next_exists",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: prevTail,
+      prev_scene_tail: prevTail,
+      next_scene_content: nextPlain,
+      next_scene_title: next?.title || "",
+      prompt: "",
+      project_id: state.projectId || null,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "ideas_next_exists", nextPlain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    const llmText = result.text || "(결과 없음)";
+    const display = `${IDEAS_NEXT_EXISTS_RESULT_NOTICE}\n\n---\n\n${llmText}`;
+    if ($("aiResult")) $("aiResult").value = display;
+    revealAiAssistResult({ openModal: true, mode: "ideas_next_exists" });
+    toast("다음 회차 시작 검토와 대안 아이디어를 받았어요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "토리에게 물어보기";
+    }
+  }
+}
+
+/**
+ * Duplicate check: compare current episode with ±4 neighbors for
+ * repeated expressions (within episode) and overlapping explanations (neighbors).
+ * @param {number|string} [targetSceneId] 기준 회차 씬 id. 없으면 현재 열린 씬.
+ */
+async function runDuplicateCheck(targetSceneId) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const baseSceneId = (targetSceneId != null && targetSceneId !== "")
+    ? Number(targetSceneId)
+    : Number(state.sceneId);
+  if (!baseSceneId) {
+    toast("체크할 원고(씬)를 먼저 열어 주세요.");
+    return;
+  }
+
+  let sceneContent = "";
+  let sceneTitle = "";
+  let sceneSynopsis = "";
+  const isLiveEditor = Number(state.sceneId) === baseSceneId;
+
+  if (isLiveEditor) {
+    // 열린 씬이면 에디터 실시간 원고 사용 (기존 동작)
+    sceneContent = getEditorContent() || "";
+    sceneTitle = state.scene?.title || $("sceneTitle")?.value || "";
+    sceneSynopsis = state.scene?.synopsis_md || $("sceneSynopsis")?.value || "";
+  } else {
+    // 다른 씬을 기준으로 지정한 경우 API로 로드
+    try {
+      const detail = await api(`/api/scenes/${baseSceneId}`);
+      sceneContent = detail?.content_md || "";
+      sceneTitle = detail?.title || "";
+      sceneSynopsis = detail?.synopsis_md || "";
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  }
+
+  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  if (!scenePlain) {
+    toast(isLiveEditor
+      ? "현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요."
+      : "선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요.");
+    return;
+  }
+
+  const sequence = getEpisodeSequence();
+  const idx = findEpisodeIndex(baseSceneId, sequence);
   if (idx < 0) {
     toast("목차에서 현재 회차 위치를 찾지 못했어요.");
     return;
@@ -6630,8 +8310,8 @@ async function runDuplicateCheck() {
       main_genre_label: mainGenreLabel(mainGenre),
       sub_genre_label: subGenreLabel(mainGenre, subGenre),
       keywords: normalizeKeywordList(state.keywords),
-      scene_title: state.scene?.title || $("sceneTitle")?.value || "",
-      scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+      scene_title: sceneTitle,
+      scene_synopsis: sceneSynopsis,
       scene_content: sceneContent,
       neighbor_scenes: neighbors,
       local_hits: localHits,
@@ -6678,6 +8358,422 @@ async function runDuplicateCheck() {
 /** Display name for assist mode worldscan (internal key kept for API compatibility). */
 const SETTING_BREAK_SCAN_LABEL = "설정 붕괴 감지기";
 const SETTING_BREAK_SCAN_BUSY = "설정 붕괴 감지 중…";
+const WORLDSCAN_MULTI_MAX = 5;
+
+/** "current" | "other" | "multi" */
+function getWorldscanTargetMode() {
+  const checked = document.querySelector('input[name="worldscanTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  if (raw === "other" || raw === "multi") return raw;
+  return "current";
+}
+
+function renderWorldscanEpisodeOptions() {
+  const select = $("worldscanOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function renderWorldscanMultiEpisodeOptions() {
+  const host = $("worldscanMultiSceneList");
+  if (!host) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    return;
+  }
+  const prevChecked = new Set(
+    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((el) => String(el.value || "")),
+  );
+  host.innerHTML = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const checked = prevChecked.has(String(id)) ? " checked" : "";
+    return (
+      `<label class="tory-multi-episode-option worldscan-multi-option">`
+      + `<input type="checkbox" name="worldscanMultiScene" value="${id}"${checked}>`
+      + `<span>${escapeHtml(label)}</span>`
+      + `</label>`
+    );
+  }).join("");
+  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+    box.addEventListener("change", () => {
+      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
+      if (checked.length > WORLDSCAN_MULTI_MAX) {
+        box.checked = false;
+        toast(`다중 회차는 최대 ${WORLDSCAN_MULTI_MAX}개까지 선택할 수 있어요.`);
+      }
+    });
+  });
+}
+
+function updateWorldscanTargetUi() {
+  const mode = getWorldscanTargetMode();
+  setOtherSceneSelectActive("worldscanOtherSceneWrap", "worldscanOtherSceneSelect", mode === "other");
+  $("worldscanMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
+  renderWorldscanEpisodeOptions();
+  if (mode === "multi") renderWorldscanMultiEpisodeOptions();
+}
+
+function openWorldscanTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("worldscanTargetCurrent");
+  const otherRadio = $("worldscanTargetOther");
+  const multiRadio = $("worldscanTargetMulti");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+    if (multiRadio) multiRadio.checked = false;
+  }
+  updateWorldscanTargetUi();
+  $("worldscanTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const mode = getWorldscanTargetMode();
+    if (mode === "other") $("worldscanOtherSceneSelect")?.focus();
+    else if (mode === "multi") $("worldscanMultiSceneList")?.querySelector("input")?.focus();
+    else $("worldscanTargetConfirm")?.focus();
+  });
+}
+
+function closeWorldscanTargetModal() {
+  $("worldscanTargetModal")?.classList.add("hidden");
+}
+
+function resolveWorldscanSelectedSceneIds() {
+  const mode = getWorldscanTargetMode();
+  if (mode === "current") {
+    const id = state.sceneId ? Number(state.sceneId) : 0;
+    return id ? [id] : [];
+  }
+  if (mode === "other") {
+    const n = Number($("worldscanOtherSceneSelect")?.value || 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  // multi
+  const boxes = Array.from(
+    document.querySelectorAll('#worldscanMultiSceneList input[type="checkbox"]:checked'),
+  );
+  const ids = boxes
+    .map((el) => Number(el.value || 0))
+    .filter((id) => Number.isFinite(id) && id > 0)
+    .slice(0, WORLDSCAN_MULTI_MAX);
+  return ids;
+}
+
+function sortSceneIdsByEpisodeSequence(sceneIds) {
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const order = new Map(sequence.map((ep, i) => [Number(ep.sceneId), i]));
+  return [...sceneIds].sort((a, b) => {
+    const ia = order.has(Number(a)) ? order.get(Number(a)) : 1e9;
+    const ib = order.has(Number(b)) ? order.get(Number(b)) : 1e9;
+    return ia - ib;
+  });
+}
+
+function confirmWorldscanTarget() {
+  let ids = resolveWorldscanSelectedSceneIds();
+  if (!ids.length) {
+    toast(
+      getWorldscanTargetMode() === "multi"
+        ? "검사할 회차를 한 개 이상 선택해 주세요."
+        : "기준 회차를 선택해 주세요.",
+    );
+    return;
+  }
+  ids = sortSceneIdsByEpisodeSequence(ids);
+  closeWorldscanTargetModal();
+  if (ids.length === 1) {
+    runWorldScanForTarget(ids[0]).catch(handleError);
+  } else {
+    runWorldScanMulti(ids).catch(handleError);
+  }
+}
+
+function setupWorldscanTargetModal() {
+  const host = $("worldscanTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="worldscanTargetMode"]')) return;
+      updateWorldscanTargetUi();
+    });
+  }
+  if ($("worldscanTargetConfirm") && $("worldscanTargetConfirm").dataset.bound !== "1") {
+    $("worldscanTargetConfirm").dataset.bound = "1";
+    $("worldscanTargetConfirm").addEventListener("click", () => confirmWorldscanTarget());
+  }
+  document.querySelectorAll("[data-close-worldscan-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeWorldscanTargetModal);
+  });
+  if (!document.documentElement.dataset.worldscanTargetEscBound) {
+    document.documentElement.dataset.worldscanTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("worldscanTargetModal") && !$("worldscanTargetModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeWorldscanTargetModal();
+      }
+    });
+  }
+}
+
+function ensureWorldscanLoreReady() {
+  const worldRaw = state.worldbuildingMd || $("projectWorldbuilding")?.value || "";
+  const worldText = (looksLikeHtml(worldRaw) ? plainTextFromHtml(worldRaw) : String(worldRaw || "")).trim();
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const hasChars = Array.isArray(state.characters) && state.characters.length > 0;
+  const hasKeywords = normalizeKeywordList(state.keywords || project?.keywords || []).length > 0;
+  if (!worldText && !mainGenre && !hasChars && !hasKeywords) {
+    toast("장르·세계관·캐릭터·키워드 중 하나 이상 설정해 주세요. 판단 근거가 필요해요.");
+    setActiveBinder("settings");
+    state.openSettingsSection = "world";
+    applySettingsSectionState();
+    return null;
+  }
+  return { worldText, project, mainGenre };
+}
+
+/**
+ * Panel-picked single episode → existing mode "worldscan" (prompt builder unchanged).
+ */
+async function runWorldScanForTarget(sceneId) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const loreReady = ensureWorldscanLoreReady();
+  if (!loreReady) return;
+  const { worldText, project, mainGenre } = loreReady;
+  const subGenre = state.subGenre || project?.sub_genre || "";
+
+  let base;
+  try {
+    base = await loadSceneManuscriptForAssist(sceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  if (!base.plain) {
+    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
+    return;
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "worldscan";
+  updateForeshadowPanelVisibility();
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "검사 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
+  }
+  if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const lore = buildLoreKeeperPayload({
+      worldText,
+      sceneContent: base.content || base.plain,
+      mainGenre,
+      subGenre,
+    });
+    const assistBody = {
+      mode: "worldscan",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: base.title || "",
+      scene_synopsis: base.synopsis || "",
+      scene_content: base.plain,
+      prompt: "",
+      ...lore,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "worldscan", base.plain);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "worldscan" });
+    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
+
+/**
+ * 2~5 episodes → mode "worldscan_multi", single LLM call.
+ */
+async function runWorldScanMulti(sceneIds) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const loreReady = ensureWorldscanLoreReady();
+  if (!loreReady) return;
+  const { worldText, project, mainGenre } = loreReady;
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const ids = sortSceneIdsByEpisodeSequence(sceneIds).slice(0, WORLDSCAN_MULTI_MAX);
+  if (ids.length < 2) {
+    if (ids.length === 1) {
+      await runWorldScanForTarget(ids[0]);
+    } else {
+      toast("검사할 회차를 선택해 주세요.");
+    }
+    return;
+  }
+
+  const episodes = [];
+  for (const id of ids) {
+    try {
+      const loaded = await loadSceneManuscriptForAssist(id);
+      if (!loaded.plain) continue;
+      const seq = getEpisodeSequence();
+      const ep = seq.find((item) => Number(item.sceneId) === Number(id));
+      const title = loaded.title
+        || ep?.label
+        || ep?.shortLabel
+        || `${ep?.index || "?"}화`;
+      const plain = loaded.plain.length > 12000
+        ? loaded.plain.slice(-12000)
+        : loaded.plain;
+      episodes.push({ sceneId: id, title, plain });
+    } catch (_) {
+      /* skip */
+    }
+  }
+  if (!episodes.length) {
+    toast("선택한 회차 원고가 비어 있어요.");
+    return;
+  }
+  if (episodes.length === 1) {
+    await runWorldScanForTarget(episodes[0].sceneId);
+    return;
+  }
+
+  const combined = episodes
+    .map((ep) => `### ${ep.title}\n${ep.plain}\n\n`)
+    .join("");
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "worldscan";
+  updateForeshadowPanelVisibility();
+  const button = $("analyzeMenuButton");
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = button?.textContent;
+  if (button) {
+    button.disabled = true;
+    button.textContent = "검사 중…";
+  }
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
+  }
+  if ($("aiResult")) {
+    $("aiResult").value = `${episodes.length}개 회차의 세계관·캐릭터 설정을 대조하는 중…`;
+  }
+  $("aiResultWrap")?.classList.remove("hidden");
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+
+  try {
+    const lore = buildLoreKeeperPayload({
+      worldText,
+      sceneContent: combined,
+      mainGenre,
+      subGenre,
+    });
+    const assistBody = {
+      mode: "worldscan_multi",
+      project_title: project?.title || "",
+      purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+      main_genre: mainGenre,
+      sub_genre: subGenre,
+      main_genre_label: mainGenreLabel(mainGenre),
+      sub_genre_label: subGenreLabel(mainGenre, subGenre),
+      keywords: normalizeKeywordList(state.keywords),
+      scene_title: episodes.map((ep) => ep.title).join(", "),
+      scene_synopsis: "",
+      scene_content: combined,
+      episode_count: episodes.length,
+      prompt: "",
+      ...lore,
+      ...buildToryProjectContextPayload(),
+    };
+    await attachIndexedPromptToAssistBody(assistBody, "worldscan_multi", combined);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(assistBody),
+    });
+    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    revealAiAssistResult({ openModal: true, mode: "worldscan_multi" });
+    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요. · ${episodes.length}회차`);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) {
+      button.disabled = false;
+      button.textContent = prevLabel || "분석 ▾";
+    }
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = "토리에게 물어보기";
+    }
+  }
+}
 
 /** World/character consistency scan: compare settings vs current manuscript. */
 async function runWorldScan() {
@@ -6707,7 +8803,7 @@ async function runWorldScan() {
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 씬 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
+    toast("현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
     return;
   }
 
@@ -7035,7 +9131,8 @@ function getContinueLengthMode() {
   if (typeof CONTINUE_LENGTH_MODES === "object" && CONTINUE_LENGTH_MODES && raw in CONTINUE_LENGTH_MODES) {
     return raw;
   }
-  return raw === "scene" || raw === "proportional" ? raw : "short";
+  if (raw === "medium" || raw === "long" || raw === "scene" || raw === "proportional") return raw;
+  return "short";
 }
 
 function getContinueUserHint() {
@@ -7090,7 +9187,7 @@ function renderContinueEpisodeOptions() {
 
 function updateContinueSourceUi() {
   const other = getContinueSourceMode() === "other";
-  $("continueOtherSceneWrap")?.classList.toggle("hidden", !other);
+  setOtherSceneSelectActive("continueOtherSceneWrap", "continueOtherSceneSelect", other);
   const hint = $("continueSourceHint");
   if (hint) {
     if (other) {
@@ -7106,7 +9203,7 @@ function updateContinueSourceUi() {
         : "지금 편집 중인 회차 끝에서 이어 씁니다. 원고를 먼저 열어 두세요.";
     }
   }
-  if (other) renderContinueEpisodeOptions();
+  renderContinueEpisodeOptions();
 }
 
 function setupContinueSourceUi() {
@@ -7128,7 +9225,7 @@ function getWorldDescSubject() {
   return String($("worldDescSubject")?.value || "").trim();
 }
 
-/** Populate length radios from CONTINUE_LENGTH_MODES keys/labels. */
+/** Populate length radios from CONTINUE_LENGTH_MODES keys/labels (chip row). */
 function renderContinueLengthOptions() {
   const fieldset = $("continueLengthOptions");
   if (!fieldset || typeof CONTINUE_LENGTH_MODES !== "object" || !CONTINUE_LENGTH_MODES) return;
@@ -7137,13 +9234,27 @@ function renderContinueLengthOptions() {
     const label = String(cfg?.label || key);
     const checked = key === current ? " checked" : "";
     return (
-      `<label class="continue-length-option">`
+      `<label class="continue-length-option continue-length-chip">`
       + `<input type="radio" name="continueLengthMode" value="${escapeHtml(key)}"${checked}>`
       + `<span>${escapeHtml(label)}</span>`
       + `</label>`
     );
   }).join("");
   fieldset.innerHTML = `<legend class="sr-only">이어 쓸 분량</legend>${options}`;
+  if (fieldset.dataset.lengthUiBound !== "1") {
+    fieldset.dataset.lengthUiBound = "1";
+    fieldset.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="continueLengthMode"]')) return;
+      updateContinueLengthHintUi();
+    });
+  }
+  updateContinueLengthHintUi();
+}
+
+/** Show scene-until hint only when length mode is "scene". */
+function updateContinueLengthHintUi() {
+  const scene = getContinueLengthMode() === "scene";
+  $("continueSceneUntilHint")?.classList.toggle("hidden", !scene);
 }
 
 function updateContinuePanelVisibility() {
@@ -7197,7 +9308,7 @@ function updateContinuePanelVisibility() {
     prompt.placeholder = "예: 이 인물의 성격을 3줄로 정리해 줘. / 이 장면을 더 긴장감 있게 고쳐 줘.";
   }
   if (prompt && mode === "subsynopsis") {
-    prompt.placeholder = "추가 요청은 쓰지 않아도 됩니다. 실행하면 줄거리 개요·글자수 안내가 이어집니다.";
+    prompt.placeholder = "실행하면 줄거리 개요와 글자수 제한을 정하는 창이 이어져요.";
   }
 }
 
@@ -7236,11 +9347,9 @@ function updateForeshadowPanelVisibility() {
   if (mode === "foreshadow") {
     if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
     if (hintEl) {
-      hintEl.textContent = "「단서가 원고에 심겼는지」를 봅니다. 반전 개연성 평가가 아닙니다.";
+      hintEl.textContent = "「단서가 원고에 심겼는지」를 봐요. 반전이 설득력 있는지는 반전 & 개연성 검사기를 이용해 주세요.";
     }
-    if (modeHint) {
-      modeHint.textContent = "단서를 심은 장·반전 전 원고를 연 뒤 실행하세요. 등록 단서 반영 여부·잠재 복선·미회수 떡밥을 짚습니다.";
-    }
+    if (modeHint) modeHint.classList.add("hidden");
     setForeshadowLabelText($("foreshadowSelectLabel"), "검수할 복선");
     setForeshadowLabelText($("foreshadowTitleLabel"), "복선 제목");
     setForeshadowLabelText($("foreshadowTargetLabel"), "반전 목표 장");
@@ -7252,16 +9361,14 @@ function updateForeshadowPanelVisibility() {
     if (delBtn) delBtn.textContent = "선택 삭제";
     panel.setAttribute("aria-label", "떡밥·복선 탐색기");
     if (prompt) {
-      prompt.placeholder = "추가 요청 (선택) 예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.";
+      prompt.placeholder = "예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.";
     }
   } else if (mode === "plottwist") {
     if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
     if (hintEl) {
-      hintEl.textContent = "「반전이 억지인지」를 봅니다. 단서 심기 체크리스트가 아닙니다.";
+      hintEl.textContent = "「반전이 억지스럽지 않은지」를 봐요. 단서가 잘 심겼는지는 떡밥·복선 탐색기를 이용해 주세요.";
     }
-    if (modeHint) {
-      modeHint.textContent = "반전이 터지는 장의 원고를 연 뒤 실행하세요. 등록 빌드업이 반전을 설득력 있게 지지하는지 평가합니다.";
-    }
+    if (modeHint) modeHint.classList.add("hidden");
     setForeshadowLabelText($("foreshadowSelectLabel"), "평가할 반전 복선");
     setForeshadowLabelText($("foreshadowTitleLabel"), "반전·폭로 제목");
     setForeshadowLabelText($("foreshadowTargetLabel"), "반전 장 (지금 연 원고)");
@@ -7275,7 +9382,7 @@ function updateForeshadowPanelVisibility() {
     if (delBtn) delBtn.textContent = "선택 삭제";
     panel.setAttribute("aria-label", "반전 & 개연성 검사기");
     if (prompt) {
-      prompt.placeholder = "추가 요청 (선택) 예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.";
+      prompt.placeholder = "예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.";
     }
   } else if (prompt) {
     prompt.placeholder = "예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘.";
@@ -7397,6 +9504,36 @@ async function submitAiAssist(event) {
     await runSubmissionSynopsis();
     return;
   }
+  // Panel 중복 체크: 기준 회차 선택 팝업 → runDuplicateCheck (인라인 assist 경로 사용 안 함)
+  if (mode === "dupcheck") {
+    openDupcheckTargetModal();
+    return;
+  }
+  // Panel 다음 아이디어 제안: 회차 선택 팝업 → runNextIdeaSuggestion (분기 포함)
+  if (mode === "ideas") {
+    openIdeasTargetModal();
+    return;
+  }
+  // 브레인스토밍: 선택 회차 + 다음 회차 유무 분기 (기존 인라인 brainstorm 경로 대신)
+  if (mode === "brainstorm") {
+    await runBrainstormSuggestion();
+    return;
+  }
+  // Panel 설정 붕괴 감지기: 회차 선택 팝업 → 1개 worldscan / 2~5개 worldscan_multi
+  if (mode === "worldscan") {
+    openWorldscanTargetModal();
+    return;
+  }
+  // Panel 피드백 요청: 회차 선택 팝업 → 1개 analyze / 연속 multi / 비연속 batch
+  if (mode === "analyze") {
+    openAnalyzeTargetModal();
+    return;
+  }
+  // Panel 회차 요약: 회차 선택 팝업 → 1개 summarize / 2~20개 summarize_multi
+  if (mode === "summarize") {
+    openSummarizeMultiTargetModal();
+    return;
+  }
   const prompt = mode === "continue"
     ? getContinueUserHint()
     : mode === "brainstorm"
@@ -7466,6 +9603,9 @@ async function submitAiAssist(event) {
         return;
       }
     }
+    // Always generate 후킹형/전개형/전환형 in parallel (no style picker).
+    await runContinueWithThreeStyles();
+    return;
   }
 
   if (mode === "rewrite") {
@@ -7476,7 +9616,7 @@ async function submitAiAssist(event) {
       toast(
         (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct")
           ? "다듬을 문장을 직접 입력해 주세요."
-          : "다듬을 문장을 드래그로 선택한 뒤 실행해 주세요.",
+          : "다듬을 문장·문단을 드래그로 선택해 주세요.",
       );
       if (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct") {
         $("rewriteDirectText")?.focus();
@@ -7670,6 +9810,7 @@ async function submitAiAssist(event) {
         targetText: result.text || "",
       });
     } else {
+      hideContinueStyleResults();
       prepareStyleBlendOffer(null);
     }
     revealAiAssistResult({ openModal: true, mode });
@@ -7698,20 +9839,22 @@ async function submitAiAssist(event) {
   }
 }
 
-function insertAiResultIntoEditor() {
-  const text = $("aiResult").value.trim();
-  if (!text) return toast("넣을 결과가 없어요.");
+function insertTextIntoSceneEditor(text) {
+  const content = String(text || "").trim();
+  if (!content) {
+    toast("넣을 결과가 없어요.");
+    return false;
+  }
   if (!state.sceneId) {
     toast("원고에 넣으려면 먼저 씬을 열어 주세요. 복사 버튼을 써도 됩니다.");
-    return;
+    return false;
   }
   const editor = $("sceneContent");
-  if (!editor) return;
+  if (!editor) return false;
   editor.focus();
   const plain = getEditorPlainText();
   const needsBreak = plain && !plain.endsWith("\n");
-  const chunk = (needsBreak ? "\n\n" : "") + text;
-  // Prefer insert at caret; fall back to append.
+  const chunk = (needsBreak ? "\n\n" : "") + content;
   const selection = window.getSelection();
   let inserted = false;
   if (selection && selection.rangeCount > 0) {
@@ -7735,6 +9878,194 @@ function insertAiResultIntoEditor() {
   updateSceneStats();
   markSceneDirty();
   toast("원고에 넣었어요. 자동 저장됩니다.");
+  return true;
+}
+
+function insertAiResultIntoEditor() {
+  insertTextIntoSceneEditor($("aiResult")?.value || "");
+}
+
+function hideContinueStyleResults() {
+  $("continueStyleResults")?.classList.add("hidden");
+}
+
+function setContinueStyleActiveTab(style) {
+  const key = CONTINUE_STYLE_MODES.includes(style) ? style : "후킹형";
+  continueStyleResultsState.active = key;
+  document.querySelectorAll("[data-continue-style-tab]").forEach((btn) => {
+    const on = btn.getAttribute("data-continue-style-tab") === key;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  const text = continueStyleResultsState.texts[key] || "";
+  if ($("continueStyleResultBody")) $("continueStyleResultBody").value = text;
+  if ($("aiResult")) $("aiResult").value = text;
+  if (isAiResultModalOpen()) syncAiResultModalBody();
+}
+
+function showContinueStyleResults(textsByStyle) {
+  continueStyleResultsState.texts = {
+    후킹형: String(textsByStyle?.후킹형 || "").trim(),
+    전개형: String(textsByStyle?.전개형 || "").trim(),
+    전환형: String(textsByStyle?.전환형 || "").trim(),
+  };
+  const wrap = $("continueStyleResults");
+  wrap?.classList.remove("hidden");
+  $("aiResultWrap")?.classList.remove("hidden", "is-empty");
+  // Prefer 후킹형 if present, else first non-empty.
+  let active = "후킹형";
+  if (!continueStyleResultsState.texts[active]) {
+    active = CONTINUE_STYLE_MODES.find((s) => continueStyleResultsState.texts[s]) || "후킹형";
+  }
+  setContinueStyleActiveTab(active);
+  // Combined history text
+  const combined = CONTINUE_STYLE_MODES
+    .map((s) => `## ${s}\n${continueStyleResultsState.texts[s] || "(결과 없음)"}`)
+    .join("\n\n");
+  if ($("aiResult") && !continueStyleResultsState.texts[active]) {
+    $("aiResult").value = combined;
+  }
+}
+
+function setupContinueStyleResultsUi() {
+  const host = $("continueStyleTabs");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-continue-style-tab]");
+      if (!btn) return;
+      event.preventDefault();
+      setContinueStyleActiveTab(btn.getAttribute("data-continue-style-tab"));
+    });
+  }
+  if ($("continueStyleInsertButton") && $("continueStyleInsertButton").dataset.bound !== "1") {
+    $("continueStyleInsertButton").dataset.bound = "1";
+    $("continueStyleInsertButton").addEventListener("click", () => {
+      const style = continueStyleResultsState.active || "후킹형";
+      const text = continueStyleResultsState.texts[style] || $("continueStyleResultBody")?.value || "";
+      insertTextIntoSceneEditor(text);
+    });
+  }
+}
+
+/**
+ * Generate 후킹형 / 전개형 / 전환형 continue drafts in parallel (same length + hint).
+ */
+async function runContinueWithThreeStyles() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!state.sceneId) {
+    toast("이어 쓰려면 먼저 씬을 열어 주세요.");
+    return;
+  }
+  const sceneContentRaw = getEditorContent() || "";
+  const scenePlain = (looksLikeHtml(sceneContentRaw)
+    ? plainTextFromHtml(sceneContentRaw)
+    : String(sceneContentRaw || "")).trim();
+  if (!scenePlain) {
+    toast("이어 쓰려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    return;
+  }
+
+  const lengthMode = getContinueLengthMode();
+  const userHint = getContinueUserHint();
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+
+  const sideBtn = $("aiSubmitButton");
+  const toolBtn = $("aiToolModalSubmitButton");
+  const prevSide = sideBtn?.textContent;
+  const prevTool = toolBtn?.textContent;
+  if (sideBtn) {
+    sideBtn.disabled = true;
+    sideBtn.textContent = "이어서 쓰는 중…";
+  }
+  if (toolBtn) {
+    toolBtn.disabled = true;
+    toolBtn.textContent = "이어서 쓰는 중…";
+  }
+
+  setAiPanelOpen(true);
+  if ($("aiMode")) $("aiMode").value = "continue";
+  updateForeshadowPanelVisibility();
+  hideContinueStyleResults();
+  if ($("aiResult")) $("aiResult").value = "후킹형 · 전개형 · 전환형 세 갈래로 이어 쓰는 중…";
+  $("aiResultWrap")?.classList.remove("hidden", "is-empty");
+
+  const baseBody = {
+    mode: "continue",
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+    scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+    scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+    scene_content: scenePlain,
+    length_mode: lengthMode,
+    continue_length_mode: lengthMode,
+    user_hint: userHint,
+    prompt: userHint,
+    project_id: state.projectId || null,
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    ...buildToryProjectContextPayload(),
+  };
+
+  try {
+    const results = await Promise.all(
+      CONTINUE_STYLE_MODES.map(async (style) => {
+        const body = {
+          ...baseBody,
+          style_mode: style,
+          continue_style: style,
+        };
+        await attachIndexedPromptToAssistBody(body, "continue", scenePlain);
+        const result = await api("/api/ai/assist", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        return { style, text: String(result?.text || "").trim() };
+      }),
+    );
+    const map = { 후킹형: "", 전개형: "", 전환형: "" };
+    for (const row of results) {
+      map[row.style] = row.text || "(결과 없음)";
+    }
+    showContinueStyleResults(map);
+    const activeText = map[continueStyleResultsState.active] || map.후킹형 || "";
+    if ($("aiResult")) $("aiResult").value = activeText;
+    prepareStyleBlendOffer({
+      source: "continue",
+      referenceText: scenePlain,
+      targetText: activeText,
+    });
+    // History: store all three
+    if ($("aiResult")) {
+      $("aiResult").value = CONTINUE_STYLE_MODES
+        .map((s) => `## ${s}\n${map[s] || "(결과 없음)"}`)
+        .join("\n\n");
+    }
+    revealAiAssistResult({ openModal: true, mode: "continue" });
+    // Restore active tab body for insert UX
+    setContinueStyleActiveTab(continueStyleResultsState.active);
+    toast("후킹형·전개형·전환형 세 초안을 받았어요. 하나를 골라 넣어 보세요.");
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (sideBtn) {
+      sideBtn.disabled = false;
+      sideBtn.textContent = prevSide || "토리에게 물어보기";
+    }
+    if (toolBtn) {
+      toolBtn.disabled = false;
+      toolBtn.textContent = prevTool || "이어서 쓰기";
+    }
+  }
 }
 
 async function copyAiResult() {
@@ -8199,8 +10530,16 @@ function setupAiAssist() {
   setupAiPromptModal();
   setupAiToolModal();
   setupContinueSourceUi();
+  setupContinueStyleResultsUi();
   setupRewriteSourceUi();
   setupRewriteCompareModal();
+  setupRewriteLengthWarnModal();
+  setupDupcheckTargetModal();
+  setupIdeasTargetModal();
+  setupBrainstormTargetModal();
+  setupWorldscanTargetModal();
+  setupAnalyzeTargetModal();
+  setupSummarizeMultiTargetModal();
   setupForeshadowPanel();
   setupSuccessPatternWizard();
   setupToryChat();
@@ -11580,12 +13919,17 @@ function aiModeLabel(mode) {
     continue: "이어서 쓰기",
     rewrite: "문장 다듬기",
     summarize: "회차 요약",
+    summarize_multi: "회차 요약",
     ideas: "다음 아이디어 제안",
+    ideas_next_exists: "다음 아이디어 제안",
+    brainstorm_next_exists: "브레인스토밍",
     analyze: "피드백 요청",
+    analyze_multi: "피드백 요청",
     brainstorm: "브레인스토밍",
     foreshadow: "떡밥·복선 탐색기",
     plottwist: "반전 & 개연성 검사기",
     worldscan: SETTING_BREAK_SCAN_LABEL,
+    worldscan_multi: SETTING_BREAK_SCAN_LABEL,
     worlddesc: "세계관 묘사",
     dupcheck: "중복 체크",
     successpattern: "흥행 공식 분석",
@@ -11697,51 +14041,52 @@ const AI_TOOL_POPUP_MODES = new Set([
 const AI_TOOL_MODAL_META = {
   foreshadow: {
     title: "떡밥·복선 탐색기",
-    lead: "단서를 심은 장·반전 전 원고를 연 뒤, 등록 단서 반영 여부와 잠재 복선을 점검합니다.",
+    lead: "단서를 심은 장이나 반전 전 원고를 열어, 등록한 단서가 실제로 반영됐는지와 잠재적 복선을 점검해요.",
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
-    extraPlaceholder: "추가 요청 (선택) 예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.",
-    submitLabel: "토리에게 물어보기",
+    extraPlaceholder: "예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.",
+    submitLabel: "확인",
   },
   plottwist: {
     title: "반전 & 개연성 검사기",
-    lead: "반전이 터지는 장의 원고를 연 뒤, 등록 빌드업이 반전을 설득력 있게 지지하는지 평가합니다.",
+    lead: "반전이 터지는 장의 원고를 열어, 등록한 빌드업이 그 반전을 설득력 있게 뒷받침하는지 평가해요.",
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
-    extraPlaceholder: "추가 요청 (선택) 예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.",
-    submitLabel: "토리에게 물어보기",
+    extraPlaceholder: "예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.",
+    submitLabel: "확인",
   },
   brainstorm: {
     title: "브레인스토밍",
-    lead: "현재 회차를 바탕으로 작품 확장 아이디어를 넓게 탐색합니다.",
+    lead: "막힌 지점에서, 여러 방향의 확장 아이디어를 자유롭게 탐색해요.",
     panelId: "brainstormPanel",
     showExtraPrompt: false,
-    submitLabel: "토리에게 물어보기",
+    submitLabel: "확인",
   },
   continue: {
     title: "이어서 쓰기",
-    lead: "이어 쓸 페이지와 분량을 고른 뒤 실행하세요. 원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.",
+    lead: "원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.",
     panelId: "continuePanel",
     showExtraPrompt: false,
-    submitLabel: "이어서 쓰기",
+    submitLabel: "확인",
   },
   rewrite: {
     title: "문장 다듬기",
-    lead: "토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.",
+    // Lead empty: guide lives only in #rewriteGuideNote (beige callout).
+    lead: "",
     panelId: "rewritePanel",
     showExtraPrompt: false,
-    submitLabel: "문장 다듬기",
+    submitLabel: "확인",
   },
   worlddesc: {
     title: "세계관 묘사",
     lead: "묘사 대상을 적으면 이 작품 문체·설정에 맞는 문장을 제안합니다.",
     panelId: "worldDescPanel",
     showExtraPrompt: false,
-    submitLabel: "토리에게 물어보기",
+    submitLabel: "확인",
   },
   subsynopsis: {
     title: "투고·공모전용 시놉시스",
-    lead: "작품 개요·설정을 바탕으로 투고·공모전용 시놉시스 초안을 작성합니다.",
+    lead: "작품 개요·설정을 바탕으로 투고·공모전용 시놉시스 초안을 작성해요.",
     panelId: "subsynopsisPanel",
     showExtraPrompt: false,
     submitLabel: "시놉시스 만들기",
@@ -11823,16 +14168,20 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
     if (typeof setupRewriteSourceUi === "function") setupRewriteSourceUi();
     if (typeof updateRewriteSourceUi === "function") updateRewriteSourceUi();
   }
-  // Ensure foreshadow/plottwist labels match current mode after panel is shown.
+  // Callout only (title/lead live on #aiToolModal). No duplicate bottom hint.
   if (m === "foreshadow" || m === "plottwist") {
     const titleEl = $("foreshadowPanelTitle");
     const hintEl = $("foreshadowPanelHint");
     if (m === "foreshadow") {
       if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
-      if (hintEl) hintEl.textContent = "「단서가 원고에 심겼는지」를 봅니다. 반전 개연성 평가가 아닙니다.";
+      if (hintEl) {
+        hintEl.textContent = "「단서가 원고에 심겼는지」를 봐요. 반전이 설득력 있는지는 반전 & 개연성 검사기를 이용해 주세요.";
+      }
     } else {
       if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
-      if (hintEl) hintEl.textContent = "「반전이 억지인지」를 봅니다. 단서 심기 체크리스트가 아닙니다.";
+      if (hintEl) {
+        hintEl.textContent = "「반전이 억지스럽지 않은지」를 봐요. 단서가 잘 심겼는지는 떡밥·복선 탐색기를 이용해 주세요.";
+      }
     }
   }
 
@@ -11878,6 +14227,16 @@ function closeAiToolModal({ dismissed = true } = {}) {
   }
 }
 
+function openBrainstormToolFlow({ resetTarget = false, force = false } = {}) {
+  // Merged 1-step modal (episode + topic). Never chain to #aiToolModal.
+  if (resetTarget) brainstormTargetSceneId = null;
+  if (typeof closeAiToolModal === "function" && isAiToolModalOpen()) {
+    try { closeAiToolModal({ dismissed: false }); } catch (_) { /* ignore */ }
+  }
+  openBrainstormTargetModal();
+  void force;
+}
+
 function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
   const mode = $("aiMode")?.value || "";
   const on = isAiToolPopupMode(mode);
@@ -11892,9 +14251,18 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
     const modeChanged = aiToolModalState.mode !== mode;
     if (forceOpen || modeChanged) {
       aiToolModalState.dismissed = false;
-      openAiToolModal(mode);
+      if (mode === "brainstorm") {
+        if (modeChanged) brainstormTargetSceneId = null;
+        openBrainstormToolFlow({ resetTarget: modeChanged, force: forceOpen });
+      } else {
+        openAiToolModal(mode);
+      }
     } else if (!aiToolModalState.dismissed) {
-      openAiToolModal(mode);
+      if (mode === "brainstorm") {
+        openBrainstormToolFlow({ force: false });
+      } else {
+        openAiToolModal(mode);
+      }
     }
   } else {
     aiToolModalState.dismissed = false;
@@ -11919,7 +14287,11 @@ function setupAiToolModal() {
     const mode = $("aiMode")?.value || "";
     if (!isAiToolPopupMode(mode)) return;
     aiToolModalState.dismissed = false;
-    openAiToolModal(mode, { force: true });
+    if (mode === "brainstorm") {
+      openBrainstormToolFlow({ force: true });
+    } else {
+      openAiToolModal(mode, { force: true });
+    }
   });
   $("aiToolModalSubmitButton")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -11945,7 +14317,11 @@ function setupAiToolModal() {
       aiToolModalState.dismissed = false;
       // Defer so other change handlers finish panel toggles first.
       window.setTimeout(() => {
-        openAiToolModal(mode, { force: true });
+        if (mode === "brainstorm") {
+          openBrainstormToolFlow({ resetTarget: true, force: true });
+        } else {
+          openAiToolModal(mode, { force: true });
+        }
       }, 0);
     } else {
       updateAiToolPopupVisibility();
@@ -11961,7 +14337,11 @@ function setupAiToolModal() {
     window.setTimeout(() => {
       const mode = $("aiMode")?.value || "";
       if (isAiToolPopupMode(mode) && !aiToolModalState.dismissed) {
-        openAiToolModal(mode, { force: true });
+        if (mode === "brainstorm") {
+          openBrainstormToolFlow({ force: true });
+        } else {
+          openAiToolModal(mode, { force: true });
+        }
       }
     }, 50);
   });
@@ -20797,6 +23177,9 @@ function setupViewerMode() {
     setViewerTocOpen(!viewerTocOpen);
     if (viewerTocOpen) renderViewerToc();
   });
+  $("viewerTocClose")?.addEventListener("click", () => {
+    setViewerTocOpen(false);
+  });
 
   $("viewerTocList")?.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-viewer-toc-scene]");
@@ -25794,6 +28177,50 @@ ${sceneContent}
 }
 
 /**
+ * Multi-episode detailed summary (summarize_multi). No project index.
+ * Do not alter buildDetailedSceneSummaryPrompt.
+ */
+function buildDetailedSceneSummaryMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 여러 회차입니다. 각 회차를 다시 읽지 않고도 내용을 제대로 파악할
+수 있도록, 회차마다 요약을 작성하세요. 바인더 캡션용 짧은 요약이 아니라,
+각 회차에서 무슨 일이 있었는지 충분히 설명하는 요약입니다.
+
+[판단 기준]
+1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을
+   순서대로 전달한다.
+2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.
+3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+5. 분량은 회차당 대략 300~500자 내외로, 각 회차의 복잡도에 맞게 조절한다.
+6. 각 회차의 요약은 그 회차 안의 내용만으로 작성한다. 다른 회차의 사건을
+   섞어 넣거나 미리 언급하지 않는다.
+
+[문장 규칙]
+7. "이 회차는", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로
+   시작한다.
+8. 각 회차 요약 앞에 아래 [출력 형식]의 제목만 붙이고, 그 외 완성된 요약문만
+   출력한다.
+
+[출력 형식]
+### {회차 제목 1}
+{요약}
+
+### {회차 제목 2}
+{요약}
+
+(선택한 회차 수만큼 반복)
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[요약 결과]`;
+}
+
+/**
  * Helper dropdown "투고·공모전용 시놉시스" (mode=subsynopsis).
  * Uses project index + outline_summary only — no scene manuscript.
  * Task scope only — no Core Identity re-declaration.
@@ -25985,10 +28412,14 @@ const INDEX_AWARE_ASSIST_MODES = new Set([
   "foreshadow",
   "plottwist",
   "worldscan",
+  "worldscan_multi",
   "worlddesc",
   "analyze",
+  "analyze_multi",
   "ideas",
+  "ideas_next_exists",
   "brainstorm",
+  "brainstorm_next_exists",
   "continue",
   "free",
   "rewrite",
@@ -26015,14 +28446,23 @@ const INDEX_TASK_INSTRUCTIONS = {
   worldscan:
     "프로젝트 누적 정보와 설정·캐릭터를 참고해 "
     + "원고의 세계관·캐릭터 일관성 붕괴를 점검하세요.",
+  worldscan_multi:
+    "프로젝트 누적 정보와 설정·캐릭터를 참고해 "
+    + "여러 회차 원고의 세계관·캐릭터 일관성 붕괴를 회차별로 점검하세요.",
   worlddesc:
     "지정한 대상에 대해 이 작품의 장르·세계관·문체에 맞는 묘사 문장을 제안하세요.",
   analyze:
     "현재 회차를 편집자·독자 관점에서 분석해 균형 잡힌 피드백을 주세요.",
+  analyze_multi:
+    "연속된 여러 회차를 한 흐름으로 보고 편집자·독자 관점에서 피드백을 주세요.",
   ideas:
     "현재 회차 흐름에서 자연스럽게 이어질 다음 전개 아이디어를 제안하세요.",
+  ideas_next_exists:
+    "직전 회차와 이미 작성된 다음 회차 시작부를 보고, 시작 평가와 대체 전개 아이디어를 제안하세요.",
   brainstorm:
     "현재 회차를 바탕으로 작품을 확장할 아이디어를 넓게 브레인스토밍하세요.",
+  brainstorm_next_exists:
+    "현재 회차와 이미 작성된 다음 회차를 참고해 작품을 확장할 아이디어를 브레인스토밍하세요.",
 };
 
 function hasUsableProjectIndex(projectIndex) {
@@ -26066,10 +28506,14 @@ ${originalText}`;
 /** Modes that may optionally wrap with 흥행 공식 참고 (checkbox). */
 const SUCCESS_PROFILE_REF_MODES = new Set([
   "ideas",
+  "ideas_next_exists",
   "brainstorm",
+  "brainstorm_next_exists",
   "worlddesc",
   "worldscan",
+  "worldscan_multi",
   "analyze",
+  "analyze_multi",
   "free",
 ]);
 
@@ -26387,7 +28831,8 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
     const userHint = String(
       body.user_hint || body.user_prompt || body.prompt || ""
     ).trim();
-    taskInstruction = buildContinuePrompt(plain, lengthMode, userHint);
+    const styleMode = String(body.style_mode || body.continue_style || "").trim();
+    taskInstruction = buildContinuePrompt(plain, lengthMode, userHint, styleMode);
   } else if (mode === "free") {
     const userRequest = String(
       body.user_request || body.user_prompt || body.prompt || ""
@@ -26401,22 +28846,66 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
     );
   } else if (mode === "worldscan") {
     taskInstruction = buildSettingBreakScanPrompt(plain);
+  } else if (mode === "worldscan_multi") {
+    const combined = String(body.scene_content || plain || "").trim();
+    const count = Number(body.episode_count) || 0;
+    taskInstruction = buildSettingBreakScanMultiPrompt(combined, count);
   } else if (mode === "analyze") {
     taskInstruction = buildFocusedAnalysisPrompt(plain);
+  } else if (mode === "analyze_multi") {
+    const combined = String(body.scene_content || plain || "").trim();
+    const count = Number(body.episode_count) || 0;
+    taskInstruction = buildFocusedAnalysisMultiPrompt(combined, count);
   } else if (mode === "ideas") {
     taskInstruction = buildNextIdeaPrompt(plain);
+  } else if (mode === "ideas_next_exists") {
+    const prevTail = String(body.prev_scene_tail || body.scene_content || "").trim();
+    const nextFull = String(body.next_scene_content || plain || "").trim();
+    taskInstruction = buildNextIdeaWithNextScenePrompt(prevTail, nextFull);
   } else if (mode === "brainstorm") {
     const userTopic = String(
       body.user_topic || body.user_prompt || body.prompt || ""
     ).trim();
     taskInstruction = buildBrainstormPrompt(plain, userTopic);
+  } else if (mode === "brainstorm_next_exists") {
+    const sceneContent = String(body.scene_content || plain || "").trim();
+    const nextFull = String(body.next_scene_content || "").trim();
+    const userTopic = String(
+      body.user_topic || body.user_prompt || body.prompt || ""
+    ).trim();
+    taskInstruction = buildBrainstormWithNextScenePrompt(sceneContent, nextFull, userTopic);
   } else if (mode === "worlddesc") {
     const subject = String(
       body.target_subject || body.user_topic || body.user_prompt || body.prompt || ""
     ).trim();
     taskInstruction = buildWorldDescriptionPrompt(subject, plain);
   }
-  let indexed = buildTaskPromptWithIndex(taskInstruction, plain, projectIndex);
+  // modes that embed manuscripts in the task — wrap index only (no extra [본문]).
+  let indexed;
+  if (
+    mode === "ideas_next_exists"
+    || mode === "brainstorm_next_exists"
+    || mode === "worldscan_multi"
+    || mode === "analyze_multi"
+  ) {
+    let indexContext = "";
+    if (hasUsableProjectIndex(projectIndex)) {
+      const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
+      const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
+      const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
+      const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
+      indexContext = `
+[프로젝트 누적 정보 - 참고용]
+등장인물: ${JSON.stringify(characters)}
+세계관 설정: ${worldRules.join(", ")}
+지금까지 줄거리: ${timeline.join(" → ")}
+미회수 복선: ${openThreads.join(", ")}
+`;
+    }
+    indexed = `${indexContext}\n${taskInstruction}`.trim();
+  } else {
+    indexed = buildTaskPromptWithIndex(taskInstruction, plain, projectIndex);
+  }
   // Optional layer (OFF by default): 흥행 공식 참고 — after index wrap only.
   if (SUCCESS_PROFILE_REF_MODES.has(mode) && isSuccessProfileRefChecked()) {
     const profile = await ensureLinkedSuccessProfile();
@@ -26533,16 +29022,43 @@ async function runSceneIndexSummary(sceneId, contentMd) {
 
 const CONTINUE_LENGTH_MODES = {
   short: {
-    label: "짧게 (한두 문단)",
+    label: "짧게",
     instruction: `
 [길이 지침]
-- 1~2개 문단 분량만 작성한다.
+- 최대 700자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
+- 상한을 다 채우려 하지 말고, 그 안에서 자연스럽게 끊을 수 있는 지점
+  (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
+- 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
+- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
+- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+  방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
+  },
+  medium: {
+    label: "중간",
+    instruction: `
+[길이 지침]
+- 최대 1200자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
+- 상한을 다 채우려 하지 말고, 그 안에서 자연스럽게 끊을 수 있는 지점
+  (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
+- 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
+- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
+- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+  방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
+  },
+  long: {
+    label: "길게",
+    instruction: `
+[길이 지침]
+- 최대 2000자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
+- 상한을 다 채우려 하지 말고, 그 안에서 자연스럽게 끊을 수 있는 지점
+  (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
+- 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
 - 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
 - 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
   방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
   },
   scene: {
-    label: "길게 (한 씬 분량)",
+    label: "장면까지",
     instruction: `
 [길이 지침]
 - 현재 장면이 자연스러운 완결점(장소 이동, 시간 경과, 갈등의 일단락 등)에
@@ -26551,13 +29067,20 @@ const CONTINUE_LENGTH_MODES = {
 - 장면 안에서 사건, 대사, 감정선이 유기적으로 이어지도록 구성한다.`,
   },
   proportional: {
-    label: "원고 길이 비례",
+    label: "자동 조절",
     instruction: (target) => `
 [길이 지침]
 - 약 ${target}자 내외로 작성한다.
 - 이 길이 안에서 자연스럽게 끊을 수 있는 지점(문장이 완결되는 곳)에서 마무리한다.
 - 글자 수를 맞추기 위해 불필요하게 늘리거나 문장을 어색하게 자르지 않는다.`,
   },
+};
+
+/** Always generate these three continue styles in parallel (no picker UI). */
+const CONTINUE_STYLE_MODES = ["후킹형", "전개형", "전환형"];
+let continueStyleResultsState = {
+  active: "후킹형",
+  texts: { 후킹형: "", 전개형: "", 전환형: "" },
 };
 
 function getProportionalContinueLength(originalLength) {
@@ -26620,6 +29143,75 @@ ${sceneContent}
 }
 
 /**
+ * Contiguous multi-episode feedback (analyze_multi). Task scope only.
+ * Do not alter buildFocusedAnalysisPrompt.
+ */
+function buildFocusedAnalysisMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 연속된 여러 회차입니다. 개별 회차 단위가 아니라, 이 구간 전체를
+하나의 흐름으로 보고 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.
+
+[분석 원칙]
+1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.
+2. 막연한 칭찬이나 막연한 비판을 하지 않는다. 반드시 몇 화의 어떤 장면·
+   문장·흐름인지 구체적으로 짚어 설명한다.
+3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지
+   방향을 함께 제시한다. 대부분의 경우 방향 제안에 그치되, 장르 관습을
+   명백히 벗어나거나 개연성이 무너지는 등 원문 자체가 그대로 두기 어려운
+   수준이라고 판단되면, 문제를 정확히 설명한 뒤 대체 가능한 전개나 장면을
+   직접 예시로 써서 제시한다. 다만 최종 선택은 작가의 몫임을 분명히 하고,
+   이 경우에도 "반드시 이렇게 고쳐야 한다"고 단정하지 않는다.
+4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지
+   않는다. 의도가 실제로 잘 구현되고 있는지를 본다.
+5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.
+
+[편집자 관점 - 구조와 기법]
+- 회차 간 강약 조절: 회차마다 긴장도·정보량이 적절히 완급 조절되는지,
+  특정 화만 처지거나 과열되지 않는지
+- 전개 속도: 이 구간 전체에서 사건이 너무 빠르게 혹은 느리게 배치되지
+  않았는지
+- 개연성: 회차를 넘어가며 사건·설정·인물 반응이 논리적으로 이어지는지
+- 캐릭터 일관성: 여러 회차에 걸쳐 인물의 성격·말투·가치관이 일관되게
+  유지되는지, 근거 없이 흔들리는 지점이 있는지
+- 문장 기법: 회차마다 반복되는 문장 패턴이나 상투적 표현이 누적되고
+  있지 않은지
+
+[독자 관점 - 몰입 경험]
+- 흡입력: 중간에 멈추지 않고 이 구간을 쭉 읽어나갈 만큼 매 화가 다음
+  화를 궁금하게 만드는지, 흐름이 끊기는 지점이 있는지
+- 감정적 반응: 의도된 감정이 회차를 거치며 축적되고 전달되는지
+- 시장성: 이 흐름이 독자층에게 소구할 만한 훅과 페이스를 갖추고 있는지
+  (장르 관습·연재 플랫폼 관행을 참고 기준으로 삼는다)
+
+[출력 형식]
+## 편집자 관점
+**좋은 점**
+- (몇 화의 어떤 부분인지 근거와 함께 1~3개)
+**개선점**
+- (근거 + 구체적 수정 방향과 함께 1~3개)
+
+## 독자 관점
+**좋은 점**
+- (근거와 함께 1~3개)
+**개선점**
+- (근거 + 구체적 수정 방향과 함께 1~3개)
+
+## 회차 간 흐름 총평
+이 구간 전체를 하나의 아크로 봤을 때 강약·속도·흡입력이 어떤지 3~5문장으로.
+
+## 한 줄 총평
+(이 구간 전체를 관통하는 핵심 조언 한 문장)
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[분석 결과]`;
+}
+
+/**
  * Next-idea suggestions (ideas mode).
  * Task scope only — no Core Identity re-declaration.
  */
@@ -26651,6 +29243,49 @@ function buildNextIdeaPrompt(sceneContent) {
 ${sceneContent}
 
 [다음 아이디어 제안]`;
+}
+
+/**
+ * Next-idea when the following episode already has manuscript (ideas_next_exists).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaWithNextScenePrompt(prevTail, nextFull) {
+  return `[현재 작업]
+아래는 방금 마무리된 회차와, 그 다음으로 이미 작성된 회차의 시작 부분입니다.
+다음 회차의 시작 전개가 적절한지 짧게 의견을 드리고, 이를 대체할 수 있는
+다른 전개·묘사 아이디어를 5개 제안하세요.
+
+[판단 기준]
+1. 직전 회차의 흐름(감정선, 사건의 여운, 마지막 장면)에서 다음 회차 시작이
+   자연스럽게 이어지는지 평가한다.
+2. 이미 매력적이고 개연성 있게 시작됐다면 그 점을 짧게 인정하고 넘어간다.
+   억지로 문제를 만들어내지 않는다.
+3. 평가와 별개로, 다른 방향에서 시작할 수 있는 후킹 있는 대안을 5개 제시한다.
+   기존 시작부를 재활용한 변주(같은 장면, 다른 묘사)와, 아예 다른 지점에서
+   시작하는 전개(다른 장면, 다른 사건)를 섞어서 다양성을 준다.
+4. 각 대안이 왜 이 시점에 효과적인지 짧게 근거를 단다.
+5. [프로젝트 누적 정보]의 인물 성격·세계관 규칙·미회수 복선을 참고해
+   그 작품다운 방향을 벗어나지 않는다.
+
+[출력 형식]
+## 지금 시작부에 대한 의견
+(2~3문장, 강요하지 않는 톤)
+
+## 대체 가능한 다른 시작 5가지
+**대안 N: (짧은 제목)**
+- 어떤 전개/묘사로 시작하는지 1~2문장
+- 왜 효과적인지 (근거 1문장)
+
+마지막에 "어떤 방향이든 편하게 골라주시면 이어서 함께 다듬어볼게요." 같은
+짧은 안내를 덧붙인다.
+
+[직전 회차 마지막 부분]
+${prevTail}
+
+[다음 회차 시작부 (이미 작성됨)]
+${nextFull}
+
+[검토 결과]`;
 }
 
 /**
@@ -26692,6 +29327,83 @@ ${sceneContent}
 }
 
 /**
+ * Brainstorm when the next episode already has text (brainstorm_next_exists).
+ * C = with topic, D = without. Task scope only — do not alter buildBrainstormPrompt.
+ */
+function buildBrainstormWithNextScenePrompt(sceneContent, nextSceneContent, userTopic = "") {
+  const topic = String(userTopic || "").trim();
+  if (topic) {
+    return `[현재 작업]
+아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에
+확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을
+요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 아래 주제를 중심으로
+이 지점에서 작품을 확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를
+5~8개 제시하세요.
+
+[작가가 지정한 주제]
+"${topic}"에 대해 집중적으로 브레인스토밍한다.
+
+[판단 기준]
+1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은
+   참고 맥락일 뿐이다.
+2. 지정된 주제를 중심으로 전개하되, 다음 회차의 방향을 살리는 아이디어와
+   완전히 다른 방향으로 전환하는 아이디어를 균형 있게 섞는다.
+3. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.
+4. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다.
+5. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+
+[출력 형식]
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차]
+${sceneContent}
+
+[다음 회차 (이미 작성됨)]
+${nextSceneContent}
+
+[브레인스토밍 결과]`;
+  }
+  return `[현재 작업]
+아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에
+확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을
+요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 이 지점에서 작품을
+확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를 5~8개 제시하세요.
+
+[주제]
+작가가 특정 주제를 지정하지 않았다. 두 회차의 흐름을 참고해, 이 지점에서
+작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.
+
+[판단 기준]
+1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은
+   참고 맥락일 뿐이다.
+2. 다음 회차의 방향을 살리는 아이디어와, 완전히 다른 방향으로 전환하는
+   아이디어를 균형 있게 섞는다.
+3. "다음 회차에 바로 이어지는 전개"로만 범위를 좁히지 않는다. 서브플롯, 반전,
+   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
+   아이디어를 던진다.
+4. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.
+5. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다.
+6. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+
+[출력 형식]
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차]
+${sceneContent}
+
+[다음 회차 (이미 작성됨)]
+${nextSceneContent}
+
+[브레인스토밍 결과]`;
+}
+
+/**
  * Setting-break detector (worldscan): world / character consistency.
  * Task scope only — no Core Identity re-declaration.
  */
@@ -26721,6 +29433,11 @@ function buildSettingBreakScanPrompt(originalText) {
    문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
    맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
    "그 인물 자신의 확립된 캐릭터"에서 벗어나는 지점이다.
+9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
+   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
+   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
+   시선에서 "~처럼 보였다", "~같았다"와 같이 주관적으로 포착된 인상은, 그 자체로
+   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
 
 [출력 형식]
 발견된 항목이 있으면 아래 형식으로 나열한다.
@@ -26738,13 +29455,104 @@ ${originalText}
 [검사 결과]`;
 }
 
-function buildContinuePrompt(originalText, lengthMode, userHint = "") {
+/**
+ * Multi-episode setting-break scan (worldscan_multi). Task scope only.
+ * Do not alter buildSettingBreakScanPrompt.
+ */
+function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 여러 회차입니다. 각 회차에서 이 작품의 세계관 또는 캐릭터 설정과
+어긋나는 지점을 찾아내세요. 회차별로 구분해서 결과를 제시합니다.
+
+[판단 근거 우선순위]
+1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
+2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
+   지금까지 써온 말투)을 기준으로 삼는다.
+4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
+
+[세계관 검사 기준]
+5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
+   (예: 동양풍 세계관에 "드래곤"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
+   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
+   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
+   있다면 문제로 판단한다.
+
+[캐릭터 일관성 검사 기준]
+7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, "이 작품의 세계관 안에서 통용되는 규범"이다.
+   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
+   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
+   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
+   "그 인물 자신의 확립된 캐릭터"에서 벗어나는 지점이다.
+9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
+   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
+   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
+   시선에서 "~처럼 보였다", "~같았다"와 같이 주관적으로 포착된 인상은, 그 자체로
+   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
+10. 각 회차의 판정은 그 회차 안의 내용만을 근거로 한다. 다른 회차에서 발견한 문제를
+    엉뚱한 회차의 결과에 섞어 넣지 않는다.
+
+[출력 형식]
+회차마다 아래 형식으로 결과를 제시한다.
+
+### {회차 제목}
+발견된 항목이 있으면 아래 형식으로 나열한다.
+- 유형: [세계관 / 캐릭터]
+- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)
+- 문제: 무엇이 왜 어긋나는지
+- 제안: 어떻게 고치면 좋을지 짧게
+
+발견된 항목이 없으면 "이 회차에서는 설정과 어긋나는 지점이 발견되지 않았습니다."
+라고만 답한다.
+
+(선택한 회차 수만큼 반복)
+
+과잉 지적하지 않는다. 확실한 것만 표시한다.
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[검사 결과]`;
+}
+
+function buildContinueStyleDirectionBlock(styleMode) {
+  const style = String(styleMode || "").trim();
+  if (!style || !CONTINUE_STYLE_MODES.includes(style)) return "";
+  return `
+[전개 방향]
+아래 세 가지 중 하나를 골라 그 방향으로 이어 쓴다.
+
+- 후킹형: 다음 문장부터 긴장감, 호기심, 사건성을 끌어올린다. 평온한 묘사나
+  설명보다 상황의 전환, 갈등의 조짐, 의미심장한 대사나 사건을 우선한다.
+  다음 내용이 궁금해지도록 여운이나 긴장을 남기고 끝낸다.
+- 전개형: 군더더기 묘사나 감정 서술을 줄이고, 사건과 정보를 효율적으로
+  진행시킨다. 이야기를 앞으로 밀어붙이는 데 집중하며, 다음 사건이나
+  전개로 자연스럽게 넘어간다.
+- 전환형: 직전까지의 긴장이나 사건을 잠시 누그러뜨린다. 인물의 여운,
+  잔잔한 디테일, 분위기나 장면의 전환으로 리듬을 조절한다. 다음 사건을
+  준비하는 숨 고르는 구간으로 쓴다.
+
+지금 선택된 방향: ${style}
+
+작가가 힌트를 주었다면, 그 힌트가 다루는 내용(무엇이 일어나는지)을 항상
+우선한다. 위 방향(후킹형/전개형/전환형)은 그 내용을 어떤 톤과 리듬으로
+전개할지를 정하는 것이며, 힌트의 내용 자체를 바꾸거나 무시하지 않는다.
+`;
+}
+
+function buildContinuePrompt(originalText, lengthMode, userHint = "", styleMode = "") {
   const modeKey = CONTINUE_LENGTH_MODES[lengthMode] ? lengthMode : "short";
   const modeConfig = CONTINUE_LENGTH_MODES[modeKey];
   const lengthInstruction =
     modeKey === "proportional"
       ? modeConfig.instruction(getProportionalContinueLength(String(originalText || "").length))
       : modeConfig.instruction;
+  const styleBlock = buildContinueStyleDirectionBlock(styleMode);
 
   return `[현재 작업]
 아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.
@@ -26759,7 +29567,7 @@ function buildContinuePrompt(originalText, lengthMode, userHint = "") {
 5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을
    요약하거나 반복하지 않는다.
 ${userHint ? `6. 사용자가 다음 방향에 대해 다음과 같은 힌트를 주었다면 반영한다: "${userHint}"` : ""}
-${lengthInstruction}
+${styleBlock}${lengthInstruction}
 
 [문장 규칙]
 - 이어지는 본문만 출력한다. "이어서 작성하면", "다음은 이어지는 내용입니다" 같은
@@ -27261,10 +30069,9 @@ function getRewriteSourceMode() {
 }
 
 function updateRewriteSourceUi() {
-  const direct = getRewriteSourceMode() === "direct";
-  $("rewriteDirectWrap")?.classList.toggle("hidden", !direct);
-  $("rewriteDirectHint")?.classList.toggle("hidden", !direct);
-  $("rewriteSelectionHint")?.classList.toggle("hidden", direct);
+  // Textarea + hint always visible; selection mode still wins at execute time.
+  $("rewriteDirectWrap")?.classList.remove("hidden");
+  $("rewriteDirectHint")?.classList.remove("hidden");
 }
 
 function setupRewriteSourceUi() {
@@ -27441,6 +30248,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
         ? "원문은 이미 충분해요. 바꾸고 싶을 때만 대안을 고른 뒤 반영하세요."
         : "원문과 다듬은 결과를 비교한 뒤 반영 여부를 고르세요.");
   }
+  $("rewriteCompareDirectNote")?.classList.toggle("hidden", !isDirect);
 
   const resultArea = $("rewriteCompareResult");
   // Apply/copy target: polished sentence or first alternative (not the full prose block).
@@ -27473,9 +30281,8 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
       copyBtn.classList.remove("hidden");
       copyBtn.textContent = "복사";
     }
-    if (applyBtn) {
-      applyBtn.textContent = kind === "alternatives" ? "자동 문장 대체" : "자동 문장 대체";
-    }
+    if (applyBtn) applyBtn.textContent = "이 문장으로 바꿔요";
+    if (keepBtn) keepBtn.textContent = "그대로 둘래요";
   }
 
   // Style-blend: selection polish only
@@ -27570,6 +30377,69 @@ function applyPendingRewriteToEditor() {
   return true;
 }
 
+let rewriteLengthWarnResolver = null;
+
+function closeRewriteLengthWarnModal(proceed) {
+  $("rewriteLengthWarnModal")?.classList.add("hidden");
+  const resolve = rewriteLengthWarnResolver;
+  rewriteLengthWarnResolver = null;
+  if (typeof resolve === "function") resolve(Boolean(proceed));
+}
+
+function openRewriteLengthWarnModal() {
+  return new Promise((resolve) => {
+    if (rewriteLengthWarnResolver) {
+      rewriteLengthWarnResolver(false);
+      rewriteLengthWarnResolver = null;
+    }
+    rewriteLengthWarnResolver = resolve;
+    $("rewriteLengthWarnModal")?.classList.remove("hidden");
+    requestAnimationFrame(() => {
+      try {
+        $("rewriteLengthWarnContinue")?.focus({ preventScroll: true });
+      } catch (_) {
+        $("rewriteLengthWarnContinue")?.focus();
+      }
+    });
+  });
+}
+
+function setupRewriteLengthWarnModal() {
+  if ($("rewriteLengthWarnContinue")?.dataset.bound === "1") return;
+  if ($("rewriteLengthWarnContinue")) $("rewriteLengthWarnContinue").dataset.bound = "1";
+  $("rewriteLengthWarnContinue")?.addEventListener("click", () => {
+    closeRewriteLengthWarnModal(true);
+  });
+  document.querySelectorAll("[data-close-rewrite-length-warn]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", () => closeRewriteLengthWarnModal(false));
+  });
+  if (!document.documentElement.dataset.rewriteLengthWarnEscBound) {
+    document.documentElement.dataset.rewriteLengthWarnEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if ($("rewriteLengthWarnModal") && !$("rewriteLengthWarnModal").classList.contains("hidden")) {
+        event.preventDefault();
+        closeRewriteLengthWarnModal(false);
+      }
+    });
+  }
+}
+
+/**
+ * @returns {Promise<boolean>} true = proceed with rewrite
+ */
+async function checkRewriteLengthGate(text) {
+  const n = String(text || "").trim().length;
+  if (n <= 800) return true;
+  if (n > 2000) {
+    toast("이 정도 분량은 다듬기보다 새로 쓰는 쪽에 가까워요. 이어서 쓰기나 피드백 요청을 이용해 주세요.");
+    return false;
+  }
+  return openRewriteLengthWarnModal();
+}
+
 /**
  * Shared rewrite runner for dropdown + context menu.
  * Shows side-by-side compare UI; does not overwrite manuscript until Apply.
@@ -27580,10 +30450,12 @@ async function executeRewriteAssist(payload) {
     toast(
       payload?.sourceMode === "direct"
         ? "다듬을 문장을 직접 입력해 주세요."
-        : "다듬을 문장을 드래그로 선택한 뒤 실행해 주세요.",
+        : "다듬을 문장·문단을 드래그로 선택해 주세요.",
     );
     return null;
   }
+  const mayProceed = await checkRewriteLengthGate(selectedText);
+  if (!mayProceed) return null;
   if (!state.projectId) {
     toast("먼저 작품을 선택해 주세요.");
     return null;
@@ -27738,13 +30610,14 @@ async function executeRewriteAssist(payload) {
 async function runRewriteFromSelection() {
   const payload = getRewriteSelectionPayload();
   if (!payload?.selectedText) {
-    toast("다듬을 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    toast("다듬을 문장·문단을 드래그로 선택해 주세요.");
     return null;
   }
   return executeRewriteAssist(payload);
 }
 
 function setupRewriteCompareModal() {
+  setupRewriteLengthWarnModal();
   document.querySelectorAll("[data-close-rewrite-compare]").forEach((el) => {
     el.addEventListener("click", () => closeRewriteCompareModal());
   });
