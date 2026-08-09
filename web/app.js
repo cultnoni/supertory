@@ -22468,7 +22468,10 @@ const WELCOME_GUIDE_DISMISS_KEY = "supertory.welcomePlusGuideDismissed";
 const WELCOME_AD_POPUP_IDS = ["event", "notice"];
 const WELCOME_AD_POPUP_SESSION_PREFIX = "supertory.welcomeAdPopup.session.";
 const WELCOME_AD_POPUP_TODAY_PREFIX = "supertory.welcomeAdPopup.today.";
-const WELCOME_AD_POPUP_VERSION = "v1"; // bump when content should re-show for all users
+/** Remote feed (no rebuild). Local fallback: same-origin /notice-feed.json */
+const NOTICE_FEED_REMOTE_URL =
+  "https://raw.githubusercontent.com/cultnoni/supertory/main/web/notice-feed.json";
+const NOTICE_FEED_LOCAL_URL = "/notice-feed.json";
 const WELCOME_SPEECH_LINES = [
   "반가워요 작가님",
   "먼저 왼쪽 위 +를 눌러봐요!",
@@ -22482,15 +22485,14 @@ let welcomeSpeechIndex = 0;
 let welcomeGuideDismissedSession = false;
 /** @type {Record<string, boolean>} */
 const welcomeAdPopupSessionDismissed = {};
+/** @type {Record<string, object|null>|null} null = not loaded / failed */
+let welcomeAdFeed = null;
+let welcomeAdFeedLoaded = false;
+let welcomeAdFeedLoading = null;
 
 function isWelcomeScreenVisible() {
   const el = $("welcome");
   return Boolean(el && !el.classList.contains("hidden"));
-}
-
-function welcomeAdPopupStorageKey(kind, scope) {
-  const prefix = scope === "today" ? WELCOME_AD_POPUP_TODAY_PREFIX : WELCOME_AD_POPUP_SESSION_PREFIX;
-  return `${prefix}${kind}.${WELCOME_AD_POPUP_VERSION}`;
 }
 
 function localDateKey() {
@@ -22499,6 +22501,128 @@ function localDateKey() {
   const m = String(d.getMonth() + 1).padStart(2, "0");
   const day = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${day}`;
+}
+
+function normalizeWelcomeAdItem(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const version = String(raw.version || "v1").trim() || "v1";
+  const title = String(raw.title || "").trim();
+  const body = String(raw.body || "").trim();
+  if (!title && !body) return null;
+  return {
+    badge: String(raw.badge || "").trim(),
+    title,
+    body,
+    enabled: raw.enabled !== false && raw.enabled !== 0,
+    version,
+    startDate: String(raw.startDate || "").trim(),
+    endDate: String(raw.endDate || "").trim(),
+  };
+}
+
+function parseWelcomeAdFeed(data) {
+  if (!data || typeof data !== "object") return null;
+  /** @type {Record<string, object|null>} */
+  const out = {};
+  for (const kind of WELCOME_AD_POPUP_IDS) {
+    out[kind] = normalizeWelcomeAdItem(data[kind]);
+  }
+  if (!out.event && !out.notice) return null;
+  return out;
+}
+
+async function fetchWelcomeAdFeedJson(url) {
+  const sep = url.includes("?") ? "&" : "?";
+  const response = await fetch(`${url}${sep}t=${Date.now()}`, {
+    method: "GET",
+    cache: "no-store",
+    credentials: "omit",
+  });
+  if (!response.ok) throw new Error(`notice-feed HTTP ${response.status}`);
+  const data = await response.json();
+  const parsed = parseWelcomeAdFeed(data);
+  if (!parsed) throw new Error("notice-feed empty or invalid");
+  return parsed;
+}
+
+/**
+ * Load notice/event feed: remote GitHub raw → local /notice-feed.json → null (hide all).
+ * @returns {Promise<Record<string, object|null>|null>}
+ */
+async function loadWelcomeAdFeed() {
+  if (welcomeAdFeedLoaded) return welcomeAdFeed;
+  if (welcomeAdFeedLoading) return welcomeAdFeedLoading;
+  welcomeAdFeedLoading = (async () => {
+    let feed = null;
+    try {
+      feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_REMOTE_URL);
+    } catch (remoteError) {
+      try {
+        feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_LOCAL_URL);
+      } catch (localError) {
+        console.warn(
+          "welcome ad feed unavailable",
+          remoteError?.message || remoteError,
+          localError?.message || localError,
+        );
+        feed = null;
+      }
+    }
+    welcomeAdFeed = feed;
+    welcomeAdFeedLoaded = true;
+    welcomeAdFeedLoading = null;
+    applyWelcomeAdFeedToDom();
+    refreshWelcomeAdPopupsVisibility();
+    return welcomeAdFeed;
+  })();
+  return welcomeAdFeedLoading;
+}
+
+function getWelcomeAdItem(kind) {
+  if (!welcomeAdFeed || typeof welcomeAdFeed !== "object") return null;
+  return welcomeAdFeed[kind] || null;
+}
+
+function welcomeAdItemVersion(kind) {
+  const item = getWelcomeAdItem(kind);
+  const v = String(item?.version || "v1").trim();
+  return v || "v1";
+}
+
+/** Inclusive local calendar window: startDate ≤ today ≤ endDate (missing bounds open). */
+function isWelcomeAdItemInDateWindow(item, today = localDateKey()) {
+  if (!item) return false;
+  const start = String(item.startDate || "").trim();
+  const end = String(item.endDate || "").trim();
+  if (start && /^\d{4}-\d{2}-\d{2}$/.test(start) && today < start) return false;
+  if (end && /^\d{4}-\d{2}-\d{2}$/.test(end) && today > end) return false;
+  return true;
+}
+
+function isWelcomeAdItemActive(kind) {
+  const item = getWelcomeAdItem(kind);
+  if (!item) return false;
+  if (!item.enabled) return false;
+  if (!isWelcomeAdItemInDateWindow(item)) return false;
+  if (!item.title && !item.body) return false;
+  return true;
+}
+
+function applyWelcomeAdFeedToDom() {
+  for (const kind of WELCOME_AD_POPUP_IDS) {
+    const item = getWelcomeAdItem(kind);
+    const badgeEl = document.querySelector(`[data-ad-popup-badge="${kind}"]`);
+    const titleEl = document.querySelector(`[data-ad-popup-title="${kind}"]`);
+    const bodyEl = document.querySelector(`[data-ad-popup-body="${kind}"]`);
+    if (badgeEl) badgeEl.textContent = item?.badge || "";
+    if (titleEl) titleEl.textContent = item?.title || "";
+    if (bodyEl) bodyEl.textContent = item?.body || "";
+  }
+}
+
+function welcomeAdPopupStorageKey(kind, scope) {
+  const prefix = scope === "today" ? WELCOME_AD_POPUP_TODAY_PREFIX : WELCOME_AD_POPUP_SESSION_PREFIX;
+  return `${prefix}${kind}.${welcomeAdItemVersion(kind)}`;
 }
 
 function isWelcomeAdPopupDismissed(kind) {
@@ -22539,7 +22663,10 @@ function refreshWelcomeAdPopupsVisibility() {
   for (const kind of WELCOME_AD_POPUP_IDS) {
     const el = document.querySelector(`[data-ad-popup="${kind}"]`);
     if (!el) continue;
-    const show = onWelcome && !isWelcomeAdPopupDismissed(kind);
+    const show = onWelcome
+      && welcomeAdFeedLoaded
+      && isWelcomeAdItemActive(kind)
+      && !isWelcomeAdPopupDismissed(kind);
     el.hidden = !show;
     el.setAttribute("aria-hidden", show ? "false" : "true");
     if (show) anyVisible = true;
@@ -22564,6 +22691,12 @@ function setupWelcomeAdPopups() {
       e.preventDefault();
       dismissWelcomeAdPopup(todayBtn.getAttribute("data-ad-popup-dismiss-today") || "", { today: true });
     }
+  });
+  loadWelcomeAdFeed().catch(() => {
+    welcomeAdFeed = null;
+    welcomeAdFeedLoaded = true;
+    welcomeAdFeedLoading = null;
+    refreshWelcomeAdPopupsVisibility();
   });
 }
 
@@ -22692,6 +22825,7 @@ function setupWelcomeScreen() {
     const mo = new MutationObserver(() => updateWelcomeGuideUi());
     mo.observe(welcome, { attributes: true, attributeFilter: ["class"] });
   }
+  // Visibility refreshes again after feed load; hide until then if not yet loaded
   refreshWelcomeAdPopupsVisibility();
 }
 

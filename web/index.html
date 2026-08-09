@@ -39,6 +39,7 @@
 
     <!-- Welcome-screen ad-style popups (dismissible) -->
     <div id="welcomeAdPopups" class="welcome-ad-popups hidden" aria-label="공지와 이벤트 팝업">
+      <!-- badge/title/body filled from notice-feed.json (remote → local) -->
       <aside
         class="welcome-ad-popup is-event"
         id="welcomeAdPopupEvent"
@@ -48,15 +49,12 @@
         hidden
       >
         <div class="welcome-ad-popup-head">
-          <span class="welcome-ad-popup-badge is-event">EVENT</span>
+          <span class="welcome-ad-popup-badge is-event" data-ad-popup-badge="event"></span>
           <button type="button" class="welcome-ad-popup-close" data-ad-popup-close="event" title="닫기" aria-label="이벤트 팝업 닫기">×</button>
         </div>
         <div class="welcome-ad-popup-body">
-          <strong id="welcomeAdPopupEventTitle">피드백 이벤트</strong>
-          <p>
-            SuperTory를 쓰시며 불편하거나 아쉬운 점이 있으면 알려 주세요.
-            좋은 제안은 다음 업데이트에 반영하고, 감사 인사를 드릴 예정이에요.
-          </p>
+          <strong id="welcomeAdPopupEventTitle" data-ad-popup-title="event"></strong>
+          <p data-ad-popup-body="event"></p>
         </div>
         <div class="welcome-ad-popup-foot">
           <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="event">
@@ -73,12 +71,12 @@
         hidden
       >
         <div class="welcome-ad-popup-head">
-          <span class="welcome-ad-popup-badge is-notice">공지</span>
+          <span class="welcome-ad-popup-badge is-notice" data-ad-popup-badge="notice"></span>
           <button type="button" class="welcome-ad-popup-close" data-ad-popup-close="notice" title="닫기" aria-label="공지 팝업 닫기">×</button>
         </div>
         <div class="welcome-ad-popup-body">
-          <strong id="welcomeAdPopupNoticeTitle">업데이트 관련 공지</strong>
-          <p>새 버전이 나오면 설정·정보에서 업데이트 할 수 있어요.</p>
+          <strong id="welcomeAdPopupNoticeTitle" data-ad-popup-title="notice"></strong>
+          <p data-ad-popup-body="notice"></p>
         </div>
         <div class="welcome-ad-popup-foot">
           <button type="button" class="welcome-ad-popup-dismiss-today" data-ad-popup-dismiss-today="notice">
