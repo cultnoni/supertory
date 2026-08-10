@@ -55,8 +55,8 @@
 }
 
 /* App chrome dark (night) mode — does not force manuscript page theme */
-html[data-ui-theme="dark"],
-body[data-ui-theme="dark"] {
+html[data-ui-scheme="dark"],
+body[data-ui-scheme="dark"] {
   --ink: #ece6dc;
   --muted: #a89f93;
   --paper: #161411;
@@ -78,6 +78,247 @@ body[data-ui-theme="dark"] {
   --ai-coming-mode: #9CA3AF;
   --ai-coming-mode-soft: #888888;
   color-scheme: dark;
+}
+
+/* Named UI themes (관리자 → 설정 옵션) — 토리 4테마 + 기본/야간 */
+html[data-theme="light"],
+html[data-ui-theme="light"],
+body[data-theme="light"],
+body[data-ui-theme="light"] {
+  --ink: #24211d;
+  --muted: #746d64;
+  --paper: #fffdf8;
+  --header-bg: #fffaf2;
+  --line: #e4ddd2;
+  --panel: #f6f1e9;
+  --accent: #8d3e2f;
+  --accent-dark: #6e2d21;
+  --selection: #efe4d4;
+  --editor-bg: #ffffff;
+  --surface: #fffdf8;
+  --surface-2: #fff8ef;
+  --surface-3: #efe4d4;
+  --surface-input: #ffffff;
+  --border-strong: #e0d3c0;
+  --shadow: #00000022;
+  --ai-success-mode: #c47a2c;
+  --ai-success-mode-soft: #a86824;
+  --ai-coming-mode: #9CA3AF;
+  --ai-coming-mode-soft: #888888;
+  color-scheme: light;
+}
+
+html[data-theme="cabin"],
+html[data-ui-theme="cabin"],
+body[data-theme="cabin"],
+body[data-ui-theme="cabin"] {
+  --ink: #2C3A2E;
+  --muted: #57685A;
+  --paper: #E2E8E0;
+  --header-bg: #D5DDD3;
+  --line: #C2CDC0;
+  --panel: #D5DDD3;
+  --accent: #5F7A61;
+  --accent-dark: #4A6350;
+  --selection: #B2C5B0;
+  --editor-bg: #E2E8E0;
+  --surface: #EAF0E8;
+  --surface-2: #E2E8E0;
+  --surface-3: #D5DDD3;
+  --surface-input: #EAF0E8;
+  --border-strong: #C2CDC0;
+  --shadow: #2C3A2E22;
+  --ai-success-mode: #5F7A61;
+  --ai-success-mode-soft: #4A6350;
+  color-scheme: light;
+}
+
+html[data-theme="study"],
+html[data-ui-theme="study"],
+body[data-theme="study"],
+body[data-ui-theme="study"] {
+  --ink: #4A3B32;
+  --muted: #6E5A4D;
+  --paper: #EDE3D4;
+  --header-bg: #EAE0D3;
+  --line: #D8C8B6;
+  --panel: #EAE0D3;
+  --accent: #8C6D58;
+  --accent-dark: #735643;
+  --selection: #E2CFC0;
+  --editor-bg: #EDE3D4;
+  --surface: #FAF4EC;
+  --surface-2: #F4EBE1;
+  --surface-3: #EAE0D3;
+  --surface-input: #FAF4EC;
+  --border-strong: #D8C8B6;
+  --shadow: #4A3B3222;
+  --ai-success-mode: #8C6D58;
+  --ai-success-mode-soft: #735643;
+  color-scheme: light;
+}
+
+html[data-theme="library"],
+html[data-ui-theme="library"],
+body[data-theme="library"],
+body[data-ui-theme="library"],
+html[data-theme="dawn"],
+html[data-ui-theme="dawn"],
+body[data-theme="dawn"],
+body[data-ui-theme="dawn"] {
+  --ink: #2B323B;
+  --muted: #536070;
+  --paper: #E1E6EB;
+  --header-bg: #D3DBE2;
+  --line: #C1CAD3;
+  --panel: #D3DBE2;
+  --accent: #526D82;
+  --accent-dark: #41586A;
+  --selection: #B9C8D4;
+  --editor-bg: #E1E6EB;
+  --surface: #EDF1F5;
+  --surface-2: #E1E6EB;
+  --surface-3: #D3DBE2;
+  --surface-input: #EDF1F5;
+  --border-strong: #C1CAD3;
+  --shadow: #2B323B22;
+  --ai-success-mode: #526D82;
+  --ai-success-mode-soft: #41586A;
+  color-scheme: light;
+}
+
+html[data-theme="attic"],
+html[data-ui-theme="attic"],
+body[data-theme="attic"],
+body[data-ui-theme="attic"] {
+  /* Soft warm off-white — beige tint, less glare than pure cool white */
+  --ink: #E6E0D4;
+  --muted: #A89B8C;
+  --paper: #1B2028;
+  --header-bg: #14181F;
+  --line: #2D3542;
+  --panel: #14181F;
+  --accent: #8A9EA7;
+  --accent-dark: #A8B8C0;
+  --selection: #3A4759;
+  --editor-bg: #1B2028;
+  --surface: #232933;
+  --surface-2: #1B2028;
+  --surface-3: #2D3542;
+  --surface-input: #232933;
+  --border-strong: #2D3542;
+  --shadow: #00000077;
+  --ai-success-mode: #8A9EA7;
+  --ai-success-mode-soft: #A8B8C0;
+  --ai-coming-mode: #9BA8B5;
+  --ai-coming-mode-soft: #7A8794;
+  color-scheme: dark;
+}
+
+html[data-theme="eink"],
+html[data-ui-theme="eink"],
+body[data-theme="eink"],
+body[data-ui-theme="eink"] {
+  /* Pure E ink: only #000 text/lines and #fff paper — no gray ramp.
+     --selection must stay #fff: color-mix(selection, panel) with black selection recreates mid-grays. */
+  --ink: #000000;
+  --muted: #000000;
+  --paper: #ffffff;
+  --header-bg: #ffffff;
+  --line: #000000;
+  --panel: #ffffff;
+  --accent: #000000;
+  --accent-dark: #000000;
+  --selection: #ffffff;
+  --editor-bg: #ffffff;
+  --surface: #ffffff;
+  --surface-2: #ffffff;
+  --surface-3: #ffffff;
+  --surface-input: #ffffff;
+  --border-strong: #000000;
+  --shadow: transparent;
+  --ai-success-mode: #000000;
+  --ai-success-mode-soft: #000000;
+  --ai-coming-mode: #000000;
+  --ai-coming-mode-soft: #000000;
+  --page-bg: #ffffff;
+  --page-editor-bg: #ffffff;
+  --page-ink: #000000;
+  --page-line: #000000;
+  --viewer-page-bg: #ffffff;
+  --viewer-page-ink: #000000;
+  color-scheme: light;
+}
+
+/* Soft chrome transition when switching named themes */
+html[data-theme="light"] body,
+html[data-theme="dark"] body,
+html[data-theme="cabin"] body,
+html[data-theme="study"] body,
+html[data-theme="library"] body,
+html[data-theme="attic"] body,
+html[data-theme="eink"] body,
+html[data-ui-theme="light"] body,
+html[data-ui-theme="dark"] body,
+html[data-ui-theme="cabin"] body,
+html[data-ui-theme="study"] body,
+html[data-ui-theme="library"] body,
+html[data-ui-theme="dawn"] body,
+html[data-ui-theme="attic"] body,
+html[data-ui-theme="eink"] body,
+body[data-theme="light"],
+body[data-theme="dark"],
+body[data-theme="cabin"],
+body[data-theme="study"],
+body[data-theme="library"],
+body[data-theme="attic"],
+body[data-theme="eink"],
+body[data-ui-theme="light"],
+body[data-ui-theme="dark"],
+body[data-ui-theme="cabin"],
+body[data-ui-theme="study"],
+body[data-ui-theme="library"],
+body[data-ui-theme="dawn"],
+body[data-ui-theme="attic"],
+body[data-ui-theme="eink"] {
+  transition: background-color 0.25s ease, color 0.25s ease;
+}
+
+html[data-theme="cabin"] ::selection,
+html[data-theme="study"] ::selection,
+html[data-theme="library"] ::selection,
+html[data-theme="attic"] ::selection,
+html[data-ui-theme="cabin"] ::selection,
+html[data-ui-theme="study"] ::selection,
+html[data-ui-theme="library"] ::selection,
+html[data-ui-theme="dawn"] ::selection,
+html[data-ui-theme="attic"] ::selection,
+body[data-theme="cabin"] ::selection,
+body[data-theme="study"] ::selection,
+body[data-theme="library"] ::selection,
+body[data-theme="attic"] ::selection,
+body[data-ui-theme="cabin"] ::selection,
+body[data-ui-theme="study"] ::selection,
+body[data-ui-theme="library"] ::selection,
+body[data-ui-theme="dawn"] ::selection,
+body[data-ui-theme="attic"] ::selection {
+  background-color: var(--selection);
+  color: var(--ink);
+}
+
+/* E ink: --selection stays #fff for chrome color-mix, but text highlight must be B/W. */
+html[data-theme="eink"] ::selection,
+html[data-ui-theme="eink"] ::selection,
+body[data-theme="eink"] ::selection,
+body[data-ui-theme="eink"] ::selection,
+html[data-theme="eink"] *::selection,
+html[data-ui-theme="eink"] *::selection,
+body[data-theme="eink"] *::selection,
+body[data-ui-theme="eink"] *::selection {
+  background-color: #000000 !important;
+  background: #000000 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
 }
 
 /* Body-text page only: .manuscript-page (the sheet where prose is written) */
@@ -146,6 +387,41 @@ body {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+}
+
+/* 비밀 서재 — deepest chrome: handmade / hanji paper grain (visible texture, not flat color) */
+html[data-theme="study"] body,
+html[data-ui-theme="study"] body,
+body[data-theme="study"],
+body[data-ui-theme="study"],
+html[data-theme="study"] .work-area,
+html[data-ui-theme="study"] .work-area,
+body[data-theme="study"] .work-area,
+body[data-ui-theme="study"] .work-area {
+  background-color: #EDE3D4;
+  background-image:
+    /* Fine pulp / fiber grain */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='grain'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.78' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.55 0 0 0 0 0.48 0 0 0 0 0.38 0 0 0 0.85 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23grain)' opacity='0.45'/%3E%3C/svg%3E"),
+    /* Coarser paper tooth */
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220'%3E%3Cfilter id='tooth'%3E%3CfeTurbulence type='turbulence' baseFrequency='0.35' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 0.62 0 0 0 0 0.55 0 0 0 0 0.42 0 0 0 0.55 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23tooth)' opacity='0.28'/%3E%3C/svg%3E"),
+    /* Soft fiber streaks (hanji-like) */
+    repeating-linear-gradient(
+      92deg,
+      rgba(255, 250, 242, 0) 0 7px,
+      rgba(255, 250, 242, 0.18) 7px 8px,
+      rgba(255, 250, 242, 0) 8px 15px,
+      rgba(170, 145, 115, 0.07) 15px 16px
+    ),
+    repeating-linear-gradient(
+      8deg,
+      rgba(255, 252, 246, 0) 0 11px,
+      rgba(210, 185, 155, 0.08) 11px 12px,
+      rgba(255, 252, 246, 0) 12px 23px
+    ),
+    radial-gradient(ellipse 85% 65% at 20% 18%, rgba(255, 251, 244, 0.5), transparent 60%),
+    radial-gradient(ellipse 75% 60% at 85% 82%, rgba(186, 160, 128, 0.16), transparent 55%);
+  background-size: 160px 160px, 220px 220px, auto, auto, auto, auto;
+  background-blend-mode: multiply, soft-light, soft-light, multiply, soft-light, normal;
 }
 button, input, textarea, select { font: inherit; }
 button { cursor: pointer; }
@@ -652,7 +928,7 @@ html.is-electron-mac .app-titlebar {
 .header-theme-btn .theme-icon.hidden {
   display: none !important;
 }
-body[data-ui-theme="dark"] .header-theme-btn {
+body[data-ui-scheme="dark"] .header-theme-btn {
   color: #f0d9a8;
 }
 .create-menu {
@@ -724,7 +1000,7 @@ body[data-ui-theme="dark"] .header-theme-btn {
   color: var(--muted);
   font-weight: 500;
 }
-html[data-ui-theme="dark"] .create-menu-icon {
+html[data-ui-scheme="dark"] .create-menu-icon {
   background: color-mix(in srgb, var(--accent) 18%, var(--surface));
 }
 .import-proof-banner {
@@ -733,12 +1009,202 @@ html[data-ui-theme="dark"] .create-menu-icon {
   border-radius: 10px;
   border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
   background: color-mix(in srgb, var(--accent) 10%, var(--panel));
-  line-height: 1.5 !important;
+  line-height: 1.55 !important;
   color: var(--ink) !important;
+  font-size: 13px !important;
+  font-weight: 500;
 }
 .import-proof-banner.hidden { display: none !important; }
 .import-proof-banner strong {
   color: var(--accent-dark);
+}
+html[data-theme="eink"] .import-proof-banner,
+html[data-ui-theme="eink"] .import-proof-banner {
+  background: #fff !important;
+  background-color: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .import-proof-banner strong,
+html[data-ui-theme="eink"] .import-proof-banner strong {
+  color: #000 !important;
+}
+#importModal[data-import-mode="proof"] .modal-card {
+  width: min(560px, calc(100vw - 28px));
+  max-height: min(92vh, 900px);
+  overflow: auto;
+}
+.import-proof-method-wrap {
+  margin: 14px 0 6px;
+  display: grid;
+  gap: 8px;
+}
+.import-proof-method-wrap.hidden { display: none !important; }
+.import-proof-method-title {
+  margin: 0;
+  font-weight: 700;
+  font-size: 13px;
+}
+.import-proof-method {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  display: grid;
+  gap: 10px;
+}
+.import-proof-method-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 12px 14px;
+  border: 2px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface, #fffdf8);
+  cursor: pointer;
+  transition: border-color 0.12s ease, background 0.12s ease, box-shadow 0.12s ease;
+}
+.import-proof-method-card input {
+  width: auto;
+  margin: 3px 0 0;
+  flex: 0 0 auto;
+  accent-color: var(--ink);
+}
+.import-proof-method-body {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+.import-proof-method-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 6px 8px;
+  text-align: center;
+}
+.import-proof-method-head strong {
+  font-size: 13px;
+  font-weight: 750;
+  color: var(--ink);
+  line-height: 1.35;
+  text-align: center;
+}
+.import-proof-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 7px;
+  border-radius: 999px;
+  font-style: normal;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  border: 1px solid transparent;
+}
+.import-proof-method-lead {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.4;
+  text-align: center;
+}
+.import-proof-method-desc {
+  font-size: 12px;
+  font-weight: 400;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.import-proof-method-card.is-recommended {
+  border-color: #2f9e6a;
+  background: color-mix(in srgb, #2f9e6a 8%, #fff);
+}
+.import-proof-method-card.is-recommended:has(input:checked) {
+  border-color: #1f7a52;
+  box-shadow: 0 0 0 1px #1f7a52;
+  background: color-mix(in srgb, #2f9e6a 14%, #fff);
+}
+.import-proof-badge-rec {
+  color: #0f5c3a;
+  background: color-mix(in srgb, #2f9e6a 18%, #fff);
+  border-color: #2f9e6a;
+}
+.import-proof-method-card.is-safe {
+  border-color: #7b6bb5;
+  background: color-mix(in srgb, #7b6bb5 7%, #fff);
+}
+.import-proof-method-card.is-safe:has(input:checked) {
+  border-color: #5f5096;
+  box-shadow: 0 0 0 1px #5f5096;
+  background: color-mix(in srgb, #7b6bb5 13%, #fff);
+}
+.import-proof-badge-safe {
+  color: #433678;
+  background: color-mix(in srgb, #7b6bb5 16%, #fff);
+  border-color: #7b6bb5;
+}
+.import-proof-method-card.is-danger {
+  border-color: #d97706;
+  background: color-mix(in srgb, #f59e0b 8%, #fff);
+}
+.import-proof-method-card.is-danger:has(input:checked) {
+  border-color: #c2410c;
+  box-shadow: 0 0 0 1px #c2410c;
+  background: color-mix(in srgb, #f59e0b 16%, #fff);
+}
+.import-proof-badge-danger {
+  color: #9a3412;
+  background: color-mix(in srgb, #f59e0b 20%, #fff);
+  border-color: #d97706;
+}
+html[data-ui-scheme="dark"] .import-proof-method-card.is-recommended {
+  background: color-mix(in srgb, #2f9e6a 16%, var(--surface));
+}
+html[data-ui-scheme="dark"] .import-proof-method-card.is-safe {
+  background: color-mix(in srgb, #7b6bb5 16%, var(--surface));
+}
+html[data-ui-scheme="dark"] .import-proof-method-card.is-danger {
+  background: color-mix(in srgb, #f59e0b 14%, var(--surface));
+}
+html[data-theme="eink"] .import-proof-method-card.is-recommended,
+html[data-theme="eink"] .import-proof-method-card.is-safe,
+html[data-theme="eink"] .import-proof-method-card.is-danger {
+  background: #fff;
+  box-shadow: none;
+}
+html[data-theme="eink"] .import-proof-method-card.is-recommended {
+  border-color: #000;
+  border-width: 2px;
+}
+html[data-theme="eink"] .import-proof-method-card.is-safe {
+  border-color: #000;
+  border-style: dashed;
+}
+html[data-theme="eink"] .import-proof-method-card.is-danger {
+  border-color: #000;
+  border-width: 3px;
+}
+html[data-theme="eink"] .import-proof-badge-rec,
+html[data-theme="eink"] .import-proof-badge-safe,
+html[data-theme="eink"] .import-proof-badge-danger {
+  color: #000;
+  background: #fff;
+  border-color: #000;
+}
+html[data-theme="eink"] .import-proof-method-card:has(input:checked) {
+  background: #000;
+  color: #fff;
+}
+html[data-theme="eink"] .import-proof-method-card:has(input:checked) strong,
+html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-proof-method-lead,
+html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-proof-method-desc {
+  color: #fff;
+}
+html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-proof-badge {
+  color: #000;
+  background: #fff;
+  border-color: #fff;
 }
 .create-menu-dropdown > button span {
   color: var(--muted);
@@ -776,6 +1242,40 @@ html[data-ui-theme="dark"] .create-menu-icon {
   background: var(--accent-dark, #5c4a32);
   border-color: var(--accent-dark, #5c4a32);
   color: #fff;
+}
+.theme-options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+.theme-options > button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid var(--border, var(--line));
+  border-radius: 12px;
+  background: var(--bg-card, var(--surface));
+  color: var(--text-main, var(--ink));
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+}
+.theme-options > button:hover {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+}
+.theme-options > button.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+  color: var(--accent-dark, var(--accent));
+}
+#adminThemeHint {
+  margin: 10px 0 0;
+  line-height: 1.45;
 }
 .admin-panel[hidden] {
   display: none !important;
@@ -1054,14 +1554,14 @@ html[data-ui-theme="dark"] .create-menu-icon {
   background: linear-gradient(90deg, #c47a2c, #8b5a2b);
   transition: width 0.2s ease;
 }
-html[data-ui-theme="dark"] .app-update-banner,
-body[data-ui-theme="dark"] .app-update-banner {
+html[data-ui-scheme="dark"] .app-update-banner,
+body[data-ui-scheme="dark"] .app-update-banner {
   background: #2a2620;
   border-color: #5a5044;
   color: #f2ebe0;
 }
-html[data-ui-theme="dark"] .app-update-banner-progress,
-body[data-ui-theme="dark"] .app-update-banner-progress {
+html[data-ui-scheme="dark"] .app-update-banner-progress,
+body[data-ui-scheme="dark"] .app-update-banner-progress {
   background: #3a342c;
 }
 .format-palette-hide-btn,
@@ -2032,12 +2532,12 @@ body.tory-chat-popup-dragging {
 body.tory-chat-popup-dragging * {
   cursor: grabbing !important;
 }
-html[data-ui-theme="dark"] .tory-chat-popup-drag {
+html[data-ui-scheme="dark"] .tory-chat-popup-drag {
   background: linear-gradient(180deg, #2a2621 0%, #23201c 100%);
   border-bottom-color: var(--line);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .tory-chat-mode-menu {
+html[data-ui-scheme="dark"] .tory-chat-mode-menu {
   background: var(--surface);
 }
 
@@ -2166,7 +2666,7 @@ html[data-ui-theme="dark"] .tory-chat-mode-menu {
   .ai-writing-ink { opacity: 0.55; }
   .ai-writing-ellipsis i { opacity: 0.7; }
 }
-html[data-ui-theme="dark"] .ai-writing-status {
+html[data-ui-scheme="dark"] .ai-writing-status {
   background:
     linear-gradient(135deg,
       color-mix(in srgb, var(--accent, #c47b3a) 16%, var(--surface)) 0%,
@@ -2365,8 +2865,8 @@ html[data-ui-theme="dark"] .ai-writing-status {
 .tory-chat-history-list.hidden {
   display: none !important;
 }
-html[data-ui-theme="dark"] .tory-chat-history-item,
-html[data-ui-theme="dark"] .tory-chat-history-detail-messages {
+html[data-ui-scheme="dark"] .tory-chat-history-item,
+html[data-ui-scheme="dark"] .tory-chat-history-detail-messages {
   background: var(--surface);
 }
 
@@ -2993,12 +3493,12 @@ mark.tory-chat-hl {
   font-size: 13px;
 }
 
-html[data-ui-theme="dark"] .tory-notify-card,
-html[data-ui-theme="dark"] .tory-notify-head-stats,
-html[data-ui-theme="dark"] .tory-notify-collapse-btn {
+html[data-ui-scheme="dark"] .tory-notify-card,
+html[data-ui-scheme="dark"] .tory-notify-head-stats,
+html[data-ui-scheme="dark"] .tory-notify-collapse-btn {
   background: var(--surface);
 }
-html[data-ui-theme="dark"] .tory-switch-track::after {
+html[data-ui-scheme="dark"] .tory-switch-track::after {
   background: #f3f0ea;
 }
 .ai-panel-title {
@@ -3214,24 +3714,24 @@ body.tory-priority-popup-dragging *,
 body.tory-priority-popup-resizing * {
   cursor: inherit !important;
 }
-html[data-ui-theme="dark"] .tory-priority-box {
+html[data-ui-scheme="dark"] .tory-priority-box {
   background: #3a3224;
   border-color: #5a4a30;
 }
-html[data-ui-theme="dark"] .tory-priority-toggle:hover,
-html[data-ui-theme="dark"] .tory-priority-box.is-open {
+html[data-ui-scheme="dark"] .tory-priority-toggle:hover,
+html[data-ui-scheme="dark"] .tory-priority-box.is-open {
   background: #4a3e2e;
 }
-html[data-ui-theme="dark"] .tory-priority-popup {
+html[data-ui-scheme="dark"] .tory-priority-popup {
   background: #3a3224;
   border-color: #5a4a30;
 }
-html[data-ui-theme="dark"] .tory-priority-popup-drag {
+html[data-ui-scheme="dark"] .tory-priority-popup-drag {
   background: linear-gradient(180deg, #4a3e2e 0%, #3a3224 100%);
   border-bottom-color: #5a4a30;
   color: #f0d9a8;
 }
-html[data-ui-theme="dark"] #toryPriorityInput {
+html[data-ui-scheme="dark"] #toryPriorityInput {
   background: var(--surface);
 }
 .ai-panel-form {
@@ -3654,8 +4154,8 @@ html[data-ui-theme="dark"] #toryPriorityInput {
 .ai-panel-form select.is-success-mode:focus {
   outline-color: color-mix(in srgb, var(--ai-success-mode) 55%, transparent);
 }
-html[data-ui-theme="dark"] .ai-panel-form select option.ai-mode-success-opt,
-html[data-ui-theme="dark"] .ai-panel-form select.is-success-mode {
+html[data-ui-scheme="dark"] .ai-panel-form select option.ai-mode-success-opt,
+html[data-ui-scheme="dark"] .ai-panel-form select.is-success-mode {
   color: var(--ai-success-mode-soft);
 }
 /* 토리와 새 무대 (준비중) — 회색 포인트 컬러 */
@@ -3671,8 +4171,8 @@ html[data-ui-theme="dark"] .ai-panel-form select.is-success-mode {
 .ai-panel-form select.is-coming-mode:focus {
   outline-color: color-mix(in srgb, var(--ai-coming-mode) 55%, transparent);
 }
-html[data-ui-theme="dark"] .ai-panel-form select option.ai-mode-coming-opt,
-html[data-ui-theme="dark"] .ai-panel-form select.is-coming-mode {
+html[data-ui-scheme="dark"] .ai-panel-form select option.ai-mode-coming-opt,
+html[data-ui-scheme="dark"] .ai-panel-form select.is-coming-mode {
   color: var(--ai-coming-mode-soft);
 }
 .ai-panel-form textarea {
@@ -3926,14 +4426,14 @@ html[data-ui-theme="dark"] .ai-panel-form select.is-coming-mode {
   padding: 6px 12px;
   font-size: 13px;
 }
-html[data-ui-theme="dark"] .ai-result-modal-body,
-body[data-ui-theme="dark"] .ai-result-modal-body {
+html[data-ui-scheme="dark"] .ai-result-modal-body,
+body[data-ui-scheme="dark"] .ai-result-modal-body {
   background: var(--surface-input, #2a2621);
   color: var(--ink);
   box-shadow: none;
 }
-html[data-ui-theme="dark"] .ai-panel #aiResult,
-body[data-ui-theme="dark"] .ai-panel #aiResult {
+html[data-ui-scheme="dark"] .ai-panel #aiResult,
+body[data-ui-scheme="dark"] .ai-panel #aiResult {
   background: var(--surface-input, #2a2621);
   color: var(--ink);
   caret-color: var(--ink);
@@ -4147,26 +4647,26 @@ body[data-ui-theme="dark"] .ai-panel #aiResult {
   opacity: 1;
   visibility: visible;
 }
-html[data-ui-theme="dark"] .settings-main-open,
-body[data-ui-theme="dark"] .settings-main-open {
+html[data-ui-scheme="dark"] .settings-main-open,
+body[data-ui-scheme="dark"] .settings-main-open {
   background: transparent;
   color: var(--accent-dark);
 }
-html[data-ui-theme="dark"] .settings-main-open:hover,
-html[data-ui-theme="dark"] .settings-main-open:focus-visible,
-body[data-ui-theme="dark"] .settings-main-open:hover,
-body[data-ui-theme="dark"] .settings-main-open:focus-visible {
+html[data-ui-scheme="dark"] .settings-main-open:hover,
+html[data-ui-scheme="dark"] .settings-main-open:focus-visible,
+body[data-ui-scheme="dark"] .settings-main-open:hover,
+body[data-ui-scheme="dark"] .settings-main-open:focus-visible {
   background: color-mix(in srgb, var(--selection) 50%, transparent);
   color: var(--accent);
 }
-html[data-ui-theme="dark"] .settings-main-tip,
-body[data-ui-theme="dark"] .settings-main-tip {
+html[data-ui-scheme="dark"] .settings-main-tip,
+body[data-ui-scheme="dark"] .settings-main-tip {
   background: var(--surface, #25211c);
   border-color: var(--line);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .settings-box-header,
-body[data-ui-theme="dark"] .settings-box-header {
+html[data-ui-scheme="dark"] .settings-box-header,
+body[data-ui-scheme="dark"] .settings-box-header {
   background: var(--surface-2, #322c25);
 }
 .bait-list {
@@ -4914,12 +5414,12 @@ body[data-ui-theme="dark"] .settings-box-header {
   padding: 2px 10px !important;
   font-size: 11px !important;
 }
-html[data-ui-theme="dark"] .keyword-tag,
-body[data-ui-theme="dark"] .keyword-tag {
+html[data-ui-scheme="dark"] .keyword-tag,
+body[data-ui-scheme="dark"] .keyword-tag {
   background: var(--surface-2);
 }
-html[data-ui-theme="dark"] .keyword-picker-panel,
-body[data-ui-theme="dark"] .keyword-picker-panel {
+html[data-ui-scheme="dark"] .keyword-picker-panel,
+body[data-ui-scheme="dark"] .keyword-picker-panel {
   background: color-mix(in srgb, var(--panel) 80%, #000);
 }
 
@@ -5023,12 +5523,12 @@ body[data-ui-theme="dark"] .keyword-picker-panel {
   padding: 4px 14px !important;
   font-size: 12px !important;
 }
-html[data-ui-theme="dark"] .keyword-board-selected,
-html[data-ui-theme="dark"] .keyword-board-catalog-wrap,
-html[data-ui-theme="dark"] .keyword-board-custom,
-body[data-ui-theme="dark"] .keyword-board-selected,
-body[data-ui-theme="dark"] .keyword-board-catalog-wrap,
-body[data-ui-theme="dark"] .keyword-board-custom {
+html[data-ui-scheme="dark"] .keyword-board-selected,
+html[data-ui-scheme="dark"] .keyword-board-catalog-wrap,
+html[data-ui-scheme="dark"] .keyword-board-custom,
+body[data-ui-scheme="dark"] .keyword-board-selected,
+body[data-ui-scheme="dark"] .keyword-board-catalog-wrap,
+body[data-ui-scheme="dark"] .keyword-board-custom {
   background: color-mix(in srgb, var(--panel) 80%, #000);
 }
 
@@ -5513,8 +6013,8 @@ body.ai-panel-collapsed .ai-panel {
 .context-menu .binder-action-danger strong {
   color: #b33a2b;
 }
-body[data-ui-theme="dark"] .context-menu .binder-action-danger strong,
-html[data-ui-theme="dark"] .context-menu .binder-action-danger strong {
+body[data-ui-scheme="dark"] .context-menu .binder-action-danger strong,
+html[data-ui-scheme="dark"] .context-menu .binder-action-danger strong {
   color: #f0a090;
 }
 
@@ -5591,10 +6091,10 @@ html[data-ui-theme="dark"] .context-menu .binder-action-danger strong {
   border-color: color-mix(in srgb, var(--accent) 26%, var(--line));
   background: color-mix(in srgb, var(--accent) 4%, var(--surface, #fffdf8));
 }
-html[data-ui-theme="dark"] .outline-part .outline-part,
-html[data-ui-theme="dark"] .outline-chapter .outline-part,
-body[data-ui-theme="dark"] .outline-part .outline-part,
-body[data-ui-theme="dark"] .outline-chapter .outline-part {
+html[data-ui-scheme="dark"] .outline-part .outline-part,
+html[data-ui-scheme="dark"] .outline-chapter .outline-part,
+body[data-ui-scheme="dark"] .outline-part .outline-part,
+body[data-ui-scheme="dark"] .outline-chapter .outline-part {
   background: color-mix(in srgb, var(--accent) 8%, var(--panel));
 }
 
@@ -5861,12 +6361,12 @@ nav { display: grid; gap: 3px; }
   border-color: color-mix(in srgb, #9a9590 55%, var(--line)) !important;
   background: color-mix(in srgb, #9a9590 14%, var(--surface, #fffdf8)) !important;
 }
-html[data-ui-theme="dark"] .folder-title-box.is-level-2,
-html[data-ui-theme="dark"] .folder-title-box.is-level-3,
-html[data-ui-theme="dark"] .folder-title-box.is-level-4,
-body[data-ui-theme="dark"] .folder-title-box.is-level-2,
-body[data-ui-theme="dark"] .folder-title-box.is-level-3,
-body[data-ui-theme="dark"] .folder-title-box.is-level-4 {
+html[data-ui-scheme="dark"] .folder-title-box.is-level-2,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-3,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-4,
+body[data-ui-scheme="dark"] .folder-title-box.is-level-2,
+body[data-ui-scheme="dark"] .folder-title-box.is-level-3,
+body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   color: #b0a9a1 !important;
   border-color: color-mix(in srgb, #8a847c 50%, var(--line)) !important;
   background: color-mix(in srgb, #8a847c 18%, var(--surface)) !important;
@@ -6048,14 +6548,14 @@ body[data-ui-theme="dark"] .folder-title-box.is-level-4 {
   background: color-mix(in srgb, var(--ink) 4.5%, transparent);
 }
 
-html[data-ui-theme="dark"] .part-children > .outline-part,
-html[data-ui-theme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
-html[data-ui-theme="dark"] .chapter-children > .outline-part,
-html[data-ui-theme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter),
-body[data-ui-theme="dark"] .part-children > .outline-part,
-body[data-ui-theme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
-body[data-ui-theme="dark"] .chapter-children > .outline-part,
-body[data-ui-theme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter) {
+html[data-ui-scheme="dark"] .part-children > .outline-part,
+html[data-ui-scheme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
+html[data-ui-scheme="dark"] .chapter-children > .outline-part,
+html[data-ui-scheme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter),
+body[data-ui-scheme="dark"] .part-children > .outline-part,
+body[data-ui-scheme="dark"] .part-children > .outline-chapter:not(.is-transparent-chapter),
+body[data-ui-scheme="dark"] .chapter-children > .outline-part,
+body[data-ui-scheme="dark"] .chapter-children > .outline-chapter:not(.is-transparent-chapter) {
   border-left-color: color-mix(in srgb, var(--line) 70%, var(--ink) 12%);
 }
 .part-empty-hint {
@@ -6791,20 +7291,20 @@ body[data-ui-theme="dark"] .chapter-children > .outline-chapter:not(.is-transpar
   height: 22px;
   font-size: 11px;
 }
-html[data-ui-theme="dark"] .scene-complete-badge,
-body[data-ui-theme="dark"] .scene-complete-badge {
+html[data-ui-scheme="dark"] .scene-complete-badge,
+body[data-ui-scheme="dark"] .scene-complete-badge {
   border-color: var(--accent);
   background: color-mix(in srgb, var(--accent) 18%, transparent);
   color: var(--accent-dark);
 }
-html[data-ui-theme="dark"] .chapter-title.is-complete,
-html[data-ui-theme="dark"] .folder-title-box.is-complete,
-html[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .chapter-title,
-html[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .folder-title-box,
-body[data-ui-theme="dark"] .chapter-title.is-complete,
-body[data-ui-theme="dark"] .folder-title-box.is-complete,
-body[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .chapter-title,
-body[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .folder-title-box {
+html[data-ui-scheme="dark"] .chapter-title.is-complete,
+html[data-ui-scheme="dark"] .folder-title-box.is-complete,
+html[data-ui-scheme="dark"] .outline-chapter.is-chapter-complete .chapter-title,
+html[data-ui-scheme="dark"] .outline-chapter.is-chapter-complete .folder-title-box,
+body[data-ui-scheme="dark"] .chapter-title.is-complete,
+body[data-ui-scheme="dark"] .folder-title-box.is-complete,
+body[data-ui-scheme="dark"] .outline-chapter.is-chapter-complete .chapter-title,
+body[data-ui-scheme="dark"] .outline-chapter.is-chapter-complete .folder-title-box {
   border-color: color-mix(in srgb, #5fbf8a 55%, var(--line)) !important;
   background: color-mix(in srgb, #2f6b4f 28%, transparent) !important;
   color: color-mix(in srgb, #b6f0d0 55%, var(--ink)) !important;
@@ -7277,12 +7777,12 @@ body[data-ui-theme="dark"] .outline-chapter.is-chapter-complete .folder-title-bo
     width: 100%;
   }
 }
-html[data-ui-theme="dark"] .welcome-ad-popup {
+html[data-ui-scheme="dark"] .welcome-ad-popup {
   box-shadow:
     0 12px 32px rgba(0, 0, 0, 0.45),
     0 2px 8px rgba(0, 0, 0, 0.3);
 }
-html[data-ui-theme="dark"] .welcome-ad-popup.is-event {
+html[data-ui-scheme="dark"] .welcome-ad-popup.is-event {
   background:
     linear-gradient(
       155deg,
@@ -7290,7 +7790,7 @@ html[data-ui-theme="dark"] .welcome-ad-popup.is-event {
       var(--surface) 55%
     );
 }
-html[data-ui-theme="dark"] .welcome-super-story {
+html[data-ui-scheme="dark"] .welcome-super-story {
   color: var(--accent);
 }
 
@@ -7416,10 +7916,10 @@ html[data-ui-theme="dark"] .welcome-super-story {
     opacity: 0;
   }
 }
-html[data-ui-theme="dark"] .welcome-plus-guide-bubble {
+html[data-ui-scheme="dark"] .welcome-plus-guide-bubble {
   background: var(--surface);
 }
-html[data-ui-theme="dark"] .welcome-plus-guide-bubble::after {
+html[data-ui-scheme="dark"] .welcome-plus-guide-bubble::after {
   background-image: linear-gradient(
     125deg,
     transparent 0%,
@@ -7431,7 +7931,7 @@ html[data-ui-theme="dark"] .welcome-plus-guide-bubble::after {
     transparent 100%
   );
 }
-html[data-ui-theme="dark"] .welcome-tip-card {
+html[data-ui-scheme="dark"] .welcome-tip-card {
   background: var(--surface);
 }
 .hidden { display: none !important; }
@@ -8166,26 +8666,26 @@ body.split-pane-resizing * {
   border-bottom-color: var(--accent-dark) !important;
   background: color-mix(in srgb, var(--surface) 67%, transparent) !important;
 }
-html[data-ui-theme="dark"] .episode-tab,
-body[data-ui-theme="dark"] .episode-tab {
+html[data-ui-scheme="dark"] .episode-tab,
+body[data-ui-scheme="dark"] .episode-tab {
   background: var(--surface-2, #322c25);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .episode-tab.is-active,
-body[data-ui-theme="dark"] .episode-tab.is-active {
+html[data-ui-scheme="dark"] .episode-tab.is-active,
+body[data-ui-scheme="dark"] .episode-tab.is-active {
   background: var(--surface, #25211c);
 }
-html[data-ui-theme="dark"] .episode-nav-bar,
-body[data-ui-theme="dark"] .episode-nav-bar {
+html[data-ui-scheme="dark"] .episode-nav-bar,
+body[data-ui-scheme="dark"] .episode-nav-bar {
   background: var(--surface-2, #322c25);
 }
-html[data-ui-theme="dark"] .episode-title-input,
-body[data-ui-theme="dark"] .episode-title-input {
+html[data-ui-scheme="dark"] .episode-title-input,
+body[data-ui-scheme="dark"] .episode-title-input {
   border-bottom-color: var(--line) !important;
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .status-clip-select,
-body[data-ui-theme="dark"] .status-clip-select {
+html[data-ui-scheme="dark"] .status-clip-select,
+body[data-ui-scheme="dark"] .status-clip-select {
   background-color: var(--surface, #25211c);
   border-color: var(--line);
   color: var(--ink);
@@ -8843,12 +9343,12 @@ body[data-ui-theme="dark"] .status-clip-select {
   text-overflow: ellipsis;
   max-width: 100%;
 }
-html[data-ui-theme="dark"] .format-list-palette,
-body[data-ui-theme="dark"] .format-list-palette {
+html[data-ui-scheme="dark"] .format-list-palette,
+body[data-ui-scheme="dark"] .format-list-palette {
   background: var(--surface, #25211c);
 }
-html[data-ui-theme="dark"] .format-list-option,
-body[data-ui-theme="dark"] .format-list-option {
+html[data-ui-scheme="dark"] .format-list-option,
+body[data-ui-scheme="dark"] .format-list-option {
   background: var(--surface-2, #322c25);
   border-color: var(--line);
 }
@@ -8915,12 +9415,12 @@ body[data-ui-theme="dark"] .format-list-option {
   cursor: pointer;
 }
 .format-palette-action:hover { background: var(--selection); }
-html[data-ui-theme="dark"] .format-color-palette,
-body[data-ui-theme="dark"] .format-color-palette {
+html[data-ui-scheme="dark"] .format-color-palette,
+body[data-ui-scheme="dark"] .format-color-palette {
   background: var(--surface, #25211c);
 }
-html[data-ui-theme="dark"] .format-palette-action,
-body[data-ui-theme="dark"] .format-palette-action {
+html[data-ui-scheme="dark"] .format-palette-action,
+body[data-ui-scheme="dark"] .format-palette-action {
   background: var(--surface-2, #322c25);
 }
 
@@ -9086,8 +9586,8 @@ body[data-ui-theme="dark"] .format-palette-action {
 .feature-chip.is-recording:hover {
   background: color-mix(in srgb, var(--accent) 30%, var(--selection));
 }
-html[data-ui-theme="dark"] .feature-chip.is-recording,
-body[data-ui-theme="dark"] .feature-chip.is-recording {
+html[data-ui-scheme="dark"] .feature-chip.is-recording,
+body[data-ui-scheme="dark"] .feature-chip.is-recording {
   background: color-mix(in srgb, var(--accent) 28%, var(--surface-2));
   color: var(--accent);
 }
@@ -9235,13 +9735,13 @@ body.is-electron-mac .focus-write-modal.is-fullscreen .focus-write-head {
   color: var(--accent-dark) !important;
   font-weight: 750;
 }
-html[data-ui-theme="dark"] .focus-write-card,
-body[data-ui-theme="dark"] .focus-write-card {
+html[data-ui-scheme="dark"] .focus-write-card,
+body[data-ui-scheme="dark"] .focus-write-card {
   background: var(--paper);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .focus-write-head,
-body[data-ui-theme="dark"] .focus-write-head {
+html[data-ui-scheme="dark"] .focus-write-head,
+body[data-ui-scheme="dark"] .focus-write-head {
   background: var(--surface-2, #322c25);
 }
 
@@ -10431,15 +10931,15 @@ html.is-electron .viewer-modal.is-maximized {
   cursor: nwse-resize;
   box-shadow: 0 0 0 1px #00000022;
 }
-html[data-ui-theme="dark"] .viewer-card,
-body[data-ui-theme="dark"] .viewer-card {
+html[data-ui-scheme="dark"] .viewer-card,
+body[data-ui-scheme="dark"] .viewer-card {
   background: var(--paper);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .viewer-head,
-html[data-ui-theme="dark"] .viewer-toolbar,
-body[data-ui-theme="dark"] .viewer-head,
-body[data-ui-theme="dark"] .viewer-toolbar {
+html[data-ui-scheme="dark"] .viewer-head,
+html[data-ui-scheme="dark"] .viewer-toolbar,
+body[data-ui-scheme="dark"] .viewer-head,
+body[data-ui-scheme="dark"] .viewer-toolbar {
   background: var(--surface-2, #322c25);
 }
 .spellcheck-panel {
@@ -11470,18 +11970,18 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-viewer-btn .format-viewer-icon .viewer-icon-spine {
   opacity: 0.7;
 }
-html[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon,
-body[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon {
+html[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon,
+body[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon {
   color: #e0b48a;
 }
-html[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
-html[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r,
-body[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
-body[data-ui-theme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r {
+html[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
+html[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r,
+body[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
+body[data-ui-scheme="dark"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r {
   fill: #2a241c;
 }
-html[data-ui-theme="dark"] .format-viewer-btn:hover .format-viewer-icon,
-body[data-ui-theme="dark"] .format-viewer-btn:hover .format-viewer-icon {
+html[data-ui-scheme="dark"] .format-viewer-btn:hover .format-viewer-icon,
+body[data-ui-scheme="dark"] .format-viewer-btn:hover .format-viewer-icon {
   color: #f0d0a8;
 }
 .rich-editor mark.find-hit {
@@ -12054,8 +12554,8 @@ body.focus-write-open > #viewModeDropdown.is-fixed-dropdown {
   vertical-align: middle;
   line-height: 1.3;
 }
-html[data-ui-theme="dark"] .shortcut-kbd,
-body[data-ui-theme="dark"] .shortcut-kbd {
+html[data-ui-scheme="dark"] .shortcut-kbd,
+body[data-ui-scheme="dark"] .shortcut-kbd {
   background: var(--surface-3, #3a342c);
   border-color: var(--line);
 }
@@ -12548,6 +13048,9 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
 }
 .text-prompt-message:empty { display: none; }
 .text-prompt-modal-card .import-form label { margin-top: 4px; }
+.text-prompt-modal-card #textPromptLabelText {
+  color: var(--accent-dark);
+}
 .import-form label { display: block; margin: 14px 0 6px; font-size: 13px; font-weight: 700; }
 .import-form label > input,
 .import-form label > select { width: 100%; margin-top: 7px; font-weight: 400; }
@@ -12559,6 +13062,32 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
   border: 1px solid var(--line);
   border-radius: 10px;
   background: color-mix(in srgb, var(--surface-2) 85%, var(--surface));
+}
+.import-project-title-wrap {
+  display: grid;
+  gap: 8px;
+  margin: 10px 0 4px;
+}
+.import-project-title-wrap > .modal-genre-label {
+  font-weight: 700;
+  font-size: 13px;
+}
+.import-project-title-wrap .import-title-mode {
+  margin: 0;
+}
+.import-project-title-wrap .continue-length-option {
+  margin: 0;
+  font-weight: 500;
+  cursor: pointer;
+}
+.import-project-title-wrap .continue-length-option input {
+  width: auto;
+}
+.import-project-title-wrap #importProjectTitleInputWrap {
+  margin: 0;
+}
+.import-project-title-wrap #importTitleFromFileHint {
+  margin: 0;
 }
 .modal-genre-notice {
   display: grid;
@@ -12581,12 +13110,48 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
   color: var(--muted);
 }
 .modal-genre-block label { margin-top: 10px; }
-html[data-ui-theme="dark"] .modal-genre-block {
+.modal-keyword-field {
+  margin-top: 12px;
+  display: grid;
+  gap: 8px;
+}
+.modal-keyword-field > .modal-genre-label {
+  font-weight: 700;
+  font-size: 13px;
+}
+.modal-genre-block .keyword-picker-panel {
+  max-height: 220px;
+  overflow: auto;
+}
+.modal-genre-block .keyword-chip-list:empty::before {
+  content: "태그를 고르면 이 작품 키워드로 저장됩니다";
+}
+html[data-ui-scheme="dark"] .modal-genre-block {
   background: var(--surface-2);
 }
-html[data-ui-theme="dark"] .modal-genre-notice {
+html[data-ui-scheme="dark"] .modal-genre-notice {
   background: #3a3224;
   border-color: #5a4a30;
+}
+html[data-theme="eink"] .modal-genre-notice,
+html[data-ui-theme="eink"] .modal-genre-notice {
+  background: #fff !important;
+  background-color: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .modal-genre-notice strong,
+html[data-theme="eink"] .modal-genre-notice span,
+html[data-ui-theme="eink"] .modal-genre-notice strong,
+html[data-ui-theme="eink"] .modal-genre-notice span {
+  color: #000 !important;
+}
+html[data-theme="eink"] .modal-genre-block,
+html[data-ui-theme="eink"] .modal-genre-block {
+  background: #fff !important;
+  border-color: #000 !important;
+  box-shadow: none !important;
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
 .modal-actions .primary:disabled { opacity: 0.55; cursor: wait; }
@@ -12894,14 +13459,14 @@ html[data-ui-theme="dark"] .modal-genre-notice {
   margin: 0;
   padding: 0 2px 4px;
 }
-html[data-ui-theme="dark"] .rewrite-compare-pane,
-body[data-ui-theme="dark"] .rewrite-compare-pane {
+html[data-ui-scheme="dark"] .rewrite-compare-pane,
+body[data-ui-scheme="dark"] .rewrite-compare-pane {
   background: color-mix(in srgb, var(--panel, #1c1b19) 92%, #000);
 }
-html[data-ui-theme="dark"] .proof-memo-card,
-html[data-ui-theme="dark"] .proof-diff-card,
-body[data-ui-theme="dark"] .proof-memo-card,
-body[data-ui-theme="dark"] .proof-diff-card {
+html[data-ui-scheme="dark"] .proof-memo-card,
+html[data-ui-scheme="dark"] .proof-diff-card,
+body[data-ui-scheme="dark"] .proof-memo-card,
+body[data-ui-scheme="dark"] .proof-diff-card {
   background: var(--surface-2, #2a261f);
 }
 .export-modal-card { max-width: 560px; }
@@ -14027,305 +14592,305 @@ body[data-ui-theme="dark"] .proof-diff-card {
   from { opacity: 0; transform: translateY(12px) scale(0.98); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
-html[data-ui-theme="dark"] .tory-cheer-card,
-body[data-ui-theme="dark"] .tory-cheer-card {
+html[data-ui-scheme="dark"] .tory-cheer-card,
+body[data-ui-scheme="dark"] .tory-cheer-card {
   background: var(--panel);
   box-shadow: 0 12px 36px #00000066;
 }
 
 /* —— Dark UI mode: hard-coded light surfaces —— */
-html[data-ui-theme="dark"] .create-menu-dropdown,
-html[data-ui-theme="dark"] .view-mode-dropdown,
-html[data-ui-theme="dark"] .tools-kit-menu,
-html[data-ui-theme="dark"] .modal-card,
-html[data-ui-theme="dark"] .context-menu,
-html[data-ui-theme="dark"] .welcome-screen .welcome-card,
-html[data-ui-theme="dark"] .welcome-card,
-html[data-ui-theme="dark"] .ai-panel-reopen,
-html[data-ui-theme="dark"] .binder-panel-reopen,
-html[data-ui-theme="dark"] .split-viewer:not(.popup-mode),
-html[data-ui-theme="dark"] .format-seg,
-html[data-ui-theme="dark"] .format-btn-solo {
+html[data-ui-scheme="dark"] .create-menu-dropdown,
+html[data-ui-scheme="dark"] .view-mode-dropdown,
+html[data-ui-scheme="dark"] .tools-kit-menu,
+html[data-ui-scheme="dark"] .modal-card,
+html[data-ui-scheme="dark"] .context-menu,
+html[data-ui-scheme="dark"] .welcome-screen .welcome-card,
+html[data-ui-scheme="dark"] .welcome-card,
+html[data-ui-scheme="dark"] .ai-panel-reopen,
+html[data-ui-scheme="dark"] .binder-panel-reopen,
+html[data-ui-scheme="dark"] .split-viewer:not(.popup-mode),
+html[data-ui-scheme="dark"] .format-seg,
+html[data-ui-scheme="dark"] .format-btn-solo {
   background: var(--surface);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .format-seg > .format-btn {
+html[data-ui-scheme="dark"] .format-seg > .format-btn {
   border-right-color: var(--line);
 }
-html[data-ui-theme="dark"] .format-seg-fields > .toolbar-field {
+html[data-ui-scheme="dark"] .format-seg-fields > .toolbar-field {
   border-right-color: var(--line);
 }
-html[data-ui-theme="dark"] .format-toolbar,
-html[data-ui-theme="dark"] .scene-feature-bar,
-html[data-ui-theme="dark"] .manuscript-status-bar,
-html[data-ui-theme="dark"] .scene-tools-drawer,
-html[data-ui-theme="dark"] .idea-board,
-html[data-ui-theme="dark"] .character-editor,
-html[data-ui-theme="dark"] .character-board,
-html[data-ui-theme="dark"] .character-board-card,
-html[data-ui-theme="dark"] .synopsis-workspace,
-html[data-ui-theme="dark"] .settings-box {
+html[data-ui-scheme="dark"] .format-toolbar,
+html[data-ui-scheme="dark"] .scene-feature-bar,
+html[data-ui-scheme="dark"] .manuscript-status-bar,
+html[data-ui-scheme="dark"] .scene-tools-drawer,
+html[data-ui-scheme="dark"] .idea-board,
+html[data-ui-scheme="dark"] .character-editor,
+html[data-ui-scheme="dark"] .character-board,
+html[data-ui-scheme="dark"] .character-board-card,
+html[data-ui-scheme="dark"] .synopsis-workspace,
+html[data-ui-scheme="dark"] .settings-box {
   background: var(--surface);
   border-color: var(--line);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .split-viewer.popup-mode {
+html[data-ui-scheme="dark"] .split-viewer.popup-mode {
   background: var(--surface);
   border-color: var(--line);
   box-shadow: 0 18px 48px var(--shadow);
 }
-html[data-ui-theme="dark"] .binder-switch {
+html[data-ui-scheme="dark"] .binder-switch {
   background: var(--surface-2);
   border-color: var(--border-strong);
 }
-html[data-ui-theme="dark"] .binder-tab.is-active {
+html[data-ui-scheme="dark"] .binder-tab.is-active {
   background: var(--surface);
   color: var(--accent-dark);
 }
-html[data-ui-theme="dark"] .binder-tab:hover {
+html[data-ui-scheme="dark"] .binder-tab:hover {
   background: var(--surface-3);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .feature-chip,
-html[data-ui-theme="dark"] .format-btn,
-html[data-ui-theme="dark"] .chip {
+html[data-ui-scheme="dark"] .feature-chip,
+html[data-ui-scheme="dark"] .format-btn,
+html[data-ui-scheme="dark"] .chip {
   background: var(--surface-2);
   color: var(--ink);
   border-color: var(--border-strong);
 }
-html[data-ui-theme="dark"] .feature-chip:hover,
-html[data-ui-theme="dark"] .format-btn:hover,
-html[data-ui-theme="dark"] .chapter-title:hover,
-html[data-ui-theme="dark"] .chapter-title.is-selected,
-html[data-ui-theme="dark"] .chapter-twistie:hover,
-html[data-ui-theme="dark"] .panel-heading button:hover,
-html[data-ui-theme="dark"] .binder-collapse-btn:hover {
+html[data-ui-scheme="dark"] .feature-chip:hover,
+html[data-ui-scheme="dark"] .format-btn:hover,
+html[data-ui-scheme="dark"] .chapter-title:hover,
+html[data-ui-scheme="dark"] .chapter-title.is-selected,
+html[data-ui-scheme="dark"] .chapter-twistie:hover,
+html[data-ui-scheme="dark"] .panel-heading button:hover,
+html[data-ui-scheme="dark"] .binder-collapse-btn:hover {
   background: var(--surface-3);
 }
-html[data-ui-theme="dark"] .scene-link:hover,
-html[data-ui-theme="dark"] .scene-link.active,
-html[data-ui-theme="dark"] .character-link:hover,
-html[data-ui-theme="dark"] .character-link.active,
-html[data-ui-theme="dark"] .view-mode-dropdown button:hover,
-html[data-ui-theme="dark"] .create-menu-dropdown > button:hover,
-html[data-ui-theme="dark"] .context-menu button:hover,
-html[data-ui-theme="dark"] .context-menu button.is-active {
+html[data-ui-scheme="dark"] .scene-link:hover,
+html[data-ui-scheme="dark"] .scene-link.active,
+html[data-ui-scheme="dark"] .character-link:hover,
+html[data-ui-scheme="dark"] .character-link.active,
+html[data-ui-scheme="dark"] .view-mode-dropdown button:hover,
+html[data-ui-scheme="dark"] .create-menu-dropdown > button:hover,
+html[data-ui-scheme="dark"] .context-menu button:hover,
+html[data-ui-scheme="dark"] .context-menu button.is-active {
   background: var(--selection);
 }
-html[data-ui-theme="dark"] .chapter-rename-input {
+html[data-ui-scheme="dark"] .chapter-rename-input {
   background: var(--surface-input);
   color: var(--ink);
   border-color: var(--accent);
 }
-html[data-ui-theme="dark"] .check-list label {
+html[data-ui-scheme="dark"] .check-list label {
   background: var(--surface-2);
 }
-html[data-ui-theme="dark"] .scene-characters,
-html[data-ui-theme="dark"] .aliases {
+html[data-ui-scheme="dark"] .scene-characters,
+html[data-ui-scheme="dark"] .aliases {
   background: var(--header-bg);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .ai-panel {
+html[data-ui-scheme="dark"] .ai-panel {
   background: var(--panel);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .scene-tree-item .tree-guide::before,
-html[data-ui-theme="dark"] .scene-tree-item:not(.is-last) .tree-guide::after,
-html[data-ui-theme="dark"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,
-html[data-ui-theme="dark"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after,
-body[data-ui-theme="dark"] .scene-tree-item .tree-guide::before,
-body[data-ui-theme="dark"] .scene-tree-item:not(.is-last) .tree-guide::after,
-body[data-ui-theme="dark"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,
-body[data-ui-theme="dark"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after {
+html[data-ui-scheme="dark"] .scene-tree-item .tree-guide::before,
+html[data-ui-scheme="dark"] .scene-tree-item:not(.is-last) .tree-guide::after,
+html[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,
+html[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after,
+body[data-ui-scheme="dark"] .scene-tree-item .tree-guide::before,
+body[data-ui-scheme="dark"] .scene-tree-item:not(.is-last) .tree-guide::after,
+body[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,
+body[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after {
   border-color: #6a5f52;
 }
-html[data-ui-theme="dark"] #toast,
-html[data-ui-theme="dark"] .toast {
+html[data-ui-scheme="dark"] #toast,
+html[data-ui-scheme="dark"] .toast {
   background: var(--surface-2);
   color: var(--ink);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .modal-backdrop {
+html[data-ui-scheme="dark"] .modal-backdrop {
   background: #00000088;
 }
-html[data-ui-theme="dark"] .icon-btn {
+html[data-ui-scheme="dark"] .icon-btn {
   background: var(--surface-2);
   border-color: var(--border-strong);
   color: var(--accent-dark);
 }
-html[data-ui-theme="dark"] .primary {
+html[data-ui-scheme="dark"] .primary {
   background: var(--accent);
   color: #1a1210;
 }
-html[data-ui-theme="dark"] .primary:hover {
+html[data-ui-scheme="dark"] .primary:hover {
   background: #e0a090;
 }
 
 /* —— Dark UI: remaining chrome surfaces / states —— */
-html[data-ui-theme="dark"] .ai-status-line,
-html[data-ui-theme="dark"] .find-bar,
-html[data-ui-theme="dark"] .scene-tools-drawer-head,
-html[data-ui-theme="dark"] .illustration-panel,
-html[data-ui-theme="dark"] .illustration-card,
-html[data-ui-theme="dark"] .illustration-empty,
-html[data-ui-theme="dark"] .illustration-stage,
-html[data-ui-theme="dark"] .reference-kind-tab,
-html[data-ui-theme="dark"] .reference-link-row,
-html[data-ui-theme="dark"] .viewer-mode-tabs,
-html[data-ui-theme="dark"] .viewer-scope-tabs,
-html[data-ui-theme="dark"] .viewer-toc-panel,
-html[data-ui-theme="dark"] .viewer-toc-item,
-html[data-ui-theme="dark"] .synopsis-list-item,
-html[data-ui-theme="dark"] .scene-synopsis-label-btn,
-html[data-ui-theme="dark"] .status-scope-btn,
-html[data-ui-theme="dark"] .stat-chip,
-html[data-ui-theme="dark"] .status-bar-field select,
-html[data-ui-theme="dark"] .status-bar-field input,
-html[data-ui-theme="dark"] .toolbar-field select,
-html[data-ui-theme="dark"] .toolbar-field input,
-html[data-ui-theme="dark"] .status-clip-select,
-html[data-ui-theme="dark"] .folder-title-box,
-html[data-ui-theme="dark"] .folder-title-box.is-level-0,
-html[data-ui-theme="dark"] .folder-title-box.is-level-1,
-html[data-ui-theme="dark"] .outline-title-font-presets button,
-html[data-ui-theme="dark"] .admin-section-box,
-html[data-ui-theme="dark"] .admin-help-article,
-html[data-ui-theme="dark"] .admin-qa-item,
-html[data-ui-theme="dark"] .admin-account-card,
-html[data-ui-theme="dark"] .admin-tab,
-html[data-ui-theme="dark"] .admin-help-search,
-html[data-ui-theme="dark"] .hidden-feature-item,
-html[data-ui-theme="dark"] .context-menu {
+html[data-ui-scheme="dark"] .ai-status-line,
+html[data-ui-scheme="dark"] .find-bar,
+html[data-ui-scheme="dark"] .scene-tools-drawer-head,
+html[data-ui-scheme="dark"] .illustration-panel,
+html[data-ui-scheme="dark"] .illustration-card,
+html[data-ui-scheme="dark"] .illustration-empty,
+html[data-ui-scheme="dark"] .illustration-stage,
+html[data-ui-scheme="dark"] .reference-kind-tab,
+html[data-ui-scheme="dark"] .reference-link-row,
+html[data-ui-scheme="dark"] .viewer-mode-tabs,
+html[data-ui-scheme="dark"] .viewer-scope-tabs,
+html[data-ui-scheme="dark"] .viewer-toc-panel,
+html[data-ui-scheme="dark"] .viewer-toc-item,
+html[data-ui-scheme="dark"] .synopsis-list-item,
+html[data-ui-scheme="dark"] .scene-synopsis-label-btn,
+html[data-ui-scheme="dark"] .status-scope-btn,
+html[data-ui-scheme="dark"] .stat-chip,
+html[data-ui-scheme="dark"] .status-bar-field select,
+html[data-ui-scheme="dark"] .status-bar-field input,
+html[data-ui-scheme="dark"] .toolbar-field select,
+html[data-ui-scheme="dark"] .toolbar-field input,
+html[data-ui-scheme="dark"] .status-clip-select,
+html[data-ui-scheme="dark"] .folder-title-box,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-0,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-1,
+html[data-ui-scheme="dark"] .outline-title-font-presets button,
+html[data-ui-scheme="dark"] .admin-section-box,
+html[data-ui-scheme="dark"] .admin-help-article,
+html[data-ui-scheme="dark"] .admin-qa-item,
+html[data-ui-scheme="dark"] .admin-account-card,
+html[data-ui-scheme="dark"] .admin-tab,
+html[data-ui-scheme="dark"] .admin-help-search,
+html[data-ui-scheme="dark"] .hidden-feature-item,
+html[data-ui-scheme="dark"] .context-menu {
   background: var(--surface);
   border-color: var(--line);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .viewer-mode-tab.is-active,
-html[data-ui-theme="dark"] .viewer-scope-tab.is-active,
-html[data-ui-theme="dark"] .viewer-toc-item.is-current,
-html[data-ui-theme="dark"] .synopsis-list-item.is-current,
-html[data-ui-theme="dark"] .reference-kind-tab.is-active,
-html[data-ui-theme="dark"] .status-scope-btn.is-active,
-html[data-ui-theme="dark"] .status-scope-btn:hover,
-html[data-ui-theme="dark"] .stat-chip:hover,
-html[data-ui-theme="dark"] .stat-chip.is-active,
-html[data-ui-theme="dark"] .stat-chip.is-goal-metric,
-html[data-ui-theme="dark"] .format-btn.active,
-html[data-ui-theme="dark"] .format-btn-solo.active,
-html[data-ui-theme="dark"] .format-seg > .format-btn.active,
-html[data-ui-theme="dark"] .feature-chip.is-active,
-html[data-ui-theme="dark"] .outline-title-font-presets button.is-active,
-html[data-ui-theme="dark"] .folder-title-box:hover,
-html[data-ui-theme="dark"] .settings-box.is-open .settings-box-header,
-html[data-ui-theme="dark"] .episode-tab:hover,
-html[data-ui-theme="dark"] .episode-title-input:focus,
-html[data-ui-theme="dark"] .ms-toolbar-collapse-btn:hover,
-html[data-ui-theme="dark"] #viewerMaximizeButton.is-active,
-html[data-ui-theme="dark"] #viewerTocToggle.is-active {
+html[data-ui-scheme="dark"] .viewer-mode-tab.is-active,
+html[data-ui-scheme="dark"] .viewer-scope-tab.is-active,
+html[data-ui-scheme="dark"] .viewer-toc-item.is-current,
+html[data-ui-scheme="dark"] .synopsis-list-item.is-current,
+html[data-ui-scheme="dark"] .reference-kind-tab.is-active,
+html[data-ui-scheme="dark"] .status-scope-btn.is-active,
+html[data-ui-scheme="dark"] .status-scope-btn:hover,
+html[data-ui-scheme="dark"] .stat-chip:hover,
+html[data-ui-scheme="dark"] .stat-chip.is-active,
+html[data-ui-scheme="dark"] .stat-chip.is-goal-metric,
+html[data-ui-scheme="dark"] .format-btn.active,
+html[data-ui-scheme="dark"] .format-btn-solo.active,
+html[data-ui-scheme="dark"] .format-seg > .format-btn.active,
+html[data-ui-scheme="dark"] .feature-chip.is-active,
+html[data-ui-scheme="dark"] .outline-title-font-presets button.is-active,
+html[data-ui-scheme="dark"] .folder-title-box:hover,
+html[data-ui-scheme="dark"] .settings-box.is-open .settings-box-header,
+html[data-ui-scheme="dark"] .episode-tab:hover,
+html[data-ui-scheme="dark"] .episode-title-input:focus,
+html[data-ui-scheme="dark"] .ms-toolbar-collapse-btn:hover,
+html[data-ui-scheme="dark"] #viewerMaximizeButton.is-active,
+html[data-ui-scheme="dark"] #viewerTocToggle.is-active {
   background: var(--surface-3) !important;
   color: var(--ink);
   border-color: var(--border-strong);
 }
-html[data-ui-theme="dark"] .viewer-mode-tab:hover,
-html[data-ui-theme="dark"] .viewer-scope-tab:hover {
+html[data-ui-scheme="dark"] .viewer-mode-tab:hover,
+html[data-ui-scheme="dark"] .viewer-scope-tab:hover {
   background: color-mix(in srgb, var(--surface) 70%, transparent);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .feature-chip-focus {
+html[data-ui-scheme="dark"] .feature-chip-focus {
   background: #5a4a28;
   border-color: #8a7340;
   color: #f0d9a8;
 }
-html[data-ui-theme="dark"] .feature-chip-focus:hover {
+html[data-ui-scheme="dark"] .feature-chip-focus:hover {
   background: #6b5830;
 }
-html[data-ui-theme="dark"] .split-viewer.popup-mode .split-popup-drag-bar {
+html[data-ui-scheme="dark"] .split-viewer.popup-mode .split-popup-drag-bar {
   background: var(--surface-2);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .admin-tab.is-active {
+html[data-ui-scheme="dark"] .admin-tab.is-active {
   background: var(--accent-dark);
   border-color: var(--accent-dark);
   color: #1a1210;
 }
-html[data-ui-theme="dark"] .secondary {
+html[data-ui-scheme="dark"] .secondary {
   background: var(--surface-2);
   color: var(--accent-dark);
 }
-html[data-ui-theme="dark"] .modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .modal textarea,
-html[data-ui-theme="dark"] .modal select,
-html[data-ui-theme="dark"] .ai-panel input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .ai-panel textarea,
-html[data-ui-theme="dark"] .ai-panel select,
-html[data-ui-theme="dark"] .settings-box input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .settings-box textarea,
-html[data-ui-theme="dark"] .settings-box select,
-html[data-ui-theme="dark"] .character-editor input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .character-editor textarea,
-html[data-ui-theme="dark"] .character-editor select,
-html[data-ui-theme="dark"] .scene-tools-drawer input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .scene-tools-drawer textarea,
-html[data-ui-theme="dark"] .scene-tools-drawer select,
-html[data-ui-theme="dark"] .synopsis-workspace input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
-html[data-ui-theme="dark"] .synopsis-workspace textarea,
-html[data-ui-theme="dark"] .format-toolbar select,
-html[data-ui-theme="dark"] .manuscript-status-bar select,
-html[data-ui-theme="dark"] .manuscript-status-bar input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
+html[data-ui-scheme="dark"] .modal input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .modal textarea,
+html[data-ui-scheme="dark"] .modal select,
+html[data-ui-scheme="dark"] .ai-panel input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .ai-panel textarea,
+html[data-ui-scheme="dark"] .ai-panel select,
+html[data-ui-scheme="dark"] .settings-box input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .settings-box textarea,
+html[data-ui-scheme="dark"] .settings-box select,
+html[data-ui-scheme="dark"] .character-editor input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .character-editor textarea,
+html[data-ui-scheme="dark"] .character-editor select,
+html[data-ui-scheme="dark"] .scene-tools-drawer input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .scene-tools-drawer textarea,
+html[data-ui-scheme="dark"] .scene-tools-drawer select,
+html[data-ui-scheme="dark"] .synopsis-workspace input:not([type="checkbox"]):not([type="radio"]):not([type="color"]):not([type="range"]),
+html[data-ui-scheme="dark"] .synopsis-workspace textarea,
+html[data-ui-scheme="dark"] .format-toolbar select,
+html[data-ui-scheme="dark"] .manuscript-status-bar select,
+html[data-ui-scheme="dark"] .manuscript-status-bar input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]) {
   background: var(--surface-input);
   color: var(--ink);
   border-color: var(--line);
 }
-html[data-ui-theme="dark"] .idea-sticky textarea,
-html[data-ui-theme="dark"] .idea-card textarea,
-html[data-ui-theme="dark"] .idea-sticky input,
-html[data-ui-theme="dark"] .idea-card input {
+html[data-ui-scheme="dark"] .idea-sticky textarea,
+html[data-ui-scheme="dark"] .idea-card textarea,
+html[data-ui-scheme="dark"] .idea-sticky input,
+html[data-ui-scheme="dark"] .idea-card input {
   background: transparent;
   color: #2a241c;
   border-color: transparent;
   caret-color: #2a241c;
 }
 /* Pastel sticky/chip backgrounds stay light — keep dark ink readable in dark UI */
-html[data-ui-theme="dark"] .idea-card,
-html[data-ui-theme="dark"] .idea-sticky,
-html[data-ui-theme="dark"] .header-idea-bar .header-idea-chip {
+html[data-ui-scheme="dark"] .idea-card,
+html[data-ui-scheme="dark"] .idea-sticky,
+html[data-ui-scheme="dark"] .header-idea-bar .header-idea-chip {
   color: #2a241c;
 }
-html[data-ui-theme="dark"] .idea-sticky-body {
+html[data-ui-scheme="dark"] .idea-sticky-body {
   color: #3a342c;
 }
-html[data-ui-theme="dark"] .idea-sticky-title {
+html[data-ui-scheme="dark"] .idea-sticky-title {
   color: #2a241c;
 }
-html[data-ui-theme="dark"] .idea-card-actions button {
+html[data-ui-scheme="dark"] .idea-card-actions button {
   color: #6e2d21;
   background: #ffffffaa;
 }
-html[data-ui-theme="dark"] .idea-card-top input[type="text"] {
+html[data-ui-scheme="dark"] .idea-card-top input[type="text"] {
   border-bottom-color: #00000033;
   color: #2a241c;
 }
-html[data-ui-theme="dark"] .modal-card {
+html[data-ui-scheme="dark"] .modal-card {
   box-shadow: 0 18px 50px #00000088;
 }
-html[data-ui-theme="dark"] .manuscript-status-bar,
-html[data-ui-theme="dark"] .manuscript-status-bar.is-scope-project {
+html[data-ui-scheme="dark"] .manuscript-status-bar,
+html[data-ui-scheme="dark"] .manuscript-status-bar.is-scope-project {
   background: linear-gradient(180deg, var(--surface) 0%, var(--surface-2) 100%);
   border-top-color: var(--line);
 }
-html[data-ui-theme="dark"] .tory-chat-popup-drag,
-html[data-ui-theme="dark"] .split-viewer.popup-mode .split-popup-drag-bar {
+html[data-ui-scheme="dark"] .tory-chat-popup-drag,
+html[data-ui-scheme="dark"] .split-viewer.popup-mode .split-popup-drag-bar {
   background: linear-gradient(180deg, var(--surface-2) 0%, var(--surface-3) 100%);
   border-color: var(--line);
   color: var(--ink);
 }
-html[data-ui-theme="dark"] .folder-title-box.is-level-2,
-html[data-ui-theme="dark"] .folder-title-box.is-level-3,
-html[data-ui-theme="dark"] .folder-title-box.is-level-4 {
+html[data-ui-scheme="dark"] .folder-title-box.is-level-2,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-3,
+html[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   color: var(--muted) !important;
 }
-html[data-ui-theme="dark"] .reference-link-row.is-active,
-html[data-ui-theme="dark"] .reference-kind-tab.is-active {
+html[data-ui-scheme="dark"] .reference-link-row.is-active,
+html[data-ui-scheme="dark"] .reference-kind-tab.is-active {
   background: color-mix(in srgb, var(--selection) 55%, var(--surface)) !important;
 }
 
@@ -14387,13 +14952,13 @@ html[data-ui-theme="dark"] .reference-kind-tab.is-active {
 .driver-popover.supertory-tutorial-popover .driver-popover-skip-btn:focus {
   color: var(--accent-dark, #6e2d21);
 }
-html[data-ui-theme="dark"] .driver-popover.supertory-tutorial-popover {
+html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover {
   background: var(--surface);
   color: var(--ink);
   border-color: var(--line);
   box-shadow: 0 12px 36px #00000066;
 }
-html[data-ui-theme="dark"] .driver-popover.supertory-tutorial-popover .driver-popover-next-btn {
+html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-popover-next-btn {
   color: #1a1210;
 }
 
@@ -14829,34 +15394,34 @@ html[data-ui-theme="dark"] .driver-popover.supertory-tutorial-popover .driver-po
   min-height: 3rem;
   padding: 12px 12px;
 }
-html[data-ui-theme="dark"] .sp-dropzone,
-body[data-ui-theme="dark"] .sp-dropzone {
+html[data-ui-scheme="dark"] .sp-dropzone,
+body[data-ui-scheme="dark"] .sp-dropzone {
   background: var(--surface-input, #2a2621);
   border-color: var(--line, #3a3530);
 }
-html[data-ui-theme="dark"] .sp-dropzone-label,
-html[data-ui-theme="dark"] .sp-episode-title,
-body[data-ui-theme="dark"] .sp-dropzone-label,
-body[data-ui-theme="dark"] .sp-episode-title {
+html[data-ui-scheme="dark"] .sp-dropzone-label,
+html[data-ui-scheme="dark"] .sp-episode-title,
+body[data-ui-scheme="dark"] .sp-dropzone-label,
+body[data-ui-scheme="dark"] .sp-episode-title {
   color: var(--ink, #ece6dc);
 }
-html[data-ui-theme="dark"] .sp-dropzone.is-dragover,
-body[data-ui-theme="dark"] .sp-dropzone.is-dragover {
+html[data-ui-scheme="dark"] .sp-dropzone.is-dragover,
+body[data-ui-scheme="dark"] .sp-dropzone.is-dragover {
   background: #3a3228;
   border-color: var(--accent, #e0a05a);
 }
-html[data-ui-theme="dark"] .sp-episode-list,
-body[data-ui-theme="dark"] .sp-episode-list {
+html[data-ui-scheme="dark"] .sp-episode-list,
+body[data-ui-scheme="dark"] .sp-episode-list {
   background: color-mix(in srgb, var(--surface-2, #322c25) 90%, var(--accent, #e0a05a));
   border-color: var(--line, #3a3530);
 }
-html[data-ui-theme="dark"] .sp-episode-item,
-body[data-ui-theme="dark"] .sp-episode-item {
+html[data-ui-scheme="dark"] .sp-episode-item,
+body[data-ui-scheme="dark"] .sp-episode-item {
   background: var(--surface-input, #2a2621);
   border-color: var(--line, #3a3530);
 }
-html[data-ui-theme="dark"] .sp-dropzone-clear,
-body[data-ui-theme="dark"] .sp-dropzone-clear {
+html[data-ui-scheme="dark"] .sp-dropzone-clear,
+body[data-ui-scheme="dark"] .sp-dropzone-clear {
   background: var(--surface-2, #322c25);
   border-color: var(--line, #3a3530);
   color: var(--accent-dark, #e4b5a4);
@@ -14944,4 +15509,783 @@ body[data-ui-theme="dark"] .sp-dropzone-clear {
   border: 1px solid var(--line, #d8d2c8);
   background: var(--panel, #fff);
   color: var(--ink);
+}
+
+
+/* ============================================================
+   E ink — chrome tints (no universal * hammer)
+   Editor paper lock lives below; do NOT set -webkit-text-fill-color globally.
+   ============================================================ */
+html[data-theme="eink"],
+html[data-ui-theme="eink"],
+body[data-theme="eink"],
+body[data-ui-theme="eink"] {
+  background: #fff !important;
+  color: #000 !important;
+}
+
+html[data-theme="eink"] .tory-priority-box,
+html[data-theme="eink"] .tory-priority-box.is-open,
+html[data-theme="eink"] .tory-priority-toggle:hover,
+html[data-ui-theme="eink"] .tory-priority-box {
+  background: #fff !important;
+  border-color: #000 !important;
+}
+
+html[data-theme="eink"] .feature-chip,
+html[data-theme="eink"] .status-clip-select,
+html[data-ui-theme="eink"] .feature-chip {
+  background: #fff !important;
+  border-color: #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .feature-chip.is-active,
+html[data-theme="eink"] .tools-kit-button.is-active-split,
+html[data-theme="eink"] .compact-btn.is-active-split,
+html[data-ui-theme="eink"] .feature-chip.is-active {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+
+html[data-theme="eink"] .title-input,
+html[data-theme="eink"] .episode-title-input,
+html[data-ui-theme="eink"] .episode-title-input {
+  border-bottom-color: #000 !important;
+  color: #000 !important;
+  background: transparent !important;
+}
+
+html[data-theme="eink"] .format-toolbar,
+html[data-ui-theme="eink"] .format-toolbar {
+  background: #fff !important;
+  border-color: #000 !important;
+}
+/* Font toolbar groups (B/I/U, align, font fields, colors) — black borders */
+html[data-theme="eink"] .format-seg,
+html[data-ui-theme="eink"] .format-seg {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .format-seg > .format-btn,
+html[data-ui-theme="eink"] .format-seg > .format-btn {
+  background: transparent !important;
+  border-right: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .format-seg > .format-btn:last-child,
+html[data-ui-theme="eink"] .format-seg > .format-btn:last-child {
+  border-right: 0 !important;
+}
+html[data-theme="eink"] .format-seg-fields > .toolbar-field,
+html[data-ui-theme="eink"] .format-seg-fields > .toolbar-field {
+  border-right-color: #000 !important;
+}
+html[data-theme="eink"] .format-seg > .format-btn:hover,
+html[data-theme="eink"] .format-seg > .format-btn.active,
+html[data-ui-theme="eink"] .format-seg > .format-btn.active {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .format-btn:not(.format-btn-solo),
+html[data-ui-theme="eink"] .format-btn:not(.format-btn-solo) {
+  background: #fff !important;
+  border-color: #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+/* 목록·찾기·뷰어 단독 버튼도 검정 테두리 */
+html[data-theme="eink"] .format-list-btn.format-btn-solo,
+html[data-theme="eink"] .format-find-btn.format-btn-solo,
+html[data-theme="eink"] .format-viewer-btn.format-btn-solo,
+html[data-ui-theme="eink"] .format-list-btn.format-btn-solo,
+html[data-ui-theme="eink"] .format-find-btn.format-btn-solo,
+html[data-ui-theme="eink"] .format-viewer-btn.format-btn-solo {
+  border: 1px solid #000 !important;
+  background: #fff !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,
+html[data-theme="eink"] .format-find-btn.format-btn-solo:hover,
+html[data-theme="eink"] .format-viewer-btn.format-btn-solo:hover,
+html[data-theme="eink"] .format-list-btn.format-btn-solo.active,
+html[data-theme="eink"] .format-find-btn.format-btn-solo.active,
+html[data-theme="eink"] .format-viewer-btn.format-btn-solo.active {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .format-viewer-btn .format-viewer-icon,
+html[data-ui-theme="eink"] .format-viewer-btn .format-viewer-icon {
+  color: #000 !important;
+}
+html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
+html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r,
+html[data-ui-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,
+html[data-ui-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r {
+  fill: #fff !important;
+}
+html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon,
+html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon {
+  color: #fff !important;
+}
+html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-l,
+html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-r,
+html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-l,
+html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-r {
+  fill: #000 !important;
+}
+html[data-theme="eink"] .format-btn .u-mark,
+html[data-ui-theme="eink"] .format-btn .u-mark {
+  text-decoration: underline !important;
+  text-decoration-color: #000 !important;
+  text-underline-offset: 2px !important;
+  -webkit-text-fill-color: unset !important;
+  color: inherit !important;
+}
+html[data-theme="eink"] .format-btn.active .u-mark {
+  text-decoration-color: #fff !important;
+}
+
+html[data-theme="eink"] .viewer-stage,
+html[data-ui-theme="eink"] .viewer-stage,
+body[data-theme="eink"] .viewer-stage {
+  --viewer-page-bg: #fff !important;
+  --viewer-page-ink: #000 !important;
+}
+
+/* Binder folders: kill gray volume boxes + green “complete” washes */
+html[data-theme="eink"] .outline-part,
+html[data-ui-theme="eink"] .outline-part,
+body[data-theme="eink"] .outline-part {
+  background: #fff !important;
+  border-color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .folder-title-box,
+html[data-theme="eink"] .folder-title-box.is-level-0,
+html[data-theme="eink"] .folder-title-box.is-level-1,
+html[data-theme="eink"] .folder-title-box.is-level-2,
+html[data-theme="eink"] .folder-title-box.is-level-3,
+html[data-theme="eink"] .folder-title-box.is-level-4,
+html[data-theme="eink"] .part-title.folder-title-box,
+html[data-theme="eink"] .chapter-title.folder-title-box,
+html[data-ui-theme="eink"] .folder-title-box,
+html[data-ui-theme="eink"] .folder-title-box.is-level-0,
+html[data-ui-theme="eink"] .folder-title-box.is-level-1,
+html[data-ui-theme="eink"] .folder-title-box.is-level-2,
+html[data-ui-theme="eink"] .folder-title-box.is-level-3,
+html[data-ui-theme="eink"] .folder-title-box.is-level-4 {
+  background: #fff !important;
+  border-color: #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .folder-title-box:hover,
+html[data-ui-theme="eink"] .folder-title-box:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+/* Complete manuscript folders: invert instead of green */
+html[data-theme="eink"] .chapter-title.is-complete,
+html[data-theme="eink"] .folder-title-box.is-complete,
+html[data-theme="eink"] .outline-chapter.is-chapter-complete .chapter-title,
+html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box,
+html[data-ui-theme="eink"] .chapter-title.is-complete,
+html[data-ui-theme="eink"] .folder-title-box.is-complete,
+html[data-ui-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box {
+  background: #000 !important;
+  border-color: #000 !important;
+  color: #fff !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .chapter-title.is-complete:hover,
+html[data-theme="eink"] .folder-title-box.is-complete:hover,
+html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box:hover,
+html[data-theme="eink"] .chapter-title.is-complete.is-selected,
+html[data-theme="eink"] .folder-title-box.is-complete.is-selected,
+html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box.is-selected,
+html[data-ui-theme="eink"] .folder-title-box.is-complete:hover,
+html[data-ui-theme="eink"] .folder-title-box.is-complete.is-selected {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #000 !important;
+  outline: 2px solid #000 !important;
+}
+html[data-theme="eink"] .folder-color-dot,
+html[data-theme="eink"] .folder-color-dot[data-folder-color],
+html[data-ui-theme="eink"] .folder-color-dot,
+html[data-ui-theme="eink"] .folder-color-dot[data-folder-color] {
+  background: #000 !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .folder-color-swatch,
+html[data-theme="eink"] .folder-color-swatch[class*="color-"],
+html[data-ui-theme="eink"] .folder-color-swatch {
+  background: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .folder-color-swatch.color-none::after,
+html[data-ui-theme="eink"] .folder-color-swatch.color-none::after {
+  background: #000 !important;
+  border-color: #000 !important;
+}
+
+/* E ink — editor paper lock (white page / black ink only)
+   UI chrome can stay high-contrast B/W; the manuscript itself is always
+   forced to pure paper so drafting stays sharp on e-ink screens. */
+html[data-theme="eink"] .header-plus-btn,
+html[data-ui-theme="eink"] .header-plus-btn,
+html[data-eink-editor-lock="1"] .header-plus-btn {
+  background: #fff !important;
+  background-color: #fff !important;
+  border: 1px solid #000 !important;
+  border-radius: 50% !important;
+  overflow: hidden !important;
+  box-shadow: none !important;
+  color: #000 !important;
+  /* no text-fill */
+}
+html[data-theme="eink"] .header-plus-btn .header-plus-glyph,
+html[data-ui-theme="eink"] .header-plus-btn .header-plus-glyph,
+html[data-eink-editor-lock="1"] .header-plus-btn .header-plus-glyph {
+  background: transparent !important;
+  background-color: transparent !important;
+  border: 0 !important;
+  color: #000 !important;
+  /* no text-fill */
+}
+
+html[data-theme="eink"],
+html[data-ui-theme="eink"],
+html[data-eink-editor-lock="1"],
+body[data-theme="eink"],
+body[data-ui-theme="eink"],
+body[data-eink-editor-lock="1"] {
+  --page-bg: #ffffff !important;
+  --page-editor-bg: #ffffff !important;
+  --page-ink: #000000 !important;
+  --page-line: #000000 !important;
+}
+
+html[data-theme="eink"] .manuscript-page,
+html[data-ui-theme="eink"] .manuscript-page,
+html[data-eink-editor-lock="1"] .manuscript-page,
+body[data-theme="eink"] .manuscript-page,
+body[data-eink-editor-lock="1"] .manuscript-page,
+html[data-theme="eink"] .focus-write-page,
+html[data-ui-theme="eink"] .focus-write-page,
+html[data-eink-editor-lock="1"] .focus-write-page {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  border-color: #000000 !important;
+  color: #000000 !important;
+  box-shadow: none !important;
+}
+
+html[data-theme="eink"] .rich-editor,
+html[data-theme="eink"] #sceneContent,
+html[data-theme="eink"] .focus-write-editor,
+html[data-theme="eink"] .split-body-editor,
+html[data-ui-theme="eink"] .rich-editor,
+html[data-ui-theme="eink"] #sceneContent,
+html[data-eink-editor-lock="1"] .rich-editor,
+html[data-eink-editor-lock="1"] #sceneContent,
+html[data-eink-editor-lock="1"] .focus-write-editor,
+html[data-eink-editor-lock="1"] .split-body-editor,
+body[data-eink-editor-lock="1"] .rich-editor,
+body[data-eink-editor-lock="1"] #sceneContent {
+  /* Transparent fill — Chromium cannot paint ::selection over background:!important */
+  background: transparent !important;
+  background-color: transparent !important;
+  color: #000000 !important;
+  caret-color: #000000 !important;
+  /* no text-fill — keeps underline + drag-select */
+  font-weight: 500 !important;
+  user-select: text !important;
+  -webkit-user-select: text !important;
+  -webkit-user-modify: read-write !important;
+  cursor: text !important;
+  box-shadow: none !important;
+  text-shadow: none !important;
+  pointer-events: auto !important;
+}
+
+/* Do NOT paint .rich-editor * backgrounds — that kills native drag-select. */
+
+html[data-theme="eink"] .rich-editor ::selection,
+html[data-theme="eink"] .rich-editor *::selection,
+html[data-theme="eink"] #sceneContent ::selection,
+html[data-theme="eink"] #sceneContent *::selection,
+html[data-theme="eink"] .focus-write-editor ::selection,
+html[data-theme="eink"] .focus-write-editor *::selection,
+html[data-theme="eink"] .split-body-editor ::selection,
+html[data-theme="eink"] .split-body-editor *::selection,
+html[data-eink-editor-lock="1"] .rich-editor ::selection,
+html[data-eink-editor-lock="1"] .rich-editor *::selection,
+html[data-eink-editor-lock="1"] #sceneContent ::selection,
+html[data-eink-editor-lock="1"] #sceneContent *::selection {
+  background-color: #000000 !important;
+  background: #000000 !important;
+  color: #ffffff !important;
+  -webkit-text-fill-color: #ffffff !important;
+}
+
+/* ============================================================
+   E ink — batch chrome (popups, ideas, scrollbars, tory, log…)
+   Idea/sticky colors: keep stored color-* classes; paint B/W only.
+   ============================================================ */
+
+/* Scrollbars */
+html[data-theme="eink"],
+html[data-ui-theme="eink"] {
+  scrollbar-color: #000 #fff;
+}
+html[data-theme="eink"] *,
+html[data-ui-theme="eink"] * {
+  scrollbar-color: #000 #fff;
+}
+html[data-theme="eink"] ::-webkit-scrollbar,
+html[data-ui-theme="eink"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+html[data-theme="eink"] ::-webkit-scrollbar-track,
+html[data-ui-theme="eink"] ::-webkit-scrollbar-track {
+  background: #fff;
+}
+html[data-theme="eink"] ::-webkit-scrollbar-thumb,
+html[data-ui-theme="eink"] ::-webkit-scrollbar-thumb {
+  background: #000;
+  border: 2px solid #fff;
+  border-radius: 0;
+}
+html[data-theme="eink"] ::-webkit-scrollbar-thumb:hover,
+html[data-ui-theme="eink"] ::-webkit-scrollbar-thumb:hover {
+  background: #000;
+}
+
+/* Context menus (목차 클릭 팝업) */
+html[data-theme="eink"] .context-menu,
+html[data-ui-theme="eink"] .context-menu {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .context-menu-label,
+html[data-ui-theme="eink"] .context-menu-label {
+  color: #000 !important;
+}
+html[data-theme="eink"] .context-menu-divider,
+html[data-ui-theme="eink"] .context-menu-divider {
+  background: #000 !important;
+}
+html[data-theme="eink"] .context-menu button,
+html[data-ui-theme="eink"] .context-menu button {
+  background: #fff !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .context-menu button:hover,
+html[data-theme="eink"] .context-menu button.is-active,
+html[data-ui-theme="eink"] .context-menu button:hover,
+html[data-ui-theme="eink"] .context-menu button.is-active {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+/* 설정집 boxes */
+html[data-theme="eink"] .settings-box,
+html[data-theme="eink"] .settings-box.is-open,
+html[data-ui-theme="eink"] .settings-box {
+  background: #fff !important;
+  border-color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .settings-box-header,
+html[data-theme="eink"] .settings-box.is-open .settings-box-header,
+html[data-ui-theme="eink"] .settings-box-header {
+  background: #fff !important;
+  border-color: #000 !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .settings-drag-handle,
+html[data-ui-theme="eink"] .settings-drag-handle {
+  color: #000 !important;
+}
+
+/* Idea stickies / cards / header chips — display B/W, keep color-* class in DOM */
+html[data-theme="eink"] .idea-sticky,
+html[data-theme="eink"] .idea-sticky[class*="color-"],
+html[data-theme="eink"] .idea-card,
+html[data-theme="eink"] .idea-card[class*="color-"],
+html[data-theme="eink"] .header-idea-bar .header-idea-chip,
+html[data-theme="eink"] .header-idea-bar .header-idea-chip[class*="color-"],
+html[data-ui-theme="eink"] .idea-sticky,
+html[data-ui-theme="eink"] .idea-card,
+html[data-ui-theme="eink"] .header-idea-bar .header-idea-chip {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+  filter: none !important;
+}
+html[data-theme="eink"] .idea-card-clips .idea-clip-swatch,
+html[data-theme="eink"] .idea-color-swatch,
+html[data-theme="eink"] .idea-color-swatch[class*="color-"],
+html[data-ui-theme="eink"] .idea-color-swatch {
+  background: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .idea-clip-swatch.is-active,
+html[data-theme="eink"] .idea-color-swatch.is-active,
+html[data-ui-theme="eink"] .idea-color-swatch.is-active {
+  background: #000 !important;
+  outline: 2px solid #000 !important;
+}
+
+/* 작가 지침 popup */
+html[data-theme="eink"] .tory-priority-popup,
+html[data-ui-theme="eink"] .tory-priority-popup {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .tory-priority-popup-drag,
+html[data-ui-theme="eink"] .tory-priority-popup-drag {
+  background: #fff !important;
+  border-bottom: 1px solid #000 !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .tory-priority-popup-body,
+html[data-ui-theme="eink"] .tory-priority-popup-body {
+  background: #fff !important;
+  color: #000 !important;
+}
+
+/* 바른한글 검사기 */
+html[data-theme="eink"] #runSpellcheckPublicButton.spellcheck-col-btn,
+html[data-theme="eink"] #runSpellcheckPublicButton,
+html[data-ui-theme="eink"] #runSpellcheckPublicButton {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] #runSpellcheckPublicButton:hover,
+html[data-ui-theme="eink"] #runSpellcheckPublicButton:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .spellcheck-compare-col,
+html[data-theme="eink"] .spellcheck-panel,
+html[data-ui-theme="eink"] .spellcheck-compare-col {
+  background: #fff !important;
+  border-color: #000 !important;
+  color: #000 !important;
+}
+
+/* 글쓰기 기록 달력 */
+html[data-theme="eink"] .writing-cal-cell,
+html[data-ui-theme="eink"] .writing-cal-cell {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] .writing-cal-cell.is-muted {
+  opacity: 1 !important;
+  color: #000 !important;
+  border-style: dashed !important;
+}
+html[data-theme="eink"] .writing-cal-cell.is-today,
+html[data-theme="eink"] .writing-cal-cell.is-selected,
+html[data-theme="eink"] .writing-cal-cell.has-write,
+html[data-theme="eink"] .writing-cal-cell.is-purge-picked,
+html[data-theme="eink"] .writing-cal-cell.is-first-met,
+html[data-ui-theme="eink"] .writing-cal-cell.is-selected,
+html[data-ui-theme="eink"] .writing-cal-cell.has-write {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+  outline: 2px solid #000 !important;
+}
+html[data-theme="eink"] .writing-cal-cell .cal-dot,
+html[data-ui-theme="eink"] .writing-cal-cell .cal-dot {
+  background: currentColor !important;
+}
+html[data-theme="eink"] .writing-log-tab.is-active,
+html[data-ui-theme="eink"] .writing-log-tab.is-active {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+
+/* 참고자료 tabs (작성 페이지) */
+html[data-theme="eink"] .reference-kind-tab,
+html[data-ui-theme="eink"] .reference-kind-tab {
+  background: #fff !important;
+  color: #000 !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .reference-kind-tab.is-active,
+html[data-ui-theme="eink"] .reference-kind-tab.is-active {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+
+/* 토리 대화 — 내 말풍선 */
+html[data-theme="eink"] .tory-chat-bubble.is-user,
+html[data-ui-theme="eink"] .tory-chat-bubble.is-user {
+  background: #000 !important;
+  color: #fff !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] .tory-chat-bubble.is-tory,
+html[data-ui-theme="eink"] .tory-chat-bubble.is-tory {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] .tory-chat-popup,
+html[data-theme="eink"] .tory-chat-popup-drag,
+html[data-ui-theme="eink"] .tory-chat-popup {
+  background: #fff !important;
+  border-color: #000 !important;
+  box-shadow: none !important;
+  color: #000 !important;
+}
+
+/* 결과: 복사 / 원고 끝에 넣기 */
+html[data-theme="eink"] .ai-result-actions #aiCopyButton,
+html[data-theme="eink"] .ai-result-actions #aiInsertButton,
+html[data-theme="eink"] .ai-result-modal-actions #aiResultModalCopyButton,
+html[data-theme="eink"] .ai-result-modal-actions #aiResultModalInsertButton,
+html[data-ui-theme="eink"] .ai-result-actions #aiCopyButton,
+html[data-ui-theme="eink"] .ai-result-actions #aiInsertButton {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] .ai-result-actions #aiCopyButton:hover,
+html[data-theme="eink"] .ai-result-actions #aiInsertButton:hover,
+html[data-ui-theme="eink"] .ai-result-actions #aiInsertButton:hover {
+  background: #000 !important;
+  color: #fff !important;
+}
+
+/* 알림 만들기 */
+html[data-theme="eink"] .tory-notify-add-btn,
+html[data-ui-theme="eink"] .tory-notify-add-btn {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px dashed #000 !important;
+}
+html[data-theme="eink"] .tory-notify-add-btn:hover,
+html[data-ui-theme="eink"] .tory-notify-add-btn:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-style: solid !important;
+}
+
+/* 무엇을 도와드릴까요 → 설정 창 안내 박스 */
+html[data-theme="eink"] .sp-inline-hint,
+html[data-ui-theme="eink"] .sp-inline-hint {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .ai-mode-picker-menu,
+html[data-ui-theme="eink"] .ai-mode-picker-menu {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .ai-mode-picker-option:hover,
+html[data-theme="eink"] .ai-mode-picker-option.is-active,
+html[data-ui-theme="eink"] .ai-mode-picker-option.is-active {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-theme="eink"] .ai-mode-picker-option.is-success,
+html[data-theme="eink"] .ai-mode-picker-option.is-coming,
+html[data-theme="eink"] .ai-mode-picker.is-success-mode .ai-mode-picker-btn,
+html[data-theme="eink"] .ai-mode-picker.is-coming-mode .ai-mode-picker-btn,
+html[data-ui-theme="eink"] .ai-mode-picker-option.is-success {
+  color: #000 !important;
+  border-color: #000 !important;
+}
+
+/* Generic secondary / surface chips still tinted via color-mix */
+html[data-theme="eink"] .secondary,
+html[data-ui-theme="eink"] .secondary {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+}
+html[data-theme="eink"] .secondary:hover,
+html[data-ui-theme="eink"] .secondary:hover {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-theme="eink"] .tory-helper-callout,
+html[data-theme="eink"] .rewrite-guide-note,
+html[data-ui-theme="eink"] .tory-helper-callout {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+}
+
+/* 도우미 설정 팝업 안내박스 (복선/반전/문장다듬기/시놉시스) — beat .ai-tool-modal-card mixes */
+html[data-theme="eink"] #aiToolModal .tory-helper-callout,
+html[data-theme="eink"] #aiToolModal .rewrite-guide-note,
+html[data-theme="eink"] #foreshadowPanelHint,
+html[data-theme="eink"] #rewriteGuideNote,
+html[data-theme="eink"] #subsynopsisPanelHint,
+html[data-theme="eink"] #rewritePanel > .rewrite-guide-note.tory-helper-callout,
+html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
+html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note,
+html[data-theme="eink"] .foreshadow-panel .tory-helper-callout,
+html[data-theme="eink"] .rewrite-panel .tory-helper-callout,
+html[data-theme="eink"] .subsynopsis-panel .tory-helper-callout,
+html[data-ui-theme="eink"] #aiToolModal .tory-helper-callout,
+html[data-ui-theme="eink"] #foreshadowPanelHint,
+html[data-ui-theme="eink"] #rewriteGuideNote,
+html[data-ui-theme="eink"] #subsynopsisPanelHint,
+html[data-ui-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
+html[data-ui-theme="eink"] .ai-tool-modal-card .rewrite-guide-note {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+  border: 1px solid #000000 !important;
+  border-color: #000000 !important;
+  color: #000000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] #aiToolModalLead,
+html[data-theme="eink"] .ai-tool-modal-card #aiToolModalLead,
+html[data-theme="eink"] .ai-tool-modal-card .modal-hint,
+html[data-ui-theme="eink"] #aiToolModalLead {
+  color: #000000 !important;
+  background: transparent !important;
+}
+
+/* Outline: tree lines, twistie triangles, folder/scene count badges */
+html[data-theme="eink"] .chapter-twistie,
+html[data-theme="eink"] .scene-row .scene-twistie,
+html[data-ui-theme="eink"] .chapter-twistie {
+  color: #000 !important;
+  background: transparent !important;
+}
+html[data-theme="eink"] .chapter-twistie:hover,
+html[data-ui-theme="eink"] .chapter-twistie:hover {
+  color: #000 !important;
+  background: transparent !important;
+}
+html[data-theme="eink"] .chapter-twistie .twistie-glyph,
+html[data-ui-theme="eink"] .chapter-twistie .twistie-glyph {
+  border-color: transparent transparent transparent #000 !important;
+}
+html[data-theme="eink"] .outline-chapter:not(.is-collapsed) .chapter-twistie .twistie-glyph,
+html[data-theme="eink"] .chapter-twistie[aria-expanded="true"] .twistie-glyph,
+html[data-ui-theme="eink"] .chapter-twistie[aria-expanded="true"] .twistie-glyph {
+  border-color: #000 transparent transparent transparent !important;
+}
+html[data-theme="eink"] .scene-row .tree-guide::before,
+html[data-theme="eink"] .scene-tree-item:not(.is-last) > .scene-row .tree-guide::after,
+html[data-theme="eink"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,
+html[data-theme="eink"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after,
+html[data-ui-theme="eink"] .scene-row .tree-guide::before,
+html[data-ui-theme="eink"] .scene-tree-item:not(.is-last) > .scene-row .tree-guide::after {
+  border-left-color: #000 !important;
+  border-bottom-color: #000 !important;
+}
+html[data-theme="eink"] .outline-folder-count,
+html[data-theme="eink"] .outline-scene-count,
+html[data-theme="eink"] #outlineFolderCount,
+html[data-theme="eink"] #outlineSceneCount,
+html[data-ui-theme="eink"] .outline-folder-count,
+html[data-ui-theme="eink"] .outline-scene-count {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+
+/* Outline overview modal (목차 한눈에): kill color-mix gray washes */
+html[data-theme="eink"] #outlineOverviewModal .modal-card,
+html[data-theme="eink"] .outline-overview-modal-card,
+html[data-ui-theme="eink"] .outline-overview-modal-card {
+  background: #fff !important;
+  border-color: #000 !important;
+  box-shadow: none !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] #outlineOverviewModal .modal-hint,
+html[data-theme="eink"] #outlineOverviewModal .hint,
+html[data-theme="eink"] .outline-overview-empty,
+html[data-theme="eink"] .outline-overview-ungrouped-label,
+html[data-theme="eink"] .outline-overview-scene-label.is-body-preview,
+html[data-ui-theme="eink"] .outline-overview-empty {
+  color: #000 !important;
+}
+html[data-theme="eink"] .outline-overview-part,
+html[data-ui-theme="eink"] .outline-overview-part {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .outline-overview-part-title,
+html[data-theme="eink"] .outline-overview-folder,
+html[data-theme="eink"] .outline-overview-folder.is-level-0,
+html[data-theme="eink"] .outline-overview-folder.is-level-1,
+html[data-theme="eink"] .outline-overview-folder.is-level-2,
+html[data-ui-theme="eink"] .outline-overview-part-title,
+html[data-ui-theme="eink"] .outline-overview-folder,
+html[data-ui-theme="eink"] .outline-overview-folder.is-level-0,
+html[data-ui-theme="eink"] .outline-overview-folder.is-level-2 {
+  background: #fff !important;
+  border: 1px solid #000 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .outline-overview-part-title:hover,
+html[data-theme="eink"] .outline-overview-folder:hover,
+html[data-ui-theme="eink"] .outline-overview-part-title:hover,
+html[data-ui-theme="eink"] .outline-overview-folder:hover {
+  background: #000 !important;
+  color: #fff !important;
+  border-color: #000 !important;
+}
+html[data-theme="eink"] .outline-overview-scene,
+html[data-ui-theme="eink"] .outline-overview-scene {
+  background: transparent !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .outline-overview-scene:hover,
+html[data-theme="eink"] .outline-overview-scene.is-current,
+html[data-ui-theme="eink"] .outline-overview-scene:hover,
+html[data-ui-theme="eink"] .outline-overview-scene.is-current {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label,
+html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label,
+html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label.is-body-preview,
+html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label.is-body-preview {
+  color: #fff !important;
+}
+html[data-theme="eink"] #outlineOverviewModal .modal-actions .primary,
+html[data-ui-theme="eink"] #outlineOverviewModal .modal-actions .primary {
+  background: #000 !important;
+  border: 1px solid #000 !important;
+  color: #fff !important;
+  box-shadow: none !important;
 }

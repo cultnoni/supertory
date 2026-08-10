@@ -1027,6 +1027,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             parsed = "/index.html"
         return str((WEB_ROOT / parsed.lstrip("/")).resolve())
 
+    def end_headers(self) -> None:
+        # Electron loads http://127.0.0.1 — without this, Chromium can keep an old
+        # index.html/app.js after an upgrade while electronAPI.getVersion() is new.
+        # Result: version shows 1.3.x but admin UI / prompt fixes look like 1.0.x.
+        path = urlparse(self.path).path
+        if path.startswith("/api/illustrations") or "/illustrations/" in path:
+            pass  # illustration bytes may keep their own Cache-Control
+        else:
+            self.send_header("Cache-Control", "no-store, max-age=0, must-revalidate")
+            self.send_header("Pragma", "no-cache")
+        super().end_headers()
+
     def log_message(self, format: str, *args: object) -> None:
         # Keep the launch window quiet; errors are returned to the browser instead.
         return
@@ -1441,6 +1453,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 purpose = document_import.normalise_purpose(body.get("purpose"))
                 main_genre = str(body.get("main_genre") or "").strip()[:80]
                 sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+                keywords = parse_project_keywords(body.get("keywords"))
                 if not main_genre:
                     raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
                 with database() as connection:
@@ -1450,10 +1463,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     ).fetchone()
                     next_order = int(max_order_row["m"] if max_order_row else -1) + 1
                     opened_stamp = utc_timestamp_now()
+                    keywords_json = json.dumps(keywords, ensure_ascii=False)
                     cursor = connection.execute(
-                        "INSERT INTO project(title, purpose, main_genre, sub_genre, last_opened_at, list_sort_order) "
-                        "VALUES (?, ?, ?, ?, ?, ?)",
-                        (title, purpose, main_genre, sub_genre, opened_stamp, next_order),
+                        "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (title, purpose, main_genre, sub_genre, keywords_json, opened_stamp, next_order),
                     )
                     project_id = int(cursor.lastrowid)
                     package_info = ensure_project_package(connection, project_id)
@@ -1463,6 +1477,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "purpose": purpose,
                         "main_genre": main_genre,
                         "sub_genre": sub_genre,
+                        "keywords": keywords,
                         **package_info,
                     },
                     HTTPStatus.CREATED,
@@ -11429,6 +11444,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     raise ValueError("회차 자동 매칭은 기존 작품에서만 사용할 수 있어요.")
                 main_genre = str(body.get("main_genre") or "").strip()[:80]
                 sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+                keywords = parse_project_keywords(body.get("keywords"))
                 if not main_genre:
                     raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
                 # Explicit last_opened_at (μs) so import-created works sort correctly vs rapid creates.
@@ -11436,14 +11452,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "SELECT COALESCE(MAX(list_sort_order), -1) AS m FROM project WHERE deleted_at IS NULL"
                 ).fetchone()
                 next_order = int(max_order_row["m"] if max_order_row else -1) + 1
+                keywords_json = json.dumps(keywords, ensure_ascii=False)
                 cursor = connection.execute(
-                    "INSERT INTO project(title, purpose, main_genre, sub_genre, last_opened_at, list_sort_order) "
-                    "VALUES (?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
+                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
                     (
                         project_title,
                         purpose,
                         main_genre,
                         sub_genre,
+                        keywords_json,
                         utc_timestamp_now(),
                         next_order,
                     ),
@@ -11454,7 +11472,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 package_info = ensure_project_package(connection, project_id)
             else:
                 self.require_project(connection, project_id)
-                # Optional: update purpose / genre when provided on import into existing project.
+                # Optional: update purpose / genre / keywords when provided on import into existing project.
                 if body.get("purpose") not in (None, ""):
                     connection.execute(
                         "UPDATE project SET purpose = ? WHERE id = ?",
@@ -11466,6 +11484,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     connection.execute(
                         "UPDATE project SET main_genre = ?, sub_genre = ? WHERE id = ?",
                         (main_genre, sub_genre, project_id),
+                    )
+                if "keywords" in body:
+                    keywords = parse_project_keywords(body.get("keywords"))
+                    connection.execute(
+                        "UPDATE project SET keywords = ? WHERE id = ?",
+                        (json.dumps(keywords, ensure_ascii=False), project_id),
                     )
                 package_info = ensure_project_package(connection, project_id)
 

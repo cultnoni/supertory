@@ -8,18 +8,140 @@
     <link rel="icon" type="image/png" href="/icon.png" sizes="512x512">
     <link rel="apple-touch-icon" href="/icon.png">
     <script>
-      /* Apply day/dark before paint to avoid flash */
+      /* Apply theme before paint to avoid flash (default: light) */
       (function () {
         try {
-          var theme = localStorage.getItem("supertory.uiTheme");
-          document.documentElement.setAttribute("data-ui-theme", theme === "dark" ? "dark" : "light");
+          var theme = localStorage.getItem("tori-theme")
+            || localStorage.getItem("supertory.uiTheme")
+            || "light";
+          if (theme === "dawn") theme = "library";
+          var known = { light: 1, dark: 1, cabin: 1, study: 1, library: 1, attic: 1, eink: 1 };
+          if (!known[theme]) theme = "light";
+          var scheme = (theme === "dark" || theme === "attic") ? "dark" : "light";
+          document.documentElement.setAttribute("data-theme", theme);
+          document.documentElement.setAttribute("data-ui-theme", theme);
+          document.documentElement.setAttribute("data-ui-scheme", scheme);
+          window.__supertoryBootTheme = theme;
         } catch (e) {
+          document.documentElement.setAttribute("data-theme", "light");
           document.documentElement.setAttribute("data-ui-theme", "light");
+          document.documentElement.setAttribute("data-ui-scheme", "light");
+          window.__supertoryBootTheme = "light";
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260810-ai-mode-mascot">
+    <link rel="stylesheet" href="/styles.css?v=20260811-1.3.2">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
+    <script>
+      /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
+      (function () {
+        var theme = window.__supertoryBootTheme
+          || document.documentElement.getAttribute("data-theme")
+          || "light";
+        var css = [
+          'html[data-theme="eink"],html[data-ui-theme="eink"]{background:#fff!important;color:#000!important;}',
+          'html[data-theme="eink"] body,html[data-ui-theme="eink"] body,body[data-theme="eink"],body[data-ui-theme="eink"]{background:#fff!important;color:#000!important;}',
+          'html[data-theme="eink"] ::selection,html[data-ui-theme="eink"] ::selection,html[data-theme="eink"] *::selection,html[data-ui-theme="eink"] *::selection{',
+          'background:#000!important;background-color:#000!important;color:#fff!important;-webkit-text-fill-color:#fff!important;}',
+          'html[data-theme="eink"] .tory-priority-box,html[data-theme="eink"] .tory-priority-box.is-open,',
+          'html[data-theme="eink"] .tory-priority-toggle:hover,html[data-ui-theme="eink"] .tory-priority-box{',
+          'background:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .feature-chip,html[data-theme="eink"] .status-clip-select,',
+          'html[data-theme="eink"] .tools-kit-button.is-active-split,html[data-theme="eink"] .compact-btn.is-active-split,',
+          'html[data-ui-theme="eink"] .feature-chip{background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .feature-chip.is-active,html[data-theme="eink"] .is-active-split,',
+          'html[data-ui-theme="eink"] .feature-chip.is-active{background:#000!important;color:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .title-input,html[data-theme="eink"] .episode-title-input,',
+          'html[data-ui-theme="eink"] .episode-title-input{border-bottom-color:#000!important;color:#000!important;background:transparent!important;}',
+          'html[data-theme="eink"] .format-seg,html[data-ui-theme="eink"] .format-seg{background:#fff!important;border:1px solid #000!important;}',
+          'html[data-theme="eink"] .format-seg > .format-btn{border-right:1px solid #000!important;color:#000!important;background:transparent!important;}',
+          'html[data-theme="eink"] .format-seg-fields > .toolbar-field{border-right-color:#000!important;}',
+          'html[data-theme="eink"] .format-toolbar{background:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .format-list-btn.format-btn-solo,html[data-theme="eink"] .format-find-btn.format-btn-solo,html[data-theme="eink"] .format-viewer-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,html[data-theme="eink"] .format-find-btn.format-btn-solo:hover,html[data-theme="eink"] .format-viewer-btn.format-btn-solo:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .format-btn .u-mark,html[data-ui-theme="eink"] .format-btn .u-mark{',
+          'text-decoration:underline!important;text-decoration-color:#000!important;',
+          'text-underline-offset:2px!important;-webkit-text-fill-color:unset!important;color:inherit!important;}',
+          'html[data-theme="eink"] .format-btn.active .u-mark,html[data-ui-theme="eink"] .format-btn.active .u-mark{',
+          'text-decoration-color:#fff!important;}',
+          'html[data-theme="eink"] .header-plus-btn,html[data-ui-theme="eink"] .header-plus-btn{',
+          'background:#fff!important;border:1px solid #000!important;border-radius:50%!important;',
+          'overflow:hidden!important;box-shadow:none!important;color:#000!important;}',
+          'html[data-theme="eink"] .header-plus-btn .header-plus-glyph,html[data-ui-theme="eink"] .header-plus-btn .header-plus-glyph{',
+          'background:transparent!important;border:0!important;color:#000!important;}',
+          'html[data-theme="eink"] .header-plus-btn:hover,html[data-theme="eink"] .header-plus-btn[aria-expanded="true"],',
+          'html[data-ui-theme="eink"] .header-plus-btn:hover,html[data-ui-theme="eink"] .header-plus-btn[aria-expanded="true"]{',
+          'background:#000!important;color:#fff!important;border:1px solid #000!important;border-radius:50%!important;}',
+          'html[data-theme="eink"] .header-plus-btn:hover .header-plus-glyph,',
+          'html[data-theme="eink"] .header-plus-btn[aria-expanded="true"] .header-plus-glyph{color:#fff!important;background:transparent!important;}',
+          'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-page{',
+          'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .rich-editor,html[data-theme="eink"] #sceneContent,',
+          'html[data-theme="eink"] .focus-write-editor,html[data-theme="eink"] .split-body-editor,',
+          'html[data-ui-theme="eink"] .rich-editor,html[data-ui-theme="eink"] #sceneContent{',
+          'background:transparent!important;background-color:transparent!important;color:#000!important;caret-color:#000!important;',
+          'font-weight:500!important;user-select:text!important;-webkit-user-select:text!important;',
+          'cursor:text!important;pointer-events:auto!important;-webkit-user-modify:read-write!important;}',
+          'html[data-theme="eink"] .rich-editor ::selection,html[data-theme="eink"] .rich-editor *::selection,',
+          'html[data-theme="eink"] #sceneContent ::selection,html[data-theme="eink"] #sceneContent *::selection,',
+          'html[data-theme="eink"] .focus-write-editor ::selection,html[data-theme="eink"] .focus-write-editor *::selection,',
+          'html[data-ui-theme="eink"] .rich-editor ::selection,html[data-ui-theme="eink"] #sceneContent ::selection{',
+          'background:#000!important;background-color:#000!important;color:#fff!important;-webkit-text-fill-color:#fff!important;}',
+          'html[data-theme="eink"] .outline-part,html[data-ui-theme="eink"] .outline-part{',
+          'background:#fff!important;border-color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .folder-title-box,html[data-theme="eink"] .folder-title-box.is-level-0,',
+          'html[data-theme="eink"] .folder-title-box.is-level-1,html[data-theme="eink"] .folder-title-box.is-level-2,',
+          'html[data-theme="eink"] .folder-title-box.is-level-3,html[data-theme="eink"] .folder-title-box.is-level-4,',
+          'html[data-ui-theme="eink"] .folder-title-box,html[data-ui-theme="eink"] .folder-title-box.is-level-0{',
+          'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .folder-title-box:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .chapter-title.is-complete,html[data-theme="eink"] .folder-title-box.is-complete,',
+          'html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box,',
+          'html[data-ui-theme="eink"] .folder-title-box.is-complete{',
+          'background:#000!important;border-color:#000!important;color:#fff!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .folder-color-dot,html[data-theme="eink"] .folder-color-dot[data-folder-color]{background:#000!important;}',
+          'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
+          'html[data-theme="eink"] #aiToolModal .tory-helper-callout,html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,',
+          'html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note{background:#fff!important;border:1px solid #000!important;color:#000!important;}',
+          'html[data-theme="eink"] .chapter-twistie,html[data-ui-theme="eink"] .chapter-twistie{color:#000!important;background:transparent!important;}',
+          'html[data-theme="eink"] .chapter-twistie .twistie-glyph{border-color:transparent transparent transparent #000!important;}',
+          'html[data-theme="eink"] .outline-chapter:not(.is-collapsed) .chapter-twistie .twistie-glyph,',
+          'html[data-theme="eink"] .chapter-twistie[aria-expanded="true"] .twistie-glyph{border-color:#000 transparent transparent transparent!important;}',
+          'html[data-theme="eink"] .scene-row .tree-guide::before,',
+          'html[data-theme="eink"] .scene-tree-item:not(.is-last) > .scene-row .tree-guide::after,',
+          'html[data-theme="eink"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,',
+          'html[data-theme="eink"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after{',
+          'border-left-color:#000!important;border-bottom-color:#000!important;}',
+          'html[data-theme="eink"] .outline-folder-count,html[data-theme="eink"] .outline-scene-count,',
+          'html[data-theme="eink"] #outlineFolderCount,html[data-theme="eink"] #outlineSceneCount{',
+          'background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] #outlineOverviewModal .modal-card,html[data-theme="eink"] .outline-overview-modal-card{',
+          'background:#fff!important;border-color:#000!important;box-shadow:none!important;color:#000!important;}',
+          'html[data-theme="eink"] .outline-overview-part{background:#fff!important;border:1px solid #000!important;}',
+          'html[data-theme="eink"] .outline-overview-part-title,html[data-theme="eink"] .outline-overview-folder,',
+          'html[data-theme="eink"] .outline-overview-folder.is-level-0,html[data-theme="eink"] .outline-overview-folder.is-level-1,',
+          'html[data-theme="eink"] .outline-overview-folder.is-level-2{',
+          'background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .outline-overview-part-title:hover,html[data-theme="eink"] .outline-overview-folder:hover{',
+          'background:#000!important;color:#fff!important;}',
+          'html[data-theme="eink"] .outline-overview-scene{background:transparent!important;color:#000!important;}',
+          'html[data-theme="eink"] .outline-overview-scene:hover,html[data-theme="eink"] .outline-overview-scene.is-current{',
+          'background:#000!important;color:#fff!important;}',
+          'html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label,',
+          'html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label{color:#fff!important;}',
+          'html[data-theme="eink"] .outline-overview-empty,html[data-theme="eink"] .outline-overview-ungrouped-label,',
+          'html[data-theme="eink"] #outlineOverviewModal .modal-hint{color:#000!important;}',
+          'html[data-theme="eink"] #outlineOverviewModal .modal-actions .primary{',
+          'background:#000!important;border:1px solid #000!important;color:#fff!important;}',
+        ].join("");
+        window.__supertoryEinkBwCss = css;
+        if (theme !== "eink") return;
+        var s = document.createElement("style");
+        s.id = "supertory-eink-bw-force";
+        s.textContent = css;
+        document.head.appendChild(s);
+      })();
+    </script>
   </head>
   <body>
     <!-- First-run guide: sits under header +, arrow points UP at the button -->
@@ -150,16 +272,41 @@
             id="uiThemeToggleButton"
             class="icon-btn header-theme-btn"
             type="button"
-            title="데이 모드"
-            aria-label="데이/다크 모드 전환"
+            title="테마 바꾸기"
+            aria-label="테마 바꾸기"
             aria-pressed="false"
+            data-theme-icon="light"
           >
-            <svg class="theme-icon theme-icon-sun" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+            <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
               <circle cx="12" cy="12" r="4" fill="currentColor"/>
               <path fill="currentColor" d="M12 2.5a1 1 0 0 1 1 1V5a1 1 0 1 1-2 0V3.5a1 1 0 0 1 1-1zm0 14a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1zM3.5 11a1 1 0 0 0 0 2H5a1 1 0 1 0 0-2H3.5zm14 0a1 1 0 1 0 0 2H19a1 1 0 1 0 0-2h-1.5zM5.64 5.64a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 1 1-1.41 1.41L5.64 7.05a1 1 0 0 1 0-1.41zm10.25 10.25a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zM18.36 5.64a1 1 0 0 1 0 1.41l-1.06 1.06a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.11 15.89a1 1 0 0 1 0 1.41L7.05 18.36a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/>
             </svg>
-            <svg class="theme-icon theme-icon-moon hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+            <svg class="theme-icon theme-icon-dark hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
               <path fill="currentColor" d="M20.2 14.35A8.2 8.2 0 0 1 9.65 3.8a.75.75 0 0 0-.95-.95A9.7 9.7 0 1 0 21.15 15.3a.75.75 0 0 0-.95-.95z"/>
+            </svg>
+            <svg class="theme-icon theme-icon-cabin hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <g fill="currentColor" fill-rule="evenodd">
+                <path d="M12 1.2c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C7.9 9.05 8.65 4.1 12 1.2zm-.45 2.55h.9v7.15h-.9V3.75z"/>
+                <path transform="rotate(-48 9.6 12)" d="M9.6 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C5.5 10.25 6.25 5.3 9.6 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
+                <path transform="rotate(48 14.4 12)" d="M14.4 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C10.3 10.25 11.05 5.3 14.4 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
+                <path transform="rotate(-78 10.5 14.8)" d="M10.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C7 12.9 7.65 8.65 10.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
+                <path transform="rotate(78 13.5 14.8)" d="M13.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C10 12.9 10.65 8.65 13.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
+              </g>
+              <path fill="currentColor" d="M11.15 14.6h1.7v6.9a.85.85 0 1 1-1.7 0v-6.9z"/>
+            </svg>
+            <svg class="theme-icon theme-icon-study hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" fill-rule="evenodd" d="M12 1.5 18.5 9.85c1.3 1.65 1.1 3.95-.45 5.4L15.6 17.55H8.4L6 15.25c-1.55-1.45-1.75-3.75-.45-5.4L12 1.5zm-.5 3.35h1v5.5h-1V4.85zM12 11.05a1.3 1.3 0 1 0 .01 2.6 1.3 1.3 0 0 0-.01-2.6z"/>
+              <rect x="7.15" y="18.1" width="9.7" height="1.85" rx="0.9" fill="currentColor"/>
+              <rect x="7.6" y="20.7" width="8.8" height="1.7" rx="0.85" fill="currentColor"/>
+            </svg>
+            <svg class="theme-icon theme-icon-library hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M4 20.5h16v-1.6H4v1.6zm1.2-3.2h2.1V9.2H5.2v8.1zm5.25 0h2.1V9.2h-2.1v8.1zm5.25 0H17.8V9.2h-2.1v8.1zM3.8 7.6 12 3.4l8.2 4.2v1.5H3.8V7.6z"/>
+            </svg>
+            <svg class="theme-icon theme-icon-attic hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M12 2.35 14.35 9.1l7.15.42-5.55 4.55 1.78 6.95L12 16.7l-5.73 4.32 1.78-6.95-5.55-4.55 7.15-.42L12 2.35z"/>
+            </svg>
+            <svg class="theme-icon theme-icon-eink hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+              <path fill="currentColor" d="M7.2 4.2h9.8v2.2H9.6v4.1h6.4v2.15H9.6v5.15h7.6v2.2H7.2V4.2z"/>
             </svg>
           </button>
           <div class="create-menu" id="createMenu">
@@ -1523,7 +1670,7 @@
               <p class="hint">인물 참고용 사진·일러스트를 붙일 수 있어요.</p>
             </div>
           </div>
-          <label>정렬용 이름 <span class="small-note">(선택: 성을 앞에 두고 싶을 때만 적으세요)</span>
+          <label>정렬용 이름
             <input id="characterSortName" placeholder="예: 김, 지은">
           </label>
           <label>한 줄 소개
@@ -2872,31 +3019,30 @@
           <label>작품 제목
             <input id="newProjectTitle" type="text" maxlength="120" placeholder="예: 별이 지는 밤" required autocomplete="off">
           </label>
-          <label>작품 종류
-            <select id="newProjectPurpose">
-              <option value="general_novel">일반소설</option>
-              <option value="web_novel">웹소설</option>
-              <option value="fairy_tale">동화</option>
-              <option value="short_story">단편</option>
-              <option value="essay">에세이</option>
-              <option value="translation">번역</option>
-              <option value="nonfiction">정보 전달</option>
-              <option value="paper">논문</option>
-              <option value="autobiography">자서전·회고록</option>
-              <option value="poetry">시</option>
-              <option value="script">시나리오·희곡</option>
-              <option value="diary">일기·기록</option>
-              <option value="report">보고서</option>
-              <option value="column">칼럼·비평</option>
-              <option value="other">기타</option>
-            </select>
-          </label>
-          <p class="hint purpose-hint">작품 성격에 맞게 골라 두면 나중에 찾기 쉬워요.</p>
           <div class="modal-genre-block" id="newProjectGenreBlock">
             <div class="modal-genre-notice" role="note">
-              <strong>장르 선택이 필요해요</strong>
-              <span>토리가 장르·분위기를 학습해 이어서 쓰기·분석·조언을 맞춰 줍니다. 비워 두면 토리 도움이 덜 정확해질 수 있어요.</span>
+              <strong>작품의 장르와 분위기, 키워드를 자세히 알려줄수록 토리가 작가님의 세계관을 더 정확하게 이해해요!</strong>
+              <span>꼼꼼하게 채워주실수록 내 원고에 딱 맞는 스마트한 도움을 드립니다.</span>
             </div>
+            <label>작품 종류
+              <select id="newProjectPurpose">
+                <option value="general_novel">일반소설</option>
+                <option value="web_novel">웹소설</option>
+                <option value="fairy_tale">동화</option>
+                <option value="short_story">단편</option>
+                <option value="essay">에세이</option>
+                <option value="translation">번역</option>
+                <option value="nonfiction">정보 전달</option>
+                <option value="paper">논문</option>
+                <option value="autobiography">자서전·회고록</option>
+                <option value="poetry">시</option>
+                <option value="script">시나리오·희곡</option>
+                <option value="diary">일기·기록</option>
+                <option value="report">보고서</option>
+                <option value="column">칼럼·비평</option>
+                <option value="other">기타</option>
+              </select>
+            </label>
             <label id="newProjectMainGenreWrap"><span class="modal-genre-label" id="newProjectMainGenreLabel">메인 장르</span>
               <select id="newProjectMainGenre" required>
                 <option value="">장르를 선택해 주세요</option>
@@ -2907,6 +3053,26 @@
                 <option value="">세부 장르를 선택해 주세요</option>
               </select>
             </label>
+            <div class="modal-keyword-field" id="newProjectKeywordField">
+              <span class="modal-genre-label">키워드</span>
+              <div class="keyword-selected-row">
+                <div id="newProjectKeywordChipList" class="keyword-chip-list" aria-label="선택한 키워드"></div>
+                <button type="button" id="newProjectKeywordPickerToggle" class="secondary keyword-picker-toggle" title="장르·태그에서 고르기" aria-expanded="false" aria-controls="newProjectKeywordPickerPanel">
+                  + 키워드
+                </button>
+              </div>
+              <div id="newProjectKeywordPickerPanel" class="keyword-picker-panel hidden" role="region" aria-label="키워드 태그 선택">
+                <div class="keyword-picker-toolbar">
+                  <span class="keyword-picker-title">장르 · 하위 태그</span>
+                  <button type="button" id="newProjectKeywordPickerClose" class="secondary keyword-picker-close" title="닫기">닫기</button>
+                </div>
+                <div id="newProjectKeywordCatalog" class="keyword-catalog"></div>
+                <div class="keyword-custom-row">
+                  <input type="text" id="newProjectKeywordCustomInput" class="keyword-custom-input" maxlength="40" placeholder="직접 입력 후 Enter" aria-label="키워드 직접 입력">
+                  <button type="button" id="newProjectKeywordCustomAdd" class="secondary" title="직접 입력 키워드 추가">추가</button>
+                </div>
+              </div>
+            </div>
           </div>
           <div class="modal-actions">
             <button type="button" class="secondary" data-close-new-project>취소</button>
@@ -2929,44 +3095,98 @@
           옛 Word(.doc)·PDF는 다른 형식으로 저장한 뒤 가져와 주세요.
         </p>
         <p class="hint modal-hint import-proof-banner hidden" id="importProofBanner" role="status">
-          <strong>토리 · 교정본 인식</strong>
-          이 파일은 <strong>편집 교정고</strong>로 처리합니다.
-          토리가 제목·본문 앞부분으로 <strong>기존 회차를 식별·선별</strong>한 뒤
-          본문 정제 → 원본 대비 교정 비교 보고서를 만듭니다.
+          출판사나 편집자님께 받은 수정 원고 파일을 올려주세요! 토리가 제목과 본문을 읽고 해당 회차를 자동으로 찾아 연결해 드립니다. 아래에서 원하는 처리 방식을 선택해 주세요.
         </p>
         <form id="importForm" class="import-form">
           <input type="hidden" id="importDocumentKind" value="manuscript">
-          <label>파일 선택
+          <label id="importFileLabel"><span id="importFileLabelText">파일 선택</span>
             <input id="importFile" type="file" accept=".txt,.text,.md,.markdown,.docx,.doc,.odt,.hwp,.hwpx,.rtf,.html,.htm,.epub,.csv,text/plain,text/markdown,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/haansofthwp,application/x-hwp">
           </label>
           <p id="importFileName" class="import-file-name">아직 고른 파일이 없어요.</p>
 
-          <label>이 글의 목적은 무엇인가요?
-            <select id="importPurpose">
-              <option value="general_novel">일반소설</option>
-              <option value="web_novel">웹소설</option>
-              <option value="fairy_tale">동화</option>
-              <option value="short_story">단편</option>
-              <option value="essay">에세이</option>
-              <option value="translation">번역</option>
-              <option value="nonfiction">정보 전달</option>
-              <option value="paper">논문</option>
-              <option value="autobiography">자서전·회고록</option>
-              <option value="poetry">시</option>
-              <option value="script">시나리오·희곡</option>
-              <option value="diary">일기·기록</option>
-              <option value="report">보고서</option>
-              <option value="column">칼럼·비평</option>
-              <option value="other">기타</option>
-            </select>
-          </label>
-          <p class="hint purpose-hint">작품 성격에 맞게 골라 두면 나중에 찾기 쉬워요.</p>
+          <div id="importProofMethodWrap" class="import-proof-method-wrap hidden">
+            <p class="modal-genre-label import-proof-method-title">어떤 방식으로 할까요?</p>
+            <fieldset class="import-proof-method" role="radiogroup" aria-label="교정본 처리 방식">
+              <label class="import-proof-method-card is-recommended">
+                <input type="radio" name="importProofMethod" value="proof_pipeline" id="importProofMethodPipeline" checked>
+                <span class="import-proof-method-body">
+                  <span class="import-proof-method-head">
+                    <strong>토리 교정 파이프라인 (본문+메모 정밀 분석)</strong>
+                    <em class="import-proof-badge import-proof-badge-rec">★권장</em>
+                  </span>
+                  <span class="import-proof-method-lead">꼼꼼하게 다 해줄게요.</span>
+                  <span class="import-proof-method-desc">토리가 원고의 제목과 내용을 읽어 해당 회차를 자동으로 찾아내요. 공백이나 서식을 깨끗하게 정제한 뒤, 기존 원고와 어디가 달라졌는지 한눈에 보는 비교 보고서까지 완성해 드립니다.</span>
+                </span>
+              </label>
+              <label class="import-proof-method-card is-safe">
+                <input type="radio" name="importProofMethod" value="proof_compare" id="importProofMethodCompare">
+                <span class="import-proof-method-body">
+                  <span class="import-proof-method-head">
+                    <strong>교정 비교 보고서 (단순 텍스트 대조)</strong>
+                    <em class="import-proof-badge import-proof-badge-safe">안전</em>
+                  </span>
+                  <span class="import-proof-method-lead">원고는 건드리지 않고, 바뀐 부분만 보여줄게요.</span>
+                  <span class="import-proof-method-desc">토리가 올려주신 파일과 기존 원고를 대조하여 수정된 내역(비교 보고서)만 깔끔하게 정리해서 보여드립니다.</span>
+                </span>
+              </label>
+              <label class="import-proof-method-card is-danger">
+                <input type="radio" name="importProofMethod" value="match_replace_scene" id="importProofMethodReplace">
+                <span class="import-proof-method-body">
+                  <span class="import-proof-method-head">
+                    <strong>교정본으로 덮어쓰기</strong>
+                    <em class="import-proof-badge import-proof-badge-danger">⚠ 주의</em>
+                  </span>
+                  <span class="import-proof-method-lead">회차만 찾아서 바로 교체할게요.</span>
+                  <span class="import-proof-method-desc">토리가 파일에 맞는 회차를 알아서 찾아낸 뒤, 복잡한 비교 절차 없이 기존 원고를 새 교정본 내용으로 덮어써 드립니다. 이미 검수가 끝난 최종 확정 원고에 추천해요.</span>
+                </span>
+              </label>
+            </fieldset>
+          </div>
+
+          <div id="importProjectTitleWrap" class="import-project-title-wrap">
+            <span class="modal-genre-label">제목</span>
+            <fieldset class="continue-length-options import-title-mode tory-helper-options" id="importTitleModeOptions" role="radiogroup" aria-label="제목 방식">
+              <legend class="sr-only">제목 방식</legend>
+              <label class="continue-length-option">
+                <input type="radio" name="importTitleMode" value="from_file" id="importTitleModeFromFile" checked>
+                <span>가져온 문서와 동일해요</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="importTitleMode" value="custom" id="importTitleModeCustom">
+                <span>직접 작성할래요</span>
+              </label>
+            </fieldset>
+            <label id="importProjectTitleInputWrap" class="hidden">
+              <span class="sr-only">제목 직접 입력</span>
+              <input id="importProjectTitle" type="text" maxlength="120" placeholder="예: 별이 지는 밤" autocomplete="off">
+            </label>
+            <p id="importTitleFromFileHint" class="hint purpose-hint">가져온 문서 제목(또는 파일 이름)을 그대로 씁니다.</p>
+          </div>
 
           <div class="modal-genre-block" id="importGenreBlock">
             <div class="modal-genre-notice" role="note">
-              <strong>장르 선택이 필요해요</strong>
-              <span>토리가 장르·분위기를 학습해 이어서 쓰기·분석·조언을 맞춰 줍니다. 새 작품으로 만들 때 특히 중요해요.</span>
+              <strong>작품의 장르와 분위기, 키워드를 자세히 알려줄수록 토리가 작가님의 세계관을 더 정확하게 이해해요!</strong>
+              <span>꼼꼼하게 채워주실수록 내 원고에 딱 맞는 스마트한 도움을 드립니다.</span>
             </div>
+            <label id="importPurposeWrap">작품 종류
+              <select id="importPurpose">
+                <option value="general_novel">일반소설</option>
+                <option value="web_novel">웹소설</option>
+                <option value="fairy_tale">동화</option>
+                <option value="short_story">단편</option>
+                <option value="essay">에세이</option>
+                <option value="translation">번역</option>
+                <option value="nonfiction">정보 전달</option>
+                <option value="paper">논문</option>
+                <option value="autobiography">자서전·회고록</option>
+                <option value="poetry">시</option>
+                <option value="script">시나리오·희곡</option>
+                <option value="diary">일기·기록</option>
+                <option value="report">보고서</option>
+                <option value="column">칼럼·비평</option>
+                <option value="other">기타</option>
+              </select>
+            </label>
             <label id="importMainGenreWrap"><span class="modal-genre-label" id="importMainGenreLabel">메인 장르</span>
               <select id="importMainGenre" required>
                 <option value="">장르를 선택해 주세요</option>
@@ -2977,19 +3197,41 @@
                 <option value="">세부 장르를 선택해 주세요</option>
               </select>
             </label>
+            <div class="modal-keyword-field" id="importKeywordField">
+              <span class="modal-genre-label">키워드</span>
+              <div class="keyword-selected-row">
+                <div id="importKeywordChipList" class="keyword-chip-list" aria-label="선택한 키워드"></div>
+                <button type="button" id="importKeywordPickerToggle" class="secondary keyword-picker-toggle" title="장르·태그에서 고르기" aria-expanded="false" aria-controls="importKeywordPickerPanel">
+                  + 키워드
+                </button>
+              </div>
+              <div id="importKeywordPickerPanel" class="keyword-picker-panel hidden" role="region" aria-label="키워드 태그 선택">
+                <div class="keyword-picker-toolbar">
+                  <span class="keyword-picker-title">장르 · 하위 태그</span>
+                  <button type="button" id="importKeywordPickerClose" class="secondary keyword-picker-close" title="닫기">닫기</button>
+                </div>
+                <div id="importKeywordCatalog" class="keyword-catalog"></div>
+                <div class="keyword-custom-row">
+                  <input type="text" id="importKeywordCustomInput" class="keyword-custom-input" maxlength="40" placeholder="직접 입력 후 Enter" aria-label="키워드 직접 입력">
+                  <button type="button" id="importKeywordCustomAdd" class="secondary" title="직접 입력 키워드 추가">추가</button>
+                </div>
+              </div>
+            </div>
           </div>
 
-          <label>어디에 넣을까요?
-            <select id="importDestination">
-              <option value="new_project">새 작품으로 만들기</option>
-              <option value="new_chapter">현재 작품에 새 챕터로 넣기</option>
-              <option value="existing_chapter">현재 작품의 챕터에 새 씬으로 넣기</option>
-              <option value="replace_scene">지금 열린 씬에 덮어쓰기</option>
-              <option value="match_replace_scene">교정고 → 맞는 회차 찾아 덮어쓰기</option>
-              <option value="proof_compare">교정고 비교 분석 (덮어쓰기 안 함)</option>
-              <option value="proof_pipeline">HWP/DOCX 교정 파이프라인 (매칭·정제·비교)</option>
-            </select>
-          </label>
+          <div id="importDestinationWrap">
+            <label>어디에 넣을까요?
+              <select id="importDestination">
+                <option value="new_project">새 작품으로 만들기</option>
+                <option value="new_chapter">현재 작품에 새 챕터로 넣기</option>
+                <option value="existing_chapter">현재 작품의 챕터에 새 씬으로 넣기</option>
+                <option value="replace_scene">지금 열린 씬에 덮어쓰기</option>
+                <option value="match_replace_scene">교정고 → 맞는 회차 찾아 덮어쓰기</option>
+                <option value="proof_compare">교정고 비교 분석 (덮어쓰기 안 함)</option>
+                <option value="proof_pipeline">HWP/DOCX 교정 파이프라인 (매칭·정제·비교)</option>
+              </select>
+            </label>
+          </div>
           <p id="importMatchHint" class="hint purpose-hint hidden">
             업로드한 원고(HWPX·DOCX 등)의 제목·본문 앞부분을 기존 회차와 비교해
             가장 비슷한 회차에 덮어씁니다. 회차 제목은 유지됩니다.
@@ -3011,12 +3253,8 @@
             <select id="importChapterSelect"></select>
           </label>
 
-          <label id="importProjectTitleWrap" class="hidden">새 작품 제목
-            <input id="importProjectTitle" placeholder="비워 두면 파일 이름을 씁니다">
-          </label>
-
           <label id="importChapterTitleWrap">챕터 제목 (한 덩어리로 넣을 때)
-            <input id="importChapterTitle" placeholder="비워 두면 파일 이름을 씁니다">
+            <input id="importChapterTitle" placeholder="비워 두면 위에서 고른 제목을 씁니다">
           </label>
 
           <label>글을 어떻게 나눌까요?
@@ -3465,7 +3703,7 @@
       <div class="context-menu-divider" id="uiFeatureContextDivider" hidden></div>
       <button type="button" role="menuitem" data-ui-feature-action="hide" id="uiFeatureHideMenuItem">
         <strong>이 기능 숨기기</strong>
-        <span>화면에서 감춰요 · 관리자 → 숨긴 기능에서 다시 켤 수 있어요</span>
+        <span>화면에서 감춰요 · 관리자 → 설정 옵션 → 숨긴 기능에서 다시 켤 수 있어요</span>
       </button>
     </div>
 
@@ -3477,14 +3715,14 @@
           <button type="button" class="modal-close" data-close-admin title="닫기">×</button>
         </div>
         <p class="hint modal-hint">
-          정보·도움말 · 사용자 관리 · 숨긴 기능 · 휴지통을 한곳에서 관리합니다.
+          정보·도움말 · 설정 옵션 · 사용자 관리 · 작품 관리 · 휴지통을 한곳에서 관리합니다.
         </p>
 
         <div class="admin-tabs" role="tablist" aria-label="관리자 구역">
           <button type="button" class="admin-tab is-active" role="tab" data-admin-tab="info" aria-selected="true">정보 · 도움말</button>
+          <button type="button" class="admin-tab" role="tab" data-admin-tab="settings" aria-selected="false">설정 옵션</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="account" aria-selected="false">사용자 관리</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="projects" aria-selected="false">작품 관리</button>
-          <button type="button" class="admin-tab" role="tab" data-admin-tab="hidden" aria-selected="false">숨긴 기능</button>
           <button type="button" class="admin-tab" role="tab" data-admin-tab="trash" aria-selected="false">휴지통</button>
         </div>
 
@@ -3624,6 +3862,44 @@
           </div>
         </section>
 
+        <!-- 설정 옵션 -->
+        <section class="admin-panel" data-admin-panel="settings" aria-label="설정 옵션" hidden>
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title">테마 변경</h3>
+                <p class="hint">앱 전체 화면 분위기(크롬)를 바꿉니다. 원고지 색은 별도로 유지됩니다.</p>
+              </div>
+            </div>
+            <div id="adminThemeList" class="theme-options" role="listbox" aria-label="UI 테마">
+              <button type="button" role="option" data-ui-theme-pick="light">☀️ 기본</button>
+              <button type="button" role="option" data-ui-theme-pick="dark">🌙 야간</button>
+              <button type="button" role="option" data-ui-theme-pick="cabin">🌿 숲속 오두막</button>
+              <button type="button" role="option" data-ui-theme-pick="library">🏛️ 새벽 도서관</button>
+              <button type="button" role="option" data-ui-theme-pick="study">📜 비밀 서재</button>
+              <button type="button" role="option" data-ui-theme-pick="attic">🌃 심야 다락방</button>
+              <button type="button" role="option" data-ui-theme-pick="eink">🖋️ E ink</button>
+            </div>
+            <p class="hint" id="adminThemeHint"></p>
+          </div>
+
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title">숨긴 기능</h3>
+                <p class="hint">화면에서 감춘 버튼·표시 항목입니다. <strong>활성화</strong>하면 다시 나타납니다. 숨기려면 앱 안 버튼을 <strong>우클릭</strong>하세요.</p>
+              </div>
+              <div class="admin-trash-actions">
+                <button type="button" id="featureHideResetButton" class="secondary compact-btn">모두 다시 표시</button>
+              </div>
+            </div>
+            <p class="hint" id="featureHideCountHint">숨긴 기능 없음</p>
+            <div id="hiddenFeaturesList" class="hidden-features-list" aria-live="polite">
+              <p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>
+            </div>
+          </div>
+        </section>
+
         <!-- 사용자 관리 (판매·플랜 대비 자리) -->
         <section class="admin-panel" data-admin-panel="account" aria-label="사용자 관리" hidden>
           <div class="admin-section-box">
@@ -3681,25 +3957,6 @@
             <p class="hint" id="adminProjectsHint">작품을 선택해 삭제할 수 있어요.</p>
             <div id="adminProjectList" class="admin-project-list" aria-live="polite">
               <p class="hint trash-empty">불러오는 중…</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- 숨긴 기능 -->
-        <section class="admin-panel" data-admin-panel="hidden" aria-label="숨긴 기능" hidden>
-          <div class="admin-section-box">
-            <div class="admin-trash-heading">
-              <div>
-                <h3 class="admin-section-title">숨긴 기능</h3>
-                <p class="hint">화면에서 감춘 버튼·표시 항목입니다. <strong>활성화</strong>하면 다시 나타납니다. 숨기려면 앱 안 버튼을 <strong>우클릭</strong>하세요.</p>
-              </div>
-              <div class="admin-trash-actions">
-                <button type="button" id="featureHideResetButton" class="secondary compact-btn">모두 다시 표시</button>
-              </div>
-            </div>
-            <p class="hint" id="featureHideCountHint">숨긴 기능 없음</p>
-            <div id="hiddenFeaturesList" class="hidden-features-list" aria-live="polite">
-              <p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>
             </div>
           </div>
         </section>
@@ -4545,6 +4802,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260810-ai-mode-mascot"></script>
+    <script src="/app.js?v=20260811-1.3.2"></script>
   </body>
 </html>

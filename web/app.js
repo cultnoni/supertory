@@ -20089,6 +20089,10 @@ function getGlobalPageTheme() {
  * scene override if any, otherwise the project-wide (global) theme.
  */
 function refreshManuscriptPageTheme({ announce = false } = {}) {
+  if (normalizeUiThemeId(getUiTheme()) === "eink") {
+    lockEinkEditorPaper();
+    return;
+  }
   const global = getGlobalPageTheme();
   const override = state.sceneId ? getScenePageTheme(state.sceneId) : null;
   if (override) {
@@ -20105,6 +20109,80 @@ function refreshManuscriptPageTheme({ announce = false } = {}) {
     persistGlobal: false,
     persistScene: false,
   });
+}
+
+/** E ink: lock manuscript paper to pure white / black (editing clarity). */
+function lockEinkEditorPaper() {
+  const root = document.documentElement;
+  const body = document.body;
+  root.setAttribute("data-eink-editor-lock", "1");
+  body?.setAttribute("data-eink-editor-lock", "1");
+  for (const el of [root, body]) {
+    if (!el?.style) continue;
+    el.style.setProperty("--page-bg", "#ffffff");
+    el.style.setProperty("--page-editor-bg", "#ffffff");
+    el.style.setProperty("--page-ink", "#000000");
+    el.style.setProperty("--page-line", "#000000");
+  }
+  document.querySelectorAll(
+    ".rich-editor, .manuscript-page, #sceneContent, .focus-write-editor, .split-body-editor"
+  ).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    if (node.classList.contains("manuscript-page")) {
+      node.style.backgroundColor = "#ffffff";
+      node.style.borderColor = "#000000";
+      return;
+    }
+    // Do NOT set backgroundColor on the editor — !important/inline fills
+    // prevent Chromium from painting native ::selection while dragging.
+    node.style.removeProperty("background-color");
+    node.style.color = "#000000";
+    node.style.caretColor = "#000000";
+    node.style.userSelect = "text";
+    node.style.webkitUserSelect = "text";
+    node.style.pointerEvents = "auto";
+    node.style.cursor = "text";
+  });
+}
+
+function unlockEinkEditorPaper() {
+  const root = document.documentElement;
+  const body = document.body;
+  root.removeAttribute("data-eink-editor-lock");
+  body?.removeAttribute("data-eink-editor-lock");
+  for (const el of [root, body]) {
+    if (!el?.style) continue;
+    el.style.removeProperty("--page-bg");
+    el.style.removeProperty("--page-editor-bg");
+    el.style.removeProperty("--page-ink");
+    el.style.removeProperty("--page-line");
+  }
+  document.querySelectorAll(
+    ".rich-editor, .manuscript-page, #sceneContent, .focus-write-editor, .split-body-editor"
+  ).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.removeProperty("background-color");
+    node.style.removeProperty("color");
+    node.style.removeProperty("caret-color");
+    node.style.removeProperty("border-color");
+    node.style.removeProperty("user-select");
+    node.style.removeProperty("-webkit-user-select");
+    node.style.removeProperty("pointer-events");
+    node.style.removeProperty("cursor");
+  });
+}
+
+function syncEinkEditorPaperLock(theme) {
+  if (normalizeUiThemeId(theme) === "eink") {
+    lockEinkEditorPaper();
+    return;
+  }
+  unlockEinkEditorPaper();
+  try {
+    refreshManuscriptPageTheme({ announce: false });
+  } catch (_) {
+    /* page-theme helpers may load later during boot */
+  }
 }
 
 function getSavedPageInk() {
@@ -20135,6 +20213,13 @@ function syncPageInkUi(color) {
 }
 
 function applyPageInk(color, options = {}) {
+  // E ink: manuscript stays pure black on white — ignore custom ink while locked.
+  if (normalizeUiThemeId(getUiTheme()) === "eink") {
+    lockEinkEditorPaper();
+    syncPageInkUi("#000000");
+    if (options.announce) toast("E ink에서는 본문이 흰 바탕·검정 글씨로 고정돼요.");
+    return "#000000";
+  }
   // Default body text color for the writing pane (not selection formatting).
   const editor = $("sceneContent");
   const reset = Boolean(options.reset);
@@ -20190,6 +20275,13 @@ function applyChalkboardEditorDefaults(enabled) {
 
 function applyDesktopTheme(theme, customColor = null, options = {}) {
   // Affects ONLY the manuscript body sheet (.manuscript-page / .rich-editor).
+  if (normalizeUiThemeId(getUiTheme()) === "eink") {
+    lockEinkEditorPaper();
+    if (options.announce || options.fromUser) {
+      toast("E ink에서는 편집기가 흰 바탕·검정 글씨로 고정돼요.");
+    }
+    return;
+  }
   const next = DESKTOP_THEMES.has(theme) ? theme : "ivory";
   const scope = options.scope || getPageThemeScope();
   const fromUser = Boolean(options.fromUser);
@@ -24935,7 +25027,10 @@ function setPartCollapsed(partId, collapsed) {
 function togglePartExpanded(partId) {
   const id = Number(partId);
   if (!id) return;
-  const section = $("outline")?.querySelector(`.outline-part[data-part-id="${id}"]`);
+  const outline = $("outline");
+  // Box shell is always .outline-part; chapter-source boxes use data-chapter-id.
+  const section = outline?.querySelector(`.outline-part[data-part-id="${id}"]`)
+    || outline?.querySelector(`.outline-part[data-chapter-id="${id}"]`);
   const expanded = section?.dataset?.expanded !== "true";
   setPartCollapsed(id, !expanded);
   if (section) applyPartExpandedState(section, expanded);
@@ -25408,9 +25503,8 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     const renameAttr = isChapterSource
       ? `data-rename-chapter="${node.id}"`
       : `data-rename-part="${node.id}"`;
-    const toggleAttr = isChapterSource
-      ? `data-toggle-chapter="${node.id}"`
-      : `data-toggle-part="${node.id}"`;
+    // Box shell is always .outline-part; expand/collapse via part toggle only.
+    const toggleAttr = `data-toggle-part="${node.id}"`;
     const titleClass = isChapterSource
       ? `chapter-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`
       : `part-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`;
@@ -25429,7 +25523,21 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       pinnedSet,
       binderDepth: depth + 1,
     };
-    const chapterHtml = childFolders.length
+    const scenes = Array.isArray(node.scenes) ? node.scenes : [];
+    const hasScenes = scenes.length > 0;
+    const sceneItems = hasScenes
+      ? renderSceneTreeHtml(scenes, {
+          chapterId: node.id,
+          depth: 0,
+          collapsed,
+          collapsedScenes,
+          baitPlantIds,
+          baitRecoverIds,
+          pinnedSet,
+          parentSceneId: null,
+        })
+      : "";
+    const foldersHtml = childFolders.length
       ? childFolders.map((ch, idx) => renderBinderFolderNodeHtml(
           asBinderFolderNode(ch, { isBox: binderFolderNodeIsBox(ch) }),
           {
@@ -25440,7 +25548,10 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
             isLastSibling: idx === childFolders.length - 1,
           },
         )).join("")
-      : `<p class="hint part-empty-hint">이 폴더에 하위 폴더가 없어요. + 로 추가하세요.</p>`;
+      : "";
+    const chapterHtml = (hasScenes || childFolders.length)
+      ? `${sceneItems}${foldersHtml}`
+      : `<p class="hint part-empty-hint">이 폴더가 비어 있어요. + 로 추가해 주세요.</p>`;
     return `
     <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
       <div class="part-row" draggable="true">
@@ -27091,6 +27202,7 @@ function openNewProjectModal() {
     purposeSelect.value = "general_novel";
   }
   syncModalGenreFields("newProject", purposeSelect?.value || "general_novel");
+  resetModalDraftKeywords("newProject");
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = false;
@@ -27137,8 +27249,10 @@ async function submitNewProject(event) {
         purpose,
         main_genre: genres.main,
         sub_genre: genres.sub,
+        keywords: getModalDraftKeywords("newProject"),
       }),
     });
+    resetModalDraftKeywords("newProject");
     closeNewProjectModal();
     await loadProjects(project.id);
     const packageNote = project.package_name ? ` 파일: projects\\${project.package_name}` : "";
@@ -27166,6 +27280,123 @@ function setupNewProjectModal() {
     syncModalGenreFields("newProject", $("newProjectPurpose")?.value || "general_novel", {
       keepMain: true,
     });
+  });
+  setupModalKeywordField("newProject");
+}
+
+/** Draft keywords for new-project / import modals (do not touch state.keywords until saved). */
+const modalDraftKeywords = {
+  newProject: [],
+  import: [],
+};
+
+function getModalDraftKeywords(prefix) {
+  return normalizeKeywordList(modalDraftKeywords[prefix] || []);
+}
+
+function resetModalDraftKeywords(prefix, seed = []) {
+  modalDraftKeywords[prefix] = normalizeKeywordList(seed);
+  setModalKeywordPickerOpen(prefix, false);
+  renderModalKeywordField(prefix);
+}
+
+function renderModalKeywordField(prefix) {
+  const list = $(`${prefix}KeywordChipList`);
+  const catalog = $(`${prefix}KeywordCatalog`);
+  const tags = getModalDraftKeywords(prefix);
+  if (list) {
+    list.innerHTML = tags.map((label) => `
+      <span class="keyword-chip" data-keyword="${escapeHtml(label)}">
+        <span class="keyword-chip-label">${escapeHtml(label)}</span>
+        <button type="button" class="keyword-chip-remove" data-modal-keyword-remove="${escapeHtml(label)}" title="제거" aria-label="${escapeHtml(label)} 제거">×</button>
+      </span>
+    `).join("");
+  }
+  if (catalog) {
+    catalog.innerHTML = KEYWORD_CATALOG.map((group) => `
+      <div class="keyword-category" data-keyword-group="${escapeHtml(group.key)}">
+        <span class="keyword-category-title">${escapeHtml(group.title)}</span>
+        <div class="keyword-tag-list">
+          ${group.tags.map((tag) => {
+            const selected = tags.includes(tag);
+            return `<button type="button" class="keyword-tag${selected ? " is-selected" : ""}" data-modal-keyword-tag="${escapeHtml(tag)}" aria-pressed="${selected ? "true" : "false"}">${escapeHtml(tag)}</button>`;
+          }).join("")}
+        </div>
+      </div>
+    `).join("");
+  }
+}
+
+function setModalKeywordPickerOpen(prefix, open) {
+  const panel = $(`${prefix}KeywordPickerPanel`);
+  const toggle = $(`${prefix}KeywordPickerToggle`);
+  if (!panel) return;
+  panel.classList.toggle("hidden", !open);
+  if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
+  if (open) renderModalKeywordField(prefix);
+}
+
+function addModalDraftKeyword(prefix, label) {
+  const cleaned = String(label || "").trim().slice(0, 40);
+  if (!cleaned) return false;
+  const current = getModalDraftKeywords(prefix);
+  if (current.includes(cleaned)) return false;
+  if (current.length >= KEYWORD_MAX) {
+    toast(`키워드는 최대 ${KEYWORD_MAX}개까지 넣을 수 있어요.`);
+    return false;
+  }
+  modalDraftKeywords[prefix] = [...current, cleaned];
+  renderModalKeywordField(prefix);
+  return true;
+}
+
+function removeModalDraftKeyword(prefix, label) {
+  const cleaned = String(label || "").trim();
+  if (!cleaned) return;
+  modalDraftKeywords[prefix] = getModalDraftKeywords(prefix).filter((item) => item !== cleaned);
+  renderModalKeywordField(prefix);
+}
+
+function toggleModalDraftKeyword(prefix, label) {
+  const cleaned = String(label || "").trim();
+  if (!cleaned) return;
+  if (getModalDraftKeywords(prefix).includes(cleaned)) removeModalDraftKeyword(prefix, cleaned);
+  else addModalDraftKeyword(prefix, cleaned);
+}
+
+function setupModalKeywordField(prefix) {
+  const toggle = $(`${prefix}KeywordPickerToggle`);
+  const closeBtn = $(`${prefix}KeywordPickerClose`);
+  const catalog = $(`${prefix}KeywordCatalog`);
+  const chipList = $(`${prefix}KeywordChipList`);
+  const customInput = $(`${prefix}KeywordCustomInput`);
+  const customAdd = $(`${prefix}KeywordCustomAdd`);
+  toggle?.addEventListener("click", () => {
+    const panel = $(`${prefix}KeywordPickerPanel`);
+    const open = Boolean(panel?.classList.contains("hidden"));
+    setModalKeywordPickerOpen(prefix, open);
+  });
+  closeBtn?.addEventListener("click", () => setModalKeywordPickerOpen(prefix, false));
+  catalog?.addEventListener("click", (event) => {
+    const tag = event.target.closest?.("[data-modal-keyword-tag]");
+    if (!tag || !catalog.contains(tag)) return;
+    toggleModalDraftKeyword(prefix, tag.getAttribute("data-modal-keyword-tag") || "");
+  });
+  chipList?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-modal-keyword-remove]");
+    if (!btn || !chipList.contains(btn)) return;
+    removeModalDraftKeyword(prefix, btn.getAttribute("data-modal-keyword-remove") || "");
+  });
+  const commitCustom = () => {
+    if (addModalDraftKeyword(prefix, customInput?.value || "")) {
+      if (customInput) customInput.value = "";
+    }
+  };
+  customAdd?.addEventListener("click", commitCustom);
+  customInput?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    commitCustom();
   });
 }
 
@@ -28345,7 +28576,7 @@ async function createScene(chapterId, options = {}) {
     : null;
   const defaultTitle = parentSceneId ? "새 하위 원고" : "새 씬";
   const title = await promptText({
-    title: parentSceneId ? "하위 원고 만들기" : "씬 만들기",
+    title: parentSceneId ? "하위 원고 만들기" : "회차 추가",
     message: parentSceneId ? "선택한 원고의 하위로 만들어집니다." : "",
     label: "제목",
     defaultValue: defaultTitle,
@@ -35010,11 +35241,14 @@ function openImportModal(options = {}) {
   $("importProjectTitle").value = "";
   $("importChapterTitle").value = "";
   $("importSplit").value = "auto";
+  if ($("importTitleModeFromFile")) $("importTitleModeFromFile").checked = true;
+  if ($("importTitleModeCustom")) $("importTitleModeCustom").checked = false;
   if ($("importApplyClean")) $("importApplyClean").checked = false;
   if ($("importDocumentKind")) {
     $("importDocumentKind").value = mode === "proof" ? "proof" : "manuscript";
   }
   modal?.setAttribute("data-import-mode", mode);
+  if ($("importProofMethodPipeline")) $("importProofMethodPipeline").checked = true;
 
   const current = state.projects.find((project) => project.id === state.projectId);
   $("importPurpose").value = current?.purpose && purposeLabel[normalizePurposeKey(current.purpose)]
@@ -35024,6 +35258,10 @@ function openImportModal(options = {}) {
     main: current?.main_genre || "",
     sub: current?.sub_genre || "",
   });
+  const seedKeywords = mode === "proof"
+    ? []
+    : normalizeKeywordList(current?.keywords ?? state.keywords ?? []);
+  resetModalDraftKeywords("import", seedKeywords);
 
   // Title / hints for document vs proof
   if ($("importModalTitle")) {
@@ -35031,19 +35269,21 @@ function openImportModal(options = {}) {
   }
   $("importModalHint")?.classList.toggle("hidden", mode === "proof");
   $("importProofBanner")?.classList.toggle("hidden", mode !== "proof");
+  if ($("importFileLabelText")) {
+    $("importFileLabelText").textContent = mode === "proof" ? "파일 선택하기" : "파일 선택";
+  }
   if ($("importSubmitButton")) {
-    $("importSubmitButton").textContent = mode === "proof" ? "토리에게 교정 맡기기" : "가져오기";
+    $("importSubmitButton").textContent = mode === "proof" ? "적용하기" : "가져오기";
   }
 
   const destination = $("importDestination");
   if (mode === "proof") {
     destination.value = "proof_pipeline";
-  } else if (!state.projectId) {
-    destination.value = "new_project";
   } else {
-    destination.value = "new_chapter";
+    destination.value = "new_project";
   }
   refreshImportDestinationOptions();
+  syncImportProofMethodUi();
   updateImportFormVisibility();
   modal.classList.remove("hidden");
 }
@@ -35051,31 +35291,52 @@ function openImportModal(options = {}) {
 function closeImportModal() {
   $("importModal").classList.add("hidden");
   $("importSubmitButton").disabled = false;
-  $("importSubmitButton").textContent = importModalMode === "proof" ? "토리에게 교정 맡기기" : "가져오기";
+  $("importSubmitButton").textContent = "가져오기";
   importModalMode = "document";
   $("importModal")?.setAttribute("data-import-mode", "document");
   if ($("importDocumentKind")) $("importDocumentKind").value = "manuscript";
+  if ($("importFileLabelText")) $("importFileLabelText").textContent = "파일 선택";
+  resetModalDraftKeywords("import");
+}
+
+function getImportProofMethod() {
+  const checked = document.querySelector('input[name="importProofMethod"]:checked');
+  const value = checked?.value;
+  if (value === "proof_compare" || value === "match_replace_scene" || value === "proof_pipeline") {
+    return value;
+  }
+  return "proof_pipeline";
+}
+
+function syncImportProofMethodUi() {
+  if (importModalMode !== "proof") return;
+  const method = getImportProofMethod();
+  const select = $("importDestination");
+  if (select) select.value = method;
+  document.querySelectorAll('input[name="importProofMethod"]').forEach((input) => {
+    input.checked = input.value === method;
+  });
 }
 
 function refreshImportDestinationOptions() {
   const select = $("importDestination");
-  const current = select.value;
+  const current = importModalMode === "proof" ? getImportProofMethod() : select.value;
   const proofMode = importModalMode === "proof";
   const options = proofMode
     ? [
       {
         value: "proof_pipeline",
-        label: "토리 교정 파이프라인 (회차 식별 → 정제 → 비교) ★권장",
+        label: "토리 교정 파이프라인 (본문+메모 정밀 분석) ★권장",
         enabled: Boolean(state.projectId),
       },
       {
         value: "proof_compare",
-        label: "교정 비교만 (보고서 · 덮어쓰기 안 함)",
+        label: "교정 비교 보고서 (단순 텍스트 대조)",
         enabled: Boolean(state.projectId),
       },
       {
         value: "match_replace_scene",
-        label: "맞는 회차 찾아 교정본으로 덮어쓰기",
+        label: "교정본으로 덮어쓰기",
         enabled: Boolean(state.projectId),
       },
     ]
@@ -35094,10 +35355,46 @@ function refreshImportDestinationOptions() {
   } else if (options.find((o) => o.enabled)) {
     select.value = options.find((o) => o.enabled).value;
   }
+  if (proofMode) {
+    const selected = select.value || "proof_pipeline";
+    document.querySelectorAll('input[name="importProofMethod"]').forEach((input) => {
+      input.checked = input.value === selected;
+    });
+  }
   const chapterSelect = $("importChapterSelect");
   chapterSelect.innerHTML = state.outline.map((chapter) =>
     `<option value="${chapter.id}">${escapeHtml(chapter.title)}</option>`
   ).join("") || "<option value=''>챕터가 없어요</option>";
+}
+
+function getImportTitleMode() {
+  const checked = document.querySelector('input[name="importTitleMode"]:checked');
+  return checked?.value === "custom" ? "custom" : "from_file";
+}
+
+function syncImportTitleModeUi() {
+  const custom = getImportTitleMode() === "custom";
+  $("importProjectTitleInputWrap")?.classList.toggle("hidden", !custom);
+  $("importTitleFromFileHint")?.classList.toggle("hidden", custom);
+  if (custom) {
+    const file = $("importFile")?.files?.[0];
+    const input = $("importProjectTitle");
+    if (input && !String(input.value || "").trim() && file) {
+      input.placeholder = file.name.replace(/\.[^.]+$/, "") || "새 소설";
+    }
+  } else {
+    refreshImportTitleFromFileHint();
+  }
+}
+
+function refreshImportTitleFromFileHint() {
+  const hint = $("importTitleFromFileHint");
+  if (!hint) return;
+  const file = $("importFile")?.files?.[0];
+  const stem = file ? (file.name.replace(/\.[^.]+$/, "") || file.name) : "";
+  hint.textContent = stem
+    ? `「${stem}」을(를) 제목으로 씁니다.`
+    : "가져온 문서 제목(또는 파일 이름)을 그대로 씁니다.";
 }
 
 function updateImportFormVisibility() {
@@ -35107,23 +35404,41 @@ function updateImportFormVisibility() {
     || destination === "proof_pipeline"
     || destination === "proof_compare"
     || destination === "match_replace_scene";
+  const showWorkMeta = importModalMode !== "proof";
 
-  $("importChapterWrap").classList.toggle("hidden", destination !== "existing_chapter");
-  $("importProjectTitleWrap").classList.toggle("hidden", destination !== "new_project");
-  // Genre is only required when creating a brand-new project.
-  $("importGenreBlock")?.classList.toggle("hidden", destination !== "new_project" || proofMode);
-  $("importMatchHint")?.classList.toggle("hidden", destination !== "match_replace_scene");
-  $("importProofHint")?.classList.toggle("hidden", destination !== "proof_compare");
-  $("importPipelineHint")?.classList.toggle("hidden", destination !== "proof_pipeline");
-  $("importApplyCleanWrap")?.classList.toggle("hidden", destination !== "proof_pipeline");
-
-  // Purpose / split less relevant for pure proof ingest
-  const purposeLabelEl = $("importPurpose")?.closest("label");
-  const purposeHint = purposeLabelEl?.nextElementSibling;
-  if (purposeLabelEl) purposeLabelEl.classList.toggle("hidden", importModalMode === "proof");
-  if (purposeHint?.classList?.contains("purpose-hint")) {
-    purposeHint.classList.toggle("hidden", importModalMode === "proof");
+  $("importProofMethodWrap")?.classList.toggle("hidden", importModalMode !== "proof");
+  $("importDestinationWrap")?.classList.toggle("hidden", importModalMode === "proof");
+  $("importChapterWrap").classList.toggle("hidden", destination !== "existing_chapter" || importModalMode === "proof");
+  // Title + genre/keyword box: common for all document imports (hidden only in proof mode).
+  $("importProjectTitleWrap")?.classList.toggle("hidden", !showWorkMeta);
+  $("importGenreBlock")?.classList.toggle("hidden", !showWorkMeta);
+  // Hidden required controls block form submit ("not focusable") — clear when proof hides meta.
+  ["importMainGenre", "importSubGenre"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    if (showWorkMeta) {
+      el.disabled = false;
+    } else {
+      el.required = false;
+      el.disabled = true;
+    }
+  });
+  if (showWorkMeta) {
+    syncImportTitleModeUi();
+    syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", {
+      keepMain: true,
+      keepSub: true,
+    });
+  } else {
+    $("importSubGenreWrap")?.classList.add("hidden");
   }
+  // Proof cards already explain each method — hide legacy hint/checkbox rows in proof modal.
+  const hideLegacyProofHints = importModalMode === "proof";
+  $("importMatchHint")?.classList.toggle("hidden", hideLegacyProofHints || destination !== "match_replace_scene");
+  $("importProofHint")?.classList.toggle("hidden", hideLegacyProofHints || destination !== "proof_compare");
+  $("importPipelineHint")?.classList.toggle("hidden", hideLegacyProofHints || destination !== "proof_pipeline");
+  $("importApplyCleanWrap")?.classList.toggle("hidden", hideLegacyProofHints || destination !== "proof_pipeline");
+
   const splitLabel = $("importSplit")?.closest("label");
   const splitHint = splitLabel?.nextElementSibling;
   if (splitLabel) splitLabel.classList.toggle("hidden", proofMode);
@@ -35131,7 +35446,8 @@ function updateImportFormVisibility() {
     splitHint.classList.toggle("hidden", proofMode);
   }
 
-  const showChapterTitle = (destination === "new_chapter" || destination === "new_project")
+  const showChapterTitle = importModalMode !== "proof"
+    && (destination === "new_chapter" || destination === "new_project")
     && (splitMode === "none" || splitMode === "blank_lines");
   $("importChapterTitleWrap").classList.toggle("hidden", !showChapterTitle);
   const split = $("importSplit");
@@ -35274,6 +35590,9 @@ async function submitImport(event) {
     toast("가져올 파일을 먼저 골라 주세요.");
     return;
   }
+  if (importModalMode === "proof") {
+    syncImportProofMethodUi();
+  }
   const destination = $("importDestination").value;
   if (destination !== "new_project" && !state.projectId) {
     toast("먼저 작품을 만들거나, 새 작품으로 만들기를 골라 주세요.");
@@ -35291,10 +35610,21 @@ async function submitImport(event) {
     toast("글을 넣을 챕터를 골라 주세요.");
     return;
   }
+  if (
+    importModalMode === "proof"
+    && destination === "match_replace_scene"
+    && !window.confirm("기존 원고가 삭제되고 새 교정본으로 교체됩니다. 정말 진행할까요?")
+  ) {
+    return;
+  }
   const purpose = normalizePurposeKey($("importPurpose")?.value || "general_novel");
   let mainGenre = "";
   let subGenre = "";
-  if (destination === "new_project") {
+  const isDocumentImport = importModalMode !== "proof"
+    && destination !== "proof_pipeline"
+    && destination !== "proof_compare"
+    && destination !== "match_replace_scene";
+  if (isDocumentImport) {
     const genres = readModalGenreValues("import", purpose);
     if (!genres.ok) {
       toast(genres.error || "장르를 선택해 주세요. 토리 학습에 필요해요.");
@@ -35308,6 +35638,17 @@ async function submitImport(event) {
     mainGenre = String(current?.main_genre || state.mainGenre || "").trim();
     subGenre = String(current?.sub_genre || state.subGenre || "").trim();
   }
+
+  const customTitle = getImportTitleMode() === "custom"
+    ? String($("importProjectTitle")?.value || "").trim()
+    : "";
+  if (isDocumentImport && getImportTitleMode() === "custom" && !customTitle) {
+    toast("제목을 입력해 주세요.");
+    $("importProjectTitle")?.focus();
+    return;
+  }
+  const projectTitle = customTitle;
+  const chapterTitle = String($("importChapterTitle")?.value || "").trim() || customTitle;
 
   const submit = $("importSubmitButton");
   const isProofJob = importModalMode === "proof"
@@ -35334,8 +35675,9 @@ async function submitImport(event) {
       purpose: purpose,
       main_genre: mainGenre,
       sub_genre: subGenre,
-      project_title: $("importProjectTitle").value,
-      chapter_title: $("importChapterTitle").value,
+      keywords: isDocumentImport ? getModalDraftKeywords("import") : undefined,
+      project_title: projectTitle,
+      chapter_title: chapterTitle,
       chapter_id: $("importChapterSelect").value || null,
       scene_id: state.sceneId,
       keep_scene_title: destination === "match_replace_scene" ? true : undefined,
@@ -35375,7 +35717,7 @@ async function submitImport(event) {
             "",
             "교정·교열 보고서 창에서 오탈자·문장 수정·편집 메모를 확인하세요.",
             destination === "proof_pipeline" && !result.applied
-              ? "원고는 덮어쓰지 않았습니다. (정제 반영을 켰다면 회차에 반영됩니다.)"
+              ? "원고는 덮어쓰지 않았습니다. 비교 보고서만 만들었어요."
               : "",
           ].filter(Boolean).join("\n");
           $("aiResultWrap")?.classList.remove("hidden");
@@ -35441,7 +35783,8 @@ function closeAdminModal() {
 }
 
 function setAdminTab(tabId) {
-  const id = String(tabId || "info");
+  let id = String(tabId || "info");
+  if (id === "hidden") id = "settings";
   document.querySelectorAll("#adminModal .admin-tab").forEach((btn) => {
     const on = btn.dataset.adminTab === id;
     btn.classList.toggle("is-active", on);
@@ -35454,8 +35797,11 @@ function setAdminTab(tabId) {
     else panel.setAttribute("hidden", "");
   });
   if (id === "trash") loadTrashList().catch(handleError);
-  if (id === "hidden") renderHiddenFeaturesList();
   if (id === "projects") renderAdminProjectList();
+  if (id === "settings") {
+    renderAdminThemeList();
+    renderHiddenFeaturesList();
+  }
   if (id === "info") {
     refreshAdminInfoPanel();
     renderAdminHelpManual($("adminHelpSearch")?.value || "");
@@ -35681,7 +36027,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.3.1";
+const APP_VERSION_FALLBACK = "1.3.2";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -36332,7 +36678,7 @@ const HELP_MANUAL_SECTIONS = [
     body: [
       "대부분의 기능 버튼·표시(폴더/원고 개수 포함)에서 우클릭 → 「이 기능 숨기기」로 화면을 단순하게 만들 수 있어요.",
       "메뉴가 이미 많은 버튼은 우클릭 메뉴 맨 아래에 숨기기가 있어요.",
-      "숨긴 항목 되돌리기: 왼쪽 위 톱니바퀴(관리자) → 「숨긴 기능」 → 목록에서 「활성화」.",
+      "숨긴 항목 되돌리기: 왼쪽 위 톱니바퀴(관리자) → 「설정 옵션」 → 「숨긴 기능」 → 목록에서 「활성화」.",
     ],
   },
   {
@@ -36358,7 +36704,7 @@ const HELP_MANUAL_SECTIONS = [
     title: "관리자 모드",
     keywords: "관리자 정보 도움말 사용자 숨긴기능 휴지통 업데이트 문의",
     body: [
-      "왼쪽 위 톱니바퀴를 누르면 관리자 모드가 열려요. 탭 순서: 정보 · 도움말 → 사용자 관리 → 숨긴 기능 → 휴지통.",
+      "왼쪽 위 톱니바퀴를 누르면 관리자 모드가 열려요. 탭 순서: 정보 · 도움말 → 설정 옵션 → 사용자 관리 → 작품 관리 → 휴지통.",
       "정보 · 도움말: 버전 · Gemini 상태 · 사용 설명서 검색 · 문의 메일. 사용자 관리: 향후 계정·플랜용 자리 (지금은 로컬 미리보기만 가능).",
     ],
   },
@@ -36394,7 +36740,7 @@ const HELP_QA_ITEMS = [
   {
     id: "qa-hidden",
     q: "버튼을 숨겼는데 어떻게 다시 켜나요?",
-    a: "관리자 모드 → 「숨긴 기능」에서 항목별 「활성화」를 누릅니다. 숨기려면 해당 버튼을 우클릭 → 「이 기능 숨기기」입니다.",
+    a: "관리자 모드 → 「설정 옵션」 → 「숨긴 기능」에서 항목별 「활성화」를 누릅니다. 숨기려면 해당 버튼을 우클릭 → 「이 기능 숨기기」입니다.",
   },
   {
     id: "qa-trash",
@@ -36766,30 +37112,167 @@ function setupAdminMode() {
   setupAutoUpdateUi();
 }
 
-const UI_THEME_STORAGE_KEY = "supertory.uiTheme";
+const UI_THEME_STORAGE_KEY = "tori-theme";
+const UI_THEME_STORAGE_KEY_LEGACY = "supertory.uiTheme";
+const UI_THEME_LIGHT_STORAGE_KEY = "supertory.uiThemeLight";
 
-function getUiTheme() {
-  const fromDom = document.documentElement.getAttribute("data-ui-theme")
-    || document.body?.getAttribute("data-ui-theme");
-  if (fromDom === "dark" || fromDom === "light") return fromDom;
+/** Cycle order: 기본 → 야간 → 오두막 → 도서관 → 서재 → 다락방 → E ink */
+const UI_THEME_CYCLE = ["light", "dark", "cabin", "library", "study", "attic", "eink"];
+
+/** Themes shown in 관리자 → 설정 옵션 (+ header cycle). */
+const UI_THEME_PRESETS = [
+  {
+    id: "light",
+    emoji: "☀️",
+    short: "기본",
+    title: "기본",
+    tone: "라이트 모드",
+    blurb: "기본 라이트 모드",
+    recommend: "원래 SuperTory 기본 화면으로 돌아갑니다.",
+    dark: false,
+  },
+  {
+    id: "dark",
+    emoji: "🌙",
+    short: "야간",
+    title: "야간",
+    tone: "다크 모드",
+    blurb: "기본 다크 모드",
+    recommend: "기본 야간(다크) 화면으로 전환합니다.",
+    dark: true,
+  },
+  {
+    id: "cabin",
+    emoji: "🌿",
+    short: "숲속 오두막",
+    title: "토리의 숲속 오두막",
+    tone: "세이지 그린 / 피로 회복",
+    blurb: "시각적 피로도를 가장 많이 줄여주어 오랜 작업에 좋아요.",
+    recommend: "눈이 자주 피로해지는 긴 집필 시간에 가장 추천하는 테마",
+    dark: false,
+  },
+  {
+    id: "study",
+    emoji: "📜",
+    short: "비밀 서재",
+    title: "토리의 비밀 서재",
+    tone: "빈티지 세피아 / 아날로그 감성",
+    blurb: "클래식한 토리의 서재로 초대해요.",
+    recommend: "베이지보다 한 톤 더 예스럽고 은은한 아날로그 감성을 원할 때",
+    dark: false,
+  },
+  {
+    id: "library",
+    emoji: "🏛️",
+    short: "새벽 도서관",
+    title: "토리의 새벽 도서관",
+    tone: "블루그레이 / 몰입과 집중",
+    blurb: "집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
+    recommend: "따뜻한 톤보다 서늘하고 차분한 몰입감을 원할 때",
+    dark: false,
+  },
+  {
+    id: "attic",
+    emoji: "🌃",
+    short: "심야 다락방",
+    title: "토리의 심야 다락방",
+    tone: "네이비 차콜 / 야간 눈부심 방지",
+    blurb: "야간 작업 시 눈부심을 완벽하게 잡아줘요. 불 끄고 글 쓸 때 최고!",
+    recommend: "밤늦게 조명을 낮추고 작업하는 야간 집필용",
+    dark: true,
+  },
+  {
+    id: "eink",
+    emoji: "🖋️",
+    short: "E ink",
+    title: "E ink",
+    tone: "화이트 / 블랙",
+    blurb: "E ink 화면을 쓰시는 작가님들을 위해 마련했어요 ❤️",
+    recommend: "전자잉크·고대비 단순 화면이 필요할 때",
+    dark: false,
+  },
+];
+
+const UI_THEME_IDS = new Set([
+  "dawn", // legacy → library
+  ...UI_THEME_CYCLE,
+]);
+
+function normalizeUiThemeId(theme) {
+  if (theme === "dawn") return "library";
+  if (UI_THEME_IDS.has(theme)) return theme;
+  return "light";
+}
+
+function isUiThemeDark(theme) {
+  const id = normalizeUiThemeId(theme);
+  return id === "dark" || id === "attic";
+}
+
+function uiThemeScheme(theme) {
+  return isUiThemeDark(theme) ? "dark" : "light";
+}
+
+function readStoredUiTheme() {
   try {
-    const stored = localStorage.getItem(UI_THEME_STORAGE_KEY);
-    if (stored === "dark" || stored === "light") return stored;
+    const primary = localStorage.getItem(UI_THEME_STORAGE_KEY);
+    if (primary) return normalizeUiThemeId(primary);
+    const legacy = localStorage.getItem(UI_THEME_STORAGE_KEY_LEGACY);
+    if (legacy) return normalizeUiThemeId(legacy);
   } catch (_) {
     /* ignore */
   }
   return "light";
 }
 
+function getUiTheme() {
+  const fromDom = document.documentElement.getAttribute("data-theme")
+    || document.documentElement.getAttribute("data-ui-theme")
+    || document.body?.getAttribute("data-theme")
+    || document.body?.getAttribute("data-ui-theme");
+  if (fromDom) return normalizeUiThemeId(fromDom);
+  return readStoredUiTheme();
+}
+
+function getLastLightUiTheme() {
+  try {
+    const stored = localStorage.getItem(UI_THEME_LIGHT_STORAGE_KEY);
+    if (stored && !isUiThemeDark(stored)) return normalizeUiThemeId(stored);
+  } catch (_) {
+    /* ignore */
+  }
+  const current = getUiTheme();
+  if (!isUiThemeDark(current)) return current;
+  return "light";
+}
+
+function rememberLightUiTheme(theme) {
+  const next = normalizeUiThemeId(theme);
+  if (!next || isUiThemeDark(next)) return;
+  try {
+    localStorage.setItem(UI_THEME_LIGHT_STORAGE_KEY, next);
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function updateUiThemeToggleButton(theme) {
   const button = $("uiThemeToggleButton");
   if (!button) return;
-  const isDark = theme === "dark";
+  const current = normalizeUiThemeId(theme);
+  const idx = UI_THEME_CYCLE.indexOf(current);
+  const nextId = UI_THEME_CYCLE[(idx < 0 ? 0 : idx + 1) % UI_THEME_CYCLE.length];
+  const nextPreset = UI_THEME_PRESETS.find((t) => t.id === nextId);
+  const isDark = isUiThemeDark(current);
   button.setAttribute("aria-pressed", isDark ? "true" : "false");
-  button.title = isDark ? "다크 모드 (클릭하면 데이 모드)" : "데이 모드 (클릭하면 다크 모드)";
-  button.setAttribute("aria-label", isDark ? "다크 모드 — 데이 모드로 전환" : "데이 모드 — 다크 모드로 전환");
-  button.querySelector(".theme-icon-sun")?.classList.toggle("hidden", isDark);
-  button.querySelector(".theme-icon-moon")?.classList.toggle("hidden", !isDark);
+  button.dataset.themeIcon = current;
+  const nextLabel = nextPreset ? `${nextPreset.emoji} ${nextPreset.short}` : nextId;
+  button.title = `테마 바꾸기 · 다음: ${nextLabel}`;
+  button.setAttribute("aria-label", `테마 바꾸기. 지금은 ${current}, 다음은 ${nextLabel}`);
+  const iconIds = ["light", "dark", "cabin", "study", "library", "attic", "eink"];
+  iconIds.forEach((id) => {
+    button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
+  });
 }
 
 function syncElectronChrome() {
@@ -36801,40 +37284,291 @@ function syncElectronChrome() {
     document.body?.classList.add("is-electron-mac");
   }
   try {
-    window.electronAPI.setTitleBarTheme?.(getUiTheme());
+    window.electronAPI.setTitleBarTheme?.(uiThemeScheme(getUiTheme()));
   } catch (_) {
     /* ignore */
   }
 }
 
-function setUiTheme(theme, { announce = false } = {}) {
-  const next = theme === "dark" ? "dark" : "light";
+function uiThemeToastLabel(theme) {
+  const preset = UI_THEME_PRESETS.find((t) => t.id === theme);
+  if (preset) return `${preset.emoji} ${preset.short}`;
+  return "테마";
+}
+
+const EINK_BW_STYLE_ID = "supertory-eink-bw-force";
+
+const EINK_BW_FORCE_CSS = [
+  'html[data-theme="eink"],html[data-ui-theme="eink"]{background:#fff!important;color:#000!important;}',
+  'html[data-theme="eink"] body,html[data-ui-theme="eink"] body,body[data-theme="eink"],body[data-ui-theme="eink"]{background:#fff!important;color:#000!important;}',
+  // Text highlight must be black/white — --selection is #fff for chrome color-mix only
+  'html[data-theme="eink"] ::selection,html[data-ui-theme="eink"] ::selection,html[data-theme="eink"] *::selection,html[data-ui-theme="eink"] *::selection{',
+  'background:#000!important;background-color:#000!important;color:#fff!important;-webkit-text-fill-color:#fff!important;}',
+  'html[data-theme="eink"] .tory-priority-box,html[data-theme="eink"] .tory-priority-box.is-open,',
+  'html[data-theme="eink"] .tory-priority-toggle:hover,html[data-ui-theme="eink"] .tory-priority-box{',
+  'background:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .feature-chip,html[data-theme="eink"] .status-clip-select,',
+  'html[data-theme="eink"] .tools-kit-button.is-active-split,html[data-theme="eink"] .compact-btn.is-active-split,',
+  'html[data-ui-theme="eink"] .feature-chip{background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .feature-chip.is-active,html[data-theme="eink"] .is-active-split,',
+  'html[data-ui-theme="eink"] .feature-chip.is-active{background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .title-input,html[data-theme="eink"] .episode-title-input,',
+  'html[data-ui-theme="eink"] .episode-title-input{border-bottom-color:#000!important;color:#000!important;background:transparent!important;}',
+  'html[data-theme="eink"] .format-seg,html[data-ui-theme="eink"] .format-seg{background:#fff!important;border:1px solid #000!important;}',
+  'html[data-theme="eink"] .format-seg > .format-btn{border-right:1px solid #000!important;color:#000!important;background:transparent!important;}',
+  'html[data-theme="eink"] .format-seg-fields > .toolbar-field{border-right-color:#000!important;}',
+  'html[data-theme="eink"] .format-toolbar{background:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .format-list-btn.format-btn-solo,html[data-theme="eink"] .format-find-btn.format-btn-solo,html[data-theme="eink"] .format-viewer-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,html[data-theme="eink"] .format-find-btn.format-btn-solo:hover,html[data-theme="eink"] .format-viewer-btn.format-btn-solo:hover,html[data-theme="eink"] .format-list-btn.format-btn-solo.active,html[data-theme="eink"] .format-find-btn.format-btn-solo.active,html[data-theme="eink"] .format-viewer-btn.format-btn-solo.active{background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .format-viewer-btn .format-viewer-icon{color:#000!important;}',
+  'html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r{fill:#fff!important;}',
+  'html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon{color:#fff!important;}',
+  'html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-r,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-r{fill:#000!important;}',
+  'html[data-theme="eink"] .format-btn .u-mark,html[data-ui-theme="eink"] .format-btn .u-mark{',
+  'text-decoration:underline!important;text-decoration-color:#000!important;',
+  'text-underline-offset:2px!important;-webkit-text-fill-color:unset!important;color:inherit!important;}',
+  'html[data-theme="eink"] .format-btn.active .u-mark,html[data-ui-theme="eink"] .format-btn.active .u-mark{',
+  'text-decoration-color:#fff!important;}',
+  'html[data-theme="eink"] .header-plus-btn,html[data-ui-theme="eink"] .header-plus-btn{',
+  'background:#fff!important;border:1px solid #000!important;border-radius:50%!important;',
+  'overflow:hidden!important;box-shadow:none!important;color:#000!important;}',
+  'html[data-theme="eink"] .header-plus-btn .header-plus-glyph,html[data-ui-theme="eink"] .header-plus-btn .header-plus-glyph{',
+  'background:transparent!important;border:0!important;color:#000!important;}',
+  'html[data-theme="eink"] .header-plus-btn:hover,html[data-theme="eink"] .header-plus-btn[aria-expanded="true"],',
+  'html[data-ui-theme="eink"] .header-plus-btn:hover,html[data-ui-theme="eink"] .header-plus-btn[aria-expanded="true"]{',
+  'background:#000!important;color:#fff!important;border:1px solid #000!important;border-radius:50%!important;}',
+  'html[data-theme="eink"] .header-plus-btn:hover .header-plus-glyph,',
+  'html[data-theme="eink"] .header-plus-btn[aria-expanded="true"] .header-plus-glyph{color:#fff!important;background:transparent!important;}',
+  'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-page{',
+  'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .rich-editor,html[data-theme="eink"] #sceneContent,',
+  'html[data-theme="eink"] .focus-write-editor,html[data-theme="eink"] .split-body-editor,',
+  'html[data-ui-theme="eink"] .rich-editor,html[data-ui-theme="eink"] #sceneContent{',
+  'background:transparent!important;background-color:transparent!important;color:#000!important;caret-color:#000!important;',
+  'font-weight:500!important;user-select:text!important;-webkit-user-select:text!important;',
+  'cursor:text!important;pointer-events:auto!important;-webkit-user-modify:read-write!important;}',
+  'html[data-theme="eink"] .rich-editor ::selection,html[data-theme="eink"] .rich-editor *::selection,',
+  'html[data-theme="eink"] #sceneContent ::selection,html[data-theme="eink"] #sceneContent *::selection,',
+  'html[data-theme="eink"] .focus-write-editor ::selection,html[data-theme="eink"] .focus-write-editor *::selection,',
+  'html[data-ui-theme="eink"] .rich-editor ::selection,html[data-ui-theme="eink"] #sceneContent ::selection{',
+  'background:#000!important;background-color:#000!important;color:#fff!important;-webkit-text-fill-color:#fff!important;}',
+  // Binder folders (volume box + complete green wash + color dots)
+  'html[data-theme="eink"] .outline-part,html[data-ui-theme="eink"] .outline-part{',
+  'background:#fff!important;border-color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .folder-title-box,html[data-theme="eink"] .folder-title-box.is-level-0,',
+  'html[data-theme="eink"] .folder-title-box.is-level-1,html[data-theme="eink"] .folder-title-box.is-level-2,',
+  'html[data-theme="eink"] .folder-title-box.is-level-3,html[data-theme="eink"] .folder-title-box.is-level-4,',
+  'html[data-ui-theme="eink"] .folder-title-box,html[data-ui-theme="eink"] .folder-title-box.is-level-0,',
+  'html[data-ui-theme="eink"] .folder-title-box.is-level-1,html[data-ui-theme="eink"] .folder-title-box.is-level-2{',
+  'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .folder-title-box:hover,html[data-ui-theme="eink"] .folder-title-box:hover{',
+  'background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .chapter-title.is-complete,html[data-theme="eink"] .folder-title-box.is-complete,',
+  'html[data-theme="eink"] .outline-chapter.is-chapter-complete .chapter-title,',
+  'html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box,',
+  'html[data-ui-theme="eink"] .folder-title-box.is-complete,',
+  'html[data-ui-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box{',
+  'background:#000!important;border-color:#000!important;color:#fff!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .folder-color-dot,html[data-theme="eink"] .folder-color-dot[data-folder-color],',
+  'html[data-ui-theme="eink"] .folder-color-dot{background:#000!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .context-menu,html[data-ui-theme="eink"] .context-menu{background:#fff!important;border:1px solid #000!important;box-shadow:none!important;color:#000!important;}',
+  'html[data-theme="eink"] .idea-sticky,html[data-theme="eink"] .idea-card,html[data-theme="eink"] .header-idea-chip,',
+  'html[data-theme="eink"] .idea-sticky[class*="color-"],html[data-theme="eink"] .idea-card[class*="color-"]{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .tory-priority-popup,html[data-theme="eink"] .tory-priority-popup-drag{background:#fff!important;border-color:#000!important;box-shadow:none!important;color:#000!important;}',
+  'html[data-theme="eink"] #runSpellcheckPublicButton{background:#fff!important;color:#000!important;border:1px solid #000!important;}',
+  'html[data-theme="eink"] .writing-cal-cell{background:#fff!important;color:#000!important;border:1px solid #000!important;}',
+  'html[data-theme="eink"] .writing-cal-cell.is-selected,html[data-theme="eink"] .writing-cal-cell.has-write,html[data-theme="eink"] .writing-cal-cell.is-today{background:#000!important;color:#fff!important;}',
+  'html[data-theme="eink"] .reference-kind-tab.is-active{background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .tory-chat-bubble.is-user{background:#000!important;color:#fff!important;border:1px solid #000!important;}',
+  'html[data-theme="eink"] .ai-result-actions #aiCopyButton,html[data-theme="eink"] .ai-result-actions #aiInsertButton{background:#fff!important;color:#000!important;border:1px solid #000!important;}',
+  'html[data-theme="eink"] .tory-notify-add-btn{background:#fff!important;color:#000!important;border:1px dashed #000!important;}',
+  'html[data-theme="eink"] .sp-inline-hint,html[data-theme="eink"] .ai-mode-picker-menu{background:#fff!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"],html[data-ui-theme="eink"]{scrollbar-color:#000 #fff;}',
+  'html[data-theme="eink"] ::-webkit-scrollbar-thumb{background:#000!important;}',
+  'html[data-theme="eink"] ::-webkit-scrollbar-track{background:#fff!important;}',
+  // AI tool modal callouts (foreshadow / plottwist / rewrite / subsynopsis)
+  'html[data-theme="eink"] #aiToolModal .tory-helper-callout,html[data-theme="eink"] #aiToolModal .rewrite-guide-note,',
+  'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
+  'html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note,',
+  'html[data-ui-theme="eink"] #foreshadowPanelHint,html[data-ui-theme="eink"] #rewriteGuideNote,html[data-ui-theme="eink"] #subsynopsisPanelHint{',
+  'background:#fff!important;background-color:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+  // Import / new-project notice boxes (no gray / beige wash)
+  'html[data-theme="eink"] .import-proof-banner,html[data-ui-theme="eink"] .import-proof-banner,',
+  'html[data-theme="eink"] .modal-genre-notice,html[data-ui-theme="eink"] .modal-genre-notice{',
+  'background:#fff!important;background-color:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .import-proof-banner strong,html[data-theme="eink"] .modal-genre-notice strong,html[data-theme="eink"] .modal-genre-notice span,',
+  'html[data-ui-theme="eink"] .import-proof-banner strong,html[data-ui-theme="eink"] .modal-genre-notice strong,html[data-ui-theme="eink"] .modal-genre-notice span{color:#000!important;}',
+  'html[data-theme="eink"] .modal-genre-block,html[data-ui-theme="eink"] .modal-genre-block{background:#fff!important;border-color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .chapter-twistie,html[data-ui-theme="eink"] .chapter-twistie{color:#000!important;}',
+  'html[data-theme="eink"] .chapter-twistie .twistie-glyph{border-color:transparent transparent transparent #000!important;}',
+  'html[data-theme="eink"] .outline-chapter:not(.is-collapsed) .chapter-twistie .twistie-glyph,html[data-theme="eink"] .chapter-twistie[aria-expanded="true"] .twistie-glyph{border-color:#000 transparent transparent transparent!important;}',
+  'html[data-theme="eink"] .scene-row .tree-guide::before,html[data-theme="eink"] .scene-tree-item:not(.is-last) > .scene-row .tree-guide::after,',
+  'html[data-theme="eink"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,',
+  'html[data-theme="eink"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after{border-left-color:#000!important;border-bottom-color:#000!important;}',
+  'html[data-theme="eink"] .outline-folder-count,html[data-theme="eink"] .outline-scene-count,html[data-theme="eink"] #outlineFolderCount,html[data-theme="eink"] #outlineSceneCount{background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+  // Outline overview modal — no color-mix gray ramps
+  'html[data-theme="eink"] #outlineOverviewModal .modal-card,html[data-theme="eink"] .outline-overview-modal-card{background:#fff!important;border-color:#000!important;box-shadow:none!important;color:#000!important;}',
+  'html[data-theme="eink"] .outline-overview-part{background:#fff!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .outline-overview-part-title,html[data-theme="eink"] .outline-overview-folder,html[data-theme="eink"] .outline-overview-folder.is-level-0,html[data-theme="eink"] .outline-overview-folder.is-level-1,html[data-theme="eink"] .outline-overview-folder.is-level-2{background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .outline-overview-part-title:hover,html[data-theme="eink"] .outline-overview-folder:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .outline-overview-scene{background:transparent!important;color:#000!important;}',
+  'html[data-theme="eink"] .outline-overview-scene:hover,html[data-theme="eink"] .outline-overview-scene.is-current{background:#000!important;color:#fff!important;}',
+  'html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label.is-body-preview{color:#fff!important;}',
+  'html[data-theme="eink"] .outline-overview-empty,html[data-theme="eink"] .outline-overview-ungrouped-label,html[data-theme="eink"] .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] #outlineOverviewModal .modal-hint{color:#000!important;}',
+  'html[data-theme="eink"] #outlineOverviewModal .modal-actions .primary{background:#000!important;border:1px solid #000!important;color:#fff!important;box-shadow:none!important;}',
+].join("");
+
+/** Keep / remove the runtime pure B/W sheet (beats stale styles.css + hardcoded tints). */
+function syncEinkBwForceStyle(theme) {
+  const id = normalizeUiThemeId(theme);
+  let el = document.getElementById(EINK_BW_STYLE_ID);
+  if (id !== "eink") {
+    el?.remove();
+    return;
+  }
+  const css = EINK_BW_FORCE_CSS;
+  window.__supertoryEinkBwCss = css;
+  if (!el) {
+    el = document.createElement("style");
+    el.id = EINK_BW_STYLE_ID;
+  }
+  el.textContent = css;
+  document.head.appendChild(el);
+}
+
+/** Apply a named theme (`light` | `dark` | `cabin` | `study` | `library` | `attic` | `eink`). */
+function applyUiTheme(themeName, { announce = false } = {}) {
+  const next = normalizeUiThemeId(themeName || "light");
+  const scheme = uiThemeScheme(next);
+  document.documentElement.setAttribute("data-theme", next);
   document.documentElement.setAttribute("data-ui-theme", next);
-  document.body?.setAttribute("data-ui-theme", next);
+  document.documentElement.setAttribute("data-ui-scheme", scheme);
+  if (document.body) {
+    document.body.setAttribute("data-theme", next);
+    document.body.setAttribute("data-ui-theme", next);
+    document.body.setAttribute("data-ui-scheme", scheme);
+  }
   try {
     localStorage.setItem(UI_THEME_STORAGE_KEY, next);
+    localStorage.setItem(UI_THEME_STORAGE_KEY_LEGACY, next);
   } catch (_) {
     /* private mode */
   }
+  rememberLightUiTheme(next);
   updateUiThemeToggleButton(next);
+  syncEinkBwForceStyle(next);
+  syncEinkEditorPaperLock(next);
   try {
-    window.electronAPI?.setTitleBarTheme?.(next);
+    window.electronAPI?.setTitleBarTheme?.(scheme);
   } catch (_) {
     /* ignore */
   }
+  renderAdminThemeList();
   if (announce) {
-    toast(next === "dark" ? "다크 모드로 바꿨어요." : "데이 모드로 바꿨어요.");
+    toast(`「${uiThemeToastLabel(next)}」로 바꿨어요.`);
   }
+  return next;
+}
+
+function setTheme(themeName, options = {}) {
+  return applyUiTheme(themeName, options);
+}
+
+function setUiTheme(theme, options = {}) {
+  return applyUiTheme(theme, options);
 }
 
 function toggleUiTheme() {
-  setUiTheme(getUiTheme() === "dark" ? "light" : "dark", { announce: true });
+  const current = getUiTheme();
+  const idx = UI_THEME_CYCLE.indexOf(current);
+  const next = UI_THEME_CYCLE[(idx < 0 ? 0 : idx + 1) % UI_THEME_CYCLE.length];
+  applyUiTheme(next, { announce: true });
+}
+
+function renderAdminThemeList() {
+  const host = $("adminThemeList");
+  if (!host) return;
+  const current = getUiTheme();
+  host.querySelectorAll("[data-ui-theme-pick]").forEach((btn) => {
+    const id = btn.getAttribute("data-ui-theme-pick");
+    const active = id === current;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-selected", active ? "true" : "false");
+  });
+  const preset = UI_THEME_PRESETS.find((t) => t.id === current);
+  const hint = $("adminThemeHint");
+  if (hint) {
+    if (!preset) {
+      hint.textContent = "";
+      return;
+    }
+    if (preset.id === "light" || preset.id === "dark") {
+      hint.textContent = preset.blurb;
+    } else {
+      hint.textContent = `${preset.blurb} · ${preset.recommend}`;
+    }
+  }
+}
+
+function pickAdminTheme(themeId) {
+  if (!themeId) return;
+  applyUiTheme(themeId, { announce: true });
+}
+
+function setupAdminThemePicker() {
+  // Document-level capture: works even if a parent stops bubbling.
+  if (document.documentElement.dataset.themePickerBound === "1") return;
+  document.documentElement.dataset.themePickerBound = "1";
+  document.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("#adminThemeList [data-ui-theme-pick]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pickAdminTheme(btn.getAttribute("data-ui-theme-pick"));
+  }, true);
 }
 
 function setupUiThemeToggle() {
-  syncElectronChrome();
-  setUiTheme(getUiTheme(), { announce: false });
-  $("uiThemeToggleButton")?.addEventListener("click", toggleUiTheme);
+  try {
+    syncElectronChrome();
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    applyUiTheme(getUiTheme(), { announce: false });
+  } catch (err) {
+    console.warn("[supertory] applyUiTheme failed", err);
+  }
+  if (document.documentElement.dataset.themeToggleBound !== "1") {
+    document.documentElement.dataset.themeToggleBound = "1";
+    document.addEventListener("click", (event) => {
+      const toggleBtn = event.target?.closest?.("#uiThemeToggleButton");
+      if (!toggleBtn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleUiTheme();
+    }, true);
+  }
+  setupAdminThemePicker();
+  try {
+    // Must call applyUiTheme (not setTheme): assigning window.setTheme = () => setTheme()
+    // would recurse because top-level function setTheme is the same global slot.
+    window.setTheme = (themeName) => applyUiTheme(themeName, { announce: true });
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    renderAdminThemeList();
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+// Bind theme controls as soon as these helpers exist (before later init that may throw).
+try {
+  setupUiThemeToggle();
+} catch (err) {
+  console.warn("[supertory] setupUiThemeToggle failed", err);
 }
 
 function closeCreateMenu() {
@@ -36881,10 +37615,17 @@ function setupCreateMenu() {
 
 setupCreateMenu();
 setupNewProjectModal();
+setupModalKeywordField("import");
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();
 $("importDestination").addEventListener("change", updateImportFormVisibility);
+document.querySelectorAll('input[name="importProofMethod"]').forEach((input) => {
+  input.addEventListener("change", () => {
+    syncImportProofMethodUi();
+    updateImportFormVisibility();
+  });
+});
 $("importPurpose")?.addEventListener("change", () => {
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel");
 });
@@ -36892,9 +37633,16 @@ $("importMainGenre")?.addEventListener("change", () => {
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", { keepMain: true });
 });
 $("importSplit").addEventListener("change", updateImportFormVisibility);
+document.querySelectorAll('input[name="importTitleMode"]').forEach((input) => {
+  input.addEventListener("change", () => {
+    syncImportTitleModeUi();
+    if (getImportTitleMode() === "custom") $("importProjectTitle")?.focus();
+  });
+});
 $("importFile").addEventListener("change", () => {
   const file = $("importFile").files?.[0];
   $("importFileName").textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))}KB)` : "아직 고른 파일이 없어요.";
+  refreshImportTitleFromFileHint();
   if (file && !$("importProjectTitle").value) {
     $("importProjectTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "새 소설";
   }
@@ -36972,7 +37720,8 @@ setupSourceCollection();
 setupToryVault();
 setupAiPanelToggle();
 setupBinderPanelToggle();
-setupUiThemeToggle();
+// Theme controls already bound earlier (setupUiThemeToggle); keep a safe re-entry.
+try { setupUiThemeToggle(); } catch (_) { /* ignore */ }
 setupBinderContextMenu();
 setupSettingsContextMenu();
 setupSceneFeatureBar();

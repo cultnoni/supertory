@@ -3,7 +3,7 @@
  * Starts the bundled PyInstaller backend (or local Python in dev), then loads the UI.
  * Packaged builds check for updates via electron-updater (GitHub Releases).
  */
-const { app, BrowserWindow, shell, ipcMain, dialog, Menu } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog, Menu, session } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -386,7 +386,20 @@ function createMainWindow() {
     mainWindow = null;
   });
 
-  return mainWindow.loadURL(APP_URL);
+  // Packaged upgrades must not reuse Chromium's cached SPA from a previous install
+  // (version IPC can be new while index.html/app.js stay old → missing admin tabs, prompt bugs).
+  const loadUi = async () => {
+    try {
+      await session.defaultSession.clearCache();
+      await session.defaultSession.clearStorageData({
+        storages: ["shadercache", "cachestorage"],
+      });
+    } catch (error) {
+      console.warn("[supertory] clearCache failed:", error?.message || error);
+    }
+    return mainWindow.loadURL(APP_URL);
+  };
+  return loadUi();
 }
 
 /**
