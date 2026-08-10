@@ -18,7 +18,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260810-brainstorm-confirm">
+    <link rel="stylesheet" href="/styles.css?v=20260810-ai-mode-mascot">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
   </head>
   <body>
@@ -1097,24 +1097,31 @@
                     title="원고 분석 방식 선택"
                   >분석 ▾</button>
                   <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식">
-                    <button type="button" role="menuitem" data-analyze-action="focus">
+                    <div class="analyze-menu-section-label" aria-hidden="true">
+                      <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
+                      누르면 바로 실행돼요
+                    </div>
+                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="focus">
                       <strong>피드백 요청</strong>
                       <span>원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
                     </button>
-                    <button type="button" role="menuitem" data-analyze-action="worldscan">
+                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="worldscan">
                       <strong>설정 붕괴 감지기</strong>
                       <span>세계관·캐릭터 설정과 어긋나는 지점을 찾아요</span>
                     </button>
-                    <button type="button" role="menuitem" data-analyze-action="dupcheck">
+                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="dupcheck">
                       <strong>중복 체크</strong>
                       <span>앞뒤 4회차와 같은 표현·비슷한 내용을 찾아요</span>
                     </button>
-                    <div class="view-mode-dropdown-divider" id="analyzeCustomDivider" hidden></div>
-                    <div id="analyzeCustomList" class="analyze-custom-list"></div>
                     <div class="view-mode-dropdown-divider"></div>
-                    <button type="button" role="menuitem" data-analyze-action="custom-add">
-                      <strong>직접 추가</strong>
-                      <span>자주 쓰는 분석 요청을 메뉴에 직접 넣어요</span>
+                    <div class="analyze-menu-section-label" aria-hidden="true">
+                      <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
+                      작성 후 저장·실행해요
+                    </div>
+                    <div id="analyzeCustomList" class="analyze-custom-list"></div>
+                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="custom-add">
+                      <strong>직접 작성</strong>
+                      <span>자주 쓰는 분석 요청을 [바로 실행] 메뉴에 직접 넣어요</span>
                     </button>
                   </div>
                 </div>
@@ -1267,14 +1274,15 @@
               <div class="tool-panel hidden" data-tool-panel="characters">
                 <div class="scene-characters">
                   <div class="scene-characters-head">
-                    <div>
-                      <label class="scene-characters-title">이 회차 등장 인물</label>
+                    <div class="scene-characters-head-copy">
+                      <label class="scene-characters-title tory-helper-section-label">이 회차 등장 인물</label>
                       <p class="hint scene-characters-hint">설정집에서 만든 인물을 체크한 뒤 <strong>저장</strong>을 누르면 이 회차에 연결됩니다.</p>
                     </div>
-                    <button type="button" id="sceneCharacterCreateButton" class="secondary compact-btn" title="새 인물을 만들고 인물 작성 페이지로 이동">+ 인물</button>
+                    <button type="button" id="sceneCharacterCreateButton" class="secondary compact-btn scene-character-create-btn" title="새 인물을 만들고 인물 작성 페이지로 이동">+ 인물</button>
                   </div>
                   <div id="sceneCharacterList" class="check-list scene-character-check-list" aria-label="등장 인물 선택"></div>
-                  <label class="pov-label">이 회차 시점 인물
+                  <label class="pov-label">
+                    <span class="pov-label-text scene-characters-title tory-helper-section-label">이 회차 시점 인물</span>
                     <select id="povSelect" form="sceneEditor" aria-label="시점 인물">
                       <option value="">시점 인물 없음</option>
                     </select>
@@ -1289,16 +1297,31 @@
               </div>
               <div class="tool-panel hidden" data-tool-panel="spellcheck">
                 <section class="spellcheck-panel" aria-label="맞춤법 검사">
-                  <div class="spellcheck-toolbar">
-                    <div>
-                      <h3>철자 · 맞춤법</h3>
-                      <p class="hint">현재 원고를 검사합니다. 제안은 참고용이며, 작품 문체·고유명사는 직접 판단하세요.</p>
+                  <div class="spellcheck-intro">
+                    <p class="hint spellcheck-guide"><strong>현재 작성 중인 페이지</strong>만 검사합니다.</p>
+                    <p class="hint spellcheck-guide">「Gemini 검사기」 또는 「바른한글 검사기」를 누르면 결과가 표시됩니다. 제안은 참고용이니, 작품의 문체와 고유명사는 직접 확인하고 결정해 주세요.</p>
+                  </div>
+                  <div class="spellcheck-compare" role="group" aria-label="검사 방식 비교">
+                    <div class="spellcheck-compare-col">
+                      <button type="button" id="runSpellcheckButton" class="primary compact-btn spellcheck-col-btn" title="Gemini로 맞춤법·띄어쓰기 검사 (기본)">Gemini 검사기</button>
+                      <dl class="spellcheck-compare-facts">
+                        <div><dt>글자 수 제한</dt><dd>앞부분 약 8,000자까지</dd></div>
+                        <div><dt>특징</dt><dd>문체·고유명사를 덜 건드리는 편</dd></div>
+                        <div><dt>안정성</dt><dd>비교적 안정</dd></div>
+                        <div><dt>실패 시</dt><dd>바른한글 검사기로 보조 검사 전환</dd></div>
+                      </dl>
                     </div>
-                    <div class="spellcheck-actions">
-                      <button type="button" id="runSpellcheckButton" class="primary compact-btn" title="Gemini로 맞춤법·띄어쓰기 검사 (기본)">검사하기</button>
-                      <button type="button" id="runSpellcheckPublicButton" class="secondary compact-btn" title="바른한글 공개 검사기 사용 (막힐 수 있음)">공개 검사기</button>
+                    <div class="spellcheck-compare-col">
+                      <button type="button" id="runSpellcheckPublicButton" class="secondary compact-btn spellcheck-col-btn" title="바른한글 공개 검사기 사용 (막힐 수 있음)">바른한글 검사기</button>
+                      <dl class="spellcheck-compare-facts">
+                        <div><dt>글자 수 제한</dt><dd>앞부분 약 12,000자까지</dd></div>
+                        <div><dt>특징</dt><dd>전통적 맞춤법 규칙 기반</dd></div>
+                        <div><dt>안정성</dt><dd>막히는 경우 있음</dd></div>
+                        <div><dt>실패 시</dt><dd>Gemini 검사기로 보조 검사 전환</dd></div>
+                      </dl>
                     </div>
                   </div>
+                  <p class="hint spellcheck-common-note">브라우저 빨간 밑줄 체크는 별개로, 브라우저 자체 철자 표시용입니다.</p>
                   <label class="spellcheck-toggle-row">
                     <input type="checkbox" id="browserSpellcheckToggle" checked>
                     브라우저 빨간 밑줄(철자 검사) 켜기
@@ -1310,10 +1333,7 @@
               <div class="tool-panel hidden" data-tool-panel="links">
                 <section class="reference-links-panel" aria-label="참고 자료">
                   <div class="reference-links-heading">
-                    <div>
-                      <h3>참고 자료</h3>
-                      <p class="hint">링크와 파일을 나눠 저장합니다. 설정집 <strong>참고자료/출처</strong>에도 함께 보관됩니다.</p>
-                    </div>
+                    <p class="hint reference-links-guide">링크와 파일을 나눠 저장합니다. 설정집 <strong>참고자료/출처</strong>에도 함께 보관됩니다.</p>
                     <div class="reference-add-actions">
                       <button type="button" id="addReferenceLinkButton" class="secondary" title="웹 링크 추가">+ 링크</button>
                       <button type="button" id="addReferenceFileButton" class="secondary" title="PDF·Word·한글·텍스트 파일 추가">+ 파일</button>
@@ -1773,65 +1793,109 @@
               class="tory-priority-toggle"
               id="toryPriorityToggle"
               aria-expanded="false"
-              aria-controls="toryPriorityEditor"
+              aria-controls="toryPriorityPopup"
               title="작가 지침 작성"
             >
               <span class="tory-priority-toggle-label">작가 지침</span>
               <span class="tory-priority-preview" id="toryPriorityPreview">클릭하여 작성</span>
             </button>
-            <div class="tory-priority-editor" id="toryPriorityEditor" hidden>
-              <p class="hint tory-priority-hint">작업 목적에 맞는 범위에서 문체·톤 등에 참고합니다.</p>
-              <textarea
-                id="toryPriorityInput"
-                rows="4"
-                maxlength="4000"
-                placeholder="예: 주인공의 감정을 과장하지 말 것. / 반전을 미리 말하지 말 것. / 문체는 담백하게."
-                disabled
-              ></textarea>
-              <div class="tory-priority-editor-foot">
-                <p id="toryPrioritySaveHint" class="hint tory-priority-save-hint" aria-live="polite"></p>
-                <button type="button" class="secondary compact-btn" id="toryPriorityDoneButton">접기</button>
-              </div>
-            </div>
           </div>
         </div>
 
         <div class="ai-panel-body">
+          <div
+            id="aiWritingStatus"
+            class="ai-writing-status hidden"
+            hidden
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span class="ai-writing-mascot" aria-hidden="true">
+              <svg class="ai-writing-svg" viewBox="0 0 64 40" width="64" height="40" focusable="false">
+                <ellipse class="ai-writing-paper" cx="42" cy="30" rx="16" ry="5.5" fill="#fff8ef" stroke="#e4d5c2" stroke-width="0.8"/>
+                <path class="ai-writing-line ai-writing-line-1" d="M30 28.5 H52" fill="none" stroke="#c9b29a" stroke-width="1.2" stroke-linecap="round"/>
+                <path class="ai-writing-line ai-writing-line-2" d="M30 31 H48" fill="none" stroke="#c9b29a" stroke-width="1.2" stroke-linecap="round"/>
+                <path class="ai-writing-line ai-writing-line-3" d="M30 33.5 H44" fill="none" stroke="#c9b29a" stroke-width="1.2" stroke-linecap="round"/>
+                <g class="ai-writing-tory">
+                  <circle cx="16" cy="17" r="13" fill="#fff8ef" stroke="#e4d5c2" stroke-width="0.9"/>
+                  <ellipse cx="15.6" cy="19.2" rx="6.2" ry="7.2" fill="#d98a3c" stroke="#9a5a22" stroke-width="0.5"/>
+                  <ellipse cx="15.6" cy="12.6" rx="7" ry="3.6" fill="#8b5a2b" stroke="#4a2c12" stroke-width="0.45"/>
+                  <path d="M15.6 9.4 C15.6 7.6 16.8 6.4 18.1 6" fill="none" stroke="#4a2c12" stroke-width="1.2" stroke-linecap="round"/>
+                  <circle cx="13.2" cy="17.8" r="1.05" fill="#3a2412"/>
+                  <circle cx="18" cy="17.8" r="1.05" fill="#3a2412"/>
+                  <circle cx="13.5" cy="17.5" r="0.35" fill="#fff" opacity="0.9"/>
+                  <circle cx="18.3" cy="17.5" r="0.35" fill="#fff" opacity="0.9"/>
+                  <path d="M13.8 20.2 Q15.6 21.5 17.4 20.2" fill="none" stroke="#5a3218" stroke-width="0.75" stroke-linecap="round"/>
+                  <circle cx="13.2" cy="17.8" r="2.1" fill="none" stroke="#3d3d48" stroke-width="0.75"/>
+                  <circle cx="18" cy="17.8" r="2.1" fill="none" stroke="#3d3d48" stroke-width="0.75"/>
+                  <path d="M15.3 17.8 H15.9" stroke="#3d3d48" stroke-width="0.7" stroke-linecap="round"/>
+                </g>
+                <g class="ai-writing-pen">
+                  <g transform="translate(34 18) rotate(-38)">
+                    <rect x="-1.1" y="-9" width="2.2" height="14" rx="0.9" fill="#4d7eb8" stroke="#2f5480" stroke-width="0.35"/>
+                    <rect x="-1.1" y="-11" width="2.2" height="2.2" rx="0.5" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.3"/>
+                    <path d="M-0.85 5 L0 9.2 L0.85 5 Z" fill="#d4af37"/>
+                  </g>
+                </g>
+                <circle class="ai-writing-ink ai-writing-ink-1" cx="38" cy="27" r="1.1" fill="#5a3218"/>
+                <circle class="ai-writing-ink ai-writing-ink-2" cx="44" cy="29" r="0.9" fill="#5a3218"/>
+                <circle class="ai-writing-ink ai-writing-ink-3" cx="49" cy="27.5" r="0.75" fill="#5a3218"/>
+              </svg>
+            </span>
+            <span class="ai-writing-copy">
+              <strong class="ai-writing-label">작성중</strong>
+              <span class="ai-writing-ellipsis" aria-hidden="true"><i></i><i></i><i></i></span>
+            </span>
+          </div>
           <!-- Tools / one-shot assist -->
           <div id="aiToolsView" class="ai-panel-view" role="tabpanel" aria-labelledby="aiTabTools">
             <form id="aiForm" class="ai-panel-form" novalidate>
-              <label>무엇을 도와드릴까요?
-                <select id="aiMode" aria-label="AI 도움 방식">
-                  <option value="free" selected>직접 요청하기</option>
-                  <optgroup label="토리와 확인해요">
-                    <option value="summarize">회차 요약</option>
-                    <option value="foreshadow">떡밥·복선 탐색기</option>
-                    <option value="plottwist">반전 &amp; 개연성 검사기</option>
-                    <option value="worldscan">설정 붕괴 감지기</option>
-                    <option value="dupcheck">중복 체크</option>
-                  </optgroup>
-                  <optgroup label="토리와 구상해요">
-                    <option value="ideas">다음 아이디어 제안</option>
-                    <option value="brainstorm">브레인스토밍</option>
-                    <option value="analyze">피드백 요청</option>
-                    <option value="successfeedback" class="ai-mode-success-opt">흥행 공식 피드백</option>
-                  </optgroup>
-                  <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
-                  <optgroup label="토리와 함께 써요">
-                    <option value="continue">이어서 쓰기</option>
-                    <option value="rewrite">문장 다듬기</option>
-                    <option value="worlddesc">세계관 묘사</option>
-                    <option value="subsynopsis">투고·공모전용 시놉시스</option>
-                  </optgroup>
-                  <optgroup label="스페셜 기능">
-                    <option value="successpattern" class="ai-mode-success-opt">흥행 공식 분석</option>
-                  </optgroup>
-                  <optgroup label="토리와 새 무대를 찾아요">
-                    <option value="scriptadapt" class="ai-mode-coming-opt">🔒 영상 각본으로 바꾸기 · 준비중</option>
-                    <option value="audiobook" class="ai-mode-coming-opt">🔒 오디오북 낭독 대본으로 바꾸기 · 준비중</option>
-                    <option value="multilang" class="ai-mode-coming-opt">🔒 다국어 번역하기 · 준비중</option>
-                  </optgroup>
-                </select>
+              <label class="ai-mode-field">무엇을 도와드릴까요?
+                <div class="ai-mode-picker" id="aiModePicker">
+                  <button
+                    type="button"
+                    id="aiModePickerButton"
+                    class="ai-mode-picker-btn"
+                    aria-haspopup="listbox"
+                    aria-expanded="false"
+                    aria-controls="aiModePickerMenu"
+                  >
+                    <span id="aiModePickerLabel">직접 요청하기</span>
+                  </button>
+                  <div id="aiModePickerMenu" class="ai-mode-picker-menu hidden" role="listbox" hidden aria-label="AI 도움 방식"></div>
+                  <select id="aiMode" class="ai-mode-native-select" aria-hidden="true" tabindex="-1">
+                    <option value="free" selected>직접 요청하기</option>
+                    <optgroup label="토리와 확인해요">
+                      <option value="summarize">회차 요약</option>
+                      <option value="foreshadow">떡밥·복선 탐색기</option>
+                      <option value="plottwist">반전 &amp; 개연성 검사기</option>
+                      <option value="worldscan">설정 붕괴 감지기</option>
+                      <option value="dupcheck">중복 체크</option>
+                    </optgroup>
+                    <optgroup label="토리와 구상해요">
+                      <option value="ideas">다음 아이디어 제안</option>
+                      <option value="brainstorm">브레인스토밍</option>
+                      <option value="analyze">피드백 요청</option>
+                      <option value="successfeedback" class="ai-mode-success-opt">흥행 공식 피드백</option>
+                    </optgroup>
+                    <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
+                    <optgroup label="토리와 함께 써요">
+                      <option value="continue">이어서 쓰기</option>
+                      <option value="rewrite">문장 다듬기</option>
+                      <option value="worlddesc">세계관 묘사</option>
+                      <option value="subsynopsis">투고·공모전용 시놉시스</option>
+                    </optgroup>
+                    <optgroup label="스페셜 기능">
+                      <option value="successpattern" class="ai-mode-success-opt">흥행 공식 분석</option>
+                    </optgroup>
+                    <optgroup label="토리와 새 무대를 찾아요">
+                      <option value="scriptadapt" class="ai-mode-coming-opt">🔒 영상 각본으로 바꾸기 · 준비중</option>
+                      <option value="audiobook" class="ai-mode-coming-opt">🔒 오디오북 낭독 대본으로 바꾸기 · 준비중</option>
+                      <option value="multilang" class="ai-mode-coming-opt">🔒 다국어 번역하기 · 준비중</option>
+                    </optgroup>
+                  </select>
+                </div>
               </label>
 
               <div id="aiToolInlineHint" class="sp-inline-hint hidden" aria-label="도우미 설정 창 안내">
@@ -2087,11 +2151,39 @@
     <div id="toryChatPopup" class="tory-chat-popup hidden" role="dialog" aria-modal="false" aria-labelledby="toryChatPopupTitle" hidden>
       <div class="tory-chat-popup-drag" id="toryChatPopupDrag" title="끌어 이동">
         <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
-        <strong id="toryChatPopupTitle">토리와 대화</strong>
+        <strong id="toryChatPopupTitle">크게 보기</strong>
         <button type="button" class="panel-collapse-btn tory-chat-popup-close" id="toryChatPopupClose" title="팝업 닫기" aria-label="팝업 닫기">×</button>
       </div>
       <div class="tory-chat-popup-body" id="toryChatPopupBody"></div>
       <div class="tory-chat-popup-resize" id="toryChatPopupResize" title="크기 조절" aria-hidden="true"></div>
+    </div>
+
+    <!-- Floating 작가 지침 (드래그 이동 · 상하좌우 크기 조절) -->
+    <div id="toryPriorityPopup" class="tory-priority-popup hidden" role="dialog" aria-modal="false" aria-labelledby="toryPriorityPopupTitle" hidden>
+      <div class="tory-priority-popup-drag" id="toryPriorityPopupDrag" title="끌어 이동">
+        <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
+        <strong id="toryPriorityPopupTitle">작가 지침</strong>
+        <button type="button" class="panel-collapse-btn tory-chat-popup-close" id="toryPriorityDoneButton" title="접기" aria-label="작가 지침 접기">×</button>
+      </div>
+      <div class="tory-priority-popup-body" id="toryPriorityEditor">
+        <p class="hint tory-priority-hint">작업 목적에 맞는 범위에서 문체·톤 등에 참고합니다.</p>
+        <textarea
+          id="toryPriorityInput"
+          rows="6"
+          maxlength="4000"
+          placeholder="예: 주인공의 감정을 과장하지 말 것. / 반전을 미리 말하지 말 것. / 문체는 담백하게."
+          disabled
+        ></textarea>
+        <p id="toryPrioritySaveHint" class="hint tory-priority-save-hint" aria-live="polite"></p>
+      </div>
+      <div class="tory-float-resize is-n" data-resize-edge="n" title="위쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-s" data-resize-edge="s" title="아래쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-e" data-resize-edge="e" title="오른쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-w" data-resize-edge="w" title="왼쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-ne" data-resize-edge="ne" title="오른쪽 위 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-nw" data-resize-edge="nw" title="왼쪽 위 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-se" data-resize-edge="se" title="오른쪽 아래 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-sw" data-resize-edge="sw" title="왼쪽 아래 크기 조절" aria-hidden="true"></div>
     </div>
 
     <div id="writingLogModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="writingLogModalTitle">
@@ -2121,6 +2213,26 @@
               </div>
               <div id="writingCalGrid" class="writing-cal-grid" role="grid" aria-label="글쓰기 달력"></div>
               <p class="hint writing-cal-legend">색이 진할수록 그날 더 많이 썼어요. 순수 집필 시간만 집계됩니다.</p>
+              <div class="writing-log-purge-bar" id="writingLogPurgeBar" aria-label="기록 지우기">
+                <button
+                  type="button"
+                  class="secondary compact-btn"
+                  id="writingLogClearAllButton"
+                  title="모든 날짜의 글자수·집필 시간을 지웁니다"
+                >기록 전체 삭제</button>
+                <button
+                  type="button"
+                  class="secondary compact-btn"
+                  id="writingLogClearSelectButton"
+                  title="날짜를 골라 지웁니다"
+                  aria-pressed="false"
+                >기록 선택 삭제</button>
+              </div>
+              <div class="writing-log-purge-actions hidden" id="writingLogPurgeActions" aria-live="polite">
+                <span id="writingLogPurgeCount" class="hint writing-log-purge-count">달력에서 지울 날짜를 고르세요</span>
+                <button type="button" class="secondary compact-btn" id="writingLogPurgeCancel">선택 취소</button>
+                <button type="button" class="primary compact-btn" id="writingLogPurgeConfirm" disabled>선택한 기록 삭제</button>
+              </div>
             </div>
             <div class="writing-log-detail-side">
               <h3 id="writingDayTitle" class="writing-day-title">날짜를 선택하세요</h3>
@@ -2233,6 +2345,11 @@
             나중에 휴대폰 전용 앱에서 「토리에게 보내기」하면 여기에 쌓입니다.
             PC에서 SuperTORY를 열면 받은 글을 확인할 수 있어요.
           </p>
+          <label class="writing-pref-check writing-phone-include-check">
+            <input type="checkbox" id="writingIncludePhoneLog" checked>
+            핸드폰에서 작성한 기록 포함
+          </label>
+          <p class="hint writing-phone-include-hint">체크하면 휴대폰 앱에서 쓴 글자수·집필 시간도 달력·통계에 합산합니다.</p>
           <div class="writing-pair-box">
             <div>
               <span class="writing-pair-label">연동 코드</span>
@@ -3915,12 +4032,13 @@
           </div>
         </div>
         <div class="viewer-stage" id="viewerStage" data-viewer-mode="pdf">
+          <!-- 기기 프레임 밖(스테이지)에 두어 핸드폰·리더기 본문을 가리지 않음 -->
+          <button type="button" class="viewer-book-nav viewer-book-prev" id="viewerBookPrev" title="이전 페이지 (←)" aria-label="이전 페이지" hidden>‹</button>
+          <button type="button" class="viewer-book-nav viewer-book-next" id="viewerBookNext" title="다음 페이지 (→)" aria-label="다음 페이지" hidden>›</button>
           <div class="viewer-frame" id="viewerFrame">
             <div class="viewer-device-chrome viewer-phone-chrome" aria-hidden="true">
               <span class="viewer-phone-notch"></span>
             </div>
-            <button type="button" class="viewer-book-nav viewer-book-prev" id="viewerBookPrev" title="이전 페이지 (←)" aria-label="이전 페이지">‹</button>
-            <button type="button" class="viewer-book-nav viewer-book-next" id="viewerBookNext" title="다음 페이지 (→)" aria-label="다음 페이지">›</button>
             <div class="viewer-scroll" id="viewerScroll">
               <!-- Paper-book spreads (page-turn). Built by JS. -->
               <div class="book-track" id="bookTrack" hidden></div>
@@ -4030,12 +4148,12 @@
           </label>
         </fieldset>
         <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="brainstormOtherSceneWrap" for="brainstormOtherSceneSelect">
-          회차 선택
+          <span class="sr-only">회차 선택</span>
           <select id="brainstormOtherSceneSelect" aria-label="브레인스토밍 기준 회차">
             <option value="">회차를 선택하세요</option>
           </select>
         </label>
-        <label class="foreshadow-field tory-helper-section-label" for="brainstormTopic">주제 (선택)
+        <label class="foreshadow-field tory-helper-section-label brainstorm-topic-field" for="brainstormTopic">주제 (선택)
           <textarea id="brainstormTopic" rows="2" maxlength="500" placeholder="비워 두면 자유 확장 · 예: 새로운 조연 인물 / 세계관 확장 / 관계 구도 변화"></textarea>
         </label>
         <p class="hint foreshadow-hint tory-helper-hint">주제를 적으면 그 방향으로 집중하고, 비우면 플롯·인물·세계관·주제 등 여러 층위를 자유롭게 제안합니다.</p>
@@ -4096,7 +4214,7 @@
       <div class="modal-backdrop" data-close-summarize-multi-target></div>
       <div class="modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="summarizeMultiTargetModalTitle" class="tory-helper-title">회차요약</h2>
+          <h2 id="summarizeMultiTargetModalTitle" class="tory-helper-title">회차 요약</h2>
           <button type="button" class="modal-close" data-close-summarize-multi-target title="닫기" aria-label="닫기">×</button>
         </div>
         <p class="tory-helper-lead">선택한 회차를 다시 읽지 않아도 되게 자세히 요약해요.</p>
@@ -4312,17 +4430,19 @@
             <textarea id="toryNotifyEditMessage" rows="3" maxlength="500" placeholder="예: 이번 회차에서 조연 말투를 다시 맞춰 보세요."></textarea>
           </label>
           <label>알림 받을 회차
-            <select id="toryNotifyEditScene" aria-label="알림 회차">
+            <select id="toryNotifyEditScene" aria-label="알림 받을 회차">
               <option value="">(아직 미정 — 목록에만 저장)</option>
             </select>
           </label>
           <label class="bait-optional-note">메모 (선택)
             <input id="toryNotifyEditNote" type="text" maxlength="80" placeholder="예: 중반 클라이맥스 직전" autocomplete="off">
           </label>
-          <label class="bait-notify-row tory-notify-enable-row">
-            <input type="checkbox" id="toryNotifyEditEnabled" checked>
-            <span>알림 켜기 · 해당 회차 열 때 토리 팝업</span>
-          </label>
+          <fieldset class="continue-length-options tory-helper-options tory-notify-enable-options" aria-label="회차 열 때 팝업">
+            <label class="continue-length-option tory-notify-enable-chip">
+              <input type="checkbox" id="toryNotifyEditEnabled" checked>
+              <span>해당 회차 열 때 토리 팝업 문구</span>
+            </label>
+          </fieldset>
           <div class="modal-actions">
             <button type="button" class="secondary" data-close-tory-notify-edit>취소</button>
             <button type="submit" class="primary" id="toryNotifyEditSave">알림 저장</button>
@@ -4425,6 +4545,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260810-brainstorm-confirm"></script>
+    <script src="/app.js?v=20260810-ai-mode-mascot"></script>
   </body>
 </html>

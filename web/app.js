@@ -119,45 +119,105 @@ function uiIcon(name, size = 20, extraClass = "") {
  * so callers can fall back to local draft storage without losing work.
  */
 async function api(path, options = {}) {
-  const headers = { ...(options.headers || {}) };
-  if (options.body != null && !headers["Content-Type"]) {
-    headers["Content-Type"] = "application/json";
-  }
-  let response;
+  const method = String(options.method || "GET").toUpperCase();
+  const trackWriting = method === "POST"
+    && String(path || "").split("?")[0] === "/api/ai/assist";
+  if (trackWriting) setAiPanelWriting(true);
   try {
-    response = await fetch(path, {
-      ...options,
-      headers,
-    });
-  } catch (networkError) {
-    const err = new Error(
-      "서버에 연결할 수 없습니다. 작성 중인 글은 이 기기에 안전하게 보관됩니다.",
-    );
-    err.isNetwork = true;
-    err.offlineSafe = true;
-    err.cause = networkError;
-    throw err;
-  }
-
-  let data = {};
-  const rawText = await response.text().catch(() => "");
-  if (rawText) {
-    try {
-      data = JSON.parse(rawText);
-    } catch (_) {
-      data = { error: rawText.slice(0, 200) || "응답을 해석하지 못했습니다." };
+    const headers = { ...(options.headers || {}) };
+    if (options.body != null && !headers["Content-Type"]) {
+      headers["Content-Type"] = "application/json";
     }
+    let response;
+    try {
+      response = await fetch(path, {
+        ...options,
+        headers,
+      });
+    } catch (networkError) {
+      const err = new Error(
+        "서버에 연결할 수 없습니다. 작성 중인 글은 이 기기에 안전하게 보관됩니다.",
+      );
+      err.isNetwork = true;
+      err.offlineSafe = true;
+      err.cause = networkError;
+      throw err;
+    }
+
+    let data = {};
+    const rawText = await response.text().catch(() => "");
+    if (rawText) {
+      try {
+        data = JSON.parse(rawText);
+      } catch (_) {
+        data = { error: rawText.slice(0, 200) || "응답을 해석하지 못했습니다." };
+      }
+    }
+    if (!response.ok) {
+      const err = new Error(
+        (data && data.error) || `저장 중 문제가 생겼습니다. (${response.status})`,
+      );
+      err.status = response.status;
+      err.isServer = response.status >= 500;
+      err.offlineSafe = response.status >= 500 || response.status === 0 || response.status === 408 || response.status === 429;
+      throw err;
+    }
+    return data;
+  } catch (error) {
+    if (trackWriting) throw toAiAssistError(error);
+    throw error;
+  } finally {
+    if (trackWriting) setAiPanelWriting(false);
   }
-  if (!response.ok) {
-    const err = new Error(
-      (data && data.error) || `저장 중 문제가 생겼습니다. (${response.status})`,
-    );
-    err.status = response.status;
-    err.isServer = response.status >= 500;
-    err.offlineSafe = response.status >= 500 || response.status === 0 || response.status === 408 || response.status === 429;
-    throw err;
+}
+
+/** Nested-safe busy indicator while Tory builds an assist result. */
+let aiPanelWritingDepth = 0;
+
+function setAiPanelWriting(on) {
+  if (on) aiPanelWritingDepth += 1;
+  else aiPanelWritingDepth = Math.max(0, aiPanelWritingDepth - 1);
+  const show = aiPanelWritingDepth > 0;
+  const el = $("aiWritingStatus");
+  if (el) {
+    el.classList.toggle("hidden", !show);
+    el.toggleAttribute("hidden", !show);
   }
-  return data;
+  $("aiPanel")?.classList.toggle("is-writing", show);
+}
+
+const AI_ASSIST_ERR_CONNECTION =
+  "연결이 끊긴 것 같아요. 인터넷 확인 후 다시 시도해 주세요.";
+const AI_ASSIST_ERR_GENERIC =
+  "잠깐, 결과를 못 가져왔어요. 잠시 후 다시 시도해 주세요.";
+
+function isAiAssistConnectionError(error) {
+  if (!error) return false;
+  if (error.isNetwork) return true;
+  try {
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  } catch (_) { /* ignore */ }
+  const msg = String(error.message || error || "");
+  return /failed to fetch|networkerror|load failed|offline|연결할 수 없/i.test(msg);
+}
+
+/** Friendly Tory copy for /api/ai/assist failures (keeps original flags). */
+function toAiAssistError(error) {
+  const network = isAiAssistConnectionError(error);
+  const err = new Error(network ? AI_ASSIST_ERR_CONNECTION : AI_ASSIST_ERR_GENERIC);
+  err.cause = error;
+  err.aiAssist = true;
+  err.isNetwork = Boolean(error?.isNetwork) || network;
+  err.isServer = Boolean(error?.isServer);
+  err.offlineSafe = Boolean(error?.offlineSafe) || network;
+  err.status = error?.status;
+  return err;
+}
+
+function handleAiAssistError(error) {
+  console.error(error);
+  const friendly = error?.aiAssist ? error : toAiAssistError(error);
+  toast(friendly.message || AI_ASSIST_ERR_GENERIC, 4200);
 }
 
 function isOnlineNow() {
@@ -175,12 +235,16 @@ function isOfflineSafeError(error) {
   return /failed to fetch|networkerror|load failed|offline|연결/i.test(msg);
 }
 
-function toast(message) {
+function toast(message, durationMs) {
   const element = $("toast");
   element.textContent = message;
   element.classList.add("show");
   window.clearTimeout(toast.timer);
-  toast.timer = window.setTimeout(() => element.classList.remove("show"), 2600);
+  const ms = Number(durationMs);
+  toast.timer = window.setTimeout(
+    () => element.classList.remove("show"),
+    Number.isFinite(ms) && ms > 0 ? ms : 2600,
+  );
 }
 
 function escapeHtml(text) {
@@ -7089,10 +7153,8 @@ function saveCustomAnalyzeItems(items) {
 
 function renderCustomAnalyzeMenuItems() {
   const list = $("analyzeCustomList");
-  const divider = $("analyzeCustomDivider");
   if (!list) return;
   const items = loadCustomAnalyzeItems();
-  if (divider) divider.hidden = !items.length;
   if (!items.length) {
     list.innerHTML = "";
     return;
@@ -7102,7 +7164,7 @@ function renderCustomAnalyzeMenuItems() {
     const short = preview.length > 42 ? `${preview.slice(0, 42)}…` : preview;
     return `
     <div class="analyze-custom-row">
-      <button type="button" role="menuitem" class="analyze-custom-run" data-analyze-action="custom-run" data-custom-id="${escapeHtml(item.id)}" title="${escapeHtml(preview)}">
+      <button type="button" role="menuitem" class="analyze-custom-run analyze-menu-action" data-analyze-action="custom-run" data-custom-id="${escapeHtml(item.id)}" title="${escapeHtml(preview)}">
         <strong class="analyze-custom-title">${escapeHtml(item.title)}</strong>
         <span class="analyze-custom-preview">${escapeHtml(short)}</span>
       </button>
@@ -7272,6 +7334,7 @@ function toggleAnalyzeMenu() {
   if (typeof closeViewModeMenu === "function") closeViewModeMenu();
   if (open) {
     renderCustomAnalyzeMenuItems();
+    ensureAnalyzeMenuSectionMascots();
     menu.classList.remove("hidden");
     btn.setAttribute("aria-expanded", "true");
     requestAnimationFrame(() => placeFeatureDropdown(menu, btn));
@@ -7280,8 +7343,21 @@ function toggleAnalyzeMenu() {
   }
 }
 
+function ensureAnalyzeMenuSectionMascots() {
+  document.querySelectorAll("#analyzeMenuDropdown .analyze-menu-tory-icon").forEach((el) => {
+    if (!(el instanceof HTMLElement)) return;
+    if (el.querySelector("svg")) return;
+    if (typeof TORY_MODAL_MASCOT_SVG === "string") {
+      el.innerHTML = TORY_MODAL_MASCOT_SVG;
+    } else {
+      el.textContent = "🌰";
+    }
+  });
+}
+
 function setupAnalyzeMenu() {
   renderCustomAnalyzeMenuItems();
+  ensureAnalyzeMenuSectionMascots();
   $("analyzeMenuButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -9315,6 +9391,172 @@ function updateContinuePanelVisibility() {
 const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
 const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
 
+function aiModeGroupIconKind(label) {
+  const clean = String(label || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\s]+/u, "").trim();
+  if (clean === "스페셜 기능") return "wand";
+  return "tory";
+}
+
+function closeAiModePicker() {
+  const picker = $("aiModePicker");
+  const menu = $("aiModePickerMenu");
+  const btn = $("aiModePickerButton");
+  picker?.classList.remove("is-open");
+  menu?.classList.add("hidden");
+  menu?.setAttribute("hidden", "");
+  btn?.setAttribute("aria-expanded", "false");
+}
+
+function syncAiModePickerUi() {
+  const sel = $("aiMode");
+  const labelEl = $("aiModePickerLabel");
+  const picker = $("aiModePicker");
+  if (!sel) return;
+  const opt = sel.selectedOptions?.[0] || sel.options?.[sel.selectedIndex];
+  if (labelEl) labelEl.textContent = opt?.textContent?.trim() || "직접 요청하기";
+  const on = AI_SUCCESS_MODE_VALUES.has(sel.value);
+  const coming = AI_COMING_MODE_VALUES.has(sel.value);
+  sel.classList.toggle("is-success-mode", on);
+  sel.classList.toggle("is-coming-mode", coming);
+  picker?.classList.toggle("is-success-mode", on);
+  picker?.classList.toggle("is-coming-mode", coming);
+  document.querySelectorAll("#aiModePickerMenu [data-ai-mode-value]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.getAttribute("data-ai-mode-value") === sel.value);
+  });
+}
+
+function ensureAiModePickerMascots() {
+  document.querySelectorAll("#aiModePickerMenu .ai-mode-tory-icon").forEach((el) => {
+    if (!(el instanceof HTMLElement) || el.querySelector("svg")) return;
+    el.innerHTML = typeof TORY_MODAL_MASCOT_SVG === "string" ? TORY_MODAL_MASCOT_SVG : "🌰";
+  });
+}
+
+function renderAiModePickerMenu() {
+  const sel = $("aiMode");
+  const menu = $("aiModePickerMenu");
+  if (!sel || !menu) return;
+  const chunks = [];
+  [...sel.children].forEach((node) => {
+    if (node.tagName === "OPTGROUP") {
+      const rawLabel = String(node.label || "");
+      const label = rawLabel.replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\s]+/u, "").trim() || rawLabel;
+      const kind = aiModeGroupIconKind(label);
+      const iconHtml = kind === "wand"
+        ? `<span class="ai-mode-picker-icon" aria-hidden="true">🪄</span>`
+        : `<span class="ai-mode-picker-icon ai-mode-tory-icon" aria-hidden="true"></span>`;
+      chunks.push(`<div class="ai-mode-picker-group">`);
+      chunks.push(`<div class="ai-mode-picker-group-label">${iconHtml}${escapeHtml(label)}</div>`);
+      [...node.children].forEach((opt) => {
+        if (!(opt instanceof HTMLOptionElement)) return;
+        const cls = [
+          "ai-mode-picker-option",
+          opt.classList.contains("ai-mode-success-opt") ? "is-success" : "",
+          opt.classList.contains("ai-mode-coming-opt") ? "is-coming" : "",
+          opt.value === sel.value ? "is-active" : "",
+        ].filter(Boolean).join(" ");
+        chunks.push(
+          `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}">${escapeHtml(opt.textContent || "")}</button>`,
+        );
+      });
+      chunks.push(`</div>`);
+      return;
+    }
+    if (node instanceof HTMLOptionElement) {
+      const cls = [
+        "ai-mode-picker-option",
+        node.value === sel.value ? "is-active" : "",
+      ].filter(Boolean).join(" ");
+      chunks.push(
+        `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(node.value)}" aria-selected="${node.value === sel.value ? "true" : "false"}">${escapeHtml(node.textContent || "")}</button>`,
+      );
+    }
+  });
+  menu.innerHTML = chunks.join("");
+  ensureAiModePickerMascots();
+}
+
+function openAiModePicker() {
+  const picker = $("aiModePicker");
+  const menu = $("aiModePickerMenu");
+  const btn = $("aiModePickerButton");
+  if (!picker || !menu || !btn) return;
+  renderAiModePickerMenu();
+  picker.classList.add("is-open");
+  menu.classList.remove("hidden");
+  menu.removeAttribute("hidden");
+  btn.setAttribute("aria-expanded", "true");
+}
+
+function setAiModeValue(value, { silent = false } = {}) {
+  const sel = $("aiMode");
+  if (!sel) return;
+  const next = String(value || "");
+  if (sel.value !== next) sel.value = next;
+  syncAiModePickerUi();
+  if (!silent) {
+    sel.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+}
+
+function installAiModeValueSync(sel) {
+  if (!sel || sel.dataset.valueSync === "1") return;
+  const proto = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value");
+  if (!proto?.get || !proto?.set) return;
+  sel.dataset.valueSync = "1";
+  Object.defineProperty(sel, "value", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      return proto.get.call(this);
+    },
+    set(next) {
+      proto.set.call(this, next);
+      syncAiModePickerUi();
+    },
+  });
+}
+
+function setupAiModePicker() {
+  const sel = $("aiMode");
+  const btn = $("aiModePickerButton");
+  const menu = $("aiModePickerMenu");
+  const picker = $("aiModePicker");
+  if (!sel || !btn || !menu || !picker || picker.dataset.bound === "1") {
+    syncAiModePickerUi();
+    return;
+  }
+  picker.dataset.bound = "1";
+  installAiModeValueSync(sel);
+  renderAiModePickerMenu();
+  syncAiModePickerUi();
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (picker.classList.contains("is-open")) closeAiModePicker();
+    else openAiModePicker();
+  });
+  menu.addEventListener("click", (event) => {
+    const optBtn = event.target.closest?.("[data-ai-mode-value]");
+    if (!optBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setAiModeValue(optBtn.getAttribute("data-ai-mode-value") || "free");
+    closeAiModePicker();
+  });
+  document.addEventListener("click", (event) => {
+    if (!picker.classList.contains("is-open")) return;
+    if (event.target.closest?.("#aiModePicker")) return;
+    closeAiModePicker();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && picker.classList.contains("is-open")) {
+      closeAiModePicker();
+    }
+  });
+  sel.addEventListener("change", () => syncAiModePickerUi());
+}
+
 /** Highlight 흥행 공식 분석 / 흥행 공식 피드백 in the helper mode select. */
 function updateAiModeSuccessStyle() {
   const sel = $("aiMode");
@@ -9323,6 +9565,7 @@ function updateAiModeSuccessStyle() {
   sel.classList.toggle("is-success-mode", on);
   const coming = AI_COMING_MODE_VALUES.has(sel.value);
   sel.classList.toggle("is-coming-mode", coming);
+  syncAiModePickerUi();
 }
 
 function updateForeshadowPanelVisibility() {
@@ -9455,6 +9698,7 @@ function getSelectedForeshadow() {
 }
 
 function setupForeshadowPanel() {
+  setupAiModePicker();
   $("aiMode")?.addEventListener("change", updateForeshadowPanelVisibility);
   $("aiMode")?.addEventListener("change", updateAiModeSuccessStyle);
   $("foreshadowSelect")?.addEventListener("change", () => {
@@ -10912,18 +11156,157 @@ function syncToryPriorityPreview() {
 function setToryPriorityOpen(open) {
   const box = $("toryPriorityBox");
   const toggle = $("toryPriorityToggle");
-  const editor = $("toryPriorityEditor");
-  if (!box || !toggle || !editor) return;
+  const popup = $("toryPriorityPopup");
+  if (!box || !toggle || !popup) return;
   const next = Boolean(open);
   box.classList.toggle("is-open", next);
   toggle.setAttribute("aria-expanded", next ? "true" : "false");
-  editor.hidden = !next;
+  popup.classList.toggle("hidden", !next);
+  popup.hidden = !next;
   if (next) {
+    // First open: place near the launcher if no geometry yet
+    if (!popup.style.width || !popup.style.left) {
+      const rect = box.getBoundingClientRect();
+      const width = Math.min(380, Math.max(280, window.innerWidth - 32));
+      const height = Math.min(360, Math.max(220, Math.round(window.innerHeight * 0.42)));
+      let left = Math.round(rect.right - width);
+      let top = Math.round(rect.bottom + 8);
+      left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
+      top = Math.min(Math.max(8, top), window.innerHeight - height - 8);
+      popup.style.left = `${left}px`;
+      popup.style.top = `${top}px`;
+      popup.style.right = "auto";
+      popup.style.width = `${width}px`;
+      popup.style.height = `${height}px`;
+    }
     syncToryPriorityInput();
     window.setTimeout(() => $("toryPriorityInput")?.focus(), 0);
   } else {
     syncToryPriorityPreview();
   }
+}
+
+function setupToryPriorityPopupChrome() {
+  const popup = $("toryPriorityPopup");
+  const dragBar = $("toryPriorityPopupDrag");
+  if (!popup || popup.dataset.chromeBound === "1") return;
+  popup.dataset.chromeBound = "1";
+
+  const MIN_W = 280;
+  const MIN_H = 200;
+  let drag = null;
+  let resize = null;
+
+  const lockGeom = () => {
+    const rect = popup.getBoundingClientRect();
+    popup.style.left = `${Math.round(rect.left)}px`;
+    popup.style.top = `${Math.round(rect.top)}px`;
+    popup.style.right = "auto";
+    popup.style.bottom = "auto";
+    popup.style.width = `${Math.round(rect.width)}px`;
+    popup.style.height = `${Math.round(rect.height)}px`;
+    return rect;
+  };
+
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockGeom();
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("tory-priority-popup-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+
+  popup.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockGeom();
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("tory-priority-popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
+  });
+
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = popup.getBoundingClientRect().width || MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      popup.style.left = `${Math.round(left)}px`;
+      popup.style.top = `${Math.round(top)}px`;
+      popup.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      const edge = resize.edge;
+      const dx = event.clientX - resize.startX;
+      const dy = event.clientY - resize.startY;
+      let left = resize.startLeft;
+      let top = resize.startTop;
+      let width = resize.startW;
+      let height = resize.startH;
+      if (edge.includes("e")) width = resize.startW + dx;
+      if (edge.includes("s")) height = resize.startH + dy;
+      if (edge.includes("w")) {
+        width = resize.startW - dx;
+        left = resize.startLeft + dx;
+      }
+      if (edge.includes("n")) {
+        height = resize.startH - dy;
+        top = resize.startTop + dy;
+      }
+      width = Math.min(window.innerWidth - 16, Math.max(MIN_W, width));
+      height = Math.min(window.innerHeight - 16, Math.max(MIN_H, height));
+      if (edge.includes("w")) {
+        left = Math.min(resize.startLeft + resize.startW - MIN_W, Math.max(0, left));
+        width = resize.startLeft + resize.startW - left;
+        width = Math.min(window.innerWidth - 16, Math.max(MIN_W, width));
+      }
+      if (edge.includes("n")) {
+        top = Math.min(resize.startTop + resize.startH - MIN_H, Math.max(0, top));
+        height = resize.startTop + resize.startH - top;
+        height = Math.min(window.innerHeight - 16, Math.max(MIN_H, height));
+      }
+      left = Math.min(Math.max(0, left), window.innerWidth - Math.min(width, window.innerWidth - 8));
+      top = Math.min(Math.max(0, top), window.innerHeight - Math.min(height, window.innerHeight - 8));
+      popup.style.left = `${Math.round(left)}px`;
+      popup.style.top = `${Math.round(top)}px`;
+      popup.style.width = `${Math.round(width)}px`;
+      popup.style.height = `${Math.round(height)}px`;
+      popup.style.right = "auto";
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("tory-priority-popup-dragging");
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+      document.body.classList.remove("tory-priority-popup-resizing");
+    }
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
 }
 
 function syncToryPriorityInput() {
@@ -10982,6 +11365,7 @@ function setupToryPriorityField() {
   const done = $("toryPriorityDoneButton");
   if (!input || input.dataset.bound === "1") return;
   input.dataset.bound = "1";
+  setupToryPriorityPopupChrome();
   syncToryPriorityInput();
   setToryPriorityOpen(false);
   const schedule = () => {
@@ -11016,6 +11400,16 @@ function setupToryPriorityField() {
     setToryPriorityOpen(!open);
   });
   done?.addEventListener("click", () => {
+    if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
+    persistToryPriority({ quiet: true })
+      .catch(handleError)
+      .finally(() => setToryPriorityOpen(false));
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const popup = $("toryPriorityPopup");
+    if (!popup || popup.classList.contains("hidden")) return;
+    event.preventDefault();
     if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
     persistToryPriority({ quiet: true })
       .catch(handleError)
@@ -11516,14 +11910,13 @@ function openToryChatHistoryDetail(archiveId) {
   if (box) {
     box.innerHTML = session.messages.map((m) => {
       const isUser = m.role === "user";
-      const who = isUser ? "나" : "토리";
       const cls = isUser ? "is-user" : "is-tory";
       const body = isUser
         ? escapeHtml(m.content)
         : (m.contentHtml
           ? sanitizeToryChatHtml(m.contentHtml)
           : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
-      return `<div class="tory-chat-bubble ${cls}"><span class="tory-chat-bubble-meta">${who}</span><div class="tory-chat-bubble-body">${body}</div></div>`;
+      return `<div class="tory-chat-bubble ${cls}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
     }).join("");
     box.scrollTop = 0;
   }
@@ -11608,6 +12001,18 @@ function setupToryChatHistoryUi() {
   });
 }
 
+function toryChatBubbleMetaHtml(isUser) {
+  if (isUser) {
+    return `<span class="tory-chat-bubble-meta is-user-name">`
+      + `<span class="tory-chat-bubble-pen" aria-hidden="true" title="나">✏️</span>`
+      + `나</span>`;
+  }
+  const mascot = typeof TORY_MODAL_MASCOT_SVG === "string" ? TORY_MODAL_MASCOT_SVG : "";
+  return `<span class="tory-chat-bubble-meta is-tory-name">`
+    + `<span class="tory-chat-bubble-mascot" aria-hidden="true">${mascot}</span>`
+    + `토리</span>`;
+}
+
 function renderToryChatMessages() {
   const box = $("toryChatMessages");
   if (!box) return;
@@ -11622,14 +12027,13 @@ function renderToryChatMessages() {
   }
   box.innerHTML = history.map((m, index) => {
     const isUser = m.role === "user";
-    const who = isUser ? "나" : "토리";
     const cls = isUser ? "is-user" : "is-tory";
     const body = isUser
       ? escapeHtml(m.content)
       : (m.contentHtml
         ? sanitizeToryChatHtml(m.contentHtml)
         : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
-    return `<div class="tory-chat-bubble ${cls}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}"><span class="tory-chat-bubble-meta">${who}</span><div class="tory-chat-bubble-body">${body}</div></div>`;
+    return `<div class="tory-chat-bubble ${cls}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
   }).join("");
   box.scrollTop = box.scrollHeight;
   syncToryChatHighlightBar();
@@ -11873,7 +12277,7 @@ async function sendToryChatMessage(event) {
     const pending = document.createElement("div");
     pending.className = "tory-chat-bubble is-tory is-pending";
     pending.id = "toryChatPending";
-    pending.innerHTML = `<span class="tory-chat-bubble-meta">토리</span><div class="tory-chat-bubble-body">생각 중…</div>`;
+    pending.innerHTML = `${toryChatBubbleMetaHtml(false)}<div class="tory-chat-bubble-body">생각 중…</div>`;
     box.appendChild(pending);
     box.scrollTop = box.scrollHeight;
   }
@@ -12612,6 +13016,8 @@ const writingTracker = {
     chars_auto: true,
     /** 집필 시간 자동집계 (기본 false). false면 기록 버튼 ON일 때만 */
     time_auto: false,
+    /** 핸드폰 앱 작성 기록을 달력·통계에 포함 (기본 true) */
+    include_phone_log: true,
     last_goal_notified_day: "",
     last_lonely_notified_day: "",
     first_met_day: "",
@@ -12639,6 +13045,9 @@ const writingTracker = {
   calMonth: 0, // 0-11
   selectedDay: "",
   daysMap: /** @type {Record<string, object>} */ ({}),
+  /** 달력에서 날짜를 골라 기록 삭제하는 모드 */
+  purgeSelectMode: false,
+  purgeSelectedDays: /** @type {Set<string>} */ (new Set()),
   cheerTimer: null,
 };
 
@@ -12988,6 +13397,7 @@ function applyWritingPrefs(prefs) {
     // Default: chars auto ON, time auto OFF (manual via 기록 button)
     chars_auto: prefs.chars_auto !== false && prefs.chars_auto !== 0,
     time_auto: prefs.time_auto === true || prefs.time_auto === 1,
+    include_phone_log: prefs.include_phone_log !== false && prefs.include_phone_log !== 0,
     last_goal_notified_day: String(prefs.last_goal_notified_day || ""),
     last_lonely_notified_day: String(prefs.last_lonely_notified_day || ""),
     first_met_day: String(prefs.first_met_day || "").trim(),
@@ -13021,6 +13431,7 @@ function syncWritingPrefsForm() {
   if ($("writingLonelyNotify")) $("writingLonelyNotify").checked = Boolean(p.lonely_notify);
   if ($("writingIdleMinutes")) $("writingIdleMinutes").value = String(p.idle_minutes);
   if ($("writingShowTimer")) $("writingShowTimer").checked = p.show_timer !== false;
+  if ($("writingIncludePhoneLog")) $("writingIncludePhoneLog").checked = p.include_phone_log !== false;
 }
 
 function maybeCelebrateWritingGoal() {
@@ -13133,6 +13544,9 @@ async function checkLonelyWriter() {
 }
 
 function setWritingLogTab(tab) {
+  if (tab !== "calendar" && writingTracker.purgeSelectMode) {
+    setWritingLogPurgeSelectMode(false);
+  }
   document.querySelectorAll(".writing-log-tab").forEach((btn) => {
     const on = btn.dataset.writingTab === tab;
     btn.classList.toggle("is-active", on);
@@ -13337,7 +13751,7 @@ async function refreshWritingStatsPane() {
   ]);
 }
 
-async function openWritingLogModal() {
+async function openWritingLogModal(tab = "calendar") {
   const modal = $("writingLogModal");
   if (!modal) return;
   const now = new Date();
@@ -13345,15 +13759,162 @@ async function openWritingLogModal() {
     writingTracker.calYear = now.getFullYear();
     writingTracker.calMonth = now.getMonth();
   }
-  setWritingLogTab("calendar");
+  const nextTab = ["calendar", "stats", "settings", "phone"].includes(tab) ? tab : "calendar";
+  setWritingLogTab(nextTab);
   modal.classList.remove("hidden");
-  await loadWritingCalendarMonth();
-  const today = localDayKey();
-  await selectWritingDay(today);
+  if (nextTab === "calendar") {
+    await loadWritingCalendarMonth();
+    const today = localDayKey();
+    await selectWritingDay(today);
+  } else if (nextTab === "phone") {
+    syncWritingPrefsForm();
+  }
 }
 
 function closeWritingLogModal() {
+  setWritingLogPurgeSelectMode(false);
   $("writingLogModal")?.classList.add("hidden");
+}
+
+function resetWritingPendingAfterClear(deletedDays, clearedAll) {
+  const today = localDayKey();
+  if (clearedAll || (Array.isArray(deletedDays) && deletedDays.includes(today))) {
+    writingTracker.pendingChars = 0;
+    writingTracker.pendingActive = 0;
+    writingTracker.pendingSessionStart = false;
+    writingTracker.sessionDisplaySeconds = 0;
+    writingTracker.sessionStartedAt = null;
+    updateWritingLogButtonUi();
+  }
+}
+
+function dayHasWritingRecord(dayKey) {
+  const rec = writingTracker.daysMap?.[dayKey];
+  if (!rec) {
+    if (dayKey === localDayKey()) {
+      return (writingTracker.pendingChars > 0) || (writingTracker.pendingActive > 0) || writingTracker.pendingSessionStart;
+    }
+    return false;
+  }
+  const chars = Number(rec.chars_added) || 0;
+  const secs = Number(rec.active_seconds) || 0;
+  const sessions = Number(rec.session_count) || 0;
+  let pendingChars = 0;
+  let pendingActive = 0;
+  if (dayKey === localDayKey()) {
+    pendingChars = writingTracker.pendingChars || 0;
+    pendingActive = writingTracker.pendingActive || 0;
+  }
+  return (chars + pendingChars) > 0 || (secs + pendingActive) > 0 || sessions > 0 || writingTracker.pendingSessionStart;
+}
+
+function updateWritingLogPurgeUi() {
+  const modeOn = Boolean(writingTracker.purgeSelectMode);
+  const btn = $("writingLogClearSelectButton");
+  const actions = $("writingLogPurgeActions");
+  const countEl = $("writingLogPurgeCount");
+  const confirmBtn = $("writingLogPurgeConfirm");
+  const modal = $("writingLogModal");
+  btn?.classList.toggle("is-active", modeOn);
+  btn?.setAttribute("aria-pressed", modeOn ? "true" : "false");
+  btn && (btn.textContent = modeOn ? "선택 삭제 중" : "기록 선택 삭제");
+  actions?.classList.toggle("hidden", !modeOn);
+  modal?.classList.toggle("is-purge-select", modeOn);
+  const n = writingTracker.purgeSelectedDays?.size || 0;
+  if (countEl) {
+    countEl.textContent = modeOn
+      ? (n ? `${n}일 선택됨 · 달력에서 날짜를 눌러 고르세요` : "달력에서 지울 날짜를 고르세요")
+      : "";
+  }
+  if (confirmBtn) confirmBtn.disabled = !modeOn || n <= 0;
+}
+
+function setWritingLogPurgeSelectMode(on) {
+  const next = Boolean(on);
+  writingTracker.purgeSelectMode = next;
+  if (!writingTracker.purgeSelectedDays) writingTracker.purgeSelectedDays = new Set();
+  if (!next) writingTracker.purgeSelectedDays.clear();
+  updateWritingLogPurgeUi();
+  renderWritingCalendarGrid();
+  if (next) {
+    toast("달력에서 지울 날짜를 고른 뒤 「선택한 기록 삭제」를 누르세요.");
+  }
+}
+
+function toggleWritingLogPurgeDay(dayKey) {
+  if (!dayKey || !writingTracker.purgeSelectMode) return;
+  if (!writingTracker.purgeSelectedDays) writingTracker.purgeSelectedDays = new Set();
+  if (!dayHasWritingRecord(dayKey) && !writingTracker.purgeSelectedDays.has(dayKey)) {
+    toast("지울 기록이 없는 날짜예요.");
+    return;
+  }
+  if (writingTracker.purgeSelectedDays.has(dayKey)) writingTracker.purgeSelectedDays.delete(dayKey);
+  else writingTracker.purgeSelectedDays.add(dayKey);
+  updateWritingLogPurgeUi();
+  renderWritingCalendarGrid();
+}
+
+async function clearAllWritingLogs() {
+  if (!window.confirm("모든 글쓰기 기록(글자수·집필 시간)을 삭제할까요? 이 작업은 되돌릴 수 없어요.")) {
+    return;
+  }
+  try {
+    await flushWritingHeartbeat({ force: true });
+  } catch (_) { /* ignore */ }
+  const result = await api("/api/writing/days/clear", {
+    method: "POST",
+    body: JSON.stringify({ all: true }),
+  });
+  resetWritingPendingAfterClear([], true);
+  writingTracker.daysMap = {};
+  setWritingLogPurgeSelectMode(false);
+  if ($("writingLogModal") && !$("writingLogModal").classList.contains("hidden")) {
+    await loadWritingCalendarMonth();
+    await selectWritingDay(localDayKey(), { silent: true });
+    if (typeof refreshWritingStatsPane === "function") {
+      try { await refreshWritingStatsPane(); } catch (_) { /* ignore */ }
+    }
+  }
+  toast(result?.deleted ? `기록 ${result.deleted}일을 모두 지웠어요.` : "지울 기록이 없었어요.");
+}
+
+async function confirmWritingLogPurgeSelection() {
+  const checked = [...(writingTracker.purgeSelectedDays || [])].filter(Boolean);
+  if (!checked.length) {
+    toast("지울 날짜를 선택해 주세요.");
+    return;
+  }
+  if (!window.confirm(`선택한 ${checked.length}일의 기록을 삭제할까요?`)) return;
+  const result = await api("/api/writing/days/clear", {
+    method: "POST",
+    body: JSON.stringify({ days: checked }),
+  });
+  const deletedDays = result?.days || checked;
+  resetWritingPendingAfterClear(deletedDays, false);
+  deletedDays.forEach((day) => {
+    if (writingTracker.daysMap) delete writingTracker.daysMap[day];
+  });
+  setWritingLogPurgeSelectMode(false);
+  if ($("writingLogModal") && !$("writingLogModal").classList.contains("hidden")) {
+    await loadWritingCalendarMonth();
+    await selectWritingDay(writingTracker.selectedDay || localDayKey(), { silent: true });
+  }
+  toast(result?.deleted ? `선택한 기록 ${result.deleted}일을 지웠어요.` : "선택한 날짜에 기록이 없었어요.");
+}
+
+function setupWritingLogPurgeControls() {
+  const allBtn = $("writingLogClearAllButton");
+  const selectBtn = $("writingLogClearSelectButton");
+  if (!allBtn || allBtn.dataset.bound === "1") return;
+  allBtn.dataset.bound = "1";
+  allBtn.addEventListener("click", () => clearAllWritingLogs().catch(handleError));
+  selectBtn?.addEventListener("click", () => {
+    setWritingLogPurgeSelectMode(!writingTracker.purgeSelectMode);
+  });
+  $("writingLogPurgeCancel")?.addEventListener("click", () => setWritingLogPurgeSelectMode(false));
+  $("writingLogPurgeConfirm")?.addEventListener("click", () => {
+    confirmWritingLogPurgeSelection().catch(handleError);
+  });
 }
 
 async function loadWritingCalendarMonth() {
@@ -13385,10 +13946,15 @@ function renderWritingCalendarGrid() {
   const firstDow = new Date(y, m, 1).getDay();
   const daysInMonth = new Date(y, m + 1, 0).getDate();
   const today = localDayKey();
+  const purgeOn = Boolean(writingTracker.purgeSelectMode);
+  const purgeSet = writingTracker.purgeSelectedDays || new Set();
   let maxChars = 1;
   Object.values(writingTracker.daysMap).forEach((d) => {
     maxChars = Math.max(maxChars, Number(d.chars_added) || 0);
   });
+  if (writingTracker.pendingChars > 0) {
+    maxChars = Math.max(maxChars, writingTracker.pendingChars);
+  }
   const cells = [];
   for (let i = 0; i < firstDow; i += 1) {
     cells.push(`<button type="button" class="writing-cal-cell is-muted" disabled tabindex="-1"></button>`);
@@ -13396,21 +13962,26 @@ function renderWritingCalendarGrid() {
   for (let day = 1; day <= daysInMonth; day += 1) {
     const key = `${y}-${String(m + 1).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
     const rec = writingTracker.daysMap[key];
-    const chars = Number(rec?.chars_added) || 0;
+    let chars = Number(rec?.chars_added) || 0;
+    if (key === today) chars += writingTracker.pendingChars || 0;
     const heat = chars > 0 ? Math.max(12, Math.round((chars / maxChars) * 55)) : 0;
     const firstMet = isFirstMetDay(key);
+    const purgePicked = purgeOn && purgeSet.has(key);
     const classes = [
       "writing-cal-cell",
       key === today ? "is-today" : "",
-      key === writingTracker.selectedDay ? "is-selected" : "",
+      !purgeOn && key === writingTracker.selectedDay ? "is-selected" : "",
       chars > 0 ? "has-write" : "",
       firstMet ? "is-first-met" : "",
+      purgeOn ? "is-purge-target" : "",
+      purgePicked ? "is-purge-picked" : "",
     ].filter(Boolean).join(" ");
     const titleBits = [key];
     if (firstMet) titleBits.push("토리와 처음 만난 날");
     if (chars) titleBits.push(`${chars}자`);
+    if (purgeOn) titleBits.push(purgePicked ? "삭제 선택됨" : "클릭해서 삭제 선택");
     cells.push(
-      `<button type="button" class="${classes}" data-day="${key}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}">`
+      `<button type="button" class="${classes}" data-day="${key}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}"${purgePicked ? ' aria-pressed="true"' : ""}>`
       + `<span>${day}</span>`
       + `${firstMet ? CAL_ACORN_SVG : (chars > 0 ? '<span class="cal-dot"></span>' : "")}`
       + `</button>`,
@@ -13488,6 +14059,7 @@ async function saveWritingPrefsFromForm() {
   const body = {
     chars_auto: Boolean($("writingCharsAuto")?.checked),
     time_auto: Boolean($("writingTimeAuto")?.checked),
+    include_phone_log: Boolean($("writingIncludePhoneLog")?.checked),
     goal_chars: Number($("writingGoalChars")?.value || 2000),
     goal_notify: Boolean($("writingGoalNotify")?.checked),
     lonely_days: Number($("writingLonelyDays")?.value || 3),
@@ -13503,6 +14075,22 @@ async function saveWritingPrefsFromForm() {
   saveShowTimerPref(showTimer);
   updateWritingLogButtonUi();
   toast("기록 설정을 저장했어요.");
+}
+
+async function saveWritingIncludePhoneLogPref() {
+  const on = Boolean($("writingIncludePhoneLog")?.checked);
+  writingTracker.prefs.include_phone_log = on;
+  try {
+    const prefs = await api("/api/writing/prefs", {
+      method: "POST",
+      body: JSON.stringify({ include_phone_log: on }),
+    });
+    applyWritingPrefs(prefs);
+    toast(on ? "핸드폰 작성 기록을 포함해요." : "핸드폰 작성 기록을 제외해요.");
+  } catch (error) {
+    handleError(error);
+    syncWritingPrefsForm();
+  }
 }
 
 async function refreshWritingPhonePane() {
@@ -13565,6 +14153,7 @@ async function issueWritingPairCode() {
 }
 
 function setupWritingLog() {
+  setupWritingLogPurgeControls();
   const modal = $("writingLogModal");
   if (!modal || modal.dataset.bound === "1") {
     // still start tracker timers once
@@ -13598,13 +14187,21 @@ function setupWritingLog() {
     $("writingCalGrid")?.addEventListener("click", (event) => {
       const btn = event.target.closest?.("[data-day]");
       if (!btn) return;
-      selectWritingDay(btn.getAttribute("data-day") || "").catch(handleError);
+      const day = btn.getAttribute("data-day") || "";
+      if (writingTracker.purgeSelectMode) {
+        toggleWritingLogPurgeDay(day);
+        return;
+      }
+      selectWritingDay(day).catch(handleError);
     });
     $("writingPrefsSave")?.addEventListener("click", () => {
       saveWritingPrefsFromForm().catch(handleError);
     });
     $("writingPairRefresh")?.addEventListener("click", () => {
       issueWritingPairCode().catch(handleError);
+    });
+    $("writingIncludePhoneLog")?.addEventListener("change", () => {
+      saveWritingIncludePhoneLogPref().catch(handleError);
     });
     $("writingInboxList")?.addEventListener("click", async (event) => {
       const btn = event.target.closest?.("[data-inbox-copy]");
@@ -13626,13 +14223,16 @@ function setupWritingLog() {
     });
     $("toryCheerClose")?.addEventListener("click", () => hideToryCheer());
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && modal && !modal.classList.contains("hidden")) {
-        closeWritingLogModal();
+      if (event.key !== "Escape" || !modal || modal.classList.contains("hidden")) return;
+      if (writingTracker.purgeSelectMode) {
+        setWritingLogPurgeSelectMode(false);
+        return;
       }
+      closeWritingLogModal();
     });
   }
 
-  // 우클릭: 달력·설정 또는 기능 숨기기
+  // 우클릭: 기록 달력·설정 (삭제는 달력 안에서)
   const logBtn = $("writingLogButton");
   if (logBtn && logBtn.dataset.writingBound !== "1") {
     logBtn.dataset.writingBound = "1";
@@ -13641,11 +14241,18 @@ function setupWritingLog() {
       event.stopPropagation();
       setUiFeatureCtxTarget?.(logBtn);
       if (typeof showUiFeatureContextMenu === "function") {
-        showUiFeatureContextMenu(event.clientX, event.clientY, logBtn, [{
-          label: "기록 달력·설정",
-          hint: "글쓰기 기록 열기",
-          run: () => { openWritingLogModal().catch(handleError); },
-        }]);
+        showUiFeatureContextMenu(event.clientX, event.clientY, logBtn, [
+          {
+            label: "기록 달력·설정",
+            hint: "글쓰기 기록 열기",
+            run: () => { openWritingLogModal("calendar").catch(handleError); },
+          },
+          {
+            label: "폰 연동",
+            hint: "연동 코드 · 핸드폰 기록 포함",
+            run: () => { openWritingLogModal("phone").catch(handleError); },
+          },
+        ]);
       } else {
         openWritingLogModal().catch(handleError);
       }
@@ -14271,7 +14878,63 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
   }
 }
 
+/** Compact Tory mascot for popup modal titles (no gradient IDs — safe to clone). */
+const TORY_MODAL_MASCOT_SVG =
+  '<svg class="tory-modal-mascot-svg" viewBox="0 0 40 40" width="26" height="26" focusable="false" aria-hidden="true">'
+  + '<circle cx="20" cy="20" r="19" fill="#fff8ef" stroke="#e4d5c2" stroke-width="1"/>'
+  + '<ellipse cx="19.5" cy="23" rx="9" ry="10.5" fill="#d98a3c" stroke="#9a5a22" stroke-width="0.6"/>'
+  + '<ellipse cx="19.5" cy="13.8" rx="10" ry="5.2" fill="#8b5a2b" stroke="#4a2c12" stroke-width="0.55"/>'
+  + '<path d="M19.5 9 C19.5 6.6 21.2 5 23 4.5" fill="none" stroke="#4a2c12" stroke-width="1.5" stroke-linecap="round"/>'
+  + '<ellipse cx="23.2" cy="4.3" rx="1.5" ry="1" fill="#3d2410" transform="rotate(-25 23.2 4.3)"/>'
+  + '<circle cx="16.2" cy="21.2" r="1.45" fill="#3a2412"/>'
+  + '<circle cx="22.8" cy="21.2" r="1.45" fill="#3a2412"/>'
+  + '<circle cx="16.6" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>'
+  + '<circle cx="23.2" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>'
+  + '<ellipse cx="13.6" cy="23.8" rx="1.5" ry="0.9" fill="#e8886a" opacity="0.5"/>'
+  + '<ellipse cx="25.4" cy="23.8" rx="1.5" ry="0.9" fill="#e8886a" opacity="0.5"/>'
+  + '<path d="M17.2 24.6 Q19.5 26.4 21.8 24.6" fill="none" stroke="#5a3218" stroke-width="0.9" stroke-linecap="round"/>'
+  + '<circle cx="16.2" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>'
+  + '<circle cx="22.8" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>'
+  + '<path d="M19.1 21.2 H19.9" stroke="#3d3d48" stroke-width="0.9" stroke-linecap="round"/>'
+  + '<path d="M11 24.5 C9 25.5 8.8 27.5 10.2 28.8" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>'
+  + '<path d="M28 24.2 C30 25 31.5 26.6 30.6 28.6" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>'
+  + '<g transform="translate(29.8 27.8) rotate(36)">'
+  + '<rect x="-0.95" y="-6.5" width="1.9" height="10" rx="0.8" fill="#4d7eb8" stroke="#2f5480" stroke-width="0.3"/>'
+  + '<rect x="-0.95" y="-8" width="1.9" height="1.7" rx="0.45" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.25"/>'
+  + '<path d="M-0.75 3.5 L0 6.4 L0.75 3.5 Z" fill="#d4af37"/>'
+  + "</g>"
+  + "</svg>";
+
+/** Put Tory mascot at the left of titles in Tory-panel popups. */
+function ensureToryModalTitleMascots() {
+  const headings = document.querySelectorAll([
+    ".tory-helper-modal .modal-heading",
+    ".tory-helper-card > .modal-heading",
+    "#aiToolModal .modal-heading",
+    "#aiPromptModal .modal-heading",
+    "#toryChatHistoryModal .modal-heading",
+    "#toryNotifyEditModal .modal-heading",
+    "#baitNotifyModal .modal-heading",
+  ].join(", "));
+  headings.forEach((heading) => {
+    if (!(heading instanceof HTMLElement)) return;
+    if (heading.querySelector(".tory-modal-mascot")) return;
+    const h2 = heading.querySelector("h2");
+    if (!h2) return;
+    const cluster = document.createElement("div");
+    cluster.className = "tory-modal-title-cluster";
+    const mascot = document.createElement("span");
+    mascot.className = "tory-modal-mascot";
+    mascot.setAttribute("aria-hidden", "true");
+    mascot.innerHTML = TORY_MODAL_MASCOT_SVG;
+    heading.insertBefore(cluster, h2);
+    cluster.appendChild(mascot);
+    cluster.appendChild(h2);
+  });
+}
+
 function setupAiToolModal() {
+  ensureToryModalTitleMascots();
   const modal = $("aiToolModal");
   if (!modal || modal.dataset.bound === "1") return;
   modal.dataset.bound = "1";
@@ -23551,13 +24214,7 @@ function handleToolsAction(action) {
   }
   if (action === "notes" || action === "characters" || action === "links" || action === "spellcheck") {
     openSceneToolsDrawer(action);
-    if (action === "spellcheck") {
-      // Auto-run when opening an empty result panel for convenience.
-      const list = $("spellcheckResultList");
-      if (list && !list.dataset.hasResults) {
-        runSpellcheck().catch(handleError);
-      }
-    }
+    // 맞춤법: 패널만 열고, 검사는 「Gemini 검사기」/「바른한글 검사기」에서만 실행
   }
 }
 
@@ -23661,9 +24318,9 @@ async function runSpellcheck(options = {}) {
   const publicBtn = $("runSpellcheckPublicButton");
   if (status) {
     status.textContent = prefer === "gemini"
-      ? "Gemini로 검사 중…"
+      ? "Gemini 검사기로 검사 중…"
       : prefer === "public"
-        ? "공개 맞춤법 검사기에 연결 중…"
+        ? "바른한글 검사기에 연결 중…"
         : "맞춤법 검사 중… (Gemini 우선)";
   }
   if (button) {
@@ -23694,7 +24351,7 @@ async function runSpellcheck(options = {}) {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "검사하기";
+      button.textContent = "Gemini 검사기";
     }
     if (publicBtn) publicBtn.disabled = false;
   }
@@ -32806,9 +33463,17 @@ function ensureSplitViewerHomeParent() {
   const viewer = $("splitViewer");
   if (!viewer) return null;
   const slot = $("focusWriteSplitSlot");
-  // Remember the original workspace parent (not the focus-write slot)
-  if (!splitViewerHomeParent || splitViewerHomeParent === slot) {
-    if (viewer.parentElement && viewer.parentElement !== slot) {
+  // Remember the original workspace parent (not the focus-write slot or body portal)
+  if (
+    !splitViewerHomeParent
+    || splitViewerHomeParent === slot
+    || splitViewerHomeParent === document.body
+  ) {
+    if (
+      viewer.parentElement
+      && viewer.parentElement !== slot
+      && viewer.parentElement !== document.body
+    ) {
       splitViewerHomeParent = viewer.parentElement;
     }
   }
@@ -32824,6 +33489,8 @@ function syncSplitViewerHost() {
   const home = ensureSplitViewerHomeParent();
   const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
   const embedSplit = focusOpen && state.splitEnabled && state.splitMode === "split" && slot;
+  // 큰 창 위 팝업: body로 포털해 워크스페이스 스택에 갇히지 않게
+  const popupOverFocus = focusOpen && state.splitEnabled && state.splitMode === "popup";
 
   if (embedSplit) {
     if (viewer.parentElement !== slot) slot.appendChild(viewer);
@@ -32833,6 +33500,11 @@ function syncSplitViewerHost() {
     viewer.classList.remove("popup-mode");
     // Clear fixed popup geometry so flex slot can size the pane
     clearSplitViewerPopupStyles();
+  } else if (popupOverFocus) {
+    if (viewer.parentElement !== document.body) document.body.appendChild(viewer);
+    if (slot) slot.hidden = true;
+    card?.classList.remove("is-split");
+    viewer.classList.remove("in-focus-write");
   } else {
     if (home && viewer.parentElement !== home) home.appendChild(viewer);
     if (slot) slot.hidden = true;
@@ -33725,6 +34397,10 @@ function setupPopupDragging() {
 
 function handleError(error) {
   console.error(error);
+  if (error?.aiAssist) {
+    handleAiAssistError(error);
+    return;
+  }
   // Never scare the writer into thinking manuscript is lost on network blips.
   if (isOfflineSafeError(error) || error?.localOnly) {
     ensureLocalDraftSaved("handleError");
@@ -35005,7 +35681,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.2.0";
+const APP_VERSION_FALLBACK = "1.3.1";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -35471,7 +36147,11 @@ function onGlobalUiFeatureContextMenu(event) {
     showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
       label: "기록 달력·설정",
       hint: "글쓰기 기록 열기",
-      run: () => { openWritingLogModal?.().catch?.(handleError); },
+      run: () => { openWritingLogModal?.("calendar")?.catch?.(handleError); },
+    }, {
+      label: "폰 연동",
+      hint: "연동 코드 · 핸드폰 기록 포함",
+      run: () => { openWritingLogModal?.("phone")?.catch?.(handleError); },
     }]);
     return;
   }

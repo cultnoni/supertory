@@ -102,6 +102,7 @@ MIGRATION_028_PATH = ROOT / "db" / "028_folder_tree_parallel.sql"
 MIGRATION_029_PATH = ROOT / "db" / "029_folder_color_pin.sql"
 MIGRATION_030_PATH = ROOT / "db" / "030_folder_action_log.sql"
 MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
+MIGRATION_032_PATH = ROOT / "db" / "032_writing_include_phone.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -434,6 +435,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_030_PATH.read_text(encoding="utf-8"))
         if 31 not in applied:
             connection.executescript(MIGRATION_031_PATH.read_text(encoding="utf-8"))
+        if 32 not in applied:
+            connection.executescript(MIGRATION_032_PATH.read_text(encoding="utf-8"))
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
 
@@ -507,8 +510,10 @@ def writing_prefs_row(connection: sqlite3.Connection) -> dict:
     # Defaults: chars auto on, time only while "기록" is on (time_auto off).
     chars_auto_raw = data.get("chars_auto")
     time_auto_raw = data.get("time_auto")
+    include_phone_raw = data.get("include_phone_log")
     chars_auto = True if chars_auto_raw is None else bool(int(chars_auto_raw))
     time_auto = False if time_auto_raw is None else bool(int(time_auto_raw))
+    include_phone_log = True if include_phone_raw is None else bool(int(include_phone_raw))
     return {
         "goal_chars": int(data.get("goal_chars") or 2000),
         "goal_notify": bool(int(data.get("goal_notify") or 0)),
@@ -517,6 +522,7 @@ def writing_prefs_row(connection: sqlite3.Connection) -> dict:
         "idle_minutes": int(data.get("idle_minutes") or 30),
         "chars_auto": chars_auto,
         "time_auto": time_auto,
+        "include_phone_log": include_phone_log,
         "last_goal_notified_day": str(data.get("last_goal_notified_day") or ""),
         "last_lonely_notified_day": str(data.get("last_lonely_notified_day") or ""),
         "first_met_day": str(data.get("first_met_day") or first_met or ""),
@@ -1932,6 +1938,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/writing/heartbeat":
                 self.send_json(self.writing_heartbeat(body))
+                return
+
+            if path == "/api/writing/days/clear":
+                self.send_json(self.clear_writing_days(body))
                 return
 
             if path == "/api/writing/pair":
@@ -9091,6 +9101,51 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         payload["prefs"] = prefs
         return payload
 
+    def clear_writing_days(self, body: dict) -> dict:
+        """Delete writing-day rows. Body: {all: true} or {days: ["YYYY-MM-DD", ...]}."""
+        clear_all = bool(body.get("all"))
+        raw_days = body.get("days") if isinstance(body.get("days"), list) else []
+        days: list[str] = []
+        for item in raw_days:
+            try:
+                days.append(_day_key_valid(str(item or "")))
+            except ValueError as error:
+                raise ValueError("날짜 형식이 올바르지 않습니다.") from error
+        # unique preserve order
+        seen: set[str] = set()
+        unique_days = []
+        for day in days:
+            if day in seen:
+                continue
+            seen.add(day)
+            unique_days.append(day)
+
+        if not clear_all and not unique_days:
+            raise ValueError("지울 날짜를 선택해 주세요.")
+
+        with database() as connection:
+            if clear_all:
+                cursor = connection.execute("DELETE FROM writing_day")
+                deleted = int(cursor.rowcount or 0)
+                deleted_days = []
+            else:
+                deleted_days = []
+                for day in unique_days:
+                    cursor = connection.execute(
+                        "DELETE FROM writing_day WHERE day_key = ?",
+                        (day,),
+                    )
+                    if cursor.rowcount:
+                        deleted_days.append(day)
+                deleted = len(deleted_days)
+            connection.commit()
+        return {
+            "ok": True,
+            "deleted": deleted,
+            "all": clear_all,
+            "days": deleted_days if not clear_all else [],
+        }
+
     def update_writing_prefs(self, body: dict) -> dict:
         with database() as connection:
             prefs = writing_prefs_row(connection)
@@ -9125,6 +9180,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 prefs["time_auto"] = 1 if body.get("time_auto") else 0
             else:
                 prefs["time_auto"] = 1 if prefs.get("time_auto") else 0
+            if "include_phone_log" in body:
+                prefs["include_phone_log"] = 1 if body.get("include_phone_log") else 0
+            else:
+                prefs["include_phone_log"] = 1 if prefs.get("include_phone_log", True) else 0
             if "last_goal_notified_day" in body:
                 day = str(body.get("last_goal_notified_day") or "").strip()
                 if day:
@@ -9138,6 +9197,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             connection.execute(
                 "UPDATE writing_prefs SET goal_chars = ?, goal_notify = ?, lonely_days = ?, "
                 "lonely_notify = ?, idle_minutes = ?, chars_auto = ?, time_auto = ?, "
+                "include_phone_log = ?, "
                 "last_goal_notified_day = ?, last_lonely_notified_day = ?, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = 1",
                 (
@@ -9148,6 +9208,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     prefs["idle_minutes"],
                     1 if prefs.get("chars_auto", True) else 0,
                     1 if prefs.get("time_auto") else 0,
+                    1 if prefs.get("include_phone_log", True) else 0,
                     prefs.get("last_goal_notified_day") or "",
                     prefs.get("last_lonely_notified_day") or "",
                 ),
