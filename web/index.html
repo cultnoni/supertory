@@ -15,7 +15,7 @@
             || localStorage.getItem("supertory.uiTheme")
             || "light";
           if (theme === "dawn") theme = "library";
-          var known = { light: 1, dark: 1, cabin: 1, study: 1, library: 1, attic: 1, eink: 1 };
+          var known = { light: 1, sand: 1, dark: 1, cabin: 1, study: 1, library: 1, attic: 1, eink: 1 };
           if (!known[theme]) theme = "light";
           var scheme = (theme === "dark" || theme === "attic") ? "dark" : "light";
           document.documentElement.setAttribute("data-theme", theme);
@@ -30,7 +30,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=20260811-1.3.2">
+    <link rel="stylesheet" href="/styles.css?v=20260812-deep-charcoal">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -52,13 +52,15 @@
           'html[data-theme="eink"] .feature-chip.is-active,html[data-theme="eink"] .is-active-split,',
           'html[data-ui-theme="eink"] .feature-chip.is-active{background:#000!important;color:#fff!important;border-color:#000!important;}',
           'html[data-theme="eink"] .title-input,html[data-theme="eink"] .episode-title-input,',
-          'html[data-ui-theme="eink"] .episode-title-input{border-bottom-color:#000!important;color:#000!important;background:transparent!important;}',
+          'html[data-ui-theme="eink"] .episode-title-input{border-bottom:0!important;color:#000!important;background:transparent!important;}',
           'html[data-theme="eink"] .format-seg,html[data-ui-theme="eink"] .format-seg{background:#fff!important;border:1px solid #000!important;}',
           'html[data-theme="eink"] .format-seg > .format-btn{border-right:1px solid #000!important;color:#000!important;background:transparent!important;}',
           'html[data-theme="eink"] .format-seg-fields > .toolbar-field{border-right-color:#000!important;}',
           'html[data-theme="eink"] .format-toolbar{background:#fff!important;border-color:#000!important;}',
-          'html[data-theme="eink"] .format-list-btn.format-btn-solo,html[data-theme="eink"] .format-find-btn.format-btn-solo,html[data-theme="eink"] .format-viewer-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
-          'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,html[data-theme="eink"] .format-find-btn.format-btn-solo:hover,html[data-theme="eink"] .format-viewer-btn.format-btn-solo:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .format-list-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
+          'html[data-theme="eink"] .format-toolbar-row-icons .format-tool-item{border:0!important;background:transparent!important;box-shadow:none!important;color:#000!important;}',
+          'html[data-theme="eink"] .format-toolbar-row-icons .format-tool-item:hover{background:#000!important;color:#fff!important;}',
           'html[data-theme="eink"] .format-btn .u-mark,html[data-ui-theme="eink"] .format-btn .u-mark{',
           'text-decoration:underline!important;text-decoration-color:#000!important;',
           'text-underline-offset:2px!important;-webkit-text-fill-color:unset!important;color:inherit!important;}',
@@ -95,11 +97,6 @@
           'html[data-ui-theme="eink"] .folder-title-box,html[data-ui-theme="eink"] .folder-title-box.is-level-0{',
           'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
           'html[data-theme="eink"] .folder-title-box:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
-          'html[data-theme="eink"] .chapter-title.is-complete,html[data-theme="eink"] .folder-title-box.is-complete,',
-          'html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box,',
-          'html[data-ui-theme="eink"] .folder-title-box.is-complete{',
-          'background:#000!important;border-color:#000!important;color:#fff!important;box-shadow:none!important;}',
-          'html[data-theme="eink"] .folder-color-dot,html[data-theme="eink"] .folder-color-dot[data-folder-color]{background:#000!important;}',
           'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
           'html[data-theme="eink"] #aiToolModal .tory-helper-callout,html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,',
           'html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note{background:#fff!important;border:1px solid #000!important;color:#000!important;}',
@@ -112,9 +109,11 @@
           'html[data-theme="eink"] .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide::before,',
           'html[data-theme="eink"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after{',
           'border-left-color:#000!important;border-bottom-color:#000!important;}',
+          'html[data-theme="eink"] .outline-count-badges{background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
           'html[data-theme="eink"] .outline-folder-count,html[data-theme="eink"] .outline-scene-count,',
-          'html[data-theme="eink"] #outlineFolderCount,html[data-theme="eink"] #outlineSceneCount{',
-          'background:#fff!important;border:1px solid #000!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .outline-count-num,html[data-theme="eink"] .outline-count-label{',
+          'background:transparent!important;border:0!important;color:#000!important;box-shadow:none!important;}',
+          'html[data-theme="eink"] .outline-spacing-btn{background:#fff!important;border:1px solid #000!important;color:#000!important;}',
           'html[data-theme="eink"] #outlineOverviewModal .modal-card,html[data-theme="eink"] .outline-overview-modal-card{',
           'background:#fff!important;border-color:#000!important;box-shadow:none!important;color:#000!important;}',
           'html[data-theme="eink"] .outline-overview-part{background:#fff!important;border:1px solid #000!important;}',
@@ -144,21 +143,6 @@
     </script>
   </head>
   <body>
-    <!-- First-run guide: sits under header +, arrow points UP at the button -->
-    <div id="welcomePlusGuide" class="welcome-plus-guide hidden" aria-hidden="true">
-      <div class="welcome-plus-guide-arrow" aria-hidden="true">
-        <svg viewBox="0 0 48 56" width="36" height="44" focusable="false">
-          <!-- tip at top → points at + button -->
-          <path class="welcome-arrow-head" d="M14 16 L24 4 L34 16" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
-          <path class="welcome-arrow-curve" d="M24 8 V48" fill="none" stroke="currentColor" stroke-width="3.2" stroke-linecap="round"/>
-        </svg>
-      </div>
-      <div class="welcome-plus-guide-bubble">
-        <strong>여기서 시작!</strong>
-        <span>새 글쓰기 · 문서 가져오기</span>
-      </div>
-    </div>
-
     <!-- Welcome-screen ad-style popups (dismissible) -->
     <div id="welcomeAdPopups" class="welcome-ad-popups hidden" aria-label="공지와 이벤트 팝업">
       <!-- badge/title/body filled from notice-feed.json (remote → local) -->
@@ -261,211 +245,99 @@
           <span class="brand-name">SuperTORY</span>
         </div>
       </div>
-      <div class="app-toolbar">
-        <div class="header-actions">
-          <button id="adminModeButton" class="icon-btn header-gear-btn" type="button" title="관리자 모드" aria-label="관리자 모드" aria-haspopup="dialog" aria-controls="adminModal">
-            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.08a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.72a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.62.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.23.09.5 0 .62-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
-            </svg>
-          </button>
-          <button
-            id="uiThemeToggleButton"
-            class="icon-btn header-theme-btn"
-            type="button"
-            title="테마 바꾸기"
-            aria-label="테마 바꾸기"
-            aria-pressed="false"
-            data-theme-icon="light"
-          >
-            <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <circle cx="12" cy="12" r="4" fill="currentColor"/>
-              <path fill="currentColor" d="M12 2.5a1 1 0 0 1 1 1V5a1 1 0 1 1-2 0V3.5a1 1 0 0 1 1-1zm0 14a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1zM3.5 11a1 1 0 0 0 0 2H5a1 1 0 1 0 0-2H3.5zm14 0a1 1 0 1 0 0 2H19a1 1 0 1 0 0-2h-1.5zM5.64 5.64a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 1 1-1.41 1.41L5.64 7.05a1 1 0 0 1 0-1.41zm10.25 10.25a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zM18.36 5.64a1 1 0 0 1 0 1.41l-1.06 1.06a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.11 15.89a1 1 0 0 1 0 1.41L7.05 18.36a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/>
-            </svg>
-            <svg class="theme-icon theme-icon-dark hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M20.2 14.35A8.2 8.2 0 0 1 9.65 3.8a.75.75 0 0 0-.95-.95A9.7 9.7 0 1 0 21.15 15.3a.75.75 0 0 0-.95-.95z"/>
-            </svg>
-            <svg class="theme-icon theme-icon-cabin hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <g fill="currentColor" fill-rule="evenodd">
-                <path d="M12 1.2c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C7.9 9.05 8.65 4.1 12 1.2zm-.45 2.55h.9v7.15h-.9V3.75z"/>
-                <path transform="rotate(-48 9.6 12)" d="M9.6 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C5.5 10.25 6.25 5.3 9.6 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
-                <path transform="rotate(48 14.4 12)" d="M14.4 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C10.3 10.25 11.05 5.3 14.4 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
-                <path transform="rotate(-78 10.5 14.8)" d="M10.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C7 12.9 7.65 8.65 10.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
-                <path transform="rotate(78 13.5 14.8)" d="M13.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C10 12.9 10.65 8.65 13.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
-              </g>
-              <path fill="currentColor" d="M11.15 14.6h1.7v6.9a.85.85 0 1 1-1.7 0v-6.9z"/>
-            </svg>
-            <svg class="theme-icon theme-icon-study hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path fill="currentColor" fill-rule="evenodd" d="M12 1.5 18.5 9.85c1.3 1.65 1.1 3.95-.45 5.4L15.6 17.55H8.4L6 15.25c-1.55-1.45-1.75-3.75-.45-5.4L12 1.5zm-.5 3.35h1v5.5h-1V4.85zM12 11.05a1.3 1.3 0 1 0 .01 2.6 1.3 1.3 0 0 0-.01-2.6z"/>
-              <rect x="7.15" y="18.1" width="9.7" height="1.85" rx="0.9" fill="currentColor"/>
-              <rect x="7.6" y="20.7" width="8.8" height="1.7" rx="0.85" fill="currentColor"/>
-            </svg>
-            <svg class="theme-icon theme-icon-library hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M4 20.5h16v-1.6H4v1.6zm1.2-3.2h2.1V9.2H5.2v8.1zm5.25 0h2.1V9.2h-2.1v8.1zm5.25 0H17.8V9.2h-2.1v8.1zM3.8 7.6 12 3.4l8.2 4.2v1.5H3.8V7.6z"/>
-            </svg>
-            <svg class="theme-icon theme-icon-attic hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M12 2.35 14.35 9.1l7.15.42-5.55 4.55 1.78 6.95L12 16.7l-5.73 4.32 1.78-6.95-5.55-4.55 7.15-.42L12 2.35z"/>
-            </svg>
-            <svg class="theme-icon theme-icon-eink hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
-              <path fill="currentColor" d="M7.2 4.2h9.8v2.2H9.6v4.1h6.4v2.15H9.6v5.15h7.6v2.2H7.2V4.2z"/>
-            </svg>
-          </button>
-          <div class="create-menu" id="createMenu">
-            <button
-              id="createMenuButton"
-              class="icon-btn header-plus-btn"
-              type="button"
-              title="새 글쓰기 / 문서 가져오기 / 작품 내보내기"
-              aria-label="추가 · 시작하기"
-              aria-haspopup="menu"
-              aria-expanded="false"
-              aria-controls="createMenuDropdown"
-            ><span class="header-plus-glyph" aria-hidden="true">+</span></button>
-            <div id="createMenuDropdown" class="create-menu-dropdown hidden" role="menu" aria-label="추가 메뉴">
-              <button type="button" role="menuitem" id="newProjectButton" data-create-action="new">
-                <span class="create-menu-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M9.2 16.2l5.6-5.6 1.35 1.35-5.6 5.6H9.2v-1.35z"/>
-                  </svg>
-                </span>
-                <span class="create-menu-text">
-                  <strong>새 글쓰기</strong>
-                  <span>새 작품을 만듭니다</span>
-                </span>
-              </button>
-              <button type="button" role="menuitem" id="importDocumentButton" data-create-action="import">
-                <span class="create-menu-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 10.2v5.4M9.6 13.4L12 15.8l2.4-2.4"/>
-                  </svg>
-                </span>
-                <span class="create-menu-text">
-                  <strong>문서 가져오기</strong>
-                  <span>원고·초고 파일을 작품으로 불러옵니다</span>
-                </span>
-              </button>
-              <button type="button" role="menuitem" id="importProofButton" data-create-action="import-proof">
-                <span class="create-menu-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 11.2l1.35 1.35L12.7 10"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 15.4l1.35 1.35L12.7 14.2"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M14.2 11.5h2.3M14.2 15.7h2.3"/>
-                  </svg>
-                </span>
-                <span class="create-menu-text">
-                  <strong>교정본 가져오기</strong>
-                  <span>편집 교정고 · 토리가 회차 식별 후 비교합니다</span>
-                </span>
-              </button>
-              <button type="button" role="menuitem" id="exportDocumentButton" data-create-action="export">
-                <span class="create-menu-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
-                    <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
-                    <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 15.8V10.4M9.6 12.6L12 10.2l2.4 2.4"/>
-                  </svg>
-                </span>
-                <span class="create-menu-text">
-                  <strong>작품 내보내기</strong>
-                  <span>Word·한글·텍스트 등으로 저장</span>
-                </span>
-              </button>
-            </div>
-          </div>
-        </div>
-        <label class="project-picker" title="우클릭으로 작품 순서를 바꿀 수 있어요">작품
-          <select id="projectSelect" aria-label="작품 선택" title="우클릭: 작품 순서 변경"></select>
-        </label>
-        <label class="purpose-picker" title="우클릭으로 작품 종류를 바꿀 수 있어요">
-          <select id="purposeSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
-            <option value="general_novel">일반소설</option>
-          </select>
-          <button
-            type="button"
-            id="purposeDisplay"
-            class="genre-display purpose-display"
-            aria-label="작품 종류 (우클릭으로 변경)"
-            title="우클릭: 작품 종류 변경"
-            disabled
-          >일반소설</button>
-        </label>
-        <div class="genre-picker" id="genrePicker" title="우클릭으로 장르를 바꿀 수 있어요" data-mode="fiction">
-          <label class="genre-field" id="mainGenreField">
-            <select id="mainGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
-              <option value="">장르</option>
-            </select>
-            <button
-              type="button"
-              id="mainGenreDisplay"
-              class="genre-display"
-              aria-label="메인 장르 (우클릭으로 변경)"
-              title="우클릭: 장르 변경"
-              disabled
-            >장르</button>
-            <input
-              type="text"
-              id="mainGenreCustom"
-              class="genre-custom-input hidden"
-              maxlength="40"
-              placeholder="직접 입력"
-              aria-label="직접 입력"
-              disabled
-            >
-          </label>
-          <label class="genre-field" id="subGenreField">
-            <select id="subGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
-              <option value="">세부</option>
-            </select>
-            <button
-              type="button"
-              id="subGenreDisplay"
-              class="genre-display"
-              aria-label="서브 장르 (우클릭으로 변경)"
-              title="우클릭: 세부 장르 변경"
-              disabled
-            >세부</button>
-            <input
-              type="text"
-              id="subGenreCustom"
-              class="genre-custom-input hidden"
-              maxlength="40"
-              placeholder="직접 입력"
-              aria-label="직접 입력"
-              disabled
-            >
-          </label>
-        </div>
-        <div class="header-notice-strip" id="headerNoticeStrip">
-          <section class="header-notice header-idea-notice is-empty" id="headerIdeaNotice" aria-label="아이디어 메모">
-            <div class="header-notice-head">
-              <span class="header-notice-title">메모</span>
-              <button type="button" class="header-notice-close" data-header-notice="ideas" title="메모 알림 닫기" aria-label="메모 알림 닫기">×</button>
-            </div>
-            <div class="header-notice-body header-idea-bar" id="headerIdeaBar" role="list"></div>
-          </section>
-          <section class="header-notice header-bookmark-notice is-empty" id="headerBookmarkNotice" aria-label="북마크">
-            <div class="header-notice-head">
-              <span class="header-notice-title">북마크</span>
-              <button type="button" class="header-notice-close" data-header-notice="bookmarks" title="북마크 알림 닫기" aria-label="북마크 알림 닫기">×</button>
-            </div>
-            <div id="bookmarkBar" class="header-notice-body bookmark-bar" role="toolbar" aria-label="북마크"></div>
-          </section>
-        </div>
-      </div>
     </header>
 
     <main>
       <aside class="outline-panel binder-panel" id="outlinePanel" aria-label="바인더">
         <div class="outline-panel-inner">
+          <div class="binder-work-meta" id="binderWorkMeta">
+            <div class="binder-work-row binder-work-row-project">
+              <!-- [+] 제목 왼쪽 · 닫기(⟨)는 아래 세그먼트 오른쪽 -->
+              <div class="create-menu" id="createMenu">
+                <button
+                  id="createMenuButton"
+                  class="icon-btn header-plus-btn"
+                  type="button"
+                  title="새 글쓰기 · 문서 가져오기 · 작품 내보내기"
+                  aria-label="추가 · 시작하기"
+                  aria-haspopup="menu"
+                  aria-expanded="false"
+                  aria-controls="createMenuDropdown"
+                ><span class="header-plus-glyph" aria-hidden="true">+</span></button>
+                <div id="createMenuDropdown" class="create-menu-dropdown hidden" role="menu" aria-label="추가 메뉴">
+                  <button type="button" role="menuitem" id="newProjectButton" data-create-action="new">
+                    <span class="create-menu-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                        <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M9.2 16.2l5.6-5.6 1.35 1.35-5.6 5.6H9.2v-1.35z"/>
+                      </svg>
+                    </span>
+                    <span class="create-menu-text">
+                      <strong>새 글쓰기</strong>
+                      <span>새 작품을 만듭니다</span>
+                    </span>
+                  </button>
+                  <button type="button" role="menuitem" id="importDocumentButton" data-create-action="import">
+                    <span class="create-menu-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                        <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 10.2v5.4M9.6 13.4L12 15.8l2.4-2.4"/>
+                      </svg>
+                    </span>
+                    <span class="create-menu-text">
+                      <strong>문서 가져오기</strong>
+                      <span>원고·초고 파일을 작품으로 불러옵니다</span>
+                    </span>
+                  </button>
+                  <button type="button" role="menuitem" id="importProofButton" data-create-action="import-proof">
+                    <span class="create-menu-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                        <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 11.2l1.35 1.35L12.7 10"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M9 15.4l1.35 1.35L12.7 14.2"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M14.2 11.5h2.3M14.2 15.7h2.3"/>
+                      </svg>
+                    </span>
+                    <span class="create-menu-text">
+                      <strong>교정본 가져오기</strong>
+                      <span>편집 교정고 · 토리가 회차 식별 후 비교합니다</span>
+                    </span>
+                  </button>
+                  <button type="button" role="menuitem" id="exportDocumentButton" data-create-action="export">
+                    <span class="create-menu-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="20" height="20" focusable="false">
+                        <path fill="currentColor" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z" opacity="0.18"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M14 3.75h.2L18.25 8v.2"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" d="M7 3.75h7.1L18.25 8v12.25a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V4.75a1 1 0 0 1 1-1z"/>
+                        <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" stroke-linejoin="round" d="M12 15.8V10.4M9.6 12.6L12 10.2l2.4 2.4"/>
+                      </svg>
+                    </span>
+                    <span class="create-menu-text">
+                      <strong>작품 내보내기</strong>
+                      <span>Word·한글·텍스트 등으로 저장</span>
+                    </span>
+                  </button>
+                </div>
+              </div>
+              <label class="project-picker" title="우클릭으로 작품 순서를 바꿀 수 있어요">
+                <select id="projectSelect" aria-label="작품 선택" title="우클릭: 작품 순서 변경"></select>
+              </label>
+              <button
+                id="collapseBinderPanelButton"
+                type="button"
+                class="panel-collapse-btn binder-collapse-btn"
+                title="바인더 닫기"
+                aria-label="바인더 닫기"
+              >⟨</button>
+            </div>
+          </div>
+
           <div class="binder-panel-top">
             <div class="binder-switch" role="tablist" aria-label="바인더 선택">
               <button
@@ -487,13 +359,6 @@
                 aria-controls="settingsBinder"
               >설정집</button>
             </div>
-            <button
-              id="collapseBinderPanelButton"
-              type="button"
-              class="panel-collapse-btn binder-collapse-btn"
-              title="바인더 닫기"
-              aria-label="바인더 닫기"
-            >⟨</button>
           </div>
 
           <div id="manuscriptBinder" class="binder-view" role="tabpanel" aria-labelledby="binderTabManuscript">
@@ -503,51 +368,52 @@
                   <div
                     class="outline-toc-heading"
                     id="outlineTocHeading"
-                    title="클릭: 목차 한눈에 보기 · 우클릭: 글자 크기"
+                    title="클릭: 목차 한눈에 보기"
                     role="button"
                     tabindex="0"
                     aria-haspopup="dialog"
                     aria-controls="outlineOverviewModal"
                   >
                     <h2>목차</h2>
-                    <span class="outline-count-badges" title="우클릭: 글자 크기 · 기능 숨기기" data-ui-hide-label="목차 개수 표시">
-                      <span class="outline-folder-count" id="outlineFolderCount" aria-label="폴더 개수" title="폴더 개수 · 우클릭: 숨기기 등" data-ui-hide-label="폴더 개수 표시">0</span>
-                      <span class="outline-scene-count" id="outlineSceneCount" aria-label="원고 개수" title="원고 개수 · 우클릭: 숨기기 등" data-ui-hide-label="원고 개수 표시">0</span>
+                    <span class="outline-count-badges" title="폴더·원고 개수" data-ui-hide-label="목차 개수 표시">
+                      <span class="outline-folder-count" id="outlineFolderCount" aria-label="폴더 개수" title="폴더 개수" data-ui-hide-label="폴더 개수 표시"><em class="outline-count-label">폴</em><strong class="outline-count-num">0</strong></span>
+                      <span class="outline-count-sep" aria-hidden="true">·</span>
+                      <span class="outline-scene-count" id="outlineSceneCount" aria-label="원고 개수" title="원고 개수" data-ui-hide-label="원고 개수 표시"><em class="outline-count-label">회</em><strong class="outline-count-num">0</strong></span>
                     </span>
                   </div>
-                </div>
-              </div>
-              <div class="outline-header-tools-row panel-heading-actions outline-heading-actions">
-                <div class="outline-action-box outline-action-box-quad" role="group" aria-label="목차 도구">
-                  <button
-                    type="button"
-                    id="folderUndoButton"
-                    class="outline-action-btn outline-history-btn"
-                    title="실행 취소 (Ctrl+Z)"
-                    aria-label="실행 취소"
-                    disabled
-                  >실행 취소</button>
-                  <button
-                    type="button"
-                    id="folderRedoButton"
-                    class="outline-action-btn outline-history-btn"
-                    title="다시 실행 (Ctrl+Y)"
-                    aria-label="다시 실행"
-                    disabled
-                  >다시 실행</button>
-                  <button
-                    type="button"
-                    id="renumberChaptersButton"
-                    class="outline-action-btn"
-                    title="챕터 제목 순번을 1장·2장… 순으로 다시 매깁니다"
-                  >순번 정리</button>
                   <button
                     type="button"
                     id="newChapterButton"
-                    class="outline-action-btn outline-action-btn-primary"
+                    class="outline-icon-btn outline-new-folder-btn"
                     draggable="true"
                     title="클릭: 맨 아래 폴더 추가 · 끌어다 놓기: 원하는 위치에 바로 추가"
-                  >+ 폴더</button>
+                    aria-label="새 폴더 추가"
+                  >
+                    <svg class="outline-new-folder-icon" viewBox="0 0 24 24" width="22" height="22" aria-hidden="true" focusable="false">
+                      <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/>
+                      <path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" d="M12 11.2v5.2M9.4 13.8h5.2"/>
+                    </svg>
+                  </button>
+                  <button
+                    type="button"
+                    class="outline-icon-btn outline-spacing-btn"
+                    id="outlineSpacingButton"
+                    title="클릭: 스크롤로 글자·줄간격 조절 · 우클릭: 글자 크기·줄간격 메뉴"
+                    aria-label="목차 글자·줄간격 조절"
+                    aria-pressed="false"
+                    aria-expanded="false"
+                    aria-controls="outlineSpacingMenu"
+                    aria-haspopup="menu"
+                  >
+                    <svg class="outline-spacing-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+                      <!-- 큰 A = 글자 크기 · 오른쪽 ↕ = 줄 간격 -->
+                      <path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" d="M4 18 L9 5.5 L14 18"/>
+                      <path fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" d="M6.1 13.4h5.8"/>
+                      <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M17.6 5v5.2M16.2 5.9 17.6 4.5 19 5.9"/>
+                      <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" d="M17.6 13.8V19M16.2 18.1 17.6 19.5 19 18.1"/>
+                      <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" d="M20.8 8.2h2.2M20.8 12h2.2M20.8 15.8h2.2"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -577,7 +443,7 @@
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="ideas" aria-expanded="false">
-                    <span class="settings-box-title">생각 수첩</span>
+                    <span class="settings-box-title">생각수첩</span>
                   </button>
                   <button type="button" class="settings-main-open" data-settings-main="ideas" aria-label="메인에서 보기">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
@@ -597,7 +463,7 @@
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="intro" aria-expanded="false">
-                    <span class="settings-box-title">작품소개/기획의도</span>
+                    <span class="settings-box-title">작품소개·기획의도</span>
                   </button>
                 </div>
                 <div class="settings-box-preview" id="introPreview"></div>
@@ -625,7 +491,7 @@
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="logsyn" aria-expanded="false">
-                    <span class="settings-box-title">로그라인/시놉시스</span>
+                    <span class="settings-box-title">로그라인·시놉시스</span>
                   </button>
                 </div>
                 <div class="settings-box-preview" id="logsynPreview"></div>
@@ -661,7 +527,7 @@
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="keywords" aria-expanded="false">
-                    <span class="settings-box-title">키워드</span>
+                    <span class="settings-box-title">장르·키워드</span>
                   </button>
                   <button type="button" class="settings-main-open" data-settings-main="keywords" aria-label="메인에서 보기">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
@@ -670,16 +536,86 @@
                 </div>
                 <div class="settings-box-preview" id="keywordsPreview"></div>
                 <div class="settings-box-body" id="keywordsBody" hidden>
+                  <div class="settings-genre-block" id="settingsGenreBlock">
+                    <div class="settings-field-head">
+                      <span class="settings-field-title">장르</span>
+                    </div>
+                    <p class="hint">작품 종류와 메인·하위 장르를 정해요. 버튼을 <strong>우클릭</strong>해 바꿉니다.</p>
+                    <div class="settings-genre-controls">
+                      <label class="purpose-picker" title="우클릭으로 작품 종류를 바꿀 수 있어요">
+                        <select id="purposeSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                          <option value="general_novel">일반소설</option>
+                        </select>
+                        <button
+                          type="button"
+                          id="purposeDisplay"
+                          class="genre-display purpose-display"
+                          aria-label="작품 종류 (우클릭으로 변경)"
+                          title="우클릭: 작품 종류 변경"
+                          disabled
+                        >일반소설</button>
+                      </label>
+                      <div class="genre-picker" id="genrePicker" title="우클릭으로 장르를 바꿀 수 있어요" data-mode="fiction">
+                        <label class="genre-field" id="mainGenreField">
+                          <select id="mainGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                            <option value="">장르</option>
+                          </select>
+                          <button
+                            type="button"
+                            id="mainGenreDisplay"
+                            class="genre-display"
+                            aria-label="메인 장르 (우클릭으로 변경)"
+                            title="우클릭: 장르 변경"
+                            disabled
+                          >장르</button>
+                          <input
+                            type="text"
+                            id="mainGenreCustom"
+                            class="genre-custom-input hidden"
+                            maxlength="40"
+                            placeholder="직접 입력"
+                            aria-label="메인 장르 직접 입력"
+                            disabled
+                          >
+                        </label>
+                        <label class="genre-field" id="subGenreField">
+                          <select id="subGenreSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                            <option value="">하위 장르</option>
+                          </select>
+                          <button
+                            type="button"
+                            id="subGenreDisplay"
+                            class="genre-display"
+                            aria-label="하위 장르 (우클릭으로 변경)"
+                            title="우클릭: 하위 장르 변경"
+                            disabled
+                          >하위 장르</button>
+                          <input
+                            type="text"
+                            id="subGenreCustom"
+                            class="genre-custom-input hidden"
+                            maxlength="40"
+                            placeholder="직접 입력"
+                            aria-label="하위 장르 직접 입력"
+                            disabled
+                          >
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="settings-field-head">
+                    <span class="settings-field-title">키워드</span>
+                  </div>
                   <p class="hint">태그를 고르면 이 작품 키워드로 저장됩니다. 나중에 더 추가할 수 있어요.</p>
                   <div class="keyword-selected-row">
                     <div id="keywordChipList" class="keyword-chip-list" aria-label="선택한 키워드"></div>
-                    <button type="button" id="keywordPickerToggle" class="secondary keyword-picker-toggle" title="장르·태그에서 고르기" aria-expanded="false" aria-controls="keywordPickerPanel">
+                    <button type="button" id="keywordPickerToggle" class="secondary keyword-picker-toggle" title="태그에서 고르기" aria-expanded="false" aria-controls="keywordPickerPanel">
                       + 키워드
                     </button>
                   </div>
                   <div id="keywordPickerPanel" class="keyword-picker-panel hidden" role="region" aria-label="키워드 태그 선택">
                     <div class="keyword-picker-toolbar">
-                      <span class="keyword-picker-title">장르 · 하위 태그</span>
+                      <span class="keyword-picker-title">태그 고르기</span>
                       <button type="button" id="keywordPickerClose" class="secondary keyword-picker-close" title="닫기">닫기</button>
                     </div>
                     <div id="keywordCatalog" class="keyword-catalog"></div>
@@ -715,7 +651,77 @@
                     <span class="settings-field-title">세계관</span>
                     <button type="button" class="settings-inline-save" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)">저장</button>
                   </div>
-                  <textarea id="projectWorldbuilding" rows="4" placeholder="시대, 장소, 규칙, 역사 등 세계관 설정을 적어 두세요."></textarea>
+                  <p class="hint settings-field-hint">아래 다섯 칸에 맞춰 적어두면 AI 보조가 세계관을 더 정확히 읽어요. 예시는 지우고 작품에 맞게 바꿔 주세요.</p>
+                  <div class="worldbuilding-form" id="worldbuildingForm" aria-label="세계관 구조">
+                    <article class="world-cat" data-world-section="where_when">
+                      <h3 class="world-cat-title">1. 무대 및 시대 <span class="world-cat-en">(Where &amp; When)</span></h3>
+                      <p class="world-cat-blurb">작품의 기본 바탕이 되는 공간과 시간선입니다.</p>
+                      <label class="world-cat-field">현실 / 가상 구분
+                        <textarea data-world-field="reality" rows="2" placeholder="예: 현실에 가상이 섞인 형태 (현대 도시 + 숨겨진 이능 사회)"></textarea>
+                      </label>
+                      <label class="world-cat-field">시대 배경
+                        <textarea data-world-field="era" rows="2" placeholder="예: 현대 · 근미래 · 중세 · 아포칼립스 이후 등"></textarea>
+                      </label>
+                      <label class="world-cat-field">주요 배경
+                        <textarea data-world-field="locale" rows="2" placeholder="예: 해안 도시 하버라인과 그 지하 구역 (이야기의 80%가 여기서 진행)"></textarea>
+                      </label>
+                    </article>
+                    <article class="world-cat" data-world-section="unique_concept">
+                      <h3 class="world-cat-title">2. 세계의 특이점 <span class="world-cat-en">(Unique Concept)</span></h3>
+                      <p class="world-cat-blurb">이 세계를 다른 세계관과 다르게 만드는 단 하나의 핵심 규칙입니다.</p>
+                      <label class="world-cat-field">특수 요소
+                        <textarea data-world-field="special" rows="2" placeholder="예: 감정을 연료로 쓰는 이능 · 마법 · 고도화된 AI · 신의 현신 등"></textarea>
+                      </label>
+                      <label class="world-cat-field">작동 규칙
+                        <textarea data-world-field="rules" rows="2" placeholder="예: 강한 감정일수록 이능이 커지지만, 감정 소모 후 하루간 무력해진다"></textarea>
+                      </label>
+                      <label class="world-cat-field">한계와 대가
+                        <textarea data-world-field="limits" rows="2" placeholder="예: 무한정 쓸 수 없음 · 과다 사용 시 기억 일부 소실"></textarea>
+                      </label>
+                    </article>
+                    <article class="world-cat" data-world-section="extreme_factor">
+                      <h3 class="world-cat-title">3. 영향을 주는 극단적 요소 <span class="world-cat-en">(Extreme Factor)</span></h3>
+                      <p class="world-cat-blurb">평범한 일상을 위협하거나 전체 시스템을 흔드는 가장 거대한 변수입니다.</p>
+                      <label class="world-cat-field">극단적 사건 / 환경
+                        <textarea data-world-field="extreme_event" rows="2" placeholder="예: 10년째 이어지는 ‘검은 비’ 재앙 · 만성적 자원 부족 · 진행 중인 전쟁"></textarea>
+                      </label>
+                      <label class="world-cat-field">세상에 미친 영향
+                        <textarea data-world-field="extreme_impact" rows="2" placeholder="예: 야외 활동이 금지되고, 빗물을 막는 기업이 사실상 도시를 지배한다"></textarea>
+                      </label>
+                    </article>
+                    <article class="world-cat" data-world-section="system_life">
+                      <h3 class="world-cat-title">4. 기본 체계 및 사회 <span class="world-cat-en">(System &amp; Life)</span></h3>
+                      <p class="world-cat-blurb">사람들이 살아가는 데 필요한 최소한의 사회적 약속입니다.</p>
+                      <label class="world-cat-field">지배 구조
+                        <textarea data-world-field="power" rows="2" placeholder="예: 방재 기업 연합이 통치 · 왕 · 신관 · 군대 등"></textarea>
+                      </label>
+                      <label class="world-cat-field">기본 생활
+                        <textarea data-world-field="daily" rows="2" placeholder="예: 크레딧 화폐 · 통신은 발달했으나 장거리 이동은 허가제 · ‘안전’이 최고 가치"></textarea>
+                      </label>
+                      <label class="world-cat-field">계급 / 신분
+                        <textarea data-world-field="class" rows="2" placeholder="예: 이능 보유자는 우대, 노노출 구역 거주자는 차별받는다"></textarea>
+                      </label>
+                    </article>
+                    <article class="world-cat" data-world-section="factions">
+                      <h3 class="world-cat-title">5. 세력 및 갈등 <span class="world-cat-en">(Factions)</span></h3>
+                      <p class="world-cat-blurb">주인공과 인물들이 부딪히게 될 주체들입니다.</p>
+                      <label class="world-cat-field">주요 세력
+                        <textarea data-world-field="factions" rows="2" placeholder="예: 방재 기업 연합 vs 지하 저항 조직 ‘서킷’ · 이능자 길드"></textarea>
+                      </label>
+                      <label class="world-cat-field">갈등의 원인
+                        <textarea data-world-field="conflict" rows="2" placeholder="예: 재앙 대응 독점을 둘러싼 이권 · 이능의 공개/은폐 노선 대립"></textarea>
+                      </label>
+                    </article>
+                    <article class="world-cat world-cat-legacy hidden" id="worldCatLegacy" data-world-section="legacy" hidden>
+                      <h3 class="world-cat-title">기타 · 기존 메모</h3>
+                      <p class="world-cat-blurb">구조에 맞지 않던 이전 세계관 텍스트입니다. 위 칸으로 옮겨 정리해도 됩니다.</p>
+                      <label class="world-cat-field">기존 내용
+                        <textarea data-world-field="legacy" rows="3" placeholder=""></textarea>
+                      </label>
+                    </article>
+                  </div>
+                  <!-- 호환용: 구조화 폼을 직렬화한 전체 텍스트 -->
+                  <textarea id="projectWorldbuilding" class="worldbuilding-serialized hidden" hidden aria-hidden="true" tabindex="-1"></textarea>
                 </div>
               </section>
 
@@ -818,7 +824,7 @@
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" aria-hidden="true">⋮⋮</span>
                   <button type="button" class="settings-box-toggle" data-settings-toggle="sources" aria-expanded="false">
-                    <span class="settings-box-title">참고자료/출처</span>
+                    <span class="settings-box-title">참고자료·출처</span>
                   </button>
                   <button type="button" class="settings-main-open" data-settings-main="sources" aria-label="메인에서 보기">
                     <span class="settings-main-arrow" aria-hidden="true">→</span>
@@ -831,16 +837,89 @@
                     <button type="button" id="newSourceButton" class="secondary" title="자료 추가">+ 자료</button>
                   </div>
                   <p class="hint">링크 출처 또는 PDF·Word·한글·텍스트 <strong>파일 업로드</strong>. 파일은 작성 중 옆에 펼쳐 볼 수 있어요(뷰어 전용).</p>
-                  <div id="sourceList" class="source-list" aria-label="참고자료/출처 목록"></div>
+                  <div id="sourceList" class="source-list" aria-label="참고자료·출처 목록"></div>
                 </div>
               </section>
             </div>
           </div>
+
+          <div class="binder-footer-stack" id="binderFooterStack">
+<div class="header-notice-strip" id="headerNoticeStrip">
+          <section class="header-notice header-idea-notice is-empty" id="headerIdeaNotice" aria-label="아이디어 메모">
+            <div class="header-notice-head">
+              <span class="header-notice-title">메모</span>
+              <button type="button" class="header-notice-close" data-header-notice="ideas" title="메모 알림 닫기" aria-label="메모 알림 닫기">×</button>
+            </div>
+            <div class="header-notice-body header-idea-bar" id="headerIdeaBar" role="list"></div>
+          </section>
+        </div>
+            <div class="binder-footer-actions">
+              <button id="adminModeButton" class="icon-btn header-gear-btn" type="button" title="관리자 모드" aria-label="관리자 모드" aria-haspopup="dialog" aria-controls="adminModal">
+                <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M19.14 12.94c.04-.31.06-.63.06-.94s-.02-.63-.06-.94l2.03-1.58a.5.5 0 0 0 .12-.64l-1.92-3.32a.5.5 0 0 0-.6-.22l-2.39.96a7.03 7.03 0 0 0-1.63-.94l-.36-2.54A.5.5 0 0 0 13.9 2h-3.8a.5.5 0 0 0-.49.42l-.36 2.54c-.58.23-1.12.54-1.63.94l-2.39-.96a.5.5 0 0 0-.6.22L2.71 8.08a.5.5 0 0 0 .12.64l2.03 1.58c-.04.31-.06.63-.06.94s.02.63.06.94L2.83 14.72a.5.5 0 0 0-.12.64l1.92 3.32c.13.22.4.31.62.22l2.39-.96c.5.4 1.05.72 1.63.94l.36 2.54c.05.24.25.42.49.42h3.8c.24 0 .44-.18.49-.42l.36-2.54c.58-.23 1.12-.54 1.63-.94l2.39.96c.23.09.5 0 .62-.22l1.92-3.32a.5.5 0 0 0-.12-.64l-2.03-1.58zM12 15.5A3.5 3.5 0 1 1 12 8.5a3.5 3.5 0 0 1 0 7z"/>
+                </svg>
+              </button>
+              <button
+                id="uiThemeToggleButton"
+                class="icon-btn header-theme-btn"
+                type="button"
+                title="테마 바꾸기"
+                aria-label="테마 바꾸기"
+                aria-pressed="false"
+                data-theme-icon="light"
+              >
+                <svg class="theme-icon theme-icon-light" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <circle cx="12" cy="12" r="4" fill="currentColor"/>
+                  <path fill="currentColor" d="M12 2.5a1 1 0 0 1 1 1V5a1 1 0 1 1-2 0V3.5a1 1 0 0 1 1-1zm0 14a1 1 0 0 1 1 1v1.5a1 1 0 1 1-2 0V17.5a1 1 0 0 1 1-1zM3.5 11a1 1 0 0 0 0 2H5a1 1 0 1 0 0-2H3.5zm14 0a1 1 0 1 0 0 2H19a1 1 0 1 0 0-2h-1.5zM5.64 5.64a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 1 1-1.41 1.41L5.64 7.05a1 1 0 0 1 0-1.41zm10.25 10.25a1 1 0 0 1 1.41 0l1.06 1.06a1 1 0 0 1-1.41 1.41l-1.06-1.06a1 1 0 0 1 0-1.41zM18.36 5.64a1 1 0 0 1 0 1.41l-1.06 1.06a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0zM8.11 15.89a1 1 0 0 1 0 1.41L7.05 18.36a1 1 0 1 1-1.41-1.41l1.06-1.06a1 1 0 0 1 1.41 0z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-sand hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M3.5 17.2c1.7-2.2 3.4-3.5 5.2-3.5 1.5 0 2.6.7 3.7 1.8 1.2 1.2 2.5 1.9 4.1 1.9 1.7 0 3.2-.8 4.5-2.1v2.7H3.5v-.8z"/>
+                  <path fill="currentColor" d="M4.2 14.1c1.4-1.8 2.8-2.8 4.4-2.8 1.4 0 2.4.6 3.4 1.5.4.4.8.7 1.3.9-.7-.9-1.6-1.6-2.8-1.6-1.9 0-3.6 1.3-5.2 3.2l-.1-1.2z"/>
+                  <circle cx="16.4" cy="7.2" r="2.35" fill="currentColor"/>
+                </svg>
+                <svg class="theme-icon theme-icon-dark hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M20.2 14.35A8.2 8.2 0 0 1 9.65 3.8a.75.75 0 0 0-.95-.95A9.7 9.7 0 1 0 21.15 15.3a.75.75 0 0 0-.95-.95z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-cabin hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <g fill="currentColor" fill-rule="evenodd">
+                    <path d="M12 1.2c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C7.9 9.05 8.65 4.1 12 1.2zm-.45 2.55h.9v7.15h-.9V3.75z"/>
+                    <path transform="rotate(-48 9.6 12)" d="M9.6 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C5.5 10.25 6.25 5.3 9.6 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
+                    <path transform="rotate(48 14.4 12)" d="M14.4 2.4c3.35 2.9 4.1 7.85.85 11.55-.4.45-1.1.45-1.5 0C10.3 10.25 11.05 5.3 14.4 2.4zm-.45 2.55h.9v7.15h-.9V4.95z"/>
+                    <path transform="rotate(-78 10.5 14.8)" d="M10.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C7 12.9 7.65 8.65 10.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
+                    <path transform="rotate(78 13.5 14.8)" d="M13.5 6.2c2.85 2.45 3.5 6.7.7 9.85-.35.4-.95.4-1.3 0C10 12.9 10.65 8.65 13.5 6.2zm-.4 2.2h.8v6.05h-.8V8.4z"/>
+                  </g>
+                  <path fill="currentColor" d="M11.15 14.6h1.7v6.9a.85.85 0 1 1-1.7 0v-6.9z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-study hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" fill-rule="evenodd" d="M12 1.5 18.5 9.85c1.3 1.65 1.1 3.95-.45 5.4L15.6 17.55H8.4L6 15.25c-1.55-1.45-1.75-3.75-.45-5.4L12 1.5zm-.5 3.35h1v5.5h-1V4.85zM12 11.05a1.3 1.3 0 1 0 .01 2.6 1.3 1.3 0 0 0-.01-2.6z"/>
+                  <rect x="7.15" y="18.1" width="9.7" height="1.85" rx="0.9" fill="currentColor"/>
+                  <rect x="7.6" y="20.7" width="8.8" height="1.7" rx="0.85" fill="currentColor"/>
+                </svg>
+                <svg class="theme-icon theme-icon-library hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M4 20.5h16v-1.6H4v1.6zm1.2-3.2h2.1V9.2H5.2v8.1zm5.25 0h2.1V9.2h-2.1v8.1zm5.25 0H17.8V9.2h-2.1v8.1zM3.8 7.6 12 3.4l8.2 4.2v1.5H3.8V7.6z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-attic hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M12 2.35 14.35 9.1l7.15.42-5.55 4.55 1.78 6.95L12 16.7l-5.73 4.32 1.78-6.95-5.55-4.55 7.15-.42L12 2.35z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-eink hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                  <path fill="currentColor" d="M7.2 4.2h9.8v2.2H9.6v4.1h6.4v2.15H9.6v5.15h7.6v2.2H7.2V4.2z"/>
+                </svg>
+              </button>
+            </div>
+          </div>
+
         </div>
         <div class="outline-resizer" id="outlineResizer" role="separator" aria-orientation="vertical" aria-label="바인더 너비 조절" title="끌어 바인더 너비 조절"></div>
       </aside>
       <button id="expandBinderPanelButton" type="button" class="binder-panel-reopen hidden" title="바인더 열기" aria-label="바인더 열기">
-        바인더 ⟩
+        <span class="binder-panel-reopen-inner" aria-hidden="true">
+          <!-- 바인더 아이콘 (viewBox 안쪽 여백으로 왼쪽 잘림 방지) -->
+          <svg class="binder-panel-reopen-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+            <rect x="6.5" y="3.75" width="11.5" height="16.5" rx="1.6"/>
+            <path d="M9.25 3.75v16.5"/>
+            <path d="M11.75 8.5h4M11.75 12h4M11.75 15.5h3"/>
+          </svg>
+        </span>
       </button>
 
       <section id="workArea" class="work-area">
@@ -920,33 +999,33 @@
             <div class="welcome-tips-grid">
               <article class="welcome-tip-card">
                 <span class="welcome-tip-num" aria-hidden="true">1</span>
-                <strong>작품 만들기</strong>
-                <p>왼쪽 위 <b>+</b> → <b>새 글쓰기</b>. 이미 쓴 글이 있으면 <b>문서 가져오기</b>.</p>
+                <strong>작품 시작하기</strong>
+                <p>왼쪽 위 + 버튼으로 새 글을 시작하거나, 기존 원고를 편하게 불러오세요.</p>
               </article>
               <article class="welcome-tip-card">
                 <span class="welcome-tip-num" aria-hidden="true">2</span>
-                <strong>회차 쓰기</strong>
-                <p>왼쪽 바인더에서 챕터·씬을 만들고, 가운데 본문에 글을 적어요.</p>
+                <strong>차근차근 회차 쓰기</strong>
+                <p>왼쪽 바인더에서 챕터와 씬을 만들고, 가운데 본문 창에서 자유롭게 이야기를 펼쳐보세요.</p>
               </article>
               <article class="welcome-tip-card">
                 <span class="welcome-tip-num" aria-hidden="true">3</span>
-                <strong>토리에게 묻기</strong>
-                <p>오른쪽 SuperTORY에서 이어서 쓰기·세계관 스캔·1:1 대화를 할 수 있어요.</p>
+                <strong>토리와 함께 쓰기</strong>
+                <p>오른쪽 SuperTORY는 글이 막힐 때 언제든 도와주는 AI 창작 파트너예요. 스토리 확장, 설정 스캔, 자유 대화까지 집필의 모든 순간을 함께합니다.</p>
               </article>
               <article class="welcome-tip-card">
                 <span class="welcome-tip-num" aria-hidden="true">✦</span>
-                <strong>알아 두면 좋은 것</strong>
-                <p>글은 이 기기에 자동 저장됩니다. 본문을 우클릭하면 북마크·이미지·떡밥 등 바로가기 메뉴가 열려요.</p>
+                <strong>알아두면 유용한 팁</strong>
+                <p>작성 중인 글은 이 기기에 자동으로 안심 저장돼요. 본문에서 마우스 우클릭을 하면 북마크, 이미지, 떡밥 메모 등 유용한 메뉴를 바로 쓸 수 있답니다.</p>
               </article>
             </div>
           </div>
 
         </div>
 
-        <div id="ideaBoard" class="idea-board hidden" aria-label="생각 수첩 보드">
+        <div id="ideaBoard" class="idea-board hidden" aria-label="생각수첩 보드">
           <div class="idea-board-toolbar">
             <div>
-              <h2>생각 수첩</h2>
+              <h2>생각수첩</h2>
               <p class="hint">포스트잇 메모를 크게 펼쳐 한눈에 볼 수 있어요. <span class="idea-resize-tip">위 클립으로 색</span> · <span class="idea-resize-tip">모서리로 크기</span> · <span class="idea-resize-tip">우클릭으로도 색</span>을 바꿀 수 있습니다.</p>
             </div>
             <div class="idea-board-actions">
@@ -957,11 +1036,11 @@
           <div id="ideaBoardGrid" class="idea-board-grid"></div>
         </div>
 
-        <div id="keywordBoard" class="keyword-board hidden" aria-label="키워드 메인">
+        <div id="keywordBoard" class="keyword-board hidden" aria-label="장르·키워드 메인">
           <div class="keyword-board-toolbar">
             <div>
-              <h2 class="keyword-board-title">키워드</h2>
-              <p class="hint">작품 분위기·장르 태그를 넓게 골라 보세요. 선택한 태그는 자동 저장됩니다.</p>
+              <h2 class="keyword-board-title">장르·키워드</h2>
+              <p class="hint">장르는 설정집에서, 분위기 태그는 아래에서 골라 보세요. 선택한 태그는 자동 저장됩니다.</p>
             </div>
             <div class="keyword-board-actions">
               <button type="button" id="keywordBoardCloseButton" class="secondary compact-btn">닫기</button>
@@ -972,7 +1051,7 @@
             <div id="keywordBoardChipList" class="keyword-chip-list keyword-board-chip-list" aria-label="선택한 키워드"></div>
           </div>
           <div class="keyword-board-catalog-wrap">
-            <div class="keyword-board-section-label">장르 · 하위 태그</div>
+            <div class="keyword-board-section-label">태그 고르기</div>
             <div id="keywordBoardCatalog" class="keyword-catalog keyword-board-catalog"></div>
           </div>
           <div class="keyword-custom-row keyword-board-custom">
@@ -988,11 +1067,33 @@
           </div>
         </div>
 
+        <!-- 설정집 목록형 메인: 떡밥 / 수집창고 / 참고자료 -->
+        <div id="settingsCollectionBoard" class="settings-collection-board hidden" aria-label="설정집 메인 목록">
+          <div class="settings-collection-inner">
+            <div class="settings-collection-toolbar">
+              <div>
+                <h2 class="settings-collection-title" id="settingsCollectionTitle">목록</h2>
+                <p class="hint" id="settingsCollectionHint"></p>
+              </div>
+              <div class="settings-collection-actions">
+                <button type="button" id="settingsCollectionAddButton" class="secondary compact-btn">+ 추가</button>
+                <button type="button" id="settingsCollectionExtraButton" class="secondary compact-btn hidden">비우기</button>
+                <button type="button" id="settingsCollectionCloseButton" class="secondary compact-btn">닫기</button>
+              </div>
+            </div>
+            <div id="settingsCollectionMount" class="settings-collection-mount"></div>
+          </div>
+        </div>
+
         <div id="sceneWorkspace" class="scene-workspace hidden">
           <div class="writing-column">
-            <!-- Episode tabs + sequential prev/next (like browser tabs for 회차) -->
+            <!-- 열린문서 탭: 제목 카드 위(밖) · 좌우는 카드와 동일 거터 -->
             <div class="episode-chrome" id="episodeChrome" aria-label="회차 이동">
               <div class="episode-tab-bar" id="episodeTabBar" role="tablist" aria-label="열린 회차 탭"></div>
+            </div>
+            <form id="sceneEditor" class="editor">
+              <!-- 제목 · 서식 = 한 상자 (요약은 본문 프레임 상태바 오른쪽) -->
+              <div class="ms-chrome-stack" id="msChromeStack">
               <div class="episode-nav-bar" role="navigation" aria-label="이전·다음 회차">
                 <button type="button" class="episode-nav-btn episode-nav-prev" id="episodePrevButton" title="이전 회차">
                   <span class="episode-nav-chevron" aria-hidden="true">‹</span>
@@ -1011,72 +1112,22 @@
                   <span class="episode-nav-chevron" aria-hidden="true">›</span>
                 </button>
               </div>
-            </div>
-            <form id="sceneEditor" class="editor">
-              <div class="editor-meta ms-toolbar-shell" id="editorMetaShell" data-toolbar-shell="meta">
-                <div class="scene-synopsis-field">
-                  <button
-                    type="button"
-                    class="scene-synopsis-label-btn"
-                    id="synopsisListButton"
-                    title="좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘"
-                  >요약</button>
-                  <input id="sceneSynopsis" placeholder="예: 주인공이 낯선 편지를 발견한다." form="sceneEditor" aria-label="이 씬 요약">
-                  <button
-                    type="button"
-                    class="panel-collapse-btn ms-toolbar-collapse-btn"
-                    id="editorMetaHideButton"
-                    title="요약 칸 접기"
-                    aria-label="요약 칸 접기"
-                    data-toolbar-hide="meta"
-                  >∧</button>
-                </div>
-              </div>
-              <!-- hidden file input for right-click image insert in manuscript -->
-              <input id="inlineImageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden>
-
               <!-- Fixed format toolbar: segmented groups, collapsible -->
               <div class="ms-toolbar-shell" id="formatToolbarShell" data-toolbar-shell="format">
               <div class="format-toolbar" id="formatToolbar" role="toolbar" aria-label="글자 서식">
                 <div class="format-toolbar-track">
-                <!-- 실행 취소 | 다시 실행 -->
-                <div class="format-seg" role="group" aria-label="실행 취소 · 다시 실행">
+                <div class="format-toolbar-row format-toolbar-row-format" role="group" aria-label="서식" data-toolbar-row="format-format">
+                <div class="format-toolbar-row-body format-toolbar-row-body-split">
+                <div class="format-toolbar-cluster format-toolbar-cluster-start">
+                <!-- 실행 취소 · 다시 실행 -->
+                <div class="format-seg format-seg-icon format-seg-history" role="group" aria-label="실행 취소 · 다시 실행">
                   <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↩</button>
                   <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" aria-label="다시 실행">↪</button>
                 </div>
-                <!-- 굵게 | 기울임 | 밑줄 -->
-                <div class="format-seg" role="group" aria-label="글자 서식">
-                  <button type="button" class="format-btn" data-format="bold" title="굵게 (Ctrl+B)"><strong>B</strong></button>
-                  <button type="button" class="format-btn" data-format="italic" title="기울임 (Ctrl+I)"><em>I</em></button>
-                  <button type="button" class="format-btn" data-format="underline" title="밑줄 (Ctrl+U)"><span class="u-mark">U</span></button>
-                </div>
-                <!-- 좌 | 중 | 우 -->
-                <div class="format-seg" role="group" aria-label="정렬">
-                  <button type="button" class="format-btn format-btn-wide" data-format="justifyLeft" title="왼쪽 정렬">좌</button>
-                  <button type="button" class="format-btn format-btn-wide" data-format="justifyCenter" title="가운데 정렬">중</button>
-                  <button type="button" class="format-btn format-btn-wide" data-format="justifyRight" title="오른쪽 정렬">우</button>
-                </div>
-                <!-- 목록 (독립) -->
-                <button
-                  type="button"
-                  class="format-btn format-list-btn format-btn-solo"
-                  data-format="list"
-                  title="목록 · 클릭: 적용 · 우클릭: 기호 선택"
-                  aria-label="목록"
-                  aria-haspopup="true"
-                  aria-expanded="false"
-                  aria-controls="formatListPalette"
-                >
-                  <span class="format-list-icon" aria-hidden="true">
-                    <span class="format-list-mark" data-list-mark>•</span>
-                    <span class="format-list-bars">
-                      <span></span><span></span><span></span>
-                    </span>
-                  </span>
-                </button>
-                <!-- 단락 · 글꼴 · 크기 · 줄간격 -->
-                <div class="format-seg format-seg-fields" role="group" aria-label="단락 · 글꼴 · 크기 · 줄간격">
-                  <label class="toolbar-field toolbar-field-bare">
+                <span class="format-row-divider" aria-hidden="true"></span>
+                <!-- 그룹1: 단락 · 글꼴 · 크기 · 줄간격 · 장평 (균등 칸, 가운데 구분선 고정) -->
+                <div class="format-field-chips" role="group" aria-label="단락 · 글꼴 · 크기 · 줄간격 · 장평">
+                  <label class="toolbar-field toolbar-field-bare format-field-chip">
                     <select id="formatParagraphStyle" data-role="format-paragraph" title="단락 스타일" aria-label="단락 스타일">
                       <option value="p">본문</option>
                       <option value="h1">제목 1</option>
@@ -1086,12 +1137,14 @@
                       <option value="caption">캡션</option>
                     </select>
                   </label>
-                  <label class="toolbar-field toolbar-field-bare">
+                  <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                  <label class="toolbar-field toolbar-field-bare format-field-chip">
                     <select id="formatFont" class="format-font-select" title="글꼴" aria-label="글꼴">
                       <!-- options filled by app.js (FONT_OPTIONS); shows active face -->
                     </select>
                   </label>
-                  <label class="toolbar-field toolbar-field-bare">
+                  <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                  <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm">
                     <select id="formatSize" data-role="format-size" title="글자 크기" aria-label="글자 크기">
                       <option value="12px">12</option>
                       <option value="14px">14</option>
@@ -1105,7 +1158,8 @@
                       <option value="32px">32</option>
                     </select>
                   </label>
-                  <label class="toolbar-field toolbar-field-bare" title="줄간격">
+                  <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                  <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm" title="줄간격">
                     <select id="formatLineHeight" data-role="format-line-height" title="줄간격" aria-label="줄간격">
                       <option value="1.0">1.0</option>
                       <option value="1.2">1.2</option>
@@ -1116,20 +1170,33 @@
                       <option value="3.0">3.0</option>
                     </select>
                   </label>
+                  <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                  <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm format-jangpyeong-chip" title="장평 · 우클릭: 전체에 적용">
+                    <select id="formatJangpyeong" data-role="format-jangpyeong" title="장평 (글자 가로 비율 %)" aria-label="장평">
+                      <option value="80">80</option>
+                      <option value="90">90</option>
+                      <option value="95">95</option>
+                      <option value="100" selected>100</option>
+                      <option value="105">105</option>
+                      <option value="110">110</option>
+                      <option value="120">120</option>
+                      <option value="130">130</option>
+                    </select>
+                  </label>
                 </div>
-                <!-- 글자색 | 형광펜 -->
-                <div class="format-seg format-seg-colors" role="group" aria-label="색">
-                  <button
-                    type="button"
-                    class="format-btn format-color-btn"
-                    data-format="textColor"
-                    data-color-kind="text"
-                    title="글자색 · 클릭: 적용 · 우클릭: 팔레트"
-                    aria-label="글자색"
-                  >
-                    <span class="format-a-icon" aria-hidden="true">A</span>
-                    <span class="format-color-bar" data-color-bar="text"></span>
-                  </button>
+                </div>
+                <span class="format-row-divider format-toolbar-mid-divider" aria-hidden="true"></span>
+                <div class="format-toolbar-cluster format-toolbar-cluster-end">
+                <!-- 그룹2: B · I · U · S(취소선) -->
+                <div class="format-seg format-seg-icon" role="group" aria-label="글자 서식">
+                  <button type="button" class="format-btn" data-format="bold" title="굵게 (Ctrl+B)"><strong>B</strong></button>
+                  <button type="button" class="format-btn" data-format="italic" title="기울임 (Ctrl+I)"><em>I</em></button>
+                  <button type="button" class="format-btn" data-format="underline" title="밑줄 (Ctrl+U)"><span class="u-mark">U</span></button>
+                  <button type="button" class="format-btn" data-format="strike" title="취소선 (Ctrl+Shift+X)" aria-label="취소선"><span class="s-mark">S</span></button>
+                </div>
+                <span class="format-row-divider" aria-hidden="true"></span>
+                <!-- 그룹3: 형광펜 · 글자색 · 텍스트 음영상자 -->
+                <div class="format-seg format-seg-icon format-seg-colors" role="group" aria-label="색 · 음영">
                   <button
                     type="button"
                     class="format-btn format-color-btn"
@@ -1146,103 +1213,169 @@
                     </span>
                     <span class="format-color-bar" data-color-bar="highlight"></span>
                   </button>
-                </div>
-                <!-- 찾기 · 뷰어 (독립) -->
-                <button type="button" class="format-btn format-find-btn format-btn-solo" id="findToggleButton" title="찾기 (Ctrl+F)" aria-label="찾기" aria-expanded="false" aria-controls="findBar">
-                  <span class="format-find-icon emoji-icon" aria-hidden="true">🔍</span>
-                </button>
-                <button
-                  type="button"
-                  class="format-btn format-viewer-btn format-btn-solo"
-                  id="viewerModeButton"
-                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 (편집 불가)"
-                  aria-label="뷰어"
-                >
-                  <svg class="format-viewer-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
-                    <path class="viewer-icon-cover-l" fill="currentColor" d="M11.2 5.35C9.85 4.4 8.25 3.9 6.2 3.9H4.3c-.7 0-1.25.55-1.25 1.25v11.2c0 .7.55 1.25 1.25 1.25h2.15c1.35 0 2.55.3 3.4.85.2.12.45.12.65 0 .12-.08.22-.15.35-.22V5.85c-.2-.15-.4-.3-.65-.5z"/>
-                    <path class="viewer-icon-cover-r" fill="currentColor" d="M12.8 5.35c1.35-.95 2.95-1.45 5-1.45h1.9c.7 0 1.25.55 1.25 1.25v11.2c0 .7-.55 1.25-1.25 1.25H17.55c-1.35 0-2.55.3-3.4.85-.2.12-.45.12-.65 0-.12-.08-.22-.15-.35-.22V5.85c.2-.15.4-.3.65-.5z"/>
-                    <path class="viewer-icon-page-l" fill="#fffdf8" d="M10.85 6.7c-.95-.6-2.1-.9-3.65-.9H4.55c-.2 0-.35.15-.35.35v9.85c0 .2.15.35.35.35h1.85c1.25 0 2.35.25 3.2.7.15.08.35.08.5 0 .1-.05.2-.12.3-.18V7c-.15-.1-.35-.2-.55-.3z"/>
-                    <path class="viewer-icon-page-r" fill="#fffdf8" d="M13.15 6.7c.95-.6 2.1-.9 3.65-.9h2.65c.2 0 .35.15.35.35v9.85c0 .2-.15.35-.35.35h-1.85c-1.25 0-2.35.25-3.2.7-.15.08-.35.08-.5 0-.1-.05-.2-.12-.3-.18V7c.15-.1.35-.2.55-.3z"/>
-                    <path class="viewer-icon-spine" fill="none" stroke="currentColor" stroke-width="1.2" stroke-linecap="round" d="M12 5.7v12.1"/>
-                    <path class="viewer-icon-lines" fill="none" stroke="currentColor" stroke-width="0.85" stroke-linecap="round" d="M5.85 8.65h3.2M5.85 10.45h3.2M5.85 12.25h2.45M14.95 8.65h3.2M14.95 10.45h3.2M15.7 12.25h2.45"/>
-                  </svg>
-                </button>
-                </div>
-                <button
-                  type="button"
-                  class="panel-collapse-btn ms-toolbar-collapse-btn"
-                  id="formatToolbarHideButton"
-                  title="서식 도구 접기"
-                  aria-label="서식 도구 접기"
-                  data-toolbar-hide="format"
-                >∧</button>
-              </div>
-              </div>
-              <div id="findBar" class="find-bar hidden" role="search" aria-label="원고 찾기">
-                <label class="find-bar-field">
-                  <span class="find-bar-label">찾기</span>
-                  <input type="search" id="findInput" placeholder="찾을 내용" autocomplete="off" spellcheck="false">
-                </label>
-                <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
-                <button type="button" class="format-btn" id="findPrevButton" title="이전">↑</button>
-                <button type="button" class="format-btn" id="findNextButton" title="다음">↓</button>
-                <button type="button" class="format-btn" id="findCloseButton" title="닫기">×</button>
-              </div>
-
-              <!-- Fixed scene tools: notes / cast / links / other-scene view (collapsible) -->
-              <div class="ms-toolbar-shell" id="sceneFeatureBarShell" data-toolbar-shell="feature">
-              <div class="scene-feature-bar" id="sceneFeatureBar" aria-label="씬 추가 기능">
-                <div class="scene-feature-bar-track">
-                <label class="status-clip" title="작성 상태" aria-label="작성 상태">
-                  <select id="sceneStatus" form="sceneEditor" class="status-clip-select" aria-label="작성 상태">
-                    <option value="idea">아이디어</option>
-                    <option value="outline">개요</option>
-                    <option value="draft">초고 작성 중</option>
-                    <option value="revision">고치는 중</option>
-                    <option value="complete">완성</option>
-                  </select>
-                </label>
-                <button
-                  id="focusWriteButton"
-                  data-tools-action="focus-write"
-                  title="큰 창에서 원고를 이어서 편집합니다 (F10)"
-                  type="button"
-                  class="feature-chip feature-chip-focus"
-                >큰 창</button>
-                <button type="button" class="feature-chip" data-tools-action="notes" id="authorNotesChip" title="작가 메모">
-                  작가 메모<span class="feature-chip-count hidden" id="authorNotesCount" aria-hidden="true"></span>
-                </button>
-                <button type="button" class="feature-chip" data-tools-action="characters" id="sceneCharactersChip" title="이 회차에 등장하는 인물 연결">
-                  등장 인물<span class="feature-chip-count hidden" id="sceneCharactersCount" aria-hidden="true"></span>
-                </button>
-                <button type="button" class="feature-chip" data-tools-action="links" id="referenceMaterialsChip" title="참고 자료 (링크·파일)">
-                  참고 자료<span class="feature-chip-count hidden" id="referenceMaterialsCount" aria-hidden="true"></span>
-                </button>
-                <button
-                  type="button"
-                  class="feature-chip"
-                  id="spellcheckFeatureButton"
-                  data-tools-action="spellcheck"
-                  title="현재 원고의 철자·맞춤법·띄어쓰기를 검사합니다"
-                >맞춤법</button>
-                <button
-                  type="button"
-                  class="feature-chip"
-                  id="writingLogButton"
-                  data-tools-action="writing-log"
-                  title="클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
-                  aria-pressed="false"
-                >기록</button>
-                <div class="analyze-menu-control feature-view-mode" id="analyzeMenuControl">
                   <button
                     type="button"
-                    class="feature-chip feature-chip-tory"
+                    class="format-btn format-color-btn"
+                    data-format="textColor"
+                    data-color-kind="text"
+                    title="글자색 · 클릭: 적용 · 우클릭: 팔레트"
+                    aria-label="글자색"
+                  >
+                    <span class="format-a-icon" aria-hidden="true">A</span>
+                    <span class="format-color-bar" data-color-bar="text"></span>
+                  </button>
+                  <button
+                    type="button"
+                    class="format-btn format-color-btn format-shade-btn"
+                    data-format="shadeBox"
+                    data-color-kind="shade"
+                    title="텍스트 음영상자 · 클릭: 상자 채우기/없애기 · 우클릭: 색 고르기"
+                    aria-label="텍스트 음영상자"
+                  >
+                    <span class="format-shade-icon" aria-hidden="true">
+                      <span class="format-shade-box">
+                        <span class="format-shade-letter">A</span>
+                      </span>
+                    </span>
+                    <span class="format-color-bar" data-color-bar="shade"></span>
+                  </button>
+                </div>
+                <span class="format-row-divider" aria-hidden="true"></span>
+                <!-- 그룹4: 정렬 (줄 방향 아이콘) -->
+                <div class="format-seg format-seg-icon format-seg-align" role="group" aria-label="정렬">
+                  <button type="button" class="format-btn format-align-btn" data-format="justifyLeft" title="왼쪽 정렬" aria-label="왼쪽 정렬">
+                    <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h9v1.4H1zm0 3h14v1.4H1zm0 3h9v1.4H1z"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="format-btn format-align-btn" data-format="justifyCenter" title="가운데 정렬" aria-label="가운데 정렬">
+                    <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M1 3h14v1.4H1zm2.5 3h9v1.4h-9zM1 9h14v1.4H1zm2.5 3h9v1.4h-9z"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="format-btn format-align-btn" data-format="justifyRight" title="오른쪽 정렬" aria-label="오른쪽 정렬">
+                    <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M1 3h14v1.4H1zm5 3h9v1.4H6zM1 9h14v1.4H1zm5 3h9v1.4H6z"/>
+                    </svg>
+                  </button>
+                  <button type="button" class="format-btn format-align-btn" data-format="justifyFull" title="양쪽 맞춤" aria-label="양쪽 맞춤">
+                    <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                      <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1z"/>
+                    </svg>
+                  </button>
+                </div>
+                <span class="format-row-divider" aria-hidden="true"></span>
+                <!-- 그룹5: 글머리 기호 · 특수문자 -->
+                <div class="format-seg format-seg-icon format-seg-list" role="group" aria-label="글머리 · 특수문자">
+                  <button
+                    type="button"
+                    class="format-btn format-list-btn format-bullet-btn"
+                    data-format="list"
+                    title="글머리 기호 · 클릭: 적용 · 우클릭: 기호 선택"
+                    aria-label="글머리 기호"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-controls="formatListPalette"
+                  >
+                    <span class="format-list-icon" aria-hidden="true">
+                      <span class="format-list-dots" aria-hidden="true">
+                        <span></span><span></span><span></span>
+                      </span>
+                      <span class="format-list-bars">
+                        <span></span><span></span><span></span>
+                      </span>
+                    </span>
+                  </button>
+                  <button
+                    type="button"
+                    class="format-btn format-special-btn"
+                    data-format="specialChar"
+                    title="특수문자 · 클릭: 기호 선택"
+                    aria-label="특수문자"
+                    aria-haspopup="true"
+                    aria-expanded="false"
+                    aria-controls="formatSpecialPalette"
+                  >
+                    <span class="format-special-icon" aria-hidden="true">※</span>
+                  </button>
+                </div>
+                </div>
+                </div>
+                <button
+                  type="button"
+                  class="panel-collapse-btn ms-toolbar-collapse-btn format-row-collapse-btn ms-collapse-col-btn"
+                  id="formatFormatHideButton"
+                  title="서식 도구 접기"
+                  aria-label="서식 도구 접기"
+                  data-toolbar-hide="format-format"
+                >∧</button>
+                </div>
+                <div class="format-toolbar-row format-toolbar-row-icons" role="group" aria-label="도구 아이콘" data-toolbar-row="format-icons">
+                <div class="format-toolbar-row-body format-toolbar-row-body-split">
+                <div class="format-toolbar-cluster format-toolbar-cluster-start">
+                <!-- 씬 기능 (왼쪽부터): 작가메모 · 등장인물 · 참고자료 · 맞춤법 · 분석 -->
+                <button type="button" class="format-tool-item format-tool-scene" data-tools-action="notes" id="authorNotesChip" title="작가 메모" aria-label="작가 메모">
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="M7 3.5h7.5L19 8v12.5H7z"/>
+                      <path d="M14.5 3.5V8H19"/>
+                      <path d="M10 12h6M10 15.5h6"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">작가메모</span>
+                  <span class="format-tool-badge feature-chip-count hidden" id="authorNotesCount" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="format-tool-item format-tool-scene" data-tools-action="characters" id="sceneCharactersChip" title="이 회차에 등장하는 인물 연결" aria-label="등장 인물">
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <circle cx="9" cy="8" r="3"/>
+                      <path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/>
+                      <circle cx="16.5" cy="8.5" r="2.4"/>
+                      <path d="M15 14.2c2 .4 3.6 1.8 4.2 4.3"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">등장인물</span>
+                  <span class="format-tool-badge feature-chip-count hidden" id="sceneCharactersCount" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="format-tool-item format-tool-scene" data-tools-action="links" id="referenceMaterialsChip" title="참고 자료 (링크·파일)" aria-label="참고 자료">
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="M9.5 14.5 14.5 9.5"/>
+                      <path d="M11 7.5 12.8 5.7a3.2 3.2 0 0 1 4.5 4.5L15.5 12"/>
+                      <path d="M13 16.5 11.2 18.3a3.2 3.2 0 0 1-4.5-4.5L8.5 12"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">참고자료</span>
+                  <span class="format-tool-badge feature-chip-count hidden" id="referenceMaterialsCount" aria-hidden="true"></span>
+                </button>
+                <button type="button" class="format-tool-item format-tool-scene" id="spellcheckFeatureButton" data-tools-action="spellcheck" title="현재 원고의 철자·맞춤법·띄어쓰기를 검사합니다" aria-label="맞춤법">
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="M5 17 9.5 7h1L15 17"/>
+                      <path d="M6.5 13.5h7"/>
+                      <path d="m16 14 2 2 4-4.5"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">맞춤법</span>
+                </button>
+                <div class="view-mode-control format-analyze-control analyze-menu-control" id="analyzeMenuControl">
+                  <button
+                    type="button"
+                    class="format-tool-item format-tool-scene format-tool-analyze"
                     id="analyzeMenuButton"
                     aria-haspopup="menu"
                     aria-expanded="false"
                     aria-controls="analyzeMenuDropdown"
                     title="원고 분석 방식 선택"
-                  >분석 ▾</button>
+                    aria-label="분석"
+                  >
+                    <span class="format-tool-glyph" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="M5 19V10M10 19V5M15 19v-7M20 19V8"/>
+                      </svg>
+                    </span>
+                    <span class="format-tool-label">분석</span>
+                  </button>
                   <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식">
                     <div class="analyze-menu-section-label" aria-hidden="true">
                       <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
@@ -1272,16 +1405,105 @@
                     </button>
                   </div>
                 </div>
-                <div class="view-mode-control feature-view-mode">
+                </div>
+                <div class="format-toolbar-cluster format-toolbar-cluster-end">
+                <!-- 보기 도구 (북마크 · 타자기 · 기록 · 검색 · 뷰어 · 분할 · 확장) -->
+                <button
+                  type="button"
+                  class="format-tool-item format-bookmark-btn"
+                  id="bookmarkListButton"
+                  data-tools-action="bookmark-list"
+                  title="북마크 목록 · 각 항목에 이유를 적을 수 있어요"
+                  aria-label="북마크"
+                  aria-pressed="false"
+                  aria-expanded="false"
+                  aria-controls="bookmarkListPanel"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="M7 3.75h10a1.25 1.25 0 0 1 1.25 1.25v15.1l-6.25-3.6-6.25 3.6V5A1.25 1.25 0 0 1 7 3.75z"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">북마크</span>
+                  <span class="format-tool-badge feature-chip-count hidden" id="bookmarkListCount" aria-hidden="true">0</span>
+                </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-typewriter-btn"
+                  id="typewriterModeButton"
+                  title="타자기 모드 · 입력 줄을 화면 중앙에 고정"
+                  aria-label="타자기 모드"
+                  aria-pressed="false"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <rect x="2.75" y="6.5" width="18.5" height="11.25" rx="2"/>
+                      <path d="M6.2 10h.01M9.5 10h.01M12.8 10h.01M16.1 10h.01M7.8 13h.01M11.1 13h.01M14.4 13h.01"/>
+                      <path d="M7 16.25h10"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">타자기</span>
+                </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-timer-btn"
+                  id="writingLogButton"
+                  data-tools-action="writing-log"
+                  title="클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
+                  aria-label="기록"
+                  aria-pressed="false"
+                >
+                  <span class="format-tool-glyph format-timer-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <circle cx="12" cy="12" r="8.25"/>
+                      <path d="M12 7.5V12l3 2"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label format-timer-clock" id="writingLogClock">기록</span>
+                </button>
+                <button type="button" class="format-tool-item format-find-btn" id="findToggleButton" title="찾기 (Ctrl+F)" aria-label="검색" aria-expanded="false" aria-controls="findBar">
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <circle cx="11" cy="11" r="6.25"/>
+                      <path d="M16 16.5 20.5 21"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">검색</span>
+                </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-viewer-btn"
+                  id="viewerModeButton"
+                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 (편집 불가)"
+                  aria-label="뷰어"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg class="format-viewer-icon format-viewer-eye" viewBox="0 0 24 24" width="16" height="16" focusable="false">
+                      <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M2.5 12s3.5-6.5 9.5-6.5S21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z"/>
+                      <circle cx="12" cy="12" r="3.1" fill="none" stroke="currentColor" stroke-width="1.8"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">뷰어</span>
+                </button>
+                <div class="view-mode-control format-split-control" id="formatSplitControl">
                   <button
                     id="splitViewButton"
-                    class="feature-chip feature-chip-accent"
+                    class="format-tool-item format-split-btn"
                     type="button"
                     aria-haspopup="menu"
                     aria-expanded="false"
-                title="함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
-              >함께보기 ▾</button>
-                  <div id="viewModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="함께보기 방식">
+                    title="분할: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
+                    aria-label="분할"
+                  >
+                    <span class="format-tool-glyph" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                        <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                      </svg>
+                    </span>
+                    <span class="format-tool-label">분할</span>
+                  </button>
+                  <div id="viewModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분할 방식">
                     <button type="button" role="menuitem" data-view-mode="split" title="Ctrl+Alt+S">
                       <strong>↔ 화면 나누기 <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd></strong>
                       <span>편집 화면 옆에 나란히 둡니다</span>
@@ -1292,53 +1514,141 @@
                     </button>
                     <button type="button" role="menuitem" data-view-mode="close" id="viewModeCloseItem" class="hidden" title="Esc">
                       <strong>닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
-                      <span>함께보기를 끝냅니다</span>
+                      <span>분할을 끝냅니다</span>
                     </button>
                   </div>
+                </div>
+                <button
+                  type="button"
+                  class="format-tool-item format-tool-focus format-focus-btn"
+                  id="focusWriteButton"
+                  data-tools-action="focus-write"
+                  title="확장 · 전체보기 (F10)"
+                  aria-label="확장"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg class="feature-focus-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>
+                      <rect x="8.5" y="8.5" width="7" height="7" rx="1"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label">확장</span>
+                </button>
                 </div>
                 </div>
                 <button
                   type="button"
-                  class="panel-collapse-btn ms-toolbar-collapse-btn"
-                  id="sceneFeatureBarHideButton"
-                  title="기능 바 접기"
-                  aria-label="기능 바 접기"
-                  data-toolbar-hide="feature"
+                  class="panel-collapse-btn ms-toolbar-collapse-btn format-row-collapse-btn ms-collapse-col-btn"
+                  id="formatIconsHideButton"
+                  title="도구 아이콘 접기"
+                  aria-label="도구 아이콘 접기"
+                  data-toolbar-hide="format-icons"
                 >∧</button>
+                </div>
               </div>
+              </div>
+              </div>
+              </div><!-- /ms-chrome-stack -->
+              <!-- hidden file input for right-click image insert in manuscript -->
+              <input id="inlineImageFile" type="file" accept="image/jpeg,image/png,image/webp,image/gif,.jpg,.jpeg,.png,.webp,.gif" hidden>
+              <div id="findBar" class="find-bar hidden" role="search" aria-label="원고 찾기">
+                <label class="find-bar-field">
+                  <span class="find-bar-label">찾기</span>
+                  <input type="search" id="findInput" placeholder="찾을 내용" autocomplete="off" spellcheck="false">
+                </label>
+                <span class="find-bar-count" id="findCount" aria-live="polite">0/0</span>
+                <button type="button" class="format-btn" id="findPrevButton" title="이전">↑</button>
+                <button type="button" class="format-btn" id="findNextButton" title="다음">↓</button>
+                <button type="button" class="format-btn" id="findCloseButton" title="닫기">×</button>
               </div>
 
-              <div class="writing-block">
-                <div class="ms-chrome-reopen-strip" id="msChromeReopenStrip" hidden>
-                  <button
-                    type="button"
-                    class="ms-toolbar-reopen"
-                    id="editorMetaReopenButton"
-                    title="요약 칸 다시 보이기"
-                    aria-label="요약 칸 다시 보이기"
-                    data-toolbar-show="meta"
-                    hidden
-                  >요약 ▾</button>
-                  <button
-                    type="button"
-                    class="ms-toolbar-reopen"
-                    id="formatToolbarReopenButton"
-                    title="서식 도구 다시 보이기"
-                    aria-label="서식 도구 다시 보이기"
-                    data-toolbar-show="format"
-                    hidden
-                  >서식 도구 ▾</button>
-                  <button
-                    type="button"
-                    class="ms-toolbar-reopen"
-                    id="sceneFeatureBarReopenButton"
-                    title="기능 바 다시 보이기"
-                    aria-label="기능 바 다시 보이기"
-                    data-toolbar-show="feature"
-                    hidden
-                  >작성 상태 · 기능 ▾</button>
+              <!-- 북마크 목록 패널 (아이콘 행 버튼 · 목차 하단에는 표시하지 않음) -->
+              <div id="bookmarkListPanel" class="bookmark-list-panel hidden" role="dialog" aria-label="북마크 목록" aria-modal="false">
+                <div class="bookmark-list-panel-head">
+                  <strong>북마크</strong>
+                  <button type="button" class="format-btn" id="bookmarkListClose" title="닫기" aria-label="닫기">×</button>
                 </div>
+                <p class="bookmark-list-panel-hint">회차·설정집에서 우클릭으로 추가해요. 이유 칸에 메모를 적을 수 있어요.</p>
+                <div id="bookmarkBar" class="bookmark-bar" role="list" aria-label="북마크"></div>
+              </div>
+
+              <!-- AI 유사단어 찾기 결과 패널 -->
+              <div id="similarWordPanel" class="similar-word-panel hidden" role="dialog" aria-label="유사단어 찾기" aria-modal="false">
+                <div class="similar-word-panel-head">
+                  <strong>단어찾기</strong>
+                  <button type="button" class="format-btn" id="similarWordClose" title="닫기" aria-label="닫기">×</button>
+                </div>
+                <div class="similar-word-panel-query">
+                  <label class="similar-word-field">
+                    <span>단어</span>
+                    <input type="text" id="similarWordInput" maxlength="80" placeholder="원고에서 고르거나 입력" autocomplete="off" spellcheck="false">
+                  </label>
+                  <button type="button" class="primary compact-btn" id="similarWordRun">찾기</button>
+                </div>
+                <div class="similar-word-panel-hint" id="similarWordHint">비슷하지만 다른 표현을 찾고 싶을 때 유용해요.</div>
+                <div class="similar-word-panel-body" id="similarWordResult" aria-live="polite"></div>
+              </div>
+
+              <!-- 본문 프레임: 작성 상태 + 원고 (한 엣지) -->
+              <div class="writing-block manuscript-frame" id="manuscriptFrame">
+              <div class="ms-toolbar-shell scene-status-shell" id="sceneStatusShell">
+                <div class="scene-status-bar" id="sceneStatusBar" aria-label="작성 상태">
+                  <label class="status-clip" title="작성 상태" aria-label="작성 상태">
+                    <select id="sceneStatus" form="sceneEditor" class="status-clip-select" aria-label="작성 상태">
+                      <option value="outline">개요</option>
+                      <option value="idea">구상중</option>
+                      <option value="draft">초고 작성 중</option>
+                      <option value="revision">고치는 중</option>
+                      <option value="complete">완성</option>
+                    </select>
+                  </label>
+                  <div class="scene-synopsis-field scene-synopsis-in-status" id="editorMetaShell" data-toolbar-shell="meta">
+                    <div class="scene-synopsis-field-body">
+                      <button
+                        type="button"
+                        class="scene-synopsis-label-btn"
+                        id="synopsisListButton"
+                        title="좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘"
+                      >요약</button>
+                      <div class="scene-synopsis-input-wrap">
+                        <input id="sceneSynopsis" placeholder="예: 주인공이 낯선 편지를 발견한다." form="sceneEditor" aria-label="이 씬 요약">
+                      </div>
+                    </div>
+                  </div>
+                  <!-- 접힌 도구/서식 다시 열기 — 상태바 같은 줄 오른쪽 -->
+                  <div class="ms-chrome-reopen-strip" id="msChromeReopenStrip" hidden>
+                    <button
+                      type="button"
+                      class="ms-toolbar-reopen"
+                      id="editorMetaReopenButton"
+                      title="요약 칸 다시 보이기"
+                      aria-label="요약 칸 다시 보이기"
+                      data-toolbar-show="meta"
+                      hidden
+                    >요약 ▾</button>
+                    <button
+                      type="button"
+                      class="ms-toolbar-reopen"
+                      id="formatIconsReopenButton"
+                      title="도구 아이콘 다시 보이기"
+                      aria-label="도구 아이콘 다시 보이기"
+                      data-toolbar-show="format-icons"
+                      hidden
+                    >도구 아이콘 ▾</button>
+                    <button
+                      type="button"
+                      class="ms-toolbar-reopen"
+                      id="formatFormatReopenButton"
+                      title="서식 도구 다시 보이기"
+                      aria-label="서식 도구 다시 보이기"
+                      data-toolbar-show="format-format"
+                      hidden
+                    >서식 ▾</button>
+                  </div>
+                </div>
+              </div>
                 <div class="manuscript-page" id="manuscriptPage" title="오른쪽 클릭: 이미지 넣기 · 페이지 색">
+                  <div id="typewriterLineHighlight" class="typewriter-line-highlight hidden" aria-hidden="true"></div>
                   <div
                     id="sceneContent"
                     class="rich-editor"
@@ -1352,6 +1662,7 @@
                 </div>
               </div>
             </form>
+
 
             <footer class="manuscript-status-wrap" id="manuscriptStatusWrap" aria-label="글자 수와 목표">
               <div class="manuscript-status-bar" id="manuscriptStatusBar">
@@ -1371,6 +1682,16 @@
                 </div>
                 <span class="status-reading-time" id="statsReadingTime" title="예상 읽기 시간 (분당 약 200단어 · 한글은 분당 약 500자)">약 0분</span>
                 <span class="status-bar-vsep" aria-hidden="true"></span>
+                <div class="status-bar-progress" id="statusBarProgress" title="우클릭: 게이지 색 선택">
+                  <div class="scene-goal-progress-labels">
+                    <span id="sceneGoalProgressLabel" class="scene-goal-progress-label">—</span>
+                    <span id="sceneGoalOverflowLabel" class="scene-goal-overflow-label hidden" aria-live="polite"></span>
+                  </div>
+                  <div class="scene-goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="sceneGoalBar">
+                    <div id="sceneGoalBarFill" class="scene-goal-bar-fill is-empty"></div>
+                    <div id="sceneGoalBarOverflow" class="scene-goal-bar-overflow" aria-hidden="true"></div>
+                  </div>
+                </div>
                 <div class="status-bar-goal-controls" id="statusBarGoalControls" title="우클릭: 목표 일괄 적용">
                   <label class="status-bar-field" title="목표 수 · 우클릭: 일괄 적용">
                     <span class="status-bar-field-label" id="statsGoalLabel">목표</span>
@@ -1385,16 +1706,6 @@
                     <option value="words">단어 수</option>
                     <option value="letters">글자 수</option>
                   </select>
-                </div>
-                <div class="status-bar-progress" id="statusBarProgress" title="우클릭: 게이지 색 선택">
-                  <div class="scene-goal-progress-labels">
-                    <span id="sceneGoalProgressLabel" class="scene-goal-progress-label">—</span>
-                    <span id="sceneGoalOverflowLabel" class="scene-goal-overflow-label hidden" aria-live="polite"></span>
-                  </div>
-                  <div class="scene-goal-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="sceneGoalBar">
-                    <div id="sceneGoalBarFill" class="scene-goal-bar-fill is-empty"></div>
-                    <div id="sceneGoalBarOverflow" class="scene-goal-bar-overflow" aria-hidden="true"></div>
-                  </div>
                 </div>
                 <div class="status-bar-actions">
                   <button type="submit" form="sceneEditor" class="primary compact-btn status-save-btn">저장</button>
@@ -1480,7 +1791,7 @@
               <div class="tool-panel hidden" data-tool-panel="links">
                 <section class="reference-links-panel" aria-label="참고 자료">
                   <div class="reference-links-heading">
-                    <p class="hint reference-links-guide">링크와 파일을 나눠 저장합니다. 설정집 <strong>참고자료/출처</strong>에도 함께 보관됩니다.</p>
+                    <p class="hint reference-links-guide">링크와 파일을 나눠 저장합니다. 설정집 <strong>참고자료·출처</strong>에도 함께 보관됩니다.</p>
                     <div class="reference-add-actions">
                       <button type="button" id="addReferenceLinkButton" class="secondary" title="웹 링크 추가">+ 링크</button>
                       <button type="button" id="addReferenceFileButton" class="secondary" title="PDF·Word·한글·텍스트 파일 추가">+ 파일</button>
@@ -1513,7 +1824,7 @@
             title="끌어 좌우 너비 조절"
           ></div>
 
-          <aside id="splitViewer" class="split-viewer hidden" aria-label="함께보기">
+          <aside id="splitViewer" class="split-viewer hidden" aria-label="분할">
             <div
               id="splitPopupDragBar"
               class="split-popup-drag-bar"
@@ -1555,11 +1866,11 @@
                         </button>
                         <button type="button" role="menuitem" data-view-mode="close" title="Esc">
                           <strong>닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
-                          <span>함께보기를 끝냅니다</span>
+                          <span>분할를 끝냅니다</span>
                         </button>
                       </div>
                     </div>
-                    <button id="closeSplitButton" type="button" title="함께보기 닫기">×</button>
+                    <button id="closeSplitButton" type="button" title="분할 닫기">×</button>
                   </div>
                 </div>
                 <label class="split-scene-label">
@@ -1568,17 +1879,17 @@
               </div>
             </div>
             <!-- hidden titles kept for any legacy JS references -->
-            <span id="splitViewerTitle" class="hidden" hidden>함께보기</span>
+            <span id="splitViewerTitle" class="hidden" hidden>분할</span>
             <span id="splitViewerModeHint" class="hidden" hidden></span>
             <div class="split-edit-bar">
               <span id="splitSaveInfo" class="save-info split-save-info"></span>
             </div>
-            <article id="splitSceneContent" class="split-scene-content" aria-label="함께보기 내용">
+            <article id="splitSceneContent" class="split-scene-content" aria-label="분할 내용">
               <input
                 id="splitSceneTitleInput"
                 class="title-input split-scene-title-input"
                 type="text"
-                aria-label="함께보기 제목"
+                aria-label="분할 제목"
                 placeholder="회차 제목"
                 readonly
               >
@@ -1635,20 +1946,31 @@
                 spellcheck="true"
                 role="textbox"
                 aria-multiline="true"
-                aria-label="함께보기 원고"
+                aria-label="분할 원고"
                 data-placeholder="함께보는 회차의 원고가 여기 표시됩니다. 자유 편집을 켜면 바로 수정할 수 있어요."
               ></div>
             </article>
-            <div
-              id="splitPopupResizeHandle"
-              class="split-popup-resize-handle"
-              title="끌어 크기 조절"
-              aria-hidden="true"
-            ></div>
+            <div class="tory-float-resize is-n split-popup-edge" data-resize-edge="n" title="위쪽 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-s split-popup-edge" data-resize-edge="s" title="아래쪽 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-e split-popup-edge" data-resize-edge="e" title="오른쪽 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-w split-popup-edge" data-resize-edge="w" title="왼쪽 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-ne split-popup-edge" data-resize-edge="ne" title="오른쪽 위 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-nw split-popup-edge" data-resize-edge="nw" title="왼쪽 위 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-se split-popup-edge" data-resize-edge="se" title="오른쪽 아래 크기 조절" aria-hidden="true"></div>
+            <div class="tory-float-resize is-sw split-popup-edge" data-resize-edge="sw" title="왼쪽 아래 크기 조절" aria-hidden="true"></div>
           </aside>
         </div>
 
         <form id="characterEditor" class="editor hidden">
+          <div class="character-editor-toolbar">
+            <div>
+              <h2 class="character-editor-title">캐릭터 설정</h2>
+              <p class="hint">인물 설정을 가운데에서 자세히 편집합니다.</p>
+            </div>
+            <div class="character-editor-actions">
+              <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn">닫기</button>
+            </div>
+          </div>
           <div class="editor-topline">
             <input id="characterName" class="title-input" aria-label="캐릭터 이름" placeholder="캐릭터 이름">
             <select id="characterRole" aria-label="캐릭터 역할">
@@ -1721,103 +2043,190 @@
                 <button type="button" id="closeSynopsisMainButton" class="secondary compact-btn">닫기</button>
               </div>
             </div>
-            <div class="format-toolbar" id="synopsisFormatToolbar" role="toolbar" aria-label="설정 문서 글자 서식">
-              <button type="button" class="format-btn" data-format="undo" title="실행 취소" aria-label="실행 취소">↩</button>
-              <button type="button" class="format-btn" data-format="redo" title="다시 실행" aria-label="다시 실행">↪</button>
-              <span class="toolbar-sep" aria-hidden="true"></span>
-              <button type="button" class="format-btn" data-format="bold" title="굵게"><strong>B</strong></button>
-              <button type="button" class="format-btn" data-format="italic" title="기울임"><em>I</em></button>
-              <button type="button" class="format-btn" data-format="underline" title="밑줄"><span class="u-mark">U</span></button>
-              <span class="toolbar-sep" aria-hidden="true"></span>
-              <button type="button" class="format-btn format-btn-wide" data-format="justifyLeft" title="왼쪽 정렬">좌</button>
-              <button type="button" class="format-btn format-btn-wide" data-format="justifyCenter" title="가운데 정렬">중</button>
-              <button type="button" class="format-btn format-btn-wide" data-format="justifyRight" title="오른쪽 정렬">우</button>
-              <span class="toolbar-sep" aria-hidden="true"></span>
-              <button
-                type="button"
-                class="format-btn format-list-btn"
-                data-format="list"
-                title="목록 · 클릭: 적용 · 우클릭: 기호 선택"
-                aria-label="목록"
-                aria-haspopup="true"
-                aria-expanded="false"
-                aria-controls="formatListPalette"
-              >
-                <span class="format-list-icon" aria-hidden="true">
-                  <span class="format-list-mark" data-list-mark>•</span>
-                  <span class="format-list-bars">
-                    <span></span><span></span><span></span>
+            <!-- 본문 format-toolbar-row-format 과 동일 구조 (구형 플랫 서식 폐기) -->
+            <div class="format-toolbar synopsis-format-toolbar" id="synopsisFormatToolbar" role="toolbar" aria-label="설정 문서 글자 서식">
+              <div class="format-toolbar-track">
+              <div class="format-toolbar-row format-toolbar-row-format" role="group" aria-label="서식">
+              <div class="format-toolbar-row-body format-toolbar-row-body-split">
+              <div class="format-toolbar-cluster format-toolbar-cluster-start">
+              <div class="format-seg format-seg-icon format-seg-history" role="group" aria-label="실행 취소 · 다시 실행">
+                <button type="button" class="format-btn" data-format="undo" title="실행 취소 (Ctrl+Z)" aria-label="실행 취소">↩</button>
+                <button type="button" class="format-btn" data-format="redo" title="다시 실행 (Ctrl+Y)" aria-label="다시 실행">↪</button>
+              </div>
+              <span class="format-row-divider" aria-hidden="true"></span>
+              <div class="format-field-chips" role="group" aria-label="단락 · 글꼴 · 크기 · 줄간격 · 장평">
+                <label class="toolbar-field toolbar-field-bare format-field-chip">
+                  <select data-role="format-paragraph" title="단락 스타일" aria-label="단락 스타일">
+                    <option value="p">본문</option>
+                    <option value="h1">제목 1</option>
+                    <option value="h2">제목 2</option>
+                    <option value="h3">제목 3</option>
+                    <option value="blockquote">인용</option>
+                    <option value="caption">캡션</option>
+                  </select>
+                </label>
+                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                <label class="toolbar-field toolbar-field-bare format-field-chip">
+                  <select data-role="format-font" class="format-font-select" title="글꼴" aria-label="글꼴">
+                    <!-- options filled by app.js -->
+                  </select>
+                </label>
+                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm">
+                  <select data-role="format-size" title="글자 크기" aria-label="글자 크기">
+                    <option value="12px">12</option>
+                    <option value="14px">14</option>
+                    <option value="16px">16</option>
+                    <option value="17px" selected>17</option>
+                    <option value="18px">18</option>
+                    <option value="20px">20</option>
+                    <option value="22px">22</option>
+                    <option value="24px">24</option>
+                    <option value="28px">28</option>
+                    <option value="32px">32</option>
+                  </select>
+                </label>
+                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm" title="줄간격">
+                  <select data-role="format-line-height" title="줄간격" aria-label="줄간격">
+                    <option value="1.0">1.0</option>
+                    <option value="1.2">1.2</option>
+                    <option value="1.5">1.5</option>
+                    <option value="1.8" selected>1.8</option>
+                    <option value="2.0">2.0</option>
+                    <option value="2.5">2.5</option>
+                    <option value="3.0">3.0</option>
+                  </select>
+                </label>
+                <span class="format-row-divider format-field-divider" aria-hidden="true"></span>
+                <label class="toolbar-field toolbar-field-bare format-field-chip format-field-chip-sm format-jangpyeong-chip" title="장평 · 우클릭: 전체에 적용">
+                  <select data-role="format-jangpyeong" title="장평 (글자 가로 비율 %)" aria-label="장평">
+                    <option value="80">80</option>
+                    <option value="90">90</option>
+                    <option value="95">95</option>
+                    <option value="100" selected>100</option>
+                    <option value="105">105</option>
+                    <option value="110">110</option>
+                    <option value="120">120</option>
+                    <option value="130">130</option>
+                  </select>
+                </label>
+              </div>
+              </div>
+              <span class="format-row-divider format-toolbar-mid-divider" aria-hidden="true"></span>
+              <div class="format-toolbar-cluster format-toolbar-cluster-end">
+              <div class="format-seg format-seg-icon" role="group" aria-label="글자 서식">
+                <button type="button" class="format-btn" data-format="bold" title="굵게 (Ctrl+B)"><strong>B</strong></button>
+                <button type="button" class="format-btn" data-format="italic" title="기울임 (Ctrl+I)"><em>I</em></button>
+                <button type="button" class="format-btn" data-format="underline" title="밑줄 (Ctrl+U)"><span class="u-mark">U</span></button>
+                <button type="button" class="format-btn" data-format="strike" title="취소선" aria-label="취소선"><span class="s-mark">S</span></button>
+              </div>
+              <span class="format-row-divider" aria-hidden="true"></span>
+              <div class="format-seg format-seg-icon format-seg-colors" role="group" aria-label="색 · 음영">
+                <button
+                  type="button"
+                  class="format-btn format-color-btn"
+                  data-format="highlight"
+                  data-color-kind="highlight"
+                  title="형광펜 · 문장 드래그 후 클릭하면 바로 칠해집니다 · 우클릭: 색 고르기"
+                  aria-label="형광펜"
+                >
+                  <span class="format-hl-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <path d="m9 11-6 6v3h9l3-3"/>
+                      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                    </svg>
                   </span>
-                </span>
-              </button>
-              <span class="toolbar-sep" aria-hidden="true"></span>
-              <label class="toolbar-field toolbar-field-bare">
-                <select data-role="format-paragraph" title="단락 스타일" aria-label="단락 스타일">
-                  <option value="p">본문</option>
-                  <option value="h1">제목 1</option>
-                  <option value="h2">제목 2</option>
-                  <option value="h3">제목 3</option>
-                  <option value="blockquote">인용</option>
-                  <option value="caption">캡션</option>
-                </select>
-              </label>
-              <label class="toolbar-field toolbar-field-bare">
-                <select data-role="format-font" class="format-font-select" title="글꼴" aria-label="글꼴">
-                  <!-- options filled by app.js; shows active face -->
-                </select>
-              </label>
-              <label class="toolbar-field toolbar-field-bare">
-                <select data-role="format-size" title="글자 크기" aria-label="글자 크기">
-                  <option value="12px">12</option>
-                  <option value="14px">14</option>
-                  <option value="16px">16</option>
-                  <option value="17px" selected>17</option>
-                  <option value="18px">18</option>
-                  <option value="20px">20</option>
-                  <option value="22px">22</option>
-                  <option value="24px">24</option>
-                  <option value="28px">28</option>
-                  <option value="32px">32</option>
-                </select>
-              </label>
-              <label class="toolbar-field toolbar-field-bare" title="줄간격">
-                <select data-role="format-line-height" title="줄간격" aria-label="줄간격">
-                  <option value="1.0">1.0</option>
-                  <option value="1.2">1.2</option>
-                  <option value="1.5">1.5</option>
-                  <option value="1.8" selected>1.8</option>
-                  <option value="2.0">2.0</option>
-                  <option value="2.5">2.5</option>
-                  <option value="3.0">3.0</option>
-                </select>
-              </label>
-              <button
-                type="button"
-                class="format-btn format-color-btn"
-                data-format="textColor"
-                data-color-kind="text"
-                title="글자색 · 클릭: 적용 · 우클릭: 팔레트"
-                aria-label="글자색"
-              >
-                <span class="format-a-icon" aria-hidden="true">A</span>
-                <span class="format-color-bar" data-color-bar="text"></span>
-              </button>
-              <button
-                type="button"
-                class="format-btn format-color-btn"
-                data-format="highlight"
-                data-color-kind="highlight"
-                title="형광펜 · 문장 드래그 후 클릭하면 바로 칠해집니다 · 우클릭: 색 고르기"
-                aria-label="형광펜"
-              >
-                <span class="format-hl-icon" aria-hidden="true">
-                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                    <path d="m9 11-6 6v3h9l3-3"/>
-                    <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                  <span class="format-color-bar" data-color-bar="highlight"></span>
+                </button>
+                <button
+                  type="button"
+                  class="format-btn format-color-btn"
+                  data-format="textColor"
+                  data-color-kind="text"
+                  title="글자색 · 클릭: 적용 · 우클릭: 팔레트"
+                  aria-label="글자색"
+                >
+                  <span class="format-a-icon" aria-hidden="true">A</span>
+                  <span class="format-color-bar" data-color-bar="text"></span>
+                </button>
+                <button
+                  type="button"
+                  class="format-btn format-color-btn format-shade-btn"
+                  data-format="shadeBox"
+                  data-color-kind="shade"
+                  title="텍스트 음영상자 · 클릭: 상자 채우기/없애기 · 우클릭: 색 고르기"
+                  aria-label="텍스트 음영상자"
+                >
+                  <span class="format-shade-icon" aria-hidden="true">
+                    <span class="format-shade-box">
+                      <span class="format-shade-letter">A</span>
+                    </span>
+                  </span>
+                  <span class="format-color-bar" data-color-bar="shade"></span>
+                </button>
+              </div>
+              <span class="format-row-divider" aria-hidden="true"></span>
+              <div class="format-seg format-seg-icon format-seg-align" role="group" aria-label="정렬">
+                <button type="button" class="format-btn format-align-btn" data-format="justifyLeft" title="왼쪽 정렬" aria-label="왼쪽 정렬">
+                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h9v1.4H1zm0 3h14v1.4H1zm0 3h9v1.4H1z"/>
                   </svg>
-                </span>
-                <span class="format-color-bar" data-color-bar="highlight"></span>
-              </button>
+                </button>
+                <button type="button" class="format-btn format-align-btn" data-format="justifyCenter" title="가운데 정렬" aria-label="가운데 정렬">
+                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M1 3h14v1.4H1zm2.5 3h9v1.4h-9zM1 9h14v1.4H1zm2.5 3h9v1.4h-9z"/>
+                  </svg>
+                </button>
+                <button type="button" class="format-btn format-align-btn" data-format="justifyRight" title="오른쪽 정렬" aria-label="오른쪽 정렬">
+                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M1 3h14v1.4H1zm5 3h9v1.4H6zM1 9h14v1.4H1zm5 3h9v1.4H6z"/>
+                  </svg>
+                </button>
+                <button type="button" class="format-btn format-align-btn" data-format="justifyFull" title="양쪽 맞춤" aria-label="양쪽 맞춤">
+                  <svg class="format-align-icon" viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M1 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1zm0 3h14v1.4H1z"/>
+                  </svg>
+                </button>
+              </div>
+              <span class="format-row-divider" aria-hidden="true"></span>
+              <div class="format-seg format-seg-icon format-seg-list" role="group" aria-label="글머리 · 특수문자">
+                <button
+                  type="button"
+                  class="format-btn format-list-btn format-bullet-btn"
+                  data-format="list"
+                  title="글머리 기호 · 클릭: 적용 · 우클릭: 기호 선택"
+                  aria-label="글머리 기호"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                  aria-controls="formatListPalette"
+                >
+                  <span class="format-list-icon" aria-hidden="true">
+                    <span class="format-list-dots" aria-hidden="true">
+                      <span></span><span></span><span></span>
+                    </span>
+                    <span class="format-list-bars">
+                      <span></span><span></span><span></span>
+                    </span>
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  class="format-btn format-special-btn"
+                  data-format="specialChar"
+                  title="특수문자 · 클릭: 기호 선택"
+                  aria-label="특수문자"
+                  aria-haspopup="true"
+                  aria-expanded="false"
+                  aria-controls="formatSpecialPalette"
+                >
+                  <span class="format-special-icon" aria-hidden="true">※</span>
+                </button>
+              </div>
+              </div>
+              </div>
+              </div>
+              </div>
             </div>
             <div class="writing-block">
               <div class="manuscript-page synopsis-page" id="synopsisPage">
@@ -1833,6 +2242,24 @@
                 ></div>
               </div>
             </div>
+          </div>
+        </div>
+
+        <!-- Main-screen worldbuilding (boxed categories, like character editor) -->
+        <div id="worldbuildingWorkspace" class="worldbuilding-workspace hidden" aria-label="세계관 편집">
+          <div class="worldbuilding-main-toolbar">
+            <div>
+              <h2 class="worldbuilding-main-title">세계관</h2>
+              <p class="hint">무대·특이점·극단 요소·사회·세력 다섯 박스로 정리합니다. 예시는 지우고 작품에 맞게 바꿔 주세요.</p>
+            </div>
+            <div class="worldbuilding-main-actions">
+              <span id="worldbuildingSaveInfo" class="save-info"></span>
+              <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn">저장</button>
+              <button type="button" id="closeWorldbuildingMainButton" class="secondary compact-btn">닫기</button>
+            </div>
+          </div>
+          <div class="worldbuilding-main-scroll">
+            <div class="worldbuilding-main-form" id="worldbuildingMainForm" aria-label="세계관 구조"></div>
           </div>
         </div>
 
@@ -1861,11 +2288,16 @@
           aria-label="SuperTORY 너비 조절"
           title="끌어 SuperTORY 너비 조절"
         ></div>
+        <div class="ai-panel-inner">
         <div class="ai-panel-top">
           <div class="panel-heading ai-panel-heading">
-            <div class="panel-heading-actions">
-              <button id="collapseAiPanelButton" type="button" class="panel-collapse-btn" title="SuperTORY 닫기" aria-label="SuperTORY 닫기">⟩</button>
-            </div>
+            <button
+              id="collapseAiPanelButton"
+              type="button"
+              class="panel-collapse-btn ai-collapse-btn"
+              title="SuperTORY 닫기"
+              aria-label="SuperTORY 닫기"
+            >⟩</button>
             <h2 class="ai-panel-title">
               <svg class="ai-mini-logo" viewBox="0 0 40 40" width="22" height="22" aria-hidden="true" focusable="false">
                 <defs>
@@ -1915,24 +2347,26 @@
             <p class="hint tory-focus-hint">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</p>
             <button type="button" id="clearToryFocusButton" class="secondary compact-btn tory-focus-clear">연결 해제</button>
           </div>
-          <div class="ai-panel-tabs" role="tablist" aria-label="토리 모드">
-            <button
-              type="button"
-              class="ai-panel-tab is-active feature-hide-exempt"
-              id="aiTabTools"
-              role="tab"
-              aria-selected="true"
-              data-ai-tab="tools"
-              title="좌클릭: 도우미 · 우클릭: 토리 모드 선택"
-            >도우미</button>
-            <button
-              type="button"
-              class="ai-panel-tab feature-hide-exempt"
-              id="aiTabChat"
-              role="tab"
-              aria-selected="false"
-              data-ai-tab="chat"
-            >토리와 대화</button>
+          <div class="ai-panel-tabs-row">
+            <div class="ai-panel-tabs" role="tablist" aria-label="토리 모드">
+              <button
+                type="button"
+                class="ai-panel-tab is-active feature-hide-exempt"
+                id="aiTabTools"
+                role="tab"
+                aria-selected="true"
+                data-ai-tab="tools"
+                title="좌클릭: 도우미 · 우클릭: 토리 모드 선택"
+              >도우미</button>
+              <button
+                type="button"
+                class="ai-panel-tab feature-hide-exempt"
+                id="aiTabChat"
+                role="tab"
+                aria-selected="false"
+                data-ai-tab="chat"
+              >토리와 대화</button>
+            </div>
           </div>
           <div class="tory-priority-box" id="toryPriorityBox">
             <button
@@ -1996,9 +2430,38 @@
             </span>
           </div>
           <!-- Tools / one-shot assist -->
-          <div id="aiToolsView" class="ai-panel-view" role="tabpanel" aria-labelledby="aiTabTools">
+          <div id="aiToolsView" class="ai-panel-view" role="tabpanel" aria-labelledby="aiTabTools" data-helper-pane="direct">
+            <div class="ai-helper-pane-tabs-row">
+              <div class="ai-helper-pane-tabs" role="tablist" aria-label="도우미 요청·선택·결과">
+                <button
+                  type="button"
+                  class="ai-helper-pane-tab is-active"
+                  id="aiHelperPaneDirect"
+                  role="tab"
+                  aria-selected="true"
+                  data-helper-pane="direct"
+                >직접요청</button>
+                <button
+                  type="button"
+                  class="ai-helper-pane-tab"
+                  id="aiHelperPaneSelect"
+                  role="tab"
+                  aria-selected="false"
+                  data-helper-pane="select"
+                >선택하기</button>
+                <button
+                  type="button"
+                  class="ai-helper-pane-tab"
+                  id="aiHelperPaneResult"
+                  role="tab"
+                  aria-selected="false"
+                  data-helper-pane="result"
+                >결과보기</button>
+              </div>
+            </div>
             <form id="aiForm" class="ai-panel-form" novalidate>
-              <label class="ai-mode-field">무엇을 도와드릴까요?
+              <label class="ai-mode-field">
+                <span class="sr-only">무엇을 도와드릴까요?</span>
                 <div class="ai-mode-picker" id="aiModePicker">
                   <button
                     type="button"
@@ -2007,12 +2470,14 @@
                     aria-haspopup="listbox"
                     aria-expanded="false"
                     aria-controls="aiModePickerMenu"
+                    aria-label="무엇을 도와드릴까요?"
+                    title="무엇을 도와드릴까요?"
                   >
-                    <span id="aiModePickerLabel">직접 요청하기</span>
+                    <span id="aiModePickerLabel">무엇을 도와드릴까요?</span>
                   </button>
-                  <div id="aiModePickerMenu" class="ai-mode-picker-menu hidden" role="listbox" hidden aria-label="AI 도움 방식"></div>
+                  <div id="aiModePickerMenu" class="ai-mode-picker-menu hidden" role="listbox" hidden aria-label="무엇을 도와드릴까요?"></div>
                   <select id="aiMode" class="ai-mode-native-select" aria-hidden="true" tabindex="-1">
-                    <option value="free" selected>직접 요청하기</option>
+                    <option value="free" hidden>직접 작성하기</option>
                     <optgroup label="토리와 확인해요">
                       <option value="summarize">회차 요약</option>
                       <option value="foreshadow">떡밥·복선 탐색기</option>
@@ -2115,10 +2580,10 @@
                   <button type="button" class="primary compact-btn" id="continueStyleInsertButton">이 버전을 원고에 넣기</button>
                 </div>
               </div>
-              <div class="ai-result-actions">
-                <button type="button" class="secondary" id="aiCollectResultButton" title="이 결과를 토리 수집창고에 저장">수집</button>
-                <button type="button" class="secondary" id="aiCopyButton">복사</button>
-                <button type="button" class="primary" id="aiInsertButton">원고 끝에 넣기</button>
+              <div class="ai-result-actions" role="group" aria-label="결과 활용">
+                <button type="button" class="ai-result-action-btn" id="aiCollectResultButton" title="이 결과를 토리 수집창고에 저장">수집</button>
+                <button type="button" class="ai-result-action-btn" id="aiCopyButton">복사</button>
+                <button type="button" class="ai-result-action-btn is-emphasis" id="aiInsertButton">원고 끝에 넣기</button>
               </div>
               <div id="styleBlendOffer" class="style-blend-offer hidden" aria-label="스며듦 검사">
                 <p class="style-blend-guide">
@@ -2222,9 +2687,37 @@
             </button>
           </div>
         </section>
+        </div><!-- /.ai-panel-inner -->
       </aside>
-      <button id="expandAiPanelButton" type="button" class="ai-panel-reopen hidden" title="SuperTORY 열기" aria-label="SuperTORY 열기">
-        ⟨ SuperTORY
+      <button id="expandAiPanelButton" type="button" class="ai-panel-reopen hidden" title="토리 열기" aria-label="토리 열기">
+        <span class="ai-panel-reopen-inner" aria-hidden="true">
+          <svg class="ai-panel-reopen-logo" viewBox="0 0 40 40" width="22" height="22" focusable="false">
+            <defs>
+              <linearGradient id="reopenAcornBody" x1="30%" y1="10%" x2="70%" y2="100%">
+                <stop offset="0%" stop-color="#f0b56a"/>
+                <stop offset="55%" stop-color="#d98a3c"/>
+                <stop offset="100%" stop-color="#b86a28"/>
+              </linearGradient>
+              <linearGradient id="reopenAcornCap" x1="0%" y1="0%" x2="0%" y2="100%">
+                <stop offset="0%" stop-color="#8b5a2b"/>
+                <stop offset="100%" stop-color="#5c3a18"/>
+              </linearGradient>
+            </defs>
+            <circle cx="20" cy="20" r="19" fill="#fff8ef" stroke="#e4d5c2" stroke-width="1"/>
+            <ellipse cx="19.5" cy="23" rx="9" ry="10.5" fill="url(#reopenAcornBody)" stroke="#9a5a22" stroke-width="0.6"/>
+            <ellipse cx="19.5" cy="13.8" rx="10" ry="5.2" fill="url(#reopenAcornCap)" stroke="#4a2c12" stroke-width="0.55"/>
+            <path d="M19.5 9 C19.5 6.6 21.2 5 23 4.5" fill="none" stroke="#4a2c12" stroke-width="1.5" stroke-linecap="round"/>
+            <ellipse cx="23.2" cy="4.3" rx="1.5" ry="1" fill="#3d2410" transform="rotate(-25 23.2 4.3)"/>
+            <circle cx="16.2" cy="21.2" r="1.45" fill="#3a2412"/>
+            <circle cx="22.8" cy="21.2" r="1.45" fill="#3a2412"/>
+            <circle cx="16.6" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+            <circle cx="23.2" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+            <path d="M17.2 24.6 Q19.5 26.4 21.8 24.6" fill="none" stroke="#5a3218" stroke-width="0.9" stroke-linecap="round"/>
+            <circle cx="16.2" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>
+            <circle cx="22.8" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>
+            <path d="M19.1 21.2 H19.9" stroke="#3d3d48" stroke-width="0.9" stroke-linecap="round"/>
+          </svg>
+        </span>
       </button>
     </main>
 
@@ -2302,7 +2795,14 @@
         <button type="button" class="panel-collapse-btn tory-chat-popup-close" id="toryChatPopupClose" title="팝업 닫기" aria-label="팝업 닫기">×</button>
       </div>
       <div class="tory-chat-popup-body" id="toryChatPopupBody"></div>
-      <div class="tory-chat-popup-resize" id="toryChatPopupResize" title="크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-n" data-resize-edge="n" title="위쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-s" data-resize-edge="s" title="아래쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-e" data-resize-edge="e" title="오른쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-w" data-resize-edge="w" title="왼쪽 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-ne" data-resize-edge="ne" title="오른쪽 위 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-nw" data-resize-edge="nw" title="왼쪽 위 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-se" data-resize-edge="se" title="오른쪽 아래 크기 조절" aria-hidden="true"></div>
+      <div class="tory-float-resize is-sw" data-resize-edge="sw" title="왼쪽 아래 크기 조절" aria-hidden="true"></div>
     </div>
 
     <!-- Floating 작가 지침 (드래그 이동 · 상하좌우 크기 조절) -->
@@ -3351,7 +3851,7 @@
       </button>
     </div>
 
-    <div id="outlineTitleFontMenu" class="outline-title-font-menu hidden" role="menu" aria-label="목차 제목 글자 크기">
+    <div id="outlineSpacingMenu" class="outline-title-font-menu outline-spacing-menu hidden" role="menu" aria-label="목차 글자·줄간격">
       <div class="outline-title-font-menu-label">목록 제목 크기</div>
       <div class="outline-title-font-row">
         <button type="button" class="secondary compact-btn" id="outlineTitleFontDown" title="작게">A−</button>
@@ -3368,10 +3868,27 @@
         <button type="button" role="menuitem" data-outline-font="18">18</button>
       </div>
       <p class="hint outline-title-font-tip">폴더·원고 제목 글자 크기를 바꿔요.</p>
+      <div class="context-menu-divider"></div>
+      <div class="outline-title-font-menu-label">목록 줄간격</div>
+      <div class="outline-title-font-row">
+        <button type="button" class="secondary compact-btn" id="outlineRowGapDown" title="좁게">−</button>
+        <span id="outlineRowGapValue" class="outline-title-font-value">4</span>
+        <button type="button" class="secondary compact-btn" id="outlineRowGapUp" title="넓게">+</button>
+      </div>
+      <div class="outline-title-font-presets" role="group" aria-label="줄간격 선택">
+        <button type="button" role="menuitem" data-outline-gap="0">0</button>
+        <button type="button" role="menuitem" data-outline-gap="2">2</button>
+        <button type="button" role="menuitem" data-outline-gap="4">4</button>
+        <button type="button" role="menuitem" data-outline-gap="6">6</button>
+        <button type="button" role="menuitem" data-outline-gap="8">8</button>
+        <button type="button" role="menuitem" data-outline-gap="10">10</button>
+        <button type="button" role="menuitem" data-outline-gap="12">12</button>
+      </div>
+      <p class="hint outline-title-font-tip">목차 행 사이 간격을 바꿔요.</p>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="outline-title-font-hide-btn" data-ui-feature-hide data-ui-hide-footer>
-        <strong>이 표시 숨기기</strong>
-        <span>목차 개수·관련 표시를 화면에서 감춰요</span>
+        <strong>개수 표시 숨기기</strong>
+        <span>목차 옆 폴·회 개수를 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -3391,7 +3908,7 @@
       </button>
       <button type="button" role="menuitem" data-chapter-action="color" id="chapterContextColorItem">
         <strong>색상 표시</strong>
-        <span>제목 옆 색 점으로 표시해요</span>
+        <span>폴더 아이콘 색을 바꿔요</span>
       </button>
       <button type="button" role="menuitem" data-chapter-action="pin" id="chapterContextPinItem">
         <strong>상단 고정</strong>
@@ -3424,7 +3941,7 @@
       </button>
       <button type="button" role="menuitem" data-part-action="color" id="partContextColorItem">
         <strong>색상 표시</strong>
-        <span>제목 옆 색 점으로 표시해요</span>
+        <span>폴더 아이콘 색을 바꿔요</span>
       </button>
       <button type="button" role="menuitem" data-part-action="pin" id="partContextPinItem">
         <strong>상단 고정</strong>
@@ -3520,11 +4037,11 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>글자색·형광펜 버튼을 화면에서 감춰요</span>
+        <span>형광펜·글자색·음영상자 버튼을 화면에서 감춰요</span>
       </button>
     </div>
 
-    <div id="formatListPalette" class="format-list-palette hidden" role="menu" aria-label="목록 기호 선택">
+    <div id="formatListPalette" class="format-list-palette hidden" role="menu" aria-label="글머리 기호 선택">
       <div class="format-list-palette-label">글머리 기호</div>
       <div class="format-list-options" id="formatListBulletOptions" role="group" aria-label="글머리 기호"></div>
       <div class="format-list-palette-label">번호</div>
@@ -3535,7 +4052,17 @@
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
         <strong>이 기능 숨기기</strong>
-        <span>목록 버튼을 화면에서 감춰요</span>
+        <span>글머리 기호 버튼을 화면에서 감춰요</span>
+      </button>
+    </div>
+
+    <div id="formatSpecialPalette" class="format-list-palette format-special-palette hidden" role="menu" aria-label="특수문자 선택">
+      <div class="format-list-palette-label">특수문자</div>
+      <div class="format-special-options" id="formatSpecialOptions" role="group" aria-label="특수문자"></div>
+      <div class="context-menu-divider" data-ui-hide-footer></div>
+      <button type="button" role="menuitem" class="format-palette-hide-btn" data-ui-feature-hide data-ui-hide-footer>
+        <strong>이 기능 숨기기</strong>
+        <span>특수문자 버튼을 화면에서 감춰요</span>
       </button>
     </div>
 
@@ -3613,6 +4140,10 @@
       <div class="context-menu-label" data-ctx-full-only>본문 편집</div>
       <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-ok>
         사전 찾기
+      </button>
+      <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-ok>
+        <strong>단어찾기</strong>
+        <span>비슷하지만 다른 표현을 토리가 찾아 줘요</span>
       </button>
       <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-ok>
         토리에게 물어보기
@@ -3873,6 +4404,7 @@
             </div>
             <div id="adminThemeList" class="theme-options" role="listbox" aria-label="UI 테마">
               <button type="button" role="option" data-ui-theme-pick="light">☀️ 기본</button>
+              <button type="button" role="option" data-ui-theme-pick="sand">🏜️ 모래사장</button>
               <button type="button" role="option" data-ui-theme-pick="dark">🌙 야간</button>
               <button type="button" role="option" data-ui-theme-pick="cabin">🌿 숲속 오두막</button>
               <button type="button" role="option" data-ui-theme-pick="library">🏛️ 새벽 도서관</button>
@@ -4083,8 +4615,8 @@
                 id="focusWriteSplitButton"
                 aria-haspopup="menu"
                 aria-expanded="false"
-                title="함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
-              >함께보기 ▾</button>
+                title="분할: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)"
+              >분할 ▾</button>
             </div>
             <button
               type="button"
@@ -4115,10 +4647,10 @@
             class="split-pane-resizer focus-write-split-resizer hidden"
             role="separator"
             aria-orientation="vertical"
-            aria-label="큰 창 함께보기 너비 조절"
+            aria-label="큰 창 분할 너비 조절"
             title="끌어 좌우 너비 조절"
           ></div>
-          <div id="focusWriteSplitSlot" class="focus-write-split-slot" hidden aria-label="큰 창 함께보기"></div>
+          <div id="focusWriteSplitSlot" class="focus-write-split-slot" hidden aria-label="큰 창 분할"></div>
         </div>
       </div>
     </div>
@@ -4712,7 +5244,7 @@
       <div class="modal-backdrop" data-close-source></div>
       <div class="modal-card">
         <div class="modal-heading">
-          <h2 id="sourceModalTitle">참고자료/출처 추가</h2>
+          <h2 id="sourceModalTitle">참고자료·출처 추가</h2>
           <button type="button" class="modal-close" data-close-source title="닫기">×</button>
         </div>
         <p class="hint modal-hint">링크 출처를 적거나, PDF·Word·한글·텍스트 파일을 올려 작성 중 옆에 펼쳐 볼 수 있어요. 파일은 이 기기에 저장되며 뷰어 전용입니다.</p>
@@ -4802,6 +5334,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260811-1.3.2"></script>
+    <script src="/app.js?v=20260812-deep-charcoal"></script>
   </body>
 </html>

@@ -70,9 +70,9 @@ class WorldDescriptionTests(unittest.TestCase):
         self.assertIn("worldDescSubject", html)
         self.assertIn("세계관 묘사", html)
         self.assertIn('value="worlddesc"', html)
-        self.assertIn("토리가 써줘요", html)
-        self.assertIn("토리가 도와줘요", html)
-        self.assertIn("토리가 확인해줘요", html)
+        self.assertIn("토리와 함께 써요", html)
+        self.assertIn("토리와 구상해요", html)
+        self.assertIn("토리와 확인해요", html)
         self.assertIn("떡밥·복선 탐색기", html)
 
     def test_prompt_contract(self) -> None:

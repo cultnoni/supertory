@@ -91,15 +91,15 @@ class AssistModesSmokeTests(unittest.TestCase):
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
 
-        # Order: free → 확인해줘요 → 도와줘요 → 써줘요
+        # Order: free → 확인해요 → 구상해요 → 함께 써요
         free_i = html.find('value="free"')
-        check_i = html.find('label="토리가 확인해줘요"')
-        help_i = html.find('label="토리가 도와줘요"')
-        write_i = html.find('label="토리가 써줘요"')
+        check_i = html.find('label="토리와 확인해요"')
+        help_i = html.find('label="토리와 구상해요"')
+        write_i = html.find('label="토리와 함께 써요"')
         self.assertTrue(free_i > 0 and check_i > free_i and help_i > check_i and write_i > help_i, html[free_i:write_i + 40])
 
         expected_labels = {
-            "free": "직접 요청하기",
+            "free": "직접 작성하기",
             "summarize": "회차 요약",
             "foreshadow": "떡밥·복선 탐색기",
             "plottwist": "반전 &amp; 개연성 검사기",

@@ -2274,6 +2274,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "dupcheck", "free", "chat", "subsynopsis", "styleblend",
+            "similar_words",
         }
         if mode not in allowed:
             raise ValueError("지원하지 않는 AI 도움 방식입니다.")
@@ -3204,6 +3205,45 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     genre_context,
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            elif mode == "similar_words":
+                # 유사단어 찾기 — 선택 단어의 유의어·대체 표현 (집필용)
+                word = plain_text_from_content(
+                    str(body.get("word") or body.get("selected_text") or user_prompt or "")
+                ).strip()
+                if not word:
+                    raise ValueError("유사어를 찾을 단어를 선택하거나 입력해 주세요.")
+                if len(word) > 80:
+                    word = word[:80]
+                system = (
+                    "당신은 한국어 소설·원고 집필을 돕는 어휘 도우미입니다. "
+                    "작가가 고른 단어와 비슷한 뉘앙스의 표현을 실용적으로 제안하세요. "
+                    "설명은 짧게, 목록은 바로 고를 수 있게 쓰세요. "
+                    "영어 남용을 피하고 한국어 표현을 우선하세요."
+                )
+                if use_persona and persona_system:
+                    system += " " + persona_system
+                instruction = (
+                    f"다음 단어/표현의 유사어·대체 표현을 찾아 주세요.\n\n"
+                    f"단어: {word}\n"
+                    f"작품 종류: {purpose_label}\n"
+                    f"장르: {genre_context or '(없음)'}\n\n"
+                    "아래 형식으로 한국어로 답하세요.\n"
+                    "### 유사어\n"
+                    "- (8~12개, 쉼표 또는 한 줄 목록)\n"
+                    "### 문장용 대체 표현\n"
+                    "- (4~8개, 짧은 구 또는 한 어절)\n"
+                    "### 뉘앙스 메모\n"
+                    "- (2~4줄, 언제 쓰면 좋은지)\n"
+                    "불필요한 서두는 생략하세요."
+                )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"주변 문맥:\n{(scene_content or '')[:1200] or '(없음)'}",
                 ]
             elif mode == "free":
                 # 직접 요청하기: buildFreeRequestPrompt + index (씬 요약 버튼은

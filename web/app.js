@@ -55,6 +55,8 @@ const state = {
   baits: [],
   ideaBoardOpen: false,
   keywordBoardOpen: false,
+  /** @type {null|"baits"|"toryVault"|"sources"} 설정집 목록 메인 */
+  settingsCollectionKind: null,
   synopsisMd: "",
   loglineMd: "",
   introMd: "",
@@ -334,8 +336,16 @@ function getEditorPlainText(editorEl = null) {
   return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
 }
 
-function isSettingsDocMainOpen() {
+function isWorldbuildingMainOpen() {
+  return Boolean($("worldbuildingWorkspace") && !$("worldbuildingWorkspace").classList.contains("hidden"));
+}
+
+function isSynopsisWorkspaceOpen() {
   return Boolean($("synopsisWorkspace") && !$("synopsisWorkspace").classList.contains("hidden"));
+}
+
+function isSettingsDocMainOpen() {
+  return isSynopsisWorkspaceOpen() || isWorldbuildingMainOpen();
 }
 
 /** @deprecated use isSettingsDocMainOpen */
@@ -344,7 +354,7 @@ function isSynopsisMainOpen() {
 }
 
 function getActiveRichEditor() {
-  if (isSettingsDocMainOpen()) return $("synopsisContent");
+  if (isSynopsisWorkspaceOpen()) return $("synopsisContent");
   return $("sceneContent");
 }
 
@@ -387,14 +397,335 @@ const SETTINGS_DOC_META = {
   },
   world: {
     title: "세계관",
-    hint: "시대·장소·규칙·역사 등 세계 설정을 본문처럼 넓게 편집합니다.",
-    placeholder: "시대, 장소, 규칙, 역사 등 세계관 설정을 여기에 적어 보세요.",
+    hint: "무대·특이점·극단 요소·사회·세력 다섯 축으로 세계 설정을 정리합니다.",
+    placeholder: "무대와 시대, 세계의 특이점, 극단적 요소, 사회 체계, 세력과 갈등을 적어 보세요.",
     stateKey: "worldbuildingMd",
     apiField: "worldbuilding_md",
     sidebarId: "projectWorldbuilding",
     toastLabel: "세계관",
   },
 };
+
+/** 설정집 세계관 — 구조화 섹션 (사이드바 폼 ↔ worldbuilding_md 직렬화) */
+const WORLD_BUILDING_SCHEMA = [
+  {
+    id: "where_when",
+    title: "1. 무대 및 시대 (Where & When)",
+    blurb: "작품의 기본 바탕이 되는 공간과 시간선입니다.",
+    fields: [
+      { id: "reality", label: "현실 / 가상 구분", example: "현실에 가상이 섞인 형태 (현대 도시 + 숨겨진 이능 사회)" },
+      { id: "era", label: "시대 배경", example: "현대" },
+      { id: "locale", label: "주요 배경", example: "해안 도시 하버라인과 그 지하 구역" },
+    ],
+  },
+  {
+    id: "unique_concept",
+    title: "2. 세계의 특이점 (Unique Concept)",
+    blurb: "이 세계를 다른 세계관과 다르게 만드는 단 하나의 핵심 규칙입니다.",
+    fields: [
+      { id: "special", label: "특수 요소", example: "감정을 연료로 쓰는 이능" },
+      { id: "rules", label: "작동 규칙", example: "강한 감정일수록 이능이 커지지만, 감정 소모 후 하루간 무력해진다" },
+      { id: "limits", label: "한계와 대가", example: "과다 사용 시 기억 일부 소실" },
+    ],
+  },
+  {
+    id: "extreme_factor",
+    title: "3. 영향을 주는 극단적 요소 (Extreme Factor)",
+    blurb: "이 세계의 평범한 일상을 위협하거나 전체 시스템을 흔드는 가장 거대한 변수입니다.",
+    fields: [
+      { id: "extreme_event", label: "극단적 사건 / 환경", example: "10년째 이어지는 ‘검은 비’ 재앙" },
+      { id: "extreme_impact", label: "세상에 미친 영향", example: "야외 활동이 금지되고, 빗물을 막는 기업이 도시를 지배한다" },
+    ],
+  },
+  {
+    id: "system_life",
+    title: "4. 기본 체계 및 사회 (System & Life)",
+    blurb: "사람들이 살아가는 데 필요한 최소한의 사회적 약속입니다.",
+    fields: [
+      { id: "power", label: "지배 구조", example: "방재 기업 연합이 통치" },
+      { id: "daily", label: "기본 생활", example: "크레딧 화폐 · 장거리 이동 허가제 · ‘안전’이 최고 가치" },
+      { id: "class", label: "계급 / 신분", example: "이능 보유자 우대, 노노출 구역 거주자 차별" },
+    ],
+  },
+  {
+    id: "factions",
+    title: "5. 세력 및 갈등 (Factions)",
+    blurb: "주인공과 인물들이 부딪히게 될 주체들입니다.",
+    fields: [
+      { id: "factions", label: "주요 세력", example: "방재 기업 연합 vs 지하 저항 조직 ‘서킷’" },
+      { id: "conflict", label: "갈등의 원인", example: "재앙 대응 독점을 둘러싼 이권 다툼" },
+    ],
+  },
+];
+
+const WORLD_FIELD_IDS = WORLD_BUILDING_SCHEMA.flatMap((sec) => sec.fields.map((f) => f.id));
+
+function emptyWorldBuildingValues() {
+  const values = Object.create(null);
+  for (const id of WORLD_FIELD_IDS) values[id] = "";
+  values.legacy = "";
+  return values;
+}
+
+function worldBuildingExampleValues() {
+  const values = emptyWorldBuildingValues();
+  for (const sec of WORLD_BUILDING_SCHEMA) {
+    for (const field of sec.fields) {
+      values[field.id] = field.example || "";
+    }
+  }
+  return values;
+}
+
+function escapeWorldHtml(text) {
+  return String(text || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function ensureWorldbuildingMainForm() {
+  const host = $("worldbuildingMainForm");
+  if (!host) return null;
+  if (host.dataset.built === "1") return host;
+  host.dataset.built = "1";
+  const cards = WORLD_BUILDING_SCHEMA.map((sec) => {
+    const enMatch = String(sec.title || "").match(/\(([^)]+)\)\s*$/);
+    const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+    const fields = sec.fields.map((field) => `
+      <label class="world-main-field">${escapeWorldHtml(field.label)}
+        <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
+      </label>`).join("");
+    return `
+      <article class="world-main-card" data-world-section="${escapeWorldHtml(sec.id)}">
+        <h3 class="world-main-card-title">${escapeWorldHtml(titlePlain)}${enMatch ? ` <span class="world-cat-en">(${escapeWorldHtml(enMatch[1])})</span>` : ""}</h3>
+        <p class="world-main-card-blurb">${escapeWorldHtml(sec.blurb)}</p>
+        <div class="world-main-card-fields">${fields}</div>
+      </article>`;
+  }).join("");
+  host.innerHTML = `${cards}
+    <article class="world-main-card world-main-card-legacy world-cat-legacy hidden" id="worldCatLegacyMain" data-world-section="legacy" hidden>
+      <h3 class="world-main-card-title">기타 · 기존 메모</h3>
+      <p class="world-main-card-blurb">구조에 맞지 않던 이전 세계관 텍스트입니다. 위 칸으로 옮겨 정리해도 됩니다.</p>
+      <div class="world-main-card-fields">
+        <label class="world-main-field">기존 내용
+          <textarea data-world-field="legacy" rows="4" placeholder=""></textarea>
+        </label>
+      </div>
+    </article>`;
+  return host;
+}
+
+function worldBuildingFormRoots() {
+  return [$("worldbuildingForm"), $("worldbuildingMainForm")].filter(Boolean);
+}
+
+function readWorldBuildingFormValuesFrom(form) {
+  const values = emptyWorldBuildingValues();
+  if (!form) return values;
+  form.querySelectorAll("[data-world-field]").forEach((el) => {
+    const key = el.dataset.worldField;
+    if (!key) return;
+    values[key] = String(el.value || "").trim();
+  });
+  return values;
+}
+
+function readWorldBuildingFormValues() {
+  const focused = document.activeElement?.closest?.("#worldbuildingMainForm, #worldbuildingForm");
+  if (focused) return readWorldBuildingFormValuesFrom(focused);
+  if (isWorldbuildingMainOpen()) {
+    return readWorldBuildingFormValuesFrom($("worldbuildingMainForm") || $("worldbuildingForm"));
+  }
+  return readWorldBuildingFormValuesFrom($("worldbuildingForm"));
+}
+
+function composeWorldbuildingMd(values) {
+  const v = values || emptyWorldBuildingValues();
+  const parts = [];
+  for (const sec of WORLD_BUILDING_SCHEMA) {
+    parts.push(`## ${sec.title}`);
+    parts.push(sec.blurb);
+    parts.push("");
+    for (const field of sec.fields) {
+      const text = String(v[field.id] || "").trim();
+      parts.push(`### ${field.label}`);
+      parts.push(text || "");
+      parts.push("");
+    }
+  }
+  const legacy = String(v.legacy || "").trim();
+  if (legacy) {
+    parts.push("## 기타 · 기존 메모");
+    parts.push(legacy);
+    parts.push("");
+  }
+  return parts.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+function parseWorldbuildingMd(raw) {
+  const values = emptyWorldBuildingValues();
+  let text = String(raw || "").trim();
+  if (!text) return values;
+  if (looksLikeHtml(text)) text = plainTextFromHtml(text).trim();
+  if (!text) return values;
+
+  const hasStructured = WORLD_BUILDING_SCHEMA.some((sec) => text.includes(sec.title)
+    || text.includes(sec.title.replace(/\s*\([^)]*\)\s*$/, "").trim()));
+  if (!hasStructured) {
+    values.legacy = text;
+    return values;
+  }
+
+  const labelToId = Object.create(null);
+  for (const sec of WORLD_BUILDING_SCHEMA) {
+    for (const field of sec.fields) {
+      labelToId[field.label] = field.id;
+    }
+  }
+  labelToId["기타 · 기존 메모"] = "legacy";
+  labelToId["기타"] = "legacy";
+
+  // Split on ### headings (field labels) or ## section titles we don't store as fields.
+  const chunks = text.split(/\n(?=#{2,3}\s+)/);
+  let currentField = null;
+  const buffers = Object.create(null);
+  for (const chunk of chunks) {
+    const headingMatch = chunk.match(/^#{2,3}\s+(.+?)\s*(?:\n|$)/);
+    if (!headingMatch) {
+      if (currentField) {
+        buffers[currentField] = `${buffers[currentField] || ""}\n${chunk}`.trim();
+      } else {
+        values.legacy = `${values.legacy}\n${chunk}`.trim();
+      }
+      continue;
+    }
+    const heading = headingMatch[1].replace(/\s+/g, " ").trim();
+    const body = chunk.slice(headingMatch[0].length).trim();
+    // Skip top-level section blurbs stored under ## titles.
+    const isSection = WORLD_BUILDING_SCHEMA.some((sec) => sec.title === heading
+      || sec.title.replace(/\s*\([^)]*\)\s*$/, "").trim() === heading.replace(/\s*\([^)]*\)\s*$/, "").trim()
+      || heading.startsWith(sec.title.slice(0, 8)));
+    if (isSection && !labelToId[heading]) {
+      currentField = null;
+      // Drop section blurb lines from body; keep leftover only if it looks like author content.
+      const cleaned = body
+        .split(/\n/)
+        .filter((line) => {
+          const t = line.trim();
+          if (!t) return false;
+          return !WORLD_BUILDING_SCHEMA.some((sec) => sec.blurb === t);
+        })
+        .join("\n")
+        .trim();
+      if (cleaned) values.legacy = `${values.legacy}\n${cleaned}`.trim();
+      continue;
+    }
+    const fieldId = labelToId[heading]
+      || labelToId[heading.replace(/\s*\([^)]*\)\s*$/, "").trim()]
+      || null;
+    if (fieldId) {
+      currentField = fieldId;
+      buffers[fieldId] = body;
+    } else if (heading.includes("기타")) {
+      currentField = "legacy";
+      buffers.legacy = body;
+    } else {
+      currentField = null;
+      if (body) values.legacy = `${values.legacy}\n${body}`.trim();
+    }
+  }
+  for (const [key, val] of Object.entries(buffers)) {
+    values[key] = String(val || "").trim();
+  }
+  return values;
+}
+
+function fillWorldBuildingExamplePlaceholders() {
+  for (const form of worldBuildingFormRoots()) {
+    for (const sec of WORLD_BUILDING_SCHEMA) {
+      for (const field of sec.fields) {
+        const el = form.querySelector(`[data-world-field="${field.id}"]`);
+        if (el && field.example) el.placeholder = `예: ${field.example}`;
+      }
+    }
+  }
+}
+
+function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}) {
+  if (!form) return;
+  const v = values || emptyWorldBuildingValues();
+  const active = document.activeElement;
+  form.querySelectorAll("[data-world-field]").forEach((el) => {
+    const key = el.dataset.worldField;
+    if (!key) return;
+    if (!force && active === el) return;
+    el.value = v[key] || "";
+    autoResizeSettingsSidebarTextarea(el);
+  });
+  const legacyWrap = form.querySelector("[data-world-section='legacy']")
+    || (form.id === "worldbuildingForm" ? $("worldCatLegacy") : $("worldCatLegacyMain"));
+  const hasLegacy = Boolean(String(v.legacy || "").trim());
+  if (legacyWrap) {
+    legacyWrap.classList.toggle("hidden", !hasLegacy);
+    legacyWrap.hidden = !hasLegacy;
+  }
+}
+
+function applyWorldBuildingValuesToForm(values, { force = false } = {}) {
+  const v = values || emptyWorldBuildingValues();
+  for (const form of worldBuildingFormRoots()) {
+    applyWorldBuildingValuesToFormRoot(form, v, { force });
+  }
+  const serialized = $("projectWorldbuilding");
+  if (serialized) serialized.value = composeWorldbuildingMd(v);
+}
+
+function syncWorldBuildingFormFromState({ force = false } = {}) {
+  ensureWorldbuildingMainForm();
+  applyWorldBuildingValuesToForm(parseWorldbuildingMd(state.worldbuildingMd || ""), { force });
+}
+
+/** true = 빈 세계관에 예제만 보여 주는 중(저장·AI 주입 전) */
+let worldbuildingExampleDraft = false;
+
+function pushWorldBuildingFormToState({ commitDraft = false } = {}) {
+  const values = readWorldBuildingFormValues();
+  const md = composeWorldbuildingMd(values);
+  const serialized = $("projectWorldbuilding");
+  if (serialized) serialized.value = md;
+  if (worldbuildingExampleDraft && !commitDraft) {
+    // 예제 초안은 화면에만 두고, 실제 저장값/AI 컨텍스트는 비워 둔다.
+    return state.worldbuildingMd || "";
+  }
+  worldbuildingExampleDraft = false;
+  state.worldbuildingMd = md;
+  return md;
+}
+
+function seedWorldBuildingExamplesIfEmpty() {
+  ensureWorldbuildingMainForm();
+  const raw = String(state.worldbuildingMd || "").trim();
+  if (raw) {
+    worldbuildingExampleDraft = false;
+    syncWorldBuildingFormFromState({ force: true });
+    return false;
+  }
+  const examples = worldBuildingExampleValues();
+  applyWorldBuildingValuesToForm(examples, { force: true });
+  worldbuildingExampleDraft = true;
+  const serialized = $("projectWorldbuilding");
+  if (serialized) serialized.value = composeWorldbuildingMd(examples);
+  return true;
+}
+
+function setWorldbuildingSaveStatus(text) {
+  if ($("worldbuildingSaveInfo")) $("worldbuildingSaveInfo").textContent = text || "";
+  if ($("synopsisSaveInfo") && state.settingsDocKind === "world") {
+    $("synopsisSaveInfo").textContent = text || "";
+  }
+}
 
 const COUNT_METRIC_LABEL = {
   chars_with_space: "공백포함",
@@ -1421,6 +1752,544 @@ function setupFindBar() {
   });
 }
 
+/* —— AI 유사단어 찾기 (단어찾기) —— */
+function getSelectedWordForSimilar() {
+  const editor = getActiveRichEditor?.() || $("sceneContent") || $("focusWriteEditor");
+  try {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount && !sel.isCollapsed) {
+      const range = sel.getRangeAt(0);
+      if (editor && editor.contains(range.commonAncestorContainer)) {
+        const t = String(sel.toString() || "").replace(/\s+/g, " ").trim();
+        if (t) return t.slice(0, 80);
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return "";
+}
+
+function closeSimilarWordPanel() {
+  const panel = $("similarWordPanel");
+  panel?.classList.add("hidden");
+  $("similarWordButton")?.setAttribute("aria-expanded", "false");
+}
+
+function positionSimilarWordPanel() {
+  const panel = $("similarWordPanel");
+  if (!panel || panel.classList.contains("hidden")) return;
+  const btn = $("similarWordButton");
+  // 툴바 버튼이 없으면(우클릭 전용) 기존 좌표 유지
+  if (!btn) return;
+  const rect = btn.getBoundingClientRect();
+  const pad = 8;
+  const pw = panel.offsetWidth || 320;
+  const ph = panel.offsetHeight || 280;
+  let left = rect.right - pw;
+  let top = rect.bottom + 6;
+  if (left < pad) left = pad;
+  if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+  if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 6);
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+}
+
+/**
+ * @param {{ word?: string, autoRun?: boolean, anchorClientX?: number, anchorClientY?: number }} [options]
+ */
+function openSimilarWordPanel(options = {}) {
+  const panel = $("similarWordPanel");
+  const btn = $("similarWordButton");
+  if (!panel) return;
+  if ($("formatToolbarShell")?.classList.contains("is-collapsed")
+    || document.querySelector('[data-toolbar-row="format-icons"]')?.classList.contains("is-collapsed")) {
+    applyMsToolbarCollapsed?.("format-icons", false, { toastMsg: false });
+  }
+  closeFindBar?.();
+  hideFormatListPalette?.();
+  hideFormatSpecialPalette?.();
+  hideFormatColorPalette?.();
+  const word = String(options.word || getSelectedWordForSimilar() || "").replace(/\s+/g, " ").trim().slice(0, 80);
+  if ($("similarWordInput") && word) $("similarWordInput").value = word;
+  panel.classList.remove("hidden");
+  btn?.setAttribute("aria-expanded", "true");
+  // 우클릭 메뉴에서 열 때: 커서 근처에 패널 배치
+  if (Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY)) {
+    const pad = 8;
+    const pw = panel.offsetWidth || 280;
+    const ph = panel.offsetHeight || 220;
+    let left = options.anchorClientX + 4;
+    let top = options.anchorClientY + 4;
+    if (left + pw > window.innerWidth - pad) left = Math.max(pad, options.anchorClientX - pw - 4);
+    if (top + ph > window.innerHeight - pad) top = Math.max(pad, options.anchorClientY - ph - 4);
+    panel.style.left = `${left}px`;
+    panel.style.top = `${top}px`;
+  } else if (btn) {
+    positionSimilarWordPanel();
+  } else {
+    // 버튼 없이 열릴 경우 화면 중앙 근처
+    const pad = 8;
+    const pw = panel.offsetWidth || 280;
+    const ph = panel.offsetHeight || 220;
+    panel.style.left = `${Math.max(pad, (window.innerWidth - pw) / 2)}px`;
+    panel.style.top = `${Math.max(pad, (window.innerHeight - ph) / 3)}px`;
+  }
+  requestAnimationFrame(() => {
+    if (!(Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY))) {
+      if (btn) positionSimilarWordPanel();
+    }
+    $("similarWordInput")?.focus();
+    if (word) $("similarWordInput")?.select();
+    if (options.autoRun && word) {
+      runSimilarWordFind().catch(handleError);
+    }
+  });
+}
+
+/** 우클릭 메뉴 → 단어찾기 (툴바 버튼과 동일 기능) */
+function openSimilarWordsFromSelection(anchorEvent = null) {
+  const raw = (pendingBaitQuote || getSelectedManuscriptText() || getSelectedWordForSimilar() || "").trim();
+  if (!raw) {
+    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    return;
+  }
+  const word = raw.replace(/\s+/g, " ").slice(0, 80);
+  openSimilarWordPanel({
+    word,
+    autoRun: true,
+    anchorClientX: anchorEvent?.clientX,
+    anchorClientY: anchorEvent?.clientY,
+  });
+}
+
+function renderSimilarWordResult(text, word) {
+  const host = $("similarWordResult");
+  if (!host) return;
+  const raw = String(text || "").trim();
+  if (!raw) {
+    host.innerHTML = `<p class="similar-word-empty">결과를 받지 못했어요.</p>`;
+    return;
+  }
+  // Extract candidate words from lines / bullets for click-to-insert chips
+  const chips = [];
+  const seen = new Set();
+  const addChip = (w) => {
+    const t = String(w || "").replace(/^[-*•·\d.)\s]+/, "").replace(/["""'']+/g, "").trim();
+    if (!t || t.length > 24 || t.length < 1) return;
+    if (seen.has(t)) return;
+    if (t === word) return;
+    seen.add(t);
+    chips.push(t);
+  };
+  raw.split(/\n/).forEach((line) => {
+    const cleaned = line.replace(/^#+\s*/, "").replace(/^[-*•]\s*/, "").trim();
+    if (!cleaned || cleaned.startsWith("###") || cleaned.startsWith("뉘앙스")) return;
+    // comma / middle-dot separated lists
+    if (/[,，、·/|·]/.test(cleaned) && cleaned.length < 120) {
+      cleaned.split(/[,，、·/|]+/).forEach(addChip);
+    } else if (cleaned.length <= 24 && !cleaned.includes(" ")) {
+      addChip(cleaned);
+    } else if (cleaned.startsWith("-") || line.trim().startsWith("-")) {
+      addChip(cleaned);
+    }
+  });
+  const chipHtml = chips.length
+    ? `<div class="similar-word-chips" role="list">${chips.slice(0, 36).map((c) =>
+      `<button type="button" class="similar-word-chip" role="listitem" data-insert-word="${escapeHtml(c)}">${escapeHtml(c)}</button>`
+    ).join("")}</div>`
+    : "";
+  host.innerHTML = `
+    ${chipHtml}
+    <div class="similar-word-markdown">${escapeHtml(raw).replace(/\n/g, "<br>")}</div>
+  `;
+}
+
+async function runSimilarWordFind() {
+  const input = $("similarWordInput");
+  let word = String(input?.value || "").replace(/\s+/g, " ").trim();
+  if (!word) word = getSelectedWordForSimilar();
+  if (!word) {
+    toast("원고에서 단어를 드래그하거나 입력란에 적어 주세요.");
+    input?.focus();
+    return;
+  }
+  if (input) input.value = word;
+  const resultEl = $("similarWordResult");
+  const hint = $("similarWordHint");
+  const runBtn = $("similarWordRun");
+  if (resultEl) resultEl.innerHTML = `<p class="similar-word-loading">토리가 비슷한 말을 찾는 중…</p>`;
+  if (hint) hint.textContent = "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+  if (runBtn) {
+    runBtn.disabled = true;
+    runBtn.textContent = "찾는 중…";
+  }
+  try {
+    const project = state.projects?.find?.((item) => item.id === state.projectId);
+    const sceneTitle = $("sceneTitle")?.value?.trim()
+      || state.scene?.title
+      || "";
+    const sceneSynopsis = $("sceneSynopsis")?.value?.trim()
+      || state.scene?.synopsis
+      || "";
+    let sceneContent = "";
+    try {
+      const ed = getActiveRichEditor?.() || $("sceneContent");
+      sceneContent = (ed?.innerText || ed?.textContent || "").slice(0, 2500);
+    } catch (_) {
+      sceneContent = "";
+    }
+    const body = {
+      mode: "similar_words",
+      word,
+      selected_text: word,
+      user_prompt: word,
+      project_title: project?.title || state.projectTitle || "",
+      purpose: state.purpose || project?.purpose || "general_novel",
+      main_genre: state.mainGenre || project?.main_genre || "",
+      sub_genre: state.subGenre || project?.sub_genre || "",
+      scene_title: sceneTitle,
+      scene_synopsis: sceneSynopsis,
+      scene_content: sceneContent,
+      project_id: state.projectId || null,
+      focus_scene_only: true,
+      tory_focus: true,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    };
+    if (typeof buildToryProjectContextPayload === "function") {
+      Object.assign(body, buildToryProjectContextPayload());
+    }
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    renderSimilarWordResult(result?.text || "", word);
+    if (hint) hint.textContent = "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+    toast("유사 단어를 찾았어요.");
+  } catch (error) {
+    if (resultEl) {
+      resultEl.innerHTML = `<p class="similar-word-empty">찾지 못했어요. ${escapeHtml(error?.message || "다시 시도해 주세요.")}</p>`;
+    }
+    handleError(error);
+  } finally {
+    if (runBtn) {
+      runBtn.disabled = false;
+      runBtn.textContent = "찾기";
+    }
+    positionSimilarWordPanel();
+  }
+}
+
+function setupSimilarWordFind() {
+  const panel = $("similarWordPanel");
+  if (!panel || panel.dataset.bound === "1") return;
+  panel.dataset.bound = "1";
+
+  // 아이콘바 버튼은 제거됨 — 드래그 우클릭 메뉴에서만 사용
+  $("similarWordButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (panel.classList.contains("hidden")) openSimilarWordPanel();
+    else closeSimilarWordPanel();
+  });
+  $("similarWordClose")?.addEventListener("click", () => closeSimilarWordPanel());
+  $("similarWordRun")?.addEventListener("click", () => {
+    runSimilarWordFind().catch(handleError);
+  });
+  $("similarWordInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      runSimilarWordFind().catch(handleError);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      closeSimilarWordPanel();
+    }
+  });
+  $("similarWordResult")?.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-insert-word]");
+    if (!chip) return;
+    const word = chip.dataset.insertWord;
+    if (!word) return;
+    const editor = getActiveRichEditor?.() || $("sceneContent");
+    if (typeof insertSpecialChar === "function") {
+      insertSpecialChar(word, editor);
+    } else {
+      try {
+        focusEditor?.(editor);
+        document.execCommand("insertText", false, word);
+      } catch (_) {
+        /* ignore */
+      }
+    }
+    toast(`「${word}」을(를) 넣었어요.`);
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#similarWordPanel, #similarWordButton")) return;
+    closeSimilarWordPanel();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeSimilarWordPanel();
+  });
+  window.addEventListener("resize", () => positionSimilarWordPanel());
+}
+
+/* —— 타자기 모드 (Typewriter Mode) —— */
+const TYPEWRITER_MODE_STORAGE_KEY = "supertory.typewriterMode";
+const TYPEWRITER_CENTER_RATIO = 0.47; /* 상단 기준 ~47% (45~50% 구간) */
+let typewriterModeOn = false;
+let typewriterSyncRaf = 0;
+let typewriterLastSmooth = false;
+
+function readTypewriterModePref() {
+  try {
+    return localStorage.getItem(TYPEWRITER_MODE_STORAGE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeTypewriterModePref(on) {
+  try {
+    localStorage.setItem(TYPEWRITER_MODE_STORAGE_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function getTypewriterEditor() {
+  const focusModal = $("focusWriteModal");
+  const focusEd = $("focusWriteEditor");
+  if (focusEd && focusModal && !focusModal.classList.contains("hidden")) {
+    if (document.activeElement === focusEd || focusEd.contains(document.activeElement)) {
+      return focusEd;
+    }
+  }
+  const active = document.activeElement;
+  if (active) {
+    const host = active.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, .rich-editor");
+    if (host?.isContentEditable || host?.getAttribute?.("contenteditable") === "true") return host;
+    if (active.isContentEditable) return active;
+  }
+  return getActiveRichEditor?.() || $("sceneContent");
+}
+
+function getTypewriterScrollParent(editor) {
+  if (!editor) return $("manuscriptPage");
+  return (
+    editor.closest(".manuscript-page")
+    || editor.closest(".focus-write-body")
+    || editor.closest(".focus-write-page")
+    || $("manuscriptPage")
+  );
+}
+
+function getCaretClientRectForTypewriter() {
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return null;
+  const range = sel.getRangeAt(0);
+  if (!range) return null;
+  const collapsed = range.cloneRange();
+  collapsed.collapse(true);
+  const rects = collapsed.getClientRects();
+  if (rects && rects.length) {
+    const last = rects[rects.length - 1];
+    if (last && (last.height > 0 || last.width > 0)) return last;
+  }
+  let rect = collapsed.getBoundingClientRect();
+  if (rect && (rect.height > 0 || rect.width > 0)) return rect;
+  // 빈 줄: 임시 마커로 측정 (선택 복원)
+  try {
+    const marker = document.createElement("span");
+    marker.textContent = "\u200b";
+    marker.style.cssText = "display:inline-block;width:0;height:1em;overflow:hidden;";
+    collapsed.insertNode(marker);
+    rect = marker.getBoundingClientRect();
+    const parent = marker.parentNode;
+    parent?.removeChild(marker);
+    parent?.normalize?.();
+    // 마커 삽입이 선택을 흐트릴 수 있어 원래 범위로 복원
+    try {
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch (_) {
+      /* ignore */
+    }
+    if (rect && (rect.height > 0 || rect.width > 0)) return rect;
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+function ensureTypewriterHighlightEl(scrollParent) {
+  if (!scrollParent) return null;
+  let el = scrollParent.querySelector(":scope > .typewriter-line-highlight");
+  if (el) return el;
+  // manuscriptPage 기본 하이라이트를 다른 스크롤 부모로 옮기거나 복제
+  el = document.createElement("div");
+  el.className = "typewriter-line-highlight hidden";
+  el.setAttribute("aria-hidden", "true");
+  scrollParent.insertBefore(el, scrollParent.firstChild);
+  return el;
+}
+
+function hideTypewriterHighlight() {
+  document.querySelectorAll(".typewriter-line-highlight").forEach((node) => {
+    node.classList.add("hidden");
+  });
+}
+
+function updateTypewriterLineHighlight(scrollParent, caretRect) {
+  const el = ensureTypewriterHighlightEl(scrollParent);
+  if (!el || !caretRect || !scrollParent) {
+    hideTypewriterHighlight();
+    return;
+  }
+  const parentRect = scrollParent.getBoundingClientRect();
+  const lineH = Math.max(caretRect.height || 0, 22);
+  const top = scrollParent.scrollTop + (caretRect.top - parentRect.top) - (lineH - (caretRect.height || lineH)) * 0.15;
+  el.style.top = `${Math.max(0, top)}px`;
+  el.style.height = `${lineH}px`;
+  el.style.left = "8px";
+  el.style.right = "8px";
+  el.classList.remove("hidden");
+}
+
+function syncTypewriterModeView(options = {}) {
+  if (!typewriterModeOn) {
+    hideTypewriterHighlight();
+    return;
+  }
+  const editor = getTypewriterEditor();
+  if (!editor) return;
+  const scrollParent = getTypewriterScrollParent(editor);
+  if (!scrollParent) return;
+  if (!editor.contains(window.getSelection()?.anchorNode) && document.activeElement !== editor) {
+    // 선택이 에디터 밖이면 하이라이트만 숨김 (스크롤은 유지)
+    const pageHighlight = $("typewriterLineHighlight");
+    if (pageHighlight && !editor.contains(pageHighlight)) {
+      /* keep */
+    }
+  }
+  const caretRect = getCaretClientRectForTypewriter();
+  if (!caretRect) return;
+  const parentRect = scrollParent.getBoundingClientRect();
+  if (parentRect.height < 40) return;
+  updateTypewriterLineHighlight(scrollParent, caretRect);
+
+  const targetY = parentRect.top + parentRect.height * TYPEWRITER_CENTER_RATIO;
+  const delta = caretRect.top + (caretRect.height || 0) * 0.35 - targetY;
+  if (Math.abs(delta) < 1.5) return;
+
+  const preferSmooth = options.smooth !== false && (options.forceSmooth || Math.abs(delta) > 28 || typewriterLastSmooth);
+  typewriterLastSmooth = !!preferSmooth;
+  const prevBehavior = scrollParent.style.scrollBehavior;
+  if (preferSmooth) {
+    scrollParent.classList.add("is-typewriter-mode");
+    scrollParent.style.scrollBehavior = "smooth";
+  } else {
+    scrollParent.style.scrollBehavior = "auto";
+  }
+  const nextTop = Math.max(0, scrollParent.scrollTop + delta);
+  try {
+    scrollParent.scrollTo({ top: nextTop, behavior: preferSmooth ? "smooth" : "auto" });
+  } catch (_) {
+    scrollParent.scrollTop = nextTop;
+  }
+  // scroll-behavior 원복은 다음 프레임
+  requestAnimationFrame(() => {
+    if (prevBehavior) scrollParent.style.scrollBehavior = prevBehavior;
+    else scrollParent.style.removeProperty("scroll-behavior");
+  });
+}
+
+function scheduleTypewriterSync(options = {}) {
+  if (!typewriterModeOn) return;
+  if (typewriterSyncRaf) cancelAnimationFrame(typewriterSyncRaf);
+  typewriterSyncRaf = requestAnimationFrame(() => {
+    typewriterSyncRaf = 0;
+    syncTypewriterModeView(options);
+  });
+}
+
+function applyTypewriterModeUi(on) {
+  typewriterModeOn = !!on;
+  document.body.classList.toggle("typewriter-mode-on", typewriterModeOn);
+  const btn = $("typewriterModeButton");
+  if (btn) {
+    btn.setAttribute("aria-pressed", typewriterModeOn ? "true" : "false");
+    btn.classList.toggle("is-active", typewriterModeOn);
+    btn.title = typewriterModeOn
+      ? "타자기 모드 켜짐 · 다시 누르면 끔"
+      : "타자기 모드 · 입력 줄을 화면 중앙에 고정";
+  }
+  $("manuscriptPage")?.classList.toggle("is-typewriter-mode", typewriterModeOn);
+  if (!typewriterModeOn) {
+    hideTypewriterHighlight();
+    $("manuscriptPage")?.classList.remove("is-typewriter-mode");
+  } else {
+    scheduleTypewriterSync({ forceSmooth: true });
+  }
+}
+
+function setTypewriterMode(on, options = {}) {
+  applyTypewriterModeUi(on);
+  writeTypewriterModePref(typewriterModeOn);
+  if (options.announce) {
+    toast(typewriterModeOn ? "타자기 모드를 켰어요." : "타자기 모드를 껐어요.");
+  }
+}
+
+function toggleTypewriterMode(options = {}) {
+  setTypewriterMode(!typewriterModeOn, options);
+}
+
+function setupTypewriterMode() {
+  if (document.documentElement.dataset.typewriterBound === "1") return;
+  document.documentElement.dataset.typewriterBound = "1";
+
+  applyTypewriterModeUi(readTypewriterModePref());
+
+  $("typewriterModeButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleTypewriterMode({ announce: true });
+  });
+
+  const onEditorActivity = (event) => {
+    if (!typewriterModeOn) return;
+    const target = event.target;
+    if (!target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, .rich-editor, .manuscript-page")) {
+      return;
+    }
+    const isEnter = event.type === "keydown" && event.key === "Enter";
+    const isNav = event.type === "keydown" && (
+      event.key === "ArrowUp" || event.key === "ArrowDown"
+      || event.key === "PageUp" || event.key === "PageDown"
+      || event.key === "Home" || event.key === "End"
+    );
+    scheduleTypewriterSync({
+      forceSmooth: isEnter || isNav,
+      smooth: true,
+    });
+  };
+
+  document.addEventListener("input", onEditorActivity, true);
+  document.addEventListener("keydown", onEditorActivity, true);
+  document.addEventListener("keyup", onEditorActivity, true);
+  document.addEventListener("mouseup", onEditorActivity, true);
+  document.addEventListener("selectionchange", () => {
+    if (!typewriterModeOn) return;
+    const editor = getTypewriterEditor();
+    const sel = window.getSelection();
+    if (!editor || !sel?.anchorNode || !editor.contains(sel.anchorNode)) return;
+    scheduleTypewriterSync({ smooth: true });
+  });
+  window.addEventListener("resize", () => {
+    if (typewriterModeOn) scheduleTypewriterSync({ smooth: false });
+  });
+}
+
 function setupSceneStats() {
   syncStatsScopeUi();
   applyStatDisplayVisibility();
@@ -1462,6 +2331,8 @@ function setupSceneStats() {
   $("statsCounts")?.addEventListener("dblclick", onStatChipDblClick);
 
   setupFindBar();
+  setupSimilarWordFind();
+  setupTypewriterMode();
 }
 
 function updateEditorPlaceholder(editorEl = null) {
@@ -1543,17 +2414,27 @@ function getUsableEditorRange(editorEl = null) {
   return live;
 }
 
-function wrapSelectionWithSpan(styles) {
+function wrapSelectionWithSpan(styles, options = {}) {
   const selection = window.getSelection();
   if (!selection || selection.rangeCount === 0) return false;
   const range = selection.getRangeAt(0);
   const editor = getActiveRichEditor() || $("sceneContent");
   if (!editor || !editor.contains(range.commonAncestorContainer)) return false;
 
+  const decorate = (span) => {
+    Object.assign(span.style, styles);
+    if (options.className) {
+      String(options.className)
+        .split(/\s+/)
+        .filter(Boolean)
+        .forEach((c) => span.classList.add(c));
+    }
+  };
+
   if (range.collapsed) {
     // Apply style for upcoming typing via a styled span caret.
     const span = document.createElement("span");
-    Object.assign(span.style, styles);
+    decorate(span);
     span.appendChild(document.createTextNode("\u200b"));
     range.insertNode(span);
     const next = document.createRange();
@@ -1566,7 +2447,7 @@ function wrapSelectionWithSpan(styles) {
 
   const fragment = range.extractContents();
   const span = document.createElement("span");
-  Object.assign(span.style, styles);
+  decorate(span);
   span.appendChild(fragment);
   range.insertNode(span);
   selection.removeAllRanges();
@@ -1599,6 +2480,61 @@ function applyFontSize(size) {
   if (!size) return;
   wrapSelectionWithSpan({ fontSize: size });
   updateEditorPlaceholder();
+}
+
+/** 장평: 글자 가로 비율(%). 100=기본. scaleX + font-stretch 로 적용. */
+function normalizeJangpyeongPercent(value) {
+  const n = Math.round(Number(String(value).replace(/%/g, "").trim()));
+  if (!Number.isFinite(n)) return 100;
+  return Math.min(200, Math.max(50, n));
+}
+
+function applyJangpyeong(percent) {
+  const p = normalizeJangpyeongPercent(percent);
+  const scale = p / 100;
+  if (p === 100) {
+    wrapSelectionWithSpan({
+      fontStretch: "100%",
+      transform: "none",
+      display: "inline",
+      transformOrigin: "left center",
+    });
+  } else {
+    // scaleX 는 시각적 장평; font-stretch 는 가변 폰트 지원 시 보조
+    wrapSelectionWithSpan({
+      display: "inline-block",
+      transform: `scaleX(${scale})`,
+      transformOrigin: "left center",
+      fontStretch: `${p}%`,
+    });
+  }
+  updateEditorPlaceholder();
+  try {
+    const ed = getActiveRichEditor() || $("sceneContent");
+    ed?.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function applyJangpyeongToEntireDocument(percent, editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  const p = normalizeJangpyeongPercent(percent);
+  withEditorSelectAll(editor, () => applyJangpyeong(p));
+}
+
+function jangpyeongPercentFromStyle(styleValue) {
+  const raw = String(styleValue || "").trim();
+  if (!raw || raw === "none") return 100;
+  const m = raw.match(/scaleX\(\s*([0-9.]+)\s*\)/i);
+  if (m) {
+    const s = Number(m[1]);
+    if (Number.isFinite(s) && s > 0) return normalizeJangpyeongPercent(s * 100);
+  }
+  const pct = raw.match(/([0-9.]+)\s*%/);
+  if (pct) return normalizeJangpyeongPercent(pct[1]);
+  return 100;
 }
 
 /** Select all content inside a contenteditable, apply, then restore caret best-effort. */
@@ -1664,7 +2600,7 @@ function applyLineHeightToEntireDocument(value, editorEl = null) {
   updateEditorPlaceholder(editor);
 }
 
-let formatApplyAllKind = null; // "font" | "size" | "lineHeight"
+let formatApplyAllKind = null; // "font" | "size" | "lineHeight" | "jangpyeong"
 let formatApplyAllValue = "";
 let formatApplyAllEditor = null;
 
@@ -1673,6 +2609,14 @@ function hideFormatApplyAllMenu() {
   formatApplyAllKind = null;
   formatApplyAllValue = "";
   formatApplyAllEditor = null;
+}
+
+function formatApplyAllKindLabel(kind) {
+  if (kind === "font") return "글꼴";
+  if (kind === "size") return "크기";
+  if (kind === "lineHeight") return "줄간격";
+  if (kind === "jangpyeong") return "장평";
+  return "서식";
 }
 
 function showFormatApplyAllMenu(kind, value, anchorEl, editor) {
@@ -1684,10 +2628,12 @@ function showFormatApplyAllMenu(kind, value, anchorEl, editor) {
   formatApplyAllKind = kind;
   formatApplyAllValue = value;
   formatApplyAllEditor = editor || getActiveRichEditor() || $("sceneContent");
-  const kindLabel = kind === "font" ? "글꼴" : kind === "size" ? "크기" : "줄간격";
+  const kindLabel = formatApplyAllKindLabel(kind);
   const shortVal = kind === "font"
     ? (value.split(",")[0] || value).replace(/['"]/g, "").trim()
-    : value;
+    : kind === "jangpyeong"
+      ? `${normalizeJangpyeongPercent(value)}%`
+      : value;
   if (label) label.textContent = `${kindLabel}: ${shortVal}`;
   btn.textContent = `전체 문서에 ${kindLabel} 적용`;
   menu.classList.remove("hidden");
@@ -1716,6 +2662,7 @@ function setupFormatApplyAllMenu() {
     if (kind === "font") applyFontFamilyToEntireDocument(value, editor);
     else if (kind === "size") applyFontSizeToEntireDocument(value, editor);
     else if (kind === "lineHeight") applyLineHeightToEntireDocument(value, editor);
+    else if (kind === "jangpyeong") applyJangpyeongToEntireDocument(value, editor);
     toast("전체 문서에 적용했습니다.");
     if (editor.id === "sceneContent" && state.sceneId) markSceneDirty();
     else if (editor.id === "synopsisContent") markSynopsisDirty?.();
@@ -1998,12 +2945,14 @@ const FORMAT_PRESET_COLORS = [
 const FORMAT_COLOR_DEFAULTS = {
   text: "#e74c3c",
   highlight: "#f1c40f",
+  shade: "#efe4d4",
 };
 const formatColorState = {
   text: FORMAT_COLOR_DEFAULTS.text,
   highlight: FORMAT_COLOR_DEFAULTS.highlight,
+  shade: FORMAT_COLOR_DEFAULTS.shade,
 };
-let formatPaletteKind = null; // "text" | "highlight"
+let formatPaletteKind = null; // "text" | "highlight" | "shade"
 let formatPaletteRange = null;
 let formatPaletteEditor = null;
 /** "editor" | "tory-chat" — palette applies to manuscript or 토리 대화 형광펜 */
@@ -2025,12 +2974,147 @@ function applyHighlight(color) {
   updateFormatButtonState();
 }
 
+/** 텍스트 음영상자: 선택 구간에 패딩·모서리·그림자가 있는 배경 상자 (+ 대비 글자색) */
+function contrastInkForShadeBg(hex) {
+  // 어두운 상자 → 밝은 글자, 밝은 상자 → 어두운 글자
+  return isColorDark(hex) ? "#fffdf8" : "#1a1510";
+}
+
+function applyShadeBox(color) {
+  if (!color) return;
+  const ink = contrastInkForShadeBg(color);
+  wrapSelectionWithSpan(
+    {
+      backgroundColor: color,
+      color: ink,
+      padding: "0.08em 0.32em",
+      borderRadius: "4px",
+      boxShadow: "0 1px 3px rgba(0,0,0,0.14), inset 0 0 0 1px rgba(0,0,0,0.06)",
+      boxDecorationBreak: "clone",
+      WebkitBoxDecorationBreak: "clone",
+    },
+    { className: "sg-text-shade-box" }
+  );
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
+function selectionHasShadeBox() {
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) return false;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return false;
+    let node = range.commonAncestorContainer;
+    if (node.nodeType === 3) node = node.parentElement;
+    while (node && node !== editor) {
+      if (node.nodeType === 1 && (
+        node.classList?.contains("sg-text-shade-box")
+        || (node.style?.boxShadow && node.style?.backgroundColor)
+      )) {
+        return true;
+      }
+      node = node.parentElement;
+    }
+    if (!range.collapsed) {
+      const root = range.commonAncestorContainer.nodeType === 1
+        ? range.commonAncestorContainer
+        : range.commonAncestorContainer.parentElement;
+      const hits = root?.querySelectorAll?.(".sg-text-shade-box, [style*='box-shadow']") || [];
+      for (const el of hits) {
+        try {
+          if (!range.intersectsNode || range.intersectsNode(el)) return true;
+        } catch (_) {
+          /* ignore */
+        }
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return false;
+}
+
+function clearShadeBox() {
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (editor && selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (editor.contains(range.commonAncestorContainer)) {
+        const targets = new Set();
+        // 선택 구간의 조상 음영상자
+        let node = range.commonAncestorContainer;
+        if (node.nodeType === 3) node = node.parentElement;
+        while (node && node !== editor) {
+          if (node.nodeType === 1 && (
+            node.classList?.contains("sg-text-shade-box")
+            || (node.style?.boxShadow && node.style?.backgroundColor)
+          )) {
+            targets.add(node);
+            break;
+          }
+          node = node.parentElement;
+        }
+        // 선택과 겹치는 하위 음영상자
+        if (!range.collapsed) {
+          const root = range.commonAncestorContainer.nodeType === 1
+            ? range.commonAncestorContainer
+            : range.commonAncestorContainer.parentElement;
+          root?.querySelectorAll?.(".sg-text-shade-box, [style*='box-shadow']").forEach((el) => {
+            try {
+              if (!range.intersectsNode || range.intersectsNode(el)) targets.add(el);
+            } catch (_) {
+              /* ignore */
+            }
+          });
+        }
+        targets.forEach((el) => {
+          try {
+            el.classList.remove("sg-text-shade-box");
+            el.style.backgroundColor = "";
+            el.style.background = "";
+            el.style.color = "";
+            el.style.padding = "";
+            el.style.borderRadius = "";
+            el.style.boxShadow = "";
+            el.style.boxDecorationBreak = "";
+            el.style.WebkitBoxDecorationBreak = "";
+            if (el.getAttribute("style") === "") el.removeAttribute("style");
+            // 스타일·클래스가 없으면 span을 풀어 텍스트만 남김
+            if (
+              el.tagName === "SPAN"
+              && !el.classList.length
+              && !el.getAttribute("style")
+              && el.attributes.length === 0
+            ) {
+              const parent = el.parentNode;
+              if (!parent) return;
+              while (el.firstChild) parent.insertBefore(el.firstChild, el);
+              parent.removeChild(el);
+              parent.normalize?.();
+            }
+          } catch (_) {
+            /* ignore */
+          }
+        });
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  updateEditorPlaceholder();
+  updateFormatButtonState();
+}
+
 function clearHighlight() {
   document.execCommand("styleWithCSS", false, "true");
   if (!document.execCommand("hiliteColor", false, "transparent")) {
     document.execCommand("backColor", false, "transparent");
   }
   // Also strip highlight background from selected spans (more reliable than transparent alone).
+  // 음영상자(.sg-text-shade-box)는 건드리지 않음.
   try {
     const editor = getActiveRichEditor() || $("sceneContent");
     const selection = window.getSelection();
@@ -2041,6 +3125,7 @@ function clearHighlight() {
           ? range.commonAncestorContainer
           : range.commonAncestorContainer.parentElement;
         root?.querySelectorAll?.("[style*='background']").forEach((el) => {
+          if (el.classList?.contains("sg-text-shade-box")) return;
           if (!range.intersectsNode || range.intersectsNode(el)) {
             el.style.backgroundColor = "";
             el.style.background = "";
@@ -2170,7 +3255,7 @@ function clearTextColor() {
 }
 
 function setFormatColorState(kind, color) {
-  if (kind !== "text" && kind !== "highlight") return;
+  if (kind !== "text" && kind !== "highlight" && kind !== "shade") return;
   if (!color) return;
   formatColorState[kind] = color;
   document.querySelectorAll(`[data-color-bar="${kind}"]`).forEach((bar) => {
@@ -2181,6 +3266,12 @@ function setFormatColorState(kind, color) {
       const icon = btn.querySelector(".format-a-icon");
       if (icon) icon.style.borderBottomColor = color;
     }
+    if (kind === "shade") {
+      const box = btn.querySelector(".format-shade-box");
+      if (box) box.style.backgroundColor = color;
+      const letter = btn.querySelector(".format-shade-letter");
+      if (letter) letter.style.color = contrastInkForShadeBg(color);
+    }
   });
   if (kind === "highlight" && typeof syncToryChatHighlightBar === "function") {
     try { syncToryChatHighlightBar(); } catch (_) { /* defined later */ }
@@ -2188,10 +3279,10 @@ function setFormatColorState(kind, color) {
 }
 
 /**
- * Apply color/highlight to selection.
- * Left-click always paints the current color (simple: drag → click).
- * Pass toggle:true to clear when already highlighted (palette clear is preferred).
- * Palette picks always apply (forceApply: true).
+ * Apply color/highlight/shade to selection.
+ * 글자색·형광펜: 좌클릭은 항상 칠하기 (forceApply).
+ * 음영상자: 드래그 후 클릭 = 상자 채우기, 다시 클릭 = 상자 없애기 (토글).
+ * 팔레트에서 고른 색은 forceApply로 항상 적용.
  */
 function applyFormatColorToSelection(kind, color, editorEl = null, options = {}) {
   const editor = editorEl || getActiveRichEditor() || lastEditorSelection.editor || $("sceneContent");
@@ -2203,14 +3294,13 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   }
   const range = getUsableEditorRange(editor);
   if (!range || range.collapsed) {
-    toast("문장을 드래그해 선택한 뒤 형광펜을 눌러 주세요.");
+    toast("문장을 드래그해 선택한 뒤 색·음영 버튼을 눌러 주세요.");
     return;
   }
   try { restoreSelection(range); } catch (_) { /* ignore */ }
 
-  // Default: always apply (forceApply). Toggle-clear only when explicitly requested.
-  const forceApply = options.forceApply !== false;
-  const allowToggle = Boolean(options.toggle);
+  const forceApply = options.forceApply === true;
+  const allowToggle = options.toggle === true || (kind === "shade" && options.toggle !== false && !forceApply);
   const next = color || formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
 
   if (kind === "highlight") {
@@ -2222,6 +3312,20 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
     }
     setFormatColorState("highlight", next);
     applyHighlight(next);
+  } else if (kind === "shade") {
+    if (allowToggle && !forceApply && selectionHasShadeBox()) {
+      clearShadeBox();
+      formatPaletteRange = currentEditorRange(editor) || formatPaletteRange;
+      rememberLastEditorSelection(editor);
+      try {
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      } catch (_) {
+        /* ignore */
+      }
+      return;
+    }
+    setFormatColorState("shade", next);
+    applyShadeBox(next);
   } else {
     if (allowToggle && !forceApply && selectionHasTextColor()) {
       clearTextColor();
@@ -2261,10 +3365,20 @@ function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
     formatPaletteRange = currentEditorRange(formatPaletteEditor);
   }
   const label = $("formatColorPaletteLabel");
-  if (label) label.textContent = kind === "highlight" ? "형광펜 색" : "글자색";
+  if (label) {
+    label.textContent = kind === "highlight"
+      ? "형광펜 색"
+      : kind === "shade"
+        ? "음영상자 색"
+        : "글자색";
+  }
   const clearBtn = $("formatPaletteClearButton");
   if (clearBtn) {
-    clearBtn.textContent = kind === "highlight" ? "형광 지우기" : "기본 색";
+    clearBtn.textContent = kind === "highlight"
+      ? "형광 지우기"
+      : kind === "shade"
+        ? "음영 지우기"
+        : "기본 색";
     clearBtn.hidden = false;
   }
   const current = formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
@@ -2287,6 +3401,7 @@ function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
 function setupFormatColorPalette() {
   setFormatColorState("text", formatColorState.text);
   setFormatColorState("highlight", formatColorState.highlight);
+  setFormatColorState("shade", formatColorState.shade);
 
   const palette = $("formatColorPalette");
   if (!palette || palette.dataset.bound === "1") return;
@@ -2326,6 +3441,7 @@ function setupFormatColorPalette() {
         }
       }
       if (formatPaletteKind === "highlight") clearHighlight();
+      else if (formatPaletteKind === "shade") clearShadeBox();
       else clearTextColor();
       hideFormatColorPalette();
     }
@@ -2373,9 +3489,11 @@ function updateFormatButtonState(toolbarEl = null) {
     ["bold", "bold"],
     ["italic", "italic"],
     ["underline", "underline"],
+    ["strike", "strikeThrough"],
     ["justifyLeft", "justifyLeft"],
     ["justifyCenter", "justifyCenter"],
     ["justifyRight", "justifyRight"],
+    ["justifyFull", "justifyFull"],
   ];
   const root = toolbarEl || document;
   try {
@@ -2476,8 +3594,8 @@ function updateListButtonMarks() {
   document.querySelectorAll("[data-list-mark]").forEach((el) => {
     el.textContent = style.preview || "•";
   });
-  document.querySelectorAll(".format-list-btn").forEach((btn) => {
-    btn.title = `목록 (${style.label}) · 클릭: 적용 · 우클릭: 기호 선택`;
+  document.querySelectorAll(".format-list-btn, .format-bullet-btn").forEach((btn) => {
+    btn.title = `글머리 기호 (${style.label}) · 클릭: 적용 · 우클릭: 기호 선택`;
   });
 }
 
@@ -2594,6 +3712,7 @@ function showFormatListPalette(anchorBtn, editor = null) {
   const palette = $("formatListPalette");
   if (!palette || !anchorBtn) return;
   hideFormatColorPalette?.();
+  hideFormatSpecialPalette?.();
   formatListPaletteEditor = editor || getActiveRichEditor() || $("sceneContent");
   formatListPaletteRange = currentEditorRange(formatListPaletteEditor);
 
@@ -2679,7 +3798,7 @@ function setupFormatListPalette() {
   });
 
   document.addEventListener("click", (event) => {
-    if (event.target.closest("#formatListPalette, .format-list-btn")) return;
+    if (event.target.closest("#formatListPalette, .format-list-btn, .format-bullet-btn")) return;
     hideFormatListPalette();
   });
   document.addEventListener("keydown", (event) => {
@@ -2687,6 +3806,143 @@ function setupFormatListPalette() {
   });
   window.addEventListener("blur", hideFormatListPalette);
   window.addEventListener("resize", hideFormatListPalette);
+}
+
+/* —— 특수문자 삽입 —— */
+const SPECIAL_CHARS_UNIQUE = [
+  "※", "★", "☆", "○", "●", "◎", "◇", "◆", "□", "■",
+  "△", "▲", "▽", "▼", "▷", "▶", "◁", "◀",
+  "♠", "♣", "♥", "♦", "♪", "♭", "♯",
+  "→", "←", "↑", "↓", "↔", "⇒", "⇔",
+  "·", "‥", "…", "∶", "∷",
+  "±", "×", "÷", "≠", "≤", "≥", "∞", "℃", "℉",
+  "§", "¶", "†", "‡", "〒",
+  "①", "②", "③", "④", "⑤", "⑥", "⑦", "⑧", "⑨", "⑩",
+  "⑴", "⑵", "⑶", "⑷", "⑸",
+  "ⓐ", "ⓑ", "ⓒ", "ⓓ", "ⓔ",
+  "「", "」", "『", "』", "【", "】", "〈", "〉", "《", "》",
+  "©", "®", "™", "€", "£", "¥", "$",
+];
+let formatSpecialPaletteEditor = null;
+let formatSpecialPaletteRange = null;
+
+function hideFormatSpecialPalette() {
+  const palette = $("formatSpecialPalette");
+  if (!palette) return;
+  palette.classList.add("hidden");
+  document.querySelectorAll(".format-special-btn").forEach((btn) => {
+    btn.setAttribute("aria-expanded", "false");
+  });
+}
+
+function showFormatSpecialPalette(anchorBtn, editor = null) {
+  const palette = $("formatSpecialPalette");
+  if (!palette || !anchorBtn) return;
+  hideFormatColorPalette?.();
+  hideFormatListPalette?.();
+  formatSpecialPaletteEditor = editor || getActiveRichEditor() || $("sceneContent");
+  formatSpecialPaletteRange = currentEditorRange(formatSpecialPaletteEditor)
+    || getUsableEditorRange(formatSpecialPaletteEditor);
+
+  palette.classList.remove("hidden");
+  anchorBtn.setAttribute("aria-expanded", "true");
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const pad = 8;
+  const pw = palette.offsetWidth || 280;
+  const ph = palette.offsetHeight || 220;
+  let left = rect.left;
+  let top = rect.bottom + 4;
+  if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+  if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 4);
+  palette.style.left = `${Math.max(pad, left)}px`;
+  palette.style.top = `${Math.max(pad, top)}px`;
+}
+
+function insertSpecialChar(char, editorEl = null) {
+  const editor = editorEl || formatSpecialPaletteEditor || getActiveRichEditor() || $("sceneContent");
+  if (!editor || !char) return;
+  focusEditor(editor);
+  const range = formatSpecialPaletteRange || getUsableEditorRange(editor) || currentEditorRange(editor);
+  if (range) {
+    try { restoreSelection(range); } catch (_) { /* ignore */ }
+  }
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* ignore */
+  }
+  let ok = false;
+  try {
+    ok = document.execCommand("insertText", false, char);
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) {
+    try {
+      const sel = window.getSelection();
+      if (sel && sel.rangeCount) {
+        const r = sel.getRangeAt(0);
+        r.deleteContents();
+        const text = document.createTextNode(char);
+        r.insertNode(text);
+        r.setStartAfter(text);
+        r.collapse(true);
+        sel.removeAllRanges();
+        sel.addRange(r);
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  formatSpecialPaletteRange = currentEditorRange(editor);
+  updateEditorPlaceholder(editor);
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
+  if (editor.id === "sceneContent" && state.sceneId) markSceneDirty?.();
+  else if (editor.id === "synopsisContent") markSynopsisDirty?.();
+}
+
+function setupFormatSpecialPalette() {
+  const host = $("formatSpecialOptions");
+  if (host && !host.dataset.filled) {
+    host.innerHTML = SPECIAL_CHARS_UNIQUE.map((ch) => `
+      <button type="button" class="format-special-option" role="menuitem"
+        data-special-char="${escapeHtml(ch)}" title="${escapeHtml(ch)}">${escapeHtml(ch)}</button>
+    `).join("");
+    host.dataset.filled = "1";
+  }
+
+  const palette = $("formatSpecialPalette");
+  if (!palette || palette.dataset.bound === "1") return;
+  palette.dataset.bound = "1";
+
+  palette.addEventListener("mousedown", (event) => {
+    event.preventDefault();
+  });
+
+  palette.addEventListener("click", (event) => {
+    const option = event.target.closest("[data-special-char]");
+    if (!option) return;
+    const ch = option.dataset.specialChar;
+    const editor = formatSpecialPaletteEditor || getActiveRichEditor() || $("sceneContent");
+    insertSpecialChar(ch, editor);
+    // keep palette open for multiple inserts; refresh range
+    formatSpecialPaletteRange = currentEditorRange(editor);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest("#formatSpecialPalette, .format-special-btn")) return;
+    hideFormatSpecialPalette();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideFormatSpecialPalette();
+  });
+  window.addEventListener("blur", hideFormatSpecialPalette);
+  window.addEventListener("resize", hideFormatSpecialPalette);
 }
 
 /** Manuscript / settings-doc font menu (system fonts with safe fallbacks). */
@@ -2767,8 +4023,8 @@ const FONT_OPTIONS = [
 ];
 
 /** Editor CSS defaults (must match .rich-editor in styles.css). */
-const EDITOR_DEFAULT_FONT = 'Georgia, "Malgun Gothic", serif';
-const EDITOR_DEFAULT_FONT_LABEL = "Georgia";
+const EDITOR_DEFAULT_FONT = '"Nanum Gothic", "Malgun Gothic", sans-serif';
+const EDITOR_DEFAULT_FONT_LABEL = "나눔고딕";
 const EDITOR_DEFAULT_SIZE = "17px";
 
 function populateFormatFontSelects() {
@@ -2784,18 +4040,20 @@ function populateFormatFontSelects() {
         opt.textContent = font.label;
         // Preview the face when the OS has it installed.
         opt.style.fontFamily = font.value;
-        // Prefer Georgia as the visible default (matches .rich-editor).
-        if (font.label === EDITOR_DEFAULT_FONT_LABEL || font.value.startsWith("Georgia")) {
+        // Prefer 나눔고딕 as the visible default (matches .rich-editor).
+        if (font.label === EDITOR_DEFAULT_FONT_LABEL || /nanum gothic/i.test(font.value)) {
           opt.selected = true;
         }
         og.appendChild(opt);
       }
       select.appendChild(og);
     }
-    // Ensure Georgia (or first face) is selected if nothing matched.
+    // Ensure 나눔고딕 (or first face) is selected if nothing matched.
     if (!select.value && select.options.length) {
-      const georgia = [...select.options].find((o) => /georgia/i.test(o.value) || o.textContent === "Georgia");
-      if (georgia) select.value = georgia.value;
+      const nanum = [...select.options].find(
+        (o) => /nanum gothic/i.test(o.value) || o.textContent === EDITOR_DEFAULT_FONT_LABEL
+      );
+      if (nanum) select.value = nanum.value;
       else select.selectedIndex = 0;
     }
     select.dataset.fontsFilled = "1";
@@ -2879,9 +4137,11 @@ function syncFormatFontSizeSelects(toolbar, editor) {
   if (!toolbar || !editor) return;
   const fontSelect = toolbar.querySelector("#formatFont, [data-role='format-font'], .format-font-select");
   const sizeSelect = toolbar.querySelector("#formatSize, [data-role='format-size']");
+  const jangSelect = toolbar.querySelector("#formatJangpyeong, [data-role='format-jangpyeong']");
   const probe = getSelectionStyleProbe(editor);
   let fontFamily = "";
   let fontSize = "";
+  let jangPct = 100;
   try {
     const cmdFont = document.queryCommandValue("fontName");
     if (cmdFont && cmdFont !== "false" && cmdFont !== "null") fontFamily = cmdFont;
@@ -2892,12 +4152,29 @@ function syncFormatFontSizeSelects(toolbar, editor) {
     const cs = window.getComputedStyle(probe || editor);
     if (!fontFamily) fontFamily = cs.fontFamily || "";
     fontSize = cs.fontSize || "";
+    const inlineTransform = probe?.style?.transform || "";
+    const inlineStretch = probe?.style?.fontStretch || "";
+    jangPct = jangpyeongPercentFromStyle(inlineTransform || inlineStretch || cs.fontStretch || "100%");
+    if (inlineTransform && /scaleX/i.test(inlineTransform)) {
+      jangPct = jangpyeongPercentFromStyle(inlineTransform);
+    }
   } catch (_) {
     fontFamily = fontFamily || EDITOR_DEFAULT_FONT;
     fontSize = fontSize || EDITOR_DEFAULT_SIZE;
+    jangPct = 100;
   }
   if (fontSelect) matchFontSelectValue(fontSelect, fontFamily || EDITOR_DEFAULT_FONT);
   if (sizeSelect) matchSizeSelectValue(sizeSelect, fontSize || EDITOR_DEFAULT_SIZE);
+  if (jangSelect) {
+    const key = String(normalizeJangpyeongPercent(jangPct));
+    if (![...jangSelect.options].some((o) => o.value === key)) {
+      const opt = document.createElement("option");
+      opt.value = key;
+      opt.textContent = key;
+      jangSelect.appendChild(opt);
+    }
+    jangSelect.value = key;
+  }
   syncParagraphStyleSelect(toolbar, editor);
 }
 
@@ -2909,6 +4186,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
   const sizeSelect = toolbar.querySelector("#formatSize, [data-role='format-size']");
   const lineHeightSelect = toolbar.querySelector("#formatLineHeight, [data-role='format-line-height']");
   const paragraphSelect = toolbar.querySelector("#formatParagraphStyle, [data-role='format-paragraph']");
+  const jangpyeongSelect = toolbar.querySelector("#formatJangpyeong, [data-role='format-jangpyeong']");
 
   // Restore remembered editor-wide line spacing.
   const storedLh = getStoredLineHeight();
@@ -3000,40 +4278,67 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
       updateEditorPlaceholder(editor);
       return;
     }
-    // Text color / highlight: left-click paints last-chosen color (no right-click needed).
-    if (format === "textColor" || format === "highlight") {
-      const kind = button.dataset.colorKind || (format === "highlight" ? "highlight" : "text");
+    // 형광펜 / 글자색: 좌클릭은 항상 칠하기.
+    // 음영상자: 드래그 후 클릭 = 채우기, 다시 클릭 = 없애기.
+    if (format === "textColor" || format === "highlight" || format === "shadeBox") {
+      const kind = button.dataset.colorKind
+        || (format === "highlight" ? "highlight" : format === "shadeBox" ? "shade" : "text");
       useSavedSelection(() => {
-        applyFormatColorToSelection(kind, formatColorState[kind], editor, { forceApply: true });
+        if (kind === "shade") {
+          applyFormatColorToSelection(kind, formatColorState[kind], editor, {
+            forceApply: false,
+            toggle: true,
+          });
+        } else {
+          applyFormatColorToSelection(kind, formatColorState[kind], editor, { forceApply: true });
+        }
       });
       return;
     }
-    // List: left-click applies last-chosen marker/number style.
+    // 글머리 기호: left-click applies last-chosen marker/number style.
     if (format === "list") {
       useSavedSelection(() => {
         applyListStyle(formatListStyleKey, editor);
       });
       return;
     }
+    // 특수문자: open palette
+    if (format === "specialChar") {
+      rememberSelection();
+      setUiFeatureCtxTarget?.(button);
+      showFormatSpecialPalette(button, editor);
+      return;
+    }
     useSavedSelection(() => {
       if (format === "bold") applyEditorCommand("bold");
       else if (format === "italic") applyEditorCommand("italic");
       else if (format === "underline") applyEditorCommand("underline");
+      else if (format === "strike") applyEditorCommand("strikeThrough");
       else if (format === "justifyLeft") applyEditorCommand("justifyLeft");
       else if (format === "justifyCenter") applyEditorCommand("justifyCenter");
       else if (format === "justifyRight") applyEditorCommand("justifyRight");
+      else if (format === "justifyFull") applyEditorCommand("justifyFull");
     });
   });
 
-  // Right-click on color / highlight / list icon → palette (+ hide footer)
+  // Right-click on color / highlight / 글머리 / 특수문자 → palette (+ hide footer)
   toolbar.addEventListener("contextmenu", (event) => {
-    const listBtn = event.target.closest(".format-list-btn, [data-format='list']");
+    const listBtn = event.target.closest(".format-list-btn, .format-bullet-btn, [data-format='list']");
     if (listBtn && toolbar.contains(listBtn)) {
       event.preventDefault();
       event.stopPropagation();
       rememberSelection();
       setUiFeatureCtxTarget?.(listBtn);
       showFormatListPalette(listBtn, editor);
+      return;
+    }
+    const specialBtn = event.target.closest(".format-special-btn, [data-format='specialChar']");
+    if (specialBtn && toolbar.contains(specialBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      rememberSelection();
+      setUiFeatureCtxTarget?.(specialBtn);
+      showFormatSpecialPalette(specialBtn, editor);
       return;
     }
     const button = event.target.closest("[data-color-kind]");
@@ -3066,8 +4371,13 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     const value = event.target.value || "p";
     useSavedSelection(() => applyParagraphStyle(value, editor));
   });
+  jangpyeongSelect?.addEventListener("change", (event) => {
+    const value = event.target.value;
+    if (!value) return;
+    useSavedSelection(() => applyJangpyeong(value));
+  });
 
-  // Right-click font / size / line-height → apply to entire document (+ hide footer)
+  // Right-click font / size / line-height / 장평 → apply to entire document (+ hide footer)
   const onFormatSelectContextMenu = (event, kind) => {
     const select = event.currentTarget;
     const value = select?.value;
@@ -3081,6 +4391,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
   fontSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "font"));
   sizeSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "size"));
   lineHeightSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "lineHeight"));
+  jangpyeongSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "jangpyeong"));
 
   // Seed selects with the editor's actual current face/size/paragraph style.
   syncFormatFontSizeSelects(toolbar, editor);
@@ -3116,6 +4427,9 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     } else if (key === "u") {
       event.preventDefault();
       applyEditorCommand("underline");
+    } else if (key === "x" && event.shiftKey) {
+      event.preventDefault();
+      applyEditorCommand("strikeThrough");
     } else if (key === "z" && !event.shiftKey) {
       event.preventDefault();
       applyEditorCommand("undo");
@@ -3133,6 +4447,7 @@ function setupRichEditor() {
   populateFormatFontSelects();
   setupFormatColorPalette();
   setupFormatListPalette();
+  setupFormatSpecialPalette();
   setupFormatApplyAllMenu();
   setupRichEditorSurface({
     editor: $("sceneContent"),
@@ -3153,7 +4468,7 @@ function setupRichEditor() {
   });
 }
 
-const statusLabel = { idea: "아이디어", outline: "개요", draft: "초고", revision: "수정", complete: "완성" };
+const statusLabel = { idea: "구상", outline: "개요", draft: "초고", revision: "수정", complete: "완성" };
 const roleLabel = { protagonist: "주인공", antagonist: "대립 인물", supporting: "조연", minor: "단역" };
 const purposeLabel = {
   general_novel: "일반소설",
@@ -3801,6 +5116,9 @@ async function persistProjectGenre({ quiet = true } = {}) {
     project.sub_genre = sub;
   }
   syncGenreDisplayButtons();
+  if (typeof renderSettingsCodex === "function") {
+    try { renderSettingsCodex(); } catch (_) { /* ignore */ }
+  }
   if (!quiet) toast("장르를 저장했습니다.");
 }
 
@@ -3831,17 +5149,17 @@ function syncGenreDisplayButtons() {
     const opt = subSelect?.selectedOptions?.[0];
     let label = (opt && opt.value)
       ? String(opt.textContent || "").trim()
-      : (subSelect?.options?.[0]?.textContent || "세부").trim();
+      : (subSelect?.options?.[0]?.textContent || "하위 장르").trim();
     if (subSelect?.value === "other") {
       const custom = ($("subGenreCustom")?.value || "").trim();
       if (custom) label = custom;
     }
-    subBtn.textContent = label || "세부";
+    subBtn.textContent = label || "하위 장르";
     const subHidden = mode === "fairy_tale" || mode === "none";
     // Header <select> is always disabled (value store) — do not gate the display button on it.
     subBtn.disabled = !hasProject || subHidden;
     subBtn.title = hasProject
-      ? (mode === "translation" ? "우클릭: 번역문 언어 변경" : "우클릭: 세부 장르 변경")
+      ? (mode === "translation" ? "우클릭: 번역문 언어 변경" : "우클릭: 하위 장르 변경")
       : "작품을 먼저 선택해 주세요";
   }
 }
@@ -4170,6 +5488,7 @@ function hideCenterViewsForKeywordBoard() {
   $("ideaBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
   hideSynopsisMain();
+  hideSettingsCollectionBoard();
   closeSceneToolsDrawer();
   void closeSplitView();
   $("keywordBoard")?.classList.remove("hidden");
@@ -4639,6 +5958,9 @@ async function persistProjectPurpose({ quiet = true } = {}) {
   const project = state.projects.find((p) => p.id === state.projectId);
   if (project) project.purpose = next;
   refreshProjectSelectOptions();
+  if (typeof renderSettingsCodex === "function") {
+    try { renderSettingsCodex(); } catch (_) { /* ignore */ }
+  }
   if (!quiet) toast(`작품 종류를 ${purposeLabel[next] || next}(으)로 바꿨어요.`);
 }
 
@@ -4798,6 +6120,7 @@ async function loadProject() {
   state.introMd = outline.project?.intro_md || "";
   state.intentMd = outline.project?.intent_md || "";
   state.worldbuildingMd = outline.project?.worldbuilding_md || "";
+  seedWorldBuildingExamplesIfEmpty();
   state.projectPurpose = normalizePurposeKey(
     outline.project?.purpose || state.projects.find((p) => p.id === state.projectId)?.purpose || "general_novel",
   );
@@ -4926,11 +6249,22 @@ function renderSettingsCodex() {
   // Previews hidden by CSS; keep sync for any future use.
   renderPreviewElement($("introPreview"), [], "작품소개·기획의도");
   renderPreviewElement($("logsynPreview"), [], "로그라인·시놉시스");
-  renderPreviewElement(
-    $("keywordsPreview"),
-    state.keywords.length ? [state.keywords.slice(0, 6).join(" · ")] : [],
-    "키워드 태그를 골라 보세요 · 더블클릭 또는 →",
-  );
+  {
+    const purposeLabel = ($("purposeDisplay")?.textContent || "").trim();
+    const mainLabel = state.mainGenre ? mainGenreLabel(state.mainGenre) : "";
+    const subLabel = state.subGenre ? subGenreLabel(state.mainGenre, state.subGenre) : "";
+    const genreBits = [purposeLabel, mainLabel, subLabel]
+      .map((s) => String(s || "").trim())
+      .filter((s) => s && s !== "미정");
+    const genreLine = genreBits.length ? genreBits.join(" · ") : "";
+    const kwLine = state.keywords.length ? state.keywords.slice(0, 6).join(" · ") : "";
+    const previewLinesKw = [genreLine, kwLine].filter(Boolean);
+    renderPreviewElement(
+      $("keywordsPreview"),
+      previewLinesKw,
+      "장르·키워드를 정해 보세요 · 더블클릭 또는 →",
+    );
+  }
   renderKeywordBox();
   renderPreviewElement(
     $("worldPreview"),
@@ -5113,6 +6447,10 @@ const SETTINGS_DOC_SIBLINGS = {
 
 function pullSettingsDocFromSidebar(kind) {
   const meta = getSettingsDocMeta(kind);
+  if (kind === "world" && $("worldbuildingForm")) {
+    // 메인으로 열거나 저장할 때는 예제 초안도 확정한다.
+    return pushWorldBuildingFormToState({ commitDraft: true });
+  }
   const el = $(meta.sidebarId);
   if (!el) return state[meta.stateKey] || "";
   const value = el.value || "";
@@ -5127,9 +6465,16 @@ function pullSettingsDocFamilyFromSidebar(kind) {
 
 function getSettingsDocTextForSave(kind = state.settingsDocKind || "synopsis") {
   const meta = getSettingsDocMeta(kind);
-  // Prefer live DOM: sidebar if focused, else main editor when that kind is open, else sidebar, else state.
+  if (kind === "world" && ($("worldbuildingForm") || $("worldbuildingMainForm"))) {
+    const formFocused = Boolean(
+      document.activeElement?.closest?.("#worldbuildingMainForm, #worldbuildingForm"),
+    );
+    if (formFocused) return pushWorldBuildingFormToState({ commitDraft: true });
+    if (worldbuildingExampleDraft) return state.worldbuildingMd || "";
+    return pushWorldBuildingFormToState({ commitDraft: true });
+  }
   const sidebar = $(meta.sidebarId);
-  const mainOpen = isSettingsDocMainOpen() && state.settingsDocKind === kind && $("synopsisContent");
+  const mainOpen = isSynopsisWorkspaceOpen() && state.settingsDocKind === kind && $("synopsisContent");
   if (sidebar && document.activeElement === sidebar) {
     return sidebar.value || "";
   }
@@ -5152,6 +6497,14 @@ function autoResizeSettingsSidebarTextarea(el) {
 
 function syncSettingsDocSidebarFromState(kind) {
   const meta = getSettingsDocMeta(kind);
+  if (kind === "world" && ($("worldbuildingForm") || $("worldbuildingMainForm"))) {
+    const formFocused = Boolean(
+      document.activeElement?.closest?.("#worldbuildingMainForm, #worldbuildingForm"),
+    );
+    if (formFocused) return;
+    syncWorldBuildingFormFromState({ force: false });
+    return;
+  }
   const el = $(meta.sidebarId);
   if (!el || document.activeElement === el) return;
   const raw = state[meta.stateKey] || "";
@@ -5162,6 +6515,14 @@ function syncSettingsDocSidebarFromState(kind) {
 /** Push current state into main editor when it shows the same settings doc. */
 function syncSettingsDocMainFromState(kind, { force = false } = {}) {
   if (!isSettingsDocMainOpen() || state.settingsDocKind !== kind) return;
+  if (kind === "world") {
+    if (!force) {
+      const focused = document.activeElement?.closest?.("#worldbuildingMainForm [data-world-field]");
+      if (focused) return;
+    }
+    syncWorldBuildingFormFromState({ force: true });
+    return;
+  }
   const editor = $("synopsisContent");
   if (!editor) return;
   if (!force && document.activeElement === editor) return;
@@ -5184,6 +6545,7 @@ const settingsDocPending = Object.create(null);
 
 function setSynopsisSaveStatus(text) {
   if ($("synopsisSaveInfo")) $("synopsisSaveInfo").textContent = text;
+  if (state.settingsDocKind === "world") setWorldbuildingSaveStatus(text);
 }
 
 function markSynopsisDirty() {
@@ -5280,6 +6642,7 @@ async function saveProjectWorldbuilding() {
 
 function hideSynopsisMain() {
   $("synopsisWorkspace")?.classList.add("hidden");
+  $("worldbuildingWorkspace")?.classList.add("hidden");
   state.settingsDocKind = null;
 }
 
@@ -5365,6 +6728,7 @@ async function openSettingsDocMain(kind = "synopsis") {
   state.characterBoardOpen = false;
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
+  hideSettingsCollectionBoard();
 
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
@@ -5375,6 +6739,25 @@ async function openSettingsDocMain(kind = "synopsis") {
   closeSceneToolsDrawer();
   closeSplitView().catch(() => {});
 
+  if (kind === "world") {
+    $("synopsisWorkspace")?.classList.add("hidden");
+    ensureWorldbuildingMainForm();
+    bindWorldBuildingMainFormInputs();
+    $("worldbuildingWorkspace")?.classList.remove("hidden");
+    const loadText = pullSettingsDocFromSidebar("world") || state.worldbuildingMd || "";
+    state.worldbuildingMd = loadText;
+    if (!String(loadText || "").trim()) seedWorldBuildingExamplesIfEmpty();
+    else syncWorldBuildingFormFromState({ force: true });
+    synopsisDirty = false;
+    setSynopsisSaveStatus("편집 중");
+    requestAnimationFrame(() => {
+      const first = $("worldbuildingMainForm")?.querySelector?.("[data-world-field]");
+      try { first?.focus?.({ preventScroll: true }); } catch (_) { first?.focus?.(); }
+    });
+    return;
+  }
+
+  $("worldbuildingWorkspace")?.classList.add("hidden");
   applySettingsDocChrome(kind);
   $("synopsisWorkspace")?.classList.remove("hidden");
 
@@ -5464,6 +6847,7 @@ async function openCharacterBoard() {
   state.keywordBoardOpen = false;
   state.sceneId = null;
   hideSynopsisMain();
+  hideSettingsCollectionBoard();
 
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
@@ -5488,8 +6872,18 @@ async function closeCharacterBoard() {
   }
 }
 
+async function closeCharacterEditor() {
+  $("characterEditor")?.classList.add("hidden");
+  // 캐릭터 메인(카드 목록)으로 돌아간다.
+  await openCharacterBoard();
+}
+
 function bindSettingsDocSidebarInput(kind) {
   const meta = getSettingsDocMeta(kind);
+  if (kind === "world") {
+    bindWorldBuildingFormInputs();
+    return;
+  }
   const el = $(meta.sidebarId);
   if (!el || el.dataset.settingsBound === "1") return;
   el.dataset.settingsBound = "1";
@@ -5524,6 +6918,52 @@ function bindSettingsDocSidebarInput(kind) {
   el.addEventListener("blur", () => {
     pushToStateAndMaybeMain();
   });
+}
+
+function bindWorldBuildingFormRoot(form) {
+  if (!form || form.dataset.settingsBound === "1") return;
+  form.dataset.settingsBound = "1";
+  fillWorldBuildingExamplePlaceholders();
+  const syncFromThisForm = () => {
+    const values = readWorldBuildingFormValuesFrom(form);
+    const md = composeWorldbuildingMd(values);
+    worldbuildingExampleDraft = false;
+    state.worldbuildingMd = md;
+    synopsisDirty = true;
+    const serialized = $("projectWorldbuilding");
+    if (serialized) serialized.value = md;
+    for (const other of worldBuildingFormRoots()) {
+      if (other === form) continue;
+      applyWorldBuildingValuesToFormRoot(other, values, { force: false });
+    }
+    return md;
+  };
+  form.addEventListener("input", (event) => {
+    const el = event.target?.closest?.("[data-world-field]");
+    if (!el) return;
+    autoResizeSettingsSidebarTextarea(el);
+    syncFromThisForm();
+    scheduleSettingsDocAutoSave("world");
+    if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus("저장 대기 중…");
+  });
+  form.addEventListener("change", (event) => {
+    if (!event.target?.closest?.("[data-world-field]")) return;
+    syncFromThisForm();
+    scheduleSettingsDocAutoSave("world");
+  });
+  form.addEventListener("blur", (event) => {
+    if (!event.target?.closest?.("[data-world-field]")) return;
+    syncFromThisForm();
+  }, true);
+}
+
+function bindWorldBuildingFormInputs() {
+  bindWorldBuildingFormRoot($("worldbuildingForm"));
+}
+
+function bindWorldBuildingMainFormInputs() {
+  ensureWorldbuildingMainForm();
+  bindWorldBuildingFormRoot($("worldbuildingMainForm"));
 }
 
 function setupSettingsCodex() {
@@ -5589,16 +7029,24 @@ function setupSettingsCodex() {
     persistSettingsDoc(state.settingsDocKind || "synopsis", { quiet: false }).catch(handleError);
   });
   $("closeSynopsisMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
+  $("saveWorldbuildingMainButton")?.addEventListener("click", () => {
+    pushWorldBuildingFormToState({ commitDraft: true });
+    persistSettingsDoc("world", { quiet: false }).catch(handleError);
+  });
+  $("closeWorldbuildingMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
   $("worldPreview")?.addEventListener("dblclick", () => openSettingsDocMain("world").catch(handleError));
   $("charactersPreview")?.addEventListener("dblclick", () => openCharacterBoard().catch(handleError));
   $("keywordsPreview")?.addEventListener("dblclick", () => openKeywordBoard());
   $("closeCharacterBoardButton")?.addEventListener("click", () => closeCharacterBoard().catch(handleError));
+  $("closeCharacterEditorButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
   bindSettingsDocSidebarInput("intro");
   bindSettingsDocSidebarInput("intent");
   bindSettingsDocSidebarInput("synopsis");
   bindSettingsDocSidebarInput("logline");
   bindSettingsDocSidebarInput("world");
+  ensureWorldbuildingMainForm();
+  bindWorldBuildingMainFormInputs();
   // Migrate stored open section keys (in-memory / already restored)
   if (state.openSettingsSection === "synopsis" || state.openSettingsSection === "logline") {
     state.openSettingsSection = "logsyn";
@@ -5660,6 +7108,7 @@ function hideCenterViewsForIdeaBoard() {
   hideSynopsisMain();
   hideCharacterBoard();
   hideKeywordBoard();
+  hideSettingsCollectionBoard();
   $("ideaBoard").classList.remove("hidden");
   closeSceneToolsDrawer();
   void closeSplitView();
@@ -6402,7 +7851,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
   if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -6475,7 +7924,7 @@ async function runFocusedAnalysisBatch(sceneIds) {
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
   if ($("aiResult")) $("aiResult").value = `${ids.length}개 회차를 각각 살펴보는 중…`;
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   const blocks = [];
   try {
@@ -6599,7 +8048,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
   if ($("aiResult")) {
     $("aiResult").value = `${episodes.length}개 연속 회차를 한 흐름으로 살펴보는 중…`;
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -6876,7 +8325,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   if ($("aiMode")) $("aiMode").value = "summarize";
   updateForeshadowPanelVisibility();
   if ($("aiResult")) $("aiResult").value = "회차를 자세히 요약하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -6992,7 +8441,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
   if ($("aiResult")) {
     $("aiResult").value = `${episodes.length}개 회차를 자세히 요약하는 중…`;
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -7079,7 +8528,7 @@ async function runFocusedAnalysis(options = {}) {
     aiButton.textContent = "피드백 요청 중…";
   }
   if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -7956,7 +9405,7 @@ async function runBrainstormForScene(base, userTopic = "") {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
   if ($("aiResult")) $("aiResult").value = "작품 확장 아이디어를 브레인스토밍하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -8019,7 +9468,7 @@ async function runBrainstormNextExists(base, next, userTopic = "") {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
   if ($("aiResult")) $("aiResult").value = "현재·다음 회차를 참고해 브레인스토밍하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -8168,7 +9617,7 @@ async function runIdeasForScene(base) {
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "ideas";
   if ($("aiResult")) $("aiResult").value = "다음 전개 아이디어를 생각하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -8223,7 +9672,7 @@ async function runIdeasNextExists(base, next) {
   if ($("aiResult")) {
     $("aiResult").value = "다음 회차 시작부와 대안 전개를 살펴보는 중…";
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -8348,7 +9797,7 @@ async function runDuplicateCheck(targetSceneId) {
       ? `앞뒤 ${range.length}개 회차와 비교하는 중…`
       : "인근 회차가 없어 현재 회차만 검토합니다…";
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     // Load neighbor manuscript texts (skip current; use live editor for current)
@@ -8683,7 +10132,7 @@ async function runWorldScanForTarget(sceneId) {
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
   if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -8802,7 +10251,7 @@ async function runWorldScanMulti(sceneIds) {
   if ($("aiResult")) {
     $("aiResult").value = `${episodes.length}개 회차의 세계관·캐릭터 설정을 대조하는 중…`;
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -8899,7 +10348,7 @@ async function runWorldScan() {
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
   if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
   try {
@@ -9413,13 +10862,21 @@ function syncAiModePickerUi() {
   const picker = $("aiModePicker");
   if (!sel) return;
   const opt = sel.selectedOptions?.[0] || sel.options?.[sel.selectedIndex];
-  if (labelEl) labelEl.textContent = opt?.textContent?.trim() || "직접 요청하기";
+  // free: 「직접요청」탭 전용 · 드롭바 제목만 「무엇을 도와드릴까요?」
+  if (labelEl) {
+    if (sel.value === "free") {
+      labelEl.textContent = "무엇을 도와드릴까요?";
+    } else {
+      labelEl.textContent = opt?.textContent?.trim() || "무엇을 도와드릴까요?";
+    }
+  }
   const on = AI_SUCCESS_MODE_VALUES.has(sel.value);
   const coming = AI_COMING_MODE_VALUES.has(sel.value);
   sel.classList.toggle("is-success-mode", on);
   sel.classList.toggle("is-coming-mode", coming);
   picker?.classList.toggle("is-success-mode", on);
   picker?.classList.toggle("is-coming-mode", coming);
+  picker?.classList.toggle("is-free-mode", sel.value === "free");
   document.querySelectorAll("#aiModePickerMenu [data-ai-mode-value]").forEach((btn) => {
     btn.classList.toggle("is-active", btn.getAttribute("data-ai-mode-value") === sel.value);
   });
@@ -9463,6 +10920,8 @@ function renderAiModePickerMenu() {
       return;
     }
     if (node instanceof HTMLOptionElement) {
+      // 직접 작성하기(free)는 「직접요청」탭 전용 — 선택하기 드롭바 목록에서 제외
+      if (node.value === "free") return;
       const cls = [
         "ai-mode-picker-option",
         node.value === sel.value ? "is-active" : "",
@@ -9513,6 +10972,12 @@ function installAiModeValueSync(sel) {
     set(next) {
       proto.set.call(this, next);
       syncAiModePickerUi();
+      try {
+        const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+        if (String(next || "") !== "free" && pane !== "result") {
+          setAiHelperPane("select");
+        }
+      } catch (_) { /* ignore */ }
     },
   });
 }
@@ -9786,7 +11251,7 @@ async function submitAiAssist(event) {
         ? getWorldDescSubject()
         : $("aiPrompt").value.trim();
   if (mode === "free" && !prompt) {
-    toast("직접 요청하기는 내용을 적어 주세요.");
+    toast("직접 작성하기는 내용을 적어 주세요.");
     return;
   }
   if (mode === "worlddesc" && !prompt) {
@@ -10155,7 +11620,7 @@ function showContinueStyleResults(textsByStyle) {
   };
   const wrap = $("continueStyleResults");
   wrap?.classList.remove("hidden");
-  $("aiResultWrap")?.classList.remove("hidden", "is-empty");
+  ensureAiResultVisible();
   // Prefer 후킹형 if present, else first non-empty.
   let active = "후킹형";
   if (!continueStyleResultsState.texts[active]) {
@@ -10237,7 +11702,7 @@ async function runContinueWithThreeStyles() {
   updateForeshadowPanelVisibility();
   hideContinueStyleResults();
   if ($("aiResult")) $("aiResult").value = "후킹형 · 전개형 · 전환형 세 갈래로 이어 쓰는 중…";
-  $("aiResultWrap")?.classList.remove("hidden", "is-empty");
+  ensureAiResultVisible();
 
   const baseBody = {
     mode: "continue",
@@ -10408,10 +11873,9 @@ function revealAiAssistResult(options = {}) {
   const recordHistory = options.recordHistory !== false;
   setAiPanelOpen(true);
   try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
-  const wrap = $("aiResultWrap");
   const text = String($("aiResult")?.value || "").trim();
-  wrap?.classList.remove("hidden");
-  wrap?.classList.toggle("is-empty", !text);
+  ensureAiResultVisible();
+  $("aiResultWrap")?.classList.toggle("is-empty", !text);
   if (recordHistory && text && !isAiResultPendingText(text)) {
     pushAiResultHistory({
       mode: options.mode || $("aiMode")?.value || "free",
@@ -10422,7 +11886,7 @@ function revealAiAssistResult(options = {}) {
   }
   if (isAiResultModalOpen()) syncAiResultModalBody();
   requestAnimationFrame(() => {
-    wrap?.scrollIntoView?.({ behavior: "smooth", block: "start" });
+    $("aiResultWrap")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
     if (openModal && text && !isAiResultPendingText(text)) {
       openAiResultModal();
     }
@@ -11003,7 +12467,7 @@ async function runSubmissionSynopsis(options = {}) {
     button.textContent = "시놉시스 작성 중…";
   }
   if ($("aiResult")) $("aiResult").value = "투고·공모전용 자료를 작성하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
   setSubmissionLengthWarn();
 
   try {
@@ -11493,6 +12957,82 @@ function setAiPanelTab(tab, { skipPopupClose = false } = {}) {
   }
 }
 
+/** 도우미 패널: 직접요청 | 선택하기 | 결과보기 (기본값 직접요청) */
+function setAiHelperPane(pane) {
+  let next = "direct";
+  if (pane === "select" || pane === "result" || pane === "direct") next = pane;
+  else if (pane === "request") next = "direct"; // legacy
+  const view = $("aiToolsView");
+  const directTab = $("aiHelperPaneDirect");
+  const selectTab = $("aiHelperPaneSelect");
+  const resTab = $("aiHelperPaneResult");
+  if (view) view.setAttribute("data-helper-pane", next);
+
+  const tabs = [
+    [directTab, "direct"],
+    [selectTab, "select"],
+    [resTab, "result"],
+  ];
+  tabs.forEach(([tab, key]) => {
+    const on = next === key;
+    tab?.classList.toggle("is-active", on);
+    if (tab) tab.setAttribute("aria-selected", on ? "true" : "false");
+  });
+
+  if (next === "direct") {
+    const sel = $("aiMode");
+    if (sel && sel.value !== "free") {
+      sel.value = "free";
+      try { sel.dispatchEvent(new Event("change", { bubbles: true })); } catch (_) { /* ignore */ }
+    }
+    try { syncAiModePickerUi?.(); } catch (_) { /* ignore */ }
+    try { updateContinuePanelVisibility?.(); } catch (_) { /* ignore */ }
+    closeAiModePicker?.();
+  } else if (next === "select") {
+    try { syncAiModePickerUi?.(); } catch (_) { /* ignore */ }
+    try { updateContinuePanelVisibility?.(); } catch (_) { /* ignore */ }
+  } else {
+    closeAiModePicker?.();
+  }
+}
+
+/** 결과가 준비되면 결과보기 세그먼트로 전환 */
+function ensureAiResultVisible() {
+  const wrap = $("aiResultWrap");
+  wrap?.classList.remove("hidden", "is-empty");
+  try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
+  setAiHelperPane("result");
+}
+
+/** 도구 모드를 고를 때 선택하기 탭으로 */
+function ensureAiHelperSelectPane() {
+  try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
+  const mode = $("aiMode")?.value || "free";
+  if (mode && mode !== "free") setAiHelperPane("select");
+}
+
+function setupAiHelperPaneTabs() {
+  const host = document.querySelector(".ai-helper-pane-tabs");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-helper-pane]");
+    if (!btn || !host.contains(btn)) return;
+    event.preventDefault();
+    setAiHelperPane(btn.getAttribute("data-helper-pane"));
+  });
+  // 모드 드롭바에서 기능 고르면 선택하기 탭 유지
+  $("aiMode")?.addEventListener("change", () => {
+    const mode = $("aiMode")?.value || "free";
+    const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+    if (pane === "result") return;
+    if (mode === "free" && pane === "direct") return;
+    if (mode !== "free") setAiHelperPane("select");
+  });
+  // 기본값: 직접요청
+  setAiHelperPane("direct");
+}
+
 function restoreToryChatToPanel() {
   const chat = $("aiChatView");
   const body = document.querySelector("#aiPanel .ai-panel-body");
@@ -11592,10 +13132,50 @@ function closeToryChatPopup({ restorePanelTab = true } = {}) {
   }
 }
 
+function applyFloatingPopupResize(popup, resizeState, event, minW, minH) {
+  if (!popup || !resizeState) return;
+  const edge = resizeState.edge || "se";
+  const dx = event.clientX - resizeState.startX;
+  const dy = event.clientY - resizeState.startY;
+  let left = resizeState.startLeft;
+  let top = resizeState.startTop;
+  let width = resizeState.startW;
+  let height = resizeState.startH;
+  if (edge.includes("e")) width = resizeState.startW + dx;
+  if (edge.includes("s")) height = resizeState.startH + dy;
+  if (edge.includes("w")) {
+    width = resizeState.startW - dx;
+    left = resizeState.startLeft + dx;
+  }
+  if (edge.includes("n")) {
+    height = resizeState.startH - dy;
+    top = resizeState.startTop + dy;
+  }
+  width = Math.min(window.innerWidth - 16, Math.max(minW, width));
+  height = Math.min(window.innerHeight - 16, Math.max(minH, height));
+  if (edge.includes("w")) {
+    left = Math.min(resizeState.startLeft + resizeState.startW - minW, Math.max(0, left));
+    width = resizeState.startLeft + resizeState.startW - left;
+    width = Math.min(window.innerWidth - 16, Math.max(minW, width));
+  }
+  if (edge.includes("n")) {
+    top = Math.min(resizeState.startTop + resizeState.startH - minH, Math.max(0, top));
+    height = resizeState.startTop + resizeState.startH - top;
+    height = Math.min(window.innerHeight - 16, Math.max(minH, height));
+  }
+  left = Math.min(Math.max(0, left), window.innerWidth - Math.min(width, window.innerWidth - 8));
+  top = Math.min(Math.max(0, top), window.innerHeight - Math.min(height, window.innerHeight - 8));
+  popup.style.left = `${Math.round(left)}px`;
+  popup.style.top = `${Math.round(top)}px`;
+  popup.style.width = `${Math.round(width)}px`;
+  popup.style.height = `${Math.round(height)}px`;
+  popup.style.right = "auto";
+  popup.style.bottom = "auto";
+}
+
 function setupToryChatPopupChrome() {
   const popup = $("toryChatPopup");
   const dragBar = $("toryChatPopupDrag");
-  const resizeHandle = $("toryChatPopupResize");
   if (!popup) return;
 
   let drag = null;
@@ -11628,18 +13208,25 @@ function setupToryChatPopupChrome() {
     event.preventDefault();
   });
 
-  resizeHandle?.addEventListener("pointerdown", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = lockGeom();
-    resize = {
-      startX: event.clientX,
-      startY: event.clientY,
-      startW: rect.width,
-      startH: rect.height,
-      pointerId: event.pointerId,
-    };
-    try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  popup.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockGeom();
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("tory-chat-popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
   });
 
   const onMove = (event) => {
@@ -11655,12 +13242,7 @@ function setupToryChatPopupChrome() {
       popup.style.right = "auto";
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
-      const maxW = window.innerWidth - 16;
-      const maxH = window.innerHeight - 16;
-      const nextW = Math.min(maxW, Math.max(MIN_W, resize.startW + (event.clientX - resize.startX)));
-      const nextH = Math.min(maxH, Math.max(MIN_H, resize.startH + (event.clientY - resize.startY)));
-      popup.style.width = `${Math.round(nextW)}px`;
-      popup.style.height = `${Math.round(nextH)}px`;
+      applyFloatingPopupResize(popup, resize, event, MIN_W, MIN_H);
     }
   };
   const onUp = (event) => {
@@ -11670,6 +13252,7 @@ function setupToryChatPopupChrome() {
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
       resize = null;
+      document.body.classList.remove("tory-chat-popup-resizing");
     }
   };
   window.addEventListener("pointermove", onMove);
@@ -12481,6 +14064,7 @@ function setupToryChat() {
     }
     setAiPanelTab("chat");
   });
+  setupAiHelperPaneTabs();
 
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -13252,18 +14836,48 @@ function updateWritingLogButtonUi() {
       ? "클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
       : "클릭: 글자수·시간 기록 시작/정지 · 우클릭: 달력·설정";
   }
+
+  // 아이콘은 활성/비활성 모두 유지. 아래 라벨만 "기록" ↔ "0:01" 전환.
+  let icon = btn.querySelector(".format-timer-icon");
+  if (!icon) {
+    icon = document.createElement("span");
+    icon.className = "format-tool-glyph format-timer-icon";
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = '<svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false"><circle cx="12" cy="12" r="8.25"/><path d="M12 7.5V12l3 2"/></svg>';
+  } else if (!icon.classList.contains("format-tool-glyph")) {
+    icon.classList.add("format-tool-glyph");
+  }
+  icon.classList.remove("hidden");
+
+  let label = btn.querySelector(".format-tool-label");
+  if (!label) {
+    label = document.createElement("span");
+    label.className = "format-tool-label";
+  }
+  label.classList.remove("hidden");
+  // 시계 숫자는 라벨 자리에서 갱신 (구 writingLogClock id 호환)
+  label.id = "writingLogClock";
+  label.classList.add("format-timer-clock");
+
   if (on) {
     if (!showTimer) {
-      btn.textContent = "기록중";
+      label.textContent = "기록중";
     } else {
-      const clock = formatRecordingClock(liveRecordingSeconds());
+      const time = formatRecordingClock(liveRecordingSeconds());
       const idle = writingTracker.lastActivityAt
         && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
-      btn.textContent = idle ? `기록 일시정지 ${clock}` : `기록 ${clock}`;
+      label.textContent = idle ? `일시정지 ${time}` : time;
     }
+    btn.setAttribute("aria-label", `기록 중 ${label.textContent}`);
   } else {
-    btn.textContent = "기록";
+    label.textContent = "기록";
+    btn.setAttribute("aria-label", "기록");
   }
+  // 예전 별도 clock 노드가 남아 있으면 제거
+  btn.querySelectorAll(".format-timer-clock").forEach((el) => {
+    if (el !== label) el.remove();
+  });
+  btn.replaceChildren(icon, label);
 }
 
 function startWritingUiTimer() {
@@ -14232,10 +15846,16 @@ function setupWritingLog() {
     });
   }
 
-  // 우클릭: 기록 달력·설정 (삭제는 달력 안에서)
+  // 좌클릭: 집필 타이머 시작/정지 · 우클릭: 기록 달력·설정
+  // (툴바 1행으로 옮긴 뒤 sceneFeatureBar 위임 클릭이 닿지 않으므로 여기서 직접 연결)
   const logBtn = $("writingLogButton");
   if (logBtn && logBtn.dataset.writingBound !== "1") {
     logBtn.dataset.writingBound = "1";
+    logBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleWritingRecording();
+    });
     logBtn.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       event.stopPropagation();
@@ -14334,13 +15954,8 @@ const BOOKMARK_COLORS = [
   { key: "brown", hex: "#8d6e63", label: "갈색" },
 ];
 const SETTINGS_BOOKMARK_META = {
-  ideas: { title: "생각 수첩", open: () => openIdeaBoard() },
-  baits: { title: "떡밥모음", open: async () => {
-    setActiveBinder("settings");
-    state.openSettingsSection = "baits";
-    applySettingsSectionState();
-    renderBaitList();
-  } },
+  ideas: { title: "생각수첩", open: () => openIdeaBoard() },
+  baits: { title: "떡밥모음", open: () => openSettingsCollectionMain("baits") },
   successProfile: {
     title: "흥행작 프로파일 연결",
     open: async () => {
@@ -14353,7 +15968,7 @@ const SETTINGS_BOOKMARK_META = {
     },
   },
   intro: {
-    title: "작품소개/기획의도",
+    title: "작품소개·기획의도",
     open: async () => {
       setActiveBinder("settings");
       state.openSettingsSection = "intro";
@@ -14366,7 +15981,7 @@ const SETTINGS_BOOKMARK_META = {
     open: () => openSettingsDocMain("intent"),
   },
   logsyn: {
-    title: "로그라인/시놉시스",
+    title: "로그라인·시놉시스",
     open: async () => {
       setActiveBinder("settings");
       state.openSettingsSection = "logsyn";
@@ -14374,25 +15989,157 @@ const SETTINGS_BOOKMARK_META = {
       return openSettingsDocMain("synopsis");
     },
   },
-  keywords: { title: "키워드", open: () => openKeywordBoard() },
+  keywords: { title: "장르·키워드", open: () => openKeywordBoard() },
   // Per-doc keys (field → buttons / bookmarks)
   synopsis: { title: "시놉시스", open: () => openSettingsDocMain("synopsis") },
   logline: { title: "로그라인", open: () => openSettingsDocMain("logline") },
   world: { title: "세계관", open: () => openSettingsDocMain("world") },
   characters: { title: "캐릭터", open: () => openCharacterBoard() },
-  sources: { title: "참고자료/출처", open: async () => {
-    setActiveBinder("settings");
-    state.openSettingsSection = "sources";
-    applySettingsSectionState();
-    renderSourceList();
-  } },
-  toryVault: { title: "토리의 수집창고", open: async () => {
-    setActiveBinder("settings");
-    state.openSettingsSection = "toryVault";
-    applySettingsSectionState();
-    renderToryVaultList();
-  } },
+  sources: { title: "참고자료·출처", open: () => openSettingsCollectionMain("sources") },
+  toryVault: { title: "토리의 수집창고", open: () => openSettingsCollectionMain("toryVault") },
 };
+
+/** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
+const SETTINGS_COLLECTION_MAIN = {
+  baits: {
+    title: "떡밥모음",
+    hint: "본문 드래그 → 우클릭 던지기, 또는 + 떡밥으로 아이디어를 적어 두세요.",
+    section: "baits",
+    listId: "baitList",
+    addLabel: "+ 떡밥",
+    onAdd: () => $("newBaitButton")?.click(),
+    render: () => renderBaitList(),
+  },
+  toryVault: {
+    title: "토리의 수집창고",
+    hint: "토리와 이야기하다 나온 아이디어를 수집하면 여기에 쌓입니다.",
+    section: "toryVault",
+    listId: "toryVaultList",
+    addLabel: "+ 메모",
+    onAdd: () => $("newToryVaultButton")?.click(),
+    extraLabel: "비우기",
+    onExtra: () => $("clearToryVaultButton")?.click(),
+    render: () => renderToryVaultList(),
+  },
+  sources: {
+    title: "참고자료·출처",
+    hint: "링크 출처 또는 PDF·Word·한글·텍스트 파일을 모아 두고, 작성 중 옆에 펼쳐 볼 수 있어요.",
+    section: "sources",
+    listId: "sourceList",
+    addLabel: "+ 자료",
+    onAdd: () => $("newSourceButton")?.click(),
+    render: () => renderSourceList(),
+  },
+};
+
+let settingsCollectionMountRestore = null;
+
+function isSettingsCollectionMainOpen() {
+  return Boolean(state.settingsCollectionKind && $("settingsCollectionBoard") && !$("settingsCollectionBoard").classList.contains("hidden"));
+}
+
+function restoreSettingsCollectionListHome() {
+  if (!settingsCollectionMountRestore) return;
+  const { list, home } = settingsCollectionMountRestore;
+  if (list && home && list.parentElement !== home) {
+    home.appendChild(list);
+  }
+  settingsCollectionMountRestore = null;
+}
+
+function hideSettingsCollectionBoard() {
+  restoreSettingsCollectionListHome();
+  state.settingsCollectionKind = null;
+  $("settingsCollectionBoard")?.classList.add("hidden");
+}
+
+function closeSettingsCollectionMain() {
+  hideSettingsCollectionBoard();
+  if (state.sceneId) {
+    openScene(state.sceneId).catch(handleError);
+  } else if (state.characterId) {
+    openCharacter(state.characterId).catch(handleError);
+  } else {
+    showWelcome();
+  }
+}
+
+function openSettingsCollectionMain(key) {
+  const cfg = SETTINGS_COLLECTION_MAIN[key];
+  if (!cfg) return;
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+
+  // 다른 메인 뷰 정리
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  state.characterBoardOpen = false;
+  hideSynopsisMain();
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  void closeSplitView();
+
+  // 이전 목록 마운트 복원 후 새 키로 이동
+  restoreSettingsCollectionListHome();
+
+  setActiveBinder("settings");
+  state.openSettingsSection = cfg.section;
+  applySettingsSectionState();
+  state.settingsCollectionKind = key;
+
+  const board = $("settingsCollectionBoard");
+  const mount = $("settingsCollectionMount");
+  const list = $(cfg.listId);
+  if (!board || !mount || !list) {
+    toast("메인 목록 화면을 열 수 없어요.");
+    return;
+  }
+
+  $("settingsCollectionTitle") && ($("settingsCollectionTitle").textContent = cfg.title);
+  $("settingsCollectionHint") && ($("settingsCollectionHint").textContent = cfg.hint);
+  const addBtn = $("settingsCollectionAddButton");
+  if (addBtn) {
+    addBtn.textContent = cfg.addLabel || "+ 추가";
+    addBtn.onclick = (event) => {
+      event.preventDefault();
+      cfg.onAdd?.();
+    };
+  }
+  const extraBtn = $("settingsCollectionExtraButton");
+  if (extraBtn) {
+    if (cfg.onExtra) {
+      extraBtn.hidden = false;
+      extraBtn.classList.remove("hidden");
+      extraBtn.textContent = cfg.extraLabel || "추가 작업";
+      extraBtn.onclick = (event) => {
+        event.preventDefault();
+        cfg.onExtra?.();
+      };
+    } else {
+      extraBtn.hidden = true;
+      extraBtn.classList.add("hidden");
+      extraBtn.onclick = null;
+    }
+  }
+
+  settingsCollectionMountRestore = { list, home: list.parentElement, key };
+  mount.appendChild(list);
+  board.classList.remove("hidden");
+  cfg.render?.();
+}
+
+function setupSettingsCollectionBoard() {
+  if (setupSettingsCollectionBoard._bound) return;
+  setupSettingsCollectionBoard._bound = true;
+  $("settingsCollectionCloseButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeSettingsCollectionMain();
+  });
+}
 
 /* —— 떡밥모음 (본문 드래그 → 우클릭 던지기) —— */
 const BAIT_STORAGE_PREFIX = "supertory.baits.";
@@ -14546,7 +16293,7 @@ function aiModeLabel(mode) {
     multilang: "다국어 번역하기",
     subsynopsis: "투고·공모전용 시놉시스",
     styleblend: "스며듦 검사",
-    free: "직접 요청하기",
+    free: "직접 작성하기",
   };
   return map[mode] || mode || "토리";
 }
@@ -15727,7 +17474,7 @@ async function runSuccessFormulaFeedback() {
     button.textContent = "흥행 공식 피드백 중…";
   }
   if ($("aiResult")) $("aiResult").value = "흥행 프로파일과 현재 회차를 비교하는 중…";
-  $("aiResultWrap")?.classList.remove("is-empty", "hidden");
+  ensureAiResultVisible();
 
   try {
     const assistBody = {
@@ -15823,7 +17570,7 @@ async function runSuccessPatternAnalysis() {
     const display = formatSuccessProfileDisplay(profile, { usedMock: Boolean(result.used_mock) });
     if ($("aiResult")) {
       $("aiResult").value = display;
-      $("aiResultWrap")?.classList.remove("is-empty", "hidden");
+      ensureAiResultVisible();
     }
     pushAiResultHistory?.({
       mode: "successpattern",
@@ -16426,7 +18173,7 @@ function setSplitSourceUiMode(isSource) {
       titleInput.setAttribute("aria-label", "참고자료 파일명");
     } else {
       titleInput.placeholder = "씬 제목";
-      titleInput.setAttribute("aria-label", "함께보기 제목");
+      titleInput.setAttribute("aria-label", "분할 제목");
     }
   }
   if (sceneSelect) {
@@ -16518,7 +18265,7 @@ function openSourceModal(options = {}) {
       current.classList.add("hidden");
     }
   }
-  $("sourceModalTitle").textContent = options.id ? "참고자료/출처 수정" : "참고자료/출처 추가";
+  $("sourceModalTitle").textContent = options.id ? "참고자료·출처 수정" : "참고자료·출처 추가";
   $("sourceSaveButton").textContent = options.id ? "저장" : "추가";
   modal.classList.remove("hidden");
   requestAnimationFrame(() => $("sourceTitle")?.focus());
@@ -16621,7 +18368,7 @@ async function saveSourceFromModal(event) {
       closeSourceModal();
       renderSourceList();
       renderSettingsCodex();
-      toast(fileMeta ? "참고자료 파일을 업데이트했어요." : "참고자료/출처를 수정했어요.");
+      toast(fileMeta ? "참고자료 파일을 업데이트했어요." : "참고자료·출처를 수정했어요.");
       return;
     }
 
@@ -16646,7 +18393,7 @@ async function saveSourceFromModal(event) {
     renderSettingsCodex();
     toast(fileMeta
       ? "파일을 참고자료에 넣었어요. 「펼쳐 보기」로 작성 옆에 열어 보세요."
-      : "참고자료/출처를 추가했어요.");
+      : "참고자료·출처를 추가했어요.");
   } catch (error) {
     handleError(error);
   } finally {
@@ -17100,7 +18847,7 @@ function setupSourceCollection() {
       saveSources(list.filter((s) => s.id !== id));
       renderSourceList();
       renderSettingsCodex();
-      toast("참고자료/출처를 삭제했어요.");
+      toast("참고자료·출처를 삭제했어요.");
     }
   });
   document.addEventListener("keydown", (event) => {
@@ -18417,15 +20164,118 @@ function addOrToggleBookmark(entry) {
     type: entry.type,
     color: color.key,
     title: entry.title || "",
+    note: "",
     sceneId: entry.type === "scene" ? Number(entry.sceneId) : undefined,
     section: entry.type === "settings" ? entry.section : undefined,
   };
   list.push(item);
   saveBookmarks(list);
+  // 아이콘 행 패널을 열어 이유를 바로 적을 수 있게
+  openBookmarkListPanel({ focusNote: true });
   renderBookmarkBar();
   markBookmarkedTargets();
   toast(`${color.label} 북마크로 고정했어요.`);
   return item;
+}
+
+const BOOKMARK_NOTE_MAX = 200;
+
+function updateBookmarkNote(bookmarkId, note) {
+  if (!bookmarkId) return;
+  const list = loadBookmarks();
+  const item = list.find((b) => b.id === bookmarkId);
+  if (!item) return;
+  const next = String(note || "").slice(0, BOOKMARK_NOTE_MAX);
+  if ((item.note || "") === next) return;
+  item.note = next;
+  saveBookmarks(list);
+}
+
+function isBookmarkListPanelOpen() {
+  const panel = $("bookmarkListPanel");
+  return Boolean(panel && !panel.classList.contains("hidden"));
+}
+
+function syncBookmarkListButton(list) {
+  const btn = $("bookmarkListButton");
+  const badge = $("bookmarkListCount");
+  const count = Array.isArray(list) ? list.length : (state.projectId ? loadBookmarks().length : 0);
+  const open = isBookmarkListPanelOpen();
+  if (btn) {
+    btn.setAttribute("aria-pressed", open ? "true" : "false");
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.classList.toggle("is-list-open", open);
+    btn.title = count
+      ? `북마크 ${count}개 · 클릭: 목록 열기/닫기 · 각 항목에 이유 적기`
+      : "북마크 목록 · 회차·설정집에서 우클릭으로 추가";
+  }
+  if (badge) {
+    const show = count > 0;
+    badge.textContent = String(count);
+    badge.classList.toggle("hidden", !show);
+    badge.setAttribute("aria-hidden", show ? "false" : "true");
+  }
+}
+
+function positionBookmarkListPanel() {
+  const panel = $("bookmarkListPanel");
+  const btn = $("bookmarkListButton");
+  if (!panel || !btn || panel.classList.contains("hidden")) return;
+  const rect = btn.getBoundingClientRect();
+  const pad = 8;
+  const pw = panel.offsetWidth || 280;
+  const ph = panel.offsetHeight || 240;
+  let left = rect.left + (rect.width / 2) - (pw / 2);
+  let top = rect.bottom + 6;
+  if (left < pad) left = pad;
+  if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+  if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 6);
+  panel.style.left = `${left}px`;
+  panel.style.top = `${top}px`;
+}
+
+function closeBookmarkListPanel() {
+  const panel = $("bookmarkListPanel");
+  panel?.classList.add("hidden");
+  syncBookmarkListButton(state.projectId ? sanitizeBookmarks(loadBookmarks()) : []);
+}
+
+function openBookmarkListPanel(options = {}) {
+  const panel = $("bookmarkListPanel");
+  if (!panel) return;
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if ($("formatToolbarShell")?.classList.contains("is-collapsed")
+    || document.querySelector('[data-toolbar-row="format-icons"]')?.classList.contains("is-collapsed")) {
+    applyMsToolbarCollapsed?.("format-icons", false, { toastMsg: false });
+  }
+  panel.classList.remove("hidden");
+  renderBookmarkBar({ persistSanitize: false });
+  syncBookmarkListButton(sanitizeBookmarks(loadBookmarks()));
+  requestAnimationFrame(() => {
+    positionBookmarkListPanel();
+    if (options.focusNote) {
+      $("bookmarkBar")?.querySelector(".bookmark-item-note")?.focus();
+    }
+  });
+}
+
+function toggleBookmarkListPanel() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (isBookmarkListPanelOpen()) {
+    closeBookmarkListPanel();
+    return;
+  }
+  const list = sanitizeBookmarks(loadBookmarks());
+  openBookmarkListPanel({ focusNote: list.length > 0 });
+  if (!list.length) {
+    toast("북마크한 항목이 없어요. 회차·설정집에서 우클릭으로 추가해 보세요.");
+  }
 }
 
 function removeBookmarkById(bookmarkId) {
@@ -18443,59 +20293,137 @@ function setHeaderNoticeFillState(sectionId, hasItems) {
   section.classList.toggle("is-empty", !hasItems);
 }
 
+/** 아이콘 행 북마크 패널 목록 · 목차 하단에는 그리지 않음. */
 function renderBookmarkBar(options = {}) {
   const bar = $("bookmarkBar");
-  if (!bar) return;
-  applyHeaderNoticeVisibility();
-  if (!state.projectId) {
-    bar.innerHTML = "";
-    setHeaderNoticeFillState("headerBookmarkNotice", false);
-    return;
-  }
-  const raw = loadBookmarks();
-  const list = sanitizeBookmarks(raw);
+  const raw = state.projectId ? loadBookmarks() : [];
+  const list = state.projectId ? sanitizeBookmarks(raw) : [];
   // Only persist cleanup when outline for this project is loaded.
-  // Earlier bug: empty outline on refresh/switch deleted all scene bookmarks from localStorage.
   const canPersistCleanup = options.persistSanitize !== false && isOutlineReadyForBookmarks();
-  if (canPersistCleanup && list.length !== raw.length) {
+  if (state.projectId && canPersistCleanup && list.length !== raw.length) {
     saveBookmarks(list);
   }
+  syncBookmarkListButton(list);
+  if (!bar) return;
 
-  setHeaderNoticeFillState("headerBookmarkNotice", list.length > 0);
+  if (!state.projectId || !list.length) {
+    bar.innerHTML = `<p class="bookmark-list-empty">북마크한 항목이 없어요.</p>`;
+    if (isBookmarkListPanelOpen()) positionBookmarkListPanel();
+    return;
+  }
+
+  const activeEl = document.activeElement;
+  const keepFocusId = activeEl?.classList?.contains("bookmark-item-note")
+    ? activeEl.dataset.bookmarkId
+    : null;
+  const keepSelStart = keepFocusId != null ? activeEl.selectionStart : null;
+  const keepSelEnd = keepFocusId != null ? activeEl.selectionEnd : null;
+
   bar.innerHTML = list.map((item) => {
     const color = bookmarkColorMeta(item.color);
     const title = escapeHtml(item.title || (item.type === "scene" ? "원고" : "설정"));
     const kind = item.type === "scene" ? "원고" : "설정집";
+    const note = escapeHtml(item.note || "");
     const active = item.type === "scene" && Number(item.sceneId) === Number(state.sceneId)
       ? "is-active"
       : "";
+    const idAttr = escapeHtml(item.id);
     return `
-      <button
-        type="button"
-        class="bookmark-chip ${active}"
-        data-bookmark-id="${escapeHtml(item.id)}"
+      <div
+        class="bookmark-item ${active}"
+        data-bookmark-id="${idAttr}"
         style="--bm-color:${color.hex}"
-        title="${title} (${kind} · ${color.label}) — 우클릭: 메뉴"
-        aria-label="${title} 북마크"
-      ></button>`;
+        role="listitem"
+      >
+        <div class="bookmark-item-row">
+          <button
+            type="button"
+            class="bookmark-chip"
+            data-bookmark-open="${idAttr}"
+            title="${title} (${kind} · ${color.label}) — 클릭: 열기 · 우클릭: 메뉴"
+            aria-label="${title} 북마크 열기"
+          ></button>
+          <button
+            type="button"
+            class="bookmark-item-title"
+            data-bookmark-open="${idAttr}"
+            title="${title} (${kind}) — 클릭: 열기 · 우클릭: 메뉴"
+          >${title}</button>
+          <button
+            type="button"
+            class="bookmark-item-remove"
+            data-bookmark-remove="${idAttr}"
+            title="북마크 해제"
+            aria-label="${title} 북마크 해제"
+          >×</button>
+        </div>
+        <input
+          type="text"
+          class="bookmark-item-note"
+          data-bookmark-id="${idAttr}"
+          value="${note}"
+          maxlength="${BOOKMARK_NOTE_MAX}"
+          placeholder="북마크 이유 (예: 복선 확인, 수정 필요)"
+          title="이 북마크를 단 이유"
+          autocomplete="off"
+          spellcheck="true"
+        />
+      </div>`;
   }).join("");
 
-  bar.querySelectorAll("[data-bookmark-id]").forEach((btn) => {
+  bar.querySelectorAll("[data-bookmark-open]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
-      openBookmark(btn.dataset.bookmarkId).catch(handleError);
+      openBookmark(btn.dataset.bookmarkOpen).catch(handleError);
     });
     btn.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      showBookmarkContextMenu(event.clientX, event.clientY, btn.dataset.bookmarkId);
+      showBookmarkContextMenu(event.clientX, event.clientY, btn.dataset.bookmarkOpen);
     });
   });
+  bar.querySelectorAll("[data-bookmark-remove]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeBookmarkById(btn.dataset.bookmarkRemove);
+    });
+  });
+  bar.querySelectorAll(".bookmark-item-note").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateBookmarkNote(input.dataset.bookmarkId, input.value);
+    });
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        input.blur();
+      }
+      event.stopPropagation();
+    });
+    input.addEventListener("click", (event) => event.stopPropagation());
+    input.addEventListener("contextmenu", (event) => event.stopPropagation());
+  });
+
+  if (keepFocusId) {
+    const restore = bar.querySelector(`.bookmark-item-note[data-bookmark-id="${CSS.escape(keepFocusId)}"]`);
+    if (restore) {
+      restore.focus();
+      try {
+        if (keepSelStart != null && keepSelEnd != null) {
+          restore.setSelectionRange(keepSelStart, keepSelEnd);
+        }
+      } catch (_) {
+        /* ignore */
+      }
+    }
+  }
+  if (isBookmarkListPanelOpen()) {
+    requestAnimationFrame(() => positionBookmarkListPanel());
+  }
 }
 
 const HEADER_NOTICE_STORAGE = {
   ideas: "supertory.headerIdeaNoticeHidden",
-  bookmarks: "supertory.headerBookmarkNoticeHidden",
 };
 
 function isHeaderNoticeHidden(kind) {
@@ -18517,9 +20445,7 @@ function setHeaderNoticeHidden(kind, hidden) {
 
 function applyHeaderNoticeVisibility() {
   const idea = $("headerIdeaNotice");
-  const bookmarks = $("headerBookmarkNotice");
   idea?.classList.toggle("is-dismissed", isHeaderNoticeHidden("ideas"));
-  bookmarks?.classList.toggle("is-dismissed", isHeaderNoticeHidden("bookmarks"));
 }
 
 function renderHeaderIdeaBar() {
@@ -18557,6 +20483,74 @@ function setupHeaderNotices() {
   renderHeaderIdeaBar();
 }
 
+function setupBookmarkListPanel() {
+  if (setupBookmarkListPanel._bound) return;
+  setupBookmarkListPanel._bound = true;
+  $("bookmarkListClose")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeBookmarkListPanel();
+  });
+  document.addEventListener("click", (event) => {
+    if (!isBookmarkListPanelOpen()) return;
+    if (event.target.closest?.("#bookmarkListPanel, #bookmarkListButton, #bookmarkContextMenu")) return;
+    closeBookmarkListPanel();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isBookmarkListPanelOpen()) {
+      closeBookmarkListPanel();
+    }
+  });
+  window.addEventListener("resize", () => {
+    if (isBookmarkListPanelOpen()) positionBookmarkListPanel();
+  });
+}
+
+function ensureSceneBookmarkMark(el, colorKey) {
+  if (!el) return;
+  // 작성 상태 열 정렬을 위해 북마크는 항상 고정 폭 슬롯 안에만 둔다.
+  let slot = null;
+  for (const child of el.children) {
+    if (child.classList?.contains("scene-bookmark-slot")) {
+      slot = child;
+      break;
+    }
+  }
+  if (!slot) {
+    slot = document.createElement("span");
+    slot.className = "scene-bookmark-slot";
+    slot.setAttribute("aria-hidden", "true");
+    let statusEl = null;
+    for (const child of el.children) {
+      if (
+        child.classList?.contains("scene-status")
+        || child.classList?.contains("scene-complete-badge")
+        || child.classList?.contains("scene-status-slot")
+      ) {
+        statusEl = child;
+        break;
+      }
+    }
+    if (statusEl) el.insertBefore(slot, statusEl);
+    else el.insertBefore(slot, el.firstChild);
+  }
+  let mark = slot.querySelector(".scene-bookmark-mark");
+  if (!colorKey) {
+    if (mark) mark.remove();
+    slot.removeAttribute("title");
+    return;
+  }
+  const meta = bookmarkColorMeta(colorKey);
+  if (!mark) {
+    mark = document.createElement("span");
+    mark.className = "scene-bookmark-mark";
+    mark.setAttribute("aria-label", "북마크");
+    slot.appendChild(mark);
+  }
+  mark.style.setProperty("--bm-color", meta.hex);
+  mark.title = `북마크 · ${meta.label || ""}`;
+  slot.title = mark.title;
+}
+
 function markBookmarkedTargets() {
   const list = loadBookmarks();
   const sceneMap = new Map(
@@ -18571,6 +20565,8 @@ function markBookmarkedTargets() {
     el.classList.toggle("is-bookmarked", Boolean(colorKey));
     if (colorKey) el.style.setProperty("--bm-color", bookmarkColorMeta(colorKey).hex);
     else el.style.removeProperty("--bm-color");
+    // 목록 재렌더 없이 토글해도 북마크 마크가 작성 상태 왼쪽에 생기도록
+    ensureSceneBookmarkMark(el, colorKey || null);
   });
 
   document.querySelectorAll(".settings-box[data-settings-section]").forEach((box) => {
@@ -18686,12 +20682,6 @@ function findFolderMetaInState(folderId) {
     return null;
   };
   return walk(state.folders || []);
-}
-
-function folderColorDotHtml(color) {
-  const c = String(color || "").trim().toLowerCase();
-  if (!c) return "";
-  return `<span class="folder-color-dot" data-folder-color="${escapeHtml(c)}" title="폴더 색" aria-hidden="true"></span>`;
 }
 
 function positionContextMenu(menu, clientX, clientY, fallbackH = 220) {
@@ -18986,13 +20976,20 @@ function setupFolderUndoUi() {
   syncFolderHistoryButtons();
 }
 
-function showFolderColorMenu(clientX, clientY, folderId) {
+function showFolderColorMenu(clientX, clientY, folderId, currentColor = null) {
   const menu = $("folderColorMenu");
   if (!menu || !folderId) return;
   hideChapterContextMenu();
   hidePartContextMenu();
   hideBinderContextMenu();
   menu.dataset.folderId = String(folderId);
+  const current = String(currentColor || "").trim().toLowerCase();
+  menu.querySelectorAll("[data-folder-color-pick]").forEach((btn) => {
+    const v = String(btn.getAttribute("data-folder-color-pick") || "");
+    const active = current ? v === current : v === "";
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-pressed", active ? "true" : "false");
+  });
   positionContextMenu(menu, clientX, clientY, 120);
 }
 
@@ -19540,7 +21537,7 @@ function setupBinderContextMenu() {
     if (action === "color") {
       hideChapterContextMenu();
       if (!chapter.folderId) return toast("폴더 색을 바꿀 수 없어요.");
-      showFolderColorMenu(clientX, clientY, chapter.folderId);
+      showFolderColorMenu(clientX, clientY, chapter.folderId, chapter.color);
       return;
     }
     hideChapterContextMenu();
@@ -19583,7 +21580,7 @@ function setupBinderContextMenu() {
     if (action === "color") {
       hidePartContextMenu();
       if (!part.folderId) return toast("폴더 색을 바꿀 수 없어요.");
-      showFolderColorMenu(clientX, clientY, part.folderId);
+      showFolderColorMenu(clientX, clientY, part.folderId, part.color);
       return;
     }
     hidePartContextMenu();
@@ -19641,7 +21638,7 @@ function setupBinderContextMenu() {
     if (!event.target.closest("#partContextMenu")) hidePartContextMenu();
     if (!event.target.closest("#folderColorMenu")) hideFolderColorMenu();
     if (!event.target.closest("#settingsContextMenu")) hideSettingsContextMenu();
-    if (!event.target.closest("#bookmarkContextMenu, #bookmarkBar")) hideBookmarkContextMenu();
+    if (!event.target.closest("#bookmarkContextMenu")) hideBookmarkContextMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
@@ -20908,6 +22905,14 @@ function setupDesktopThemeMenu() {
         : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
       dictItem.style.opacity = hasSelection ? "1" : "0.45";
     }
+    const similarWordsItem = $("similarWordsMenuItem");
+    if (similarWordsItem) {
+      similarWordsItem.disabled = !hasSelection;
+      similarWordsItem.title = hasSelection
+        ? `「${pendingBaitQuote.slice(0, 24)}${pendingBaitQuote.length > 24 ? "…" : ""}」 유사 표현 찾기`
+        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+      similarWordsItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
     const askToryItem = $("askToryMenuItem");
     if (askToryItem) {
       askToryItem.disabled = !hasSelection;
@@ -21027,6 +23032,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "lookup-dict") {
         hideDesktopContextMenu();
         lookupDictionaryFromSelection();
+      } else if (action === "similar-words") {
+        hideDesktopContextMenu();
+        openSimilarWordsFromSelection(event);
       } else if (action === "ask-tory") {
         hideDesktopContextMenu();
         askToryFromSelection();
@@ -21308,7 +23316,7 @@ function normalizeReferenceItem(raw = {}) {
 }
 
 /**
- * Mirror a scene reference item into project settings 참고자료/출처.
+ * Mirror a scene reference item into project settings 참고자료·출처.
  * Returns the project source id used.
  */
 function upsertProjectSourceFromReference(item) {
@@ -21906,7 +23914,9 @@ function closeSceneToolsDrawer() {
   document.querySelectorAll("[data-tool-panel]").forEach((panel) => {
     panel.classList.add("hidden");
   });
-  document.querySelectorAll(".feature-chip[data-tools-action]").forEach((chip) => {
+  document.querySelectorAll(
+    ".feature-chip[data-tools-action], .format-tool-item[data-tools-action]",
+  ).forEach((chip) => {
     chip.classList.remove("is-active");
   });
 }
@@ -21928,7 +23938,9 @@ function openSceneToolsDrawer(toolKey) {
   document.querySelectorAll("[data-tool-panel]").forEach((panel) => {
     panel.classList.toggle("hidden", panel.dataset.toolPanel !== toolKey);
   });
-  document.querySelectorAll(".feature-chip[data-tools-action]").forEach((chip) => {
+  document.querySelectorAll(
+    ".feature-chip[data-tools-action], .format-tool-item[data-tools-action]",
+  ).forEach((chip) => {
     chip.classList.toggle("is-active", chip.dataset.toolsAction === toolKey);
   });
   if ($("sceneToolsDrawerTitle")) {
@@ -21953,9 +23965,12 @@ function isFocusWriteOpen() {
 
 function loadFocusWriteFullscreen() {
   try {
-    return localStorage.getItem(FOCUS_WRITE_FULLSCREEN_KEY) === "1";
+    const raw = localStorage.getItem(FOCUS_WRITE_FULLSCREEN_KEY);
+    // 미설정·빈 값 → 전체보기(기본). "0"만 창 모드.
+    if (raw == null || raw === "") return true;
+    return raw === "1";
   } catch (_) {
-    return false;
+    return true;
   }
 }
 
@@ -22014,7 +24029,10 @@ function openFocusWrite() {
   updateEditorPlaceholder(focusEd);
   modal.classList.remove("hidden");
   document.body.classList.add("focus-write-open");
+  // 기본은 전체보기. 사용자가 창 모드로 바꾼 경우(localStorage "0")만 창 모드.
   applyFocusWriteFullscreen(loadFocusWriteFullscreen(), { persist: false });
+  $("focusWriteButton")?.classList.add("is-active");
+  $("focusWriteButton")?.setAttribute("aria-pressed", "true");
   // Re-host 함께보기 inside / above 큰 창
   if (state.splitEnabled) applySplitLayout();
 
@@ -22044,6 +24062,8 @@ function closeFocusWrite() {
   modal.classList.add("hidden");
   document.body.classList.remove("focus-write-open");
   document.body.classList.remove("focus-write-fullscreen");
+  $("focusWriteButton")?.classList.remove("is-active");
+  $("focusWriteButton")?.setAttribute("aria-pressed", "false");
   // Return 다른 씬 pane to the main workspace layout
   if (state.splitEnabled) applySplitLayout();
   else syncSplitViewerHost();
@@ -24304,6 +26324,11 @@ function handleToolsAction(action) {
     toggleWritingRecording();
     return;
   }
+  if (action === "bookmark-list") {
+    toggleBookmarkListPanel();
+    return;
+  }
+
   if (action === "notes" || action === "characters" || action === "links" || action === "spellcheck") {
     openSceneToolsDrawer(action);
     // 맞춤법: 패널만 열고, 검사는 「Gemini 검사기」/「바른한글 검사기」에서만 실행
@@ -24500,27 +26525,48 @@ function setupSpellcheckPanel() {
   });
 }
 
-/* ── Manuscript toolbar collapse (meta / format / feature) ── */
+/* ── Manuscript toolbar collapse (meta / format-icons / format-format / feature) ── */
 const MS_TOOLBAR_COLLAPSE_KEY = "supertory.msToolbarCollapsed";
+const MS_FORMAT_ROW_KEYS = ["format-icons", "format-format"];
 
 function normalizeMsToolbarKey(which) {
   if (which === "feature") return "feature";
   if (which === "meta" || which === "synopsis") return "meta";
+  if (which === "format-icons" || which === "icons") return "format-icons";
+  if (which === "format-format" || which === "format-tools") return "format-format";
+  // legacy: whole format shell → both format rows
+  if (which === "format") return "format";
   return "format";
+}
+
+function defaultMsToolbarCollapsedMap() {
+  return {
+    meta: false,
+    "format-icons": false,
+    "format-format": false,
+    feature: false,
+  };
 }
 
 function loadMsToolbarCollapsed() {
   try {
     const raw = localStorage.getItem(MS_TOOLBAR_COLLAPSE_KEY);
     const obj = raw ? JSON.parse(raw) : null;
-    if (!obj || typeof obj !== "object") return { meta: false, format: false, feature: false };
-    return {
-      meta: Boolean(obj.meta),
-      format: Boolean(obj.format),
-      feature: Boolean(obj.feature),
-    };
+    if (!obj || typeof obj !== "object") return defaultMsToolbarCollapsedMap();
+    const map = defaultMsToolbarCollapsedMap();
+    map.meta = Boolean(obj.meta);
+    map.feature = Boolean(obj.feature);
+    // Prefer per-row flags; migrate legacy `format` to both rows
+    if (obj["format-icons"] != null || obj["format-format"] != null) {
+      map["format-icons"] = Boolean(obj["format-icons"]);
+      map["format-format"] = Boolean(obj["format-format"]);
+    } else if (obj.format) {
+      map["format-icons"] = true;
+      map["format-format"] = true;
+    }
+    return map;
   } catch (_) {
-    return { meta: false, format: false, feature: false };
+    return defaultMsToolbarCollapsedMap();
   }
 }
 
@@ -24535,7 +26581,31 @@ function saveMsToolbarCollapsed(stateMap) {
 function msToolbarReopenButton(key) {
   if (key === "meta") return $("editorMetaReopenButton");
   if (key === "feature") return $("sceneFeatureBarReopenButton");
-  return $("formatToolbarReopenButton");
+  if (key === "format-icons") return $("formatIconsReopenButton");
+  if (key === "format-format") return $("formatFormatReopenButton");
+  return null;
+}
+
+function isFormatRowKey(key) {
+  return key === "format-icons" || key === "format-format";
+}
+
+function syncFormatShellFromRows() {
+  const shell = document.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
+  if (!shell) return;
+  const iconsRow = document.querySelector('[data-toolbar-row="format-icons"]');
+  const formatRow = document.querySelector('[data-toolbar-row="format-format"]');
+  const iconsGone = !iconsRow || iconsRow.classList.contains("is-collapsed");
+  const formatGone = !formatRow || formatRow.classList.contains("is-collapsed");
+  const bothGone = iconsGone && formatGone;
+  shell.classList.toggle("is-collapsed", bothGone);
+  shell.classList.toggle("format-icons-collapsed", iconsGone);
+  shell.classList.toggle("format-format-collapsed", formatGone);
+  // Hide find bar when the icons row (find toggle lives there) is collapsed
+  if (iconsGone) {
+    $("findBar")?.classList.add("hidden");
+    $("findToggleButton")?.setAttribute("aria-expanded", "false");
+  }
 }
 
 function syncMsChromeReopenStrip() {
@@ -24555,18 +26625,49 @@ function refreshManuscriptLayoutAfterChromeChange() {
 
 function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = true } = {}) {
   const key = normalizeMsToolbarKey(which);
-  const shell = document.querySelector(`.ms-toolbar-shell[data-toolbar-shell="${key}"]`);
+
+  // Legacy: collapse/show entire format → both rows
+  if (key === "format") {
+    applyMsToolbarCollapsed("format-icons", collapsed, { persist, toastMsg: false });
+    applyMsToolbarCollapsed("format-format", collapsed, { persist, toastMsg: false });
+    if (toastMsg && collapsed) toast("서식 도구를 숨겼어요.");
+    if (toastMsg && !collapsed) toast("서식 도구를 다시 열었어요.");
+    return;
+  }
+
+  if (isFormatRowKey(key)) {
+    const row = document.querySelector(`[data-toolbar-row="${key}"]`);
+    const reopen = msToolbarReopenButton(key);
+    if (!row) return;
+    row.classList.toggle("is-collapsed", Boolean(collapsed));
+    if (reopen) {
+      reopen.hidden = !collapsed;
+      reopen.classList.toggle("hidden", !collapsed);
+    }
+    syncFormatShellFromRows();
+    syncMsChromeReopenStrip();
+    if (persist) {
+      const map = loadMsToolbarCollapsed();
+      map[key] = Boolean(collapsed);
+      saveMsToolbarCollapsed(map);
+    }
+    refreshManuscriptLayoutAfterChromeChange();
+    if (toastMsg && collapsed) {
+      toast(key === "format-icons" ? "도구 아이콘을 숨겼어요." : "서식 도구를 숨겼어요.");
+    }
+    return;
+  }
+
+  const shell = document.querySelector(
+    `.ms-toolbar-shell[data-toolbar-shell="${key}"], [data-toolbar-shell="${key}"]#editorMetaShell, [data-toolbar-shell="${key}"].scene-synopsis-in-status`,
+  ) || document.querySelector(`[data-toolbar-shell="${key}"]`);
   const reopen = msToolbarReopenButton(key);
   if (!shell) return;
   shell.classList.toggle("is-collapsed", Boolean(collapsed));
+  if (key === "meta") shell.hidden = Boolean(collapsed);
   if (reopen) {
     reopen.hidden = !collapsed;
     reopen.classList.toggle("hidden", !collapsed);
-  }
-  // Hide find bar when format tools are collapsed (it sits under that bar)
-  if (key === "format" && collapsed) {
-    $("findBar")?.classList.add("hidden");
-    $("findToggleButton")?.setAttribute("aria-expanded", "false");
   }
   syncMsChromeReopenStrip();
   if (persist) {
@@ -24578,8 +26679,8 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
   if (toastMsg && collapsed) {
     const msg =
       key === "meta" ? "요약 칸을 숨겼어요."
-        : key === "format" ? "서식 도구를 숨겼어요."
-          : "기능 바를 숨겼어요.";
+        : key === "feature" ? "기능 바를 숨겼어요."
+          : "도구를 숨겼어요.";
     toast(msg);
   }
 }
@@ -24587,27 +26688,29 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
 function setupManuscriptToolbarCollapse() {
   const map = loadMsToolbarCollapsed();
   applyMsToolbarCollapsed("meta", map.meta, { persist: false, toastMsg: false });
-  applyMsToolbarCollapsed("format", map.format, { persist: false, toastMsg: false });
+  applyMsToolbarCollapsed("format-icons", map["format-icons"], { persist: false, toastMsg: false });
+  applyMsToolbarCollapsed("format-format", map["format-format"], { persist: false, toastMsg: false });
   applyMsToolbarCollapsed("feature", map.feature, { persist: false, toastMsg: false });
 
   document.querySelectorAll("[data-toolbar-hide]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      applyMsToolbarCollapsed(btn.dataset.toolbarHide || "format", true);
+      applyMsToolbarCollapsed(btn.dataset.toolbarHide || "format-format", true);
     });
   });
   document.querySelectorAll("[data-toolbar-show]").forEach((btn) => {
     btn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      const which = btn.dataset.toolbarShow || "format";
+      const which = btn.dataset.toolbarShow || "format-format";
       applyMsToolbarCollapsed(which, false, { toastMsg: false });
       const key = normalizeMsToolbarKey(which);
       toast(
         key === "meta" ? "요약 칸을 다시 열었어요."
           : key === "feature" ? "기능 바를 다시 열었어요."
-            : "서식 도구를 다시 열었어요."
+            : key === "format-icons" ? "도구 아이콘을 다시 열었어요."
+              : "서식 도구를 다시 열었어요."
       );
     });
   });
@@ -24617,15 +26720,23 @@ function setupSceneFeatureBar() {
   // import is opened from the header + create menu (setupCreateMenu)
   setupManuscriptToolbarCollapse();
 
-  $("sceneFeatureBar")?.addEventListener("click", (event) => {
-    // Don't treat hide button as a tools action
+  const onToolsActionClick = (event) => {
+    // Don't treat hide / analyze menu toggle as a tools action
     if (event.target.closest?.("[data-toolbar-hide]")) return;
+    if (event.target.closest?.("#analyzeMenuButton")) return;
+    if (event.target.closest?.("#analyzeMenuDropdown")) return;
+    // writing log has its own click handler (setupWritingLog)
+    if (event.target.closest?.("#writingLogButton")) return;
+    if (event.target.closest?.("#splitViewButton")) return;
     const actionBtn = event.target.closest("[data-tools-action]");
     if (actionBtn) {
       event.preventDefault();
       handleToolsAction(actionBtn.dataset.toolsAction);
     }
-  });
+  };
+  $("sceneFeatureBar")?.addEventListener("click", onToolsActionClick);
+  // 작가메모·등장인물 등: 4줄 상자 아이콘 행으로 이동
+  document.querySelector(".format-toolbar-row-icons")?.addEventListener("click", onToolsActionClick);
   $("closeSceneToolsDrawer")?.addEventListener("click", closeSceneToolsDrawer);
   setupSceneToolsDrawerDrag();
   $("sceneNotes")?.addEventListener("input", () => {
@@ -25314,19 +27425,27 @@ function renderSceneTreeHtml(scenes, {
   const folderCollapse = collapsed instanceof Set ? collapsed : new Set();
   if (!list.length) {
     return depth === 0
-      ? `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`
+      ? `<p class="hint scene-empty-hint">아직 회차가 없어요.</p>`
       : "";
   }
   const pins = pinnedSet instanceof Set ? pinnedSet : new Set();
+  const bookmarksSnapshot = loadBookmarks();
   return list.map((scene, index) => {
     // Not last if more scene siblings follow, or parent will render nested folders after this list.
     const isLast = index === list.length - 1 && !hasTrailingSiblings;
     const isComplete = scene.status === "complete";
     const statusText = statusLabel[scene.status] || scene.status || "";
-    const statusMarkup = isComplete
+    // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
+    const statusInner = isComplete
       ? `<span class="scene-complete-badge" title="완성" aria-label="완성">완</span>`
       : `<span class="scene-status">${escapeHtml(statusText)}</span>`;
+    const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
+    // 북마크는 작성 상태 왼쪽 고정 슬롯 (없어도 자리는 유지)
+    const sceneBm = findBookmark(bookmarksSnapshot, "scene", sid);
+    const bookmarkMark = sceneBm
+      ? `<span class="scene-bookmark-slot" title="북마크 · ${escapeHtml(bookmarkColorMeta(sceneBm.color).label || "")}"><span class="scene-bookmark-mark" style="--bm-color:${bookmarkColorMeta(sceneBm.color).hex}" aria-label="북마크"></span></span>`
+      : `<span class="scene-bookmark-slot" aria-hidden="true"></span>`;
     const kids = scene.children || [];
     const childFolders = Array.isArray(scene.child_chapters) ? scene.child_chapters : [];
     const hasKids = kids.length > 0;
@@ -25357,9 +27476,10 @@ function renderSceneTreeHtml(scenes, {
     const parentAttr = parentSceneId != null ? String(parentSceneId) : "";
     const display = getOutlineSceneDisplay(scene);
     const titleClass = display.isPreview ? "scene-title is-body-preview" : "scene-title";
+    // 하위가 있을 때만 접기 버튼. 잎 회차는 빈 칸(+ 자리 포함)을 두지 않아 제목 폭을 확보
     const twistie = hasNest
       ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 접기" : "하위 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
-      : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
+      : "";
     // Folders render after child manuscripts under the same parent.
     // Route through recursive binder renderer (non-box chapter path → same markup).
     const nestDepth = Math.min(depth + 1, 8);
@@ -25396,17 +27516,19 @@ function renderSceneTreeHtml(scenes, {
           ${nestedFoldersHtml}
         </div>`
       : "";
+    const addAfterBtn = `<button type="button" class="scene-add-btn" data-add-after-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="아래에 원고 추가" aria-label="아래에 원고 추가">+</button>`;
     return `
       <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
         <div class="scene-row">
-          <span class="tree-guide" aria-hidden="true"></span>
           ${twistie}
-          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""} · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
+          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""} · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
+            ${bookmarkMark}
             ${statusMarkup}
             ${pinIcon}
             ${baitIcons}
             <span class="${titleClass}">${escapeHtml(display.label)}</span>
           </button>
+          ${addAfterBtn}
         </div>
         ${childrenHtml}
       </div>`;
@@ -25421,6 +27543,12 @@ function renderSceneTreeHtml(scenes, {
  */
 
 /** Tag a legacy outline node for the recursive renderer. */
+/** 목차 폴더 행 왼쪽 아이콘 (펼침 버튼 겸용 · 선 그림) */
+const FOLDER_ICON_SVG = `<svg class="folder-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+  <path d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/>
+  <path d="M3.75 10.5h16.5"/>
+</svg>`;
+
 function asBinderFolderNode(node, { isBox = false } = {}) {
   if (!node || typeof node !== "object") return node;
   if (node.kind != null || Object.prototype.hasOwnProperty.call(node, "is_box")) {
@@ -25506,11 +27634,8 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     // Box shell is always .outline-part; expand/collapse via part toggle only.
     const toggleAttr = `data-toggle-part="${node.id}"`;
     const titleClass = isChapterSource
-      ? `chapter-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`
-      : `part-title folder-title-box is-level-0${bmOn ? " is-bookmarked" : ""}`;
-    const addBtn = isChapterSource
-      ? `<button type="button" class="chapter-add-scene" data-chapter="${node.id}" title="원고 추가">+</button>`
-      : `<button type="button" class="part-add-chapter" data-part-add-chapter="${node.id}" title="이 폴더 안에 하위 폴더 추가">+</button>`;
+      ? `chapter-title folder-title-box folder-title is-level-0${bmOn ? " is-bookmarked" : ""}`
+      : `part-title folder-title-box folder-title is-level-0${bmOn ? " is-bookmarked" : ""}`;
     const idAttrs = isChapterSource
       ? ` data-chapter-id="${node.id}" data-part-id=""`
       : ` data-part-id="${node.id}"`;
@@ -25551,22 +27676,19 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       : "";
     const chapterHtml = (hasScenes || childFolders.length)
       ? `${sceneItems}${foldersHtml}`
-      : `<p class="hint part-empty-hint">이 폴더가 비어 있어요. + 로 추가해 주세요.</p>`;
+      : `<p class="hint part-empty-hint">이 폴더가 비어 있어요. 우클릭으로 하위 항목을 추가할 수 있어요.</p>`;
     return `
     <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
-      <div class="part-row" draggable="true">
-        <span class="part-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>
+      <div class="part-row" draggable="true" title="끌어 폴더 순서 바꾸기">
         <button
           type="button"
-          class="part-twistie chapter-twistie"
+          class="part-twistie chapter-twistie folder-icon-btn"
           ${toggleAttr}
           aria-expanded="${partExpanded ? "true" : "false"}"
           title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
-        ><span class="twistie-glyph" aria-hidden="true"></span></button>
-        ${folderColorDotHtml(colorKey)}
+        >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
         <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (우클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
-        ${addBtn}
       </div>
       <div class="part-children ${partExpanded ? "" : "is-collapsed"}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
         ${chapterHtml}
@@ -25625,7 +27747,7 @@ function renderChapterOutlineHtml(chapter, {
       })
     : (transparent
       ? ""
-      : `<p class="hint scene-empty-hint">아직 씬이 없어요.</p>`);
+      : `<p class="hint scene-empty-hint">아직 회차가 없어요.</p>`);
 
   // Nested folders under this chapter (unlimited depth)
   const nestedChildFolders = getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false }));
@@ -25674,9 +27796,6 @@ function renderChapterOutlineHtml(chapter, {
   const binderDepthAttr = ` data-binder-depth="${depth}"`;
   const lastClass = nestedUnderScene && isLastSibling ? " is-last" : "";
   const nestClass = nestedUnderScene ? " is-nested-under-scene" : "";
-  const treeGuide = nestedUnderScene
-    ? `<span class="tree-guide" aria-hidden="true"></span>`
-    : "";
   if (transparent) {
     // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
     return `
@@ -25689,21 +27808,17 @@ function renderChapterOutlineHtml(chapter, {
   }
   return `
     <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
-      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}">
-        ${treeGuide}
-        ${nestedUnderScene ? "" : `<span class="chapter-drag-handle" draggable="true" title="끌어 폴더 순서 바꾸기" aria-hidden="true">⋮⋮</span>`}
+      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}" title="끌어 폴더 순서 바꾸기">
         <button
           type="button"
-          class="chapter-twistie"
+          class="chapter-twistie folder-icon-btn"
           data-toggle-chapter="${chapter.id}"
           aria-expanded="${expanded ? "true" : "false"}"
           title="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
           aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
-        ><span class="twistie-glyph" aria-hidden="true"></span></button>
-        ${folderColorDotHtml(colorKey)}
+        >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
-        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (우클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
-        <button type="button" class="chapter-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
+        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (우클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
         ${sceneItems}${afterScenesHtml}
@@ -25744,6 +27859,7 @@ function renderOutline(chaptersArg) {
   };
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
+  try { applyOutlineRowGap(getOutlineRowGap(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
 
   let bodyHtml = "";
@@ -25778,6 +27894,7 @@ function renderOutline(chaptersArg) {
   outline.innerHTML = `${renderPinnedOutlineSectionHtml()}${bodyHtml}`;
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
+  try { applyOutlineRowGap(getOutlineRowGap(), { persist: false }); } catch (_) { /* ignore */ }
   try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
 
   outline.querySelectorAll("[data-toggle-chapter]").forEach((button) => {
@@ -25801,6 +27918,26 @@ function renderOutline(chaptersArg) {
       event.stopPropagation();
       event.preventDefault();
       toggleSceneExpanded(button.dataset.toggleScene);
+    });
+    button.addEventListener("mousedown", (event) => event.stopPropagation());
+  });
+  outline.querySelectorAll("[data-add-after-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.stopPropagation();
+      event.preventDefault();
+      const sceneId = Number(button.dataset.addAfterScene);
+      if (!sceneId) return;
+      const chapterId = button.dataset.chapterId || findChapterIdForScene(sceneId);
+      if (!chapterId) {
+        toast("폴더를 찾지 못했어요.");
+        return;
+      }
+      const parentRaw = button.dataset.parentScene;
+      const parentSceneId = parentRaw === "" || parentRaw == null ? null : Number(parentRaw);
+      createScene(chapterId, {
+        afterSceneId: sceneId,
+        parentSceneId: Number.isFinite(parentSceneId) ? parentSceneId : null,
+      }).catch(handleError);
     });
     button.addEventListener("mousedown", (event) => event.stopPropagation());
   });
@@ -26768,6 +28905,7 @@ function showWelcome() {
     $("keywordBoard")?.classList.add("hidden");
   }
   hideCharacterBoard();
+  hideSettingsCollectionBoard();
   $("welcome").classList.remove("hidden");
   $("sceneWorkspace").classList.add("hidden");
   $("characterEditor").classList.add("hidden");
@@ -27078,67 +29216,18 @@ function setWelcomeGuideDismissed(dismissed) {
 }
 
 function positionWelcomePlusGuide() {
-  const guide = $("welcomePlusGuide");
-  const plus = $("createMenuButton");
-  if (!guide || !plus) return;
-  if (!isWelcomeScreenVisible() || isWelcomeGuideDismissed()) {
-    guide.classList.add("hidden");
-    guide.style.visibility = "";
-    return;
-  }
-  const rect = plus.getBoundingClientRect();
-  if (rect.width < 2 || rect.height < 2 || rect.bottom < 0) {
-    guide.classList.add("hidden");
-    return;
-  }
-
-  // Layout: arrow (tip up) stacked on bubble — arrow always centered on bubble.
-  // Whole stack is centered under +, then nudged right so tip sits on the + glyph.
-  const arrow = guide.querySelector(".welcome-plus-guide-arrow");
-  if (arrow) {
-    arrow.style.marginLeft = "";
-    arrow.style.marginRight = "";
-    arrow.style.alignSelf = "";
-  }
-
-  guide.classList.remove("hidden");
-  guide.style.visibility = "hidden";
-  guide.style.left = "0px";
-  guide.style.top = "0px";
-
-  const guideW = guide.offsetWidth || 148;
-  const guideH = guide.offsetHeight || 96;
-  const pad = 6;
-  // Optical center of + button (glyph sits a hair right of box center on some fonts)
-  const plusCenterX = rect.left + rect.width / 2 + 1;
-  // Previous right nudge, then user asked ~3mm left (1mm ≈ 3.78px → 3mm ≈ 11px)
-  const rightNudge = 10;
-  const leftNudgeMm = 3;
-  const leftNudgePx = leftNudgeMm * 3.78;
-  let left = plusCenterX - guideW / 2 + rightNudge - leftNudgePx;
-  left = Math.max(pad, Math.min(left, window.innerWidth - guideW - pad));
-  let top = rect.bottom + 1;
-  if (top + guideH > window.innerHeight - pad) {
-    top = Math.max(pad, window.innerHeight - guideH - pad);
-  }
-
-  guide.style.left = `${Math.round(left)}px`;
-  guide.style.top = `${Math.round(top)}px`;
-  guide.style.visibility = "visible";
+  /* 시작 화살표·안내 박스 UI 제거됨 */
+  $("welcomePlusGuide")?.classList.add("hidden");
 }
 
 function updateWelcomeGuideUi() {
   refreshWelcomeAdPopupsVisibility();
+  $("welcomePlusGuide")?.classList.add("hidden");
   if (!isWelcomeScreenVisible()) {
-    $("welcomePlusGuide")?.classList.add("hidden");
     stopWelcomeSpeechCycle();
     return;
   }
   startWelcomeSpeechCycle();
-  // Double rAF: wait for header/layout paint so getBoundingClientRect is correct
-  requestAnimationFrame(() => {
-    requestAnimationFrame(() => positionWelcomePlusGuide());
-  });
 }
 
 function startWelcomeSpeechCycle() {
@@ -27168,6 +29257,8 @@ function dismissWelcomePlusGuide() {
   setWelcomeGuideDismissed(true);
   $("welcomePlusGuide")?.classList.add("hidden");
 }
+
+/* 시작 안내(+ 화살표 박스)는 더 이상 표시하지 않음 */
 
 function setupWelcomeScreen() {
   setupWelcomeAdPopups();
@@ -27906,6 +29997,191 @@ const OUTLINE_TITLE_FONT_MIN = 11;
 const OUTLINE_TITLE_FONT_MAX = 18;
 const OUTLINE_TITLE_FONT_DEFAULT = 12;
 const OUTLINE_TIP_HIDDEN_KEY = "supertory.outlineTipHidden";
+const OUTLINE_ROW_GAP_KEY = "supertory.outlineRowGap";
+const OUTLINE_ROW_GAP_MIN = 0;
+const OUTLINE_ROW_GAP_MAX = 12;
+const OUTLINE_ROW_GAP_DEFAULT = 4;
+
+function getOutlineRowGap() {
+  try {
+    const n = Number(localStorage.getItem(OUTLINE_ROW_GAP_KEY));
+    if (Number.isFinite(n) && n >= OUTLINE_ROW_GAP_MIN && n <= OUTLINE_ROW_GAP_MAX) {
+      return Math.round(n);
+    }
+  } catch (_) { /* ignore */ }
+  return OUTLINE_ROW_GAP_DEFAULT;
+}
+
+function applyOutlineRowGap(gapPx, { persist = true } = {}) {
+  const gap = Math.max(
+    OUTLINE_ROW_GAP_MIN,
+    Math.min(
+      OUTLINE_ROW_GAP_MAX,
+      Math.round(Number(gapPx) || getOutlineRowGap() || OUTLINE_ROW_GAP_DEFAULT),
+    ),
+  );
+  const root = $("manuscriptBinder") || $("outline");
+  if (root) root.style.setProperty("--outline-row-gap", `${gap}px`);
+  if ($("outline")) $("outline").style.setProperty("--outline-row-gap", `${gap}px`);
+  if ($("outlineRowGapValue")) $("outlineRowGapValue").textContent = String(gap);
+  document.querySelectorAll("#outlineSpacingMenu [data-outline-gap]").forEach((btn) => {
+    btn.classList.toggle("is-active", Number(btn.dataset.outlineGap) === gap);
+  });
+  if (persist) {
+    try { localStorage.setItem(OUTLINE_ROW_GAP_KEY, String(gap)); } catch (_) { /* ignore */ }
+  }
+  return gap;
+}
+
+function hideOutlineSpacingMenu() {
+  const menu = $("outlineSpacingMenu");
+  const btn = $("outlineSpacingButton");
+  menu?.classList.add("hidden");
+  // 메뉴 전용 expanded 만 끄고, 스크롤 조절 모드 활성 표시는 유지
+  if (!isOutlineSpacingAdjustMode()) {
+    btn?.setAttribute("aria-expanded", "false");
+  }
+}
+
+function showOutlineSpacingMenu(anchorEl) {
+  const menu = $("outlineSpacingMenu");
+  const btn = $("outlineSpacingButton");
+  if (!menu) return;
+  // 글자 크기 + 줄간격 통합 메뉴
+  applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
+  applyOutlineRowGap(getOutlineRowGap(), { persist: false });
+  menu.classList.remove("hidden");
+  btn?.setAttribute("aria-expanded", "true");
+  const pad = 8;
+  const ar = (anchorEl || btn)?.getBoundingClientRect?.();
+  let left = ar ? ar.left : 12;
+  let top = ar ? ar.bottom + 4 : 12;
+  const rect = menu.getBoundingClientRect();
+  const width = rect.width || 200;
+  const height = rect.height || 320;
+  if (left + width > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - width - pad);
+  }
+  if (top + height > window.innerHeight - pad) {
+    top = ar
+      ? Math.max(pad, ar.top - height - 4)
+      : Math.max(pad, window.innerHeight - height - pad);
+  }
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+/** 목차 줄간격 아이콘: 클릭 후 휠로 글자 크기+줄간격 동시 조절 */
+let outlineSpacingAdjustMode = false;
+let outlineSpacingAdjustToastAt = 0;
+
+function isOutlineSpacingAdjustMode() {
+  return Boolean(outlineSpacingAdjustMode);
+}
+
+function isOutlineSpacingAdjustSurface(target) {
+  return Boolean(
+    target?.closest?.(
+      "#outline, #manuscriptBinder, #outlineSpacingButton, .outline-spacing-btn, #binderPanel, #settingsBinder",
+    ),
+  );
+}
+
+/** 목차 영역(휠 조절 대상) — 아이콘·메뉴 제외 */
+function isOutlineScrollAdjustTarget(target) {
+  if (!target?.closest) return false;
+  if (target.closest("#outlineSpacingButton, .outline-spacing-btn, #outlineSpacingMenu")) {
+    return false;
+  }
+  return Boolean(
+    target.closest(
+      "#outline, #manuscriptBinder .binder-view, #manuscriptBinder #outline, #binderPanel #outline, .outline-tree, #manuscriptBinder",
+    ),
+  );
+}
+
+function syncOutlineSpacingAdjustUi() {
+  const btn = $("outlineSpacingButton");
+  if (!btn) return;
+  const on = isOutlineSpacingAdjustMode();
+  btn.classList.toggle("is-adjust-mode", on);
+  btn.setAttribute("aria-pressed", on ? "true" : "false");
+  btn.setAttribute("aria-expanded", on ? "true" : "false");
+  btn.title = on
+    ? "조절 모드 · 목차 위에서 스크롤로 글자·줄간격 조절 · 다시 클릭하면 종료"
+    : "목차 줄간격 조절 · 클릭 후 목차에서 스크롤";
+  document.body.classList.toggle("outline-spacing-adjust-mode", on);
+  $("manuscriptBinder")?.classList.toggle("is-spacing-adjust-mode", on);
+  $("outline")?.classList.toggle("is-spacing-adjust-mode", on);
+}
+
+function enterOutlineSpacingAdjustMode({ toastMsg = true } = {}) {
+  if (outlineSpacingAdjustMode) {
+    syncOutlineSpacingAdjustUi();
+    return;
+  }
+  hideOutlineTitleFontMenu();
+  hideOutlineSpacingMenu();
+  outlineSpacingAdjustMode = true;
+  syncOutlineSpacingAdjustUi();
+  if (toastMsg) {
+    toast("목차 조절 모드 · 목록 위에서 스크롤하세요. 다시 클릭하거나 바깥을 누르면 끝나요.");
+  }
+}
+
+function exitOutlineSpacingAdjustMode({ toastMsg = false } = {}) {
+  if (!outlineSpacingAdjustMode) {
+    syncOutlineSpacingAdjustUi();
+    return;
+  }
+  outlineSpacingAdjustMode = false;
+  syncOutlineSpacingAdjustUi();
+  if (toastMsg) toast("목차 조절 모드를 끝냈어요.");
+}
+
+function toggleOutlineSpacingAdjustMode() {
+  if (outlineSpacingAdjustMode) exitOutlineSpacingAdjustMode({ toastMsg: true });
+  else enterOutlineSpacingAdjustMode({ toastMsg: true });
+}
+
+/**
+ * 글자 크기 + 행 간격을 한 단계씩 같이 조절 (휠/버튼 공용).
+ * @param {number} delta 양수=크게, 음수=작게
+ */
+function nudgeOutlineSpacingScale(delta) {
+  const step = Math.sign(Number(delta) || 0);
+  if (!step) return null;
+  const prevFont = getOutlineTitleFontSize();
+  const prevGap = getOutlineRowGap();
+  const nextFont = applyOutlineTitleFontSize(prevFont + step, { persist: true });
+  // 갭은 폰트와 같은 방향으로 1px, 범위 클램프
+  const nextGap = applyOutlineRowGap(prevGap + step, { persist: true });
+  // 둘 다 한계에 걸리면 안내
+  const atMin = nextFont <= OUTLINE_TITLE_FONT_MIN && nextGap <= OUTLINE_ROW_GAP_MIN && step < 0;
+  const atMax = nextFont >= OUTLINE_TITLE_FONT_MAX && nextGap >= OUTLINE_ROW_GAP_MAX && step > 0;
+  const now = Date.now();
+  if ((atMin || atMax) && now - outlineSpacingAdjustToastAt > 900) {
+    outlineSpacingAdjustToastAt = now;
+    toast(atMax ? "더 이상 키울 수 없어요." : "더 이상 줄일 수 없어요.");
+  } else if (now - outlineSpacingAdjustToastAt > 1200 && (nextFont !== prevFont || nextGap !== prevGap)) {
+    outlineSpacingAdjustToastAt = now;
+    // 너무 잦은 토스트 방지 — 가끔 현재 값만
+  }
+  return { font: nextFont, gap: nextGap };
+}
+
+function onOutlineSpacingAdjustWheel(event) {
+  if (!isOutlineSpacingAdjustMode()) return;
+  if (!isOutlineScrollAdjustTarget(event.target)) return;
+  // 조절 모드에서는 목록 스크롤 대신 크기 조절
+  event.preventDefault();
+  event.stopPropagation();
+  const raw = Number(event.deltaY) || 0;
+  if (!raw) return;
+  // 트랙패드 작은 값 누적 완화: 한 틱 = 1단계
+  const step = raw < 0 ? 1 : -1;
+  nudgeOutlineSpacingScale(step);
+}
 
 function getOutlineTitleFontSize() {
   try {
@@ -27929,7 +30205,7 @@ function applyOutlineTitleFontSize(sizePx, { persist = true } = {}) {
   if (root) root.style.setProperty("--outline-title-size", `${size}px`);
   if ($("outline")) $("outline").style.setProperty("--outline-title-size", `${size}px`);
   if ($("outlineTitleFontValue")) $("outlineTitleFontValue").textContent = String(size);
-  document.querySelectorAll("#outlineTitleFontMenu [data-outline-font]").forEach((btn) => {
+  document.querySelectorAll("#outlineSpacingMenu [data-outline-font]").forEach((btn) => {
     btn.classList.toggle("is-active", Number(btn.dataset.outlineFont) === size);
   });
   if (persist) {
@@ -27939,34 +30215,13 @@ function applyOutlineTitleFontSize(sizePx, { persist = true } = {}) {
 }
 
 function hideOutlineTitleFontMenu() {
-  $("outlineTitleFontMenu")?.classList.add("hidden");
+  // 글자 크기는 줄간격 메뉴에 통합됨
+  hideOutlineSpacingMenu();
 }
 
-function showOutlineTitleFontMenu(clientX, clientY) {
-  const menu = $("outlineTitleFontMenu");
-  if (!menu) return;
-  applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
-  menu.classList.remove("hidden");
-
-  // Measure after show; place under 목차 heading (or near cursor)
-  const pad = 8;
-  const anchor = $("outlineTocHeading") || document.querySelector(".outline-toc-heading");
-  const ar = anchor?.getBoundingClientRect?.();
-  let left = ar ? ar.left : (Number(clientX) || 12);
-  let top = ar ? ar.bottom + 4 : (Number(clientY) || 12);
-  const rect = menu.getBoundingClientRect();
-  const width = rect.width || 180;
-  const height = rect.height || 170;
-  if (left + width > window.innerWidth - pad) {
-    left = Math.max(pad, window.innerWidth - width - pad);
-  }
-  if (top + height > window.innerHeight - pad) {
-    top = ar
-      ? Math.max(pad, ar.top - height - 4)
-      : Math.max(pad, window.innerHeight - height - pad);
-  }
-  menu.style.left = `${Math.round(left)}px`;
-  menu.style.top = `${Math.round(top)}px`;
+function showOutlineTitleFontMenu(_clientX, _clientY) {
+  // 호환: 예전 진입점 → 통합 메뉴
+  showOutlineSpacingMenu($("outlineSpacingButton"));
 }
 
 function updateOutlineFolderCount() {
@@ -27984,18 +30239,22 @@ function updateOutlineFolderCount() {
     }
   }
   if (folderEl) {
-    folderEl.textContent = String(folderN);
+    const num = folderEl.querySelector(".outline-count-num");
+    if (num) num.textContent = String(folderN);
+    else folderEl.textContent = String(folderN);
     folderEl.setAttribute("aria-label", `폴더 ${folderN}개`);
     folderEl.title = `폴더 ${folderN}개`;
   }
   if (sceneEl) {
-    sceneEl.textContent = String(sceneN);
+    const num = sceneEl.querySelector(".outline-count-num");
+    if (num) num.textContent = String(sceneN);
+    else sceneEl.textContent = String(sceneN);
     sceneEl.setAttribute("aria-label", `원고 ${sceneN}개`);
     sceneEl.title = `원고 ${sceneN}개`;
   }
   const heading = $("outlineTocHeading");
   if (heading) {
-    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 클릭: 한눈에 보기 · 우클릭: 글자 크기`;
+    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 클릭: 한눈에 보기`;
   }
 }
 
@@ -28022,9 +30281,10 @@ function syncOutlineTipBox() {
 }
 
 function isOutlineFontMenuTarget(target) {
+  // 목차 제목 우클릭 없음 · 글자 크기는 줄간격 아이콘 우클릭 메뉴
   return Boolean(
     target?.closest?.(
-      "#outlineTocHeading, .outline-toc-heading, .outline-title-control, #outlineTitleFontMenu",
+      "#outlineSpacingButton, .outline-spacing-btn, #outlineSpacingMenu",
     ),
   );
 }
@@ -28206,6 +30466,7 @@ function setupOutlineBinderChrome() {
   if (setupOutlineBinderChrome._bound) return;
   setupOutlineBinderChrome._bound = true;
   applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false });
+  applyOutlineRowGap(getOutlineRowGap(), { persist: false });
   syncOutlineTipBox();
   updateOutlineFolderCount();
 
@@ -28214,24 +30475,7 @@ function setupOutlineBinderChrome() {
     setOutlineTipHidden(true);
   });
 
-  // 목차 / 폴더 개수 우클릭 → 글자 크기 + 숨기기 (capture: 다른 핸들러에 가로채이지 않게)
-  const openFontMenu = (event) => {
-    if (!isOutlineFontMenuTarget(event.target)) return;
-    // Only the heading area, not the whole panel tools
-    if (!event.target.closest?.(
-      "#outlineTocHeading, .outline-toc-heading, #outlineFolderCount, .outline-folder-count, #outlineSceneCount, .outline-scene-count, .outline-count-badges",
-    )) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const hideTarget = event.target.closest?.(
-      "#outlineFolderCount, .outline-folder-count, #outlineSceneCount, .outline-scene-count, .outline-count-badges, #outlineTocHeading",
-    );
-    setUiFeatureCtxTarget?.(hideTarget);
-    showOutlineTitleFontMenu(event.clientX, event.clientY);
-  };
-  document.addEventListener("contextmenu", openFontMenu, true);
+  // 목차 제목·개수: 우클릭 메뉴 없음 (글자 크기는 줄간격 아이콘 우클릭)
 
   $("outlineTitleFontDown")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -28243,26 +30487,83 @@ function setupOutlineBinderChrome() {
     event.stopPropagation();
     applyOutlineTitleFontSize(getOutlineTitleFontSize() + 1);
   });
-  $("outlineTitleFontMenu")?.addEventListener("click", (event) => {
-    const preset = event.target.closest?.("[data-outline-font]");
-    if (!preset) {
-      event.stopPropagation();
-      return;
-    }
+
+  // 줄간격 아이콘: 클릭 → 조절 모드, 목차 위 휠 → 글자+줄간격 동시 조절
+  $("outlineSpacingButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    applyOutlineTitleFontSize(preset.dataset.outlineFont);
+    hideOutlineSpacingMenu();
+    toggleOutlineSpacingAdjustMode();
+  });
+  // 우클릭: 글자 크기 + 줄간격 통합 메뉴
+  $("outlineSpacingButton")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (isOutlineSpacingAdjustMode()) exitOutlineSpacingAdjustMode({ toastMsg: false });
+    const menu = $("outlineSpacingMenu");
+    if (menu && !menu.classList.contains("hidden")) {
+      hideOutlineSpacingMenu();
+      return;
+    }
+    const hideTarget = $("outlineCountBadges")
+      || document.querySelector(".outline-count-badges")
+      || $("outlineFolderCount")
+      || $("outlineSceneCount");
+    setUiFeatureCtxTarget?.(hideTarget);
+    showOutlineSpacingMenu(event.currentTarget);
+  });
+  $("outlineRowGapDown")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyOutlineRowGap(getOutlineRowGap() - 1);
+  });
+  $("outlineRowGapUp")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    applyOutlineRowGap(getOutlineRowGap() + 1);
+  });
+  $("outlineSpacingMenu")?.addEventListener("click", (event) => {
+    const fontPreset = event.target.closest?.("[data-outline-font]");
+    if (fontPreset) {
+      event.preventDefault();
+      event.stopPropagation();
+      applyOutlineTitleFontSize(fontPreset.dataset.outlineFont);
+      return;
+    }
+    const gapPreset = event.target.closest?.("[data-outline-gap]");
+    if (gapPreset) {
+      event.preventDefault();
+      event.stopPropagation();
+      applyOutlineRowGap(gapPreset.dataset.outlineGap);
+      return;
+    }
+    event.stopPropagation();
   });
 
+  // 조절 모드 휠 (capture: 목록 스크롤보다 먼저)
+  document.addEventListener("wheel", onOutlineSpacingAdjustWheel, { passive: false, capture: true });
+
   document.addEventListener("click", (event) => {
-    if (event.target.closest?.("#outlineTitleFontMenu")) return;
-    hideOutlineTitleFontMenu();
+    if (event.target.closest?.("#outlineSpacingMenu, #outlineSpacingButton")) return;
+    hideOutlineSpacingMenu();
+    // 조절 모드: 목차(바인더) 바깥 클릭 시 종료
+    if (isOutlineSpacingAdjustMode() && !isOutlineSpacingAdjustSurface(event.target)) {
+      exitOutlineSpacingAdjustMode({ toastMsg: true });
+    }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideOutlineTitleFontMenu();
+    if (event.key === "Escape") {
+      hideOutlineSpacingMenu();
+      if (isOutlineSpacingAdjustMode()) exitOutlineSpacingAdjustMode({ toastMsg: true });
+    }
   });
-  window.addEventListener("resize", hideOutlineTitleFontMenu);
-  window.addEventListener("blur", hideOutlineTitleFontMenu);
+  window.addEventListener("resize", () => {
+    hideOutlineSpacingMenu();
+  });
+  window.addEventListener("blur", () => {
+    hideOutlineSpacingMenu();
+  });
+  syncOutlineSpacingAdjustUi();
 }
 
 function setupRenumberChaptersModal() {
@@ -28571,13 +30872,31 @@ async function beginPartRename(titleButton) {
 }
 
 async function createScene(chapterId, options = {}) {
-  const parentSceneId = options.parentSceneId != null && options.parentSceneId !== ""
+  const afterSceneId = options.afterSceneId != null && options.afterSceneId !== ""
+    ? Number(options.afterSceneId)
+    : null;
+  // afterSceneId: 같은 상위 아래(형제)로 만들고 기준 원고 바로 아래에 배치
+  // parentSceneId only: 그 원고의 하위로 만들기
+  let parentSceneId = options.parentSceneId != null && options.parentSceneId !== ""
     ? Number(options.parentSceneId)
     : null;
-  const defaultTitle = parentSceneId ? "새 하위 원고" : "새 씬";
+  if (afterSceneId && options.parentSceneId === undefined) {
+    // 미지정 시 기준 원고의 상위와 맞춤
+    const anchor = findSceneNodeById(afterSceneId);
+    const rawParent = anchor?.parent_scene_id ?? anchor?.parentSceneId;
+    parentSceneId = rawParent != null && rawParent !== "" ? Number(rawParent) : null;
+    if (!Number.isFinite(parentSceneId)) parentSceneId = null;
+  }
+  if (afterSceneId && !Number.isFinite(parentSceneId)) parentSceneId = null;
+
+  const isAfter = Boolean(afterSceneId);
+  const isChild = !isAfter && Boolean(parentSceneId);
+  const defaultTitle = isChild ? "새 하위 원고" : "새 씬";
   const title = await promptText({
-    title: parentSceneId ? "하위 원고 만들기" : "회차 추가",
-    message: parentSceneId ? "선택한 원고의 하위로 만들어집니다." : "",
+    title: isAfter ? "아래에 원고 추가" : (isChild ? "하위 원고 만들기" : "회차 추가"),
+    message: isAfter
+      ? "선택한 원고 바로 아래에 새 원고를 만들어요."
+      : (isChild ? "선택한 원고의 하위로 만들어집니다." : ""),
     label: "제목",
     defaultValue: defaultTitle,
     confirmLabel: "만들기",
@@ -28589,12 +30908,25 @@ async function createScene(chapterId, options = {}) {
     method: "POST",
     body: JSON.stringify(body),
   });
+  // 기본은 목록 끝 → 기준 원고 바로 아래로 이동
+  if (isAfter && scene?.id) {
+    try {
+      await api(`/api/scenes/${scene.id}/move`, {
+        method: "POST",
+        body: JSON.stringify({ after_scene_id: afterSceneId }),
+      });
+    } catch (_) {
+      /* 생성은 됐으니 끝 위치여도 열기 */
+    }
+  }
   if (parentSceneId) setSceneCollapsed(parentSceneId, false);
   await loadProject();
   await openScene(scene.id);
-  toast(parentSceneId
-    ? "하위 원고를 만들었어요."
-    : "새 씬이 준비됐어요. 가운데에 글을 써 보세요.");
+  toast(isAfter
+    ? "아래에 원고를 추가했어요."
+    : (isChild
+      ? "하위 원고를 만들었어요."
+      : "새 씬이 준비됐어요. 가운데에 글을 써 보세요."));
 }
 
 async function reparentScene(sceneId, parentSceneId) {
@@ -28804,7 +31136,7 @@ function setupSceneNestDragAndDrop(outline) {
   outline.dataset.sceneNestBound = "1";
 
   outline.addEventListener("dragstart", (event) => {
-    if (event.target.closest?.("button.scene-twistie, button[data-toggle-scene]")) {
+    if (event.target.closest?.("button.scene-twistie, button[data-toggle-scene], button.scene-add-btn, [data-add-after-scene], [data-add-child-scene]")) {
       event.preventDefault();
       return;
     }
@@ -31390,7 +33722,7 @@ async function executeRewriteAssist(payload) {
       ? "표현을 점검·다듬는 중…"
       : "선택 문장을 다듬는 중…";
   }
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   const aiButton = $("aiSubmitButton");
   const prevLabel = aiButton?.textContent;
@@ -31607,7 +33939,7 @@ async function runTorySceneSummary() {
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
   if ($("aiPrompt")) $("aiPrompt").value = "토리야 요약해 줘 (본문 요약 → 요약 칸)";
   if ($("aiResult")) $("aiResult").value = "본문을 요약하는 중…";
-  $("aiResultWrap")?.classList.remove("hidden");
+  ensureAiResultVisible();
 
   try {
     const result = await api("/api/ai/assist", {
@@ -31682,7 +34014,7 @@ function renderSynopsisListBody() {
   }
   const items = getSynopsisSequence();
   if (!items.length) {
-    body.innerHTML = `<p class="synopsis-list-empty">아직 씬이 없어요. 목차에서 씬을 만들어 보세요.</p>`;
+    body.innerHTML = `<p class="synopsis-list-empty">아직 회차가 없어요. 목차에서 씬을 만들어 보세요.</p>`;
     return;
   }
   const currentId = Number(state.sceneId) || 0;
@@ -31788,52 +34120,22 @@ function formatEpisodeNavLabel(ep, fallback) {
 }
 
 /**
- * When the center title is long, shrink prev/next label slots so the title
- * keeps room. Pure CSS cannot grow an <input> from its text length.
+ * 제목 기준 레이아웃(CSS grid 1fr | auto | 1fr).
+ * 이전/다음 라벨 길이와 무관하게 본문 제목이 가운데에 고정되도록
+ * 예전에 넣던 인라인 width 를 지운다.
  */
 function syncEpisodeNavLayout() {
-  const bar = document.querySelector("#episodeChrome .episode-nav-bar");
   const titleEl = $("sceneTitle");
   const prevBtn = $("episodePrevButton");
   const nextBtn = $("episodeNextButton");
-  if (!bar || !titleEl || !prevBtn || !nextBtn) return;
-  if (bar.clientWidth < 80) return;
-
-  const style = window.getComputedStyle(titleEl);
-  const canvas = syncEpisodeNavLayout._canvas
-    || (syncEpisodeNavLayout._canvas = document.createElement("canvas"));
-  const ctx = canvas.getContext("2d");
-  if (!ctx) return;
-  ctx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
-
-  const text = String(titleEl.value || "").trim() || String(titleEl.placeholder || "회차 제목");
-  const titleWant = Math.ceil(ctx.measureText(text).width) + 32; // input padding
-
-  const gap = 6;
-  const padX = 16;
-  const available = Math.max(0, bar.clientWidth - padX);
-  const minSide = 34; // chevron + a little room
-  const maxSide = Math.floor(available * 0.3);
-
-  // Short title → free the sides (show full prev/next labels)
-  if (titleWant < available * 0.38) {
-    prevBtn.style.maxWidth = "";
-    nextBtn.style.maxWidth = "";
+  if (prevBtn) prevBtn.style.maxWidth = "";
+  if (nextBtn) nextBtn.style.maxWidth = "";
+  if (titleEl) {
     titleEl.style.flex = "";
     titleEl.style.minWidth = "";
-    return;
+    titleEl.style.maxWidth = "";
+    titleEl.style.width = "";
   }
-
-  // Long title → give it what it needs; leftover split to prev/next (ellipsis)
-  const titleCap = Math.max(96, available - 2 * minSide - gap * 2);
-  const titleAlloc = Math.min(titleCap, titleWant);
-  let sideAlloc = Math.floor((available - titleAlloc - gap * 2) / 2);
-  sideAlloc = Math.max(minSide, Math.min(maxSide, sideAlloc));
-
-  prevBtn.style.maxWidth = `${sideAlloc}px`;
-  nextBtn.style.maxWidth = `${sideAlloc}px`;
-  titleEl.style.flex = `1 1 ${titleAlloc}px`;
-  titleEl.style.minWidth = `${Math.min(titleAlloc, titleCap)}px`;
 }
 
 let episodeNavLayoutTimer = null;
@@ -31989,6 +34291,7 @@ function showSceneEditorPane() {
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
   state.keywordBoardOpen = false;
+  hideSettingsCollectionBoard();
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
@@ -33489,8 +35792,8 @@ function setSplitEditEnabled(enabled, options = {}) {
   applySplitEditMode();
   if (changed && !options.silent) {
     toast(next
-      ? "함께보기 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
-      : "함께보기 자유 편집을 껐어요. 읽기 전용입니다.");
+      ? "분할 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
+      : "분할 자유 편집을 껐어요. 읽기 전용입니다.");
   }
 }
 
@@ -33749,11 +36052,11 @@ function updateSplitChrome() {
   const focusBtn = $("focusWriteSplitButton");
   const switchBtn = $("switchSplitModeButton");
   const viewer = $("splitViewer");
-  const syncMainLike = (btn) => {
+  const syncMainLike = (btn, { iconOnly = false } = {}) => {
     if (!btn) return;
     if (!state.splitEnabled) {
-      btn.textContent = "함께보기 ▾";
-      btn.title = "함께보기: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)";
+      if (!iconOnly) btn.textContent = "분할 ▾";
+      btn.title = "분할: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)";
       btn.classList.remove("is-active");
       btn.disabled = !state.sceneId;
       return;
@@ -33761,15 +36064,15 @@ function updateSplitChrome() {
     btn.disabled = false;
     btn.classList.add("is-active");
     if (state.splitMode === "popup") {
-      btn.textContent = "팝업 중 ▾";
+      if (!iconOnly) btn.textContent = "팝업 중 ▾";
       btn.title = "팝업으로 보는 중 — Ctrl+Alt+S 화면 나누기 · Esc 닫기";
     } else {
-      btn.textContent = "화면 나누기 중 ▾";
+      if (!iconOnly) btn.textContent = "화면 나누기 중 ▾";
       btn.title = "화면 나누기 중 — Ctrl+Alt+P 팝업 · Esc 닫기";
     }
   };
   if (!state.splitEnabled) {
-    syncMainLike(mainBtn);
+    syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
     syncMainLike(focusBtn);
     if (switchBtn) {
       switchBtn.textContent = "보기 방식 ▾";
@@ -33779,7 +36082,7 @@ function updateSplitChrome() {
     applySplitEditMode();
     return;
   }
-  syncMainLike(mainBtn);
+  syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
   syncMainLike(focusBtn);
   if (switchBtn) {
     switchBtn.disabled = false;
@@ -33897,11 +36200,11 @@ function layoutSplitPrimaryPane() {
   form.style.maxHeight = `${formBudget}px`;
   form.style.overflow = "hidden";
 
-  // Sum chrome rows still in the flow (meta / format / feature shells + find bar).
-  const meta = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="meta"], .editor-meta');
+  // Sum chrome rows still in the form flow (서식 등). 요약은 본문 프레임 안 상태바로 이동.
   const formatShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
   const featureShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="feature"]');
   const findBar = $("findBar");
+  const chromeStack = form.querySelector("#msChromeStack, .ms-chrome-stack");
   const visibleH = (el) => {
     if (!el || el.classList.contains("is-collapsed") || el.classList.contains("hidden")) return 0;
     if (el.hidden) return 0;
@@ -33910,7 +36213,7 @@ function layoutSplitPrimaryPane() {
     return el.getBoundingClientRect().height || 0;
   };
   const chrome =
-    visibleH(meta) +
+    visibleH(chromeStack) +
     visibleH(formatShell) +
     visibleH(featureShell) +
     visibleH(findBar) +
@@ -34276,7 +36579,7 @@ async function openSecondaryView(mode) {
   if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
   const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
   if (!alternative) {
-    toast("함께보기를 쓰려면 회차가 두 개 이상 필요해요.");
+    toast("분할을 쓰려면 회차가 두 개 이상 필요해요.");
     return;
   }
   await flushSplitEdits();
@@ -34297,10 +36600,10 @@ async function openSecondaryView(mode) {
     toast(state.splitMode === "popup" ? "팝업으로 바꿨어요." : "화면 나누기로 바꿨어요.");
   } else if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
     toast(state.splitMode === "popup"
-      ? "큰 창 위에 함께보기를 팝업으로 열었어요."
-      : "큰 창 옆에 함께보기를 나란히 열었어요.");
+      ? "큰 창 위에 분할을 팝업으로 열었어요."
+      : "큰 창 옆에 분할을 나란히 열었어요.");
   } else {
-    toast(state.splitMode === "popup" ? "함께보기를 팝업으로 열었어요." : "화면을 나눠 함께보기를 열었어요.");
+    toast(state.splitMode === "popup" ? "분할을 팝업으로 열었어요." : "화면을 나눠 분할을 열었어요.");
   }
 }
 
@@ -34394,7 +36697,7 @@ async function renderSplitViewer() {
   const alternatives = allScenes().filter((scene) => scene.id !== state.sceneId);
   if (!alternatives.length) {
     await closeSplitView();
-    toast("함께볼 회차가 없어서 함께보기를 닫았어요.");
+    toast("분할할 회차가 없어서 분할을 닫았어요.");
     return;
   }
   if (!alternatives.some((scene) => scene.id === state.splitSceneId)) {
@@ -34433,7 +36736,7 @@ function setupSplitEditMode() {
 
   $("toggleSplitEditButton")?.addEventListener("click", async () => {
     if (!state.splitEnabled) {
-      toast("먼저 함께보기를 켜 주세요.");
+      toast("먼저 분할을 켜 주세요.");
       return;
     }
     if (state.splitKind === "source") {
@@ -34473,6 +36776,10 @@ function setupSplitEditMode() {
     if (key === "b") { event.preventDefault(); applyEditorCommand("bold"); }
     else if (key === "i") { event.preventDefault(); applyEditorCommand("italic"); }
     else if (key === "u") { event.preventDefault(); applyEditorCommand("underline"); }
+    else if (key === "x" && event.shiftKey) {
+      event.preventDefault();
+      applyEditorCommand("strikeThrough");
+    }
     else if (key === "s") {
       event.preventDefault();
       persistSplitScene({ quiet: false }).catch(handleError);
@@ -34520,7 +36827,6 @@ function setupPopupDragging() {
   const heading = $("splitHeading");
   const dragBar = $("splitPopupDragBar");
   const viewer = $("splitViewer");
-  const resizeHandle = $("splitPopupResizeHandle");
   if (!viewer) return;
 
   let drag = null;
@@ -34541,13 +36847,13 @@ function setupPopupDragging() {
   markNoDrag(viewer);
   markNoDrag(dragBar);
   markNoDrag(heading);
-  markNoDrag(resizeHandle);
+  viewer.querySelectorAll("[data-resize-edge]").forEach((handle) => markNoDrag(handle));
 
   const beginDrag = (event, captureEl) => {
     if (state.splitMode !== "popup") return;
     if (event.button != null && event.button !== 0) return;
     // Don't start a move when interacting with form controls / edit surface / resize grip.
-    if (event.target.closest("button, select, input, textarea, option, [contenteditable='true'], .split-body-editor, .split-popup-resize-handle")) return;
+    if (event.target.closest("button, select, input, textarea, option, [contenteditable='true'], .split-body-editor, .split-popup-resize-handle, [data-resize-edge], .tory-float-resize")) return;
     // Stop bubbling so parent Electron drag regions never see this gesture.
     event.stopPropagation();
     const rect = lockPopupViewerGeometry(viewer);
@@ -34567,20 +36873,27 @@ function setupPopupDragging() {
   // Also allow dragging from empty heading chrome (not from select/buttons).
   heading?.addEventListener("pointerdown", (event) => beginDrag(event, heading));
 
-  resizeHandle?.addEventListener("pointerdown", (event) => {
-    if (state.splitMode !== "popup") return;
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = lockPopupViewerGeometry(viewer);
-    if (!rect) return;
-    resize = {
-      startX: event.clientX,
-      startY: event.clientY,
-      startW: rect.width,
-      startH: rect.height,
-      pointerId: event.pointerId,
-    };
-    try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  viewer.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (state.splitMode !== "popup") return;
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockPopupViewerGeometry(viewer);
+      if (!rect) return;
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
   });
 
   const onPointerMove = (event) => {
@@ -34602,12 +36915,7 @@ function setupPopupDragging() {
       viewer.style.bottom = "auto";
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
-      const maxW = window.innerWidth - 16;
-      const maxH = window.innerHeight - 16;
-      const nextW = Math.min(maxW, Math.max(MIN_W, resize.startW + (event.clientX - resize.startX)));
-      const nextH = Math.min(maxH, Math.max(MIN_H, resize.startH + (event.clientY - resize.startY)));
-      viewer.style.width = `${Math.round(nextW)}px`;
-      viewer.style.height = `${Math.round(nextH)}px`;
+      applyFloatingPopupResize(viewer, resize, event, MIN_W, MIN_H);
     }
   };
 
@@ -34618,6 +36926,7 @@ function setupPopupDragging() {
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
       resize = null;
+      document.body.classList.remove("popup-resizing");
     }
   };
 
@@ -35720,7 +38029,7 @@ async function submitImport(event) {
               ? "원고는 덮어쓰지 않았습니다. 비교 보고서만 만들었어요."
               : "",
           ].filter(Boolean).join("\n");
-          $("aiResultWrap")?.classList.remove("hidden");
+          ensureAiResultVisible();
         }
       }
       if (destination === "proof_pipeline" && result.applied && result.scene_ids?.length) {
@@ -36027,7 +38336,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.3.2";
+const APP_VERSION_FALLBACK = "1.3.3";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -36041,6 +38350,7 @@ const UI_HIDEABLE_SELECTOR = [
   ".format-btn",
   ".compact-btn",
   ".outline-action-btn",
+  ".outline-new-folder-btn",
   ".stat-chip",
   ".status-scope-btn",
   ".scene-synopsis-label-btn",
@@ -36109,7 +38419,7 @@ function simpleUiHash(str) {
 function isFeatureHideExempt(el) {
   if (!el || el.nodeType !== 1) return true;
   if (el.classList?.contains("feature-hide-exempt")) return true;
-  if (el.closest?.(".context-menu, #adminModal, .modal, #outlineTitleFontMenu, #formatColorPalette, #formatListPalette, #uiFeatureContextMenu")) {
+  if (el.closest?.(".context-menu, #adminModal, .modal, #outlineSpacingMenu, #formatColorPalette, #formatListPalette, #uiFeatureContextMenu")) {
     return true;
   }
   const id = el.id || "";
@@ -36204,7 +38514,7 @@ function findHideableControl(target, clientX, clientY) {
   const rejectIfBad = (el) => {
     if (!el || el.nodeType !== 1) return null;
     if (isFeatureHideExempt(el)) return null;
-    if (el.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
+    if (el.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineSpacingMenu, #adminModal")) {
       return null;
     }
     if (el.closest?.("#outline") && el.matches?.("[data-scene], [data-rename-chapter], [data-rename-part], .scene-link, .folder-title-box, .part-title, .chapter-title")) {
@@ -36215,7 +38525,7 @@ function findHideableControl(target, clientX, clientY) {
     }
     const hit = el.matches?.(UI_HIDEABLE_SELECTOR) ? el : el.closest(UI_HIDEABLE_SELECTOR);
     if (!hit || isFeatureHideExempt(hit)) return null;
-    if (hit.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineTitleFontMenu, #adminModal")) {
+    if (hit.closest?.(".context-menu, #formatColorPalette, #formatListPalette, #outlineSpacingMenu, #adminModal")) {
       return null;
     }
     return hit;
@@ -36404,7 +38714,7 @@ function showUiFeatureContextMenu(x, y, el, extraItems = []) {
 function onUiFeatureHideAction() {
   const el = uiFeatureCtxMenuTarget || uiFeatureCtxTarget;
   hideUiFeatureContextMenu();
-  document.querySelectorAll(".context-menu:not(.hidden), #formatColorPalette:not(.hidden), #formatListPalette:not(.hidden), #outlineTitleFontMenu:not(.hidden)")
+  document.querySelectorAll(".context-menu:not(.hidden), #formatColorPalette:not(.hidden), #formatListPalette:not(.hidden), #outlineSpacingMenu:not(.hidden)")
     .forEach((m) => m.classList.add("hidden"));
   if (!el) {
     toast("숨길 기능을 찾지 못했어요.");
@@ -36438,14 +38748,9 @@ function onGlobalUiFeatureContextMenu(event) {
   const el = findHideableControl(event.target, event.clientX, event.clientY);
   if (!el) return;
 
-  // Outline heading / counts: let font menu open; set target for its footer hide
+  // 목차 제목·개수: 우클릭 기능 없음 (글자 크기는 줄간격 아이콘 우클릭)
   if (event.target.closest?.("#outlineTocHeading, .outline-toc-heading, #outlineFolderCount, #outlineSceneCount, .outline-count-badges, .outline-folder-count, .outline-scene-count")) {
-    setUiFeatureCtxTarget(
-      event.target.closest?.("#outlineFolderCount, .outline-folder-count")
-      || event.target.closest?.("#outlineSceneCount, .outline-scene-count")
-      || event.target.closest?.(".outline-count-badges")
-      || event.target.closest?.("#outlineTocHeading"),
-    );
+    event.preventDefault();
     return;
   }
 
@@ -36590,7 +38895,7 @@ const HELP_MANUAL_SECTIONS = [
     body: [
       "내 컴퓨터에 직접 설치해서 쓰는 집필 프로그램이에요. 클라우드 계정 없이도 작품, 회차, 설정, 아이디어를 내 기기에 저장합니다.",
       "작품 구조는 이렇게 되어 있어요: 작품 → 바인더(목차) → 폴더(챕터) → 원고(씬). 원고 안에 또 하위 폴더를 만들어서 더 세분화할 수도 있어요.",
-      "설정집에는 시놉시스, 로그라인, 세계관, 키워드, 인물, 생각 수첩을 모아둘 수 있고, 원한다면 토리(Gemini 기반 AI)로 교정이나 회차 매칭도 할 수 있어요.",
+      "설정집에는 시놉시스, 로그라인, 세계관, 장르·키워드, 인물, 생각수첩을 모아둘 수 있고, 원한다면 토리(Gemini 기반 AI)로 교정이나 회차 매칭도 할 수 있어요.",
     ],
   },
   {
@@ -36598,9 +38903,9 @@ const HELP_MANUAL_SECTIONS = [
     title: "시작하기",
     keywords: "시작 작품 만들기 열기 종류 장르 purpose 우클릭 학습",
     body: [
-      "상단에서 작품을 고르거나 새로 만드세요. 작품 종류(소설·에세이 등)와 장르는 나중에 언제든 바꿀 수 있어요.",
+      "왼쪽 바인더에서 작품을 고르거나 새로 만드세요. 작품 종류(소설·에세이 등)와 장르는 설정집 「장르·키워드」에서 언제든 바꿀 수 있어요.",
       "단, 소설류에서 장르를 바꾸면 → 토리가 새 장르를 다시 학습해야 한다는 안내가 떠요. 작품 종류를 바꿀 때도 똑같은 안내가 나와요.",
-      "왼쪽 바인더 「목차」에서: +챕터 → 폴더 추가, 폴더/원고 안 + → 하위 폴더나 회차 추가. 가운데 편집기에 글을 쓰면 자동 저장돼요.",
+      "왼쪽 바인더 「목차」에서: +챕터 → 폴더 추가, 폴더·원고 안 + → 하위 폴더나 회차 추가. 가운데 편집기에 글을 쓰면 자동 저장돼요.",
     ],
   },
   {
@@ -36626,11 +38931,11 @@ const HELP_MANUAL_SECTIONS = [
   {
     id: "settings",
     title: "설정집",
-    keywords: "설정집 시놉시스 로그라인 세계관 키워드 인물 아이디어 보드 메인에서보기",
+    keywords: "설정집 시놉시스 로그라인 세계관 장르 키워드 인물 아이디어 보드 메인에서보기",
     body: [
-      "왼쪽 설정 탭에서 관리 가능한 항목: 시놉시스 · 로그라인 · 세계관 · 소개/의도 · 키워드 · 인물 · 생각 수첩.",
+      "왼쪽 설정 탭에서 관리 가능한 항목: 시놉시스 · 로그라인 · 세계관 · 소개·의도 · 장르·키워드 · 인물 · 생각수첩.",
       "각 상자의 「메인에서 보기」 → 가운데 화면을 넓게 사용. 아이디어는 포스트잇처럼 색·크기 조절 가능.",
-      "항목도 우클릭으로 숨기거나 메뉴 열기 가능. 인물·키워드는 메인 화면에서 카드형으로 정리돼요.",
+      "항목도 우클릭으로 숨기거나 메뉴 열기 가능. 인물·장르·키워드는 메인 화면에서 카드형으로 정리돼요.",
     ],
   },
   {
@@ -36725,7 +39030,7 @@ const HELP_QA_ITEMS = [
   {
     id: "qa-genre",
     q: "장르는 어떻게 바꾸나요?",
-    a: "소설류 작품에서는 상단 장르 버튼을 우클릭해 고릅니다. 바꾸면 토리가 새 장르 기준으로 다시 학습해야 한다는 확인이 나옵니다. 작품 종류(에세이 등) 변경 시에도 같은 안내가 있습니다.",
+    a: "설정집 「장르·키워드」에서 작품 종류·메인·하위 장르 버튼을 우클릭해 고릅니다. 바꾸면 토리가 새 장르 기준으로 다시 학습해야 한다는 확인이 나옵니다. 작품 종류(에세이 등) 변경 시에도 같은 안내가 있습니다.",
   },
   {
     id: "qa-ai-ideas",
@@ -37116,8 +39421,8 @@ const UI_THEME_STORAGE_KEY = "tori-theme";
 const UI_THEME_STORAGE_KEY_LEGACY = "supertory.uiTheme";
 const UI_THEME_LIGHT_STORAGE_KEY = "supertory.uiThemeLight";
 
-/** Cycle order: 기본 → 야간 → 오두막 → 도서관 → 서재 → 다락방 → E ink */
-const UI_THEME_CYCLE = ["light", "dark", "cabin", "library", "study", "attic", "eink"];
+/** Cycle order: 기본 → 모래사장 → 야간 → 오두막 → 도서관 → 서재 → 다락방 → E ink */
+const UI_THEME_CYCLE = ["light", "sand", "dark", "cabin", "library", "study", "attic", "eink"];
 
 /** Themes shown in 관리자 → 설정 옵션 (+ header cycle). */
 const UI_THEME_PRESETS = [
@@ -37125,10 +39430,20 @@ const UI_THEME_PRESETS = [
     id: "light",
     emoji: "☀️",
     short: "기본",
-    title: "기본",
-    tone: "라이트 모드",
-    blurb: "기본 라이트 모드",
-    recommend: "원래 SuperTory 기본 화면으로 돌아갑니다.",
+    title: "기본 · Clean White & Charcoal",
+    tone: "클린 화이트 / 딥 차콜",
+    blurb: "쨍한 블루 없이 진한 회색으로 명암을 살린 기본 화면",
+    recommend: "화이트 패널과 딥 차콜 대비로 가독성을 높인 기본 테마",
+    dark: false,
+  },
+  {
+    id: "sand",
+    emoji: "🏜️",
+    short: "모래사장",
+    title: "모래사장",
+    tone: "오트밀 샌드 / 따뜻한 베이지",
+    blurb: "이전 연베이지·오트밀 기본 톤을 그대로 쓸 수 있어요.",
+    recommend: "따뜻하고 부드러운 베이지 분위기를 원할 때",
     dark: false,
   },
   {
@@ -37269,7 +39584,7 @@ function updateUiThemeToggleButton(theme) {
   const nextLabel = nextPreset ? `${nextPreset.emoji} ${nextPreset.short}` : nextId;
   button.title = `테마 바꾸기 · 다음: ${nextLabel}`;
   button.setAttribute("aria-label", `테마 바꾸기. 지금은 ${current}, 다음은 ${nextLabel}`);
-  const iconIds = ["light", "dark", "cabin", "study", "library", "attic", "eink"];
+  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "attic", "eink"];
   iconIds.forEach((id) => {
     button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
   });
@@ -37313,17 +39628,17 @@ const EINK_BW_FORCE_CSS = [
   'html[data-theme="eink"] .feature-chip.is-active,html[data-theme="eink"] .is-active-split,',
   'html[data-ui-theme="eink"] .feature-chip.is-active{background:#000!important;color:#fff!important;border-color:#000!important;}',
   'html[data-theme="eink"] .title-input,html[data-theme="eink"] .episode-title-input,',
-  'html[data-ui-theme="eink"] .episode-title-input{border-bottom-color:#000!important;color:#000!important;background:transparent!important;}',
+  'html[data-ui-theme="eink"] .episode-title-input{border-bottom:0!important;color:#000!important;background:transparent!important;}',
   'html[data-theme="eink"] .format-seg,html[data-ui-theme="eink"] .format-seg{background:#fff!important;border:1px solid #000!important;}',
   'html[data-theme="eink"] .format-seg > .format-btn{border-right:1px solid #000!important;color:#000!important;background:transparent!important;}',
   'html[data-theme="eink"] .format-seg-fields > .toolbar-field{border-right-color:#000!important;}',
   'html[data-theme="eink"] .format-toolbar{background:#fff!important;border-color:#000!important;}',
-  'html[data-theme="eink"] .format-list-btn.format-btn-solo,html[data-theme="eink"] .format-find-btn.format-btn-solo,html[data-theme="eink"] .format-viewer-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
-  'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,html[data-theme="eink"] .format-find-btn.format-btn-solo:hover,html[data-theme="eink"] .format-viewer-btn.format-btn-solo:hover,html[data-theme="eink"] .format-list-btn.format-btn-solo.active,html[data-theme="eink"] .format-find-btn.format-btn-solo.active,html[data-theme="eink"] .format-viewer-btn.format-btn-solo.active{background:#000!important;color:#fff!important;border-color:#000!important;}',
-  'html[data-theme="eink"] .format-viewer-btn .format-viewer-icon{color:#000!important;}',
-  'html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn .format-viewer-icon .viewer-icon-page-r{fill:#fff!important;}',
-  'html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon{color:#fff!important;}',
-  'html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn:hover .format-viewer-icon .viewer-icon-page-r,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-l,html[data-theme="eink"] .format-viewer-btn.active .format-viewer-icon .viewer-icon-page-r{fill:#000!important;}',
+  'html[data-theme="eink"] .format-list-btn.format-btn-solo{border:1px solid #000!important;background:#fff!important;color:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .format-list-btn.format-btn-solo:hover,html[data-theme="eink"] .format-list-btn.format-btn-solo.active{background:#000!important;color:#fff!important;border-color:#000!important;}',
+  'html[data-theme="eink"] .format-toolbar-row-icons .format-tool-item{border:0!important;background:transparent!important;box-shadow:none!important;color:#000!important;}',
+  'html[data-theme="eink"] .format-toolbar-row-icons .format-tool-item:hover{background:#000!important;color:#fff!important;}',
+  'html[data-theme="eink"] .format-toolbar-row-icons .format-tool-glyph,html[data-theme="eink"] .format-toolbar-row-icons .format-tool-label{color:inherit!important;}',
+  'html[data-theme="eink"] .format-viewer-btn .format-viewer-icon{color:inherit!important;}',
   'html[data-theme="eink"] .format-btn .u-mark,html[data-ui-theme="eink"] .format-btn .u-mark{',
   'text-decoration:underline!important;text-decoration-color:#000!important;',
   'text-underline-offset:2px!important;-webkit-text-fill-color:unset!important;color:inherit!important;}',
@@ -37363,14 +39678,6 @@ const EINK_BW_FORCE_CSS = [
   'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .folder-title-box:hover,html[data-ui-theme="eink"] .folder-title-box:hover{',
   'background:#000!important;color:#fff!important;border-color:#000!important;}',
-  'html[data-theme="eink"] .chapter-title.is-complete,html[data-theme="eink"] .folder-title-box.is-complete,',
-  'html[data-theme="eink"] .outline-chapter.is-chapter-complete .chapter-title,',
-  'html[data-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box,',
-  'html[data-ui-theme="eink"] .folder-title-box.is-complete,',
-  'html[data-ui-theme="eink"] .outline-chapter.is-chapter-complete .folder-title-box{',
-  'background:#000!important;border-color:#000!important;color:#fff!important;box-shadow:none!important;}',
-  'html[data-theme="eink"] .folder-color-dot,html[data-theme="eink"] .folder-color-dot[data-folder-color],',
-  'html[data-ui-theme="eink"] .folder-color-dot{background:#000!important;border-color:#000!important;}',
   'html[data-theme="eink"] .context-menu,html[data-ui-theme="eink"] .context-menu{background:#fff!important;border:1px solid #000!important;box-shadow:none!important;color:#000!important;}',
   'html[data-theme="eink"] .idea-sticky,html[data-theme="eink"] .idea-card,html[data-theme="eink"] .header-idea-chip,',
   'html[data-theme="eink"] .idea-sticky[class*="color-"],html[data-theme="eink"] .idea-card[class*="color-"]{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
@@ -37436,7 +39743,7 @@ function syncEinkBwForceStyle(theme) {
   document.head.appendChild(el);
 }
 
-/** Apply a named theme (`light` | `dark` | `cabin` | `study` | `library` | `attic` | `eink`). */
+/** Apply a named theme (`light` | `sand` | `dark` | `cabin` | `study` | `library` | `attic` | `eink`). */
 function applyUiTheme(themeName, { announce = false } = {}) {
   const next = normalizeUiThemeId(themeName || "light");
   const scheme = uiThemeScheme(next);
@@ -37577,8 +39884,33 @@ function closeCreateMenu() {
 }
 
 function openCreateMenu() {
-  $("createMenuDropdown")?.classList.remove("hidden");
-  $("createMenuButton")?.setAttribute("aria-expanded", "true");
+  const menu = $("createMenuDropdown");
+  const btn = $("createMenuButton");
+  if (!menu) return;
+  menu.classList.remove("hidden");
+  btn?.setAttribute("aria-expanded", "true");
+  // Binder clips absolute menus; pin to viewport when hosted in the left panel.
+  if (menu.closest?.("#outlinePanel, .binder-work-meta")) {
+    const ar = btn?.getBoundingClientRect?.();
+    if (ar) {
+      menu.style.position = "fixed";
+      menu.style.top = `${Math.round(ar.bottom + 6)}px`;
+      menu.style.left = `${Math.round(ar.left)}px`;
+      menu.style.right = "auto";
+      const rect = menu.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) {
+        menu.style.left = `${Math.max(8, Math.round(window.innerWidth - rect.width - 8))}px`;
+      }
+      if (rect.bottom > window.innerHeight - 8) {
+        menu.style.top = `${Math.max(8, Math.round(ar.top - rect.height - 6))}px`;
+      }
+    }
+  } else {
+    menu.style.position = "";
+    menu.style.top = "";
+    menu.style.left = "";
+    menu.style.right = "";
+  }
 }
 
 function toggleCreateMenu() {
@@ -37690,60 +40022,76 @@ document.addEventListener("keydown", (event) => {
   }
   hideDesktopContextMenu();
 });
-$("newChapterButton").addEventListener("click", () => {
+/** Bind click/change only when the node exists — missing DOM must not abort boot. */
+function onEl(id, eventName, handler) {
+  const el = $(id);
+  if (!el || typeof el.addEventListener !== "function") return;
+  el.addEventListener(eventName, handler);
+}
+function safeSetup(name, fn) {
+  try {
+    fn();
+  } catch (err) {
+    console.error(`[SuperTORY] setup failed: ${name}`, err);
+  }
+}
+
+onEl("newChapterButton", "click", () => {
   if (suppressNextNewChapterClick) {
     suppressNextNewChapterClick = false;
     return;
   }
   createChapter().catch(handleError);
 });
-setupRenumberChaptersModal();
-setupTextPromptModal();
-setupOutlineBinderChrome();
-setupOutlineOverview();
-setupFolderUndoUi();
-$("newCharacterButton").addEventListener("click", () => createCharacter().catch(handleError));
-$("closeSplitButton").addEventListener("click", () => closeSplitView().catch(handleError));
-$("splitSceneSelect").addEventListener("change", () => selectSplitScene().catch(handleError));
-setupPopupDragging();
-setupRichEditor();
-setupIllustrationPanel();
-setupReferenceLinks();
-setupSceneStats();
-setupSynopsisList();
-setupIdeaBank();
-setupSettingsCodex();
-setupAiAssist();
-setupDesktopThemeMenu();
-setupBaitCollection();
-setupSourceCollection();
-setupToryVault();
-setupAiPanelToggle();
-setupBinderPanelToggle();
+safeSetup("setupRenumberChaptersModal", setupRenumberChaptersModal);
+safeSetup("setupTextPromptModal", setupTextPromptModal);
+safeSetup("setupOutlineBinderChrome", setupOutlineBinderChrome);
+safeSetup("setupOutlineOverview", setupOutlineOverview);
+safeSetup("setupFolderUndoUi", setupFolderUndoUi);
+onEl("newCharacterButton", "click", () => createCharacter().catch(handleError));
+onEl("closeSplitButton", "click", () => closeSplitView().catch(handleError));
+onEl("splitSceneSelect", "change", () => selectSplitScene().catch(handleError));
+safeSetup("setupPopupDragging", setupPopupDragging);
+safeSetup("setupRichEditor", setupRichEditor);
+safeSetup("setupIllustrationPanel", setupIllustrationPanel);
+safeSetup("setupReferenceLinks", setupReferenceLinks);
+safeSetup("setupSceneStats", setupSceneStats);
+safeSetup("setupSynopsisList", setupSynopsisList);
+safeSetup("setupIdeaBank", setupIdeaBank);
+safeSetup("setupSettingsCodex", setupSettingsCodex);
+safeSetup("setupSettingsCollectionBoard", setupSettingsCollectionBoard);
+safeSetup("setupAiAssist", setupAiAssist);
+safeSetup("setupDesktopThemeMenu", setupDesktopThemeMenu);
+safeSetup("setupBaitCollection", setupBaitCollection);
+safeSetup("setupSourceCollection", setupSourceCollection);
+safeSetup("setupToryVault", setupToryVault);
+safeSetup("setupAiPanelToggle", setupAiPanelToggle);
+safeSetup("setupBinderPanelToggle", setupBinderPanelToggle);
 // Theme controls already bound earlier (setupUiThemeToggle); keep a safe re-entry.
-try { setupUiThemeToggle(); } catch (_) { /* ignore */ }
-setupBinderContextMenu();
-setupSettingsContextMenu();
-setupSceneFeatureBar();
-setupAnalyzeMenu();
-setupFocusWrite();
-setupViewModeShortcuts();
-setupViewerMode();
-setupGenrePicker();
-setupPurposePicker();
-setupKeywordBox();
-setupProofReportModal();
-setupWritingLog();
-setupHeaderNotices();
-renderBookmarkBar();
-setupSceneAutoSave();
-setupBinderSwitch();
-setupOutlineResizer();
-setupAiPanelResizer();
-setupSplitPaneResizer();
-setupFocusWriteSplitResizer();
-setupSplitEditMode();
-$("projectSelect").addEventListener("change", (event) => {
+safeSetup("setupUiThemeToggle", setupUiThemeToggle);
+safeSetup("setupBinderContextMenu", setupBinderContextMenu);
+safeSetup("setupSettingsContextMenu", setupSettingsContextMenu);
+safeSetup("setupSceneFeatureBar", setupSceneFeatureBar);
+safeSetup("setupAnalyzeMenu", setupAnalyzeMenu);
+safeSetup("setupFocusWrite", setupFocusWrite);
+safeSetup("setupViewModeShortcuts", setupViewModeShortcuts);
+safeSetup("setupViewerMode", setupViewerMode);
+safeSetup("setupGenrePicker", setupGenrePicker);
+safeSetup("setupPurposePicker", setupPurposePicker);
+safeSetup("setupKeywordBox", setupKeywordBox);
+safeSetup("setupProofReportModal", setupProofReportModal);
+safeSetup("setupWritingLog", setupWritingLog);
+safeSetup("setupHeaderNotices", setupHeaderNotices);
+safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
+safeSetup("renderBookmarkBar", () => renderBookmarkBar());
+safeSetup("setupSceneAutoSave", setupSceneAutoSave);
+safeSetup("setupBinderSwitch", setupBinderSwitch);
+safeSetup("setupOutlineResizer", setupOutlineResizer);
+safeSetup("setupAiPanelResizer", setupAiPanelResizer);
+safeSetup("setupSplitPaneResizer", setupSplitPaneResizer);
+safeSetup("setupFocusWriteSplitResizer", setupFocusWriteSplitResizer);
+safeSetup("setupSplitEditMode", setupSplitEditMode);
+onEl("projectSelect", "change", (event) => {
   state.projectId = Number(event.target.value);
   // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
   state.outline = [];
@@ -37768,12 +40116,21 @@ $("projectSelect").addEventListener("change", (event) => {
   fillForeshadowForm(null);
   loadProject().catch(handleError);
 });
-setupEpisodeChrome();
-setupProjectListContextMenu();
-$("sceneEditor").addEventListener("submit", (event) => saveScene(event).catch(handleError));
-$("characterEditor").addEventListener("submit", (event) => saveCharacter(event).catch(handleError));
-$("addAliasButton").addEventListener("click", () => addAlias().catch(handleError));
-$("newAlias").addEventListener("keydown", (event) => { if (event.key === "Enter") { event.preventDefault(); addAlias().catch(handleError); } });
+safeSetup("setupEpisodeChrome", setupEpisodeChrome);
+safeSetup("setupProjectListContextMenu", setupProjectListContextMenu);
+onEl("sceneEditor", "submit", (event) => saveScene(event).catch(handleError));
+onEl("characterEditor", "submit", (event) => saveCharacter(event).catch(handleError));
+onEl("addAliasButton", "click", () => addAlias().catch(handleError));
+onEl("newAlias", "keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    addAlias().catch(handleError);
+  }
+});
 
 loadProjects().catch(handleError);
-maybeStartOnboardingTutorial();
+try {
+  maybeStartOnboardingTutorial();
+} catch (err) {
+  console.error("[SuperTORY] onboarding failed", err);
+}
