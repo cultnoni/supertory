@@ -26115,7 +26115,7 @@ const defaultViewerSettings = () => ({
 const VIEWER_EINK_STYLES = {
   paper: { bg: "#f7f4ec", ink: "#1a1a1a" },
   warm: { bg: "#f0e6d2", ink: "#2a2218" },
-  gray: { bg: "#e4e4e4", ink: "#222222" },
+  gray: { bg: "#ffffff", ink: "#000000" },
   dark: { bg: "#1e1e1e", ink: "#c8c8c8" },
 };
 
@@ -42038,6 +42038,12 @@ const EINK_BW_FORCE_CSS = [
   'html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label.is-body-preview{color:#fff!important;}',
   'html[data-theme="eink"] .outline-overview-empty,html[data-theme="eink"] .outline-overview-ungrouped-label,html[data-theme="eink"] .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] #outlineOverviewModal .modal-hint{color:#000!important;}',
   'html[data-theme="eink"] #outlineOverviewModal .modal-actions .primary{background:#000!important;border:1px solid #000!important;color:#fff!important;box-shadow:none!important;}',
+  // Word-count bar boxes (reading time, goal input, gauge) — no gray color-mix fills
+  'html[data-theme="eink"] .manuscript-status-wrap,html[data-ui-theme="eink"] .manuscript-status-wrap{background:#fff!important;border-top-color:#000!important;color:#000!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn,html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,html[data-theme="eink"] .manuscript-status-wrap .status-reading-time,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field select,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:hover,html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-active,html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-goal-metric,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,html[data-ui-theme="eink"] .manuscript-status-wrap .status-reading-time,html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar{background:#fff!important;background-color:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .stat-chip,html[data-theme="eink"] .manuscript-status-wrap .stat-chip strong,html[data-theme="eink"] .manuscript-status-wrap .status-bar-counts,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field-label,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-progress-label{color:#000!important;-webkit-text-fill-color:#000!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar-fill:not(.is-empty){background:#000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-save-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
 ].join("");
 
 /** Keep / remove the runtime pure B/W sheet (beats stale styles.css + hardcoded tints). */

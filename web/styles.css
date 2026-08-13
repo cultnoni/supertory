@@ -701,6 +701,16 @@ body[data-page-theme="gray"] {
   --page-ink: #22262b;
   --page-line: #d0d3d8;
 }
+/* E ink: 회색 작성 바탕은 흰 종이로 */
+html[data-theme="eink"] body[data-page-theme="gray"],
+html[data-ui-theme="eink"] body[data-page-theme="gray"],
+body[data-theme="eink"][data-page-theme="gray"],
+body[data-ui-theme="eink"][data-page-theme="gray"] {
+  --page-bg: #ffffff;
+  --page-editor-bg: #ffffff;
+  --page-ink: #000000;
+  --page-line: #000000;
+}
 body[data-page-theme="sepia"] {
   --page-bg: #f4ead5;
   --page-editor-bg: #f4ead5;
@@ -15431,8 +15441,8 @@ html.is-electron .viewer-modal.is-maximized {
   --viewer-page-ink: #2a2218;
 }
 .viewer-stage[data-viewer-mode="eink"][data-eink-style="gray"] {
-  --viewer-page-bg: #e4e4e4;
-  --viewer-page-ink: #222;
+  --viewer-page-bg: #ffffff;
+  --viewer-page-ink: #000000;
 }
 .viewer-stage[data-viewer-mode="eink"][data-eink-style="dark"] {
   --viewer-page-bg: #1e1e1e;
@@ -17014,6 +17024,40 @@ body[data-ui-scheme="dark"] .format-viewer-btn:hover .format-viewer-icon {
   background: color-mix(in srgb, var(--page-ink, var(--ink)) 10%, var(--page-editor-bg, #fff));
   border-color: color-mix(in srgb, var(--page-ink, var(--ink)) 22%, transparent);
   color: color-mix(in srgb, var(--page-ink, var(--ink)) 78%, transparent);
+  box-shadow: none;
+}
+/* 다크 UI + 밝은/회색 본문(심야 다락방): 칩 네이비 바탕이 어두운 숫자를 가리지 않게 */
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="light"] .stat-chip,
+html[data-theme="attic"] .manuscript-status-wrap .stat-chip,
+html[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip,
+body[data-theme="attic"] .manuscript-status-wrap .stat-chip,
+body[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip {
+  background: transparent;
+  border-color: transparent;
+  color: var(--page-ink, #24211d);
+  font-weight: 600;
+}
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="light"] .stat-chip strong,
+html[data-theme="attic"] .manuscript-status-wrap .stat-chip strong,
+html[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip strong,
+body[data-theme="attic"] .manuscript-status-wrap .stat-chip strong,
+body[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip strong {
+  color: var(--page-ink, #1a1a1a);
+  -webkit-text-fill-color: var(--page-ink, #1a1a1a);
+  font-weight: 800;
+}
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="light"] .stat-chip:hover,
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="light"] .stat-chip.is-active,
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="light"] .stat-chip.is-goal-metric,
+html[data-theme="attic"] .manuscript-status-wrap .stat-chip:hover,
+html[data-theme="attic"] .manuscript-status-wrap .stat-chip.is-active,
+html[data-theme="attic"] .manuscript-status-wrap .stat-chip.is-goal-metric,
+html[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip:hover,
+html[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip.is-active,
+html[data-ui-theme="attic"] .manuscript-status-wrap .stat-chip.is-goal-metric {
+  background: color-mix(in srgb, var(--page-ink, #24211d) 10%, var(--page-editor-bg, #d9d9d9)) !important;
+  border-color: color-mix(in srgb, var(--page-ink, #24211d) 22%, transparent);
+  color: var(--page-ink, #1a1a1a) !important;
   box-shadow: none;
 }
 .manuscript-status-wrap .status-bar-field input,
@@ -20614,6 +20658,70 @@ body[data-theme="eink"],
 body[data-ui-theme="eink"] {
   background: #fff !important;
   color: #000 !important;
+}
+
+/* 글자수 집계: color-mix 회색 박스 → 흰 바탕·검정 선 */
+html[data-theme="eink"] .manuscript-status-wrap,
+html[data-ui-theme="eink"] .manuscript-status-wrap,
+body[data-theme="eink"] .manuscript-status-wrap,
+body[data-ui-theme="eink"] .manuscript-status-wrap {
+  background: #fff !important;
+  border-top-color: #000 !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn,
+html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,
+html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,
+html[data-theme="eink"] .manuscript-status-wrap .status-reading-time,
+html[data-theme="eink"] .manuscript-status-wrap .status-bar-field input,
+html[data-theme="eink"] .manuscript-status-wrap .status-bar-field select,
+html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar,
+html[data-theme="eink"] .manuscript-status-wrap .stat-chip:hover,
+html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-active,
+html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-goal-metric,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-reading-time,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field input,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field select,
+html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar,
+html[data-ui-theme="eink"] .manuscript-status-wrap .stat-chip:hover,
+html[data-ui-theme="eink"] .manuscript-status-wrap .stat-chip.is-active,
+html[data-ui-theme="eink"] .manuscript-status-wrap .stat-chip.is-goal-metric {
+  background: #fff !important;
+  background-color: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .manuscript-status-wrap .stat-chip,
+html[data-theme="eink"] .manuscript-status-wrap .stat-chip strong,
+html[data-theme="eink"] .manuscript-status-wrap .status-bar-counts,
+html[data-theme="eink"] .manuscript-status-wrap .status-bar-field,
+html[data-theme="eink"] .manuscript-status-wrap .status-bar-field-label,
+html[data-theme="eink"] .manuscript-status-wrap .scene-goal-progress-label,
+html[data-ui-theme="eink"] .manuscript-status-wrap .stat-chip,
+html[data-ui-theme="eink"] .manuscript-status-wrap .stat-chip strong,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-counts,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field-label,
+html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-progress-label {
+  color: #000 !important;
+  -webkit-text-fill-color: #000 !important;
+  background: transparent;
+}
+html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar-fill:not(.is-empty),
+html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar-fill:not(.is-empty) {
+  background: #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .manuscript-status-wrap .status-save-btn,
+html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
 }
 
 html[data-theme="eink"] .tory-priority-box,
