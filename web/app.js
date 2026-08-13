@@ -23477,8 +23477,8 @@ const UI_THEME_WRITING_PAGE_DEFAULTS = {
   "silver-fog": { theme: "white", customColor: null },
   // 비밀 서재: 아이보리
   study: { theme: "ivory", customColor: null },
-  // 새벽 도서관: R244 G248 B251
-  library: { theme: "custom", customColor: "#F4F8FB" },
+  // 새벽 도서관: R251 G250 B255
+  library: { theme: "custom", customColor: "#FBFAFF" },
   classroom: { theme: "chalkboard", customColor: null },
   // 야간(다크): R63 G59 B54
   dark: { theme: "custom", customColor: "#3F3B36" },
@@ -40414,7 +40414,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.3.3";
+const APP_VERSION_FALLBACK = "1.3.4";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */

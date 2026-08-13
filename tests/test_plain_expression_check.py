@@ -96,10 +96,10 @@ class PlainExpressionCheckTests(unittest.TestCase):
 
     def test_client_js_defines_plain_prompt_and_branches(self) -> None:
         js = Path("web/app.js").read_text(encoding="utf-8")
-        self.assertIn("function buildPlainExpressionCheckPrompt(inputText)", js)
-        self.assertIn("function buildRewritePrompt(selectedText, contextBefore = \"\", contextAfter = \"\")", js)
+        self.assertIn("function buildPlainExpressionCheckPrompt(inputText, directionHint = \"\")", js)
+        self.assertIn("function buildRewritePrompt(selectedText, contextBefore = \"\", contextAfter = \"\", directionHint = \"\")", js)
         # Direct path must call plain prompt, not only buildRewritePrompt
-        self.assertIn("buildPlainExpressionCheckPrompt(selectedText)", js)
+        self.assertIn("buildPlainExpressionCheckPrompt(selectedText, directionHint)", js)
         self.assertIn('sourceMode === "direct"', js)
         # Must skip index attach for direct
         self.assertIn("skip_project_index", js)
