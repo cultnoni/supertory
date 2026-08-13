@@ -7,7 +7,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
   minimize: () => ipcRenderer.invoke("supertory:minimize"),
   getVersion: () => ipcRenderer.invoke("supertory:get-version"),
   isPackaged: () => ipcRenderer.invoke("supertory:is-packaged"),
-  /** Sync Windows title-bar overlay with day/dark chrome. */
+  /** Sync Windows title-bar overlay with current UI theme chrome colors. */
   setTitleBarTheme: (theme) => ipcRenderer.invoke("supertory:set-titlebar-theme", theme),
 
   /** Subscribe to auto-update status events from the main process. */

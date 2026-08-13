@@ -89,7 +89,9 @@ class RewriteBranchPromptTests(unittest.TestCase):
         self.assertIn('id="rewriteCompareAltList"', html)
         # plain expression still separate
         self.assertEqual(js.count("function buildPlainExpressionCheckPrompt"), 1)
-        self.assertIn("buildPlainExpressionCheckPrompt(selectedText)", js)
+        self.assertIn("buildPlainExpressionCheckPrompt(selectedText, directionHint)", js)
+        self.assertIn("rewriteDirectionHint", html)
+        self.assertIn("다듬기 방향", html)
 
     def test_dry_run_rewrite_prompt_includes_branch_blocks(self) -> None:
         selected = "칼집에서 물이 흘렀다."

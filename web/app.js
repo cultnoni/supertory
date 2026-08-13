@@ -70,6 +70,8 @@ const state = {
   linkedSuccessProfile: null,
   openSettingsSection: null,
   settingsDocKind: null, // "synopsis" | "logline" | "world" | "intro" | "intent" when main editor open
+  settingsDocPair: null, // e.g. ["intro","intent"] | ["logline","synopsis"] when dual main open
+  settingsDocFocusKind: null, // which pane last focused in dual main
   characterBoardOpen: false,
   activeBinder: "manuscript", // "manuscript" | "settings"
   splitEnabled: false,
@@ -354,9 +356,57 @@ function isSynopsisMainOpen() {
 }
 
 function getActiveRichEditor() {
-  if (isSynopsisWorkspaceOpen()) return $("synopsisContent");
+  if (isSynopsisWorkspaceOpen()) {
+    const active = document.activeElement;
+    if (active && (active.id === "synopsisContent" || active.id === "synopsisContentB")) {
+      return active;
+    }
+    if (lastSettingsDocEditor && document.contains(lastSettingsDocEditor)) {
+      return lastSettingsDocEditor;
+    }
+    const focusKind = state.settingsDocFocusKind || state.settingsDocKind;
+    const byKind = focusKind ? getSettingsDocMainEditor(focusKind) : null;
+    return byKind || $("synopsisContent");
+  }
   return $("sceneContent");
 }
+
+/** Last focused settings-doc main editor (dual panes). */
+let lastSettingsDocEditor = null;
+
+function getSettingsDocMainEditor(kind) {
+  if (!kind) return null;
+  const a = $("synopsisContent");
+  const b = $("synopsisContentB");
+  if (a?.dataset?.settingsDocKind === kind) return a;
+  if (b?.dataset?.settingsDocKind === kind) return b;
+  return null;
+}
+
+function getSettingsDocPairKinds(kind) {
+  const siblings = SETTINGS_DOC_SIBLINGS[kind];
+  if (siblings && siblings.length >= 2) return siblings.slice(0, 2);
+  return kind ? [kind] : [];
+}
+
+const SETTINGS_DOC_PAIR_CHROME = {
+  intro: {
+    title: "작품소개·기획의도",
+    hint: "작품소개와 기획의도를 나란히 편집합니다.",
+  },
+  intent: {
+    title: "작품소개·기획의도",
+    hint: "작품소개와 기획의도를 나란히 편집합니다.",
+  },
+  logline: {
+    title: "로그라인·시놉시스",
+    hint: "로그라인과 시놉시스를 나란히 편집합니다.",
+  },
+  synopsis: {
+    title: "로그라인·시놉시스",
+    hint: "로그라인과 시놉시스를 나란히 편집합니다.",
+  },
+};
 
 const SETTINGS_DOC_META = {
   intro: {
@@ -734,11 +784,11 @@ const COUNT_METRIC_LABEL = {
   letters: "글자",
 };
 
-const STAT_DISPLAY_KEY = "supertory.statDisplay";
+const STAT_DISPLAY_KEY = "supertory.statDisplay.v2";
 const STAT_SCOPE_KEY = "supertory.statScope"; // "current" | "project"
 const SPACE_MODES = ["with", "without", "both"]; // 공백포함 / 공백제외 / 둘 다
 const UNIT_MODES = ["words", "letters", "both"]; // 단어 / 글자 / 둘 다
-const DEFAULT_STAT_DISPLAY = { space: "with", unit: "words" };
+const DEFAULT_STAT_DISPLAY = { space: "both", unit: "words" };
 
 function loadStatDisplay() {
   try {
@@ -948,7 +998,7 @@ function updateGoalProgressUi({ value, goal, metric }) {
     overflow.style.width = overGoal ? `${overflowPct}%` : "0%";
     overflow.classList.toggle("is-empty", !overGoal);
     overflow.title = overGoal
-      ? `목표 초과 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} · 빨간 게이지 ${overflowPct}%`
+      ? `목표 초과 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} · 초과 게이지 ${overflowPct}%`
       : "";
   }
   if (statusBar) {
@@ -1065,22 +1115,28 @@ function updateReadingTimeUi(stats) {
 }
 
 /* —— Goal gauge colors (right-click): solid + gradient —— */
-const GOAL_BAR_COLOR_KEY = "supertory.goalBarColors.v2";
+const GOAL_BAR_COLOR_KEY = "supertory.goalBarColors.v5";
+const GOAL_BAR_COLOR_KEY_LEGACY_V4 = "supertory.goalBarColors.v4";
 const GOAL_BAR_SOLID_PRESETS = [
-  { id: "yellow", hex: "#f5c518", label: "노랑" },
+  { id: "primary", hex: "#292524", label: "토리" },
+  { id: "yellow", hex: "#e6c749", label: "노랑" },
   { id: "orange", hex: "#f39c12", label: "주황" },
   { id: "red", hex: "#e74c3c", label: "빨강" },
   { id: "pink", hex: "#e84393", label: "분홍" },
   { id: "blue", hex: "#3498db", label: "파랑" },
   { id: "purple", hex: "#9b59b6", label: "보라" },
   { id: "green", hex: "#2f9e4f", label: "초록" },
-  { id: "teal", hex: "#1abc9c", label: "청록" },
+  { id: "teal", hex: "#70b89f", label: "민트" },
+  { id: "slate", hex: "#6d7b8b", label: "슬레이트" },
+  { id: "indigo", hex: "#240787", label: "남보라" },
+  { id: "black", hex: "#000000", label: "검정" },
+  { id: "white", hex: "#ffffff", label: "흰색" },
   { id: "gray", hex: "#7f8c8d", label: "회색" },
 ];
 const GOAL_BAR_GRADIENT_PRESETS = [
-  { id: "sun", from: "#ffe08a", to: "#f5c518", label: "햇살" },
+  { id: "sun", from: "#ffe08a", to: "#e6c749", label: "햇살" },
   { id: "sunset", from: "#f5c518", to: "#e74c3c", label: "노을" },
-  { id: "fire", from: "#f39c12", to: "#c0392b", label: "불꽃" },
+  { id: "fire", from: "#ff6b6b", to: "#c0392b", label: "불꽃" },
   { id: "ocean", from: "#3498db", to: "#1abc9c", label: "바다" },
   { id: "sky", from: "#74b9ff", to: "#0984e3", label: "하늘" },
   { id: "violet", from: "#a29bfe", to: "#6c5ce7", label: "보라빛" },
@@ -1089,14 +1145,208 @@ const GOAL_BAR_GRADIENT_PRESETS = [
   { id: "berry", from: "#fd79a8", to: "#e84393", label: "베리" },
   { id: "gold", from: "#fdcb6e", to: "#e17055", label: "골드" },
 ];
-const GOAL_BAR_COLOR_DEFAULTS = {
-  progress: { mode: "solid", hex: "#f5c518", id: "yellow" },
-  complete: { mode: "solid", hex: "#2f9e4f", id: "green" },
+
+const GOAL_BAR_ENTRY_GREEN = { mode: "solid", hex: "#2f9e4f", id: "green" };
+const GOAL_BAR_ENTRY_PINK = { mode: "solid", hex: "#e84393", id: "pink" };
+const GOAL_BAR_ENTRY_BLACK = { mode: "solid", hex: "#000000", id: "black" };
+const GOAL_BAR_ENTRY_WHITE = { mode: "solid", hex: "#ffffff", id: "white" };
+const GOAL_BAR_ENTRY_GOLD = { mode: "solid", hex: "#e6c749", id: "yellow" };
+const GOAL_BAR_ENTRY_CABIN = { mode: "solid", hex: "#70b89f", id: "teal" };
+const GOAL_BAR_ENTRY_SLATE = { mode: "solid", hex: "#6d7b8b", id: "slate" };
+const GOAL_BAR_ENTRY_ATTIC = { mode: "solid", hex: "#240787", id: "indigo" };
+const GOAL_BAR_ENTRY_RED_GRAD = { mode: "gradient", from: "#ff6b6b", to: "#c0392b", id: "fire" };
+const GOAL_BAR_ENTRY_BLUE_GRAD = { mode: "gradient", from: "#74b9ff", to: "#0984e3", id: "sky" };
+
+/** UI 테마별 게이지 기본색 (수동 설정이 없을 때만) */
+const GOAL_BAR_THEME_DEFAULTS = {
+  light: {
+    progress: { ...GOAL_BAR_ENTRY_GOLD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  sand: {
+    progress: { ...GOAL_BAR_ENTRY_GOLD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  dark: {
+    progress: { ...GOAL_BAR_ENTRY_GOLD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  cabin: {
+    progress: { ...GOAL_BAR_ENTRY_CABIN },
+    complete: { ...GOAL_BAR_ENTRY_PINK },
+    overflow: { ...GOAL_BAR_ENTRY_BLUE_GRAD },
+  },
+  library: {
+    progress: { ...GOAL_BAR_ENTRY_SLATE },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  study: {
+    progress: { ...GOAL_BAR_ENTRY_SLATE },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  classroom: {
+    progress: { ...GOAL_BAR_ENTRY_GOLD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  attic: {
+    progress: { ...GOAL_BAR_ENTRY_ATTIC },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  eink: {
+    progress: { ...GOAL_BAR_ENTRY_BLACK },
+    complete: { ...GOAL_BAR_ENTRY_BLACK },
+    overflow: { ...GOAL_BAR_ENTRY_WHITE },
+  },
+  "cloud-walk": {
+    progress: { ...GOAL_BAR_ENTRY_BLUE_GRAD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  "spring-garden": {
+    progress: { ...GOAL_BAR_ENTRY_PINK },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  "sunset-window": {
+    progress: { mode: "gradient", from: "#fdcb6e", to: "#e17055", id: "gold" },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
+  "silver-fog": {
+    progress: { ...GOAL_BAR_ENTRY_SLATE },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
 };
-let goalBarColors = {
-  progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
-  complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
-};
+
+/** 토리에게 물어보기 버튼(.primary) 바탕색 — 테마 --primary */
+function resolveThemePrimaryHex() {
+  try {
+    const root = document.documentElement;
+    let hex = (getComputedStyle(root).getPropertyValue("--primary") || "").trim();
+    if (!hex) hex = (getComputedStyle(document.body).getPropertyValue("--primary") || "").trim();
+    if (/^#[0-9A-Fa-f]{6}$/.test(hex)) return hex;
+    if (/^#[0-9A-Fa-f]{3}$/.test(hex)) {
+      return `#${hex[1]}${hex[1]}${hex[2]}${hex[2]}${hex[3]}${hex[3]}`;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return "#292524";
+}
+
+// UI 테마 id/순서 헬퍼. 목표바 기본색(getGoalBarColorDefaults)이 모듈 로드 시점에
+// 바로 normalizeUiThemeId를 호출하므로, 파일 뒤쪽(테마 프리셋 근처)이 아니라
+// 여기서 먼저 정의해 둔다. (원래 위치: UI_THEME_PRESETS 배열 앞/뒤)
+/** Cycle / 설정 목록 / 레일 묶음. 설명 문구는 초안 — 이후 정정 예정. */
+const UI_THEME_GROUPS = [
+  {
+    id: "mode",
+    emoji: "⚙️",
+    number: "1",
+    title: "기본 & 모드 테마",
+    subtitle: "",
+    blurb: "언제나 편안하고 정갈한 토리의 기본 집필 모드예요.",
+    themes: [
+      { id: "light", caption: "정갈하고 눈이 편안한 오프화이트" },
+      { id: "sand", caption: "햇살을 머금은 따스한 샌드 베이지" },
+      { id: "dark", caption: "심야에도 눈부심 없는 딥 다크 브라운" },
+      { id: "eink", caption: "전자종이처럼 대비가 명확한 모노크롬" },
+    ],
+  },
+  {
+    id: "place",
+    emoji: "🏡",
+    number: "2",
+    title: "토리의 공간",
+    subtitle: "장소 테마",
+    blurb: "나만의 아늑한 작업실에서. 그 공간에 직접 들어앉아 글을 쓰는 몰입감을 선사해요.",
+    themes: [
+      { id: "cabin", caption: "눈이 편안해지는 차분한 세이지 그린" },
+      { id: "study", caption: "오래된 타자기와 책 냄새가 나는 세피아" },
+      { id: "library", caption: "이성적인 집필을 돕는 소프트 라벤더 블루" },
+      { id: "classroom", caption: "친근하고 아날로그적인 레트로 우드/그린" },
+      { id: "attic", caption: "불 꺼진 방, 스탠드 조명 아래의 딥 네이비" },
+    ],
+  },
+  {
+    id: "mood",
+    emoji: "🎨",
+    number: "3",
+    title: "감성과 영감",
+    subtitle: "분위기 테마",
+    blurb: "창가 너머 계절의 빛깔을 따라, 마음에 스친 영감을 담아내요.",
+    themes: [
+      { id: "cloud-walk", caption: "탁 트인 하늘 아래 머리가 맑아지는 파스텔 블루" },
+      { id: "spring-garden", caption: "꽃잎이 피어난 정원에 온 듯 포근한 베이지 핑크" },
+      { id: "sunset-window", caption: "붉게 물드는 해질녘 창가의 오렌지 앰버" },
+      { id: "silver-fog", caption: "자극을 비우고 문장에 침잠하는 미니멀 쿨 그레이" },
+    ],
+  },
+];
+
+/** Cycle order: 그룹 1 → 2 → 3 */
+const UI_THEME_CYCLE = UI_THEME_GROUPS.flatMap((group) => group.themes.map((item) => item.id));
+
+const UI_THEME_IDS = new Set([
+  "dawn", // legacy → library
+  ...UI_THEME_CYCLE,
+]);
+
+function normalizeUiThemeId(theme) {
+  if (theme === "dawn") return "library";
+  if (UI_THEME_IDS.has(theme)) return theme;
+  return "light";
+}
+
+function isUiThemeDark(theme) {
+  const id = normalizeUiThemeId(theme);
+  return id === "dark" || id === "attic";
+}
+
+function uiThemeScheme(theme) {
+  return isUiThemeDark(theme) ? "dark" : "light";
+}
+
+function cloneGoalColorEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  if (entry.mode === "gradient") {
+    return {
+      mode: "gradient",
+      from: entry.from,
+      to: entry.to,
+      id: entry.id || "",
+    };
+  }
+  return {
+    mode: "solid",
+    hex: entry.hex,
+    id: entry.id || "",
+  };
+}
+
+function getGoalBarColorDefaults(themeId = null) {
+  const id = typeof normalizeUiThemeId === "function"
+    ? normalizeUiThemeId(themeId || (typeof getUiTheme === "function" ? getUiTheme() : "light"))
+    : (themeId || "light");
+  const pack = GOAL_BAR_THEME_DEFAULTS[id] || GOAL_BAR_THEME_DEFAULTS.light;
+  return {
+    progress: cloneGoalColorEntry(pack.progress),
+    complete: cloneGoalColorEntry(pack.complete),
+    overflow: cloneGoalColorEntry(pack.overflow),
+  };
+}
+
+/** 사용자가 우클릭 메뉴로 고른 색만 저장 (테마 기본과 분리) */
+let goalBarColorOverrides = { progress: null, complete: null, overflow: null };
+let goalBarColors = getGoalBarColorDefaults("light");
 
 function normalizeGoalColorEntry(raw, fallback) {
   if (!raw || typeof raw !== "object") {
@@ -1104,7 +1354,7 @@ function normalizeGoalColorEntry(raw, fallback) {
     if (typeof raw === "string" && /^#/.test(raw)) {
       return { mode: "solid", hex: raw, id: "" };
     }
-    return { ...fallback };
+    return cloneGoalColorEntry(fallback) || { mode: "solid", hex: "#e6c749", id: "yellow" };
   }
   if (raw.mode === "gradient" && raw.from && raw.to) {
     return {
@@ -1117,72 +1367,173 @@ function normalizeGoalColorEntry(raw, fallback) {
   if (raw.hex) {
     return { mode: "solid", hex: raw.hex, id: raw.id || "" };
   }
-  return { ...fallback };
+  return cloneGoalColorEntry(fallback) || { mode: "solid", hex: "#e6c749", id: "yellow" };
 }
 
-function loadGoalBarColors() {
+function goalColorEntriesEqual(a, b) {
+  if (!a || !b) return false;
+  if (a.mode !== b.mode) return false;
+  if (a.mode === "gradient") {
+    return String(a.from).toLowerCase() === String(b.from).toLowerCase()
+      && String(a.to).toLowerCase() === String(b.to).toLowerCase();
+  }
+  return String(a.hex || "").toLowerCase() === String(b.hex || "").toLowerCase();
+}
+
+/** Old default progress fills (노랑 / 토리 primary / 주황) → 테마 기본으로 승격 */
+function isLegacyGoalProgressDefault(entry) {
+  if (!entry || entry.mode !== "solid") return false;
+  const hex = String(entry.hex || "").toLowerCase();
+  if (entry.id === "yellow" || hex === "#f5c518" || hex === "#e6c749") return true;
+  if (entry.id === "primary" || hex === "#1e293b") return true;
+  if (entry.id === "orange" || hex === "#f39c12") return true;
+  return false;
+}
+
+function isLegacyGoalCompleteDefault(entry) {
+  if (!entry || entry.mode !== "solid") return false;
+  const hex = String(entry.hex || "").toLowerCase();
+  return entry.id === "green" || hex === "#2f9e4f";
+}
+
+function resolveGoalBarColors(overrides = goalBarColorOverrides, themeId = null) {
+  const defaults = getGoalBarColorDefaults(themeId);
+  return {
+    progress: overrides?.progress
+      ? normalizeGoalColorEntry(overrides.progress, defaults.progress)
+      : defaults.progress,
+    complete: overrides?.complete
+      ? normalizeGoalColorEntry(overrides.complete, defaults.complete)
+      : defaults.complete,
+    overflow: overrides?.overflow
+      ? normalizeGoalColorEntry(overrides.overflow, defaults.overflow)
+      : defaults.overflow,
+  };
+}
+
+function loadGoalBarColorOverrides() {
   try {
-    const raw = localStorage.getItem(GOAL_BAR_COLOR_KEY);
-    if (!raw) {
-      // Try migrate old key
-      const old = localStorage.getItem("supertory.goalBarColors");
-      if (old) {
-        const parsed = JSON.parse(old);
-        return {
-          progress: normalizeGoalColorEntry(parsed?.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
-          complete: normalizeGoalColorEntry(parsed?.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
-        };
-      }
+    let raw = localStorage.getItem(GOAL_BAR_COLOR_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      const src = parsed?.overrides && typeof parsed.overrides === "object" ? parsed.overrides : parsed;
       return {
-        progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
-        complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
+        progress: src?.progress ? normalizeGoalColorEntry(src.progress, null) : null,
+        complete: src?.complete ? normalizeGoalColorEntry(src.complete, null) : null,
+        overflow: src?.overflow ? normalizeGoalColorEntry(src.overflow, null) : null,
       };
     }
-    const parsed = JSON.parse(raw);
-    return {
-      progress: normalizeGoalColorEntry(parsed?.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
-      complete: normalizeGoalColorEntry(parsed?.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
-    };
+    // Migrate v4 / older: 예전 전역 기본(주황·초록)이면 테마 기본을 쓰도록 override 비움
+    const old = localStorage.getItem(GOAL_BAR_COLOR_KEY_LEGACY_V4)
+      || localStorage.getItem("supertory.goalBarColors.v3")
+      || localStorage.getItem("supertory.goalBarColors.v2")
+      || localStorage.getItem("supertory.goalBarColors");
+    if (!old) {
+      return { progress: null, complete: null, overflow: null };
+    }
+    const parsed = JSON.parse(old);
+    let progress = parsed?.progress
+      ? normalizeGoalColorEntry(parsed.progress, { mode: "solid", hex: "#f39c12", id: "orange" })
+      : null;
+    let complete = parsed?.complete
+      ? normalizeGoalColorEntry(parsed.complete, { mode: "solid", hex: "#2f9e4f", id: "green" })
+      : null;
+    if (progress && isLegacyGoalProgressDefault(progress)) progress = null;
+    if (complete && isLegacyGoalCompleteDefault(complete)) complete = null;
+    return { progress, complete, overflow: null };
   } catch (_) {
-    return {
-      progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
-      complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
-    };
+    return { progress: null, complete: null, overflow: null };
   }
 }
 
-function saveGoalBarColors(colors) {
-  goalBarColors = {
-    progress: normalizeGoalColorEntry(colors.progress, GOAL_BAR_COLOR_DEFAULTS.progress),
-    complete: normalizeGoalColorEntry(colors.complete, GOAL_BAR_COLOR_DEFAULTS.complete),
+function persistGoalBarColorOverrides(overrides = goalBarColorOverrides) {
+  const payload = {
+    overrides: {
+      progress: overrides.progress || null,
+      complete: overrides.complete || null,
+      overflow: overrides.overflow || null,
+    },
   };
   try {
-    localStorage.setItem(GOAL_BAR_COLOR_KEY, JSON.stringify(goalBarColors));
+    localStorage.setItem(GOAL_BAR_COLOR_KEY, JSON.stringify(payload));
   } catch (_) {
     /* ignore */
   }
+}
+
+function refreshGoalBarColorsFromThemeAndOverrides() {
+  goalBarColors = resolveGoalBarColors(goalBarColorOverrides);
   applyGoalBarColorsToDom();
   syncGoalBarSwatchActive();
 }
 
+function saveGoalBarColorOverride(kind, entry) {
+  if (!["progress", "complete", "overflow"].includes(kind)) return;
+  const defaults = getGoalBarColorDefaults();
+  const normalized = normalizeGoalColorEntry(entry, defaults[kind]);
+  // 테마 기본과 같으면 override 제거 → 테마 전환 시 따라감
+  if (goalColorEntriesEqual(normalized, defaults[kind])) {
+    goalBarColorOverrides = { ...goalBarColorOverrides, [kind]: null };
+  } else {
+    goalBarColorOverrides = { ...goalBarColorOverrides, [kind]: normalized };
+  }
+  persistGoalBarColorOverrides();
+  refreshGoalBarColorsFromThemeAndOverrides();
+}
+
+function resetGoalBarColorOverrides() {
+  goalBarColorOverrides = { progress: null, complete: null, overflow: null };
+  persistGoalBarColorOverrides();
+  refreshGoalBarColorsFromThemeAndOverrides();
+}
+
+/** @deprecated 호환 — 새 코드는 saveGoalBarColorOverride / resetGoalBarColorOverrides 사용 */
+function saveGoalBarColors(colors) {
+  const defaults = getGoalBarColorDefaults();
+  const next = { ...goalBarColorOverrides };
+  if (colors && Object.prototype.hasOwnProperty.call(colors, "progress")) {
+    const entry = colors.progress
+      ? normalizeGoalColorEntry(colors.progress, defaults.progress)
+      : null;
+    next.progress = entry && !goalColorEntriesEqual(entry, defaults.progress) ? entry : null;
+  }
+  if (colors && Object.prototype.hasOwnProperty.call(colors, "complete")) {
+    const entry = colors.complete
+      ? normalizeGoalColorEntry(colors.complete, defaults.complete)
+      : null;
+    next.complete = entry && !goalColorEntriesEqual(entry, defaults.complete) ? entry : null;
+  }
+  if (colors && Object.prototype.hasOwnProperty.call(colors, "overflow")) {
+    const entry = colors.overflow
+      ? normalizeGoalColorEntry(colors.overflow, defaults.overflow)
+      : null;
+    next.overflow = entry && !goalColorEntriesEqual(entry, defaults.overflow) ? entry : null;
+  }
+  goalBarColorOverrides = next;
+  persistGoalBarColorOverrides();
+  refreshGoalBarColorsFromThemeAndOverrides();
+}
+
 function goalEntryCssBackground(entry) {
-  if (!entry) return "#f5c518";
+  const fallback = "#e6c749";
+  if (!entry) return fallback;
   if (entry.mode === "gradient") {
     return `linear-gradient(90deg, ${entry.from} 0%, ${entry.to} 100%)`;
   }
-  const hex = entry.hex || "#f5c518";
+  const hex = entry.hex || fallback;
   // Soft 3-stop shine without color-mix (broader browser support)
   return `linear-gradient(90deg, ${hex}cc 0%, ${hex} 55%, ${hex} 100%)`;
 }
 
 function goalEntryLabelColor(entry) {
-  if (!entry) return "#8a6a12";
-  if (entry.mode === "gradient") return entry.to || entry.from || "#8a6a12";
-  return entry.hex || "#8a6a12";
+  if (!entry) return "#e6c749";
+  if (entry.mode === "gradient") return entry.to || entry.from || "#e6c749";
+  return entry.hex || "#e6c749";
 }
 
 function applyGoalBarColorsToDom() {
   const fill = $("sceneGoalBarFill");
+  const overflow = $("sceneGoalBarOverflow");
   const label = $("sceneGoalProgressLabel");
   if (!fill) return;
 
@@ -1195,6 +1546,10 @@ function applyGoalBarColorsToDom() {
     fill.style.background = goalEntryCssBackground(goalBarColors.complete);
   } else {
     fill.style.background = goalEntryCssBackground(goalBarColors.progress);
+  }
+
+  if (overflow) {
+    overflow.style.background = goalEntryCssBackground(goalBarColors.overflow);
   }
 
   if (label) {
@@ -1253,12 +1608,16 @@ function ensureGoalBarSwatchesFilled() {
   const fillSolid = (hostId, kind) => {
     const host = $(hostId);
     if (!host || host.dataset.filled === "1") return;
-    host.innerHTML = GOAL_BAR_SOLID_PRESETS.map((c) => `
+    const primaryHex = resolveThemePrimaryHex();
+    host.innerHTML = GOAL_BAR_SOLID_PRESETS.map((c) => {
+      const hex = c.id === "primary" ? primaryHex : c.hex;
+      return `
       <button type="button" class="goal-bar-swatch" data-goal-preset="${c.id}"
-        data-goal-kind="${kind}" data-goal-mode="solid" data-goal-hex="${c.hex}"
+        data-goal-kind="${kind}" data-goal-mode="solid" data-goal-hex="${hex}"
         title="${c.label}" aria-label="${c.label}"
-        style="background-color:${c.hex} !important; background-image:none !important;"></button>
-    `).join("");
+        style="background-color:${hex} !important; background-image:none !important;"></button>
+    `;
+    }).join("");
     host.dataset.filled = "1";
   };
   const fillGrad = (hostId, kind) => {
@@ -1277,10 +1636,13 @@ function ensureGoalBarSwatchesFilled() {
   fillGrad("goalBarProgressGrad", "progress");
   fillSolid("goalBarCompleteSolid", "complete");
   fillGrad("goalBarCompleteGrad", "complete");
+  fillSolid("goalBarOverflowSolid", "overflow");
+  fillGrad("goalBarOverflowGrad", "overflow");
 }
 
 function setupGoalBarColorMenu() {
-  goalBarColors = loadGoalBarColors();
+  goalBarColorOverrides = loadGoalBarColorOverrides();
+  goalBarColors = resolveGoalBarColors(goalBarColorOverrides);
   ensureGoalBarSwatchesFilled();
   applyGoalBarColorsToDom();
 
@@ -1323,22 +1685,22 @@ function setupGoalBarColorMenu() {
             id: swatch.dataset.goalPreset || "",
           };
         } else {
+          const presetId = swatch.dataset.goalPreset || "";
           entry = {
             mode: "solid",
-            hex: swatch.dataset.goalHex,
-            id: swatch.dataset.goalPreset || "",
+            hex: presetId === "primary"
+              ? resolveThemePrimaryHex()
+              : (swatch.dataset.goalHex || resolveThemePrimaryHex()),
+            id: presetId,
           };
         }
-        saveGoalBarColors({ ...goalBarColors, [kind]: entry });
+        saveGoalBarColorOverride(kind, entry);
         return;
       }
       if (event.target.closest("[data-goal-color-reset]")) {
-        saveGoalBarColors({
-          progress: { ...GOAL_BAR_COLOR_DEFAULTS.progress },
-          complete: { ...GOAL_BAR_COLOR_DEFAULTS.complete },
-        });
+        resetGoalBarColorOverrides();
         hideGoalBarColorMenu();
-        toast("게이지 색을 기본값으로 돌렸습니다.");
+        toast("게이지 색을 테마 기본값으로 돌렸습니다.");
       }
     });
   }
@@ -1753,6 +2115,29 @@ function setupFindBar() {
 }
 
 /* —— AI 유사단어 찾기 (단어찾기) —— */
+const SIMILAR_WORD_MAX_SINGLE = 40;
+const SIMILAR_WORD_MAX_PHRASE = 280;
+let similarWordPanelAnchor = null;
+let similarWordSuppressOutsideClickUntil = 0;
+
+function normalizeSimilarWordQuery(raw, { allowPhrase = true } = {}) {
+  const t = String(raw || "").replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  const phrase = allowPhrase && isSimilarWordPhraseQuery(t);
+  const max = phrase ? SIMILAR_WORD_MAX_PHRASE : SIMILAR_WORD_MAX_SINGLE;
+  return t.slice(0, max);
+}
+
+/** 문장·구절(여러 어절) 여부 — 핵심 표현 선별 모드 */
+function isSimilarWordPhraseQuery(text) {
+  const t = String(text || "").replace(/\s+/g, " ").trim();
+  if (!t) return false;
+  if (/\s/.test(t)) return true;
+  if (/[.?!,…。，、;；:："'“”‘’()（）\[\]]/.test(t)) return true;
+  // 공백 없는 긴 한국어 구절
+  return t.length >= 10;
+}
+
 function getSelectedWordForSimilar() {
   const editor = getActiveRichEditor?.() || $("sceneContent") || $("focusWriteEditor");
   try {
@@ -1760,14 +2145,22 @@ function getSelectedWordForSimilar() {
     if (sel && sel.rangeCount && !sel.isCollapsed) {
       const range = sel.getRangeAt(0);
       if (editor && editor.contains(range.commonAncestorContainer)) {
-        const t = String(sel.toString() || "").replace(/\s+/g, " ").trim();
-        if (t) return t.slice(0, 80);
+        return normalizeSimilarWordQuery(sel.toString() || "");
       }
     }
   } catch (_) {
     /* ignore */
   }
   return "";
+}
+
+function ensureSimilarWordPanelOnBody() {
+  const panel = $("similarWordPanel");
+  if (!panel) return null;
+  if (panel.parentElement !== document.body) {
+    document.body.appendChild(panel);
+  }
+  return panel;
 }
 
 function closeSimilarWordPanel() {
@@ -1780,17 +2173,29 @@ function positionSimilarWordPanel() {
   const panel = $("similarWordPanel");
   if (!panel || panel.classList.contains("hidden")) return;
   const btn = $("similarWordButton");
-  // 툴바 버튼이 없으면(우클릭 전용) 기존 좌표 유지
-  if (!btn) return;
-  const rect = btn.getBoundingClientRect();
   const pad = 8;
-  const pw = panel.offsetWidth || 320;
+  const pw = panel.offsetWidth || 340;
   const ph = panel.offsetHeight || 280;
-  let left = rect.right - pw;
-  let top = rect.bottom + 6;
-  if (left < pad) left = pad;
-  if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
-  if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 6);
+  let left;
+  let top;
+  if (similarWordPanelAnchor
+    && Number.isFinite(similarWordPanelAnchor.x)
+    && Number.isFinite(similarWordPanelAnchor.y)) {
+    left = similarWordPanelAnchor.x + 4;
+    top = similarWordPanelAnchor.y + 4;
+    if (left + pw > window.innerWidth - pad) left = Math.max(pad, similarWordPanelAnchor.x - pw - 4);
+    if (top + ph > window.innerHeight - pad) top = Math.max(pad, similarWordPanelAnchor.y - ph - 4);
+  } else if (btn) {
+    const rect = btn.getBoundingClientRect();
+    left = rect.right - pw;
+    top = rect.bottom + 6;
+    if (left < pad) left = pad;
+    if (left + pw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - pw - pad);
+    if (top + ph > window.innerHeight - pad) top = Math.max(pad, rect.top - ph - 6);
+  } else {
+    left = Math.max(pad, (window.innerWidth - pw) / 2);
+    top = Math.max(pad, (window.innerHeight - ph) / 3);
+  }
   panel.style.left = `${left}px`;
   panel.style.top = `${top}px`;
 }
@@ -1799,9 +2204,11 @@ function positionSimilarWordPanel() {
  * @param {{ word?: string, autoRun?: boolean, anchorClientX?: number, anchorClientY?: number }} [options]
  */
 function openSimilarWordPanel(options = {}) {
-  const panel = $("similarWordPanel");
+  const panel = ensureSimilarWordPanelOnBody();
   const btn = $("similarWordButton");
   if (!panel) return;
+  // 우클릭으로 연 직후 document click 가 패널을 닫지 않도록
+  similarWordSuppressOutsideClickUntil = Date.now() + 400;
   if ($("formatToolbarShell")?.classList.contains("is-collapsed")
     || document.querySelector('[data-toolbar-row="format-icons"]')?.classList.contains("is-collapsed")) {
     applyMsToolbarCollapsed?.("format-icons", false, { toastMsg: false });
@@ -1810,37 +2217,36 @@ function openSimilarWordPanel(options = {}) {
   hideFormatListPalette?.();
   hideFormatSpecialPalette?.();
   hideFormatColorPalette?.();
-  const word = String(options.word || getSelectedWordForSimilar() || "").replace(/\s+/g, " ").trim().slice(0, 80);
-  if ($("similarWordInput") && word) $("similarWordInput").value = word;
+  const word = normalizeSimilarWordQuery(options.word || getSelectedWordForSimilar() || "");
+  const phrase = isSimilarWordPhraseQuery(word);
+  const input = $("similarWordInput");
+  if (input) {
+    input.value = word;
+    input.maxLength = phrase ? SIMILAR_WORD_MAX_PHRASE : SIMILAR_WORD_MAX_SINGLE;
+    input.placeholder = phrase
+      ? "문장에서 핵심 표현을 골라 찾아 줘요"
+      : "원고에서 고르거나 입력";
+  }
+  const hint = $("similarWordHint");
+  if (hint) {
+    hint.textContent = phrase
+      ? "문장·구절이면 안의 핵심 단어·표현을 골라 각각 비슷한 말을 찾아 줘요."
+      : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+  }
+  const titleEl = panel.querySelector(".similar-word-panel-head strong");
+  if (titleEl) titleEl.textContent = phrase ? "표현 찾기" : "단어찾기";
+  if (Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY)) {
+    similarWordPanelAnchor = { x: options.anchorClientX, y: options.anchorClientY };
+  } else if (btn) {
+    similarWordPanelAnchor = null;
+  }
   panel.classList.remove("hidden");
   btn?.setAttribute("aria-expanded", "true");
-  // 우클릭 메뉴에서 열 때: 커서 근처에 패널 배치
-  if (Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY)) {
-    const pad = 8;
-    const pw = panel.offsetWidth || 280;
-    const ph = panel.offsetHeight || 220;
-    let left = options.anchorClientX + 4;
-    let top = options.anchorClientY + 4;
-    if (left + pw > window.innerWidth - pad) left = Math.max(pad, options.anchorClientX - pw - 4);
-    if (top + ph > window.innerHeight - pad) top = Math.max(pad, options.anchorClientY - ph - 4);
-    panel.style.left = `${left}px`;
-    panel.style.top = `${top}px`;
-  } else if (btn) {
-    positionSimilarWordPanel();
-  } else {
-    // 버튼 없이 열릴 경우 화면 중앙 근처
-    const pad = 8;
-    const pw = panel.offsetWidth || 280;
-    const ph = panel.offsetHeight || 220;
-    panel.style.left = `${Math.max(pad, (window.innerWidth - pw) / 2)}px`;
-    panel.style.top = `${Math.max(pad, (window.innerHeight - ph) / 3)}px`;
-  }
+  positionSimilarWordPanel();
   requestAnimationFrame(() => {
-    if (!(Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY))) {
-      if (btn) positionSimilarWordPanel();
-    }
-    $("similarWordInput")?.focus();
-    if (word) $("similarWordInput")?.select();
+    positionSimilarWordPanel();
+    input?.focus();
+    if (word && !phrase) input?.select();
     if (options.autoRun && word) {
       runSimilarWordFind().catch(handleError);
     }
@@ -1854,7 +2260,7 @@ function openSimilarWordsFromSelection(anchorEvent = null) {
     toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
     return;
   }
-  const word = raw.replace(/\s+/g, " ").slice(0, 80);
+  const word = normalizeSimilarWordQuery(raw);
   openSimilarWordPanel({
     word,
     autoRun: true,
@@ -1863,7 +2269,7 @@ function openSimilarWordsFromSelection(anchorEvent = null) {
   });
 }
 
-function renderSimilarWordResult(text, word) {
+function renderSimilarWordResult(text, word, { phrase = false } = {}) {
   const host = $("similarWordResult");
   if (!host) return;
   const raw = String(text || "").trim();
@@ -1871,55 +2277,128 @@ function renderSimilarWordResult(text, word) {
     host.innerHTML = `<p class="similar-word-empty">결과를 받지 못했어요.</p>`;
     return;
   }
-  // Extract candidate words from lines / bullets for click-to-insert chips
-  const chips = [];
-  const seen = new Set();
-  const addChip = (w) => {
-    const t = String(w || "").replace(/^[-*•·\d.)\s]+/, "").replace(/["""'']+/g, "").trim();
-    if (!t || t.length > 24 || t.length < 1) return;
+
+  const addChip = (chips, seen, w) => {
+    const t = String(w || "")
+      .replace(/^[-*•·\d.)\s]+/, "")
+      .replace(/^[「『"“'‘]+|[」』"”'’]+$/g, "")
+      .replace(/^(유사어|대체|표현)\s*[:：]\s*/i, "")
+      .trim();
+    if (!t || t.length > 28 || t.length < 1) return;
     if (seen.has(t)) return;
     if (t === word) return;
     seen.add(t);
     chips.push(t);
   };
-  raw.split(/\n/).forEach((line) => {
-    const cleaned = line.replace(/^#+\s*/, "").replace(/^[-*•]\s*/, "").trim();
-    if (!cleaned || cleaned.startsWith("###") || cleaned.startsWith("뉘앙스")) return;
-    // comma / middle-dot separated lists
-    if (/[,，、·/|·]/.test(cleaned) && cleaned.length < 120) {
-      cleaned.split(/[,，、·/|]+/).forEach(addChip);
-    } else if (cleaned.length <= 24 && !cleaned.includes(" ")) {
-      addChip(cleaned);
-    } else if (cleaned.startsWith("-") || line.trim().startsWith("-")) {
-      addChip(cleaned);
-    }
-  });
-  const chipHtml = chips.length
+
+  const chipRow = (chips) => (chips.length
     ? `<div class="similar-word-chips" role="list">${chips.slice(0, 36).map((c) =>
       `<button type="button" class="similar-word-chip" role="listitem" data-insert-word="${escapeHtml(c)}">${escapeHtml(c)}</button>`
     ).join("")}</div>`
-    : "";
+    : "");
+
+  // 문장 모드: ### 선별: … 블록별 그룹
+  if (phrase) {
+    const blocks = [];
+    let cur = null;
+    raw.split(/\n/).forEach((line) => {
+      const head = line.match(/^#{1,3}\s*선별\s*[:：]?\s*(.+)\s*$/i);
+      if (head) {
+        const label = String(head[1] || "").trim();
+        if (label) {
+          cur = { label, lines: [] };
+          blocks.push(cur);
+          return;
+        }
+      }
+      if (/^#{1,3}\s*뉘앙스/.test(line.trim())) {
+        cur = { label: "뉘앙스 메모", lines: [] };
+        blocks.push(cur);
+        return;
+      }
+      if (!cur) {
+        cur = { label: "제안", lines: [] };
+        blocks.push(cur);
+      }
+      cur.lines.push(line);
+    });
+    if (blocks.length) {
+      host.innerHTML = blocks.map((block) => {
+        const seen = new Set();
+        const chips = [];
+        block.lines.forEach((line) => {
+          const cleaned = line.replace(/^#+\s*/, "").replace(/^[-*•]\s*/, "").trim();
+          if (!cleaned || /^뉘앙스/.test(cleaned)) return;
+          if (/[,，、·/|]/.test(cleaned) && cleaned.length < 160) {
+            cleaned.split(/[,，、·/|]+/).forEach((part) => addChip(chips, seen, part));
+          } else if (cleaned.length <= 28) {
+            addChip(chips, seen, cleaned);
+          }
+        });
+        const bodyText = block.lines.join("\n").trim();
+        return (
+          `<section class="similar-word-group">`
+          + `<h4 class="similar-word-group-title">${escapeHtml(block.label)}</h4>`
+          + chipRow(chips)
+          + (bodyText
+            ? `<div class="similar-word-markdown">${escapeHtml(bodyText).replace(/\n/g, "<br>")}</div>`
+            : "")
+          + `</section>`
+        );
+      }).join("");
+      return;
+    }
+  }
+
+  const chips = [];
+  const seen = new Set();
+  raw.split(/\n/).forEach((line) => {
+    const cleaned = line.replace(/^#+\s*/, "").replace(/^[-*•]\s*/, "").trim();
+    if (!cleaned || cleaned.startsWith("###") || cleaned.startsWith("뉘앙스")) return;
+    if (/[,，、·/|]/.test(cleaned) && cleaned.length < 120) {
+      cleaned.split(/[,，、·/|]+/).forEach((part) => addChip(chips, seen, part));
+    } else if (cleaned.length <= 24 && !cleaned.includes(" ")) {
+      addChip(chips, seen, cleaned);
+    } else if (cleaned.startsWith("-") || line.trim().startsWith("-")) {
+      addChip(chips, seen, cleaned);
+    }
+  });
   host.innerHTML = `
-    ${chipHtml}
+    ${chipRow(chips)}
     <div class="similar-word-markdown">${escapeHtml(raw).replace(/\n/g, "<br>")}</div>
   `;
 }
 
 async function runSimilarWordFind() {
   const input = $("similarWordInput");
-  let word = String(input?.value || "").replace(/\s+/g, " ").trim();
+  let word = normalizeSimilarWordQuery(input?.value || "");
   if (!word) word = getSelectedWordForSimilar();
   if (!word) {
-    toast("원고에서 단어를 드래그하거나 입력란에 적어 주세요.");
+    toast("원고에서 단어나 문장을 드래그하거나 입력란에 적어 주세요.");
     input?.focus();
     return;
   }
-  if (input) input.value = word;
+  const phrase = isSimilarWordPhraseQuery(word);
+  if (input) {
+    input.value = word;
+    input.maxLength = phrase ? SIMILAR_WORD_MAX_PHRASE : SIMILAR_WORD_MAX_SINGLE;
+  }
+  ensureSimilarWordPanelOnBody();
+  const panel = $("similarWordPanel");
+  panel?.classList.remove("hidden");
   const resultEl = $("similarWordResult");
   const hint = $("similarWordHint");
   const runBtn = $("similarWordRun");
-  if (resultEl) resultEl.innerHTML = `<p class="similar-word-loading">토리가 비슷한 말을 찾는 중…</p>`;
-  if (hint) hint.textContent = "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+  if (resultEl) {
+    resultEl.innerHTML = `<p class="similar-word-loading">${
+      phrase ? "토리가 문장 속 핵심 표현을 고르는 중…" : "토리가 비슷한 말을 찾는 중…"
+    }</p>`;
+  }
+  if (hint) {
+    hint.textContent = phrase
+      ? "문장·구절이면 안의 핵심 단어·표현을 골라 각각 비슷한 말을 찾아 줘요."
+      : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+  }
   if (runBtn) {
     runBtn.disabled = true;
     runBtn.textContent = "찾는 중…";
@@ -1944,6 +2423,7 @@ async function runSimilarWordFind() {
       word,
       selected_text: word,
       user_prompt: word,
+      phrase_mode: phrase,
       project_title: project?.title || state.projectTitle || "",
       purpose: state.purpose || project?.purpose || "general_novel",
       main_genre: state.mainGenre || project?.main_genre || "",
@@ -1963,10 +2443,19 @@ async function runSimilarWordFind() {
       method: "POST",
       body: JSON.stringify(body),
     });
-    renderSimilarWordResult(result?.text || "", word);
-    if (hint) hint.textContent = "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
-    toast("유사 단어를 찾았어요.");
+    // 비동기 중 닫혔어도 결과 오면 다시 연다
+    ensureSimilarWordPanelOnBody();
+    $("similarWordPanel")?.classList.remove("hidden");
+    renderSimilarWordResult(result?.text || "", word, { phrase });
+    if (hint) {
+      hint.textContent = phrase
+        ? "칩을 누르면 본문에 넣어요. 선별된 표현별로 골라 보세요."
+        : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+    }
+    toast(phrase ? "문장 속 표현의 비슷한 말을 찾았어요." : "유사 단어를 찾았어요.");
   } catch (error) {
+    ensureSimilarWordPanelOnBody();
+    $("similarWordPanel")?.classList.remove("hidden");
     if (resultEl) {
       resultEl.innerHTML = `<p class="similar-word-empty">찾지 못했어요. ${escapeHtml(error?.message || "다시 시도해 주세요.")}</p>`;
     }
@@ -1981,7 +2470,7 @@ async function runSimilarWordFind() {
 }
 
 function setupSimilarWordFind() {
-  const panel = $("similarWordPanel");
+  const panel = ensureSimilarWordPanelOnBody();
   if (!panel || panel.dataset.bound === "1") return;
   panel.dataset.bound = "1";
 
@@ -1992,8 +2481,14 @@ function setupSimilarWordFind() {
     if (panel.classList.contains("hidden")) openSimilarWordPanel();
     else closeSimilarWordPanel();
   });
-  $("similarWordClose")?.addEventListener("click", () => closeSimilarWordPanel());
-  $("similarWordRun")?.addEventListener("click", () => {
+  $("similarWordClose")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeSimilarWordPanel();
+  });
+  $("similarWordRun")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
     runSimilarWordFind().catch(handleError);
   });
   $("similarWordInput")?.addEventListener("keydown", (event) => {
@@ -2008,6 +2503,8 @@ function setupSimilarWordFind() {
   $("similarWordResult")?.addEventListener("click", (event) => {
     const chip = event.target.closest("[data-insert-word]");
     if (!chip) return;
+    event.preventDefault();
+    event.stopPropagation();
     const word = chip.dataset.insertWord;
     if (!word) return;
     const editor = getActiveRichEditor?.() || $("sceneContent");
@@ -2024,7 +2521,10 @@ function setupSimilarWordFind() {
     toast(`「${word}」을(를) 넣었어요.`);
   });
   document.addEventListener("click", (event) => {
-    if (event.target.closest("#similarWordPanel, #similarWordButton")) return;
+    if (Date.now() < similarWordSuppressOutsideClickUntil) return;
+    if (event.target.closest("#similarWordPanel, #similarWordButton, #similarWordsMenuItem, #desktopContextMenu")) {
+      return;
+    }
     closeSimilarWordPanel();
   });
   document.addEventListener("keydown", (event) => {
@@ -2066,7 +2566,7 @@ function getTypewriterEditor() {
   }
   const active = document.activeElement;
   if (active) {
-    const host = active.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, .rich-editor");
+    const host = active.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, .rich-editor");
     if (host?.isContentEditable || host?.getAttribute?.("contenteditable") === "true") return host;
     if (active.isContentEditable) return active;
   }
@@ -2223,6 +2723,12 @@ function applyTypewriterModeUi(on) {
       ? "타자기 모드 켜짐 · 다시 누르면 끔"
       : "타자기 모드 · 입력 줄을 화면 중앙에 고정";
   }
+  const badge = $("typewriterModeOnBadge");
+  if (badge) {
+    badge.textContent = "on";
+    badge.classList.toggle("hidden", !typewriterModeOn);
+    badge.setAttribute("aria-hidden", typewriterModeOn ? "false" : "true");
+  }
   $("manuscriptPage")?.classList.toggle("is-typewriter-mode", typewriterModeOn);
   if (!typewriterModeOn) {
     hideTypewriterHighlight();
@@ -2259,7 +2765,7 @@ function setupTypewriterMode() {
   const onEditorActivity = (event) => {
     if (!typewriterModeOn) return;
     const target = event.target;
-    if (!target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, .rich-editor, .manuscript-page")) {
+    if (!target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, .rich-editor, .manuscript-page")) {
       return;
     }
     const isEnter = event.type === "keydown" && event.key === "Enter";
@@ -2665,7 +3171,9 @@ function setupFormatApplyAllMenu() {
     else if (kind === "jangpyeong") applyJangpyeongToEntireDocument(value, editor);
     toast("전체 문서에 적용했습니다.");
     if (editor.id === "sceneContent" && state.sceneId) markSceneDirty();
-    else if (editor.id === "synopsisContent") markSynopsisDirty?.();
+    else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
+      markSettingsDocEditorDirty?.(editor);
+    }
   });
   document.addEventListener("click", (event) => {
     if (event.target.closest("#formatApplyAllMenu")) return;
@@ -2692,15 +3200,96 @@ function getBlockElementForParagraph(node, editor) {
   let el = node?.nodeType === 3 ? node.parentElement : node;
   const blockRe = /^(P|DIV|H1|H2|H3|H4|H5|H6|BLOCKQUOTE|LI|PRE)$/i;
   while (el && el !== editor) {
+    if (el.nodeType === 1 && el.classList?.contains("ms-dan")) {
+      el = el.parentElement;
+      continue;
+    }
     if (el.nodeType === 1 && blockRe.test(el.tagName) && el.parentElement) {
-      // Prefer block that is a direct child of editor when possible.
-      if (el.parentElement === editor || blockRe.test(el.parentElement.tagName) === false) {
+      // Prefer block that is a direct child of editor (or of a 단 wrapper) when possible.
+      if (
+        el.parentElement === editor
+        || el.parentElement.classList?.contains("ms-dan")
+        || blockRe.test(el.parentElement.tagName) === false
+      ) {
         return el;
       }
     }
     el = el.parentElement;
   }
   return null;
+}
+
+function findDanWrapper(node, editor) {
+  let el = node?.nodeType === 3 ? node.parentElement : node;
+  while (el && el !== editor) {
+    if (el.nodeType === 1 && el.classList?.contains("ms-dan")) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+function isSelectionInDanColumns(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  const selection = window.getSelection();
+  if (!editor || !selection?.rangeCount) return false;
+  const node = selection.getRangeAt(0).commonAncestorContainer;
+  if (!editor.contains(node)) return false;
+  return Boolean(findDanWrapper(node, editor));
+}
+
+function unwrapDanColumns(wrapper) {
+  const parent = wrapper?.parentNode;
+  if (!parent) return;
+  while (wrapper.firstChild) parent.insertBefore(wrapper.firstChild, wrapper);
+  parent.removeChild(wrapper);
+}
+
+/** Toggle 2-column (단) layout around the current block / selection. */
+function applyDanColumns(editorEl = null) {
+  const editor = editorEl || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  focusEditor(editor);
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return;
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.commonAncestorContainer)) return;
+
+  const existing = findDanWrapper(range.commonAncestorContainer, editor);
+  if (existing) {
+    unwrapDanColumns(existing);
+  } else {
+    const startBlock = getBlockElementForParagraph(range.startContainer, editor);
+    const endBlock = getBlockElementForParagraph(range.endContainer, editor) || startBlock;
+    if (!startBlock || !editor.contains(startBlock)) return;
+    const nodes = [];
+    let cur = startBlock;
+    while (cur && editor.contains(cur)) {
+      if (cur.classList?.contains("ms-dan")) break;
+      nodes.push(cur);
+      if (cur === endBlock) break;
+      cur = cur.nextElementSibling;
+    }
+    if (!nodes.length || !nodes[0].parentNode) return;
+    const wrap = document.createElement("div");
+    wrap.className = "ms-dan";
+    nodes[0].parentNode.insertBefore(wrap, nodes[0]);
+    nodes.forEach((n) => wrap.appendChild(n));
+    try {
+      const next = document.createRange();
+      next.selectNodeContents(wrap);
+      next.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(next);
+    } catch (_) { /* ignore */ }
+  }
+
+  updateEditorPlaceholder(editor);
+  updateFormatButtonState();
+  try {
+    editor.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) { /* ignore */ }
+  if (editor.id === "sceneContent" && state.sceneId) markSceneDirty?.();
+  else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") markSettingsDocEditorDirty?.(editor);
 }
 
 function detectParagraphStyle(editor) {
@@ -2942,9 +3531,17 @@ const FORMAT_PRESET_COLORS = [
   { key: "green", hex: "#27ae60", label: "초록" },
   { key: "gray", hex: "#7f8c8d", label: "회색" },
 ];
+/** 형광펜 전용 — 네온/형광 느낌 프리셋 */
+const FORMAT_HIGHLIGHT_PRESET_COLORS = [
+  { key: "neon-pink", hex: "#FF9AF5", label: "네온 핑크" },
+  { key: "neon-yellow", hex: "#F5FF3D", label: "네온 노랑" },
+  { key: "neon-green", hex: "#A8FF7A", label: "네온 초록" },
+  { key: "neon-cyan", hex: "#3DFFF5", label: "네온 시안" },
+  { key: "neon-orange", hex: "#FFC45C", label: "네온 주황" },
+];
 const FORMAT_COLOR_DEFAULTS = {
   text: "#e74c3c",
-  highlight: "#f1c40f",
+  highlight: "#F5FF3D",
   shade: "#efe4d4",
 };
 const formatColorState = {
@@ -2963,6 +3560,226 @@ function applyTextColor(color) {
   applyEditorCommand("foreColor", color);
 }
 
+/** 형광/음영 배경에 맞는 글자색 (밝은 배경 → 어두운 글자) */
+function contrastInkForHighlightBg(hex) {
+  return isColorDark(hex) ? "#fffdf8" : "#1a1510";
+}
+
+function getPageInkHexForEditor() {
+  try {
+    const fromBody = cssColorToHex(
+      getComputedStyle(document.body).getPropertyValue("--page-ink").trim()
+      || document.body.style.getPropertyValue("--page-ink"),
+    );
+    if (fromBody) return fromBody;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const fromRoot = cssColorToHex(
+      getComputedStyle(document.documentElement).getPropertyValue("--page-ink").trim(),
+    );
+    if (fromRoot) return fromRoot;
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    if (editor) {
+      const computed = cssColorToHex(getComputedStyle(editor).color);
+      // editor may still have leftover contrast ink — prefer theme default when page theme known
+      const pageTheme = document.body?.dataset?.pageTheme || "";
+      if (pageTheme === "chalkboard" || pageTheme === "night") {
+        return themeDefaultInk(pageTheme) || "#ffffff";
+      }
+      if (computed) return computed;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return themeDefaultInk() || "#24211d";
+}
+
+function sameCssHex(a, b) {
+  const x = cssColorToHex(a);
+  const y = cssColorToHex(b);
+  if (x && y) return x.toUpperCase() === y.toUpperCase();
+  return normalizeCssColor(a) === normalizeCssColor(b);
+}
+
+function isHighlightContrastInkHex(hex) {
+  if (!hex) return false;
+  return sameCssHex(hex, "#1a1510") || sameCssHex(hex, "#fffdf8");
+}
+
+function selectionForegroundHex() {
+  try {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount) {
+      let node = selection.anchorNode;
+      if (node && node.nodeType === 3) node = node.parentElement;
+      if (node && node.nodeType === 1) {
+        const computed = cssColorToHex(getComputedStyle(node).color);
+        if (computed) return computed;
+      }
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    return cssColorToHex(document.queryCommandValue("foreColor")) || "";
+  } catch (_) {
+    return "";
+  }
+}
+
+function tagHighlightContrastInkElement(el, prevHex) {
+  if (!el || el.nodeType !== 1) return;
+  if (el.classList?.contains("sg-text-shade-box")) return;
+  el.dataset.sgHlInk = "1";
+  if (prevHex && !el.dataset.sgHlInkPrev) {
+    el.dataset.sgHlInkPrev = prevHex;
+  }
+}
+
+function tagHighlightContrastInkInSelection(prevHex, inkHex) {
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (range.collapsed || !editor.contains(range.commonAncestorContainer)) return;
+    const root = range.commonAncestorContainer.nodeType === 1
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+    root?.querySelectorAll?.("[style*='color'], font[color]").forEach((el) => {
+      if (range.intersectsNode && !range.intersectsNode(el)) return;
+      const raw = el.style?.color || el.getAttribute?.("color") || "";
+      const hex = cssColorToHex(raw);
+      if (hex && sameCssHex(hex, inkHex)) {
+        tagHighlightContrastInkElement(el, prevHex);
+      }
+    });
+    let node = selection.anchorNode;
+    if (node && node.nodeType === 3) node = node.parentElement;
+    while (node && node !== editor) {
+      if (node.nodeType === 1) {
+        const raw = node.style?.color || node.getAttribute?.("color") || "";
+        const hex = cssColorToHex(raw);
+        if (hex && sameCssHex(hex, inkHex)) {
+          tagHighlightContrastInkElement(node, prevHex);
+        }
+      }
+      node = node.parentElement;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** 형광 끄면 대비용으로 바꿨던 글자색을 원래(또는 페이지 기본)로 복원 */
+function restoreHighlightContrastInkInSelection() {
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (!editor.contains(range.commonAncestorContainer)) return;
+    const pageInk = getPageInkHexForEditor();
+    const restoreEl = (el) => {
+      if (!el?.dataset?.sgHlInk) return;
+      const prev = el.dataset.sgHlInkPrev || "";
+      if (prev) {
+        el.style.color = prev;
+        if (el.hasAttribute?.("color")) el.setAttribute("color", prev);
+      } else {
+        el.style.color = "";
+        el.style.removeProperty?.("color");
+        if (el.hasAttribute?.("color")) el.removeAttribute("color");
+      }
+      delete el.dataset.sgHlInk;
+      delete el.dataset.sgHlInkPrev;
+    };
+    const root = range.commonAncestorContainer.nodeType === 1
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+    root?.querySelectorAll?.("[data-sg-hl-ink]").forEach((el) => {
+      if (range.intersectsNode && !range.intersectsNode(el)) return;
+      restoreEl(el);
+    });
+    let anc = range.commonAncestorContainer;
+    if (anc.nodeType === 3) anc = anc.parentElement;
+    while (anc && anc !== editor) {
+      if (anc.dataset?.sgHlInk) restoreEl(anc);
+      anc = anc.parentElement;
+    }
+    // 태그 없는 경우(이전 칠하기): 대비용 잉크(#1a1510/#fffdf8)면 페이지 기본으로
+    const fg = selectionForegroundHex();
+    if (fg && isHighlightContrastInkHex(fg) && !sameCssHex(fg, pageInk)) {
+      document.execCommand("styleWithCSS", false, "true");
+      document.execCommand("foreColor", false, pageInk);
+      root?.querySelectorAll?.("[style*='color'], font[color]").forEach((el) => {
+        if (el.classList?.contains("sg-text-shade-box")) return;
+        if (range.intersectsNode && !range.intersectsNode(el)) return;
+        const raw = el.style?.color || el.getAttribute?.("color") || "";
+        const hex = cssColorToHex(raw);
+        if (hex && isHighlightContrastInkHex(hex)) {
+          el.style.color = pageInk;
+          if (el.hasAttribute?.("color")) el.setAttribute("color", pageInk);
+          delete el.dataset.sgHlInk;
+          delete el.dataset.sgHlInkPrev;
+        }
+      });
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** 형광 배경과 글자색 대비가 부족하면(밝은 글자+밝은 형광 등) 글자색을 맞춤 */
+function ensureHighlightTextContrast(highlightColor) {
+  const bg = cssColorToHex(highlightColor) || String(highlightColor || "");
+  if (!bg) return;
+  const ink = contrastInkForHighlightBg(bg);
+  const fg = selectionForegroundHex();
+  const pageInk = getPageInkHexForEditor();
+  const needsFlip = !fg || (isColorDark(fg) === isColorDark(bg));
+  if (needsFlip) {
+    const prev = (fg && !isHighlightContrastInkHex(fg) ? fg : "") || pageInk || "";
+    document.execCommand("styleWithCSS", false, "true");
+    document.execCommand("foreColor", false, ink);
+    tagHighlightContrastInkInSelection(prev, ink);
+  }
+  // 선택 안 밝은/어두운 인라인 색이 형광에 묻히는 경우도 정리
+  try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (!editor || !selection || !selection.rangeCount) return;
+    const range = selection.getRangeAt(0);
+    if (range.collapsed || !editor.contains(range.commonAncestorContainer)) return;
+    const root = range.commonAncestorContainer.nodeType === 1
+      ? range.commonAncestorContainer
+      : range.commonAncestorContainer.parentElement;
+    root?.querySelectorAll?.("[style*='color'], font[color]").forEach((el) => {
+      if (el.classList?.contains("sg-text-shade-box")) return;
+      if (range.intersectsNode && !range.intersectsNode(el)) return;
+      const raw = el.style?.color || el.getAttribute?.("color") || "";
+      const hex = cssColorToHex(raw) || cssColorToHex(getComputedStyle(el).color);
+      if (!hex) return;
+      if (isColorDark(hex) === isColorDark(bg)) {
+        if (!el.dataset.sgHlInkPrev) {
+          el.dataset.sgHlInkPrev = (hex && !isHighlightContrastInkHex(hex) ? hex : "") || pageInk || "";
+        }
+        el.style.color = ink;
+        if (el.hasAttribute?.("color")) el.setAttribute("color", ink);
+        tagHighlightContrastInkElement(el, el.dataset.sgHlInkPrev);
+      }
+    });
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function applyHighlight(color) {
   if (!color) return;
   document.execCommand("styleWithCSS", false, "true");
@@ -2970,6 +3787,7 @@ function applyHighlight(color) {
   if (!document.execCommand("hiliteColor", false, color)) {
     document.execCommand("backColor", false, color);
   }
+  ensureHighlightTextContrast(color);
   updateEditorPlaceholder();
   updateFormatButtonState();
 }
@@ -2977,7 +3795,7 @@ function applyHighlight(color) {
 /** 텍스트 음영상자: 선택 구간에 패딩·모서리·그림자가 있는 배경 상자 (+ 대비 글자색) */
 function contrastInkForShadeBg(hex) {
   // 어두운 상자 → 밝은 글자, 밝은 상자 → 어두운 글자
-  return isColorDark(hex) ? "#fffdf8" : "#1a1510";
+  return contrastInkForHighlightBg(hex);
 }
 
 function applyShadeBox(color) {
@@ -3124,18 +3942,35 @@ function clearHighlight() {
         const root = range.commonAncestorContainer.nodeType === 1
           ? range.commonAncestorContainer
           : range.commonAncestorContainer.parentElement;
-        root?.querySelectorAll?.("[style*='background']").forEach((el) => {
+        root?.querySelectorAll?.("[style*='background'], mark").forEach((el) => {
           if (el.classList?.contains("sg-text-shade-box")) return;
-          if (!range.intersectsNode || range.intersectsNode(el)) {
-            el.style.backgroundColor = "";
-            el.style.background = "";
+          if (range.intersectsNode && !range.intersectsNode(el)) return;
+          el.style.backgroundColor = "";
+          el.style.background = "";
+          if (el.tagName === "MARK") {
+            el.style.backgroundColor = "transparent";
           }
         });
+        // 조상 span에만 형광이 있는 경우(선택이 span 안쪽 텍스트만인 경우)
+        let anc = range.commonAncestorContainer;
+        if (anc.nodeType === 3) anc = anc.parentElement;
+        while (anc && anc !== editor) {
+          if (anc.nodeType === 1
+            && !anc.classList?.contains("sg-text-shade-box")
+            && (anc.style?.backgroundColor || anc.style?.background)) {
+            anc.style.backgroundColor = "";
+            anc.style.background = "";
+            break;
+          }
+          anc = anc.parentElement;
+        }
       }
     }
   } catch (_) {
     /* ignore */
   }
+  // 대비용으로 바꿨던 글자색 복원 (칠판 흰 글씨 등)
+  restoreHighlightContrastInkInSelection();
   updateEditorPlaceholder();
   updateFormatButtonState();
 }
@@ -3156,8 +3991,23 @@ function normalizeCssColor(value) {
   }
 }
 
+function isIgnorableHighlightBg(bg, pageBgNorm = "") {
+  const n = String(bg || "").replace(/\s+/g, "").toLowerCase();
+  if (!n) return true;
+  if (n === "transparent" || n === "rgba(0,0,0,0)") return true;
+  if (n === "initial" || n === "inherit" || n === "unset") return true;
+  if (n === "rgb(255,255,255)" || n === "#ffffff" || n === "white") return true;
+  if (n === "rgb(255,253,248)") return true; // ivory page
+  if (pageBgNorm && normalizeCssColor(bg) === pageBgNorm) return true;
+  return false;
+}
+
 function selectionHasHighlight() {
   try {
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const pageBgNorm = editor
+      ? normalizeCssColor(getComputedStyle(editor).backgroundColor)
+      : "";
     const values = [
       document.queryCommandValue("hiliteColor"),
       document.queryCommandValue("backColor"),
@@ -3165,31 +4015,40 @@ function selectionHasHighlight() {
     for (const raw of values) {
       const v = String(raw || "").trim().toLowerCase();
       if (!v) continue;
-      if (v === "transparent" || v === "rgba(0, 0, 0, 0)" || v === "rgba(0,0,0,0)") continue;
-      if (v === "initial" || v === "inherit" || v === "unset") continue;
-      // Page/editor white background is not a highlighter mark.
-      if (v === "rgb(255, 255, 255)" || v === "rgb(255,255,255)" || v === "#ffffff" || v === "white") continue;
-      if (v === "rgb(255, 253, 248)" || v === "rgb(255,253,248)") continue; // ivory page
+      if (isIgnorableHighlightBg(v, pageBgNorm)) continue;
       return true;
     }
-    // Fallback: look at computed style of selection anchor.
+    // Fallback: selection 안/조상의 형광 배경 (음영상자는 제외).
     const selection = window.getSelection();
     if (selection && selection.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (editor && !editor.contains(range.commonAncestorContainer)) return false;
       let node = selection.anchorNode;
       if (node && node.nodeType === 3) node = node.parentElement;
-      while (node && node !== document.body) {
+      while (node && node !== editor && node !== document.body) {
         if (node.nodeType === 1) {
-          const bg = getComputedStyle(node).backgroundColor;
-          const n = String(bg || "").replace(/\s+/g, "").toLowerCase();
-          if (n && n !== "transparent" && n !== "rgba(0,0,0,0)"
-            && n !== "rgb(255,255,255)" && n !== "rgb(255,253,248)") {
-            // Ignore if same as editor page background.
-            const editor = getActiveRichEditor() || $("sceneContent");
-            const pageBg = editor ? getComputedStyle(editor).backgroundColor : "";
-            if (normalizeCssColor(bg) !== normalizeCssColor(pageBg)) return true;
+          if (node.classList?.contains("sg-text-shade-box")) {
+            node = node.parentElement;
+            continue;
           }
+          // 인라인 배경만 형광으로 취급 (조상 computed는 테마/박스 오탐 방지)
+          const inlineBg = node.style?.backgroundColor || node.style?.background || "";
+          if (inlineBg && !isIgnorableHighlightBg(inlineBg, pageBgNorm)) return true;
+          if (node.tagName === "MARK") return true;
         }
         node = node.parentElement;
+      }
+      if (!range.collapsed) {
+        const root = range.commonAncestorContainer.nodeType === 1
+          ? range.commonAncestorContainer
+          : range.commonAncestorContainer.parentElement;
+        const hits = root?.querySelectorAll?.("[style*='background']") || [];
+        for (const el of hits) {
+          if (el.classList?.contains("sg-text-shade-box")) continue;
+          if (range.intersectsNode && !range.intersectsNode(el)) continue;
+          const inlineBg = el.style?.backgroundColor || el.style?.background || "";
+          if (inlineBg && !isIgnorableHighlightBg(inlineBg, pageBgNorm)) return true;
+        }
       }
     }
   } catch (_) {
@@ -3200,58 +4059,106 @@ function selectionHasHighlight() {
 
 function selectionHasTextColor() {
   try {
-    const raw = document.queryCommandValue("foreColor");
-    if (!raw) return false;
-    const ink = (typeof themeDefaultInk === "function" ? themeDefaultInk() : "")
-      || getComputedStyle(document.body).getPropertyValue("--page-ink").trim()
+    const pageInk = (typeof getPageInkHexForEditor === "function" && getPageInkHexForEditor())
+      || (typeof themeDefaultInk === "function" ? themeDefaultInk() : "")
       || "#24211d";
-    const a = normalizeCssColor(raw);
-    const b = normalizeCssColor(ink);
-    if (!a) return false;
-    // Black-ish defaults often reported as rgb(0,0,0) — treat close to ink as none.
-    if (a === b) return false;
-    if ((a === "rgb(0,0,0)" || a === "rgb(36,33,29)") && (b.includes("36,33,29") || b.includes("0,0,0") || b.includes("31,31,31"))) {
+    const raw = document.queryCommandValue("foreColor");
+    const fromCmd = cssColorToHex(raw) || "";
+    const fromSel = selectionForegroundHex();
+    const fg = fromSel || fromCmd;
+    if (!fg) return false;
+    if (sameCssHex(fg, pageInk)) return false;
+    // Black-ish defaults often reported as rgb(0,0,0) — treat close to dark page ink as none.
+    if (
+      (sameCssHex(fg, "#000000") || sameCssHex(fg, "#24211d") || sameCssHex(fg, "#1f1f1f"))
+      && (sameCssHex(pageInk, "#000000") || sameCssHex(pageInk, "#24211d") || sameCssHex(pageInk, "#1f1f1f") || isColorDark(pageInk))
+    ) {
       return false;
     }
-    return true;
+    // Explicit inline color in selection (not just inherited page ink)
+    const editor = getActiveRichEditor() || $("sceneContent");
+    const selection = window.getSelection();
+    if (editor && selection?.rangeCount) {
+      const range = selection.getRangeAt(0);
+      if (!range.collapsed && editor.contains(range.commonAncestorContainer)) {
+        let node = selection.anchorNode;
+        if (node && node.nodeType === 3) node = node.parentElement;
+        while (node && node !== editor) {
+          if (node.nodeType === 1) {
+            const inline = node.style?.color || node.getAttribute?.("color") || "";
+            if (inline && cssColorToHex(inline) && !sameCssHex(inline, pageInk)) return true;
+          }
+          node = node.parentElement;
+        }
+      }
+    }
+    return !sameCssHex(fg, pageInk);
   } catch (_) {
     return false;
   }
 }
 
 function clearTextColor() {
-  // Reset selection to page default ink (removes "custom" text color).
-  let ink = getComputedStyle(document.body).getPropertyValue("--page-ink").trim();
-  if (!ink && typeof themeDefaultInk === "function") ink = themeDefaultInk();
-  if (!ink) ink = "#24211d";
+  // 선택 구간의 글자색을 지우고 페이지 기본 잉크(칠판=흰색 등)로 되돌림.
+  const pageInk = (typeof getPageInkHexForEditor === "function" && getPageInkHexForEditor())
+    || (typeof themeDefaultInk === "function" ? themeDefaultInk() : "")
+    || "#24211d";
+  const editor = getActiveRichEditor() || $("sceneContent");
   document.execCommand("styleWithCSS", false, "true");
-  document.execCommand("foreColor", false, ink);
-  // Strip explicit color from nested spans in the selection when possible.
   try {
     const selection = window.getSelection();
-    const editor = getActiveRichEditor() || $("sceneContent");
     if (editor && selection && selection.rangeCount) {
       const range = selection.getRangeAt(0);
       if (!range.collapsed && editor.contains(range.commonAncestorContainer)) {
+        const stripColor = (el) => {
+          if (!el || el.nodeType !== 1) return;
+          if (el.classList?.contains("sg-text-shade-box")) return;
+          try {
+            el.style.removeProperty("color");
+            el.style.color = "";
+            if (el.hasAttribute("color")) el.removeAttribute("color");
+            if (el.getAttribute("style") === "") el.removeAttribute("style");
+            delete el.dataset?.sgHlInk;
+            delete el.dataset?.sgHlInkPrev;
+          } catch (_) {
+            /* ignore */
+          }
+        };
         const root = range.commonAncestorContainer.nodeType === 1
           ? range.commonAncestorContainer
           : range.commonAncestorContainer.parentElement;
-        root?.querySelectorAll?.("[style*='color']").forEach((el) => {
+        root?.querySelectorAll?.("font[color], [style*='color'], [style*='Color']").forEach((el) => {
           try {
-            if (!range.intersectsNode || range.intersectsNode(el)) {
-              el.style.color = "";
-            }
+            if (range.intersectsNode && !range.intersectsNode(el)) return;
+            stripColor(el);
           } catch (_) {
             /* ignore */
           }
         });
+        let anc = range.commonAncestorContainer;
+        if (anc.nodeType === 3) anc = anc.parentElement;
+        while (anc && anc !== editor) {
+          if (anc.style?.color || anc.getAttribute?.("color")) stripColor(anc);
+          anc = anc.parentElement;
+        }
       }
     }
   } catch (_) {
     /* ignore */
   }
+  // 상속만으로 부족한 경우(브라우저/인라인 잔여) → 페이지 기본 잉크로 확정
+  try {
+    document.execCommand("foreColor", false, pageInk);
+  } catch (_) {
+    /* ignore */
+  }
   updateEditorPlaceholder();
   updateFormatButtonState();
+  try {
+    editor?.dispatchEvent(new Event("input", { bubbles: true }));
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 function setFormatColorState(kind, color) {
@@ -3280,8 +4187,7 @@ function setFormatColorState(kind, color) {
 
 /**
  * Apply color/highlight/shade to selection.
- * 글자색·형광펜: 좌클릭은 항상 칠하기 (forceApply).
- * 음영상자: 드래그 후 클릭 = 상자 채우기, 다시 클릭 = 상자 없애기 (토글).
+ * 글자색·형광펜·음영상자: 드래그 후 클릭 = 칠하기, 다시 클릭 = 지우기 (토글).
  * 팔레트에서 고른 색은 forceApply로 항상 적용.
  */
 function applyFormatColorToSelection(kind, color, editorEl = null, options = {}) {
@@ -3300,7 +4206,8 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   try { restoreSelection(range); } catch (_) { /* ignore */ }
 
   const forceApply = options.forceApply === true;
-  const allowToggle = options.toggle === true || (kind === "shade" && options.toggle !== false && !forceApply);
+  const allowToggle = options.toggle === true
+    || ((kind === "shade" || kind === "highlight" || kind === "text") && options.toggle !== false && !forceApply);
   const next = color || formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
 
   if (kind === "highlight") {
@@ -3308,6 +4215,11 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
       clearHighlight();
       formatPaletteRange = currentEditorRange(editor) || formatPaletteRange;
       rememberLastEditorSelection(editor);
+      try {
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      } catch (_) {
+        /* ignore */
+      }
       return;
     }
     setFormatColorState("highlight", next);
@@ -3346,6 +4258,22 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   }
 }
 
+function syncFormatPaletteSwatches(kind) {
+  const palette = $("formatColorPalette");
+  if (!palette) return;
+  const presets = kind === "highlight" ? FORMAT_HIGHLIGHT_PRESET_COLORS : FORMAT_PRESET_COLORS;
+  palette.classList.toggle("is-highlight-palette", kind === "highlight");
+  const buttons = [...palette.querySelectorAll(".format-swatch")];
+  presets.forEach((preset, index) => {
+    const btn = buttons[index];
+    if (!btn) return;
+    btn.dataset.swatch = preset.hex;
+    btn.title = preset.label;
+    btn.setAttribute("aria-label", preset.label);
+    btn.style.setProperty("--sw", preset.hex);
+  });
+}
+
 function hideFormatColorPalette() {
   $("formatColorPalette")?.classList.add("hidden");
   formatPaletteKind = null;
@@ -3381,6 +4309,7 @@ function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
         : "기본 색";
     clearBtn.hidden = false;
   }
+  syncFormatPaletteSwatches(kind);
   const current = formatColorState[kind] || FORMAT_COLOR_DEFAULTS[kind];
   if ($("formatColorCustomPicker")) $("formatColorCustomPicker").value = current;
   palette.querySelectorAll(".format-swatch").forEach((btn) => {
@@ -3512,6 +4441,10 @@ function updateFormatButtonState(toolbarEl = null) {
     root.querySelectorAll('[data-format="list"]').forEach((button) => {
       button.classList.toggle("active", inList);
     });
+    const inDan = isSelectionInDanColumns();
+    root.querySelectorAll('[data-format="dan"]').forEach((button) => {
+      button.classList.toggle("active", inDan);
+    });
   } catch (_) {
     /* ignore when selection is outside */
   }
@@ -3522,8 +4455,9 @@ function updateFormatButtonState(toolbarEl = null) {
     : [$("formatToolbar"), $("synopsisFormatToolbar")].filter(Boolean);
   for (const toolbar of toolbars) {
     if (!toolbar) continue;
-    const editorId = toolbar.id === "synopsisFormatToolbar" ? "synopsisContent" : "sceneContent";
-    const editor = $(editorId) || getActiveRichEditor() || $("sceneContent");
+    const editor = (toolbar.id === "synopsisFormatToolbar"
+      ? (getActiveRichEditor() || $("synopsisContent"))
+      : ($("sceneContent") || getActiveRichEditor())) || $("sceneContent");
     if (editor) syncFormatFontSizeSelects(toolbar, editor);
   }
 }
@@ -3903,7 +4837,7 @@ function insertSpecialChar(char, editorEl = null) {
     /* ignore */
   }
   if (editor.id === "sceneContent" && state.sceneId) markSceneDirty?.();
-  else if (editor.id === "synopsisContent") markSynopsisDirty?.();
+  else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") markSettingsDocEditorDirty?.(editor);
 }
 
 function setupFormatSpecialPalette() {
@@ -4023,8 +4957,8 @@ const FONT_OPTIONS = [
 ];
 
 /** Editor CSS defaults (must match .rich-editor in styles.css). */
-const EDITOR_DEFAULT_FONT = '"Nanum Gothic", "Malgun Gothic", sans-serif';
-const EDITOR_DEFAULT_FONT_LABEL = "나눔고딕";
+const EDITOR_DEFAULT_FONT = "Batang, 'Apple Myungjo', serif";
+const EDITOR_DEFAULT_FONT_LABEL = "바탕";
 const EDITOR_DEFAULT_SIZE = "17px";
 
 function populateFormatFontSelects() {
@@ -4040,20 +4974,20 @@ function populateFormatFontSelects() {
         opt.textContent = font.label;
         // Preview the face when the OS has it installed.
         opt.style.fontFamily = font.value;
-        // Prefer 나눔고딕 as the visible default (matches .rich-editor).
-        if (font.label === EDITOR_DEFAULT_FONT_LABEL || /nanum gothic/i.test(font.value)) {
+        // Prefer 바탕 as the visible default (matches .rich-editor).
+        if (font.label === EDITOR_DEFAULT_FONT_LABEL || /^Batang\b/i.test(font.value)) {
           opt.selected = true;
         }
         og.appendChild(opt);
       }
       select.appendChild(og);
     }
-    // Ensure 나눔고딕 (or first face) is selected if nothing matched.
+    // Ensure 바탕 (or first face) is selected if nothing matched.
     if (!select.value && select.options.length) {
-      const nanum = [...select.options].find(
-        (o) => /nanum gothic/i.test(o.value) || o.textContent === EDITOR_DEFAULT_FONT_LABEL
+      const batang = [...select.options].find(
+        (o) => /^Batang\b/i.test(o.value) || o.textContent === EDITOR_DEFAULT_FONT_LABEL
       );
-      if (nanum) select.value = nanum.value;
+      if (batang) select.value = batang.value;
       else select.selectedIndex = 0;
     }
     select.dataset.fontsFilled = "1";
@@ -4178,15 +5112,23 @@ function syncFormatFontSizeSelects(toolbar, editor) {
   syncParagraphStyleSelect(toolbar, editor);
 }
 
-function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
-  if (!editor || !toolbar) return;
+function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolveEditor = null }) {
+  if (!editor) return;
+
+  const getEd = () => {
+    if (typeof resolveEditor === "function") {
+      const resolved = resolveEditor();
+      if (resolved) return resolved;
+    }
+    return editor;
+  };
 
   let savedRange = null;
-  const fontSelect = toolbar.querySelector("#formatFont, [data-role='format-font']");
-  const sizeSelect = toolbar.querySelector("#formatSize, [data-role='format-size']");
-  const lineHeightSelect = toolbar.querySelector("#formatLineHeight, [data-role='format-line-height']");
-  const paragraphSelect = toolbar.querySelector("#formatParagraphStyle, [data-role='format-paragraph']");
-  const jangpyeongSelect = toolbar.querySelector("#formatJangpyeong, [data-role='format-jangpyeong']");
+  const fontSelect = toolbar?.querySelector("#formatFont, [data-role='format-font']");
+  const sizeSelect = toolbar?.querySelector("#formatSize, [data-role='format-size']");
+  const lineHeightSelect = toolbar?.querySelector("#formatLineHeight, [data-role='format-line-height']");
+  const paragraphSelect = toolbar?.querySelector("#formatParagraphStyle, [data-role='format-paragraph']");
+  const jangpyeongSelect = toolbar?.querySelector("#formatJangpyeong, [data-role='format-jangpyeong']");
 
   // Restore remembered editor-wide line spacing.
   const storedLh = getStoredLineHeight();
@@ -4203,37 +5145,39 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
 
   const rememberSelection = () => {
     // Prefer live selection; fall back to last non-empty drag selection.
-    const live = currentEditorRange(editor);
+    const ed = getEd();
+    const live = currentEditorRange(ed);
     if (live && !live.collapsed) {
       savedRange = live.cloneRange();
-    } else if (lastEditorSelection.editor === editor && lastEditorSelection.range && !lastEditorSelection.range.collapsed) {
+    } else if (lastEditorSelection.editor === ed && lastEditorSelection.range && !lastEditorSelection.range.collapsed) {
       savedRange = lastEditorSelection.range;
     } else {
       savedRange = live;
     }
     if (savedRange && !savedRange.collapsed) {
       formatPaletteRange = savedRange;
-      formatPaletteEditor = editor;
-      lastEditorSelection = { editor, range: savedRange };
+      formatPaletteEditor = ed;
+      lastEditorSelection = { editor: ed, range: savedRange };
     }
   };
 
   const useSavedSelection = (fn) => {
-    focusEditor(editor);
+    const ed = getEd();
+    focusEditor(ed);
     const range = (savedRange && !savedRange.collapsed)
       ? savedRange
-      : getUsableEditorRange(editor);
+      : getUsableEditorRange(ed);
     if (range) {
       try { restoreSelection(range); } catch (_) { /* ignore */ }
     }
     fn();
-    savedRange = currentEditorRange(editor) || savedRange;
+    savedRange = currentEditorRange(ed) || savedRange;
     formatPaletteRange = savedRange;
     if (savedRange && !savedRange.collapsed) {
-      lastEditorSelection = { editor, range: savedRange };
+      lastEditorSelection = { editor: ed, range: savedRange };
     }
-    updateEditorPlaceholder(editor);
-    updateFormatButtonState(toolbar);
+    updateEditorPlaceholder(ed);
+    if (toolbar) updateFormatButtonState(toolbar);
   };
 
   // Keep last drag selection even after the caret collapses.
@@ -4255,7 +5199,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     }
   });
 
-  toolbar.addEventListener("mousedown", (event) => {
+  if (toolbar) toolbar.addEventListener("mousedown", (event) => {
     if (event.target.closest("button")) {
       rememberSelection();
       // Prevent toolbar focus from wiping the selection before click handler runs.
@@ -4267,38 +5211,34 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     }
   });
 
-  toolbar.addEventListener("click", (event) => {
+  if (toolbar) toolbar.addEventListener("click", (event) => {
     const button = event.target.closest("[data-format]");
     if (!button || !toolbar.contains(button)) return;
     const format = button.dataset.format;
     if (format === "undo" || format === "redo") {
-      focusEditor(editor);
+      const ed = getEd();
+      focusEditor(ed);
       if (savedRange) restoreSelection(savedRange);
       applyEditorCommand(format);
-      updateEditorPlaceholder(editor);
+      updateEditorPlaceholder(ed);
       return;
     }
-    // 형광펜 / 글자색: 좌클릭은 항상 칠하기.
-    // 음영상자: 드래그 후 클릭 = 채우기, 다시 클릭 = 없애기.
+    // 글자색·형광펜·음영상자: 드래그 후 클릭 = 칠하기, 다시 클릭 = 지우기(기본색).
     if (format === "textColor" || format === "highlight" || format === "shadeBox") {
       const kind = button.dataset.colorKind
         || (format === "highlight" ? "highlight" : format === "shadeBox" ? "shade" : "text");
       useSavedSelection(() => {
-        if (kind === "shade") {
-          applyFormatColorToSelection(kind, formatColorState[kind], editor, {
-            forceApply: false,
-            toggle: true,
-          });
-        } else {
-          applyFormatColorToSelection(kind, formatColorState[kind], editor, { forceApply: true });
-        }
+        applyFormatColorToSelection(kind, formatColorState[kind], getEd(), {
+          forceApply: false,
+          toggle: true,
+        });
       });
       return;
     }
     // 글머리 기호: left-click applies last-chosen marker/number style.
     if (format === "list") {
       useSavedSelection(() => {
-        applyListStyle(formatListStyleKey, editor);
+        applyListStyle(formatListStyleKey, getEd());
       });
       return;
     }
@@ -4306,7 +5246,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     if (format === "specialChar") {
       rememberSelection();
       setUiFeatureCtxTarget?.(button);
-      showFormatSpecialPalette(button, editor);
+      showFormatSpecialPalette(button, getEd());
       return;
     }
     useSavedSelection(() => {
@@ -4318,18 +5258,19 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
       else if (format === "justifyCenter") applyEditorCommand("justifyCenter");
       else if (format === "justifyRight") applyEditorCommand("justifyRight");
       else if (format === "justifyFull") applyEditorCommand("justifyFull");
+      else if (format === "dan") applyDanColumns(getEd());
     });
   });
 
   // Right-click on color / highlight / 글머리 / 특수문자 → palette (+ hide footer)
-  toolbar.addEventListener("contextmenu", (event) => {
+  if (toolbar) toolbar.addEventListener("contextmenu", (event) => {
     const listBtn = event.target.closest(".format-list-btn, .format-bullet-btn, [data-format='list']");
     if (listBtn && toolbar.contains(listBtn)) {
       event.preventDefault();
       event.stopPropagation();
       rememberSelection();
       setUiFeatureCtxTarget?.(listBtn);
-      showFormatListPalette(listBtn, editor);
+      showFormatListPalette(listBtn, getEd());
       return;
     }
     const specialBtn = event.target.closest(".format-special-btn, [data-format='specialChar']");
@@ -4338,7 +5279,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
       event.stopPropagation();
       rememberSelection();
       setUiFeatureCtxTarget?.(specialBtn);
-      showFormatSpecialPalette(specialBtn, editor);
+      showFormatSpecialPalette(specialBtn, getEd());
       return;
     }
     const button = event.target.closest("[data-color-kind]");
@@ -4348,7 +5289,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     rememberSelection();
     setUiFeatureCtxTarget?.(button);
     const kind = button.dataset.colorKind;
-    showFormatColorPalette(kind, button, editor);
+    showFormatColorPalette(kind, button, getEd());
   });
 
   fontSelect?.addEventListener("change", (event) => {
@@ -4365,11 +5306,11 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
   lineHeightSelect?.addEventListener("change", (event) => {
     const value = event.target.value;
     if (!value) return;
-    useSavedSelection(() => applyLineHeight(value, editor));
+    useSavedSelection(() => applyLineHeight(value, getEd()));
   });
   paragraphSelect?.addEventListener("change", (event) => {
     const value = event.target.value || "p";
-    useSavedSelection(() => applyParagraphStyle(value, editor));
+    useSavedSelection(() => applyParagraphStyle(value, getEd()));
   });
   jangpyeongSelect?.addEventListener("change", (event) => {
     const value = event.target.value;
@@ -4386,7 +5327,7 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     event.stopPropagation();
     rememberSelection();
     setUiFeatureCtxTarget?.(select);
-    showFormatApplyAllMenu(kind, value, select, editor);
+    showFormatApplyAllMenu(kind, value, select, getEd());
   };
   fontSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "font"));
   sizeSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "size"));
@@ -4394,11 +5335,11 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
   jangpyeongSelect?.addEventListener("contextmenu", (e) => onFormatSelectContextMenu(e, "jangpyeong"));
 
   // Seed selects with the editor's actual current face/size/paragraph style.
-  syncFormatFontSizeSelects(toolbar, editor);
+  if (toolbar) syncFormatFontSizeSelects(toolbar, editor);
 
   editor.addEventListener("input", () => {
     updateEditorPlaceholder(editor);
-    updateFormatButtonState(toolbar);
+    if (toolbar) updateFormatButtonState(toolbar);
     onInput?.();
   });
   editor.addEventListener("mousedown", () => {
@@ -4412,9 +5353,15 @@ function setupRichEditorSurface({ editor, toolbar, page, onInput }) {
     editor.setAttribute("contenteditable", "true");
     editor.focus();
   });
-  editor.addEventListener("keyup", () => updateFormatButtonState(toolbar));
-  editor.addEventListener("mouseup", () => updateFormatButtonState(toolbar));
-  editor.addEventListener("focus", () => updateFormatButtonState(toolbar));
+  editor.addEventListener("keyup", () => { if (toolbar) updateFormatButtonState(toolbar); });
+  editor.addEventListener("mouseup", () => { if (toolbar) updateFormatButtonState(toolbar); });
+  editor.addEventListener("focus", () => {
+    if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
+      lastSettingsDocEditor = editor;
+      if (editor.dataset.settingsDocKind) state.settingsDocFocusKind = editor.dataset.settingsDocKind;
+    }
+    if (toolbar) updateFormatButtonState(toolbar);
+  });
   editor.addEventListener("keydown", (event) => {
     if (!(event.ctrlKey || event.metaKey)) return;
     const key = event.key.toLowerCase();
@@ -4462,8 +5409,17 @@ function setupRichEditor() {
     editor: $("synopsisContent"),
     toolbar: $("synopsisFormatToolbar"),
     page: $("synopsisPage"),
+    resolveEditor: () => getActiveRichEditor(),
     onInput: () => {
-      markSynopsisDirty();
+      markSettingsDocEditorDirty($("synopsisContent"));
+    },
+  });
+  setupRichEditorSurface({
+    editor: $("synopsisContentB"),
+    toolbar: null,
+    page: $("synopsisPageB"),
+    onInput: () => {
+      markSettingsDocEditorDirty($("synopsisContentB"));
     },
   });
 }
@@ -5478,6 +6434,7 @@ function renderKeywordBox() {
 
 function hideKeywordBoard() {
   state.keywordBoardOpen = false;
+  placeGenreBlockForKeywordBoard(false);
   $("keywordBoard")?.classList.add("hidden");
 }
 
@@ -5505,6 +6462,25 @@ function closeKeywordBoard() {
   }
 }
 
+/** Move the single genre control block between settings accordion and keyword main board. */
+function placeGenreBlockForKeywordBoard(onBoard) {
+  const block = $("settingsGenreBlock");
+  const boardMount = $("keywordBoardGenreMount");
+  const settingsHost = $("keywordsBody");
+  if (!block || !boardMount || !settingsHost) return;
+  if (onBoard) {
+    if (block.parentElement !== boardMount) boardMount.appendChild(block);
+    block.classList.add("is-on-keyword-board");
+  } else {
+    if (block.parentElement !== settingsHost) {
+      const first = settingsHost.firstElementChild;
+      if (first) settingsHost.insertBefore(block, first);
+      else settingsHost.appendChild(block);
+    }
+    block.classList.remove("is-on-keyword-board");
+  }
+}
+
 function openKeywordBoard() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
   state.keywordBoardOpen = true;
@@ -5514,12 +6490,14 @@ function openKeywordBoard() {
   state.openSettingsSection = "keywords";
   applySettingsSectionState();
   hideCenterViewsForKeywordBoard();
+  placeGenreBlockForKeywordBoard(true);
   renderKeywordBox();
   renderKeywordCatalog();
 }
 
 function renderKeywordBoard() {
   if (!state.keywordBoardOpen) return;
+  placeGenreBlockForKeywordBoard(true);
   renderKeywordChips();
   renderKeywordCatalog();
 }
@@ -6105,6 +7083,18 @@ async function loadProject() {
   // Drop cached episode HTML from the previous work.
   if (typeof clearViewerEpisodeCache === "function") clearViewerEpisodeCache();
   state.ideas = ideas;
+  try {
+    const localPins = loadLocalIdeaPins();
+    if (localPins && typeof localPins === "object") {
+      state.ideas = state.ideas.map((idea) => {
+        if (Boolean(Number(idea?.is_pinned))) return idea;
+        if (localPins[String(idea.id)]) return { ...idea, is_pinned: 1 };
+        return idea;
+      });
+    }
+  } catch (_) {
+    /* ignore */
+  }
   // 떡밥: localStorage → DB 마이그레이션 후 목록 로드 (캐시 채움)
   if (typeof refreshBaitsFromServer === "function") {
     try {
@@ -6474,12 +7464,12 @@ function getSettingsDocTextForSave(kind = state.settingsDocKind || "synopsis") {
     return pushWorldBuildingFormToState({ commitDraft: true });
   }
   const sidebar = $(meta.sidebarId);
-  const mainOpen = isSynopsisWorkspaceOpen() && state.settingsDocKind === kind && $("synopsisContent");
+  const mainEditor = isSynopsisWorkspaceOpen() ? getSettingsDocMainEditor(kind) : null;
   if (sidebar && document.activeElement === sidebar) {
     return sidebar.value || "";
   }
-  if (mainOpen) {
-    return getEditorContent($("synopsisContent"));
+  if (mainEditor) {
+    return getEditorContent(mainEditor);
   }
   if (sidebar) return sidebar.value || "";
   return state[meta.stateKey] || "";
@@ -6514,8 +7504,9 @@ function syncSettingsDocSidebarFromState(kind) {
 
 /** Push current state into main editor when it shows the same settings doc. */
 function syncSettingsDocMainFromState(kind, { force = false } = {}) {
-  if (!isSettingsDocMainOpen() || state.settingsDocKind !== kind) return;
+  if (!isSettingsDocMainOpen()) return;
   if (kind === "world") {
+    if (state.settingsDocKind !== "world") return;
     if (!force) {
       const focused = document.activeElement?.closest?.("#worldbuildingMainForm [data-world-field]");
       if (focused) return;
@@ -6523,7 +7514,7 @@ function syncSettingsDocMainFromState(kind, { force = false } = {}) {
     syncWorldBuildingFormFromState({ force: true });
     return;
   }
-  const editor = $("synopsisContent");
+  const editor = getSettingsDocMainEditor(kind);
   if (!editor) return;
   if (!force && document.activeElement === editor) return;
   const raw = state[getSettingsDocMeta(kind).stateKey] || "";
@@ -6548,14 +7539,30 @@ function setSynopsisSaveStatus(text) {
   if (state.settingsDocKind === "world") setWorldbuildingSaveStatus(text);
 }
 
-function markSynopsisDirty() {
+function markSynopsisDirty(kind = null) {
   if (suppressSynopsisDirty || !state.projectId) return;
+  const saveKind = kind
+    || state.settingsDocFocusKind
+    || state.settingsDocKind
+    || "synopsis";
   synopsisDirty = true;
   setSynopsisSaveStatus("저장 대기 중…");
   if (synopsisAutoSaveTimer) window.clearTimeout(synopsisAutoSaveTimer);
   synopsisAutoSaveTimer = window.setTimeout(() => {
-    persistSettingsDoc(state.settingsDocKind || "synopsis", { quiet: true }).catch(handleError);
+    persistSettingsDoc(saveKind, { quiet: true }).catch(handleError);
   }, 1200);
+}
+
+function markSettingsDocEditorDirty(editor) {
+  const kind = editor?.dataset?.settingsDocKind
+    || state.settingsDocFocusKind
+    || state.settingsDocKind
+    || "synopsis";
+  if (editor) {
+    lastSettingsDocEditor = editor;
+    state.settingsDocFocusKind = kind;
+  }
+  markSynopsisDirty(kind);
 }
 
 function scheduleSettingsDocAutoSave(kind) {
@@ -6602,14 +7609,18 @@ async function persistSettingsDoc(kind, options = {}) {
     if (result.intro_md != null && kind !== "intro") state.introMd = result.intro_md;
     if (result.intent_md != null && kind !== "intent") state.intentMd = result.intent_md;
     if (result.worldbuilding_md != null && kind !== "world") state.worldbuildingMd = result.worldbuilding_md;
-    if (state.settingsDocKind === kind) synopsisDirty = false;
+    if (state.settingsDocKind === kind || getSettingsDocMainEditor(kind)) synopsisDirty = false;
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setSynopsisSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
     // Sync the other surface (sidebar ↔ main) without clobbering the focused control.
     syncSettingsDocSidebarFromState(kind);
-    // Refresh main pane when it is editing this same document.
-    if (isSettingsDocMainOpen() && state.settingsDocKind === kind) {
-      syncSettingsDocMainFromState(kind, { force: true });
+    // Refresh main pane when it is editing this same document — but never
+    // while the user is actively typing in it: force-overwriting innerHTML
+    // mid-edit resets the caret (it kept jumping to the top every autosave
+    // cycle). syncSettingsDocMainFromState() already skips the focused
+    // editor by default, so only unfocused panes get the canonical refresh.
+    if (getSettingsDocMainEditor(kind)) {
+      syncSettingsDocMainFromState(kind);
     }
     if (!quiet) toast(`${meta.toastLabel}을(를) 저장했습니다.`);
     return result;
@@ -6640,10 +7651,27 @@ async function saveProjectWorldbuilding() {
   await persistSettingsDoc("world", { quiet: false });
 }
 
+async function persistSettingsDocPair(kinds, options = {}) {
+  const list = (kinds || []).filter(Boolean);
+  let last = null;
+  for (const k of list) {
+    last = await persistSettingsDoc(k, options);
+  }
+  return last;
+}
+
 function hideSynopsisMain() {
   $("synopsisWorkspace")?.classList.add("hidden");
   $("worldbuildingWorkspace")?.classList.add("hidden");
+  document.querySelector(".synopsis-writing-column")?.classList.remove("is-dual");
+  const a = $("synopsisContent");
+  const b = $("synopsisContentB");
+  if (a) delete a.dataset.settingsDocKind;
+  if (b) delete b.dataset.settingsDocKind;
   state.settingsDocKind = null;
+  state.settingsDocPair = null;
+  state.settingsDocFocusKind = null;
+  lastSettingsDocEditor = null;
 }
 
 function hideCharacterBoard() {
@@ -6652,9 +7680,12 @@ function hideCharacterBoard() {
 }
 
 async function closeSynopsisMain() {
-  if (synopsisDirty && state.settingsDocKind) {
+  const pair = state.settingsDocPair?.length
+    ? state.settingsDocPair
+    : (state.settingsDocKind ? [state.settingsDocKind] : []);
+  if (synopsisDirty && pair.length) {
     try {
-      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
+      await persistSettingsDocPair(pair, { quiet: true });
     } catch (_) {
       /* ignore */
     }
@@ -6674,18 +7705,37 @@ async function closeSynopsisMain() {
 }
 
 function applySettingsDocChrome(kind) {
+  const pair = getSettingsDocPairKinds(kind);
+  const pairChrome = SETTINGS_DOC_PAIR_CHROME[kind];
   const meta = getSettingsDocMeta(kind);
-  if ($("settingsDocMainTitle")) $("settingsDocMainTitle").textContent = meta.title;
-  if ($("settingsDocMainHint")) $("settingsDocMainHint").textContent = meta.hint;
-  const editor = $("synopsisContent");
-  if (editor) {
-    editor.setAttribute("aria-label", meta.title);
-    editor.dataset.placeholder = meta.placeholder;
-  }
+  const title = pairChrome?.title || meta.title;
+  const hint = pairChrome?.hint || meta.hint;
+  if ($("settingsDocMainTitle")) $("settingsDocMainTitle").textContent = title;
+  if ($("settingsDocMainHint")) $("settingsDocMainHint").textContent = hint;
+
+  const column = document.querySelector(".synopsis-writing-column");
+  column?.classList.toggle("is-dual", pair.length >= 2);
+
+  const editors = [$("synopsisContent"), $("synopsisContentB")];
+  const titles = [$("settingsDocPaneTitleA"), $("settingsDocPaneTitleB")];
+  pair.forEach((k, i) => {
+    const m = getSettingsDocMeta(k);
+    if (titles[i]) titles[i].textContent = m.title;
+    if (editors[i]) {
+      editors[i].dataset.settingsDocKind = k;
+      editors[i].setAttribute("aria-label", m.title);
+      editors[i].dataset.placeholder = m.placeholder;
+      updateEditorPlaceholder?.(editors[i]);
+    }
+  });
+  // Hide unused second pane only if somehow single (should not happen for these docs).
+  const paneB = document.querySelector('[data-settings-pane="b"]');
+  if (paneB) paneB.classList.toggle("hidden", pair.length < 2);
+
   const pane = $("synopsisWorkspace");
   if (pane) {
     pane.dataset.settingsDoc = kind;
-    pane.setAttribute("aria-label", `${meta.title} 편집`);
+    pane.setAttribute("aria-label", `${title} 편집`);
   }
 }
 
@@ -6693,23 +7743,39 @@ async function openSettingsDocMain(kind = "synopsis") {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
   if (!SETTINGS_DOC_META[kind]) kind = "synopsis";
 
+  const pair = getSettingsDocPairKinds(kind);
+  const prevPair = Array.isArray(state.settingsDocPair) ? state.settingsDocPair : [];
+  const samePairOpen = isSynopsisWorkspaceOpen()
+    && pair.length >= 2
+    && prevPair.length >= 2
+    && pair[0] === prevPair[0]
+    && pair[1] === prevPair[1];
+
   // Always pull sibling textareas first so logline/intent aren't left only in the DOM.
   pullSettingsDocFamilyFromSidebar(kind);
 
-  // Flush previous settings doc if switching kinds.
-  if (isSettingsDocMainOpen() && state.settingsDocKind && state.settingsDocKind !== kind) {
-    try {
-      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
-    } catch (_) {
-      /* continue */
+  // Flush previous settings docs if switching away from another pair/doc.
+  if (isSettingsDocMainOpen() && !samePairOpen) {
+    const flushKinds = prevPair.length
+      ? prevPair
+      : (state.settingsDocKind ? [state.settingsDocKind] : []);
+    for (const k of flushKinds) {
+      if (pair.includes(k)) continue;
+      try {
+        await persistSettingsDoc(k, { quiet: true });
+      } catch (_) {
+        /* continue */
+      }
     }
   }
   // Flush the target kind (and siblings) so main opens with saved content.
-  for (const k of (SETTINGS_DOC_SIBLINGS[kind] || [kind])) {
-    try {
-      await persistSettingsDoc(k, { quiet: true });
-    } catch (_) {
-      /* continue */
+  if (!samePairOpen) {
+    for (const k of pair) {
+      try {
+        await persistSettingsDoc(k, { quiet: true });
+      } catch (_) {
+        /* continue */
+      }
     }
   }
 
@@ -6725,6 +7791,8 @@ async function openSettingsDocMain(kind = "synopsis") {
   state.openSettingsSection = SETTINGS_DOC_TO_SECTION[kind] || kind;
   applySettingsSectionState();
   state.settingsDocKind = kind;
+  state.settingsDocPair = pair.length >= 2 ? pair.slice() : [kind];
+  state.settingsDocFocusKind = kind;
   state.characterBoardOpen = false;
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
@@ -6761,23 +7829,28 @@ async function openSettingsDocMain(kind = "synopsis") {
   applySettingsDocChrome(kind);
   $("synopsisWorkspace")?.classList.remove("hidden");
 
-  const meta = getSettingsDocMeta(kind);
-  suppressSynopsisDirty = true;
-  // Force re-read after persist: sidebar first, then state.
-  const loadText = pullSettingsDocFromSidebar(kind) || state[meta.stateKey] || "";
-  state[meta.stateKey] = loadText;
-  setEditorContent(loadText, $("synopsisContent"));
-  // Keep sibling sidebars in sync too.
-  for (const k of (SETTINGS_DOC_SIBLINGS[kind] || [kind])) {
-    syncSettingsDocSidebarFromState(k);
+  if (!samePairOpen) {
+    suppressSynopsisDirty = true;
+    for (const k of pair) {
+      const meta = getSettingsDocMeta(k);
+      const loadText = pullSettingsDocFromSidebar(k) || state[meta.stateKey] || "";
+      state[meta.stateKey] = loadText;
+      const editor = getSettingsDocMainEditor(k);
+      if (editor) setEditorContent(loadText, editor);
+      syncSettingsDocSidebarFromState(k);
+    }
+    synopsisDirty = false;
+    suppressSynopsisDirty = false;
+    setSynopsisSaveStatus("편집 중");
+  } else {
+    state.settingsDocFocusKind = kind;
+    setSynopsisSaveStatus("편집 중");
   }
-  synopsisDirty = false;
-  suppressSynopsisDirty = false;
-  setSynopsisSaveStatus("편집 중");
 
   requestAnimationFrame(() => {
-    const editor = $("synopsisContent");
+    const editor = getSettingsDocMainEditor(kind) || $("synopsisContent");
     if (!editor) return;
+    lastSettingsDocEditor = editor;
     editor.setAttribute("contenteditable", "true");
     try {
       editor.focus({ preventScroll: true });
@@ -6824,9 +7897,12 @@ function renderCharacterBoard() {
 async function openCharacterBoard() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
 
-  if (isSettingsDocMainOpen() && synopsisDirty && state.settingsDocKind) {
+  if (isSettingsDocMainOpen() && synopsisDirty) {
     try {
-      await persistSettingsDoc(state.settingsDocKind, { quiet: true });
+      const kinds = state.settingsDocPair?.length
+        ? state.settingsDocPair
+        : (state.settingsDocKind ? [state.settingsDocKind] : []);
+      await persistSettingsDocPair(kinds, { quiet: true });
     } catch (_) {
       /* continue */
     }
@@ -6890,15 +7966,11 @@ function bindSettingsDocSidebarInput(kind) {
   const pushToStateAndMaybeMain = () => {
     state[meta.stateKey] = el.value;
     // Keep main editor in sync when the same document is open on the main pane.
-    if (isSettingsDocMainOpen() && state.settingsDocKind === kind) {
-      const main = $("synopsisContent");
-      if (main && document.activeElement !== main) {
-        suppressSynopsisDirty = true;
-        setEditorContent(el.value, main);
-        suppressSynopsisDirty = false;
-      } else if (main && document.activeElement === main) {
+    const main = getSettingsDocMainEditor(kind);
+    if (isSettingsDocMainOpen() && main) {
+      if (document.activeElement === main) {
         // Main has focus — don't clobber; state still updated for save.
-      } else if (main) {
+      } else {
         suppressSynopsisDirty = true;
         setEditorContent(el.value, main);
         suppressSynopsisDirty = false;
@@ -7026,7 +8098,10 @@ function setupSettingsCodex() {
     });
   });
   $("saveSynopsisMainButton")?.addEventListener("click", () => {
-    persistSettingsDoc(state.settingsDocKind || "synopsis", { quiet: false }).catch(handleError);
+    const kinds = state.settingsDocPair?.length
+      ? state.settingsDocPair
+      : [state.settingsDocKind || "synopsis"];
+    persistSettingsDocPair(kinds, { quiet: false }).catch(handleError);
   });
   $("closeSynopsisMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
   $("saveWorldbuildingMainButton")?.addEventListener("click", () => {
@@ -7073,6 +8148,53 @@ function ideaPreview(text, max = 90) {
   return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
 }
 
+function ideaIsPinned(idea) {
+  if (Boolean(Number(idea?.is_pinned))) return true;
+  try {
+    const map = loadLocalIdeaPins();
+    return Boolean(map[String(idea?.id)]);
+  } catch (_) {
+    return false;
+  }
+}
+
+function ideaPinStorageKey() {
+  return `supertory.ideaPins.v1.${state.projectId || 0}`;
+}
+
+function loadLocalIdeaPins() {
+  try {
+    const raw = localStorage.getItem(ideaPinStorageKey());
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveLocalIdeaPin(ideaId, pinned) {
+  try {
+    const map = loadLocalIdeaPins();
+    const key = String(ideaId);
+    if (pinned) map[key] = 1;
+    else delete map[key];
+    localStorage.setItem(ideaPinStorageKey(), JSON.stringify(map));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** 오른쪽→왼쪽 아래로 꽂힌 압정 (테두리 없는 아이콘 전용) */
+function ideaPinGlyphHtml(size = 18) {
+  const s = Math.max(12, Number(size) || 18);
+  return (
+    `<svg class="idea-pin-glyph" viewBox="0 0 24 24" width="${s}" height="${s}" aria-hidden="true" focusable="false">`
+    + `<g transform="rotate(42 12 13)">`
+    + `<path fill="currentColor" d="M12 2.55c2.1 0 3.8 1.7 3.8 3.8 0 1.25-.62 2.35-1.55 3.02l1.15 3.4c.4 1.2-.46 2.45-1.72 2.63l-1.18.17V20.3a1 1 0 1 1-2 0v-4.73l-1.18-.17c-1.26-.18-2.12-1.43-1.72-2.63l1.15-3.4A3.78 3.78 0 0 1 8.2 6.35C8.2 4.25 9.9 2.55 12 2.55zm0 1.9a1.9 1.9 0 1 0 .02 3.8 1.9 1.9 0 0 0-.02-3.8z"/>`
+    + `</g></svg>`
+  );
+}
+
 function renderIdeaBank() {
   const list = $("ideaNoteList");
   if (!list) return;
@@ -7086,12 +8208,15 @@ function renderIdeaBank() {
   if (!state.ideas.length) {
     list.innerHTML = `<p class="idea-sticky-empty">아직 메모가 없어요.<br>+ 메모로 아이디어를 남겨 보세요.</p>`;
   } else {
-    list.innerHTML = state.ideas.map((idea) => `
-      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}">
+    list.innerHTML = state.ideas.map((idea) => {
+      const pinned = ideaIsPinned(idea);
+      return `
+      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}${pinned ? " · 목차 하단 고정" : ""}">
+        ${pinned ? `<span class="idea-sticky-pin" title="목차 하단 고정">${ideaPinGlyphHtml(16)}</span>` : ""}
         <span class="idea-sticky-title">${escapeHtml(idea.title || "제목 없음")}</span>
         <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
-      </button>
-    `).join("");
+      </button>`;
+    }).join("");
     list.querySelectorAll("[data-idea]").forEach((button) => {
       button.addEventListener("click", () => openIdeaBoard(Number(button.dataset.idea)));
     });
@@ -7136,8 +8261,8 @@ function openIdeaBoard(focusId = null) {
 }
 
 const IDEA_CARD_SIZE_PREFIX = "supertory.ideaCardSize.v1.";
-const IDEA_CARD_DEFAULT_W = 240;
-const IDEA_CARD_DEFAULT_H = 220;
+const IDEA_CARD_DEFAULT_W = 354;
+const IDEA_CARD_DEFAULT_H = 260;
 const IDEA_CARD_MIN_W = 180;
 const IDEA_CARD_MIN_H = 140;
 const IDEA_CARD_MAX_W = 900;
@@ -7294,6 +8419,7 @@ function renderIdeaBoard(focusId = null) {
   }
   grid.innerHTML = state.ideas.map((idea) => {
     const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+    const pinned = ideaIsPinned(idea);
     const clipSwatches = IDEA_COLORS.map((c) => `
       <button
         type="button"
@@ -7307,9 +8433,10 @@ function renderIdeaBoard(focusId = null) {
     `).join("");
     return `
     <article
-      class="idea-card color-${escapeHtml(colorKey)}"
+      class="idea-card color-${escapeHtml(colorKey)}${pinned ? " is-pinned" : ""}"
       data-idea-card="${idea.id}"
       data-idea-color="${escapeHtml(colorKey)}"
+      data-idea-pinned="${pinned ? "1" : "0"}"
       title="우클릭: 메모 색 · 모서리 드래그: 크기"
     >
       <div class="idea-card-clips" role="group" aria-label="메모 색 클립">
@@ -7317,6 +8444,14 @@ function renderIdeaBoard(focusId = null) {
       </div>
       <div class="idea-card-top">
         <input type="text" data-role="idea-title" value="${escapeHtml(idea.title || "")}" placeholder="제목 (예: 결말 아이디어)">
+        <button
+          type="button"
+          class="idea-card-pin${pinned ? " is-on" : ""}"
+          data-role="pin-idea"
+          title="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+          aria-label="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+          aria-pressed="${pinned ? "true" : "false"}"
+        >${ideaPinGlyphHtml(26)}</button>
       </div>
       <textarea data-role="idea-body" placeholder="러프하게 적어 두세요…">${escapeHtml(idea.body_md || "")}</textarea>
       <div class="idea-card-actions">
@@ -7337,6 +8472,11 @@ function renderIdeaBoard(focusId = null) {
     card.querySelector('[data-role="delete-idea"]').addEventListener("click", () => {
       deleteIdea(id).catch(handleError);
     });
+    card.querySelector('[data-role="pin-idea"]')?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleIdeaPin(id).catch(handleError);
+    });
     card.querySelectorAll('[data-role="idea-clip"]').forEach((btn) => {
       btn.addEventListener("click", (event) => {
         event.preventDefault();
@@ -7348,13 +8488,6 @@ function renderIdeaBoard(focusId = null) {
         toast(`메모 색: ${IDEA_COLORS.find((c) => c.key === key)?.label || key}`);
       });
     });
-    card.addEventListener("contextmenu", (event) => {
-      // Don't steal browser menu from text selection inside inputs if needed —
-      // always own the menu on the sticky for color pick.
-      event.preventDefault();
-      event.stopPropagation();
-      showIdeaColorMenu(event.clientX, event.clientY, card);
-    });
   });
 
   if (focusId) {
@@ -7362,41 +8495,6 @@ function renderIdeaBoard(focusId = null) {
     focusCard?.scrollIntoView({ behavior: "smooth", block: "nearest" });
     focusCard?.querySelector('[data-role="idea-body"]')?.focus();
   }
-}
-
-let ideaColorMenuCard = null;
-
-function hideIdeaColorMenu() {
-  $("ideaColorMenu")?.classList.add("hidden");
-  ideaColorMenuCard = null;
-}
-
-function showIdeaColorMenu(clientX, clientY, card) {
-  const menu = $("ideaColorMenu");
-  if (!menu || !card) return;
-  ideaColorMenuCard = card;
-  const current = card.dataset.ideaColor || "yellow";
-  menu.querySelectorAll("[data-idea-color-pick]").forEach((btn) => {
-    btn.classList.toggle("is-active", btn.dataset.ideaColorPick === current);
-  });
-  // Hide other context menus
-  try { hideDesktopContextMenu?.(); } catch (_) { /* ignore */ }
-  try { hideBinderContextMenu?.(); } catch (_) { /* ignore */ }
-  try { hideSettingsContextMenu?.(); } catch (_) { /* ignore */ }
-  try { hideBookmarkContextMenu?.(); } catch (_) { /* ignore */ }
-  menu.classList.remove("hidden");
-  const pad = 8;
-  const rect = menu.getBoundingClientRect();
-  let left = clientX;
-  let top = clientY;
-  if (left + (rect.width || 180) > window.innerWidth - pad) {
-    left = Math.max(pad, window.innerWidth - (rect.width || 180) - pad);
-  }
-  if (top + (rect.height || 80) > window.innerHeight - pad) {
-    top = Math.max(pad, window.innerHeight - (rect.height || 80) - pad);
-  }
-  menu.style.left = `${left}px`;
-  menu.style.top = `${top}px`;
 }
 
 function applyIdeaCardColor(card, colorKey, { save = true } = {}) {
@@ -7441,6 +8539,34 @@ async function createIdeaNote() {
   toast("새 포스트잇 메모를 만들었어요.");
 }
 
+async function toggleIdeaPin(ideaId) {
+  const id = Number(ideaId);
+  const index = state.ideas.findIndex((item) => item.id === id);
+  if (index < 0) return;
+  const nextPinned = !ideaIsPinned(state.ideas[index]);
+  // 로컬 선반영 — 서버 마이그레이션 전이라도 하단 고정이 바로 보이게
+  saveLocalIdeaPin(id, nextPinned);
+  state.ideas[index] = { ...state.ideas[index], is_pinned: nextPinned ? 1 : 0 };
+  try {
+    const updated = await api(`/api/ideas/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ is_pinned: nextPinned ? 1 : 0 }),
+    });
+    state.ideas[index] = updated;
+    saveLocalIdeaPin(id, Boolean(Number(updated?.is_pinned)));
+  } catch (err) {
+    // 서버에 컬럼이 아직 없으면 로컬 고정만 유지
+    console.warn("[supertory] idea pin API failed; using local pin", err);
+  }
+  state.ideas.sort((a, b) => {
+    const pinDiff = Number(ideaIsPinned(b)) - Number(ideaIsPinned(a));
+    if (pinDiff) return pinDiff;
+    return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || (a.id - b.id);
+  });
+  renderIdeaBank();
+  toast(nextPinned ? "목차 하단에 고정했어요." : "목차 하단 고정을 해제했어요.");
+}
+
 async function saveIdeaFromCard(card, options = {}) {
   const quiet = Boolean(options.quiet);
   const id = Number(card.dataset.ideaCard);
@@ -7472,29 +8598,6 @@ function setupIdeaBank() {
   $("newIdeaButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardAddButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardCloseButton")?.addEventListener("click", closeIdeaBoard);
-
-  // Idea sticky color menu (right-click)
-  const menu = $("ideaColorMenu");
-  if (menu && menu.dataset.bound !== "1") {
-    menu.dataset.bound = "1";
-    menu.addEventListener("click", (event) => {
-      const pick = event.target.closest?.("[data-idea-color-pick]");
-      if (!pick || !ideaColorMenuCard) return;
-      event.preventDefault();
-      const key = pick.dataset.ideaColorPick;
-      applyIdeaCardColor(ideaColorMenuCard, key, { save: true });
-      hideIdeaColorMenu();
-      toast(`메모 색: ${IDEA_COLORS.find((c) => c.key === key)?.label || key}`);
-    });
-    document.addEventListener("mousedown", (event) => {
-      if (!menu.classList.contains("hidden") && !event.target.closest?.("#ideaColorMenu")) {
-        hideIdeaColorMenu();
-      }
-    });
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape") hideIdeaColorMenu();
-    });
-  }
 }
 
 async function refreshAiStatus() {
@@ -8687,11 +9790,13 @@ function closeAnalyzeMenu() {
   const menu = $("analyzeMenuDropdown");
   menu?.classList.add("hidden");
   clearFeatureDropdownPlacement(menu);
+  portalAnalyzeMenuToBody(false);
   $("analyzeMenuButton")?.setAttribute("aria-expanded", "false");
 }
 
 /** Place a feature-bar dropdown in the viewport (avoids overflow clipping). */
 let viewModeDropdownHomeParent = null;
+let analyzeMenuHomeParent = null;
 
 function ensureViewModeDropdownHome() {
   const menu = $("viewModeDropdown");
@@ -8704,10 +9809,32 @@ function ensureViewModeDropdownHome() {
   return viewModeDropdownHomeParent;
 }
 
+function ensureAnalyzeMenuHome() {
+  const menu = $("analyzeMenuDropdown");
+  if (!menu) return null;
+  if (!analyzeMenuHomeParent || analyzeMenuHomeParent === document.body) {
+    if (menu.parentElement && menu.parentElement !== document.body) {
+      analyzeMenuHomeParent = menu.parentElement;
+    }
+  }
+  return analyzeMenuHomeParent;
+}
+
 function portalViewModeDropdownToBody(enable) {
   const menu = $("viewModeDropdown");
   if (!menu) return;
   const home = ensureViewModeDropdownHome();
+  if (enable) {
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  } else if (home && menu.parentElement !== home) {
+    home.appendChild(menu);
+  }
+}
+
+function portalAnalyzeMenuToBody(enable) {
+  const menu = $("analyzeMenuDropdown");
+  if (!menu) return;
+  const home = ensureAnalyzeMenuHome();
   if (enable) {
     if (menu.parentElement !== document.body) document.body.appendChild(menu);
   } else if (home && menu.parentElement !== home) {
@@ -8743,6 +9870,7 @@ function placeFeatureDropdown(menu, anchor) {
   const overFocusWrite = typeof isFocusWriteOpen === "function" && isFocusWriteOpen()
     && (anchor.id === "focusWriteSplitButton" || Boolean(anchor.closest?.("#focusWriteModal")));
   if (menu.id === "viewModeDropdown") portalViewModeDropdownToBody(overFocusWrite);
+  if (menu.id === "analyzeMenuDropdown") portalAnalyzeMenuToBody(true);
 
   menu.classList.add("is-fixed-dropdown");
   menu.style.position = "fixed";
@@ -9271,8 +10399,13 @@ function openBrainstormTargetModal() {
   });
 }
 
-function closeBrainstormTargetModal() {
+function closeBrainstormTargetModal({ returnToList = true } = {}) {
   $("brainstormTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "brainstorm") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function confirmBrainstormTarget() {
@@ -9293,7 +10426,7 @@ function confirmBrainstormTarget() {
     }
   }
   brainstormTargetSceneId = sceneId;
-  closeBrainstormTargetModal();
+  closeBrainstormTargetModal({ returnToList: false });
   // 1-step UI: episode + topic already in this modal → run immediately.
   runBrainstormSuggestion().catch(handleError);
 }
@@ -10798,6 +11931,8 @@ function updateContinuePanelVisibility() {
   const showWorldDesc = mode === "worlddesc";
   const showSubsynopsis = mode === "subsynopsis";
   const toolPopup = typeof isAiToolPopupMode === "function" && isAiToolPopupMode(mode);
+  const selectPane = $("aiToolsView")?.getAttribute("data-helper-pane") === "select";
+  const selectList = selectPane && typeof isAiSelectListView === "function" && isAiSelectListView();
   if (showContinue) {
     renderContinueLengthOptions();
     if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
@@ -10813,13 +11948,19 @@ function updateContinuePanelVisibility() {
   const worldSubject = $("worldDescSubject");
   if (worldSubject) worldSubject.required = false;
   // Dedicated panels / tool popups hide the free prompt box in the side form.
+  // Select-tab list view also hides the shared prompt (only inline form modes show it).
   const showSuccessPattern = mode === "successpattern";
-  const hideSidePrompt = showContinue || showRewrite || showBrainstorm || showWorldDesc
+  const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showBrainstorm || showWorldDesc
     || showSubsynopsis || showSuccessPattern || toolPopup || isForeshadowToolMode(mode);
   promptWrap?.classList.toggle("hidden", hideSidePrompt);
-  // Side submit is hidden for wizard/tool popup modes (run from modal).
-  $("aiSubmitButton")?.classList.toggle("hidden", showSuccessPattern || toolPopup || isForeshadowToolMode(mode));
-  $("successPatternInlineHint")?.classList.toggle("hidden", !showSuccessPattern);
+  // Side submit is hidden for wizard/tool popup modes (run from modal) and select list.
+  $("aiSubmitButton")?.classList.toggle(
+    "hidden",
+    selectList || aiSuccessFeedbackBlocked || showSuccessPattern || toolPopup || isForeshadowToolMode(mode),
+  );
+  // Reopen hints removed — closing a popup returns to the select list.
+  $("successPatternInlineHint")?.classList.add("hidden");
+  $("aiToolInlineHint")?.classList.add("hidden");
   if (typeof updateAiToolPopupVisibility === "function") {
     updateAiToolPopupVisibility();
   }
@@ -10835,10 +11976,24 @@ function updateContinuePanelVisibility() {
   if (prompt && mode === "subsynopsis") {
     prompt.placeholder = "실행하면 줄거리 개요와 글자수 제한을 정하는 창이 이어져요.";
   }
+  if (typeof syncAiSelectViewUi === "function") syncAiSelectViewUi();
 }
 
 const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
 const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
+
+/** Modes that show prompt + submit after picking from the select list. */
+const AI_INLINE_FORM_MODES = new Set([
+  "summarize",
+  "worldscan",
+  "dupcheck",
+  "analyze",
+  "successfeedback",
+  "ideas",
+]);
+
+/** When true, successfeedback form is gated (no analyzed profiles yet). */
+let aiSuccessFeedbackBlocked = false;
 
 function aiModeGroupIconKind(label) {
   const clean = String(label || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\s]+/u, "").trim();
@@ -10846,14 +12001,171 @@ function aiModeGroupIconKind(label) {
   return "tory";
 }
 
-function closeAiModePicker() {
+function isAiSelectListView() {
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane !== "select") return false;
+  const mode = $("aiMode")?.value || "free";
+  return mode === "free" || !AI_INLINE_FORM_MODES.has(mode);
+}
+
+/** Reset select-tab to the scrollable feature list (after closing a popup, etc.). */
+function returnToAiSelectList() {
+  try {
+    if (typeof closeAiToolModal === "function" && isAiToolModalOpen()) {
+      closeAiToolModal({ dismissed: false, returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    if (typeof closeSuccessPatternModal === "function" && isSuccessPatternModalOpen()) {
+      closeSuccessPatternModal({ dismissed: false, returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    if (typeof closeBrainstormTargetModal === "function") {
+      closeBrainstormTargetModal({ returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
+
+  if (typeof aiToolModalState !== "undefined") {
+    aiToolModalState.dismissed = false;
+    aiToolModalState.mode = "";
+  }
+  if (typeof successPatternState !== "undefined") {
+    successPatternState.modalDismissed = false;
+  }
+
+  const sel = $("aiMode");
+  if (sel && sel.value !== "free") {
+    sel.value = "free";
+  }
+  try { setAiHelperPane("select"); } catch (_) { /* ignore */ }
+  try { syncAiModePickerUi(); } catch (_) { /* ignore */ }
+  try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
+  try { updateContinuePanelVisibility(); } catch (_) { /* ignore */ }
+  try { syncAiSelectViewUi(); } catch (_) { /* ignore */ }
+}
+
+function syncAiSelectViewUi() {
   const picker = $("aiModePicker");
   const menu = $("aiModePickerMenu");
-  const btn = $("aiModePickerButton");
-  picker?.classList.remove("is-open");
-  menu?.classList.add("hidden");
-  menu?.setAttribute("hidden", "");
-  btn?.setAttribute("aria-expanded", "false");
+  const backBtn = $("aiModeBackButton");
+  const labelEl = $("aiModePickerLabel");
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  const mode = $("aiMode")?.value || "free";
+  const onSelect = pane === "select";
+  const showForm = onSelect && AI_INLINE_FORM_MODES.has(mode);
+  const showList = onSelect && !showForm;
+
+  picker?.setAttribute("data-select-view", showForm ? "form" : "list");
+  picker?.classList.toggle("is-form-view", showForm);
+  picker?.classList.toggle("is-list-view", showList);
+
+  if (menu) {
+    if (showList) {
+      menu.classList.remove("hidden");
+      menu.removeAttribute("hidden");
+      if (!menu.childElementCount) renderAiModePickerMenu();
+    } else if (onSelect) {
+      menu.classList.add("hidden");
+      menu.setAttribute("hidden", "");
+    }
+  }
+
+  backBtn?.classList.toggle("hidden", !showForm);
+
+  if (labelEl) {
+    if (!onSelect || showList || mode === "free") {
+      labelEl.textContent = "무엇을 도와드릴까요?";
+    } else {
+      const opt = $("aiMode")?.selectedOptions?.[0];
+      labelEl.textContent = opt?.textContent?.trim() || "무엇을 도와드릴까요?";
+    }
+  }
+
+  $("aiToolInlineHint")?.classList.add("hidden");
+  $("successPatternInlineHint")?.classList.add("hidden");
+  if (!showForm || mode !== "successfeedback") {
+    hideAiSuccessFeedbackGuide();
+  } else {
+    // Gate until profile catalog confirms at least one analysis exists.
+    const knownHas = Array.isArray(successProfileCatalog) && successProfileCatalog.length > 0;
+    if (!knownHas) {
+      aiSuccessFeedbackBlocked = true;
+      $("aiPromptWrap")?.classList.add("hidden");
+      $("aiSubmitButton")?.classList.add("hidden");
+    }
+  }
+  if (typeof updateSuccessFeedbackGuideUi === "function") {
+    updateSuccessFeedbackGuideUi();
+  }
+}
+
+function hideAiSuccessFeedbackGuide() {
+  const guide = $("aiSuccessFeedbackGuide");
+  aiSuccessFeedbackBlocked = false;
+  if (!guide) return;
+  guide.classList.add("hidden");
+  guide.setAttribute("hidden", "");
+}
+
+/**
+ * 흥행 공식 피드백: 분석 프로파일이 없으면 안내만 보여 줌.
+ * (연결은 흥행 공식 분석 결과 프로파일이 있어야 가능)
+ */
+async function updateSuccessFeedbackGuideUi() {
+  const guide = $("aiSuccessFeedbackGuide");
+  const textEl = $("aiSuccessFeedbackGuideText");
+  if (!guide) return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  const mode = $("aiMode")?.value || "";
+  const on = pane === "select" && mode === "successfeedback";
+  if (!on) {
+    hideAiSuccessFeedbackGuide();
+    return;
+  }
+
+  let profiles = [];
+  try {
+    profiles = typeof listSuccessProfiles === "function" ? await listSuccessProfiles() : [];
+  } catch (_) {
+    profiles = [];
+  }
+  // Mode may have changed while awaiting.
+  if (($("aiMode")?.value || "") !== "successfeedback") {
+    hideAiSuccessFeedbackGuide();
+    return;
+  }
+  if ($("aiToolsView")?.getAttribute("data-helper-pane") !== "select") {
+    hideAiSuccessFeedbackGuide();
+    return;
+  }
+
+  const hasAny = Array.isArray(profiles) && profiles.length > 0;
+  if (!hasAny) {
+    aiSuccessFeedbackBlocked = true;
+    if (textEl) {
+      textEl.textContent = "아직 분석한 흥행 작품이 없어요. 흥행 공식 분석을 먼저 이용하세요.";
+    }
+    guide.classList.remove("hidden");
+    guide.removeAttribute("hidden");
+    $("aiPromptWrap")?.classList.add("hidden");
+    $("aiSubmitButton")?.classList.add("hidden");
+    $("successProfileRefWrap")?.classList.add("hidden");
+    return;
+  }
+
+  aiSuccessFeedbackBlocked = false;
+  hideAiSuccessFeedbackGuide();
+  if (!isAiSelectListView()) {
+    $("aiPromptWrap")?.classList.remove("hidden");
+    $("aiSubmitButton")?.classList.remove("hidden");
+  }
+  if (typeof updateSuccessProfileRefUi === "function") updateSuccessProfileRefUi();
+}
+
+function closeAiModePicker() {
+  // Select tab uses a persistent scroll list (no dropdown).
+  $("aiModePicker")?.classList.remove("is-open");
 }
 
 function syncAiModePickerUi() {
@@ -10862,10 +12174,13 @@ function syncAiModePickerUi() {
   const picker = $("aiModePicker");
   if (!sel) return;
   const opt = sel.selectedOptions?.[0] || sel.options?.[sel.selectedIndex];
-  // free: 「직접요청」탭 전용 · 드롭바 제목만 「무엇을 도와드릴까요?」
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  const showForm = pane === "select" && AI_INLINE_FORM_MODES.has(sel.value);
   if (labelEl) {
-    if (sel.value === "free") {
-      labelEl.textContent = "무엇을 도와드릴까요?";
+    if (sel.value === "free" || !showForm) {
+      labelEl.textContent = showForm
+        ? (opt?.textContent?.trim() || "무엇을 도와드릴까요?")
+        : "무엇을 도와드릴까요?";
     } else {
       labelEl.textContent = opt?.textContent?.trim() || "무엇을 도와드릴까요?";
     }
@@ -10880,6 +12195,7 @@ function syncAiModePickerUi() {
   document.querySelectorAll("#aiModePickerMenu [data-ai-mode-value]").forEach((btn) => {
     btn.classList.toggle("is-active", btn.getAttribute("data-ai-mode-value") === sel.value);
   });
+  syncAiSelectViewUi();
 }
 
 function ensureAiModePickerMascots() {
@@ -10936,15 +12252,8 @@ function renderAiModePickerMenu() {
 }
 
 function openAiModePicker() {
-  const picker = $("aiModePicker");
-  const menu = $("aiModePickerMenu");
-  const btn = $("aiModePickerButton");
-  if (!picker || !menu || !btn) return;
   renderAiModePickerMenu();
-  picker.classList.add("is-open");
-  menu.classList.remove("hidden");
-  menu.removeAttribute("hidden");
-  btn.setAttribute("aria-expanded", "true");
+  syncAiSelectViewUi();
 }
 
 function setAiModeValue(value, { silent = false } = {}) {
@@ -10984,10 +12293,14 @@ function installAiModeValueSync(sel) {
 
 function setupAiModePicker() {
   const sel = $("aiMode");
-  const btn = $("aiModePickerButton");
   const menu = $("aiModePickerMenu");
   const picker = $("aiModePicker");
-  if (!sel || !btn || !menu || !picker || picker.dataset.bound === "1") {
+  if (!sel || !menu || !picker) {
+    syncAiModePickerUi();
+    return;
+  }
+  if (picker.dataset.bound === "1") {
+    renderAiModePickerMenu();
     syncAiModePickerUi();
     return;
   }
@@ -10995,31 +12308,31 @@ function setupAiModePicker() {
   installAiModeValueSync(sel);
   renderAiModePickerMenu();
   syncAiModePickerUi();
-  btn.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    if (picker.classList.contains("is-open")) closeAiModePicker();
-    else openAiModePicker();
-  });
   menu.addEventListener("click", (event) => {
     const optBtn = event.target.closest?.("[data-ai-mode-value]");
     if (!optBtn) return;
     event.preventDefault();
     event.stopPropagation();
-    setAiModeValue(optBtn.getAttribute("data-ai-mode-value") || "free");
-    closeAiModePicker();
-  });
-  document.addEventListener("click", (event) => {
-    if (!picker.classList.contains("is-open")) return;
-    if (event.target.closest?.("#aiModePicker")) return;
-    closeAiModePicker();
-  });
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && picker.classList.contains("is-open")) {
-      closeAiModePicker();
+    const value = optBtn.getAttribute("data-ai-mode-value") || "free";
+    if (AI_COMING_MODE_VALUES.has(value)) {
+      toast("아직 준비 중인 기능이에요.");
+      return;
     }
+    setAiModeValue(value);
+    syncAiSelectViewUi();
   });
-  sel.addEventListener("change", () => syncAiModePickerUi());
+  $("aiModeBackButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    returnToAiSelectList();
+  });
+  $("aiSuccessFeedbackOpenAnalysis")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setAiModeValue("successpattern");
+  });
+  sel.addEventListener("change", () => {
+    syncAiModePickerUi();
+    syncAiSelectViewUi();
+  });
 }
 
 /** Highlight 흥행 공식 분석 / 흥행 공식 피드백 in the helper mode select. */
@@ -12989,8 +14302,10 @@ function setAiHelperPane(pane) {
     try { updateContinuePanelVisibility?.(); } catch (_) { /* ignore */ }
     closeAiModePicker?.();
   } else if (next === "select") {
+    try { renderAiModePickerMenu?.(); } catch (_) { /* ignore */ }
     try { syncAiModePickerUi?.(); } catch (_) { /* ignore */ }
     try { updateContinuePanelVisibility?.(); } catch (_) { /* ignore */ }
+    try { syncAiSelectViewUi?.(); } catch (_) { /* ignore */ }
   } else {
     closeAiModePicker?.();
   }
@@ -13734,6 +15049,9 @@ function applyToryChatHighlight(color) {
   const mark = document.createElement("mark");
   mark.className = "tory-chat-hl";
   mark.style.backgroundColor = next;
+  mark.style.color = (typeof contrastInkForHighlightBg === "function"
+    ? contrastInkForHighlightBg(next)
+    : "#1a1510");
   try {
     info.range.surroundContents(mark);
   } catch (_) {
@@ -14859,6 +16177,16 @@ function updateWritingLogButtonUi() {
   label.id = "writingLogClock";
   label.classList.add("format-timer-clock");
 
+  let badge = btn.querySelector("#writingLogOnBadge") || $("writingLogOnBadge");
+  if (!badge || !btn.contains(badge)) {
+    badge = document.createElement("span");
+    badge.id = "writingLogOnBadge";
+    badge.className = "format-tool-badge feature-chip-count feature-chip-on";
+  }
+  badge.textContent = "on";
+  badge.classList.toggle("hidden", !on);
+  badge.setAttribute("aria-hidden", on ? "false" : "true");
+
   if (on) {
     if (!showTimer) {
       label.textContent = "기록중";
@@ -14877,7 +16205,7 @@ function updateWritingLogButtonUi() {
   btn.querySelectorAll(".format-timer-clock").forEach((el) => {
     if (el !== label) el.remove();
   });
-  btn.replaceChildren(icon, label);
+  btn.replaceChildren(icon, label, badge);
 }
 
 function startWritingUiTimer() {
@@ -15958,14 +17286,7 @@ const SETTINGS_BOOKMARK_META = {
   baits: { title: "떡밥모음", open: () => openSettingsCollectionMain("baits") },
   successProfile: {
     title: "흥행작 프로파일 연결",
-    open: async () => {
-      setActiveBinder("settings");
-      state.openSettingsSection = "successProfile";
-      applySettingsSectionState();
-      if (typeof renderLinkedSuccessProfileCard === "function") {
-        await renderLinkedSuccessProfileCard();
-      }
-    },
+    open: () => openSettingsCollectionMain("successProfile"),
   },
   intro: {
     title: "작품소개·기획의도",
@@ -16003,12 +17324,29 @@ const SETTINGS_BOOKMARK_META = {
 const SETTINGS_COLLECTION_MAIN = {
   baits: {
     title: "떡밥모음",
-    hint: "본문 드래그 → 우클릭 던지기, 또는 + 떡밥으로 아이디어를 적어 두세요.",
+    hint: "",
+    tipId: "baitsTipBox",
     section: "baits",
     listId: "baitList",
     addLabel: "+ 떡밥",
     onAdd: () => $("newBaitButton")?.click(),
     render: () => renderBaitList(),
+  },
+  successProfile: {
+    title: "흥행작 프로파일 연결",
+    hint: "흥행 공식 분석으로 만든 프로파일을 이 작품에 연결해 두면, 도우미의 흥행 공식 참고·피드백에 활용할 수 있어요.",
+    section: "successProfile",
+    listId: "successProfileMainPanel",
+    addLabel: "+ 흥행 공식 분석",
+    onAdd: () => {
+      if ($("aiMode")) $("aiMode").value = "successpattern";
+      successPatternState.modalDismissed = false;
+      try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
+      updateSuccessPatternWizardVisibility({ forceOpen: true });
+    },
+    render: () => {
+      void renderLinkedSuccessProfileCard();
+    },
   },
   toryVault: {
     title: "토리의 수집창고",
@@ -16040,9 +17378,13 @@ function isSettingsCollectionMainOpen() {
 
 function restoreSettingsCollectionListHome() {
   if (!settingsCollectionMountRestore) return;
-  const { list, home } = settingsCollectionMountRestore;
+  const { list, home, tip, tipHome } = settingsCollectionMountRestore;
   if (list && home && list.parentElement !== home) {
     home.appendChild(list);
+  }
+  if (tip && tipHome) {
+    if (list && list.parentElement === tipHome) tipHome.insertBefore(tip, list);
+    else if (tip.parentElement !== tipHome) tipHome.appendChild(tip);
   }
   settingsCollectionMountRestore = null;
 }
@@ -16100,7 +17442,14 @@ function openSettingsCollectionMain(key) {
   }
 
   $("settingsCollectionTitle") && ($("settingsCollectionTitle").textContent = cfg.title);
-  $("settingsCollectionHint") && ($("settingsCollectionHint").textContent = cfg.hint);
+  const hintEl = $("settingsCollectionHint");
+  if (hintEl) {
+    const text = cfg.hint || "";
+    hintEl.textContent = text;
+    hintEl.classList.toggle("hidden", !text);
+  }
+  const tipMount = $("settingsCollectionTipMount");
+  if (tipMount) tipMount.replaceChildren();
   const addBtn = $("settingsCollectionAddButton");
   if (addBtn) {
     addBtn.textContent = cfg.addLabel || "+ 추가";
@@ -16126,9 +17475,13 @@ function openSettingsCollectionMain(key) {
     }
   }
 
-  settingsCollectionMountRestore = { list, home: list.parentElement, key };
+  const tip = cfg.tipId ? $(cfg.tipId) : null;
+  const tipHome = tip?.parentElement || null;
+  settingsCollectionMountRestore = { list, home: list.parentElement, key, tip, tipHome };
+  if (tip && tipMount) tipMount.appendChild(tip);
   mount.appendChild(list);
   board.classList.remove("hidden");
+  syncGuideTipBoxes?.();
   cfg.render?.();
 }
 
@@ -16429,7 +17782,7 @@ const AI_TOOL_MODAL_META = {
     lead: "",
     panelId: "rewritePanel",
     showExtraPrompt: false,
-    submitLabel: "확인",
+    submitLabel: "다듬기",
   },
   worlddesc: {
     title: "세계관 묘사",
@@ -16566,7 +17919,7 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
   });
 }
 
-function closeAiToolModal({ dismissed = true } = {}) {
+function closeAiToolModal({ dismissed = true, returnToList = dismissed } = {}) {
   if (isAiToolModalOpen() && $("aiToolModalExtraPromptWrap") && !$("aiToolModalExtraPromptWrap").classList.contains("hidden")) {
     syncAiToolExtraPromptToForm();
   }
@@ -16578,6 +17931,12 @@ function closeAiToolModal({ dismissed = true } = {}) {
   }
   if (dismissed && isAiToolPopupMode()) {
     aiToolModalState.dismissed = true;
+  }
+  if (returnToList) {
+    const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+    if (pane !== "result") {
+      try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+    }
   }
 }
 
@@ -16594,13 +17953,8 @@ function openBrainstormToolFlow({ resetTarget = false, force = false } = {}) {
 function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
   const mode = $("aiMode")?.value || "";
   const on = isAiToolPopupMode(mode);
-  const hint = $("aiToolInlineHint");
-  const hintText = $("aiToolInlineHintText");
-  hint?.classList.toggle("hidden", !on);
-  if (on && hintText) {
-    const label = (typeof aiModeLabel === "function" ? aiModeLabel(mode) : mode) || "이 기능";
-    hintText.textContent = `${label}은(는) 설정 창에서 진행해요. 창을 닫았다면 다시 열 수 있어요.`;
-  }
+  // Closing a popup returns to the feature list — no "설정 창 열기" hint.
+  $("aiToolInlineHint")?.classList.add("hidden");
   if (on) {
     const modeChanged = aiToolModalState.mode !== mode;
     if (forceOpen || modeChanged) {
@@ -16621,7 +17975,7 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
   } else {
     aiToolModalState.dismissed = false;
     aiToolModalState.mode = "";
-    closeAiToolModal({ dismissed: false });
+    closeAiToolModal({ dismissed: false, returnToList: false });
   }
 }
 
@@ -16712,7 +18066,7 @@ function setupAiToolModal() {
       .then(() => {
         // Leave open on validation toasts; close after a successful run when result exists.
         if ($("aiResult")?.value?.trim()) {
-          closeAiToolModal({ dismissed: true });
+          closeAiToolModal({ dismissed: true, returnToList: false });
         }
       })
       .catch(handleError);
@@ -16776,16 +18130,22 @@ function openSuccessPatternModal() {
   });
 }
 
-function closeSuccessPatternModal({ dismissed = true } = {}) {
+function closeSuccessPatternModal({ dismissed = true, returnToList = dismissed } = {}) {
   $("successPatternModal")?.classList.add("hidden");
   if (dismissed && isSuccessPatternMode()) {
     successPatternState.modalDismissed = true;
+  }
+  if (returnToList) {
+    const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+    if (pane !== "result") {
+      try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+    }
   }
 }
 
 function updateSuccessPatternWizardVisibility({ forceOpen = false } = {}) {
   const on = isSuccessPatternMode();
-  $("successPatternInlineHint")?.classList.toggle("hidden", !on);
+  $("successPatternInlineHint")?.classList.add("hidden");
   if (on) {
     $("aiPromptWrap")?.classList.add("hidden");
     $("aiSubmitButton")?.classList.add("hidden");
@@ -16799,7 +18159,7 @@ function updateSuccessPatternWizardVisibility({ forceOpen = false } = {}) {
     }
   } else {
     successPatternState.modalDismissed = false;
-    closeSuccessPatternModal({ dismissed: false });
+    closeSuccessPatternModal({ dismissed: false, returnToList: false });
     // Other modes restore prompt/submit via updateContinuePanelVisibility
   }
 }
@@ -17442,7 +18802,7 @@ async function runSuccessFormulaFeedback() {
     return;
   }
   if (!getLinkedSuccessProfileId()) {
-    toast("연결된 흥행 프로파일이 없어요. 「스페셜 기능 → 흥행 공식 분석」으로 먼저 만들어 주세요.");
+    toast("아직 분석한 흥행 작품이 없거나 연결되지 않았어요. 흥행 공식 분석을 먼저 이용하세요.");
     return;
   }
   if (!state.sceneId) {
@@ -17600,7 +18960,7 @@ async function runSuccessPatternAnalysis() {
       renderLinkedSuccessProfileCard().catch(() => {});
     }
     // 결과 칸으로 시선 이동 — 단계 창은 닫음
-    closeSuccessPatternModal({ dismissed: true });
+    closeSuccessPatternModal({ dismissed: true, returnToList: false });
     if (typeof revealAiAssistResult === "function") {
       revealAiAssistResult({ openModal: true, mode: "successpattern" });
     }
@@ -17721,7 +19081,7 @@ function setupSuccessPatternWizard() {
     updateSuccessPatternWizardVisibility();
   } else {
     $("successPatternInlineHint")?.classList.add("hidden");
-    closeSuccessPatternModal();
+    closeSuccessPatternModal({ dismissed: false, returnToList: false });
   }
 }
 
@@ -18167,18 +19527,19 @@ function setSplitSourceUiMode(isSource) {
   if (titleInput) {
     titleInput.classList.remove("hidden");
     titleInput.readOnly = Boolean(isSource) || !state.splitEditEnabled;
-    titleInput.tabIndex = isSource ? -1 : (state.splitEditEnabled ? 0 : -1);
+    titleInput.tabIndex = isSource ? -1 : (state.splitEditEnabled ? 0 : 0);
     if (isSource) {
-      titleInput.placeholder = "파일명";
-      titleInput.setAttribute("aria-label", "참고자료 파일명");
+      titleInput.placeholder = "자료 이름";
+      titleInput.setAttribute("aria-label", "참고자료 이름");
     } else {
       titleInput.placeholder = "씬 제목";
       titleInput.setAttribute("aria-label", "분할 제목");
     }
   }
+  // Keep companion picker available so users can switch between scenes and sources
   if (sceneSelect) {
-    sceneSelect.disabled = Boolean(isSource);
-    sceneSelect.closest(".split-scene-label")?.classList.toggle("hidden", Boolean(isSource));
+    sceneSelect.disabled = false;
+    sceneSelect.closest(".split-scene-label")?.classList.remove("hidden");
   }
   if (editBtn) {
     editBtn.classList.toggle("hidden", Boolean(isSource));
@@ -18189,7 +19550,7 @@ function setSplitSourceUiMode(isSource) {
       editBtn.disabled = false;
     }
   }
-  if (caption) caption.textContent = isSource ? "참고자료 파일" : "함께볼 회차";
+  if (caption) caption.textContent = "분할 화면";
 }
 
 /** Display name for open reference file (prefer real file name). */
@@ -18223,8 +19584,8 @@ function renderSourceList() {
       ? `<a class="source-card-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`
       : "";
     const isPdf = isFile && (src.viewer === "pdf" || sourceFileExt(src.fileName || src.fileExt || "") === ".pdf");
-    const openBtn = isFile
-      ? `<button type="button" class="primary" data-source-open="${escapeHtml(src.id)}" title="작성 화면 옆에 펼쳐 보기">펼치기</button>`
+    const openBtn = (isFile || url)
+      ? `<button type="button" class="primary" data-source-open="${escapeHtml(src.id)}" title="${isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람"}">${isFile ? "열기" : "링크 열기"}</button>`
       : "";
     const exportBtns = isFile && !isPdf
       ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="Word로 내보내기">DOCX</button>
@@ -18438,14 +19799,16 @@ function applySplitSourceEditUi() {
     btn.setAttribute("aria-pressed", on ? "true" : "false");
     btn.textContent = on ? "편집 중" : "편집";
     btn.title = !canEdit
-      ? "PDF는 SuperTORY에서 글자 편집이 불가합니다"
+      ? (splitSourceViewerMode === "link"
+        ? "링크는 미리보기 전용이에요. 새 탭에서 열어 보세요."
+        : "PDF는 SuperTORY에서 글자 편집이 불가합니다")
       : on
         ? "편집 중 — 누르면 읽기 전용으로 돌아갑니다"
         : "텍스트로 불러온 참고자료를 SuperTORY에서 편집합니다";
   }
   $("splitSourceExportButton")?.classList.toggle("hidden", !canEdit && splitSourceViewerMode !== "text" && splitSourceViewerMode !== "pdf");
-  // PDF: still allow downloading original via export only if we re-download blob - hide export for pure pdf native, or allow "원본 PDF" later
-  if (splitSourceViewerMode === "pdf") {
+  // PDF / link: hide text export menu
+  if (splitSourceViewerMode === "pdf" || splitSourceViewerMode === "link") {
     $("splitSourceExportButton")?.classList.add("hidden");
   } else if (splitSourceViewerMode === "text") {
     $("splitSourceExportButton")?.classList.remove("hidden");
@@ -18618,23 +19981,38 @@ async function exportSourceById(sourceId, formatKey) {
 }
 
 async function openSourceFileInSplit(sourceId, mode = "split") {
+  return openSourceInSplit(sourceId, mode);
+}
+
+/** Open a project reference (file or link) in the companion pane / popup. Manuscript optional. */
+async function openSourceInSplit(sourceId, mode = "split") {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!state.sceneId) return toast("먼저 작성 중인 회차를 열어 주세요. 옆에 자료를 펼칩니다.");
   const src = loadSources().find((s) => s.id === sourceId);
-  if (!src || (src.kind !== "file" && !src.fileName)) {
-    return toast("파일 자료를 찾지 못했어요.");
-  }
+  if (!src) return toast("참고자료를 찾지 못했어요.");
+  const hasFile = src.kind === "file" || Boolean(src.fileName);
+  const url = String(src.url || "").trim();
+  if (!hasFile && !url) return toast("열 수 있는 파일이나 링크가 없어요.");
+
   await flushSplitEdits();
   if (splitSourceDirty) {
     try { await saveSplitSourceText({ quiet: true }); } catch (_) { /* ignore */ }
   }
   revokeSplitSourceObjectUrl();
+  const linkFrame = $("splitSourceLink");
+  if (linkFrame) {
+    linkFrame.src = "about:blank";
+    linkFrame.classList.add("hidden");
+  }
   splitSourceEditEnabled = false;
   splitSourceDirty = false;
   splitSourceViewerMode = "";
   hideSplitSourceExportMenu();
+
+  // Without an open manuscript, use popup so the viewer can stand alone over welcome/settings.
+  const standalone = !state.sceneId;
+  const nextMode = standalone ? "popup" : (mode === "popup" ? "popup" : "split");
   state.splitEnabled = true;
-  state.splitMode = mode === "popup" ? "popup" : "split";
+  state.splitMode = nextMode;
   state.splitKind = "source";
   state.splitSourceId = sourceId;
   state.splitSceneId = null;
@@ -18642,10 +20020,86 @@ async function openSourceFileInSplit(sourceId, mode = "split") {
   if (state.splitEditEnabled) setSplitEditEnabled(false, { silent: true });
   applySplitLayout();
   closeViewModeMenu();
+  fillSplitCompanionSelect();
   await renderSplitSourceViewer();
-  toast(state.splitMode === "popup"
-    ? "참고자료를 팝업으로 열었어요. 텍스트 자료는 편집·내보내기가 가능해요."
-    : "참고자료를 옆에 펼쳤어요. 텍스트 자료는 편집 후 Word·한글로 내보낼 수 있어요.");
+  toast(standalone
+    ? (hasFile ? "참고자료를 단독 창으로 열었어요." : "링크를 단독 창으로 열었어요.")
+    : (state.splitMode === "popup"
+      ? "참고자료를 팝업으로 열었어요."
+      : "참고자료를 옆에 펼쳤어요."));
+}
+
+function fillSplitCompanionSelect() {
+  const select = $("splitSceneSelect");
+  if (!select) return;
+  const scenes = allScenes().filter((scene) => scene.id !== state.sceneId);
+  const sources = typeof loadSources === "function" ? loadSources() : [];
+  const parts = [];
+  if (scenes.length) {
+    parts.push(`<optgroup label="회차">${scenes.map((scene) => {
+      const selected = state.splitKind !== "source" && Number(scene.id) === Number(state.splitSceneId);
+      const label = `${scene.chapterTitle || "폴더"} · ${scene.title || "회차"}`;
+      return `<option value="scene:${scene.id}" ${selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
+    }).join("")}</optgroup>`);
+  }
+  if (sources.length) {
+    parts.push(`<optgroup label="참고자료">${sources.map((src) => {
+      const isFile = src.kind === "file" || Boolean(src.fileName);
+      const url = String(src.url || "").trim();
+      if (!isFile && !url) return "";
+      const selected = state.splitKind === "source" && String(src.id) === String(state.splitSourceId);
+      const tag = isFile ? "파일" : "링크";
+      const label = getSplitSourceDisplayName(src);
+      return `<option value="source:${escapeHtml(src.id)}" ${selected ? "selected" : ""}>[${tag}] ${escapeHtml(label)}</option>`;
+    }).filter(Boolean).join("")}</optgroup>`);
+  }
+  if (!parts.length) {
+    select.innerHTML = `<option value="">(함께볼 항목 없음)</option>`;
+    return;
+  }
+  select.innerHTML = parts.join("");
+  if (state.splitKind === "source" && state.splitSourceId) {
+    select.value = `source:${state.splitSourceId}`;
+  } else if (state.splitSceneId) {
+    select.value = `scene:${state.splitSceneId}`;
+  }
+}
+
+async function selectSplitCompanion() {
+  const raw = String($("splitSceneSelect")?.value || "");
+  if (!raw) return;
+  if (raw.startsWith("source:")) {
+    const id = raw.slice(7);
+    if (state.splitKind === "source" && String(state.splitSourceId) === String(id)) return;
+    await openSourceInSplit(id, state.splitMode || "split");
+    return;
+  }
+  let nextId = 0;
+  if (raw.startsWith("scene:")) nextId = Number(raw.slice(6));
+  else nextId = Number(raw);
+  if (!nextId || !Number.isFinite(nextId)) return;
+  if (state.splitKind === "scene" && nextId === state.splitSceneId) return;
+  await flushSplitEdits();
+  if (splitSourceDirty) {
+    try { await saveSplitSourceText({ quiet: true }); } catch (_) { /* ignore */ }
+  }
+  revokeSplitSourceObjectUrl();
+  const linkFrame = $("splitSourceLink");
+  if (linkFrame) {
+    linkFrame.src = "about:blank";
+    linkFrame.classList.add("hidden");
+  }
+  state.splitKind = "scene";
+  state.splitSourceId = null;
+  state.splitSceneId = nextId;
+  splitSourceViewerMode = "";
+  splitSourceEditEnabled = false;
+  setSplitSourceUiMode(false);
+  await renderSplitViewer();
+}
+
+async function selectSplitScene() {
+  return selectSplitCompanion();
 }
 
 async function renderSplitSourceViewer() {
@@ -18653,22 +20107,33 @@ async function renderSplitSourceViewer() {
   const src = loadSources().find((s) => s.id === state.splitSourceId);
   if (!src) {
     await closeSplitView();
-    toast("참고자료 파일을 찾지 못해 보기를 닫았어요.");
+    toast("참고자료를 찾지 못해 보기를 닫았어요.");
     return;
   }
   setSplitSourceUiMode(true);
+  fillSplitCompanionSelect();
   updateSplitChrome();
   applySplitEditMode();
 
   const badge = $("splitSourceBadge");
   const nameEl = $("splitSourceFileName");
   const pdf = $("splitSourcePdf");
+  const linkFrame = $("splitSourceLink");
   const textEl = $("splitSourceText");
   const msg = $("splitSourceMessage");
+  const hasFile = src.kind === "file" || Boolean(src.fileName);
+  const url = String(src.url || "").trim();
   const ext = sourceFileExt(src.fileName || src.fileExt || "");
-  if (badge) badge.textContent = sourceFileKindLabel(ext);
-  if (nameEl) nameEl.textContent = src.fileName || src.title || "파일";
-  if (pdf) pdf.classList.add("hidden");
+  if (badge) badge.textContent = hasFile ? sourceFileKindLabel(ext) : "링크";
+  if (nameEl) nameEl.textContent = getSplitSourceDisplayName(src);
+  if (pdf) {
+    pdf.classList.add("hidden");
+    pdf.removeAttribute("src");
+  }
+  if (linkFrame) {
+    linkFrame.classList.add("hidden");
+    linkFrame.src = "about:blank";
+  }
   if (textEl) {
     textEl.classList.add("hidden");
     textEl.innerHTML = "";
@@ -18676,6 +20141,39 @@ async function renderSplitSourceViewer() {
   if (msg) {
     msg.classList.add("hidden");
     msg.textContent = "";
+  }
+
+  const applyTitle = (displayName) => {
+    if (nameEl) nameEl.textContent = displayName;
+    if ($("splitSceneTitleInput")) {
+      const titleEl = $("splitSceneTitleInput");
+      titleEl.classList.remove("hidden");
+      titleEl.readOnly = true;
+      titleEl.value = displayName;
+      titleEl.title = displayName;
+      titleEl.placeholder = "자료 이름";
+    }
+  };
+
+  // URL-only reference: preview in iframe + external open fallback
+  if (!hasFile && url) {
+    splitSourceViewerMode = "link";
+    splitSourceEditEnabled = false;
+    applySplitSourceEditUi();
+    if (linkFrame) {
+      linkFrame.src = url;
+      linkFrame.classList.remove("hidden");
+    }
+    if (msg) {
+      msg.classList.remove("hidden");
+      msg.innerHTML = `미리보기가 안 보이면 <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">새 탭에서 열기</a>`;
+    }
+    setSplitSaveStatus("참고자료 · 링크 미리보기");
+    applyTitle(getSplitSourceDisplayName(src));
+    if (state.splitMode === "split") {
+      requestAnimationFrame(() => layoutSplitPrimaryPane());
+    }
+    return;
   }
 
   let record = null;
@@ -18693,6 +20191,20 @@ async function renderSplitSourceViewer() {
   if (!record) {
     splitSourceViewerMode = "";
     applySplitSourceEditUi();
+    if (url) {
+      splitSourceViewerMode = "link";
+      if (linkFrame) {
+        linkFrame.src = url;
+        linkFrame.classList.remove("hidden");
+      }
+      if (msg) {
+        msg.classList.remove("hidden");
+        msg.innerHTML = `파일 본문이 없어 링크로 열어요. <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">새 탭에서 열기</a>`;
+      }
+      setSplitSaveStatus("참고자료 · 링크 미리보기");
+      applyTitle(getSplitSourceDisplayName(src));
+      return;
+    }
     if (msg) {
       msg.classList.remove("hidden");
       msg.textContent = "이 기기에 파일 본문이 없어요. 수정에서 파일을 다시 올려 주세요.";
@@ -18720,7 +20232,6 @@ async function renderSplitSourceViewer() {
         msg.textContent = (src.warnings && src.warnings[0])
           || "이 파일에서 표시할 글자를 찾지 못했어요.";
       }
-      // Still allow empty editable note
       if (textEl) {
         textEl.innerHTML = "";
         textEl.classList.remove("hidden");
@@ -18735,17 +20246,7 @@ async function renderSplitSourceViewer() {
   }
 
   applySplitSourceEditUi();
-
-  const displayName = getSplitSourceDisplayName(src);
-  if (nameEl) nameEl.textContent = displayName;
-  if ($("splitSceneTitleInput")) {
-    const titleEl = $("splitSceneTitleInput");
-    titleEl.classList.remove("hidden");
-    titleEl.readOnly = true;
-    titleEl.value = displayName;
-    titleEl.title = displayName;
-    titleEl.placeholder = "파일명";
-  }
+  applyTitle(getSplitSourceDisplayName(src));
   if (state.splitMode === "split") {
     requestAnimationFrame(() => layoutSplitPrimaryPane());
   }
@@ -19389,7 +20890,7 @@ function renderBaitList() {
   if (!list) return;
   const baits = loadBaits();
   if (!baits.length) {
-    list.innerHTML = `<p class="hint bait-empty">아직 떡밥이 없어요.<br>본문 드래그 → 우클릭 던지기, 또는 + 떡밥으로 아이디어를 적어 보세요.</p>`;
+    list.innerHTML = `<p class="hint bait-empty">아직 떡밥이 없어요.</p>`;
     return;
   }
   list.innerHTML = baits.map((bait) => {
@@ -20422,37 +21923,10 @@ function renderBookmarkBar(options = {}) {
   }
 }
 
-const HEADER_NOTICE_STORAGE = {
-  ideas: "supertory.headerIdeaNoticeHidden",
-};
-
-function isHeaderNoticeHidden(kind) {
-  try {
-    return sessionStorage.getItem(HEADER_NOTICE_STORAGE[kind]) === "1";
-  } catch (_) {
-    return false;
-  }
-}
-
-function setHeaderNoticeHidden(kind, hidden) {
-  try {
-    if (hidden) sessionStorage.setItem(HEADER_NOTICE_STORAGE[kind], "1");
-    else sessionStorage.removeItem(HEADER_NOTICE_STORAGE[kind]);
-  } catch (_) {
-    /* ignore */
-  }
-}
-
-function applyHeaderNoticeVisibility() {
-  const idea = $("headerIdeaNotice");
-  idea?.classList.toggle("is-dismissed", isHeaderNoticeHidden("ideas"));
-}
-
 function renderHeaderIdeaBar() {
   const bar = $("headerIdeaBar");
   if (!bar) return;
-  applyHeaderNoticeVisibility();
-  const ideas = state.projectId ? state.ideas : [];
+  const ideas = (state.projectId ? state.ideas : []).filter(ideaIsPinned);
   setHeaderNoticeFillState("headerIdeaNotice", ideas.length > 0);
   if (!ideas.length) {
     bar.innerHTML = "";
@@ -20460,7 +21934,13 @@ function renderHeaderIdeaBar() {
   }
   bar.innerHTML = ideas.slice(0, 8).map((idea) => {
     const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || "메모");
-    return `<button type="button" class="header-idea-chip color-${escapeHtml(idea.color || "yellow")}" data-header-idea="${idea.id}" title="${label}" role="listitem">${label}</button>`;
+    return (
+      `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
+      + `data-header-idea="${idea.id}" title="${label} · 목차 하단 고정" role="listitem">`
+      + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(14)}</span>`
+      + `<span class="header-idea-chip-label">${label}</span>`
+      + `</button>`
+    );
   }).join("");
   bar.querySelectorAll("[data-header-idea]").forEach((btn) => {
     btn.addEventListener("click", () => openIdeaBoard(Number(btn.dataset.headerIdea)));
@@ -20468,18 +21948,6 @@ function renderHeaderIdeaBar() {
 }
 
 function setupHeaderNotices() {
-  applyHeaderNoticeVisibility();
-  document.querySelectorAll("[data-header-notice]").forEach((btn) => {
-    if (btn.dataset.bound === "1") return;
-    btn.dataset.bound = "1";
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      const kind = btn.dataset.headerNotice;
-      if (!HEADER_NOTICE_STORAGE[kind]) return;
-      setHeaderNoticeHidden(kind, true);
-      applyHeaderNoticeVisibility();
-    });
-  });
   renderHeaderIdeaBar();
 }
 
@@ -21978,6 +23446,13 @@ const DESKTOP_INK_KEY = "supertory.pageInk";
 /** "all" = whole project default · "scene" = current episode only */
 const PAGE_THEME_SCOPE_KEY = "supertory.pageThemeScope";
 const SCENE_PAGE_THEME_PREFIX = "supertory.scenePageTheme.v1.";
+/** UI 테마별 작성 화면 바탕 기억 (users can still change via page color menu) */
+const UI_THEME_PAGE_PREF_PREFIX = "supertory.uiThemePageTheme.";
+/** legacy classroom-only key (migrated on read) */
+const CLASSROOM_PAGE_THEME_KEY = "supertory.classroomPageTheme";
+/** 특수 UI(교실·다락방) 들어가기 전 전역 페이지 색 — 나갈 때 복원 */
+const PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY = "supertory.pageThemeStashBeforeSpecialUi";
+const PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY = "supertory.pageThemeStashBeforeClassroom"; // legacy
 const DESKTOP_THEMES = new Set([
   "ivory", "white", "gray", "sepia", "mint", "lavender", "night", "chalkboard", "custom",
 ]);
@@ -21991,6 +23466,262 @@ const THEME_DEFAULT_INK = {
   night: "#f2ebe3",
   chalkboard: "#ffffff",
 };
+/** UI 테마별 작성 화면 기본 바탕 (색 변경 메뉴는 그대로 사용 가능) */
+const UI_THEME_WRITING_PAGE_DEFAULTS = {
+  // 화이트: 기본 · 주간 · 구름 산책 · E ink · 봄날 정원 · 은빛안개
+  light: { theme: "white", customColor: null },
+  sand: { theme: "white", customColor: null },
+  "cloud-walk": { theme: "white", customColor: null },
+  eink: { theme: "white", customColor: null },
+  "spring-garden": { theme: "white", customColor: null },
+  "silver-fog": { theme: "white", customColor: null },
+  // 비밀 서재: 아이보리
+  study: { theme: "ivory", customColor: null },
+  // 새벽 도서관: R244 G248 B251
+  library: { theme: "custom", customColor: "#F4F8FB" },
+  classroom: { theme: "chalkboard", customColor: null },
+  // 야간(다크): R63 G59 B54
+  dark: { theme: "custom", customColor: "#3F3B36" },
+  // 숲속 오두막: R249 G253 B247
+  cabin: { theme: "custom", customColor: "#F9FDF7" },
+  // 심야 다락방: R217 G217 B217
+  attic: { theme: "custom", customColor: "#D9D9D9" },
+  // 노을빛 창가: 세피아
+  "sunset-window": { theme: "sepia", customColor: null },
+};
+
+/** UI 테마에 지정된 작성 화면 기본 바탕 (사용자 변경분 제외 · 테마색 복원용) */
+function getUiThemeWritingPageDefault(ui) {
+  const id = normalizeUiThemeId(ui);
+  const fallback = UI_THEME_WRITING_PAGE_DEFAULTS[id];
+  if (!fallback) return null;
+  return {
+    theme: fallback.theme,
+    customColor: fallback.customColor || null,
+  };
+}
+
+function resolvePageThemeSwatchColor(theme, customColor = null) {
+  if (theme === "custom") return customColor || "#fffdf8";
+  if (theme === "ivory") return "#fffdf8";
+  if (theme === "white") return "#ffffff";
+  if (theme === "gray") return "#f1f2f4";
+  if (theme === "sepia") return "#f4ead5";
+  if (theme === "mint") return "#eef8f3";
+  if (theme === "lavender") return "#f4f0fb";
+  if (theme === "night") return "#1c1b1a";
+  if (theme === "chalkboard") return "#1f4d2e";
+  return "#fffdf8";
+}
+
+function isPageThemeMatchingUiDefault(theme, customColor = null, ui = getUiTheme()) {
+  const def = getUiThemeWritingPageDefault(ui);
+  if (!def || def.theme !== theme) return false;
+  if (def.theme === "custom") {
+    return sameCssHex(customColor || "", def.customColor || "");
+  }
+  return true;
+}
+
+/** 페이지 색 팔레트의 「테마색」 스와치 표시 · 미리보기 */
+function syncUiThemePageColorSwatch(activeTheme = null, activeCustom = null) {
+  const btn = $("pageThemeUiDefaultSwatch");
+  const preview = $("pageThemeUiDefaultPreview");
+  if (!btn) return;
+  const ui = normalizeUiThemeId(getUiTheme());
+  const def = getUiThemeWritingPageDefault(ui);
+  if (!def) {
+    btn.classList.add("hidden");
+    btn.hidden = true;
+    btn.classList.remove("is-active");
+    return;
+  }
+  btn.classList.remove("hidden");
+  btn.hidden = false;
+  const labels = {
+    light: "테마색 · 화이트 (기본)",
+    sand: "테마색 · 화이트 (주간)",
+    "cloud-walk": "테마색 · 화이트 (구름 산책)",
+    eink: "테마색 · 화이트 (E ink)",
+    "spring-garden": "테마색 · 화이트 (봄날 정원)",
+    "silver-fog": "테마색 · 화이트 (은빛안개)",
+    study: "테마색 · 아이보리 (서재)",
+    library: "테마색 · 도서관",
+    classroom: "테마색 · 칠판 (교실)",
+    dark: "테마색 · 야간",
+    cabin: "테마색 · 오두막",
+    attic: "테마색 · 다락방",
+    "sunset-window": "테마색 · 세피아 (노을빛 창가)",
+  };
+  const title = labels[ui] || "테마색";
+  btn.title = `${title} · 이 UI 테마의 기본 작성 바탕`;
+  btn.setAttribute("aria-label", title);
+  const swatchColor = resolvePageThemeSwatchColor(def.theme, def.customColor);
+  if (preview) preview.style.background = swatchColor;
+  let theme = activeTheme;
+  let custom = activeCustom;
+  if (theme == null) {
+    const global = getGlobalPageTheme();
+    theme = document.body?.dataset?.pageTheme || global.theme;
+    custom = global.customColor;
+    if (theme === "custom") {
+      custom = document.documentElement.style.getPropertyValue("--page-bg")?.trim()
+        || custom
+        || $("desktopColorPicker")?.value
+        || custom;
+    }
+  }
+  btn.classList.toggle("is-active", isPageThemeMatchingUiDefault(theme, custom, ui));
+}
+
+function isSpecialWritingPageUi(ui) {
+  return Boolean(UI_THEME_WRITING_PAGE_DEFAULTS[normalizeUiThemeId(ui)]);
+}
+
+function uiThemePagePrefKey(ui) {
+  return `${UI_THEME_PAGE_PREF_PREFIX}${normalizeUiThemeId(ui)}`;
+}
+
+function parseStoredPageThemePref(raw) {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (parsed && DESKTOP_THEMES.has(parsed.theme)) {
+      return {
+        theme: parsed.theme,
+        customColor: parsed.customColor || null,
+      };
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+/** UI 테마별 작성 바탕 (기본값 또는 사용자가 그 테마에서 고른 색) */
+function getUiThemeWritingPagePreference(ui) {
+  const id = normalizeUiThemeId(ui);
+  const fallback = UI_THEME_WRITING_PAGE_DEFAULTS[id];
+  if (!fallback) return null;
+  try {
+    const stored = parseStoredPageThemePref(localStorage.getItem(uiThemePagePrefKey(id)));
+    if (stored) return stored;
+    // 교실: 예전 단일 키 호환
+    if (id === "classroom") {
+      const legacy = parseStoredPageThemePref(localStorage.getItem(CLASSROOM_PAGE_THEME_KEY));
+      if (legacy) return legacy;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  return { ...fallback };
+}
+
+function saveUiThemeWritingPagePreference(ui, theme, customColor = null) {
+  const id = normalizeUiThemeId(ui);
+  if (!UI_THEME_WRITING_PAGE_DEFAULTS[id] || !DESKTOP_THEMES.has(theme)) return;
+  try {
+    const payload = JSON.stringify({
+      theme,
+      customColor: theme === "custom" ? (customColor || "#fffdf8") : null,
+    });
+    localStorage.setItem(uiThemePagePrefKey(id), payload);
+    if (id === "classroom") {
+      localStorage.setItem(CLASSROOM_PAGE_THEME_KEY, payload);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function stashPageThemeBeforeSpecialUi() {
+  try {
+    if (localStorage.getItem(PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY)
+      || localStorage.getItem(PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY)) {
+      return;
+    }
+    localStorage.setItem(PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY, JSON.stringify(getGlobalPageTheme()));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function restorePageThemeStashBeforeSpecialUi() {
+  try {
+    let raw = localStorage.getItem(PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY);
+    localStorage.removeItem(PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY);
+    if (!raw) {
+      raw = localStorage.getItem(PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY);
+      localStorage.removeItem(PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY);
+    } else {
+      localStorage.removeItem(PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY);
+    }
+    return parseStoredPageThemePref(raw);
+  } catch (_) {
+    /* ignore */
+  }
+  return null;
+}
+
+function hasPageThemeStashBeforeSpecialUi() {
+  try {
+    return Boolean(
+      localStorage.getItem(PAGE_THEME_STASH_BEFORE_SPECIAL_UI_KEY)
+      || localStorage.getItem(PAGE_THEME_STASH_BEFORE_CLASSROOM_KEY),
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * 테마 전환 시 해당 테마의 기본 작성 바탕을 강제 적용.
+ * 이전에 고른 사용자 지정 색은 새 테마에 가져가지 않는다.
+ * 같은 테마로 다시 그릴 때(새로고침)만 그 테마에서 고른 색을 유지.
+ */
+function syncUiThemeWritingPageTheme(prevUi, nextUi) {
+  if (nextUi === "eink") return;
+  const prev = normalizeUiThemeId(prevUi);
+  const next = normalizeUiThemeId(nextUi);
+  const nextDef = getUiThemeWritingPageDefault(next);
+  if (!nextDef) return;
+
+  const switching = prev !== next;
+  if (switching) {
+    try {
+      localStorage.removeItem(uiThemePagePrefKey(next));
+      if (next === "classroom") localStorage.removeItem(CLASSROOM_PAGE_THEME_KEY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  const page = switching ? nextDef : (getUiThemeWritingPagePreference(next) || nextDef);
+  applyDesktopTheme(page.theme, page.customColor, {
+    announce: false,
+    fromUser: false,
+    persistGlobal: true,
+  });
+  if (!switching && state.sceneId && getScenePageTheme(state.sceneId)) {
+    const override = getScenePageTheme(state.sceneId);
+    applyDesktopTheme(override.theme, override.customColor, {
+      announce: false,
+      persistGlobal: false,
+    });
+  }
+}
+
+/** @deprecated use syncUiThemeWritingPageTheme */
+function syncClassroomWritingPageTheme(prevUi, nextUi) {
+  return syncUiThemeWritingPageTheme(prevUi, nextUi);
+}
+
+function getClassroomPageThemePreference() {
+  return getUiThemeWritingPagePreference("classroom");
+}
+
+function saveClassroomPageThemePreference(theme, customColor = null) {
+  saveUiThemeWritingPagePreference("classroom", theme, customColor);
+}
 
 function getPageThemeScope() {
   try {
@@ -22140,6 +23871,7 @@ function lockEinkEditorPaper() {
     node.style.pointerEvents = "auto";
     node.style.cursor = "text";
   });
+  requestAnimationFrame(() => syncManuscriptStatusContrast());
 }
 
 function unlockEinkEditorPaper() {
@@ -22201,6 +23933,43 @@ function themeDefaultInk(theme = document.body.dataset.pageTheme || "ivory", cus
   return THEME_DEFAULT_INK[theme] || THEME_DEFAULT_INK.ivory;
 }
 
+function isWritingPageDark(theme, customColor = null) {
+  if (theme === "chalkboard" || theme === "night") return true;
+  if (theme === "custom") return isColorDark(customColor || "#fffdf8");
+  return false;
+}
+
+function paintPageInkOnEditors(color) {
+  const next = color || "";
+  document.querySelectorAll(
+    ".rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor"
+  ).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    if (next) {
+      node.style.color = next;
+      node.style.caretColor = next;
+    } else {
+      node.style.removeProperty("color");
+      node.style.removeProperty("caret-color");
+    }
+  });
+}
+
+/** 작성 바탕과 저장된 잉크 대비가 안 되면 읽히는 쪽으로 맞춤. 자동 반전은 저장하지 않음. */
+function applyReadablePageInk(theme, customColor = null) {
+  const darkPage = isWritingPageDark(theme, customColor);
+  const saved = getSavedPageInk();
+  if (saved && isColorDark(saved) !== darkPage) {
+    applyPageInk(saved, { announce: false });
+    return;
+  }
+  if (darkPage) {
+    applyChalkboardEditorDefaults(true);
+    return;
+  }
+  applyPageInk(themeDefaultInk(theme, customColor), { announce: false, persist: false });
+}
+
 function syncPageInkUi(color) {
   const picker = $("pageInkColorPicker");
   const swatch = $("pageInkSwatch");
@@ -22218,56 +23987,70 @@ function applyPageInk(color, options = {}) {
     return "#000000";
   }
   // Default body text color for the writing pane (not selection formatting).
-  const editor = $("sceneContent");
   const reset = Boolean(options.reset);
+  const persist = options.persist !== false && !reset;
   let next = String(color || "").trim();
   if (reset || !next) {
     try { localStorage.removeItem(DESKTOP_INK_KEY); } catch (_) { /* ignore */ }
     document.body.style.removeProperty("--page-ink");
-    if (editor) {
-      editor.style.color = "";
-      editor.style.caretColor = "";
-    }
+    paintPageInkOnEditors("");
     syncPageInkUi(themeDefaultInk());
     if (options.announce) toast("기본 글자색을 테마 기본으로 돌렸어요.");
     return themeDefaultInk();
   }
   if (!next.startsWith("#")) next = `#${next}`;
   if (!/^#[0-9a-fA-F]{6}$/.test(next)) return getSavedPageInk() || themeDefaultInk();
-  try { localStorage.setItem(DESKTOP_INK_KEY, next); } catch (_) { /* ignore */ }
+  if (persist) {
+    try { localStorage.setItem(DESKTOP_INK_KEY, next); } catch (_) { /* ignore */ }
+  }
   // Inline on body so it overrides theme CSS custom properties.
   document.body.style.setProperty("--page-ink", next);
-  if (editor) {
-    editor.style.color = next;
-    editor.style.caretColor = next;
-  }
+  paintPageInkOnEditors(next);
   syncPageInkUi(next);
   if (options.announce) toast("본문 기본 글자색을 바꿨어요.");
   return next;
 }
 
 function applyChalkboardEditorDefaults(enabled) {
-  // Prefer saved custom ink; otherwise light ink on dark page themes.
+  // 칠판·야간 등 어두운 바탕: 기본 흰 글자.
+  // 저장된 잉크가 어두우면(이전 테마) 칠판에서 안 보이므로 무시하고 흰색 적용.
+  // 사용자가 고른 밝은 잉크만 유지.
   const saved = getSavedPageInk();
+  if (enabled) {
+    if (saved && !isColorDark(saved)) {
+      applyPageInk(saved, { announce: false });
+      return;
+    }
+    // 테마 CSS(--page-ink: #fff)가 먹도록 인라인 덮어쓰기 제거 후 에디터만 흰색
+    try { document.body.style.removeProperty("--page-ink"); } catch (_) { /* ignore */ }
+    document.querySelectorAll(
+      ".rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor"
+    ).forEach((node) => {
+      if (!(node instanceof HTMLElement)) return;
+      node.style.color = "#ffffff";
+      node.style.caretColor = "#ffffff";
+    });
+    syncPageInkUi("#ffffff");
+    return;
+  }
   if (saved) {
     applyPageInk(saved, { announce: false });
     return;
   }
   const editor = $("sceneContent");
-  if (enabled) {
-    if (editor) {
-      editor.style.color = "#ffffff";
-      editor.style.caretColor = "#ffffff";
-    }
-    syncPageInkUi("#ffffff");
-  } else {
-    if (editor) {
-      editor.style.color = "";
-      editor.style.caretColor = "";
-    }
-    document.body.style.removeProperty("--page-ink");
-    syncPageInkUi(themeDefaultInk());
+  if (editor) {
+    editor.style.color = "";
+    editor.style.caretColor = "";
   }
+  document.querySelectorAll(
+    "#splitSceneContent, .focus-write-editor, .split-body-editor"
+  ).forEach((node) => {
+    if (!(node instanceof HTMLElement)) return;
+    node.style.removeProperty("color");
+    node.style.removeProperty("caret-color");
+  });
+  document.body.style.removeProperty("--page-ink");
+  syncPageInkUi(themeDefaultInk());
 }
 
 function applyDesktopTheme(theme, customColor = null, options = {}) {
@@ -22311,21 +24094,23 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
     document.documentElement.style.removeProperty("--page-line");
   }
 
-  // Custom default ink (if any) wins; else dark themes get light ink.
-  const savedInk = getSavedPageInk();
-  if (savedInk) {
-    applyPageInk(savedInk, { announce: false });
-  } else {
-    applyChalkboardEditorDefaults(next === "chalkboard" || next === "night" || (next === "custom" && isColorDark(customColor || $("desktopColorPicker")?.value || "#fffdf8")));
-  }
+  // 작성 바탕과 글자색 대비: 어두운 화면→밝은 화면이면 흰 글자를 어두운 기본색으로 맞춤
+  applyReadablePageInk(next, customColor);
 
   document.querySelectorAll("#desktopContextMenu [data-desktop-theme]").forEach((button) => {
-    button.classList.toggle("is-active", button.dataset.desktopTheme === next);
+    const key = button.dataset.desktopTheme;
+    if (key === "ui-theme-default") {
+      button.classList.toggle("is-active", isPageThemeMatchingUiDefault(next, customColor));
+    } else {
+      button.classList.toggle("is-active", key === next);
+    }
   });
+  try { syncUiThemePageColorSwatch(next, customColor); } catch (_) { /* ignore */ }
 
   if (fromUser && scope === "scene" && state.sceneId) {
     setScenePageTheme(state.sceneId, next, customColor);
     if (announce) toast("현재 회차에만 페이지 색을 적용했어요.");
+    requestAnimationFrame(() => syncManuscriptStatusContrast());
     return;
   }
 
@@ -22338,6 +24123,10 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
     } catch (_) {
       /* ignore */
     }
+    // 교실·다락방 등에서 바꾼 작성 바탕은 해당 UI 테마 전용으로도 기억
+    if (fromUser && isSpecialWritingPageUi(getUiTheme())) {
+      saveUiThemeWritingPagePreference(getUiTheme(), next, customColor);
+    }
     // Project-wide: drop this scene override so it follows the shared default.
     if (fromUser && scope === "all" && state.sceneId) {
       clearScenePageTheme(state.sceneId);
@@ -22348,6 +24137,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
         : "본문 페이지 색을 바꿨어요.");
     }
   }
+  requestAnimationFrame(() => syncManuscriptStatusContrast());
 }
 
 function isColorDark(hex) {
@@ -22359,6 +24149,35 @@ function isColorDark(hex) {
   // Relative luminance approximation.
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return luminance < 0.45;
+}
+
+/** 글자수 바: 본문 페이지 바탕이 어두우면 글자·칩 대비를 밝게 */
+function syncManuscriptStatusContrast() {
+  const wrap = $("manuscriptStatusWrap");
+  const frame = $("manuscriptFrame");
+  if (!wrap && !frame) return;
+  let hex = "";
+  try {
+    const bodyCs = getComputedStyle(document.body);
+    const rootCs = getComputedStyle(document.documentElement);
+    hex = cssColorToHex(bodyCs.getPropertyValue("--page-editor-bg"))
+      || cssColorToHex(rootCs.getPropertyValue("--page-editor-bg"))
+      || cssColorToHex(bodyCs.getPropertyValue("--page-bg"))
+      || cssColorToHex(rootCs.getPropertyValue("--page-bg"));
+    if (!hex) {
+      const page = $("manuscriptPage");
+      if (page) hex = cssColorToHex(getComputedStyle(page).backgroundColor);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const theme = String(document.body?.dataset?.pageTheme || "");
+  const dark = theme === "chalkboard"
+    || theme === "night"
+    || (normalizeUiThemeId(getUiTheme()) !== "eink" && isColorDark(hex));
+  const value = dark ? "dark" : "light";
+  wrap?.setAttribute("data-page-contrast", value);
+  frame?.setAttribute("data-page-contrast", value);
 }
 
 /** Caret/range to restore when inserting from the manuscript context menu. */
@@ -22592,7 +24411,7 @@ function findFootnoteIdFromEventTarget(target) {
 function addFootnoteFromSelection() {
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
   if (!editor) return;
-  const isSettings = editor.id === "synopsisContent";
+  const isSettings = editor.id === "synopsisContent" || editor.id === "synopsisContentB";
   if (!isSettings && !state.sceneId) {
     toast("각주를 달려면 먼저 씬을 열어 주세요.");
     return;
@@ -22721,6 +24540,7 @@ function showDesktopContextMenu(clientX, clientY) {
   const menu = $("desktopContextMenu");
   if (!menu) return;
   hideBinderContextMenu();
+  try { syncUiThemePageColorSwatch(); } catch (_) { /* ignore */ }
   menu.classList.remove("hidden");
   const pad = 8;
   // Measure after showing so size is correct.
@@ -22816,8 +24636,8 @@ function insertNodeAtManuscriptContext(node, editorEl = null) {
     node.parentNode.appendChild(document.createElement("br"));
   }
   updateEditorPlaceholder(editor);
-  if (editor.id === "synopsisContent") {
-    markSynopsisDirty?.();
+  if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
+    markSettingsDocEditorDirty?.(editor);
   } else {
     updateSceneStats();
     markSceneDirty?.();
@@ -22850,7 +24670,7 @@ function setupDesktopThemeMenu() {
 
   const openManuscriptMenu = (clientX, clientY, event = null, editorEl = null) => {
     const editor = editorEl
-      || event?.target?.closest?.("#sceneContent, #synopsisContent")
+      || event?.target?.closest?.("#sceneContent, #synopsisContent, #synopsisContentB")
       || getActiveRichEditor()
       || $("sceneContent");
     contextMenuEditor = editor;
@@ -22859,7 +24679,7 @@ function setupDesktopThemeMenu() {
     pendingBaitQuote = getSelectedManuscriptText(editor);
     const hasSelection = Boolean(pendingBaitQuote);
     const menu = $("desktopContextMenu");
-    const isSettingsDoc = Boolean(editor && editor.id === "synopsisContent");
+    const isSettingsDoc = Boolean(editor && (editor.id === "synopsisContent" || editor.id === "synopsisContentB"));
     // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
     menu?.classList.toggle("is-text-selection", hasSelection);
     menu?.classList.toggle("is-settings-doc", isSettingsDoc);
@@ -23033,6 +24853,8 @@ function setupDesktopThemeMenu() {
         hideDesktopContextMenu();
         lookupDictionaryFromSelection();
       } else if (action === "similar-words") {
+        event.preventDefault();
+        event.stopPropagation();
         hideDesktopContextMenu();
         openSimilarWordsFromSelection(event);
       } else if (action === "ask-tory") {
@@ -23076,6 +24898,16 @@ function setupDesktopThemeMenu() {
     const next = button.dataset.desktopTheme;
     if (next === "custom") {
       $("desktopColorPicker")?.click();
+      return;
+    }
+    if (next === "ui-theme-default") {
+      const def = getUiThemeWritingPageDefault(getUiTheme());
+      if (!def) {
+        toast("이 UI 테마에는 지정된 테마색이 없어요.");
+        return;
+      }
+      applyDesktopTheme(def.theme, def.customColor, { announce: true, fromUser: true });
+      hideDesktopContextMenu();
       return;
     }
     applyDesktopTheme(next, null, { announce: true, fromUser: true });
@@ -23658,13 +25490,16 @@ function isAiPanelOpen() {
   return !document.body.classList.contains("ai-panel-collapsed");
 }
 
-function setAiPanelOpen(open) {
+function setAiPanelOpen(open, options = {}) {
+  const persist = options.persist !== false;
   document.body.classList.toggle("ai-panel-collapsed", !open);
   $("expandAiPanelButton")?.classList.toggle("hidden", open);
-  try {
-    localStorage.setItem(AI_PANEL_STORAGE_KEY, open ? "1" : "0");
-  } catch (_) {
-    /* private mode */
+  if (persist) {
+    try {
+      localStorage.setItem(AI_PANEL_STORAGE_KEY, open ? "1" : "0");
+    } catch (_) {
+      /* private mode */
+    }
   }
   if (open) refreshAiStatus().catch(handleError);
 }
@@ -23687,13 +25522,16 @@ function isBinderPanelOpen() {
   return !document.body.classList.contains("binder-panel-collapsed");
 }
 
-function setBinderPanelOpen(open) {
+function setBinderPanelOpen(open, options = {}) {
+  const persist = options.persist !== false;
   document.body.classList.toggle("binder-panel-collapsed", !open);
   $("expandBinderPanelButton")?.classList.toggle("hidden", open);
-  try {
-    localStorage.setItem(BINDER_PANEL_STORAGE_KEY, open ? "1" : "0");
-  } catch (_) {
-    /* private mode */
+  if (persist) {
+    try {
+      localStorage.setItem(BINDER_PANEL_STORAGE_KEY, open ? "1" : "0");
+    } catch (_) {
+      /* private mode */
+    }
   }
   // Split layout may need a reflow after side panels change.
   if (typeof applySplitLayout === "function" && state.splitEnabled && state.splitMode === "split") {
@@ -23720,6 +25558,47 @@ function setupBinderPanelToggle() {
   setBinderPanelOpen(preferred);
   $("collapseBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(false));
   $("expandBinderPanelButton")?.addEventListener("click", () => setBinderPanelOpen(true));
+}
+
+/** Windows 화면 분할(스냅) 등으로 창 폭이 좁아지면 본문(집필) 영역을 확보하기 위해
+ * 좌우 패널을 자동으로 접고, 창이 다시 넓어지면 원래 열려있던 패널만 복원한다.
+ * — 자동 개폐는 사용자의 수동 선택(localStorage)을 덮어쓰지 않도록 persist:false로 호출하고,
+ *   복원 시점엔 그 사이 사용자가 직접 닫았을 수도 있는 패널을 강제로 되열지 않기 위해
+ *   저장된 선호값을 다시 읽어 그 값을 따른다.
+ * 기준폭은 Windows 절반 스냅의 흔한 폭(1920→960, 1536→768, 1366→683 …)을 덮도록 잡았다. */
+const NARROW_LAYOUT_CLOSE_BELOW = 980;
+const NARROW_LAYOUT_REOPEN_ABOVE = 1040; // 경계에서 여닫힘이 반복되지 않도록 여유를 둠
+let narrowLayoutPanelsActive = false;
+
+function applyNarrowLayoutAutoCollapse() {
+  const width = window.innerWidth;
+  if (width < NARROW_LAYOUT_CLOSE_BELOW) {
+    narrowLayoutPanelsActive = true;
+    if (isBinderPanelOpen()) setBinderPanelOpen(false, { persist: false });
+    if (isAiPanelOpen()) setAiPanelOpen(false, { persist: false });
+    return;
+  }
+  if (!narrowLayoutPanelsActive || width < NARROW_LAYOUT_REOPEN_ABOVE) return;
+  narrowLayoutPanelsActive = false;
+  let binderPref = true;
+  let aiPref = true;
+  try {
+    binderPref = localStorage.getItem(BINDER_PANEL_STORAGE_KEY) !== "0";
+    aiPref = localStorage.getItem(AI_PANEL_STORAGE_KEY) !== "0";
+  } catch (_) {
+    /* private mode */
+  }
+  if (binderPref && !isBinderPanelOpen()) setBinderPanelOpen(true, { persist: false });
+  if (aiPref && !isAiPanelOpen()) setAiPanelOpen(true, { persist: false });
+}
+
+function setupNarrowLayoutAutoCollapse() {
+  applyNarrowLayoutAutoCollapse();
+  let resizeTimer = null;
+  window.addEventListener("resize", () => {
+    if (resizeTimer) window.clearTimeout(resizeTimer);
+    resizeTimer = window.setTimeout(applyNarrowLayoutAutoCollapse, 150);
+  });
 }
 
 const TOOL_PANEL_TITLES = {
@@ -26516,8 +28395,8 @@ function setupSpellcheckPanel() {
     if (editor.id === "sceneContent") {
       updateSceneStats();
       markSceneDirty();
-    } else if (editor.id === "synopsisContent") {
-      markSynopsisDirty();
+    } else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
+      markSettingsDocEditorDirty(editor);
     } else if (editor.id === "splitSceneBodyEditor") {
       markSplitDirty?.();
     }
@@ -26830,6 +28709,133 @@ function setupBinderSwitch() {
 }
 
 const OUTLINE_WIDTH_STORAGE_KEY = "supertory.outlineWidth";
+/* —— Dismissible onboarding tips (목차 / 설정집 / 생각수첩) —— */
+const GUIDE_TIP_STORAGE_KEY = "supertory.hiddenGuideTips";
+const GUIDE_TIP_DEFS = [
+  { id: "outline", label: "목차 안내 (+폴더 · 드래그 · 우클릭)" },
+  { id: "settingsBinder", label: "설정집 안내 (펼치기 · 폴더 순서)" },
+  { id: "ideaBoard", label: "생각수첩 보드 안내" },
+  { id: "baits", label: "떡밥모음 안내" },
+];
+/** @type {Set<string>} */
+let hiddenGuideTips = new Set();
+
+function loadHiddenGuideTips() {
+  const set = new Set();
+  try {
+    const raw = localStorage.getItem(GUIDE_TIP_STORAGE_KEY);
+    if (raw) {
+      const arr = JSON.parse(raw);
+      if (Array.isArray(arr)) {
+        for (const id of arr) {
+          if (typeof id === "string" && id) set.add(id);
+        }
+      }
+    }
+  } catch (_) { /* ignore */ }
+  // Migrate legacy outline tip flag into the shared store
+  try {
+    if (localStorage.getItem("supertory.outlineTipHidden") === "1") set.add("outline");
+  } catch (_) { /* ignore */ }
+  return set;
+}
+
+function saveHiddenGuideTips() {
+  try {
+    localStorage.setItem(GUIDE_TIP_STORAGE_KEY, JSON.stringify([...hiddenGuideTips]));
+    if (hiddenGuideTips.has("outline")) localStorage.setItem("supertory.outlineTipHidden", "1");
+    else localStorage.removeItem("supertory.outlineTipHidden");
+  } catch (_) { /* ignore */ }
+  updateGuideTipCountUi();
+  renderHiddenGuideTipsList();
+}
+
+function isGuideTipHidden(id) {
+  return hiddenGuideTips.has(String(id || ""));
+}
+
+function setGuideTipHidden(id, hidden, { quiet = false } = {}) {
+  const key = String(id || "");
+  if (!key || !GUIDE_TIP_DEFS.some((d) => d.id === key)) return;
+  if (hidden) hiddenGuideTips.add(key);
+  else hiddenGuideTips.delete(key);
+  saveHiddenGuideTips();
+  syncGuideTipBoxes();
+  if (!quiet) {
+    const label = GUIDE_TIP_DEFS.find((d) => d.id === key)?.label || "안내";
+    toast(hidden ? `「${label}」을(를) 숨겼습니다.` : `「${label}」을(를) 다시 표시합니다.`);
+  }
+}
+
+function syncGuideTipBoxes() {
+  document.querySelectorAll("[data-guide-tip]").forEach((el) => {
+    const id = el.getAttribute("data-guide-tip");
+    el.classList.toggle("hidden", isGuideTipHidden(id));
+  });
+}
+
+function updateGuideTipCountUi() {
+  const n = hiddenGuideTips.size;
+  const hint = $("guideTipCountHint");
+  if (hint) hint.textContent = n ? `숨긴 안내 ${n}개` : "숨긴 안내 없음";
+}
+
+function renderHiddenGuideTipsList() {
+  const list = $("hiddenGuideTipsList");
+  if (!list) return;
+  const items = GUIDE_TIP_DEFS.filter((d) => hiddenGuideTips.has(d.id));
+  if (!items.length) {
+    list.innerHTML = `<p class="hint trash-empty">숨긴 안내가 없어요. 안내 옆 × 로 감출 수 있습니다.</p>`;
+    updateGuideTipCountUi();
+    return;
+  }
+  list.innerHTML = items.map((d) => `
+    <div class="hidden-feature-item" data-guide-tip-id="${escapeHtml(d.id)}">
+      <div class="hidden-feature-main">
+        <span class="hidden-feature-title">${escapeHtml(d.label)}</span>
+      </div>
+      <button type="button" class="primary compact-btn" data-guide-tip-activate="${escapeHtml(d.id)}">다시 표시</button>
+    </div>
+  `).join("");
+  updateGuideTipCountUi();
+}
+
+function resetAllHiddenGuideTips() {
+  if (!hiddenGuideTips.size) {
+    toast("숨긴 안내가 없어요.");
+    return;
+  }
+  if (!window.confirm(`숨긴 안내 ${hiddenGuideTips.size}개를 모두 다시 표시할까요?`)) return;
+  hiddenGuideTips = new Set();
+  saveHiddenGuideTips();
+  syncGuideTipBoxes();
+  toast("모든 안내를 다시 표시했습니다.");
+}
+
+function setupGuideTips() {
+  if (setupGuideTips._bound) return;
+  setupGuideTips._bound = true;
+  hiddenGuideTips = loadHiddenGuideTips();
+  syncGuideTipBoxes();
+  renderHiddenGuideTipsList();
+
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-guide-tip-dismiss]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setGuideTipHidden(btn.getAttribute("data-guide-tip-dismiss"), true);
+  });
+
+  $("guideTipResetButton")?.addEventListener("click", resetAllHiddenGuideTips);
+  $("hiddenGuideTipsList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-guide-tip-activate]");
+    if (!btn) return;
+    event.preventDefault();
+    setGuideTipHidden(btn.getAttribute("data-guide-tip-activate"), false);
+  });
+}
+
 const OUTLINE_WIDTH_MIN = 180;
 const OUTLINE_WIDTH_MAX = 480;
 
@@ -30259,25 +32265,15 @@ function updateOutlineFolderCount() {
 }
 
 function isOutlineTipHidden() {
-  try {
-    return localStorage.getItem(OUTLINE_TIP_HIDDEN_KEY) === "1";
-  } catch (_) {
-    return false;
-  }
+  return isGuideTipHidden("outline");
 }
 
 function setOutlineTipHidden(hidden) {
-  try {
-    if (hidden) localStorage.setItem(OUTLINE_TIP_HIDDEN_KEY, "1");
-    else localStorage.removeItem(OUTLINE_TIP_HIDDEN_KEY);
-  } catch (_) { /* ignore */ }
-  syncOutlineTipBox();
+  setGuideTipHidden("outline", hidden, { quiet: true });
 }
 
 function syncOutlineTipBox() {
-  const box = $("outlineTipBox");
-  if (!box) return;
-  box.classList.toggle("hidden", isOutlineTipHidden());
+  syncGuideTipBoxes();
 }
 
 function isOutlineFontMenuTarget(target) {
@@ -30470,10 +32466,7 @@ function setupOutlineBinderChrome() {
   syncOutlineTipBox();
   updateOutlineFolderCount();
 
-  $("outlineTipDismiss")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    setOutlineTipHidden(true);
-  });
+  // outline tip dismiss is handled by setupGuideTips (data-guide-tip-dismiss)
 
   // 목차 제목·개수: 우클릭 메뉴 없음 (글자 크기는 줄간격 아이콘 우클릭)
 
@@ -30495,7 +32488,7 @@ function setupOutlineBinderChrome() {
     hideOutlineSpacingMenu();
     toggleOutlineSpacingAdjustMode();
   });
-  // 우클릭: 글자 크기 + 줄간격 통합 메뉴
+  // 우클릭: 글자 크기 + 줄간격 통합 메뉴 (하단: 개수 숨기기 · 이 기능 숨기기)
   $("outlineSpacingButton")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -30505,11 +32498,7 @@ function setupOutlineBinderChrome() {
       hideOutlineSpacingMenu();
       return;
     }
-    const hideTarget = $("outlineCountBadges")
-      || document.querySelector(".outline-count-badges")
-      || $("outlineFolderCount")
-      || $("outlineSceneCount");
-    setUiFeatureCtxTarget?.(hideTarget);
+    setUiFeatureCtxTarget?.(event.currentTarget);
     showOutlineSpacingMenu(event.currentTarget);
   });
   $("outlineRowGapDown")?.addEventListener("click", (event) => {
@@ -30523,6 +32512,22 @@ function setupOutlineBinderChrome() {
     applyOutlineRowGap(getOutlineRowGap() + 1);
   });
   $("outlineSpacingMenu")?.addEventListener("click", (event) => {
+    const hideCounts = event.target.closest?.("[data-outline-hide-counts]");
+    if (hideCounts) {
+      event.preventDefault();
+      event.stopPropagation();
+      hideOutlineSpacingMenu();
+      const badges = $("outlineCountBadges")
+        || document.querySelector(".outline-count-badges")
+        || $("outlineFolderCount")
+        || $("outlineSceneCount");
+      if (badges && typeof hideUiFeatureElement === "function") {
+        hideUiFeatureElement(badges);
+      } else {
+        toast("숨길 개수 표시를 찾지 못했어요.");
+      }
+      return;
+    }
     const fontPreset = event.target.closest?.("[data-outline-font]");
     if (fontPreset) {
       event.preventDefault();
@@ -32059,10 +34064,14 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
     ).trim();
     taskInstruction = buildFreeRequestPrompt(plain, userRequest);
   } else if (mode === "rewrite") {
+    const directionHint = String(
+      body.rewrite_direction || body.user_hint || body.user_prompt || ""
+    ).trim();
     taskInstruction = buildRewritePrompt(
       plain,
       body.context_before || "",
       body.context_after || "",
+      directionHint,
     );
   } else if (mode === "worldscan") {
     taskInstruction = buildSettingBreakScanPrompt(plain);
@@ -32834,10 +34843,17 @@ ${userRequest}
  * Used by manuscript selection / right-click rewrite only — not direct-write.
  * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
  */
-function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "") {
+function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+  const directionBlock = String(directionHint || "").trim()
+    ? `
+[작가 요청 방향]
+${String(directionHint).trim()}
+이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. 요청과 무관한 재창작·내용 추가는 하지 않는다.
+`
+    : "";
   return `[현재 작업]
 아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.
-
+${directionBlock}
 [판단 기준]
 1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.
 2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.
@@ -32846,12 +34862,13 @@ function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "")
    - 의미가 모호하거나 어색한 조사·어순
    - 상황과 안 맞는 과도한 수식어
 3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
-   당신의 취향으로 문체 자체를 바꾸지 않는다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다. (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
 4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.
 
 [먼저 판단할 것 - 개선이 필요한가]
 문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.
 이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
 
 [개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
 왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
@@ -32865,6 +34882,7 @@ function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "")
 같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
 이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
 문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
+(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
 
 [문장 규칙]
 5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.
@@ -32903,12 +34921,19 @@ ${contextAfter}...
  * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
  * Needs-improvement path: short reason + question (same tone as rewrite).
  */
-function buildPlainExpressionCheckPrompt(inputText) {
+function buildPlainExpressionCheckPrompt(inputText, directionHint = "") {
+  const directionBlock = String(directionHint || "").trim()
+    ? `
+[작가 요청 방향]
+${String(directionHint).trim()}
+이 방향을 우선 반영하되, 의미를 바꾸거나 없는 내용을 넣지 않는다.
+`
+    : "";
   return `[현재 작업]
 아래 문장(들)에서 어색한 표현이나 부정확한 표현을 짚어 다듬을 수 있는지 판단하세요.
 특정 작품의 문맥이나 문체에 맞추는 작업이 아니라, 문장 자체의
 정확성과 자연스러움만 판단합니다.
-
+${directionBlock}
 [판단 기준]
 1. 어색한 문장 구조나 어순을 찾는다 (번역체, 불필요한 피동/사동 표현 등).
 2. 의미가 불명확하거나 중의적으로 읽히는 표현을 찾는다.
@@ -32916,10 +34941,12 @@ function buildPlainExpressionCheckPrompt(inputText) {
 4. 문법적으로 어긋난 부분(조사, 어미, 호응 관계 등)을 찾는다.
 5. 특정 문체(격식체/구어체 등)로 통일하라고 요구하지 않는다. 원문의
    문체 자체는 존중하고, 그 문체 안에서의 어색함·부정확성만 본다.
+   (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
 
 [먼저 판단할 것 - 개선이 필요한가]
 문장에 실제로 위 기준에 해당하는 부분이 있는지 먼저 판단한다.
 이미 자연스럽고 정확한 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
 
 [개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
 왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
@@ -32930,6 +34957,7 @@ function buildPlainExpressionCheckPrompt(inputText) {
 [개선이 필요 없는 경우]
 이미 자연스럽고 정확한 문장은 그대로 둔다 (억지로 고치지 않는다).
 필요하면 아주 가벼운 대안 표현을 2~3개만 제시해도 되지만, 필수 아니다.
+(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
 
 [문장 규칙]
 6. 개선이 필요 없는 경우엔 원문을 그대로 두거나, 대안만 간결히 제시한다.
@@ -33281,6 +35309,10 @@ function setupStyleBlendUi() {
   });
 }
 
+function getRewriteDirectionHint() {
+  return String($("rewriteDirectionHint")?.value || "").trim().slice(0, 500);
+}
+
 /** "selection" | "direct" — rewrite input mode in the tool popup. */
 function getRewriteSourceMode() {
   const checked = document.querySelector('input[name="rewriteSourceMode"]:checked');
@@ -33385,6 +35417,7 @@ function getRewriteSelectionPayload() {
     contextAfter,
     range: cloned,
     sourceMode: "selection",
+    directionHint: getRewriteDirectionHint(),
   };
 }
 
@@ -33400,6 +35433,7 @@ function getRewriteAssistPayload() {
       contextAfter: "",
       range: null,
       sourceMode: "direct",
+      directionHint: getRewriteDirectionHint(),
     };
   }
   return getRewriteSelectionPayload();
@@ -33688,6 +35722,9 @@ async function executeRewriteAssist(payload) {
   const isDirectWrite = String(payload?.sourceMode || "") === "direct";
   const contextBefore = isDirectWrite ? "" : String(payload?.contextBefore || "");
   const contextAfter = isDirectWrite ? "" : String(payload?.contextAfter || "");
+  const directionHint = String(
+    payload?.directionHint != null ? payload.directionHint : getRewriteDirectionHint()
+  ).trim().slice(0, 500);
   const project = state.projects.find((item) => item.id === state.projectId);
   const mainGenre = state.mainGenre || project?.main_genre || "";
   const subGenre = state.subGenre || project?.sub_genre || "";
@@ -33695,7 +35732,8 @@ async function executeRewriteAssist(payload) {
   const body = {
     mode: "rewrite",
     prompt: "",
-    user_prompt: "",
+    user_prompt: directionHint,
+    rewrite_direction: directionHint,
     project_title: project?.title || "",
     purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
     main_genre: mainGenre,
@@ -33740,7 +35778,7 @@ async function executeRewriteAssist(payload) {
   try {
     if (isDirectWrite) {
       // Independent expression check — do NOT use buildRewritePrompt / project_index.
-      body.indexed_prompt = buildPlainExpressionCheckPrompt(selectedText);
+      body.indexed_prompt = buildPlainExpressionCheckPrompt(selectedText, directionHint);
       body.project_index = null;
       body.skip_project_index = true;
     } else {
@@ -33833,7 +35871,22 @@ async function runRewriteFromSelection() {
     toast("다듬을 문장·문단을 드래그로 선택해 주세요.");
     return null;
   }
-  return executeRewriteAssist(payload);
+  // 방향을 적을 수 있도록 팝업을 먼저 연다 (바로 실행하지 않음)
+  const selRadio = document.querySelector('input[name="rewriteSourceMode"][value="selection"]');
+  if (selRadio) selRadio.checked = true;
+  try { updateRewriteSourceUi?.(); } catch (_) { /* ignore */ }
+  if ($("aiMode")) $("aiMode").value = "rewrite";
+  try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
+  openAiToolModal("rewrite", { force: true });
+  requestAnimationFrame(() => {
+    try {
+      $("rewriteDirectionHint")?.focus({ preventScroll: true });
+    } catch (_) {
+      $("rewriteDirectionHint")?.focus();
+    }
+  });
+  toast("다듬기 방향을 적은 뒤 「다듬기」를 눌러 주세요.");
+  return null;
 }
 
 function setupRewriteCompareModal() {
@@ -36320,7 +38373,7 @@ function clearSplitPrimaryPaneLayout() {
 const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";
 const SPLIT_LEFT_MIN = 240;
 const SPLIT_RIGHT_MIN = 200;
-const SPLIT_HANDLE = 10; // resizer + margins
+const SPLIT_HANDLE = 28; // layout gutter = full click/hover hit (do not overflow into panes)
 const FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY = "supertory.focusSplitRightWidth";
 const FOCUS_SPLIT_RIGHT_MIN = 200;
 const FOCUS_SPLIT_LEFT_MIN = 280;
@@ -36567,6 +38620,11 @@ async function closeSplitView() {
   state.splitScene = null;
   state.splitSourceId = null;
   revokeSplitSourceObjectUrl();
+  const linkFrame = $("splitSourceLink");
+  if (linkFrame) {
+    linkFrame.src = "about:blank";
+    linkFrame.classList.add("hidden");
+  }
   $("splitViewer")?.classList.remove("source-text-editing");
   setSplitSourceUiMode(false);
   applySplitLayout();
@@ -36578,8 +38636,14 @@ async function closeSplitView() {
 async function openSecondaryView(mode) {
   if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
   const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
-  if (!alternative) {
-    toast("분할을 쓰려면 회차가 두 개 이상 필요해요.");
+  const sources = typeof loadSources === "function" ? loadSources() : [];
+  const usableSources = sources.filter((src) => (src.kind === "file" || src.fileName) || String(src.url || "").trim());
+  if (!alternative && !usableSources.length) {
+    toast("함께볼 다른 회차나 참고자료가 없어요.");
+    return;
+  }
+  if (!alternative && usableSources.length) {
+    await openSourceInSplit(usableSources[0].id, mode);
     return;
   }
   await flushSplitEdits();
@@ -36695,19 +38759,21 @@ async function renderSplitViewer() {
   }
   setSplitSourceUiMode(false);
   const alternatives = allScenes().filter((scene) => scene.id !== state.sceneId);
+  const sources = typeof loadSources === "function" ? loadSources() : [];
+  const usableSources = sources.filter((src) => (src.kind === "file" || src.fileName) || String(src.url || "").trim());
   if (!alternatives.length) {
+    if (usableSources.length) {
+      await openSourceInSplit(usableSources[0].id, state.splitMode || "split");
+      return;
+    }
     await closeSplitView();
-    toast("분할할 회차가 없어서 분할을 닫았어요.");
+    toast("함께볼 회차나 참고자료가 없어 분할을 닫았어요.");
     return;
   }
   if (!alternatives.some((scene) => scene.id === state.splitSceneId)) {
     state.splitSceneId = alternatives[0].id;
   }
-  if ($("splitSceneSelect")) {
-    $("splitSceneSelect").innerHTML = alternatives.map((scene) =>
-      `<option value="${scene.id}" ${scene.id === state.splitSceneId ? "selected" : ""}>${escapeHtml(scene.chapterTitle)} · ${escapeHtml(scene.title)}</option>`
-    ).join("");
-  }
+  fillSplitCompanionSelect();
   state.splitScene = await api(`/api/scenes/${state.splitSceneId}`);
   const scene = state.splitScene;
   suppressSplitDirty = true;
@@ -36720,14 +38786,6 @@ async function renderSplitViewer() {
   if (state.splitMode === "split") {
     requestAnimationFrame(() => layoutSplitPrimaryPane());
   }
-}
-
-async function selectSplitScene() {
-  const nextId = Number($("splitSceneSelect").value);
-  if (nextId === state.splitSceneId) return;
-  await flushSplitEdits();
-  state.splitSceneId = nextId;
-  await renderSplitViewer();
 }
 
 function setupSplitEditMode() {
@@ -38126,7 +40184,7 @@ function renderAdminProjectList() {
   const projects = Array.isArray(state.projects) ? state.projects : [];
   if (hint) {
     hint.textContent = projects.length
-      ? `작품 ${projects.length}개 · 삭제하면 목록에서 사라집니다.`
+      ? `작품 ${projects.length}개`
       : "아직 작품이 없어요.";
   }
   if (!projects.length) {
@@ -38147,10 +40205,30 @@ function renderAdminProjectList() {
           <span class="admin-project-item-meta">${genre}</span>
         </div>
         <div class="admin-project-item-actions">
-          <button type="button" class="secondary compact-btn admin-danger-btn" data-admin-delete-project="${id}">삭제</button>
+          <button type="button" class="secondary compact-btn admin-project-action-btn" data-admin-rename-project="${id}">이름 변경</button>
+          <button type="button" class="secondary compact-btn admin-danger-btn admin-project-action-btn" data-admin-delete-project="${id}">⚠️ 완전 삭제</button>
         </div>
       </article>`;
   }).join("");
+}
+
+async function renameProjectFromAdmin(projectId) {
+  const id = Number(projectId);
+  if (!id) return;
+  const project = (state.projects || []).find((p) => Number(p.id) === id);
+  const oldTitle = String(project?.title || `작품 #${id}`);
+  const nextTitle = window.prompt("새 작품 제목을 입력해 주세요.", oldTitle);
+  if (nextTitle == null) return; // 취소
+  const trimmed = nextTitle.trim();
+  if (!trimmed) return toast("작품 제목을 입력해 주세요.");
+  if (trimmed === oldTitle) return;
+  await api(`/api/projects/${id}/title`, {
+    method: "PUT",
+    body: JSON.stringify({ title: trimmed }),
+  });
+  toast(`작품 이름을 「${trimmed}」(으)로 바꿨어요.`);
+  await loadProjects(state.projectId);
+  renderAdminProjectList();
 }
 
 async function deleteProjectFromAdmin(projectId) {
@@ -38159,7 +40237,7 @@ async function deleteProjectFromAdmin(projectId) {
   const project = (state.projects || []).find((p) => Number(p.id) === id);
   const title = String(project?.title || `작품 #${id}`).trim();
   const ok = window.confirm(
-    `「${title}」 작품을 삭제할까요?\n\n목록에서 사라지고 더 이상 선택할 수 없습니다.\n(로컬 DB에서 숨김 처리됩니다.)`,
+    `「${title}」 작품을 완전히 삭제할까요?\n\n목록에서 사라지고 다시 불러올 수 없습니다.`,
   );
   if (!ok) return;
   await api(`/api/projects/${id}`, { method: "DELETE" });
@@ -38453,7 +40531,7 @@ function isFeatureHideExempt(el) {
 function isManuscriptWritingSurface(target) {
   if (!target?.closest) return false;
   if (target.closest("#desktopContextMenu")) return true;
-  if (target.closest("#sceneContent, #splitSceneContent, #synopsisContent, #loglineContent, #worldContent, #introContent, #intentContent")) {
+  if (target.closest("#sceneContent, #splitSceneContent, #synopsisContent, #synopsisContentB, #loglineContent, #worldContent, #introContent, #intentContent")) {
     if (target.closest("[contenteditable='true'], .rich-editor, .manuscript-page")) return true;
   }
   if (target.closest("#manuscriptPage .rich-editor, #manuscriptPage [contenteditable='true']")) return true;
@@ -38584,7 +40662,7 @@ function applyFeatureHideClasses() {
     if (!id) return;
     el.classList.toggle("ui-feature-hidden", featureHideMap.has(id));
   });
-  ["adminModeButton", "featureHideResetButton", "uiThemeToggleButton", "adminContactDevButton"]
+  ["adminModeButton", "featureHideResetButton", "guideTipResetButton", "uiThemeToggleButton", "adminContactDevButton"]
     .forEach((id) => $(id)?.classList.add("feature-hide-exempt"));
   updateFeatureHideCountUi();
 }
@@ -38719,6 +40797,9 @@ function onUiFeatureHideAction() {
   if (!el) {
     toast("숨길 기능을 찾지 못했어요.");
     return;
+  }
+  if (el.id === "outlineSpacingButton" && typeof exitOutlineSpacingAdjustMode === "function") {
+    try { exitOutlineSpacingAdjustMode({ toastMsg: false }); } catch (_) { /* ignore */ }
   }
   hideUiFeatureElement(el);
 }
@@ -39404,6 +41485,12 @@ function setupAdminMode() {
     loadProjects(state.projectId).then(() => renderAdminProjectList()).catch(handleError);
   });
   $("adminProjectList")?.addEventListener("click", (event) => {
+    const renameBtn = event.target.closest?.("[data-admin-rename-project]");
+    if (renameBtn) {
+      event.preventDefault();
+      renameProjectFromAdmin(renameBtn.dataset.adminRenameProject).catch(handleError);
+      return;
+    }
     const delBtn = event.target.closest?.("[data-admin-delete-project]");
     if (!delBtn) return;
     event.preventDefault();
@@ -39421,26 +41508,23 @@ const UI_THEME_STORAGE_KEY = "tori-theme";
 const UI_THEME_STORAGE_KEY_LEGACY = "supertory.uiTheme";
 const UI_THEME_LIGHT_STORAGE_KEY = "supertory.uiThemeLight";
 
-/** Cycle order: 기본 → 모래사장 → 야간 → 오두막 → 도서관 → 서재 → 다락방 → E ink */
-const UI_THEME_CYCLE = ["light", "sand", "dark", "cabin", "library", "study", "attic", "eink"];
-
 /** Themes shown in 관리자 → 설정 옵션 (+ header cycle). */
 const UI_THEME_PRESETS = [
   {
     id: "light",
-    emoji: "☀️",
+    emoji: "🖊️",
     short: "기본",
-    title: "기본 · Clean White & Charcoal",
-    tone: "클린 화이트 / 딥 차콜",
-    blurb: "쨍한 블루 없이 진한 회색으로 명암을 살린 기본 화면",
-    recommend: "화이트 패널과 딥 차콜 대비로 가독성을 높인 기본 테마",
+    title: "기본 · Warm Stone Gray",
+    tone: "웜 스톤 그레이 / 눈 편한 차콜",
+    blurb: "쿨한 슬레이트 대신 따뜻한 스톤 그레이로 눈이 편한 기본 화면",
+    recommend: "화이트 패널과 웜 딥차콜 대비로 가독성을 높인 기본 테마",
     dark: false,
   },
   {
     id: "sand",
-    emoji: "🏜️",
-    short: "모래사장",
-    title: "모래사장",
+    emoji: "☀️",
+    short: "주간",
+    title: "주간",
     tone: "오트밀 샌드 / 따뜻한 베이지",
     blurb: "이전 연베이지·오트밀 기본 톤을 그대로 쓸 수 있어요.",
     recommend: "따뜻하고 부드러운 베이지 분위기를 원할 때",
@@ -39452,7 +41536,7 @@ const UI_THEME_PRESETS = [
     short: "야간",
     title: "야간",
     tone: "다크 모드",
-    blurb: "기본 다크 모드",
+    blurb: "기본 다크 모드. 작성 화면 바탕 기본은 R63 G59 B54예요.",
     recommend: "기본 야간(다크) 화면으로 전환합니다.",
     dark: true,
   },
@@ -39462,7 +41546,7 @@ const UI_THEME_PRESETS = [
     short: "숲속 오두막",
     title: "토리의 숲속 오두막",
     tone: "세이지 그린 / 피로 회복",
-    blurb: "시각적 피로도를 가장 많이 줄여주어 오랜 작업에 좋아요.",
+    blurb: "세이지 그린 UI + 연한 민트 작성 바탕으로 시각적 피로를 줄여 오랜 작업에 좋아요.",
     recommend: "눈이 자주 피로해지는 긴 집필 시간에 가장 추천하는 테마",
     dark: false,
   },
@@ -39481,9 +41565,19 @@ const UI_THEME_PRESETS = [
     emoji: "🏛️",
     short: "새벽 도서관",
     title: "토리의 새벽 도서관",
-    tone: "블루그레이 / 몰입과 집중",
-    blurb: "집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
+    tone: "라벤더 블루 / 몰입과 집중",
+    blurb: "소프트 라벤더 블루 바탕에 새벽녘 슬레이트 라벤더 포인트를 살려, 집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
     recommend: "따뜻한 톤보다 서늘하고 차분한 몰입감을 원할 때",
+    dark: false,
+  },
+  {
+    id: "classroom",
+    emoji: "🏫",
+    short: "추억의 교실",
+    title: "추억의 교실",
+    tone: "나무 갈색 바탕 / 초록 박스 선",
+    blurb: "나무 책상 같은 갈색 바탕에 초록 테두리·칠판 액센트로 교실 감성을 살려요. 작성 화면 바탕은 기본이 칠판 모드예요.",
+    recommend: "빈티지하면서도 편안한 집필 분위기를 원할 때",
     dark: false,
   },
   {
@@ -39492,41 +41586,61 @@ const UI_THEME_PRESETS = [
     short: "심야 다락방",
     title: "토리의 심야 다락방",
     tone: "네이비 차콜 / 야간 눈부심 방지",
-    blurb: "야간 작업 시 눈부심을 완벽하게 잡아줘요. 불 끄고 글 쓸 때 최고!",
+    blurb: "야간 작업 시 눈부심을 완벽하게 잡아줘요. 작성 화면 바탕 기본은 차분한 회색(R217 G217 B217)이에요.",
     recommend: "밤늦게 조명을 낮추고 작업하는 야간 집필용",
     dark: true,
   },
   {
     id: "eink",
-    emoji: "🖋️",
-    short: "E ink",
+    emoji: "📟",
+    short: "E-ink",
     title: "E ink",
     tone: "화이트 / 블랙",
     blurb: "E ink 화면을 쓰시는 작가님들을 위해 마련했어요 ❤️",
     recommend: "전자잉크·고대비 단순 화면이 필요할 때",
     dark: false,
   },
+  {
+    id: "cloud-walk",
+    emoji: "☁️",
+    short: "구름 산책",
+    title: "토리의 구름 산책",
+    tone: "소프트 스카이 파스텔 / 청량한 하늘색",
+    blurb: "탁 트인 하늘처럼 머리가 맑아지고 마음이 가벼워져요.",
+    recommend: "머리를 환기하고 가볍게 집필하고 싶을 때",
+    dark: false,
+  },
+  {
+    id: "spring-garden",
+    emoji: "🌸",
+    short: "봄날 정원",
+    title: "토리의 봄날 정원",
+    tone: "소프트 베이비 핑크 / 따스한 로즈 톤",
+    blurb: "따스하고 포근한 핑크빛으로 달콤한 상상력을 채워줘요.",
+    recommend: "포근하고 달콤한 분위기에서 상상력을 펼치고 싶을 때",
+    dark: false,
+  },
+  {
+    id: "sunset-window",
+    emoji: "🌅",
+    short: "노을빛 창가",
+    title: "토리의 노을빛 창가",
+    tone: "따뜻한 노을 샌드 / 소프트 오렌지 앰버",
+    blurb: "해 질 녘 창가처럼 따스하고 감성적인 몰입을 선사해요. 작성 화면 바탕은 기본이 세피아예요.",
+    recommend: "따뜻하고 감성적인 분위기에서 몰입하고 싶을 때",
+    dark: false,
+  },
+  {
+    id: "silver-fog",
+    emoji: "🌫️",
+    short: "은빛안개",
+    title: "토리의 은빛안개",
+    tone: "순수 무채색 그레이 / 미니멀",
+    blurb: "푸른 기운을 뺀 맑은 그레이로 군더더기 없는 몰입을 선사해요.",
+    recommend: "따뜻함보다 정갈하고 미니멀한 화면을 원할 때",
+    dark: false,
+  },
 ];
-
-const UI_THEME_IDS = new Set([
-  "dawn", // legacy → library
-  ...UI_THEME_CYCLE,
-]);
-
-function normalizeUiThemeId(theme) {
-  if (theme === "dawn") return "library";
-  if (UI_THEME_IDS.has(theme)) return theme;
-  return "light";
-}
-
-function isUiThemeDark(theme) {
-  const id = normalizeUiThemeId(theme);
-  return id === "dark" || id === "attic";
-}
-
-function uiThemeScheme(theme) {
-  return isUiThemeDark(theme) ? "dark" : "light";
-}
 
 function readStoredUiTheme() {
   try {
@@ -39571,23 +41685,228 @@ function rememberLightUiTheme(theme) {
   }
 }
 
+const UI_THEME_SWATCH = {
+  light: { bg: "#FFFFFF", fg: "#292524" },
+  sand: { bg: "#F3EBE1", fg: "#FFFFFF" },
+  dark: { bg: "#3A2A20", fg: "#FFFFFF" },
+  cabin: { bg: "#E7EEE6", fg: "#3D5A40" },
+  study: { bg: "#F0E6D8", fg: "#5C4030" },
+  library: { bg: "#EFEFF7", fg: "#5B5A96" },
+  classroom: { bg: "#B8956A", fg: "#3E6B4A" },
+  attic: { bg: "#1A2030", fg: "#C8D0E0" },
+  eink: { bg: "#FFFFFF", fg: "#000000" },
+  "cloud-walk": { bg: "#B8D4F0", fg: "#FFFFFF" },
+  "spring-garden": { bg: "#FBF0F2", fg: "#B88692" },
+  "sunset-window": { bg: "#F6E6C8", fg: "#D98A5B" },
+  "silver-fog": { bg: "#D4D8DE", fg: "#FFFFFF" },
+};
+
 function updateUiThemeToggleButton(theme) {
   const button = $("uiThemeToggleButton");
   if (!button) return;
   const current = normalizeUiThemeId(theme);
-  const idx = UI_THEME_CYCLE.indexOf(current);
-  const nextId = UI_THEME_CYCLE[(idx < 0 ? 0 : idx + 1) % UI_THEME_CYCLE.length];
-  const nextPreset = UI_THEME_PRESETS.find((t) => t.id === nextId);
+  const preset = UI_THEME_PRESETS.find((t) => t.id === current);
   const isDark = isUiThemeDark(current);
   button.setAttribute("aria-pressed", isDark ? "true" : "false");
   button.dataset.themeIcon = current;
-  const nextLabel = nextPreset ? `${nextPreset.emoji} ${nextPreset.short}` : nextId;
-  button.title = `테마 바꾸기 · 다음: ${nextLabel}`;
-  button.setAttribute("aria-label", `테마 바꾸기. 지금은 ${current}, 다음은 ${nextLabel}`);
-  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "attic", "eink"];
+  const label = preset ? `${preset.emoji} ${preset.short}` : current;
+  const open = button.getAttribute("aria-expanded") === "true";
+  button.title = open ? `테마 선택 닫기 · 지금: ${label}` : `테마 선택 · 지금: ${label}`;
+  button.setAttribute("aria-label", open
+    ? `테마 선택 닫기. 지금은 ${label}`
+    : `테마 선택. 지금은 ${label}`);
+  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog"];
   iconIds.forEach((id) => {
     button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
   });
+  syncUiThemeRailActive(current);
+}
+
+/** 테마 레일에서 이모지 대신 그릴 아이콘.
+ * - 기본(light): 오버라이드 없음 → preset.emoji(🖊️, 설정 → 테마 변경의 펜 이모지와 동일)를 그대로 씀.
+ * - 주간(sand): 오버라이드 없음 → preset.emoji(☀️, 설정 → 테마 변경의 노란 해와 동일)를 그대로 씀.
+ * - E ink: 표시 아이콘과 같은 실제 이미지(잉크병+깃털펜, theme-icons/eink-quill-mask.png)를 마스크로 씀.
+ * - 구름 산책: 오버라이드 없음 → preset.emoji(☁️)를 그대로 씀. 넣어주신 흰 구름 이미지는
+ *   표시(헤더) 아이콘 전용 — 레일까지 확장하지 말라는 요청 반영. */
+function uiThemeRailIconOverride(id) {
+  if (id === "eink") {
+    return '<span class="ui-theme-chip-icon-img" aria-hidden="true"></span>';
+  }
+  return "";
+}
+
+const UI_THEME_SWITCH_TIP_LINES = [
+  "집필이 지루하거나 집중이 안 될 땐, 테마를 바꿔 분위기를 전환해 보세요.",
+  "시선의 흐름과 색조가 바뀌면 뇌가 환기되어 새로운 몰입을 도와줍니다.",
+];
+
+function ensureUiThemeRailFilled() {
+  const rail = $("uiThemeRail");
+  if (!rail || rail.dataset.filled === "1") return rail;
+  const tip = `<div class="ui-theme-rail-tip"><span class="theme-switch-tip-mark" aria-hidden="true">💡</span><div class="theme-switch-tip-copy">${UI_THEME_SWITCH_TIP_LINES.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}</div></div>`;
+  const rows = UI_THEME_GROUPS.map((group) => {
+    const chips = group.themes.map((item) => {
+      const id = item.id;
+      const preset = UI_THEME_PRESETS.find((t) => t.id === id) || { id, emoji: "", short: id };
+      const swatch = UI_THEME_SWATCH[id] || { bg: "#fff", fg: "#333" };
+      const name = escapeHtml(preset.short || id);
+      const iconOverride = uiThemeRailIconOverride(id);
+      const emojiSlot = iconOverride || escapeHtml(preset.emoji || "");
+      const title = escapeHtml(preset.title || preset.short || id);
+      return `
+      <button type="button" class="ui-theme-chip" role="menuitemradio"
+        data-ui-theme-rail-pick="${escapeHtml(id)}"
+        title="${title}"
+        aria-label="${title}"
+        aria-checked="false">
+        <span class="ui-theme-chip-swatch" aria-hidden="true">
+          <span class="ui-theme-chip-swatch-half is-bg" style="background:${escapeHtml(swatch.bg)}"></span>
+          <span class="ui-theme-chip-swatch-half is-fg" style="background:${escapeHtml(swatch.fg)}"></span>
+        </span>
+        <span class="ui-theme-chip-emoji${iconOverride ? " has-icon-svg" : ""}" aria-hidden="true">${emojiSlot}</span>
+        <span class="ui-theme-chip-label">${name}</span>
+      </button>`;
+    }).join("");
+    const label = escapeHtml(group.title);
+    return `<div class="ui-theme-rail-row" data-theme-group="${escapeHtml(group.id)}" role="group" aria-label="${label}">${chips}</div>`;
+  }).join("");
+  rail.innerHTML = `${tip}<div class="ui-theme-rail-body">${rows}</div>`;
+  rail.dataset.filled = "1";
+  return rail;
+}
+
+function syncUiThemeRailActive(theme = getUiTheme()) {
+  const rail = $("uiThemeRail");
+  if (!rail) return;
+  const current = normalizeUiThemeId(theme);
+  rail.querySelectorAll("[data-ui-theme-rail-pick]").forEach((btn) => {
+    const active = btn.getAttribute("data-ui-theme-rail-pick") === current;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
+function positionUiThemeRail() {
+  const rail = $("uiThemeRail");
+  const button = $("uiThemeToggleButton");
+  if (!rail || !button) return;
+  const rect = button.getBoundingClientRect();
+  const pad = 8;
+  const wasOpen = rail.classList.contains("is-open");
+  rail.hidden = false;
+  rail.style.visibility = "hidden";
+  rail.classList.add("is-open");
+  const mw = Math.min(rail.offsetWidth || 520, window.innerWidth - pad * 2);
+  let left = rect.right + 8;
+  let top = rect.bottom - (rail.offsetHeight || 56);
+  if (left + mw > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - mw - pad);
+  }
+  if (top < pad) top = pad;
+  if (top + (rail.offsetHeight || 56) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (rail.offsetHeight || 56) - pad);
+  }
+  rail.style.left = `${Math.round(left)}px`;
+  rail.style.top = `${Math.round(top)}px`;
+  rail.style.bottom = "auto";
+  rail.style.visibility = "";
+  if (!wasOpen) {
+    rail.classList.remove("is-open");
+    // Force reflow so chips animate in.
+    void rail.offsetWidth;
+    requestAnimationFrame(() => rail.classList.add("is-open"));
+  }
+}
+
+function isUiThemeRailOpen() {
+  const rail = $("uiThemeRail");
+  return Boolean(rail && !rail.hidden && rail.classList.contains("is-open"));
+}
+
+function closeUiThemeRail() {
+  const rail = $("uiThemeRail");
+  const button = $("uiThemeToggleButton");
+  if (rail) {
+    rail.classList.remove("is-open");
+    rail.hidden = true;
+    rail.style.visibility = "";
+  }
+  if (button) {
+    button.setAttribute("aria-expanded", "false");
+    updateUiThemeToggleButton(getUiTheme());
+  }
+}
+
+function openUiThemeRail() {
+  const button = $("uiThemeToggleButton");
+  const rail = ensureUiThemeRailFilled();
+  if (!button || !rail) return;
+  syncUiThemeRailActive(getUiTheme());
+  button.setAttribute("aria-expanded", "true");
+  positionUiThemeRail();
+  updateUiThemeToggleButton(getUiTheme());
+}
+
+function toggleUiThemeRail() {
+  if (isUiThemeRailOpen()) closeUiThemeRail();
+  else openUiThemeRail();
+}
+
+function cssColorToHex(value) {
+  const v = String(value || "").trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(v)) return v.toUpperCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(v)) {
+    return `#${v[1]}${v[1]}${v[2]}${v[2]}${v[3]}${v[3]}`.toUpperCase();
+  }
+  const m = v.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+  if (!m) return "";
+  const h = (n) => Number(n).toString(16).padStart(2, "0");
+  return `#${h(m[1])}${h(m[2])}${h(m[3])}`.toUpperCase();
+}
+
+function getTitleBarOverlayPayload(themeId = getUiTheme()) {
+  const id = normalizeUiThemeId(themeId);
+  const scheme = uiThemeScheme(id);
+  const fallback = {
+    light: { color: "#FAFAF9", symbolColor: "#1C1917" },
+    sand: { color: "#FEFDF8", symbolColor: "#2C2523" },
+    dark: { color: "#1E1B17", symbolColor: "#ECE6DC" },
+    cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E" },
+    study: { color: "#EAE0D3", symbolColor: "#4A3B32" },
+    library: { color: "#EFEFF7", symbolColor: "#2B283B" },
+    attic: { color: "#14181F", symbolColor: "#E6E0D4" },
+    eink: { color: "#FFFFFF", symbolColor: "#000000" },
+    "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C" },
+    "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40" },
+  }[id] || (scheme === "dark"
+    ? { color: "#1E1B17", symbolColor: "#ECE6DC" }
+    : { color: "#FAFAF9", symbolColor: "#1C1917" });
+  let color = fallback.color;
+  let symbolColor = fallback.symbolColor;
+  try {
+    const root = getComputedStyle(document.documentElement);
+    // Custom props may be `var(...)`; fall back to computed body paints.
+    color = cssColorToHex(root.getPropertyValue("--chrome-bg"))
+      || cssColorToHex(root.getPropertyValue("--header-bg"))
+      || cssColorToHex(getComputedStyle(document.body || document.documentElement).backgroundColor)
+      || color;
+    symbolColor = cssColorToHex(root.getPropertyValue("--ink"))
+      || cssColorToHex(root.getPropertyValue("--text-primary"))
+      || cssColorToHex(getComputedStyle(document.body || document.documentElement).color)
+      || symbolColor;
+  } catch (_) {
+    /* ignore */
+  }
+  return { theme: id, scheme, color, symbolColor, height: 32 };
+}
+
+function syncElectronTitleBarTheme(themeId = getUiTheme()) {
+  if (!window.electronAPI?.setTitleBarTheme) return;
+  try {
+    window.electronAPI.setTitleBarTheme(getTitleBarOverlayPayload(themeId));
+  } catch (_) {
+    /* ignore */
+  }
 }
 
 function syncElectronChrome() {
@@ -39598,11 +41917,7 @@ function syncElectronChrome() {
     document.documentElement.classList.add("is-electron-mac");
     document.body?.classList.add("is-electron-mac");
   }
-  try {
-    window.electronAPI.setTitleBarTheme?.(uiThemeScheme(getUiTheme()));
-  } catch (_) {
-    /* ignore */
-  }
+  syncElectronTitleBarTheme(getUiTheme());
 }
 
 function uiThemeToastLabel(theme) {
@@ -39743,8 +42058,9 @@ function syncEinkBwForceStyle(theme) {
   document.head.appendChild(el);
 }
 
-/** Apply a named theme (`light` | `sand` | `dark` | `cabin` | `study` | `library` | `attic` | `eink`). */
+/** Apply a named theme (`light` | `sand` | `dark` | `cabin` | `study` | `library` | `classroom` | `attic` | `eink` | `cloud-walk` | `spring-garden` | `sunset-window` | `silver-fog`). */
 function applyUiTheme(themeName, { announce = false } = {}) {
+  const prev = normalizeUiThemeId(getUiTheme());
   const next = normalizeUiThemeId(themeName || "light");
   const scheme = uiThemeScheme(next);
   document.documentElement.setAttribute("data-theme", next);
@@ -39766,10 +42082,16 @@ function applyUiTheme(themeName, { announce = false } = {}) {
   syncEinkBwForceStyle(next);
   syncEinkEditorPaperLock(next);
   try {
-    window.electronAPI?.setTitleBarTheme?.(scheme);
-  } catch (_) {
-    /* ignore */
+    syncUiThemeWritingPageTheme(prev, next);
+  } catch (err) {
+    console.warn("[supertory] ui theme writing page sync failed", err);
   }
+  try { syncUiThemePageColorSwatch(); } catch (_) { /* ignore */ }
+  try { refreshGoalBarColorsFromThemeAndOverrides?.(); } catch (_) { /* ignore */ }
+  // After CSS vars apply, sync Windows caption strip to --chrome-bg / --ink.
+  requestAnimationFrame(() => {
+    syncElectronTitleBarTheme(next);
+  });
   renderAdminThemeList();
   if (announce) {
     toast(`「${uiThemeToastLabel(next)}」로 바꿨어요.`);
@@ -39795,6 +42117,26 @@ function toggleUiTheme() {
 function renderAdminThemeList() {
   const host = $("adminThemeList");
   if (!host) return;
+  if (host.dataset.filled !== "1") {
+    host.innerHTML = UI_THEME_GROUPS.map((group) => {
+      const sub = group.subtitle ? ` [${escapeHtml(group.subtitle)}]` : "";
+      const heading = `${group.emoji} ${escapeHtml(group.number)}. ${escapeHtml(group.title)}${sub}`;
+      const buttons = group.themes.map((item) => {
+        const preset = UI_THEME_PRESETS.find((t) => t.id === item.id) || { id: item.id, emoji: "", short: item.id };
+        const name = `${preset.emoji || ""} ${preset.short || item.id}`.trim();
+        const caption = item.caption ? `<span class="theme-option-caption">${escapeHtml(item.caption)}</span>` : "";
+        return `<button type="button" role="option" data-ui-theme-pick="${escapeHtml(item.id)}">
+          <span class="theme-option-name">${escapeHtml(name)}</span>${caption}
+        </button>`;
+      }).join("");
+      return `<section class="theme-option-group" data-theme-group="${escapeHtml(group.id)}">
+        <h4 class="theme-option-group-title">${heading}</h4>
+        <p class="theme-option-group-blurb">${escapeHtml(group.blurb)}</p>
+        <div class="theme-option-group-grid">${buttons}</div>
+      </section>`;
+    }).join("");
+    host.dataset.filled = "1";
+  }
   const current = getUiTheme();
   host.querySelectorAll("[data-ui-theme-pick]").forEach((btn) => {
     const id = btn.getAttribute("data-ui-theme-pick");
@@ -39802,19 +42144,6 @@ function renderAdminThemeList() {
     btn.classList.toggle("is-active", active);
     btn.setAttribute("aria-selected", active ? "true" : "false");
   });
-  const preset = UI_THEME_PRESETS.find((t) => t.id === current);
-  const hint = $("adminThemeHint");
-  if (hint) {
-    if (!preset) {
-      hint.textContent = "";
-      return;
-    }
-    if (preset.id === "light" || preset.id === "dark") {
-      hint.textContent = preset.blurb;
-    } else {
-      hint.textContent = `${preset.blurb} · ${preset.recommend}`;
-    }
-  }
 }
 
 function pickAdminTheme(themeId) {
@@ -39849,12 +42178,34 @@ function setupUiThemeToggle() {
   if (document.documentElement.dataset.themeToggleBound !== "1") {
     document.documentElement.dataset.themeToggleBound = "1";
     document.addEventListener("click", (event) => {
+      const pickBtn = event.target?.closest?.("#uiThemeRail [data-ui-theme-rail-pick]");
+      if (pickBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        const id = pickBtn.getAttribute("data-ui-theme-rail-pick");
+        if (id) applyUiTheme(id, { announce: true });
+        closeUiThemeRail();
+        return;
+      }
       const toggleBtn = event.target?.closest?.("#uiThemeToggleButton");
-      if (!toggleBtn) return;
-      event.preventDefault();
-      event.stopPropagation();
-      toggleUiTheme();
+      if (toggleBtn) {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleUiThemeRail();
+        return;
+      }
+      if (isUiThemeRailOpen() && !event.target?.closest?.("#uiThemeRail, #binderThemeControl")) {
+        closeUiThemeRail();
+      }
     }, true);
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && isUiThemeRailOpen()) {
+        closeUiThemeRail();
+      }
+    });
+    window.addEventListener("resize", () => {
+      if (isUiThemeRailOpen()) positionUiThemeRail();
+    });
   }
   setupAdminThemePicker();
   try {
@@ -40046,6 +42397,7 @@ onEl("newChapterButton", "click", () => {
 safeSetup("setupRenumberChaptersModal", setupRenumberChaptersModal);
 safeSetup("setupTextPromptModal", setupTextPromptModal);
 safeSetup("setupOutlineBinderChrome", setupOutlineBinderChrome);
+safeSetup("setupGuideTips", setupGuideTips);
 safeSetup("setupOutlineOverview", setupOutlineOverview);
 safeSetup("setupFolderUndoUi", setupFolderUndoUi);
 onEl("newCharacterButton", "click", () => createCharacter().catch(handleError));
@@ -40067,6 +42419,7 @@ safeSetup("setupSourceCollection", setupSourceCollection);
 safeSetup("setupToryVault", setupToryVault);
 safeSetup("setupAiPanelToggle", setupAiPanelToggle);
 safeSetup("setupBinderPanelToggle", setupBinderPanelToggle);
+safeSetup("setupNarrowLayoutAutoCollapse", setupNarrowLayoutAutoCollapse);
 // Theme controls already bound earlier (setupUiThemeToggle); keep a safe re-entry.
 safeSetup("setupUiThemeToggle", setupUiThemeToggle);
 safeSetup("setupBinderContextMenu", setupBinderContextMenu);

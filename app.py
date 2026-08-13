@@ -103,6 +103,7 @@ MIGRATION_029_PATH = ROOT / "db" / "029_folder_color_pin.sql"
 MIGRATION_030_PATH = ROOT / "db" / "030_folder_action_log.sql"
 MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
 MIGRATION_032_PATH = ROOT / "db" / "032_writing_include_phone.sql"
+MIGRATION_033_PATH = ROOT / "db" / "033_idea_note_pin.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -437,8 +438,32 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_031_PATH.read_text(encoding="utf-8"))
         if 32 not in applied:
             connection.executescript(MIGRATION_032_PATH.read_text(encoding="utf-8"))
+        if 33 not in applied:
+            connection.executescript(MIGRATION_033_PATH.read_text(encoding="utf-8"))
+        ensure_idea_note_pin_column(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
+
+
+def ensure_idea_note_pin_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: idea_note.is_pinned for binder-footer pins (migration 033)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(idea_note)").fetchall()
+        }
+    except sqlite3.Error:
+        return
+    if "is_pinned" not in cols:
+        connection.execute(
+            "ALTER TABLE idea_note ADD COLUMN is_pinned INTEGER NOT NULL DEFAULT 0"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) VALUES (33, 'idea_note_pin')"
+        )
+    except sqlite3.Error:
+        pass
 
 
 def illustration_dir_for(project_id: int) -> Path:
@@ -2059,6 +2084,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.update_project_settings(int(match.group(1)), body))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/title", path)
+            if match:
+                self.send_json(self.rename_project(int(match.group(1)), body))
+                return
+
             match = re.fullmatch(r"/api/ideas/(\d+)", path)
             if match:
                 self.send_json(self.update_idea(int(match.group(1)), body))
@@ -3208,35 +3238,70 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ]
             elif mode == "similar_words":
                 # 유사단어 찾기 — 선택 단어의 유의어·대체 표현 (집필용)
+                # 문장/구절이면 핵심 표현을 선별한 뒤 각각 제안
                 word = plain_text_from_content(
                     str(body.get("word") or body.get("selected_text") or user_prompt or "")
                 ).strip()
                 if not word:
                     raise ValueError("유사어를 찾을 단어를 선택하거나 입력해 주세요.")
-                if len(word) > 80:
-                    word = word[:80]
+                phrase_flag = body.get("phrase_mode")
+                if phrase_flag is None:
+                    # 클라이언트 미전달 시 휴리스틱
+                    phrase_mode = (
+                        (" " in word)
+                        or any(ch in word for ch in ".?!,…。，、;；")
+                        or len(word) >= 10
+                    )
+                else:
+                    phrase_mode = bool(phrase_flag)
+                max_len = 280 if phrase_mode else 80
+                if len(word) > max_len:
+                    word = word[:max_len]
                 system = (
                     "당신은 한국어 소설·원고 집필을 돕는 어휘 도우미입니다. "
-                    "작가가 고른 단어와 비슷한 뉘앙스의 표현을 실용적으로 제안하세요. "
+                    "작가가 고른 단어·표현과 비슷한 뉘앙스의 말을 실용적으로 제안하세요. "
                     "설명은 짧게, 목록은 바로 고를 수 있게 쓰세요. "
                     "영어 남용을 피하고 한국어 표현을 우선하세요."
                 )
                 if use_persona and persona_system:
                     system += " " + persona_system
-                instruction = (
-                    f"다음 단어/표현의 유사어·대체 표현을 찾아 주세요.\n\n"
-                    f"단어: {word}\n"
-                    f"작품 종류: {purpose_label}\n"
-                    f"장르: {genre_context or '(없음)'}\n\n"
-                    "아래 형식으로 한국어로 답하세요.\n"
-                    "### 유사어\n"
-                    "- (8~12개, 쉼표 또는 한 줄 목록)\n"
-                    "### 문장용 대체 표현\n"
-                    "- (4~8개, 짧은 구 또는 한 어절)\n"
-                    "### 뉘앙스 메모\n"
-                    "- (2~4줄, 언제 쓰면 좋은지)\n"
-                    "불필요한 서두는 생략하세요."
-                )
+                if phrase_mode:
+                    instruction = (
+                        "다음 문장/구절에서 집필에 쓸 만한 핵심 단어·표현을 "
+                        "3~6개 선별하고, 각 항목마다 유사어·대체 표현을 제안해 주세요.\n\n"
+                        f"선택 문장:\n{word}\n\n"
+                        f"작품 종류: {purpose_label}\n"
+                        f"장르: {genre_context or '(없음)'}\n\n"
+                        "선별 기준:\n"
+                        "- 조사·접속사·대명사·흔한 기능어는 제외\n"
+                        "- 감정·동작·분위기·비유·캐릭터 특유의 말투 등 교체 가치가 있는 것만\n"
+                        "- 문장 전체를 다시 쓰지 말고, 표현 단위로만\n\n"
+                        "아래 형식으로 한국어로 답하세요.\n"
+                        "### 선별: (표현1)\n"
+                        "- 유사어: a, b, c, d\n"
+                        "- 대체 구: (짧은 구 2~4개)\n"
+                        "### 선별: (표현2)\n"
+                        "- 유사어: …\n"
+                        "(선별 항목을 3~6개)\n"
+                        "### 뉘앙스 메모\n"
+                        "- (2~3줄)\n"
+                        "불필요한 서두는 생략하세요."
+                    )
+                else:
+                    instruction = (
+                        f"다음 단어/표현의 유사어·대체 표현을 찾아 주세요.\n\n"
+                        f"단어: {word}\n"
+                        f"작품 종류: {purpose_label}\n"
+                        f"장르: {genre_context or '(없음)'}\n\n"
+                        "아래 형식으로 한국어로 답하세요.\n"
+                        "### 유사어\n"
+                        "- (8~12개, 쉼표 또는 한 줄 목록)\n"
+                        "### 문장용 대체 표현\n"
+                        "- (4~8개, 짧은 구 또는 한 어절)\n"
+                        "### 뉘앙스 메모\n"
+                        "- (2~4줄, 언제 쓰면 좋은지)\n"
+                        "불필요한 서두는 생략하세요."
+                    )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -3302,10 +3367,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if indexed_rewrite:
                     instruction = indexed_rewrite
                 else:
+                    direction_hint = plain_text_from_content(
+                        str(
+                            body.get("rewrite_direction")
+                            or body.get("user_prompt")
+                            or ""
+                        )
+                    ).strip()
+                    if len(direction_hint) > 500:
+                        direction_hint = direction_hint[:500]
                     instruction = self._build_rewrite_prompt(
                         selected_text,
                         context_before,
                         context_after,
+                        direction_hint,
                     )
                 context_parts = [
                     active_project_context,
@@ -3776,18 +3851,51 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         selected_text: str,
         context_before: str = "",
         context_after: str = "",
+        direction_hint: str = "",
     ) -> str:
         """Task-only rewrite prompt (Core Identity lives in system).
 
         Mirrors web/app.js buildRewritePrompt: polish if needed, else 2–3
-        tone-safe alternatives (no forced defects).
+        tone-safe alternatives (no forced defects). Optional direction_hint
+        from the author steers how to polish.
         """
         selected = str(selected_text or "").strip()
         before = str(context_before or "")
         after = str(context_after or "")
+        direction = str(direction_hint or "").strip()
+        if len(direction) > 500:
+            direction = direction[:500]
+        direction_block = ""
+        if direction:
+            direction_block = (
+                "\n[작가 요청 방향]\n"
+                f"{direction}\n"
+                "이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. "
+                "요청과 무관한 재창작·내용 추가는 하지 않는다.\n"
+            )
+        style_rule = (
+            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
+            "   당신의 취향으로 문체 자체를 바꾸지 않는다."
+            + (
+                " (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)\n"
+                if direction
+                else "\n"
+            )
+        )
+        judge_extra = (
+            "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
+            if direction
+            else ""
+        )
+        alt_extra = (
+            "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
+            if direction
+            else ""
+        )
         return (
             "[현재 작업]\n"
-            "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n\n"
+            "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n"
+            f"{direction_block}\n"
             "[판단 기준]\n"
             "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
             "2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.\n"
@@ -3795,12 +3903,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)\n"
             "   - 의미가 모호하거나 어색한 조사·어순\n"
             "   - 상황과 안 맞는 과도한 수식어\n"
-            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
-            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
+            f"{style_rule}"
             "4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.\n\n"
             "[먼저 판단할 것 - 개선이 필요한가]\n"
             "문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.\n"
-            "이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.\n\n"
+            "이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.\n"
+            f"{judge_extra}\n"
             "[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]\n"
             "왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다\n"
             '("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서\n'
@@ -3811,7 +3919,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             '문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신\n'
             "같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.\n"
             '이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도\n'
-            "문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.\n\n"
+            "문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.\n"
+            f"{alt_extra}\n"
             "[문장 규칙]\n"
             "5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.\n"
             "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n\n"
@@ -4667,10 +4776,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def list_ideas(self, project_id: int) -> list[dict]:
         with database() as connection:
+            ensure_idea_note_pin_column(connection)
             self.require_project(connection, project_id)
             rows = connection.execute(
-                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
-                "FROM idea_note WHERE project_id = ? ORDER BY sort_order, id",
+                "SELECT id, project_id, title, body_md, color, sort_order, is_pinned, "
+                "created_at, updated_at "
+                "FROM idea_note WHERE project_id = ? "
+                "ORDER BY is_pinned DESC, sort_order, id",
                 (project_id,),
             ).fetchall()
         return [as_dict(row) for row in rows]
@@ -4681,20 +4793,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         color = str(body.get("color", "yellow") or "yellow")
         if color not in IDEA_COLORS:
             color = "yellow"
+        is_pinned = 1 if body.get("is_pinned") in (True, 1, "1", "true", "True") else 0
         if not title and not body_md:
             title = "새 메모"
         with database() as connection:
+            ensure_idea_note_pin_column(connection)
             self.require_project(connection, project_id)
             sort_order = connection.execute(
                 "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM idea_note WHERE project_id = ?",
                 (project_id,),
             ).fetchone()[0]
             cursor = connection.execute(
-                "INSERT INTO idea_note(project_id, title, body_md, color, sort_order) VALUES (?, ?, ?, ?, ?)",
-                (project_id, title, body_md, color, sort_order),
+                "INSERT INTO idea_note(project_id, title, body_md, color, sort_order, is_pinned) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (project_id, title, body_md, color, sort_order, is_pinned),
             )
             row = connection.execute(
-                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
+                "SELECT id, project_id, title, body_md, color, sort_order, is_pinned, "
+                "created_at, updated_at "
                 "FROM idea_note WHERE id = ?",
                 (cursor.lastrowid,),
             ).fetchone()
@@ -4702,8 +4818,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def update_idea(self, idea_id: int, body: dict) -> dict:
         with database() as connection:
+            ensure_idea_note_pin_column(connection)
             row = connection.execute(
-                "SELECT id, project_id, title, body_md, color, sort_order FROM idea_note WHERE id = ?",
+                "SELECT id, project_id, title, body_md, color, sort_order, is_pinned "
+                "FROM idea_note WHERE id = ?",
                 (idea_id,),
             ).fetchone()
             if row is None:
@@ -4712,6 +4830,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             body_md = row["body_md"]
             color = row["color"]
             sort_order = row["sort_order"]
+            is_pinned = int(row["is_pinned"] or 0)
             if "title" in body:
                 title = str(body.get("title", "")).strip()[:120]
             if "body_md" in body:
@@ -4726,13 +4845,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     sort_order = max(0, int(body.get("sort_order", 0)))
                 except (TypeError, ValueError) as error:
                     raise ValueError("정렬 순서가 올바르지 않습니다.") from error
+            if "is_pinned" in body:
+                raw_pin = body.get("is_pinned")
+                if raw_pin in (True, 1, "1", "true", "True"):
+                    is_pinned = 1
+                elif raw_pin in (False, 0, "0", "false", "False"):
+                    is_pinned = 0
+                else:
+                    raise ValueError("고정 값이 올바르지 않습니다.")
             connection.execute(
                 "UPDATE idea_note SET title = ?, body_md = ?, color = ?, sort_order = ?, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
-                (title, body_md, color, sort_order, idea_id),
+                "is_pinned = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?",
+                (title, body_md, color, sort_order, is_pinned, idea_id),
             )
             updated = connection.execute(
-                "SELECT id, project_id, title, body_md, color, sort_order, created_at, updated_at "
+                "SELECT id, project_id, title, body_md, color, sort_order, is_pinned, "
+                "created_at, updated_at "
                 "FROM idea_note WHERE id = ?",
                 (idea_id,),
             ).fetchone()
@@ -9111,6 +9239,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "goal_word_count": goal_word_count,
             "linked_success_profile_id": linked_success_profile_id,
         }
+
+    def rename_project(self, project_id: int, body: dict) -> dict:
+        title = str(body.get("title", "")).strip()[:200]
+        if not title:
+            raise ValueError("작품 제목을 입력해 주세요.")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            connection.execute(
+                "UPDATE project SET title = ? WHERE id = ?", (title, project_id)
+            )
+            # Keep the external .stg package's embedded title in sync.
+            try:
+                package_info = ensure_project_package(connection, project_id)
+            except Exception:
+                package_info = {}
+        return {"ok": True, "id": project_id, "title": title, **package_info}
 
     def list_writing_days(self, from_day: str, to_day: str) -> dict:
         start = _day_key_valid(from_day) if from_day else "1970-01-01"

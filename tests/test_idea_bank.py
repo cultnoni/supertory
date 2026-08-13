@@ -72,12 +72,40 @@ class IdeaBankApiTests(unittest.TestCase):
         self.assertEqual(updated["body_md"], "지도 대신 열쇠")
         self.assertEqual(updated["color"], "blue")
 
+        status, pinned = self.request("PUT", f"/api/ideas/{idea['id']}", {
+            "is_pinned": 1,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(int(pinned["is_pinned"]), 1)
+
+        status, listed = self.request("GET", f"/api/projects/{project['id']}/ideas")
+        self.assertEqual(status, 200)
+        self.assertEqual(int(listed[0]["is_pinned"]), 1)
+
+        status, unpinned = self.request("PUT", f"/api/ideas/{idea['id']}", {
+            "is_pinned": 0,
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(int(unpinned["is_pinned"]), 0)
+
         status, result = self.request("DELETE", f"/api/ideas/{idea['id']}")
         self.assertEqual(status, 200)
         self.assertEqual(result["ok"], True)
         status, empty = self.request("GET", f"/api/projects/{project['id']}/ideas")
         self.assertEqual(status, 200)
         self.assertEqual(empty, [])
+
+    def test_idea_pin_migration_applied(self) -> None:
+        with app.database() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM schema_migration WHERE version = 33"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            cols = {
+                item["name"]
+                for item in connection.execute("PRAGMA table_info(idea_note)").fetchall()
+            }
+            self.assertIn("is_pinned", cols)
 
 
 if __name__ == "__main__":

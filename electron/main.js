@@ -317,14 +317,45 @@ function stopBackendServer() {
   }
 }
 
-/** Match web `--header-bg` so the OS caption strip blends with app chrome. */
-const TITLEBAR_OVERLAY = {
-  light: { color: "#fffaf2", symbolColor: "#2a241c", height: 32 },
-  dark: { color: "#1e1b17", symbolColor: "#ece6dc", height: 32 },
+/** Match web `--chrome-bg` / `--ink` so OS caption buttons blend with each UI theme. */
+const TITLEBAR_OVERLAY_BY_THEME = {
+  light: { color: "#F8FAFC", symbolColor: "#0F172A", height: 32 },
+  sand: { color: "#FEFDF8", symbolColor: "#2C2523", height: 32 },
+  dark: { color: "#1E1B17", symbolColor: "#ECE6DC", height: 32 },
+  cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E", height: 32 },
+  study: { color: "#EAE0D3", symbolColor: "#4A3B32", height: 32 },
+  library: { color: "#EFEFF7", symbolColor: "#2B283B", height: 32 },
+  dawn: { color: "#E1E6EB", symbolColor: "#2B323B", height: 32 },
+  attic: { color: "#14181F", symbolColor: "#E6E0D4", height: 32 },
+  eink: { color: "#FFFFFF", symbolColor: "#000000", height: 32 },
+  "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C", height: 32 },
+  "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40", height: 32 },
 };
 
-function titleBarOverlayOptions(theme = "light") {
-  return theme === "dark" ? TITLEBAR_OVERLAY.dark : TITLEBAR_OVERLAY.light;
+function normalizeHexColor(value, fallback) {
+  const raw = String(value || "").trim();
+  if (/^#[0-9A-Fa-f]{6}$/.test(raw)) return raw.toUpperCase();
+  if (/^#[0-9A-Fa-f]{3}$/.test(raw)) {
+    return `#${raw[1]}${raw[1]}${raw[2]}${raw[2]}${raw[3]}${raw[3]}`.toUpperCase();
+  }
+  return fallback;
+}
+
+function titleBarOverlayOptions(themeOrOpts = "light") {
+  if (themeOrOpts && typeof themeOrOpts === "object") {
+    const themeKey = String(themeOrOpts.theme || themeOrOpts.id || "light");
+    const preset = TITLEBAR_OVERLAY_BY_THEME[themeKey]
+      || (themeOrOpts.scheme === "dark" ? TITLEBAR_OVERLAY_BY_THEME.dark : TITLEBAR_OVERLAY_BY_THEME.light);
+    return {
+      color: normalizeHexColor(themeOrOpts.color, preset.color),
+      symbolColor: normalizeHexColor(themeOrOpts.symbolColor, preset.symbolColor),
+      height: Number(themeOrOpts.height) > 0 ? Number(themeOrOpts.height) : 32,
+    };
+  }
+  const key = String(themeOrOpts || "light");
+  if (TITLEBAR_OVERLAY_BY_THEME[key]) return { ...TITLEBAR_OVERLAY_BY_THEME[key] };
+  if (key === "dark") return { ...TITLEBAR_OVERLAY_BY_THEME.dark };
+  return { ...TITLEBAR_OVERLAY_BY_THEME.light };
 }
 
 function createMainWindow() {
@@ -349,7 +380,7 @@ function createMainWindow() {
     show: false,
     title: "SuperTory",
     autoHideMenuBar: true,
-    backgroundColor: "#fffaf2",
+    backgroundColor: TITLEBAR_OVERLAY_BY_THEME.light.color,
     icon: fs.existsSync(iconPath) ? iconPath : undefined,
     ...win32Chrome,
     webPreferences: {
@@ -677,7 +708,13 @@ function setupIpc() {
     if (!mainWindow || process.platform !== "win32") return false;
     if (typeof mainWindow.setTitleBarOverlay !== "function") return false;
     try {
-      mainWindow.setTitleBarOverlay(titleBarOverlayOptions(theme === "dark" ? "dark" : "light"));
+      const opts = titleBarOverlayOptions(theme);
+      mainWindow.setTitleBarOverlay(opts);
+      try {
+        mainWindow.setBackgroundColor?.(opts.color);
+      } catch (_) {
+        /* ignore */
+      }
       return true;
     } catch (error) {
       console.warn("[supertory] setTitleBarOverlay failed:", error?.message || error);
