@@ -2304,7 +2304,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "dupcheck", "free", "chat", "subsynopsis", "styleblend",
-            "similar_words",
+            "similar_words", "chapter_subtitles",
         }
         if mode not in allowed:
             raise ValueError("지원하지 않는 AI 도움 방식입니다.")
@@ -3236,6 +3236,34 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
+            elif mode == "chapter_subtitles":
+                # 회차별 소제목 추천 — episodeContent/genre/recentSubtitles → JSON 4종.
+                # episode_content는 필수값이다. scene_content로 조용히 대체하면 프론트가
+                # 필드를 빠뜨렸을 때 엉뚱한 원고로 소제목이 생성되는데도 에러가 나지 않아
+                # 디버깅이 어려워지므로, 없으면 명시적으로 에러를 낸다.
+                if not body.get("episode_content"):
+                    raise ValueError("episode_content(회차 본문)가 전달되지 않았습니다.")
+                episode_content = plain_text_from_content(str(body.get("episode_content") or ""))
+                if len(episode_content) < 1200:
+                    raise ValueError("소제목을 추천하려면 회차 본문이 최소 1,200자 이상 필요합니다.")
+                subtitle_genre = str(
+                    body.get("genre") or main_genre_label or ""
+                ).strip()
+                raw_recent = body.get("recent_subtitles")
+                recent_subtitles = (
+                    [str(item) for item in raw_recent if str(item or "").strip()]
+                    if isinstance(raw_recent, list)
+                    else []
+                )
+                instruction = self._build_chapter_subtitle_prompt(
+                    episode_content, subtitle_genre, recent_subtitles
+                )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                ]
             elif mode == "similar_words":
                 # 유사단어 찾기 — 선택 단어의 유의어·대체 표현 (집필용)
                 # 문장/구절이면 핵심 표현을 선별한 뒤 각각 제안
@@ -3507,6 +3535,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             text = gemini_client.generate_text(full_prompt, system=system)
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
+
+        if mode == "chapter_subtitles":
+            text = self._enforce_chapter_subtitle_lengths(text)
 
         return {
             "mode": mode,
@@ -4536,6 +4567,181 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
+    def _build_chapter_subtitle_prompt(
+        episode_content: str,
+        genre: str = "",
+        recent_subtitles: list | None = None,
+    ) -> str:
+        """Chapter subtitle suggestions (chapter_subtitles mode). Task scope only —
+        Core Identity/Dynamic Context는 genre_system이 이미 앞에서 담당하므로 여기서는
+        정체성을 다시 선언하지 않는다."""
+        content = plain_text_from_content(str(episode_content or "")).strip()
+        genre_label = str(genre or "").strip() or "미입력"
+        subtitles = [str(s).strip() for s in (recent_subtitles or []) if str(s or "").strip()]
+
+        principles = [
+            "1. 절대 '작품 전체 제목(Series Title)'을 짓지 마라. 오직 이번 회차(Episode) 안에서 "
+            "벌어지는 사건, 감정, 대사에 집중한 소제목이어야 한다.",
+            "2. 각 소제목은 회차 목록(Tree View)과 상단 제목란에 깔끔하게 들어갈 수 있도록 "
+            "글자 수 제약을 철저히 준수하라.",
+            "3. genre가 입력된 경우 해당 장르 톤에 맞추고, 특히 D유형(문장/서사형)은 장르와 어울리지 "
+            "않는 억지스러운 유머·경쾌함을 넣지 마라 (예: 무협·진지한 현판에 코믹 반전형 문장을 "
+            "강제로 끼워 넣는 행위 금지). genre가 없으면 특정 장르색을 강요하지 않는 중립적인 "
+            "톤으로 작성하라.",
+            "4. A(사건/상황형)·B(대사형)·C(감성/복선형)는 결정적 반전의 결과 자체를 직접 발설하지 "
+            "말고 긴장감·궁금증을 유발하는 방향으로 작성하라. 단, D(문장/서사형)는 장르 관습상 반전의 "
+            "전제를 문장 안에 직접 드러내는 것이 정상적인 훅 방식이므로 이 제약에서 예외로 한다.",
+            "5. 아래 [스타일 예시]는 형식과 톤을 이해하기 위한 참고용일 뿐이다. 예시 문장의 표현·구조를 "
+            "그대로 따르거나 살짝 변형해 재사용하지 말고, 이번 회차 본문에서 나온 고유한 소재로 새로 "
+            "작성하라. 또한 실제 존재할 법한 유명 작품의 제목·구절과 우연히 겹치지 않도록 주의하라.",
+            "6. 각 소제목 작성 후 글자 수(공백 포함)를 직접 세어 지정된 범위를 벗어나면 범위 안에 "
+            "들어올 때까지 다시 압축한다. 이 검산 과정은 출력하지 않는다.",
+            "7. 결과물은 반드시 제공된 JSON 포맷으로만 응답하라. 설명, 부연은 붙이지 않는다.",
+        ]
+        # recent_subtitles가 없으면 8번(중복 방지) 원칙은 적용 대상이 없으므로 프롬프트에서 생략한다.
+        if subtitles:
+            principles.append(
+                "8. [기존 회차 소제목 목록]이 주어진 경우, 그 목록과 표현이나 문장 구조가 겹치지 "
+                "않도록 한다."
+            )
+        subtitles_block = "\n".join(f"- {s}" for s in subtitles) if subtitles else "없음"
+
+        return (
+            "[현재 작업]\n"
+            "이번 회차 본문을 분석하여, 독자의 클릭을 유도할 '회차별 소제목(Chapter Subtitle)' "
+            "4가지를 추천하라.\n\n"
+            "[엄격한 작성 원칙]\n"
+            + "\n".join(principles) + "\n\n"
+            "[소제목 4가지 추천 스타일 및 글자 수 제약]\n"
+            "- A. short_hook (사건/상황형): 이번 회차의 결정적 사건 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"그녀의 비밀\", \"첫 번째 대치\"\n"
+            "- B. dialogue (대사형): 이번 회차의 가장 임팩트 있는 대사/독백 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"당신은 누구십니까?\", \"절대 안 된다니까\"\n"
+            "- C. emotional (감성/복선형): 정서적 분위기나 소품/복선 은유 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"그와 그녀의 사정\", \"금 간 유리잔\"\n"
+            "- D. sentence_narrative (문장/서사형): 웹소설 특유의 상황과 훅이 드러나는 문장형 소제목 "
+            "(공백 포함 12자~20자 이내)\n"
+            "  * 스타일 예시: \"시한부인 줄 알았는데 주식을 너무 잘함\", \"죽었다 깨어나니 아카데미 영애\"\n\n"
+            "[JSON 스키마 — 정확히 이 형태로만 반환]\n"
+            "{\n"
+            '  "subtitles": [\n'
+            '    {"type":"short_hook","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"dialogue","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"emotional","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"sentence_narrative","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"}\n'
+            "  ]\n"
+            "}\n\n"
+            "[본문]\n"
+            f"{content}\n\n"
+            "[장르]\n"
+            f"{genre_label}\n\n"
+            "[기존 회차 소제목 목록]\n"
+            f"{subtitles_block}"
+        )
+
+    _CHAPTER_SUBTITLE_LENGTH_RANGES = {
+        "short_hook": (5, 10),
+        "dialogue": (5, 10),
+        "emotional": (5, 10),
+        "sentence_narrative": (12, 20),
+    }
+
+    @staticmethod
+    def _strip_json_fence(text: str) -> str:
+        cleaned = str(text or "").strip()
+        match = re.match(r"^```(?:json)?\s*(.*?)\s*```$", cleaned, re.S)
+        return match.group(1).strip() if match else cleaned
+
+    @staticmethod
+    def _hard_trim_chapter_subtitle(text: str, max_len: int) -> str:
+        """공백 경계에서 우선 자르고, 그래도 넘치면 글자 단위로 강제 절단한다.
+        모델의 자체 재압축(원칙 6)이 실패했을 때의 최종 보장선."""
+        text = str(text or "").strip()
+        if len(text) <= max_len:
+            return text
+        truncated = text[:max_len]
+        boundary = truncated.rfind(" ")
+        if boundary >= max(1, max_len - 4):
+            truncated = truncated[:boundary]
+        return truncated.strip() or text[:max_len]
+
+    @classmethod
+    def _enforce_chapter_subtitle_lengths(cls, raw_text: str) -> str:
+        """chapter_subtitles 응답 후처리.
+
+        원칙 6("검산 후 재압축")이 모델 안에서 항상 지켜지지는 않는다 — 실측 결과
+        sentence_narrative(D유형, 12~20자)가 특히 자주 범위를 넘겼다(7회 중 5회,
+        최대 25자). 서버에서 한 번 더 압축을 요청하고, 그래도 넘치면 결정적으로
+        잘라서 최종 응답이 항상 지정 범위를 지키도록 보장한다.
+        """
+        ranges = cls._CHAPTER_SUBTITLE_LENGTH_RANGES
+        cleaned = cls._strip_json_fence(raw_text)
+        try:
+            parsed = json.loads(cleaned)
+            items = parsed.get("subtitles")
+            if not isinstance(items, list):
+                return raw_text
+        except Exception:
+            return raw_text
+
+        def _out_of_range(item: dict) -> bool:
+            lo, hi = ranges.get(str(item.get("type") or ""), (0, 999))
+            return not (lo <= len(str(item.get("text") or "")) <= hi)
+
+        offenders = [item for item in items if isinstance(item, dict) and _out_of_range(item)]
+        if not offenders:
+            return raw_text
+
+        # 1차: 모델에게 초과/미달 항목만 다시 압축 요청
+        ask_lines = []
+        for item in offenders:
+            item_type = str(item.get("type") or "")
+            lo, hi = ranges.get(item_type, (0, 999))
+            current_text = str(item.get("text") or "")
+            ask_lines.append(
+                f'- type="{item_type}": 현재 "{current_text}" ({len(current_text)}자) '
+                f"→ 공백 포함 {lo}~{hi}자 안으로 다시 압축. 의미와 톤은 유지하되 어휘만 줄인다."
+            )
+        fix_prompt = (
+            "[현재 작업]\n"
+            "아래 소제목들은 지정된 글자 수 범위를 벗어났다. 각 항목을 범위 안으로 다시 "
+            "압축하라. 글자 수(공백 포함)를 직접 세어 확인한 뒤 답하라.\n\n"
+            "[압축 대상]\n" + "\n".join(ask_lines) + "\n\n"
+            "[JSON 스키마 — 정확히 이 형태로만 반환, 대상 항목만]\n"
+            '{"fixed": [{"type":"...","text":"..."}]}'
+        )
+        fixed_map: dict[str, str] = {}
+        try:
+            fix_text = gemini_client.generate_text(fix_prompt)
+            fixed = json.loads(cls._strip_json_fence(fix_text)).get("fixed")
+            if isinstance(fixed, list):
+                fixed_map = {
+                    str(f.get("type")): str(f.get("text") or "")
+                    for f in fixed
+                    if isinstance(f, dict) and f.get("type")
+                }
+        except Exception:
+            fixed_map = {}
+
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            item_type = str(item.get("type") or "")
+            lo, hi = ranges.get(item_type, (0, 999))
+            candidate = fixed_map.get(item_type)
+            if candidate and lo <= len(candidate) <= hi:
+                item["text"] = candidate
+                continue
+            current_text = str(item.get("text") or "")
+            if len(current_text) > hi:
+                # 2차: 그래도 넘치면 결정적 강제 절단으로 최종 보장한다.
+                item["text"] = cls._hard_trim_chapter_subtitle(current_text, hi)
+            # 하한 미달은 안전하게 지어내지 않고 그대로 둔다.
+
+        parsed["subtitles"] = items
+        return json.dumps(parsed, ensure_ascii=False)
+
+    @staticmethod
     def _tory_persona_system_prompt(persona_mode: str) -> str:
         """Tone / speech-style control for Tory ([Current Persona Mode])."""
         key = str(persona_mode or "default").strip().lower()
@@ -4702,8 +4908,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return (
             "[Active Project System Instruction — rebuilt every request]\n"
             f"{active_identity}\n"
-            "이번 요청에서는 위 정체성만 사용하세요. "
-            "이전 프로젝트·이전 장르 페르소나는 전부 버리고(Flush) 이 문장으로 시야를 교체하세요.\n\n"
+            "플러시(Flush) 대상은 이전 프로젝트의 장르·줄거리·세계관 맥락뿐입니다. "
+            "[Tory Core Identity]는 플러시 대상이 아니며, 항상 그대로 유지하세요.\n\n"
             "[Role & Capability]\n"
             f"- 당신은 [Tory Core Identity]를 유지한 채, 지금 '{main}' 작품만을 담당하는 "
             f"'{specialist}' 토리입니다.\n"
