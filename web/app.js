@@ -18,12 +18,43 @@
   }
 })();
 
+/** 새고침해도 유지되도록 localStorage에 저장해 둔 "오프닝 대기중" 씬 id를 읽어온다. */
+function loadPersistedFreshOpeningSceneId() {
+  try {
+    const raw = localStorage.getItem("supertory.freshOpeningSceneId");
+    const id = Number(raw);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+/** state.freshOpeningSceneId를 바꾸면서 localStorage에도 동기화 — 새로고침 후에도 유지되도록. */
+function setFreshOpeningSceneId(id) {
+  state.freshOpeningSceneId = id || null;
+  try {
+    if (state.freshOpeningSceneId) {
+      localStorage.setItem("supertory.freshOpeningSceneId", String(state.freshOpeningSceneId));
+    } else {
+      localStorage.removeItem("supertory.freshOpeningSceneId");
+    }
+  } catch (_) {
+    /* private mode */
+  }
+}
+
 const state = {
   projects: [],
   /** @type {"recent"|"manual"} 작품 목록 정렬 — 기본은 최근 작업순 */
   projectListMode: "recent",
   projectId: null,
   sceneId: null,
+  /**
+   * 새글쓰기로 방금 생성된 1화 씬 id — 이 씬이 비어 있는 동안은 새로고침해도 오프닝
+   * 플레이스홀더·힌트 타이머가 계속 적용된다. localStorage에 저장/동기화됨
+   * (web/app.js: createDefaultOpeningStructure, syncOpeningHintForScene).
+   */
+  freshOpeningSceneId: loadPersistedFreshOpeningSceneId(),
   characterId: null,
   scene: null,
   character: null,
@@ -1074,6 +1105,7 @@ function updateSceneStats() {
 
   updateGoalProgressUi({ value, goal, metric });
   updateReadingTimeUi(stats);
+  updateChapterSubtitleButtonState(sceneStats.chars_with_space);
 }
 
 /* —— Reading time (right of char counts) —— */
@@ -26043,7 +26075,7 @@ function setupViewModeShortcuts() {
       }
       // Defer slightly so other Esc handlers (modals) can win first via their own listeners
       // Only close split when no higher modal is open
-      const blocked = ["adminModal", "exportModal", "newProjectModal", "textPromptModal", "importModal", "viewerModal"]
+      const blocked = ["adminModal", "exportModal", "newProjectModal", "textPromptModal", "importModal", "viewerModal", "toryOpeningIdeasModal", "chapterSubtitleModal"]
         .some((id) => {
           const el = $(id);
           return el && !el.classList.contains("hidden");
@@ -31352,6 +31384,11 @@ async function submitNewProject(event) {
     resetModalDraftKeywords("newProject");
     closeNewProjectModal();
     await loadProjects(project.id);
+    try {
+      await createDefaultOpeningStructure();
+    } catch (err) {
+      console.warn("[supertory] default opening structure failed", err);
+    }
     const packageNote = project.package_name ? ` 파일: projects\\${project.package_name}` : "";
     toast(`새 ${purposeLabel[purpose] || "작품"}이 만들어졌어요.${packageNote}`);
   } catch (error) {
@@ -32932,6 +32969,508 @@ async function createScene(chapterId, options = {}) {
     : (isChild
       ? "하위 원고를 만들었어요."
       : "새 씬이 준비됐어요. 가운데에 글을 써 보세요."));
+}
+
+// ── 토리의 첫 문장 힌트 (새글쓰기 오프닝 도우미) ──────────────────────────
+const DEFAULT_SCENE_PLACEHOLDER =
+  "여기에 글을 쓰세요. 글은 이 컴퓨터에 저장됩니다. 오른쪽 클릭으로 이미지를 넣을 수 있어요.";
+const OPENING_HINT_PLACEHOLDER = "토리가 작가님의 첫 문장을 기다리고 있어요.";
+const OPENING_HINT_DELAY_MS = 30000;
+let openingHintTimer = null;
+
+function disarmOpeningHintTimer() {
+  if (openingHintTimer) {
+    window.clearTimeout(openingHintTimer);
+    openingHintTimer = null;
+  }
+}
+
+function armOpeningHintTimer(sceneId) {
+  disarmOpeningHintTimer();
+  openingHintTimer = window.setTimeout(() => {
+    openingHintTimer = null;
+    if (state.sceneId === sceneId && state.freshOpeningSceneId === sceneId) {
+      showOpeningHintButton();
+    }
+  }, OPENING_HINT_DELAY_MS);
+}
+
+function showOpeningHintButton() {
+  $("toryOpeningHintButton")?.classList.remove("hidden");
+}
+
+function hideOpeningHintButton() {
+  $("toryOpeningHintButton")?.classList.add("hidden");
+}
+
+/** 씬을 열 때마다 호출 — 방금 새글쓰기로 만든 1화면 오프닝 힌트를 걸고, 아니면 해제. */
+function syncOpeningHintForScene(sceneId) {
+  const editorEl = $("sceneContent");
+  let isFresh = state.freshOpeningSceneId != null && sceneId === state.freshOpeningSceneId;
+  // 다른 경로(동기화, 로컬 임시본 복원 등)로 이미 내용이 생겼다면 더는 "오프닝 대기" 상태가 아님.
+  if (isFresh && editorEl) {
+    const isEmpty = !plainTextFromHtml(editorEl.innerHTML) && !editorEl.querySelector("img");
+    if (!isEmpty) {
+      isFresh = false;
+      setFreshOpeningSceneId(null);
+    }
+  }
+  if (editorEl) {
+    editorEl.dataset.placeholder = isFresh ? OPENING_HINT_PLACEHOLDER : DEFAULT_SCENE_PLACEHOLDER;
+    if (typeof updateEditorPlaceholder === "function") updateEditorPlaceholder(editorEl);
+  }
+  if (isFresh) {
+    armOpeningHintTimer(sceneId);
+  } else {
+    disarmOpeningHintTimer();
+    hideOpeningHintButton();
+  }
+}
+
+/** 오프닝 힌트 버튼 클릭, 그리고 입력 시작 시 타이머를 완전히 해제하는 리스너를 등록. */
+function setupOpeningHintUi() {
+  $("sceneContent")?.addEventListener("input", () => {
+    if (state.freshOpeningSceneId != null && state.sceneId === state.freshOpeningSceneId) {
+      disarmOpeningHintTimer();
+      hideOpeningHintButton();
+      // 스펙: "타이머 초기화/비활성화" — 재시작이 아니라 이 씬에서는 다시는 뜨지 않도록 해제.
+      setFreshOpeningSceneId(null);
+      const editorEl = $("sceneContent");
+      if (editorEl) editorEl.dataset.placeholder = DEFAULT_SCENE_PLACEHOLDER;
+    }
+  });
+  $("toryOpeningHintButton")?.addEventListener("click", () => {
+    openOpeningIdeasModal().catch(handleError);
+  });
+}
+
+/** 토리에게 첫 문장 3종(후킹형/감성형/독백형)을 요청하는 프롬프트. */
+/** 6가지 고정 카테고리 — type은 파싱/삽입에 쓰는 안정적인 키, 순서 고정용. */
+const OPENING_IDEA_TYPES = [
+  "concept_direct",
+  "in_media_res",
+  "absurd_dilemma",
+  "emotional_atmosphere",
+  "inner_monologue",
+  "action_tension",
+];
+
+function buildOpeningIdeaPrompt() {
+  return [
+    "첫 문장을 떼지 못해 고민 중인 작가를 위해, 실제 웹소설 흥행 공식에 맞춘 '첫 문장 아이디어' 6가지를 제안해 주세요.",
+    "",
+    "[작성 원칙]",
+    "1. 지루하고 긴 풍경 설명은 금지하며, 독자의 탭 닫기를 방지하는 강렬한 후킹 요소를 담아야 한다.",
+    "2. 기존 작품 정보(장르, 시놉시스, 캐릭터)가 있다면 적극 반영하라.",
+    "3. 장르와 맞지 않는 억지스러운 요소를 넣지 마라. (예: 일반 현대물/스포츠물에 억지로 회빙환 설정을 억지로 섞는 행위 절대 금지)",
+    "4. 결과는 아래 JSON 스키마 그대로만 반환하라. 코드블록 표시(```), 설명, 그 외 텍스트는 절대 포함하지 마라.",
+    "",
+    "[6가지 실전 카테고리 가이드 — type 값은 그대로, label·text는 이야기에 맞게 새로 작성]",
+    "1. concept_direct (핵심 설정·세계관 직진형): 회빙환, 특수능력, 특수직업, 독특한 세계관, 주요 상황/계약 등 작품의 핵심 설정을 첫 줄에 바로 내던지는 문장.",
+    "2. in_media_res (사건 한복판 대사형): 긴장감 높은 상황의 인물 대사/독백으로 현장감을 부여하는 문장.",
+    "3. absurd_dilemma (황당 딜레마·목표형): 주인공이 처한 절박하거나 어처구니없는 상황/목표를 제시하는 문장.",
+    "4. emotional_atmosphere (감성·복선 묘사형): 복선과 텐션이 담긴 정서적 분위기를 은유하는 문장.",
+    "5. inner_monologue (인물 내면 독백형): 캐릭터의 성격과 독특한 가치관이 드러나는 독백 문장.",
+    "6. action_tension (긴박한 사건 상황형): 설명 없이 바로 맞닥뜨린 대치/사건 상황을 연출하는 문장.",
+    "",
+    "[JSON 스키마 — 정확히 이 형태로만 반환]",
+    "{",
+    '  "notice": "이 6가지는 키워드와 줄거리만으로 만든 방향성 아이디어이며 실제 시점·어투와 다를 수 있으니 문장보다는 방향을 참고하라는 취지의 한국어 안내 문장 1개(이모지 1개 포함 가능)",',
+    '  "openings": [',
+    '    {"type":"concept_direct","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
+    '    {"type":"in_media_res","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
+    '    {"type":"absurd_dilemma","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
+    '    {"type":"emotional_atmosphere","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
+    '    {"type":"inner_monologue","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
+    '    {"type":"action_tension","label":"이모지 1개 + 한글 라벨","text":"제안 문장"}',
+    "  ]",
+    "}",
+  ].join("\n");
+}
+
+/** ```json 코드블록으로 감싸져 오더라도 첫 { ~ 마지막 } 구간만 뽑아낸다. */
+function extractJsonObjectText(text) {
+  const source = String(text || "");
+  const fenced = source.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const body = fenced ? fenced[1] : source;
+  const start = body.indexOf("{");
+  const end = body.lastIndexOf("}");
+  if (start === -1 || end === -1 || end < start) return null;
+  return body.slice(start, end + 1);
+}
+
+/** AI JSON 응답에서 notice 문구와 6개 오프닝(type/label/text)을 뽑아낸다. */
+function parseOpeningIdeas(text) {
+  const jsonText = extractJsonObjectText(text);
+  if (!jsonText) return { notice: "", items: [] };
+  let data;
+  try {
+    data = JSON.parse(jsonText);
+  } catch (_) {
+    return { notice: "", items: [] };
+  }
+  const notice = String(data?.notice || "").trim();
+  const raw = Array.isArray(data?.openings) ? data.openings : [];
+  const items = raw
+    .map((item) => ({
+      type: String(item?.type || "").trim(),
+      label: String(item?.label || "").trim(),
+      text: String(item?.text || "").trim(),
+    }))
+    .filter((item) => OPENING_IDEA_TYPES.includes(item.type) && item.text);
+  return { notice, items };
+}
+
+async function fetchOpeningIdeas() {
+  let result;
+  try {
+    // 서버는 mode:"free"일 때 user_prompt/prompt가 비어 있으면 indexed_prompt를 보기도
+    // 전에 거부한다("AI에게 요청할 내용을 적어 주세요.") — 다른 free 호출부들처럼 둘 다 채워 보낸다.
+    const prompt = buildOpeningIdeaPrompt();
+    result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "free",
+        prompt,
+        indexed_prompt: prompt,
+        project_id: state.projectId,
+        ...buildToryProjectContextPayload(),
+      }),
+    });
+  } catch (error) {
+    throw toAiAssistError(error);
+  }
+  const ideas = parseOpeningIdeas(result?.text || "");
+  if (!ideas.items.length) {
+    const err = new Error(AI_ASSIST_ERR_GENERIC);
+    err.aiAssist = true;
+    throw err;
+  }
+  return ideas;
+}
+
+function renderOpeningIdeas(ideas) {
+  $("toryOpeningIdeasStatus")?.classList.add("hidden");
+  $("toryOpeningIdeasRetryButton")?.classList.add("hidden");
+  const grid = $("toryOpeningIdeasGrid");
+  if (grid) {
+    grid.innerHTML = ideas.items.map((item) => `
+      <button type="button" class="tory-idea-card" data-opening-idea-type="${escapeHtml(item.type)}">
+        <span class="tory-idea-card-label">${escapeHtml(item.label || item.type)}</span>
+        <span class="tory-idea-card-text">${escapeHtml(item.text)}</span>
+      </button>`).join("");
+    grid.classList.remove("hidden");
+  }
+  const notice = $("toryOpeningIdeasNotice");
+  if (notice) {
+    if (ideas.notice) {
+      notice.textContent = ideas.notice;
+      notice.classList.remove("hidden");
+    } else {
+      notice.classList.add("hidden");
+    }
+  }
+}
+
+function showOpeningIdeasStatus(message) {
+  const status = $("toryOpeningIdeasStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.remove("hidden");
+  }
+  $("toryOpeningIdeasGrid")?.classList.add("hidden");
+  $("toryOpeningIdeasNotice")?.classList.add("hidden");
+}
+
+async function loadOpeningIdeasIntoModal() {
+  showOpeningIdeasStatus("토리가 첫 문장을 고민하고 있어요…");
+  $("toryOpeningIdeasRetryButton")?.classList.add("hidden");
+  try {
+    const ideas = await fetchOpeningIdeas();
+    renderOpeningIdeas(ideas);
+  } catch (error) {
+    handleAiAssistError(error);
+    showOpeningIdeasStatus("문장을 만들지 못했어요. 다시 시도해 주세요.");
+    $("toryOpeningIdeasRetryButton")?.classList.remove("hidden");
+  }
+}
+
+async function openOpeningIdeasModal() {
+  $("toryOpeningIdeasModal")?.classList.remove("hidden");
+  await loadOpeningIdeasIntoModal();
+}
+
+function closeOpeningIdeasModal() {
+  $("toryOpeningIdeasModal")?.classList.add("hidden");
+}
+
+/** 고른 오프닝 문장을 원고 첫 줄에 넣고 커서를 끝으로 옮긴 뒤, 모달·힌트 버튼을 모두 정리. */
+function applyOpeningIdea(sentence) {
+  const editor = $("sceneContent");
+  if (!editor || !sentence) return;
+  setEditorContent(sentence, editor);
+  const range = document.createRange();
+  range.selectNodeContents(editor);
+  range.collapse(false);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  editor.focus();
+  closeOpeningIdeasModal();
+  disarmOpeningHintTimer();
+  hideOpeningHintButton();
+  setFreshOpeningSceneId(null);
+  editor.dataset.placeholder = DEFAULT_SCENE_PLACEHOLDER;
+  // 기존 dirty-flag/자동저장 로직에 그대로 편승.
+  editor.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
+function setupOpeningIdeasModal() {
+  document.querySelectorAll("[data-close-opening-ideas]").forEach((el) => {
+    el.addEventListener("click", closeOpeningIdeasModal);
+  });
+  $("toryOpeningIdeasRetryButton")?.addEventListener("click", () => {
+    loadOpeningIdeasIntoModal().catch(handleAiAssistError);
+  });
+  // 카드가 AI 응답마다 새로 그려지므로(동적 라벨/문장) 위임 방식으로 클릭을 받는다.
+  $("toryOpeningIdeasGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest("[data-opening-idea-type]");
+    if (!card) return;
+    const text = card.querySelector(".tory-idea-card-text")?.textContent || "";
+    applyOpeningIdea(text.trim());
+  });
+}
+
+/* —— 회차별 소제목 추천 (chapter_subtitles) —————————————————————— */
+
+const CHAPTER_SUBTITLE_MIN_CHARS = 1200;
+const CHAPTER_SUBTITLE_TOOLTIP_DISABLED = "회차 본문이 1,200자 이상일 때 사용할 수 있어요";
+const CHAPTER_SUBTITLE_TOOLTIP_ENABLED = "이번 회차 본문을 분석해 소제목 4가지를 추천해요";
+
+/**
+ * 기존 제목 맨 앞의 회차 번호 표기만 프리픽스로 인식한다. 우선순위 순서 그대로 검사 —
+ * "36화. "(마침표 포함)가 "36화 "(공백만)보다 먼저 매치돼야 마침표까지 프리픽스에 포함된다.
+ * 숫자 회차 표기 외에 프롤로그/에필로그/외전(번호가 붙는 경우 포함)도 동일하게 보존한다.
+ */
+const CHAPTER_SUBTITLE_PREFIX_PATTERNS = [
+  // 숫자 회차 표기
+  /^\d+화\.\s*/,   // "36화. "
+  /^\d+화\s*/,     // "36화 " / "36화"
+  /^\d+\.\s*/,     // "36. "
+  /^\d+\)\s*/,     // "36) "
+  /^\d+\s+/,       // "36 "  (숫자+공백만, 최후순위)
+  // 프롤로그 / 에필로그 / 외전 — 번호가 붙는 경우("외전 3화. ")를 먼저 검사
+  /^(?:프롤로그|에필로그|외전)\s*\d+화\.\s*/,  // "외전 3화. "
+  /^(?:프롤로그|에필로그|외전)\s*\d+화\s*/,    // "외전 3화 " / "외전 3화"
+  /^(?:프롤로그|에필로그|외전)\s*\d+\.\s*/,    // "외전 3. "
+  /^(?:프롤로그|에필로그|외전)\s*\d+\)\s*/,    // "외전 3) "
+  /^(?:프롤로그|에필로그|외전)\.\s*/,          // "프롤로그. "
+  /^(?:프롤로그|에필로그|외전)\)\s*/,          // "프롤로그) "
+  /^(?:프롤로그|에필로그|외전)\s+/,            // "프롤로그 "  (공백만, 최후순위)
+];
+
+function splitChapterSubtitlePrefix(title) {
+  const source = String(title || "");
+  for (const pattern of CHAPTER_SUBTITLE_PREFIX_PATTERNS) {
+    const match = source.match(pattern);
+    if (match) return match[0];
+  }
+  return "";
+}
+
+/** 실시간 글자 수(공백 포함) 재사용 — updateSceneStats()가 이미 계산한 값을 넘겨받는다. */
+function updateChapterSubtitleButtonState(charsWithSpace) {
+  const button = $("chapterSubtitleSuggestButton");
+  if (!button) return;
+  const chars = Number.isFinite(charsWithSpace)
+    ? charsWithSpace
+    : computeTextStats(getEditorPlainText()).chars_with_space;
+  const ready = chars >= CHAPTER_SUBTITLE_MIN_CHARS;
+  button.disabled = !ready;
+  button.title = ready ? CHAPTER_SUBTITLE_TOOLTIP_ENABLED : CHAPTER_SUBTITLE_TOOLTIP_DISABLED;
+}
+
+/** AI JSON 응답에서 소제목 4종(type/label/text/reason)을 뽑아낸다. 순서는 응답 그대로 유지. */
+function parseChapterSubtitles(text) {
+  const jsonText = extractJsonObjectText(text);
+  if (!jsonText) return [];
+  let data;
+  try {
+    data = JSON.parse(jsonText);
+  } catch (_) {
+    return [];
+  }
+  const raw = Array.isArray(data?.subtitles) ? data.subtitles : [];
+  return raw
+    .map((item) => ({
+      type: String(item?.type || "").trim(),
+      label: String(item?.label || "").trim(),
+      text: String(item?.text || "").trim(),
+      reason: String(item?.reason || "").trim(),
+    }))
+    .filter((item) => item.text);
+}
+
+async function fetchChapterSubtitles() {
+  const episodeContent = getEditorPlainText();
+  let result;
+  try {
+    result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        mode: "chapter_subtitles",
+        episode_content: episodeContent,
+        project_id: state.projectId,
+        ...buildToryProjectContextPayload(),
+      }),
+    });
+  } catch (error) {
+    throw error; // api()가 /api/ai/assist 호출은 이미 aiAssist 에러로 감싸서 던짐
+  }
+  const items = parseChapterSubtitles(result?.text || "");
+  if (!items.length) {
+    const err = new Error(AI_ASSIST_ERR_GENERIC);
+    err.aiAssist = true;
+    throw err;
+  }
+  return items;
+}
+
+function renderChapterSubtitles(items) {
+  $("chapterSubtitleStatus")?.classList.add("hidden");
+  $("chapterSubtitleRetryButton")?.classList.add("hidden");
+  const grid = $("chapterSubtitleGrid");
+  if (grid) {
+    grid.innerHTML = items.map((item, index) => `
+      <div class="chapter-subtitle-card" data-chapter-subtitle-index="${index}">
+        <span class="chapter-subtitle-card-label">${escapeHtml(item.label || item.type)}</span>
+        <span class="chapter-subtitle-card-text">${escapeHtml(item.text)}</span>
+        <span class="chapter-subtitle-card-reason">${escapeHtml(item.reason)}</span>
+        <div class="chapter-subtitle-card-actions">
+          <button type="button" class="secondary compact-btn" data-chapter-subtitle-apply>바로 적용</button>
+          <button type="button" class="secondary compact-btn" data-chapter-subtitle-copy>복사하기</button>
+        </div>
+      </div>`).join("");
+    grid.classList.remove("hidden");
+  }
+}
+
+function showChapterSubtitleStatus(message) {
+  const status = $("chapterSubtitleStatus");
+  if (status) {
+    status.textContent = message;
+    status.classList.remove("hidden");
+  }
+  $("chapterSubtitleGrid")?.classList.add("hidden");
+}
+
+/** api()가 /api/ai/assist 실패를 이미 친근한 문구로 감싸지만, 원래 서버 메시지는
+ * error.cause.message에 그대로 남아 있다(app.js toAiAssistError 참고). 네트워크/서버
+ * 오류는 일반 안내 토스트로, 그 외(1,200자 미만 등 백엔드 검증 실패)는 서버 메시지를
+ * 그대로 보여준다. */
+function showChapterSubtitleError(error) {
+  console.error(error);
+  const wrapped = error?.aiAssist ? error : toAiAssistError(error);
+  if (wrapped.isNetwork || wrapped.offlineSafe) {
+    toast("잠시 후 다시 시도해주세요.", 4200);
+    return;
+  }
+  const raw = String(wrapped.cause?.message || wrapped.message || AI_ASSIST_ERR_GENERIC).trim();
+  toast(raw || AI_ASSIST_ERR_GENERIC, 4200);
+}
+
+async function loadChapterSubtitlesIntoModal() {
+  showChapterSubtitleStatus("토리가 소제목을 고민하고 있어요…");
+  $("chapterSubtitleRetryButton")?.classList.add("hidden");
+  try {
+    const items = await fetchChapterSubtitles();
+    renderChapterSubtitles(items);
+  } catch (error) {
+    showChapterSubtitleError(error);
+    closeChapterSubtitleModal();
+  }
+}
+
+async function openChapterSubtitleModal() {
+  const button = $("chapterSubtitleSuggestButton");
+  if (button?.disabled) return; // 방어적 처리 — 버튼이 비활성화면 호출 자체를 막는다
+  $("chapterSubtitleModal")?.classList.remove("hidden");
+  await loadChapterSubtitlesIntoModal();
+}
+
+function closeChapterSubtitleModal() {
+  $("chapterSubtitleModal")?.classList.add("hidden");
+}
+
+/** 기존 제목의 회차 번호 프리픽스만 남기고 뒤 텍스트를 새 소제목으로 교체해 적용한다. */
+function applyChapterSubtitleToTitle(subtitleText) {
+  const titleInput = $("sceneTitle");
+  if (!titleInput || !subtitleText) return;
+  const oldTitle = titleInput.value || "";
+  const prefix = splitChapterSubtitlePrefix(oldTitle);
+  titleInput.value = prefix + subtitleText;
+  // 기존 dirty-flag/자동저장·바인더 동기화 로직에 그대로 편승 (applyOpeningIdea와 동일 패턴).
+  titleInput.dispatchEvent(new Event("change", { bubbles: true }));
+  if (state.sceneId) markSceneDirty();
+  closeChapterSubtitleModal();
+  toast("소제목이 적용됐어요");
+}
+
+async function copyChapterSubtitleText(subtitleText) {
+  try {
+    await navigator.clipboard.writeText(subtitleText);
+    toast("복사했어요");
+  } catch (_) {
+    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+  }
+}
+
+function setupChapterSubtitleModal() {
+  $("chapterSubtitleSuggestButton")?.addEventListener("click", () => {
+    openChapterSubtitleModal().catch((error) => showChapterSubtitleError(error));
+  });
+  document.querySelectorAll("[data-close-chapter-subtitle]").forEach((el) => {
+    el.addEventListener("click", closeChapterSubtitleModal);
+  });
+  $("chapterSubtitleRetryButton")?.addEventListener("click", () => {
+    loadChapterSubtitlesIntoModal().catch((error) => showChapterSubtitleError(error));
+  });
+  // 카드가 응답마다 새로 그려지므로 위임 방식으로 클릭을 받는다.
+  $("chapterSubtitleGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest(".chapter-subtitle-card");
+    if (!card) return;
+    const text = card.querySelector(".chapter-subtitle-card-text")?.textContent || "";
+    if (event.target.closest("[data-chapter-subtitle-apply]")) {
+      applyChapterSubtitleToTitle(text.trim());
+    } else if (event.target.closest("[data-chapter-subtitle-copy]")) {
+      copyChapterSubtitleText(text.trim());
+    }
+  });
+}
+
+/**
+ * "새글쓰기" 직후 기본 트리(1권 > 1부 > 1화. 본문제목)를 프롬프트 없이 조용히 만들고
+ * 곧바로 에디터를 연다. part/chapter/scene 각각 기존 엔드포인트를 그대로 사용.
+ * 실패해도 프로젝트 생성 자체는 이미 끝난 상태이므로 호출측에서 catch로 감싼다.
+ */
+async function createDefaultOpeningStructure() {
+  if (!state.projectId) return null;
+  const part = await api(`/api/projects/${state.projectId}/parts`, {
+    method: "POST",
+    body: JSON.stringify({ title: "1권" }),
+  });
+  const chapter = await api(`/api/projects/${state.projectId}/chapters`, {
+    method: "POST",
+    body: JSON.stringify({ title: "1부", part_id: part.id }),
+  });
+  const scene = await api(`/api/chapters/${chapter.id}/scenes`, {
+    method: "POST",
+    body: JSON.stringify({ title: "1화. 본문제목" }),
+  });
+  setFreshOpeningSceneId(scene.id);
+  await loadProject();
+  await openScene(scene.id);
+  return scene.id;
 }
 
 async function reparentScene(sceneId, parentSceneId) {
@@ -36512,6 +37051,7 @@ async function openScene(sceneId) {
     setSceneSaveStatus("오프라인 보관본 — 연결 시 동기화");
     scheduleAutoSave();
   }
+  syncOpeningHintForScene(nextId);
   // Per-episode page color (if set) vs project-wide default
   if (typeof refreshManuscriptPageTheme === "function") {
     refreshManuscriptPageTheme();
@@ -42317,6 +42857,9 @@ function setupCreateMenu() {
 
 setupCreateMenu();
 setupNewProjectModal();
+setupOpeningHintUi();
+setupOpeningIdeasModal();
+setupChapterSubtitleModal();
 setupModalKeywordField("import");
 setupWelcomeScreen();
 setupAdminMode();

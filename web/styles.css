@@ -11454,7 +11454,7 @@ body[data-ui-scheme="dark"] .world-main-card {
    → 이전/다음 라벨이 짧거나 없어도 본문 제목이 한쪽으로 밀리지 않음 */
 .episode-nav-bar {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(6rem, min(28rem, 46%)) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) minmax(8rem, min(30rem, 52%)) minmax(0, 1fr);
   align-items: center;
   column-gap: 10px;
   min-width: 0;
@@ -11507,6 +11507,16 @@ body[data-ui-scheme="dark"] .world-main-card {
   justify-content: flex-end;
   padding-right: 2px;
 }
+/* 소제목 추천 버튼 + 제목 입력 — 한 덩어리로 붙이고, 그 덩어리를 가운데 칸에서 중앙 정렬 */
+.episode-title-group {
+  grid-column: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  min-width: 0;
+  width: 100%;
+}
 .episode-nav-btn:hover:not(:disabled) {
   background: var(--selection);
   border-color: var(--line);
@@ -11528,22 +11538,23 @@ body[data-ui-scheme="dark"] .world-main-card {
   line-height: 1;
   color: var(--accent-dark);
 }
-/* 가운데 제목 — 좌우 칸이 동일 폭이라 항상 중앙 */
+/* 제목 — 글자 폭만큼만 차지(field-sizing)해서 마법봉 버튼에 바로 붙고,
+   .episode-title-group가 이 덩어리(버튼+제목) 전체를 가운데 칸에서 중앙 정렬한다. */
 .episode-title-input.title-input,
 .episode-title-input {
-  grid-column: 2;
-  justify-self: stretch;
-  width: 100% !important;
-  min-width: 0 !important;
-  max-width: none !important;
+  flex: 0 1 auto;
+  field-sizing: content;
+  width: auto;
+  min-width: 4rem !important;
+  max-width: 100% !important;
   margin: 0 !important;
-  padding: 4px 12px !important;
+  padding: 4px 4px 4px 1px !important;
   min-height: 34px !important;
   border: 0 !important;
   border-bottom: 0 !important;
   border-radius: 0 !important;
   background: transparent !important;
-  text-align: center;
+  text-align: left;
   font-family: Georgia, "Malgun Gothic", serif;
   font-size: 18px !important;
   font-weight: 700;
@@ -19506,6 +19517,175 @@ html[data-ui-scheme="dark"] .tory-cheer-card,
 body[data-ui-scheme="dark"] .tory-cheer-card {
   background: var(--panel);
   box-shadow: 0 12px 36px #00000066;
+}
+
+/* 토리의 첫 문장 힌트 버튼 — 40초 미입력 시 등장하는 플로팅 버튼 */
+.tory-opening-hint-btn {
+  position: fixed;
+  right: 18px;
+  bottom: 22px;
+  z-index: 35;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: min(360px, calc(100vw - 28px));
+  padding: 10px 16px 10px 10px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  background: color-mix(in srgb, var(--header-bg) 92%, #fff);
+  box-shadow: 0 12px 36px #00000033;
+  cursor: pointer;
+  animation: tory-cheer-in 0.28s ease-out;
+  text-align: left;
+}
+.tory-opening-hint-btn:hover {
+  background: color-mix(in srgb, var(--accent) 10%, var(--header-bg));
+}
+.tory-opening-hint-btn.hidden { display: none !important; }
+.tory-opening-hint-btn .tory-cheer-avatar {
+  overflow: visible;
+}
+.tory-opening-hint-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--ink);
+}
+html[data-ui-scheme="dark"] .tory-opening-hint-btn,
+body[data-ui-scheme="dark"] .tory-opening-hint-btn {
+  background: var(--panel);
+  box-shadow: 0 12px 36px #00000066;
+}
+
+/* 토리 오프닝 아이디어 모달 — 6가지 실전 카테고리 카드 (concept_direct 등) */
+.tory-opening-ideas-card { width: min(760px, calc(100vw - 28px)); }
+.tory-opening-ideas-body { min-height: 120px; }
+.tory-opening-ideas-status { margin: 24px 0; text-align: center; }
+.tory-opening-ideas-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.tory-opening-ideas-grid.hidden { display: none !important; }
+.tory-idea-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card, var(--surface));
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, transform 0.15s ease;
+}
+.tory-idea-card:hover {
+  border-color: var(--accent);
+  box-shadow: 0 8px 20px #00000022;
+  transform: translateY(-2px);
+}
+.tory-idea-card:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+  transform: none;
+}
+.tory-idea-card-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
+}
+.tory-idea-card-text {
+  font-size: 13.5px;
+  line-height: 1.55;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.tory-opening-ideas-notice {
+  margin: 14px 0 0;
+  padding: 10px 12px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tory-opening-ideas-notice.hidden { display: none !important; }
+@media (max-width: 640px) {
+  .tory-opening-ideas-grid { grid-template-columns: 1fr; }
+}
+
+/* —— 회차별 소제목 추천 —— 아이콘 버튼, 제목 바로 왼쪽에 밀착(행 추가 없음) —— */
+.chapter-subtitle-suggest-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  min-height: 34px;
+  padding: 0 !important;
+  font-size: 15px;
+  line-height: 1;
+}
+.chapter-subtitle-suggest-btn:disabled {
+  /* 흑백 필터 없이 불투명도만 낮춘다 — 채도를 죽이면 아이콘이 활성/비활성 상태마다
+     다른 아이콘처럼 보여서(선명한 색 vs 탁한 회색) 품질이 들쭉날쭉해 보였다. */
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+/* 재생성(refresh) 아이콘 — 인라인 SVG라 크기와 상관없이 항상 선명하고,
+   이미지 마스크 관련 문제(흐림/회색 박스 등) 자체가 생기지 않는다. 항상 검정 고정. */
+.chapter-subtitle-regen-icon {
+  width: 19px;
+  height: 19px;
+  fill: #000;
+}
+.chapter-subtitle-modal-card { width: min(760px, calc(100vw - 28px)); }
+.chapter-subtitle-body { min-height: 120px; }
+.chapter-subtitle-status { margin: 24px 0; text-align: center; }
+.chapter-subtitle-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+.chapter-subtitle-grid.hidden { display: none !important; }
+.chapter-subtitle-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 100px;
+  padding: 14px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg-card, var(--surface));
+  text-align: left;
+}
+.chapter-subtitle-card-label {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--accent-dark);
+}
+.chapter-subtitle-card-text {
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1.5;
+  color: var(--ink);
+  white-space: pre-wrap;
+}
+.chapter-subtitle-card-reason {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--ink-soft, var(--muted, #767066));
+}
+.chapter-subtitle-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 4px;
+}
+.chapter-subtitle-card-actions .compact-btn { flex: 1 1 auto; }
+@media (max-width: 640px) {
+  .chapter-subtitle-grid { grid-template-columns: 1fr; }
 }
 
 /* —— Dark UI mode: hard-coded light surfaces —— */

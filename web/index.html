@@ -1135,14 +1135,25 @@
                   <span class="episode-nav-chevron" aria-hidden="true">‹</span>
                   <span class="episode-nav-label" id="episodePrevLabel">이전</span>
                 </button>
-                <input
-                  id="sceneTitle"
-                  form="sceneEditor"
-                  class="title-input episode-title-input"
-                  aria-label="현재 회차 제목"
-                  placeholder="회차 제목"
-                  title="현재 회차 제목 (수정 가능)"
-                >
+                <!-- 회차별 소제목 추천 — 제목 바로 왼쪽에 붙임, 본문 1,200자 이상일 때만 활성화 -->
+                <div class="episode-title-group">
+                  <button
+                    type="button"
+                    id="chapterSubtitleSuggestButton"
+                    class="secondary compact-btn chapter-subtitle-suggest-btn"
+                    disabled
+                    aria-label="토리의 소제목 추천"
+                    title="회차 본문이 1,200자 이상일 때 사용할 수 있어요"
+                  ><svg class="chapter-subtitle-regen-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+                  <input
+                    id="sceneTitle"
+                    form="sceneEditor"
+                    class="title-input episode-title-input"
+                    aria-label="현재 회차 제목"
+                    placeholder="회차 제목"
+                    title="현재 회차 제목 (수정 가능)"
+                  >
+                </div>
                 <button type="button" class="episode-nav-btn episode-nav-next" id="episodeNextButton" title="다음 회차">
                   <span class="episode-nav-label" id="episodeNextLabel">다음</span>
                   <span class="episode-nav-chevron" aria-hidden="true">›</span>
@@ -3112,6 +3123,35 @@
       <button type="button" class="tory-cheer-close" id="toryCheerClose" title="닫기" aria-label="닫기">×</button>
     </div>
 
+    <button type="button" id="toryOpeningHintButton" class="tory-opening-hint-btn hidden" aria-live="polite">
+      <span class="tory-cheer-avatar" aria-hidden="true">
+        <svg viewBox="0 0 40 40" width="26" height="26" focusable="false">
+          <ellipse cx="19.5" cy="23" rx="9" ry="10.5" fill="#d98a3c" stroke="#9a5a22" stroke-width="0.6"/>
+          <ellipse cx="19.5" cy="13.8" rx="10" ry="5.2" fill="#8b5a2b" stroke="#4a2c12" stroke-width="0.55"/>
+          <path d="M19.5 9 C19.5 6.6 21.2 5 23 4.5" fill="none" stroke="#4a2c12" stroke-width="1.5" stroke-linecap="round"/>
+          <circle cx="16.2" cy="21.2" r="1.45" fill="#3a2412"/>
+          <circle cx="22.8" cy="21.2" r="1.45" fill="#3a2412"/>
+          <circle cx="16.6" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+          <circle cx="23.2" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>
+          <path d="M17.2 24.6 Q19.5 26.4 21.8 24.6" fill="none" stroke="#5a3218" stroke-width="0.9" stroke-linecap="round"/>
+          <circle cx="16.2" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="1.05"/>
+          <circle cx="22.8" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="1.05"/>
+          <path d="M19.1 21.2 H19.9" stroke="#3d3d48" stroke-width="1" stroke-linecap="round"/>
+          <path d="M13.3 21.15 H11.7" stroke="#3d3d48" stroke-width="0.95" stroke-linecap="round"/>
+          <path d="M25.7 21.15 H27.3" stroke="#3d3d48" stroke-width="0.95" stroke-linecap="round"/>
+          <path d="M11 24.5 C9 25.5 8.8 27.5 10.2 28.8" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>
+          <path d="M28 24.2 C30 25 31.5 26.6 30.6 28.6" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>
+          <g transform="translate(29.8 27.8) rotate(36)">
+            <rect x="-0.95" y="-6.5" width="1.9" height="10" rx="0.8" fill="#4d7eb8" stroke="#2f5480" stroke-width="0.3"/>
+            <rect x="-0.95" y="-8" width="1.9" height="1.7" rx="0.45" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.25"/>
+            <path d="M-0.75 3.5 L0 6.4 L0.75 3.5 Z" fill="#d4af37" stroke="#6e5210" stroke-width="0.25"/>
+          </g>
+          <circle cx="28.8" cy="29.4" r="1.35" fill="#e8a84a" stroke="#9a5a22" stroke-width="0.35"/>
+        </svg>
+      </span>
+      <span class="tory-opening-hint-text">고민 길어지면 토리한테 힌트 달라고 하기 🎲</span>
+    </button>
+
     <div id="aiResultModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="aiResultModalTitle">
       <div class="modal-backdrop" data-close-ai-result></div>
       <div class="modal-card ai-result-modal-card tory-helper-card">
@@ -3135,6 +3175,45 @@
           <button type="button" class="secondary" id="aiResultModalCopyButton">복사</button>
           <button type="button" class="primary" id="aiResultModalInsertButton">원고에 넣기</button>
           <button type="button" class="secondary" data-close-ai-result>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="chapterSubtitleModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="chapterSubtitleModalTitle">
+      <div class="modal-backdrop" data-close-chapter-subtitle></div>
+      <div class="modal-card tory-helper-card chapter-subtitle-modal-card">
+        <div class="modal-heading">
+          <h2 id="chapterSubtitleModalTitle" class="tory-helper-title">토리의 소제목 추천</h2>
+          <button type="button" class="modal-close" data-close-chapter-subtitle title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">마음에 드는 소제목을 골라 바로 적용하거나 복사해 보세요.</p>
+        <div id="chapterSubtitleBody" class="chapter-subtitle-body">
+          <p id="chapterSubtitleStatus" class="hint chapter-subtitle-status">토리가 소제목을 고민하고 있어요…</p>
+          <div id="chapterSubtitleGrid" class="chapter-subtitle-grid hidden"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary hidden" id="chapterSubtitleRetryButton">다시 추천받기</button>
+          <button type="button" class="secondary" data-close-chapter-subtitle>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="toryOpeningIdeasModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="toryOpeningIdeasModalTitle">
+      <div class="modal-backdrop" data-close-opening-ideas></div>
+      <div class="modal-card tory-helper-card tory-opening-ideas-card">
+        <div class="modal-heading">
+          <h2 id="toryOpeningIdeasModalTitle" class="tory-helper-title">토리의 오프닝 아이디어</h2>
+          <button type="button" class="modal-close" data-close-opening-ideas title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">마음에 드는 첫 문장을 골라 보세요. 클릭하면 바로 원고에 들어가요.</p>
+        <div id="toryOpeningIdeasBody" class="tory-opening-ideas-body">
+          <p id="toryOpeningIdeasStatus" class="hint tory-opening-ideas-status">토리가 첫 문장을 고민하고 있어요…</p>
+          <div id="toryOpeningIdeasGrid" class="tory-opening-ideas-grid hidden"></div>
+          <p id="toryOpeningIdeasNotice" class="hint tory-opening-ideas-notice hidden"></p>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary hidden" id="toryOpeningIdeasRetryButton">다시 만들기</button>
+          <button type="button" class="secondary" data-close-opening-ideas>닫기</button>
         </div>
       </div>
     </div>
