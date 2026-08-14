@@ -1271,7 +1271,7 @@ const UI_THEME_GROUPS = [
     themes: [
       { id: "cabin", caption: "눈이 편안해지는 차분한 세이지 그린" },
       { id: "study", caption: "오래된 타자기와 책 냄새가 나는 세피아" },
-      { id: "library", caption: "이성적인 집필을 돕는 소프트 라벤더 블루" },
+      { id: "library", caption: "이성적인 집필을 돕는 소프트 블루 그레이" },
       { id: "classroom", caption: "친근하고 아날로그적인 레트로 우드/그린" },
       { id: "attic", caption: "불 꺼진 방, 스탠드 조명 아래의 딥 네이비" },
     ],
@@ -1288,6 +1288,7 @@ const UI_THEME_GROUPS = [
       { id: "spring-garden", caption: "꽃잎이 피어난 정원에 온 듯 포근한 베이지 핑크" },
       { id: "sunset-window", caption: "붉게 물드는 해질녘 창가의 오렌지 앰버" },
       { id: "silver-fog", caption: "자극을 비우고 문장에 침잠하는 미니멀 쿨 그레이" },
+      { id: "daydream", caption: "아득한 영감을 불러오는 소프트 라벤더" },
     ],
   },
 ];
@@ -23468,17 +23469,16 @@ const THEME_DEFAULT_INK = {
 };
 /** UI 테마별 작성 화면 기본 바탕 (색 변경 메뉴는 그대로 사용 가능) */
 const UI_THEME_WRITING_PAGE_DEFAULTS = {
-  // 화이트: 기본 · 주간 · 구름 산책 · E ink · 봄날 정원 · 은빛안개
+  // 화이트: 기본 · 주간 · 구름 산책 · E ink · 봄날 정원 · 은빛 안개 · 새벽 도서관
   light: { theme: "white", customColor: null },
   sand: { theme: "white", customColor: null },
   "cloud-walk": { theme: "white", customColor: null },
   eink: { theme: "white", customColor: null },
   "spring-garden": { theme: "white", customColor: null },
   "silver-fog": { theme: "white", customColor: null },
+  library: { theme: "white", customColor: null },
   // 비밀 서재: 아이보리
   study: { theme: "ivory", customColor: null },
-  // 새벽 도서관: R251 G250 B255
-  library: { theme: "custom", customColor: "#FBFAFF" },
   classroom: { theme: "chalkboard", customColor: null },
   // 야간(다크): R63 G59 B54
   dark: { theme: "custom", customColor: "#3F3B36" },
@@ -23544,7 +23544,7 @@ function syncUiThemePageColorSwatch(activeTheme = null, activeCustom = null) {
     "cloud-walk": "테마색 · 화이트 (구름 산책)",
     eink: "테마색 · 화이트 (E ink)",
     "spring-garden": "테마색 · 화이트 (봄날 정원)",
-    "silver-fog": "테마색 · 화이트 (은빛안개)",
+    "silver-fog": "테마색 · 화이트 (은빛 안개)",
     study: "테마색 · 아이보리 (서재)",
     library: "테마색 · 도서관",
     classroom: "테마색 · 칠판 (교실)",
@@ -41565,16 +41565,17 @@ const UI_THEME_PRESETS = [
     emoji: "🏛️",
     short: "새벽 도서관",
     title: "토리의 새벽 도서관",
-    tone: "라벤더 블루 / 몰입과 집중",
-    blurb: "소프트 라벤더 블루 바탕에 새벽녘 슬레이트 라벤더 포인트를 살려, 집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
+    tone: "블루 그레이 / 몰입과 집중",
+    blurb: "소프트 블루 그레이 바탕에 차분한 슬레이트 블루 포인트를 살려, 집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
     recommend: "따뜻한 톤보다 서늘하고 차분한 몰입감을 원할 때",
     dark: false,
   },
   {
     id: "classroom",
     emoji: "🏫",
-    short: "추억의 교실",
-    title: "추억의 교실",
+    short: "추억 교실",
+    title: "토리의 추억 교실",
+    toastLabel: "토리의 추억 교실",
     tone: "나무 갈색 바탕 / 초록 박스 선",
     blurb: "나무 책상 같은 갈색 바탕에 초록 테두리·칠판 액센트로 교실 감성을 살려요. 작성 화면 바탕은 기본이 칠판 모드예요.",
     recommend: "빈티지하면서도 편안한 집필 분위기를 원할 때",
@@ -41633,11 +41634,22 @@ const UI_THEME_PRESETS = [
   {
     id: "silver-fog",
     emoji: "🌫️",
-    short: "은빛안개",
-    title: "토리의 은빛안개",
+    short: "은빛 안개",
+    title: "토리의 은빛 안개",
     tone: "순수 무채색 그레이 / 미니멀",
     blurb: "푸른 기운을 뺀 맑은 그레이로 군더더기 없는 몰입을 선사해요.",
     recommend: "따뜻함보다 정갈하고 미니멀한 화면을 원할 때",
+    dark: false,
+  },
+  {
+    id: "daydream",
+    emoji: "🔮",
+    short: "몽상 시간",
+    title: "토리의 몽상 시간",
+    toastLabel: "토리의 몽상 시간",
+    tone: "소프트 라벤더 / 몽환적 영감",
+    blurb: "아득한 영감을 불러오는 소프트 라벤더로, 몽환적인 상상과 감성적인 문장이 피어나요.",
+    recommend: "아득하고 오묘한 분위기 속에서 영감을 따라가고 싶을 때",
     dark: false,
   },
 ];
@@ -41691,7 +41703,7 @@ const UI_THEME_SWATCH = {
   dark: { bg: "#3A2A20", fg: "#FFFFFF" },
   cabin: { bg: "#E7EEE6", fg: "#3D5A40" },
   study: { bg: "#F0E6D8", fg: "#5C4030" },
-  library: { bg: "#EFEFF7", fg: "#5B5A96" },
+  library: { bg: "#E1E6EB", fg: "#526D82" },
   classroom: { bg: "#B8956A", fg: "#3E6B4A" },
   attic: { bg: "#1A2030", fg: "#C8D0E0" },
   eink: { bg: "#FFFFFF", fg: "#000000" },
@@ -41699,6 +41711,7 @@ const UI_THEME_SWATCH = {
   "spring-garden": { bg: "#FBF0F2", fg: "#B88692" },
   "sunset-window": { bg: "#F6E6C8", fg: "#D98A5B" },
   "silver-fog": { bg: "#D4D8DE", fg: "#FFFFFF" },
+  daydream: { bg: "#EFEFF7", fg: "#5B5A96" },
 };
 
 function updateUiThemeToggleButton(theme) {
@@ -41715,7 +41728,7 @@ function updateUiThemeToggleButton(theme) {
   button.setAttribute("aria-label", open
     ? `테마 선택 닫기. 지금은 ${label}`
     : `테마 선택. 지금은 ${label}`);
-  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog"];
+  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog", "daydream"];
   iconIds.forEach((id) => {
     button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
   });
@@ -41873,7 +41886,7 @@ function getTitleBarOverlayPayload(themeId = getUiTheme()) {
     dark: { color: "#1E1B17", symbolColor: "#ECE6DC" },
     cabin: { color: "#D5DDD3", symbolColor: "#2C3A2E" },
     study: { color: "#EAE0D3", symbolColor: "#4A3B32" },
-    library: { color: "#EFEFF7", symbolColor: "#2B283B" },
+    library: { color: "#E1E6EB", symbolColor: "#2B323B" },
     attic: { color: "#14181F", symbolColor: "#E6E0D4" },
     eink: { color: "#FFFFFF", symbolColor: "#000000" },
     "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C" },
@@ -41922,7 +41935,7 @@ function syncElectronChrome() {
 
 function uiThemeToastLabel(theme) {
   const preset = UI_THEME_PRESETS.find((t) => t.id === theme);
-  if (preset) return `${preset.emoji} ${preset.short}`;
+  if (preset) return `${preset.emoji} ${preset.toastLabel || preset.short}`;
   return "테마";
 }
 

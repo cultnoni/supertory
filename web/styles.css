@@ -256,14 +256,57 @@ html[data-theme="dawn"],
 html[data-ui-theme="dawn"],
 body[data-theme="dawn"],
 body[data-ui-theme="dawn"] {
-  --bg-main: #EFEFF7;        /* #f0effa가 은은하게 스민 맑은 새벽녘 배경 */
-  --bg-sidebar: #E1E0EE;     /* 차분하게 깊이를 더해주는 라벤더 블루그레이 */
+  --bg-main: #E1E6EB;
+  --bg-sidebar: #D3DBE2;
+  --bg-card: #EDF1F5;
+  --text-main: #2B323B;
+  --text-muted: #536070;
+  --accent: #526D82;         /* 차분함을 잡아주는 슬레이트 블루 */
+  --border: #C1CAD3;
+  --selection: #B9C8D4;
+  --caret: #2B323B;
+  --hover-lift-bg: #F3F6F8;
+  --accent-sand: var(--selection);
+
+  --ink: var(--text-main);
+  --muted: var(--text-muted);
+  --paper: var(--bg-main);
+  --header-bg: var(--bg-main);
+  --chrome-bg: var(--bg-main);
+  --line: var(--border);
+  --panel: var(--bg-sidebar);
+  --accent-dark: #445A6C;
+  --editor-bg: var(--bg-card);
+  --surface: var(--bg-card);
+  --surface-2: var(--bg-main);
+  --surface-3: var(--bg-sidebar);
+  --surface-input: var(--bg-card);
+  --border-strong: var(--border);
+  --shadow: #2B323B22;
+  --ai-success-mode: var(--accent);
+  --ai-success-mode-soft: #445A6C;
+  --bg-surface: var(--bg-card);
+  --primary: var(--accent);
+  --toolbar-icon: var(--ink);
+  --border-color: var(--border);
+  --text-primary: var(--text-main);
+  caret-color: var(--caret);
+  color-scheme: light;
+}
+
+/* 몽상 시간 — 아득한 소프트 라벤더 배경 + 슬레이트 라벤더 포인트 */
+html[data-theme="daydream"],
+html[data-ui-theme="daydream"],
+body[data-theme="daydream"],
+body[data-ui-theme="daydream"] {
+  --bg-main: #EFEFF7;        /* 아득한 은은한 라벤더 배경 */
+  --bg-sidebar: #E1E0EE;     /* 차분하게 감싸주는 소프트 라벤더그레이 */
   --bg-card: #F6F5FC;        /* 카드 및 박스 배경 */
-  --text-main: #2B283B;      /* 보랏빛이 살짝 감도는 딥 바이올렛 차콜 */
-  --text-muted: #5C5770;     /* 차분하고 정갈한 보조 텍스트 */
-  --accent: #5B5A96;         /* 포인트: 새벽녘 분위기를 살려주는 슬레이트 라벤더 */
-  --border: #D4D1E3;         /* 은은한 라벤더그레이 경계선 */
-  --selection: #DCD9ED;      /* 라벤더빛 드래그 영역 */
+  --text-main: #2B283B;      /* 또렷하게 읽히는 딥 바이올렛 차콜 */
+  --text-muted: #5C5770;     /* 정갈한 보조 텍스트 */
+  --accent: #5B5A96;         /* 포인트: 오묘한 슬레이트 라벤더 */
+  --border: #D4D1E3;         /* 라벤더그레이 경계선 */
+  --selection: #DCD9ED;      /* 드래그 영역 */
   --caret: #2B283B;          /* 커서 */
   --hover-lift-bg: #F8F7FC;
   --accent-sand: var(--selection);
@@ -294,7 +337,7 @@ body[data-ui-theme="dawn"] {
   color-scheme: light;
 }
 
-/* 추억의 교실 — 나무 책상 갈색 바탕 + 칠판 초록 액센트·박스 선 */
+/* 추억 교실 — 나무 책상 갈색 바탕 + 칠판 초록 액센트·박스 선 */
 html[data-theme="classroom"],
 html[data-ui-theme="classroom"],
 body[data-theme="classroom"],
@@ -525,7 +568,7 @@ body[data-ui-theme="sunset-window"] {
   color-scheme: light;
 }
 
-/* 토리의 은빛안개 — 푸른 기운을 뺀 순수 무채색 미니멀 그레이 */
+/* 토리의 은빛 안개 — 푸른 기운을 뺀 순수 무채색 미니멀 그레이 */
 html[data-theme="silver-fog"],
 html[data-ui-theme="silver-fog"],
 body[data-theme="silver-fog"],
@@ -581,6 +624,7 @@ html[data-theme="cloud-walk"] body,
 html[data-theme="spring-garden"] body,
 html[data-theme="sunset-window"] body,
 html[data-theme="silver-fog"] body,
+html[data-theme="daydream"] body,
 html[data-ui-theme="light"] body,
 html[data-ui-theme="sand"] body,
 html[data-ui-theme="dark"] body,
@@ -595,6 +639,7 @@ html[data-ui-theme="cloud-walk"] body,
 html[data-ui-theme="spring-garden"] body,
 html[data-ui-theme="sunset-window"] body,
 html[data-ui-theme="silver-fog"] body,
+html[data-ui-theme="daydream"] body,
 body[data-theme="light"],
 body[data-theme="sand"],
 body[data-theme="dark"],
@@ -608,6 +653,7 @@ body[data-theme="cloud-walk"],
 body[data-theme="spring-garden"],
 body[data-theme="sunset-window"],
 body[data-theme="silver-fog"],
+body[data-theme="daydream"],
 body[data-ui-theme="light"],
 body[data-ui-theme="sand"],
 body[data-ui-theme="dark"],
@@ -621,7 +667,8 @@ body[data-ui-theme="eink"],
 body[data-ui-theme="cloud-walk"],
 body[data-ui-theme="spring-garden"],
 body[data-ui-theme="sunset-window"],
-body[data-ui-theme="silver-fog"] {
+body[data-ui-theme="silver-fog"],
+body[data-ui-theme="daydream"] {
   transition: background-color 0.25s ease, color 0.25s ease;
 }
 
@@ -634,6 +681,7 @@ html[data-theme="cloud-walk"] ::selection,
 html[data-theme="spring-garden"] ::selection,
 html[data-theme="sunset-window"] ::selection,
 html[data-theme="silver-fog"] ::selection,
+html[data-theme="daydream"] ::selection,
 html[data-ui-theme="cabin"] ::selection,
 html[data-ui-theme="study"] ::selection,
 html[data-ui-theme="library"] ::selection,
@@ -644,6 +692,7 @@ html[data-ui-theme="cloud-walk"] ::selection,
 html[data-ui-theme="spring-garden"] ::selection,
 html[data-ui-theme="sunset-window"] ::selection,
 html[data-ui-theme="silver-fog"] ::selection,
+html[data-ui-theme="daydream"] ::selection,
 body[data-theme="cabin"] ::selection,
 body[data-theme="study"] ::selection,
 body[data-theme="library"] ::selection,
@@ -653,6 +702,7 @@ body[data-theme="cloud-walk"] ::selection,
 body[data-theme="spring-garden"] ::selection,
 body[data-theme="sunset-window"] ::selection,
 body[data-theme="silver-fog"] ::selection,
+body[data-theme="daydream"] ::selection,
 body[data-ui-theme="cabin"] ::selection,
 body[data-ui-theme="study"] ::selection,
 body[data-ui-theme="library"] ::selection,
@@ -662,7 +712,8 @@ body[data-ui-theme="attic"] ::selection,
 body[data-ui-theme="cloud-walk"] ::selection,
 body[data-ui-theme="spring-garden"] ::selection,
 body[data-ui-theme="sunset-window"] ::selection,
-body[data-ui-theme="silver-fog"] ::selection {
+body[data-ui-theme="silver-fog"] ::selection,
+body[data-ui-theme="daydream"] ::selection {
   background-color: var(--selection);
   color: var(--ink);
 }
@@ -832,7 +883,7 @@ html[data-ui-theme="study"] .keyword-board {
   background-blend-mode: multiply, soft-light, soft-light, multiply, soft-light, normal;
 }
 
-/* 추억의 교실 — 분필·나무결 텍스처 (패널 바깥 gutter는 아래에서 단색 통일) */
+/* 추억 교실 — 분필·나무결 텍스처 (패널 바깥 gutter는 아래에서 단색 통일) */
 html[data-theme="classroom"] body,
 html[data-ui-theme="classroom"] body,
 body[data-theme="classroom"],
@@ -877,7 +928,7 @@ body[data-ui-theme="classroom"] .ai-panel {
   background-blend-mode: normal !important;
 }
 
-/* 추억의 교실 — 얇은 초록 프레임으로 박스 꾸미기 */
+/* 추억 교실 — 얇은 초록 프레임으로 박스 꾸미기 */
 html[data-theme="classroom"] .settings-box,
 html[data-ui-theme="classroom"] .settings-box,
 html[data-theme="classroom"] .outline-part,
