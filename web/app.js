@@ -40954,7 +40954,7 @@ function setupAutoUpdateUi() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.3.4";
+const APP_VERSION_FALLBACK = "1.3.5";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
