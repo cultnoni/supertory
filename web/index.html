@@ -2625,7 +2625,7 @@
                     data-ui-hide-label="요청 크게보기"
                   >크게보기</button>
                 </div>
-                <label class="ai-prompt-field" for="aiPrompt">
+                <label class="ai-prompt-field" id="aiPromptField" for="aiPrompt">
                   <span class="sr-only" id="aiPromptSrLabel">요청 내용</span>
                   <textarea id="aiPrompt" rows="5" placeholder="예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘." aria-labelledby="aiPromptLabel"></textarea>
                 </label>
@@ -4007,10 +4007,6 @@
         <span>바로 아래에 같은 원고 사본을 만들어요</span>
       </button>
       <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-binder-action="tory-analyze">
-        <strong>피드백 요청</strong>
-        <span>원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
-      </button>
       <button type="button" role="menuitem" data-binder-action="export">
         <strong>이 회차 내보내기</strong>
         <span>Word·한글 등 파일로 내려받아요</span>
@@ -4136,15 +4132,25 @@
 
     <div id="folderColorMenu" class="context-menu idea-color-menu folder-color-menu hidden" role="menu" aria-label="폴더 색">
       <div class="context-menu-label">폴더 색</div>
-      <div class="idea-color-swatches folder-color-swatches" role="group" aria-label="폴더 색 선택">
-        <button type="button" class="idea-color-swatch folder-color-swatch color-none" data-folder-color-pick="" title="없음" aria-label="색 없음"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-red" data-folder-color-pick="red" title="빨강" aria-label="빨강"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-orange" data-folder-color-pick="orange" title="주황" aria-label="주황"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-yellow" data-folder-color-pick="yellow" title="노랑" aria-label="노랑"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-green" data-folder-color-pick="green" title="초록" aria-label="초록"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-blue" data-folder-color-pick="blue" title="파랑" aria-label="파랑"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-purple" data-folder-color-pick="purple" title="보라" aria-label="보라"></button>
-        <button type="button" class="idea-color-swatch folder-color-swatch color-gray" data-folder-color-pick="gray" title="회색" aria-label="회색"></button>
+      <div class="folder-color-swatches" role="group" aria-label="폴더 색 선택">
+        <button type="button" class="folder-color-swatch color-none" data-folder-color-pick="" title="없음" aria-label="색 없음"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-red" data-folder-color-pick="red" title="빨강" aria-label="빨강"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-orange" data-folder-color-pick="orange" title="주황" aria-label="주황"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-yellow" data-folder-color-pick="yellow" title="노랑" aria-label="노랑"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-green" data-folder-color-pick="green" title="초록" aria-label="초록"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-blue" data-folder-color-pick="blue" title="파랑" aria-label="파랑"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-purple" data-folder-color-pick="purple" title="보라" aria-label="보라"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-gray" data-folder-color-pick="gray" title="회색" aria-label="회색"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+      </div>
+      <div class="folder-color-swatches folder-color-swatches-bright" role="group" aria-label="폴더 색 선택 (쨍한 색)">
+        <button type="button" class="folder-color-swatch color-black" data-folder-color-pick="black" data-folder-color-kind="bright" title="검정" aria-label="검정"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-red" data-folder-color-pick="bright_red" data-folder-color-kind="bright" title="쨍한 빨강" aria-label="쨍한 빨강"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-orange" data-folder-color-pick="bright_orange" data-folder-color-kind="bright" title="쨍한 주황" aria-label="쨍한 주황"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-yellow" data-folder-color-pick="bright_yellow" data-folder-color-kind="bright" title="쨍한 노랑" aria-label="쨍한 노랑"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-green" data-folder-color-pick="bright_green" data-folder-color-kind="bright" title="쨍한 초록" aria-label="쨍한 초록"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-blue" data-folder-color-pick="bright_blue" data-folder-color-kind="bright" title="쨍한 파랑" aria-label="쨍한 파랑"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-purple" data-folder-color-pick="bright_purple" data-folder-color-kind="bright" title="쨍한 보라" aria-label="쨍한 보라"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
+        <button type="button" class="folder-color-swatch color-bright-gray" data-folder-color-pick="bright_gray" data-folder-color-kind="bright" title="쨍한 회색" aria-label="쨍한 회색"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
       </div>
       <p class="hint idea-color-menu-hint">폴더 우클릭 → 색상 변경</p>
     </div>
@@ -4288,6 +4294,30 @@
     </div>
 
     <div id="desktopContextMenu" class="context-menu hidden" role="menu" aria-label="원고 페이지 메뉴">
+      <!-- 잘라내기·복사: 선택한 글이 있을 때만 표시 (없으면 아예 목록에서 빠짐) -->
+      <button type="button" role="menuitem" data-context-action="cut" id="cutMenuItem" data-ctx-selection-only title="선택한 글을 오려내어 클립보드에 담아요">
+        잘라내기
+      </button>
+      <button type="button" role="menuitem" data-context-action="copy" id="copyMenuItem" data-ctx-selection-only title="선택한 글을 클립보드에 담아요">
+        복사
+      </button>
+      <!-- 붙여넣기: 선택 여부와 무관하게 항상 표시 -->
+      <button type="button" role="menuitem" data-context-action="paste" id="pasteMenuItem" data-ctx-selection-ok title="클립보드 내용을 원본 서식 그대로 넣어요">
+        붙여넣기
+      </button>
+      <button type="button" role="menuitem" class="context-menu-expand-btn" id="pasteOptionsToggle" data-ctx-selection-ok aria-expanded="false" aria-controls="pasteOptionsRow" title="원본 서식 유지 · 서식 병합 · 텍스트만 유지 중에서 골라 붙여요">
+        <span>붙여넣기 옵션</span>
+        <span class="context-menu-expand-arrow" aria-hidden="true">▶</span>
+      </button>
+      <div class="paste-options-row hidden" id="pasteOptionsRow" role="group" aria-label="붙여넣기 옵션" data-ctx-selection-ok>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-source" title="원본 서식 유지: 복사한 그대로의 글꼴·크기·색으로 넣어요">원본 서식 유지</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-merge" title="서식 병합: 굵기·기울임 등은 남기고, 글꼴·크기·색은 지금 문서에 맞춰요">서식 병합</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-text" title="텍스트만 유지: 서식 없이 글자만 넣어요">텍스트만 유지</button>
+      </div>
+      <button type="button" role="menuitem" data-context-action="copy-format" id="copyFormatMenuItem" data-ctx-selection-only title="선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요">
+        서식 복사
+      </button>
+      <div class="context-menu-divider" data-ctx-selection-ok></div>
       <!-- 드래그 선택 후 우클릭: 사전·떡밥·각주만 (data-ctx-selection-ok) -->
       <div class="context-menu-label" data-ctx-selection-only>선택 문장</div>
       <div class="context-menu-label" data-ctx-full-only>이 회차</div>
@@ -4301,14 +4331,14 @@
       </button>
       <div class="context-menu-divider" data-ctx-full-only></div>
       <div class="context-menu-label" data-ctx-full-only>본문 편집</div>
-      <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-ok>
+      <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-only>
         사전 찾기
       </button>
-      <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-ok>
+      <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-only>
         <strong>단어찾기</strong>
         <span>단어·문장에서 비슷한 표현을 토리가 찾아 줘요</span>
       </button>
-      <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-ok>
+      <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-only>
         토리에게 물어보기
       </button>
       <button
@@ -4316,7 +4346,7 @@
         role="menuitem"
         data-context-action="rewrite-sentence"
         id="rewriteSentenceMenuItem"
-        data-ctx-selection-ok
+        data-ctx-selection-only
         title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다."
       >
         문장 다듬기
@@ -4324,7 +4354,7 @@
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기
       </button>
-      <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-ok>
+      <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-only>
         떡밥 던지기
       </button>
       <button type="button" role="menuitem" data-context-action="add-footnote" id="addFootnoteMenuItem" data-ctx-selection-ok>

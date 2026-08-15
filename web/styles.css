@@ -8011,21 +8011,39 @@ html[data-ui-scheme="dark"] .context-menu .binder-action-danger strong {
   color: #f0a090;
 }
 
-/* 폴더 색: 색 점 없이 아이콘·행 틴트만 */
+/* 폴더 색: 선(외곽선)은 그대로 두고, 아이콘 안쪽만 채워짐 + 행 틴트 */
 .outline-part[data-folder-color="red"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="red"] > .chapter-row > .folder-icon-btn { color: #A65D4E !important; }
+.outline-chapter[data-folder-color="red"] > .chapter-row > .folder-icon-btn { --folder-fill: #BA8175; }
 .outline-part[data-folder-color="orange"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="orange"] > .chapter-row > .folder-icon-btn { color: #B07A48 !important; }
+.outline-chapter[data-folder-color="orange"] > .chapter-row > .folder-icon-btn { --folder-fill: #C19770; }
 .outline-part[data-folder-color="yellow"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="yellow"] > .chapter-row > .folder-icon-btn { color: #A08A4A !important; }
+.outline-chapter[data-folder-color="yellow"] > .chapter-row > .folder-icon-btn { --folder-fill: #B5A472; }
 .outline-part[data-folder-color="green"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="green"] > .chapter-row > .folder-icon-btn { color: #6A8468 !important; }
+.outline-chapter[data-folder-color="green"] > .chapter-row > .folder-icon-btn { --folder-fill: #8B9F89; }
 .outline-part[data-folder-color="blue"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="blue"] > .chapter-row > .folder-icon-btn { color: #6A7588 !important; }
+.outline-chapter[data-folder-color="blue"] > .chapter-row > .folder-icon-btn { --folder-fill: #8B93A2; }
 .outline-part[data-folder-color="purple"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="purple"] > .chapter-row > .folder-icon-btn { color: #7A6A84 !important; }
+.outline-chapter[data-folder-color="purple"] > .chapter-row > .folder-icon-btn { --folder-fill: #978B9F; }
 .outline-part[data-folder-color="gray"] > .part-row > .folder-icon-btn,
-.outline-chapter[data-folder-color="gray"] > .chapter-row > .folder-icon-btn { color: #8A847A !important; }
+.outline-chapter[data-folder-color="gray"] > .chapter-row > .folder-icon-btn { --folder-fill: #A49F97; }
+
+/* 쨍한 색(2번째 줄): color_bright가 있으면 위 muted 규칙보다 뒤에 와서 우선 적용됨 */
+.outline-part[data-folder-color-bright="black"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="black"] > .chapter-row > .folder-icon-btn { --folder-fill: #211D18; }
+.outline-part[data-folder-color-bright="bright_red"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_red"] > .chapter-row > .folder-icon-btn { --folder-fill: #FF8266; }
+.outline-part[data-folder-color-bright="bright_orange"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_orange"] > .chapter-row > .folder-icon-btn { --folder-fill: #FFB86B; }
+.outline-part[data-folder-color-bright="bright_yellow"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_yellow"] > .chapter-row > .folder-icon-btn { --folder-fill: #FFE86A; }
+.outline-part[data-folder-color-bright="bright_green"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_green"] > .chapter-row > .folder-icon-btn { --folder-fill: #9ED87A; }
+.outline-part[data-folder-color-bright="bright_blue"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_blue"] > .chapter-row > .folder-icon-btn { --folder-fill: #8EC0FF; }
+.outline-part[data-folder-color-bright="bright_purple"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_purple"] > .chapter-row > .folder-icon-btn { --folder-fill: #C49BFF; }
+.outline-part[data-folder-color-bright="bright_gray"] > .part-row > .folder-icon-btn,
+.outline-chapter[data-folder-color-bright="bright_gray"] > .chapter-row > .folder-icon-btn { --folder-fill: #C9C4BC; }
 
 .outline-part[data-folder-color] > .part-row,
 .outline-chapter[data-folder-color] > .chapter-row {
@@ -8060,6 +8078,43 @@ html[data-ui-scheme="dark"] .context-menu .binder-action-danger strong {
   background: color-mix(in srgb, #8A847A 10%, transparent);
 }
 
+.outline-part[data-folder-color-bright] > .part-row,
+.outline-chapter[data-folder-color-bright] > .chapter-row {
+  border-radius: 4px;
+}
+.outline-part[data-folder-color-bright="black"] > .part-row,
+.outline-chapter[data-folder-color-bright="black"] > .chapter-row {
+  background: color-mix(in srgb, #211D18 9%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_red"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_red"] > .chapter-row {
+  background: color-mix(in srgb, #FF8266 14%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_orange"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_orange"] > .chapter-row {
+  background: color-mix(in srgb, #FFB86B 14%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_yellow"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_yellow"] > .chapter-row {
+  background: color-mix(in srgb, #FFE86A 16%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_green"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_green"] > .chapter-row {
+  background: color-mix(in srgb, #9ED87A 14%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_blue"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_blue"] > .chapter-row {
+  background: color-mix(in srgb, #8EC0FF 14%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_purple"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_purple"] > .chapter-row {
+  background: color-mix(in srgb, #C49BFF 14%, transparent);
+}
+.outline-part[data-folder-color-bright="bright_gray"] > .part-row,
+.outline-chapter[data-folder-color-bright="bright_gray"] > .chapter-row {
+  background: color-mix(in srgb, #C9C4BC 16%, transparent);
+}
+
 .folder-color-swatch.is-active {
   outline: 2px solid var(--accent-dark, #3d2e1a);
   outline-offset: 1px;
@@ -8078,29 +8133,69 @@ html[data-ui-scheme="dark"] .context-menu .binder-action-danger strong {
   flex: 0 0 auto;
 }
 
-/* Folder color swatches (palette popover) */
-.folder-color-swatch.color-none {
-  background: transparent;
-  border: 1.5px dashed color-mix(in srgb, var(--ink) 35%, transparent);
-  position: relative;
+/* Folder color swatches (palette popover): 색 원이 아니라 실제로 채워진 폴더 아이콘으로 미리보기 */
+.folder-color-swatches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 4px 12px 6px;
 }
-.folder-color-swatch.color-none::after {
-  content: "";
-  position: absolute;
-  left: 20%;
-  right: 20%;
-  top: 50%;
-  height: 1.5px;
-  background: color-mix(in srgb, var(--ink) 45%, transparent);
-  transform: rotate(-35deg);
+.folder-color-swatches-bright {
+  padding-top: 6px;
+  border-top: 1px solid var(--line);
 }
-.folder-color-swatch.color-red { background: #A65D4E; }
-.folder-color-swatch.color-orange { background: #B07A48; }
-.folder-color-swatch.color-yellow { background: #C4B06A; }
-.folder-color-swatch.color-green { background: #7A9478; }
-.folder-color-swatch.color-blue { background: #7A8598; }
-.folder-color-swatch.color-purple { background: #8A7A94; }
-.folder-color-swatch.color-gray { background: #9A948C; }
+.folder-color-swatch {
+  width: 30px !important;
+  min-width: 30px !important;
+  height: 30px !important;
+  min-height: 30px !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  border: 1px solid transparent !important;
+  border-radius: 8px !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--accent-dark, #8d6a3a);
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  flex: 0 0 auto !important;
+}
+.folder-color-swatch:hover {
+  background: color-mix(in srgb, var(--selection) 55%, transparent) !important;
+}
+.folder-color-swatch .folder-swatch-glyph {
+  display: block;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  fill: none;
+  stroke: currentColor;
+}
+.folder-color-swatch .folder-swatch-glyph .folder-body {
+  fill: var(--folder-fill, none);
+}
+.folder-color-swatch.color-none .folder-swatch-glyph .folder-body {
+  fill: none;
+}
+/* 실제 폴더 아이콘에 채워지는 색과 동일 (미리보기 = 결과) */
+.folder-color-swatch.color-red { --folder-fill: #BA8175; }
+.folder-color-swatch.color-orange { --folder-fill: #C19770; }
+.folder-color-swatch.color-yellow { --folder-fill: #B5A472; }
+.folder-color-swatch.color-green { --folder-fill: #8B9F89; }
+.folder-color-swatch.color-blue { --folder-fill: #8B93A2; }
+.folder-color-swatch.color-purple { --folder-fill: #978B9F; }
+.folder-color-swatch.color-gray { --folder-fill: #A49F97; }
+/* 2번째 줄: 쨍한 색 (실제 폴더 아이콘 채움색과 동일) */
+.folder-color-swatch.color-black { --folder-fill: #211D18; }
+.folder-color-swatch.color-bright-red { --folder-fill: #FF8266; }
+.folder-color-swatch.color-bright-orange { --folder-fill: #FFB86B; }
+.folder-color-swatch.color-bright-yellow { --folder-fill: #FFE86A; }
+.folder-color-swatch.color-bright-green { --folder-fill: #9ED87A; }
+.folder-color-swatch.color-bright-blue { --folder-fill: #8EC0FF; }
+.folder-color-swatch.color-bright-purple { --folder-fill: #C49BFF; }
+.folder-color-swatch.color-bright-gray { --folder-fill: #C9C4BC; }
 
 /* Nested box-in-box: each outline-part keeps its own shell; tighten inner shells slightly */
 .outline-part .outline-part {
@@ -8485,6 +8580,10 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   flex: 0 0 auto;
   fill: none !important;
   stroke: currentColor !important;
+}
+/* 폴더 색이 지정되면 외곽선(currentColor)은 그대로 두고 안쪽만 --folder-fill로 채움 */
+.folder-icon-btn .folder-glyph .folder-body {
+  fill: var(--folder-fill, none);
 }
 .folder-icon-btn .twistie-glyph {
   display: none !important;
@@ -18761,6 +18860,57 @@ body[data-ui-scheme="dark"] .proof-diff-card {
 .context-menu button.is-active {
   background: var(--selection);
 }
+.context-menu button:disabled {
+  cursor: default;
+}
+.context-menu button:disabled:hover {
+  background: transparent;
+}
+/* 붙여넣기 옵션: 클릭하면 펼쳐지는 확장형 메뉴 항목 (▶ 화살표가 아래로 회전) */
+.context-menu-expand-btn {
+  justify-content: space-between;
+}
+.context-menu-expand-arrow {
+  display: inline-block;
+  flex: 0 0 auto;
+  font-size: 10px;
+  color: var(--muted);
+  transition: transform 0.15s ease;
+}
+.context-menu-expand-btn[aria-expanded="true"] .context-menu-expand-arrow {
+  transform: rotate(90deg);
+}
+/* 붙여넣기 옵션 펼침: 원본 서식 유지 · 서식 병합 · 텍스트만 유지 (알약형 버튼 3개, 한 줄) */
+.paste-options-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 2px 10px 8px 18px;
+}
+.paste-options-row.hidden {
+  display: none !important;
+}
+.paste-options-row .paste-option-btn {
+  width: auto;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface, #fff) 88%, var(--bg-main, #FAFAF9) 12%);
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--ink);
+}
+.paste-options-row .paste-option-btn:hover {
+  background: var(--selection);
+  border-color: color-mix(in srgb, var(--accent, #c47b3a) 45%, var(--line));
+}
+/* 서식 복사(포맷 페인터) 대기 중: 다음 선택에 서식을 입힐 준비가 됐다는 커서 표시 */
+.format-painter-armed {
+  cursor: copy !important;
+}
 .goal-bar-color-menu {
   min-width: 220px;
   max-width: min(280px, calc(100vw - 16px));
@@ -21187,11 +21337,7 @@ html[data-theme="eink"] .folder-color-swatch[class*="color-"],
 html[data-ui-theme="eink"] .folder-color-swatch {
   background: #fff !important;
   border-color: #000 !important;
-}
-html[data-theme="eink"] .folder-color-swatch.color-none::after,
-html[data-ui-theme="eink"] .folder-color-swatch.color-none::after {
-  background: #000 !important;
-  border-color: #000 !important;
+  --folder-fill: none !important;
 }
 
 /* E ink — editor paper lock (white page / black ink only)

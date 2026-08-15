@@ -8846,8 +8846,13 @@ function openAnalyzeTargetModal() {
   });
 }
 
-function closeAnalyzeTargetModal() {
+function closeAnalyzeTargetModal({ returnToList = true } = {}) {
   $("analyzeTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "analyze") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function resolveAnalyzeSelectedSceneIds() {
@@ -8897,7 +8902,7 @@ function confirmAnalyzeTarget() {
   ids = typeof sortSceneIdsByEpisodeSequence === "function"
     ? sortSceneIdsByEpisodeSequence(ids)
     : ids;
-  closeAnalyzeTargetModal();
+  closeAnalyzeTargetModal({ returnToList: false });
   runAnalyzeFromSelection(ids).catch(handleError);
 }
 
@@ -9348,8 +9353,14 @@ function openSummarizeMultiTargetModal() {
   });
 }
 
-function closeSummarizeMultiTargetModal() {
+/** 떡밥·복선 탐색기와 같은 패턴: X/배경 클릭으로 닫으면 목록으로, 확인 실행 후 닫힐 때는 그대로. */
+function closeSummarizeMultiTargetModal({ returnToList = true } = {}) {
   $("summarizeMultiTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "summarize") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function resolveSummarizeMultiSelectedSceneIds() {
@@ -9387,7 +9398,7 @@ function confirmSummarizeMultiTarget() {
   if (ids.length >= SUMMARIZE_MULTI_WARN_AT) {
     toast(`${ids.length}개 회차 요약은 시간이 좀 걸릴 수 있어요.`);
   }
-  closeSummarizeMultiTargetModal();
+  closeSummarizeMultiTargetModal({ returnToList: false });
   if (ids.length === 1) {
     runDetailedSceneSummaryForTarget(ids[0]).catch(handleError);
   } else {
@@ -10185,8 +10196,13 @@ function openDupcheckTargetModal() {
   });
 }
 
-function closeDupcheckTargetModal() {
+function closeDupcheckTargetModal({ returnToList = true } = {}) {
   $("dupcheckTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "dupcheck") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function confirmDupcheckTarget() {
@@ -10206,7 +10222,7 @@ function confirmDupcheckTarget() {
       return;
     }
   }
-  closeDupcheckTargetModal();
+  closeDupcheckTargetModal({ returnToList: false });
   runDuplicateCheck(sceneId).catch(handleError);
 }
 
@@ -10309,8 +10325,13 @@ function openIdeasTargetModal() {
   });
 }
 
-function closeIdeasTargetModal() {
+function closeIdeasTargetModal({ returnToList = true } = {}) {
   $("ideasTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "ideas") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function confirmIdeasTarget() {
@@ -10330,7 +10351,7 @@ function confirmIdeasTarget() {
       return;
     }
   }
-  closeIdeasTargetModal();
+  closeIdeasTargetModal({ returnToList: false });
   runNextIdeaSuggestion(sceneId).catch(handleError);
 }
 
@@ -11157,8 +11178,13 @@ function openWorldscanTargetModal() {
   });
 }
 
-function closeWorldscanTargetModal() {
+function closeWorldscanTargetModal({ returnToList = true } = {}) {
   $("worldscanTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "worldscan") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
 function resolveWorldscanSelectedSceneIds() {
@@ -11203,7 +11229,7 @@ function confirmWorldscanTarget() {
     return;
   }
   ids = sortSceneIdsByEpisodeSequence(ids);
-  closeWorldscanTargetModal();
+  closeWorldscanTargetModal({ returnToList: false });
   if (ids.length === 1) {
     runWorldScanForTarget(ids[0]).catch(handleError);
   } else {
@@ -12017,12 +12043,7 @@ const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"])
 
 /** Modes that show prompt + submit after picking from the select list. */
 const AI_INLINE_FORM_MODES = new Set([
-  "summarize",
-  "worldscan",
-  "dupcheck",
-  "analyze",
   "successfeedback",
-  "ideas",
 ]);
 
 /** When true, successfeedback form is gated (no analyzed profiles yet). */
@@ -12584,9 +12605,9 @@ async function submitAiAssist(event) {
     openAnalyzeTargetModal();
     return;
   }
-  // Panel 회차 요약: 회차 선택 팝업 → 1개 summarize / 2~20개 summarize_multi
+  // Panel 회차 요약: 패널에 인라인으로 보이는 회차 선택을 그대로 확정 → 1개 summarize / 2~20개 summarize_multi
   if (mode === "summarize") {
-    openSummarizeMultiTargetModal();
+    confirmSummarizeMultiTarget();
     return;
   }
   const prompt = mode === "continue"
@@ -17776,7 +17797,33 @@ const AI_TOOL_POPUP_MODES = new Set([
   "rewrite",
   "worlddesc",
   "subsynopsis",
+  "summarize",
+  "worldscan",
+  "dupcheck",
+  "ideas",
+  "analyze",
 ]);
+
+/**
+ * 자기만의 회차 선택 팝업을 가진 모드(브레인스토밍과 같은 방식): 목록에서 고르는 즉시
+ * 그 팝업을 바로 띄우고, 패널 뒤쪽은 계속 "무엇을 도와드릴까요?" 목록을 보여줘요.
+ */
+const AI_DEDICATED_TARGET_MODAL_MODES = new Set([
+  "summarize",
+  "worldscan",
+  "dupcheck",
+  "ideas",
+  "analyze",
+]);
+
+function openDedicatedAiTargetModal(mode) {
+  if (mode === "summarize") return openSummarizeMultiTargetModal();
+  if (mode === "worldscan") return openWorldscanTargetModal();
+  if (mode === "dupcheck") return openDupcheckTargetModal();
+  if (mode === "ideas") return openIdeasTargetModal();
+  if (mode === "analyze") return openAnalyzeTargetModal();
+  return undefined;
+}
 
 const AI_TOOL_MODAL_META = {
   foreshadow: {
@@ -17995,12 +18042,16 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
       if (mode === "brainstorm") {
         if (modeChanged) brainstormTargetSceneId = null;
         openBrainstormToolFlow({ resetTarget: modeChanged, force: forceOpen });
+      } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
+        openDedicatedAiTargetModal(mode);
       } else {
         openAiToolModal(mode);
       }
     } else if (!aiToolModalState.dismissed) {
       if (mode === "brainstorm") {
         openBrainstormToolFlow({ force: false });
+      } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
+        openDedicatedAiTargetModal(mode);
       } else {
         openAiToolModal(mode);
       }
@@ -18086,6 +18137,8 @@ function setupAiToolModal() {
     aiToolModalState.dismissed = false;
     if (mode === "brainstorm") {
       openBrainstormToolFlow({ force: true });
+    } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
+      openDedicatedAiTargetModal(mode);
     } else {
       openAiToolModal(mode, { force: true });
     }
@@ -18116,6 +18169,8 @@ function setupAiToolModal() {
       window.setTimeout(() => {
         if (mode === "brainstorm") {
           openBrainstormToolFlow({ resetTarget: true, force: true });
+        } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
+          openDedicatedAiTargetModal(mode);
         } else {
           openAiToolModal(mode, { force: true });
         }
@@ -18136,6 +18191,8 @@ function setupAiToolModal() {
       if (isAiToolPopupMode(mode) && !aiToolModalState.dismissed) {
         if (mode === "brainstorm") {
           openBrainstormToolFlow({ force: true });
+        } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
+          openDedicatedAiTargetModal(mode);
         } else {
           openAiToolModal(mode, { force: true });
         }
@@ -22171,6 +22228,7 @@ function findFolderMetaInState(folderId) {
         return {
           folderId: fid,
           color: n.color || null,
+          colorBright: n.color_bright || null,
           isPinned: Boolean(n.is_pinned),
           isBox: Boolean(n.is_box),
           isBookmarked: Boolean(n.is_bookmarked),
@@ -22477,21 +22535,26 @@ function setupFolderUndoUi() {
   syncFolderHistoryButtons();
 }
 
-function showFolderColorMenu(clientX, clientY, folderId, currentColor = null) {
+function showFolderColorMenu(clientX, clientY, folderId, currentColor = null, currentColorBright = null) {
   const menu = $("folderColorMenu");
   if (!menu || !folderId) return;
   hideChapterContextMenu();
   hidePartContextMenu();
   hideBinderContextMenu();
   menu.dataset.folderId = String(folderId);
-  const current = String(currentColor || "").trim().toLowerCase();
+  const currentBright = String(currentColorBright || "").trim().toLowerCase();
+  // color_bright가 있으면 그게 우선 표시(=선택 상태) — 화면에도 그 색이 먼저 보임
+  const current = currentBright ? "" : String(currentColor || "").trim().toLowerCase();
   menu.querySelectorAll("[data-folder-color-pick]").forEach((btn) => {
     const v = String(btn.getAttribute("data-folder-color-pick") || "");
-    const active = current ? v === current : v === "";
+    const isBright = btn.getAttribute("data-folder-color-kind") === "bright";
+    const active = isBright
+      ? Boolean(currentBright) && v === currentBright
+      : (current ? v === current : (v === "" && !currentBright));
     btn.classList.toggle("is-active", active);
     btn.setAttribute("aria-pressed", active ? "true" : "false");
   });
-  positionContextMenu(menu, clientX, clientY, 120);
+  positionContextMenu(menu, clientX, clientY, 220);
 }
 
 function showChapterContextMenu(clientX, clientY, chapter) {
@@ -22517,6 +22580,7 @@ function showChapterContextMenu(clientX, clientY, chapter) {
     ? Boolean(chapter.isBookmarked)
     : Boolean(meta?.isBookmarked);
   const color = chapter.color != null ? chapter.color : (meta?.color || null);
+  const colorBright = chapter.color_bright != null ? chapter.color_bright : (meta?.colorBright || null);
   binderContextChapter = {
     id: Number(chapter.id),
     title,
@@ -22526,6 +22590,7 @@ function showChapterContextMenu(clientX, clientY, chapter) {
     isPinned,
     isBookmarked,
     color,
+    colorBright,
   };
   if ($("chapterContextMenuLabel")) {
     $("chapterContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
@@ -22559,6 +22624,7 @@ function showPartContextMenu(clientX, clientY, part) {
     ? Boolean(part.isBookmarked)
     : Boolean(meta?.isBookmarked);
   const color = part.color != null ? part.color : (meta?.color || null);
+  const colorBright = part.color_bright != null ? part.color_bright : (meta?.colorBright || null);
   binderContextPart = {
     id: Number(part.id),
     title,
@@ -22567,6 +22633,7 @@ function showPartContextMenu(clientX, clientY, part) {
     isPinned,
     isBookmarked,
     color,
+    colorBright,
   };
   if ($("partContextMenuLabel")) {
     $("partContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
@@ -23038,7 +23105,7 @@ function setupBinderContextMenu() {
     if (action === "color") {
       hideChapterContextMenu();
       if (!chapter.folderId) return toast("폴더 색을 바꿀 수 없어요.");
-      showFolderColorMenu(clientX, clientY, chapter.folderId, chapter.color);
+      showFolderColorMenu(clientX, clientY, chapter.folderId, chapter.color, chapter.colorBright);
       return;
     }
     hideChapterContextMenu();
@@ -23081,7 +23148,7 @@ function setupBinderContextMenu() {
     if (action === "color") {
       hidePartContextMenu();
       if (!part.folderId) return toast("폴더 색을 바꿀 수 없어요.");
-      showFolderColorMenu(clientX, clientY, part.folderId, part.color);
+      showFolderColorMenu(clientX, clientY, part.folderId, part.color, part.colorBright);
       return;
     }
     hidePartContextMenu();
@@ -23123,11 +23190,17 @@ function setupBinderContextMenu() {
       event.stopPropagation();
       const folderId = Number($("folderColorMenu")?.dataset?.folderId);
       const raw = pick.getAttribute("data-folder-color-pick");
-      const color = raw === "" || raw == null ? null : String(raw);
+      const isBright = pick.getAttribute("data-folder-color-kind") === "bright";
+      const picked = raw === "" || raw == null ? null : String(raw);
+      // 무채색/일반 색 중 하나를 고르면 쨍한 색은 지우고, 쨍한 색을 고르면 일반 색을 지움
+      // — 화면에는 항상 방금 고른 색 하나만 보이도록.
+      const patch = isBright
+        ? { color: null, color_bright: picked }
+        : { color: picked, color_bright: null };
       hideFolderColorMenu();
       if (!folderId) return;
-      updateFolderFields(folderId, { color })
-        .then(() => toast(color ? "폴더 색을 바꿨어요." : "폴더 색을 없앴어요."))
+      updateFolderFields(folderId, patch)
+        .then(() => toast(picked ? "폴더 색을 바꿨어요." : "폴더 색을 없앴어요."))
         .catch(handleError);
     });
   }
@@ -24676,6 +24749,329 @@ function insertNodeAtManuscriptContext(node, editorEl = null) {
   }
 }
 
+function markManuscriptEditorDirty(editor) {
+  if (!editor) return;
+  updateEditorPlaceholder(editor);
+  if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
+    markSettingsDocEditorDirty?.(editor);
+  } else {
+    updateSceneStats();
+    markSceneDirty?.();
+  }
+}
+
+/* ────────────────── 본문 우클릭: 잘라내기 · 복사 · 붙여넣기 · 서식 복사 ────────────────── */
+
+function cutSelectionFromContextMenu() {
+  const editor = getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  let ok = false;
+  try {
+    ok = document.execCommand("cut");
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) toast("잘라내기를 지원하지 않는 환경이에요. Ctrl+X를 사용해 주세요.");
+  markManuscriptEditorDirty(editor);
+}
+
+function copySelectionFromContextMenu() {
+  const editor = getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  let ok = false;
+  try {
+    ok = document.execCommand("copy");
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) toast("복사를 지원하지 않는 환경이에요. Ctrl+C를 사용해 주세요.");
+}
+
+/** 붙여넣기 옵션: null = 원본 서식 유지(기본) · "merge" = 서식 병합 · "text" = 텍스트만 유지 */
+let pendingContextPasteMode = null;
+
+function sanitizePastedHtml(html) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = String(html || "");
+  wrap.querySelectorAll("script, style, meta, link, iframe, object, embed, title, head").forEach((n) => n.remove());
+  wrap.querySelectorAll("*").forEach((el) => {
+    [...el.attributes].forEach((attr) => {
+      if (/^on/i.test(attr.name)) el.removeAttribute(attr.name);
+    });
+  });
+  return wrap;
+}
+
+/** 서식 병합: 굵기·기울임·밑줄 같은 구조는 남기고, 글꼴·색·크기 같은 지정 서식은 지금 문서에 맞춰 지움. */
+function stripFormattingForMerge(container) {
+  container.querySelectorAll("font").forEach((el) => {
+    const parent = el.parentNode;
+    if (!parent) return;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    parent.removeChild(el);
+  });
+  container.querySelectorAll("*").forEach((el) => {
+    el.removeAttribute("style");
+    el.removeAttribute("class");
+    el.removeAttribute("color");
+    el.removeAttribute("face");
+    el.removeAttribute("size");
+  });
+  return container;
+}
+
+function insertHtmlAtManuscriptContext(html, editorEl = null) {
+  const editor = editorEl || getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  const selection = window.getSelection();
+  const range = selection && selection.rangeCount > 0
+    && editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+    ? selection.getRangeAt(0)
+    : manuscriptContextRange;
+  if (!range) return;
+  range.deleteContents();
+  const wrap = document.createElement("div");
+  wrap.innerHTML = String(html || "");
+  const frag = document.createDocumentFragment();
+  let lastNode = null;
+  while (wrap.firstChild) {
+    lastNode = wrap.firstChild;
+    frag.appendChild(wrap.firstChild);
+  }
+  if (!lastNode) return;
+  range.insertNode(frag);
+  const after = document.createRange();
+  after.setStartAfter(lastNode);
+  after.collapse(true);
+  selection.removeAllRanges();
+  selection.addRange(after);
+  manuscriptContextRange = after.cloneRange();
+  markManuscriptEditorDirty(editor);
+}
+
+function insertPlainTextAtManuscriptContext(text, editorEl = null) {
+  const editor = editorEl || getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  let ok = false;
+  try {
+    ok = document.execCommand("insertText", false, String(text || ""));
+  } catch (_) {
+    ok = false;
+  }
+  if (!ok) {
+    const html = String(text || "")
+      .split(/\r\n|\r|\n/)
+      .map((line) => escapeHtml(line))
+      .join("<br>");
+    insertHtmlAtManuscriptContext(html, editor);
+    return;
+  }
+  markManuscriptEditorDirty(editor);
+}
+
+/** 실제 paste 이벤트(Ctrl+V·execCommand("paste") 모두 여기로 들어옴)를 가로채 옵션대로 넣음. */
+function onManuscriptPasteCapture(event) {
+  const mode = pendingContextPasteMode;
+  pendingContextPasteMode = null;
+  if (!mode) return; // 원본 서식 유지(기본)는 브라우저 기본 붙여넣기에 맡김
+  const editor = event.currentTarget;
+  const cd = event.clipboardData || window.clipboardData;
+  if (!cd) return;
+  event.preventDefault();
+  if (mode === "text") {
+    insertPlainTextAtManuscriptContext(cd.getData("text/plain") || "", editor);
+    return;
+  }
+  if (mode === "merge") {
+    const html = cd.getData("text/html");
+    if (html) {
+      const container = stripFormattingForMerge(sanitizePastedHtml(html));
+      insertHtmlAtManuscriptContext(container.innerHTML, editor);
+    } else {
+      insertPlainTextAtManuscriptContext(cd.getData("text/plain") || "", editor);
+    }
+  }
+}
+
+function setupManuscriptPasteHandling() {
+  ["sceneContent", "synopsisContent", "synopsisContentB"].forEach((id) => {
+    const editor = $(id);
+    if (!editor || editor.dataset.pasteBound === "1") return;
+    editor.dataset.pasteBound = "1";
+    editor.addEventListener("paste", onManuscriptPasteCapture);
+  });
+}
+
+/** 붙여넣기 옵션 (▶ 눌러 펼치는 3개 항목): 열림/닫힘 상태만 토글, 메뉴 자체는 유지. */
+function setPasteOptionsExpanded(expanded) {
+  const toggle = $("pasteOptionsToggle");
+  const row = $("pasteOptionsRow");
+  if (!toggle || !row) return;
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  row.classList.toggle("hidden", !expanded);
+}
+
+function togglePasteOptionsRow() {
+  const expanded = $("pasteOptionsToggle")?.getAttribute("aria-expanded") === "true";
+  setPasteOptionsExpanded(!expanded);
+}
+
+/** 컨텍스트 메뉴 붙여넣기: mode = null(원본 서식 유지) · "merge"(서식 병합) · "text"(텍스트만 유지) */
+async function triggerContextPaste(mode = null) {
+  const editor = getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  pendingContextPasteMode = mode;
+  let ok = false;
+  try {
+    ok = document.execCommand("paste");
+  } catch (_) {
+    ok = false;
+  }
+  if (ok) {
+    // 정상 흐름이면 onManuscriptPasteCapture가 이미(동기적으로) 처리해 null로 되돌려 둠.
+    // 혹시 이벤트가 실제로는 안 뜬 채 true만 돌아온 환경 대비, 다음 진짜 Ctrl+V에 이 값이
+    // 새지 않도록 잠깐 뒤 정리해요.
+    const requestedMode = mode;
+    window.setTimeout(() => {
+      if (pendingContextPasteMode === requestedMode) pendingContextPasteMode = null;
+    }, 400);
+    return;
+  }
+  pendingContextPasteMode = null;
+  // execCommand("paste")를 막는 실행 환경: 클립보드 API로 대체.
+  try {
+    if (mode === "text") {
+      const text = await navigator.clipboard.readText();
+      insertPlainTextAtManuscriptContext(text, editor);
+      return;
+    }
+    if (navigator.clipboard?.read) {
+      const items = await navigator.clipboard.read();
+      for (const item of items) {
+        if (item.types.includes("text/html")) {
+          const blob = await item.getType("text/html");
+          const html = await blob.text();
+          const container = mode === "merge"
+            ? stripFormattingForMerge(sanitizePastedHtml(html))
+            : sanitizePastedHtml(html);
+          insertHtmlAtManuscriptContext(container.innerHTML, editor);
+          return;
+        }
+      }
+    }
+    const text = await navigator.clipboard.readText();
+    insertPlainTextAtManuscriptContext(text, editor);
+  } catch (_) {
+    toast("붙여넣기를 사용할 수 없어요. Ctrl+V를 사용해 주세요.");
+  }
+}
+
+/* ────────────────── 서식 복사 (포맷 페인터) ────────────────── */
+let formatPainterSnapshot = null;
+
+function captureFormatPainterSnapshot(editor) {
+  const probe = getSelectionStyleProbe(editor) || editor;
+  const cs = window.getComputedStyle(probe);
+  return {
+    editorId: editor.id,
+    bold: document.queryCommandState("bold"),
+    italic: document.queryCommandState("italic"),
+    underline: document.queryCommandState("underline"),
+    strike: document.queryCommandState("strikeThrough"),
+    fontFamily: cs.fontFamily || "",
+    fontSize: cs.fontSize || "",
+    color: cs.color || "",
+    backgroundColor: cs.backgroundColor || "",
+  };
+}
+
+function setFormatPainterArmed(editor, on) {
+  ["sceneContent", "synopsisContent", "synopsisContentB"].forEach((id) => {
+    $(id)?.classList.toggle("format-painter-armed", Boolean(on) && $(id) === editor);
+  });
+}
+
+function cancelFormatPainter() {
+  if (!formatPainterSnapshot) return;
+  formatPainterSnapshot = null;
+  setFormatPainterArmed(null, false);
+}
+
+function copyFormatFromSelection() {
+  const editor = getContextRichEditor();
+  if (!editor) return;
+  editor.focus();
+  restoreManuscriptContextRange(editor);
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) {
+    toast("서식을 복사하려면 먼저 문장을 드래그로 선택하세요.");
+    return;
+  }
+  formatPainterSnapshot = captureFormatPainterSnapshot(editor);
+  setFormatPainterArmed(editor, true);
+  toast("서식을 복사했어요. 붙일 문장을 드래그로 선택하면 바로 입혀요. (Esc로 취소)");
+}
+
+function applyFormatPainterToSelection(editor) {
+  if (!formatPainterSnapshot || formatPainterSnapshot.editorId !== editor.id) return false;
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed) return false;
+  if (!editor.contains(selection.anchorNode)) return false;
+  const snap = formatPainterSnapshot;
+  formatPainterSnapshot = null;
+  setFormatPainterArmed(null, false);
+  editor.focus();
+  try {
+    document.execCommand("styleWithCSS", false, "true");
+  } catch (_) {
+    /* older engines */
+  }
+  if (document.queryCommandState("bold") !== snap.bold) document.execCommand("bold");
+  if (document.queryCommandState("italic") !== snap.italic) document.execCommand("italic");
+  if (document.queryCommandState("underline") !== snap.underline) document.execCommand("underline");
+  if (document.queryCommandState("strikeThrough") !== snap.strike) document.execCommand("strikeThrough");
+  const styles = {};
+  if (snap.fontFamily) styles.fontFamily = snap.fontFamily;
+  if (snap.fontSize) styles.fontSize = snap.fontSize;
+  if (snap.color) styles.color = snap.color;
+  if (snap.backgroundColor && !/^(transparent|rgba\(0,\s*0,\s*0,\s*0\))$/i.test(snap.backgroundColor)) {
+    styles.backgroundColor = snap.backgroundColor;
+  }
+  if (Object.keys(styles).length) wrapSelectionWithSpan(styles);
+  markManuscriptEditorDirty(editor);
+  updateFormatButtonState();
+  toast("서식을 붙였어요.");
+  return true;
+}
+
+function setupFormatPainterHandling() {
+  ["sceneContent", "synopsisContent", "synopsisContentB"].forEach((id) => {
+    const editor = $(id);
+    if (!editor || editor.dataset.paintBound === "1") return;
+    editor.dataset.paintBound = "1";
+    editor.addEventListener("mouseup", () => applyFormatPainterToSelection(editor));
+    editor.addEventListener("keyup", (event) => {
+      if (event.key === "Shift") applyFormatPainterToSelection(editor);
+    });
+  });
+  if (!document.documentElement.dataset.formatPainterEscBound) {
+    document.documentElement.dataset.formatPainterEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && formatPainterSnapshot) cancelFormatPainter();
+    });
+  }
+}
+
 function setupDesktopThemeMenu() {
   const global = getGlobalPageTheme();
   applyDesktopTheme(global.theme, global.customColor, {
@@ -24715,7 +25111,27 @@ function setupDesktopThemeMenu() {
     // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
     menu?.classList.toggle("is-text-selection", hasSelection);
     menu?.classList.toggle("is-settings-doc", isSettingsDoc);
+    setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
     syncPageThemeScopeUi();
+    // 잘라내기 · 복사 · 서식 복사: 선택한 글이 있어야 동작
+    const cutItem = $("cutMenuItem");
+    if (cutItem) {
+      cutItem.disabled = !hasSelection;
+      cutItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const copyItem = $("copyMenuItem");
+    if (copyItem) {
+      copyItem.disabled = !hasSelection;
+      copyItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const copyFormatItem = $("copyFormatMenuItem");
+    if (copyFormatItem) {
+      copyFormatItem.disabled = !hasSelection;
+      copyFormatItem.style.opacity = hasSelection ? "1" : "0.45";
+      copyFormatItem.title = hasSelection
+        ? "선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요"
+        : "먼저 본문에서 서식을 복사할 글을 드래그로 선택하세요";
+    }
     // Bookmark current open scene (same system as binder right-click)
     const bmBtn = $("bookmarkSceneMenuItem");
     const bmTitle = $("bookmarkSceneMenuTitle");
@@ -24851,6 +25267,13 @@ function setupDesktopThemeMenu() {
   window.addEventListener("resize", hideDesktopContextMenu);
 
   $("desktopContextMenu")?.addEventListener("click", (event) => {
+    if (event.target.closest("#pasteOptionsToggle")) {
+      // 메뉴는 닫지 않고, 붙여넣기 옵션 3개만 펼치거나 접어요.
+      event.preventDefault();
+      event.stopPropagation();
+      togglePasteOptionsRow();
+      return;
+    }
     if (event.target.closest("#pageInkColorPicker, #pageInkResetButton, .context-ink-row")) {
       // Ink controls handle themselves; don't treat as theme click.
       if (event.target.closest("#pageInkResetButton")) {
@@ -24863,7 +25286,29 @@ function setupDesktopThemeMenu() {
     const actionBtn = event.target.closest("[data-context-action]");
     if (actionBtn) {
       const action = actionBtn.dataset.contextAction;
-      if (action === "bookmark") {
+      if (actionBtn.disabled) return;
+      if (action === "cut") {
+        hideDesktopContextMenu();
+        cutSelectionFromContextMenu();
+      } else if (action === "copy") {
+        hideDesktopContextMenu();
+        copySelectionFromContextMenu();
+      } else if (action === "paste") {
+        hideDesktopContextMenu();
+        triggerContextPaste(null).catch(handleError);
+      } else if (action === "paste-source") {
+        hideDesktopContextMenu();
+        triggerContextPaste(null).catch(handleError);
+      } else if (action === "paste-merge") {
+        hideDesktopContextMenu();
+        triggerContextPaste("merge").catch(handleError);
+      } else if (action === "paste-text") {
+        hideDesktopContextMenu();
+        triggerContextPaste("text").catch(handleError);
+      } else if (action === "copy-format") {
+        hideDesktopContextMenu();
+        copyFormatFromSelection();
+      } else if (action === "bookmark") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
           toast("북마크하려면 먼저 회차를 열어 주세요.");
@@ -24969,6 +25414,8 @@ function setupDesktopThemeMenu() {
     applyPageInk(null, { reset: true, announce: true });
   });
 
+  setupManuscriptPasteHandling();
+  setupFormatPainterHandling();
   setupFootnoteInteractions();
 }
 
@@ -29257,6 +29704,9 @@ function normalizeApiFolderNode(folder, depth = 0, parentPartSourceId = null) {
   const color = folder.color != null && folder.color !== ""
     ? String(folder.color).trim().toLowerCase()
     : null;
+  const colorBright = folder.color_bright != null && folder.color_bright !== ""
+    ? String(folder.color_bright).trim().toLowerCase()
+    : null;
   return {
     ...folder,
     folder_id: folderId,
@@ -29265,6 +29715,7 @@ function normalizeApiFolderNode(folder, depth = 0, parentPartSourceId = null) {
     is_pinned: folder.is_pinned ? 1 : 0,
     is_bookmarked: folder.is_bookmarked ? 1 : 0,
     color,
+    color_bright: colorBright,
     kind: isBox ? "part" : "chapter",
     source_kind: sourceKind,
     source_id: Number.isFinite(sourceId) ? sourceId : null,
@@ -29583,7 +30034,7 @@ function renderSceneTreeHtml(scenes, {
 /** Tag a legacy outline node for the recursive renderer. */
 /** 목차 폴더 행 왼쪽 아이콘 (펼침 버튼 겸용 · 선 그림) */
 const FOLDER_ICON_SVG = `<svg class="folder-glyph" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-  <path d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/>
+  <path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/>
   <path d="M3.75 10.5h16.5"/>
 </svg>`;
 
@@ -29658,6 +30109,8 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       : "";
     const colorKey = String(node.color || "").trim().toLowerCase();
     const colorAttr = colorKey ? ` data-folder-color="${escapeHtml(colorKey)}"` : "";
+    const colorBrightKey = String(node.color_bright || "").trim().toLowerCase();
+    const colorBrightAttr = colorBrightKey ? ` data-folder-color-bright="${escapeHtml(colorBrightKey)}"` : "";
     const pinAttr = ` data-is-pinned="${node.is_pinned ? "1" : "0"}"`;
     const bmOn = Boolean(node.is_bookmarked);
     const bmAttr = ` data-is-bookmarked="${bmOn ? "1" : "0"}"`;
@@ -29716,7 +30169,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       ? `${sceneItems}${foldersHtml}`
       : `<p class="hint part-empty-hint">이 폴더가 비어 있어요. 우클릭으로 하위 항목을 추가할 수 있어요.</p>`;
     return `
-    <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
+    <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
       <div class="part-row" draggable="true" title="끌어 폴더 순서 바꾸기">
         <button
           type="button"
@@ -29820,6 +30273,8 @@ function renderChapterOutlineHtml(chapter, {
     : "";
   const colorKey = String(chapter.color || "").trim().toLowerCase();
   const colorAttr = colorKey ? ` data-folder-color="${escapeHtml(colorKey)}"` : "";
+  const colorBrightKey = String(chapter.color_bright || "").trim().toLowerCase();
+  const colorBrightAttr = colorBrightKey ? ` data-folder-color-bright="${escapeHtml(colorBrightKey)}"` : "";
   const pinAttr = ` data-is-pinned="${chapter.is_pinned ? "1" : "0"}"`;
   const bmOn = Boolean(chapter.is_bookmarked);
   const bmAttr = ` data-is-bookmarked="${bmOn ? "1" : "0"}"`;
@@ -29845,7 +30300,7 @@ function renderChapterOutlineHtml(chapter, {
     </section>`;
   }
   return `
-    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
       <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}" title="끌어 폴더 순서 바꾸기">
         <button
           type="button"
@@ -30002,6 +30457,7 @@ function renderOutline(chaptersArg) {
     const folderId = folderRaw === "" || folderRaw == null ? null : Number(folderRaw);
     const isBoxRaw = section.dataset?.isBox;
     const colorRaw = section.dataset?.folderColor;
+    const colorBrightRaw = section.dataset?.folderColorBright;
     const pinRaw = section.dataset?.isPinned;
     const bmRaw = section.dataset?.isBookmarked;
     const sk = section.dataset?.sourceKind || "";
@@ -30011,6 +30467,7 @@ function renderOutline(chaptersArg) {
     const isPinned = pinRaw === "1" || pinRaw === "true";
     const isBookmarked = bmRaw === "1" || bmRaw === "true";
     const color = colorRaw || null;
+    const colorBright = colorBrightRaw || null;
     // Prefer source_kind for API menu; boxed chapter still uses chapter menu
     if (sk === "chapter" || section.dataset?.chapterId) {
       const chapterId = section.dataset.chapterId
@@ -30027,6 +30484,7 @@ function renderOutline(chaptersArg) {
         isPinned,
         isBookmarked,
         color,
+        color_bright: colorBright,
       });
       return;
     }
@@ -30042,6 +30500,7 @@ function renderOutline(chaptersArg) {
       isPinned,
       isBookmarked,
       color,
+      color_bright: colorBright,
     });
   };
   outline.querySelectorAll(".chapter-row").forEach((row) => {

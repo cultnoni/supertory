@@ -218,26 +218,28 @@ def load_project_folder_rows(
     if not folder_table_ready(connection):
         return []
     pid = int(project_id)
-    # Prefer 029+ columns; fall back for pre-migration DBs mid-upgrade.
+    # Prefer 034+ columns (adds color_bright); fall back for pre-migration DBs mid-upgrade.
     try:
         rows = connection.execute(
             """
             SELECT id, parent_id, title, synopsis_md, notes_md, is_box, sort_order,
-                   source_kind, source_id, color, is_pinned, is_bookmarked
+                   source_kind, source_id, color, color_bright, is_pinned, is_bookmarked
             FROM folder
             WHERE project_id = ? AND deleted_at IS NULL
             ORDER BY is_pinned DESC, sort_order ASC, id ASC
             """,
             (pid,),
         ).fetchall()
+        has_bright = True
         has_color_pin = True
         has_bookmark = True
     except sqlite3.OperationalError:
+        has_bright = False
         try:
             rows = connection.execute(
                 """
                 SELECT id, parent_id, title, synopsis_md, notes_md, is_box, sort_order,
-                       source_kind, source_id, color, is_pinned
+                       source_kind, source_id, color, is_pinned, is_bookmarked
                 FROM folder
                 WHERE project_id = ? AND deleted_at IS NULL
                 ORDER BY is_pinned DESC, sort_order ASC, id ASC
@@ -245,20 +247,34 @@ def load_project_folder_rows(
                 (pid,),
             ).fetchall()
             has_color_pin = True
-            has_bookmark = False
+            has_bookmark = True
         except sqlite3.OperationalError:
-            rows = connection.execute(
-                """
-                SELECT id, parent_id, title, synopsis_md, notes_md, is_box, sort_order,
-                       source_kind, source_id
-                FROM folder
-                WHERE project_id = ? AND deleted_at IS NULL
-                ORDER BY sort_order ASC, id ASC
-                """,
-                (pid,),
-            ).fetchall()
-            has_color_pin = False
-            has_bookmark = False
+            try:
+                rows = connection.execute(
+                    """
+                    SELECT id, parent_id, title, synopsis_md, notes_md, is_box, sort_order,
+                           source_kind, source_id, color, is_pinned
+                    FROM folder
+                    WHERE project_id = ? AND deleted_at IS NULL
+                    ORDER BY is_pinned DESC, sort_order ASC, id ASC
+                    """,
+                    (pid,),
+                ).fetchall()
+                has_color_pin = True
+                has_bookmark = False
+            except sqlite3.OperationalError:
+                rows = connection.execute(
+                    """
+                    SELECT id, parent_id, title, synopsis_md, notes_md, is_box, sort_order,
+                           source_kind, source_id
+                    FROM folder
+                    WHERE project_id = ? AND deleted_at IS NULL
+                    ORDER BY sort_order ASC, id ASC
+                    """,
+                    (pid,),
+                ).fetchall()
+                has_color_pin = False
+                has_bookmark = False
     out: list[dict] = []
     for row in rows:
         if hasattr(row, "keys"):
@@ -277,6 +293,7 @@ def load_project_folder_rows(
                     int(raw_source_id) if raw_source_id is not None else None
                 ),
                 "color": None,
+                "color_bright": None,
                 "is_pinned": 0,
                 "is_bookmarked": 0,
             }
@@ -284,6 +301,9 @@ def load_project_folder_rows(
                 c = row["color"]
                 item["color"] = (str(c).strip().lower() if c else None) or None
                 item["is_pinned"] = 1 if int(row["is_pinned"] or 0) else 0
+            if has_bright:
+                cb = row["color_bright"]
+                item["color_bright"] = (str(cb).strip().lower() if cb else None) or None
             if has_bookmark:
                 try:
                     item["is_bookmarked"] = 1 if int(row["is_bookmarked"] or 0) else 0
@@ -306,15 +326,23 @@ def load_project_folder_rows(
                     int(raw_source_id) if raw_source_id is not None else None
                 ),
                 "color": None,
+                "color_bright": None,
                 "is_pinned": 0,
                 "is_bookmarked": 0,
             }
-            if has_color_pin and len(row) > 10:
+            if has_bright and len(row) > 12:
+                c = row[9]
+                item["color"] = (str(c).strip().lower() if c else None) or None
+                cb = row[10]
+                item["color_bright"] = (str(cb).strip().lower() if cb else None) or None
+                item["is_pinned"] = 1 if int(row[11] or 0) else 0
+                item["is_bookmarked"] = 1 if int(row[12] or 0) else 0
+            elif has_color_pin and len(row) > 10:
                 c = row[9]
                 item["color"] = (str(c).strip().lower() if c else None) or None
                 item["is_pinned"] = 1 if int(row[10] or 0) else 0
-            if has_bookmark and len(row) > 11:
-                item["is_bookmarked"] = 1 if int(row[11] or 0) else 0
+                if has_bookmark and len(row) > 11:
+                    item["is_bookmarked"] = 1 if int(row[11] or 0) else 0
             out.append(item)
     # Defensive re-sort in memory (same parent_id groups handled in assemble)
     out.sort(
@@ -338,6 +366,9 @@ def assemble_folder_nodes_by_parent(
         color = row.get("color")
         if color is not None:
             color = str(color).strip().lower() or None
+        color_bright = row.get("color_bright")
+        if color_bright is not None:
+            color_bright = str(color_bright).strip().lower() or None
         nodes[fid] = {
             "id": fid,
             "title": row.get("title") or "",
@@ -348,6 +379,7 @@ def assemble_folder_nodes_by_parent(
             "source_kind": row.get("source_kind"),
             "source_id": row.get("source_id"),
             "color": color,
+            "color_bright": color_bright,
             "is_pinned": 1 if row.get("is_pinned") else 0,
             "is_bookmarked": 1 if row.get("is_bookmarked") else 0,
             "children": [],
@@ -1353,6 +1385,8 @@ FOLDER_ACTION_LOG_LIMIT = 20
 U1_ACTION_TYPES = frozenset({
     "folder.rename",
     "folder.color",
+    "folder.color_bright",
+    "folder.display_color",
     "folder.box",
     "folder.pin",
     "folder.bookmark",
@@ -1588,6 +1622,34 @@ def build_patch_action_payload(
         "reverse": {
             "op": "patch",
             "fields": {field: old_value},
+        },
+    }
+
+
+def build_display_color_action_payload(
+    folder_id: int,
+    old_color,
+    old_bright,
+    new_color,
+    new_bright,
+) -> dict:
+    """U1 payload for one swatch pick that touches both `color` and `color_bright`
+    at once (색상 팔레트: 무채색/쨍한 색 중 하나를 고르면 다른 쪽은 함께 지워짐).
+    Kept as a single log entry so one Ctrl+Z restores the whole pair atomically.
+    """
+    fid = int(folder_id)
+    pair_old = {"color": old_color, "color_bright": old_bright}
+    pair_new = {"color": new_color, "color_bright": new_bright}
+    return {
+        "folder_id": fid,
+        "forward": {
+            "field": "display_color",
+            "old": pair_old,
+            "new": pair_new,
+        },
+        "reverse": {
+            "op": "patch",
+            "fields": {"display_color": pair_old},
         },
     }
 

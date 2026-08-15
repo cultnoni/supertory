@@ -104,10 +104,17 @@ MIGRATION_030_PATH = ROOT / "db" / "030_folder_action_log.sql"
 MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
 MIGRATION_032_PATH = ROOT / "db" / "032_writing_include_phone.sql"
 MIGRATION_033_PATH = ROOT / "db" / "033_idea_note_pin.sql"
+MIGRATION_034_PATH = ROOT / "db" / "034_folder_color_bright.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
 FOLDER_COLORS = {"red", "orange", "yellow", "green", "blue", "purple", "gray"}
+# 2nd palette row (쨍한 색): independent column, never mixed into FOLDER_COLORS/`color`.
+FOLDER_COLORS_BRIGHT = {
+    "black",
+    "bright_red", "bright_orange", "bright_yellow", "bright_green",
+    "bright_blue", "bright_purple", "bright_gray",
+}
 # Electron (and other shells) may point data/projects at a writable user dir.
 # Prefer SUPERTORY_*; accept legacy STORYGUIDE_* env vars from older Electron shells.
 _DATA_DIR_ENV = (
@@ -440,6 +447,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_032_PATH.read_text(encoding="utf-8"))
         if 33 not in applied:
             connection.executescript(MIGRATION_033_PATH.read_text(encoding="utf-8"))
+        if 34 not in applied:
+            connection.executescript(MIGRATION_034_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -6934,10 +6943,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             return result
 
     def save_folder(self, folder_id: int, body: dict) -> dict:
-        """PUT /api/folders/{id} — partial update of color, is_pinned, is_box, is_bookmarked.
+        """PUT /api/folders/{id} — partial update of color, color_bright, is_pinned, is_box,
+        is_bookmarked.
 
         Body may include:
           color: preset key | null | "" (clear)
+          color_bright: 2nd-row preset key | null | "" (clear) — independent of `color`;
+              when both are sent together (the color picker always does this), the two
+              writes are recorded as one undo step so Ctrl+Z restores the whole swatch pick.
           is_pinned: bool | 0 | 1
           is_box: bool | 0 | 1  (visual shell only; independent of parent/child)
           is_bookmarked: bool | 0 | 1  (binder display only; no sort effect)
@@ -6964,6 +6977,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     )
             updates.append("color = ?")
             params.append(color_val)
+
+        if "color_bright" in body:
+            raw_bright = body.get("color_bright")
+            if raw_bright is None or raw_bright == "" or raw_bright is False:
+                bright_val = None
+            else:
+                bright_val = str(raw_bright).strip().lower()
+                if bright_val not in FOLDER_COLORS_BRIGHT:
+                    raise ValueError(
+                        "폴더 쨍한 색이 올바르지 않습니다. "
+                        f"({', '.join(sorted(FOLDER_COLORS_BRIGHT))} 또는 없음)"
+                    )
+            updates.append("color_bright = ?")
+            params.append(bright_val)
 
         if "is_pinned" in body:
             raw_pin = body.get("is_pinned")
@@ -6995,7 +7022,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if not updates:
             raise ValueError(
                 "수정할 항목이 없습니다. "
-                "(color, is_pinned, is_box 또는 is_bookmarked)"
+                "(color, color_bright, is_pinned, is_box 또는 is_bookmarked)"
             )
 
         updates.append("updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')")
@@ -7009,46 +7036,63 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             try:
                 row = connection.execute(
                     """
-                    SELECT id, project_id, color, is_pinned, is_box, is_bookmarked, title
+                    SELECT id, project_id, color, color_bright, is_pinned, is_box,
+                           is_bookmarked, title
                     FROM folder
                     WHERE id = ? AND deleted_at IS NULL
                     """,
                     (int(folder_id),),
                 ).fetchone()
             except sqlite3.OperationalError as error:
-                # Pre-029/031 columns, or missing folder table
+                # Pre-034 columns (no color_bright yet)
                 try:
                     row = connection.execute(
                         """
-                        SELECT id, project_id, color, is_pinned, is_box, title
+                        SELECT id, project_id, color, is_pinned, is_box, is_bookmarked, title
                         FROM folder
                         WHERE id = ? AND deleted_at IS NULL
                         """,
                         (int(folder_id),),
                     ).fetchone()
                 except sqlite3.OperationalError:
+                    # Pre-029/031 columns, or missing folder table
                     try:
                         row = connection.execute(
                             """
-                            SELECT id, project_id, is_box, title
+                            SELECT id, project_id, color, is_pinned, is_box, title
                             FROM folder
                             WHERE id = ? AND deleted_at IS NULL
                             """,
                             (int(folder_id),),
                         ).fetchone()
-                    except sqlite3.OperationalError as err2:
+                    except sqlite3.OperationalError:
+                        try:
+                            row = connection.execute(
+                                """
+                                SELECT id, project_id, is_box, title
+                                FROM folder
+                                WHERE id = ? AND deleted_at IS NULL
+                                """,
+                                (int(folder_id),),
+                            ).fetchone()
+                        except sqlite3.OperationalError as err2:
+                            raise ValueError(
+                                "폴더 기능을 쓸 수 없습니다. "
+                                "앱을 재시작해 마이그레이션을 적용해 주세요."
+                            ) from err2
+                    if "is_bookmarked" in body:
                         raise ValueError(
-                            "폴더 기능을 쓸 수 없습니다. "
+                            "폴더 북마크 기능이 아직 준비되지 않았습니다. "
                             "앱을 재시작해 마이그레이션을 적용해 주세요."
-                        ) from err2
-                if "is_bookmarked" in body:
+                        ) from error
+                    if "color" in body or "is_pinned" in body:
+                        raise ValueError(
+                            "폴더 색/고정 기능이 아직 준비되지 않았습니다. "
+                            "앱을 재시작해 마이그레이션을 적용해 주세요."
+                        ) from error
+                if "color_bright" in body:
                     raise ValueError(
-                        "폴더 북마크 기능이 아직 준비되지 않았습니다. "
-                        "앱을 재시작해 마이그레이션을 적용해 주세요."
-                    ) from error
-                if "color" in body or "is_pinned" in body:
-                    raise ValueError(
-                        "폴더 색/고정 기능이 아직 준비되지 않았습니다. "
+                        "폴더 쨍한 색 기능이 아직 준비되지 않았습니다. "
                         "앱을 재시작해 마이그레이션을 적용해 주세요."
                     ) from error
             if row is None:
@@ -7067,26 +7111,71 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     return None
                 return str(v).strip().lower() or None
 
-            if "color" in body:
+            if "color" in body or "color_bright" in body:
                 try:
                     old_color = _norm_color(row["color"])
                 except (KeyError, IndexError, TypeError):
                     old_color = None
-                raw_color = body.get("color")
-                if raw_color is None or raw_color == "" or raw_color is False:
-                    new_color = None
-                else:
-                    new_color = str(raw_color).strip().lower()
-                if old_color != new_color:
-                    log_entries.append(
-                        (
-                            "folder.color",
-                            f"「{short}」 색 변경",
-                            folder_tree.build_patch_action_payload(
-                                int(folder_id), "color", old_color, new_color
-                            ),
-                        )
+                try:
+                    old_bright = _norm_color(row["color_bright"])
+                except (KeyError, IndexError, TypeError):
+                    old_bright = None
+
+                if "color" in body:
+                    raw_color = body.get("color")
+                    new_color = (
+                        None if (raw_color is None or raw_color == "" or raw_color is False)
+                        else str(raw_color).strip().lower()
                     )
+                else:
+                    new_color = old_color
+
+                if "color_bright" in body:
+                    raw_bright = body.get("color_bright")
+                    new_bright = (
+                        None if (raw_bright is None or raw_bright == "" or raw_bright is False)
+                        else str(raw_bright).strip().lower()
+                    )
+                else:
+                    new_bright = old_bright
+
+                color_changed = old_color != new_color
+                bright_changed = old_bright != new_bright
+
+                if "color" in body and "color_bright" in body:
+                    # 색상 팔레트는 항상 두 필드를 함께 보냄 — 한 번의 Ctrl+Z로 스와치
+                    # 선택 전체(color + color_bright)가 원래대로 돌아가도록 한 항목으로 기록.
+                    if color_changed or bright_changed:
+                        log_entries.append(
+                            (
+                                "folder.display_color",
+                                f"「{short}」 색 변경",
+                                folder_tree.build_display_color_action_payload(
+                                    int(folder_id), old_color, old_bright, new_color, new_bright,
+                                ),
+                            )
+                        )
+                else:
+                    if "color" in body and color_changed:
+                        log_entries.append(
+                            (
+                                "folder.color",
+                                f"「{short}」 색 변경",
+                                folder_tree.build_patch_action_payload(
+                                    int(folder_id), "color", old_color, new_color
+                                ),
+                            )
+                        )
+                    if "color_bright" in body and bright_changed:
+                        log_entries.append(
+                            (
+                                "folder.color_bright",
+                                f"「{short}」 쨍한 색 변경",
+                                folder_tree.build_patch_action_payload(
+                                    int(folder_id), "color_bright", old_bright, new_bright
+                                ),
+                            )
+                        )
 
             if "is_pinned" in body:
                 try:
@@ -7169,7 +7258,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 out = connection.execute(
                     """
                     SELECT id, project_id, parent_id, title, is_box, sort_order,
-                           color, is_pinned, is_bookmarked, source_kind, source_id
+                           color, color_bright, is_pinned, is_bookmarked, source_kind, source_id
                     FROM folder WHERE id = ?
                     """,
                     (int(folder_id),),
@@ -7179,24 +7268,36 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     out = connection.execute(
                         """
                         SELECT id, project_id, parent_id, title, is_box, sort_order,
-                               color, is_pinned, source_kind, source_id
+                               color, is_pinned, is_bookmarked, source_kind, source_id
                         FROM folder WHERE id = ?
                         """,
                         (int(folder_id),),
                     ).fetchone()
                 except sqlite3.OperationalError:
-                    out = connection.execute(
-                        """
-                        SELECT id, project_id, parent_id, title, is_box, sort_order,
-                               source_kind, source_id
-                        FROM folder WHERE id = ?
-                        """,
-                        (int(folder_id),),
-                    ).fetchone()
+                    try:
+                        out = connection.execute(
+                            """
+                            SELECT id, project_id, parent_id, title, is_box, sort_order,
+                                   color, is_pinned, source_kind, source_id
+                            FROM folder WHERE id = ?
+                            """,
+                            (int(folder_id),),
+                        ).fetchone()
+                    except sqlite3.OperationalError:
+                        out = connection.execute(
+                            """
+                            SELECT id, project_id, parent_id, title, is_box, sort_order,
+                                   source_kind, source_id
+                            FROM folder WHERE id = ?
+                            """,
+                            (int(folder_id),),
+                        ).fetchone()
 
         data = as_dict(out) or {}
         if "color" not in data:
             data["color"] = None
+        if "color_bright" not in data:
+            data["color_bright"] = None
         if "is_pinned" not in data:
             data["is_pinned"] = 0
         else:
@@ -7208,6 +7309,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         data["is_box"] = 1 if int(data.get("is_box") or 0) else 0
         if data.get("color") == "":
             data["color"] = None
+        if data.get("color_bright") == "":
+            data["color_bright"] = None
         data["ok"] = True
         return data
 
@@ -7617,7 +7720,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         try:
             row = connection.execute(
                 """
-                SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked, deleted_at
+                SELECT id, project_id, title, color, color_bright, is_box, is_pinned,
+                       is_bookmarked, deleted_at
                 FROM folder WHERE id = ?
                 """,
                 (folder_id,),
@@ -7626,16 +7730,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             try:
                 row = connection.execute(
                     """
-                    SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                    SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked,
+                           deleted_at
                     FROM folder WHERE id = ?
                     """,
                     (folder_id,),
                 ).fetchone()
             except sqlite3.OperationalError:
-                row = connection.execute(
-                    "SELECT id, project_id, title, is_box, deleted_at FROM folder WHERE id = ?",
-                    (folder_id,),
-                ).fetchone()
+                try:
+                    row = connection.execute(
+                        """
+                        SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                        FROM folder WHERE id = ?
+                        """,
+                        (folder_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    row = connection.execute(
+                        "SELECT id, project_id, title, is_box, deleted_at FROM folder WHERE id = ?",
+                        (folder_id,),
+                    ).fetchone()
 
         if row is None or (
             hasattr(row, "keys") and row["deleted_at"] is not None
@@ -7652,7 +7766,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return default
 
         def _norm_field(name, val):
-            if name == "color":
+            if name in ("color", "color_bright"):
                 if val is None or val == "":
                     return None
                 return str(val).strip().lower() or None
@@ -7660,12 +7774,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return 1 if val else 0
             if name == "title":
                 return str(val or "")
+            if name == "display_color":
+                d = val if isinstance(val, dict) else {}
+                return {
+                    "color": _norm_field("color", d.get("color")),
+                    "color_bright": _norm_field("color_bright", d.get("color_bright")),
+                }
             return val
 
         if field == "title":
             current = _norm_field("title", _get(row, "title", ""))
         elif field == "color":
             current = _norm_field("color", _get(row, "color", None))
+        elif field == "color_bright":
+            current = _norm_field("color_bright", _get(row, "color_bright", None))
+        elif field == "display_color":
+            current = _norm_field("display_color", {
+                "color": _get(row, "color", None),
+                "color_bright": _get(row, "color_bright", None),
+            })
         elif field == "is_box":
             current = _norm_field("is_box", _get(row, "is_box", 0))
         elif field == "is_pinned":
@@ -7695,22 +7822,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         col_map = {
             "title": "title",
             "color": "color",
+            "color_bright": "color_bright",
             "is_box": "is_box",
             "is_pinned": "is_pinned",
             "is_bookmarked": "is_bookmarked",
         }
-        col = col_map[field]
         try:
-            connection.execute(
-                f"""
-                UPDATE folder
-                SET {col} = ?,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    row_version = row_version + 1
-                WHERE id = ? AND deleted_at IS NULL
-                """,
-                (new_n, folder_id),
-            )
+            if field == "display_color":
+                connection.execute(
+                    """
+                    UPDATE folder
+                    SET color = ?, color_bright = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (new_n["color"], new_n["color_bright"], folder_id),
+                )
+            else:
+                col = col_map[field]
+                connection.execute(
+                    f"""
+                    UPDATE folder
+                    SET {col} = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (new_n, folder_id),
+                )
         except sqlite3.OperationalError as error:
             folder_tree.delete_action_log(connection, log_id)
             return None, f"다시 실행에 실패했어요: {error}"
@@ -8278,7 +8418,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         try:
             row = connection.execute(
                 """
-                SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked, deleted_at
+                SELECT id, project_id, title, color, color_bright, is_box, is_pinned,
+                       is_bookmarked, deleted_at
                 FROM folder WHERE id = ?
                 """,
                 (folder_id,),
@@ -8287,17 +8428,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             try:
                 row = connection.execute(
                     """
-                    SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                    SELECT id, project_id, title, color, is_box, is_pinned, is_bookmarked,
+                           deleted_at
                     FROM folder WHERE id = ?
                     """,
                     (folder_id,),
                 ).fetchone()
             except sqlite3.OperationalError:
-                row = connection.execute(
-                    "SELECT id, project_id, title, is_box, deleted_at "
-                    "FROM folder WHERE id = ?",
-                    (folder_id,),
-                ).fetchone()
+                try:
+                    row = connection.execute(
+                        """
+                        SELECT id, project_id, title, color, is_box, is_pinned, deleted_at
+                        FROM folder WHERE id = ?
+                        """,
+                        (folder_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    row = connection.execute(
+                        "SELECT id, project_id, title, is_box, deleted_at "
+                        "FROM folder WHERE id = ?",
+                        (folder_id,),
+                    ).fetchone()
 
         if row is None or (
             hasattr(row, "keys") and row["deleted_at"] is not None
@@ -8314,7 +8465,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return default
 
         def _norm_field(name, val):
-            if name == "color":
+            if name in ("color", "color_bright"):
                 if val is None or val == "":
                     return None
                 return str(val).strip().lower() or None
@@ -8322,12 +8473,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return 1 if val else 0
             if name == "title":
                 return str(val or "")
+            if name == "display_color":
+                d = val if isinstance(val, dict) else {}
+                return {
+                    "color": _norm_field("color", d.get("color")),
+                    "color_bright": _norm_field("color_bright", d.get("color_bright")),
+                }
             return val
 
         if field == "title":
             current = _norm_field("title", _get(row, "title", ""))
         elif field == "color":
             current = _norm_field("color", _get(row, "color", None))
+        elif field == "color_bright":
+            current = _norm_field("color_bright", _get(row, "color_bright", None))
+        elif field == "display_color":
+            current = _norm_field("display_color", {
+                "color": _get(row, "color", None),
+                "color_bright": _get(row, "color_bright", None),
+            })
         elif field == "is_box":
             current = _norm_field("is_box", _get(row, "is_box", 0))
         elif field == "is_pinned":
@@ -8360,22 +8524,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         col_map = {
             "title": "title",
             "color": "color",
+            "color_bright": "color_bright",
             "is_box": "is_box",
             "is_pinned": "is_pinned",
             "is_bookmarked": "is_bookmarked",
         }
-        col = col_map[field]
         try:
-            connection.execute(
-                f"""
-                UPDATE folder
-                SET {col} = ?,
-                    updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
-                    row_version = row_version + 1
-                WHERE id = ? AND deleted_at IS NULL
-                """,
-                (restore_val, folder_id),
-            )
+            if field == "display_color":
+                connection.execute(
+                    """
+                    UPDATE folder
+                    SET color = ?, color_bright = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (restore_val["color"], restore_val["color_bright"], folder_id),
+                )
+            else:
+                col = col_map[field]
+                connection.execute(
+                    f"""
+                    UPDATE folder
+                    SET {col} = ?,
+                        updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
+                        row_version = row_version + 1
+                    WHERE id = ? AND deleted_at IS NULL
+                    """,
+                    (restore_val, folder_id),
+                )
         except sqlite3.OperationalError as error:
             folder_tree.mark_action_log_undone(connection, log_id)
             return None, f"되돌리기에 실패했어요: {error}"
