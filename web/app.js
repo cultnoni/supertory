@@ -6518,6 +6518,9 @@ function placeGenreBlockForKeywordBoard(onBoard) {
 
 function openKeywordBoard() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
   state.keywordBoardOpen = true;
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
@@ -7777,6 +7780,9 @@ function applySettingsDocChrome(kind) {
 
 async function openSettingsDocMain(kind = "synopsis") {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
   if (!SETTINGS_DOC_META[kind]) kind = "synopsis";
 
   const pair = getSettingsDocPairKinds(kind);
@@ -7932,6 +7938,9 @@ function renderCharacterBoard() {
 
 async function openCharacterBoard() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
 
   if (isSettingsDocMainOpen() && synopsisDirty) {
     try {
@@ -8289,6 +8298,9 @@ function closeIdeaBoard() {
 
 function openIdeaBoard(focusId = null) {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
   state.ideaBoardOpen = true;
   state.keywordBoardOpen = false;
   setActiveBinder("settings");
@@ -12012,17 +12024,19 @@ function updateContinuePanelVisibility() {
   // Dedicated panels / tool popups hide the free prompt box in the side form.
   // Select-tab list view also hides the shared prompt (only inline form modes show it).
   const showSuccessPattern = mode === "successpattern";
+  const showGlumpEr = mode === "glumpescape";
   const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showBrainstorm || showWorldDesc
-    || showSubsynopsis || showSuccessPattern || toolPopup || isForeshadowToolMode(mode);
+    || showSubsynopsis || showSuccessPattern || showGlumpEr || toolPopup || isForeshadowToolMode(mode);
   promptWrap?.classList.toggle("hidden", hideSidePrompt);
   // Side submit is hidden for wizard/tool popup modes (run from modal) and select list.
   $("aiSubmitButton")?.classList.toggle(
     "hidden",
-    selectList || aiSuccessFeedbackBlocked || showSuccessPattern || toolPopup || isForeshadowToolMode(mode),
+    selectList || aiSuccessFeedbackBlocked || showSuccessPattern || showGlumpEr || toolPopup || isForeshadowToolMode(mode),
   );
   // Reopen hints removed — closing a popup returns to the select list.
   $("successPatternInlineHint")?.classList.add("hidden");
   $("aiToolInlineHint")?.classList.add("hidden");
+  $("glumpErInlineHint")?.classList.add("hidden");
   if (typeof updateAiToolPopupVisibility === "function") {
     updateAiToolPopupVisibility();
   }
@@ -12042,7 +12056,7 @@ function updateContinuePanelVisibility() {
 }
 
 const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
-const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang", "glumpescape"]);
+const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
 
 /** Modes that show prompt + submit after picking from the select list. */
 const AI_INLINE_FORM_MODES = new Set([
@@ -12078,6 +12092,11 @@ function returnToAiSelectList() {
     }
   } catch (_) { /* ignore */ }
   try {
+    if (typeof closeGlumpErModal === "function" && isGlumpErModalOpen()) {
+      closeGlumpErModal({ dismissed: false, returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
+  try {
     if (typeof closeBrainstormTargetModal === "function") {
       closeBrainstormTargetModal({ returnToList: false });
     }
@@ -12089,6 +12108,9 @@ function returnToAiSelectList() {
   }
   if (typeof successPatternState !== "undefined") {
     successPatternState.modalDismissed = false;
+  }
+  if (typeof glumpErState !== "undefined") {
+    glumpErState.modalDismissed = false;
   }
 
   const sel = $("aiMode");
@@ -12141,6 +12163,7 @@ function syncAiSelectViewUi() {
 
   $("aiToolInlineHint")?.classList.add("hidden");
   $("successPatternInlineHint")?.classList.add("hidden");
+  $("glumpErInlineHint")?.classList.add("hidden");
   if (!showForm || mode !== "successfeedback") {
     hideAiSuccessFeedbackGuide();
   } else {
@@ -12471,6 +12494,9 @@ function updateForeshadowPanelVisibility() {
   if (typeof updateSuccessPatternWizardVisibility === "function") {
     updateSuccessPatternWizardVisibility();
   }
+  if (typeof updateGlumpErVisibility === "function") {
+    updateGlumpErVisibility();
+  }
   if (typeof updateSuccessProfileRefUi === "function") {
     updateSuccessProfileRefUi();
   }
@@ -12568,7 +12594,10 @@ async function submitAiAssist(event) {
     return;
   }
   if (mode === "glumpescape") {
-    toast("글럼프 탈출 프로젝트는 곧 만나보실 수 있어요.");
+    if (typeof openGlumpErModal === "function") {
+      glumpErState.modalDismissed = false;
+      openGlumpErModal();
+    }
     return;
   }
   if (mode === "scriptadapt") {
@@ -13494,6 +13523,11 @@ function setupAiResultModal() {
       closeSuccessPatternModal({ dismissed: true });
       return;
     }
+    if (typeof isGlumpErModalOpen === "function" && isGlumpErModalOpen()) {
+      event.preventDefault();
+      closeGlumpErModal({ dismissed: true });
+      return;
+    }
     if (isAiToolModalOpen()) {
       event.preventDefault();
       closeAiToolModal({ dismissed: true });
@@ -13624,6 +13658,7 @@ function setupAiAssist() {
   setupSummarizeMultiTargetModal();
   setupForeshadowPanel();
   setupSuccessPatternWizard();
+  setupGlumpErUi();
   setupToryChat();
   setupToryNotifyCenter();
   updateToryFocusUi();
@@ -18161,6 +18196,9 @@ function openSettingsCollectionMain(key) {
   const cfg = SETTINGS_COLLECTION_MAIN[key];
   if (!cfg) return;
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
 
   // 다른 메인 뷰 정리
   state.ideaBoardOpen = false;
@@ -18392,7 +18430,7 @@ function aiModeLabel(mode) {
     dupcheck: "중복 체크",
     successpattern: "흥행 공식 분석",
     successfeedback: "흥행 공식 피드백",
-    glumpescape: "글럼프 탈출 프로젝트",
+    glumpescape: "글럼프 응급실",
     scriptadapt: "영상 각본으로 바꾸기",
     audiobook: "오디오북 낭독 대본으로 바꾸기",
     multilang: "다국어 번역하기",
@@ -18484,7 +18522,7 @@ function isSuccessPatternMode(mode = $("aiMode")?.value || "") {
 }
 
 /** Multi-step / multi-question assist modes → auto open wizard popup. */
-const AI_WIZARD_POPUP_MODES = new Set(["successpattern"]);
+const AI_WIZARD_POPUP_MODES = new Set(["successpattern", "glumpescape"]);
 
 /** Tool modes that open the shared settings popup (not success-pattern wizard). */
 const AI_TOOL_POPUP_MODES = new Set([
@@ -18628,6 +18666,9 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
   // Close other overlapping assist modals so this one is visible.
   if (typeof closeSuccessPatternModal === "function") {
     try { closeSuccessPatternModal({ dismissed: false }); } catch (_) { /* ignore */ }
+  }
+  if (typeof closeGlumpErModal === "function") {
+    try { closeGlumpErModal({ dismissed: false, returnToList: false }); } catch (_) { /* ignore */ }
   }
 
   if ($("aiToolModalTitle")) $("aiToolModalTitle").textContent = meta.title || aiModeLabel(m);
@@ -18902,6 +18943,9 @@ function setupAiToolModal() {
 function openSuccessPatternModal() {
   const modal = $("successPatternModal");
   if (!modal) return;
+  if (typeof closeGlumpErModal === "function") {
+    try { closeGlumpErModal({ dismissed: false, returnToList: false }); } catch (_) { /* ignore */ }
+  }
   successPatternState.modalDismissed = false;
   renderSuccessPatternStep();
   modal.classList.remove("hidden");
@@ -19871,6 +19915,1842 @@ function setupSuccessPatternWizard() {
     $("successPatternInlineHint")?.classList.add("hidden");
     closeSuccessPatternModal({ dismissed: false, returnToList: false });
   }
+}
+
+const GLUMP_TOOL_LABELS = {
+  ten_min_sprint: "10분 뇌 빼고 쓰기",
+  mental_vitamin: "멘탈 비타민",
+  wildcard_spark: "와일드카드 스파크",
+  fill_blank_game: "빈칸 채우기 게임",
+  lucky_sentence: "럭키 문장 뽑기",
+  pingpong_relay: "핑퐁 릴레이",
+  character_interrogation: "캐릭터 1:1 청문회",
+  mood_color: "퍼스널컬러 찾기",
+  mood_playlist: "가상 플레이리스트 뽑기",
+  mood_board: "무드보드 둘러보기",
+  word_list: "단어집 둘러보기",
+};
+
+const GLUMP_DIVERSION_META = {
+  mood_color: {
+    title: "🎨 퍼스널컬러 찾기",
+    loading: "작품 분위기를 색으로 고르는 중이에요…",
+    ready: "이 작품의 분위기를 색으로 보면 이런 느낌이에요.",
+  },
+  mood_playlist: {
+    title: "🎵 가상 플레이리스트 뽑기",
+    loading: "없는 노래를 만드는 중이에요…",
+    ready: "실제로 없는 곡이에요. 분위기만 들어 보세요.",
+  },
+  mood_board: {
+    title: "🖼 무드보드 둘러보기",
+    loading: "사진을 고르는 중이에요…",
+    ready: "그냥 둘러보다가 나와도 돼요.",
+  },
+  word_list: {
+    title: "📝 단어집 둘러보기",
+    loading: "입안에서 굴릴 단어를 고르는 중이에요…",
+    ready: "지금 원고에 넣을 필요는 없어요.",
+  },
+};
+
+const GLUMP_SPRINT_MODES = {
+  no_edit_timer: {
+    id: "no_edit_timer",
+    name: "수정금지 타이머",
+    seconds: 600,
+    blind: false,
+    chars: 0,
+  },
+  blind_mode: {
+    id: "blind_mode",
+    name: "블라인드 모드",
+    seconds: 600,
+    blind: true,
+    chars: 0,
+  },
+  eraser_seal: {
+    id: "eraser_seal",
+    name: "지우개 봉인 챌린지",
+    seconds: 0,
+    blind: false,
+    chars: 500,
+  },
+};
+
+const GLUMP_SPRINT_LEAVE_MSG = "지금 나가면 스프린트가 중단돼요, 그래도 나갈까요?";
+
+const glumpErState = {
+  step: "home",
+  q1: "",
+  q2: "",
+  diagnosis: null,
+  events: null,
+  vitamins: null,
+  fillBlank: null,
+  pingpong: null,
+  lucky: null,
+  interrogation: null,
+  diversion: null,
+  busy: false,
+  modalDismissed: false,
+};
+
+const glumpSprintState = {
+  active: false,
+  mode: "",
+  startedAt: 0,
+  durationMs: 0,
+  startCount: 0,
+  charGoal: 0,
+  blind: false,
+  timerId: 0,
+  toastAt: 0,
+  lockAt: 0,
+  overlayRaf: 0,
+  revealTimer: 0,
+};
+
+function isGlumpErMode(mode = $("aiMode")?.value || "") {
+  return String(mode || "") === "glumpescape";
+}
+
+function isGlumpErModalOpen() {
+  return Boolean($("glumpErModal") && !$("glumpErModal").classList.contains("hidden"));
+}
+
+function isGlumpSprintActive() {
+  return Boolean(glumpSprintState.active);
+}
+
+function resetGlumpErState() {
+  glumpErState.step = "home";
+  glumpErState.q1 = "";
+  glumpErState.q2 = "";
+  glumpErState.diagnosis = null;
+  glumpErState.events = null;
+  glumpErState.vitamins = null;
+  glumpErState.fillBlank = null;
+  glumpErState.pingpong = null;
+  glumpErState.lucky = null;
+  glumpErState.interrogation = null;
+  glumpErState.diversion = null;
+  glumpErState.busy = false;
+}
+
+function glumpErReturnStep() {
+  return glumpErState.diagnosis ? "result" : "home";
+}
+
+function launchGlumpHomeTool(toolId) {
+  const id = String(toolId || "").trim();
+  if (id === "wildcard_spark") {
+    runGlumpWildcardSpark().catch(handleError);
+    return;
+  }
+  if (id === "ten_min_sprint") {
+    openGlumpSprintModeStep();
+    return;
+  }
+  if (id === "mental_vitamin") {
+    runGlumpMentalVitamin().catch(handleError);
+    return;
+  }
+  if (id === "fill_blank_game") {
+    runGlumpFillBlank().catch(handleError);
+    return;
+  }
+  if (id === "pingpong_relay") {
+    runGlumpPingpong().catch(handleError);
+    return;
+  }
+  if (id === "lucky_sentence") {
+    runGlumpLuckySentence().catch(handleError);
+    return;
+  }
+  if (id === "character_interrogation") {
+    runGlumpInterrogation().catch(handleError);
+    return;
+  }
+  const name = GLUMP_TOOL_LABELS[id] || "이 도구";
+  toast(`${name}는 곧 열어요. 지금은 다른 도구를 먼저 써 보세요.`);
+}
+
+function glumpCurrentEpisodeText() {
+  let text = "";
+  try {
+    text = String(getEditorPlainText() || "").trim();
+  } catch (_) { /* ignore */ }
+  if (text) return text;
+  const html = state.scene?.content_md || "";
+  try {
+    return String(plainTextFromHtml(html) || html || "").trim();
+  } catch (_) {
+    return String(html || "").trim();
+  }
+}
+
+function glumpSprintCharCount() {
+  try {
+    return computeTextStats(getEditorPlainText($("sceneContent"))).chars_with_space;
+  } catch (_) {
+    return [...String(getEditorPlainText($("sceneContent")) || "")].length;
+  }
+}
+
+function glumpSprintPadTime(totalSeconds) {
+  const sec = Math.max(0, Math.floor(Number(totalSeconds) || 0));
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+}
+
+function glumpSprintWrittenCount() {
+  return Math.max(0, glumpSprintCharCount() - (glumpSprintState.startCount || 0));
+}
+
+function setGlumpSprintElHidden(el, hidden) {
+  if (!el) return;
+  el.hidden = hidden;
+  el.classList.toggle("hidden", hidden);
+}
+
+function updateGlumpSprintStatusBar() {
+  const bar = $("glumpSprintStatusBar");
+  const textEl = $("glumpSprintStatusText");
+  const timerEl = $("glumpSprintStatusTimer");
+  const charsEl = $("glumpSprintStatusChars");
+  const gaugeEl = $("glumpSprintStatusGauge");
+  const gaugeFill = $("glumpSprintStatusGaugeFill");
+  const gaugeLabel = $("glumpSprintStatusGaugeLabel");
+  if (!bar || !textEl) return;
+  if (!glumpSprintState.active) {
+    bar.classList.add("hidden");
+    bar.hidden = true;
+    textEl.textContent = "";
+    if (timerEl) timerEl.textContent = "";
+    setGlumpSprintElHidden(timerEl, true);
+    setGlumpSprintElHidden(charsEl, true);
+    setGlumpSprintElHidden(gaugeEl, true);
+    return;
+  }
+  const meta = GLUMP_SPRINT_MODES[glumpSprintState.mode] || {};
+  const name = meta.name || "스프린트";
+  const written = glumpSprintWrittenCount();
+  textEl.textContent = name;
+  const hasGoal = glumpSprintState.charGoal > 0;
+  const hasTimer = glumpSprintState.durationMs > 0;
+  if (hasTimer) {
+    const left = Math.max(
+      0,
+      Math.ceil((glumpSprintState.startedAt + glumpSprintState.durationMs - Date.now()) / 1000),
+    );
+    if (timerEl) {
+      timerEl.textContent = glumpSprintPadTime(left);
+      timerEl.classList.toggle("is-urgent", left > 0 && left <= 60);
+    }
+    setGlumpSprintElHidden(timerEl, false);
+    if (charsEl) charsEl.textContent = `지금까지 ${written}자`;
+    setGlumpSprintElHidden(charsEl, false);
+    setGlumpSprintElHidden(gaugeEl, true);
+  } else if (hasGoal) {
+    const goal = glumpSprintState.charGoal;
+    const pct = Math.max(0, Math.min(100, (written / goal) * 100));
+    if (gaugeFill) gaugeFill.style.width = `${pct}%`;
+    if (gaugeLabel) gaugeLabel.textContent = `${written}자 / ${goal}자`;
+    setGlumpSprintElHidden(timerEl, true);
+    setGlumpSprintElHidden(charsEl, true);
+    setGlumpSprintElHidden(gaugeEl, false);
+  } else {
+    setGlumpSprintElHidden(timerEl, true);
+    if (charsEl) charsEl.textContent = `지금까지 ${written}자`;
+    setGlumpSprintElHidden(charsEl, false);
+    setGlumpSprintElHidden(gaugeEl, true);
+  }
+  bar.classList.remove("hidden");
+  bar.hidden = false;
+}
+
+function hideGlumpSprintBlindOverlay() {
+  const overlay = $("glumpSprintBlindOverlay");
+  if (!overlay) return;
+  overlay.classList.add("hidden");
+  overlay.hidden = true;
+  overlay.style.height = "0px";
+}
+
+function clearGlumpSprintBlindParagraphs() {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  editor.classList.remove("glump-sprint-blind-editor");
+  editor.querySelectorAll(".glump-sprint-blind-past, .glump-sprint-revealing").forEach((el) => {
+    el.classList.remove("glump-sprint-blind-past", "glump-sprint-revealing");
+    el.style.removeProperty("--glump-reveal-delay");
+  });
+}
+
+function clearGlumpSprintVisuals() {
+  $("manuscriptFrame")?.classList.remove("glump-sprint-active");
+  $("sceneContent")?.classList.remove("glump-sprint-active");
+  document.body.classList.remove("glump-sprint-on", "glump-sprint-revealing");
+  document.body.removeAttribute("data-glump-sprint-mode");
+  hideGlumpSprintBlindOverlay();
+  clearGlumpSprintBlindParagraphs();
+}
+
+function glumpSprintCaretBlock(editor) {
+  const sel = window.getSelection();
+  if (!editor || !sel || !sel.rangeCount) return null;
+  let node = sel.focusNode || sel.anchorNode;
+  if (!node || !(node === editor || editor.contains(node))) return null;
+  if (node === editor) return editor.lastElementChild || null;
+  while (node && node.parentNode !== editor) {
+    node = node.parentNode;
+  }
+  return node && node.nodeType === 1 ? node : null;
+}
+
+function updateGlumpSprintBlindOverlay() {
+  hideGlumpSprintBlindOverlay();
+  const editor = $("sceneContent");
+  if (!editor) return;
+  if (!glumpSprintState.active || !glumpSprintState.blind || glumpSprintState.revealTimer) {
+    if (!glumpSprintState.revealTimer) clearGlumpSprintBlindParagraphs();
+    return;
+  }
+  editor.classList.add("glump-sprint-blind-editor");
+  const current = glumpSprintCaretBlock(editor);
+  const kids = editor.children;
+  let seenCurrent = !current;
+  for (let i = 0; i < kids.length; i += 1) {
+    const el = kids[i];
+    if (el === current) {
+      seenCurrent = true;
+      el.classList.remove("glump-sprint-blind-past", "glump-sprint-revealing");
+      continue;
+    }
+    if (!seenCurrent) el.classList.add("glump-sprint-blind-past");
+    else el.classList.remove("glump-sprint-blind-past", "glump-sprint-revealing");
+  }
+}
+
+function scheduleGlumpSprintBlindOverlay() {
+  if (!glumpSprintState.active || !glumpSprintState.blind) {
+    if (!glumpSprintState.revealTimer) {
+      hideGlumpSprintBlindOverlay();
+      clearGlumpSprintBlindParagraphs();
+    }
+    return;
+  }
+  if (glumpSprintState.overlayRaf) return;
+  glumpSprintState.overlayRaf = requestAnimationFrame(() => {
+    glumpSprintState.overlayRaf = 0;
+    updateGlumpSprintBlindOverlay();
+  });
+}
+
+function showGlumpSprintLockPop() {
+  const pop = $("glumpSprintLockPop");
+  const editor = $("sceneContent");
+  if (!pop) return;
+  const sel = window.getSelection?.();
+  const inEditor = Boolean(
+    editor && sel?.anchorNode && (sel.anchorNode === editor || editor.contains(sel.anchorNode)),
+  );
+  const caret = inEditor && typeof getCaretClientRectForTypewriter === "function"
+    ? getCaretClientRectForTypewriter()
+    : null;
+  const page = $("manuscriptPage") || editor;
+  const pageRect = page?.getBoundingClientRect?.();
+  let x = pageRect ? pageRect.left + 28 : window.innerWidth * 0.42;
+  let y = pageRect ? pageRect.top + 36 : 160;
+  if (caret && (caret.height > 0 || caret.width > 0)) {
+    x = caret.left + Math.min(8, Math.max(0, caret.width / 2));
+    y = caret.top;
+    if (pageRect && caret.left > pageRect.right - 56) {
+      x = pageRect.left + 36;
+    }
+  }
+  x = Math.max(16, Math.min(window.innerWidth - 16, x));
+  y = Math.max(24, Math.min(window.innerHeight - 8, y));
+  pop.style.left = `${Math.round(x)}px`;
+  pop.style.top = `${Math.round(y)}px`;
+  pop.classList.remove("is-popping");
+  void pop.offsetWidth;
+  pop.classList.add("is-popping");
+}
+
+function glumpSprintBlockedToast() {
+  const now = Date.now();
+  if (now - (glumpSprintState.lockAt || 0) > 80) {
+    glumpSprintState.lockAt = now;
+    showGlumpSprintLockPop();
+  }
+  if (now - glumpSprintState.toastAt < 1200) return;
+  glumpSprintState.toastAt = now;
+  toast("지금은 수정할 수 없어요", 1600);
+}
+
+function closeGlumpSprintReward() {
+  const modal = $("glumpSprintRewardModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.dataset.mode = "";
+}
+
+function showGlumpSprintReward(mode, written) {
+  const modal = $("glumpSprintRewardModal");
+  const msg = $("glumpSprintRewardMessage");
+  const meta = GLUMP_SPRINT_MODES[mode] || {};
+  const name = meta.name || "스프린트";
+  const text = `축하합니다! ${name}를 뚫고 ${written}자를 써냈습니다!`;
+  if (!modal || !msg) {
+    toast(text, 5200);
+    return;
+  }
+  msg.textContent = text;
+  modal.dataset.mode = mode || "";
+  modal.classList.remove("hidden");
+}
+
+function playGlumpSprintBlindReveal(done) {
+  const editor = $("sceneContent");
+  const past = editor ? [...editor.querySelectorAll(".glump-sprint-blind-past")] : [];
+  const finish = () => {
+    glumpSprintState.revealTimer = 0;
+    clearGlumpSprintVisuals();
+    if (typeof done === "function") done();
+  };
+  if (!past.length) {
+    finish();
+    return;
+  }
+  document.body.classList.add("glump-sprint-revealing");
+  past.forEach((el, i) => {
+    el.style.setProperty("--glump-reveal-delay", `${i * 90}ms`);
+  });
+  requestAnimationFrame(() => {
+    past.forEach((el) => el.classList.add("glump-sprint-revealing"));
+  });
+  const wait = (past.length - 1) * 90 + 520;
+  glumpSprintState.revealTimer = window.setTimeout(finish, wait);
+}
+
+function glumpSprintEventInEditor(event) {
+  const editor = $("sceneContent");
+  if (!editor) return false;
+  const target = event?.target;
+  if (target === editor || editor.contains?.(target)) return true;
+  const sel = window.getSelection?.();
+  if (sel?.rangeCount) {
+    const node = sel.anchorNode;
+    if (node && (node === editor || editor.contains(node))) return true;
+  }
+  return false;
+}
+
+function isGlumpSprintDeleteKey(event) {
+  if (!event) return false;
+  if (event.isComposing || event.keyCode === 229) return false;
+  return event.key === "Backspace" || event.key === "Delete";
+}
+
+function onGlumpSprintKeydown(event) {
+  if (!glumpSprintState.active) return;
+  if (!isGlumpSprintDeleteKey(event)) return;
+  if (!glumpSprintEventInEditor(event)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  glumpSprintBlockedToast();
+}
+
+function onGlumpSprintBeforeInput(event) {
+  if (!glumpSprintState.active) return;
+  if (event.isComposing) return;
+  const type = String(event.inputType || "");
+  if (type !== "deleteContentBackward" && type !== "deleteContentForward" && type !== "deleteByCut") {
+    return;
+  }
+  event.preventDefault();
+  glumpSprintBlockedToast();
+}
+
+function onGlumpSprintInput() {
+  if (!glumpSprintState.active) return;
+  updateGlumpSprintStatusBar();
+  scheduleGlumpSprintBlindOverlay();
+  if (glumpSprintState.charGoal > 0 && glumpSprintWrittenCount() >= glumpSprintState.charGoal) {
+    finishGlumpSprint({ aborted: false });
+  }
+}
+
+function stopGlumpSprint({ aborted = false, keepBlindVisual = false } = {}) {
+  if (glumpSprintState.timerId) {
+    window.clearInterval(glumpSprintState.timerId);
+  }
+  if (glumpSprintState.overlayRaf) {
+    cancelAnimationFrame(glumpSprintState.overlayRaf);
+  }
+  if (!keepBlindVisual && glumpSprintState.revealTimer) {
+    window.clearTimeout(glumpSprintState.revealTimer);
+    glumpSprintState.revealTimer = 0;
+  }
+  glumpSprintState.active = false;
+  glumpSprintState.mode = "";
+  glumpSprintState.startedAt = 0;
+  glumpSprintState.durationMs = 0;
+  glumpSprintState.startCount = 0;
+  glumpSprintState.charGoal = 0;
+  glumpSprintState.blind = false;
+  glumpSprintState.timerId = 0;
+  glumpSprintState.overlayRaf = 0;
+  if (!keepBlindVisual) clearGlumpSprintVisuals();
+  updateGlumpSprintStatusBar();
+  return aborted;
+}
+
+function finishGlumpSprint({ aborted = false } = {}) {
+  if (!glumpSprintState.active) return;
+  const mode = glumpSprintState.mode;
+  const written = glumpSprintWrittenCount();
+  const wasBlind = glumpSprintState.blind;
+  if (!aborted && wasBlind) glumpSprintState.revealTimer = -1;
+  stopGlumpSprint({ aborted, keepBlindVisual: !aborted && wasBlind });
+  if (aborted) return;
+  if (wasBlind) {
+    playGlumpSprintBlindReveal(() => showGlumpSprintReward(mode, written));
+    return;
+  }
+  showGlumpSprintReward(mode, written);
+}
+
+function tickGlumpSprintTimer() {
+  if (!glumpSprintState.active || glumpSprintState.durationMs <= 0) return;
+  const left = glumpSprintState.startedAt + glumpSprintState.durationMs - Date.now();
+  updateGlumpSprintStatusBar();
+  if (left <= 0) finishGlumpSprint({ aborted: false });
+}
+
+function logGlumpSprintStart(toolId) {
+  if (!state.projectId || !toolId) return;
+  api("/api/glump/tool-log", {
+    method: "POST",
+    body: JSON.stringify({
+      work_id: state.projectId,
+      tool_id: toolId,
+    }),
+  }).catch(() => { /* 시작은 막지 않음 */ });
+}
+
+function confirmLeaveGlumpSprint() {
+  if (!glumpSprintState.active) return true;
+  const ok = window.confirm(GLUMP_SPRINT_LEAVE_MSG);
+  if (ok) stopGlumpSprint({ aborted: true });
+  return ok;
+}
+
+function startGlumpSprint(modeId) {
+  const meta = GLUMP_SPRINT_MODES[modeId];
+  if (!meta) return;
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const editor = $("sceneContent");
+  const workspace = $("sceneWorkspace");
+  if (!state.sceneId || !editor || workspace?.classList.contains("hidden")) {
+    toast("먼저 원고를 열어 주세요.");
+    return;
+  }
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    try { closeFocusWrite(); } catch (_) { /* ignore */ }
+  }
+  if (glumpSprintState.revealTimer) {
+    window.clearTimeout(glumpSprintState.revealTimer);
+    glumpSprintState.revealTimer = 0;
+    clearGlumpSprintVisuals();
+  }
+  if (glumpSprintState.active) stopGlumpSprint({ aborted: true });
+  closeGlumpSprintReward();
+  glumpSprintState.active = true;
+  glumpSprintState.mode = meta.id;
+  glumpSprintState.startedAt = Date.now();
+  glumpSprintState.durationMs = meta.seconds > 0 ? meta.seconds * 1000 : 0;
+  glumpSprintState.startCount = glumpSprintCharCount();
+  glumpSprintState.charGoal = meta.chars || 0;
+  glumpSprintState.blind = Boolean(meta.blind);
+  $("manuscriptFrame")?.classList.add("glump-sprint-active");
+  editor.classList.add("glump-sprint-active");
+  document.body.classList.add("glump-sprint-on");
+  document.body.setAttribute("data-glump-sprint-mode", meta.id);
+  if (meta.blind) editor.classList.add("glump-sprint-blind-editor");
+  updateGlumpSprintStatusBar();
+  scheduleGlumpSprintBlindOverlay();
+  if (glumpSprintState.durationMs > 0) {
+    glumpSprintState.timerId = window.setInterval(tickGlumpSprintTimer, 250);
+  }
+  logGlumpSprintStart(meta.id);
+  closeGlumpErModal({ dismissed: true, returnToList: false });
+  requestAnimationFrame(() => {
+    try {
+      editor.focus({ preventScroll: true });
+    } catch (_) {
+      editor.focus();
+    }
+    scheduleGlumpSprintBlindOverlay();
+  });
+}
+
+function openGlumpSprintModeStep() {
+  glumpErState.step = "sprint";
+  renderGlumpErStep();
+}
+
+function renderGlumpErStep() {
+  const steps = {
+    home: $("glumpErStepHome"),
+    q1: $("glumpErStepQ1"),
+    q2: $("glumpErStepQ2"),
+    result: $("glumpErStepResult"),
+    spark: $("glumpErStepSpark"),
+    sprint: $("glumpErStepSprint"),
+    vitamin: $("glumpErStepVitamin"),
+    fillblank: $("glumpErStepFillBlank"),
+    pingpong: $("glumpErStepPingpong"),
+    lucky: $("glumpErStepLucky"),
+    interrogation: $("glumpErStepInterrogation"),
+    diversions: $("glumpErStepDiversions"),
+    diversionResult: $("glumpErStepDiversionResult"),
+  };
+  Object.entries(steps).forEach(([key, el]) => {
+    el?.classList.toggle("hidden", key !== glumpErState.step);
+  });
+  const lead = $("glumpErLead");
+  if (lead) {
+    lead.classList.toggle("hidden", glumpErState.step !== "home");
+  }
+
+  const diagnosis = glumpErState.diagnosis || {};
+  const toolId = diagnosis.recommended_tool || "";
+  const messageEl = $("glumpErResultMessage");
+  if (messageEl) messageEl.textContent = diagnosis.message || "";
+  const toolNameEl = $("glumpErToolName");
+  if (toolNameEl) {
+    toolNameEl.textContent = toolId
+      ? `추천: ${GLUMP_TOOL_LABELS[toolId] || toolId}`
+      : "";
+  }
+  $("glumpErRestChoices")?.classList.toggle("hidden", !diagnosis.show_rest_choice);
+  const runBtn = $("glumpErRunTool");
+  const vitaminBtn = $("glumpErRunVitamin");
+  const fillBtn = $("glumpErRunFillBlank");
+  const pingBtn = $("glumpErRunPingpong");
+  const luckyBtn = $("glumpErRunLucky");
+  const interrogateBtn = $("glumpErRunInterrogation");
+  const sprintBtn = $("glumpErOpenSprint");
+  const soonEl = $("glumpErToolSoon");
+  const showSpark = toolId === "wildcard_spark";
+  const showSprint = toolId === "ten_min_sprint";
+  const showVitamin = toolId === "mental_vitamin";
+  const showFill = toolId === "fill_blank_game";
+  const showPing = toolId === "pingpong_relay";
+  const showLucky = toolId === "lucky_sentence";
+  const showInterrogate = toolId === "character_interrogation";
+  const showSoon = Boolean(toolId) && !showSpark && !showSprint && !showVitamin && !showFill && !showPing && !showLucky && !showInterrogate;
+  runBtn?.classList.toggle("hidden", !showSpark);
+  vitaminBtn?.classList.toggle("hidden", !showVitamin);
+  fillBtn?.classList.toggle("hidden", !showFill);
+  pingBtn?.classList.toggle("hidden", !showPing);
+  luckyBtn?.classList.toggle("hidden", !showLucky);
+  interrogateBtn?.classList.toggle("hidden", !showInterrogate);
+  sprintBtn?.classList.toggle("hidden", !showSprint);
+  soonEl?.classList.toggle("hidden", !showSoon);
+  if (runBtn) runBtn.disabled = glumpErState.busy;
+  if (vitaminBtn) vitaminBtn.disabled = glumpErState.busy;
+  if (fillBtn) fillBtn.disabled = glumpErState.busy;
+  if (pingBtn) pingBtn.disabled = glumpErState.busy;
+  if (luckyBtn) luckyBtn.disabled = glumpErState.busy;
+  if (interrogateBtn) interrogateBtn.disabled = glumpErState.busy;
+
+  const sparkStatus = $("glumpErSparkStatus");
+  const sparkList = $("glumpErSparkList");
+  if (sparkStatus) {
+    sparkStatus.textContent = glumpErState.busy
+      ? "예상 못한 사건을 고르는 중이에요…"
+      : (glumpErState.events?.length ? "이 세 가지 중에서 골라 보세요." : "");
+  }
+  if (sparkList) {
+    const events = Array.isArray(glumpErState.events) ? glumpErState.events : [];
+    sparkList.innerHTML = events.map((item, index) => {
+      const title = escapeHtml(String(item.title || `사건 ${index + 1}`));
+      const description = escapeHtml(String(item.description || ""));
+      return `<article class="glump-er-spark-item"><strong>${title}</strong><p>${description}</p></article>`;
+    }).join("");
+  }
+
+  const vitaminStatus = $("glumpErVitaminStatus");
+  const vitaminList = $("glumpErVitaminList");
+  const vitaminLabels = { dialogue: "대사", description: "묘사", scene: "장면" };
+  if (vitaminStatus) {
+    vitaminStatus.textContent = glumpErState.busy
+      ? "잘 쓴 장면을 모으는 중이에요…"
+      : (glumpErState.vitamins?.empty
+        ? ""
+        : (glumpErState.vitamins?.moments?.length ? "이런 장면이 이미 잘 살아 있어요." : ""));
+  }
+  if (vitaminList) {
+    if (glumpErState.vitamins?.empty) {
+      vitaminList.innerHTML = `<p class="hint">${escapeHtml(glumpErState.vitamins.message || "아직 모아둔 명장면이 없어요.")}</p>`;
+    } else {
+      const items = Array.isArray(glumpErState.vitamins?.moments) ? glumpErState.vitamins.moments : [];
+      vitaminList.innerHTML = items.map((item) => {
+        const kind = vitaminLabels[item.type] || item.type || "장면";
+        const order = Number(item.episode_order) || 0;
+        const ep = order ? `${order}화` : "회차";
+        const excerpt = escapeHtml(String(item.excerpt || ""));
+        const reason = escapeHtml(String(item.reason || ""));
+        return `<article class="glump-er-spark-item glump-er-vitamin-item"><strong>${escapeHtml(kind)} · ${escapeHtml(ep)}</strong><p class="glump-er-vitamin-excerpt">${excerpt}</p><p>${reason}</p></article>`;
+      }).join("");
+    }
+  }
+
+  const fillStatus = $("glumpErFillBlankStatus");
+  const fillBody = $("glumpErFillBlankBody");
+  const fillSubmit = $("glumpErFillBlankSubmit");
+  const fillSession = glumpErState.fillBlank;
+  if (fillStatus) {
+    if (glumpErState.busy && glumpErState.step === "fillblank" && !fillSession?.segments) {
+      fillStatus.textContent = "다음에 이을 뼈대를 만드는 중이에요…";
+    } else if (fillSession?.finalText) {
+      fillStatus.textContent = "원고 커서 위치에 이어 넣었어요.";
+    } else if (fillSession?.segments?.length) {
+      fillStatus.textContent = "빈칸만 채우면 한 장면이 이어집니다.";
+    } else {
+      fillStatus.textContent = "";
+    }
+  }
+  if (fillBody) {
+    if (fillSession?.finalText) {
+      fillBody.innerHTML = `<p class="glump-er-fill-final">${escapeHtml(fillSession.finalText)}</p>`;
+    } else {
+      if (fillSession) {
+        const live = collectGlumpFillBlankAnswers();
+        if (Object.keys(live).length) {
+          fillSession.answers = { ...(fillSession.answers || {}), ...live };
+        }
+      }
+      const segs = Array.isArray(fillSession?.segments) ? fillSession.segments : [];
+      fillBody.innerHTML = segs.map((item, index) => {
+        if (item?.type === "blank") {
+          const id = escapeHtml(String(item.id || `b${index + 1}`));
+          const hint = escapeHtml(String(item.hint || "이 칸을 채워 주세요"));
+          const prev = escapeHtml(String(fillSession?.answers?.[item.id] || ""));
+          return `<label class="glump-er-fill-blank"><span>빈칸 · ${hint}</span><textarea data-glump-blank="${id}" rows="2">${prev}</textarea></label>`;
+        }
+        return `<p class="glump-er-fill-fixed">${escapeHtml(String(item?.text || ""))}</p>`;
+      }).join("");
+    }
+  }
+  if (fillSubmit) {
+    const ready = Boolean(fillSession?.segments?.length) && !fillSession?.finalText;
+    fillSubmit.classList.toggle("hidden", !ready);
+    fillSubmit.disabled = glumpErState.busy || !ready;
+  }
+
+  const ping = glumpErState.pingpong;
+  const pingStatus = $("glumpErPingpongStatus");
+  const pingTurns = $("glumpErPingpongTurns");
+  const pingCheckin = $("glumpErPingpongCheckin");
+  const pingCheckinMsg = $("glumpErPingpongCheckinMsg");
+  const pingComposer = $("glumpErPingpongComposer");
+  const pingSend = $("glumpErPingpongSend");
+  const pingEnd = $("glumpErPingpongEnd");
+  const pingInput = $("glumpErPingpongInput");
+  if (pingStatus) {
+    if (glumpErState.busy && glumpErState.step === "pingpong" && !ping?.sessionId) {
+      pingStatus.textContent = "릴레이를 여는 중이에요…";
+    } else if (glumpErState.busy && glumpErState.step === "pingpong") {
+      pingStatus.textContent = "토리가 한두 문장 잇는 중이에요…";
+    } else if (ping?.finalText) {
+      pingStatus.textContent = "원고 커서 위치에 이어 넣었어요.";
+    } else if (ping?.checkin) {
+      pingStatus.textContent = "";
+    } else if (ping?.sessionId) {
+      pingStatus.textContent = "한두 문장 쓰고 토리에게 넘기면 이어 받아요.";
+    } else {
+      pingStatus.textContent = "";
+    }
+  }
+  if (pingTurns) {
+    if (ping?.finalText) {
+      pingTurns.innerHTML = `<p class="glump-er-fill-final">${escapeHtml(ping.finalText)}</p>`;
+    } else {
+      const items = Array.isArray(ping?.turns) ? ping.turns : [];
+      pingTurns.innerHTML = items.map((item) => {
+        const tori = item?.speaker === "tori";
+        const who = tori ? "토리" : "나";
+        const klass = tori ? "is-tori" : "is-user";
+        return `<p class="glump-er-ping-turn ${klass}"><strong>${who}</strong>${escapeHtml(String(item?.text || ""))}</p>`;
+      }).join("");
+    }
+  }
+  const showCheckin = Boolean(ping?.sessionId && ping.checkin && !ping.finalText);
+  pingCheckin?.classList.toggle("hidden", !showCheckin);
+  if (pingCheckinMsg && showCheckin) {
+    const n = Number(ping.writtenChars) || 0;
+    pingCheckinMsg.textContent = `벌써 ${n}자 썼어요!`;
+  }
+  pingComposer?.classList.toggle("hidden", Boolean(!ping?.sessionId || ping.checkin || ping.finalText));
+  if (pingSend) pingSend.disabled = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
+  if (pingEnd) pingEnd.classList.toggle("hidden", Boolean(!ping?.sessionId || ping.finalText || showCheckin));
+  if (pingEnd) pingEnd.disabled = glumpErState.busy;
+  if (pingInput) pingInput.disabled = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
+
+  const lucky = glumpErState.lucky;
+  const luckyStatus = $("glumpErLuckyStatus");
+  const luckyBody = $("glumpErLuckyBody");
+  const luckyRedraw = $("glumpErLuckyRedraw");
+  const luckyInsert = $("glumpErLuckyInsert");
+  if (luckyStatus) {
+    if (glumpErState.busy && glumpErState.step === "lucky") {
+      luckyStatus.textContent = "문장을 고르는 중이에요…";
+    } else if (lucky?.forceChoice) {
+      luckyStatus.textContent = "이 중에 하나로 시작해볼까요?";
+    } else if (lucky?.sentence) {
+      luckyStatus.textContent = "이 문장으로 이어 보거나, 다시 뽑아 보세요.";
+    } else {
+      luckyStatus.textContent = "";
+    }
+  }
+  if (luckyBody) {
+    if (lucky?.forceChoice && Array.isArray(lucky.options) && lucky.options.length) {
+      luckyBody.innerHTML = lucky.options.map((text, index) => (
+        `<button type="button" class="glump-er-choice glump-er-lucky-option" data-glump-lucky-pick="${index}">${escapeHtml(String(text || ""))}</button>`
+      )).join("");
+    } else if (lucky?.sentence) {
+      luckyBody.innerHTML = `<p class="glump-er-lucky-sentence">${escapeHtml(lucky.sentence)}</p>`;
+    } else {
+      luckyBody.innerHTML = "";
+    }
+  }
+  luckyRedraw?.classList.toggle("hidden", Boolean(!lucky?.sentence || lucky.forceChoice));
+  if (luckyRedraw) luckyRedraw.disabled = glumpErState.busy;
+  luckyInsert?.classList.toggle("hidden", Boolean(!lucky?.sentence || lucky.forceChoice));
+  if (luckyInsert) luckyInsert.disabled = glumpErState.busy;
+
+  const hearing = glumpErState.interrogation;
+  const hearStatus = $("glumpErInterrogationStatus");
+  const hearBody = $("glumpErInterrogationBody");
+  const hearSummarize = $("glumpErInterrogationSummarize");
+  const qaItems = Array.isArray(hearing?.qa) ? hearing.qa : [];
+  const allAnswered = qaItems.length > 0 && qaItems.every((item) => String(item?.answer || "").trim());
+  if (hearStatus) {
+    if (glumpErState.busy && glumpErState.step === "interrogation" && !qaItems.length) {
+      hearStatus.textContent = "추궁할 질문을 만드는 중이에요…";
+    } else if (hearing?.hints?.length) {
+      hearStatus.textContent = "이건 참고용이에요. 원고에 자동으로 넣지는 않아요.";
+    } else if (allAnswered) {
+      hearStatus.textContent = "답이 다 모였어요. 전개 힌트를 정리해 보세요.";
+    } else if (qaItems.length) {
+      hearStatus.textContent = `${hearing?.characterName || "주인공"}에게 지금 상황에서 물어봐야 할 질문이에요.`;
+    } else {
+      hearStatus.textContent = "";
+    }
+  }
+  if (hearBody) {
+    if (Array.isArray(hearing?.hints) && hearing.hints.length) {
+      hearBody.innerHTML = hearing.hints.map((item, index) => {
+        const title = escapeHtml(String(item.title || `힌트 ${index + 1}`));
+        const description = escapeHtml(String(item.description || ""));
+        return `<article class="glump-er-spark-item"><strong>${title}</strong><p>${description}</p></article>`;
+      }).join("");
+    } else {
+      hearBody.innerHTML = qaItems.map((item, index) => {
+        const q = escapeHtml(String(item?.question || ""));
+        const a = String(item?.answer || "").trim();
+        const answerHtml = a
+          ? `<p class="glump-er-interrogation-a">${escapeHtml(a)}</p>`
+          : `<button type="button" class="primary compact-btn glump-er-interrogation-ask" data-glump-interrogate="${index}">이 질문으로 추궁하기</button>`;
+        return `<article class="glump-er-interrogation-qa"><p class="glump-er-interrogation-q">${index + 1}. ${q}</p>${answerHtml}</article>`;
+      }).join("");
+    }
+  }
+  if (hearSummarize) {
+    hearSummarize.classList.toggle("hidden", !allAnswered || Boolean(hearing?.hints?.length));
+    hearSummarize.disabled = glumpErState.busy || !allAnswered;
+  }
+
+  const diversion = glumpErState.diversion;
+  const diversionKind = String(diversion?.kind || "");
+  const diversionMeta = GLUMP_DIVERSION_META[diversionKind] || GLUMP_DIVERSION_META.mood_color;
+  const diversionTitle = $("glumpErDiversionTitle");
+  const diversionStatus = $("glumpErDiversionStatus");
+  const diversionBody = $("glumpErDiversionBody");
+  const diversionExit = $("glumpErDiversionExit");
+  if (diversionTitle) diversionTitle.textContent = diversionMeta.title;
+  if (diversionStatus) {
+    if (glumpErState.busy && glumpErState.step === "diversionResult") {
+      diversionStatus.textContent = diversionMeta.loading;
+    } else if (diversion?.error) {
+      diversionStatus.textContent = String(diversion.message || "이번에는 못 보여 줬어요.");
+    } else if (diversionKind && glumpErState.step === "diversionResult") {
+      diversionStatus.textContent = diversionMeta.ready;
+    } else {
+      diversionStatus.textContent = "";
+    }
+  }
+  if (diversionBody) {
+    diversionBody.innerHTML = glumpErState.step === "diversionResult"
+      ? renderGlumpDiversionBody(diversion)
+      : "";
+  }
+  const showDiversionExit = glumpErState.step === "diversionResult"
+    && Boolean(diversionKind)
+    && !glumpErState.busy;
+  diversionExit?.classList.toggle("hidden", !showDiversionExit);
+
+  $("glumpErModal")?.querySelectorAll("button").forEach((btn) => {
+    if (btn.dataset.closeGlumpEr != null) return;
+    if (btn.id === "glumpErRunTool" || btn.id === "glumpErRunVitamin" || btn.id === "glumpErRunFillBlank" || btn.id === "glumpErRunPingpong" || btn.id === "glumpErRunLucky" || btn.id === "glumpErRunInterrogation") {
+      btn.disabled = glumpErState.busy;
+      return;
+    }
+    if (btn.closest?.("#glumpErStepQ1, #glumpErStepQ2, #glumpErStepHome, #glumpErStepDiversions")) {
+      btn.disabled = glumpErState.busy;
+    }
+  });
+  const sparkBack = $("glumpErSparkBack");
+  if (sparkBack) sparkBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const vitaminBack = $("glumpErVitaminBack");
+  if (vitaminBack) vitaminBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const fillBack = $("glumpErFillBlankBack");
+  if (fillBack) fillBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const pingBack = $("glumpErPingpongBack");
+  if (pingBack) pingBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const luckyBack = $("glumpErLuckyBack");
+  if (luckyBack) luckyBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const hearBack = $("glumpErInterrogationBack");
+  if (hearBack) hearBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  const sprintBack = $("glumpErSprintBack");
+  if (sprintBack) sprintBack.textContent = glumpErState.diagnosis ? "진단으로" : "이전";
+  const diversionBack = $("glumpErDiversionsBack");
+  if (diversionBack) diversionBack.textContent = glumpErState.diagnosis ? "진단으로" : "이전";
+}
+
+function openGlumpErModal() {
+  const modal = $("glumpErModal");
+  if (!modal) {
+    console.warn("[SuperTory] #glumpErModal missing — hard-refresh or restart the app.");
+    return;
+  }
+  if (typeof closeSuccessPatternModal === "function") {
+    try { closeSuccessPatternModal({ dismissed: false, returnToList: false }); } catch (_) { /* ignore */ }
+  }
+  if (typeof closeAiToolModal === "function" && isAiToolModalOpen()) {
+    try { closeAiToolModal({ dismissed: false, returnToList: false }); } catch (_) { /* ignore */ }
+  }
+  glumpErState.modalDismissed = false;
+  if (!glumpErState.busy && !["spark", "sprint", "result", "vitamin", "fillblank", "pingpong", "lucky", "interrogation", "diversions", "diversionResult"].includes(glumpErState.step)) {
+    resetGlumpErState();
+  }
+  renderGlumpErStep();
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const focusEl = modal.querySelector(
+      `[data-glump-step="${glumpErState.step}"]:not(.hidden) button, [data-close-glump-er]`,
+    );
+    try {
+      focusEl?.focus({ preventScroll: true });
+    } catch (_) {
+      focusEl?.focus();
+    }
+  });
+}
+
+function closeGlumpErModal({ dismissed = true, returnToList = dismissed } = {}) {
+  $("glumpErModal")?.classList.add("hidden");
+  if (dismissed && isGlumpErMode()) {
+    glumpErState.modalDismissed = true;
+  }
+  if (returnToList) {
+    const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+    if (pane !== "result") {
+      try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
+function updateGlumpErVisibility({ forceOpen = false } = {}) {
+  const on = isGlumpErMode();
+  $("glumpErInlineHint")?.classList.add("hidden");
+  if (on) {
+    $("aiPromptWrap")?.classList.add("hidden");
+    $("aiSubmitButton")?.classList.add("hidden");
+    if (forceOpen || !glumpErState.modalDismissed) {
+      openGlumpErModal();
+    }
+  } else {
+    glumpErState.modalDismissed = false;
+    closeGlumpErModal({ dismissed: false, returnToList: false });
+  }
+}
+
+async function submitGlumpDiagnosis(q1, q2) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  try {
+    const body = { work_id: state.projectId, q1_answer: q1 };
+    if (q2) body.q2_answer = q2;
+    const data = await api("/api/glump/diagnose", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    glumpErState.q1 = q1;
+    glumpErState.q2 = q2 || "";
+    glumpErState.diagnosis = data || {};
+    glumpErState.step = "result";
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function runGlumpWildcardSpark() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const episode = glumpCurrentEpisodeText();
+  if (episode.length < 100) {
+    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    return;
+  }
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  glumpErState.step = "spark";
+  glumpErState.events = null;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/wildcard-spark", {
+      method: "POST",
+      body: JSON.stringify({
+        work_id: state.projectId,
+        episode_content: episode,
+      }),
+    });
+    glumpErState.events = Array.isArray(data?.events) ? data.events : [];
+  } catch (error) {
+    handleError(error);
+    glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function runGlumpMentalVitamin() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  glumpErState.step = "vitamin";
+  glumpErState.vitamins = null;
+  renderGlumpErStep();
+  try {
+    const data = await api(
+      `/api/glump/mental-vitamin?work_id=${encodeURIComponent(state.projectId)}`,
+      { method: "GET" },
+    );
+    glumpErState.vitamins = data || {};
+  } catch (error) {
+    handleError(error);
+    glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function runGlumpFillBlank() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const episode = glumpCurrentEpisodeText();
+  if (episode.length < 100) {
+    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    return;
+  }
+  if (glumpErState.busy) return;
+  captureGlumpFillBlankCaret();
+  glumpErState.busy = true;
+  glumpErState.step = "fillblank";
+  glumpErState.fillBlank = null;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/fill-blank/start", {
+      method: "POST",
+      body: JSON.stringify({
+        work_id: state.projectId,
+        episode_id: state.sceneId || "",
+        episode_content: episode,
+      }),
+    });
+    glumpErState.fillBlank = {
+      sessionId: data?.session_id || "",
+      segments: Array.isArray(data?.segments) ? data.segments : [],
+      answers: {},
+      finalText: "",
+    };
+  } catch (error) {
+    handleError(error);
+    glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function captureGlumpFillBlankCaret() {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  try {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+      const range = sel.getRangeAt(0);
+      if (editor.contains(range.commonAncestorContainer)) {
+        manuscriptContextRange = range.cloneRange();
+        return;
+      }
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    range.collapse(false);
+    manuscriptContextRange = range;
+  } catch (_) { /* ignore */ }
+}
+
+function collectGlumpFillBlankAnswers() {
+  const answers = {};
+  $("glumpErFillBlankBody")?.querySelectorAll("[data-glump-blank]").forEach((el) => {
+    const id = el.getAttribute("data-glump-blank") || "";
+    if (id) answers[id] = String(el.value || "");
+  });
+  return answers;
+}
+
+async function submitGlumpFillBlank() {
+  const session = glumpErState.fillBlank;
+  if (!session?.sessionId) {
+    toast("먼저 뼈대를 받아 주세요.");
+    return;
+  }
+  if (glumpErState.busy) return;
+  const answers = collectGlumpFillBlankAnswers();
+  const blanks = (session.segments || []).filter((item) => item?.type === "blank");
+  const missing = blanks.some((item) => !String(answers[item.id] || "").trim());
+  if (missing) {
+    toast("모든 빈칸을 채워주세요");
+    return;
+  }
+  glumpErState.busy = true;
+  session.answers = answers;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/fill-blank/submit", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: session.sessionId,
+        answers,
+      }),
+    });
+    const finalText = String(data?.final_text || "").trim();
+    session.finalText = finalText;
+    restoreManuscriptContextRange($("sceneContent"));
+    insertTextIntoSceneEditor(finalText);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function runGlumpPingpong() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const episode = glumpCurrentEpisodeText();
+  if (episode.length < 100) {
+    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    return;
+  }
+  if (glumpErState.busy) return;
+  captureGlumpFillBlankCaret();
+  glumpErState.busy = true;
+  glumpErState.step = "pingpong";
+  glumpErState.pingpong = null;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/pingpong/start", {
+      method: "POST",
+      body: JSON.stringify({
+        work_id: state.projectId,
+        episode_id: state.sceneId || "",
+        episode_content: episode,
+      }),
+    });
+    glumpErState.pingpong = {
+      sessionId: data?.session_id || "",
+      turns: [],
+      checkin: false,
+      writtenChars: 0,
+      finalText: "",
+    };
+    if ($("glumpErPingpongInput")) $("glumpErPingpongInput").value = "";
+  } catch (error) {
+    handleError(error);
+    glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+    try { $("glumpErPingpongInput")?.focus(); } catch (_) { /* ignore */ }
+  }
+}
+
+async function sendGlumpPingpongTurn() {
+  const ping = glumpErState.pingpong;
+  if (!ping?.sessionId || ping.finalText || ping.checkin) return;
+  if (glumpErState.busy) return;
+  const input = $("glumpErPingpongInput");
+  const userText = String(input?.value || "").trim();
+  if (!userText) {
+    toast("한 문장을 먼저 써 주세요.");
+    return;
+  }
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/pingpong/turn", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: ping.sessionId,
+        user_text: userText,
+      }),
+    });
+    ping.turns = [
+      ...(ping.turns || []),
+      { speaker: "user", text: userText },
+      { speaker: "tori", text: String(data?.tori_text || "").trim() },
+    ];
+    ping.checkin = Boolean(data?.checkin);
+    ping.writtenChars = Number(data?.written_chars) || 0;
+    if (input) input.value = "";
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+    if (!glumpErState.pingpong?.checkin) {
+      try { $("glumpErPingpongInput")?.focus(); } catch (_) { /* ignore */ }
+    }
+  }
+}
+
+async function endGlumpPingpong() {
+  const ping = glumpErState.pingpong;
+  if (!ping?.sessionId || ping.finalText) return;
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/pingpong/end", {
+      method: "POST",
+      body: JSON.stringify({ session_id: ping.sessionId }),
+    });
+    const finalText = String(data?.final_text || "").trim();
+    ping.finalText = finalText;
+    ping.checkin = false;
+    restoreManuscriptContextRange($("sceneContent"));
+    insertTextIntoSceneEditor(finalText);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function newGlumpLuckySessionId() {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID();
+    }
+  } catch (_) { /* ignore */ }
+  return `lucky-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
+async function runGlumpLuckySentence({ redraw = false } = {}) {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const episode = glumpCurrentEpisodeText();
+  if (episode.length < 100) {
+    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    return;
+  }
+  if (glumpErState.busy) return;
+  if (!redraw || !glumpErState.lucky?.sessionId) {
+    captureGlumpFillBlankCaret();
+    glumpErState.lucky = {
+      sessionId: newGlumpLuckySessionId(),
+      sentence: "",
+      forceChoice: false,
+      options: [],
+    };
+  }
+  glumpErState.busy = true;
+  glumpErState.step = "lucky";
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/lucky-sentence", {
+      method: "POST",
+      body: JSON.stringify({
+        work_id: state.projectId,
+        session_id: glumpErState.lucky.sessionId,
+        episode_content: episode,
+      }),
+    });
+    if (data?.force_choice) {
+      glumpErState.lucky.forceChoice = true;
+      glumpErState.lucky.options = Array.isArray(data.previous_options) ? data.previous_options : [];
+      glumpErState.lucky.sentence = "";
+    } else {
+      glumpErState.lucky.forceChoice = false;
+      glumpErState.lucky.sentence = String(data?.sentence || "").trim();
+      glumpErState.lucky.options = [];
+    }
+  } catch (error) {
+    handleError(error);
+    if (!redraw) glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function insertGlumpLuckySentence(text) {
+  const sentence = String(text || glumpErState.lucky?.sentence || "").trim();
+  if (!sentence) {
+    toast("넣을 문장이 없어요.");
+    return;
+  }
+  restoreManuscriptContextRange($("sceneContent"));
+  insertTextIntoSceneEditor(sentence);
+}
+
+async function runGlumpInterrogation() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const episode = glumpCurrentEpisodeText();
+  if (episode.length < 100) {
+    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    return;
+  }
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  glumpErState.step = "interrogation";
+  glumpErState.interrogation = null;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/interrogation/start", {
+      method: "POST",
+      body: JSON.stringify({
+        work_id: state.projectId,
+        episode_content: episode,
+      }),
+    });
+    const questions = Array.isArray(data?.questions) ? data.questions : [];
+    glumpErState.interrogation = {
+      sessionId: data?.session_id || "",
+      characterName: String(data?.character_name || "").trim(),
+      qa: questions.map((question) => ({ question: String(question || "").trim(), answer: "" })),
+      hints: [],
+    };
+  } catch (error) {
+    handleError(error);
+    glumpErState.step = glumpErReturnStep();
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function answerGlumpInterrogation(questionIndex) {
+  const hearing = glumpErState.interrogation;
+  if (!hearing?.sessionId) return;
+  if (glumpErState.busy) return;
+  const index = Number(questionIndex);
+  if (!Number.isInteger(index) || index < 0) return;
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/interrogation/answer", {
+      method: "POST",
+      body: JSON.stringify({
+        session_id: hearing.sessionId,
+        question_index: index,
+        episode_content: glumpCurrentEpisodeText(),
+      }),
+    });
+    if (!Array.isArray(hearing.qa)) hearing.qa = [];
+    if (hearing.qa[index]) {
+      hearing.qa[index].answer = String(data?.answer || "").trim();
+    }
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+async function summarizeGlumpInterrogation() {
+  const hearing = glumpErState.interrogation;
+  if (!hearing?.sessionId) return;
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  try {
+    const data = await api("/api/glump/interrogation/summarize", {
+      method: "POST",
+      body: JSON.stringify({ session_id: hearing.sessionId }),
+    });
+    hearing.hints = Array.isArray(data?.hint_cards) ? data.hint_cards : [];
+  } catch (error) {
+    handleError(error);
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function glumpSafeHttpUrl(value) {
+  try {
+    const parsed = new URL(String(value || "").trim());
+    if (parsed.protocol !== "https:" && parsed.protocol !== "http:") return "";
+    return parsed.href;
+  } catch (_) {
+    return "";
+  }
+}
+
+function closeGlumpErToManuscript() {
+  closeGlumpErModal({ dismissed: true, returnToList: false });
+  const editor = (typeof getActiveRichEditor === "function" && getActiveRichEditor())
+    || $("sceneContent");
+  requestAnimationFrame(() => {
+    try {
+      editor?.focus({ preventScroll: true });
+    } catch (_) {
+      editor?.focus();
+    }
+  });
+}
+
+function handleGlumpDiversionExit(choice) {
+  const action = String(choice || "").trim();
+  if (action === "more") {
+    glumpErState.step = "diversions";
+    renderGlumpErStep();
+    return;
+  }
+  if (action === "write") {
+    closeGlumpErToManuscript();
+    return;
+  }
+  toast("잘 쉬고 오세요. 한 글자도 안 써도 괜찮아요.");
+  closeGlumpErModal({ dismissed: true });
+}
+
+function renderGlumpDiversionBody(diversion) {
+  if (!diversion || diversion.error) return "";
+  const kind = String(diversion.kind || "");
+  if (kind === "mood_color") {
+    const colors = Array.isArray(diversion.colors) ? diversion.colors : [];
+    return colors.map((item) => {
+      const hex = String(item?.hex || "").trim();
+      const safeHex = /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : "";
+      const name = escapeHtml(String(item?.name || "색"));
+      const reason = escapeHtml(String(item?.reason || ""));
+      const swatch = safeHex
+        ? `<span class="glump-er-color-swatch" style="background:${safeHex}" aria-hidden="true"></span>`
+        : `<span class="glump-er-color-swatch" aria-hidden="true"></span>`;
+      return `<article class="glump-er-color-chip">${swatch}<div><strong>${name}${safeHex ? ` · ${escapeHtml(safeHex)}` : ""}</strong>${reason ? `<p>${reason}</p>` : ""}</div></article>`;
+    }).join("");
+  }
+  if (kind === "mood_playlist") {
+    const title = escapeHtml(String(diversion.playlist_title || "가상 플레이리스트"));
+    const tracks = Array.isArray(diversion.tracks) ? diversion.tracks : [];
+    const trackHtml = tracks.map((item, index) => {
+      const song = escapeHtml(String(item?.title || `곡 ${index + 1}`));
+      const mood = escapeHtml(String(item?.mood || ""));
+      return `<article class="glump-er-track-item"><strong>${index + 1}. ${song}</strong>${mood ? `<p>${mood}</p>` : ""}</article>`;
+    }).join("");
+    return `<p class="glump-er-playlist-title">${title}</p>${trackHtml}`;
+  }
+  if (kind === "mood_board") {
+    const photos = Array.isArray(diversion.photos) ? diversion.photos : [];
+    const cards = photos.map((item) => {
+      const url = glumpSafeHttpUrl(item?.url);
+      if (!url) return "";
+      const photographer = escapeHtml(String(item?.photographer || ""));
+      const alt = escapeHtml(String(item?.alt || photographer || "무드보드 사진"));
+      const credit = photographer
+        ? `<p class="glump-er-mood-credit">Photo by ${photographer}</p>`
+        : "";
+      return `<figure class="glump-er-mood-card"><img src="${escapeHtml(url)}" alt="${alt}">${credit}</figure>`;
+    }).join("");
+    return cards ? `<div class="glump-er-mood-grid">${cards}</div>` : "";
+  }
+  if (kind === "word_list") {
+    const words = Array.isArray(diversion.words) ? diversion.words : [];
+    return words.map((item) => {
+      const word = escapeHtml(String(item?.word || ""));
+      const nuance = escapeHtml(String(item?.nuance || ""));
+      if (!word) return "";
+      return `<article class="glump-er-word-item"><strong>${word}</strong>${nuance ? `<p>${nuance}</p>` : ""}</article>`;
+    }).join("");
+  }
+  return "";
+}
+
+async function runGlumpDiversion(kind) {
+  const id = String(kind || "").trim();
+  if (!GLUMP_DIVERSION_META[id]) return;
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  glumpErState.step = "diversionResult";
+  glumpErState.diversion = { kind: id };
+  renderGlumpErStep();
+  try {
+    let data;
+    if (id === "word_list") {
+      data = await api(`/api/glump/word-list?work_id=${encodeURIComponent(state.projectId)}`);
+    } else if (id === "mood_color") {
+      data = await api("/api/glump/mood-color", {
+        method: "POST",
+        body: JSON.stringify({ work_id: state.projectId }),
+      });
+    } else if (id === "mood_playlist") {
+      data = await api("/api/glump/mood-playlist", {
+        method: "POST",
+        body: JSON.stringify({ work_id: state.projectId }),
+      });
+    } else {
+      data = await api("/api/glump/mood-board", {
+        method: "POST",
+        body: JSON.stringify({ work_id: state.projectId }),
+      });
+    }
+    glumpErState.diversion = { kind: id, ...(data || {}) };
+  } catch (error) {
+    handleError(error);
+    glumpErState.diversion = {
+      kind: id,
+      error: true,
+      message: String(error?.message || "이번에는 못 보여 줬어요."),
+    };
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function setupGlumpErUi() {
+  $("aiMode")?.addEventListener("change", () => {
+    if (isGlumpErMode()) {
+      glumpErState.modalDismissed = false;
+      resetGlumpErState();
+    }
+    updateGlumpErVisibility({ forceOpen: isGlumpErMode() });
+  });
+
+  const modal = $("glumpErModal");
+  if (modal && modal.dataset.bound !== "1") {
+    modal.dataset.bound = "1";
+    modal.querySelectorAll("[data-close-glump-er]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeGlumpErModal({ dismissed: true });
+      });
+    });
+    modal.addEventListener("click", (event) => {
+      const q1Btn = event.target.closest?.("[data-glump-q1]");
+      if (q1Btn) {
+        event.preventDefault();
+        const q1 = q1Btn.getAttribute("data-glump-q1") || "";
+        if (q1 === "block") {
+          glumpErState.q1 = q1;
+          glumpErState.q2 = "";
+          glumpErState.step = "q2";
+          renderGlumpErStep();
+          return;
+        }
+        submitGlumpDiagnosis(q1).catch(handleError);
+        return;
+      }
+      const q2Btn = event.target.closest?.("[data-glump-q2]");
+      if (q2Btn) {
+        event.preventDefault();
+        const q2 = q2Btn.getAttribute("data-glump-q2") || "";
+        submitGlumpDiagnosis(glumpErState.q1 || "block", q2).catch(handleError);
+        return;
+      }
+      const restBtn = event.target.closest?.("[data-glump-rest]");
+      if (restBtn) {
+        event.preventDefault();
+        const choice = restBtn.getAttribute("data-glump-rest") || "";
+        if (choice === "rest") {
+          toast("잘 쉬고 오세요. 한 글자도 안 써도 괜찮아요.");
+          closeGlumpErModal({ dismissed: true });
+        } else if (choice === "play") {
+          glumpErState.step = "diversions";
+          renderGlumpErStep();
+        } else {
+          toast("조금이라도 괜찮아요. 오늘 목표는 300자면 충분해요.");
+          closeGlumpErToManuscript();
+        }
+        return;
+      }
+      const diversionBtn = event.target.closest?.("[data-glump-diversion]");
+      if (diversionBtn && !event.target.closest?.("[data-glump-diversion-exit]")) {
+        event.preventDefault();
+        runGlumpDiversion(diversionBtn.getAttribute("data-glump-diversion") || "");
+        return;
+      }
+      const diversionExitBtn = event.target.closest?.("[data-glump-diversion-exit]");
+      if (diversionExitBtn) {
+        event.preventDefault();
+        handleGlumpDiversionExit(diversionExitBtn.getAttribute("data-glump-diversion-exit") || "");
+        return;
+      }
+      if (event.target.closest?.("[data-glump-start-diagnosis]")) {
+        event.preventDefault();
+        glumpErState.step = "q1";
+        renderGlumpErStep();
+        return;
+      }
+      const homeTool = event.target.closest?.("[data-glump-tool]");
+      if (homeTool) {
+        event.preventDefault();
+        launchGlumpHomeTool(homeTool.getAttribute("data-glump-tool") || "");
+        return;
+      }
+      if (event.target.closest?.("[data-glump-open-sprint]")) {
+        event.preventDefault();
+        openGlumpSprintModeStep();
+        return;
+      }
+      const sprintBtn = event.target.closest?.("[data-glump-sprint]");
+      if (sprintBtn) {
+        event.preventDefault();
+        startGlumpSprint(sprintBtn.getAttribute("data-glump-sprint") || "");
+      }
+    });
+  }
+  $("glumpErQ1Back")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = "home";
+    renderGlumpErStep();
+  });
+  $("glumpErQ2Back")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = "q1";
+    glumpErState.q2 = "";
+    renderGlumpErStep();
+  });
+  $("glumpErRestart")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    resetGlumpErState();
+    renderGlumpErStep();
+  });
+  $("glumpErRunTool")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpWildcardSpark().catch(handleError);
+  });
+  $("glumpErRunVitamin")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpMentalVitamin().catch(handleError);
+  });
+  $("glumpErRunFillBlank")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpFillBlank().catch(handleError);
+  });
+  $("glumpErRunPingpong")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpPingpong().catch(handleError);
+  });
+  $("glumpErRunLucky")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpLuckySentence().catch(handleError);
+  });
+  $("glumpErRunInterrogation")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpInterrogation().catch(handleError);
+  });
+  $("glumpErSparkBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErVitaminBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErFillBlankBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErFillBlankSubmit")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    submitGlumpFillBlank().catch(handleError);
+  });
+  $("glumpErPingpongBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErPingpongSend")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    sendGlumpPingpongTurn().catch(handleError);
+  });
+  $("glumpErPingpongEnd")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    endGlumpPingpong().catch(handleError);
+  });
+  $("glumpErPingpongStop")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    endGlumpPingpong().catch(handleError);
+  });
+  $("glumpErPingpongContinue")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    if (glumpErState.pingpong) glumpErState.pingpong.checkin = false;
+    renderGlumpErStep();
+    try { $("glumpErPingpongInput")?.focus(); } catch (_) { /* ignore */ }
+  });
+  $("glumpErPingpongInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+      event.preventDefault();
+      sendGlumpPingpongTurn().catch(handleError);
+    }
+  });
+  $("glumpErLuckyBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErLuckyRedraw")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    runGlumpLuckySentence({ redraw: true }).catch(handleError);
+  });
+  $("glumpErLuckyInsert")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    insertGlumpLuckySentence();
+  });
+  $("glumpErInterrogationBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErInterrogationSummarize")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    summarizeGlumpInterrogation().catch(handleError);
+  });
+  $("glumpErInterrogationBody")?.addEventListener("click", (event) => {
+    const ask = event.target.closest?.("[data-glump-interrogate]");
+    if (!ask) return;
+    event.preventDefault();
+    const index = Number(ask.getAttribute("data-glump-interrogate"));
+    answerGlumpInterrogation(index).catch(handleError);
+  });
+  $("glumpErLuckyBody")?.addEventListener("click", (event) => {
+    const pick = event.target.closest?.("[data-glump-lucky-pick]");
+    if (!pick) return;
+    event.preventDefault();
+    const index = Number(pick.getAttribute("data-glump-lucky-pick"));
+    const text = glumpErState.lucky?.options?.[index] || pick.textContent || "";
+    insertGlumpLuckySentence(text);
+  });
+  $("glumpErSprintBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErDiversionsBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+
+  ensureGlumpSprintBindings();
+
+  if (isGlumpErMode()) {
+    updateGlumpErVisibility();
+  } else {
+    $("glumpErInlineHint")?.classList.add("hidden");
+    closeGlumpErModal({ dismissed: false, returnToList: false });
+  }
+}
+
+function ensureGlumpSprintBindings() {
+  if (document.documentElement.dataset.glumpSprintBound === "1") return;
+  document.documentElement.dataset.glumpSprintBound = "1";
+  document.addEventListener("keydown", onGlumpSprintKeydown, true);
+  $("sceneContent")?.addEventListener("beforeinput", onGlumpSprintBeforeInput);
+  $("sceneContent")?.addEventListener("input", onGlumpSprintInput);
+  $("manuscriptPage")?.addEventListener("scroll", scheduleGlumpSprintBlindOverlay, { passive: true });
+  document.addEventListener("selectionchange", () => {
+    if (glumpSprintState.active && glumpSprintState.blind) scheduleGlumpSprintBlindOverlay();
+  });
+  window.addEventListener("resize", () => {
+    if (glumpSprintState.active && glumpSprintState.blind) scheduleGlumpSprintBlindOverlay();
+  });
+  window.addEventListener("beforeunload", (event) => {
+    if (!glumpSprintState.active) return;
+    event.preventDefault();
+    event.returnValue = "";
+  });
+  $("glumpSprintRewardKeep")?.addEventListener("click", () => closeGlumpSprintReward());
+  $("glumpSprintRewardAgain")?.addEventListener("click", () => {
+    const mode = $("glumpSprintRewardModal")?.dataset.mode || "";
+    closeGlumpSprintReward();
+    if (mode) startGlumpSprint(mode);
+  });
+  document.querySelectorAll("[data-close-glump-sprint-reward]").forEach((el) => {
+    el.addEventListener("click", () => closeGlumpSprintReward());
+  });
 }
 
 function collectToToryVault(options = {}) {
@@ -27093,6 +28973,10 @@ function applyFocusWriteFullscreen(on, { persist = true } = {}) {
 }
 
 function openFocusWrite() {
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive()) {
+    toast("스프린트 중에는 원고 화면에서 써 주세요.");
+    return;
+  }
   if (!state.sceneId) {
     toast("먼저 목차에서 씬 하나를 열어 주세요.");
     return;
@@ -32124,6 +34008,9 @@ function renderCharacters() {
 }
 
 function showWelcome() {
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
   void closeSplitView();
   state.sceneId = null;
   state.characterId = null;
@@ -38165,6 +40052,15 @@ async function openScene(sceneId) {
     toast("씬을 열 수 없어요.");
     return;
   }
+  if (
+    typeof isGlumpSprintActive === "function"
+    && isGlumpSprintActive()
+    && Number(state.sceneId)
+    && Number(state.sceneId) !== nextId
+    && !confirmLeaveGlumpSprint()
+  ) {
+    return;
+  }
 
   // Flush pending edits before leaving the current scene.
   if (sceneDirty && state.sceneId && state.sceneId !== nextId) {
@@ -39411,6 +41307,9 @@ function renderCharacterPortrait(character) {
 }
 
 async function openCharacter(characterId) {
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
   await closeSplitView();
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;

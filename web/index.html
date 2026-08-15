@@ -1122,6 +1122,18 @@
         </div>
 
         <div id="sceneWorkspace" class="scene-workspace hidden">
+          <div id="glumpSprintStatusBar" class="glump-sprint-status-bar hidden" hidden role="status">
+            <span class="glump-sprint-status-dot" aria-hidden="true"></span>
+            <span id="glumpSprintStatusText" class="glump-sprint-status-text"></span>
+            <span id="glumpSprintStatusTimer" class="glump-sprint-status-timer hidden" hidden></span>
+            <span id="glumpSprintStatusChars" class="glump-sprint-status-chars hidden" hidden></span>
+            <div id="glumpSprintStatusGauge" class="glump-sprint-status-gauge hidden" hidden>
+              <div class="glump-sprint-status-gauge-track" aria-hidden="true">
+                <div id="glumpSprintStatusGaugeFill" class="glump-sprint-status-gauge-fill"></div>
+              </div>
+              <span id="glumpSprintStatusGaugeLabel" class="glump-sprint-status-gauge-label"></span>
+            </div>
+          </div>
           <div class="writing-column">
             <!-- 열린문서 탭: 제목 카드 위(밖) · 좌우는 카드와 동일 거터 -->
             <div class="episode-chrome" id="episodeChrome" aria-label="회차 이동">
@@ -1708,6 +1720,7 @@
               </div>
                 <div class="manuscript-page" id="manuscriptPage" title="오른쪽 클릭: 이미지 넣기 · 페이지 색">
                   <div id="typewriterLineHighlight" class="typewriter-line-highlight hidden" aria-hidden="true"></div>
+                  <div id="glumpSprintBlindOverlay" class="glump-sprint-blind-overlay hidden" hidden aria-hidden="true"></div>
                   <div
                     id="sceneContent"
                     class="rich-editor"
@@ -2589,7 +2602,7 @@
                     </optgroup>
                     <optgroup label="스페셜 기능">
                       <option value="successpattern" class="ai-mode-success-opt">흥행 공식 분석</option>
-                      <option value="glumpescape" class="ai-mode-coming-opt">글럼프 탈출 프로젝트</option>
+                      <option value="glumpescape">글럼프 응급실</option>
                     </optgroup>
                     <optgroup label="토리와 새 무대를 찾아요">
                       <option value="scriptadapt" class="ai-mode-coming-opt">🔒 영상 각본으로 바꾸기 · 준비중</option>
@@ -2606,6 +2619,9 @@
 
               <div id="successPatternInlineHint" class="sp-inline-hint hidden" aria-label="흥행 공식 분석 안내" hidden>
                 <p class="hint">흥행 공식 분석은 단계 안내 창에서 진행해요.</p>
+              </div>
+              <div id="glumpErInlineHint" class="sp-inline-hint hidden" aria-label="글럼프 응급실 안내" hidden>
+                <p class="hint">글럼프 응급실은 단계 안내 창에서 진행해요.</p>
               </div>
 
               <div id="aiSuccessFeedbackGuide" class="ai-inline-guide hidden" hidden aria-live="polite">
@@ -3593,6 +3609,259 @@
           <button type="button" class="secondary" data-close-sp-modal>닫기</button>
         </div>
       </div>
+    </div>
+
+    <div id="glumpErModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="glumpErModalTitle">
+      <div class="modal-backdrop" data-close-glump-er></div>
+      <div class="modal-card success-pattern-modal-card glump-er-modal-card">
+        <div class="modal-heading">
+          <h2 id="glumpErModalTitle">글럼프 응급실</h2>
+          <button type="button" class="modal-close" data-close-glump-er title="닫기" aria-label="닫기">×</button>
+        </div>
+        <div class="success-pattern-wizard glump-er-wizard" aria-label="글럼프 응급실">
+          <p class="sp-lead" id="glumpErLead">글이 안 풀릴 때, 지금 바로 꺼내 쓰거나 막힌 지점부터 짚어 보세요.</p>
+
+          <div id="glumpErStepHome" data-glump-step="home">
+            <button type="button" class="glump-er-dx-banner" id="glumpErStartDiagnosis" data-glump-start-diagnosis>
+              <strong><span class="glump-er-dx-icon" aria-hidden="true">🩺</span>뭐부터 할지 모르겠다면, 진단부터</strong>
+              <span>토리가 문진표 들고 등장, 증상 말하면 처방전 발급</span>
+            </button>
+            <div class="glump-er-tool-grid" role="group" aria-label="글럼프 도구">
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="wildcard_spark">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">⚡</span>와일드카드 스파크</strong>
+                <em class="glump-er-warn-badge">⚠ 막장주의</em>
+                <span>막힌 전개에 사이다 대신 벼락 투척, 감당은 작가님 몫</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="ten_min_sprint">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">⏱️</span>10분 뇌 빼고 쓰기</strong>
+                <span>수정 금지! 일단 뇌 끄고 손가락만 굴리기</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="fill_blank_game">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🧩</span>빈칸 채우기 게임</strong>
+                <span>뼈대는 토리가, 디테일은 작가님이 — 퀘스트 깨듯 쓱쓱</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="mental_vitamin">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">💊</span>멘탈 비타민</strong>
+                <span>내가 쓴 명대사 복습하고 캐릭터한테 응원 받기</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="pingpong_relay">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🏓</span>핑퐁 릴레이</strong>
+                <span>엔터치면 핑, 토리가 퐁, 어느새 초안 뚝딱</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="lucky_sentence">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🍀</span>럭키 문장 뽑기</strong>
+                <span>마음에 안 들면 또 뽑기, 3번 넘으면 그냥 운명</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="character_interrogation">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎤</span>캐릭터 1:1 청문회</strong>
+                <span>주인공 소환해서 '너 진짜 어디로 갈 건데' 추궁하기</span>
+              </button>
+            </div>
+          </div>
+
+          <div id="glumpErStepQ1" class="hidden" data-glump-step="q1">
+            <strong class="glump-er-q">지금 뭐가 막히세요?</strong>
+            <div class="glump-er-choices" role="group" aria-label="지금 막힌 지점">
+              <button type="button" class="glump-er-choice" data-glump-q1="block">다음 장면이 안 그려져요</button>
+              <button type="button" class="glump-er-choice" data-glump-q1="perfectionism">완벽하게 써야 할 것 같아요</button>
+              <button type="button" class="glump-er-choice" data-glump-q1="self_doubt">내 글이 별로인 것 같아요</button>
+              <button type="button" class="glump-er-choice" data-glump-q1="burnout">오늘은 쓰기 너무 힘들어요</button>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErQ1Back">이전</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepQ2" class="hidden" data-glump-step="q2">
+            <strong class="glump-er-q">조금 더 구체적으로요</strong>
+            <div class="glump-er-choices" role="group" aria-label="막힌 이유">
+              <button type="button" class="glump-er-choice" data-glump-q2="event">다음에 무슨 일이 일어날지 모르겠어요</button>
+              <button type="button" class="glump-er-choice" data-glump-q2="sentence_struggle">문장이 안 풀려요</button>
+              <button type="button" class="glump-er-choice" data-glump-q2="start">첫 문장부터 안 써져요</button>
+              <button type="button" class="glump-er-choice" data-glump-q2="together">혼자 밀고 가기 버거워요</button>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErQ2Back">이전</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepResult" class="hidden" data-glump-step="result">
+            <p class="sp-lead" id="glumpErResultMessage"></p>
+            <p class="hint" id="glumpErToolName"></p>
+            <div id="glumpErRestChoices" class="glump-er-choices hidden" role="group" aria-label="휴식 선택">
+              <button type="button" class="glump-er-choice" data-glump-rest="write">조금이라도 써볼래요</button>
+              <button type="button" class="glump-er-choice" data-glump-rest="play">부담없는 딴짓 할래요</button>
+              <button type="button" class="glump-er-choice" data-glump-rest="rest">오늘은 그냥 쉴래요</button>
+            </div>
+            <div id="glumpErToolActions" class="glump-er-nav">
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunTool">와일드카드 스파크 받아보기</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunVitamin">멘탈 비타민 받아보기</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunFillBlank">빈칸 채우기 시작하기</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunPingpong">핑퐁 릴레이 시작하기</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunLucky">럭키 문장 뽑기</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErRunInterrogation">캐릭터 1:1 청문회 시작하기</button>
+              <button type="button" class="glump-er-choice glump-er-sprint-entry hidden" id="glumpErOpenSprint" data-glump-open-sprint>
+                <strong>10분 뇌 빼고 쓰기</strong>
+                <span>10분 동안 수정 없이 막 써 내려가요</span>
+              </button>
+              <p class="hint hidden" id="glumpErToolSoon">이 도구는 곧 열어요. 지금은 진단만 확인하시면 돼요.</p>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErRestart">처음부터</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepSpark" class="hidden" data-glump-step="spark">
+            <strong class="glump-er-q">와일드카드 스파크</strong>
+            <p class="hint" id="glumpErSparkStatus"></p>
+            <div id="glumpErSparkList" class="glump-er-spark-list"></div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErSparkBack">진단으로</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepVitamin" class="hidden" data-glump-step="vitamin">
+            <strong class="glump-er-q">멘탈 비타민</strong>
+            <p class="hint" id="glumpErVitaminStatus"></p>
+            <div id="glumpErVitaminList" class="glump-er-spark-list"></div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErVitaminBack">목록으로</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepFillBlank" class="hidden" data-glump-step="fillblank">
+            <strong class="glump-er-q">빈칸 채우기 게임</strong>
+            <p class="hint" id="glumpErFillBlankStatus"></p>
+            <div id="glumpErFillBlankBody" class="glump-er-fill-body"></div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErFillBlankBack">목록으로</button>
+              <button type="button" class="primary compact-btn" id="glumpErFillBlankSubmit">완성해서 원고에 넣기</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepPingpong" class="hidden" data-glump-step="pingpong">
+            <strong class="glump-er-q">핑퐁 릴레이</strong>
+            <p class="hint" id="glumpErPingpongStatus"></p>
+            <div id="glumpErPingpongTurns" class="glump-er-ping-turns"></div>
+            <div id="glumpErPingpongCheckin" class="glump-er-ping-checkin hidden">
+              <p id="glumpErPingpongCheckinMsg"></p>
+              <div class="glump-er-nav">
+                <button type="button" class="primary compact-btn" id="glumpErPingpongContinue">계속 이어갈까요</button>
+                <button type="button" class="secondary compact-btn" id="glumpErPingpongStop">오늘은 여기까지</button>
+              </div>
+            </div>
+            <div id="glumpErPingpongComposer" class="glump-er-ping-composer">
+              <textarea id="glumpErPingpongInput" rows="3" placeholder="한두 문장만 이어서 써 보세요."></textarea>
+              <button type="button" class="primary compact-btn" id="glumpErPingpongSend">토리에게 넘기기</button>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErPingpongBack">목록으로</button>
+              <button type="button" class="secondary compact-btn" id="glumpErPingpongEnd">오늘은 여기까지</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepLucky" class="hidden" data-glump-step="lucky">
+            <strong class="glump-er-q">럭키 문장 뽑기</strong>
+            <p class="hint" id="glumpErLuckyStatus"></p>
+            <div id="glumpErLuckyBody" class="glump-er-lucky-body"></div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErLuckyBack">목록으로</button>
+              <button type="button" class="secondary compact-btn" id="glumpErLuckyRedraw">다시 뽑기</button>
+              <button type="button" class="primary compact-btn" id="glumpErLuckyInsert">이 문장으로 시작하기</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepInterrogation" class="hidden" data-glump-step="interrogation">
+            <strong class="glump-er-q">캐릭터 1:1 청문회</strong>
+            <p class="hint" id="glumpErInterrogationStatus"></p>
+            <div id="glumpErInterrogationBody" class="glump-er-interrogation-body"></div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErInterrogationBack">목록으로</button>
+              <button type="button" class="primary compact-btn hidden" id="glumpErInterrogationSummarize">전개 힌트 보기</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepDiversions" class="hidden" data-glump-step="diversions">
+            <strong class="glump-er-q">부담없는 딴짓</strong>
+            <p class="hint">원고에는 안 들어가요. 보고만 있어도 돼요.</p>
+            <div class="glump-er-tool-grid" role="group" aria-label="부담없는 딴짓">
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_color">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎨</span>퍼스널컬러 찾기</strong>
+                <span>이 작품 분위기를 색으로만 볼게요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_playlist">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎵</span>가상 플레이리스트 뽑기</strong>
+                <span>없는 노래를 만들어서 분위기만 느껴 볼게요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_board">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🖼</span>무드보드 둘러보기</strong>
+                <span>사진만 슬쩍 보다가 나와도 돼요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="word_list">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">📝</span>단어집 둘러보기</strong>
+                <span>장르 단어를 입안에서만 굴려 볼게요</span>
+              </button>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErDiversionsBack">이전</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepDiversionResult" class="hidden" data-glump-step="diversionResult">
+            <strong class="glump-er-q" id="glumpErDiversionTitle">부담없는 딴짓</strong>
+            <p class="hint" id="glumpErDiversionStatus"></p>
+            <div id="glumpErDiversionBody" class="glump-er-diversion-body"></div>
+            <div id="glumpErDiversionExit" class="glump-er-choices glump-er-exit-equal hidden" role="group" aria-label="딴짓 끝내기">
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="more">🎲 다른 딴짓도 볼래요</button>
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="write">✍️ 이제 좀 써볼까요</button>
+              <button type="button" class="glump-er-choice" data-glump-diversion-exit="leave">🚪 그냥 나갈래요</button>
+            </div>
+          </div>
+
+          <div id="glumpErStepSprint" class="hidden" data-glump-step="sprint">
+            <strong class="glump-er-q">10분 뇌 빼고 쓰기</strong>
+            <p class="hint">모드를 고르면 지금 열려 있는 원고에서 바로 시작해요.</p>
+            <div class="glump-er-choices glump-er-sprint-modes" role="group" aria-label="뇌 빼고 쓰기 모드">
+              <button type="button" class="glump-er-choice glump-er-mode-card" data-glump-sprint="no_edit_timer">
+                <strong>수정금지 타이머</strong>
+                <span>10분 동안 백스페이스 없이 막 써 내려가요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-mode-card" data-glump-sprint="blind_mode">
+                <strong>블라인드 모드</strong>
+                <span>10분 동안 방금 쓴 문장이 흐려져서 다시 읽을 수 없어요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-mode-card" data-glump-sprint="eraser_seal">
+                <strong>지우개 봉인 챌린지</strong>
+                <span>500자 쓸 때까지 백스페이스가 봉인돼요</span>
+              </button>
+            </div>
+            <div class="glump-er-nav">
+              <button type="button" class="secondary compact-btn" id="glumpErSprintBack">이전</button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-actions success-pattern-modal-actions">
+          <button type="button" class="secondary" data-close-glump-er>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="glumpSprintRewardModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="glumpSprintRewardMessage">
+      <div class="modal-backdrop" data-close-glump-sprint-reward></div>
+      <div class="modal-card glump-sprint-reward-card">
+        <p class="glump-sprint-reward-kicker">스프린트 완료</p>
+        <p id="glumpSprintRewardMessage" class="glump-sprint-reward-message"></p>
+        <div class="modal-actions glump-sprint-reward-actions">
+          <button type="button" class="primary" id="glumpSprintRewardKeep">원고에 반영하기</button>
+          <button type="button" class="secondary" id="glumpSprintRewardAgain">조금 더 쓰기</button>
+        </div>
+      </div>
+    </div>
+    <div id="glumpSprintLockPop" class="glump-sprint-lock-pop" aria-hidden="true">
+      <svg viewBox="0 0 24 24" width="18" height="18" focusable="false">
+        <rect x="5.5" y="11" width="13" height="10" rx="2.2" fill="currentColor"/>
+        <path d="M8.2 11V8.4a3.8 3.8 0 0 1 7.6 0V11" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round"/>
+      </svg>
     </div>
 
     <div id="aiResultHistoryModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="aiResultHistoryTitle">
