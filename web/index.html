@@ -2439,7 +2439,7 @@
             <button type="button" id="clearToryFocusButton" class="secondary compact-btn tory-focus-clear">연결 해제</button>
           </div>
           <div class="ai-panel-tabs-row">
-            <div class="ai-panel-tabs" role="tablist" aria-label="토리 모드">
+            <div class="ai-panel-tabs" role="tablist" aria-label="토리 패널">
               <button
                 type="button"
                 class="ai-panel-tab is-active feature-hide-exempt"
@@ -2456,7 +2456,7 @@
                 role="tab"
                 aria-selected="false"
                 data-ai-tab="chat"
-              >토리와 대화</button>
+              >대화창</button>
             </div>
           </div>
           <div class="tory-priority-box" id="toryPriorityBox">
@@ -2589,6 +2589,7 @@
                     </optgroup>
                     <optgroup label="스페셜 기능">
                       <option value="successpattern" class="ai-mode-success-opt">흥행 공식 분석</option>
+                      <option value="glumpescape" class="ai-mode-coming-opt">글럼프 탈출 프로젝트</option>
                     </optgroup>
                     <optgroup label="토리와 새 무대를 찾아요">
                       <option value="scriptadapt" class="ai-mode-coming-opt">🔒 영상 각본으로 바꾸기 · 준비중</option>
@@ -2689,56 +2690,121 @@
             </div>
           </div>
 
-          <!-- 1:1 chat with Tory -->
-          <div id="aiChatView" class="ai-panel-view hidden" role="tabpanel" aria-labelledby="aiTabChat" hidden>
-            <div class="tory-chat-toolbar">
-              <div class="tory-chat-toolbar-actions">
-                <button
-                  type="button"
-                  class="secondary tory-chat-action-btn tory-chat-hl-btn"
-                  id="toryChatHighlightButton"
-                  title="토리 답변 드래그 후 클릭: 형광펜 · 우클릭: 색 고르기"
-                  aria-label="형광펜"
-                >
-                  <span class="tory-chat-hl-icon" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                      <path d="m9 11-6 6v3h9l3-3"/>
-                      <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
-                    </svg>
-                  </span>
-                  <span class="tory-chat-hl-bar" id="toryChatHighlightBar" aria-hidden="true"></span>
+          <!-- 대화창: 상대 선택 → 기존 토리 대화(한 단계 아래) -->
+          <div id="aiChatView" class="ai-panel-view hidden" role="tabpanel" aria-labelledby="aiTabChat" data-chat-hub="home" hidden>
+            <div id="toryChatHub" class="tory-chat-hub">
+              <p class="tory-chat-hub-lead">누구와 대화할까요?</p>
+              <div class="tory-chat-hub-options" role="list">
+                <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="tory" role="listitem">
+                  <strong>토리와 대화하기</strong>
+                  <span>플롯·문체·막히는 장면, 1:1로 편하게 물어봐요</span>
                 </button>
-                <button type="button" class="secondary tory-chat-action-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화">
-                  팝업창
+                <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="characters" role="listitem">
+                  <strong>내 캐릭터와 대화하기</strong>
+                  <span>설정집 인물과 이야기하거나, 여러 명을 골라 단톡방으로</span>
                 </button>
-                <button type="button" class="secondary tory-chat-action-btn" id="toryChatHistoryButton" title="지운 대화·이전 대화 목록">
-                  히스토리
-                </button>
-                <button type="button" class="secondary tory-chat-action-btn" id="toryChatClearButton" title="현재 대화를 비우고 히스토리에 보관">
-                  대화 지우기
-                </button>
-                <button
-                  type="button"
-                  class="secondary tory-chat-action-btn tory-chat-success-summon hidden"
-                  id="toryChatSuccessSummonButton"
-                  title="흥행 프로파일을 근거로 분석가 세션을 엽니다"
-                >
-                  흥행요인 분석가 소환
+                <button type="button" class="tory-chat-hub-option" data-chat-hub-pick="reader" role="listitem">
+                  <strong>가상 독자와 대화하기</strong>
+                  <span>독자 시점으로 반응을 들어 봐요</span>
                 </button>
               </div>
             </div>
-            <div id="toryChatSuccessBanner" class="tory-chat-success-banner hidden" role="status">
-              <span class="tory-chat-success-banner-text">흥행요인 분석가 세션 · 일반 대화와 히스토리가 분리됩니다</span>
-              <button type="button" class="secondary compact-btn" id="toryChatSuccessExitButton" title="일반 대화로 돌아가기">일반 대화로</button>
-            </div>
-            <div id="toryChatMessages" class="tory-chat-messages" aria-live="polite" aria-label="토리와의 대화"></div>
-            <form id="toryChatForm" class="tory-chat-form">
-              <textarea id="toryChatInput" rows="3" maxlength="4000" placeholder="토리에게 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" aria-label="토리에게 보낼 메시지"></textarea>
-              <div class="tory-chat-actions">
-                <button type="button" class="secondary" id="toryChatCollectButton" title="선택 문장 또는 최근 토리 답변을 수집창고에">수집</button>
-                <button type="submit" class="primary" id="toryChatSendButton">보내기</button>
+            <div id="toryChatCharacterPicker" class="tory-chat-character-picker">
+              <div class="tory-chat-subhead">
+                <button type="button" class="secondary compact-btn tory-chat-back-btn" id="toryChatCharacterPickerBack" title="대화창으로">← 대화창</button>
+                <strong>내 캐릭터와 대화하기</strong>
               </div>
-            </form>
+              <p class="hint tory-chat-character-hint">한 명 또는 여러 명을 고르면 단톡방으로 이야기할 수 있어요.</p>
+              <div id="toryChatCharacterList" class="tory-chat-character-list" role="group" aria-label="대화 상대 인물"></div>
+              <div class="tory-chat-character-picker-actions">
+                <button type="button" class="primary" id="toryChatCharacterStart" disabled>대화 시작</button>
+              </div>
+            </div>
+            <div id="toryChatReaderView" class="tory-chat-reader-view">
+              <div id="readerPersonaPicker" class="reader-persona-picker">
+                <div class="tory-chat-subhead">
+                  <button type="button" class="secondary compact-btn tory-chat-back-btn" id="toryChatReaderBack" title="대화창으로">← 대화창</button>
+                  <strong>가상 독자와 대화하기</strong>
+                </div>
+                <p class="hint reader-persona-hint">독자 카드를 고르면 그 시점으로 원고에 반응해 줘요.</p>
+                <div id="readerPersonaGrid" class="reader-persona-grid" aria-label="가상 독자 목록"></div>
+              </div>
+              <div id="readerChatRoom" class="reader-chat-room hidden">
+                <div class="reader-chat-toolbar">
+                  <button type="button" class="secondary compact-btn tory-chat-back-btn" id="readerChatSwitchButton" title="다른 독자 고르기">← 다른 독자와 대화하기</button>
+                </div>
+                <div class="reader-chat-peer" id="readerChatPeer">
+                  <span class="reader-chat-peer-avatar" id="readerChatPeerAvatar" aria-hidden="true"></span>
+                  <div class="reader-chat-peer-text">
+                    <strong id="readerChatPeerName">가상 독자</strong>
+                    <span class="reader-chat-category-tag" id="readerChatPeerCategory"></span>
+                  </div>
+                </div>
+                <div id="readerChatMessages" class="reader-chat-messages" aria-live="polite" aria-label="가상 독자와의 대화"></div>
+                <div id="readerChatAttachChip" class="reader-chat-attach-chip hidden" hidden>
+                  <span id="readerChatAttachLabel">첨부됨</span>
+                  <button type="button" class="reader-chat-attach-clear" id="readerChatAttachClear" title="첨부 취소" aria-label="첨부 취소">×</button>
+                </div>
+                <form id="readerChatForm" class="reader-chat-form">
+                  <textarea id="readerChatInput" rows="3" maxlength="4000" placeholder="이 독자에게 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" aria-label="보낼 메시지"></textarea>
+                  <div class="reader-chat-actions">
+                    <button type="button" class="secondary" id="readerChatAttachButton">원고 첨부</button>
+                    <button type="submit" class="primary" id="readerChatSendButton">보내기</button>
+                  </div>
+                </form>
+              </div>
+            </div>
+            <div id="toryChatRoom" class="tory-chat-room">
+              <div class="tory-chat-toolbar">
+                <button type="button" class="secondary tory-chat-action-btn tory-chat-back-btn" id="toryChatRoomBack" title="대화창으로">← 대화창</button>
+                <div class="tory-chat-toolbar-actions">
+                  <button
+                    type="button"
+                    class="secondary tory-chat-action-btn tory-chat-hl-btn"
+                    id="toryChatHighlightButton"
+                    title="토리 답변 드래그 후 클릭: 형광펜 · 우클릭: 색 고르기"
+                    aria-label="형광펜"
+                  >
+                    <span class="tory-chat-hl-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                        <path d="m9 11-6 6v3h9l3-3"/>
+                        <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
+                      </svg>
+                    </span>
+                    <span class="tory-chat-hl-bar" id="toryChatHighlightBar" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화">
+                    팝업창
+                  </button>
+                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatHistoryButton" title="지운 대화·이전 대화 목록">
+                    히스토리
+                  </button>
+                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatClearButton" title="현재 대화를 비우고 히스토리에 보관">
+                    대화 지우기
+                  </button>
+                  <button
+                    type="button"
+                    class="secondary tory-chat-action-btn tory-chat-success-summon hidden"
+                    id="toryChatSuccessSummonButton"
+                    title="흥행 프로파일을 근거로 분석가 세션을 엽니다"
+                  >
+                    흥행요인 분석가 소환
+                  </button>
+                </div>
+              </div>
+              <div id="toryChatSuccessBanner" class="tory-chat-success-banner hidden" role="status">
+                <span class="tory-chat-success-banner-text">흥행요인 분석가 세션 · 일반 대화와 히스토리가 분리됩니다</span>
+                <button type="button" class="secondary compact-btn" id="toryChatSuccessExitButton" title="일반 대화로 돌아가기">일반 대화로</button>
+              </div>
+              <div id="toryChatMessages" class="tory-chat-messages" aria-live="polite" aria-label="대화"></div>
+              <form id="toryChatForm" class="tory-chat-form">
+                <textarea id="toryChatInput" rows="3" maxlength="4000" placeholder="토리에게 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" aria-label="보낼 메시지"></textarea>
+                <div class="tory-chat-actions">
+                  <button type="button" class="secondary" id="toryChatCollectButton" title="선택 문장 또는 최근 답변을 수집창고에">수집</button>
+                  <button type="submit" class="primary" id="toryChatSendButton">보내기</button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
 
@@ -2836,6 +2902,26 @@
         </div>
         <div class="modal-actions" id="toryChatHistoryListActions">
           <button type="button" class="secondary" data-close-tory-chat-history>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="readerScenePickerModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="readerScenePickerTitle">
+      <div class="modal-backdrop" data-close-reader-scene-picker></div>
+      <div class="modal-card">
+        <div class="modal-heading">
+          <h2 id="readerScenePickerTitle">원고 첨부</h2>
+          <button type="button" class="modal-close" data-close-reader-scene-picker title="닫기">×</button>
+        </div>
+        <p class="hint modal-hint">바인더에서 회차를 고르면 이 독자에게 함께 보여 줘요. 첨부 없이도 대화할 수 있어요.</p>
+        <div class="export-scene-picker" aria-label="첨부할 회차 선택">
+          <div class="export-scene-picker-head">
+            <span class="export-scene-picker-title">회차 고르기</span>
+          </div>
+          <div id="readerScenePickerList" class="export-scene-list"></div>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-reader-scene-picker>닫기</button>
         </div>
       </div>
     </div>
@@ -4132,7 +4218,7 @@
 
     <div id="folderColorMenu" class="context-menu idea-color-menu folder-color-menu hidden" role="menu" aria-label="폴더 색">
       <div class="context-menu-label">폴더 색</div>
-      <div class="folder-color-swatches" role="group" aria-label="폴더 색 선택">
+      <div class="folder-color-swatches folder-color-swatches-stroke" role="group" aria-label="폴더 선 색 선택">
         <button type="button" class="folder-color-swatch color-none" data-folder-color-pick="" title="없음" aria-label="색 없음"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
         <button type="button" class="folder-color-swatch color-red" data-folder-color-pick="red" title="빨강" aria-label="빨강"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
         <button type="button" class="folder-color-swatch color-orange" data-folder-color-pick="orange" title="주황" aria-label="주황"><svg class="folder-swatch-glyph" viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path class="folder-body" d="M3.75 8.25A1.75 1.75 0 0 1 5.5 6.5h4.05c.33 0 .65.12.9.34l1.35 1.16c.25.22.57.34.9.34H18.5a1.75 1.75 0 0 1 1.75 1.75v7.4a1.75 1.75 0 0 1-1.75 1.75H5.5A1.75 1.75 0 0 1 3.75 17.15V8.25z"/><path d="M3.75 10.5h16.5"/></svg></button>
@@ -4420,6 +4506,15 @@
           <input id="pageInkColorPicker" type="color" value="#24211d" title="본문 기본 글자색" aria-label="본문 기본 글자색">
         </label>
         <button type="button" class="context-ink-reset" id="pageInkResetButton" title="페이지 테마 기본 글자색으로">테마 기본</button>
+      </div>
+      <div class="context-menu-divider" data-ctx-full-only></div>
+      <div class="context-menu-label" data-ctx-full-only>대비</div>
+      <div data-ctx-full-only>
+        <label class="writing-pref-check">
+          <input type="checkbox" id="highContrastToggle">
+          고대비 모드
+        </label>
+        <p class="hint">본문 글자를 순수 검정/흰색으로 진하게 표시합니다</p>
       </div>
     </div>
 

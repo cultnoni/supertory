@@ -114,6 +114,8 @@ const state = {
   splitEditEnabled: false, // free-edit other scene; sticky until turned off
   toryFocusSceneId: null, // binder “토리로 분석하기” focus target
   toryFocusSceneTitle: "",
+  /** @type {Record<string, string>} persona_id → reader_chat session_id */
+  readerSessions: {},
   /** Browser-like open episode tabs: [{ sceneId, title }] */
   episodeTabs: [],
   /** Project-wide manuscript goal (goal_word_count on project). */
@@ -7138,6 +7140,7 @@ async function loadProject() {
     }
   }
   if (state.projectId !== projectIdAtStart) return;
+  state.readerSessions = loadReaderChatSessions(projectIdAtStart);
   state.synopsisMd = outline.project?.synopsis_md || outline.project?.description_md || "";
   state.loglineMd = outline.project?.logline_md || "";
   state.introMd = outline.project?.intro_md || "";
@@ -12039,7 +12042,7 @@ function updateContinuePanelVisibility() {
 }
 
 const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
-const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
+const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang", "glumpescape"]);
 
 /** Modes that show prompt + submit after picking from the select list. */
 const AI_INLINE_FORM_MODES = new Set([
@@ -12562,6 +12565,10 @@ async function submitAiAssist(event) {
   }
   if (mode === "successfeedback") {
     await runSuccessFormulaFeedback();
+    return;
+  }
+  if (mode === "glumpescape") {
+    toast("글럼프 탈출 프로젝트는 곧 만나보실 수 있어요.");
     return;
   }
   if (mode === "scriptadapt") {
@@ -14256,11 +14263,17 @@ const TORY_CHAT_ARCHIVE_PREFIX = "supertory.toryChatArchive.";
 /** successAnalysis live session: supertory.toryChat.successAnalysis.{projectId} */
 const TORY_CHAT_SUCCESS_STORAGE_PREFIX = "supertory.toryChat.successAnalysis.";
 const TORY_CHAT_SUCCESS_ARCHIVE_PREFIX = "supertory.toryChatArchive.successAnalysis.";
+const TORY_CHAT_CHARACTER_STORAGE_PREFIX = "supertory.toryChat.character.";
+const TORY_CHAT_CHARACTER_ARCHIVE_PREFIX = "supertory.toryChatArchive.character.";
 const TORY_NOTIFY_STORAGE_PREFIX = "supertory.toryNotifs.";
 const TORY_CHAT_MAX_MESSAGES = 80;
 const TORY_CHAT_ARCHIVE_MAX = 40;
-/** @type {"general"|"successAnalysis"} active chat session kind */
+/** @type {"general"|"successAnalysis"} active Tory (not character) chat session kind */
 let toryChatMode = "general";
+/** @type {"home"|"tory"|"characters"|"character-room"|"reader"} */
+let toryChatHub = "home";
+/** Selected 설정집 character ids for character / group chat */
+let toryChatCharacterIds = [];
 let toryChatSending = false;
 let toryChatHistoryViewId = null;
 
@@ -14273,6 +14286,98 @@ function normalizeToryChatMode(mode) {
 
 function getToryChatMode() {
   return normalizeToryChatMode(toryChatMode);
+}
+
+function normalizeToryChatCharacterIds(ids) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(ids) ? ids : []).forEach((raw) => {
+    const id = Number(raw);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) return;
+    seen.add(id);
+    out.push(id);
+  });
+  out.sort((a, b) => a - b);
+  return out;
+}
+
+function isToryCharacterChatSession(chatMode = getToryChatSessionKey()) {
+  return String(chatMode || "").startsWith("character:");
+}
+
+function getToryChatSessionKey() {
+  if (toryChatHub === "character-room") {
+    const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
+    if (ids.length) return `character:${ids.join("-")}`;
+  }
+  return getToryChatMode();
+}
+
+function getToryChatPartnerCharacters() {
+  const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
+  const all = Array.isArray(state.characters) ? state.characters : [];
+  return ids.map((id) => all.find((ch) => Number(ch.id) === id)).filter(Boolean);
+}
+
+function getToryChatPartnerNames() {
+  return getToryChatPartnerCharacters().map((ch) => String(ch.name || "").trim() || `인물#${ch.id}`);
+}
+
+function buildToryChatPartnerPayload() {
+  return getToryChatPartnerCharacters().map((ch) => ({
+    id: Number(ch.id),
+    name: String(ch.name || "").trim() || `인물#${ch.id}`,
+    role: String(ch.role || ""),
+    short_description: String(ch.short_description || "").trim().slice(0, 400),
+    profile_md: String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 800),
+    strengths_md: String(ch.strengths_md || "").replace(/\s+/g, " ").trim().slice(0, 240),
+    weaknesses_md: String(ch.weaknesses_md || "").replace(/\s+/g, " ").trim().slice(0, 240),
+  }));
+}
+
+function syncToryChatRoomChrome() {
+  const inCharacter = toryChatHub === "character-room";
+  const names = getToryChatPartnerNames();
+  const back = $("toryChatRoomBack");
+  if (back) {
+    back.textContent = inCharacter ? "← 인물 선택" : "← 대화창";
+    back.title = inCharacter ? "인물 선택으로" : "대화창으로";
+  }
+  const input = $("toryChatInput");
+  if (input) {
+    if (inCharacter) {
+      const who = names.length ? names.join(" · ") : "캐릭터";
+      input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+      input.setAttribute("aria-label", `${who}에게 보낼 메시지`);
+    } else {
+      input.placeholder = "토리에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)";
+      input.setAttribute("aria-label", "토리에게 보낼 메시지");
+    }
+  }
+  const box = $("toryChatMessages");
+  if (box) box.setAttribute("aria-label", inCharacter ? "캐릭터와의 대화" : "토리와의 대화");
+}
+
+function setToryChatHub(hub, { quiet = false } = {}) {
+  const allowed = { home: 1, tory: 1, characters: 1, "character-room": 1, reader: 1 };
+  const next = allowed[hub] ? hub : "home";
+  if (next === "character-room" && !normalizeToryChatCharacterIds(toryChatCharacterIds).length) {
+    toryChatHub = "characters";
+    $("aiChatView")?.setAttribute("data-chat-hub", "characters");
+    renderToryChatCharacterPicker();
+    if (!quiet) toast("대화할 인물을 먼저 골라 주세요.");
+    return false;
+  }
+  toryChatHub = next;
+  $("aiChatView")?.setAttribute("data-chat-hub", next);
+  if (next === "characters") renderToryChatCharacterPicker();
+  if (next === "reader") syncReaderChatView();
+  if (next === "tory" || next === "character-room") {
+    syncToryChatRoomChrome();
+    renderToryChatMessages();
+  }
+  updateToryChatSuccessUi();
+  return true;
 }
 
 function setToryChatMode(mode, { quiet = false } = {}) {
@@ -14294,7 +14399,7 @@ function setToryChatMode(mode, { quiet = false } = {}) {
   return true;
 }
 
-function setAiPanelTab(tab, { skipPopupClose = false } = {}) {
+function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
   const next = tab === "chat" ? "chat" : "tools";
   const toolsView = $("aiToolsView");
   const chatView = $("aiChatView");
@@ -14319,8 +14424,20 @@ function setAiPanelTab(tab, { skipPopupClose = false } = {}) {
   if (toolsTab) toolsTab.setAttribute("aria-selected", isChat ? "false" : "true");
   if (chatTab) chatTab.setAttribute("aria-selected", isChat || toryChatPopupOpen ? "true" : "false");
   if (isChat) {
-    renderToryChatMessages();
-    requestAnimationFrame(() => $("toryChatInput")?.focus());
+    if (chatHub) setToryChatHub(chatHub, { quiet: true });
+    else if (!toryChatHub) setToryChatHub("home", { quiet: true });
+    else {
+      $("aiChatView")?.setAttribute("data-chat-hub", toryChatHub);
+      if (toryChatHub === "characters") renderToryChatCharacterPicker();
+      if (toryChatHub === "reader") syncReaderChatView();
+      if (toryChatHub === "tory" || toryChatHub === "character-room") {
+        syncToryChatRoomChrome();
+        renderToryChatMessages();
+      }
+    }
+    if (toryChatHub === "tory" || toryChatHub === "character-room") {
+      requestAnimationFrame(() => $("toryChatInput")?.focus());
+    }
   }
 }
 
@@ -14484,6 +14601,7 @@ function askToryFromSelection() {
   // Quote in the question box; leave room below so the author can add a question before send.
   const quote = raw.replace(/\s+\n/g, "\n").trim().slice(0, 3500);
   const prefill = `「${quote}」\n\n`;
+  setToryChatHub("tory", { quiet: true });
   openToryChatPopup({ prefill, caret: prefill.length });
 }
 
@@ -14634,23 +14752,33 @@ function setupToryChatPopupChrome() {
   });
 }
 
-function toryChatStorageKey(projectId = state.projectId, chatMode = getToryChatMode()) {
+function toryChatStorageKey(projectId = state.projectId, chatMode = getToryChatSessionKey()) {
   const pid = projectId || "0";
+  const raw = String(chatMode || "");
+  if (raw.startsWith("character:")) {
+    const ids = raw.slice("character:".length) || "none";
+    return `${TORY_CHAT_CHARACTER_STORAGE_PREFIX}${pid}.${ids}`;
+  }
   if (normalizeToryChatMode(chatMode) === "successAnalysis") {
     return `${TORY_CHAT_SUCCESS_STORAGE_PREFIX}${pid}`;
   }
   return `${TORY_CHAT_STORAGE_PREFIX}${pid}`;
 }
 
-function toryChatArchiveKey(projectId = state.projectId, chatMode = getToryChatMode()) {
+function toryChatArchiveKey(projectId = state.projectId, chatMode = getToryChatSessionKey()) {
   const pid = projectId || "0";
+  const raw = String(chatMode || "");
+  if (raw.startsWith("character:")) {
+    const ids = raw.slice("character:".length) || "none";
+    return `${TORY_CHAT_CHARACTER_ARCHIVE_PREFIX}${pid}.${ids}`;
+  }
   if (normalizeToryChatMode(chatMode) === "successAnalysis") {
     return `${TORY_CHAT_SUCCESS_ARCHIVE_PREFIX}${pid}`;
   }
   return `${TORY_CHAT_ARCHIVE_PREFIX}${pid}`;
 }
 
-function loadToryChatHistory(chatMode = getToryChatMode()) {
+function loadToryChatHistory(chatMode = getToryChatSessionKey()) {
   if (!state.projectId) return [];
   try {
     const raw = localStorage.getItem(toryChatStorageKey(state.projectId, chatMode));
@@ -14670,7 +14798,7 @@ function loadToryChatHistory(chatMode = getToryChatMode()) {
   }
 }
 
-function saveToryChatHistory(list, chatMode = getToryChatMode()) {
+function saveToryChatHistory(list, chatMode = getToryChatSessionKey()) {
   if (!state.projectId) return;
   try {
     localStorage.setItem(
@@ -14721,12 +14849,15 @@ function sanitizeToryChatHtml(html) {
   return root.innerHTML;
 }
 
-function loadToryChatArchives(chatMode = getToryChatMode()) {
+function loadToryChatArchives(chatMode = getToryChatSessionKey()) {
   if (!state.projectId) return [];
   try {
     const raw = localStorage.getItem(toryChatArchiveKey(state.projectId, chatMode));
     const arr = raw ? JSON.parse(raw) : [];
     if (!Array.isArray(arr)) return [];
+    const storedMode = isToryCharacterChatSession(chatMode)
+      ? String(chatMode)
+      : normalizeToryChatMode(chatMode);
     return arr
       .filter((s) => s && s.id && Array.isArray(s.messages) && s.messages.length)
       .map((s) => ({
@@ -14742,7 +14873,7 @@ function loadToryChatArchives(chatMode = getToryChatMode()) {
           })),
         archivedAt: s.archivedAt || s.createdAt || "",
         messageCount: Number(s.messageCount) || (s.messages || []).length,
-        chatMode: normalizeToryChatMode(chatMode),
+        chatMode: storedMode,
       }))
       .slice(0, TORY_CHAT_ARCHIVE_MAX);
   } catch (_) {
@@ -14750,7 +14881,7 @@ function loadToryChatArchives(chatMode = getToryChatMode()) {
   }
 }
 
-function saveToryChatArchives(list, chatMode = getToryChatMode()) {
+function saveToryChatArchives(list, chatMode = getToryChatSessionKey()) {
   if (!state.projectId) return;
   try {
     localStorage.setItem(
@@ -14770,9 +14901,11 @@ function titleFromToryChatMessages(messages) {
 }
 
 /** Archive current chat (if any), then optionally clear. Returns archived session or null. */
-function archiveCurrentToryChat({ clearAfter = true, chatMode = getToryChatMode() } = {}) {
+function archiveCurrentToryChat({ clearAfter = true, chatMode = getToryChatSessionKey() } = {}) {
   if (!state.projectId) return null;
-  const mode = normalizeToryChatMode(chatMode);
+  const mode = isToryCharacterChatSession(chatMode)
+    ? String(chatMode)
+    : normalizeToryChatMode(chatMode);
   const messages = loadToryChatHistory(mode);
   if (!messages.length) return null;
   const session = {
@@ -14788,7 +14921,7 @@ function archiveCurrentToryChat({ clearAfter = true, chatMode = getToryChatMode(
   saveToryChatArchives(archives, mode);
   if (clearAfter) {
     saveToryChatHistory([], mode);
-    if (mode === getToryChatMode()) renderToryChatMessages();
+    if (mode === getToryChatSessionKey()) renderToryChatMessages();
   }
   return session;
 }
@@ -14824,10 +14957,13 @@ function renderToryChatHistoryList() {
     list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 대화 히스토리를 볼 수 있어요.</p>`;
     return;
   }
-  const mode = getToryChatMode();
+  const mode = getToryChatSessionKey();
   const archives = loadToryChatArchives(mode);
   if (!archives.length) {
-    const kind = mode === "successAnalysis" ? "흥행요인 분석가" : "일반";
+    const names = getToryChatPartnerNames();
+    const kind = isToryCharacterChatSession(mode)
+      ? (names.length ? names.join(" · ") : "캐릭터")
+      : (normalizeToryChatMode(mode) === "successAnalysis" ? "흥행요인 분석가" : "일반");
     list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 ${kind} 대화가 없어요.<br>「대화 지우기」를 하면 여기에 남습니다.</p>`;
     return;
   }
@@ -14887,12 +15023,13 @@ function closeToryChatHistoryModal() {
   toryChatHistoryViewId = null;
 }
 
-function restoreToryChatArchive(archiveId, chatMode = getToryChatMode()) {
-  const mode = normalizeToryChatMode(chatMode);
+function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
+  const mode = isToryCharacterChatSession(chatMode)
+    ? String(chatMode)
+    : normalizeToryChatMode(chatMode);
   const session = loadToryChatArchives(mode).find((s) => s.id === archiveId);
   if (!session) return toast("대화를 찾지 못했어요.");
-  // Restore into the archive's own mode session
-  if (mode !== getToryChatMode()) {
+  if (!isToryCharacterChatSession(mode) && mode !== getToryChatMode()) {
     setToryChatMode(mode, { quiet: true });
   }
   const current = loadToryChatHistory(mode);
@@ -14904,18 +15041,23 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatMode()) {
     archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
   }
   saveToryChatHistory(session.messages, mode);
+  if (isToryCharacterChatSession(mode)) {
+    setToryChatHub("character-room", { quiet: true });
+  } else {
+    setToryChatHub("tory", { quiet: true });
+  }
   renderToryChatMessages();
   closeToryChatHistoryModal();
   // Ensure chat UI is visible
   if (toryChatPopupOpen) {
     requestAnimationFrame(() => $("toryChatInput")?.focus());
   } else {
-    setAiPanelTab("chat");
+    setAiPanelTab("chat", { chatHub: toryChatHub });
   }
   toast("이전 대화를 불러왔어요. 이어서 이야기할 수 있어요.");
 }
 
-function deleteToryChatArchive(archiveId, chatMode = getToryChatMode()) {
+function deleteToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   const mode = normalizeToryChatMode(chatMode);
   const archives = loadToryChatArchives(mode).filter((s) => s.id !== archiveId);
   saveToryChatArchives(archives, mode);
@@ -14959,6 +15101,13 @@ function toryChatBubbleMetaHtml(isUser) {
       + `<span class="tory-chat-bubble-pen" aria-hidden="true" title="나">✏️</span>`
       + `나</span>`;
   }
+  if (toryChatHub === "character-room") {
+    const names = getToryChatPartnerNames();
+    const label = names.length ? names.join(" · ") : "캐릭터";
+    return `<span class="tory-chat-bubble-meta is-tory-name">`
+      + `<span class="tory-chat-bubble-pen" aria-hidden="true" title="${escapeHtml(label)}">🎭</span>`
+      + `${escapeHtml(label)}</span>`;
+  }
   const mascot = typeof TORY_MODAL_MASCOT_SVG === "string" ? TORY_MODAL_MASCOT_SVG : "";
   return `<span class="tory-chat-bubble-meta is-tory-name">`
     + `<span class="tory-chat-bubble-mascot" aria-hidden="true">${mascot}</span>`
@@ -14969,11 +15118,17 @@ function renderToryChatMessages() {
   const box = $("toryChatMessages");
   if (!box) return;
   updateToryChatSuccessUi();
-  const history = loadToryChatHistory(getToryChatMode());
+  const history = loadToryChatHistory();
   if (!history.length) {
-    const empty = getToryChatMode() === "successAnalysis"
-      ? `흥행요인 분석가 세션이에요.<br>「재미요소가 뭐가 부족해?」「다음 화 훅은?」처럼 물어보세요.`
-      : `플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.`;
+    let empty = `플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.`;
+    if (toryChatHub === "character-room") {
+      const names = getToryChatPartnerNames();
+      empty = names.length > 1
+        ? `「${escapeHtml(names.join(" · "))}」 단톡방이에요.<br>작가로서 말을 걸면, 인물들이 설정대로 받아쳐 줘요.`
+        : `「${escapeHtml(names[0] || "이 인물")}」와 이야기해 보세요.<br>설정집 성격·말투를 바탕으로 대답해요.`;
+    } else if (getToryChatMode() === "successAnalysis") {
+      empty = `흥행요인 분석가 세션이에요.<br>「재미요소가 뭐가 부족해?」「다음 화 훅은?」처럼 물어보세요.`;
+    }
     box.innerHTML = `<p class="tory-chat-empty">${empty}</p>`;
     return;
   }
@@ -14993,15 +15148,14 @@ function renderToryChatMessages() {
 
 function updateToryChatSuccessUi() {
   const linked = Boolean(getLinkedSuccessProfileId());
-  const inSuccess = getToryChatMode() === "successAnalysis";
+  const inSuccess = getToryChatMode() === "successAnalysis" && toryChatHub === "tory";
+  const inCharacter = toryChatHub === "character-room";
   const summon = $("toryChatSuccessSummonButton");
   const banner = $("toryChatSuccessBanner");
-  // Summon only when profile linked AND not already in that session
-  summon?.classList.toggle("hidden", !linked || inSuccess);
-  banner?.classList.toggle("hidden", !inSuccess);
-  $("aiChatView")?.classList.toggle("is-success-analysis", inSuccess);
-  // If profile unlinked while in session, fall back to general
-  if (inSuccess && !linked) {
+  summon?.classList.toggle("hidden", inCharacter || !linked || inSuccess || toryChatHub !== "tory");
+  banner?.classList.toggle("hidden", inCharacter || !inSuccess);
+  $("aiChatView")?.classList.toggle("is-success-analysis", inSuccess && !inCharacter);
+  if (inSuccess && !linked && toryChatHub === "tory") {
     toryChatMode = "general";
     banner?.classList.add("hidden");
     summon?.classList.add("hidden");
@@ -15195,7 +15349,7 @@ function collectFromToryChat() {
   }
   collectToToryVault({
     text,
-    title: "토리 · 대화 수집",
+    title: toryChatHub === "character-room" ? "캐릭터 · 대화 수집" : "토리 · 대화 수집",
     mode: "chat",
     prompt: "",
   });
@@ -15205,16 +15359,22 @@ async function sendToryChatMessage(event) {
   if (event) event.preventDefault();
   if (toryChatSending) return;
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  const chatMode = getToryChatMode();
-  if (chatMode === "successAnalysis" && !getLinkedSuccessProfileId()) {
+  const sessionKey = getToryChatSessionKey();
+  const isCharacter = isToryCharacterChatSession(sessionKey);
+  const chatMode = isCharacter ? "character" : getToryChatMode();
+  if (!isCharacter && chatMode === "successAnalysis" && !getLinkedSuccessProfileId()) {
     setToryChatMode("general", { quiet: true });
     return toast("흥행 프로파일 연결이 없어 일반 대화로 전환했어요.");
+  }
+  if (isCharacter && !getToryChatPartnerCharacters().length) {
+    setToryChatHub("characters");
+    return toast("대화할 인물을 먼저 골라 주세요.");
   }
   const input = $("toryChatInput");
   const text = (input?.value || "").trim();
   if (!text) return toast("메시지를 적어 주세요.");
 
-  const history = loadToryChatHistory(chatMode);
+  const history = loadToryChatHistory(sessionKey);
   // History sent to API excludes the new user message (server appends it as prompt)
   const apiHistory = history.map((m) => ({
     role: m.role === "user" ? "user" : "model",
@@ -15222,7 +15382,7 @@ async function sendToryChatMessage(event) {
   }));
 
   history.push({ role: "user", content: text, at: new Date().toISOString() });
-  saveToryChatHistory(history, chatMode);
+  saveToryChatHistory(history, sessionKey);
   if (input) input.value = "";
   renderToryChatMessages();
 
@@ -15267,6 +15427,9 @@ async function sendToryChatMessage(event) {
       persona_mode: getToryPersonaMode(),
       ...buildToryProjectContextPayload(),
     };
+    if (isCharacter) {
+      payload.chat_partners = buildToryChatPartnerPayload();
+    }
     if (chatMode === "successAnalysis") {
       const profile = await ensureLinkedSuccessProfile();
       if (!profile) {
@@ -15295,19 +15458,19 @@ async function sendToryChatMessage(event) {
       body: JSON.stringify(payload),
     });
     const reply = String(result.text || "").trim() || "(응답이 비어 있어요.)";
-    const next = loadToryChatHistory(chatMode);
+    const next = loadToryChatHistory(sessionKey);
     next.push({ role: "tory", content: reply, at: new Date().toISOString() });
-    saveToryChatHistory(next, chatMode);
+    saveToryChatHistory(next, sessionKey);
     renderToryChatMessages();
   } catch (error) {
     // Drop the pending user message only if we want retry — keep user msg, add error note
-    const next = loadToryChatHistory(chatMode);
+    const next = loadToryChatHistory(sessionKey);
     next.push({
       role: "tory",
       content: `죄송해요, 지금은 답을 못 했어요. ${error.message || "잠시 후 다시 시도해 주세요."}`,
       at: new Date().toISOString(),
     });
-    saveToryChatHistory(next, chatMode);
+    saveToryChatHistory(next, sessionKey);
     renderToryChatMessages();
     handleError(error);
   } finally {
@@ -15410,17 +15573,551 @@ function setupToryPersonaSelect() {
 
 function clearToryChatHistory() {
   if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  const mode = getToryChatMode();
+  const mode = getToryChatSessionKey();
   if (!loadToryChatHistory(mode).length) return toast("지울 대화가 없어요.");
   if (!window.confirm("현재 대화를 비울까요?\n내용은 히스토리에 보관됩니다.")) return;
   const saved = archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
   toast(saved ? "대화를 지우고 히스토리에 보관했어요." : "대화를 지웠어요.");
 }
 
+function toggleToryChatCharacterId(characterId, selected) {
+  const id = Number(characterId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const set = new Set(normalizeToryChatCharacterIds(toryChatCharacterIds));
+  if (selected) set.add(id);
+  else set.delete(id);
+  toryChatCharacterIds = normalizeToryChatCharacterIds([...set]);
+}
+
+function renderToryChatCharacterPicker() {
+  const list = $("toryChatCharacterList");
+  const startBtn = $("toryChatCharacterStart");
+  if (!list) return;
+  const selected = new Set(normalizeToryChatCharacterIds(toryChatCharacterIds));
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    if (startBtn) startBtn.disabled = true;
+    return;
+  }
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  if (!chars.length) {
+    list.innerHTML = `<p class="hint">설정집에 인물이 없어요.<br>캐릭터를 먼저 만든 뒤 대화 상대로 고를 수 있어요.</p>`;
+    if (startBtn) startBtn.disabled = true;
+    return;
+  }
+  list.innerHTML = chars.map((ch) => {
+    const id = Number(ch.id);
+    const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+    const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
+    const summary = escapeHtml(
+      String(ch.short_description || "").trim()
+      || String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 80)
+      || "",
+    );
+    const on = selected.has(id);
+    return `
+      <label class="tory-chat-character-row ${on ? "is-selected" : ""}">
+        <input type="checkbox" data-tory-chat-character="${id}" ${on ? "checked" : ""}>
+        <span class="tory-chat-character-row-body">
+          <span class="tory-chat-character-row-name">${name}</span>
+          <span class="tory-chat-character-row-meta">${role}${role && summary ? " · " : ""}${summary}</span>
+        </span>
+      </label>`;
+  }).join("");
+  if (startBtn) startBtn.disabled = selected.size === 0;
+}
+
+async function openToryChatCharacterPicker() {
+  if (!state.projectId) {
+    setToryChatHub("characters", { quiet: true });
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  if (!Array.isArray(state.characters) || !state.characters.length) {
+    try {
+      const characters = await api(`/api/projects/${state.projectId}/characters`);
+      if (Array.isArray(characters)) state.characters = characters;
+    } catch (_) { /* keep empty */ }
+  }
+  toryChatCharacterIds = normalizeToryChatCharacterIds(toryChatCharacterIds)
+    .filter((id) => (state.characters || []).some((ch) => Number(ch.id) === id));
+  setToryChatHub("characters");
+}
+
+function startToryChatWithSelectedCharacters() {
+  const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
+  if (!ids.length) return toast("대화할 인물을 한 명 이상 골라 주세요.");
+  toryChatCharacterIds = ids;
+  setToryChatHub("character-room");
+  const names = getToryChatPartnerNames();
+  toast(
+    names.length > 1
+      ? `${names.join(" · ")} 단톡방을 열었어요.`
+      : `${names[0] || "인물"}와 대화를 시작했어요.`,
+  );
+  requestAnimationFrame(() => $("toryChatInput")?.focus());
+}
+
+const READER_PERSONA_CATEGORY_LABELS = {
+  genre_specialist: "장르 전문",
+  sub_genre_specialist: "서브장르",
+  taste_preference: "취향",
+  narrative_critic: "서사 비평",
+  structure_wildcard: "구조",
+};
+const READER_AVATAR_BASE = "/assets/reader_avatars";
+const READER_AVATAR_VERSION = "20260816";
+const READER_CHAT_SESSION_PREFIX = "supertory.readerChat.sessions.";
+
+/** @type {Record<string, any[]>|null} */
+let readerPersonaCache = null;
+/** @type {any|null} */
+let readerChatPersona = null;
+/** @type {Array<{role:string,content:string}>} */
+let readerChatMessages = [];
+let readerChatSending = false;
+/** @type {{sceneId:number,title:string,content:string}|null} */
+let readerChatAttached = null;
+
+function readerChatSessionStorageKey(projectId = state.projectId) {
+  return `${READER_CHAT_SESSION_PREFIX}${projectId || "0"}`;
+}
+
+function loadReaderChatSessions(projectId = state.projectId) {
+  if (!projectId) return {};
+  try {
+    const raw = localStorage.getItem(readerChatSessionStorageKey(projectId));
+    const obj = raw ? JSON.parse(raw) : {};
+    return obj && typeof obj === "object" && !Array.isArray(obj) ? obj : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function saveReaderChatSessions() {
+  if (!state.projectId) return;
+  try {
+    localStorage.setItem(
+      readerChatSessionStorageKey(state.projectId),
+      JSON.stringify(state.readerSessions || {}),
+    );
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function rememberReaderChatSession(personaId, sessionId) {
+  const id = String(personaId || "").trim();
+  const sid = String(sessionId || "").trim();
+  if (!id || !sid) return;
+  if (!state.readerSessions || typeof state.readerSessions !== "object") {
+    state.readerSessions = {};
+  }
+  state.readerSessions[id] = sid;
+  saveReaderChatSessions();
+}
+
+function readerAvatarUrl(personaId) {
+  return `${READER_AVATAR_BASE}/${encodeURIComponent(String(personaId || "").trim())}.png?v=${READER_AVATAR_VERSION}`;
+}
+
+function readerInitial(name) {
+  const text = String(name || "").trim();
+  return text ? text.charAt(0) : "?";
+}
+
+function readerAvatarMarkup(personaId, name, extraClass) {
+  const cls = extraClass || "reader-persona-avatar";
+  const fallbackCls = extraClass && extraClass.includes("peer")
+    ? "reader-chat-peer-avatar-fallback"
+    : extraClass && extraClass.includes("msg")
+      ? "reader-chat-msg-avatar-fallback"
+      : "reader-persona-avatar-fallback";
+  return `<span class="${cls}">`
+    + `<img src="${escapeHtml(readerAvatarUrl(personaId))}" alt=""`
+    + ` data-reader-avatar="${escapeHtml(personaId)}">`
+    + `<span class="${fallbackCls} hidden" aria-hidden="true">${escapeHtml(readerInitial(name))}</span>`
+    + `</span>`;
+}
+
+function bindReaderAvatarErrors(root) {
+  const host = root || document;
+  host.querySelectorAll("img[data-reader-avatar]").forEach((img) => {
+    if (img.dataset.boundError === "1") return;
+    img.dataset.boundError = "1";
+    img.addEventListener("error", () => {
+      const personaId = img.getAttribute("data-reader-avatar") || "";
+      console.error("[reader-avatar] failed to load", personaId);
+      img.classList.add("hidden");
+      img.nextElementSibling?.classList.remove("hidden");
+    });
+  });
+}
+
+function summarizeReaderIdentity(text, limit = 72) {
+  const raw = String(text || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  if (raw.length <= limit) return raw;
+  return `${raw.slice(0, limit - 1)}…`;
+}
+
+function flattenReaderPersonas(grouped) {
+  const out = [];
+  Object.keys(READER_PERSONA_CATEGORY_LABELS).forEach((key) => {
+    const list = grouped && grouped[key];
+    if (Array.isArray(list)) {
+      list.forEach((item) => {
+        if (item && item.id) out.push(item);
+      });
+    }
+  });
+  return out;
+}
+
+function showReaderPersonaGrid() {
+  $("readerPersonaPicker")?.classList.remove("hidden");
+  const room = $("readerChatRoom");
+  room?.classList.add("hidden");
+  if (room) room.hidden = true;
+}
+
+function showReaderChatRoom() {
+  $("readerPersonaPicker")?.classList.add("hidden");
+  const room = $("readerChatRoom");
+  room?.classList.remove("hidden");
+  if (room) room.hidden = false;
+}
+
+function syncReaderChatView() {
+  state.readerSessions = loadReaderChatSessions();
+  if (readerChatPersona) {
+    showReaderChatRoom();
+    renderReaderChatPeer();
+    renderReaderChatMessages();
+    renderReaderChatAttachChip();
+    return;
+  }
+  showReaderPersonaGrid();
+  void loadAndRenderReaderPersonas();
+}
+
+function openReaderPersonaPicker() {
+  readerChatPersona = null;
+  readerChatMessages = [];
+  readerChatAttached = null;
+  readerChatSending = false;
+  setToryChatHub("reader");
+}
+
+async function loadAndRenderReaderPersonas() {
+  const grid = $("readerPersonaGrid");
+  if (!grid) return;
+  if (!state.projectId) {
+    grid.innerHTML = `<p class="hint">작품을 먼저 선택해 주세요.</p>`;
+    return;
+  }
+  try {
+    if (!readerPersonaCache) {
+      readerPersonaCache = await api("/api/reader-personas");
+    }
+    const people = flattenReaderPersonas(readerPersonaCache);
+    if (!people.length) {
+      grid.innerHTML = `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+      return;
+    }
+    grid.innerHTML = people.map((persona) => {
+      const identity = summarizeReaderIdentity(persona.identity);
+      return `<button type="button" class="reader-persona-card" data-reader-persona="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}">`
+        + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
+        + `<span class="reader-persona-card-text">`
+        + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
+        + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
+        + `</span>`
+        + `</button>`;
+    }).join("");
+    bindReaderAvatarErrors(grid);
+  } catch (error) {
+    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    handleError(error);
+  }
+}
+
+function findReaderPersona(personaId) {
+  return flattenReaderPersonas(readerPersonaCache).find((item) => item.id === personaId) || null;
+}
+
+function renderReaderChatPeer() {
+  const persona = readerChatPersona;
+  if (!persona) return;
+  const avatarHost = $("readerChatPeerAvatar");
+  if (avatarHost) {
+    avatarHost.innerHTML = `<img src="${escapeHtml(readerAvatarUrl(persona.id))}" alt="" data-reader-avatar="${escapeHtml(persona.id)}">`
+      + `<span class="reader-chat-peer-avatar-fallback hidden" aria-hidden="true">${escapeHtml(readerInitial(persona.name))}</span>`;
+    bindReaderAvatarErrors(avatarHost);
+  }
+  const nameEl = $("readerChatPeerName");
+  if (nameEl) nameEl.textContent = persona.name || "가상 독자";
+  const catEl = $("readerChatPeerCategory");
+  if (catEl) catEl.textContent = READER_PERSONA_CATEGORY_LABELS[persona.category] || persona.category || "";
+  const input = $("readerChatInput");
+  if (input) {
+    const who = persona.name || "이 독자";
+    input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
+    input.setAttribute("aria-label", `${who}에게 보낼 메시지`);
+  }
+}
+
+function renderReaderChatMessages() {
+  const box = $("readerChatMessages");
+  if (!box) return;
+  const persona = readerChatPersona;
+  const name = persona?.name || "가상 독자";
+  const pending = readerChatSending;
+  if (!readerChatMessages.length && !pending) {
+    box.innerHTML = `<p class="reader-chat-empty">「${escapeHtml(name)}」의 시선으로 들어 보세요.<br>원고를 첨부하거나, 그냥 질문해도 좋아요.</p>`;
+    return;
+  }
+  const rows = readerChatMessages.map((msg) => {
+    const isUser = msg.role === "user";
+    const cls = isUser ? "is-user" : "is-assistant";
+    const avatar = isUser ? "" : readerAvatarMarkup(persona.id, name, "reader-chat-msg-avatar");
+    const body = escapeHtml(msg.content || "").replace(/\r\n|\r|\n/g, "<br>");
+    return `<div class="reader-chat-msg ${cls}">`
+      + avatar
+      + `<div class="reader-chat-msg-body">`
+      + (isUser ? "" : `<span class="reader-chat-msg-name">${escapeHtml(name)}</span>`)
+      + `<div class="reader-chat-bubble">${body}</div>`
+      + `</div></div>`;
+  });
+  if (pending && persona) {
+    rows.push(
+      `<div class="reader-chat-msg is-assistant is-pending">`
+      + readerAvatarMarkup(persona.id, name, "reader-chat-msg-avatar")
+      + `<div class="reader-chat-msg-body">`
+      + `<span class="reader-chat-msg-name">${escapeHtml(name)}</span>`
+      + `<div class="reader-chat-bubble">${escapeHtml(name)}이(가) 답장을 작성 중입니다...</div>`
+      + `</div></div>`,
+    );
+  }
+  box.innerHTML = rows.join("");
+  bindReaderAvatarErrors(box);
+  box.scrollTop = box.scrollHeight;
+}
+
+function renderReaderChatAttachChip() {
+  const chip = $("readerChatAttachChip");
+  const label = $("readerChatAttachLabel");
+  if (!chip) return;
+  const attached = readerChatAttached;
+  const on = Boolean(attached);
+  chip.classList.toggle("hidden", !on);
+  chip.hidden = !on;
+  if (label) label.textContent = attached ? `첨부됨: ${attached.title}` : "";
+}
+
+async function openReaderChatWithPersona(personaId) {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!readerPersonaCache) {
+    try {
+      readerPersonaCache = await api("/api/reader-personas");
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  }
+  const persona = findReaderPersona(personaId);
+  if (!persona) return toast("그 독자를 찾지 못했어요.");
+  readerChatPersona = persona;
+  readerChatAttached = null;
+  readerChatSending = false;
+  state.readerSessions = loadReaderChatSessions();
+  showReaderChatRoom();
+  renderReaderChatPeer();
+  renderReaderChatAttachChip();
+  readerChatMessages = [];
+  renderReaderChatMessages();
+  try {
+    const history = await api(
+      `/api/reader-chat/history?work_id=${encodeURIComponent(state.projectId)}&persona_id=${encodeURIComponent(persona.id)}`,
+    );
+    if (history?.session_id) rememberReaderChatSession(persona.id, history.session_id);
+    readerChatMessages = Array.isArray(history?.messages)
+      ? history.messages
+        .filter((m) => m && (m.role === "user" || m.role === "assistant") && String(m.content || "").trim())
+        .map((m) => ({ role: m.role, content: String(m.content || "").trim() }))
+      : [];
+  } catch (error) {
+    handleError(error);
+  }
+  renderReaderChatMessages();
+  requestAnimationFrame(() => $("readerChatInput")?.focus());
+}
+
+function closeReaderScenePicker() {
+  $("readerScenePickerModal")?.classList.add("hidden");
+}
+
+function openReaderScenePicker() {
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const modal = $("readerScenePickerModal");
+  const list = $("readerScenePickerList");
+  if (!modal || !list) return;
+  const episodes = typeof listExportEpisodes === "function" ? listExportEpisodes() : [];
+  if (!episodes.length) {
+    list.innerHTML = `<p class="export-scene-empty">첨부할 회차가 없어요. 먼저 목차에 회차를 만들어 주세요.</p>`;
+  } else {
+    list.innerHTML = episodes.map((ep) => `
+      <button type="button" class="export-scene-item" data-reader-scene="${ep.id}">
+        <span>${escapeHtml(ep.label)}</span>
+      </button>`).join("");
+  }
+  modal.classList.remove("hidden");
+}
+
+async function attachReaderScene(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const episodes = typeof listExportEpisodes === "function" ? listExportEpisodes() : [];
+  const ep = episodes.find((item) => Number(item.id) === id);
+  const title = ep?.title || `회차 #${id}`;
+  try {
+    let html = "";
+    if (Number(state.sceneId) === id && state.scene) {
+      html = state.scene.content_md || "";
+    } else {
+      const detail = await api(`/api/scenes/${id}`);
+      html = detail.content_md || "";
+    }
+    const content = plainTextFromHtml(html);
+    if (!content) {
+      toast("이 회차에 본문이 없어요.");
+      return;
+    }
+    readerChatAttached = { sceneId: id, title, content };
+    renderReaderChatAttachChip();
+    closeReaderScenePicker();
+    toast(`「${title}」을 첨부했어요.`);
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function clearReaderChatAttach() {
+  readerChatAttached = null;
+  renderReaderChatAttachChip();
+}
+
+async function sendReaderChatMessage(event) {
+  if (event) event.preventDefault();
+  if (readerChatSending) return;
+  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  const persona = readerChatPersona;
+  if (!persona) return toast("대화할 독자를 먼저 골라 주세요.");
+  const input = $("readerChatInput");
+  const text = String(input?.value || "").trim();
+  if (!text) return toast("메시지를 입력해 주세요.");
+  readerChatSending = true;
+  readerChatMessages.push({ role: "user", content: text });
+  if (input) input.value = "";
+  renderReaderChatMessages();
+  const payload = {
+    work_id: String(state.projectId),
+    persona_id: persona.id,
+    user_message: text,
+  };
+  const sessionId = state.readerSessions?.[persona.id];
+  if (sessionId) payload.session_id = sessionId;
+  if (readerChatAttached?.content) payload.episode_content = readerChatAttached.content;
+  try {
+    const result = await api("/api/reader-chat", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    if (result?.session_id) rememberReaderChatSession(persona.id, result.session_id);
+    readerChatMessages.push({
+      role: "assistant",
+      content: String(result?.reply || "").trim() || "(응답이 비어 있어요)",
+    });
+  } catch (error) {
+    readerChatMessages.pop();
+    if (input && !input.value) input.value = text;
+    handleError(error);
+  } finally {
+    readerChatSending = false;
+    renderReaderChatMessages();
+  }
+}
+
+function setupReaderChatUi() {
+  $("readerPersonaGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest?.("[data-reader-persona]");
+    if (!card) return;
+    event.preventDefault();
+    openReaderChatWithPersona(card.getAttribute("data-reader-persona")).catch(handleError);
+  });
+  $("readerChatSwitchButton")?.addEventListener("click", () => openReaderPersonaPicker());
+  $("readerChatForm")?.addEventListener("submit", (event) => {
+    sendReaderChatMessage(event).catch(handleError);
+  });
+  $("readerChatInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendReaderChatMessage().catch(handleError);
+    }
+  });
+  $("readerChatAttachButton")?.addEventListener("click", () => openReaderScenePicker());
+  $("readerChatAttachClear")?.addEventListener("click", () => clearReaderChatAttach());
+  $("readerScenePickerList")?.addEventListener("click", (event) => {
+    const item = event.target.closest?.("[data-reader-scene]");
+    if (!item) return;
+    event.preventDefault();
+    attachReaderScene(item.getAttribute("data-reader-scene")).catch(handleError);
+  });
+  document.querySelectorAll("[data-close-reader-scene-picker]").forEach((el) => {
+    el.addEventListener("click", () => closeReaderScenePicker());
+  });
+}
+
+function setupToryChatHubUi() {
+  $("toryChatHub")?.addEventListener("click", (event) => {
+    const pick = event.target.closest?.("[data-chat-hub-pick]");
+    if (!pick) return;
+    event.preventDefault();
+    const kind = pick.getAttribute("data-chat-hub-pick");
+    if (kind === "tory") {
+      setToryChatHub("tory");
+      requestAnimationFrame(() => $("toryChatInput")?.focus());
+      return;
+    }
+    if (kind === "characters") {
+      openToryChatCharacterPicker().catch(handleError);
+      return;
+    }
+    if (kind === "reader") {
+      openReaderPersonaPicker();
+    }
+  });
+  $("toryChatCharacterPickerBack")?.addEventListener("click", () => setToryChatHub("home"));
+  $("toryChatReaderBack")?.addEventListener("click", () => setToryChatHub("home"));
+  $("toryChatRoomBack")?.addEventListener("click", () => {
+    if (toryChatHub === "character-room") setToryChatHub("characters");
+    else setToryChatHub("home");
+  });
+  $("toryChatCharacterList")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("input[data-tory-chat-character]");
+    if (!input) return;
+    toggleToryChatCharacterId(input.getAttribute("data-tory-chat-character"), input.checked);
+    renderToryChatCharacterPicker();
+  });
+  $("toryChatCharacterStart")?.addEventListener("click", () => startToryChatWithSelectedCharacters());
+}
+
 function setupToryChat() {
   setupToryPersonaSelect();
   setupToryChatPopupChrome();
   setupToryChatHistoryUi();
+  setupToryChatHubUi();
+  setupReaderChatUi();
 
   $("aiTabTools")?.addEventListener("click", () => {
     hideToryPersonaMenu();
@@ -15434,7 +16131,7 @@ function setupToryChat() {
       requestAnimationFrame(() => $("toryChatInput")?.focus());
       return;
     }
-    setAiPanelTab("chat");
+    setAiPanelTab("chat", { chatHub: "home" });
   });
   setupAiHelperPaneTabs();
 
@@ -15465,7 +16162,7 @@ function setupToryChat() {
           return;
         }
         setToryChatMode("successAnalysis");
-        setAiPanelTab("chat");
+        setAiPanelTab("chat", { chatHub: "tory" });
         requestAnimationFrame(() => $("toryChatInput")?.focus());
       })
       .catch(handleError);
@@ -17695,6 +18392,7 @@ function aiModeLabel(mode) {
     dupcheck: "중복 체크",
     successpattern: "흥행 공식 분석",
     successfeedback: "흥행 공식 피드백",
+    glumpescape: "글럼프 탈출 프로젝트",
     scriptadapt: "영상 각본으로 바꾸기",
     audiobook: "오디오북 낭독 대본으로 바꾸기",
     multilang: "다국어 번역하기",
@@ -23549,6 +24247,8 @@ function setupSettingsContextMenu() {
 const DESKTOP_THEME_KEY = "supertory.desktopTheme";
 const DESKTOP_CUSTOM_COLOR_KEY = "supertory.desktopCustomColor";
 const DESKTOP_INK_KEY = "supertory.pageInk";
+/** 고대비 모드: 본문 글자색을 배경 밝기에 맞춰 순수 검정/흰색으로 강제 ("on"/"off", 기본 off) */
+const HIGH_CONTRAST_KEY = "supertory.highContrast";
 /** "all" = whole project default · "scene" = current episode only */
 const PAGE_THEME_SCOPE_KEY = "supertory.pageThemeScope";
 const SCENE_PAGE_THEME_PREFIX = "supertory.scenePageTheme.v1.";
@@ -24242,6 +24942,9 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
         : "본문 페이지 색을 바꿨어요.");
     }
   }
+  // 테마를 바꿔도 고대비 설정이 유지되도록 다시 덧씌움.
+  const highContrastOn = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
+  if (highContrastOn) applyHighContrastMode(true);
   requestAnimationFrame(() => syncManuscriptStatusContrast());
 }
 
@@ -24254,6 +24957,27 @@ function isColorDark(hex) {
   // Relative luminance approximation.
   const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   return luminance < 0.45;
+}
+
+/**
+ * 고대비 모드: 본문 글자색을 지금 배경 밝기에 맞춰 순수 검정/흰색으로 강제.
+ * enabled=false면 강제를 풀고 원래 테마 잉크색(--page-ink)으로 되돌림.
+ */
+function applyHighContrastMode(enabled) {
+  const on = Boolean(enabled);
+  if (on) {
+    const bg = getComputedStyle(document.body).getPropertyValue("--page-bg").trim();
+    const dark = isColorDark(bg);
+    document.documentElement.style.setProperty("--page-ink", dark ? "#ffffff" : "#000000");
+  } else {
+    document.documentElement.style.removeProperty("--page-ink");
+  }
+  try {
+    localStorage.setItem(HIGH_CONTRAST_KEY, on ? "on" : "off");
+  } catch (_) {
+    /* private mode */
+  }
+  return on;
 }
 
 /** 글자수 바: 본문 페이지 바탕이 어두우면 글자·칩 대비를 밝게 */
@@ -24646,6 +25370,7 @@ function showDesktopContextMenu(clientX, clientY) {
   if (!menu) return;
   hideBinderContextMenu();
   try { syncUiThemePageColorSwatch(); } catch (_) { /* ignore */ }
+  if ($("highContrastToggle")) $("highContrastToggle").checked = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
   menu.classList.remove("hidden");
   const pad = 8;
   // Measure after showing so size is correct.
@@ -25081,6 +25806,9 @@ function setupDesktopThemeMenu() {
   // If a scene is already open (rare at boot), prefer its override.
   refreshManuscriptPageTheme();
   syncPageThemeScopeUi();
+  // 저장된 고대비 설정 복원 (eink 부팅 등 applyDesktopTheme가 일찍 return하는
+  // 경로에서도 반드시 적용되도록 별도로 호출).
+  applyHighContrastMode(localStorage.getItem(HIGH_CONTRAST_KEY) === "on");
 
   $("pageThemeScopeAll")?.addEventListener("change", () => {
     if ($("pageThemeScopeAll")?.checked) setPageThemeScope("all");
@@ -31387,6 +32115,12 @@ function renderCharacters() {
   }).join("") : "<p class='hint'>아직 인물이 없어요.<br>+ 캐릭터를 눌러 주세요.</p>";
   list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character)));
   renderSettingsCodex();
+  if (toryChatHub === "characters" || toryChatHub === "character-room") {
+    try { renderToryChatCharacterPicker(); } catch (_) { /* ignore */ }
+    if (toryChatHub === "character-room") {
+      try { syncToryChatRoomChrome(); } catch (_) { /* ignore */ }
+    }
+  }
 }
 
 function showWelcome() {
@@ -43182,6 +43916,18 @@ function setupAdminThemePicker() {
   }, true);
 }
 
+/** 설정 옵션 → 테마 변경 섹션의 「고대비 모드」 체크박스. */
+function setupHighContrastToggle() {
+  const box = $("highContrastToggle");
+  if (!box) return;
+  box.checked = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
+  if (box.dataset.bound === "1") return;
+  box.dataset.bound = "1";
+  box.addEventListener("change", () => {
+    applyHighContrastMode(box.checked);
+  });
+}
+
 function setupUiThemeToggle() {
   try {
     syncElectronChrome();
@@ -43226,6 +43972,7 @@ function setupUiThemeToggle() {
     });
   }
   setupAdminThemePicker();
+  setupHighContrastToggle();
   try {
     // Must call applyUiTheme (not setTheme): assigning window.setTheme = () => setTheme()
     // would recurse because top-level function setTheme is the same global slot.

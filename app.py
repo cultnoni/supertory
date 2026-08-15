@@ -105,6 +105,8 @@ MIGRATION_031_PATH = ROOT / "db" / "031_folder_bookmark.sql"
 MIGRATION_032_PATH = ROOT / "db" / "032_writing_include_phone.sql"
 MIGRATION_033_PATH = ROOT / "db" / "033_idea_note_pin.sql"
 MIGRATION_034_PATH = ROOT / "db" / "034_folder_color_bright.sql"
+MIGRATION_035_PATH = ROOT / "db" / "035_virtual_reader_personas.py"
+MIGRATION_036_PATH = ROOT / "db" / "036_update_romance_roppan_personas.py"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -449,9 +451,42 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_033_PATH.read_text(encoding="utf-8"))
         if 34 not in applied:
             connection.executescript(MIGRATION_034_PATH.read_text(encoding="utf-8"))
+        if 35 not in applied:
+            apply_migration_035(connection)
+        if 36 not in applied:
+            apply_migration_036(connection)
         ensure_idea_note_pin_column(connection)
+        ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
+
+
+def _load_py_migration(path: Path):
+    """Load a numbered db/*.py migration without treating it as a package."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location(path.stem, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"마이그레이션을 불러올 수 없습니다: {path}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def apply_migration_035(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_035_PATH).apply(connection)
+
+
+def apply_migration_036(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_036_PATH).apply(connection)
+
+
+def ensure_virtual_reader_personas(connection: sqlite3.Connection) -> None:
+    """Idempotent: backfill seed personas if migration 35 tables already exist."""
+    try:
+        _load_py_migration(MIGRATION_035_PATH).ensure_personas(connection)
+    except sqlite3.Error:
+        pass
 
 
 def ensure_idea_note_pin_column(connection: sqlite3.Connection) -> None:
@@ -592,6 +627,132 @@ def utc_timestamp_now() -> str:
     to ``id DESC`` (wrong "recent open" order).
     """
     return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f") + "Z"
+
+
+READER_PERSONA_CATEGORIES = (
+    "genre_specialist",
+    "sub_genre_specialist",
+    "taste_preference",
+    "narrative_critic",
+    "structure_wildcard",
+)
+READER_CHAT_HISTORY_LIMIT = 20
+READER_CHAT_EPISODE_CAP = 12000
+
+
+def _as_string_list(value: object) -> list[str]:
+    """Parse a JSON array (or already-decoded list) into non-empty strings."""
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    text = str(value or "").strip()
+    if not text:
+        return []
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return [text]
+    if isinstance(parsed, list):
+        return [str(item).strip() for item in parsed if str(item).strip()]
+    return [text]
+
+
+def serialize_reader_persona(row: sqlite3.Row | dict) -> dict:
+    item = dict(row)
+    item["criteria"] = _as_string_list(item.get("criteria"))
+    item["sample_responses"] = _as_string_list(item.get("sample_responses"))
+    item["display_order"] = int(item.get("display_order") or 0)
+    return item
+
+
+def reader_chat_session_key(work_id: object, persona_id: object) -> str:
+    return f"reader_chat_{work_id}_{persona_id}"
+
+
+def _reader_persona_system_prompt(persona_row: dict) -> str:
+    """Build a 1:1 virtual-reader system prompt from a single persona row.
+
+    Only this reader's fields are injected. Other personas and Tory's
+    Core Identity must never appear here.
+    """
+    persona = serialize_reader_persona(persona_row)
+    name = str(persona.get("name") or "").strip() or "가상 독자"
+    identity = str(persona.get("identity") or "").strip() or "(없음)"
+    tone = str(persona.get("tone") or "").strip() or "(없음)"
+    forbidden = str(persona.get("forbidden") or "").strip() or "(없음)"
+    criteria = persona.get("criteria") or []
+    if criteria:
+        criteria_block = "\n".join(
+            f"{index}. {line}" for index, line in enumerate(criteria, start=1)
+        )
+    else:
+        criteria_block = "(없음)"
+    samples = (persona.get("sample_responses") or [])[:3]
+    if samples:
+        sample_block = "\n".join(f"- {line}" for line in samples)
+    else:
+        sample_block = "(없음)"
+    return (
+        "[Core Identity]\n"
+        f"당신은 '{name}'이라는 이름의 가상 독자입니다.\n\n"
+        "[정체성]\n"
+        f"{identity}\n\n"
+        "[말투]\n"
+        f"{tone}\n\n"
+        "[평가 우선순위]\n"
+        "아래 순서는 이 독자가 작품을 볼 때 더 중요하게 여기는 기준입니다. "
+        "앞번호일수록 판단에 더 큰 비중을 두세요.\n"
+        f"{criteria_block}\n\n"
+        "[금지사항]\n"
+        f"{forbidden}\n\n"
+        "[말투 예시]\n"
+        "아래는 이 독자의 말투·반응 방식을 참고하기 위한 예시입니다. "
+        "문장을 그대로 따라 말하지 말고, 톤과 반응의 결만 참고하세요.\n"
+        f"{sample_block}\n\n"
+        "중요: 당신은 이 독자 한 명뿐입니다. 다른 가상 독자의 취향·말투·평가 기준을 "
+        "끌어오거나 언급하지 마세요. 토리(SuperTORY 조력자)가 아니며, "
+        "편집자·비평가 페르소나를 섞지 마세요.\n\n"
+        "[Task Instruction]\n"
+        "당신은 지금 작가와 1:1로 대화 중입니다. 작가가 보여주는 원고나 질문에 대해 "
+        "위에서 정의된 당신의 캐릭터를 유지하며 반응하세요.\n"
+        "당신은 AI라는 사실을 언급하지 말고, 실제 독자처럼 자연스럽게 반응하세요.\n"
+        "평가 우선순위에 따라 반응하되, 항상 그 이유를 함께 설명하세요."
+    )
+
+
+def _reader_dynamic_context(
+    work_id: object, episode_content: str | None = None
+) -> str:
+    """Live work genre (+ optional shared manuscript) for a reader-chat turn."""
+    work_key = str(work_id or "").strip()
+    title = ""
+    main_genre = ""
+    sub_genre = ""
+    if work_key:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT title, main_genre, sub_genre FROM project "
+                "WHERE id = ? AND deleted_at IS NULL",
+                (work_key,),
+            ).fetchone()
+        if row is not None:
+            title = str(row["title"] or "").strip()
+            main_genre = str(row["main_genre"] or "").strip()
+            sub_genre = str(row["sub_genre"] or "").strip()
+    main_label = SuperToryHandler._genre_display_label(None, main_genre)
+    sub_label = SuperToryHandler._genre_display_label(None, sub_genre)
+    parts = [
+        "[작품 정보]",
+        f"작품 제목: {title or '(없음)'}",
+        f"메인 장르: {main_label}",
+        f"서브 장르: {sub_label}",
+    ]
+    manuscript = str(episode_content or "").strip()
+    if manuscript:
+        if len(manuscript) > READER_CHAT_EPISODE_CAP:
+            manuscript = manuscript[:READER_CHAT_EPISODE_CAP] + "…"
+        parts.append("")
+        parts.append(f"다음은 작가가 공유한 원고 내용입니다:\n{manuscript}")
+    return "\n".join(parts)
 
 
 def touch_project_opened(connection: sqlite3.Connection, project_id: int) -> str:
@@ -1059,6 +1220,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         parsed = urlparse(path).path
         if parsed == "/":
             parsed = "/index.html"
+        if parsed.startswith("/assets/"):
+            assets_root = (ROOT / "assets").resolve()
+            rel = parsed[len("/assets/") :]
+            candidate = (assets_root / rel).resolve()
+            try:
+                candidate.relative_to(assets_root)
+            except ValueError:
+                return str((WEB_ROOT / parsed.lstrip("/")).resolve())
+            if candidate.is_file():
+                return str(candidate)
         return str((WEB_ROOT / parsed.lstrip("/")).resolve())
 
     def end_headers(self) -> None:
@@ -1141,6 +1312,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/ai/status":
                 self.send_json(gemini_client.status())
+                return
+
+            if path == "/api/reader-personas":
+                self.send_json(self.list_reader_personas())
+                return
+
+            if path == "/api/reader-chat/history":
+                query = parse_qs(urlparse(self.path).query)
+                work_id = (query.get("work_id") or [""])[0]
+                persona_id = (query.get("persona_id") or [""])[0]
+                self.send_json(self.reader_chat_history(work_id, persona_id))
                 return
 
             if path == "/api/success-pattern/profiles":
@@ -1348,6 +1530,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_character_portrait(int(match.group(1)))
                 return
+        except LookupError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
         except ValueError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -1820,6 +2005,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.ai_assist(body))
                 return
 
+            if path == "/api/reader-chat":
+                self.send_json(self.reader_chat(body))
+                return
+
             if path == "/api/spellcheck":
                 self.send_json(self.spellcheck(body))
                 return
@@ -2005,6 +2194,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if path == "/api/mobile/push":
                 self.send_json(self.mobile_push_text(body), HTTPStatus.CREATED)
                 return
+        except LookupError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
         except ValueError as error:
             self.api_error(str(error))
             return
@@ -2304,6 +2496,202 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ) from fallback_error
             raise ValueError(f"Gemini 맞춤법 검사 실패: {fallback_error}") from fallback_error
 
+    def list_reader_personas(self) -> dict:
+        grouped = {key: [] for key in READER_PERSONA_CATEGORIES}
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT id, category, name, identity, tone, criteria, forbidden, "
+                "sample_responses, discussion_attitude, display_order "
+                "FROM virtual_reader_personas "
+                "ORDER BY display_order, id"
+            ).fetchall()
+        for row in rows:
+            item = serialize_reader_persona(row)
+            category = str(item.get("category") or "")
+            if category not in grouped:
+                grouped[category] = []
+            grouped[category].append(item)
+        return grouped
+
+    def reader_chat_history(self, work_id: object, persona_id: object) -> dict:
+        work_key = str(work_id or "").strip()
+        persona_key = str(persona_id or "").strip()
+        if not work_key:
+            raise ValueError("작품을 선택해 주세요.")
+        if not persona_key:
+            raise ValueError("가상 독자를 선택해 주세요.")
+        session_key = reader_chat_session_key(work_key, persona_key)
+        with database() as connection:
+            persona = connection.execute(
+                "SELECT id, name FROM virtual_reader_personas WHERE id = ?",
+                (persona_key,),
+            ).fetchone()
+            if persona is None:
+                raise LookupError("가상 독자를 찾을 수 없습니다.")
+            session = connection.execute(
+                "SELECT id, work_id, persona_id, session_key, created_at, updated_at "
+                "FROM reader_chat_sessions WHERE session_key = ?",
+                (session_key,),
+            ).fetchone()
+            messages = []
+            session_id = None
+            if session is not None:
+                session_id = session["id"]
+                message_rows = connection.execute(
+                    "SELECT id, role, content, created_at FROM reader_chat_messages "
+                    "WHERE session_id = ? ORDER BY created_at ASC, id ASC",
+                    (session_id,),
+                ).fetchall()
+                messages = [as_dict(row) for row in message_rows]
+        return {
+            "session_id": session_id,
+            "work_id": work_key,
+            "persona_id": persona_key,
+            "persona_name": persona["name"],
+            "messages": messages,
+        }
+
+    def reader_chat(self, body: dict) -> dict:
+        work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
+        persona_id = str(body.get("persona_id") or "").strip()
+        user_message = str(
+            body.get("user_message") or body.get("message") or ""
+        ).strip()
+        session_id = str(body.get("session_id") or "").strip()
+        episode_raw = body.get("episode_content")
+        episode_content = None
+        if episode_raw is not None and str(episode_raw).strip():
+            episode_content = str(episode_raw).strip()
+        if not work_id:
+            raise ValueError("작품을 선택해 주세요.")
+        if not persona_id:
+            raise ValueError("가상 독자를 선택해 주세요.")
+        if not user_message:
+            raise ValueError("메시지를 입력해 주세요.")
+
+        with database() as connection:
+            persona_row = connection.execute(
+                "SELECT * FROM virtual_reader_personas WHERE id = ?",
+                (persona_id,),
+            ).fetchone()
+            if persona_row is None:
+                raise LookupError("가상 독자를 찾을 수 없습니다.")
+            persona = serialize_reader_persona(persona_row)
+            project = connection.execute(
+                "SELECT id FROM project WHERE id = ? AND deleted_at IS NULL",
+                (work_id,),
+            ).fetchone()
+            if project is None:
+                raise LookupError("소설을 찾을 수 없습니다.")
+            if session_id:
+                session = connection.execute(
+                    "SELECT id, work_id, persona_id FROM reader_chat_sessions "
+                    "WHERE id = ?",
+                    (session_id,),
+                ).fetchone()
+                if session is None:
+                    raise LookupError("대화 세션을 찾을 수 없습니다.")
+            else:
+                session_key = reader_chat_session_key(work_id, persona_id)
+                session = connection.execute(
+                    "SELECT id, work_id, persona_id FROM reader_chat_sessions "
+                    "WHERE session_key = ?",
+                    (session_key,),
+                ).fetchone()
+                if session is None:
+                    stamp = utc_timestamp_now()
+                    session_id = uuid.uuid4().hex
+                    connection.execute(
+                        """
+                        INSERT INTO reader_chat_sessions
+                            (id, work_id, persona_id, session_key, created_at, updated_at)
+                        VALUES (?, ?, ?, ?, ?, ?)
+                        """,
+                        (
+                            session_id,
+                            str(work_id),
+                            persona_id,
+                            session_key,
+                            stamp,
+                            stamp,
+                        ),
+                    )
+                    session = connection.execute(
+                        "SELECT id, work_id, persona_id FROM reader_chat_sessions "
+                        "WHERE id = ?",
+                        (session_id,),
+                    ).fetchone()
+            session_id = str(session["id"])
+            history_rows = connection.execute(
+                """
+                SELECT role, content FROM reader_chat_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ?
+                """,
+                (session_id, READER_CHAT_HISTORY_LIMIT),
+            ).fetchall()
+
+        history_rows = list(reversed(history_rows))
+        history_lines: list[str] = []
+        reader_name = str(persona.get("name") or "가상 독자")
+        for item in history_rows:
+            role = str(item["role"] or "").strip().lower()
+            content = str(item["content"] or "").strip()
+            if not content:
+                continue
+            if len(content) > 4000:
+                content = content[:4000] + "…"
+            who = "작가" if role == "user" else reader_name
+            history_lines.append(f"{who}: {content}")
+        transcript = "\n".join(history_lines) if history_lines else "(이전 대화 없음)"
+        system = (
+            _reader_persona_system_prompt(persona)
+            + "\n\n"
+            + _reader_dynamic_context(work_id, episode_content)
+        )
+        full_prompt = (
+            f"아래는 작가와 '{reader_name}'의 이전 대화, 그리고 작가의 새 메시지입니다. "
+            f"{reader_name}로서 새 메시지에만 이어서 답하세요. 이름 접두어는 붙이지 마세요.\n\n"
+            f"[이전 대화]\n{transcript}\n\n"
+            f"[작가의 새 메시지]\n{user_message}"
+        )
+        try:
+            reply = gemini_client.generate_text(
+                full_prompt, system=system, temperature=0.9
+            )
+        except gemini_client.GeminiError as error:
+            raise ValueError(str(error)) from error
+
+        user_stamp = utc_timestamp_now()
+        assistant_stamp = utc_timestamp_now()
+        with database() as connection:
+            connection.execute(
+                """
+                INSERT INTO reader_chat_messages
+                    (id, session_id, role, content, created_at)
+                VALUES (?, ?, 'user', ?, ?)
+                """,
+                (uuid.uuid4().hex, session_id, user_message, user_stamp),
+            )
+            connection.execute(
+                """
+                INSERT INTO reader_chat_messages
+                    (id, session_id, role, content, created_at)
+                VALUES (?, ?, 'assistant', ?, ?)
+                """,
+                (uuid.uuid4().hex, session_id, reply, assistant_stamp),
+            )
+            connection.execute(
+                "UPDATE reader_chat_sessions SET updated_at = ? WHERE id = ?",
+                (assistant_stamp, session_id),
+            )
+        return {
+            "session_id": session_id,
+            "persona_name": reader_name,
+            "reply": reply,
+        }
+
     def ai_assist(self, body: dict) -> dict:
         """Writing helper powered by Gemini (.env GEMINI_API_KEY)."""
         mode = str(body.get("mode", "free") or "free").strip().lower()
@@ -2466,6 +2854,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "successanalysis",
                 "success",
             }
+            is_character_chat = chat_mode in {
+                "character",
+                "characters",
+                "character_chat",
+                "characterChat",
+            }
             history_raw = body.get("history") or body.get("messages") or []
             history_lines: list[str] = []
             if isinstance(history_raw, list):
@@ -2478,20 +2872,83 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         continue
                     if len(content) > 4000:
                         content = content[:4000] + "…"
-                    who = "작가" if role in {"user", "human", "author"} else "토리"
+                    if is_character_chat:
+                        who = "작가" if role in {"user", "human", "author"} else "인물"
+                    else:
+                        who = "작가" if role in {"user", "human", "author"} else "토리"
                     history_lines.append(f"{who}: {content}")
-            system = (
-                genre_system
-                + persona_system
-                + "[Chat Mode]\n"
-                "작가와 1:1로 대화하며 창작을 돕습니다. "
-                "원고를 통째로 다시 쓰지 말고, 대화·조언·브레인스토밍·짧은 예시를 중심으로 하세요. "
-                f"작품 종류는 '{purpose_label}'입니다. "
-                "답변 전에 반드시 [현재 프로젝트 메타데이터]와 [Current Active Project Context]를 먼저 읽고 "
-                "해당 장르 문법·톤앤매너만 적용하세요. "
-                "[Tory Core Identity]를 항상 유지하고, "
-                "말투만 [Current Persona Mode] 톤을 끝까지 따르세요."
-            )
+            partners_raw = body.get("chat_partners") or body.get("chatPartners") or []
+            partner_cards: list[str] = []
+            partner_names: list[str] = []
+            if isinstance(partners_raw, list):
+                for item in partners_raw[:12]:
+                    if not isinstance(item, dict):
+                        continue
+                    name = str(item.get("name") or "").strip() or "이름 없는 인물"
+                    role = str(item.get("role") or "").strip()
+                    role_ko = {
+                        "protagonist": "주인공",
+                        "antagonist": "대립 인물",
+                        "supporting": "조연",
+                        "minor": "단역",
+                    }.get(role, role)
+                    bits = [f"이름: {name}"]
+                    if role_ko:
+                        bits.append(f"역할: {role_ko}")
+                    summary = str(item.get("short_description") or "").strip()
+                    if summary:
+                        bits.append(f"한줄: {summary[:400]}")
+                    profile = str(item.get("profile_md") or item.get("profile") or "").strip()
+                    if profile:
+                        bits.append(f"설정: {profile[:800]}")
+                    strengths = str(item.get("strengths_md") or item.get("strengths") or "").strip()
+                    if strengths:
+                        bits.append(f"강점: {strengths[:240]}")
+                    weaknesses = str(item.get("weaknesses_md") or item.get("weaknesses") or "").strip()
+                    if weaknesses:
+                        bits.append(f"약점: {weaknesses[:240]}")
+                    partner_names.append(name)
+                    partner_cards.append("- " + " / ".join(bits))
+            if is_character_chat:
+                if not partner_cards:
+                    raise ValueError("대화할 인물을 먼저 골라 주세요.")
+                names_label = " · ".join(partner_names)
+                group = len(partner_names) > 1
+                system = (
+                    genre_system
+                    + "[Character Roleplay Chat]\n"
+                    "작가가 설정집 속 인물과 대화합니다. 토리(도우미) 본인으로 답하지 마세요. "
+                    f"지정된 인물만 연기하세요: {names_label}. "
+                    "설정집 성격·말투·관계·약점을 지키고, 작가가 말하지 않은 설정은 지어내지 마세요. "
+                    "원고를 통째로 다시 쓰지 말고, 인물의 대사·반응·짧은 행동으로 답하세요. "
+                    f"작품 종류는 '{purpose_label}'입니다. "
+                    "답변 전에 반드시 [현재 프로젝트 메타데이터]와 [Current Active Project Context]를 먼저 읽고 "
+                    "해당 장르 문법·톤앤매너만 적용하세요. "
+                )
+                if group:
+                    system += (
+                        "여러 명이 함께 있는 단톡방입니다. "
+                        "말할 인물마다 한 줄에 `이름: 대사` 형식으로 적으세요. "
+                        "한 번에 모든 인물이 말하지 않아도 됩니다. 상황에 맞게 반응하는 인물만 등장시키세요. "
+                        "이름 접두어 없이 토리처럼 설명하지 마세요."
+                    )
+                else:
+                    system += (
+                        "1:1 대화입니다. 이름 접두어(이름:)는 붙이지 말고, 그 인물의 말만 하세요."
+                    )
+            else:
+                system = (
+                    genre_system
+                    + persona_system
+                    + "[Chat Mode]\n"
+                    "작가와 1:1로 대화하며 창작을 돕습니다. "
+                    "원고를 통째로 다시 쓰지 말고, 대화·조언·브레인스토밍·짧은 예시를 중심으로 하세요. "
+                    f"작품 종류는 '{purpose_label}'입니다. "
+                    "답변 전에 반드시 [현재 프로젝트 메타데이터]와 [Current Active Project Context]를 먼저 읽고 "
+                    "해당 장르 문법·톤앤매너만 적용하세요. "
+                    "[Tory Core Identity]를 항상 유지하고, "
+                    "말투만 [Current Persona Mode] 톤을 끝까지 따르세요."
+                )
             if is_success_analysis:
                 sp_raw = body.get("success_profile") or body.get("successProfile") or {}
                 if not isinstance(sp_raw, dict):
@@ -2506,6 +2963,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 f"작품 제목: {project_title or '(없음)'}",
                 f"작품 종류: {purpose_label}",
             ]
+            if is_character_chat and partner_cards:
+                context_bits.append("[대화 상대 인물]\n" + "\n".join(partner_cards))
             if scene_title or scene_content:
                 context_bits.append(f"현재 열린 회차: {scene_title or '(제목 없음)'}")
                 if scene_synopsis:
@@ -2515,22 +2974,38 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     snippet = scene_content[-6000:] if len(scene_content) > 6000 else scene_content
                     context_bits.append(f"현재 원고(참고):\n{snippet}")
             transcript = "\n".join(history_lines) if history_lines else "(이전 대화 없음)"
-            full_prompt = (
-                "아래는 작가와 토리의 이전 대화, 작품 맥락, 그리고 작가의 새 메시지입니다. "
-                "토리로서 새 메시지에만 이어서 답하세요. 이름 접두어(토리:)는 붙이지 마세요.\n"
-                "이전 대화에 다른 장르 클리셰가 섞여 있어도, "
-                "지금 주입된 [현재 프로젝트 메타데이터]·[Current Active Project Context]만 절대 기준으로 삼으세요.\n\n"
-                f"[작품·원고 맥락]\n" + "\n".join(context_bits) + "\n\n"
-                f"[이전 대화]\n{transcript}\n\n"
-                f"[작가의 새 메시지]\n{user_prompt}"
-            )
+            if is_character_chat:
+                names_label = " · ".join(partner_names) or "인물"
+                full_prompt = (
+                    "아래는 작가와 설정집 인물의 이전 대화, 작품 맥락, 그리고 작가의 새 메시지입니다. "
+                    f"{names_label}로서 새 메시지에만 이어서 답하세요. "
+                    "토리라는 이름을 쓰지 마세요.\n"
+                    "이전 대화에 다른 장르 클리셰가 섞여 있어도, "
+                    "지금 주입된 [현재 프로젝트 메타데이터]·[Current Active Project Context]만 절대 기준으로 삼으세요.\n\n"
+                    f"[작품·원고 맥락]\n" + "\n".join(context_bits) + "\n\n"
+                    f"[이전 대화]\n{transcript}\n\n"
+                    f"[작가의 새 메시지]\n{user_prompt}"
+                )
+            else:
+                full_prompt = (
+                    "아래는 작가와 토리의 이전 대화, 작품 맥락, 그리고 작가의 새 메시지입니다. "
+                    "토리로서 새 메시지에만 이어서 답하세요. 이름 접두어(토리:)는 붙이지 마세요.\n"
+                    "이전 대화에 다른 장르 클리셰가 섞여 있어도, "
+                    "지금 주입된 [현재 프로젝트 메타데이터]·[Current Active Project Context]만 절대 기준으로 삼으세요.\n\n"
+                    f"[작품·원고 맥락]\n" + "\n".join(context_bits) + "\n\n"
+                    f"[이전 대화]\n{transcript}\n\n"
+                    f"[작가의 새 메시지]\n{user_prompt}"
+                )
             try:
                 text = gemini_client.generate_text(full_prompt, system=system, temperature=0.9)
             except gemini_client.GeminiError as error:
                 raise ValueError(str(error)) from error
             return {
                 "mode": "chat",
-                "chat_mode": "successAnalysis" if is_success_analysis else "general",
+                "chat_mode": (
+                    "character" if is_character_chat
+                    else ("successAnalysis" if is_success_analysis else "general")
+                ),
                 "text": text,
                 "model": gemini_client.model_name(),
                 "provider": "google-gemini",
