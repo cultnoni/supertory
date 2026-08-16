@@ -280,6 +280,78 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "tracked_facts")
 
+    def test_import_delimiter_config_column(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "049_import_delimiter_config.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("import_delimiter_config", cols)
+        self.db.execute(
+            "UPDATE project SET import_delimiter_config = ? WHERE id = 1",
+            ('{"presets":["blank"],"blank_line_threshold":2}',),
+        )
+        value = self.db.execute(
+            "SELECT import_delimiter_config FROM project WHERE id = 1"
+        ).fetchone()[0]
+        self.assertIn("blank", value)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 49"
+        ).fetchone()[0]
+        self.assertEqual(version, "import_delimiter_config")
+
+    def test_character_tori_analysis_table(self) -> None:
+        self.create_character()
+        migration = Path(__file__).resolve().parents[1] / "db" / "050_character_tori_analysis.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("character_tori_analysis", tables)
+        self.db.execute(
+            "INSERT INTO character_tori_analysis(character_id, field_name, analyzed_content) "
+            "VALUES (40, 'profile_md', '새 분석')"
+        )
+        value = self.db.execute(
+            "SELECT analyzed_content FROM character_tori_analysis WHERE character_id = 40"
+        ).fetchone()[0]
+        self.assertEqual(value, "새 분석")
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 50"
+        ).fetchone()[0]
+        self.assertEqual(version, "character_tori_analysis")
+
+    def test_world_tori_analysis_table(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "051_world_tori_analysis.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("world_tori_analysis", tables)
+        self.db.execute(
+            "INSERT INTO world_tori_analysis(project_id, section_name, field_name, analyzed_content) "
+            "VALUES (1, 'where_when', 'era', '새 분석')"
+        )
+        value = self.db.execute(
+            "SELECT analyzed_content FROM world_tori_analysis WHERE project_id = 1 AND field_name = 'era'"
+        ).fetchone()[0]
+        self.assertEqual(value, "새 분석")
+        self.assert_integrity_error(
+            "INSERT INTO world_tori_analysis(project_id, section_name, field_name, analyzed_content) "
+            "VALUES (1, 'where_when', 'era', '중복')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 51"
+        ).fetchone()[0]
+        self.assertEqual(version, "world_tori_analysis")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -86,6 +86,69 @@ class DocumentImportUnitTests(unittest.TestCase):
         self.assertEqual(document_import.normalise_purpose("논문"), "paper")
         self.assertEqual(document_import.normalise_purpose("정보 전달"), "nonfiction")
 
+    def test_legacy_blank_lines_still_split_on_one_blank(self) -> None:
+        text = "첫 단락입니다.\n\n둘째 단락입니다.\n\n셋째 단락입니다."
+        sections = document_import.split_into_sections(text, "blank_lines", "전체")
+        self.assertEqual(len(sections), 3)
+        self.assertIn("첫 단락", sections[0].content)
+        self.assertNotIn("둘째", sections[0].content)
+
+    def test_blank_threshold_keeps_single_blank_as_paragraph(self) -> None:
+        text = "한 줄.\n\n또 한 줄.\n\n\n다음 씬 첫 줄."
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={"presets": ["blank"], "blank_line_threshold": 2},
+        )
+        self.assertEqual(len(sections), 2)
+        self.assertIn("한 줄.", sections[0].content)
+        self.assertIn("또 한 줄.", sections[0].content)
+        self.assertIn("\n\n", sections[0].content)
+        self.assertIn("다음 씬 첫 줄.", sections[1].content)
+        self.assertNotIn("다음 씬", sections[0].content)
+
+    def test_delimiter_markers_or_blank_lines(self) -> None:
+        text = "첫 씬입니다.\n\n같은 씬 문단.\n***\n둘째 씬입니다.\n\n\n셋째 씬입니다."
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={
+                "presets": ["asterisk", "blank"],
+                "blank_line_threshold": 2,
+            },
+        )
+        self.assertEqual(len(sections), 3)
+        self.assertIn("첫 씬", sections[0].content)
+        self.assertIn("같은 씬", sections[0].content)
+        self.assertIn("둘째 씬", sections[1].content)
+        self.assertIn("셋째 씬", sections[2].content)
+        self.assertNotIn("***", sections[0].content)
+        self.assertNotIn("***", sections[1].content)
+
+    def test_custom_delimiter_marker(self) -> None:
+        text = "앞 장면.\n///\n뒷 장면."
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={"presets": [], "custom": "///", "blank_line_threshold": 0},
+        )
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(sections[0].content, "앞 장면.")
+        self.assertEqual(sections[1].content, "뒷 장면.")
+
+    def test_hash_and_dash_presets(self) -> None:
+        text = "하나\n#\n둘\n---\n셋"
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={"presets": ["hash", "dash"]},
+        )
+        self.assertEqual([section.content for section in sections], ["하나", "둘", "셋"])
+
 
 class HierarchyImportPlanTests(unittest.TestCase):
     def test_toc_present_source_and_prologue(self) -> None:
@@ -744,6 +807,46 @@ class DocumentImportApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         titles = [chapter["title"] for chapter in outline["chapters"]]
         self.assertIn("가져온 초고", titles)
+
+    def test_import_preview_and_custom_delimiters(self) -> None:
+        content = "한 줄.\n\n같은 씬.\n\n\n다음 씬.\n///\n마지막 씬."
+        payload = {
+            "filename": "웹소설.txt",
+            "content_base64": base64.b64encode(content.encode("utf-8")).decode("ascii"),
+            "split": "blank_lines",
+            "delimiter_config": {
+                "presets": ["blank"],
+                "blank_line_threshold": 2,
+                "custom": "///",
+            },
+        }
+        status, preview = self.request("POST", "/api/import/preview", payload)
+        self.assertEqual(status, 200)
+        self.assertEqual(preview["section_count"], 3)
+        self.assertGreaterEqual(len(preview["scenes"]), 3)
+        self.assertIn("한 줄", preview["scenes"][0]["title"] + preview["scenes"][0]["preview"])
+
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "구분 저장", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201)
+        import_payload = {
+            **payload,
+            "destination": "new_chapter",
+            "chapter_title": "가져온 웹소설",
+        }
+        status, result = self.request(
+            "POST", f"/api/projects/{project['id']}/import", import_payload
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(result["section_count"], 3)
+        status, projects = self.request("GET", "/api/projects")
+        self.assertEqual(status, 200)
+        saved = next(item for item in projects if item["id"] == project["id"])
+        config = saved.get("import_delimiter_config") or {}
+        self.assertIn("blank", config.get("presets") or [])
+        self.assertEqual(config.get("blank_line_threshold"), 2)
+        self.assertEqual(config.get("custom"), "///")
 
 
 if __name__ == "__main__":

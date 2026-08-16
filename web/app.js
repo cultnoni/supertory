@@ -93,6 +93,8 @@ const state = {
   introMd: "",
   intentMd: "",
   worldbuildingMd: "",
+  /** @type {Record<string, {field_name:string, section_name?:string, label?:string, content:string}>} */
+  worldToriAnalysis: {},
   toryPriorityMd: "",
   outlineSummary: "",
   /** @type {number|null} project.linked_success_profile_id */
@@ -645,6 +647,10 @@ function escapeWorldHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
+function worldToriBadgeHtml(fieldId, label) {
+  return `<span class="world-sheet-field-head">${escapeWorldHtml(label)}<button type="button" class="character-analysis-badge world-analysis-badge hidden" data-world-tori-field="${escapeWorldHtml(fieldId)}" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다">새 분석 있음</button></span>`;
+}
+
 function ensureWorldbuildingMainForm() {
   const host = $("worldbuildingMainForm");
   if (!host) return null;
@@ -654,7 +660,7 @@ function ensureWorldbuildingMainForm() {
     const enMatch = String(sec.title || "").match(/\(([^)]+)\)\s*$/);
     const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
     const fields = sec.fields.map((field) => `
-      <label class="world-main-field">${escapeWorldHtml(field.label)}
+      <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label)}
         <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
       </label>`).join("");
     return `
@@ -674,6 +680,7 @@ function ensureWorldbuildingMainForm() {
         </label>
       </div>
     </article>`;
+  if (typeof syncWorldToriBadges === "function") syncWorldToriBadges();
   return host;
 }
 
@@ -7226,7 +7233,11 @@ async function loadProject() {
   state.introMd = outline.project?.intro_md || "";
   state.intentMd = outline.project?.intent_md || "";
   state.worldbuildingMd = outline.project?.worldbuilding_md || "";
+  state.worldToriAnalysis = outline.project?.world_tori_analysis && typeof outline.project.world_tori_analysis === "object"
+    ? outline.project.world_tori_analysis
+    : {};
   seedWorldBuildingExamplesIfEmpty();
+  syncWorldToriBadges();
   state.projectPurpose = normalizePurposeKey(
     outline.project?.purpose || state.projects.find((p) => p.id === state.projectId)?.purpose || "general_novel",
   );
@@ -7999,11 +8010,15 @@ function renderCharacterBoard() {
       || "소개를 적어 보세요."
     );
     const active = Number(state.characterId) === Number(character.id) ? "is-active" : "";
+    const analysisMark = character.has_tori_analysis
+      ? `<span class="character-board-card-analysis">새 분석 있음</span>`
+      : "";
     return `
       <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" title="${name}">
         <span class="character-board-card-name">${name}</span>
         <span class="character-board-card-role">${role}</span>
         <span class="character-board-card-summary">${summary}</span>
+        ${analysisMark}
       </button>`;
   }).join("");
   grid.querySelectorAll("[data-character-board]").forEach((button) => {
@@ -15793,6 +15808,107 @@ function renderToryChatCharacterPicker() {
   if (startBtn) startBtn.disabled = selected.size === 0;
 }
 
+function toryChatCharacterFullIdentity(ch) {
+  const short = String(ch?.short_description || "").trim();
+  const profile = String(ch?.profile_md || "").trim();
+  if (short && profile && short !== profile) return `${short}\n\n${profile}`;
+  return short || profile || "";
+}
+
+function isToryChatCharacterAllOpen() {
+  const modal = $("toryChatCharacterAllModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
+function closeToryChatCharacterAllModal() {
+  $("toryChatCharacterAllModal")?.classList.add("hidden");
+}
+
+function toryChatCharacterAllCardHtml(ch, { selected, disabled, checkAttr }) {
+  const id = Number(ch.id);
+  const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+  const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
+  const identity = escapeHtml(toryChatCharacterFullIdentity(ch) || "소개가 아직 없어요.");
+  return `<label class="reader-persona-card reader-debate-card tory-chat-character-all-card${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}" data-tory-chat-all-id="${id}">`
+    + `<input type="checkbox" ${checkAttr}="${id}"${selected ? " checked" : ""}${disabled ? " disabled" : ""}>`
+    + `<span class="reader-persona-card-text">`
+    + `<span class="reader-persona-card-name">${name}${role ? ` <span class="tory-chat-character-all-role">· ${role}</span>` : ""}</span>`
+    + `<span class="reader-persona-card-identity">${identity}</span>`
+    + `</span>`
+    + `</label>`;
+}
+
+function renderToryChatCharacterAllGrid() {
+  const grid = $("toryChatCharacterAllGrid");
+  if (!grid) return;
+  const isSim = charListMode === "sim";
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  if (!state.projectId) {
+    grid.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    return;
+  }
+  if (!chars.length) {
+    grid.innerHTML = `<p class="hint">설정집에 인물이 없어요.<br>캐릭터를 먼저 만든 뒤 대화 상대로 고를 수 있어요.</p>`;
+    return;
+  }
+  if (isSim) {
+    const selected = new Set((charDebateState.selectedIds || []).map(Number));
+    const atMax = selected.size >= CHAR_DEBATE_MAX;
+    grid.innerHTML = chars.map((ch) => toryChatCharacterAllCardHtml(ch, {
+      selected: selected.has(Number(ch.id)),
+      disabled: !selected.has(Number(ch.id)) && atMax,
+      checkAttr: "data-char-debate-all-check",
+    })).join("");
+  } else {
+    const selected = new Set(normalizeToryChatCharacterIds(toryChatCharacterIds));
+    grid.innerHTML = chars.map((ch) => toryChatCharacterAllCardHtml(ch, {
+      selected: selected.has(Number(ch.id)),
+      disabled: false,
+      checkAttr: "data-tory-chat-all-check",
+    })).join("");
+  }
+  syncToryChatCharacterAllCount();
+}
+
+function syncToryChatCharacterAllCount() {
+  const countEl = $("toryChatCharacterAllCount");
+  if (!countEl) return;
+  const isSim = charListMode === "sim";
+  countEl.classList.toggle("hidden", !isSim);
+  if (!isSim) return;
+  const n = (charDebateState.selectedIds || []).length;
+  countEl.textContent = `${n} / ${CHAR_DEBATE_MAX}명 선택됨`;
+}
+
+function openToryChatCharacterAllModal() {
+  const modal = $("toryChatCharacterAllModal");
+  const grid = $("toryChatCharacterAllGrid");
+  if (!modal || !grid) return;
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  const isSim = charListMode === "sim";
+  const title = $("toryChatCharacterAllTitle");
+  const hint = $("toryChatCharacterAllHint");
+  if (title) title.textContent = isSim ? "시뮬레이션 전체보기" : "내 캐릭터 전체보기";
+  if (hint) {
+    hint.textContent = isSim
+      ? "카드를 눌러 시뮬레이션할 인물을 골라 주세요. 소개는 잘리지 않고 전부 보여 줍니다."
+      : "소개는 잘리지 않고 전부 보여 줍니다. 고른 뒤 대화 시작을 눌러 주세요.";
+  }
+  renderToryChatCharacterAllGrid();
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const closeBtn = modal.querySelector("[data-close-tory-chat-character-all].modal-close");
+    try {
+      closeBtn?.focus({ preventScroll: true });
+    } catch (_) {
+      closeBtn?.focus();
+    }
+  });
+}
+
 function setCharListMode(mode) {
   const next = mode === "sim" ? "sim" : "chat";
   charListMode = next;
@@ -15809,6 +15925,7 @@ function setCharListMode(mode) {
   } else {
     renderToryChatCharacterPicker();
   }
+  if (isToryChatCharacterAllOpen()) openToryChatCharacterAllModal();
 }
 
 async function openToryChatCharacterPicker() {
@@ -16619,8 +16736,35 @@ function setupToryChatHubUi() {
     if (!input) return;
     toggleToryChatCharacterId(input.getAttribute("data-tory-chat-character"), input.checked);
     renderToryChatCharacterPicker();
+    if (isToryChatCharacterAllOpen()) renderToryChatCharacterAllGrid();
   });
   $("toryChatCharacterStart")?.addEventListener("click", () => startToryChatWithSelectedCharacters());
+  $("toryChatCharacterAllButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openToryChatCharacterAllModal();
+  });
+  $("toryChatCharacterAllGrid")?.addEventListener("change", (event) => {
+    const chatInput = event.target.closest?.("input[data-tory-chat-all-check]");
+    if (chatInput instanceof HTMLInputElement) {
+      toggleToryChatCharacterId(chatInput.getAttribute("data-tory-chat-all-check"), chatInput.checked);
+      renderToryChatCharacterPicker();
+      renderToryChatCharacterAllGrid();
+      return;
+    }
+    const simInput = event.target.closest?.("input[data-char-debate-all-check]");
+    if (simInput instanceof HTMLInputElement) {
+      toggleCharDebateCharacter(simInput.getAttribute("data-char-debate-all-check"), simInput.checked);
+    }
+  });
+  document.querySelectorAll("[data-close-tory-chat-character-all]").forEach((el) => {
+    el.addEventListener("click", () => closeToryChatCharacterAllModal());
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!isToryChatCharacterAllOpen()) return;
+    event.preventDefault();
+    closeToryChatCharacterAllModal();
+  });
   document.querySelectorAll("[data-char-list-mode]").forEach((btn) => {
     btn.addEventListener("click", () => {
       setCharListMode(btn.getAttribute("data-char-list-mode"));
@@ -20096,6 +20240,26 @@ async function copyCharDebateText(text) {
   }
 }
 
+function toggleCharDebateCharacter(characterId, selected) {
+  const id = Number(characterId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const set = new Set(charDebateState.selectedIds.map(Number));
+  if (selected) {
+    if (set.size >= CHAR_DEBATE_MAX && !set.has(id)) {
+      toast(`논쟁은 최대 ${CHAR_DEBATE_MAX}명까지예요.`);
+      renderCharDebateCharacters();
+      if (isToryChatCharacterAllOpen()) renderToryChatCharacterAllGrid();
+      return;
+    }
+    set.add(id);
+  } else {
+    set.delete(id);
+  }
+  charDebateState.selectedIds = [...set];
+  renderCharDebateCharacters();
+  if (isToryChatCharacterAllOpen()) renderToryChatCharacterAllGrid();
+}
+
 function setupCharDebateUi() {
   const pane = $("toryChatCharacterSimPane");
   if (!pane || pane.dataset.bound === "1") return;
@@ -20103,20 +20267,7 @@ function setupCharDebateUi() {
   $("charDebateCharacterList")?.addEventListener("change", (event) => {
     const box = event.target?.closest?.("input[data-char-debate-id]");
     if (!box) return;
-    const id = Number(box.getAttribute("data-char-debate-id"));
-    const set = new Set(charDebateState.selectedIds.map(Number));
-    if (box.checked) {
-      if (set.size >= CHAR_DEBATE_MAX) {
-        box.checked = false;
-        toast(`논쟁은 최대 ${CHAR_DEBATE_MAX}명까지예요.`);
-        return;
-      }
-      set.add(id);
-    } else {
-      set.delete(id);
-    }
-    charDebateState.selectedIds = [...set];
-    renderCharDebateCharacters();
+    toggleCharDebateCharacter(box.getAttribute("data-char-debate-id"), box.checked);
   });
   $("charDebatePresetGrid")?.addEventListener("click", (event) => {
     const btn = event.target.closest?.("[data-char-debate-preset]");
@@ -35905,9 +36056,12 @@ function renderCharacters() {
       || String(character.profile_md || "").split(/\n/).map((line) => line.trim()).find(Boolean)
       || roleLabel[character.role]
       || "";
+    const analysisMark = character.has_tori_analysis
+      ? `<span class="character-link-analysis">새 분석</span>`
+      : "";
     return `
     <button class="character-link ${state.characterId === character.id ? "active" : ""}" data-character="${character.id}" title="${escapeHtml(character.name)}">
-      <span class="character-name">${escapeHtml(character.name)}</span>
+      <span class="character-name">${escapeHtml(character.name)}${analysisMark}</span>
       <span class="character-role">${escapeHtml(firstLine)}</span>
     </button>`;
   }).join("") : "<p class='hint'>아직 인물이 없어요.<br>+ 캐릭터를 눌러 주세요.</p>";
@@ -43550,6 +43704,237 @@ function renderCharacterPortrait(character) {
   clearBtn?.classList.toggle("hidden", !url);
 }
 
+const CHARACTER_TORI_FIELDS = [
+  { key: "short_description", label: "한 줄 소개" },
+  { key: "profile_md", label: "인물 설정" },
+  { key: "strengths_md", label: "무기 · 강점" },
+  { key: "weaknesses_md", label: "약점" },
+];
+
+let characterAnalysisField = "";
+let characterAnalysisKind = "character";
+let characterAnalysisWatchTimer = 0;
+let characterAnalysisWatchProjectId = null;
+
+function characterToriPending(character) {
+  const raw = character?.tori_analysis;
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function worldToriPending() {
+  const raw = state.worldToriAnalysis;
+  return raw && typeof raw === "object" ? raw : {};
+}
+
+function worldFieldLabel(fieldName) {
+  for (const sec of WORLD_BUILDING_SCHEMA) {
+    const field = sec.fields.find((item) => item.id === fieldName);
+    if (field) return field.label;
+  }
+  return fieldName;
+}
+
+function syncCharacterToriBadges(character) {
+  const pending = characterToriPending(character);
+  document.querySelectorAll(".character-analysis-badge:not(.world-analysis-badge)").forEach((button) => {
+    const field = button.getAttribute("data-tori-field");
+    const has = Boolean(field && pending[field]?.content);
+    button.classList.toggle("hidden", !has);
+  });
+}
+
+function syncWorldToriBadges() {
+  const pending = worldToriPending();
+  document.querySelectorAll(".world-analysis-badge").forEach((button) => {
+    const field = button.getAttribute("data-world-tori-field");
+    const has = Boolean(field && pending[field]?.content);
+    button.classList.toggle("hidden", !has);
+  });
+}
+
+function closeCharacterAnalysisModal() {
+  $("characterAnalysisModal")?.classList.add("hidden");
+  characterAnalysisField = "";
+  characterAnalysisKind = "character";
+}
+
+function fillAnalysisModal(label, content) {
+  if ($("characterAnalysisTitle")) {
+    $("characterAnalysisTitle").textContent = "토리 새 분석";
+  }
+  if ($("characterAnalysisFieldLabel")) {
+    $("characterAnalysisFieldLabel").textContent = label || "";
+  }
+  if ($("characterAnalysisHint")) {
+    $("characterAnalysisHint").textContent =
+      "지금 칸에 적어 둔 내용은 그대로 둡니다. 토리 분석만 보여 드려요. 바꿀 때만 아래 버튼을 누르세요.";
+  }
+  if ($("characterAnalysisBody")) {
+    $("characterAnalysisBody").textContent = String(content || "");
+  }
+  $("characterAnalysisModal")?.classList.remove("hidden");
+}
+
+function openCharacterAnalysisModal(fieldName) {
+  const character = state.character?.character;
+  const pending = characterToriPending(character)[fieldName];
+  if (!pending?.content) {
+    toast("보여줄 토리 분석이 없어요.");
+    return;
+  }
+  const meta = CHARACTER_TORI_FIELDS.find((item) => item.key === fieldName);
+  characterAnalysisKind = "character";
+  characterAnalysisField = fieldName;
+  fillAnalysisModal(meta?.label || fieldName, pending.content);
+}
+
+function openWorldAnalysisModal(fieldName) {
+  const pending = worldToriPending()[fieldName];
+  if (!pending?.content) {
+    toast("보여줄 토리 분석이 없어요.");
+    return;
+  }
+  characterAnalysisKind = "world";
+  characterAnalysisField = fieldName;
+  fillAnalysisModal(pending.label || worldFieldLabel(fieldName), pending.content);
+}
+
+async function applyCharacterToriAnalysis() {
+  if (!state.characterId || !characterAnalysisField) return;
+  const label = CHARACTER_TORI_FIELDS.find((item) => item.key === characterAnalysisField)?.label || "이 칸";
+  const ok = window.confirm(
+    `「${label}」을(를) 토리 분석으로 바꿀까요?\n지금 적어 둔 내용은 사라집니다.`,
+  );
+  if (!ok) return;
+  const result = await api(`/api/characters/${state.characterId}/tori-analysis/apply`, {
+    method: "POST",
+    body: JSON.stringify({ field_name: characterAnalysisField }),
+  });
+  closeCharacterAnalysisModal();
+  state.character = result;
+  const character = result?.character;
+  if (character) {
+    if ($("characterSummary")) $("characterSummary").value = character.short_description || "";
+    if ($("characterProfile")) $("characterProfile").value = character.profile_md || "";
+    if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";
+    if ($("characterWeaknesses")) $("characterWeaknesses").value = character.weaknesses_md || "";
+    if (state.character.character) {
+      state.character.character = character;
+    }
+    syncCharacterToriBadges(character);
+  }
+  await loadProject();
+  toast("토리 분석으로 바꿨어요.");
+}
+
+async function applyWorldToriAnalysis() {
+  if (!state.projectId || !characterAnalysisField) return;
+  const label = worldFieldLabel(characterAnalysisField);
+  const ok = window.confirm(
+    `「${label}」을(를) 토리 분석으로 바꿀까요?\n지금 적어 둔 내용은 사라집니다.`,
+  );
+  if (!ok) return;
+  const result = await api(`/api/projects/${state.projectId}/world-analysis/apply`, {
+    method: "POST",
+    body: JSON.stringify({ field_name: characterAnalysisField }),
+  });
+  closeCharacterAnalysisModal();
+  state.worldbuildingMd = result?.worldbuilding_md || "";
+  state.worldToriAnalysis = result?.world_tori_analysis && typeof result.world_tori_analysis === "object"
+    ? result.world_tori_analysis
+    : {};
+  worldbuildingExampleDraft = false;
+  syncWorldBuildingFormFromState({ force: true });
+  syncWorldToriBadges();
+  toast("토리 분석으로 바꿨어요.");
+}
+
+function setupCharacterAnalysisModal() {
+  document.querySelectorAll("[data-close-character-analysis]").forEach((el) => {
+    el.addEventListener("click", () => closeCharacterAnalysisModal());
+  });
+  $("characterAnalysisApplyButton")?.addEventListener("click", () => {
+    if (characterAnalysisKind === "world") {
+      applyWorldToriAnalysis().catch(handleError);
+    } else {
+      applyCharacterToriAnalysis().catch(handleError);
+    }
+  });
+  document.querySelectorAll(".character-analysis-badge:not(.world-analysis-badge)").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openCharacterAnalysisModal(button.getAttribute("data-tori-field") || "");
+    });
+  });
+  document.addEventListener("click", (event) => {
+    const button = event.target?.closest?.(".world-analysis-badge");
+    if (!button) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openWorldAnalysisModal(button.getAttribute("data-world-tori-field") || "");
+  });
+}
+
+function stopCharacterAnalysisWatch() {
+  if (characterAnalysisWatchTimer) {
+    window.clearInterval(characterAnalysisWatchTimer);
+    characterAnalysisWatchTimer = 0;
+  }
+  characterAnalysisWatchProjectId = null;
+}
+
+function toastCharacterAnalysisResult(job) {
+  const created = Number(job?.created || 0);
+  const filled = Number(job?.filled || 0);
+  const pending = Number(job?.pending || 0);
+  const worldFilled = Number(job?.world_filled || 0);
+  const worldPending = Number(job?.world_pending || 0);
+  const parts = [];
+  if (created > 0) parts.push(`새 인물 ${created}명을 목록에 넣었어요`);
+  if (filled > 0) parts.push("비어 있던 인물 설정 칸을 채웠어요");
+  if (worldFilled > 0) parts.push("비어 있던 세계관 칸을 채웠어요");
+  if (pending > 0) parts.push("이미 적어 둔 인물 칸은 그대로 두고 ‘새 분석 있음’만 표시했어요");
+  if (worldPending > 0) parts.push("이미 적어 둔 세계관 칸은 그대로 두고 ‘새 분석 있음’만 표시했어요");
+  if (!parts.length) return;
+  toast(`토리 · ${parts.join(". ")}.`);
+}
+
+function watchCharacterAnalysis(projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  stopCharacterAnalysisWatch();
+  characterAnalysisWatchProjectId = id;
+  let startedAt = Date.now();
+  const tick = async () => {
+    if (characterAnalysisWatchProjectId !== id) return;
+    try {
+      const job = await api(`/api/projects/${id}/character-analysis/status`);
+      const status = String(job?.status || "idle");
+      if (status === "running") return;
+      if (status === "idle" && Date.now() - startedAt < 8000) return;
+      stopCharacterAnalysisWatch();
+      if (status === "done") {
+        toastCharacterAnalysisResult(job);
+        if (Number(state.projectId) === id) {
+          await loadProject();
+          if (state.characterId && !$("characterEditor")?.classList.contains("hidden")) {
+            try {
+              await openCharacter(state.characterId);
+            } catch (_) { /* ignore */ }
+          }
+        }
+      }
+    } catch (_) {
+      stopCharacterAnalysisWatch();
+    }
+  };
+  characterAnalysisWatchTimer = window.setInterval(() => {
+    tick().catch(() => { /* keep quiet */ });
+  }, 1200);
+  tick().catch(() => { /* keep quiet */ });
+}
+
 async function openCharacter(characterId) {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
@@ -43584,6 +43969,7 @@ async function openCharacter(characterId) {
   $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || "<span class='hint'>아직 별칭이 없어요.</span>";
   $("characterInfo").textContent = "";
   renderCharacterPortrait(character);
+  syncCharacterToriBadges(character);
   await loadProject();
 }
 
@@ -45468,6 +45854,131 @@ async function exportProjectAs(formatKey) {
 
 /** @type {"document"|"proof"} */
 let importModalMode = "document";
+let importPreviewTimer = 0;
+let importPreviewToken = 0;
+
+const DEFAULT_IMPORT_DELIMITER = {
+  presets: ["blank"],
+  blank_line_threshold: 2,
+  custom: "",
+};
+
+function getImportDelimiterConfig() {
+  const presets = [];
+  if ($("importDelimHash")?.checked) presets.push("hash");
+  if ($("importDelimStars")?.checked) presets.push("asterisk");
+  if ($("importDelimDash")?.checked) presets.push("dash");
+  if ($("importDelimBlank")?.checked) presets.push("blank");
+  const customOn = Boolean($("importDelimCustom")?.checked);
+  const custom = customOn ? String($("importDelimCustomText")?.value || "").trim() : "";
+  let threshold = Number($("importBlankThreshold")?.value || 2);
+  if (!Number.isFinite(threshold)) threshold = 2;
+  threshold = Math.max(1, Math.min(20, Math.round(threshold)));
+  return {
+    presets,
+    blank_line_threshold: $("importDelimBlank")?.checked ? threshold : 0,
+    custom,
+  };
+}
+
+function applyImportDelimiterConfig(config) {
+  const data = config && typeof config === "object" ? config : DEFAULT_IMPORT_DELIMITER;
+  const presets = Array.isArray(data.presets) ? data.presets.map((item) => String(item || "").toLowerCase()) : [];
+  const custom = String(data.custom || "").trim();
+  const useBlank = presets.includes("blank") || Number(data.blank_line_threshold || 0) > 0;
+  if ($("importDelimHash")) $("importDelimHash").checked = presets.includes("hash") || presets.includes("#");
+  if ($("importDelimStars")) $("importDelimStars").checked = presets.includes("asterisk") || presets.includes("***");
+  if ($("importDelimDash")) $("importDelimDash").checked = presets.includes("dash") || presets.includes("---");
+  if ($("importDelimBlank")) $("importDelimBlank").checked = useBlank;
+  if ($("importDelimCustom")) $("importDelimCustom").checked = Boolean(custom);
+  if ($("importDelimCustomText")) $("importDelimCustomText").value = custom;
+  let threshold = Number(data.blank_line_threshold || 2);
+  if (!Number.isFinite(threshold) || threshold < 1) threshold = 2;
+  if ($("importBlankThreshold")) $("importBlankThreshold").value = String(Math.max(1, Math.min(20, Math.round(threshold))));
+  syncImportDelimiterUi();
+}
+
+function resetImportDelimiterUi() {
+  const current = state.projects.find((project) => project.id === state.projectId);
+  const saved = current?.import_delimiter_config;
+  applyImportDelimiterConfig(saved && typeof saved === "object" ? saved : DEFAULT_IMPORT_DELIMITER);
+  const savedSplit = String(saved?.split || "");
+  if (savedSplit && $("importSplit")?.querySelector(`option[value="${CSS.escape(savedSplit)}"]`)) {
+    $("importSplit").value = savedSplit;
+  }
+}
+
+function syncImportDelimiterUi() {
+  const blankOn = Boolean($("importDelimBlank")?.checked);
+  const customOn = Boolean($("importDelimCustom")?.checked);
+  $("importBlankThresholdWrap")?.classList.toggle("hidden", !blankOn);
+  $("importDelimCustomWrap")?.classList.toggle("hidden", !customOn);
+}
+
+function clearImportSplitPreview() {
+  const summary = $("importSplitPreviewSummary");
+  const list = $("importSplitPreviewList");
+  if (summary) summary.textContent = "파일을 고르면 몇 개 씬으로 나뉘는지 보여 드려요.";
+  if (list) list.innerHTML = "";
+}
+
+function scheduleImportSplitPreview() {
+  window.clearTimeout(importPreviewTimer);
+  const wrap = $("importDelimiterWrap");
+  if (!wrap || wrap.classList.contains("hidden")) {
+    clearImportSplitPreview();
+    return;
+  }
+  const file = $("importFile")?.files?.[0];
+  if (!file) {
+    clearImportSplitPreview();
+    return;
+  }
+  const summary = $("importSplitPreviewSummary");
+  if (summary) summary.textContent = "나누는 중…";
+  importPreviewTimer = window.setTimeout(() => {
+    runImportSplitPreview().catch(handleError);
+  }, 350);
+}
+
+async function runImportSplitPreview() {
+  const wrap = $("importDelimiterWrap");
+  const summary = $("importSplitPreviewSummary");
+  const list = $("importSplitPreviewList");
+  const file = $("importFile")?.files?.[0];
+  if (!wrap || wrap.classList.contains("hidden") || !file) {
+    clearImportSplitPreview();
+    return;
+  }
+  const token = ++importPreviewToken;
+  const contentBase64 = await fileToBase64(file);
+  if (token !== importPreviewToken) return;
+  const result = await api("/api/import/preview", {
+    method: "POST",
+    body: JSON.stringify({
+      filename: file.name,
+      content_base64: contentBase64,
+      split: $("importSplit")?.value || "blank_lines",
+      delimiter_config: getImportDelimiterConfig(),
+      project_title: String($("importProjectTitle")?.value || "").trim(),
+    }),
+  });
+  if (token !== importPreviewToken) return;
+  const count = Number(result?.section_count || 0);
+  if (summary) {
+    summary.textContent = count > 0
+      ? `총 ${count}개 씬으로 분리됩니다`
+      : "나눌 씬을 찾지 못했어요.";
+  }
+  if (!list) return;
+  const scenes = Array.isArray(result?.scenes) ? result.scenes : [];
+  const extra = result?.truncated ? `<li><span>외 ${Math.max(0, count - scenes.length)}개 더 있어요.</span></li>` : "";
+  list.innerHTML = scenes.map((scene, index) => {
+    const title = String(scene?.title || `장면 ${index + 1}`);
+    const preview = String(scene?.preview || "").trim();
+    return `<li><strong>${index + 1}. ${escapeHtml(title)}</strong>${preview ? `<span>${escapeHtml(preview)}</span>` : ""}</li>`;
+  }).join("") + extra;
+}
 
 function openImportModal(options = {}) {
   const mode = options.mode === "proof" ? "proof" : "document";
@@ -45484,6 +45995,8 @@ function openImportModal(options = {}) {
   $("importProjectTitle").value = "";
   $("importChapterTitle").value = "";
   $("importSplit").value = "auto";
+  resetImportDelimiterUi();
+  clearImportSplitPreview();
   if ($("importTitleModeFromFile")) $("importTitleModeFromFile").checked = true;
   if ($("importTitleModeCustom")) $("importTitleModeCustom").checked = false;
   if ($("importApplyClean")) $("importApplyClean").checked = false;
@@ -45532,6 +46045,8 @@ function openImportModal(options = {}) {
 }
 
 function closeImportModal() {
+  window.clearTimeout(importPreviewTimer);
+  importPreviewToken += 1;
   $("importModal").classList.add("hidden");
   $("importSubmitButton").disabled = false;
   $("importSubmitButton").textContent = "가져오기";
@@ -45683,10 +46198,19 @@ function updateImportFormVisibility() {
   $("importApplyCleanWrap")?.classList.toggle("hidden", hideLegacyProofHints || destination !== "proof_pipeline");
 
   const splitLabel = $("importSplit")?.closest("label");
-  const splitHint = splitLabel?.nextElementSibling;
+  const splitHint = $("importSplitHint") || (splitLabel?.nextElementSibling);
   if (splitLabel) splitLabel.classList.toggle("hidden", proofMode);
   if (splitHint?.classList?.contains("purpose-hint")) {
-    splitHint.classList.toggle("hidden", proofMode);
+    splitHint.classList.toggle("hidden", proofMode || splitMode === "blank_lines");
+  }
+  const showDelimiter = importModalMode !== "proof" && !proofMode && splitMode === "blank_lines";
+  $("importDelimiterWrap")?.classList.toggle("hidden", !showDelimiter);
+  if (showDelimiter) {
+    syncImportDelimiterUi();
+    scheduleImportSplitPreview();
+  } else {
+    window.clearTimeout(importPreviewTimer);
+    clearImportSplitPreview();
   }
 
   const showChapterTitle = importModalMode !== "proof"
@@ -45915,6 +46439,7 @@ async function submitImport(event) {
       content_base64: contentBase64,
       destination,
       split: $("importSplit").value,
+      delimiter_config: $("importSplit").value === "blank_lines" ? getImportDelimiterConfig() : undefined,
       purpose: purpose,
       main_genre: mainGenre,
       sub_genre: subGenre,
@@ -45984,6 +46509,9 @@ async function submitImport(event) {
     await loadProjects(result.project_id);
     if (result.scene_ids?.length) {
       await openScene(result.scene_ids[0]);
+    }
+    if (String(result.character_analysis?.status || "") === "running") {
+      watchCharacterAnalysis(result.project_id);
     }
     const warning = result.warnings?.length ? ` (${result.warnings[0]})` : "";
     const purposeName = purposeLabel[result.purpose] || "";
@@ -48450,6 +48978,14 @@ $("importMainGenre")?.addEventListener("change", () => {
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", { keepMain: true });
 });
 $("importSplit").addEventListener("change", updateImportFormVisibility);
+["importDelimHash", "importDelimStars", "importDelimDash", "importDelimBlank", "importDelimCustom"].forEach((id) => {
+  $(id)?.addEventListener("change", () => {
+    syncImportDelimiterUi();
+    scheduleImportSplitPreview();
+  });
+});
+$("importBlankThreshold")?.addEventListener("input", scheduleImportSplitPreview);
+$("importDelimCustomText")?.addEventListener("input", scheduleImportSplitPreview);
 document.querySelectorAll('input[name="importTitleMode"]').forEach((input) => {
   input.addEventListener("change", () => {
     syncImportTitleModeUi();
@@ -48466,6 +49002,7 @@ $("importFile").addEventListener("change", () => {
   if (file && !$("importChapterTitle").value) {
     $("importChapterTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "가져온 글";
   }
+  scheduleImportSplitPreview();
 });
 $("importForm").addEventListener("submit", (event) => submitImport(event).catch(handleError));
 document.querySelectorAll("[data-close-import]").forEach((element) => {
@@ -48491,6 +49028,18 @@ document.addEventListener("keydown", (event) => {
   }
   if (!$("textPromptModal")?.classList.contains("hidden")) {
     closeTextPromptModal(null);
+    return;
+  }
+  if (!$("toryChatCharacterAllModal")?.classList.contains("hidden")) {
+    closeToryChatCharacterAllModal();
+    return;
+  }
+  if (!$("readerPersonaAllModal")?.classList.contains("hidden")) {
+    closeReaderPersonaAllModal();
+    return;
+  }
+  if (!$("characterAnalysisModal")?.classList.contains("hidden")) {
+    closeCharacterAnalysisModal();
     return;
   }
   if (!$("importModal").classList.contains("hidden")) {
@@ -48567,6 +49116,7 @@ safeSetup("setupGenrePicker", setupGenrePicker);
 safeSetup("setupPurposePicker", setupPurposePicker);
 safeSetup("setupKeywordBox", setupKeywordBox);
 safeSetup("setupProofReportModal", setupProofReportModal);
+safeSetup("setupCharacterAnalysisModal", setupCharacterAnalysisModal);
 safeSetup("setupWritingLog", setupWritingLog);
 safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);

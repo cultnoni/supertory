@@ -33,7 +33,9 @@ import urllib.error
 import urllib.request
 
 import chapter_match
+import character_import_analysis
 import document_export
+import world_import_analysis
 import document_import
 import env_loader
 import folder_tree
@@ -121,6 +123,9 @@ MIGRATION_045_PATH = ROOT / "db" / "045_add_high_fantasy_adventurer.py"
 MIGRATION_046_PATH = ROOT / "db" / "046_reorder_reader_personas.py"
 MIGRATION_047_PATH = ROOT / "db" / "047_scene_reader_comments_started.sql"
 MIGRATION_048_PATH = ROOT / "db" / "048_tracked_facts.sql"
+MIGRATION_049_PATH = ROOT / "db" / "049_import_delimiter_config.sql"
+MIGRATION_050_PATH = ROOT / "db" / "050_character_tori_analysis.sql"
+MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -493,9 +498,18 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_047_PATH.read_text(encoding="utf-8"))
         if 48 not in applied:
             connection.executescript(MIGRATION_048_PATH.read_text(encoding="utf-8"))
+        if 49 not in applied:
+            connection.executescript(MIGRATION_049_PATH.read_text(encoding="utf-8"))
+        if 50 not in applied:
+            connection.executescript(MIGRATION_050_PATH.read_text(encoding="utf-8"))
+        if 51 not in applied:
+            connection.executescript(MIGRATION_051_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
+        ensure_import_delimiter_config_column(connection)
+        ensure_character_tori_analysis_table(connection)
+        ensure_world_tori_analysis_table(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -590,6 +604,91 @@ def ensure_tracked_facts_columns(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (48, 'tracked_facts')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_import_delimiter_config_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.import_delimiter_config (migration 049)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+    except sqlite3.Error:
+        return
+    if "import_delimiter_config" not in cols:
+        connection.execute("ALTER TABLE project ADD COLUMN import_delimiter_config TEXT")
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (49, 'import_delimiter_config')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_world_tori_analysis_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: world_tori_analysis (migration 051)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'world_tori_analysis'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS world_tori_analysis ("
+            "id INTEGER PRIMARY KEY, "
+            "project_id INTEGER NOT NULL, "
+            "section_name TEXT NOT NULL DEFAULT '', "
+            "field_name TEXT NOT NULL CHECK (length(trim(field_name)) > 0), "
+            "analyzed_content TEXT NOT NULL DEFAULT '', "
+            "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
+            "UNIQUE (project_id, field_name), "
+            "FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_world_tori_analysis_project "
+            "ON world_tori_analysis(project_id)"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (51, 'world_tori_analysis')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_character_tori_analysis_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_tori_analysis (migration 050)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_tori_analysis'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS character_tori_analysis ("
+            "id INTEGER PRIMARY KEY, "
+            "character_id INTEGER NOT NULL, "
+            "field_name TEXT NOT NULL CHECK (length(trim(field_name)) > 0), "
+            "analyzed_content TEXT NOT NULL DEFAULT '', "
+            "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
+            "UNIQUE (character_id, field_name), "
+            "FOREIGN KEY (character_id) REFERENCES character(id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_character_tori_analysis_character "
+            "ON character_tori_analysis(character_id)"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (50, 'character_tori_analysis')"
         )
     except sqlite3.Error:
         pass
@@ -2399,6 +2498,9 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     item["main_genre"] = item.get("main_genre") or ""
     item["sub_genre"] = item.get("sub_genre") or ""
     item["keywords"] = parse_project_keywords(item.get("keywords"))
+    item["import_delimiter_config"] = parse_import_delimiter_config(
+        item.get("import_delimiter_config")
+    )
     item["last_opened_at"] = item.get("last_opened_at") or None
     try:
         item["list_sort_order"] = int(item.get("list_sort_order") or 0)
@@ -2418,6 +2520,11 @@ def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     try:
         connection.execute("SELECT linked_success_profile_id FROM project LIMIT 1")
         cols += ", linked_success_profile_id"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT import_delimiter_config FROM project LIMIT 1")
+        cols += ", import_delimiter_config"
     except sqlite3.OperationalError:
         pass
     rows = connection.execute(
@@ -2454,6 +2561,11 @@ def writing_day_payload(row: sqlite3.Row | dict | None) -> dict | None:
         "last_active_at": data.get("last_active_at") or None,
         "breakdown": breakdown,
     }
+
+
+def parse_import_delimiter_config(raw: object) -> dict | None:
+    """Parse stored project.import_delimiter_config JSON, or None if empty."""
+    return document_import.parse_stored_delimiter_config(raw)
 
 
 def parse_project_keywords(raw: object) -> list[str]:
@@ -2882,6 +2994,205 @@ def _set_index_rebuild_state(**kwargs) -> None:
         _index_rebuild_state.update(kwargs)
 
 
+_character_analysis_lock = Lock()
+_character_analysis_thread: Thread | None = None
+IMPORT_ANALYSIS_GEMINI_GAP_SECONDS = 1.8
+
+_character_analysis_state: dict = {
+    "status": "idle",
+    "project_id": None,
+    "message": "",
+    "created": 0,
+    "filled": 0,
+    "pending": 0,
+    "world_filled": 0,
+    "world_pending": 0,
+    "error": "",
+}
+
+
+def character_analysis_snapshot() -> dict:
+    with _character_analysis_lock:
+        return dict(_character_analysis_state)
+
+
+def reset_character_analysis_state() -> None:
+    global _character_analysis_thread
+    with _character_analysis_lock:
+        _character_analysis_state.update(
+            status="idle",
+            project_id=None,
+            message="",
+            created=0,
+            filled=0,
+            pending=0,
+            world_filled=0,
+            world_pending=0,
+            error="",
+        )
+        _character_analysis_thread = None
+
+
+def _set_character_analysis_state(**kwargs) -> None:
+    with _character_analysis_lock:
+        _character_analysis_state.update(kwargs)
+
+
+def _empty_import_analysis_stats() -> tuple[dict[str, int], dict[str, int]]:
+    return (
+        {"created": 0, "filled": 0, "pending": 0},
+        {"filled": 0, "pending": 0},
+    )
+
+
+def _finish_import_analysis_job(
+    char_stats: dict[str, int],
+    world_stats: dict[str, int],
+    status: str | None = None,
+) -> None:
+    created = int(char_stats.get("created") or 0)
+    filled = int(char_stats.get("filled") or 0)
+    pending = int(char_stats.get("pending") or 0)
+    world_filled = int(world_stats.get("filled") or 0)
+    world_pending = int(world_stats.get("pending") or 0)
+    if status is None:
+        any_work = created or filled or pending or world_filled or world_pending
+        status = "done" if any_work else "skipped"
+    _set_character_analysis_state(
+        status=status,
+        created=created,
+        filled=filled,
+        pending=pending,
+        world_filled=world_filled,
+        world_pending=world_pending,
+        message="",
+        error="",
+    )
+
+
+def _run_character_analysis_job(
+    project_id: int,
+    scene_ids: list[int] | None,
+    include_world: bool = False,
+) -> None:
+    handler = SuperToryHandler.__new__(SuperToryHandler)
+    char_stats, world_stats = _empty_import_analysis_stats()
+    gemini_called = False
+    quota_hit = False
+    manuscript = ""
+    try:
+        if not gemini_client.is_configured():
+            _finish_import_analysis_job(char_stats, world_stats, "skipped")
+            return
+        with database() as connection:
+            handler.require_project(connection, project_id)
+            raw = character_import_analysis.load_manuscript_text(
+                connection, project_id, scene_ids
+            )
+            existing = character_import_analysis.list_existing_characters(connection, project_id)
+        manuscript = plain_text_from_content(raw)
+        if len(manuscript.strip()) < 40:
+            _finish_import_analysis_job(char_stats, world_stats, "skipped")
+            return
+    except Exception as error:
+        _finish_import_analysis_job(char_stats, world_stats, "skipped")
+        if not is_gemini_quota_error(error):
+            print(f"캐릭터 자동 분석 건너뜀: {error}")
+        return
+
+    try:
+        names = [str(row.get("name") or "") for row in existing if row.get("name")]
+        system, prompt = character_import_analysis.build_analysis_prompt(manuscript, names)
+        gemini_called = True
+        text = gemini_client.generate_text(
+            prompt,
+            system=system,
+            temperature=0.2,
+            max_output_tokens=4096,
+        )
+        parsed = character_import_analysis.parse_analysis_json(text)
+        if parsed:
+            with database() as connection:
+                handler.require_project(connection, project_id)
+                char_stats = character_import_analysis.apply_parsed_characters(
+                    connection, project_id, parsed
+                )
+    except Exception as error:
+        if is_gemini_quota_error(error):
+            quota_hit = True
+        else:
+            print(f"캐릭터 자동 분석 건너뜀: {error}")
+
+    if include_world and not quota_hit:
+        try:
+            if gemini_called:
+                time.sleep(IMPORT_ANALYSIS_GEMINI_GAP_SECONDS)
+            system, prompt = world_import_analysis.build_analysis_prompt(manuscript)
+            text = gemini_client.generate_text(
+                prompt,
+                system=system,
+                temperature=0.2,
+                max_output_tokens=4096,
+            )
+            parsed_world = world_import_analysis.parse_analysis_json(text)
+            if parsed_world:
+                with database() as connection:
+                    handler.require_project(connection, project_id)
+                    world_stats = world_import_analysis.apply_parsed_fields(
+                        connection, project_id, parsed_world
+                    )
+        except Exception as error:
+            if not is_gemini_quota_error(error):
+                print(f"세계관 자동 분석 건너뜀: {error}")
+
+    _finish_import_analysis_job(char_stats, world_stats)
+
+
+def start_character_analysis_job(
+    project_id: int,
+    scene_ids: list[int] | None = None,
+    include_world: bool = False,
+) -> dict:
+    global _character_analysis_thread
+    if not gemini_client.is_configured():
+        _set_character_analysis_state(
+            status="skipped",
+            project_id=int(project_id),
+            message="",
+            created=0,
+            filled=0,
+            pending=0,
+            world_filled=0,
+            world_pending=0,
+            error="",
+        )
+        return character_analysis_snapshot()
+    with _character_analysis_lock:
+        if _character_analysis_state.get("status") == "running":
+            return dict(_character_analysis_state)
+        if _character_analysis_thread is not None and _character_analysis_thread.is_alive():
+            return dict(_character_analysis_state)
+        _character_analysis_state.update(
+            status="running",
+            project_id=int(project_id),
+            message="",
+            created=0,
+            filled=0,
+            pending=0,
+            world_filled=0,
+            world_pending=0,
+            error="",
+        )
+        worker = Thread(
+            target=_run_character_analysis_job,
+            args=(int(project_id), list(scene_ids or []), bool(include_world)),
+            daemon=True,
+        )
+        _character_analysis_thread = worker
+    worker.start()
+    return character_analysis_snapshot()
+
+
 def _run_index_rebuild_job(project_ids: list[int]) -> None:
     handler = SuperToryHandler.__new__(SuperToryHandler)
     durations: list[float] = []
@@ -3249,7 +3560,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_order, id",
                         (project_id,),
                     ).fetchall()
-                self.send_json([as_dict(row) for row in rows])
+                    pending_ids = character_import_analysis.pending_character_ids(
+                        connection, project_id
+                    )
+                payload = []
+                for row in rows:
+                    item = as_dict(row)
+                    item["has_tori_analysis"] = int(item["id"]) in pending_ids
+                    payload.append(item)
+                self.send_json(payload)
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
@@ -3278,6 +3597,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/index/rebuild/status":
                 self.send_json(self.get_index_rebuild_status())
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/character-analysis(?:/status)?", path)
+            if match:
+                self.send_json(self.get_character_analysis_status(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/index", path)
@@ -3975,6 +4299,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.restore_scene(int(match.group(1))))
                 return
 
+            if path == "/api/import/preview":
+                self.send_json(self.preview_import_document(body))
+                return
+
             if path == "/api/import":
                 self.send_json(self.import_document(body), HTTPStatus.CREATED)
                 return
@@ -3987,6 +4315,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/import", path)
             if match:
                 self.send_json(self.import_document(body, project_id=int(match.group(1))), HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/character-analysis", path)
+            if match:
+                self.send_json(self.start_project_character_analysis(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/characters/(\d+)/tori-analysis/apply", path)
+            if match:
+                self.send_json(self.apply_character_tori_analysis(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/world-analysis/apply", path)
+            if match:
+                self.send_json(self.apply_world_tori_analysis(int(match.group(1)), body or {}))
                 return
 
             # Match uploaded proof text to the closest existing episode (회차/scene).
@@ -12270,6 +12613,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if not folders:
             folders = self._synthesize_folders_from_legacy_shape(payload)
         payload["folders"] = folders
+        project_data = payload.get("project")
+        if isinstance(project_data, dict):
+            project_data["world_tori_analysis"] = world_import_analysis.list_pending_for_project(
+                connection, project_id
+            )
         # Document legacy field limits for deep / reparented trees
         payload["outline_shape"] = {
             "folders": "canonical unlimited-depth binder tree (folder.id)",
@@ -14136,6 +14484,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 char_data["portrait_file"] = ""
                 char_data["portrait_mime"] = ""
                 char_data["portrait_url"] = ""
+            char_data["tori_analysis"] = character_import_analysis.list_pending_for_character(
+                connection, character_id
+            )
         return {"character": char_data, "aliases": [as_dict(alias) for alias in aliases]}
 
     def trash_project(self, project_id: int) -> dict:
@@ -14178,6 +14529,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "DELETE FROM scene_character WHERE character_id = ?",
                 (character_id,),
             )
+            try:
+                connection.execute(
+                    "DELETE FROM character_tori_analysis WHERE character_id = ?",
+                    (character_id,),
+                )
+            except sqlite3.OperationalError:
+                pass
         return {
             "ok": True,
             "id": int(character_id),
@@ -15105,6 +15463,68 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ),
             )
 
+    def get_character_analysis_status(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+        snap = character_analysis_snapshot()
+        if snap.get("project_id") not in (None, int(project_id)):
+            return {
+                "status": "idle",
+                "project_id": int(project_id),
+                "created": 0,
+                "filled": 0,
+                "pending": 0,
+                "world_filled": 0,
+                "world_pending": 0,
+            }
+        return {**snap, "project_id": int(project_id)}
+
+    def start_project_character_analysis(self, project_id: int, body: dict) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+        raw_ids = body.get("scene_ids") or body.get("scenes") or []
+        scene_ids: list[int] = []
+        if isinstance(raw_ids, list):
+            for item in raw_ids:
+                try:
+                    scene_ids.append(int(item))
+                except (TypeError, ValueError):
+                    continue
+        return start_character_analysis_job(int(project_id), scene_ids)
+
+    def apply_character_tori_analysis(self, character_id: int, body: dict) -> dict:
+        field_name = str(body.get("field_name") or body.get("field") or "").strip()
+        if not character_import_analysis.is_sheet_field(field_name):
+            raise ValueError("바꿀 수 있는 인물 설정 칸이 아닙니다.")
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id FROM character WHERE id = ? AND deleted_at IS NULL",
+                (int(character_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            character_import_analysis.apply_pending_field(
+                connection, int(character_id), field_name
+            )
+        return self.character_detail(int(character_id))
+
+    def apply_world_tori_analysis(self, project_id: int, body: dict) -> dict:
+        field_name = str(body.get("field_name") or body.get("field") or "").strip()
+        if not world_import_analysis.is_sheet_field(field_name):
+            raise ValueError("바꿀 수 있는 세계관 칸이 아닙니다.")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            md = world_import_analysis.apply_pending_field(
+                connection, int(project_id), field_name
+            )
+            pending = world_import_analysis.list_pending_for_project(
+                connection, int(project_id)
+            )
+        return {
+            "worldbuilding_md": md,
+            "world_tori_analysis": pending,
+        }
+
     def _list_episode_candidates(self, connection: sqlite3.Connection, project_id: int) -> list[chapter_match.EpisodeCandidate]:
         """Active scenes in reading order with first-100-char body previews."""
         rows = connection.execute(
@@ -15472,6 +15892,57 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             payload["match"] = match_info
         return payload
 
+    def _save_import_delimiter_config(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        split_mode: str,
+        delimiter_config: object,
+    ) -> None:
+        mode = (split_mode or "").strip().lower()
+        if mode != "blank_lines" and delimiter_config in (None, "", {}, []):
+            return
+        payload = document_import.serialise_delimiter_config(
+            delimiter_config,
+            split_mode=split_mode,
+        )
+        try:
+            connection.execute(
+                "UPDATE project SET import_delimiter_config = ? WHERE id = ?",
+                (json.dumps(payload, ensure_ascii=False), int(project_id)),
+            )
+        except sqlite3.OperationalError:
+            pass
+
+    def preview_import_document(self, body: dict) -> dict:
+        filename, data = self._decode_upload_bytes(body)
+        split_mode = str(body.get("split", "none") or "none")
+        delimiter_config = body.get("delimiter_config")
+        if delimiter_config is None:
+            delimiter_config = body.get("import_delimiter_config")
+        preserve_blank_runs = document_import.should_preserve_blank_runs(
+            split_mode, delimiter_config
+        )
+        extracted = document_import.extract_document(
+            filename, data, collapse_blank_runs=not preserve_blank_runs
+        )
+        default_title = (
+            str(body.get("scene_title") or body.get("project_title") or "").strip()
+            or extracted.title
+        )
+        plan = document_import.build_import_plan(
+            extracted.text,
+            split_mode,
+            default_title,
+            delimiter_config=delimiter_config,
+        )
+        payload = document_import.preview_from_plan(plan, extracted)
+        payload["split"] = split_mode
+        payload["delimiter_config"] = document_import.serialise_delimiter_config(
+            delimiter_config, split_mode=split_mode
+        )
+        return payload
+
     def import_document(self, body: dict, project_id: int | None = None) -> dict:
         filename = str(body.get("filename", "")).strip()
         if not filename:
@@ -15509,6 +15980,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             }
         )
         ext_lower = Path(filename).suffix.lower()
+        split_mode = str(body.get("split", "none") or "none")
+        delimiter_config = body.get("delimiter_config")
+        if delimiter_config is None:
+            delimiter_config = body.get("import_delimiter_config")
+        preserve_blank_runs = document_import.should_preserve_blank_runs(
+            split_mode, delimiter_config
+        )
         use_proof_extract = (
             ext_lower in {".hwp", ".docx", ".hwpx"}
             or is_proof_doc
@@ -15532,11 +16010,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             except ValueError:
                 if ext_lower == ".hwp":
                     raise
-                extracted = document_import.extract_document(filename, data)
+                extracted = document_import.extract_document(
+                    filename, data, collapse_blank_runs=not preserve_blank_runs
+                )
         else:
-            extracted = document_import.extract_document(filename, data)
+            extracted = document_import.extract_document(
+                filename, data, collapse_blank_runs=not preserve_blank_runs
+            )
 
-        split_mode = str(body.get("split", "none") or "none")
         destination = destination_early
         if destination not in {
             "new_chapter",
@@ -15554,7 +16035,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             split_mode = "none"
 
         default_title = str(body.get("scene_title", "")).strip() or extracted.title
-        plan = document_import.build_import_plan(extracted.text, split_mode, default_title)
+        plan = document_import.build_import_plan(
+            extracted.text,
+            split_mode,
+            default_title,
+            delimiter_config=delimiter_config,
+        )
         sections = plan.sections
         chapter_title = str(body.get("chapter_title", "")).strip() or extracted.title
         project_title = str(body.get("project_title", "")).strip() or extracted.title
@@ -15696,6 +16182,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         (json.dumps(keywords, ensure_ascii=False), project_id),
                     )
                 package_info = ensure_project_package(connection, project_id)
+
+            self._save_import_delimiter_config(
+                connection, int(project_id), split_mode, delimiter_config
+            )
 
             chapter_id = body.get("chapter_id")
             scene_id = body.get("scene_id")
@@ -15874,7 +16364,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 result["part_count"] = len(part_ids)
             if match_info is not None:
                 result["match"] = match_info
-            return result
+
+        try:
+            analysis = start_character_analysis_job(
+                int(project_id), list(scene_ids or []), include_world=True
+            )
+        except Exception:
+            analysis = {"status": "skipped"}
+        result["character_analysis"] = {
+            "status": str(analysis.get("status") or "skipped"),
+        }
+        return result
 
     def _insert_hierarchy_import(
         self,

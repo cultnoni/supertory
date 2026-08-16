@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import html.parser
 import io
+import json
 import re
 import zipfile
 import xml.etree.ElementTree as ET
@@ -222,11 +223,15 @@ class _HTMLTextExtractor(html.parser.HTMLParser):
         return normalise_whitespace("".join(self._chunks))
 
 
-def normalise_whitespace(text: str) -> str:
+def normalise_whitespace(text: str, *, collapse_blank_runs: bool = True) -> str:
     text = text.replace("\r\n", "\n").replace("\r", "\n")
     text = text.replace("\u00a0", " ").replace("\u200b", "")
     text = re.sub(r"[ \t]+\n", "\n", text)
-    text = re.sub(r"\n{3,}", "\n\n", text)
+    if collapse_blank_runs:
+        text = re.sub(r"\n{3,}", "\n\n", text)
+    else:
+        # Keep scene-break blank runs, but cap runaway newlines.
+        text = re.sub(r"\n{21,}", "\n" * 20, text)
     return text.strip()
 
 
@@ -266,7 +271,12 @@ def extension_of(filename: str) -> str:
     return Path(filename).suffix.lower()
 
 
-def extract_document(filename: str, data: bytes) -> ExtractedDocument:
+def extract_document(
+    filename: str,
+    data: bytes,
+    *,
+    collapse_blank_runs: bool = True,
+) -> ExtractedDocument:
     if not data:
         raise ValueError("파일이 비어 있습니다.")
     if len(data) > MAX_UPLOAD_BYTES:
@@ -297,13 +307,16 @@ def extract_document(filename: str, data: bytes) -> ExtractedDocument:
     }
     # No extension: treat as plain text when it looks readable.
     if not extension:
-        text = normalise_whitespace(decode_text_bytes(data))
+        text = normalise_whitespace(
+            decode_text_bytes(data),
+            collapse_blank_runs=collapse_blank_runs,
+        )
         if not text:
             raise ValueError("글 내용을 찾지 못했습니다.")
         return ExtractedDocument(title=title_from_filename(filename or "가져온 글"), text=text, format_name="text")
 
     text, warnings = extractors[extension](data)
-    text = normalise_whitespace(text)
+    text = normalise_whitespace(text, collapse_blank_runs=collapse_blank_runs)
     if not text:
         raise ValueError("파일에서 글 내용을 찾지 못했습니다. 다른 형식으로 저장해 다시 시도해 주세요.")
     return ExtractedDocument(
@@ -314,17 +327,186 @@ def extract_document(filename: str, data: bytes) -> ExtractedDocument:
     )
 
 
-def split_into_sections(text: str, mode: str, default_title: str) -> list[ImportedSection]:
+DELIMITER_PRESET_MARKERS: dict[str, str] = {
+    "hash": "#",
+    "#": "#",
+    "asterisk": "***",
+    "stars": "***",
+    "***": "***",
+    "dash": "---",
+    "---": "---",
+}
+DELIMITER_PRESET_KEYS = ("hash", "asterisk", "dash", "blank")
+PREVIEW_SCENE_LIMIT = 40
+MAX_BLANK_LINE_THRESHOLD = 20
+
+
+def _parse_json_object(raw: object) -> dict:
+    if raw is None or raw == "":
+        return {}
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str):
+        try:
+            parsed = json.loads(raw)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def normalise_delimiter_config(raw: object, *, split_mode: str = "blank_lines") -> dict:
+    """Canonical scene-split settings.
+
+    Missing config + ``blank_lines`` mode keeps the legacy rule (1+ blank line).
+    An explicit config that enables blank lines defaults the threshold to 2.
+    """
+    mode = (split_mode or "").strip().lower()
+    explicit = raw not in (None, "", {}, [])
+    data = _parse_json_object(raw)
+
+    presets: list[str] = []
+    seen_presets: set[str] = set()
+    raw_presets = data.get("presets")
+    if isinstance(raw_presets, (list, tuple)):
+        for item in raw_presets:
+            key = str(item or "").strip().lower()
+            if key in {"blank", "blank_lines", "empty"}:
+                key = "blank"
+            elif key in DELIMITER_PRESET_MARKERS:
+                key = "hash" if DELIMITER_PRESET_MARKERS[key] == "#" else (
+                    "asterisk" if DELIMITER_PRESET_MARKERS[key] == "***" else "dash"
+                )
+            else:
+                continue
+            if key in seen_presets:
+                continue
+            seen_presets.add(key)
+            presets.append(key)
+
+    markers: list[str] = []
+    seen_markers: set[str] = set()
+
+    def _add_marker(value: object) -> None:
+        marker = str(value or "").strip()
+        if not marker or marker in seen_markers:
+            return
+        seen_markers.add(marker)
+        markers.append(marker)
+
+    for preset in presets:
+        mapped = DELIMITER_PRESET_MARKERS.get(preset)
+        if mapped:
+            _add_marker(mapped)
+
+    raw_markers = data.get("markers")
+    if isinstance(raw_markers, (list, tuple)):
+        for item in raw_markers:
+            _add_marker(item)
+
+    custom = str(data.get("custom") or data.get("custom_marker") or "").strip()
+    if not custom:
+        extras = data.get("custom_markers")
+        if isinstance(extras, str):
+            custom = extras.strip()
+        elif isinstance(extras, (list, tuple)):
+            for item in extras:
+                _add_marker(item)
+    if custom:
+        _add_marker(custom)
+
+    use_blank = "blank" in seen_presets
+    if "use_blank_lines" in data:
+        use_blank = bool(data.get("use_blank_lines"))
+    elif "blank_lines" in data:
+        use_blank = bool(data.get("blank_lines"))
+
+    threshold_raw = data.get("blank_line_threshold", data.get("threshold", data.get("blank_threshold")))
+    try:
+        threshold_value = int(threshold_raw) if threshold_raw not in (None, "") else None
+    except (TypeError, ValueError):
+        threshold_value = None
+
+    if use_blank:
+        if threshold_value is None:
+            threshold = 2 if explicit else 1
+        else:
+            threshold = max(1, min(MAX_BLANK_LINE_THRESHOLD, threshold_value))
+        if "blank" not in seen_presets:
+            presets.append("blank")
+            seen_presets.add("blank")
+    else:
+        threshold = 0
+        presets = [item for item in presets if item != "blank"]
+        seen_presets.discard("blank")
+
+    if not explicit and mode == "blank_lines":
+        use_blank = True
+        threshold = 1
+        if "blank" not in seen_presets:
+            presets.append("blank")
+
+    return {
+        "presets": presets,
+        "markers": markers,
+        "blank_line_threshold": threshold,
+        "use_blank_lines": bool(use_blank and threshold > 0),
+        "custom": custom,
+        "split": str(data.get("split") or mode or "").strip().lower(),
+    }
+
+
+def serialise_delimiter_config(config: dict | None, *, split_mode: str = "") -> dict:
+    normalised = normalise_delimiter_config(config, split_mode=split_mode or (config or {}).get("split") or "")
+    payload = {
+        "presets": list(normalised.get("presets") or []),
+        "blank_line_threshold": int(normalised.get("blank_line_threshold") or 0),
+        "custom": str(normalised.get("custom") or ""),
+    }
+    split = split_mode or normalised.get("split") or ""
+    if split:
+        payload["split"] = split
+    return payload
+
+
+def parse_stored_delimiter_config(raw: object) -> dict | None:
+    data = _parse_json_object(raw)
+    if not data:
+        return None
+    return serialise_delimiter_config(data, split_mode=str(data.get("split") or ""))
+
+
+def should_preserve_blank_runs(mode: str, delimiter_config: object = None) -> bool:
+    if (mode or "").strip().lower() != "blank_lines":
+        return False
+    config = normalise_delimiter_config(delimiter_config, split_mode="blank_lines")
+    return int(config.get("blank_line_threshold") or 0) > 1
+
+
+def split_into_sections(
+    text: str,
+    mode: str,
+    default_title: str,
+    delimiter_config: object | None = None,
+) -> list[ImportedSection]:
     """Backward-compatible flat section list."""
-    return list(build_import_plan(text, mode, default_title).sections)
+    return list(build_import_plan(
+        text, mode, default_title, delimiter_config=delimiter_config
+    ).sections)
 
 
-def build_import_plan(text: str, mode: str, default_title: str) -> ImportPlan:
-    cleaned = normalise_whitespace(text)
+def build_import_plan(
+    text: str,
+    mode: str,
+    default_title: str,
+    delimiter_config: object | None = None,
+) -> ImportPlan:
+    mode = (mode or "none").strip().lower()
+    preserve = should_preserve_blank_runs(mode, delimiter_config)
+    cleaned = normalise_whitespace(text, collapse_blank_runs=not preserve)
     if not cleaned:
         raise ValueError("가져올 글이 비어 있습니다.")
 
-    mode = (mode or "none").strip().lower()
     if mode in {"none", ""}:
         return ImportPlan(
             chapters=(ImportedChapter(
@@ -342,10 +524,38 @@ def build_import_plan(text: str, mode: str, default_title: str) -> ImportPlan:
         return _plan_from_flat_sections(sections, default_title, as_chapters=True)
 
     if mode == "blank_lines":
-        sections = _split_by_blank_lines(cleaned, default_title)
+        config = normalise_delimiter_config(delimiter_config, split_mode=mode)
+        sections = split_by_delimiters(cleaned, default_title, config)
         return _plan_from_flat_sections(sections, default_title, as_chapters=False)
 
     raise ValueError("글 나누기 방식이 올바르지 않습니다.")
+
+
+def preview_from_plan(
+    plan: ImportPlan,
+    extracted: ExtractedDocument | None = None,
+    *,
+    limit: int = PREVIEW_SCENE_LIMIT,
+) -> dict:
+    sections = plan.sections
+    items: list[dict] = []
+    for section in sections[: max(0, int(limit))]:
+        first = (section.content or "").strip().split("\n", 1)[0].strip()
+        items.append({
+            "title": section.title,
+            "preview": first[:80],
+        })
+    warnings = list(plan.warnings or ())
+    if extracted is not None:
+        warnings = list(extracted.warnings or ()) + warnings
+    return {
+        "title": extracted.title if extracted is not None else "",
+        "format": extracted.format_name if extracted is not None else "",
+        "section_count": plan.section_count,
+        "scenes": items,
+        "truncated": plan.section_count > len(items),
+        "warnings": warnings,
+    }
 
 
 def _plan_with_hierarchy(text: str, default_title: str, *, require_toc: bool) -> ImportPlan:
@@ -455,16 +665,109 @@ def _clean_heading_title(raw: str) -> str:
     return title[:120] or "새 씬"
 
 
-def _split_by_blank_lines(text: str, default_title: str) -> list[ImportedSection]:
-    blocks = [block.strip() for block in re.split(r"\n\s*\n", text) if block.strip()]
-    if len(blocks) <= 1:
-        return [ImportedSection(title=default_title, content=text)]
+def _scene_title_from_block(block: str, index: int) -> str:
+    first_line = (block or "").split("\n", 1)[0].strip()
+    if first_line and len(first_line) <= 40:
+        return first_line
+    return f"장면 {index}"
+
+
+def _is_delimiter_marker_line(stripped: str, markers: list[str]) -> bool:
+    if not stripped or not markers:
+        return False
+    if stripped in markers:
+        return True
+    for marker in markers:
+        if marker in {"***", "---"} and len(stripped) >= len(marker) and set(stripped) == {marker[0]}:
+            return True
+    return False
+
+
+def split_by_delimiters(
+    text: str,
+    default_title: str,
+    delimiter_config: object | None = None,
+) -> list[ImportedSection]:
+    """Split manuscript text into scenes using markers and/or blank-line runs (OR).
+
+    A single blank line stays inside the scene as a paragraph break when the
+    threshold is greater than 1. Marker lines and blank runs that meet the
+    threshold are consumed as separators and are not kept in scene content.
+    """
+    config = normalise_delimiter_config(delimiter_config, split_mode="blank_lines")
+    markers = [str(item).strip() for item in (config.get("markers") or []) if str(item).strip()]
+    threshold = int(config.get("blank_line_threshold") or 0)
+    if not config.get("use_blank_lines"):
+        threshold = 0
+
+    if not markers and threshold <= 0:
+        stripped = text.strip()
+        return [ImportedSection(title=default_title, content=stripped or text)]
+
+    lines = text.split("\n")
+    chunks: list[list[str]] = []
+    current: list[str] = []
+    index = 0
+    while index < len(lines):
+        stripped = lines[index].strip()
+        if _is_delimiter_marker_line(stripped, markers):
+            if any(line.strip() for line in current):
+                chunks.append(current)
+            current = []
+            index += 1
+            continue
+        if threshold > 0 and not stripped:
+            end = index
+            while end < len(lines) and not lines[end].strip():
+                end += 1
+            blank_count = end - index
+            if blank_count >= threshold:
+                if any(line.strip() for line in current):
+                    chunks.append(current)
+                current = []
+                index = end
+                continue
+            current.extend(lines[index:end])
+            index = end
+            continue
+        current.append(lines[index])
+        index += 1
+    if any(line.strip() for line in current):
+        chunks.append(current)
+
+    if not chunks:
+        stripped = text.strip()
+        return [ImportedSection(title=default_title, content=stripped or text)]
+
     sections: list[ImportedSection] = []
-    for index, block in enumerate(blocks, start=1):
-        first_line = block.split("\n", 1)[0].strip()
-        title = first_line[:40] if len(first_line) <= 40 else f"장면 {index}"
-        sections.append(ImportedSection(title=title or f"장면 {index}", content=block))
+    for offset, chunk in enumerate(chunks, start=1):
+        block = "\n".join(chunk).strip()
+        if not block:
+            continue
+        title = _scene_title_from_block(block, offset)
+        sections.append(ImportedSection(title=title or f"장면 {offset}", content=block))
+    if not sections:
+        stripped = text.strip()
+        return [ImportedSection(title=default_title, content=stripped or text)]
+    if len(sections) == 1:
+        sections[0] = ImportedSection(title=default_title, content=sections[0].content)
     return sections
+
+
+def _split_by_blank_lines(
+    text: str,
+    default_title: str,
+    blank_line_threshold: int = 1,
+) -> list[ImportedSection]:
+    return split_by_delimiters(
+        text,
+        default_title,
+        {
+            "presets": ["blank"],
+            "blank_line_threshold": max(1, int(blank_line_threshold or 1)),
+            "use_blank_lines": True,
+        },
+    )
 
 
 @dataclass(frozen=True)
@@ -927,6 +1230,27 @@ def _toc_chunks_to_chapters(
     ]
 
 
+def _join_extracted_paragraphs(paragraphs: list[str]) -> str:
+    """Join extracted paragraphs, keeping empty ones as extra blank lines.
+
+    Consecutive non-empty paragraphs stay separated by one blank line (legacy).
+    Each empty paragraph in between adds one additional blank line so a
+    blank-line threshold greater than 1 can still work for Word/ODT files.
+    """
+    parts: list[str] = []
+    empties = 0
+    for paragraph in paragraphs:
+        if not str(paragraph or "").strip():
+            if parts:
+                empties += 1
+            continue
+        if parts:
+            parts.append("\n" * (2 + empties))
+            empties = 0
+        parts.append(str(paragraph).strip())
+    return "".join(parts)
+
+
 def _extract_plain(data: bytes) -> tuple[str, list[str]]:
     return decode_text_bytes(data), []
 
@@ -962,9 +1286,8 @@ def _extract_docx(data: bytes) -> tuple[str, list[str]]:
             elif name in {"br", "cr", "tab"}:
                 parts.append("\n" if name != "tab" else "\t")
         paragraph = "".join(parts).strip()
-        if paragraph:
-            paragraphs.append(paragraph)
-    return "\n\n".join(paragraphs), []
+        paragraphs.append(paragraph)
+    return _join_extracted_paragraphs(paragraphs), []
 
 
 def _extract_odt(data: bytes) -> tuple[str, list[str]]:
@@ -985,9 +1308,8 @@ def _extract_odt(data: bytes) -> tuple[str, list[str]]:
         if _local(element.tag) not in {"p", "h"}:
             continue
         text = "".join(element.itertext()).strip()
-        if text:
-            paragraphs.append(text)
-    return "\n\n".join(paragraphs), []
+        paragraphs.append(text)
+    return _join_extracted_paragraphs(paragraphs), []
 
 
 def _extract_hwpx(data: bytes) -> tuple[str, list[str]]:
