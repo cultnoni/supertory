@@ -25,8 +25,10 @@ if (ROOT / ".env").is_file():
 binaries: list = []
 hiddenimports = [
     "chapter_match",
+    "character_import_analysis",
     "document_export",
     "document_import",
+    "folder_tree",
     "import_hierarchy",
     "success_pattern",
     "env_loader",
@@ -34,6 +36,7 @@ hiddenimports = [
     "gemini_client",
     "korean_speller",
     "project_package",
+    "world_import_analysis",
     "proof_clean",
     "proof_diff",
     "proof_extract",
