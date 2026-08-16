@@ -116,6 +116,9 @@ MIGRATION_040_PATH = ROOT / "db" / "040_glump_fill_blank.py"
 MIGRATION_041_PATH = ROOT / "db" / "041_glump_pingpong_sessions.py"
 MIGRATION_042_PATH = ROOT / "db" / "042_glump_lucky_sentence.py"
 MIGRATION_043_PATH = ROOT / "db" / "043_glump_interrogation.py"
+MIGRATION_044_PATH = ROOT / "db" / "044_add_two_personas.py"
+MIGRATION_045_PATH = ROOT / "db" / "045_add_high_fantasy_adventurer.py"
+MIGRATION_046_PATH = ROOT / "db" / "046_reorder_reader_personas.py"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -478,6 +481,12 @@ def initialise_database() -> None:
             apply_migration_042(connection)
         if 43 not in applied:
             apply_migration_043(connection)
+        if 44 not in applied:
+            apply_migration_044(connection)
+        if 45 not in applied:
+            apply_migration_045(connection)
+        if 46 not in applied:
+            apply_migration_046(connection)
         ensure_idea_note_pin_column(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
@@ -530,6 +539,18 @@ def apply_migration_042(connection: sqlite3.Connection) -> None:
 
 def apply_migration_043(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_043_PATH).apply(connection)
+
+
+def apply_migration_044(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_044_PATH).apply(connection)
+
+
+def apply_migration_045(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_045_PATH).apply(connection)
+
+
+def apply_migration_046(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_046_PATH).apply(connection)
 
 
 def ensure_virtual_reader_personas(connection: sqlite3.Connection) -> None:
@@ -1195,12 +1216,15 @@ def _mood_color_prompt(
     )
     user_prompt = (
         "[Task Instruction]\n"
-        f"{name}과(와) 이 작품의 분위기를 퍼스널컬러 팔레트로 정리하세요. "
+        f"{name}의 성격과 외모 묘사를 기준으로, 이 캐릭터에게 어울리는 "
+        "퍼스널컬러 팔레트를 고르세요. 작품 전체 장르나 분위기만 보고 고르지 말고, "
+        "아래 캐릭터 설정에 나온 성격·외모에 맞춰 색을 고르세요. "
         "작가가 원고를 고치거나 따라 쓰게 만들지 말고, 그냥 보고 기분 전환할 "
         "색 조합만 제안하세요. 색은 3~4개입니다.\n\n"
         "출력은 JSON 객체만 반환하세요. 설명 문장이나 마크다운 코드펜스를 넣지 마세요.\n"
         '형식: {"colors": [{"name": "색 이름", "hex": "#RRGGBB", "reason": "한 줄 이유"}]}\n'
-        "hex는 반드시 #으로 시작하는 6자리 헥스코드입니다."
+        "hex는 반드시 #으로 시작하는 6자리 헥스코드입니다. "
+        "reason에는 이 캐릭터의 어떤 성격이나 외모 때문에 그 색인지 짧게 적으세요."
     )
     return core + "\n" + dynamic, user_prompt
 
@@ -1474,6 +1498,193 @@ def _parse_word_list(raw: object) -> list[dict]:
     if len(words) < 8:
         raise ValueError("json")
     return words[:10]
+
+
+NAMING_SHOP_CATEGORIES = (
+    "동양풍 인명",
+    "서양풍 인명",
+    "현대 인명",
+    "고대 무기·아이템",
+    "동서양 요괴·괴물",
+    "지명·장소",
+    "무협 용어",
+)
+
+
+def _naming_shop_prompt(genre: object) -> tuple[str, str]:
+    """Assemble naming-shop prompts. Reuses Tory Core Identity as-is."""
+    genre_label = str(genre or "").strip() or "미정"
+    core = SuperToryHandler._tory_core_identity_system_prompt()
+    dynamic = (
+        "[Dynamic Context]\n"
+        f"작품 장르: {genre_label}"
+    )
+    user_prompt = (
+        "[Task Instruction]\n"
+        "다음 7개 그룹의 이름/명칭을 각각 4~5개씩 만드세요. "
+        "하나의 스타일에 국한하지 말고 다양하게:\n"
+        "1. 동양풍 인명 (한자 느낌의 이름)\n"
+        "2. 서양풍 인명 (판타지 서양 느낌의 이름)\n"
+        "3. 현대 인명 (실제 한국 이름 같은 자연스러운 이름)\n"
+        "4. 고대 무기·아이템 이름 (전설의 검, 유물 등)\n"
+        "5. 동서양 요괴·괴물 이름 (한국·동아시아 전통 설화 느낌과 서양 판타지 "
+        "괴물 느낌을 섞어서, 창작 요괴 포함해 4~5개)\n"
+        "6. 지명·장소 이름 (마을, 성, 숲 등)\n"
+        "7. 무협 용어 (문파 이름, 무공/초식 이름, 내공심법 이름, 진법 이름을 "
+        "섞어서 4~5개, 한자어 느낌으로 그럴듯하게)\n"
+        "각 이름에 짧은 어감/뉘앙스 설명을 한 줄씩 붙이세요.\n"
+        "저작권이 있는 기존 소설·만화·게임의 유명 캐릭터명, 지명, 무기명, "
+        "요괴명과 겹치지 않게, 새로 창작한 이름만 쓰세요.\n\n"
+        "출력은 JSON 객체만 반환하세요. 설명 문장이나 마크다운 코드펜스를 넣지 마세요.\n"
+        '형식: {"groups": [{"category": "동양풍 인명", '
+        '"items": [{"name": "이름", "nuance": "짧은 뉘앙스"}]}, '
+        '{"category": "무협 용어", "items": [{"name": "이름", "nuance": "짧은 뉘앙스"}]}]}\n'
+        "groups는 위 7개 카테고리를 모두 포함해야 하고, 각 items는 4개 또는 5개입니다."
+    )
+    return core + "\n" + dynamic, user_prompt
+
+
+def _naming_shop_category_key(label: object) -> str:
+    text = str(label or "").strip()
+    if text in NAMING_SHOP_CATEGORIES:
+        return text
+    if (
+        "무협" in text
+        or "문파" in text
+        or "무공" in text
+        or "초식" in text
+        or "내공" in text
+        or "진법" in text
+    ):
+        return "무협 용어"
+    if "무기" in text or "아이템" in text or "유물" in text:
+        return "고대 무기·아이템"
+    if "요괴" in text or "괴물" in text:
+        return "동서양 요괴·괴물"
+    if "지명" in text or "장소" in text or "마을" in text:
+        return "지명·장소"
+    if "현대" in text:
+        return "현대 인명"
+    if "서양" in text:
+        return "서양풍 인명"
+    if "동양" in text or "한자" in text:
+        return "동양풍 인명"
+    return ""
+
+
+def _parse_naming_shop(raw: object) -> list[dict]:
+    cleaned = SuperToryHandler._strip_json_fence(str(raw or ""))
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}", cleaned, re.S)
+        if not match:
+            raise ValueError("json")
+        data = json.loads(match.group(0))
+    groups_raw = None
+    if isinstance(data, dict):
+        groups_raw = data.get("groups") or data.get("categories") or data.get("items")
+        if groups_raw is None:
+            groups_raw = [
+                {"category": key, "items": value}
+                for key, value in data.items()
+                if key in NAMING_SHOP_CATEGORIES
+            ]
+    elif isinstance(data, list):
+        groups_raw = data
+    if not isinstance(groups_raw, list):
+        raise ValueError("json")
+    by_category: dict[str, list[dict]] = {}
+    for group in groups_raw:
+        if not isinstance(group, dict):
+            continue
+        category = _naming_shop_category_key(
+            group.get("category") or group.get("title") or group.get("name")
+        )
+        items_raw = group.get("items") or group.get("names") or group.get("list")
+        if not category or not isinstance(items_raw, list):
+            continue
+        items: list[dict] = []
+        for item in items_raw:
+            if isinstance(item, dict):
+                name = str(item.get("name") or item.get("title") or item.get("word") or "").strip()
+                nuance = str(item.get("nuance") or item.get("note") or item.get("meaning") or "").strip()
+            else:
+                name = str(item or "").strip()
+                nuance = ""
+            if not name:
+                continue
+            items.append({"name": name, "nuance": nuance})
+            if len(items) >= 5:
+                break
+        if len(items) >= 4:
+            by_category[category] = items[:5]
+    groups = [
+        {"category": category, "items": by_category[category]}
+        for category in NAMING_SHOP_CATEGORIES
+        if category in by_category
+    ]
+    if len(groups) < len(NAMING_SHOP_CATEGORIES):
+        raise ValueError("json")
+    return groups
+
+
+def _character_tarot_prompt(
+    genre: object, character_name: object, character_settings: object
+) -> tuple[str, str]:
+    """Assemble character-tarot prompts. Reuses Tory Core Identity as-is."""
+    genre_label = str(genre or "").strip() or "미정"
+    name = str(character_name or "").strip() or "주인공"
+    settings = str(character_settings or "").strip() or "(설정집 인물 없음)"
+    core = SuperToryHandler._tory_core_identity_system_prompt()
+    dynamic = (
+        "[Dynamic Context]\n"
+        f"작품 장르: {genre_label}\n\n"
+        "[해당 캐릭터 설정]\n"
+        f"{settings}"
+    )
+    user_prompt = (
+        "[Task Instruction]\n"
+        f"{name}에게 어울리는 가상의 타로 카드 2~3장을 뽑아서, "
+        "이 캐릭터의 성격이나 지금까지의 서사에 빗대어 재미있게 풀이하세요. "
+        "실제 타로 카드 이름(운명의 수레바퀴, 탑, 별 등 전통적인 타로 명칭)을 "
+        "써도 되지만, 이건 실제 점술이 아니라 캐릭터 서사를 위한 창작 놀이임을 "
+        "톤에서 느껴지게 가볍고 재미있게 쓰세요. "
+        "진지한 예언처럼 쓰지 말고, 캐릭터 서사를 재밌게 비트는 정도로만 쓰세요.\n\n"
+        "출력은 JSON 객체만 반환하세요. 설명 문장이나 마크다운 코드펜스를 넣지 마세요.\n"
+        '형식: {"cards": [{"name": "카드 이름", "meaning": "이 캐릭터에게 어떻게 적용되는지 재미있는 풀이"}]}\n'
+        "cards는 2개 또는 3개입니다."
+    )
+    return core + "\n" + dynamic, user_prompt
+
+
+def _parse_character_tarot(raw: object) -> list[dict]:
+    cleaned = SuperToryHandler._strip_json_fence(str(raw or ""))
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\{.*\}|\[.*\]", cleaned, re.S)
+        if not match:
+            raise ValueError("json")
+        data = json.loads(match.group(0))
+    if isinstance(data, dict):
+        data = data.get("cards") or data.get("items") or data.get("list")
+    if not isinstance(data, list):
+        raise ValueError("json")
+    cards: list[dict] = []
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name") or item.get("title") or "").strip()
+        meaning = str(item.get("meaning") or item.get("reading") or item.get("text") or "").strip()
+        if not name or not meaning:
+            continue
+        cards.append({"name": name, "meaning": meaning})
+        if len(cards) >= 3:
+            break
+    if len(cards) < 2:
+        raise ValueError("json")
+    return cards
 
 
 def _fill_blank_skeleton_prompt(
@@ -3423,6 +3634,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.glump_mood_board(body))
                 return
 
+            if path == "/api/glump/character-tarot":
+                self.send_json(self.glump_character_tarot(body))
+                return
+
+            if path == "/api/glump/naming-shop":
+                self.send_json(self.glump_naming_shop(body))
+                return
+
             if path == "/api/glump/tool-log":
                 self.send_json(self.glump_log_tool(body))
                 return
@@ -4717,7 +4936,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if colors is None:
             raise GlumpRetryError("다시 시도해주세요") from last_error
         self._insert_glump_tool_log(work_id, "mood_color")
-        return {"colors": colors, "character_name": character["name"]}
+        return {
+            "colors": colors,
+            "character_name": character["name"],
+            "character_role": character.get("role") or "",
+        }
 
     def glump_mood_playlist(self, body: dict) -> dict:
         """Show a view-only fictional playlist. Does not edit the manuscript."""
@@ -4804,6 +5027,60 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             raise GlumpRetryError("다시 시도해주세요") from last_error
         self._insert_glump_tool_log(work_key, "word_list")
         return {"words": words}
+
+    def glump_character_tarot(self, body: dict) -> dict:
+        """Show a playful character tarot reading. Does not edit the manuscript."""
+        work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
+        character_name = str(body.get("character_name") or "").strip()
+        if not work_id:
+            raise ValueError("작품을 선택해 주세요.")
+        character = _glump_load_interrogation_character(work_id, character_name or None)
+        genre = _glump_work_genre_label(work_id)
+        system, user_prompt = _character_tarot_prompt(
+            genre, character["name"], character["settings_text"]
+        )
+        last_error: Exception | None = None
+        cards: list[dict] | None = None
+        for _attempt in range(2):
+            try:
+                raw = gemini_client.generate_text(
+                    user_prompt, system=system, temperature=0.9
+                )
+                cards = _parse_character_tarot(raw)
+                break
+            except gemini_client.GeminiError as error:
+                raise ValueError(str(error)) from error
+            except (ValueError, json.JSONDecodeError) as error:
+                last_error = error
+        if cards is None:
+            raise GlumpRetryError("다시 시도해주세요") from last_error
+        self._insert_glump_tool_log(work_id, "character_tarot")
+        return {"cards": cards, "character_name": character["name"]}
+
+    def glump_naming_shop(self, body: dict) -> dict:
+        """Show a view-only naming shop. Does not edit the manuscript."""
+        work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
+        if not work_id:
+            raise ValueError("작품을 선택해 주세요.")
+        genre = _glump_work_genre_label(work_id)
+        system, user_prompt = _naming_shop_prompt(genre)
+        last_error: Exception | None = None
+        groups: list[dict] | None = None
+        for _attempt in range(2):
+            try:
+                raw = gemini_client.generate_text(
+                    user_prompt, system=system, temperature=0.9, max_output_tokens=4096
+                )
+                groups = _parse_naming_shop(raw)
+                break
+            except gemini_client.GeminiError as error:
+                raise ValueError(str(error)) from error
+            except (ValueError, json.JSONDecodeError) as error:
+                last_error = error
+        if groups is None:
+            raise GlumpRetryError("다시 시도해주세요") from last_error
+        self._insert_glump_tool_log(work_id, "naming_shop")
+        return {"groups": groups}
 
     def glump_log_tool(self, body: dict) -> dict:
         """Record a client-only Glump ER tool start. Does not call Gemini."""

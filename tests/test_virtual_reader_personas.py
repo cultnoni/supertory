@@ -46,13 +46,13 @@ class VirtualReaderPersonasMigrationTests(unittest.TestCase):
 
     def test_seed_matches_json_personas(self) -> None:
         expected_ids = [persona["id"] for persona in _PERSONAS]
-        self.assertEqual(len(expected_ids), 21)
+        self.assertEqual(len(expected_ids), 24)
         with app.database() as connection:
             rows = connection.execute(
                 "SELECT id, category, name, criteria, sample_responses, created_at "
                 "FROM virtual_reader_personas ORDER BY display_order, id"
             ).fetchall()
-            self.assertEqual(len(rows), 21)
+            self.assertEqual(len(rows), 24)
             self.assertEqual([row["id"] for row in rows], expected_ids)
             for row, persona in zip(rows, _PERSONAS):
                 self.assertEqual(row["category"], persona["category"])
@@ -201,4 +201,198 @@ class VirtualReaderPersonasMigrationTests(unittest.TestCase):
         self.assertEqual(after_cider["name"], "로맨스·로판 사이다파")
         self.assertEqual(dict(after_other), dict(before))
         self.assertEqual(versions, 1)
+
+    def test_migration_44_records_version_and_adds_two_personas(self) -> None:
+        expected_new = {
+            "game_system_maniac": "게임물 시스템 매니아",
+            "alt_history_analyst": "대체역사 개연성 분석가",
+        }
+        with app.database() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM schema_migration WHERE version = 44"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            rows = connection.execute(
+                """
+                SELECT id, name, category, identity, sample_responses, display_order
+                FROM virtual_reader_personas
+                WHERE id IN (?, ?)
+                ORDER BY display_order
+                """,
+                tuple(expected_new),
+            ).fetchall()
+            self.assertEqual(len(rows), 2)
+            seed = {persona["id"]: persona for persona in _PERSONAS}
+            by_id = {row["id"]: row for row in rows}
+            for persona_id, name in expected_new.items():
+                row = by_id[persona_id]
+                persona = seed[persona_id]
+                self.assertEqual(row["name"], name)
+                self.assertEqual(row["category"], persona["category"])
+                self.assertEqual(row["identity"], persona["identity"])
+                self.assertEqual(
+                    json.loads(row["sample_responses"]), persona["sample_responses"]
+                )
+                self.assertEqual(row["display_order"], persona["display_order"])
+            critic = connection.execute(
+                "SELECT identity, sample_responses FROM virtual_reader_personas "
+                "WHERE id = 'sf_hardcore_critic'"
+            ).fetchone()
+            self.assertEqual(critic["identity"], seed["sf_hardcore_critic"]["identity"])
+            self.assertIn("SF·판타지의 마법이든 과학이든", critic["identity"])
+            self.assertEqual(
+                json.loads(critic["sample_responses"]),
+                seed["sf_hardcore_critic"]["sample_responses"],
+            )
+
+    def test_migration_44_is_idempotent_and_leaves_other_columns(self) -> None:
+        migration = app._load_py_migration(app.MIGRATION_044_PATH)
+        with app.database() as connection:
+            before = connection.execute(
+                """
+                SELECT id, category, tone, forbidden, discussion_attitude, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'wuxia_romantic'
+                """
+            ).fetchone()
+            before_critic = connection.execute(
+                """
+                SELECT category, name, tone, forbidden, discussion_attitude, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'sf_hardcore_critic'
+                """
+            ).fetchone()
+            connection.execute(
+                "UPDATE virtual_reader_personas SET identity = '옛문장' "
+                "WHERE id = 'sf_hardcore_critic'"
+            )
+            migration.apply(connection)
+            after_critic = connection.execute(
+                "SELECT identity, category, name, tone, forbidden, "
+                "discussion_attitude, display_order "
+                "FROM virtual_reader_personas WHERE id = 'sf_hardcore_critic'"
+            ).fetchone()
+            after_other = connection.execute(
+                """
+                SELECT id, category, tone, forbidden, discussion_attitude, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'wuxia_romantic'
+                """
+            ).fetchone()
+            versions = connection.execute(
+                "SELECT COUNT(*) FROM schema_migration WHERE version = 44"
+            ).fetchone()[0]
+            count = connection.execute(
+                "SELECT COUNT(*) FROM virtual_reader_personas"
+            ).fetchone()[0]
+        self.assertIn("SF·판타지의 마법이든 과학이든", after_critic["identity"])
+        self.assertEqual(after_critic["category"], before_critic["category"])
+        self.assertEqual(after_critic["name"], before_critic["name"])
+        self.assertEqual(after_critic["tone"], before_critic["tone"])
+        self.assertEqual(after_critic["forbidden"], before_critic["forbidden"])
+        self.assertEqual(
+            after_critic["discussion_attitude"], before_critic["discussion_attitude"]
+        )
+        self.assertEqual(after_critic["display_order"], before_critic["display_order"])
+        self.assertEqual(dict(after_other), dict(before))
+        self.assertEqual(versions, 1)
+        self.assertEqual(count, 24)
+
+    def test_migration_45_records_version_and_adds_adventurer(self) -> None:
+        with app.database() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM schema_migration WHERE version = 45"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            persona = connection.execute(
+                """
+                SELECT id, name, category, identity, sample_responses, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'high_fantasy_adventurer'
+                """
+            ).fetchone()
+            self.assertIsNotNone(persona)
+            seed = next(item for item in _PERSONAS if item["id"] == "high_fantasy_adventurer")
+            self.assertEqual(persona["name"], "정통 판타지 모험가")
+            self.assertEqual(persona["category"], seed["category"])
+            self.assertEqual(persona["identity"], seed["identity"])
+            self.assertEqual(
+                json.loads(persona["sample_responses"]), seed["sample_responses"]
+            )
+            self.assertEqual(persona["display_order"], seed["display_order"])
+            count = connection.execute(
+                "SELECT COUNT(*) FROM virtual_reader_personas"
+            ).fetchone()[0]
+            self.assertEqual(count, 24)
+
+    def test_migration_45_is_idempotent_and_leaves_other_rows(self) -> None:
+        migration = app._load_py_migration(app.MIGRATION_045_PATH)
+        with app.database() as connection:
+            before = connection.execute(
+                """
+                SELECT id, category, name, tone, forbidden, discussion_attitude, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'wuxia_romantic'
+                """
+            ).fetchone()
+            migration.apply(connection)
+            after_other = connection.execute(
+                """
+                SELECT id, category, name, tone, forbidden, discussion_attitude, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'wuxia_romantic'
+                """
+            ).fetchone()
+            versions = connection.execute(
+                "SELECT COUNT(*) FROM schema_migration WHERE version = 45"
+            ).fetchone()[0]
+            count = connection.execute(
+                "SELECT COUNT(*) FROM virtual_reader_personas"
+            ).fetchone()[0]
+        self.assertEqual(dict(after_other), dict(before))
+        self.assertEqual(versions, 1)
+        self.assertEqual(count, 24)
+
+    def test_migration_46_reorders_genre_specialist_after_tension(self) -> None:
+        expected = [
+            "roppan_cider",
+            "roppan_narrative",
+            "modern_romance_flutter",
+            "modern_romance_tension",
+            "modern_fantasy_pro",
+            "hunter_speedrunner",
+            "game_system_maniac",
+            "high_fantasy_adventurer",
+            "wuxia_romantic",
+        ]
+        with app.database() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM schema_migration WHERE version = 46"
+            ).fetchone()
+            self.assertIsNotNone(row)
+            rows = connection.execute(
+                """
+                SELECT id, name, display_order
+                FROM virtual_reader_personas
+                ORDER BY display_order, id
+                """
+            ).fetchall()
+            self.assertEqual([row["id"] for row in rows[:9]], expected)
+            self.assertEqual(
+                [row["name"] for row in rows[4:9]],
+                [
+                    "현판 전문직·재벌물 실용파",
+                    "헌터물 스피드러너",
+                    "게임물 시스템 매니아",
+                    "정통 판타지 모험가",
+                    "정통 무협 낭만파",
+                ],
+            )
+            seed_ids = [persona["id"] for persona in _PERSONAS]
+            self.assertEqual([row["id"] for row in rows], seed_ids)
+            for row, persona in zip(rows, _PERSONAS):
+                self.assertEqual(row["display_order"], persona["display_order"])
+
+
+
 

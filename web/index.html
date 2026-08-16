@@ -30,7 +30,7 @@
         }
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.3.4">
+    <link rel="stylesheet" href="/styles.css?v=1.4.3">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2726,8 +2726,12 @@
               </div>
             </div>
             <div id="toryChatCharacterPicker" class="tory-chat-character-picker">
-              <div class="tory-chat-subhead">
-                <button type="button" class="secondary compact-btn tory-chat-back-btn" id="toryChatCharacterPickerBack" title="대화창으로">← 대화창</button>
+              <div class="tory-chat-subhead tory-chat-character-head">
+                <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatCharacterPickerBack" title="대화창으로" aria-label="대화창으로">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M15 5 8 12l7 7"/>
+                  </svg>
+                </button>
                 <strong>내 캐릭터와 대화하기</strong>
               </div>
               <p class="hint tory-chat-character-hint">한 명 또는 여러 명을 고르면 단톡방으로 이야기할 수 있어요.</p>
@@ -2738,12 +2742,47 @@
             </div>
             <div id="toryChatReaderView" class="tory-chat-reader-view">
               <div id="readerPersonaPicker" class="reader-persona-picker">
-                <div class="tory-chat-subhead">
-                  <button type="button" class="secondary compact-btn tory-chat-back-btn" id="toryChatReaderBack" title="대화창으로">← 대화창</button>
-                  <strong>가상 독자와 대화하기</strong>
+                <div class="reader-persona-mode-tabs" role="tablist" aria-label="가상 독자 목록 모드">
+                  <button type="button" class="reader-persona-mode-tab is-active" id="readerListModeChat" data-reader-list-mode="chat" role="tab" aria-selected="true">1:1 대화</button>
+                  <button type="button" class="reader-persona-mode-tab" id="readerListModeDebate" data-reader-list-mode="debate" role="tab" aria-selected="false">토론 패널</button>
                 </div>
-                <p class="hint reader-persona-hint">독자 카드를 고르면 그 시점으로 원고에 반응해 줘요.</p>
-                <div id="readerPersonaGrid" class="reader-persona-grid" aria-label="가상 독자 목록"></div>
+                <div class="tory-chat-subhead reader-persona-list-head">
+                  <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatReaderBack" title="대화창으로" aria-label="대화창으로">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M15 5 8 12l7 7"/>
+                    </svg>
+                  </button>
+                  <strong>가상 독자 목록</strong>
+                  <button type="button" class="secondary compact-btn" id="readerPersonaAllButton" title="독자 카드를 한눈에 펼쳐 보기">전체보기</button>
+                </div>
+                <p class="hint reader-persona-hint" id="readerPersonaChatHint">독자를 한 명 고른 뒤 대화를 시작해요.</p>
+                <div id="readerPersonaChatPane" class="reader-persona-chat-pane">
+                  <div id="readerPersonaGrid" class="reader-persona-grid" aria-label="가상 독자 목록"></div>
+                  <div class="reader-debate-actions" id="readerChatStartActions">
+                    <p class="hint reader-debate-start-hint" id="readerChatStartHint">독자를 한 명 골라주세요</p>
+                    <button type="button" class="primary" id="readerChatStartButton" disabled>대화 시작하기</button>
+                  </div>
+                </div>
+                <div id="readerDebatePane" class="reader-debate-pane hidden">
+                  <p class="reader-debate-count" id="readerDebateCount" aria-live="polite">0 / 5명 선택됨</p>
+                  <div id="readerDebateGrid" class="reader-debate-grid" aria-label="토론할 가상 독자 고르기"></div>
+                  <div class="reader-debate-actions">
+                    <p class="hint reader-debate-start-hint" id="readerDebateStartHint">최소 3명을 골라주세요</p>
+                    <button type="button" class="primary" id="readerDebateStartButton" disabled>토론 시작하기</button>
+                  </div>
+                </div>
+              </div>
+              <div id="readerDebateRoom" class="reader-debate-room hidden">
+                <div class="tory-chat-subhead">
+                  <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="readerDebateRoomBack" title="독자 목록으로" aria-label="독자 목록으로">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M15 5 8 12l7 7"/>
+                    </svg>
+                  </button>
+                  <strong>토론 패널</strong>
+                </div>
+                <p class="hint">토론 진행 화면은 곧 연결돼요. 지금은 고른 독자만 확인해요.</p>
+                <ul id="readerDebateRoomList" class="reader-debate-room-list"></ul>
               </div>
               <div id="readerChatRoom" class="reader-chat-room hidden">
                 <div class="reader-chat-toolbar">
@@ -2772,39 +2811,58 @@
             </div>
             <div id="toryChatRoom" class="tory-chat-room">
               <div class="tory-chat-toolbar">
-                <button type="button" class="secondary tory-chat-action-btn tory-chat-back-btn" id="toryChatRoomBack" title="대화창으로">← 대화창</button>
+                <button type="button" class="secondary tory-chat-action-btn tory-chat-back-btn tory-chat-icon-btn tory-chat-back-icon-btn" id="toryChatRoomBack" title="대화창으로" aria-label="대화창으로">
+                  <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                    <path d="M15 5 8 12l7 7"/>
+                  </svg>
+                </button>
                 <div class="tory-chat-toolbar-actions">
                   <button
                     type="button"
-                    class="secondary tory-chat-action-btn tory-chat-hl-btn"
+                    class="secondary tory-chat-action-btn tory-chat-icon-btn tory-chat-hl-btn"
                     id="toryChatHighlightButton"
                     title="토리 답변 드래그 후 클릭: 형광펜 · 우클릭: 색 고르기"
                     aria-label="형광펜"
                   >
                     <span class="tory-chat-hl-icon" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
                         <path d="m9 11-6 6v3h9l3-3"/>
                         <path d="m22 12-4.6 4.6a2 2 0 0 1-2.8 0l-5.2-5.2a2 2 0 0 1 0-2.8L14 4"/>
                       </svg>
                     </span>
                     <span class="tory-chat-hl-bar" id="toryChatHighlightBar" aria-hidden="true"></span>
                   </button>
-                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화">
-                    팝업창
+                  <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화" aria-label="팝업창">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                      <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                    </svg>
                   </button>
-                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatHistoryButton" title="지운 대화·이전 대화 목록">
-                    히스토리
+                  <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatHistoryButton" title="지운 대화·이전 대화 목록" aria-label="히스토리">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M3 12a9 9 0 1 0 3-6.7"/>
+                      <path d="M3 4v5h5"/>
+                      <path d="M12 7v5l3 2"/>
+                    </svg>
                   </button>
-                  <button type="button" class="secondary tory-chat-action-btn" id="toryChatClearButton" title="현재 대화를 비우고 히스토리에 보관">
-                    대화 지우기
+                  <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatClearButton" title="현재 대화를 비우고 히스토리에 보관" aria-label="대화 지우기">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M4 7h16"/>
+                      <path d="M9 7V5h6v2"/>
+                      <path d="M6 7l1 12h10l1-12"/>
+                    </svg>
                   </button>
                   <button
                     type="button"
-                    class="secondary tory-chat-action-btn tory-chat-success-summon hidden"
+                    class="secondary tory-chat-action-btn tory-chat-icon-btn tory-chat-success-summon hidden"
                     id="toryChatSuccessSummonButton"
                     title="흥행 프로파일을 근거로 분석가 세션을 엽니다"
+                    aria-label="흥행요인 분석가 소환"
                   >
-                    흥행요인 분석가 소환
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M3 17 9 11l4 4 8-8"/>
+                      <path d="M14 7h7v7"/>
+                    </svg>
                   </button>
                 </div>
               </div>
@@ -2938,6 +2996,22 @@
         </div>
         <div class="modal-actions">
           <button type="button" class="secondary" data-close-reader-scene-picker>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="readerPersonaAllModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="readerPersonaAllTitle">
+      <div class="modal-backdrop" data-close-reader-persona-all></div>
+      <div class="modal-card reader-persona-all-modal-card">
+        <div class="modal-heading">
+          <h2 id="readerPersonaAllTitle">가상 독자 전체보기</h2>
+          <button type="button" class="modal-close" data-close-reader-persona-all title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="hint modal-hint" id="readerPersonaAllHint">카드를 누르면 그 독자와 대화를 시작해요. 소개는 잘리지 않고 전부 보여 줍니다.</p>
+        <p class="reader-debate-count hidden" id="readerPersonaAllDebateCount" aria-live="polite">0 / 5명 선택됨</p>
+        <div id="readerPersonaAllGrid" class="reader-persona-all-grid" aria-label="가상 독자 전체 목록"></div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-reader-persona-all>닫기</button>
         </div>
       </div>
     </div>
@@ -3615,7 +3689,7 @@
       <div class="modal-backdrop" data-close-glump-er></div>
       <div class="modal-card success-pattern-modal-card glump-er-modal-card">
         <div class="modal-heading">
-          <h2 id="glumpErModalTitle">글럼프 응급실</h2>
+          <h2 id="glumpErModalTitle"><span class="glump-er-title-icon" aria-hidden="true">⛑️</span>글럼프 응급실</h2>
           <button type="button" class="modal-close" data-close-glump-er title="닫기" aria-label="닫기">×</button>
         </div>
         <div class="success-pattern-wizard glump-er-wizard" aria-label="글럼프 응급실">
@@ -3628,25 +3702,20 @@
             </button>
             <div class="glump-er-tool-grid" role="group" aria-label="글럼프 도구">
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="wildcard_spark">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">⚡</span>와일드카드 스파크</strong>
-                <em class="glump-er-warn-badge">⚠ 막장주의</em>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">⚡</span>와일드카드 스파크 <em class="glump-er-warn-badge">⚠ 막장주의</em></strong>
                 <span>막힌 전개에 사이다 대신 벼락 투척, 감당은 작가님 몫</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="ten_min_sprint">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">⏱️</span>10분 뇌 빼고 쓰기</strong>
                 <span>수정 금지! 일단 뇌 끄고 손가락만 굴리기</span>
               </button>
-              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="fill_blank_game">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🧩</span>빈칸 채우기 게임</strong>
-                <span>뼈대는 토리가, 디테일은 작가님이 — 퀘스트 깨듯 쓱쓱</span>
-              </button>
-              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="mental_vitamin">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">💊</span>멘탈 비타민</strong>
-                <span>내가 쓴 명대사 복습하고 캐릭터한테 응원 받기</span>
-              </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="pingpong_relay">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">🏓</span>핑퐁 릴레이</strong>
                 <span>엔터치면 핑, 토리가 퐁, 어느새 초안 뚝딱</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="fill_blank_game">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🧩</span>빈칸 채우기 게임</strong>
+                <span>뼈대는 토리가, 디테일은 작가님이 — 퀘스트 깨듯 쓱쓱</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="lucky_sentence">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">🍀</span>럭키 문장 뽑기</strong>
@@ -3655,6 +3724,14 @@
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="character_interrogation">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">🎤</span>캐릭터 1:1 청문회</strong>
                 <span>주인공 소환해서 '너 진짜 어디로 갈 건데' 추궁하기</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="brain_park">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🖐️</span>손가락 놀이터</strong>
+                <span>타이핑 말고 클릭만, 캐릭터랑 잠깐 놀아요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-tool="mental_vitamin">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">💊</span>멘탈 비타민</strong>
+                <span>내가 쓴 명대사 복습하고 캐릭터한테 응원 받기</span>
               </button>
             </div>
           </div>
@@ -3690,7 +3767,7 @@
             <p class="hint" id="glumpErToolName"></p>
             <div id="glumpErRestChoices" class="glump-er-choices hidden" role="group" aria-label="휴식 선택">
               <button type="button" class="glump-er-choice" data-glump-rest="write">조금이라도 써볼래요</button>
-              <button type="button" class="glump-er-choice" data-glump-rest="play">부담없는 딴짓 할래요</button>
+              <button type="button" class="glump-er-choice" data-glump-rest="play">손가락 놀이터 할래요</button>
               <button type="button" class="glump-er-choice" data-glump-rest="rest">오늘은 그냥 쉴래요</button>
             </div>
             <div id="glumpErToolActions" class="glump-er-nav">
@@ -3782,12 +3859,12 @@
           </div>
 
           <div id="glumpErStepDiversions" class="hidden" data-glump-step="diversions">
-            <strong class="glump-er-q">부담없는 딴짓</strong>
+            <strong class="glump-er-q">손가락 놀이터</strong>
             <p class="hint">원고에는 안 들어가요. 보고만 있어도 돼요.</p>
-            <div class="glump-er-tool-grid" role="group" aria-label="부담없는 딴짓">
+            <div class="glump-er-tool-grid" role="group" aria-label="손가락 놀이터">
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_color">
-                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎨</span>퍼스널컬러 찾기</strong>
-                <span>이 작품 분위기를 색으로만 볼게요</span>
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🎨</span>캐릭터 퍼스널컬러 찾기</strong>
+                <span>내 캐릭터한테 어울리는 색, AI가 골라드려요</span>
               </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="mood_playlist">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">🎵</span>가상 플레이리스트 뽑기</strong>
@@ -3801,6 +3878,14 @@
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">📝</span>단어집 둘러보기</strong>
                 <span>장르 단어를 입안에서만 굴려 볼게요</span>
               </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="character_tarot">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🔮</span>캐릭터 타로 풀이</strong>
+                <span>내 캐릭터 운명, 타로로 한 번 봐드릴게요</span>
+              </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="naming_shop">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">🪶</span>작명소</strong>
+                <span>이름이 안 떠오를 때, 동양·서양·현대 한 번에 쭉 보기</span>
+              </button>
             </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErDiversionsBack">이전</button>
@@ -3808,7 +3893,7 @@
           </div>
 
           <div id="glumpErStepDiversionResult" class="hidden" data-glump-step="diversionResult">
-            <strong class="glump-er-q" id="glumpErDiversionTitle">부담없는 딴짓</strong>
+            <strong class="glump-er-q" id="glumpErDiversionTitle">손가락 놀이터</strong>
             <p class="hint" id="glumpErDiversionStatus"></p>
             <div id="glumpErDiversionBody" class="glump-er-diversion-body"></div>
             <div id="glumpErDiversionExit" class="glump-er-choices glump-er-exit-equal hidden" role="group" aria-label="딴짓 끝내기">
@@ -5913,6 +5998,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=20260813-stone"></script>
+    <script src="/app.js?v=20260816-tory-toolbar"></script>
   </body>
 </html>

@@ -199,6 +199,9 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertIn(core, system)
         self.assertIn("리아", system)
         self.assertIn("퍼스널컬러", user)
+        self.assertIn("성격", user)
+        self.assertIn("외모", user)
+        self.assertNotIn("이 작품의 분위기", user)
         self.assertIn('"colors"', user)
         colors = app._parse_mood_colors(COLORS_JSON)
         self.assertEqual(len(colors), 3)
@@ -313,4 +316,4 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertEqual(photos[0]["url"], "https://images.example.com/fog-large.jpg")
         self.assertEqual(photos[0]["photographer"], "Example Photographer")
         self.assertEqual(self._logged_tools(pid), ["mood_board"])
-)
+

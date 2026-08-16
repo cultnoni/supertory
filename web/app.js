@@ -14375,8 +14375,9 @@ function syncToryChatRoomChrome() {
   const names = getToryChatPartnerNames();
   const back = $("toryChatRoomBack");
   if (back) {
-    back.textContent = inCharacter ? "← 인물 선택" : "← 대화창";
-    back.title = inCharacter ? "인물 선택으로" : "대화창으로";
+    const label = inCharacter ? "인물 선택으로" : "대화창으로";
+    back.title = label;
+    back.setAttribute("aria-label", label);
   }
   const input = $("toryChatInput");
   if (input) {
@@ -15701,13 +15702,15 @@ const READER_PERSONA_CATEGORY_LABELS = {
   structure_wildcard: "구조",
 };
 const READER_AVATAR_BASE = "/assets/reader_avatars";
-const READER_AVATAR_VERSION = "20260816";
+const READER_AVATAR_VERSION = "20260816d";
 const READER_CHAT_SESSION_PREFIX = "supertory.readerChat.sessions.";
 
 /** @type {Record<string, any[]>|null} */
 let readerPersonaCache = null;
 /** @type {any|null} */
 let readerChatPersona = null;
+/** @type {string} */
+let readerChatSelectedId = "";
 /** @type {Array<{role:string,content:string}>} */
 let readerChatMessages = [];
 let readerChatSending = false;
@@ -15796,6 +15799,19 @@ function summarizeReaderIdentity(text, limit = 72) {
   return `${raw.slice(0, limit - 1)}…`;
 }
 
+function readerPersonaCardHtml(persona, { fullIdentity = false } = {}) {
+  const identity = fullIdentity
+    ? String(persona.identity || "").replace(/\s+/g, " ").trim()
+    : summarizeReaderIdentity(persona.identity);
+  return `<button type="button" class="reader-persona-card" data-reader-persona="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}" aria-pressed="false">`
+    + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
+    + `<span class="reader-persona-card-text">`
+    + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
+    + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
+    + `</span>`
+    + `</button>`;
+}
+
 function flattenReaderPersonas(grouped) {
   const out = [];
   Object.keys(READER_PERSONA_CATEGORY_LABELS).forEach((key) => {
@@ -15814,6 +15830,7 @@ function showReaderPersonaGrid() {
   const room = $("readerChatRoom");
   room?.classList.add("hidden");
   if (room) room.hidden = true;
+  $("readerDebateRoom")?.classList.add("hidden");
 }
 
 function showReaderChatRoom() {
@@ -15860,17 +15877,9 @@ async function loadAndRenderReaderPersonas() {
       grid.innerHTML = `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
       return;
     }
-    grid.innerHTML = people.map((persona) => {
-      const identity = summarizeReaderIdentity(persona.identity);
-      return `<button type="button" class="reader-persona-card" data-reader-persona="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}">`
-        + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
-        + `<span class="reader-persona-card-text">`
-        + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
-        + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
-        + `</span>`
-        + `</button>`;
-    }).join("");
+    grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
     bindReaderAvatarErrors(grid);
+    syncReaderChatSelectionUi();
   } catch (error) {
     grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
     handleError(error);
@@ -16083,12 +16092,131 @@ async function sendReaderChatMessage(event) {
   }
 }
 
+function closeReaderPersonaAllModal() {
+  $("readerPersonaAllModal")?.classList.add("hidden");
+}
+
+async function openReaderPersonaAllModal() {
+  const modal = $("readerPersonaAllModal");
+  const grid = $("readerPersonaAllGrid");
+  if (!modal || !grid) return;
+  if (!state.projectId) {
+    toast("작품을 먼저 선택해 주세요.");
+    return;
+  }
+  const isDebate = readerListMode === "debate";
+  grid.classList.toggle("is-debate", isDebate);
+  const title = $("readerPersonaAllTitle");
+  const hint = $("readerPersonaAllHint");
+  const countEl = $("readerPersonaAllDebateCount");
+  if (title) title.textContent = isDebate ? "토론 패널 전체보기" : "가상 독자 전체보기";
+  if (hint) {
+    hint.textContent = isDebate
+      ? "카드를 눌러 토론할 독자를 골라 주세요. 소개는 잘리지 않고 전부 보여 줍니다."
+      : "카드를 눌러 대화할 독자를 고른 뒤, 대화 시작하기를 눌러 주세요.";
+  }
+  countEl?.classList.toggle("hidden", !isDebate);
+  try {
+    if (!readerPersonaCache) {
+      readerPersonaCache = await api("/api/reader-personas");
+    }
+    if (isDebate) {
+      grid.innerHTML = readerDebateSectionsHtml({ fullIdentity: true })
+        || `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+      bindReaderAvatarErrors(grid);
+      syncReaderDebateSelectionUi();
+    } else {
+      const people = flattenReaderPersonas(readerPersonaCache);
+      if (!people.length) {
+        grid.innerHTML = `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+      } else {
+        grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona, { fullIdentity: true })).join("");
+        bindReaderAvatarErrors(grid);
+        syncReaderChatSelectionUi();
+      }
+    }
+  } catch (error) {
+    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    handleError(error);
+  }
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    const closeBtn = modal.querySelector("[data-close-reader-persona-all].modal-close");
+    try {
+      closeBtn?.focus({ preventScroll: true });
+    } catch (_) {
+      closeBtn?.focus();
+    }
+  });
+}
+
+function syncReaderChatSelectionUi() {
+  const selected = String(readerChatSelectedId || "").trim();
+  document.querySelectorAll("#readerPersonaGrid [data-reader-persona], #readerPersonaAllGrid [data-reader-persona]").forEach((card) => {
+    const on = card.getAttribute("data-reader-persona") === selected;
+    card.classList.toggle("is-selected", on);
+    card.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+  const startBtn = $("readerChatStartButton");
+  if (startBtn) startBtn.disabled = !selected;
+  const hint = $("readerChatStartHint");
+  if (hint) {
+    hint.textContent = selected ? "" : "독자를 한 명 골라주세요";
+    hint.hidden = Boolean(selected);
+  }
+}
+
+function selectReaderPersonaForChat(personaId) {
+  const id = String(personaId || "").trim();
+  if (!id) return;
+  readerChatSelectedId = id;
+  syncReaderChatSelectionUi();
+}
+
+function startReaderChatFromPicker() {
+  if (!readerChatSelectedId) return toast("독자를 한 명 골라주세요.");
+  closeReaderPersonaAllModal();
+  openReaderChatWithPersona(readerChatSelectedId).catch(handleError);
+}
+
+function pickReaderPersonaFromCard(card) {
+  const personaId = card?.getAttribute?.("data-reader-persona");
+  if (!personaId) return;
+  selectReaderPersonaForChat(personaId);
+  closeReaderPersonaAllModal();
+}
+
 function setupReaderChatUi() {
   $("readerPersonaGrid")?.addEventListener("click", (event) => {
     const card = event.target.closest?.("[data-reader-persona]");
     if (!card) return;
     event.preventDefault();
-    openReaderChatWithPersona(card.getAttribute("data-reader-persona")).catch(handleError);
+    pickReaderPersonaFromCard(card);
+  });
+  $("readerPersonaAllGrid")?.addEventListener("click", (event) => {
+    if (readerListMode === "debate") return;
+    const card = event.target.closest?.("[data-reader-persona]");
+    if (!card) return;
+    event.preventDefault();
+    pickReaderPersonaFromCard(card);
+  });
+  $("readerChatStartButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    startReaderChatFromPicker();
+  });
+  $("readerPersonaAllButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openReaderPersonaAllModal().catch(handleError);
+  });
+  document.querySelectorAll("[data-close-reader-persona-all]").forEach((el) => {
+    el.addEventListener("click", () => closeReaderPersonaAllModal());
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    const modal = $("readerPersonaAllModal");
+    if (!modal || modal.classList.contains("hidden")) return;
+    event.preventDefault();
+    closeReaderPersonaAllModal();
   });
   $("readerChatSwitchButton")?.addEventListener("click", () => openReaderPersonaPicker());
   $("readerChatForm")?.addEventListener("submit", (event) => {
@@ -16111,6 +16239,206 @@ function setupReaderChatUi() {
   document.querySelectorAll("[data-close-reader-scene-picker]").forEach((el) => {
     el.addEventListener("click", () => closeReaderScenePicker());
   });
+}
+
+const READER_DEBATE_MAX_TOTAL = 5;
+const READER_DEBATE_MAX_PER_CATEGORY = 5;
+const READER_DEBATE_MIN_START = 3;
+/** @type {"chat"|"debate"} */
+let readerListMode = "chat";
+/** @type {string[]} */
+let readerDebateSelectedIds = [];
+
+function readerDebatePersonaById(personaId) {
+  return flattenReaderPersonas(readerPersonaCache).find((item) => item.id === personaId) || null;
+}
+
+function readerDebateCountInCategory(category) {
+  return readerDebateSelectedIds.filter((id) => readerDebatePersonaById(id)?.category === category).length;
+}
+
+function readerDebateIsBlocked(selectedIds, getCategory, candidateId) {
+  if (selectedIds.includes(candidateId)) return false;
+  if (selectedIds.length >= READER_DEBATE_MAX_TOTAL) return true;
+  const category = getCategory(candidateId);
+  const catCount = selectedIds.filter((id) => getCategory(id) === category).length;
+  return catCount >= READER_DEBATE_MAX_PER_CATEGORY;
+}
+
+function readerDebateCardHtml(persona, { fullIdentity = false } = {}) {
+  const identity = fullIdentity
+    ? String(persona.identity || "").replace(/\s+/g, " ").trim()
+    : summarizeReaderIdentity(persona.identity);
+  const checked = readerDebateSelectedIds.includes(persona.id) ? " checked" : "";
+  return `<label class="reader-persona-card reader-debate-card" data-reader-debate-id="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}">`
+    + `<input type="checkbox" data-reader-debate-check="${escapeHtml(persona.id)}"${checked}>`
+    + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
+    + `<span class="reader-persona-card-text">`
+    + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
+    + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
+    + `</span>`
+    + `</label>`;
+}
+
+function readerDebateSectionsHtml({ fullIdentity = false } = {}) {
+  const grouped = readerPersonaCache || {};
+  return Object.keys(READER_PERSONA_CATEGORY_LABELS).map((category) => {
+    const people = Array.isArray(grouped[category]) ? grouped[category] : [];
+    if (!people.length) return "";
+    const cards = people.map((persona) => readerDebateCardHtml(persona, { fullIdentity })).join("");
+    return `<section class="reader-debate-section" data-debate-category="${escapeHtml(category)}">`
+      + `<div class="reader-debate-section-head">`
+      + `<strong>${escapeHtml(READER_PERSONA_CATEGORY_LABELS[category] || category)}</strong>`
+      + `<p class="reader-debate-section-limit hidden" data-debate-limit="${escapeHtml(category)}">이 카테고리는 최대 5명까지예요</p>`
+      + `</div>`
+      + `<div class="reader-debate-section-cards">${cards}</div>`
+      + `</section>`;
+  }).filter(Boolean).join("");
+}
+
+async function loadAndRenderReaderDebateGrid() {
+  const grid = $("readerDebateGrid");
+  if (!grid) return;
+  if (!state.projectId) {
+    grid.innerHTML = `<p class="hint">작품을 먼저 선택해 주세요.</p>`;
+    return;
+  }
+  try {
+    if (!readerPersonaCache) {
+      readerPersonaCache = await api("/api/reader-personas");
+    }
+    grid.innerHTML = readerDebateSectionsHtml() || `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+    bindReaderAvatarErrors(grid);
+  } catch (error) {
+    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    handleError(error);
+    return;
+  }
+  try {
+    syncReaderDebateSelectionUi();
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function syncReaderDebateSelectionUi() {
+  const total = readerDebateSelectedIds.length;
+  const countText = `${total} / ${READER_DEBATE_MAX_TOTAL}명 선택됨`;
+  const countEl = $("readerDebateCount");
+  if (countEl) countEl.textContent = countText;
+  const allCountEl = $("readerPersonaAllDebateCount");
+  if (allCountEl) allCountEl.textContent = countText;
+  const canStart = total >= READER_DEBATE_MIN_START && total <= READER_DEBATE_MAX_TOTAL;
+  const startBtn = $("readerDebateStartButton");
+  if (startBtn) startBtn.disabled = !canStart;
+  const hint = $("readerDebateStartHint");
+  if (hint) {
+    hint.textContent = canStart ? "" : "최소 3명을 골라주세요";
+    hint.hidden = canStart;
+  }
+  const totalFull = total >= READER_DEBATE_MAX_TOTAL;
+  const getCategory = (id) => readerDebatePersonaById(id)?.category || "";
+  document.querySelectorAll("[data-debate-limit]").forEach((el) => {
+    const category = el.getAttribute("data-debate-limit") || "";
+    const catFull = readerDebateCountInCategory(category) >= READER_DEBATE_MAX_PER_CATEGORY;
+    el.classList.toggle("hidden", !catFull);
+  });
+  document.querySelectorAll("[data-reader-debate-id]").forEach((card) => {
+    const id = card.getAttribute("data-reader-debate-id") || "";
+    const selected = readerDebateSelectedIds.includes(id);
+    const blocked = readerDebateIsBlocked(readerDebateSelectedIds, getCategory, id);
+    card.classList.toggle("is-disabled", blocked);
+    const input = card.querySelector("input[data-reader-debate-check]");
+    if (input instanceof HTMLInputElement) {
+      input.checked = selected;
+      input.disabled = blocked;
+    }
+  });
+}
+
+function toggleReaderDebatePersona(personaId, checked) {
+  const id = String(personaId || "").trim();
+  const persona = readerDebatePersonaById(id);
+  if (!id || !persona) return;
+  const already = readerDebateSelectedIds.includes(id);
+  if (checked) {
+    if (already) return;
+    if (readerDebateSelectedIds.length >= READER_DEBATE_MAX_TOTAL) return;
+    if (readerDebateCountInCategory(persona.category) >= READER_DEBATE_MAX_PER_CATEGORY) return;
+    readerDebateSelectedIds.push(id);
+  } else if (already) {
+    readerDebateSelectedIds = readerDebateSelectedIds.filter((item) => item !== id);
+  }
+  syncReaderDebateSelectionUi();
+}
+
+function setReaderListMode(mode) {
+  const next = mode === "debate" ? "debate" : "chat";
+  readerListMode = next;
+  const isDebate = next === "debate";
+  document.querySelectorAll("[data-reader-list-mode]").forEach((btn) => {
+    const on = btn.getAttribute("data-reader-list-mode") === next;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("readerPersonaChatHint")?.classList.toggle("hidden", isDebate);
+  $("readerPersonaChatPane")?.classList.toggle("hidden", isDebate);
+  $("readerPersonaGrid")?.classList.toggle("hidden", isDebate);
+  $("readerDebatePane")?.classList.toggle("hidden", !isDebate);
+  if (isDebate) void loadAndRenderReaderDebateGrid();
+  else syncReaderChatSelectionUi();
+}
+
+function openReaderDebateRoom(personaIds) {
+  const ids = Array.isArray(personaIds) ? personaIds.slice() : [];
+  console.info("[reader-debate] start", ids);
+  const list = $("readerDebateRoomList");
+  if (list) {
+    list.innerHTML = ids.map((id) => {
+      const persona = readerDebatePersonaById(id);
+      const name = persona?.name || id;
+      return `<li>${escapeHtml(name)}</li>`;
+    }).join("");
+  }
+  $("readerPersonaPicker")?.classList.add("hidden");
+  $("readerChatRoom")?.classList.add("hidden");
+  $("readerDebateRoom")?.classList.remove("hidden");
+}
+
+function closeReaderDebateRoom() {
+  $("readerDebateRoom")?.classList.add("hidden");
+  $("readerPersonaPicker")?.classList.remove("hidden");
+  setReaderListMode("debate");
+}
+
+function startReaderDebate() {
+  if (readerDebateSelectedIds.length < READER_DEBATE_MIN_START) return;
+  if (readerDebateSelectedIds.length > READER_DEBATE_MAX_TOTAL) return;
+  openReaderDebateRoom(readerDebateSelectedIds);
+}
+
+function setupReaderDebateUi() {
+  document.querySelectorAll("[data-reader-list-mode]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      setReaderListMode(btn.getAttribute("data-reader-list-mode"));
+    });
+  });
+  $("readerDebateGrid")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("input[data-reader-debate-check]");
+    if (!(input instanceof HTMLInputElement)) return;
+    toggleReaderDebatePersona(input.getAttribute("data-reader-debate-check"), input.checked);
+  });
+  $("readerPersonaAllGrid")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("input[data-reader-debate-check]");
+    if (!(input instanceof HTMLInputElement)) return;
+    toggleReaderDebatePersona(input.getAttribute("data-reader-debate-check"), input.checked);
+  });
+  $("readerDebateStartButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    startReaderDebate();
+  });
+  $("readerDebateRoomBack")?.addEventListener("click", () => closeReaderDebateRoom());
 }
 
 function setupToryChatHubUi() {
@@ -16153,6 +16481,7 @@ function setupToryChat() {
   setupToryChatHistoryUi();
   setupToryChatHubUi();
   setupReaderChatUi();
+  setupReaderDebateUi();
 
   $("aiTabTools")?.addEventListener("click", () => {
     hideToryPersonaMenu();
@@ -19925,17 +20254,20 @@ const GLUMP_TOOL_LABELS = {
   lucky_sentence: "럭키 문장 뽑기",
   pingpong_relay: "핑퐁 릴레이",
   character_interrogation: "캐릭터 1:1 청문회",
-  mood_color: "퍼스널컬러 찾기",
+  brain_park: "손가락 놀이터",
+  mood_color: "캐릭터 퍼스널컬러 찾기",
   mood_playlist: "가상 플레이리스트 뽑기",
   mood_board: "무드보드 둘러보기",
   word_list: "단어집 둘러보기",
+  character_tarot: "캐릭터 타로 풀이",
+  naming_shop: "작명소",
 };
 
 const GLUMP_DIVERSION_META = {
   mood_color: {
-    title: "🎨 퍼스널컬러 찾기",
-    loading: "작품 분위기를 색으로 고르는 중이에요…",
-    ready: "이 작품의 분위기를 색으로 보면 이런 느낌이에요.",
+    title: "🎨 캐릭터 퍼스널컬러 찾기",
+    loading: "캐릭터한테 어울리는 색을 고르는 중이에요…",
+    ready: "이 캐릭터한테 어울리는 색이에요.",
   },
   mood_playlist: {
     title: "🎵 가상 플레이리스트 뽑기",
@@ -19951,6 +20283,16 @@ const GLUMP_DIVERSION_META = {
     title: "📝 단어집 둘러보기",
     loading: "입안에서 굴릴 단어를 고르는 중이에요…",
     ready: "지금 원고에 넣을 필요는 없어요.",
+  },
+  character_tarot: {
+    title: "🔮 캐릭터 타로 풀이",
+    loading: "타로를 섞는 중이에요…",
+    ready: "점괘가 아니라, 이 캐릭터 서사를 살짝 비튼 놀이예요.",
+  },
+  naming_shop: {
+    title: "🪶 작명소",
+    loading: "이름을 적어 오는 중이에요…",
+    ready: "마음에 드는 이름만 골라 복사해 보세요.",
   },
 };
 
@@ -19992,6 +20334,7 @@ const glumpErState = {
   lucky: null,
   interrogation: null,
   diversion: null,
+  diversionCharacterName: "",
   busy: false,
   modalDismissed: false,
 };
@@ -20035,6 +20378,7 @@ function resetGlumpErState() {
   glumpErState.lucky = null;
   glumpErState.interrogation = null;
   glumpErState.diversion = null;
+  glumpErState.diversionCharacterName = "";
   glumpErState.busy = false;
 }
 
@@ -20070,6 +20414,11 @@ function launchGlumpHomeTool(toolId) {
   }
   if (id === "character_interrogation") {
     runGlumpInterrogation().catch(handleError);
+    return;
+  }
+  if (id === "brain_park") {
+    glumpErState.step = "diversions";
+    renderGlumpErStep();
     return;
   }
   const name = GLUMP_TOOL_LABELS[id] || "이 도구";
@@ -20794,7 +21143,13 @@ function renderGlumpErStep() {
     } else if (diversion?.error) {
       diversionStatus.textContent = String(diversion.message || "이번에는 못 보여 줬어요.");
     } else if (diversionKind && glumpErState.step === "diversionResult") {
-      diversionStatus.textContent = diversionMeta.ready;
+      if (diversionKind === "character_tarot" && diversion?.character_name) {
+        diversionStatus.textContent = `「${String(diversion.character_name)}」의 서사를 타로로 살짝 비틀어 봤어요. 점괘는 아니에요.`;
+      } else if (diversionKind === "mood_color" && diversion?.character_name) {
+        diversionStatus.textContent = `「${String(diversion.character_name)}」한테 어울리는 색이에요.`;
+      } else {
+        diversionStatus.textContent = diversionMeta.ready;
+      }
     } else {
       diversionStatus.textContent = "";
     }
@@ -21388,12 +21743,57 @@ function handleGlumpDiversionExit(choice) {
   closeGlumpErModal({ dismissed: true });
 }
 
+async function copyGlumpShortText(text) {
+  const value = String(text || "").trim();
+  if (!value) return toast("복사할 이름이 없어요.");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(value);
+    } else {
+      const helper = document.createElement("textarea");
+      helper.value = value;
+      helper.setAttribute("readonly", "");
+      helper.style.position = "fixed";
+      helper.style.left = "-9999px";
+      document.body.appendChild(helper);
+      helper.select();
+      document.execCommand("copy");
+      helper.remove();
+    }
+    toast("복사했어요.");
+  } catch (_) {
+    toast("복사에 실패했어요.");
+  }
+}
+
+function renderGlumpColorCharacterBar(diversion) {
+  const current = String(diversion?.character_name || "").trim();
+  const isProtagonist = String(diversion?.character_role || "") === "protagonist";
+  const who = current
+    ? (isProtagonist
+      ? `주인공 「${escapeHtml(current)}」 기준으로 뽑았어요`
+      : `「${escapeHtml(current)}」 기준으로 뽑았어요`)
+    : "주인공 기준으로 뽑았어요";
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  const options = people.map((ch) => {
+    const name = String(ch?.name || "").trim();
+    if (!name) return "";
+    const label = String(ch.role || "") === "protagonist" ? `${name} (주인공)` : name;
+    const selected = name === current ? " selected" : "";
+    return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(label)}</option>`;
+  }).filter(Boolean).join("");
+  const picker = options
+    ? `<label class="glump-er-color-pick">다른 캐릭터: <select id="glumpErColorCharacter" aria-label="다른 캐릭터">${options}</select></label>`
+    : "";
+  return `<div class="glump-er-color-who"><p>${who}</p>${picker}</div>`;
+}
+
 function renderGlumpDiversionBody(diversion) {
   if (!diversion || diversion.error) return "";
   const kind = String(diversion.kind || "");
   if (kind === "mood_color") {
     const colors = Array.isArray(diversion.colors) ? diversion.colors : [];
-    return colors.map((item) => {
+    const chips = colors.map((item) => {
       const hex = String(item?.hex || "").trim();
       const safeHex = /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : "";
       const name = escapeHtml(String(item?.name || "색"));
@@ -21403,6 +21803,7 @@ function renderGlumpDiversionBody(diversion) {
         : `<span class="glump-er-color-swatch" aria-hidden="true"></span>`;
       return `<article class="glump-er-color-chip">${swatch}<div><strong>${name}${safeHex ? ` · ${escapeHtml(safeHex)}` : ""}</strong>${reason ? `<p>${reason}</p>` : ""}</div></article>`;
     }).join("");
+    return renderGlumpColorCharacterBar(diversion) + chips;
   }
   if (kind === "mood_playlist") {
     const title = escapeHtml(String(diversion.playlist_title || "가상 플레이리스트"));
@@ -21437,7 +21838,39 @@ function renderGlumpDiversionBody(diversion) {
       return `<article class="glump-er-word-item"><strong>${word}</strong>${nuance ? `<p>${nuance}</p>` : ""}</article>`;
     }).join("");
   }
+  if (kind === "character_tarot") {
+    const cards = Array.isArray(diversion.cards) ? diversion.cards : [];
+    return cards.map((item, index) => {
+      const name = escapeHtml(String(item?.name || `카드 ${index + 1}`));
+      const meaning = escapeHtml(String(item?.meaning || ""));
+      return `<article class="glump-er-tarot-card"><strong>${index + 1}. ${name}</strong>${meaning ? `<p>${meaning}</p>` : ""}</article>`;
+    }).join("");
+  }
+  if (kind === "naming_shop") {
+    const groups = Array.isArray(diversion.groups) ? diversion.groups : [];
+    return groups.map((group) => {
+      const category = escapeHtml(String(group?.category || "이름"));
+      const items = Array.isArray(group?.items) ? group.items : [];
+      const rows = items.map((item) => {
+        const name = String(item?.name || "").trim();
+        if (!name) return "";
+        const nuance = escapeHtml(String(item?.nuance || ""));
+        return `<article class="glump-er-naming-item"><div><strong>${escapeHtml(name)}</strong>${nuance ? `<p>${nuance}</p>` : ""}</div><button type="button" class="secondary compact-btn" data-glump-name-copy="${escapeHtml(name)}">복사</button></article>`;
+      }).join("");
+      return `<section class="glump-er-naming-group"><strong class="glump-er-naming-category">${category}</strong>${rows}</section>`;
+    }).join("");
+  }
   return "";
+}
+
+async function ensureGlumpCharacters() {
+  if (!state.projectId) return [];
+  if (Array.isArray(state.characters) && state.characters.length) return state.characters;
+  try {
+    const characters = await api(`/api/projects/${state.projectId}/characters`);
+    if (Array.isArray(characters)) state.characters = characters;
+  } catch (_) { /* ignore */ }
+  return Array.isArray(state.characters) ? state.characters : [];
 }
 
 async function runGlumpDiversion(kind) {
@@ -21457,12 +21890,26 @@ async function runGlumpDiversion(kind) {
     if (id === "word_list") {
       data = await api(`/api/glump/word-list?work_id=${encodeURIComponent(state.projectId)}`);
     } else if (id === "mood_color") {
+      await ensureGlumpCharacters();
+      const payload = { work_id: state.projectId };
+      const picked = String(glumpErState.diversionCharacterName || "").trim();
+      if (picked) payload.character_name = picked;
       data = await api("/api/glump/mood-color", {
         method: "POST",
-        body: JSON.stringify({ work_id: state.projectId }),
+        body: JSON.stringify(payload),
       });
     } else if (id === "mood_playlist") {
       data = await api("/api/glump/mood-playlist", {
+        method: "POST",
+        body: JSON.stringify({ work_id: state.projectId }),
+      });
+    } else if (id === "character_tarot") {
+      data = await api("/api/glump/character-tarot", {
+        method: "POST",
+        body: JSON.stringify({ work_id: state.projectId }),
+      });
+    } else if (id === "naming_shop") {
+      data = await api("/api/glump/naming-shop", {
         method: "POST",
         body: JSON.stringify({ work_id: state.projectId }),
       });
@@ -21473,6 +21920,9 @@ async function runGlumpDiversion(kind) {
       });
     }
     glumpErState.diversion = { kind: id, ...(data || {}) };
+    if (id === "mood_color" && data?.character_name) {
+      glumpErState.diversionCharacterName = String(data.character_name);
+    }
   } catch (error) {
     handleError(error);
     glumpErState.diversion = {
@@ -21504,7 +21954,21 @@ function setupGlumpErUi() {
         closeGlumpErModal({ dismissed: true });
       });
     });
+    modal.addEventListener("change", (event) => {
+      const select = event.target.closest?.("#glumpErColorCharacter");
+      if (!(select instanceof HTMLSelectElement)) return;
+      const name = String(select.value || "").trim();
+      if (!name || name === glumpErState.diversionCharacterName) return;
+      glumpErState.diversionCharacterName = name;
+      runGlumpDiversion("mood_color").catch(handleError);
+    });
     modal.addEventListener("click", (event) => {
+      const copyBtn = event.target.closest?.("[data-glump-name-copy]");
+      if (copyBtn) {
+        event.preventDefault();
+        copyGlumpShortText(copyBtn.getAttribute("data-glump-name-copy") || "");
+        return;
+      }
       const q1Btn = event.target.closest?.("[data-glump-q1]");
       if (q1Btn) {
         event.preventDefault();

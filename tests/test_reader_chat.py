@@ -119,7 +119,7 @@ class ReaderChatTests(unittest.TestCase):
             list(app.READER_PERSONA_CATEGORIES),
         )
         total = sum(len(grouped[key]) for key in grouped)
-        self.assertEqual(total, 21)
+        self.assertEqual(total, 24)
         first = grouped["genre_specialist"][0]
         self.assertEqual(first["id"], "roppan_cider")
         self.assertIsInstance(first["criteria"], list)
@@ -200,7 +200,7 @@ class ReaderChatTests(unittest.TestCase):
         ids = []
         for key in app.READER_PERSONA_CATEGORIES:
             ids.extend(item["id"] for item in grouped[key])
-        self.assertEqual(len(ids), 21)
+        self.assertEqual(len(ids), 24)
         missing = []
         for persona_id in ids:
             connection = http.client.HTTPConnection(
@@ -220,9 +220,20 @@ class ReaderChatTests(unittest.TestCase):
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
         self.assertIn('id="readerPersonaGrid"', html)
+        self.assertIn('id="readerChatStartButton"', html)
+        self.assertIn("대화 시작하기", html)
+        self.assertIn("startReaderChatFromPicker", js)
+        self.assertIn('id="readerPersonaAllButton"', html)
+        self.assertIn('id="readerPersonaAllModal"', html)
+        self.assertIn("openReaderPersonaAllModal", js)
         self.assertIn('id="readerChatForm"', html)
         self.assertIn('id="readerChatAttachButton"', html)
         self.assertIn("listExportEpisodes", js)
         self.assertIn("openReaderChatWithPersona", js)
+        self.assertIn("setupReaderDebateUi", js)
+        self.assertIn("data-reader-list-mode", html)
+        self.assertIn('id="readerDebatePane"', html)
+        self.assertIn("이 카테고리는 최대 5명까지예요", js)
+        self.assertIn("최소 3명을 골라주세요", js)
         self.assertIn("/api/reader-chat", js)
         self.assertNotIn("가상 독자 대화는 다음 안내에서 이어서 만들어요.", html)
