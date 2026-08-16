@@ -1458,6 +1458,7 @@
                     </svg>
                   </span>
                   <span class="format-tool-label">뷰어</span>
+                  <span class="format-viewer-comments-dot hidden" id="viewerModeCommentsBadge" aria-hidden="true"></span>
                 </button>
                 <div class="view-mode-control format-split-control" id="formatSplitControl" data-icon-key="split">
                   <button
@@ -2334,7 +2335,7 @@
                 role="tab"
                 aria-selected="false"
                 data-ai-tab="chat"
-              >대화창</button>
+              >소통방</button>
             </div>
           </div>
           <div class="tory-priority-box" id="toryPriorityBox">
@@ -2420,6 +2421,7 @@
                       <option value="summarize">회차 요약</option>
                       <option value="foreshadow">떡밥·복선 탐색기</option>
                       <option value="plottwist">반전 &amp; 개연성 검사기</option>
+                      <option value="temphook">서사 템포 &amp; 훅 분석기</option>
                       <option value="worldscan">설정 붕괴 감지기</option>
                       <option value="dupcheck">중복 체크</option>
                     </optgroup>
@@ -2542,7 +2544,7 @@
             </div>
           </div>
 
-          <!-- 대화창: 상대 선택 → 기존 토리 대화(한 단계 아래) -->
+          <!-- 소통방: 상대 선택 → 기존 토리 대화(한 단계 아래) -->
           <div id="aiChatView" class="ai-panel-view hidden" role="tabpanel" aria-labelledby="aiTabChat" data-chat-hub="home" hidden>
             <div id="toryChatHub" class="tory-chat-hub">
               <p class="tory-chat-hub-lead">누구와 대화할까요?</p>
@@ -2562,18 +2564,51 @@
               </div>
             </div>
             <div id="toryChatCharacterPicker" class="tory-chat-character-picker">
+              <div class="reader-persona-mode-tabs" role="tablist" aria-label="내 캐릭터 대화 모드">
+                <button type="button" class="reader-persona-mode-tab is-active" id="charListModeChat" data-char-list-mode="chat" role="tab" aria-selected="true">1:1 대화</button>
+                <button type="button" class="reader-persona-mode-tab" id="charListModeSim" data-char-list-mode="sim" role="tab" aria-selected="false">시뮬레이션</button>
+              </div>
               <div class="tory-chat-subhead tory-chat-character-head">
-                <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatCharacterPickerBack" title="대화창으로" aria-label="대화창으로">
+                <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatCharacterPickerBack" title="소통방으로" aria-label="소통방으로">
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M15 5 8 12l7 7"/>
                   </svg>
                 </button>
                 <strong>내 캐릭터와 대화하기</strong>
               </div>
-              <p class="hint tory-chat-character-hint">한 명 또는 여러 명을 고르면 단톡방으로 이야기할 수 있어요.</p>
-              <div id="toryChatCharacterList" class="tory-chat-character-list" role="group" aria-label="대화 상대 인물"></div>
-              <div class="tory-chat-character-picker-actions">
-                <button type="button" class="primary" id="toryChatCharacterStart" disabled>대화 시작</button>
+              <div id="toryChatCharacterChatPane" class="tory-chat-character-chat-pane">
+                <p class="hint tory-chat-character-hint">한 명 또는 여러 명을 고르면 단톡방으로 이야기할 수 있어요.</p>
+                <div id="toryChatCharacterList" class="tory-chat-character-list" role="group" aria-label="대화 상대 인물"></div>
+                <div class="tory-chat-character-picker-actions">
+                  <button type="button" class="primary" id="toryChatCharacterStart" disabled>대화 시작</button>
+                </div>
+              </div>
+              <div id="toryChatCharacterSimPane" class="tory-chat-character-sim-pane hidden">
+                <div id="charDebateStepPick" class="char-debate-step" data-char-debate-step="pick">
+                  <p id="charDebatePickHint" class="hint tory-chat-character-hint">2명 이상 골라주세요</p>
+                  <div id="charDebateCharacterList" class="tory-chat-character-list char-debate-character-list" role="group" aria-label="시뮬레이션 등장인물 선택"></div>
+                </div>
+                <div id="charDebateStepScenario" class="char-debate-step hidden" data-char-debate-step="scenario">
+                  <p class="hint tory-chat-character-hint">어떤 상황인가요?</p>
+                  <div id="charDebatePresetGrid" class="char-debate-preset-grid" role="listbox" aria-label="프리셋 상황"></div>
+                  <label class="tory-helper-section-label char-debate-custom-label" for="charDebateCustomScenario">직접 입력
+                    <textarea id="charDebateCustomScenario" rows="3" maxlength="800" placeholder="예: 왕실 연회장에서 한쪽이 가짜 약혼을 폭로한다."></textarea>
+                  </label>
+                </div>
+                <div id="charDebateStepResult" class="char-debate-step hidden" data-char-debate-step="result">
+                  <div class="char-debate-result-head">
+                    <p class="tory-helper-section-label">대화 시뮬레이션</p>
+                    <button type="button" class="secondary compact-btn" id="charDebateCopyAllButton">전체 복사하기</button>
+                  </div>
+                  <p id="charDebateStatus" class="hint char-debate-status" aria-live="polite">대화를 쓰는 중…</p>
+                  <div id="charDebateScript" class="char-debate-script" aria-label="논쟁 스크립트"></div>
+                </div>
+                <div class="tory-chat-character-picker-actions char-debate-actions" id="charDebateActions">
+                  <button type="button" class="secondary hidden" id="charDebateBackPickButton">인물 다시 고르기</button>
+                  <button type="button" class="secondary hidden" id="charDebateRetryButton">다시 뽑기</button>
+                  <button type="button" class="secondary hidden" id="charDebateOtherScenarioButton">다른 상황으로</button>
+                  <button type="button" class="primary" id="charDebateNextButton" disabled>상황 설정하기</button>
+                </div>
               </div>
             </div>
             <div id="toryChatReaderView" class="tory-chat-reader-view">
@@ -2583,7 +2618,7 @@
                   <button type="button" class="reader-persona-mode-tab" id="readerListModeDebate" data-reader-list-mode="debate" role="tab" aria-selected="false">토론 패널</button>
                 </div>
                 <div class="tory-chat-subhead reader-persona-list-head">
-                  <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatReaderBack" title="대화창으로" aria-label="대화창으로">
+                  <button type="button" class="secondary compact-btn tory-chat-back-btn tory-chat-back-icon-btn" id="toryChatReaderBack" title="소통방으로" aria-label="소통방으로">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                       <path d="M15 5 8 12l7 7"/>
                     </svg>
@@ -2647,7 +2682,7 @@
             </div>
             <div id="toryChatRoom" class="tory-chat-room">
               <div class="tory-chat-toolbar">
-                <button type="button" class="secondary tory-chat-action-btn tory-chat-back-btn tory-chat-icon-btn tory-chat-back-icon-btn" id="toryChatRoomBack" title="대화창으로" aria-label="대화창으로">
+                <button type="button" class="secondary tory-chat-action-btn tory-chat-back-btn tory-chat-icon-btn tory-chat-back-icon-btn" id="toryChatRoomBack" title="소통방으로" aria-label="소통방으로">
                   <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                     <path d="M15 5 8 12l7 7"/>
                   </svg>
@@ -4906,6 +4941,25 @@
               <p class="hint trash-empty">불러오는 중…</p>
             </div>
           </div>
+          <div class="admin-section-box" id="indexRebuildBox">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title">회차 인덱스 다시 만들기</h3>
+                <p class="hint">tracked_facts가 비어 있는 회차만 다시 인덱싱합니다. 이미 처리된 회차는 건너뜁니다.</p>
+              </div>
+              <div class="admin-trash-actions">
+                <button type="button" id="refreshIndexRebuildButton" class="secondary compact-btn">새로고침</button>
+              </div>
+            </div>
+            <p class="hint" id="indexRebuildHint"></p>
+            <div id="indexRebuildList" class="admin-project-list index-rebuild-list" aria-live="polite">
+              <p class="hint trash-empty">불러오는 중…</p>
+            </div>
+            <p class="index-rebuild-progress" id="indexRebuildProgress" aria-live="polite"></p>
+            <div class="modal-actions index-rebuild-actions">
+              <button type="button" id="indexRebuildStartButton" class="primary" disabled>선택 작품 재인덱싱</button>
+            </div>
+          </div>
         </section>
 
         <!-- 휴지통 -->
@@ -4929,6 +4983,21 @@
 
         <div class="modal-actions">
           <button type="button" class="primary" data-close-admin>닫기</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="indexRebuildConfirmModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="indexRebuildConfirmTitle">
+      <div class="modal-backdrop" data-close-index-rebuild-confirm></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="indexRebuildConfirmTitle" class="tory-helper-title">회차 인덱스 다시 만들기</h2>
+          <button type="button" class="modal-close" data-close-index-rebuild-confirm title="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead" id="indexRebuildConfirmBody"></p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-index-rebuild-confirm>취소</button>
+          <button type="button" class="primary" id="indexRebuildConfirmStart">시작</button>
         </div>
       </div>
     </div>
@@ -5093,6 +5162,13 @@
             <button type="button" class="viewer-scope-tab" data-viewer-scope="full" aria-pressed="false">전체 원고</button>
           </div>
           <div class="viewer-head-actions">
+            <button
+              type="button"
+              class="secondary compact-btn"
+              id="viewerReaderCommentsButton"
+              title="회차를 완성으로 바꾸면 가상독자 댓글을 받을 수 있어요"
+              disabled
+            >가상독자 댓글 받기</button>
             <button type="button" class="secondary compact-btn" id="viewerTocToggle" title="목차 열기/닫기" aria-expanded="false" aria-controls="viewerTocPanel">목차</button>
             <button
               type="button"
@@ -5297,6 +5373,78 @@
         <div class="modal-actions">
           <button type="button" class="secondary" data-close-dupcheck-target>닫기</button>
           <button type="button" class="primary" id="dupcheckTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tempoHookTargetModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="tempoHookTargetModalTitle">
+      <div class="modal-backdrop" data-close-tempo-hook-target></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="tempoHookTargetModalTitle" class="tory-helper-title">서사 템포 &amp; 훅 분석기</h2>
+          <button type="button" class="modal-close" data-close-tempo-hook-target title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">회차의 감정 곡선과 엔딩 훅을 살펴봐요. 완성 여부와 상관없이 언제든 쓸 수 있어요.</p>
+        <p class="tory-helper-question">어떤 회차를 확인할까요?</p>
+        <fieldset class="continue-length-options tory-helper-options" id="tempoHookTargetOptions">
+          <legend class="sr-only">기준 회차</legend>
+          <label class="continue-length-option" id="tempoHookTargetCurrentLabel">
+            <input type="radio" name="tempoHookTargetMode" value="current" checked id="tempoHookTargetCurrent">
+            <span>현재 작성 중인 회차</span>
+          </label>
+          <label class="continue-length-option">
+            <input type="radio" name="tempoHookTargetMode" value="other" id="tempoHookTargetOther">
+            <span>다른 회차 지정</span>
+          </label>
+        </fieldset>
+        <label class="foreshadow-field tory-other-scene-wrap tory-helper-section-label" id="tempoHookOtherSceneWrap" for="tempoHookOtherSceneSelect">
+          회차 선택
+          <select id="tempoHookOtherSceneSelect" aria-label="서사 템포 분석 기준 회차">
+            <option value="">회차를 선택하세요</option>
+          </select>
+        </label>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-tempo-hook-target>닫기</button>
+          <button type="button" class="primary" id="tempoHookTargetConfirm">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="tempoHookModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="tempoHookModalTitle">
+      <div class="modal-backdrop" data-close-tempo-hook></div>
+      <div class="modal-card tory-helper-card tempo-hook-modal-card">
+        <div class="modal-heading">
+          <h2 id="tempoHookModalTitle" class="tory-helper-title">서사 템포 &amp; 훅 분석기</h2>
+          <button type="button" class="modal-close" data-close-tempo-hook title="닫기" aria-label="닫기">×</button>
+        </div>
+        <p class="tory-helper-lead">선택한 회차의 감정 곡선과 엔딩 훅을 살펴봐요. 완성 여부와 상관없이 언제든 쓸 수 있어요.</p>
+        <p id="tempoHookStatus" class="hint tempo-hook-status" aria-live="polite">현재 회차를 읽고 있어요…</p>
+        <div id="tempoHookResults" class="tempo-hook-results hidden">
+          <section class="tempo-hook-chart-section" aria-label="감정 곡선">
+            <p class="tory-helper-section-label">감정 곡선</p>
+            <div id="tempoHookChartWrap" class="tempo-hook-chart-wrap">
+              <svg id="tempoHookChart" class="tempo-hook-chart" viewBox="0 0 640 280" role="img" aria-label="회차 진행률에 따른 긴장도 꺾은선 그래프"></svg>
+              <div id="tempoHookChartTooltip" class="tempo-hook-tooltip hidden" role="tooltip"></div>
+            </div>
+            <p class="hint tory-helper-hint">X축은 회차 진행률, Y축은 긴장도(0~10)예요. 점을 올리면 구간 설명을 볼 수 있어요.</p>
+          </section>
+          <section class="tempo-hook-score-section" aria-label="엔딩 훅 점수">
+            <p class="tory-helper-section-label">엔딩 훅</p>
+            <div id="tempoHookScoreCard" class="tempo-hook-score-card">
+              <div class="tempo-hook-score-num" id="tempoHookScoreNum">—</div>
+              <p class="tempo-hook-score-reason" id="tempoHookScoreReason"></p>
+              <button type="button" class="primary compact-btn hidden" id="tempoHookRewriteButton">더 강한 훅으로 바꿔보기</button>
+            </div>
+          </section>
+          <section id="tempoHookRewriteSection" class="tempo-hook-rewrite-section hidden" aria-label="엔딩 개작 제안">
+            <p class="tory-helper-section-label">개작 제안</p>
+            <p id="tempoHookRewriteStatus" class="hint tory-helper-hint hidden"></p>
+            <div id="tempoHookRewriteGrid" class="tempo-hook-rewrite-grid"></div>
+          </section>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-tempo-hook>닫기</button>
+          <button type="button" class="secondary" id="tempoHookRetryButton">다시 분석하기</button>
         </div>
       </div>
     </div>

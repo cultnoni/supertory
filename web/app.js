@@ -272,14 +272,91 @@ function isOfflineSafeError(error) {
   return /failed to fetch|networkerror|load failed|offline|연결/i.test(msg);
 }
 
-function toast(message, durationMs) {
+function hideToast() {
   const element = $("toast");
-  element.textContent = message;
-  element.classList.add("show");
+  if (!element) return;
+  element.classList.remove("show");
   window.clearTimeout(toast.timer);
+  if (toast.outsideHandler) {
+    document.removeEventListener("pointerdown", toast.outsideHandler, true);
+    toast.outsideHandler = null;
+  }
+}
+
+function toast(message, durationMs, options) {
+  const element = $("toast");
+  if (!element) return;
+  const opts = options && typeof options === "object" ? options : {};
+  window.clearTimeout(toast.timer);
+  if (toast.outsideHandler) {
+    document.removeEventListener("pointerdown", toast.outsideHandler, true);
+    toast.outsideHandler = null;
+  }
+  element.replaceChildren();
+  if (opts.action || opts.dismissible || opts.sticky) {
+    element.classList.add("has-action");
+    const copy = document.createElement("span");
+    copy.className = opts.detail ? "toast-copy" : "toast-message";
+    if (opts.detail) {
+      const text = document.createElement("span");
+      text.className = "toast-message";
+      text.textContent = message;
+      const detail = document.createElement("span");
+      detail.className = "toast-detail";
+      detail.textContent = String(opts.detail);
+      copy.append(text, detail);
+    } else {
+      copy.textContent = message;
+    }
+    element.appendChild(copy);
+    if (opts.action?.label) {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "toast-action";
+      btn.textContent = opts.action.label;
+      btn.addEventListener("click", (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        hideToast();
+        if (typeof opts.action.onClick === "function") opts.action.onClick();
+      });
+      element.appendChild(btn);
+    }
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "toast-close";
+    close.setAttribute("aria-label", "닫기");
+    close.textContent = "×";
+    close.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      hideToast();
+      if (typeof opts.onClose === "function") opts.onClose();
+    });
+    element.appendChild(close);
+  } else {
+    element.classList.remove("has-action");
+    element.textContent = message;
+  }
+  element.classList.add("show");
+  if (opts.sticky) {
+    if (opts.closeOnOutside) {
+      const outsideHandler = (event) => {
+        if (element.contains(event.target)) return;
+        hideToast();
+        if (typeof opts.onClose === "function") opts.onClose();
+      };
+      toast.outsideHandler = outsideHandler;
+      window.setTimeout(() => {
+        if (toast.outsideHandler !== outsideHandler) return;
+        document.addEventListener("pointerdown", outsideHandler, true);
+      }, 0);
+    }
+    return;
+  }
   const ms = Number(durationMs);
   toast.timer = window.setTimeout(
-    () => element.classList.remove("show"),
+    () => hideToast(),
     Number.isFinite(ms) && ms > 0 ? ms : 2600,
   );
 }
@@ -12101,6 +12178,19 @@ function returnToAiSelectList() {
       closeBrainstormTargetModal({ returnToList: false });
     }
   } catch (_) { /* ignore */ }
+  try {
+    if (typeof closeTempoHookModal === "function") {
+      closeTempoHookModal({ returnToList: false });
+    }
+    if (typeof closeTempoHookTargetModal === "function") {
+      closeTempoHookTargetModal({ returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
+  try {
+    if (typeof closeCharDebateModal === "function") {
+      closeCharDebateModal({ returnToList: false });
+    }
+  } catch (_) { /* ignore */ }
 
   if (typeof aiToolModalState !== "undefined") {
     aiToolModalState.dismissed = false;
@@ -12619,6 +12709,11 @@ async function submitAiAssist(event) {
   // Panel 중복 체크: 기준 회차 선택 팝업 → runDuplicateCheck (인라인 assist 경로 사용 안 함)
   if (mode === "dupcheck") {
     openDupcheckTargetModal();
+    return;
+  }
+  // 서사 템포 & 훅 분석기: 회차 선택 팝업 → 확인 후 분석 (완성 게이트 없음)
+  if (mode === "temphook") {
+    openTempoHookTargetModal();
     return;
   }
   // Panel 다음 아이디어 제안: 회차 선택 팝업 → runNextIdeaSuggestion (분기 포함)
@@ -13651,6 +13746,9 @@ function setupAiAssist() {
   setupRewriteCompareModal();
   setupRewriteLengthWarnModal();
   setupDupcheckTargetModal();
+  setupTempoHookTargetModal();
+  setupTempoHookModal();
+  setupCharDebateUi();
   setupIdeasTargetModal();
   setupBrainstormTargetModal();
   setupWorldscanTargetModal();
@@ -13891,19 +13989,9 @@ async function runSubmissionSynopsis(options = {}) {
     const projectIndex = await ensureFreshProjectIndex();
     // Index only — no manuscript body (avoid inventing off-outline facts from a single scene).
     let indexedPrompt = taskPrompt;
-    if (hasUsableProjectIndex(projectIndex)) {
-      const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
-      const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
-      const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
-      const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
-      indexedPrompt = `
-[프로젝트 누적 정보 - 참고용]
-등장인물: ${JSON.stringify(characters)}
-세계관 설정: ${worldRules.join(", ")}
-지금까지 줄거리: ${timeline.join(" → ")}
-미회수 복선: ${openThreads.join(", ")}
-
-${taskPrompt}`;
+    const indexContext = formatProjectIndexContext(projectIndex);
+    if (indexContext) {
+      indexedPrompt = `${indexContext}\n${taskPrompt}`;
     }
 
     const body = {
@@ -14309,6 +14397,8 @@ let toryChatMode = "general";
 let toryChatHub = "home";
 /** Selected 설정집 character ids for character / group chat */
 let toryChatCharacterIds = [];
+/** @type {"chat"|"sim"} 내 캐릭터와 대화하기: 1:1 vs 시뮬레이션 */
+let charListMode = "chat";
 let toryChatSending = false;
 let toryChatHistoryViewId = null;
 
@@ -14375,7 +14465,7 @@ function syncToryChatRoomChrome() {
   const names = getToryChatPartnerNames();
   const back = $("toryChatRoomBack");
   if (back) {
-    const label = inCharacter ? "인물 선택으로" : "대화창으로";
+    const label = inCharacter ? "인물 선택으로" : "소통방으로";
     back.title = label;
     back.setAttribute("aria-label", label);
   }
@@ -14400,13 +14490,15 @@ function setToryChatHub(hub, { quiet = false } = {}) {
   if (next === "character-room" && !normalizeToryChatCharacterIds(toryChatCharacterIds).length) {
     toryChatHub = "characters";
     $("aiChatView")?.setAttribute("data-chat-hub", "characters");
-    renderToryChatCharacterPicker();
+    setCharListMode("chat");
     if (!quiet) toast("대화할 인물을 먼저 골라 주세요.");
     return false;
   }
   toryChatHub = next;
   $("aiChatView")?.setAttribute("data-chat-hub", next);
-  if (next === "characters") renderToryChatCharacterPicker();
+  if (next === "characters") {
+    setCharListMode(charListMode || "chat");
+  }
   if (next === "reader") syncReaderChatView();
   if (next === "tory" || next === "character-room") {
     syncToryChatRoomChrome();
@@ -15150,6 +15242,15 @@ function toryChatBubbleMetaHtml(isUser) {
     + `토리</span>`;
 }
 
+function toryChatBubbleCopyButtonHtml(isUser) {
+  if (isUser || toryChatHub !== "character-room") return "";
+  return `<button type="button" class="tory-chat-bubble-copy" data-tory-chat-copy title="복사하기" aria-label="복사하기">`
+    + `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`
+    + `<rect x="9" y="9" width="13" height="13" rx="2"/>`
+    + `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
+    + `</svg></button>`;
+}
+
 function renderToryChatMessages() {
   const box = $("toryChatMessages");
   if (!box) return;
@@ -15176,10 +15277,39 @@ function renderToryChatMessages() {
       : (m.contentHtml
         ? sanitizeToryChatHtml(m.contentHtml)
         : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
-    return `<div class="tory-chat-bubble ${cls}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
+    const copyClass = (!isUser && toryChatHub === "character-room") ? " has-copy" : "";
+    return `<div class="tory-chat-bubble ${cls}${copyClass}" data-msg-index="${index}" data-msg-role="${isUser ? "user" : "tory"}">${toryChatBubbleCopyButtonHtml(isUser)}${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
   }).join("");
   box.scrollTop = box.scrollHeight;
   syncToryChatHighlightBar();
+}
+
+async function copyToryChatCharacterReply(button) {
+  const bubble = button?.closest?.(".tory-chat-bubble");
+  if (!bubble || bubble.classList.contains("is-pending")) return;
+  const index = Number(bubble.getAttribute("data-msg-index"));
+  const history = loadToryChatHistory();
+  const message = Number.isInteger(index) ? history[index] : null;
+  const text = String(message?.content || "").replace(/\r\n/g, "\n");
+  if (!text) return toast("복사할 내용이 없어요.");
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    toast("복사되었습니다");
+  } catch (_) {
+    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+  }
 }
 
 function updateToryChatSuccessUi() {
@@ -15661,6 +15791,24 @@ function renderToryChatCharacterPicker() {
       </label>`;
   }).join("");
   if (startBtn) startBtn.disabled = selected.size === 0;
+}
+
+function setCharListMode(mode) {
+  const next = mode === "sim" ? "sim" : "chat";
+  charListMode = next;
+  const isSim = next === "sim";
+  document.querySelectorAll("[data-char-list-mode]").forEach((btn) => {
+    const on = btn.getAttribute("data-char-list-mode") === next;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+  $("toryChatCharacterChatPane")?.classList.toggle("hidden", isSim);
+  $("toryChatCharacterSimPane")?.classList.toggle("hidden", !isSim);
+  if (isSim) {
+    void prepareCharDebatePane();
+  } else {
+    renderToryChatCharacterPicker();
+  }
 }
 
 async function openToryChatCharacterPicker() {
@@ -16473,6 +16621,11 @@ function setupToryChatHubUi() {
     renderToryChatCharacterPicker();
   });
   $("toryChatCharacterStart")?.addEventListener("click", () => startToryChatWithSelectedCharacters());
+  document.querySelectorAll("[data-char-list-mode]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setCharListMode(btn.getAttribute("data-char-list-mode"));
+    });
+  });
 }
 
 function setupToryChat() {
@@ -16537,6 +16690,13 @@ function setupToryChat() {
   updateToryChatSuccessUi();
   // Event delegation: buttons may move with chat into popup
   document.addEventListener("click", (event) => {
+    const copyBtn = event.target.closest?.("[data-tory-chat-copy]");
+    if (copyBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      copyToryChatCharacterReply(copyBtn).catch(handleError);
+      return;
+    }
     const hlBtn = event.target.closest?.("#toryChatHighlightButton");
     if (hlBtn) {
       event.preventDefault();
@@ -18752,6 +18912,8 @@ function aiModeLabel(mode) {
     worldscan_multi: SETTING_BREAK_SCAN_LABEL,
     worlddesc: "세계관 묘사",
     dupcheck: "중복 체크",
+    temphook: "서사 템포 & 훅 분석기",
+    chardebate: "캐릭터 가상 논쟁",
     successpattern: "흥행 공식 분석",
     successfeedback: "흥행 공식 피드백",
     glumpescape: "글럼프 응급실",
@@ -18860,6 +19022,7 @@ const AI_TOOL_POPUP_MODES = new Set([
   "summarize",
   "worldscan",
   "dupcheck",
+  "temphook",
   "ideas",
   "analyze",
 ]);
@@ -18872,6 +19035,7 @@ const AI_DEDICATED_TARGET_MODAL_MODES = new Set([
   "summarize",
   "worldscan",
   "dupcheck",
+  "temphook",
   "ideas",
   "analyze",
 ]);
@@ -18880,9 +19044,1127 @@ function openDedicatedAiTargetModal(mode) {
   if (mode === "summarize") return openSummarizeMultiTargetModal();
   if (mode === "worldscan") return openWorldscanTargetModal();
   if (mode === "dupcheck") return openDupcheckTargetModal();
+  if (mode === "temphook") return openTempoHookTargetModal();
   if (mode === "ideas") return openIdeasTargetModal();
   if (mode === "analyze") return openAnalyzeTargetModal();
   return undefined;
+}
+
+const TEMPO_HOOK_EMOTION_TAGS = ["긴장", "해소", "반전", "설렘", "슬픔", "유머", "공포"];
+const TEMPO_HOOK_EMOTION_COLORS = {
+  긴장: "#c45c4a",
+  해소: "#4a8f6a",
+  반전: "#7a5ea8",
+  설렘: "#d4789c",
+  슬픔: "#4a6fa8",
+  유머: "#c48a3a",
+  공포: "#4a3a52",
+};
+const TEMPO_HOOK_REWRITE_FALLBACK_LABELS = [
+  "즉각적 위기 노출형",
+  "정보 공백형",
+  "감정 절정형",
+];
+
+const tempoHookState = {
+  busy: false,
+  rewriteBusy: false,
+  sceneId: null,
+  sceneTitle: "",
+  sceneSynopsis: "",
+  plain: "",
+  lastThree: "",
+  segments: [],
+  cliffhanger: { score: null, reason: "" },
+  rewrites: [],
+};
+
+function splitPlainParagraphs(text) {
+  const source = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (!source) return [];
+  const blocks = source.split(/\n\s*\n/).map((part) => part.trim()).filter(Boolean);
+  if (blocks.length >= 2) return blocks;
+  const lines = source.split("\n").map((part) => part.trim()).filter(Boolean);
+  return lines.length ? lines : [source];
+}
+
+function lastThreeParagraphsText(text) {
+  const paras = splitPlainParagraphs(text);
+  return paras.slice(-3).join("\n\n");
+}
+
+function splitHtmlParagraphChunks(html) {
+  const raw = String(html || "").trim();
+  if (!raw) return [];
+  const host = document.createElement("div");
+  host.innerHTML = raw;
+  const blockKids = [...host.children].filter((el) => /^(P|DIV|H[1-6]|BLOCKQUOTE|LI)$/i.test(el.tagName));
+  if (blockKids.length >= 2 && blockKids.length === host.children.length) {
+    return blockKids.map((el) => el.outerHTML);
+  }
+  const brParts = raw.split(/<br\s*\/?>\s*<br\s*\/?>/i).map((part) => part.trim()).filter((part) => part && part !== "&nbsp;");
+  if (brParts.length >= 2) return brParts;
+  return splitPlainParagraphs(plainTextFromHtml(raw)).map((para) => escapeHtml(para).replace(/\n/g, "<br>"));
+}
+
+function replaceLastThreeParagraphsInEditor(replacementText) {
+  const content = String(replacementText || "").trim();
+  if (!content) {
+    toast("넣을 결과가 없어요.");
+    return false;
+  }
+  if (!state.sceneId) {
+    toast("원고에 넣으려면 먼저 씬을 열어 주세요. 복사 버튼을 써도 됩니다.");
+    return false;
+  }
+  const editor = $("sceneContent");
+  if (!editor) return false;
+  const chunks = splitHtmlParagraphChunks(editor.innerHTML || "");
+  const newChunks = splitPlainParagraphs(content).map((para) => escapeHtml(para).replace(/\n/g, "<br>"));
+  const drop = Math.min(3, chunks.length);
+  const kept = chunks.slice(0, Math.max(0, chunks.length - drop));
+  const nextHtml = [...kept, ...newChunks].filter(Boolean).join("<br><br>");
+  editor.innerHTML = nextHtml;
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+  toast("마지막 3문단을 바꿨어요. 자동 저장됩니다.");
+  return true;
+}
+
+function normalizeTempoHookEmotion(tag) {
+  const raw = String(tag || "").trim();
+  return TEMPO_HOOK_EMOTION_TAGS.includes(raw) ? raw : "긴장";
+}
+
+function normalizeTensionSegments(raw) {
+  const list = Array.isArray(raw) ? raw : [];
+  const cleaned = list.map((seg, index) => {
+    const segmentIndex = Number(seg?.segment_index);
+    return {
+      segment_index: Number.isFinite(segmentIndex) && segmentIndex > 0 ? segmentIndex : index + 1,
+      score: Math.max(0, Math.min(10, Number(seg?.score))),
+      emotion_tag: normalizeTempoHookEmotion(seg?.emotion_tag),
+      reason: String(seg?.reason || "").trim(),
+      text_preview: String(seg?.text_preview || "").replace(/\s+/g, " ").trim().slice(0, 15),
+    };
+  }).filter((seg) => Number.isFinite(seg.score));
+  cleaned.sort((a, b) => a.segment_index - b.segment_index);
+  const count = cleaned.length;
+  return cleaned.map((seg) => ({
+    ...seg,
+    segment_position_pct: count ? Math.round((seg.segment_index / count) * 100) : 0,
+  }));
+}
+
+function parseTensionCurveResult(text) {
+  const jsonText = typeof extractJsonObjectText === "function" ? extractJsonObjectText(text) : null;
+  if (!jsonText) return [];
+  try {
+    const data = JSON.parse(jsonText);
+    const raw = Array.isArray(data?.segments)
+      ? data.segments
+      : (Array.isArray(data) ? data : []);
+    return normalizeTensionSegments(raw);
+  } catch (_) {
+    return [];
+  }
+}
+
+function parseCliffhangerScoreResult(text) {
+  const jsonText = typeof extractJsonObjectText === "function" ? extractJsonObjectText(text) : null;
+  if (!jsonText) return { score: null, reason: "" };
+  try {
+    const data = JSON.parse(jsonText);
+    const score = Number(data?.score);
+    return {
+      score: Number.isFinite(score) ? Math.max(0, Math.min(10, score)) : null,
+      reason: String(data?.reason || "").trim(),
+    };
+  } catch (_) {
+    return { score: null, reason: "" };
+  }
+}
+
+function parseEndingRewriteVersions(text) {
+  const raw = String(text || "").replace(/\r\n/g, "\n").trim();
+  if (!raw) return [];
+  const items = [];
+  const re = /##\s*버전\s*(\d+)\s*[:：]\s*([^\n]+)\n([\s\S]*?)(?=##\s*버전\s*\d+\s*[:：]|$)/g;
+  let match;
+  while ((match = re.exec(raw)) !== null) {
+    const label = String(match[2] || "").trim() || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[items.length] || `버전 ${match[1]}`;
+    const body = String(match[3] || "").trim();
+    if (body) items.push({ label, text: body });
+  }
+  return items.slice(0, 3);
+}
+
+function isTempoHookModalOpen() {
+  return Boolean($("tempoHookModal") && !$("tempoHookModal").classList.contains("hidden"));
+}
+
+function isTempoHookTargetModalOpen() {
+  return Boolean($("tempoHookTargetModal") && !$("tempoHookTargetModal").classList.contains("hidden"));
+}
+
+function getTempoHookTargetMode() {
+  const checked = document.querySelector('input[name="tempoHookTargetMode"]:checked');
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  return raw === "other" ? "other" : "current";
+}
+
+function renderTempoHookEpisodeOptions() {
+  const select = $("tempoHookOtherSceneSelect");
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const mark = currentId && id === currentId ? " · 현재" : "";
+    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    return `<option value="${id}">${escapeHtml(label)}</option>`;
+  });
+  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function updateTempoHookTargetUi() {
+  const other = getTempoHookTargetMode() === "other";
+  setOtherSceneSelectActive("tempoHookOtherSceneWrap", "tempoHookOtherSceneSelect", other);
+  renderTempoHookEpisodeOptions();
+}
+
+function closeTempoHookTargetModal({ returnToList = true } = {}) {
+  $("tempoHookTargetModal")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "temphook") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+}
+
+function openTempoHookTargetModal() {
+  if (!state.projectId) {
+    toast("먼저 작품을 선택해 주세요.");
+    return;
+  }
+  const hasCurrent = Boolean(state.sceneId);
+  const currentRadio = $("tempoHookTargetCurrent");
+  const otherRadio = $("tempoHookTargetOther");
+  if (currentRadio) currentRadio.disabled = !hasCurrent;
+  if (hasCurrent) {
+    if (currentRadio) currentRadio.checked = true;
+    if (otherRadio) otherRadio.checked = false;
+  } else {
+    if (otherRadio) otherRadio.checked = true;
+    if (currentRadio) currentRadio.checked = false;
+  }
+  updateTempoHookTargetUi();
+  $("tempoHookTargetModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    if (getTempoHookTargetMode() === "other") {
+      $("tempoHookOtherSceneSelect")?.focus();
+    } else {
+      $("tempoHookTargetConfirm")?.focus();
+    }
+  });
+}
+
+function confirmTempoHookTarget() {
+  let sceneId = null;
+  if (getTempoHookTargetMode() === "other") {
+    const n = Number($("tempoHookOtherSceneSelect")?.value || 0);
+    sceneId = Number.isFinite(n) && n > 0 ? n : null;
+    if (!sceneId) {
+      toast("기준 회차를 선택해 주세요.");
+      $("tempoHookOtherSceneSelect")?.focus();
+      return;
+    }
+  } else {
+    sceneId = state.sceneId ? Number(state.sceneId) : null;
+    if (!sceneId) {
+      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      return;
+    }
+  }
+  closeTempoHookTargetModal({ returnToList: false });
+  openTempoHookResultsModal();
+  runTempoHookAnalysis(sceneId).catch(handleError);
+}
+
+function setupTempoHookTargetModal() {
+  const host = $("tempoHookTargetOptions");
+  if (host && host.dataset.bound !== "1") {
+    host.dataset.bound = "1";
+    host.addEventListener("change", (event) => {
+      if (!event.target?.matches?.('input[name="tempoHookTargetMode"]')) return;
+      updateTempoHookTargetUi();
+    });
+  }
+  if ($("tempoHookTargetConfirm") && $("tempoHookTargetConfirm").dataset.bound !== "1") {
+    $("tempoHookTargetConfirm").dataset.bound = "1";
+    $("tempoHookTargetConfirm").addEventListener("click", () => confirmTempoHookTarget());
+  }
+  document.querySelectorAll("[data-close-tempo-hook-target]").forEach((el) => {
+    if (el.dataset.bound === "1") return;
+    el.dataset.bound = "1";
+    el.addEventListener("click", closeTempoHookTargetModal);
+  });
+  if (!document.documentElement.dataset.tempoHookTargetEscBound) {
+    document.documentElement.dataset.tempoHookTargetEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (isTempoHookTargetModalOpen()) {
+        event.preventDefault();
+        closeTempoHookTargetModal();
+      }
+    });
+  }
+}
+
+function closeTempoHookModal({ returnToList = true } = {}) {
+  $("tempoHookModal")?.classList.add("hidden");
+  $("tempoHookChartTooltip")?.classList.add("hidden");
+  if (!returnToList) return;
+  if (($("aiMode")?.value || "") !== "temphook") return;
+  const pane = $("aiToolsView")?.getAttribute("data-helper-pane");
+  if (pane === "result") return;
+  try { returnToAiSelectList(); } catch (_) { /* ignore */ }
+}
+
+function openTempoHookResultsModal() {
+  $("tempoHookModal")?.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    $("tempoHookRetryButton")?.focus?.();
+  });
+}
+
+function openTempoHookModal() {
+  openTempoHookTargetModal();
+}
+
+function setTempoHookStatus(message, { showResults = false } = {}) {
+  const status = $("tempoHookStatus");
+  if (status) {
+    status.textContent = message || "";
+    status.classList.toggle("hidden", !message);
+  }
+  $("tempoHookResults")?.classList.toggle("hidden", !showResults);
+}
+
+function renderTempoHookScoreCard() {
+  const score = tempoHookState.cliffhanger.score;
+  const reason = tempoHookState.cliffhanger.reason;
+  const numEl = $("tempoHookScoreNum");
+  const reasonEl = $("tempoHookScoreReason");
+  const card = $("tempoHookScoreCard");
+  const rewriteBtn = $("tempoHookRewriteButton");
+  const weak = Number.isFinite(score) && score < 6;
+  if (numEl) numEl.textContent = Number.isFinite(score) ? String(score) : "—";
+  if (reasonEl) reasonEl.textContent = reason || "엔딩 점수를 받지 못했어요.";
+  card?.classList.toggle("is-weak", weak);
+  rewriteBtn?.classList.toggle("hidden", !weak);
+}
+
+function hideTempoHookChartTooltip() {
+  $("tempoHookChartTooltip")?.classList.add("hidden");
+}
+
+function showTempoHookChartTooltip(event, segment) {
+  const wrap = $("tempoHookChartWrap");
+  const tip = $("tempoHookChartTooltip");
+  if (!wrap || !tip || !segment) return;
+  const tag = segment.emotion_tag || "";
+  const reason = segment.reason || "";
+  const preview = segment.text_preview || "";
+  tip.innerHTML = `<strong>${escapeHtml(tag)}${preview ? ` · ${escapeHtml(preview)}` : ""}</strong>${escapeHtml(reason)}`;
+  tip.classList.remove("hidden");
+  const wrapRect = wrap.getBoundingClientRect();
+  const x = event.clientX - wrapRect.left + 12;
+  const y = event.clientY - wrapRect.top + 12;
+  const maxX = Math.max(8, wrapRect.width - 248);
+  const maxY = Math.max(8, wrapRect.height - 88);
+  tip.style.left = `${Math.max(8, Math.min(x, maxX))}px`;
+  tip.style.top = `${Math.max(8, Math.min(y, maxY))}px`;
+}
+
+function renderTempoHookChart(segments) {
+  const svg = $("tempoHookChart");
+  if (!svg) return;
+  hideTempoHookChartTooltip();
+  const list = Array.isArray(segments) ? segments : [];
+  const width = 640;
+  const height = 280;
+  const pad = { left: 42, right: 18, top: 18, bottom: 36 };
+  const innerW = width - pad.left - pad.right;
+  const innerH = height - pad.top - pad.bottom;
+  const xOf = (pct) => pad.left + (Math.max(0, Math.min(100, Number(pct) || 0)) / 100) * innerW;
+  const yOf = (score) => pad.top + (1 - Math.max(0, Math.min(10, Number(score) || 0)) / 10) * innerH;
+
+  const grid = [];
+  for (let s = 0; s <= 10; s += 2) {
+    const y = yOf(s);
+    grid.push(`<line x1="${pad.left}" y1="${y}" x2="${width - pad.right}" y2="${y}" stroke="rgba(58,42,24,0.12)" stroke-width="1"/>`);
+    grid.push(`<text x="${pad.left - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="#7a7268">${s}</text>`);
+  }
+  [0, 25, 50, 75, 100].forEach((pct) => {
+    const x = xOf(pct);
+    grid.push(`<text x="${x}" y="${height - 12}" text-anchor="middle" font-size="11" fill="#7a7268">${pct}%</text>`);
+  });
+
+  if (!list.length) {
+    svg.innerHTML = `${grid.join("")}<text x="${width / 2}" y="${height / 2}" text-anchor="middle" font-size="13" fill="#7a7268">곡선을 그릴 구간이 없어요.</text>`;
+    return;
+  }
+
+  const points = list.map((seg) => `${xOf(seg.segment_position_pct).toFixed(1)},${yOf(seg.score).toFixed(1)}`);
+  const dots = list.map((seg, index) => {
+    const color = TEMPO_HOOK_EMOTION_COLORS[seg.emotion_tag] || "#c45c4a";
+    return `<circle class="tempo-hook-dot" data-tempo-seg="${index}" cx="${xOf(seg.segment_position_pct).toFixed(1)}" cy="${yOf(seg.score).toFixed(1)}" r="6" fill="${color}" stroke="#fff" stroke-width="2"></circle>`;
+  });
+  svg.innerHTML = `
+    ${grid.join("")}
+    <polyline fill="none" stroke="#a66b3a" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round" points="${points.join(" ")}"></polyline>
+    ${dots.join("")}
+  `;
+  svg.querySelectorAll("[data-tempo-seg]").forEach((dot) => {
+    const index = Number(dot.getAttribute("data-tempo-seg"));
+    const seg = list[index];
+    dot.addEventListener("pointerenter", (event) => showTempoHookChartTooltip(event, seg));
+    dot.addEventListener("pointermove", (event) => showTempoHookChartTooltip(event, seg));
+    dot.addEventListener("pointerleave", hideTempoHookChartTooltip);
+  });
+}
+
+function renderTempoHookRewriteCards(versions) {
+  const grid = $("tempoHookRewriteGrid");
+  const section = $("tempoHookRewriteSection");
+  if (!grid || !section) return;
+  const items = Array.isArray(versions) ? versions : [];
+  section.classList.toggle("hidden", !items.length && !tempoHookState.rewriteBusy);
+  grid.innerHTML = items.map((item, index) => `
+    <article class="tempo-hook-rewrite-card" data-tempo-rewrite="${index}">
+      <span class="tempo-hook-rewrite-card-label">${escapeHtml(item.label || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[index] || `버전 ${index + 1}`)}</span>
+      <span class="tempo-hook-rewrite-card-text">${escapeHtml(item.text || "")}</span>
+      <div class="tempo-hook-rewrite-card-actions">
+        <button type="button" class="secondary compact-btn" data-tempo-rewrite-copy>복사하기</button>
+        <button type="button" class="primary compact-btn" data-tempo-rewrite-insert>원고에 삽입하기</button>
+      </div>
+    </article>
+  `).join("");
+}
+
+function currentTempoHookPlain() {
+  return String(tempoHookState.plain || "").trim();
+}
+
+function buildTempoHookAssistBody(taskPrompt, extra = {}) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const prompt = String(taskPrompt || "").trim();
+  return {
+    mode: "temphook",
+    project_id: state.projectId || null,
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+    scene_title: extra.sceneTitle || tempoHookState.sceneTitle || state.scene?.title || $("sceneTitle")?.value || "",
+    scene_synopsis: extra.sceneSynopsis || tempoHookState.sceneSynopsis || state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+    scene_content: extra.sceneContent || tempoHookState.plain,
+    task_prompt: prompt,
+    prompt: "",
+    user_prompt: "",
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    temphook_kind: extra.kind || "curve",
+    last_three_paragraphs: extra.lastThree || tempoHookState.lastThree,
+    cliffhanger_reason: extra.reason || tempoHookState.cliffhanger.reason || "",
+    ...buildToryProjectContextPayload(),
+  };
+}
+
+function tempoHookAssistErrorStatus(error) {
+  return Number(error?.status || error?.cause?.status || 0);
+}
+
+function tempoHookAssistErrorMessage(error) {
+  const inner = error?.cause || error;
+  return String(inner?.message || error?.message || "").trim();
+}
+
+function shouldFallbackTempoHookAssist(error) {
+  const status = tempoHookAssistErrorStatus(error);
+  const msg = tempoHookAssistErrorMessage(error);
+  if (status === 400) return true;
+  return /지원하지 않는 AI 도움|알 수 없는 요청/.test(msg);
+}
+
+function tempoHookFriendlyError(error) {
+  const msg = tempoHookAssistErrorMessage(error);
+  if (/지원하지 않는 AI 도움|알 수 없는 요청/.test(msg)) {
+    return "서버가 이전 버전이에요. SuperTory를 재시작한 뒤 다시 시도해 주세요.";
+  }
+  if (msg && msg !== AI_ASSIST_ERR_GENERIC && msg !== AI_ASSIST_ERR_CONNECTION) return msg;
+  if (error?.aiAssist) return msg || AI_ASSIST_ERR_GENERIC;
+  return "분석을 마치지 못했어요. 다시 시도해 주세요.";
+}
+
+async function postTempoHookAssist(taskPrompt, extra = {}) {
+  const body = buildTempoHookAssistBody(taskPrompt, extra);
+  try {
+    return await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  } catch (error) {
+    if (!shouldFallbackTempoHookAssist(error)) throw error;
+    // Older running server may not know mode=temphook yet.
+    const fallback = {
+      ...body,
+      mode: "free",
+      prompt: body.task_prompt,
+      user_prompt: body.task_prompt,
+      indexed_prompt: body.task_prompt,
+    };
+    return api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(fallback),
+    });
+  }
+}
+
+async function runTempoHookAnalysis(targetSceneId) {
+  if (tempoHookState.busy) return;
+  const sceneId = Number(targetSceneId || tempoHookState.sceneId || 0);
+  if (!sceneId) {
+    setTempoHookStatus("분석할 회차를 먼저 골라 주세요.");
+    toast("분석할 회차를 먼저 골라 주세요.");
+    return;
+  }
+  let manuscript;
+  try {
+    manuscript = await loadSceneManuscriptForAssist(sceneId);
+  } catch (error) {
+    handleError(error);
+    return;
+  }
+  const plain = String(manuscript?.plain || "").trim();
+  if (!plain) {
+    const emptyMsg = Number(state.sceneId) === sceneId
+      ? "분석할 원고 본문이 필요해요. 본문을 먼저 적어 주세요."
+      : "선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 분석해 주세요.";
+    setTempoHookStatus(emptyMsg);
+    toast(emptyMsg);
+    return;
+  }
+  tempoHookState.busy = true;
+  tempoHookState.rewriteBusy = false;
+  tempoHookState.sceneId = sceneId;
+  tempoHookState.sceneTitle = manuscript.title || "";
+  tempoHookState.sceneSynopsis = manuscript.synopsis || "";
+  tempoHookState.plain = plain.length > 24000 ? plain.slice(0, 24000) : plain;
+  tempoHookState.lastThree = lastThreeParagraphsText(plain);
+  tempoHookState.segments = [];
+  tempoHookState.cliffhanger = { score: null, reason: "" };
+  tempoHookState.rewrites = [];
+  $("tempoHookRewriteSection")?.classList.add("hidden");
+  $("tempoHookRewriteGrid") && ($("tempoHookRewriteGrid").innerHTML = "");
+  setTempoHookStatus("감정 곡선과 엔딩 훅을 살펴보는 중…");
+  const retryBtn = $("tempoHookRetryButton");
+  if (retryBtn) retryBtn.disabled = true;
+  try {
+    const curveResult = await postTempoHookAssist(
+      buildTensionCurvePrompt(tempoHookState.plain),
+      { kind: "curve" },
+    );
+    tempoHookState.segments = parseTensionCurveResult(curveResult?.text || "");
+    if (!tempoHookState.segments.length) {
+      setTempoHookStatus("감정 곡선을 읽지 못했어요. 다시 분석해 주세요.");
+      toast("감정 곡선을 읽지 못했어요. 다시 시도해 주세요.");
+      return;
+    }
+    try {
+      const scoreResult = await postTempoHookAssist(
+        buildCliffhangerScorePrompt(tempoHookState.lastThree),
+        { kind: "score", lastThree: tempoHookState.lastThree },
+      );
+      tempoHookState.cliffhanger = parseCliffhangerScoreResult(scoreResult?.text || "");
+    } catch (scoreError) {
+      tempoHookState.cliffhanger = {
+        score: null,
+        reason: "엔딩 점수는 이번엔 받지 못했어요. 곡선은 그대로 볼 수 있어요.",
+      };
+      console.warn("[SuperTory] tempo hook score failed", scoreError);
+    }
+    setTempoHookStatus("", { showResults: true });
+    renderTempoHookChart(tempoHookState.segments);
+    renderTempoHookScoreCard();
+    const historyBits = [
+      `감정 곡선 ${tempoHookState.segments.length}구간`,
+      Number.isFinite(tempoHookState.cliffhanger.score) ? `엔딩 ${tempoHookState.cliffhanger.score}점` : "",
+    ].filter(Boolean);
+    if ($("aiResult")) {
+      $("aiResult").value = [
+        historyBits.join(" · "),
+        tempoHookState.segments.map((seg) => `${seg.segment_position_pct}% ${seg.emotion_tag} ${seg.score}점 — ${seg.reason}`).join("\n"),
+        tempoHookState.cliffhanger.reason ? `엔딩: ${tempoHookState.cliffhanger.reason}` : "",
+      ].filter(Boolean).join("\n\n");
+    }
+    if (typeof revealAiAssistResult === "function") {
+      revealAiAssistResult({ openModal: false, mode: "temphook" });
+    }
+    toast("서사 템포 & 훅 분석이 끝났어요.");
+  } catch (error) {
+    const msg = tempoHookFriendlyError(error);
+    setTempoHookStatus(msg);
+    toast(msg);
+  } finally {
+    tempoHookState.busy = false;
+    if (retryBtn) retryBtn.disabled = false;
+  }
+}
+
+async function runTempoHookRewrite() {
+  if (tempoHookState.rewriteBusy) return;
+  const score = tempoHookState.cliffhanger.score;
+  if (!Number.isFinite(score) || score >= 6) return;
+  if (!tempoHookState.lastThree) {
+    toast("바꿀 엔딩 문단을 찾지 못했어요.");
+    return;
+  }
+  tempoHookState.rewriteBusy = true;
+  $("tempoHookRewriteSection")?.classList.remove("hidden");
+  const status = $("tempoHookRewriteStatus");
+  if (status) {
+    status.textContent = "더 강한 훅 세 가지를 쓰는 중…";
+    status.classList.remove("hidden");
+  }
+  $("tempoHookRewriteButton") && ($("tempoHookRewriteButton").disabled = true);
+  try {
+    const result = await postTempoHookAssist(
+      buildEndingRewritePrompt(tempoHookState.lastThree, tempoHookState.cliffhanger.reason || ""),
+      { kind: "rewrite", lastThree: tempoHookState.lastThree, reason: tempoHookState.cliffhanger.reason || "" },
+    );
+    const versions = parseEndingRewriteVersions(result?.text || "");
+    tempoHookState.rewrites = versions;
+    if (!versions.length) {
+      if (status) status.textContent = "개작 제안을 읽지 못했어요. 다시 시도해 주세요.";
+      toast("개작 제안을 읽지 못했어요.");
+      return;
+    }
+    if (status) status.classList.add("hidden");
+    renderTempoHookRewriteCards(versions);
+  } catch (error) {
+    if (status) status.textContent = "개작 제안을 받지 못했어요.";
+    handleError(error);
+  } finally {
+    tempoHookState.rewriteBusy = false;
+    $("tempoHookRewriteButton") && ($("tempoHookRewriteButton").disabled = false);
+  }
+}
+
+function setupTempoHookModal() {
+  const modal = $("tempoHookModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+  document.querySelectorAll("[data-close-tempo-hook]").forEach((el) => {
+    el.addEventListener("click", () => closeTempoHookModal());
+  });
+  $("tempoHookRetryButton")?.addEventListener("click", () => {
+    runTempoHookAnalysis(tempoHookState.sceneId).catch(handleError);
+  });
+  $("tempoHookRewriteButton")?.addEventListener("click", () => {
+    runTempoHookRewrite().catch(handleError);
+  });
+  $("tempoHookRewriteGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest?.("[data-tempo-rewrite]");
+    if (!card) return;
+    const index = Number(card.getAttribute("data-tempo-rewrite"));
+    const item = tempoHookState.rewrites[index];
+    if (!item?.text) return;
+    if (event.target.closest?.("[data-tempo-rewrite-copy]")) {
+      const done = () => toast("결과를 복사했어요.");
+      if (navigator.clipboard?.writeText) {
+        navigator.clipboard.writeText(item.text).then(done).catch(() => {
+          toast("복사하지 못했어요.");
+        });
+      } else {
+        toast("복사하지 못했어요.");
+      }
+      return;
+    }
+    if (event.target.closest?.("[data-tempo-rewrite-insert]")) {
+      if (tempoHookState.sceneId && Number(state.sceneId) !== Number(tempoHookState.sceneId)) {
+        toast("이 회차가 에디터에 열려 있지 않아요. 해당 회차를 연 뒤 삽입하거나, 복사해서 붙여 주세요.");
+        return;
+      }
+      replaceLastThreeParagraphsInEditor(item.text);
+    }
+  });
+  if (!document.documentElement.dataset.tempoHookEscBound) {
+    document.documentElement.dataset.tempoHookEscBound = "1";
+    document.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      if (isTempoHookModalOpen()) {
+        event.preventDefault();
+        closeTempoHookModal();
+      }
+    });
+  }
+}
+
+const CHAR_DEBATE_MIN = 2;
+const CHAR_DEBATE_MAX = 3;
+const CHAR_DEBATE_PRESETS = [
+  "목숨을 건 선택의 기로",
+  "서로의 비밀이 드러난 순간",
+  "배신을 마주했을 때",
+  "마지막으로 남길 수 있는 한마디",
+];
+const CHAR_DEBATE_COPY_BTN =
+  `<button type="button" class="tory-chat-bubble-copy" data-char-debate-copy title="복사하기" aria-label="복사하기">`
+  + `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`
+  + `<rect x="9" y="9" width="13" height="13" rx="2"/>`
+  + `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
+  + `</svg></button>`;
+
+const charDebateState = {
+  step: "pick",
+  selectedIds: [],
+  preset: "",
+  custom: "",
+  scenario: "",
+  charactersInfo: [],
+  rawText: "",
+  lines: [],
+  busy: false,
+};
+
+function charDebateScenarioText() {
+  const custom = String($("charDebateCustomScenario")?.value || "").trim();
+  if (custom) return custom;
+  return String(charDebateState.preset || "").trim();
+}
+
+function updateCharDebatePickHint() {
+  const hint = $("charDebatePickHint");
+  if (!hint) return;
+  const n = charDebateState.selectedIds.length;
+  if (n < CHAR_DEBATE_MIN) hint.textContent = "2명 이상 골라주세요";
+  else if (n >= CHAR_DEBATE_MAX) hint.textContent = "3명까지예요. 더 고르려면 먼저 선택을 풀어 주세요.";
+  else hint.textContent = `${n}명 선택됨 · 최대 3명`;
+}
+
+function setCharDebateStep(step) {
+  const next = ["pick", "scenario", "result"].includes(step) ? step : "pick";
+  charDebateState.step = next;
+  ["pick", "scenario", "result"].forEach((key) => {
+    $(`charDebateStep${key[0].toUpperCase()}${key.slice(1)}`)?.classList.toggle("hidden", key !== next);
+  });
+  const nextBtn = $("charDebateNextButton");
+  const backPick = $("charDebateBackPickButton");
+  const other = $("charDebateOtherScenarioButton");
+  const retry = $("charDebateRetryButton");
+  backPick?.classList.toggle("hidden", next !== "scenario");
+  other?.classList.toggle("hidden", next !== "result");
+  retry?.classList.toggle("hidden", next !== "result");
+  if (nextBtn) {
+    if (next === "pick") {
+      nextBtn.classList.remove("hidden");
+      nextBtn.textContent = "상황 설정하기";
+      const n = charDebateState.selectedIds.length;
+      nextBtn.disabled = n < CHAR_DEBATE_MIN || n > CHAR_DEBATE_MAX;
+    } else if (next === "scenario") {
+      nextBtn.classList.remove("hidden");
+      nextBtn.textContent = "대화 생성하기";
+      nextBtn.disabled = !charDebateScenarioText() || charDebateState.busy;
+    } else {
+      nextBtn.classList.add("hidden");
+    }
+  }
+  if (next === "pick") updateCharDebatePickHint();
+}
+
+function formatTrackedFactsForCharacter(facts, character) {
+  const names = new Set(
+    [
+      String(character?.name || "").trim(),
+      ...((character?.aliases || []).map((item) => String(item?.alias || item || "").trim())),
+    ].filter(Boolean).map((name) => name.toLowerCase()),
+  );
+  const hits = (Array.isArray(facts) ? facts : []).filter((fact) => (
+    names.has(String(fact?.subject || "").trim().toLowerCase())
+  ));
+  if (!hits.length) return "기록된 현재 상태 없음";
+  return hits.map((fact) => {
+    const bits = [fact.category, fact.attribute, fact.value].map((part) => String(part || "").trim()).filter(Boolean);
+    return bits.join(" · ");
+  }).join("; ");
+}
+
+function characterDebatePersonality(character) {
+  const bits = [
+    String(character?.short_description || "").trim(),
+    String(character?.profile_md || "").replace(/\s+/g, " ").trim(),
+  ].filter(Boolean);
+  if (character?.strengths_md) bits.push(`강점: ${String(character.strengths_md).replace(/\s+/g, " ").trim()}`);
+  if (character?.weaknesses_md) bits.push(`약점: ${String(character.weaknesses_md).replace(/\s+/g, " ").trim()}`);
+  return bits.join(" / ").slice(0, 700) || "설정 미기입";
+}
+
+function parseCharacterDebateScript(text) {
+  const lines = String(text || "").replace(/\r\n/g, "\n").split("\n");
+  const items = [];
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const talk = line.match(/^([^:\n]{1,40}?)\s*[:：]\s*(.+)$/);
+    if (talk) {
+      items.push({ name: talk[1].trim(), dialogue: talk[2].trim(), direction: "" });
+      continue;
+    }
+    const isDir = /^[（(].+[)）]$/.test(line) || /^\*[^*].*\*$/.test(line) || /^_[^_].*_$/.test(line);
+    if (isDir && items.length) {
+      const cleaned = line.replace(/^[（(*_]+|[)）*_]+$/g, "").trim();
+      const prev = items[items.length - 1];
+      prev.direction = prev.direction ? `${prev.direction} ${cleaned}` : cleaned;
+      continue;
+    }
+    if (items.length) items[items.length - 1].dialogue += `\n${line}`;
+  }
+  return items;
+}
+
+function renderCharDebateCharacters() {
+  const host = $("charDebateCharacterList");
+  if (!host) return;
+  const chars = Array.isArray(state.characters) ? state.characters : [];
+  const selected = new Set(charDebateState.selectedIds.map(Number));
+  if (!state.projectId) {
+    host.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    return;
+  }
+  if (!chars.length) {
+    host.innerHTML = `<p class="hint">설정집에 인물이 없어요. 캐릭터를 먼저 만든 뒤 골라 주세요.</p>`;
+    return;
+  }
+  const atMax = selected.size >= CHAR_DEBATE_MAX;
+  host.innerHTML = chars.map((ch) => {
+    const id = Number(ch.id);
+    const on = selected.has(id);
+    const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+    const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
+    const summary = escapeHtml(
+      String(ch.short_description || "").trim()
+      || String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 80)
+      || "",
+    );
+    const disabled = !on && atMax;
+    return `
+      <label class="tory-chat-character-row ${on ? "is-selected" : ""}${disabled ? " is-disabled" : ""}">
+        <input type="checkbox" data-char-debate-id="${id}" ${on ? "checked" : ""}${disabled ? " disabled" : ""}>
+        <span class="tory-chat-character-row-body">
+          <span class="tory-chat-character-row-name">${name}</span>
+          <span class="tory-chat-character-row-meta">${role}${role && summary ? " · " : ""}${summary}</span>
+        </span>
+      </label>`;
+  }).join("");
+  updateCharDebatePickHint();
+  setCharDebateStep(charDebateState.step);
+}
+
+function renderCharDebatePresets() {
+  const host = $("charDebatePresetGrid");
+  if (!host) return;
+  host.innerHTML = CHAR_DEBATE_PRESETS.map((label) => {
+    const on = charDebateState.preset === label ? " is-selected" : "";
+    return `<button type="button" class="char-debate-preset${on}" data-char-debate-preset="${escapeHtml(label)}" role="option" aria-selected="${charDebateState.preset === label ? "true" : "false"}">${escapeHtml(label)}</button>`;
+  }).join("");
+}
+
+function renderCharDebateScript(lines, rawText) {
+  const host = $("charDebateScript");
+  if (!host) return;
+  const items = Array.isArray(lines) ? lines : [];
+  if (!items.length) {
+    host.innerHTML = rawText
+      ? `<pre class="char-debate-line-text">${escapeHtml(rawText)}</pre>`
+      : "";
+    return;
+  }
+  host.innerHTML = items.map((item, index) => {
+    const copyText = [item.name ? `${item.name}: ${item.dialogue}` : item.dialogue, item.direction ? `(${item.direction})` : ""]
+      .filter(Boolean).join("\n");
+    return `<article class="char-debate-line has-copy" data-char-debate-line="${index}">
+      ${CHAR_DEBATE_COPY_BTN}
+      <span class="char-debate-line-name">${escapeHtml(item.name || "")}</span>
+      <span class="char-debate-line-text">${escapeHtml(item.dialogue || "")}</span>
+      ${item.direction ? `<span class="char-debate-line-dir">${escapeHtml(item.direction)}</span>` : ""}
+      <span class="sr-only" data-char-debate-copy-text>${escapeHtml(copyText)}</span>
+    </article>`;
+  }).join("");
+}
+
+async function ensureCharDebateCharacters() {
+  if (!state.projectId) return [];
+  if (Array.isArray(state.characters) && state.characters.length) return state.characters;
+  try {
+    const characters = await api(`/api/projects/${state.projectId}/characters`);
+    if (Array.isArray(characters)) state.characters = characters;
+  } catch (_) { /* ignore */ }
+  return Array.isArray(state.characters) ? state.characters : [];
+}
+
+async function prepareCharDebatePane() {
+  if (!state.projectId) {
+    renderCharDebateCharacters();
+    return;
+  }
+  await ensureCharDebateCharacters();
+  if (!charDebateState.selectedIds.length) charDebateState.step = "pick";
+  renderCharDebateCharacters();
+  renderCharDebatePresets();
+  setCharDebateStep(charDebateState.step);
+}
+
+async function loadCharDebateCharacterDetails(ids) {
+  const list = Array.isArray(state.characters) ? state.characters : [];
+  const out = [];
+  for (const id of ids) {
+    let base = list.find((ch) => Number(ch.id) === Number(id)) || { id };
+    try {
+      const detail = await api(`/api/characters/${id}`);
+      const full = detail?.character || {};
+      base = {
+        ...base,
+        ...full,
+        aliases: Array.isArray(detail?.aliases) ? detail.aliases : [],
+      };
+    } catch (_) { /* keep list row */ }
+    out.push(base);
+  }
+  return out;
+}
+
+async function buildCharDebateCharactersInfo(ids) {
+  const details = await loadCharDebateCharacterDetails(ids);
+  let facts = [];
+  try {
+    const projectIndex = await ensureFreshProjectIndex();
+    facts = Array.isArray(projectIndex?.tracked_facts) ? projectIndex.tracked_facts : [];
+  } catch (_) {
+    facts = [];
+  }
+  return details.map((ch) => ({
+    id: Number(ch.id),
+    name: String(ch.name || "").trim() || `인물#${ch.id}`,
+    personality: characterDebatePersonality(ch),
+    tone: String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 400),
+    currentFacts: formatTrackedFactsForCharacter(facts, ch),
+  }));
+}
+
+async function postCharDebateAssist(taskPrompt, extra = {}) {
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+  const prompt = String(taskPrompt || "").trim();
+  const body = {
+    mode: "chardebate",
+    project_id: state.projectId || null,
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+    scene_content: "",
+    task_prompt: prompt,
+    prompt: "",
+    user_prompt: "",
+    characters_info: extra.charactersInfo || charDebateState.charactersInfo,
+    scenario: extra.scenario || charDebateState.scenario,
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    ...buildToryProjectContextPayload(),
+  };
+  try {
+    return await api("/api/ai/assist", { method: "POST", body: JSON.stringify(body) });
+  } catch (error) {
+    const status = Number(error?.status || error?.cause?.status || 0);
+    const msg = String(error?.cause?.message || error?.message || "");
+    if (status !== 400 && !/지원하지 않는 AI 도움|알 수 없는 요청/.test(msg)) throw error;
+    return api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify({
+        ...body,
+        mode: "free",
+        prompt,
+        user_prompt: prompt,
+        indexed_prompt: prompt,
+      }),
+    });
+  }
+}
+
+async function runCharacterDebate({ keepScenario = true } = {}) {
+  if (charDebateState.busy) return;
+  const ids = charDebateState.selectedIds.map(Number).filter((id) => id > 0);
+  if (ids.length < CHAR_DEBATE_MIN || ids.length > CHAR_DEBATE_MAX) {
+    toast("인물은 2~3명 골라 주세요.");
+    setCharDebateStep("pick");
+    return;
+  }
+  const scenario = keepScenario ? charDebateScenarioText() : charDebateState.scenario;
+  if (!scenario) {
+    toast("상황을 고르거나 직접 적어 주세요.");
+    setCharDebateStep("scenario");
+    return;
+  }
+  charDebateState.busy = true;
+  charDebateState.scenario = scenario;
+  setCharDebateStep("result");
+  const status = $("charDebateStatus");
+  if (status) {
+    status.textContent = "대화를 쓰는 중…";
+    status.classList.remove("hidden");
+  }
+  $("charDebateScript") && ($("charDebateScript").innerHTML = "");
+  $("charDebateRetryButton") && ($("charDebateRetryButton").disabled = true);
+  $("charDebateNextButton") && ($("charDebateNextButton").disabled = true);
+  try {
+    const info = await buildCharDebateCharactersInfo(ids);
+    charDebateState.charactersInfo = info;
+    const result = await postCharDebateAssist(buildCharacterDebatePrompt(info, scenario), {
+      charactersInfo: info,
+      scenario,
+    });
+    const raw = String(result?.text || "").trim();
+    charDebateState.rawText = raw;
+    charDebateState.lines = parseCharacterDebateScript(raw);
+    if (status) status.classList.add("hidden");
+    renderCharDebateScript(charDebateState.lines, raw);
+    toast("가상 논쟁을 만들었어요.");
+  } catch (error) {
+    const msg = String(error?.cause?.message || error?.message || "대화를 만들지 못했어요. 다시 시도해 주세요.");
+    if (status) {
+      status.textContent = msg;
+      status.classList.remove("hidden");
+    }
+    toast(msg);
+  } finally {
+    charDebateState.busy = false;
+    $("charDebateRetryButton") && ($("charDebateRetryButton").disabled = false);
+    setCharDebateStep(charDebateState.step);
+  }
+}
+
+async function copyCharDebateText(text) {
+  const value = String(text || "").trim();
+  if (!value) return toast("복사할 내용이 없어요.");
+  try {
+    if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
+    else {
+      const ta = document.createElement("textarea");
+      ta.value = value;
+      ta.setAttribute("readonly", "");
+      ta.style.position = "fixed";
+      ta.style.left = "-9999px";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    }
+    toast("복사되었습니다");
+  } catch (_) {
+    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+  }
+}
+
+function setupCharDebateUi() {
+  const pane = $("toryChatCharacterSimPane");
+  if (!pane || pane.dataset.bound === "1") return;
+  pane.dataset.bound = "1";
+  $("charDebateCharacterList")?.addEventListener("change", (event) => {
+    const box = event.target?.closest?.("input[data-char-debate-id]");
+    if (!box) return;
+    const id = Number(box.getAttribute("data-char-debate-id"));
+    const set = new Set(charDebateState.selectedIds.map(Number));
+    if (box.checked) {
+      if (set.size >= CHAR_DEBATE_MAX) {
+        box.checked = false;
+        toast(`논쟁은 최대 ${CHAR_DEBATE_MAX}명까지예요.`);
+        return;
+      }
+      set.add(id);
+    } else {
+      set.delete(id);
+    }
+    charDebateState.selectedIds = [...set];
+    renderCharDebateCharacters();
+  });
+  $("charDebatePresetGrid")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-char-debate-preset]");
+    if (!btn) return;
+    const label = btn.getAttribute("data-char-debate-preset") || "";
+    charDebateState.preset = label;
+    if ($("charDebateCustomScenario")) $("charDebateCustomScenario").value = "";
+    charDebateState.custom = "";
+    renderCharDebatePresets();
+    setCharDebateStep("scenario");
+  });
+  $("charDebateCustomScenario")?.addEventListener("input", () => {
+    const custom = String($("charDebateCustomScenario").value || "").trim();
+    charDebateState.custom = custom;
+    if (custom) {
+      charDebateState.preset = "";
+      renderCharDebatePresets();
+    }
+    setCharDebateStep("scenario");
+  });
+  $("charDebateNextButton")?.addEventListener("click", () => {
+    if (charDebateState.step === "pick") {
+      setCharDebateStep("scenario");
+      renderCharDebatePresets();
+      return;
+    }
+    if (charDebateState.step === "scenario") {
+      runCharacterDebate().catch(handleError);
+    }
+  });
+  $("charDebateBackPickButton")?.addEventListener("click", () => setCharDebateStep("pick"));
+  $("charDebateOtherScenarioButton")?.addEventListener("click", () => {
+    setCharDebateStep("scenario");
+    renderCharDebatePresets();
+  });
+  $("charDebateRetryButton")?.addEventListener("click", () => {
+    runCharacterDebate({ keepScenario: true }).catch(handleError);
+  });
+  $("charDebateCopyAllButton")?.addEventListener("click", () => {
+    copyCharDebateText(charDebateState.rawText);
+  });
+  $("charDebateScript")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-char-debate-copy]");
+    if (!btn) return;
+    const line = btn.closest("[data-char-debate-line]");
+    const text = line?.querySelector("[data-char-debate-copy-text]")?.textContent || "";
+    copyCharDebateText(text);
+  });
 }
 
 const AI_TOOL_MODAL_META = {
@@ -31458,6 +32740,7 @@ function openViewerMode(preferredMode = null) {
   setViewerMaximized(isViewerMaximized(), { relayout: false });
   applyViewerLayout();
   applyViewerContent({ resetBook: true }).catch(handleError);
+  syncViewerReaderCommentsButton({ pulse: true });
 }
 
 function closeViewerMode() {
@@ -31516,6 +32799,11 @@ function setupViewerMode() {
   // Book icon on format toolbar (right of find)
   $("viewerModeButton")?.addEventListener("click", () => {
     openViewerMode();
+  });
+
+  $("viewerReaderCommentsButton")?.addEventListener("click", () => {
+    if ($("viewerReaderCommentsButton")?.disabled) return;
+    startVirtualReaderCommentsFlow();
   });
 
   $("viewerMaximizeButton")?.addEventListener("click", (event) => {
@@ -37690,6 +38978,138 @@ ${combinedManuscriptBlock}
 [요약 결과]`;
 }
 
+function buildTensionCurvePrompt(episodeContent) {
+  return `[현재 작업]
+이 회차를 자연스러운 단락 흐름 기준으로 6~12개 구간으로 나누고, 각 구간의
+긴장도(몰입 자극 강도)를 평가하세요.
+
+[점수 기준 - 반드시 아래 앵커를 기준으로 삼는다, 점수를 중간에 몰아주지 않는다]
+- 0~2점: 평온한 일상, 정보 전달 위주 서술, 갈등 없음
+- 3~4점: 약한 긴장감, 인물 간 소소한 마찰이나 복선성 암시
+- 5~6점: 뚜렷한 갈등이나 문제 상황이 진행 중
+- 7~8점: 위기 상황, 대립 격화, 예상 밖 전개
+- 9~10점: 생사가 걸리거나 판을 뒤집는 결정적 반전/절정
+
+[구간 분류 시 유의]
+- 실제 서사 흐름(장면 전환, 대화-서술 전환 등)을 기준으로 자연스럽게 나눈다.
+  글자 수를 억지로 맞추지 않는다.
+- 같은 회차 안에서 점수가 다 비슷하게 몰리지 않도록, 위 앵커 기준을
+  엄격히 적용해서 실제 기복이 드러나게 한다.
+
+[각 구간마다 기록]
+- segment_index: 순서
+- segment_position_pct: 이 구간이 전체 회차에서 몇 % 지점인지
+  (정수, 백엔드에서 segment_index/전체구간수*100로 계산)
+- score: 0~10 (위 앵커 기준)
+- emotion_tag: 이 구간의 지배적 감정/자극 유형 (긴장/해소/반전/설렘/슬픔/
+  유머/공포 중 하나, 애매하면 가장 가까운 것 선택)
+- reason: 왜 이 점수인지 1문장 이내
+- text_preview: 이 구간 시작 부분 15자 이내 (구간 식별용, 원문 그대로
+  길게 인용하지 않는다)
+
+[출력 형식 - JSON]
+{
+  "segments": [
+    {"segment_index": 1, "segment_position_pct": 8, "score": 3,
+     "emotion_tag": "해소", "reason": "...", "text_preview": "..."},
+    ...
+  ]
+}
+
+[본문]
+${episodeContent}
+
+[분석 결과]`;
+}
+
+function buildCliffhangerScorePrompt(lastThreeParagraphs) {
+  return `[현재 작업]
+이 회차의 마지막 3문단을 분석해, "다음 화를 보고 싶게 만드는 힘"을
+평가하세요.
+
+[점수 기준]
+- 0~2점: 그냥 장면이 마무리됨, 궁금증 유발 요소 없음
+- 3~5점: 약한 궁금증은 있으나 절박하지 않음
+- 6~7점: 명확한 질문이나 긴장 상태로 끝남 (독자가 답을 알고 싶어함)
+- 8~10점: 강력한 위기/반전/정보 공백으로 끝남, 즉시 다음 화를 눌러야
+  할 정도
+
+[출력 형식 - JSON]
+{
+  "score": 0~10,
+  "reason": "이 점수를 준 이유 2문장 이내"
+}
+
+[본문 마지막 부분]
+${lastThreeParagraphs}
+
+[평가 결과]`;
+}
+
+function buildEndingRewritePrompt(lastThreeParagraphs, cliffhangerReason) {
+  return `[현재 작업]
+아래 회차 엔딩의 훅이 약하다고 판단됐습니다 (이유: ${cliffhangerReason}).
+더 강력한 훅으로 개작한 버전을 3가지 서로 다른 연출 방식으로 제안하세요.
+
+[3가지 연출 방식 - 각각 다른 전략을 쓴다]
+1. 즉각적 위기 노출형: 예상치 못한 위험이나 사건을 마지막 문장에서
+   바로 드러낸다
+2. 정보 공백형: 결정적 정보를 의도적으로 숨기고 궁금증만 남긴다
+   (예: "그가 문을 열었을 때, 거기 있던 건...")
+3. 감정 절정형: 인물의 감정이 극에 달하는 순간에서 끊는다
+
+각 버전은 원래 장면의 맥락(등장인물, 상황)을 유지하되, 마지막 3문단만
+새로 쓴다. 원문 문체를 최대한 따라간다.
+
+[출력 형식]
+## 버전 1: 즉각적 위기 노출형
+(개작된 마지막 3문단)
+
+## 버전 2: 정보 공백형
+(개작된 마지막 3문단)
+
+## 버전 3: 감정 절정형
+(개작된 마지막 3문단)
+
+[원본 마지막 3문단]
+${lastThreeParagraphs}
+
+[개작 제안]`;
+}
+
+function buildCharacterDebatePrompt(charactersInfo, scenario) {
+  // charactersInfo: [{name, personality, tone, currentFacts}, ...] (2~3명)
+  return `[현재 작업]
+아래 캐릭터들을 다음 상황에 놓았을 때 나올 법한 대화를 시뮬레이션하세요.
+
+[상황]
+${scenario}
+
+[참여 캐릭터]
+${(Array.isArray(charactersInfo) ? charactersInfo : []).map((c) =>
+  `- ${c.name}: 성격/말투 - ${c.personality}. 현재 상태 - ${c.currentFacts}`
+).join("\n")}
+
+[작성 원칙]
+1. 각 캐릭터는 반드시 설정집에 명시된 본인의 말투와 성격을 그대로 유지한다.
+   캐릭터 간 말투가 서로 섞이지 않도록 각별히 주의한다.
+2. 이 상황에서 각 캐릭터가 실제로 취할 법한 반응과 태도를 개연성 있게
+   보여준다. 극적 효과를 위해 캐릭터의 확립된 성격을 왜곡하지 않는다.
+3. 8~12번의 대사 교환으로 구성한다 (한쪽이 일방적으로 말하지 않고,
+   실제 논쟁/대화처럼 주고받는다).
+4. 대사 사이사이 짧은 지문(행동, 표정 묘사)을 필요한 곳에만 넣는다.
+   과하게 넣지 않는다.
+5. 이건 실제 원고가 아니라 "이 대화가 캐릭터답게 성립하는지" 확인하는
+   테스트 목적이므로, 결말을 억지로 봉합하거나 화해시키지 않는다.
+   상황이 해결 안 된 채 끝나도 된다.
+
+[출력 형식]
+캐릭터명: 대사
+(지문이 있다면 캐릭터명 다음 줄에 이탤릭이나 괄호로 짧게)
+
+[대화 시뮬레이션]`;
+}
+
 /**
  * Helper dropdown "투고·공모전용 시놉시스" (mode=subsynopsis).
  * Uses project index + outline_summary only — no scene manuscript.
@@ -37698,8 +39118,7 @@ ${combinedManuscriptBlock}
 function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
   const outlineBlock = outlineSummary
     ? `[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n${outlineSummary}`
-    : `[작가가 제공한 줄거리 개요]\n(제공되지 않음 - 지금까지 쓰인 원고만
-       근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)`;
+    : `[작가가 제공한 줄거리 개요]\n(제공되지 않음 - 지금까지 쓰인 원고만 근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)`;
 
   const synopsisLengthNote = synopsisLengthLimit
     ? `시놉시스는 ${synopsisLengthLimit}자 이내로 작성한다.`
@@ -37717,10 +39136,16 @@ function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, inte
 - ${intentLengthNote}
 - [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,
   지어내지 않는다.
+- [프로젝트 누적 정보]에는 인물 이름과 사건 요약만 있고 인물의 목표·동기·
+  갈등 관계는 명시되어 있지 않을 수 있다. 이런 정보가 없으면 사건 흐름에서
+  합리적으로 추론하되, 추론이라는 티가 나지 않게 단정적으로 서술하지 말고
+  개연성 있는 해석으로 제시한다.
 
 [로그라인 후보]
 - 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.
 - 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.
+- 5개 중 2개 이상이 같은 사건이나 같은 문장 구조를 재사용하면 안 된다.
+  주어-술어 구조 자체를 다르게 가져간다.
 - 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.
 - 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.
 
@@ -37859,8 +39284,27 @@ function buildSceneSummaryPrompt(sceneContent, previousContext) {
   "characters_involved": ["등장한 인물 이름들"],
   "new_world_facts": ["이 회차에서 새로 확립된 설정이 있다면 나열, 없으면 빈 배열"],
   "new_threads": ["이 회차에서 새로 생긴 복선/떡밥, 없으면 빈 배열"],
-  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"]
+  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"],
+  "tracked_facts": []
 }
+
+이 회차에서 아래 4가지 유형에 해당하는 구체적 사실이 있다면 각각 추출하세요.
+없으면 빈 배열로 둡니다.
+1. 신체 상태 (부상, 질병, 신체적 변화 등)
+2. 소지품/인벤토리 변화 (획득, 상실, 파괴 등)
+3. 관계 상태 변화 (적대→우호 등 명확한 전환점)
+4. 복선 언급 (나중에 회수될 것으로 보이는 떡밥)
+
+각 사실은 다음 형식으로 기록하세요:
+{
+  "category": "신체상태" | "소지품" | "관계" | "복선",
+  "subject": "해당하는 인물 이름",
+  "attribute": "구체적으로 무엇에 대한 것인지 (예: '오른팔', '검')",
+  "value": "현재 상태/값 (예: '부상당함', '분실함')",
+  "scene_ref": "이 사실의 근거가 되는 원문 부분을 15단어 이내로 짧게"
+}
+
+애매하거나 확신이 없는 사실은 넣지 않습니다. 명확히 드러난 것만 기록하세요.
 
 [판단 기준]
 1. 사실만 추출한다. 해석이나 평가를 덧붙이지 않는다.
@@ -37938,12 +39382,33 @@ const INDEX_TASK_INSTRUCTIONS = {
 function hasUsableProjectIndex(projectIndex) {
   if (!projectIndex || typeof projectIndex !== "object") return false;
   const list = (value) => (Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : []);
+  const facts = Array.isArray(projectIndex.tracked_facts) ? projectIndex.tracked_facts : [];
   return (
     list(projectIndex.characters).length > 0
     || list(projectIndex.world_rules).length > 0
     || list(projectIndex.timeline).length > 0
     || list(projectIndex.open_threads).length > 0
+    || facts.length > 0
   );
+}
+
+function formatProjectIndexContext(projectIndex) {
+  if (!hasUsableProjectIndex(projectIndex)) return "";
+  const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
+  const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
+  const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
+  const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
+  const trackedFacts = Array.isArray(projectIndex.tracked_facts) ? projectIndex.tracked_facts : [];
+  const factsLine = trackedFacts.length
+    ? `\n추적 대상 사실: ${JSON.stringify(trackedFacts)}`
+    : "";
+  return `
+[프로젝트 누적 정보 - 참고용]
+등장인물: ${JSON.stringify(characters)}
+세계관 설정: ${worldRules.join(", ")}
+지금까지 줄거리: ${timeline.join(" → ")}
+미회수 복선: ${openThreads.join(", ")}${factsLine}
+`;
 }
 
 /**
@@ -37951,20 +39416,7 @@ function hasUsableProjectIndex(projectIndex) {
  * Empty / missing indexes yield no indexContext block (no `[]` shells).
  */
 function buildTaskPromptWithIndex(taskInstruction, originalText, projectIndex) {
-  let indexContext = "";
-  if (hasUsableProjectIndex(projectIndex)) {
-    const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
-    const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
-    const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
-    const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
-    indexContext = `
-[프로젝트 누적 정보 - 참고용]
-등장인물: ${JSON.stringify(characters)}
-세계관 설정: ${worldRules.join(", ")}
-지금까지 줄거리: ${timeline.join(" → ")}
-미회수 복선: ${openThreads.join(", ")}
-`;
-  }
+  const indexContext = formatProjectIndexContext(projectIndex);
 
   return `${indexContext}
 ${taskInstruction}
@@ -38362,20 +39814,7 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
     || mode === "worldscan_multi"
     || mode === "analyze_multi"
   ) {
-    let indexContext = "";
-    if (hasUsableProjectIndex(projectIndex)) {
-      const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
-      const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
-      const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
-      const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
-      indexContext = `
-[프로젝트 누적 정보 - 참고용]
-등장인물: ${JSON.stringify(characters)}
-세계관 설정: ${worldRules.join(", ")}
-지금까지 줄거리: ${timeline.join(" → ")}
-미회수 복선: ${openThreads.join(", ")}
-`;
-    }
+    let indexContext = formatProjectIndexContext(projectIndex);
     indexed = `${indexContext}\n${taskInstruction}`.trim();
   } else {
     indexed = buildTaskPromptWithIndex(taskInstruction, plain, projectIndex);
@@ -38396,6 +39835,7 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
       world_rules: Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [],
       timeline: Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [],
       open_threads: Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [],
+      tracked_facts: Array.isArray(projectIndex.tracked_facts) ? projectIndex.tracked_facts : [],
     };
   } else {
     body.project_index = null;
@@ -38422,7 +39862,17 @@ function buildIndexMergePrompt(existingIndex, newSceneSummaries) {
   "characters": ["작품에 등장하는 인물 이름들"],
   "world_rules": ["확립된 세계관·설정 규칙"],
   "timeline": ["시간순 핵심 사건 요약"],
-  "open_threads": ["아직 회수되지 않은 복선/떡밥"]
+  "open_threads": ["아직 회수되지 않은 복선/떡밥"],
+  "tracked_facts": [
+    {
+      "category": "신체상태 | 소지품 | 관계 | 복선",
+      "subject": "인물 이름",
+      "attribute": "대상 (예: 오른팔, 검)",
+      "value": "현재 값",
+      "since_scene": "이 값이 확정된 회차 번호",
+      "history": [{"value": "이전 값", "scene": "몇 화"}]
+    }
+  ]
 }
 
 [판단 기준]
@@ -38431,6 +39881,10 @@ function buildIndexMergePrompt(existingIndex, newSceneSummaries) {
 3. resolved_threads에 해당하는 항목은 open_threads에서 제거한다.
 4. new_world_facts와 new_threads의 내용이 실질적으로 같은 사실을 가리키면 중복으로 두 곳에 반영하지 말고, world_rules 또는 open_threads 중 더 적합한 한쪽에만 반영한다.
 5. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.
+6. 새로 들어온 tracked_facts를 기존 project_index의 tracked_facts와 병합하세요.
+- 같은 subject + attribute 조합이 이미 존재하면: 새 값으로 덮어쓰되, 이전 값과 회차 정보를 history 배열에 보존한다 (완전히 버리지 않는다).
+- 같은 subject + attribute가 없으면: 새 항목으로 추가한다.
+- 이 필드는 다른 필드보다 압축·요약하지 않는다. 사실은 원형 그대로 유지한다.
 
 [기존 프로젝트 인덱스]
 ${existingText}
@@ -38888,6 +40342,11 @@ function buildSettingBreakScanPrompt(originalText) {
 [판단 근거 우선순위]
 1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
 2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
+소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
+정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
+(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이
+오른손으로 무기를 사용) 반드시 지적한다.
 3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
    지금까지 써온 말투)을 기준으로 삼는다.
 4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
@@ -38944,6 +40403,11 @@ function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount 
 [판단 근거 우선순위]
 1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
 2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
+소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
+정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
+(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이
+오른손으로 무기를 사용) 반드시 지적한다.
 3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
    지금까지 써온 말투)을 기준으로 삼는다.
 4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
@@ -40654,6 +42118,8 @@ function fillSceneEditorFields(scene) {
   suppressSceneDirty = true;
   if ($("sceneTitle")) $("sceneTitle").value = scene.title || "";
   if ($("sceneStatus")) $("sceneStatus").value = scene.status || "idea";
+  lastPersistedSceneStatus = scene.status || "idea";
+  syncViewerReaderCommentsButton();
   if ($("sceneSynopsis")) $("sceneSynopsis").value = scene.synopsis_md || "";
   setEditorContent(scene.content_md || "");
   if ($("sceneNotes")) $("sceneNotes").value = scene.notes_md || "";
@@ -41149,6 +42615,7 @@ let localDraftWriteTimer = null;
 let onlineSyncTimer = null;
 let lastLocalDraftToastAt = 0;
 let localDraftToastShownForStreak = false;
+let lastPersistedSceneStatus = null;
 
 /* ── Offline-first local draft (never lose manuscript on API failure) ── */
 const LOCAL_DRAFT_PREFIX = "supertory.sceneDraft.v1.";
@@ -41590,6 +43057,149 @@ function buildSceneSaveBody(saveNote) {
   };
 }
 
+const READER_COMMENTS_PULSE_KEY = "supertory.readerCommentsPulsePlayed";
+
+function readReaderCommentsPulseMap() {
+  try {
+    const raw = localStorage.getItem(READER_COMMENTS_PULSE_KEY);
+    const parsed = raw ? JSON.parse(raw) : {};
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function hasReaderCommentsPulsePlayed(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return false;
+  return Boolean(readReaderCommentsPulseMap()[String(id)]);
+}
+
+function markReaderCommentsPulsePlayed(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const map = readReaderCommentsPulseMap();
+  map[String(id)] = 1;
+  try {
+    localStorage.setItem(READER_COMMENTS_PULSE_KEY, JSON.stringify(map));
+  } catch (_) { /* quota */ }
+}
+
+function clearReaderCommentsPulsePlayed(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const map = readReaderCommentsPulseMap();
+  if (!map[String(id)]) return;
+  delete map[String(id)];
+  try {
+    localStorage.setItem(READER_COMMENTS_PULSE_KEY, JSON.stringify(map));
+  } catch (_) { /* quota */ }
+}
+
+function startVirtualReaderCommentsFlow() {
+  hideToast();
+  markReaderCommentsStarted();
+  if (typeof isViewerOpen === "function" && isViewerOpen() && typeof closeViewerMode === "function") {
+    closeViewerMode();
+  }
+  if (typeof setAiPanelTab === "function") setAiPanelTab("chat");
+  if (typeof openReaderPersonaPicker === "function") openReaderPersonaPicker();
+}
+
+const READER_COMMENT_TOAST_SEEN_KEY = "supertory.readerCommentToastSeen";
+
+function hasSeenReaderCommentToast() {
+  try {
+    return localStorage.getItem(READER_COMMENT_TOAST_SEEN_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function markReaderCommentToastSeen() {
+  try {
+    localStorage.setItem(READER_COMMENT_TOAST_SEEN_KEY, "1");
+  } catch (_) { /* quota */ }
+}
+
+function showSceneCompleteReaderCommentsToast() {
+  const firstTime = !hasSeenReaderCommentToast();
+  toast("완성 처리됐어요! 가상독자 댓글도 받아볼 수 있어요", firstTime ? 0 : 2600, {
+    sticky: firstTime,
+    dismissible: true,
+    detail: firstTime
+      ? "나중엔 회차 뷰어 안 '가상독자 댓글 받기' 버튼에서 언제든 다시 볼 수 있어요"
+      : undefined,
+    action: {
+      label: "지금 받아보기",
+      onClick: () => {
+        markReaderCommentToastSeen();
+        startVirtualReaderCommentsFlow();
+      },
+    },
+    onClose: firstTime ? markReaderCommentToastSeen : undefined,
+  });
+}
+
+function pulseViewerReaderCommentsButtonIfNeeded() {
+  const btn = $("viewerReaderCommentsButton");
+  const sceneId = Number(state.sceneId);
+  if (!btn || !sceneId || btn.disabled) return;
+  if (typeof isViewerOpen === "function" && !isViewerOpen()) return;
+  if (hasReaderCommentsPulsePlayed(sceneId)) return;
+  markReaderCommentsPulsePlayed(sceneId);
+  btn.classList.remove("is-attention");
+  void btn.offsetWidth;
+  btn.classList.add("is-attention");
+  const clearPulse = () => btn.classList.remove("is-attention");
+  btn.addEventListener("animationend", clearPulse, { once: true });
+}
+
+function syncViewerReaderCommentsButton(options = {}) {
+  const btn = $("viewerReaderCommentsButton");
+  if (btn) {
+    const enabled = Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
+    btn.disabled = !enabled;
+    btn.title = enabled
+      ? "이 회차에 가상독자 댓글을 받아 봐요"
+      : "회차를 완성으로 바꾸면 가상독자 댓글을 받을 수 있어요";
+  }
+  syncViewerEntryCommentsBadge();
+  if (options.pulse) pulseViewerReaderCommentsButtonIfNeeded();
+}
+
+function isReaderCommentsUnusedForOpenScene() {
+  if (!state.sceneId || lastPersistedSceneStatus !== "complete") return false;
+  return !Number(state.scene?.reader_comments_started || 0);
+}
+
+function syncViewerEntryCommentsBadge() {
+  const badge = $("viewerModeCommentsBadge");
+  if (!badge) return;
+  const show = isReaderCommentsUnusedForOpenScene();
+  badge.classList.toggle("hidden", !show);
+}
+
+function markReaderCommentsStarted() {
+  const sceneId = Number(state.sceneId);
+  if (!sceneId) return;
+  if (state.scene) state.scene.reader_comments_started = 1;
+  syncViewerEntryCommentsBadge();
+  api(`/api/scenes/${sceneId}/reader-comments-started`, {
+    method: "POST",
+    body: JSON.stringify({}),
+  })
+    .then((result) => {
+      if (state.scene && Number(state.sceneId) === sceneId) {
+        state.scene.reader_comments_started = Number(result?.reader_comments_started || 1);
+      }
+      syncViewerEntryCommentsBadge();
+    })
+    .catch(() => {
+      /* keep local flag; next openScene will refresh from DB */
+    });
+}
+
 async function persistScene(options = {}) {
   const quiet = Boolean(options.quiet);
   const saveNote = options.saveNote || (quiet ? "자동 저장" : "저장");
@@ -41696,7 +43306,15 @@ async function persistScene(options = {}) {
     try {
       scheduleSceneIndexAfterSave(state.sceneId, body.content_md);
     } catch (_) { /* ignore */ }
-    if (!quiet) toast("저장했습니다.");
+    const nextStatus = String(body.status || saved?.status || lastPersistedSceneStatus || "");
+    const becameComplete = nextStatus === "complete" && lastPersistedSceneStatus !== "complete";
+    if (nextStatus && nextStatus !== "complete" && state.sceneId) {
+      clearReaderCommentsPulsePlayed(state.sceneId);
+    }
+    lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
+    if (becameComplete) showSceneCompleteReaderCommentsToast();
+    else if (!quiet) toast("저장했습니다.");
+    syncViewerReaderCommentsButton({ pulse: becameComplete });
     return saved;
   } catch (error) {
     // 2) Local already has the manuscript — never treat this as total loss.
@@ -44400,7 +46018,6 @@ function openAdminModal(tab = null) {
   refreshAdminInfoPanel();
   refreshAdminAccountPanel();
   loadTrashList().catch(handleError);
-  if ((tab || "info") === "projects") renderAdminProjectList();
 }
 
 function closeAdminModal() {
@@ -44422,7 +46039,10 @@ function setAdminTab(tabId) {
     else panel.setAttribute("hidden", "");
   });
   if (id === "trash") loadTrashList().catch(handleError);
-  if (id === "projects") renderAdminProjectList();
+  if (id === "projects") {
+    renderAdminProjectList();
+    loadIndexRebuildOverview().catch(handleError);
+  }
   if (id === "settings") {
     renderAdminThemeList();
     renderHiddenFeaturesList();
@@ -44468,6 +46088,206 @@ function renderAdminProjectList() {
         </div>
       </article>`;
   }).join("");
+}
+
+const INDEX_REBUILD_DEFAULT_SECONDS = 8;
+let indexRebuildSelected = new Set();
+let indexRebuildOverview = null;
+let indexRebuildPollTimer = null;
+let indexRebuildLastStatus = "idle";
+
+function formatIndexRebuildEta(sceneCount, secondsPerScene) {
+  const per = Number(secondsPerScene) > 0 ? Number(secondsPerScene) : INDEX_REBUILD_DEFAULT_SECONDS;
+  const sec = Math.max(0, Math.round(Number(sceneCount || 0) * per));
+  if (sec <= 0) return "1분 미만";
+  if (sec < 60) return `약 ${sec}초`;
+  return `약 ${Math.max(1, Math.round(sec / 60))}분`;
+}
+
+function selectedIndexRebuildProjects() {
+  const projects = Array.isArray(indexRebuildOverview?.projects) ? indexRebuildOverview.projects : [];
+  return projects.filter((item) => indexRebuildSelected.has(Number(item.id)) && item.selectable);
+}
+
+function syncIndexRebuildStartButton() {
+  const btn = $("indexRebuildStartButton");
+  if (!btn) return;
+  const running = String(indexRebuildOverview?.job?.status || "") === "running";
+  btn.disabled = running || selectedIndexRebuildProjects().length === 0;
+}
+
+function paintIndexRebuildProgress(job) {
+  const el = $("indexRebuildProgress");
+  if (!el) return;
+  el.classList.remove("is-quota", "is-error");
+  const status = String(job?.status || "idle");
+  if (status === "idle" && !job?.message) {
+    el.textContent = "";
+    return;
+  }
+  if (status === "quota") {
+    el.classList.add("is-quota");
+    el.textContent = "쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요";
+    return;
+  }
+  if (status === "error") {
+    el.classList.add("is-error");
+    el.textContent = job?.message || job?.error || "인덱싱 중 오류가 발생했습니다.";
+    return;
+  }
+  el.textContent = String(job?.message || "");
+}
+
+function stopIndexRebuildPolling() {
+  if (indexRebuildPollTimer) {
+    window.clearInterval(indexRebuildPollTimer);
+    indexRebuildPollTimer = null;
+  }
+}
+
+function startIndexRebuildPolling() {
+  if (indexRebuildPollTimer) return;
+  indexRebuildPollTimer = window.setInterval(() => {
+    refreshIndexRebuildJob().catch(() => { /* keep polling */ });
+  }, 900);
+}
+
+async function refreshIndexRebuildJob() {
+  const job = await api("/api/index/rebuild/status");
+  if (indexRebuildOverview) indexRebuildOverview.job = job;
+  paintIndexRebuildProgress(job);
+  syncIndexRebuildStartButton();
+  const status = String(job?.status || "");
+  const prev = indexRebuildLastStatus;
+  indexRebuildLastStatus = status;
+  if (status === "running") {
+    startIndexRebuildPolling();
+    return job;
+  }
+  stopIndexRebuildPolling();
+  if (prev === "running" && (status === "done" || status === "quota" || status === "error")) {
+    await loadIndexRebuildOverview({ keepSelection: true });
+    if (status === "done") toast("회차 인덱스 다시 만들기를 마쳤어요.");
+    else if (status === "quota") toast("쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요");
+  }
+  return job;
+}
+
+function renderIndexRebuildList() {
+  const list = $("indexRebuildList");
+  const hint = $("indexRebuildHint");
+  if (!list) return;
+  const projects = Array.isArray(indexRebuildOverview?.projects) ? indexRebuildOverview.projects : [];
+  const pendingTotal = projects.reduce((sum, item) => sum + Number(item.pending_count || 0), 0);
+  if (hint) {
+    hint.textContent = projects.length
+      ? `처리가 필요한 회차 ${pendingTotal}개`
+      : "아직 작품이 없어요.";
+  }
+  if (!projects.length) {
+    list.innerHTML = `<p class="hint trash-empty">작품이 없어요. 먼저 작품을 만들어 주세요.</p>`;
+    syncIndexRebuildStartButton();
+    return;
+  }
+  list.innerHTML = projects.map((project) => {
+    const id = Number(project.id);
+    const title = escapeHtml(project.title || `작품 #${id}`);
+    const pending = Number(project.pending_count || 0);
+    const total = Number(project.scene_count || 0);
+    const selectable = Boolean(project.selectable);
+    const checked = selectable && indexRebuildSelected.has(id);
+    const extra = project.needs_merge && pending === 0 ? " · 인덱스 병합 남음" : "";
+    const label = `${title} (${pending}/${total} 회차 처리 필요${extra})`;
+    return `
+      <article class="admin-project-item${selectable ? "" : " is-disabled"}" data-index-rebuild-project="${id}">
+        <label class="index-rebuild-item-check">
+          <input type="checkbox" data-index-rebuild-check="${id}" ${checked ? "checked" : ""} ${selectable ? "" : "disabled"}>
+          <span>
+            <span class="admin-project-item-title">${label}</span>
+            <span class="admin-project-item-meta">${selectable ? "선택하면 다시 인덱싱합니다." : "이미 전부 처리된 작품입니다."}</span>
+          </span>
+        </label>
+      </article>`;
+  }).join("");
+  syncIndexRebuildStartButton();
+}
+
+async function loadIndexRebuildOverview(options = {}) {
+  const keepSelection = Boolean(options.keepSelection);
+  let data;
+  try {
+    data = await api("/api/index/rebuild");
+  } catch (error) {
+    const msg = String(error?.message || error || "");
+    const stale = Number(error?.status) === 404 || /알 수 없는 요청/.test(msg);
+    const list = $("indexRebuildList");
+    const hint = $("indexRebuildHint");
+    const friendly = stale
+      ? "서버가 이전 버전입니다. SuperTory를 완전히 종료한 뒤 다시 실행해 주세요."
+      : (msg || "목록을 불러오지 못했습니다.");
+    if (hint) hint.textContent = friendly;
+    if (list) list.innerHTML = `<p class="hint trash-empty">${escapeHtml(friendly)}</p>`;
+    paintIndexRebuildProgress({ status: "error", message: friendly });
+    const err = new Error(friendly);
+    err.status = error?.status;
+    throw err;
+  }
+  indexRebuildOverview = data;
+  if (!keepSelection) {
+    indexRebuildSelected = new Set(
+      (data.projects || [])
+        .filter((item) => item.selectable)
+        .map((item) => Number(item.id))
+        .filter((id) => indexRebuildSelected.has(id)),
+    );
+  } else {
+    const allowed = new Set(
+      (data.projects || []).filter((item) => item.selectable).map((item) => Number(item.id)),
+    );
+    indexRebuildSelected = new Set([...indexRebuildSelected].filter((id) => allowed.has(id)));
+  }
+  renderIndexRebuildList();
+  paintIndexRebuildProgress(data.job);
+  if (String(data.job?.status || "") === "running") startIndexRebuildPolling();
+  else stopIndexRebuildPolling();
+  return data;
+}
+
+function openIndexRebuildConfirm() {
+  const selected = selectedIndexRebuildProjects();
+  if (!selected.length) return;
+  const sceneCount = selected.reduce((sum, item) => sum + Number(item.pending_count || 0), 0);
+  const mergeCount = selected.length;
+  const calls = sceneCount + mergeCount;
+  const seconds = indexRebuildOverview?.seconds_per_scene || INDEX_REBUILD_DEFAULT_SECONDS;
+  const eta = formatIndexRebuildEta(sceneCount, seconds);
+  const body = $("indexRebuildConfirmBody");
+  if (body) {
+    body.textContent =
+      `선택한 ${selected.length}개 작품, 총 ${sceneCount}개 회차를 다시 인덱싱합니다. `
+      + `예상 소요 시간은 ${eta}입니다. (회차당 평균 처리 시간 기준으로 계산, Gemini 호출 약 ${calls}회) `
+      + `Gemini API 호출이 발생하니 참고해주세요.`;
+  }
+  $("indexRebuildConfirmModal")?.classList.remove("hidden");
+}
+
+function closeIndexRebuildConfirm() {
+  $("indexRebuildConfirmModal")?.classList.add("hidden");
+}
+
+async function startIndexRebuildFromAdmin() {
+  const selected = selectedIndexRebuildProjects();
+  if (!selected.length) return;
+  closeIndexRebuildConfirm();
+  const result = await api("/api/index/rebuild", {
+    method: "POST",
+    body: JSON.stringify({ project_ids: selected.map((item) => Number(item.id)) }),
+  });
+  if (indexRebuildOverview) indexRebuildOverview.job = result.job;
+  indexRebuildLastStatus = "running";
+  paintIndexRebuildProgress(result.job);
+  syncIndexRebuildStartButton();
+  startIndexRebuildPolling();
 }
 
 async function renameProjectFromAdmin(projectId) {
@@ -45741,6 +47561,27 @@ function setupAdminMode() {
   });
   $("refreshAdminProjectsButton")?.addEventListener("click", () => {
     loadProjects(state.projectId).then(() => renderAdminProjectList()).catch(handleError);
+  });
+  $("refreshIndexRebuildButton")?.addEventListener("click", () => {
+    loadIndexRebuildOverview({ keepSelection: true }).catch(handleError);
+  });
+  $("indexRebuildList")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("[data-index-rebuild-check]");
+    if (!input) return;
+    const id = Number(input.dataset.indexRebuildCheck);
+    if (!id) return;
+    if (input.checked) indexRebuildSelected.add(id);
+    else indexRebuildSelected.delete(id);
+    syncIndexRebuildStartButton();
+  });
+  $("indexRebuildStartButton")?.addEventListener("click", () => {
+    openIndexRebuildConfirm();
+  });
+  document.querySelectorAll("[data-close-index-rebuild-confirm]").forEach((el) => {
+    el.addEventListener("click", closeIndexRebuildConfirm);
+  });
+  $("indexRebuildConfirmStart")?.addEventListener("click", () => {
+    startIndexRebuildFromAdmin().catch(handleError);
   });
   $("adminProjectList")?.addEventListener("click", (event) => {
     const renameBtn = event.target.closest?.("[data-admin-rename-project]");

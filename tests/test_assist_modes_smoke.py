@@ -21,6 +21,7 @@ HELPER_MODES = [
     "plottwist",
     "worldscan",
     "dupcheck",
+    "temphook",
     "ideas",
     "brainstorm",
     "analyze",
@@ -105,6 +106,7 @@ class AssistModesSmokeTests(unittest.TestCase):
             "plottwist": "반전 &amp; 개연성 검사기",
             "worldscan": "설정 붕괴 감지기",
             "dupcheck": "중복 체크",
+            "temphook": "서사 템포 &amp; 훅 분석기",
             "ideas": "다음 아이디어 제안",
             "brainstorm": "브레인스토밍",
             "analyze": "피드백 요청",
@@ -129,6 +131,17 @@ class AssistModesSmokeTests(unittest.TestCase):
         self.assertIn('if (mode === "subsynopsis")', app_js)
         self.assertIn("function buildWorldDescriptionPrompt", app_js)
         self.assertIn("function buildDetailedSceneSummaryPrompt", app_js)
+        self.assertIn("function buildTensionCurvePrompt", app_js)
+        self.assertIn("function buildCliffhangerScorePrompt", app_js)
+        self.assertIn("function buildEndingRewritePrompt", app_js)
+        self.assertIn("function openTempoHookModal", app_js)
+        self.assertIn("function openTempoHookTargetModal", app_js)
+        self.assertIn('id="tempoHookTargetConfirm"', html)
+        self.assertIn('value="temphook"', html)
+        self.assertIn("function buildCharacterDebatePrompt", app_js)
+        self.assertIn("function setCharListMode", app_js)
+        self.assertNotIn('value="chardebate"', html)
+        self.assertNotIn("function openCharDebateModal", app_js)
         self.assertIn("function buildNextIdeaPrompt", app_js)
         self.assertIn("function buildBrainstormPrompt", app_js)
         self.assertIn("function buildSubmissionSynopsisPrompt", app_js)

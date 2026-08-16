@@ -119,6 +119,8 @@ MIGRATION_043_PATH = ROOT / "db" / "043_glump_interrogation.py"
 MIGRATION_044_PATH = ROOT / "db" / "044_add_two_personas.py"
 MIGRATION_045_PATH = ROOT / "db" / "045_add_high_fantasy_adventurer.py"
 MIGRATION_046_PATH = ROOT / "db" / "046_reorder_reader_personas.py"
+MIGRATION_047_PATH = ROOT / "db" / "047_scene_reader_comments_started.sql"
+MIGRATION_048_PATH = ROOT / "db" / "048_tracked_facts.sql"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -487,7 +489,13 @@ def initialise_database() -> None:
             apply_migration_045(connection)
         if 46 not in applied:
             apply_migration_046(connection)
+        if 47 not in applied:
+            connection.executescript(MIGRATION_047_PATH.read_text(encoding="utf-8"))
+        if 48 not in applied:
+            connection.executescript(MIGRATION_048_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
+        ensure_scene_reader_comments_started_column(connection)
+        ensure_tracked_facts_columns(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -557,6 +565,54 @@ def ensure_virtual_reader_personas(connection: sqlite3.Connection) -> None:
     """Idempotent: backfill seed personas if migration 35 tables already exist."""
     try:
         _load_py_migration(MIGRATION_035_PATH).ensure_personas(connection)
+    except sqlite3.Error:
+        pass
+
+
+def ensure_tracked_facts_columns(connection: sqlite3.Connection) -> None:
+    """Idempotent: scene_summary / project_index tracked_facts_json (migration 048)."""
+    try:
+        scene_cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(scene_summary)").fetchall()
+        }
+        index_cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project_index)").fetchall()
+        }
+    except sqlite3.Error:
+        return
+    if scene_cols and "tracked_facts_json" not in scene_cols:
+        connection.execute("ALTER TABLE scene_summary ADD COLUMN tracked_facts_json TEXT")
+    if index_cols and "tracked_facts_json" not in index_cols:
+        connection.execute("ALTER TABLE project_index ADD COLUMN tracked_facts_json TEXT")
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (48, 'tracked_facts')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_scene_reader_comments_started_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: scene.reader_comments_started (migration 047)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(scene)").fetchall()
+        }
+    except sqlite3.Error:
+        return
+    if "reader_comments_started" not in cols:
+        connection.execute(
+            "ALTER TABLE scene ADD COLUMN reader_comments_started INTEGER NOT NULL DEFAULT 0"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (47, 'scene_reader_comments_started')"
+        )
     except sqlite3.Error:
         pass
 
@@ -2759,6 +2815,151 @@ def reveal_in_explorer(path: Path) -> None:
         subprocess.Popen(["explorer", str(projects_root())])  # noqa: S603
 
 
+INDEX_REBUILD_SECONDS_PER_SCENE = 8.0
+_index_rebuild_lock = Lock()
+_index_rebuild_thread: Thread | None = None
+_index_rebuild_state: dict = {
+    "status": "idle",
+    "message": "",
+    "project_title": "",
+    "project_id": None,
+    "done_scenes": 0,
+    "total_scenes": 0,
+    "project_done": 0,
+    "project_total": 0,
+    "seconds_per_scene": INDEX_REBUILD_SECONDS_PER_SCENE,
+    "error": "",
+}
+
+
+def is_gemini_quota_error(error: object) -> bool:
+    text = str(error or "").lower()
+    needles = (
+        "quota",
+        "resource_exhausted",
+        "resource has been exhausted",
+        "rate limit",
+        "rate-limit",
+        "429",
+        "exceeded your current quota",
+        "free_tier",
+        "free tier",
+    )
+    return any(needle in text for needle in needles)
+
+
+def tracked_facts_json_is_missing(raw: object) -> bool:
+    if raw is None:
+        return True
+    return not str(raw).strip()
+
+
+def index_rebuild_snapshot() -> dict:
+    with _index_rebuild_lock:
+        return dict(_index_rebuild_state)
+
+
+def reset_index_rebuild_state() -> None:
+    global _index_rebuild_thread
+    with _index_rebuild_lock:
+        _index_rebuild_state.update(
+            status="idle",
+            message="",
+            project_title="",
+            project_id=None,
+            done_scenes=0,
+            total_scenes=0,
+            project_done=0,
+            project_total=0,
+            seconds_per_scene=INDEX_REBUILD_SECONDS_PER_SCENE,
+            error="",
+        )
+        _index_rebuild_thread = None
+
+
+def _set_index_rebuild_state(**kwargs) -> None:
+    with _index_rebuild_lock:
+        _index_rebuild_state.update(kwargs)
+
+
+def _run_index_rebuild_job(project_ids: list[int]) -> None:
+    handler = SuperToryHandler.__new__(SuperToryHandler)
+    durations: list[float] = []
+    try:
+        for project_index, project_id in enumerate(project_ids, start=1):
+            with database() as connection:
+                row = connection.execute(
+                    "SELECT title FROM project WHERE id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchone()
+                if row is None:
+                    continue
+                title = str(row["title"] or f"작품 #{project_id}")
+                pending = handler.pending_index_rebuild_scenes(connection, project_id)
+            _set_index_rebuild_state(
+                status="running",
+                project_title=title,
+                project_id=project_id,
+                project_done=project_index - 1,
+                project_total=len(project_ids),
+                done_scenes=0,
+                total_scenes=len(pending),
+                message=f"{title} - 0/{len(pending)} 회차 완료",
+                error="",
+            )
+            for scene_index, scene in enumerate(pending, start=1):
+                started = time.perf_counter()
+                try:
+                    handler.summarize_scene_for_index(int(scene["id"]), {})
+                except Exception as error:
+                    if is_gemini_quota_error(error):
+                        _set_index_rebuild_state(
+                            status="quota",
+                            error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                            message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                        )
+                        return
+                    _set_index_rebuild_state(
+                        message=f"{title} - {scene_index - 1}/{len(pending)} 회차 완료 (건너뜀)",
+                    )
+                    continue
+                elapsed = max(0.2, time.perf_counter() - started)
+                durations.append(elapsed)
+                avg = sum(durations) / len(durations)
+                _set_index_rebuild_state(
+                    done_scenes=scene_index,
+                    total_scenes=len(pending),
+                    seconds_per_scene=round(avg, 2),
+                    message=f"{title} - {scene_index}/{len(pending)} 회차 완료",
+                )
+            try:
+                handler.merge_project_index(project_id, {})
+            except Exception as error:
+                if is_gemini_quota_error(error):
+                    _set_index_rebuild_state(
+                        status="quota",
+                        error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                        message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                    )
+                    return
+                _set_index_rebuild_state(error=str(error))
+            _set_index_rebuild_state(project_done=project_index)
+        _set_index_rebuild_state(
+            status="done",
+            message="선택한 작품 인덱싱을 마쳤습니다.",
+            project_done=len(project_ids),
+        )
+    except Exception as error:
+        if is_gemini_quota_error(error):
+            _set_index_rebuild_state(
+                status="quota",
+                error="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+                message="쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요",
+            )
+            return
+        _set_index_rebuild_state(status="error", error=str(error), message=str(error))
+
+
 class SuperToryHandler(SimpleHTTPRequestHandler):
     """Serves the app and a deliberately small JSON API."""
 
@@ -2849,6 +3050,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/") or "/"
         try:
+            if path in {"/api/index/rebuild", "/api/index-rebuild"}:
+                self.send_json(self.get_index_rebuild_overview())
+                return
+
+            if path in {"/api/index/rebuild/status", "/api/index-rebuild/status"}:
+                self.send_json(self.get_index_rebuild_status())
+                return
+
             if path == "/api/meta/work-purposes":
                 self.send_json([
                     {"key": key, "label": label}
@@ -3063,6 +3272,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.get_scene_summary(int(match.group(1))))
                 return
 
+            if path == "/api/index/rebuild":
+                self.send_json(self.get_index_rebuild_overview())
+                return
+
+            if path == "/api/index/rebuild/status":
+                self.send_json(self.get_index_rebuild_status())
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/index", path)
             if match:
                 self.send_json(self.get_project_index(int(match.group(1))))
@@ -3118,6 +3335,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         try:
             body = self.read_json()
+            if path in {"/api/index/rebuild", "/api/index-rebuild"}:
+                self.send_json(self.start_index_rebuild(body or {}))
+                return
+
             # Reference file text extract — register early (DOCX/HWP viewer upload).
             if path in {"/api/extract-text", "/api/reference/extract-text"}:
                 self.send_json(self.extract_reference_text(body))
@@ -3684,9 +3905,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.duplicate_scene(int(match.group(1))), HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments-started", path)
+            if match:
+                self.send_json(self.mark_reader_comments_started(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/summarize", path)
             if match:
                 self.send_json(self.summarize_scene_for_index(int(match.group(1)), body))
+                return
+
+            if path == "/api/index/rebuild":
+                self.send_json(self.start_index_rebuild(body or {}))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/index/merge", path)
@@ -5141,7 +5371,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "ideas", "ideas_next_exists",
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
-            "worlddesc", "dupcheck", "free", "chat", "subsynopsis", "styleblend",
+            "worlddesc", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
             "similar_words", "chapter_subtitles",
         }
         if mode not in allowed:
@@ -6343,6 +6573,47 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
+            elif mode == "temphook":
+                # 서사 템포 & 훅 분석기 — manuscript-only, no project_index.
+                kind = str(body.get("temphook_kind") or "curve").strip().lower()
+                detailed = str(body.get("task_prompt") or "").strip()
+                last_three = plain_text_from_content(
+                    str(body.get("last_three_paragraphs") or "")
+                ).strip()
+                if not last_three:
+                    last_three = self._last_three_paragraphs(scene_content)
+                cliff_reason = str(body.get("cliffhanger_reason") or "").strip()
+                if detailed:
+                    instruction = detailed
+                elif kind == "score":
+                    instruction = self._build_cliffhanger_score_prompt(last_three)
+                elif kind == "rewrite":
+                    instruction = self._build_ending_rewrite_prompt(last_three, cliff_reason)
+                else:
+                    instruction = self._build_tension_curve_prompt(scene_content)
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                ]
+            elif mode == "chardebate":
+                # 캐릭터 가상 논쟁 — 설정집 + tracked_facts (task_prompt에 이미 포함).
+                detailed = str(body.get("task_prompt") or "").strip()
+                if detailed:
+                    instruction = detailed
+                else:
+                    instruction = self._build_character_debate_prompt(
+                        body.get("characters_info") or [],
+                        body.get("scenario") or user_prompt,
+                    )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                ]
             else:
                 if mode == "summarize":
                     # 도우미 「회차 요약」— buildDetailedSceneSummaryPrompt (no index).
@@ -6967,6 +7238,186 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
+    def _split_plain_paragraphs(text: str) -> list[str]:
+        source = str(text or "").replace("\r\n", "\n").strip()
+        if not source:
+            return []
+        blocks = [part.strip() for part in re.split(r"\n\s*\n", source) if part.strip()]
+        if len(blocks) >= 2:
+            return blocks
+        lines = [part.strip() for part in source.split("\n") if part.strip()]
+        return lines or [source]
+
+    @classmethod
+    def _last_three_paragraphs(cls, text: str) -> str:
+        paras = cls._split_plain_paragraphs(text)
+        return "\n\n".join(paras[-3:])
+
+    @classmethod
+    def _replace_last_three_paragraphs(cls, source: str, replacement: str) -> str:
+        paras = cls._split_plain_paragraphs(source)
+        kept = paras[:-3] if len(paras) > 3 else []
+        new_paras = cls._split_plain_paragraphs(replacement)
+        merged = kept + (
+            new_paras or ([str(replacement or "").strip()] if str(replacement or "").strip() else [])
+        )
+        return "\n\n".join(part for part in merged if part)
+
+    @staticmethod
+    def _build_tension_curve_prompt(episode_content: str) -> str:
+        text = str(episode_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "이 회차를 자연스러운 단락 흐름 기준으로 6~12개 구간으로 나누고, 각 구간의\n"
+            "긴장도(몰입 자극 강도)를 평가하세요.\n\n"
+            "[점수 기준 - 반드시 아래 앵커를 기준으로 삼는다, 점수를 중간에 몰아주지 않는다]\n"
+            "- 0~2점: 평온한 일상, 정보 전달 위주 서술, 갈등 없음\n"
+            "- 3~4점: 약한 긴장감, 인물 간 소소한 마찰이나 복선성 암시\n"
+            "- 5~6점: 뚜렷한 갈등이나 문제 상황이 진행 중\n"
+            "- 7~8점: 위기 상황, 대립 격화, 예상 밖 전개\n"
+            "- 9~10점: 생사가 걸리거나 판을 뒤집는 결정적 반전/절정\n\n"
+            "[구간 분류 시 유의]\n"
+            "- 실제 서사 흐름(장면 전환, 대화-서술 전환 등)을 기준으로 자연스럽게 나눈다.\n"
+            "  글자 수를 억지로 맞추지 않는다.\n"
+            "- 같은 회차 안에서 점수가 다 비슷하게 몰리지 않도록, 위 앵커 기준을\n"
+            "  엄격히 적용해서 실제 기복이 드러나게 한다.\n\n"
+            "[각 구간마다 기록]\n"
+            "- segment_index: 순서\n"
+            "- segment_position_pct: 이 구간이 전체 회차에서 몇 % 지점인지\n"
+            "  (정수, 백엔드에서 segment_index/전체구간수*100로 계산)\n"
+            "- score: 0~10 (위 앵커 기준)\n"
+            "- emotion_tag: 이 구간의 지배적 감정/자극 유형 (긴장/해소/반전/설렘/슬픔/\n"
+            "  유머/공포 중 하나, 애매하면 가장 가까운 것 선택)\n"
+            "- reason: 왜 이 점수인지 1문장 이내\n"
+            "- text_preview: 이 구간 시작 부분 15자 이내 (구간 식별용, 원문 그대로\n"
+            "  길게 인용하지 않는다)\n\n"
+            "[출력 형식 - JSON]\n"
+            "{\n"
+            '  "segments": [\n'
+            '    {"segment_index": 1, "segment_position_pct": 8, "score": 3,\n'
+            '     "emotion_tag": "해소", "reason": "...", "text_preview": "..."},\n'
+            "    ...\n"
+            "  ]\n"
+            "}\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+
+    @staticmethod
+    def _build_cliffhanger_score_prompt(last_three_paragraphs: str) -> str:
+        text = str(last_three_paragraphs or "").strip()
+        return (
+            "[현재 작업]\n"
+            '이 회차의 마지막 3문단을 분석해, "다음 화를 보고 싶게 만드는 힘"을\n'
+            "평가하세요.\n\n"
+            "[점수 기준]\n"
+            "- 0~2점: 그냥 장면이 마무리됨, 궁금증 유발 요소 없음\n"
+            "- 3~5점: 약한 궁금증은 있으나 절박하지 않음\n"
+            "- 6~7점: 명확한 질문이나 긴장 상태로 끝남 (독자가 답을 알고 싶어함)\n"
+            "- 8~10점: 강력한 위기/반전/정보 공백으로 끝남, 즉시 다음 화를 눌러야\n"
+            "  할 정도\n\n"
+            "[출력 형식 - JSON]\n"
+            "{\n"
+            '  "score": 0~10,\n'
+            '  "reason": "이 점수를 준 이유 2문장 이내"\n'
+            "}\n\n"
+            "[본문 마지막 부분]\n"
+            f"{text}\n\n"
+            "[평가 결과]"
+        )
+
+    @staticmethod
+    def _build_ending_rewrite_prompt(last_three_paragraphs: str, cliffhanger_reason: str) -> str:
+        text = str(last_three_paragraphs or "").strip()
+        reason = str(cliffhanger_reason or "").strip()
+        return (
+            "[현재 작업]\n"
+            f"아래 회차 엔딩의 훅이 약하다고 판단됐습니다 (이유: {reason}).\n"
+            "더 강력한 훅으로 개작한 버전을 3가지 서로 다른 연출 방식으로 제안하세요.\n\n"
+            "[3가지 연출 방식 - 각각 다른 전략을 쓴다]\n"
+            "1. 즉각적 위기 노출형: 예상치 못한 위험이나 사건을 마지막 문장에서\n"
+            "   바로 드러낸다\n"
+            "2. 정보 공백형: 결정적 정보를 의도적으로 숨기고 궁금증만 남긴다\n"
+            '   (예: "그가 문을 열었을 때, 거기 있던 건...")\n'
+            "3. 감정 절정형: 인물의 감정이 극에 달하는 순간에서 끊는다\n\n"
+            "각 버전은 원래 장면의 맥락(등장인물, 상황)을 유지하되, 마지막 3문단만\n"
+            "새로 쓴다. 원문 문체를 최대한 따라간다.\n\n"
+            "[출력 형식]\n"
+            "## 버전 1: 즉각적 위기 노출형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "## 버전 2: 정보 공백형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "## 버전 3: 감정 절정형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "[원본 마지막 3문단]\n"
+            f"{text}\n\n"
+            "[개작 제안]"
+        )
+
+    @staticmethod
+    def _format_tracked_facts_for_character(facts: object, name: str, aliases: object = None) -> str:
+        names = {
+            str(name or "").strip().lower(),
+            *[str(item or "").strip().lower() for item in (aliases or []) if str(item or "").strip()],
+        }
+        names.discard("")
+        hits = []
+        for fact in facts if isinstance(facts, list) else []:
+            if not isinstance(fact, dict):
+                continue
+            subject = str(fact.get("subject") or "").strip().lower()
+            if subject not in names:
+                continue
+            bits = [
+                str(fact.get("category") or "").strip(),
+                str(fact.get("attribute") or "").strip(),
+                str(fact.get("value") or "").strip(),
+            ]
+            line = " · ".join(part for part in bits if part)
+            if line:
+                hits.append(line)
+        return "; ".join(hits) if hits else "기록된 현재 상태 없음"
+
+    @staticmethod
+    def _build_character_debate_prompt(characters_info: object, scenario: object) -> str:
+        people = characters_info if isinstance(characters_info, list) else []
+        lines = []
+        for item in people:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip() or "이름 없는 인물"
+            personality = str(item.get("personality") or item.get("tone") or "").strip() or "설정 미기입"
+            current = str(item.get("currentFacts") or item.get("current_facts") or "").strip() or "기록된 현재 상태 없음"
+            lines.append(f"- {name}: 성격/말투 - {personality}. 현재 상태 - {current}")
+        roster = "\n".join(lines) if lines else "(참여 캐릭터 없음)"
+        scene = str(scenario or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 캐릭터들을 다음 상황에 놓았을 때 나올 법한 대화를 시뮬레이션하세요.\n\n"
+            "[상황]\n"
+            f"{scene}\n\n"
+            "[참여 캐릭터]\n"
+            f"{roster}\n\n"
+            "[작성 원칙]\n"
+            "1. 각 캐릭터는 반드시 설정집에 명시된 본인의 말투와 성격을 그대로 유지한다.\n"
+            "   캐릭터 간 말투가 서로 섞이지 않도록 각별히 주의한다.\n"
+            "2. 이 상황에서 각 캐릭터가 실제로 취할 법한 반응과 태도를 개연성 있게\n"
+            "   보여준다. 극적 효과를 위해 캐릭터의 확립된 성격을 왜곡하지 않는다.\n"
+            "3. 8~12번의 대사 교환으로 구성한다 (한쪽이 일방적으로 말하지 않고,\n"
+            "   실제 논쟁/대화처럼 주고받는다).\n"
+            "4. 대사 사이사이 짧은 지문(행동, 표정 묘사)을 필요한 곳에만 넣는다.\n"
+            "   과하게 넣지 않는다.\n"
+            "5. 이건 실제 원고가 아니라 \"이 대화가 캐릭터답게 성립하는지\" 확인하는\n"
+            "   테스트 목적이므로, 결말을 억지로 봉합하거나 화해시키지 않는다.\n"
+            "   상황이 해결 안 된 채 끝나도 된다.\n\n"
+            "[출력 형식]\n"
+            "캐릭터명: 대사\n"
+            "(지문이 있다면 캐릭터명 다음 줄에 이탤릭이나 괄호로 짧게)\n\n"
+            "[대화 시뮬레이션]"
+        )
+
+    @staticmethod
     def _build_submission_synopsis_prompt(
         outline_summary: str,
         synopsis_length_limit: int | None = None,
@@ -6981,8 +7432,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         else:
             outline_block = (
                 "[작가가 제공한 줄거리 개요]\n"
-                "(제공되지 않음 - 지금까지 쓰인 원고만\n"
-                "       근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)"
+                "(제공되지 않음 - 지금까지 쓰인 원고만 근거로 작성하며, "
+                "결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)"
             )
         if synopsis_length_limit:
             synopsis_length_note = (
@@ -7007,10 +7458,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "- 이 작품을 통해 작가가 전달하고자 하는 주제의식이나 문제의식을 정리한다.\n"
             f"- {intent_length_note}\n"
             "- [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,\n"
-            "  지어내지 않는다.\n\n"
+            "  지어내지 않는다.\n"
+            "- [프로젝트 누적 정보]에는 인물 이름과 사건 요약만 있고 인물의 목표·동기·\n"
+            "  갈등 관계는 명시되어 있지 않을 수 있다. 이런 정보가 없으면 사건 흐름에서\n"
+            "  합리적으로 추론하되, 추론이라는 티가 나지 않게 단정적으로 서술하지 말고\n"
+            "  개연성 있는 해석으로 제시한다.\n\n"
             "[로그라인 후보]\n"
             "- 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.\n"
             "- 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.\n"
+            "- 5개 중 2개 이상이 같은 사건이나 같은 문장 구조를 재사용하면 안 된다.\n"
+            "  주어-술어 구조 자체를 다르게 가져간다.\n"
             "- 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.\n"
             "- 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.\n\n"
             "[시놉시스 - 기승전결 구조]\n"
@@ -7401,6 +7858,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[판단 근거 우선순위]\n"
             "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
             "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/\n"
+            "소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리\n"
+            "정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면\n"
+            "(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이\n"
+            "오른손으로 무기를 사용) 반드시 지적한다.\n"
             "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
             "   지금까지 써온 말투)을 기준으로 삼는다.\n"
             "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
@@ -7450,6 +7912,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[판단 근거 우선순위]\n"
             "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
             "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/\n"
+            "소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리\n"
+            "정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면\n"
+            "(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이\n"
+            "오른손으로 무기를 사용) 반드시 지적한다.\n"
             "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
             "   지금까지 써온 말투)을 기준으로 삼는다.\n"
             "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
@@ -12946,6 +13413,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             scene = connection.execute(
                 "SELECT s.id, s.project_id, s.chapter_id, s.title, s.synopsis_md, s.notes_md, s.status, "
                 "s.goal_word_count, s.goal_metric, s.row_version, s.reference_links_json, "
+                "s.reader_comments_started, "
                 "r.content_md, r.word_count, r.revision_no, "
                 "p.purpose AS project_purpose "
                 "FROM scene s "
@@ -12961,7 +13429,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             detail["goal_metric"] = "chars_with_space"
         detail["reference_links"] = parse_reference_links(detail.pop("reference_links_json", "[]"))
         detail["illustrations"] = self.list_illustrations(scene_id)
+        detail["reader_comments_started"] = int(detail.get("reader_comments_started") or 0)
         return detail
+
+    def mark_reader_comments_started(self, scene_id: int) -> dict:
+        """Record that the virtual-reader comments flow was opened for this scene."""
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE scene SET reader_comments_started = 1 WHERE id = ?",
+                (scene_id,),
+            )
+        return {"ok": True, "reader_comments_started": 1}
 
     def duplicate_scene(self, scene_id: int) -> dict:
         """Clone a scene (content, cast, links, illustrations) right after the source."""
@@ -13837,6 +14321,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return data if isinstance(data, list) else list(fallback)
 
     @staticmethod
+    def _normalize_tracked_facts(raw: object) -> list:
+        if isinstance(raw, str) and raw.strip():
+            try:
+                raw = json.loads(raw)
+            except json.JSONDecodeError:
+                return []
+        if not isinstance(raw, list):
+            return []
+        facts = []
+        for item in raw:
+            if isinstance(item, dict):
+                facts.append(item)
+        return facts
+
+    @staticmethod
     def _parse_json_object(raw: object) -> dict:
         if isinstance(raw, dict):
             return raw
@@ -13882,8 +14381,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             '  "characters_involved": ["등장한 인물 이름들"],\n'
             '  "new_world_facts": ["이 회차에서 새로 확립된 설정이 있다면 나열, 없으면 빈 배열"],\n'
             '  "new_threads": ["이 회차에서 새로 생긴 복선/떡밥, 없으면 빈 배열"],\n'
-            '  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"]\n'
+            '  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"],\n'
+            '  "tracked_facts": []\n'
             "}\n\n"
+            "이 회차에서 아래 4가지 유형에 해당하는 구체적 사실이 있다면 각각 추출하세요.\n"
+            "없으면 빈 배열로 둡니다.\n"
+            "1. 신체 상태 (부상, 질병, 신체적 변화 등)\n"
+            "2. 소지품/인벤토리 변화 (획득, 상실, 파괴 등)\n"
+            "3. 관계 상태 변화 (적대→우호 등 명확한 전환점)\n"
+            "4. 복선 언급 (나중에 회수될 것으로 보이는 떡밥)\n\n"
+            "각 사실은 다음 형식으로 기록하세요:\n"
+            "{\n"
+            '  "category": "신체상태" | "소지품" | "관계" | "복선",\n'
+            '  "subject": "해당하는 인물 이름",\n'
+            '  "attribute": "구체적으로 무엇에 대한 것인지 (예: \'오른팔\', \'검\')",\n'
+            '  "value": "현재 상태/값 (예: \'부상당함\', \'분실함\')",\n'
+            '  "scene_ref": "이 사실의 근거가 되는 원문 부분을 15단어 이내로 짧게"\n'
+            "}\n\n"
+            "애매하거나 확신이 없는 사실은 넣지 않습니다. 명확히 드러난 것만 기록하세요.\n\n"
             "[판단 기준]\n"
             "1. 사실만 추출한다. 해석이나 평가를 덧붙이지 않는다.\n"
             '2. 이전 맥락과 비교해 "새로 생긴 것"과 "이미 있던 것"을 구분한다.\n'
@@ -13909,7 +14424,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             '  "characters": ["작품에 등장하는 인물 이름들"],\n'
             '  "world_rules": ["확립된 세계관·설정 규칙"],\n'
             '  "timeline": ["시간순 핵심 사건 요약"],\n'
-            '  "open_threads": ["아직 회수되지 않은 복선/떡밥"]\n'
+            '  "open_threads": ["아직 회수되지 않은 복선/떡밥"],\n'
+            '  "tracked_facts": [\n'
+            "    {\n"
+            '      "category": "신체상태 | 소지품 | 관계 | 복선",\n'
+            '      "subject": "인물 이름",\n'
+            '      "attribute": "대상 (예: 오른팔, 검)",\n'
+            '      "value": "현재 값",\n'
+            '      "since_scene": "이 값이 확정된 회차 번호",\n'
+            '      "history": [{"value": "이전 값", "scene": "몇 화"}]\n'
+            "    }\n"
+            "  ]\n"
             "}\n\n"
             "[판단 기준]\n"
             "1. 사실만 유지한다. 해석·평가·추측을 넣지 않는다.\n"
@@ -13918,7 +14443,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "4. new_world_facts와 new_threads의 내용이 실질적으로 같은 사실을 가리키면 "
             "중복으로 두 곳에 반영하지 말고, world_rules 또는 open_threads 중 "
             "더 적합한 한쪽에만 반영한다.\n"
-            "5. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.\n\n"
+            "5. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.\n"
+            "6. 새로 들어온 tracked_facts를 기존 project_index의 tracked_facts와 병합하세요.\n"
+            "- 같은 subject + attribute 조합이 이미 존재하면: 새 값으로 덮어쓰되, "
+            "이전 값과 회차 정보를 history 배열에 보존한다 (완전히 버리지 않는다).\n"
+            "- 같은 subject + attribute가 없으면: 새 항목으로 추가한다.\n"
+            "- 이 필드는 다른 필드보다 압축·요약하지 않는다. 사실은 원형 그대로 유지한다.\n\n"
             "[기존 프로젝트 인덱스]\n"
             f"{existing_text}\n\n"
             "[새로 추가할 회차 요약들]\n"
@@ -13960,12 +14490,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def _project_index_previous_context(self, connection: sqlite3.Connection, project_id: int) -> str:
         row = connection.execute(
-            "SELECT characters_json, world_rules_json, timeline_json, open_threads_json "
+            "SELECT characters_json, world_rules_json, timeline_json, open_threads_json, "
+            "tracked_facts_json "
             "FROM project_index WHERE project_id = ?",
             (project_id,),
         ).fetchone()
         recent = connection.execute(
-            "SELECT s.title, ss.summary FROM scene_summary ss "
+            "SELECT s.title, ss.summary, ss.tracked_facts_json FROM scene_summary ss "
             "JOIN scene s ON s.id = ss.scene_id "
             "WHERE s.project_id = ? AND s.deleted_at IS NULL "
             "ORDER BY ss.updated_at DESC, ss.scene_id DESC LIMIT 8",
@@ -13977,6 +14508,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             rules = self._parse_json_list(row["world_rules_json"])
             timeline = self._parse_json_list(row["timeline_json"])
             threads = self._parse_json_list(row["open_threads_json"])
+            facts = self._normalize_tracked_facts(row["tracked_facts_json"])
             if chars:
                 parts.append("인물: " + ", ".join(str(c) for c in chars[:40]))
             if rules:
@@ -13985,12 +14517,37 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 parts.append("타임라인: " + " → ".join(str(t) for t in timeline[:20]))
             if threads:
                 parts.append("열린 떡밥: " + " / ".join(str(t) for t in threads[:20]))
+            if facts:
+                compact = []
+                for fact in facts[:40]:
+                    subject = str(fact.get("subject") or "").strip()
+                    attribute = str(fact.get("attribute") or "").strip()
+                    value = str(fact.get("value") or "").strip()
+                    bit = " ".join(part for part in (subject, attribute, value) if part)
+                    if bit:
+                        compact.append(bit)
+                if compact:
+                    parts.append("추적 대상 사실: " + " / ".join(compact))
         for item in reversed(list(recent)):
             summary_obj = self._parse_json_object(item["summary"])
             event = str(summary_obj.get("event_summary") or "").strip()
             title = str(item["title"] or "").strip() or "회차"
             if event:
                 parts.append(f"{title}: {event}")
+            scene_facts = self._normalize_tracked_facts(summary_obj.get("tracked_facts"))
+            if not scene_facts:
+                scene_facts = self._normalize_tracked_facts(item["tracked_facts_json"])
+            if scene_facts:
+                compact = []
+                for fact in scene_facts[:20]:
+                    subject = str(fact.get("subject") or "").strip()
+                    attribute = str(fact.get("attribute") or "").strip()
+                    value = str(fact.get("value") or "").strip()
+                    bit = " ".join(part for part in (subject, attribute, value) if part)
+                    if bit:
+                        compact.append(bit)
+                if compact:
+                    parts.append(f"{title} 추적 대상 사실: " + " / ".join(compact))
         return "\n".join(parts)
 
     def get_project_index(self, project_id: int) -> dict:
@@ -13999,7 +14556,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             self._ensure_project_index_row(connection, project_id)
             row = connection.execute(
                 "SELECT project_id, characters_json, world_rules_json, timeline_json, "
-                "open_threads_json, last_synced_scene_id, index_dirty, "
+                "open_threads_json, tracked_facts_json, last_synced_scene_id, index_dirty, "
                 "pending_scene_ids_json, updated_at "
                 "FROM project_index WHERE project_id = ?",
                 (project_id,),
@@ -14011,6 +14568,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "world_rules": self._parse_json_list(data.get("world_rules_json")),
             "timeline": self._parse_json_list(data.get("timeline_json")),
             "open_threads": self._parse_json_list(data.get("open_threads_json")),
+            "tracked_facts": self._normalize_tracked_facts(data.get("tracked_facts_json")),
             "last_synced_scene_id": data.get("last_synced_scene_id"),
             "index_dirty": int(data.get("index_dirty") or 0),
             "pending_scene_ids": self._parse_json_list(data.get("pending_scene_ids_json")),
@@ -14032,15 +14590,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if scene is None:
                 raise ValueError("회차를 찾을 수 없습니다.")
             row = connection.execute(
-                "SELECT scene_id, summary, updated_at FROM scene_summary WHERE scene_id = ?",
+                "SELECT scene_id, summary, tracked_facts_json, updated_at FROM scene_summary WHERE scene_id = ?",
                 (scene_id,),
             ).fetchone()
         if row is None:
-            return {"scene_id": scene_id, "summary": None, "updated_at": None}
+            return {"scene_id": scene_id, "summary": None, "tracked_facts": [], "updated_at": None}
         parsed = self._parse_json_object(row["summary"])
+        facts = self._normalize_tracked_facts(row["tracked_facts_json"])
+        if not facts and isinstance(parsed, dict):
+            facts = self._normalize_tracked_facts(parsed.get("tracked_facts"))
+        if isinstance(parsed, dict):
+            parsed["tracked_facts"] = facts
         return {
             "scene_id": scene_id,
             "summary": parsed or row["summary"],
+            "tracked_facts": facts,
             "summary_raw": row["summary"],
             "updated_at": row["updated_at"],
         }
@@ -14066,7 +14630,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         for key in required:
             if key not in summary_obj:
                 summary_obj[key] = [] if key != "event_summary" else ""
+        facts = self._normalize_tracked_facts(
+            summary_obj.get("tracked_facts")
+            if "tracked_facts" in summary_obj
+            else body.get("tracked_facts")
+        )
+        summary_obj["tracked_facts"] = facts
         summary_json = json.dumps(summary_obj, ensure_ascii=False)
+        facts_json = json.dumps(facts, ensure_ascii=False)
         with database() as connection:
             scene = connection.execute(
                 "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
@@ -14076,18 +14647,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError("회차를 찾을 수 없습니다.")
             project_id = int(scene["project_id"])
             connection.execute(
-                "INSERT INTO scene_summary(scene_id, summary, updated_at) VALUES (?, ?, "
-                "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "INSERT INTO scene_summary(scene_id, summary, tracked_facts_json, updated_at) "
+                "VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
                 "ON CONFLICT(scene_id) DO UPDATE SET "
                 "summary = excluded.summary, "
+                "tracked_facts_json = excluded.tracked_facts_json, "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
-                (scene_id, summary_json),
+                (scene_id, summary_json, facts_json),
             )
             self._mark_project_index_dirty(connection, project_id, scene_id)
         return {
             "scene_id": scene_id,
             "project_id": project_id,
             "summary": summary_obj,
+            "tracked_facts": facts,
             "index_dirty": True,
         }
 
@@ -14117,7 +14690,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 prompt = self.build_scene_summary_prompt(content, previous)
 
         try:
-            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=2048)
+            raw = gemini_client.generate_text(prompt, temperature=0.2, max_output_tokens=3072)
         except gemini_client.GeminiError as error:
             raise ValueError(str(error)) from error
 
@@ -14138,7 +14711,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             self._ensure_project_index_row(connection, project_id)
             row = connection.execute(
                 "SELECT characters_json, world_rules_json, timeline_json, open_threads_json, "
-                "index_dirty, pending_scene_ids_json, last_synced_scene_id "
+                "tracked_facts_json, index_dirty, pending_scene_ids_json, last_synced_scene_id "
                 "FROM project_index WHERE project_id = ?",
                 (project_id,),
             ).fetchone()
@@ -14149,7 +14722,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if not pending:
                 # Fallback: all summaries newer than last sync — or all summaries
                 pending_rows = connection.execute(
-                    "SELECT ss.scene_id, ss.summary FROM scene_summary ss "
+                    "SELECT ss.scene_id, ss.summary, ss.tracked_facts_json, s.title "
+                    "FROM scene_summary ss "
                     "JOIN scene s ON s.id = ss.scene_id "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                     "ORDER BY ss.updated_at, ss.scene_id",
@@ -14158,7 +14732,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             else:
                 placeholders = ",".join("?" for _ in pending)
                 pending_rows = connection.execute(
-                    f"SELECT ss.scene_id, ss.summary FROM scene_summary ss "
+                    f"SELECT ss.scene_id, ss.summary, ss.tracked_facts_json, s.title "
+                    f"FROM scene_summary ss "
+                    f"JOIN scene s ON s.id = ss.scene_id "
                     f"WHERE ss.scene_id IN ({placeholders}) ORDER BY ss.updated_at, ss.scene_id",
                     [int(x) for x in pending],
                 ).fetchall()
@@ -14175,6 +14751,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "world_rules": self._parse_json_list(row["world_rules_json"]),
                 "timeline": self._parse_json_list(row["timeline_json"]),
                 "open_threads": self._parse_json_list(row["open_threads_json"]),
+                "tracked_facts": self._normalize_tracked_facts(row["tracked_facts_json"]),
             }
             new_summaries = []
             last_scene_id = None
@@ -14182,7 +14759,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 last_scene_id = int(item["scene_id"])
                 parsed = self._parse_json_object(item["summary"])
                 if parsed:
-                    parsed = {**parsed, "scene_id": last_scene_id}
+                    facts = self._normalize_tracked_facts(parsed.get("tracked_facts"))
+                    if not facts:
+                        facts = self._normalize_tracked_facts(item["tracked_facts_json"])
+                    parsed = {
+                        **parsed,
+                        "tracked_facts": facts,
+                        "scene_id": last_scene_id,
+                        "scene_title": str(item["title"] or "").strip(),
+                    }
                     new_summaries.append(parsed)
 
         if not new_summaries:
@@ -14209,6 +14794,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         world_rules = merged.get("world_rules")
         timeline = merged.get("timeline")
         open_threads = merged.get("open_threads")
+        tracked_facts = self._normalize_tracked_facts(merged.get("tracked_facts"))
         if not isinstance(characters, list):
             characters = existing_index["characters"]
         if not isinstance(world_rules, list):
@@ -14217,13 +14803,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             timeline = existing_index["timeline"]
         if not isinstance(open_threads, list):
             open_threads = existing_index["open_threads"]
+        if "tracked_facts" not in merged:
+            tracked_facts = existing_index["tracked_facts"]
 
         with database() as connection:
             self._ensure_project_index_row(connection, project_id)
             connection.execute(
                 "UPDATE project_index SET "
                 "characters_json = ?, world_rules_json = ?, timeline_json = ?, "
-                "open_threads_json = ?, last_synced_scene_id = ?, "
+                "open_threads_json = ?, tracked_facts_json = ?, last_synced_scene_id = ?, "
                 "index_dirty = 0, pending_scene_ids_json = '[]', "
                 "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                 "WHERE project_id = ?",
@@ -14232,6 +14820,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     json.dumps(world_rules, ensure_ascii=False),
                     json.dumps(timeline, ensure_ascii=False),
                     json.dumps(open_threads, ensure_ascii=False),
+                    json.dumps(tracked_facts, ensure_ascii=False),
                     last_scene_id,
                     project_id,
                 ),
@@ -14245,9 +14834,136 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "world_rules": world_rules,
                 "timeline": timeline,
                 "open_threads": open_threads,
+                "tracked_facts": tracked_facts,
             },
             "merged_scene_ids": [int(s["scene_id"]) for s in new_summaries if "scene_id" in s],
             "model": gemini_client.model_name(),
+        }
+
+    def pending_index_rebuild_scenes(self, connection: sqlite3.Connection, project_id: int) -> list[dict]:
+        rows = connection.execute(
+            "SELECT s.id, s.title, r.content_md, ss.tracked_facts_json "
+            "FROM scene s "
+            "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+            "LEFT JOIN scene_summary ss ON ss.scene_id = s.id "
+            "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+            "ORDER BY s.id",
+            (project_id,),
+        ).fetchall()
+        pending: list[dict] = []
+        for row in rows:
+            if not tracked_facts_json_is_missing(row["tracked_facts_json"]):
+                continue
+            content = plain_text_from_content(str(row["content_md"] or "")).strip()
+            if len(content) < 20:
+                continue
+            pending.append({"id": int(row["id"]), "title": str(row["title"] or "")})
+        return pending
+
+    def get_index_rebuild_status(self) -> dict:
+        snap = index_rebuild_snapshot()
+        remaining = max(0, int(snap.get("total_scenes") or 0) - int(snap.get("done_scenes") or 0))
+        seconds = float(snap.get("seconds_per_scene") or INDEX_REBUILD_SECONDS_PER_SCENE)
+        return {
+            **snap,
+            "eta_seconds": int(remaining * seconds),
+        }
+
+    def get_index_rebuild_overview(self) -> dict:
+        items = []
+        with database() as connection:
+            projects = connection.execute(
+                "SELECT id, title FROM project WHERE deleted_at IS NULL "
+                "ORDER BY last_opened_at DESC, id DESC"
+            ).fetchall()
+            for project in projects:
+                project_id = int(project["id"])
+                total = connection.execute(
+                    "SELECT COUNT(*) FROM scene WHERE project_id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchone()[0]
+                pending = self.pending_index_rebuild_scenes(connection, project_id)
+                dirty_row = connection.execute(
+                    "SELECT index_dirty FROM project_index WHERE project_id = ?",
+                    (project_id,),
+                ).fetchone()
+                needs_merge = bool(dirty_row and int(dirty_row["index_dirty"] or 0))
+                items.append({
+                    "id": project_id,
+                    "title": str(project["title"] or f"작품 #{project_id}"),
+                    "scene_count": int(total or 0),
+                    "pending_count": len(pending),
+                    "needs_merge": needs_merge,
+                    "selectable": len(pending) > 0 or needs_merge,
+                })
+        job = self.get_index_rebuild_status()
+        return {
+            "projects": items,
+            "seconds_per_scene": float(job.get("seconds_per_scene") or INDEX_REBUILD_SECONDS_PER_SCENE),
+            "job": job,
+        }
+
+    def start_index_rebuild(self, body: dict) -> dict:
+        global _index_rebuild_thread
+        if not gemini_client.is_configured():
+            raise ValueError("Gemini API 키가 없습니다. 관리자 → 정보 · 도움말에서 연결 상태를 확인해 주세요.")
+        raw_ids = body.get("project_ids") or body.get("ids") or []
+        if not isinstance(raw_ids, list) or not raw_ids:
+            raise ValueError("다시 인덱싱할 작품을 선택해 주세요.")
+        project_ids: list[int] = []
+        for item in raw_ids:
+            try:
+                project_ids.append(int(item))
+            except (TypeError, ValueError):
+                continue
+        project_ids = list(dict.fromkeys(project_ids))
+        if not project_ids:
+            raise ValueError("다시 인덱싱할 작품을 선택해 주세요.")
+        with _index_rebuild_lock:
+            if _index_rebuild_state.get("status") == "running":
+                raise ValueError("이미 회차 인덱스를 다시 만드는 중입니다.")
+            if _index_rebuild_thread is not None and _index_rebuild_thread.is_alive():
+                raise ValueError("이미 회차 인덱스를 다시 만드는 중입니다.")
+        overview = self.get_index_rebuild_overview()
+        allowed = {
+            int(item["id"])
+            for item in overview.get("projects") or []
+            if item.get("selectable")
+        }
+        project_ids = [pid for pid in project_ids if pid in allowed]
+        if not project_ids:
+            raise ValueError("처리할 회차가 없는 작품만 선택되어 있어요.")
+        selected = [
+            item for item in overview.get("projects") or []
+            if int(item["id"]) in set(project_ids)
+        ]
+        total_pending = sum(int(item.get("pending_count") or 0) for item in selected)
+        _set_index_rebuild_state(
+            status="running",
+            message="인덱싱을 시작합니다.",
+            project_title="",
+            project_id=None,
+            done_scenes=0,
+            total_scenes=total_pending,
+            project_done=0,
+            project_total=len(project_ids),
+            error="",
+        )
+        thread = Thread(
+            target=_run_index_rebuild_job,
+            args=(project_ids,),
+            daemon=True,
+            name="supertory-index-rebuild",
+        )
+        with _index_rebuild_lock:
+            _index_rebuild_thread = thread
+        thread.start()
+        return {
+            "ok": True,
+            "started": True,
+            "project_ids": project_ids,
+            "pending_count": total_pending,
+            "job": self.get_index_rebuild_status(),
         }
 
     def save_scene(self, scene_id: int, body: dict) -> dict:

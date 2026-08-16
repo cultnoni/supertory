@@ -227,6 +227,59 @@ class SuperTorySchemaTests(unittest.TestCase):
             "INSERT INTO scene_summary(scene_id, summary) VALUES (999, '{}')"
         )
 
+    def test_reader_comments_started_column(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "047_scene_reader_comments_started.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.create_story()
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(scene)").fetchall()
+        }
+        self.assertIn("reader_comments_started", cols)
+        value = self.db.execute(
+            "SELECT reader_comments_started FROM scene WHERE id = 30"
+        ).fetchone()[0]
+        self.assertEqual(value, 0)
+        self.db.execute("UPDATE scene SET reader_comments_started = 1 WHERE id = 30")
+        value = self.db.execute(
+            "SELECT reader_comments_started FROM scene WHERE id = 30"
+        ).fetchone()[0]
+        self.assertEqual(value, 1)
+
+    def test_tracked_facts_columns(self) -> None:
+        self.db.executescript(
+            (Path(__file__).resolve().parents[1] / "db" / "019_project_index.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (Path(__file__).resolve().parents[1] / "db" / "048_tracked_facts.sql").read_text(encoding="utf-8")
+        )
+        self.create_story()
+        scene_cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(scene_summary)").fetchall()
+        }
+        index_cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project_index)").fetchall()
+        }
+        self.assertIn("tracked_facts_json", scene_cols)
+        self.assertIn("tracked_facts_json", index_cols)
+        self.db.execute(
+            "INSERT INTO scene_summary(scene_id, summary, tracked_facts_json) "
+            "VALUES (30, '{}', '[{\"category\":\"신체상태\"}]')"
+        )
+        self.db.execute(
+            "INSERT INTO project_index(project_id, tracked_facts_json) VALUES (1, '[]')"
+        )
+        scene_val = self.db.execute(
+            "SELECT tracked_facts_json FROM scene_summary WHERE scene_id = 30"
+        ).fetchone()[0]
+        self.assertIn("신체상태", scene_val)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 48"
+        ).fetchone()[0]
+        self.assertEqual(version, "tracked_facts")
+
 
 if __name__ == "__main__":
     unittest.main()
