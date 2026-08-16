@@ -531,6 +531,40 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertNotIn("뇌 정지 놀이터", html)
         self.assertIn('id === "brain_park"', js)
 
+    def test_ui_shows_mouse_tori_on_diversions(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        mouse = root / "assets" / "glump" / "tori-mouse.gif"
+        writing = root / "assets" / "glump" / "tori-writing.gif"
+        idle_mouse = root / "assets" / "glump" / "tori-mouse.png"
+        idle_writing = root / "assets" / "glump" / "tori-writing.png"
+        div_idx = html.find('id="glumpErStepDiversions"')
+        mouse_idx = html.find('id="glumpErDiversionsTori"')
+        sprint_idx = html.find('id="glumpErStepSprint"')
+        write_idx = html.find('id="glumpErSprintTori"')
+        self.assertGreater(div_idx, 0)
+        self.assertGreater(mouse_idx, div_idx)
+        self.assertGreater(sprint_idx, 0)
+        self.assertGreater(write_idx, sprint_idx)
+        self.assertIn("/assets/glump/tori-mouse.gif", html)
+        self.assertIn("/assets/glump/tori-writing.gif", html)
+        self.assertIn("function playGlumpDiversionsToriIntro()", js)
+        self.assertIn("playGlumpDiversionsToriIntro()", js)
+        self.assertIn("function playGlumpSprintToriIntro()", js)
+        self.assertIn("playGlumpSprintToriIntro()", js)
+        self.assertTrue(mouse.is_file())
+        self.assertTrue(writing.is_file())
+        self.assertTrue(idle_mouse.is_file())
+        self.assertTrue(idle_writing.is_file())
+        from PIL import Image
+
+        for path in (mouse, writing):
+            with Image.open(path) as gif:
+                self.assertEqual(gif.format, "GIF", path.name)
+                self.assertTrue(getattr(gif, "is_animated", False), path.name)
+                self.assertGreater(getattr(gif, "n_frames", 1), 20, path.name)
+
 
 if __name__ == "__main__":
     unittest.main()

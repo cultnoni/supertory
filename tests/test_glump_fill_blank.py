@@ -283,3 +283,27 @@ class GlumpFillBlankTests(unittest.TestCase):
         self.assertEqual(status, 500, data)
         self.assertEqual(data.get("error"), "다시 시도해주세요")
         self.assertEqual(n["count"], 2)
+
+    def test_ui_plays_tori_puzzle_intro(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-puzzle-idle.png"
+        anim = root / "assets" / "glump" / "tori-puzzle.gif"
+        self.assertIn('id="glumpErFillBlankTori"', html)
+        self.assertIn("/assets/glump/tori-puzzle.gif", html)
+        self.assertIn("function playGlumpFillBlankToriIntro()", js)
+        self.assertIn("playGlumpFillBlankToriIntro()", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())
+        from PIL import Image
+
+        with Image.open(idle) as still:
+            self.assertEqual(still.mode, "RGBA", idle.name)
+            extrema = still.getchannel("A").getextrema()
+            self.assertLess(extrema[0], 20, idle.name)
+            self.assertGreater(extrema[1], 200, idle.name)
+        with Image.open(anim) as gif:
+            self.assertEqual(gif.format, "GIF")
+            self.assertTrue(getattr(gif, "is_animated", False), "puzzle gif should animate")
+            self.assertGreater(getattr(gif, "n_frames", 1), 20)

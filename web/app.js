@@ -9982,7 +9982,7 @@ function toggleAnalyzeMenu() {
 function ensureAnalyzeMenuSectionMascots() {
   document.querySelectorAll("#analyzeMenuDropdown .analyze-menu-tory-icon").forEach((el) => {
     if (!(el instanceof HTMLElement)) return;
-    if (el.querySelector("svg")) return;
+    if (el.querySelector("svg, img")) return;
     if (typeof TORY_MODAL_MASCOT_SVG === "string") {
       el.innerHTML = TORY_MODAL_MASCOT_SVG;
     } else {
@@ -12280,7 +12280,7 @@ function syncAiModePickerUi() {
 
 function ensureAiModePickerMascots() {
   document.querySelectorAll("#aiModePickerMenu .ai-mode-tory-icon").forEach((el) => {
-    if (!(el instanceof HTMLElement) || el.querySelector("svg")) return;
+    if (!(el instanceof HTMLElement) || el.querySelector("svg, img")) return;
     el.innerHTML = typeof TORY_MODAL_MASCOT_SVG === "string" ? TORY_MODAL_MASCOT_SVG : "🌰";
   });
 }
@@ -17470,12 +17470,7 @@ function isFirstMetDay(dayKey) {
 }
 
 const CAL_ACORN_SVG = (
-  '<svg class="cal-acorn-svg" viewBox="0 0 48 48" aria-hidden="true" focusable="false">'
-  + '<ellipse cx="24" cy="16" rx="14" ry="8" fill="#6b3f1a"/>'
-  + '<path d="M12 16c0 12 5 24 12 24s12-12 12-24" fill="#c47a2c"/>'
-  + '<ellipse cx="24" cy="16" rx="14" ry="5.5" fill="#8b5a2b"/>'
-  + '<path d="M24 3v7" stroke="#4a2c12" stroke-width="2.2" stroke-linecap="round"/>'
-  + "</svg>"
+  '<img class="cal-acorn-svg" src="/assets/tori-mascot.png" alt="" aria-hidden="true">'
 );
 
 function syncWritingPrefsForm() {
@@ -19131,32 +19126,9 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
   }
 }
 
-/** Compact Tory mascot for popup modal titles (no gradient IDs — safe to clone). */
+/** Compact Tory mascot for popup modal titles. */
 const TORY_MODAL_MASCOT_SVG =
-  '<svg class="tory-modal-mascot-svg" viewBox="0 0 40 40" width="26" height="26" focusable="false" aria-hidden="true">'
-  + '<circle cx="20" cy="20" r="19" fill="#fff8ef" stroke="#e4d5c2" stroke-width="1"/>'
-  + '<ellipse cx="19.5" cy="23" rx="9" ry="10.5" fill="#d98a3c" stroke="#9a5a22" stroke-width="0.6"/>'
-  + '<ellipse cx="19.5" cy="13.8" rx="10" ry="5.2" fill="#8b5a2b" stroke="#4a2c12" stroke-width="0.55"/>'
-  + '<path d="M19.5 9 C19.5 6.6 21.2 5 23 4.5" fill="none" stroke="#4a2c12" stroke-width="1.5" stroke-linecap="round"/>'
-  + '<ellipse cx="23.2" cy="4.3" rx="1.5" ry="1" fill="#3d2410" transform="rotate(-25 23.2 4.3)"/>'
-  + '<circle cx="16.2" cy="21.2" r="1.45" fill="#3a2412"/>'
-  + '<circle cx="22.8" cy="21.2" r="1.45" fill="#3a2412"/>'
-  + '<circle cx="16.6" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>'
-  + '<circle cx="23.2" cy="20.8" r="0.45" fill="#fff" opacity="0.9"/>'
-  + '<ellipse cx="13.6" cy="23.8" rx="1.5" ry="0.9" fill="#e8886a" opacity="0.5"/>'
-  + '<ellipse cx="25.4" cy="23.8" rx="1.5" ry="0.9" fill="#e8886a" opacity="0.5"/>'
-  + '<path d="M17.2 24.6 Q19.5 26.4 21.8 24.6" fill="none" stroke="#5a3218" stroke-width="0.9" stroke-linecap="round"/>'
-  + '<circle cx="16.2" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>'
-  + '<circle cx="22.8" cy="21.2" r="2.9" fill="none" stroke="#3d3d48" stroke-width="0.95"/>'
-  + '<path d="M19.1 21.2 H19.9" stroke="#3d3d48" stroke-width="0.9" stroke-linecap="round"/>'
-  + '<path d="M11 24.5 C9 25.5 8.8 27.5 10.2 28.8" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>'
-  + '<path d="M28 24.2 C30 25 31.5 26.6 30.6 28.6" fill="none" stroke="#c47a2c" stroke-width="1.6" stroke-linecap="round"/>'
-  + '<g transform="translate(29.8 27.8) rotate(36)">'
-  + '<rect x="-0.95" y="-6.5" width="1.9" height="10" rx="0.8" fill="#4d7eb8" stroke="#2f5480" stroke-width="0.3"/>'
-  + '<rect x="-0.95" y="-8" width="1.9" height="1.7" rx="0.45" fill="#e8c96a" stroke="#8a6a1a" stroke-width="0.25"/>'
-  + '<path d="M-0.75 3.5 L0 6.4 L0.75 3.5 Z" fill="#d4af37"/>'
-  + "</g>"
-  + "</svg>";
+  '<img class="tory-modal-mascot-svg" src="/assets/tori-mascot.png" width="26" height="26" alt="" aria-hidden="true">';
 
 /** Put Tory mascot at the left of titles in Tory-panel popups. */
 function ensureToryModalTitleMascots() {
@@ -20417,8 +20389,7 @@ function launchGlumpHomeTool(toolId) {
     return;
   }
   if (id === "brain_park") {
-    glumpErState.step = "diversions";
-    renderGlumpErStep();
+    openGlumpDiversionsStep();
     return;
   }
   const name = GLUMP_TOOL_LABELS[id] || "이 도구";
@@ -20853,6 +20824,13 @@ function startGlumpSprint(modeId) {
 function openGlumpSprintModeStep() {
   glumpErState.step = "sprint";
   renderGlumpErStep();
+  playGlumpSprintToriIntro();
+}
+
+function openGlumpDiversionsStep() {
+  glumpErState.step = "diversions";
+  renderGlumpErStep();
+  playGlumpDiversionsToriIntro();
 }
 
 function renderGlumpErStep() {
@@ -20921,15 +20899,47 @@ function renderGlumpErStep() {
   if (luckyBtn) luckyBtn.disabled = glumpErState.busy;
   if (interrogateBtn) interrogateBtn.disabled = glumpErState.busy;
 
+  if (glumpErState.step !== "spark") {
+    clearGlumpToolToriTimers("spark");
+  }
+  if (glumpErState.step !== "vitamin") {
+    clearGlumpToolToriTimers("vitamin");
+  }
+  if (glumpErState.step !== "pingpong") {
+    clearGlumpToolToriTimers("pingpong");
+  }
+  if (glumpErState.step !== "home") {
+    clearGlumpToolToriTimers("home");
+  }
+  if (glumpErState.step !== "fillblank") {
+    clearGlumpToolToriTimers("fillblank");
+  }
+  if (glumpErState.step !== "diversions") {
+    clearGlumpToolToriTimers("diversions");
+  }
+  if (glumpErState.step !== "sprint") {
+    clearGlumpToolToriTimers("sprint");
+  }
+  if (glumpErState.step !== "lucky") {
+    clearGlumpToolToriTimers("lucky");
+  }
+  if (glumpErState.step !== "interrogation") {
+    clearGlumpToolToriTimers("interrogation");
+  }
+
   const sparkStatus = $("glumpErSparkStatus");
   const sparkList = $("glumpErSparkList");
+  const sparkEventsReady = glumpToolToriIntro.spark.ready && !glumpErState.busy;
   if (sparkStatus) {
-    sparkStatus.textContent = glumpErState.busy
-      ? "예상 못한 사건을 고르는 중이에요…"
-      : (glumpErState.events?.length ? "이 세 가지 중에서 골라 보세요." : "");
+    sparkStatus.textContent = !glumpToolToriIntro.spark.ready
+      ? ""
+      : (glumpErState.busy
+        ? "예상 못한 사건을 고르는 중이에요…"
+        : (glumpErState.events?.length ? "이 세 가지 중에서 골라 보세요." : ""));
   }
   if (sparkList) {
     const events = Array.isArray(glumpErState.events) ? glumpErState.events : [];
+    sparkList.classList.toggle("hidden", !(sparkEventsReady && events.length));
     sparkList.innerHTML = events.map((item, index) => {
       const title = escapeHtml(String(item.title || `사건 ${index + 1}`));
       const description = escapeHtml(String(item.description || ""));
@@ -20940,18 +20950,23 @@ function renderGlumpErStep() {
   const vitaminStatus = $("glumpErVitaminStatus");
   const vitaminList = $("glumpErVitaminList");
   const vitaminLabels = { dialogue: "대사", description: "묘사", scene: "장면" };
+  const vitaminReady = glumpToolToriIntro.vitamin.ready;
   if (vitaminStatus) {
-    vitaminStatus.textContent = glumpErState.busy
-      ? "잘 쓴 장면을 모으는 중이에요…"
-      : (glumpErState.vitamins?.empty
-        ? ""
-        : (glumpErState.vitamins?.moments?.length ? "이런 장면이 이미 잘 살아 있어요." : ""));
+    vitaminStatus.textContent = !vitaminReady
+      ? ""
+      : (glumpErState.busy
+        ? "잘 쓴 장면을 모으는 중이에요…"
+        : (glumpErState.vitamins?.empty
+          ? ""
+          : (glumpErState.vitamins?.moments?.length ? "이런 장면이 이미 잘 살아 있어요." : "")));
   }
   if (vitaminList) {
-    if (glumpErState.vitamins?.empty) {
+    const empty = Boolean(glumpErState.vitamins?.empty);
+    const items = Array.isArray(glumpErState.vitamins?.moments) ? glumpErState.vitamins.moments : [];
+    vitaminList.classList.toggle("hidden", !(vitaminReady && !glumpErState.busy && (empty || items.length)));
+    if (empty) {
       vitaminList.innerHTML = `<p class="hint">${escapeHtml(glumpErState.vitamins.message || "아직 모아둔 명장면이 없어요.")}</p>`;
     } else {
-      const items = Array.isArray(glumpErState.vitamins?.moments) ? glumpErState.vitamins.moments : [];
       vitaminList.innerHTML = items.map((item) => {
         const kind = vitaminLabels[item.type] || item.type || "장면";
         const order = Number(item.episode_order) || 0;
@@ -21209,6 +21224,7 @@ function openGlumpErModal() {
     resetGlumpErState();
   }
   renderGlumpErStep();
+  if (glumpErState.step === "home") playGlumpHomeToriIntro();
   modal.classList.remove("hidden");
   requestAnimationFrame(() => {
     const focusEl = modal.querySelector(
@@ -21277,6 +21293,146 @@ async function submitGlumpDiagnosis(q1, q2) {
   }
 }
 
+const glumpToolToriIntro = {
+  home: { timers: [], ready: true, stageId: "glumpErHomeTori", step: "home" },
+  spark: { timers: [], ready: true, stageId: "glumpErSparkTori", step: "spark" },
+  vitamin: { timers: [], ready: true, stageId: "glumpErVitaminTori", step: "vitamin" },
+  pingpong: { timers: [], ready: true, stageId: "glumpErPingpongTori", step: "pingpong" },
+  fillblank: { timers: [], ready: true, stageId: "glumpErFillBlankTori", step: "fillblank" },
+  diversions: { timers: [], ready: true, stageId: "glumpErDiversionsTori", step: "diversions" },
+  sprint: { timers: [], ready: true, stageId: "glumpErSprintTori", step: "sprint" },
+  lucky: { timers: [], ready: true, stageId: "glumpErLuckyTori", step: "lucky" },
+  interrogation: { timers: [], ready: true, stageId: "glumpErInterrogationTori", step: "interrogation" },
+};
+
+const GLUMP_ANIMATED_TORI = {
+  home: { stillSrc: "/assets/glump/tori-doctor-idle.png" },
+  spark: { stillSrc: "/assets/glump/tori-spark-idle.png" },
+  vitamin: { stillSrc: "/assets/glump/tori-vitamin-idle.png" },
+  pingpong: { stillSrc: "/assets/glump/tori-pingpong-idle.png" },
+  fillblank: { stillSrc: "/assets/glump/tori-puzzle-idle.png" },
+  diversions: { stillSrc: "/assets/glump/tori-mouse.png" },
+  sprint: { stillSrc: "/assets/glump/tori-writing.png" },
+  lucky: { stillSrc: "/assets/glump/tori-lucky-idle.png" },
+  interrogation: { stillSrc: "/assets/glump/tori-mic-idle.png" },
+};
+
+function clearGlumpToolToriTimers(kind) {
+  const intro = glumpToolToriIntro[kind];
+  if (!intro) return;
+  intro.timers.forEach((id) => clearTimeout(id));
+  intro.timers = [];
+}
+
+function prefersGlumpReducedMotion() {
+  try {
+    return Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  } catch (_) {
+    return false;
+  }
+}
+
+function finishGlumpToolToriIntro(kind) {
+  const intro = glumpToolToriIntro[kind];
+  if (!intro) return;
+  const stage = $(intro.stageId);
+  stage?.classList.remove("is-enter", "is-wink", "is-present");
+  stage?.classList.add("is-settled");
+  intro.ready = true;
+  if (glumpErState.step === intro.step) renderGlumpErStep();
+}
+
+function restartGlumpAnimatedTori(stage, stillSrc) {
+  const img = stage?.querySelector("img.glump-er-spark-tori-anim");
+  if (!img) return;
+  if (!img.getAttribute("data-anim-src")) {
+    const initial = String(img.getAttribute("src") || "").split("?")[0];
+    if (initial) img.setAttribute("data-anim-src", initial);
+  }
+  if (stillSrc) {
+    img.src = stillSrc;
+    return;
+  }
+  const stored = img.getAttribute("data-anim-src") || "";
+  if (!stored) return;
+  img.src = `${String(stored).split("?")[0]}?t=${Date.now()}`;
+}
+
+function playGlumpToolToriIntro(kind) {
+  const intro = glumpToolToriIntro[kind];
+  if (!intro) return;
+  clearGlumpToolToriTimers(kind);
+  intro.ready = false;
+  const stage = $(intro.stageId);
+  if (!stage) {
+    intro.ready = true;
+    return;
+  }
+  stage.classList.remove("is-enter", "is-wink", "is-present", "is-settled");
+  const anim = GLUMP_ANIMATED_TORI[kind];
+  if (prefersGlumpReducedMotion()) {
+    if (anim) restartGlumpAnimatedTori(stage, anim.stillSrc);
+    intro.ready = true;
+    return;
+  }
+  if (anim) {
+    restartGlumpAnimatedTori(stage);
+    intro.ready = true;
+    return;
+  }
+  void stage.offsetWidth;
+  stage.classList.add("is-enter");
+  intro.timers.push(setTimeout(() => {
+    stage.classList.add("is-wink");
+  }, 520));
+  intro.timers.push(setTimeout(() => {
+    stage.classList.remove("is-wink");
+  }, 860));
+  intro.timers.push(setTimeout(() => {
+    stage.classList.remove("is-enter");
+    stage.classList.add("is-present");
+  }, 1040));
+  intro.timers.push(setTimeout(() => {
+    finishGlumpToolToriIntro(kind);
+  }, 1680));
+}
+
+function playGlumpSparkToriIntro() {
+  playGlumpToolToriIntro("spark");
+}
+
+function playGlumpHomeToriIntro() {
+  playGlumpToolToriIntro("home");
+}
+
+function playGlumpVitaminToriIntro() {
+  playGlumpToolToriIntro("vitamin");
+}
+
+function playGlumpPingpongToriIntro() {
+  playGlumpToolToriIntro("pingpong");
+}
+
+function playGlumpFillBlankToriIntro() {
+  playGlumpToolToriIntro("fillblank");
+}
+
+function playGlumpDiversionsToriIntro() {
+  playGlumpToolToriIntro("diversions");
+}
+
+function playGlumpSprintToriIntro() {
+  playGlumpToolToriIntro("sprint");
+}
+
+function playGlumpLuckyToriIntro() {
+  playGlumpToolToriIntro("lucky");
+}
+
+function playGlumpInterrogationToriIntro() {
+  playGlumpToolToriIntro("interrogation");
+}
+
 async function runGlumpWildcardSpark() {
   if (!state.projectId) {
     toast("먼저 작품을 선택해 주세요.");
@@ -21292,6 +21448,7 @@ async function runGlumpWildcardSpark() {
   glumpErState.step = "spark";
   glumpErState.events = null;
   renderGlumpErStep();
+  playGlumpSparkToriIntro();
   try {
     const data = await api("/api/glump/wildcard-spark", {
       method: "POST",
@@ -21320,6 +21477,7 @@ async function runGlumpMentalVitamin() {
   glumpErState.step = "vitamin";
   glumpErState.vitamins = null;
   renderGlumpErStep();
+  playGlumpVitaminToriIntro();
   try {
     const data = await api(
       `/api/glump/mental-vitamin?work_id=${encodeURIComponent(state.projectId)}`,
@@ -21351,6 +21509,7 @@ async function runGlumpFillBlank() {
   glumpErState.step = "fillblank";
   glumpErState.fillBlank = null;
   renderGlumpErStep();
+  playGlumpFillBlankToriIntro();
   try {
     const data = await api("/api/glump/fill-blank/start", {
       method: "POST",
@@ -21458,6 +21617,7 @@ async function runGlumpPingpong() {
   glumpErState.step = "pingpong";
   glumpErState.pingpong = null;
   renderGlumpErStep();
+  playGlumpPingpongToriIntro();
   try {
     const data = await api("/api/glump/pingpong/start", {
       method: "POST",
@@ -21580,6 +21740,7 @@ async function runGlumpLuckySentence({ redraw = false } = {}) {
   glumpErState.busy = true;
   glumpErState.step = "lucky";
   renderGlumpErStep();
+  playGlumpLuckyToriIntro();
   try {
     const data = await api("/api/glump/lucky-sentence", {
       method: "POST",
@@ -21632,6 +21793,7 @@ async function runGlumpInterrogation() {
   glumpErState.step = "interrogation";
   glumpErState.interrogation = null;
   renderGlumpErStep();
+  playGlumpInterrogationToriIntro();
   try {
     const data = await api("/api/glump/interrogation/start", {
       method: "POST",
@@ -21731,8 +21893,7 @@ function closeGlumpErToManuscript() {
 function handleGlumpDiversionExit(choice) {
   const action = String(choice || "").trim();
   if (action === "more") {
-    glumpErState.step = "diversions";
-    renderGlumpErStep();
+    openGlumpDiversionsStep();
     return;
   }
   if (action === "write") {
@@ -21998,8 +22159,7 @@ function setupGlumpErUi() {
           toast("잘 쉬고 오세요. 한 글자도 안 써도 괜찮아요.");
           closeGlumpErModal({ dismissed: true });
         } else if (choice === "play") {
-          glumpErState.step = "diversions";
-          renderGlumpErStep();
+          openGlumpDiversionsStep();
         } else {
           toast("조금이라도 괜찮아요. 오늘 목표는 300자면 충분해요.");
           closeGlumpErToManuscript();
@@ -22046,6 +22206,7 @@ function setupGlumpErUi() {
     event.preventDefault();
     glumpErState.step = "home";
     renderGlumpErStep();
+    playGlumpHomeToriIntro();
   });
   $("glumpErQ2Back")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -22057,6 +22218,7 @@ function setupGlumpErUi() {
     event.preventDefault();
     resetGlumpErState();
     renderGlumpErStep();
+    playGlumpHomeToriIntro();
   });
   $("glumpErRunTool")?.addEventListener("click", (event) => {
     event.preventDefault();

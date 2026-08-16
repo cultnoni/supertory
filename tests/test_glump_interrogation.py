@@ -270,3 +270,16 @@ class GlumpInterrogationTests(unittest.TestCase):
         self.assertEqual(row["status"], "summarized")
         self.assertEqual(int(n_log), 1)
         self.assertIn("방향 힌트", self.calls[-1]["prompt"])
+
+    def test_ui_plays_tori_mic_intro(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-mic-idle.png"
+        anim = root / "assets" / "glump" / "tori-mic.gif"
+        self.assertIn('id="glumpErInterrogationTori"', html)
+        self.assertIn("/assets/glump/tori-mic.gif", html)
+        self.assertIn("function playGlumpInterrogationToriIntro()", js)
+        self.assertIn("playGlumpInterrogationToriIntro()", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())

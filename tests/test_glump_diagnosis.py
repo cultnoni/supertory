@@ -197,3 +197,35 @@ class GlumpDiagnosisTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM glump_diagnosis_logs"
             ).fetchone()[0]
         self.assertEqual(count, 0)
+
+    def test_ui_shows_doctor_tori_on_home(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-doctor-idle.png"
+        anim = root / "assets" / "glump" / "tori-doctor.gif"
+        home_idx = html.find('id="glumpErStepHome"')
+        dx_idx = html.find('id="glumpErStartDiagnosis"')
+        tori_idx = html.find('id="glumpErHomeTori"')
+        self.assertGreater(home_idx, 0)
+        self.assertGreater(tori_idx, home_idx)
+        self.assertGreater(dx_idx, tori_idx)
+        self.assertIn("/assets/glump/tori-doctor.gif", html)
+        self.assertIn("function playGlumpHomeToriIntro()", js)
+        self.assertIn("playGlumpHomeToriIntro()", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())
+        from PIL import Image
+
+        with Image.open(idle) as still:
+            self.assertEqual(still.mode, "RGBA", idle.name)
+            extrema = still.getchannel("A").getextrema()
+            self.assertLess(extrema[0], 20, idle.name)
+            self.assertGreater(extrema[1], 200, idle.name)
+        with Image.open(anim) as gif:
+            self.assertEqual(gif.format, "GIF")
+            self.assertTrue(getattr(gif, "is_animated", False), "doctor gif should animate")
+            self.assertGreater(getattr(gif, "n_frames", 1), 20)
+            gif.seek(0)
+            corner = gif.convert("RGBA").getpixel((0, 0))
+            self.assertEqual(corner[3], 0, "gif corners should be transparent")

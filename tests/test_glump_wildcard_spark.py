@@ -240,3 +240,27 @@ class GlumpWildcardSparkTests(unittest.TestCase):
         )
         self.assertEqual(status, 400, data)
         self.assertEqual(self.calls, [])
+
+    def test_ui_plays_tori_spark_intro(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-spark-idle.png"
+        anim = root / "assets" / "glump" / "tori-spark.gif"
+        self.assertIn('id="glumpErSparkTori"', html)
+        self.assertIn("/assets/glump/tori-spark.gif", html)
+        self.assertIn("function playGlumpSparkToriIntro()", js)
+        self.assertIn("playGlumpSparkToriIntro()", js)
+        self.assertIn("restartGlumpAnimatedTori", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())
+        from PIL import Image
+
+        with Image.open(idle) as still:
+            self.assertEqual(still.mode, "RGBA", idle.name)
+            extrema = still.getchannel("A").getextrema()
+            self.assertLess(extrema[0], 20, idle.name)
+            self.assertGreater(extrema[1], 200, idle.name)
+        with Image.open(anim) as webp:
+            self.assertTrue(getattr(webp, "is_animated", False), "spark gif should animate")
+            self.assertGreater(getattr(webp, "n_frames", 1), 20)

@@ -1077,6 +1077,7 @@ html.is-electron-mac .app-titlebar {
   width: 22px;
   height: 22px;
   display: block;
+  object-fit: contain;
 }
 .brand-name {
   flex: 0 0 auto;
@@ -2081,8 +2082,7 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   display: block;
   width: 28px;
   height: 28px;
-  border-radius: 50%;
-  box-shadow: 0 1px 3px rgba(80, 50, 20, 0.12);
+  object-fit: contain;
 }
 .admin-tory-intro {
   margin: 0 0 16px;
@@ -3934,6 +3934,14 @@ html[data-ui-scheme="dark"] .tory-chat-mode-menu {
   flex: 0 0 auto;
   line-height: 0;
 }
+.ai-writing-tory-img {
+  display: block;
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  transform-origin: 50% 80%;
+  animation: ai-writing-bob 1.15s ease-in-out infinite;
+}
 .ai-writing-svg {
   display: block;
   width: 64px;
@@ -4019,6 +4027,7 @@ html[data-ui-scheme="dark"] .tory-chat-mode-menu {
 }
 @media (prefers-reduced-motion: reduce) {
   .ai-writing-tory,
+  .ai-writing-tory-img,
   .ai-writing-pen,
   .ai-writing-line,
   .ai-writing-ink,
@@ -5776,6 +5785,9 @@ html[data-ui-scheme="dark"] .tory-switch-track::after {
   flex: 0 0 auto;
   display: block;
   margin: 0;
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
 }
 .ai-status-line {
   margin: 6px 0 0;
@@ -6467,6 +6479,7 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
   width: 16px;
   height: 16px;
   display: block;
+  object-fit: contain;
 }
 .ai-mode-picker-option {
   display: block;
@@ -8615,6 +8628,7 @@ body.ai-panel-collapsed .ai-panel {
   width: 22px;
   height: 22px;
   flex: 0 0 auto;
+  object-fit: contain;
 }
 .ai-panel-reopen:hover { background: var(--selection); }
 .ai-panel-reopen.hidden { display: none; }
@@ -10314,46 +10328,86 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   justify-content: center;
   margin: 0 0 2px;
 }
-.welcome-mascot-svg {
-  display: block;
+.welcome-mascot-stage {
+  position: relative;
   width: 88px;
   height: 88px;
-  filter: drop-shadow(0 6px 14px rgba(120, 70, 30, 0.16));
   overflow: visible;
+  filter: drop-shadow(0 6px 14px rgba(120, 70, 30, 0.16));
 }
-/* Live Tory animation */
-.welcome-mascot-bob {
-  transform-origin: 28px 40px;
-  animation: welcome-tory-bob 2.8s ease-in-out infinite;
+.welcome-tory-body,
+.welcome-tory-blink {
+  position: absolute;
+  inset: 0;
+  width: 88px;
+  height: 88px;
+  object-fit: contain;
+  z-index: 1;
+}
+.welcome-tory-blink {
+  opacity: 0;
+  animation: welcome-blink-swap 5.2s ease-in-out infinite;
 }
 .welcome-pen {
-  transform-origin: 0px 2px;
+  position: absolute;
+  left: -18px;
+  top: 22px;
+  width: 20px;
+  height: 26px;
+  object-fit: contain;
+  z-index: 2;
+  transform-origin: 50% 80%;
   animation: welcome-pen-wiggle 2.2s ease-in-out infinite;
 }
-.welcome-sparkle.s1 { animation: welcome-sparkle 2.4s ease-in-out infinite; }
-.welcome-sparkle.s2 { animation: welcome-sparkle 2.4s ease-in-out 0.7s infinite; }
-.welcome-eye-shine { animation: welcome-blink 4.5s ease-in-out infinite; }
+.welcome-sparkle {
+  position: absolute;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  z-index: 3;
+  pointer-events: none;
+}
+.welcome-sparkle.s1 {
+  top: 6px;
+  left: 8px;
+  background: #c98a5a;
+  animation: welcome-sparkle 2.4s ease-in-out infinite;
+}
+.welcome-sparkle.s2 {
+  top: 8px;
+  right: 6px;
+  width: 5px;
+  height: 5px;
+  background: #8d3e2f;
+  animation: welcome-sparkle 2.4s ease-in-out 0.7s infinite;
+}
+.welcome-mascot-bob {
+  transform-origin: 50% 80%;
+  animation: welcome-tory-bob 2.8s ease-in-out infinite;
+}
 @keyframes welcome-tory-bob {
   0%, 100% { transform: translateY(0) rotate(-1deg); }
   50% { transform: translateY(-5px) rotate(1.2deg); }
 }
 @keyframes welcome-pen-wiggle {
-  0%, 100% { transform: rotate(38deg); }
-  40% { transform: rotate(48deg); }
-  70% { transform: rotate(34deg); }
+  0%, 100% { transform: rotate(8deg); }
+  40% { transform: rotate(18deg); }
+  70% { transform: rotate(1deg); }
 }
 @keyframes welcome-sparkle {
   0%, 100% { opacity: 0.25; }
   50% { opacity: 0.85; }
 }
-@keyframes welcome-blink {
-  0%, 42%, 46%, 100% { opacity: 0.9; }
-  44% { opacity: 0.15; }
+@keyframes welcome-blink-swap {
+  0%, 38%, 44%, 54%, 100% { opacity: 0; }
+  40%, 42% { opacity: 1; }
+  48%, 51% { opacity: 1; }
 }
 @media (prefers-reduced-motion: reduce) {
   .welcome-mascot-bob,
   .welcome-pen,
   .welcome-sparkle,
+  .welcome-tory-blink,
   .welcome-eye-shine,
   .welcome-plus-guide-arrow,
   .welcome-plus-guide-bubble {
@@ -12036,6 +12090,7 @@ body[data-ui-scheme="dark"] .world-main-card {
   align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
   margin: 0 0 14px;
 }
 .character-editor-title {
@@ -12047,8 +12102,14 @@ body[data-ui-scheme="dark"] .world-main-card {
 .character-editor-actions {
   display: flex;
   align-items: center;
+  justify-content: flex-end;
   gap: 8px;
+  flex-wrap: wrap;
   flex-shrink: 0;
+  margin-left: auto;
+}
+.character-editor-actions .save-info {
+  margin-right: 0;
 }
 .editor-meta {
   flex: 0 0 auto;
@@ -18116,6 +18177,7 @@ body.focus-write-open > #viewModeDropdown.is-fixed-dropdown {
   width: 18px;
   height: 18px;
   display: block;
+  object-fit: contain;
 }
 #analyzeMenuDropdown .analyze-menu-action > strong,
 #analyzeMenuDropdown .analyze-menu-action .analyze-custom-title {
@@ -18644,6 +18706,7 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
   display: block;
   width: 26px;
   height: 26px;
+  object-fit: contain;
 }
 .tory-modal-title-cluster h2,
 .tory-modal-title-cluster .tory-helper-title {
@@ -20054,6 +20117,12 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   background: color-mix(in srgb, #fff 70%, #f0d9a8);
   box-shadow: inset 0 0 0 1px #e0c48a;
 }
+.writing-acorn-mascot img {
+  width: 40px;
+  height: 40px;
+  object-fit: contain;
+  display: block;
+}
 .writing-first-met-text {
   min-width: 0;
   display: grid;
@@ -20084,6 +20153,7 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   height: 14px;
   display: block;
   margin-top: 1px;
+  object-fit: contain;
 }
 .writing-day-stats {
   display: grid;
@@ -20351,10 +20421,12 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   line-height: 0;
   overflow: hidden;
 }
-.tory-cheer-avatar svg {
+.tory-cheer-avatar svg,
+.tory-cheer-avatar img {
   display: block;
   width: 28px;
   height: 28px;
+  object-fit: contain;
 }
 .tory-cheer-body { flex: 1 1 auto; min-width: 0; }
 .tory-cheer-title {
@@ -21405,10 +21477,11 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   overflow-y: auto;
   min-height: 0;
   flex: 1;
+  gap: 0.45rem;
 }
 .glump-er-modal-card {
-  width: min(600px, calc(100vw - 28px));
-  max-width: 600px;
+  width: min(900px, calc(100vw - 28px));
+  max-width: 900px;
 }
 .glump-er-modal-card .modal-heading h2 {
   display: flex;
@@ -21424,6 +21497,46 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   line-height: 1;
   font-weight: 400;
   font-family: "Segoe UI Emoji", "Apple Color Emoji", "Noto Color Emoji", sans-serif;
+}
+.glump-er-modal-card .sp-lead {
+  margin: 0;
+}
+#glumpErStepHome {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-rows: auto auto;
+  gap: 10px 16px;
+  align-items: center;
+}
+#glumpErStepHome #glumpErHomeTori {
+  grid-column: 1;
+  grid-row: 1;
+  margin: 0;
+  height: 112px;
+}
+#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-stage,
+#glumpErStepHome #glumpErHomeTori.is-settled .glump-er-spark-tori-stage {
+  box-sizing: border-box;
+  width: 112px;
+  height: 112px;
+  overflow: hidden;
+  border-radius: 14px;
+  border: 3px solid color-mix(in srgb, var(--accent, #c47b3a) 62%, var(--border, #d8d2c8));
+  background: color-mix(in srgb, var(--accent, #c47b3a) 6%, var(--surface, #fff));
+  filter: none;
+}
+#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-frame {
+  object-fit: cover;
+  object-position: center center;
+}
+#glumpErStepHome #glumpErStartDiagnosis {
+  grid-column: 2;
+  grid-row: 1;
+  margin: 0;
+  padding: 12px 16px;
+}
+#glumpErStepHome .glump-er-tool-grid {
+  grid-column: 1 / -1;
 }
 .glump-er-dx-banner {
   display: flex;
@@ -21470,8 +21583,18 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   gap: 8px;
 }
 .glump-er-tool-card {
-  min-height: 76px;
+  min-height: 0;
   margin: 0;
+  padding: 10px 12px;
+}
+@media (max-width: 720px) {
+  #glumpErStepHome {
+    display: block;
+  }
+  #glumpErStepHome #glumpErHomeTori,
+  #glumpErStepHome #glumpErStartDiagnosis {
+    margin: 0 0 10px;
+  }
 }
 .glump-er-q {
   display: block;
@@ -21659,6 +21782,187 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   background: var(--surface, #fff);
   border: 1px solid var(--border, #d8d2c8);
 }
+.glump-er-spark-tori {
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  height: 168px;
+  margin: 8px 0 4px;
+  pointer-events: none;
+}
+.glump-er-spark-tori-stage {
+  position: relative;
+  width: 138px;
+  height: 168px;
+  transform-origin: 42% 88%;
+  filter: drop-shadow(0 8px 14px color-mix(in srgb, #000 22%, transparent));
+}
+.glump-er-spark-tori-frame {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  object-position: center bottom;
+  opacity: 0;
+}
+.glump-er-spark-tori-frame.is-idle { opacity: 1; }
+.glump-er-spark-tori.is-wink .glump-er-spark-tori-frame.is-idle { opacity: 0; }
+.glump-er-spark-tori.is-wink .glump-er-spark-tori-frame.is-wink { opacity: 1; }
+.glump-er-spark-tori.is-enter .glump-er-spark-tori-stage {
+  animation: glump-spark-tori-enter 0.46s cubic-bezier(0.22, 1.18, 0.36, 1) both;
+}
+.glump-er-spark-tori.is-present .glump-er-spark-tori-stage {
+  animation: glump-spark-tori-present 0.58s cubic-bezier(0.16, 0.86, 0.28, 1.12) both;
+}
+.glump-er-spark-tori.is-settled {
+  height: 112px;
+  margin: 2px 0 6px;
+  transition: height 0.35s ease, margin 0.35s ease;
+}
+.glump-er-spark-tori.is-settled .glump-er-spark-tori-stage {
+  width: 92px;
+  height: 112px;
+  transition: width 0.35s ease, height 0.35s ease, transform 0.35s ease;
+}
+.glump-er-vitamin-tori,
+.glump-er-pingpong-tori,
+.glump-er-doctor-tori,
+.glump-er-wide-tori,
+.glump-er-joker-tori {
+  height: 118px;
+  margin: 0 0 6px;
+  align-items: center;
+}
+.glump-er-vitamin-tori .glump-er-spark-tori-stage,
+.glump-er-pingpong-tori .glump-er-spark-tori-stage,
+.glump-er-doctor-tori .glump-er-spark-tori-stage,
+.glump-er-wide-tori .glump-er-spark-tori-stage,
+.glump-er-joker-tori .glump-er-spark-tori-stage,
+.glump-er-vitamin-tori.is-settled .glump-er-spark-tori-stage,
+.glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage,
+.glump-er-doctor-tori.is-settled .glump-er-spark-tori-stage,
+.glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
+.glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
+  width: 210px;
+  height: 118px;
+  overflow: hidden;
+}
+.glump-er-vitamin-tori .glump-er-spark-tori-frame,
+.glump-er-pingpong-tori .glump-er-spark-tori-frame,
+.glump-er-doctor-tori .glump-er-spark-tori-frame,
+.glump-er-wide-tori .glump-er-spark-tori-frame,
+.glump-er-joker-tori .glump-er-spark-tori-frame {
+  object-fit: contain;
+  object-position: center center;
+  transform: none;
+}
+.glump-er-vitamin-tori.is-settled,
+.glump-er-pingpong-tori.is-settled,
+.glump-er-doctor-tori.is-settled,
+.glump-er-wide-tori.is-settled,
+.glump-er-joker-tori.is-settled {
+  height: 118px;
+  margin: 0 0 6px;
+}
+.glump-er-puzzle-tori {
+  height: 148px;
+}
+.glump-er-puzzle-tori .glump-er-spark-tori-stage {
+  width: 220px;
+  height: 148px;
+}
+.glump-er-puzzle-tori.is-settled {
+  height: 104px;
+}
+.glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
+  width: 156px;
+  height: 104px;
+}
+.glump-er-desk-tori {
+  height: 148px;
+  margin: 0 0 4px;
+  align-items: center;
+}
+.glump-er-desk-tori .glump-er-spark-tori-stage {
+  width: 168px;
+  height: 148px;
+  overflow: hidden;
+}
+.glump-er-desk-tori .glump-er-spark-tori-frame {
+  object-fit: contain;
+  object-position: center center;
+  transform: none;
+}
+@keyframes glump-spark-tori-enter {
+  from { opacity: 0; transform: translateY(22px) scale(0.68); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes glump-spark-tori-present {
+  0% { transform: scale(1) translate(0, 0); }
+  42% { transform: scale(1.38) translate(-6px, -14px); }
+  100% { transform: scale(1.16) translate(-3px, -6px); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .glump-er-spark-tori.is-enter .glump-er-spark-tori-stage,
+  .glump-er-spark-tori.is-present .glump-er-spark-tori-stage {
+    animation: none;
+  }
+  .glump-er-spark-tori,
+  .glump-er-spark-tori.is-settled {
+    height: 112px;
+    margin: 2px 0 6px;
+  }
+  .glump-er-spark-tori-stage,
+  .glump-er-spark-tori.is-settled .glump-er-spark-tori-stage {
+    width: 92px;
+    height: 112px;
+  }
+  .glump-er-vitamin-tori,
+  .glump-er-vitamin-tori.is-settled,
+  .glump-er-pingpong-tori,
+  .glump-er-pingpong-tori.is-settled,
+  .glump-er-doctor-tori,
+  .glump-er-doctor-tori.is-settled,
+  .glump-er-wide-tori,
+  .glump-er-wide-tori.is-settled,
+  .glump-er-joker-tori,
+  .glump-er-joker-tori.is-settled {
+    height: 118px;
+    margin: 0 0 6px;
+  }
+  .glump-er-vitamin-tori .glump-er-spark-tori-stage,
+  .glump-er-vitamin-tori.is-settled .glump-er-spark-tori-stage,
+  .glump-er-pingpong-tori .glump-er-spark-tori-stage,
+  .glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage,
+  .glump-er-doctor-tori .glump-er-spark-tori-stage,
+  .glump-er-doctor-tori.is-settled .glump-er-spark-tori-stage,
+  .glump-er-wide-tori .glump-er-spark-tori-stage,
+  .glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
+  .glump-er-joker-tori .glump-er-spark-tori-stage,
+  .glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
+    width: 210px;
+    height: 118px;
+  }
+  .glump-er-puzzle-tori,
+  .glump-er-puzzle-tori.is-settled {
+    height: 104px;
+    margin: 2px 0 6px;
+  }
+  .glump-er-puzzle-tori .glump-er-spark-tori-stage,
+  .glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
+    width: 156px;
+    height: 104px;
+  }
+  .glump-er-desk-tori {
+    height: 148px;
+    margin: 0 0 4px;
+  }
+  .glump-er-desk-tori .glump-er-spark-tori-stage {
+    width: 168px;
+    height: 148px;
+  }
+}
 .glump-er-spark-list {
   display: flex;
   flex-direction: column;
@@ -21819,8 +22123,9 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-tool-card strong {
   display: inline-flex;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 6px;
+  white-space: nowrap;
 }
 .glump-er-sprint-entry span,
 .glump-er-mode-card span,
@@ -21829,6 +22134,9 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   line-height: 1.4;
   opacity: 0.82;
   font-weight: 400;
+}
+.glump-er-tool-card span {
+  white-space: nowrap;
 }
 .glump-er-tool-card .glump-er-tool-icon {
   font-size: 1em;

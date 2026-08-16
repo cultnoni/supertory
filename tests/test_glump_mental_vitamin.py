@@ -297,3 +297,27 @@ class GlumpMentalVitaminTests(unittest.TestCase):
         self.assertEqual(by_type["description"]["excerpt"], "최신 묘사")
         self.assertEqual(by_type["scene"]["excerpt"], "이전 화 장면")
         self.assertEqual(by_type["scene"]["episode_order"], 2)
+
+    def test_ui_plays_tori_vitamin_intro(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-vitamin-idle.png"
+        anim = root / "assets" / "glump" / "tori-vitamin.gif"
+        self.assertIn('id="glumpErVitaminTori"', html)
+        self.assertIn("/assets/glump/tori-vitamin.gif", html)
+        self.assertIn("function playGlumpVitaminToriIntro()", js)
+        self.assertIn("playGlumpVitaminToriIntro()", js)
+        self.assertIn("restartGlumpAnimatedTori", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())
+        from PIL import Image
+
+        with Image.open(idle) as still:
+            self.assertEqual(still.mode, "RGBA", idle.name)
+            extrema = still.getchannel("A").getextrema()
+            self.assertLess(extrema[0], 20, idle.name)
+            self.assertGreater(extrema[1], 200, idle.name)
+        with Image.open(anim) as webp:
+            self.assertTrue(getattr(webp, "is_animated", False), "vitamin gif should animate")
+            self.assertGreater(getattr(webp, "n_frames", 1), 20)

@@ -181,3 +181,16 @@ class GlumpLuckySentenceTests(unittest.TestCase):
                 "SELECT COUNT(*) FROM glump_tool_logs WHERE tool_id = 'lucky_sentence'"
             ).fetchone()[0]
         self.assertEqual(int(n_log), 2)
+
+    def test_ui_plays_tori_lucky_intro(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        idle = root / "assets" / "glump" / "tori-lucky-idle.png"
+        anim = root / "assets" / "glump" / "tori-lucky.gif"
+        self.assertIn('id="glumpErLuckyTori"', html)
+        self.assertIn("/assets/glump/tori-lucky.gif", html)
+        self.assertIn("function playGlumpLuckyToriIntro()", js)
+        self.assertIn("playGlumpLuckyToriIntro()", js)
+        self.assertTrue(idle.is_file())
+        self.assertTrue(anim.is_file())
