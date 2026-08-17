@@ -2138,6 +2138,25 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
 .admin-help-heading .admin-subsection-title {
   margin-bottom: 0;
 }
+.admin-lang-row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 280px;
+}
+.admin-lang-row label {
+  font-size: 13px;
+  color: var(--ink);
+}
+.admin-lang-row select {
+  min-height: 38px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--panel, #fff);
+  color: var(--ink);
+  font-size: 13px;
+}
 .admin-help-search-label {
   display: block;
   width: 100%;
@@ -3519,6 +3538,7 @@ body.outline-spacing-adjust-mode #manuscriptBinder #outline {
 #manuscriptBinder {
   --outline-title-size: 12px;
   --outline-row-gap: 4px;
+  --outline-folder-tree-line: #c9b8a4;
 }
 #manuscriptBinder > .hint {
   margin: 2px 0 6px;
@@ -7445,6 +7465,23 @@ body[data-ui-scheme="dark"] .settings-box.is-open > .settings-box-header {
   font-size: 11px;
   line-height: 1.4;
 }
+.source-file-picker {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 6px;
+  font-weight: 400;
+}
+.source-file-picker .compact-btn {
+  flex: 0 0 auto;
+  width: auto;
+}
+.source-file-picked-name {
+  min-width: 0;
+  font-size: 12px;
+  color: var(--muted);
+  word-break: break-all;
+}
 .source-empty {
   margin: 8px 0 !important;
   text-align: center;
@@ -9624,6 +9661,57 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .outline-part.binder-depth-8,
 .outline-chapter.binder-depth-8:not(.is-transparent-chapter) {
   background: color-mix(in srgb, var(--ink) 4.5%, transparent);
+}
+
+/* Folder-to-folder tree guides only (회차/원고 연결선은 그대로 숨김) */
+.part-children > .outline-part.is-folder-tree-child,
+.part-children > .outline-chapter.is-folder-tree-child,
+.chapter-children > .outline-part.is-folder-tree-child,
+.chapter-children > .outline-chapter.is-folder-tree-child {
+  position: relative;
+  padding-left: 16px;
+  overflow: visible;
+}
+.is-folder-tree-child::before {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 0;
+  width: 10px;
+  height: 12px;
+  border-left: 1px solid var(--outline-folder-tree-line, #c9b8a4);
+  border-bottom: 1px solid var(--outline-folder-tree-line, #c9b8a4);
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+.is-folder-tree-child.outline-part::before {
+  height: 13px;
+}
+.is-folder-tree-child.is-last::before {
+  border-bottom-left-radius: 2px;
+}
+.is-folder-tree-child:not(.is-last)::after {
+  content: "";
+  position: absolute;
+  left: 6px;
+  top: 12px;
+  bottom: 0;
+  border-left: 1px solid var(--outline-folder-tree-line, #c9b8a4);
+  pointer-events: none;
+  z-index: 1;
+}
+.is-folder-tree-child.outline-part:not(.is-last)::after {
+  top: 13px;
+}
+/* 상위 폴더에 씬이 없고 하위 폴더만 있을 때, 간격만큼 선을 위로 이어 부모와 맞춤 */
+.part-children.has-nested-folders:not(:has(> .scene-tree-item)):not(:has(> .scene-empty-hint)) > .is-folder-tree-child:first-child::before,
+.chapter-children.has-nested-folders:not(:has(> .scene-tree-item)):not(:has(> .scene-empty-hint)) > .is-folder-tree-child:first-child::before {
+  top: calc(-1 * var(--outline-row-gap, 4px));
+  height: calc(12px + var(--outline-row-gap, 4px));
+}
+.part-children.has-nested-folders:not(:has(> .scene-tree-item)):not(:has(> .scene-empty-hint)) > .is-folder-tree-child.outline-part:first-child::before {
+  height: calc(13px + var(--outline-row-gap, 4px));
 }
 
 /* nested folder: no side rail (indent only) */
@@ -14350,17 +14438,28 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 }
 .format-tool-label {
   display: block;
+  max-width: 5.6em;
   font-size: 11px;
   font-weight: 600;
   line-height: 1.1;
   letter-spacing: -0.02em;
   color: var(--toolbar-icon, var(--ink));
+  overflow: hidden;
+  text-overflow: ellipsis;
   white-space: nowrap;
   pointer-events: none;
   user-select: none;
 }
 .format-tool-label.hidden {
   display: none !important;
+}
+.format-tool-label-wrap {
+  white-space: pre-line;
+  overflow: hidden;
+  text-overflow: clip;
+  max-width: 6.4em;
+  line-height: 1.15;
+  text-align: center;
 }
 /* hover: 색 틴트 + 살짝 떠오름 — accent-sand(기본 테마 #F5F5F4)는 바탕과 거의 안 갈려서
    primary를 섞어 배경 대비를 눈에 띄게 키움 */
@@ -15755,17 +15854,22 @@ html.is-electron .viewer-modal.is-maximized {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   gap: 8px 12px;
   padding: 8px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface);
+  min-width: 0;
+  overflow: visible;
 }
 .viewer-controls {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  align-content: flex-start;
   gap: 10px 14px;
   width: 100%;
+  min-width: 0;
 }
 .viewer-controls.hidden { display: none !important; }
 .viewer-ctrl {
@@ -17664,6 +17768,17 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-tool-label {
   font-size: 11px;
   line-height: 1.1;
+}
+/* 분할 화면: 아이콘 칸이 좁아져도 라벨이 칸 밖으로 넘치지 않고 … 처리 */
+.scene-workspace.split-active .format-toolbar-row-icons .format-tool-label,
+.scene-workspace.split-active .format-toolbar-row-icons .format-tool-label-wrap {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .format-viewer-comments-dot {
   position: absolute;
@@ -21568,6 +21683,12 @@ body[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene > .chapter-ro
 body[data-ui-scheme="dark"] .outline-chapter.is-nested-under-scene:not(.is-last) > .chapter-row .tree-guide::after {
   border-color: #6a5f52;
 }
+html[data-ui-scheme="dark"] #outline,
+html[data-ui-scheme="dark"] #manuscriptBinder,
+body[data-ui-scheme="dark"] #outline,
+body[data-ui-scheme="dark"] #manuscriptBinder {
+  --outline-folder-tree-line: #6a5f52;
+}
 html[data-ui-scheme="dark"] #toast,
 html[data-ui-scheme="dark"] .toast {
   background: var(--surface-2);
@@ -24133,6 +24254,12 @@ html[data-ui-theme="eink"] .scene-tree-item:not(.is-last) > .scene-row .tree-gui
   border-left-color: #000 !important;
   border-bottom-color: #000 !important;
 }
+html[data-theme="eink"] #outline,
+html[data-theme="eink"] #manuscriptBinder,
+html[data-ui-theme="eink"] #outline,
+html[data-ui-theme="eink"] #manuscriptBinder {
+  --outline-folder-tree-line: #000;
+}
 html[data-theme="eink"] .outline-count-badges,
 html[data-ui-theme="eink"] .outline-count-badges {
   background: #fff !important;
@@ -24229,4 +24356,42 @@ html[data-ui-theme="eink"] #outlineOverviewModal .modal-actions .primary {
   border: 1px solid #000 !important;
   color: #fff !important;
   box-shadow: none !important;
+}
+
+/* i18n: 아이콘 버튼·작은 라벨 — 긴 번역은 말줄임, 스페인어는 글자만 살짝 축소 */
+.icon-btn,
+.compact-btn,
+.binder-tool-btn,
+.format-btn,
+.outline-action-btn,
+.scene-synopsis-label-btn,
+.status-scope-btn,
+.stat-chip,
+.outline-count-label,
+.settings-inline-save {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+html[lang="es"] .compact-btn,
+html[lang="es"] .binder-tool-btn,
+html[lang="es"] .format-btn,
+html[lang="es"] .outline-action-btn,
+html[lang="es"] .scene-synopsis-label-btn,
+html[lang="es"] .status-scope-btn,
+html[lang="es"] .stat-chip,
+html[lang="es"] .outline-count-label,
+html[lang="es"] .settings-inline-save,
+html[lang="es"] .feature-chip,
+html[lang="es"] .format-tool-label {
+  font-size: 0.9em !important;
+}
+
+html[lang="es"] .format-tool-label {
+  max-width: 4.8em;
+}
+
+html[lang="es"] .format-tool-label-wrap {
+  max-width: 6.4em;
 }

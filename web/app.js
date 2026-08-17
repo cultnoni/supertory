@@ -1,3 +1,143 @@
+// ============================================================
+// SuperTory i18n helper (v3 — 로딩 타이밍 문제 수정판)
+// web/app.js 맨 위의 기존 i18n 코드를 이걸로 통째로 교체하세요.
+//
+// 핵심 변경점: 화면이 그려지기 전에 한국어 단어장을 "동기적으로"
+// 미리 읽어들입니다 (XHR sync). 그래야 초기 렌더링 때부터
+// i18n.t()가 바로 값을 찾을 수 있어요.
+// ============================================================
+
+/** 저장된 언어 설정이 없을 때, OS/브라우저 언어를 보고 기본값을 정한다.
+ *  한국어 계열(ko, ko-KR 등)이면 "ko", 스페인어 계열(es, es-ES, es-MX 등)이면 "es",
+ *  그 외에는 전부 "en"으로 시작. */
+function detectDefaultLang() {
+  const nav = (navigator.language || navigator.userLanguage || "ko").toLowerCase();
+  if (nav.startsWith("ko")) return "ko";
+  if (nav.startsWith("es")) return "es";
+  return "en";
+}
+
+const i18n = (() => {
+  const savedLang = localStorage.getItem("supertory_lang");
+  let currentLang = savedLang || detectDefaultLang();
+  let currentTranslations = {};
+  let koFallback = {};
+
+  /** 동기적으로 JSON 파일을 읽어온다 (초기 로딩 전용, 아주 짧게만 사용) */
+  function loadJsonSync(lang) {
+    try {
+      const xhr = new XMLHttpRequest();
+      xhr.open("GET", `locales/${lang}.json`, false); // false = 동기
+      xhr.send(null);
+      if (xhr.status === 200 || xhr.status === 0) {
+        return JSON.parse(xhr.responseText);
+      }
+      console.error(`[i18n] ${lang}.json 로드 실패, status=${xhr.status}`);
+      return {};
+    } catch (e) {
+      console.error(`[i18n] ${lang}.json 로드 중 오류`, e);
+      return {};
+    }
+  }
+
+  async function loadJsonAsync(lang) {
+    try {
+      const res = await fetch(`locales/${lang}.json`);
+      if (!res.ok) {
+        console.error(`[i18n] ${lang}.json fetch 실패, status=${res.status}`);
+        return {};
+      }
+      return await res.json();
+    } catch (e) {
+      console.error(`[i18n] ${lang}.json fetch 중 오류`, e);
+      return {};
+    }
+  }
+
+  // ---- 초기화: 스크립트 로드 시점에 즉시(동기) 실행 ----
+  // 한국어는 항상 폴백용으로 필요하니 동기로 먼저 읽어둔다.
+  koFallback = loadJsonSync("ko");
+  currentTranslations = currentLang === "ko" ? koFallback : loadJsonSync(currentLang);
+
+  /** 언어를 전환할 때 사용 (전환은 비동기로 해도 무방 — 이미 초기 렌더는 끝난 뒤라서) */
+  async function loadLocale(lang) {
+    if (Object.keys(koFallback).length === 0) {
+      koFallback = await loadJsonAsync("ko");
+    }
+    currentTranslations = lang === "ko" ? koFallback : await loadJsonAsync(lang);
+    currentLang = lang;
+    localStorage.setItem("supertory_lang", lang);
+  }
+
+  function t(key, vars) {
+    let val = currentTranslations[key];
+    if (!val) val = koFallback[key];
+    if (!val) return key;
+    if (vars) {
+      for (const k in vars) {
+        val = val.split("${" + k + "}").join(vars[k]);
+      }
+    }
+    return val;
+  }
+
+  function getLang() {
+    return currentLang;
+  }
+
+  return { loadLocale, t, getLang };
+})();
+
+window.t = i18n.t;
+
+/** &amp; &lt; &gt; 같은 HTML 특수기호 표기를 실제 글자로 되돌린다.
+ *  (원래 HTML에 &amp; 로 적혀있던 텍스트가 textContent로 들어가면
+ *   브라우저가 자동 변환을 안 해줘서 글자 그대로 보이는 문제 방지) */
+function decodeHtmlEntities(str) {
+  if (!str) return str;
+  return str
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'");
+}
+
+function applyTranslations() {
+  document.documentElement.lang = i18n.getLang() || "ko";
+  document.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = decodeHtmlEntities(i18n.t(el.getAttribute("data-i18n")));
+  });
+  document.querySelectorAll("[data-i18n-html]").forEach((el) => {
+    el.innerHTML = i18n.t(el.getAttribute("data-i18n-html"));
+  });
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((el) => {
+    el.setAttribute("placeholder", i18n.t(el.getAttribute("data-i18n-placeholder")));
+  });
+  document.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.setAttribute("title", i18n.t(el.getAttribute("data-i18n-title")));
+  });
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((el) => {
+    el.setAttribute("aria-label", i18n.t(el.getAttribute("data-i18n-aria-label")));
+  });
+  document.querySelectorAll("[data-i18n-label]").forEach((el) => {
+    el.setAttribute("label", i18n.t(el.getAttribute("data-i18n-label")));
+  });
+}
+
+async function setLanguage(lang) {
+  await i18n.loadLocale(lang);
+  applyTranslations();
+  applyWelcomeAdFeedToDom();
+}
+
+// DOM이 준비되면 data-i18n 요소들 한 번 더 정리 (혹시 남는 게 있으면)
+if (document.readyState === "loading") {
+  document.addEventListener("DOMContentLoaded", applyTranslations);
+} else {
+  applyTranslations();
+}
+
 /* One-time: rename localStorage keys storyguide.* → supertory.* (product rebrand). */
 (function migrateLegacyStorageKeys() {
   try {
@@ -175,7 +315,7 @@ async function api(path, options = {}) {
       });
     } catch (networkError) {
       const err = new Error(
-        "서버에 연결할 수 없습니다. 작성 중인 글은 이 기기에 안전하게 보관됩니다.",
+        i18n.t('app.서버에_연결할_수_없습니다_작성_중인_글은'),
       );
       err.isNetwork = true;
       err.offlineSafe = true;
@@ -189,12 +329,12 @@ async function api(path, options = {}) {
       try {
         data = JSON.parse(rawText);
       } catch (_) {
-        data = { error: rawText.slice(0, 200) || "응답을 해석하지 못했습니다." };
+        data = { error: rawText.slice(0, 200) || i18n.t('app.응답을_해석하지_못했습니다') };
       }
     }
     if (!response.ok) {
       const err = new Error(
-        (data && data.error) || `저장 중 문제가 생겼습니다. (${response.status})`,
+        (data && data.error) || `${i18n.t('app.저장_중_문제가_생겼습니다_response', {'response.status': response.status})}`,
       );
       err.status = response.status;
       err.isServer = response.status >= 500;
@@ -226,9 +366,9 @@ function setAiPanelWriting(on) {
 }
 
 const AI_ASSIST_ERR_CONNECTION =
-  "연결이 끊긴 것 같아요. 인터넷 확인 후 다시 시도해 주세요.";
+  i18n.t('app.연결이_끊긴_것_같아요_인터넷_확인_후_다시');
 const AI_ASSIST_ERR_GENERIC =
-  "잠깐, 결과를 못 가져왔어요. 잠시 후 다시 시도해 주세요.";
+  i18n.t('app.잠깐_결과를_못_가져왔어요_잠시_후_다시_시');
 
 function isAiAssistConnectionError(error) {
   if (!error) return false;
@@ -327,7 +467,7 @@ function toast(message, durationMs, options) {
     const close = document.createElement("button");
     close.type = "button";
     close.className = "toast-close";
-    close.setAttribute("aria-label", "닫기");
+    close.setAttribute("aria-label", i18n.t('app.닫기'));
     close.textContent = "×";
     close.addEventListener("click", (event) => {
       event.preventDefault();
@@ -503,68 +643,68 @@ function getSettingsDocPairKinds(kind) {
 
 const SETTINGS_DOC_PAIR_CHROME = {
   intro: {
-    title: "작품소개·기획의도",
-    hint: "작품소개와 기획의도를 나란히 편집합니다.",
+    title: i18n.t('app.작품소개_기획의도'),
+    hint: i18n.t('app.작품소개와_기획의도를_나란히_편집합니다'),
   },
   intent: {
-    title: "작품소개·기획의도",
-    hint: "작품소개와 기획의도를 나란히 편집합니다.",
+    title: i18n.t('app.작품소개_기획의도'),
+    hint: i18n.t('app.작품소개와_기획의도를_나란히_편집합니다'),
   },
   logline: {
-    title: "로그라인·시놉시스",
-    hint: "로그라인과 시놉시스를 나란히 편집합니다.",
+    title: i18n.t('app.로그라인_시놉시스'),
+    hint: i18n.t('app.로그라인과_시놉시스를_나란히_편집합니다'),
   },
   synopsis: {
-    title: "로그라인·시놉시스",
-    hint: "로그라인과 시놉시스를 나란히 편집합니다.",
+    title: i18n.t('app.로그라인_시놉시스'),
+    hint: i18n.t('app.로그라인과_시놉시스를_나란히_편집합니다'),
   },
 };
 
 const SETTINGS_DOC_META = {
   intro: {
-    title: "작품소개",
-    hint: "작품을 한눈에 소개하는 글을 본문처럼 넓게 편집합니다.",
-    placeholder: "작품을 한눈에 소개하는 글을 여기에 적어 보세요.",
+    title: i18n.t('app.작품소개'),
+    hint: i18n.t('app.작품을_한눈에_소개하는_글을_본문처럼_넓게'),
+    placeholder: i18n.t('app.작품을_한눈에_소개하는_글을_여기에_적어_보'),
     stateKey: "introMd",
     apiField: "intro_md",
     sidebarId: "projectIntro",
-    toastLabel: "작품소개",
+    toastLabel: i18n.t('app.작품소개'),
   },
   intent: {
-    title: "기획의도",
-    hint: "왜 이 작품을 쓰는지, 전하고 싶은 메시지를 본문처럼 넓게 편집합니다.",
-    placeholder: "기획 의도·테마·전하고 싶은 메시지를 여기에 적어 보세요.",
+    title: i18n.t('app.기획의도'),
+    hint: i18n.t('app.왜_이_작품을_쓰는지_전하고_싶은_메시지를'),
+    placeholder: i18n.t('app.기획_의도_테마_전하고_싶은_메시지를_여기에'),
     stateKey: "intentMd",
     apiField: "intent_md",
     sidebarId: "projectIntent",
-    toastLabel: "기획의도",
+    toastLabel: i18n.t('app.기획의도'),
   },
   synopsis: {
-    title: "시놉시스",
-    hint: "작품 전체 줄거리를 본문처럼 넓게 편집합니다.",
-    placeholder: "작품 전체 줄거리·시놉시스를 여기에 본문처럼 적어 보세요.",
+    title: i18n.t('app.시놉시스'),
+    hint: i18n.t('app.작품_전체_줄거리를_본문처럼_넓게_편집합니다'),
+    placeholder: i18n.t('app.작품_전체_줄거리_시놉시스를_여기에_본문처럼'),
     stateKey: "synopsisMd",
     apiField: "synopsis_md",
     sidebarId: "projectSynopsis",
-    toastLabel: "시놉시스",
+    toastLabel: i18n.t('app.시놉시스'),
   },
   logline: {
-    title: "로그라인",
-    hint: "한두 문장으로 작품의 핵심 매력을 정리합니다.",
-    placeholder: "예: 기억을 잃은 탐정이 자신의 과거를 쫓다 도시의 비밀에 맞선다.",
+    title: i18n.t('app.로그라인'),
+    hint: i18n.t('app.한두_문장으로_작품의_핵심_매력을_정리합니다'),
+    placeholder: i18n.t('app.예_기억을_잃은_탐정이_자신의_과거를_쫓다'),
     stateKey: "loglineMd",
     apiField: "logline_md",
     sidebarId: "projectLogline",
-    toastLabel: "로그라인",
+    toastLabel: i18n.t('app.로그라인'),
   },
   world: {
-    title: "세계관",
-    hint: "무대·특이점·극단 요소·사회·세력 다섯 축으로 세계 설정을 정리합니다.",
-    placeholder: "무대와 시대, 세계의 특이점, 극단적 요소, 사회 체계, 세력과 갈등을 적어 보세요.",
+    title: i18n.t('app.세계관'),
+    hint: i18n.t('app.무대_특이점_극단_요소_사회_세력_다섯_축으'),
+    placeholder: i18n.t('app.무대와_시대_세계의_특이점_극단적_요소_사회'),
     stateKey: "worldbuildingMd",
     apiField: "worldbuilding_md",
     sidebarId: "projectWorldbuilding",
-    toastLabel: "세계관",
+    toastLabel: i18n.t('app.세계관'),
   },
 };
 
@@ -572,50 +712,50 @@ const SETTINGS_DOC_META = {
 const WORLD_BUILDING_SCHEMA = [
   {
     id: "where_when",
-    title: "1. 무대 및 시대 (Where & When)",
-    blurb: "작품의 기본 바탕이 되는 공간과 시간선입니다.",
+    title: i18n.t('app.1_무대_및_시대_Where_When'),
+    blurb: i18n.t('app.작품의_기본_바탕이_되는_공간과_시간선입니다'),
     fields: [
-      { id: "reality", label: "현실 / 가상 구분", example: "현실에 가상이 섞인 형태 (현대 도시 + 숨겨진 이능 사회)" },
-      { id: "era", label: "시대 배경", example: "현대" },
-      { id: "locale", label: "주요 배경", example: "해안 도시 하버라인과 그 지하 구역" },
+      { id: "reality", labelKey: "index.현실_가상_구분", label: i18n.t('index.현실_가상_구분'), example: i18n.t('app.현실에_가상이_섞인_형태_현대_도시_숨겨진') },
+      { id: "era", label: i18n.t('app.시대_배경'), example: i18n.t('app.현대') },
+      { id: "locale", label: i18n.t('app.주요_배경'), example: i18n.t('app.해안_도시_하버라인과_그_지하_구역') },
     ],
   },
   {
     id: "unique_concept",
-    title: "2. 세계의 특이점 (Unique Concept)",
-    blurb: "이 세계를 다른 세계관과 다르게 만드는 단 하나의 핵심 규칙입니다.",
+    title: i18n.t('app.2_세계의_특이점_Unique_Concept'),
+    blurb: i18n.t('app.이_세계를_다른_세계관과_다르게_만드는_단'),
     fields: [
-      { id: "special", label: "특수 요소", example: "감정을 연료로 쓰는 이능" },
-      { id: "rules", label: "작동 규칙", example: "강한 감정일수록 이능이 커지지만, 감정 소모 후 하루간 무력해진다" },
-      { id: "limits", label: "한계와 대가", example: "과다 사용 시 기억 일부 소실" },
+      { id: "special", label: i18n.t('app.특수_요소'), example: i18n.t('app.감정을_연료로_쓰는_이능') },
+      { id: "rules", label: i18n.t('app.작동_규칙'), example: i18n.t('app.강한_감정일수록_이능이_커지지만_감정_소모') },
+      { id: "limits", label: i18n.t('app.한계와_대가'), example: i18n.t('app.과다_사용_시_기억_일부_소실') },
     ],
   },
   {
     id: "extreme_factor",
-    title: "3. 영향을 주는 극단적 요소 (Extreme Factor)",
-    blurb: "이 세계의 평범한 일상을 위협하거나 전체 시스템을 흔드는 가장 거대한 변수입니다.",
+    title: i18n.t('app.3_영향을_주는_극단적_요소_Extreme'),
+    blurb: i18n.t('app.이_세계의_평범한_일상을_위협하거나_전체_시'),
     fields: [
-      { id: "extreme_event", label: "극단적 사건 / 환경", example: "10년째 이어지는 ‘검은 비’ 재앙" },
-      { id: "extreme_impact", label: "세상에 미친 영향", example: "야외 활동이 금지되고, 빗물을 막는 기업이 도시를 지배한다" },
+      { id: "extreme_event", label: i18n.t('app.극단적_사건_환경'), example: i18n.t('app.10년째_이어지는_검은_비_재앙') },
+      { id: "extreme_impact", label: i18n.t('app.세상에_미친_영향'), example: i18n.t('app.야외_활동이_금지되고_빗물을_막는_기업이_도') },
     ],
   },
   {
     id: "system_life",
-    title: "4. 기본 체계 및 사회 (System & Life)",
-    blurb: "사람들이 살아가는 데 필요한 최소한의 사회적 약속입니다.",
+    title: i18n.t('app.4_기본_체계_및_사회_System_Life'),
+    blurb: i18n.t('app.사람들이_살아가는_데_필요한_최소한의_사회적'),
     fields: [
-      { id: "power", label: "지배 구조", example: "방재 기업 연합이 통치" },
-      { id: "daily", label: "기본 생활", example: "크레딧 화폐 · 장거리 이동 허가제 · ‘안전’이 최고 가치" },
-      { id: "class", label: "계급 / 신분", example: "이능 보유자 우대, 노노출 구역 거주자 차별" },
+      { id: "power", label: i18n.t('app.지배_구조'), example: i18n.t('app.방재_기업_연합이_통치') },
+      { id: "daily", label: i18n.t('app.기본_생활'), example: i18n.t('app.크레딧_화폐_장거리_이동_허가제_안전_이_최') },
+      { id: "class", label: i18n.t('app.계급_신분'), example: i18n.t('app.이능_보유자_우대_노노출_구역_거주자_차별') },
     ],
   },
   {
     id: "factions",
-    title: "5. 세력 및 갈등 (Factions)",
-    blurb: "주인공과 인물들이 부딪히게 될 주체들입니다.",
+    title: i18n.t('app.5_세력_및_갈등_Factions'),
+    blurb: i18n.t('app.주인공과_인물들이_부딪히게_될_주체들입니다'),
     fields: [
-      { id: "factions", label: "주요 세력", example: "방재 기업 연합 vs 지하 저항 조직 ‘서킷’" },
-      { id: "conflict", label: "갈등의 원인", example: "재앙 대응 독점을 둘러싼 이권 다툼" },
+      { id: "factions", label: i18n.t('app.주요_세력'), example: i18n.t('app.방재_기업_연합_vs_지하_저항_조직_서킷') },
+      { id: "conflict", label: i18n.t('app.갈등의_원인'), example: i18n.t('app.재앙_대응_독점을_둘러싼_이권_다툼') },
     ],
   },
 ];
@@ -647,8 +787,11 @@ function escapeWorldHtml(text) {
     .replace(/"/g, "&quot;");
 }
 
-function worldToriBadgeHtml(fieldId, label) {
-  return `<span class="world-sheet-field-head">${escapeWorldHtml(label)}<button type="button" class="character-analysis-badge world-analysis-badge hidden" data-world-tori-field="${escapeWorldHtml(fieldId)}" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다">새 분석 있음</button></span>`;
+function worldToriBadgeHtml(fieldId, label, labelKey) {
+  const head = labelKey
+    ? `<span data-i18n="${escapeWorldHtml(labelKey)}">${escapeWorldHtml(label)}</span>`
+    : escapeWorldHtml(label);
+  return `<span class="world-sheet-field-head">${head}<button type="button" class="character-analysis-badge world-analysis-badge hidden" data-world-tori-field="${escapeWorldHtml(fieldId)}" title="${escapeWorldHtml(i18n.t('index.적어_둔_내용은_그대로_두고_토리_분석만_보'))}" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">${escapeWorldHtml(i18n.t('index.새_분석_있음'))}</button></span>`;
 }
 
 function ensureWorldbuildingMainForm() {
@@ -660,7 +803,7 @@ function ensureWorldbuildingMainForm() {
     const enMatch = String(sec.title || "").match(/\(([^)]+)\)\s*$/);
     const titlePlain = String(sec.title || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
     const fields = sec.fields.map((field) => `
-      <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label)}
+      <label class="world-main-field">${worldToriBadgeHtml(field.id, field.label, field.labelKey)}
         <textarea data-world-field="${escapeWorldHtml(field.id)}" rows="3" placeholder="예: ${escapeWorldHtml(field.example || "")}"></textarea>
       </label>`).join("");
     return `
@@ -680,6 +823,12 @@ function ensureWorldbuildingMainForm() {
         </label>
       </div>
     </article>`;
+  host.querySelectorAll("[data-i18n]").forEach((el) => {
+    el.textContent = decodeHtmlEntities(i18n.t(el.getAttribute("data-i18n")));
+  });
+  host.querySelectorAll("[data-i18n-title]").forEach((el) => {
+    el.setAttribute("title", i18n.t(el.getAttribute("data-i18n-title")));
+  });
   if (typeof syncWorldToriBadges === "function") syncWorldToriBadges();
   return host;
 }
@@ -724,7 +873,7 @@ function composeWorldbuildingMd(values) {
   }
   const legacy = String(v.legacy || "").trim();
   if (legacy) {
-    parts.push("## 기타 · 기존 메모");
+    parts.push(i18n.t('app.기타_기존_메모'));
     parts.push(legacy);
     parts.push("");
   }
@@ -751,8 +900,8 @@ function parseWorldbuildingMd(raw) {
       labelToId[field.label] = field.id;
     }
   }
-  labelToId["기타 · 기존 메모"] = "legacy";
-  labelToId["기타"] = "legacy";
+  labelToId[i18n.t('app.기타_기존_메모_2')] = "legacy";
+  labelToId[i18n.t('app.기타')] = "legacy";
 
   // Split on ### headings (field labels) or ## section titles we don't store as fields.
   const chunks = text.split(/\n(?=#{2,3}\s+)/);
@@ -795,7 +944,7 @@ function parseWorldbuildingMd(raw) {
     if (fieldId) {
       currentField = fieldId;
       buffers[fieldId] = body;
-    } else if (heading.includes("기타")) {
+    } else if (heading.includes(i18n.t('app.기타'))) {
       currentField = "legacy";
       buffers.legacy = body;
     } else {
@@ -814,7 +963,7 @@ function fillWorldBuildingExamplePlaceholders() {
     for (const sec of WORLD_BUILDING_SCHEMA) {
       for (const field of sec.fields) {
         const el = form.querySelector(`[data-world-field="${field.id}"]`);
-        if (el && field.example) el.placeholder = `예: ${field.example}`;
+        if (el && field.example) el.placeholder = `${i18n.t('app.예_field_example', {'field.example': field.example})}`;
       }
     }
   }
@@ -895,10 +1044,10 @@ function setWorldbuildingSaveStatus(text) {
 }
 
 const COUNT_METRIC_LABEL = {
-  chars_with_space: "공백포함",
-  chars_no_space: "공백제외",
-  words: "단어",
-  letters: "글자",
+  chars_with_space: i18n.t('app.공백포함'),
+  chars_no_space: i18n.t('app.공백제외'),
+  words: i18n.t('app.단어'),
+  letters: i18n.t('app.글자'),
 };
 
 const STAT_DISPLAY_KEY = "supertory.statDisplay.v2";
@@ -1034,14 +1183,14 @@ function syncStatsScopeUi() {
   const bar = $("manuscriptStatusBar");
   const isProject = isProjectStatsScope();
   if (btn) {
-    btn.textContent = isProject ? "전체" : "현재";
+    btn.textContent = isProject ? i18n.t('app.전체') : i18n.t('app.현재');
     btn.title = isProject
-      ? "작품 전체 표시 중 · 클릭하면 현재 원고"
-      : "현재 원고 표시 중 · 클릭하면 작품 전체";
+      ? i18n.t('app.작품_전체_표시_중_클릭하면_현재_원고')
+      : i18n.t('app.현재_원고_표시_중_클릭하면_작품_전체');
     btn.setAttribute("aria-pressed", isProject ? "true" : "false");
     btn.classList.toggle("is-project", isProject);
   }
-  if (label) label.textContent = "목표";
+  if (label) label.textContent = i18n.t('app.목표');
   if (bar) bar.classList.toggle("is-scope-project", isProject);
   // Mirror stored goals into the single visible input.
   const goalVal = isProject
@@ -1061,7 +1210,7 @@ function toggleStatsScope() {
 
 /** Excess unit word for overflow labels (100자 초과 / 100단어 초과). */
 function goalExcessUnitWord(metric) {
-  return metric === "words" ? "단어" : "자";
+  return metric === "words" ? i18n.t('app.단어') : i18n.t('app.자');
 }
 
 /**
@@ -1073,7 +1222,7 @@ function formatGoalExcessLabel(excess, metric) {
   const over = Math.max(0, Math.floor(Number(excess) || 0));
   if (over < 100) return "";
   const bucket = Math.floor(over / 100) * 100;
-  return `${formatStatNumber(bucket)}${goalExcessUnitWord(metric)} 초과`;
+  return `${i18n.t('app.formatStatNumber_bucket', {'formatStatNumber(bucket)': formatStatNumber(bucket), 'goalExcessUnitWord(metric)': goalExcessUnitWord(metric)})}`;
 }
 
 /**
@@ -1115,7 +1264,7 @@ function updateGoalProgressUi({ value, goal, metric }) {
     overflow.style.width = overGoal ? `${overflowPct}%` : "0%";
     overflow.classList.toggle("is-empty", !overGoal);
     overflow.title = overGoal
-      ? `목표 초과 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} · 초과 게이지 ${overflowPct}%`
+      ? `${i18n.t('app.목표_초과_formatStatNumber_e', {'formatStatNumber(excess)': formatStatNumber(excess), 'goalExcessUnitWord(metric)': goalExcessUnitWord(metric), overflowPct: overflowPct})}`
       : "";
   }
   if (statusBar) {
@@ -1129,10 +1278,10 @@ function updateGoalProgressUi({ value, goal, metric }) {
     bar.setAttribute(
       "aria-label",
       goal <= 0
-        ? "목표 없음"
+        ? i18n.t('app.목표_없음')
         : overGoal
-          ? `${COUNT_METRIC_LABEL[metric] || metric} 목표 ${goal} 달성 후 ${excess}${goalExcessUnitWord(metric)} 초과`
-          : `${COUNT_METRIC_LABEL[metric] || metric} 목표 ${goal} 중 ${value} (${percent}%)`,
+          ? `${i18n.t('app.COUNT_METRIC_LABEL_metr', {'COUNT_METRIC_LABEL[metric] || metric': COUNT_METRIC_LABEL[metric] || metric, goal: goal, excess: excess, 'goalExcessUnitWord(metric)': goalExcessUnitWord(metric)})}`
+          : `${i18n.t('app.COUNT_METRIC_LABEL_metr_2', {'COUNT_METRIC_LABEL[metric] || metric': COUNT_METRIC_LABEL[metric] || metric, goal: goal, value: value, percent: percent})}`,
     );
   }
   if (label) {
@@ -1142,7 +1291,7 @@ function updateGoalProgressUi({ value, goal, metric }) {
     const valTxt = formatStatNumber(value);
     let text;
     if (goal <= 0) text = `${metricLabel} ${valTxt}`;
-    else if (complete) text = `${valTxt}/${formatStatNumber(goal)} 달성`;
+    else if (complete) text = `${i18n.t('app.valTxt_formatStatNumber', {valTxt: valTxt, 'formatStatNumber(goal)': formatStatNumber(goal)})}`;
     else text = `${valTxt}/${formatStatNumber(goal)} · ${percent}%`;
     label.textContent = text;
     label.title = excessLabel ? `${text} · ${excessLabel}` : text;
@@ -1151,7 +1300,7 @@ function updateGoalProgressUi({ value, goal, metric }) {
     if (excessLabel) {
       overflowLabel.textContent = excessLabel;
       overflowLabel.classList.remove("hidden");
-      overflowLabel.title = `목표보다 ${formatStatNumber(excess)}${goalExcessUnitWord(metric)} 많음`;
+      overflowLabel.title = `${i18n.t('app.목표보다_formatStatNumber_ex', {'formatStatNumber(excess)': formatStatNumber(excess), 'goalExcessUnitWord(metric)': goalExcessUnitWord(metric)})}`;
     } else {
       overflowLabel.textContent = "";
       overflowLabel.classList.add("hidden");
@@ -1207,19 +1356,19 @@ function formatReadingTimeLabel(stats) {
   if (chars > 0 && (words < 8 || chars / Math.max(words, 1) > 8)) {
     minutesFloat = chars / READING_CPM;
   }
-  if (!Number.isFinite(minutesFloat) || minutesFloat <= 0) return "약 0분";
+  if (!Number.isFinite(minutesFloat) || minutesFloat <= 0) return i18n.t('app.약_0분');
   if (minutesFloat < 1) {
     const sec = Math.max(1, Math.round(minutesFloat * 60));
-    return `약 ${sec}초`;
+    return `${i18n.t('app.약_sec_초', {sec: sec})}`;
   }
   if (minutesFloat < 10) {
     const m = Math.floor(minutesFloat);
     const sec = Math.round((minutesFloat - m) * 60);
-    if (sec === 0) return `약 ${m}분`;
-    if (sec === 60) return `약 ${m + 1}분`;
-    return `약 ${m}분 ${sec}초`;
+    if (sec === 0) return `${i18n.t('app.약_m_분', {m: m})}`;
+    if (sec === 60) return `${i18n.t('app.약_m_1_분', {'m + 1': m + 1})}`;
+    return `${i18n.t('app.약_m_분_sec_초', {m: m, sec: sec})}`;
   }
-  return `약 ${Math.round(minutesFloat)}분`;
+  return `${i18n.t('app.약_Math_round_minutesFloa', {'Math.round(minutesFloat)': Math.round(minutesFloat)})}`;
 }
 
 function updateReadingTimeUi(stats) {
@@ -1236,32 +1385,32 @@ function updateReadingTimeUi(stats) {
 const GOAL_BAR_COLOR_KEY = "supertory.goalBarColors.v5";
 const GOAL_BAR_COLOR_KEY_LEGACY_V4 = "supertory.goalBarColors.v4";
 const GOAL_BAR_SOLID_PRESETS = [
-  { id: "primary", hex: "#292524", label: "토리" },
-  { id: "yellow", hex: "#e6c749", label: "노랑" },
-  { id: "orange", hex: "#f39c12", label: "주황" },
-  { id: "red", hex: "#e74c3c", label: "빨강" },
-  { id: "pink", hex: "#e84393", label: "분홍" },
-  { id: "blue", hex: "#3498db", label: "파랑" },
-  { id: "purple", hex: "#9b59b6", label: "보라" },
-  { id: "green", hex: "#2f9e4f", label: "초록" },
-  { id: "teal", hex: "#70b89f", label: "민트" },
-  { id: "slate", hex: "#6d7b8b", label: "슬레이트" },
-  { id: "indigo", hex: "#240787", label: "남보라" },
-  { id: "black", hex: "#000000", label: "검정" },
-  { id: "white", hex: "#ffffff", label: "흰색" },
-  { id: "gray", hex: "#7f8c8d", label: "회색" },
+  { id: "primary", hex: "#292524", label: i18n.t('app.토리') },
+  { id: "yellow", hex: "#e6c749", label: i18n.t('app.노랑') },
+  { id: "orange", hex: "#f39c12", label: i18n.t('app.주황') },
+  { id: "red", hex: "#e74c3c", label: i18n.t('app.빨강') },
+  { id: "pink", hex: "#e84393", label: i18n.t('app.분홍') },
+  { id: "blue", hex: "#3498db", label: i18n.t('app.파랑') },
+  { id: "purple", hex: "#9b59b6", label: i18n.t('app.보라') },
+  { id: "green", hex: "#2f9e4f", label: i18n.t('app.초록') },
+  { id: "teal", hex: "#70b89f", label: i18n.t('app.민트') },
+  { id: "slate", hex: "#6d7b8b", label: i18n.t('app.슬레이트') },
+  { id: "indigo", hex: "#240787", label: i18n.t('app.남보라') },
+  { id: "black", hex: "#000000", label: i18n.t('app.검정') },
+  { id: "white", hex: "#ffffff", label: i18n.t('app.흰색') },
+  { id: "gray", hex: "#7f8c8d", label: i18n.t('app.회색') },
 ];
 const GOAL_BAR_GRADIENT_PRESETS = [
-  { id: "sun", from: "#ffe08a", to: "#e6c749", label: "햇살" },
-  { id: "sunset", from: "#f5c518", to: "#e74c3c", label: "노을" },
-  { id: "fire", from: "#ff6b6b", to: "#c0392b", label: "불꽃" },
-  { id: "ocean", from: "#3498db", to: "#1abc9c", label: "바다" },
-  { id: "sky", from: "#74b9ff", to: "#0984e3", label: "하늘" },
-  { id: "violet", from: "#a29bfe", to: "#6c5ce7", label: "보라빛" },
-  { id: "forest", from: "#55efc4", to: "#00b894", label: "숲" },
-  { id: "mint", from: "#81ecec", to: "#00cec9", label: "민트" },
-  { id: "berry", from: "#fd79a8", to: "#e84393", label: "베리" },
-  { id: "gold", from: "#fdcb6e", to: "#e17055", label: "골드" },
+  { id: "sun", from: "#ffe08a", to: "#e6c749", label: i18n.t('app.햇살') },
+  { id: "sunset", from: "#f5c518", to: "#e74c3c", label: i18n.t('app.노을') },
+  { id: "fire", from: "#ff6b6b", to: "#c0392b", label: i18n.t('app.불꽃') },
+  { id: "ocean", from: "#3498db", to: "#1abc9c", label: i18n.t('app.바다') },
+  { id: "sky", from: "#74b9ff", to: "#0984e3", label: i18n.t('app.하늘') },
+  { id: "violet", from: "#a29bfe", to: "#6c5ce7", label: i18n.t('app.보라빛') },
+  { id: "forest", from: "#55efc4", to: "#00b894", label: i18n.t('app.숲') },
+  { id: "mint", from: "#81ecec", to: "#00cec9", label: i18n.t('app.민트') },
+  { id: "berry", from: "#fd79a8", to: "#e84393", label: i18n.t('app.베리') },
+  { id: "gold", from: "#fdcb6e", to: "#e17055", label: i18n.t('app.골드') },
 ];
 
 const GOAL_BAR_ENTRY_GREEN = { mode: "solid", hex: "#2f9e4f", id: "green" };
@@ -1369,44 +1518,44 @@ const UI_THEME_GROUPS = [
     id: "mode",
     emoji: "⚙️",
     number: "1",
-    title: "기본 & 모드 테마",
+    title: i18n.t('app.기본_모드_테마'),
     subtitle: "",
-    blurb: "언제나 편안하고 정갈한 토리의 기본 집필 모드예요.",
+    blurb: i18n.t('app.언제나_편안하고_정갈한_토리의_기본_집필_모'),
     themes: [
-      { id: "light", caption: "정갈하고 눈이 편안한 오프화이트" },
-      { id: "sand", caption: "햇살을 머금은 따스한 샌드 베이지" },
-      { id: "dark", caption: "심야에도 눈부심 없는 딥 다크 브라운" },
-      { id: "eink", caption: "전자종이처럼 대비가 명확한 모노크롬" },
+      { id: "light", caption: i18n.t('app.정갈하고_눈이_편안한_오프화이트') },
+      { id: "sand", caption: i18n.t('app.햇살을_머금은_따스한_샌드_베이지') },
+      { id: "dark", caption: i18n.t('app.심야에도_눈부심_없는_딥_다크_브라운') },
+      { id: "eink", caption: i18n.t('app.전자종이처럼_대비가_명확한_모노크롬') },
     ],
   },
   {
     id: "place",
     emoji: "🏡",
     number: "2",
-    title: "토리의 공간",
-    subtitle: "장소 테마",
-    blurb: "나만의 아늑한 작업실에서. 그 공간에 직접 들어앉아 글을 쓰는 몰입감을 선사해요.",
+    title: i18n.t('app.토리의_공간'),
+    subtitle: i18n.t('app.장소_테마'),
+    blurb: i18n.t('app.나만의_아늑한_작업실에서_그_공간에_직접_들'),
     themes: [
-      { id: "cabin", caption: "눈이 편안해지는 차분한 세이지 그린" },
-      { id: "study", caption: "오래된 타자기와 책 냄새가 나는 세피아" },
-      { id: "library", caption: "이성적인 집필을 돕는 소프트 블루 그레이" },
-      { id: "classroom", caption: "친근하고 아날로그적인 레트로 우드/그린" },
-      { id: "attic", caption: "불 꺼진 방, 스탠드 조명 아래의 딥 네이비" },
+      { id: "cabin", caption: i18n.t('app.눈이_편안해지는_차분한_세이지_그린') },
+      { id: "study", caption: i18n.t('app.오래된_타자기와_책_냄새가_나는_세피아') },
+      { id: "library", caption: i18n.t('app.이성적인_집필을_돕는_소프트_블루_그레이') },
+      { id: "classroom", caption: i18n.t('app.친근하고_아날로그적인_레트로_우드_그린') },
+      { id: "attic", caption: i18n.t('app.불_꺼진_방_스탠드_조명_아래의_딥_네이비') },
     ],
   },
   {
     id: "mood",
     emoji: "🎨",
     number: "3",
-    title: "감성과 영감",
-    subtitle: "분위기 테마",
-    blurb: "창가 너머 계절의 빛깔을 따라, 마음에 스친 영감을 담아내요.",
+    title: i18n.t('app.감성과_영감'),
+    subtitle: i18n.t('app.분위기_테마'),
+    blurb: i18n.t('app.창가_너머_계절의_빛깔을_따라_마음에_스친'),
     themes: [
-      { id: "cloud-walk", caption: "탁 트인 하늘 아래 머리가 맑아지는 파스텔 블루" },
-      { id: "spring-garden", caption: "꽃잎이 피어난 정원에 온 듯 포근한 베이지 핑크" },
-      { id: "sunset-window", caption: "붉게 물드는 해질녘 창가의 오렌지 앰버" },
-      { id: "silver-fog", caption: "자극을 비우고 문장에 침잠하는 미니멀 쿨 그레이" },
-      { id: "daydream", caption: "아득한 영감을 불러오는 소프트 라벤더" },
+      { id: "cloud-walk", caption: i18n.t('app.탁_트인_하늘_아래_머리가_맑아지는_파스텔') },
+      { id: "spring-garden", caption: i18n.t('app.꽃잎이_피어난_정원에_온_듯_포근한_베이지') },
+      { id: "sunset-window", caption: i18n.t('app.붉게_물드는_해질녘_창가의_오렌지_앰버') },
+      { id: "silver-fog", caption: i18n.t('app.자극을_비우고_문장에_침잠하는_미니멀_쿨_그') },
+      { id: "daydream", caption: i18n.t('app.아득한_영감을_불러오는_소프트_라벤더') },
     ],
   },
 ];
@@ -1819,7 +1968,7 @@ function setupGoalBarColorMenu() {
       if (event.target.closest("[data-goal-color-reset]")) {
         resetGoalBarColorOverrides();
         hideGoalBarColorMenu();
-        toast("게이지 색을 테마 기본값으로 돌렸습니다.");
+        toast(i18n.t('app.게이지_색을_테마_기본값으로_돌렸습니다'));
       }
     });
   }
@@ -1846,7 +1995,7 @@ function renderProjectManuscriptStats(stats, { stale = false } = {}) {
   projectStatsCache = stats;
   if (stale) {
     const scenesChip = document.querySelector('#statsCounts [data-stat="scenes"]');
-    if (scenesChip) scenesChip.title = "전체 집계를 불러오지 못함 · 서버 재시작 후 새로고침";
+    if (scenesChip) scenesChip.title = i18n.t('app.전체_집계를_불러오지_못함_서버_재시작_후');
   }
   // Repaint when the footer is showing project totals.
   if (isProjectStatsScope()) updateSceneStats();
@@ -1962,7 +2111,7 @@ function showGoalBulkMenu(anchorEl) {
   const metricLabel = COUNT_METRIC_LABEL[metric] || metric;
   const label = $("goalBulkMenuLabel");
   if (label) {
-    label.textContent = `목표 ${formatStatNumber(goal)} · ${metricLabel}`;
+    label.textContent = `${i18n.t('app.목표_formatStatNumber_goal', {'formatStatNumber(goal)': formatStatNumber(goal), metricLabel: metricLabel})}`;
   }
   menu.classList.remove("hidden");
   const rect = anchorEl.getBoundingClientRect();
@@ -1979,15 +2128,15 @@ function showGoalBulkMenu(anchorEl) {
 
 async function bulkApplySceneGoals({ includeMetric = false } = {}) {
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   const goal = Math.max(0, Number($("statsGoalInput")?.value || $("sceneGoalCount")?.value || 0) || 0);
   const metric = getGoalMetric();
   const metricLabel = COUNT_METRIC_LABEL[metric] || metric;
-  const unitHint = metric === "words" ? "단어" : "자";
+  const unitHint = metric === "words" ? i18n.t('app.단어') : i18n.t('app.자');
   const msg = includeMetric
-    ? `모든 씬에 목표 ${formatStatNumber(goal)}${unitHint} · 기준「${metricLabel}」을(를) 일괄 적용할까요?`
+    ? `${i18n.t('app.모든_씬에_목표_formatStatNumbe', {'formatStatNumber(goal)': formatStatNumber(goal), unitHint: unitHint, metricLabel: metricLabel})}`
     : `모든 씬에 목표 ${formatStatNumber(goal)}${unitHint}을(를) 일괄 적용할까요?\n(집계 기준은 각 씬 설정을 유지합니다)`;
   if (!window.confirm(msg)) return;
 
@@ -2022,7 +2171,7 @@ async function bulkApplySceneGoals({ includeMetric = false } = {}) {
     // Bulk already persisted goals — clear dirty only if nothing else is pending content edits.
     // (Do not force clean; user may still have unsaved manuscript text.)
     updateSceneStats();
-    toast(n ? `목표를 씬 ${n}개에 적용했습니다.` : "적용할 씬이 없어요.");
+    toast(n ? `${i18n.t('app.목표를_씬_n_개에_적용했습니다', {n: n})}` : i18n.t('app.적용할_씬이_없어요'));
   } catch (error) {
     handleError(error);
   }
@@ -2343,17 +2492,17 @@ function openSimilarWordPanel(options = {}) {
     input.value = word;
     input.maxLength = phrase ? SIMILAR_WORD_MAX_PHRASE : SIMILAR_WORD_MAX_SINGLE;
     input.placeholder = phrase
-      ? "문장에서 핵심 표현을 골라 찾아 줘요"
-      : "원고에서 고르거나 입력";
+      ? i18n.t('app.문장에서_핵심_표현을_골라_찾아_줘요')
+      : i18n.t('app.원고에서_고르거나_입력');
   }
   const hint = $("similarWordHint");
   if (hint) {
     hint.textContent = phrase
-      ? "문장·구절이면 안의 핵심 단어·표현을 골라 각각 비슷한 말을 찾아 줘요."
-      : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+      ? i18n.t('app.문장_구절이면_안의_핵심_단어_표현을_골라')
+      : i18n.t('app.비슷하지만_다른_표현을_찾고_싶을_때_유용해');
   }
   const titleEl = panel.querySelector(".similar-word-panel-head strong");
-  if (titleEl) titleEl.textContent = phrase ? "표현 찾기" : "단어찾기";
+  if (titleEl) titleEl.textContent = phrase ? i18n.t('app.표현_찾기') : i18n.t('app.단어찾기');
   if (Number.isFinite(options.anchorClientX) && Number.isFinite(options.anchorClientY)) {
     similarWordPanelAnchor = { x: options.anchorClientX, y: options.anchorClientY };
   } else if (btn) {
@@ -2376,7 +2525,7 @@ function openSimilarWordPanel(options = {}) {
 function openSimilarWordsFromSelection(anchorEvent = null) {
   const raw = (pendingBaitQuote || getSelectedManuscriptText() || getSelectedWordForSimilar() || "").trim();
   if (!raw) {
-    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.본문에서_단어나_문장을_드래그로_선택한_뒤'));
     return;
   }
   const word = normalizeSimilarWordQuery(raw);
@@ -2393,7 +2542,7 @@ function renderSimilarWordResult(text, word, { phrase = false } = {}) {
   if (!host) return;
   const raw = String(text || "").trim();
   if (!raw) {
-    host.innerHTML = `<p class="similar-word-empty">결과를 받지 못했어요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_similar_word_em');
     return;
   }
 
@@ -2431,12 +2580,12 @@ function renderSimilarWordResult(text, word, { phrase = false } = {}) {
         }
       }
       if (/^#{1,3}\s*뉘앙스/.test(line.trim())) {
-        cur = { label: "뉘앙스 메모", lines: [] };
+        cur = { label: i18n.t('app.뉘앙스_메모'), lines: [] };
         blocks.push(cur);
         return;
       }
       if (!cur) {
-        cur = { label: "제안", lines: [] };
+        cur = { label: i18n.t('app.제안'), lines: [] };
         blocks.push(cur);
       }
       cur.lines.push(line);
@@ -2473,7 +2622,7 @@ function renderSimilarWordResult(text, word, { phrase = false } = {}) {
   const seen = new Set();
   raw.split(/\n/).forEach((line) => {
     const cleaned = line.replace(/^#+\s*/, "").replace(/^[-*•]\s*/, "").trim();
-    if (!cleaned || cleaned.startsWith("###") || cleaned.startsWith("뉘앙스")) return;
+    if (!cleaned || cleaned.startsWith("###") || cleaned.startsWith(i18n.t('app.뉘앙스'))) return;
     if (/[,，、·/|]/.test(cleaned) && cleaned.length < 120) {
       cleaned.split(/[,，、·/|]+/).forEach((part) => addChip(chips, seen, part));
     } else if (cleaned.length <= 24 && !cleaned.includes(" ")) {
@@ -2493,7 +2642,7 @@ async function runSimilarWordFind() {
   let word = normalizeSimilarWordQuery(input?.value || "");
   if (!word) word = getSelectedWordForSimilar();
   if (!word) {
-    toast("원고에서 단어나 문장을 드래그하거나 입력란에 적어 주세요.");
+    toast(i18n.t('app.원고에서_단어나_문장을_드래그하거나_입력란에'));
     input?.focus();
     return;
   }
@@ -2510,17 +2659,17 @@ async function runSimilarWordFind() {
   const runBtn = $("similarWordRun");
   if (resultEl) {
     resultEl.innerHTML = `<p class="similar-word-loading">${
-      phrase ? "토리가 문장 속 핵심 표현을 고르는 중…" : "토리가 비슷한 말을 찾는 중…"
+      phrase ? i18n.t('app.토리가_문장_속_핵심_표현을_고르는_중') : i18n.t('app.토리가_비슷한_말을_찾는_중')
     }</p>`;
   }
   if (hint) {
     hint.textContent = phrase
-      ? "문장·구절이면 안의 핵심 단어·표현을 골라 각각 비슷한 말을 찾아 줘요."
-      : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+      ? i18n.t('app.문장_구절이면_안의_핵심_단어_표현을_골라')
+      : i18n.t('app.비슷하지만_다른_표현을_찾고_싶을_때_유용해');
   }
   if (runBtn) {
     runBtn.disabled = true;
-    runBtn.textContent = "찾는 중…";
+    runBtn.textContent = i18n.t('app.찾는_중');
   }
   try {
     const project = state.projects?.find?.((item) => item.id === state.projectId);
@@ -2568,21 +2717,21 @@ async function runSimilarWordFind() {
     renderSimilarWordResult(result?.text || "", word, { phrase });
     if (hint) {
       hint.textContent = phrase
-        ? "칩을 누르면 본문에 넣어요. 선별된 표현별로 골라 보세요."
-        : "비슷하지만 다른 표현을 찾고 싶을 때 유용해요.";
+        ? i18n.t('app.칩을_누르면_본문에_넣어요_선별된_표현별로')
+        : i18n.t('app.비슷하지만_다른_표현을_찾고_싶을_때_유용해');
     }
-    toast(phrase ? "문장 속 표현의 비슷한 말을 찾았어요." : "유사 단어를 찾았어요.");
+    toast(phrase ? i18n.t('app.문장_속_표현의_비슷한_말을_찾았어요') : i18n.t('app.유사_단어를_찾았어요'));
   } catch (error) {
     ensureSimilarWordPanelOnBody();
     $("similarWordPanel")?.classList.remove("hidden");
     if (resultEl) {
-      resultEl.innerHTML = `<p class="similar-word-empty">찾지 못했어요. ${escapeHtml(error?.message || "다시 시도해 주세요.")}</p>`;
+      resultEl.innerHTML = `${i18n.t('app.p_class_similar_word_em_2', {'escapeHtml(error?.message || "다시 시도해 주세요.")': escapeHtml(error?.message || "다시 시도해 주세요.")})}`;
     }
     handleError(error);
   } finally {
     if (runBtn) {
       runBtn.disabled = false;
-      runBtn.textContent = "찾기";
+      runBtn.textContent = i18n.t('app.찾기');
     }
     positionSimilarWordPanel();
   }
@@ -2637,7 +2786,7 @@ function setupSimilarWordFind() {
         /* ignore */
       }
     }
-    toast(`「${word}」을(를) 넣었어요.`);
+    toast(`${i18n.t('app.word_을_를_넣었어요', {word: word})}`);
   });
   document.addEventListener("click", (event) => {
     if (Date.now() < similarWordSuppressOutsideClickUntil) return;
@@ -2839,8 +2988,8 @@ function applyTypewriterModeUi(on) {
     btn.setAttribute("aria-pressed", typewriterModeOn ? "true" : "false");
     btn.classList.toggle("is-active", typewriterModeOn);
     btn.title = typewriterModeOn
-      ? "타자기 모드 켜짐 · 다시 누르면 끔"
-      : "타자기 모드 · 입력 줄을 화면 중앙에 고정";
+      ? i18n.t('app.타자기_모드_켜짐_다시_누르면_끔')
+      : i18n.t('app.타자기_모드_입력_줄을_화면_중앙에_고정');
   }
   const badge = $("typewriterModeOnBadge");
   if (badge) {
@@ -2861,7 +3010,7 @@ function setTypewriterMode(on, options = {}) {
   applyTypewriterModeUi(on);
   writeTypewriterModePref(typewriterModeOn);
   if (options.announce) {
-    toast(typewriterModeOn ? "타자기 모드를 켰어요." : "타자기 모드를 껐어요.");
+    toast(typewriterModeOn ? i18n.t('app.타자기_모드를_켰어요') : i18n.t('app.타자기_모드를_껐어요'));
   }
 }
 
@@ -2950,7 +3099,7 @@ function setupSceneStats() {
       statChipClickTimer = null;
     }
     setGoalMetric(metric);
-    toast(`목표 기준: ${COUNT_METRIC_LABEL[metric]}`);
+    toast(`${i18n.t('app.목표_기준_COUNT_METRIC_LABEL', {'COUNT_METRIC_LABEL[metric]': COUNT_METRIC_LABEL[metric]})}`);
   };
   $("statsCounts")?.addEventListener("click", onStatChipClick);
   $("statsCounts")?.addEventListener("dblclick", onStatChipDblClick);
@@ -3237,11 +3386,11 @@ function hideFormatApplyAllMenu() {
 }
 
 function formatApplyAllKindLabel(kind) {
-  if (kind === "font") return "글꼴";
-  if (kind === "size") return "크기";
-  if (kind === "lineHeight") return "줄간격";
-  if (kind === "jangpyeong") return "장평";
-  return "서식";
+  if (kind === "font") return i18n.t('app.글꼴');
+  if (kind === "size") return i18n.t('app.크기');
+  if (kind === "lineHeight") return i18n.t('app.줄간격');
+  if (kind === "jangpyeong") return i18n.t('app.장평');
+  return i18n.t('app.서식');
 }
 
 function showFormatApplyAllMenu(kind, value, anchorEl, editor) {
@@ -3260,7 +3409,7 @@ function showFormatApplyAllMenu(kind, value, anchorEl, editor) {
       ? `${normalizeJangpyeongPercent(value)}%`
       : value;
   if (label) label.textContent = `${kindLabel}: ${shortVal}`;
-  btn.textContent = `전체 문서에 ${kindLabel} 적용`;
+  btn.textContent = `${i18n.t('app.전체_문서에_kindLabel_적용', {kindLabel: kindLabel})}`;
   menu.classList.remove("hidden");
   const rect = anchorEl.getBoundingClientRect();
   const pad = 8;
@@ -3288,7 +3437,7 @@ function setupFormatApplyAllMenu() {
     else if (kind === "size") applyFontSizeToEntireDocument(value, editor);
     else if (kind === "lineHeight") applyLineHeightToEntireDocument(value, editor);
     else if (kind === "jangpyeong") applyJangpyeongToEntireDocument(value, editor);
-    toast("전체 문서에 적용했습니다.");
+    toast(i18n.t('app.전체_문서에_적용했습니다'));
     if (editor.id === "sceneContent" && state.sceneId) markSceneDirty();
     else if (editor.id === "synopsisContent" || editor.id === "synopsisContentB") {
       markSettingsDocEditorDirty?.(editor);
@@ -3307,12 +3456,12 @@ function setupFormatApplyAllMenu() {
 
 /* —— Paragraph styles (본문 / 제목 / 인용 / 캡션) —— */
 const PARAGRAPH_STYLES = {
-  p: { tag: "p", label: "본문" },
-  h1: { tag: "h1", label: "제목 1" },
-  h2: { tag: "h2", label: "제목 2" },
-  h3: { tag: "h3", label: "제목 3" },
-  blockquote: { tag: "blockquote", label: "인용" },
-  caption: { tag: "p", label: "캡션", className: "sg-caption" },
+  p: { tag: "p", label: i18n.t('app.본문') },
+  h1: { tag: "h1", label: i18n.t('app.제목_1') },
+  h2: { tag: "h2", label: i18n.t('app.제목_2') },
+  h3: { tag: "h3", label: i18n.t('app.제목_3') },
+  blockquote: { tag: "blockquote", label: i18n.t('app.인용') },
+  caption: { tag: "p", label: i18n.t('app.캡션'), className: "sg-caption" },
 };
 
 function getBlockElementForParagraph(node, editor) {
@@ -3644,19 +3793,19 @@ function applyLineHeight(value, editorEl = null) {
 
 /* Text / highlight colors: left-click apply, right-click palette */
 const FORMAT_PRESET_COLORS = [
-  { key: "red", hex: "#e74c3c", label: "빨강" },
-  { key: "blue", hex: "#3498db", label: "파랑" },
-  { key: "yellow", hex: "#f1c40f", label: "노랑" },
-  { key: "green", hex: "#27ae60", label: "초록" },
-  { key: "gray", hex: "#7f8c8d", label: "회색" },
+  { key: "red", hex: "#e74c3c", label: i18n.t('app.빨강') },
+  { key: "blue", hex: "#3498db", label: i18n.t('app.파랑') },
+  { key: "yellow", hex: "#f1c40f", label: i18n.t('app.노랑') },
+  { key: "green", hex: "#27ae60", label: i18n.t('app.초록') },
+  { key: "gray", hex: "#7f8c8d", label: i18n.t('app.회색') },
 ];
 /** 형광펜 전용 — 네온/형광 느낌 프리셋 */
 const FORMAT_HIGHLIGHT_PRESET_COLORS = [
-  { key: "neon-pink", hex: "#FF9AF5", label: "네온 핑크" },
-  { key: "neon-yellow", hex: "#F5FF3D", label: "네온 노랑" },
-  { key: "neon-green", hex: "#A8FF7A", label: "네온 초록" },
-  { key: "neon-cyan", hex: "#3DFFF5", label: "네온 시안" },
-  { key: "neon-orange", hex: "#FFC45C", label: "네온 주황" },
+  { key: "neon-pink", hex: "#FF9AF5", label: i18n.t('app.네온_핑크') },
+  { key: "neon-yellow", hex: "#F5FF3D", label: i18n.t('app.네온_노랑') },
+  { key: "neon-green", hex: "#A8FF7A", label: i18n.t('app.네온_초록') },
+  { key: "neon-cyan", hex: "#3DFFF5", label: i18n.t('app.네온_시안') },
+  { key: "neon-orange", hex: "#FFC45C", label: i18n.t('app.네온_주황') },
 ];
 const FORMAT_COLOR_DEFAULTS = {
   text: "#e74c3c",
@@ -4319,7 +4468,7 @@ function applyFormatColorToSelection(kind, color, editorEl = null, options = {})
   }
   const range = getUsableEditorRange(editor);
   if (!range || range.collapsed) {
-    toast("문장을 드래그해 선택한 뒤 색·음영 버튼을 눌러 주세요.");
+    toast(i18n.t('app.문장을_드래그해_선택한_뒤_색_음영_버튼을'));
     return;
   }
   try { restoreSelection(range); } catch (_) { /* ignore */ }
@@ -4414,18 +4563,18 @@ function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
   const label = $("formatColorPaletteLabel");
   if (label) {
     label.textContent = kind === "highlight"
-      ? "형광펜 색"
+      ? i18n.t('app.형광펜_색')
       : kind === "shade"
-        ? "음영상자 색"
-        : "글자색";
+        ? i18n.t('app.음영상자_색')
+        : i18n.t('app.글자색');
   }
   const clearBtn = $("formatPaletteClearButton");
   if (clearBtn) {
     clearBtn.textContent = kind === "highlight"
-      ? "형광 지우기"
+      ? i18n.t('app.형광_지우기')
       : kind === "shade"
-        ? "음영 지우기"
-        : "기본 색";
+        ? i18n.t('app.음영_지우기')
+        : i18n.t('app.기본_색');
     clearBtn.hidden = false;
   }
   syncFormatPaletteSwatches(kind);
@@ -4524,7 +4673,7 @@ function setupFormatColorPalette() {
 
 function contentToPreviewHtml(content) {
   if (!content || !String(content).trim()) {
-    return escapeHtml("아직 쓴 원고가 없어요.");
+    return escapeHtml(i18n.t('app.아직_쓴_원고가_없어요'));
   }
   if (looksLikeHtml(content)) {
     return sanitizeEditorHtml(content);
@@ -4585,22 +4734,22 @@ function updateFormatButtonState(toolbarEl = null) {
 const LIST_STYLE_STORAGE_KEY = "supertory.listStyle";
 const LIST_STYLES = [
   // Bullets / symbols
-  { key: "disc", kind: "ul", label: "점", preview: "•", css: "disc" },
-  { key: "circle", kind: "ul", label: "동그라미", preview: "○", css: "circle" },
-  { key: "square", kind: "ul", label: "네모", preview: "■", css: "square" },
-  { key: "dash", kind: "ul", label: "대시", preview: "–", css: '"– "' },
-  { key: "dot", kind: "ul", label: "가운데점", preview: "·", css: '"· "' },
-  { key: "star", kind: "ul", label: "별", preview: "★", css: '"★ "' },
-  { key: "hollow-star", kind: "ul", label: "빈 별", preview: "☆", css: '"☆ "' },
-  { key: "diamond", kind: "ul", label: "마름모", preview: "◆", css: '"◆ "' },
-  { key: "arrow", kind: "ul", label: "화살표", preview: "►", css: '"► "' },
-  { key: "tri", kind: "ul", label: "삼각형", preview: "▸", css: '"▸ "' },
-  { key: "check", kind: "ul", label: "체크", preview: "✓", css: '"✓ "' },
-  { key: "note", kind: "ul", label: "참고", preview: "※", css: '"※ "' },
-  { key: "heart", kind: "ul", label: "하트", preview: "♥", css: '"♥ "' },
-  { key: "flower", kind: "ul", label: "꽃", preview: "❀", css: '"❀ "' },
-  { key: "box", kind: "ul", label: "빈 칸", preview: "☐", css: '"☐ "' },
-  { key: "hand", kind: "ul", label: "손가락", preview: "☞", css: '"☞ "' },
+  { key: "disc", kind: "ul", label: i18n.t('app.점'), preview: "•", css: "disc" },
+  { key: "circle", kind: "ul", label: i18n.t('app.동그라미'), preview: "○", css: "circle" },
+  { key: "square", kind: "ul", label: i18n.t('app.네모'), preview: "■", css: "square" },
+  { key: "dash", kind: "ul", label: i18n.t('app.대시'), preview: "–", css: '"– "' },
+  { key: "dot", kind: "ul", label: i18n.t('app.가운데점'), preview: "·", css: '"· "' },
+  { key: "star", kind: "ul", label: i18n.t('app.별'), preview: "★", css: '"★ "' },
+  { key: "hollow-star", kind: "ul", label: i18n.t('app.빈_별'), preview: "☆", css: '"☆ "' },
+  { key: "diamond", kind: "ul", label: i18n.t('app.마름모'), preview: "◆", css: '"◆ "' },
+  { key: "arrow", kind: "ul", label: i18n.t('app.화살표'), preview: "►", css: '"► "' },
+  { key: "tri", kind: "ul", label: i18n.t('app.삼각형'), preview: "▸", css: '"▸ "' },
+  { key: "check", kind: "ul", label: i18n.t('app.체크'), preview: "✓", css: '"✓ "' },
+  { key: "note", kind: "ul", label: i18n.t('app.참고'), preview: "※", css: '"※ "' },
+  { key: "heart", kind: "ul", label: i18n.t('app.하트'), preview: "♥", css: '"♥ "' },
+  { key: "flower", kind: "ul", label: i18n.t('app.꽃'), preview: "❀", css: '"❀ "' },
+  { key: "box", kind: "ul", label: i18n.t('app.빈_칸'), preview: "☐", css: '"☐ "' },
+  { key: "hand", kind: "ul", label: i18n.t('app.손가락'), preview: "☞", css: '"☞ "' },
   // Numbers
   { key: "decimal", kind: "ol", label: "1. 2. 3.", preview: "1.", css: "decimal" },
   { key: "decimal-zero", kind: "ol", label: "01. 02.", preview: "01.", css: "decimal-leading-zero" },
@@ -4648,7 +4797,7 @@ function updateListButtonMarks() {
     el.textContent = style.preview || "•";
   });
   document.querySelectorAll(".format-list-btn, .format-bullet-btn").forEach((btn) => {
-    btn.title = `글머리 기호 (${style.label}) · 클릭: 적용 · 우클릭: 기호 선택`;
+    btn.title = `${i18n.t('app.글머리_기호_style_label_클릭_적용', {'style.label': style.label})}`;
   });
 }
 
@@ -5001,29 +5150,29 @@ function setupFormatSpecialPalette() {
 /** Manuscript / settings-doc font menu (system fonts with safe fallbacks). */
 const FONT_OPTIONS = [
   {
-    group: "한글",
+    group: i18n.t('app.한글'),
     fonts: [
-      { value: '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif', label: "맑은 고딕" },
-      { value: "Batang, 'Apple Myungjo', serif", label: "바탕" },
-      { value: "Gungsuh, 'Nanum Myeongjo', serif", label: "궁서" },
-      { value: "Dotum, 'Apple SD Gothic Neo', sans-serif", label: "돋움" },
-      { value: "Gulim, 'Apple SD Gothic Neo', sans-serif", label: "굴림" },
-      { value: '"Nanum Gothic", "Malgun Gothic", sans-serif', label: "나눔고딕" },
-      { value: '"Nanum Myeongjo", Batang, serif', label: "나눔명조" },
-      { value: '"Nanum Barun Gothic", "Malgun Gothic", sans-serif', label: "나눔바른고딕" },
-      { value: '"NanumSquare", "Nanum Square", "Malgun Gothic", sans-serif', label: "나눔스퀘어" },
-      { value: '"KoPub Batang", "KoPubBatang", Batang, serif', label: "KoPub 바탕체" },
-      { value: '"RIDIBatang", "리디바탕", Batang, serif', label: "리디바탕" },
-      { value: '"KCC-eunyoung", "KCC은영체", "KCC eunyoung", cursive', label: "KCC은영체" },
+      { value: '"Malgun Gothic", "Apple SD Gothic Neo", sans-serif', label: i18n.t('app.맑은_고딕') },
+      { value: "Batang, 'Apple Myungjo', serif", label: i18n.t('app.바탕') },
+      { value: "Gungsuh, 'Nanum Myeongjo', serif", label: i18n.t('app.궁서') },
+      { value: "Dotum, 'Apple SD Gothic Neo', sans-serif", label: i18n.t('app.돋움') },
+      { value: "Gulim, 'Apple SD Gothic Neo', sans-serif", label: i18n.t('app.굴림') },
+      { value: '"Nanum Gothic", "Malgun Gothic", sans-serif', label: i18n.t('app.나눔고딕') },
+      { value: '"Nanum Myeongjo", Batang, serif', label: i18n.t('app.나눔명조') },
+      { value: '"Nanum Barun Gothic", "Malgun Gothic", sans-serif', label: i18n.t('app.나눔바른고딕') },
+      { value: '"NanumSquare", "Nanum Square", "Malgun Gothic", sans-serif', label: i18n.t('app.나눔스퀘어') },
+      { value: '"KoPub Batang", "KoPubBatang", Batang, serif', label: i18n.t('app.KoPub_바탕체') },
+      { value: i18n.t('app.RIDIBatang_리디바탕_Batang'), label: i18n.t('app.리디바탕') },
+      { value: i18n.t('app.KCC_eunyoung_KCC은영체_KCC'), label: i18n.t('app.KCC은영체') },
       { value: '"Pretendard", "Pretendard Variable", "Malgun Gothic", sans-serif', label: "Pretendard" },
       { value: '"Spoqa Han Sans Neo", "SpoqaHanSansNeo", "Malgun Gothic", sans-serif', label: "Spoqa Han Sans Neo" },
-      { value: '"Source Han Sans KR", "본고딕", "Noto Sans CJK KR", "Noto Sans KR", sans-serif', label: "본고딕" },
+      { value: i18n.t('app.Source_Han_Sans_KR_본고딕'), label: i18n.t('app.본고딕') },
       { value: '"Noto Sans KR", "Malgun Gothic", sans-serif', label: "Noto Sans KR" },
       { value: '"Noto Serif KR", Batang, serif', label: "Noto Serif KR" },
     ],
   },
   {
-    group: "본문 · 산세리프",
+    group: i18n.t('app.본문_산세리프'),
     fonts: [
       { value: "Arial, Helvetica, sans-serif", label: "Arial" },
       { value: '"Segoe UI", "Malgun Gothic", sans-serif', label: "Segoe UI" },
@@ -5038,7 +5187,7 @@ const FONT_OPTIONS = [
     ],
   },
   {
-    group: "본문 · 세리프",
+    group: i18n.t('app.본문_세리프'),
     fonts: [
       { value: "Georgia, 'Times New Roman', serif", label: "Georgia" },
       { value: '"Times New Roman", Times, serif', label: "Times New Roman" },
@@ -5052,7 +5201,7 @@ const FONT_OPTIONS = [
     ],
   },
   {
-    group: "고정폭 · 코드",
+    group: i18n.t('app.고정폭_코드'),
     fonts: [
       { value: '"Courier New", Courier, monospace', label: "Courier New" },
       { value: "Consolas, 'Courier New', monospace", label: "Consolas" },
@@ -5063,7 +5212,7 @@ const FONT_OPTIONS = [
     ],
   },
   {
-    group: "손글씨 · 장식",
+    group: i18n.t('app.손글씨_장식'),
     fonts: [
       { value: '"Comic Sans MS", "Segoe Print", cursive', label: "Comic Sans MS" },
       { value: '"Segoe Print", "Comic Sans MS", cursive', label: "Segoe Print" },
@@ -5077,7 +5226,7 @@ const FONT_OPTIONS = [
 
 /** Editor CSS defaults (must match .rich-editor in styles.css). */
 const EDITOR_DEFAULT_FONT = "Batang, 'Apple Myungjo', serif";
-const EDITOR_DEFAULT_FONT_LABEL = "바탕";
+const EDITOR_DEFAULT_FONT_LABEL = i18n.t('app.바탕');
 const EDITOR_DEFAULT_SIZE = "17px";
 
 function populateFormatFontSelects() {
@@ -5543,59 +5692,59 @@ function setupRichEditor() {
   });
 }
 
-const statusLabel = { idea: "구상", outline: "개요", draft: "초고", revision: "수정", complete: "완성" };
-const roleLabel = { protagonist: "주인공", antagonist: "대립 인물", supporting: "조연", minor: "단역" };
+const statusLabel = { idea: i18n.t('app.구상'), outline: i18n.t('app.개요'), draft: i18n.t('app.초고'), revision: i18n.t('app.수정'), complete: i18n.t('app.완성') };
+const roleLabel = { protagonist: i18n.t('app.주인공'), antagonist: i18n.t('app.대립_인물'), supporting: i18n.t('app.조연'), minor: i18n.t('app.단역') };
 const purposeLabel = {
-  general_novel: "일반소설",
-  web_novel: "웹소설",
-  fairy_tale: "동화",
-  short_story: "단편",
-  essay: "에세이",
-  translation: "번역",
-  nonfiction: "정보 전달",
-  paper: "논문",
-  autobiography: "자서전·회고록",
-  poetry: "시",
-  script: "시나리오·희곡",
-  diary: "일기·기록",
-  report: "보고서",
-  column: "칼럼·비평",
-  other: "기타",
+  general_novel: i18n.t('app.일반소설'),
+  web_novel: i18n.t('app.웹소설'),
+  fairy_tale: i18n.t('app.동화'),
+  short_story: i18n.t('app.단편'),
+  essay: i18n.t('app.에세이'),
+  translation: i18n.t('app.번역'),
+  nonfiction: i18n.t('app.정보_전달'),
+  paper: i18n.t('app.논문'),
+  autobiography: i18n.t('app.자서전_회고록'),
+  poetry: i18n.t('app.시'),
+  script: i18n.t('app.시나리오_희곡'),
+  diary: i18n.t('app.일기_기록'),
+  report: i18n.t('app.보고서'),
+  column: i18n.t('app.칼럼_비평'),
+  other: i18n.t('app.기타'),
 };
 
 /* Curated language list for 번역 (source / target). */
 const WORK_LANGUAGES = [
-  { key: "ko", label: "한국어" },
-  { key: "en", label: "영어" },
-  { key: "ja", label: "일본어" },
-  { key: "zh", label: "중국어(간체)" },
-  { key: "zh_tw", label: "중국어(번체)" },
-  { key: "es", label: "스페인어" },
-  { key: "fr", label: "프랑스어" },
-  { key: "de", label: "독일어" },
-  { key: "ru", label: "러시아어" },
-  { key: "pt", label: "포르투갈어" },
-  { key: "it", label: "이탈리아어" },
-  { key: "vi", label: "베트남어" },
-  { key: "th", label: "태국어" },
-  { key: "id", label: "인도네시아어" },
-  { key: "ar", label: "아랍어" },
-  { key: "hi", label: "힌디어" },
-  { key: "other", label: "기타" },
+  { key: "ko", label: i18n.t('app.한국어') },
+  { key: "en", label: i18n.t('app.영어') },
+  { key: "ja", label: i18n.t('app.일본어') },
+  { key: "zh", label: i18n.t('app.중국어_간체') },
+  { key: "zh_tw", label: i18n.t('app.중국어_번체') },
+  { key: "es", label: i18n.t('app.스페인어') },
+  { key: "fr", label: i18n.t('app.프랑스어') },
+  { key: "de", label: i18n.t('app.독일어') },
+  { key: "ru", label: i18n.t('app.러시아어') },
+  { key: "pt", label: i18n.t('app.포르투갈어') },
+  { key: "it", label: i18n.t('app.이탈리아어') },
+  { key: "vi", label: i18n.t('app.베트남어') },
+  { key: "th", label: i18n.t('app.태국어') },
+  { key: "id", label: i18n.t('app.인도네시아어') },
+  { key: "ar", label: i18n.t('app.아랍어') },
+  { key: "hi", label: i18n.t('app.힌디어') },
+  { key: "other", label: i18n.t('app.기타') },
 ];
 
 /* 동화: 대상 연령 */
 const FAIRY_TALE_AUDIENCES = [
-  { key: "preschool", label: "유아용" },
-  { key: "elementary", label: "초등용" },
+  { key: "preschool", label: i18n.t('app.유아용') },
+  { key: "elementary", label: i18n.t('app.초등용') },
 ];
 const FAIRY_TALE_SUBS = [
-  { key: "adventure", label: "모험" },
-  { key: "lesson", label: "교훈" },
-  { key: "animal", label: "동물" },
-  { key: "fantasy", label: "환상" },
-  { key: "daily", label: "일상" },
-  { key: "other", label: "기타" },
+  { key: "adventure", label: i18n.t('app.모험') },
+  { key: "lesson", label: i18n.t('app.교훈') },
+  { key: "animal", label: i18n.t('app.동물') },
+  { key: "fantasy", label: i18n.t('app.환상') },
+  { key: "daily", label: i18n.t('app.일상') },
+  { key: "other", label: i18n.t('app.기타') },
 ];
 
 /** 19금 is only for general novel / web novel / short story */
@@ -5622,125 +5771,125 @@ function withAdult19Option(subs) {
 
 /* Header main/sub genre taxonomy (keys stored on project; free text uses custom: prefix) */
 const GENRE_CUSTOM_PREFIX = "custom:";
-const ADULT19 = { key: "adult19", label: "19금" };
+const ADULT19 = { key: "adult19", label: i18n.t('app.19금') };
 const MAIN_GENRES = [
-  { key: "romance", label: "로맨스" },
-  { key: "fantasy", label: "판타지" },
+  { key: "romance", label: i18n.t('app.로맨스') },
+  { key: "fantasy", label: i18n.t('app.판타지') },
   { key: "sf", label: "SF" },
-  { key: "mystery", label: "미스터리" },
-  { key: "thriller", label: "스릴러·호러" },
-  { key: "historical", label: "역사·시대" },
-  { key: "martial", label: "무협" },
-  { key: "contemporary", label: "현대·일반" },
-  { key: "youth", label: "청소년" },
-  { key: "literary", label: "순문학" },
-  { key: "genre_lit", label: "장르문학" },
-  { key: "experimental", label: "실험장르" },
+  { key: "mystery", label: i18n.t('app.미스터리') },
+  { key: "thriller", label: i18n.t('app.스릴러_호러') },
+  { key: "historical", label: i18n.t('app.역사_시대') },
+  { key: "martial", label: i18n.t('app.무협') },
+  { key: "contemporary", label: i18n.t('app.현대_일반') },
+  { key: "youth", label: i18n.t('app.청소년') },
+  { key: "literary", label: i18n.t('app.순문학') },
+  { key: "genre_lit", label: i18n.t('app.장르문학') },
+  { key: "experimental", label: i18n.t('app.실험장르') },
   { key: "blgl", label: "BL·GL" },
-  { key: "other", label: "기타" },
+  { key: "other", label: i18n.t('app.기타') },
 ];
 const SUB_GENRES = {
   romance: [
-    { key: "modern", label: "현대로맨스" },
-    { key: "period", label: "시대로맨스" },
-    { key: "romfant", label: "로판" },
-    { key: "romcom", label: "로코" },
-    { key: "genre_lit", label: "장르문학" },
-    { key: "office", label: "오피스" },
-    { key: "school", label: "학원" },
-    { key: "contract", label: "계약·정략" },
-    { key: "chaebol", label: "재벌" },
-    { key: "other", label: "기타" },
+    { key: "modern", label: i18n.t('app.현대로맨스') },
+    { key: "period", label: i18n.t('app.시대로맨스') },
+    { key: "romfant", label: i18n.t('app.로판') },
+    { key: "romcom", label: i18n.t('app.로코') },
+    { key: "genre_lit", label: i18n.t('app.장르문학') },
+    { key: "office", label: i18n.t('app.오피스') },
+    { key: "school", label: i18n.t('app.학원') },
+    { key: "contract", label: i18n.t('app.계약_정략') },
+    { key: "chaebol", label: i18n.t('app.재벌') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   fantasy: [
-    { key: "high", label: "하이루판" },
-    { key: "low", label: "저루판" },
-    { key: "isekai", label: "이세계" },
-    { key: "game", label: "게임판타지" },
-    { key: "dark", label: "다크판타지" },
-    { key: "urban", label: "어반판타지" },
-    { key: "female", label: "여성향 판타지" },
-    { key: "other", label: "기타" },
+    { key: "high", label: i18n.t('app.하이루판') },
+    { key: "low", label: i18n.t('app.저루판') },
+    { key: "isekai", label: i18n.t('app.이세계') },
+    { key: "game", label: i18n.t('app.게임판타지') },
+    { key: "dark", label: i18n.t('app.다크판타지') },
+    { key: "urban", label: i18n.t('app.어반판타지') },
+    { key: "female", label: i18n.t('app.여성향_판타지') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   sf: [
-    { key: "space", label: "스페이스" },
-    { key: "dystopia", label: "디스토피아" },
-    { key: "cyberpunk", label: "사이버펑크" },
-    { key: "timeslip", label: "타임슬립" },
-    { key: "postapo", label: "아포칼립스" },
-    { key: "other", label: "기타" },
+    { key: "space", label: i18n.t('app.스페이스') },
+    { key: "dystopia", label: i18n.t('app.디스토피아') },
+    { key: "cyberpunk", label: i18n.t('app.사이버펑크') },
+    { key: "timeslip", label: i18n.t('app.타임슬립') },
+    { key: "postapo", label: i18n.t('app.아포칼립스') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   mystery: [
-    { key: "honkaku", label: "본격추리" },
-    { key: "social", label: "사회파" },
-    { key: "cozy", label: "코지" },
-    { key: "legal", label: "법정" },
-    { key: "crime", label: "범죄" },
-    { key: "other", label: "기타" },
+    { key: "honkaku", label: i18n.t('app.본격추리') },
+    { key: "social", label: i18n.t('app.사회파') },
+    { key: "cozy", label: i18n.t('app.코지') },
+    { key: "legal", label: i18n.t('app.법정') },
+    { key: "crime", label: i18n.t('app.범죄') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   thriller: [
-    { key: "psycho", label: "심리" },
-    { key: "action", label: "액션" },
-    { key: "horror", label: "호러" },
-    { key: "suspense", label: "서스펜스" },
-    { key: "other", label: "기타" },
+    { key: "psycho", label: i18n.t('app.심리') },
+    { key: "action", label: i18n.t('app.액션') },
+    { key: "horror", label: i18n.t('app.호러') },
+    { key: "suspense", label: i18n.t('app.서스펜스') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   historical: [
-    { key: "joseon", label: "조선" },
-    { key: "goryeo", label: "고려" },
-    { key: "modern_era", label: "근현대" },
-    { key: "alt", label: "대체역사" },
-    { key: "sageuk", label: "사극" },
-    { key: "other", label: "기타" },
+    { key: "joseon", label: i18n.t('app.조선') },
+    { key: "goryeo", label: i18n.t('app.고려') },
+    { key: "modern_era", label: i18n.t('app.근현대') },
+    { key: "alt", label: i18n.t('app.대체역사') },
+    { key: "sageuk", label: i18n.t('app.사극') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   martial: [
-    { key: "classic", label: "정통무협" },
-    { key: "new", label: "신무협" },
-    { key: "modern_wu", label: "현대한무" },
-    { key: "other", label: "기타" },
+    { key: "classic", label: i18n.t('app.정통무협') },
+    { key: "new", label: i18n.t('app.신무협') },
+    { key: "modern_wu", label: i18n.t('app.현대한무') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   contemporary: [
-    { key: "daily", label: "일상" },
-    { key: "growth", label: "성장" },
-    { key: "family", label: "가족" },
-    { key: "society", label: "사회" },
-    { key: "human", label: "휴먼" },
-    { key: "other", label: "기타" },
+    { key: "daily", label: i18n.t('app.일상') },
+    { key: "growth", label: i18n.t('app.성장') },
+    { key: "family", label: i18n.t('app.가족') },
+    { key: "society", label: i18n.t('app.사회') },
+    { key: "human", label: i18n.t('app.휴먼') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   youth: [
-    { key: "school", label: "학원" },
-    { key: "growth", label: "성장" },
-    { key: "fantasy", label: "판타지" },
-    { key: "romance", label: "로맨스" },
-    { key: "other", label: "기타" },
+    { key: "school", label: i18n.t('app.학원') },
+    { key: "growth", label: i18n.t('app.성장') },
+    { key: "fantasy", label: i18n.t('app.판타지') },
+    { key: "romance", label: i18n.t('app.로맨스') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   literary: [
-    { key: "short", label: "단편" },
-    { key: "mid", label: "중편" },
-    { key: "long", label: "장편" },
-    { key: "experimental", label: "실험" },
-    { key: "other", label: "기타" },
+    { key: "short", label: i18n.t('app.단편') },
+    { key: "mid", label: i18n.t('app.중편') },
+    { key: "long", label: i18n.t('app.장편') },
+    { key: "experimental", label: i18n.t('app.실험') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   genre_lit: [
     { key: "sf", label: "SF" },
-    { key: "other", label: "기타" },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   experimental: [
-    { key: "meta", label: "메타픽션" },
-    { key: "form", label: "형식실험" },
-    { key: "hybrid", label: "혼합" },
-    { key: "other", label: "기타" },
+    { key: "meta", label: i18n.t('app.메타픽션') },
+    { key: "form", label: i18n.t('app.형식실험') },
+    { key: "hybrid", label: i18n.t('app.혼합') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   blgl: [
     { key: "bl", label: "BL" },
     { key: "gl", label: "GL" },
-    { key: "omega", label: "오메가버스" },
-    { key: "other", label: "기타" },
+    { key: "omega", label: i18n.t('app.오메가버스') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
   other: [
-    { key: "mix", label: "혼합" },
-    { key: "tbd", label: "미정" },
-    { key: "other", label: "기타" },
+    { key: "mix", label: i18n.t('app.혼합') },
+    { key: "tbd", label: i18n.t('app.미정') },
+    { key: "other", label: i18n.t('app.기타') },
   ],
 };
 
@@ -5764,10 +5913,10 @@ function getPurposeCategoryMode(purpose = state.projectPurpose) {
 }
 
 function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
-  if (mode === "translation") return "원문 언어 · 번역문 언어";
-  if (mode === "fairy_tale") return "동화 대상 (유아용 / 초등용)";
-  if (mode === "fiction") return "메인 · 서브 장르";
-  return "장르";
+  if (mode === "translation") return i18n.t('app.원문_언어_번역문_언어');
+  if (mode === "fairy_tale") return i18n.t('app.동화_대상_유아용_초등용');
+  if (mode === "fiction") return i18n.t('app.메인_서브_장르');
+  return i18n.t('app.장르');
 }
 
 /** Header genre <select>s are value stores only — never interactive dropdowns. */
@@ -5859,8 +6008,8 @@ function toCustomGenreValue(text) {
 
 function mainGenreLabel(key = state.mainGenre) {
   const value = String(key || "").trim();
-  if (!value) return "미정";
-  if (isCustomGenreValue(value)) return customGenreText(value) || "기타";
+  if (!value) return i18n.t('app.미정');
+  if (isCustomGenreValue(value)) return customGenreText(value) || i18n.t('app.기타');
   return MAIN_GENRES.find((g) => g.key === value)?.label
     || WORK_LANGUAGES.find((g) => g.key === value)?.label
     || FAIRY_TALE_AUDIENCES.find((g) => g.key === value)?.label
@@ -5869,9 +6018,9 @@ function mainGenreLabel(key = state.mainGenre) {
 
 function subGenreLabel(mainKey = state.mainGenre, subKey = state.subGenre) {
   const value = String(subKey || "").trim();
-  if (!value) return "미정";
-  if (isCustomGenreValue(value)) return customGenreText(value) || "기타";
-  if (value === "adult19") return "19금";
+  if (!value) return i18n.t('app.미정');
+  if (isCustomGenreValue(value)) return customGenreText(value) || i18n.t('app.기타');
+  if (value === "adult19") return i18n.t('app.19금');
   if (WORK_LANGUAGES.some((g) => g.key === value)) {
     return WORK_LANGUAGES.find((g) => g.key === value)?.label || value;
   }
@@ -5932,16 +6081,16 @@ function updateGenreCustomVisibility() {
     mainCustom.classList.toggle("hidden", !showMainCustom);
     mainCustom.disabled = !showMainCustom;
     if (!showMainCustom) mainCustom.value = "";
-    if (mode === "translation") mainCustom.placeholder = "원문 언어 직접 입력";
-    else if (mode === "fairy_tale") mainCustom.placeholder = "대상 직접 입력";
-    else mainCustom.placeholder = "직접 입력";
+    if (mode === "translation") mainCustom.placeholder = i18n.t('app.원문_언어_직접_입력');
+    else if (mode === "fairy_tale") mainCustom.placeholder = i18n.t('app.대상_직접_입력');
+    else mainCustom.placeholder = i18n.t('app.직접_입력');
   }
   if (subCustom) {
     subCustom.classList.toggle("hidden", !showSubCustom);
     subCustom.disabled = !showSubCustom;
     if (!showSubCustom) subCustom.value = "";
-    if (mode === "translation") subCustom.placeholder = "번역 언어 직접 입력";
-    else subCustom.placeholder = "직접 입력";
+    if (mode === "translation") subCustom.placeholder = i18n.t('app.번역_언어_직접_입력');
+    else subCustom.placeholder = i18n.t('app.직접_입력');
   }
 }
 
@@ -5956,13 +6105,13 @@ function fillMainGenreSelect(selectedStored = "") {
     return;
   }
   const selectValue = resolveMainGenreSelectValue(selectedStored, mode);
-  let placeholder = "메인 장르";
+  let placeholder = i18n.t('app.메인_장르');
   let options = MAIN_GENRES;
   if (mode === "translation") {
-    placeholder = "원문 언어";
+    placeholder = i18n.t('app.원문_언어');
     options = WORK_LANGUAGES;
   } else if (mode === "fairy_tale") {
-    placeholder = "유아용 / 초등용";
+    placeholder = i18n.t('app.유아용_초등용');
     options = FAIRY_TALE_AUDIENCES;
   }
   select.setAttribute("aria-label", placeholder);
@@ -6006,12 +6155,12 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
     if ($("subGenreCustom")) $("subGenreCustom").disabled = true;
     return;
   }
-  let placeholder = "서브 장르";
+  let placeholder = i18n.t('app.서브_장르');
   let subs = [];
   let listKey = mainKey;
 
   if (mode === "translation") {
-    placeholder = "번역문 언어";
+    placeholder = i18n.t('app.번역문_언어');
     subs = WORK_LANGUAGES;
     listKey = "lang";
   } else if (mode === "fiction") {
@@ -6194,7 +6343,7 @@ async function persistProjectGenre({ quiet = true } = {}) {
   if (typeof renderSettingsCodex === "function") {
     try { renderSettingsCodex(); } catch (_) { /* ignore */ }
   }
-  if (!quiet) toast("장르를 저장했습니다.");
+  if (!quiet) toast(i18n.t('app.장르를_저장했습니다'));
 }
 
 function syncGenreDisplayButtons() {
@@ -6209,39 +6358,39 @@ function syncGenreDisplayButtons() {
     const opt = mainSelect?.selectedOptions?.[0];
     let label = (opt && opt.value)
       ? String(opt.textContent || "").trim()
-      : (mainSelect?.options?.[0]?.textContent || "장르").trim();
+      : (mainSelect?.options?.[0]?.textContent || i18n.t('app.장르')).trim();
     if (mainSelect?.value === "other") {
       const custom = ($("mainGenreCustom")?.value || "").trim();
       if (custom) label = custom;
     }
-    mainBtn.textContent = label || "장르";
+    mainBtn.textContent = label || i18n.t('app.장르');
     mainBtn.disabled = !hasProject || mode === "none";
     mainBtn.title = hasProject
-      ? "우클릭: 장르 변경"
-      : "작품을 먼저 선택해 주세요";
+      ? i18n.t('app.우클릭_장르_변경')
+      : i18n.t('app.작품을_먼저_선택해_주세요_2');
   }
   if (subBtn) {
     const opt = subSelect?.selectedOptions?.[0];
     let label = (opt && opt.value)
       ? String(opt.textContent || "").trim()
-      : (subSelect?.options?.[0]?.textContent || "하위 장르").trim();
+      : (subSelect?.options?.[0]?.textContent || i18n.t('app.하위_장르')).trim();
     if (subSelect?.value === "other") {
       const custom = ($("subGenreCustom")?.value || "").trim();
       if (custom) label = custom;
     }
-    subBtn.textContent = label || "하위 장르";
+    subBtn.textContent = label || i18n.t('app.하위_장르');
     const subHidden = mode === "fairy_tale" || mode === "none";
     // Header <select> is always disabled (value store) — do not gate the display button on it.
     subBtn.disabled = !hasProject || subHidden;
     subBtn.title = hasProject
-      ? (mode === "translation" ? "우클릭: 번역문 언어 변경" : "우클릭: 하위 장르 변경")
-      : "작품을 먼저 선택해 주세요";
+      ? (mode === "translation" ? i18n.t('app.우클릭_번역문_언어_변경') : i18n.t('app.우클릭_하위_장르_변경'))
+      : i18n.t('app.작품을_먼저_선택해_주세요_2');
   }
 }
 
 function confirmGenreChange() {
   return window.confirm(
-    "토리가 새로운 장르 기준으로 다시 학습해야해요. 정말로 바꾸시겠어요?",
+    i18n.t('app.토리가_새로운_장르_기준으로_다시_학습해야해'),
   );
 }
 
@@ -6267,22 +6416,22 @@ function placeGenreContextMenu(clientX, clientY) {
 
 function getGenreMenuOptions(kind = "main") {
   const mode = getPurposeCategoryMode();
-  if (mode === "none") return { title: "장르", options: [] };
+  if (mode === "none") return { title: i18n.t('app.장르'), options: [] };
   if (kind === "main") {
     if (mode === "translation") {
-      return { title: "원문 언어 선택", options: WORK_LANGUAGES };
+      return { title: i18n.t('app.원문_언어_선택'), options: WORK_LANGUAGES };
     }
     if (mode === "fairy_tale") {
-      return { title: "동화 대상 선택", options: FAIRY_TALE_AUDIENCES };
+      return { title: i18n.t('app.동화_대상_선택'), options: FAIRY_TALE_AUDIENCES };
     }
-    return { title: "메인 장르 선택", options: MAIN_GENRES };
+    return { title: i18n.t('app.메인_장르_선택'), options: MAIN_GENRES };
   }
   // sub
   if (mode === "translation") {
-    return { title: "번역문 언어 선택", options: WORK_LANGUAGES };
+    return { title: i18n.t('app.번역문_언어_선택'), options: WORK_LANGUAGES };
   }
   if (mode === "fairy_tale") {
-    return { title: "세부", options: [] };
+    return { title: i18n.t('app.세부'), options: [] };
   }
   const mainKey = $("mainGenreSelect")?.value || "";
   const listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
@@ -6291,7 +6440,7 @@ function getGenreMenuOptions(kind = "main") {
     ? withAdult19Option(baseSubs)
     : baseSubs;
   return {
-    title: mainKey ? "서브 장르 선택" : "먼저 메인 장르를 선택하세요",
+    title: mainKey ? i18n.t('app.서브_장르_선택') : i18n.t('app.먼저_메인_장르를_선택하세요'),
     options: listKey ? options : [],
   };
 }
@@ -6303,7 +6452,7 @@ function showGenreContextMenu(kind, clientX, clientY) {
   const labelEl = $("genreContextMenuLabel");
   if (!menu || !host) return;
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   const { title, options } = getGenreMenuOptions(kind);
@@ -6314,8 +6463,8 @@ function showGenreContextMenu(kind, clientX, clientY) {
     {
       key: "",
       label: kind === "main"
-        ? (getPurposeCategoryMode() === "translation" ? "원문 언어 (미정)" : "메인 장르 (미정)")
-        : (getPurposeCategoryMode() === "translation" ? "번역문 언어 (미정)" : "서브 장르 (미정)"),
+        ? (getPurposeCategoryMode() === "translation" ? i18n.t('app.원문_언어_미정') : i18n.t('app.메인_장르_미정'))
+        : (getPurposeCategoryMode() === "translation" ? i18n.t('app.번역문_언어_미정') : i18n.t('app.서브_장르_미정')),
     },
     ...options,
   ];
@@ -6454,7 +6603,7 @@ function setupGenrePicker() {
 
 function projectOptionLabel(project) {
   // Title only — purpose is already shown in the adjacent 「종류」 picker.
-  return String(project?.title || "제목 없음").trim() || "제목 없음";
+  return String(project?.title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음');
 }
 
 function normalizeKeywordList(raw) {
@@ -6507,7 +6656,7 @@ function keywordChipsHtml() {
     .map((label) => `
       <span class="keyword-chip" data-keyword="${escapeHtml(label)}">
         <span class="keyword-chip-label">${escapeHtml(label)}</span>
-        <button type="button" class="keyword-chip-remove" data-keyword-remove="${escapeHtml(label)}" title="제거" aria-label="${escapeHtml(label)} 제거">×</button>
+        <button type="button" class="keyword-chip-remove" data-keyword-remove="${escapeHtml(label)}" title="${i18n.t('app.제거')}" aria-label="${escapeHtml(label)} 제거">×</button>
       </span>
     `)
     .join("");
@@ -6601,7 +6750,7 @@ function placeGenreBlockForKeywordBoard(onBoard) {
 }
 
 function openKeywordBoard() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -6642,7 +6791,7 @@ async function persistProjectKeywords({ quiet = true } = {}) {
   });
   const project = state.projects.find((p) => p.id === state.projectId);
   if (project) project.keywords = [...keywords];
-  if (!quiet) toast("키워드를 저장했습니다.");
+  if (!quiet) toast(i18n.t('app.키워드를_저장했습니다'));
 }
 
 function addProjectKeyword(label) {
@@ -6650,7 +6799,7 @@ function addProjectKeyword(label) {
   if (!cleaned) return false;
   if (state.keywords.includes(cleaned)) return false;
   if (state.keywords.length >= KEYWORD_MAX) {
-    toast(`키워드는 최대 ${KEYWORD_MAX}개까지 넣을 수 있어요.`);
+    toast(`${i18n.t('app.키워드는_최대_KEYWORD_MAX_개까지', {KEYWORD_MAX: KEYWORD_MAX})}`);
     return false;
   }
   state.keywords = [...state.keywords, cleaned];
@@ -6688,7 +6837,7 @@ function setupKeywordBox() {
     event.preventDefault();
     event.stopPropagation();
     if (!state.projectId) {
-      toast("먼저 작품을 선택해 주세요.");
+      toast(i18n.t('app.먼저_작품을_선택해_주세요'));
       return;
     }
     const panel = $("keywordPickerPanel");
@@ -6723,7 +6872,7 @@ function setupKeywordBox() {
   const bindCustomCommit = (input, addBtn) => {
     const commitCustom = () => {
       if (!state.projectId) {
-        toast("먼저 작품을 선택해 주세요.");
+        toast(i18n.t('app.먼저_작품을_선택해_주세요'));
         return;
       }
       const value = input?.value || "";
@@ -6769,10 +6918,10 @@ function syncPurposeDisplayButton() {
   const opt = select?.selectedOptions?.[0];
   const label = (opt && opt.value)
     ? String(opt.textContent || "").trim()
-    : (purposeLabel[normalizePurposeKey(state.projectPurpose)] || "작품 종류");
-  btn.textContent = label || "작품 종류";
+    : (purposeLabel[normalizePurposeKey(state.projectPurpose)] || i18n.t('app.작품_종류'));
+  btn.textContent = label || i18n.t('app.작품_종류');
   btn.disabled = !hasProject;
-  btn.title = hasProject ? "우클릭: 작품 종류 변경" : "작품을 먼저 선택해 주세요";
+  btn.title = hasProject ? i18n.t('app.우클릭_작품_종류_변경') : i18n.t('app.작품을_먼저_선택해_주세요_2');
 }
 
 function syncPurposePickerFromState() {
@@ -6971,7 +7120,7 @@ async function setProjectListMode(mode, { toastMessage = "" } = {}) {
 
 async function moveProjectInList(direction) {
   if (!state.projects.length || !state.projectId) {
-    toast("옮길 작품이 없어요.");
+    toast(i18n.t('app.옮길_작품이_없어요'));
     return;
   }
   const ids = state.projects.map((p) => Number(p.id));
@@ -6984,19 +7133,19 @@ async function moveProjectInList(direction) {
   else if (direction === "bottom") next = ids.length - 1;
   else return;
   if (next === idx) {
-    toast(direction === "up" || direction === "top" ? "이미 맨 위예요." : "이미 맨 아래예요.");
+    toast(direction === "up" || direction === "top" ? i18n.t('app.이미_맨_위예요') : i18n.t('app.이미_맨_아래예요'));
     return;
   }
   const reordered = ids.slice();
   const [moved] = reordered.splice(idx, 1);
   reordered.splice(next, 0, moved);
   const labels = {
-    up: "작품을 한 칸 위로 옮겼어요.",
-    down: "작품을 한 칸 아래로 옮겼어요.",
-    top: "작품을 맨 위로 옮겼어요.",
-    bottom: "작품을 맨 아래로 옮겼어요.",
+    up: i18n.t('app.작품을_한_칸_위로_옮겼어요'),
+    down: i18n.t('app.작품을_한_칸_아래로_옮겼어요'),
+    top: i18n.t('app.작품을_맨_위로_옮겼어요'),
+    bottom: i18n.t('app.작품을_맨_아래로_옮겼어요'),
   };
-  await persistProjectListOrder(reordered, { toastMessage: labels[direction] || "작품 순서를 바꿨어요." });
+  await persistProjectListOrder(reordered, { toastMessage: labels[direction] || i18n.t('app.작품_순서를_바꿨어요') });
 }
 
 function setupProjectListContextMenu() {
@@ -7009,32 +7158,32 @@ function setupProjectListContextMenu() {
     event.stopPropagation();
     const items = [
       {
-        label: "한 칸 위로",
-        hint: "목록에서 현재 작품 이동",
+        label: i18n.t('app.한_칸_위로'),
+        hint: i18n.t('app.목록에서_현재_작품_이동'),
         run: () => { moveProjectInList("up").catch(handleError); },
       },
       {
-        label: "한 칸 아래로",
-        hint: "목록에서 현재 작품 이동",
+        label: i18n.t('app.한_칸_아래로'),
+        hint: i18n.t('app.목록에서_현재_작품_이동'),
         run: () => { moveProjectInList("down").catch(handleError); },
       },
       {
-        label: "맨 위로",
-        hint: "목록 맨 앞",
+        label: i18n.t('app.맨_위로'),
+        hint: i18n.t('app.목록_맨_앞'),
         run: () => { moveProjectInList("top").catch(handleError); },
       },
       {
-        label: "맨 아래로",
-        hint: "목록 맨 끝",
+        label: i18n.t('app.맨_아래로'),
+        hint: i18n.t('app.목록_맨_끝'),
         run: () => { moveProjectInList("bottom").catch(handleError); },
       },
     ];
     if (state.projectListMode === "manual") {
       items.push({
-        label: "최근 작업순으로 정렬",
-        hint: "시스템 기본값으로 되돌리기",
+        label: i18n.t('app.최근_작업순으로_정렬'),
+        hint: i18n.t('app.시스템_기본값으로_되돌리기'),
         run: () => {
-          setProjectListMode("recent", { toastMessage: "최근 작업한 작품 순서로 정렬했어요." })
+          setProjectListMode("recent", { toastMessage: i18n.t('app.최근_작업한_작품_순서로_정렬했어요') })
             .catch(handleError);
         },
       });
@@ -7061,7 +7210,7 @@ async function persistProjectPurpose({ quiet = true } = {}) {
   if (typeof renderSettingsCodex === "function") {
     try { renderSettingsCodex(); } catch (_) { /* ignore */ }
   }
-  if (!quiet) toast(`작품 종류를 ${purposeLabel[next] || next}(으)로 바꿨어요.`);
+  if (!quiet) toast(`${i18n.t('app.작품_종류를_purposeLabel_next', {'purposeLabel[next] || next': purposeLabel[next] || next})}`);
 }
 
 function preferredProjectFromUrl() {
@@ -7153,7 +7302,7 @@ async function loadProjects(preferredId = null) {
   applyProjectsListPayload(projects);
   const select = $("projectSelect");
   if (!state.projects.length) {
-    select.innerHTML = "<option>아직 만든 작품이 없어요</option>";
+    select.innerHTML = i18n.t('app.option_아직_만든_작품이_없어요_op');
   }
   const fromUrl = preferredProjectFromUrl();
   const last = loadLastWorkspace();
@@ -7175,7 +7324,7 @@ async function loadProjects(preferredId = null) {
       const project = state.projects.find((item) => item.id === state.projectId);
       if (project?.package_name || project?.package_path) {
         const name = project.package_name || String(project.package_path).split(/[/\\]/).pop();
-        toast(`작품 파일에서 열었어요: ${name}`);
+        toast(`${i18n.t('app.작품_파일에서_열었어요_name', {name: name})}`);
       }
     }
   } else {
@@ -7222,7 +7371,7 @@ async function loadProject() {
     try {
       await refreshBaitsFromServer(projectIdAtStart);
     } catch (baitErr) {
-      console.warn("떡밥 목록을 불러오지 못했어요.", baitErr);
+      console.warn(i18n.t('app.떡밥_목록을_불러오지_못했어요'), baitErr);
       state.baits = [];
     }
   }
@@ -7342,20 +7491,20 @@ function renderSettingsCodex() {
     if (ideaLines.length >= 2) break;
     const title = String(idea.title || "").trim();
     const body = String(idea.body_md || "").replace(/\s+/g, " ").trim();
-    ideaLines.push(title || body || "빈 메모");
+    ideaLines.push(title || body || i18n.t('app.빈_메모'));
   }
-  renderPreviewElement($("ideasPreview"), ideaLines, "아직 메모가 없어요");
+  renderPreviewElement($("ideasPreview"), ideaLines, i18n.t('app.아직_메모가_없어요'));
 
   const baits = loadBaits();
   const baitLines = baits.slice(0, 2).map((bait) => {
-    const head = (bait.summary || bait.quote || "떡밥").replace(/\s+/g, " ").trim();
+    const head = (bait.summary || bait.quote || i18n.t('app.떡밥')).replace(/\s+/g, " ").trim();
     const recover = bait.recoverAt ? ` · 회수 ${bait.recoverAt}` : "";
     return `${head.slice(0, 42)}${head.length > 42 ? "…" : ""}${recover}`;
   });
   renderPreviewElement(
     $("baitsPreview"),
     baitLines,
-    "본문 드래그 → 우클릭 → 떡밥 던지기",
+    i18n.t('app.본문_드래그_우클릭_떡밥_던지기'),
   );
   renderBaitList();
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
@@ -7364,22 +7513,22 @@ function renderSettingsCodex() {
   }
 
   // Previews hidden by CSS; keep sync for any future use.
-  renderPreviewElement($("introPreview"), [], "작품소개·기획의도");
-  renderPreviewElement($("logsynPreview"), [], "로그라인·시놉시스");
+  renderPreviewElement($("introPreview"), [], i18n.t('app.작품소개_기획의도'));
+  renderPreviewElement($("logsynPreview"), [], i18n.t('app.로그라인_시놉시스'));
   {
     const purposeLabel = ($("purposeDisplay")?.textContent || "").trim();
     const mainLabel = state.mainGenre ? mainGenreLabel(state.mainGenre) : "";
     const subLabel = state.subGenre ? subGenreLabel(state.mainGenre, state.subGenre) : "";
     const genreBits = [purposeLabel, mainLabel, subLabel]
       .map((s) => String(s || "").trim())
-      .filter((s) => s && s !== "미정");
+      .filter((s) => s && s !== i18n.t('app.미정'));
     const genreLine = genreBits.length ? genreBits.join(" · ") : "";
     const kwLine = state.keywords.length ? state.keywords.slice(0, 6).join(" · ") : "";
     const previewLinesKw = [genreLine, kwLine].filter(Boolean);
     renderPreviewElement(
       $("keywordsPreview"),
       previewLinesKw,
-      "장르·키워드를 정해 보세요 · 더블클릭 또는 →",
+      i18n.t('app.장르_키워드를_정해_보세요_더블클릭_또는'),
     );
   }
   renderKeywordBox();
@@ -7389,30 +7538,30 @@ function renderSettingsCodex() {
       looksLikeHtml(state.worldbuildingMd) ? plainTextFromHtml(state.worldbuildingMd) : state.worldbuildingMd,
       2,
     ),
-    "세계관을 적어 보세요 · 더블클릭 또는 →",
+    i18n.t('app.세계관을_적어_보세요_더블클릭_또는'),
   );
 
   // Characters: name + first line, in order (up to 2 entries for the 2-line preview)
   const characterLines = [];
   for (const character of state.characters) {
     if (characterLines.length >= 2) break;
-    const name = String(character.name || "이름 없음").trim();
+    const name = String(character.name || i18n.t('app.이름_없음')).trim();
     const first = String(character.short_description || "").trim()
       || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
       || "";
     characterLines.push(first ? `${name} — ${first}` : name);
   }
-  renderPreviewElement($("charactersPreview"), characterLines, "아직 인물이 없어요 · 더블클릭 또는 →");
+  renderPreviewElement($("charactersPreview"), characterLines, i18n.t('app.아직_인물이_없어요_더블클릭_또는'));
 
   const sources = loadSources();
   const sourceLines = sources.slice(0, 2).map((src) => {
-    const head = String(src.title || "자료").replace(/\s+/g, " ").trim();
+    const head = String(src.title || i18n.t('app.자료')).replace(/\s+/g, " ").trim();
     return head.length > 48 ? `${head.slice(0, 48)}…` : head;
   });
   renderPreviewElement(
     $("sourcesPreview"),
     sourceLines,
-    "참고 책·기사·영상 출처를 모아 두세요",
+    i18n.t('app.참고_책_기사_영상_출처를_모아_두세요'),
   );
   renderSourceList();
   renderToryVaultList();
@@ -7673,7 +7822,7 @@ function markSynopsisDirty(kind = null) {
     || state.settingsDocKind
     || "synopsis";
   synopsisDirty = true;
-  setSynopsisSaveStatus("저장 대기 중…");
+  setSynopsisSaveStatus(i18n.t('app.저장_대기_중'));
   if (synopsisAutoSaveTimer) window.clearTimeout(synopsisAutoSaveTimer);
   synopsisAutoSaveTimer = window.setTimeout(() => {
     persistSettingsDoc(saveKind, { quiet: true }).catch(handleError);
@@ -7705,7 +7854,7 @@ async function persistSettingsDoc(kind, options = {}) {
   const quiet = Boolean(options.quiet);
   const meta = getSettingsDocMeta(kind);
   if (!state.projectId) {
-    if (!quiet) toast("먼저 작품을 선택해 주세요.");
+    if (!quiet) toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
   // Wait briefly if another save is in flight (avoid dropping manual save).
@@ -7719,7 +7868,7 @@ async function persistSettingsDoc(kind, options = {}) {
     }
   }
   synopsisAutoSaveInFlight = true;
-  if (quiet) setSynopsisSaveStatus("자동 저장 중…");
+  if (quiet) setSynopsisSaveStatus(i18n.t('app.자동_저장_중'));
   try {
     // Always take latest from DOM/state right before request.
     const value = getSettingsDocTextForSave(kind);
@@ -7738,7 +7887,7 @@ async function persistSettingsDoc(kind, options = {}) {
     if (result.worldbuilding_md != null && kind !== "world") state.worldbuildingMd = result.worldbuilding_md;
     if (state.settingsDocKind === kind || getSettingsDocMainEditor(kind)) synopsisDirty = false;
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setSynopsisSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
+    setSynopsisSaveStatus(quiet ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}` : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`);
     // Sync the other surface (sidebar ↔ main) without clobbering the focused control.
     syncSettingsDocSidebarFromState(kind);
     // Refresh main pane when it is editing this same document — but never
@@ -7749,11 +7898,11 @@ async function persistSettingsDoc(kind, options = {}) {
     if (getSettingsDocMainEditor(kind)) {
       syncSettingsDocMainFromState(kind);
     }
-    if (!quiet) toast(`${meta.toastLabel}을(를) 저장했습니다.`);
+    if (!quiet) toast(`${i18n.t('app.meta_toastLabel_을_를_저장했', {'meta.toastLabel': meta.toastLabel})}`);
     return result;
   } catch (error) {
     if (quiet) {
-      setSynopsisSaveStatus("자동 저장 실패 — 다시 시도");
+      setSynopsisSaveStatus(i18n.t('app.자동_저장_실패_다시_시도'));
       scheduleSettingsDocAutoSave(kind);
     }
     throw error;
@@ -7862,12 +8011,12 @@ function applySettingsDocChrome(kind) {
   const pane = $("synopsisWorkspace");
   if (pane) {
     pane.dataset.settingsDoc = kind;
-    pane.setAttribute("aria-label", `${title} 편집`);
+    pane.setAttribute("aria-label", `${i18n.t('app.title_편집', {title: title})}`);
   }
 }
 
 async function openSettingsDocMain(kind = "synopsis") {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -7911,7 +8060,7 @@ async function openSettingsDocMain(kind = "synopsis") {
 
   if (sceneDirty && state.sceneId) {
     try {
-      await persistScene({ quiet: true, saveNote: "자동 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
     } catch (_) {
       /* continue */
     }
@@ -7947,7 +8096,7 @@ async function openSettingsDocMain(kind = "synopsis") {
     if (!String(loadText || "").trim()) seedWorldBuildingExamplesIfEmpty();
     else syncWorldBuildingFormFromState({ force: true });
     synopsisDirty = false;
-    setSynopsisSaveStatus("편집 중");
+    setSynopsisSaveStatus(i18n.t('app.편집_중'));
     requestAnimationFrame(() => {
       const first = $("worldbuildingMainForm")?.querySelector?.("[data-world-field]");
       try { first?.focus?.({ preventScroll: true }); } catch (_) { first?.focus?.(); }
@@ -7971,10 +8120,10 @@ async function openSettingsDocMain(kind = "synopsis") {
     }
     synopsisDirty = false;
     suppressSynopsisDirty = false;
-    setSynopsisSaveStatus("편집 중");
+    setSynopsisSaveStatus(i18n.t('app.편집_중'));
   } else {
     state.settingsDocFocusKind = kind;
-    setSynopsisSaveStatus("편집 중");
+    setSynopsisSaveStatus(i18n.t('app.편집_중'));
   }
 
   requestAnimationFrame(() => {
@@ -7998,20 +8147,20 @@ function renderCharacterBoard() {
   const grid = $("characterBoardGrid");
   if (!grid) return;
   if (!state.characters.length) {
-    grid.innerHTML = `<p class="character-board-empty">아직 인물이 없어요.<br>+ 캐릭터로 첫 인물을 만들어 보세요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_character_board');
     return;
   }
   grid.innerHTML = state.characters.map((character) => {
-    const name = escapeHtml(character.name || "이름 없음");
+    const name = escapeHtml(character.name || i18n.t('app.이름_없음'));
     const role = escapeHtml(roleLabel[character.role] || character.role || "");
     const summary = escapeHtml(
       String(character.short_description || "").trim()
       || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
-      || "소개를 적어 보세요."
+      || i18n.t('app.소개를_적어_보세요')
     );
     const active = Number(state.characterId) === Number(character.id) ? "is-active" : "";
     const analysisMark = character.has_tori_analysis
-      ? `<span class="character-board-card-analysis">새 분석 있음</span>`
+      ? i18n.t('app.span_class_character_bo')
       : "";
     return `
       <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" title="${name}">
@@ -8029,7 +8178,7 @@ function renderCharacterBoard() {
 }
 
 async function openCharacterBoard() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -8046,7 +8195,7 @@ async function openCharacterBoard() {
   }
   if (sceneDirty && state.sceneId) {
     try {
-      await persistScene({ quiet: true, saveNote: "자동 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
     } catch (_) {
       /* continue */
     }
@@ -8153,7 +8302,7 @@ function bindWorldBuildingFormRoot(form) {
     autoResizeSettingsSidebarTextarea(el);
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
-    if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus("저장 대기 중…");
+    if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus(i18n.t('app.저장_대기_중'));
   });
   form.addEventListener("change", (event) => {
     if (!event.target?.closest?.("[data-world-field]")) return;
@@ -8271,17 +8420,17 @@ function setupSettingsCodex() {
 }
 
 const IDEA_COLORS = [
-  { key: "yellow", label: "노랑" },
-  { key: "pink", label: "분홍" },
-  { key: "blue", label: "파랑" },
-  { key: "green", label: "초록" },
-  { key: "orange", label: "주황" },
-  { key: "purple", label: "보라" },
+  { key: "yellow", label: i18n.t('app.노랑') },
+  { key: "pink", label: i18n.t('app.분홍') },
+  { key: "blue", label: i18n.t('app.파랑') },
+  { key: "green", label: i18n.t('app.초록') },
+  { key: "orange", label: i18n.t('app.주황') },
+  { key: "purple", label: i18n.t('app.보라') },
 ];
 
 function ideaPreview(text, max = 90) {
   const cleaned = String(text || "").replace(/\s+/g, " ").trim();
-  if (!cleaned) return "내용을 적어 보세요…";
+  if (!cleaned) return i18n.t('app.내용을_적어_보세요');
   return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
 }
 
@@ -8336,21 +8485,21 @@ function renderIdeaBank() {
   const list = $("ideaNoteList");
   if (!list) return;
   if (!state.projectId) {
-    list.innerHTML = `<p class="idea-sticky-empty">작품을 선택하면 메모를 쓸 수 있어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_idea_sticky_emp');
     if ($("newIdeaButton")) $("newIdeaButton").disabled = true;
     renderHeaderIdeaBar();
     return;
   }
   if ($("newIdeaButton")) $("newIdeaButton").disabled = false;
   if (!state.ideas.length) {
-    list.innerHTML = `<p class="idea-sticky-empty">아직 메모가 없어요.<br>+ 메모로 아이디어를 남겨 보세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_idea_sticky_emp_2');
   } else {
     list.innerHTML = state.ideas.map((idea) => {
       const pinned = ideaIsPinned(idea);
       return `
       <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || "메모")}${pinned ? " · 목차 하단 고정" : ""}">
         ${pinned ? `<span class="idea-sticky-pin" title="목차 하단 고정">${ideaPinGlyphHtml(16)}</span>` : ""}
-        <span class="idea-sticky-title">${escapeHtml(idea.title || "제목 없음")}</span>
+        <span class="idea-sticky-title">${escapeHtml((!idea.title || idea.title === "새 메모") ? i18n.t('app.새_메모') : idea.title)}</span>
         <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
       </button>`;
     }).join("");
@@ -8389,7 +8538,7 @@ function closeIdeaBoard() {
 }
 
 function openIdeaBoard(focusId = null) {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -8545,7 +8694,7 @@ function bindIdeaCardResize(card, ideaId) {
       clearIdeaCardSize(ideaId);
       card.style.width = `${IDEA_CARD_DEFAULT_W}px`;
       card.style.height = `${IDEA_CARD_DEFAULT_H}px`;
-      toast("메모 크기를 기본값으로 돌렸어요.");
+      toast(i18n.t('app.메모_크기를_기본값으로_돌렸어요'));
     });
   }
 }
@@ -8554,7 +8703,7 @@ function renderIdeaBoard(focusId = null) {
   const grid = $("ideaBoardGrid");
   if (!grid || !state.ideaBoardOpen) return;
   if (!state.ideas.length) {
-    grid.innerHTML = `<p class="hint">메모가 없습니다. + 메모를 눌러 첫 포스트잇을 만들어 보세요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_메모가_없습니다_메');
     return;
   }
   grid.innerHTML = state.ideas.map((idea) => {
@@ -8577,13 +8726,13 @@ function renderIdeaBoard(focusId = null) {
       data-idea-card="${idea.id}"
       data-idea-color="${escapeHtml(colorKey)}"
       data-idea-pinned="${pinned ? "1" : "0"}"
-      title="우클릭: 메모 색 · 모서리 드래그: 크기"
+      title="${i18n.t('app.우클릭_메모_색_모서리_드래그_크기')}"
     >
-      <div class="idea-card-clips" role="group" aria-label="메모 색 클립">
+      <div class="idea-card-clips" role="group" aria-label="${i18n.t('app.메모_색_클립')}">
         ${clipSwatches}
       </div>
       <div class="idea-card-top">
-        <input type="text" data-role="idea-title" value="${escapeHtml(idea.title || "")}" placeholder="제목 (예: 결말 아이디어)">
+        <input type="text" data-role="idea-title" value="${escapeHtml((!idea.title || idea.title === "새 메모") ? i18n.t('app.새_메모') : idea.title)}" placeholder="${i18n.t('app.제목_예_결말_아이디어')}">
         <button
           type="button"
           class="idea-card-pin${pinned ? " is-on" : ""}"
@@ -8593,13 +8742,13 @@ function renderIdeaBoard(focusId = null) {
           aria-pressed="${pinned ? "true" : "false"}"
         >${ideaPinGlyphHtml(26)}</button>
       </div>
-      <textarea data-role="idea-body" placeholder="러프하게 적어 두세요…">${escapeHtml(idea.body_md || "")}</textarea>
+      <textarea data-role="idea-body" placeholder="${i18n.t('app.러프하게_적어_두세요')}">${escapeHtml(idea.body_md || "")}</textarea>
       <div class="idea-card-actions">
-        <button type="button" class="idea-card-size-reset" data-role="reset-idea-size" title="기본 크기로">크기 초기화</button>
-        <button type="button" data-role="save-idea">저장</button>
-        <button type="button" data-role="delete-idea">삭제</button>
+        <button type="button" class="idea-card-size-reset" data-role="reset-idea-size" title="${i18n.t('app.기본_크기로')}">${i18n.t('app.크기_초기화_버튼')}</button>
+        <button type="button" data-role="save-idea">${i18n.t('app.저장')}</button>
+        <button type="button" data-role="delete-idea">${i18n.t('app.삭제')}</button>
       </div>
-      <button type="button" class="idea-card-resize-hint" data-role="idea-resize" title="끌어서 크기 조절" aria-label="메모 크기 조절"></button>
+      <button type="button" class="idea-card-resize-hint" data-role="idea-resize" title="${i18n.t('app.끌어서_크기_조절')}" aria-label="${i18n.t('app.메모_크기_조절')}"></button>
     </article>`;
   }).join("");
 
@@ -8625,7 +8774,7 @@ function renderIdeaBoard(focusId = null) {
         if (!key) return;
         applyIdeaCardColor(card, key, { save: true });
         syncIdeaCardClips(card, key);
-        toast(`메모 색: ${IDEA_COLORS.find((c) => c.key === key)?.label || key}`);
+        toast(`${i18n.t('app.메모_색_IDEA_COLORS_find_c', {'IDEA_COLORS.find((c) => c.key === key)?.label || key': IDEA_COLORS.find((c) => c.key === key)?.label || key})}`);
       });
     });
   });
@@ -8665,18 +8814,18 @@ function syncIdeaCardClips(card, colorKey) {
 }
 
 async function createIdeaNote() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const colors = IDEA_COLORS.map((item) => item.key);
   const color = colors[state.ideas.length % colors.length];
   const idea = await api(`/api/projects/${state.projectId}/ideas`, {
     method: "POST",
-    body: JSON.stringify({ title: "새 메모", body_md: "", color }),
+    body: JSON.stringify({ title: i18n.t('app.새_메모'), body_md: "", color }),
   });
   state.ideas.push(idea);
   state.openSettingsSection = "ideas";
   renderIdeaBank();
   openIdeaBoard(idea.id);
-  toast("새 포스트잇 메모를 만들었어요.");
+  toast(i18n.t('app.새_포스트잇_메모를_만들었어요'));
 }
 
 async function toggleIdeaPin(ideaId) {
@@ -8704,7 +8853,7 @@ async function toggleIdeaPin(ideaId) {
     return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || (a.id - b.id);
   });
   renderIdeaBank();
-  toast(nextPinned ? "목차 하단에 고정했어요." : "목차 하단 고정을 해제했어요.");
+  toast(nextPinned ? i18n.t('app.목차_하단에_고정했어요') : i18n.t('app.목차_하단_고정을_해제했어요'));
 }
 
 async function saveIdeaFromCard(card, options = {}) {
@@ -8722,16 +8871,16 @@ async function saveIdeaFromCard(card, options = {}) {
   const index = state.ideas.findIndex((item) => item.id === id);
   if (index >= 0) state.ideas[index] = updated;
   renderIdeaBank();
-  if (!quiet) toast("메모를 저장했습니다.");
+  if (!quiet) toast(i18n.t('app.메모를_저장했습니다'));
 }
 
 async function deleteIdea(id) {
-  if (!window.confirm("이 메모를 삭제할까요?")) return;
+  if (!window.confirm(i18n.t('app.이_메모를_삭제할까요'))) return;
   await api(`/api/ideas/${id}`, { method: "DELETE", body: JSON.stringify({}) });
   state.ideas = state.ideas.filter((item) => item.id !== id);
   renderIdeaBank();
   if (state.ideaBoardOpen) renderIdeaBoard();
-  toast("메모를 삭제했습니다.");
+  toast(i18n.t('app.메모를_삭제했습니다'));
 }
 
 function setupIdeaBank() {
@@ -8754,17 +8903,17 @@ async function refreshAiStatus() {
     const status = await api("/api/ai/status");
     if (status.configured) {
       const model = status.model || "gemini";
-      setAdminGemini("연결됨", model);
+      setAdminGemini(i18n.t('app.연결됨'), model);
       setAiEnabled(true);
     } else {
       setAdminGemini(
-        "API 키 없음 (.env 에 GEMINI_API_KEY)",
+        i18n.t('app.API_키_없음_env_에_GEMINI_AP'),
         "—",
       );
       setAiEnabled(false);
     }
   } catch (error) {
-    setAdminGemini(error.message || "상태를 확인하지 못함", "—");
+    setAdminGemini(error.message || i18n.t('app.상태를_확인하지_못함'), "—");
     setAiEnabled(false);
   }
 }
@@ -8791,7 +8940,7 @@ function updateToryFocusUi() {
   panel?.classList.toggle("is-tory-focus", focused);
   if (label) {
     label.textContent = focused
-      ? (state.toryFocusSceneTitle || `씬 #${state.toryFocusSceneId}`)
+      ? (state.toryFocusSceneTitle || `${i18n.t('app.씬_state_toryFocusSceneId', {'state.toryFocusSceneId': state.toryFocusSceneId})}`)
       : "";
   }
   // Highlight focused scene in binder when present.
@@ -8809,7 +8958,7 @@ function clearToryFocus({ silent = false } = {}) {
   state.toryFocusSceneId = null;
   state.toryFocusSceneTitle = "";
   updateToryFocusUi();
-  if (!silent) toast("피드백 요청 연결을 해제했어요.");
+  if (!silent) toast(i18n.t('app.피드백_요청_연결을_해제했어요'));
 }
 
 async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
@@ -8826,7 +8975,7 @@ async function startToryAnalyzeForScene(sceneId, sceneTitle = "") {
   state.toryFocusSceneTitle = sceneTitle
     || state.scene?.title
     || $("sceneTitle")?.value
-    || `씬 #${id}`;
+    || `${i18n.t('app.씬_id', {id: id})}`;
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
@@ -8852,16 +9001,16 @@ function renderAnalyzeEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -8876,7 +9025,7 @@ function renderAnalyzeMultiEpisodeOptions() {
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
     return;
   }
   const prevChecked = new Set(
@@ -8885,8 +9034,8 @@ function renderAnalyzeMultiEpisodeOptions() {
   );
   host.innerHTML = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     const checked = prevChecked.has(String(id)) ? " checked" : "";
     return (
       `<label class="tory-multi-episode-option analyze-multi-option">`
@@ -8900,7 +9049,7 @@ function renderAnalyzeMultiEpisodeOptions() {
       const checked = host.querySelectorAll('input[type="checkbox"]:checked');
       if (checked.length > ANALYZE_MULTI_MAX) {
         box.checked = false;
-        toast(`다중 회차는 최대 ${ANALYZE_MULTI_MAX}개까지 선택할 수 있어요.`);
+        toast(`${i18n.t('app.다중_회차는_최대_ANALYZE_MULTI', {ANALYZE_MULTI_MAX: ANALYZE_MULTI_MAX})}`);
       }
     });
   });
@@ -8926,7 +9075,7 @@ function updateAnalyzeTargetUi() {
 
 function openAnalyzeTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -9001,8 +9150,8 @@ function confirmAnalyzeTarget() {
   if (!ids.length) {
     toast(
       getAnalyzeTargetMode() === "multi"
-        ? "피드백할 회차를 한 개 이상 선택해 주세요."
-        : "기준 회차를 선택해 주세요.",
+        ? i18n.t('app.피드백할_회차를_한_개_이상_선택해_주세요')
+        : i18n.t('app.기준_회차를_선택해_주세요'),
     );
     return;
   }
@@ -9049,7 +9198,7 @@ async function runAnalyzeFromSelection(sceneIds) {
     .filter((id) => Number.isFinite(id) && id > 0)
     .slice(0, ANALYZE_MULTI_MAX);
   if (!ids.length) {
-    toast("피드백할 회차를 선택해 주세요.");
+    toast(i18n.t('app.피드백할_회차를_선택해_주세요'));
     return;
   }
   if (ids.length === 1) {
@@ -9066,7 +9215,7 @@ async function runAnalyzeFromSelection(sceneIds) {
 /** Single selected episode → existing mode "analyze" (prompt builder unchanged). */
 async function runFocusedAnalysisForTarget(sceneId) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   let base;
@@ -9077,7 +9226,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
     return;
   }
   if (!base.plain) {
-    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴'));
     return;
   }
 
@@ -9089,16 +9238,16 @@ async function runFocusedAnalysisForTarget(sceneId) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "피드백 중…";
+    button.textContent = i18n.t('app.피드백_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "피드백 요청 중…";
+    aiButton.textContent = i18n.t('app.피드백_요청_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
-  if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -9129,19 +9278,19 @@ async function runFocusedAnalysisForTarget(sceneId) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "analyze" });
-    toast("피드백 요청이 끝났어요.");
+    toast(i18n.t('app.피드백_요청이_끝났어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9149,7 +9298,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
 /** Non-contiguous 2–3 episodes: individual analyze calls, joined with separators. */
 async function runFocusedAnalysisBatch(sceneIds) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const ids = (Array.isArray(sceneIds) ? sceneIds : []).slice(0, ANALYZE_MULTI_MAX);
@@ -9162,16 +9311,16 @@ async function runFocusedAnalysisBatch(sceneIds) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "피드백 중…";
+    button.textContent = i18n.t('app.피드백_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "피드백 요청 중…";
+    aiButton.textContent = i18n.t('app.피드백_요청_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
-  if ($("aiResult")) $("aiResult").value = `${ids.length}개 회차를 각각 살펴보는 중…`;
+  if ($("aiResult")) $("aiResult").value = `${i18n.t('app.ids_length_개_회차를_각각_살펴보', {'ids.length': ids.length})}`;
   ensureAiResultVisible();
 
   const blocks = [];
@@ -9186,9 +9335,9 @@ async function runFocusedAnalysisBatch(sceneIds) {
         continue;
       }
       if (!base.plain) continue;
-      const label = `${ep?.index || "?"}화 · ${base.title || ep?.label || id}`;
+      const label = `${i18n.t('app.ep_index_화_base_title_e', {'ep?.index || "?"': ep?.index || "?", 'base.title || ep?.label || id': base.title || ep?.label || id})}`;
       if ($("aiResult")) {
-        $("aiResult").value = `${i + 1}/${ids.length} · ${label} 피드백 중…`;
+        $("aiResult").value = `${i18n.t('app.i_1_ids_length_label_피드', {'i + 1': i + 1, 'ids.length': ids.length, label: label})}`;
       }
       const assistBody = {
         mode: "analyze",
@@ -9219,23 +9368,23 @@ async function runFocusedAnalysisBatch(sceneIds) {
       blocks.push(`===== ${label} =====\n${result.text || "(결과 없음)"}`);
     }
     if (!blocks.length) {
-      toast("선택한 회차 원고가 비어 있어요.");
+      toast(i18n.t('app.선택한_회차_원고가_비어_있어요'));
       return;
     }
     const text = blocks.join("\n\n");
     if ($("aiResult")) $("aiResult").value = text;
     revealAiAssistResult({ openModal: true, mode: "analyze" });
-    toast(`피드백 요청이 끝났어요. · ${blocks.length}회차(개별)`);
+    toast(`${i18n.t('app.피드백_요청이_끝났어요_blocks_leng', {'blocks.length': blocks.length})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9243,7 +9392,7 @@ async function runFocusedAnalysisBatch(sceneIds) {
 /** Contiguous 2–3 episodes → mode "analyze_multi", single call. */
 async function runFocusedAnalysisMulti(sceneIds) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const ids = (Array.isArray(sceneIds) ? sceneIds : []).slice(0, ANALYZE_MULTI_MAX);
@@ -9254,7 +9403,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
       const loaded = await loadSceneManuscriptForAssist(id);
       if (!loaded.plain) continue;
       const ep = sequence.find((item) => Number(item.sceneId) === Number(id));
-      const title = loaded.title || ep?.label || ep?.shortLabel || `${ep?.index || "?"}화`;
+      const title = loaded.title || ep?.label || ep?.shortLabel || `${i18n.t('app.ep_index_화', {'ep?.index || "?"': ep?.index || "?"})}`;
       const plain = loaded.plain.length > 12000 ? loaded.plain.slice(-12000) : loaded.plain;
       episodes.push({
         sceneId: id,
@@ -9270,7 +9419,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
     if (episodes.length === 1) {
       await runFocusedAnalysisForTarget(episodes[0].sceneId);
     } else {
-      toast("선택한 회차 원고가 비어 있어요.");
+      toast(i18n.t('app.선택한_회차_원고가_비어_있어요'));
     }
     return;
   }
@@ -9284,17 +9433,17 @@ async function runFocusedAnalysisMulti(sceneIds) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "피드백 중…";
+    button.textContent = i18n.t('app.피드백_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "피드백 요청 중…";
+    aiButton.textContent = i18n.t('app.피드백_요청_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "analyze";
   updateForeshadowPanelVisibility();
   if ($("aiResult")) {
-    $("aiResult").value = `${episodes.length}개 연속 회차를 한 흐름으로 살펴보는 중…`;
+    $("aiResult").value = `${i18n.t('app.episodes_length_개_연속_회차', {'episodes.length': episodes.length})}`;
   }
   ensureAiResultVisible();
 
@@ -9325,19 +9474,19 @@ async function runFocusedAnalysisMulti(sceneIds) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "analyze_multi" });
-    toast(`피드백 요청이 끝났어요. · ${episodes.length}회차(연속)`);
+    toast(`${i18n.t('app.피드백_요청이_끝났어요_episodes_le', {'episodes.length': episodes.length})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9361,16 +9510,16 @@ function renderSummarizeMultiEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -9385,7 +9534,7 @@ function renderSummarizeMultiCheckboxList() {
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
     return;
   }
   const prevChecked = new Set(
@@ -9394,8 +9543,8 @@ function renderSummarizeMultiCheckboxList() {
   );
   host.innerHTML = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     const checked = prevChecked.has(String(id)) ? " checked" : "";
     return (
       `<label class="tory-multi-episode-option summarize-multi-option">`
@@ -9409,11 +9558,11 @@ function renderSummarizeMultiCheckboxList() {
       const checked = host.querySelectorAll('input[type="checkbox"]:checked');
       if (checked.length > SUMMARIZE_MULTI_MAX) {
         box.checked = false;
-        toast(`다중 회차는 최대 ${SUMMARIZE_MULTI_MAX}개까지 선택할 수 있어요.`);
+        toast(`${i18n.t('app.다중_회차는_최대_SUMMARIZE_MULT', {SUMMARIZE_MULTI_MAX: SUMMARIZE_MULTI_MAX})}`);
         return;
       }
       if (checked.length >= SUMMARIZE_MULTI_WARN_AT && box.checked) {
-        toast(`${checked.length}개 회차예요. 요약에 시간이 좀 걸릴 수 있어요.`);
+        toast(`${i18n.t('app.checked_length_개_회차예요_요', {'checked.length': checked.length})}`);
       }
     });
   });
@@ -9433,7 +9582,7 @@ function updateSummarizeMultiTargetUi() {
 
 function openSummarizeMultiTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -9494,8 +9643,8 @@ function confirmSummarizeMultiTarget() {
   if (!ids.length) {
     toast(
       getSummarizeMultiTargetMode() === "multi"
-        ? "요약할 회차를 한 개 이상 선택해 주세요."
-        : "기준 회차를 선택해 주세요.",
+        ? i18n.t('app.요약할_회차를_한_개_이상_선택해_주세요')
+        : i18n.t('app.기준_회차를_선택해_주세요'),
     );
     return;
   }
@@ -9503,7 +9652,7 @@ function confirmSummarizeMultiTarget() {
     ? sortSceneIdsByEpisodeSequence(ids)
     : ids;
   if (ids.length >= SUMMARIZE_MULTI_WARN_AT) {
-    toast(`${ids.length}개 회차 요약은 시간이 좀 걸릴 수 있어요.`);
+    toast(`${i18n.t('app.ids_length_개_회차_요약은_시간이', {'ids.length': ids.length})}`);
   }
   closeSummarizeMultiTargetModal({ returnToList: false });
   if (ids.length === 1) {
@@ -9546,7 +9695,7 @@ function setupSummarizeMultiTargetModal() {
 /** Single episode → existing mode "summarize" (prompt builder unchanged). */
 async function runDetailedSceneSummaryForTarget(sceneId) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   let base;
@@ -9557,7 +9706,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
     return;
   }
   if (!base.plain) {
-    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴'));
     return;
   }
 
@@ -9569,16 +9718,16 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "요약 중…";
+    button.textContent = i18n.t('app.요약_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "회차 요약 중…";
+    aiButton.textContent = i18n.t('app.회차_요약_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "summarize";
   updateForeshadowPanelVisibility();
-  if ($("aiResult")) $("aiResult").value = "회차를 자세히 요약하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.회차를_자세히_요약하는_중');
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -9608,19 +9757,19 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "summarize" });
-    toast("회차 요약을 받았어요.");
+    toast(i18n.t('app.회차_요약을_받았어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9631,7 +9780,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
  */
 async function runDetailedSceneSummaryMulti(sceneIds) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const ids = (
@@ -9646,7 +9795,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
     if (ids.length === 1) {
       await runDetailedSceneSummaryForTarget(ids[0]);
     } else {
-      toast("요약할 회차를 선택해 주세요.");
+      toast(i18n.t('app.요약할_회차를_선택해_주세요'));
     }
     return;
   }
@@ -9658,7 +9807,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
       const loaded = await loadSceneManuscriptForAssist(id);
       if (!loaded.plain) continue;
       const ep = sequence.find((item) => Number(item.sceneId) === Number(id));
-      const title = loaded.title || ep?.label || ep?.shortLabel || `${ep?.index || "?"}화`;
+      const title = loaded.title || ep?.label || ep?.shortLabel || `${i18n.t('app.ep_index_화', {'ep?.index || "?"': ep?.index || "?"})}`;
       const plain = loaded.plain.length > 12000 ? loaded.plain.slice(-12000) : loaded.plain;
       episodes.push({ sceneId: id, title, plain });
     } catch (_) {
@@ -9666,7 +9815,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
     }
   }
   if (!episodes.length) {
-    toast("선택한 회차 원고가 비어 있어요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요'));
     return;
   }
   if (episodes.length === 1) {
@@ -9683,17 +9832,17 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "요약 중…";
+    button.textContent = i18n.t('app.요약_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "회차 요약 중…";
+    aiButton.textContent = i18n.t('app.회차_요약_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "summarize";
   updateForeshadowPanelVisibility();
   if ($("aiResult")) {
-    $("aiResult").value = `${episodes.length}개 회차를 자세히 요약하는 중…`;
+    $("aiResult").value = `${i18n.t('app.episodes_length_개_회차를_자', {'episodes.length': episodes.length})}`;
   }
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
@@ -9724,19 +9873,19 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "summarize_multi" });
-    toast(`회차 요약을 받았어요. · ${episodes.length}회차`);
+    toast(`${i18n.t('app.회차_요약을_받았어요_episodes_len', {'episodes.length': episodes.length})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9744,17 +9893,17 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
 /** Feedback request (analyze): editor + reader view of the current scene. */
 async function runFocusedAnalysis(options = {}) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!state.sceneId) {
-    toast("피드백할 원고(씬)를 먼저 열어 주세요.");
+    toast(i18n.t('app.피드백할_원고_씬_를_먼저_열어_주세요'));
     return;
   }
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 요청해 주세요.");
+    toast(i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤'));
     return;
   }
 
@@ -9775,13 +9924,13 @@ async function runFocusedAnalysis(options = {}) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "피드백 중…";
+    button.textContent = i18n.t('app.피드백_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "피드백 요청 중…";
+    aiButton.textContent = i18n.t('app.피드백_요청_중');
   }
-  if ($("aiResult")) $("aiResult").value = "편집자·독자 관점으로 이 회차를 살펴보는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -9811,19 +9960,19 @@ async function runFocusedAnalysis(options = {}) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "analyze" });
-    toast("피드백 요청이 끝났어요.");
+    toast(i18n.t('app.피드백_요청이_끝났어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -9871,7 +10020,7 @@ function renderCustomAnalyzeMenuItems() {
         <strong class="analyze-custom-title">${escapeHtml(item.title)}</strong>
         <span class="analyze-custom-preview">${escapeHtml(short)}</span>
       </button>
-      <button type="button" class="analyze-custom-delete" data-analyze-action="custom-delete" data-custom-id="${escapeHtml(item.id)}" title="이 항목 삭제" aria-label="삭제">×</button>
+      <button type="button" class="analyze-custom-delete" data-analyze-action="custom-delete" data-custom-id="${escapeHtml(item.id)}" title="${i18n.t('app.이_항목_삭제')}" aria-label="${i18n.t('app.삭제')}">×</button>
     </div>`;
   }).join("");
 }
@@ -9891,7 +10040,7 @@ function addCustomAnalyzeItem({ title, prompt }) {
   const name = String(title || "").trim().slice(0, 40);
   const text = String(prompt || "").trim().slice(0, 2000);
   if (!name || !text) {
-    toast("이름과 요청 내용을 모두 적어 주세요.");
+    toast(i18n.t('app.이름과_요청_내용을_모두_적어_주세요'));
     return false;
   }
   const items = loadCustomAnalyzeItems();
@@ -9902,7 +10051,7 @@ function addCustomAnalyzeItem({ title, prompt }) {
   });
   saveCustomAnalyzeItems(items);
   renderCustomAnalyzeMenuItems();
-  toast(`「${name}」을(를) 분석 메뉴에 추가했어요.`);
+  toast(`${i18n.t('app.name_을_를_분석_메뉴에_추가했어요', {name: name})}`);
   return true;
 }
 
@@ -9910,28 +10059,28 @@ function deleteCustomAnalyzeItem(id) {
   const next = loadCustomAnalyzeItems().filter((item) => item.id !== id);
   saveCustomAnalyzeItems(next);
   renderCustomAnalyzeMenuItems();
-  toast("분석 메뉴 항목을 삭제했어요.");
+  toast(i18n.t('app.분석_메뉴_항목을_삭제했어요'));
 }
 
 async function runCustomAnalyzeItem(id) {
   const item = loadCustomAnalyzeItems().find((x) => x.id === id);
   if (!item) {
-    toast("항목을 찾지 못했어요.");
+    toast(i18n.t('app.항목을_찾지_못했어요'));
     return;
   }
   if (!state.sceneId) {
-    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
   if (!item.prompt) {
-    toast("이 항목에 요청 내용이 없어요. 삭제 후 다시 추가해 주세요.");
+    toast(i18n.t('app.이_항목에_요청_내용이_없어요_삭제_후_다시'));
     return;
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "free";
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
   if ($("aiPrompt")) $("aiPrompt").value = item.prompt;
-  toast(`「${item.title}」 분석을 요청합니다…`);
+  toast(`${i18n.t('app.item_title_분석을_요청합니다', {'item.title': item.title})}`);
   // Call the same path as the AI form submit (requestSubmit can be unreliable)
   const fakeEvent = { preventDefault() {} };
   await submitAiAssist(fakeEvent);
@@ -10122,7 +10271,7 @@ function setupAnalyzeMenu() {
     }
     // Default: focus analyze
     if (!state.sceneId) {
-      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
       return;
     }
     const title = state.scene?.title || $("sceneTitle")?.value || "";
@@ -10203,14 +10352,14 @@ function collectLocalDuplicateHits(currentPlain, neighbors) {
     const nbPlain = String(nb.content || "");
     const nbNorm = normalizeDupText(nbPlain);
     if (!nbNorm) continue;
-    const where = `${nb.index || "?"}화 · ${nb.title || "회차"}`;
+    const where = `${i18n.t('app.nb_index_화_nb_title_회차', {'nb.index || "?"': nb.index || "?", 'nb.title || "회차"': nb.title || "회차"})}`;
 
     for (const w of windows) {
       if (!nbNorm.includes(w)) continue;
       const key = `p:${w}:${where}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      hits.push({ kind: "표현", phrase: w, where });
+      hits.push({ kind: i18n.t('app.표현'), phrase: w, where });
       if (hits.length >= 36) return hits;
     }
 
@@ -10226,7 +10375,7 @@ function collectLocalDuplicateHits(currentPlain, neighbors) {
         if (seen.has(key)) continue;
         seen.add(key);
         hits.push({
-          kind: "내용",
+          kind: i18n.t('app.내용'),
           phrase: sent.slice(0, 80) + (sent.length > 80 ? "…" : ""),
           where,
         });
@@ -10251,16 +10400,16 @@ function renderDupcheckEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -10278,7 +10427,7 @@ function updateDupcheckTargetUi() {
 /** Open episode picker for panel-driven 중복 체크 (does not run the scan yet). */
 function openDupcheckTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -10318,14 +10467,14 @@ function confirmDupcheckTarget() {
     const n = Number($("dupcheckOtherSceneSelect")?.value || 0);
     sceneId = Number.isFinite(n) && n > 0 ? n : null;
     if (!sceneId) {
-      toast("기준 회차를 선택해 주세요.");
+      toast(i18n.t('app.기준_회차를_선택해_주세요'));
       $("dupcheckOtherSceneSelect")?.focus();
       return;
     }
   } else {
     sceneId = state.sceneId ? Number(state.sceneId) : null;
     if (!sceneId) {
-      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
       return;
     }
   }
@@ -10365,7 +10514,7 @@ function setupDupcheckTargetModal() {
 
 /** Fixed UI notice for ideas_next_exists results (not part of the LLM prompt). */
 const IDEAS_NEXT_EXISTS_RESULT_NOTICE =
-  "토리는 전개를 억지로 바꾸지 않아요. 이미 충분히 완성도가 높다고 판단되면, 그 점을 먼저 말씀드리고 그래도 참고할 만한 다른 아이디어를 함께 제안해 드려요. 최종 선택은 작가님 몫입니다.";
+  i18n.t('app.토리는_전개를_억지로_바꾸지_않아요_이미_충');
 
 /** "current" | "other" — baseline episode for 다음 아이디어 제안. */
 function getIdeasTargetMode() {
@@ -10381,16 +10530,16 @@ function renderIdeasEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -10407,7 +10556,7 @@ function updateIdeasTargetUi() {
 
 function openIdeasTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -10447,14 +10596,14 @@ function confirmIdeasTarget() {
     const n = Number($("ideasOtherSceneSelect")?.value || 0);
     sceneId = Number.isFinite(n) && n > 0 ? n : null;
     if (!sceneId) {
-      toast("기준 회차를 선택해 주세요.");
+      toast(i18n.t('app.기준_회차를_선택해_주세요'));
       $("ideasOtherSceneSelect")?.focus();
       return;
     }
   } else {
     sceneId = state.sceneId ? Number(state.sceneId) : null;
     if (!sceneId) {
-      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
       return;
     }
   }
@@ -10509,16 +10658,16 @@ function renderBrainstormEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -10535,7 +10684,7 @@ function updateBrainstormTargetUi() {
 
 function openBrainstormTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -10575,14 +10724,14 @@ function confirmBrainstormTarget() {
     const n = Number($("brainstormOtherSceneSelect")?.value || 0);
     sceneId = Number.isFinite(n) && n > 0 ? n : null;
     if (!sceneId) {
-      toast("기준 회차를 선택해 주세요.");
+      toast(i18n.t('app.기준_회차를_선택해_주세요'));
       $("brainstormOtherSceneSelect")?.focus();
       return;
     }
   } else {
     sceneId = state.sceneId ? Number(state.sceneId) : null;
     if (!sceneId) {
-      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
       return;
     }
   }
@@ -10629,12 +10778,12 @@ function setupBrainstormTargetModal() {
  */
 async function runBrainstormSuggestion() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const baseSceneId = Number(brainstormTargetSceneId || state.sceneId);
   if (!baseSceneId) {
-    toast("브레인스토밍할 회차를 먼저 선택해 주세요.");
+    toast(i18n.t('app.브레인스토밍할_회차를_먼저_선택해_주세요'));
     openBrainstormTargetModal();
     return;
   }
@@ -10647,14 +10796,14 @@ async function runBrainstormSuggestion() {
     return;
   }
   if (!base.plain) {
-    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴_2'));
     return;
   }
 
   const sequence = getEpisodeSequence();
   const idx = findEpisodeIndex(baseSceneId, sequence);
   if (idx < 0) {
-    toast("목차에서 선택한 회차 위치를 찾지 못했어요.");
+    toast(i18n.t('app.목차에서_선택한_회차_위치를_찾지_못했어요'));
     return;
   }
 
@@ -10690,15 +10839,15 @@ async function runBrainstormForScene(base, userTopic = "") {
   const prevTool = toolBtn?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "브레인스토밍 중…";
+    button.textContent = i18n.t('app.브레인스토밍_중');
   }
   if (toolBtn) {
     toolBtn.disabled = true;
-    toolBtn.textContent = "브레인스토밍 중…";
+    toolBtn.textContent = i18n.t('app.브레인스토밍_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
-  if ($("aiResult")) $("aiResult").value = "작품 확장 아이디어를 브레인스토밍하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.작품_확장_아이디어를_브레인스토밍하는_중');
   ensureAiResultVisible();
 
   try {
@@ -10724,19 +10873,19 @@ async function runBrainstormForScene(base, userTopic = "") {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "brainstorm" });
-    toast("브레인스토밍 결과를 받았어요.");
+    toast(i18n.t('app.브레인스토밍_결과를_받았어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "토리에게 물어보기";
+      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
-      toolBtn.textContent = prevTool || "토리에게 물어보기";
+      toolBtn.textContent = prevTool || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -10753,15 +10902,15 @@ async function runBrainstormNextExists(base, next, userTopic = "") {
   const prevTool = toolBtn?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "브레인스토밍 중…";
+    button.textContent = i18n.t('app.브레인스토밍_중');
   }
   if (toolBtn) {
     toolBtn.disabled = true;
-    toolBtn.textContent = "브레인스토밍 중…";
+    toolBtn.textContent = i18n.t('app.브레인스토밍_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "brainstorm";
-  if ($("aiResult")) $("aiResult").value = "현재·다음 회차를 참고해 브레인스토밍하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.현재_다음_회차를_참고해_브레인스토밍하는_중');
   ensureAiResultVisible();
 
   try {
@@ -10789,19 +10938,19 @@ async function runBrainstormNextExists(base, next, userTopic = "") {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "brainstorm_next_exists" });
-    toast("브레인스토밍 결과를 받았어요.");
+    toast(i18n.t('app.브레인스토밍_결과를_받았어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "토리에게 물어보기";
+      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
-      toolBtn.textContent = prevTool || "토리에게 물어보기";
+      toolBtn.textContent = prevTool || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -10849,12 +10998,12 @@ async function loadSceneManuscriptForAssist(sceneId) {
  */
 async function runNextIdeaSuggestion(targetSceneId) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const baseSceneId = Number(targetSceneId);
   if (!baseSceneId) {
-    toast("기준 회차를 선택해 주세요.");
+    toast(i18n.t('app.기준_회차를_선택해_주세요'));
     return;
   }
 
@@ -10866,14 +11015,14 @@ async function runNextIdeaSuggestion(targetSceneId) {
     return;
   }
   if (!base.plain) {
-    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴_2'));
     return;
   }
 
   const sequence = getEpisodeSequence();
   const idx = findEpisodeIndex(baseSceneId, sequence);
   if (idx < 0) {
-    toast("목차에서 선택한 회차 위치를 찾지 못했어요.");
+    toast(i18n.t('app.목차에서_선택한_회차_위치를_찾지_못했어요'));
     return;
   }
 
@@ -10906,11 +11055,11 @@ async function runIdeasForScene(base) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "다음 아이디어 제안 중…";
+    button.textContent = i18n.t('app.다음_아이디어_제안_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "ideas";
-  if ($("aiResult")) $("aiResult").value = "다음 전개 아이디어를 생각하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.다음_전개_아이디어를_생각하는_중');
   ensureAiResultVisible();
 
   try {
@@ -10935,15 +11084,15 @@ async function runIdeasForScene(base) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "ideas" });
-    toast("다음 아이디어 제안을 받았어요.");
+    toast(i18n.t('app.다음_아이디어_제안을_받았어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "토리에게 물어보기";
+      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -10959,12 +11108,12 @@ async function runIdeasNextExists(base, next) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "다음 아이디어 제안 중…";
+    button.textContent = i18n.t('app.다음_아이디어_제안_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "ideas";
   if ($("aiResult")) {
-    $("aiResult").value = "다음 회차 시작부와 대안 전개를 살펴보는 중…";
+    $("aiResult").value = i18n.t('app.다음_회차_시작부와_대안_전개를_살펴보는_중');
   }
   ensureAiResultVisible();
 
@@ -10993,17 +11142,17 @@ async function runIdeasNextExists(base, next) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    const llmText = result.text || "(결과 없음)";
+    const llmText = result.text || i18n.t('app.결과_없음');
     const display = `${IDEAS_NEXT_EXISTS_RESULT_NOTICE}\n\n---\n\n${llmText}`;
     if ($("aiResult")) $("aiResult").value = display;
     revealAiAssistResult({ openModal: true, mode: "ideas_next_exists" });
-    toast("다음 회차 시작 검토와 대안 아이디어를 받았어요.");
+    toast(i18n.t('app.다음_회차_시작_검토와_대안_아이디어를_받았'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "토리에게 물어보기";
+      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -11015,14 +11164,14 @@ async function runIdeasNextExists(base, next) {
  */
 async function runDuplicateCheck(targetSceneId) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const baseSceneId = (targetSceneId != null && targetSceneId !== "")
     ? Number(targetSceneId)
     : Number(state.sceneId);
   if (!baseSceneId) {
-    toast("체크할 원고(씬)를 먼저 열어 주세요.");
+    toast(i18n.t('app.체크할_원고_씬_를_먼저_열어_주세요'));
     return;
   }
 
@@ -11052,15 +11201,15 @@ async function runDuplicateCheck(targetSceneId) {
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
     toast(isLiveEditor
-      ? "현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요."
-      : "선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 체크해 주세요.");
+      ? i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤_2')
+      : i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴_3'));
     return;
   }
 
   const sequence = getEpisodeSequence();
   const idx = findEpisodeIndex(baseSceneId, sequence);
   if (idx < 0) {
-    toast("목차에서 현재 회차 위치를 찾지 못했어요.");
+    toast(i18n.t('app.목차에서_현재_회차_위치를_찾지_못했어요'));
     return;
   }
 
@@ -11080,16 +11229,16 @@ async function runDuplicateCheck(targetSceneId) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "중복 체크 중…";
+    button.textContent = i18n.t('app.중복_체크_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "중복 체크 중…";
+    aiButton.textContent = i18n.t('app.중복_체크_중');
   }
   if ($("aiResult")) {
     $("aiResult").value = range.length
-      ? `앞뒤 ${range.length}개 회차와 비교하는 중…`
-      : "인근 회차가 없어 현재 회차만 검토합니다…";
+      ? `${i18n.t('app.앞뒤_range_length_개_회차와_비교', {'range.length': range.length})}`
+      : i18n.t('app.인근_회차가_없어_현재_회차만_검토합니다');
   }
   ensureAiResultVisible();
 
@@ -11105,7 +11254,7 @@ async function runDuplicateCheck(targetSceneId) {
         neighbors.push({
           sceneId: ep.sceneId,
           index: ep.index,
-          title: ep.label || ep.shortLabel || detail?.title || `${ep.index}화`,
+          title: ep.label || ep.shortLabel || detail?.title || `${i18n.t('app.ep_index_화_2', {'ep.index': ep.index})}`,
           content: plain.slice(0, 8000),
         });
       } catch (_) {
@@ -11145,7 +11294,7 @@ async function runDuplicateCheck(targetSceneId) {
       body: JSON.stringify(assistBody),
     });
 
-    let text = result.text || "(결과 없음)";
+    let text = result.text || i18n.t('app.결과_없음');
     if (localHits.length) {
       const preview = localHits.slice(0, 8).map((h) =>
         `· [${h.kind}] 「${h.phrase}」 — ${h.where}`
@@ -11158,25 +11307,25 @@ async function runDuplicateCheck(targetSceneId) {
     if ($("aiResult")) $("aiResult").value = text;
     revealAiAssistResult({ openModal: true, mode: "dupcheck" });
     toast(neighbors.length
-      ? `중복 체크 완료 · 인근 ${neighbors.length}회차 비교`
-      : "중복 체크 완료 · 인근 회차 없음");
+      ? `${i18n.t('app.중복_체크_완료_인근_neighbors_le', {'neighbors.length': neighbors.length})}`
+      : i18n.t('app.중복_체크_완료_인근_회차_없음'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
 
 /** Display name for assist mode worldscan (internal key kept for API compatibility). */
-const SETTING_BREAK_SCAN_LABEL = "설정 붕괴 감지기";
-const SETTING_BREAK_SCAN_BUSY = "설정 붕괴 감지 중…";
+const SETTING_BREAK_SCAN_LABEL = i18n.t('app.설정_붕괴_감지기');
+const SETTING_BREAK_SCAN_BUSY = i18n.t('app.설정_붕괴_감지_중');
 const WORLDSCAN_MULTI_MAX = 5;
 
 /** "current" | "other" | "multi" */
@@ -11194,16 +11343,16 @@ function renderWorldscanEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -11218,7 +11367,7 @@ function renderWorldscanMultiEpisodeOptions() {
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    host.innerHTML = `<p class="hint">열 수 있는 회차가 없어요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
     return;
   }
   const prevChecked = new Set(
@@ -11227,8 +11376,8 @@ function renderWorldscanMultiEpisodeOptions() {
   );
   host.innerHTML = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     const checked = prevChecked.has(String(id)) ? " checked" : "";
     return (
       `<label class="tory-multi-episode-option worldscan-multi-option">`
@@ -11242,7 +11391,7 @@ function renderWorldscanMultiEpisodeOptions() {
       const checked = host.querySelectorAll('input[type="checkbox"]:checked');
       if (checked.length > WORLDSCAN_MULTI_MAX) {
         box.checked = false;
-        toast(`다중 회차는 최대 ${WORLDSCAN_MULTI_MAX}개까지 선택할 수 있어요.`);
+        toast(`${i18n.t('app.다중_회차는_최대_WORLDSCAN_MULT', {WORLDSCAN_MULTI_MAX: WORLDSCAN_MULTI_MAX})}`);
       }
     });
   });
@@ -11258,7 +11407,7 @@ function updateWorldscanTargetUi() {
 
 function openWorldscanTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -11330,8 +11479,8 @@ function confirmWorldscanTarget() {
   if (!ids.length) {
     toast(
       getWorldscanTargetMode() === "multi"
-        ? "검사할 회차를 한 개 이상 선택해 주세요."
-        : "기준 회차를 선택해 주세요.",
+        ? i18n.t('app.검사할_회차를_한_개_이상_선택해_주세요')
+        : i18n.t('app.기준_회차를_선택해_주세요'),
     );
     return;
   }
@@ -11382,7 +11531,7 @@ function ensureWorldscanLoreReady() {
   const hasChars = Array.isArray(state.characters) && state.characters.length > 0;
   const hasKeywords = normalizeKeywordList(state.keywords || project?.keywords || []).length > 0;
   if (!worldText && !mainGenre && !hasChars && !hasKeywords) {
-    toast("장르·세계관·캐릭터·키워드 중 하나 이상 설정해 주세요. 판단 근거가 필요해요.");
+    toast(i18n.t('app.장르_세계관_캐릭터_키워드_중_하나_이상_설'));
     setActiveBinder("settings");
     state.openSettingsSection = "world";
     applySettingsSectionState();
@@ -11396,7 +11545,7 @@ function ensureWorldscanLoreReady() {
  */
 async function runWorldScanForTarget(sceneId) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const loreReady = ensureWorldscanLoreReady();
@@ -11412,7 +11561,7 @@ async function runWorldScanForTarget(sceneId) {
     return;
   }
   if (!base.plain) {
-    toast("선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴_4'));
     return;
   }
 
@@ -11424,13 +11573,13 @@ async function runWorldScanForTarget(sceneId) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "검사 중…";
+    button.textContent = i18n.t('app.검사_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
-  if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -11462,19 +11611,19 @@ async function runWorldScanForTarget(sceneId) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "worldscan" });
-    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`);
+    toast(`${i18n.t('app.SETTING_BREAK_SCAN_LABE', {SETTING_BREAK_SCAN_LABEL: SETTING_BREAK_SCAN_LABEL})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -11484,7 +11633,7 @@ async function runWorldScanForTarget(sceneId) {
  */
 async function runWorldScanMulti(sceneIds) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const loreReady = ensureWorldscanLoreReady();
@@ -11496,7 +11645,7 @@ async function runWorldScanMulti(sceneIds) {
     if (ids.length === 1) {
       await runWorldScanForTarget(ids[0]);
     } else {
-      toast("검사할 회차를 선택해 주세요.");
+      toast(i18n.t('app.검사할_회차를_선택해_주세요'));
     }
     return;
   }
@@ -11511,7 +11660,7 @@ async function runWorldScanMulti(sceneIds) {
       const title = loaded.title
         || ep?.label
         || ep?.shortLabel
-        || `${ep?.index || "?"}화`;
+        || `${i18n.t('app.ep_index_화', {'ep?.index || "?"': ep?.index || "?"})}`;
       const plain = loaded.plain.length > 12000
         ? loaded.plain.slice(-12000)
         : loaded.plain;
@@ -11521,7 +11670,7 @@ async function runWorldScanMulti(sceneIds) {
     }
   }
   if (!episodes.length) {
-    toast("선택한 회차 원고가 비어 있어요.");
+    toast(i18n.t('app.선택한_회차_원고가_비어_있어요'));
     return;
   }
   if (episodes.length === 1) {
@@ -11541,14 +11690,14 @@ async function runWorldScanMulti(sceneIds) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "검사 중…";
+    button.textContent = i18n.t('app.검사_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
   if ($("aiResult")) {
-    $("aiResult").value = `${episodes.length}개 회차의 세계관·캐릭터 설정을 대조하는 중…`;
+    $("aiResult").value = `${i18n.t('app.episodes_length_개_회차의_세', {'episodes.length': episodes.length})}`;
   }
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
@@ -11582,19 +11731,19 @@ async function runWorldScanMulti(sceneIds) {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "worldscan_multi" });
-    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요. · ${episodes.length}회차`);
+    toast(`${i18n.t('app.SETTING_BREAK_SCAN_LABE_2', {SETTING_BREAK_SCAN_LABEL: SETTING_BREAK_SCAN_LABEL, 'episodes.length': episodes.length})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -11602,11 +11751,11 @@ async function runWorldScanMulti(sceneIds) {
 /** World/character consistency scan: compare settings vs current manuscript. */
 async function runWorldScan() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!state.sceneId) {
-    toast("검사할 원고(씬)를 먼저 열어 주세요.");
+    toast(i18n.t('app.검사할_원고_씬_를_먼저_열어_주세요'));
     return;
   }
   const worldRaw = state.worldbuildingMd
@@ -11618,7 +11767,7 @@ async function runWorldScan() {
   const hasChars = Array.isArray(state.characters) && state.characters.length > 0;
   const hasKeywords = normalizeKeywordList(state.keywords || project?.keywords || []).length > 0;
   if (!worldText && !mainGenre && !hasChars && !hasKeywords) {
-    toast("장르·세계관·캐릭터·키워드 중 하나 이상 설정해 주세요. 판단 근거가 필요해요.");
+    toast(i18n.t('app.장르_세계관_캐릭터_키워드_중_하나_이상_설'));
     setActiveBinder("settings");
     state.openSettingsSection = "world";
     applySettingsSectionState();
@@ -11627,7 +11776,7 @@ async function runWorldScan() {
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 검사해 주세요.");
+    toast(i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤_3'));
     return;
   }
 
@@ -11640,13 +11789,13 @@ async function runWorldScan() {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "검사 중…";
+    button.textContent = i18n.t('app.검사_중');
   }
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
   }
-  if ($("aiResult")) $("aiResult").value = "세계관·캐릭터 설정과 원고를 대조하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
   ensureAiResultVisible();
   if (isAiResultModalOpen()) syncAiResultModalBody();
 
@@ -11678,19 +11827,19 @@ async function runWorldScan() {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    if ($("aiResult")) $("aiResult").value = result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "worldscan" });
-    toast(`${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`);
+    toast(`${i18n.t('app.SETTING_BREAK_SCAN_LABE', {SETTING_BREAK_SCAN_LABEL: SETTING_BREAK_SCAN_LABEL})}`);
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "분석 ▾";
+      button.textContent = prevLabel || i18n.t('app.분석');
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = "토리에게 물어보기";
+      aiButton.textContent = i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -11715,14 +11864,14 @@ function buildToryProjectContextPayload(options = {}) {
   const characterProfiles = {};
   const chars = Array.isArray(state.characters) ? state.characters : [];
   for (const ch of chars.slice(0, 40)) {
-    const name = String(ch.name || "").trim() || `인물#${ch.id || "?"}`;
+    const name = String(ch.name || "").trim() || `${i18n.t('app.인물_ch_id', {'ch.id || "?"': ch.id || "?"})}`;
     const parts = [];
     if (ch.role) {
       const roleMap = {
-        protagonist: "주인공",
-        antagonist: "대립 인물",
-        supporting: "조연",
-        minor: "단역",
+        protagonist: i18n.t('app.주인공'),
+        antagonist: i18n.t('app.대립_인물'),
+        supporting: i18n.t('app.조연'),
+        minor: i18n.t('app.단역'),
       };
       parts.push(roleMap[ch.role] || ch.role);
     }
@@ -11730,14 +11879,14 @@ function buildToryProjectContextPayload(options = {}) {
     if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
       const full = state.character.character;
       if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
-      if (full.strengths_md) parts.push(`강점: ${String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
-      if (full.weaknesses_md) parts.push(`약점: ${String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+      if (full.strengths_md) parts.push(`${i18n.t('app.강점_String_full_strengths', {'String(full.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
+      if (full.weaknesses_md) parts.push(`${i18n.t('app.약점_String_full_weaknesse', {'String(full.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
     } else {
       if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
-      if (ch.strengths_md) parts.push(`강점: ${String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
-      if (ch.weaknesses_md) parts.push(`약점: ${String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+      if (ch.strengths_md) parts.push(`${i18n.t('app.강점_String_ch_strengths_m', {'String(ch.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
+      if (ch.weaknesses_md) parts.push(`${i18n.t('app.약점_String_ch_weaknesses', {'String(ch.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
     }
-    characterProfiles[name] = parts.filter(Boolean).join(" · ") || "설정 미기입";
+    characterProfiles[name] = parts.filter(Boolean).join(" · ") || i18n.t('app.설정_미기입');
   }
 
   const project_genre_main = mainGenreLabel(mainGenre);
@@ -11797,26 +11946,26 @@ function buildLoreKeeperPayload(options = {}) {
   ).trim();
 
   const genreBits = [];
-  if (mainLabel && mainLabel !== "미정") genreBits.push(mainLabel);
-  if (subLabel && subLabel !== "미정") genreBits.push(subLabel);
-  if (keywords.length) genreBits.push(`키워드: ${keywords.slice(0, 12).join(", ")}`);
+  if (mainLabel && mainLabel !== i18n.t('app.미정')) genreBits.push(mainLabel);
+  if (subLabel && subLabel !== i18n.t('app.미정')) genreBits.push(subLabel);
+  if (keywords.length) genreBits.push(`${i18n.t('app.키워드_keywords_slice_0_12', {'keywords.slice(0, 12).join(", ")': keywords.slice(0, 12).join(", ")})}`);
   // Optional freeform tone note from AI prompt field
   const extraTone = String($("aiPrompt")?.value || "").trim();
   const genreRules = genreBits.length
     ? genreBits.join(" / ") + (extraTone ? ` · 작가 메모: ${extraTone.slice(0, 200)}` : "")
-    : (extraTone || "장르 미정 — 원고 톤을 스스로 추정하되, 과한 장르 이탈은 경고");
+    : (extraTone || i18n.t('app.장르_미정_원고_톤을_스스로_추정하되_과한'));
 
   const characterProfiles = {};
   const chars = Array.isArray(state.characters) ? state.characters : [];
   for (const ch of chars.slice(0, 40)) {
-    const name = String(ch.name || "").trim() || `인물#${ch.id || "?"}`;
+    const name = String(ch.name || "").trim() || `${i18n.t('app.인물_ch_id', {'ch.id || "?"': ch.id || "?"})}`;
     const parts = [];
     if (ch.role) {
       const roleMap = {
-        protagonist: "주인공",
-        antagonist: "대립 인물",
-        supporting: "조연",
-        minor: "단역",
+        protagonist: i18n.t('app.주인공'),
+        antagonist: i18n.t('app.대립_인물'),
+        supporting: i18n.t('app.조연'),
+        minor: i18n.t('app.단역'),
       };
       parts.push(roleMap[ch.role] || ch.role);
     }
@@ -11825,14 +11974,14 @@ function buildLoreKeeperPayload(options = {}) {
     if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
       const full = state.character.character;
       if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
-      if (full.strengths_md) parts.push(`강점: ${String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
-      if (full.weaknesses_md) parts.push(`약점: ${String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)}`);
+      if (full.strengths_md) parts.push(`${i18n.t('app.강점_String_full_strengths', {'String(full.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
+      if (full.weaknesses_md) parts.push(`${i18n.t('app.약점_String_full_weaknesse', {'String(full.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
     } else {
       if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
-      if (ch.strengths_md) parts.push(`강점: ${String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
-      if (ch.weaknesses_md) parts.push(`약점: ${String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)}`);
+      if (ch.strengths_md) parts.push(`${i18n.t('app.강점_String_ch_strengths_m', {'String(ch.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
+      if (ch.weaknesses_md) parts.push(`${i18n.t('app.약점_String_ch_weaknesses', {'String(ch.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
     }
-    characterProfiles[name] = parts.filter(Boolean).join(" · ") || "설정 미기입";
+    characterProfiles[name] = parts.filter(Boolean).join(" · ") || i18n.t('app.설정_미기입');
   }
 
   // Prefer a slightly higher bar by default (strict lore + tone), matching sample sensitivity 4
@@ -11916,8 +12065,8 @@ function renderForeshadowSelect(selectedId = "") {
   const list = loadForeshadows();
   const mode = $("aiMode")?.value || "";
   const emptyLabel = mode === "plottwist"
-    ? "반전 복선을 선택하거나 아래에서 추가"
-    : "복선을 선택하거나 아래에서 추가";
+    ? i18n.t('app.반전_복선을_선택하거나_아래에서_추가')
+    : i18n.t('app.복선을_선택하거나_아래에서_추가');
   const options = [
     `<option value="">${emptyLabel}</option>`,
     ...list.map((item) => {
@@ -11990,16 +12139,16 @@ function renderContinueEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   // Restore previous pick, else prefer first non-current episode, else current.
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
@@ -12016,15 +12165,15 @@ function updateContinueSourceUi() {
   if (hint) {
     if (other) {
       const sel = $("continueOtherSceneSelect");
-      const label = sel?.selectedOptions?.[0]?.textContent?.trim() || "선택한 회차";
+      const label = sel?.selectedOptions?.[0]?.textContent?.trim() || i18n.t('app.선택한_회차');
       hint.textContent = sel?.value
-        ? `「${label}」 끝에서 이어 씁니다. 실행 시 해당 회차를 엽니다.`
-        : "이어 쓸 회차를 목록에서 골라 주세요.";
+        ? `${i18n.t('app.label_끝에서_이어_씁니다_실행_시_해', {label: label})}`
+        : i18n.t('app.이어_쓸_회차를_목록에서_골라_주세요');
     } else {
       const cur = state.scene?.title || $("sceneTitle")?.value || "";
       hint.textContent = cur
-        ? `지금 편집 중인 「${cur}」 끝에서 이어 씁니다.`
-        : "지금 편집 중인 회차 끝에서 이어 씁니다. 원고를 먼저 열어 두세요.";
+        ? `${i18n.t('app.지금_편집_중인_cur_끝에서_이어_씁니다', {cur: cur})}`
+        : i18n.t('app.지금_편집_중인_회차_끝에서_이어_씁니다_원');
     }
   }
   renderContinueEpisodeOptions();
@@ -12064,7 +12213,7 @@ function renderContinueLengthOptions() {
       + `</label>`
     );
   }).join("");
-  fieldset.innerHTML = `<legend class="sr-only">이어 쓸 분량</legend>${options}`;
+  fieldset.innerHTML = `${i18n.t('app.legend_class_sr_only_이어', {options: options})}`;
   if (fieldset.dataset.lengthUiBound !== "1") {
     fieldset.dataset.lengthUiBound = "1";
     fieldset.addEventListener("change", (event) => {
@@ -12136,13 +12285,13 @@ function updateContinuePanelVisibility() {
     updateSuccessProfileRefUi();
   }
   if (promptLabel) {
-    promptLabel.textContent = mode === "free" ? "요청 내용" : "추가 요청 (선택)";
+    promptLabel.textContent = mode === "free" ? i18n.t('app.요청_내용') : i18n.t('app.추가_요청_선택');
   }
   if (prompt && mode === "free") {
-    prompt.placeholder = "예: 이 인물의 성격을 3줄로 정리해 줘. / 이 장면을 더 긴장감 있게 고쳐 줘.";
+    prompt.placeholder = i18n.t('app.예_이_인물의_성격을_3줄로_정리해_줘_이');
   }
   if (prompt && mode === "subsynopsis") {
-    prompt.placeholder = "실행하면 줄거리 개요와 글자수 제한을 정하는 창이 이어져요.";
+    prompt.placeholder = i18n.t('app.실행하면_줄거리_개요와_글자수_제한을_정하는');
   }
   if (typeof syncAiSelectViewUi === "function") syncAiSelectViewUi();
 }
@@ -12160,7 +12309,7 @@ let aiSuccessFeedbackBlocked = false;
 
 function aiModeGroupIconKind(label) {
   const clean = String(label || "").replace(/^[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\s]+/u, "").trim();
-  if (clean === "스페셜 기능") return "wand";
+  if (clean === i18n.t('app.스페셜_기능')) return "wand";
   return "tory";
 }
 
@@ -12259,10 +12408,10 @@ function syncAiSelectViewUi() {
 
   if (labelEl) {
     if (!onSelect || showList || mode === "free") {
-      labelEl.textContent = "무엇을 도와드릴까요?";
+      labelEl.textContent = i18n.t('app.무엇을_도와드릴까요');
     } else {
       const opt = $("aiMode")?.selectedOptions?.[0];
-      labelEl.textContent = opt?.textContent?.trim() || "무엇을 도와드릴까요?";
+      labelEl.textContent = opt?.textContent?.trim() || i18n.t('app.무엇을_도와드릴까요');
     }
   }
 
@@ -12329,7 +12478,7 @@ async function updateSuccessFeedbackGuideUi() {
   if (!hasAny) {
     aiSuccessFeedbackBlocked = true;
     if (textEl) {
-      textEl.textContent = "아직 분석한 흥행 작품이 없어요. 흥행 공식 분석을 먼저 이용하세요.";
+      textEl.textContent = i18n.t('app.아직_분석한_흥행_작품이_없어요_흥행_공식');
     }
     guide.classList.remove("hidden");
     guide.removeAttribute("hidden");
@@ -12364,10 +12513,10 @@ function syncAiModePickerUi() {
   if (labelEl) {
     if (sel.value === "free" || !showForm) {
       labelEl.textContent = showForm
-        ? (opt?.textContent?.trim() || "무엇을 도와드릴까요?")
-        : "무엇을 도와드릴까요?";
+        ? (opt?.textContent?.trim() || i18n.t('app.무엇을_도와드릴까요'))
+        : i18n.t('app.무엇을_도와드릴까요');
     } else {
-      labelEl.textContent = opt?.textContent?.trim() || "무엇을 도와드릴까요?";
+      labelEl.textContent = opt?.textContent?.trim() || i18n.t('app.무엇을_도와드릴까요');
     }
   }
   const on = AI_SUCCESS_MODE_VALUES.has(sel.value);
@@ -12500,7 +12649,7 @@ function setupAiModePicker() {
     event.stopPropagation();
     const value = optBtn.getAttribute("data-ai-mode-value") || "free";
     if (AI_COMING_MODE_VALUES.has(value)) {
-      toast("아직 준비 중인 기능이에요.");
+      toast(i18n.t('app.아직_준비_중인_기능이에요'));
       return;
     }
     setAiModeValue(value);
@@ -12551,47 +12700,47 @@ function updateForeshadowPanelVisibility() {
   const buildupInput = $("foreshadowBuildup");
 
   if (mode === "foreshadow") {
-    if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
+    if (titleEl) titleEl.textContent = i18n.t('app.떡밥_복선_탐색기');
     if (hintEl) {
-      hintEl.textContent = "「단서가 원고에 심겼는지」를 봐요. 반전이 설득력 있는지는 반전 & 개연성 검사기를 이용해 주세요.";
+      hintEl.textContent = i18n.t('app.단서가_원고에_심겼는지_를_봐요_반전이_설');
     }
     if (modeHint) modeHint.classList.add("hidden");
-    setForeshadowLabelText($("foreshadowSelectLabel"), "검수할 복선");
-    setForeshadowLabelText($("foreshadowTitleLabel"), "복선 제목");
-    setForeshadowLabelText($("foreshadowTargetLabel"), "반전 목표 장");
-    setForeshadowLabelText($("foreshadowBuildupLabel"), "빌드업·단서 (한 줄에 하나)");
-    if (titleInput) titleInput.placeholder = "예: 집사의 배신";
-    if (targetInput) targetInput.placeholder = "예: 12장";
-    if (buildupInput) buildupInput.placeholder = "2장: 수상한 태도\n6장: 밤중에 외출";
-    if (saveBtn) saveBtn.textContent = "복선 저장";
-    if (delBtn) delBtn.textContent = "선택 삭제";
-    panel.setAttribute("aria-label", "떡밥·복선 탐색기");
+    setForeshadowLabelText($("foreshadowSelectLabel"), i18n.t('app.검수할_복선'));
+    setForeshadowLabelText($("foreshadowTitleLabel"), i18n.t('app.복선_제목'));
+    setForeshadowLabelText($("foreshadowTargetLabel"), i18n.t('app.반전_목표_장'));
+    setForeshadowLabelText($("foreshadowBuildupLabel"), i18n.t('app.빌드업_단서_한_줄에_하나'));
+    if (titleInput) titleInput.placeholder = i18n.t('app.예_집사의_배신');
+    if (targetInput) targetInput.placeholder = i18n.t('app.예_12장');
+    if (buildupInput) buildupInput.placeholder = i18n.t('app.2장_수상한_태도_6장_밤중에_외출');
+    if (saveBtn) saveBtn.textContent = i18n.t('app.복선_저장');
+    if (delBtn) delBtn.textContent = i18n.t('app.선택_삭제');
+    panel.setAttribute("aria-label", i18n.t('app.떡밥_복선_탐색기'));
     if (prompt) {
-      prompt.placeholder = "예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.";
+      prompt.placeholder = i18n.t('app.예_6장_단서가_너무_약하니_더_날카롭게_짚');
     }
   } else if (mode === "plottwist") {
-    if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
+    if (titleEl) titleEl.textContent = i18n.t('app.반전_개연성_검사기');
     if (hintEl) {
-      hintEl.textContent = "「반전이 억지스럽지 않은지」를 봐요. 단서가 잘 심겼는지는 떡밥·복선 탐색기를 이용해 주세요.";
+      hintEl.textContent = i18n.t('app.반전이_억지스럽지_않은지_를_봐요_단서가');
     }
     if (modeHint) modeHint.classList.add("hidden");
-    setForeshadowLabelText($("foreshadowSelectLabel"), "평가할 반전 복선");
-    setForeshadowLabelText($("foreshadowTitleLabel"), "반전·폭로 제목");
-    setForeshadowLabelText($("foreshadowTargetLabel"), "반전 장 (지금 연 원고)");
-    setForeshadowLabelText($("foreshadowBuildupLabel"), "쌓아 둔 빌드업 근거 (한 줄에 하나)");
-    if (titleInput) titleInput.placeholder = "예: 묵연의 정체 폭로";
-    if (targetInput) targetInput.placeholder = "예: 12장 (반전이 터지는 장)";
+    setForeshadowLabelText($("foreshadowSelectLabel"), i18n.t('app.평가할_반전_복선'));
+    setForeshadowLabelText($("foreshadowTitleLabel"), i18n.t('app.반전_폭로_제목'));
+    setForeshadowLabelText($("foreshadowTargetLabel"), i18n.t('app.반전_장_지금_연_원고'));
+    setForeshadowLabelText($("foreshadowBuildupLabel"), i18n.t('app.쌓아_둔_빌드업_근거_한_줄에_하나'));
+    if (titleInput) titleInput.placeholder = i18n.t('app.예_묵연의_정체_폭로');
+    if (targetInput) targetInput.placeholder = i18n.t('app.예_12장_반전이_터지는_장');
     if (buildupInput) {
-      buildupInput.placeholder = "2장: 은빛 문양\n6장: 달빛 암호\n9장: 빗물 없는 칼집";
+      buildupInput.placeholder = i18n.t('app.2장_은빛_문양_6장_달빛_암호_9장_빗물');
     }
-    if (saveBtn) saveBtn.textContent = "반전 복선 저장";
-    if (delBtn) delBtn.textContent = "선택 삭제";
-    panel.setAttribute("aria-label", "반전 & 개연성 검사기");
+    if (saveBtn) saveBtn.textContent = i18n.t('app.반전_복선_저장');
+    if (delBtn) delBtn.textContent = i18n.t('app.선택_삭제');
+    panel.setAttribute("aria-label", i18n.t('app.반전_개연성_검사기'));
     if (prompt) {
-      prompt.placeholder = "예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.";
+      prompt.placeholder = i18n.t('app.예_반전이_억지로_느껴지는지_독자가_납득할지');
     }
   } else if (prompt) {
-    prompt.placeholder = "예: 주인공의 불안을 더 드러내 줘. / 대화 위주로 이어 써 줘.";
+    prompt.placeholder = i18n.t('app.예_주인공의_불안을_더_드러내_줘_대화_위주');
   }
 
   if (show) renderForeshadowSelect($("foreshadowSelect")?.value || "");
@@ -12608,11 +12757,11 @@ function updateForeshadowPanelVisibility() {
 }
 
 function saveForeshadowFromForm() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const data = getForeshadowFormData();
-  if (!data.title) return toast("복선 제목을 적어 주세요.");
-  if (!data.target) return toast("반전 목표 장(예: 12장)을 적어 주세요.");
-  if (!data.buildup.length) return toast("빌드업 단계를 한 줄 이상 적어 주세요.");
+  if (!data.title) return toast(i18n.t('app.복선_제목을_적어_주세요'));
+  if (!data.target) return toast(i18n.t('app.반전_목표_장_예_12장_을_적어_주세요'));
+  if (!data.buildup.length) return toast(i18n.t('app.빌드업_단계를_한_줄_이상_적어_주세요'));
 
   const list = loadForeshadows();
   const selectedId = $("foreshadowSelect")?.value || "";
@@ -12632,21 +12781,21 @@ function saveForeshadowFromForm() {
   }
   saveForeshadows(list);
   renderForeshadowSelect(item.id);
-  toast(`복선 「${item.title}」을(를) 저장했어요.`);
+  toast(`${i18n.t('app.복선_item_title_을_를_저장했어요', {'item.title': item.title})}`);
   return item;
 }
 
 function deleteSelectedForeshadow() {
   const selectedId = $("foreshadowSelect")?.value || "";
-  if (!selectedId) return toast("삭제할 복선을 먼저 선택해 주세요.");
+  if (!selectedId) return toast(i18n.t('app.삭제할_복선을_먼저_선택해_주세요'));
   const list = loadForeshadows();
   const item = list.find((f) => f.id === selectedId);
   if (!item) return;
-  if (!window.confirm(`복선 「${item.title}」을(를) 삭제할까요?`)) return;
+  if (!window.confirm(`${i18n.t('app.복선_item_title_을_를_삭제할까요', {'item.title': item.title})}`)) return;
   saveForeshadows(list.filter((f) => f.id !== selectedId));
   renderForeshadowSelect("");
   fillForeshadowForm(null);
-  toast("복선을 삭제했어요.");
+  toast(i18n.t('app.복선을_삭제했어요'));
 }
 
 function getSelectedForeshadow() {
@@ -12688,7 +12837,7 @@ async function submitAiAssist(event) {
   if (mode === "successpattern") {
     // Wizard has its own 분석 시작 button.
     if (successPatternState.step < 6) {
-      toast("흥행 공식 분석은 단계 안내를 따라 진행해 주세요.");
+      toast(i18n.t('app.흥행_공식_분석은_단계_안내를_따라_진행해'));
     } else {
       await runSuccessPatternAnalysis();
     }
@@ -12706,15 +12855,15 @@ async function submitAiAssist(event) {
     return;
   }
   if (mode === "scriptadapt") {
-    toast("방송국, 기획사 투고를 위해 작품을 각본으로 변환해드려요. 곧 만나보실 수 있어요!");
+    toast(i18n.t('app.방송국_기획사_투고를_위해_작품을_각본으로'));
     return;
   }
   if (mode === "audiobook") {
-    toast("오디오북 플랫폼 투고를 위해 작품을 낭독 대본(화자 표시, 지문 처리)으로 변환해드려요. 곧 만나보실 수 있어요!");
+    toast(i18n.t('app.오디오북_플랫폼_투고를_위해_작품을_낭독_대'));
     return;
   }
   if (mode === "multilang") {
-    toast("해외 투고·출간을 위해 작품을 다른 언어로 번역해드려요. 곧 만나보실 수 있어요!");
+    toast(i18n.t('app.해외_투고_출간을_위해_작품을_다른_언어로'));
     return;
   }
   if (mode === "subsynopsis") {
@@ -12764,11 +12913,11 @@ async function submitAiAssist(event) {
         ? getWorldDescSubject()
         : $("aiPrompt").value.trim();
   if (mode === "free" && !prompt) {
-    toast("직접 작성하기는 내용을 적어 주세요.");
+    toast(i18n.t('app.직접_작성하기는_내용을_적어_주세요'));
     return;
   }
   if (mode === "worlddesc" && !prompt) {
-    toast("묘사 대상을 적어 주세요. 예: 왕궁 내부 묘사 / 마법 체계 설명");
+    toast(i18n.t('app.묘사_대상을_적어_주세요_예_왕궁_내부_묘사'));
     $("worldDescSubject")?.focus();
     return;
   }
@@ -12792,14 +12941,14 @@ async function submitAiAssist(event) {
       foreshadow = getSelectedForeshadow();
     }
     if (!foreshadow) {
-      toast("복선 제목·목표 장·빌드업(단서)을 입력하거나 저장된 복선을 선택해 주세요.");
+      toast(i18n.t('app.복선_제목_목표_장_빌드업_단서_을_입력하거'));
       return;
     }
     if (!state.sceneId) {
       toast(
         mode === "plottwist"
-          ? "반전이 일어나는 장의 원고를 먼저 열어 주세요."
-          : "검수할 원고를 먼저 열어 주세요."
+          ? i18n.t('app.반전이_일어나는_장의_원고를_먼저_열어_주세')
+          : i18n.t('app.검수할_원고를_먼저_열어_주세요')
       );
       return;
     }
@@ -12810,8 +12959,8 @@ async function submitAiAssist(event) {
     if (!targetId) {
       toast(
         getContinueSourceMode() === "other"
-          ? "이어 쓸 회차를 선택해 주세요."
-          : "이어 쓰려면 먼저 씬을 열어 주세요.",
+          ? i18n.t('app.이어_쓸_회차를_선택해_주세요')
+          : i18n.t('app.이어_쓰려면_먼저_씬을_열어_주세요'),
       );
       if (getContinueSourceMode() === "other") $("continueOtherSceneSelect")?.focus();
       return;
@@ -12837,8 +12986,8 @@ async function submitAiAssist(event) {
     if (!payload?.selectedText) {
       toast(
         (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct")
-          ? "다듬을 문장을 직접 입력해 주세요."
-          : "다듬을 문장·문단을 드래그로 선택해 주세요.",
+          ? i18n.t('app.다듬을_문장을_직접_입력해_주세요')
+          : i18n.t('app.다듬을_문장_문단을_드래그로_선택해_주세요'),
       );
       if (typeof getRewriteSourceMode === "function" && getRewriteSourceMode() === "direct") {
         $("rewriteDirectText")?.focus();
@@ -12854,42 +13003,42 @@ async function submitAiAssist(event) {
     ? plainTextFromHtml(sceneContentRaw)
     : String(sceneContentRaw || "")).trim();
   if (mode === "continue" && !scenePlain) {
-    toast("이어 쓰려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.이어_쓰려면_원고_본문이_필요해요_본문을_먼'));
     return;
   }
   if (mode === "analyze" && !scenePlain) {
-    toast("피드백할 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.피드백할_원고_본문이_필요해요_본문을_먼저'));
     return;
   }
   if (mode === "summarize" && !scenePlain) {
-    toast("회차 요약할 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.회차_요약할_원고_본문이_필요해요_본문을_먼'));
     return;
   }
   if (mode === "ideas" && !scenePlain) {
-    toast("다음 아이디어를 제안하려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.다음_아이디어를_제안하려면_원고_본문이_필요'));
     return;
   }
   if (mode === "brainstorm" && !scenePlain) {
-    toast("브레인스토밍하려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.브레인스토밍하려면_원고_본문이_필요해요_본문'));
     return;
   }
   if (mode === "worlddesc" && !scenePlain) {
-    toast("문체 참고용으로 현재 회차 원고가 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.문체_참고용으로_현재_회차_원고가_필요해요'));
     return;
   }
   if (mode === "dupcheck" && !scenePlain) {
-    toast("중복 체크할 원고를 먼저 열어 주세요.");
+    toast(i18n.t('app.중복_체크할_원고를_먼저_열어_주세요'));
     return;
   }
   if (mode === "worldscan" && !scenePlain) {
-    toast("설정 붕괴를 검사할 원고를 먼저 열어 주세요.");
+    toast(i18n.t('app.설정_붕괴를_검사할_원고를_먼저_열어_주세요'));
     return;
   }
   if (isForeshadowToolMode(mode) && !scenePlain) {
     toast(
       mode === "plottwist"
-        ? "반전이 일어나는 장의 원고를 먼저 열어 주세요."
-        : "검수할 원고를 먼저 열어 주세요.",
+        ? i18n.t('app.반전이_일어나는_장의_원고를_먼저_열어_주세')
+        : i18n.t('app.검수할_원고를_먼저_열어_주세요'),
     );
     return;
   }
@@ -12961,26 +13110,26 @@ async function submitAiAssist(event) {
   const button = $("aiSubmitButton");
   button.disabled = true;
   button.textContent = mode === "foreshadow"
-    ? "떡밥 탐색기 가동 중…"
+    ? i18n.t('app.떡밥_탐색기_가동_중')
     : mode === "plottwist"
-      ? "반전 개연성 검사 중…"
+      ? i18n.t('app.반전_개연성_검사_중')
       : mode === "worldscan"
         ? SETTING_BREAK_SCAN_BUSY
         : mode === "dupcheck"
-          ? "중복 체크 중…"
+          ? i18n.t('app.중복_체크_중')
           : mode === "analyze"
-            ? "피드백 요청 중…"
+            ? i18n.t('app.피드백_요청_중')
           : mode === "summarize"
-            ? "회차 요약 중…"
+            ? i18n.t('app.회차_요약_중')
           : mode === "ideas"
-            ? "다음 아이디어 제안 중…"
+            ? i18n.t('app.다음_아이디어_제안_중')
           : mode === "brainstorm"
-            ? "브레인스토밍 중…"
+            ? i18n.t('app.브레인스토밍_중')
           : mode === "worlddesc"
-            ? "세계관 묘사 작성 중…"
+            ? i18n.t('app.세계관_묘사_작성_중')
           : mode === "continue"
-            ? "이어서 쓰는 중…"
-            : "생각 중…";
+            ? i18n.t('app.이어서_쓰는_중')
+            : i18n.t('app.생각_중');
   try {
     // Panel-driven dupcheck: attach ±4 neighbors when user picks mode from AI form
     if (mode === "dupcheck" && !body.neighbor_scenes) {
@@ -13004,7 +13153,7 @@ async function submitAiAssist(event) {
           neighbors.push({
             sceneId: ep.sceneId,
             index: ep.index,
-            title: ep.label || ep.shortLabel || detail?.title || `${ep.index}화`,
+            title: ep.label || ep.shortLabel || detail?.title || `${i18n.t('app.ep_index_화_2', {'ep.index': ep.index})}`,
             content: plain.slice(0, 8000),
           });
         } catch (_) { /* skip */ }
@@ -13038,37 +13187,37 @@ async function submitAiAssist(event) {
     revealAiAssistResult({ openModal: true, mode });
     toast(
       mode === "foreshadow"
-        ? "떡밥·복선 탐색기 검수가 끝났어요."
+        ? i18n.t('app.떡밥_복선_탐색기_검수가_끝났어요')
         : mode === "plottwist"
-          ? "반전 & 개연성 검사가 끝났어요."
+          ? i18n.t('app.반전_개연성_검사가_끝났어요')
           : mode === "worldscan"
-            ? `${SETTING_BREAK_SCAN_LABEL}가 끝났어요.`
+            ? `${i18n.t('app.SETTING_BREAK_SCAN_LABE', {SETTING_BREAK_SCAN_LABEL: SETTING_BREAK_SCAN_LABEL})}`
           : mode === "continue"
-            ? "이어서 쓴 초안을 받았어요."
+            ? i18n.t('app.이어서_쓴_초안을_받았어요')
           : mode === "worlddesc"
-            ? "세계관 묘사 제안을 받았어요."
+            ? i18n.t('app.세계관_묘사_제안을_받았어요')
           : mode === "summarize"
-            ? "회차 요약을 받았어요."
+            ? i18n.t('app.회차_요약을_받았어요')
           : mode === "analyze" || state.toryFocusSceneId
-            ? "피드백 요청이 끝났어요."
-            : "AI 응답을 받았어요."
+            ? i18n.t('app.피드백_요청이_끝났어요')
+            : i18n.t('app.AI_응답을_받았어요')
     );
   } catch (error) {
     handleError(error);
   } finally {
     button.disabled = false;
-    button.textContent = "토리에게 물어보기";
+    button.textContent = i18n.t('app.토리에게_물어보기');
   }
 }
 
 function insertTextIntoSceneEditor(text) {
   const content = String(text || "").trim();
   if (!content) {
-    toast("넣을 결과가 없어요.");
+    toast(i18n.t('app.넣을_결과가_없어요'));
     return false;
   }
   if (!state.sceneId) {
-    toast("원고에 넣으려면 먼저 씬을 열어 주세요. 복사 버튼을 써도 됩니다.");
+    toast(i18n.t('app.원고에_넣으려면_먼저_씬을_열어_주세요_복사'));
     return false;
   }
   const editor = $("sceneContent");
@@ -13099,7 +13248,7 @@ function insertTextIntoSceneEditor(text) {
   updateEditorPlaceholder();
   updateSceneStats();
   markSceneDirty();
-  toast("원고에 넣었어요. 자동 저장됩니다.");
+  toast(i18n.t('app.원고에_넣었어요_자동_저장됩니다'));
   return true;
 }
 
@@ -13112,7 +13261,7 @@ function hideContinueStyleResults() {
 }
 
 function setContinueStyleActiveTab(style) {
-  const key = CONTINUE_STYLE_MODES.includes(style) ? style : "후킹형";
+  const key = CONTINUE_STYLE_MODES.includes(style) ? style : i18n.t('app.후킹형');
   continueStyleResultsState.active = key;
   document.querySelectorAll("[data-continue-style-tab]").forEach((btn) => {
     const on = btn.getAttribute("data-continue-style-tab") === key;
@@ -13135,9 +13284,9 @@ function showContinueStyleResults(textsByStyle) {
   wrap?.classList.remove("hidden");
   ensureAiResultVisible();
   // Prefer 후킹형 if present, else first non-empty.
-  let active = "후킹형";
+  let active = i18n.t('app.후킹형');
   if (!continueStyleResultsState.texts[active]) {
-    active = CONTINUE_STYLE_MODES.find((s) => continueStyleResultsState.texts[s]) || "후킹형";
+    active = CONTINUE_STYLE_MODES.find((s) => continueStyleResultsState.texts[s]) || i18n.t('app.후킹형');
   }
   setContinueStyleActiveTab(active);
   // Combined history text
@@ -13163,7 +13312,7 @@ function setupContinueStyleResultsUi() {
   if ($("continueStyleInsertButton") && $("continueStyleInsertButton").dataset.bound !== "1") {
     $("continueStyleInsertButton").dataset.bound = "1";
     $("continueStyleInsertButton").addEventListener("click", () => {
-      const style = continueStyleResultsState.active || "후킹형";
+      const style = continueStyleResultsState.active || i18n.t('app.후킹형');
       const text = continueStyleResultsState.texts[style] || $("continueStyleResultBody")?.value || "";
       insertTextIntoSceneEditor(text);
     });
@@ -13175,11 +13324,11 @@ function setupContinueStyleResultsUi() {
  */
 async function runContinueWithThreeStyles() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!state.sceneId) {
-    toast("이어 쓰려면 먼저 씬을 열어 주세요.");
+    toast(i18n.t('app.이어_쓰려면_먼저_씬을_열어_주세요'));
     return;
   }
   const sceneContentRaw = getEditorContent() || "";
@@ -13187,7 +13336,7 @@ async function runContinueWithThreeStyles() {
     ? plainTextFromHtml(sceneContentRaw)
     : String(sceneContentRaw || "")).trim();
   if (!scenePlain) {
-    toast("이어 쓰려면 원고 본문이 필요해요. 본문을 먼저 적어 주세요.");
+    toast(i18n.t('app.이어_쓰려면_원고_본문이_필요해요_본문을_먼'));
     return;
   }
 
@@ -13203,18 +13352,18 @@ async function runContinueWithThreeStyles() {
   const prevTool = toolBtn?.textContent;
   if (sideBtn) {
     sideBtn.disabled = true;
-    sideBtn.textContent = "이어서 쓰는 중…";
+    sideBtn.textContent = i18n.t('app.이어서_쓰는_중');
   }
   if (toolBtn) {
     toolBtn.disabled = true;
-    toolBtn.textContent = "이어서 쓰는 중…";
+    toolBtn.textContent = i18n.t('app.이어서_쓰는_중');
   }
 
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "continue";
   updateForeshadowPanelVisibility();
   hideContinueStyleResults();
-  if ($("aiResult")) $("aiResult").value = "후킹형 · 전개형 · 전환형 세 갈래로 이어 쓰는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.후킹형_전개형_전환형_세_갈래로_이어_쓰는');
   ensureAiResultVisible();
 
   const baseBody = {
@@ -13256,7 +13405,7 @@ async function runContinueWithThreeStyles() {
     );
     const map = { 후킹형: "", 전개형: "", 전환형: "" };
     for (const row of results) {
-      map[row.style] = row.text || "(결과 없음)";
+      map[row.style] = row.text || i18n.t('app.결과_없음');
     }
     showContinueStyleResults(map);
     const activeText = map[continueStyleResultsState.active] || map.후킹형 || "";
@@ -13275,17 +13424,17 @@ async function runContinueWithThreeStyles() {
     revealAiAssistResult({ openModal: true, mode: "continue" });
     // Restore active tab body for insert UX
     setContinueStyleActiveTab(continueStyleResultsState.active);
-    toast("후킹형·전개형·전환형 세 초안을 받았어요. 하나를 골라 넣어 보세요.");
+    toast(i18n.t('app.후킹형_전개형_전환형_세_초안을_받았어요_하'));
   } catch (error) {
     handleError(error);
   } finally {
     if (sideBtn) {
       sideBtn.disabled = false;
-      sideBtn.textContent = prevSide || "토리에게 물어보기";
+      sideBtn.textContent = prevSide || i18n.t('app.토리에게_물어보기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
-      toolBtn.textContent = prevTool || "이어서 쓰기";
+      toolBtn.textContent = prevTool || i18n.t('app.이어서_쓰기');
     }
   }
 }
@@ -13295,11 +13444,11 @@ async function copyAiResult() {
   if (!text) return;
   try {
     await navigator.clipboard.writeText(text);
-    toast("결과를 복사했어요.");
+    toast(i18n.t('app.결과를_복사했어요'));
   } catch (_) {
     $("aiResult").select();
     document.execCommand("copy");
-    toast("결과를 복사했어요.");
+    toast(i18n.t('app.결과를_복사했어요'));
   }
 }
 
@@ -13312,7 +13461,7 @@ function syncAiResultModalBody() {
   const body = $("aiResultModalBody");
   if (!body) return;
   const text = String($("aiResult")?.value || "");
-  body.textContent = text || "(결과가 비어 있어요.)";
+  body.textContent = text || i18n.t('app.결과가_비어_있어요');
   const showContinueBlend = Boolean(
     pendingStyleBlendContext?.source === "continue"
     && pendingStyleBlendContext?.referenceText
@@ -13352,7 +13501,7 @@ function saveAiResultHistory(list, projectId = state.projectId) {
 function isAiResultPendingText(text) {
   const t = String(text || "").trim();
   if (!t) return true;
-  if (t === "(결과 없음)") return true;
+  if (t === i18n.t('app.결과_없음')) return true;
   return /중…$|중\.\.\.$/.test(t);
 }
 
@@ -13409,7 +13558,7 @@ function revealAiAssistResult(options = {}) {
 function openAiResultModal() {
   const text = String($("aiResult")?.value || "").trim();
   if (!text) {
-    toast("크게 볼 결과가 없어요. 먼저 분석을 실행해 주세요.");
+    toast(i18n.t('app.크게_볼_결과가_없어요_먼저_분석을_실행해'));
     return;
   }
   const modal = $("aiResultModal");
@@ -13425,7 +13574,7 @@ function closeAiResultModal({ quiet = false } = {}) {
   const wasOpen = isAiResultModalOpen();
   $("aiResultModal")?.classList.add("hidden");
   if (wasOpen && !quiet) {
-    toast("닫아도 「결과」옆 히스토리에서 다시 확인할 수 있어요.");
+    toast(i18n.t('app.닫아도_결과_옆_히스토리에서_다시_확인할_수'));
   }
 }
 
@@ -13462,18 +13611,18 @@ function renderAiResultHistoryList() {
   const list = $("aiResultHistoryList");
   if (!list) return;
   if (!state.projectId) {
-    list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 결과 히스토리를 볼 수 있어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_tory_chat_histo');
     return;
   }
   const items = loadAiResultHistory();
   if (!items.length) {
-    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 결과가 없어요.<br>피드백·분석을 받으면 여기에 쌓입니다.</p>`;
+    list.innerHTML = i18n.t('app.p_class_tory_chat_histo_2');
     return;
   }
   list.innerHTML = items.map((item) => {
     const when = formatAiResultHistoryWhen(item.createdAt);
-    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : "원고";
-    const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || "결과");
+    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t('app.원고');
+    const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t('app.결과'));
     const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 72));
     return `
       <button type="button" class="tory-chat-history-item" data-ai-result-history="${escapeHtml(item.id)}">
@@ -13487,7 +13636,7 @@ function renderAiResultHistoryList() {
 function openAiResultHistoryDetail(entryId) {
   const item = loadAiResultHistory().find((entry) => entry.id === entryId);
   if (!item) {
-    toast("결과를 찾지 못했어요.");
+    toast(i18n.t('app.결과를_찾지_못했어요'));
     showAiResultHistoryListView();
     return;
   }
@@ -13498,11 +13647,11 @@ function openAiResultHistoryDetail(entryId) {
   detail?.classList.remove("hidden");
   if ($("aiResultHistoryDetailTitle")) {
     const when = formatAiResultHistoryWhen(item.createdAt);
-    const label = item.modeLabel || aiModeLabel(item.mode) || "결과";
+    const label = item.modeLabel || aiModeLabel(item.mode) || i18n.t('app.결과');
     $("aiResultHistoryDetailTitle").textContent = when ? `${label} · ${when}` : label;
   }
   const body = $("aiResultHistoryDetailBody");
-  if (body) body.textContent = item.text || "(내용 없음)";
+  if (body) body.textContent = item.text || i18n.t('app.내용_없음');
 }
 
 function openAiResultHistoryModal() {
@@ -13520,7 +13669,7 @@ function closeAiResultHistoryModal() {
 function restoreAiResultHistoryEntry(entryId) {
   const item = loadAiResultHistory().find((entry) => entry.id === entryId);
   if (!item) {
-    toast("결과를 찾지 못했어요.");
+    toast(i18n.t('app.결과를_찾지_못했어요'));
     return;
   }
   if ($("aiResult")) $("aiResult").value = item.text || "";
@@ -13530,25 +13679,25 @@ function restoreAiResultHistoryEntry(entryId) {
     recordHistory: false,
     mode: item.mode,
   });
-  toast("보관한 결과를 다시 열었어요.");
+  toast(i18n.t('app.보관한_결과를_다시_열었어요'));
 }
 
 function deleteAiResultHistoryEntry(entryId) {
   const list = loadAiResultHistory().filter((entry) => entry.id !== entryId);
   saveAiResultHistory(list);
-  toast("기록을 삭제했어요.");
+  toast(i18n.t('app.기록을_삭제했어요'));
   showAiResultHistoryListView();
 }
 
 function clearAiResultHistory() {
   if (!state.projectId) return;
   if (!loadAiResultHistory().length) {
-    toast("비울 히스토리가 없어요.");
+    toast(i18n.t('app.비울_히스토리가_없어요'));
     return;
   }
-  if (!window.confirm("이 작품의 결과 히스토리를 모두 지울까요?")) return;
+  if (!window.confirm(i18n.t('app.이_작품의_결과_히스토리를_모두_지울까요'))) return;
   saveAiResultHistory([]);
-  toast("결과 히스토리를 비웠어요.");
+  toast(i18n.t('app.결과_히스토리를_비웠어요'));
   showAiResultHistoryListView();
 }
 
@@ -13601,18 +13750,18 @@ function setupAiResultModal() {
   });
   $("aiResultHistoryDeleteButton")?.addEventListener("click", () => {
     if (!aiResultHistoryViewId) return;
-    if (!window.confirm("이 결과 기록을 삭제할까요?")) return;
+    if (!window.confirm(i18n.t('app.이_결과_기록을_삭제할까요'))) return;
     deleteAiResultHistoryEntry(aiResultHistoryViewId);
   });
   $("aiResultHistoryCopyButton")?.addEventListener("click", async () => {
     const item = loadAiResultHistory().find((entry) => entry.id === aiResultHistoryViewId);
     const text = String(item?.text || "").trim();
-    if (!text) return toast("복사할 내용이 없어요.");
+    if (!text) return toast(i18n.t('app.복사할_내용이_없어요'));
     try {
       await navigator.clipboard.writeText(text);
-      toast("결과를 복사했어요.");
+      toast(i18n.t('app.결과를_복사했어요'));
     } catch (_) {
-      toast("복사에 실패했어요.");
+      toast(i18n.t('app.복사에_실패했어요'));
     }
   });
   $("aiResultHistoryClearButton")?.addEventListener("click", () => clearAiResultHistory());
@@ -13671,14 +13820,14 @@ function syncAiPromptModalFromPanel() {
   const body = $("aiPromptModalBody");
   if (!panel || !body) return;
   body.value = panel.value || "";
-  body.placeholder = panel.placeholder || "토리에게 보낼 요청을 적어 주세요.";
-  const label = String($("aiPromptLabel")?.textContent || "").trim() || "요청 내용";
+  body.placeholder = panel.placeholder || i18n.t('app.토리에게_보낼_요청을_적어_주세요');
+  const label = String($("aiPromptLabel")?.textContent || "").trim() || i18n.t('app.요청_내용');
   if ($("aiPromptModalTitle")) $("aiPromptModalTitle").textContent = label;
 }
 
 function openAiPromptModal() {
   if ($("aiPromptWrap")?.classList.contains("hidden")) {
-    toast("이 모드에서는 요청 칸을 쓰지 않아요.");
+    toast(i18n.t('app.이_모드에서는_요청_칸을_쓰지_않아요'));
     return;
   }
   const modal = $("aiPromptModal");
@@ -13704,7 +13853,7 @@ function closeAiPromptModal({ quiet = true } = {}) {
   const wasOpen = isAiPromptModalOpen();
   syncAiPromptFromModal();
   $("aiPromptModal")?.classList.add("hidden");
-  if (wasOpen && !quiet) toast("요청 내용을 반영했어요.");
+  if (wasOpen && !quiet) toast(i18n.t('app.요청_내용을_반영했어요'));
 }
 
 function setupAiPromptModal() {
@@ -13725,7 +13874,7 @@ function setupAiPromptModal() {
   $("aiPromptModalClearButton")?.addEventListener("click", () => {
     if ($("aiPromptModalBody")) $("aiPromptModalBody").value = "";
     syncAiPromptFromModal();
-    toast("요청 내용을 비웠어요.");
+    toast(i18n.t('app.요청_내용을_비웠어요'));
   });
   $("aiPromptModalSubmitButton")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -13792,9 +13941,9 @@ function syncOutlineSummaryInput() {
   const next = hasProject ? String(state.outlineSummary || "") : "";
   if (document.activeElement !== input) input.value = next;
   if (!hasProject) {
-    input.placeholder = "작품을 선택하면 줄거리 개요를 적을 수 있어요.";
+    input.placeholder = i18n.t('app.작품을_선택하면_줄거리_개요를_적을_수_있어');
   } else {
-    input.placeholder = "시작부터 결말까지 전체 줄거리를 간단히 적어 두세요.";
+    input.placeholder = i18n.t('app.시작부터_결말까지_전체_줄거리를_간단히_적어');
   }
 }
 
@@ -13812,7 +13961,7 @@ async function persistOutlineSummary({ quiet = true } = {}) {
     state.outlineSummary = result.outline_summary != null ? String(result.outline_summary) : value;
     const project = state.projects.find((item) => item.id === state.projectId);
     if (project) project.outline_summary = state.outlineSummary;
-    if (!quiet) toast("줄거리 개요를 저장했어요.");
+    if (!quiet) toast(i18n.t('app.줄거리_개요를_저장했어요'));
   } catch (error) {
     throw error;
   } finally {
@@ -13839,7 +13988,7 @@ function setupOutlineSummaryField() {
 
 function openOutlineSummaryInSettings() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   setActiveBinder("settings");
@@ -13947,11 +14096,11 @@ function needsOutlineSummaryGate(outlineSummary = state.outlineSummary) {
 
 async function runSubmissionSynopsis(options = {}) {
   if (submissionSynopsisInFlight) {
-    toast("이미 투고·공모전용 시놉시스를 작성 중이에요.");
+    toast(i18n.t('app.이미_투고_공모전용_시놉시스를_작성_중이에요'));
     return null;
   }
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
 
@@ -13986,9 +14135,9 @@ async function runSubmissionSynopsis(options = {}) {
   const prevLabel = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "시놉시스 작성 중…";
+    button.textContent = i18n.t('app.시놉시스_작성_중');
   }
-  if ($("aiResult")) $("aiResult").value = "투고·공모전용 자료를 작성하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.투고_공모전용_자료를_작성하는_중');
   ensureAiResultVisible();
   setSubmissionLengthWarn();
 
@@ -14034,13 +14183,13 @@ async function runSubmissionSynopsis(options = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
-    const text = result.text || "(결과 없음)";
+    const text = result.text || i18n.t('app.결과_없음');
     if ($("aiResult")) $("aiResult").value = text;
     setSubmissionLengthWarn(
       buildSubmissionLengthWarnings(text, synopsisLengthLimit, intentLengthLimit),
     );
     revealAiAssistResult({ openModal: true, mode: "subsynopsis" });
-    toast("투고·공모전용 시놉시스를 받았어요.");
+    toast(i18n.t('app.투고_공모전용_시놉시스를_받았어요'));
     return { gated: false, text, result };
   } catch (error) {
     setSubmissionLengthWarn();
@@ -14050,7 +14199,7 @@ async function runSubmissionSynopsis(options = {}) {
     submissionSynopsisInFlight = false;
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || "토리에게 물어보기";
+      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -14081,15 +14230,15 @@ function countSubmissionSectionBodyChars(text, sectionTitle) {
 function buildSubmissionLengthWarnings(text, synopsisLengthLimit, intentLengthLimit) {
   const lines = [];
   if (synopsisLengthLimit != null && synopsisLengthLimit > 0) {
-    const actual = countSubmissionSectionBodyChars(text, "시놉시스");
+    const actual = countSubmissionSectionBodyChars(text, i18n.t('app.시놉시스'));
     if (actual > synopsisLengthLimit) {
-      lines.push(`⚠ 시놉시스 실제 글자 수: ${actual}자 (제한 ${synopsisLengthLimit}자 초과)`);
+      lines.push(`${i18n.t('app.시놉시스_실제_글자_수_actual_자_제', {actual: actual, synopsisLengthLimit: synopsisLengthLimit})}`);
     }
   }
   if (intentLengthLimit != null && intentLengthLimit > 0) {
-    const actual = countSubmissionSectionBodyChars(text, "작품의도");
+    const actual = countSubmissionSectionBodyChars(text, i18n.t('app.작품의도'));
     if (actual > intentLengthLimit) {
-      lines.push(`⚠ 작품의도 실제 글자 수: ${actual}자 (제한 ${intentLengthLimit}자 초과)`);
+      lines.push(`${i18n.t('app.작품의도_실제_글자_수_actual_자_제', {actual: actual, intentLengthLimit: intentLengthLimit})}`);
     }
   }
   return lines.join("\n");
@@ -14112,7 +14261,7 @@ function setupSubmissionSynopsisUi() {
 
 function toryPriorityPreviewText(raw) {
   const cleaned = String(raw || "").replace(/\s+/g, " ").trim();
-  if (!cleaned) return "클릭하여 작성";
+  if (!cleaned) return i18n.t('app.클릭하여_작성');
   return cleaned.length > 42 ? `${cleaned.slice(0, 42)}…` : cleaned;
 }
 
@@ -14120,7 +14269,7 @@ function syncToryPriorityPreview() {
   const preview = $("toryPriorityPreview");
   if (!preview) return;
   if (!state.projectId) {
-    preview.textContent = "작품을 선택하세요";
+    preview.textContent = i18n.t('app.작품을_선택하세요');
     preview.classList.remove("has-text");
     return;
   }
@@ -14293,11 +14442,11 @@ function syncToryPriorityInput() {
   const next = hasProject ? String(state.toryPriorityMd || "") : "";
   if (document.activeElement !== input) input.value = next;
   if (!hasProject) {
-    input.placeholder = "작품을 선택하면 작가 지침을 적을 수 있어요.";
+    input.placeholder = i18n.t('app.작품을_선택하면_작가_지침을_적을_수_있어요');
     const hint = $("toryPrioritySaveHint");
     if (hint) hint.textContent = "";
   } else {
-    input.placeholder = "예: 주인공의 감정을 과장하지 말 것. / 반전을 미리 말하지 말 것. / 문체는 담백하게.";
+    input.placeholder = i18n.t('app.예_주인공의_감정을_과장하지_말_것_반전을');
   }
   syncToryPriorityPreview();
   const toggle = $("toryPriorityToggle");
@@ -14310,13 +14459,13 @@ async function persistToryPriority({ quiet = true } = {}) {
   const value = String(input?.value ?? state.toryPriorityMd ?? "").slice(0, 4000);
   if (value === String(state.toryPriorityMd || "")) {
     const hint = $("toryPrioritySaveHint");
-    if (hint && !quiet) hint.textContent = "저장됨";
+    if (hint && !quiet) hint.textContent = i18n.t('app.저장됨');
     syncToryPriorityPreview();
     return;
   }
   toryPrioritySaving = true;
   const hint = $("toryPrioritySaveHint");
-  if (hint) hint.textContent = "저장 중…";
+  if (hint) hint.textContent = i18n.t('app.저장_중');
   try {
     const result = await api(`/api/projects/${state.projectId}/settings`, {
       method: "PUT",
@@ -14325,10 +14474,10 @@ async function persistToryPriority({ quiet = true } = {}) {
     state.toryPriorityMd = result.tory_priority_md != null ? String(result.tory_priority_md) : value;
     const project = state.projects.find((item) => item.id === state.projectId);
     if (project) project.tory_priority_md = state.toryPriorityMd;
-    if (hint) hint.textContent = state.toryPriorityMd.trim() ? "저장됨 · 작업에 맞게 참고합니다" : "비움 · 일반 기준으로 동작";
+    if (hint) hint.textContent = state.toryPriorityMd.trim() ? i18n.t('app.저장됨_작업에_맞게_참고합니다') : i18n.t('app.비움_일반_기준으로_동작');
     syncToryPriorityPreview();
   } catch (error) {
-    if (hint) hint.textContent = "저장 실패";
+    if (hint) hint.textContent = i18n.t('app.저장_실패');
     throw error;
   } finally {
     toryPrioritySaving = false;
@@ -14369,7 +14518,7 @@ function setupToryPriorityField() {
   });
   toggle?.addEventListener("click", () => {
     if (!state.projectId) {
-      toast("먼저 작품을 선택해 주세요.");
+      toast(i18n.t('app.먼저_작품을_선택해_주세요'));
       return;
     }
     const open = toggle.getAttribute("aria-expanded") === "true";
@@ -14460,13 +14609,13 @@ function getToryChatPartnerCharacters() {
 }
 
 function getToryChatPartnerNames() {
-  return getToryChatPartnerCharacters().map((ch) => String(ch.name || "").trim() || `인물#${ch.id}`);
+  return getToryChatPartnerCharacters().map((ch) => String(ch.name || "").trim() || `${i18n.t('app.인물_ch_id_2', {'ch.id': ch.id})}`);
 }
 
 function buildToryChatPartnerPayload() {
   return getToryChatPartnerCharacters().map((ch) => ({
     id: Number(ch.id),
-    name: String(ch.name || "").trim() || `인물#${ch.id}`,
+    name: String(ch.name || "").trim() || `${i18n.t('app.인물_ch_id_2', {'ch.id': ch.id})}`,
     role: String(ch.role || ""),
     short_description: String(ch.short_description || "").trim().slice(0, 400),
     profile_md: String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 800),
@@ -14480,23 +14629,23 @@ function syncToryChatRoomChrome() {
   const names = getToryChatPartnerNames();
   const back = $("toryChatRoomBack");
   if (back) {
-    const label = inCharacter ? "인물 선택으로" : "소통방으로";
+    const label = inCharacter ? i18n.t('app.인물_선택으로') : i18n.t('app.소통방으로');
     back.title = label;
     back.setAttribute("aria-label", label);
   }
   const input = $("toryChatInput");
   if (input) {
     if (inCharacter) {
-      const who = names.length ? names.join(" · ") : "캐릭터";
+      const who = names.length ? names.join(" · ") : i18n.t('app.캐릭터');
       input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
-      input.setAttribute("aria-label", `${who}에게 보낼 메시지`);
+      input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
     } else {
-      input.placeholder = "토리에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)";
-      input.setAttribute("aria-label", "토리에게 보낼 메시지");
+      input.placeholder = i18n.t('app.토리에게_말걸기_Enter_전송_Shift');
+      input.setAttribute("aria-label", i18n.t('app.토리에게_보낼_메시지'));
     }
   }
   const box = $("toryChatMessages");
-  if (box) box.setAttribute("aria-label", inCharacter ? "캐릭터와의 대화" : "토리와의 대화");
+  if (box) box.setAttribute("aria-label", inCharacter ? i18n.t('app.캐릭터와의_대화') : i18n.t('app.토리와의_대화'));
 }
 
 function setToryChatHub(hub, { quiet = false } = {}) {
@@ -14506,7 +14655,7 @@ function setToryChatHub(hub, { quiet = false } = {}) {
     toryChatHub = "characters";
     $("aiChatView")?.setAttribute("data-chat-hub", "characters");
     setCharListMode("chat");
-    if (!quiet) toast("대화할 인물을 먼저 골라 주세요.");
+    if (!quiet) toast(i18n.t('app.대화할_인물을_먼저_골라_주세요'));
     return false;
   }
   toryChatHub = next;
@@ -14526,7 +14675,7 @@ function setToryChatHub(hub, { quiet = false } = {}) {
 function setToryChatMode(mode, { quiet = false } = {}) {
   const next = normalizeToryChatMode(mode);
   if (next === "successAnalysis" && !getLinkedSuccessProfileId()) {
-    if (!quiet) toast("먼저 흥행 프로파일을 이 작품에 연결해 주세요.");
+    if (!quiet) toast(i18n.t('app.먼저_흥행_프로파일을_이_작품에_연결해_주세'));
     return false;
   }
   toryChatMode = next;
@@ -14535,8 +14684,8 @@ function setToryChatMode(mode, { quiet = false } = {}) {
   if (!quiet) {
     toast(
       next === "successAnalysis"
-        ? "흥행요인 분석가 세션이에요. 일반 대화와 기록이 섞이지 않아요."
-        : "일반 토리 대화로 돌아왔어요.",
+        ? i18n.t('app.흥행요인_분석가_세션이에요_일반_대화와_기록')
+        : i18n.t('app.일반_토리_대화로_돌아왔어요'),
     );
   }
   return true;
@@ -14725,8 +14874,8 @@ function openToryChatPopup(options = {}) {
   if (!options.silent) {
     toast(
       options.prefill
-        ? "선택 문장을 질문칸에 넣었어요. 다듬은 뒤 보내기를 눌러 주세요."
-        : "토리 대화를 팝업으로 열었어요. 모서리로 크기를 조절할 수 있어요.",
+        ? i18n.t('app.선택_문장을_질문칸에_넣었어요_다듬은_뒤_보')
+        : i18n.t('app.토리_대화를_팝업으로_열었어요_모서리로_크기'),
     );
   }
 }
@@ -14735,10 +14884,10 @@ function openToryChatPopup(options = {}) {
  * Manuscript selection → 1:1 chat popup with quote prefilled (do not auto-send).
  */
 function askToryFromSelection() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
   if (!raw) {
-    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.본문에서_단어나_문장을_드래그로_선택한_뒤'));
     return;
   }
   // Quote in the question box; leave room below so the author can add a question before send.
@@ -14891,7 +15040,7 @@ function setupToryChatPopupChrome() {
 
   $("toryChatPopupClose")?.addEventListener("click", () => {
     closeToryChatPopup({ restorePanelTab: true });
-    toast("팝업 대화를 닫았어요.");
+    toast(i18n.t('app.팝업_대화를_닫았어요'));
   });
 }
 
@@ -15005,7 +15154,7 @@ function loadToryChatArchives(chatMode = getToryChatSessionKey()) {
       .filter((s) => s && s.id && Array.isArray(s.messages) && s.messages.length)
       .map((s) => ({
         id: String(s.id),
-        title: String(s.title || "이전 대화").trim() || "이전 대화",
+        title: String(s.title || i18n.t('app.이전_대화')).trim() || i18n.t('app.이전_대화'),
         messages: s.messages
           .filter((m) => m && (m.role === "user" || m.role === "tory") && String(m.content || m.contentHtml || "").trim())
           .map((m) => ({
@@ -15038,7 +15187,7 @@ function saveToryChatArchives(list, chatMode = getToryChatSessionKey()) {
 
 function titleFromToryChatMessages(messages) {
   const firstUser = (messages || []).find((m) => m.role === "user" && m.content);
-  if (!firstUser) return "이전 대화";
+  if (!firstUser) return i18n.t('app.이전_대화');
   const t = String(firstUser.content).replace(/\s+/g, " ").trim();
   return t.length > 42 ? `${t.slice(0, 42)}…` : t;
 }
@@ -15097,7 +15246,7 @@ function renderToryChatHistoryList() {
   const list = $("toryChatHistoryList");
   if (!list) return;
   if (!state.projectId) {
-    list.innerHTML = `<p class="tory-chat-history-empty">작품을 선택하면 이 작품의 대화 히스토리를 볼 수 있어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_tory_chat_histo_3');
     return;
   }
   const mode = getToryChatSessionKey();
@@ -15105,9 +15254,9 @@ function renderToryChatHistoryList() {
   if (!archives.length) {
     const names = getToryChatPartnerNames();
     const kind = isToryCharacterChatSession(mode)
-      ? (names.length ? names.join(" · ") : "캐릭터")
-      : (normalizeToryChatMode(mode) === "successAnalysis" ? "흥행요인 분석가" : "일반");
-    list.innerHTML = `<p class="tory-chat-history-empty">아직 보관된 ${kind} 대화가 없어요.<br>「대화 지우기」를 하면 여기에 남습니다.</p>`;
+      ? (names.length ? names.join(" · ") : i18n.t('app.캐릭터'))
+      : (normalizeToryChatMode(mode) === "successAnalysis" ? i18n.t('app.흥행요인_분석가') : i18n.t('app.일반'));
+    list.innerHTML = `${i18n.t('app.p_class_tory_chat_histo_4', {kind: kind})}`;
     return;
   }
   list.innerHTML = archives.map((s) => {
@@ -15117,7 +15266,7 @@ function renderToryChatHistoryList() {
       <button type="button" class="tory-chat-history-item" data-tory-chat-archive="${escapeHtml(s.id)}">
         <strong>${escapeHtml(s.title)}</strong>
         <span class="count">${count}개</span>
-        <span class="meta">${when ? `보관 ${escapeHtml(when)}` : "이전 대화"}</span>
+        <span class="meta">${when ? `보관 ${escapeHtml(when)}` : i18n.t('app.이전_대화')}</span>
       </button>`;
   }).join("");
 }
@@ -15125,7 +15274,7 @@ function renderToryChatHistoryList() {
 function openToryChatHistoryDetail(archiveId) {
   const session = loadToryChatArchives().find((s) => s.id === archiveId);
   if (!session) {
-    toast("대화를 찾지 못했어요.");
+    toast(i18n.t('app.대화를_찾지_못했어요'));
     showToryChatHistoryListView();
     return;
   }
@@ -15154,7 +15303,7 @@ function openToryChatHistoryDetail(archiveId) {
 }
 
 function openToryChatHistoryModal() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const modal = $("toryChatHistoryModal");
   if (!modal) return;
   showToryChatHistoryListView();
@@ -15171,14 +15320,14 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
     ? String(chatMode)
     : normalizeToryChatMode(chatMode);
   const session = loadToryChatArchives(mode).find((s) => s.id === archiveId);
-  if (!session) return toast("대화를 찾지 못했어요.");
+  if (!session) return toast(i18n.t('app.대화를_찾지_못했어요'));
   if (!isToryCharacterChatSession(mode) && mode !== getToryChatMode()) {
     setToryChatMode(mode, { quiet: true });
   }
   const current = loadToryChatHistory(mode);
   if (current.length) {
     const ok = window.confirm(
-      "지금 진행 중인 대화가 있어요.\n현재 대화를 히스토리에 보관한 뒤, 선택한 대화를 불러올까요?",
+      i18n.t('app.지금_진행_중인_대화가_있어요_현재_대화를'),
     );
     if (!ok) return;
     archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
@@ -15197,14 +15346,14 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   } else {
     setAiPanelTab("chat", { chatHub: toryChatHub });
   }
-  toast("이전 대화를 불러왔어요. 이어서 이야기할 수 있어요.");
+  toast(i18n.t('app.이전_대화를_불러왔어요_이어서_이야기할_수'));
 }
 
 function deleteToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   const mode = normalizeToryChatMode(chatMode);
   const archives = loadToryChatArchives(mode).filter((s) => s.id !== archiveId);
   saveToryChatArchives(archives, mode);
-  toast("히스토리에서 삭제했어요.");
+  toast(i18n.t('app.히스토리에서_삭제했어요'));
   showToryChatHistoryListView();
 }
 
@@ -15223,7 +15372,7 @@ function setupToryChatHistoryUi() {
   });
   $("toryChatHistoryDeleteButton")?.addEventListener("click", () => {
     if (!toryChatHistoryViewId) return;
-    if (!window.confirm("이 대화 기록을 완전히 삭제할까요?")) return;
+    if (!window.confirm(i18n.t('app.이_대화_기록을_완전히_삭제할까요'))) return;
     deleteToryChatArchive(toryChatHistoryViewId);
   });
   document.addEventListener("keydown", (event) => {
@@ -15241,12 +15390,12 @@ function setupToryChatHistoryUi() {
 function toryChatBubbleMetaHtml(isUser) {
   if (isUser) {
     return `<span class="tory-chat-bubble-meta is-user-name">`
-      + `<span class="tory-chat-bubble-pen" aria-hidden="true" title="나">✏️</span>`
-      + `나</span>`;
+      + i18n.t('app.span_class_tory_chat_bu')
+      + i18n.t('app.나_span');
   }
   if (toryChatHub === "character-room") {
     const names = getToryChatPartnerNames();
-    const label = names.length ? names.join(" · ") : "캐릭터";
+    const label = names.length ? names.join(" · ") : i18n.t('app.캐릭터');
     return `<span class="tory-chat-bubble-meta is-tory-name">`
       + `<span class="tory-chat-bubble-pen" aria-hidden="true" title="${escapeHtml(label)}">🎭</span>`
       + `${escapeHtml(label)}</span>`;
@@ -15254,12 +15403,12 @@ function toryChatBubbleMetaHtml(isUser) {
   const mascot = typeof TORY_MODAL_MASCOT_SVG === "string" ? TORY_MODAL_MASCOT_SVG : "";
   return `<span class="tory-chat-bubble-meta is-tory-name">`
     + `<span class="tory-chat-bubble-mascot" aria-hidden="true">${mascot}</span>`
-    + `토리</span>`;
+    + i18n.t('app.토리_span');
 }
 
 function toryChatBubbleCopyButtonHtml(isUser) {
   if (isUser || toryChatHub !== "character-room") return "";
-  return `<button type="button" class="tory-chat-bubble-copy" data-tory-chat-copy title="복사하기" aria-label="복사하기">`
+  return i18n.t('app.button_type_button_clas')
     + `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`
     + `<rect x="9" y="9" width="13" height="13" rx="2"/>`
     + `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
@@ -15272,14 +15421,14 @@ function renderToryChatMessages() {
   updateToryChatSuccessUi();
   const history = loadToryChatHistory();
   if (!history.length) {
-    let empty = `플롯 고민, 캐릭터 말투, 막히는 장면…<br>1:1로 편하게 물어봐요.`;
+    let empty = i18n.t('app.플롯_고민_캐릭터_말투_막히는_장면_br_1');
     if (toryChatHub === "character-room") {
       const names = getToryChatPartnerNames();
       empty = names.length > 1
-        ? `「${escapeHtml(names.join(" · "))}」 단톡방이에요.<br>작가로서 말을 걸면, 인물들이 설정대로 받아쳐 줘요.`
-        : `「${escapeHtml(names[0] || "이 인물")}」와 이야기해 보세요.<br>설정집 성격·말투를 바탕으로 대답해요.`;
+        ? `${i18n.t('app.escapeHtml_names_join_단', {'escapeHtml(names.join(" · "))': escapeHtml(names.join(" · "))})}`
+        : `${i18n.t('app.escapeHtml_names_0_이_인물', {'escapeHtml(names[0] || "이 인물")': escapeHtml(names[0] || "이 인물")})}`;
     } else if (getToryChatMode() === "successAnalysis") {
-      empty = `흥행요인 분석가 세션이에요.<br>「재미요소가 뭐가 부족해?」「다음 화 훅은?」처럼 물어보세요.`;
+      empty = i18n.t('app.흥행요인_분석가_세션이에요_br_재미요소가');
     }
     box.innerHTML = `<p class="tory-chat-empty">${empty}</p>`;
     return;
@@ -15306,7 +15455,7 @@ async function copyToryChatCharacterReply(button) {
   const history = loadToryChatHistory();
   const message = Number.isInteger(index) ? history[index] : null;
   const text = String(message?.content || "").replace(/\r\n/g, "\n");
-  if (!text) return toast("복사할 내용이 없어요.");
+  if (!text) return toast(i18n.t('app.복사할_내용이_없어요'));
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(text);
@@ -15321,9 +15470,9 @@ async function copyToryChatCharacterReply(button) {
       document.execCommand("copy");
       ta.remove();
     }
-    toast("복사되었습니다");
+    toast(i18n.t('app.복사되었습니다'));
   } catch (_) {
-    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+    toast(i18n.t('app.복사에_실패했어요_직접_선택해서_복사해_주세'));
   }
 }
 
@@ -15425,7 +15574,7 @@ function persistToryChatBubbleHtml(msgIndex, bodyEl) {
 function applyToryChatHighlight(color) {
   const info = resolveToryChatHighlightInfo();
   if (!info) {
-    toast("토리 답변에서 칠할 부분을 드래그한 뒤 형광펜을 눌러 주세요.");
+    toast(i18n.t('app.토리_답변에서_칠할_부분을_드래그한_뒤_형광'));
     return;
   }
   const next = color
@@ -15450,7 +15599,7 @@ function applyToryChatHighlight(color) {
       mark.appendChild(frag);
       info.range.insertNode(mark);
     } catch (err) {
-      toast("선택 구간에 형광펜을 칠하지 못했어요. 다시 드래그해 주세요.");
+      toast(i18n.t('app.선택_구간에_형광펜을_칠하지_못했어요_다시'));
       return;
     }
   }
@@ -15458,13 +15607,13 @@ function applyToryChatHighlight(color) {
   toryChatSavedHighlight = null;
   persistToryChatBubbleHtml(info.index, info.body);
   syncToryChatHighlightBar();
-  toast("형광펜으로 칠했어요.");
+  toast(i18n.t('app.형광펜으로_칠했어요'));
 }
 
 function clearToryChatHighlight() {
   const info = resolveToryChatHighlightInfo();
   if (!info) {
-    toast("지울 형광펜 부분을 토리 답변에서 드래그해 주세요.");
+    toast(i18n.t('app.지울_형광펜_부분을_토리_답변에서_드래그해'));
     return;
   }
   const marks = [...info.body.querySelectorAll("mark.tory-chat-hl, span.tory-chat-hl, .tory-chat-hl")];
@@ -15499,8 +15648,8 @@ function clearToryChatHighlight() {
   toryChatSavedHighlight = null;
   persistToryChatBubbleHtml(info.index, info.body);
   syncToryChatHighlightBar();
-  if (cleared) toast("형광펜을 지웠어요.");
-  else toast("선택한 구간에 형광펜이 없어요.");
+  if (cleared) toast(i18n.t('app.형광펜을_지웠어요'));
+  else toast(i18n.t('app.선택한_구간에_형광펜이_없어요'));
 }
 
 function collectFromToryChat() {
@@ -15525,12 +15674,12 @@ function collectFromToryChat() {
     }
   }
   if (!text) {
-    toast("수집할 토리 답변이 없어요. 대화를 하거나 문장을 드래그해 주세요.");
+    toast(i18n.t('app.수집할_토리_답변이_없어요_대화를_하거나_문'));
     return;
   }
   collectToToryVault({
     text,
-    title: toryChatHub === "character-room" ? "캐릭터 · 대화 수집" : "토리 · 대화 수집",
+    title: toryChatHub === "character-room" ? i18n.t('app.캐릭터_대화_수집') : i18n.t('app.토리_대화_수집'),
     mode: "chat",
     prompt: "",
   });
@@ -15539,21 +15688,21 @@ function collectFromToryChat() {
 async function sendToryChatMessage(event) {
   if (event) event.preventDefault();
   if (toryChatSending) return;
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const sessionKey = getToryChatSessionKey();
   const isCharacter = isToryCharacterChatSession(sessionKey);
   const chatMode = isCharacter ? "character" : getToryChatMode();
   if (!isCharacter && chatMode === "successAnalysis" && !getLinkedSuccessProfileId()) {
     setToryChatMode("general", { quiet: true });
-    return toast("흥행 프로파일 연결이 없어 일반 대화로 전환했어요.");
+    return toast(i18n.t('app.흥행_프로파일_연결이_없어_일반_대화로_전환'));
   }
   if (isCharacter && !getToryChatPartnerCharacters().length) {
     setToryChatHub("characters");
-    return toast("대화할 인물을 먼저 골라 주세요.");
+    return toast(i18n.t('app.대화할_인물을_먼저_골라_주세요'));
   }
   const input = $("toryChatInput");
   const text = (input?.value || "").trim();
-  if (!text) return toast("메시지를 적어 주세요.");
+  if (!text) return toast(i18n.t('app.메시지를_적어_주세요'));
 
   const history = loadToryChatHistory(sessionKey);
   // History sent to API excludes the new user message (server appends it as prompt)
@@ -15573,7 +15722,7 @@ async function sendToryChatMessage(event) {
     const pending = document.createElement("div");
     pending.className = "tory-chat-bubble is-tory is-pending";
     pending.id = "toryChatPending";
-    pending.innerHTML = `${toryChatBubbleMetaHtml(false)}<div class="tory-chat-bubble-body">생각 중…</div>`;
+    pending.innerHTML = `${i18n.t('app.toryChatBubbleMetaHtml', {'toryChatBubbleMetaHtml(false)': toryChatBubbleMetaHtml(false)})}`;
     box.appendChild(pending);
     box.scrollTop = box.scrollHeight;
   }
@@ -15582,7 +15731,7 @@ async function sendToryChatMessage(event) {
   const sendBtn = $("toryChatSendButton");
   if (sendBtn) {
     sendBtn.disabled = true;
-    sendBtn.textContent = "생각 중…";
+    sendBtn.textContent = i18n.t('app.생각_중');
   }
 
   try {
@@ -15614,7 +15763,7 @@ async function sendToryChatMessage(event) {
     if (chatMode === "successAnalysis") {
       const profile = await ensureLinkedSuccessProfile();
       if (!profile) {
-        throw new Error("흥행 프로파일을 불러오지 못했어요. 연결을 확인해 주세요.");
+        throw new Error(i18n.t('app.흥행_프로파일을_불러오지_못했어요_연결을_확'));
       }
       // Flat shape for server (profile fields + factors)
       payload.success_profile = {
@@ -15638,7 +15787,7 @@ async function sendToryChatMessage(event) {
       method: "POST",
       body: JSON.stringify(payload),
     });
-    const reply = String(result.text || "").trim() || "(응답이 비어 있어요.)";
+    const reply = String(result.text || "").trim() || i18n.t('app.응답이_비어_있어요');
     const next = loadToryChatHistory(sessionKey);
     next.push({ role: "tory", content: reply, at: new Date().toISOString() });
     saveToryChatHistory(next, sessionKey);
@@ -15648,7 +15797,7 @@ async function sendToryChatMessage(event) {
     const next = loadToryChatHistory(sessionKey);
     next.push({
       role: "tory",
-      content: `죄송해요, 지금은 답을 못 했어요. ${error.message || "잠시 후 다시 시도해 주세요."}`,
+      content: `${i18n.t('app.죄송해요_지금은_답을_못_했어요_error', {'error.message || "잠시 후 다시 시도해 주세요."': error.message || "잠시 후 다시 시도해 주세요."})}`,
       at: new Date().toISOString(),
     });
     saveToryChatHistory(next, sessionKey);
@@ -15658,7 +15807,7 @@ async function sendToryChatMessage(event) {
     toryChatSending = false;
     if (sendBtn) {
       sendBtn.disabled = false;
-      sendBtn.textContent = "보내기";
+      sendBtn.textContent = i18n.t('app.보내기');
     }
     $("toryChatPending")?.remove();
   }
@@ -15686,14 +15835,14 @@ function setToryPersonaMode(mode, { silent = false } = {}) {
   syncToryPersonaMenuUi();
   if (!silent) {
     const labels = {
-      default: "친절한 조수",
-      secretary: "진지 비서",
-      friend: "친구",
-      aegyo: "애교",
-      teacher: "선생님",
-      grumbler: "투덜이",
+      default: i18n.t('app.친절한_조수'),
+      secretary: i18n.t('app.진지_비서'),
+      friend: i18n.t('app.친구'),
+      aegyo: i18n.t('app.애교'),
+      teacher: i18n.t('app.선생님'),
+      grumbler: i18n.t('app.투덜이'),
     };
-    toast(`토리 모드: ${labels[next] || next}`);
+    toast(`${i18n.t('app.토리_모드_labels_next_next', {'labels[next] || next': labels[next] || next})}`);
   }
 }
 
@@ -15753,12 +15902,12 @@ function setupToryPersonaSelect() {
 }
 
 function clearToryChatHistory() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const mode = getToryChatSessionKey();
-  if (!loadToryChatHistory(mode).length) return toast("지울 대화가 없어요.");
-  if (!window.confirm("현재 대화를 비울까요?\n내용은 히스토리에 보관됩니다.")) return;
+  if (!loadToryChatHistory(mode).length) return toast(i18n.t('app.지울_대화가_없어요'));
+  if (!window.confirm(i18n.t('app.현재_대화를_비울까요_내용은_히스토리에_보관'))) return;
   const saved = archiveCurrentToryChat({ clearAfter: true, chatMode: mode });
-  toast(saved ? "대화를 지우고 히스토리에 보관했어요." : "대화를 지웠어요.");
+  toast(saved ? i18n.t('app.대화를_지우고_히스토리에_보관했어요') : i18n.t('app.대화를_지웠어요'));
 }
 
 function toggleToryChatCharacterId(characterId, selected) {
@@ -15776,19 +15925,19 @@ function renderToryChatCharacterPicker() {
   if (!list) return;
   const selected = new Set(normalizeToryChatCharacterIds(toryChatCharacterIds));
   if (!state.projectId) {
-    list.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_먼저_작품을_선택해');
     if (startBtn) startBtn.disabled = true;
     return;
   }
   const chars = Array.isArray(state.characters) ? state.characters : [];
   if (!chars.length) {
-    list.innerHTML = `<p class="hint">설정집에 인물이 없어요.<br>캐릭터를 먼저 만든 뒤 대화 상대로 고를 수 있어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_설정집에_인물이_없');
     if (startBtn) startBtn.disabled = true;
     return;
   }
   list.innerHTML = chars.map((ch) => {
     const id = Number(ch.id);
-    const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+    const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
     const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
     const summary = escapeHtml(
       String(ch.short_description || "").trim()
@@ -15826,9 +15975,9 @@ function closeToryChatCharacterAllModal() {
 
 function toryChatCharacterAllCardHtml(ch, { selected, disabled, checkAttr }) {
   const id = Number(ch.id);
-  const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+  const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
   const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
-  const identity = escapeHtml(toryChatCharacterFullIdentity(ch) || "소개가 아직 없어요.");
+  const identity = escapeHtml(toryChatCharacterFullIdentity(ch) || i18n.t('app.소개가_아직_없어요'));
   return `<label class="reader-persona-card reader-debate-card tory-chat-character-all-card${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}" data-tory-chat-all-id="${id}">`
     + `<input type="checkbox" ${checkAttr}="${id}"${selected ? " checked" : ""}${disabled ? " disabled" : ""}>`
     + `<span class="reader-persona-card-text">`
@@ -15844,11 +15993,11 @@ function renderToryChatCharacterAllGrid() {
   const isSim = charListMode === "sim";
   const chars = Array.isArray(state.characters) ? state.characters : [];
   if (!state.projectId) {
-    grid.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_먼저_작품을_선택해');
     return;
   }
   if (!chars.length) {
-    grid.innerHTML = `<p class="hint">설정집에 인물이 없어요.<br>캐릭터를 먼저 만든 뒤 대화 상대로 고를 수 있어요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_설정집에_인물이_없');
     return;
   }
   if (isSim) {
@@ -15877,7 +16026,7 @@ function syncToryChatCharacterAllCount() {
   countEl.classList.toggle("hidden", !isSim);
   if (!isSim) return;
   const n = (charDebateState.selectedIds || []).length;
-  countEl.textContent = `${n} / ${CHAR_DEBATE_MAX}명 선택됨`;
+  countEl.textContent = `${i18n.t('app.n_CHAR_DEBATE_MAX_명_선택됨', {n: n, CHAR_DEBATE_MAX: CHAR_DEBATE_MAX})}`;
 }
 
 function openToryChatCharacterAllModal() {
@@ -15885,17 +16034,17 @@ function openToryChatCharacterAllModal() {
   const grid = $("toryChatCharacterAllGrid");
   if (!modal || !grid) return;
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   const isSim = charListMode === "sim";
   const title = $("toryChatCharacterAllTitle");
   const hint = $("toryChatCharacterAllHint");
-  if (title) title.textContent = isSim ? "시뮬레이션 전체보기" : "내 캐릭터 전체보기";
+  if (title) title.textContent = isSim ? i18n.t('app.시뮬레이션_전체보기') : i18n.t('app.내_캐릭터_전체보기');
   if (hint) {
     hint.textContent = isSim
-      ? "카드를 눌러 시뮬레이션할 인물을 골라 주세요. 소개는 잘리지 않고 전부 보여 줍니다."
-      : "소개는 잘리지 않고 전부 보여 줍니다. 고른 뒤 대화 시작을 눌러 주세요.";
+      ? i18n.t('app.카드를_눌러_시뮬레이션할_인물을_골라_주세요')
+      : i18n.t('app.소개는_잘리지_않고_전부_보여_줍니다_고른');
   }
   renderToryChatCharacterAllGrid();
   modal.classList.remove("hidden");
@@ -15931,7 +16080,7 @@ function setCharListMode(mode) {
 async function openToryChatCharacterPicker() {
   if (!state.projectId) {
     setToryChatHub("characters", { quiet: true });
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!Array.isArray(state.characters) || !state.characters.length) {
@@ -15947,24 +16096,24 @@ async function openToryChatCharacterPicker() {
 
 function startToryChatWithSelectedCharacters() {
   const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
-  if (!ids.length) return toast("대화할 인물을 한 명 이상 골라 주세요.");
+  if (!ids.length) return toast(i18n.t('app.대화할_인물을_한_명_이상_골라_주세요'));
   toryChatCharacterIds = ids;
   setToryChatHub("character-room");
   const names = getToryChatPartnerNames();
   toast(
     names.length > 1
-      ? `${names.join(" · ")} 단톡방을 열었어요.`
-      : `${names[0] || "인물"}와 대화를 시작했어요.`,
+      ? `${i18n.t('app.names_join_단톡방을_열었어요', {'names.join(" · ")': names.join(" · ")})}`
+      : `${i18n.t('app.names_0_인물_와_대화를_시작했어요', {'names[0] || "인물"': names[0] || "인물"})}`,
   );
   requestAnimationFrame(() => $("toryChatInput")?.focus());
 }
 
 const READER_PERSONA_CATEGORY_LABELS = {
-  genre_specialist: "장르 전문",
-  sub_genre_specialist: "서브장르",
-  taste_preference: "취향",
-  narrative_critic: "서사 비평",
-  structure_wildcard: "구조",
+  genre_specialist: i18n.t('app.장르_전문'),
+  sub_genre_specialist: i18n.t('app.서브장르'),
+  taste_preference: i18n.t('app.취향'),
+  narrative_critic: i18n.t('app.서사_비평'),
+  structure_wildcard: i18n.t('app.구조'),
 };
 const READER_AVATAR_BASE = "/assets/reader_avatars";
 const READER_AVATAR_VERSION = "20260816d";
@@ -16130,7 +16279,7 @@ async function loadAndRenderReaderPersonas() {
   const grid = $("readerPersonaGrid");
   if (!grid) return;
   if (!state.projectId) {
-    grid.innerHTML = `<p class="hint">작품을 먼저 선택해 주세요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_작품을_먼저_선택해');
     return;
   }
   try {
@@ -16139,14 +16288,14 @@ async function loadAndRenderReaderPersonas() {
     }
     const people = flattenReaderPersonas(readerPersonaCache);
     if (!people.length) {
-      grid.innerHTML = `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+      grid.innerHTML = i18n.t('app.p_class_hint_가상_독자를_불러오');
       return;
     }
     grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
     bindReaderAvatarErrors(grid);
     syncReaderChatSelectionUi();
   } catch (error) {
-    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
   }
 }
@@ -16165,14 +16314,14 @@ function renderReaderChatPeer() {
     bindReaderAvatarErrors(avatarHost);
   }
   const nameEl = $("readerChatPeerName");
-  if (nameEl) nameEl.textContent = persona.name || "가상 독자";
+  if (nameEl) nameEl.textContent = persona.name || i18n.t('app.가상_독자');
   const catEl = $("readerChatPeerCategory");
   if (catEl) catEl.textContent = READER_PERSONA_CATEGORY_LABELS[persona.category] || persona.category || "";
   const input = $("readerChatInput");
   if (input) {
-    const who = persona.name || "이 독자";
+    const who = persona.name || i18n.t('app.이_독자');
     input.placeholder = `${who}에게 말걸기\n(Enter 전송 Shift + Enter 줄바꿈)`;
-    input.setAttribute("aria-label", `${who}에게 보낼 메시지`);
+    input.setAttribute("aria-label", `${i18n.t('app.who_에게_보낼_메시지', {who: who})}`);
   }
 }
 
@@ -16180,10 +16329,10 @@ function renderReaderChatMessages() {
   const box = $("readerChatMessages");
   if (!box) return;
   const persona = readerChatPersona;
-  const name = persona?.name || "가상 독자";
+  const name = persona?.name || i18n.t('app.가상_독자');
   const pending = readerChatSending;
   if (!readerChatMessages.length && !pending) {
-    box.innerHTML = `<p class="reader-chat-empty">「${escapeHtml(name)}」의 시선으로 들어 보세요.<br>원고를 첨부하거나, 그냥 질문해도 좋아요.</p>`;
+    box.innerHTML = `${i18n.t('app.p_class_reader_chat_emp', {'escapeHtml(name)': escapeHtml(name)})}`;
     return;
   }
   const rows = readerChatMessages.map((msg) => {
@@ -16204,7 +16353,7 @@ function renderReaderChatMessages() {
       + readerAvatarMarkup(persona.id, name, "reader-chat-msg-avatar")
       + `<div class="reader-chat-msg-body">`
       + `<span class="reader-chat-msg-name">${escapeHtml(name)}</span>`
-      + `<div class="reader-chat-bubble">${escapeHtml(name)}이(가) 답장을 작성 중입니다...</div>`
+      + `${i18n.t('app.div_class_reader_chat_b', {'escapeHtml(name)': escapeHtml(name)})}`
       + `</div></div>`,
     );
   }
@@ -16221,11 +16370,11 @@ function renderReaderChatAttachChip() {
   const on = Boolean(attached);
   chip.classList.toggle("hidden", !on);
   chip.hidden = !on;
-  if (label) label.textContent = attached ? `첨부됨: ${attached.title}` : "";
+  if (label) label.textContent = attached ? `${i18n.t('app.첨부됨_attached_title', {'attached.title': attached.title})}` : "";
 }
 
 async function openReaderChatWithPersona(personaId) {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (!readerPersonaCache) {
     try {
       readerPersonaCache = await api("/api/reader-personas");
@@ -16235,7 +16384,7 @@ async function openReaderChatWithPersona(personaId) {
     }
   }
   const persona = findReaderPersona(personaId);
-  if (!persona) return toast("그 독자를 찾지 못했어요.");
+  if (!persona) return toast(i18n.t('app.그_독자를_찾지_못했어요'));
   readerChatPersona = persona;
   readerChatAttached = null;
   readerChatSending = false;
@@ -16267,13 +16416,13 @@ function closeReaderScenePicker() {
 }
 
 function openReaderScenePicker() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const modal = $("readerScenePickerModal");
   const list = $("readerScenePickerList");
   if (!modal || !list) return;
   const episodes = typeof listExportEpisodes === "function" ? listExportEpisodes() : [];
   if (!episodes.length) {
-    list.innerHTML = `<p class="export-scene-empty">첨부할 회차가 없어요. 먼저 목차에 회차를 만들어 주세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_export_scene_em');
   } else {
     list.innerHTML = episodes.map((ep) => `
       <button type="button" class="export-scene-item" data-reader-scene="${ep.id}">
@@ -16288,7 +16437,7 @@ async function attachReaderScene(sceneId) {
   if (!id) return;
   const episodes = typeof listExportEpisodes === "function" ? listExportEpisodes() : [];
   const ep = episodes.find((item) => Number(item.id) === id);
-  const title = ep?.title || `회차 #${id}`;
+  const title = ep?.title || `${i18n.t('app.회차_id', {id: id})}`;
   try {
     let html = "";
     if (Number(state.sceneId) === id && state.scene) {
@@ -16299,13 +16448,13 @@ async function attachReaderScene(sceneId) {
     }
     const content = plainTextFromHtml(html);
     if (!content) {
-      toast("이 회차에 본문이 없어요.");
+      toast(i18n.t('app.이_회차에_본문이_없어요'));
       return;
     }
     readerChatAttached = { sceneId: id, title, content };
     renderReaderChatAttachChip();
     closeReaderScenePicker();
-    toast(`「${title}」을 첨부했어요.`);
+    toast(`${i18n.t('app.title_을_첨부했어요', {title: title})}`);
   } catch (error) {
     handleError(error);
   }
@@ -16319,12 +16468,12 @@ function clearReaderChatAttach() {
 async function sendReaderChatMessage(event) {
   if (event) event.preventDefault();
   if (readerChatSending) return;
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const persona = readerChatPersona;
-  if (!persona) return toast("대화할 독자를 먼저 골라 주세요.");
+  if (!persona) return toast(i18n.t('app.대화할_독자를_먼저_골라_주세요'));
   const input = $("readerChatInput");
   const text = String(input?.value || "").trim();
-  if (!text) return toast("메시지를 입력해 주세요.");
+  if (!text) return toast(i18n.t('app.메시지를_입력해_주세요'));
   readerChatSending = true;
   readerChatMessages.push({ role: "user", content: text });
   if (input) input.value = "";
@@ -16345,7 +16494,7 @@ async function sendReaderChatMessage(event) {
     if (result?.session_id) rememberReaderChatSession(persona.id, result.session_id);
     readerChatMessages.push({
       role: "assistant",
-      content: String(result?.reply || "").trim() || "(응답이 비어 있어요)",
+      content: String(result?.reply || "").trim() || i18n.t('app.응답이_비어_있어요_2'),
     });
   } catch (error) {
     readerChatMessages.pop();
@@ -16366,7 +16515,7 @@ async function openReaderPersonaAllModal() {
   const grid = $("readerPersonaAllGrid");
   if (!modal || !grid) return;
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   const isDebate = readerListMode === "debate";
@@ -16374,11 +16523,11 @@ async function openReaderPersonaAllModal() {
   const title = $("readerPersonaAllTitle");
   const hint = $("readerPersonaAllHint");
   const countEl = $("readerPersonaAllDebateCount");
-  if (title) title.textContent = isDebate ? "토론 패널 전체보기" : "가상 독자 전체보기";
+  if (title) title.textContent = isDebate ? i18n.t('app.토론_패널_전체보기') : i18n.t('app.가상_독자_전체보기');
   if (hint) {
     hint.textContent = isDebate
-      ? "카드를 눌러 토론할 독자를 골라 주세요. 소개는 잘리지 않고 전부 보여 줍니다."
-      : "카드를 눌러 대화할 독자를 고른 뒤, 대화 시작하기를 눌러 주세요.";
+      ? i18n.t('app.카드를_눌러_토론할_독자를_골라_주세요_소개')
+      : i18n.t('app.카드를_눌러_대화할_독자를_고른_뒤_대화_시');
   }
   countEl?.classList.toggle("hidden", !isDebate);
   try {
@@ -16387,13 +16536,13 @@ async function openReaderPersonaAllModal() {
     }
     if (isDebate) {
       grid.innerHTML = readerDebateSectionsHtml({ fullIdentity: true })
-        || `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+        || i18n.t('app.p_class_hint_가상_독자를_불러오');
       bindReaderAvatarErrors(grid);
       syncReaderDebateSelectionUi();
     } else {
       const people = flattenReaderPersonas(readerPersonaCache);
       if (!people.length) {
-        grid.innerHTML = `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+        grid.innerHTML = i18n.t('app.p_class_hint_가상_독자를_불러오');
       } else {
         grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona, { fullIdentity: true })).join("");
         bindReaderAvatarErrors(grid);
@@ -16401,7 +16550,7 @@ async function openReaderPersonaAllModal() {
       }
     }
   } catch (error) {
-    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
   }
   modal.classList.remove("hidden");
@@ -16426,7 +16575,7 @@ function syncReaderChatSelectionUi() {
   if (startBtn) startBtn.disabled = !selected;
   const hint = $("readerChatStartHint");
   if (hint) {
-    hint.textContent = selected ? "" : "독자를 한 명 골라주세요";
+    hint.textContent = selected ? "" : i18n.t('app.독자를_한_명_골라주세요');
     hint.hidden = Boolean(selected);
   }
 }
@@ -16439,7 +16588,7 @@ function selectReaderPersonaForChat(personaId) {
 }
 
 function startReaderChatFromPicker() {
-  if (!readerChatSelectedId) return toast("독자를 한 명 골라주세요.");
+  if (!readerChatSelectedId) return toast(i18n.t('app.독자를_한_명_골라주세요_2'));
   closeReaderPersonaAllModal();
   openReaderChatWithPersona(readerChatSelectedId).catch(handleError);
 }
@@ -16554,7 +16703,7 @@ function readerDebateSectionsHtml({ fullIdentity = false } = {}) {
     return `<section class="reader-debate-section" data-debate-category="${escapeHtml(category)}">`
       + `<div class="reader-debate-section-head">`
       + `<strong>${escapeHtml(READER_PERSONA_CATEGORY_LABELS[category] || category)}</strong>`
-      + `<p class="reader-debate-section-limit hidden" data-debate-limit="${escapeHtml(category)}">이 카테고리는 최대 5명까지예요</p>`
+      + `${i18n.t('app.p_class_reader_debate_s', {'escapeHtml(category)': escapeHtml(category)})}`
       + `</div>`
       + `<div class="reader-debate-section-cards">${cards}</div>`
       + `</section>`;
@@ -16565,17 +16714,17 @@ async function loadAndRenderReaderDebateGrid() {
   const grid = $("readerDebateGrid");
   if (!grid) return;
   if (!state.projectId) {
-    grid.innerHTML = `<p class="hint">작품을 먼저 선택해 주세요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_작품을_먼저_선택해');
     return;
   }
   try {
     if (!readerPersonaCache) {
       readerPersonaCache = await api("/api/reader-personas");
     }
-    grid.innerHTML = readerDebateSectionsHtml() || `<p class="hint">가상 독자를 불러오지 못했어요.</p>`;
+    grid.innerHTML = readerDebateSectionsHtml() || i18n.t('app.p_class_hint_가상_독자를_불러오');
     bindReaderAvatarErrors(grid);
   } catch (error) {
-    grid.innerHTML = `<p class="hint">독자 목록을 불러오지 못했어요.</p>`;
+    grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
     return;
   }
@@ -16588,7 +16737,7 @@ async function loadAndRenderReaderDebateGrid() {
 
 function syncReaderDebateSelectionUi() {
   const total = readerDebateSelectedIds.length;
-  const countText = `${total} / ${READER_DEBATE_MAX_TOTAL}명 선택됨`;
+  const countText = `${i18n.t('app.total_READER_DEBATE_MAX', {total: total, READER_DEBATE_MAX_TOTAL: READER_DEBATE_MAX_TOTAL})}`;
   const countEl = $("readerDebateCount");
   if (countEl) countEl.textContent = countText;
   const allCountEl = $("readerPersonaAllDebateCount");
@@ -16598,7 +16747,7 @@ function syncReaderDebateSelectionUi() {
   if (startBtn) startBtn.disabled = !canStart;
   const hint = $("readerDebateStartHint");
   if (hint) {
-    hint.textContent = canStart ? "" : "최소 3명을 골라주세요";
+    hint.textContent = canStart ? "" : i18n.t('app.최소_3명을_골라주세요');
     hint.hidden = canStart;
   }
   const totalFull = total >= READER_DEBATE_MAX_TOTAL;
@@ -16812,14 +16961,14 @@ function setupToryChat() {
   $("toryChatClearButton")?.addEventListener("click", clearToryChatHistory);
   $("toryChatSuccessSummonButton")?.addEventListener("click", () => {
     if (!getLinkedSuccessProfileId()) {
-      toast("흥행 프로파일이 연결된 작품에서만 쓸 수 있어요.");
+      toast(i18n.t('app.흥행_프로파일이_연결된_작품에서만_쓸_수_있'));
       updateToryChatSuccessUi();
       return;
     }
     ensureLinkedSuccessProfile()
       .then((profile) => {
         if (!profile) {
-          toast("흥행 프로파일을 불러오지 못했어요.");
+          toast(i18n.t('app.흥행_프로파일을_불러오지_못했어요'));
           return;
         }
         setToryChatMode("successAnalysis");
@@ -16908,7 +17057,7 @@ function loadCustomToryNotifs() {
       .map((n) => ({
         id: String(n.id),
         type: "custom",
-        title: String(n.title || "").trim() || "알림",
+        title: String(n.title || "").trim() || i18n.t('app.알림'),
         message: String(n.message || "").trim(),
         sceneId: n.sceneId != null && n.sceneId !== "" ? Number(n.sceneId) || null : null,
         note: String(n.note || "").trim(),
@@ -16939,18 +17088,18 @@ function getUnifiedToryNotifs() {
     const hasRecoverNote = Boolean(String(bait.recoverAt || "").trim());
     if (!hasRecoverScene && !hasRecoverNote && bait.notifyOnRecover === false) continue;
     if (!hasRecoverScene && !hasRecoverNote) continue;
-    const title = (bait.summary || bait.quote || "떡밥 회수").replace(/\s+/g, " ").trim().slice(0, 80);
+    const title = (bait.summary || bait.quote || i18n.t('app.떡밥_회수')).replace(/\s+/g, " ").trim().slice(0, 80);
     const sceneTitle = hasRecoverScene
-      ? (sceneTitleById(bait.recoverSceneId) || `씬 #${bait.recoverSceneId}`)
+      ? (sceneTitleById(bait.recoverSceneId) || `${i18n.t('app.씬_bait_recoverSceneId', {'bait.recoverSceneId': bait.recoverSceneId})}`)
       : "";
     items.push({
       id: `bait:${bait.id}`,
       type: "bait",
       baitId: bait.id,
-      title: title || "떡밥 회수",
+      title: title || i18n.t('app.떡밥_회수'),
       message: (bait.recoverContent || bait.quote || "").replace(/\s+/g, " ").trim(),
       sceneId: hasRecoverScene ? Number(bait.recoverSceneId) : null,
-      sceneLabel: sceneTitle || bait.recoverAt || "회수 회차 미정",
+      sceneLabel: sceneTitle || bait.recoverAt || i18n.t('app.회수_회차_미정'),
       note: bait.recoverAt || "",
       enabled: hasRecoverScene ? bait.notifyOnRecover !== false : false,
       createdAt: bait.createdAt || "",
@@ -16961,8 +17110,8 @@ function getUnifiedToryNotifs() {
       ...n,
       type: "custom",
       sceneLabel: n.sceneId
-        ? (sceneTitleById(n.sceneId) || `씬 #${n.sceneId}`)
-        : (n.note || "회차 미정"),
+        ? (sceneTitleById(n.sceneId) || `${i18n.t('app.씬_n_sceneId', {'n.sceneId': n.sceneId})}`)
+        : (n.note || i18n.t('app.회차_미정')),
     });
   }
   items.sort((a, b) => {
@@ -17011,7 +17160,7 @@ function applyToryNotifyCollapsed(collapsed) {
   box?.classList.toggle("is-collapsed", Boolean(collapsed));
   if (btn) {
     btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-    btn.title = collapsed ? "알림 패널 펼치기" : "알림 패널 접기";
+    btn.title = collapsed ? i18n.t('app.알림_패널_펼치기') : i18n.t('app.알림_패널_접기');
   }
   try {
     localStorage.setItem(TORY_NOTIFY_COLLAPSE_KEY, collapsed ? "1" : "0");
@@ -17024,9 +17173,9 @@ function updateToryNotifyCountUi(onCount, total) {
   const countEl = $("toryNotifyCount");
   if (!countEl) return;
   countEl.innerHTML = `
-    <span class="tory-notify-stat is-on" title="켜진 알림">${onCount}</span>
+    <span class="tory-notify-stat is-on" title="${i18n.t('app.켜진_알림')}">${onCount}</span>
     <span class="tory-notify-stat-sep">/</span>
-    <span class="tory-notify-stat is-total" title="전체 알림">${total}</span>`;
+    <span class="tory-notify-stat is-total" title="${i18n.t('app.전체_알림')}">${total}</span>`;
 }
 
 function renderToryNotifyDueBanner(items) {
@@ -17046,9 +17195,9 @@ function renderToryNotifyDueBanner(items) {
     return;
   }
   const sceneName = escapeHtml(
-    state.scene?.title || $("sceneTitle")?.value || sceneTitleById(state.sceneId) || "이 회차",
+    state.scene?.title || $("sceneTitle")?.value || sceneTitleById(state.sceneId) || i18n.t('app.이_회차'),
   );
-  banner.innerHTML = `<strong>지금 회차 알림 ${due.length}건</strong> · ${sceneName}`;
+  banner.innerHTML = `${i18n.t('app.strong_지금_회차_알림_due_len', {'due.length': due.length, sceneName: sceneName})}`;
   banner.classList.remove("hidden");
 }
 
@@ -17057,37 +17206,37 @@ function renderToryNotifyCard(item) {
   const isDue = Boolean(
     item.enabled && state.sceneId && Number(item.sceneId) === Number(state.sceneId),
   );
-  const typeLabel = isBait ? "떡밥 회수" : "수동 알림";
+  const typeLabel = isBait ? i18n.t('app.떡밥_회수') : i18n.t('app.수동_알림');
   const typeClass = isBait ? "is-bait" : "is-custom";
-  const title = escapeHtml(item.title || "알림");
+  const title = escapeHtml(item.title || i18n.t('app.알림'));
   const msg = escapeHtml((item.message || "").replace(/\s+/g, " ").trim().slice(0, 140));
-  const sceneLabel = escapeHtml(item.sceneLabel || "회차 미정");
+  const sceneLabel = escapeHtml(item.sceneLabel || i18n.t('app.회차_미정'));
   const sceneChipClass = isDue ? "is-due" : (item.sceneId ? "" : "is-muted");
   const sceneChip = item.sceneId
-    ? `<span class="tory-notify-chip ${sceneChipClass}" title="알림 회차">${uiIcon("book", 15)} ${sceneLabel}</span>`
-    : `<span class="tory-notify-chip is-muted" title="회차 미정">${uiIcon("book", 15)} ${sceneLabel}</span>`;
+    ? `${i18n.t('app.span_class_tory_notify', {sceneChipClass: sceneChipClass, 'uiIcon("book", 15)': uiIcon("book", 15), sceneLabel: sceneLabel})}`
+    : `${i18n.t('app.span_class_tory_notify_2', {'uiIcon("book", 15)': uiIcon("book", 15), sceneLabel: sceneLabel})}`;
   const statusChip = item.enabled
     ? (isDue
-      ? `<span class="tory-notify-chip is-due">지금 알림</span>`
-      : `<span class="tory-notify-chip">알림 켜짐</span>`)
-    : `<span class="tory-notify-chip is-muted">꺼짐</span>`;
+      ? i18n.t('app.span_class_tory_notify_3')
+      : i18n.t('app.span_class_tory_notify_4'))
+    : i18n.t('app.span_class_tory_notify_5');
   const switchDisabled = isBait && !item.sceneId;
   const switchHtml = `
-    <label class="tory-switch" title="${item.enabled ? "알림 끄기" : "알림 켜기"}">
+    <label class="tory-switch" title="${item.enabled ? i18n.t('app.알림_끄기') : i18n.t('app.알림_켜기')}">
       <input type="checkbox" data-tory-notif-toggle="${escapeHtml(item.id)}"
         ${item.enabled ? "checked" : ""} ${switchDisabled ? "disabled" : ""}
-        aria-label="${item.enabled ? "알림 끄기" : "알림 켜기"}">
+        aria-label="${item.enabled ? i18n.t('app.알림_끄기') : i18n.t('app.알림_켜기')}">
       <span class="tory-switch-track" aria-hidden="true"></span>
     </label>`;
   const foot = [];
   if (item.sceneId) {
-    foot.push(`<button type="button" class="secondary" data-tory-notif-open-scene="${Number(item.sceneId)}">회차 열기</button>`);
+    foot.push(`${i18n.t('app.button_type_button_clas_2', {'Number(item.sceneId)': Number(item.sceneId)})}`);
   }
   if (isBait) {
-    foot.push(`<button type="button" class="secondary" data-tory-notif-open-bait="${escapeHtml(item.baitId || "")}">떡밥 수정</button>`);
+    foot.push(`${i18n.t('app.button_type_button_clas_3', {'escapeHtml(item.baitId || "")': escapeHtml(item.baitId || "")})}`);
   } else {
-    foot.push(`<button type="button" class="secondary" data-tory-notif-edit="${escapeHtml(item.id)}">수정</button>`);
-    foot.push(`<button type="button" class="secondary is-danger" data-tory-notif-delete="${escapeHtml(item.id)}">삭제</button>`);
+    foot.push(`${i18n.t('app.button_type_button_clas_4', {'escapeHtml(item.id)': escapeHtml(item.id)})}`);
+    foot.push(`${i18n.t('app.button_type_button_clas_5', {'escapeHtml(item.id)': escapeHtml(item.id)})}`);
   }
   return `
     <article class="tory-notify-card ${item.enabled ? "is-on" : "is-off"}${isDue ? " is-due" : ""}"
@@ -17112,8 +17261,8 @@ function renderToryNotifyList() {
     list.innerHTML = `
       <div class="tory-notify-empty">
         <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🔔</span>
-        <strong>작품을 먼저 선택해 주세요</strong>
-        <p>선택한 작품의 떡밥·수동 알림이 여기에 모입니다.</p>
+        <strong>${i18n.t('app.작품을_먼저_선택해_주세요_2')}</strong>
+        <p data-i18n="app.선택한_작품의_떡밥_수동_알림이_여기에_모입니다">${i18n.t('app.선택한_작품의_떡밥_수동_알림이_여기에_모입니다')}</p>
       </div>`;
     return;
   }
@@ -17128,8 +17277,8 @@ function renderToryNotifyList() {
     list.innerHTML = `
       <div class="tory-notify-empty">
         <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🪄</span>
-        <strong>아직 알림이 없어요</strong>
-        <p>떡밥 회수 알림을 켜 두거나,<br><b>알림 만들기</b>로 수동 알림을 추가해 보세요.</p>
+        <strong data-i18n="app.아직_알림이_없어요">${i18n.t('app.아직_알림이_없어요')}</strong>
+        <p data-i18n-html="app.떡밥_회수_알림을_켜_두거나_알림_만들기로_수동">${i18n.t('app.떡밥_회수_알림을_켜_두거나_알림_만들기로_수동')}</p>
       </div>`;
     return;
   }
@@ -17137,8 +17286,8 @@ function renderToryNotifyList() {
     list.innerHTML = `
       <div class="tory-notify-empty">
         <span class="tory-notify-empty-icon emoji-icon" aria-hidden="true">🔎</span>
-        <strong>이 필터에 해당하는 알림이 없어요</strong>
-        <p>다른 필터를 고르거나 새 알림을 만들어 보세요.</p>
+        <strong data-i18n="app.이_필터에_해당하는_알림이_없어요">${i18n.t('app.이_필터에_해당하는_알림이_없어요')}</strong>
+        <p data-i18n="app.다른_필터를_고르거나_새_알림을_만들어_보세요">${i18n.t('app.다른_필터를_고르거나_새_알림을_만들어_보세요')}</p>
       </div>`;
     return;
   }
@@ -17150,13 +17299,13 @@ function fillToryNotifySceneSelect(selected = "") {
   if (!sel) return;
   const scenes = typeof allScenes === "function" ? allScenes() : [];
   if (!scenes.length) {
-    sel.innerHTML = `<option value="">(회차가 없어요)</option>`;
+    sel.innerHTML = i18n.t('app.option_value_회차가_없어요_op');
     return;
   }
-  sel.innerHTML = [`<option value="">(아직 미정 — 목록에만 저장)</option>`]
+  sel.innerHTML = [i18n.t('app.option_value_아직_미정_목록에만')]
     .concat(scenes.map((scene) => {
       const id = Number(scene.id);
-      const label = escapeHtml(scene.title || `씬 #${id}`);
+      const label = escapeHtml(scene.title || `${i18n.t('app.씬_id', {id: id})}`);
       const chapter = scene.chapterTitle ? `${escapeHtml(scene.chapterTitle)} · ` : "";
       return `<option value="${id}">${chapter}${label}</option>`;
     }))
@@ -17167,7 +17316,7 @@ function fillToryNotifySceneSelect(selected = "") {
 function openToryNotifyEditModal(item = null) {
   const modal = $("toryNotifyEditModal");
   if (!modal) return;
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   fillToryNotifySceneSelect(item?.sceneId || state.sceneId || "");
   if ($("toryNotifyEditId")) $("toryNotifyEditId").value = item?.id || "";
   if ($("toryNotifyEditTitleInput")) $("toryNotifyEditTitleInput").value = item?.title || "";
@@ -17175,10 +17324,10 @@ function openToryNotifyEditModal(item = null) {
   if ($("toryNotifyEditNote")) $("toryNotifyEditNote").value = item?.note || "";
   if ($("toryNotifyEditEnabled")) $("toryNotifyEditEnabled").checked = item ? item.enabled !== false : true;
   if ($("toryNotifyEditTitle")) {
-    $("toryNotifyEditTitle").textContent = item ? "알림 수정" : "알림 만들기";
+    $("toryNotifyEditTitle").textContent = item ? i18n.t('app.알림_수정') : i18n.t('app.알림_만들기');
   }
   if ($("toryNotifyEditSave")) {
-    $("toryNotifyEditSave").textContent = item ? "저장" : "알림 저장";
+    $("toryNotifyEditSave").textContent = item ? i18n.t('app.저장') : i18n.t('app.알림_저장');
   }
   modal.classList.remove("hidden");
   requestAnimationFrame(() => $("toryNotifyEditTitleInput")?.focus());
@@ -17190,10 +17339,10 @@ function closeToryNotifyEditModal() {
 
 function saveToryNotifyFromModal(event) {
   if (event) event.preventDefault();
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const editId = ($("toryNotifyEditId")?.value || "").trim();
   const title = ($("toryNotifyEditTitleInput")?.value || "").trim();
-  if (!title) return toast("알림 제목을 적어 주세요.");
+  if (!title) return toast(i18n.t('app.알림_제목을_적어_주세요'));
   const message = ($("toryNotifyEditMessage")?.value || "").trim();
   const sceneId = Number($("toryNotifyEditScene")?.value || 0) || null;
   const note = ($("toryNotifyEditNote")?.value || "").trim();
@@ -17201,7 +17350,7 @@ function saveToryNotifyFromModal(event) {
   const list = loadCustomToryNotifs();
   if (editId) {
     const item = list.find((n) => n.id === editId);
-    if (!item) return toast("수정할 알림을 찾지 못했어요.");
+    if (!item) return toast(i18n.t('app.수정할_알림을_찾지_못했어요'));
     item.title = title;
     item.message = message;
     item.sceneId = sceneId;
@@ -17209,7 +17358,7 @@ function saveToryNotifyFromModal(event) {
     item.enabled = enabled;
     saveCustomToryNotifs(list);
     closeToryNotifyEditModal();
-    toast("알림을 수정했어요.");
+    toast(i18n.t('app.알림을_수정했어요'));
     return;
   }
   list.unshift({
@@ -17224,7 +17373,7 @@ function saveToryNotifyFromModal(event) {
   });
   saveCustomToryNotifs(list);
   closeToryNotifyEditModal();
-  toast(sceneId ? "알림을 저장했어요. 해당 회차를 열면 토리가 알려 줘요." : "알림을 목록에 저장했어요.");
+  toast(sceneId ? i18n.t('app.알림을_저장했어요_해당_회차를_열면_토리가') : i18n.t('app.알림을_목록에_저장했어요'));
 }
 
 function flipUnifiedToryNotif(id) {
@@ -17233,7 +17382,7 @@ function flipUnifiedToryNotif(id) {
     const item = loadBaits().find((b) => b.id === baitId);
     if (!item) return;
     if (!Number(item.recoverSceneId)) {
-      toast("회수 예정 회차를 먼저 지정해 주세요.");
+      toast(i18n.t('app.회수_예정_회차를_먼저_지정해_주세요'));
       renderToryNotifyList();
       return;
     }
@@ -17242,7 +17391,7 @@ function flipUnifiedToryNotif(id) {
       .then(() => {
         renderBaitList();
         renderToryNotifyList();
-        toast(!currentlyOn ? "떡밥 알림을 켰어요." : "떡밥 알림을 껐어요.");
+        toast(!currentlyOn ? i18n.t('app.떡밥_알림을_켰어요') : i18n.t('app.떡밥_알림을_껐어요'));
       })
       .catch(handleError);
     return;
@@ -17252,7 +17401,7 @@ function flipUnifiedToryNotif(id) {
   if (!item) return;
   item.enabled = !item.enabled;
   saveCustomToryNotifs(list);
-  toast(item.enabled ? "알림을 켰어요." : "알림을 껐어요.");
+  toast(item.enabled ? i18n.t('app.알림을_켰어요') : i18n.t('app.알림을_껐어요'));
 }
 
 function setupToryNotifyCenter() {
@@ -17295,16 +17444,16 @@ function setupToryNotifyCenter() {
     const delBtn = event.target.closest?.("[data-tory-notif-delete]");
     if (delBtn) {
       const id = delBtn.dataset.toryNotifDelete;
-      if (!window.confirm("이 알림을 삭제할까요?")) return;
+      if (!window.confirm(i18n.t('app.이_알림을_삭제할까요'))) return;
       saveCustomToryNotifs(loadCustomToryNotifs().filter((n) => n.id !== id));
-      toast("알림을 삭제했어요.");
+      toast(i18n.t('app.알림을_삭제했어요'));
       return;
     }
     const baitBtn = event.target.closest?.("[data-tory-notif-open-bait]");
     if (baitBtn) {
       const baitId = baitBtn.dataset.toryNotifOpenBait;
       const item = loadBaits().find((b) => b.id === baitId);
-      if (!item) return toast("떡밥을 찾지 못했어요.");
+      if (!item) return toast(i18n.t('app.떡밥을_찾지_못했어요'));
       setActiveBinder("settings");
       state.openSettingsSection = "baits";
       applySettingsSectionState();
@@ -17381,12 +17530,12 @@ function localDayKey(date = new Date()) {
 
 function formatActiveDuration(seconds) {
   const s = Math.max(0, Math.floor(Number(seconds) || 0));
-  if (s < 60) return `${s}초`;
+  if (s < 60) return `${i18n.t('app.s_초', {s: s})}`;
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
   const rem = s % 60;
-  if (h > 0) return rem ? `${h}시간 ${m}분 ${rem}초` : (m ? `${h}시간 ${m}분` : `${h}시간`);
-  return rem ? `${m}분 ${rem}초` : `${m}분`;
+  if (h > 0) return rem ? `${i18n.t('app.h_시간_m_분_rem_초', {h: h, m: m, rem: rem})}` : (m ? `${i18n.t('app.h_시간_m_분', {h: h, m: m})}` : `${i18n.t('app.h_시간', {h: h})}`);
+  return rem ? `${i18n.t('app.m_분_rem_초', {m: m, rem: rem})}` : `${i18n.t('app.m_분', {m: m})}`;
 }
 
 function formatLocalTimeFromIso(iso) {
@@ -17403,8 +17552,8 @@ function formatLocalTimeFromIso(iso) {
 
 function formatKoreanDateLabel(dayKey) {
   const m = String(dayKey || "").match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!m) return dayKey || "날짜";
-  return `${Number(m[1])}년 ${Number(m[2])}월 ${Number(m[3])}일`;
+  if (!m) return dayKey || i18n.t('app.날짜');
+  return `${i18n.t('app.Number_m_1_년_Number_m_2', {'Number(m[1])': Number(m[1]), 'Number(m[2])': Number(m[2]), 'Number(m[3])': Number(m[3])})}`;
 }
 
 function idleLimitMs() {
@@ -17563,15 +17712,15 @@ function updateWritingLogButtonUi() {
   btn.classList.toggle("is-recording", on);
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   if (on) {
-    btn.title = "클릭: 집필 시간 기록 정지 · 우클릭: 달력·설정";
+    btn.title = i18n.t('app.클릭_집필_시간_기록_정지_우클릭_달력_설정');
   } else if (timeAuto) {
     btn.title = charsAuto
-      ? "글자수·시간은 자동 집계 중 · 클릭: 타이머 표시 · 우클릭: 달력·설정"
-      : "시간은 자동 집계 중 · 클릭: 타이머/수동 글자 집계 · 우클릭: 달력·설정";
+      ? i18n.t('app.글자수_시간은_자동_집계_중_클릭_타이머_표')
+      : i18n.t('app.시간은_자동_집계_중_클릭_타이머_수동_글자');
   } else {
     btn.title = charsAuto
-      ? "클릭: 집필 시간 기록 시작/정지 · 글자수는 자동 · 우클릭: 달력·설정"
-      : "클릭: 글자수·시간 기록 시작/정지 · 우클릭: 달력·설정";
+      ? i18n.t('app.클릭_집필_시간_기록_시작_정지_글자수는_자')
+      : i18n.t('app.클릭_글자수_시간_기록_시작_정지_우클릭_달');
   }
 
   // 아이콘은 활성/비활성 모두 유지. 아래 라벨만 "기록" ↔ "0:01" 전환.
@@ -17608,17 +17757,17 @@ function updateWritingLogButtonUi() {
 
   if (on) {
     if (!showTimer) {
-      label.textContent = "기록중";
+      label.textContent = i18n.t('app.기록중');
     } else {
       const time = formatRecordingClock(liveRecordingSeconds());
       const idle = writingTracker.lastActivityAt
         && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
-      label.textContent = idle ? `일시정지 ${time}` : time;
+      label.textContent = idle ? `${i18n.t('app.일시정지_time', {time: time})}` : time;
     }
-    btn.setAttribute("aria-label", `기록 중 ${label.textContent}`);
+    btn.setAttribute("aria-label", `${i18n.t('app.기록_중_label_textContent', {'label.textContent': label.textContent})}`);
   } else {
-    label.textContent = "기록";
-    btn.setAttribute("aria-label", "기록");
+    label.textContent = i18n.t('app.기록');
+    btn.setAttribute("aria-label", i18n.t('app.기록'));
   }
   // 예전 별도 clock 노드가 남아 있으면 제거
   btn.querySelectorAll(".format-timer-clock").forEach((el) => {
@@ -17655,13 +17804,13 @@ function toggleWritingRecording() {
     const stillChars = shouldTrackWritingChars();
     const stillTime = shouldTrackWritingTime();
     if (stillChars && stillTime) {
-      toast("타이머를 멈췄어요. 글자수·시간은 자동 집계가 이어집니다.");
+      toast(i18n.t('app.타이머를_멈췄어요_글자수_시간은_자동_집계가'));
     } else if (stillChars) {
-      toast("집필 시간 기록을 멈췄어요. 글자수는 자동으로 계속 집계됩니다.");
+      toast(i18n.t('app.집필_시간_기록을_멈췄어요_글자수는_자동으로'));
     } else if (stillTime) {
-      toast("수동 기록을 멈췄어요. 글쓴 시간은 자동 집계가 이어집니다.");
+      toast(i18n.t('app.수동_기록을_멈췄어요_글쓴_시간은_자동_집계'));
     } else {
-      toast("기록을 멈췄어요. 우클릭으로 달력을 볼 수 있어요.");
+      toast(i18n.t('app.기록을_멈췄어요_우클릭으로_달력을_볼_수_있'));
     }
     return;
   }
@@ -17680,9 +17829,9 @@ function toggleWritingRecording() {
   startWritingUiTimer();
   updateWritingLogButtonUi();
   if (writingTracker.prefs.time_auto) {
-    toast("기록 타이머 표시! 다시 누르면 끕니다.");
+    toast(i18n.t('app.기록_타이머_표시_다시_누르면_끕니다'));
   } else {
-    toast("집필 시간 기록 시작! 다시 누르면 정지합니다.");
+    toast(i18n.t('app.집필_시간_기록_시작_다시_누르면_정지합니다'));
   }
 }
 
@@ -17816,12 +17965,12 @@ async function celebrateWritingGoal(totalChars) {
     /* ignore mark failure */
   }
   showToryCheer(
-    "연속 목표 달성!",
+    i18n.t('app.연속_목표_달성'),
     `${goal.toLocaleString("ko-KR")}자 달성! 오늘 ${Number(totalChars || goal).toLocaleString("ko-KR")}자까지 썼어요.\n토리가 응원해요. 잠깐 쉬어도, 다시 오면 기다릴게요.`,
   );
   tryDesktopNotification(
-    "SuperTORY · 목표 달성",
-    `${goal.toLocaleString("ko-KR")}자 달성! 토리가 응원해요.`,
+    i18n.t('app.SuperTORY_목표_달성'),
+    `${i18n.t('app.goal_toLocaleString_ko_2', {'goal.toLocaleString("ko-KR")': goal.toLocaleString("ko-KR")})}`,
   );
 }
 
@@ -17831,7 +17980,7 @@ function showToryCheer(title, message) {
     toast(message);
     return;
   }
-  if ($("toryCheerTitle")) $("toryCheerTitle").textContent = title || "토리의 응원";
+  if ($("toryCheerTitle")) $("toryCheerTitle").textContent = title || i18n.t('app.토리의_응원');
   if ($("toryCheerMessage")) $("toryCheerMessage").textContent = message || "";
   card.classList.remove("hidden");
   if (writingTracker.cheerTimer) window.clearTimeout(writingTracker.cheerTimer);
@@ -17890,10 +18039,10 @@ async function checkLonelyWriter() {
       });
     } catch (_) { /* ignore */ }
     showToryCheer(
-      "토리가 외로워요…",
+      i18n.t('app.토리가_외로워요'),
       `${diffDays}일 동안 글이 없었어요.\n조금만 써 주면 토리가 기뻐할 거예요. 휴대폰 앱이 생기면 거기로도 불러줄게요.`,
     );
-    tryDesktopNotification("SuperTORY", "토리가 외로워요… 오늘 한 줄만 써볼까요?");
+    tryDesktopNotification("SuperTORY", i18n.t('app.토리가_외로워요_오늘_한_줄만_써볼까요'));
   } catch (_) {
     /* offline / first run */
   }
@@ -17950,7 +18099,7 @@ function formatWeekLabel(mondayKey) {
 function formatMonthLabel(ym) {
   const m = String(ym || "").match(/^(\d{4})-(\d{2})$/);
   if (!m) return ym;
-  return `${m[1]}년 ${Number(m[2])}월`;
+  return `${i18n.t('app.m_1_년_Number_m_2_월', {'m[1]': m[1], 'Number(m[2])': Number(m[2])})}`;
 }
 
 function aggregateWritingDays(daysList) {
@@ -18000,7 +18149,7 @@ function aggregateWritingDays(daysList) {
 function renderWritingStatsTable(container, rows, columns) {
   if (!container) return;
   if (!rows.length) {
-    container.innerHTML = `<p class="hint writing-stats-empty">아직 집계할 기록이 없어요. 기록 버튼을 켜고 글을 써 보세요.</p>`;
+    container.innerHTML = i18n.t('app.p_class_hint_writing_st');
     return;
   }
   const head = columns.map((c) => `<th>${escapeHtml(c.label)}</th>`).join("");
@@ -18050,18 +18199,27 @@ async function refreshWritingStatsPane() {
   if (highlights) {
     highlights.innerHTML = `
       <div class="writing-stats-card">
-        <strong>오늘 (일간)</strong>
-        <div class="stats-chars">${(todayRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <strong>${i18n.t('app.오늘_일간')}</strong>
+        <div class="stats-chars">${(() => {
+          const n = todayRec.chars || 0;
+          return n.toLocaleString("ko-KR") + i18n.t(n === 1 ? 'app.자_접미사_단수' : 'app.자_접미사');
+        })()}</div>
         <div class="stats-time">${escapeHtml(formatActiveDuration(todayRec.seconds || 0))}</div>
       </div>
       <div class="writing-stats-card">
-        <strong>이번 주 (주간)</strong>
-        <div class="stats-chars">${(weekRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <strong>${i18n.t('app.이번_주_주간')}</strong>
+        <div class="stats-chars">${(() => {
+          const n = weekRec.chars || 0;
+          return n.toLocaleString("ko-KR") + i18n.t(n === 1 ? 'app.자_접미사_단수' : 'app.자_접미사');
+        })()}</div>
         <div class="stats-time">${escapeHtml(formatActiveDuration(weekRec.seconds || 0))}</div>
       </div>
       <div class="writing-stats-card">
-        <strong>이번 달 (월별)</strong>
-        <div class="stats-chars">${(monthRec.chars || 0).toLocaleString("ko-KR")}자</div>
+        <strong>${i18n.t('app.이번_달_월별')}</strong>
+        <div class="stats-chars">${(() => {
+          const n = monthRec.chars || 0;
+          return n.toLocaleString("ko-KR") + i18n.t(n === 1 ? 'app.자_접미사_단수' : 'app.자_접미사');
+        })()}</div>
         <div class="stats-time">${escapeHtml(formatActiveDuration(monthRec.seconds || 0))}</div>
       </div>
     `;
@@ -18071,39 +18229,39 @@ async function refreshWritingStatsPane() {
     ...r,
     isCurrent: r.day === today,
     label: r.day === today
-      ? `${formatKoreanDateLabel(r.day)} (오늘)`
+      ? `${i18n.t('app.formatKoreanDateLabel_r', {'formatKoreanDateLabel(r.day)': formatKoreanDateLabel(r.day)})}`
       : formatKoreanDateLabel(r.day),
   }));
   renderWritingStatsTable(dailyEl, dailyView, [
-    { label: "날짜", render: (r) => escapeHtml(r.label) },
-    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
-    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+    { label: i18n.t('app.날짜'), render: (r) => escapeHtml(r.label) },
+    { label: i18n.t('app.글자_수'), render: (r) => `${i18n.t('app.r_chars_0_toLocaleStrin', {'(r.chars || 0).toLocaleString("ko-KR")': (r.chars || 0).toLocaleString("ko-KR")})}` },
+    { label: i18n.t('app.집필_시간'), render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
   ]);
 
   const weeklyView = weekRows.slice(0, 26).map((r) => ({
     ...r,
     isCurrent: r.key === thisWeek,
     label: r.key === thisWeek
-      ? `${formatWeekLabel(r.key)} (이번 주)`
+      ? `${i18n.t('app.formatWeekLabel_r_key_이', {'formatWeekLabel(r.key)': formatWeekLabel(r.key)})}`
       : formatWeekLabel(r.key),
   }));
   renderWritingStatsTable(weeklyEl, weeklyView, [
-    { label: "주 (월–일)", render: (r) => escapeHtml(r.label) },
-    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
-    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+    { label: i18n.t('app.주_월_일'), render: (r) => escapeHtml(r.label) },
+    { label: i18n.t('app.글자_수'), render: (r) => `${i18n.t('app.r_chars_0_toLocaleStrin', {'(r.chars || 0).toLocaleString("ko-KR")': (r.chars || 0).toLocaleString("ko-KR")})}` },
+    { label: i18n.t('app.집필_시간'), render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
   ]);
 
   const monthlyView = monthRows.slice(0, 24).map((r) => ({
     ...r,
     isCurrent: r.key === thisMonth,
     label: r.key === thisMonth
-      ? `${formatMonthLabel(r.key)} (이번 달)`
+      ? `${i18n.t('app.formatMonthLabel_r_key', {'formatMonthLabel(r.key)': formatMonthLabel(r.key)})}`
       : formatMonthLabel(r.key),
   }));
   renderWritingStatsTable(monthlyEl, monthlyView, [
-    { label: "월", render: (r) => escapeHtml(r.label) },
-    { label: "글자 수", render: (r) => `${(r.chars || 0).toLocaleString("ko-KR")}자` },
-    { label: "집필 시간", render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
+    { label: i18n.t('app.월'), render: (r) => escapeHtml(r.label) },
+    { label: i18n.t('app.글자_수'), render: (r) => `${i18n.t('app.r_chars_0_toLocaleStrin', {'(r.chars || 0).toLocaleString("ko-KR")': (r.chars || 0).toLocaleString("ko-KR")})}` },
+    { label: i18n.t('app.집필_시간'), render: (r) => escapeHtml(formatActiveDuration(r.seconds || 0)) },
   ]);
 }
 
@@ -18173,13 +18331,13 @@ function updateWritingLogPurgeUi() {
   const modal = $("writingLogModal");
   btn?.classList.toggle("is-active", modeOn);
   btn?.setAttribute("aria-pressed", modeOn ? "true" : "false");
-  btn && (btn.textContent = modeOn ? "선택 삭제 중" : "기록 선택 삭제");
+  btn && (btn.textContent = modeOn ? i18n.t('app.선택_삭제_중') : i18n.t('app.기록_선택_삭제'));
   actions?.classList.toggle("hidden", !modeOn);
   modal?.classList.toggle("is-purge-select", modeOn);
   const n = writingTracker.purgeSelectedDays?.size || 0;
   if (countEl) {
     countEl.textContent = modeOn
-      ? (n ? `${n}일 선택됨 · 달력에서 날짜를 눌러 고르세요` : "달력에서 지울 날짜를 고르세요")
+      ? (n ? `${i18n.t('app.n_일_선택됨_달력에서_날짜를_눌러_고르세', {n: n})}` : i18n.t('app.달력에서_지울_날짜를_고르세요'))
       : "";
   }
   if (confirmBtn) confirmBtn.disabled = !modeOn || n <= 0;
@@ -18193,7 +18351,7 @@ function setWritingLogPurgeSelectMode(on) {
   updateWritingLogPurgeUi();
   renderWritingCalendarGrid();
   if (next) {
-    toast("달력에서 지울 날짜를 고른 뒤 「선택한 기록 삭제」를 누르세요.");
+    toast(i18n.t('app.달력에서_지울_날짜를_고른_뒤_선택한_기록'));
   }
 }
 
@@ -18201,7 +18359,7 @@ function toggleWritingLogPurgeDay(dayKey) {
   if (!dayKey || !writingTracker.purgeSelectMode) return;
   if (!writingTracker.purgeSelectedDays) writingTracker.purgeSelectedDays = new Set();
   if (!dayHasWritingRecord(dayKey) && !writingTracker.purgeSelectedDays.has(dayKey)) {
-    toast("지울 기록이 없는 날짜예요.");
+    toast(i18n.t('app.지울_기록이_없는_날짜예요'));
     return;
   }
   if (writingTracker.purgeSelectedDays.has(dayKey)) writingTracker.purgeSelectedDays.delete(dayKey);
@@ -18211,7 +18369,7 @@ function toggleWritingLogPurgeDay(dayKey) {
 }
 
 async function clearAllWritingLogs() {
-  if (!window.confirm("모든 글쓰기 기록(글자수·집필 시간)을 삭제할까요? 이 작업은 되돌릴 수 없어요.")) {
+  if (!window.confirm(i18n.t('app.모든_글쓰기_기록_글자수_집필_시간_을_삭제'))) {
     return;
   }
   try {
@@ -18231,16 +18389,16 @@ async function clearAllWritingLogs() {
       try { await refreshWritingStatsPane(); } catch (_) { /* ignore */ }
     }
   }
-  toast(result?.deleted ? `기록 ${result.deleted}일을 모두 지웠어요.` : "지울 기록이 없었어요.");
+  toast(result?.deleted ? `${i18n.t('app.기록_result_deleted_일을_모두', {'result.deleted': result.deleted})}` : i18n.t('app.지울_기록이_없었어요'));
 }
 
 async function confirmWritingLogPurgeSelection() {
   const checked = [...(writingTracker.purgeSelectedDays || [])].filter(Boolean);
   if (!checked.length) {
-    toast("지울 날짜를 선택해 주세요.");
+    toast(i18n.t('app.지울_날짜를_선택해_주세요'));
     return;
   }
-  if (!window.confirm(`선택한 ${checked.length}일의 기록을 삭제할까요?`)) return;
+  if (!window.confirm(`${i18n.t('app.선택한_checked_length_일의_기록', {'checked.length': checked.length})}`)) return;
   const result = await api("/api/writing/days/clear", {
     method: "POST",
     body: JSON.stringify({ days: checked }),
@@ -18255,7 +18413,7 @@ async function confirmWritingLogPurgeSelection() {
     await loadWritingCalendarMonth();
     await selectWritingDay(writingTracker.selectedDay || localDayKey(), { silent: true });
   }
-  toast(result?.deleted ? `선택한 기록 ${result.deleted}일을 지웠어요.` : "선택한 날짜에 기록이 없었어요.");
+  toast(result?.deleted ? `${i18n.t('app.선택한_기록_result_deleted_일을', {'result.deleted': result.deleted})}` : i18n.t('app.선택한_날짜에_기록이_없었어요'));
 }
 
 function setupWritingLogPurgeControls() {
@@ -18333,9 +18491,9 @@ function renderWritingCalendarGrid() {
       purgePicked ? "is-purge-picked" : "",
     ].filter(Boolean).join(" ");
     const titleBits = [key];
-    if (firstMet) titleBits.push("토리와 처음 만난 날");
-    if (chars) titleBits.push(`${chars}자`);
-    if (purgeOn) titleBits.push(purgePicked ? "삭제 선택됨" : "클릭해서 삭제 선택");
+    if (firstMet) titleBits.push(i18n.t('app.토리와_처음_만난_날'));
+    if (chars) titleBits.push(`${i18n.t('app.chars_자', {chars: chars})}`);
+    if (purgeOn) titleBits.push(purgePicked ? i18n.t('app.삭제_선택됨') : i18n.t('app.클릭해서_삭제_선택'));
     cells.push(
       `<button type="button" class="${classes}" data-day="${key}" style="--write-heat:${heat}" title="${escapeHtml(titleBits.join(" · "))}"${purgePicked ? ' aria-pressed="true"' : ""}>`
       + `<span>${day}</span>`
@@ -18383,8 +18541,8 @@ async function selectWritingDay(dayKey, { silent = false } = {}) {
   }
   if ($("writingDayChars")) {
     $("writingDayChars").textContent = chars
-      ? `${chars.toLocaleString("ko-KR")}자`
-      : "0자";
+      ? `${i18n.t('app.chars_toLocaleString_ko', {'chars.toLocaleString("ko-KR")': chars.toLocaleString("ko-KR")})}`
+      : i18n.t('app.0자');
   }
   if ($("writingDayStart")) {
     $("writingDayStart").textContent = start ? formatLocalTimeFromIso(start) : "—";
@@ -18398,14 +18556,14 @@ async function selectWritingDay(dayKey, { silent = false } = {}) {
   if ($("writingDayHint")) {
     const idle = writingTracker.prefs.idle_minutes || 30;
     $("writingDayHint").textContent =
-      `미입력 ${idle}분 이상은 집필 시간에서 제외됩니다. 순증가 글자만 집계합니다.`;
+      `${i18n.t('app.미입력_idle_분_이상은_집필_시간에서_제', {idle: idle})}`;
   }
   const firstMetBanner = $("writingFirstMetBanner");
   if (firstMetBanner) {
     firstMetBanner.classList.toggle("hidden", !isFirstMetDay(dayKey));
   }
   if (isFirstMetDay(dayKey) && $("writingDayTitle")) {
-    $("writingDayTitle").textContent = `${formatKoreanDateLabel(dayKey)} · 첫 만남`;
+    $("writingDayTitle").textContent = `${i18n.t('app.formatKoreanDateLabel_d', {'formatKoreanDateLabel(dayKey)': formatKoreanDateLabel(dayKey)})}`;
   }
 }
 
@@ -18430,7 +18588,7 @@ async function saveWritingPrefsFromForm() {
   // Re-apply timer visibility after server prefs merge
   saveShowTimerPref(showTimer);
   updateWritingLogButtonUi();
-  toast("기록 설정을 저장했어요.");
+  toast(i18n.t('app.기록_설정을_저장했어요'));
 }
 
 async function saveWritingIncludePhoneLogPref() {
@@ -18442,7 +18600,7 @@ async function saveWritingIncludePhoneLogPref() {
       body: JSON.stringify({ include_phone_log: on }),
     });
     applyWritingPrefs(prefs);
-    toast(on ? "핸드폰 작성 기록을 포함해요." : "핸드폰 작성 기록을 제외해요.");
+    toast(on ? i18n.t('app.핸드폰_작성_기록을_포함해요') : i18n.t('app.핸드폰_작성_기록을_제외해요'));
   } catch (error) {
     handleError(error);
     syncWritingPrefsForm();
@@ -18456,13 +18614,14 @@ async function refreshWritingPhonePane() {
       $("writingPairCode").textContent = pair?.pair_code || "————";
     }
     if ($("writingPairHint")) {
-      $("writingPairHint").textContent = pair?.hint
-        || (pair?.paired
+      $("writingPairHint").textContent = pair?.pair_code
+        ? i18n.t('app.휴대폰_전용_앱에서_이_코드로_연결할_예정')
+        : (pair?.paired
           ? `연결됨${pair.device_name ? ` · ${pair.device_name}` : ""}`
-          : "코드를 발급하면 앱 연동 준비가 됩니다.");
+          : i18n.t('app.코드를_발급하면_앱_연동_준비가_됩니다'));
     }
   } catch (error) {
-    if ($("writingPairHint")) $("writingPairHint").textContent = "연동 정보를 불러오지 못했어요.";
+    if ($("writingPairHint")) $("writingPairHint").textContent = i18n.t('app.연동_정보를_불러오지_못했어요');
   }
   try {
     const inbox = await api("/api/writing/inbox");
@@ -18476,7 +18635,7 @@ function renderWritingInbox(items) {
   const list = $("writingInboxList");
   if (!list) return;
   if (!items.length) {
-    list.innerHTML = `<p class="hint writing-inbox-empty">아직 받은 글이 없어요.<br>앱에서 「토리에게 보내기」하면 여기에 표시됩니다.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_writing_in');
     return;
   }
   list.innerHTML = items.map((item) => {
@@ -18485,11 +18644,11 @@ function renderWritingInbox(items) {
     return `
       <article class="writing-inbox-item${item.read ? "" : " is-unread"}" data-inbox-id="${item.id}">
         <div class="writing-inbox-item-head">
-          <strong>${escapeHtml(item.title || "제목 없음")}</strong>
+          <strong>${escapeHtml(item.title || i18n.t('app.제목_없음'))}</strong>
           <span>${escapeHtml(datePart)} ${escapeHtml(when)}</span>
         </div>
         <p class="writing-inbox-preview">${escapeHtml(item.preview || "")}</p>
-        <button type="button" class="secondary" data-inbox-copy="${item.id}">내용 복사</button>
+        <button type="button" class="secondary" data-inbox-copy="${item.id}">${i18n.t('app.복사')}</button>
       </article>
     `;
   }).join("");
@@ -18503,9 +18662,9 @@ async function issueWritingPairCode() {
   });
   if ($("writingPairCode")) $("writingPairCode").textContent = pair?.pair_code || "————";
   if ($("writingPairHint")) {
-    $("writingPairHint").textContent = pair?.hint || "새 코드를 발급했어요. 이전 코드는 무효입니다.";
+    $("writingPairHint").textContent = i18n.t('app.휴대폰_전용_앱에서_이_코드로_연결할_예정');
   }
-  toast("연동 코드를 발급했어요.");
+  toast(i18n.t('app.연동_코드를_발급했어요'));
 }
 
 function setupWritingLog() {
@@ -18568,9 +18727,9 @@ function setupWritingLog() {
       if (!item) return;
       try {
         await navigator.clipboard.writeText(item.body_md || item.preview || "");
-        toast("받은 글 내용을 복사했어요. 원고에 붙여 넣으세요.");
+        toast(i18n.t('app.받은_글_내용을_복사했어요_원고에_붙여_넣으'));
       } catch (_) {
-        toast("복사에 실패했어요.");
+        toast(i18n.t('app.복사에_실패했어요'));
       }
       try {
         await api(`/api/writing/inbox/${id}/read`, { method: "POST", body: "{}" });
@@ -18605,13 +18764,13 @@ function setupWritingLog() {
       if (typeof showUiFeatureContextMenu === "function") {
         showUiFeatureContextMenu(event.clientX, event.clientY, logBtn, [
           {
-            label: "기록 달력·설정",
-            hint: "글쓰기 기록 열기",
+            label: i18n.t('app.기록_달력_설정'),
+            hint: i18n.t('app.글쓰기_기록_열기'),
             run: () => { openWritingLogModal("calendar").catch(handleError); },
           },
           {
-            label: "폰 연동",
-            hint: "연동 코드 · 핸드폰 기록 포함",
+            label: i18n.t('app.폰_연동'),
+            hint: i18n.t('app.연동_코드_핸드폰_기록_포함'),
             run: () => { openWritingLogModal("phone").catch(handleError); },
           },
         ]);
@@ -18684,26 +18843,26 @@ const BOOKMARK_MAX = 10;
 const PINNED_SCENES_STORAGE_PREFIX = "supertory.pinnedScenes.";
 const PINNED_SCENES_MAX = 30;
 const BOOKMARK_COLORS = [
-  { key: "red", hex: "#e74c3c", label: "빨강" },
-  { key: "orange", hex: "#e67e22", label: "주황" },
-  { key: "amber", hex: "#f1c40f", label: "노랑" },
-  { key: "green", hex: "#27ae60", label: "초록" },
-  { key: "teal", hex: "#1abc9c", label: "청록" },
-  { key: "blue", hex: "#3498db", label: "파랑" },
-  { key: "indigo", hex: "#5c6bc0", label: "남색" },
-  { key: "purple", hex: "#9b59b6", label: "보라" },
-  { key: "pink", hex: "#e91e8c", label: "분홍" },
-  { key: "brown", hex: "#8d6e63", label: "갈색" },
+  { key: "red", hex: "#e74c3c", label: i18n.t('app.빨강') },
+  { key: "orange", hex: "#e67e22", label: i18n.t('app.주황') },
+  { key: "amber", hex: "#f1c40f", label: i18n.t('app.노랑') },
+  { key: "green", hex: "#27ae60", label: i18n.t('app.초록') },
+  { key: "teal", hex: "#1abc9c", label: i18n.t('app.청록') },
+  { key: "blue", hex: "#3498db", label: i18n.t('app.파랑') },
+  { key: "indigo", hex: "#5c6bc0", label: i18n.t('app.남색') },
+  { key: "purple", hex: "#9b59b6", label: i18n.t('app.보라') },
+  { key: "pink", hex: "#e91e8c", label: i18n.t('app.분홍') },
+  { key: "brown", hex: "#8d6e63", label: i18n.t('app.갈색') },
 ];
 const SETTINGS_BOOKMARK_META = {
-  ideas: { title: "생각수첩", open: () => openIdeaBoard() },
-  baits: { title: "떡밥모음", open: () => openSettingsCollectionMain("baits") },
+  ideas: { title: i18n.t('app.생각수첩'), open: () => openIdeaBoard() },
+  baits: { title: i18n.t('app.떡밥모음'), open: () => openSettingsCollectionMain("baits") },
   successProfile: {
-    title: "흥행작 프로파일 연결",
+    title: i18n.t('app.흥행작_프로파일_연결'),
     open: () => openSettingsCollectionMain("successProfile"),
   },
   intro: {
-    title: "작품소개·기획의도",
+    title: i18n.t('app.작품소개_기획의도'),
     open: async () => {
       setActiveBinder("settings");
       state.openSettingsSection = "intro";
@@ -18712,11 +18871,11 @@ const SETTINGS_BOOKMARK_META = {
     },
   },
   intent: {
-    title: "기획의도",
+    title: i18n.t('app.기획의도'),
     open: () => openSettingsDocMain("intent"),
   },
   logsyn: {
-    title: "로그라인·시놉시스",
+    title: i18n.t('app.로그라인_시놉시스'),
     open: async () => {
       setActiveBinder("settings");
       state.openSettingsSection = "logsyn";
@@ -18724,34 +18883,34 @@ const SETTINGS_BOOKMARK_META = {
       return openSettingsDocMain("synopsis");
     },
   },
-  keywords: { title: "장르·키워드", open: () => openKeywordBoard() },
+  keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   // Per-doc keys (field → buttons / bookmarks)
-  synopsis: { title: "시놉시스", open: () => openSettingsDocMain("synopsis") },
-  logline: { title: "로그라인", open: () => openSettingsDocMain("logline") },
-  world: { title: "세계관", open: () => openSettingsDocMain("world") },
-  characters: { title: "캐릭터", open: () => openCharacterBoard() },
-  sources: { title: "참고자료·출처", open: () => openSettingsCollectionMain("sources") },
-  toryVault: { title: "토리의 수집창고", open: () => openSettingsCollectionMain("toryVault") },
+  synopsis: { title: i18n.t('app.시놉시스'), open: () => openSettingsDocMain("synopsis") },
+  logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
+  world: { title: i18n.t('app.세계관'), open: () => openSettingsDocMain("world") },
+  characters: { title: i18n.t('app.캐릭터'), open: () => openCharacterBoard() },
+  sources: { title: i18n.t('app.참고자료_출처'), open: () => openSettingsCollectionMain("sources") },
+  toryVault: { title: i18n.t('app.토리의_수집창고'), open: () => openSettingsCollectionMain("toryVault") },
 };
 
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
 const SETTINGS_COLLECTION_MAIN = {
   baits: {
-    title: "떡밥모음",
+    title: i18n.t('app.떡밥모음'),
     hint: "",
     tipId: "baitsTipBox",
     section: "baits",
     listId: "baitList",
-    addLabel: "+ 떡밥",
+    addLabel: i18n.t('app.떡밥_2'),
     onAdd: () => $("newBaitButton")?.click(),
     render: () => renderBaitList(),
   },
   successProfile: {
-    title: "흥행작 프로파일 연결",
-    hint: "흥행 공식 분석으로 만든 프로파일을 이 작품에 연결해 두면, 도우미의 흥행 공식 참고·피드백에 활용할 수 있어요.",
+    title: i18n.t('app.흥행작_프로파일_연결'),
+    hint: i18n.t('app.흥행_공식_분석으로_만든_프로파일을_이_작품'),
     section: "successProfile",
     listId: "successProfileMainPanel",
-    addLabel: "+ 흥행 공식 분석",
+    addLabel: i18n.t('app.흥행_공식_분석'),
     onAdd: () => {
       if ($("aiMode")) $("aiMode").value = "successpattern";
       successPatternState.modalDismissed = false;
@@ -18763,22 +18922,22 @@ const SETTINGS_COLLECTION_MAIN = {
     },
   },
   toryVault: {
-    title: "토리의 수집창고",
-    hint: "토리와 이야기하다 나온 아이디어를 수집하면 여기에 쌓입니다.",
+    title: i18n.t('app.토리의_수집창고'),
+    hint: i18n.t('app.토리와_이야기하다_나온_아이디어를_수집하면'),
     section: "toryVault",
     listId: "toryVaultList",
-    addLabel: "+ 메모",
+    addLabel: i18n.t('app.메모'),
     onAdd: () => $("newToryVaultButton")?.click(),
-    extraLabel: "비우기",
+    extraLabel: i18n.t('app.비우기'),
     onExtra: () => $("clearToryVaultButton")?.click(),
     render: () => renderToryVaultList(),
   },
   sources: {
-    title: "참고자료·출처",
-    hint: "링크 출처 또는 PDF·Word·한글·텍스트 파일을 모아 두고, 작성 중 옆에 펼쳐 볼 수 있어요.",
+    title: i18n.t('app.참고자료_출처'),
+    hint: i18n.t('app.링크_출처_또는_PDF_Word_한글_텍스트'),
     section: "sources",
     listId: "sourceList",
-    addLabel: "+ 자료",
+    addLabel: i18n.t('app.자료_2'),
     onAdd: () => $("newSourceButton")?.click(),
     render: () => renderSourceList(),
   },
@@ -18823,7 +18982,7 @@ function closeSettingsCollectionMain() {
 function openSettingsCollectionMain(key) {
   const cfg = SETTINGS_COLLECTION_MAIN[key];
   if (!cfg) return;
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -18854,7 +19013,7 @@ function openSettingsCollectionMain(key) {
   const mount = $("settingsCollectionMount");
   const list = $(cfg.listId);
   if (!board || !mount || !list) {
-    toast("메인 목록 화면을 열 수 없어요.");
+    toast(i18n.t('app.메인_목록_화면을_열_수_없어요'));
     return;
   }
 
@@ -18869,7 +19028,7 @@ function openSettingsCollectionMain(key) {
   if (tipMount) tipMount.replaceChildren();
   const addBtn = $("settingsCollectionAddButton");
   if (addBtn) {
-    addBtn.textContent = cfg.addLabel || "+ 추가";
+    addBtn.textContent = cfg.addLabel || i18n.t('app.추가');
     addBtn.onclick = (event) => {
       event.preventDefault();
       cfg.onAdd?.();
@@ -18880,7 +19039,7 @@ function openSettingsCollectionMain(key) {
     if (cfg.onExtra) {
       extraBtn.hidden = false;
       extraBtn.classList.remove("hidden");
-      extraBtn.textContent = cfg.extraLabel || "추가 작업";
+      extraBtn.textContent = cfg.extraLabel || i18n.t('app.추가_작업');
       extraBtn.onclick = (event) => {
         event.preventDefault();
         cfg.onExtra?.();
@@ -18932,23 +19091,23 @@ const LEGACY_SETTINGS_ORDERS = [
 const KEYWORD_CATALOG = [
   {
     key: "fantasy",
-    title: "판타지",
+    title: i18n.t('app.판타지'),
     tags: [
-      "이세계", "회/빙/환", "마법사", "이종족", "요괴", "영지물", "게임", "기사물", "저승",
-      "황제/황태자", "공작/북부공작", "기사", "성녀", "차원이동", "상태창/시스템",
-      "레이드/던전물", "아카데미", "헌터물", "먼치킨(초강력 주인공)", "천재/재능",
-      "착각물", "신분상승", "대성장",
+      i18n.t('app.이세계'), i18n.t('app.회_빙_환'), i18n.t('app.마법사'), i18n.t('app.이종족'), i18n.t('app.요괴'), i18n.t('app.영지물'), i18n.t('app.게임'), i18n.t('app.기사물'), i18n.t('app.저승'),
+      i18n.t('app.황제_황태자'), i18n.t('app.공작_북부공작'), i18n.t('app.기사'), i18n.t('app.성녀'), i18n.t('app.차원이동'), i18n.t('app.상태창_시스템'),
+      i18n.t('app.레이드_던전물'), i18n.t('app.아카데미'), i18n.t('app.헌터물'), i18n.t('app.먼치킨_초강력_주인공'), i18n.t('app.천재_재능'),
+      i18n.t('app.착각물'), i18n.t('app.신분상승'), i18n.t('app.대성장'),
     ],
   },
   {
     key: "romance",
-    title: "로맨스",
+    title: i18n.t('app.로맨스'),
     tags: [
-      "연상연하", "하렘물", "계약관계", "정략결혼", "귀족", "하녀", "육아물", "악녀",
-      "집착남", "다정남", "차도남/까칠남", "짝사랑", "계약연애/계약결혼", "사내연애",
-      "소꿉친구", "재회물", "삼각관계", "잔잔물", "애증", "후회남", "상처녀/상처남",
-      "달달물", "구원물", "오해/갈등", "힐링", "흑막남주", "집착남주",
-      "능력녀/걸크러시", "궁정로맨스", "가짜 딸/진짜 딸",
+      i18n.t('app.연상연하'), i18n.t('app.하렘물'), i18n.t('app.계약관계'), i18n.t('app.정략결혼'), i18n.t('app.귀족'), i18n.t('app.하녀'), i18n.t('app.육아물'), i18n.t('app.악녀'),
+      i18n.t('app.집착남'), i18n.t('app.다정남'), i18n.t('app.차도남_까칠남'), i18n.t('app.짝사랑'), i18n.t('app.계약연애_계약결혼'), i18n.t('app.사내연애'),
+      i18n.t('app.소꿉친구'), i18n.t('app.재회물'), i18n.t('app.삼각관계'), i18n.t('app.잔잔물'), i18n.t('app.애증'), i18n.t('app.후회남'), i18n.t('app.상처녀_상처남'),
+      i18n.t('app.달달물'), i18n.t('app.구원물'), i18n.t('app.오해_갈등'), i18n.t('app.힐링'), i18n.t('app.흑막남주'), i18n.t('app.집착남주'),
+      i18n.t('app.능력녀_걸크러시'), i18n.t('app.궁정로맨스'), i18n.t('app.가짜_딸_진짜_딸'),
     ],
   },
   {
@@ -18958,38 +19117,38 @@ const KEYWORD_CATALOG = [
   },
   {
     key: "mystery",
-    title: "미스터리 · 스릴러",
-    tags: ["추리/미스테리", "서스펜스"],
+    title: i18n.t('app.미스터리_스릴러'),
+    tags: [i18n.t('app.추리_미스테리'), i18n.t('app.서스펜스')],
   },
   {
     key: "sf",
     title: "SF",
     tags: [
-      "SF", "사이보그", "사이버펑크",
-      "우주/스페이스 오페라", "아포칼립스/디스토피아", "AI/인공지능", "가상현실(VR)",
-      "스팀펑크", "멀티버스", "시간여행/타임루프", "크리처/외계인",
+      "SF", i18n.t('app.사이보그'), i18n.t('app.사이버펑크'),
+      i18n.t('app.우주_스페이스_오페라'), i18n.t('app.아포칼립스_디스토피아'), i18n.t('app.AI_인공지능'), i18n.t('app.가상현실_VR'),
+      i18n.t('app.스팀펑크'), i18n.t('app.멀티버스'), i18n.t('app.시간여행_타임루프'), i18n.t('app.크리처_외계인'),
     ],
   },
   {
     key: "wuxia",
-    title: "무협",
+    title: i18n.t('app.무협'),
     tags: [
-      "마도/사파", "정파", "천마", "마교", "기연", "낭만", "문파/세가",
-      "천하제일", "은원관계", "약육강식", "성장물",
+      i18n.t('app.마도_사파'), i18n.t('app.정파'), i18n.t('app.천마'), i18n.t('app.마교'), i18n.t('app.기연'), i18n.t('app.낭만'), i18n.t('app.문파_세가'),
+      i18n.t('app.천하제일'), i18n.t('app.은원관계'), i18n.t('app.약육강식'), i18n.t('app.성장물'),
     ],
   },
   {
     key: "history",
-    title: "역사 · 대체역사",
+    title: i18n.t('app.역사_대체역사'),
     tags: [
-      "대대적인 역사개변(대체역사)", "조선시대", "삼국지", "제국/전쟁",
-      "정치가/책사", "군주/왕", "현대 지식 활용(과학/기술 전파)",
+      i18n.t('app.대대적인_역사개변_대체역사'), i18n.t('app.조선시대'), i18n.t('app.삼국지'), i18n.t('app.제국_전쟁'),
+      i18n.t('app.정치가_책사'), i18n.t('app.군주_왕'), i18n.t('app.현대_지식_활용_과학_기술_전파'),
     ],
   },
   {
     key: "tone",
-    title: "분위기 · 소재",
-    tags: ["복수물", "혐관", "정치물", "코미디", "노예", "19금", "피폐"],
+    title: i18n.t('app.분위기_소재'),
+    tags: [i18n.t('app.복수물'), i18n.t('app.혐관'), i18n.t('app.정치물'), i18n.t('app.코미디'), i18n.t('app.노예'), i18n.t('app.19금'), i18n.t('app.피폐')],
   },
 ];
 
@@ -19040,35 +19199,35 @@ function saveToryVault(list) {
 
 function aiModeLabel(mode) {
   const map = {
-    continue: "이어서 쓰기",
-    rewrite: "문장 다듬기",
-    summarize: "회차 요약",
-    summarize_multi: "회차 요약",
-    ideas: "다음 아이디어 제안",
-    ideas_next_exists: "다음 아이디어 제안",
-    brainstorm_next_exists: "브레인스토밍",
-    analyze: "피드백 요청",
-    analyze_multi: "피드백 요청",
-    brainstorm: "브레인스토밍",
-    foreshadow: "떡밥·복선 탐색기",
-    plottwist: "반전 & 개연성 검사기",
+    continue: i18n.t('app.이어서_쓰기'),
+    rewrite: i18n.t('app.문장_다듬기'),
+    summarize: i18n.t('app.회차_요약'),
+    summarize_multi: i18n.t('app.회차_요약'),
+    ideas: i18n.t('app.다음_아이디어_제안'),
+    ideas_next_exists: i18n.t('app.다음_아이디어_제안'),
+    brainstorm_next_exists: i18n.t('app.브레인스토밍'),
+    analyze: i18n.t('app.피드백_요청'),
+    analyze_multi: i18n.t('app.피드백_요청'),
+    brainstorm: i18n.t('app.브레인스토밍'),
+    foreshadow: i18n.t('app.떡밥_복선_탐색기'),
+    plottwist: i18n.t('app.반전_개연성_검사기'),
     worldscan: SETTING_BREAK_SCAN_LABEL,
     worldscan_multi: SETTING_BREAK_SCAN_LABEL,
-    worlddesc: "세계관 묘사",
-    dupcheck: "중복 체크",
-    temphook: "서사 템포 & 훅 분석기",
-    chardebate: "캐릭터 가상 논쟁",
-    successpattern: "흥행 공식 분석",
-    successfeedback: "흥행 공식 피드백",
-    glumpescape: "글럼프 응급실",
-    scriptadapt: "영상 각본으로 바꾸기",
-    audiobook: "오디오북 낭독 대본으로 바꾸기",
-    multilang: "다국어 번역하기",
-    subsynopsis: "투고·공모전용 시놉시스",
-    styleblend: "스며듦 검사",
-    free: "직접 작성하기",
+    worlddesc: i18n.t('app.세계관_묘사'),
+    dupcheck: i18n.t('app.중복_체크'),
+    temphook: i18n.t('app.서사_템포_훅_분석기'),
+    chardebate: i18n.t('app.캐릭터_가상_논쟁'),
+    successpattern: i18n.t('app.흥행_공식_분석_2'),
+    successfeedback: i18n.t('app.흥행_공식_피드백'),
+    glumpescape: i18n.t('app.글럼프_응급실'),
+    scriptadapt: i18n.t('app.영상_각본으로_바꾸기'),
+    audiobook: i18n.t('app.오디오북_낭독_대본으로_바꾸기'),
+    multilang: i18n.t('app.다국어_번역하기'),
+    subsynopsis: i18n.t('app.투고_공모전용_시놉시스'),
+    styleblend: i18n.t('app.스며듦_검사'),
+    free: i18n.t('app.직접_작성하기'),
   };
-  return map[mode] || mode || "토리";
+  return map[mode] || mode || i18n.t('app.토리');
 }
 
 /* —— 흥행 공식 분석 wizard —— */
@@ -19076,7 +19235,8 @@ const SP_MAX_EPISODES = 50;
 const SP_RECOMMENDED_EPISODES = 30;
 const SP_MAX_CHARS = 300000;
 const SP_RECOMMENDED_CHARS = 180000;
-const SP_SECTION_LABELS = { front: "앞부분", middle: "중간부분", ending: "결말부분" };
+const SP_SECTION_LABELS = { front: i18n.t('app.앞부분'), middle: i18n.t('app.중간부분'), ending: i18n.t('app.결말부분') };
+const SP_SECTION_LABELS_KEY_MAP = { front: "app.앞부분", middle: "app.중간부분", ending: "app.결말부분" };
 
 const successPatternState = {
   step: 1,
@@ -19116,7 +19276,7 @@ function checkCharacterBudget(uploadedSections) {
     return {
       status: "blocked",
       totalChars,
-      message: `현재 업로드된 총 글자수가 ${totalChars.toLocaleString()}자로, 최대 허용 글자수(${SP_MAX_CHARS.toLocaleString()}자)를 ${excessChars.toLocaleString()}자 초과했어요. 회차를 약 ${suggestedRemoval}개 정도 줄여주세요.`,
+      message: `${i18n.t('app.현재_업로드된_총_글자수가_totalChar', {'totalChars.toLocaleString()': totalChars.toLocaleString(), 'SP_MAX_CHARS.toLocaleString()': SP_MAX_CHARS.toLocaleString(), 'excessChars.toLocaleString()': excessChars.toLocaleString(), suggestedRemoval: suggestedRemoval})}`,
       suggestedRemoval,
     };
   }
@@ -19124,7 +19284,7 @@ function checkCharacterBudget(uploadedSections) {
     return {
       status: "warning",
       totalChars,
-      message: `현재 총 ${totalChars.toLocaleString()}자예요. 추천 분량(${SP_RECOMMENDED_CHARS.toLocaleString()}자)보다 많아서 처리 시간이 길어질 수 있어요. 그래도 진행은 가능해요.`,
+      message: `${i18n.t('app.현재_총_totalChars_toLocale', {'totalChars.toLocaleString()': totalChars.toLocaleString(), 'SP_RECOMMENDED_CHARS.toLocaleString()': SP_RECOMMENDED_CHARS.toLocaleString()})}`,
       suggestedRemoval: 0,
     };
   }
@@ -19194,7 +19354,7 @@ function openDedicatedAiTargetModal(mode) {
   return undefined;
 }
 
-const TEMPO_HOOK_EMOTION_TAGS = ["긴장", "해소", "반전", "설렘", "슬픔", "유머", "공포"];
+const TEMPO_HOOK_EMOTION_TAGS = [i18n.t('app.긴장'), i18n.t('app.해소'), i18n.t('app.반전'), i18n.t('app.설렘'), i18n.t('app.슬픔'), i18n.t('app.유머'), i18n.t('app.공포')];
 const TEMPO_HOOK_EMOTION_COLORS = {
   긴장: "#c45c4a",
   해소: "#4a8f6a",
@@ -19205,9 +19365,9 @@ const TEMPO_HOOK_EMOTION_COLORS = {
   공포: "#4a3a52",
 };
 const TEMPO_HOOK_REWRITE_FALLBACK_LABELS = [
-  "즉각적 위기 노출형",
-  "정보 공백형",
-  "감정 절정형",
+  i18n.t('app.즉각적_위기_노출형'),
+  i18n.t('app.정보_공백형'),
+  i18n.t('app.감정_절정형'),
 ];
 
 const tempoHookState = {
@@ -19254,11 +19414,11 @@ function splitHtmlParagraphChunks(html) {
 function replaceLastThreeParagraphsInEditor(replacementText) {
   const content = String(replacementText || "").trim();
   if (!content) {
-    toast("넣을 결과가 없어요.");
+    toast(i18n.t('app.넣을_결과가_없어요'));
     return false;
   }
   if (!state.sceneId) {
-    toast("원고에 넣으려면 먼저 씬을 열어 주세요. 복사 버튼을 써도 됩니다.");
+    toast(i18n.t('app.원고에_넣으려면_먼저_씬을_열어_주세요_복사'));
     return false;
   }
   const editor = $("sceneContent");
@@ -19272,13 +19432,13 @@ function replaceLastThreeParagraphsInEditor(replacementText) {
   updateEditorPlaceholder(editor);
   updateSceneStats();
   markSceneDirty();
-  toast("마지막 3문단을 바꿨어요. 자동 저장됩니다.");
+  toast(i18n.t('app.마지막_3문단을_바꿨어요_자동_저장됩니다'));
   return true;
 }
 
 function normalizeTempoHookEmotion(tag) {
   const raw = String(tag || "").trim();
-  return TEMPO_HOOK_EMOTION_TAGS.includes(raw) ? raw : "긴장";
+  return TEMPO_HOOK_EMOTION_TAGS.includes(raw) ? raw : i18n.t('app.긴장');
 }
 
 function normalizeTensionSegments(raw) {
@@ -19337,7 +19497,7 @@ function parseEndingRewriteVersions(text) {
   const re = /##\s*버전\s*(\d+)\s*[:：]\s*([^\n]+)\n([\s\S]*?)(?=##\s*버전\s*\d+\s*[:：]|$)/g;
   let match;
   while ((match = re.exec(raw)) !== null) {
-    const label = String(match[2] || "").trim() || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[items.length] || `버전 ${match[1]}`;
+    const label = String(match[2] || "").trim() || TEMPO_HOOK_REWRITE_FALLBACK_LABELS[items.length] || `${i18n.t('app.버전_match_1', {'match[1]': match[1]})}`;
     const body = String(match[3] || "").trim();
     if (body) items.push({ label, text: body });
   }
@@ -19365,16 +19525,16 @@ function renderTempoHookEpisodeOptions() {
   const prev = String(select.value || "");
   const currentId = state.sceneId ? Number(state.sceneId) : null;
   if (!sequence.length) {
-    select.innerHTML = `<option value="">열 수 있는 회차가 없어요</option>`;
+    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
     return;
   }
   const opts = sequence.map((ep) => {
     const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? " · 현재" : "";
-    const label = `${ep.index}화 · ${ep.label || ep.shortLabel || id}${mark}`;
+    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
+    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
     return `<option value="${id}">${escapeHtml(label)}</option>`;
   });
-  select.innerHTML = `<option value="">회차를 선택하세요</option>${opts.join("")}`;
+  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
   if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
     select.value = prev;
   } else {
@@ -19400,7 +19560,7 @@ function closeTempoHookTargetModal({ returnToList = true } = {}) {
 
 function openTempoHookTargetModal() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const hasCurrent = Boolean(state.sceneId);
@@ -19431,14 +19591,14 @@ function confirmTempoHookTarget() {
     const n = Number($("tempoHookOtherSceneSelect")?.value || 0);
     sceneId = Number.isFinite(n) && n > 0 ? n : null;
     if (!sceneId) {
-      toast("기준 회차를 선택해 주세요.");
+      toast(i18n.t('app.기준_회차를_선택해_주세요'));
       $("tempoHookOtherSceneSelect")?.focus();
       return;
     }
   } else {
     sceneId = state.sceneId ? Number(state.sceneId) : null;
     if (!sceneId) {
-      toast("현재 열린 회차가 없어요. 다른 회차를 지정해 주세요.");
+      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
       return;
     }
   }
@@ -19516,7 +19676,7 @@ function renderTempoHookScoreCard() {
   const rewriteBtn = $("tempoHookRewriteButton");
   const weak = Number.isFinite(score) && score < 6;
   if (numEl) numEl.textContent = Number.isFinite(score) ? String(score) : "—";
-  if (reasonEl) reasonEl.textContent = reason || "엔딩 점수를 받지 못했어요.";
+  if (reasonEl) reasonEl.textContent = reason || i18n.t('app.엔딩_점수를_받지_못했어요');
   card?.classList.toggle("is-weak", weak);
   rewriteBtn?.classList.toggle("hidden", !weak);
 }
@@ -19568,7 +19728,7 @@ function renderTempoHookChart(segments) {
   });
 
   if (!list.length) {
-    svg.innerHTML = `${grid.join("")}<text x="${width / 2}" y="${height / 2}" text-anchor="middle" font-size="13" fill="#7a7268">곡선을 그릴 구간이 없어요.</text>`;
+    svg.innerHTML = `${i18n.t('app.grid_join_text_x_width', {'grid.join("")': grid.join(""), 'width / 2': width / 2, 'height / 2': height / 2})}`;
     return;
   }
 
@@ -19661,11 +19821,11 @@ function shouldFallbackTempoHookAssist(error) {
 function tempoHookFriendlyError(error) {
   const msg = tempoHookAssistErrorMessage(error);
   if (/지원하지 않는 AI 도움|알 수 없는 요청/.test(msg)) {
-    return "서버가 이전 버전이에요. SuperTory를 재시작한 뒤 다시 시도해 주세요.";
+    return i18n.t('app.서버가_이전_버전이에요_SuperTory를');
   }
   if (msg && msg !== AI_ASSIST_ERR_GENERIC && msg !== AI_ASSIST_ERR_CONNECTION) return msg;
   if (error?.aiAssist) return msg || AI_ASSIST_ERR_GENERIC;
-  return "분석을 마치지 못했어요. 다시 시도해 주세요.";
+  return i18n.t('app.분석을_마치지_못했어요_다시_시도해_주세요');
 }
 
 async function postTempoHookAssist(taskPrompt, extra = {}) {
@@ -19696,8 +19856,8 @@ async function runTempoHookAnalysis(targetSceneId) {
   if (tempoHookState.busy) return;
   const sceneId = Number(targetSceneId || tempoHookState.sceneId || 0);
   if (!sceneId) {
-    setTempoHookStatus("분석할 회차를 먼저 골라 주세요.");
-    toast("분석할 회차를 먼저 골라 주세요.");
+    setTempoHookStatus(i18n.t('app.분석할_회차를_먼저_골라_주세요'));
+    toast(i18n.t('app.분석할_회차를_먼저_골라_주세요'));
     return;
   }
   let manuscript;
@@ -19710,8 +19870,8 @@ async function runTempoHookAnalysis(targetSceneId) {
   const plain = String(manuscript?.plain || "").trim();
   if (!plain) {
     const emptyMsg = Number(state.sceneId) === sceneId
-      ? "분석할 원고 본문이 필요해요. 본문을 먼저 적어 주세요."
-      : "선택한 회차 원고가 비어 있어요. 본문을 쓴 뒤 다시 분석해 주세요.";
+      ? i18n.t('app.분석할_원고_본문이_필요해요_본문을_먼저_적')
+      : i18n.t('app.선택한_회차_원고가_비어_있어요_본문을_쓴_5');
     setTempoHookStatus(emptyMsg);
     toast(emptyMsg);
     return;
@@ -19728,7 +19888,7 @@ async function runTempoHookAnalysis(targetSceneId) {
   tempoHookState.rewrites = [];
   $("tempoHookRewriteSection")?.classList.add("hidden");
   $("tempoHookRewriteGrid") && ($("tempoHookRewriteGrid").innerHTML = "");
-  setTempoHookStatus("감정 곡선과 엔딩 훅을 살펴보는 중…");
+  setTempoHookStatus(i18n.t('app.감정_곡선과_엔딩_훅을_살펴보는_중'));
   const retryBtn = $("tempoHookRetryButton");
   if (retryBtn) retryBtn.disabled = true;
   try {
@@ -19738,8 +19898,8 @@ async function runTempoHookAnalysis(targetSceneId) {
     );
     tempoHookState.segments = parseTensionCurveResult(curveResult?.text || "");
     if (!tempoHookState.segments.length) {
-      setTempoHookStatus("감정 곡선을 읽지 못했어요. 다시 분석해 주세요.");
-      toast("감정 곡선을 읽지 못했어요. 다시 시도해 주세요.");
+      setTempoHookStatus(i18n.t('app.감정_곡선을_읽지_못했어요_다시_분석해_주세'));
+      toast(i18n.t('app.감정_곡선을_읽지_못했어요_다시_시도해_주세'));
       return;
     }
     try {
@@ -19751,7 +19911,7 @@ async function runTempoHookAnalysis(targetSceneId) {
     } catch (scoreError) {
       tempoHookState.cliffhanger = {
         score: null,
-        reason: "엔딩 점수는 이번엔 받지 못했어요. 곡선은 그대로 볼 수 있어요.",
+        reason: i18n.t('app.엔딩_점수는_이번엔_받지_못했어요_곡선은_그'),
       };
       console.warn("[SuperTory] tempo hook score failed", scoreError);
     }
@@ -19759,20 +19919,20 @@ async function runTempoHookAnalysis(targetSceneId) {
     renderTempoHookChart(tempoHookState.segments);
     renderTempoHookScoreCard();
     const historyBits = [
-      `감정 곡선 ${tempoHookState.segments.length}구간`,
-      Number.isFinite(tempoHookState.cliffhanger.score) ? `엔딩 ${tempoHookState.cliffhanger.score}점` : "",
+      `${i18n.t('app.감정_곡선_tempoHookState_seg', {'tempoHookState.segments.length': tempoHookState.segments.length})}`,
+      Number.isFinite(tempoHookState.cliffhanger.score) ? `${i18n.t('app.엔딩_tempoHookState_cliffh', {'tempoHookState.cliffhanger.score': tempoHookState.cliffhanger.score})}` : "",
     ].filter(Boolean);
     if ($("aiResult")) {
       $("aiResult").value = [
         historyBits.join(" · "),
-        tempoHookState.segments.map((seg) => `${seg.segment_position_pct}% ${seg.emotion_tag} ${seg.score}점 — ${seg.reason}`).join("\n"),
-        tempoHookState.cliffhanger.reason ? `엔딩: ${tempoHookState.cliffhanger.reason}` : "",
+        tempoHookState.segments.map((seg) => `${i18n.t('app.seg_segment_position_pc', {'seg.segment_position_pct': seg.segment_position_pct, 'seg.emotion_tag': seg.emotion_tag, 'seg.score': seg.score, 'seg.reason': seg.reason})}`).join("\n"),
+        tempoHookState.cliffhanger.reason ? `${i18n.t('app.엔딩_tempoHookState_cliffh_2', {'tempoHookState.cliffhanger.reason': tempoHookState.cliffhanger.reason})}` : "",
       ].filter(Boolean).join("\n\n");
     }
     if (typeof revealAiAssistResult === "function") {
       revealAiAssistResult({ openModal: false, mode: "temphook" });
     }
-    toast("서사 템포 & 훅 분석이 끝났어요.");
+    toast(i18n.t('app.서사_템포_훅_분석이_끝났어요'));
   } catch (error) {
     const msg = tempoHookFriendlyError(error);
     setTempoHookStatus(msg);
@@ -19788,14 +19948,14 @@ async function runTempoHookRewrite() {
   const score = tempoHookState.cliffhanger.score;
   if (!Number.isFinite(score) || score >= 6) return;
   if (!tempoHookState.lastThree) {
-    toast("바꿀 엔딩 문단을 찾지 못했어요.");
+    toast(i18n.t('app.바꿀_엔딩_문단을_찾지_못했어요'));
     return;
   }
   tempoHookState.rewriteBusy = true;
   $("tempoHookRewriteSection")?.classList.remove("hidden");
   const status = $("tempoHookRewriteStatus");
   if (status) {
-    status.textContent = "더 강한 훅 세 가지를 쓰는 중…";
+    status.textContent = i18n.t('app.더_강한_훅_세_가지를_쓰는_중');
     status.classList.remove("hidden");
   }
   $("tempoHookRewriteButton") && ($("tempoHookRewriteButton").disabled = true);
@@ -19807,14 +19967,14 @@ async function runTempoHookRewrite() {
     const versions = parseEndingRewriteVersions(result?.text || "");
     tempoHookState.rewrites = versions;
     if (!versions.length) {
-      if (status) status.textContent = "개작 제안을 읽지 못했어요. 다시 시도해 주세요.";
-      toast("개작 제안을 읽지 못했어요.");
+      if (status) status.textContent = i18n.t('app.개작_제안을_읽지_못했어요_다시_시도해_주세');
+      toast(i18n.t('app.개작_제안을_읽지_못했어요'));
       return;
     }
     if (status) status.classList.add("hidden");
     renderTempoHookRewriteCards(versions);
   } catch (error) {
-    if (status) status.textContent = "개작 제안을 받지 못했어요.";
+    if (status) status.textContent = i18n.t('app.개작_제안을_받지_못했어요');
     handleError(error);
   } finally {
     tempoHookState.rewriteBusy = false;
@@ -19842,19 +20002,19 @@ function setupTempoHookModal() {
     const item = tempoHookState.rewrites[index];
     if (!item?.text) return;
     if (event.target.closest?.("[data-tempo-rewrite-copy]")) {
-      const done = () => toast("결과를 복사했어요.");
+      const done = () => toast(i18n.t('app.결과를_복사했어요'));
       if (navigator.clipboard?.writeText) {
         navigator.clipboard.writeText(item.text).then(done).catch(() => {
-          toast("복사하지 못했어요.");
+          toast(i18n.t('app.복사하지_못했어요'));
         });
       } else {
-        toast("복사하지 못했어요.");
+        toast(i18n.t('app.복사하지_못했어요'));
       }
       return;
     }
     if (event.target.closest?.("[data-tempo-rewrite-insert]")) {
       if (tempoHookState.sceneId && Number(state.sceneId) !== Number(tempoHookState.sceneId)) {
-        toast("이 회차가 에디터에 열려 있지 않아요. 해당 회차를 연 뒤 삽입하거나, 복사해서 붙여 주세요.");
+        toast(i18n.t('app.이_회차가_에디터에_열려_있지_않아요_해당'));
         return;
       }
       replaceLastThreeParagraphsInEditor(item.text);
@@ -19875,13 +20035,13 @@ function setupTempoHookModal() {
 const CHAR_DEBATE_MIN = 2;
 const CHAR_DEBATE_MAX = 3;
 const CHAR_DEBATE_PRESETS = [
-  "목숨을 건 선택의 기로",
-  "서로의 비밀이 드러난 순간",
-  "배신을 마주했을 때",
-  "마지막으로 남길 수 있는 한마디",
+  i18n.t('app.목숨을_건_선택의_기로'),
+  i18n.t('app.서로의_비밀이_드러난_순간'),
+  i18n.t('app.배신을_마주했을_때'),
+  i18n.t('app.마지막으로_남길_수_있는_한마디'),
 ];
 const CHAR_DEBATE_COPY_BTN =
-  `<button type="button" class="tory-chat-bubble-copy" data-char-debate-copy title="복사하기" aria-label="복사하기">`
+  i18n.t('app.button_type_button_clas_6')
   + `<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">`
   + `<rect x="9" y="9" width="13" height="13" rx="2"/>`
   + `<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>`
@@ -19909,9 +20069,9 @@ function updateCharDebatePickHint() {
   const hint = $("charDebatePickHint");
   if (!hint) return;
   const n = charDebateState.selectedIds.length;
-  if (n < CHAR_DEBATE_MIN) hint.textContent = "2명 이상 골라주세요";
-  else if (n >= CHAR_DEBATE_MAX) hint.textContent = "3명까지예요. 더 고르려면 먼저 선택을 풀어 주세요.";
-  else hint.textContent = `${n}명 선택됨 · 최대 3명`;
+  if (n < CHAR_DEBATE_MIN) hint.textContent = i18n.t('app.2명_이상_골라주세요');
+  else if (n >= CHAR_DEBATE_MAX) hint.textContent = i18n.t('app.3명까지예요_더_고르려면_먼저_선택을_풀어');
+  else hint.textContent = `${i18n.t('app.n_명_선택됨_최대_3명', {n: n})}`;
 }
 
 function setCharDebateStep(step) {
@@ -19930,12 +20090,12 @@ function setCharDebateStep(step) {
   if (nextBtn) {
     if (next === "pick") {
       nextBtn.classList.remove("hidden");
-      nextBtn.textContent = "상황 설정하기";
+      nextBtn.textContent = i18n.t('app.상황_설정하기');
       const n = charDebateState.selectedIds.length;
       nextBtn.disabled = n < CHAR_DEBATE_MIN || n > CHAR_DEBATE_MAX;
     } else if (next === "scenario") {
       nextBtn.classList.remove("hidden");
-      nextBtn.textContent = "대화 생성하기";
+      nextBtn.textContent = i18n.t('app.대화_생성하기');
       nextBtn.disabled = !charDebateScenarioText() || charDebateState.busy;
     } else {
       nextBtn.classList.add("hidden");
@@ -19954,7 +20114,7 @@ function formatTrackedFactsForCharacter(facts, character) {
   const hits = (Array.isArray(facts) ? facts : []).filter((fact) => (
     names.has(String(fact?.subject || "").trim().toLowerCase())
   ));
-  if (!hits.length) return "기록된 현재 상태 없음";
+  if (!hits.length) return i18n.t('app.기록된_현재_상태_없음');
   return hits.map((fact) => {
     const bits = [fact.category, fact.attribute, fact.value].map((part) => String(part || "").trim()).filter(Boolean);
     return bits.join(" · ");
@@ -19966,9 +20126,9 @@ function characterDebatePersonality(character) {
     String(character?.short_description || "").trim(),
     String(character?.profile_md || "").replace(/\s+/g, " ").trim(),
   ].filter(Boolean);
-  if (character?.strengths_md) bits.push(`강점: ${String(character.strengths_md).replace(/\s+/g, " ").trim()}`);
-  if (character?.weaknesses_md) bits.push(`약점: ${String(character.weaknesses_md).replace(/\s+/g, " ").trim()}`);
-  return bits.join(" / ").slice(0, 700) || "설정 미기입";
+  if (character?.strengths_md) bits.push(`${i18n.t('app.강점_String_character_stre', {'String(character.strengths_md).replace(/\\s+/g, " ").trim()': String(character.strengths_md).replace(/\s+/g, " ").trim()})}`);
+  if (character?.weaknesses_md) bits.push(`${i18n.t('app.약점_String_character_weak', {'String(character.weaknesses_md).replace(/\\s+/g, " ").trim()': String(character.weaknesses_md).replace(/\s+/g, " ").trim()})}`);
+  return bits.join(" / ").slice(0, 700) || i18n.t('app.설정_미기입');
 }
 
 function parseCharacterDebateScript(text) {
@@ -20000,18 +20160,18 @@ function renderCharDebateCharacters() {
   const chars = Array.isArray(state.characters) ? state.characters : [];
   const selected = new Set(charDebateState.selectedIds.map(Number));
   if (!state.projectId) {
-    host.innerHTML = `<p class="hint">먼저 작품을 선택해 주세요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_먼저_작품을_선택해');
     return;
   }
   if (!chars.length) {
-    host.innerHTML = `<p class="hint">설정집에 인물이 없어요. 캐릭터를 먼저 만든 뒤 골라 주세요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_설정집에_인물이_없_2');
     return;
   }
   const atMax = selected.size >= CHAR_DEBATE_MAX;
   host.innerHTML = chars.map((ch) => {
     const id = Number(ch.id);
     const on = selected.has(id);
-    const name = escapeHtml(String(ch.name || "").trim() || `인물#${id}`);
+    const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
     const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
     const summary = escapeHtml(
       String(ch.short_description || "").trim()
@@ -20116,7 +20276,7 @@ async function buildCharDebateCharactersInfo(ids) {
   }
   return details.map((ch) => ({
     id: Number(ch.id),
-    name: String(ch.name || "").trim() || `인물#${ch.id}`,
+    name: String(ch.name || "").trim() || `${i18n.t('app.인물_ch_id_2', {'ch.id': ch.id})}`,
     personality: characterDebatePersonality(ch),
     tone: String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 400),
     currentFacts: formatTrackedFactsForCharacter(facts, ch),
@@ -20170,13 +20330,13 @@ async function runCharacterDebate({ keepScenario = true } = {}) {
   if (charDebateState.busy) return;
   const ids = charDebateState.selectedIds.map(Number).filter((id) => id > 0);
   if (ids.length < CHAR_DEBATE_MIN || ids.length > CHAR_DEBATE_MAX) {
-    toast("인물은 2~3명 골라 주세요.");
+    toast(i18n.t('app.인물은_2_3명_골라_주세요'));
     setCharDebateStep("pick");
     return;
   }
   const scenario = keepScenario ? charDebateScenarioText() : charDebateState.scenario;
   if (!scenario) {
-    toast("상황을 고르거나 직접 적어 주세요.");
+    toast(i18n.t('app.상황을_고르거나_직접_적어_주세요'));
     setCharDebateStep("scenario");
     return;
   }
@@ -20185,7 +20345,7 @@ async function runCharacterDebate({ keepScenario = true } = {}) {
   setCharDebateStep("result");
   const status = $("charDebateStatus");
   if (status) {
-    status.textContent = "대화를 쓰는 중…";
+    status.textContent = i18n.t('app.대화를_쓰는_중');
     status.classList.remove("hidden");
   }
   $("charDebateScript") && ($("charDebateScript").innerHTML = "");
@@ -20203,9 +20363,9 @@ async function runCharacterDebate({ keepScenario = true } = {}) {
     charDebateState.lines = parseCharacterDebateScript(raw);
     if (status) status.classList.add("hidden");
     renderCharDebateScript(charDebateState.lines, raw);
-    toast("가상 논쟁을 만들었어요.");
+    toast(i18n.t('app.가상_논쟁을_만들었어요'));
   } catch (error) {
-    const msg = String(error?.cause?.message || error?.message || "대화를 만들지 못했어요. 다시 시도해 주세요.");
+    const msg = String(error?.cause?.message || error?.message || i18n.t('app.대화를_만들지_못했어요_다시_시도해_주세요'));
     if (status) {
       status.textContent = msg;
       status.classList.remove("hidden");
@@ -20220,7 +20380,7 @@ async function runCharacterDebate({ keepScenario = true } = {}) {
 
 async function copyCharDebateText(text) {
   const value = String(text || "").trim();
-  if (!value) return toast("복사할 내용이 없어요.");
+  if (!value) return toast(i18n.t('app.복사할_내용이_없어요'));
   try {
     if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(value);
     else {
@@ -20234,9 +20394,9 @@ async function copyCharDebateText(text) {
       document.execCommand("copy");
       ta.remove();
     }
-    toast("복사되었습니다");
+    toast(i18n.t('app.복사되었습니다'));
   } catch (_) {
-    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+    toast(i18n.t('app.복사에_실패했어요_직접_선택해서_복사해_주세'));
   }
 }
 
@@ -20246,7 +20406,7 @@ function toggleCharDebateCharacter(characterId, selected) {
   const set = new Set(charDebateState.selectedIds.map(Number));
   if (selected) {
     if (set.size >= CHAR_DEBATE_MAX && !set.has(id)) {
-      toast(`논쟁은 최대 ${CHAR_DEBATE_MAX}명까지예요.`);
+      toast(`${i18n.t('app.논쟁은_최대_CHAR_DEBATE_MAX_명', {CHAR_DEBATE_MAX: CHAR_DEBATE_MAX})}`);
       renderCharDebateCharacters();
       if (isToryChatCharacterAllOpen()) renderToryChatCharacterAllGrid();
       return;
@@ -20320,56 +20480,56 @@ function setupCharDebateUi() {
 
 const AI_TOOL_MODAL_META = {
   foreshadow: {
-    title: "떡밥·복선 탐색기",
-    lead: "단서를 심은 장이나 반전 전 원고를 열어, 등록한 단서가 실제로 반영됐는지와 잠재적 복선을 점검해요.",
+    title: i18n.t('app.떡밥_복선_탐색기'),
+    lead: i18n.t('app.단서를_심은_장이나_반전_전_원고를_열어_등'),
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
-    extraPlaceholder: "예: 6장 단서가 너무 약하니 더 날카롭게 짚어 줘.",
-    submitLabel: "확인",
+    extraPlaceholder: i18n.t('app.예_6장_단서가_너무_약하니_더_날카롭게_짚'),
+    submitLabel: i18n.t('app.확인'),
   },
   plottwist: {
-    title: "반전 & 개연성 검사기",
-    lead: "반전이 터지는 장의 원고를 열어, 등록한 빌드업이 그 반전을 설득력 있게 뒷받침하는지 평가해요.",
+    title: i18n.t('app.반전_개연성_검사기'),
+    lead: i18n.t('app.반전이_터지는_장의_원고를_열어_등록한_빌드'),
     panelId: "foreshadowPanel",
     showExtraPrompt: true,
-    extraPlaceholder: "예: 반전이 억지로 느껴지는지, 독자가 납득할지 엄하게 봐 줘.",
-    submitLabel: "확인",
+    extraPlaceholder: i18n.t('app.예_반전이_억지로_느껴지는지_독자가_납득할지'),
+    submitLabel: i18n.t('app.확인'),
   },
   brainstorm: {
-    title: "브레인스토밍",
-    lead: "막힌 지점에서, 여러 방향의 확장 아이디어를 자유롭게 탐색해요.",
+    title: i18n.t('app.브레인스토밍'),
+    lead: i18n.t('app.막힌_지점에서_여러_방향의_확장_아이디어를'),
     panelId: "brainstormPanel",
     showExtraPrompt: false,
-    submitLabel: "확인",
+    submitLabel: i18n.t('app.확인'),
   },
   continue: {
-    title: "이어서 쓰기",
-    lead: "원문 문체·시점을 유지한 채 뒷부분만 이어 씁니다.",
+    title: i18n.t('app.이어서_쓰기'),
+    lead: i18n.t('app.원문_문체_시점을_유지한_채_뒷부분만_이어'),
     panelId: "continuePanel",
     showExtraPrompt: false,
-    submitLabel: "확인",
+    submitLabel: i18n.t('app.확인'),
   },
   rewrite: {
-    title: "문장 다듬기",
+    title: i18n.t('app.문장_다듬기'),
     // Lead empty: guide lives only in #rewriteGuideNote (beige callout).
     lead: "",
     panelId: "rewritePanel",
     showExtraPrompt: false,
-    submitLabel: "다듬기",
+    submitLabel: i18n.t('app.다듬기'),
   },
   worlddesc: {
-    title: "세계관 묘사",
-    lead: "묘사 대상을 적으면 이 작품 문체·설정에 맞는 문장을 제안합니다.",
+    title: i18n.t('app.세계관_묘사'),
+    lead: i18n.t('app.묘사_대상을_적으면_이_작품_문체_설정에_맞'),
     panelId: "worldDescPanel",
     showExtraPrompt: false,
-    submitLabel: "확인",
+    submitLabel: i18n.t('app.확인'),
   },
   subsynopsis: {
-    title: "투고·공모전용 시놉시스",
-    lead: "작품 개요·설정을 바탕으로 투고·공모전용 시놉시스 초안을 작성해요.",
+    title: i18n.t('app.투고_공모전용_시놉시스'),
+    lead: i18n.t('app.작품_개요_설정을_바탕으로_투고_공모전용_시'),
     panelId: "subsynopsisPanel",
     showExtraPrompt: false,
-    submitLabel: "시놉시스 만들기",
+    submitLabel: i18n.t('app.시놉시스_만들기'),
   },
 };
 
@@ -20456,14 +20616,14 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
     const titleEl = $("foreshadowPanelTitle");
     const hintEl = $("foreshadowPanelHint");
     if (m === "foreshadow") {
-      if (titleEl) titleEl.textContent = "떡밥·복선 탐색기";
+      if (titleEl) titleEl.textContent = i18n.t('app.떡밥_복선_탐색기');
       if (hintEl) {
-        hintEl.textContent = "「단서가 원고에 심겼는지」를 봐요. 반전이 설득력 있는지는 반전 & 개연성 검사기를 이용해 주세요.";
+        hintEl.textContent = i18n.t('app.단서가_원고에_심겼는지_를_봐요_반전이_설');
       }
     } else {
-      if (titleEl) titleEl.textContent = "반전 & 개연성 검사기";
+      if (titleEl) titleEl.textContent = i18n.t('app.반전_개연성_검사기');
       if (hintEl) {
-        hintEl.textContent = "「반전이 억지스럽지 않은지」를 봐요. 단서가 잘 심겼는지는 떡밥·복선 탐색기를 이용해 주세요.";
+        hintEl.textContent = i18n.t('app.반전이_억지스럽지_않은지_를_봐요_단서가');
       }
     }
   }
@@ -20474,11 +20634,11 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
     syncAiToolExtraPromptFromForm();
     const extra = $("aiToolModalExtraPrompt");
     if (extra) {
-      extra.placeholder = meta.extraPlaceholder || "추가 요청 (선택)";
+      extra.placeholder = meta.extraPlaceholder || i18n.t('app.추가_요청_선택');
     }
   }
   const submitBtn = $("aiToolModalSubmitButton");
-  if (submitBtn) submitBtn.textContent = meta.submitLabel || "토리에게 물어보기";
+  if (submitBtn) submitBtn.textContent = meta.submitLabel || i18n.t('app.토리에게_물어보기');
 
   modal.classList.remove("hidden");
   modal.style.display = "grid";
@@ -20755,14 +20915,14 @@ function checkSpEpisodeBudget(total = spSelectedEpisodeTotal()) {
     return {
       status: "blocked",
       total,
-      message: `선택한 구간 합계가 ${total}화로 최대 ${SP_MAX_EPISODES}화를 넘었어요. 범위를 줄여 주세요.`,
+      message: `${i18n.t('app.선택한_구간_합계가_total_화로_최대_S', {total: total, SP_MAX_EPISODES: SP_MAX_EPISODES})}`,
     };
   }
   if (total > SP_RECOMMENDED_EPISODES) {
     return {
       status: "warning",
       total,
-      message: "추천량보다 많아요, 비용이 늘어날 수 있어요",
+      message: i18n.t('app.추천량보다_많아요_비용이_늘어날_수_있어요'),
     };
   }
   return { status: "ok", total, message: "" };
@@ -20782,7 +20942,7 @@ function renderSpRangeRows() {
   const selected = getSpSelectedSections();
   successPatternState.selected = selected;
   if (!selected.length) {
-    host.innerHTML = `<p class="hint">4단계에서 구간을 하나 이상 골라 주세요.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_4단계에서_구간을');
     return;
   }
   host.innerHTML = selected.map((key) => {
@@ -20791,14 +20951,14 @@ function renderSpRangeRows() {
     return `
       <div class="sp-range-row" data-sp-range="${key}">
         <label class="sp-range-label">
-          <input type="checkbox" checked disabled> ${SP_SECTION_LABELS[key] || key}
+          <input type="checkbox" checked disabled> ${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)}
         </label>
         <div class="sp-range-inputs">
-          <input type="number" min="1" data-sp-range-start="${key}" value="${r.start}" aria-label="${SP_SECTION_LABELS[key]} 시작 화">
-          <span>화 ~</span>
-          <input type="number" min="1" data-sp-range-end="${key}" value="${r.end}" aria-label="${SP_SECTION_LABELS[key]} 끝 화">
-          <span>화</span>
-          <span class="sp-range-count" data-sp-range-count="${key}">(${count}화)</span>
+          <input type="number" min="1" data-sp-range-start="${key}" value="${r.start}" aria-label="${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)} ${i18n.t('app.시작_화')}">
+          <span>${i18n.t('app.화_물결')}</span>
+          <input type="number" min="1" data-sp-range-end="${key}" value="${r.end}" aria-label="${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)} ${i18n.t('app.끝_화')}">
+          <span>${i18n.t('app.화_단위')}</span>
+          <span class="sp-range-count" data-sp-range-count="${key}">${i18n.t('app.count_화_괄호', { count: count })}</span>
         </div>
       </div>`;
   }).join("");
@@ -20812,7 +20972,7 @@ function renderSpRangeRows() {
       if (end < start) end = start;
       successPatternState.ranges[key] = { start, end };
       const countEl = host.querySelector(`[data-sp-range-count="${key}"]`);
-      if (countEl) countEl.textContent = `(${spEpisodeSpan(start, end)}화)`;
+      if (countEl) countEl.textContent = i18n.t('app.count_화_괄호', { count: spEpisodeSpan(start, end) });
       updateSpEpisodeBudgetUi();
     });
   });
@@ -20825,7 +20985,7 @@ function updateSpEpisodeBudgetUi() {
   const fill = $("spEpisodeBudgetFill");
   const msg = $("spEpisodeBudgetMsg");
   if (summary) {
-    summary.textContent = `합계: ${budget.total}화 / 최대 ${SP_MAX_EPISODES}화  (추천 ${SP_RECOMMENDED_EPISODES}화 내외)`;
+    summary.textContent = `${i18n.t('app.합계_budget_total_화_최대_SP', {'budget.total': budget.total, SP_MAX_EPISODES: SP_MAX_EPISODES, SP_RECOMMENDED_EPISODES: SP_RECOMMENDED_EPISODES})}`;
   }
   if (fill) {
     const pct = Math.min(100, Math.round((budget.total / SP_MAX_EPISODES) * 100));
@@ -20861,7 +21021,7 @@ function updateSpCharBudgetUi() {
   const fill = $("spCharBudgetFill");
   const msg = $("spCharBudgetMsg");
   if (summary) {
-    summary.textContent = `총 글자: ${budget.totalChars.toLocaleString()} / 최대 ${SP_MAX_CHARS.toLocaleString()}  (추천 ${SP_RECOMMENDED_CHARS.toLocaleString()})`;
+    summary.textContent = `${i18n.t('app.총_글자_budget_totalChars_t', {'budget.totalChars.toLocaleString()': budget.totalChars.toLocaleString(), 'SP_MAX_CHARS.toLocaleString()': SP_MAX_CHARS.toLocaleString(), 'SP_RECOMMENDED_CHARS.toLocaleString()': SP_RECOMMENDED_CHARS.toLocaleString()})}`;
   }
   if (fill) {
     const pct = Math.min(100, Math.round((budget.totalChars / SP_MAX_CHARS) * 100));
@@ -20918,7 +21078,7 @@ function bindSpDropzone(zone, key) {
     setDrag(false);
     const files = Array.from(e.dataTransfer?.files || []);
     if (!files.length) {
-      toast("파일을 인식하지 못했어요. 다시 끌어다 놓거나 상자를 눌러 주세요.");
+      toast(i18n.t('app.파일을_인식하지_못했어요_다시_끌어다_놓거나'));
       return;
     }
     parseSpSectionFiles(key, files).catch(handleError);
@@ -20939,7 +21099,7 @@ function clearSpSectionUpload(key) {
   if (!key || !successPatternState.uploads[key]) return;
   delete successPatternState.uploads[key];
   renderSpUploadRows();
-  toast(`${SP_SECTION_LABELS[key] || key} 업로드를 모두 지웠어요.`);
+  toast(`${i18n.t('app.SP_SECTION_LABELS_key_k', {'SP_SECTION_LABELS[key] || key': SP_SECTION_LABELS[key] || key})}`);
 }
 
 function clearSpEpisode(key, index) {
@@ -20951,13 +21111,13 @@ function clearSpEpisode(key, index) {
   up.episodes.splice(i, 1);
   if (!up.episodes.length) {
     delete successPatternState.uploads[key];
-    toast(`「${removed?.title || "회차"}」을(를) 지웠어요.`);
+    toast(`${i18n.t('app.removed_title_회차_을_를_지웠', {'removed?.title || "회차"': removed?.title || "회차"})}`);
   } else {
     up.totalChars = up.episodes.reduce(
       (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
       0,
     );
-    toast(`「${removed?.title || "회차"}」을(를) 목록에서 뺐어요. (${up.episodes.length}화 남음)`);
+    toast(`${i18n.t('app.removed_title_회차_을_를_목록', {'removed?.title || "회차"': removed?.title || "회차", 'up.episodes.length': up.episodes.length})}`);
   }
   renderSpUploadRows();
 }
@@ -20967,7 +21127,7 @@ function renderSpUploadRows() {
   if (!host) return;
   const selected = getSpSelectedSections();
   const zoneGuide = `
-    <span class="sp-dropzone-label">파일 드롭 또는 클릭</span>
+    <span class="sp-dropzone-label">${i18n.t('app.파일_드롭_또는_클릭')}</span>
     <span class="sp-dropzone-hint">(docx, hwpx, txt, md)</span>`;
 
   host.innerHTML = selected.map((key) => {
@@ -20981,8 +21141,10 @@ function renderSpUploadRows() {
         (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
         0,
       );
+      const epUnit = episodes.length === 1 ? i18n.t('app.화_단위_단수') : i18n.t('app.화_단위');
+      const charUnit = chars === 1 ? i18n.t('app.자_접미사_단수') : i18n.t('app.자_접미사');
       const items = episodes.map((ep, idx) => {
-        const title = escapeHtml(ep.title || `${idx + 1}화`);
+        const title = escapeHtml(ep.title || `${i18n.t('app.idx_1_화', {'idx + 1': idx + 1})}`);
         const len = Number(ep.length) || String(ep.text || "").length;
         const src = ep.sourceFile ? escapeHtml(ep.sourceFile) : "";
         return `
@@ -20992,26 +21154,26 @@ function renderSpUploadRows() {
               class="sp-dropzone-clear"
               data-sp-ep-clear="${key}"
               data-sp-ep-index="${idx}"
-              title="이 회차 삭제"
-              aria-label="${title} 삭제"
-            >삭제</button>
+              title="${i18n.t('app.이_회차_삭제')}"
+              aria-label="${i18n.t('app.title_삭제_2', { title: title })}"
+            >${i18n.t('app.삭제')}</button>
             <div class="sp-episode-meta">
               <span class="sp-episode-title" title="${title}">${title}</span>
-              <span class="sp-episode-stats">${len.toLocaleString()}자${src ? ` · ${src}` : ""}</span>
+              <span class="sp-episode-stats">${len.toLocaleString()}${charUnit}${src ? ` · ${src}` : ""}</span>
             </div>
           </div>`;
       }).join("");
       listHtml = `
-        <div class="sp-episode-list" aria-label="업로드된 회차 목록">
+        <div class="sp-episode-list" aria-label="${i18n.t('app.업로드된_회차_목록')}">
           ${items}
         </div>
-        <div class="sp-episode-summary">${episodes.length}화 · ${chars.toLocaleString()}자</div>`;
+        <div class="sp-episode-summary">${episodes.length}${epUnit}${i18n.t('app.화_가운뎃점')}${chars.toLocaleString()}${charUnit}</div>`;
     }
     return `
       <div class="sp-upload-row" data-sp-upload="${key}">
         <div class="sp-upload-head">
-          <strong>${SP_SECTION_LABELS[key] || key}</strong>
-          <span class="hint">${r.start || "?"}~${r.end || "?"}화</span>
+          <strong>${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)}</strong>
+          <span class="hint">${i18n.t('app.물결_화_물음표', { start: r.start || "?", end: r.end || "?" })}</span>
         </div>
         ${listHtml}
         <div
@@ -21019,7 +21181,7 @@ function renderSpUploadRows() {
           data-sp-drop="${key}"
           tabindex="0"
           role="button"
-          aria-label="${SP_SECTION_LABELS[key] || key} 파일 올리기"
+          aria-label="${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)} ${i18n.t('app.파일_올리기')}"
         >${zoneGuide}</div>
       </div>`;
   }).join("");
@@ -21069,20 +21231,20 @@ async function parseSpSectionFiles(key, files) {
     const total = successPatternState.uploads[key]?.episodes?.length || 0;
     toast(
       list.length > 1
-        ? `${SP_SECTION_LABELS[key]} ${list.length}개 파일 · +${added}화 (합계 ${total}화)`
-        : `${SP_SECTION_LABELS[key]} 완료 (${total}화)`,
+        ? `${i18n.t('app.SP_SECTION_LABELS_key_l', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key], 'list.length': list.length, added: added, total: total})}`
+        : `${i18n.t('app.SP_SECTION_LABELS_key_완', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key], total: total})}`,
     );
   } else if (lastError) {
     handleError(lastError);
   } else {
-    toast("회차를 나누지 못했어요. 제목 형식(제1화, # 제목 등)이 있는지 확인해 주세요.");
+    toast(i18n.t('app.회차를_나누지_못했어요_제목_형식_제1화_제'));
   }
 }
 
 /** @returns {Promise<number>} added episode count */
 async function parseSpSectionFile(key, file, { quiet = false } = {}) {
   if (!key || !file) return 0;
-  if (!quiet) toast(`${SP_SECTION_LABELS[key] || key} 파일을 읽는 중…`);
+  if (!quiet) toast(`${i18n.t('app.SP_SECTION_LABELS_key_k_3', {'SP_SECTION_LABELS[key] || key': SP_SECTION_LABELS[key] || key})}`);
   const content_base64 = await fileToBase64(file);
   const result = await api("/api/success-pattern/parse", {
     method: "POST",
@@ -21093,14 +21255,14 @@ async function parseSpSectionFile(key, file, { quiet = false } = {}) {
     }),
   });
   const incoming = (result.episodes || []).map((ep, i) => ({
-    title: ep.title || `${i + 1}화`,
+    title: ep.title || `${i18n.t('app.i_1_화', {'i + 1': i + 1})}`,
     text: ep.text || "",
     length: Number(ep.length) || String(ep.text || "").length,
     sourceFile: file.name,
   }));
   if (!incoming.length) {
     if (!quiet) {
-      toast("회차를 나누지 못했어요. 제목 형식(제1화, # 제목 등)이 있는지 확인해 주세요.");
+      toast(i18n.t('app.회차를_나누지_못했어요_제목_형식_제1화_제'));
     }
     return 0;
   }
@@ -21119,8 +21281,8 @@ async function parseSpSectionFile(key, file, { quiet = false } = {}) {
     renderSpUploadRows();
     toast(
       prev.length
-        ? `${SP_SECTION_LABELS[key]} +${incoming.length}화 (합계 ${episodes.length}화)`
-        : `${SP_SECTION_LABELS[key]} 완료 (${episodes.length}화)`,
+        ? `${i18n.t('app.SP_SECTION_LABELS_key_i', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key], 'incoming.length': incoming.length, 'episodes.length': episodes.length})}`
+        : `${i18n.t('app.SP_SECTION_LABELS_key_완_2', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key], 'episodes.length': episodes.length})}`,
     );
   }
   return incoming.length;
@@ -21209,9 +21371,9 @@ function updateSpSizeVolumeHint() {
   const vols = Math.max(0, Math.floor(Number($("spTotalVolumes")?.value) || successPatternState.totalVolumes || 0));
   const epv = Math.max(1, Math.floor(Number($("spEpisodesPerVolume")?.value) || successPatternState.episodesPerVolume || 10));
   if (vols > 0) {
-    hint.textContent = `구간 추천을 위해 회차로 환산해요. ${vols}권 × ${epv}화 = ${vols * epv}화`;
+    hint.textContent = `${i18n.t('app.구간_추천을_위해_회차로_환산해요_vols', {vols: vols, epv: epv, 'vols * epv': vols * epv})}`;
   } else {
-    hint.textContent = `구간 추천을 위해 회차로 환산해요. 예: 20권 × ${epv}화 = ${20 * epv}화`;
+    hint.textContent = `${i18n.t('app.구간_추천을_위해_회차로_환산해요_예_20권', {epv: epv, '20 * epv': 20 * epv})}`;
   }
 }
 
@@ -21221,12 +21383,12 @@ function resolveSpTotalChaptersFromStep3() {
     const vols = Math.floor(Number($("spTotalVolumes")?.value));
     const epv = Math.floor(Number($("spEpisodesPerVolume")?.value));
     if (!Number.isFinite(vols) || vols < 1) {
-      return { ok: false, message: "총 권 수를 1 이상으로 입력해 주세요.", focus: "spTotalVolumes" };
+      return { ok: false, message: i18n.t('app.총_권_수를_1_이상으로_입력해_주세요'), focus: "spTotalVolumes" };
     }
     const per = Number.isFinite(epv) && epv >= 1 ? epv : 10;
     const total = vols * per;
     if (total < 1) {
-      return { ok: false, message: "권 수와 권당 회차를 확인해 주세요.", focus: "spTotalVolumes" };
+      return { ok: false, message: i18n.t('app.권_수와_권당_회차를_확인해_주세요'), focus: "spTotalVolumes" };
     }
     return {
       ok: true,
@@ -21238,7 +21400,7 @@ function resolveSpTotalChaptersFromStep3() {
   }
   const n = Math.floor(Number($("spTotalChapters")?.value));
   if (!Number.isFinite(n) || n < 1) {
-    return { ok: false, message: "총 회차 수를 1 이상으로 입력해 주세요.", focus: "spTotalChapters" };
+    return { ok: false, message: i18n.t('app.총_회차_수를_1_이상으로_입력해_주세요'), focus: "spTotalChapters" };
   }
   return {
     ok: true,
@@ -21253,7 +21415,7 @@ function validateSpStep(step) {
   if (step === 2) {
     const title = String($("spWorkTitle")?.value || "").trim();
     if (!title) {
-      toast("작품명을 입력해 주세요.");
+      toast(i18n.t('app.작품명을_입력해_주세요'));
       $("spWorkTitle")?.focus();
       return false;
     }
@@ -21263,7 +21425,7 @@ function validateSpStep(step) {
   if (step === 3) {
     // Ensure at least one unit checkbox is on
     if (!$("spSizeByEpisode")?.checked && !$("spSizeByVolume")?.checked) {
-      toast("회차 수 기준 또는 권 수 기준을 선택해 주세요.");
+      toast(i18n.t('app.회차_수_기준_또는_권_수_기준을_선택해_주'));
       return false;
     }
     const resolved = resolveSpTotalChaptersFromStep3();
@@ -21283,7 +21445,7 @@ function validateSpStep(step) {
   if (step === 4) {
     const selected = getSpSelectedSections();
     if (!selected.length) {
-      toast("구간을 하나 이상 선택해 주세요.");
+      toast(i18n.t('app.구간을_하나_이상_선택해_주세요'));
       return false;
     }
     successPatternState.selected = selected;
@@ -21296,7 +21458,7 @@ function validateSpStep(step) {
       return false;
     }
     if (budget.total < 1) {
-      toast("화수 범위를 확인해 주세요.");
+      toast(i18n.t('app.화수_범위를_확인해_주세요'));
       return false;
     }
     return true;
@@ -21319,41 +21481,41 @@ function formatSuccessProfileDisplay(profileRow, { usedMock = false } = {}) {
   let must = asList(p.must_follow_factors);
   // Live Gemini often fills pattern fields but omits factor arrays — surface them for UI.
   if (!reader.length) {
-    if (p.hook_style) reader.push(`훅·끝맺음: ${p.hook_style}`);
+    if (p.hook_style) reader.push(`${i18n.t('app.훅_끝맺음_p_hook_style', {'p.hook_style': p.hook_style})}`);
     if (p.summary) reader.push(String(p.summary).slice(0, 200));
   }
   if (!editor.length) {
-    if (p.pacing_pattern) editor.push(`전개: ${p.pacing_pattern}`);
-    if (p.dialogue_narration_balance) editor.push(`대사/지문: ${p.dialogue_narration_balance}`);
-    if (p.style_signature) editor.push(`문체: ${p.style_signature}`);
+    if (p.pacing_pattern) editor.push(`${i18n.t('app.전개_p_pacing_pattern', {'p.pacing_pattern': p.pacing_pattern})}`);
+    if (p.dialogue_narration_balance) editor.push(`${i18n.t('app.대사_지문_p_dialogue_narrati', {'p.dialogue_narration_balance': p.dialogue_narration_balance})}`);
+    if (p.style_signature) editor.push(`${i18n.t('app.문체_p_style_signature', {'p.style_signature': p.style_signature})}`);
   }
   if (!must.length) {
-    if (p.hook_style) must.push("회차 끝 훅 유지");
-    if (p.style_signature) must.push("문체 리듬 유지");
+    if (p.hook_style) must.push(i18n.t('app.회차_끝_훅_유지'));
+    if (p.style_signature) must.push(i18n.t('app.문체_리듬_유지'));
   }
   const lines = [
-    `【흥행 공식 프로파일】 ${profile.work_title || p.work_title || "제목 없음"}`,
-    `총 회차(원작): ${profile.total_chapters ?? "—"}`,
-    profile.id ? `프로파일 ID: #${profile.id}` : "",
-    usedMock ? "(로컬 관찰 요약 · API 키가 없거나 일부 단계가 대체 분석되었습니다)" : "",
+    `${i18n.t('app.흥행_공식_프로파일_profile_work', {'profile.work_title || p.work_title || "제목 없음"': profile.work_title || p.work_title || "제목 없음"})}`,
+    `${i18n.t('app.총_회차_원작_profile_total_ch', {'profile.total_chapters ?? "—"': profile.total_chapters ?? "—"})}`,
+    profile.id ? `${i18n.t('app.프로파일_ID_profile_id', {'profile.id': profile.id})}` : "",
+    usedMock ? i18n.t('app.로컬_관찰_요약_API_키가_없거나_일부') : "",
     "",
-    "■ 독자 관점 요인",
-    ...(reader.length ? reader.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    i18n.t('app.독자_관점_요인'),
+    ...(reader.length ? reader.map((x) => `  · ${x}`) : [i18n.t('app.비어_있음')]),
     "",
-    "■ 편집자·비평가 관점 요인",
-    ...(editor.length ? editor.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    i18n.t('app.편집자_비평가_관점_요인'),
+    ...(editor.length ? editor.map((x) => `  · ${x}`) : [i18n.t('app.비어_있음')]),
     "",
-    "■ 특히 놓치지 않아야 할 요인 (강조)",
-    ...(must.length ? must.map((x) => `  · ${x}`) : ["  · (비어 있음)"]),
+    i18n.t('app.특히_놓치지_않아야_할_요인_강조'),
+    ...(must.length ? must.map((x) => `  · ${x}`) : [i18n.t('app.비어_있음')]),
     "",
-    "■ 참고 패턴",
+    i18n.t('app.참고_패턴'),
     `  · 훅 스타일: ${p.hook_style || "(없음)"}`,
     `  · 전개 패턴: ${p.pacing_pattern || "(없음)"}`,
     `  · 대사/지문: ${p.dialogue_narration_balance || "(없음)"}`,
     `  · 문체 특징: ${p.style_signature || "(없음)"}`,
     "",
-    "■ 종합 요약",
-    p.summary || "(요약 없음)",
+    i18n.t('app.종합_요약'),
+    p.summary || i18n.t('app.요약_없음'),
   ].filter((x) => x !== undefined && x !== null);
   return lines.join("\n");
 }
@@ -21364,26 +21526,26 @@ function formatSuccessProfileDisplay(profileRow, { usedMock = false } = {}) {
  */
 async function runSuccessFormulaFeedback() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!getLinkedSuccessProfileId()) {
-    toast("아직 분석한 흥행 작품이 없거나 연결되지 않았어요. 흥행 공식 분석을 먼저 이용하세요.");
+    toast(i18n.t('app.아직_분석한_흥행_작품이_없거나_연결되지_않'));
     return;
   }
   if (!state.sceneId) {
-    toast("피드백할 원고(회차)를 먼저 열어 주세요.");
+    toast(i18n.t('app.피드백할_원고_회차_를_먼저_열어_주세요'));
     return;
   }
   const sceneContent = getEditorContent() || "";
   const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
   if (!scenePlain) {
-    toast("현재 회차 원고가 비어 있어요.");
+    toast(i18n.t('app.현재_회차_원고가_비어_있어요'));
     return;
   }
   const profile = await ensureLinkedSuccessProfile();
   if (!profile) {
-    toast("흥행 프로파일을 불러오지 못했어요.");
+    toast(i18n.t('app.흥행_프로파일을_불러오지_못했어요'));
     return;
   }
 
@@ -21397,9 +21559,9 @@ async function runSuccessFormulaFeedback() {
   const prev = button?.textContent;
   if (button) {
     button.disabled = true;
-    button.textContent = "흥행 공식 피드백 중…";
+    button.textContent = i18n.t('app.흥행_공식_피드백_중');
   }
-  if ($("aiResult")) $("aiResult").value = "흥행 프로파일과 현재 회차를 비교하는 중…";
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.흥행_프로파일과_현재_회차를_비교하는_중');
   ensureAiResultVisible();
 
   try {
@@ -21416,7 +21578,7 @@ async function runSuccessFormulaFeedback() {
       scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
       scene_content: scenePlain,
       prompt: "",
-      user_prompt: "흥행 프로파일을 근거로 현재 회차의 재미 요소·훅·전개·문체를 점검해 주세요.",
+      user_prompt: i18n.t('app.흥행_프로파일을_근거로_현재_회차의_재미_요'),
       focus_scene_only: true,
       tory_focus: true,
       focus_scene_id: state.sceneId,
@@ -21434,21 +21596,21 @@ async function runSuccessFormulaFeedback() {
       method: "POST",
       body: JSON.stringify(assistBody),
     });
-    const text = result.text || "(결과 없음)";
+    const text = result.text || i18n.t('app.결과_없음');
     if ($("aiResult")) $("aiResult").value = text;
     revealAiAssistResult({ openModal: true, mode: "successfeedback" });
     pushAiResultHistory?.({
       mode: "successfeedback",
-      modeLabel: "흥행 공식 피드백",
+      modeLabel: i18n.t('app.흥행_공식_피드백'),
       text,
     });
-    toast("흥행 공식 피드백이 끝났어요.");
+    toast(i18n.t('app.흥행_공식_피드백이_끝났어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prev || "토리에게 물어보기";
+      button.textContent = prev || i18n.t('app.토리에게_물어보기');
     }
   }
 }
@@ -21457,7 +21619,7 @@ async function runSuccessPatternAnalysis() {
   const selected = getSpSelectedSections();
   for (const key of selected) {
     if (!(successPatternState.uploads[key]?.episodes || []).length) {
-      toast(`${SP_SECTION_LABELS[key]} 파일을 먼저 올려 주세요.`);
+      toast(`${i18n.t('app.SP_SECTION_LABELS_key_파', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key]})}`);
       return;
     }
   }
@@ -21481,7 +21643,7 @@ async function runSuccessPatternAnalysis() {
     };
   });
   successPatternState.analyzing = true;
-  if ($("spAnalyzeStatus")) $("spAnalyzeStatus").textContent = "구조를 분석하는 중… (회차가 많으면 시간이 걸릴 수 있어요)";
+  if ($("spAnalyzeStatus")) $("spAnalyzeStatus").textContent = i18n.t('app.구조를_분석하는_중_회차가_많으면_시간이_걸');
   updateSpCharBudgetUi();
   try {
     const result = await api("/api/success-pattern/run", {
@@ -21500,12 +21662,12 @@ async function runSuccessPatternAnalysis() {
     }
     pushAiResultHistory?.({
       mode: "successpattern",
-      modeLabel: "흥행 공식 분석",
+      modeLabel: i18n.t('app.흥행_공식_분석_2'),
       text: display,
     });
-    toast("흥행 공식 프로파일을 저장했어요.");
+    toast(i18n.t('app.흥행_공식_프로파일을_저장했어요'));
     if ($("spAnalyzeStatus")) {
-      $("spAnalyzeStatus").textContent = `저장 완료 · 프로파일 #${profile.id || "?"}`;
+      $("spAnalyzeStatus").textContent = `${i18n.t('app.저장_완료_프로파일_profile_id', {'profile.id || "?"': profile.id || "?"})}`;
     }
     // Refresh profile catalog so settings card dropdown includes the new one
     successProfileCatalog = null;
@@ -21516,7 +21678,7 @@ async function runSuccessPatternAnalysis() {
         await linkSuccessProfileToProject(profile.id, { quiet: true });
         if ($("spAnalyzeStatus")) {
           $("spAnalyzeStatus").textContent =
-            `저장 완료 · 프로파일 #${profile.id} · 이 작품에 연결됨 (도우미에서 「흥행 공식 참고」 선택 가능)`;
+            `${i18n.t('app.저장_완료_프로파일_profile_id_이', {'profile.id': profile.id})}`;
         }
         if ($("aiResult")) {
           $("aiResult").value = `${display}\n\n——\n✓ 신작 프로젝트에 자동 연결됨 (linked_success_profile_id=${profile.id})`;
@@ -21652,80 +21814,80 @@ function setupSuccessPatternWizard() {
 }
 
 const GLUMP_TOOL_LABELS = {
-  ten_min_sprint: "10분 뇌 빼고 쓰기",
-  mental_vitamin: "멘탈 비타민",
-  wildcard_spark: "와일드카드 스파크",
-  fill_blank_game: "빈칸 채우기 게임",
-  lucky_sentence: "럭키 문장 뽑기",
-  pingpong_relay: "핑퐁 릴레이",
-  character_interrogation: "캐릭터 1:1 청문회",
-  brain_park: "손가락 놀이터",
-  mood_color: "캐릭터 퍼스널컬러 찾기",
-  mood_playlist: "가상 플레이리스트 뽑기",
-  mood_board: "무드보드 둘러보기",
-  word_list: "단어집 둘러보기",
-  character_tarot: "캐릭터 타로 풀이",
-  naming_shop: "작명소",
+  ten_min_sprint: i18n.t('app.10분_뇌_빼고_쓰기'),
+  mental_vitamin: i18n.t('app.멘탈_비타민'),
+  wildcard_spark: i18n.t('app.와일드카드_스파크'),
+  fill_blank_game: i18n.t('app.빈칸_채우기_게임'),
+  lucky_sentence: i18n.t('app.럭키_문장_뽑기'),
+  pingpong_relay: i18n.t('app.핑퐁_릴레이'),
+  character_interrogation: i18n.t('app.캐릭터_1_1_청문회'),
+  brain_park: i18n.t('app.손가락_놀이터'),
+  mood_color: i18n.t('app.캐릭터_퍼스널컬러_찾기'),
+  mood_playlist: i18n.t('app.가상_플레이리스트_뽑기'),
+  mood_board: i18n.t('app.무드보드_둘러보기'),
+  word_list: i18n.t('app.단어집_둘러보기'),
+  character_tarot: i18n.t('app.캐릭터_타로_풀이'),
+  naming_shop: i18n.t('app.작명소'),
 };
 
 const GLUMP_DIVERSION_META = {
   mood_color: {
-    title: "🎨 캐릭터 퍼스널컬러 찾기",
-    loading: "캐릭터한테 어울리는 색을 고르는 중이에요…",
-    ready: "이 캐릭터한테 어울리는 색이에요.",
+    title: i18n.t('app.캐릭터_퍼스널컬러_찾기_2'),
+    loading: i18n.t('app.캐릭터한테_어울리는_색을_고르는_중이에요'),
+    ready: i18n.t('app.이_캐릭터한테_어울리는_색이에요'),
   },
   mood_playlist: {
-    title: "🎵 가상 플레이리스트 뽑기",
-    loading: "없는 노래를 만드는 중이에요…",
-    ready: "실제로 없는 곡이에요. 분위기만 들어 보세요.",
+    title: i18n.t('app.가상_플레이리스트_뽑기_2'),
+    loading: i18n.t('app.없는_노래를_만드는_중이에요'),
+    ready: i18n.t('app.실제로_없는_곡이에요_분위기만_들어_보세요'),
   },
   mood_board: {
-    title: "🖼 무드보드 둘러보기",
-    loading: "사진을 고르는 중이에요…",
-    ready: "그냥 둘러보다가 나와도 돼요.",
+    title: i18n.t('app.무드보드_둘러보기_2'),
+    loading: i18n.t('app.사진을_고르는_중이에요'),
+    ready: i18n.t('app.그냥_둘러보다가_나와도_돼요'),
   },
   word_list: {
-    title: "📝 단어집 둘러보기",
-    loading: "입안에서 굴릴 단어를 고르는 중이에요…",
-    ready: "지금 원고에 넣을 필요는 없어요.",
+    title: i18n.t('app.단어집_둘러보기_2'),
+    loading: i18n.t('app.입안에서_굴릴_단어를_고르는_중이에요'),
+    ready: i18n.t('app.지금_원고에_넣을_필요는_없어요'),
   },
   character_tarot: {
-    title: "🔮 캐릭터 타로 풀이",
-    loading: "타로를 섞는 중이에요…",
-    ready: "점괘가 아니라, 이 캐릭터 서사를 살짝 비튼 놀이예요.",
+    title: i18n.t('app.캐릭터_타로_풀이_2'),
+    loading: i18n.t('app.타로를_섞는_중이에요'),
+    ready: i18n.t('app.점괘가_아니라_이_캐릭터_서사를_살짝_비튼'),
   },
   naming_shop: {
-    title: "🪶 작명소",
-    loading: "이름을 적어 오는 중이에요…",
-    ready: "마음에 드는 이름만 골라 복사해 보세요.",
+    title: i18n.t('app.작명소_2'),
+    loading: i18n.t('app.이름을_적어_오는_중이에요'),
+    ready: i18n.t('app.마음에_드는_이름만_골라_복사해_보세요'),
   },
 };
 
 const GLUMP_SPRINT_MODES = {
   no_edit_timer: {
     id: "no_edit_timer",
-    name: "수정금지 타이머",
+    name: i18n.t('app.수정금지_타이머'),
     seconds: 600,
     blind: false,
     chars: 0,
   },
   blind_mode: {
     id: "blind_mode",
-    name: "블라인드 모드",
+    name: i18n.t('app.블라인드_모드'),
     seconds: 600,
     blind: true,
     chars: 0,
   },
   eraser_seal: {
     id: "eraser_seal",
-    name: "지우개 봉인 챌린지",
+    name: i18n.t('app.지우개_봉인_챌린지'),
     seconds: 0,
     blind: false,
     chars: 500,
   },
 };
 
-const GLUMP_SPRINT_LEAVE_MSG = "지금 나가면 스프린트가 중단돼요, 그래도 나갈까요?";
+const GLUMP_SPRINT_LEAVE_MSG = i18n.t('app.지금_나가면_스프린트가_중단돼요_그래도_나갈');
 
 const glumpErState = {
   step: "home",
@@ -21825,8 +21987,8 @@ function launchGlumpHomeTool(toolId) {
     openGlumpDiversionsStep();
     return;
   }
-  const name = GLUMP_TOOL_LABELS[id] || "이 도구";
-  toast(`${name}는 곧 열어요. 지금은 다른 도구를 먼저 써 보세요.`);
+  const name = GLUMP_TOOL_LABELS[id] || i18n.t('app.이_도구');
+  toast(`${i18n.t('app.name_는_곧_열어요_지금은_다른_도구를', {name: name})}`);
 }
 
 function glumpCurrentEpisodeText() {
@@ -21888,7 +22050,7 @@ function updateGlumpSprintStatusBar() {
     return;
   }
   const meta = GLUMP_SPRINT_MODES[glumpSprintState.mode] || {};
-  const name = meta.name || "스프린트";
+  const name = meta.name || i18n.t('app.스프린트');
   const written = glumpSprintWrittenCount();
   textEl.textContent = name;
   const hasGoal = glumpSprintState.charGoal > 0;
@@ -21903,20 +22065,20 @@ function updateGlumpSprintStatusBar() {
       timerEl.classList.toggle("is-urgent", left > 0 && left <= 60);
     }
     setGlumpSprintElHidden(timerEl, false);
-    if (charsEl) charsEl.textContent = `지금까지 ${written}자`;
+    if (charsEl) charsEl.textContent = `${i18n.t('app.지금까지_written_자', {written: written})}`;
     setGlumpSprintElHidden(charsEl, false);
     setGlumpSprintElHidden(gaugeEl, true);
   } else if (hasGoal) {
     const goal = glumpSprintState.charGoal;
     const pct = Math.max(0, Math.min(100, (written / goal) * 100));
     if (gaugeFill) gaugeFill.style.width = `${pct}%`;
-    if (gaugeLabel) gaugeLabel.textContent = `${written}자 / ${goal}자`;
+    if (gaugeLabel) gaugeLabel.textContent = `${i18n.t('app.written_자_goal_자', {written: written, goal: goal})}`;
     setGlumpSprintElHidden(timerEl, true);
     setGlumpSprintElHidden(charsEl, true);
     setGlumpSprintElHidden(gaugeEl, false);
   } else {
     setGlumpSprintElHidden(timerEl, true);
-    if (charsEl) charsEl.textContent = `지금까지 ${written}자`;
+    if (charsEl) charsEl.textContent = `${i18n.t('app.지금까지_written_자', {written: written})}`;
     setGlumpSprintElHidden(charsEl, false);
     setGlumpSprintElHidden(gaugeEl, true);
   }
@@ -22041,7 +22203,7 @@ function glumpSprintBlockedToast() {
   }
   if (now - glumpSprintState.toastAt < 1200) return;
   glumpSprintState.toastAt = now;
-  toast("지금은 수정할 수 없어요", 1600);
+  toast(i18n.t('app.지금은_수정할_수_없어요'), 1600);
 }
 
 function closeGlumpSprintReward() {
@@ -22055,8 +22217,8 @@ function showGlumpSprintReward(mode, written) {
   const modal = $("glumpSprintRewardModal");
   const msg = $("glumpSprintRewardMessage");
   const meta = GLUMP_SPRINT_MODES[mode] || {};
-  const name = meta.name || "스프린트";
-  const text = `축하합니다! ${name}를 뚫고 ${written}자를 써냈습니다!`;
+  const name = meta.name || i18n.t('app.스프린트');
+  const text = `${i18n.t('app.축하합니다_name_를_뚫고_written', {name: name, written: written})}`;
   if (!modal || !msg) {
     toast(text, 5200);
     return;
@@ -22206,13 +22368,13 @@ function startGlumpSprint(modeId) {
   const meta = GLUMP_SPRINT_MODES[modeId];
   if (!meta) return;
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const editor = $("sceneContent");
   const workspace = $("sceneWorkspace");
   if (!state.sceneId || !editor || workspace?.classList.contains("hidden")) {
-    toast("먼저 원고를 열어 주세요.");
+    toast(i18n.t('app.먼저_원고를_열어_주세요'));
     return;
   }
   if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
@@ -22297,7 +22459,7 @@ function renderGlumpErStep() {
   const toolNameEl = $("glumpErToolName");
   if (toolNameEl) {
     toolNameEl.textContent = toolId
-      ? `추천: ${GLUMP_TOOL_LABELS[toolId] || toolId}`
+      ? `${i18n.t('app.추천_GLUMP_TOOL_LABELS_too', {'GLUMP_TOOL_LABELS[toolId] || toolId': GLUMP_TOOL_LABELS[toolId] || toolId})}`
       : "";
   }
   $("glumpErRestChoices")?.classList.toggle("hidden", !diagnosis.show_rest_choice);
@@ -22367,14 +22529,14 @@ function renderGlumpErStep() {
     sparkStatus.textContent = !glumpToolToriIntro.spark.ready
       ? ""
       : (glumpErState.busy
-        ? "예상 못한 사건을 고르는 중이에요…"
-        : (glumpErState.events?.length ? "이 세 가지 중에서 골라 보세요." : ""));
+        ? i18n.t('app.예상_못한_사건을_고르는_중이에요')
+        : (glumpErState.events?.length ? i18n.t('app.이_세_가지_중에서_골라_보세요') : ""));
   }
   if (sparkList) {
     const events = Array.isArray(glumpErState.events) ? glumpErState.events : [];
     sparkList.classList.toggle("hidden", !(sparkEventsReady && events.length));
     sparkList.innerHTML = events.map((item, index) => {
-      const title = escapeHtml(String(item.title || `사건 ${index + 1}`));
+      const title = escapeHtml(String(item.title || `${i18n.t('app.사건_index_1', {'index + 1': index + 1})}`));
       const description = escapeHtml(String(item.description || ""));
       return `<article class="glump-er-spark-item"><strong>${title}</strong><p>${description}</p></article>`;
     }).join("");
@@ -22382,28 +22544,28 @@ function renderGlumpErStep() {
 
   const vitaminStatus = $("glumpErVitaminStatus");
   const vitaminList = $("glumpErVitaminList");
-  const vitaminLabels = { dialogue: "대사", description: "묘사", scene: "장면" };
+  const vitaminLabels = { dialogue: i18n.t('app.대사'), description: i18n.t('app.묘사'), scene: i18n.t('app.장면') };
   const vitaminReady = glumpToolToriIntro.vitamin.ready;
   if (vitaminStatus) {
     vitaminStatus.textContent = !vitaminReady
       ? ""
       : (glumpErState.busy
-        ? "잘 쓴 장면을 모으는 중이에요…"
+        ? i18n.t('app.잘_쓴_장면을_모으는_중이에요')
         : (glumpErState.vitamins?.empty
           ? ""
-          : (glumpErState.vitamins?.moments?.length ? "이런 장면이 이미 잘 살아 있어요." : "")));
+          : (glumpErState.vitamins?.moments?.length ? i18n.t('app.이런_장면이_이미_잘_살아_있어요') : "")));
   }
   if (vitaminList) {
     const empty = Boolean(glumpErState.vitamins?.empty);
     const items = Array.isArray(glumpErState.vitamins?.moments) ? glumpErState.vitamins.moments : [];
     vitaminList.classList.toggle("hidden", !(vitaminReady && !glumpErState.busy && (empty || items.length)));
     if (empty) {
-      vitaminList.innerHTML = `<p class="hint">${escapeHtml(glumpErState.vitamins.message || "아직 모아둔 명장면이 없어요.")}</p>`;
+      vitaminList.innerHTML = `${i18n.t('app.p_class_hint_escapeHtml', {'escapeHtml(glumpErState.vitamins.message || "아직 모아둔 명장면이 없어요.")': escapeHtml(glumpErState.vitamins.message || "아직 모아둔 명장면이 없어요.")})}`;
     } else {
       vitaminList.innerHTML = items.map((item) => {
-        const kind = vitaminLabels[item.type] || item.type || "장면";
+        const kind = vitaminLabels[item.type] || item.type || i18n.t('app.장면');
         const order = Number(item.episode_order) || 0;
-        const ep = order ? `${order}화` : "회차";
+        const ep = order ? `${i18n.t('app.order_화', {order: order})}` : i18n.t('app.회차');
         const excerpt = escapeHtml(String(item.excerpt || ""));
         const reason = escapeHtml(String(item.reason || ""));
         return `<article class="glump-er-spark-item glump-er-vitamin-item"><strong>${escapeHtml(kind)} · ${escapeHtml(ep)}</strong><p class="glump-er-vitamin-excerpt">${excerpt}</p><p>${reason}</p></article>`;
@@ -22417,11 +22579,11 @@ function renderGlumpErStep() {
   const fillSession = glumpErState.fillBlank;
   if (fillStatus) {
     if (glumpErState.busy && glumpErState.step === "fillblank" && !fillSession?.segments) {
-      fillStatus.textContent = "다음에 이을 뼈대를 만드는 중이에요…";
+      fillStatus.textContent = i18n.t('app.다음에_이을_뼈대를_만드는_중이에요');
     } else if (fillSession?.finalText) {
-      fillStatus.textContent = "원고 커서 위치에 이어 넣었어요.";
+      fillStatus.textContent = i18n.t('app.원고_커서_위치에_이어_넣었어요');
     } else if (fillSession?.segments?.length) {
-      fillStatus.textContent = "빈칸만 채우면 한 장면이 이어집니다.";
+      fillStatus.textContent = i18n.t('app.빈칸만_채우면_한_장면이_이어집니다');
     } else {
       fillStatus.textContent = "";
     }
@@ -22440,9 +22602,9 @@ function renderGlumpErStep() {
       fillBody.innerHTML = segs.map((item, index) => {
         if (item?.type === "blank") {
           const id = escapeHtml(String(item.id || `b${index + 1}`));
-          const hint = escapeHtml(String(item.hint || "이 칸을 채워 주세요"));
+          const hint = escapeHtml(String(item.hint || i18n.t('app.이_칸을_채워_주세요')));
           const prev = escapeHtml(String(fillSession?.answers?.[item.id] || ""));
-          return `<label class="glump-er-fill-blank"><span>빈칸 · ${hint}</span><textarea data-glump-blank="${id}" rows="2">${prev}</textarea></label>`;
+          return `${i18n.t('app.label_class_glump_er_fi', {hint: hint, id: id, prev: prev})}`;
         }
         return `<p class="glump-er-fill-fixed">${escapeHtml(String(item?.text || ""))}</p>`;
       }).join("");
@@ -22465,15 +22627,15 @@ function renderGlumpErStep() {
   const pingInput = $("glumpErPingpongInput");
   if (pingStatus) {
     if (glumpErState.busy && glumpErState.step === "pingpong" && !ping?.sessionId) {
-      pingStatus.textContent = "릴레이를 여는 중이에요…";
+      pingStatus.textContent = i18n.t('app.릴레이를_여는_중이에요');
     } else if (glumpErState.busy && glumpErState.step === "pingpong") {
-      pingStatus.textContent = "토리가 한두 문장 잇는 중이에요…";
+      pingStatus.textContent = i18n.t('app.토리가_한두_문장_잇는_중이에요');
     } else if (ping?.finalText) {
-      pingStatus.textContent = "원고 커서 위치에 이어 넣었어요.";
+      pingStatus.textContent = i18n.t('app.원고_커서_위치에_이어_넣었어요');
     } else if (ping?.checkin) {
       pingStatus.textContent = "";
     } else if (ping?.sessionId) {
-      pingStatus.textContent = "한두 문장 쓰고 토리에게 넘기면 이어 받아요.";
+      pingStatus.textContent = i18n.t('app.한두_문장_쓰고_토리에게_넘기면_이어_받아요');
     } else {
       pingStatus.textContent = "";
     }
@@ -22485,7 +22647,7 @@ function renderGlumpErStep() {
       const items = Array.isArray(ping?.turns) ? ping.turns : [];
       pingTurns.innerHTML = items.map((item) => {
         const tori = item?.speaker === "tori";
-        const who = tori ? "토리" : "나";
+        const who = tori ? i18n.t('app.토리') : i18n.t('app.나');
         const klass = tori ? "is-tori" : "is-user";
         return `<p class="glump-er-ping-turn ${klass}"><strong>${who}</strong>${escapeHtml(String(item?.text || ""))}</p>`;
       }).join("");
@@ -22495,7 +22657,7 @@ function renderGlumpErStep() {
   pingCheckin?.classList.toggle("hidden", !showCheckin);
   if (pingCheckinMsg && showCheckin) {
     const n = Number(ping.writtenChars) || 0;
-    pingCheckinMsg.textContent = `벌써 ${n}자 썼어요!`;
+    pingCheckinMsg.textContent = `${i18n.t('app.벌써_n_자_썼어요', {n: n})}`;
   }
   pingComposer?.classList.toggle("hidden", Boolean(!ping?.sessionId || ping.checkin || ping.finalText));
   if (pingSend) pingSend.disabled = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
@@ -22510,11 +22672,11 @@ function renderGlumpErStep() {
   const luckyInsert = $("glumpErLuckyInsert");
   if (luckyStatus) {
     if (glumpErState.busy && glumpErState.step === "lucky") {
-      luckyStatus.textContent = "문장을 고르는 중이에요…";
+      luckyStatus.textContent = i18n.t('app.문장을_고르는_중이에요');
     } else if (lucky?.forceChoice) {
-      luckyStatus.textContent = "이 중에 하나로 시작해볼까요?";
+      luckyStatus.textContent = i18n.t('app.이_중에_하나로_시작해볼까요');
     } else if (lucky?.sentence) {
-      luckyStatus.textContent = "이 문장으로 이어 보거나, 다시 뽑아 보세요.";
+      luckyStatus.textContent = i18n.t('app.이_문장으로_이어_보거나_다시_뽑아_보세요');
     } else {
       luckyStatus.textContent = "";
     }
@@ -22543,13 +22705,13 @@ function renderGlumpErStep() {
   const allAnswered = qaItems.length > 0 && qaItems.every((item) => String(item?.answer || "").trim());
   if (hearStatus) {
     if (glumpErState.busy && glumpErState.step === "interrogation" && !qaItems.length) {
-      hearStatus.textContent = "추궁할 질문을 만드는 중이에요…";
+      hearStatus.textContent = i18n.t('app.추궁할_질문을_만드는_중이에요');
     } else if (hearing?.hints?.length) {
-      hearStatus.textContent = "이건 참고용이에요. 원고에 자동으로 넣지는 않아요.";
+      hearStatus.textContent = i18n.t('app.이건_참고용이에요_원고에_자동으로_넣지는_않');
     } else if (allAnswered) {
-      hearStatus.textContent = "답이 다 모였어요. 전개 힌트를 정리해 보세요.";
+      hearStatus.textContent = i18n.t('app.답이_다_모였어요_전개_힌트를_정리해_보세요');
     } else if (qaItems.length) {
-      hearStatus.textContent = `${hearing?.characterName || "주인공"}에게 지금 상황에서 물어봐야 할 질문이에요.`;
+      hearStatus.textContent = `${i18n.t('app.hearing_characterName_주', {'hearing?.characterName || "주인공"': hearing?.characterName || "주인공"})}`;
     } else {
       hearStatus.textContent = "";
     }
@@ -22557,7 +22719,7 @@ function renderGlumpErStep() {
   if (hearBody) {
     if (Array.isArray(hearing?.hints) && hearing.hints.length) {
       hearBody.innerHTML = hearing.hints.map((item, index) => {
-        const title = escapeHtml(String(item.title || `힌트 ${index + 1}`));
+        const title = escapeHtml(String(item.title || `${i18n.t('app.힌트_index_1', {'index + 1': index + 1})}`));
         const description = escapeHtml(String(item.description || ""));
         return `<article class="glump-er-spark-item"><strong>${title}</strong><p>${description}</p></article>`;
       }).join("");
@@ -22567,7 +22729,7 @@ function renderGlumpErStep() {
         const a = String(item?.answer || "").trim();
         const answerHtml = a
           ? `<p class="glump-er-interrogation-a">${escapeHtml(a)}</p>`
-          : `<button type="button" class="primary compact-btn glump-er-interrogation-ask" data-glump-interrogate="${index}">이 질문으로 추궁하기</button>`;
+          : `${i18n.t('app.button_type_button_clas_7', {index: index})}`;
         return `<article class="glump-er-interrogation-qa"><p class="glump-er-interrogation-q">${index + 1}. ${q}</p>${answerHtml}</article>`;
       }).join("");
     }
@@ -22589,12 +22751,12 @@ function renderGlumpErStep() {
     if (glumpErState.busy && glumpErState.step === "diversionResult") {
       diversionStatus.textContent = diversionMeta.loading;
     } else if (diversion?.error) {
-      diversionStatus.textContent = String(diversion.message || "이번에는 못 보여 줬어요.");
+      diversionStatus.textContent = String(diversion.message || i18n.t('app.이번에는_못_보여_줬어요'));
     } else if (diversionKind && glumpErState.step === "diversionResult") {
       if (diversionKind === "character_tarot" && diversion?.character_name) {
-        diversionStatus.textContent = `「${String(diversion.character_name)}」의 서사를 타로로 살짝 비틀어 봤어요. 점괘는 아니에요.`;
+        diversionStatus.textContent = `${i18n.t('app.String_diversion_charac', {'String(diversion.character_name)': String(diversion.character_name)})}`;
       } else if (diversionKind === "mood_color" && diversion?.character_name) {
-        diversionStatus.textContent = `「${String(diversion.character_name)}」한테 어울리는 색이에요.`;
+        diversionStatus.textContent = `${i18n.t('app.String_diversion_charac_2', {'String(diversion.character_name)': String(diversion.character_name)})}`;
       } else {
         diversionStatus.textContent = diversionMeta.ready;
       }
@@ -22623,21 +22785,21 @@ function renderGlumpErStep() {
     }
   });
   const sparkBack = $("glumpErSparkBack");
-  if (sparkBack) sparkBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (sparkBack) sparkBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const vitaminBack = $("glumpErVitaminBack");
-  if (vitaminBack) vitaminBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (vitaminBack) vitaminBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const fillBack = $("glumpErFillBlankBack");
-  if (fillBack) fillBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (fillBack) fillBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const pingBack = $("glumpErPingpongBack");
-  if (pingBack) pingBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (pingBack) pingBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const luckyBack = $("glumpErLuckyBack");
-  if (luckyBack) luckyBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (luckyBack) luckyBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const hearBack = $("glumpErInterrogationBack");
-  if (hearBack) hearBack.textContent = glumpErState.diagnosis ? "진단으로" : "목록으로";
+  if (hearBack) hearBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const sprintBack = $("glumpErSprintBack");
-  if (sprintBack) sprintBack.textContent = glumpErState.diagnosis ? "진단으로" : "이전";
+  if (sprintBack) sprintBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.이전');
   const diversionBack = $("glumpErDiversionsBack");
-  if (diversionBack) diversionBack.textContent = glumpErState.diagnosis ? "진단으로" : "이전";
+  if (diversionBack) diversionBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.이전');
 }
 
 function openGlumpErModal() {
@@ -22701,7 +22863,7 @@ function updateGlumpErVisibility({ forceOpen = false } = {}) {
 
 async function submitGlumpDiagnosis(q1, q2) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (glumpErState.busy) return;
@@ -22868,12 +23030,12 @@ function playGlumpInterrogationToriIntro() {
 
 async function runGlumpWildcardSpark() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const episode = glumpCurrentEpisodeText();
   if (episode.length < 100) {
-    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    toast(i18n.t('app.원고_내용이_너무_짧아요_조금_더_써주시면'));
     return;
   }
   if (glumpErState.busy) return;
@@ -22902,7 +23064,7 @@ async function runGlumpWildcardSpark() {
 
 async function runGlumpMentalVitamin() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (glumpErState.busy) return;
@@ -22928,12 +23090,12 @@ async function runGlumpMentalVitamin() {
 
 async function runGlumpFillBlank() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const episode = glumpCurrentEpisodeText();
   if (episode.length < 100) {
-    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    toast(i18n.t('app.원고_내용이_너무_짧아요_조금_더_써주시면'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23000,7 +23162,7 @@ function collectGlumpFillBlankAnswers() {
 async function submitGlumpFillBlank() {
   const session = glumpErState.fillBlank;
   if (!session?.sessionId) {
-    toast("먼저 뼈대를 받아 주세요.");
+    toast(i18n.t('app.먼저_뼈대를_받아_주세요'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23008,7 +23170,7 @@ async function submitGlumpFillBlank() {
   const blanks = (session.segments || []).filter((item) => item?.type === "blank");
   const missing = blanks.some((item) => !String(answers[item.id] || "").trim());
   if (missing) {
-    toast("모든 빈칸을 채워주세요");
+    toast(i18n.t('app.모든_빈칸을_채워주세요'));
     return;
   }
   glumpErState.busy = true;
@@ -23036,12 +23198,12 @@ async function submitGlumpFillBlank() {
 
 async function runGlumpPingpong() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const episode = glumpCurrentEpisodeText();
   if (episode.length < 100) {
-    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    toast(i18n.t('app.원고_내용이_너무_짧아요_조금_더_써주시면'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23085,7 +23247,7 @@ async function sendGlumpPingpongTurn() {
   const input = $("glumpErPingpongInput");
   const userText = String(input?.value || "").trim();
   if (!userText) {
-    toast("한 문장을 먼저 써 주세요.");
+    toast(i18n.t('app.한_문장을_먼저_써_주세요'));
     return;
   }
   glumpErState.busy = true;
@@ -23152,12 +23314,12 @@ function newGlumpLuckySessionId() {
 
 async function runGlumpLuckySentence({ redraw = false } = {}) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const episode = glumpCurrentEpisodeText();
   if (episode.length < 100) {
-    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    toast(i18n.t('app.원고_내용이_너무_짧아요_조금_더_써주시면'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23204,7 +23366,7 @@ async function runGlumpLuckySentence({ redraw = false } = {}) {
 function insertGlumpLuckySentence(text) {
   const sentence = String(text || glumpErState.lucky?.sentence || "").trim();
   if (!sentence) {
-    toast("넣을 문장이 없어요.");
+    toast(i18n.t('app.넣을_문장이_없어요'));
     return;
   }
   restoreManuscriptContextRange($("sceneContent"));
@@ -23213,12 +23375,12 @@ function insertGlumpLuckySentence(text) {
 
 async function runGlumpInterrogation() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const episode = glumpCurrentEpisodeText();
   if (episode.length < 100) {
-    toast("원고 내용이 너무 짧아요, 조금 더 써주시면 맥락을 파악할 수 있어요");
+    toast(i18n.t('app.원고_내용이_너무_짧아요_조금_더_써주시면'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23333,13 +23495,13 @@ function handleGlumpDiversionExit(choice) {
     closeGlumpErToManuscript();
     return;
   }
-  toast("잘 쉬고 오세요. 한 글자도 안 써도 괜찮아요.");
+  toast(i18n.t('app.잘_쉬고_오세요_한_글자도_안_써도_괜찮아요'));
   closeGlumpErModal({ dismissed: true });
 }
 
 async function copyGlumpShortText(text) {
   const value = String(text || "").trim();
-  if (!value) return toast("복사할 이름이 없어요.");
+  if (!value) return toast(i18n.t('app.복사할_이름이_없어요'));
   try {
     if (navigator.clipboard?.writeText) {
       await navigator.clipboard.writeText(value);
@@ -23354,9 +23516,9 @@ async function copyGlumpShortText(text) {
       document.execCommand("copy");
       helper.remove();
     }
-    toast("복사했어요.");
+    toast(i18n.t('app.복사했어요'));
   } catch (_) {
-    toast("복사에 실패했어요.");
+    toast(i18n.t('app.복사에_실패했어요'));
   }
 }
 
@@ -23365,19 +23527,19 @@ function renderGlumpColorCharacterBar(diversion) {
   const isProtagonist = String(diversion?.character_role || "") === "protagonist";
   const who = current
     ? (isProtagonist
-      ? `주인공 「${escapeHtml(current)}」 기준으로 뽑았어요`
-      : `「${escapeHtml(current)}」 기준으로 뽑았어요`)
-    : "주인공 기준으로 뽑았어요";
+      ? `${i18n.t('app.주인공_escapeHtml_current_기', {'escapeHtml(current)': escapeHtml(current)})}`
+      : `${i18n.t('app.escapeHtml_current_기준으로', {'escapeHtml(current)': escapeHtml(current)})}`)
+    : i18n.t('app.주인공_기준으로_뽑았어요');
   const people = Array.isArray(state.characters) ? state.characters : [];
   const options = people.map((ch) => {
     const name = String(ch?.name || "").trim();
     if (!name) return "";
-    const label = String(ch.role || "") === "protagonist" ? `${name} (주인공)` : name;
+    const label = String(ch.role || "") === "protagonist" ? `${i18n.t('app.name_주인공', {name: name})}` : name;
     const selected = name === current ? " selected" : "";
     return `<option value="${escapeHtml(name)}"${selected}>${escapeHtml(label)}</option>`;
   }).filter(Boolean).join("");
   const picker = options
-    ? `<label class="glump-er-color-pick">다른 캐릭터: <select id="glumpErColorCharacter" aria-label="다른 캐릭터">${options}</select></label>`
+    ? `${i18n.t('app.label_class_glump_er_co', {options: options})}`
     : "";
   return `<div class="glump-er-color-who"><p>${who}</p>${picker}</div>`;
 }
@@ -23390,7 +23552,7 @@ function renderGlumpDiversionBody(diversion) {
     const chips = colors.map((item) => {
       const hex = String(item?.hex || "").trim();
       const safeHex = /^#[0-9A-Fa-f]{6}$/.test(hex) ? hex : "";
-      const name = escapeHtml(String(item?.name || "색"));
+      const name = escapeHtml(String(item?.name || i18n.t('app.색')));
       const reason = escapeHtml(String(item?.reason || ""));
       const swatch = safeHex
         ? `<span class="glump-er-color-swatch" style="background:${safeHex}" aria-hidden="true"></span>`
@@ -23400,10 +23562,10 @@ function renderGlumpDiversionBody(diversion) {
     return renderGlumpColorCharacterBar(diversion) + chips;
   }
   if (kind === "mood_playlist") {
-    const title = escapeHtml(String(diversion.playlist_title || "가상 플레이리스트"));
+    const title = escapeHtml(String(diversion.playlist_title || i18n.t('app.가상_플레이리스트')));
     const tracks = Array.isArray(diversion.tracks) ? diversion.tracks : [];
     const trackHtml = tracks.map((item, index) => {
-      const song = escapeHtml(String(item?.title || `곡 ${index + 1}`));
+      const song = escapeHtml(String(item?.title || `${i18n.t('app.곡_index_1', {'index + 1': index + 1})}`));
       const mood = escapeHtml(String(item?.mood || ""));
       return `<article class="glump-er-track-item"><strong>${index + 1}. ${song}</strong>${mood ? `<p>${mood}</p>` : ""}</article>`;
     }).join("");
@@ -23415,7 +23577,7 @@ function renderGlumpDiversionBody(diversion) {
       const url = glumpSafeHttpUrl(item?.url);
       if (!url) return "";
       const photographer = escapeHtml(String(item?.photographer || ""));
-      const alt = escapeHtml(String(item?.alt || photographer || "무드보드 사진"));
+      const alt = escapeHtml(String(item?.alt || photographer || i18n.t('app.무드보드_사진')));
       const credit = photographer
         ? `<p class="glump-er-mood-credit">Photo by ${photographer}</p>`
         : "";
@@ -23435,7 +23597,7 @@ function renderGlumpDiversionBody(diversion) {
   if (kind === "character_tarot") {
     const cards = Array.isArray(diversion.cards) ? diversion.cards : [];
     return cards.map((item, index) => {
-      const name = escapeHtml(String(item?.name || `카드 ${index + 1}`));
+      const name = escapeHtml(String(item?.name || `${i18n.t('app.카드_index_1', {'index + 1': index + 1})}`));
       const meaning = escapeHtml(String(item?.meaning || ""));
       return `<article class="glump-er-tarot-card"><strong>${index + 1}. ${name}</strong>${meaning ? `<p>${meaning}</p>` : ""}</article>`;
     }).join("");
@@ -23443,7 +23605,7 @@ function renderGlumpDiversionBody(diversion) {
   if (kind === "naming_shop") {
     const groups = Array.isArray(diversion.groups) ? diversion.groups : [];
     return groups.map((group) => {
-      const category = escapeHtml(String(group?.category || "이름"));
+      const category = escapeHtml(String(group?.category || i18n.t('app.이름')));
       const items = Array.isArray(group?.items) ? group.items : [];
       const rows = items.map((item) => {
         const name = String(item?.name || "").trim();
@@ -23471,7 +23633,7 @@ async function runGlumpDiversion(kind) {
   const id = String(kind || "").trim();
   if (!GLUMP_DIVERSION_META[id]) return;
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (glumpErState.busy) return;
@@ -23522,7 +23684,7 @@ async function runGlumpDiversion(kind) {
     glumpErState.diversion = {
       kind: id,
       error: true,
-      message: String(error?.message || "이번에는 못 보여 줬어요."),
+      message: String(error?.message || i18n.t('app.이번에는_못_보여_줬어요')),
     };
   } finally {
     glumpErState.busy = false;
@@ -23589,12 +23751,12 @@ function setupGlumpErUi() {
         event.preventDefault();
         const choice = restBtn.getAttribute("data-glump-rest") || "";
         if (choice === "rest") {
-          toast("잘 쉬고 오세요. 한 글자도 안 써도 괜찮아요.");
+          toast(i18n.t('app.잘_쉬고_오세요_한_글자도_안_써도_괜찮아요'));
           closeGlumpErModal({ dismissed: true });
         } else if (choice === "play") {
           openGlumpDiversionsStep();
         } else {
-          toast("조금이라도 괜찮아요. 오늘 목표는 300자면 충분해요.");
+          toast(i18n.t('app.조금이라도_괜찮아요_오늘_목표는_300자면'));
           closeGlumpErToManuscript();
         }
         return;
@@ -23814,14 +23976,14 @@ function ensureGlumpSprintBindings() {
 
 function collectToToryVault(options = {}) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
   const resultText = String(options.text ?? $("aiResult")?.value ?? "").trim();
   const promptText = String(options.prompt ?? $("aiPrompt")?.value ?? "").trim();
   const body = resultText || promptText;
   if (!body) {
-    toast("수집할 내용이 없어요. 토리에게 물어보거나 요청을 적어 주세요.");
+    toast(i18n.t('app.수집할_내용이_없어요_토리에게_물어보거나_요'));
     return null;
   }
   const mode = String(options.mode || $("aiMode")?.value || "free");
@@ -23830,8 +23992,8 @@ function collectToToryVault(options = {}) {
   const item = {
     id: `vault-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     title: options.title
-      || (resultText ? `토리 · ${aiModeLabel(mode)}` : `요청 · ${aiModeLabel(mode)}`)
-      || "수집 메모",
+      || (resultText ? `${i18n.t('app.토리_aiModeLabel_mode', {'aiModeLabel(mode)': aiModeLabel(mode)})}` : `${i18n.t('app.요청_aiModeLabel_mode', {'aiModeLabel(mode)': aiModeLabel(mode)})}`)
+      || i18n.t('app.수집_메모'),
     body,
     prompt: promptText,
     mode,
@@ -23844,7 +24006,7 @@ function collectToToryVault(options = {}) {
   saveToryVault(list);
   renderToryVaultList();
   renderSettingsCodex();
-  toast("토리 수집창고에 넣었어요.");
+  toast(i18n.t('app.토리_수집창고에_넣었어요'));
   return item;
 }
 
@@ -23853,7 +24015,7 @@ function renderToryVaultList() {
   if (!listEl) return;
   const items = loadToryVault();
   if (!items.length) {
-    listEl.innerHTML = `<p class="hint tory-vault-empty">아직 수집한 내용이 없어요.<br>토리 결과 아래 <strong>수집</strong>으로 아이디어를 담아 보세요.</p>`;
+    listEl.innerHTML = i18n.t('app.p_class_hint_tory_vault');
     return;
   }
   listEl.innerHTML = items.map((item) => {
@@ -23866,7 +24028,7 @@ function renderToryVaultList() {
     return `
       <article class="tory-vault-card" data-vault-id="${escapeHtml(item.id)}">
         <div class="tory-vault-card-meta">
-          <strong>${escapeHtml(item.title || "수집")}</strong>
+          <strong>${escapeHtml(item.title || i18n.t('app.수집'))}</strong>
           <span>${mode}</span>
           ${scene ? `<span>씬: ${scene}</span>` : ""}
           ${when ? `<span>${escapeHtml(when)}</span>` : ""}
@@ -23882,20 +24044,20 @@ function renderToryVaultList() {
 
 function setupToryVault() {
   $("newToryVaultButton")?.addEventListener("click", () => {
-    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+    if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     promptText({
-      title: "수집창고 메모",
-      message: "수집창고에 넣을 메모를 적어 주세요.",
-      label: "메모",
+      title: i18n.t('app.수집창고_메모'),
+      message: i18n.t('app.수집창고에_넣을_메모를_적어_주세요'),
+      label: i18n.t('app.메모_2'),
       defaultValue: "",
-      placeholder: "짧은 메모",
+      placeholder: i18n.t('app.짧은_메모'),
       maxlength: 2000,
-      confirmLabel: "넣기",
+      confirmLabel: i18n.t('app.넣기'),
     }).then((text) => {
       if (text === null) return;
       const body = text.trim();
-      if (!body) return toast("내용이 비어 있어요.");
-      collectToToryVault({ text: body, title: "직접 메모", mode: "note", prompt: "" });
+      if (!body) return toast(i18n.t('app.내용이_비어_있어요'));
+      collectToToryVault({ text: body, title: i18n.t('app.직접_메모'), mode: "note", prompt: "" });
       setActiveBinder("settings");
       state.openSettingsSection = "toryVault";
       applySettingsSectionState();
@@ -23903,12 +24065,12 @@ function setupToryVault() {
   });
   $("clearToryVaultButton")?.addEventListener("click", () => {
     if (!state.projectId) return;
-    if (!loadToryVault().length) return toast("비울 수집이 없어요.");
-    if (!window.confirm("토리 수집창고를 모두 비울까요?")) return;
+    if (!loadToryVault().length) return toast(i18n.t('app.비울_수집이_없어요'));
+    if (!window.confirm(i18n.t('app.토리_수집창고를_모두_비울까요'))) return;
     saveToryVault([]);
     renderToryVaultList();
     renderSettingsCodex();
-    toast("수집창고를 비웠어요.");
+    toast(i18n.t('app.수집창고를_비웠어요'));
   });
   $("toryVaultList")?.addEventListener("click", (event) => {
     const copyId = event.target.closest?.("[data-vault-copy]")?.dataset?.vaultCopy;
@@ -23917,7 +24079,7 @@ function setupToryVault() {
       const item = loadToryVault().find((v) => v.id === copyId);
       if (!item?.body) return;
       navigator.clipboard?.writeText(item.body).then(
-        () => toast("복사했어요."),
+        () => toast(i18n.t('app.복사했어요')),
         () => {
           try {
             const ta = document.createElement("textarea");
@@ -23926,20 +24088,20 @@ function setupToryVault() {
             ta.select();
             document.execCommand("copy");
             ta.remove();
-            toast("복사했어요.");
+            toast(i18n.t('app.복사했어요'));
           } catch (_) {
-            toast("복사에 실패했어요.");
+            toast(i18n.t('app.복사에_실패했어요'));
           }
         },
       );
       return;
     }
     if (delId) {
-      if (!window.confirm("이 수집을 삭제할까요?")) return;
+      if (!window.confirm(i18n.t('app.이_수집을_삭제할까요'))) return;
       saveToryVault(loadToryVault().filter((v) => v.id !== delId));
       renderToryVaultList();
       renderSettingsCodex();
-      toast("삭제했어요.");
+      toast(i18n.t('app.삭제했어요'));
     }
   });
   renderToryVaultList();
@@ -23986,11 +24148,11 @@ function sourceFileKindLabel(ext = "") {
   const e = String(ext || "").toLowerCase();
   if (e === ".pdf") return "PDF";
   if (e === ".docx" || e === ".doc") return "Word";
-  if (e === ".hwp" || e === ".hwpx") return "한글";
-  if (e === ".txt" || e === ".text" || e === ".md" || e === ".markdown") return "텍스트";
+  if (e === ".hwp" || e === ".hwpx") return i18n.t('app.한글');
+  if (e === ".txt" || e === ".text" || e === ".md" || e === ".markdown") return i18n.t('app.텍스트');
   if (e === ".rtf") return "RTF";
   if (e === ".odt") return "ODT";
-  return "파일";
+  return i18n.t('app.파일');
 }
 
 function formatSourceFileSize(bytes) {
@@ -24003,7 +24165,7 @@ function formatSourceFileSize(bytes) {
 function openSourceFilesDb() {
   return new Promise((resolve, reject) => {
     if (!window.indexedDB) {
-      reject(new Error("이 브라우저는 파일 저장(IndexedDB)을 지원하지 않아요."));
+      reject(new Error(i18n.t('app.이_브라우저는_파일_저장_IndexedDB')));
       return;
     }
     const req = indexedDB.open(SOURCE_FILE_DB_NAME, 1);
@@ -24014,7 +24176,7 @@ function openSourceFilesDb() {
       }
     };
     req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(req.error || new Error("파일 저장소를 열지 못했어요."));
+    req.onerror = () => reject(req.error || new Error(i18n.t('app.파일_저장소를_열지_못했어요')));
   });
 }
 
@@ -24028,7 +24190,7 @@ async function putSourceFileBlob(sourceId, record) {
     const tx = db.transaction(SOURCE_FILE_STORE, "readwrite");
     tx.objectStore(SOURCE_FILE_STORE).put(record, sourceFileDbKey(sourceId));
     tx.oncomplete = () => resolve(true);
-    tx.onerror = () => reject(tx.error || new Error("파일 저장에 실패했어요."));
+    tx.onerror = () => reject(tx.error || new Error(i18n.t('app.파일_저장에_실패했어요')));
   });
 }
 
@@ -24038,7 +24200,7 @@ async function getSourceFileBlob(sourceId) {
     const tx = db.transaction(SOURCE_FILE_STORE, "readonly");
     const req = tx.objectStore(SOURCE_FILE_STORE).get(sourceFileDbKey(sourceId));
     req.onsuccess = () => resolve(req.result || null);
-    req.onerror = () => reject(req.error || new Error("파일을 읽지 못했어요."));
+    req.onerror = () => reject(req.error || new Error(i18n.t('app.파일을_읽지_못했어요')));
   });
 }
 
@@ -24064,7 +24226,7 @@ function fileToBase64(file) {
       const b64 = result.includes(",") ? result.split(",", 1)[1] : result;
       resolve(b64);
     };
-    reader.onerror = () => reject(reader.error || new Error("파일을 읽지 못했어요."));
+    reader.onerror = () => reject(reader.error || new Error(i18n.t('app.파일을_읽지_못했어요')));
     reader.readAsDataURL(file);
   });
 }
@@ -24072,7 +24234,7 @@ function fileToBase64(file) {
 /** Inflate raw DEFLATE (zip method 8) via browser DecompressionStream. */
 async function inflateRawDeflate(u8) {
   if (typeof DecompressionStream === "undefined") {
-    throw new Error("이 브라우저는 DOCX 압축 해제를 지원하지 않아요.");
+    throw new Error(i18n.t('app.이_브라우저는_DOCX_압축_해제를_지원하지'));
   }
   const stream = new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"));
   const ab = await new Response(stream).arrayBuffer();
@@ -24144,18 +24306,18 @@ function docxXmlToPlainText(xml) {
 async function extractDocxTextClient(arrayBuffer) {
   const entries = scanZipLocalEntries(arrayBuffer);
   const entry = entries["word/document.xml"];
-  if (!entry) throw new Error("DOCX 본문(document.xml)을 찾지 못했어요.");
+  if (!entry) throw new Error(i18n.t('app.DOCX_본문_document_xml_을_찾'));
   let xmlBytes;
   if (entry.method === 0) {
     xmlBytes = entry.data;
   } else if (entry.method === 8) {
     xmlBytes = await inflateRawDeflate(entry.data);
   } else {
-    throw new Error(`지원하지 않는 DOCX 압축 방식입니다 (${entry.method}).`);
+    throw new Error(`${i18n.t('app.지원하지_않는_DOCX_압축_방식입니다_en', {'entry.method': entry.method})}`);
   }
   const xml = new TextDecoder("utf-8").decode(xmlBytes);
   const text = docxXmlToPlainText(xml);
-  if (!text) throw new Error("DOCX에서 글자를 꺼내지 못했어요.");
+  if (!text) throw new Error(i18n.t('app.DOCX에서_글자를_꺼내지_못했어요'));
   return text;
 }
 
@@ -24176,7 +24338,7 @@ async function extractReferenceTextFromFile(file, arrayBuffer = null) {
       return {
         filename: name,
         format: "docx",
-        title: name.replace(/\.[^.]+$/, "") || "문서",
+        title: name.replace(/\.[^.]+$/, "") || i18n.t('app.문서'),
         text,
         viewer: "text",
         warnings: [],
@@ -24204,7 +24366,7 @@ async function extractReferenceTextFromFile(file, arrayBuffer = null) {
         const msg2 = String(error2?.message || error2 || "");
         if (/알 수 없는 요청|404|not found/i.test(msg2)) {
           throw new Error(
-            "DOCX/한글 추출 API를 찾을 수 없습니다. SuperTORY 서버 창을 종료한 뒤 start_supertory.bat 으로 다시 실행해 주세요. (브라우저만 새로고침하면 예전 서버가 남을 수 있어요.)",
+            i18n.t('app.DOCX_한글_추출_API를_찾을_수_없습니'),
           );
         }
         throw error2;
@@ -24256,11 +24418,11 @@ function setSplitSourceUiMode(isSource) {
     titleInput.readOnly = Boolean(isSource) || !state.splitEditEnabled;
     titleInput.tabIndex = isSource ? -1 : (state.splitEditEnabled ? 0 : 0);
     if (isSource) {
-      titleInput.placeholder = "자료 이름";
-      titleInput.setAttribute("aria-label", "참고자료 이름");
+      titleInput.placeholder = i18n.t('app.자료_이름');
+      titleInput.setAttribute("aria-label", i18n.t('app.참고자료_이름'));
     } else {
-      titleInput.placeholder = "씬 제목";
-      titleInput.setAttribute("aria-label", "분할 제목");
+      titleInput.placeholder = i18n.t('app.씬_제목');
+      titleInput.setAttribute("aria-label", i18n.t('app.분할_제목'));
     }
   }
   // Keep companion picker available so users can switch between scenes and sources
@@ -24277,16 +24439,16 @@ function setSplitSourceUiMode(isSource) {
       editBtn.disabled = false;
     }
   }
-  if (caption) caption.textContent = "분할 화면";
+  if (caption) caption.textContent = i18n.t('app.분할_화면');
 }
 
 /** Display name for open reference file (prefer real file name). */
 function getSplitSourceDisplayName(src) {
-  if (!src) return "참고자료";
+  if (!src) return i18n.t('app.참고자료');
   const fileName = String(src.fileName || "").trim();
   const title = String(src.title || "").trim();
   // Prefer uploaded file name; fall back to saved title
-  return fileName || title || "참고자료";
+  return fileName || title || i18n.t('app.참고자료');
 }
 
 function renderSourceList() {
@@ -24294,11 +24456,11 @@ function renderSourceList() {
   if (!list) return;
   const sources = loadSources();
   if (!sources.length) {
-    list.innerHTML = `<p class="hint source-empty">아직 자료가 없어요.<br>+ 자료로 링크 또는 파일을 추가해 보세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_source_emp');
     return;
   }
   list.innerHTML = sources.map((src) => {
-    const title = escapeHtml(src.title || "제목 없음");
+    const title = escapeHtml(src.title || i18n.t('app.제목_없음'));
     const url = String(src.url || "").trim();
     const note = escapeHtml(src.note || "");
     const isFile = src.kind === "file" || Boolean(src.fileName);
@@ -24312,11 +24474,11 @@ function renderSourceList() {
       : "";
     const isPdf = isFile && (src.viewer === "pdf" || sourceFileExt(src.fileName || src.fileExt || "") === ".pdf");
     const openBtn = (isFile || url)
-      ? `<button type="button" class="primary" data-source-open="${escapeHtml(src.id)}" title="${isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람"}">${isFile ? "열기" : "링크 열기"}</button>`
+      ? `${i18n.t('app.button_type_button_clas_8', {'escapeHtml(src.id)': escapeHtml(src.id), 'isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람"': isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람", 'isFile ? "열기" : "링크 열기"': isFile ? "열기" : "링크 열기"})}`
       : "";
     const exportBtns = isFile && !isPdf
-      ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="Word로 내보내기">DOCX</button>
-         <button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="hwpx" title="한글로 내보내기">HWPX</button>`
+      ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="${i18n.t('app.Word로_내보내기')}">DOCX</button>
+         <button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="hwpx" title="${i18n.t('app.한글로_내보내기')}">HWPX</button>`
       : "";
     return `
       <article class="source-card ${isFile ? "is-file" : ""}" data-source-id="${escapeHtml(src.id)}">
@@ -24334,6 +24496,23 @@ function renderSourceList() {
   }).join("");
 }
 
+function syncSourceFilePickedName(file, savedName) {
+  const el = $("sourceFilePickedName");
+  if (!el) return;
+  if (file) {
+    el.removeAttribute("data-i18n");
+    el.textContent = file.name;
+    return;
+  }
+  if (savedName) {
+    el.removeAttribute("data-i18n");
+    el.textContent = savedName;
+    return;
+  }
+  el.setAttribute("data-i18n", "app.선택된_파일_없음");
+  el.textContent = i18n.t("app.선택된_파일_없음");
+}
+
 function openSourceModal(options = {}) {
   const modal = $("sourceModal");
   if (!modal) return;
@@ -24343,6 +24522,7 @@ function openSourceModal(options = {}) {
   $("sourceUrl").value = options.url || "";
   $("sourceNote").value = options.note || "";
   if ($("sourceFileInput")) $("sourceFileInput").value = "";
+  syncSourceFilePickedName(null, options.fileName || "");
   const current = $("sourceFileCurrent");
   if (current) {
     if (options.fileName) {
@@ -24353,8 +24533,8 @@ function openSourceModal(options = {}) {
       current.classList.add("hidden");
     }
   }
-  $("sourceModalTitle").textContent = options.id ? "참고자료·출처 수정" : "참고자료·출처 추가";
-  $("sourceSaveButton").textContent = options.id ? "저장" : "추가";
+  $("sourceModalTitle").textContent = options.id ? i18n.t('app.참고자료_출처_수정') : i18n.t('app.참고자료_출처_추가');
+  $("sourceSaveButton").textContent = options.id ? i18n.t('app.저장') : i18n.t('app.추가_2');
   modal.classList.remove("hidden");
   requestAnimationFrame(() => $("sourceTitle")?.focus());
 }
@@ -24363,13 +24543,14 @@ function closeSourceModal() {
   $("sourceModal")?.classList.add("hidden");
   pendingSourceFile = null;
   if ($("sourceFileInput")) $("sourceFileInput").value = "";
+  syncSourceFilePickedName(null);
 }
 
 async function saveSourceFromModal(event) {
   if (event) event.preventDefault();
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const title = ($("sourceTitle")?.value || "").trim();
-  if (!title) return toast("자료 제목을 적어 주세요.");
+  if (!title) return toast(i18n.t('app.자료_제목을_적어_주세요'));
   const url = normalizeSourceUrl($("sourceUrl")?.value || "");
   const note = ($("sourceNote")?.value || "").trim();
   const editId = ($("sourceEditId")?.value || "").trim();
@@ -24378,18 +24559,18 @@ async function saveSourceFromModal(event) {
   const saveBtn = $("sourceSaveButton");
   if (saveBtn) {
     saveBtn.disabled = true;
-    saveBtn.textContent = file ? "파일 처리 중…" : "저장 중…";
+    saveBtn.textContent = file ? i18n.t('app.파일_처리_중') : i18n.t('app.저장_중');
   }
 
   try {
     if (file) {
       const ext = sourceFileExt(file.name);
       if (!SOURCE_FILE_EXTS.has(ext)) {
-        toast("지원 형식: PDF, DOCX, HWP/HWPX, TXT, MD, RTF, ODT");
+        toast(i18n.t('app.지원_형식_PDF_DOCX_HWP_HWPX'));
         return;
       }
       if (file.size > SOURCE_FILE_MAX_BYTES) {
-        toast(`파일이 너무 커요. ${SOURCE_FILE_MAX_BYTES / (1024 * 1024)}MB 이하만 올려 주세요.`);
+        toast(`${i18n.t('app.파일이_너무_커요_SOURCE_FILE_MA', {'SOURCE_FILE_MAX_BYTES / (1024 * 1024)': SOURCE_FILE_MAX_BYTES / (1024 * 1024)})}`);
         return;
       }
     }
@@ -24413,14 +24594,14 @@ async function saveSourceFromModal(event) {
         textContent = new TextDecoder("utf-8").decode(buffer);
         viewer = "text";
       } else if (ext === ".doc") {
-        throw new Error("옛 Word(.doc)는 DOCX로 저장한 뒤 올려 주세요.");
+        throw new Error(i18n.t('app.옛_Word_doc_는_DOCX로_저장한_뒤'));
       } else {
         const extracted = await extractReferenceTextFromFile(file, buffer);
         textContent = String(extracted.text || "");
         viewer = extracted.viewer === "pdf" ? "pdf" : "text";
         warnings = Array.isArray(extracted.warnings) ? extracted.warnings : [];
         if (!textContent && viewer === "text") {
-          throw new Error(warnings[0] || "파일에서 글자를 꺼내지 못했어요.");
+          throw new Error(warnings[0] || i18n.t('app.파일에서_글자를_꺼내지_못했어요'));
         }
       }
       fileMeta = {
@@ -24444,7 +24625,7 @@ async function saveSourceFromModal(event) {
 
     if (editId) {
       const item = list.find((s) => s.id === editId);
-      if (!item) return toast("수정할 자료를 찾지 못했어요.");
+      if (!item) return toast(i18n.t('app.수정할_자료를_찾지_못했어요'));
       item.title = title;
       item.url = url;
       item.note = note;
@@ -24456,7 +24637,7 @@ async function saveSourceFromModal(event) {
       closeSourceModal();
       renderSourceList();
       renderSettingsCodex();
-      toast(fileMeta ? "참고자료 파일을 업데이트했어요." : "참고자료·출처를 수정했어요.");
+      toast(fileMeta ? i18n.t('app.참고자료_파일을_업데이트했어요') : i18n.t('app.참고자료_출처를_수정했어요'));
       return;
     }
 
@@ -24480,14 +24661,14 @@ async function saveSourceFromModal(event) {
     renderSourceList();
     renderSettingsCodex();
     toast(fileMeta
-      ? "파일을 참고자료에 넣었어요. 「펼쳐 보기」로 작성 옆에 열어 보세요."
-      : "참고자료·출처를 추가했어요.");
+      ? i18n.t('app.파일을_참고자료에_넣었어요_펼쳐_보기_로_작')
+      : i18n.t('app.참고자료_출처를_추가했어요'));
   } catch (error) {
     handleError(error);
   } finally {
     if (saveBtn) {
       saveBtn.disabled = false;
-      saveBtn.textContent = editId ? "저장" : "추가";
+      saveBtn.textContent = editId ? i18n.t('app.저장') : i18n.t('app.추가_2');
     }
   }
 }
@@ -24512,7 +24693,7 @@ function applySplitSourceEditUi() {
     textEl.setAttribute("contenteditable", on ? "true" : "false");
     textEl.spellcheck = on;
     textEl.classList.toggle("is-editing", on);
-    textEl.setAttribute("aria-label", on ? "참고자료 본문 (편집 중)" : "참고자료 본문 (읽기 전용)");
+    textEl.setAttribute("aria-label", on ? i18n.t('app.참고자료_본문_편집_중') : i18n.t('app.참고자료_본문_읽기_전용'));
     // Force normal-editor caret (CSS also overrides .split-body-editor transparent caret)
     textEl.style.outline = "none";
     textEl.style.boxShadow = "none";
@@ -24524,14 +24705,14 @@ function applySplitSourceEditUi() {
     btn.classList.toggle("hidden", !canEdit);
     btn.classList.toggle("is-on", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.textContent = on ? "편집 중" : "편집";
+    btn.textContent = on ? i18n.t('app.편집_중') : i18n.t('app.편집');
     btn.title = !canEdit
       ? (splitSourceViewerMode === "link"
-        ? "링크는 미리보기 전용이에요. 새 탭에서 열어 보세요."
-        : "PDF는 SuperTORY에서 글자 편집이 불가합니다")
+        ? i18n.t('app.링크는_미리보기_전용이에요_새_탭에서_열어')
+        : i18n.t('app.PDF는_SuperTORY에서_글자_편집이'))
       : on
-        ? "편집 중 — 누르면 읽기 전용으로 돌아갑니다"
-        : "텍스트로 불러온 참고자료를 SuperTORY에서 편집합니다";
+        ? i18n.t('app.편집_중_누르면_읽기_전용으로_돌아갑니다')
+        : i18n.t('app.텍스트로_불러온_참고자료를_SuperTORY');
   }
   $("splitSourceExportButton")?.classList.toggle("hidden", !canEdit && splitSourceViewerMode !== "text" && splitSourceViewerMode !== "pdf");
   // PDF / link: hide text export menu
@@ -24562,15 +24743,15 @@ async function saveSplitSourceText({ quiet = false } = {}) {
   };
   await putSourceFileBlob(state.splitSourceId, nextRecord);
   splitSourceDirty = false;
-  if (!quiet) setSplitSaveStatus("참고자료 저장됨");
-  else setSplitSaveStatus(splitSourceEditEnabled ? "참고자료 · 편집 중 · 저장됨" : "참고자료 · 저장됨");
+  if (!quiet) setSplitSaveStatus(i18n.t('app.참고자료_저장됨'));
+  else setSplitSaveStatus(splitSourceEditEnabled ? i18n.t('app.참고자료_편집_중_저장됨') : i18n.t('app.참고자료_저장됨_2'));
   return true;
 }
 
 function markSplitSourceDirty() {
   if (!splitSourceEditEnabled || splitSourceViewerMode !== "text") return;
   splitSourceDirty = true;
-  setSplitSaveStatus("참고자료 · 저장 대기 중…");
+  setSplitSaveStatus(i18n.t('app.참고자료_저장_대기_중'));
   if (splitSourceSaveTimer) window.clearTimeout(splitSourceSaveTimer);
   splitSourceSaveTimer = window.setTimeout(() => {
     saveSplitSourceText({ quiet: true }).catch(handleError);
@@ -24579,7 +24760,7 @@ function markSplitSourceDirty() {
 
 async function setSplitSourceEditEnabled(enabled, { silent = false } = {}) {
   if (splitSourceViewerMode !== "text") {
-    if (!silent) toast("텍스트로 불러온 자료만 SuperTORY에서 편집할 수 있어요.");
+    if (!silent) toast(i18n.t('app.텍스트로_불러온_자료만_SuperTORY에서'));
     return;
   }
   if (splitSourceEditEnabled && !enabled && splitSourceDirty) {
@@ -24588,12 +24769,12 @@ async function setSplitSourceEditEnabled(enabled, { silent = false } = {}) {
   splitSourceEditEnabled = Boolean(enabled);
   applySplitSourceEditUi();
   setSplitSaveStatus(
-    splitSourceEditEnabled ? "참고자료 · 편집 중 (SuperTORY)" : "참고자료 · 읽기 전용",
+    splitSourceEditEnabled ? i18n.t('app.참고자료_편집_중_SuperTORY') : i18n.t('app.참고자료_읽기_전용'),
   );
   if (!silent) {
     toast(splitSourceEditEnabled
-      ? "참고자료 편집 모드예요. 수정 후 내보내기로 Word·한글 파일로 받을 수 있어요."
-      : "참고자료 읽기 전용으로 전환했어요.");
+      ? i18n.t('app.참고자료_편집_모드예요_수정_후_내보내기로')
+      : i18n.t('app.참고자료_읽기_전용으로_전환했어요'));
   }
   if (splitSourceEditEnabled) {
     requestAnimationFrame(() => {
@@ -24620,7 +24801,7 @@ async function setSplitSourceEditEnabled(enabled, { silent = false } = {}) {
 async function exportReferencePlainText({ title, text, formatKey }) {
   const key = String(formatKey || "docx").toLowerCase();
   const body = {
-    title: String(title || "참고자료").slice(0, 200),
+    title: String(title || i18n.t('app.참고자료')).slice(0, 200),
     text: String(text || ""),
     format: key,
   };
@@ -24632,16 +24813,16 @@ async function exportReferencePlainText({ title, text, formatKey }) {
       body: JSON.stringify(body),
     });
   } catch (_) {
-    throw new Error("내보내기 서버에 연결하지 못했어요. SuperTORY를 다시 실행해 주세요.");
+    throw new Error(i18n.t('app.내보내기_서버에_연결하지_못했어요_Super'));
   }
   if (!response.ok) {
-    let message = "내보내기에 실패했습니다.";
+    let message = i18n.t('app.내보내기에_실패했습니다');
     try {
       const err = await response.json();
       if (err?.error) message = err.error;
     } catch (_) { /* ignore */ }
     if (/알 수 없는 요청|404/i.test(message)) {
-      message = "내보내기 API를 찾을 수 없습니다. SuperTORY 서버를 종료한 뒤 다시 실행해 주세요.";
+      message = i18n.t('app.내보내기_API를_찾을_수_없습니다_Supe');
     }
     throw new Error(message);
   }
@@ -24662,48 +24843,48 @@ async function exportReferencePlainText({ title, text, formatKey }) {
   a.click();
   a.remove();
   window.setTimeout(() => URL.revokeObjectURL(url), 2000);
-  toast(`${filename} 내려받기를 시작했어요.`);
+  toast(`${i18n.t('app.filename_내려받기를_시작했어요', {filename: filename})}`);
 }
 
 async function exportOpenSplitSource(formatKey) {
   if (state.splitKind !== "source" || !state.splitSourceId) {
-    return toast("내보낼 참고자료가 열려 있지 않아요.");
+    return toast(i18n.t('app.내보낼_참고자료가_열려_있지_않아요'));
   }
   if (splitSourceViewerMode !== "text") {
-    return toast("텍스트로 불러온 자료만 Word·한글로 내보낼 수 있어요.");
+    return toast(i18n.t('app.텍스트로_불러온_자료만_Word_한글로_내보'));
   }
   if (splitSourceDirty || splitSourceEditEnabled) {
     await saveSplitSourceText({ quiet: true });
   }
   const src = loadSources().find((s) => s.id === state.splitSourceId);
-  const title = src?.title || src?.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+  const title = src?.title || src?.fileName?.replace(/\.[^.]+$/, "") || i18n.t('app.참고자료');
   const text = getSplitSourcePlainText();
-  if (!text.trim()) return toast("내보낼 내용이 비어 있어요.");
+  if (!text.trim()) return toast(i18n.t('app.내보낼_내용이_비어_있어요'));
   hideSplitSourceExportMenu();
   await exportReferencePlainText({ title, text, formatKey });
 }
 
 async function exportSourceById(sourceId, formatKey) {
   const src = loadSources().find((s) => s.id === sourceId);
-  if (!src) return toast("자료를 찾지 못했어요.");
+  if (!src) return toast(i18n.t('app.자료를_찾지_못했어요'));
   // If this source is open and dirty, save first
   if (state.splitSourceId === sourceId && splitSourceViewerMode === "text") {
     if (splitSourceDirty || splitSourceEditEnabled) {
       await saveSplitSourceText({ quiet: true });
     }
     const text = getSplitSourcePlainText();
-    const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+    const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || i18n.t('app.참고자료');
     await exportReferencePlainText({ title, text, formatKey });
     return;
   }
   const record = await getSourceFileBlob(sourceId);
-  if (!record) return toast("이 기기에 파일 본문이 없어요.");
+  if (!record) return toast(i18n.t('app.이_기기에_파일_본문이_없어요'));
   if ((record.viewer || src.viewer) === "pdf") {
-    return toast("PDF는 SuperTORY 텍스트 내보내기 대상이 아니에요. 원본 PDF를 보관해 주세요.");
+    return toast(i18n.t('app.PDF는_SuperTORY_텍스트_내보내기'));
   }
   const text = String(record.textContent || "");
-  if (!text.trim()) return toast("내보낼 글자가 없어요.");
-  const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || "참고자료";
+  if (!text.trim()) return toast(i18n.t('app.내보낼_글자가_없어요'));
+  const title = src.title || src.fileName?.replace(/\.[^.]+$/, "") || i18n.t('app.참고자료');
   await exportReferencePlainText({ title, text, formatKey });
 }
 
@@ -24713,12 +24894,12 @@ async function openSourceFileInSplit(sourceId, mode = "split") {
 
 /** Open a project reference (file or link) in the companion pane / popup. Manuscript optional. */
 async function openSourceInSplit(sourceId, mode = "split") {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const src = loadSources().find((s) => s.id === sourceId);
-  if (!src) return toast("참고자료를 찾지 못했어요.");
+  if (!src) return toast(i18n.t('app.참고자료를_찾지_못했어요'));
   const hasFile = src.kind === "file" || Boolean(src.fileName);
   const url = String(src.url || "").trim();
-  if (!hasFile && !url) return toast("열 수 있는 파일이나 링크가 없어요.");
+  if (!hasFile && !url) return toast(i18n.t('app.열_수_있는_파일이나_링크가_없어요'));
 
   await flushSplitEdits();
   if (splitSourceDirty) {
@@ -24750,10 +24931,10 @@ async function openSourceInSplit(sourceId, mode = "split") {
   fillSplitCompanionSelect();
   await renderSplitSourceViewer();
   toast(standalone
-    ? (hasFile ? "참고자료를 단독 창으로 열었어요." : "링크를 단독 창으로 열었어요.")
+    ? (hasFile ? i18n.t('app.참고자료를_단독_창으로_열었어요') : i18n.t('app.링크를_단독_창으로_열었어요'))
     : (state.splitMode === "popup"
-      ? "참고자료를 팝업으로 열었어요."
-      : "참고자료를 옆에 펼쳤어요."));
+      ? i18n.t('app.참고자료를_팝업으로_열었어요')
+      : i18n.t('app.참고자료를_옆에_펼쳤어요')));
 }
 
 function fillSplitCompanionSelect() {
@@ -24763,25 +24944,25 @@ function fillSplitCompanionSelect() {
   const sources = typeof loadSources === "function" ? loadSources() : [];
   const parts = [];
   if (scenes.length) {
-    parts.push(`<optgroup label="회차">${scenes.map((scene) => {
+    parts.push(`<optgroup label="${i18n.t('app.회차')}">${scenes.map((scene) => {
       const selected = state.splitKind !== "source" && Number(scene.id) === Number(state.splitSceneId);
       const label = `${scene.chapterTitle || "폴더"} · ${scene.title || "회차"}`;
       return `<option value="scene:${scene.id}" ${selected ? "selected" : ""}>${escapeHtml(label)}</option>`;
     }).join("")}</optgroup>`);
   }
   if (sources.length) {
-    parts.push(`<optgroup label="참고자료">${sources.map((src) => {
+    parts.push(`<optgroup label="${i18n.t('app.참고자료')}">${sources.map((src) => {
       const isFile = src.kind === "file" || Boolean(src.fileName);
       const url = String(src.url || "").trim();
       if (!isFile && !url) return "";
       const selected = state.splitKind === "source" && String(src.id) === String(state.splitSourceId);
-      const tag = isFile ? "파일" : "링크";
+      const tag = isFile ? i18n.t('app.파일') : i18n.t('app.링크');
       const label = getSplitSourceDisplayName(src);
       return `<option value="source:${escapeHtml(src.id)}" ${selected ? "selected" : ""}>[${tag}] ${escapeHtml(label)}</option>`;
     }).filter(Boolean).join("")}</optgroup>`);
   }
   if (!parts.length) {
-    select.innerHTML = `<option value="">(함께볼 항목 없음)</option>`;
+    select.innerHTML = i18n.t('app.option_value_함께볼_항목_없음');
     return;
   }
   select.innerHTML = parts.join("");
@@ -24834,7 +25015,7 @@ async function renderSplitSourceViewer() {
   const src = loadSources().find((s) => s.id === state.splitSourceId);
   if (!src) {
     await closeSplitView();
-    toast("참고자료를 찾지 못해 보기를 닫았어요.");
+    toast(i18n.t('app.참고자료를_찾지_못해_보기를_닫았어요'));
     return;
   }
   setSplitSourceUiMode(true);
@@ -24851,7 +25032,7 @@ async function renderSplitSourceViewer() {
   const hasFile = src.kind === "file" || Boolean(src.fileName);
   const url = String(src.url || "").trim();
   const ext = sourceFileExt(src.fileName || src.fileExt || "");
-  if (badge) badge.textContent = hasFile ? sourceFileKindLabel(ext) : "링크";
+  if (badge) badge.textContent = hasFile ? sourceFileKindLabel(ext) : i18n.t('app.링크');
   if (nameEl) nameEl.textContent = getSplitSourceDisplayName(src);
   if (pdf) {
     pdf.classList.add("hidden");
@@ -24878,7 +25059,7 @@ async function renderSplitSourceViewer() {
       titleEl.readOnly = true;
       titleEl.value = displayName;
       titleEl.title = displayName;
-      titleEl.placeholder = "자료 이름";
+      titleEl.placeholder = i18n.t('app.자료_이름');
     }
   };
 
@@ -24893,9 +25074,9 @@ async function renderSplitSourceViewer() {
     }
     if (msg) {
       msg.classList.remove("hidden");
-      msg.innerHTML = `미리보기가 안 보이면 <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">새 탭에서 열기</a>`;
+      msg.innerHTML = `${i18n.t('app.미리보기가_안_보이면_a_href_escap', {'escapeHtml(url)': escapeHtml(url)})}`;
     }
-    setSplitSaveStatus("참고자료 · 링크 미리보기");
+    setSplitSaveStatus(i18n.t('app.참고자료_링크_미리보기'));
     applyTitle(getSplitSourceDisplayName(src));
     if (state.splitMode === "split") {
       requestAnimationFrame(() => layoutSplitPrimaryPane());
@@ -24911,7 +25092,7 @@ async function renderSplitSourceViewer() {
     applySplitSourceEditUi();
     if (msg) {
       msg.classList.remove("hidden");
-      msg.textContent = "저장된 파일을 읽지 못했어요. 자료를 다시 업로드해 주세요.";
+      msg.textContent = i18n.t('app.저장된_파일을_읽지_못했어요_자료를_다시_업');
     }
     return;
   }
@@ -24926,15 +25107,15 @@ async function renderSplitSourceViewer() {
       }
       if (msg) {
         msg.classList.remove("hidden");
-        msg.innerHTML = `파일 본문이 없어 링크로 열어요. <a href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">새 탭에서 열기</a>`;
+        msg.innerHTML = `${i18n.t('app.파일_본문이_없어_링크로_열어요_a_href', {'escapeHtml(url)': escapeHtml(url)})}`;
       }
-      setSplitSaveStatus("참고자료 · 링크 미리보기");
+      setSplitSaveStatus(i18n.t('app.참고자료_링크_미리보기'));
       applyTitle(getSplitSourceDisplayName(src));
       return;
     }
     if (msg) {
       msg.classList.remove("hidden");
-      msg.textContent = "이 기기에 파일 본문이 없어요. 수정에서 파일을 다시 올려 주세요.";
+      msg.textContent = i18n.t('app.이_기기에_파일_본문이_없어요_수정에서_파일');
     }
     return;
   }
@@ -24949,7 +25130,7 @@ async function renderSplitSourceViewer() {
       pdf.src = splitSourceObjectUrl;
       pdf.classList.remove("hidden");
     }
-    setSplitSaveStatus("참고자료 · PDF 뷰어 (편집 불가)");
+    setSplitSaveStatus(i18n.t('app.참고자료_PDF_뷰어_편집_불가'));
   } else {
     splitSourceViewerMode = "text";
     const plain = String(record.textContent || "");
@@ -24957,7 +25138,7 @@ async function renderSplitSourceViewer() {
       if (msg) {
         msg.classList.remove("hidden");
         msg.textContent = (src.warnings && src.warnings[0])
-          || "이 파일에서 표시할 글자를 찾지 못했어요.";
+          || i18n.t('app.이_파일에서_표시할_글자를_찾지_못했어요');
       }
       if (textEl) {
         textEl.innerHTML = "";
@@ -24968,7 +25149,7 @@ async function renderSplitSourceViewer() {
       textEl.classList.remove("hidden");
     }
     setSplitSaveStatus(
-      splitSourceEditEnabled ? "참고자료 · 편집 중 (SuperTORY)" : "참고자료 · 읽기 전용 · 편집·내보내기 가능",
+      splitSourceEditEnabled ? i18n.t('app.참고자료_편집_중_SuperTORY') : i18n.t('app.참고자료_읽기_전용_편집_내보내기_가능'),
     );
   }
 
@@ -24990,7 +25171,7 @@ function setupSplitSourceEditor() {
   $("splitSourceExportButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (splitSourceViewerMode !== "text") {
-      toast("텍스트로 불러온 자료만 형식을 골라 내보낼 수 있어요.");
+      toast(i18n.t('app.텍스트로_불러온_자료만_형식을_골라_내보낼'));
       return;
     }
     const menu = $("splitSourceExportMenu");
@@ -25020,13 +25201,17 @@ function setupSourceCollection() {
   $("sourceForm")?.addEventListener("submit", (event) => {
     saveSourceFromModal(event).catch(handleError);
   });
+  $("sourceFilePickButton")?.addEventListener("click", () => {
+    $("sourceFileInput")?.click();
+  });
   $("sourceFileInput")?.addEventListener("change", () => {
     const file = $("sourceFileInput")?.files?.[0] || null;
     pendingSourceFile = file;
+    syncSourceFilePickedName(file);
     const current = $("sourceFileCurrent");
     if (!current) return;
     if (file) {
-      current.textContent = `선택: ${file.name} (${formatSourceFileSize(file.size)})`;
+      current.textContent = `${i18n.t('app.선택_file_name_formatSourc', {'file.name': file.name, 'formatSourceFileSize(file.size)': formatSourceFileSize(file.size)})}`;
       current.classList.remove("hidden");
       // Prefill title from filename when empty
       if (!($("sourceTitle")?.value || "").trim()) {
@@ -25067,7 +25252,7 @@ function setupSourceCollection() {
       const list = loadSources();
       const item = list.find((s) => s.id === id);
       if (!item) return;
-      if (!window.confirm(`「${item.title || "이 자료"}」을(를) 삭제할까요?`)) return;
+      if (!window.confirm(`${i18n.t('app.item_title_이_자료_을_를_삭제할', {'item.title || "이 자료"': item.title || "이 자료"})}`)) return;
       deleteSourceFileBlob(id).catch(() => {});
       if (state.splitSourceId === id) {
         closeSplitView().catch(handleError);
@@ -25075,7 +25260,7 @@ function setupSourceCollection() {
       saveSources(list.filter((s) => s.id !== id));
       renderSourceList();
       renderSettingsCodex();
-      toast("참고자료·출처를 삭제했어요.");
+      toast(i18n.t('app.참고자료_출처를_삭제했어요'));
     }
   });
   document.addEventListener("keydown", (event) => {
@@ -25164,7 +25349,7 @@ async function migrateLocalBaitsToDb(projectId) {
       return {
         id: n.id,
         kind: n.kind,
-        quote: n.quote || n.summary || "(내용 없음)",
+        quote: n.quote || n.summary || i18n.t('app.내용_없음'),
         summary: n.summary || "",
         recover_content: n.recoverContent || "",
         recover_at: n.recoverAt || "",
@@ -25209,7 +25394,7 @@ async function refreshBaitsFromServer(projectId = state.projectId) {
   try {
     await migrateLocalBaitsToDb(pid);
   } catch (err) {
-    console.warn("localStorage 떡밥 마이그레이션 실패 — 서버 목록만 불러옵니다.", err);
+    console.warn(i18n.t('app.localStorage_떡밥_마이그레이션_실'), err);
   }
   if (Number(state.projectId) !== pid) return loadBaits();
   const list = await api(`/api/projects/${pid}/baits`);
@@ -25239,7 +25424,7 @@ function baitToApiBody(item) {
 }
 
 async function createBaitOnServer(item) {
-  if (!state.projectId) throw new Error("작품을 먼저 선택해 주세요.");
+  if (!state.projectId) throw new Error(i18n.t('app.작품을_먼저_선택해_주세요'));
   const created = await api(`/api/projects/${state.projectId}/baits`, {
     method: "POST",
     body: JSON.stringify(baitToApiBody(item)),
@@ -25251,7 +25436,7 @@ async function createBaitOnServer(item) {
 
 async function updateBaitOnServer(baitId, patch) {
   const id = String(baitId || "").trim();
-  if (!id) throw new Error("떡밥 id가 없어요.");
+  if (!id) throw new Error(i18n.t('app.떡밥_id가_없어요'));
   const updated = await api(`/api/baits/${encodeURIComponent(id)}`, {
     method: "PUT",
     body: JSON.stringify(baitToApiBody({ id, ...patch })),
@@ -25356,12 +25541,12 @@ function fillBaitSceneSelects(selectedPlant = "", selectedRecover = "") {
   const optionsHtml = (() => {
     const scenes = typeof allScenes === "function" ? allScenes() : [];
     if (!scenes.length) {
-      return `<option value="">(회차가 없어요)</option>`;
+      return i18n.t('app.option_value_회차가_없어요_op');
     }
-    return [`<option value="">(미정)</option>`]
+    return [i18n.t('app.option_value_미정_option')]
       .concat(scenes.map((scene) => {
         const id = Number(scene.id);
-        const label = escapeHtml(scene.title || `씬 #${id}`);
+        const label = escapeHtml(scene.title || `${i18n.t('app.씬_id', {id: id})}`);
         const chapter = scene.chapterTitle ? `${escapeHtml(scene.chapterTitle)} · ` : "";
         return `<option value="${id}">${chapter}${label}</option>`;
       }))
@@ -25386,8 +25571,8 @@ function setBaitModalMode(mode) {
   $("baitIdeaFields")?.classList.toggle("hidden", !isIdea);
   if ($("baitModalHint")) {
     $("baitModalHint").innerHTML = isIdea
-      ? "본문 작성 전 <strong>아이디어 떡밥</strong>을 적어 둡니다. 던지기·회수 내용과 예상 회차를 저장하세요."
-      : "본문에서 잡은 문장이 설정집 <strong>떡밥모음</strong>에 들어갑니다. 회수 예정 회차와 알림을 설정하세요.";
+      ? i18n.t('app.본문_작성_전_strong_아이디어_떡밥_s')
+      : i18n.t('app.본문에서_잡은_문장이_설정집_strong_떡');
   }
   if ($("baitModalTitle")) {
     // keep title from openBaitModal
@@ -25582,7 +25767,7 @@ function setupSettingsSectionDrag() {
           /* ignore */
         }
       }
-      toast("설정집 폴더 순서를 바꿨어요.");
+      toast(i18n.t('app.설정집_폴더_순서를_바꿨어요'));
     }
     dragged = null;
     clear();
@@ -25605,7 +25790,7 @@ function sceneTitleById(sceneId) {
   for (const chapter of state.outline || []) {
     let found = "";
     walkSceneTree(chapter.scenes || [], (scene) => {
-      if (Number(scene.id) === id) found = scene.title || `씬 #${id}`;
+      if (Number(scene.id) === id) found = scene.title || `${i18n.t('app.씬_id', {id: id})}`;
     });
     if (found) return found;
   }
@@ -25617,7 +25802,7 @@ function renderBaitList() {
   if (!list) return;
   const baits = loadBaits();
   if (!baits.length) {
-    list.innerHTML = `<p class="hint bait-empty">아직 떡밥이 없어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_bait_empty');
     return;
   }
   list.innerHTML = baits.map((bait) => {
@@ -25626,17 +25811,17 @@ function renderBaitList() {
     const summary = escapeHtml(bait.summary || "");
     const recoverContent = escapeHtml(bait.recoverContent || "");
     const plantTitle = bait.plantSceneId
-      ? escapeHtml(sceneTitleById(bait.plantSceneId) || bait.sourceTitle || `씬 #${bait.plantSceneId}`)
-      : escapeHtml(bait.plantAtNote || bait.sourceTitle || "(심은 회차 미정)");
+      ? escapeHtml(sceneTitleById(bait.plantSceneId) || bait.sourceTitle || `${i18n.t('app.씬_bait_plantSceneId', {'bait.plantSceneId': bait.plantSceneId})}`)
+      : escapeHtml(bait.plantAtNote || bait.sourceTitle || i18n.t('app.심은_회차_미정'));
     const recoverTitle = bait.recoverSceneId
-      ? escapeHtml(sceneTitleById(bait.recoverSceneId) || `씬 #${bait.recoverSceneId}`)
-      : escapeHtml(bait.recoverAt || "(회수 예정 미정)");
+      ? escapeHtml(sceneTitleById(bait.recoverSceneId) || `${i18n.t('app.씬_bait_recoverSceneId', {'bait.recoverSceneId': bait.recoverSceneId})}`)
+      : escapeHtml(bait.recoverAt || i18n.t('app.회수_예정_미정'));
     const notify = bait.notifyOnRecover !== false;
-    const kindLabel = kind === "idea" ? "아이디어" : "본문 심기";
+    const kindLabel = kind === "idea" ? i18n.t('app.아이디어') : i18n.t('app.본문_심기');
     return `
       <article class="bait-card bait-kind-${kind}" data-bait-id="${escapeHtml(bait.id)}">
-        <div class="bait-card-kind">${kindLabel}${notify && bait.recoverSceneId ? " · 알림 켜짐" : ""}</div>
-        <div class="bait-card-quote">${quote || "(내용 없음)"}</div>
+        <div class="bait-card-kind">${kindLabel}${notify && bait.recoverSceneId ? i18n.t('app.알림_켜짐') : ""}</div>
+        <div class="bait-card-quote">${quote || i18n.t('app.내용_없음')}</div>
         <div class="bait-card-meta">
           ${summary ? `<div><strong>간략</strong> ${summary}</div>` : ""}
           ${recoverContent ? `<div><strong>회수 내용</strong> ${recoverContent}</div>` : ""}
@@ -25674,11 +25859,11 @@ function openBaitModal(options = {}) {
   }
   $("baitNotifyRow")?.classList.remove("hidden");
   if (options.id) {
-    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? "아이디어 떡밥 수정" : "떡밥 수정";
-    if ($("baitSaveButton")) $("baitSaveButton").textContent = "저장";
+    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? i18n.t('app.아이디어_떡밥_수정') : i18n.t('app.떡밥_수정');
+    if ($("baitSaveButton")) $("baitSaveButton").textContent = i18n.t('app.저장');
   } else {
-    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? "아이디어 떡밥" : "떡밥 던지기";
-    if ($("baitSaveButton")) $("baitSaveButton").textContent = "떡밥모음에 넣기";
+    if ($("baitModalTitle")) $("baitModalTitle").textContent = mode === "idea" ? i18n.t('app.아이디어_떡밥') : i18n.t('app.떡밥_던지기');
+    if ($("baitSaveButton")) $("baitSaveButton").textContent = i18n.t('app.떡밥모음에_넣기');
   }
   modal.classList.remove("hidden");
   requestAnimationFrame(() => {
@@ -25694,7 +25879,7 @@ function closeBaitModal() {
 
 async function saveBaitFromModal(event) {
   if (event) event.preventDefault();
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const mode = ($("baitMode")?.value || "plant") === "idea" ? "idea" : "plant";
   const editId = ($("baitEditId")?.value || "").trim();
   const summary = ($("baitSummary")?.value || "").trim();
@@ -25713,12 +25898,12 @@ async function saveBaitFromModal(event) {
   if (mode === "idea") {
     quote = ($("baitIdeaThrow")?.value || "").trim();
     recoverContent = ($("baitIdeaRecover")?.value || "").trim();
-    if (!quote) return toast("떡밥 던지기 내용을 적어 주세요.");
+    if (!quote) return toast(i18n.t('app.떡밥_던지기_내용을_적어_주세요'));
     plantSceneId = plantSceneIdRaw;
     sourceTitle = plantSceneId ? sceneTitleById(plantSceneId) : plantAtNote;
   } else {
     quote = ($("baitQuote")?.value || "").trim();
-    if (!quote) return toast("떡밥 문장을 적어 주세요.");
+    if (!quote) return toast(i18n.t('app.떡밥_문장을_적어_주세요'));
     if (editId) {
       const prev = list.find((b) => b.id === editId);
       plantSceneId = prev?.plantSceneId || prev?.sourceSceneId || state.sceneId || null;
@@ -25733,7 +25918,7 @@ async function saveBaitFromModal(event) {
   try {
     if (editId) {
       const item = list.find((b) => b.id === editId);
-      if (!item) return toast("수정할 떡밥을 찾지 못했어요.");
+      if (!item) return toast(i18n.t('app.수정할_떡밥을_찾지_못했어요'));
       await updateBaitOnServer(editId, {
         ...item,
         kind: mode,
@@ -25751,7 +25936,7 @@ async function saveBaitFromModal(event) {
       closeBaitModal();
       renderBaitList();
       renderSettingsCodex();
-      toast("떡밥을 수정했어요.");
+      toast(i18n.t('app.떡밥을_수정했어요'));
       return;
     }
 
@@ -25775,7 +25960,7 @@ async function saveBaitFromModal(event) {
     applySettingsSectionState();
     renderBaitList();
     renderSettingsCodex();
-    toast(mode === "idea" ? "아이디어 떡밥을 저장했어요." : "떡밥모음에 넣었어요.");
+    toast(mode === "idea" ? i18n.t('app.아이디어_떡밥을_저장했어요') : i18n.t('app.떡밥모음에_넣었어요'));
   } catch (error) {
     handleError(error);
   } finally {
@@ -25822,7 +26007,7 @@ function getSelectedManuscriptText(editorEl = null) {
 function lookupDictionaryFromSelection() {
   const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
   if (!raw) {
-    toast("본문에서 단어나 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.본문에서_단어나_문장을_드래그로_선택한_뒤'));
     return;
   }
   // Collapse whitespace; keep a sensible query length for dictionary URLs.
@@ -25832,18 +26017,18 @@ function lookupDictionaryFromSelection() {
   try {
     window.open(url, "_blank", "noopener,noreferrer");
   } catch (_) {
-    toast("사전 창을 열 수 없어요. 팝업이 막혔는지 확인해 주세요.");
+    toast(i18n.t('app.사전_창을_열_수_없어요_팝업이_막혔는지_확'));
     return;
   }
-  toast(`사전에서 「${query.length > 18 ? `${query.slice(0, 18)}…` : query}」 검색`);
+  toast(i18n.t('app.pendingBaitQuote_slice', { pendingBaitQuote: pendingBaitQuote }));
 }
 
 function throwBaitFromSelection() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!state.sceneId) return toast("떡밥을 심을 회차를 먼저 열어 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!state.sceneId) return toast(i18n.t('app.떡밥을_심을_회차를_먼저_열어_주세요'));
   const quote = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
   if (!quote) {
-    toast("본문에서 문장을 드래그로 선택한 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.본문에서_문장을_드래그로_선택한_뒤_다시_시'));
     return;
   }
   // Prefill summary with a short clip of the quote.
@@ -25879,23 +26064,23 @@ function showBaitRecoverNotify(sceneId, entries) {
   const hasCustom = entries.some((e) => e.kind === "custom");
   if ($("baitNotifyLead")) {
     if (hasBait && hasCustom) {
-      $("baitNotifyLead").textContent = "이번 회차에서 확인할 토리 알림이 있어요!";
+      $("baitNotifyLead").textContent = i18n.t('app.이번_회차에서_확인할_토리_알림이_있어요');
     } else if (hasCustom && !hasBait) {
-      $("baitNotifyLead").textContent = "이번 회차에 설정해 둔 알림이 있어요!";
+      $("baitNotifyLead").textContent = i18n.t('app.이번_회차에_설정해_둔_알림이_있어요');
     } else {
-      $("baitNotifyLead").textContent = "이번 회차에서 떡밥 회수 예정이 있어요!";
+      $("baitNotifyLead").textContent = i18n.t('app.이번_회차에서_떡밥_회수_예정이_있어요');
     }
   }
   listEl.innerHTML = entries.map((b) => {
-    const title = escapeHtml((b.title || "알림").replace(/\s+/g, " ").trim().slice(0, 80));
+    const title = escapeHtml((b.title || i18n.t('app.알림')).replace(/\s+/g, " ").trim().slice(0, 80));
     const detail = escapeHtml((b.detail || "").replace(/\s+/g, " ").trim().slice(0, 120));
-    const tag = b.kind === "bait" ? "떡밥" : "알림";
+    const tag = b.kind === "bait" ? i18n.t('app.떡밥') : i18n.t('app.알림');
     return `<li><strong>[${tag}] ${title}</strong>${detail && detail !== title ? `<span>${detail}</span>` : ""}</li>`;
   }).join("");
   // Footer: open baits if bait present, else just dismiss
   const openVault = $("baitNotifyOpenVault");
   if (openVault) {
-    openVault.textContent = hasBait ? "떡밥모음 열기" : "알림 목록 보기";
+    openVault.textContent = hasBait ? i18n.t('app.떡밥모음_열기') : i18n.t('app.알림_목록_보기');
     openVault.dataset.notifyAction = hasBait ? "baits" : "notify-list";
   }
   const hasBaitIds = baitNotifyActiveBaitIds.length > 0;
@@ -25944,7 +26129,7 @@ function maybeNotifyBaitRecovery(sceneId) {
         entries.push({
           kind: "bait",
           baitId: b.id,
-          title: (b.summary || b.quote || "떡밥").replace(/\s+/g, " ").trim(),
+          title: (b.summary || b.quote || i18n.t('app.떡밥')).replace(/\s+/g, " ").trim(),
           detail: (b.recoverContent || b.quote || "").replace(/\s+/g, " ").trim(),
         });
       }
@@ -25952,7 +26137,7 @@ function maybeNotifyBaitRecovery(sceneId) {
         if (Number(n.sceneId) === id && n.enabled !== false) {
           entries.push({
             kind: "custom",
-            title: n.title || "알림",
+            title: n.title || i18n.t('app.알림'),
             detail: (n.message || n.note || "").replace(/\s+/g, " ").trim(),
           });
         }
@@ -25999,8 +26184,8 @@ async function applyBaitNotifySnooze(mode) {
     renderToryNotifyList();
     toast(
       mode === "1d"
-        ? "하루 뒤에 다시 알려 드릴게요."
-        : "이 회차를 나갔다가 다시 열면 알려 드릴게요.",
+        ? i18n.t('app.하루_뒤에_다시_알려_드릴게요')
+        : i18n.t('app.이_회차를_나갔다가_다시_열면_알려_드릴게요'),
     );
   } catch (error) {
     handleError(error);
@@ -26060,12 +26245,12 @@ function setupBaitCollection() {
       const id = delBtn.dataset.baitDelete;
       const item = loadBaits().find((b) => b.id === id);
       if (!item) return;
-      if (!window.confirm("이 떡밥을 삭제할까요?")) return;
+      if (!window.confirm(i18n.t('app.이_떡밥을_삭제할까요'))) return;
       deleteBaitOnServer(id)
         .then(() => {
           renderBaitList();
           renderSettingsCodex();
-          toast("떡밥을 삭제했어요.");
+          toast(i18n.t('app.떡밥을_삭제했어요'));
         })
         .catch(handleError);
     }
@@ -26172,11 +26357,11 @@ function getSceneTitleById(sceneId) {
   for (const chapter of state.outline || []) {
     let found = "";
     walkSceneTree(chapter.scenes || [], (scene) => {
-      if (Number(scene.id) === Number(sceneId)) found = scene.title || "원고";
+      if (Number(scene.id) === Number(sceneId)) found = scene.title || i18n.t('app.원고');
     });
     if (found) return found;
   }
-  return "원고";
+  return i18n.t('app.원고');
 }
 
 function findSceneNodeById(sceneId) {
@@ -26193,7 +26378,7 @@ function findSceneNodeById(sceneId) {
 }
 
 /** Titles treated as “no real title” → show body first sentence in the binder. */
-const UNTITLED_SCENE_TITLES = new Set(["", "제목 없음", "새 씬", "새 하위 원고"]);
+const UNTITLED_SCENE_TITLES = new Set(["", i18n.t('app.제목_없음'), i18n.t('app.새_씬'), i18n.t('app.새_하위_원고')]);
 
 function isUntitledSceneTitle(title) {
   return UNTITLED_SCENE_TITLES.has(String(title || "").trim());
@@ -26226,8 +26411,8 @@ function getOutlineSceneDisplay(scene) {
     };
   }
   return {
-    label: rawTitle || "제목 없음",
-    tooltip: rawTitle || "제목 없음",
+    label: rawTitle || i18n.t('app.제목_없음'),
+    tooltip: rawTitle || i18n.t('app.제목_없음'),
     isPreview: false,
   };
 }
@@ -26292,7 +26477,7 @@ function isScenePinned(sceneId) {
 function pinSceneToTop(sceneId) {
   const id = Number(sceneId);
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!Number.isFinite(id) || id <= 0) return;
@@ -26303,7 +26488,7 @@ function pinSceneToTop(sceneId) {
   if (typeof renderOutline === "function" && Array.isArray(state.outline)) {
     renderOutline(state.outline);
   }
-  toast("상단에 고정했어요.");
+  toast(i18n.t('app.상단에_고정했어요'));
 }
 
 function unpinSceneFromTop(sceneId) {
@@ -26316,7 +26501,7 @@ function unpinSceneFromTop(sceneId) {
   if (typeof renderOutline === "function" && Array.isArray(state.outline)) {
     renderOutline(state.outline);
   }
-  toast("상단 고정을 해제했어요.");
+  toast(i18n.t('app.상단_고정을_해제했어요'));
 }
 
 function toggleScenePin(sceneId) {
@@ -26353,7 +26538,7 @@ function renderPinnedOutlineSectionHtml() {
       </div>`;
   }).join("");
   return `
-    <section class="outline-pin-section" aria-label="상단 고정">
+    <section class="outline-pin-section" aria-label="${i18n.t('app.상단_고정')}">
       <div class="outline-pin-label">상단 고정</div>
       <div class="outline-pin-list" role="list">${rows}</div>
     </section>`;
@@ -26361,7 +26546,7 @@ function renderPinnedOutlineSectionHtml() {
 
 function addOrToggleBookmark(entry) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
   let list = loadBookmarks();
@@ -26375,16 +26560,16 @@ function addOrToggleBookmark(entry) {
     saveBookmarks(list);
     renderBookmarkBar();
     markBookmarkedTargets();
-    toast("북마크를 해제했어요.");
+    toast(i18n.t('app.북마크를_해제했어요'));
     return null;
   }
   if (list.length >= BOOKMARK_MAX) {
-    toast(`북마크는 최대 ${BOOKMARK_MAX}개까지, 색마다 하나씩 쓸 수 있어요.`);
+    toast(`${i18n.t('app.북마크는_최대_BOOKMARK_MAX_개까지', {BOOKMARK_MAX: BOOKMARK_MAX})}`);
     return null;
   }
   const color = nextFreeBookmarkColor(list);
   if (!color) {
-    toast("남은 북마크 색이 없어요.");
+    toast(i18n.t('app.남은_북마크_색이_없어요'));
     return null;
   }
   const item = {
@@ -26402,7 +26587,7 @@ function addOrToggleBookmark(entry) {
   openBookmarkListPanel({ focusNote: true });
   renderBookmarkBar();
   markBookmarkedTargets();
-  toast(`${color.label} 북마크로 고정했어요.`);
+  toast(`${i18n.t('app.color_label_북마크로_고정했어요', {'color.label': color.label})}`);
   return item;
 }
 
@@ -26434,8 +26619,8 @@ function syncBookmarkListButton(list) {
     btn.setAttribute("aria-expanded", open ? "true" : "false");
     btn.classList.toggle("is-list-open", open);
     btn.title = count
-      ? `북마크 ${count}개 · 클릭: 목록 열기/닫기 · 각 항목에 이유 적기`
-      : "북마크 목록 · 회차·설정집에서 우클릭으로 추가";
+      ? `${i18n.t('app.북마크_count_개_클릭_목록_열기_닫기', {count: count})}`
+      : i18n.t('app.북마크_목록_회차_설정집에서_우클릭으로_추가');
   }
   if (badge) {
     const show = count > 0;
@@ -26472,7 +26657,7 @@ function openBookmarkListPanel(options = {}) {
   const panel = $("bookmarkListPanel");
   if (!panel) return;
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if ($("formatToolbarShell")?.classList.contains("is-collapsed")
@@ -26492,7 +26677,7 @@ function openBookmarkListPanel(options = {}) {
 
 function toggleBookmarkListPanel() {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (isBookmarkListPanelOpen()) {
@@ -26502,7 +26687,7 @@ function toggleBookmarkListPanel() {
   const list = sanitizeBookmarks(loadBookmarks());
   openBookmarkListPanel({ focusNote: list.length > 0 });
   if (!list.length) {
-    toast("북마크한 항목이 없어요. 회차·설정집에서 우클릭으로 추가해 보세요.");
+    toast(i18n.t('app.북마크한_항목이_없어요_회차_설정집에서_우클'));
   }
 }
 
@@ -26511,7 +26696,7 @@ function removeBookmarkById(bookmarkId) {
   saveBookmarks(list);
   renderBookmarkBar();
   markBookmarkedTargets();
-  toast("북마크를 해제했어요.");
+  toast(i18n.t('app.북마크를_해제했어요'));
 }
 
 function setHeaderNoticeFillState(sectionId, hasItems) {
@@ -26535,7 +26720,7 @@ function renderBookmarkBar(options = {}) {
   if (!bar) return;
 
   if (!state.projectId || !list.length) {
-    bar.innerHTML = `<p class="bookmark-list-empty">북마크한 항목이 없어요.</p>`;
+    bar.innerHTML = i18n.t('app.p_class_bookmark_list_e');
     if (isBookmarkListPanelOpen()) positionBookmarkListPanel();
     return;
   }
@@ -26549,8 +26734,8 @@ function renderBookmarkBar(options = {}) {
 
   bar.innerHTML = list.map((item) => {
     const color = bookmarkColorMeta(item.color);
-    const title = escapeHtml(item.title || (item.type === "scene" ? "원고" : "설정"));
-    const kind = item.type === "scene" ? "원고" : "설정집";
+    const title = escapeHtml(item.title || (item.type === "scene" ? i18n.t('app.원고') : i18n.t('app.설정')));
+    const kind = item.type === "scene" ? i18n.t('app.원고') : i18n.t('app.설정집');
     const note = escapeHtml(item.note || "");
     const active = item.type === "scene" && Number(item.sceneId) === Number(state.sceneId)
       ? "is-active"
@@ -26581,7 +26766,7 @@ function renderBookmarkBar(options = {}) {
             type="button"
             class="bookmark-item-remove"
             data-bookmark-remove="${idAttr}"
-            title="북마크 해제"
+            title="${i18n.t('app.북마크_해제')}"
             aria-label="${title} 북마크 해제"
           >×</button>
         </div>
@@ -26591,8 +26776,8 @@ function renderBookmarkBar(options = {}) {
           data-bookmark-id="${idAttr}"
           value="${note}"
           maxlength="${BOOKMARK_NOTE_MAX}"
-          placeholder="북마크 이유 (예: 복선 확인, 수정 필요)"
-          title="이 북마크를 단 이유"
+          placeholder="${i18n.t('app.북마크_이유_예_복선_확인_수정_필요')}"
+          title="${i18n.t('app.이_북마크를_단_이유')}"
           autocomplete="off"
           spellcheck="true"
         />
@@ -26660,10 +26845,10 @@ function renderHeaderIdeaBar() {
     return;
   }
   bar.innerHTML = ideas.slice(0, 8).map((idea) => {
-    const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || "메모");
+    const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || i18n.t('app.메모_2'));
     return (
       `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
-      + `data-header-idea="${idea.id}" title="${label} · 목차 하단 고정" role="listitem">`
+      + `${i18n.t('app.data_header_idea_idea_id', {'idea.id': idea.id, label: label})}`
       + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(14)}</span>`
       + `<span class="header-idea-chip-label">${label}</span>`
       + `</button>`
@@ -26738,11 +26923,11 @@ function ensureSceneBookmarkMark(el, colorKey) {
   if (!mark) {
     mark = document.createElement("span");
     mark.className = "scene-bookmark-mark";
-    mark.setAttribute("aria-label", "북마크");
+    mark.setAttribute("aria-label", i18n.t('app.북마크'));
     slot.appendChild(mark);
   }
   mark.style.setProperty("--bm-color", meta.hex);
-  mark.title = `북마크 · ${meta.label || ""}`;
+  mark.title = `${i18n.t('app.북마크_meta_label', {'meta.label || ""': meta.label || ""})}`;
   slot.title = mark.title;
 }
 
@@ -26777,7 +26962,7 @@ async function openBookmark(bookmarkId) {
   const item = loadBookmarks().find((b) => b.id === bookmarkId);
   if (!item) {
     renderBookmarkBar();
-    return toast("북마크를 찾을 수 없어요.");
+    return toast(i18n.t('app.북마크를_찾을_수_없어요'));
   }
   if (item.type === "scene") {
     await openScene(item.sceneId);
@@ -26785,7 +26970,7 @@ async function openBookmark(bookmarkId) {
   }
   if (item.type === "settings") {
     const meta = SETTINGS_BOOKMARK_META[item.section];
-    if (!meta) return toast("설정 항목을 열 수 없어요.");
+    if (!meta) return toast(i18n.t('app.설정_항목을_열_수_없어요'));
     setActiveBinder("settings");
     state.openSettingsSection = item.section;
     applySettingsSectionState();
@@ -26811,7 +26996,7 @@ function showBookmarkContextMenu(clientX, clientY, bookmarkId) {
   setUiFeatureCtxTarget?.(chip);
   const item = loadBookmarks().find((b) => b.id === bookmarkId);
   if ($("bookmarkContextMenuLabel")) {
-    const title = (item?.title || "북마크").trim() || "북마크";
+    const title = (item?.title || i18n.t('app.북마크')).trim() || i18n.t('app.북마크');
     $("bookmarkContextMenuLabel").textContent = title.length > 28 ? `${title.slice(0, 28)}…` : title;
   }
   menu.classList.remove("hidden");
@@ -26905,33 +27090,33 @@ function updateFolderContextToggleLabels(menu, { isBox, isPinned, isBookmarked, 
     boxBtn.classList.toggle("hidden", !hasFolderId);
     const strong = boxBtn.querySelector("strong");
     const span = boxBtn.querySelector("span");
-    if (strong) strong.textContent = isBox ? "박스 해제" : "박스로 묶기";
+    if (strong) strong.textContent = isBox ? i18n.t('app.박스_해제') : i18n.t('app.박스로_묶기');
     if (span) {
       span.textContent = isBox
-        ? "테두리 상자 스타일을 꺼요"
-        : "테두리 상자 스타일을 켜요";
+        ? i18n.t('app.테두리_상자_스타일을_꺼요')
+        : i18n.t('app.테두리_상자_스타일을_켜요');
     }
   }
   if (pinBtn) {
     pinBtn.classList.toggle("hidden", !hasFolderId);
     const strong = pinBtn.querySelector("strong");
     const span = pinBtn.querySelector("span");
-    if (strong) strong.textContent = isPinned ? "고정 해제" : "상단 고정";
+    if (strong) strong.textContent = isPinned ? i18n.t('app.고정_해제') : i18n.t('app.상단_고정');
     if (span) {
       span.textContent = isPinned
-        ? "형제 목록 맨 위 고정을 풀어요"
-        : "같은 상위 안 목록 맨 위에 고정해요";
+        ? i18n.t('app.형제_목록_맨_위_고정을_풀어요')
+        : i18n.t('app.같은_상위_안_목록_맨_위에_고정해요');
     }
   }
   if (bmBtn) {
     bmBtn.classList.toggle("hidden", !hasFolderId);
     const strong = bmBtn.querySelector("strong");
     const span = bmBtn.querySelector("span");
-    if (strong) strong.textContent = isBookmarked ? "북마크 해제" : "북마크";
+    if (strong) strong.textContent = isBookmarked ? i18n.t('app.북마크_해제') : i18n.t('app.북마크');
     if (span) {
       span.textContent = isBookmarked
-        ? "목록 북마크 표시를 꺼요"
-        : "목록에서 북마크 표시를 켜요";
+        ? i18n.t('app.목록_북마크_표시를_꺼요')
+        : i18n.t('app.목록에서_북마크_표시를_켜요');
     }
   }
   if (colorBtn) colorBtn.classList.toggle("hidden", !hasFolderId);
@@ -26939,13 +27124,13 @@ function updateFolderContextToggleLabels(menu, { isBox, isPinned, isBookmarked, 
 
 function folderBookmarkMarkHtml(isBookmarked) {
   if (!isBookmarked) return "";
-  return `<span class="folder-bookmark-mark" title="북마크됨" aria-hidden="true"></span>`;
+  return i18n.t('app.span_class_folder_bookm');
 }
 
 async function updateFolderFields(folderId, patch) {
   const id = Number(folderId);
   if (!Number.isFinite(id) || id <= 0) {
-    toast("폴더를 찾지 못했어요. (폴더 트리 id 필요)");
+    toast(i18n.t('app.폴더를_찾지_못했어요_폴더_트리_id_필요'));
     return null;
   }
   const result = await api(`/api/folders/${id}`, {
@@ -27066,7 +27251,7 @@ function handleFolderHistoryError(error, kind) {
     if (kind === "redo") state.folderRedoHint = 0;
     else state.folderUndoHint = 0;
     syncFolderHistoryButtons();
-    toast(kind === "redo" ? "다시 실행할 작업이 없어요" : "되돌릴 작업이 없어요");
+    toast(kind === "redo" ? i18n.t('app.다시_실행할_작업이_없어요') : i18n.t('app.되돌릴_작업이_없어요'));
     return;
   }
   if (/하위 항목이 있어/.test(msg)) {
@@ -27085,7 +27270,7 @@ function handleFolderHistoryError(error, kind) {
     return;
   }
   if (Number(error?.status) === 404 || /알 수 없는 요청/.test(msg)) {
-    toast("서버를 재시작해 주세요. (폴더 되돌리기 API가 없어요)");
+    toast(i18n.t('app.서버를_재시작해_주세요_폴더_되돌리기_API'));
     return;
   }
   handleError(error);
@@ -27093,7 +27278,7 @@ function handleFolderHistoryError(error, kind) {
 
 async function runFolderUndo(options = {}) {
   if (!state.projectId) {
-    if (!options.fromShortcut) toast("먼저 작품을 선택해 주세요.");
+    if (!options.fromShortcut) toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (folderHistoryInFlight) return;
@@ -27106,8 +27291,8 @@ async function runFolderUndo(options = {}) {
     noteFolderUndoUsed();
     await loadProject();
     await refreshFolderUndoHintFromServer();
-    const label = (result && result.label_ko) ? String(result.label_ko) : "최근 작업";
-    toast(`되돌렸어요: ${label}`);
+    const label = (result && result.label_ko) ? String(result.label_ko) : i18n.t('app.최근_작업');
+    toast(`${i18n.t('app.되돌렸어요_label', {label: label})}`);
   } catch (error) {
     handleFolderHistoryError(error, "undo");
   } finally {
@@ -27117,7 +27302,7 @@ async function runFolderUndo(options = {}) {
 
 async function runFolderRedo(options = {}) {
   if (!state.projectId) {
-    if (!options.fromShortcut) toast("먼저 작품을 선택해 주세요.");
+    if (!options.fromShortcut) toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (folderHistoryInFlight) return;
@@ -27130,8 +27315,8 @@ async function runFolderRedo(options = {}) {
     noteFolderRedoUsed();
     await loadProject();
     await refreshFolderUndoHintFromServer();
-    const label = (result && result.label_ko) ? String(result.label_ko) : "최근 작업";
-    toast(`다시 실행: ${label}`);
+    const label = (result && result.label_ko) ? String(result.label_ko) : i18n.t('app.최근_작업');
+    toast(`${i18n.t('app.다시_실행_label', {label: label})}`);
   } catch (error) {
     handleFolderHistoryError(error, "redo");
   } finally {
@@ -27203,7 +27388,7 @@ function showChapterContextMenu(clientX, clientY, chapter) {
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
-  const title = String(chapter.title || "폴더").trim() || "폴더";
+  const title = String(chapter.title || i18n.t('app.폴더')).trim() || i18n.t('app.폴더');
   const partId = chapter.partId != null && chapter.partId !== ""
     ? Number(chapter.partId)
     : null;
@@ -27250,7 +27435,7 @@ function showPartContextMenu(clientX, clientY, part) {
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
-  const title = String(part.title || "권/부").trim() || "권/부";
+  const title = String(part.title || i18n.t('app.권_부')).trim() || i18n.t('app.권_부');
   const folderId = part.folderId != null && part.folderId !== ""
     ? Number(part.folderId)
     : null;
@@ -27293,7 +27478,7 @@ function showBinderContextMenu(clientX, clientY, scene) {
   hideDesktopContextMenu();
   hideSettingsContextMenu();
   hideBookmarkContextMenu();
-  const title = String(scene.title || "원고").trim() || "원고";
+  const title = String(scene.title || i18n.t('app.원고')).trim() || i18n.t('app.원고');
   binderContextScene = {
     id: Number(scene.id),
     title,
@@ -27314,11 +27499,11 @@ function showBinderContextMenu(clientX, clientY, scene) {
     const pinned = isScenePinned(binderContextScene.id);
     const strong = pinBtn.querySelector("strong");
     const span = pinBtn.querySelector("span");
-    if (strong) strong.textContent = pinned ? "상단 고정 해제" : "상단 고정";
+    if (strong) strong.textContent = pinned ? i18n.t('app.상단_고정_해제') : i18n.t('app.상단_고정');
     if (span) {
       span.textContent = pinned
-        ? "고정 목록에서 빼고 원래 위치로 둬요"
-        : "목차 맨 위에 고정해요";
+        ? i18n.t('app.고정_목록에서_빼고_원래_위치로_둬요')
+        : i18n.t('app.목차_맨_위에_고정해요');
     }
   }
   positionContextMenu(menu, clientX, clientY, 320);
@@ -27331,7 +27516,7 @@ function startRenameScene(sceneId) {
     `#outline .scene-link[data-scene="${id}"]:not([data-pinned])`,
   ) || document.querySelector(`.scene-link[data-scene="${id}"]`);
   if (!btn) {
-    toast("회차를 찾지 못했어요.");
+    toast(i18n.t('app.회차를_찾지_못했어요'));
     return;
   }
   beginSceneRename(btn).catch(handleError);
@@ -27348,7 +27533,7 @@ async function beginSceneRename(titleButton) {
   input.type = "text";
   input.className = "chapter-rename-input scene-rename-input";
   input.value = original;
-  input.setAttribute("aria-label", "회차 이름 수정");
+  input.setAttribute("aria-label", i18n.t('app.회차_이름_수정'));
   input.maxLength = 200;
   titleButton.replaceWith(input);
   input.focus();
@@ -27371,7 +27556,7 @@ async function beginSceneRename(titleButton) {
         state.scene.title = nextTitle;
       }
       await loadProject();
-      toast("회차 이름을 바꿨어요.");
+      toast(i18n.t('app.회차_이름을_바꿨어요'));
     } catch (error) {
       await loadProject();
       throw error;
@@ -27394,24 +27579,24 @@ async function beginSceneRename(titleButton) {
 async function trashChapter(chapterId, chapterTitle = "") {
   const id = Number(chapterId);
   if (!Number.isFinite(id) || id <= 0) {
-    toast("폴더를 찾지 못했어요.");
+    toast(i18n.t('app.폴더를_찾지_못했어요'));
     return;
   }
   const chapter = (state.outline || []).find((c) => Number(c.id) === id);
   // Strip UI suffixes from title attribute (e.g. " · 완결 (우클릭…)")
-  let label = String(chapterTitle || chapter?.title || "이 폴더").trim() || "이 폴더";
+  let label = String(chapterTitle || chapter?.title || i18n.t('app.이_폴더')).trim() || i18n.t('app.이_폴더');
   label = label
     .replace(/\s*·\s*완결.*$/u, "")
     .replace(/\s*·\s*챕터 완결.*$/u, "")
     .replace(/\s*\(우클릭.*$/u, "")
     .replace(/\s*\(더블클릭.*$/u, "")
-    .trim() || "이 폴더";
+    .trim() || i18n.t('app.이_폴더');
   const sceneIds = flattenChapterScenes(chapter).map((s) => Number(s.id)).filter((n) => n > 0);
   const sceneCount = sceneIds.length;
   const ok = window.confirm(
     sceneCount > 0
-      ? `「${label}」 폴더와 안의 회차 ${sceneCount}개를 휴지통에 버리시겠습니까?\n\n안의 원고도 함께 버려집니다. 나중에 관리자 모드 → 휴지통에서 회차를 되살리면 폴더도 함께 돌아옵니다.`
-      : `「${label}」 폴더를 휴지통에 버리시겠습니까?`,
+      ? i18n.t('app.label_폴더와_안의_회차_sceneCo', { label, sceneCount })
+      : i18n.t('app.label_폴더를_휴지통에_버리시겠습니까', { label }),
   );
   if (!ok) return;
 
@@ -27420,7 +27605,7 @@ async function trashChapter(chapterId, chapterTitle = "") {
   const openInChapter = sceneIds.includes(openSceneId);
   if (openInChapter && sceneDirty && openSceneId) {
     try {
-      await persistScene({ quiet: true, saveNote: "폴더 버리기 전 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.폴더_버리기_전_저장') });
     } catch (_) { /* still trash */ }
   }
 
@@ -27435,7 +27620,7 @@ async function trashChapter(chapterId, chapterTitle = "") {
     const msg = String(error?.message || error || "");
     if (/알 수 없는 요청|404/i.test(msg) || Number(error?.status) === 404) {
       throw new Error(
-        "폴더 버리기 API를 찾을 수 없습니다. SuperTORY 서버 창을 종료한 뒤 start_supertory.bat 으로 다시 실행해 주세요.",
+        i18n.t('app.폴더_버리기_API를_찾을_수_없습니다_Su'),
       );
     }
     throw error;
@@ -27472,8 +27657,8 @@ async function trashChapter(chapterId, chapterTitle = "") {
   if (openInChapter) showWelcome();
   const n = Number(result?.scene_count ?? sceneCount ?? 0);
   toast(n > 0
-    ? `「${label}」 폴더와 회차 ${n}개를 휴지통으로 옮겼어요.`
-    : `「${label}」 폴더를 휴지통으로 옮겼어요.`);
+    ? `${i18n.t('app.label_폴더와_회차_n_개를_휴지통으로', {label: label, n: n})}`
+    : `${i18n.t('app.label_폴더를_휴지통으로_옮겼어요', {label: label})}`);
   if (!$("adminModal")?.classList.contains("hidden")) {
     loadTrashList().catch(handleError);
   }
@@ -27484,7 +27669,7 @@ function startRenameChapter(chapterId) {
   if (!id) return;
   const btn = document.querySelector(`[data-rename-chapter="${id}"]`);
   if (!btn) {
-    toast("폴더를 찾지 못했어요.");
+    toast(i18n.t('app.폴더를_찾지_못했어요'));
     return;
   }
   beginChapterRename(btn).catch(handleError);
@@ -27495,7 +27680,7 @@ function startRenamePart(partId) {
   if (!id) return;
   const btn = document.querySelector(`[data-rename-part="${id}"]`);
   if (!btn) {
-    toast("폴더를 찾지 못했어요.");
+    toast(i18n.t('app.폴더를_찾지_못했어요'));
     return;
   }
   beginPartRename(btn).catch(handleError);
@@ -27507,7 +27692,7 @@ async function duplicateScene(sceneId) {
   // Flush current scene edits first so the clone sees latest content if it's the open one.
   if (sceneDirty && state.sceneId === id) {
     try {
-      await persistScene({ quiet: true, saveNote: "복제 전 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.복제_전_저장') });
     } catch (_) {
       /* still try duplicate */
     }
@@ -27519,24 +27704,24 @@ async function duplicateScene(sceneId) {
   await loadProject();
   if (result?.id) {
     await openScene(result.id);
-    toast(`「${result.title || "복제본"}」을 만들었어요.`);
+    toast(`${i18n.t('app.result_title_복제본_을_만들었어', {'result.title || "복제본"': result.title || "복제본"})}`);
   } else {
-    toast("원고를 복제했어요.");
+    toast(i18n.t('app.원고를_복제했어요'));
   }
 }
 
 async function trashScene(sceneId, sceneTitle = "") {
   const id = Number(sceneId);
   if (!id) return;
-  const label = (sceneTitle || "이 원고").trim() || "이 원고";
+  const label = (sceneTitle || i18n.t('app.이_원고')).trim() || i18n.t('app.이_원고');
   const ok = window.confirm(
-    `「${label}」을(를) 휴지통에 버리시겠습니까?\n\n나중에 관리자 모드 → 휴지통에서 복원할 수 있습니다.`,
+    i18n.t('app.label_을_를_휴지통에_버리시겠습니까', { label }),
   );
   if (!ok) return;
 
   if (sceneDirty && state.sceneId === id) {
     try {
-      await persistScene({ quiet: true, saveNote: "버리기 전 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.버리기_전_저장') });
     } catch (_) {
       /* still trash */
     }
@@ -27565,7 +27750,7 @@ async function trashScene(sceneId, sceneTitle = "") {
   }
   await loadProject();
   if (wasOpen) showWelcome();
-  toast(`「${label}」을(를) 휴지통으로 옮겼어요.`);
+  toast(`${i18n.t('app.label_을_를_휴지통으로_옮겼어요', {label: label})}`);
   // Refresh trash list if admin is open.
   if (!$("adminModal")?.classList.contains("hidden")) {
     loadTrashList().catch(handleError);
@@ -27593,22 +27778,22 @@ async function loadTrashList() {
   const list = $("trashList");
   if (!list) return;
   if (!state.projectId) {
-    list.innerHTML = `<p class="hint trash-empty">작품을 선택하면 휴지통을 볼 수 있어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_trash_empt');
     return;
   }
-  list.innerHTML = `<p class="hint trash-empty">불러오는 중…</p>`;
+  list.innerHTML = i18n.t('app.p_class_hint_trash_empt_2');
   try {
     const data = await api(`/api/projects/${state.projectId}/trash`);
     const items = data.items || [];
     if (!items.length) {
-      list.innerHTML = `<p class="hint trash-empty">휴지통이 비어 있어요.</p>`;
+      list.innerHTML = i18n.t('app.p_class_hint_trash_empt_3');
       return;
     }
     list.innerHTML = items.map((item) => {
-      const title = escapeHtml(item.title || "제목 없음");
-      const chapterLabel = item.chapter_title || "챕터 없음";
+      const title = escapeHtml(item.title || i18n.t('app.제목_없음'));
+      const chapterLabel = item.chapter_title || i18n.t('app.챕터_없음');
       const chapter = escapeHtml(
-        item.chapter_trashed ? `${chapterLabel} (폴더도 휴지통)` : chapterLabel,
+        item.chapter_trashed ? `${i18n.t('app.chapterLabel_폴더도_휴지통', {chapterLabel: chapterLabel})}` : chapterLabel,
       );
       const when = escapeHtml(formatTrashDate(item.deleted_at));
       const words = Number(item.word_count || 0);
@@ -27625,7 +27810,7 @@ async function loadTrashList() {
         </div>`;
     }).join("");
   } catch (error) {
-    list.innerHTML = `<p class="hint trash-empty">휴지통을 불러오지 못했어요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_trash_empt_4');
     throw error;
   }
 }
@@ -27637,9 +27822,9 @@ async function restoreTrashedScene(sceneId) {
   await loadProject();
   await loadTrashList();
   if (result.chapter_restored) {
-    toast(`「${result.title || "원고"}」와 폴더 「${result.chapter_title || ""}」을(를) 되살렸어요.`);
+    toast(`${i18n.t('app.result_title_원고_와_폴더_re', {'result.title || "원고"': result.title || "원고", 'result.chapter_title || ""': result.chapter_title || ""})}`);
   } else {
-    toast(`「${result.title || "원고"}」을(를) 되살렸어요.`);
+    toast(`${i18n.t('app.result_title_원고_을_를_되살렸', {'result.title || "원고"': result.title || "원고"})}`);
   }
   if (result.id) openScene(result.id).catch(handleError);
 }
@@ -27647,25 +27832,25 @@ async function restoreTrashedScene(sceneId) {
 async function purgeTrashedScene(sceneId, title = "") {
   const id = Number(sceneId);
   if (!id) return;
-  const label = title || "이 원고";
+  const label = title || i18n.t('app.이_원고');
   const ok = window.confirm(
     `「${label}」을(를) 완전히 삭제할까요?\n\n이 작업은 되돌릴 수 없습니다.`,
   );
   if (!ok) return;
   await api(`/api/scenes/${id}/purge`, { method: "DELETE" });
   await loadTrashList();
-  toast("완전히 삭제했어요.");
+  toast(i18n.t('app.완전히_삭제했어요'));
 }
 
 async function emptyProjectTrash() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const ok = window.confirm(
-    "휴지통을 비울까요?\n\n보관 중인 모든 원고가 완전히 삭제되며 되돌릴 수 없습니다.",
+    i18n.t('app.휴지통을_비울까요_보관_중인_모든_원고가_완'),
   );
   if (!ok) return;
   const result = await api(`/api/projects/${state.projectId}/trash`, { method: "DELETE" });
   await loadTrashList();
-  toast(result.purged ? `휴지통에서 ${result.purged}개를 완전히 삭제했어요.` : "휴지통이 이미 비어 있어요.");
+  toast(result.purged ? `${i18n.t('app.휴지통에서_result_purged_개를_완', {'result.purged': result.purged})}` : i18n.t('app.휴지통이_이미_비어_있어요'));
 }
 
 function setupBinderContextMenu() {
@@ -27702,7 +27887,7 @@ function setupBinderContextMenu() {
       window.setTimeout(() => startRenameScene(scene.id), 0);
     } else if (action === "add-child") {
       const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
-      if (!chapterId) return toast("폴더를 찾지 못했어요.");
+      if (!chapterId) return toast(i18n.t('app.폴더를_찾지_못했어요'));
       createScene(chapterId, { parentSceneId: scene.id }).catch(handleError);
     } else if (action === "add-child-folder") {
       createChapter({ parentSceneId: scene.id }).catch(handleError);
@@ -27721,7 +27906,7 @@ function setupBinderContextMenu() {
     } else if (action === "export") {
       openExportModalForScenes(
         [scene.id],
-        scene.title || getSceneTitleById(scene.id) || "회차",
+        scene.title || getSceneTitleById(scene.id) || i18n.t('app.회차'),
       );
     } else if (action === "tory-analyze") {
       startToryAnalyzeForScene(scene.id, scene.title).catch(handleError);
@@ -27741,7 +27926,7 @@ function setupBinderContextMenu() {
     const clientY = event.clientY;
     if (action === "color") {
       hideChapterContextMenu();
-      if (!chapter.folderId) return toast("폴더 색을 바꿀 수 없어요.");
+      if (!chapter.folderId) return toast(i18n.t('app.폴더_색을_바꿀_수_없어요'));
       showFolderColorMenu(clientX, clientY, chapter.folderId, chapter.color, chapter.colorBright);
       return;
     }
@@ -27749,19 +27934,19 @@ function setupBinderContextMenu() {
     if (action === "rename") {
       window.setTimeout(() => startRenameChapter(chapter.id), 0);
     } else if (action === "toggle-box") {
-      if (!chapter.folderId) return toast("박스를 바꿀 수 없어요.");
+      if (!chapter.folderId) return toast(i18n.t('app.박스를_바꿀_수_없어요'));
       updateFolderFields(chapter.folderId, { is_box: !chapter.isBox })
-        .then(() => toast(chapter.isBox ? "박스를 해제했어요." : "박스로 묶었어요."))
+        .then(() => toast(chapter.isBox ? i18n.t('app.박스를_해제했어요') : i18n.t('app.박스로_묶었어요')))
         .catch(handleError);
     } else if (action === "pin") {
-      if (!chapter.folderId) return toast("고정을 바꿀 수 없어요.");
+      if (!chapter.folderId) return toast(i18n.t('app.고정을_바꿀_수_없어요'));
       updateFolderFields(chapter.folderId, { is_pinned: !chapter.isPinned })
-        .then(() => toast(chapter.isPinned ? "고정을 해제했어요." : "상단에 고정했어요."))
+        .then(() => toast(chapter.isPinned ? i18n.t('app.고정을_해제했어요') : i18n.t('app.상단에_고정했어요')))
         .catch(handleError);
     } else if (action === "bookmark") {
-      if (!chapter.folderId) return toast("북마크를 바꿀 수 없어요.");
+      if (!chapter.folderId) return toast(i18n.t('app.북마크를_바꿀_수_없어요'));
       updateFolderFields(chapter.folderId, { is_bookmarked: !chapter.isBookmarked })
-        .then(() => toast(chapter.isBookmarked ? "북마크를 해제했어요." : "북마크했어요."))
+        .then(() => toast(chapter.isBookmarked ? i18n.t('app.북마크를_해제했어요') : i18n.t('app.북마크했어요')))
         .catch(handleError);
     } else if (action === "add-scene") {
       setChapterCollapsed(chapter.id, false);
@@ -27784,7 +27969,7 @@ function setupBinderContextMenu() {
     const clientY = event.clientY;
     if (action === "color") {
       hidePartContextMenu();
-      if (!part.folderId) return toast("폴더 색을 바꿀 수 없어요.");
+      if (!part.folderId) return toast(i18n.t('app.폴더_색을_바꿀_수_없어요'));
       showFolderColorMenu(clientX, clientY, part.folderId, part.color, part.colorBright);
       return;
     }
@@ -27792,19 +27977,19 @@ function setupBinderContextMenu() {
     if (action === "rename") {
       window.setTimeout(() => startRenamePart(part.id), 0);
     } else if (action === "toggle-box") {
-      if (!part.folderId) return toast("박스를 바꿀 수 없어요.");
+      if (!part.folderId) return toast(i18n.t('app.박스를_바꿀_수_없어요'));
       updateFolderFields(part.folderId, { is_box: !part.isBox })
-        .then(() => toast(part.isBox ? "박스를 해제했어요." : "박스로 묶었어요."))
+        .then(() => toast(part.isBox ? i18n.t('app.박스를_해제했어요') : i18n.t('app.박스로_묶었어요')))
         .catch(handleError);
     } else if (action === "pin") {
-      if (!part.folderId) return toast("고정을 바꿀 수 없어요.");
+      if (!part.folderId) return toast(i18n.t('app.고정을_바꿀_수_없어요'));
       updateFolderFields(part.folderId, { is_pinned: !part.isPinned })
-        .then(() => toast(part.isPinned ? "고정을 해제했어요." : "상단에 고정했어요."))
+        .then(() => toast(part.isPinned ? i18n.t('app.고정을_해제했어요') : i18n.t('app.상단에_고정했어요')))
         .catch(handleError);
     } else if (action === "bookmark") {
-      if (!part.folderId) return toast("북마크를 바꿀 수 없어요.");
+      if (!part.folderId) return toast(i18n.t('app.북마크를_바꿀_수_없어요'));
       updateFolderFields(part.folderId, { is_bookmarked: !part.isBookmarked })
-        .then(() => toast(part.isBookmarked ? "북마크를 해제했어요." : "북마크했어요."))
+        .then(() => toast(part.isBookmarked ? i18n.t('app.북마크를_해제했어요') : i18n.t('app.북마크했어요')))
         .catch(handleError);
     } else if (action === "add-chapter") {
       setPartCollapsed(part.id, false);
@@ -27837,7 +28022,7 @@ function setupBinderContextMenu() {
       hideFolderColorMenu();
       if (!folderId) return;
       updateFolderFields(folderId, patch)
-        .then(() => toast(picked ? "폴더 색을 바꿨어요." : "폴더 색을 없앴어요."))
+        .then(() => toast(picked ? i18n.t('app.폴더_색을_바꿨어요') : i18n.t('app.폴더_색을_없앴어요')))
         .catch(handleError);
     });
   }
@@ -27906,7 +28091,7 @@ function showSettingsContextMenu(clientX, clientY, section, title) {
   hideDesktopContextMenu();
   settingsContextSection = section;
   if ($("settingsContextMenuLabel")) {
-    const label = (title || SETTINGS_BOOKMARK_META[section]?.title || "설정").trim();
+    const label = (title || SETTINGS_BOOKMARK_META[section]?.title || i18n.t('app.설정')).trim();
     $("settingsContextMenuLabel").textContent = label.length > 28 ? `${label.slice(0, 28)}…` : label;
   }
   // 키워드는 태그 모음이라 문서 내보내기 메뉴를 숨김
@@ -27930,11 +28115,11 @@ function showSettingsContextMenu(clientX, clientY, section, title) {
 }
 
 function sanitizeExportFileTitle(name) {
-  return String(name || "설정")
+  return String(name || i18n.t('app.설정'))
     .replace(/[\\/:*?"<>|]+/g, "_")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 80) || "설정";
+    .slice(0, 80) || i18n.t('app.설정');
 }
 
 function settingsDocPlainForExport(kind) {
@@ -27964,7 +28149,7 @@ function joinExportBlocks(blocks) {
  */
 async function buildSettingsSectionExportPayload(section) {
   const project = state.projects.find((p) => Number(p.id) === Number(state.projectId));
-  const projectTitle = String(project?.title || "작품").trim() || "작품";
+  const projectTitle = String(project?.title || i18n.t('app.작품')).trim() || i18n.t('app.작품');
   const sectionTitle = SETTINGS_BOOKMARK_META[section]?.title || section;
   const title = sanitizeExportFileTitle(`${projectTitle}_${sectionTitle}`);
   const header = `${projectTitle} · ${sectionTitle}`;
@@ -27973,10 +28158,10 @@ async function buildSettingsSectionExportPayload(section) {
   if (section === "ideas") {
     const ideas = Array.isArray(state.ideas) ? state.ideas : [];
     if (!ideas.length) {
-      body = "(아직 메모가 없어요.)";
+      body = i18n.t('app.아직_메모가_없어요_2');
     } else {
       body = ideas.map((idea, i) => {
-        const t = String(idea.title || "").trim() || `메모 ${i + 1}`;
+        const t = String(idea.title || "").trim() || `${i18n.t('app.메모_i_1', {'i + 1': i + 1})}`;
         const b = String(idea.body_md || "").replace(/\r\n/g, "\n").trim();
         return b ? `■ ${t}\n${b}` : `■ ${t}`;
       }).join("\n\n");
@@ -27987,7 +28172,7 @@ async function buildSettingsSectionExportPayload(section) {
     body = joinExportBlocks([
       intro ? `【작품소개】\n${intro}` : "",
       intent ? `【기획의도】\n${intent}` : "",
-    ]) || "(작품소개·기획의도가 비어 있어요.)";
+    ]) || i18n.t('app.작품소개_기획의도가_비어_있어요');
   } else if (section === "logsyn") {
     const logline = settingsDocPlainForExport("logline");
     const outline = outlineSummaryPlainForExport();
@@ -27996,13 +28181,13 @@ async function buildSettingsSectionExportPayload(section) {
       logline ? `【로그라인】\n${logline}` : "",
       outline ? `【줄거리 개요】\n${outline}` : "",
       synopsis ? `【시놉시스】\n${synopsis}` : "",
-    ]) || "(로그라인·줄거리 개요·시놉시스가 비어 있어요.)";
+    ]) || i18n.t('app.로그라인_줄거리_개요_시놉시스가_비어_있어');
   } else if (section === "world") {
-    body = settingsDocPlainForExport("world") || "(세계관이 비어 있어요.)";
+    body = settingsDocPlainForExport("world") || i18n.t('app.세계관이_비어_있어요');
   } else if (section === "characters") {
     const list = Array.isArray(state.characters) ? state.characters : [];
     if (!list.length) {
-      body = "(아직 인물이 없어요.)";
+      body = i18n.t('app.아직_인물이_없어요');
     } else {
       const parts = [];
       for (const item of list) {
@@ -28015,13 +28200,13 @@ async function buildSettingsSectionExportPayload(section) {
         } catch (_) {
           ch = item;
         }
-        const name = String(ch.name || item.name || "이름 없음").trim();
+        const name = String(ch.name || item.name || i18n.t('app.이름_없음')).trim();
         const role = roleLabel[ch.role] || ch.role || "";
         const lines = [`■ ${name}${role ? ` (${role})` : ""}`];
-        if (ch.sort_name) lines.push(`정렬 이름: ${ch.sort_name}`);
+        if (ch.sort_name) lines.push(`${i18n.t('app.정렬_이름_ch_sort_name', {'ch.sort_name': ch.sort_name})}`);
         if (ch.short_description) lines.push(String(ch.short_description).trim());
         if (aliases.length) {
-          lines.push(`별칭: ${aliases.map((a) => a.alias || a).filter(Boolean).join(", ")}`);
+          lines.push(`${i18n.t('app.별칭_aliases_map_a_a_alias', {'aliases.map((a) => a.alias || a).filter(Boolean).join(", ")': aliases.map((a) => a.alias || a).filter(Boolean).join(", ")})}`);
         }
         const profile = looksLikeHtml(ch.profile_md)
           ? plainTextFromHtml(ch.profile_md)
@@ -28045,28 +28230,28 @@ async function buildSettingsSectionExportPayload(section) {
     }
     const baits = typeof loadBaits === "function" ? loadBaits() : [];
     if (!baits.length) {
-      body = "(아직 떡밥이 없어요.)";
+      body = i18n.t('app.아직_떡밥이_없어요');
     } else {
       body = baits.map((bait, i) => {
-        const head = String(bait.summary || "").trim() || `떡밥 ${i + 1}`;
+        const head = String(bait.summary || "").trim() || `${i18n.t('app.떡밥_i_1', {'i + 1': i + 1})}`;
         const quote = String(bait.quote || "").replace(/\r\n/g, "\n").trim();
         const lines = [`■ ${head}`];
         if (quote && quote !== head) lines.push(quote);
-        if (bait.recoverAt) lines.push(`회수 시점: ${bait.recoverAt}`);
-        if (bait.recoverContent) lines.push(`회수 내용: ${bait.recoverContent}`);
-        if (bait.plantAtNote) lines.push(`심은 위치: ${bait.plantAtNote}`);
-        if (bait.sourceTitle) lines.push(`출처: ${bait.sourceTitle}`);
-        if (bait.notifyOnRecover) lines.push("회수 알림: 켜짐");
+        if (bait.recoverAt) lines.push(`${i18n.t('app.회수_시점_bait_recoverAt', {'bait.recoverAt': bait.recoverAt})}`);
+        if (bait.recoverContent) lines.push(`${i18n.t('app.회수_내용_bait_recoverConten', {'bait.recoverContent': bait.recoverContent})}`);
+        if (bait.plantAtNote) lines.push(`${i18n.t('app.심은_위치_bait_plantAtNote', {'bait.plantAtNote': bait.plantAtNote})}`);
+        if (bait.sourceTitle) lines.push(`${i18n.t('app.출처_bait_sourceTitle', {'bait.sourceTitle': bait.sourceTitle})}`);
+        if (bait.notifyOnRecover) lines.push(i18n.t('app.회수_알림_켜짐'));
         return lines.join("\n");
       }).join("\n\n");
     }
   } else if (section === "toryVault") {
     const items = typeof loadToryVault === "function" ? loadToryVault() : [];
     if (!items.length) {
-      body = "(아직 수집한 내용이 없어요.)";
+      body = i18n.t('app.아직_수집한_내용이_없어요');
     } else {
       body = items.map((item, i) => {
-        const t = String(item.title || "").trim() || `수집 ${i + 1}`;
+        const t = String(item.title || "").trim() || `${i18n.t('app.수집_i_1', {'i + 1': i + 1})}`;
         const mode = typeof aiModeLabel === "function" ? aiModeLabel(item.mode) : (item.mode || "");
         const scene = item.sceneTitle ? ` · ${item.sceneTitle}` : "";
         const b = String(item.body || "").replace(/\r\n/g, "\n").trim();
@@ -28080,22 +28265,22 @@ async function buildSettingsSectionExportPayload(section) {
   } else if (section === "sources") {
     const sources = typeof loadSources === "function" ? loadSources() : [];
     if (!sources.length) {
-      body = "(아직 참고자료가 없어요.)";
+      body = i18n.t('app.아직_참고자료가_없어요');
     } else {
       body = sources.map((src, i) => {
-        const t = String(src.title || src.fileName || `자료 ${i + 1}`).trim();
+        const t = String(src.title || src.fileName || `${i18n.t('app.자료_i_1', {'i + 1': i + 1})}`).trim();
         const lines = [`■ ${t}`];
         if (src.url) lines.push(String(src.url).trim());
         if (src.note || src.notes || src.body) {
           lines.push(String(src.note || src.notes || src.body || "").trim());
         }
-        if (src.fileName) lines.push(`파일: ${src.fileName}`);
-        if (src.kind || src.viewer) lines.push(`종류: ${src.kind || src.viewer}`);
+        if (src.fileName) lines.push(`${i18n.t('app.파일_src_fileName', {'src.fileName': src.fileName})}`);
+        if (src.kind || src.viewer) lines.push(`${i18n.t('app.종류_src_kind_src_viewer', {'src.kind || src.viewer': src.kind || src.viewer})}`);
         return lines.join("\n");
       }).join("\n\n");
     }
   } else {
-    throw new Error("이 설정은 문서로 내보낼 수 없어요.");
+    throw new Error(i18n.t('app.이_설정은_문서로_내보낼_수_없어요'));
   }
 
   const text = joinExportBlocks([header, body]);
@@ -28104,16 +28289,16 @@ async function buildSettingsSectionExportPayload(section) {
 
 async function exportSettingsSectionAsDocument(section, formatKey = "docx") {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!SETTINGS_EXPORTABLE_SECTIONS.has(section)) {
-    toast("키워드는 문서로 내보낼 수 없어요.");
+    toast(i18n.t('app.키워드는_문서로_내보낼_수_없어요'));
     return;
   }
   const { title, text } = await buildSettingsSectionExportPayload(section);
   if (!String(text || "").trim()) {
-    toast("내보낼 내용이 없어요.");
+    toast(i18n.t('app.내보낼_내용이_없어요'));
     return;
   }
   await exportReferencePlainText({
@@ -28283,22 +28468,22 @@ function syncUiThemePageColorSwatch(activeTheme = null, activeCustom = null) {
   btn.classList.remove("hidden");
   btn.hidden = false;
   const labels = {
-    light: "테마색 · 화이트 (기본)",
-    sand: "테마색 · 화이트 (주간)",
-    "cloud-walk": "테마색 · 화이트 (구름 산책)",
-    eink: "테마색 · 화이트 (E ink)",
-    "spring-garden": "테마색 · 화이트 (봄날 정원)",
-    "silver-fog": "테마색 · 화이트 (은빛 안개)",
-    study: "테마색 · 아이보리 (서재)",
-    library: "테마색 · 도서관",
-    classroom: "테마색 · 칠판 (교실)",
-    dark: "테마색 · 야간",
-    cabin: "테마색 · 오두막",
-    attic: "테마색 · 다락방",
-    "sunset-window": "테마색 · 세피아 (노을빛 창가)",
+    light: i18n.t('app.테마색_화이트_기본'),
+    sand: i18n.t('app.테마색_화이트_주간'),
+    "cloud-walk": i18n.t('app.테마색_화이트_구름_산책'),
+    eink: i18n.t('app.테마색_화이트_E_ink'),
+    "spring-garden": i18n.t('app.테마색_화이트_봄날_정원'),
+    "silver-fog": i18n.t('app.테마색_화이트_은빛_안개'),
+    study: i18n.t('app.테마색_아이보리_서재'),
+    library: i18n.t('app.테마색_도서관'),
+    classroom: i18n.t('app.테마색_칠판_교실'),
+    dark: i18n.t('app.테마색_야간'),
+    cabin: i18n.t('app.테마색_오두막'),
+    attic: i18n.t('app.테마색_다락방'),
+    "sunset-window": i18n.t('app.테마색_세피아_노을빛_창가'),
   };
-  const title = labels[ui] || "테마색";
-  btn.title = `${title} · 이 UI 테마의 기본 작성 바탕`;
+  const title = labels[ui] || i18n.t('app.테마색');
+  btn.title = `${i18n.t('app.title_이_UI_테마의_기본_작성_바탕', {title: title})}`;
   btn.setAttribute("aria-label", title);
   const swatchColor = resolvePageThemeSwatchColor(def.theme, def.customColor);
   if (preview) preview.style.background = swatchColor;
@@ -28573,7 +28758,7 @@ function refreshManuscriptPageTheme({ announce = false } = {}) {
       persistGlobal: false,
       persistScene: false,
     });
-    if (announce) toast("이 회차에 저장된 페이지 색을 적용했어요.");
+    if (announce) toast(i18n.t('app.이_회차에_저장된_페이지_색을_적용했어요'));
     return;
   }
   applyDesktopTheme(global.theme, global.customColor, {
@@ -28727,7 +28912,7 @@ function applyPageInk(color, options = {}) {
   if (normalizeUiThemeId(getUiTheme()) === "eink") {
     lockEinkEditorPaper();
     syncPageInkUi("#000000");
-    if (options.announce) toast("E ink에서는 본문이 흰 바탕·검정 글씨로 고정돼요.");
+    if (options.announce) toast(i18n.t('app.E_ink에서는_본문이_흰_바탕_검정_글씨로'));
     return "#000000";
   }
   // Default body text color for the writing pane (not selection formatting).
@@ -28739,7 +28924,7 @@ function applyPageInk(color, options = {}) {
     document.body.style.removeProperty("--page-ink");
     paintPageInkOnEditors("");
     syncPageInkUi(themeDefaultInk());
-    if (options.announce) toast("기본 글자색을 테마 기본으로 돌렸어요.");
+    if (options.announce) toast(i18n.t('app.기본_글자색을_테마_기본으로_돌렸어요'));
     return themeDefaultInk();
   }
   if (!next.startsWith("#")) next = `#${next}`;
@@ -28751,7 +28936,7 @@ function applyPageInk(color, options = {}) {
   document.body.style.setProperty("--page-ink", next);
   paintPageInkOnEditors(next);
   syncPageInkUi(next);
-  if (options.announce) toast("본문 기본 글자색을 바꿨어요.");
+  if (options.announce) toast(i18n.t('app.본문_기본_글자색을_바꿨어요'));
   return next;
 }
 
@@ -28802,7 +28987,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
   if (normalizeUiThemeId(getUiTheme()) === "eink") {
     lockEinkEditorPaper();
     if (options.announce || options.fromUser) {
-      toast("E ink에서는 편집기가 흰 바탕·검정 글씨로 고정돼요.");
+      toast(i18n.t('app.E_ink에서는_편집기가_흰_바탕_검정_글씨'));
     }
     return;
   }
@@ -28814,7 +28999,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
   const persistGlobal = options.persistGlobal !== false && !(fromUser && scope === "scene");
 
   if (fromUser && scope === "scene" && !state.sceneId) {
-    toast("현재 회차에만 적용하려면 먼저 회차를 열어 주세요.");
+    toast(i18n.t('app.현재_회차에만_적용하려면_먼저_회차를_열어'));
     return;
   }
 
@@ -28853,7 +29038,7 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
 
   if (fromUser && scope === "scene" && state.sceneId) {
     setScenePageTheme(state.sceneId, next, customColor);
-    if (announce) toast("현재 회차에만 페이지 색을 적용했어요.");
+    if (announce) toast(i18n.t('app.현재_회차에만_페이지_색을_적용했어요'));
     requestAnimationFrame(() => syncManuscriptStatusContrast());
     return;
   }
@@ -28877,8 +29062,8 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
     }
     if (announce) {
       toast(fromUser
-        ? "전체 작품 기본 페이지 색을 바꿨어요."
-        : "본문 페이지 색을 바꿨어요.");
+        ? i18n.t('app.전체_작품_기본_페이지_색을_바꿨어요')
+        : i18n.t('app.본문_페이지_색을_바꿨어요'));
     }
   }
   // 테마를 바꿔도 고대비 설정이 유지되도록 다시 덧씌움.
@@ -29033,7 +29218,7 @@ function ensureFootnoteFooter(editor) {
   footer.setAttribute("data-fn-footer", "1");
   const title = document.createElement("div");
   title.className = "fn-footer-title";
-  title.textContent = "각주";
+  title.textContent = i18n.t('app.각주');
   footer.appendChild(title);
   editor.appendChild(footer);
   return footer;
@@ -29059,18 +29244,18 @@ function buildFootnoteFooterItem(id, num, body, anchorText = "") {
   editBtn.type = "button";
   editBtn.className = "fn-action-btn";
   editBtn.dataset.fnEdit = id;
-  editBtn.title = "각주 수정";
-  editBtn.textContent = "수정";
+  editBtn.title = i18n.t('app.각주_수정');
+  editBtn.textContent = i18n.t('app.수정');
   const delBtn = document.createElement("button");
   delBtn.type = "button";
   delBtn.className = "fn-action-btn fn-action-danger";
   delBtn.dataset.fnDelete = id;
-  delBtn.title = "각주 삭제";
-  delBtn.textContent = "삭제";
+  delBtn.title = i18n.t('app.각주_삭제');
+  delBtn.textContent = i18n.t('app.삭제');
   actions.appendChild(editBtn);
   actions.appendChild(delBtn);
 
-  if (anchorText) item.title = `원문: ${anchorText}`;
+  if (anchorText) item.title = `${i18n.t('app.원문_anchorText', {anchorText: anchorText})}`;
 
   const main = document.createElement("div");
   main.className = "fn-item-main";
@@ -29120,23 +29305,23 @@ function editFootnoteById(fnId) {
   const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
   const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
   if (!ref && !item) {
-    toast("수정할 각주를 찾지 못했어요.");
+    toast(i18n.t('app.수정할_각주를_찾지_못했어요'));
     return;
   }
   const current = getFootnoteNoteText(editor, fnId);
   const num = ref?.dataset.fnNum || item?.dataset.fnNum || "?";
   promptText({
-    title: `각주 ${num} 수정`,
-    message: `각주 ${num} 내용을 수정하세요.`,
-    label: "각주 내용",
+    title: `${i18n.t('app.각주_num_수정', {num: num})}`,
+    message: `${i18n.t('app.각주_num_내용을_수정하세요', {num: num})}`,
+    label: i18n.t('app.각주_내용'),
     defaultValue: current,
     maxlength: 2000,
-    confirmLabel: "저장",
+    confirmLabel: i18n.t('app.저장'),
   }).then((next) => {
     if (next === null) return;
     const body = next.trim();
     if (!body) {
-      toast("각주 내용이 비어 있어요. 삭제하려면 삭제를 이용해 주세요.");
+      toast(i18n.t('app.각주_내용이_비어_있어요_삭제하려면_삭제를'));
       return;
     }
     if (ref) ref.title = body;
@@ -29146,7 +29331,7 @@ function editFootnoteById(fnId) {
     }
     updateEditorPlaceholder(editor);
     markEditorContentDirty(editor);
-    toast(`각주 ${num}을(를) 수정했어요.`);
+    toast(`${i18n.t('app.각주_num_을_를_수정했어요', {num: num})}`);
   }).catch(handleError);
 }
 
@@ -29156,19 +29341,19 @@ function deleteFootnoteById(fnId, options = {}) {
   const ref = editor.querySelector(`sup.fn-ref[data-fn-id="${fnEscapeId(fnId)}"]`);
   const item = editor.querySelector(`.fn-item[data-fn-id="${fnEscapeId(fnId)}"]`);
   if (!ref && !item) {
-    toast("삭제할 각주를 찾지 못했어요.");
+    toast(i18n.t('app.삭제할_각주를_찾지_못했어요'));
     return;
   }
   const num = ref?.dataset.fnNum || item?.dataset.fnNum || "";
   if (options.confirm !== false) {
-    if (!window.confirm(num ? `각주 ${num}을(를) 삭제할까요?` : "이 각주를 삭제할까요?")) return;
+    if (!window.confirm(num ? `${i18n.t('app.각주_num_을_를_삭제할까요', {num: num})}` : i18n.t('app.이_각주를_삭제할까요'))) return;
   }
   ref?.remove();
   item?.remove();
   renumberFootnotesInEditor(editor);
   updateEditorPlaceholder(editor);
   markEditorContentDirty(editor);
-  toast(num ? `각주 ${num}을(를) 삭제했어요.` : "각주를 삭제했어요.");
+  toast(num ? `${i18n.t('app.각주_num_을_를_삭제했어요', {num: num})}` : i18n.t('app.각주를_삭제했어요'));
 }
 
 function findFootnoteIdFromEventTarget(target) {
@@ -29181,7 +29366,7 @@ function addFootnoteFromSelection() {
   if (!editor) return;
   const isSettings = editor.id === "synopsisContent" || editor.id === "synopsisContentB";
   if (!isSettings && !state.sceneId) {
-    toast("각주를 달려면 먼저 씬을 열어 주세요.");
+    toast(i18n.t('app.각주를_달려면_먼저_씬을_열어_주세요'));
     return;
   }
   editor.focus();
@@ -29194,7 +29379,7 @@ function addFootnoteFromSelection() {
   }
   if (!range && manuscriptContextRange) range = manuscriptContextRange;
   if (!range) {
-    toast("각주를 달 위치를 선택한 뒤 다시 시도해 주세요.");
+    toast(i18n.t('app.각주를_달_위치를_선택한_뒤_다시_시도해_주'));
     return;
   }
   // Don't place footnotes inside the footer block.
@@ -29203,7 +29388,7 @@ function addFootnoteFromSelection() {
     return Boolean(el?.closest?.(".fn-footer"));
   };
   if (inFooter(range.commonAncestorContainer) || inFooter(range.startContainer)) {
-    toast("각주 영역에는 각주를 달 수 없어요. 본문에서 선택해 주세요.");
+    toast(i18n.t('app.각주_영역에는_각주를_달_수_없어요_본문에서'));
     return;
   }
 
@@ -29211,19 +29396,19 @@ function addFootnoteFromSelection() {
   // Preserve insert point before modal steals focus (Electron has no window.prompt).
   const savedRange = range.cloneRange();
   promptText({
-    title: "각주 달기",
+    title: i18n.t('app.각주_달기'),
     message: anchorText
       ? `「${anchorText.length > 40 ? `${anchorText.slice(0, 40)}…` : anchorText}」에 달 각주 내용을 적어 주세요.`
-      : "각주 내용을 적어 주세요.",
-    label: "각주 내용",
+      : i18n.t('app.각주_내용을_적어_주세요'),
+    label: i18n.t('app.각주_내용'),
     defaultValue: "",
     maxlength: 2000,
-    confirmLabel: "달기",
+    confirmLabel: i18n.t('app.달기'),
   }).then((note) => {
     if (note === null) return;
     const body = note.trim();
     if (!body) {
-      toast("각주 내용이 비어 있어요.");
+      toast(i18n.t('app.각주_내용이_비어_있어요'));
       return;
     }
     if (!editor.isConnected || !document.body.contains(editor)) return;
@@ -29267,7 +29452,7 @@ function addFootnoteFromSelection() {
       updateSceneStats();
       markSceneDirty();
     }
-    toast(`각주 ${num}을(를) 달았어요.`);
+    toast(`${i18n.t('app.각주_num_을_를_달았어요', {num: num})}`);
   }).catch(handleError);
 }
 
@@ -29437,7 +29622,7 @@ function cutSelectionFromContextMenu() {
   } catch (_) {
     ok = false;
   }
-  if (!ok) toast("잘라내기를 지원하지 않는 환경이에요. Ctrl+X를 사용해 주세요.");
+  if (!ok) toast(i18n.t('app.잘라내기를_지원하지_않는_환경이에요_Ctrl'));
   markManuscriptEditorDirty(editor);
 }
 
@@ -29452,7 +29637,7 @@ function copySelectionFromContextMenu() {
   } catch (_) {
     ok = false;
   }
-  if (!ok) toast("복사를 지원하지 않는 환경이에요. Ctrl+C를 사용해 주세요.");
+  if (!ok) toast(i18n.t('app.복사를_지원하지_않는_환경이에요_Ctrl_C'));
 }
 
 /** 붙여넣기 옵션: null = 원본 서식 유지(기본) · "merge" = 서식 병합 · "text" = 텍스트만 유지 */
@@ -29636,7 +29821,7 @@ async function triggerContextPaste(mode = null) {
     const text = await navigator.clipboard.readText();
     insertPlainTextAtManuscriptContext(text, editor);
   } catch (_) {
-    toast("붙여넣기를 사용할 수 없어요. Ctrl+V를 사용해 주세요.");
+    toast(i18n.t('app.붙여넣기를_사용할_수_없어요_Ctrl_V를'));
   }
 }
 
@@ -29678,12 +29863,12 @@ function copyFormatFromSelection() {
   restoreManuscriptContextRange(editor);
   const selection = window.getSelection();
   if (!selection || selection.isCollapsed) {
-    toast("서식을 복사하려면 먼저 문장을 드래그로 선택하세요.");
+    toast(i18n.t('app.서식을_복사하려면_먼저_문장을_드래그로_선택'));
     return;
   }
   formatPainterSnapshot = captureFormatPainterSnapshot(editor);
   setFormatPainterArmed(editor, true);
-  toast("서식을 복사했어요. 붙일 문장을 드래그로 선택하면 바로 입혀요. (Esc로 취소)");
+  toast(i18n.t('app.서식을_복사했어요_붙일_문장을_드래그로_선택'));
 }
 
 function applyFormatPainterToSelection(editor) {
@@ -29714,7 +29899,7 @@ function applyFormatPainterToSelection(editor) {
   if (Object.keys(styles).length) wrapSelectionWithSpan(styles);
   markManuscriptEditorDirty(editor);
   updateFormatButtonState();
-  toast("서식을 붙였어요.");
+  toast(i18n.t('app.서식을_붙였어요'));
   return true;
 }
 
@@ -29755,7 +29940,7 @@ function setupDesktopThemeMenu() {
   $("pageThemeScopeScene")?.addEventListener("change", () => {
     if ($("pageThemeScopeScene")?.checked) {
       if (!state.sceneId) {
-        toast("현재 회차에만 적용하려면 먼저 회차를 열어 주세요.");
+        toast(i18n.t('app.현재_회차에만_적용하려면_먼저_회차를_열어'));
         setPageThemeScope("all");
         return;
       }
@@ -29796,8 +29981,8 @@ function setupDesktopThemeMenu() {
       copyFormatItem.disabled = !hasSelection;
       copyFormatItem.style.opacity = hasSelection ? "1" : "0.45";
       copyFormatItem.title = hasSelection
-        ? "선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요"
-        : "먼저 본문에서 서식을 복사할 글을 드래그로 선택하세요";
+        ? i18n.t('app.선택한_글의_서식_글꼴_크기_색_굵기_등_만')
+        : i18n.t('app.먼저_본문에서_서식을_복사할_글을_드래그로');
     }
     // Bookmark current open scene (same system as binder right-click)
     const bmBtn = $("bookmarkSceneMenuItem");
@@ -29811,17 +29996,17 @@ function setupDesktopThemeMenu() {
       bmBtn.disabled = !sceneOk || hasSelection;
       bmBtn.style.opacity = sceneOk && !hasSelection ? "1" : "0.45";
       bmBtn.title = isSettingsDoc
-        ? "설정 문서에서는 회차 북마크를 쓸 수 없어요"
+        ? i18n.t('app.설정_문서에서는_회차_북마크를_쓸_수_없어요')
         : hasSelection
-          ? "선택 문장 메뉴에서는 사용할 수 없어요"
+          ? i18n.t('app.선택_문장_메뉴에서는_사용할_수_없어요')
           : sceneOk
-            ? (already ? "이 회차 북마크를 해제해요" : "상단 색 북마크에 이 회차를 고정해요")
-            : "북마크하려면 먼저 회차를 열어 주세요";
-      if (bmTitle) bmTitle.textContent = already ? "북마크 해제" : "북마크하기";
+            ? (already ? i18n.t('app.이_회차_북마크를_해제해요') : i18n.t('app.상단_색_북마크에_이_회차를_고정해요'))
+            : i18n.t('app.북마크하려면_먼저_회차를_열어_주세요');
+      if (bmTitle) bmTitle.textContent = already ? i18n.t('app.북마크_해제') : i18n.t('app.북마크하기');
       if (bmHint) {
         bmHint.textContent = already
-          ? "상단 북마크 목록에서 이 회차를 빼요"
-          : "상단 색 북마크에 이 회차를 고정해요";
+          ? i18n.t('app.상단_북마크_목록에서_이_회차를_빼요')
+          : i18n.t('app.상단_색_북마크에_이_회차를_고정해요');
       }
     }
     const exportBtn = $("exportSceneMenuItem");
@@ -29829,39 +30014,39 @@ function setupDesktopThemeMenu() {
       exportBtn.disabled = isSettingsDoc || !state.sceneId;
       exportBtn.style.opacity = (!isSettingsDoc && state.sceneId) ? "1" : "0.45";
       exportBtn.title = isSettingsDoc
-        ? "설정 문서에서는 회차 내보내기를 쓸 수 없어요"
-        : "이 회차만 파일로 내려받아요";
+        ? i18n.t('app.설정_문서에서는_회차_내보내기를_쓸_수_없어')
+        : i18n.t('app.이_회차만_파일로_내려받아요');
     }
     const dictItem = $("lookupDictMenuItem");
     if (dictItem) {
       dictItem.disabled = !hasSelection;
       dictItem.title = hasSelection
-        ? `「${pendingBaitQuote.slice(0, 24)}${pendingBaitQuote.length > 24 ? "…" : ""}」 사전 검색`
-        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+        ? `${i18n.t('app.pendingBaitQuote_slice', { pendingBaitQuote: pendingBaitQuote })}`
+        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
       dictItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const similarWordsItem = $("similarWordsMenuItem");
     if (similarWordsItem) {
       similarWordsItem.disabled = !hasSelection;
       similarWordsItem.title = hasSelection
-        ? `「${pendingBaitQuote.slice(0, 24)}${pendingBaitQuote.length > 24 ? "…" : ""}」 유사 표현 찾기`
-        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+        ? `${i18n.t('app.pendingBaitQuote_slice_2', {'pendingBaitQuote.slice(0, 24)': pendingBaitQuote.slice(0, 24), 'pendingBaitQuote.length > 24 ? "…" : ""': pendingBaitQuote.length > 24 ? "…" : ""})}`
+        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
       similarWordsItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const askToryItem = $("askToryMenuItem");
     if (askToryItem) {
       askToryItem.disabled = !hasSelection;
       askToryItem.title = hasSelection
-        ? "선택 문장을 토리 1:1 대화 질문칸에 넣고 팝업으로 열어요"
-        : "먼저 본문에서 단어·문장을 드래그로 선택하세요";
+        ? i18n.t('app.선택_문장을_토리_1_1_대화_질문칸에_넣고')
+        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
       askToryItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const rewriteItem = $("rewriteSentenceMenuItem");
     if (rewriteItem) {
       rewriteItem.disabled = !hasSelection;
       rewriteItem.title = hasSelection
-        ? "토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다."
-        : "먼저 본문에서 다듬을 문장을 드래그로 선택하세요";
+        ? i18n.t('app.토리는_문장을_억지로_다듬지_않아요_이미_충')
+        : i18n.t('app.먼저_본문에서_다듬을_문장을_드래그로_선택하');
       rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const throwItem = $("throwBaitMenuItem");
@@ -29869,12 +30054,12 @@ function setupDesktopThemeMenu() {
       const canBait = hasSelection && Boolean(state.sceneId) && !isSettingsDoc;
       throwItem.disabled = !canBait;
       throwItem.title = isSettingsDoc
-        ? "설정 문서에서는 떡밥 던지기를 쓸 수 없어요"
+        ? i18n.t('app.설정_문서에서는_떡밥_던지기를_쓸_수_없어요')
         : !state.sceneId
-          ? "떡밥을 심을 회차를 먼저 열어 주세요"
+          ? i18n.t('app.떡밥을_심을_회차를_먼저_열어_주세요_2')
           : hasSelection
-            ? "선택 문장을 설정집 떡밥모음에 넣어요"
-            : "먼저 본문에서 문장을 드래그로 선택하세요";
+            ? i18n.t('app.선택_문장을_설정집_떡밥모음에_넣어요')
+            : i18n.t('app.먼저_본문에서_문장을_드래그로_선택하세요');
       throwItem.style.opacity = canBait ? "1" : "0.45";
     }
     const footnoteItem = $("addFootnoteMenuItem");
@@ -29890,10 +30075,10 @@ function setupDesktopThemeMenu() {
       footnoteItem.disabled = !canAdd;
       footnoteItem.style.opacity = canAdd ? "1" : "0.45";
       footnoteItem.title = !sceneOk
-        ? "각주를 달려면 먼저 문서를 열어 주세요"
+        ? i18n.t('app.각주를_달려면_먼저_문서를_열어_주세요')
         : hasSelection
-          ? "선택한 문장에 각주를 답니다"
-          : "선택 위치(또는 드래그한 문장)에 각주를 답니다";
+          ? i18n.t('app.선택한_문장에_각주를_답니다')
+          : i18n.t('app.선택_위치_또는_드래그한_문장_에_각주를_답');
     }
     if (editFnItem) {
       editFnItem.classList.toggle("hidden", !pendingFootnoteId);
@@ -29978,13 +30163,13 @@ function setupDesktopThemeMenu() {
       } else if (action === "bookmark") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
-          toast("북마크하려면 먼저 회차를 열어 주세요.");
+          toast(i18n.t('app.북마크하려면_먼저_회차를_열어_주세요_2'));
           return;
         }
         const title = state.scene?.title
           || $("sceneTitle")?.value
           || getSceneTitleById(state.sceneId)
-          || "원고";
+          || i18n.t('app.원고');
         addOrToggleBookmark({
           type: "scene",
           sceneId: state.sceneId,
@@ -30010,7 +30195,7 @@ function setupDesktopThemeMenu() {
       } else if (action === "insert-image") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
-          toast("이미지를 넣으려면 먼저 씬을 열어 주세요.");
+          toast(i18n.t('app.이미지를_넣으려면_먼저_씬을_열어_주세요'));
           return;
         }
         $("inlineImageFile")?.click();
@@ -30026,13 +30211,13 @@ function setupDesktopThemeMenu() {
         const id = pendingFootnoteId;
         pendingFootnoteId = null;
         if (id) editFootnoteById(id);
-        else toast("수정할 각주를 찾지 못했어요.");
+        else toast(i18n.t('app.수정할_각주를_찾지_못했어요'));
       } else if (action === "delete-footnote") {
         hideDesktopContextMenu();
         const id = pendingFootnoteId;
         pendingFootnoteId = null;
         if (id) deleteFootnoteById(id);
-        else toast("삭제할 각주를 찾지 못했어요.");
+        else toast(i18n.t('app.삭제할_각주를_찾지_못했어요'));
       }
       return;
     }
@@ -30047,7 +30232,7 @@ function setupDesktopThemeMenu() {
     if (next === "ui-theme-default") {
       const def = getUiThemeWritingPageDefault(getUiTheme());
       if (!def) {
-        toast("이 UI 테마에는 지정된 테마색이 없어요.");
+        toast(i18n.t('app.이_UI_테마에는_지정된_테마색이_없어요'));
         return;
       }
       applyDesktopTheme(def.theme, def.customColor, { announce: true, fromUser: true });
@@ -30065,8 +30250,8 @@ function setupDesktopThemeMenu() {
     hideDesktopContextMenu();
     const scope = getPageThemeScope();
     toast(scope === "scene" && state.sceneId
-      ? "현재 회차에만 직접 고른 페이지 색을 적용했어요."
-      : "전체 작품 기본으로 직접 고른 페이지 색을 적용했어요.");
+      ? i18n.t('app.현재_회차에만_직접_고른_페이지_색을_적용했')
+      : i18n.t('app.전체_작품_기본으로_직접_고른_페이지_색을'));
   });
 
   $("pageInkColorPicker")?.addEventListener("input", (event) => {
@@ -30128,7 +30313,7 @@ function placeOverlayNode(stage, overlay) {
   node.style.color = overlay.color || "#24211d";
   node.style.textAlign = overlay.align || "left";
   node.textContent = overlay.text || "";
-  if (!overlay.text) node.dataset.placeholder = "여기에 글을 쓰세요";
+  if (!overlay.text) node.dataset.placeholder = i18n.t('app.여기에_글을_쓰세요');
   stage.appendChild(node);
   enableOverlayInteractions(node, stage);
   return node;
@@ -30200,9 +30385,9 @@ function renderIllustrations() {
 }
 
 async function uploadIllustration(file) {
-  if (!state.sceneId) return toast("먼저 씬을 열어 주세요.");
+  if (!state.sceneId) return toast(i18n.t('app.먼저_씬을_열어_주세요'));
   if (!file) return;
-  if (!file.type.startsWith("image/")) return toast("이미지 파일만 넣을 수 있어요.");
+  if (!file.type.startsWith("image/")) return toast(i18n.t('app.이미지_파일만_넣을_수_있어요'));
   const contentBase64 = await fileToBase64(file);
   const created = await api(`/api/scenes/${state.sceneId}/illustrations`, {
     method: "POST",
@@ -30221,7 +30406,7 @@ async function uploadIllustration(file) {
 async function insertInlineImageFromFile(file) {
   if (!file) return;
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
-  toast("이미지를 넣는 중…");
+  toast(i18n.t('app.이미지를_넣는_중'));
   try {
     let src = "";
     if (editor?.id === "synopsisContent" || !state.sceneId) {
@@ -30230,21 +30415,21 @@ async function insertInlineImageFromFile(file) {
     } else {
       const created = await uploadIllustration(file);
       if (!created?.image_url) {
-        toast("이미지를 넣지 못했어요.");
+        toast(i18n.t('app.이미지를_넣지_못했어요'));
         return;
       }
       src = created.image_url;
     }
     const img = document.createElement("img");
     img.src = src;
-    img.alt = file.name || "본문 이미지";
+    img.alt = file.name || i18n.t('app.본문_이미지');
     img.className = "inline-manuscript-image";
     img.draggable = false;
     img.loading = "lazy";
     insertNodeAtManuscriptContext(img, editor);
     toast(editor?.id === "synopsisContent"
-      ? "설정 문서에 이미지를 넣었어요. 자동 저장됩니다."
-      : "본문에 이미지를 넣었어요. 자동 저장됩니다.");
+      ? i18n.t('app.설정_문서에_이미지를_넣었어요_자동_저장됩니')
+      : i18n.t('app.본문에_이미지를_넣었어요_자동_저장됩니다'));
   } catch (error) {
     handleError(error);
   }
@@ -30254,7 +30439,7 @@ function fileToDataUrl(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => resolve(String(reader.result || ""));
-    reader.onerror = () => reject(new Error("이미지를 읽지 못했어요."));
+    reader.onerror = () => reject(new Error(i18n.t('app.이미지를_읽지_못했어요')));
     reader.readAsDataURL(file);
   });
 }
@@ -30302,13 +30487,13 @@ function upsertProjectSourceFromReference(item) {
   const list = loadSources();
   const kind = item.kind === "file" ? "file" : "link";
   const title = String(item.title || "").trim()
-    || (kind === "file" ? (item.fileName || "파일") : "")
-    || "참고 자료";
+    || (kind === "file" ? (item.fileName || i18n.t('app.파일')) : "")
+    || i18n.t('app.참고_자료');
   const url = kind === "link" ? normalizeSourceUrl(item.url || "") : String(item.url || "").trim();
   const sceneLabel = state.scene?.title || $("sceneTitle")?.value || "";
   const noteBits = [];
   if (item.note) noteBits.push(item.note);
-  if (sceneLabel) noteBits.push(`회차: ${sceneLabel}`);
+  if (sceneLabel) noteBits.push(`${i18n.t('app.회차_sceneLabel', {sceneLabel: sceneLabel})}`);
   const note = noteBits.join(" · ").slice(0, 2000);
 
   let existing = null;
@@ -30386,11 +30571,11 @@ function renderReferenceLinks() {
 
   if (!filtered.length) {
     const emptyMsg = referenceKindFilter === "file"
-      ? "아직 파일이 없어요. + 파일로 PDF·Word·한글·텍스트를 올려 보세요."
+      ? i18n.t('app.아직_파일이_없어요_파일로_PDF_Word')
       : referenceKindFilter === "link"
-        ? "아직 링크가 없어요. + 링크로 주소를 붙여 두세요."
-        : "아직 참고 자료가 없어요. + 링크 또는 + 파일로 추가해 보세요.";
-    list.innerHTML = `<p class="reference-link-empty">${emptyMsg}<br><span class="hint">설정집 참고자료에도 함께 저장됩니다.</span></p>`;
+        ? i18n.t('app.아직_링크가_없어요_링크로_주소를_붙여_두세')
+        : i18n.t('app.아직_참고_자료가_없어요_링크_또는_파일로');
+    list.innerHTML = `${i18n.t('app.p_class_reference_link', {emptyMsg: emptyMsg})}`;
     return;
   }
 
@@ -30400,19 +30585,19 @@ function renderReferenceLinks() {
       const badge = sourceFileKindLabel(ext);
       const canTextExport = item.viewer !== "pdf" && ext !== ".pdf";
       const exportBtn = canTextExport
-        ? `<button type="button" class="secondary" data-role="export-file" data-export-fmt="docx" title="Word로 내보내기">DOCX</button>`
+        ? i18n.t('app.button_type_button_clas_9')
         : "";
       return `
         <div class="reference-link-row is-file" data-link-index="${index}" data-ref-kind="file">
           <span class="reference-kind-pill">${escapeHtml(badge)}</span>
           <div class="reference-row-main">
-            <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="자료 제목" aria-label="파일 제목">
-            <span class="reference-file-name" title="${escapeHtml(item.fileName || "")}">${escapeHtml(item.fileName || "파일")}</span>
+            <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="${i18n.t('app.자료_제목')}" aria-label="${i18n.t('app.파일_제목')}">
+            <span class="reference-file-name" title="${escapeHtml(item.fileName || "")}">${escapeHtml(item.fileName || i18n.t('app.파일'))}</span>
           </div>
           <div class="reference-row-actions">
-            <button type="button" class="primary" data-role="open-file" title="옆에 펼쳐 보기">펼치기</button>
+            <button type="button" class="primary" data-role="open-file" title="${i18n.t('app.옆에_펼쳐_보기')}">펼치기</button>
             ${exportBtn}
-            <button type="button" class="secondary" data-role="remove-link" title="이 회차에서 제거">삭제</button>
+            <button type="button" class="secondary" data-role="remove-link" title="${i18n.t('app.이_회차에서_제거')}">삭제</button>
           </div>
         </div>`;
     }
@@ -30420,12 +30605,12 @@ function renderReferenceLinks() {
       <div class="reference-link-row is-link" data-link-index="${index}" data-ref-kind="link">
         <span class="reference-kind-pill">링크</span>
         <div class="reference-row-main">
-          <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="제목" aria-label="링크 제목">
-          <input data-role="link-url" value="${escapeHtml(item.url || "")}" placeholder="https://..." aria-label="링크 주소">
+          <input data-role="link-title" value="${escapeHtml(item.title || "")}" placeholder="${i18n.t('app.제목')}" aria-label="${i18n.t('app.링크_제목')}">
+          <input data-role="link-url" value="${escapeHtml(item.url || "")}" placeholder="https://..." aria-label="${i18n.t('app.링크_주소')}">
         </div>
         <div class="reference-row-actions">
           <a class="link-open secondary" href="${escapeHtml(item.url || "#")}" target="_blank" rel="noopener noreferrer" ${item.url ? "" : "tabindex='-1' aria-disabled='true'"}>열기</a>
-          <button type="button" class="secondary" data-role="remove-link" title="이 회차에서 제거">삭제</button>
+          <button type="button" class="secondary" data-role="remove-link" title="${i18n.t('app.이_회차에서_제거')}">삭제</button>
         </div>
       </div>`;
   }).join("");
@@ -30459,13 +30644,13 @@ function renderReferenceLinks() {
     row.querySelector('[data-role="open-file"]')?.addEventListener("click", () => {
       const item = state.referenceLinks[index];
       const sid = item?.sourceId;
-      if (!sid) return toast("파일 본문을 찾지 못했어요. 설정집에서 다시 올려 주세요.");
+      if (!sid) return toast(i18n.t('app.파일_본문을_찾지_못했어요_설정집에서_다시'));
       openSourceFileInSplit(sid, "split").catch(handleError);
     });
     row.querySelector('[data-role="export-file"]')?.addEventListener("click", () => {
       const item = state.referenceLinks[index];
       const sid = item?.sourceId;
-      if (!sid) return toast("파일 본문을 찾지 못했어요.");
+      if (!sid) return toast(i18n.t('app.파일_본문을_찾지_못했어요'));
       const fmt = row.querySelector('[data-role="export-file"]')?.dataset?.exportFmt || "docx";
       exportSourceById(sid, fmt).catch(handleError);
     });
@@ -30474,7 +30659,7 @@ function renderReferenceLinks() {
       state.referenceLinks.splice(index, 1);
       renderReferenceLinks();
       markSceneDirty();
-      toast("이 회차 참고 자료에서 뺐어요. 설정집 참고자료에는 그대로 있습니다.");
+      toast(i18n.t('app.이_회차_참고_자료에서_뺐어요_설정집_참고자'));
     });
   });
 }
@@ -30487,7 +30672,7 @@ function collectReferenceLinksFromState() {
         return {
           id: item.id || newLinkId(),
           kind: "file",
-          title: item.title || item.fileName || "파일",
+          title: item.title || item.fileName || i18n.t('app.파일'),
           url: item.url || "",
           sourceId: item.sourceId || "",
           fileName: item.fileName || "",
@@ -30535,18 +30720,18 @@ function addReferenceLink() {
 
 async function addReferenceFileFromPicker(file) {
   if (!file) return;
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!state.sceneId) return toast("회차를 연 뒤 참고 자료를 추가해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!state.sceneId) return toast(i18n.t('app.회차를_연_뒤_참고_자료를_추가해_주세요'));
 
   const ext = sourceFileExt(file.name);
   if (!SOURCE_FILE_EXTS.has(ext)) {
-    return toast("지원 형식: PDF, DOCX, HWP/HWPX, TXT, MD, RTF, ODT");
+    return toast(i18n.t('app.지원_형식_PDF_DOCX_HWP_HWPX'));
   }
   if (file.size > SOURCE_FILE_MAX_BYTES) {
-    return toast(`파일이 너무 커요. ${SOURCE_FILE_MAX_BYTES / (1024 * 1024)}MB 이하만 올려 주세요.`);
+    return toast(`${i18n.t('app.파일이_너무_커요_SOURCE_FILE_MA', {'SOURCE_FILE_MAX_BYTES / (1024 * 1024)': SOURCE_FILE_MAX_BYTES / (1024 * 1024)})}`);
   }
 
-  const stem = String(file.name || "").replace(/\.[^.]+$/, "").trim() || "파일";
+  const stem = String(file.name || "").replace(/\.[^.]+$/, "").trim() || i18n.t('app.파일');
   const mime = file.type
     || (ext === ".pdf" ? "application/pdf"
       : ext === ".docx" ? "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
@@ -30563,7 +30748,7 @@ async function addReferenceFileFromPicker(file) {
     textContent = new TextDecoder("utf-8").decode(buffer);
     viewer = "text";
   } else if (ext === ".doc") {
-    throw new Error("옛 Word(.doc)는 DOCX로 저장한 뒤 올려 주세요.");
+    throw new Error(i18n.t('app.옛_Word_doc_는_DOCX로_저장한_뒤'));
   } else {
     try {
       const extracted = await extractReferenceTextFromFile(file, buffer);
@@ -30571,10 +30756,10 @@ async function addReferenceFileFromPicker(file) {
       viewer = extracted.viewer === "pdf" ? "pdf" : "text";
       warnings = Array.isArray(extracted.warnings) ? extracted.warnings : [];
       if (!textContent && viewer === "text") {
-        throw new Error(warnings[0] || "파일에서 글자를 꺼내지 못했어요.");
+        throw new Error(warnings[0] || i18n.t('app.파일에서_글자를_꺼내지_못했어요'));
       }
     } catch (err) {
-      throw err instanceof Error ? err : new Error(String(err || "파일 처리 실패"));
+      throw err instanceof Error ? err : new Error(String(err || i18n.t('app.파일_처리_실패')));
     }
   }
 
@@ -30606,7 +30791,7 @@ async function addReferenceFileFromPicker(file) {
   referenceKindFilter = referenceKindFilter === "link" ? "all" : referenceKindFilter;
   renderReferenceLinks();
   markSceneDirty();
-  toast("파일을 참고 자료에 넣었어요. 설정집에도 함께 저장됐습니다.");
+  toast(i18n.t('app.파일을_참고_자료에_넣었어요_설정집에도_함께'));
 }
 
 function setupReferenceLinks() {
@@ -30748,10 +30933,10 @@ function setupNarrowLayoutAutoCollapse() {
 }
 
 const TOOL_PANEL_TITLES = {
-  notes: "작가 메모",
-  characters: "등장 인물",
-  links: "참고 자료",
-  spellcheck: "철자 · 맞춤법",
+  notes: i18n.t('app.작가_메모'),
+  characters: i18n.t('app.등장_인물'),
+  links: i18n.t('app.참고_자료'),
+  spellcheck: i18n.t('app.철자_맞춤법'),
 };
 
 function getAuthorNotesText() {
@@ -30775,8 +30960,8 @@ function updateAuthorNotesBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "작가 메모";
-      chip.setAttribute("aria-label", "작가 메모");
+      chip.title = i18n.t('app.작가_메모');
+      chip.setAttribute("aria-label", i18n.t('app.작가_메모'));
     }
     return;
   }
@@ -30785,16 +30970,16 @@ function updateAuthorNotesBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "작가 메모";
-      chip.setAttribute("aria-label", "작가 메모");
+      chip.title = i18n.t('app.작가_메모');
+      chip.setAttribute("aria-label", i18n.t('app.작가_메모'));
     }
     return;
   }
   badge.textContent = lines > 99 ? "99+" : String(lines);
   badge.classList.remove("hidden");
   if (chip) {
-    chip.title = `작가 메모 · ${lines}줄`;
-    chip.setAttribute("aria-label", `작가 메모 ${lines}줄`);
+    chip.title = `${i18n.t('app.작가_메모_lines_줄', {lines: lines})}`;
+    chip.setAttribute("aria-label", `${i18n.t('app.작가_메모_lines_줄_2', {lines: lines})}`);
   }
 }
 
@@ -30821,8 +31006,8 @@ function updateReferenceMaterialsBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "참고 자료 (링크·파일)";
-      chip.setAttribute("aria-label", "참고 자료");
+      chip.title = i18n.t('app.참고_자료_링크_파일');
+      chip.setAttribute("aria-label", i18n.t('app.참고_자료'));
     }
     return;
   }
@@ -30831,16 +31016,16 @@ function updateReferenceMaterialsBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "참고 자료 (링크·파일)";
-      chip.setAttribute("aria-label", "참고 자료");
+      chip.title = i18n.t('app.참고_자료_링크_파일');
+      chip.setAttribute("aria-label", i18n.t('app.참고_자료'));
     }
     return;
   }
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.classList.remove("hidden");
   if (chip) {
-    chip.title = `참고 자료 · ${n}개`;
-    chip.setAttribute("aria-label", `참고 자료 ${n}개`);
+    chip.title = `${i18n.t('app.참고_자료_n_개', {n: n})}`;
+    chip.setAttribute("aria-label", `${i18n.t('app.참고_자료_n_개_2', {n: n})}`);
   }
 }
 
@@ -30950,7 +31135,7 @@ function openSceneToolsDrawer(toolKey) {
   const drawer = $("sceneToolsDrawer");
   if (!drawer) return;
   if (!state.sceneId) {
-    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
   // Toggle closed if same panel is already open.
@@ -30969,7 +31154,7 @@ function openSceneToolsDrawer(toolKey) {
     chip.classList.toggle("is-active", chip.dataset.toolsAction === toolKey);
   });
   if ($("sceneToolsDrawerTitle")) {
-    $("sceneToolsDrawerTitle").textContent = TOOL_PANEL_TITLES[toolKey] || "기능";
+    $("sceneToolsDrawerTitle").textContent = TOOL_PANEL_TITLES[toolKey] || i18n.t('app.기능');
   }
   // Author notes popup: focus field when opened.
   if (toolKey === "notes") {
@@ -31023,21 +31208,21 @@ function applyFocusWriteFullscreen(on, { persist = true } = {}) {
   if (head) head.style.removeProperty("padding-right");
   if (btn) {
     btn.setAttribute("aria-pressed", enabled ? "true" : "false");
-    btn.textContent = enabled ? "창 모드" : "전체보기";
+    btn.textContent = enabled ? i18n.t('app.창_모드') : i18n.t('app.전체보기');
     btn.title = enabled
-      ? "큰 창 크기로 돌아가기 (F11)"
-      : "화면 전체를 쓰는 집중 모드 (F11)";
+      ? i18n.t('app.큰_창_크기로_돌아가기_F11')
+      : i18n.t('app.화면_전체를_쓰는_집중_모드_F11');
   }
   if (persist) saveFocusWriteFullscreen(enabled);
 }
 
 function openFocusWrite() {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive()) {
-    toast("스프린트 중에는 원고 화면에서 써 주세요.");
+    toast(i18n.t('app.스프린트_중에는_원고_화면에서_써_주세요'));
     return;
   }
   if (!state.sceneId) {
-    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
   const modal = $("focusWriteModal");
@@ -31047,8 +31232,8 @@ function openFocusWrite() {
 
   const title = $("sceneTitle")?.value?.trim()
     || state.scene?.title
-    || "본문";
-  if ($("focusWriteTitle")) $("focusWriteTitle").textContent = title || "큰 창";
+    || i18n.t('app.본문');
+  if ($("focusWriteTitle")) $("focusWriteTitle").textContent = title || i18n.t('app.큰_창');
   if ($("focusWriteSaveInfo")) $("focusWriteSaveInfo").textContent = "";
 
   focusEd.innerHTML = mainEd.innerHTML || "";
@@ -31119,7 +31304,7 @@ function setupFocusWrite() {
       updateSceneStats();
       markSceneDirty();
       if ($("focusWriteSaveInfo") && sceneDirty) {
-        $("focusWriteSaveInfo").textContent = "저장 대기…";
+        $("focusWriteSaveInfo").textContent = i18n.t('app.저장_대기');
       }
     });
   }
@@ -31131,7 +31316,7 @@ function setupFocusWrite() {
   $("focusWriteFullscreenButton")?.addEventListener("click", () => {
     if (!isFocusWriteOpen()) return;
     applyFocusWriteFullscreen(!isFocusWriteFullscreen());
-    toast(isFocusWriteFullscreen() ? "전체보기로 전환했어요." : "창 모드로 돌아왔어요.");
+    toast(isFocusWriteFullscreen() ? i18n.t('app.전체보기로_전환했어요') : i18n.t('app.창_모드로_돌아왔어요'));
   });
 
   $("focusWriteSplitButton")?.addEventListener("click", (event) => {
@@ -31139,7 +31324,7 @@ function setupFocusWrite() {
     event.stopPropagation();
     if (!isFocusWriteOpen()) return;
     if (!state.sceneId) {
-      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
       return;
     }
     // Open explicitly (don't toggle-close on the same gesture that opened)
@@ -31163,7 +31348,7 @@ function setupFocusWrite() {
     if (event.key === "F11" && isFocusWriteOpen()) {
       event.preventDefault();
       applyFocusWriteFullscreen(!isFocusWriteFullscreen());
-      toast(isFocusWriteFullscreen() ? "전체보기 (F11)" : "창 모드 (F11)");
+      toast(isFocusWriteFullscreen() ? i18n.t('app.전체보기_F11') : i18n.t('app.창_모드_F11'));
       return;
     }
 
@@ -31222,10 +31407,10 @@ const VIEWER_MODE_KEY = "supertory.viewerMode";
 const VIEWER_SETTINGS_KEY = "supertory.viewerSettings";
 const VIEWER_MODES = ["pdf", "book", "phone", "eink"];
 const VIEWER_MODE_META = {
-  pdf: { label: "PDF", hint: "A4 비율 고정 · 크기로 확대/축소 · 스크롤로 다음 장 · 편집 불가" },
-  book: { label: "종이책", hint: "펼친 양면 · 장 넘김 · 책 크기 조절 · 스크롤 없음 · 편집 불가" },
-  phone: { label: "핸드폰", hint: "책 넘김 또는 스크롤 · 글자·바탕·크기 조절 · 편집 불가" },
-  eink: { label: "리더기", hint: "책 넘김 또는 스크롤 · 글자·크기 조절 · 편집 불가" },
+  pdf: { label: "PDF", hint: i18n.t('app.A4_비율_고정_크기로_확대_축소_스크롤로') },
+  book: { label: i18n.t('app.종이책'), hint: i18n.t('app.펼친_양면_장_넘김_책_크기_조절_스크롤_없') },
+  phone: { label: i18n.t('app.핸드폰'), hint: i18n.t('app.책_넘김_또는_스크롤_글자_바탕_크기_조절') },
+  eink: { label: i18n.t('app.리더기'), hint: i18n.t('app.책_넘김_또는_스크롤_글자_크기_조절_편집') },
 };
 // A4 @ 96dpi = 210×297mm → 794 × 1123 px (logical page; scale only zooms display)
 const A4_WIDTH_PX = 794;
@@ -31319,6 +31504,10 @@ let viewerTocOpen = false;
 /** sceneId → normalized HTML (other scenes only; current always from editor) */
 const viewerEpisodeCache = new Map();
 let viewerLoadToken = 0;
+/** Eager-load all episodes below this count; progressive batches above it. */
+const VIEWER_FULL_EAGER_MAX = 100;
+const VIEWER_FULL_BATCH_SIZE = 8;
+const VIEWER_EPISODE_BREAK = `<div class="viewer-episode-break" aria-hidden="true"></div>`;
 /** After book re-layout, jump to this scene id if set */
 let viewerPendingJumpSceneId = null;
 /** PDF / phone / e-ink discrete pages (HTML per leaf). */
@@ -31329,6 +31518,13 @@ let devicePageLayoutTimer = null;
 let devicePageMetrics = { padY: 24, padX: 24, fontPx: 14, lineHeight: 1.8 };
 /** When true, ignore scroll→index sync (programmatic jump). */
 let devicePageScrollLock = false;
+/** Cancels in-flight incremental page layout (independent of HTML fetch token). */
+let viewerPageLayoutToken = 0;
+/** Document-order slots: { sceneId, html, pages: string[]|null }. */
+let viewerEpisodePageSlots = [];
+let viewerPageMetricsKey = "";
+/** Keep the on-screen scene/page while earlier episodes are prepended. */
+let viewerViewAnchor = null;
 
 function isViewerOpen() {
   return Boolean($("viewerModal") && !$("viewerModal").classList.contains("hidden"));
@@ -31347,8 +31543,8 @@ function normalizeViewerHtml(raw) {
 }
 
 function getViewerEpisodeLabel(ep) {
-  if (!ep) return "본문";
-  return formatEpisodeNavLabel(ep, ep.label || ep.shortLabel || `${ep.index || ""}화`);
+  if (!ep) return i18n.t('app.본문');
+  return formatEpisodeNavLabel(ep, ep.label || ep.shortLabel || `${i18n.t('app.ep_index_화_3', {'ep.index || ""': ep.index || ""})}`);
 }
 
 function wrapViewerEpisode(ep, bodyHtml, { showTitle = true } = {}) {
@@ -31359,8 +31555,32 @@ function wrapViewerEpisode(ep, bodyHtml, { showTitle = true } = {}) {
     : `<span class="viewer-episode-anchor" data-viewer-scene="${id}" id="viewer-episode-${id}" hidden></span>`;
   const body = (bodyHtml && String(bodyHtml).trim())
     ? bodyHtml
-    : `<p class="viewer-empty-scene">（본문 없음）</p>`;
+    : i18n.t('app.p_class_viewer_empty_sc');
   return `<section class="viewer-episode" data-viewer-scene="${id}">${titleBlock}<div class="viewer-episode-body">${body}</div></section>`;
+}
+
+let viewerPerf = null;
+
+function resetViewerPerf() {
+  viewerPerf = {
+    fetchMs: 0,
+    fetchN: 0,
+    netN: 0,
+    cacheN: 0,
+    liveEditorN: 0,
+    paginateMs: 0,
+    overflowChecks: 0,
+    pages: 0,
+    htmlChars: 0,
+    layoutName: "",
+    mode: "",
+    layoutDone: false,
+  };
+  try { window.__viewerPerf = viewerPerf; } catch (_) { /* ignore */ }
+}
+
+function publishViewerPerf() {
+  try { window.__viewerPerf = viewerPerf; } catch (_) { /* ignore */ }
 }
 
 async function fetchViewerEpisodeHtml(sceneId) {
@@ -31368,13 +31588,75 @@ async function fetchViewerEpisodeHtml(sceneId) {
   if (!Number.isFinite(id) || id <= 0) return "";
   // Always use live editor for the open scene (unsaved edits included).
   if (id === Number(state.sceneId)) {
+    if (viewerPerf) viewerPerf.liveEditorN += 1;
     return normalizeViewerHtml(getEditorContent() || $("sceneContent")?.innerHTML || "");
   }
-  if (viewerEpisodeCache.has(id)) return viewerEpisodeCache.get(id);
+  if (viewerEpisodeCache.has(id)) {
+    if (viewerPerf) viewerPerf.cacheN += 1;
+    return viewerEpisodeCache.get(id);
+  }
+  if (viewerPerf) viewerPerf.netN += 1;
   const detail = await api(`/api/scenes/${id}`);
   const html = normalizeViewerHtml(detail?.content_md || "");
   viewerEpisodeCache.set(id, html);
   return html;
+}
+
+async function fetchWrappedEpisode(ep, { showTitle = true } = {}) {
+  try {
+    const html = await fetchViewerEpisodeHtml(ep.sceneId);
+    return wrapViewerEpisode(ep, html, { showTitle });
+  } catch (_) {
+    return wrapViewerEpisode(ep, i18n.t('app.p_class_viewer_empty_sc_2'), { showTitle });
+  }
+}
+
+async function fetchEpisodeParts(episodes, { showTitle = true } = {}) {
+  const list = episodes || [];
+  console.time("viewer:fetchEpisodeParts");
+  const t0 = performance.now();
+  try {
+    return await Promise.all(list.map((ep) => fetchWrappedEpisode(ep, { showTitle })));
+  } finally {
+    const ms = performance.now() - t0;
+    console.timeEnd("viewer:fetchEpisodeParts");
+    if (viewerPerf) {
+      viewerPerf.fetchMs += ms;
+      viewerPerf.fetchN += list.length;
+      publishViewerPerf();
+    }
+  }
+}
+
+function joinViewerEpisodeParts(parts) {
+  return (parts || []).filter(Boolean).join(VIEWER_EPISODE_BREAK);
+}
+
+function isCurrentViewerLoad(token) {
+  return token === viewerLoadToken && isViewerOpen() && viewerScope === "full";
+}
+
+function yieldViewerFullLoad() {
+  return new Promise((resolve) => {
+    if (typeof requestIdleCallback === "function") {
+      requestIdleCallback(() => resolve(), { timeout: 120 });
+    } else {
+      setTimeout(resolve, 16);
+    }
+  });
+}
+
+function scheduleViewerFullRelayout({ jumpId = null, resetBook = false } = {}) {
+  if (jumpId) viewerPendingJumpSceneId = jumpId;
+  const mode = viewerSettings.mode;
+  if (mode === "book") {
+    scheduleBookPageLayout({ resetPage: resetBook && !jumpId });
+  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
+    if (jumpId) viewerPendingJumpSceneId = jumpId;
+    scheduleDevicePageLayout({ resetPage: resetBook && !jumpId });
+  } else if (jumpId) {
+    requestAnimationFrame(() => jumpViewerToScene(jumpId));
+  }
 }
 
 async function buildViewerBodyHtml(scope) {
@@ -31384,24 +31666,17 @@ async function buildViewerBodyHtml(scope) {
       || {
         sceneId: Number(state.sceneId),
         index: 1,
-        label: $("sceneTitle")?.value?.trim() || state.scene?.title || "본문",
-        shortLabel: $("sceneTitle")?.value?.trim() || state.scene?.title || "본문",
+        label: $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문'),
+        shortLabel: $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문'),
       };
     const html = normalizeViewerHtml(getEditorContent() || $("sceneContent")?.innerHTML || "");
     return wrapViewerEpisode(ep, html, { showTitle: false });
   }
   if (!sequence.length) {
-    return `<p class="hint">목차에 회차가 없습니다. 왼쪽 바인더에서 씬을 추가해 주세요.</p>`;
+    return i18n.t('app.p_class_hint_목차에_회차가_없습');
   }
-  const parts = await Promise.all(sequence.map(async (ep) => {
-    try {
-      const html = await fetchViewerEpisodeHtml(ep.sceneId);
-      return wrapViewerEpisode(ep, html, { showTitle: true });
-    } catch (_) {
-      return wrapViewerEpisode(ep, `<p class="viewer-empty-scene">불러오기 실패</p>`, { showTitle: true });
-    }
-  }));
-  return parts.join(`<div class="viewer-episode-break" aria-hidden="true"></div>`);
+  const parts = await fetchEpisodeParts(sequence, { showTitle: true });
+  return joinViewerEpisodeParts(parts);
 }
 
 function syncViewerScopeTabs() {
@@ -31432,14 +31707,14 @@ function renderViewerToc() {
   const sequence = getEpisodeSequence();
   const currentId = Number(state.sceneId) || 0;
   if (!sequence.length) {
-    list.innerHTML = `<p class="hint" style="padding:6px 4px;margin:0">표시할 회차가 없습니다.</p>`;
-    if (hint) hint.textContent = "회차를 누르면 이동합니다";
+    list.innerHTML = i18n.t('app.p_class_hint_style_padd');
+    if (hint) hint.textContent = i18n.t('app.회차를_누르면_이동합니다');
     return;
   }
   if (hint) {
     hint.textContent = viewerScope === "full"
-      ? "회차를 누르면 해당 위치로 이동합니다"
-      : "다른 회차 선택 시 전체 원고로 전환됩니다";
+      ? i18n.t('app.회차를_누르면_해당_위치로_이동합니다')
+      : i18n.t('app.다른_회차_선택_시_전체_원고로_전환됩니다');
   }
   list.innerHTML = sequence.map((ep) => {
     const isCurrent = Number(ep.sceneId) === currentId;
@@ -31506,12 +31781,15 @@ function jumpViewerToScene(sceneId) {
 
   const mode = viewerSettings.mode;
   if (mode === "book") {
-    const idx = findBookSpreadIndexForScene(id);
-    if (idx >= 0) {
-      showBookSpreadInstant(idx);
+    const leaf = findDevicePageIndexForScene(id);
+    if (leaf >= 0) {
+      devicePageIndex = leaf;
+      setViewerViewAnchor(id, viewerSceneAtPageIndex(leaf)?.pageInEpisode || 0);
+      showBookSpreadInstant(Math.floor(leaf / 2));
       return;
     }
     viewerPendingJumpSceneId = id;
+    setViewerViewAnchor(id, 0);
     scheduleBookPageLayout({ resetPage: false });
     return;
   }
@@ -31535,10 +31813,12 @@ function jumpViewerToScene(sceneId) {
   if (mode === "pdf" || ((mode === "phone" || mode === "eink") && isDevicePagedMode(mode))) {
     const idx = findDevicePageIndexForScene(id);
     if (idx >= 0) {
+      setViewerViewAnchor(id, viewerSceneAtPageIndex(idx)?.pageInEpisode || 0);
       showDevicePage(idx, { smooth: true });
       return;
     }
     viewerPendingJumpSceneId = id;
+    setViewerViewAnchor(id, 0);
     scheduleDevicePageLayout({ resetPage: false });
     return;
   }
@@ -31554,18 +31834,132 @@ function jumpViewerToScene(sceneId) {
   }
 }
 
+async function paintViewerBody(html, { token, jumpId = null, resetBook = false, titleN = 0 } = {}) {
+  const body = $("viewerBody");
+  if (!body || token !== viewerLoadToken || !isViewerOpen()) return false;
+  body.innerHTML = html;
+  body.setAttribute("contenteditable", "false");
+  applyEditorWideLineHeight(getStoredLineHeight(), [body]);
+  if (viewerScope === "full") {
+    if ($("viewerTitle")) {
+      $("viewerTitle").textContent = titleN
+        ? `${i18n.t('app.뷰어_전체_원고_n_화', { n: titleN })}`
+        : i18n.t('app.뷰어_전체_원고');
+    }
+  } else {
+    const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
+    if ($("viewerTitle")) $("viewerTitle").textContent = `${i18n.t('app.뷰어_title', { title: title })}`;
+  }
+  renderViewerToc();
+  scheduleViewerFullRelayout({ jumpId, resetBook });
+  return true;
+}
+
+async function applyViewerFullContentProgressive({ token, jumpToSceneId }) {
+  const body = $("viewerBody");
+  const sequence = getEpisodeSequence();
+  if (!body) return;
+  if (!sequence.length) {
+    await paintViewerBody(i18n.t('app.p_class_hint_목차에_회차가_없습'), { token, resetBook: true });
+    return;
+  }
+
+  const wanted = Number(jumpToSceneId) || Number(state.sceneId) || 0;
+  let startIndex = sequence.findIndex((ep) => Number(ep.sceneId) === wanted);
+  if (startIndex < 0) startIndex = 0;
+  const jumpId = Number(sequence[startIndex].sceneId);
+  const total = sequence.length;
+
+  let firstHtml;
+  try {
+    firstHtml = await fetchWrappedEpisode(sequence[startIndex], { showTitle: true });
+  } catch (error) {
+    if (!isCurrentViewerLoad(token)) return;
+    handleError(error);
+    body.innerHTML = i18n.t('app.p_class_hint_원고를_불러오지_못');
+    return;
+  }
+  if (!isCurrentViewerLoad(token)) return;
+  await paintViewerBody(firstHtml, { token, jumpId, resetBook: false, titleN: total });
+  if ($("viewerTocHint")) $("viewerTocHint").textContent = i18n.t('app.불러오는_중');
+
+  let loadedFrom = startIndex;
+  let loadedTo = startIndex;
+
+  const appendBatch = async (episodes) => {
+    const parts = await fetchEpisodeParts(episodes, { showTitle: true });
+    if (!isCurrentViewerLoad(token) || !body.isConnected) return false;
+    const chunk = joinViewerEpisodeParts(parts);
+    if (!chunk) return false;
+    body.insertAdjacentHTML("beforeend", VIEWER_EPISODE_BREAK + chunk);
+    scheduleViewerFullRelayout({ jumpId: 0, resetBook: false });
+    if ($("viewerTocHint")) $("viewerTocHint").textContent = i18n.t('app.불러오는_중');
+    return true;
+  };
+
+  const prependBatch = async (episodes) => {
+    const parts = await fetchEpisodeParts(episodes, { showTitle: true });
+    if (!isCurrentViewerLoad(token) || !body.isConnected) return false;
+    const chunk = joinViewerEpisodeParts(parts);
+    if (!chunk) return false;
+    body.insertAdjacentHTML("afterbegin", chunk + VIEWER_EPISODE_BREAK);
+    scheduleViewerFullRelayout({ jumpId, resetBook: false });
+    if ($("viewerTocHint")) $("viewerTocHint").textContent = i18n.t('app.불러오는_중');
+    return true;
+  };
+
+  while (loadedTo < total - 1) {
+    await yieldViewerFullLoad();
+    if (!isCurrentViewerLoad(token)) return;
+    const next = sequence.slice(loadedTo + 1, loadedTo + 1 + VIEWER_FULL_BATCH_SIZE);
+    if (!next.length) break;
+    await appendBatch(next);
+    loadedTo += next.length;
+  }
+
+  while (loadedFrom > 0) {
+    await yieldViewerFullLoad();
+    if (!isCurrentViewerLoad(token)) return;
+    const from = Math.max(0, loadedFrom - VIEWER_FULL_BATCH_SIZE);
+    const prev = sequence.slice(from, loadedFrom);
+    if (!prev.length) break;
+    await prependBatch(prev);
+    loadedFrom = from;
+  }
+
+  if (!isCurrentViewerLoad(token)) return;
+  if ($("viewerTocHint")) {
+    $("viewerTocHint").textContent = i18n.t('app.회차를_누르면_해당_위치로_이동합니다');
+  }
+}
+
 async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {}) {
   const body = $("viewerBody");
   if (!body || !isViewerOpen()) return;
+  if (bookPageLayoutTimer) {
+    window.clearTimeout(bookPageLayoutTimer);
+    bookPageLayoutTimer = null;
+  }
+  if (devicePageLayoutTimer) {
+    window.clearTimeout(devicePageLayoutTimer);
+    devicePageLayoutTimer = null;
+  }
+  viewerPageLayoutToken += 1;
+  resetViewerPerf();
   const token = ++viewerLoadToken;
   const scope = viewerScope === "full" ? "full" : "scene";
   viewerScope = scope;
   syncViewerScopeTabs();
 
   if (scope === "full") {
-    body.innerHTML = `<p class="hint">전체 원고를 불러오는 중…</p>`;
-    if ($("viewerTitle")) $("viewerTitle").textContent = "뷰어 · 전체 원고";
-    if ($("viewerTocHint")) $("viewerTocHint").textContent = "불러오는 중…";
+    body.innerHTML = i18n.t('app.p_class_hint_전체_원고를_불러오');
+    if ($("viewerTitle")) $("viewerTitle").textContent = i18n.t('app.뷰어_전체_원고');
+    if ($("viewerTocHint")) $("viewerTocHint").textContent = i18n.t('app.불러오는_중');
+    const sequence = getEpisodeSequence();
+    if (sequence.length > VIEWER_FULL_EAGER_MAX) {
+      await applyViewerFullContentProgressive({ token, jumpToSceneId });
+      return;
+    }
   }
 
   let html;
@@ -31574,47 +31968,25 @@ async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {
   } catch (error) {
     if (token !== viewerLoadToken) return;
     handleError(error);
-    body.innerHTML = `<p class="hint">원고를 불러오지 못했습니다.</p>`;
+    body.innerHTML = i18n.t('app.p_class_hint_원고를_불러오지_못');
     return;
   }
   if (token !== viewerLoadToken || !isViewerOpen()) return;
 
-  body.innerHTML = html;
-  body.setAttribute("contenteditable", "false");
-  applyEditorWideLineHeight(getStoredLineHeight(), [body]);
+  const jumpId = jumpToSceneId != null ? Number(jumpToSceneId) : null;
+  const titleN = scope === "full" ? getEpisodeSequence().length : 0;
+  const painted = await paintViewerBody(html, { token, jumpId, resetBook: resetBook && !jumpId, titleN });
+  if (!painted) return;
 
-  if (scope === "full") {
-    const n = getEpisodeSequence().length;
-    if ($("viewerTitle")) $("viewerTitle").textContent = `뷰어 · 전체 원고 (${n}화)`;
-  } else {
-    const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "본문";
-    if ($("viewerTitle")) $("viewerTitle").textContent = `뷰어 · ${title}`;
+  if (scope !== "full" && !jumpId && resetBook) {
+    const stage = $("viewerStage");
+    const scroll = $("viewerScroll");
+    if (stage) stage.scrollTop = 0;
+    if (scroll) scroll.scrollTop = 0;
   }
 
-  renderViewerToc();
-
-  const jumpId = jumpToSceneId != null ? Number(jumpToSceneId) : null;
-  if (jumpId) viewerPendingJumpSceneId = jumpId;
-
-  const mode = viewerSettings.mode;
-  if (mode === "book") {
-    scheduleBookPageLayout({ resetPage: resetBook && !jumpId });
-  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
-    if (jumpId) viewerPendingJumpSceneId = jumpId;
-    scheduleDevicePageLayout({ resetPage: resetBook && !jumpId });
-  } else {
-    if (jumpId) {
-      requestAnimationFrame(() => {
-        if (token !== viewerLoadToken) return;
-        jumpViewerToScene(jumpId);
-        viewerPendingJumpSceneId = null;
-      });
-    } else if (resetBook) {
-      const stage = $("viewerStage");
-      const scroll = $("viewerScroll");
-      if (stage) stage.scrollTop = 0;
-      if (scroll) scroll.scrollTop = 0;
-    }
+  if (scope === "full" && $("viewerTocHint")) {
+    $("viewerTocHint").textContent = i18n.t('app.회차를_누르면_해당_위치로_이동합니다');
   }
 }
 
@@ -31639,6 +32011,15 @@ async function onViewerTocSelect(sceneId) {
   if (viewerScope !== "full") {
     // Jump only works across episodes in full manuscript; switch scope then jump.
     await setViewerScope("full", { jumpToSceneId: id });
+    return;
+  }
+  const body = $("viewerBody");
+  const alreadyLoaded = Boolean(
+    body?.querySelector(`#viewer-episode-${id}`)
+    || body?.querySelector(`[data-viewer-scene="${id}"]`)
+  );
+  if (!alreadyLoaded && getEpisodeSequence().length > VIEWER_FULL_EAGER_MAX) {
+    await applyViewerContent({ jumpToSceneId: id, resetBook: false });
     return;
   }
   jumpViewerToScene(id);
@@ -32054,13 +32435,13 @@ function updateDevicePagerUi() {
   if (mode === "pdf") {
     // PDF: scroll only — hide side nav buttons; show page index in pager + hint
     setViewerBookNavVisible(false);
-    const label = `${devicePageIndex + 1} / ${devicePageCount} 장`;
+    const label = `${i18n.t('app.devicePageIndex_1_devic', {'devicePageIndex + 1': devicePageIndex + 1, devicePageCount: devicePageCount})}`;
     if (pager) {
       pager.textContent = label;
-      pager.title = `A4 ${devicePageCount}장 · 스크롤로 이동`;
+      pager.title = `${i18n.t('app.A4_devicePageCount_장_스크롤', {devicePageCount: devicePageCount})}`;
     }
     if ($("viewerHint")) {
-      $("viewerHint").textContent = `A4 페이지 ${label} · 스크롤 또는 ↓/PgDn`;
+      $("viewerHint").textContent = `${i18n.t('app.A4_페이지_label_스크롤_또는_PgDn', {label: label})}`;
     }
     return;
   }
@@ -32070,25 +32451,25 @@ function updateDevicePagerUi() {
       // 스크롤 다운: 책넘김 버튼 숨김 (휠·터치 스크롤만)
       setViewerBookNavVisible(false);
       if (pager) {
-        pager.textContent = "스크롤";
-        pager.title = "아래로 스크롤하여 읽기";
+        pager.textContent = i18n.t('app.스크롤');
+        pager.title = i18n.t('app.아래로_스크롤하여_읽기');
       }
       const meta = VIEWER_MODE_META[mode] || {};
       if ($("viewerHint")) {
-        $("viewerHint").textContent = `${meta.label || mode} · 스크롤 다운 · 휠·스와이프로 이동`;
+        $("viewerHint").textContent = `${i18n.t('app.meta_label_mode_스크롤_다운', {'meta.label || mode': meta.label || mode})}`;
       }
       return;
     }
     setViewerBookNavVisible(true);
     if (pager) {
       pager.textContent = `${devicePageIndex + 1} / ${devicePageCount}`;
-      pager.title = `페이지 ${devicePageIndex + 1} / ${devicePageCount}`;
+      pager.title = `${i18n.t('app.페이지_devicePageIndex_1_de', {'devicePageIndex + 1': devicePageIndex + 1, devicePageCount: devicePageCount})}`;
     }
     if (prev) prev.disabled = devicePageIndex <= 0;
     if (next) next.disabled = devicePageIndex >= devicePageCount - 1;
     if ($("viewerHint")) {
       const meta = VIEWER_MODE_META[mode] || {};
-      $("viewerHint").textContent = `${meta.label || mode} · 책 넘김 · 휠·버튼·스와이프`;
+      $("viewerHint").textContent = `${i18n.t('app.meta_label_mode_책_넘김_휠', {'meta.label || mode': meta.label || mode})}`;
     }
   }
 }
@@ -32106,77 +32487,297 @@ function scrollDeviceViewport(delta) {
   window.setTimeout(() => updateDevicePagerUi(), 320);
 }
 
-function paintDevicePageStack() {
+function splitViewerEpisodeHtml(html) {
+  const wrap = document.createElement("div");
+  wrap.innerHTML = html || "";
+  const episodes = [];
+  for (const node of [...wrap.childNodes]) {
+    if (node.nodeType === 1 && node.matches?.("section.viewer-episode")) {
+      episodes.push({
+        sceneId: Number(node.getAttribute("data-viewer-scene")) || 0,
+        html: node.outerHTML,
+      });
+    }
+  }
+  if (!episodes.length && String(html || "").trim()) {
+    return [{ sceneId: Number(state.sceneId) || 0, html: String(html || "") }];
+  }
+  return episodes;
+}
+
+function assembleViewerPageSlots() {
+  const pages = [];
+  for (const slot of viewerEpisodePageSlots) {
+    if (!slot || !slot.pages) continue;
+    pages.push(...slot.pages);
+  }
+  return pages.length ? pages : [""];
+}
+
+function viewerSceneAtPageIndex(pageIndex) {
+  let idx = 0;
+  for (const slot of viewerEpisodePageSlots) {
+    if (!slot || !slot.pages) continue;
+    const n = slot.pages.length;
+    if (pageIndex < idx + n) {
+      return { sceneId: Number(slot.sceneId) || 0, pageInEpisode: pageIndex - idx };
+    }
+    idx += n;
+  }
+  return null;
+}
+
+function viewerPageIndexForScene(sceneId, pageInEpisode = 0) {
+  const id = Number(sceneId);
+  let idx = 0;
+  for (const slot of viewerEpisodePageSlots) {
+    if (!slot || !slot.pages) continue;
+    if (Number(slot.sceneId) === id) {
+      const last = Math.max(0, slot.pages.length - 1);
+      return idx + Math.min(Math.max(0, pageInEpisode), last);
+    }
+    idx += slot.pages.length;
+  }
+  return -1;
+}
+
+function setViewerViewAnchor(sceneId, pageInEpisode = 0) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  viewerViewAnchor = {
+    sceneId: id,
+    pageInEpisode: Math.max(0, Number(pageInEpisode) || 0),
+  };
+}
+
+function syncViewerViewAnchorFromIndex(pageIndex = devicePageIndex) {
+  const a = viewerSceneAtPageIndex(pageIndex);
+  if (a && Number(a.sceneId) > 0) viewerViewAnchor = a;
+}
+
+function restoreViewerIndexFromAnchor() {
+  const id = Number(viewerViewAnchor?.sceneId);
+  if (!Number.isFinite(id) || id <= 0) return false;
+  const idx = viewerPageIndexForScene(id, viewerViewAnchor.pageInEpisode || 0);
+  if (idx < 0) return false;
+  devicePageIndex = idx;
+  return true;
+}
+
+function computeViewerPageBox() {
+  const mode = viewerSettings.mode;
+  const scroll = $("viewerScroll");
+  if (mode === "book") {
+    if (vwTooSmall(scroll)) return { retry: true };
+    const vw = scroll.clientWidth;
+    const vh = scroll.clientHeight;
+    if (vw < 80 || vh < 80) return { retry: true };
+    const m = Math.min(64, Math.max(20, Number(viewerSettings.bookMargin) || 36));
+    const fontPx = Math.min(22, Math.max(12, Number(viewerSettings.bookFont) || 15));
+    const lineHeight = clampViewerLineHeight(viewerSettings.bookLineHeight, 1.8);
+    viewerSettings.bookLineHeight = lineHeight;
+    bookPageMetrics = { m, fontPx, lineHeight };
+    const pageW = Math.floor(vw / 2);
+    return {
+      kind: "book",
+      innerW: Math.max(40, pageW - m * 2),
+      innerH: Math.max(40, vh - m * 2),
+      fontPx,
+      lineHeight,
+      fontFamily: "Georgia,'Noto Serif KR','Malgun Gothic',serif",
+    };
+  }
+  if (!isDevicePagedMode(mode)) return null;
+  const body = $("viewerBody");
+  const stack = $("viewerPageStack");
+  if (!body || !stack) return null;
+  let innerW;
+  let innerH;
+  let fontPx;
+  let padX;
+  let padY;
+  let lineHeight = 1.8;
+  if (mode === "pdf") {
+    fontPx = Math.min(22, Math.max(11, Number(viewerSettings.pdfFont) || 14));
+    lineHeight = clampViewerLineHeight(viewerSettings.pdfLineHeight, 1.8);
+    viewerSettings.pdfLineHeight = lineHeight;
+    padX = Math.min(96, Math.max(24, Number(viewerSettings.pdfMargin) || 56));
+    padY = padX;
+    const padT = Math.round(padY * 0.85);
+    const padB = Math.round(padY * 1.1);
+    innerW = Math.max(40, A4_WIDTH_PX - padX * 2);
+    innerH = Math.max(40, A4_HEIGHT_PX - padT - padB);
+  } else if (mode === "phone") {
+    fontPx = Math.min(24, Math.max(12, Number(viewerSettings.phoneFont) || 15));
+    lineHeight = clampViewerLineHeight(viewerSettings.phoneLineHeight, 1.7);
+    viewerSettings.phoneLineHeight = lineHeight;
+    padX = 16;
+    padY = 16;
+    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.phoneW) || 390) - 6);
+    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.phoneH) || 780) - 48);
+    if (vw < 40 || vh < 40) return { retry: true };
+    innerW = Math.max(40, vw - padX * 2);
+    innerH = Math.max(40, vh - padY * 2);
+  } else {
+    fontPx = Math.min(26, Math.max(13, Number(viewerSettings.einkFont) || 17));
+    lineHeight = clampViewerLineHeight(viewerSettings.einkLineHeight, 1.8);
+    viewerSettings.einkLineHeight = lineHeight;
+    padX = 20;
+    padY = 22;
+    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.einkW) || 420) - 4);
+    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.einkH) || 720) - 4);
+    if (vw < 40 || vh < 40) return { retry: true };
+    innerW = Math.max(40, vw - padX * 2);
+    innerH = Math.max(40, vh - padY * 2);
+  }
+  const scalePct = Math.min(120, Math.max(55, Number(viewerSettings.pdfScale) || 90));
+  devicePageMetrics = {
+    padX,
+    padY,
+    fontPx,
+    scale: mode === "pdf" ? scalePct : 100,
+    lineHeight,
+    fontFamily: mode === "pdf"
+      ? '"Malgun Gothic","Noto Serif KR",Georgia,serif'
+      : 'Georgia,"Noto Serif KR","Malgun Gothic",serif',
+  };
+  return {
+    kind: "device",
+    innerW,
+    innerH,
+    fontPx,
+    lineHeight,
+    fontFamily: devicePageMetrics.fontFamily,
+  };
+}
+
+function vwTooSmall(scroll) {
+  return !scroll || scroll.clientWidth < 80 || scroll.clientHeight < 80;
+}
+
+function makePdfSheetWrap(html, pageIndex) {
+  const metrics = devicePageMetrics;
+  const scale = Math.min(120, Math.max(55, Number(metrics.scale) || Number(viewerSettings.pdfScale) || 90)) / 100;
+  const padT = Math.round(metrics.padY * 0.85);
+  const padB = Math.round(metrics.padY * 1.1);
+  const padX = metrics.padX;
+  const wrap = document.createElement("div");
+  wrap.className = "pdf-sheet-wrap";
+  wrap.dataset.pageIndex = String(pageIndex);
+  wrap.style.width = `${Math.round(A4_WIDTH_PX * scale)}px`;
+  wrap.style.height = `${Math.round(A4_HEIGHT_PX * scale)}px`;
+  const sheet = document.createElement("article");
+  sheet.className = "pdf-sheet";
+  sheet.dataset.pageIndex = String(pageIndex);
+  sheet.setAttribute("aria-label", `${i18n.t('app.i_1_페이지', {'i + 1': pageIndex + 1})}`);
+  sheet.style.width = `${A4_WIDTH_PX}px`;
+  sheet.style.height = `${A4_HEIGHT_PX}px`;
+  sheet.style.transform = `scale(${scale})`;
+  sheet.style.transformOrigin = "top left";
+  const inner = document.createElement("div");
+  inner.className = "pdf-sheet-inner";
+  inner.style.padding = `${padT}px ${padX}px ${padB}px ${padX}px`;
+  inner.style.fontSize = `${metrics.fontPx}px`;
+  inner.style.lineHeight = String(metrics.lineHeight || 1.8);
+  inner.innerHTML = html || "";
+  sheet.appendChild(inner);
+  wrap.appendChild(sheet);
+  return wrap;
+}
+
+function makeDeviceSheet(html, pageIndex, { active = false, sheetH = 400 } = {}) {
+  const metrics = devicePageMetrics;
+  const lh = metrics.lineHeight || 1.7;
+  const sheet = document.createElement("article");
+  sheet.className = `device-sheet${active ? " is-active" : ""}`;
+  sheet.dataset.pageIndex = String(pageIndex);
+  sheet.setAttribute("aria-label", `${i18n.t('app.i_1_페이지', {'i + 1': pageIndex + 1})}`);
+  sheet.setAttribute("aria-hidden", active ? "false" : "true");
+  sheet.style.height = `${sheetH}px`;
+  sheet.style.minHeight = `${sheetH}px`;
+  sheet.style.maxHeight = `${sheetH}px`;
+  const inner = document.createElement("div");
+  inner.className = "device-sheet-inner";
+  inner.style.padding = `${metrics.padY}px ${metrics.padX}px`;
+  inner.style.fontSize = `${metrics.fontPx}px`;
+  inner.style.lineHeight = String(lh);
+  inner.innerHTML = html || "";
+  sheet.appendChild(inner);
+  return sheet;
+}
+
+function reindexDevicePageStack(stack, mode) {
+  if (!stack) return;
+  if (mode === "pdf") {
+    stack.querySelectorAll(".pdf-sheet-wrap").forEach((wrap, i) => {
+      wrap.dataset.pageIndex = String(i);
+      const sheet = wrap.querySelector(".pdf-sheet");
+      if (sheet) {
+        sheet.dataset.pageIndex = String(i);
+        sheet.setAttribute("aria-label", `${i18n.t('app.i_1_페이지', {'i + 1': i + 1})}`);
+      }
+    });
+    return;
+  }
+  stack.querySelectorAll(".device-sheet").forEach((sheet, i) => {
+    sheet.dataset.pageIndex = String(i);
+    sheet.setAttribute("aria-label", `${i18n.t('app.i_1_페이지', {'i + 1': i + 1})}`);
+  });
+}
+
+function paintDevicePageStack({ hint = "replace", count = 0 } = {}) {
   const stack = $("viewerPageStack");
   const mode = viewerSettings.mode;
   if (!stack || !isDevicePagedMode(mode)) return;
 
   stack.hidden = false;
-  stack.innerHTML = "";
-  stack.className = "viewer-page-stack";
-  stack.dataset.pageMode = mode;
-
   const metrics = devicePageMetrics;
   const pages = devicePages.length ? devicePages : [""];
 
   if (mode === "pdf") {
-    stack.classList.add("is-pdf-stack");
-    const scale = Math.min(120, Math.max(55, Number(metrics.scale) || Number(viewerSettings.pdfScale) || 90)) / 100;
-    const padT = Math.round(metrics.padY * 0.85);
-    const padB = Math.round(metrics.padY * 1.1);
-    const padX = metrics.padX;
-    pages.forEach((html, i) => {
-      // Wrapper reserves scaled layout space so aspect ratio stays A4 (794×1123).
-      const wrap = document.createElement("div");
-      wrap.className = "pdf-sheet-wrap";
-      wrap.dataset.pageIndex = String(i);
-      wrap.style.width = `${Math.round(A4_WIDTH_PX * scale)}px`;
-      wrap.style.height = `${Math.round(A4_HEIGHT_PX * scale)}px`;
+    if (hint === "replace" || stack.dataset.pageMode !== "pdf") {
+      stack.innerHTML = "";
+      stack.className = "viewer-page-stack is-pdf-stack";
+      stack.dataset.pageMode = "pdf";
+      pages.forEach((html, i) => stack.appendChild(makePdfSheetWrap(html, i)));
+      return;
+    }
+    if (hint === "append" && count > 0) {
+      const start = Math.max(0, pages.length - count);
+      for (let i = start; i < pages.length; i += 1) {
+        stack.appendChild(makePdfSheetWrap(pages[i], i));
+      }
+      return;
+    }
+    if (hint === "prepend" && count > 0) {
+      const host = getDevicePageScrollHost();
+      const sample = stack.querySelector(".pdf-sheet-wrap");
+      const sheetH = sample
+        ? sample.offsetHeight
+        : Math.round(A4_HEIGHT_PX * ((Number(metrics.scale) || 90) / 100));
+      const frag = document.createDocumentFragment();
+      for (let i = 0; i < count; i += 1) {
+        frag.appendChild(makePdfSheetWrap(pages[i], i));
+      }
+      stack.insertBefore(frag, stack.firstChild);
+      reindexDevicePageStack(stack, "pdf");
+      if (host) host.scrollTop += sheetH * count;
+      return;
+    }
+    return;
+  }
 
-      const sheet = document.createElement("article");
-      sheet.className = "pdf-sheet";
-      sheet.dataset.pageIndex = String(i);
-      sheet.setAttribute("aria-label", `${i + 1}페이지`);
-      sheet.style.width = `${A4_WIDTH_PX}px`;
-      sheet.style.height = `${A4_HEIGHT_PX}px`;
-      sheet.style.transform = `scale(${scale})`;
-      sheet.style.transformOrigin = "top left";
-
-      const inner = document.createElement("div");
-      inner.className = "pdf-sheet-inner";
-      inner.style.padding = `${padT}px ${padX}px ${padB}px ${padX}px`;
-      inner.style.fontSize = `${metrics.fontPx}px`;
-      inner.style.lineHeight = String(metrics.lineHeight || 1.8);
-      inner.innerHTML = html || "";
-      sheet.appendChild(inner);
-      wrap.appendChild(sheet);
-      stack.appendChild(wrap);
-    });
-  } else {
-    // phone / eink: one full-screen page at a time (page-turn, no scroll)
-    stack.classList.add("is-device-stack");
-    const scroll = $("viewerScroll");
-    const sheetH = Math.max(120, scroll?.clientHeight || 400);
-    const active = Math.min(Math.max(0, devicePageIndex), Math.max(0, pages.length - 1));
-    const lh = metrics.lineHeight || 1.7;
-    pages.forEach((html, i) => {
-      const sheet = document.createElement("article");
-      sheet.className = `device-sheet${i === active ? " is-active" : ""}`;
-      sheet.dataset.pageIndex = String(i);
-      sheet.setAttribute("aria-label", `${i + 1}페이지`);
-      sheet.setAttribute("aria-hidden", i === active ? "false" : "true");
-      sheet.style.height = `${sheetH}px`;
-      sheet.style.minHeight = `${sheetH}px`;
-      sheet.style.maxHeight = `${sheetH}px`;
-      const inner = document.createElement("div");
-      inner.className = "device-sheet-inner";
-      inner.style.padding = `${metrics.padY}px ${metrics.padX}px`;
-      inner.style.fontSize = `${metrics.fontPx}px`;
-      inner.style.lineHeight = String(lh);
-      inner.innerHTML = html || "";
-      sheet.appendChild(inner);
-      stack.appendChild(sheet);
-    });
+  // phone / eink: keep only nearby sheets so 500-page stacks don't freeze the DOM
+  stack.className = "viewer-page-stack is-device-stack";
+  stack.dataset.pageMode = mode;
+  const scroll = $("viewerScroll");
+  const sheetH = Math.max(120, scroll?.clientHeight || 400);
+  const active = Math.min(Math.max(0, devicePageIndex), Math.max(0, pages.length - 1));
+  const from = Math.max(0, active - 1);
+  const to = Math.min(pages.length - 1, active + 1);
+  stack.innerHTML = "";
+  for (let i = from; i <= to; i += 1) {
+    stack.appendChild(makeDeviceSheet(pages[i], i, { active: i === active, sheetH }));
   }
 }
 
@@ -32199,11 +32800,13 @@ function syncDevicePageIndexFromScroll() {
     const dist = Math.abs(r.top - focusY);
     if (dist < bestDist) {
       bestDist = dist;
-      best = i;
+      const pageIndex = Number(sheet.dataset.pageIndex);
+      best = Number.isFinite(pageIndex) ? pageIndex : i;
     }
   });
   if (best !== devicePageIndex) {
     devicePageIndex = best;
+    syncViewerViewAnchorFromIndex(devicePageIndex);
     updateDevicePagerUi();
   }
 }
@@ -32240,6 +32843,7 @@ function showDevicePage(index, { smooth = false, direction = 0 } = {}) {
       try { sheet.scrollIntoView(true); } catch (__) { /* ignore */ }
     }
     updateDevicePagerUi();
+    syncViewerViewAnchorFromIndex(devicePageIndex);
     window.setTimeout(() => {
       devicePageScrollLock = false;
       syncDevicePageIndexFromScroll();
@@ -32248,14 +32852,15 @@ function showDevicePage(index, { smooth = false, direction = 0 } = {}) {
   }
 
   // phone / eink: swap visible page (no scroll)
+  paintDevicePageStack({ hint: "replace" });
   const sheets = stack.querySelectorAll(".device-sheet");
   if (!sheets.length) {
     updateDevicePagerUi();
     return;
   }
   const dir = direction || (i > prevIndex ? 1 : i < prevIndex ? -1 : 0);
-  sheets.forEach((sheet, n) => {
-    const on = n === i;
+  sheets.forEach((sheet) => {
+    const on = Number(sheet.dataset.pageIndex) === i;
     sheet.classList.toggle("is-active", on);
     sheet.setAttribute("aria-hidden", on ? "false" : "true");
     sheet.classList.remove("turn-from-next", "turn-from-prev");
@@ -32272,6 +32877,7 @@ function showDevicePage(index, { smooth = false, direction = 0 } = {}) {
   const scroll = $("viewerScroll");
   if (scroll) scroll.scrollTop = 0;
   updateDevicePagerUi();
+  syncViewerViewAnchorFromIndex(devicePageIndex);
 }
 
 function turnDevicePage(delta) {
@@ -32292,98 +32898,226 @@ function turnDevicePage(delta) {
   });
 }
 
+async function paginateViewerEpisodesIncremental({
+  job,
+  loadToken,
+  jumpId,
+  resetPage,
+  box,
+}) {
+  const still = () => (
+    job === viewerPageLayoutToken
+    && loadToken === viewerLoadToken
+    && isViewerOpen()
+  );
+  if (!still()) return;
+
+  const body = $("viewerBody");
+  if (!body) return;
+  const episodes = splitViewerEpisodeHtml(body.innerHTML || "");
+  if (!episodes.length) {
+    devicePages = [""];
+    devicePageCount = 1;
+    bookPages = [""];
+    bookSpreadCount = 1;
+    if (box.kind === "device") paintDevicePageStack({ hint: "replace" });
+    if (viewerPerf) {
+      viewerPerf.layoutDone = true;
+      viewerPerf.pages = 1;
+      publishViewerPerf();
+    }
+    return;
+  }
+
+  const key = `${viewerSettings.mode}:${box.innerW}x${box.innerH}:${box.fontPx}:${box.lineHeight}`;
+  const prevById = new Map();
+  if (key === viewerPageMetricsKey) {
+    viewerEpisodePageSlots.forEach((slot) => {
+      if (slot && slot.pages && slot.sceneId) prevById.set(Number(slot.sceneId), slot);
+    });
+  } else {
+    viewerPageMetricsKey = key;
+  }
+
+  viewerEpisodePageSlots = episodes.map((ep) => {
+    const prev = prevById.get(Number(ep.sceneId));
+    if (prev && prev.html === ep.html && Array.isArray(prev.pages)) {
+      return prev;
+    }
+    return { sceneId: ep.sceneId, html: ep.html, pages: null };
+  });
+
+  const currentAnchor = viewerSceneAtPageIndex(devicePageIndex);
+  let startIndex = viewerEpisodePageSlots.findIndex((slot) => Number(slot.sceneId) === Number(jumpId));
+  if (startIndex < 0 && viewerViewAnchor?.sceneId) {
+    startIndex = viewerEpisodePageSlots.findIndex((slot) => Number(slot.sceneId) === Number(viewerViewAnchor.sceneId));
+  }
+  if (startIndex < 0 && currentAnchor) {
+    startIndex = viewerEpisodePageSlots.findIndex((slot) => Number(slot.sceneId) === Number(currentAnchor.sceneId));
+  }
+  if (startIndex < 0) startIndex = 0;
+  const shouldJump = Boolean(Number(jumpId)) || resetPage;
+
+  const paginateSlot = (slotIndex) => {
+    const slot = viewerEpisodePageSlots[slotIndex];
+    if (!slot) return 0;
+    if (Array.isArray(slot.pages)) return slot.pages.length;
+    const t0 = performance.now();
+    const pages = paginateHtmlToPages(slot.html, box.innerW, box.innerH, box.fontPx, {
+      lineHeight: box.lineHeight,
+      fontFamily: box.fontFamily,
+    });
+    slot.pages = pages.length ? pages : [""];
+    console.log(
+      `viewer:pageBatch scene=${slot.sceneId} pages=${slot.pages.length} ms=${Math.round(performance.now() - t0)} done=${viewerEpisodePageSlots.filter((s) => s && s.pages).length}/${viewerEpisodePageSlots.length}`
+    );
+    return slot.pages.length;
+  };
+
+  const applyAssembled = ({ hint = "replace", count = 0, jumpNow = false } = {}) => {
+    if (!still()) return;
+    const pages = (hint === "replace" && jumpNow)
+      ? (viewerEpisodePageSlots[startIndex]?.pages?.length
+        ? viewerEpisodePageSlots[startIndex].pages
+        : [""])
+      : assembleViewerPageSlots();
+    devicePages = pages;
+    devicePageCount = Math.max(1, pages.length);
+    bookPages = pages;
+    bookSpreadCount = Math.max(1, Math.ceil(bookPages.length / 2));
+
+    if (jumpNow) {
+      devicePageIndex = 0;
+      const jumpScene = Number(jumpId) || Number(viewerEpisodePageSlots[startIndex]?.sceneId) || 0;
+      setViewerViewAnchor(jumpScene, 0);
+    } else {
+      restoreViewerIndexFromAnchor();
+    }
+    devicePageIndex = Math.min(Math.max(0, devicePageIndex), devicePageCount - 1);
+    bookSpreadIndex = Math.min(
+      Math.max(0, Math.floor(devicePageIndex / 2)),
+      Math.max(0, bookSpreadCount - 1)
+    );
+
+    if (box.kind === "book") {
+      const track = $("bookTrack");
+      const scroll = $("viewerScroll");
+      if (track && scroll) {
+        cancelBookFlipAnimation();
+        ensureBookViewport(track, scroll.clientHeight);
+        paintBookSpread(bookSpreadIndex);
+        updateBookPagerUi();
+      }
+      return;
+    }
+
+    paintDevicePageStack({ hint, count });
+    updateDevicePagerUi();
+    if (jumpNow || hint === "prepend") {
+      highlightViewerTocCurrent(jumpId || viewerViewAnchor?.sceneId || viewerEpisodePageSlots[startIndex]?.sceneId);
+      requestAnimationFrame(() => showDevicePage(devicePageIndex, { smooth: false }));
+    }
+  };
+
+  const order = [startIndex];
+  for (let i = startIndex + 1; i < viewerEpisodePageSlots.length; i += 1) order.push(i);
+  for (let i = startIndex - 1; i >= 0; i -= 1) order.push(i);
+
+  const stack = $("viewerPageStack");
+  const hasPaintedStack = Boolean(
+    (box.kind === "device" && stack?.querySelector(".pdf-sheet-wrap, .device-sheet"))
+    || (box.kind === "book" && $("bookTrack")?.querySelector(".book-viewport"))
+  );
+
+  paginateSlot(startIndex);
+  if (!still()) return;
+
+  if (shouldJump || !hasPaintedStack) {
+    const startSlot = viewerEpisodePageSlots[startIndex];
+    devicePages = startSlot?.pages?.length ? startSlot.pages : [""];
+    devicePageCount = Math.max(1, devicePages.length);
+    bookPages = devicePages;
+    bookSpreadCount = Math.max(1, Math.ceil(bookPages.length / 2));
+    devicePageIndex = 0;
+    bookSpreadIndex = 0;
+    applyAssembled({ hint: "replace", jumpNow: true });
+  } else {
+    applyAssembled({ hint: "replace", jumpNow: false });
+  }
+  if (viewerPerf) {
+    viewerPerf.layoutDone = true;
+    viewerPerf.layoutName = box.kind === "book" ? "layoutBookPages" : "layoutDevicePages";
+    viewerPerf.mode = viewerSettings.mode;
+    viewerPerf.pages = devicePageCount;
+    publishViewerPerf();
+  }
+
+  const paintedIds = new Set();
+  paintedIds.add(Number(viewerEpisodePageSlots[startIndex]?.sceneId));
+
+  for (const slotIndex of order) {
+    if (!still()) return;
+    const slot = viewerEpisodePageSlots[slotIndex];
+    if (!slot) continue;
+    if (paintedIds.has(Number(slot.sceneId)) && Array.isArray(slot.pages)) continue;
+    await yieldViewerFullLoad();
+    if (!still()) return;
+    const added = paginateSlot(slotIndex);
+    if (!still()) return;
+    paintedIds.add(Number(slot.sceneId));
+    const isBefore = slotIndex < startIndex;
+    applyAssembled({
+      hint: isBefore ? "prepend" : "append",
+      count: added,
+      jumpNow: false,
+    });
+  }
+
+  if (!still()) return;
+  if (viewerPerf) {
+    viewerPerf.pages = devicePageCount;
+    viewerPerf.layoutDone = true;
+    publishViewerPerf();
+  }
+}
+
+function startViewerPageLayout({ token = viewerLoadToken, jumpId = null, resetPage = false } = {}) {
+  if (!isViewerOpen()) return;
+  const mode = viewerSettings.mode;
+  if (mode !== "book" && !isDevicePagedMode(mode)) return;
+  const box = computeViewerPageBox();
+  if (!box) return;
+  if (box.retry) {
+    if (mode === "book") scheduleBookPageLayout({ resetPage });
+    else scheduleDevicePageLayout({ resetPage });
+    return;
+  }
+  const job = ++viewerPageLayoutToken;
+  const jump = Number(jumpId) || Number(viewerPendingJumpSceneId) || 0;
+  if (jump) {
+    viewerPendingJumpSceneId = null;
+    setViewerViewAnchor(jump, 0);
+  }
+  paginateViewerEpisodesIncremental({
+    job,
+    loadToken: token,
+    jumpId: jump,
+    resetPage,
+    box,
+  }).catch((error) => {
+    if (typeof handleError === "function") handleError(error);
+  });
+}
+
 function layoutDevicePages({ resetPage = false } = {}) {
   if (!isViewerOpen() || !isDevicePagedMode()) return;
-  const mode = viewerSettings.mode;
   const body = $("viewerBody");
   const stack = $("viewerPageStack");
-  const scroll = $("viewerScroll");
   if (!body || !stack) return;
-
-  // Ensure source HTML is available (body is display:none but still in DOM)
-  const sourceHtml = body.innerHTML || "";
-  let innerW;
-  let innerH;
-  let fontPx;
-  let padX;
-  let padY;
-
-  let lineHeight = 1.8;
-  if (mode === "pdf") {
-    // Always paginate at logical A4 (794×1123). Display zoom is separate (pdfScale).
-    fontPx = Math.min(22, Math.max(11, Number(viewerSettings.pdfFont) || 14));
-    lineHeight = clampViewerLineHeight(viewerSettings.pdfLineHeight, 1.8);
-    viewerSettings.pdfLineHeight = lineHeight;
-    padX = Math.min(96, Math.max(24, Number(viewerSettings.pdfMargin) || 56));
-    padY = padX;
-    const padT = Math.round(padY * 0.85);
-    const padB = Math.round(padY * 1.1);
-    innerW = Math.max(40, A4_WIDTH_PX - padX * 2);
-    innerH = Math.max(40, A4_HEIGHT_PX - padT - padB);
-  } else if (mode === "phone") {
-    fontPx = Math.min(24, Math.max(12, Number(viewerSettings.phoneFont) || 15));
-    lineHeight = clampViewerLineHeight(viewerSettings.phoneLineHeight, 1.7);
-    viewerSettings.phoneLineHeight = lineHeight;
-    padX = 16;
-    padY = 16;
-    // Measure against the scroll viewport (screen area inside phone chrome)
-    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.phoneW) || 390) - 6);
-    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.phoneH) || 780) - 48);
-    if (vw < 40 || vh < 40) {
-      scheduleDevicePageLayout({ resetPage });
-      return;
-    }
-    innerW = Math.max(40, vw - padX * 2);
-    innerH = Math.max(40, vh - padY * 2);
-  } else {
-    // eink
-    fontPx = Math.min(26, Math.max(13, Number(viewerSettings.einkFont) || 17));
-    lineHeight = clampViewerLineHeight(viewerSettings.einkLineHeight, 1.8);
-    viewerSettings.einkLineHeight = lineHeight;
-    padX = 20;
-    padY = 22;
-    const vw = scroll?.clientWidth || Math.max(200, (Number(viewerSettings.einkW) || 420) - 4);
-    const vh = scroll?.clientHeight || Math.max(300, (Number(viewerSettings.einkH) || 720) - 4);
-    if (vw < 40 || vh < 40) {
-      scheduleDevicePageLayout({ resetPage });
-      return;
-    }
-    innerW = Math.max(40, vw - padX * 2);
-    innerH = Math.max(40, vh - padY * 2);
-  }
-
-  const scalePct = Math.min(120, Math.max(55, Number(viewerSettings.pdfScale) || 90));
-  devicePageMetrics = {
-    padX,
-    padY,
-    fontPx,
-    scale: mode === "pdf" ? scalePct : 100,
-    lineHeight,
-    fontFamily: mode === "pdf"
-      ? '"Malgun Gothic","Noto Serif KR",Georgia,serif'
-      : 'Georgia,"Noto Serif KR","Malgun Gothic",serif',
-  };
-  devicePages = paginateHtmlToPages(sourceHtml, innerW, innerH, fontPx, {
-    lineHeight: devicePageMetrics.lineHeight,
-    fontFamily: devicePageMetrics.fontFamily,
-  });
-  devicePageCount = Math.max(1, devicePages.length);
-  if (resetPage) devicePageIndex = 0;
-  devicePageIndex = Math.min(Math.max(0, devicePageIndex), devicePageCount - 1);
-
-  paintDevicePageStack();
-
-  if (viewerPendingJumpSceneId != null) {
-    const jumpId = Number(viewerPendingJumpSceneId);
-    viewerPendingJumpSceneId = null;
-    const jumpIdx = findDevicePageIndexForScene(jumpId);
-    if (jumpIdx >= 0) devicePageIndex = jumpIdx;
-    highlightViewerTocCurrent(jumpId);
-  }
-
-  // After DOM paint, align scroll host to current page
-  requestAnimationFrame(() => {
-    showDevicePage(devicePageIndex, { smooth: false });
+  startViewerPageLayout({
+    token: viewerLoadToken,
+    jumpId: viewerPendingJumpSceneId,
+    resetPage,
   });
 }
 
@@ -32393,6 +33127,9 @@ function layoutDevicePages({ resetPage = false } = {}) {
  * instead of being clipped on a single sheet.
  */
 function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts = {}) {
+  console.time("viewer:paginateHtmlToPages");
+  const paginateT0 = performance.now();
+  let overflowChecks = 0;
   const pages = [];
   const lineHeight = styleOpts.lineHeight || 1.75;
   const fontFamily = styleOpts.fontFamily
@@ -32423,14 +33160,38 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
     return n.nodeType === 1;
   });
 
-  const overflows = () => measureHost.scrollHeight > pageHeight + 0.5
-    || measureHost.scrollWidth > pageWidth + 0.5;
+  const overflows = () => {
+    overflowChecks += 1;
+    return measureHost.scrollHeight > pageHeight + 0.5
+      || measureHost.scrollWidth > pageWidth + 0.5;
+  };
+
+  const pageTextLen = () => (page.textContent || "").replace(/\u200b/g, "").length;
+
+  const linePx = Math.max(1, fontSizePx * lineHeight);
+  const charsPerLine = Math.max(1, pageWidth / Math.max(1, fontSizePx));
+  let estimatedChars = Math.max(1, Math.floor((pageHeight / linePx) * charsPerLine));
+  let sealedCount = 0;
 
   let page = document.createElement("div");
   measureHost.appendChild(page);
 
+  const noteSealedPageChars = (charCount) => {
+    if (!(charCount > 0)) return;
+    if (sealedCount < 2) {
+      estimatedChars = sealedCount === 0
+        ? charCount
+        : Math.max(1, Math.round((estimatedChars + charCount) / 2));
+    } else {
+      estimatedChars = Math.max(1, Math.round(estimatedChars * 0.6 + charCount * 0.4));
+    }
+    sealedCount += 1;
+  };
+
   const sealPage = () => {
+    const n = pageTextLen();
     pages.push(page.innerHTML.trim());
+    noteSealedPageChars(n);
     measureHost.innerHTML = "";
     page = document.createElement("div");
     measureHost.appendChild(page);
@@ -32457,26 +33218,60 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
   ]);
 
   /** Binary-split text into parent so overflow continues on later pages. */
+  const probeFits = (parent, text, len) => {
+    if (len <= 0) return true;
+    const probe = document.createTextNode(text.slice(0, len));
+    parent.appendChild(probe);
+    const ok = !overflows();
+    parent.removeChild(probe);
+    return ok;
+  };
+
+  const binaryBest = (parent, text, lo, hi) => {
+    let best = 0;
+    let a = Math.max(1, lo);
+    let b = Math.max(a, hi);
+    while (a <= b) {
+      const mid = (a + b) >> 1;
+      if (probeFits(parent, text, mid)) {
+        best = mid;
+        a = mid + 1;
+      } else {
+        b = mid - 1;
+      }
+    }
+    return best;
+  };
+
   const appendTextInto = (parent, fullText) => {
     let rest = String(fullText || "");
-    if (!rest) return;
+    if (!rest) return "";
     while (rest.length) {
-      let lo = 1;
-      let hi = rest.length;
+      const used = pageTextLen();
+      const capacity = Math.max(1, estimatedChars - used);
+      const shortRest = rest.length <= 32;
+      const restFitsWindow = rest.length <= Math.ceil(capacity * 1.1);
+      const calibrateWide = sealedCount < 2;
+
       let best = 0;
-      while (lo <= hi) {
-        const mid = (lo + hi) >> 1;
-        const probe = document.createTextNode(rest.slice(0, mid));
-        parent.appendChild(probe);
-        const ok = !overflows();
-        parent.removeChild(probe);
-        if (ok) {
-          best = mid;
-          lo = mid + 1;
+      if (calibrateWide || shortRest || restFitsWindow) {
+        best = binaryBest(parent, rest, 1, rest.length);
+      } else {
+        const winLo = Math.max(1, Math.floor(capacity * 0.9));
+        const winHi = Math.min(rest.length, Math.max(winLo, Math.ceil(capacity * 1.1)));
+        if (!probeFits(parent, rest, winLo)) {
+          best = winLo <= 1 ? 0 : binaryBest(parent, rest, 1, winLo - 1);
+        } else if (!probeFits(parent, rest, winHi)) {
+          best = binaryBest(parent, rest, winLo, winHi);
+          if (best < winLo) best = winLo;
+        } else if (winHi >= rest.length) {
+          best = rest.length;
         } else {
-          hi = mid - 1;
+          best = binaryBest(parent, rest, winHi, rest.length);
+          if (best < winHi) best = winHi;
         }
       }
+
       if (best <= 0) {
         if (pageHasContent()) {
           // Close current page; keep going with same parent tag via new page.
@@ -32586,7 +33381,20 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
   }
 
   measureHost.remove();
-  return pages.length ? pages : [""];
+  const out = pages.length ? pages : [""];
+  const paginateMs = performance.now() - paginateT0;
+  console.timeEnd("viewer:paginateHtmlToPages");
+  console.log(
+    `viewer:paginateHtmlToPages pages=${out.length} overflowChecks=${overflowChecks} htmlChars=${(html || "").length} ms=${Math.round(paginateMs)}`
+  );
+  if (viewerPerf) {
+    viewerPerf.paginateMs += paginateMs;
+    viewerPerf.overflowChecks += overflowChecks;
+    viewerPerf.pages = out.length;
+    viewerPerf.htmlChars = (html || "").length;
+    publishViewerPerf();
+  }
+  return out;
 }
 
 function cancelBookFlipAnimation() {
@@ -32665,6 +33473,12 @@ function showBookSpreadInstant(index) {
   cancelBookFlipAnimation();
   bookSpreadIndex = Math.min(Math.max(0, Number(index) || 0), Math.max(0, bookSpreadCount - 1));
   paintBookSpread(bookSpreadIndex);
+  const left = bookSpreadIndex * 2;
+  const right = left + 1;
+  if (devicePageIndex !== left && devicePageIndex !== right) {
+    devicePageIndex = left;
+  }
+  syncViewerViewAnchorFromIndex(devicePageIndex);
   updateBookPagerUi();
 }
 
@@ -32746,8 +33560,10 @@ function animateBookFlip(direction, toIndex) {
     leaf.remove();
     viewport.classList.remove("is-flipping");
     bookSpreadIndex = toIndex;
+    devicePageIndex = bookSpreadIndex * 2;
     bookFlipBusy = false;
     paintBookSpread(bookSpreadIndex);
+    syncViewerViewAnchorFromIndex(devicePageIndex);
     updateBookPagerUi();
   };
 
@@ -32775,47 +33591,12 @@ function layoutBookPages({ resetPage = false } = {}) {
   const body = $("viewerBody");
   const track = $("bookTrack");
   if (!scroll || !body || !track) return;
-
-  const vw = scroll.clientWidth;
-  const vh = scroll.clientHeight;
-  if (vw < 80 || vh < 80) return;
-
-  const m = Math.min(64, Math.max(20, Number(viewerSettings.bookMargin) || 36));
-  const fontPx = Math.min(22, Math.max(12, Number(viewerSettings.bookFont) || 15));
-  const lineHeight = clampViewerLineHeight(viewerSettings.bookLineHeight, 1.8);
-  viewerSettings.bookLineHeight = lineHeight;
-  bookPageMetrics = { m, fontPx, lineHeight };
-  // Exact half split at center spine
-  const pageW = Math.floor(vw / 2);
-  const pageH = vh;
-  const innerW = Math.max(40, pageW - m * 2);
-  const innerH = Math.max(40, pageH - m * 2);
-
-  const sourceHtml = body.innerHTML || "";
-  bookPages = paginateHtmlToPages(sourceHtml, innerW, innerH, fontPx, {
-    lineHeight,
-    fontFamily: "Georgia,'Noto Serif KR','Malgun Gothic',serif",
+  if (scroll.clientWidth < 80 || scroll.clientHeight < 80) return;
+  startViewerPageLayout({
+    token: viewerLoadToken,
+    jumpId: viewerPendingJumpSceneId,
+    resetPage,
   });
-
-  // Pair into spreads: left = even index, right = odd
-  bookSpreadCount = Math.max(1, Math.ceil(bookPages.length / 2));
-  if (resetPage) bookSpreadIndex = 0;
-  bookSpreadIndex = Math.min(Math.max(0, bookSpreadIndex), bookSpreadCount - 1);
-
-  cancelBookFlipAnimation();
-  ensureBookViewport(track, vh);
-
-  // Honor TOC jump after pages are built
-  if (viewerPendingJumpSceneId != null) {
-    const jumpId = Number(viewerPendingJumpSceneId);
-    viewerPendingJumpSceneId = null;
-    const jumpIdx = findBookSpreadIndexForScene(jumpId);
-    if (jumpIdx >= 0) bookSpreadIndex = jumpIdx;
-    highlightViewerTocCurrent(jumpId);
-  }
-
-  paintBookSpread(bookSpreadIndex);
-  updateBookPagerUi();
 }
 
 /** @deprecated name kept for call sites — instant paint, no slide */
@@ -32830,9 +33611,9 @@ function updateBookPagerUi() {
     const leftNo = bookSpreadIndex * 2 + 1;
     const rightNo = bookSpreadIndex * 2 + 2;
     const totalLeaves = Math.max(leftNo, bookSpreadCount * 2);
-    const flipping = bookFlipBusy ? " · 넘기는 중" : "";
-    pager.textContent = `${leftNo}–${rightNo} 쪽 · ${bookSpreadIndex + 1}/${bookSpreadCount} 장${flipping}`;
-    pager.title = `전체 약 ${totalLeaves}쪽`;
+    const flipping = bookFlipBusy ? i18n.t('app.넘기는_중') : "";
+    pager.textContent = `${i18n.t('app.leftNo_rightNo_쪽_bookSp', {leftNo: leftNo, rightNo: rightNo, 'bookSpreadIndex + 1': bookSpreadIndex + 1, bookSpreadCount: bookSpreadCount, flipping: flipping})}`;
+    pager.title = `${i18n.t('app.전체_약_totalLeaves_쪽', {totalLeaves: totalLeaves})}`;
   }
   setViewerBookNavVisible(true);
   const prev = $("viewerBookPrev");
@@ -32857,7 +33638,7 @@ function turnBookSpread(delta) {
 
 function openViewerMode(preferredMode = null) {
   if (!state.sceneId) {
-    toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
   const modal = $("viewerModal");
@@ -32874,16 +33655,18 @@ function openViewerMode(preferredMode = null) {
   setViewerTocOpen(viewerTocOpen);
   renderViewerToc();
 
-  const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "본문";
+  const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
   if ($("viewerTitle")) {
     $("viewerTitle").textContent = viewerScope === "full"
-      ? "뷰어 · 전체 원고"
-      : `뷰어 · ${title}`;
+      ? i18n.t('app.뷰어_전체_원고')
+      : `${i18n.t('app.뷰어_title', {title: title})}`;
   }
 
   bookSpreadIndex = 0;
   viewerPendingJumpSceneId = null;
   if (viewerScope === "full") clearViewerEpisodeCache();
+  $("splitPaneResizer")?.classList.add("hidden");
+  $("focusWriteSplitResizer")?.classList.add("hidden");
   modal.classList.remove("hidden");
   document.body.classList.add("viewer-open");
   document.body.classList.toggle("viewer-maximized", isViewerMaximized());
@@ -32899,10 +33682,17 @@ function closeViewerMode() {
   document.body.classList.remove("viewer-open");
   viewerResize = null;
   viewerLoadToken += 1;
+  viewerPageLayoutToken += 1;
+  viewerEpisodePageSlots = [];
+  viewerPageMetricsKey = "";
   viewerPendingJumpSceneId = null;
+  viewerViewAnchor = null;
   cancelBookFlipAnimation();
   // Keep maximize preference, but clear transient body class
   document.body.classList.remove("viewer-maximized");
+  if (typeof applySplitLayout === "function") {
+    applySplitLayout();
+  }
 }
 
 function isViewerMaximized() {
@@ -32918,8 +33708,8 @@ function setViewerMaximized(on, { relayout = true } = {}) {
   if (btn) {
     btn.classList.toggle("is-active", maximized);
     btn.setAttribute("aria-pressed", maximized ? "true" : "false");
-    btn.textContent = maximized ? "창 모드" : "최대화";
-    btn.title = maximized ? "원래 창 크기로" : "뷰어 창 최대화";
+    btn.textContent = maximized ? i18n.t('app.창_모드') : i18n.t('app.최대화');
+    btn.title = maximized ? i18n.t('app.원래_창_크기로') : i18n.t('app.뷰어_창_최대화');
   }
   try {
     localStorage.setItem("supertory.viewerMaximized", maximized ? "1" : "0");
@@ -33348,7 +34138,7 @@ function handleToolsAction(action) {
   }
   if (action === "tory-analyze") {
     if (!state.sceneId) {
-      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
       return;
     }
     const title = state.scene?.title || $("sceneTitle")?.value || "";
@@ -33430,15 +34220,15 @@ function renderSpellcheckResults(payload) {
       : (payload?.message || "");
   }
   if (!errors.length) {
-    list.innerHTML = `<p class="hint spellcheck-empty">${escapeHtml(payload?.message || "오류가 없습니다.")}</p>`;
+    list.innerHTML = `${i18n.t('app.p_class_hint_spellcheck', {'escapeHtml(payload?.message || "오류가 없습니다.")': escapeHtml(payload?.message || "오류가 없습니다.")})}`;
     return;
   }
   list.innerHTML = errors.map((err, index) => {
     const original = escapeHtml(err.original || "");
     const help = escapeHtml(err.help || "");
-    const method = escapeHtml(err.method_label || "교정");
+    const method = escapeHtml(err.method_label || i18n.t('app.교정'));
     const suggestions = (err.suggestions || []).map((s) => `
-      <button type="button" data-spell-apply="${index}" data-suggestion="${escapeHtml(s)}" title="이 표현으로 바꾸기">
+      <button type="button" data-spell-apply="${index}" data-suggestion="${escapeHtml(s)}" title="${i18n.t('app.이_표현으로_바꾸기')}">
         ${escapeHtml(s)}
       </button>`).join("");
     return `
@@ -33449,7 +34239,7 @@ function renderSpellcheckResults(payload) {
         </div>
         ${help ? `<p class="spellcheck-help">${help}</p>` : ""}
         <div class="spellcheck-suggestions">
-          ${suggestions || `<span class="hint">제안 없음</span>`}
+          ${suggestions || i18n.t('app.span_class_hint_제안_없음_s')}
         </div>
       </article>`;
   }).join("");
@@ -33461,23 +34251,23 @@ function renderSpellcheckResults(payload) {
 async function runSpellcheck(options = {}) {
   const prefer = options.prefer || "auto"; // auto | gemini
   const editor = getActiveRichEditor() || $("sceneContent");
-  if (!editor) return toast("검사할 편집기가 없어요.");
+  if (!editor) return toast(i18n.t('app.검사할_편집기가_없어요'));
   const text = getEditorPlainText(editor).trim();
-  if (!text) return toast("검사할 글을 먼저 적어 주세요.");
+  if (!text) return toast(i18n.t('app.검사할_글을_먼저_적어_주세요'));
 
   const status = $("spellcheckStatus");
   const button = $("runSpellcheckButton");
   const publicBtn = $("runSpellcheckPublicButton");
   if (status) {
     status.textContent = prefer === "gemini"
-      ? "Gemini 검사기로 검사 중…"
+      ? i18n.t('app.Gemini_검사기로_검사_중')
       : prefer === "public"
-        ? "바른한글 검사기에 연결 중…"
-        : "맞춤법 검사 중… (Gemini 우선)";
+        ? i18n.t('app.바른한글_검사기에_연결_중')
+        : i18n.t('app.맞춤법_검사_중_Gemini_우선');
   }
   if (button) {
     button.disabled = true;
-    if (prefer !== "public") button.textContent = "검사 중…";
+    if (prefer !== "public") button.textContent = i18n.t('app.검사_중');
   }
   if (publicBtn) publicBtn.disabled = true;
   try {
@@ -33486,12 +34276,12 @@ async function runSpellcheck(options = {}) {
       body: JSON.stringify({ text, prefer }),
     });
     renderSpellcheckResults(result);
-    toast(result.error_count ? `맞춤법 제안 ${result.error_count}건` : "맞춤법 검사 완료");
+    toast(result.error_count ? `${i18n.t('app.맞춤법_제안_result_error_coun', {'result.error_count': result.error_count})}` : i18n.t('app.맞춤법_검사_완료'));
   } catch (error) {
-    let message = error.message || "검사에 실패했습니다.";
+    let message = error.message || i18n.t('app.검사에_실패했습니다');
     // Old Python process (before spellcheck was added) returns this for unknown routes.
     if (/알 수 없는 요청/.test(message)) {
-      message = "맞춤법 API를 찾을 수 없습니다. SuperTORY(서버) 창을 종료한 뒤 다시 실행해 주세요. 브라우저만 새로고침하면 예전 서버가 그대로 남을 수 있습니다.";
+      message = i18n.t('app.맞춤법_API를_찾을_수_없습니다_Super');
     }
     if (status) status.textContent = message;
     const list = $("spellcheckResultList");
@@ -33503,7 +34293,7 @@ async function runSpellcheck(options = {}) {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = "Gemini 검사기";
+      button.textContent = i18n.t('app.Gemini_검사기');
     }
     if (publicBtn) publicBtn.disabled = false;
   }
@@ -33524,7 +34314,7 @@ function setupSpellcheckPanel() {
     toggle.checked = browserOn;
     toggle.addEventListener("change", () => {
       setBrowserSpellcheckEnabled(toggle.checked);
-      toast(toggle.checked ? "브라우저 철자 밑줄을 켰어요." : "브라우저 철자 밑줄을 껐어요.");
+      toast(toggle.checked ? i18n.t('app.브라우저_철자_밑줄을_켰어요') : i18n.t('app.브라우저_철자_밑줄을_껐어요'));
     });
   }
 
@@ -33544,7 +34334,7 @@ function setupSpellcheckPanel() {
     if (!editor) return;
     const ok = replaceTextInContentEditable(editor, err.original, suggestion);
     if (!ok) {
-      toast("본문에서 해당 표현을 찾지 못했어요. 직접 고쳐 주세요.");
+      toast(i18n.t('app.본문에서_해당_표현을_찾지_못했어요_직접_고'));
       return;
     }
     updateEditorPlaceholder(editor);
@@ -33556,7 +34346,7 @@ function setupSpellcheckPanel() {
     } else if (editor.id === "splitSceneBodyEditor") {
       markSplitDirty?.();
     }
-    toast(`「${err.original}」→「${suggestion}」로 바꿨어요.`);
+    toast(`${i18n.t('app.err_original_suggestion', {'err.original': err.original, suggestion: suggestion})}`);
   });
 }
 
@@ -33665,8 +34455,8 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
   if (key === "format") {
     applyMsToolbarCollapsed("format-icons", collapsed, { persist, toastMsg: false });
     applyMsToolbarCollapsed("format-format", collapsed, { persist, toastMsg: false });
-    if (toastMsg && collapsed) toast("서식 도구를 숨겼어요.");
-    if (toastMsg && !collapsed) toast("서식 도구를 다시 열었어요.");
+    if (toastMsg && collapsed) toast(i18n.t('app.서식_도구를_숨겼어요'));
+    if (toastMsg && !collapsed) toast(i18n.t('app.서식_도구를_다시_열었어요'));
     return;
   }
 
@@ -33688,7 +34478,7 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
     }
     refreshManuscriptLayoutAfterChromeChange();
     if (toastMsg && collapsed) {
-      toast(key === "format-icons" ? "도구 아이콘을 숨겼어요." : "서식 도구를 숨겼어요.");
+      toast(key === "format-icons" ? i18n.t('app.도구_아이콘을_숨겼어요') : i18n.t('app.서식_도구를_숨겼어요'));
     }
     return;
   }
@@ -33713,9 +34503,9 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
   refreshManuscriptLayoutAfterChromeChange();
   if (toastMsg && collapsed) {
     const msg =
-      key === "meta" ? "요약 칸을 숨겼어요."
-        : key === "feature" ? "기능 바를 숨겼어요."
-          : "도구를 숨겼어요.";
+      key === "meta" ? i18n.t('app.요약_칸을_숨겼어요')
+        : key === "feature" ? i18n.t('app.기능_바를_숨겼어요')
+          : i18n.t('app.도구를_숨겼어요');
     toast(msg);
   }
 }
@@ -33742,10 +34532,10 @@ function setupManuscriptToolbarCollapse() {
       applyMsToolbarCollapsed(which, false, { toastMsg: false });
       const key = normalizeMsToolbarKey(which);
       toast(
-        key === "meta" ? "요약 칸을 다시 열었어요."
-          : key === "feature" ? "기능 바를 다시 열었어요."
-            : key === "format-icons" ? "도구 아이콘을 다시 열었어요."
-              : "서식 도구를 다시 열었어요."
+        key === "meta" ? i18n.t('app.요약_칸을_다시_열었어요')
+          : key === "feature" ? i18n.t('app.기능_바를_다시_열었어요')
+            : key === "format-icons" ? i18n.t('app.도구_아이콘을_다시_열었어요')
+              : i18n.t('app.서식_도구를_다시_열었어요')
       );
     });
   });
@@ -33784,7 +34574,7 @@ function setupSceneFeatureBar() {
   $("splitViewButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
     if (!state.sceneId) {
-      toast("먼저 목차에서 씬 하나를 열어 주세요.");
+      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
       return;
     }
     toggleViewModeMenu("main");
@@ -33868,10 +34658,10 @@ const OUTLINE_WIDTH_STORAGE_KEY = "supertory.outlineWidth";
 /* —— Dismissible onboarding tips (목차 / 설정집 / 생각수첩) —— */
 const GUIDE_TIP_STORAGE_KEY = "supertory.hiddenGuideTips";
 const GUIDE_TIP_DEFS = [
-  { id: "outline", label: "목차 안내 (+폴더 · 드래그 · 우클릭)" },
-  { id: "settingsBinder", label: "설정집 안내 (펼치기 · 폴더 순서)" },
-  { id: "ideaBoard", label: "생각수첩 보드 안내" },
-  { id: "baits", label: "떡밥모음 안내" },
+  { id: "outline", label: i18n.t('app.목차_안내_폴더_드래그_우클릭') },
+  { id: "settingsBinder", label: i18n.t('app.설정집_안내_펼치기_폴더_순서') },
+  { id: "ideaBoard", label: i18n.t('app.생각수첩_보드_안내') },
+  { id: "baits", label: i18n.t('app.떡밥모음_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -33918,8 +34708,8 @@ function setGuideTipHidden(id, hidden, { quiet = false } = {}) {
   saveHiddenGuideTips();
   syncGuideTipBoxes();
   if (!quiet) {
-    const label = GUIDE_TIP_DEFS.find((d) => d.id === key)?.label || "안내";
-    toast(hidden ? `「${label}」을(를) 숨겼습니다.` : `「${label}」을(를) 다시 표시합니다.`);
+    const label = GUIDE_TIP_DEFS.find((d) => d.id === key)?.label || i18n.t('app.안내');
+    toast(hidden ? `${i18n.t('app.label_을_를_숨겼습니다', {label: label})}` : `${i18n.t('app.label_을_를_다시_표시합니다', {label: label})}`);
   }
 }
 
@@ -33933,7 +34723,7 @@ function syncGuideTipBoxes() {
 function updateGuideTipCountUi() {
   const n = hiddenGuideTips.size;
   const hint = $("guideTipCountHint");
-  if (hint) hint.textContent = n ? `숨긴 안내 ${n}개` : "숨긴 안내 없음";
+  if (hint) hint.textContent = n ? `${i18n.t('app.숨긴_안내_n_개', {n: n})}` : i18n.t('app.숨긴_안내_없음');
 }
 
 function renderHiddenGuideTipsList() {
@@ -33941,7 +34731,7 @@ function renderHiddenGuideTipsList() {
   if (!list) return;
   const items = GUIDE_TIP_DEFS.filter((d) => hiddenGuideTips.has(d.id));
   if (!items.length) {
-    list.innerHTML = `<p class="hint trash-empty">숨긴 안내가 없어요. 안내 옆 × 로 감출 수 있습니다.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_trash_empt_5');
     updateGuideTipCountUi();
     return;
   }
@@ -33950,7 +34740,7 @@ function renderHiddenGuideTipsList() {
       <div class="hidden-feature-main">
         <span class="hidden-feature-title">${escapeHtml(d.label)}</span>
       </div>
-      <button type="button" class="primary compact-btn" data-guide-tip-activate="${escapeHtml(d.id)}">다시 표시</button>
+      <button type="button" class="primary compact-btn" data-guide-tip-activate="${escapeHtml(d.id)}">${i18n.t('index.다시_표시')}</button>
     </div>
   `).join("");
   updateGuideTipCountUi();
@@ -33958,14 +34748,14 @@ function renderHiddenGuideTipsList() {
 
 function resetAllHiddenGuideTips() {
   if (!hiddenGuideTips.size) {
-    toast("숨긴 안내가 없어요.");
+    toast(i18n.t('app.숨긴_안내가_없어요'));
     return;
   }
-  if (!window.confirm(`숨긴 안내 ${hiddenGuideTips.size}개를 모두 다시 표시할까요?`)) return;
+  if (!window.confirm(`${i18n.t('app.숨긴_안내_hiddenGuideTips_si', {'hiddenGuideTips.size': hiddenGuideTips.size})}`)) return;
   hiddenGuideTips = new Set();
   saveHiddenGuideTips();
   syncGuideTipBoxes();
-  toast("모든 안내를 다시 표시했습니다.");
+  toast(i18n.t('app.모든_안내를_다시_표시했습니다'));
 }
 
 function setupGuideTips() {
@@ -34122,12 +34912,12 @@ function setupAiPanelResizer() {
 }
 
 async function revealCurrentPackage() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const result = await api(`/api/projects/${state.projectId}/reveal-package`, {
     method: "POST",
     body: JSON.stringify({}),
   });
-  toast(`탐색기에서 열었어요: ${result.package_name || "작품 파일"}`);
+  toast(`${i18n.t('app.탐색기에서_열었어요_result_packag', {'result.package_name || "작품 파일"': result.package_name || "작품 파일"})}`);
 }
 
 const BINDER_COLLAPSE_PREFIX = "supertory.binderCollapsed.";
@@ -34316,7 +35106,7 @@ function applyPartExpandedState(section, expanded) {
   const twistie = section.querySelector(".part-twistie");
   if (twistie) {
     twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
-    twistie.title = expanded ? "폴더 목록 접기" : "폴더 목록 펼치기";
+    twistie.title = expanded ? i18n.t('app.폴더_목록_접기') : i18n.t('app.폴더_목록_펼치기');
   }
   const children = section.querySelector(".part-children");
   if (children) {
@@ -34491,8 +35281,8 @@ function applyChapterExpandedState(section, expanded) {
   const twistie = section.querySelector(".chapter-twistie");
   if (twistie) {
     twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
-    twistie.title = expanded ? "씬 목록 접기" : "씬 목록 펼치기";
-    twistie.setAttribute("aria-label", expanded ? "씬 목록 접기" : "씬 목록 펼치기");
+    twistie.title = expanded ? i18n.t('app.씬_목록_접기') : i18n.t('app.씬_목록_펼치기');
+    twistie.setAttribute("aria-label", expanded ? i18n.t('app.씬_목록_접기') : i18n.t('app.씬_목록_펼치기'));
   }
   const children = section.querySelector(".chapter-children");
   if (children) {
@@ -34591,7 +35381,7 @@ function renderSceneTreeHtml(scenes, {
   const folderCollapse = collapsed instanceof Set ? collapsed : new Set();
   if (!list.length) {
     return depth === 0
-      ? `<p class="hint scene-empty-hint">아직 회차가 없어요.</p>`
+      ? i18n.t('app.p_class_hint_scene_empt')
       : "";
   }
   const pins = pinnedSet instanceof Set ? pinnedSet : new Set();
@@ -34603,14 +35393,14 @@ function renderSceneTreeHtml(scenes, {
     const statusText = statusLabel[scene.status] || scene.status || "";
     // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
     const statusInner = isComplete
-      ? `<span class="scene-complete-badge" title="완성" aria-label="완성">완</span>`
+      ? i18n.t('app.span_class_scene_comple')
       : `<span class="scene-status">${escapeHtml(statusText)}</span>`;
     const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
     // 북마크는 작성 상태 왼쪽 고정 슬롯 (없어도 자리는 유지)
     const sceneBm = findBookmark(bookmarksSnapshot, "scene", sid);
     const bookmarkMark = sceneBm
-      ? `<span class="scene-bookmark-slot" title="북마크 · ${escapeHtml(bookmarkColorMeta(sceneBm.color).label || "")}"><span class="scene-bookmark-mark" style="--bm-color:${bookmarkColorMeta(sceneBm.color).hex}" aria-label="북마크"></span></span>`
+      ? `${i18n.t('app.span_class_scene_bookma', {'escapeHtml(bookmarkColorMeta(sceneBm.color).label || "")': escapeHtml(bookmarkColorMeta(sceneBm.color).label || ""), 'bookmarkColorMeta(sceneBm.color).hex': bookmarkColorMeta(sceneBm.color).hex})}`
       : `<span class="scene-bookmark-slot" aria-hidden="true"></span>`;
     const kids = scene.children || [];
     const childFolders = Array.isArray(scene.child_chapters) ? scene.child_chapters : [];
@@ -34624,27 +35414,27 @@ function renderSceneTreeHtml(scenes, {
     const isPinned = pins.has(sid);
     const baitIcons = [
       hasPlant
-        ? `<span class="scene-bait-badge is-plant" title="이 회차에 심은 떡밥이 있어요" aria-label="떡밥 심음">떡</span>`
+        ? i18n.t('app.span_class_scene_bait_b')
         : "",
       hasRecover
-        ? `<span class="scene-bait-badge is-recover" title="이 회차에 떡밥 회수 예정" aria-label="떡밥 회수 예정">떡</span>`
+        ? i18n.t('app.span_class_scene_bait_b_2')
         : "",
     ].join("");
     const pinIcon = isPinned
-      ? `<span class="scene-pin-badge" title="상단 고정됨" aria-label="상단 고정">고</span>`
+      ? i18n.t('app.span_class_scene_pin_ba')
       : "";
     const baitTitleBits = [
-      hasPlant ? "떡밥 심음" : "",
-      hasRecover ? "떡밥 회수 예정" : "",
-      isPinned ? "상단 고정" : "",
+      hasPlant ? i18n.t('app.떡밥_심음') : "",
+      hasRecover ? i18n.t('app.떡밥_회수_예정') : "",
+      isPinned ? i18n.t('app.상단_고정') : "",
     ].filter(Boolean).join(" · ");
-    const titleExtra = [isComplete ? "완성" : "", baitTitleBits].filter(Boolean).join(" · ");
+    const titleExtra = [isComplete ? i18n.t('app.완성') : "", baitTitleBits].filter(Boolean).join(" · ");
     const parentAttr = parentSceneId != null ? String(parentSceneId) : "";
     const display = getOutlineSceneDisplay(scene);
     const titleClass = display.isPreview ? "scene-title is-body-preview" : "scene-title";
     // 하위가 있을 때만 접기 버튼. 잎 회차는 빈 칸(+ 자리 포함)을 두지 않아 제목 폭을 확보
     const twistie = hasNest
-      ? `<button type="button" class="scene-twistie chapter-twistie" data-toggle-scene="${sid}" aria-expanded="${childExpanded ? "true" : "false"}" title="${childExpanded ? "하위 접기" : "하위 펼치기"}"><span class="twistie-glyph" aria-hidden="true"></span></button>`
+      ? `${i18n.t('app.button_type_button_clas_10', {sid: sid, 'childExpanded ? "true" : "false"': childExpanded ? "true" : "false", 'childExpanded ? "하위 접기" : "하위 펼치기"': childExpanded ? "하위 접기" : "하위 펼치기"})}`
       : "";
     // Folders render after child manuscripts under the same parent.
     // Route through recursive binder renderer (non-box chapter path → same markup).
@@ -34682,7 +35472,7 @@ function renderSceneTreeHtml(scenes, {
           ${nestedFoldersHtml}
         </div>`
       : "";
-    const addAfterBtn = `<button type="button" class="scene-add-btn" data-add-after-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="아래에 원고 추가" aria-label="아래에 원고 추가">+</button>`;
+    const addAfterBtn = `${i18n.t('app.button_type_button_clas_11', {sid: sid, chapterId: chapterId, parentAttr: parentAttr})}`;
     return `
       <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
         <div class="scene-row">
@@ -34844,10 +35634,13 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       : "";
     const chapterHtml = (hasScenes || childFolders.length)
       ? `${sceneItems}${foldersHtml}`
-      : `<p class="hint part-empty-hint">이 폴더가 비어 있어요. 우클릭으로 하위 항목을 추가할 수 있어요.</p>`;
+      : i18n.t('app.p_class_hint_part_empty');
+    const folderTreeClass = (!nestedUnderScene && depth > 0) ? " is-folder-tree-child" : "";
+    const lastClass = (depth > 0 && isLastSibling) ? " is-last" : "";
+    const nestedFoldersClass = childFolders.length ? " has-nested-folders" : "";
     return `
-    <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
-      <div class="part-row" draggable="true" title="끌어 폴더 순서 바꾸기">
+    <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}${folderTreeClass}${lastClass}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
+      <div class="part-row" draggable="true" title="${i18n.t('app.끌어_폴더_순서_바꾸기')}">
         <button
           type="button"
           class="part-twistie chapter-twistie folder-icon-btn"
@@ -34858,7 +35651,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
         ${folderBookmarkMarkHtml(bmOn)}
         <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (우클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
       </div>
-      <div class="part-children ${partExpanded ? "" : "is-collapsed"}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
+      <div class="part-children ${partExpanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
         ${chapterHtml}
       </div>
     </section>`;
@@ -34902,6 +35695,10 @@ function renderChapterOutlineHtml(chapter, {
   const allComplete = hasScenes && flat.length > 0 && flat.every((scene) => scene.status === "complete");
   // Nested under a manuscript: keep staircase by starting children one step deeper.
   const sceneDepth = nestedUnderScene ? Math.min(Number(nestDepth) + 1, 8) : 0;
+  // Nested folders under this chapter (unlimited depth)
+  const nestedChildFolders = getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false }));
+  const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
+  const hasNestedFolders = nestedChildFolders.length > 0;
   const sceneItems = hasScenes
     ? renderSceneTreeHtml(scenes, {
         chapterId: chapter.id,
@@ -34913,14 +35710,10 @@ function renderChapterOutlineHtml(chapter, {
         pinnedSet,
         parentSceneId: null,
       })
-    : (transparent
+    : (transparent || hasNestedFolders
       ? ""
-      : `<p class="hint scene-empty-hint">아직 회차가 없어요.</p>`);
-
-  // Nested folders under this chapter (unlimited depth)
-  const nestedChildFolders = getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false }));
-  const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
-  const nestedChildFoldersHtml = nestedChildFolders.length
+      : i18n.t('app.p_class_hint_scene_empt'));
+  const nestedChildFoldersHtml = hasNestedFolders
     ? nestedChildFolders.map((ch, idx) => renderBinderFolderNodeHtml(
         asBinderFolderNode(ch, { isBox: binderFolderNodeIsBox(ch) }),
         {
@@ -34964,21 +35757,23 @@ function renderChapterOutlineHtml(chapter, {
   const sceneNestDepthClass = nestedUnderScene ? ` depth-${Math.min(Number(nestDepth) || 1, 8)}` : "";
   const binderDepthClass = ` binder-depth-${depth}`;
   const binderDepthAttr = ` data-binder-depth="${depth}"`;
-  const lastClass = nestedUnderScene && isLastSibling ? " is-last" : "";
+  const lastClass = ((nestedUnderScene || depth > 0) && isLastSibling) ? " is-last" : "";
   const nestClass = nestedUnderScene ? " is-nested-under-scene" : "";
+  const folderTreeClass = (!nestedUnderScene && depth > 0) ? " is-folder-tree-child" : "";
+  const nestedFoldersClass = hasNestedFolders ? " has-nested-folders" : "";
   if (transparent) {
     // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
     return `
     <section class="outline-chapter is-transparent-chapter${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${boxAttr}${sourceKindAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
-      <div class="chapter-children" role="group" aria-label="원고">
+      <div class="chapter-children" role="group" aria-label="${i18n.t('app.원고')}">
         ${sceneItems}${afterScenesHtml}
-        <button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="원고 추가">+</button>
+        <button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="${i18n.t('app.원고_추가')}">+</button>
       </div>
     </section>`;
   }
   return `
-    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
-      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}" title="끌어 폴더 순서 바꾸기">
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${folderTreeClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
+      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}" title="${i18n.t('app.끌어_폴더_순서_바꾸기')}">
         <button
           type="button"
           class="chapter-twistie folder-icon-btn"
@@ -34990,7 +35785,7 @@ function renderChapterOutlineHtml(chapter, {
         ${folderBookmarkMarkHtml(bmOn)}
         <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (우클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
       </div>
-      <div class="chapter-children ${expanded ? "" : "is-collapsed"}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
+      <div class="chapter-children ${expanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
         ${sceneItems}${afterScenesHtml}
       </div>
     </section>`;
@@ -35007,7 +35802,7 @@ function renderOutline(chaptersArg) {
   const flatChapters = getBinderChaptersInOrder();
   const foldersEmpty = useFolders && !(state.folders || []).length;
   if (foldersEmpty || (!useFolders && !flatChapters.length && !parts.length)) {
-    outline.innerHTML = "<p class='hint'>아직 챕터가 없어요.<br>위의 + 챕터를 눌러 주세요.</p>";
+    outline.innerHTML = i18n.t('app.p_class_hint_아직_챕터가_없어요');
     try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
     return;
   }
@@ -35049,14 +35844,14 @@ function renderOutline(chaptersArg) {
     const ungroupedHtml = ungrouped.length
       ? `
     <div class="outline-ungrouped ${parts.length ? "" : "is-flat"}" data-part-chapters="" data-part-id="">
-      ${parts.length ? `<div class="outline-ungrouped-label">미분류 (최상위 폴더 밖)</div>` : ""}
+      ${parts.length ? i18n.t('app.div_class_outline_ungro') : ""}
       ${ungrouped.map((ch) => renderBinderFolderNodeHtml(
         asBinderFolderNode(ch, { isBox: false }),
         chapterOpts,
       )).join("")}
     </div>`
       : (parts.length
-        ? `<p class="hint outline-ungrouped-empty">미분류 폴더가 없어요.</p>`
+        ? i18n.t('app.p_class_hint_outline_un')
         : "");
     bodyHtml = `${partBlocks}${ungroupedHtml}`;
   }
@@ -35099,7 +35894,7 @@ function renderOutline(chaptersArg) {
       if (!sceneId) return;
       const chapterId = button.dataset.chapterId || findChapterIdForScene(sceneId);
       if (!chapterId) {
-        toast("폴더를 찾지 못했어요.");
+        toast(i18n.t('app.폴더를_찾지_못했어요'));
         return;
       }
       const parentRaw = button.dataset.parentScene;
@@ -35241,7 +36036,7 @@ async function beginChapterRename(titleButton) {
   input.type = "text";
   input.className = "chapter-rename-input";
   input.value = original;
-  input.setAttribute("aria-label", "챕터 이름 수정");
+  input.setAttribute("aria-label", i18n.t('app.챕터_이름_수정'));
   input.maxLength = 200;
   titleButton.replaceWith(input);
   input.focus();
@@ -35269,7 +36064,7 @@ async function beginChapterRename(titleButton) {
       const chapter = state.outline.find((item) => item.id === chapterId);
       if (chapter) chapter.title = nextTitle;
       await loadProject();
-      toast("챕터 이름을 바꿨어요.");
+      toast(i18n.t('app.챕터_이름을_바꿨어요'));
     } catch (error) {
       await loadProject();
       throw error;
@@ -35594,11 +36389,11 @@ function setupChapterDragAndDrop(outline) {
                 without.map((n) => Number(n.dataset.chapterId)),
                 toPartId,
               );
-              toast("폴더를 옮기고 순서를 맞췄어요.");
+              toast(i18n.t('app.폴더를_옮기고_순서를_맞췄어요'));
               return;
             }
           }
-          toast("폴더를 옮겼어요.");
+          toast(i18n.t('app.폴더를_옮겼어요'));
           return;
         }
 
@@ -36016,9 +36811,9 @@ function setupFolderTreeDragAndDrop(outline) {
         if (result && result.moved) noteFolderUndoAvailable();
         await loadProject();
         if (drop.mode === "inside") {
-          toast("폴더를 안으로 넣었어요.");
+          toast(i18n.t('app.폴더를_안으로_넣었어요'));
         } else {
-          toast("폴더 위치를 바꿨어요.");
+          toast(i18n.t('app.폴더_위치를_바꿨어요'));
         }
       } catch (error) {
         handleError(error);
@@ -36035,7 +36830,7 @@ async function reorderChapters(chapterIds, partId = null) {
     body: JSON.stringify({ chapter_ids: chapterIds, part_id: partId }),
   });
   await loadProject();
-  toast("챕터 순서를 바꿨어요.");
+  toast(i18n.t('app.챕터_순서를_바꿨어요'));
 }
 
 async function reorderParts(partIds) {
@@ -36045,7 +36840,7 @@ async function reorderParts(partIds) {
     body: JSON.stringify({ part_ids: partIds }),
   });
   await loadProject();
-  toast("권/부 순서를 바꿨어요.");
+  toast(i18n.t('app.권_부_순서를_바꿨어요'));
 }
 
 function renderCharacters() {
@@ -36057,14 +36852,14 @@ function renderCharacters() {
       || roleLabel[character.role]
       || "";
     const analysisMark = character.has_tori_analysis
-      ? `<span class="character-link-analysis">새 분석</span>`
+      ? i18n.t('app.span_class_character_li')
       : "";
     return `
     <button class="character-link ${state.characterId === character.id ? "active" : ""}" data-character="${character.id}" title="${escapeHtml(character.name)}">
       <span class="character-name">${escapeHtml(character.name)}${analysisMark}</span>
       <span class="character-role">${escapeHtml(firstLine)}</span>
     </button>`;
-  }).join("") : "<p class='hint'>아직 인물이 없어요.<br>+ 캐릭터를 눌러 주세요.</p>";
+  }).join("") : i18n.t('app.p_class_hint_아직_인물이_없어요');
   list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character)));
   renderSettingsCodex();
   if (toryChatHub === "characters" || toryChatHub === "character-room") {
@@ -36144,12 +36939,12 @@ const NOTICE_FEED_REMOTE_URL =
   "https://raw.githubusercontent.com/cultnoni/supertory/main/web/notice-feed.json";
 const NOTICE_FEED_LOCAL_URL = "/notice-feed.json";
 const WELCOME_SPEECH_LINES = [
-  "반가워요 작가님",
-  "먼저 왼쪽 위 +를 눌러봐요!",
-  "새 글 쓰기부터 시작하면 돼요.",
-  "써 둔 글이 있으면 가져오기도 가능!",
-  "준비되면 같이 써봐요.",
-  "토리와 함께",
+  i18n.t('app.반가워요_작가님'),
+  i18n.t('app.먼저_왼쪽_위_를_눌러봐요'),
+  i18n.t('app.새_글_쓰기부터_시작하면_돼요'),
+  i18n.t('app.써_둔_글이_있으면_가져오기도_가능'),
+  i18n.t('app.준비되면_같이_써봐요'),
+  i18n.t('app.토리와_함께'),
 ];
 let welcomeSpeechTimer = null;
 let welcomeSpeechIndex = 0;
@@ -36177,13 +36972,18 @@ function localDateKey() {
 function normalizeWelcomeAdItem(raw) {
   if (!raw || typeof raw !== "object") return null;
   const version = String(raw.version || "v1").trim() || "v1";
-  const title = String(raw.title || "").trim();
-  const body = String(raw.body || "").trim();
-  if (!title && !body) return null;
+  const title_ko = String(raw.title_ko || raw.title || "").trim();
+  const title_en = String(raw.title_en || "").trim();
+  const body_ko = String(raw.body_ko || raw.body || "").trim();
+  const body_en = String(raw.body_en || "").trim();
+  if (!title_ko && !title_en && !body_ko && !body_en) return null;
   return {
-    badge: String(raw.badge || "").trim(),
-    title,
-    body,
+    badge_ko: String(raw.badge_ko || raw.badge || "").trim(),
+    badge_en: String(raw.badge_en || "").trim(),
+    title_ko,
+    title_en,
+    body_ko,
+    body_en,
     enabled: raw.enabled !== false && raw.enabled !== 0,
     version,
     startDate: String(raw.startDate || "").trim(),
@@ -36275,19 +37075,20 @@ function isWelcomeAdItemActive(kind) {
   if (!item) return false;
   if (!item.enabled) return false;
   if (!isWelcomeAdItemInDateWindow(item)) return false;
-  if (!item.title && !item.body) return false;
+  if (!item.title_ko && !item.title_en && !item.body_ko && !item.body_en) return false;
   return true;
 }
 
 function applyWelcomeAdFeedToDom() {
+  const lang = i18n.getLang();
   for (const kind of WELCOME_AD_POPUP_IDS) {
     const item = getWelcomeAdItem(kind);
     const badgeEl = document.querySelector(`[data-ad-popup-badge="${kind}"]`);
     const titleEl = document.querySelector(`[data-ad-popup-title="${kind}"]`);
     const bodyEl = document.querySelector(`[data-ad-popup-body="${kind}"]`);
-    if (badgeEl) badgeEl.textContent = item?.badge || "";
-    if (titleEl) titleEl.textContent = item?.title || "";
-    if (bodyEl) bodyEl.textContent = item?.body || "";
+    if (badgeEl) badgeEl.textContent = item?.[`badge_${lang}`] || item?.badge_ko || "";
+    if (titleEl) titleEl.textContent = item?.[`title_${lang}`] || item?.title_ko || "";
+    if (bodyEl) bodyEl.textContent = item?.[`body_${lang}`] || item?.body_ko || "";
   }
 }
 
@@ -36483,7 +37284,7 @@ function openNewProjectModal() {
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = false;
-    submit.textContent = "만들기";
+    submit.textContent = i18n.t('app.만들기');
   }
   modal.classList.remove("hidden");
   window.setTimeout(() => titleInput?.focus(), 0);
@@ -36494,7 +37295,7 @@ function closeNewProjectModal() {
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = false;
-    submit.textContent = "만들기";
+    submit.textContent = i18n.t('app.만들기');
   }
 }
 
@@ -36502,21 +37303,21 @@ async function submitNewProject(event) {
   event?.preventDefault?.();
   const title = String($("newProjectTitle")?.value || "").trim();
   if (!title) {
-    toast("작품 제목을 적어 주세요.");
+    toast(i18n.t('app.작품_제목을_적어_주세요'));
     $("newProjectTitle")?.focus();
     return;
   }
   const purpose = normalizePurposeKey($("newProjectPurpose")?.value || "general_novel");
   const genres = readModalGenreValues("newProject", purpose);
   if (!genres.ok) {
-    toast(genres.error || "장르를 선택해 주세요. 토리 학습에 필요해요.");
+    toast(genres.error || i18n.t('app.장르를_선택해_주세요_토리_학습에_필요해요'));
     $(genres.focusId)?.focus();
     return;
   }
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = true;
-    submit.textContent = "만드는 중…";
+    submit.textContent = i18n.t('app.만드는_중');
   }
   try {
     const project = await api("/api/projects", {
@@ -36538,11 +37339,11 @@ async function submitNewProject(event) {
       console.warn("[supertory] default opening structure failed", err);
     }
     const packageNote = project.package_name ? ` 파일: projects\\${project.package_name}` : "";
-    toast(`새 ${purposeLabel[purpose] || "작품"}이 만들어졌어요.${packageNote}`);
+    toast(`${i18n.t('app.새_purposeLabel_purpose_작', {'purposeLabel[purpose] || "작품"': purposeLabel[purpose] || "작품", packageNote: packageNote})}`);
   } catch (error) {
     if (submit) {
       submit.disabled = false;
-      submit.textContent = "만들기";
+      submit.textContent = i18n.t('app.만들기');
     }
     throw error;
   }
@@ -36590,7 +37391,7 @@ function renderModalKeywordField(prefix) {
     list.innerHTML = tags.map((label) => `
       <span class="keyword-chip" data-keyword="${escapeHtml(label)}">
         <span class="keyword-chip-label">${escapeHtml(label)}</span>
-        <button type="button" class="keyword-chip-remove" data-modal-keyword-remove="${escapeHtml(label)}" title="제거" aria-label="${escapeHtml(label)} 제거">×</button>
+        <button type="button" class="keyword-chip-remove" data-modal-keyword-remove="${escapeHtml(label)}" title="${i18n.t('app.제거')}" aria-label="${escapeHtml(label)} 제거">×</button>
       </span>
     `).join("");
   }
@@ -36624,7 +37425,7 @@ function addModalDraftKeyword(prefix, label) {
   const current = getModalDraftKeywords(prefix);
   if (current.includes(cleaned)) return false;
   if (current.length >= KEYWORD_MAX) {
-    toast(`키워드는 최대 ${KEYWORD_MAX}개까지 넣을 수 있어요.`);
+    toast(`${i18n.t('app.키워드는_최대_KEYWORD_MAX_개까지', {KEYWORD_MAX: KEYWORD_MAX})}`);
     return false;
   }
   modalDraftKeywords[prefix] = [...current, cleaned];
@@ -36714,7 +37515,7 @@ function promptText(messageOrOptions, defaultValue = "") {
     // Browser fallback (dev / non-Electron)
     try {
       return Promise.resolve(
-        window.prompt(opts.message || opts.title || "입력", opts.defaultValue ?? ""),
+        window.prompt(opts.message || opts.title || i18n.t('app.입력'), opts.defaultValue ?? ""),
       );
     } catch (_) {
       return Promise.resolve(null);
@@ -36727,16 +37528,16 @@ function promptText(messageOrOptions, defaultValue = "") {
   const titleEl = $("textPromptModalTitle");
   const messageEl = $("textPromptModalMessage");
   const submitBtn = $("textPromptSubmit");
-  if (titleEl) titleEl.textContent = opts.title || "입력";
+  if (titleEl) titleEl.textContent = opts.title || i18n.t('app.입력');
   if (messageEl) {
     messageEl.textContent = String(opts.message || "").trim();
   }
   const labelTextEl = $("textPromptLabelText");
-  if (labelTextEl) labelTextEl.textContent = opts.label || "이름";
+  if (labelTextEl) labelTextEl.textContent = opts.label || i18n.t('app.이름');
   input.maxLength = Number(opts.maxlength) > 0 ? Number(opts.maxlength) : 120;
   input.placeholder = opts.placeholder || "";
   input.value = opts.defaultValue != null ? String(opts.defaultValue) : "";
-  if (submitBtn) submitBtn.textContent = opts.confirmLabel || "확인";
+  if (submitBtn) submitBtn.textContent = opts.confirmLabel || i18n.t('app.확인');
   modal.classList.remove("hidden");
   window.setTimeout(() => {
     input.focus();
@@ -36785,20 +37586,20 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
   const prevSub = opts.keepSub || opts.keepMain ? subSelect.value : (opts.sub || "");
 
   let mainOptions = MAIN_GENRES;
-  let mainLabel = "메인 장르";
-  let subLabel = "서브 장르";
+  let mainLabel = i18n.t('app.메인_장르');
+  let subLabel = i18n.t('app.서브_장르');
   let showSub = true;
   if (mode === "translation") {
     mainOptions = WORK_LANGUAGES;
-    mainLabel = "원문 언어";
-    subLabel = "번역문 언어";
+    mainLabel = i18n.t('app.원문_언어');
+    subLabel = i18n.t('app.번역문_언어');
   } else if (mode === "fairy_tale") {
     mainOptions = FAIRY_TALE_AUDIENCES;
-    mainLabel = "동화 대상";
+    mainLabel = i18n.t('app.동화_대상');
     showSub = false;
   } else if (mode === "none") {
     mainOptions = MAIN_GENRES;
-    mainLabel = "장르·분위기";
+    mainLabel = i18n.t('app.장르_분위기');
     showSub = false;
   }
 
@@ -36813,10 +37614,10 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
   }
 
   const placeholderMain = mode === "translation"
-    ? "원문 언어를 선택해 주세요"
+    ? i18n.t('app.원문_언어를_선택해_주세요')
     : mode === "fairy_tale"
-      ? "동화 대상을 선택해 주세요"
-      : "장르를 선택해 주세요";
+      ? i18n.t('app.동화_대상을_선택해_주세요')
+      : i18n.t('app.장르를_선택해_주세요');
   mainSelect.innerHTML = `<option value="">${escapeHtml(placeholderMain)}</option>`
     + mainOptions.map((g) => `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`).join("");
   if (prevMain && mainOptions.some((g) => g.key === prevMain)) mainSelect.value = prevMain;
@@ -36843,8 +37644,8 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
     state.projectPurpose = prevPurpose;
   }
   const placeholderSub = mode === "translation"
-    ? "번역문 언어를 선택해 주세요"
-    : "세부 장르를 선택해 주세요";
+    ? i18n.t('app.번역문_언어를_선택해_주세요')
+    : i18n.t('app.세부_장르를_선택해_주세요');
   subSelect.disabled = !subOptions.length;
   subSelect.required = Boolean(subOptions.length);
   subSelect.innerHTML = `<option value="">${escapeHtml(placeholderSub)}</option>`
@@ -36863,7 +37664,7 @@ function readModalGenreValues(prefix, purpose) {
   if (!main) {
     return {
       ok: false,
-      error: "장르를 선택해 주세요. 토리가 학습하는 데 필요해요.",
+      error: i18n.t('app.장르를_선택해_주세요_토리가_학습하는_데_필'),
       focusId: `${prefix}MainGenre`,
     };
   }
@@ -36871,8 +37672,8 @@ function readModalGenreValues(prefix, purpose) {
     return {
       ok: false,
       error: mode === "translation"
-        ? "번역문 언어를 선택해 주세요. 토리 학습에 필요해요."
-        : "서브 장르를 선택해 주세요. 토리 학습에 필요해요.",
+        ? i18n.t('app.번역문_언어를_선택해_주세요_토리_학습에_필')
+        : i18n.t('app.서브_장르를_선택해_주세요_토리_학습에_필요'),
       focusId: `${prefix}SubGenre`,
     };
   }
@@ -36916,24 +37717,24 @@ function chaptersInInsertGroup(partId) {
 }
 
 function describeChapterInsertTarget(target) {
-  if (!target) return "맨 아래";
+  if (!target) return i18n.t('app.맨_아래');
   const partId = target.partId == null ? null : Number(target.partId);
   const index = Number(target.index) || 0;
   const chapters = chaptersInInsertGroup(partId);
   const partLabel = partId == null
-    ? ((state.parts || []).length ? "미분류" : "목차")
-    : ((state.parts || []).find((p) => Number(p.id) === partId)?.title || "폴더");
-  if (!chapters.length) return `「${partLabel}」 안 (첫 폴더)`;
+    ? ((state.parts || []).length ? i18n.t('app.미분류') : i18n.t('app.목차'))
+    : ((state.parts || []).find((p) => Number(p.id) === partId)?.title || i18n.t('app.폴더'));
+  if (!chapters.length) return `${i18n.t('app.partLabel_안_첫_폴더', {partLabel: partLabel})}`;
   if (index >= chapters.length) {
     const last = chapters[chapters.length - 1];
-    return `「${partLabel}」 · ${last?.title || "마지막"} 다음`;
+    return `${i18n.t('app.partLabel_last_title_마지', {partLabel: partLabel, 'last?.title || "마지막"': last?.title || "마지막"})}`;
   }
   if (index <= 0) {
-    return `「${partLabel}」 · ${chapters[0]?.title || "첫 폴더"} 앞`;
+    return `${i18n.t('app.partLabel_chapters_0_ti', {partLabel: partLabel, 'chapters[0]?.title || "첫 폴더"': chapters[0]?.title || "첫 폴더"})}`;
   }
   const before = chapters[index - 1];
   const after = chapters[index];
-  return `「${partLabel}」 · ${before?.title || "?"} / ${after?.title || "?"} 사이`;
+  return `${i18n.t('app.partLabel_before_title', {partLabel: partLabel, 'before?.title || "?"': before?.title || "?", 'after?.title || "?"': after?.title || "?"})}`;
 }
 
 function updateChapterInsertBanner() {
@@ -36945,7 +37746,7 @@ function updateChapterInsertBanner() {
     return;
   }
   banner.classList.remove("hidden");
-  text.textContent = `삽입 위치: ${describeChapterInsertTarget(pendingChapterInsert)} · + 챕터를 누르면 여기에 추가`;
+  text.textContent = `${i18n.t('app.삽입_위치_describeChapterIns', {'describeChapterInsertTarget(pendingChapterInsert)': describeChapterInsertTarget(pendingChapterInsert)})}`;
 }
 
 function setPendingChapterInsert(partId, index) {
@@ -37084,7 +37885,7 @@ function setupNewChapterDrag() {
   button.addEventListener("dragstart", (event) => {
     if (!state.projectId) {
       event.preventDefault();
-      toast("먼저 새 작품을 만들어 주세요.");
+      toast(i18n.t('app.먼저_새_작품을_만들어_주세요'));
       return;
     }
     chapterInsertDragActive = true;
@@ -37143,7 +37944,7 @@ function setupNewChapterDrag() {
 
   $("clearChapterInsertButton")?.addEventListener("click", () => {
     clearChapterInsertTarget();
-    toast("삽입 위치를 취소했어요. 클릭 추가는 맨 아래에 붙습니다.");
+    toast(i18n.t('app.삽입_위치를_취소했어요_클릭_추가는_맨_아래'));
   });
 }
 
@@ -37154,7 +37955,7 @@ function openRenumberChaptersModal(message) {
     $("renumberChaptersMessage").innerHTML = message;
   } else if ($("renumberChaptersMessage")) {
     $("renumberChaptersMessage").innerHTML =
-      "목록 번호를 재정렬 하시겠습니까?<br>현재 바인더 순서대로 챕터 제목 앞의 순번을 새로 매깁니다.";
+      i18n.t('app.목록_번호를_재정렬_하시겠습니까_br_현재');
   }
   modal.classList.remove("hidden");
 }
@@ -37164,8 +37965,8 @@ function closeRenumberChaptersModal() {
 }
 
 async function renumberChapterTitles(style = "jang") {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!state.outline?.length) return toast("정리할 챕터가 없어요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!state.outline?.length) return toast(i18n.t('app.정리할_챕터가_없어요'));
   const result = await api(`/api/projects/${state.projectId}/chapters/renumber-titles`, {
     method: "PUT",
     body: JSON.stringify({ style }),
@@ -37179,7 +37980,7 @@ async function renumberChapterTitles(style = "jang") {
   if (typeof refreshFolderUndoHintFromServer === "function") {
     refreshFolderUndoHintFromServer().catch(() => {});
   }
-  toast(`챕터 순번을 다시 매겼어요. (${result.count || state.outline.length}개)`);
+  toast(`${i18n.t('app.챕터_순번을_다시_매겼어요_result_co', {'result.count || state.outline.length': result.count || state.outline.length})}`);
 }
 
 /* —— 바인더 목차: 폴더 개수 + 우클릭 글자 크기 + 안내 팁(닫기) —— */
@@ -37299,8 +38100,8 @@ function syncOutlineSpacingAdjustUi() {
   btn.setAttribute("aria-pressed", on ? "true" : "false");
   btn.setAttribute("aria-expanded", on ? "true" : "false");
   btn.title = on
-    ? "조절 모드 · 목차 위에서 스크롤로 글자·줄간격 조절 · 다시 클릭하면 종료"
-    : "목차 줄간격 조절 · 클릭 후 목차에서 스크롤";
+    ? i18n.t('app.조절_모드_목차_위에서_스크롤로_글자_줄간격')
+    : i18n.t('app.목차_줄간격_조절_클릭_후_목차에서_스크롤');
   document.body.classList.toggle("outline-spacing-adjust-mode", on);
   $("manuscriptBinder")?.classList.toggle("is-spacing-adjust-mode", on);
   $("outline")?.classList.toggle("is-spacing-adjust-mode", on);
@@ -37316,7 +38117,7 @@ function enterOutlineSpacingAdjustMode({ toastMsg = true } = {}) {
   outlineSpacingAdjustMode = true;
   syncOutlineSpacingAdjustUi();
   if (toastMsg) {
-    toast("목차 조절 모드 · 목록 위에서 스크롤하세요. 다시 클릭하거나 바깥을 누르면 끝나요.");
+    toast(i18n.t('app.목차_조절_모드_목록_위에서_스크롤하세요_다'));
   }
 }
 
@@ -37327,7 +38128,7 @@ function exitOutlineSpacingAdjustMode({ toastMsg = false } = {}) {
   }
   outlineSpacingAdjustMode = false;
   syncOutlineSpacingAdjustUi();
-  if (toastMsg) toast("목차 조절 모드를 끝냈어요.");
+  if (toastMsg) toast(i18n.t('app.목차_조절_모드를_끝냈어요'));
 }
 
 function toggleOutlineSpacingAdjustMode() {
@@ -37353,7 +38154,7 @@ function nudgeOutlineSpacingScale(delta) {
   const now = Date.now();
   if ((atMin || atMax) && now - outlineSpacingAdjustToastAt > 900) {
     outlineSpacingAdjustToastAt = now;
-    toast(atMax ? "더 이상 키울 수 없어요." : "더 이상 줄일 수 없어요.");
+    toast(atMax ? i18n.t('app.더_이상_키울_수_없어요') : i18n.t('app.더_이상_줄일_수_없어요'));
   } else if (now - outlineSpacingAdjustToastAt > 1200 && (nextFont !== prevFont || nextGap !== prevGap)) {
     outlineSpacingAdjustToastAt = now;
     // 너무 잦은 토스트 방지 — 가끔 현재 값만
@@ -37433,19 +38234,19 @@ function updateOutlineFolderCount() {
     const num = folderEl.querySelector(".outline-count-num");
     if (num) num.textContent = String(folderN);
     else folderEl.textContent = String(folderN);
-    folderEl.setAttribute("aria-label", `폴더 ${folderN}개`);
-    folderEl.title = `폴더 ${folderN}개`;
+    folderEl.setAttribute("aria-label", `${i18n.t('app.폴더_folderN_개', {folderN: folderN})}`);
+    folderEl.title = `${i18n.t('app.폴더_folderN_개', {folderN: folderN})}`;
   }
   if (sceneEl) {
     const num = sceneEl.querySelector(".outline-count-num");
     if (num) num.textContent = String(sceneN);
     else sceneEl.textContent = String(sceneN);
-    sceneEl.setAttribute("aria-label", `원고 ${sceneN}개`);
-    sceneEl.title = `원고 ${sceneN}개`;
+    sceneEl.setAttribute("aria-label", `${i18n.t('app.원고_sceneN_개', {sceneN: sceneN})}`);
+    sceneEl.title = `${i18n.t('app.원고_sceneN_개', {sceneN: sceneN})}`;
   }
   const heading = $("outlineTocHeading");
   if (heading) {
-    heading.title = `폴더 ${folderN} · 원고 ${sceneN} · 클릭: 한눈에 보기`;
+    heading.title = `${i18n.t('app.폴더_folderN_원고_sceneN_클릭', {folderN: folderN, sceneN: sceneN})}`;
   }
 }
 
@@ -37484,7 +38285,7 @@ function renderOutlineOverviewSceneTree(scenes, depth = 0) {
   return list.map((scene) => {
     const display = typeof getOutlineSceneDisplay === "function"
       ? getOutlineSceneDisplay(scene)
-      : { label: scene.title || "원고", isPreview: false };
+      : { label: scene.title || i18n.t('app.원고'), isPreview: false };
     const sid = Number(scene.id);
     const depthClass = depth > 0 ? ` is-depth-${Math.min(depth, 5)}` : "";
     const currentClass = sid === currentId ? " is-current" : "";
@@ -37511,7 +38312,7 @@ function renderOutlineOverviewChapter(chapter, folderLevel = "is-level-1") {
   }
   return `
     <button type="button" class="outline-overview-folder ${folderLevel}" data-overview-chapter="${chapter.id}" title="${escapeHtml(chapter.title || "폴더")}">
-      ${escapeHtml(chapter.title || "폴더")}
+      ${escapeHtml(chapter.title || i18n.t('app.폴더'))}
     </button>
     ${scenesHtml}`;
 }
@@ -37520,7 +38321,7 @@ function renderOutlineOverviewBody() {
   const body = $("outlineOverviewBody");
   if (!body) return;
   if (!state.projectId) {
-    body.innerHTML = `<p class="outline-overview-empty">작품을 먼저 선택해 주세요.</p>`;
+    body.innerHTML = i18n.t('app.p_class_outline_overvie');
     return;
   }
   const parts = Array.isArray(state.parts) ? state.parts : [];
@@ -37531,11 +38332,11 @@ function renderOutlineOverviewBody() {
     const chapters = part.chapters || [];
     const chapterHtml = chapters.length
       ? chapters.map((ch) => renderOutlineOverviewChapter(ch, "is-level-1")).join("")
-      : `<p class="outline-overview-empty" style="margin:6px 0">하위 폴더 없음</p>`;
+      : i18n.t('app.p_class_outline_overvie_2');
     return `
       <section class="outline-overview-part">
         <button type="button" class="outline-overview-part-title" data-overview-part="${part.id}" title="${escapeHtml(part.title || "폴더")}">
-          ${escapeHtml(part.title || "폴더")}
+          ${escapeHtml(part.title || i18n.t('app.폴더'))}
         </button>
         ${chapterHtml}
       </section>`;
@@ -37543,12 +38344,12 @@ function renderOutlineOverviewBody() {
 
   const ungroupedHtml = ungrouped.length
     ? `
-      ${parts.length ? `<div class="outline-overview-ungrouped-label">미분류</div>` : ""}
+      ${parts.length ? i18n.t('app.div_class_outline_overv') : ""}
       ${ungrouped.map((ch) => renderOutlineOverviewChapter(ch, parts.length ? "is-level-1" : "is-level-0")).join("")}`
     : "";
 
   if (!partBlocks && !ungroupedHtml) {
-    body.innerHTML = `<p class="outline-overview-empty">아직 목차가 비어 있어요.<br>+ 챕터로 폴더를 만들어 보세요.</p>`;
+    body.innerHTML = i18n.t('app.p_class_outline_overvie_3');
     return;
   }
   body.innerHTML = `${partBlocks}${ungroupedHtml}`;
@@ -37556,7 +38357,7 @@ function renderOutlineOverviewBody() {
 
 function openOutlineOverview() {
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   renderOutlineOverviewBody();
@@ -37709,7 +38510,7 @@ function setupOutlineBinderChrome() {
       if (badges && typeof hideUiFeatureElement === "function") {
         hideUiFeatureElement(badges);
       } else {
-        toast("숨길 개수 표시를 찾지 못했어요.");
+        toast(i18n.t('app.숨길_개수_표시를_찾지_못했어요'));
       }
       return;
     }
@@ -37758,8 +38559,8 @@ function setupOutlineBinderChrome() {
 
 function setupRenumberChaptersModal() {
   $("renumberChaptersButton")?.addEventListener("click", () => {
-    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-    if (!state.outline?.length) return toast("정리할 챕터가 없어요.");
+    if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+    if (!state.outline?.length) return toast(i18n.t('app.정리할_챕터가_없어요'));
     openRenumberChaptersModal();
   });
   document.querySelectorAll("[data-close-renumber]").forEach((el) => {
@@ -37785,26 +38586,26 @@ function setupRenumberChaptersModal() {
  * - 끌어다 놓기 / 삽입 위치: 해당 그룹(상자·미분류) 안에 폴더 추가
  */
 async function createChapter(options = {}) {
-  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_새_작품을_만들어_주세요'));
 
   if (options.parentSceneId != null && options.parentSceneId !== "") {
     const parentSceneId = Number(options.parentSceneId);
     if (!Number.isFinite(parentSceneId) || parentSceneId <= 0) {
-      return toast("상위 원고를 찾지 못했어요.");
+      return toast(i18n.t('app.상위_원고를_찾지_못했어요'));
     }
-    const parentLabel = (typeof getSceneTitleById === "function" && getSceneTitleById(parentSceneId)) || "선택한 원고";
+    const parentLabel = (typeof getSceneTitleById === "function" && getSceneTitleById(parentSceneId)) || i18n.t('app.선택한_원고');
     const title = await promptText({
-      title: "폴더 만들기",
-      message: `「${parentLabel}」 원고 아래에 만들어집니다.`,
-      label: "폴더 이름",
-      defaultValue: "새 폴더",
-      confirmLabel: "만들기",
+      title: i18n.t('app.폴더_만들기'),
+      message: `${i18n.t('app.parentLabel_원고_아래에_만들어집', {parentLabel: parentLabel})}`,
+      label: i18n.t('app.폴더_이름'),
+      defaultValue: i18n.t('app.새_폴더'),
+      confirmLabel: i18n.t('app.만들기'),
     });
     if (title === null) return;
     await api(`/api/projects/${state.projectId}/chapters`, {
       method: "POST",
       body: JSON.stringify({
-        title: title.trim() || "새 폴더",
+        title: title.trim() || i18n.t('app.새_폴더'),
         parent_scene_id: parentSceneId,
       }),
     });
@@ -37813,7 +38614,7 @@ async function createChapter(options = {}) {
     const hostChapterId = findChapterIdForScene(parentSceneId);
     if (hostChapterId) setChapterCollapsed(hostChapterId, false);
     await loadProject();
-    toast("원고 아래 폴더를 만들었어요.");
+    toast(i18n.t('app.원고_아래_폴더를_만들었어요'));
     return;
   }
 
@@ -37833,17 +38634,17 @@ async function createChapter(options = {}) {
   // Drag/click insert into a known group (including ungrouped = partId null with placed)
   if (placed || (explicitPart && partId != null)) {
     const placeHint = placed
-      ? `위치: ${describeChapterInsertTarget({ partId, index: insertIndex })}`
-      : `폴더 「${partTitle || ""}」 안에 추가됩니다.`;
+      ? `${i18n.t('app.위치_describeChapterInsert', {'describeChapterInsertTarget({ partId, index: insertIndex })': describeChapterInsertTarget({ partId, index: insertIndex })})}`
+      : `${i18n.t('app.폴더_partTitle_안에_추가됩니다', {'partTitle || ""': partTitle || ""})}`;
     const title = await promptText({
-      title: "폴더 만들기",
+      title: i18n.t('app.폴더_만들기'),
       message: placeHint,
-      label: "폴더 이름",
-      defaultValue: "새 폴더",
-      confirmLabel: "만들기",
+      label: i18n.t('app.폴더_이름'),
+      defaultValue: i18n.t('app.새_폴더'),
+      confirmLabel: i18n.t('app.만들기'),
     });
     if (title === null) return;
-    const body = { title: title.trim() || "새 폴더" };
+    const body = { title: title.trim() || i18n.t('app.새_폴더') };
     if (partId != null) body.part_id = partId;
     if (placed) body.insert_index = insertIndex;
     await api(`/api/projects/${state.projectId}/chapters`, {
@@ -37855,13 +38656,13 @@ async function createChapter(options = {}) {
     clearChapterInsertTarget();
     await loadProject();
     toast(partId != null
-      ? `「${partTitle || "폴더"}」 안에 폴더를 넣었어요.`
-      : "선택한 위치에 폴더를 넣었어요.");
+      ? `${i18n.t('app.partTitle_폴더_안에_폴더를_넣었어', {'partTitle || "폴더"': partTitle || "폴더"})}`
+      : i18n.t('app.선택한_위치에_폴더를_넣었어요'));
     const groupLen = chaptersInInsertGroup(partId).length;
     if (groupLen >= 2) {
       openRenumberChaptersModal(
-        "목록 번호를 재정렬 하시겠습니까?<br>"
-        + "중간에 폴더를 넣었으므로, 현재 바인더 순서대로 제목 앞 순번을 다시 맞출 수 있습니다.",
+        i18n.t('app.목록_번호를_재정렬_하시겠습니까_br')
+        + i18n.t('app.중간에_폴더를_넣었으므로_현재_바인더_순서대'),
       );
     }
     return;
@@ -37869,13 +38670,13 @@ async function createChapter(options = {}) {
 
   // Root +챕터: top-level folder box (part) + one sub-folder (chapter) for manuscripts
   const n = (state.parts || []).length + 1;
-  const defaultTitle = `${n}장`;
+  const defaultTitle = `${i18n.t('app.n_장', {n: n})}`;
   const title = await promptText({
-    title: "폴더 만들기",
-    message: "상위 폴더 상자가 만들어지고, 그 안에 원고를 둘 하위 폴더가 생깁니다.",
-    label: "폴더 이름",
+    title: i18n.t('app.폴더_만들기'),
+    message: i18n.t('app.상위_폴더_상자가_만들어지고_그_안에_원고를'),
+    label: i18n.t('app.폴더_이름'),
     defaultValue: defaultTitle,
-    confirmLabel: "만들기",
+    confirmLabel: i18n.t('app.만들기'),
   });
   if (title === null) return;
   const name = title.trim() || defaultTitle;
@@ -37891,24 +38692,24 @@ async function createChapter(options = {}) {
   noteFolderUndoAvailable(); // chapter create
   clearChapterInsertTarget();
   await loadProject();
-  toast(`「${name}」 폴더를 만들었어요. 옆 + 로 원고를 추가하세요.`);
+  toast(`${i18n.t('app.name_폴더를_만들었어요_옆_로_원고를', {name: name})}`);
 }
 
 /** Wrap an existing sub-folder into a new top-level folder box. */
 async function createPart(options = {}) {
-  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_새_작품을_만들어_주세요'));
   const chapterId = options.chapterId != null ? Number(options.chapterId) : null;
   const n = (state.parts || []).length + 1;
-  const defaultTitle = `${n}장`;
+  const defaultTitle = `${i18n.t('app.n_장', {n: n})}`;
   const hint = chapterId
-    ? "이 폴더를 새 상위 폴더 상자 안으로 넣습니다."
-    : "여러 하위 폴더를 묶는 상위 폴더 상자입니다.";
+    ? i18n.t('app.이_폴더를_새_상위_폴더_상자_안으로_넣습니')
+    : i18n.t('app.여러_하위_폴더를_묶는_상위_폴더_상자입니다');
   const chosen = await promptText({
-    title: "상위 폴더 만들기",
+    title: i18n.t('app.상위_폴더_만들기'),
     message: hint,
-    label: "상위 폴더 이름",
+    label: i18n.t('app.상위_폴더_이름'),
     defaultValue: defaultTitle,
-    confirmLabel: "만들기",
+    confirmLabel: i18n.t('app.만들기'),
   });
   if (chosen === null) return;
   const title = chosen.trim() || defaultTitle;
@@ -37922,8 +38723,8 @@ async function createPart(options = {}) {
   if (!chapterId) noteFolderUndoAvailable();
   await loadProject();
   toast(chapterId
-    ? `「${result.title || title}」 상자를 만들고 폴더를 넣었어요.`
-    : `「${result.title || title}」 상위 폴더를 만들었어요.`);
+    ? `${i18n.t('app.result_title_title_상자를', {'result.title || title': result.title || title})}`
+    : `${i18n.t('app.result_title_title_상위_폴', {'result.title || title': result.title || title})}`);
 }
 
 async function moveChapterToPart(chapterId, currentPartId = null) {
@@ -37932,31 +38733,31 @@ async function moveChapterToPart(chapterId, currentPartId = null) {
   const parts = state.parts || [];
   if (!parts.length) {
     const make = window.confirm(
-      "아직 상위 폴더가 없어요. 지금 만들고 이 폴더를 넣을까요?",
+      i18n.t('app.아직_상위_폴더가_없어요_지금_만들고_이_폴'),
     );
     if (!make) return;
     await createPart({ chapterId: id });
     return;
   }
   const lines = [
-    "옮길 상위 폴더를 숫자로 고르세요.",
-    "0 = 미분류 (상위 폴더 밖)",
+    i18n.t('app.옮길_상위_폴더를_숫자로_고르세요'),
+    i18n.t('app.0_미분류_상위_폴더_밖'),
     ...parts.map((p, i) => `${i + 1} = ${p.title}`),
   ];
   const current = currentPartId != null
     ? (parts.findIndex((p) => Number(p.id) === Number(currentPartId)) + 1)
     : 0;
   const pick = await promptText({
-    title: "상위 폴더로 옮기기",
+    title: i18n.t('app.상위_폴더로_옮기기'),
     message: lines.join("\n"),
-    label: "번호",
+    label: i18n.t('app.번호'),
     defaultValue: String(current >= 0 ? current : 0),
-    confirmLabel: "옮기기",
+    confirmLabel: i18n.t('app.옮기기'),
   });
   if (pick === null) return;
   const n = Number(String(pick).trim());
   if (!Number.isFinite(n) || n < 0 || n > parts.length) {
-    toast("올바른 번호를 입력해 주세요.");
+    toast(i18n.t('app.올바른_번호를_입력해_주세요'));
     return;
   }
   const targetPartId = n === 0 ? null : parts[n - 1].id;
@@ -37966,20 +38767,20 @@ async function moveChapterToPart(chapterId, currentPartId = null) {
   });
   await loadProject();
   if (!result.moved) {
-    toast("이미 그 위치에 있어요.");
+    toast(i18n.t('app.이미_그_위치에_있어요'));
     return;
   }
   const dest = targetPartId == null
-    ? "미분류"
-    : (parts.find((p) => Number(p.id) === Number(targetPartId))?.title || "상위 폴더");
-  toast(`「${result.title || "폴더"}」를 ${dest}(으)로 옮겼어요.`);
+    ? i18n.t('app.미분류')
+    : (parts.find((p) => Number(p.id) === Number(targetPartId))?.title || i18n.t('app.상위_폴더'));
+  toast(`${i18n.t('app.result_title_폴더_를_dest', {'result.title || "폴더"': result.title || "폴더", dest: dest})}`);
 }
 
 async function trashPart(partId, partTitle = "") {
   const id = Number(partId);
   if (!id) return;
   const part = (state.parts || []).find((p) => Number(p.id) === id);
-  let label = String(partTitle || part?.title || "이 폴더").trim() || "이 폴더";
+  let label = String(partTitle || part?.title || i18n.t('app.이_폴더')).trim() || i18n.t('app.이_폴더');
   const chapterCount = (part?.chapters || []).length;
   const sceneCount = (part?.chapters || []).reduce(
     (sum, ch) => sum + flattenChapterScenes(ch).length,
@@ -37987,10 +38788,10 @@ async function trashPart(partId, partTitle = "") {
   );
   const ok = window.confirm(
     chapterCount > 0
-      ? `「${label}」 상위 폴더와 안의 하위 폴더 ${chapterCount}개` +
+      ? `${i18n.t('app.label_상위_폴더와_안의_하위_폴더_c', {label: label, chapterCount: chapterCount})}` +
         (sceneCount ? ` (원고 ${sceneCount}개)` : "") +
-        "를 휴지통에 버리시겠습니까?\n\n안의 원고도 함께 버려집니다."
-      : `「${label}」 상위 폴더를 휴지통에 버리시겠습니까?`,
+        i18n.t('app.를_휴지통에_버리시겠습니까_안의_원고도_함께')
+      : `${i18n.t('app.label_상위_폴더를_휴지통에_버리시겠습', {label: label})}`,
   );
   if (!ok) return;
   const result = await api(`/api/parts/${id}/trash`, {
@@ -38001,8 +38802,8 @@ async function trashPart(partId, partTitle = "") {
   await loadProject();
   const n = Number(result?.chapter_count ?? chapterCount ?? 0);
   toast(n > 0
-    ? `「${label}」 폴더와 하위 ${n}개를 휴지통으로 옮겼어요.`
-    : `「${label}」 폴더를 휴지통으로 옮겼어요.`);
+    ? `${i18n.t('app.label_폴더와_하위_n_개를_휴지통으로', {label: label, n: n})}`
+    : `${i18n.t('app.label_폴더를_휴지통으로_옮겼어요', {label: label})}`);
 }
 
 async function beginPartRename(titleButton) {
@@ -38018,7 +38819,7 @@ async function beginPartRename(titleButton) {
   input.type = "text";
   input.className = "chapter-rename-input part-rename-input";
   input.value = original;
-  input.setAttribute("aria-label", "권/부 이름 수정");
+  input.setAttribute("aria-label", i18n.t('app.권_부_이름_수정'));
   input.maxLength = 200;
   titleButton.replaceWith(input);
   input.focus();
@@ -38041,7 +38842,7 @@ async function beginPartRename(titleButton) {
       });
       noteFolderUndoAvailable();
       await loadProject();
-      toast("권/부 이름을 바꿨어요.");
+      toast(i18n.t('app.권_부_이름을_바꿨어요'));
     } catch (error) {
       await loadProject();
       throw error;
@@ -38081,15 +38882,15 @@ async function createScene(chapterId, options = {}) {
 
   const isAfter = Boolean(afterSceneId);
   const isChild = !isAfter && Boolean(parentSceneId);
-  const defaultTitle = isChild ? "새 하위 원고" : "새 씬";
+  const defaultTitle = isChild ? i18n.t('app.새_하위_원고') : i18n.t('app.새_씬');
   const title = await promptText({
-    title: isAfter ? "아래에 원고 추가" : (isChild ? "하위 원고 만들기" : "회차 추가"),
+    title: isAfter ? i18n.t('app.아래에_원고_추가') : (isChild ? i18n.t('app.하위_원고_만들기') : i18n.t('app.회차_추가')),
     message: isAfter
-      ? "선택한 원고 바로 아래에 새 원고를 만들어요."
-      : (isChild ? "선택한 원고의 하위로 만들어집니다." : ""),
-    label: "제목",
+      ? i18n.t('app.선택한_원고_바로_아래에_새_원고를_만들어요')
+      : (isChild ? i18n.t('app.선택한_원고의_하위로_만들어집니다') : ""),
+    label: i18n.t('app.제목'),
     defaultValue: defaultTitle,
-    confirmLabel: "만들기",
+    confirmLabel: i18n.t('app.만들기'),
   });
   if (title === null) return;
   const body = { title: title.trim() || defaultTitle };
@@ -38113,16 +38914,16 @@ async function createScene(chapterId, options = {}) {
   await loadProject();
   await openScene(scene.id);
   toast(isAfter
-    ? "아래에 원고를 추가했어요."
+    ? i18n.t('app.아래에_원고를_추가했어요')
     : (isChild
-      ? "하위 원고를 만들었어요."
-      : "새 씬이 준비됐어요. 가운데에 글을 써 보세요."));
+      ? i18n.t('app.하위_원고를_만들었어요')
+      : i18n.t('app.새_씬이_준비됐어요_가운데에_글을_써_보세요')));
 }
 
 // ── 토리의 첫 문장 힌트 (새글쓰기 오프닝 도우미) ──────────────────────────
 const DEFAULT_SCENE_PLACEHOLDER =
-  "여기에 글을 쓰세요. 글은 이 컴퓨터에 저장됩니다. 오른쪽 클릭으로 이미지를 넣을 수 있어요.";
-const OPENING_HINT_PLACEHOLDER = "토리가 작가님의 첫 문장을 기다리고 있어요.";
+  i18n.t('app.여기에_글을_쓰세요_글은_이_컴퓨터에_저장됩');
+const OPENING_HINT_PLACEHOLDER = i18n.t('app.토리가_작가님의_첫_문장을_기다리고_있어요');
 const OPENING_HINT_DELAY_MS = 30000;
 let openingHintTimer = null;
 
@@ -38205,32 +39006,32 @@ const OPENING_IDEA_TYPES = [
 
 function buildOpeningIdeaPrompt() {
   return [
-    "첫 문장을 떼지 못해 고민 중인 작가를 위해, 실제 웹소설 흥행 공식에 맞춘 '첫 문장 아이디어' 6가지를 제안해 주세요.",
+    i18n.t('app.첫_문장을_떼지_못해_고민_중인_작가를_위해'),
     "",
-    "[작성 원칙]",
-    "1. 지루하고 긴 풍경 설명은 금지하며, 독자의 탭 닫기를 방지하는 강렬한 후킹 요소를 담아야 한다.",
-    "2. 기존 작품 정보(장르, 시놉시스, 캐릭터)가 있다면 적극 반영하라.",
-    "3. 장르와 맞지 않는 억지스러운 요소를 넣지 마라. (예: 일반 현대물/스포츠물에 억지로 회빙환 설정을 억지로 섞는 행위 절대 금지)",
-    "4. 결과는 아래 JSON 스키마 그대로만 반환하라. 코드블록 표시(```), 설명, 그 외 텍스트는 절대 포함하지 마라.",
+    i18n.t('app.작성_원칙'),
+    i18n.t('app.1_지루하고_긴_풍경_설명은_금지하며_독자의'),
+    i18n.t('app.2_기존_작품_정보_장르_시놉시스_캐릭터_가'),
+    i18n.t('app.3_장르와_맞지_않는_억지스러운_요소를_넣지'),
+    i18n.t('app.4_결과는_아래_JSON_스키마_그대로만_반'),
     "",
-    "[6가지 실전 카테고리 가이드 — type 값은 그대로, label·text는 이야기에 맞게 새로 작성]",
-    "1. concept_direct (핵심 설정·세계관 직진형): 회빙환, 특수능력, 특수직업, 독특한 세계관, 주요 상황/계약 등 작품의 핵심 설정을 첫 줄에 바로 내던지는 문장.",
-    "2. in_media_res (사건 한복판 대사형): 긴장감 높은 상황의 인물 대사/독백으로 현장감을 부여하는 문장.",
-    "3. absurd_dilemma (황당 딜레마·목표형): 주인공이 처한 절박하거나 어처구니없는 상황/목표를 제시하는 문장.",
-    "4. emotional_atmosphere (감성·복선 묘사형): 복선과 텐션이 담긴 정서적 분위기를 은유하는 문장.",
-    "5. inner_monologue (인물 내면 독백형): 캐릭터의 성격과 독특한 가치관이 드러나는 독백 문장.",
-    "6. action_tension (긴박한 사건 상황형): 설명 없이 바로 맞닥뜨린 대치/사건 상황을 연출하는 문장.",
+    i18n.t('app.6가지_실전_카테고리_가이드_type_값은'),
+    i18n.t('app.1_concept_direct_핵심_설정_세'),
+    i18n.t('app.2_in_media_res_사건_한복판_대사'),
+    i18n.t('app.3_absurd_dilemma_황당_딜레마'),
+    i18n.t('app.4_emotional_atmosphere_감'),
+    i18n.t('app.5_inner_monologue_인물_내면'),
+    i18n.t('app.6_action_tension_긴박한_사건'),
     "",
-    "[JSON 스키마 — 정확히 이 형태로만 반환]",
+    i18n.t('app.JSON_스키마_정확히_이_형태로만_반환'),
     "{",
-    '  "notice": "이 6가지는 키워드와 줄거리만으로 만든 방향성 아이디어이며 실제 시점·어투와 다를 수 있으니 문장보다는 방향을 참고하라는 취지의 한국어 안내 문장 1개(이모지 1개 포함 가능)",',
+    i18n.t('app.notice_이_6가지는_키워드와_줄거리만'),
     '  "openings": [',
-    '    {"type":"concept_direct","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
-    '    {"type":"in_media_res","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
-    '    {"type":"absurd_dilemma","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
-    '    {"type":"emotional_atmosphere","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
-    '    {"type":"inner_monologue","label":"이모지 1개 + 한글 라벨","text":"제안 문장"},',
-    '    {"type":"action_tension","label":"이모지 1개 + 한글 라벨","text":"제안 문장"}',
+    i18n.t('app.type_concept_direct_lab'),
+    i18n.t('app.type_in_media_res_label'),
+    i18n.t('app.type_absurd_dilemma_lab'),
+    i18n.t('app.type_emotional_atmosphe'),
+    i18n.t('app.type_inner_monologue_la'),
+    i18n.t('app.type_action_tension_lab'),
     "  ]",
     "}",
   ].join("\n");
@@ -38331,14 +39132,14 @@ function showOpeningIdeasStatus(message) {
 }
 
 async function loadOpeningIdeasIntoModal() {
-  showOpeningIdeasStatus("토리가 첫 문장을 고민하고 있어요…");
+  showOpeningIdeasStatus(i18n.t('app.토리가_첫_문장을_고민하고_있어요'));
   $("toryOpeningIdeasRetryButton")?.classList.add("hidden");
   try {
     const ideas = await fetchOpeningIdeas();
     renderOpeningIdeas(ideas);
   } catch (error) {
     handleAiAssistError(error);
-    showOpeningIdeasStatus("문장을 만들지 못했어요. 다시 시도해 주세요.");
+    showOpeningIdeasStatus(i18n.t('app.문장을_만들지_못했어요_다시_시도해_주세요'));
     $("toryOpeningIdeasRetryButton")?.classList.remove("hidden");
   }
 }
@@ -38392,8 +39193,8 @@ function setupOpeningIdeasModal() {
 /* —— 회차별 소제목 추천 (chapter_subtitles) —————————————————————— */
 
 const CHAPTER_SUBTITLE_MIN_CHARS = 1200;
-const CHAPTER_SUBTITLE_TOOLTIP_DISABLED = "회차 본문이 1,200자 이상일 때 사용할 수 있어요";
-const CHAPTER_SUBTITLE_TOOLTIP_ENABLED = "이번 회차 본문을 분석해 소제목 4가지를 추천해요";
+const CHAPTER_SUBTITLE_TOOLTIP_DISABLED = i18n.t('app.회차_본문이_1_200자_이상일_때_사용할');
+const CHAPTER_SUBTITLE_TOOLTIP_ENABLED = i18n.t('app.이번_회차_본문을_분석해_소제목_4가지를_추');
 
 /**
  * 기존 제목 맨 앞의 회차 번호 표기만 프리픽스로 인식한다. 우선순위 순서 그대로 검사 —
@@ -38402,19 +39203,19 @@ const CHAPTER_SUBTITLE_TOOLTIP_ENABLED = "이번 회차 본문을 분석해 소�
  */
 const CHAPTER_SUBTITLE_PREFIX_PATTERNS = [
   // 숫자 회차 표기
-  /^\d+화\.\s*/,   // "36화. "
-  /^\d+화\s*/,     // "36화 " / "36화"
+  /^\d+화\.\s*/,   // i18n.t('app.36화')
+  /^\d+화\s*/,     // i18n.t('app.36화_2') / i18n.t('app.36화_2')
   /^\d+\.\s*/,     // "36. "
   /^\d+\)\s*/,     // "36) "
   /^\d+\s+/,       // "36 "  (숫자+공백만, 최후순위)
   // 프롤로그 / 에필로그 / 외전 — 번호가 붙는 경우("외전 3화. ")를 먼저 검사
-  /^(?:프롤로그|에필로그|외전)\s*\d+화\.\s*/,  // "외전 3화. "
-  /^(?:프롤로그|에필로그|외전)\s*\d+화\s*/,    // "외전 3화 " / "외전 3화"
-  /^(?:프롤로그|에필로그|외전)\s*\d+\.\s*/,    // "외전 3. "
-  /^(?:프롤로그|에필로그|외전)\s*\d+\)\s*/,    // "외전 3) "
-  /^(?:프롤로그|에필로그|외전)\.\s*/,          // "프롤로그. "
-  /^(?:프롤로그|에필로그|외전)\)\s*/,          // "프롤로그) "
-  /^(?:프롤로그|에필로그|외전)\s+/,            // "프롤로그 "  (공백만, 최후순위)
+  /^(?:프롤로그|에필로그|외전)\s*\d+화\.\s*/,  // i18n.t('app.외전_3화')
+  /^(?:프롤로그|에필로그|외전)\s*\d+화\s*/,    // i18n.t('app.외전_3화_2') / i18n.t('app.외전_3화_2')
+  /^(?:프롤로그|에필로그|외전)\s*\d+\.\s*/,    // i18n.t('app.외전_3')
+  /^(?:프롤로그|에필로그|외전)\s*\d+\)\s*/,    // i18n.t('app.외전_3_2')
+  /^(?:프롤로그|에필로그|외전)\.\s*/,          // i18n.t('app.프롤로그')
+  /^(?:프롤로그|에필로그|외전)\)\s*/,          // i18n.t('app.프롤로그_2')
+  /^(?:프롤로그|에필로그|외전)\s+/,            // i18n.t('app.프롤로그_3')  (공백만, 최후순위)
 ];
 
 function splitChapterSubtitlePrefix(title) {
@@ -38520,7 +39321,7 @@ function showChapterSubtitleError(error) {
   console.error(error);
   const wrapped = error?.aiAssist ? error : toAiAssistError(error);
   if (wrapped.isNetwork || wrapped.offlineSafe) {
-    toast("잠시 후 다시 시도해주세요.", 4200);
+    toast(i18n.t('app.잠시_후_다시_시도해주세요'), 4200);
     return;
   }
   const raw = String(wrapped.cause?.message || wrapped.message || AI_ASSIST_ERR_GENERIC).trim();
@@ -38528,7 +39329,7 @@ function showChapterSubtitleError(error) {
 }
 
 async function loadChapterSubtitlesIntoModal() {
-  showChapterSubtitleStatus("토리가 소제목을 고민하고 있어요…");
+  showChapterSubtitleStatus(i18n.t('app.토리가_소제목을_고민하고_있어요'));
   $("chapterSubtitleRetryButton")?.classList.add("hidden");
   try {
     const items = await fetchChapterSubtitles();
@@ -38561,15 +39362,15 @@ function applyChapterSubtitleToTitle(subtitleText) {
   titleInput.dispatchEvent(new Event("change", { bubbles: true }));
   if (state.sceneId) markSceneDirty();
   closeChapterSubtitleModal();
-  toast("소제목이 적용됐어요");
+  toast(i18n.t('app.소제목이_적용됐어요'));
 }
 
 async function copyChapterSubtitleText(subtitleText) {
   try {
     await navigator.clipboard.writeText(subtitleText);
-    toast("복사했어요");
+    toast(i18n.t('app.복사했어요_2'));
   } catch (_) {
-    toast("복사에 실패했어요. 직접 선택해서 복사해 주세요.");
+    toast(i18n.t('app.복사에_실패했어요_직접_선택해서_복사해_주세'));
   }
 }
 
@@ -38605,15 +39406,15 @@ async function createDefaultOpeningStructure() {
   if (!state.projectId) return null;
   const part = await api(`/api/projects/${state.projectId}/parts`, {
     method: "POST",
-    body: JSON.stringify({ title: "1권" }),
+    body: JSON.stringify({ title: i18n.t('app.1권') }),
   });
   const chapter = await api(`/api/projects/${state.projectId}/chapters`, {
     method: "POST",
-    body: JSON.stringify({ title: "1부", part_id: part.id }),
+    body: JSON.stringify({ title: i18n.t('app.1부'), part_id: part.id }),
   });
   const scene = await api(`/api/chapters/${chapter.id}/scenes`, {
     method: "POST",
-    body: JSON.stringify({ title: "1화. 본문제목" }),
+    body: JSON.stringify({ title: i18n.t('app.1화_본문제목') }),
   });
   setFreshOpeningSceneId(scene.id);
   await loadProject();
@@ -38641,14 +39442,14 @@ async function moveScene(sceneId, payload = {}) {
   if (body.chapter_id) setChapterCollapsed(body.chapter_id, false);
   await loadProject();
   if (!result?.moved) {
-    toast("이미 그 위치에 있어요.");
+    toast(i18n.t('app.이미_그_위치에_있어요'));
     return result;
   }
-  const title = result.title || "원고";
+  const title = result.title || i18n.t('app.원고');
   if (result.parent_scene_id) {
-    toast(`「${title}」를 하위 원고로 옮겼어요.`);
+    toast(`${i18n.t('app.title_를_하위_원고로_옮겼어요', {title: title})}`);
   } else {
-    toast(`「${title}」 위치를 바꿨어요.`);
+    toast(`${i18n.t('app.title_위치를_바꿨어요', {title: title})}`);
   }
   return result;
 }
@@ -38926,7 +39727,7 @@ function loadEpisodeTabsFromStorage() {
         .filter((t) => t && Number(t.sceneId) > 0)
         .map((t) => ({
           sceneId: Number(t.sceneId),
-          title: String(t.title || "").trim() || `씬 #${t.sceneId}`,
+          title: String(t.title || "").trim() || `${i18n.t('app.씬_t_sceneId', {'t.sceneId': t.sceneId})}`,
         }))
         .slice(0, EPISODE_TABS_MAX)
       : [];
@@ -38954,7 +39755,7 @@ function getEpisodeSequence() {
       index += 1;
       const chapterTitle = String(chapter.title || "").trim();
       const sceneTitle = String(scene.title || "").trim();
-      let label = chapterTitle || sceneTitle || `${index}화`;
+      let label = chapterTitle || sceneTitle || `${i18n.t('app.index_화', {index: index})}`;
       if (flat.length > 1 && sceneTitle && chapterTitle && sceneTitle !== chapterTitle) {
         label = `${chapterTitle} · ${sceneTitle}`;
       } else if (!chapterTitle && sceneTitle) {
@@ -38985,7 +39786,7 @@ function getSynopsisSequence() {
       index += 1;
       const sceneId = Number(scene.id);
       const sceneTitle = String(scene.title || "").trim();
-      let title = chapterTitle || sceneTitle || `${index}화`;
+      let title = chapterTitle || sceneTitle || `${i18n.t('app.index_화', {index: index})}`;
       if (chapterTitle && sceneTitle && sceneTitle !== chapterTitle) {
         title = `${chapterTitle} · ${sceneTitle}`;
       }
@@ -39014,7 +39815,7 @@ function checkSummarizable(currentLength) {
     const remaining = TORY_SUMMARY_MIN_LENGTH - currentLength;
     return {
       possible: false,
-      message: `아직 요약하기엔 짧아요. 100자까지 ${remaining}자 더 필요해요.`,
+      message: `${i18n.t('app.아직_요약하기엔_짧아요_100자까지_rema', {remaining: remaining})}`,
     };
   }
   return { possible: true };
@@ -39046,7 +39847,7 @@ function buildSummaryPrompt(originalText) {
 [문장 규칙]
 5. 원문의 표현을 그대로 가져오지 말고 자신의 언어로 재서술한다. 단, 고유명사(인물명,
    지명 등)는 원문 그대로 유지한다.
-6. "이 글은", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+6. i18n.t('app.이_글은'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
 7. 수식어, 감탄사, 접속사 남발을 피하고 명사형·서술형 위주로 간결하게 쓴다.
 8. 초안 작성 후 글자 수를 직접 세어 기준을 넘으면, 서사적 기능이 약한 정보부터
    덜어내며 다시 압축한다. 이 과정은 출력하지 않는다.
@@ -39079,7 +39880,7 @@ function buildDetailedSceneSummaryPrompt(sceneContent) {
    짧은 회차를 억지로 늘리지 않고, 긴 회차를 무리해서 압축하지 않는다.
 
 [문장 규칙]
-6. "이 회차는", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+6. i18n.t('app.이_회차는'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
 7. 완성된 요약문만 출력한다.
 
 [본문]
@@ -39112,7 +39913,7 @@ function buildDetailedSceneSummaryMultiPrompt(combinedManuscriptBlock, episodeCo
    섞어 넣거나 미리 언급하지 않는다.
 
 [문장 규칙]
-7. "이 회차는", "본문에서는" 같은 메타 표현으로 시작하지 않고 바로 내용으로
+7. i18n.t('app.이_회차는'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로
    시작한다.
 8. 각 회차 요약 앞에 아래 [출력 형식]의 제목만 붙이고, 그 외 완성된 요약문만
    출력한다.
@@ -39165,7 +39966,7 @@ function buildTensionCurvePrompt(episodeContent) {
 {
   "segments": [
     {"segment_index": 1, "segment_position_pct": 8, "score": 3,
-     "emotion_tag": "해소", "reason": "...", "text_preview": "..."},
+     "emotion_tag": i18n.t('app.해소'), "reason": "...", "text_preview": "..."},
     ...
   ]
 }
@@ -39178,7 +39979,7 @@ ${episodeContent}
 
 function buildCliffhangerScorePrompt(lastThreeParagraphs) {
   return `[현재 작업]
-이 회차의 마지막 3문단을 분석해, "다음 화를 보고 싶게 만드는 힘"을
+이 회차의 마지막 3문단을 분석해, i18n.t('app.다음_화를_보고_싶게_만드는_힘')을
 평가하세요.
 
 [점수 기준]
@@ -39191,7 +39992,7 @@ function buildCliffhangerScorePrompt(lastThreeParagraphs) {
 [출력 형식 - JSON]
 {
   "score": 0~10,
-  "reason": "이 점수를 준 이유 2문장 이내"
+  "reason": i18n.t('app.이_점수를_준_이유_2문장_이내')
 }
 
 [본문 마지막 부분]
@@ -39209,7 +40010,7 @@ function buildEndingRewritePrompt(lastThreeParagraphs, cliffhangerReason) {
 1. 즉각적 위기 노출형: 예상치 못한 위험이나 사건을 마지막 문장에서
    바로 드러낸다
 2. 정보 공백형: 결정적 정보를 의도적으로 숨기고 궁금증만 남긴다
-   (예: "그가 문을 열었을 때, 거기 있던 건...")
+   (예: i18n.t('app.그가_문을_열었을_때_거기_있던_건'))
 3. 감정 절정형: 인물의 감정이 극에 달하는 순간에서 끊는다
 
 각 버전은 원래 장면의 맥락(등장인물, 상황)을 유지하되, 마지막 3문단만
@@ -39253,7 +40054,7 @@ ${(Array.isArray(charactersInfo) ? charactersInfo : []).map((c) =>
    실제 논쟁/대화처럼 주고받는다).
 4. 대사 사이사이 짧은 지문(행동, 표정 묘사)을 필요한 곳에만 넣는다.
    과하게 넣지 않는다.
-5. 이건 실제 원고가 아니라 "이 대화가 캐릭터답게 성립하는지" 확인하는
+5. 이건 실제 원고가 아니라 i18n.t('app.이_대화가_캐릭터답게_성립하는지') 확인하는
    테스트 목적이므로, 결말을 억지로 봉합하거나 화해시키지 않는다.
    상황이 해결 안 된 채 끝나도 된다.
 
@@ -39272,15 +40073,15 @@ ${(Array.isArray(charactersInfo) ? charactersInfo : []).map((c) =>
 function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
   const outlineBlock = outlineSummary
     ? `[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n${outlineSummary}`
-    : `[작가가 제공한 줄거리 개요]\n(제공되지 않음 - 지금까지 쓰인 원고만 근거로 작성하며, 결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)`;
+    : i18n.t('app.작가가_제공한_줄거리_개요_제공되지_않음');
 
   const synopsisLengthNote = synopsisLengthLimit
-    ? `시놉시스는 ${synopsisLengthLimit}자 이내로 작성한다.`
-    : `시놉시스 길이 제한은 없다. 내용을 충분히 전달할 수 있는 분량으로 작성한다.`;
+    ? `${i18n.t('app.시놉시스는_synopsisLengthLimi', {synopsisLengthLimit: synopsisLengthLimit})}`
+    : i18n.t('app.시놉시스_길이_제한은_없다_내용을_충분히_전');
 
   const intentLengthNote = intentLengthLimit
-    ? `작품의도는 ${intentLengthLimit}자 이내로 작성한다.`
-    : `작품의도 길이 제한은 없다. 1~2문단 정도로 작성한다.`;
+    ? `${i18n.t('app.작품의도는_intentLengthLimit', {intentLengthLimit: intentLengthLimit})}`
+    : i18n.t('app.작품의도_길이_제한은_없다_1_2문단_정도로');
 
   return `[현재 작업]
 투고·공모전 제출용 자료를 작성하세요. 아래 세 가지를 준비합니다.
@@ -39353,8 +40154,8 @@ function buildStyleBlendCheckPrompt(referenceText, targetText) {
 3. 상투적이거나 기계적으로 느껴지는 표현 패턴이 있는지 확인한다.
    (예: 과도한 대구법, 상투적인 헤지 표현의 반복, 나열식 문장 구조 반복,
    감정을 설명으로 덧붙이는 문장 등)
-4. 발견한 것을 "문제"로 단정하지 않는다. 관찰과 근거만 전달한다
-   ("~해 보여요", "~일 수 있어요" 표현을 쓴다).
+4. 발견한 것을 i18n.t('app.문제')로 단정하지 않는다. 관찰과 근거만 전달한다
+   (i18n.t('app.해_보여요'), i18n.t('app.일_수_있어요') 표현을 쓴다).
 5. 특별히 튀는 부분이 없다면, 억지로 지적을 만들어내지 않고 자연스럽게
    잘 어우러진다고 알려준다.
 
@@ -39397,7 +40198,7 @@ ${targetSubject}
 3. 오감(시각/청각/후각/촉각) 중 최소 2가지 이상을 활용해 입체적으로 묘사한다.
    단, 모든 감각을 억지로 다 채우지 않는다.
 4. 정보 나열이 아니라 장면 속에서 자연스럽게 읽히는 묘사로 쓴다
-   ("이곳은 ~한 곳이다" 같은 설명체보다, 인물의 시선이나 행동에 녹인
+   (i18n.t('app.이곳은_한_곳이다') 같은 설명체보다, 인물의 시선이나 행동에 녹인
    묘사를 우선한다).
 5. 이미 확립된 설정과 모순되는 새로운 설정을 지어내지 않는다. 다만
    기존 설정을 구체화하는 선에서는 세부 디테일을 자유롭게 채운다.
@@ -39427,18 +40228,18 @@ ${sceneContent}
  */
 function buildSceneSummaryPrompt(sceneContent, previousContext) {
   const body = String(sceneContent ?? "");
-  const context = String(previousContext ?? "").trim() || "(누적 맥락 없음)";
+  const context = String(previousContext ?? "").trim() || i18n.t('app.누적_맥락_없음');
   return `[현재 작업]
 아래 회차 내용을 인덱싱용으로 구조화해 요약하세요. 이 결과는 작가에게
 보여지는 것이 아니라, 이후 다른 기능들이 참고할 내부 데이터로 사용됩니다.
 
 [출력 형식 - 반드시 JSON만 출력]
 {
-  "event_summary": "이 회차에서 일어난 핵심 사건 (100자 내외)",
-  "characters_involved": ["등장한 인물 이름들"],
-  "new_world_facts": ["이 회차에서 새로 확립된 설정이 있다면 나열, 없으면 빈 배열"],
-  "new_threads": ["이 회차에서 새로 생긴 복선/떡밥, 없으면 빈 배열"],
-  "resolved_threads": ["이 회차에서 회수된 복선/떡밥, 없으면 빈 배열"],
+  "event_summary": i18n.t('app.이_회차에서_일어난_핵심_사건_100자_내외'),
+  "characters_involved": [i18n.t('app.등장한_인물_이름들')],
+  "new_world_facts": [i18n.t('app.이_회차에서_새로_확립된_설정이_있다면_나열')],
+  "new_threads": [i18n.t('app.이_회차에서_새로_생긴_복선_떡밥_없으면_빈')],
+  "resolved_threads": [i18n.t('app.이_회차에서_회수된_복선_떡밥_없으면_빈_배')],
   "tracked_facts": []
 }
 
@@ -39451,18 +40252,18 @@ function buildSceneSummaryPrompt(sceneContent, previousContext) {
 
 각 사실은 다음 형식으로 기록하세요:
 {
-  "category": "신체상태" | "소지품" | "관계" | "복선",
-  "subject": "해당하는 인물 이름",
-  "attribute": "구체적으로 무엇에 대한 것인지 (예: '오른팔', '검')",
-  "value": "현재 상태/값 (예: '부상당함', '분실함')",
-  "scene_ref": "이 사실의 근거가 되는 원문 부분을 15단어 이내로 짧게"
+  "category": i18n.t('app.신체상태') | i18n.t('app.소지품') | i18n.t('app.관계') | i18n.t('app.복선'),
+  "subject": i18n.t('app.해당하는_인물_이름'),
+  "attribute": i18n.t('app.구체적으로_무엇에_대한_것인지_예_오른팔_검'),
+  "value": i18n.t('app.현재_상태_값_예_부상당함_분실함'),
+  "scene_ref": i18n.t('app.이_사실의_근거가_되는_원문_부분을_15단어')
 }
 
 애매하거나 확신이 없는 사실은 넣지 않습니다. 명확히 드러난 것만 기록하세요.
 
 [판단 기준]
 1. 사실만 추출한다. 해석이나 평가를 덧붙이지 않는다.
-2. 이전 맥락과 비교해 "새로 생긴 것"과 "이미 있던 것"을 구분한다.
+2. 이전 맥락과 비교해 i18n.t('app.새로_생긴_것')과 i18n.t('app.이미_있던_것')을 구분한다.
 3. JSON 외의 텍스트(설명, 마크다운 코드블록 표시 등)는 출력하지 않는다.
 
 [이전까지의 누적 맥락 - 참고용]
@@ -39495,42 +40296,42 @@ const INDEX_AWARE_ASSIST_MODES = new Set([
 
 const INDEX_TASK_INSTRUCTIONS = {
   dupcheck:
-    "현재 회차 안의 반복 표현과, 앞뒤 인근 회차(±4)와 겹치는 설명을 찾아 "
-    + "사실과 짧은 관찰만 전달하세요. 고치라고 지시하지 마세요.",
+    i18n.t('app.현재_회차_안의_반복_표현과_앞뒤_인근_회차')
+    + i18n.t('app.사실과_짧은_관찰만_전달하세요_고치라고_지시'),
   // Keep format headers aligned with app.py so client index wrap doesn't blur modes.
   foreshadow:
-    "[모드: 떡밥·복선 탐색기 — 단서 심기 추적]\n"
-    + "이 모드는 반전 개연성 검사가 아닙니다. 「반전 요약」「개연성 평가」「충격도」 형식으로 쓰지 마세요.\n"
-    + "등록된 복선 단서를 하나도 빠짐없이 전부 체크하고, "
-    + "등록되지 않은 잠재 복선 후보와 인덱스의 미등록 미회수 떡밥도 알려주세요.\n"
-    + "필수 출력 형식: ## 등록된 단서 체크 / ## 토리가 포착한 잠재적 복선 후보 / "
-    + "## 등록 안 된 미회수 떡밥 / ## 보강 제안",
+    i18n.t('app.모드_떡밥_복선_탐색기_단서_심기_추적')
+    + i18n.t('app.이_모드는_반전_개연성_검사가_아닙니다_반전')
+    + i18n.t('app.등록된_복선_단서를_하나도_빠짐없이_전부_체')
+    + i18n.t('app.등록되지_않은_잠재_복선_후보와_인덱스의_미')
+    + i18n.t('app.필수_출력_형식_등록된_단서_체크_토리가_포')
+    + i18n.t('app.등록_안_된_미회수_떡밥_보강_제안'),
   plottwist:
-    "[모드: 반전 & 개연성 검사기 — 반전 설득력 평가]\n"
-    + "이 모드는 떡밥·복선 탐색기가 아닙니다. 「등록된 단서 체크」「잠재적 복선 후보」 체크리스트를 만들지 마세요.\n"
-    + "등록된 복선 빌드업과 프로젝트 누적 정보(인덱스)를 근거로 "
-    + "현재 원고의 반전/폭로가 설득력 있게 지지되는지 평가하세요. 근거가 부족하면 그렇다고 명시하세요.\n"
-    + "필수 출력 형식: ## 반전 요약 / ## 개연성 평가 / ## 충격도·설득력 / ## 보강 제안 (2가지)",
+    i18n.t('app.모드_반전_개연성_검사기_반전_설득력_평가')
+    + i18n.t('app.이_모드는_떡밥_복선_탐색기가_아닙니다_등록')
+    + i18n.t('app.등록된_복선_빌드업과_프로젝트_누적_정보_인')
+    + i18n.t('app.현재_원고의_반전_폭로가_설득력_있게_지지되')
+    + i18n.t('app.필수_출력_형식_반전_요약_개연성_평가_충격'),
   worldscan:
-    "프로젝트 누적 정보와 설정·캐릭터를 참고해 "
-    + "원고의 세계관·캐릭터 일관성 붕괴를 점검하세요.",
+    i18n.t('app.프로젝트_누적_정보와_설정_캐릭터를_참고해')
+    + i18n.t('app.원고의_세계관_캐릭터_일관성_붕괴를_점검하세'),
   worldscan_multi:
-    "프로젝트 누적 정보와 설정·캐릭터를 참고해 "
-    + "여러 회차 원고의 세계관·캐릭터 일관성 붕괴를 회차별로 점검하세요.",
+    i18n.t('app.프로젝트_누적_정보와_설정_캐릭터를_참고해')
+    + i18n.t('app.여러_회차_원고의_세계관_캐릭터_일관성_붕괴'),
   worlddesc:
-    "지정한 대상에 대해 이 작품의 장르·세계관·문체에 맞는 묘사 문장을 제안하세요.",
+    i18n.t('app.지정한_대상에_대해_이_작품의_장르_세계관'),
   analyze:
-    "현재 회차를 편집자·독자 관점에서 분석해 균형 잡힌 피드백을 주세요.",
+    i18n.t('app.현재_회차를_편집자_독자_관점에서_분석해_균'),
   analyze_multi:
-    "연속된 여러 회차를 한 흐름으로 보고 편집자·독자 관점에서 피드백을 주세요.",
+    i18n.t('app.연속된_여러_회차를_한_흐름으로_보고_편집자'),
   ideas:
-    "현재 회차 흐름에서 자연스럽게 이어질 다음 전개 아이디어를 제안하세요.",
+    i18n.t('app.현재_회차_흐름에서_자연스럽게_이어질_다음'),
   ideas_next_exists:
-    "직전 회차와 이미 작성된 다음 회차 시작부를 보고, 시작 평가와 대체 전개 아이디어를 제안하세요.",
+    i18n.t('app.직전_회차와_이미_작성된_다음_회차_시작부를'),
   brainstorm:
-    "현재 회차를 바탕으로 작품을 확장할 아이디어를 넓게 브레인스토밍하세요.",
+    i18n.t('app.현재_회차를_바탕으로_작품을_확장할_아이디어'),
   brainstorm_next_exists:
-    "현재 회차와 이미 작성된 다음 회차를 참고해 작품을 확장할 아이디어를 브레인스토밍하세요.",
+    i18n.t('app.현재_회차와_이미_작성된_다음_회차를_참고해'),
 };
 
 function hasUsableProjectIndex(projectIndex) {
@@ -39624,8 +40425,8 @@ function buildTaskPromptWithSuccessProfile(taskPrompt, successProfile) {
 본래 목적을 벗어나지 않는 범위에서 참고하세요. 무리하게 모든 요인을
 반영하려 하지 않습니다.
 
-독자 관점: ${reader.join(", ") || "(기록 없음)"}
-편집자·비평가 관점: ${editor.join(", ") || "(기록 없음)"}
+독자 관점: ${reader.join(", ") || i18n.t('app.기록_없음')}
+편집자·비평가 관점: ${editor.join(", ") || i18n.t('app.기록_없음')}
 ${must.length ? `특히 놓치지 않아야 할 요인: ${must.join(", ")}` : ""}
 참고 패턴: 훅 스타일(${p.hook_style || ""}), 전개 속도(${p.pacing_pattern || ""}), 대사/지문 비중(${p.dialogue_narration_balance || ""}), 문체(${p.style_signature || ""})
 `;
@@ -39714,8 +40515,8 @@ async function linkSuccessProfileToProject(profileId, { quiet = false } = {}) {
   if (!quiet) {
     toast(
       state.linkedSuccessProfileId
-        ? "이 작품에 흥행 프로파일을 연결했어요. 도우미에서 「흥행 공식 참고」를 켤 수 있어요."
-        : "흥행 프로파일 연결을 해제했어요.",
+        ? i18n.t('app.이_작품에_흥행_프로파일을_연결했어요_도우미')
+        : i18n.t('app.흥행_프로파일_연결을_해제했어요'),
     );
   }
   return result;
@@ -39760,12 +40561,12 @@ async function renderLinkedSuccessProfileCard() {
 
   if (!state.projectId) {
     if (statusEl) {
-      statusEl.textContent = "작품을 선택하면 연결 상태를 볼 수 있어요.";
+      statusEl.textContent = i18n.t('app.작품을_선택하면_연결_상태를_볼_수_있어요');
       statusEl.classList.add("is-empty");
     }
     actionsEl?.classList.add("hidden");
     selectWrap?.classList.add("hidden");
-    setPreview([], "작품을 선택하면 연결할 수 있어요");
+    setPreview([], i18n.t('app.작품을_선택하면_연결할_수_있어요'));
     return;
   }
 
@@ -39778,25 +40579,25 @@ async function renderLinkedSuccessProfileCard() {
     : null;
 
   if (linkedId && linked) {
-    const title = String(linked.work_title || linked.title || "제목 없음").trim() || "제목 없음";
+    const title = String(linked.work_title || linked.title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음');
     if (statusEl) {
-      statusEl.innerHTML = `연결됨: <strong>${escapeHtml(title)}</strong> <span class="linked-success-id">(#${linkedId})</span>`;
+      statusEl.innerHTML = `${i18n.t('app.연결됨_strong_escapeHtml_ti', {'escapeHtml(title)': escapeHtml(title), linkedId: linkedId})}`;
       statusEl.classList.remove("is-empty");
     }
     actionsEl?.classList.remove("hidden");
     unlinkBtn?.classList.remove("hidden");
-    setPreview([title], "연결된 프로파일 없음");
+    setPreview([title], i18n.t('app.연결된_프로파일_없음'));
   } else if (linkedId && !linked) {
     if (statusEl) {
-      statusEl.innerHTML = `연결됨: <strong>#${linkedId}</strong> <span class="hint">(상세를 불러오지 못했어요)</span>`;
+      statusEl.innerHTML = `${i18n.t('app.연결됨_strong_linkedId_stro', {linkedId: linkedId})}`;
       statusEl.classList.remove("is-empty");
     }
     actionsEl?.classList.remove("hidden");
     unlinkBtn?.classList.remove("hidden");
-    setPreview([`프로파일 #${linkedId}`], "연결된 프로파일 없음");
+    setPreview([`${i18n.t('app.프로파일_linkedId', {linkedId: linkedId})}`], i18n.t('app.연결된_프로파일_없음'));
   } else {
     if (statusEl) {
-      statusEl.textContent = "연결된 프로파일이 없어요. 스페셜 기능 › 흥행 공식 분석에서 만들거나, 아래에서 선택해 연결하세요.";
+      statusEl.textContent = i18n.t('app.연결된_프로파일이_없어요_스페셜_기능_흥행');
       statusEl.classList.add("is-empty");
     }
     // Still show select if profiles exist (so user can connect without re-running wizard)
@@ -39806,7 +40607,7 @@ async function renderLinkedSuccessProfileCard() {
     } else {
       actionsEl?.classList.add("hidden");
     }
-    setPreview([], "연결된 프로파일 없음 · 흥행 공식 분석에서 만들기");
+    setPreview([], i18n.t('app.연결된_프로파일_없음_흥행_공식_분석에서_만'));
   }
 
   // Dropdown only when 2+ profiles (switch / pick connection)
@@ -39815,10 +40616,10 @@ async function renderLinkedSuccessProfileCard() {
       selectWrap.classList.remove("hidden");
       const current = linkedId ? String(linkedId) : "";
       selectEl.innerHTML = [
-        `<option value="">${linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"}</option>`,
+        `${i18n.t('app.option_value_linkedId_다', {'linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"': linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"})}`,
         ...profiles.map((p) => {
           const id = Number(p.id);
-          const title = escapeHtml(String(p.work_title || "제목 없음").trim() || "제목 없음");
+          const title = escapeHtml(String(p.work_title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음'));
           const selected = current && Number(current) === id ? " selected" : "";
           return `<option value="${id}"${selected}>${title} (#${id})</option>`;
         }),
@@ -39829,9 +40630,9 @@ async function renderLinkedSuccessProfileCard() {
       selectWrap.classList.remove("hidden");
       const only = profiles[0];
       const id = Number(only.id);
-      const title = escapeHtml(String(only.work_title || "제목 없음").trim() || "제목 없음");
+      const title = escapeHtml(String(only.work_title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음'));
       selectEl.innerHTML = [
-        `<option value="">프로파일 선택…</option>`,
+        i18n.t('app.option_value_프로파일_선택_op'),
         `<option value="${id}">${title} (#${id})</option>`,
       ].join("");
       actionsEl?.classList.remove("hidden");
@@ -39850,9 +40651,9 @@ function setupLinkedSuccessProfileCard() {
   if ($("linkedSuccessProfilePanel")) $("linkedSuccessProfilePanel").dataset.bound = "1";
 
   $("linkedSuccessProfileUnlinkButton")?.addEventListener("click", () => {
-    if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-    if (!getLinkedSuccessProfileId()) return toast("연결된 프로파일이 없어요.");
-    if (!window.confirm("이 작품에서 흥행 프로파일 연결을 해제할까요?")) return;
+    if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+    if (!getLinkedSuccessProfileId()) return toast(i18n.t('app.연결된_프로파일이_없어요'));
+    if (!window.confirm(i18n.t('app.이_작품에서_흥행_프로파일_연결을_해제할까요'))) return;
     linkSuccessProfileToProject(null).catch(handleError);
   });
 
@@ -40013,18 +40814,18 @@ function buildIndexMergePrompt(existingIndex, newSceneSummaries) {
 
 [출력 형식 - 반드시 JSON만 출력]
 {
-  "characters": ["작품에 등장하는 인물 이름들"],
-  "world_rules": ["확립된 세계관·설정 규칙"],
-  "timeline": ["시간순 핵심 사건 요약"],
-  "open_threads": ["아직 회수되지 않은 복선/떡밥"],
+  "characters": [i18n.t('app.작품에_등장하는_인물_이름들')],
+  "world_rules": [i18n.t('app.확립된_세계관_설정_규칙')],
+  "timeline": [i18n.t('app.시간순_핵심_사건_요약')],
+  "open_threads": [i18n.t('app.아직_회수되지_않은_복선_떡밥')],
   "tracked_facts": [
     {
-      "category": "신체상태 | 소지품 | 관계 | 복선",
-      "subject": "인물 이름",
-      "attribute": "대상 (예: 오른팔, 검)",
-      "value": "현재 값",
-      "since_scene": "이 값이 확정된 회차 번호",
-      "history": [{"value": "이전 값", "scene": "몇 화"}]
+      "category": i18n.t('app.신체상태_소지품_관계_복선'),
+      "subject": i18n.t('app.인물_이름'),
+      "attribute": i18n.t('app.대상_예_오른팔_검'),
+      "value": i18n.t('app.현재_값'),
+      "since_scene": i18n.t('app.이_값이_확정된_회차_번호'),
+      "history": [{"value": i18n.t('app.이전_값'), "scene": i18n.t('app.몇_화')}]
     }
   ]
 }
@@ -40104,7 +40905,7 @@ async function runSceneIndexSummary(sceneId, contentMd) {
 
 const CONTINUE_LENGTH_MODES = {
   short: {
-    label: "짧게",
+    label: i18n.t('app.짧게'),
     instruction: `
 [길이 지침]
 - 최대 700자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
@@ -40112,11 +40913,11 @@ const CONTINUE_LENGTH_MODES = {
   (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
 - 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
 - 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
-- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+- 사용자가 이 결과를 보고 다시 i18n.t('app.이어서_쓰기')를 누를 것을 전제로, 다음 전개의
   방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
   },
   medium: {
-    label: "중간",
+    label: i18n.t('app.중간'),
     instruction: `
 [길이 지침]
 - 최대 1200자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
@@ -40124,11 +40925,11 @@ const CONTINUE_LENGTH_MODES = {
   (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
 - 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
 - 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
-- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+- 사용자가 이 결과를 보고 다시 i18n.t('app.이어서_쓰기')를 누를 것을 전제로, 다음 전개의
   방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
   },
   long: {
-    label: "길게",
+    label: i18n.t('app.길게'),
     instruction: `
 [길이 지침]
 - 최대 2000자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.
@@ -40136,11 +40937,11 @@ const CONTINUE_LENGTH_MODES = {
   (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.
 - 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.
 - 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.
-- 사용자가 이 결과를 보고 다시 "이어서 쓰기"를 누를 것을 전제로, 다음 전개의
+- 사용자가 이 결과를 보고 다시 i18n.t('app.이어서_쓰기')를 누를 것을 전제로, 다음 전개의
   방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).`,
   },
   scene: {
-    label: "장면까지",
+    label: i18n.t('app.장면까지'),
     instruction: `
 [길이 지침]
 - 현재 장면이 자연스러운 완결점(장소 이동, 시간 경과, 갈등의 일단락 등)에
@@ -40149,7 +40950,7 @@ const CONTINUE_LENGTH_MODES = {
 - 장면 안에서 사건, 대사, 감정선이 유기적으로 이어지도록 구성한다.`,
   },
   proportional: {
-    label: "자동 조절",
+    label: i18n.t('app.자동_조절'),
     instruction: (target) => `
 [길이 지침]
 - 약 ${target}자 내외로 작성한다.
@@ -40159,9 +40960,9 @@ const CONTINUE_LENGTH_MODES = {
 };
 
 /** Always generate these three continue styles in parallel (no picker UI). */
-const CONTINUE_STYLE_MODES = ["후킹형", "전개형", "전환형"];
+const CONTINUE_STYLE_MODES = [i18n.t('app.후킹형'), i18n.t('app.전개형'), i18n.t('app.전환형')];
 let continueStyleResultsState = {
-  active: "후킹형",
+  active: i18n.t('app.후킹형'),
   texts: { 후킹형: "", 전개형: "", 전환형: "" },
 };
 
@@ -40182,7 +40983,7 @@ function buildFocusedAnalysisPrompt(sceneContent) {
 
 [분석 원칙]
 1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.
-2. 막연한 칭찬("좋아요", "잘 쓰셨어요")이나 막연한 비판("별로예요")을 하지 않는다.
+2. 막연한 칭찬(i18n.t('app.좋아요'), i18n.t('app.잘_쓰셨어요'))이나 막연한 비판(i18n.t('app.별로예요'))을 하지 않는다.
    반드시 원고 안의 구체적인 근거(어떤 장면, 어떤 문장, 어떤 흐름)를 들어 설명한다.
 3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지
    방향을 함께 제시한다.
@@ -40245,7 +41046,7 @@ function buildFocusedAnalysisMultiPrompt(combinedManuscriptBlock, episodeCount =
    명백히 벗어나거나 개연성이 무너지는 등 원문 자체가 그대로 두기 어려운
    수준이라고 판단되면, 문제를 정확히 설명한 뒤 대체 가능한 전개나 장면을
    직접 예시로 써서 제시한다. 다만 최종 선택은 작가의 몫임을 분명히 하고,
-   이 경우에도 "반드시 이렇게 고쳐야 한다"고 단정하지 않는다.
+   이 경우에도 i18n.t('app.반드시_이렇게_고쳐야_한다')고 단정하지 않는다.
 4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지
    않는다. 의도가 실제로 잘 구현되고 있는지를 본다.
 5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.
@@ -40358,7 +41159,7 @@ function buildNextIdeaWithNextScenePrompt(prevTail, nextFull) {
 - 어떤 전개/묘사로 시작하는지 1~2문장
 - 왜 효과적인지 (근거 1문장)
 
-마지막에 "어떤 방향이든 편하게 골라주시면 이어서 함께 다듬어볼게요." 같은
+마지막에 i18n.t('app.어떤_방향이든_편하게_골라주시면_이어서_함께') 같은
 짧은 안내를 덧붙인다.
 
 [직전 회차 마지막 부분]
@@ -40386,7 +41187,7 @@ function buildBrainstormPrompt(sceneContent, userTopic = "") {
 ${topicInstruction}
 
 [판단 기준]
-1. "다음 회차에 바로 이어지는 전개"로 범위를 좁히지 않는다. 서브플롯, 반전,
+1. i18n.t('app.다음_회차에_바로_이어지는_전개')로 범위를 좁히지 않는다. 서브플롯, 반전,
    새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
    아이디어를 던진다.
 2. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를
@@ -40463,7 +41264,7 @@ ${nextSceneContent}
    참고 맥락일 뿐이다.
 2. 다음 회차의 방향을 살리는 아이디어와, 완전히 다른 방향으로 전환하는
    아이디어를 균형 있게 섞는다.
-3. "다음 회차에 바로 이어지는 전개"로만 범위를 좁히지 않는다. 서브플롯, 반전,
+3. i18n.t('app.다음_회차에_바로_이어지는_전개')로만 범위를 좁히지 않는다. 서브플롯, 반전,
    새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
    아이디어를 던진다.
 4. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.
@@ -40499,7 +41300,7 @@ function buildSettingBreakScanPrompt(originalText) {
 2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
 소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
 정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
-(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이
+(예: tracked_facts에 i18n.t('app.오른팔_부상') 기록이 있는데 원고에서 그 인물이
 오른손으로 무기를 사용) 반드시 지적한다.
 3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
    지금까지 써온 말투)을 기준으로 삼는다.
@@ -40507,7 +41308,7 @@ function buildSettingBreakScanPrompt(originalText) {
 
 [세계관 검사 기준]
 5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
-   (예: 동양풍 세계관에 "드래곤"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+   (예: 동양풍 세계관에 i18n.t('app.드래곤')이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
 6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
    발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
    서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
@@ -40515,15 +41316,15 @@ function buildSettingBreakScanPrompt(originalText) {
 
 [캐릭터 일관성 검사 기준]
 7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
-8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, "이 작품의 세계관 안에서 통용되는 규범"이다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, i18n.t('app.이_작품의_세계관_안에서_통용되는_규범')이다.
    예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
    문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
    맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
-   "그 인물 자신의 확립된 캐릭터"에서 벗어나는 지점이다.
+   i18n.t('app.그_인물_자신의_확립된_캐릭터')에서 벗어나는 지점이다.
 9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
    주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
    비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
-   시선에서 "~처럼 보였다", "~같았다"와 같이 주관적으로 포착된 인상은, 그 자체로
+   시선에서 i18n.t('app.처럼_보였다'), i18n.t('app.같았다')와 같이 주관적으로 포착된 인상은, 그 자체로
    캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
 
 [출력 형식]
@@ -40533,7 +41334,7 @@ function buildSettingBreakScanPrompt(originalText) {
 - 문제: 무엇이 왜 어긋나는지
 - 제안: 어떻게 고치면 좋을지 짧게
 
-발견된 항목이 없으면 "이번 구간에서는 설정과 어긋나는 지점이 발견되지 않았습니다."라고만 답한다.
+발견된 항목이 없으면 i18n.t('app.이번_구간에서는_설정과_어긋나는_지점이_발견')라고만 답한다.
 과잉 지적하지 않는다. 확실한 것만 표시한다.
 
 [본문]
@@ -40560,7 +41361,7 @@ function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount 
 2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
 소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
 정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
-(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이
+(예: tracked_facts에 i18n.t('app.오른팔_부상') 기록이 있는데 원고에서 그 인물이
 오른손으로 무기를 사용) 반드시 지적한다.
 3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
    지금까지 써온 말투)을 기준으로 삼는다.
@@ -40568,7 +41369,7 @@ function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount 
 
 [세계관 검사 기준]
 5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
-   (예: 동양풍 세계관에 "드래곤"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+   (예: 동양풍 세계관에 i18n.t('app.드래곤')이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
 6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
    발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
    서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
@@ -40576,15 +41377,15 @@ function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount 
 
 [캐릭터 일관성 검사 기준]
 7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
-8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, "이 작품의 세계관 안에서 통용되는 규범"이다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, i18n.t('app.이_작품의_세계관_안에서_통용되는_규범')이다.
    예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
    문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
    맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
-   "그 인물 자신의 확립된 캐릭터"에서 벗어나는 지점이다.
+   i18n.t('app.그_인물_자신의_확립된_캐릭터')에서 벗어나는 지점이다.
 9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
    주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
    비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
-   시선에서 "~처럼 보였다", "~같았다"와 같이 주관적으로 포착된 인상은, 그 자체로
+   시선에서 i18n.t('app.처럼_보였다'), i18n.t('app.같았다')와 같이 주관적으로 포착된 인상은, 그 자체로
    캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
 10. 각 회차의 판정은 그 회차 안의 내용만을 근거로 한다. 다른 회차에서 발견한 문제를
     엉뚱한 회차의 결과에 섞어 넣지 않는다.
@@ -40599,7 +41400,7 @@ function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount 
 - 문제: 무엇이 왜 어긋나는지
 - 제안: 어떻게 고치면 좋을지 짧게
 
-발견된 항목이 없으면 "이 회차에서는 설정과 어긋나는 지점이 발견되지 않았습니다."
+발견된 항목이 없으면 i18n.t('app.이_회차에서는_설정과_어긋나는_지점이_발견되')
 라고만 답한다.
 
 (선택한 회차 수만큼 반복)
@@ -40662,7 +41463,7 @@ ${userHint ? `6. 사용자가 다음 방향에 대해 다음과 같은 힌트를
 ${styleBlock}${lengthInstruction}
 
 [문장 규칙]
-- 이어지는 본문만 출력한다. "이어서 작성하면", "다음은 이어지는 내용입니다" 같은
+- 이어지는 본문만 출력한다. i18n.t('app.이어서_작성하면'), i18n.t('app.다음은_이어지는_내용입니다') 같은
   메타 표현이나 설명을 붙이지 않는다.
 - 원문과 이어지는 부분의 경계가 어색하지 않도록, 필요하면 원문 마지막 문장의
   흐름을 고려해 접속어나 시간 표현으로 자연스럽게 시작한다.
@@ -40687,7 +41488,7 @@ function buildFreeRequestPrompt(originalText, userRequest) {
    가장 합리적인 해석으로 판단해 응답하고, 어떤 해석으로 답했는지 짧게 밝힌다.
 2. 요청과 무관한 부가 조언을 늘어놓지 않는다. 딱 필요한 만큼만 답한다.
 3. 원고에 없는 사실을 새로 지어내 단정하지 않는다. 추측이 필요한 경우
-   "~로 보입니다"처럼 추측임을 밝힌다.
+   i18n.t('app.로_보입니다')처럼 추측임을 밝힌다.
 4. 요청이 원고와 무관한 일반 대화(잡담, 기술 질문 등)라면, 토리의 정체성
    (편집자·비평가·독자)에 맞는 선에서 자연스럽게 응대한다.
 
@@ -40735,15 +41536,15 @@ ${directionBlock}
 
 [개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
 왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
-("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서
+(i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 또는 "저는 ~한 관점에서
 이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).
 그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
 장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
 
 [개선이 필요 없는 경우 - 대안 표현 제시]
-문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신
+문장은 이미 충분히 좋으므로 i18n.t('app.다듬을_필요_없음')으로 판단하고, 대신
 같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
-이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
+이는 i18n.t('app.틀렸다')는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
 문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
 (작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
 
@@ -40813,7 +41614,7 @@ ${directionBlock}
 
 [개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
 왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
-("저는 ~한 이유로 다듬기가 필요해 보였어요" 같은 자연스러운 말투로).
+(i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 같은 자연스러운 말투로).
 그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
 장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
 
@@ -40863,9 +41664,9 @@ function parseRewriteAssistDisplay(resultText) {
     ask: "",
     alternatives: [],
     displayText: "",
-    title: "문장 다듬기 비교",
-    resultHeader: "다듬은 결과",
-    hint: "원문과 결과를 비교한 뒤 반영 여부를 고르세요.",
+    title: i18n.t('app.문장_다듬기_비교'),
+    resultHeader: i18n.t('app.다듬은_결과'),
+    hint: i18n.t('app.원문과_결과를_비교한_뒤_반영_여부를_고르세'),
   };
   if (!raw) return empty;
 
@@ -40893,9 +41694,9 @@ function parseRewriteAssistDisplay(resultText) {
       ask: "",
       alternatives: unique,
       displayText: unique[0] || raw,
-      title: "이미 좋은 문장이에요",
-      resultHeader: "대안 표현 (클릭해 선택)",
-      hint: "원문은 이미 충분해요. 바꾸고 싶을 때만 아래 대안을 고른 뒤 반영하세요.",
+      title: i18n.t('app.이미_좋은_문장이에요'),
+      resultHeader: i18n.t('app.대안_표현_클릭해_선택'),
+      hint: i18n.t('app.원문은_이미_충분해요_바꾸고_싶을_때만_아래'),
     };
   }
 
@@ -40927,7 +41728,7 @@ function parseRewriteAssistDisplay(resultText) {
     const askMatch = raw.match(/(작가님의\s*생각은\s*어떤가요\?[^\n]*)/i);
     if (askMatch) ask = askMatch[1].trim();
     else if (/이 문장으로 대체하시겠어요/i.test(raw)) {
-      ask = "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?";
+      ask = i18n.t('app.작가님의_생각은_어떤가요_이_문장으로_대체하');
     }
 
     if (!polished) {
@@ -40946,14 +41747,14 @@ function parseRewriteAssistDisplay(resultText) {
       kind: "polish",
       polished,
       reason,
-      ask: ask || "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?",
+      ask: ask || i18n.t('app.작가님의_생각은_어떤가요_이_문장으로_대체하'),
       alternatives: [],
       displayText: polished,
-      title: "다듬기 제안",
-      resultHeader: "다듬은 결과",
+      title: i18n.t('app.다듬기_제안'),
+      resultHeader: i18n.t('app.다듬은_결과'),
       hint: reason
         ? `${reason}${ask ? `\n\n${ask}` : ""}`
-        : (ask || "원문과 다듬은 결과를 비교한 뒤 반영 여부를 고르세요."),
+        : (ask || i18n.t('app.원문과_다듬은_결과를_비교한_뒤_반영_여부를')),
     };
   }
 
@@ -40965,9 +41766,9 @@ function parseRewriteAssistDisplay(resultText) {
     ask: "",
     alternatives: [],
     displayText: raw,
-    title: "문장 다듬기 비교",
-    resultHeader: "다듬은 결과",
-    hint: "원문과 결과를 비교한 뒤 반영 여부를 고르세요.",
+    title: i18n.t('app.문장_다듬기_비교'),
+    resultHeader: i18n.t('app.다듬은_결과'),
+    hint: i18n.t('app.원문과_결과를_비교한_뒤_반영_여부를_고르세'),
   };
 }
 
@@ -40980,8 +41781,8 @@ let pendingStyleBlendContext = null;
 let styleBlendInFlight = false;
 
 const STYLE_BLEND_GUIDE_TEXT = (
-  "직접 수정하며 재작성 하시겠어요? 그대로 쓰신다면 작가님의 문체와\n"
-  + "잘 어우러지는지 별도 검사를 추천합니다."
+  i18n.t('app.직접_수정하며_재작성_하시겠어요_그대로_쓰신')
+  + i18n.t('app.잘_어우러지는지_별도_검사를_추천합니다')
 );
 
 function setStyleBlendOfferVisible(show) {
@@ -41041,11 +41842,11 @@ function setStyleBlendLoading(scope, loading, message = "") {
     const result = $(resultId);
     if (button) {
       button.disabled = Boolean(loading);
-      button.textContent = loading ? "스며듦 검사 중…" : "스며듦 검사하기";
+      button.textContent = loading ? i18n.t('app.스며듦_검사_중') : i18n.t('app.스며듦_검사하기');
     }
     if (status) {
       if (loading || message) {
-        status.textContent = message || "스며듦 검사 중… (별도 호출 · 잠시만 기다려 주세요)";
+        status.textContent = message || i18n.t('app.스며듦_검사_중_별도_호출_잠시만_기다려_주');
         status.classList.remove("hidden");
       } else {
         status.textContent = "";
@@ -41070,11 +41871,11 @@ function paintStyleBlendResult(scope, text) {
     const status = $(statusId);
     const result = $(resultId);
     if (status) {
-      status.textContent = "스며듦 검사 완료";
+      status.textContent = i18n.t('app.스며듦_검사_완료');
       status.classList.remove("hidden");
     }
     if (result) {
-      result.textContent = text || "(결과 없음)";
+      result.textContent = text || i18n.t('app.결과_없음');
       result.classList.remove("hidden");
     }
   }
@@ -41082,11 +41883,11 @@ function paintStyleBlendResult(scope, text) {
 
 async function runStyleBlendCheck(options = {}) {
   if (styleBlendInFlight) {
-    toast("이미 스며듦 검사를 진행 중이에요.");
+    toast(i18n.t('app.이미_스며듦_검사를_진행_중이에요'));
     return null;
   }
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
   const scope = options.scope
@@ -41100,7 +41901,7 @@ async function runStyleBlendCheck(options = {}) {
     }
   }
   if (!referenceText || !targetText) {
-    toast("스며듦 검사에 필요한 기준·비교 텍스트가 없어요.");
+    toast(i18n.t('app.스며듦_검사에_필요한_기준_비교_텍스트가_없'));
     return null;
   }
 
@@ -41133,13 +41934,13 @@ async function runStyleBlendCheck(options = {}) {
       method: "POST",
       body: JSON.stringify(body),
     });
-    const text = String(result.text || "").trim() || "(결과 없음)";
+    const text = String(result.text || "").trim() || i18n.t('app.결과_없음');
     setStyleBlendLoading(scope, false);
     paintStyleBlendResult(scope, text);
-    toast("스며듦 검사가 끝났어요.");
+    toast(i18n.t('app.스며듦_검사가_끝났어요'));
     return text;
   } catch (error) {
-    setStyleBlendLoading(scope, false, "스며듦 검사에 실패했어요. 다시 시도해 주세요.");
+    setStyleBlendLoading(scope, false, i18n.t('app.스며듦_검사에_실패했어요_다시_시도해_주세요'));
     handleError(error);
     return null;
   } finally {
@@ -41151,7 +41952,7 @@ async function runStyleBlendCheck(options = {}) {
       const button = $(id);
       if (button) {
         button.disabled = false;
-        button.textContent = "스며듦 검사하기";
+        button.textContent = i18n.t('app.스며듦_검사하기');
       }
     }
   }
@@ -41320,7 +42121,7 @@ function renderRewriteAlternativeList(alternatives = [], selectedIndex = 0) {
     const active = i === selectedIndex ? " is-selected" : "";
     return (
       `<button type="button" class="rewrite-alt-item${active}" data-rewrite-alt="${i}">`
-      + `<span class="rewrite-alt-label">대안 ${i + 1}</span>`
+      + `${i18n.t('app.span_class_rewrite_alt', {'i + 1': i + 1})}`
       + `<span class="rewrite-alt-text">${escapeHtml(text)}</span>`
       + `</button>`
     );
@@ -41337,10 +42138,10 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     $("rewriteCompareOriginal").textContent = String(originalText || "");
   }
   if ($("rewriteCompareModalTitle")) {
-    $("rewriteCompareModalTitle").textContent = parsed.title || "문장 다듬기 비교";
+    $("rewriteCompareModalTitle").textContent = parsed.title || i18n.t('app.문장_다듬기_비교');
   }
   if ($("rewriteCompareResultHeader")) {
-    $("rewriteCompareResultHeader").textContent = parsed.resultHeader || "다듬은 결과";
+    $("rewriteCompareResultHeader").textContent = parsed.resultHeader || i18n.t('app.다듬은_결과');
   }
 
   // Reason / ask banner (polish path)
@@ -41351,7 +42152,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
       reasonEl.textContent = reasonBits.join("\n\n");
       reasonEl.classList.remove("hidden");
     } else if (kind === "alternatives") {
-      reasonEl.textContent = parsed.hint || "원문은 이미 충분해요. 대안을 골라 보세요.";
+      reasonEl.textContent = parsed.hint || i18n.t('app.원문은_이미_충분해요_대안을_골라_보세요');
       reasonEl.classList.remove("hidden");
     } else {
       reasonEl.textContent = "";
@@ -41360,10 +42161,10 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   }
   if ($("rewriteCompareHint")) {
     $("rewriteCompareHint").textContent = isDirect
-      ? "직접 쓴 문장의 표현 점검 결과예요. 원고 위치가 없어 복사만 할 수 있어요."
+      ? i18n.t('app.직접_쓴_문장의_표현_점검_결과예요_원고_위')
       : (kind === "alternatives"
-        ? "원문은 이미 충분해요. 바꾸고 싶을 때만 대안을 고른 뒤 반영하세요."
-        : "원문과 다듬은 결과를 비교한 뒤 반영 여부를 고르세요.");
+        ? i18n.t('app.원문은_이미_충분해요_바꾸고_싶을_때만_대안')
+        : i18n.t('app.원문과_다듬은_결과를_비교한_뒤_반영_여부를'));
   }
   $("rewriteCompareDirectNote")?.classList.toggle("hidden", !isDirect);
 
@@ -41374,10 +42175,10 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
 
   if (kind === "alternatives" && parsed.alternatives?.length) {
     renderRewriteAlternativeList(parsed.alternatives, 0);
-    $("rewriteCompareResult")?.setAttribute("aria-label", "선택한 대안 표현 (수정 가능)");
+    $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.선택한_대안_표현_수정_가능'));
   } else {
     renderRewriteAlternativeList([]);
-    $("rewriteCompareResult")?.setAttribute("aria-label", "다듬은 결과 (수정 가능)");
+    $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.다듬은_결과_수정_가능'));
   }
 
   // Buttons: selection → replace / copy / keep ; direct → copy only
@@ -41389,17 +42190,17 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     keepBtn?.classList.add("hidden");
     if (copyBtn) {
       copyBtn.classList.remove("hidden");
-      copyBtn.textContent = "복사하기";
+      copyBtn.textContent = i18n.t('app.복사하기');
     }
   } else {
     applyBtn?.classList.remove("hidden");
     keepBtn?.classList.remove("hidden");
     if (copyBtn) {
       copyBtn.classList.remove("hidden");
-      copyBtn.textContent = "복사";
+      copyBtn.textContent = i18n.t('app.복사');
     }
-    if (applyBtn) applyBtn.textContent = "이 문장으로 바꿔요";
-    if (keepBtn) keepBtn.textContent = "그대로 둘래요";
+    if (applyBtn) applyBtn.textContent = i18n.t('app.이_문장으로_바꿔요');
+    if (keepBtn) keepBtn.textContent = i18n.t('app.그대로_둘래요');
   }
 
   // Style-blend: selection polish only
@@ -41414,13 +42215,13 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
 function applyPendingRewriteToEditor() {
   const edited = String($("rewriteCompareResult")?.value || "").trim();
   if (!edited) {
-    toast("적용할 다듬은 결과가 없어요.");
+    toast(i18n.t('app.적용할_다듬은_결과가_없어요'));
     return false;
   }
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
   const isSettings = editor?.id === "synopsisContent";
   if (!editor || (!isSettings && !state.sceneId)) {
-    toast("반영하려면 원고 또는 설정 문서를 열어 주세요.");
+    toast(i18n.t('app.반영하려면_원고_또는_설정_문서를_열어_주세'));
     return false;
   }
   const range = pendingRewriteState?.range;
@@ -41477,8 +42278,8 @@ function applyPendingRewriteToEditor() {
     }
     toast(
       sourceMode === "direct"
-        ? "편집기에 넣지 못해 결과를 복사해 두었어요. 직접 붙여 넣어 주세요."
-        : "선택 구간을 찾지 못해 결과를 복사해 두었어요. 직접 붙여 넣어 주세요.",
+        ? i18n.t('app.편집기에_넣지_못해_결과를_복사해_두었어요')
+        : i18n.t('app.선택_구간을_찾지_못해_결과를_복사해_두었어'),
     );
     return false;
   }
@@ -41490,7 +42291,7 @@ function applyPendingRewriteToEditor() {
     markSceneDirty();
   }
   closeRewriteCompareModal();
-  toast("다듬은 문장으로 바꿨어요. 자동 저장됩니다.");
+  toast(i18n.t('app.다듬은_문장으로_바꿨어요_자동_저장됩니다'));
   return true;
 }
 
@@ -41551,7 +42352,7 @@ async function checkRewriteLengthGate(text) {
   const n = String(text || "").trim().length;
   if (n <= 800) return true;
   if (n > 2000) {
-    toast("이 정도 분량은 다듬기보다 새로 쓰는 쪽에 가까워요. 이어서 쓰기나 피드백 요청을 이용해 주세요.");
+    toast(i18n.t('app.이_정도_분량은_다듬기보다_새로_쓰는_쪽에'));
     return false;
   }
   return openRewriteLengthWarnModal();
@@ -41566,19 +42367,19 @@ async function executeRewriteAssist(payload) {
   if (!selectedText) {
     toast(
       payload?.sourceMode === "direct"
-        ? "다듬을 문장을 직접 입력해 주세요."
-        : "다듬을 문장·문단을 드래그로 선택해 주세요.",
+        ? i18n.t('app.다듬을_문장을_직접_입력해_주세요')
+        : i18n.t('app.다듬을_문장_문단을_드래그로_선택해_주세요'),
     );
     return null;
   }
   const mayProceed = await checkRewriteLengthGate(selectedText);
   if (!mayProceed) return null;
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
   if (rewriteAssistInFlight) {
-    toast("이미 문장을 다듬고 있어요.");
+    toast(i18n.t('app.이미_문장을_다듬고_있어요'));
     return null;
   }
 
@@ -41620,8 +42421,8 @@ async function executeRewriteAssist(payload) {
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
   if ($("aiResult")) {
     $("aiResult").value = isDirectWrite
-      ? "표현을 점검·다듬는 중…"
-      : "선택 문장을 다듬는 중…";
+      ? i18n.t('app.표현을_점검_다듬는_중')
+      : i18n.t('app.선택_문장을_다듬는_중');
   }
   ensureAiResultVisible();
 
@@ -41629,13 +42430,13 @@ async function executeRewriteAssist(payload) {
   const prevLabel = aiButton?.textContent;
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = "문장 다듬는 중…";
+    aiButton.textContent = i18n.t('app.문장_다듬는_중');
   }
   const toolSubmit = $("aiToolModalSubmitButton");
   const toolPrev = toolSubmit?.textContent;
   if (toolSubmit) {
     toolSubmit.disabled = true;
-    toolSubmit.textContent = "문장 다듬는 중…";
+    toolSubmit.textContent = i18n.t('app.문장_다듬는_중');
   }
 
   try {
@@ -41691,7 +42492,7 @@ async function executeRewriteAssist(payload) {
     if ($("aiResult")) {
       $("aiResult").value = polished
         ? `【원문】\n${selectedText}\n\n【결과】\n${polished}`
-        : "(결과 없음)";
+        : i18n.t('app.결과_없음');
     }
     prepareStyleBlendOffer(null); // hide continue offer on panel
     revealAiAssistResult({ openModal: false, mode: "rewrite" });
@@ -41700,15 +42501,15 @@ async function executeRewriteAssist(payload) {
       sourceMode: isDirectWrite ? "direct" : "selection",
     });
     if (!polished) {
-      toast("다듬기 응답이 비어 있어요.");
+      toast(i18n.t('app.다듬기_응답이_비어_있어요'));
     } else if (displayParsed.kind === "alternatives") {
       toast(isDirectWrite
-        ? "이미 자연스러운 문장으로 보여요 · 필요하면 복사하세요."
-        : "이미 좋은 문장으로 보여요 · 대안을 고르거나 유지하세요.");
+        ? i18n.t('app.이미_자연스러운_문장으로_보여요_필요하면_복')
+        : i18n.t('app.이미_좋은_문장으로_보여요_대안을_고르거나'));
     } else {
       toast(isDirectWrite
-        ? "표현 점검 완료 · 복사해 쓰실 수 있어요."
-        : "다듬기 제안이 왔어요 · 대체·복사·유지 중 골라 주세요.");
+        ? i18n.t('app.표현_점검_완료_복사해_쓰실_수_있어요')
+        : i18n.t('app.다듬기_제안이_왔어요_대체_복사_유지_중_골'));
     }
     return result;
   } catch (error) {
@@ -41719,11 +42520,11 @@ async function executeRewriteAssist(payload) {
     rewriteAssistInFlight = false;
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = prevLabel || "토리에게 물어보기";
+      aiButton.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
     }
     if (toolSubmit) {
       toolSubmit.disabled = false;
-      toolSubmit.textContent = toolPrev || "문장 다듬기";
+      toolSubmit.textContent = toolPrev || i18n.t('app.문장_다듬기');
     }
   }
 }
@@ -41731,7 +42532,7 @@ async function executeRewriteAssist(payload) {
 async function runRewriteFromSelection() {
   const payload = getRewriteSelectionPayload();
   if (!payload?.selectedText) {
-    toast("다듬을 문장·문단을 드래그로 선택해 주세요.");
+    toast(i18n.t('app.다듬을_문장_문단을_드래그로_선택해_주세요'));
     return null;
   }
   // 방향을 적을 수 있도록 팝업을 먼저 연다 (바로 실행하지 않음)
@@ -41748,7 +42549,7 @@ async function runRewriteFromSelection() {
       $("rewriteDirectionHint")?.focus();
     }
   });
-  toast("다듬기 방향을 적은 뒤 「다듬기」를 눌러 주세요.");
+  toast(i18n.t('app.다듬기_방향을_적은_뒤_다듬기_를_눌러_주세'));
   return null;
 }
 
@@ -41759,12 +42560,12 @@ function setupRewriteCompareModal() {
   });
   $("rewriteCompareCopyButton")?.addEventListener("click", async () => {
     const text = String($("rewriteCompareResult")?.value || "").trim();
-    if (!text) return toast("복사할 결과가 없어요.");
+    if (!text) return toast(i18n.t('app.복사할_결과가_없어요'));
     try {
       await navigator.clipboard.writeText(text);
-      toast("결과를 복사했어요.");
+      toast(i18n.t('app.결과를_복사했어요'));
     } catch (_) {
-      toast("복사에 실패했어요.");
+      toast(i18n.t('app.복사에_실패했어요'));
     }
   });
   $("rewriteCompareApplyButton")?.addEventListener("click", () => {
@@ -41772,7 +42573,7 @@ function setupRewriteCompareModal() {
   });
   $("rewriteCompareKeepButton")?.addEventListener("click", () => {
     closeRewriteCompareModal();
-    toast("원문을 그대로 유지했어요.");
+    toast(i18n.t('app.원문을_그대로_유지했어요'));
   });
   $("rewriteCompareAltList")?.addEventListener("click", (event) => {
     const btn = event.target?.closest?.("[data-rewrite-alt]");
@@ -41811,15 +42612,15 @@ function applyTorySummaryToField(summaryText) {
 
 async function runTorySceneSummary() {
   if (torySceneSummaryInFlight) {
-    toast("이미 요약을 만들고 있어요.");
+    toast(i18n.t('app.이미_요약을_만들고_있어요'));
     return;
   }
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   if (!state.sceneId) {
-    toast("먼저 목차에서 씬을 열어 주세요.");
+    toast(i18n.t('app.먼저_목차에서_씬을_열어_주세요'));
     return;
   }
 
@@ -41832,7 +42633,7 @@ async function runTorySceneSummary() {
 
   const existing = String($("sceneSynopsis")?.value || "").trim();
   if (existing) {
-    const ok = window.confirm("이미 요약이 있어요. 토리가 새로 쓴 요약으로 바꿀까요?");
+    const ok = window.confirm(i18n.t('app.이미_요약이_있어요_토리가_새로_쓴_요약으로'));
     if (!ok) return;
   }
 
@@ -41847,14 +42648,14 @@ async function runTorySceneSummary() {
   torySceneSummaryInFlight = true;
   if (btn) {
     btn.disabled = true;
-    btn.textContent = "요약 중…";
-    btn.title = "토리가 본문을 요약하는 중";
+    btn.textContent = i18n.t('app.요약_중');
+    btn.title = i18n.t('app.토리가_본문을_요약하는_중');
   }
   setAiPanelOpen(true);
   if ($("aiMode")) $("aiMode").value = "free";
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
-  if ($("aiPrompt")) $("aiPrompt").value = "토리야 요약해 줘 (본문 요약 → 요약 칸)";
-  if ($("aiResult")) $("aiResult").value = "본문을 요약하는 중…";
+  if ($("aiPrompt")) $("aiPrompt").value = i18n.t('app.토리야_요약해_줘_본문_요약_요약_칸');
+  if ($("aiResult")) $("aiResult").value = i18n.t('app.본문을_요약하는_중');
   ensureAiResultVisible();
 
   try {
@@ -41880,12 +42681,12 @@ async function runTorySceneSummary() {
       }),
     });
     const applied = applyTorySummaryToField(result.text || "");
-    if ($("aiResult")) $("aiResult").value = applied || result.text || "(결과 없음)";
+    if ($("aiResult")) $("aiResult").value = applied || result.text || i18n.t('app.결과_없음');
     revealAiAssistResult({ openModal: true, mode: "summarize" });
     if (applied) {
-      toast("토리가 요약을 요약 칸에 넣었어요.");
+      toast(i18n.t('app.토리가_요약을_요약_칸에_넣었어요'));
     } else {
-      toast("요약 응답이 비어 있어요. 다시 시도해 주세요.");
+      toast(i18n.t('app.요약_응답이_비어_있어요_다시_시도해_주세요'));
     }
   } catch (error) {
     if ($("aiResult")) $("aiResult").value = "";
@@ -41894,8 +42695,8 @@ async function runTorySceneSummary() {
     torySceneSummaryInFlight = false;
     if (btn) {
       btn.disabled = false;
-      btn.textContent = prevLabel || "요약";
-      btn.title = prevTitle || "좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘";
+      btn.textContent = prevLabel || i18n.t('app.요약');
+      btn.title = prevTitle || i18n.t('app.좌클릭_요약_목록_우클릭_토리야_요약해_줘');
     }
   }
 }
@@ -41906,8 +42707,8 @@ function showSynopsisButtonContextMenu(clientX, clientY) {
   setUiFeatureCtxTarget?.(btn);
   if (typeof showUiFeatureContextMenu === "function") {
     showUiFeatureContextMenu(clientX, clientY, btn, [{
-      label: "토리야 요약해 줘",
-      hint: "본문을 요약해 요약 칸에 넣기",
+      label: i18n.t('app.토리야_요약해_줘'),
+      hint: i18n.t('app.본문을_요약해_요약_칸에_넣기'),
       run: () => { runTorySceneSummary().catch(handleError); },
     }]);
   }
@@ -41925,19 +42726,19 @@ function renderSynopsisListBody() {
   const body = $("synopsisListBody");
   if (!body) return;
   if (!state.projectId) {
-    body.innerHTML = `<p class="synopsis-list-empty">작품을 먼저 선택해 주세요.</p>`;
+    body.innerHTML = i18n.t('app.p_class_synopsis_list_e');
     return;
   }
   const items = getSynopsisSequence();
   if (!items.length) {
-    body.innerHTML = `<p class="synopsis-list-empty">아직 회차가 없어요. 목차에서 씬을 만들어 보세요.</p>`;
+    body.innerHTML = i18n.t('app.p_class_synopsis_list_e_2');
     return;
   }
   const currentId = Number(state.sceneId) || 0;
   body.innerHTML = items.map((item) => {
     const text = item.synopsis
       ? escapeHtml(item.synopsis)
-      : "요약 없음";
+      : i18n.t('app.요약_없음_2');
     const emptyClass = item.synopsis ? "" : " is-empty";
     const currentClass = Number(item.sceneId) === currentId ? " is-current" : "";
     return `
@@ -41952,7 +42753,7 @@ function renderSynopsisListBody() {
 
 async function openSynopsisList() {
   if (!state.projectId) {
-    toast("작품을 먼저 선택해 주세요.");
+    toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
   }
   // Refresh outline so synopses are up to date (includes synopsis_md).
@@ -41978,7 +42779,7 @@ async function openSynopsisList() {
 function setupSynopsisList() {
   const synopsisBtn = $("synopsisListButton");
   if (synopsisBtn) {
-    synopsisBtn.title = "좌클릭: 요약 목록 · 우클릭: 토리야 요약해 줘";
+    synopsisBtn.title = i18n.t('app.좌클릭_요약_목록_우클릭_토리야_요약해_줘');
   }
   synopsisBtn?.addEventListener("click", () => {
     openSynopsisList().catch(handleError);
@@ -42032,7 +42833,7 @@ function formatEpisodeNavLabel(ep, fallback) {
   if (/\d+\s*화/.test(raw) || /제\s*\d+\s*화/.test(raw)) {
     return ep.shortLabel || raw;
   }
-  return `${ep.index}화 ${ep.shortLabel || raw}`.trim();
+  return `${i18n.t('app.ep_index_화_ep_shortLabe', {'ep.index': ep.index, 'ep.shortLabel || raw': ep.shortLabel || raw})}`.trim();
 }
 
 /**
@@ -42066,7 +42867,7 @@ function scheduleEpisodeNavLayout() {
 function upsertEpisodeTab(sceneId, title = "") {
   const id = Number(sceneId);
   if (!Number.isFinite(id) || id <= 0) return;
-  const label = String(title || "").trim() || `씬 #${id}`;
+  const label = String(title || "").trim() || `${i18n.t('app.씬_id', {id: id})}`;
   const tabs = Array.isArray(state.episodeTabs) ? [...state.episodeTabs] : [];
   const existing = tabs.find((t) => Number(t.sceneId) === id);
   if (existing) {
@@ -42097,7 +42898,7 @@ function closeEpisodeTab(sceneId) {
       if (sceneDirty) {
         try {
           cancelScheduledAutoSave();
-          await persistScene({ quiet: true, saveNote: "자동 저장" });
+          await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
         } catch (_) { /* ignore */ }
       }
       state.sceneId = null;
@@ -42127,14 +42928,14 @@ function renderEpisodeChrome() {
 
   if (prevBtn) {
     prevBtn.disabled = !prev;
-    prevBtn.title = prev ? `이전 회차: ${prev.label}` : "이전 회차 없음";
+    prevBtn.title = prev ? `${i18n.t('app.이전_회차_prev_label', {'prev.label': prev.label})}` : i18n.t('app.이전_회차_없음');
   }
   if (nextBtn) {
     nextBtn.disabled = !next;
-    nextBtn.title = next ? `다음 회차: ${next.label}` : "다음 회차 없음";
+    nextBtn.title = next ? `${i18n.t('app.다음_회차_next_label', {'next.label': next.label})}` : i18n.t('app.다음_회차_없음');
   }
-  if (prevLabel) prevLabel.textContent = prev ? formatEpisodeNavLabel(prev, "이전") : "이전 회차";
-  if (nextLabel) nextLabel.textContent = next ? formatEpisodeNavLabel(next, "다음") : "다음 회차";
+  if (prevLabel) prevLabel.textContent = prev ? formatEpisodeNavLabel(prev, i18n.t('app.이전')) : i18n.t('app.이전_회차');
+  if (nextLabel) nextLabel.textContent = next ? formatEpisodeNavLabel(next, i18n.t('app.다음')) : i18n.t('app.다음_회차');
   // Recalc side widths so a long center title squeezes prev/next labels.
   scheduleEpisodeNavLayout();
 
@@ -42151,12 +42952,12 @@ function renderEpisodeChrome() {
     const titleById = new Map(sequence.map((ep) => [ep.sceneId, ep.shortLabel || ep.label]));
     tabBar.innerHTML = tabs.map((tab) => {
       const id = Number(tab.sceneId);
-      const title = titleById.get(id) || tab.title || `씬 #${id}`;
+      const title = titleById.get(id) || tab.title || `${i18n.t('app.씬_id', {id: id})}`;
       const active = id === Number(state.sceneId);
       return `
         <div class="episode-tab${active ? " is-active" : ""}" role="tab" aria-selected="${active ? "true" : "false"}" data-episode-tab="${id}" title="${escapeHtml(title)}">
           <span class="episode-tab-title">${escapeHtml(title)}</span>
-          <button type="button" class="episode-tab-close" data-episode-close="${id}" title="탭 닫기" aria-label="탭 닫기">×</button>
+          <button type="button" class="episode-tab-close" data-episode-close="${id}" title="${i18n.t('app.탭_닫기')}" aria-label="${i18n.t('app.탭_닫기')}">×</button>
         </div>`;
     }).join("");
   }
@@ -42295,7 +43096,7 @@ function fillSceneEditorFields(scene) {
 async function openScene(sceneId) {
   const nextId = Number(sceneId);
   if (!Number.isFinite(nextId) || nextId <= 0) {
-    toast("씬을 열 수 없어요.");
+    toast(i18n.t('app.씬을_열_수_없어요'));
     return;
   }
   if (
@@ -42313,7 +43114,7 @@ async function openScene(sceneId) {
     ensureLocalDraftSaved("scene-switch");
     cancelScheduledAutoSave();
     try {
-      await persistScene({ quiet: true, saveNote: "자동 저장" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
     } catch (_) {
       /* local draft kept for previous scene; continue */
     }
@@ -42342,7 +43143,7 @@ async function openScene(sceneId) {
       openedFromLocalOnly = true;
       detail = {
         id: nextId,
-        title: draft.title || `씬 #${nextId}`,
+        title: draft.title || `${i18n.t('app.씬_nextId', {nextId: nextId})}`,
         status: draft.status || "draft",
         synopsis_md: draft.synopsis_md || "",
         notes_md: draft.notes_md || "",
@@ -42356,7 +43157,7 @@ async function openScene(sceneId) {
         illustrations: [],
       };
       members = [];
-      toast("서버에 연결할 수 없어 이 기기에 보관된 원고를 열었습니다.");
+      toast(i18n.t('app.서버에_연결할_수_없어_이_기기에_보관된_원'));
     } else {
       handleError(error);
       return;
@@ -42383,7 +43184,7 @@ async function openScene(sceneId) {
     await maybeRestoreLocalDraft(detail);
   } else {
     sceneDirty = true;
-    setSceneSaveStatus("오프라인 보관본 — 연결 시 동기화");
+    setSceneSaveStatus(i18n.t('app.오프라인_보관본_연결_시_동기화'));
     scheduleAutoSave();
   }
   syncOpeningHintForScene(nextId);
@@ -42404,7 +43205,7 @@ async function openScene(sceneId) {
   const tabTitle = detail.title
     || detail.chapter_title
     || $("sceneTitle")?.value
-    || `씬 #${nextId}`;
+    || `${i18n.t('app.씬_nextId', {nextId: nextId})}`;
   upsertEpisodeTab(nextId, tabTitle);
   // Prefer chapter title from outline when available.
   const ep = getEpisodeSequence().find((e) => e.sceneId === nextId);
@@ -42461,10 +43262,10 @@ async function openScene(sceneId) {
 }
 
 const CHARACTER_ROLE_LABELS = {
-  protagonist: "주인공",
-  antagonist: "대립",
-  supporting: "조연",
-  minor: "단역",
+  protagonist: i18n.t('app.주인공'),
+  antagonist: i18n.t('app.대립'),
+  supporting: i18n.t('app.조연'),
+  minor: i18n.t('app.단역'),
 };
 
 function getSelectedSceneCharacterIds() {
@@ -42481,8 +43282,8 @@ function updateSceneCharactersBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "이 회차에 등장하는 인물 연결";
-      chip.setAttribute("aria-label", "등장 인물");
+      chip.title = i18n.t('app.이_회차에_등장하는_인물_연결');
+      chip.setAttribute("aria-label", i18n.t('app.등장_인물'));
     }
     return;
   }
@@ -42491,16 +43292,16 @@ function updateSceneCharactersBadge() {
     badge.textContent = "";
     badge.classList.add("hidden");
     if (chip) {
-      chip.title = "이 회차에 등장하는 인물 연결";
-      chip.setAttribute("aria-label", "등장 인물");
+      chip.title = i18n.t('app.이_회차에_등장하는_인물_연결');
+      chip.setAttribute("aria-label", i18n.t('app.등장_인물'));
     }
     return;
   }
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.classList.remove("hidden");
   if (chip) {
-    chip.title = `등장 인물 · ${n}명 연결됨`;
-    chip.setAttribute("aria-label", `등장 인물 ${n}명`);
+    chip.title = `${i18n.t('app.등장_인물_n_명_연결됨', {n: n})}`;
+    chip.setAttribute("aria-label", `${i18n.t('app.등장_인물_n_명', {n: n})}`);
   }
 }
 
@@ -42527,13 +43328,13 @@ function renderSceneCharacters() {
       const id = Number(character.id);
       const linked = memberIds.has(id);
       const role = CHARACTER_ROLE_LABELS[character.role] || character.role || "";
-      const name = escapeHtml(character.name || "이름 없음");
+      const name = escapeHtml(character.name || i18n.t('app.이름_없음'));
       return `
         <label class="scene-cast-item${linked ? " is-linked" : ""}" data-cast-id="${id}">
           <input type="checkbox" value="${id}" ${linked ? "checked" : ""} aria-label="${name} 이 회차에 연결">
           <span class="scene-cast-name" title="${name}">${name}</span>
           ${role ? `<span class="scene-cast-role">${escapeHtml(role)}</span>` : ""}
-          <button type="button" class="secondary scene-cast-open" data-open-character="${id}" title="인물 설정 열기">설정</button>
+          <button type="button" class="secondary scene-cast-open" data-open-character="${id}" title="${i18n.t('app.인물_설정_열기')}">${i18n.t('index.설정')}</button>
         </label>`;
     }).join("");
   }
@@ -42542,7 +43343,7 @@ function renderSceneCharacters() {
     // POV choices: linked cast first, then all characters.
     const linkedChars = characters.filter((c) => memberIds.has(Number(c.id)));
     const pool = linkedChars.length ? linkedChars : characters;
-    povSelect.innerHTML = `<option value="">시점 인물 없음</option>${
+    povSelect.innerHTML = `<option value="">${i18n.t('index.시점_인물_없음')}</option>${
       pool.map((character) => {
         const id = Number(character.id);
         const selected = Number(povId) === id ? "selected" : "";
@@ -42556,7 +43357,7 @@ function renderSceneCharacters() {
         const opt = document.createElement("option");
         opt.value = String(povId);
         opt.selected = true;
-        opt.textContent = orphan.name || `인물 #${povId}`;
+        opt.textContent = orphan.name || `${i18n.t('app.인물_povId', {povId: povId})}`;
         povSelect.appendChild(opt);
       }
     }
@@ -42605,40 +43406,40 @@ function setSceneCastSaveUi({ dirty = sceneCastDirty, saving = false, error = fa
     if (message) {
       hint.textContent = message;
     } else if (saving) {
-      hint.textContent = "등장 인물 연결을 저장하는 중…";
+      hint.textContent = i18n.t('app.등장_인물_연결을_저장하는_중');
     } else if (error) {
-      hint.textContent = "저장에 실패했어요. 다시 저장을 눌러 주세요.";
+      hint.textContent = i18n.t('app.저장에_실패했어요_다시_저장을_눌러_주세요');
     } else if (dirty) {
-      hint.textContent = "변경됨 · 저장을 눌러 이 회차에 반영하세요.";
+      hint.textContent = i18n.t('app.변경됨_저장을_눌러_이_회차에_반영하세요');
     } else if (ok) {
-      hint.textContent = "저장됨";
+      hint.textContent = i18n.t('app.저장됨');
     } else {
       const n = Array.isArray(state.sceneMembers) ? state.sceneMembers.length : 0;
       hint.textContent = n
-        ? `연결 ${n}명 · 인물을 체크한 뒤 저장하세요.`
-        : "인물을 체크한 뒤 저장을 눌러 주세요.";
+        ? `${i18n.t('app.연결_n_명_인물을_체크한_뒤_저장하세요', {n: n})}`
+        : i18n.t('app.인물을_체크한_뒤_저장을_눌러_주세요');
     }
   }
   if (btn) {
     btn.disabled = saving || (!dirty && !error);
-    btn.textContent = saving ? "저장 중…" : "저장";
+    btn.textContent = saving ? i18n.t('app.저장_중') : i18n.t('app.저장');
     btn.title = dirty
-      ? "체크한 등장 인물·시점 연결을 이 회차에 저장합니다"
-      : "저장할 변경이 없어요";
+      ? i18n.t('app.체크한_등장_인물_시점_연결을_이_회차에_저')
+      : i18n.t('app.저장할_변경이_없어요');
   }
 }
 
 function markSceneCastDirty() {
   setSceneCastSaveUi({
     dirty: true,
-    message: "변경됨 · 저장을 눌러 이 회차에 반영하세요.",
+    message: i18n.t('app.변경됨_저장을_눌러_이_회차에_반영하세요'),
   });
 }
 
 async function persistSceneCharacterLinks(options = {}) {
   const quiet = Boolean(options.quiet);
   if (!state.sceneId) {
-    toast("먼저 회차를 열어 주세요.");
+    toast(i18n.t('app.먼저_회차를_열어_주세요'));
     return null;
   }
   if (sceneCastSaveInFlight) {
@@ -42654,7 +43455,7 @@ async function persistSceneCharacterLinks(options = {}) {
   }
   sceneCastSaveInFlight = true;
   sceneCastSaveAgain = false;
-  setSceneCastSaveUi({ dirty: true, saving: true, message: "등장 인물 연결을 저장하는 중…" });
+  setSceneCastSaveUi({ dirty: true, saving: true, message: i18n.t('app.등장_인물_연결을_저장하는_중') });
   try {
     await api(`/api/scenes/${state.sceneId}/characters`, {
       method: "PUT",
@@ -42688,17 +43489,17 @@ async function persistSceneCharacterLinks(options = {}) {
     setSceneCastSaveUi({
       dirty: false,
       ok: true,
-      message: n ? `저장됨 · 이 회차에 ${n}명 연결` : "저장됨 · 연결된 인물 없음",
+      message: n ? `${i18n.t('app.저장됨_이_회차에_n_명_연결', {n: n})}` : i18n.t('app.저장됨_연결된_인물_없음'),
     });
     if (!quiet) {
-      toast(n ? `등장 인물 ${n}명을 이 회차에 저장했어요.` : "이 회차 인물 연결을 저장했어요. (연결된 인물 없음)");
+      toast(n ? `${i18n.t('app.등장_인물_n_명을_이_회차에_저장했어요', {n: n})}` : i18n.t('app.이_회차_인물_연결을_저장했어요_연결된_인물'));
     }
     return state.sceneMembers;
   } catch (error) {
     setSceneCastSaveUi({
       dirty: true,
       error: true,
-      message: "저장에 실패했어요. 다시 저장을 눌러 주세요.",
+      message: i18n.t('app.저장에_실패했어요_다시_저장을_눌러_주세요'),
     });
     throw error;
   } finally {
@@ -42709,7 +43510,7 @@ async function persistSceneCharacterLinks(options = {}) {
 /** Explicit save from the cast panel button. */
 async function saveSceneCharacterLinksFromButton() {
   if (!state.sceneId) {
-    toast("먼저 회차를 열어 주세요.");
+    toast(i18n.t('app.먼저_회차를_열어_주세요'));
     return;
   }
   // Allow save even if not marked dirty (user wants to force-save current checks).
@@ -42718,24 +43519,24 @@ async function saveSceneCharacterLinksFromButton() {
 }
 
 async function createCharacterAndLinkToScene() {
-  if (!state.projectId) return toast("먼저 작품을 선택해 주세요.");
-  if (!state.sceneId) return toast("먼저 회차를 열어 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!state.sceneId) return toast(i18n.t('app.먼저_회차를_열어_주세요'));
   const name = await promptText({
-    title: "이 회차에 인물 연결",
-    message: "새 인물 이름을 적으면 만들고, 이 회차에 연결한 뒤 인물 작성 페이지로 이동합니다.",
-    label: "이름",
-    defaultValue: "새 캐릭터",
-    confirmLabel: "만들고 작성하기",
+    title: i18n.t('app.이_회차에_인물_연결'),
+    message: i18n.t('app.새_인물_이름을_적으면_만들고_이_회차에_연'),
+    label: i18n.t('app.이름'),
+    defaultValue: i18n.t('app.새_캐릭터'),
+    confirmLabel: i18n.t('app.만들고_작성하기'),
   });
   if (name === null) return;
-  const displayName = name.trim() || "새 캐릭터";
+  const displayName = name.trim() || i18n.t('app.새_캐릭터');
   const character = await api(`/api/projects/${state.projectId}/characters`, {
     method: "POST",
     body: JSON.stringify({ name: displayName }),
   });
   const newId = Number(character?.id);
   if (!newId) {
-    toast("인물을 만들지 못했어요. 다시 시도해 주세요.");
+    toast(i18n.t('app.인물을_만들지_못했어요_다시_시도해_주세요'));
     return;
   }
   // Reload cast lists, then check the new character and save scene links.
@@ -42754,7 +43555,7 @@ async function createCharacterAndLinkToScene() {
   await persistSceneCharacterLinks({ quiet: true });
   // Move to character editor so the author can fill profile (same as 설정집 + 캐릭터).
   await openCharacter(newId);
-  toast(`「${displayName}」을(를) 만들고 이 회차에 연결했어요. 인물 설정을 적어 보세요.`);
+  toast(`${i18n.t('app.displayName_을_를_만들고_이_회', {displayName: displayName})}`);
 }
 
 let sceneDirty = false;
@@ -42789,7 +43590,7 @@ function captureSceneDraftSnapshot(extra = {}) {
     v: 1,
     sceneId: Number(state.sceneId),
     projectId: state.projectId != null ? Number(state.projectId) : null,
-    title: $("sceneTitle")?.value || state.scene?.title || "제목 없음",
+    title: $("sceneTitle")?.value || state.scene?.title || i18n.t('app.제목_없음'),
     status: $("sceneStatus")?.value || state.scene?.status || "draft",
     synopsis_md: $("sceneSynopsis")?.value || "",
     notes_md: $("sceneNotes")?.value || "",
@@ -43039,7 +43840,7 @@ function scheduleAutoSaveRetry() {
       ensureLocalDraftSaved("hidden-retry-skip");
       return;
     }
-    persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
+    persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') }).catch(() => {
       /* persistScene schedules its own retry */
     });
   }, delay);
@@ -43055,8 +43856,8 @@ function notifyLocalDraftKept(error) {
   const offline = isOfflineSafeError(error) || !isOnlineNow();
   toast(
     offline
-      ? "연결이 불안정해 이 기기에 원고를 보관했어요. 연결되면 자동으로 동기화합니다."
-      : "서버 저장에 실패해 이 기기에 원고를 보관했어요. 잠시 후 다시 시도합니다.",
+      ? i18n.t('app.연결이_불안정해_이_기기에_원고를_보관했어요')
+      : i18n.t('app.서버_저장에_실패해_이_기기에_원고를_보관했'),
   );
 }
 
@@ -43115,8 +43916,8 @@ async function maybeRestoreLocalDraft(serverScene) {
   sceneDirty = true;
   updateAuthorNotesBadge();
   updateReferenceMaterialsBadge();
-  setSceneSaveStatus("이 기기 보관본 복구됨 — 동기화 대기");
-  toast("연결 전 편집 내용을 이 기기에서 복구했습니다. 서버에 동기화합니다.");
+  setSceneSaveStatus(i18n.t('app.이_기기_보관본_복구됨_동기화_대기'));
+  toast(i18n.t('app.연결_전_편집_내용을_이_기기에서_복구했습니'));
   scheduleAutoSave();
   return true;
 }
@@ -43134,7 +43935,7 @@ async function flushLocalDraftsToServer() {
   // Current open scene first
   if (sceneDirty && state.sceneId) {
     try {
-      await persistScene({ quiet: true, saveNote: "오프라인 동기화" });
+      await persistScene({ quiet: true, saveNote: i18n.t('app.오프라인_동기화') });
     } catch (_) {
       /* keep local */
     }
@@ -43153,11 +43954,11 @@ function setSceneSaveStatus(text) {
   // Keep a short cue only in focus-write mode.
   if ($("focusWriteSaveInfo") && typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
     const t = String(text || "");
-    if (t.includes("실패") || t.includes("오프라인") || t.includes("보관")) {
-      $("focusWriteSaveInfo").textContent = t.includes("보관") ? "기기에 보관됨" : "저장 실패";
-    } else if (t.includes("대기") || t.includes("복구")) $("focusWriteSaveInfo").textContent = "저장 대기…";
-    else if (t.includes("중")) $("focusWriteSaveInfo").textContent = "저장 중…";
-    else if (t.includes("저장")) $("focusWriteSaveInfo").textContent = "저장됨";
+    if (t.includes(i18n.t('app.실패')) || t.includes(i18n.t('app.오프라인')) || t.includes(i18n.t('app.보관'))) {
+      $("focusWriteSaveInfo").textContent = t.includes(i18n.t('app.보관')) ? i18n.t('app.기기에_보관됨') : i18n.t('app.저장_실패');
+    } else if (t.includes(i18n.t('app.대기')) || t.includes(i18n.t('app.복구'))) $("focusWriteSaveInfo").textContent = i18n.t('app.저장_대기');
+    else if (t.includes(i18n.t('app.중'))) $("focusWriteSaveInfo").textContent = i18n.t('app.저장_중');
+    else if (t.includes(i18n.t('app.저장'))) $("focusWriteSaveInfo").textContent = i18n.t('app.저장됨');
     else $("focusWriteSaveInfo").textContent = "";
   }
 }
@@ -43167,7 +43968,7 @@ function markSceneDirty() {
   sceneDirty = true;
   // Local-first: device storage before any network hop.
   scheduleLocalDraftWrite();
-  setSceneSaveStatus(isOnlineNow() ? "저장 대기 중…" : "오프라인 — 이 기기에 보관 중…");
+  setSceneSaveStatus(isOnlineNow() ? i18n.t('app.저장_대기_중') : i18n.t('app.오프라인_이_기기에_보관_중'));
   scheduleAutoSave();
 }
 
@@ -43179,7 +43980,7 @@ function scheduleAutoSave() {
     : AUTO_SAVE_DELAY_MS;
   autoSaveTimer = window.setTimeout(() => {
     autoSaveTimer = null;
-    persistScene({ quiet: true, saveNote: "자동 저장" }).catch((error) => {
+    persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') }).catch((error) => {
       // Local draft already written; avoid noisy toasts on every quiet retry.
       if (!isOfflineSafeError(error) && !error?.localOnly) handleError(error);
       else notifyLocalDraftKept(error);
@@ -43198,7 +43999,7 @@ function buildSceneSaveBody(saveNote) {
   // Keep 설정집 참고자료 in sync whenever the scene is saved
   try { syncAllReferencesToProjectSources(); } catch (_) { /* ignore */ }
   return {
-    title: $("sceneTitle")?.value || state.scene?.title || "제목 없음",
+    title: $("sceneTitle")?.value || state.scene?.title || i18n.t('app.제목_없음'),
     status: $("sceneStatus")?.value || "draft",
     synopsis_md: $("sceneSynopsis")?.value || "",
     notes_md: $("sceneNotes")?.value || "",
@@ -43207,7 +44008,7 @@ function buildSceneSaveBody(saveNote) {
     goal_word_count: Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0),
     goal_metric: $("sceneGoalMetric")?.value || "chars_with_space",
     row_version: state.scene.row_version,
-    save_note: saveNote || "저장",
+    save_note: saveNote || i18n.t('app.저장'),
   };
 }
 
@@ -43278,14 +44079,14 @@ function markReaderCommentToastSeen() {
 
 function showSceneCompleteReaderCommentsToast() {
   const firstTime = !hasSeenReaderCommentToast();
-  toast("완성 처리됐어요! 가상독자 댓글도 받아볼 수 있어요", firstTime ? 0 : 2600, {
+  toast(i18n.t('app.완성_처리됐어요_가상독자_댓글도_받아볼_수'), firstTime ? 0 : 2600, {
     sticky: firstTime,
     dismissible: true,
     detail: firstTime
-      ? "나중엔 회차 뷰어 안 '가상독자 댓글 받기' 버튼에서 언제든 다시 볼 수 있어요"
+      ? i18n.t('app.나중엔_회차_뷰어_안_가상독자_댓글_받기_버')
       : undefined,
     action: {
-      label: "지금 받아보기",
+      label: i18n.t('app.지금_받아보기'),
       onClick: () => {
         markReaderCommentToastSeen();
         startVirtualReaderCommentsFlow();
@@ -43315,8 +44116,8 @@ function syncViewerReaderCommentsButton(options = {}) {
     const enabled = Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
     btn.disabled = !enabled;
     btn.title = enabled
-      ? "이 회차에 가상독자 댓글을 받아 봐요"
-      : "회차를 완성으로 바꾸면 가상독자 댓글을 받을 수 있어요";
+      ? i18n.t('app.이_회차에_가상독자_댓글을_받아_봐요')
+      : i18n.t('app.회차를_완성으로_바꾸면_가상독자_댓글을_받을');
   }
   syncViewerEntryCommentsBadge();
   if (options.pulse) pulseViewerReaderCommentsButtonIfNeeded();
@@ -43356,7 +44157,7 @@ function markReaderCommentsStarted() {
 
 async function persistScene(options = {}) {
   const quiet = Boolean(options.quiet);
-  const saveNote = options.saveNote || (quiet ? "자동 저장" : "저장");
+  const saveNote = options.saveNote || (quiet ? i18n.t('app.자동_저장') : i18n.t('app.저장'));
   if (!state.scene || !state.sceneId) return null;
   if (autoSaveInFlight) {
     if (quiet) scheduleAutoSave();
@@ -43366,7 +44167,7 @@ async function persistScene(options = {}) {
   }
   // Ensure title is never empty (server requires it).
   if (!$("sceneTitle")?.value?.trim()) {
-    if ($("sceneTitle")) $("sceneTitle").value = state.scene.title || "제목 없음";
+    if ($("sceneTitle")) $("sceneTitle").value = state.scene.title || i18n.t('app.제목_없음');
   }
 
   // 1) LOCAL FIRST — always, before network.
@@ -43396,13 +44197,13 @@ async function persistScene(options = {}) {
   autoSaveInFlight = true;
   if (quiet) {
     setSceneSaveStatus(
-      isOnlineNow() ? "자동 저장 중…" : "오프라인 보관 중…",
+      isOnlineNow() ? i18n.t('app.자동_저장_중') : i18n.t('app.오프라인_보관_중'),
     );
   }
   try {
     if (!isOnlineNow()) {
       const offlineErr = new Error(
-        "오프라인 상태입니다. 원고는 이 기기에 보관되었고, 연결되면 자동 동기화됩니다.",
+        i18n.t('app.오프라인_상태입니다_원고는_이_기기에_보관되'),
       );
       offlineErr.isNetwork = true;
       offlineErr.offlineSafe = true;
@@ -43440,13 +44241,13 @@ async function persistScene(options = {}) {
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setSceneSaveStatus(
       quiet
-        ? `자동 저장됨 ${stamp} · 저장본 ${revision} · ${words}어절`
-        : `저장됨 ${stamp} · 저장본 ${revision} · ${words}어절`,
+        ? `${i18n.t('app.자동_저장됨_stamp_저장본_revisio', {stamp: stamp, revision: revision, words: words})}`
+        : `${i18n.t('app.저장됨_stamp_저장본_revision_w', {stamp: stamp, revision: revision, words: words})}`,
     );
     if ($("focusWriteSaveInfo") && isFocusWriteOpen()) {
       $("focusWriteSaveInfo").textContent = quiet
-        ? `자동 저장됨 ${stamp}`
-        : `저장됨 ${stamp}`;
+        ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}`
+        : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`;
     }
     // Keep open tab title in sync with renames.
     if (state.sceneId) {
@@ -43467,7 +44268,7 @@ async function persistScene(options = {}) {
     }
     lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
     if (becameComplete) showSceneCompleteReaderCommentsToast();
-    else if (!quiet) toast("저장했습니다.");
+    else if (!quiet) toast(i18n.t('app.저장했습니다'));
     syncViewerReaderCommentsButton({ pulse: becameComplete });
     return saved;
   } catch (error) {
@@ -43475,20 +44276,20 @@ async function persistScene(options = {}) {
     ensureLocalDraftSaved(isOfflineSafeError(error) ? "offline" : "server-error");
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     if (isOfflineSafeError(error) || !isOnlineNow()) {
-      setSceneSaveStatus(`이 기기에 보관됨 ${stamp} — 연결 시 동기화`);
+      setSceneSaveStatus(`${i18n.t('app.이_기기에_보관됨_stamp_연결_시_동기화', {stamp: stamp})}`);
       notifyLocalDraftKept(error);
       scheduleAutoSaveRetry();
       // Do not rethrow for quiet autosave — work is safe locally.
       if (quiet) return { localOnly: true, error };
       const friendly = new Error(
-        error.message || "서버에 저장하지 못했지만, 원고는 이 기기에 보관되어 있습니다.",
+        error.message || i18n.t('app.서버에_저장하지_못했지만_원고는_이_기기에'),
       );
       friendly.offlineSafe = true;
       friendly.localOnly = true;
       throw friendly;
     }
     if (quiet) {
-      setSceneSaveStatus("자동 저장 실패 — 기기에 보관 · 재시도 예정");
+      setSceneSaveStatus(i18n.t('app.자동_저장_실패_기기에_보관_재시도_예정'));
       notifyLocalDraftKept(error);
       scheduleAutoSaveRetry();
       return { localOnly: true, error };
@@ -43504,10 +44305,10 @@ async function saveScene(event) {
   cancelScheduledAutoSave();
   ensureLocalDraftSaved("manual");
   try {
-    await persistScene({ quiet: false, saveNote: "수동 저장" });
+    await persistScene({ quiet: false, saveNote: i18n.t('app.수동_저장') });
   } catch (error) {
     if (error?.localOnly || isOfflineSafeError(error)) {
-      toast("서버 저장은 보류되었지만, 원고는 이 기기에 보관되어 있습니다.");
+      toast(i18n.t('app.서버_저장은_보류되었지만_원고는_이_기기에'));
       return;
     }
     throw error;
@@ -43540,7 +44341,7 @@ function setupSceneAutoSave() {
   });
   // Title renames also reflect on the binder list (live, while typing ends on change/blur).
   $("sceneTitle")?.addEventListener("change", () => {
-    const title = $("sceneTitle")?.value?.trim() || "제목 없음";
+    const title = $("sceneTitle")?.value?.trim() || i18n.t('app.제목_없음');
     syncOpenSceneToOutlineBinder({ title });
   });
   // Character checkboxes: mark dirty → user presses 저장 (also saved with scene autosave).
@@ -43619,7 +44420,7 @@ function setupSceneAutoSave() {
       // Try keepalive PUT for current scene (may be ignored by browser).
       try {
         if (state.sceneId && state.scene && isOnlineNow()) {
-          const payload = JSON.stringify(buildSceneSaveBody("종료 전 저장"));
+          const payload = JSON.stringify(buildSceneSaveBody(i18n.t('app.종료_전_저장')));
           // keepalive fetch PUT
           fetch(`/api/scenes/${state.sceneId}`, {
             method: "PUT",
@@ -43638,7 +44439,7 @@ function setupSceneAutoSave() {
       if (sceneDirty) {
         ensureLocalDraftSaved("visibility");
         cancelScheduledAutoSave();
-        persistScene({ quiet: true, saveNote: "자동 저장" }).catch(() => {
+        persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') }).catch(() => {
           /* local draft already kept */
         });
       }
@@ -43653,13 +44454,13 @@ function setupSceneAutoSave() {
   });
 
   window.addEventListener("online", () => {
-    toast("연결되었습니다. 보관된 원고를 서버에 동기화합니다.");
+    toast(i18n.t('app.연결되었습니다_보관된_원고를_서버에_동기화합'));
     scheduleOnlineSync();
   });
   window.addEventListener("offline", () => {
     if (sceneDirty) ensureLocalDraftSaved("offline-event");
-    setSceneSaveStatus("오프라인 — 이 기기에 보관 중…");
-    toast("오프라인입니다. 작성 내용은 이 기기에 계속 저장됩니다.");
+    setSceneSaveStatus(i18n.t('app.오프라인_이_기기에_보관_중'));
+    toast(i18n.t('app.오프라인입니다_작성_내용은_이_기기에_계속'));
   });
 
   // pagehide is more reliable than beforeunload on mobile.
@@ -43670,20 +44471,20 @@ function setupSceneAutoSave() {
 }
 
 async function createCharacter() {
-  if (!state.projectId) return toast("먼저 새 작품을 만들어 주세요.");
+  if (!state.projectId) return toast(i18n.t('app.먼저_새_작품을_만들어_주세요'));
   const name = await promptText({
-    title: "캐릭터 만들기",
-    message: "캐릭터 이름을 적어 주세요.",
-    label: "이름",
-    defaultValue: "새 캐릭터",
-    confirmLabel: "만들기",
+    title: i18n.t('app.캐릭터_만들기'),
+    message: i18n.t('app.캐릭터_이름을_적어_주세요'),
+    label: i18n.t('app.이름'),
+    defaultValue: i18n.t('app.새_캐릭터'),
+    confirmLabel: i18n.t('app.만들기'),
   });
   if (name === null) return;
-  const character = await api(`/api/projects/${state.projectId}/characters`, { method: "POST", body: JSON.stringify({ name: name.trim() || "새 캐릭터" }) });
+  const character = await api(`/api/projects/${state.projectId}/characters`, { method: "POST", body: JSON.stringify({ name: name.trim() || i18n.t('app.새_캐릭터') }) });
   state.openSettingsSection = "characters";
   await loadProject();
   await openCharacter(character.id);
-  toast("인물 설정을 적어 보세요.");
+  toast(i18n.t('app.인물_설정을_적어_보세요'));
 }
 
 function renderCharacterPortrait(character) {
@@ -43705,10 +44506,10 @@ function renderCharacterPortrait(character) {
 }
 
 const CHARACTER_TORI_FIELDS = [
-  { key: "short_description", label: "한 줄 소개" },
-  { key: "profile_md", label: "인물 설정" },
-  { key: "strengths_md", label: "무기 · 강점" },
-  { key: "weaknesses_md", label: "약점" },
+  { key: "short_description", label: i18n.t('app.한_줄_소개') },
+  { key: "profile_md", label: i18n.t('app.인물_설정') },
+  { key: "strengths_md", label: i18n.t('app.무기_강점') },
+  { key: "weaknesses_md", label: i18n.t('app.약점') },
 ];
 
 let characterAnalysisField = "";
@@ -43760,14 +44561,14 @@ function closeCharacterAnalysisModal() {
 
 function fillAnalysisModal(label, content) {
   if ($("characterAnalysisTitle")) {
-    $("characterAnalysisTitle").textContent = "토리 새 분석";
+    $("characterAnalysisTitle").textContent = i18n.t('app.토리_새_분석');
   }
   if ($("characterAnalysisFieldLabel")) {
     $("characterAnalysisFieldLabel").textContent = label || "";
   }
   if ($("characterAnalysisHint")) {
     $("characterAnalysisHint").textContent =
-      "지금 칸에 적어 둔 내용은 그대로 둡니다. 토리 분석만 보여 드려요. 바꿀 때만 아래 버튼을 누르세요.";
+      i18n.t('app.지금_칸에_적어_둔_내용은_그대로_둡니다_토');
   }
   if ($("characterAnalysisBody")) {
     $("characterAnalysisBody").textContent = String(content || "");
@@ -43779,7 +44580,7 @@ function openCharacterAnalysisModal(fieldName) {
   const character = state.character?.character;
   const pending = characterToriPending(character)[fieldName];
   if (!pending?.content) {
-    toast("보여줄 토리 분석이 없어요.");
+    toast(i18n.t('app.보여줄_토리_분석이_없어요'));
     return;
   }
   const meta = CHARACTER_TORI_FIELDS.find((item) => item.key === fieldName);
@@ -43791,17 +44592,17 @@ function openCharacterAnalysisModal(fieldName) {
 function openWorldAnalysisModal(fieldName) {
   const pending = worldToriPending()[fieldName];
   if (!pending?.content) {
-    toast("보여줄 토리 분석이 없어요.");
+    toast(i18n.t('app.보여줄_토리_분석이_없어요'));
     return;
   }
   characterAnalysisKind = "world";
   characterAnalysisField = fieldName;
-  fillAnalysisModal(pending.label || worldFieldLabel(fieldName), pending.content);
+  fillAnalysisModal(worldFieldLabel(fieldName), pending.content);
 }
 
 async function applyCharacterToriAnalysis() {
   if (!state.characterId || !characterAnalysisField) return;
-  const label = CHARACTER_TORI_FIELDS.find((item) => item.key === characterAnalysisField)?.label || "이 칸";
+  const label = CHARACTER_TORI_FIELDS.find((item) => item.key === characterAnalysisField)?.label || i18n.t('app.이_칸');
   const ok = window.confirm(
     `「${label}」을(를) 토리 분석으로 바꿀까요?\n지금 적어 둔 내용은 사라집니다.`,
   );
@@ -43824,7 +44625,7 @@ async function applyCharacterToriAnalysis() {
     syncCharacterToriBadges(character);
   }
   await loadProject();
-  toast("토리 분석으로 바꿨어요.");
+  toast(i18n.t('app.토리_분석으로_바꿨어요'));
 }
 
 async function applyWorldToriAnalysis() {
@@ -43846,7 +44647,7 @@ async function applyWorldToriAnalysis() {
   worldbuildingExampleDraft = false;
   syncWorldBuildingFormFromState({ force: true });
   syncWorldToriBadges();
-  toast("토리 분석으로 바꿨어요.");
+  toast(i18n.t('app.토리_분석으로_바꿨어요'));
 }
 
 function setupCharacterAnalysisModal() {
@@ -43891,13 +44692,13 @@ function toastCharacterAnalysisResult(job) {
   const worldFilled = Number(job?.world_filled || 0);
   const worldPending = Number(job?.world_pending || 0);
   const parts = [];
-  if (created > 0) parts.push(`새 인물 ${created}명을 목록에 넣었어요`);
-  if (filled > 0) parts.push("비어 있던 인물 설정 칸을 채웠어요");
-  if (worldFilled > 0) parts.push("비어 있던 세계관 칸을 채웠어요");
-  if (pending > 0) parts.push("이미 적어 둔 인물 칸은 그대로 두고 ‘새 분석 있음’만 표시했어요");
-  if (worldPending > 0) parts.push("이미 적어 둔 세계관 칸은 그대로 두고 ‘새 분석 있음’만 표시했어요");
+  if (created > 0) parts.push(`${i18n.t('app.새_인물_created_명을_목록에_넣었어요', {created: created})}`);
+  if (filled > 0) parts.push(i18n.t('app.비어_있던_인물_설정_칸을_채웠어요'));
+  if (worldFilled > 0) parts.push(i18n.t('app.비어_있던_세계관_칸을_채웠어요'));
+  if (pending > 0) parts.push(i18n.t('app.이미_적어_둔_인물_칸은_그대로_두고_새_분'));
+  if (worldPending > 0) parts.push(i18n.t('app.이미_적어_둔_세계관_칸은_그대로_두고_새'));
   if (!parts.length) return;
-  toast(`토리 · ${parts.join(". ")}.`);
+  toast(`${i18n.t('app.토리_parts_join', {'parts.join(". ")': parts.join(". ")})}`);
 }
 
 function watchCharacterAnalysis(projectId) {
@@ -43966,7 +44767,7 @@ async function openCharacter(characterId) {
   if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";
   if ($("characterWeaknesses")) $("characterWeaknesses").value = character.weaknesses_md || "";
   $("characterNotes").value = character.author_notes_md;
-  $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || "<span class='hint'>아직 별칭이 없어요.</span>";
+  $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || i18n.t('app.span_class_hint_아직_별칭이');
   $("characterInfo").textContent = "";
   renderCharacterPortrait(character);
   syncCharacterToriBadges(character);
@@ -43991,12 +44792,12 @@ async function saveCharacter(event) {
     }),
   });
   await openCharacter(state.characterId);
-  toast("인물 설정을 저장했습니다.");
+  toast(i18n.t('app.인물_설정을_저장했습니다'));
 }
 
 async function deleteCharacter() {
   if (!state.characterId || !state.character?.character) return;
-  const name = String(state.character.character.name || "이 인물").trim() || "이 인물";
+  const name = String(state.character.character.name || i18n.t('app.이_인물')).trim() || i18n.t('app.이_인물');
   const ok = window.confirm(
     `「${name}」 인물 설정을 삭제할까요?\n\n목록에서 사라지고, 회차에 연결된 등장 정보도 빠집니다.`,
   );
@@ -44011,15 +44812,15 @@ async function deleteCharacter() {
   state.openSettingsSection = "characters";
   applySettingsSectionState();
   await openCharacterBoard();
-  toast(`「${name}」을(를) 삭제했어요.`);
+  toast(`${i18n.t('app.name_을_를_삭제했어요', {name: name})}`);
   return deletedId;
 }
 
 async function uploadCharacterPortrait(file) {
-  if (!state.characterId) return toast("인물을 먼저 열어 주세요.");
+  if (!state.characterId) return toast(i18n.t('app.인물을_먼저_열어_주세요'));
   if (!file) return;
-  if (!file.type.startsWith("image/")) return toast("이미지 파일만 올릴 수 있어요.");
-  toast("이미지를 올리는 중…");
+  if (!file.type.startsWith("image/")) return toast(i18n.t('app.이미지_파일만_올릴_수_있어요'));
+  toast(i18n.t('app.이미지를_올리는_중'));
   const contentBase64 = await fileToBase64(file);
   const result = await api(`/api/characters/${state.characterId}/portrait`, {
     method: "POST",
@@ -44036,19 +44837,19 @@ async function uploadCharacterPortrait(file) {
       || state.character.character.row_version;
   }
   renderCharacterPortrait(state.character?.character);
-  toast("캐릭터 이미지를 넣었어요.");
+  toast(i18n.t('app.캐릭터_이미지를_넣었어요'));
 }
 
 async function clearCharacterPortrait() {
   if (!state.characterId) return;
-  if (!window.confirm("캐릭터 이미지를 제거할까요?")) return;
+  if (!window.confirm(i18n.t('app.캐릭터_이미지를_제거할까요'))) return;
   await api(`/api/characters/${state.characterId}/portrait`, { method: "DELETE" });
   if (state.character?.character) {
     state.character.character.portrait_url = "";
     state.character.character.portrait_file = "";
   }
   renderCharacterPortrait(state.character?.character);
-  toast("캐릭터 이미지를 제거했어요.");
+  toast(i18n.t('app.캐릭터_이미지를_제거했어요'));
 }
 
 function setupCharacterPortraitUi() {
@@ -44075,7 +44876,7 @@ async function addAlias() {
   await api(`/api/characters/${state.characterId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
   $("newAlias").value = "";
   await openCharacter(state.characterId);
-  toast("별칭을 추가했습니다.");
+  toast(i18n.t('app.별칭을_추가했습니다'));
 }
 
 function allScenes() {
@@ -44107,8 +44908,8 @@ function setSplitEditEnabled(enabled, options = {}) {
   applySplitEditMode();
   if (changed && !options.silent) {
     toast(next
-      ? "분할 자유 편집을 켰어요. 끄기 전까지 유지됩니다."
-      : "분할 자유 편집을 껐어요. 읽기 전용입니다.");
+      ? i18n.t('app.분할_자유_편집을_켰어요_끄기_전까지_유지됩')
+      : i18n.t('app.분할_자유_편집을_껐어요_읽기_전용입니다'));
   }
 }
 
@@ -44134,12 +44935,12 @@ function applySplitEditMode() {
     btn.classList.toggle("hidden", sourceMode);
     btn.disabled = sourceMode;
     // Short labels fit between "함께볼 회차" and the split-mode control.
-    btn.textContent = on ? "편집 중" : "자유 편집";
+    btn.textContent = on ? i18n.t('app.편집_중') : i18n.t('app.자유_편집');
     btn.title = sourceMode
-      ? "참고자료는 패널 안 「편집」 버튼으로 수정하세요"
+      ? i18n.t('app.참고자료는_패널_안_편집_버튼으로_수정하세요')
       : on
-        ? "자유 편집 켜짐 — 누르면 읽기 전용으로 돌아갑니다"
-        : "함께보는 회차를 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다.";
+        ? i18n.t('app.자유_편집_켜짐_누르면_읽기_전용으로_돌아갑')
+        : i18n.t('app.함께보는_회차를_자유롭게_편집합니다_한_번');
   }
   if (sourceMode) applySplitSourceEditUi();
 }
@@ -44156,7 +44957,7 @@ function setSplitSaveStatus(text) {
 function markSplitDirty() {
   if (suppressSplitDirty || !state.splitEditEnabled || !state.splitSceneId) return;
   splitDirty = true;
-  setSplitSaveStatus(isOnlineNow() ? "저장 대기 중…" : "오프라인 — 이 기기에 보관 중…");
+  setSplitSaveStatus(isOnlineNow() ? i18n.t('app.저장_대기_중') : i18n.t('app.오프라인_이_기기에_보관_중'));
   // Immediate local snapshot for split editor.
   try {
     const bodyEl = $("splitSceneBodyEditor");
@@ -44212,7 +45013,7 @@ async function persistSplitScene(options = {}) {
   if (!titleEl || !bodyEl) return null;
   let title = (titleEl.value || "").trim();
   if (!title) {
-    title = state.splitScene.title || "제목 없음";
+    title = state.splitScene.title || i18n.t('app.제목_없음');
     titleEl.value = title;
   }
   const scene = state.splitScene;
@@ -44226,7 +45027,7 @@ async function persistSplitScene(options = {}) {
     goal_word_count: Math.max(0, Number(scene.goal_word_count || 0) || 0),
     goal_metric: scene.goal_metric || "chars_with_space",
     row_version: scene.row_version,
-    save_note: quiet ? "자동 저장" : "저장",
+    save_note: quiet ? i18n.t('app.자동_저장') : i18n.t('app.저장'),
   };
   // Local-first for split pane too.
   writeLocalSceneDraftSync({
@@ -44248,10 +45049,10 @@ async function persistSplitScene(options = {}) {
   });
 
   splitAutoSaveInFlight = true;
-  if (quiet) setSplitSaveStatus(isOnlineNow() ? "자동 저장 중…" : "오프라인 보관 중…");
+  if (quiet) setSplitSaveStatus(isOnlineNow() ? i18n.t('app.자동_저장_중') : i18n.t('app.오프라인_보관_중'));
   try {
     if (!isOnlineNow()) {
-      const offlineErr = new Error("오프라인 — 분할 창 원고를 기기에 보관했습니다.");
+      const offlineErr = new Error(i18n.t('app.오프라인_분할_창_원고를_기기에_보관했습니다'));
       offlineErr.isNetwork = true;
       offlineErr.offlineSafe = true;
       throw offlineErr;
@@ -44270,17 +45071,17 @@ async function persistSplitScene(options = {}) {
     splitDirty = false;
     clearLocalSceneDraft(state.splitSceneId);
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setSplitSaveStatus(quiet ? `자동 저장됨 ${stamp}` : `저장됨 ${stamp}`);
+    setSplitSaveStatus(quiet ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}` : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`);
     // Refresh outline titles if this scene is listed.
     loadProject().catch(() => { /* ignore */ });
-    if (!quiet) toast("함께보는 회차를 저장했습니다.");
+    if (!quiet) toast(i18n.t('app.함께보는_회차를_저장했습니다'));
     return saved;
   } catch (error) {
     if (quiet) {
       setSplitSaveStatus(
         isOfflineSafeError(error)
-          ? "이 기기에 보관됨 — 연결 시 동기화"
-          : "자동 저장 실패 — 기기에 보관 · 재시도",
+          ? i18n.t('app.이_기기에_보관됨_연결_시_동기화')
+          : i18n.t('app.자동_저장_실패_기기에_보관_재시도'),
       );
       markSplitDirty();
       if (isOfflineSafeError(error)) return { localOnly: true, error };
@@ -44370,8 +45171,8 @@ function updateSplitChrome() {
   const syncMainLike = (btn, { iconOnly = false } = {}) => {
     if (!btn) return;
     if (!state.splitEnabled) {
-      if (!iconOnly) btn.textContent = "분할 ▾";
-      btn.title = "분할: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)";
+      if (!iconOnly) btn.textContent = i18n.t('app.분할');
+      btn.title = i18n.t('app.분할_다른_회차를_화면_나누기_또는_팝업으로');
       btn.classList.remove("is-active");
       btn.disabled = !state.sceneId;
       return;
@@ -44379,18 +45180,18 @@ function updateSplitChrome() {
     btn.disabled = false;
     btn.classList.add("is-active");
     if (state.splitMode === "popup") {
-      if (!iconOnly) btn.textContent = "팝업 중 ▾";
-      btn.title = "팝업으로 보는 중 — Ctrl+Alt+S 화면 나누기 · Esc 닫기";
+      if (!iconOnly) btn.textContent = i18n.t('app.팝업_중');
+      btn.title = i18n.t('app.팝업으로_보는_중_Ctrl_Alt_S_화면');
     } else {
-      if (!iconOnly) btn.textContent = "화면 나누기 중 ▾";
-      btn.title = "화면 나누기 중 — Ctrl+Alt+P 팝업 · Esc 닫기";
+      if (!iconOnly) btn.textContent = i18n.t('app.화면_나누기_중');
+      btn.title = i18n.t('app.화면_나누기_중_Ctrl_Alt_P_팝업_E');
     }
   };
   if (!state.splitEnabled) {
     syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
     syncMainLike(focusBtn);
     if (switchBtn) {
-      switchBtn.textContent = "보기 방식 ▾";
+      switchBtn.textContent = i18n.t('app.보기_방식');
       switchBtn.disabled = false;
     }
     $("viewModeCloseItem")?.classList.add("hidden");
@@ -44403,11 +45204,11 @@ function updateSplitChrome() {
     switchBtn.disabled = false;
     // Keep short so SuperTORY clip / narrow split pane does not hide the control.
     if (state.splitMode === "popup") {
-      switchBtn.textContent = "팝업 ▾";
-      switchBtn.title = "보기 방식 · 팝업 중 (Ctrl+Alt+S 나누기 / Esc 닫기)";
+      switchBtn.textContent = i18n.t('app.팝업');
+      switchBtn.title = i18n.t('app.보기_방식_팝업_중_Ctrl_Alt_S_나누');
     } else {
-      switchBtn.textContent = "나누기 ▾";
-      switchBtn.title = "보기 방식 · 화면 나누기 중 (Ctrl+Alt+P 팝업 / Esc 닫기)";
+      switchBtn.textContent = i18n.t('app.나누기');
+      switchBtn.title = i18n.t('app.보기_방식_화면_나누기_중_Ctrl_Alt');
     }
   }
   $("viewModeCloseItem")?.classList.remove("hidden");
@@ -44896,12 +45697,12 @@ async function closeSplitView() {
 }
 
 async function openSecondaryView(mode) {
-  if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
+  if (!state.sceneId) return toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
   const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
   const sources = typeof loadSources === "function" ? loadSources() : [];
   const usableSources = sources.filter((src) => (src.kind === "file" || src.fileName) || String(src.url || "").trim());
   if (!alternative && !usableSources.length) {
-    toast("함께볼 다른 회차나 참고자료가 없어요.");
+    toast(i18n.t('app.함께볼_다른_회차나_참고자료가_없어요'));
     return;
   }
   if (!alternative && usableSources.length) {
@@ -44923,13 +45724,13 @@ async function openSecondaryView(mode) {
   closeViewModeMenu();
   await renderSplitViewer();
   if (previousMode && previousMode !== state.splitMode) {
-    toast(state.splitMode === "popup" ? "팝업으로 바꿨어요." : "화면 나누기로 바꿨어요.");
+    toast(state.splitMode === "popup" ? i18n.t('app.팝업으로_바꿨어요') : i18n.t('app.화면_나누기로_바꿨어요'));
   } else if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
     toast(state.splitMode === "popup"
-      ? "큰 창 위에 분할을 팝업으로 열었어요."
-      : "큰 창 옆에 분할을 나란히 열었어요.");
+      ? i18n.t('app.큰_창_위에_분할을_팝업으로_열었어요')
+      : i18n.t('app.큰_창_옆에_분할을_나란히_열었어요'));
   } else {
-    toast(state.splitMode === "popup" ? "분할을 팝업으로 열었어요." : "화면을 나눠 분할을 열었어요.");
+    toast(state.splitMode === "popup" ? i18n.t('app.분할을_팝업으로_열었어요') : i18n.t('app.화면을_나눠_분할을_열었어요'));
   }
 }
 
@@ -44959,7 +45760,7 @@ async function handleViewModeChoice(mode) {
         layoutSplitPrimaryPane();
       });
     }
-    toast(state.splitMode === "popup" ? "참고자료를 팝업으로 바꿨어요." : "참고자료를 화면 나누기로 바꿨어요.");
+    toast(state.splitMode === "popup" ? i18n.t('app.참고자료를_팝업으로_바꿨어요') : i18n.t('app.참고자료를_화면_나누기로_바꿨어요'));
     return;
   }
   // Scene secondary view: also clear popup styles when switching to split
@@ -44970,7 +45771,7 @@ async function handleViewModeChoice(mode) {
 async function switchSplitMode() {
   // Open the mode menu so the user can choose split / popup / close.
   if (!state.splitEnabled) {
-    if (!state.sceneId) return toast("먼저 목차에서 씬 하나를 열어 주세요.");
+    if (!state.sceneId) return toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     openViewModeMenu("main");
     return;
   }
@@ -45029,7 +45830,7 @@ async function renderSplitViewer() {
       return;
     }
     await closeSplitView();
-    toast("함께볼 회차나 참고자료가 없어 분할을 닫았어요.");
+    toast(i18n.t('app.함께볼_회차나_참고자료가_없어_분할을_닫았어'));
     return;
   }
   if (!alternatives.some((scene) => scene.id === state.splitSceneId)) {
@@ -45042,7 +45843,7 @@ async function renderSplitViewer() {
   fillSplitSceneBody(scene);
   splitDirty = false;
   suppressSplitDirty = false;
-  setSplitSaveStatus(state.splitEditEnabled ? "편집 가능" : "읽기 전용");
+  setSplitSaveStatus(state.splitEditEnabled ? i18n.t('app.편집_가능') : i18n.t('app.읽기_전용'));
   updateSplitChrome();
   applySplitEditMode();
   if (state.splitMode === "split") {
@@ -45056,20 +45857,20 @@ function setupSplitEditMode() {
 
   $("toggleSplitEditButton")?.addEventListener("click", async () => {
     if (!state.splitEnabled) {
-      toast("먼저 분할을 켜 주세요.");
+      toast(i18n.t('app.먼저_분할을_켜_주세요'));
       return;
     }
     if (state.splitKind === "source") {
-      toast("참고자료 파일은 뷰어 전용이에요. 수정할 수 없어요.");
+      toast(i18n.t('app.참고자료_파일은_뷰어_전용이에요_수정할_수'));
       return;
     }
     if (state.splitEditEnabled) {
       await flushSplitEdits();
       setSplitEditEnabled(false);
-      setSplitSaveStatus("읽기 전용");
+      setSplitSaveStatus(i18n.t('app.읽기_전용'));
     } else {
       setSplitEditEnabled(true);
-      setSplitSaveStatus("편집 가능");
+      setSplitSaveStatus(i18n.t('app.편집_가능'));
       requestAnimationFrame(() => {
         $("splitSceneBodyEditor")?.focus();
       });
@@ -45266,11 +46067,11 @@ function handleError(error) {
     ensureLocalDraftSaved("handleError");
     toast(
       error?.message
-      || "연결 문제로 서버 저장은 보류되었지만, 원고는 이 기기에 보관되어 있습니다.",
+      || i18n.t('app.연결_문제로_서버_저장은_보류되었지만_원고는'),
     );
     return;
   }
-  toast(error.message || "문제가 생겼습니다. 다시 시도해 주세요.");
+  toast(error.message || i18n.t('app.문제가_생겼습니다_다시_시도해_주세요'));
 }
 
 function fileToBase64(file) {
@@ -45282,19 +46083,19 @@ function fileToBase64(file) {
       const index = result.indexOf(marker);
       resolve(index >= 0 ? result.slice(index + marker.length) : result);
     };
-    reader.onerror = () => reject(new Error("파일을 읽지 못했습니다."));
+    reader.onerror = () => reject(new Error(i18n.t('app.파일을_읽지_못했습니다')));
     reader.readAsDataURL(file);
   });
 }
 
 const EXPORT_FORMATS_UI = [
-  { key: "docx", label: "Word", ext: ".docx", hint: "Microsoft Word에서 열립니다", partialOk: true },
-  { key: "hwpx", label: "한글", ext: ".hwpx", hint: "한글 2014 이상 · .hwpx로 저장됩니다", partialOk: true },
-  { key: "rtf", label: "RTF", ext: ".rtf", hint: "Word·한글에서 열립니다", partialOk: true },
-  { key: "txt", label: "텍스트", ext: ".txt", hint: "메모장 등에서 바로 열립니다", partialOk: true },
-  { key: "md", label: "Markdown", ext: ".md", hint: "마크다운 편집기에서 열립니다", partialOk: true },
-  { key: "html", label: "HTML", ext: ".html", hint: "브라우저에서 바로 열립니다", partialOk: true },
-  { key: "stg", label: "SuperTORY 연결 파일", ext: ".stg", hint: "작품 전체만 · SuperTORY에서 열림", partialOk: false },
+  { key: "docx", label: "Word", ext: ".docx", hint: i18n.t('app.Microsoft_Word에서_열립니다'), partialOk: true },
+  { key: "hwpx", label: i18n.t('app.한글'), ext: ".hwpx", hint: i18n.t('app.한글_2014_이상_hwpx로_저장됩니다'), partialOk: true },
+  { key: "rtf", label: "RTF", ext: ".rtf", hint: i18n.t('app.Word_한글에서_열립니다'), partialOk: true },
+  { key: "txt", label: i18n.t('app.텍스트'), ext: ".txt", hint: i18n.t('app.메모장_등에서_바로_열립니다'), partialOk: true },
+  { key: "md", label: "Markdown", ext: ".md", hint: i18n.t('app.마크다운_편집기에서_열립니다'), partialOk: true },
+  { key: "html", label: "HTML", ext: ".html", hint: i18n.t('app.브라우저에서_바로_열립니다'), partialOk: true },
+  { key: "stg", label: i18n.t('app.SuperTORY_연결_파일'), ext: ".stg", hint: i18n.t('app.작품_전체만_SuperTORY에서_열림'), partialOk: false },
 ];
 
 /** @type {{ scope: 'full'|'scenes', sceneIds: number[], lockScope: boolean, titleHint: string }} */
@@ -45344,11 +46145,11 @@ function syncExportManageUi() {
   if (hint) {
     const path = (exportPrefs.export_dir || exportPrefs.default_export_dir || "").trim();
     if (exportPrefs.save_to_folder === false) {
-      hint.textContent = "브라우저 다운로드로 받습니다. (보통 다운로드 폴더)";
+      hint.textContent = i18n.t('app.브라우저_다운로드로_받습니다_보통_다운로드');
     } else if (path) {
-      hint.textContent = `저장 위치: ${path}`;
+      hint.textContent = `${i18n.t('app.저장_위치_path', {path: path})}`;
     } else {
-      hint.textContent = "경로를 비우면 다운로드 폴더에 저장됩니다.";
+      hint.textContent = i18n.t('app.경로를_비우면_다운로드_폴더에_저장됩니다');
     }
   }
 }
@@ -45374,8 +46175,12 @@ async function saveExportPrefsFromUi() {
   };
   syncExportManageUi();
   toast(rawDir
-    ? `저장 폴더를 적용했어요.\n${exportPrefs.export_dir}`
-    : `경로를 비워 두어 다운로드 폴더로 저장합니다.\n${exportPrefs.export_dir}`);
+    ? i18n.t('app.저장_폴더를_적용했어요_exportPrefs', {
+      'exportPrefs.export_dir': exportPrefs.export_dir,
+    })
+    : i18n.t('app.경로를_비워_두어_다운로드_폴더로_저장합니다', {
+      'exportPrefs.export_dir': exportPrefs.export_dir,
+    }));
   return exportPrefs;
 }
 
@@ -45384,14 +46189,14 @@ function listExportEpisodes() {
   const episodes = [];
   if (Array.isArray(state.outline) && state.outline.length) {
     for (const chapter of state.outline) {
-      const chapterTitle = String(chapter.title || "챕터").trim() || "챕터";
+      const chapterTitle = String(chapter.title || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
       const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : [];
       for (const scene of scenes) {
         const id = Number(scene.id);
         if (!id) continue;
         episodes.push({
           id,
-          title: String(scene.title || `회차 #${id}`).trim() || `회차 #${id}`,
+          title: String(scene.title || `${i18n.t('app.회차_id', {id: id})}`).trim() || `${i18n.t('app.회차_id', {id: id})}`,
           chapterTitle,
           label: `${chapterTitle} · ${String(scene.title || `회차 #${id}`).trim()}`,
         });
@@ -45404,11 +46209,11 @@ function listExportEpisodes() {
       if (!id) continue;
       episodes.push({
         id,
-        title: String(scene.title || `회차 #${id}`).trim(),
+        title: String(scene.title || `${i18n.t('app.회차_id', {id: id})}`).trim(),
         chapterTitle: String(scene.chapterTitle || "").trim(),
         label: scene.chapterTitle
           ? `${scene.chapterTitle} · ${scene.title || id}`
-          : (scene.title || `회차 #${id}`),
+          : (scene.title || `${i18n.t('app.회차_id', {id: id})}`),
       });
     }
   }
@@ -45444,7 +46249,7 @@ function syncExportScopeUi() {
     btn.classList.toggle("is-disabled-scope", !allow);
     btn.title = allow
       ? ""
-      : "이 형식은 작품 전체 내보내기에서만 사용할 수 있어요";
+      : i18n.t('app.이_형식은_작품_전체_내보내기에서만_사용할');
   });
   const fullRadio = $("exportScopeFull");
   const scenesRadio = $("exportScopeScenes");
@@ -45465,7 +46270,7 @@ function renderExportScenePicker() {
     (exportModalState.sceneIds || []).map((id) => Number(id)).filter(Boolean),
   );
   if (!episodes.length) {
-    list.innerHTML = `<p class="export-scene-empty">내보낼 회차가 없어요. 먼저 목차에 회차를 만들어 주세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_export_scene_em_2');
     return;
   }
   // If nothing preselected in scenes mode, default to current open scene or all
@@ -45487,7 +46292,7 @@ function renderExportScenePicker() {
  */
 function openExportModal(options = {}) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   exportModalState = {
@@ -45503,19 +46308,19 @@ function openExportModal(options = {}) {
   const label = $("exportProjectLabel");
   if (label) {
     if (exportModalState.scope === "scenes" && exportModalState.sceneIds.length === 1) {
-      const hint = exportModalState.titleHint || "선택 회차";
-      label.textContent = `내보낼 회차: ${hint} · 작품 「${project?.title || "작품"}」`;
+      const hint = exportModalState.titleHint || i18n.t('app.선택_회차');
+      label.textContent = `${i18n.t('app.내보낼_회차_hint_작품_project_t', {hint: hint, 'project?.title || "작품"': project?.title || "작품"})}`;
     } else if (exportModalState.scope === "scenes") {
-      label.textContent = `내보낼 작품: ${project?.title || "작품"} · 회차 선택`;
+      label.textContent = `${i18n.t('app.내보낼_작품_project_title_작품', {'project?.title || "작품"': project?.title || "작품"})}`;
     } else {
-      label.textContent = `내보낼 작품: ${project?.title || "작품"} · 전체 원고`;
+      label.textContent = `${i18n.t('app.내보낼_작품_project_title_작품_2', {'project?.title || "작품"': project?.title || "작품"})}`;
     }
   }
   const hint = $("exportModalHint");
   if (hint) {
     hint.textContent = exportModalState.scope === "scenes" && exportModalState.sceneIds.length === 1
-      ? "선택한 회차만 파일로 내려받습니다. 형식을 고르세요."
-      : "전체 원고 또는 선택한 회차만 파일로 내려받습니다. 받은 파일을 더블클릭하면 Word·한글·메모장 등에서 바로 열 수 있어요.";
+      ? i18n.t('app.선택한_회차만_파일로_내려받습니다_형식을_고')
+      : i18n.t('app.전체_원고_또는_선택한_회차만_파일로_내려받');
   }
 
   const fullRadio = $("exportScopeFull");
@@ -45539,23 +46344,23 @@ function openExportModalForScenes(sceneIds, titleHint = "") {
     .map((id) => Number(id))
     .filter((id) => id > 0);
   if (!ids.length) {
-    toast("내보낼 회차를 찾지 못했어요.");
+    toast(i18n.t('app.내보낼_회차를_찾지_못했어요'));
     return;
   }
   openExportModal({
     scope: "scenes",
     sceneIds: ids,
     lockScope: true,
-    titleHint: titleHint || (ids.length === 1 ? "이 회차" : `${ids.length}개 회차`),
+    titleHint: titleHint || (ids.length === 1 ? i18n.t('app.이_회차') : `${i18n.t('app.ids_length_개_회차', {'ids.length': ids.length})}`),
   });
 }
 
 function openExportModalForCurrentScene() {
   if (!state.sceneId) {
-    toast("먼저 회차를 열어 주세요.");
+    toast(i18n.t('app.먼저_회차를_열어_주세요'));
     return;
   }
-  const title = state.scene?.title || $("sceneTitle")?.value || "현재 회차";
+  const title = state.scene?.title || $("sceneTitle")?.value || i18n.t('app.현재_회차');
   openExportModalForScenes([state.sceneId], title);
 }
 
@@ -45622,7 +46427,7 @@ function setupExportModalUi() {
     try {
       const pick = window.electronAPI?.pickExportDirectory;
       if (typeof pick !== "function") {
-        toast("폴더 찾아보기는 설치형 SuperTORY에서 사용할 수 있어요. 경로를 직접 입력해 주세요.");
+        toast(i18n.t('app.폴더_찾아보기는_설치형_SuperTORY에서'));
         $("exportDirInput")?.focus();
         return;
       }
@@ -45647,7 +46452,7 @@ function setupExportModalUi() {
       method: "POST",
       body: JSON.stringify({ export_dir: dir }),
     })
-      .then(() => toast("저장 폴더를 열었어요."))
+      .then(() => toast(i18n.t('app.저장_폴더를_열었어요')))
       .catch(handleError);
   });
   $("exportSaveToFolder")?.addEventListener("change", () => {
@@ -45687,7 +46492,7 @@ function setupExportModalUi() {
 
 async function exportProjectAs(formatKey) {
   if (!state.projectId) {
-    toast("먼저 작품을 선택해 주세요.");
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
   }
   const key = String(formatKey || "").trim().toLowerCase();
@@ -45697,12 +46502,12 @@ async function exportProjectAs(formatKey) {
   if (scope === "scenes") {
     sceneIds = getSelectedExportSceneIds();
     if (!sceneIds.length) {
-      toast("내보낼 회차를 하나 이상 선택해 주세요.");
+      toast(i18n.t('app.내보낼_회차를_하나_이상_선택해_주세요'));
       return;
     }
   }
   if (key === "stg" && sceneIds) {
-    toast("SuperTORY 연결 파일(.stg)은 작품 전체만 내보낼 수 있어요.");
+    toast(i18n.t('app.SuperTORY_연결_파일_stg_은_작품'));
     return;
   }
 
@@ -45712,14 +46517,14 @@ async function exportProjectAs(formatKey) {
   buttons.forEach((btn) => { btn.disabled = true; });
   if (status) {
     status.textContent = sceneIds
-      ? `선택한 회차 ${sceneIds.length}개를 파일로 만드는 중…`
-      : "전체 원고 파일을 만드는 중…";
+      ? `${i18n.t('app.선택한_회차_sceneIds_length_개', {'sceneIds.length': sceneIds.length})}`
+      : i18n.t('app.전체_원고_파일을_만드는_중');
   }
   try {
     // Flush open scene so latest text is included when exporting current episode
     if (sceneDirty && state.sceneId && (!sceneIds || sceneIds.includes(Number(state.sceneId)))) {
       try {
-        await persistScene({ quiet: true, saveNote: "내보내기 전 저장" });
+        await persistScene({ quiet: true, saveNote: i18n.t('app.내보내기_전_저장') });
       } catch (_) { /* still try export */ }
     }
 
@@ -45740,9 +46545,9 @@ async function exportProjectAs(formatKey) {
       if (
         sceneIds.length === 1
         && hint
-        && hint !== "이 회차"
-        && hint !== "선택 회차"
-        && hint !== "현재 회차"
+        && hint !== i18n.t('app.이_회차')
+        && hint !== i18n.t('app.선택_회차')
+        && hint !== i18n.t('app.현재_회차')
         && !/^\d+개 회차$/.test(hint)
         && !/^선택회차\d*$/.test(hint)
       ) {
@@ -45757,7 +46562,7 @@ async function exportProjectAs(formatKey) {
       body: JSON.stringify(body),
     });
     if (!response.ok) {
-      let message = "내보내기에 실패했습니다.";
+      let message = i18n.t('app.내보내기에_실패했습니다');
       try {
         const err = await response.json();
         if (err?.error) message = err.error;
@@ -45772,17 +46577,17 @@ async function exportProjectAs(formatKey) {
     if (saveToFolder || contentType.includes("application/json")) {
       const result = await response.json();
       if (!result?.ok && !result?.path) {
-        throw new Error(result?.error || "폴더에 저장하지 못했어요.");
+        throw new Error(result?.error || i18n.t('app.폴더에_저장하지_못했어요'));
       }
       const savedPath = result.path || result.filename || "";
       if (status) {
         status.textContent = sceneIds
-          ? `저장됨: ${savedPath} · 선택 회차 ${sceneIds.length}개`
-          : `저장됨: ${savedPath} · 전체 원고`;
+          ? `${i18n.t('app.저장됨_savedPath_선택_회차_scen', {savedPath: savedPath, 'sceneIds.length': sceneIds.length})}`
+          : `${i18n.t('app.저장됨_savedPath_전체_원고', {savedPath: savedPath})}`;
       }
       toast(sceneIds
-        ? `선택한 회차를 저장했어요.\n${savedPath}`
-        : `작품 전체를 저장했어요.\n${savedPath}`);
+        ? i18n.t('app.선택한_회차를_저장했어요_savedPath', { savedPath })
+        : i18n.t('app.작품_전체를_저장했어요_savedPath', { savedPath }));
       // refresh prefs display if folder was created/normalized
       if (result.folder) {
         exportPrefs.export_dir = result.folder;
@@ -45795,7 +46600,7 @@ async function exportProjectAs(formatKey) {
     // Browser download path
     const buffer = await response.arrayBuffer();
     if (!buffer || buffer.byteLength < 4) {
-      throw new Error("내보낸 파일이 비어 있어요. 서버를 다시 실행한 뒤 시도해 주세요.");
+      throw new Error(i18n.t('app.내보낸_파일이_비어_있어요_서버를_다시_실행'));
     }
     const head = new Uint8Array(buffer.slice(0, 4));
     const isZip = head[0] === 0x50 && head[1] === 0x4b; // PK
@@ -45804,8 +46609,8 @@ async function exportProjectAs(formatKey) {
       const preview = new TextDecoder("utf-8").decode(buffer.slice(0, 80));
       throw new Error(
         preview.trim().startsWith("{") || preview.includes("<!DOCTYPE") || preview.includes("<html")
-          ? "내보내기 응답이 파일이 아니라 오류 페이지예요. SuperTORY 서버를 종료한 뒤 다시 실행해 주세요."
-          : "내보낸 파일이 손상된 형식으로 내려왔어요. 서버를 다시 실행한 뒤 다시 내보내 주세요.",
+          ? i18n.t('app.내보내기_응답이_파일이_아니라_오류_페이지예')
+          : i18n.t('app.내보낸_파일이_손상된_형식으로_내려왔어요_서'),
       );
     }
     const mime =
@@ -45818,7 +46623,7 @@ async function exportProjectAs(formatKey) {
             ? "text/plain;charset=utf-8"
             : "application/octet-stream");
     const blob = new Blob([buffer], { type: mime });
-    let filename = `${(state.projects.find((p) => p.id === state.projectId)?.title || "작품")}.${key === "md" ? "md" : key}`;
+    let filename = `${i18n.t('app.state_projects_find_p_p', {'(state.projects.find((p) => p.id === state.projectId)?.title || "작품")': (state.projects.find((p) => p.id === state.projectId)?.title || "작품"), 'key === "md" ? "md" : key': key === "md" ? "md" : key})}`;
     const disposition = response.headers.get("Content-Disposition") || "";
     const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
     const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
@@ -45842,10 +46647,10 @@ async function exportProjectAs(formatKey) {
     window.setTimeout(() => URL.revokeObjectURL(url), 1500);
     if (status) {
       status.textContent = sceneIds
-        ? `다운로드: ${filename} · 선택 회차 ${sceneIds.length}개`
-        : `다운로드: ${filename} · 전체 원고`;
+        ? `${i18n.t('app.다운로드_filename_선택_회차_scen', {filename: filename, 'sceneIds.length': sceneIds.length})}`
+        : `${i18n.t('app.다운로드_filename_전체_원고', {filename: filename})}`;
     }
-    toast(sceneIds ? "선택한 회차를 내보냈어요." : "작품 전체를 내보냈어요.");
+    toast(sceneIds ? i18n.t('app.선택한_회차를_내보냈어요') : i18n.t('app.작품_전체를_내보냈어요'));
   } finally {
     buttons.forEach((btn) => { btn.disabled = false; });
     syncExportScopeUi();
@@ -45918,7 +46723,7 @@ function syncImportDelimiterUi() {
 function clearImportSplitPreview() {
   const summary = $("importSplitPreviewSummary");
   const list = $("importSplitPreviewList");
-  if (summary) summary.textContent = "파일을 고르면 몇 개 씬으로 나뉘는지 보여 드려요.";
+  if (summary) summary.textContent = i18n.t('app.파일을_고르면_몇_개_씬으로_나뉘는지_보여');
   if (list) list.innerHTML = "";
 }
 
@@ -45935,7 +46740,7 @@ function scheduleImportSplitPreview() {
     return;
   }
   const summary = $("importSplitPreviewSummary");
-  if (summary) summary.textContent = "나누는 중…";
+  if (summary) summary.textContent = i18n.t('app.나누는_중');
   importPreviewTimer = window.setTimeout(() => {
     runImportSplitPreview().catch(handleError);
   }, 350);
@@ -45967,14 +46772,14 @@ async function runImportSplitPreview() {
   const count = Number(result?.section_count || 0);
   if (summary) {
     summary.textContent = count > 0
-      ? `총 ${count}개 씬으로 분리됩니다`
-      : "나눌 씬을 찾지 못했어요.";
+      ? `${i18n.t('app.총_count_개_씬으로_분리됩니다', {count: count})}`
+      : i18n.t('app.나눌_씬을_찾지_못했어요');
   }
   if (!list) return;
   const scenes = Array.isArray(result?.scenes) ? result.scenes : [];
-  const extra = result?.truncated ? `<li><span>외 ${Math.max(0, count - scenes.length)}개 더 있어요.</span></li>` : "";
+  const extra = result?.truncated ? `${i18n.t('app.li_span_외_Math_max_0_co', {'Math.max(0, count - scenes.length)': Math.max(0, count - scenes.length)})}` : "";
   list.innerHTML = scenes.map((scene, index) => {
-    const title = String(scene?.title || `장면 ${index + 1}`);
+    const title = String(scene?.title || `${i18n.t('app.장면_index_1', {'index + 1': index + 1})}`);
     const preview = String(scene?.preview || "").trim();
     return `<li><strong>${index + 1}. ${escapeHtml(title)}</strong>${preview ? `<span>${escapeHtml(preview)}</span>` : ""}</li>`;
   }).join("") + extra;
@@ -45985,13 +46790,13 @@ function openImportModal(options = {}) {
   importModalMode = mode;
 
   if (mode === "proof" && !state.projectId) {
-    toast("교정본 가져오기는 작품을 먼저 연 뒤 사용할 수 있어요. (+ 새 글쓰기 또는 작품 선택)");
+    toast(i18n.t('app.교정본_가져오기는_작품을_먼저_연_뒤_사용할'));
     return;
   }
 
   const modal = $("importModal");
   $("importFile").value = "";
-  $("importFileName").textContent = "아직 고른 파일이 없어요.";
+  $("importFileName").textContent = i18n.t('app.아직_고른_파일이_없어요');
   $("importProjectTitle").value = "";
   $("importChapterTitle").value = "";
   $("importSplit").value = "auto";
@@ -46021,15 +46826,15 @@ function openImportModal(options = {}) {
 
   // Title / hints for document vs proof
   if ($("importModalTitle")) {
-    $("importModalTitle").textContent = mode === "proof" ? "교정본 가져오기" : "문서 가져오기";
+    $("importModalTitle").textContent = mode === "proof" ? i18n.t('app.교정본_가져오기') : i18n.t('app.문서_가져오기');
   }
   $("importModalHint")?.classList.toggle("hidden", mode === "proof");
   $("importProofBanner")?.classList.toggle("hidden", mode !== "proof");
   if ($("importFileLabelText")) {
-    $("importFileLabelText").textContent = mode === "proof" ? "파일 선택하기" : "파일 선택";
+    $("importFileLabelText").textContent = mode === "proof" ? i18n.t('app.파일_선택하기') : i18n.t('app.파일_선택');
   }
   if ($("importSubmitButton")) {
-    $("importSubmitButton").textContent = mode === "proof" ? "적용하기" : "가져오기";
+    $("importSubmitButton").textContent = mode === "proof" ? i18n.t('app.적용하기') : i18n.t('app.가져오기');
   }
 
   const destination = $("importDestination");
@@ -46049,11 +46854,11 @@ function closeImportModal() {
   importPreviewToken += 1;
   $("importModal").classList.add("hidden");
   $("importSubmitButton").disabled = false;
-  $("importSubmitButton").textContent = "가져오기";
+  $("importSubmitButton").textContent = i18n.t('app.가져오기');
   importModalMode = "document";
   $("importModal")?.setAttribute("data-import-mode", "document");
   if ($("importDocumentKind")) $("importDocumentKind").value = "manuscript";
-  if ($("importFileLabelText")) $("importFileLabelText").textContent = "파일 선택";
+  if ($("importFileLabelText")) $("importFileLabelText").textContent = i18n.t('app.파일_선택');
   resetModalDraftKeywords("import");
 }
 
@@ -46084,25 +46889,25 @@ function refreshImportDestinationOptions() {
     ? [
       {
         value: "proof_pipeline",
-        label: "토리 교정 파이프라인 (본문+메모 정밀 분석) ★권장",
+        label: i18n.t('app.토리_교정_파이프라인_본문_메모_정밀_분석'),
         enabled: Boolean(state.projectId),
       },
       {
         value: "proof_compare",
-        label: "교정 비교 보고서 (단순 텍스트 대조)",
+        label: i18n.t('app.교정_비교_보고서_단순_텍스트_대조'),
         enabled: Boolean(state.projectId),
       },
       {
         value: "match_replace_scene",
-        label: "교정본으로 덮어쓰기",
+        label: i18n.t('app.교정본으로_덮어쓰기'),
         enabled: Boolean(state.projectId),
       },
     ]
     : [
-      { value: "new_project", label: "새 작품으로 만들기", enabled: true },
-      { value: "new_chapter", label: "현재 작품에 새 챕터로 넣기", enabled: Boolean(state.projectId) },
-      { value: "existing_chapter", label: "현재 작품의 챕터에 새 씬으로 넣기", enabled: Boolean(state.projectId && state.outline.length) },
-      { value: "replace_scene", label: "지금 열린 씬에 덮어쓰기", enabled: Boolean(state.sceneId) },
+      { value: "new_project", label: i18n.t('app.새_작품으로_만들기'), enabled: true },
+      { value: "new_chapter", label: i18n.t('app.현재_작품에_새_챕터로_넣기'), enabled: Boolean(state.projectId) },
+      { value: "existing_chapter", label: i18n.t('app.현재_작품의_챕터에_새_씬으로_넣기'), enabled: Boolean(state.projectId && state.outline.length) },
+      { value: "replace_scene", label: i18n.t('app.지금_열린_씬에_덮어쓰기'), enabled: Boolean(state.sceneId) },
     ];
   select.innerHTML = options
     .filter((option) => option.enabled)
@@ -46122,7 +46927,7 @@ function refreshImportDestinationOptions() {
   const chapterSelect = $("importChapterSelect");
   chapterSelect.innerHTML = state.outline.map((chapter) =>
     `<option value="${chapter.id}">${escapeHtml(chapter.title)}</option>`
-  ).join("") || "<option value=''>챕터가 없어요</option>";
+  ).join("") || i18n.t('app.option_value_챕터가_없어요_op');
 }
 
 function getImportTitleMode() {
@@ -46138,7 +46943,7 @@ function syncImportTitleModeUi() {
     const file = $("importFile")?.files?.[0];
     const input = $("importProjectTitle");
     if (input && !String(input.value || "").trim() && file) {
-      input.placeholder = file.name.replace(/\.[^.]+$/, "") || "새 소설";
+      input.placeholder = file.name.replace(/\.[^.]+$/, "") || i18n.t('app.새_소설');
     }
   } else {
     refreshImportTitleFromFileHint();
@@ -46151,8 +46956,8 @@ function refreshImportTitleFromFileHint() {
   const file = $("importFile")?.files?.[0];
   const stem = file ? (file.name.replace(/\.[^.]+$/, "") || file.name) : "";
   hint.textContent = stem
-    ? `「${stem}」을(를) 제목으로 씁니다.`
-    : "가져온 문서 제목(또는 파일 이름)을 그대로 씁니다.";
+    ? `${i18n.t('app.stem_을_를_제목으로_씁니다', {stem: stem})}`
+    : i18n.t('app.가져온_문서_제목_또는_파일_이름_을_그대로');
 }
 
 function updateImportFormVisibility() {
@@ -46233,13 +47038,13 @@ function updateImportFormVisibility() {
 
 function proofDiffTypeLabel(type) {
   const map = {
-    typo: "오탈자",
-    modified: "문장 수정",
-    stylistic: "표현 교정",
-    added: "추가",
-    deleted: "삭제",
+    typo: i18n.t('app.오탈자'),
+    modified: i18n.t('app.문장_수정'),
+    stylistic: i18n.t('app.표현_교정'),
+    added: i18n.t('app.추가_2'),
+    deleted: i18n.t('app.삭제'),
   };
-  return map[type] || type || "수정";
+  return map[type] || type || i18n.t('app.수정');
 }
 
 let proofReportSceneId = null;
@@ -46253,16 +47058,16 @@ function openProofReportModal(report, { match = null } = {}) {
   const modal = $("proofReportModal");
   if (!modal || !report) return;
   const summary = report.summary || {};
-  const overall = summary.overall_comment || "교정 비교 결과입니다.";
+  const overall = summary.overall_comment || i18n.t('app.교정_비교_결과입니다');
   if ($("proofReportOverall")) $("proofReportOverall").textContent = overall;
 
   const sumEl = $("proofReportSummary");
   if (sumEl) {
     const chips = [
-      ["오탈자", summary.typo_corrections_count],
-      ["문장·표현", summary.stylistic_edits_count],
-      ["추가·삭제", summary.structural_edits_count],
-      ["편집 메모", summary.editor_memos_count],
+      [i18n.t('app.오탈자'), summary.typo_corrections_count],
+      [i18n.t('app.문장_표현'), summary.stylistic_edits_count],
+      [i18n.t('app.추가_삭제'), summary.structural_edits_count],
+      [i18n.t('app.편집_메모'), summary.editor_memos_count],
     ];
     sumEl.innerHTML = chips.map(([label, n]) => `
       <span class="proof-stat-chip">
@@ -46280,7 +47085,7 @@ function openProofReportModal(report, { match = null } = {}) {
         ? ` · 신뢰도 ${Math.round(m.confidence_score * 100)}%`
         : "";
       matchEl.classList.remove("hidden");
-      matchEl.innerHTML = `비교 대상: <strong>${escapeHtml(String(m.matched_episode_number ?? "?"))}화</strong>`
+      matchEl.innerHTML = `${i18n.t('app.비교_대상_strong_escapeHtml', {'escapeHtml(String(m.matched_episode_number ?? "?"))': escapeHtml(String(m.matched_episode_number ?? "?"))})}`
         + ` 「${escapeHtml(m.matched_title || "회차")}」${escapeHtml(conf)}`;
     } else {
       matchEl.classList.add("hidden");
@@ -46292,11 +47097,11 @@ function openProofReportModal(report, { match = null } = {}) {
   const memosEl = $("proofReportMemos");
   if (memosEl) {
     if (!memos.length) {
-      memosEl.innerHTML = `<p class="hint">추출된 편집자 메모가 없습니다.</p>`;
+      memosEl.innerHTML = i18n.t('app.p_class_hint_추출된_편집자_메모');
     } else {
       memosEl.innerHTML = memos.map((memo) => `
         <article class="proof-memo-card">
-          <div class="proof-memo-ctx">${escapeHtml(memo.location_context || "(위치 미상)")}</div>
+          <div class="proof-memo-ctx">${escapeHtml(memo.location_context || i18n.t('app.위치_미상'))}</div>
           <div class="proof-memo-body">${escapeHtml(memo.memo_content || "")}</div>
         </article>
       `).join("");
@@ -46307,7 +47112,7 @@ function openProofReportModal(report, { match = null } = {}) {
   const diffsEl = $("proofReportDiffs");
   if (diffsEl) {
     if (!diffs.length) {
-      diffsEl.innerHTML = `<p class="hint">눈에 띄는 수정 구간이 없습니다.</p>`;
+      diffsEl.innerHTML = i18n.t('app.p_class_hint_눈에_띄는_수정_구');
     } else {
       diffsEl.innerHTML = diffs.map((chunk) => {
         const type = escapeHtml(proofDiffTypeLabel(chunk.type));
@@ -46354,7 +47159,7 @@ async function submitImport(event) {
   event.preventDefault();
   const file = $("importFile").files?.[0];
   if (!file) {
-    toast("가져올 파일을 먼저 골라 주세요.");
+    toast(i18n.t('app.가져올_파일을_먼저_골라_주세요'));
     return;
   }
   if (importModalMode === "proof") {
@@ -46362,25 +47167,25 @@ async function submitImport(event) {
   }
   const destination = $("importDestination").value;
   if (destination !== "new_project" && !state.projectId) {
-    toast("먼저 작품을 만들거나, 새 작품으로 만들기를 골라 주세요.");
+    toast(i18n.t('app.먼저_작품을_만들거나_새_작품으로_만들기를'));
     return;
   }
   if (destination === "replace_scene" && !state.sceneId) {
-    toast("덮어쓸 씬을 먼저 열어 주세요.");
+    toast(i18n.t('app.덮어쓸_씬을_먼저_열어_주세요'));
     return;
   }
   if ((destination === "match_replace_scene" || destination === "proof_compare" || destination === "proof_pipeline") && !state.projectId) {
-    toast("회차 자동 매칭은 작품을 연 뒤 사용할 수 있어요.");
+    toast(i18n.t('app.회차_자동_매칭은_작품을_연_뒤_사용할_수'));
     return;
   }
   if (destination === "existing_chapter" && !$("importChapterSelect").value) {
-    toast("글을 넣을 챕터를 골라 주세요.");
+    toast(i18n.t('app.글을_넣을_챕터를_골라_주세요'));
     return;
   }
   if (
     importModalMode === "proof"
     && destination === "match_replace_scene"
-    && !window.confirm("기존 원고가 삭제되고 새 교정본으로 교체됩니다. 정말 진행할까요?")
+    && !window.confirm(i18n.t('app.기존_원고가_삭제되고_새_교정본으로_교체됩니'))
   ) {
     return;
   }
@@ -46394,7 +47199,7 @@ async function submitImport(event) {
   if (isDocumentImport) {
     const genres = readModalGenreValues("import", purpose);
     if (!genres.ok) {
-      toast(genres.error || "장르를 선택해 주세요. 토리 학습에 필요해요.");
+      toast(genres.error || i18n.t('app.장르를_선택해_주세요_토리_학습에_필요해요'));
       $(genres.focusId)?.focus();
       return;
     }
@@ -46410,7 +47215,7 @@ async function submitImport(event) {
     ? String($("importProjectTitle")?.value || "").trim()
     : "";
   if (isDocumentImport && getImportTitleMode() === "custom" && !customTitle) {
-    toast("제목을 입력해 주세요.");
+    toast(i18n.t('app.제목을_입력해_주세요'));
     $("importProjectTitle")?.focus();
     return;
   }
@@ -46424,12 +47229,12 @@ async function submitImport(event) {
     || destination === "match_replace_scene";
   submit.disabled = true;
   const busyLabel = destination === "proof_pipeline"
-    ? "토리가 회차 식별·교정 비교 중…"
+    ? i18n.t('app.토리가_회차_식별_교정_비교_중')
     : destination === "proof_compare"
-      ? "토리가 교정 비교 중…"
+      ? i18n.t('app.토리가_교정_비교_중')
       : destination === "match_replace_scene"
-        ? "토리가 회차 찾는 중…"
-        : "가져오는 중…";
+        ? i18n.t('app.토리가_회차_찾는_중')
+        : i18n.t('app.가져오는_중');
   submit.textContent = busyLabel;
   try {
     const contentBase64 = await fileToBase64(file);
@@ -46478,14 +47283,14 @@ async function submitImport(event) {
         setAiPanelOpen(true);
         if ($("aiResult")) {
           $("aiResult").value = [
-            "토리 · 교정본 식별 결과",
+            i18n.t('app.토리_교정본_식별_결과'),
             "",
-            `매칭 회차: ${match.matched_episode_number}화 「${match.matched_title || "회차"}」${conf}`,
-            match.method ? `식별 방법: ${match.method}` : "",
+            `${i18n.t('app.매칭_회차_match_matched_epis', {'match.matched_episode_number': match.matched_episode_number, 'match.matched_title || "회차"': match.matched_title || "회차", conf: conf})}`,
+            match.method ? `${i18n.t('app.식별_방법_match_method', {'match.method': match.method})}` : "",
             "",
-            "교정·교열 보고서 창에서 오탈자·문장 수정·편집 메모를 확인하세요.",
+            i18n.t('app.교정_교열_보고서_창에서_오탈자_문장_수정'),
             destination === "proof_pipeline" && !result.applied
-              ? "원고는 덮어쓰지 않았습니다. 비교 보고서만 만들었어요."
+              ? i18n.t('app.원고는_덮어쓰지_않았습니다_비교_보고서만_만')
               : "",
           ].filter(Boolean).join("\n");
           ensureAiResultVisible();
@@ -46494,15 +47299,19 @@ async function submitImport(event) {
       if (destination === "proof_pipeline" && result.applied && result.scene_ids?.length) {
         await loadProjects(result.project_id);
         await openScene(result.scene_ids[0]);
-        toast("토리 교정 완료 · 정제 본문을 회차에 반영했습니다.");
+        toast(i18n.t('app.토리_교정_완료_정제_본문을_회차에_반영했습'));
       } else if (destination === "proof_pipeline") {
         const parser = result.extract?.parser || result.pipeline?.extract?.parser || "";
-        toast(`토리 교정 파이프라인 완료${parser ? ` (${parser})` : ""}. 보고서 확인 · 원고 미변경.`);
+        toast(
+          i18n.t('app.토리_교정_파이프라인_완료_parser', {
+            parser: parser ? ` (${parser})` : "",
+          }) + i18n.t('app.보고서_확인_원고_미변경'),
+        );
       } else {
-        toast("토리가 교정 비교 보고서를 만들었어요. 원고는 바꾸지 않았습니다.");
+        toast(i18n.t('app.토리가_교정_비교_보고서를_만들었어요_원고는'));
       }
       submit.disabled = false;
-      submit.textContent = "가져오기";
+      submit.textContent = i18n.t('app.가져오기');
       return;
     }
 
@@ -46523,16 +47332,27 @@ async function submitImport(event) {
         ? ` · 신뢰도 ${Math.round(match.confidence_score * 100)}%`
         : "";
       toast(
-        `${match.matched_episode_number}화 「${match.matched_title || "회차"}」에 맞춰 덮어썼어요`
-        + `${conf} · ${result.word_count || 0}어절${packageNote}`,
+        `${i18n.t('app.match_matched_episode_n', {'match.matched_episode_number': match.matched_episode_number, 'match.matched_title || "회차"': match.matched_title || "회차"})}`
+        + `${i18n.t('app.conf_result_word_count', {conf: conf, 'result.word_count || 0': result.word_count || 0, packageNote: packageNote})}`,
       );
     } else {
-      toast(`문서를 가져왔어요. ${purposeName ? `${purposeName} · ` : ""}${chapters}씬 ${result.section_count}개 · ${result.word_count}어절${packageNote}${warning}`);
+      toast(
+        i18n.t('app.문서를_가져왔어요_purposeName', {
+          purposeName: purposeName ? `${purposeName} · ` : "",
+        })
+        + i18n.t('app.chapters_씬_result_secti', {
+          chapters,
+          'result.section_count': result.section_count,
+          'result.word_count': result.word_count,
+          packageNote,
+          warning,
+        }),
+      );
     }
   } catch (error) {
     handleError(error);
     submit.disabled = false;
-    submit.textContent = "가져오기";
+    submit.textContent = i18n.t('app.가져오기');
   }
 }
 
@@ -46540,6 +47360,10 @@ function openAdminModal(tab = null) {
   closeCreateMenu();
   hideUiFeatureContextMenu();
   $("adminModal")?.classList.remove("hidden");
+  const langSel = $("adminLangSelect");
+  if (langSel && typeof i18n !== "undefined" && typeof i18n.getLang === "function") {
+    langSel.value = i18n.getLang();
+  }
   if (tab) setAdminTab(tab);
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
@@ -46590,29 +47414,29 @@ function renderAdminProjectList() {
   const projects = Array.isArray(state.projects) ? state.projects : [];
   if (hint) {
     hint.textContent = projects.length
-      ? `작품 ${projects.length}개`
-      : "아직 작품이 없어요.";
+      ? `${i18n.t('app.작품_projects_length_개', {'projects.length': projects.length})}`
+      : i18n.t('app.아직_작품이_없어요');
   }
   if (!projects.length) {
-    list.innerHTML = `<p class="hint trash-empty">삭제할 작품이 없어요. 먼저 작품을 만들어 주세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_trash_empt_6');
     return;
   }
   list.innerHTML = projects.map((project) => {
     const id = Number(project.id);
-    const title = escapeHtml(project.title || `작품 #${id}`);
+    const title = escapeHtml(project.title || `${i18n.t('app.작품_id', {id: id})}`);
     const current = Number(state.projectId) === id;
     const genre = escapeHtml(
-      [project.main_genre, project.sub_genre].filter(Boolean).join(" · ") || "장르 미정",
+      [project.main_genre, project.sub_genre].filter(Boolean).join(" · ") || i18n.t('app.장르_미정'),
     );
     return `
       <article class="admin-project-item${current ? " is-current" : ""}" data-admin-project="${id}">
         <div class="admin-project-item-main">
-          <span class="admin-project-item-title">${title}${current ? " · 현재 작품" : ""}</span>
+          <span class="admin-project-item-title">${title}${current ? i18n.t('app.현재_작품') : ""}</span>
           <span class="admin-project-item-meta">${genre}</span>
         </div>
         <div class="admin-project-item-actions">
-          <button type="button" class="secondary compact-btn admin-project-action-btn" data-admin-rename-project="${id}">이름 변경</button>
-          <button type="button" class="secondary compact-btn admin-danger-btn admin-project-action-btn" data-admin-delete-project="${id}">⚠️ 완전 삭제</button>
+          <button type="button" class="secondary compact-btn admin-project-action-btn" data-admin-rename-project="${id}">${i18n.t('index.이름_바꾸기')}</button>
+          <button type="button" class="secondary compact-btn admin-danger-btn admin-project-action-btn" data-admin-delete-project="${id}">⚠️ ${i18n.t('app.완전_삭제_버튼')}</button>
         </div>
       </article>`;
   }).join("");
@@ -46627,9 +47451,9 @@ let indexRebuildLastStatus = "idle";
 function formatIndexRebuildEta(sceneCount, secondsPerScene) {
   const per = Number(secondsPerScene) > 0 ? Number(secondsPerScene) : INDEX_REBUILD_DEFAULT_SECONDS;
   const sec = Math.max(0, Math.round(Number(sceneCount || 0) * per));
-  if (sec <= 0) return "1분 미만";
-  if (sec < 60) return `약 ${sec}초`;
-  return `약 ${Math.max(1, Math.round(sec / 60))}분`;
+  if (sec <= 0) return i18n.t('app.1분_미만');
+  if (sec < 60) return `${i18n.t('app.약_sec_초', {sec: sec})}`;
+  return `${i18n.t('app.약_Math_max_1_Math_round', {'Math.max(1, Math.round(sec / 60))': Math.max(1, Math.round(sec / 60))})}`;
 }
 
 function selectedIndexRebuildProjects() {
@@ -46655,12 +47479,12 @@ function paintIndexRebuildProgress(job) {
   }
   if (status === "quota") {
     el.classList.add("is-quota");
-    el.textContent = "쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요";
+    el.textContent = i18n.t('app.쿼터_제한에_도달했습니다_잠시_후_다시_시도');
     return;
   }
   if (status === "error") {
     el.classList.add("is-error");
-    el.textContent = job?.message || job?.error || "인덱싱 중 오류가 발생했습니다.";
+    el.textContent = job?.message || job?.error || i18n.t('app.인덱싱_중_오류가_발생했습니다');
     return;
   }
   el.textContent = String(job?.message || "");
@@ -46695,8 +47519,8 @@ async function refreshIndexRebuildJob() {
   stopIndexRebuildPolling();
   if (prev === "running" && (status === "done" || status === "quota" || status === "error")) {
     await loadIndexRebuildOverview({ keepSelection: true });
-    if (status === "done") toast("회차 인덱스 다시 만들기를 마쳤어요.");
-    else if (status === "quota") toast("쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요");
+    if (status === "done") toast(i18n.t('app.회차_인덱스_다시_만들기를_마쳤어요'));
+    else if (status === "quota") toast(i18n.t('app.쿼터_제한에_도달했습니다_잠시_후_다시_시도'));
   }
   return job;
 }
@@ -46709,30 +47533,30 @@ function renderIndexRebuildList() {
   const pendingTotal = projects.reduce((sum, item) => sum + Number(item.pending_count || 0), 0);
   if (hint) {
     hint.textContent = projects.length
-      ? `처리가 필요한 회차 ${pendingTotal}개`
-      : "아직 작품이 없어요.";
+      ? `${i18n.t('app.처리가_필요한_회차_pendingTotal', {pendingTotal: pendingTotal})}`
+      : i18n.t('app.아직_작품이_없어요');
   }
   if (!projects.length) {
-    list.innerHTML = `<p class="hint trash-empty">작품이 없어요. 먼저 작품을 만들어 주세요.</p>`;
+    list.innerHTML = i18n.t('app.p_class_hint_trash_empt_7');
     syncIndexRebuildStartButton();
     return;
   }
   list.innerHTML = projects.map((project) => {
     const id = Number(project.id);
-    const title = escapeHtml(project.title || `작품 #${id}`);
+    const title = escapeHtml(project.title || `${i18n.t('app.작품_id', {id: id})}`);
     const pending = Number(project.pending_count || 0);
     const total = Number(project.scene_count || 0);
     const selectable = Boolean(project.selectable);
     const checked = selectable && indexRebuildSelected.has(id);
-    const extra = project.needs_merge && pending === 0 ? " · 인덱스 병합 남음" : "";
-    const label = `${title} (${pending}/${total} 회차 처리 필요${extra})`;
+    const extra = project.needs_merge && pending === 0 ? i18n.t('app.인덱스_병합_남음') : "";
+    const label = `${i18n.t('app.title_pending_total_회차', {title: title, pending: pending, total: total, extra: extra})}`;
     return `
       <article class="admin-project-item${selectable ? "" : " is-disabled"}" data-index-rebuild-project="${id}">
         <label class="index-rebuild-item-check">
           <input type="checkbox" data-index-rebuild-check="${id}" ${checked ? "checked" : ""} ${selectable ? "" : "disabled"}>
           <span>
             <span class="admin-project-item-title">${label}</span>
-            <span class="admin-project-item-meta">${selectable ? "선택하면 다시 인덱싱합니다." : "이미 전부 처리된 작품입니다."}</span>
+            <span class="admin-project-item-meta">${selectable ? i18n.t('app.선택하면_다시_인덱싱합니다') : i18n.t('app.이미_전부_처리된_작품입니다')}</span>
           </span>
         </label>
       </article>`;
@@ -46751,8 +47575,8 @@ async function loadIndexRebuildOverview(options = {}) {
     const list = $("indexRebuildList");
     const hint = $("indexRebuildHint");
     const friendly = stale
-      ? "서버가 이전 버전입니다. SuperTory를 완전히 종료한 뒤 다시 실행해 주세요."
-      : (msg || "목록을 불러오지 못했습니다.");
+      ? i18n.t('app.서버가_이전_버전입니다_SuperTory를')
+      : (msg || i18n.t('app.목록을_불러오지_못했습니다'));
     if (hint) hint.textContent = friendly;
     if (list) list.innerHTML = `<p class="hint trash-empty">${escapeHtml(friendly)}</p>`;
     paintIndexRebuildProgress({ status: "error", message: friendly });
@@ -46794,7 +47618,7 @@ function openIndexRebuildConfirm() {
     body.textContent =
       `선택한 ${selected.length}개 작품, 총 ${sceneCount}개 회차를 다시 인덱싱합니다. `
       + `예상 소요 시간은 ${eta}입니다. (회차당 평균 처리 시간 기준으로 계산, Gemini 호출 약 ${calls}회) `
-      + `Gemini API 호출이 발생하니 참고해주세요.`;
+      + i18n.t('app.Gemini_API_호출이_발생하니_참고해주');
   }
   $("indexRebuildConfirmModal")?.classList.remove("hidden");
 }
@@ -46822,17 +47646,17 @@ async function renameProjectFromAdmin(projectId) {
   const id = Number(projectId);
   if (!id) return;
   const project = (state.projects || []).find((p) => Number(p.id) === id);
-  const oldTitle = String(project?.title || `작품 #${id}`);
-  const nextTitle = window.prompt("새 작품 제목을 입력해 주세요.", oldTitle);
+  const oldTitle = String(project?.title || `${i18n.t('app.작품_id', {id: id})}`);
+  const nextTitle = window.prompt(i18n.t('app.새_작품_제목을_입력해_주세요'), oldTitle);
   if (nextTitle == null) return; // 취소
   const trimmed = nextTitle.trim();
-  if (!trimmed) return toast("작품 제목을 입력해 주세요.");
+  if (!trimmed) return toast(i18n.t('app.작품_제목을_입력해_주세요'));
   if (trimmed === oldTitle) return;
   await api(`/api/projects/${id}/title`, {
     method: "PUT",
     body: JSON.stringify({ title: trimmed }),
   });
-  toast(`작품 이름을 「${trimmed}」(으)로 바꿨어요.`);
+  toast(`${i18n.t('app.작품_이름을_trimmed_으_로_바꿨어요', {trimmed: trimmed})}`);
   await loadProjects(state.projectId);
   renderAdminProjectList();
 }
@@ -46841,14 +47665,14 @@ async function deleteProjectFromAdmin(projectId) {
   const id = Number(projectId);
   if (!id) return;
   const project = (state.projects || []).find((p) => Number(p.id) === id);
-  const title = String(project?.title || `작품 #${id}`).trim();
+  const title = String(project?.title || `${i18n.t('app.작품_id', {id: id})}`).trim();
   const ok = window.confirm(
     `「${title}」 작품을 완전히 삭제할까요?\n\n목록에서 사라지고 다시 불러올 수 없습니다.`,
   );
   if (!ok) return;
   await api(`/api/projects/${id}`, { method: "DELETE" });
   const wasCurrent = Number(state.projectId) === id;
-  toast(`「${title}」을(를) 삭제했어요.`);
+  toast(`${i18n.t('app.title_을_를_삭제했어요', {title: title})}`);
   if (wasCurrent) {
     state.projectId = null;
     state.sceneId = null;
@@ -46874,7 +47698,7 @@ function showAppUpdateBanner({ title, message, percent = null, sticky = false } 
   }
   banner.hidden = false;
   banner.classList.remove("hidden");
-  if ($("appUpdateBannerTitle")) $("appUpdateBannerTitle").textContent = title || "업데이트";
+  if ($("appUpdateBannerTitle")) $("appUpdateBannerTitle").textContent = title || i18n.t('app.업데이트');
   if ($("appUpdateBannerMessage")) $("appUpdateBannerMessage").textContent = message || "";
   const wrap = $("appUpdateBannerProgressWrap");
   const bar = $("appUpdateBannerBar");
@@ -46908,65 +47732,65 @@ function handleAppUpdateStatus(payload) {
 
   if (phase === "checking") {
     if (hint) {
-      hint.textContent = message || "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.";
+      hint.textContent = message || i18n.t('app.확인_요청을_보냈어요_새_버전이_있으면_안내');
     }
     return;
   }
   if (phase === "available") {
     if (hint) {
       hint.textContent = version
-        ? `새 버전 ${version}을(를) 사용할 수 있습니다.`
-        : (message || "새 업데이트가 있습니다.");
+        ? `${i18n.t('app.새_버전_version_을_를_사용할_수_있', {version: version})}`
+        : (message || i18n.t('app.새_업데이트가_있습니다'));
     }
     // Native dialog is shown by Electron main; toast as extra cue.
-    toast(message || "새로운 업데이트가 있습니다.");
+    toast(message || i18n.t('app.새로운_업데이트가_있습니다'));
     return;
   }
   if (phase === "deferred") {
-    if (hint) hint.textContent = message || "업데이트를 나중에 설치할 수 있습니다.";
-    toast(message || "업데이트를 나중에 할게요.");
+    if (hint) hint.textContent = message || i18n.t('app.업데이트를_나중에_설치할_수_있습니다');
+    toast(message || i18n.t('app.업데이트를_나중에_할게요'));
     hideAppUpdateBanner();
     return;
   }
   if (phase === "downloading") {
     if (hint) {
       hint.textContent = percent != null
-        ? `다운로드 중… ${Math.round(percent)}%`
-        : (message || "업데이트 다운로드 중…");
+        ? `${i18n.t('app.다운로드_중_Math_round_percen', {'Math.round(percent)': Math.round(percent)})}`
+        : (message || i18n.t('app.업데이트_다운로드_중'));
     }
     showAppUpdateBanner({
-      title: version ? `업데이트 ${version}` : "업데이트 다운로드",
-      message: message || "백그라운드에서 받는 중…",
+      title: version ? `${i18n.t('app.업데이트_version', {version: version})}` : i18n.t('app.업데이트_다운로드'),
+      message: message || i18n.t('app.백그라운드에서_받는_중'),
       percent: percent != null ? percent : 0,
       sticky: true,
     });
     return;
   }
   if (phase === "downloaded" || phase === "installing") {
-    if (hint) hint.textContent = message || "설치를 위해 앱을 다시 시작합니다…";
+    if (hint) hint.textContent = message || i18n.t('app.설치를_위해_앱을_다시_시작합니다');
     showAppUpdateBanner({
-      title: "업데이트 설치",
-      message: message || "앱을 다시 시작합니다…",
+      title: i18n.t('app.업데이트_설치'),
+      message: message || i18n.t('app.앱을_다시_시작합니다'),
       percent: 100,
       sticky: true,
     });
-    toast(message || "업데이트를 설치하기 위해 다시 시작합니다.");
+    toast(message || i18n.t('app.업데이트를_설치하기_위해_다시_시작합니다'));
     return;
   }
   if (phase === "none") {
     if (hint) {
-      hint.textContent = message || "현재 최신 버전이네요. 새 버전이 있으면 안내가 떠요.";
+      hint.textContent = message || i18n.t('app.현재_최신_버전이네요_새_버전이_있으면_안내');
     }
     if (message && !/최신/.test(message)) toast(message);
     return;
   }
   if (phase === "unavailable") {
-    if (hint) hint.textContent = message || "업데이트를 지금은 확인할 수 없습니다.";
+    if (hint) hint.textContent = message || i18n.t('app.업데이트를_지금은_확인할_수_없습니다');
     return;
   }
   if (phase === "error") {
-    if (hint) hint.textContent = message || "업데이트 확인에 실패했습니다.";
-    toast(message || "업데이트 확인에 실패했습니다.");
+    if (hint) hint.textContent = message || i18n.t('app.업데이트_확인에_실패했습니다');
+    toast(message || i18n.t('app.업데이트_확인에_실패했습니다'));
     hideAppUpdateBanner();
   }
 }
@@ -46987,26 +47811,26 @@ function setupAutoUpdateUi() {
   btn?.addEventListener("click", async () => {
     const hint = $("adminUpdateStatusHint");
     if (!window.electronAPI?.checkForUpdates) {
-      if (hint) hint.textContent = "업데이트 확인은 설치된 데스크톱 앱에서만 사용할 수 있어요.";
-      toast("업데이트 확인은 설치된 앱에서만 사용할 수 있어요.");
+      if (hint) hint.textContent = i18n.t('app.업데이트_확인은_설치된_데스크톱_앱에서만_사');
+      toast(i18n.t('app.업데이트_확인은_설치된_앱에서만_사용할_수'));
       return;
     }
     btn.disabled = true;
     // 결과 대기 중 문구. 실제 최신/업데이트 여부는 onUpdateStatus(phase)가 덮어씀.
-    if (hint) hint.textContent = "확인 요청을 보냈어요. 새 버전이 있으면 안내가 떠요.";
+    if (hint) hint.textContent = i18n.t('app.확인_요청을_보냈어요_새_버전이_있으면_안내');
     try {
       const result = await window.electronAPI.checkForUpdates();
       if (result?.reason === "dev") {
-        if (hint) hint.textContent = "개발 실행 중에는 자동 업데이트가 꺼져 있어요.";
-        toast("개발 모드에서는 업데이트를 확인하지 않습니다. 설치본에서 확인해 주세요.");
+        if (hint) hint.textContent = i18n.t('app.개발_실행_중에는_자동_업데이트가_꺼져_있어');
+        toast(i18n.t('app.개발_모드에서는_업데이트를_확인하지_않습니다'));
       } else if (result?.reason === "not_configured") {
         const msg = result.error
-          || "업데이트 서버가 설정되지 않았습니다. update-feed.json을 확인해 주세요.";
+          || i18n.t('app.업데이트_서버가_설정되지_않았습니다_upda');
         if (hint) hint.textContent = msg;
         toast(msg);
       } else if (result?.ok === false && result?.error) {
-        if (hint) hint.textContent = "업데이트 확인에 실패했습니다.";
-        toast(`업데이트 확인 실패: ${result.error}`);
+        if (hint) hint.textContent = i18n.t('app.업데이트_확인에_실패했습니다');
+        toast(`${i18n.t('app.업데이트_확인_실패_result_error', {'result.error': result.error})}`);
       }
       // ok인 경우: IPC 반환 시점에 update-not-available 등이 이미 왔을 수 있음.
       // 대기 문구로 다시 덮어쓰지 않고 handleAppUpdateStatus 결과를 유지한다.
@@ -47087,7 +47911,7 @@ function saveFeatureHideMap() {
 function labelFromHideId(id) {
   const s = String(id || "");
   if (s.startsWith("id:")) return s.slice(3);
-  return "숨긴 기능";
+  return i18n.t('app.숨긴_기능');
 }
 
 function simpleUiHash(str) {
@@ -47172,7 +47996,7 @@ function ensureUiHideId(el) {
 }
 
 function getUiFeatureLabel(el) {
-  if (!el) return "기능";
+  if (!el) return i18n.t('app.기능');
   const explicit = el.dataset?.uiHideLabel || el.getAttribute?.("data-ui-hide-label");
   if (explicit) return String(explicit).trim();
   const aria = (el.getAttribute?.("aria-label") || "").trim();
@@ -47184,7 +48008,7 @@ function getUiFeatureLabel(el) {
   const text = (el.textContent || "").replace(/\s+/g, " ").trim();
   if (text) return text.slice(0, 48);
   if (el.id) return el.id;
-  return "이름 없는 기능";
+  return i18n.t('app.이름_없는_기능');
 }
 
 /**
@@ -47276,7 +48100,7 @@ function applyFeatureHideClasses() {
 function updateFeatureHideCountUi() {
   const n = featureHideMap.size;
   const hint = $("featureHideCountHint");
-  if (hint) hint.textContent = n ? `숨긴 기능 ${n}개` : "숨긴 기능 없음";
+  if (hint) hint.textContent = n ? `${i18n.t('app.숨긴_기능_n_개', {n: n})}` : i18n.t('app.숨긴_기능_없음');
 }
 
 function hideUiFeatureElement(el, { quiet = false } = {}) {
@@ -47287,37 +48111,37 @@ function hideUiFeatureElement(el, { quiet = false } = {}) {
   featureHideMap.set(id, label);
   el.classList.add("ui-feature-hidden");
   saveFeatureHideMap();
-  if (!quiet) toast(`「${label}」을(를) 숨겼습니다.`);
+  if (!quiet) toast(`${i18n.t('app.label_을_를_숨겼습니다', {label: label})}`);
   return true;
 }
 
 function showUiFeatureById(hideId, { quiet = false } = {}) {
   if (!hideId || !featureHideMap.has(hideId)) return false;
-  const label = featureHideMap.get(hideId) || "기능";
+  const label = featureHideMap.get(hideId) || i18n.t('app.기능');
   featureHideMap.delete(hideId);
   saveFeatureHideMap();
   applyFeatureHideClasses();
-  if (!quiet) toast(`「${label}」을(를) 다시 표시합니다.`);
+  if (!quiet) toast(`${i18n.t('app.label_을_를_다시_표시합니다', {label: label})}`);
   return true;
 }
 
 function resetAllHiddenFeatures() {
   if (!featureHideMap.size) {
-    toast("숨긴 기능이 없어요.");
+    toast(i18n.t('app.숨긴_기능이_없어요'));
     return;
   }
-  if (!window.confirm(`숨긴 기능 ${featureHideMap.size}개를 모두 다시 표시할까요?`)) return;
+  if (!window.confirm(`${i18n.t('app.숨긴_기능_featureHideMap_siz', {'featureHideMap.size': featureHideMap.size})}`)) return;
   featureHideMap = new Map();
   saveFeatureHideMap();
   applyFeatureHideClasses();
-  toast("모든 기능을 다시 표시했습니다.");
+  toast(i18n.t('app.모든_기능을_다시_표시했습니다'));
 }
 
 function renderHiddenFeaturesList() {
   const host = $("hiddenFeaturesList");
   if (!host) return;
   if (!featureHideMap.size) {
-    host.innerHTML = `<p class="hint trash-empty">숨긴 기능이 없어요. 버튼에서 우클릭 → 「이 기능 숨기기」로 감출 수 있습니다.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_trash_empt_8');
     return;
   }
   const rows = [...featureHideMap.entries()]
@@ -47401,7 +48225,7 @@ function onUiFeatureHideAction() {
   document.querySelectorAll(".context-menu:not(.hidden), #formatColorPalette:not(.hidden), #formatListPalette:not(.hidden), #outlineSpacingMenu:not(.hidden)")
     .forEach((m) => m.classList.add("hidden"));
   if (!el) {
-    toast("숨길 기능을 찾지 못했어요.");
+    toast(i18n.t('app.숨길_기능을_찾지_못했어요'));
     return;
   }
   if (el.id === "outlineSpacingButton" && typeof exitOutlineSpacingAdjustMode === "function") {
@@ -47449,8 +48273,8 @@ function onGlobalUiFeatureContextMenu(event) {
   if (formatListBtn && formatListBtn.closest?.(".format-toolbar")) {
     setUiFeatureCtxTarget(formatListBtn);
     showUiFeatureContextMenu(event.clientX, event.clientY, formatListBtn, [{
-      label: "목록 기호 선택",
-      hint: "글머리·번호 스타일",
+      label: i18n.t('app.목록_기호_선택'),
+      hint: i18n.t('app.글머리_번호_스타일'),
       run: () => {
         const editor = $("sceneContent");
         if (typeof showFormatListPalette === "function") showFormatListPalette(formatListBtn, editor);
@@ -47462,8 +48286,8 @@ function onGlobalUiFeatureContextMenu(event) {
     setUiFeatureCtxTarget(formatColorBtn);
     const kind = formatColorBtn.dataset.colorKind || "text";
     showUiFeatureContextMenu(event.clientX, event.clientY, formatColorBtn, [{
-      label: kind === "highlight" ? "형광펜 색 선택" : "글자색 선택",
-      hint: "팔레트 열기",
+      label: kind === "highlight" ? i18n.t('app.형광펜_색_선택') : i18n.t('app.글자색_선택'),
+      hint: i18n.t('app.팔레트_열기'),
       run: () => {
         const editor = $("sceneContent");
         if (typeof showFormatColorPalette === "function") {
@@ -47483,12 +48307,12 @@ function onGlobalUiFeatureContextMenu(event) {
     const btn = $("writingLogButton") || el;
     setUiFeatureCtxTarget(btn);
     showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
-      label: "기록 달력·설정",
-      hint: "글쓰기 기록 열기",
+      label: i18n.t('app.기록_달력_설정'),
+      hint: i18n.t('app.글쓰기_기록_열기'),
       run: () => { openWritingLogModal?.("calendar")?.catch?.(handleError); },
     }, {
-      label: "폰 연동",
-      hint: "연동 코드 · 핸드폰 기록 포함",
+      label: i18n.t('app.폰_연동'),
+      hint: i18n.t('app.연동_코드_핸드폰_기록_포함'),
       run: () => { openWritingLogModal?.("phone")?.catch?.(handleError); },
     }]);
     return;
@@ -47498,8 +48322,8 @@ function onGlobalUiFeatureContextMenu(event) {
     const btn = $("synopsisListButton") || el;
     setUiFeatureCtxTarget(btn);
     showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
-      label: "토리야 요약해 줘",
-      hint: "본문을 요약해 요약 칸에 넣기",
+      label: i18n.t('app.토리야_요약해_줘'),
+      hint: i18n.t('app.본문을_요약해_요약_칸에_넣기'),
       run: () => { runTorySceneSummary().catch(handleError); },
     }]);
     return;
@@ -47509,7 +48333,7 @@ function onGlobalUiFeatureContextMenu(event) {
     const btn = $("statusBarProgress") || el;
     setUiFeatureCtxTarget(btn);
     showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
-      label: "게이지 색 선택",
+      label: i18n.t('app.게이지_색_선택'),
       run: () => { showGoalBarColorMenu?.(btn); },
     }]);
     return;
@@ -47577,127 +48401,127 @@ function setupUiFeatureHideSystem() {
 const HELP_MANUAL_SECTIONS = [
   {
     id: "overview",
-    title: "SuperTory가 뭔가요?",
-    keywords: "소개 개요 용도 로컬 소설 에세이 원고 스크리브너 집필 설치 클라우드",
+    title: i18n.t('app.SuperTory가_뭔가요'),
+    keywords: i18n.t('app.소개_개요_용도_로컬_소설_에세이_원고_스크'),
     body: [
-      "내 컴퓨터에 직접 설치해서 쓰는 집필 프로그램이에요. 클라우드 계정 없이도 작품, 회차, 설정, 아이디어를 내 기기에 저장합니다.",
-      "작품 구조는 이렇게 되어 있어요: 작품 → 바인더(목차) → 폴더(챕터) → 원고(씬). 원고 안에 또 하위 폴더를 만들어서 더 세분화할 수도 있어요.",
-      "설정집에는 시놉시스, 로그라인, 세계관, 장르·키워드, 인물, 생각수첩을 모아둘 수 있고, 원한다면 토리(Gemini 기반 AI)로 교정이나 회차 매칭도 할 수 있어요.",
+      i18n.t('app.내_컴퓨터에_직접_설치해서_쓰는_집필_프로그'),
+      i18n.t('app.작품_구조는_이렇게_되어_있어요_작품_바인더'),
+      i18n.t('app.설정집에는_시놉시스_로그라인_세계관_장르_키'),
     ],
   },
   {
     id: "start",
-    title: "시작하기",
-    keywords: "시작 작품 만들기 열기 종류 장르 purpose 우클릭 학습",
+    title: i18n.t('app.시작하기'),
+    keywords: i18n.t('app.시작_작품_만들기_열기_종류_장르_purpo'),
     body: [
-      "왼쪽 바인더에서 작품을 고르거나 새로 만드세요. 작품 종류(소설·에세이 등)와 장르는 설정집 「장르·키워드」에서 언제든 바꿀 수 있어요.",
-      "단, 소설류에서 장르를 바꾸면 → 토리가 새 장르를 다시 학습해야 한다는 안내가 떠요. 작품 종류를 바꿀 때도 똑같은 안내가 나와요.",
-      "왼쪽 바인더 「목차」에서: +챕터 → 폴더 추가, 폴더·원고 안 + → 하위 폴더나 회차 추가. 가운데 편집기에 글을 쓰면 자동 저장돼요.",
+      i18n.t('app.왼쪽_바인더에서_작품을_고르거나_새로_만드세'),
+      i18n.t('app.단_소설류에서_장르를_바꾸면_토리가_새_장르'),
+      i18n.t('app.왼쪽_바인더_목차_에서_챕터_폴더_추가_폴더'),
     ],
   },
   {
     id: "binder",
-    title: "바인더 (목차)",
-    keywords: "바인더 목차 폴더 챕터 원고 씬 회차 하위폴더 순번 드래그 우클릭 개수 tree",
+    title: i18n.t('app.바인더_목차'),
+    keywords: i18n.t('app.바인더_목차_폴더_챕터_원고_씬_회차_하위폴'),
     body: [
-      "목차 옆 숫자 배지 = 폴더 수 · 원고 수. 우클릭하면 → 제목 글자 크기 조절, 표시 숨기기 가능.",
-      "폴더/원고는 드래그로 순서 변경. 원고(씬)에서 「하위 폴더 만들기」로 그 아래에 폴더를 만들 수 있어요 (들여쓰기·연결선으로 계층 표시).",
-      "우클릭 메뉴에서: 복제 · 내보내기 · 버리기 등. 「순번 정리」 → 챕터 제목 번호 자동 정리. 상위 폴더(권·부)로 큰 구조 단위로 묶기 가능.",
+      i18n.t('app.목차_옆_숫자_배지_폴더_수_원고_수_우클릭'),
+      i18n.t('app.폴더_원고는_드래그로_순서_변경_원고_씬_에'),
+      i18n.t('app.우클릭_메뉴에서_복제_내보내기_버리기_등_순'),
     ],
   },
   {
     id: "editor",
-    title: "작성 화면 · 서식",
-    keywords: "작성 편집 서식 굵게 글자색 형광펜 목록 목표 상태바 분할 팔레트",
+    title: i18n.t('app.작성_화면_서식'),
+    keywords: i18n.t('app.작성_편집_서식_굵게_글자색_형광펜_목록_목'),
     body: [
-      "서식 툴바: 글꼴·크기·굵게·정렬·목록·글자색·형광펜. 색상/목록 아이콘은 우클릭하면 팔레트가 열려요.",
-      "본문을 드래그 후 우클릭 → 사전·떡밥·각주 등 작성 메뉴 (이 메뉴는 숨기기 기능이 없어요).",
-      "하단 상태바에서 글자 수·목표·진행 게이지 확인. 게이지 우클릭 → 색 변경. 목표 영역 우클릭 → 일괄 적용.",
+      i18n.t('app.서식_툴바_글꼴_크기_굵게_정렬_목록_글자색'),
+      i18n.t('app.본문을_드래그_후_우클릭_사전_떡밥_각주_등'),
+      i18n.t('app.하단_상태바에서_글자_수_목표_진행_게이지'),
     ],
   },
   {
     id: "settings",
-    title: "설정집",
-    keywords: "설정집 시놉시스 로그라인 세계관 장르 키워드 인물 아이디어 보드 메인에서보기",
+    title: i18n.t('app.설정집'),
+    keywords: i18n.t('app.설정집_시놉시스_로그라인_세계관_장르_키워드'),
     body: [
-      "왼쪽 설정 탭에서 관리 가능한 항목: 시놉시스 · 로그라인 · 세계관 · 소개·의도 · 장르·키워드 · 인물 · 생각수첩.",
-      "각 상자의 「메인에서 보기」 → 가운데 화면을 넓게 사용. 아이디어는 포스트잇처럼 색·크기 조절 가능.",
-      "항목도 우클릭으로 숨기거나 메뉴 열기 가능. 인물·장르·키워드는 메인 화면에서 카드형으로 정리돼요.",
+      i18n.t('app.왼쪽_설정_탭에서_관리_가능한_항목_시놉시스'),
+      i18n.t('app.각_상자의_메인에서_보기_가운데_화면을_넓게'),
+      i18n.t('app.항목도_우클릭으로_숨기거나_메뉴_열기_가능'),
     ],
   },
   {
     id: "ai",
-    title: "토리 (AI)",
-    keywords: "토리 AI 제미니 gemini 도우미 이어서쓰기 다듬기 아이디어 브레인스토밍 피드백 설정붕괴 중복 페르소나 인덱스",
+    title: i18n.t('app.토리_AI'),
+    keywords: i18n.t('app.토리_AI_제미니_gemini_도우미_이어서'),
     body: [
-      "오른쪽 패널의 토리가 해주는 것들: 이어서 쓰기, 문장 다듬기, 다음 아이디어 제안, 피드백, 브레인스토밍, 설정 붕괴 감지기, 중복 체크.",
-      "「다음 아이디어 제안」과 「브레인스토밍」은 작품 인덱스·설정·누적 정보를 참고해요. 브레인스토밍은 원하는 주제를 직접 적을 수도 있어요.",
-      "도우미 탭 우클릭 → 토리의 말투(페르소나) 선택 가능. Gemini가 연결되어 있어야 작동해요 → 연결 상태는 관리자 → 정보 · 도움말에서 확인.",
+      i18n.t('app.오른쪽_패널의_토리가_해주는_것들_이어서_쓰'),
+      i18n.t('app.다음_아이디어_제안_과_브레인스토밍_은_작'),
+      i18n.t('app.도우미_탭_우클릭_토리의_말투_페르소나_선택'),
     ],
   },
   {
     id: "proof",
-    title: "교정 · 교정고",
-    keywords: "교정 교열 맞춤법 교정고 매칭 비교 파이프라인 hwp docx 정제",
+    title: i18n.t('app.교정_교정고'),
+    keywords: i18n.t('app.교정_교열_맞춤법_교정고_매칭_비교_파이프라'),
     body: [
-      "맞춤법·교정은 환경에 따라 공개 검사기 또는 Gemini로 동작.",
-      "문서 가져오기에서 선택 가능한 기능: 교정고 비교 분석 (기존 글을 덮어쓰지 않아요), 회차 매칭 후 치환, HWP/DOCX 교정 파이프라인 (매칭 → 정제 → 비교).",
-      "파이프라인은 교정고 본문을 정리하고, 회차에 맞춘 뒤, 비교 보고서를 만들어줘요. 실제 적용 여부는 가져오기 옵션에서 확인하세요.",
+      i18n.t('app.맞춤법_교정은_환경에_따라_공개_검사기_또는'),
+      i18n.t('app.문서_가져오기에서_선택_가능한_기능_교정고'),
+      i18n.t('app.파이프라인은_교정고_본문을_정리하고_회차에'),
     ],
   },
   {
     id: "import-export",
-    title: "가져오기 · 내보내기",
-    keywords: "가져오기 내보내기 워드 hwp docx 문서 stg 패키지 word",
+    title: i18n.t('app.가져오기_내보내기'),
+    keywords: i18n.t('app.가져오기_내보내기_워드_hwp_docx_문서'),
     body: [
-      "상단 + 메뉴에서 문서 가져오기 / 내보내기(Word·한글·텍스트 등).",
-      "작품은 projects 폴더의 .stg 패키지 핸들로도 열 수 있어요. 원고 본문 원본은 로컬 DB(data)에 저장돼요.",
+      i18n.t('app.상단_메뉴에서_문서_가져오기_내보내기_Wor'),
+      i18n.t('app.작품은_projects_폴더의_stg_패키지'),
     ],
   },
   {
     id: "viewer",
-    title: "뷰어 · 테마",
-    keywords: "뷰어 pdf 책 폰 전자잉크 eink 다크모드 테마 미리보기",
+    title: i18n.t('app.뷰어_테마'),
+    keywords: i18n.t('app.뷰어_pdf_책_폰_전자잉크_eink_다크모'),
     body: [
-      "원고를 PDF · 책 · 휴대폰 · 전자잉크 스타일로 미리보기 가능 (모드마다 페이지 색·잉크 설정이 따로 적용돼요).",
-      "상단 테마 버튼 → 데이/다크 UI 전환. 뷰어 설정은 이 기기에 기억돼요.",
+      i18n.t('app.원고를_PDF_책_휴대폰_전자잉크_스타일로'),
+      i18n.t('app.상단_테마_버튼_데이_다크_UI_전환_뷰어'),
     ],
   },
   {
     id: "hide-ui",
-    title: "기능 숨기기 · 화면 정리",
-    keywords: "숨기기 우클릭 숨긴기능 활성화 관리자",
+    title: i18n.t('app.기능_숨기기_화면_정리'),
+    keywords: i18n.t('app.숨기기_우클릭_숨긴기능_활성화_관리자'),
     body: [
-      "대부분의 기능 버튼·표시(폴더/원고 개수 포함)에서 우클릭 → 「이 기능 숨기기」로 화면을 단순하게 만들 수 있어요.",
-      "메뉴가 이미 많은 버튼은 우클릭 메뉴 맨 아래에 숨기기가 있어요.",
-      "숨긴 항목 되돌리기: 왼쪽 위 톱니바퀴(관리자) → 「설정 옵션」 → 「숨긴 기능」 → 목록에서 「활성화」.",
+      i18n.t('app.대부분의_기능_버튼_표시_폴더_원고_개수_포'),
+      i18n.t('app.메뉴가_이미_많은_버튼은_우클릭_메뉴_맨_아'),
+      i18n.t('app.숨긴_항목_되돌리기_왼쪽_위_톱니바퀴_관리자'),
     ],
   },
   {
     id: "trash",
-    title: "휴지통",
-    keywords: "휴지통 버리기 복원 삭제 폴더 cascade",
+    title: i18n.t('app.휴지통'),
+    keywords: i18n.t('app.휴지통_버리기_복원_삭제_폴더_cascade'),
     body: [
-      "바인더에서 버린 폴더·원고는 휴지통에 보관돼요. 폴더를 버리면 안에 있던 원고·하위 폴더도 함께 이동해요.",
-      "관리자 → 휴지통에서: 복원하기, 「휴지통 비우기」로 완전 삭제 (되돌릴 수 없어요).",
+      i18n.t('app.바인더에서_버린_폴더_원고는_휴지통에_보관돼'),
+      i18n.t('app.관리자_휴지통에서_복원하기_휴지통_비우기_로'),
     ],
   },
   {
     id: "safety",
-    title: "저장 · 안전",
-    keywords: "저장 자동저장 로컬 초안 백업 안전 indexeddb env api",
+    title: i18n.t('app.저장_안전'),
+    keywords: i18n.t('app.저장_자동저장_로컬_초안_백업_안전_inde'),
     body: [
-      "편집할 때 기기 저장소에 먼저 초안을 남긴 뒤 로컬 서버에 저장돼요. 서버에 오류가 나도 작성 중이던 글이 바로 사라지지 않도록 설계되어 있어요.",
-      "중요한 작품은 내보내기나 기기 백업을 정기적으로 해두세요. .env의 API 키, 실제 DB 파일은 공유하거나 커밋하지 마세요.",
+      i18n.t('app.편집할_때_기기_저장소에_먼저_초안을_남긴'),
+      i18n.t('app.중요한_작품은_내보내기나_기기_백업을_정기적'),
     ],
   },
   {
     id: "admin",
-    title: "관리자 모드",
-    keywords: "관리자 정보 도움말 사용자 숨긴기능 휴지통 업데이트 문의",
+    title: i18n.t('app.관리자_모드'),
+    keywords: i18n.t('app.관리자_정보_도움말_사용자_숨긴기능_휴지통'),
     body: [
-      "왼쪽 위 톱니바퀴를 누르면 관리자 모드가 열려요. 탭 순서: 정보 · 도움말 → 설정 옵션 → 사용자 관리 → 작품 관리 → 휴지통.",
-      "정보 · 도움말: 버전 · Gemini 상태 · 사용 설명서 검색 · 문의 메일. 사용자 관리: 향후 계정·플랜용 자리 (지금은 로컬 미리보기만 가능).",
+      i18n.t('app.왼쪽_위_톱니바퀴를_누르면_관리자_모드가_열'),
+      i18n.t('app.정보_도움말_버전_Gemini_상태_사용_설'),
     ],
   },
 ];
@@ -47706,38 +48530,38 @@ const HELP_MANUAL_SECTIONS = [
 const HELP_QA_ITEMS = [
   {
     id: "qa-local",
-    q: "데이터가 어디에 저장되나요?",
-    a: "이 기기의 로컬 DB에 저장됩니다. 클라우드 필수 계정은 없습니다. 작품 핸들은 projects/*.stg 이고, 원고 원본은 data 폴더의 SQLite에 있습니다.",
+    q: i18n.t('app.데이터가_어디에_저장되나요'),
+    a: i18n.t('app.이_기기의_로컬_DB에_저장됩니다_클라우드'),
   },
   {
     id: "qa-child-folder",
-    q: "원고 아래 하위 폴더는 어떻게 만드나요?",
-    a: "바인더에서 원고(씬)를 우클릭 → 「하위 폴더 만들기」를 고르거나, 해당 위치의 +로 추가합니다. 들여쓰기와 연결선으로 계층이 보입니다.",
+    q: i18n.t('app.원고_아래_하위_폴더는_어떻게_만드나요'),
+    a: i18n.t('app.바인더에서_원고_씬_를_우클릭_하위_폴더_만'),
   },
   {
     id: "qa-genre",
-    q: "장르는 어떻게 바꾸나요?",
-    a: "설정집 「장르·키워드」에서 작품 종류·메인·하위 장르 버튼을 우클릭해 고릅니다. 바꾸면 토리가 새 장르 기준으로 다시 학습해야 한다는 확인이 나옵니다. 작품 종류(에세이 등) 변경 시에도 같은 안내가 있습니다.",
+    q: i18n.t('app.장르는_어떻게_바꾸나요'),
+    a: i18n.t('app.설정집_장르_키워드_에서_작품_종류_메인_하'),
   },
   {
     id: "qa-ai-ideas",
-    q: "다음 아이디어·브레인스토밍은 무엇을 보나요?",
-    a: "작품 인덱스·설정·누적 정보를 참고해 제안해요. 브레인스토밍은 원하는 주제를 직접 적을 수도 있어요. Gemini 연결이 필요합니다.",
+    q: i18n.t('app.다음_아이디어_브레인스토밍은_무엇을_보나요'),
+    a: i18n.t('app.작품_인덱스_설정_누적_정보를_참고해_제안해'),
   },
   {
     id: "qa-proof",
-    q: "HWP/DOCX 교정고는 어떻게 넣나요?",
-    a: "문서 가져오기에서 「교정고 비교 분석」 또는 「HWP/DOCX 교정 파이프라인」을 선택합니다. 파이프라인은 매칭 → 정제 → 비교까지 한 흐름으로 처리합니다.",
+    q: i18n.t('app.HWP_DOCX_교정고는_어떻게_넣나요'),
+    a: i18n.t('app.문서_가져오기에서_교정고_비교_분석_또는_H'),
   },
   {
     id: "qa-hidden",
-    q: "버튼을 숨겼는데 어떻게 다시 켜나요?",
-    a: "관리자 모드 → 「설정 옵션」 → 「숨긴 기능」에서 항목별 「활성화」를 누릅니다. 숨기려면 해당 버튼을 우클릭 → 「이 기능 숨기기」입니다.",
+    q: i18n.t('app.버튼을_숨겼는데_어떻게_다시_켜나요'),
+    a: i18n.t('app.관리자_모드_설정_옵션_숨긴_기능_에서_항목'),
   },
   {
     id: "qa-trash",
-    q: "버린 원고를 되돌릴 수 있나요?",
-    a: "관리자 → 휴지통에서 복원할 수 있습니다. 「휴지통 비우기」를 하면 완전히 삭제되어 되돌릴 수 없습니다.",
+    q: i18n.t('app.버린_원고를_되돌릴_수_있나요'),
+    a: i18n.t('app.관리자_휴지통에서_복원할_수_있습니다_휴지통'),
   },
 ];
 
@@ -47770,21 +48594,21 @@ function refreshAdminInfoPanel() {
   const runtime = $("adminAppRuntime");
   if (runtime) {
     const isEl = Boolean(window.electronAPI);
-    runtime.textContent = isEl ? "데스크톱 앱 (Electron)" : "브라우저 · 로컬 서버";
+    runtime.textContent = isEl ? i18n.t('app.데스크톱_앱_Electron') : i18n.t('app.브라우저_로컬_서버');
   }
   refreshAiStatus().catch(handleError);
 }
 
 function refreshAdminAccountPanel() {
-  if ($("adminUserStatus")) $("adminUserStatus").textContent = "로컬 사용자";
-  if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = "이 기기";
-  if ($("adminUserAccount")) $("adminUserAccount").textContent = "로그인 없음 (로컬)";
-  if ($("adminUserPlan")) $("adminUserPlan").textContent = "로컬 무료 (전체 기능)";
-  if ($("adminUserPlanPeriod")) $("adminUserPlanPeriod").textContent = "제한 없음";
+  if ($("adminUserStatus")) $("adminUserStatus").textContent = i18n.t('app.로컬_사용자');
+  if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = i18n.t('app.이_기기');
+  if ($("adminUserAccount")) $("adminUserAccount").textContent = i18n.t('app.로그인_없음_로컬');
+  if ($("adminUserPlan")) $("adminUserPlan").textContent = i18n.t('app.로컬_무료_전체_기능');
+  if ($("adminUserPlanPeriod")) $("adminUserPlanPeriod").textContent = i18n.t('app.제한_없음');
   if ($("adminUserPlanPerks")) {
-    $("adminUserPlanPerks").textContent = "로컬 저장 · AI(구성 시) · 가져오기/내보내기";
+    $("adminUserPlanPerks").textContent = i18n.t('app.로컬_저장_AI_구성_시_가져오기_내보내기');
   }
-  if ($("adminUserPaymentMethod")) $("adminUserPaymentMethod").textContent = "해당 없음";
+  if ($("adminUserPaymentMethod")) $("adminUserPaymentMethod").textContent = i18n.t('app.해당_없음');
   if ($("adminUserPaymentLast")) $("adminUserPaymentLast").textContent = "—";
   if ($("adminUserPaymentReceipt")) $("adminUserPaymentReceipt").textContent = "—";
 }
@@ -47802,11 +48626,11 @@ function renderAdminHelpManual(filterText = "") {
   const hint = $("adminHelpSearchHint");
   if (hint) {
     hint.textContent = tokens.length
-      ? (matched.length ? `검색 결과 ${matched.length}개` : "검색 결과가 없습니다. 다른 단어를 시도해 보세요.")
-      : `설명서 ${HELP_MANUAL_SECTIONS.length}개 항목`;
+      ? (matched.length ? `${i18n.t('app.검색_결과_matched_length_개', {'matched.length': matched.length})}` : i18n.t('app.검색_결과가_없습니다_다른_단어를_시도해_보'))
+      : `${i18n.t('app.설명서_HELP_MANUAL_SECTIONS', {'HELP_MANUAL_SECTIONS.length': HELP_MANUAL_SECTIONS.length})}`;
   }
   if (!matched.length) {
-    host.innerHTML = `<p class="hint trash-empty">일치하는 도움말이 없습니다.</p>`;
+    host.innerHTML = i18n.t('app.p_class_hint_trash_empt_9');
     return;
   }
   host.innerHTML = matched.map((sec) => `
@@ -47842,7 +48666,7 @@ function openDeveloperContact() {
   const host = ["gmail", "com"].join(".");
   const to = `${local}\u0040${host}`;
   const ver = getAppVersionSync();
-  const subject = encodeURIComponent(`[SuperTory] 문의 (v${ver})`);
+  const subject = encodeURIComponent(`${i18n.t('app.SuperTory_문의_v_ver', {ver: ver})}`);
   const body = encodeURIComponent(
     `앱 버전: ${ver}\n실행: ${window.electronAPI ? "Electron" : "브라우저"}\n\n문의 내용:\n`,
   );
@@ -47855,9 +48679,9 @@ function openDeveloperContact() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    toast("메일 작성 창을 열었습니다.");
+    toast(i18n.t('app.메일_작성_창을_열었습니다'));
   } catch (_) {
-    toast("메일 앱을 열 수 없습니다. 시스템 기본 메일 설정을 확인해 주세요.");
+    toast(i18n.t('app.메일_앱을_열_수_없습니다_시스템_기본_메일'));
   }
 }
 
@@ -47938,8 +48762,8 @@ function buildOnboardingSteps() {
     {
       element: "#writingLogButton",
       popover: {
-        title: "기록",
-        description: "지난 일주일 글자 수를 확인해요. 우클릭하면 더 많은 설정이 있어요.",
+        title: i18n.t('app.기록'),
+        description: i18n.t('app.지난_일주일_글자_수를_확인해요_우클릭하면'),
         side: "bottom",
         align: "start",
       },
@@ -47947,8 +48771,8 @@ function buildOnboardingSteps() {
     {
       element: "#outlineTocHeading",
       popover: {
-        title: "목차",
-        description: "클릭하면 목차를 한눈에 볼 수 있어요. 우클릭으로 바인더 글자 크기도 조절할 수 있어요.",
+        title: i18n.t('app.목차'),
+        description: i18n.t('app.클릭하면_목차를_한눈에_볼_수_있어요_우클릭'),
         side: "right",
         align: "start",
       },
@@ -47956,8 +48780,8 @@ function buildOnboardingSteps() {
     {
       element: "#aiTabTools",
       popover: {
-        title: "도우미",
-        description: "토리 모드를 설정할 수 있어요. 팩폭 잘하는 투덜이는 어때요?",
+        title: i18n.t('app.도우미'),
+        description: i18n.t('app.토리_모드를_설정할_수_있어요_팩폭_잘하는'),
         side: "left",
         align: "start",
       },
@@ -47965,8 +48789,8 @@ function buildOnboardingSteps() {
     {
       element: "#sceneContent",
       popover: {
-        title: "떡밥",
-        description: "떡밥을 던져 놓으면 회수 시기를 놓치지 않아요. 사용해보실래요?",
+        title: i18n.t('app.떡밥'),
+        description: i18n.t('app.떡밥을_던져_놓으면_회수_시기를_놓치지_않아'),
         side: "left",
         align: "start",
       },
@@ -47974,8 +48798,8 @@ function buildOnboardingSteps() {
     {
       element: "#outline",
       popover: {
-        title: "바인더",
-        description: "폴더와 원고를 자유자재로 배치해요. 끌어다 놓기만 하세요.",
+        title: i18n.t('app.바인더'),
+        description: i18n.t('app.폴더와_원고를_자유자재로_배치해요_끌어다_놓'),
         side: "right",
         align: "center",
       },
@@ -47983,8 +48807,8 @@ function buildOnboardingSteps() {
     {
       element: "#adminModeButton",
       popover: {
-        title: "숨긴 기능",
-        description: "안 쓰는 기능은 숨길 수 있어요. 미니멀리스트를 위한 팁입니당~",
+        title: i18n.t('app.숨긴_기능'),
+        description: i18n.t('app.안_쓰는_기능은_숨길_수_있어요_미니멀리스트'),
         side: "bottom",
         align: "end",
       },
@@ -48015,17 +48839,17 @@ function startOnboardingTutorial(options = {}) {
     smoothScroll: true,
     showProgress: true,
     progressText: "{{current}} / {{total}}",
-    nextBtnText: "다음",
-    prevBtnText: "이전",
-    doneBtnText: "완료",
+    nextBtnText: i18n.t('app.다음'),
+    prevBtnText: i18n.t('app.이전'),
+    doneBtnText: i18n.t('app.완료'),
     showButtons: ["next", "previous", "close"],
     popoverClass: "supertory-tutorial-popover",
     steps: buildOnboardingSteps(),
     onPopoverRender: (popover) => {
       if (popover?.closeButton) {
-        popover.closeButton.textContent = "건너뛰기";
-        popover.closeButton.setAttribute("aria-label", "건너뛰기");
-        popover.closeButton.title = "건너뛰기";
+        popover.closeButton.textContent = i18n.t('app.건너뛰기');
+        popover.closeButton.setAttribute("aria-label", i18n.t('app.건너뛰기'));
+        popover.closeButton.title = i18n.t('app.건너뛰기');
         popover.closeButton.classList.add("driver-popover-skip-btn");
       }
     },
@@ -48140,82 +48964,82 @@ const UI_THEME_PRESETS = [
   {
     id: "light",
     emoji: "🖊️",
-    short: "기본",
-    title: "기본 · Warm Stone Gray",
-    tone: "웜 스톤 그레이 / 눈 편한 차콜",
-    blurb: "쿨한 슬레이트 대신 따뜻한 스톤 그레이로 눈이 편한 기본 화면",
-    recommend: "화이트 패널과 웜 딥차콜 대비로 가독성을 높인 기본 테마",
+    short: i18n.t('app.기본'),
+    title: i18n.t('app.기본_Warm_Stone_Gray'),
+    tone: i18n.t('app.웜_스톤_그레이_눈_편한_차콜'),
+    blurb: i18n.t('app.쿨한_슬레이트_대신_따뜻한_스톤_그레이로_눈'),
+    recommend: i18n.t('app.화이트_패널과_웜_딥차콜_대비로_가독성을_높'),
     dark: false,
   },
   {
     id: "sand",
     emoji: "☀️",
-    short: "주간",
-    title: "주간",
-    tone: "오트밀 샌드 / 따뜻한 베이지",
-    blurb: "이전 연베이지·오트밀 기본 톤을 그대로 쓸 수 있어요.",
-    recommend: "따뜻하고 부드러운 베이지 분위기를 원할 때",
+    short: i18n.t('app.주간'),
+    title: i18n.t('app.주간'),
+    tone: i18n.t('app.오트밀_샌드_따뜻한_베이지'),
+    blurb: i18n.t('app.이전_연베이지_오트밀_기본_톤을_그대로_쓸'),
+    recommend: i18n.t('app.따뜻하고_부드러운_베이지_분위기를_원할_때'),
     dark: false,
   },
   {
     id: "dark",
     emoji: "🌙",
-    short: "야간",
-    title: "야간",
-    tone: "다크 모드",
-    blurb: "기본 다크 모드. 작성 화면 바탕 기본은 R63 G59 B54예요.",
-    recommend: "기본 야간(다크) 화면으로 전환합니다.",
+    short: i18n.t('app.야간'),
+    title: i18n.t('app.야간'),
+    tone: i18n.t('app.다크_모드'),
+    blurb: i18n.t('app.기본_다크_모드_작성_화면_바탕_기본은_R6'),
+    recommend: i18n.t('app.기본_야간_다크_화면으로_전환합니다'),
     dark: true,
   },
   {
     id: "cabin",
     emoji: "🌿",
-    short: "숲속 오두막",
-    title: "토리의 숲속 오두막",
-    tone: "세이지 그린 / 피로 회복",
-    blurb: "세이지 그린 UI + 연한 민트 작성 바탕으로 시각적 피로를 줄여 오랜 작업에 좋아요.",
-    recommend: "눈이 자주 피로해지는 긴 집필 시간에 가장 추천하는 테마",
+    short: i18n.t('app.숲속_오두막'),
+    title: i18n.t('app.토리의_숲속_오두막'),
+    tone: i18n.t('app.세이지_그린_피로_회복'),
+    blurb: i18n.t('app.세이지_그린_UI_연한_민트_작성_바탕으로'),
+    recommend: i18n.t('app.눈이_자주_피로해지는_긴_집필_시간에_가장'),
     dark: false,
   },
   {
     id: "study",
     emoji: "📜",
-    short: "비밀 서재",
-    title: "토리의 비밀 서재",
-    tone: "빈티지 세피아 / 아날로그 감성",
-    blurb: "클래식한 토리의 서재로 초대해요.",
-    recommend: "베이지보다 한 톤 더 예스럽고 은은한 아날로그 감성을 원할 때",
+    short: i18n.t('app.비밀_서재'),
+    title: i18n.t('app.토리의_비밀_서재'),
+    tone: i18n.t('app.빈티지_세피아_아날로그_감성'),
+    blurb: i18n.t('app.클래식한_토리의_서재로_초대해요'),
+    recommend: i18n.t('app.베이지보다_한_톤_더_예스럽고_은은한_아날로'),
     dark: false,
   },
   {
     id: "library",
     emoji: "🏛️",
-    short: "새벽 도서관",
-    title: "토리의 새벽 도서관",
-    tone: "블루 그레이 / 몰입과 집중",
-    blurb: "소프트 블루 그레이 바탕에 차분한 슬레이트 블루 포인트를 살려, 집중력이나 이성적인 글쓰기를 선호하는 작가님께 추천해요!",
-    recommend: "따뜻한 톤보다 서늘하고 차분한 몰입감을 원할 때",
+    short: i18n.t('app.새벽_도서관'),
+    title: i18n.t('app.토리의_새벽_도서관'),
+    tone: i18n.t('app.블루_그레이_몰입과_집중'),
+    blurb: i18n.t('app.소프트_블루_그레이_바탕에_차분한_슬레이트'),
+    recommend: i18n.t('app.따뜻한_톤보다_서늘하고_차분한_몰입감을_원할'),
     dark: false,
   },
   {
     id: "classroom",
     emoji: "🏫",
-    short: "추억 교실",
-    title: "토리의 추억 교실",
-    toastLabel: "토리의 추억 교실",
-    tone: "나무 갈색 바탕 / 초록 박스 선",
-    blurb: "나무 책상 같은 갈색 바탕에 초록 테두리·칠판 액센트로 교실 감성을 살려요. 작성 화면 바탕은 기본이 칠판 모드예요.",
-    recommend: "빈티지하면서도 편안한 집필 분위기를 원할 때",
+    short: i18n.t('app.추억_교실'),
+    title: i18n.t('app.토리의_추억_교실'),
+    toastLabel: i18n.t('app.토리의_추억_교실'),
+    tone: i18n.t('app.나무_갈색_바탕_초록_박스_선'),
+    blurb: i18n.t('app.나무_책상_같은_갈색_바탕에_초록_테두리_칠'),
+    recommend: i18n.t('app.빈티지하면서도_편안한_집필_분위기를_원할_때'),
     dark: false,
   },
   {
     id: "attic",
     emoji: "🌃",
-    short: "심야 다락방",
-    title: "토리의 심야 다락방",
-    tone: "네이비 차콜 / 야간 눈부심 방지",
-    blurb: "야간 작업 시 눈부심을 완벽하게 잡아줘요. 작성 화면 바탕 기본은 차분한 회색(R217 G217 B217)이에요.",
-    recommend: "밤늦게 조명을 낮추고 작업하는 야간 집필용",
+    short: i18n.t('app.심야_다락방'),
+    title: i18n.t('app.토리의_심야_다락방'),
+    tone: i18n.t('app.네이비_차콜_야간_눈부심_방지'),
+    blurb: i18n.t('app.야간_작업_시_눈부심을_완벽하게_잡아줘요_작'),
+    recommend: i18n.t('app.밤늦게_조명을_낮추고_작업하는_야간_집필용'),
     dark: true,
   },
   {
@@ -48223,60 +49047,60 @@ const UI_THEME_PRESETS = [
     emoji: "📟",
     short: "E-ink",
     title: "E ink",
-    tone: "화이트 / 블랙",
-    blurb: "E ink 화면을 쓰시는 작가님들을 위해 마련했어요 ❤️",
-    recommend: "전자잉크·고대비 단순 화면이 필요할 때",
+    tone: i18n.t('app.화이트_블랙'),
+    blurb: i18n.t('app.E_ink_화면을_쓰시는_작가님들을_위해_마'),
+    recommend: i18n.t('app.전자잉크_고대비_단순_화면이_필요할_때'),
     dark: false,
   },
   {
     id: "cloud-walk",
     emoji: "☁️",
-    short: "구름 산책",
-    title: "토리의 구름 산책",
-    tone: "소프트 스카이 파스텔 / 청량한 하늘색",
-    blurb: "탁 트인 하늘처럼 머리가 맑아지고 마음이 가벼워져요.",
-    recommend: "머리를 환기하고 가볍게 집필하고 싶을 때",
+    short: i18n.t('app.구름_산책'),
+    title: i18n.t('app.토리의_구름_산책'),
+    tone: i18n.t('app.소프트_스카이_파스텔_청량한_하늘색'),
+    blurb: i18n.t('app.탁_트인_하늘처럼_머리가_맑아지고_마음이_가'),
+    recommend: i18n.t('app.머리를_환기하고_가볍게_집필하고_싶을_때'),
     dark: false,
   },
   {
     id: "spring-garden",
     emoji: "🌸",
-    short: "봄날 정원",
-    title: "토리의 봄날 정원",
-    tone: "소프트 베이비 핑크 / 따스한 로즈 톤",
-    blurb: "따스하고 포근한 핑크빛으로 달콤한 상상력을 채워줘요.",
-    recommend: "포근하고 달콤한 분위기에서 상상력을 펼치고 싶을 때",
+    short: i18n.t('app.봄날_정원'),
+    title: i18n.t('app.토리의_봄날_정원'),
+    tone: i18n.t('app.소프트_베이비_핑크_따스한_로즈_톤'),
+    blurb: i18n.t('app.따스하고_포근한_핑크빛으로_달콤한_상상력을'),
+    recommend: i18n.t('app.포근하고_달콤한_분위기에서_상상력을_펼치고'),
     dark: false,
   },
   {
     id: "sunset-window",
     emoji: "🌅",
-    short: "노을빛 창가",
-    title: "토리의 노을빛 창가",
-    tone: "따뜻한 노을 샌드 / 소프트 오렌지 앰버",
-    blurb: "해 질 녘 창가처럼 따스하고 감성적인 몰입을 선사해요. 작성 화면 바탕은 기본이 세피아예요.",
-    recommend: "따뜻하고 감성적인 분위기에서 몰입하고 싶을 때",
+    short: i18n.t('app.노을빛_창가'),
+    title: i18n.t('app.토리의_노을빛_창가'),
+    tone: i18n.t('app.따뜻한_노을_샌드_소프트_오렌지_앰버'),
+    blurb: i18n.t('app.해_질_녘_창가처럼_따스하고_감성적인_몰입을'),
+    recommend: i18n.t('app.따뜻하고_감성적인_분위기에서_몰입하고_싶을'),
     dark: false,
   },
   {
     id: "silver-fog",
     emoji: "🌫️",
-    short: "은빛 안개",
-    title: "토리의 은빛 안개",
-    tone: "순수 무채색 그레이 / 미니멀",
-    blurb: "푸른 기운을 뺀 맑은 그레이로 군더더기 없는 몰입을 선사해요.",
-    recommend: "따뜻함보다 정갈하고 미니멀한 화면을 원할 때",
+    short: i18n.t('app.은빛_안개'),
+    title: i18n.t('app.토리의_은빛_안개'),
+    tone: i18n.t('app.순수_무채색_그레이_미니멀'),
+    blurb: i18n.t('app.푸른_기운을_뺀_맑은_그레이로_군더더기_없는'),
+    recommend: i18n.t('app.따뜻함보다_정갈하고_미니멀한_화면을_원할_때'),
     dark: false,
   },
   {
     id: "daydream",
     emoji: "🔮",
-    short: "몽상 시간",
-    title: "토리의 몽상 시간",
-    toastLabel: "토리의 몽상 시간",
-    tone: "소프트 라벤더 / 몽환적 영감",
-    blurb: "아득한 영감을 불러오는 소프트 라벤더로, 몽환적인 상상과 감성적인 문장이 피어나요.",
-    recommend: "아득하고 오묘한 분위기 속에서 영감을 따라가고 싶을 때",
+    short: i18n.t('app.몽상_시간'),
+    title: i18n.t('app.토리의_몽상_시간'),
+    toastLabel: i18n.t('app.토리의_몽상_시간'),
+    tone: i18n.t('app.소프트_라벤더_몽환적_영감'),
+    blurb: i18n.t('app.아득한_영감을_불러오는_소프트_라벤더로_몽환'),
+    recommend: i18n.t('app.아득하고_오묘한_분위기_속에서_영감을_따라가'),
     dark: false,
   },
 ];
@@ -48351,10 +49175,10 @@ function updateUiThemeToggleButton(theme) {
   button.dataset.themeIcon = current;
   const label = preset ? `${preset.emoji} ${preset.short}` : current;
   const open = button.getAttribute("aria-expanded") === "true";
-  button.title = open ? `테마 선택 닫기 · 지금: ${label}` : `테마 선택 · 지금: ${label}`;
+  button.title = open ? `${i18n.t('app.테마_선택_닫기_지금_label', {label: label})}` : `${i18n.t('app.테마_선택_지금_label', {label: label})}`;
   button.setAttribute("aria-label", open
-    ? `테마 선택 닫기. 지금은 ${label}`
-    : `테마 선택. 지금은 ${label}`);
+    ? `${i18n.t('app.테마_선택_닫기_지금은_label', {label: label})}`
+    : `${i18n.t('app.테마_선택_지금은_label', {label: label})}`);
   const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog", "daydream"];
   iconIds.forEach((id) => {
     button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
@@ -48376,8 +49200,8 @@ function uiThemeRailIconOverride(id) {
 }
 
 const UI_THEME_SWITCH_TIP_LINES = [
-  "집필이 지루하거나 집중이 안 될 땐, 테마를 바꿔 분위기를 전환해 보세요.",
-  "시선의 흐름과 색조가 바뀌면 뇌가 환기되어 새로운 몰입을 도와줍니다.",
+  i18n.t('app.집필이_지루하거나_집중이_안_될_땐_테마를'),
+  i18n.t('app.시선의_흐름과_색조가_바뀌면_뇌가_환기되어'),
 ];
 
 function ensureUiThemeRailFilled() {
@@ -48563,7 +49387,7 @@ function syncElectronChrome() {
 function uiThemeToastLabel(theme) {
   const preset = UI_THEME_PRESETS.find((t) => t.id === theme);
   if (preset) return `${preset.emoji} ${preset.toastLabel || preset.short}`;
-  return "테마";
+  return i18n.t('app.테마');
 }
 
 const EINK_BW_STYLE_ID = "supertory-eink-bw-force";
@@ -48740,7 +49564,7 @@ function applyUiTheme(themeName, { announce = false } = {}) {
   });
   renderAdminThemeList();
   if (announce) {
-    toast(`「${uiThemeToastLabel(next)}」로 바꿨어요.`);
+    toast(`${i18n.t('app.uiThemeToastLabel_next', {'uiThemeToastLabel(next)': uiThemeToastLabel(next)})}`);
   }
   return next;
 }
@@ -48994,13 +49818,13 @@ document.querySelectorAll('input[name="importTitleMode"]').forEach((input) => {
 });
 $("importFile").addEventListener("change", () => {
   const file = $("importFile").files?.[0];
-  $("importFileName").textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))}KB)` : "아직 고른 파일이 없어요.";
+  $("importFileName").textContent = file ? `${file.name} (${Math.max(1, Math.round(file.size / 1024))}KB)` : i18n.t('app.아직_고른_파일이_없어요');
   refreshImportTitleFromFileHint();
   if (file && !$("importProjectTitle").value) {
-    $("importProjectTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "새 소설";
+    $("importProjectTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || i18n.t('app.새_소설');
   }
   if (file && !$("importChapterTitle").value) {
-    $("importChapterTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || "가져온 글";
+    $("importChapterTitle").placeholder = file.name.replace(/\.[^.]+$/, "") || i18n.t('app.가져온_글');
   }
   scheduleImportSplitPreview();
 });

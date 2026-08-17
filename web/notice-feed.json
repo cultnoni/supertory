@@ -1,15 +1,21 @@
 {
   "notice": {
-    "badge": "공지",
-    "title": "업데이트 관련 공지",
-    "body": "새 버전이 나오면 설정·정보에서 업데이트 할 수 있어요.",
+    "badge_ko": "공지",
+    "badge_en": "Notice",
+    "title_ko": "업데이트 관련 공지",
+    "title_en": "Update Notice",
+    "body_ko": "새 버전이 나오면 설정·정보에서 업데이트 할 수 있어요.",
+    "body_en": "When a new version is out, you can update it from Settings · Info.",
     "enabled": true,
     "version": "v2"
   },
   "event": {
-    "badge": "EVENT",
-    "title": "피드백 이벤트",
-    "body": "SuperTory를 쓰시며 불편하거나 아쉬운 점이 있으면 알려 주세요. 좋은 제안은 다음 업데이트에 반영하고, 감사 인사를 드릴 예정이에요.",
+    "badge_ko": "EVENT",
+    "badge_en": "EVENT",
+    "title_ko": "피드백 이벤트",
+    "title_en": "Feedback Event",
+    "body_ko": "SuperTory를 쓰시며 불편하거나 아쉬운 점이 있으면 알려 주세요. 좋은 제안은 다음 업데이트에 반영하고, 감사 인사를 드릴 예정이에요.",
+    "body_en": "Let us know if anything about SuperTory feels inconvenient or could be better. Great suggestions may be included in the next update, and we'll thank you for it.",
     "enabled": true,
     "version": "v2",
     "startDate": "2026-08-09",
