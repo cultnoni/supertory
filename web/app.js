@@ -973,13 +973,15 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
   if (!form) return;
   const v = values || emptyWorldBuildingValues();
   const active = document.activeElement;
+  const snap = snapshotOverflowScroll(form);
   form.querySelectorAll("[data-world-field]").forEach((el) => {
     const key = el.dataset.worldField;
     if (!key) return;
     if (!force && active === el) return;
     el.value = v[key] || "";
-    autoResizeSettingsSidebarTextarea(el);
+    autoResizeSettingsSidebarTextarea(el, { preserve: false });
   });
+  restoreOverflowScroll(snap);
   const legacyWrap = form.querySelector("[data-world-section='legacy']")
     || (form.id === "worldbuildingForm" ? $("worldCatLegacy") : $("worldCatLegacyMain"));
   const hasLegacy = Boolean(String(v.legacy || "").trim());
@@ -7680,7 +7682,9 @@ function applySettingsSectionState() {
       const openBox = document.querySelector(`.settings-box.is-open[data-settings-section="${openKey}"]`);
       const body = openBox?.querySelector(".settings-box-body");
       if (!body) return;
-      body.querySelectorAll("textarea").forEach((ta) => autoResizeSettingsSidebarTextarea(ta));
+      const snap = snapshotOverflowScroll(body);
+      body.querySelectorAll("textarea").forEach((ta) => autoResizeSettingsSidebarTextarea(ta, { preserve: false }));
+      restoreOverflowScroll(snap);
     });
   });
 }
@@ -7757,14 +7761,46 @@ function getSettingsDocTextForSave(kind = state.settingsDocKind || "synopsis") {
   return state[meta.stateKey] || "";
 }
 
-function autoResizeSettingsSidebarTextarea(el) {
+function snapshotOverflowScroll(fromEl) {
+  const saved = [];
+  for (let n = fromEl; n && n.nodeType === 1; n = n.parentElement) {
+    saved.push({ n, top: n.scrollTop, left: n.scrollLeft });
+  }
+  return { saved, winX: window.scrollX, winY: window.scrollY };
+}
+
+function restoreOverflowScroll(snap) {
+  if (!snap) return;
+  for (const { n, top, left } of snap.saved) {
+    if (n.scrollTop !== top) n.scrollTop = top;
+    if (n.scrollLeft !== left) n.scrollLeft = left;
+  }
+  if (window.scrollX !== snap.winX || window.scrollY !== snap.winY) {
+    window.scrollTo(snap.winX, snap.winY);
+  }
+}
+
+function autoResizeSettingsSidebarTextarea(el, options = {}) {
   if (!el || el.tagName !== "TEXTAREA") return;
-  // Temporarily free height so scrollHeight reflects full content.
-  el.style.height = "0px";
   el.style.overflowY = "hidden";
   const minPx = 64;
-  const next = Math.max(minPx, el.scrollHeight + 2);
+  const extra = 2;
+  const allowShrink = options.shrink !== false;
+  const preserve = options.preserve !== false;
+
+  // Grow in place. Collapsing to 0px first makes fields below jump up and
+  // resets the settings/worldbuilding scroll parent to the top.
+  if (el.scrollHeight > el.clientHeight + 1) {
+    el.style.height = `${Math.max(minPx, el.scrollHeight + extra)}px`;
+    return;
+  }
+  if (!allowShrink) return;
+
+  const snap = preserve ? snapshotOverflowScroll(el) : null;
+  el.style.height = "0px";
+  const next = Math.max(minPx, el.scrollHeight + extra);
   el.style.height = `${next}px`;
+  if (preserve) restoreOverflowScroll(snap);
 }
 
 function syncSettingsDocSidebarFromState(kind) {
@@ -8270,7 +8306,7 @@ function bindSettingsDocSidebarInput(kind) {
     }
   };
   el.addEventListener("input", () => {
-    autoResizeSettingsSidebarTextarea(el);
+    autoResizeSettingsSidebarTextarea(el, { shrink: false });
     pushToStateAndMaybeMain();
     scheduleSettingsDocAutoSave(kind);
   });
@@ -8280,6 +8316,7 @@ function bindSettingsDocSidebarInput(kind) {
     scheduleSettingsDocAutoSave(kind);
   });
   el.addEventListener("blur", () => {
+    autoResizeSettingsSidebarTextarea(el);
     pushToStateAndMaybeMain();
   });
 }
@@ -8305,7 +8342,7 @@ function bindWorldBuildingFormRoot(form) {
   form.addEventListener("input", (event) => {
     const el = event.target?.closest?.("[data-world-field]");
     if (!el) return;
-    autoResizeSettingsSidebarTextarea(el);
+    autoResizeSettingsSidebarTextarea(el, { shrink: false });
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
     if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus(i18n.t('app.저장_대기_중'));
@@ -8316,7 +8353,9 @@ function bindWorldBuildingFormRoot(form) {
     scheduleSettingsDocAutoSave("world");
   });
   form.addEventListener("blur", (event) => {
-    if (!event.target?.closest?.("[data-world-field]")) return;
+    const el = event.target?.closest?.("[data-world-field]");
+    if (!el) return;
+    autoResizeSettingsSidebarTextarea(el);
     syncFromThisForm();
   }, true);
 }
