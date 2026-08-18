@@ -2177,26 +2177,30 @@ async function bulkApplySceneGoals({ includeMetric = false } = {}) {
   }
 }
 
+function openGoalBulkMenuFrom(event, anchorEl) {
+  event.preventDefault();
+  event.stopPropagation();
+  const host = $("statusBarGoalControls");
+  const anchor = anchorEl || host || event.currentTarget;
+  setUiFeatureCtxTarget?.(host || anchor);
+  showGoalBulkMenu(anchor);
+}
+
 function setupGoalBulkMenu() {
   const host = $("statusBarGoalControls");
-  host?.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setUiFeatureCtxTarget?.(host);
-    showGoalBulkMenu(host);
-  });
+  const saveBtn = $("statusSaveButton")
+    || document.querySelector(".manuscript-status-wrap .status-save-btn");
+  host?.addEventListener("contextmenu", (event) => openGoalBulkMenuFrom(event, host));
   // Input often swallows contextmenu — bind explicitly too.
   $("statsGoalInput")?.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setUiFeatureCtxTarget?.(host || $("statsGoalInput"));
-    showGoalBulkMenu(host || $("statsGoalInput"));
+    openGoalBulkMenuFrom(event, host || $("statsGoalInput"));
   });
   $("statsGoalLabel")?.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setUiFeatureCtxTarget?.(host || $("statsGoalLabel"));
-    showGoalBulkMenu(host || $("statsGoalLabel"));
+    openGoalBulkMenuFrom(event, host || $("statsGoalLabel"));
+  });
+  // 목표 옆 「저장」에서도 우클릭 → 전체 적용 (서식 도구와 같은 패턴)
+  saveBtn?.addEventListener("contextmenu", (event) => {
+    openGoalBulkMenuFrom(event, saveBtn);
   });
 
   const menu = $("goalBulkMenu");
@@ -2215,7 +2219,9 @@ function setupGoalBulkMenu() {
     });
   }
   document.addEventListener("click", (event) => {
-    if (event.target.closest("#goalBulkMenu, #statusBarGoalControls")) return;
+    if (event.target.closest("#goalBulkMenu, #statusBarGoalControls, #statusSaveButton, .status-save-btn")) {
+      return;
+    }
     hideGoalBulkMenu();
   });
   document.addEventListener("keydown", (event) => {
@@ -39094,7 +39100,7 @@ function setupRenumberChaptersModal() {
 
 /**
  * +챕터 통합:
- * - 루트 클릭: 상위 폴더 상자(part) + 그 안 하위 폴더(chapter) 1개
+ * - 루트 클릭: 폴더(chapter) 하나만 추가. 상위 상자+하위 폴더를 동시에 만들지 않음.
  * - 상위 폴더 안(+): 하위 폴더(chapter)만 추가
  * - 끌어다 놓기 / 삽입 위치: 해당 그룹(상자·미분류) 안에 폴더 추가
  */
@@ -39182,8 +39188,11 @@ async function createChapter(options = {}) {
     return;
   }
 
-  // Root +챕터: top-level folder box (part) + one sub-folder (chapter) for manuscripts
-  const n = (state.parts || []).length + 1;
+  // Root +폴더: 원고를 담는 폴더 하나만 만든다 (상위 상자+하위 폴더 이중 생성 금지).
+  const existingFolderCount = shouldUseFoldersOutline()
+    ? (state.folders || []).length
+    : ((state.parts || []).length || (state.ungroupedChapters || []).length || (state.outline || []).length);
+  const n = existingFolderCount + 1;
   const defaultTitle = `${i18n.t('app.n_장', {n: n})}`;
   const title = await promptText({
     title: i18n.t('app.폴더_만들기'),
@@ -39194,16 +39203,11 @@ async function createChapter(options = {}) {
   });
   if (title === null) return;
   const name = title.trim() || defaultTitle;
-  const part = await api(`/api/projects/${state.projectId}/parts`, {
+  await api(`/api/projects/${state.projectId}/chapters`, {
     method: "POST",
     body: JSON.stringify({ title: name }),
   });
-  noteFolderUndoAvailable(); // part create is undoable
-  await api(`/api/projects/${state.projectId}/chapters`, {
-    method: "POST",
-    body: JSON.stringify({ title: name, part_id: part.id }),
-  });
-  noteFolderUndoAvailable(); // chapter create
+  noteFolderUndoAvailable();
   clearChapterInsertTarget();
   await loadProject();
   toast(`${i18n.t('app.name_폴더를_만들었어요_옆_로_원고를', {name: name})}`);
@@ -39975,7 +39979,7 @@ function clearSceneNestDropUi(outline = $("outline")) {
   outline?.querySelectorAll(
     ".scene-link.is-drop-target, .scene-link.is-drop-before, .scene-link.is-drop-after, "
     + ".scene-tree-item.is-dragging-scene, .chapter-children.is-scene-drop, "
-    + ".outline-chapter.is-scene-drop",
+    + ".part-children.is-scene-drop, .outline-chapter.is-scene-drop, .outline-part.is-scene-drop",
   ).forEach((el) => {
     el.classList.remove(
       "is-drop-target",
@@ -40009,10 +40013,88 @@ function collectSceneDescendantIds(rootId) {
     }
     return false;
   };
-  for (const chapter of state.outline || []) {
+  const walkFolders = (nodes) => {
+    for (const node of nodes || []) {
+      if (walk(node.scenes || [])) return true;
+      if (walkFolders(node.children || node.child_folders || [])) return true;
+    }
+    return false;
+  };
+  if (walkFolders(state.folders || [])) return out;
+  for (const chapter of getBinderChaptersInOrder()) {
     if (walk(chapter.scenes || [])) break;
   }
   return out;
+}
+
+/** Chapter id that can receive manuscripts for an outline folder section. */
+function chapterIdForOutlineFolderSection(section) {
+  if (!section) return 0;
+  const direct = Number(section.dataset.chapterId);
+  if (direct) return direct;
+  const inner = section.querySelector(
+    ":scope .outline-chapter[data-chapter-id], :scope .outline-part[data-chapter-id]",
+  );
+  if (inner) {
+    const nested = Number(inner.dataset.chapterId);
+    if (nested) return nested;
+  }
+  const sceneLink = section.querySelector(".scene-link[data-chapter-id]");
+  return Number(sceneLink?.dataset?.chapterId) || 0;
+}
+
+function resolveFolderSectionSceneDrop(section, clientY, subtree) {
+  const fallbackChapterId = chapterIdForOutlineFolderSection(section);
+  if (!fallbackChapterId) return null;
+  const children = section.querySelector(":scope > .chapter-children, :scope > .part-children");
+  const childrenVisible = Boolean(
+    children && !children.hidden && !children.classList.contains("is-collapsed"),
+  );
+  if (childrenVisible) {
+    const sceneLinks = [...children.querySelectorAll(
+      ":scope .scene-tree-item[data-depth=\"0\"] > .scene-row > .scene-link[data-scene]:not([data-pinned])",
+    )];
+    if (sceneLinks.length) {
+      let nearest = null;
+      let best = Infinity;
+      for (const sceneLink of sceneLinks) {
+        const sid = Number(sceneLink.dataset.scene);
+        if (!sid || subtree.has(sid)) continue;
+        const rect = sceneLink.getBoundingClientRect();
+        const mid = rect.top + rect.height / 2;
+        const dist = Math.abs(clientY - mid);
+        if (dist < best) {
+          best = dist;
+          nearest = { link: sceneLink, rect, sid };
+        }
+      }
+      if (nearest) {
+        const chapterId = Number(nearest.link.dataset.chapterId) || fallbackChapterId;
+        if (clientY < nearest.rect.top + nearest.rect.height / 2) {
+          return {
+            mode: "before",
+            chapterId,
+            parentSceneId: null,
+            beforeSceneId: nearest.sid,
+            el: nearest.link,
+          };
+        }
+        return {
+          mode: "after",
+          chapterId,
+          parentSceneId: null,
+          afterSceneId: nearest.sid,
+          el: nearest.link,
+        };
+      }
+    }
+  }
+  return {
+    mode: "chapter-root",
+    chapterId: fallbackChapterId,
+    parentSceneId: null,
+    el: children || section,
+  };
 }
 
 function resolveSceneMoveDrop(outline, clientX, clientY, eventTarget) {
@@ -40064,56 +40146,11 @@ function resolveSceneMoveDrop(outline, clientX, clientY, eventTarget) {
     };
   }
 
-  const chapterSection = eventTarget?.closest?.(".outline-chapter[data-chapter-id]");
-  if (chapterSection && outline.contains(chapterSection)) {
-    const chapterId = Number(chapterSection.dataset.chapterId);
-    if (!chapterId) return null;
-    const children = chapterSection.querySelector(":scope > .chapter-children");
-    // Prefer inserting relative to nearest scene row inside this chapter.
-    if (children) {
-      const sceneLinks = [...children.querySelectorAll(
-        ":scope .scene-tree-item[data-depth=\"0\"] > .scene-row > .scene-link[data-scene]:not([data-pinned])",
-      )];
-      if (sceneLinks.length) {
-        let nearest = null;
-        let best = Infinity;
-        for (const sceneLink of sceneLinks) {
-          const sid = Number(sceneLink.dataset.scene);
-          if (!sid || subtree.has(sid)) continue;
-          const rect = sceneLink.getBoundingClientRect();
-          const mid = rect.top + rect.height / 2;
-          const dist = Math.abs(clientY - mid);
-          if (dist < best) {
-            best = dist;
-            nearest = { link: sceneLink, rect, sid };
-          }
-        }
-        if (nearest) {
-          if (clientY < nearest.rect.top + nearest.rect.height / 2) {
-            return {
-              mode: "before",
-              chapterId,
-              parentSceneId: null,
-              beforeSceneId: nearest.sid,
-              el: nearest.link,
-            };
-          }
-          return {
-            mode: "after",
-            chapterId,
-            parentSceneId: null,
-            afterSceneId: nearest.sid,
-            el: nearest.link,
-          };
-        }
-      }
-    }
-    return {
-      mode: "chapter-root",
-      chapterId,
-      parentSceneId: null,
-      el: children || chapterSection,
-    };
+  const folderSection = eventTarget?.closest?.(
+    ".outline-chapter[data-chapter-id], .outline-part[data-chapter-id], .outline-part[data-part-id]",
+  );
+  if (folderSection && outline.contains(folderSection)) {
+    return resolveFolderSectionSceneDrop(folderSection, clientY, subtree);
   }
   return null;
 }
@@ -40130,9 +40167,9 @@ function applySceneMoveDropHint(outline, drop) {
   } else if (drop.mode === "nest" && drop.el) {
     drop.el.classList.add("is-drop-target");
   } else if (drop.mode === "chapter-root") {
-    const section = drop.el?.closest?.(".outline-chapter") || drop.el;
+    const section = drop.el?.closest?.(".outline-chapter, .outline-part") || drop.el;
     section?.classList.add("is-scene-drop");
-    section?.querySelector?.(":scope > .chapter-children")?.classList.add("is-scene-drop");
+    section?.querySelector?.(":scope > .chapter-children, :scope > .part-children")?.classList.add("is-scene-drop");
   }
 }
 

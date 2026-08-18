@@ -2847,7 +2847,7 @@ aside { padding: 18px 14px; min-width: 0; }
   background: var(--surface-3);
   box-shadow: inset 0 0 0 1px var(--border-strong);
 }
-/* 목차 제목 옆 아이콘 버튼: +폴더 · 글자/줄간격 */
+/* 목차 제목 옆 아이콘 버튼: +폴더 · 글자/줄간격 · 순번 정리 */
 .outline-icon-btn {
   flex: 0 0 auto;
   display: inline-flex;
@@ -2864,11 +2864,16 @@ aside { padding: 18px 14px; min-width: 0; }
   cursor: pointer;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
 }
-.outline-icon-btn .outline-spacing-icon {
+.outline-icon-btn .outline-spacing-icon,
+.outline-icon-btn .outline-renumber-icon {
   width: 20px;
   height: 20px;
   display: block;
   flex: 0 0 auto;
+}
+.outline-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 .outline-icon-btn .outline-new-folder-icon {
   width: 22px;
@@ -3112,7 +3117,7 @@ body.outline-spacing-adjust-mode #manuscriptBinder #outline {
   overflow: visible;
   max-width: 100%;
 }
-/* 목차 행: [목차·개수] [+폴더] [글자크기] */
+/* 목차 행: [목차·개수] [+폴더] [글자크기] [순번 정리] */
 .outline-toc-heading {
   display: inline-flex;
   align-items: center;
@@ -10252,7 +10257,9 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   border-radius: 4px;
 }
 .chapter-children.is-scene-drop,
-.outline-chapter.is-scene-drop > .chapter-children {
+.part-children.is-scene-drop,
+.outline-chapter.is-scene-drop > .chapter-children,
+.outline-part.is-scene-drop > .part-children {
   outline: 2px dashed color-mix(in srgb, var(--accent) 70%, var(--line));
   outline-offset: -2px;
   border-radius: 6px;

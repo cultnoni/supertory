@@ -377,6 +377,21 @@
                       <path fill="none" stroke="currentColor" stroke-width="1.55" stroke-linecap="round" d="M20.8 8.2h2.2M20.8 12h2.2M20.8 15.8h2.2"/>
                     </svg>
                   </button>
+                  <button
+                    type="button"
+                    class="outline-icon-btn outline-renumber-btn"
+                    id="renumberChaptersButton"
+                    title="순번 정리: 바인더 순서대로 챕터 제목 앞 번호를 다시 매깁니다" data-i18n-title="index.순번_정리_바인더_순서대로_챕터_제목_앞"
+                    aria-label="순번 정리" data-i18n-aria-label="index.순번_정리"
+                    data-ui-hide-label="순번 정리"
+                  >
+                    <svg class="outline-renumber-icon" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" focusable="false">
+                      <text x="3.2" y="8.6" fill="currentColor" font-size="7" font-weight="700" font-family="system-ui,Segoe UI,sans-serif">1</text>
+                      <text x="3.2" y="13.8" fill="currentColor" font-size="7" font-weight="700" font-family="system-ui,Segoe UI,sans-serif">2</text>
+                      <text x="3.2" y="19" fill="currentColor" font-size="7" font-weight="700" font-family="system-ui,Segoe UI,sans-serif">3</text>
+                      <path fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" d="M10 7h10M10 12.2h10M10 17.4h10"/>
+                    </svg>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1699,8 +1714,8 @@
                     <div id="sceneGoalBarOverflow" class="scene-goal-bar-overflow" aria-hidden="true"></div>
                   </div>
                 </div>
-                <div class="status-bar-goal-controls" id="statusBarGoalControls" title="우클릭: 목표 일괄 적용" data-i18n-title="index.우클릭_목표_일괄_적용">
-                  <label class="status-bar-field" title="목표 수 · 우클릭: 일괄 적용" data-i18n-title="index.목표_수_우클릭_일괄_적용">
+                <div class="status-bar-goal-controls" id="statusBarGoalControls" title="우클릭: 목표 전체 적용" data-i18n-title="index.우클릭_목표_전체_적용">
+                  <label class="status-bar-field" title="목표 수 · 우클릭: 전체 적용" data-i18n-title="index.목표_수_우클릭_전체_적용">
                     <span class="status-bar-field-label" id="statsGoalLabel" data-i18n="app.목표">목표</span>
                     <input id="statsGoalInput" type="number" min="0" step="1" value="0" placeholder="0" aria-label="목표 수" data-i18n-aria-label="index.목표_수">
                   </label>
@@ -1715,7 +1730,15 @@
                   </select>
                 </div>
                 <div class="status-bar-actions">
-                  <button type="submit" form="sceneEditor" class="primary compact-btn status-save-btn" data-i18n="app.저장">저장</button>
+                  <button
+                    type="submit"
+                    form="sceneEditor"
+                    class="primary compact-btn status-save-btn"
+                    id="statusSaveButton"
+                    title="저장 · 우클릭: 목표 전체 적용"
+                    data-i18n-title="index.저장_우클릭_목표_전체_적용"
+                    data-i18n="app.저장"
+                  >저장</button>
                 </div>
               </div>
               </footer>
@@ -4662,9 +4685,9 @@
       </button>
     </div>
 
-    <div id="goalBulkMenu" class="context-menu hidden" role="menu" aria-label="목표 일괄 적용" data-i18n-aria-label="index.목표_일괄_적용">
-      <div class="context-menu-label" id="goalBulkMenuLabel" data-i18n="index.목표_일괄_적용">목표 일괄 적용</div>
-      <button type="button" role="menuitem" data-goal-bulk="all-scenes" data-i18n="index.모든_씬에_이_목표_적용">모든 씬에 이 목표 적용</button>
+    <div id="goalBulkMenu" class="context-menu hidden" role="menu" aria-label="목표 전체 적용" data-i18n-aria-label="index.목표_전체_적용">
+      <div class="context-menu-label" id="goalBulkMenuLabel" data-i18n="index.목표_전체_적용">목표 전체 적용</div>
+      <button type="button" role="menuitem" data-goal-bulk="all-scenes" data-i18n="index.전체_적용">전체 적용</button>
       <button type="button" role="menuitem" data-goal-bulk="all-scenes-metric" data-i18n="index.목표_기준_공백_단어_등_함께_적용">목표 + 기준(공백/단어 등) 함께 적용</button>
       <div class="context-menu-divider" data-ui-hide-footer></div>
       <button type="button" role="menuitem" data-ui-feature-hide data-ui-hide-footer>
