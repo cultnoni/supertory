@@ -94,6 +94,9 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("1:1로 대화 중입니다", prompt)
         self.assertIn("AI라는 사실을 언급하지 말고", prompt)
         self.assertIn("이유를 함께 설명하세요", prompt)
+        self.assertIn("회빙환", prompt)
+        self.assertIn("임의로 가정해서 언급하지 마라", prompt)
+        self.assertIn("본문/설정에 안 나와서 모르겠다", prompt)
         self.assertNotIn("토리 Core Identity", prompt)
         self.assertNotIn("당신은 '토리'입니다", prompt)
         self.assertNotIn("로판 서사파", prompt)
@@ -102,14 +105,118 @@ class ReaderChatTests(unittest.TestCase):
 
     def test_dynamic_context_includes_genre_and_optional_manuscript(self) -> None:
         pid = self._make_project()
+        status, _ = self.request(
+            "PUT",
+            f"/api/projects/{pid}/settings",
+            {
+                "synopsis_md": (
+                    "재벌가 계약결혼 로맨스. 여주는 위장 이혼을 추진하고, "
+                    "남주는 가문의 후계 분쟁에 휘말린다. 회귀·빙의·환생은 없다."
+                ),
+                "worldbuilding_md": (
+                    "## 1. 무대 및 시대 (Where & When)\n"
+                    "작품의 기본 바탕이 되는 공간과 시간선입니다.\n\n"
+                    "### 현실 / 가상 구분\n"
+                    "현실\n\n"
+                    "### 시대 배경\n"
+                    "현대 서울\n\n"
+                    "### 주요 배경\n"
+                    "재벌 본사와 한남동 저택\n\n"
+                    "## 2. 세계의 특이점 (Unique Concept)\n"
+                    "이 세계를 다른 세계관과 다르게 만드는 단 하나의 핵심 규칙입니다.\n\n"
+                    "### 특수 요소\n"
+                    "\n\n"
+                    "### 작동 규칙\n"
+                    "\n\n"
+                    "### 한계와 대가\n"
+                    "\n\n"
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
         bare = app._reader_dynamic_context(pid)
         self.assertIn("메인 장르: 로판", bare)
         self.assertIn("서브 장르:", bare)
+        self.assertIn("[작품 설정 요약", bare)
+        self.assertIn("설정집 정보이며 실제 원고 문장이 아님", bare)
+        self.assertIn("시놉시스 요약:", bare)
+        self.assertIn("계약결혼", bare)
+        self.assertIn("세계관 설정 요약", bare)
+        self.assertIn("현대 서울", bare)
+        self.assertNotIn("### 특수 요소", bare)
+        self.assertIn("[원고 미첨부]", bare)
+        self.assertIn("시놉시스/세계관·누적 인덱스 정보만 가지고 대화하는 상황", bare)
         self.assertNotIn("작가가 공유한 원고", bare)
+        self.assertNotIn("[프로젝트 누적 정보]", bare)
         with_ms = app._reader_dynamic_context(pid, "빌런이 사과하고 끝났다.")
         self.assertIn("다음은 작가가 공유한 원고 내용입니다:", with_ms)
         self.assertIn("빌런이 사과하고 끝났다.", with_ms)
+        self.assertNotIn("[원고 미첨부]", with_ms)
         self.assertNotIn("[Tory Core Identity]", with_ms)
+
+    def test_dynamic_context_includes_project_index_when_present(self) -> None:
+        pid = self._make_project()
+        with app.database() as connection:
+            connection.execute(
+                "INSERT INTO project_index("
+                "project_id, characters_json, world_rules_json, timeline_json, "
+                "open_threads_json, tracked_facts_json, index_dirty, pending_scene_ids_json"
+                ") VALUES (?, ?, ?, ?, ?, ?, 0, '[]') "
+                "ON CONFLICT(project_id) DO UPDATE SET "
+                "characters_json=excluded.characters_json, "
+                "world_rules_json=excluded.world_rules_json, "
+                "timeline_json=excluded.timeline_json, "
+                "open_threads_json=excluded.open_threads_json, "
+                "tracked_facts_json=excluded.tracked_facts_json",
+                (
+                    pid,
+                    '["송혜아", "신재결"]',
+                    '["BNG그룹은 호텔을 운영한다."]',
+                    '["26화: 공항에서 혜아가 긴급 고용된다."]',
+                    '["파격적인 고용 조건", "식중독 사건의 원인"]',
+                    '[{"category":"관계","subject":"송혜아","attribute":"신재결","value":"재회","since_scene":"26"}]',
+                ),
+            )
+        ctx = app._reader_dynamic_context(pid)
+        self.assertIn("[프로젝트 누적 정보]", ctx)
+        self.assertIn("[지금까지 전개 - 실제 원고 문장 아님, 요약임]", ctx)
+        self.assertIn("공항에서 혜아가 긴급 고용", ctx)
+        self.assertIn("[아직 안 풀린 떡밥/복선 목록]", ctx)
+        self.assertIn("파격적인 고용 조건", ctx)
+        self.assertIn("식중독 사건의 원인", ctx)
+        self.assertIn("[추적 중인 설정/인물 사실]", ctx)
+        self.assertIn("송혜아", ctx)
+        self.assertIn("BNG그룹은 호텔을 운영한다.", ctx)
+        # settings block still before index, manuscript tip after
+        self.assertLess(ctx.find("[작품 정보]"), ctx.find("[프로젝트 누적 정보]"))
+        self.assertLess(ctx.find("[프로젝트 누적 정보]"), ctx.find("[원고 미첨부]"))
+
+    def test_plot_analyst_gets_thread_focus_instruction(self) -> None:
+        with app.database() as connection:
+            plot = connection.execute(
+                "SELECT * FROM virtual_reader_personas WHERE id = ?",
+                ("plausibility_absolutist",),
+            ).fetchone()
+            cider = connection.execute(
+                "SELECT * FROM virtual_reader_personas WHERE id = ?",
+                ("roppan_cider",),
+            ).fetchone()
+        plot_prompt = app._reader_persona_system_prompt(dict(plot))
+        cider_prompt = app._reader_persona_system_prompt(dict(cider))
+        focus = "너무 오래 방치된 떡밥은 없는지 짚어라"
+        self.assertIn(focus, plot_prompt)
+        self.assertIn("[아직 안 풀린 떡밥/복선 목록]", plot_prompt)
+        self.assertNotIn(focus, cider_prompt)
+        self.assertIn("개연성·복선 설계 분석가", plot_prompt)
+
+    def test_dynamic_context_omits_empty_settings_quietly(self) -> None:
+        pid = self._make_project()
+        bare = app._reader_dynamic_context(pid)
+        self.assertIn("메인 장르: 로판", bare)
+        self.assertIn("[원고 미첨부]", bare)
+        self.assertNotIn("시놉시스 요약:", bare)
+        self.assertNotIn("세계관 설정 요약", bare)
+        self.assertNotIn("[프로젝트 누적 정보]", bare)
 
     def test_list_personas_grouped_by_category(self) -> None:
         status, grouped = self.request("GET", "/api/reader-personas")
@@ -157,6 +264,7 @@ class ReaderChatTests(unittest.TestCase):
         system = str(self.captured.get("system") or "")
         self.assertIn("로맨스·로판 사이다파", system)
         self.assertIn("작가가 공유한 원고", system)
+        self.assertIn("임의로 가정해서 언급하지 마라", system)
         self.assertNotIn("당신은 '토리'입니다", system)
         self.assertNotIn("로판 서사파", system)
 
@@ -193,6 +301,86 @@ class ReaderChatTests(unittest.TestCase):
         self.assertEqual(status, 200, chat)
         self.assertEqual(chat.get("persona_name"), "로맨스·로판 사이다파")
         self.assertGreater(len(str(chat.get("reply") or "")), 10)
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_reader_no_regression_stereotype_without_manuscript(self) -> None:
+        """로판이라도 시놉시스에 없는 회빙환을 임의로 꺼내지 않는지 확인."""
+        gemini_client.generate_text = self.original_generate  # type: ignore[method-assign]
+        pid = self._make_project()
+        status, _ = self.request(
+            "PUT",
+            f"/api/projects/{pid}/settings",
+            {
+                "synopsis_md": (
+                    "현대 재벌가 계약결혼물. 여주 서연은 위장 이혼으로 자유를 얻으려 하고, "
+                    "남주 도현은 이사회 쿠데타를 막기 위해 혼인 유지를 원한다. "
+                    "회귀·빙의·환생·숨겨진 황족 혈통 같은 장치는 없다."
+                ),
+                "worldbuilding_md": (
+                    "## 1. 무대 및 시대 (Where & When)\n\n"
+                    "### 현실 / 가상 구분\n현실\n\n"
+                    "### 시대 배경\n2020년대 서울\n\n"
+                    "### 주요 배경\n한남동 저택, 여의도 본사\n\n"
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        status, chat = self.request(
+            "POST",
+            "/api/reader-chat",
+            {
+                "work_id": str(pid),
+                "persona_id": "roppan_cider",
+                "user_message": "이 작품 어때요?",
+            },
+        )
+        self.assertEqual(status, 200, chat)
+        reply = str(chat.get("reply") or "")
+        self.assertGreater(len(reply), 10, reply)
+        lowered = reply.lower()
+        for banned in ("회빙환", "회귀", "빙의", "환생", "전생"):
+            self.assertNotIn(banned, reply, f"unexpected {banned!r} in: {reply}")
+            self.assertNotIn(banned, lowered, f"unexpected {banned!r} in: {reply}")
+        # Keep the reply visible in unittest -v output for manual review.
+        print("\n[live no-manuscript reply]\n", reply)
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_reader_with_manuscript_is_more_specific(self) -> None:
+        gemini_client.generate_text = self.original_generate  # type: ignore[method-assign]
+        pid = self._make_project()
+        status, _ = self.request(
+            "PUT",
+            f"/api/projects/{pid}/settings",
+            {
+                "synopsis_md": (
+                    "현대 재벌가 계약결혼물. 여주 서연은 위장 이혼으로 자유를 얻으려 하고, "
+                    "남주 도현은 이사회 쿠데타를 막기 위해 혼인 유지를 원한다."
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        episode = (
+            "회의실 유리창 너머로 석양이 기울었다. 서연은 도현에게 이혼 합의서를 내밀며 "
+            "말했다. \"이번엔 진짜예요. 가문 이미지도, 주가도, 더 이상 제 몫이 아니니까.\" "
+            "도현은 서류를 받지 않은 채, 낮게 웃었다. \"이사회가 내일 열리는데, "
+            "당신이 없으면 난 끝장이야. 한 달만. 그 뒤엔 당신이 원하는 대로 할게.\""
+        )
+        status, chat = self.request(
+            "POST",
+            "/api/reader-chat",
+            {
+                "work_id": str(pid),
+                "persona_id": "roppan_cider",
+                "user_message": "이 장면 어때요?",
+                "episode_content": episode,
+            },
+        )
+        self.assertEqual(status, 200, chat)
+        reply = str(chat.get("reply") or "")
+        self.assertGreater(len(reply), 10, reply)
+        for banned in ("회빙환", "회귀", "빙의", "환생", "전생"):
+            self.assertNotIn(banned, reply, f"unexpected {banned!r} in: {reply}")
+        print("\n[live with-manuscript reply]\n", reply)
 
     def test_avatar_pngs_are_served_for_every_persona(self) -> None:
         status, grouped = self.request("GET", "/api/reader-personas")

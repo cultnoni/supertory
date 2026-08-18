@@ -2698,8 +2698,19 @@
                   </button>
                   <strong data-i18n="index.토론_패널">토론 패널</strong>
                 </div>
-                <p class="hint" data-i18n="index.토론_진행_화면은_곧_연결돼요_지금은_고른">토론 진행 화면은 곧 연결돼요. 지금은 고른 독자만 확인해요.</p>
-                <ul id="readerDebateRoomList" class="reader-debate-room-list"></ul>
+                <div id="readerDebatePeers" class="reader-debate-peers" aria-label="토론 참여자" data-i18n-aria-label="index.토론_참여자"></div>
+                <div id="readerDebateMessages" class="reader-chat-messages reader-debate-messages" aria-live="polite" aria-label="가상 독자 토론" data-i18n-aria-label="index.가상_독자_토론"></div>
+                <div id="readerDebateAttachChip" class="reader-chat-attach-chip hidden" hidden>
+                  <span id="readerDebateAttachLabel" data-i18n="index.첨부됨">첨부됨</span>
+                  <button type="button" class="reader-chat-attach-clear" id="readerDebateAttachClear" title="첨부 취소" data-i18n-title="index.첨부_취소" aria-label="첨부 취소" data-i18n-aria-label="index.첨부_취소">×</button>
+                </div>
+                <form id="readerDebateForm" class="reader-chat-form">
+                  <textarea id="readerDebateInput" rows="3" maxlength="4000" placeholder="토론에 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" data-i18n-placeholder="index.토론에_말걸기_10_Enter_전송_S" aria-label="토론에 보낼 메시지" data-i18n-aria-label="index.토론에_보낼_메시지"></textarea>
+                  <div class="reader-chat-actions">
+                    <button type="button" class="secondary" id="readerDebateAttachButton" data-i18n="index.원고_첨부">원고 첨부</button>
+                    <button type="submit" class="primary" id="readerDebateSendButton" data-i18n="app.보내기">보내기</button>
+                  </div>
+                </form>
               </div>
               <div id="readerChatRoom" class="reader-chat-room hidden">
                 <div class="reader-chat-toolbar">
@@ -4382,6 +4393,10 @@
       <button type="button" role="menuitem" data-binder-action="rename">
         <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
         <span data-i18n="index.이_회차_제목을_수정해요">이 회차 제목을 수정해요</span>
+      </button>
+      <button type="button" role="menuitem" data-binder-action="title-italic" id="binderTitleItalicMenuItem" class="hidden">
+        <strong data-i18n="index.이탤릭체로_표시">이탤릭체로 표시</strong>
+        <span data-i18n="index.목차에서_제목을_기울여_보여요">목차에서 제목을 기울여 보여요</span>
       </button>
       <button type="button" role="menuitem" data-binder-action="bookmark">
         <strong data-i18n="app.북마크하기">북마크하기</strong>

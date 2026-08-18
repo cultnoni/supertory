@@ -3371,6 +3371,8 @@
   "index.상위_밖으로_빼기": "Move out of parent",
   "index.하위_관계를_끊고_폴더_최상위로_올려요": "Removes the sub-relationship and moves the folder to the top level",
   "index.이름_바꾸기": "Rename",
+  "index.이탤릭체로_표시": "Show in italics",
+  "index.목차에서_제목을_기울여_보여요": "Show this title in italics in the binder",
   "index.이_회차_제목을_수정해요": "Edit this episode's title",
   "index.상단_색_북마크에_고정해요": "Pin to the colored bookmark bar at the top",
   "index.복제하기": "Duplicate",

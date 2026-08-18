@@ -16292,10 +16292,13 @@ function syncReaderChatView() {
 }
 
 function openReaderPersonaPicker() {
+  if (typeof skipReaderDebateReveal === "function") skipReaderDebateReveal();
   readerChatPersona = null;
   readerChatMessages = [];
   readerChatAttached = null;
   readerChatSending = false;
+  readerManuscriptAttachTarget = "chat";
+  $("readerDebateRoom")?.classList.add("hidden");
   setToryChatHub("reader");
 }
 
@@ -16475,7 +16478,15 @@ async function attachReaderScene(sceneId) {
       toast(i18n.t('app.이_회차에_본문이_없어요'));
       return;
     }
-    readerChatAttached = { sceneId: id, title, content };
+    const attached = { sceneId: id, title, content };
+    if (readerManuscriptAttachTarget === "debate") {
+      readerDebateAttached = attached;
+      renderReaderDebateAttachChip();
+      closeReaderScenePicker();
+      toast(`${i18n.t('app.title_을_첨부했어요', {title: title})}`);
+      return;
+    }
+    readerChatAttached = attached;
     renderReaderChatAttachChip();
     closeReaderScenePicker();
     toast(`${i18n.t('app.title_을_첨부했어요', {title: title})}`);
@@ -16666,7 +16677,10 @@ function setupReaderChatUi() {
       sendReaderChatMessage().catch(handleError);
     }
   });
-  $("readerChatAttachButton")?.addEventListener("click", () => openReaderScenePicker());
+  $("readerChatAttachButton")?.addEventListener("click", () => {
+    readerManuscriptAttachTarget = "chat";
+    openReaderScenePicker();
+  });
   $("readerChatAttachClear")?.addEventListener("click", () => clearReaderChatAttach());
   $("readerScenePickerList")?.addEventListener("click", (event) => {
     const item = event.target.closest?.("[data-reader-scene]");
@@ -16682,10 +16696,28 @@ function setupReaderChatUi() {
 const READER_DEBATE_MAX_TOTAL = 5;
 const READER_DEBATE_MAX_PER_CATEGORY = 5;
 const READER_DEBATE_MIN_START = 3;
+const READER_DEBATE_REVEAL_MS_MIN = 1000;
+const READER_DEBATE_REVEAL_MS_MAX = 1800;
 /** @type {"chat"|"debate"} */
 let readerListMode = "chat";
 /** @type {string[]} */
 let readerDebateSelectedIds = [];
+/** @type {string[]} */
+let readerDebateRoomIds = [];
+/** @type {Array<{kind:string,roundNumber?:number,content?:string,personaId?:string,personaName?:string,skipped?:boolean}>} */
+let readerDebateEntries = [];
+/** @type {{sceneId:number,title:string,content:string}|null} */
+let readerDebateAttached = null;
+/** @type {"chat"|"debate"} */
+let readerManuscriptAttachTarget = "chat";
+let readerDebateApiBusy = false;
+let readerDebateRevealBusy = false;
+let readerDebateRevealSkip = false;
+let readerDebateRevealGen = 0;
+/** @type {Array<object>} */
+let readerDebateRevealRemaining = [];
+/** @type {string|null} */
+let readerDebateTypingPersonaId = null;
 
 function readerDebatePersonaById(personaId) {
   return flattenReaderPersonas(readerPersonaCache).find((item) => item.id === personaId) || null;
@@ -16828,22 +16860,301 @@ function setReaderListMode(mode) {
 }
 
 function openReaderDebateRoom(personaIds) {
-  const ids = Array.isArray(personaIds) ? personaIds.slice() : [];
-  console.info("[reader-debate] start", ids);
-  const list = $("readerDebateRoomList");
-  if (list) {
-    list.innerHTML = ids.map((id) => {
-      const persona = readerDebatePersonaById(id);
-      const name = persona?.name || id;
-      return `<li>${escapeHtml(name)}</li>`;
-    }).join("");
+  return openReaderDebateRoomAsync(personaIds);
+}
+
+async function openReaderDebateRoomAsync(personaIds) {
+  skipReaderDebateReveal();
+  const ids = (Array.isArray(personaIds) ? personaIds : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean);
+  if (ids.length < READER_DEBATE_MIN_START) return;
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!readerPersonaCache) {
+    try {
+      readerPersonaCache = await api("/api/reader-personas");
+    } catch (error) {
+      handleError(error);
+      return;
+    }
   }
+  console.info("[reader-debate] start", ids);
+  readerDebateRoomIds = ids.slice();
+  readerDebateEntries = [];
+  readerDebateAttached = null;
+  readerDebateTypingPersonaId = null;
+  readerDebateApiBusy = false;
+  readerManuscriptAttachTarget = "debate";
   $("readerPersonaPicker")?.classList.add("hidden");
-  $("readerChatRoom")?.classList.add("hidden");
+  const chatRoom = $("readerChatRoom");
+  chatRoom?.classList.add("hidden");
+  if (chatRoom) chatRoom.hidden = true;
   $("readerDebateRoom")?.classList.remove("hidden");
+  renderReaderDebatePeers();
+  renderReaderDebateAttachChip();
+  renderReaderDebateMessages();
+  setReaderDebateComposerEnabled(true);
+  await loadReaderDebateHistory();
+  requestAnimationFrame(() => $("readerDebateInput")?.focus());
+}
+
+function setReaderDebateComposerEnabled(enabled) {
+  const on = Boolean(enabled);
+  const input = $("readerDebateInput");
+  const send = $("readerDebateSendButton");
+  const attach = $("readerDebateAttachButton");
+  if (input) input.disabled = !on;
+  if (send) send.disabled = !on;
+  if (attach) attach.disabled = !on;
+}
+
+function renderReaderDebateAttachChip() {
+  const chip = $("readerDebateAttachChip");
+  const label = $("readerDebateAttachLabel");
+  if (!chip) return;
+  const attached = readerDebateAttached;
+  const on = Boolean(attached);
+  chip.classList.toggle("hidden", !on);
+  chip.hidden = !on;
+  if (label) {
+    label.textContent = attached
+      ? `${i18n.t('app.첨부됨_attached_title', {'attached.title': attached.title})}`
+      : "";
+  }
+}
+
+function clearReaderDebateAttach() {
+  readerDebateAttached = null;
+  renderReaderDebateAttachChip();
+}
+
+function renderReaderDebatePeers() {
+  const host = $("readerDebatePeers");
+  if (!host) return;
+  host.innerHTML = readerDebateRoomIds.map((id) => {
+    const persona = readerDebatePersonaById(id);
+    const name = persona?.name || id;
+    return `<div class="reader-debate-peer" title="${escapeHtml(name)}">`
+      + readerAvatarMarkup(id, name, "reader-debate-peer-avatar reader-chat-msg-avatar")
+      + `<span class="reader-debate-peer-name">${escapeHtml(name)}</span>`
+      + `</div>`;
+  }).join("");
+  bindReaderAvatarErrors(host);
+}
+
+function readerDebateLastRoundNumber() {
+  let n = 0;
+  for (const entry of readerDebateEntries) {
+    if (entry.kind === "round" && Number(entry.roundNumber) > n) {
+      n = Number(entry.roundNumber);
+    }
+  }
+  return n;
+}
+
+function appendReaderDebatePersonaReply(reply) {
+  const personaId = String(reply?.persona_id || "").trim();
+  const persona = readerDebatePersonaById(personaId);
+  const name = String(reply?.persona_name || persona?.name || "").trim() || i18n.t('app.가상_독자');
+  const skipped = Boolean(reply?.skipped) || reply?.ok === false;
+  const content = skipped
+    ? i18n.t('app.지금은_답하지_못했어요')
+    : String(reply?.message || "").trim();
+  if (!content && !skipped) return;
+  readerDebateEntries.push({
+    kind: "persona",
+    personaId,
+    personaName: name,
+    content: content || i18n.t('app.지금은_답하지_못했어요'),
+    skipped,
+  });
+}
+
+function renderReaderDebateMessages() {
+  const box = $("readerDebateMessages");
+  if (!box) return;
+  if (!readerDebateEntries.length && !readerDebateTypingPersonaId) {
+    box.innerHTML = `<p class="reader-chat-empty">${escapeHtml(i18n.t('app.토론을_시작해_보세요_질문을_보내면_고른'))}</p>`;
+    return;
+  }
+  const rows = [];
+  for (const entry of readerDebateEntries) {
+    if (entry.kind === "round") {
+      rows.push(
+        `<div class="reader-debate-round-sep" role="separator">`
+        + `<span>${escapeHtml(`${i18n.t('app.라운드')} ${Number(entry.roundNumber) || 1}`)}</span>`
+        + `</div>`,
+      );
+      continue;
+    }
+    if (entry.kind === "user") {
+      const body = escapeHtml(entry.content || "").replace(/\r\n|\r|\n/g, "<br>");
+      rows.push(
+        `<div class="reader-chat-msg is-user">`
+        + `<div class="reader-chat-msg-body"><div class="reader-chat-bubble">${body}</div></div>`
+        + `</div>`,
+      );
+      continue;
+    }
+    if (entry.kind === "persona") {
+      const name = entry.personaName || i18n.t('app.가상_독자');
+      const body = escapeHtml(entry.content || "").replace(/\r\n|\r|\n/g, "<br>");
+      const skippedCls = entry.skipped ? " is-skipped" : "";
+      rows.push(
+        `<div class="reader-chat-msg is-assistant${skippedCls}">`
+        + readerAvatarMarkup(entry.personaId, name, "reader-chat-msg-avatar")
+        + `<div class="reader-chat-msg-body">`
+        + `<span class="reader-chat-msg-name">${escapeHtml(name)}</span>`
+        + `<div class="reader-chat-bubble">${body}</div>`
+        + `</div></div>`,
+      );
+    }
+  }
+  if (readerDebateTypingPersonaId) {
+    const persona = readerDebatePersonaById(readerDebateTypingPersonaId);
+    const name = persona?.name || i18n.t('app.가상_독자');
+    rows.push(
+      `<div class="reader-chat-msg is-assistant is-pending">`
+      + readerAvatarMarkup(readerDebateTypingPersonaId, name, "reader-chat-msg-avatar")
+      + `<div class="reader-chat-msg-body">`
+      + `<span class="reader-chat-msg-name">${escapeHtml(name)}</span>`
+      + `${i18n.t('app.div_class_reader_chat_b', {'escapeHtml(name)': escapeHtml(name)})}`
+      + `</div></div>`,
+    );
+  }
+  box.innerHTML = rows.join("");
+  bindReaderAvatarErrors(box);
+  box.scrollTop = box.scrollHeight;
+}
+
+function readerDebateDelay(ms, aborted) {
+  return new Promise((resolve) => {
+    const started = Date.now();
+    const tick = () => {
+      if (aborted() || Date.now() - started >= ms) {
+        resolve();
+        return;
+      }
+      setTimeout(tick, 40);
+    };
+    setTimeout(tick, 40);
+  });
+}
+
+function skipReaderDebateReveal() {
+  if (!readerDebateRevealBusy && !readerDebateRevealRemaining.length) return;
+  readerDebateRevealSkip = true;
+  readerDebateRevealGen += 1;
+  readerDebateTypingPersonaId = null;
+  for (const reply of readerDebateRevealRemaining) {
+    appendReaderDebatePersonaReply(reply);
+  }
+  readerDebateRevealRemaining = [];
+  readerDebateRevealBusy = false;
+  renderReaderDebateMessages();
+  if (!readerDebateApiBusy) setReaderDebateComposerEnabled(true);
+}
+
+async function playReaderDebateReplies(replies) {
+  const list = Array.isArray(replies) ? replies.slice() : [];
+  if (!list.length) return;
+  readerDebateRevealBusy = true;
+  readerDebateRevealSkip = false;
+  const gen = ++readerDebateRevealGen;
+  readerDebateRevealRemaining = list.slice();
+  setReaderDebateComposerEnabled(true);
+  while (readerDebateRevealRemaining.length) {
+    if (readerDebateRevealSkip || gen !== readerDebateRevealGen) break;
+    const reply = readerDebateRevealRemaining[0];
+    const personaId = String(reply?.persona_id || "").trim();
+    readerDebateTypingPersonaId = personaId || null;
+    renderReaderDebateMessages();
+    const waitMs = READER_DEBATE_REVEAL_MS_MIN
+      + Math.floor(Math.random() * (READER_DEBATE_REVEAL_MS_MAX - READER_DEBATE_REVEAL_MS_MIN + 1));
+    await readerDebateDelay(
+      waitMs,
+      () => readerDebateRevealSkip || gen !== readerDebateRevealGen,
+    );
+    if (readerDebateRevealSkip || gen !== readerDebateRevealGen) break;
+    readerDebateRevealRemaining.shift();
+    readerDebateTypingPersonaId = null;
+    appendReaderDebatePersonaReply(reply);
+    renderReaderDebateMessages();
+  }
+  if (readerDebateRevealRemaining.length) {
+    readerDebateTypingPersonaId = null;
+    for (const reply of readerDebateRevealRemaining) {
+      appendReaderDebatePersonaReply(reply);
+    }
+    readerDebateRevealRemaining = [];
+  }
+  readerDebateTypingPersonaId = null;
+  readerDebateRevealBusy = false;
+  renderReaderDebateMessages();
+  if (!readerDebateApiBusy) setReaderDebateComposerEnabled(true);
+}
+
+function applyReaderDebateHistoryPayload(history) {
+  readerDebateEntries = [];
+  const rounds = Array.isArray(history?.rounds) ? history.rounds : [];
+  const order = Array.isArray(history?.persona_order) ? history.persona_order : [];
+  if (order.length) {
+    const cleaned = order.map((id) => String(id || "").trim()).filter(Boolean);
+    if (cleaned.length) readerDebateRoomIds = cleaned;
+  }
+  for (const round of rounds) {
+    const rn = Number(round?.round_number) || 0;
+    if (rn > 0) {
+      readerDebateEntries.push({ kind: "round", roundNumber: rn });
+    }
+    const messages = Array.isArray(round?.messages) ? round.messages : [];
+    for (const msg of messages) {
+      const speaker = String(msg?.speaker_type || "").trim().toLowerCase();
+      const text = String(msg?.message || "").trim();
+      if (!text) continue;
+      if (speaker === "user") {
+        readerDebateEntries.push({ kind: "user", content: text });
+        continue;
+      }
+      if (speaker === "persona") {
+        const personaId = String(msg?.persona_id || "").trim();
+        const persona = readerDebatePersonaById(personaId);
+        readerDebateEntries.push({
+          kind: "persona",
+          personaId,
+          personaName: String(msg?.persona_name || persona?.name || "").trim() || i18n.t('app.가상_독자'),
+          content: text,
+        });
+      }
+    }
+  }
+}
+
+async function loadReaderDebateHistory() {
+  if (!state.projectId || !readerDebateRoomIds.length) {
+    readerDebateEntries = [];
+    renderReaderDebateMessages();
+    return;
+  }
+  try {
+    const idsCsv = readerDebateRoomIds.map(encodeURIComponent).join(",");
+    const history = await api(
+      `/api/reader-debate/history?work_id=${encodeURIComponent(state.projectId)}&persona_ids=${idsCsv}`,
+    );
+    applyReaderDebateHistoryPayload(history || {});
+  } catch (error) {
+    handleError(error);
+  }
+  renderReaderDebatePeers();
+  renderReaderDebateMessages();
 }
 
 function closeReaderDebateRoom() {
+  skipReaderDebateReveal();
+  readerDebateApiBusy = false;
+  readerDebateTypingPersonaId = null;
+  readerDebateAttached = null;
+  readerManuscriptAttachTarget = "chat";
   $("readerDebateRoom")?.classList.add("hidden");
   $("readerPersonaPicker")?.classList.remove("hidden");
   setReaderListMode("debate");
@@ -16852,7 +17163,73 @@ function closeReaderDebateRoom() {
 function startReaderDebate() {
   if (readerDebateSelectedIds.length < READER_DEBATE_MIN_START) return;
   if (readerDebateSelectedIds.length > READER_DEBATE_MAX_TOTAL) return;
-  openReaderDebateRoom(readerDebateSelectedIds);
+  closeReaderPersonaAllModal();
+  openReaderDebateRoomAsync(readerDebateSelectedIds).catch(handleError);
+}
+
+async function sendReaderDebateMessage(event) {
+  if (event) event.preventDefault();
+  if (readerDebateRevealBusy) {
+    skipReaderDebateReveal();
+  }
+  if (readerDebateApiBusy) return;
+  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (readerDebateRoomIds.length < READER_DEBATE_MIN_START) {
+    return toast(i18n.t('app.최소_3명을_골라주세요'));
+  }
+  const input = $("readerDebateInput");
+  const text = String(input?.value || "").trim();
+  if (!text) return toast(i18n.t('app.메시지를_입력해_주세요'));
+
+  const roundNumber = readerDebateLastRoundNumber() + 1;
+  readerDebateApiBusy = true;
+  setReaderDebateComposerEnabled(false);
+  readerDebateEntries.push({ kind: "round", roundNumber });
+  readerDebateEntries.push({ kind: "user", content: text });
+  if (input) input.value = "";
+  renderReaderDebateMessages();
+
+  const payload = {
+    work_id: String(state.projectId),
+    persona_ids: readerDebateRoomIds.slice(),
+    user_message: text,
+  };
+  if (readerDebateAttached?.content) {
+    payload.episode_content = readerDebateAttached.content;
+  }
+  try {
+    const result = await api("/api/reader-debate", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const apiRound = Number(result?.round_number) || roundNumber;
+    const lastRound = [...readerDebateEntries].reverse().find((e) => e.kind === "round");
+    if (lastRound) lastRound.roundNumber = apiRound;
+    if (Array.isArray(result?.persona_order) && result.persona_order.length) {
+      const order = result.persona_order.map((id) => String(id || "").trim()).filter(Boolean);
+      if (order.length) {
+        readerDebateRoomIds = order;
+        renderReaderDebatePeers();
+      }
+    }
+    readerDebateApiBusy = false;
+    await playReaderDebateReplies(result?.replies || []);
+  } catch (error) {
+    while (readerDebateEntries.length) {
+      const last = readerDebateEntries[readerDebateEntries.length - 1];
+      if (last.kind === "user" || last.kind === "round") {
+        readerDebateEntries.pop();
+        if (last.kind === "user") break;
+        continue;
+      }
+      break;
+    }
+    if (input && !input.value) input.value = text;
+    readerDebateApiBusy = false;
+    setReaderDebateComposerEnabled(true);
+    renderReaderDebateMessages();
+    handleError(error);
+  }
 }
 
 function setupReaderDebateUi() {
@@ -16877,6 +17254,20 @@ function setupReaderDebateUi() {
     startReaderDebate();
   });
   $("readerDebateRoomBack")?.addEventListener("click", () => closeReaderDebateRoom());
+  $("readerDebateForm")?.addEventListener("submit", (event) => {
+    sendReaderDebateMessage(event).catch(handleError);
+  });
+  $("readerDebateInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && !event.shiftKey) {
+      event.preventDefault();
+      sendReaderDebateMessage().catch(handleError);
+    }
+  });
+  $("readerDebateAttachButton")?.addEventListener("click", () => {
+    readerManuscriptAttachTarget = "debate";
+    openReaderScenePicker();
+  });
+  $("readerDebateAttachClear")?.addEventListener("click", () => clearReaderDebateAttach());
 }
 
 function setupToryChatHubUi() {
@@ -18865,6 +19256,8 @@ function setupWritingLog() {
 const BOOKMARK_STORAGE_PREFIX = "supertory.bookmarks.";
 const BOOKMARK_MAX = 10;
 const PINNED_SCENES_STORAGE_PREFIX = "supertory.pinnedScenes.";
+/** Child manuscript titles are italic by default; stored ids opted out. */
+const SCENE_TITLE_ITALIC_OFF_STORAGE_PREFIX = "supertory.sceneTitleItalicOff.v1.";
 const PINNED_SCENES_MAX = 30;
 const BOOKMARK_COLORS = [
   { key: "red", hex: "#e74c3c", label: i18n.t('app.빨강') },
@@ -26458,6 +26851,60 @@ function pinnedScenesStorageKey(projectId = state.projectId) {
   return `${PINNED_SCENES_STORAGE_PREFIX}${projectId || "0"}`;
 }
 
+function sceneTitleItalicOffStorageKey(projectId = state.projectId) {
+  return `${SCENE_TITLE_ITALIC_OFF_STORAGE_PREFIX}${projectId || "0"}`;
+}
+
+function loadSceneTitleItalicOffIds() {
+  if (!state.projectId) return [];
+  try {
+    const raw = localStorage.getItem(sceneTitleItalicOffStorageKey());
+    const arr = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(arr)) return [];
+    return arr
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveSceneTitleItalicOffIds(ids) {
+  if (!state.projectId) return;
+  try {
+    const clean = (Array.isArray(ids) ? ids : [])
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0);
+    localStorage.setItem(sceneTitleItalicOffStorageKey(), JSON.stringify(clean));
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+/** Child manuscripts: italic by default unless user opted out. */
+function isSceneTitleItalic(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return false;
+  return !loadSceneTitleItalicOffIds().includes(id);
+}
+
+function toggleSceneTitleItalic(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const cur = loadSceneTitleItalicOffIds();
+  const wasItalic = !cur.includes(id);
+  const next = wasItalic ? [...cur, id] : cur.filter((x) => x !== id);
+  saveSceneTitleItalicOffIds(next);
+  if (typeof renderOutline === "function" && state.outline) {
+    renderOutline(state.outline);
+  }
+  toast(
+    wasItalic
+      ? i18n.t("app.이탤릭_표시를_해제했어요")
+      : i18n.t("app.이탤릭체로_표시했어요"),
+  );
+}
+
 function loadPinnedSceneIds() {
   if (!state.projectId) return [];
   try {
@@ -27543,6 +27990,26 @@ function showBinderContextMenu(clientX, clientY, scene) {
         : i18n.t('app.목차_맨_위에_고정해요');
     }
   }
+  const italicBtn = menu.querySelector('[data-binder-action="title-italic"]');
+  if (italicBtn) {
+    const isChild = Boolean(binderContextScene.parentSceneId);
+    italicBtn.classList.toggle("hidden", !isChild);
+    if (isChild) {
+      const on = isSceneTitleItalic(binderContextScene.id);
+      const strong = italicBtn.querySelector("strong");
+      const span = italicBtn.querySelector("span");
+      if (strong) {
+        strong.textContent = on
+          ? i18n.t("app.이탤릭_표시_해제")
+          : i18n.t("index.이탤릭체로_표시");
+      }
+      if (span) {
+        span.textContent = on
+          ? i18n.t("app.목차_제목을_보통_글씨로_돌려요")
+          : i18n.t("index.목차에서_제목을_기울여_보여요");
+      }
+    }
+  }
   positionContextMenu(menu, clientX, clientY, 320);
 }
 
@@ -27922,6 +28389,9 @@ function setupBinderContextMenu() {
     hideBinderContextMenu();
     if (action === "rename") {
       window.setTimeout(() => startRenameScene(scene.id), 0);
+    } else if (action === "title-italic") {
+      if (!scene.parentSceneId) return toast(i18n.t("app.하위_원고에서만_쓸_수_있어요"));
+      toggleSceneTitleItalic(scene.id);
     } else if (action === "add-child") {
       const chapterId = scene.chapterId || findChapterIdForScene(scene.id);
       if (!chapterId) return toast(i18n.t('app.폴더를_찾지_못했어요'));
@@ -35468,13 +35938,17 @@ function renderSceneTreeHtml(scenes, {
     const titleExtra = [isComplete ? i18n.t('app.완성') : "", baitTitleBits].filter(Boolean).join(" · ");
     const parentAttr = parentSceneId != null ? String(parentSceneId) : "";
     const display = getOutlineSceneDisplay(scene);
-    const titleClass = display.isPreview ? "scene-title is-body-preview" : "scene-title";
-    // 하위가 있을 때만 접기 버튼. 잎 회차는 빈 칸(+ 자리 포함)을 두지 않아 제목 폭을 확보
+    const italicOn = Boolean(parentSceneId) && isSceneTitleItalic(sid);
+    const titleClass = [
+      display.isPreview ? "scene-title is-body-preview" : "scene-title",
+      italicOn ? "is-title-italic" : "",
+    ].filter(Boolean).join(" ");
+    // 하위가 있을 때만 접기 버튼. 잎도 같은 폭 스페이서로 작성상태 열을 맞춤
     const expanded = childExpanded ? "true" : "false";
     const twistieTitle = childExpanded ? i18n.t('app.하위_접기') : i18n.t('app.하위_펼치기');
     const twistie = hasNest
       ? i18n.t('app.button_type_button_clas_10', { sid: sid, expanded: expanded, title: twistieTitle })
-      : "";
+      : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
     // Folders render after child manuscripts under the same parent.
     // Route through recursive binder renderer (non-box chapter path → same markup).
     const nestDepth = Math.min(depth + 1, 8);

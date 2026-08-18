@@ -1465,16 +1465,18 @@ html.is-electron-mac .app-titlebar {
 }
 /* 작성 상태 열 — 일렬 유지하되 제목 폭을 위해 타이트하게 (아이디어 4글자) */
 .scene-status-slot {
-  flex: 0 0 2.9em;
-  width: 2.9em;
-  min-width: 2.9em;
-  max-width: 2.9em;
+  flex: 0 0 2.35em;
+  width: 2.35em;
+  min-width: 2.35em;
+  max-width: 2.35em;
   display: inline-flex;
   align-items: center;
   justify-content: flex-start;
   align-self: center;
   box-sizing: border-box;
   overflow: hidden;
+  margin: 0;
+  padding: 0;
 }
 .settings-box.is-bookmarked .settings-box-title::before {
   content: "";
@@ -4626,13 +4628,64 @@ html[data-ui-scheme="dark"] .ai-writing-status {
   min-height: 0;
   gap: 8px;
 }
-.reader-debate-room-list {
-  margin: 0;
-  padding: 0 0 0 18px;
+.reader-debate-peers {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  flex: 0 0 auto;
+  padding: 4px 2px 6px;
+  border-bottom: 1px solid var(--line);
+}
+.reader-debate-peer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
   gap: 6px;
-  overflow: auto;
+  min-width: 0;
+}
+.reader-debate-peer-avatar {
+  width: 28px;
+  height: 28px;
+  flex: 0 0 auto;
+}
+.reader-debate-peer-name {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 7.5em;
+}
+.reader-debate-messages {
+  flex: 1 1 auto;
+}
+.reader-debate-round-sep {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  user-select: none;
+}
+.reader-debate-round-sep::before,
+.reader-debate-round-sep::after {
+  content: "";
+  flex: 1 1 auto;
+  height: 1px;
+  background: color-mix(in srgb, var(--line) 85%, transparent);
+}
+.reader-debate-round-sep span {
+  flex: 0 0 auto;
+}
+.reader-chat-msg.is-skipped .reader-chat-bubble {
+  opacity: 0.72;
+  font-style: italic;
 }
 .reader-persona-grid {
   display: flex;
@@ -9973,8 +10026,9 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   align-items: stretch;
   min-width: 0;
   min-height: 22px;
-  /* 제목 폭 확보: 들여쓰기 최소화 (+는 absolute 오버레이, 자리 비우지 않음) */
-  padding-left: 2px;
+  /* 잎/부모가 같은 왼쪽 기준 → 작성상태 열 정렬 (삼각형·스페이서 폭 동일) */
+  padding-left: 0;
+  gap: 0;
   box-sizing: border-box;
 }
 .scene-tree-item.depth-1 > .scene-row { padding-left: 10px; }
@@ -9985,6 +10039,18 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .scene-tree-item.depth-6 > .scene-row,
 .scene-tree-item.depth-7 > .scene-row,
 .scene-tree-item.depth-8 > .scene-row { padding-left: 50px; }
+/* 하위 트리 안에서는 scene-children 패딩+연결선이 들여쓰기를 담당 */
+.scene-children > .scene-tree-item > .scene-row,
+.scene-children > .scene-tree-item.depth-1 > .scene-row,
+.scene-children > .scene-tree-item.depth-2 > .scene-row,
+.scene-children > .scene-tree-item.depth-3 > .scene-row,
+.scene-children > .scene-tree-item.depth-4 > .scene-row,
+.scene-children > .scene-tree-item.depth-5 > .scene-row,
+.scene-children > .scene-tree-item.depth-6 > .scene-row,
+.scene-children > .scene-tree-item.depth-7 > .scene-row,
+.scene-children > .scene-tree-item.depth-8 > .scene-row {
+  padding-left: 0;
+}
 /* 호버 시 + — 오른쪽 끝 오버레이. 왼쪽 접기(△)를 가리지 않음 */
 .scene-add-btn {
   position: absolute;
@@ -10028,14 +10094,17 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   color: #1a1208;
   outline: none;
 }
-/* 접기 삼각형은 +보다 위·항상 클릭 가능 */
+/* 접기 삼각형·잎 스페이서: 같은 폭으로 작성상태 열 정렬 */
 .scene-row > .scene-twistie,
-.scene-row > .chapter-twistie[data-toggle-scene] {
+.scene-row > .chapter-twistie[data-toggle-scene],
+.scene-row > .scene-twistie-spacer {
   position: relative;
   z-index: 4;
-  flex: 0 0 16px;
-  width: 16px;
-  min-width: 16px;
+  flex: 0 0 14px;
+  width: 14px;
+  min-width: 14px;
+  margin: 0;
+  padding: 0;
 }
 .scene-tree-item.is-dragging-scene {
   opacity: 0.45;
@@ -10049,6 +10118,49 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   flex-direction: column;
   gap: 0;
   min-width: 0;
+  position: relative;
+  overflow: visible;
+}
+/* 상위·하위 원고 트리 연결선 (폴더-폴더 선과 같은 엘보 스타일) */
+.scene-children > .scene-tree-item,
+.scene-children > .outline-chapter.is-nested-under-scene {
+  position: relative;
+  padding-left: 12px;
+  overflow: visible;
+}
+.scene-children > .scene-tree-item::before,
+.scene-children > .outline-chapter.is-nested-under-scene::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 0;
+  width: 8px;
+  height: 11px;
+  border-left: 1px solid var(--outline-scene-tree-line, var(--outline-folder-tree-line, #c9b8a4));
+  border-bottom: 1px solid var(--outline-scene-tree-line, var(--outline-folder-tree-line, #c9b8a4));
+  box-sizing: border-box;
+  pointer-events: none;
+  z-index: 1;
+}
+.scene-children > .scene-tree-item.is-last::before,
+.scene-children > .outline-chapter.is-nested-under-scene.is-last::before {
+  border-bottom-left-radius: 2px;
+}
+.scene-children > .scene-tree-item:not(.is-last)::after,
+.scene-children > .outline-chapter.is-nested-under-scene:not(.is-last)::after {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: 11px;
+  bottom: 0;
+  border-left: 1px solid var(--outline-scene-tree-line, var(--outline-folder-tree-line, #c9b8a4));
+  pointer-events: none;
+  z-index: 1;
+}
+.scene-children > .scene-tree-item:first-child::before,
+.scene-children > .outline-chapter.is-nested-under-scene:first-child::before {
+  top: calc(-1 * var(--outline-row-gap, 2px));
+  height: calc(11px + var(--outline-row-gap, 2px));
 }
 /* Nested folder under a manuscript: same staircase + elbow as child scenes */
 .outline-chapter.is-nested-under-scene {
@@ -10076,6 +10188,9 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   cursor: default;
   overflow: visible;
 }
+.scene-children > .outline-chapter.is-nested-under-scene > .chapter-row {
+  padding-left: 2px;
+}
 .outline-chapter.is-nested-under-scene.depth-1 > .chapter-row { padding-left: 10px; }
 .outline-chapter.is-nested-under-scene.depth-2 > .chapter-row { padding-left: 18px; }
 .outline-chapter.is-nested-under-scene.depth-3 > .chapter-row { padding-left: 26px; }
@@ -10099,20 +10214,26 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .scene-children[hidden] {
   display: none !important;
 }
-/* 잎 회차는 스페이서 없음. 하위 있을 때만 접기 버튼 */
+/* 잎 회차도 접기 삼각형과 같은 폭을 비워 작성상태·제목 열을 맞춤 */
 .scene-twistie-spacer {
-  display: none !important;
-  width: 0 !important;
-  min-width: 0 !important;
-  flex: 0 0 0 !important;
+  flex: 0 0 14px;
+  width: 14px;
+  min-width: 14px;
+  height: 20px;
+  margin: 0;
+  padding: 0;
+  display: inline-block;
+  box-sizing: border-box;
+  pointer-events: none;
 }
 .scene-row .scene-twistie {
-  flex: 0 0 16px;
-  width: 16px;
-  min-width: 16px;
+  flex: 0 0 14px;
+  width: 14px;
+  min-width: 14px;
   height: 20px;
   min-height: 20px;
   max-height: 20px;
+  margin: 0;
 }
 .scene-link.is-drop-target {
   outline: 2px solid var(--accent);
@@ -10146,7 +10267,7 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .scene-link[draggable="true"]:active {
   cursor: grabbing;
 }
-/* 하위 목록: 연결선(세로/엘보) 없음 — 들여쓰기만 */
+/* 레거시 tree-guide 마크업이 남아 있어도 숨김 — 연결선은 scene-children 의사요소 사용 */
 .scene-row .tree-guide,
 .outline-chapter.is-nested-under-scene > .chapter-row .tree-guide,
 .tree-guide {
@@ -10174,7 +10295,7 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
 .scene-link {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex: 1 1 auto;
   margin: 0;
   width: 100%;
@@ -10183,7 +10304,7 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   height: auto;
   min-height: calc(var(--outline-title-size, 12px) + 10px);
   max-height: none;
-  padding: 0 4px 0 2px;
+  padding: 0 4px 0 0;
   font-size: var(--outline-title-size, 12px);
   line-height: calc(var(--outline-title-size, 12px) + 10px);
   overflow: hidden;
@@ -10199,6 +10320,11 @@ body[data-ui-scheme="dark"] .folder-title-box.is-level-4 {
   white-space: nowrap;
   min-width: 0;
   flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+}
+#outline .scene-title.is-title-italic {
+  font-style: italic;
 }
 #outline .scene-title.is-body-preview {
   font-style: italic;

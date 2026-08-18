@@ -352,6 +352,52 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "world_tori_analysis")
 
+    def test_reader_debate_tables(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "052_reader_debate.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("reader_debate_sessions", tables)
+        self.assertIn("reader_debate_messages", tables)
+        stamp = "2026-01-01T00:00:00.000000Z"
+        self.db.execute(
+            "INSERT INTO reader_debate_sessions"
+            "(id, work_id, persona_ids_key, persona_order_json, created_at, updated_at) "
+            "VALUES ('s1', '1', 'a,b,c', '[\"c\",\"a\",\"b\"]', ?, ?)",
+            (stamp, stamp),
+        )
+        self.db.execute(
+            "INSERT INTO reader_debate_messages"
+            "(id, session_id, round_number, speaker_type, persona_id, message, turn_order, created_at) "
+            "VALUES ('m1', 's1', 1, 'user', NULL, '질문', 0, ?)",
+            (stamp,),
+        )
+        self.assert_integrity_error(
+            "INSERT INTO reader_debate_sessions"
+            "(id, work_id, persona_ids_key, persona_order_json, created_at, updated_at) "
+            "VALUES ('s2', '1', 'a,b,c', '[\"a\",\"b\",\"c\"]', ?, ?)",
+            (stamp, stamp),
+        )
+        self.assert_integrity_error(
+            "INSERT INTO reader_debate_messages"
+            "(id, session_id, round_number, speaker_type, persona_id, message, turn_order, created_at) "
+            "VALUES ('m2', 's1', 1, 'user', 'x', 'bad', 1, ?)",
+            (stamp,),
+        )
+        self.db.execute("DELETE FROM reader_debate_sessions WHERE id = 's1'")
+        leftover = self.db.execute(
+            "SELECT COUNT(*) FROM reader_debate_messages WHERE session_id = 's1'"
+        ).fetchone()[0]
+        self.assertEqual(leftover, 0)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 52"
+        ).fetchone()[0]
+        self.assertEqual(version, "reader_debate")
+
 
 if __name__ == "__main__":
     unittest.main()
