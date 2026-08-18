@@ -11879,12 +11879,24 @@ function buildToryProjectContextPayload(options = {}) {
     if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
       const full = state.character.character;
       if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
-      if (full.strengths_md) parts.push(`${i18n.t('app.강점_String_full_strengths', {'String(full.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
-      if (full.weaknesses_md) parts.push(`${i18n.t('app.약점_String_full_weaknesse', {'String(full.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
+      if (full.strengths_md) {
+        const strengths = String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200);
+        parts.push(i18n.t('app.강점_String_full_strengths', { strengths: strengths }));
+      }
+      if (full.weaknesses_md) {
+        const weaknesses = String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200);
+        parts.push(i18n.t('app.약점_String_full_weaknesse', { weaknesses: weaknesses }));
+      }
     } else {
       if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
-      if (ch.strengths_md) parts.push(`${i18n.t('app.강점_String_ch_strengths_m', {'String(ch.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
-      if (ch.weaknesses_md) parts.push(`${i18n.t('app.약점_String_ch_weaknesses', {'String(ch.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
+      if (ch.strengths_md) {
+        const strengths = String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160);
+        parts.push(i18n.t('app.강점_String_ch_strengths_m', { strengths: strengths }));
+      }
+      if (ch.weaknesses_md) {
+        const weaknesses = String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160);
+        parts.push(i18n.t('app.약점_String_ch_weaknesses', { weaknesses: weaknesses }));
+      }
     }
     characterProfiles[name] = parts.filter(Boolean).join(" · ") || i18n.t('app.설정_미기입');
   }
@@ -11974,12 +11986,24 @@ function buildLoreKeeperPayload(options = {}) {
     if (Number(state.characterId) === Number(ch.id) && state.character?.character) {
       const full = state.character.character;
       if (full.profile_md) parts.push(String(full.profile_md).replace(/\s+/g, " ").trim().slice(0, 400));
-      if (full.strengths_md) parts.push(`${i18n.t('app.강점_String_full_strengths', {'String(full.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
-      if (full.weaknesses_md) parts.push(`${i18n.t('app.약점_String_full_weaknesse', {'String(full.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 200)': String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200)})}`);
+      if (full.strengths_md) {
+        const strengths = String(full.strengths_md).replace(/\s+/g, " ").trim().slice(0, 200);
+        parts.push(i18n.t('app.강점_String_full_strengths', { strengths: strengths }));
+      }
+      if (full.weaknesses_md) {
+        const weaknesses = String(full.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 200);
+        parts.push(i18n.t('app.약점_String_full_weaknesse', { weaknesses: weaknesses }));
+      }
     } else {
       if (ch.profile_md) parts.push(String(ch.profile_md).replace(/\s+/g, " ").trim().slice(0, 280));
-      if (ch.strengths_md) parts.push(`${i18n.t('app.강점_String_ch_strengths_m', {'String(ch.strengths_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
-      if (ch.weaknesses_md) parts.push(`${i18n.t('app.약점_String_ch_weaknesses', {'String(ch.weaknesses_md).replace(/\\s+/g, " ").trim().slice(0, 160)': String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160)})}`);
+      if (ch.strengths_md) {
+        const strengths = String(ch.strengths_md).replace(/\s+/g, " ").trim().slice(0, 160);
+        parts.push(i18n.t('app.강점_String_ch_strengths_m', { strengths: strengths }));
+      }
+      if (ch.weaknesses_md) {
+        const weaknesses = String(ch.weaknesses_md).replace(/\s+/g, " ").trim().slice(0, 160);
+        parts.push(i18n.t('app.약점_String_ch_weaknesses', { weaknesses: weaknesses }));
+      }
     }
     characterProfiles[name] = parts.filter(Boolean).join(" · ") || i18n.t('app.설정_미기입');
   }
@@ -20126,8 +20150,14 @@ function characterDebatePersonality(character) {
     String(character?.short_description || "").trim(),
     String(character?.profile_md || "").replace(/\s+/g, " ").trim(),
   ].filter(Boolean);
-  if (character?.strengths_md) bits.push(`${i18n.t('app.강점_String_character_stre', {'String(character.strengths_md).replace(/\\s+/g, " ").trim()': String(character.strengths_md).replace(/\s+/g, " ").trim()})}`);
-  if (character?.weaknesses_md) bits.push(`${i18n.t('app.약점_String_character_weak', {'String(character.weaknesses_md).replace(/\\s+/g, " ").trim()': String(character.weaknesses_md).replace(/\s+/g, " ").trim()})}`);
+  if (character?.strengths_md) {
+    const strengths = String(character.strengths_md).replace(/\s+/g, " ").trim();
+    bits.push(i18n.t('app.강점_String_character_stre', { strengths: strengths }));
+  }
+  if (character?.weaknesses_md) {
+    const weaknesses = String(character.weaknesses_md).replace(/\s+/g, " ").trim();
+    bits.push(i18n.t('app.약점_String_character_weak', { weaknesses: weaknesses }));
+  }
   return bits.join(" / ").slice(0, 700) || i18n.t('app.설정_미기입');
 }
 
@@ -24473,8 +24503,15 @@ function renderSourceList() {
       ? `<a class="source-card-url" href="${escapeHtml(url)}" target="_blank" rel="noopener noreferrer">${escapeHtml(url)}</a>`
       : "";
     const isPdf = isFile && (src.viewer === "pdf" || sourceFileExt(src.fileName || src.fileExt || "") === ".pdf");
+    const sourceId = escapeHtml(src.id);
+    const openTitle = isFile
+      ? i18n.t('app.옆에_펼쳐_보기_단독_열람')
+      : i18n.t('app.링크_미리보기_단독_열람');
+    const openLabel = isFile
+      ? i18n.t('app.열기')
+      : i18n.t('app.링크_열기');
     const openBtn = (isFile || url)
-      ? `${i18n.t('app.button_type_button_clas_8', {'escapeHtml(src.id)': escapeHtml(src.id), 'isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람"': isFile ? "옆에 펼쳐 보기 · 단독 열람" : "링크 미리보기 · 단독 열람", 'isFile ? "열기" : "링크 열기"': isFile ? "열기" : "링크 열기"})}`
+      ? i18n.t('app.button_type_button_clas_8', { sourceId: sourceId, openTitle: openTitle, openLabel: openLabel })
       : "";
     const exportBtns = isFile && !isPdf
       ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="${i18n.t('app.Word로_내보내기')}">DOCX</button>
@@ -35433,8 +35470,10 @@ function renderSceneTreeHtml(scenes, {
     const display = getOutlineSceneDisplay(scene);
     const titleClass = display.isPreview ? "scene-title is-body-preview" : "scene-title";
     // 하위가 있을 때만 접기 버튼. 잎 회차는 빈 칸(+ 자리 포함)을 두지 않아 제목 폭을 확보
+    const expanded = childExpanded ? "true" : "false";
+    const twistieTitle = childExpanded ? i18n.t('app.하위_접기') : i18n.t('app.하위_펼치기');
     const twistie = hasNest
-      ? `${i18n.t('app.button_type_button_clas_10', {sid: sid, 'childExpanded ? "true" : "false"': childExpanded ? "true" : "false", 'childExpanded ? "하위 접기" : "하위 펼치기"': childExpanded ? "하위 접기" : "하위 펼치기"})}`
+      ? i18n.t('app.button_type_button_clas_10', { sid: sid, expanded: expanded, title: twistieTitle })
       : "";
     // Folders render after child manuscripts under the same parent.
     // Route through recursive binder renderer (non-box chapter path → same markup).
@@ -38633,9 +38672,10 @@ async function createChapter(options = {}) {
 
   // Drag/click insert into a known group (including ungrouped = partId null with placed)
   if (placed || (explicitPart && partId != null)) {
+    const position = describeChapterInsertTarget({ partId, index: insertIndex });
     const placeHint = placed
-      ? `${i18n.t('app.위치_describeChapterInsert', {'describeChapterInsertTarget({ partId, index: insertIndex })': describeChapterInsertTarget({ partId, index: insertIndex })})}`
-      : `${i18n.t('app.폴더_partTitle_안에_추가됩니다', {'partTitle || ""': partTitle || ""})}`;
+      ? i18n.t('app.위치_describeChapterInsert', { position: position })
+      : i18n.t('app.폴더_partTitle_안에_추가됩니다', {'partTitle || ""': partTitle || ""});
     const title = await promptText({
       title: i18n.t('app.폴더_만들기'),
       message: placeHint,
@@ -46623,7 +46663,9 @@ async function exportProjectAs(formatKey) {
             ? "text/plain;charset=utf-8"
             : "application/octet-stream");
     const blob = new Blob([buffer], { type: mime });
-    let filename = `${i18n.t('app.state_projects_find_p_p', {'(state.projects.find((p) => p.id === state.projectId)?.title || "작품")': (state.projects.find((p) => p.id === state.projectId)?.title || "작품"), 'key === "md" ? "md" : key': key === "md" ? "md" : key})}`;
+    const title = state.projects.find((p) => p.id === state.projectId)?.title || i18n.t('app.작품');
+    const ext = key === "md" ? "md" : key;
+    let filename = i18n.t('app.state_projects_find_p_p', { title: title, ext: ext });
     const disposition = response.headers.get("Content-Disposition") || "";
     const utfMatch = disposition.match(/filename\*=UTF-8''([^;]+)/i);
     const plainMatch = disposition.match(/filename="?([^";]+)"?/i);
