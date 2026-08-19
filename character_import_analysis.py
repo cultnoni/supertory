@@ -43,6 +43,7 @@ SKIP_NAMES = {
 MAX_MANUSCRIPT_CHARS = 60_000
 MAX_CHARACTERS = 24
 MAX_FIELD_CHARS = 4000
+TORI_TEXT_PREFIX = "〔토리〕 "
 
 _GENERIC_NAME = re.compile(r"^(?:그(?:녀)?|남자|여자|사람|아이|손님)\d*$")
 
@@ -57,6 +58,19 @@ def is_sheet_field(field_name: str) -> bool:
 
 def is_field_empty(value: object) -> bool:
     return not str(value or "").strip()
+
+
+def is_tori_text(value: object) -> bool:
+    return str(value or "").lstrip().startswith("〔토리〕")
+
+
+def mark_tori_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if is_tori_text(text):
+        return text
+    return f"{TORI_TEXT_PREFIX}{text}"
 
 
 def normalise_name(name: object) -> str:
@@ -154,23 +168,22 @@ def parse_analysis_json(raw: object) -> list[dict]:
     return parsed
 
 
-def build_analysis_prompt(manuscript: str, existing_names: list[str]) -> tuple[str, str]:
+def build_analysis_prompt(
+    manuscript: str,
+    existing_names: list[str],
+    *,
+    plot_context: str = "",
+    infer: bool = False,
+) -> tuple[str, str]:
     names = "、".join(existing_names[:40]) if existing_names else "(없음)"
     body = str(manuscript or "").strip()
     if len(body) > MAX_MANUSCRIPT_CHARS:
         body = body[:MAX_MANUSCRIPT_CHARS] + "\n…(이하 생략)"
-    system = (
-        "당신은 한국어 소설 설정집 도우미 토리입니다. "
-        "원고에 실제로 나온 등장인물만 적고, 없는 설정은 지어내지 마세요. "
-        "출력은 JSON만 합니다."
-    )
-    user = (
-        "[작업]\n"
-        "아래 원고에서 이름이 있는 등장인물을 찾아 캐릭터 시트 칸에 맞춰 정리하세요.\n"
-        "군중·무명 엑스트라·대명사(그/그녀)는 빼세요.\n"
-        "이미 있는 인물 이름이 있으면 그 표기를 그대로 쓰세요.\n\n"
-        "[이미 있는 인물 이름]\n"
-        f"{names}\n\n"
+    plot = str(plot_context or "").strip()
+    if len(plot) > 12_000:
+        plot = plot[:12_000] + "\n…(이하 생략)"
+    has_manuscript = len(body) >= 40
+    json_spec = (
         "[출력 JSON]\n"
         "{\n"
         '  "characters": [\n'
@@ -187,7 +200,52 @@ def build_analysis_prompt(manuscript: str, existing_names: list[str]) -> tuple[s
         "    }\n"
         "  ]\n"
         "}\n"
-        "근거가 없는 칸은 빈 문자열로 두세요. JSON 외 텍스트는 출력하지 마세요.\n\n"
+        "JSON 외 텍스트는 출력하지 마세요.\n\n"
+    )
+    if infer:
+        system = (
+            "당신은 한국어 소설 설정집 도우미 토리입니다. "
+            "작가가 이미 적어 둔 칸은 건드리지 않고, 비어 있는 칸만 채웁니다. "
+            "출력은 JSON만 합니다."
+        )
+        if has_manuscript:
+            task = (
+                "[작업]\n"
+                "아래 원고를 적극 반영해 등장인물 시트의 빈 칸을 모두 채우세요. "
+                "줄거리·로그라인은 보조 자료입니다.\n"
+                "이미 있는 인물 이름이 있으면 그 표기를 그대로 쓰세요.\n"
+                "군중·무명 엑스트라·대명사(그/그녀)는 빼세요.\n"
+                "각 인물의 short_description, appearance, personality, speech, "
+                "relations, strengths_md, weaknesses_md를 가능한 한 비우지 마세요.\n\n"
+            )
+        else:
+            task = (
+                "[작업]\n"
+                "원고는 없고 줄거리만 있습니다. 줄거리·로그라인을 바탕으로 "
+                "등장인물 시트를 대략 작성하세요. 줄거리와 모순되지 않게 보완하세요.\n"
+                "이미 있는 인물 이름이 있으면 그 표기를 그대로 쓰세요.\n"
+                "각 인물의 칸을 가능한 한 모두 채우세요.\n\n"
+            )
+        extras = ""
+        if plot:
+            extras += f"[줄거리·설정]\n{plot}\n\n"
+        extras += f"[이미 있는 인물 이름]\n{names}\n\n"
+        source = f"[원고]\n{body}" if has_manuscript else "[원고]\n(없음)"
+        return system, task + extras + json_spec + source
+    system = (
+        "당신은 한국어 소설 설정집 도우미 토리입니다. "
+        "원고에 실제로 나온 등장인물만 적고, 없는 설정은 지어내지 마세요. "
+        "출력은 JSON만 합니다."
+    )
+    user = (
+        "[작업]\n"
+        "아래 원고에서 이름이 있는 등장인물을 찾아 캐릭터 시트 칸에 맞춰 정리하세요.\n"
+        "군중·무명 엑스트라·대명사(그/그녀)는 빼세요.\n"
+        "이미 있는 인물 이름이 있으면 그 표기를 그대로 쓰세요.\n\n"
+        "[이미 있는 인물 이름]\n"
+        f"{names}\n\n"
+        f"{json_spec}"
+        "근거가 없는 칸은 빈 문자열로 두세요.\n\n"
         "[원고]\n"
         f"{body}"
     )
@@ -296,13 +354,14 @@ def apply_parsed_characters(
             if not content:
                 continue
             current = row.get(field_name)
+            marked = mark_tori_text(content)
             if created or is_field_empty(current):
-                updates[field_name] = content
-                row[field_name] = content
+                updates[field_name] = marked
+                row[field_name] = marked
                 _clear_pending(connection, character_id, field_name)
                 stats["filled"] += 1
             else:
-                _upsert_pending(connection, character_id, field_name, content)
+                _upsert_pending(connection, character_id, field_name, marked)
                 stats["pending"] += 1
         if updates:
             assignments = ", ".join(f"{key} = ?" for key in updates)
@@ -420,3 +479,39 @@ def strip_html_rough(text: str) -> str:
     cleaned = re.sub(r"&nbsp;", " ", cleaned)
     cleaned = re.sub(r"\s+", " ", cleaned)
     return cleaned.strip()
+
+
+def load_plot_context(connection: sqlite3.Connection, project_id: int) -> str:
+    row = connection.execute(
+        "SELECT title, description_md, logline_md, intro_md, intent_md, "
+        "main_genre, sub_genre FROM project "
+        "WHERE id = ? AND deleted_at IS NULL",
+        (int(project_id),),
+    ).fetchone()
+    if row is None:
+        return ""
+    parts: list[str] = []
+    title = str(row["title"] or "").strip()
+    if title:
+        parts.append(f"[작품 제목]\n{title}")
+    genre = " / ".join(
+        piece for piece in (
+            str(row["main_genre"] or "").strip(),
+            str(row["sub_genre"] or "").strip(),
+        ) if piece
+    )
+    if genre:
+        parts.append(f"[장르]\n{genre}")
+    logline = strip_html_rough(str(row["logline_md"] or ""))
+    if logline:
+        parts.append(f"[로그라인]\n{logline}")
+    synopsis = strip_html_rough(str(row["description_md"] or ""))
+    if synopsis:
+        parts.append(f"[줄거리]\n{synopsis}")
+    intro = strip_html_rough(str(row["intro_md"] or ""))
+    if intro:
+        parts.append(f"[작품 소개]\n{intro}")
+    intent = strip_html_rough(str(row["intent_md"] or ""))
+    if intent:
+        parts.append(f"[집필 의도]\n{intent}")
+    return "\n\n".join(parts)

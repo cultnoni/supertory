@@ -61,6 +61,24 @@ WORDS_JSON = json.dumps(
     ensure_ascii=False,
 )
 
+SENTENCES_JSON = json.dumps(
+    {
+        "sentences": [
+            {"kind": "novel", "text": "기둥 뒤에 선 순간, 연회장의 웃음이 먼저 식을 줄 알았다.", "note": "들키기 직전의 숨"},
+            {"kind": "quote", "text": "비밀은 입보다 손바닥에 더 오래 남는다.", "note": "명언처럼 남는 한 줄"},
+            {"kind": "wit", "text": "가짜 이름은 진짜 이름보다 발음이 쉽다. 그래서 더 위험하다.", "note": "웃다가 남는 가시"},
+            {"kind": "fact", "text": "촛농은 식기 전에 지문을 한 겹 더 입힌다.", "note": "세상에 이런 일이 같은 여운"},
+            {"kind": "novel", "text": "그는 출구를 세고 나서야 인사를 했다.", "note": "성격이 배인 동작"},
+            {"kind": "wit", "text": "편지는 부치기 전까지가 가장 솔직하다.", "note": "짧은 비꼼"},
+            {"kind": "fact", "text": "낡은 봉랍은 열릴 때 바스락 소리보다 먼저 냄새를 낸다.", "note": "감각으로 남는 사실"},
+            {"kind": "quote", "text": "도망은 발이 아니라 시선에서 시작된다.", "note": "새로 만든 격언"},
+            {"kind": "novel", "text": "밀서의 접힌 모서리가 장갑 안에서 따뜻했다.", "note": "소품이 만든 긴장"},
+            {"kind": "fact", "text": "한밤의 연회장 기둥이 가장 차가운 이유는, 사람이 기대지 않아서다.", "note": "그럴듯한 관찰"},
+        ]
+    },
+    ensure_ascii=False,
+)
+
 TAROT_JSON = json.dumps(
     {
         "cards": [
@@ -182,6 +200,8 @@ class GlumpDiversionTests(unittest.TestCase):
                 return KEYWORDS_JSON
             if "한국어 단어 10개" in blob:
                 return WORDS_JSON
+            if "문장집" in blob or "novel|quote|wit|fact" in blob:
+                return SENTENCES_JSON
             if "타로 카드" in blob or "창작 놀이" in blob:
                 return TAROT_JSON
             if "작명소" in blob or "동양풍 인명" in blob:
@@ -278,6 +298,11 @@ class GlumpDiversionTests(unittest.TestCase):
         word_sys, word_user = app._word_list_prompt("로맨스 판타지")
         self.assertIn(core, word_sys)
         self.assertIn("한국어 단어 10개", word_user)
+        sentence_sys, sentence_user = app._sentence_list_prompt("로맨스 판타지")
+        self.assertIn(core, sentence_sys)
+        self.assertIn("문장집", sentence_user)
+        self.assertIn("세상에 이런 일이", sentence_user)
+        self.assertIn("wit", sentence_user)
         tarot_sys, tarot_user = app._character_tarot_prompt(
             "로맨스 판타지", "리아", "이름: 리아"
         )
@@ -362,6 +387,54 @@ class GlumpDiversionTests(unittest.TestCase):
         status, data = self.request("GET", "/api/glump/word-list")
         self.assertEqual(status, 400, data)
         self.assertIn("작품", str(data.get("error") or data))
+
+    def test_sentence_list_get(self) -> None:
+        pid = self._make_project()
+        status, data = self.request("GET", f"/api/glump/sentence-list?work_id={pid}")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(len(data.get("sentences") or []), 10)
+        self.assertEqual(data["sentences"][0]["kind"], "novel")
+        self.assertEqual(data["sentences"][1]["kind"], "quote")
+        self.assertEqual(data["sentences"][2]["kind"], "wit")
+        self.assertEqual(data["sentences"][3]["kind"], "fact")
+        self.assertIn("비밀은", data["sentences"][1]["text"])
+        self.assertEqual(self._log_count(pid, "sentence_list"), 1)
+
+        status, data = self.request("GET", "/api/glump/sentence-list")
+        self.assertEqual(status, 400, data)
+        self.assertIn("작품", str(data.get("error") or data))
+
+    def test_sentence_list_parser_bounds(self) -> None:
+        sentences = app._parse_sentence_list(SENTENCES_JSON)
+        self.assertEqual(len(sentences), 10)
+        self.assertEqual(sentences[3]["kind"], "fact")
+        korean = json.dumps(
+            {
+                "sentences": [
+                    {"kind": "소설 문장", "text": "문이 닫히기 전에 촛불이 먼저 흔들렸다.", "note": "전조"},
+                    {"kind": "명언", "text": "침묵은 가끔 가장 비싼 대답이다.", "note": ""},
+                    {"kind": "위트", "text": "알리바이는 길수록 헐거워진다.", "note": ""},
+                    {"kind": "놀라운 사실", "text": "밀랍은 식으면서 숨었던 지문을 다시 밀어 올린다.", "note": ""},
+                    {"kind": "novel", "text": "그녀는 이름을 말하기 전에 창밖을 보았다.", "note": ""},
+                    {"kind": "quote", "text": "진실은 늦게 올수록 더 짧게 말한다.", "note": ""},
+                    {"kind": "wit", "text": "용기는 가끔 신발을 안 벗는 일이다.", "note": ""},
+                    {"kind": "fact", "text": "오래된 편지지에는 접힌 자국이 향보다 오래 남는다.", "note": ""},
+                ]
+            },
+            ensure_ascii=False,
+        )
+        parsed = app._parse_sentence_list(korean)
+        self.assertEqual(len(parsed), 8)
+        self.assertEqual(parsed[0]["kind"], "novel")
+        self.assertEqual(parsed[1]["kind"], "quote")
+        same_kind = json.dumps(
+            {"sentences": [{"kind": "novel", "text": f"문장 {index}", "note": ""} for index in range(10)]},
+            ensure_ascii=False,
+        )
+        with self.assertRaises(ValueError):
+            app._parse_sentence_list(same_kind)
+        with self.assertRaises(ValueError):
+            app._parse_sentence_list('{"sentences": []}')
 
     def test_mood_board_empty_key_is_not_500(self) -> None:
         pid = self._make_project()
@@ -515,7 +588,12 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("내 캐릭터한테 어울리는 색, AI가 골라드려요", html)
         self.assertIn("glumpErColorCharacter", js)
         self.assertIn("내 캐릭터 운명, 타로로 한 번 봐드릴게요", html)
-        self.assertEqual(html.count('data-glump-diversion="'), 6)
+        self.assertEqual(html.count('data-glump-diversion="'), 7)
+        self.assertIn('data-glump-diversion="sentence_list"', html)
+        self.assertIn("문장집 둘러보기", html)
+        self.assertIn("명언, 위트, 놀라운 사실을 한 줄씩 굴려 볼게요", html)
+        self.assertIn("/api/glump/sentence-list", js)
+        self.assertIn("sentence_list", js)
         self.assertIn('data-glump-diversion="naming_shop"', html)
         self.assertIn("작명소", html)
         self.assertIn("이름이 안 떠오를 때, 동양·서양·현대 한 번에 쭉 보기", html)
@@ -553,6 +631,9 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("playGlumpDiversionsToriIntro()", js)
         self.assertIn("function playGlumpSprintToriIntro()", js)
         self.assertIn("playGlumpSprintToriIntro()", js)
+        self.assertIn('id="glumpSprintEndButton"', html)
+        self.assertIn("waitingForInput", js)
+        self.assertIn("function endGlumpSprintFromHeader()", js)
         self.assertTrue(mouse.is_file())
         self.assertTrue(writing.is_file())
         self.assertTrue(idle_mouse.is_file())

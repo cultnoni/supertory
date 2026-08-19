@@ -259,9 +259,13 @@ class GlumpPingpongTests(unittest.TestCase):
         idle = root / "assets" / "glump" / "tori-pingpong-idle.png"
         anim = root / "assets" / "glump" / "tori-pingpong.gif"
         self.assertIn('id="glumpErPingpongTori"', html)
+        self.assertIn('id="glumpErPingpongCanvas"', html)
+        self.assertIn('id="glumpErPingpongTyping"', html)
         self.assertIn("/assets/glump/tori-pingpong.gif", html)
         self.assertIn("function playGlumpPingpongToriIntro()", js)
         self.assertIn("playGlumpPingpongToriIntro()", js)
+        self.assertIn("function scrollGlumpPingpongCanvas(", js)
+        self.assertIn('event.key === "Enter" && !event.shiftKey', js)
         self.assertTrue(idle.is_file())
         self.assertTrue(anim.is_file())
         from PIL import Image

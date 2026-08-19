@@ -126,7 +126,9 @@ Modes: `pdf` | `book` | `phone` | `eink` (settings in `localStorage` under `supe
 
 ### UI copy
 
-- Product UI is **Korean**  
+- Default product language is **Korean**; **English** and **Spanish** must stay in sync  
+- Any new or changed user-visible string goes in `web/locales/ko.json`, `en.json`, and `es.json` in the same change (same key)  
+- Wire HTML via `data-i18n` / `data-i18n-html` / `data-i18n-placeholder` / `data-i18n-title`; do not leave Korean-only copy in `index.html` or `app.js`  
 - Placeholders and tooltips should stay short and consistent with nearby strings  
 - Prefer real `<textarea placeholder="…">` behavior; avoid CSS that hides placeholders on `:focus` for empty fields unless intentional  
 
@@ -201,7 +203,7 @@ Many UX prefs use `localStorage` keys prefixed `supertory.` (theme, ink, viewer,
 
 ## User communication
 
-- Repo UI and `README.md` are Korean; respond to the user in the language they use  
+- Repo UI strings live in `web/locales/{ko,en,es}.json` (keep all three in sync); `README.md` is Korean; respond to the user in the language they use  
 - Keep explanations short: what broke, what you changed, how to verify  
 - Don’t invent product features that contradict local-only / SQLite design  
 

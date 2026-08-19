@@ -62,6 +62,24 @@ WORDS_JSON = json.dumps(
     ensure_ascii=False,
 )
 
+SENTENCES_JSON = json.dumps(
+    {
+        "sentences": [
+            {"kind": "novel", "text": "가면 아래로 숨이 먼저 달아났다.", "note": "들키기 직전"},
+            {"kind": "quote", "text": "진실은 늦게 올수록 더 짧게 말한다.", "note": "남는 한 줄"},
+            {"kind": "wit", "text": "알리바이는 길수록 헐거워진다.", "note": "짧은 가시"},
+            {"kind": "fact", "text": "촛농은 식기 전에 지문을 한 겹 더 입힌다.", "note": "놀라운 사실"},
+            {"kind": "novel", "text": "그는 출구를 세고 나서야 인사를 했다.", "note": ""},
+            {"kind": "quote", "text": "비밀은 입보다 손바닥에 더 오래 남는다.", "note": ""},
+            {"kind": "wit", "text": "가짜 이름은 발음이 쉽다. 그래서 더 위험하다.", "note": ""},
+            {"kind": "fact", "text": "낡은 봉랍은 열릴 때 소리보다 먼저 냄새를 낸다.", "note": ""},
+            {"kind": "novel", "text": "밀서의 접힌 모서리가 장갑 안에서 따뜻했다.", "note": ""},
+            {"kind": "wit", "text": "편지는 부치기 전까지가 가장 솔직하다.", "note": ""},
+        ]
+    },
+    ensure_ascii=False,
+)
+
 
 class _FakeHttpResponse:
     def __init__(self, payload: dict) -> None:
@@ -100,6 +118,8 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
                 return PLAYLIST_JSON
             if "영어 키워드" in joined or "Pexels" in joined:
                 return KEYWORDS_JSON
+            if "문장집" in joined or "novel|quote|wit|fact" in joined:
+                return SENTENCES_JSON
             if "한국어 단어" in joined or "뉘앙스" in joined:
                 return WORDS_JSON
             return "unexpected"
@@ -231,6 +251,16 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertEqual(len(words), 10)
         self.assertEqual(words[0]["word"], "잠행")
 
+    def test_sentence_list_prompt_and_parser(self) -> None:
+        system, user = app._sentence_list_prompt("로맨스 판타지")
+        core = app.SuperToryHandler._tory_core_identity_system_prompt()
+        self.assertIn(core, system)
+        self.assertIn("문장집", user)
+        sentences = app._parse_sentence_list(SENTENCES_JSON)
+        self.assertEqual(len(sentences), 10)
+        self.assertEqual(sentences[0]["kind"], "novel")
+        self.assertEqual(sentences[2]["kind"], "wit")
+
     def test_mood_color_endpoint_logs(self) -> None:
         pid = self._make_project()
         self._make_protagonist(pid)
@@ -264,6 +294,13 @@ class GlumpBurnoutActivitiesTests(unittest.TestCase):
         self.assertEqual(status, 200, data)
         self.assertEqual(len(data.get("words") or []), 10)
         self.assertEqual(self._logged_tools(pid), ["word_list"])
+
+    def test_sentence_list_get_logs(self) -> None:
+        pid = self._make_project()
+        status, data = self.request("GET", f"/api/glump/sentence-list?work_id={pid}")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(len(data.get("sentences") or []), 10)
+        self.assertEqual(self._logged_tools(pid), ["sentence_list"])
 
     def test_mood_board_empty_pexels_key_is_400_not_500(self) -> None:
         pid = self._make_project()

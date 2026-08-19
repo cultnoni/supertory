@@ -149,6 +149,43 @@ class DocumentImportUnitTests(unittest.TestCase):
         )
         self.assertEqual([section.content for section in sections], ["하나", "둘", "셋"])
 
+    def test_numbered_order_splits_episodes_and_keeps_title_line(self) -> None:
+        text = "1화 시작\n첫 본문.\n2화 이어서\n둘째 본문.\n제 3화 끝\n셋째 본문."
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={"presets": ["numbered"], "blank_line_threshold": 0},
+        )
+        self.assertEqual(len(sections), 3)
+        self.assertTrue(sections[0].title.startswith("1화"))
+        self.assertIn("첫 본문", sections[0].content)
+        self.assertNotIn("둘째 본문", sections[0].content)
+        self.assertTrue(sections[1].title.startswith("2화"))
+        self.assertIn("제 3화", sections[2].title)
+        self.assertIn("셋째 본문", sections[2].content)
+
+    def test_numbered_dot_titles_split_episodes(self) -> None:
+        text = "1. 첫 회\n본문 A\n2. 둘째 회\n본문 B"
+        sections = document_import.split_into_sections(
+            text,
+            "blank_lines",
+            "전체",
+            delimiter_config={"presets": ["numbered"]},
+        )
+        self.assertEqual(len(sections), 2)
+        self.assertEqual(sections[0].title, "1. 첫 회")
+        self.assertIn("본문 A", sections[0].content)
+        self.assertEqual(sections[1].title, "2. 둘째 회")
+
+    def test_headings_become_chapter_folders(self) -> None:
+        text = "제 1장 시작\n본문 하나.\n\n제 1부 다음\n본문 둘."
+        plan = document_import.build_import_plan(text, "headings", "전체")
+        self.assertEqual(len(plan.chapters), 2)
+        self.assertEqual(len(plan.chapters[0].scenes), 1)
+        self.assertIn("제 1장", plan.chapters[0].title)
+        self.assertIn("제 1부", plan.chapters[1].title)
+
 
 class HierarchyImportPlanTests(unittest.TestCase):
     def test_toc_present_source_and_prologue(self) -> None:

@@ -44,6 +44,17 @@ class WorldImportAnalysisUnitTests(unittest.TestCase):
         self.assertEqual(parsed["locale"], "")
 
 
+    def test_infer_prompt_uses_plot(self) -> None:
+        system, user = world_import_analysis.build_analysis_prompt(
+            "",
+            plot_context="[줄거리]\n검은 비가 10년째 내린다.",
+            infer=True,
+        )
+        self.assertIn("줄거리만", user)
+        self.assertIn("검은 비", user)
+        self.assertIn("비어 있는 칸", system)
+
+
 class WorldImportAnalysisApplyTests(unittest.TestCase):
     def setUp(self) -> None:
         self.temporary_directory = tempfile.TemporaryDirectory()
@@ -85,8 +96,8 @@ class WorldImportAnalysisApplyTests(unittest.TestCase):
             ).fetchone()[0]
             values = world_import_analysis.parse_worldbuilding_md(md)
             self.assertEqual(values["reality"], "이미 적어 둔 현실/가상")
-            self.assertEqual(values["era"], "근미래")
-            self.assertEqual(values["locale"], "하버라인")
+            self.assertEqual(values["era"], "〔토리〕 근미래")
+            self.assertEqual(values["locale"], "〔토리〕 하버라인")
             pending = connection.execute(
                 "SELECT section_name, field_name, analyzed_content FROM world_tori_analysis "
                 "WHERE project_id = 1"
@@ -94,11 +105,11 @@ class WorldImportAnalysisApplyTests(unittest.TestCase):
             self.assertEqual(len(pending), 1)
             self.assertEqual(pending[0]["field_name"], "reality")
             self.assertEqual(pending[0]["section_name"], "where_when")
-            self.assertEqual(pending[0]["analyzed_content"], "토리가 쓴 현실/가상")
+            self.assertEqual(pending[0]["analyzed_content"], "〔토리〕 토리가 쓴 현실/가상")
 
             applied = world_import_analysis.apply_pending_field(connection, 1, "reality")
             after = world_import_analysis.parse_worldbuilding_md(applied)
-            self.assertEqual(after["reality"], "토리가 쓴 현실/가상")
+            self.assertEqual(after["reality"], "〔토리〕 토리가 쓴 현실/가상")
             leftover = connection.execute(
                 "SELECT COUNT(*) FROM world_tori_analysis WHERE project_id = 1"
             ).fetchone()[0]
@@ -210,13 +221,49 @@ class WorldImportAnalysisApiTests(unittest.TestCase):
         values = world_import_analysis.parse_worldbuilding_md(
             outline["project"]["worldbuilding_md"]
         )
-        self.assertEqual(values["reality"], "가상 왕국")
-        self.assertEqual(values["era"], "중세")
-        self.assertEqual(values["special"], "마법")
+        self.assertEqual(values["reality"], "〔토리〕 가상 왕국")
+        self.assertEqual(values["era"], "〔토리〕 중세")
+        self.assertEqual(values["special"], "〔토리〕 마법")
         done = app.character_analysis_snapshot()
         self.assertEqual(done["status"], "done")
         self.assertGreaterEqual(done["world_filled"], 3)
         self.assertGreaterEqual(done["created"], 1)
+
+    @patch.object(app.time, "sleep", return_value=None)
+    @patch.object(gemini_client, "is_configured", return_value=True)
+    @patch.object(
+        gemini_client,
+        "generate_text",
+        return_value='{"reality":"가상","era":"근미래","locale":"하버라인","special":"이능","rules":"감정 연료","limits":"기억 소실","extreme_event":"검은 비","extreme_impact":"야외 금지","power":"기업","daily":"허가제","class":"이능 우대","factions":"서킷","conflict":"이권"}',
+    )
+    def test_infer_world_only_from_synopsis(self, generate, _configured, _sleep) -> None:
+        status, project = self.request("POST", "/api/projects", {"title": "세계관만", "main_genre": "판타지"})
+        self.assertEqual(status, 201)
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE project SET description_md = ? WHERE id = ?",
+                ("검은 비가 내리는 해안 도시. 방재 기업이 지배한다.", project["id"]),
+            )
+        status, job = self.request(
+            "POST",
+            f"/api/projects/{project['id']}/character-analysis",
+            {"infer": True, "include_world": True, "include_characters": False},
+        )
+        self.assertEqual(status, 200)
+        worker = app._character_analysis_thread
+        if worker is not None:
+            worker.join(timeout=8)
+        self.assertEqual(generate.call_count, 1)
+        prompt = str(generate.call_args.kwargs.get("prompt") or generate.call_args[0][0])
+        self.assertIn("줄거리", prompt)
+        status, outline = self.request("GET", f"/api/projects/{project['id']}/outline")
+        values = world_import_analysis.parse_worldbuilding_md(
+            outline["project"]["worldbuilding_md"]
+        )
+        self.assertTrue(values["reality"].startswith("〔토리〕"))
+        self.assertTrue(values["era"].startswith("〔토리〕"))
+        status, characters = self.request("GET", f"/api/projects/{project['id']}/characters")
+        self.assertEqual(characters, [])
 
 
 if __name__ == "__main__":

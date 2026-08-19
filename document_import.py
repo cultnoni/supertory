@@ -336,7 +336,27 @@ DELIMITER_PRESET_MARKERS: dict[str, str] = {
     "dash": "---",
     "---": "---",
 }
-DELIMITER_PRESET_KEYS = ("hash", "asterisk", "dash", "blank")
+DELIMITER_PRESET_KEYS = ("hash", "asterisk", "dash", "blank", "numbered")
+NUMBERED_PRESET_ALIASES = {
+    "numbered",
+    "numeric",
+    "number",
+    "numbers",
+    "number_order",
+    "숫자",
+    "숫자순서",
+    "숫자_순서",
+}
+# 1화 / 제 1회 / 1. 제목 / 1 - 제목 / 1) 제목 — 회차 시작 줄.
+# 제N장·제N부는 headings(폴더) 모드에서 다루므로 여기에서는 제외한다.
+NUMBERED_ORDER_LINE = re.compile(
+    r"^(?:"
+    r"(?:제\s*)?\d+\s*(?:회차|회|화)\b.*|"
+    r"\d+\s*[.、．)]\s*$|"
+    r"\d+\s*[.、．)\-–—]\s+\S.{0,79}"
+    r")$",
+    re.IGNORECASE,
+)
 PREVIEW_SCENE_LIMIT = 40
 MAX_BLANK_LINE_THRESHOLD = 20
 
@@ -373,6 +393,8 @@ def normalise_delimiter_config(raw: object, *, split_mode: str = "blank_lines") 
             key = str(item or "").strip().lower()
             if key in {"blank", "blank_lines", "empty"}:
                 key = "blank"
+            elif key in NUMBERED_PRESET_ALIASES:
+                key = "numbered"
             elif key in DELIMITER_PRESET_MARKERS:
                 key = "hash" if DELIMITER_PRESET_MARKERS[key] == "#" else (
                     "asterisk" if DELIMITER_PRESET_MARKERS[key] == "***" else "dash"
@@ -451,6 +473,7 @@ def normalise_delimiter_config(raw: object, *, split_mode: str = "blank_lines") 
         "markers": markers,
         "blank_line_threshold": threshold,
         "use_blank_lines": bool(use_blank and threshold > 0),
+        "use_numbered": "numbered" in seen_presets,
         "custom": custom,
         "split": str(data.get("split") or mode or "").strip().lower(),
     }
@@ -655,21 +678,21 @@ def _split_by_headings(text: str, default_title: str) -> list[ImportedSection]:
         body = text[start:end].strip()
         title = _clean_heading_title(match.group(0))
         if body or title:
-            sections.append(ImportedSection(title=title or f"장면 {index + 1}", content=body))
+            sections.append(ImportedSection(title=title or f"회차 {index + 1}", content=body))
     return sections
 
 
 def _clean_heading_title(raw: str) -> str:
     title = raw.strip()
     title = re.sub(r"^#{1,6}\s+", "", title)
-    return title[:120] or "새 씬"
+    return title[:120] or "새 회차"
 
 
 def _scene_title_from_block(block: str, index: int) -> str:
     first_line = (block or "").split("\n", 1)[0].strip()
     if first_line and len(first_line) <= 40:
         return first_line
-    return f"장면 {index}"
+    return f"회차 {index}"
 
 
 def _is_delimiter_marker_line(stripped: str, markers: list[str]) -> bool:
@@ -681,6 +704,10 @@ def _is_delimiter_marker_line(stripped: str, markers: list[str]) -> bool:
         if marker in {"***", "---"} and len(stripped) >= len(marker) and set(stripped) == {marker[0]}:
             return True
     return False
+
+
+def _is_numbered_order_line(stripped: str) -> bool:
+    return bool(stripped and NUMBERED_ORDER_LINE.match(stripped))
 
 
 def split_by_delimiters(
@@ -699,8 +726,9 @@ def split_by_delimiters(
     threshold = int(config.get("blank_line_threshold") or 0)
     if not config.get("use_blank_lines"):
         threshold = 0
+    use_numbered = bool(config.get("use_numbered"))
 
-    if not markers and threshold <= 0:
+    if not markers and threshold <= 0 and not use_numbered:
         stripped = text.strip()
         return [ImportedSection(title=default_title, content=stripped or text)]
 
@@ -714,6 +742,11 @@ def split_by_delimiters(
             if any(line.strip() for line in current):
                 chunks.append(current)
             current = []
+            index += 1
+            continue
+        if use_numbered and _is_numbered_order_line(stripped) and any(line.strip() for line in current):
+            chunks.append(current)
+            current = [lines[index]]
             index += 1
             continue
         if threshold > 0 and not stripped:
@@ -745,7 +778,7 @@ def split_by_delimiters(
         if not block:
             continue
         title = _scene_title_from_block(block, offset)
-        sections.append(ImportedSection(title=title or f"장면 {offset}", content=block))
+        sections.append(ImportedSection(title=title or f"회차 {offset}", content=block))
     if not sections:
         stripped = text.strip()
         return [ImportedSection(title=default_title, content=stripped or text)]

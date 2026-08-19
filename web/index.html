@@ -634,7 +634,10 @@
                 <div class="settings-box-body" id="worldBody" hidden>
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="app.세계관">세계관</span>
-                    <button type="button" class="settings-inline-save" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                    <div class="settings-field-actions">
+                      <button type="button" class="secondary compact-btn" id="toriFillWorldButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+                      <button type="button" class="settings-inline-save" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                    </div>
                   </div>
                   <p class="hint settings-field-hint" data-i18n="index.아래_다섯_칸에_맞춰_적어두면_AI_보조가">아래 다섯 칸에 맞춰 적어두면 AI 보조가 세계관을 더 정확히 읽어요. 예시는 지우고 작품에 맞게 바꿔 주세요.</p>
                   <div class="worldbuilding-form" id="worldbuildingForm" aria-label="세계관 구조" data-i18n-aria-label="index.세계관_구조">
@@ -750,6 +753,7 @@
                 <div class="settings-box-body" id="charactersBody" hidden>
                   <div class="settings-box-toolbar">
                     <button type="button" id="newCharacterButton" class="secondary" title="새 캐릭터" data-i18n-title="app.새_캐릭터" data-i18n="index.캐릭터">+ 캐릭터</button>
+                    <button type="button" class="secondary" id="toriFillCharactersButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
                   </div>
                   <p class="hint" data-i18n="index.인물을_눌러_설정을_수정하거나_오른쪽_아이콘">인물을 눌러 설정을 수정하거나, 오른쪽 → 아이콘으로 메인에서 볼 수 있어요.</p>
                   <nav id="characterList" aria-label="캐릭터 목록" data-i18n-aria-label="index.캐릭터_목록"></nav>
@@ -1074,16 +1078,23 @@
         </div>
 
         <div id="sceneWorkspace" class="scene-workspace hidden">
-          <div id="glumpSprintStatusBar" class="glump-sprint-status-bar hidden" hidden role="status">
-            <span class="glump-sprint-status-dot" aria-hidden="true"></span>
-            <span id="glumpSprintStatusText" class="glump-sprint-status-text"></span>
-            <span id="glumpSprintStatusTimer" class="glump-sprint-status-timer hidden" hidden></span>
-            <span id="glumpSprintStatusChars" class="glump-sprint-status-chars hidden" hidden></span>
-            <div id="glumpSprintStatusGauge" class="glump-sprint-status-gauge hidden" hidden>
-              <div class="glump-sprint-status-gauge-track" aria-hidden="true">
-                <div id="glumpSprintStatusGaugeFill" class="glump-sprint-status-gauge-fill"></div>
+          <div id="glumpSprintStatusBar" class="glump-sprint-status-bar glump-sprint-session hidden" hidden role="status">
+            <div class="glump-sprint-session-copy">
+              <p id="glumpSprintStatusText" class="glump-sprint-status-text"></p>
+              <p id="glumpSprintStatusHint" class="glump-sprint-session-hint"></p>
+            </div>
+            <div class="glump-sprint-session-center">
+              <span id="glumpSprintStatusTimer" class="glump-sprint-status-timer hidden" hidden></span>
+              <div id="glumpSprintStatusGauge" class="glump-sprint-status-gauge hidden" hidden>
+                <div class="glump-sprint-status-gauge-track" aria-hidden="true">
+                  <div id="glumpSprintStatusGaugeFill" class="glump-sprint-status-gauge-fill"></div>
+                </div>
+                <span id="glumpSprintStatusGaugeLabel" class="glump-sprint-status-gauge-label"></span>
               </div>
-              <span id="glumpSprintStatusGaugeLabel" class="glump-sprint-status-gauge-label"></span>
+            </div>
+            <div class="glump-sprint-session-meta">
+              <span id="glumpSprintStatusChars" class="glump-sprint-status-chars hidden" hidden></span>
+              <button type="button" class="secondary compact-btn" id="glumpSprintEndButton" data-i18n="index.오늘은_여기까지">오늘은 여기까지</button>
             </div>
           </div>
           <div class="writing-column">
@@ -1688,21 +1699,48 @@
               <!-- 본문과 한 장의 종이로 합친 글자수 집계 (바탕 = 페이지 테마색, 화면 크롬과 분리) -->
               <footer class="manuscript-status-wrap" id="manuscriptStatusWrap" aria-label="글자 수와 목표" data-i18n-aria-label="index.글자_수와_목표">
               <div class="manuscript-status-bar" id="manuscriptStatusBar">
-                <button
-                  type="button"
-                  class="status-scope-btn"
-                  id="statsScopeToggle"
-                  title="현재 원고 ↔ 작품 전체 전환" data-i18n-title="index.현재_원고_작품_전체_전환"
+                <div
+                  class="status-seg status-seg-scope"
+                  id="statsScopeSeg"
+                  role="group"
                   aria-label="글자 수 범위 전환" data-i18n-aria-label="index.글자_수_범위_전환"
-                 data-i18n="app.현재">현재</button>
-                <div class="status-bar-counts" id="statsCounts" role="group" aria-label="글자 수" data-i18n-aria-label="app.글자_수">
-                  <button type="button" class="stat-chip" data-stat="chars_with_space" data-group="space" title="클릭: 공백 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_공백_표시_전환_더블클릭_목표_기준" data-i18n="app.공백포함">공백포함 <strong>0</strong></button>
-                  <button type="button" class="stat-chip" data-stat="chars_no_space" data-group="space" title="클릭: 공백 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_공백_표시_전환_더블클릭_목표_기준" data-i18n="app.공백제외">공백제외 <strong>0</strong></button>
-                  <button type="button" class="stat-chip" data-stat="words" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기" data-i18n="app.단어">단어 <strong>0</strong></button>
-                  <button type="button" class="stat-chip" data-stat="letters" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기" data-i18n="app.글자">글자 <strong>0</strong></button>
-                  <span class="stat-chip stat-chip-static is-hidden-stat" data-stat="scenes" title="씬 개수" data-i18n-title="index.씬_개수" data-i18n="index.씬">씬 <strong>0</strong></span>
+                >
+                  <button
+                    type="button"
+                    class="status-seg-btn status-scope-btn is-active"
+                    data-scope="current"
+                    title="현재 원고만 셉니다" data-i18n-title="index.현재_원고만_셉니다"
+                    aria-pressed="true"
+                    data-i18n="app.현재"
+                  >현재</button>
+                  <button
+                    type="button"
+                    class="status-seg-btn status-scope-btn"
+                    data-scope="project"
+                    title="작품 전체를 셉니다" data-i18n-title="index.작품_전체를_셉니다"
+                    aria-pressed="false"
+                    data-i18n="app.전체"
+                  >전체</button>
                 </div>
-                <span class="status-reading-time" id="statsReadingTime" title="예상 읽기 시간 (분당 약 200단어 · 한글은 분당 약 500자)" data-i18n-title="index.예상_읽기_시간_분당_약_200단어_한글은" data-i18n="app.약_0분">약 0분</span>
+                <div class="status-bar-counts" id="statsCounts" role="group" aria-label="글자 수" data-i18n-aria-label="app.글자_수">
+                  <div class="status-seg status-seg-space" id="statsSpaceSeg" role="group" aria-label="공백 포함 · 제외" data-i18n-aria-label="index.글자_수_공백_전환">
+                    <button type="button" class="status-seg-btn stat-chip is-active" data-stat="chars_with_space" data-group="space" title="공백 포함으로 셉니다" data-i18n-title="index.공백_포함으로_셉니다" aria-pressed="true">
+                      <span data-i18n="app.공백포함">공백포함</span> <strong>0</strong>
+                    </button>
+                    <button type="button" class="status-seg-btn stat-chip" data-stat="chars_no_space" data-group="space" title="공백 제외로 셉니다" data-i18n-title="index.공백_제외로_셉니다" aria-pressed="false">
+                      <span data-i18n="app.공백제외">공백제외</span> <strong>0</strong>
+                    </button>
+                  </div>
+                  <button type="button" class="stat-chip" data-stat="words" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기">
+                    <span data-i18n="app.단어">단어</span> <strong>0</strong>
+                  </button>
+                  <button type="button" class="stat-chip" data-stat="letters" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기">
+                    <span data-i18n="app.글자">글자</span> <strong>0</strong>
+                  </button>
+                  <span class="stat-chip stat-chip-static is-hidden-stat" data-stat="scenes" title="씬 개수" data-i18n-title="index.씬_개수">
+                    <span data-i18n="index.씬">씬</span> <strong>0</strong>
+                  </span>
+                </div>
                 <span class="status-bar-vsep" aria-hidden="true"></span>
                 <div class="status-bar-progress" id="statusBarProgress" title="우클릭: 게이지 색 선택" data-i18n-title="index.우클릭_게이지_색_선택">
                   <div class="scene-goal-progress-labels">
@@ -1717,7 +1755,7 @@
                 <div class="status-bar-goal-controls" id="statusBarGoalControls" title="우클릭: 목표 전체 적용" data-i18n-title="index.우클릭_목표_전체_적용">
                   <label class="status-bar-field" title="목표 수 · 우클릭: 전체 적용" data-i18n-title="index.목표_수_우클릭_전체_적용">
                     <span class="status-bar-field-label" id="statsGoalLabel" data-i18n="app.목표">목표</span>
-                    <input id="statsGoalInput" type="number" min="0" step="1" value="0" placeholder="0" aria-label="목표 수" data-i18n-aria-label="index.목표_수">
+                    <input id="statsGoalInput" type="number" min="0" step="1" value="0" placeholder="0" size="8" aria-label="목표 수" data-i18n-aria-label="index.목표_수" autocomplete="off">
                   </label>
                   <!-- Persisted fields (hidden); visible input mirrors the active scope -->
                   <input id="sceneGoalCount" form="sceneEditor" type="hidden" value="0">
@@ -1731,8 +1769,7 @@
                 </div>
                 <div class="status-bar-actions">
                   <button
-                    type="submit"
-                    form="sceneEditor"
+                    type="button"
                     class="primary compact-btn status-save-btn"
                     id="statusSaveButton"
                     title="저장 · 우클릭: 목표 전체 적용"
@@ -1768,7 +1805,7 @@
                   <div class="scene-characters-head">
                     <div class="scene-characters-head-copy">
                       <label class="scene-characters-title tory-helper-section-label" data-i18n="index.이_회차_등장_인물">이 회차 등장 인물</label>
-                      <p class="hint scene-characters-hint" data-i18n="index.설정집에서_만든_인물을_체크한_뒤">설정집에서 만든 인물을 체크한 뒤 <strong data-i18n="app.저장">저장</strong>을 누르면 이 회차에 연결됩니다.</p>
+                      <p class="hint scene-characters-hint" data-i18n="index.원고에_나온_인물은_등장과_언급으로_나뉘어_자">실제로 장면에 나온 인물만 자동으로 연결합니다. 이름만 언급된 경우는 빼 두어요.</p>
                     </div>
                     <button type="button" id="sceneCharacterCreateButton" class="secondary compact-btn scene-character-create-btn" title="새 인물을 만들고 인물 작성 페이지로 이동" data-i18n-title="index.새_인물을_만들고_인물_작성_페이지로_이동" data-i18n="index.인물">+ 인물</button>
                   </div>
@@ -2007,8 +2044,9 @@
             </div>
             <div class="character-editor-actions">
               <span id="characterInfo" class="save-info"></span>
+              <button type="button" class="secondary compact-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
               <button type="button" id="deleteCharacterButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.인물_삭제">인물 삭제</button>
-              <button type="submit" class="primary compact-btn" data-i18n="index.인물_설정_저장">인물 설정 저장</button>
+              <button type="submit" class="primary compact-btn" data-i18n="index.인물_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">인물 설정 저장</button>
               <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
           </div>
@@ -2069,7 +2107,7 @@
             <h3 data-i18n="index.다른_이름_별칭">다른 이름 / 별칭</h3>
             <div id="aliasList" class="chips"></div>
             <div class="inline-add">
-              <input id="newAlias" placeholder="예: 검은 여우" data-i18n-placeholder="index.예_검은_여우">
+              <input id="newAlias" placeholder="예: 검은 여우" data-i18n-placeholder="index.예_검은_여우" aria-label="다른 이름 / 별칭" data-i18n-aria-label="index.다른_이름_별칭">
               <button id="addAliasButton" type="button" class="secondary" data-i18n="index.별칭_추가">별칭 추가</button>
             </div>
           </section>
@@ -2085,7 +2123,7 @@
               </div>
               <div class="synopsis-main-actions">
                 <span id="synopsisSaveInfo" class="save-info"></span>
-                <button type="button" id="saveSynopsisMainButton" class="primary compact-btn" data-i18n="app.저장">저장</button>
+                <button type="button" id="saveSynopsisMainButton" class="primary compact-btn" data-i18n="app.저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">저장</button>
                 <button type="button" id="closeSynopsisMainButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
               </div>
             </div>
@@ -2327,7 +2365,8 @@
             </div>
             <div class="worldbuilding-main-actions">
               <span id="worldbuildingSaveInfo" class="save-info"></span>
-              <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn" data-i18n="app.저장">저장</button>
+              <button type="button" class="secondary compact-btn" id="toriFillWorldMainButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+              <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn" data-i18n="app.저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">저장</button>
               <button type="button" id="closeWorldbuildingMainButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
           </div>
@@ -2344,6 +2383,7 @@
               <p class="hint" data-i18n="index.인물_카드를_누르면_가운데에서_상세_설정을">인물 카드를 누르면 가운데에서 상세 설정을 편집합니다.</p>
             </div>
             <div class="character-board-actions">
+              <button type="button" class="secondary compact-btn" id="toriFillCharactersMainButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
               <button type="button" id="newCharacterMainButton" class="secondary compact-btn" data-i18n="index.캐릭터">+ 캐릭터</button>
               <button type="button" id="closeCharacterBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
@@ -2770,7 +2810,7 @@
                 <div class="tory-chat-toolbar-actions">
                   <button
                     type="button"
-                    class="secondary tory-chat-action-btn tory-chat-icon-btn tory-chat-hl-btn"
+                    class="secondary tory-chat-action-btn tory-chat-icon-btn tory-chat-hl-btn feature-hide-exempt"
                     id="toryChatHighlightButton"
                     title="토리 답변 드래그 후 클릭: 형광펜 · 우클릭: 색 고르기" data-i18n-title="index.토리_답변_드래그_후_클릭_형광펜_우클릭_색"
                     aria-label="형광펜" data-i18n-aria-label="index.형광펜"
@@ -2830,6 +2870,10 @@
                 </div>
               </form>
             </div>
+          </div>
+          <div id="toryChatPopupDockHint" class="tory-chat-popup-dock-hint hidden" hidden>
+            <p data-i18n="index.1_1_대화는_큰_창에서_이어지고_있어요">1:1 대화는 큰 창에서 이어지고 있어요. 질문칸 글은 그대로 옮겨 가요.</p>
+            <button type="button" class="secondary" id="toryChatPopupDockButton" data-i18n="index.큰_창_닫고_여기로">큰 창 닫고 여기로</button>
           </div>
         </div>
 
@@ -3571,7 +3615,7 @@
           <h2 id="glumpErModalTitle"><span class="glump-er-title-icon" aria-hidden="true">⛑️</span>글럼프 응급실</h2>
           <button type="button" class="modal-close" data-close-glump-er title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
-        <div class="success-pattern-wizard glump-er-wizard" aria-label="글럼프 응급실" data-i18n-aria-label="app.글럼프_응급실">
+        <div id="glumpErWizard" class="success-pattern-wizard glump-er-wizard" aria-label="글럼프 응급실" data-i18n-aria-label="app.글럼프_응급실">
           <p class="sp-lead" id="glumpErLead" data-i18n="index.글이_안_풀릴_때_지금_바로_꺼내_쓰거나_막">글이 안 풀릴 때, 지금 바로 꺼내 쓰거나 막힌 지점부터 짚어 보세요.</p>
 
           <div id="glumpErStepHome" data-glump-step="home">
@@ -3680,7 +3724,9 @@
               </div>
             </div>
             <p class="hint" id="glumpErSparkStatus"></p>
-            <div id="glumpErSparkList" class="glump-er-spark-list"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErSparkList" class="glump-er-spark-list glump-er-chat-pane"></div>
+            </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErSparkBack" data-i18n="app.진단으로">진단으로</button>
             </div>
@@ -3694,7 +3740,9 @@
               </div>
             </div>
             <p class="hint" id="glumpErVitaminStatus"></p>
-            <div id="glumpErVitaminList" class="glump-er-spark-list"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErVitaminList" class="glump-er-spark-list glump-er-chat-pane"></div>
+            </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErVitaminBack" data-i18n="app.목록으로">목록으로</button>
             </div>
@@ -3708,37 +3756,57 @@
               </div>
             </div>
             <p class="hint" id="glumpErFillBlankStatus"></p>
-            <div id="glumpErFillBlankBody" class="glump-er-fill-body"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErFillBlankBody" class="glump-er-fill-body glump-er-chat-pane"></div>
+            </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErFillBlankBack" data-i18n="app.목록으로">목록으로</button>
               <button type="button" class="primary compact-btn" id="glumpErFillBlankSubmit" data-i18n="index.완성해서_원고에_넣기">완성해서 원고에 넣기</button>
             </div>
           </div>
 
-          <div id="glumpErStepPingpong" class="hidden" data-glump-step="pingpong">
-            <strong class="glump-er-q" data-i18n="app.핑퐁_릴레이">핑퐁 릴레이</strong>
-            <div id="glumpErPingpongTori" class="glump-er-spark-tori glump-er-pingpong-tori" aria-hidden="true">
-              <div class="glump-er-spark-tori-stage">
-                <img class="glump-er-spark-tori-frame is-idle glump-er-spark-tori-anim" src="/assets/glump/tori-pingpong.gif" width="400" height="225" alt="">
+          <div id="glumpErStepPingpong" class="hidden glump-er-ping-session" data-glump-step="pingpong">
+            <header class="glump-er-ping-header">
+              <div id="glumpErPingpongTori" class="glump-er-spark-tori glump-er-pingpong-tori" aria-hidden="true">
+                <div class="glump-er-spark-tori-stage">
+                  <img class="glump-er-spark-tori-frame is-idle glump-er-spark-tori-anim" src="/assets/glump/tori-pingpong.gif" width="400" height="225" alt="">
+                </div>
+              </div>
+              <div class="glump-er-ping-header-copy">
+                <strong class="glump-er-q" data-i18n="app.핑퐁_릴레이">핑퐁 릴레이</strong>
+                <p class="hint" id="glumpErPingpongStatus"></p>
+              </div>
+              <div class="glump-er-ping-stats" aria-live="polite">
+                <span id="glumpErPingpongTurnCount"></span>
+                <span id="glumpErPingpongCharCount"></span>
+              </div>
+              <div class="glump-er-ping-header-actions">
+                <button type="button" class="secondary compact-btn" id="glumpErPingpongBack" data-i18n="app.목록으로">목록으로</button>
+                <button type="button" class="secondary compact-btn" id="glumpErPingpongEnd" data-i18n="index.오늘은_여기까지">오늘은 여기까지</button>
+              </div>
+            </header>
+            <div class="glump-er-chat-frame glump-er-ping-frame">
+              <div id="glumpErPingpongCanvas" class="glump-er-ping-canvas">
+                <p id="glumpErPingpongEmpty" class="glump-er-ping-empty hidden" data-i18n="app.엔터치면_토리가_이어_받아요">한 문장만 써 보세요. 엔터치면 토리가 이어 받아요.</p>
+                <div id="glumpErPingpongTurns" class="glump-er-ping-turns"></div>
+                <div id="glumpErPingpongTyping" class="glump-er-ping-typing hidden" aria-live="polite">
+                  <span class="glump-er-ping-typing-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+                  <span id="glumpErPingpongTypingLabel" data-i18n="app.토리_작성_중">토리 작성 중…</span>
+                </div>
+                <div id="glumpErPingpongCheckin" class="glump-er-ping-checkin hidden">
+                  <p id="glumpErPingpongCheckinMsg"></p>
+                  <div class="glump-er-nav">
+                    <button type="button" class="primary compact-btn" id="glumpErPingpongContinue" data-i18n="index.계속_이어갈까요">계속 이어갈까요</button>
+                    <button type="button" class="secondary compact-btn" id="glumpErPingpongStop" data-i18n="index.오늘은_여기까지">오늘은 여기까지</button>
+                  </div>
+                </div>
               </div>
             </div>
-            <p class="hint" id="glumpErPingpongStatus"></p>
-            <div id="glumpErPingpongTurns" class="glump-er-ping-turns"></div>
-            <div id="glumpErPingpongCheckin" class="glump-er-ping-checkin hidden">
-              <p id="glumpErPingpongCheckinMsg"></p>
-              <div class="glump-er-nav">
-                <button type="button" class="primary compact-btn" id="glumpErPingpongContinue" data-i18n="index.계속_이어갈까요">계속 이어갈까요</button>
-                <button type="button" class="secondary compact-btn" id="glumpErPingpongStop" data-i18n="index.오늘은_여기까지">오늘은 여기까지</button>
-              </div>
-            </div>
-            <div id="glumpErPingpongComposer" class="glump-er-ping-composer">
-              <textarea id="glumpErPingpongInput" rows="3" placeholder="한두 문장만 이어서 써 보세요." data-i18n-placeholder="index.한두_문장만_이어서_써_보세요"></textarea>
-              <button type="button" class="primary compact-btn" id="glumpErPingpongSend" data-i18n="index.토리에게_넘기기">토리에게 넘기기</button>
-            </div>
-            <div class="glump-er-nav">
-              <button type="button" class="secondary compact-btn" id="glumpErPingpongBack" data-i18n="app.목록으로">목록으로</button>
-              <button type="button" class="secondary compact-btn" id="glumpErPingpongEnd" data-i18n="index.오늘은_여기까지">오늘은 여기까지</button>
-            </div>
+            <form id="glumpErPingpongComposer" class="glump-er-ping-composer" action="#">
+              <textarea id="glumpErPingpongInput" rows="1" placeholder="한두 문장만 이어서 써 보세요." data-i18n-placeholder="index.한두_문장만_이어서_써_보세요"></textarea>
+              <button type="submit" class="primary compact-btn" id="glumpErPingpongSend" data-i18n="index.넘기기">넘기기</button>
+            </form>
+            <p class="glump-er-ping-keys hint" id="glumpErPingpongKeys" data-i18n="app.Enter로_넘기기_Shift_Enter는_줄바꿈">Enter 넘기기 · Shift+Enter 줄바꿈</p>
           </div>
 
           <div id="glumpErStepLucky" class="hidden" data-glump-step="lucky">
@@ -3749,7 +3817,9 @@
               </div>
             </div>
             <p class="hint" id="glumpErLuckyStatus"></p>
-            <div id="glumpErLuckyBody" class="glump-er-lucky-body"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErLuckyBody" class="glump-er-lucky-body glump-er-chat-pane"></div>
+            </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErLuckyBack" data-i18n="app.목록으로">목록으로</button>
               <button type="button" class="secondary compact-btn" id="glumpErLuckyRedraw" data-i18n="index.다시_뽑기">다시 뽑기</button>
@@ -3765,7 +3835,9 @@
               </div>
             </div>
             <p class="hint" id="glumpErInterrogationStatus"></p>
-            <div id="glumpErInterrogationBody" class="glump-er-interrogation-body"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErInterrogationBody" class="glump-er-interrogation-body glump-er-chat-pane"></div>
+            </div>
             <div class="glump-er-nav">
               <button type="button" class="secondary compact-btn" id="glumpErInterrogationBack" data-i18n="app.목록으로">목록으로</button>
               <button type="button" class="primary compact-btn hidden" id="glumpErInterrogationSummarize" data-i18n="index.전개_힌트_보기">전개 힌트 보기</button>
@@ -3797,6 +3869,10 @@
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">📝</span>단어집 둘러보기</strong>
                 <span data-i18n="index.장르_단어를_입안에서만_굴려_볼게요">장르 단어를 입안에서만 굴려 볼게요</span>
               </button>
+              <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="sentence_list">
+                <strong><span class="glump-er-tool-icon" aria-hidden="true">📖</span>문장집 둘러보기</strong>
+                <span data-i18n="index.명언_위트_놀라운_사실을_한_줄씩_굴려_볼게요">명언, 위트, 놀라운 사실을 한 줄씩 굴려 볼게요</span>
+              </button>
               <button type="button" class="glump-er-choice glump-er-tool-card" data-glump-diversion="character_tarot">
                 <strong><span class="glump-er-tool-icon" aria-hidden="true">🔮</span>캐릭터 타로 풀이</strong>
                 <span data-i18n="index.내_캐릭터_운명_타로로_한_번_봐드릴게요">내 캐릭터 운명, 타로로 한 번 봐드릴게요</span>
@@ -3814,7 +3890,9 @@
           <div id="glumpErStepDiversionResult" class="hidden" data-glump-step="diversionResult">
             <strong class="glump-er-q" id="glumpErDiversionTitle" data-i18n="app.손가락_놀이터">손가락 놀이터</strong>
             <p class="hint" id="glumpErDiversionStatus"></p>
-            <div id="glumpErDiversionBody" class="glump-er-diversion-body"></div>
+            <div class="glump-er-chat-frame">
+              <div id="glumpErDiversionBody" class="glump-er-diversion-body glump-er-chat-pane"></div>
+            </div>
             <div id="glumpErDiversionExit" class="glump-er-choices glump-er-exit-equal hidden" role="group" aria-label="딴짓 끝내기" data-i18n-aria-label="index.딴짓_끝내기">
               <button type="button" class="glump-er-choice" data-glump-diversion-exit="more" data-i18n="index.다른_딴짓도_볼래요">🎲 다른 딴짓도 볼래요</button>
               <button type="button" class="glump-er-choice" data-glump-diversion-exit="write" data-i18n="index.이제_좀_써볼까요">✍️ 이제 좀 써볼까요</button>
@@ -3829,7 +3907,7 @@
                 <img class="glump-er-spark-tori-frame is-idle glump-er-spark-tori-anim" src="/assets/glump/tori-writing.gif" width="400" height="351" alt="">
               </div>
             </div>
-            <p class="hint" data-i18n="index.모드를_고르면_지금_열려_있는_원고에서_바로">모드를 고르면 지금 열려 있는 원고에서 바로 시작해요.</p>
+            <p class="hint" data-i18n="index.모드를_고르면_지금_열려_있는_원고에서_바로">모드를 고르면 지금 열려 있는 원고에서 바로 시작해요. 타이머는 첫 글자에 맞춰 출발해요.</p>
             <div class="glump-er-choices glump-er-sprint-modes" role="group" aria-label="뇌 빼고 쓰기 모드" data-i18n-aria-label="index.뇌_빼고_쓰기_모드">
               <button type="button" class="glump-er-choice glump-er-mode-card" data-glump-sprint="no_edit_timer">
                 <strong data-i18n="app.수정금지_타이머">수정금지 타이머</strong>
@@ -4124,9 +4202,9 @@
           <h2 id="importModalTitle" data-i18n="app.문서_가져오기">문서 가져오기</h2>
           <button type="button" class="modal-close" data-close-import title="닫기" data-i18n-title="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" id="importModalHint">
+        <p class="hint modal-hint import-proof-banner" id="importModalHint" role="note" data-i18n-html="index.텍스트_Markdown_Word_DOCX_한글_HWP">
           텍스트, Markdown, Word(DOCX), 한글(<strong>HWP</strong>·HWPX), ODT, RTF, HTML, EPUB 파일을
-          가져올 수 있어요. 문서에 <strong data-i18n="app.목차">목차</strong>가 있으면 목차 항목마다 챕터/씬으로 나눌 수 있습니다.
+          가져올 수 있어요. 문서에 <strong>목차</strong>가 있으면 목차 항목마다 폴더/회차로 나눌 수 있습니다.
           옛 Word(.doc)·PDF는 다른 형식으로 저장한 뒤 가져와 주세요.
         </p>
         <p class="hint modal-hint import-proof-banner hidden" id="importProofBanner" role="status">
@@ -4259,8 +4337,8 @@
               <select id="importDestination">
                 <option value="new_project" data-i18n="app.새_작품으로_만들기">새 작품으로 만들기</option>
                 <option value="new_chapter" data-i18n="app.현재_작품에_새_챕터로_넣기">현재 작품에 새 챕터로 넣기</option>
-                <option value="existing_chapter" data-i18n="app.현재_작품의_챕터에_새_씬으로_넣기">현재 작품의 챕터에 새 씬으로 넣기</option>
-                <option value="replace_scene" data-i18n="app.지금_열린_씬에_덮어쓰기">지금 열린 씬에 덮어쓰기</option>
+                <option value="existing_chapter" data-i18n="app.현재_작품의_챕터에_새_씬으로_넣기">현재 작품의 챕터에 새 회차로 넣기</option>
+                <option value="replace_scene" data-i18n="app.지금_열린_씬에_덮어쓰기">지금 열린 회차에 덮어쓰기</option>
                 <option value="match_replace_scene" data-i18n="index.교정고_맞는_회차_찾아_덮어쓰기">교정고 → 맞는 회차 찾아 덮어쓰기</option>
                 <option value="proof_compare" data-i18n="index.교정고_비교_분석_덮어쓰기_안_함">교정고 비교 분석 (덮어쓰기 안 함)</option>
                 <option value="proof_pipeline" data-i18n="index.HWP_DOCX_교정_파이프라인_매칭_정제">HWP/DOCX 교정 파이프라인 (매칭·정제·비교)</option>
@@ -4296,9 +4374,9 @@
             <select id="importSplit">
               <option value="auto" data-i18n="index.자동_목차_권_부_회차">자동 (목차 → 권/부/회차)</option>
               <option value="toc" data-i18n="index.목차_차례_대로_권_부_회차_만들기">목차(차례)대로 권·부·회차 만들기</option>
-              <option value="headings" data-i18n="index.제목_제1장_등_마다_챕터로_나누기">제목(#, 제1장 등)마다 챕터로 나누기</option>
-              <option value="blank_lines" data-i18n="index.씬_구분_기준으로_나누기">씬 구분 기준으로 나누기</option>
-              <option value="none" data-i18n="index.통째로_한_씬">통째로 한 씬</option>
+              <option value="headings" data-i18n="index.제목_제1장_등_마다_챕터로_나누기">제목(제 1장, 제 1부 등)마다 폴더 적용하기</option>
+              <option value="blank_lines" data-i18n="index.씬_구분_기준으로_나누기">회차 직접 구분하기(수동)</option>
+              <option value="none" data-i18n="index.통째로_한_씬">통째로 한 회차</option>
             </select>
           </label>
           <p class="hint purpose-hint" id="importSplitHint">
@@ -4307,10 +4385,10 @@
           </p>
 
           <div id="importDelimiterWrap" class="import-delimiter-wrap hidden">
-            <p class="modal-genre-label" data-i18n="index.씬_구분_기준">씬 구분 기준</p>
-            <p class="hint purpose-hint" data-i18n="index.여러_개를_고르면_그중_하나라도_맞으면_새">여러 개를 고르면 그중 하나라도 맞으면 새 씬으로 나눕니다. 웹소설처럼 한 줄 쓰고 한 줄 띄우는 문체면 빈 줄을 2줄 이상으로 올려 주세요.</p>
-            <fieldset class="import-delimiter-presets tory-helper-options continue-length-options" role="group" aria-label="씬 구분 기준" data-i18n-aria-label="index.씬_구분_기준">
-              <legend class="sr-only" data-i18n="index.씬_구분_기준">씬 구분 기준</legend>
+            <p class="modal-genre-label" data-i18n="index.씬_구분_기준">회차 구분 기준</p>
+            <p class="hint purpose-hint" data-i18n="index.여러_개를_고르면_그중_하나라도_맞으면_새">여러 개를 고르면 그중 하나라도 맞으면 새 회차로 나눕니다. 웹소설처럼 한 줄 쓰고 한 줄 띄우는 문체면 빈 줄을 2줄 이상으로 올려 주세요.</p>
+            <fieldset class="import-delimiter-presets tory-helper-options continue-length-options" role="group" aria-label="회차 구분 기준" data-i18n-aria-label="index.씬_구분_기준">
+              <legend class="sr-only" data-i18n="index.씬_구분_기준">회차 구분 기준</legend>
               <label class="continue-length-option">
                 <input type="checkbox" id="importDelimHash" value="#">
                 <span>#</span>
@@ -4324,8 +4402,12 @@
                 <span>---</span>
               </label>
               <label class="continue-length-option">
+                <input type="checkbox" id="importDelimNumbered">
+                <span data-i18n="index.숫자_순서_기준">숫자 순서 기준</span>
+              </label>
+              <label class="continue-length-option">
                 <input type="checkbox" id="importDelimBlank" checked>
-                <span data-i18n="index.빈_줄">빈 줄</span>
+                <span data-i18n="index.빈_줄">빈 줄 수</span>
               </label>
               <label class="continue-length-option">
                 <input type="checkbox" id="importDelimCustom">
@@ -4333,7 +4415,7 @@
               </label>
             </fieldset>
             <label id="importBlankThresholdWrap" class="import-blank-threshold-wrap">
-              빈 줄 몇 줄 이상이면 새 씬인가요?
+              <span data-i18n="index.빈_줄_몇_줄_이상이면_새_회차인가요">빈 줄 몇 줄 이상이면 새 회차인가요?</span>
               <input id="importBlankThreshold" type="number" min="1" max="20" value="2" step="1">
             </label>
             <label id="importDelimCustomWrap" class="hidden">
@@ -4341,7 +4423,7 @@
               <input id="importDelimCustomText" type="text" maxlength="40" placeholder="예: ///" data-i18n-placeholder="index.예" autocomplete="off">
             </label>
             <div id="importSplitPreview" class="import-split-preview" aria-live="polite">
-              <p id="importSplitPreviewSummary" class="import-split-preview-summary" data-i18n="app.파일을_고르면_몇_개_씬으로_나뉘는지_보여">파일을 고르면 몇 개 씬으로 나뉘는지 보여 드려요.</p>
+              <p id="importSplitPreviewSummary" class="import-split-preview-summary" data-i18n="app.파일을_고르면_몇_개_씬으로_나뉘는지_보여">파일을 고르면 몇 개 회차로 나뉘는지 보여 드려요.</p>
               <ul id="importSplitPreviewList" class="import-split-preview-list"></ul>
             </div>
           </div>
@@ -4413,10 +4495,6 @@
         <span data-i18n="index.하위_관계를_끊고_폴더_최상위로_올려요">하위 관계를 끊고 폴더 최상위로 올려요</span>
       </button>
       <div class="context-menu-divider"></div>
-      <button type="button" role="menuitem" data-binder-action="rename">
-        <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
-        <span data-i18n="index.이_회차_제목을_수정해요">이 회차 제목을 수정해요</span>
-      </button>
       <button type="button" role="menuitem" data-binder-action="title-italic" id="binderTitleItalicMenuItem" class="hidden">
         <strong data-i18n="index.이탤릭체로_표시">이탤릭체로 표시</strong>
         <span data-i18n="index.목차에서_제목을_기울여_보여요">목차에서 제목을 기울여 보여요</span>
@@ -4777,6 +4855,17 @@
         title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다." data-i18n-title="app.토리는_문장을_억지로_다듬지_않아요_이미_충"
       >
         문장 다듬기
+      </button>
+      <button
+        type="button"
+        role="menuitem"
+        data-context-action="expand-description"
+        id="expandDescriptionMenuItem"
+        data-ctx-selection-only
+        title="선택한 장면의 감각·공간·분위기를 같은 문체로 더 풍부하게 펼쳐 줘요" data-i18n-title="app.선택한_장면의_감각_공간_분위기를_같은_문체"
+      >
+        <strong data-i18n="app.묘사_확장">묘사 확장</strong>
+        <span data-i18n="index.선택한_장면의_묘사를_더_풍부하게_펼쳐_줘요">선택한 장면의 묘사를 더 풍부하게 펼쳐 줘요</span>
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기

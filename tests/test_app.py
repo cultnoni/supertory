@@ -108,6 +108,18 @@ class SuperToryAppTests(unittest.TestCase):
         self.assertEqual(with_goal["goal_word_count"], 500)
         self.assertEqual(with_goal["goal_metric"], "chars_no_space")
 
+        status, goal_only = self.request("PUT", f"/api/scenes/{scene['id']}/goal", {
+            "goal_word_count": 1200,
+            "goal_metric": "words",
+        })
+        self.assertEqual(status, 200)
+        self.assertEqual(goal_only["goal_word_count"], 1200)
+        self.assertEqual(goal_only["goal_metric"], "words")
+        status, after_goal = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(after_goal["goal_word_count"], 1200)
+        self.assertEqual(after_goal["goal_metric"], "words")
+
         status, chapter_b = self.request("POST", f"/api/projects/{project_id}/chapters", {"title": "둘째 장"})
         self.assertEqual(status, 201)
         status, _ = self.request("PUT", f"/api/chapters/{chapter['id']}", {"title": "첫 장 개명"})

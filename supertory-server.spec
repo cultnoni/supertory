@@ -26,6 +26,7 @@ binaries: list = []
 hiddenimports = [
     "chapter_match",
     "character_import_analysis",
+    "scene_cast_detect",
     "document_export",
     "document_import",
     "folder_tree",
@@ -41,6 +42,10 @@ hiddenimports = [
     "proof_diff",
     "proof_extract",
     "proof_pipeline",
+    "sync",
+    "sync.supabase_client",
+    "sync.device",
+    "sync.pairing",
     # stdlib modules sometimes missed under freeze
     "sqlite3",
     "http.server",
@@ -55,7 +60,7 @@ hiddenimports = [
 ]
 
 # Optional proof/import parsers (include when installed on the build machine).
-for pkg in ("docx", "olefile", "six", "hwp5", "lxml"):
+for pkg in ("docx", "olefile", "six", "hwp5", "lxml", "supabase"):
     try:
         collected = collect_all(pkg)
         datas += collected[0]

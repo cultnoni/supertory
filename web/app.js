@@ -979,6 +979,7 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
     if (!key) return;
     if (!force && active === el) return;
     el.value = v[key] || "";
+    el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
     autoResizeSettingsSidebarTextarea(el, { preserve: false });
   });
   restoreOverflowScroll(snap);
@@ -1054,9 +1055,9 @@ const COUNT_METRIC_LABEL = {
 
 const STAT_DISPLAY_KEY = "supertory.statDisplay.v2";
 const STAT_SCOPE_KEY = "supertory.statScope"; // "current" | "project"
-const SPACE_MODES = ["with", "without", "both"]; // 공백포함 / 공백제외 / 둘 다
+const SPACE_MODES = ["with", "without"]; // 공백포함 / 공백제외 (exclusive)
 const UNIT_MODES = ["words", "letters", "both"]; // 단어 / 글자 / 둘 다
-const DEFAULT_STAT_DISPLAY = { space: "both", unit: "words" };
+const DEFAULT_STAT_DISPLAY = { space: "with", unit: "words" };
 
 function loadStatDisplay() {
   try {
@@ -1101,20 +1102,43 @@ let statDisplay = loadStatDisplay();
 let statScope = loadStatScope(); // "current" | "project"
 
 function isStatVisible(key) {
-  if (key === "chars_with_space") return statDisplay.space === "with" || statDisplay.space === "both";
-  if (key === "chars_no_space") return statDisplay.space === "without" || statDisplay.space === "both";
+  if (key === "chars_with_space" || key === "chars_no_space") return true;
   if (key === "words") return statDisplay.unit === "words" || statDisplay.unit === "both";
   if (key === "letters") return statDisplay.unit === "letters" || statDisplay.unit === "both";
   if (key === "scenes") return statScope === "project";
   return false;
 }
 
-function cycleSpaceMode() {
-  const i = SPACE_MODES.indexOf(statDisplay.space);
-  statDisplay = { ...statDisplay, space: SPACE_MODES[(i + 1) % SPACE_MODES.length] };
-  saveStatDisplay(statDisplay);
+function spaceMetricFromMode(mode) {
+  return mode === "without" ? "chars_no_space" : "chars_with_space";
+}
+
+function spaceModeFromMetric(metric) {
+  if (metric === "chars_no_space") return "without";
+  if (metric === "chars_with_space") return "with";
+  return SPACE_MODES.includes(statDisplay.space) ? statDisplay.space : DEFAULT_STAT_DISPLAY.space;
+}
+
+function applySpaceSegUi() {
+  const metric = getGoalMetric();
+  const spaceKey = (metric === "chars_with_space" || metric === "chars_no_space")
+    ? metric
+    : spaceMetricFromMode(statDisplay.space);
+  document.querySelectorAll("#statsSpaceSeg [data-stat]").forEach((node) => {
+    const on = node.dataset.stat === spaceKey;
+    node.classList.toggle("is-active", on);
+    node.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function selectSpaceMode(mode) {
+  const next = SPACE_MODES.includes(mode) ? mode : DEFAULT_STAT_DISPLAY.space;
+  if (statDisplay.space !== next) {
+    statDisplay = { ...statDisplay, space: next };
+    saveStatDisplay(statDisplay);
+  }
   applyStatDisplayVisibility();
-  updateSceneStats();
+  setGoalMetric(spaceMetricFromMode(next));
 }
 
 function cycleUnitMode() {
@@ -1131,18 +1155,31 @@ function applyStatDisplayVisibility() {
     if (!key) return;
     node.classList.toggle("is-hidden-stat", !isStatVisible(key));
   });
+  applySpaceSegUi();
 }
 
 function setGoalMetric(metric) {
   if (!COUNT_METRIC_LABEL[metric]) return;
+  const prev = $("sceneGoalMetric")?.value;
   if ($("sceneGoalMetric")) $("sceneGoalMetric").value = metric;
+  if (metric === "chars_with_space" || metric === "chars_no_space") {
+    const mode = spaceModeFromMetric(metric);
+    if (statDisplay.space !== mode) {
+      statDisplay = { ...statDisplay, space: mode };
+      saveStatDisplay(statDisplay);
+    }
+  }
   document.querySelectorAll("#statsCounts .stat-chip[data-stat]").forEach((node) => {
     const key = node.dataset.stat;
     node.classList.toggle("is-goal-metric", key === metric);
     node.classList.toggle("is-active", key === metric);
   });
+  applySpaceSegUi();
   updateSceneStats();
-  if (state.sceneId && statScope === "current") markSceneDirty();
+  if (state.sceneId && statScope === "current" && prev !== metric) {
+    markSceneDirty();
+    scheduleSceneGoalSave();
+  }
 }
 
 function computeTextStats(plainText) {
@@ -1180,18 +1217,15 @@ function isProjectStatsScope() {
 }
 
 function syncStatsScopeUi() {
-  const btn = $("statsScopeToggle");
   const label = $("statsGoalLabel");
   const bar = $("manuscriptStatusBar");
   const isProject = isProjectStatsScope();
-  if (btn) {
-    btn.textContent = isProject ? i18n.t('app.전체') : i18n.t('app.현재');
-    btn.title = isProject
-      ? i18n.t('app.작품_전체_표시_중_클릭하면_현재_원고')
-      : i18n.t('app.현재_원고_표시_중_클릭하면_작품_전체');
-    btn.setAttribute("aria-pressed", isProject ? "true" : "false");
-    btn.classList.toggle("is-project", isProject);
-  }
+  document.querySelectorAll("#statsScopeSeg [data-scope]").forEach((btn) => {
+    const on = btn.dataset.scope === (isProject ? "project" : "current");
+    btn.classList.toggle("is-active", on);
+    btn.classList.toggle("is-project", on && isProject);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
   if (label) label.textContent = i18n.t('app.목표');
   if (bar) bar.classList.toggle("is-scope-project", isProject);
   // Mirror stored goals into the single visible input.
@@ -1200,14 +1234,21 @@ function syncStatsScopeUi() {
     : Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0);
   if ($("statsGoalInput")) $("statsGoalInput").value = String(goalVal);
   applyStatDisplayVisibility();
+  applySpaceSegUi();
 }
 
-function toggleStatsScope() {
-  statScope = isProjectStatsScope() ? "current" : "project";
+function setStatsScope(scope) {
+  const next = scope === "project" ? "project" : "current";
+  if (statScope === next) return;
+  statScope = next;
   saveStatScope(statScope);
   syncStatsScopeUi();
   updateSceneStats();
   if (isProjectStatsScope()) scheduleProjectManuscriptStats();
+}
+
+function toggleStatsScope() {
+  setStatsScope(isProjectStatsScope() ? "current" : "project");
 }
 
 /** Excess unit word for overflow labels (100자 초과 / 100단어 초과). */
@@ -1341,46 +1382,8 @@ function updateSceneStats() {
   });
 
   updateGoalProgressUi({ value, goal, metric });
-  updateReadingTimeUi(stats);
+  applySpaceSegUi();
   updateChapterSubtitleButtonState(sceneStats.chars_with_space);
-}
-
-/* —— Reading time (right of char counts) —— */
-// ~200 wpm (words); Korean-heavy text falls back to ~500 chars/min (no spaces).
-const READING_WPM = 200;
-const READING_CPM = 500;
-
-function formatReadingTimeLabel(stats) {
-  const words = Number(stats?.words || 0) || 0;
-  const chars = Number(stats?.chars_no_space || 0) || 0;
-  let minutesFloat = words / READING_WPM;
-  // Sparse English tokens but long Hangul runs → prefer character estimate.
-  if (chars > 0 && (words < 8 || chars / Math.max(words, 1) > 8)) {
-    minutesFloat = chars / READING_CPM;
-  }
-  if (!Number.isFinite(minutesFloat) || minutesFloat <= 0) return i18n.t('app.약_0분');
-  if (minutesFloat < 1) {
-    const sec = Math.max(1, Math.round(minutesFloat * 60));
-    return `${i18n.t('app.약_sec_초', {sec: sec})}`;
-  }
-  if (minutesFloat < 10) {
-    const m = Math.floor(minutesFloat);
-    const sec = Math.round((minutesFloat - m) * 60);
-    if (sec === 0) return `${i18n.t('app.약_m_분', {m: m})}`;
-    if (sec === 60) return `${i18n.t('app.약_m_1_분', {'m + 1': m + 1})}`;
-    return `${i18n.t('app.약_m_분_sec_초', {m: m, sec: sec})}`;
-  }
-  return `${i18n.t('app.약_Math_round_minutesFloa', {'Math.round(minutesFloat)': Math.round(minutesFloat)})}`;
-}
-
-function updateReadingTimeUi(stats) {
-  const el = $("statsReadingTime");
-  if (!el) return;
-  const label = formatReadingTimeLabel(stats);
-  el.textContent = label;
-  const words = Number(stats?.words || 0) || 0;
-  const chars = Number(stats?.chars_no_space || 0) || 0;
-  el.title = `예상 읽기 시간 · 단어 ${formatStatNumber(words)} · 공백제외 ${formatStatNumber(chars)}자\n(분당 약 ${READING_WPM}단어 / 한글 약 ${READING_CPM}자)`;
 }
 
 /* —— Goal gauge colors (right-click): solid + gradient —— */
@@ -1991,6 +1994,7 @@ let projectStatsInFlight = false;
 let projectStatsNeedsRefresh = false;
 let projectStatsCache = null;
 let projectGoalSaveTimer = null;
+let sceneGoalSaveTimer = null;
 
 function renderProjectManuscriptStats(stats, { stale = false } = {}) {
   if (!stats) return;
@@ -2080,22 +2084,90 @@ async function persistProjectGoal() {
   if (project) project.goal_word_count = goal;
   if (result?.goal_word_count != null && project) {
     project.goal_word_count = Number(result.goal_word_count) || 0;
+    state.projectGoalCount = Number(result.goal_word_count) || 0;
   }
   updateSceneStats();
 }
 
-function onStatsGoalInput() {
+function syncGoalFromVisibleInput() {
   const goal = Math.max(0, Number($("statsGoalInput")?.value || 0) || 0);
   if (isProjectStatsScope()) {
     if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
     state.projectGoalCount = goal;
-    updateSceneStats();
-    scheduleProjectGoalSave();
   } else {
     if ($("sceneGoalCount")) $("sceneGoalCount").value = String(goal);
-    updateSceneStats();
-    if (state.sceneId) markSceneDirty();
   }
+  return goal;
+}
+
+function scheduleSceneGoalSave() {
+  if (!state.sceneId || isProjectStatsScope()) return;
+  if (sceneGoalSaveTimer) window.clearTimeout(sceneGoalSaveTimer);
+  sceneGoalSaveTimer = window.setTimeout(() => {
+    persistSceneGoal({ quiet: true }).catch(handleError);
+  }, 500);
+}
+
+async function persistSceneGoal(options = {}) {
+  const quiet = options.quiet !== false;
+  if (!state.sceneId || !state.scene) return null;
+  const goal = Math.max(0, Number($("sceneGoalCount")?.value || $("statsGoalInput")?.value || 0) || 0);
+  const metric = getGoalMetric();
+  if ($("sceneGoalCount")) $("sceneGoalCount").value = String(goal);
+  if (!isProjectStatsScope() && $("statsGoalInput")) $("statsGoalInput").value = String(goal);
+  const result = await api(`/api/scenes/${state.sceneId}/goal`, {
+    method: "PUT",
+    body: JSON.stringify({ goal_word_count: goal, goal_metric: metric }),
+  });
+  if (state.scene && Number(state.sceneId)) {
+    state.scene.goal_word_count = goal;
+    state.scene.goal_metric = metric;
+  }
+  updateSceneStats();
+  if (!quiet) toast(i18n.t("app.저장했습니다"));
+  return result;
+}
+
+function onStatsGoalInput() {
+  syncGoalFromVisibleInput();
+  updateSceneStats();
+  if (isProjectStatsScope()) {
+    scheduleProjectGoalSave();
+    return;
+  }
+  if (state.sceneId) {
+    markSceneDirty();
+    scheduleSceneGoalSave();
+  }
+}
+
+async function saveStatusBar(event) {
+  if (event) event.preventDefault();
+  syncGoalFromVisibleInput();
+  if (isProjectStatsScope()) {
+    if (projectGoalSaveTimer) {
+      window.clearTimeout(projectGoalSaveTimer);
+      projectGoalSaveTimer = null;
+    }
+    try {
+      await persistProjectGoal();
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  } else if (state.sceneId) {
+    if (sceneGoalSaveTimer) {
+      window.clearTimeout(sceneGoalSaveTimer);
+      sceneGoalSaveTimer = null;
+    }
+    try {
+      await persistSceneGoal({ quiet: true });
+    } catch (error) {
+      handleError(error);
+      return;
+    }
+  }
+  await saveScene();
 }
 
 /* —— Bulk-apply scene goals (right-click on 목표) —— */
@@ -3077,9 +3149,24 @@ function setupSceneStats() {
   applyStatDisplayVisibility();
   setupGoalBarColorMenu();
   setupGoalBulkMenu();
-  $("statsScopeToggle")?.addEventListener("click", toggleStatsScope);
+  $("statsScopeSeg")?.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-scope]");
+    if (!btn || !$("statsScopeSeg").contains(btn)) return;
+    setStatsScope(btn.dataset.scope);
+  });
   $("sceneGoalMetric")?.addEventListener("change", updateSceneStats);
   $("statsGoalInput")?.addEventListener("input", onStatsGoalInput);
+  $("statsGoalInput")?.addEventListener("change", onStatsGoalInput);
+  $("statsGoalInput")?.addEventListener("blur", onStatsGoalInput);
+  $("statsGoalInput")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    event.preventDefault();
+    saveStatusBar(event).catch(handleError);
+  });
+  $("statusSaveButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    saveStatusBar(event).catch(handleError);
+  });
   $("sceneContent")?.addEventListener("input", updateSceneStats);
 
   let statChipClickTimer = null;
@@ -3088,17 +3175,25 @@ function setupSceneStats() {
     if (!chip || chip.classList.contains("stat-chip-static")) return;
     const group = chip.dataset.group;
     if (!group) return;
-    // Defer so double-click can cancel and set goal metric instead.
+    if (group === "space") {
+      if (statChipClickTimer) {
+        window.clearTimeout(statChipClickTimer);
+        statChipClickTimer = null;
+      }
+      selectSpaceMode(chip.dataset.stat === "chars_no_space" ? "without" : "with");
+      return;
+    }
+    // Defer unit chips so double-click can cancel and set goal metric instead.
     if (statChipClickTimer) window.clearTimeout(statChipClickTimer);
     statChipClickTimer = window.setTimeout(() => {
       statChipClickTimer = null;
-      if (group === "space") cycleSpaceMode();
-      else if (group === "unit") cycleUnitMode();
+      if (group === "unit") cycleUnitMode();
     }, 220);
   };
   const onStatChipDblClick = (event) => {
     const chip = event.target.closest(".stat-chip");
     if (!chip || chip.classList.contains("stat-chip-static")) return;
+    if (chip.dataset.group === "space") return;
     const metric = chip.dataset.stat;
     if (!COUNT_METRIC_LABEL[metric]) return;
     event.preventDefault();
@@ -6715,6 +6810,7 @@ function hideKeywordBoard() {
 }
 
 function hideCenterViewsForKeywordBoard() {
+  void flushCharacterAutoSave();
   $("welcome")?.classList.add("hidden");
   $("sceneWorkspace")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
@@ -6729,13 +6825,7 @@ function hideCenterViewsForKeywordBoard() {
 
 function closeKeywordBoard() {
   hideKeywordBoard();
-  if (state.sceneId) {
-    openScene(state.sceneId).catch(handleError);
-  } else if (state.characterId) {
-    openCharacter(state.characterId).catch(handleError);
-  } else {
-    showWelcome();
-  }
+  return returnToManuscriptFromSettingsMain();
 }
 
 /** Move the single genre control block between settings accordion and keyword main board. */
@@ -6856,7 +6946,7 @@ function setupKeywordBox() {
     event.preventDefault();
     setKeywordPickerOpen(false);
   });
-  $("keywordBoardCloseButton")?.addEventListener("click", () => closeKeywordBoard());
+  $("keywordBoardCloseButton")?.addEventListener("click", () => closeKeywordBoard().catch(handleError));
 
   const onCatalogClick = (event) => {
     const btn = event.target.closest?.("[data-keyword-tag]");
@@ -7978,6 +8068,60 @@ async function persistSettingsDocPair(kinds, options = {}) {
   return last;
 }
 
+function pendingSettingsDocKinds() {
+  const kinds = new Set();
+  if (synopsisDirty) {
+    if (state.settingsDocPair?.length) {
+      state.settingsDocPair.forEach((k) => kinds.add(k));
+    } else {
+      kinds.add(state.settingsDocFocusKind || state.settingsDocKind || "synopsis");
+    }
+  }
+  if (synopsisAutoSaveTimer) {
+    window.clearTimeout(synopsisAutoSaveTimer);
+    synopsisAutoSaveTimer = null;
+    kinds.add(state.settingsDocFocusKind || state.settingsDocKind || "synopsis");
+  }
+  Object.keys(SETTINGS_DOC_META).forEach((kind) => {
+    if (settingsDocPending[kind]) {
+      window.clearTimeout(settingsDocPending[kind]);
+      settingsDocPending[kind] = null;
+      kinds.add(kind);
+    }
+  });
+  return [...kinds];
+}
+
+async function flushPendingSettingsDocs() {
+  const kinds = pendingSettingsDocKinds();
+  for (const kind of kinds) {
+    try {
+      await persistSettingsDoc(kind, { quiet: true });
+    } catch (_) {
+      /* keep pending retry via persistSettingsDoc */
+    }
+  }
+}
+
+async function flushPendingCodexSaves() {
+  const tasks = [
+    flushCharacterAutoSave().catch(() => {}),
+    flushPendingSettingsDocs(),
+    flushIdeaCardAutosaves().catch(() => {}),
+  ];
+  if (typeof outlineSummarySaveTimer !== "undefined" && outlineSummarySaveTimer) {
+    window.clearTimeout(outlineSummarySaveTimer);
+    outlineSummarySaveTimer = null;
+    tasks.push(persistOutlineSummary({ quiet: true }).catch(() => {}));
+  }
+  if (typeof toryPrioritySaveTimer !== "undefined" && toryPrioritySaveTimer) {
+    window.clearTimeout(toryPrioritySaveTimer);
+    toryPrioritySaveTimer = null;
+    tasks.push(persistToryPriority({ quiet: true }).catch(() => {}));
+  }
+  await Promise.all(tasks);
+}
+
 function hideSynopsisMain() {
   $("synopsisWorkspace")?.classList.add("hidden");
   $("worldbuildingWorkspace")?.classList.add("hidden");
@@ -7997,6 +8141,51 @@ function hideCharacterBoard() {
   $("characterBoard")?.classList.add("hidden");
 }
 
+function lastSceneIdForSettingsClose() {
+  const current = Number(state.sceneId);
+  if (Number.isFinite(current) && current > 0) return current;
+  try {
+    const last = typeof loadLastWorkspace === "function" ? loadLastWorkspace() : null;
+    if (last && Number(last.projectId) === Number(state.projectId)) {
+      const sid = Number(last.sceneId);
+      if (Number.isFinite(sid) && sid > 0) return sid;
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  const tabs = state.episodeTabs || [];
+  const tabId = Number(tabs[tabs.length - 1]?.sceneId);
+  return Number.isFinite(tabId) && tabId > 0 ? tabId : 0;
+}
+
+/** 설정집 메인 닫기: 왼쪽 바인더는 유지하고, 가운데는 본문 작성 화면으로. */
+async function returnToManuscriptFromSettingsMain() {
+  try {
+    await flushPendingCodexSaves();
+  } catch (_) {
+    /* still leave the settings main pane */
+  }
+  hideKeywordBoard();
+  hideCharacterBoard();
+  hideSynopsisMain();
+  hideSettingsCollectionBoard();
+  state.ideaBoardOpen = false;
+  $("ideaBoard")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("welcome")?.classList.add("hidden");
+
+  const sceneId = lastSceneIdForSettingsClose();
+  if (sceneId && Number(state.sceneId) === sceneId && state.scene) {
+    showSceneEditorPane();
+    return;
+  }
+  if (sceneId) {
+    await openScene(sceneId, { keepBinder: true, keepCharacter: true });
+    return;
+  }
+  showWelcome();
+}
+
 async function closeSynopsisMain() {
   const pair = state.settingsDocPair?.length
     ? state.settingsDocPair
@@ -8009,17 +8198,7 @@ async function closeSynopsisMain() {
     }
   }
   hideSynopsisMain();
-  if (state.characterBoardOpen) {
-    openCharacterBoard().catch(handleError);
-    return;
-  }
-  if (state.sceneId) {
-    showSceneEditorPane();
-  } else if (state.characterId) {
-    openCharacter(state.characterId).catch(handleError);
-  } else {
-    showWelcome();
-  }
+  await returnToManuscriptFromSettingsMain();
 }
 
 function applySettingsDocChrome(kind) {
@@ -8061,6 +8240,11 @@ async function openSettingsDocMain(kind = "synopsis") {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
+  }
+  try {
+    await flushCharacterAutoSave();
+  } catch (_) {
+    /* continue */
   }
   if (!SETTINGS_DOC_META[kind]) kind = "synopsis";
 
@@ -8225,6 +8409,11 @@ async function openCharacterBoard() {
     return;
   }
 
+  try {
+    await flushCharacterAutoSave();
+  } catch (_) {
+    /* continue */
+  }
   if (isSettingsDocMainOpen() && synopsisDirty) {
     try {
       const kinds = state.settingsDocPair?.length
@@ -8249,7 +8438,6 @@ async function openCharacterBoard() {
   state.characterBoardOpen = true;
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
-  state.sceneId = null;
   hideSynopsisMain();
   hideSettingsCollectionBoard();
 
@@ -8267,19 +8455,17 @@ async function openCharacterBoard() {
 
 async function closeCharacterBoard() {
   hideCharacterBoard();
-  if (state.characterId) {
-    openCharacter(state.characterId).catch(handleError);
-  } else if (state.sceneId) {
-    showSceneEditorPane();
-  } else {
-    showWelcome();
-  }
+  await returnToManuscriptFromSettingsMain();
 }
 
 async function closeCharacterEditor() {
+  try {
+    await flushCharacterAutoSave();
+  } catch (_) {
+    /* keep going so the manuscript still opens */
+  }
   $("characterEditor")?.classList.add("hidden");
-  // 캐릭터 메인(카드 목록)으로 돌아간다.
-  await openCharacterBoard();
+  await returnToManuscriptFromSettingsMain();
 }
 
 function bindSettingsDocSidebarInput(kind) {
@@ -8318,6 +8504,7 @@ function bindSettingsDocSidebarInput(kind) {
   el.addEventListener("blur", () => {
     autoResizeSettingsSidebarTextarea(el);
     pushToStateAndMaybeMain();
+    persistSettingsDoc(kind, { quiet: true }).catch(handleError);
   });
 }
 
@@ -8343,6 +8530,7 @@ function bindWorldBuildingFormRoot(form) {
     const el = event.target?.closest?.("[data-world-field]");
     if (!el) return;
     autoResizeSettingsSidebarTextarea(el, { shrink: false });
+    el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
     if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus(i18n.t('app.저장_대기_중'));
@@ -8357,6 +8545,7 @@ function bindWorldBuildingFormRoot(form) {
     if (!el) return;
     autoResizeSettingsSidebarTextarea(el);
     syncFromThisForm();
+    persistSettingsDoc("world", { quiet: true }).catch(handleError);
   }, true);
 }
 
@@ -8558,6 +8747,7 @@ function renderIdeaBank() {
 }
 
 function hideCenterViewsForIdeaBoard() {
+  void flushCharacterAutoSave();
   $("welcome").classList.add("hidden");
   $("sceneWorkspace").classList.add("hidden");
   $("characterEditor").classList.add("hidden");
@@ -8570,16 +8760,15 @@ function hideCenterViewsForIdeaBoard() {
   void closeSplitView();
 }
 
-function closeIdeaBoard() {
+async function closeIdeaBoard() {
+  try {
+    await flushIdeaCardAutosaves();
+  } catch (_) {
+    /* continue */
+  }
   state.ideaBoardOpen = false;
   $("ideaBoard").classList.add("hidden");
-  if (state.sceneId) {
-    openScene(state.sceneId).catch(handleError);
-  } else if (state.characterId) {
-    openCharacter(state.characterId).catch(handleError);
-  } else {
-    showWelcome();
-  }
+  await returnToManuscriptFromSettingsMain();
 }
 
 function openIdeaBoard(focusId = null) {
@@ -8744,6 +8933,48 @@ function bindIdeaCardResize(card, ideaId) {
   }
 }
 
+const ideaCardSaveTimers = new Map();
+
+function scheduleIdeaCardAutoSave(card) {
+  const id = Number(card?.dataset?.ideaCard);
+  if (!id) return;
+  if (ideaCardSaveTimers.has(id)) window.clearTimeout(ideaCardSaveTimers.get(id));
+  ideaCardSaveTimers.set(id, window.setTimeout(() => {
+    ideaCardSaveTimers.delete(id);
+    saveIdeaFromCard(card, { quiet: true }).catch(handleError);
+  }, 900));
+}
+
+function patchIdeaBankPreview(idea) {
+  if (!idea?.id) return;
+  const btn = document.querySelector(`[data-idea="${idea.id}"]`);
+  if (!btn) return;
+  const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+  const pinned = ideaIsPinned(idea);
+  btn.className = `idea-sticky color-${colorKey}${pinned ? " is-pinned" : ""}`;
+  const titleEl = btn.querySelector(".idea-sticky-title");
+  const bodyEl = btn.querySelector(".idea-sticky-body");
+  if (titleEl) {
+    titleEl.textContent = (!idea.title || idea.title === "새 메모") ? i18n.t("app.새_메모") : idea.title;
+  }
+  if (bodyEl) bodyEl.textContent = ideaPreview(idea.body_md);
+}
+
+async function flushIdeaCardAutosaves() {
+  const pendingIds = new Set(ideaCardSaveTimers.keys());
+  for (const timer of ideaCardSaveTimers.values()) window.clearTimeout(timer);
+  ideaCardSaveTimers.clear();
+  const grid = $("ideaBoardGrid");
+  const activeCard = document.activeElement?.closest?.("[data-idea-card]");
+  const activeId = Number(activeCard?.dataset?.ideaCard || 0);
+  if (activeId) pendingIds.add(activeId);
+  if (!grid || !pendingIds.size) return;
+  const cards = [...pendingIds]
+    .map((id) => grid.querySelector(`[data-idea-card="${id}"]`))
+    .filter(Boolean);
+  await Promise.all(cards.map((card) => saveIdeaFromCard(card, { quiet: true }).catch(() => {})));
+}
+
 function renderIdeaBoard(focusId = null) {
   const grid = $("ideaBoardGrid");
   if (!grid || !state.ideaBoardOpen) return;
@@ -8790,7 +9021,7 @@ function renderIdeaBoard(focusId = null) {
       <textarea data-role="idea-body" placeholder="${i18n.t('app.러프하게_적어_두세요')}">${escapeHtml(idea.body_md || "")}</textarea>
       <div class="idea-card-actions">
         <button type="button" class="idea-card-size-reset" data-role="reset-idea-size" title="${i18n.t('app.기본_크기로')}">${i18n.t('app.크기_초기화_버튼')}</button>
-        <button type="button" data-role="save-idea">${i18n.t('app.저장')}</button>
+          <button type="button" data-role="save-idea" title="${escapeHtml(i18n.t("index.저장_자동_저장됨"))}">${i18n.t('app.저장')}</button>
         <button type="button" data-role="delete-idea">${i18n.t('app.삭제')}</button>
       </div>
       <button type="button" class="idea-card-resize-hint" data-role="idea-resize" title="${i18n.t('app.끌어서_크기_조절')}" aria-label="${i18n.t('app.메모_크기_조절')}"></button>
@@ -8800,6 +9031,19 @@ function renderIdeaBoard(focusId = null) {
   grid.querySelectorAll("[data-idea-card]").forEach((card) => {
     const id = Number(card.dataset.ideaCard);
     bindIdeaCardResize(card, id);
+    const titleEl = card.querySelector('[data-role="idea-title"]');
+    const bodyEl = card.querySelector('[data-role="idea-body"]');
+    titleEl?.addEventListener("input", () => scheduleIdeaCardAutoSave(card));
+    bodyEl?.addEventListener("input", () => scheduleIdeaCardAutoSave(card));
+    const flushIdeaCard = () => {
+      if (ideaCardSaveTimers.has(id)) {
+        window.clearTimeout(ideaCardSaveTimers.get(id));
+        ideaCardSaveTimers.delete(id);
+      }
+      saveIdeaFromCard(card, { quiet: true }).catch(handleError);
+    };
+    titleEl?.addEventListener("blur", flushIdeaCard);
+    bodyEl?.addEventListener("blur", flushIdeaCard);
     card.querySelector('[data-role="save-idea"]').addEventListener("click", () => {
       saveIdeaFromCard(card).catch(handleError);
     });
@@ -8915,8 +9159,12 @@ async function saveIdeaFromCard(card, options = {}) {
   });
   const index = state.ideas.findIndex((item) => item.id === id);
   if (index >= 0) state.ideas[index] = updated;
+  if (quiet) {
+    patchIdeaBankPreview(updated);
+    return;
+  }
   renderIdeaBank();
-  if (!quiet) toast(i18n.t('app.메모를_저장했습니다'));
+  toast(i18n.t('app.메모를_저장했습니다'));
 }
 
 async function deleteIdea(id) {
@@ -8931,7 +9179,7 @@ async function deleteIdea(id) {
 function setupIdeaBank() {
   $("newIdeaButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardAddButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
-  $("ideaBoardCloseButton")?.addEventListener("click", closeIdeaBoard);
+  $("ideaBoardCloseButton")?.addEventListener("click", () => closeIdeaBoard().catch(handleError));
 }
 
 async function refreshAiStatus() {
@@ -13877,17 +14125,32 @@ function isAiPromptModalOpen() {
   return Boolean($("aiPromptModal") && !$("aiPromptModal").classList.contains("hidden"));
 }
 
+function commitTextareaIme(el) {
+  if (!el) return;
+  try {
+    if (document.activeElement === el) el.blur();
+  } catch (_) {
+    /* ignore */
+  }
+}
+
 function syncAiPromptFromModal() {
   const panel = $("aiPrompt");
   const body = $("aiPromptModalBody");
   if (!panel || !body) return;
-  panel.value = body.value;
+  commitTextareaIme(body);
+  const modalVal = String(body.value || "");
+  const panelVal = String(panel.value || "");
+  // 큰 창이 비어 있으면 패널에 이미 있는 글을 지우지 않아요 (IME·포커스 이동 손실 대비)
+  if (!modalVal.trim() && panelVal.trim()) return;
+  panel.value = modalVal;
 }
 
 function syncAiPromptModalFromPanel() {
   const panel = $("aiPrompt");
   const body = $("aiPromptModalBody");
   if (!panel || !body) return;
+  commitTextareaIme(panel);
   body.value = panel.value || "";
   body.placeholder = panel.placeholder || i18n.t('app.토리에게_보낼_요청을_적어_주세요');
   const label = String($("aiPromptLabel")?.textContent || "").trim() || i18n.t('app.요청_내용');
@@ -14636,6 +14899,41 @@ let toryChatSending = false;
 let toryChatHistoryViewId = null;
 
 let toryChatPopupOpen = false;
+/** 1:1 질문칸 초안. 팝업으로 DOM을 옮길 때 IME 조합이 비는 경우를 대비합니다. */
+let toryChatComposerDraft = "";
+
+function captureToryChatComposerDraft({ commitIme = false } = {}) {
+  const input = $("toryChatInput");
+  if (commitIme) commitTextareaIme(input);
+  if (input) toryChatComposerDraft = String(input.value || "");
+  return toryChatComposerDraft;
+}
+
+function restoreToryChatComposerDraft(value = toryChatComposerDraft) {
+  const input = $("toryChatInput");
+  if (!input) return;
+  const next = String(value ?? "");
+  input.value = next;
+  toryChatComposerDraft = next;
+}
+
+function setToryChatPopupDockHint(visible) {
+  const hint = $("toryChatPopupDockHint");
+  if (!hint) return;
+  hint.classList.toggle("hidden", !visible);
+  hint.hidden = !visible;
+}
+
+function showToryChatPopupInPanelSlot() {
+  const toolsView = $("aiToolsView");
+  toolsView?.classList.add("hidden");
+  if (toolsView) toolsView.hidden = true;
+  $("aiTabTools")?.classList.remove("is-active");
+  $("aiTabTools")?.setAttribute("aria-selected", "false");
+  $("aiTabChat")?.classList.add("is-active");
+  $("aiTabChat")?.setAttribute("aria-selected", "true");
+  setToryChatPopupDockHint(true);
+}
 
 function normalizeToryChatMode(mode) {
   const m = String(mode || toryChatMode || "general").trim();
@@ -14772,8 +15070,13 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
   if (isChat && toryChatPopupOpen && !skipPopupClose) {
     closeToryChatPopup({ restorePanelTab: false });
   }
-  if (isChat) {
+  if (isChat && !toryChatPopupOpen) {
     restoreToryChatToPanel();
+  }
+  if (!isChat) {
+    setToryChatPopupDockHint(false);
+  } else if (toryChatPopupOpen && skipPopupClose) {
+    setToryChatPopupDockHint(true);
   }
 
   toolsView?.classList.toggle("hidden", isChat);
@@ -14885,7 +15188,9 @@ function restoreToryChatToPanel() {
   const body = document.querySelector("#aiPanel .ai-panel-body");
   if (!chat || !body) return;
   if (chat.parentElement === body) return;
-  body.appendChild(chat);
+  const hint = $("toryChatPopupDockHint");
+  if (hint && hint.parentElement === body) body.insertBefore(chat, hint);
+  else body.appendChild(chat);
 }
 
 function openToryChatPopup(options = {}) {
@@ -14894,17 +15199,15 @@ function openToryChatPopup(options = {}) {
   const chat = $("aiChatView");
   if (!popup || !host || !chat) return;
 
-  // Side panel stays on tools while chat floats
-  setAiPanelTab("tools", { skipPopupClose: true });
+  const draft = captureToryChatComposerDraft({ commitIme: true });
+  // 도우미(직접요청)로 바꾸지 않아요. 패널에 다른 입력칸이 보이면 별도 창처럼 느껴집니다.
+  toryChatPopupOpen = true;
+  showToryChatPopupInPanelSlot();
   host.appendChild(chat);
   chat.classList.remove("hidden");
   chat.hidden = false;
   popup.classList.remove("hidden");
   popup.hidden = false;
-  toryChatPopupOpen = true;
-  $("aiTabChat")?.classList.add("is-active");
-  $("aiTabChat")?.setAttribute("aria-selected", "true");
-  // In popup, hide "팝업창 보기" (already there) — optional visual: keep for re-open after close
   $("toryChatPopupOpenButton")?.classList.add("hidden");
 
   // Default size/position if not yet set
@@ -14923,7 +15226,7 @@ function openToryChatPopup(options = {}) {
   const input = $("toryChatInput");
   if (options.prefill != null && input) {
     const text = String(options.prefill).slice(0, 4000);
-    input.value = text;
+    restoreToryChatComposerDraft(text);
     const caret = Number.isFinite(options.caret)
       ? Math.max(0, Math.min(text.length, options.caret))
       : text.length;
@@ -14936,6 +15239,7 @@ function openToryChatPopup(options = {}) {
       }
     });
   } else {
+    restoreToryChatComposerDraft(draft);
     requestAnimationFrame(() => input?.focus());
   }
 
@@ -14969,8 +15273,11 @@ function askToryFromSelection() {
 function closeToryChatPopup({ restorePanelTab = true } = {}) {
   const popup = $("toryChatPopup");
   if (!popup) return;
+  const draft = captureToryChatComposerDraft({ commitIme: true });
   toryChatPopupOpen = false;
+  setToryChatPopupDockHint(false);
   restoreToryChatToPanel();
+  restoreToryChatComposerDraft(draft);
   $("toryChatPopupOpenButton")?.classList.remove("hidden");
   popup.classList.add("hidden");
   popup.hidden = true;
@@ -15110,6 +15417,10 @@ function setupToryChatPopupChrome() {
   $("toryChatPopupClose")?.addEventListener("click", () => {
     closeToryChatPopup({ restorePanelTab: true });
     toast(i18n.t('app.팝업_대화를_닫았어요'));
+  });
+  $("toryChatPopupDockButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeToryChatPopup({ restorePanelTab: true });
   });
 }
 
@@ -15783,6 +16094,7 @@ async function sendToryChatMessage(event) {
   history.push({ role: "user", content: text, at: new Date().toISOString() });
   saveToryChatHistory(history, sessionKey);
   if (input) input.value = "";
+  toryChatComposerDraft = "";
   renderToryChatMessages();
 
   // Pending bubble
@@ -17397,7 +17709,7 @@ function setupToryChat() {
   $("aiTabChat")?.addEventListener("click", () => {
     hideToryPersonaMenu();
     if (toryChatPopupOpen) {
-      // Popup already open — focus input there
+      showToryChatPopupInPanelSlot();
       requestAnimationFrame(() => $("toryChatInput")?.focus());
       return;
     }
@@ -17486,6 +17798,9 @@ function setupToryChat() {
     } else {
       applyToryChatHighlight("#f1c40f");
     }
+  });
+  $("toryChatInput")?.addEventListener("input", () => {
+    toryChatComposerDraft = String($("toryChatInput")?.value || "");
   });
   $("toryChatInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter" && !event.shiftKey) {
@@ -19432,13 +19747,7 @@ function hideSettingsCollectionBoard() {
 
 function closeSettingsCollectionMain() {
   hideSettingsCollectionBoard();
-  if (state.sceneId) {
-    openScene(state.sceneId).catch(handleError);
-  } else if (state.characterId) {
-    openCharacter(state.characterId).catch(handleError);
-  } else {
-    showWelcome();
-  }
+  return returnToManuscriptFromSettingsMain();
 }
 
 function openSettingsCollectionMain(key) {
@@ -19528,7 +19837,7 @@ function setupSettingsCollectionBoard() {
   setupSettingsCollectionBoard._bound = true;
   $("settingsCollectionCloseButton")?.addEventListener("click", (event) => {
     event.preventDefault();
-    closeSettingsCollectionMain();
+    closeSettingsCollectionMain().catch(handleError);
   });
 }
 
@@ -22294,6 +22603,7 @@ const GLUMP_TOOL_LABELS = {
   mood_playlist: i18n.t('app.가상_플레이리스트_뽑기'),
   mood_board: i18n.t('app.무드보드_둘러보기'),
   word_list: i18n.t('app.단어집_둘러보기'),
+  sentence_list: i18n.t('app.문장집_둘러보기'),
   character_tarot: i18n.t('app.캐릭터_타로_풀이'),
   naming_shop: i18n.t('app.작명소'),
 };
@@ -22318,6 +22628,11 @@ const GLUMP_DIVERSION_META = {
     title: i18n.t('app.단어집_둘러보기_2'),
     loading: i18n.t('app.입안에서_굴릴_단어를_고르는_중이에요'),
     ready: i18n.t('app.지금_원고에_넣을_필요는_없어요'),
+  },
+  sentence_list: {
+    title: i18n.t('app.문장집_둘러보기_2'),
+    loading: i18n.t('app.입안에서_굴릴_문장을_고르는_중이에요'),
+    ready: i18n.t('app.한_줄씩_읽다_나와도_돼요'),
   },
   character_tarot: {
     title: i18n.t('app.캐릭터_타로_풀이_2'),
@@ -22376,6 +22691,8 @@ const glumpErState = {
 
 const glumpSprintState = {
   active: false,
+  locked: false,
+  waitingForInput: false,
   mode: "",
   startedAt: 0,
   durationMs: 0,
@@ -22398,7 +22715,7 @@ function isGlumpErModalOpen() {
 }
 
 function isGlumpSprintActive() {
-  return Boolean(glumpSprintState.active);
+  return Boolean(glumpSprintState.active || glumpSprintState.locked);
 }
 
 function resetGlumpErState() {
@@ -22498,19 +22815,29 @@ function setGlumpSprintElHidden(el, hidden) {
   el.classList.toggle("hidden", hidden);
 }
 
+function setGlumpSprintEditorWritable(writable) {
+  const editor = $("sceneContent");
+  if (!editor) return;
+  editor.setAttribute("contenteditable", writable ? "true" : "false");
+}
+
 function updateGlumpSprintStatusBar() {
   const bar = $("glumpSprintStatusBar");
   const textEl = $("glumpSprintStatusText");
+  const hintEl = $("glumpSprintStatusHint");
   const timerEl = $("glumpSprintStatusTimer");
   const charsEl = $("glumpSprintStatusChars");
   const gaugeEl = $("glumpSprintStatusGauge");
   const gaugeFill = $("glumpSprintStatusGaugeFill");
   const gaugeLabel = $("glumpSprintStatusGaugeLabel");
+  const endBtn = $("glumpSprintEndButton");
   if (!bar || !textEl) return;
-  if (!glumpSprintState.active) {
+  const sessionOn = Boolean(glumpSprintState.active || glumpSprintState.locked);
+  if (!sessionOn) {
     bar.classList.add("hidden");
     bar.hidden = true;
     textEl.textContent = "";
+    if (hintEl) hintEl.textContent = "";
     if (timerEl) timerEl.textContent = "";
     setGlumpSprintElHidden(timerEl, true);
     setGlumpSprintElHidden(charsEl, true);
@@ -22523,19 +22850,32 @@ function updateGlumpSprintStatusBar() {
   textEl.textContent = name;
   const hasGoal = glumpSprintState.charGoal > 0;
   const hasTimer = glumpSprintState.durationMs > 0;
+  if (endBtn) endBtn.disabled = Boolean(glumpSprintState.locked);
   if (hasTimer) {
-    const left = Math.max(
-      0,
-      Math.ceil((glumpSprintState.startedAt + glumpSprintState.durationMs - Date.now()) / 1000),
-    );
+    const totalSec = Math.ceil(glumpSprintState.durationMs / 1000);
+    let left = totalSec;
+    if (glumpSprintState.locked) {
+      left = 0;
+    } else if (!glumpSprintState.waitingForInput && glumpSprintState.startedAt) {
+      left = Math.max(
+        0,
+        Math.ceil((glumpSprintState.startedAt + glumpSprintState.durationMs - Date.now()) / 1000),
+      );
+    }
     if (timerEl) {
       timerEl.textContent = glumpSprintPadTime(left);
-      timerEl.classList.toggle("is-urgent", left > 0 && left <= 60);
+      timerEl.classList.toggle("is-urgent", !glumpSprintState.waitingForInput && !glumpSprintState.locked && left > 0 && left <= 60);
+      timerEl.classList.toggle("is-armed", Boolean(glumpSprintState.waitingForInput));
     }
     setGlumpSprintElHidden(timerEl, false);
     if (charsEl) charsEl.textContent = `${i18n.t('app.지금까지_written_자', {written: written})}`;
     setGlumpSprintElHidden(charsEl, false);
     setGlumpSprintElHidden(gaugeEl, true);
+    if (hintEl) {
+      if (glumpSprintState.locked) hintEl.textContent = i18n.t('app.스프린트가_끝났어요');
+      else if (glumpSprintState.waitingForInput) hintEl.textContent = i18n.t('app.첫_글자를_치면_시작해요');
+      else hintEl.textContent = i18n.t('app.고치지_말고_그냥_쓰세요');
+    }
   } else if (hasGoal) {
     const goal = glumpSprintState.charGoal;
     const pct = Math.max(0, Math.min(100, (written / goal) * 100));
@@ -22544,11 +22884,17 @@ function updateGlumpSprintStatusBar() {
     setGlumpSprintElHidden(timerEl, true);
     setGlumpSprintElHidden(charsEl, true);
     setGlumpSprintElHidden(gaugeEl, false);
+    if (hintEl) {
+      hintEl.textContent = glumpSprintState.locked
+        ? i18n.t('app.스프린트가_끝났어요')
+        : i18n.t('app.고치지_말고_그냥_쓰세요');
+    }
   } else {
     setGlumpSprintElHidden(timerEl, true);
     if (charsEl) charsEl.textContent = `${i18n.t('app.지금까지_written_자', {written: written})}`;
     setGlumpSprintElHidden(charsEl, false);
     setGlumpSprintElHidden(gaugeEl, true);
+    if (hintEl) hintEl.textContent = "";
   }
   bar.classList.remove("hidden");
   bar.hidden = false;
@@ -22575,8 +22921,9 @@ function clearGlumpSprintBlindParagraphs() {
 function clearGlumpSprintVisuals() {
   $("manuscriptFrame")?.classList.remove("glump-sprint-active");
   $("sceneContent")?.classList.remove("glump-sprint-active");
-  document.body.classList.remove("glump-sprint-on", "glump-sprint-revealing");
+  document.body.classList.remove("glump-sprint-on", "glump-sprint-revealing", "glump-sprint-locked");
   document.body.removeAttribute("data-glump-sprint-mode");
+  setGlumpSprintEditorWritable(true);
   hideGlumpSprintBlindOverlay();
   clearGlumpSprintBlindParagraphs();
 }
@@ -22679,6 +23026,18 @@ function closeGlumpSprintReward() {
   if (!modal) return;
   modal.classList.add("hidden");
   modal.dataset.mode = "";
+  if (glumpSprintState.locked) {
+    glumpSprintState.locked = false;
+    glumpSprintState.mode = "";
+    glumpSprintState.startedAt = 0;
+    glumpSprintState.durationMs = 0;
+    glumpSprintState.startCount = 0;
+    glumpSprintState.charGoal = 0;
+    glumpSprintState.blind = false;
+    glumpSprintState.waitingForInput = false;
+    clearGlumpSprintVisuals();
+    updateGlumpSprintStatusBar();
+  }
 }
 
 function showGlumpSprintReward(mode, written) {
@@ -22701,7 +23060,9 @@ function playGlumpSprintBlindReveal(done) {
   const past = editor ? [...editor.querySelectorAll(".glump-sprint-blind-past")] : [];
   const finish = () => {
     glumpSprintState.revealTimer = 0;
-    clearGlumpSprintVisuals();
+    document.body.classList.remove("glump-sprint-revealing");
+    hideGlumpSprintBlindOverlay();
+    clearGlumpSprintBlindParagraphs();
     if (typeof done === "function") done();
   };
   if (!past.length) {
@@ -22739,6 +23100,11 @@ function isGlumpSprintDeleteKey(event) {
 }
 
 function onGlumpSprintKeydown(event) {
+  if (glumpSprintState.locked && glumpSprintEventInEditor(event)) {
+    event.preventDefault();
+    event.stopPropagation();
+    return;
+  }
   if (!glumpSprintState.active) return;
   if (!isGlumpSprintDeleteKey(event)) return;
   if (!glumpSprintEventInEditor(event)) return;
@@ -22748,6 +23114,10 @@ function onGlumpSprintKeydown(event) {
 }
 
 function onGlumpSprintBeforeInput(event) {
+  if (glumpSprintState.locked) {
+    event.preventDefault();
+    return;
+  }
   if (!glumpSprintState.active) return;
   if (event.isComposing) return;
   const type = String(event.inputType || "");
@@ -22758,8 +23128,20 @@ function onGlumpSprintBeforeInput(event) {
   glumpSprintBlockedToast();
 }
 
+function armGlumpSprintTimer() {
+  if (!glumpSprintState.active || !glumpSprintState.waitingForInput) return;
+  glumpSprintState.waitingForInput = false;
+  glumpSprintState.startedAt = Date.now();
+  if (glumpSprintState.durationMs > 0 && !glumpSprintState.timerId) {
+    glumpSprintState.timerId = window.setInterval(tickGlumpSprintTimer, 250);
+  }
+  updateGlumpSprintStatusBar();
+}
+
 function onGlumpSprintInput() {
+  if (glumpSprintState.locked) return;
   if (!glumpSprintState.active) return;
+  armGlumpSprintTimer();
   updateGlumpSprintStatusBar();
   scheduleGlumpSprintBlindOverlay();
   if (glumpSprintState.charGoal > 0 && glumpSprintWrittenCount() >= glumpSprintState.charGoal) {
@@ -22779,6 +23161,8 @@ function stopGlumpSprint({ aborted = false, keepBlindVisual = false } = {}) {
     glumpSprintState.revealTimer = 0;
   }
   glumpSprintState.active = false;
+  glumpSprintState.locked = false;
+  glumpSprintState.waitingForInput = false;
   glumpSprintState.mode = "";
   glumpSprintState.startedAt = 0;
   glumpSprintState.durationMs = 0;
@@ -22797,10 +23181,22 @@ function finishGlumpSprint({ aborted = false } = {}) {
   const mode = glumpSprintState.mode;
   const written = glumpSprintWrittenCount();
   const wasBlind = glumpSprintState.blind;
-  if (!aborted && wasBlind) glumpSprintState.revealTimer = -1;
-  stopGlumpSprint({ aborted, keepBlindVisual: !aborted && wasBlind });
-  if (aborted) return;
+  if (aborted) {
+    stopGlumpSprint({ aborted: true });
+    return;
+  }
+  if (glumpSprintState.timerId) {
+    window.clearInterval(glumpSprintState.timerId);
+    glumpSprintState.timerId = 0;
+  }
+  glumpSprintState.waitingForInput = false;
+  glumpSprintState.active = false;
+  glumpSprintState.locked = true;
+  document.body.classList.add("glump-sprint-locked");
+  setGlumpSprintEditorWritable(false);
+  updateGlumpSprintStatusBar();
   if (wasBlind) {
+    glumpSprintState.revealTimer = -1;
     playGlumpSprintBlindReveal(() => showGlumpSprintReward(mode, written));
     return;
   }
@@ -22808,7 +23204,7 @@ function finishGlumpSprint({ aborted = false } = {}) {
 }
 
 function tickGlumpSprintTimer() {
-  if (!glumpSprintState.active || glumpSprintState.durationMs <= 0) return;
+  if (!glumpSprintState.active || glumpSprintState.waitingForInput || glumpSprintState.durationMs <= 0) return;
   const left = glumpSprintState.startedAt + glumpSprintState.durationMs - Date.now();
   updateGlumpSprintStatusBar();
   if (left <= 0) finishGlumpSprint({ aborted: false });
@@ -22826,10 +23222,24 @@ function logGlumpSprintStart(toolId) {
 }
 
 function confirmLeaveGlumpSprint() {
+  if (glumpSprintState.locked) {
+    closeGlumpSprintReward();
+    return true;
+  }
   if (!glumpSprintState.active) return true;
   const ok = window.confirm(GLUMP_SPRINT_LEAVE_MSG);
   if (ok) stopGlumpSprint({ aborted: true });
   return ok;
+}
+
+function endGlumpSprintFromHeader() {
+  if (glumpSprintState.locked) return;
+  if (!glumpSprintState.active) return;
+  if (glumpSprintState.waitingForInput && glumpSprintWrittenCount() <= 0) {
+    stopGlumpSprint({ aborted: true });
+    return;
+  }
+  finishGlumpSprint({ aborted: false });
 }
 
 function startGlumpSprint(modeId) {
@@ -22853,23 +23263,27 @@ function startGlumpSprint(modeId) {
     glumpSprintState.revealTimer = 0;
     clearGlumpSprintVisuals();
   }
-  if (glumpSprintState.active) stopGlumpSprint({ aborted: true });
+  if (glumpSprintState.active || glumpSprintState.locked) stopGlumpSprint({ aborted: true });
   closeGlumpSprintReward();
   glumpSprintState.active = true;
+  glumpSprintState.locked = false;
   glumpSprintState.mode = meta.id;
-  glumpSprintState.startedAt = Date.now();
   glumpSprintState.durationMs = meta.seconds > 0 ? meta.seconds * 1000 : 0;
+  glumpSprintState.waitingForInput = glumpSprintState.durationMs > 0;
+  glumpSprintState.startedAt = glumpSprintState.waitingForInput ? 0 : Date.now();
   glumpSprintState.startCount = glumpSprintCharCount();
   glumpSprintState.charGoal = meta.chars || 0;
   glumpSprintState.blind = Boolean(meta.blind);
   $("manuscriptFrame")?.classList.add("glump-sprint-active");
   editor.classList.add("glump-sprint-active");
   document.body.classList.add("glump-sprint-on");
+  document.body.classList.remove("glump-sprint-locked");
   document.body.setAttribute("data-glump-sprint-mode", meta.id);
+  setGlumpSprintEditorWritable(true);
   if (meta.blind) editor.classList.add("glump-sprint-blind-editor");
   updateGlumpSprintStatusBar();
   scheduleGlumpSprintBlindOverlay();
-  if (glumpSprintState.durationMs > 0) {
+  if (glumpSprintState.durationMs > 0 && !glumpSprintState.waitingForInput) {
     glumpSprintState.timerId = window.setInterval(tickGlumpSprintTimer, 250);
   }
   logGlumpSprintStart(meta.id);
@@ -23084,6 +23498,8 @@ function renderGlumpErStep() {
     fillSubmit.disabled = glumpErState.busy || !ready;
   }
 
+  $("glumpErWizard")?.classList.toggle("is-ping-session", glumpErState.step === "pingpong");
+
   const ping = glumpErState.pingpong;
   const pingStatus = $("glumpErPingpongStatus");
   const pingTurns = $("glumpErPingpongTurns");
@@ -23093,45 +23509,82 @@ function renderGlumpErStep() {
   const pingSend = $("glumpErPingpongSend");
   const pingEnd = $("glumpErPingpongEnd");
   const pingInput = $("glumpErPingpongInput");
+  const pingEmpty = $("glumpErPingpongEmpty");
+  const pingTyping = $("glumpErPingpongTyping");
+  const pingKeys = $("glumpErPingpongKeys");
+  const pingTurnCount = $("glumpErPingpongTurnCount");
+  const pingCharCount = $("glumpErPingpongCharCount");
+  const pingItems = Array.isArray(ping?.turns) ? ping.turns : [];
+  const pingTypingNow = Boolean(
+    glumpErState.busy && glumpErState.step === "pingpong" && ping?.sessionId && !ping?.checkin && !ping?.finalText
+  );
   if (pingStatus) {
     if (glumpErState.busy && glumpErState.step === "pingpong" && !ping?.sessionId) {
       pingStatus.textContent = i18n.t('app.릴레이를_여는_중이에요');
-    } else if (glumpErState.busy && glumpErState.step === "pingpong") {
-      pingStatus.textContent = i18n.t('app.토리가_한두_문장_잇는_중이에요');
+    } else if (pingTypingNow) {
+      pingStatus.textContent = i18n.t('app.토리_작성_중');
     } else if (ping?.finalText) {
       pingStatus.textContent = i18n.t('app.원고_커서_위치에_이어_넣었어요');
-    } else if (ping?.checkin) {
-      pingStatus.textContent = "";
-    } else if (ping?.sessionId) {
-      pingStatus.textContent = i18n.t('app.한두_문장_쓰고_토리에게_넘기면_이어_받아요');
     } else {
       pingStatus.textContent = "";
     }
   }
+  if (pingTurnCount) {
+    pingTurnCount.textContent = i18n.t('app.n턴', { n: pingItems.length });
+  }
+  if (pingCharCount) {
+    const chars = Number(ping?.writtenChars) || pingItems.reduce((sum, item) => sum + String(item?.text || "").length, 0);
+    pingCharCount.textContent = i18n.t('app.n자', { n: chars });
+  }
+  const prevPainted = Number(ping?.paintedCount) || 0;
   if (pingTurns) {
-    if (ping?.finalText) {
-      pingTurns.innerHTML = `<p class="glump-er-fill-final">${escapeHtml(ping.finalText)}</p>`;
-    } else {
-      const items = Array.isArray(ping?.turns) ? ping.turns : [];
-      pingTurns.innerHTML = items.map((item) => {
-        const tori = item?.speaker === "tori";
-        const who = tori ? i18n.t('app.토리') : i18n.t('app.나');
-        const klass = tori ? "is-tori" : "is-user";
-        return `<p class="glump-er-ping-turn ${klass}"><strong>${who}</strong>${escapeHtml(String(item?.text || ""))}</p>`;
-      }).join("");
+    const signature = ping?.finalText
+      ? `final:${ping.finalText}`
+      : pingItems.map((item) => `${item?.speaker || ""}:${item?.text || ""}`).join("\n");
+    if (pingTurns.getAttribute("data-sig") !== signature) {
+      if (ping?.finalText) {
+        pingTurns.innerHTML = `<p class="glump-er-fill-final">${escapeHtml(ping.finalText)}</p>`;
+      } else {
+        pingTurns.innerHTML = pingItems.map((item, index) => {
+          const tori = item?.speaker === "tori";
+          const who = tori ? i18n.t('app.토리') : i18n.t('app.나');
+          const klass = tori ? "is-tori" : "is-user";
+          const fresh = index >= prevPainted ? " is-new" : "";
+          return `<p class="glump-er-ping-turn ${klass}${fresh}"><strong>${who}</strong>${escapeHtml(String(item?.text || ""))}</p>`;
+        }).join("");
+      }
+      pingTurns.setAttribute("data-sig", signature);
+      if (ping) ping.paintedCount = pingItems.length;
     }
   }
+  pingEmpty?.classList.toggle(
+    "hidden",
+    Boolean(ping?.finalText || pingItems.length || pingTypingNow || (glumpErState.busy && glumpErState.step === "pingpong" && !ping?.sessionId))
+  );
+  pingTyping?.classList.toggle("hidden", !pingTypingNow);
   const showCheckin = Boolean(ping?.sessionId && ping.checkin && !ping.finalText);
   pingCheckin?.classList.toggle("hidden", !showCheckin);
   if (pingCheckinMsg && showCheckin) {
     const n = Number(ping.writtenChars) || 0;
     pingCheckinMsg.textContent = `${i18n.t('app.벌써_n_자_썼어요', {n: n})}`;
   }
-  pingComposer?.classList.toggle("hidden", Boolean(!ping?.sessionId || ping.checkin || ping.finalText));
-  if (pingSend) pingSend.disabled = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
+  const composerHidden = Boolean(!ping?.sessionId || ping.checkin || ping.finalText);
+  pingComposer?.classList.toggle("hidden", composerHidden);
+  pingKeys?.classList.toggle("hidden", composerHidden);
+  const pingLocked = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
+  if (pingSend) pingSend.disabled = pingLocked || !String(pingInput?.value || "").trim();
   if (pingEnd) pingEnd.classList.toggle("hidden", Boolean(!ping?.sessionId || ping.finalText || showCheckin));
   if (pingEnd) pingEnd.disabled = glumpErState.busy;
-  if (pingInput) pingInput.disabled = glumpErState.busy || showCheckin || Boolean(ping?.finalText);
+  if (pingInput) {
+    pingInput.disabled = pingLocked;
+    pingInput.placeholder = pingTypingNow
+      ? i18n.t('app.토리_작성_중')
+      : i18n.t('index.한두_문장만_이어서_써_보세요');
+  }
+  if (glumpErState.step === "pingpong") {
+    resizeGlumpPingpongInput();
+    scrollGlumpPingpongCanvas(pingItems.length > prevPainted || pingTypingNow || showCheckin);
+  }
 
   const lucky = glumpErState.lucky;
   const luckyStatus = $("glumpErLuckyStatus");
@@ -23664,6 +24117,35 @@ async function submitGlumpFillBlank() {
   }
 }
 
+function resizeGlumpPingpongInput() {
+  const input = $("glumpErPingpongInput");
+  if (!input) return;
+  input.style.height = "auto";
+  const next = Math.min(Math.max(input.scrollHeight, 40), 96);
+  input.style.height = `${next}px`;
+}
+
+function scrollGlumpPingpongCanvas(smooth) {
+  const canvas = $("glumpErPingpongCanvas");
+  if (!canvas) return;
+  const reduce = prefersGlumpReducedMotion();
+  const top = canvas.scrollHeight;
+  try {
+    canvas.scrollTo({ top, behavior: smooth && !reduce ? "smooth" : "auto" });
+  } catch (_) {
+    canvas.scrollTop = top;
+  }
+}
+
+function syncGlumpPingpongSendEnabled() {
+  const ping = glumpErState.pingpong;
+  const input = $("glumpErPingpongInput");
+  const send = $("glumpErPingpongSend");
+  if (!send) return;
+  const locked = glumpErState.busy || Boolean(ping?.checkin || ping?.finalText || !ping?.sessionId);
+  send.disabled = locked || !String(input?.value || "").trim();
+}
+
 async function runGlumpPingpong() {
   if (!state.projectId) {
     toast(i18n.t('app.먼저_작품을_선택해_주세요'));
@@ -23695,6 +24177,7 @@ async function runGlumpPingpong() {
       turns: [],
       checkin: false,
       writtenChars: 0,
+      paintedCount: 0,
       finalText: "",
     };
     if ($("glumpErPingpongInput")) $("glumpErPingpongInput").value = "";
@@ -23718,6 +24201,12 @@ async function sendGlumpPingpongTurn() {
     toast(i18n.t('app.한_문장을_먼저_써_주세요'));
     return;
   }
+  const userTurn = { speaker: "user", text: userText };
+  ping.turns = [...(ping.turns || []), userTurn];
+  if (input) {
+    input.value = "";
+    resizeGlumpPingpongInput();
+  }
   glumpErState.busy = true;
   renderGlumpErStep();
   try {
@@ -23730,14 +24219,18 @@ async function sendGlumpPingpongTurn() {
     });
     ping.turns = [
       ...(ping.turns || []),
-      { speaker: "user", text: userText },
       { speaker: "tori", text: String(data?.tori_text || "").trim() },
     ];
     ping.checkin = Boolean(data?.checkin);
     ping.writtenChars = Number(data?.written_chars) || 0;
-    if (input) input.value = "";
   } catch (error) {
     handleError(error);
+    const turns = ping.turns || [];
+    if (turns.length && turns[turns.length - 1] === userTurn) {
+      ping.turns = turns.slice(0, -1);
+      ping.paintedCount = Math.min(Number(ping.paintedCount) || 0, ping.turns.length);
+    }
+    if (input && !input.value) input.value = userText;
   } finally {
     glumpErState.busy = false;
     renderGlumpErStep();
@@ -24062,6 +24555,23 @@ function renderGlumpDiversionBody(diversion) {
       return `<article class="glump-er-word-item"><strong>${word}</strong>${nuance ? `<p>${nuance}</p>` : ""}</article>`;
     }).join("");
   }
+  if (kind === "sentence_list") {
+    const sentences = Array.isArray(diversion.sentences) ? diversion.sentences : [];
+    const kindLabels = {
+      novel: i18n.t('app.소설_문장'),
+      quote: i18n.t('app.명언'),
+      wit: i18n.t('app.위트'),
+      fact: i18n.t('app.놀라운_사실'),
+    };
+    return sentences.map((item) => {
+      const text = escapeHtml(String(item?.text || ""));
+      if (!text) return "";
+      const kindKey = String(item?.kind || "");
+      const kindLabel = escapeHtml(kindLabels[kindKey] || kindLabels.novel);
+      const note = escapeHtml(String(item?.note || ""));
+      return `<article class="glump-er-sentence-item"><span class="glump-er-sentence-kind">${kindLabel}</span><p class="glump-er-sentence-text">${text}</p>${note ? `<p class="glump-er-sentence-note">${note}</p>` : ""}</article>`;
+    }).join("");
+  }
   if (kind === "character_tarot") {
     const cards = Array.isArray(diversion.cards) ? diversion.cards : [];
     return cards.map((item, index) => {
@@ -24113,6 +24623,8 @@ async function runGlumpDiversion(kind) {
     let data;
     if (id === "word_list") {
       data = await api(`/api/glump/word-list?work_id=${encodeURIComponent(state.projectId)}`);
+    } else if (id === "sentence_list") {
+      data = await api(`/api/glump/sentence-list?work_id=${encodeURIComponent(state.projectId)}`);
     } else if (id === "mood_color") {
       await ensureGlumpCharacters();
       const payload = { work_id: state.projectId };
@@ -24331,7 +24843,7 @@ function setupGlumpErUi() {
     glumpErState.step = glumpErReturnStep();
     renderGlumpErStep();
   });
-  $("glumpErPingpongSend")?.addEventListener("click", (event) => {
+  $("glumpErPingpongComposer")?.addEventListener("submit", (event) => {
     event.preventDefault();
     sendGlumpPingpongTurn().catch(handleError);
   });
@@ -24350,10 +24862,15 @@ function setupGlumpErUi() {
     try { $("glumpErPingpongInput")?.focus(); } catch (_) { /* ignore */ }
   });
   $("glumpErPingpongInput")?.addEventListener("keydown", (event) => {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
-      event.preventDefault();
-      sendGlumpPingpongTurn().catch(handleError);
-    }
+    if (event.isComposing || event.keyCode === 229) return;
+    const sendKey = event.key === "Enter" && !event.shiftKey;
+    if (!sendKey) return;
+    event.preventDefault();
+    sendGlumpPingpongTurn().catch(handleError);
+  });
+  $("glumpErPingpongInput")?.addEventListener("input", () => {
+    resizeGlumpPingpongInput();
+    syncGlumpPingpongSendEnabled();
   });
   $("glumpErLuckyBack")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -24436,6 +24953,10 @@ function ensureGlumpSprintBindings() {
     const mode = $("glumpSprintRewardModal")?.dataset.mode || "";
     closeGlumpSprintReward();
     if (mode) startGlumpSprint(mode);
+  });
+  $("glumpSprintEndButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    endGlumpSprintFromHeader();
   });
   document.querySelectorAll("[data-close-glump-sprint-reward]").forEach((el) => {
     el.addEventListener("click", () => closeGlumpSprintReward());
@@ -28071,6 +28592,10 @@ function startRenameScene(sceneId) {
   beginSceneRename(btn).catch(handleError);
 }
 
+function isOutlineInlineRenaming() {
+  return Boolean(document.querySelector(".scene-rename-input, .chapter-rename-input"));
+}
+
 async function beginSceneRename(titleButton) {
   const sceneId = Number(titleButton.dataset.scene);
   if (!sceneId) return;
@@ -28085,6 +28610,7 @@ async function beginSceneRename(titleButton) {
   input.setAttribute("aria-label", i18n.t('app.회차_이름_수정'));
   input.maxLength = 200;
   titleButton.replaceWith(input);
+  try { input.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (_) { /* ignore */ }
   input.focus();
   input.select();
   let finished = false;
@@ -28432,9 +28958,7 @@ function setupBinderContextMenu() {
     const action = button.dataset.binderAction;
     const scene = { ...binderContextScene };
     hideBinderContextMenu();
-    if (action === "rename") {
-      window.setTimeout(() => startRenameScene(scene.id), 0);
-    } else if (action === "title-italic") {
+    if (action === "title-italic") {
       if (!scene.parentSceneId) return toast(i18n.t("app.하위_원고에서만_쓸_수_있어요"));
       toggleSceneTitleItalic(scene.id);
     } else if (action === "add-child") {
@@ -30601,6 +31125,14 @@ function setupDesktopThemeMenu() {
         : i18n.t('app.먼저_본문에서_다듬을_문장을_드래그로_선택하');
       rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
     }
+    const expandItem = $("expandDescriptionMenuItem");
+    if (expandItem) {
+      expandItem.disabled = !hasSelection;
+      expandItem.title = hasSelection
+        ? i18n.t("app.선택한_장면의_감각_공간_분위기를_같은_문체")
+        : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하");
+      expandItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
     const throwItem = $("throwBaitMenuItem");
     if (throwItem) {
       const canBait = hasSelection && Boolean(state.sceneId) && !isSettingsDoc;
@@ -30744,6 +31276,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "rewrite-sentence") {
         hideDesktopContextMenu();
         runRewriteFromSelection().catch(handleError);
+      } else if (action === "expand-description") {
+        hideDesktopContextMenu();
+        runDescriptionExpandFromSelection().catch(handleError);
       } else if (action === "insert-image") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
@@ -36035,7 +36570,7 @@ function renderSceneTreeHtml(scenes, {
       <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
         <div class="scene-row">
           ${twistie}
-          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""} · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
+          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""} · 더블클릭: 이름 바꾸기 · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
             ${bookmarkMark}
             ${statusMarkup}
             ${pinIcon}
@@ -36102,6 +36637,27 @@ function getBinderChildFolders(node) {
   return [];
 }
 
+function isTransparentBinderNode(node) {
+  if (!node) return false;
+  if (node.transparent === true || node.transparent === 1 || node.transparent === "1") return true;
+  return String(node.notes_md || "").includes("supertory:transparent_volume");
+}
+
+/** Keep one empty hidden 「본편」 tray; extra empty trays stack duplicate + buttons. */
+function withoutEmptyDuplicateTransparentFolders(folders) {
+  const list = Array.isArray(folders) ? folders : [];
+  let keptEmpty = false;
+  return list.filter((node) => {
+    if (!isTransparentBinderNode(node)) return true;
+    const hasScenes = Array.isArray(node.scenes) && node.scenes.length > 0;
+    const nested = getBinderChildFolders(node);
+    if (hasScenes || nested.length) return true;
+    if (keptEmpty) return false;
+    keptEmpty = true;
+    return true;
+  });
+}
+
 /**
  * Recursive binder folder node renderer.
  * is_box → outline-part box shell; otherwise → chapter shell + scene leaves.
@@ -36127,7 +36683,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
   const depthAttr = ` data-binder-depth="${depth}"`;
 
   if (binderFolderNodeIsBox(node)) {
-    const childFolders = getBinderChildFolders(node);
+    const childFolders = withoutEmptyDuplicateTransparentFolders(getBinderChildFolders(node));
     const partExpanded = !(collapsedParts instanceof Set && collapsedParts.has(Number(node.id)));
     const folderIdAttr = node.folder_id != null && node.folder_id !== ""
       ? ` data-folder-id="${Number(node.folder_id)}"`
@@ -36207,7 +36763,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
           title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
-        <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (우클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
+        <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (더블클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
       </div>
       <div class="part-children ${partExpanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
         ${chapterHtml}
@@ -36254,7 +36810,9 @@ function renderChapterOutlineHtml(chapter, {
   // Nested under a manuscript: keep staircase by starting children one step deeper.
   const sceneDepth = nestedUnderScene ? Math.min(Number(nestDepth) + 1, 8) : 0;
   // Nested folders under this chapter (unlimited depth)
-  const nestedChildFolders = getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false }));
+  const nestedChildFolders = withoutEmptyDuplicateTransparentFolders(
+    getBinderChildFolders(asBinderFolderNode(chapter, { isBox: false })),
+  );
   const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
   const hasNestedFolders = nestedChildFolders.length > 0;
   const sceneItems = hasScenes
@@ -36341,13 +36899,15 @@ function renderChapterOutlineHtml(chapter, {
           aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
-        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (우클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
+        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
         ${sceneItems}${afterScenesHtml}
       </div>
     </section>`;
 }
+
+let outlineSceneOpenTimer = null;
 
 function renderOutline(chaptersArg) {
   const outline = $("outline");
@@ -36547,9 +37107,29 @@ function renderOutline(chaptersArg) {
     });
   });
   outline.querySelectorAll("[data-scene]").forEach((button) => {
-    button.addEventListener("click", () => openScene(button.dataset.scene).catch(handleError));
+    button.addEventListener("click", (event) => {
+      if (event.detail > 1) return;
+      if (isOutlineInlineRenaming()) return;
+      const sceneId = button.dataset.scene;
+      if (Number(sceneId) === Number(state.sceneId)) return;
+      if (outlineSceneOpenTimer) window.clearTimeout(outlineSceneOpenTimer);
+      outlineSceneOpenTimer = window.setTimeout(() => {
+        outlineSceneOpenTimer = null;
+        if (isOutlineInlineRenaming()) return;
+        openScene(sceneId).catch(handleError);
+      }, 220);
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      if (outlineSceneOpenTimer) {
+        window.clearTimeout(outlineSceneOpenTimer);
+        outlineSceneOpenTimer = null;
+      }
+      startRenameScene(button.dataset.scene);
+    });
   });
-  // Folder titles: single click = select only; rename via context menu.
+  // Folder titles: single click = select only; rename via double-click.
   // Do not stop mousedown propagation — that blocks HTML5 drag from the title.
   outline.querySelectorAll("[data-rename-chapter]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -36558,6 +37138,11 @@ function renderOutline(chaptersArg) {
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
     });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginChapterRename(button).catch(handleError);
+    });
   });
   outline.querySelectorAll("[data-rename-part]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -36565,6 +37150,11 @@ function renderOutline(chaptersArg) {
       event.preventDefault();
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
+    });
+    button.addEventListener("dblclick", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      beginPartRename(button).catch(handleError);
     });
   });
   injectChapterInsertSlots(outline);
@@ -37432,6 +38022,7 @@ function showWelcome() {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
+  void flushPendingCodexSaves();
   void closeSplitView();
   state.sceneId = null;
   state.characterId = null;
@@ -39440,17 +40031,7 @@ async function createScene(chapterId, options = {}) {
   const isAfter = Boolean(afterSceneId);
   const isChild = !isAfter && Boolean(parentSceneId);
   const defaultTitle = isChild ? i18n.t('app.새_하위_원고') : i18n.t('app.새_씬');
-  const title = await promptText({
-    title: isAfter ? i18n.t('app.아래에_원고_추가') : (isChild ? i18n.t('app.하위_원고_만들기') : i18n.t('app.회차_추가')),
-    message: isAfter
-      ? i18n.t('app.선택한_원고_바로_아래에_새_원고를_만들어요')
-      : (isChild ? i18n.t('app.선택한_원고의_하위로_만들어집니다') : ""),
-    label: i18n.t('app.제목'),
-    defaultValue: defaultTitle,
-    confirmLabel: i18n.t('app.만들기'),
-  });
-  if (title === null) return;
-  const body = { title: title.trim() || defaultTitle };
+  const body = { title: defaultTitle };
   if (parentSceneId) body.parent_scene_id = parentSceneId;
   const scene = await api(`/api/chapters/${chapterId}/scenes`, {
     method: "POST",
@@ -39468,13 +40049,12 @@ async function createScene(chapterId, options = {}) {
     }
   }
   if (parentSceneId) setSceneCollapsed(parentSceneId, false);
+  setChapterCollapsed(chapterId, false);
   await loadProject();
-  await openScene(scene.id);
-  toast(isAfter
-    ? i18n.t('app.아래에_원고를_추가했어요')
-    : (isChild
-      ? i18n.t('app.하위_원고를_만들었어요')
-      : i18n.t('app.새_씬이_준비됐어요_가운데에_글을_써_보세요')));
+  if (scene?.id) {
+    await openScene(scene.id, { skipOutlineReload: true, skipEditorFocus: true });
+    requestAnimationFrame(() => startRenameScene(scene.id));
+  }
 }
 
 // ── 토리의 첫 문장 힌트 (새글쓰기 오프닝 도우미) ──────────────────────────
@@ -40067,32 +40647,69 @@ function collectSceneDescendantIds(rootId) {
 }
 
 /** Chapter id that can receive manuscripts for an outline folder section. */
+function childListOfOutlineSection(section) {
+  return section?.querySelector?.(":scope > .chapter-children, :scope > .part-children") || null;
+}
+
+function sceneHostSectionForFolder(section) {
+  if (!section) return null;
+  const kids = childListOfOutlineSection(section);
+  const transparent = kids?.querySelector?.(
+    ":scope > .outline-chapter[data-transparent='true'], :scope > .outline-chapter.is-transparent-chapter",
+  );
+  if (transparent) return transparent;
+  return section;
+}
+
+function partIdForOutlineFolderSection(section) {
+  if (!section) return null;
+  const isBox = section.dataset?.isBox === "1" || section.classList?.contains("outline-part");
+  if (!isBox) return null;
+  const raw = section.dataset.partId;
+  if (raw === "" || raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 function chapterIdForOutlineFolderSection(section) {
   if (!section) return 0;
+  const host = sceneHostSectionForFolder(section);
+  const hostId = Number(host?.dataset?.chapterId);
+  if (hostId) return hostId;
   const direct = Number(section.dataset.chapterId);
   if (direct) return direct;
-  const inner = section.querySelector(
-    ":scope .outline-chapter[data-chapter-id], :scope .outline-part[data-chapter-id]",
+  const kids = childListOfOutlineSection(section);
+  const inner = kids?.querySelector?.(
+    ":scope > .outline-chapter[data-chapter-id], :scope > .outline-part[data-chapter-id]",
   );
   if (inner) {
     const nested = Number(inner.dataset.chapterId);
     if (nested) return nested;
   }
-  const sceneLink = section.querySelector(".scene-link[data-chapter-id]");
+  const sceneLink = host?.querySelector?.(":scope > .chapter-children > .scene-tree-item > .scene-row > .scene-link[data-chapter-id]")
+    || section.querySelector(".scene-link[data-chapter-id]");
   return Number(sceneLink?.dataset?.chapterId) || 0;
 }
 
+function directSceneLinksInHost(host) {
+  const children = childListOfOutlineSection(host);
+  if (!children) return [];
+  return [...children.querySelectorAll(
+    ":scope > .scene-tree-item[data-depth=\"0\"] > .scene-row > .scene-link[data-scene]:not([data-pinned])",
+  )];
+}
+
 function resolveFolderSectionSceneDrop(section, clientY, subtree) {
+  const host = sceneHostSectionForFolder(section) || section;
   const fallbackChapterId = chapterIdForOutlineFolderSection(section);
-  if (!fallbackChapterId) return null;
-  const children = section.querySelector(":scope > .chapter-children, :scope > .part-children");
+  const partId = partIdForOutlineFolderSection(section) || partIdForOutlineFolderSection(host);
+  if (!fallbackChapterId && !partId) return null;
+  const children = childListOfOutlineSection(host);
   const childrenVisible = Boolean(
     children && !children.hidden && !children.classList.contains("is-collapsed"),
   );
   if (childrenVisible) {
-    const sceneLinks = [...children.querySelectorAll(
-      ":scope .scene-tree-item[data-depth=\"0\"] > .scene-row > .scene-link[data-scene]:not([data-pinned])",
-    )];
+    const sceneLinks = directSceneLinksInHost(host);
     if (sceneLinks.length) {
       let nearest = null;
       let best = Infinity;
@@ -40113,6 +40730,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
           return {
             mode: "before",
             chapterId,
+            partId,
             parentSceneId: null,
             beforeSceneId: nearest.sid,
             el: nearest.link,
@@ -40121,6 +40739,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
         return {
           mode: "after",
           chapterId,
+          partId,
           parentSceneId: null,
           afterSceneId: nearest.sid,
           el: nearest.link,
@@ -40131,6 +40750,7 @@ function resolveFolderSectionSceneDrop(section, clientY, subtree) {
   return {
     mode: "chapter-root",
     chapterId: fallbackChapterId,
+    partId,
     parentSceneId: null,
     el: children || section,
   };
@@ -40280,13 +40900,18 @@ function setupSceneNestDragAndDrop(outline) {
     if (!drop || !movingId) return;
 
     const payload = {
-      chapter_id: drop.chapterId,
       parent_scene_id: drop.parentSceneId == null ? null : Number(drop.parentSceneId),
     };
+    if (Number(drop.chapterId) > 0) payload.chapter_id = Number(drop.chapterId);
+    if (Number(drop.partId) > 0) payload.part_id = Number(drop.partId);
     if (drop.mode === "before" && drop.beforeSceneId) {
       payload.before_scene_id = Number(drop.beforeSceneId);
     } else if (drop.mode === "after" && drop.afterSceneId) {
       payload.after_scene_id = Number(drop.afterSceneId);
+    }
+    if (!payload.chapter_id && !payload.part_id && drop.parentSceneId == null
+      && !payload.before_scene_id && !payload.after_scene_id) {
+      return;
     }
 
     moveScene(movingId, payload).catch((error) => {
@@ -40882,6 +41507,7 @@ const INDEX_AWARE_ASSIST_MODES = new Set([
   "continue",
   "free",
   "rewrite",
+  "descexpand",
 ]);
 
 const INDEX_TASK_INSTRUCTIONS = {
@@ -41314,6 +41940,12 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
       body.context_before || "",
       body.context_after || "",
       directionHint,
+    );
+  } else if (mode === "descexpand") {
+    taskInstruction = buildDescriptionExpandPrompt(
+      plain,
+      body.context_before || "",
+      body.context_after || "",
     );
   } else if (mode === "worldscan") {
     taskInstruction = buildSettingBreakScanPrompt(plain);
@@ -42170,6 +42802,45 @@ ${contextAfter}...
 [결과]`;
 }
 
+function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "") {
+  const selected = String(selectedText || "").trim();
+  const before = String(contextBefore || "").trim();
+  const after = String(contextAfter || "").trim();
+  const beforeBlock = before ? `[앞 문맥]\n${before}\n\n` : "";
+  const afterBlock = after ? `[뒤 문맥]\n${after}\n\n` : "";
+  return `[현재 작업]
+아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채
+더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수
+있는 본문만 씁니다.
+
+[선택 원문]
+${selected}
+
+${beforeBlock}${afterBlock}[판단 기준]
+1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
+2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.
+   모든 감각을 억지로 채우지 않는다.
+3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다.
+4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.
+5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.
+6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.
+
+[출력 형식]
+## 묘사 확장
+**확장 결과:**
+(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)
+
+**버전 2:**
+(다른 각도. 예: 공간·분위기 강조)
+
+**버전 3:**
+(다른 각도. 예: 인물의 감각·내면 강조)
+
+머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.
+`;
+}
+
 /**
  * Direct-write expression check (popup "직접 쓰기").
  * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
@@ -42359,6 +43030,62 @@ function parseRewriteAssistDisplay(resultText) {
     title: i18n.t('app.문장_다듬기_비교'),
     resultHeader: i18n.t('app.다듬은_결과'),
     hint: i18n.t('app.원문과_결과를_비교한_뒤_반영_여부를_고르세'),
+  };
+}
+
+function parseDescriptionExpandDisplay(resultText) {
+  const raw = String(resultText || "").replace(/\r\n/g, "\n").trim();
+  const empty = {
+    kind: "plain",
+    polished: "",
+    reason: "",
+    ask: "",
+    alternatives: [],
+    displayText: "",
+    title: i18n.t("app.묘사_확장_비교"),
+    resultHeader: i18n.t("app.확장한_결과"),
+    hint: i18n.t("app.원문과_펼친_묘사를_비교한_뒤_반영_여부를_고"),
+  };
+  if (!raw) return empty;
+  const versions = [];
+  const primaryMatch = raw.match(/\*\*확장\s*결과:\*\*\s*([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\n##|\s*$)/i)
+    || raw.match(/##\s*묘사\s*확장\s*\n+([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\s*$)/i);
+  if (primaryMatch) {
+    const primary = String(primaryMatch[1] || "").replace(/^\*\*확장\s*결과:\*\*\s*/i, "").trim();
+    if (primary) versions.push(primary);
+  }
+  const verRe = /\*\*버전\s*(\d+)\s*[:：]?\*\*\s*([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\n##|\s*$)/gi;
+  let match;
+  while ((match = verRe.exec(raw)) !== null) {
+    const text = String(match[2] || "").replace(/^\[강조점:[^\]]*\]\s*/u, "").trim();
+    if (text) versions.push(text);
+  }
+  const unique = [...new Set(versions.map((item) => item.trim()).filter(Boolean))];
+  if (unique.length > 1) {
+    return {
+      kind: "alternatives",
+      polished: unique[0],
+      reason: "",
+      ask: "",
+      alternatives: unique,
+      displayText: unique[0],
+      title: i18n.t("app.묘사_확장_비교"),
+      resultHeader: i18n.t("app.확장한_결과_클릭해_선택"),
+      hint: i18n.t("app.각도_다른_묘사_중_골라_반영하세요"),
+    };
+  }
+  const display = unique[0]
+    || raw.replace(/^##\s*묘사\s*확장\s*/i, "").replace(/\*\*확장\s*결과:\*\*\s*/i, "").trim();
+  return {
+    kind: "polish",
+    polished: display,
+    reason: "",
+    ask: "",
+    alternatives: [],
+    displayText: display,
+    title: i18n.t("app.묘사_확장_비교"),
+    resultHeader: i18n.t("app.확장한_결과"),
+    hint: i18n.t("app.원문과_펼친_묘사를_비교한_뒤_반영_여부를_고"),
   };
 }
 
@@ -42722,23 +43449,37 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   const parsed = options.parsed || parseRewriteAssistDisplay(resultText);
   const kind = parsed.kind || "plain";
   const sourceMode = String(options.sourceMode || pendingRewriteState?.sourceMode || "selection");
+  const intent = String(options.intent || pendingRewriteState?.intent || "rewrite");
+  const isExpand = intent === "descexpand";
   const isDirect = sourceMode === "direct";
 
   if ($("rewriteCompareOriginal")) {
     $("rewriteCompareOriginal").textContent = String(originalText || "");
   }
   if ($("rewriteCompareModalTitle")) {
-    $("rewriteCompareModalTitle").textContent = parsed.title || i18n.t('app.문장_다듬기_비교');
+    $("rewriteCompareModalTitle").textContent = parsed.title
+      || (isExpand ? i18n.t("app.묘사_확장_비교") : i18n.t("app.문장_다듬기_비교"));
   }
   if ($("rewriteCompareResultHeader")) {
-    $("rewriteCompareResultHeader").textContent = parsed.resultHeader || i18n.t('app.다듬은_결과');
+    $("rewriteCompareResultHeader").textContent = parsed.resultHeader
+      || (isExpand ? i18n.t("app.확장한_결과") : i18n.t("app.다듬은_결과"));
+  }
+
+  const guide = $("rewriteCompareGuide");
+  if (guide) {
+    guide.textContent = isExpand
+      ? i18n.t("app.선택한_장면의_감각_공간_분위기를_같은_문체")
+      : i18n.t("app.토리는_문장을_억지로_다듬지_않아요_이미_충");
   }
 
   // Reason / ask banner (polish path)
   const reasonEl = $("rewriteCompareReason");
   const reasonBits = [parsed.reason, parsed.ask].filter(Boolean);
   if (reasonEl) {
-    if (kind === "polish" && reasonBits.length) {
+    if (isExpand) {
+      reasonEl.textContent = "";
+      reasonEl.classList.add("hidden");
+    } else if (kind === "polish" && reasonBits.length) {
       reasonEl.textContent = reasonBits.join("\n\n");
       reasonEl.classList.remove("hidden");
     } else if (kind === "alternatives") {
@@ -42750,11 +43491,15 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     }
   }
   if ($("rewriteCompareHint")) {
-    $("rewriteCompareHint").textContent = isDirect
-      ? i18n.t('app.직접_쓴_문장의_표현_점검_결과예요_원고_위')
-      : (kind === "alternatives"
-        ? i18n.t('app.원문은_이미_충분해요_바꾸고_싶을_때만_대안')
-        : i18n.t('app.원문과_다듬은_결과를_비교한_뒤_반영_여부를'));
+    if (isExpand && parsed.hint) {
+      $("rewriteCompareHint").textContent = parsed.hint;
+    } else if (isDirect) {
+      $("rewriteCompareHint").textContent = i18n.t('app.직접_쓴_문장의_표현_점검_결과예요_원고_위');
+    } else if (kind === "alternatives") {
+      $("rewriteCompareHint").textContent = i18n.t('app.원문은_이미_충분해요_바꾸고_싶을_때만_대안');
+    } else {
+      $("rewriteCompareHint").textContent = i18n.t('app.원문과_다듬은_결과를_비교한_뒤_반영_여부를');
+    }
   }
   $("rewriteCompareDirectNote")?.classList.toggle("hidden", !isDirect);
 
@@ -42768,7 +43513,9 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.선택한_대안_표현_수정_가능'));
   } else {
     renderRewriteAlternativeList([]);
-    $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.다듬은_결과_수정_가능'));
+    $("rewriteCompareResult")?.setAttribute("aria-label", isExpand
+      ? i18n.t("app.확장한_결과")
+      : i18n.t('app.다듬은_결과_수정_가능'));
   }
 
   // Buttons: selection → replace / copy / keep ; direct → copy only
@@ -42796,7 +43543,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   // Style-blend: selection polish only
   $("rewriteStyleBlendOffer")?.classList.toggle(
     "hidden",
-    isDirect || kind === "alternatives",
+    isDirect || kind === "alternatives" || isExpand,
   );
 
   $("rewriteCompareModal")?.classList.remove("hidden");
@@ -42805,7 +43552,9 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
 function applyPendingRewriteToEditor() {
   const edited = String($("rewriteCompareResult")?.value || "").trim();
   if (!edited) {
-    toast(i18n.t('app.적용할_다듬은_결과가_없어요'));
+    toast(pendingRewriteState?.intent === "descexpand"
+      ? i18n.t("app.적용할_확장_결과가_없어요")
+      : i18n.t('app.적용할_다듬은_결과가_없어요'));
     return false;
   }
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
@@ -42881,7 +43630,9 @@ function applyPendingRewriteToEditor() {
     markSceneDirty();
   }
   closeRewriteCompareModal();
-  toast(i18n.t('app.다듬은_문장으로_바꿨어요_자동_저장됩니다'));
+  toast(pendingRewriteState?.intent === "descexpand"
+    ? i18n.t("app.확장한_문장으로_바꿨어요_자동_저장됩니다")
+    : i18n.t('app.다듬은_문장으로_바꿨어요_자동_저장됩니다'));
   return true;
 }
 
@@ -43141,6 +43892,123 @@ async function runRewriteFromSelection() {
   });
   toast(i18n.t('app.다듬기_방향을_적은_뒤_다듬기_를_눌러_주세'));
   return null;
+}
+
+async function executeDescriptionExpandAssist(payload) {
+  const selectedText = String(payload?.selectedText || "").trim();
+  if (!selectedText) {
+    toast(i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"));
+    return null;
+  }
+  const mayProceed = await checkRewriteLengthGate(selectedText);
+  if (!mayProceed) return null;
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  if (rewriteAssistInFlight) {
+    toast(i18n.t("app.이미_묘사를_펼치고_있어요"));
+    return null;
+  }
+
+  const contextBefore = String(payload?.contextBefore || "");
+  const contextAfter = String(payload?.contextAfter || "");
+  const project = state.projects.find((item) => item.id === state.projectId);
+  const mainGenre = state.mainGenre || project?.main_genre || "";
+  const subGenre = state.subGenre || project?.sub_genre || "";
+
+  const body = {
+    mode: "descexpand",
+    prompt: "",
+    user_prompt: "",
+    project_title: project?.title || "",
+    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
+    main_genre: mainGenre,
+    sub_genre: subGenre,
+    main_genre_label: mainGenreLabel(mainGenre),
+    sub_genre_label: subGenreLabel(mainGenre, subGenre),
+    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
+    scene_title: state.scene?.title || $("sceneTitle")?.value || "",
+    scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+    scene_content: selectedText,
+    context_before: contextBefore,
+    context_after: contextAfter,
+    selected_text: selectedText,
+    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    ...(typeof buildToryProjectContextPayload === "function" ? buildToryProjectContextPayload() : {}),
+  };
+
+  rewriteAssistInFlight = true;
+  setAiPanelOpen(true);
+  if ($("aiResult")) $("aiResult").value = i18n.t("app.선택_문장의_묘사를_펼치는_중");
+  ensureAiResultVisible();
+
+  const aiButton = $("aiSubmitButton");
+  const prevLabel = aiButton?.textContent;
+  if (aiButton) {
+    aiButton.disabled = true;
+    aiButton.textContent = i18n.t("app.묘사를_펼치는_중");
+  }
+
+  try {
+    await attachIndexedPromptToAssistBody(body, "descexpand", selectedText);
+    const result = await api("/api/ai/assist", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    const expanded = String(result.text || "").trim();
+    const displayParsed = parseDescriptionExpandDisplay(expanded);
+    const applyText = displayParsed.displayText || displayParsed.polished || expanded;
+    pendingRewriteState = {
+      original: selectedText,
+      result: expanded,
+      range: payload?.range || null,
+      referenceText: `${contextBefore}${selectedText}${contextAfter}`.trim() || selectedText,
+      contextBefore,
+      contextAfter,
+      sourceMode: "selection",
+      resultKind: displayParsed.kind,
+      alternatives: displayParsed.alternatives || [],
+      reason: "",
+      intent: "descexpand",
+    };
+    pendingStyleBlendContext = null;
+    if ($("aiResult")) {
+      $("aiResult").value = expanded
+        ? `【원문】\n${selectedText}\n\n【결과】\n${applyText}`
+        : i18n.t("app.결과_없음");
+    }
+    prepareStyleBlendOffer(null);
+    revealAiAssistResult({ openModal: false, mode: "descexpand" });
+    openRewriteCompareModal(selectedText, expanded, {
+      parsed: displayParsed,
+      sourceMode: "selection",
+      intent: "descexpand",
+    });
+    toast(expanded
+      ? i18n.t("app.묘사_확장_제안이_왔어요_대체_복사_유지_중")
+      : i18n.t("app.묘사_확장_응답이_비어_있어요"));
+    return result;
+  } catch (error) {
+    if ($("aiResult")) $("aiResult").value = "";
+    handleError(error);
+    return null;
+  } finally {
+    rewriteAssistInFlight = false;
+    if (aiButton) {
+      aiButton.disabled = false;
+      aiButton.textContent = prevLabel || i18n.t("app.토리에게_물어보기");
+    }
+  }
+}
+
+async function runDescriptionExpandFromSelection() {
+  const payload = getRewriteSelectionPayload();
+  if (!payload?.selectedText) {
+    toast(i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"));
+    return null;
+  }
+  return executeDescriptionExpandAssist(payload);
 }
 
 function setupRewriteCompareModal() {
@@ -43683,7 +44551,7 @@ function fillSceneEditorFields(scene) {
   suppressSceneDirty = false;
 }
 
-async function openScene(sceneId) {
+async function openScene(sceneId, options = {}) {
   const nextId = Number(sceneId);
   if (!Number.isFinite(nextId) || nextId <= 0) {
     toast(i18n.t('app.씬을_열_수_없어요'));
@@ -43709,10 +44577,19 @@ async function openScene(sceneId) {
       /* local draft kept for previous scene; continue */
     }
   }
+  try {
+    await flushPendingCodexSaves();
+  } catch (_) {
+    /* continue into the scene */
+  }
 
-  setActiveBinder("manuscript");
+  if (!options.keepBinder) {
+    setActiveBinder("manuscript");
+  }
   const previousSceneId = state.sceneId;
-  state.characterId = null;
+  if (!options.keepCharacter) {
+    state.characterId = null;
+  }
 
   let detail;
   let members;
@@ -43757,6 +44634,9 @@ async function openScene(sceneId) {
   state.sceneId = nextId;
   state.scene = detail;
   state.sceneMembers = members || [];
+  sceneCastSuppressedIds.clear();
+  sceneCastExtraIds.clear();
+  sceneCastDirty = false;
   state.illustrations = detail.illustrations || [];
   state.referenceLinks = Array.isArray(detail.reference_links)
     ? detail.reference_links.map((link) => normalizeReferenceItem(link))
@@ -43802,6 +44682,12 @@ async function openScene(sceneId) {
   if (ep?.label) upsertEpisodeTab(nextId, ep.shortLabel || ep.label);
   renderEpisodeChrome();
   renderSceneCharacters();
+  const openedCast = detectKnownSceneCast(getEditorPlainText() || "", state.characters || []);
+  (state.sceneMembers || []).forEach((member) => {
+    const id = Number(member.character_id);
+    if (id && !openedCast.has(id)) sceneCastExtraIds.add(id);
+  });
+  void syncSceneCastFromManuscript({ quiet: true });
   renderIllustrations();
   renderReferenceLinks();
   updateSceneStats();
@@ -43825,6 +44711,7 @@ async function openScene(sceneId) {
 
   // Focus manuscript so typing works immediately.
   requestAnimationFrame(() => {
+    if (options.skipEditorFocus || isOutlineInlineRenaming()) return;
     const editor = $("sceneContent");
     if (!editor) return;
     editor.setAttribute("contenteditable", "true");
@@ -43840,12 +44727,15 @@ async function openScene(sceneId) {
   });
 
   // Refresh outline highlight without blocking the editor.
-  loadProject().then(() => {
-    // Outline refresh may update episode labels (chapter renames).
-    const refreshed = getEpisodeSequence().find((e) => e.sceneId === nextId);
-    if (refreshed?.label) upsertEpisodeTab(nextId, refreshed.shortLabel || refreshed.label);
-    renderEpisodeChrome();
-  }).catch(handleError);
+  if (!options.skipOutlineReload && !isOutlineInlineRenaming()) {
+    loadProject().then(() => {
+      if (isOutlineInlineRenaming()) return;
+      // Outline refresh may update episode labels (chapter renames).
+      const refreshed = getEpisodeSequence().find((e) => e.sceneId === nextId);
+      if (refreshed?.label) upsertEpisodeTab(nextId, refreshed.shortLabel || refreshed.label);
+      renderEpisodeChrome();
+    }).catch(handleError);
+  }
   if (state.splitEnabled) {
     renderSplitViewer().catch(handleError);
   }
@@ -43864,6 +44754,175 @@ function getSelectedSceneCharacterIds() {
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+function memberAppearanceKind(member) {
+  return String(member?.appearance_role || "") === "mentioned" ? "mentioned" : "appears";
+}
+
+function sceneAppearingCount(members = state.sceneMembers) {
+  return (Array.isArray(members) ? members : []).filter((item) => memberAppearanceKind(item) !== "mentioned").length;
+}
+
+function sceneMentionedCount(members = state.sceneMembers) {
+  return (Array.isArray(members) ? members : []).filter((item) => memberAppearanceKind(item) === "mentioned").length;
+}
+
+function getSceneCastMembersFromDom() {
+  const members = [];
+  const seen = new Set();
+  document.querySelectorAll("#sceneCharacterList input[type='checkbox']:checked").forEach((input) => {
+    const id = Number(input.value);
+    if (!Number.isFinite(id) || id <= 0 || seen.has(id)) return;
+    seen.add(id);
+    members.push({
+      character_id: id,
+      appearance_role: input.dataset.castKind === "mentioned" ? "mentioned" : "supporting",
+    });
+  });
+  return members;
+}
+
+const SCENE_CAST_MENTION_HINTS = [
+  "떠올", "생각났", "생각이 났", "생각이 들", "기억", "소문", "얘기", "이야기",
+  "말하길", "전해", "들었대", "들었다더", "소식", "언급", "이름만", "이름이 나",
+  "에 대해", "에 대한", "그리워", "보고 싶", "행방", "자취", "어디지", "어디에",
+  "누구냐", "누구였",
+];
+const SCENE_CAST_APPEAR_AFTER = /^(은|는|이|가|도|만)?\s*(말했|말했어|말한다|물었|되물|대답|답했|중얼|외쳤|소리쳤|웃었|미소|고개를|앉아|앉았|일어|걸어|달려|들어왔|들어와|나갔|나타났|자리에|손을 |문을 |검을 |칼을 |눈을 |바라보|쳐다|돌아섰|다가왔|다가갔|내밀|잡았|열었|닫았|끄덕|한숨)/;
+const SCENE_CAST_AFTER_OK = /^(은|는|이|가|을|를|의|도|만|과|와|랑|야|아|여|께|에게|한테|으로|로|부터|까지|이었|였|이다|이야|이라고|이며|이고|[ \n\t.,!?…~“”"'』」)\]：:]|$)/;
+
+function sceneCastLabels(character) {
+  const names = [];
+  const seen = new Set();
+  const raw = [character?.name, ...(Array.isArray(character?.aliases) ? character.aliases : [])];
+  raw.forEach((item) => {
+    const text = String(item?.alias || item || "").trim();
+    if (!text) return;
+    const key = text.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(text);
+  });
+  names.sort((a, b) => b.length - a.length);
+  return names;
+}
+
+function classifySceneCastHit(text, start, end) {
+  const left = text.slice(Math.max(0, start - 28), start);
+  const right = text.slice(end, end + 36);
+  let sentenceStart = start;
+  for (let i = start - 1; i >= 0 && start - i <= 90; i -= 1) {
+    if (".\n!?。…".includes(text[i])) {
+      sentenceStart = i + 1;
+      break;
+    }
+    if (i === 0) sentenceStart = 0;
+  }
+  let sentenceEnd = Math.min(text.length, end + 90);
+  for (let i = end; i < sentenceEnd; i += 1) {
+    if (".\n!?。…".includes(text[i])) {
+      sentenceEnd = i;
+      break;
+    }
+  }
+  const sentence = text.slice(sentenceStart, sentenceEnd);
+  if (/[”"』」]\s*$/.test(left) && SCENE_CAST_APPEAR_AFTER.test(right)) return "appears";
+  if (SCENE_CAST_APPEAR_AFTER.test(right)) return "appears";
+  if (SCENE_CAST_MENTION_HINTS.some((hint) => sentence.includes(hint))) return "mentioned";
+  if (/^[은는이가도만을를에게한테]/.test(right || "")) return "appears";
+  return "mentioned";
+}
+
+function detectKnownSceneCast(text, characters) {
+  const found = new Map();
+  const occupied = new Array(String(text || "").length).fill(false);
+  const labeled = [];
+  (characters || []).forEach((character) => {
+    const id = Number(character?.id);
+    if (!id) return;
+    const spans = [];
+    sceneCastLabels(character).forEach((name) => {
+      let from = 0;
+      while (from < text.length) {
+        const index = text.indexOf(name, from);
+        if (index < 0) break;
+        const end = index + name.length;
+        const prev = index > 0 ? text[index - 1] : "";
+        if (/[가-힣]/.test(prev)) {
+          from = index + 1;
+          continue;
+        }
+        if (!SCENE_CAST_AFTER_OK.test(text.slice(end))) {
+          from = index + 1;
+          continue;
+        }
+        spans.push([index, end]);
+        from = index + 1;
+      }
+    });
+    if (spans.length) labeled.push({ id, spans });
+  });
+  labeled.sort((a, b) => {
+    const la = Math.max(0, ...a.spans.map(([s, e]) => e - s));
+    const lb = Math.max(0, ...b.spans.map(([s, e]) => e - s));
+    return lb - la;
+  });
+  labeled.forEach(({ id, spans }) => {
+    const kinds = new Set();
+    spans.forEach(([start, end]) => {
+      let taken = false;
+      for (let i = start; i < end; i += 1) {
+        if (occupied[i]) taken = true;
+      }
+      if (taken) return;
+      for (let i = start; i < end; i += 1) occupied[i] = true;
+      kinds.add(classifySceneCastHit(text, start, end));
+    });
+    if (kinds.has("appears")) found.set(id, "appears");
+    else if (kinds.has("mentioned")) found.set(id, "mentioned");
+  });
+  return found;
+}
+
+function applyKnownCastPreview() {
+  if (!state.sceneId || sceneCastDirty || sceneCastSyncInFlight) return;
+  const text = getEditorPlainText() || "";
+  const found = detectKnownSceneCast(text, state.characters || []);
+  const prevPov = Number((state.sceneMembers || []).find((item) => Number(item.is_pov))?.character_id || 0);
+  const members = [];
+  const seen = new Set();
+  found.forEach((kind, id) => {
+    const cid = Number(id);
+    if (sceneCastSuppressedIds.has(cid)) return;
+    if (kind === "mentioned") return;
+    seen.add(cid);
+    members.push({
+      character_id: cid,
+      appearance_role: cid === prevPov ? "primary" : "supporting",
+      is_pov: cid === prevPov ? 1 : 0,
+    });
+  });
+  sceneCastExtraIds.forEach((id) => {
+    const cid = Number(id);
+    if (!cid || seen.has(cid) || sceneCastSuppressedIds.has(cid)) return;
+    seen.add(cid);
+    members.push({
+      character_id: cid,
+      appearance_role: cid === prevPov ? "primary" : "supporting",
+      is_pov: cid === prevPov ? 1 : 0,
+    });
+  });
+  state.sceneMembers = members;
+  renderSceneCharacters();
+}
+
+function scheduleKnownCastPreview() {
+  if (sceneCastPreviewTimer) window.clearTimeout(sceneCastPreviewTimer);
+  sceneCastPreviewTimer = window.setTimeout(() => {
+    sceneCastPreviewTimer = null;
+    applyKnownCastPreview();
+  }, 280);
+}
+
 function updateSceneCharactersBadge() {
   const badge = $("sceneCharactersCount");
   const chip = $("sceneCharactersChip");
@@ -43877,7 +44936,8 @@ function updateSceneCharactersBadge() {
     }
     return;
   }
-  const n = Array.isArray(state.sceneMembers) ? state.sceneMembers.length : 0;
+  const appears = sceneAppearingCount();
+  const n = appears;
   if (!n) {
     badge.textContent = "";
     badge.classList.add("hidden");
@@ -43890,9 +44950,25 @@ function updateSceneCharactersBadge() {
   badge.textContent = n > 99 ? "99+" : String(n);
   badge.classList.remove("hidden");
   if (chip) {
-    chip.title = `${i18n.t('app.등장_인물_n_명_연결됨', {n: n})}`;
-    chip.setAttribute("aria-label", `${i18n.t('app.등장_인물_n_명', {n: n})}`);
+    const title = i18n.t("app.등장_인물_n_명_연결됨", { n: appears });
+    chip.title = title;
+    chip.setAttribute("aria-label", title);
   }
+}
+
+function renderSceneCastRow(character, kind, linked) {
+  const id = Number(character.id);
+  const role = CHARACTER_ROLE_LABELS[character.role] || character.role || "";
+  const name = escapeHtml(character.name || i18n.t("app.이름_없음"));
+  const kindLabel = kind === "mentioned" ? i18n.t("app.언급") : i18n.t("app.등장");
+  return `
+    <label class="scene-cast-item${linked ? " is-linked" : ""}${kind === "mentioned" ? " is-mentioned" : ""}" data-cast-id="${id}" data-cast-kind="${kind}">
+      <input type="checkbox" value="${id}" data-cast-kind="${kind}" ${linked ? "checked" : ""} aria-label="${name} ${kindLabel}">
+      <span class="scene-cast-name" title="${name}">${name}</span>
+      <span class="scene-cast-kind">${escapeHtml(kindLabel)}</span>
+      ${role ? `<span class="scene-cast-role">${escapeHtml(role)}</span>` : ""}
+      <button type="button" class="secondary scene-cast-open" data-open-character="${id}" title="${i18n.t("app.인물_설정_열기")}">${i18n.t("index.설정")}</button>
+    </label>`;
 }
 
 function renderSceneCharacters() {
@@ -43901,8 +44977,8 @@ function renderSceneCharacters() {
   if (!list) return;
 
   const members = Array.isArray(state.sceneMembers) ? state.sceneMembers : [];
-  const memberIds = new Set(
-    members.map((member) => Number(member.character_id)).filter((id) => id > 0),
+  const kindById = new Map(
+    members.map((member) => [Number(member.character_id), memberAppearanceKind(member)]),
   );
   const povId = Number(members.find((member) => member.is_pov)?.character_id || 0) || "";
   const characters = Array.isArray(state.characters) ? state.characters : [];
@@ -43914,25 +44990,28 @@ function renderSceneCharacters() {
         <strong>+ 인물</strong>을 누르면 인물 작성 페이지로 이동합니다.
       </p>`;
   } else {
-    list.innerHTML = characters.map((character) => {
-      const id = Number(character.id);
-      const linked = memberIds.has(id);
-      const role = CHARACTER_ROLE_LABELS[character.role] || character.role || "";
-      const name = escapeHtml(character.name || i18n.t('app.이름_없음'));
-      return `
-        <label class="scene-cast-item${linked ? " is-linked" : ""}" data-cast-id="${id}">
-          <input type="checkbox" value="${id}" ${linked ? "checked" : ""} aria-label="${name} 이 회차에 연결">
-          <span class="scene-cast-name" title="${name}">${name}</span>
-          ${role ? `<span class="scene-cast-role">${escapeHtml(role)}</span>` : ""}
-          <button type="button" class="secondary scene-cast-open" data-open-character="${id}" title="${i18n.t('app.인물_설정_열기')}">${i18n.t('index.설정')}</button>
-        </label>`;
-    }).join("");
+    const appearing = [];
+    const rest = [];
+    characters.forEach((character) => {
+      const kind = kindById.get(Number(character.id));
+      if (kind === "appears") appearing.push(character);
+      else rest.push(character);
+    });
+    const blocks = [];
+    blocks.push(`<div class="scene-cast-group"><p class="scene-cast-group-title">${i18n.t("app.등장")}</p>`);
+    if (!appearing.length && !rest.length) {
+      blocks.push(`<p class="scene-cast-empty-line">${i18n.t("app.이_회차에_등장한_인물이_없어요")}</p>`);
+    } else {
+      appearing.forEach((character) => blocks.push(renderSceneCastRow(character, "appears", true)));
+      rest.forEach((character) => blocks.push(renderSceneCastRow(character, "appears", false)));
+    }
+    blocks.push("</div>");
+    list.innerHTML = blocks.join("");
   }
 
   if (povSelect) {
-    // POV choices: linked cast first, then all characters.
-    const linkedChars = characters.filter((c) => memberIds.has(Number(c.id)));
-    const pool = linkedChars.length ? linkedChars : characters;
+    const linkedAppearing = characters.filter((c) => kindById.get(Number(c.id)) === "appears");
+    const pool = linkedAppearing.length ? linkedAppearing : characters;
     povSelect.innerHTML = `<option value="">${i18n.t('index.시점_인물_없음')}</option>${
       pool.map((character) => {
         const id = Number(character.id);
@@ -43940,7 +45019,6 @@ function renderSceneCharacters() {
         return `<option value="${id}" ${selected}>${escapeHtml(character.name || `인물 #${id}`)}</option>`;
       }).join("")
     }`;
-    // Keep selected POV even if not currently linked (edge case).
     if (povId && !pool.some((c) => Number(c.id) === Number(povId))) {
       const orphan = characters.find((c) => Number(c.id) === Number(povId));
       if (orphan) {
@@ -43953,7 +45031,6 @@ function renderSceneCharacters() {
     }
   }
   updateSceneCharactersBadge();
-  // After re-render, restore save-row status (don't wipe dirty while editing).
   if (!sceneCastDirty) {
     setSceneCastSaveUi({ dirty: false });
   } else {
@@ -43984,6 +45061,10 @@ async function refreshSceneCharactersPanel() {
 let sceneCastSaveInFlight = false;
 let sceneCastSaveAgain = false;
 let sceneCastDirty = false;
+let sceneCastSyncInFlight = false;
+let sceneCastPreviewTimer = null;
+const sceneCastSuppressedIds = new Set();
+const sceneCastExtraIds = new Set();
 
 function setSceneCastSaveUi({ dirty = sceneCastDirty, saving = false, error = false, ok = false, message = "" } = {}) {
   const hint = $("sceneCharacterSaveHint");
@@ -44004,9 +45085,9 @@ function setSceneCastSaveUi({ dirty = sceneCastDirty, saving = false, error = fa
     } else if (ok) {
       hint.textContent = i18n.t('app.저장됨');
     } else {
-      const n = Array.isArray(state.sceneMembers) ? state.sceneMembers.length : 0;
-      hint.textContent = n
-        ? `${i18n.t('app.연결_n_명_인물을_체크한_뒤_저장하세요', {n: n})}`
+      const appears = sceneAppearingCount();
+      hint.textContent = appears
+        ? i18n.t("app.등장_인물_n_명_연결됨", { n: appears })
         : i18n.t('app.인물을_체크한_뒤_저장을_눌러_주세요');
     }
   }
@@ -44037,9 +45118,13 @@ async function persistSceneCharacterLinks(options = {}) {
     return null;
   }
   const characterIds = getSelectedSceneCharacterIds();
+  const members = getSceneCastMembersFromDom();
   let povId = $("povSelect")?.value || "";
-  // POV must be one of the linked cast (or empty).
-  if (povId && !characterIds.includes(Number(povId))) {
+  // POV must be one of the appearing cast (or empty).
+  const appearingIds = members
+    .filter((item) => item.appearance_role !== "mentioned")
+    .map((item) => Number(item.character_id));
+  if (povId && !appearingIds.includes(Number(povId))) {
     povId = "";
     if ($("povSelect")) $("povSelect").value = "";
   }
@@ -44050,36 +45135,44 @@ async function persistSceneCharacterLinks(options = {}) {
     await api(`/api/scenes/${state.sceneId}/characters`, {
       method: "PUT",
       body: JSON.stringify({
+        members,
         character_ids: characterIds,
         pov_id: povId || "",
       }),
     });
     // Re-read DOM in case the user toggled more while the request was in flight.
-    const latestIds = getSelectedSceneCharacterIds();
+    const latestMembers = getSceneCastMembersFromDom();
+    const latestIds = latestMembers.map((item) => Number(item.character_id));
+    const latestAppearingIds = latestMembers
+      .filter((item) => item.appearance_role !== "mentioned")
+      .map((item) => Number(item.character_id));
     const latestPovRaw = $("povSelect")?.value || "";
-    const latestPov = latestPovRaw && latestIds.includes(Number(latestPovRaw))
+    const latestPov = latestPovRaw && latestAppearingIds.includes(Number(latestPovRaw))
       ? latestPovRaw
       : "";
-    // If selection drifted, save again once.
     const idsChanged = latestIds.length !== characterIds.length
       || latestIds.some((id) => !characterIds.includes(id));
     if (idsChanged || String(latestPov) !== String(povId) || sceneCastSaveAgain) {
       sceneCastSaveInFlight = false;
       return persistSceneCharacterLinks({ quiet: true });
     }
-    state.sceneMembers = latestIds.map((character_id) => ({
-      character_id,
-      appearance_role: Number(latestPov) === Number(character_id) ? "primary" : "supporting",
-      is_pov: Number(latestPov) === Number(character_id) ? 1 : 0,
+    state.sceneMembers = latestMembers.map((item) => ({
+      character_id: item.character_id,
+      appearance_role: Number(latestPov) === Number(item.character_id)
+        ? "primary"
+        : item.appearance_role,
+      is_pov: Number(latestPov) === Number(item.character_id) ? 1 : 0,
     }));
     updateSceneCharactersBadge();
     // Refresh linked styling (keeps checkboxes from current members).
     renderSceneCharacters();
-    const n = latestIds.length;
+    const n = latestAppearingIds.length;
     setSceneCastSaveUi({
       dirty: false,
       ok: true,
-      message: n ? `${i18n.t('app.저장됨_이_회차에_n_명_연결', {n: n})}` : i18n.t('app.저장됨_연결된_인물_없음'),
+      message: n
+        ? i18n.t("app.등장_인물_n_명_연결됨", { n })
+        : i18n.t('app.저장됨_연결된_인물_없음'),
     });
     if (!quiet) {
       toast(n ? `${i18n.t('app.등장_인물_n_명을_이_회차에_저장했어요', {n: n})}` : i18n.t('app.이_회차_인물_연결을_저장했어요_연결된_인물'));
@@ -44097,7 +45190,56 @@ async function persistSceneCharacterLinks(options = {}) {
   }
 }
 
-/** Explicit save from the cast panel button. */
+async function syncSceneCastFromManuscript(options = {}) {
+  const quiet = Boolean(options.quiet);
+  if (!state.sceneId || !state.projectId) return null;
+  if (sceneCastDirty) return persistSceneCharacterLinks({ quiet });
+  if (sceneCastSyncInFlight) return null;
+  sceneCastSyncInFlight = true;
+  try {
+    const result = await api(`/api/scenes/${state.sceneId}/sync-cast`, {
+      method: "POST",
+      body: JSON.stringify({
+        content_md: getEditorContent() || "",
+        suppressed_ids: [...sceneCastSuppressedIds],
+        extra_character_ids: [...sceneCastExtraIds],
+      }),
+    });
+    state.sceneMembers = Array.isArray(result?.members) ? result.members : [];
+    if (Array.isArray(result?.created) && result.created.length) {
+      const existing = new Set((state.characters || []).map((item) => Number(item.id)));
+      result.created.forEach((character) => {
+        if (!existing.has(Number(character.id))) {
+          state.characters.push({
+            ...character,
+            short_description: "",
+            profile_md: "",
+            aliases: character.aliases || [],
+          });
+        }
+      });
+      try { renderCharacters(); } catch (_) { /* ignore */ }
+      const names = result.created.map((item) => item.name).filter(Boolean).join(", ");
+      if (names) toast(i18n.t("app.names_을_를_인물로_저장했어요", { names }));
+    }
+    renderSceneCharacters();
+    const appears = sceneAppearingCount();
+    setSceneCastSaveUi({
+      dirty: false,
+      ok: true,
+      message: appears
+        ? i18n.t("app.등장_인물_n_명_연결됨", { n: appears })
+        : i18n.t("app.저장됨_연결된_인물_없음"),
+    });
+    return state.sceneMembers;
+  } catch (error) {
+    if (!quiet) throw error;
+    console.warn("[supertory] scene cast sync failed", error);
+    return null;
+  } finally {
+    sceneCastSyncInFlight = false;
+  }
+}
 async function saveSceneCharacterLinksFromButton() {
   if (!state.sceneId) {
     toast(i18n.t('app.먼저_회차를_열어_주세요'));
@@ -44149,8 +45291,10 @@ async function createCharacterAndLinkToScene() {
 }
 
 let sceneDirty = false;
+let sceneSaveGen = 0;
 let autoSaveTimer = null;
 let autoSaveInFlight = false;
+let autoSaveWaiters = [];
 let suppressSceneDirty = false;
 const AUTO_SAVE_DELAY_MS = 1200;
 const AUTO_SAVE_RETRY_MS = 5000;
@@ -44470,11 +45614,13 @@ async function maybeRestoreLocalDraft(serverScene) {
   const localContent = String(draft.content_md || "");
   if (!localContent && !draft.title) return false;
 
-  // Prefer local if dirty flag or content differs and draft is not ancient empty.
+  // Prefer local if dirty flag or content/goal differs and draft is not ancient empty.
   const contentDiffers = localContent !== serverContent
     || String(draft.title || "") !== String(serverScene?.title || "")
     || String(draft.notes_md || "") !== String(serverScene?.notes_md || "")
-    || String(draft.synopsis_md || "") !== String(serverScene?.synopsis_md || "");
+    || String(draft.synopsis_md || "") !== String(serverScene?.synopsis_md || "")
+    || Number(draft.goal_word_count || 0) !== Number(serverScene?.goal_word_count || 0)
+    || String(draft.goal_metric || "") !== String(serverScene?.goal_metric || "");
   if (!contentDiffers) {
     clearLocalSceneDraft(sceneId);
     return false;
@@ -44494,6 +45640,9 @@ async function maybeRestoreLocalDraft(serverScene) {
   setEditorContent(localContent);
   if ($("sceneGoalCount") && draft.goal_word_count != null) {
     $("sceneGoalCount").value = String(draft.goal_word_count || 0);
+  }
+  if (!isProjectStatsScope() && $("statsGoalInput") && draft.goal_word_count != null) {
+    $("statsGoalInput").value = String(draft.goal_word_count || 0);
   }
   if ($("sceneGoalMetric") && draft.goal_metric) {
     $("sceneGoalMetric").value = draft.goal_metric;
@@ -44556,10 +45705,12 @@ function setSceneSaveStatus(text) {
 function markSceneDirty() {
   if (suppressSceneDirty || !state.sceneId || !state.scene) return;
   sceneDirty = true;
+  sceneSaveGen += 1;
   // Local-first: device storage before any network hop.
   scheduleLocalDraftWrite();
   setSceneSaveStatus(isOnlineNow() ? i18n.t('app.저장_대기_중') : i18n.t('app.오프라인_이_기기에_보관_중'));
   scheduleAutoSave();
+  scheduleKnownCastPreview();
 }
 
 function scheduleAutoSave() {
@@ -44745,20 +45896,36 @@ function markReaderCommentsStarted() {
     });
 }
 
+function notifySceneSaveIdle() {
+  const waiters = autoSaveWaiters.splice(0);
+  waiters.forEach((fn) => fn());
+}
+
+async function waitForSceneSaveIdle() {
+  while (autoSaveInFlight) {
+    await new Promise((resolve) => autoSaveWaiters.push(resolve));
+  }
+}
+
 async function persistScene(options = {}) {
   const quiet = Boolean(options.quiet);
   const saveNote = options.saveNote || (quiet ? i18n.t('app.자동_저장') : i18n.t('app.저장'));
   if (!state.scene || !state.sceneId) return null;
   if (autoSaveInFlight) {
-    if (quiet) scheduleAutoSave();
-    // Still refresh local snapshot while a flight is in progress.
     ensureLocalDraftSaved("inflight");
-    return null;
+    if (quiet) {
+      scheduleAutoSave();
+      return null;
+    }
+    await waitForSceneSaveIdle();
+    if (!state.scene || !state.sceneId) return null;
   }
   // Ensure title is never empty (server requires it).
   if (!$("sceneTitle")?.value?.trim()) {
     if ($("sceneTitle")) $("sceneTitle").value = state.scene.title || i18n.t('app.제목_없음');
   }
+
+  const saveGen = sceneSaveGen;
 
   // 1) LOCAL FIRST — always, before network.
   const body = buildSceneSaveBody(saveNote);
@@ -44806,7 +45973,11 @@ async function persistScene(options = {}) {
     });
     // Characters are secondary — failure must not discard content that already saved.
     try {
-      await persistSceneCharacterLinks({ quiet: true });
+      if (sceneCastDirty) {
+        await persistSceneCharacterLinks({ quiet: true });
+      } else {
+        await syncSceneCastFromManuscript({ quiet: true });
+      }
     } catch (charError) {
       console.warn("[supertory] character membership save failed", charError);
     }
@@ -44817,8 +45988,17 @@ async function persistScene(options = {}) {
       if (saved.status != null) state.scene.status = saved.status;
       if (saved.title != null) state.scene.title = saved.title;
     }
-    sceneDirty = false;
-    clearLocalSceneDraft(state.sceneId);
+    if (state.scene) {
+      state.scene.goal_word_count = body.goal_word_count;
+      state.scene.goal_metric = body.goal_metric;
+    }
+    if (saveGen !== sceneSaveGen) {
+      sceneDirty = true;
+      scheduleAutoSave();
+    } else {
+      sceneDirty = false;
+      clearLocalSceneDraft(state.sceneId);
+    }
     resetAutoSaveFailStreak();
     // Binder left rail: status / title must match the open scene immediately.
     syncOpenSceneToOutlineBinder({
@@ -44887,6 +46067,7 @@ async function persistScene(options = {}) {
     throw error;
   } finally {
     autoSaveInFlight = false;
+    notifySceneSaveIdle();
   }
 }
 
@@ -44940,6 +46121,17 @@ function setupSceneAutoSave() {
       const row = event.target.closest?.(".scene-cast-item");
       if (row && event.target.type === "checkbox") {
         row.classList.toggle("is-linked", event.target.checked);
+        const id = Number(event.target.value);
+        if (id) {
+          if (event.target.checked) {
+            sceneCastSuppressedIds.delete(id);
+            const found = detectKnownSceneCast(getEditorPlainText() || "", state.characters || []);
+            if (!found.has(id)) sceneCastExtraIds.add(id);
+          } else {
+            sceneCastSuppressedIds.add(id);
+            sceneCastExtraIds.delete(id);
+          }
+        }
       }
       markSceneDirty();
       markSceneCastDirty();
@@ -45037,6 +46229,7 @@ function setupSceneAutoSave() {
         cancelSplitAutoSave();
         persistSplitScene({ quiet: true }).catch(() => { /* ignore */ });
       }
+      flushPendingCodexSaves().catch(() => {});
     } else if (document.visibilityState === "visible") {
       // Resume sync after screen sleep / app refocus without toast spam.
       if (sceneDirty || splitDirty) scheduleOnlineSync();
@@ -45057,6 +46250,7 @@ function setupSceneAutoSave() {
   window.addEventListener("pagehide", () => {
     cancelScheduledAutoSave();
     if (sceneDirty) ensureLocalDraftSaved("pagehide");
+    flushPendingCodexSaves().catch(() => {});
   });
 }
 
@@ -45096,11 +46290,24 @@ function renderCharacterPortrait(character) {
 }
 
 const CHARACTER_TORI_FIELDS = [
-  { key: "short_description", label: i18n.t('app.한_줄_소개') },
-  { key: "profile_md", label: i18n.t('app.인물_설정') },
-  { key: "strengths_md", label: i18n.t('app.무기_강점') },
-  { key: "weaknesses_md", label: i18n.t('app.약점') },
+  { key: "short_description", label: i18n.t('app.한_줄_소개'), inputId: "characterSummary" },
+  { key: "profile_md", label: i18n.t('app.인물_설정'), inputId: "characterProfile" },
+  { key: "strengths_md", label: i18n.t('app.무기_강점'), inputId: "characterStrengths" },
+  { key: "weaknesses_md", label: i18n.t('app.약점'), inputId: "characterWeaknesses" },
 ];
+
+const TORI_TEXT_PREFIX = "〔토리〕";
+
+function isToriDraftText(value) {
+  return String(value || "").trimStart().startsWith(TORI_TEXT_PREFIX);
+}
+
+function syncCharacterToriDraftStyle() {
+  CHARACTER_TORI_FIELDS.forEach((item) => {
+    const el = $(item.inputId);
+    if (el) el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+  });
+}
 
 let characterAnalysisField = "";
 let characterAnalysisKind = "character";
@@ -45259,11 +46466,23 @@ function setupCharacterAnalysisModal() {
     });
   });
   document.addEventListener("click", (event) => {
+    const fillBtn = event.target?.closest?.("[data-tori-fill]");
+    if (fillBtn) {
+      event.preventDefault();
+      startToriSettingsFill(fillBtn.getAttribute("data-tori-fill") || "").catch(handleError);
+      return;
+    }
     const button = event.target?.closest?.(".world-analysis-badge");
     if (!button) return;
     event.preventDefault();
     event.stopPropagation();
     openWorldAnalysisModal(button.getAttribute("data-world-tori-field") || "");
+  });
+  CHARACTER_TORI_FIELDS.forEach((item) => {
+    $(item.inputId)?.addEventListener("input", () => {
+      const el = $(item.inputId);
+      if (el) el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+    });
   });
 }
 
@@ -45276,6 +46495,11 @@ function stopCharacterAnalysisWatch() {
 }
 
 function toastCharacterAnalysisResult(job) {
+  const error = String(job?.error || job?.message || "").trim();
+  if (error) {
+    toast(error);
+    return;
+  }
   const created = Number(job?.created || 0);
   const filled = Number(job?.filled || 0);
   const pending = Number(job?.pending || 0);
@@ -45287,8 +46511,59 @@ function toastCharacterAnalysisResult(job) {
   if (worldFilled > 0) parts.push(i18n.t('app.비어_있던_세계관_칸을_채웠어요'));
   if (pending > 0) parts.push(i18n.t('app.이미_적어_둔_인물_칸은_그대로_두고_새_분'));
   if (worldPending > 0) parts.push(i18n.t('app.이미_적어_둔_세계관_칸은_그대로_두고_새'));
-  if (!parts.length) return;
+  if (!parts.length) {
+    const filling = Boolean(document.querySelector("[data-tori-fill][aria-busy='true']"));
+    if (filling) toast(i18n.t('app.채울_빈_칸이_없거나_이번엔_못_채웠어요'));
+    return;
+  }
   toast(`${i18n.t('app.토리_parts_join', {'parts.join(". ")': parts.join(". ")})}`);
+}
+
+function setToriFillButtonsBusy(busy) {
+  document.querySelectorAll("[data-tori-fill]").forEach((button) => {
+    button.disabled = Boolean(busy);
+    if (busy) button.setAttribute("aria-busy", "true");
+    else button.removeAttribute("aria-busy");
+  });
+}
+
+async function startToriSettingsFill(kind) {
+  const target = String(kind || "").trim();
+  if (!state.projectId) {
+    toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+    return;
+  }
+  const payload = {
+    infer: true,
+    include_characters: target === "characters",
+    include_world: target === "world",
+  };
+  if (target === "world") {
+    pushWorldBuildingFormToState({ commitDraft: false });
+  }
+  setToriFillButtonsBusy(true);
+  try {
+    const job = await api(`/api/projects/${state.projectId}/character-analysis`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+    const status = String(job?.status || "idle");
+    if (status === "skipped") {
+      setToriFillButtonsBusy(false);
+      toast(String(job?.error || job?.message || i18n.t('app.이번에는_못_채웠어요')));
+      return;
+    }
+    if (status === "running") {
+      toast(i18n.t('app.토리가_빈_칸을_채우는_중이에요'));
+      watchCharacterAnalysis(state.projectId);
+      return;
+    }
+    setToriFillButtonsBusy(false);
+    toastCharacterAnalysisResult(job);
+  } catch (error) {
+    setToriFillButtonsBusy(false);
+    handleError(error);
+  }
 }
 
 function watchCharacterAnalysis(projectId) {
@@ -45305,10 +46580,13 @@ function watchCharacterAnalysis(projectId) {
       if (status === "running") return;
       if (status === "idle" && Date.now() - startedAt < 8000) return;
       stopCharacterAnalysisWatch();
-      if (status === "done") {
+      setToriFillButtonsBusy(false);
+      if (status === "done" || status === "skipped") {
         toastCharacterAnalysisResult(job);
-        if (Number(state.projectId) === id) {
+        if (status === "done" && Number(state.projectId) === id) {
           await loadProject();
+          syncWorldBuildingFormFromState({ force: true });
+          syncWorldToriBadges();
           if (state.characterId && !$("characterEditor")?.classList.contains("hidden")) {
             try {
               await openCharacter(state.characterId);
@@ -45318,6 +46596,7 @@ function watchCharacterAnalysis(projectId) {
       }
     } catch (_) {
       stopCharacterAnalysisWatch();
+      setToriFillButtonsBusy(false);
     }
   };
   characterAnalysisWatchTimer = window.setInterval(() => {
@@ -45326,11 +46605,331 @@ function watchCharacterAnalysis(projectId) {
   tick().catch(() => { /* keep quiet */ });
 }
 
+const CHARACTER_EDITOR_FIELD_IDS = [
+  "characterName",
+  "characterSortName",
+  "characterRole",
+  "characterSummary",
+  "characterProfile",
+  "characterStrengths",
+  "characterWeaknesses",
+  "characterNotes",
+];
+const CHARACTER_AUTOSAVE_MS = 900;
+let characterDirty = false;
+let characterAutoSaveTimer = null;
+let characterAutoSaveInFlight = false;
+let suppressCharacterDirty = false;
+
+function setCharacterSaveStatus(text) {
+  if ($("characterInfo")) $("characterInfo").textContent = text || "";
+}
+
+function cancelCharacterAutoSave() {
+  if (characterAutoSaveTimer) {
+    window.clearTimeout(characterAutoSaveTimer);
+    characterAutoSaveTimer = null;
+  }
+}
+
+function splitAliasInput(text) {
+  return String(text || "")
+    .split(/[,，;/\n]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function characterAliasNamesFrom(list) {
+  const names = [];
+  const seen = new Set();
+  (Array.isArray(list) ? list : []).forEach((item) => {
+    const name = String(item?.alias || item || "").trim();
+    if (!name) return;
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  });
+  return names;
+}
+
+function currentCharacterAliasNames() {
+  const fromState = characterAliasNamesFrom(state.character?.aliases);
+  const pending = splitAliasInput($("newAlias")?.value || "");
+  const seen = new Set(fromState.map((name) => name.toLowerCase()));
+  const names = fromState.slice();
+  pending.forEach((name) => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  });
+  return names;
+}
+
+function sameAliasNames(left, right) {
+  const a = characterAliasNamesFrom(left);
+  const b = characterAliasNamesFrom(right);
+  if (a.length !== b.length) return false;
+  return a.every((name, index) => name.toLowerCase() === String(b[index] || "").toLowerCase());
+}
+
+function renderAliasList(aliases) {
+  const list = $("aliasList");
+  if (!list) return;
+  const names = characterAliasNamesFrom(aliases);
+  if (!names.length) {
+    list.innerHTML = i18n.t("app.span_class_hint_아직_별칭이");
+    return;
+  }
+  list.innerHTML = names.map((alias) => `
+    <button type="button" class="chip alias-chip" data-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
+      ${escapeHtml(alias)}
+    </button>`).join("");
+  list.querySelectorAll("[data-alias-remove]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeCharacterAlias(button.dataset.aliasRemove);
+    });
+  });
+}
+
+function setCharacterAliases(names, { render = true } = {}) {
+  if (!state.character) state.character = { character: {}, aliases: [] };
+  state.character.aliases = characterAliasNamesFrom(names).map((alias) => ({ alias }));
+  if (render) renderAliasList(state.character.aliases);
+}
+
+function commitAliasInputToState() {
+  const input = $("newAlias");
+  const pending = splitAliasInput(input?.value || "");
+  if (input) input.value = "";
+  if (!pending.length || !state.character) return false;
+  const merged = characterAliasNamesFrom([
+    ...(state.character.aliases || []),
+    ...pending,
+  ]);
+  if (sameAliasNames(merged, state.character.aliases)) return false;
+  setCharacterAliases(merged);
+  return true;
+}
+
+function removeCharacterAlias(alias) {
+  if (!state.character || suppressCharacterDirty) return;
+  const target = String(alias || "").trim().toLowerCase();
+  if (!target) return;
+  const next = characterAliasNamesFrom(state.character.aliases)
+    .filter((name) => name.toLowerCase() !== target);
+  setCharacterAliases(next);
+  markCharacterDirty();
+}
+
+function characterEditorPayload() {
+  return {
+    name: String($("characterName")?.value || "").trim(),
+    sort_name: String($("characterSortName")?.value || ""),
+    role: $("characterRole")?.value || "supporting",
+    short_description: String($("characterSummary")?.value || ""),
+    profile_md: String($("characterProfile")?.value || ""),
+    strengths_md: String($("characterStrengths")?.value || ""),
+    weaknesses_md: String($("characterWeaknesses")?.value || ""),
+    author_notes_md: String($("characterNotes")?.value || ""),
+    aliases: currentCharacterAliasNames(),
+    row_version: state.character?.character?.row_version,
+  };
+}
+
+function characterPayloadUnchanged(payload) {
+  const ch = state.character?.character;
+  if (!ch) return false;
+  return (
+    payload.name === String(ch.name || "").trim()
+    && payload.sort_name === String(ch.sort_name || "")
+    && payload.role === (ch.role || "supporting")
+    && payload.short_description === String(ch.short_description || "")
+    && payload.profile_md === String(ch.profile_md || "")
+    && payload.strengths_md === String(ch.strengths_md || "")
+    && payload.weaknesses_md === String(ch.weaknesses_md || "")
+    && payload.author_notes_md === String(ch.author_notes_md || "")
+    && sameAliasNames(payload.aliases, state.character?.aliases)
+  );
+}
+
+function applyCharacterSaveToState(payload) {
+  if (state.character?.character) {
+    Object.assign(state.character.character, {
+      name: payload.name,
+      sort_name: payload.sort_name,
+      role: payload.role,
+      short_description: payload.short_description,
+      profile_md: payload.profile_md,
+      strengths_md: payload.strengths_md,
+      weaknesses_md: payload.weaknesses_md,
+      author_notes_md: payload.author_notes_md,
+    });
+  }
+  if (Array.isArray(payload.aliases)) {
+    setCharacterAliases(payload.aliases);
+    if ($("newAlias")) $("newAlias").value = "";
+  }
+  const listItem = state.characters.find((item) => Number(item.id) === Number(state.characterId));
+  if (listItem) {
+    listItem.name = payload.name;
+    listItem.sort_name = payload.sort_name;
+    listItem.role = payload.role;
+    listItem.short_description = payload.short_description;
+    listItem.profile_md = payload.profile_md;
+    listItem.strengths_md = payload.strengths_md;
+    listItem.weaknesses_md = payload.weaknesses_md;
+    listItem.author_notes_md = payload.author_notes_md;
+  }
+}
+
+function markCharacterDirty() {
+  if (suppressCharacterDirty || !state.characterId || !state.character) return;
+  characterDirty = true;
+  setCharacterSaveStatus(i18n.t("app.저장_대기_중"));
+  scheduleCharacterAutoSave();
+}
+
+function scheduleCharacterAutoSave() {
+  if (!state.characterId || !state.character) return;
+  cancelCharacterAutoSave();
+  characterAutoSaveTimer = window.setTimeout(() => {
+    characterAutoSaveTimer = null;
+    persistCharacter({ quiet: true }).catch(handleError);
+  }, CHARACTER_AUTOSAVE_MS);
+}
+
+async function persistCharacter(options = {}) {
+  const quiet = Boolean(options.quiet);
+  const characterId = options.characterId ?? state.characterId;
+  const payload = options.payload || characterEditorPayload();
+  if (!characterId || (!state.character && !options.payload)) return;
+  if (!payload.name) {
+    setCharacterSaveStatus(i18n.t("app.이름을_입력해야_저장됩니다"));
+    if (!quiet) toast(i18n.t("app.캐릭터_이름을_적어_주세요"));
+    return;
+  }
+  if (!options.payload && characterPayloadUnchanged(payload)) {
+    characterDirty = false;
+    cancelCharacterAutoSave();
+    if (!quiet) {
+      const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setCharacterSaveStatus(`${i18n.t("app.저장됨_stamp", { stamp })}`);
+      toast(i18n.t("app.인물_설정을_저장했습니다"));
+    }
+    return;
+  }
+  if (characterAutoSaveInFlight) {
+    if (quiet && !options.payload) {
+      scheduleCharacterAutoSave();
+      return;
+    }
+    for (let i = 0; i < 40 && characterAutoSaveInFlight; i += 1) {
+      await new Promise((r) => window.setTimeout(r, 50));
+    }
+  }
+  characterAutoSaveInFlight = true;
+  if (quiet) setCharacterSaveStatus(i18n.t("app.자동_저장_중"));
+  let saved = false;
+  try {
+    await api(`/api/characters/${characterId}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        ...payload,
+        row_version: payload.row_version ?? state.character?.character?.row_version,
+      }),
+    });
+    characterDirty = false;
+    saved = true;
+    if (Number(state.characterId) === Number(characterId)) {
+      applyCharacterSaveToState(payload);
+      renderCharacters();
+    }
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setCharacterSaveStatus(
+      quiet
+        ? `${i18n.t("app.자동_저장됨_stamp", { stamp })}`
+        : `${i18n.t("app.저장됨_stamp", { stamp })}`,
+    );
+    if (!quiet) toast(i18n.t("app.인물_설정을_저장했습니다"));
+  } catch (error) {
+    if (quiet) {
+      setCharacterSaveStatus(i18n.t("app.자동_저장_실패_다시_시도"));
+      scheduleCharacterAutoSave();
+    }
+    throw error;
+  } finally {
+    characterAutoSaveInFlight = false;
+  }
+  if (saved && characterDirty) scheduleCharacterAutoSave();
+}
+
+async function flushCharacterAutoSave() {
+  const hasPendingAlias = Boolean(String($("newAlias")?.value || "").trim());
+  const shouldSave = characterDirty || hasPendingAlias;
+  const payload = shouldSave ? characterEditorPayload() : null;
+  const characterId = state.characterId;
+  cancelCharacterAutoSave();
+  if (characterAutoSaveInFlight) {
+    for (let i = 0; i < 40 && characterAutoSaveInFlight; i += 1) {
+      await new Promise((r) => window.setTimeout(r, 50));
+    }
+  }
+  if (!shouldSave || !payload || !characterId) return;
+  await persistCharacter({ quiet: true, characterId, payload });
+}
+
+function setupCharacterEditorAutosave() {
+  const form = $("characterEditor");
+  if (!form || form.dataset.autosaveBound === "1") return;
+  form.dataset.autosaveBound = "1";
+  CHARACTER_EDITOR_FIELD_IDS.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", markCharacterDirty);
+    el.addEventListener("change", markCharacterDirty);
+    el.addEventListener("blur", () => {
+      if (!characterDirty) return;
+      cancelCharacterAutoSave();
+      persistCharacter({ quiet: true }).catch(handleError);
+    });
+  });
+  const aliasInput = $("newAlias");
+  if (aliasInput) {
+    aliasInput.addEventListener("input", markCharacterDirty);
+    aliasInput.addEventListener("change", markCharacterDirty);
+    aliasInput.addEventListener("blur", () => {
+      commitAliasInputToState();
+      if (!characterDirty) return;
+      cancelCharacterAutoSave();
+      persistCharacter({ quiet: true }).catch(handleError);
+    });
+  }
+}
+
 async function openCharacter(characterId) {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
+  const nextId = Number(characterId);
+  if (state.characterId && Number(state.characterId) !== nextId) {
+    try {
+      await flushCharacterAutoSave();
+    } catch (_) {
+      /* keep going so the next character still opens */
+    }
+  }
   await closeSplitView();
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") });
+    } catch (_) {
+      /* keep going so the character still opens */
+    }
+  }
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
   state.keywordBoardOpen = false;
@@ -45338,8 +46937,7 @@ async function openCharacter(characterId) {
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
   hideSynopsisMain();
-  state.characterId = Number(characterId);
-  state.sceneId = null;
+  state.characterId = nextId;
   state.character = await api(`/api/characters/${characterId}`);
   const character = state.character.character;
   setActiveBinder("settings");
@@ -45349,6 +46947,9 @@ async function openCharacter(characterId) {
   $("sceneWorkspace").classList.add("hidden");
   $("characterEditor").classList.remove("hidden");
   closeSceneToolsDrawer();
+  suppressCharacterDirty = true;
+  cancelCharacterAutoSave();
+  characterDirty = false;
   $("characterName").value = character.name;
   $("characterSortName").value = character.sort_name;
   $("characterRole").value = character.role;
@@ -45357,32 +46958,23 @@ async function openCharacter(characterId) {
   if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";
   if ($("characterWeaknesses")) $("characterWeaknesses").value = character.weaknesses_md || "";
   $("characterNotes").value = character.author_notes_md;
-  $("aliasList").innerHTML = state.character.aliases.map((alias) => `<span class="chip">${escapeHtml(alias.alias)}</span>`).join("") || i18n.t('app.span_class_hint_아직_별칭이');
+  state.character.aliases = Array.isArray(state.character.aliases)
+    ? state.character.aliases.map((item) => ({ ...item }))
+    : [];
+  if ($("newAlias")) $("newAlias").value = "";
+  renderAliasList(state.character.aliases);
   $("characterInfo").textContent = "";
+  suppressCharacterDirty = false;
   renderCharacterPortrait(character);
   syncCharacterToriBadges(character);
+  syncCharacterToriDraftStyle();
   await loadProject();
 }
 
 async function saveCharacter(event) {
   event.preventDefault();
-  if (!state.character) return;
-  await api(`/api/characters/${state.characterId}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      name: $("characterName").value,
-      sort_name: $("characterSortName").value,
-      role: $("characterRole").value,
-      short_description: $("characterSummary").value,
-      profile_md: $("characterProfile").value,
-      strengths_md: $("characterStrengths")?.value || "",
-      weaknesses_md: $("characterWeaknesses")?.value || "",
-      author_notes_md: $("characterNotes").value,
-      row_version: state.character.character.row_version,
-    }),
-  });
-  await openCharacter(state.characterId);
-  toast(i18n.t('app.인물_설정을_저장했습니다'));
+  cancelCharacterAutoSave();
+  await persistCharacter({ quiet: false });
 }
 
 async function deleteCharacter() {
@@ -45392,6 +46984,8 @@ async function deleteCharacter() {
     `「${name}」 인물 설정을 삭제할까요?\n\n목록에서 사라지고, 회차에 연결된 등장 정보도 빠집니다.`,
   );
   if (!ok) return;
+  cancelCharacterAutoSave();
+  characterDirty = false;
   await api(`/api/characters/${state.characterId}`, { method: "DELETE" });
   const deletedId = state.characterId;
   state.characterId = null;
@@ -45461,12 +47055,12 @@ function setupCharacterPortraitUi() {
 }
 
 async function addAlias() {
-  const alias = $("newAlias").value.trim();
-  if (!alias || !state.characterId) return;
-  await api(`/api/characters/${state.characterId}/aliases`, { method: "POST", body: JSON.stringify({ alias }) });
-  $("newAlias").value = "";
-  await openCharacter(state.characterId);
-  toast(i18n.t('app.별칭을_추가했습니다'));
+  if (!state.characterId || !state.character) return;
+  const added = commitAliasInputToState();
+  if (!added) return;
+  cancelCharacterAutoSave();
+  await persistCharacter({ quiet: true });
+  toast(i18n.t("app.별칭을_추가했습니다"));
 }
 
 function allScenes() {
@@ -47265,6 +48859,7 @@ function getImportDelimiterConfig() {
   if ($("importDelimHash")?.checked) presets.push("hash");
   if ($("importDelimStars")?.checked) presets.push("asterisk");
   if ($("importDelimDash")?.checked) presets.push("dash");
+  if ($("importDelimNumbered")?.checked) presets.push("numbered");
   if ($("importDelimBlank")?.checked) presets.push("blank");
   const customOn = Boolean($("importDelimCustom")?.checked);
   const custom = customOn ? String($("importDelimCustomText")?.value || "").trim() : "";
@@ -47286,6 +48881,7 @@ function applyImportDelimiterConfig(config) {
   if ($("importDelimHash")) $("importDelimHash").checked = presets.includes("hash") || presets.includes("#");
   if ($("importDelimStars")) $("importDelimStars").checked = presets.includes("asterisk") || presets.includes("***");
   if ($("importDelimDash")) $("importDelimDash").checked = presets.includes("dash") || presets.includes("---");
+  if ($("importDelimNumbered")) $("importDelimNumbered").checked = presets.includes("numbered") || presets.includes("numeric");
   if ($("importDelimBlank")) $("importDelimBlank").checked = useBlank;
   if ($("importDelimCustom")) $("importDelimCustom").checked = Boolean(custom);
   if ($("importDelimCustomText")) $("importDelimCustomText").value = custom;
@@ -48523,6 +50119,9 @@ function isFeatureHideExempt(el) {
     return true;
   }
   const id = el.id || "";
+  if (id === "toryChatHighlightButton" || el.closest?.("#toryChatHighlightButton, .tory-chat-hl-btn")) {
+    return true;
+  }
   // 본문·설정집·도우미·토리와 대화 탭: 우클릭 숨기기 비활성
   if (
     id === "binderTabManuscript"
@@ -48683,6 +50282,9 @@ function applyFeatureHideClasses() {
     const id = ensureUiHideId(el);
     if (!id) return;
     el.classList.toggle("ui-feature-hidden", featureHideMap.has(id));
+  });
+  document.querySelectorAll(".feature-hide-exempt, #toryChatHighlightButton").forEach((el) => {
+    el.classList.remove("ui-feature-hidden");
   });
   ["adminModeButton", "featureHideResetButton", "guideTipResetButton", "uiThemeToggleButton", "adminContactDevButton"]
     .forEach((id) => $(id)?.classList.add("feature-hide-exempt"));
@@ -50094,9 +51696,12 @@ const EINK_BW_FORCE_CSS = [
   'html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label,html[data-theme="eink"] .outline-overview-scene:hover .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] .outline-overview-scene.is-current .outline-overview-scene-label.is-body-preview{color:#fff!important;}',
   'html[data-theme="eink"] .outline-overview-empty,html[data-theme="eink"] .outline-overview-ungrouped-label,html[data-theme="eink"] .outline-overview-scene-label.is-body-preview,html[data-theme="eink"] #outlineOverviewModal .modal-hint{color:#000!important;}',
   'html[data-theme="eink"] #outlineOverviewModal .modal-actions .primary{background:#000!important;border:1px solid #000!important;color:#fff!important;box-shadow:none!important;}',
-  // Word-count bar boxes (reading time, goal input, gauge) — no gray color-mix fills
+  // Word-count bar boxes (goal input, gauge) — no gray color-mix fills
   'html[data-theme="eink"] .manuscript-status-wrap,html[data-ui-theme="eink"] .manuscript-status-wrap{background:#fff!important;border-top-color:#000!important;color:#000!important;}',
-  'html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn,html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,html[data-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,html[data-theme="eink"] .manuscript-status-wrap .status-reading-time,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field select,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:hover,html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-active,html[data-theme="eink"] .manuscript-status-wrap .stat-chip.is-goal-metric,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn:hover,html[data-ui-theme="eink"] .manuscript-status-wrap .status-scope-btn.is-project,html[data-ui-theme="eink"] .manuscript-status-wrap .status-reading-time,html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar{background:#fff!important;background-color:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-seg,html[data-ui-theme="eink"] .manuscript-status-wrap .status-seg{background:#fff!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-seg > .status-seg-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-seg > .status-seg-btn{background:transparent!important;color:#000!important;border:1px solid transparent!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-seg > .status-seg-btn.is-active,html[data-theme="eink"] .manuscript-status-wrap .status-seg > .status-seg-btn.is-goal-metric,html[data-ui-theme="eink"] .manuscript-status-wrap .status-seg > .status-seg-btn.is-active{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field select,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:not(.status-seg-btn):hover,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:not(.status-seg-btn).is-active,html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar{background:#fff!important;background-color:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .manuscript-status-wrap .stat-chip,html[data-theme="eink"] .manuscript-status-wrap .stat-chip strong,html[data-theme="eink"] .manuscript-status-wrap .status-bar-counts,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field-label,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-progress-label{color:#000!important;-webkit-text-fill-color:#000!important;}',
   'html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar-fill:not(.is-empty){background:#000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .manuscript-status-wrap .status-save-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
@@ -50394,7 +51999,7 @@ $("importMainGenre")?.addEventListener("change", () => {
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", { keepMain: true });
 });
 $("importSplit").addEventListener("change", updateImportFormVisibility);
-["importDelimHash", "importDelimStars", "importDelimDash", "importDelimBlank", "importDelimCustom"].forEach((id) => {
+["importDelimHash", "importDelimStars", "importDelimDash", "importDelimNumbered", "importDelimBlank", "importDelimCustom"].forEach((id) => {
   $(id)?.addEventListener("change", () => {
     syncImportDelimiterUi();
     scheduleImportSplitPreview();
@@ -50538,6 +52143,7 @@ safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
 safeSetup("renderBookmarkBar", () => renderBookmarkBar());
 safeSetup("setupSceneAutoSave", setupSceneAutoSave);
+safeSetup("setupCharacterEditorAutosave", setupCharacterEditorAutosave);
 safeSetup("setupBinderSwitch", setupBinderSwitch);
 safeSetup("setupOutlineResizer", setupOutlineResizer);
 safeSetup("setupAiPanelResizer", setupAiPanelResizer);
@@ -50545,29 +52151,33 @@ safeSetup("setupSplitPaneResizer", setupSplitPaneResizer);
 safeSetup("setupFocusWriteSplitResizer", setupFocusWriteSplitResizer);
 safeSetup("setupSplitEditMode", setupSplitEditMode);
 onEl("projectSelect", "change", (event) => {
-  state.projectId = Number(event.target.value);
-  // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
-  state.outline = [];
-  state.parts = [];
-  state.ungroupedChapters = [];
-  state.folders = [];
-  state.forceFoldersOutline = false;
-  state.outlineProjectId = null;
-  state.mainGenre = "";
-  state.subGenre = "";
-  state.keywords = [];
-  state.toryPriorityMd = "";
-  syncToryPriorityInput();
-  state.projectPurpose = state.projects.find((p) => p.id === state.projectId)?.purpose || null;
-  loadEpisodeTabsFromStorage();
-  syncPurposePickerFromState();
-  syncGenrePickerFromState();
-  renderKeywordBox();
-  showWelcome();
-  renderBookmarkBar({ persistSanitize: false });
-  renderForeshadowSelect("");
-  fillForeshadowForm(null);
-  loadProject().catch(handleError);
+  const nextId = Number(event.target.value);
+  const applyProjectSwitch = () => {
+    state.projectId = nextId;
+    // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
+    state.outline = [];
+    state.parts = [];
+    state.ungroupedChapters = [];
+    state.folders = [];
+    state.forceFoldersOutline = false;
+    state.outlineProjectId = null;
+    state.mainGenre = "";
+    state.subGenre = "";
+    state.keywords = [];
+    state.toryPriorityMd = "";
+    syncToryPriorityInput();
+    state.projectPurpose = state.projects.find((p) => p.id === state.projectId)?.purpose || null;
+    loadEpisodeTabsFromStorage();
+    syncPurposePickerFromState();
+    syncGenrePickerFromState();
+    renderKeywordBox();
+    showWelcome();
+    renderBookmarkBar({ persistSanitize: false });
+    renderForeshadowSelect("");
+    fillForeshadowForm(null);
+    loadProject().catch(handleError);
+  };
+  flushPendingCodexSaves().catch(() => {}).finally(applyProjectSwitch);
 });
 safeSetup("setupEpisodeChrome", setupEpisodeChrome);
 safeSetup("setupProjectListContextMenu", setupProjectListContextMenu);

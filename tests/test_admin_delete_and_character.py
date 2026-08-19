@@ -140,6 +140,63 @@ class AdminDeleteAndCharacterTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(remaining, [])
 
+    def test_character_aliases_stay_on_one_character(self) -> None:
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "별칭 격리", "main_genre": "판타지"},
+        )
+        self.assertEqual(status, 201, project)
+        pid = project["id"]
+
+        status, first = self.request("POST", f"/api/projects/{pid}/characters", {"name": "서윤"})
+        self.assertEqual(status, 201, first)
+        status, second = self.request("POST", f"/api/projects/{pid}/characters", {"name": "민재"})
+        self.assertEqual(status, 201, second)
+
+        status, detail_a = self.request("GET", f"/api/characters/{first['id']}")
+        self.assertEqual(status, 200, detail_a)
+        status, saved = self.request(
+            "PUT",
+            f"/api/characters/{first['id']}",
+            {
+                "name": "서윤",
+                "role": "protagonist",
+                "aliases": ["여우", "그 아이"],
+                "row_version": detail_a["character"]["row_version"],
+            },
+        )
+        self.assertEqual(status, 200, saved)
+
+        status, after_a = self.request("GET", f"/api/characters/{first['id']}")
+        self.assertEqual(status, 200, after_a)
+        self.assertEqual([item["alias"] for item in after_a["aliases"]], ["여우", "그 아이"])
+
+        status, after_b = self.request("GET", f"/api/characters/{second['id']}")
+        self.assertEqual(status, 200, after_b)
+        self.assertEqual(after_b["aliases"], [])
+
+        status, detail_b = self.request("GET", f"/api/characters/{second['id']}")
+        self.assertEqual(status, 200, detail_b)
+        status, saved_b = self.request(
+            "PUT",
+            f"/api/characters/{second['id']}",
+            {
+                "name": "민재",
+                "role": "supporting",
+                "aliases": ["범인"],
+                "row_version": detail_b["character"]["row_version"],
+            },
+        )
+        self.assertEqual(status, 200, saved_b)
+
+        status, still_a = self.request("GET", f"/api/characters/{first['id']}")
+        self.assertEqual(status, 200, still_a)
+        self.assertEqual([item["alias"] for item in still_a["aliases"]], ["여우", "그 아이"])
+        status, now_b = self.request("GET", f"/api/characters/{second['id']}")
+        self.assertEqual(status, 200, now_b)
+        self.assertEqual([item["alias"] for item in now_b["aliases"]], ["범인"])
+
 
 if __name__ == "__main__":
     unittest.main()

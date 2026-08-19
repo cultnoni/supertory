@@ -47,7 +47,11 @@ import proof_clean
 import proof_diff
 import proof_extract
 import proof_pipeline
+import scene_cast_detect
 import success_pattern
+from sync.device import ensure_device_registered, get_desktop_device_id
+from sync.pairing import generate_pairing_code
+from sync.supabase_client import get_supabase_client
 
 def _is_frozen() -> bool:
     """True when running as a PyInstaller (or similar) bundle."""
@@ -1712,6 +1716,111 @@ def _parse_word_list(raw: object) -> list[dict]:
     if len(words) < 8:
         raise ValueError("json")
     return words[:10]
+
+
+SENTENCE_LIST_KINDS = ("novel", "quote", "wit", "fact")
+
+
+def _sentence_kind_key(label: object) -> str:
+    text = str(label or "").strip()
+    folded = text.lower()
+    aliases = {
+        "novel": "novel",
+        "quote": "quote",
+        "wit": "wit",
+        "witty": "wit",
+        "fact": "fact",
+        "trivia": "fact",
+        "소설": "novel",
+        "소설 문장": "novel",
+        "소설문장": "novel",
+        "명언": "quote",
+        "격언": "quote",
+        "위트": "wit",
+        "재치": "wit",
+        "한 줄": "wit",
+        "놀라운 사실": "fact",
+        "사실": "fact",
+    }
+    if folded in aliases:
+        return aliases[folded]
+    if text in aliases:
+        return aliases[text]
+    if "소설" in text:
+        return "novel"
+    if "명언" in text or "격언" in text:
+        return "quote"
+    if "위트" in text or "재치" in text:
+        return "wit"
+    if "사실" in text or "trivia" in folded:
+        return "fact"
+    return ""
+
+
+def _sentence_list_prompt(genre: object) -> tuple[str, str]:
+    """Assemble genre sentence-list prompts. Reuses Tory Core Identity as-is."""
+    genre_label = str(genre or "").strip() or "미정"
+    core = SuperToryHandler._tory_core_identity_system_prompt()
+    dynamic = (
+        "[Dynamic Context]\n"
+        f"작품 장르: {genre_label}"
+    )
+    user_prompt = (
+        "[Task Instruction]\n"
+        "이 장르를 쓸 때 입안에서 굴려보면 기분 좋아지는 한국어 문장집 10줄을 고르세요. "
+        "작가가 지금 원고에 넣으라고 재촉하지 말고, 문장과 짧은 여운만 보여 주세요.\n"
+        "종류를 섞으세요. 한 종류만 몰아치지 말고, 아래 네 종류가 모두 들어가게 하세요.\n"
+        "1. novel: 소설에 나올 법한 한 문장. 대사나 묘사 모두 가능.\n"
+        "2. quote: 명언처럼 남는 짧은 한 줄. 실제 유명인의 말을 베끼지 말고 새로 창작하세요.\n"
+        "3. wit: 위트 있는 한 줄. 살짝 비꼬거나 웃긴 관찰.\n"
+        "4. fact: '세상에 이런 일이'처럼 놀랍고 그럴듯한 사실 한 줄. "
+        "교과서 나열이 아니라, 이야기에 쓸 수 있을 법한 여운으로.\n"
+        "저작권이 있는 소설·명언·대사를 그대로 옮기지 마세요.\n\n"
+        "출력은 JSON 객체만 반환하세요. 설명 문장이나 마크다운 코드펜스를 넣지 마세요.\n"
+        '형식: {"sentences": [{"kind": "novel|quote|wit|fact", '
+        '"text": "문장", "note": "짧은 여운"}]}\n'
+        "sentences는 반드시 10개입니다. kind는 영어 소문자 키만 쓰세요."
+    )
+    return core + "\n" + dynamic, user_prompt
+
+
+def _parse_sentence_list(raw: object) -> list[dict]:
+    cleaned = SuperToryHandler._strip_json_fence(str(raw or ""))
+    try:
+        data = json.loads(cleaned)
+    except json.JSONDecodeError:
+        match = re.search(r"\[.*\]", cleaned, re.S)
+        if not match:
+            raise ValueError("json")
+        data = json.loads(match.group(0))
+    if isinstance(data, dict):
+        data = data.get("sentences") or data.get("items") or data.get("list")
+    if not isinstance(data, list):
+        raise ValueError("json")
+    sentences: list[dict] = []
+    kinds: set[str] = set()
+    for item in data:
+        if not isinstance(item, dict):
+            continue
+        text = str(item.get("text") or item.get("sentence") or item.get("line") or "").strip()
+        if not text:
+            continue
+        kind = _sentence_kind_key(item.get("kind") or item.get("type") or item.get("label"))
+        note = str(item.get("note") or item.get("nuance") or "").strip()
+        if kind in SENTENCE_LIST_KINDS:
+            kinds.add(kind)
+        sentences.append({
+            "kind": kind if kind in SENTENCE_LIST_KINDS else "novel",
+            "text": text,
+            "note": note,
+        })
+        if len(sentences) >= 10:
+            break
+    if len(sentences) < 8:
+        raise ValueError("json")
+    if len(kinds) < 3:
+        raise ValueError("json")
+    return sentences[:10]
 
 
 NAMING_SHOP_CATEGORIES = (
@@ -3380,6 +3489,7 @@ def _finish_import_analysis_job(
     char_stats: dict[str, int],
     world_stats: dict[str, int],
     status: str | None = None,
+    error: str = "",
 ) -> None:
     created = int(char_stats.get("created") or 0)
     filled = int(char_stats.get("filled") or 0)
@@ -3396,8 +3506,8 @@ def _finish_import_analysis_job(
         pending=pending,
         world_filled=world_filled,
         world_pending=world_pending,
-        message="",
-        error="",
+        message=str(error or ""),
+        error=str(error or ""),
     )
 
 
@@ -3405,15 +3515,19 @@ def _run_character_analysis_job(
     project_id: int,
     scene_ids: list[int] | None,
     include_world: bool = False,
+    include_characters: bool = True,
+    infer: bool = False,
 ) -> None:
     handler = SuperToryHandler.__new__(SuperToryHandler)
     char_stats, world_stats = _empty_import_analysis_stats()
     gemini_called = False
     quota_hit = False
     manuscript = ""
+    plot_context = ""
     try:
         if not gemini_client.is_configured():
-            _finish_import_analysis_job(char_stats, world_stats, "skipped")
+            error = "토리를 쓰려면 Gemini API 키가 필요해요." if infer else ""
+            _finish_import_analysis_job(char_stats, world_stats, "skipped", error=error)
             return
         with database() as connection:
             handler.require_project(connection, project_id)
@@ -3421,8 +3535,20 @@ def _run_character_analysis_job(
                 connection, project_id, scene_ids
             )
             existing = character_import_analysis.list_existing_characters(connection, project_id)
+            plot_context = character_import_analysis.load_plot_context(connection, project_id)
         manuscript = plain_text_from_content(raw)
-        if len(manuscript.strip()) < 40:
+        has_manuscript = len(manuscript.strip()) >= 40
+        has_plot = len(plot_context.strip()) >= 12
+        if infer:
+            if not has_manuscript and not has_plot:
+                _finish_import_analysis_job(
+                    char_stats,
+                    world_stats,
+                    "skipped",
+                    error="줄거리나 원고를 조금만 적어 주세요.",
+                )
+                return
+        elif not has_manuscript:
             _finish_import_analysis_job(char_stats, world_stats, "skipped")
             return
     except Exception as error:
@@ -3431,38 +3557,48 @@ def _run_character_analysis_job(
             print(f"캐릭터 자동 분석 건너뜀: {error}")
         return
 
-    try:
-        names = [str(row.get("name") or "") for row in existing if row.get("name")]
-        system, prompt = character_import_analysis.build_analysis_prompt(manuscript, names)
-        gemini_called = True
-        text = gemini_client.generate_text(
-            prompt,
-            system=system,
-            temperature=0.2,
-            max_output_tokens=4096,
-        )
-        parsed = character_import_analysis.parse_analysis_json(text)
-        if parsed:
-            with database() as connection:
-                handler.require_project(connection, project_id)
-                char_stats = character_import_analysis.apply_parsed_characters(
-                    connection, project_id, parsed
-                )
-    except Exception as error:
-        if is_gemini_quota_error(error):
-            quota_hit = True
-        else:
-            print(f"캐릭터 자동 분석 건너뜀: {error}")
+    if include_characters:
+        try:
+            names = [str(row.get("name") or "") for row in existing if row.get("name")]
+            system, prompt = character_import_analysis.build_analysis_prompt(
+                manuscript,
+                names,
+                plot_context=plot_context,
+                infer=infer,
+            )
+            gemini_called = True
+            text = gemini_client.generate_text(
+                prompt,
+                system=system,
+                temperature=0.2 if not infer else 0.4,
+                max_output_tokens=4096,
+            )
+            parsed = character_import_analysis.parse_analysis_json(text)
+            if parsed:
+                with database() as connection:
+                    handler.require_project(connection, project_id)
+                    char_stats = character_import_analysis.apply_parsed_characters(
+                        connection, project_id, parsed
+                    )
+        except Exception as error:
+            if is_gemini_quota_error(error):
+                quota_hit = True
+            else:
+                print(f"캐릭터 자동 분석 건너뜀: {error}")
 
     if include_world and not quota_hit:
         try:
             if gemini_called:
                 time.sleep(IMPORT_ANALYSIS_GEMINI_GAP_SECONDS)
-            system, prompt = world_import_analysis.build_analysis_prompt(manuscript)
+            system, prompt = world_import_analysis.build_analysis_prompt(
+                manuscript,
+                plot_context=plot_context,
+                infer=infer,
+            )
             text = gemini_client.generate_text(
                 prompt,
                 system=system,
-                temperature=0.2,
+                temperature=0.2 if not infer else 0.4,
                 max_output_tokens=4096,
             )
             parsed_world = world_import_analysis.parse_analysis_json(text)
@@ -3483,19 +3619,22 @@ def start_character_analysis_job(
     project_id: int,
     scene_ids: list[int] | None = None,
     include_world: bool = False,
+    include_characters: bool = True,
+    infer: bool = False,
 ) -> dict:
     global _character_analysis_thread
     if not gemini_client.is_configured():
+        error = "토리를 쓰려면 Gemini API 키가 필요해요." if infer else ""
         _set_character_analysis_state(
             status="skipped",
             project_id=int(project_id),
-            message="",
+            message=error,
             created=0,
             filled=0,
             pending=0,
             world_filled=0,
             world_pending=0,
-            error="",
+            error=error,
         )
         return character_analysis_snapshot()
     with _character_analysis_lock:
@@ -3516,7 +3655,13 @@ def start_character_analysis_job(
         )
         worker = Thread(
             target=_run_character_analysis_job,
-            args=(int(project_id), list(scene_ids or []), bool(include_world)),
+            args=(
+                int(project_id),
+                list(scene_ids or []),
+                bool(include_world),
+                bool(include_characters),
+                bool(infer),
+            ),
             daemon=True,
         )
         _character_analysis_thread = worker
@@ -3711,6 +3856,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
+            if path == "/api/pairing/code":
+                if get_supabase_client() is None:
+                    self.send_json(
+                        {"error": "sync_not_configured"},
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return
+                result = generate_pairing_code(get_desktop_device_id())
+                if not result:
+                    self.api_error(
+                        "페어링 코드를 만들지 못했습니다.",
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self.send_json(result)
+                return
+
             if path == "/api/reader-personas":
                 self.send_json(self.list_reader_personas())
                 return
@@ -3744,6 +3906,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 work_id = (query.get("work_id") or [""])[0]
                 try:
                     self.send_json(self.glump_word_list(work_id))
+                except GlumpRetryError as error:
+                    self.api_error(str(error), HTTPStatus.INTERNAL_SERVER_ERROR)
+                except ValueError as error:
+                    self.api_error(str(error), HTTPStatus.BAD_REQUEST)
+                except LookupError as error:
+                    self.api_error(str(error), HTTPStatus.NOT_FOUND)
+                return
+
+            if path == "/api/glump/sentence-list":
+                query = parse_qs(urlparse(self.path).query)
+                work_id = (query.get("work_id") or [""])[0]
+                try:
+                    self.send_json(self.glump_sentence_list(work_id))
                 except GlumpRetryError as error:
                     self.api_error(str(error), HTTPStatus.INTERNAL_SERVER_ERROR)
                 except ValueError as error:
@@ -3898,13 +4073,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_order, id",
                         (project_id,),
                     ).fetchall()
+                    alias_rows = connection.execute(
+                        "SELECT character_id, alias FROM character_alias "
+                        "WHERE project_id = ? ORDER BY id",
+                        (project_id,),
+                    ).fetchall()
                     pending_ids = character_import_analysis.pending_character_ids(
                         connection, project_id
                     )
+                alias_by_id: dict[int, list[str]] = {}
+                for row in alias_rows:
+                    alias = str(row["alias"] or "").strip()
+                    if alias:
+                        alias_by_id.setdefault(int(row["character_id"]), []).append(alias)
                 payload = []
                 for row in rows:
                     item = as_dict(row)
                     item["has_tori_analysis"] = int(item["id"]) in pending_ids
+                    item["aliases"] = alias_by_id.get(int(item["id"]), [])
                     payload.append(item)
                 self.send_json(payload)
                 return
@@ -4571,6 +4757,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.duplicate_scene(int(match.group(1))), HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/scenes/(\d+)/sync-cast", path)
+            if match:
+                self.send_json(self.sync_scene_cast(int(match.group(1)), body or {}))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments-started", path)
             if match:
                 self.send_json(self.mark_reader_comments_started(int(match.group(1))))
@@ -4770,6 +4961,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
             if match:
                 self.send_json(self.save_scene(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/goal", path)
+            if match:
+                self.send_json(self.save_scene_goal(int(match.group(1)), body))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/summary", path)
@@ -6282,6 +6478,31 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         self._insert_glump_tool_log(work_key, "word_list")
         return {"words": words}
 
+    def glump_sentence_list(self, work_id: object) -> dict:
+        """Show a view-only mixed sentence list. Does not edit the manuscript."""
+        work_key = str(work_id or "").strip()
+        if not work_key:
+            raise ValueError("작품을 선택해 주세요.")
+        genre = _glump_work_genre_label(work_key)
+        system, user_prompt = _sentence_list_prompt(genre)
+        last_error: Exception | None = None
+        sentences: list[dict] | None = None
+        for _attempt in range(2):
+            try:
+                raw = gemini_client.generate_text(
+                    user_prompt, system=system, temperature=0.9
+                )
+                sentences = _parse_sentence_list(raw)
+                break
+            except gemini_client.GeminiError as error:
+                raise ValueError(str(error)) from error
+            except (ValueError, json.JSONDecodeError) as error:
+                last_error = error
+        if sentences is None:
+            raise GlumpRetryError("다시 시도해주세요") from last_error
+        self._insert_glump_tool_log(work_key, "sentence_list")
+        return {"sentences": sentences}
+
     def glump_character_tarot(self, body: dict) -> dict:
         """Show a playful character tarot reading. Does not edit the manuscript."""
         work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
@@ -6395,7 +6616,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "ideas", "ideas_next_exists",
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
-            "worlddesc", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
+            "worlddesc", "descexpand", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
             "similar_words", "chapter_subtitles",
         }
         if mode not in allowed:
@@ -6826,7 +7047,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError("빌드업·단서를 한 줄 이상 적어 주세요.")
             if not scene_content:
                 raise ValueError("검수할 현재 원고를 먼저 열어 주세요.")
-        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm", "worlddesc"} and not scene_content and not user_prompt:
+        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm", "worlddesc", "descexpand"} and not scene_content and not user_prompt:
             raise ValueError("먼저 원고를 쓰거나, 요청 내용을 적어 주세요.")
         if mode == "subsynopsis":
             # Index + outline_summary only — manuscript not required.
@@ -7588,6 +7809,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         context_before,
                         context_after,
                         direction_hint,
+                    )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+            elif mode == "descexpand":
+                indexed_expand = str(body.get("indexed_prompt") or "").strip()
+                selected_text = plain_text_from_content(
+                    str(body.get("selected_text") or scene_content or "")
+                )
+                context_before = plain_text_from_content(
+                    str(body.get("context_before") or "")
+                )
+                context_after = plain_text_from_content(
+                    str(body.get("context_after") or "")
+                )
+                if not selected_text and not indexed_expand:
+                    raise ValueError("펼칠 문장이나 문단을 먼저 드래그로 선택해 주세요.")
+                if indexed_expand:
+                    instruction = indexed_expand
+                else:
+                    instruction = self._build_description_expand_prompt(
+                        selected_text,
+                        context_before,
+                        context_after,
                     )
                 context_parts = [
                     active_project_context,
@@ -8870,6 +9120,45 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[현재 회차 - 문체 참고용]\n"
             f"{text}\n\n"
             "[묘사 제안]"
+        )
+
+    @staticmethod
+    def _build_description_expand_prompt(
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+    ) -> str:
+        """Expand selected manuscript description (descexpand). Task scope only."""
+        selected = str(selected_text or "").strip()
+        before = str(context_before or "").strip()
+        after = str(context_after or "").strip()
+        before_block = f"[앞 문맥]\n{before}\n\n" if before else ""
+        after_block = f"[뒤 문맥]\n{after}\n\n" if after else ""
+        return (
+            "[현재 작업]\n"
+            "아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채\n"
+            "더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수\n"
+            "있는 본문만 씁니다.\n\n"
+            f"[선택 원문]\n{selected}\n\n"
+            f"{before_block}{after_block}"
+            "[판단 기준]\n"
+            "1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
+            "2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.\n"
+            "   모든 감각을 억지로 채우지 않는다.\n"
+            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.\n"
+            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
+            "4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.\n"
+            "5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.\n"
+            "6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.\n\n"
+            "[출력 형식]\n"
+            "## 묘사 확장\n"
+            "**확장 결과:**\n"
+            "(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)\n\n"
+            "**버전 2:**\n"
+            "(다른 각도. 예: 공간·분위기 강조)\n\n"
+            "**버전 3:**\n"
+            "(다른 각도. 예: 인물의 감각·내면 강조)\n\n"
+            "머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.\n"
         )
 
     @staticmethod
@@ -13663,6 +13952,82 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (parent_scene_id, sid),
             )
 
+    def _ensure_transparent_chapter(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        part_id: int,
+    ) -> int:
+        """Find or create the hidden 「본편」 tray that holds manuscripts directly under a 권."""
+        part = connection.execute(
+            "SELECT id FROM part WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+            (int(part_id), int(project_id)),
+        ).fetchone()
+        if part is None:
+            raise ValueError("권/부를 찾을 수 없습니다.")
+        rows = connection.execute(
+            "SELECT id, title, notes_md FROM chapter "
+            "WHERE project_id = ? AND part_id = ? AND deleted_at IS NULL "
+            "AND parent_scene_id IS NULL "
+            "ORDER BY sort_order, id",
+            (int(project_id), int(part_id)),
+        ).fetchall()
+        marker = import_hierarchy.TRANSPARENT_CHAPTER_MARKER
+        title_key = import_hierarchy.TRANSPARENT_CHAPTER_TITLE
+        for row in rows:
+            notes = str(row["notes_md"] or "")
+            title = str(row["title"] or "").strip()
+            if marker in notes or title == title_key:
+                return int(row["id"])
+        sort_order = connection.execute(
+            "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM chapter "
+            "WHERE project_id = ? AND part_id = ? AND parent_scene_id IS NULL "
+            "AND deleted_at IS NULL",
+            (int(project_id), int(part_id)),
+        ).fetchone()[0]
+        part_folder_id = folder_tree.folder_id_for_source(
+            connection, project_id, "part", int(part_id)
+        )
+        if part_folder_id is None:
+            self._mirror_project_folders(connection, project_id)
+            part_folder_id = folder_tree.folder_id_for_source(
+                connection, project_id, "part", int(part_id)
+            )
+        try:
+            folder_sort = folder_tree.next_folder_sibling_sort(
+                connection, project_id, part_folder_id
+            )
+        except sqlite3.OperationalError:
+            folder_sort = int(sort_order)
+        folder_sort_order = max(int(sort_order), int(folder_sort))
+        try:
+            new_folder_id = folder_tree._insert_folder(
+                connection,
+                project_id=project_id,
+                parent_id=part_folder_id,
+                title=title_key,
+                notes_md=marker,
+                is_box=0,
+                sort_order=folder_sort_order,
+                source_kind=None,
+                source_id=None,
+            )
+        except sqlite3.OperationalError:
+            new_folder_id = None
+        cursor = connection.execute(
+            "INSERT INTO chapter(project_id, part_id, title, notes_md, sort_order) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (int(project_id), int(part_id), title_key, marker, int(sort_order)),
+        )
+        chapter_id = int(cursor.lastrowid)
+        if new_folder_id is not None:
+            folder_tree.bind_folder_source(
+                connection, new_folder_id, "chapter", chapter_id
+            )
+        else:
+            self._mirror_project_folders(connection, project_id)
+        return chapter_id
+
     def move_scene(self, scene_id: int, body: dict) -> dict:
         """Move a manuscript anywhere: reorder, nest, promote, or change folder."""
         before_id = self._parse_optional_int(
@@ -13692,6 +14057,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
         if chapter_in_body and requested_chapter is None:
             raise ValueError("폴더 정보가 올바르지 않습니다.")
+
+        part_in_body = "part_id" in body
+        requested_part = (
+            self._parse_optional_int(body.get("part_id"), "권/부")
+            if part_in_body
+            else None
+        )
 
         with database() as connection:
             scene = connection.execute(
@@ -13747,6 +14119,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     new_parent_id = requested_parent
                 else:
                     new_parent_id = old_parent_id
+
+            if requested_part is not None and not chapter_in_body:
+                new_chapter_id = self._ensure_transparent_chapter(
+                    connection, project_id, requested_part
+                )
 
             chapter = connection.execute(
                 "SELECT id, project_id FROM chapter "
@@ -16005,6 +16382,36 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "job": self.get_index_rebuild_status(),
         }
 
+    def save_scene_goal(self, scene_id: int, body: dict) -> dict:
+        """Persist only the manuscript goal. Does not bump row_version (avoids clobbering an in-flight full save)."""
+        try:
+            goal_count = max(0, int(body.get("goal_word_count", 0) or 0))
+        except (TypeError, ValueError) as error:
+            raise ValueError("목표 글자 수가 올바르지 않습니다.") from error
+        goal_metric = str(body.get("goal_metric", "chars_with_space") or "chars_with_space")
+        if goal_metric not in GOAL_METRICS:
+            raise ValueError("목표 글자 수 기준이 올바르지 않습니다.")
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, row_version FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE scene SET goal_word_count = ?, goal_metric = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (goal_count, goal_metric, scene_id),
+            )
+            row_version = int(scene["row_version"] or 0)
+        return {
+            "ok": True,
+            "goal_word_count": goal_count,
+            "goal_metric": goal_metric,
+            "row_version": row_version,
+        }
+
     def save_scene(self, scene_id: int, body: dict) -> dict:
         title = str(body.get("title", "")).strip()
         if not title:
@@ -16084,11 +16491,37 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return payload
 
     def save_scene_characters(self, scene_id: int, body: dict) -> None:
-        character_ids = [int(value) for value in body.get("character_ids", [])]
         pov_id = body.get("pov_id")
         pov_id = int(pov_id) if pov_id not in (None, "") else None
-        if pov_id is not None and pov_id not in character_ids:
+        roles_by_id: dict[int, str] = {}
+        members_in = body.get("members")
+        if isinstance(members_in, list):
+            for item in members_in:
+                if not isinstance(item, dict):
+                    continue
+                try:
+                    cid = int(item.get("character_id") or item.get("id"))
+                except (TypeError, ValueError):
+                    continue
+                role = str(item.get("appearance_role") or "supporting")
+                if role not in {"primary", "supporting", "cameo", "mentioned"}:
+                    role = "supporting"
+                prev = roles_by_id.get(cid)
+                if prev == "mentioned" and role != "mentioned":
+                    roles_by_id[cid] = role
+                elif cid not in roles_by_id:
+                    roles_by_id[cid] = role
+        else:
+            for value in body.get("character_ids", []):
+                try:
+                    roles_by_id[int(value)] = "supporting"
+                except (TypeError, ValueError):
+                    continue
+        character_ids = list(roles_by_id)
+        if pov_id is not None and (pov_id not in roles_by_id or roles_by_id[pov_id] == "mentioned"):
             raise ValueError("시점 인물은 등장인물 중에서 골라 주세요.")
+        if pov_id is not None:
+            roles_by_id[pov_id] = "primary"
         with database() as connection:
             scene = connection.execute(
                 "SELECT project_id FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
@@ -16103,13 +16536,184 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if valid_count != len(set(character_ids)):
                 raise ValueError("다른 소설의 캐릭터는 연결할 수 없습니다.")
             connection.execute("DELETE FROM scene_character WHERE scene_id = ?", (scene_id,))
-            for character_id in dict.fromkeys(character_ids):
+            for character_id, role in roles_by_id.items():
                 connection.execute(
                     "INSERT INTO scene_character(scene_id, character_id, project_id, appearance_role, is_pov) "
                     "VALUES (?, ?, ?, ?, ?)",
-                    (scene_id, character_id, scene["project_id"], "primary" if character_id == pov_id else "supporting",
-                     1 if character_id == pov_id else 0),
+                    (
+                        scene_id,
+                        character_id,
+                        scene["project_id"],
+                        role,
+                        1 if character_id == pov_id else 0,
+                    ),
                 )
+
+    def sync_scene_cast(self, scene_id: int, body: dict) -> dict:
+        suppressed: set[int] = set()
+        for raw in body.get("suppressed_ids") or []:
+            try:
+                suppressed.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        extra_ids: set[int] = set()
+        for raw in body.get("extra_character_ids") or []:
+            try:
+                extra_ids.add(int(raw))
+            except (TypeError, ValueError):
+                continue
+        created: list[dict] = []
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            project_id = int(scene["project_id"])
+            content = body.get("content_md")
+            if content is None:
+                row = connection.execute(
+                    "SELECT content_md FROM scene_revision WHERE scene_id = ? AND is_current = 1",
+                    (scene_id,),
+                ).fetchone()
+                content = row["content_md"] if row else ""
+            text = plain_text_from_content(str(content or ""))
+            char_rows = connection.execute(
+                "SELECT id, name, role FROM character "
+                "WHERE project_id = ? AND deleted_at IS NULL ORDER BY sort_order, id",
+                (project_id,),
+            ).fetchall()
+            alias_rows = connection.execute(
+                "SELECT character_id, alias FROM character_alias WHERE project_id = ? ORDER BY id",
+                (project_id,),
+            ).fetchall()
+            alias_by_id: dict[int, list[str]] = {}
+            for row in alias_rows:
+                alias = str(row["alias"] or "").strip()
+                if alias:
+                    alias_by_id.setdefault(int(row["character_id"]), []).append(alias)
+            characters: list[dict] = []
+            known_labels: list[str] = []
+            for row in char_rows:
+                item = {
+                    "id": int(row["id"]),
+                    "name": str(row["name"] or ""),
+                    "role": str(row["role"] or "supporting"),
+                    "aliases": alias_by_id.get(int(row["id"]), []),
+                }
+                characters.append(item)
+                known_labels.append(item["name"])
+                known_labels.extend(item["aliases"])
+            detected = scene_cast_detect.detect_known_cast(text, characters)
+            for name in scene_cast_detect.extract_new_appearing_names(text, known_labels):
+                if any(str(item.get("name") or "").strip() == name for item in characters):
+                    continue
+                sort_order = connection.execute(
+                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM character "
+                    "WHERE project_id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchone()[0]
+                cursor = connection.execute(
+                    "INSERT INTO character(project_id, name, role, sort_order) VALUES (?, ?, ?, ?)",
+                    (project_id, name, "minor", sort_order),
+                )
+                new_id = int(cursor.lastrowid)
+                created.append({"id": new_id, "name": name, "role": "minor", "aliases": []})
+                characters.append(created[-1])
+                detected[new_id] = scene_cast_detect.APPEARS
+            old_pov_row = connection.execute(
+                "SELECT character_id FROM scene_character WHERE scene_id = ? AND is_pov = 1",
+                (scene_id,),
+            ).fetchone()
+            old_pov_id = int(old_pov_row["character_id"]) if old_pov_row else None
+            known_ids = {int(item["id"]) for item in characters}
+            members: list[dict] = []
+            member_ids: set[int] = set()
+            for cid, kind in detected.items():
+                if cid in suppressed:
+                    continue
+                if kind != scene_cast_detect.APPEARS:
+                    continue
+                members.append({"character_id": cid, "appearance_role": "supporting", "is_pov": 0})
+                member_ids.add(cid)
+            for extra in extra_ids:
+                if extra in suppressed or extra in member_ids or extra not in known_ids:
+                    continue
+                members.append({"character_id": extra, "appearance_role": "supporting", "is_pov": 0})
+                member_ids.add(extra)
+            pov_id = None
+            if old_pov_id in member_ids:
+                for item in members:
+                    if item["character_id"] == old_pov_id:
+                        pov_id = old_pov_id
+                        item["appearance_role"] = "primary"
+                        item["is_pov"] = 1
+                        break
+            if member_ids:
+                valid_count = connection.execute(
+                    "SELECT COUNT(*) FROM character WHERE project_id = ? AND deleted_at IS NULL "
+                    f"AND id IN ({','.join('?' for _ in member_ids)})",
+                    (project_id, *member_ids),
+                ).fetchone()[0]
+                if valid_count != len(member_ids):
+                    raise ValueError("다른 소설의 캐릭터는 연결할 수 없습니다.")
+            connection.execute("DELETE FROM scene_character WHERE scene_id = ?", (scene_id,))
+            for item in members:
+                connection.execute(
+                    "INSERT INTO scene_character(scene_id, character_id, project_id, appearance_role, is_pov) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (
+                        scene_id,
+                        item["character_id"],
+                        project_id,
+                        item["appearance_role"],
+                        int(item["is_pov"] or 0),
+                    ),
+                )
+        return {"members": members, "created": created, "pov_id": pov_id}
+
+    def _normalize_character_alias_names(self, raw) -> list[str]:
+        values: list[str] = []
+        if raw is None:
+            return values
+        if isinstance(raw, str):
+            raw = re.split(r"[,，;/\n]+", raw)
+        if not isinstance(raw, (list, tuple)):
+            return values
+        seen: set[str] = set()
+        for item in raw:
+            if isinstance(item, dict):
+                text = str(item.get("alias") or item.get("name") or "").strip()
+            else:
+                text = str(item or "").strip()
+            if not text:
+                continue
+            key = text.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            values.append(text)
+        return values
+
+    def _replace_character_aliases(
+        self,
+        connection: sqlite3.Connection,
+        character_id: int,
+        project_id: int,
+        raw,
+    ) -> None:
+        names = self._normalize_character_alias_names(raw)
+        connection.execute(
+            "DELETE FROM character_alias WHERE character_id = ?",
+            (character_id,),
+        )
+        for alias in names:
+            connection.execute(
+                "INSERT INTO character_alias(character_id, project_id, alias, alias_type) "
+                "VALUES (?, ?, ?, ?)",
+                (character_id, project_id, alias, "other"),
+            )
 
     def save_character(self, character_id: int, body: dict) -> None:
         name = str(body.get("name", "")).strip()
@@ -16121,7 +16725,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         expected_version = int(body.get("row_version", 0))
         with database() as connection:
             character = connection.execute(
-                "SELECT row_version FROM character WHERE id = ? AND deleted_at IS NULL", (character_id,)
+                "SELECT row_version, project_id FROM character WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
             ).fetchone()
             if character is None:
                 raise ValueError("캐릭터를 찾을 수 없습니다.")
@@ -16143,6 +16748,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     character_id,
                 ),
             )
+            if "aliases" in body:
+                self._replace_character_aliases(
+                    connection,
+                    character_id,
+                    int(character["project_id"]),
+                    body.get("aliases"),
+                )
 
     def get_character_analysis_status(self, project_id: int) -> dict:
         with database() as connection:
@@ -16171,7 +16783,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     scene_ids.append(int(item))
                 except (TypeError, ValueError):
                     continue
-        return start_character_analysis_job(int(project_id), scene_ids)
+        return start_character_analysis_job(
+            int(project_id),
+            scene_ids,
+            include_world=bool(body.get("include_world")),
+            include_characters=(
+                True if body.get("include_characters") is None
+                else bool(body.get("include_characters"))
+            ),
+            infer=bool(body.get("infer") or body.get("fill_empty")),
+        )
 
     def apply_character_tori_analysis(self, character_id: int, body: dict) -> dict:
         field_name = str(body.get("field_name") or body.get("field") or "").strip()
@@ -17224,6 +17845,16 @@ def build_app_url(project_id: int | None = None) -> str:
     return f"http://{HOST}:{PORT}/?project={project_id}"
 
 
+def _init_desktop_sync() -> None:
+    """Optional Supabase login + device row. Failures must not stop the app."""
+    try:
+        client = get_supabase_client()
+        if client is not None:
+            ensure_device_registered()
+    except Exception as error:  # noqa: BLE001
+        print(f"경고: SuperTory 동기화 초기화에 실패했습니다: {error}", file=sys.stderr)
+
+
 def main(argv: list[str] | None = None) -> None:
     # Windows consoles often use cp949; paths under OneDrive/文档 must not crash prints.
     for stream in (sys.stdout, sys.stderr):
@@ -17238,6 +17869,7 @@ def main(argv: list[str] | None = None) -> None:
     package_path = parse_launch_args(argv)
 
     initialise_database()
+    _init_desktop_sync()
     # Electron owns shell integration; skip for frozen/Electron launches.
     if not ELECTRON_MODE and not _is_frozen():
         project_package.register_windows_file_association(ROOT, sys.executable)

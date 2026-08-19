@@ -10,6 +10,8 @@ import json
 import re
 import sqlite3
 
+from character_import_analysis import mark_tori_text
+
 
 WORLD_BUILDING_SCHEMA: tuple[dict, ...] = (
     {
@@ -235,25 +237,25 @@ def parse_analysis_json(raw: object) -> dict[str, str]:
     return _flatten_analysis_dict(data)
 
 
-def build_analysis_prompt(manuscript: str) -> tuple[str, str]:
+def build_analysis_prompt(
+    manuscript: str,
+    *,
+    plot_context: str = "",
+    infer: bool = False,
+) -> tuple[str, str]:
     body = str(manuscript or "").strip()
     if len(body) > MAX_MANUSCRIPT_CHARS:
         body = body[:MAX_MANUSCRIPT_CHARS] + "\n…(이하 생략)"
+    plot = str(plot_context or "").strip()
+    if len(plot) > 12_000:
+        plot = plot[:12_000] + "\n…(이하 생략)"
+    has_manuscript = len(body) >= 40
     field_lines = []
     for section in WORLD_BUILDING_SCHEMA:
         field_lines.append(f"- {section['id']} ({section['title']})")
         for field_id, label in section["fields"]:
             field_lines.append(f'  "{field_id}": "{label}"')
-    system = (
-        "당신은 한국어 소설 설정집 도우미 토리입니다. "
-        "원고에 실제로 나온 세계관만 적고, 없는 설정은 지어내지 마세요. "
-        "출력은 JSON만 합니다."
-    )
-    user = (
-        "[작업]\n"
-        "아래 원고에서 세계관 시트 칸에 맞춰 정리하세요.\n"
-        "장소·시대·규칙·세력 등이 분명히 드러난 것만 적으세요.\n"
-        "근거가 없는 칸은 빈 문자열로 두세요.\n\n"
+    json_shape = (
         "[출력 JSON — 필드 id]\n"
         "{\n"
         '  "reality": "현실 / 가상 구분",\n'
@@ -271,6 +273,47 @@ def build_analysis_prompt(manuscript: str) -> tuple[str, str]:
         '  "conflict": "갈등의 원인"\n'
         "}\n"
         "JSON 외 텍스트는 출력하지 마세요.\n\n"
+    )
+    if infer:
+        system = (
+            "당신은 한국어 소설 설정집 도우미 토리입니다. "
+            "작가가 이미 적어 둔 칸은 건드리지 않고, 비어 있는 칸만 채웁니다. "
+            "출력은 JSON만 합니다."
+        )
+        if has_manuscript:
+            task = (
+                "[작업]\n"
+                "아래 원고를 적극 반영해 세계관 시트의 빈 칸을 모두 채우세요. "
+                "줄거리·로그라인은 보조 자료입니다. 가능한 한 빈 문자열을 남기지 마세요.\n\n"
+            )
+        else:
+            task = (
+                "[작업]\n"
+                "원고는 없고 줄거리만 있습니다. 줄거리·로그라인을 바탕으로 "
+                "세계관 시트를 대략 작성하세요. 줄거리와 모순되지 않게 보완하고, "
+                "가능한 한 모든 칸을 채우세요.\n\n"
+            )
+        extras = f"[줄거리·설정]\n{plot}\n\n" if plot else ""
+        source = f"[원고]\n{body}" if has_manuscript else "[원고]\n(없음)"
+        return system, (
+            task
+            + extras
+            + json_shape
+            + "[칸 안내]\n"
+            + f"{chr(10).join(field_lines)}\n\n"
+            + source
+        )
+    system = (
+        "당신은 한국어 소설 설정집 도우미 토리입니다. "
+        "원고에 실제로 나온 세계관만 적고, 없는 설정은 지어내지 마세요. "
+        "출력은 JSON만 합니다."
+    )
+    user = (
+        "[작업]\n"
+        "아래 원고에서 세계관 시트 칸에 맞춰 정리하세요.\n"
+        "장소·시대·규칙·세력 등이 분명히 드러난 것만 적으세요.\n"
+        "근거가 없는 칸은 빈 문자열로 두세요.\n\n"
+        f"{json_shape}"
         "[칸 안내]\n"
         f"{chr(10).join(field_lines)}\n\n"
         "[원고]\n"
@@ -328,12 +371,12 @@ def apply_parsed_fields(
         if not content:
             continue
         if is_field_empty(values.get(field_id)):
-            values[field_id] = content
+            values[field_id] = mark_tori_text(content)
             _clear_pending(connection, project_id, field_id)
             stats["filled"] += 1
             changed = True
         else:
-            _upsert_pending(connection, project_id, section_id, field_id, content)
+            _upsert_pending(connection, project_id, section_id, field_id, mark_tori_text(content))
             stats["pending"] += 1
     if changed:
         md = compose_worldbuilding_md(values)[:MAX_WORLD_MD_CHARS]

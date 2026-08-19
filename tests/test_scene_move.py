@@ -159,3 +159,29 @@ class SceneMoveTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(result["moved"])
         self.assertEqual(result["parent_scene_id"], s1["id"])
+
+    def test_move_into_volume_part_uses_hidden_tray(self) -> None:
+        seed = self._seed()
+        s1 = seed["scenes"][0]
+        status, part = self.request(
+            "POST",
+            f"/api/projects/{seed['project_id']}/parts",
+            {"title": "1권", "chapter_id": seed["chapter_a"]},
+        )
+        self.assertEqual(status, 201, part)
+        status, result = self.request(
+            "POST",
+            f"/api/scenes/{s1['id']}/move",
+            {"part_id": part["id"], "parent_scene_id": None},
+        )
+        self.assertEqual(status, 200, result)
+        self.assertTrue(result["moved"])
+        self.assertIsNone(result.get("parent_scene_id"))
+        self.assertNotEqual(result["chapter_id"], seed["chapter_a"])
+        with app.database() as conn:
+            row = conn.execute(
+                "SELECT title, notes_md FROM chapter WHERE id = ?",
+                (result["chapter_id"],),
+            ).fetchone()
+        self.assertIsNotNone(row)
+        self.assertIn("supertory:transparent_volume", str(row[1] or ""))
