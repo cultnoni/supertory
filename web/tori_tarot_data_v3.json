@@ -1,0 +1,235 @@
+{
+  "meta": {
+    "version": 3,
+    "styles": {
+      "adventurer": { "label": "모험가 토리" },
+      "dreamer": { "label": "몽상가 토리" }
+    },
+    "cardBack": {
+      "adventurer": "",
+      "dreamer": ""
+    }
+  },
+  "cards": [
+    {
+      "id": 0,
+      "name": "바보",
+      "name_en": "The Fool",
+      "slug": "the-fool",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/00-the-fool.jpg",
+        "dreamer": "/assets/tarot/dreamer/00-the-fool.jpg"
+      }
+    },
+    {
+      "id": 1,
+      "name": "마법사",
+      "name_en": "The Magician",
+      "slug": "the-magician",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/01-the-magician.jpg",
+        "dreamer": "/assets/tarot/dreamer/01-the-magician.jpg"
+      }
+    },
+    {
+      "id": 2,
+      "name": "여사제",
+      "name_en": "The High Priestess",
+      "slug": "the-high-priestess",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/02-the-high-priestess.jpg",
+        "dreamer": "/assets/tarot/dreamer/02-the-high-priestess.jpg"
+      }
+    },
+    {
+      "id": 3,
+      "name": "여황제",
+      "name_en": "The Empress",
+      "slug": "the-empress",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/03-the-empress.jpg",
+        "dreamer": "/assets/tarot/dreamer/03-the-empress.jpg"
+      }
+    },
+    {
+      "id": 4,
+      "name": "황제",
+      "name_en": "The Emperor",
+      "slug": "the-emperor",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/04-the-emperor.jpg",
+        "dreamer": "/assets/tarot/dreamer/04-the-emperor.jpg"
+      }
+    },
+    {
+      "id": 5,
+      "name": "교황",
+      "name_en": "The Hierophant",
+      "slug": "the-hierophant",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/05-the-hierophant.jpg",
+        "dreamer": "/assets/tarot/dreamer/05-the-hierophant.jpg"
+      }
+    },
+    {
+      "id": 6,
+      "name": "연인",
+      "name_en": "The Lovers",
+      "slug": "the-lovers",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/06-the-lovers.jpg",
+        "dreamer": "/assets/tarot/dreamer/06-the-lovers.jpg"
+      }
+    },
+    {
+      "id": 7,
+      "name": "전차",
+      "name_en": "The Chariot",
+      "slug": "the-chariot",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/07-the-chariot.jpg",
+        "dreamer": "/assets/tarot/dreamer/07-the-chariot.jpg"
+      }
+    },
+    {
+      "id": 8,
+      "name": "힘",
+      "name_en": "Strength",
+      "slug": "strength",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/08-strength.jpg",
+        "dreamer": "/assets/tarot/dreamer/08-strength.jpg"
+      }
+    },
+    {
+      "id": 9,
+      "name": "은둔자",
+      "name_en": "The Hermit",
+      "slug": "the-hermit",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/09-the-hermit.jpg",
+        "dreamer": "/assets/tarot/dreamer/09-the-hermit.jpg"
+      }
+    },
+    {
+      "id": 10,
+      "name": "운명의 수레바퀴",
+      "name_en": "Wheel of Fortune",
+      "slug": "wheel-of-fortune",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/10-wheel-of-fortune.jpg",
+        "dreamer": "/assets/tarot/dreamer/10-wheel-of-fortune.jpg"
+      }
+    },
+    {
+      "id": 11,
+      "name": "정의",
+      "name_en": "Justice",
+      "slug": "justice",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/11-justice.jpg",
+        "dreamer": "/assets/tarot/dreamer/11-justice.jpg"
+      }
+    },
+    {
+      "id": 12,
+      "name": "매달린 사람",
+      "name_en": "The Hanged Man",
+      "slug": "the-hanged-man",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/12-the-hanged-man.jpg",
+        "dreamer": "/assets/tarot/dreamer/12-the-hanged-man.jpg"
+      }
+    },
+    {
+      "id": 13,
+      "name": "죽음",
+      "name_en": "Death",
+      "slug": "death",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/13-death.jpg",
+        "dreamer": "/assets/tarot/dreamer/13-death.jpg"
+      }
+    },
+    {
+      "id": 14,
+      "name": "절제",
+      "name_en": "Temperance",
+      "slug": "temperance",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/14-temperance.jpg",
+        "dreamer": "/assets/tarot/dreamer/14-temperance.jpg"
+      }
+    },
+    {
+      "id": 15,
+      "name": "악마",
+      "name_en": "The Devil",
+      "slug": "the-devil",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/15-the-devil.jpg",
+        "dreamer": "/assets/tarot/dreamer/15-the-devil.jpg"
+      }
+    },
+    {
+      "id": 16,
+      "name": "탑",
+      "name_en": "The Tower",
+      "slug": "the-tower",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/16-the-tower.jpg",
+        "dreamer": "/assets/tarot/dreamer/16-the-tower.jpg"
+      }
+    },
+    {
+      "id": 17,
+      "name": "별",
+      "name_en": "The Star",
+      "slug": "the-star",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/17-the-star.jpg",
+        "dreamer": "/assets/tarot/dreamer/17-the-star.jpg"
+      }
+    },
+    {
+      "id": 18,
+      "name": "달",
+      "name_en": "The Moon",
+      "slug": "the-moon",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/18-the-moon.jpg",
+        "dreamer": "/assets/tarot/dreamer/18-the-moon.jpg"
+      }
+    },
+    {
+      "id": 19,
+      "name": "태양",
+      "name_en": "The Sun",
+      "slug": "the-sun",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/19-the-sun.jpg",
+        "dreamer": "/assets/tarot/dreamer/19-the-sun.jpg"
+      }
+    },
+    {
+      "id": 20,
+      "name": "심판",
+      "name_en": "Judgement",
+      "slug": "judgement",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/20-judgement.jpg",
+        "dreamer": "/assets/tarot/dreamer/20-judgement.jpg"
+      }
+    },
+    {
+      "id": 21,
+      "name": "세계",
+      "name_en": "The World",
+      "slug": "the-world",
+      "images": {
+        "adventurer": "/assets/tarot/adventurer/21-the-world.jpg",
+        "dreamer": "/assets/tarot/dreamer/21-the-world.jpg"
+      }
+    }
+  ]
+}

@@ -1737,8 +1737,8 @@
                   <button type="button" class="stat-chip" data-stat="letters" data-group="unit" title="클릭: 단어/글자 표시 전환 · 더블클릭: 목표 기준" data-i18n-title="index.클릭_단어_글자_표시_전환_더블클릭_목표_기">
                     <span data-i18n="app.글자">글자</span> <strong>0</strong>
                   </button>
-                  <span class="stat-chip stat-chip-static is-hidden-stat" data-stat="scenes" title="씬 개수" data-i18n-title="index.씬_개수">
-                    <span data-i18n="index.씬">씬</span> <strong>0</strong>
+                  <span class="stat-chip stat-chip-static is-hidden-stat" data-stat="scenes" title="회차 개수" data-i18n-title="index.씬_개수">
+                    <span data-i18n="index.씬">회차</span> <strong>0</strong>
                   </span>
                 </div>
                 <span class="status-bar-vsep" aria-hidden="true"></span>
@@ -1805,11 +1805,16 @@
                   <div class="scene-characters-head">
                     <div class="scene-characters-head-copy">
                       <label class="scene-characters-title tory-helper-section-label" data-i18n="index.이_회차_등장_인물">이 회차 등장 인물</label>
-                      <p class="hint scene-characters-hint" data-i18n="index.원고에_나온_인물은_등장과_언급으로_나뉘어_자">실제로 장면에 나온 인물만 자동으로 연결합니다. 이름만 언급된 경우는 빼 두어요.</p>
+                      <p class="hint scene-characters-hint" data-i18n="index.원고에_나온_인물은_등장과_언급으로_나뉘어_자">설정집에 있는 인물만 자동으로 연결합니다. 새 이름은 아래에서 골라 넣을 수 있어요.</p>
                     </div>
                     <button type="button" id="sceneCharacterCreateButton" class="secondary compact-btn scene-character-create-btn" title="새 인물을 만들고 인물 작성 페이지로 이동" data-i18n-title="index.새_인물을_만들고_인물_작성_페이지로_이동" data-i18n="index.인물">+ 인물</button>
                   </div>
                   <div id="sceneCharacterList" class="check-list scene-character-check-list" aria-label="등장 인물 선택" data-i18n-aria-label="index.등장_인물_선택"></div>
+                  <div id="sceneCastCandidatePanel" class="scene-cast-candidates hidden">
+                    <p class="scene-cast-group-title" data-i18n="index.새_인물_후보">새 인물 후보</p>
+                    <p class="hint scene-cast-candidate-status" id="sceneCastCandidateStatus"></p>
+                    <div id="sceneCastCandidateList" class="scene-cast-candidate-list"></div>
+                  </div>
                   <label class="pov-label">
                     <span class="pov-label-text scene-characters-title tory-helper-section-label" data-i18n="index.이_회차_시점_인물">이 회차 시점 인물</span>
                     <select id="povSelect" form="sceneEditor" aria-label="시점 인물" data-i18n-aria-label="index.시점_인물">
@@ -5101,6 +5106,25 @@
               </div>
             </div>
             <div id="adminThemeList" class="theme-options theme-options-grouped" role="listbox" aria-label="UI 테마" data-i18n-aria-label="index.UI_테마"></div>
+          </div>
+
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title" data-i18n="app.토리_타로_테마">토리 타로 테마</h3>
+                <p class="hint" data-i18n="index.글럼프_응급실_캐릭터_타로_카드의_그림체를">글럼프 응급실 캐릭터 타로 카드의 그림체를 고릅니다.</p>
+              </div>
+            </div>
+            <div id="adminTarotThemeList" class="theme-option-group-grid tarot-theme-options" role="radiogroup" aria-label="토리 타로 테마" data-i18n-aria-label="app.토리_타로_테마">
+              <button type="button" role="radio" data-tarot-theme-pick="adventurer" aria-checked="true">
+                <span class="theme-option-name" data-i18n="app.모험가_토리">모험가 토리</span>
+                <span class="theme-option-caption" data-i18n="index.모험가_토리_카드">모험가 토리 카드</span>
+              </button>
+              <button type="button" role="radio" data-tarot-theme-pick="dreamer" aria-checked="false">
+                <span class="theme-option-name" data-i18n="app.몽상가_토리">몽상가 토리</span>
+                <span class="theme-option-caption" data-i18n="index.몽상가_토리_카드">몽상가 토리 카드</span>
+              </button>
+            </div>
           </div>
 
           <div class="admin-section-box">

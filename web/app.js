@@ -1183,11 +1183,17 @@ function setGoalMetric(metric) {
 }
 
 function computeTextStats(plainText) {
-  const text = String(plainText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  const text = String(plainText || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/\u200b/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
   // Spread for proper Unicode code points (Hangul, emoji, etc.)
   const charsWithSpace = [...text].length;
   const charsNoSpace = [...text.replace(/\s/g, "")].length;
-  const words = (text.trim().match(/\S+/g) || []).length;
+  const words = (text.match(/\S+/g) || []).length;
   // Letters: Hangul, letters, numbers — no spaces/punctuation/symbols.
   const letters = (text.match(/[\p{L}\p{N}\p{Script=Hangul}]/gu) || []).length;
   return {
@@ -24574,11 +24580,20 @@ function renderGlumpDiversionBody(diversion) {
   }
   if (kind === "character_tarot") {
     const cards = Array.isArray(diversion.cards) ? diversion.cards : [];
-    return cards.map((item, index) => {
+    const theme = getTarotTheme();
+    const backSrc = getTarotCardBackSrc(theme);
+    return `<div class="glump-er-tarot-spread">${cards.map((item, index) => {
       const name = escapeHtml(String(item?.name || `${i18n.t('app.카드_index_1', {'index + 1': index + 1})}`));
-      const meaning = escapeHtml(String(item?.meaning || ""));
-      return `<article class="glump-er-tarot-card"><strong>${index + 1}. ${name}</strong>${meaning ? `<p>${meaning}</p>` : ""}</article>`;
-    }).join("");
+      const meaning = escapeHtml(String(item?.meaning || item?.text || ""));
+      const frontSrc = resolveTarotCardImageSrc(item, theme);
+      const media = frontSrc
+        ? `<div class="glump-er-tarot-visual${backSrc ? " has-back" : ""}">
+            ${backSrc ? `<img class="glump-er-tarot-back" src="${escapeHtml(backSrc)}" alt="" aria-hidden="true">` : ""}
+            <img class="glump-er-tarot-front" src="${escapeHtml(frontSrc)}" alt="${name}">
+          </div>`
+        : "";
+      return `<article class="glump-er-tarot-card">${media}<strong>${index + 1}. ${name}</strong>${meaning ? `<p>${meaning}</p>` : ""}</article>`;
+    }).join("")}</div>`;
   }
   if (kind === "naming_shop") {
     const groups = Array.isArray(diversion.groups) ? diversion.groups : [];
@@ -24640,6 +24655,7 @@ async function runGlumpDiversion(kind) {
         body: JSON.stringify({ work_id: state.projectId }),
       });
     } else if (id === "character_tarot") {
+      await loadToriTarotDataV3();
       data = await api("/api/glump/character-tarot", {
         method: "POST",
         body: JSON.stringify({ work_id: state.projectId }),
@@ -44636,6 +44652,7 @@ async function openScene(sceneId, options = {}) {
   state.sceneMembers = members || [];
   sceneCastSuppressedIds.clear();
   sceneCastExtraIds.clear();
+  resetSceneCastCandidates();
   sceneCastDirty = false;
   state.illustrations = detail.illustrations || [];
   state.referenceLinks = Array.isArray(detail.reference_links)
@@ -44685,7 +44702,9 @@ async function openScene(sceneId, options = {}) {
   const openedCast = detectKnownSceneCast(getEditorPlainText() || "", state.characters || []);
   (state.sceneMembers || []).forEach((member) => {
     const id = Number(member.character_id);
-    if (id && !openedCast.has(id)) sceneCastExtraIds.add(id);
+    if (!id || openedCast.has(id)) return;
+    if (memberAppearanceKind(member) === "mentioned") return;
+    sceneCastExtraIds.add(id);
   });
   void syncSceneCastFromManuscript({ quiet: true });
   renderIllustrations();
@@ -44787,7 +44806,7 @@ const SCENE_CAST_MENTION_HINTS = [
   "에 대해", "에 대한", "그리워", "보고 싶", "행방", "자취", "어디지", "어디에",
   "누구냐", "누구였",
 ];
-const SCENE_CAST_APPEAR_AFTER = /^(은|는|이|가|도|만)?\s*(말했|말했어|말한다|물었|되물|대답|답했|중얼|외쳤|소리쳤|웃었|미소|고개를|앉아|앉았|일어|걸어|달려|들어왔|들어와|나갔|나타났|자리에|손을 |문을 |검을 |칼을 |눈을 |바라보|쳐다|돌아섰|다가왔|다가갔|내밀|잡았|열었|닫았|끄덕|한숨)/;
+const SCENE_CAST_APPEAR_AFTER = /^(은|는|이|가|도|만)?\s*(말했|말했어|말한다|말하며|물었|물었어|되물|대답|답했|중얼|외쳤|소리쳤|웃었|미소|고개를|앉아|앉았|일어|걸어|걸었|달려|달렸|들어왔|들어와|나갔|나타났|자리에|손을 |문을 |검을 |칼을 |눈을 |바라보|쳐다|돌아섰|다가왔|다가갔|내밀|잡았|열었|닫았|끄덕|한숨|침묵|주먹을|뛰었|피했|막았|던졌|보았|봤다|보고|들었|듣고|불렀|찾았|기다려|기다렸|울었|울며|나섰|향했|멈췄|돌아보|속삭|입을 |말을 )/;
 const SCENE_CAST_AFTER_OK = /^(은|는|이|가|을|를|의|도|만|과|와|랑|야|아|여|께|에게|한테|으로|로|부터|까지|이었|였|이다|이야|이라고|이며|이고|[ \n\t.,!?…~“”"'』」)\]：:]|$)/;
 
 function sceneCastLabels(character) {
@@ -44806,7 +44825,7 @@ function sceneCastLabels(character) {
   return names;
 }
 
-function classifySceneCastHit(text, start, end) {
+function classifySceneCastHit(text, start, end, name = "") {
   const left = text.slice(Math.max(0, start - 28), start);
   const right = text.slice(end, end + 36);
   let sentenceStart = start;
@@ -44855,7 +44874,7 @@ function detectKnownSceneCast(text, characters) {
           from = index + 1;
           continue;
         }
-        spans.push([index, end]);
+        spans.push([index, end, name]);
         from = index + 1;
       }
     });
@@ -44868,14 +44887,14 @@ function detectKnownSceneCast(text, characters) {
   });
   labeled.forEach(({ id, spans }) => {
     const kinds = new Set();
-    spans.forEach(([start, end]) => {
+    spans.forEach(([start, end, name]) => {
       let taken = false;
       for (let i = start; i < end; i += 1) {
         if (occupied[i]) taken = true;
       }
       if (taken) return;
       for (let i = start; i < end; i += 1) occupied[i] = true;
-      kinds.add(classifySceneCastHit(text, start, end));
+      kinds.add(classifySceneCastHit(text, start, end, name));
     });
     if (kinds.has("appears")) found.set(id, "appears");
     else if (kinds.has("mentioned")) found.set(id, "mentioned");
@@ -45065,6 +45084,128 @@ let sceneCastSyncInFlight = false;
 let sceneCastPreviewTimer = null;
 const sceneCastSuppressedIds = new Set();
 const sceneCastExtraIds = new Set();
+let sceneCastCandidates = [];
+let sceneCastCandidateStatus = "idle";
+let sceneCastCandidateTimer = null;
+let sceneCastCandidateGen = 0;
+const sceneCastDismissedCandidates = new Set();
+
+function resetSceneCastCandidates() {
+  sceneCastCandidateGen += 1;
+  if (sceneCastCandidateTimer) {
+    window.clearTimeout(sceneCastCandidateTimer);
+    sceneCastCandidateTimer = null;
+  }
+  sceneCastCandidates = [];
+  sceneCastCandidateStatus = "idle";
+  sceneCastDismissedCandidates.clear();
+  renderSceneCastCandidates();
+}
+
+function scheduleSceneCastCandidates() {
+  if (!state.sceneId || !state.projectId) return;
+  if (sceneCastCandidateTimer) window.clearTimeout(sceneCastCandidateTimer);
+  sceneCastCandidateTimer = window.setTimeout(() => {
+    sceneCastCandidateTimer = null;
+    refreshSceneCastCandidates().catch(() => { /* quiet */ });
+  }, 400);
+}
+
+function renderSceneCastCandidates() {
+  const panel = $("sceneCastCandidatePanel");
+  const list = $("sceneCastCandidateList");
+  const statusEl = $("sceneCastCandidateStatus");
+  if (!panel || !list) return;
+  const names = sceneCastCandidates.filter((name) => !sceneCastDismissedCandidates.has(String(name).toLowerCase()));
+  const loading = sceneCastCandidateStatus === "loading";
+  const show = loading || names.length > 0;
+  panel.classList.toggle("hidden", !show);
+  if (statusEl) {
+    if (loading) statusEl.textContent = i18n.t("index.새_이름을_찾고_있어요");
+    else if (!names.length) statusEl.textContent = "";
+    else statusEl.textContent = "";
+  }
+  if (!names.length) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = names.map((name) => {
+    const safe = escapeHtml(name);
+    const token = encodeURIComponent(name);
+    return `<div class="scene-cast-candidate-row">
+      <span class="scene-cast-name" title="${safe}">${safe}</span>
+      <button type="button" class="secondary compact-btn" data-add-cast-candidate="${token}">${i18n.t("index.이_회차에_추가")}</button>
+    </div>`;
+  }).join("");
+}
+
+async function refreshSceneCastCandidates() {
+  if (!state.sceneId || !state.projectId) return;
+  const gen = ++sceneCastCandidateGen;
+  const sceneId = state.sceneId;
+  sceneCastCandidateStatus = "loading";
+  renderSceneCastCandidates();
+  try {
+    const result = await api(`/api/scenes/${sceneId}/cast-candidates`, {
+      method: "POST",
+      body: JSON.stringify({ content_md: getEditorContent() || "" }),
+    });
+    if (gen !== sceneCastCandidateGen || Number(state.sceneId) !== Number(sceneId)) return;
+    const incoming = Array.isArray(result?.candidates) ? result.candidates : [];
+    const known = new Set(
+      (state.characters || []).flatMap((item) => {
+        const labels = [item?.name, ...(Array.isArray(item?.aliases) ? item.aliases : [])];
+        return labels.map((label) => String(label?.alias || label || "").trim().toLowerCase()).filter(Boolean);
+      }),
+    );
+    sceneCastCandidates = incoming.filter((name) => {
+      const key = String(name || "").trim().toLowerCase();
+      return key && !known.has(key) && !sceneCastDismissedCandidates.has(key);
+    });
+    sceneCastCandidateStatus = sceneCastCandidates.length ? "ready" : "empty";
+  } catch (_) {
+    if (gen !== sceneCastCandidateGen) return;
+    sceneCastCandidates = [];
+    sceneCastCandidateStatus = "idle";
+  }
+  renderSceneCastCandidates();
+}
+
+async function addSceneCastCandidate(name) {
+  const displayName = String(name || "").trim();
+  if (!displayName || !state.projectId || !state.sceneId) return;
+  const character = await api(`/api/projects/${state.projectId}/characters`, {
+    method: "POST",
+    body: JSON.stringify({ name: displayName, role: "minor" }),
+  });
+  const newId = Number(character?.id);
+  if (!newId) {
+    toast(i18n.t("app.인물을_만들지_못했어요_다시_시도해_주세요"));
+    return;
+  }
+  sceneCastDismissedCandidates.add(displayName.toLowerCase());
+  sceneCastCandidates = sceneCastCandidates.filter((item) => String(item).toLowerCase() !== displayName.toLowerCase());
+  if (!Array.isArray(state.characters)) state.characters = [];
+  if (!state.characters.some((item) => Number(item.id) === newId)) {
+    state.characters.push({
+      ...character,
+      short_description: character.short_description || "",
+      profile_md: character.profile_md || "",
+      aliases: character.aliases || [],
+    });
+  }
+  try { renderCharacters(); } catch (_) { /* ignore */ }
+  sceneCastExtraIds.add(newId);
+  sceneCastSuppressedIds.delete(newId);
+  const prev = Array.isArray(state.sceneMembers) ? state.sceneMembers : [];
+  if (!prev.some((item) => Number(item.character_id) === newId)) {
+    state.sceneMembers = [...prev, { character_id: newId, appearance_role: "supporting", is_pov: 0 }];
+  }
+  renderSceneCharacters();
+  renderSceneCastCandidates();
+  await persistSceneCharacterLinks({ quiet: true });
+  toast(i18n.t("app.names_을_를_인물로_저장했어요", { names: displayName }));
+}
 
 function setSceneCastSaveUi({ dirty = sceneCastDirty, saving = false, error = false, ok = false, message = "" } = {}) {
   const hint = $("sceneCharacterSaveHint");
@@ -45231,6 +45372,7 @@ async function syncSceneCastFromManuscript(options = {}) {
         ? i18n.t("app.등장_인물_n_명_연결됨", { n: appears })
         : i18n.t("app.저장됨_연결된_인물_없음"),
     });
+    scheduleSceneCastCandidates();
     return state.sceneMembers;
   } catch (error) {
     if (!quiet) throw error;
@@ -46154,6 +46296,19 @@ function setupSceneAutoSave() {
   });
   $("sceneCharacterCreateButton")?.addEventListener("click", () => {
     createCharacterAndLinkToScene().catch(handleError);
+  });
+  $("sceneCastCandidateList")?.addEventListener("click", (event) => {
+    const addBtn = event.target.closest?.("[data-add-cast-candidate]");
+    if (!addBtn) return;
+    event.preventDefault();
+    const raw = addBtn.getAttribute("data-add-cast-candidate") || "";
+    let name = raw;
+    try { name = decodeURIComponent(raw); } catch (_) { /* keep raw */ }
+    addBtn.disabled = true;
+    addSceneCastCandidate(name).catch((error) => {
+      addBtn.disabled = false;
+      handleError(error);
+    });
   });
   // Reference links use delegated inputs.
   $("referenceLinkList")?.addEventListener("input", () => markSceneDirty());
@@ -51831,6 +51986,93 @@ function setupAdminThemePicker() {
   }, true);
 }
 
+const TAROT_THEME_STORAGE_KEY = "supertory.tarotTheme";
+const TAROT_THEME_IDS = new Set(["adventurer", "dreamer"]);
+
+function getTarotTheme() {
+  try {
+    const stored = String(localStorage.getItem(TAROT_THEME_STORAGE_KEY) || "").trim();
+    if (TAROT_THEME_IDS.has(stored)) return stored;
+  } catch (_) { /* ignore */ }
+  return "adventurer";
+}
+
+function setTarotTheme(themeId, options = {}) {
+  const next = TAROT_THEME_IDS.has(String(themeId || "")) ? String(themeId) : "adventurer";
+  try {
+    localStorage.setItem(TAROT_THEME_STORAGE_KEY, next);
+  } catch (_) { /* ignore */ }
+  syncTarotThemePicker();
+  if (options.announce) {
+    toast(next === "dreamer" ? i18n.t("app.몽상가_토리") : i18n.t("app.모험가_토리"));
+  }
+  if (glumpErState?.step === "diversionResult" && glumpErState?.diversion?.kind === "character_tarot") {
+    renderGlumpErStep();
+  }
+  return next;
+}
+
+function syncTarotThemePicker() {
+  const host = $("adminTarotThemeList");
+  if (!host) return;
+  const current = getTarotTheme();
+  host.querySelectorAll("[data-tarot-theme-pick]").forEach((btn) => {
+    const id = btn.getAttribute("data-tarot-theme-pick");
+    const active = id === current;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-checked", active ? "true" : "false");
+  });
+}
+
+function setupTarotThemePicker() {
+  syncTarotThemePicker();
+  if (document.documentElement.dataset.tarotThemePickerBound === "1") return;
+  document.documentElement.dataset.tarotThemePickerBound = "1";
+  document.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("#adminTarotThemeList [data-tarot-theme-pick]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setTarotTheme(btn.getAttribute("data-tarot-theme-pick"), { announce: true });
+  }, true);
+}
+
+let toriTarotDataV3 = null;
+
+async function loadToriTarotDataV3() {
+  if (toriTarotDataV3 && Array.isArray(toriTarotDataV3.cards)) return toriTarotDataV3;
+  try {
+    const response = await fetch("/tori_tarot_data_v3.json", { cache: "no-store" });
+    if (!response.ok) throw new Error(String(response.status));
+    const data = await response.json();
+    if (data && Array.isArray(data.cards)) toriTarotDataV3 = data;
+  } catch (_) {
+    toriTarotDataV3 = { meta: { cardBack: {} }, cards: [] };
+  }
+  return toriTarotDataV3;
+}
+
+function getTarotCardBackSrc(theme = getTarotTheme()) {
+  const src = String(toriTarotDataV3?.meta?.cardBack?.[theme] || "").trim();
+  return src;
+}
+
+function resolveTarotCardImageSrc(item, theme = getTarotTheme()) {
+  const cards = Array.isArray(toriTarotDataV3?.cards) ? toriTarotDataV3.cards : [];
+  const id = Number(item?.id);
+  let found = Number.isInteger(id) ? cards.find((card) => Number(card?.id) === id) : null;
+  const rawName = String(item?.name || item?.name_en || item?.slug || "").trim().toLowerCase();
+  if (!found && rawName) {
+    found = cards.find((card) => {
+      const names = [card?.name, card?.name_en, card?.slug]
+        .map((value) => String(value || "").trim().toLowerCase())
+        .filter(Boolean);
+      return names.includes(rawName);
+    });
+  }
+  return String(found?.images?.[theme] || item?.images?.[theme] || "").trim();
+}
+
 /** 설정 옵션 → 테마 변경 섹션의 「고대비 모드」 체크박스. */
 function setupHighContrastToggle() {
   const box = $("highContrastToggle");
@@ -51887,6 +52129,7 @@ function setupUiThemeToggle() {
     });
   }
   setupAdminThemePicker();
+  setupTarotThemePicker();
   setupHighContrastToggle();
   try {
     // Must call applyUiTheme (not setTheme): assigning window.setTheme = () => setTheme()

@@ -1,4 +1,4 @@
-"""Scene manuscript cast detection: appears vs mentioned, plus new names."""
+"""Scene manuscript cast detection: registered names only, plus Gemini parse."""
 
 from __future__ import annotations
 
@@ -41,51 +41,34 @@ class SceneCastDetectTests(unittest.TestCase):
         found = detect.detect_known_cast("김서윤이 웃었다.", characters)
         self.assertEqual(found, {})
 
-    def test_extracts_new_appearing_name(self) -> None:
-        names = detect.extract_new_appearing_names("하린이 들어왔다.", ["서윤"])
-        self.assertEqual(names, ["하린"])
-
-    def test_skips_stopwords_and_known_names(self) -> None:
-        text = "사람이 들어왔다. 서윤이 말했다."
-        names = detect.extract_new_appearing_names(text, ["서윤"])
-        self.assertEqual(names, [])
-
-    def test_mentioned_unknown_name_is_not_auto_created(self) -> None:
-        names = detect.extract_new_appearing_names("하린 생각이 났다.", [])
-        self.assertEqual(names, [])
-
-    def test_bare_possessive_name_is_mentioned(self) -> None:
-        characters = [{"id": 1, "name": "서윤"}]
-        found = detect.detect_known_cast("서윤의 편지가 왔다.", characters)
-        self.assertEqual(found, {1: detect.MENTIONED})
-
-    def test_story_noun_is_not_auto_created(self) -> None:
-        self.assertEqual(detect.extract_new_appearing_names("그 이야기가 길었다.", []), [])
-        self.assertEqual(detect.extract_new_appearing_names("기억이 났다.", []), [])
+    def test_unregistered_name_is_not_detected(self) -> None:
+        found = detect.detect_known_cast("하린이 들어왔다.", [{"id": 1, "name": "서윤"}])
+        self.assertEqual(found, {})
 
     def test_single_syllable_known_name_appears(self) -> None:
         characters = [{"id": 1, "name": "진"}]
         found = detect.detect_known_cast("진이 문을 열었다.", characters)
         self.assertEqual(found, {1: detect.APPEARS})
 
-    def test_extracts_single_syllable_new_name(self) -> None:
-        names = detect.extract_new_appearing_names("솔이 들어왔다.", ["진"])
-        self.assertEqual(names, ["솔"])
+    def test_bare_possessive_name_is_mentioned(self) -> None:
+        characters = [{"id": 1, "name": "서윤"}]
+        found = detect.detect_known_cast("서윤의 편지가 왔다.", characters)
+        self.assertEqual(found, {1: detect.MENTIONED})
 
-    def test_particle_is_not_auto_created_as_name(self) -> None:
-        self.assertEqual(detect.extract_new_appearing_names("이가 말했다.", []), [])
+    def test_parse_candidates_skips_known_and_junk_shape(self) -> None:
+        raw = '{"names": ["하린", "서윤", "몸가짐", "하린"]}'
+        names = detect.parse_new_name_candidates(raw, ["서윤"])
+        self.assertEqual(names, ["하린", "몸가짐"])
 
-    def test_mention_in_previous_sentence_does_not_taint_next_name(self) -> None:
-        text = (
-            "서윤이 문을 열고 들어왔다.\n"
-            "해인이 어디 갔는지 떠올렸다.\n"
-            "민재가 창밖을 보았다."
-        )
-        characters = [{"id": 1, "name": "서윤"}, {"id": 2, "name": "해인"}]
-        found = detect.detect_known_cast(text, characters)
-        self.assertEqual(found[1], detect.APPEARS)
-        self.assertEqual(found[2], detect.MENTIONED)
-        self.assertEqual(detect.extract_new_appearing_names(text, ["서윤", "해인"]), ["민재"])
+    def test_parse_candidates_empty_on_bad_json(self) -> None:
+        self.assertEqual(detect.parse_new_name_candidates("아님", []), [])
+
+    def test_prompt_excludes_known_names(self) -> None:
+        system, user = detect.build_new_name_prompt("하린이 말했다.", ["서윤"])
+        self.assertIn("JSON만", system)
+        self.assertIn("일반명사·추상명사·동사 활용형은 절대 포함하지 마라", user)
+        self.assertIn("서윤", user)
+        self.assertIn("하린이 말했다.", user)
 
 
 if __name__ == "__main__":

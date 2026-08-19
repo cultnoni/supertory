@@ -10,6 +10,7 @@ import unittest
 from pathlib import Path
 
 import app
+import gemini_client
 
 
 class SceneCastSyncTests(unittest.TestCase):
@@ -41,7 +42,7 @@ class SceneCastSyncTests(unittest.TestCase):
         connection.close()
         return response.status, result
 
-    def test_sync_cast_links_appearing_only_and_creates_new_names(self) -> None:
+    def test_sync_cast_links_registered_appearing_only(self) -> None:
         status, project = self.request("POST", "/api/projects", {"title": "등장 테스트", "main_genre": "판타지"})
         self.assertEqual(status, 201)
         project_id = project["id"]
@@ -77,15 +78,13 @@ class SceneCastSyncTests(unittest.TestCase):
         roles = {row["character_id"]: row["appearance_role"] for row in result["members"]}
         self.assertEqual(roles[seoyun["id"]], "supporting")
         self.assertNotIn(haein["id"], roles)
-        self.assertEqual(len(result["created"]), 1)
-        self.assertEqual(result["created"][0]["name"], "민재")
-        self.assertEqual(roles[result["created"][0]["id"]], "supporting")
+        self.assertEqual(result["created"], [])
         self.assertNotIn(stranger["id"], roles)
 
         status, listed = self.request("GET", f"/api/projects/{project_id}/characters")
         self.assertEqual(status, 200)
         names = {row["name"] for row in listed}
-        self.assertIn("민재", names)
+        self.assertNotIn("민재", names)
         self.assertNotIn("유령", names)
 
         status, other_chars = self.request("GET", f"/api/projects/{other['id']}/characters")
@@ -148,3 +147,115 @@ class SceneCastSyncTests(unittest.TestCase):
         roles = {row["character_id"]: row["appearance_role"] for row in result["members"]}
         self.assertNotIn(haein["id"], roles)
         self.assertEqual(result["created"], [])
+
+    def test_sync_cast_does_not_create_or_count_scene_nouns(self) -> None:
+        status, project = self.request("POST", "/api/projects", {"title": "명사 제외", "main_genre": "판타지"})
+        self.assertEqual(status, 201)
+        project_id = project["id"]
+        status, chapter = self.request("POST", f"/api/projects/{project_id}/chapters", {"title": "1화"})
+        self.assertEqual(status, 201)
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "장면"})
+        self.assertEqual(status, 201)
+
+        status, result = self.request(
+            "POST",
+            f"/api/scenes/{scene['id']}/sync-cast",
+            {"content_md": "그림자가 벽에 늘어졌다. 표정이 굳었다."},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(result["members"], [])
+        self.assertEqual(result["created"], [])
+        status, listed = self.request("GET", f"/api/projects/{project_id}/characters")
+        self.assertEqual(status, 200)
+        self.assertEqual(listed, [])
+
+    def test_sync_cast_does_not_create_unregistered_names(self) -> None:
+        status, project = self.request("POST", "/api/projects", {"title": "동사 제외", "main_genre": "판타지"})
+        self.assertEqual(status, 201)
+        project_id = project["id"]
+        status, chapter = self.request("POST", f"/api/projects/{project_id}/chapters", {"title": "1화"})
+        self.assertEqual(status, 201)
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "장면"})
+        self.assertEqual(status, 201)
+
+        status, result = self.request(
+            "POST",
+            f"/api/scenes/{scene['id']}/sync-cast",
+            {
+                "content_md": (
+                    "언덕에서 내려오는 외양이 달랐다. "
+                    "그 지칭하는 것이 해당하는 조건이었다. "
+                    "성년이 되었다. 몸가짐을 바르게 했다. "
+                    "민재가 창밖을 보았다."
+                ),
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(result["created"], [])
+        self.assertEqual(result["members"], [])
+        listed = self.request("GET", f"/api/projects/{project_id}/characters")[1]
+        names = {row["name"] for row in listed}
+        self.assertTrue(
+            {"내려오", "외양", "지칭하", "것", "해당하", "성년", "몸가짐", "민재"}.isdisjoint(names)
+        )
+
+    def test_cast_candidates_uses_gemini_and_skips_known(self) -> None:
+        status, project = self.request("POST", "/api/projects", {"title": "후보", "main_genre": "판타지"})
+        self.assertEqual(status, 201)
+        project_id = project["id"]
+        status, chapter = self.request("POST", f"/api/projects/{project_id}/chapters", {"title": "1화"})
+        self.assertEqual(status, 201)
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "장면"})
+        self.assertEqual(status, 201)
+        status, _ = self.request("POST", f"/api/projects/{project_id}/characters", {"name": "서윤"})
+        self.assertEqual(status, 201)
+
+        original_configured = gemini_client.is_configured
+        original_generate = gemini_client.generate_text
+        gemini_client.is_configured = lambda: True  # type: ignore[method-assign]
+
+        def _fake(_prompt, **_kwargs):
+            return '{"names": ["하린", "서윤", "몸가짐"]}'
+
+        gemini_client.generate_text = _fake  # type: ignore[method-assign]
+        try:
+            status, result = self.request(
+                "POST",
+                f"/api/scenes/{scene['id']}/cast-candidates",
+                {"content_md": "하린이 문을 열고 들어왔다. 서윤이 말했다."},
+            )
+        finally:
+            gemini_client.is_configured = original_configured  # type: ignore[method-assign]
+            gemini_client.generate_text = original_generate  # type: ignore[method-assign]
+        self.assertEqual(status, 200)
+        self.assertEqual(result["candidates"], ["하린", "몸가짐"])
+        listed = self.request("GET", f"/api/projects/{project_id}/characters")[1]
+        self.assertEqual({row["name"] for row in listed}, {"서윤"})
+
+    def test_cast_candidates_fail_quietly(self) -> None:
+        status, project = self.request("POST", "/api/projects", {"title": "실패", "main_genre": "판타지"})
+        self.assertEqual(status, 201)
+        project_id = project["id"]
+        status, chapter = self.request("POST", f"/api/projects/{project_id}/chapters", {"title": "1화"})
+        self.assertEqual(status, 201)
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "장면"})
+        self.assertEqual(status, 201)
+        original_configured = gemini_client.is_configured
+        original_generate = gemini_client.generate_text
+        gemini_client.is_configured = lambda: True  # type: ignore[method-assign]
+
+        def _boom(*_args, **_kwargs):
+            raise gemini_client.GeminiError("boom")
+
+        gemini_client.generate_text = _boom  # type: ignore[method-assign]
+        try:
+            status, result = self.request(
+                "POST",
+                f"/api/scenes/{scene['id']}/cast-candidates",
+                {"content_md": "하린이 들어왔다."},
+            )
+        finally:
+            gemini_client.is_configured = original_configured  # type: ignore[method-assign]
+            gemini_client.generate_text = original_generate  # type: ignore[method-assign]
+        self.assertEqual(status, 200)
+        self.assertEqual(result["candidates"], [])

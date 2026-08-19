@@ -3168,17 +3168,36 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
 
 
 def plain_text_from_content(content: str) -> str:
-    """Strip simple HTML so word counts ignore tags from the rich editor."""
+    """Strip HTML for counts/preview. Drop tags (do not replace with spaces)."""
     text = content or ""
-    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", " ", text)
+    text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</p\s*>", "\n", text)
-    text = re.sub(r"(?i)</div\s*>", "\n", text)
-    text = re.sub(r"(?s)<[^>]+>", " ", text)
+    text = re.sub(r"(?i)</(p|div|h[1-6]|li|blockquote|tr)\s*>", "\n\n", text)
+    text = re.sub(r"(?s)<[^>]+>", "", text)
     text = html_lib.unescape(text)
+    text = text.replace("\xa0", " ").replace("\u200b", "")
     text = re.sub(r"[ \t]+\n", "\n", text)
     text = re.sub(r"[ \t]{2,}", " ", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
+
+
+def compute_text_stats(plain_text: str) -> dict:
+    """Mirror web/app.js computeTextStats (Unicode code points, no-space, letters)."""
+    text = (plain_text or "").replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("\xa0", " ").replace("\u200b", "")
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    chars_with_space = len(text)
+    chars_no_space = sum(1 for ch in text if not ch.isspace())
+    stripped = text.strip()
+    words = len(re.findall(r"\S+", stripped)) if stripped else 0
+    letters = sum(1 for ch in text if ch.isalnum())
+    return {
+        "chars_with_space": chars_with_space,
+        "chars_no_space": chars_no_space,
+        "words": words,
+        "letters": letters,
+    }
 
 
 def first_sentence_preview(content: str, limit: int = 160) -> str:
@@ -3437,6 +3456,9 @@ _character_analysis_thread: Thread | None = None
 IMPORT_ANALYSIS_GEMINI_GAP_SECONDS = 1.8
 # Reuse import-analysis stagger between sequential debate persona calls.
 READER_DEBATE_GEMINI_GAP_SECONDS = IMPORT_ANALYSIS_GEMINI_GAP_SECONDS
+_cast_candidate_lock = Lock()
+_cast_candidate_last_at = 0.0
+_cast_candidate_inflight: set[int] = set()
 
 _character_analysis_state: dict = {
     "status": "idle",
@@ -4760,6 +4782,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/sync-cast", path)
             if match:
                 self.send_json(self.sync_scene_cast(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/cast-candidates", path)
+            if match:
+                self.send_json(self.suggest_scene_cast_candidates(int(match.group(1)), body or {}))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments-started", path)
@@ -11291,16 +11318,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if text:
                 parts.append(text)
         combined = "\n\n".join(parts)
-        # Mirror web/app.js computeTextStats
-        chars_with_space = len(combined)
-        chars_no_space = len(re.sub(r"\s+", "", combined))
-        words = len(re.findall(r"\S+", combined))
-        letters = len(re.findall(r"[\w\uAC00-\uD7A3]", combined, flags=re.UNICODE))
+        stats = compute_text_stats(combined)
         return {
-            "chars_with_space": chars_with_space,
-            "chars_no_space": chars_no_space,
-            "words": words,
-            "letters": letters,
+            **stats,
             "scenes": len(rows),
             "scenes_with_text": len(parts),
         }
@@ -16562,7 +16582,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 extra_ids.add(int(raw))
             except (TypeError, ValueError):
                 continue
-        created: list[dict] = []
         with database() as connection:
             scene = connection.execute(
                 "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
@@ -16594,7 +16613,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if alias:
                     alias_by_id.setdefault(int(row["character_id"]), []).append(alias)
             characters: list[dict] = []
-            known_labels: list[str] = []
             for row in char_rows:
                 item = {
                     "id": int(row["id"]),
@@ -16603,25 +16621,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "aliases": alias_by_id.get(int(row["id"]), []),
                 }
                 characters.append(item)
-                known_labels.append(item["name"])
-                known_labels.extend(item["aliases"])
             detected = scene_cast_detect.detect_known_cast(text, characters)
-            for name in scene_cast_detect.extract_new_appearing_names(text, known_labels):
-                if any(str(item.get("name") or "").strip() == name for item in characters):
-                    continue
-                sort_order = connection.execute(
-                    "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM character "
-                    "WHERE project_id = ? AND deleted_at IS NULL",
-                    (project_id,),
-                ).fetchone()[0]
-                cursor = connection.execute(
-                    "INSERT INTO character(project_id, name, role, sort_order) VALUES (?, ?, ?, ?)",
-                    (project_id, name, "minor", sort_order),
-                )
-                new_id = int(cursor.lastrowid)
-                created.append({"id": new_id, "name": name, "role": "minor", "aliases": []})
-                characters.append(created[-1])
-                detected[new_id] = scene_cast_detect.APPEARS
             old_pov_row = connection.execute(
                 "SELECT character_id FROM scene_character WHERE scene_id = ? AND is_pov = 1",
                 (scene_id,),
@@ -16671,7 +16671,69 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         int(item["is_pov"] or 0),
                     ),
                 )
-        return {"members": members, "created": created, "pov_id": pov_id}
+        return {"members": members, "created": [], "pov_id": pov_id}
+
+    def suggest_scene_cast_candidates(self, scene_id: int, body: dict) -> dict:
+        """Gemini-only: unregistered appearing names. Never blocks sync-cast."""
+        global _cast_candidate_last_at
+        if not gemini_client.is_configured():
+            return {"candidates": []}
+        with _cast_candidate_lock:
+            if int(scene_id) in _cast_candidate_inflight:
+                return {"candidates": []}
+            _cast_candidate_inflight.add(int(scene_id))
+        try:
+            wait = 0.0
+            if _cast_candidate_last_at > 0:
+                wait = IMPORT_ANALYSIS_GEMINI_GAP_SECONDS - (time.monotonic() - _cast_candidate_last_at)
+            if wait > 0:
+                time.sleep(min(wait, IMPORT_ANALYSIS_GEMINI_GAP_SECONDS))
+            with database() as connection:
+                scene = connection.execute(
+                    "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                    (scene_id,),
+                ).fetchone()
+                if scene is None:
+                    return {"candidates": []}
+                project_id = int(scene["project_id"])
+                content = body.get("content_md")
+                if content is None:
+                    row = connection.execute(
+                        "SELECT content_md FROM scene_revision WHERE scene_id = ? AND is_current = 1",
+                        (scene_id,),
+                    ).fetchone()
+                    content = row["content_md"] if row else ""
+                text = plain_text_from_content(str(content or ""))
+                char_rows = connection.execute(
+                    "SELECT name FROM character WHERE project_id = ? AND deleted_at IS NULL",
+                    (project_id,),
+                ).fetchall()
+                alias_rows = connection.execute(
+                    "SELECT alias FROM character_alias WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            known_labels = [str(row["name"] or "").strip() for row in char_rows if str(row["name"] or "").strip()]
+            known_labels.extend(
+                str(row["alias"] or "").strip() for row in alias_rows if str(row["alias"] or "").strip()
+            )
+            if len(text.strip()) < 8:
+                return {"candidates": []}
+            system, prompt = scene_cast_detect.build_new_name_prompt(text, known_labels)
+            raw = gemini_client.generate_text(
+                prompt,
+                system=system,
+                temperature=0.1,
+                max_output_tokens=512,
+            )
+            with _cast_candidate_lock:
+                _cast_candidate_last_at = time.monotonic()
+            names = scene_cast_detect.parse_new_name_candidates(raw, known_labels)
+            return {"candidates": names}
+        except Exception:
+            return {"candidates": []}
+        finally:
+            with _cast_candidate_lock:
+                _cast_candidate_inflight.discard(int(scene_id))
 
     def _normalize_character_alias_names(self, raw) -> list[str]:
         values: list[str] = []
