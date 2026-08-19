@@ -11,9 +11,7 @@ const net = require("net");
 const { spawn } = require("child_process");
 
 app.disableHardwareAcceleration();
-app.commandLine.appendSwitch('disable-lcd-text');
-console.log('[supertory] disable-lcd-text switch active:', app.commandLine.hasSwitch('disable-lcd-text'));
-console.log('[supertory] full chromium args:', app.commandLine.getSwitchValue('disable-lcd-text'), process.argv);
+app.commandLine.appendSwitch("disable-lcd-text");
 
 const HOST = "127.0.0.1";
 const PORT = 8765;
