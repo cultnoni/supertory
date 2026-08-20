@@ -133,6 +133,7 @@ MIGRATION_049_PATH = ROOT / "db" / "049_import_delimiter_config.sql"
 MIGRATION_050_PATH = ROOT / "db" / "050_character_tori_analysis.sql"
 MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
 MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
+MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
 WEB_ROOT = ROOT / "web"
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
@@ -513,6 +514,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_051_PATH.read_text(encoding="utf-8"))
         if 52 not in applied:
             connection.executescript(MIGRATION_052_PATH.read_text(encoding="utf-8"))
+        if 53 not in applied:
+            apply_migration_053(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -583,6 +586,10 @@ def apply_migration_045(connection: sqlite3.Connection) -> None:
 
 def apply_migration_046(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_046_PATH).apply(connection)
+
+
+def apply_migration_053(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_053_PATH).apply(connection)
 
 
 def ensure_virtual_reader_personas(connection: sqlite3.Connection) -> None:

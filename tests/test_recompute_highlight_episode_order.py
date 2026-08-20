@@ -1,4 +1,4 @@
-"""Tests for scripts/recompute_highlight_episode_order.py."""
+"""Tests for highlight episode_order recompute (migration 53)."""
 
 from __future__ import annotations
 
@@ -10,9 +10,13 @@ from pathlib import Path
 
 import app
 
-SCRIPT_PATH = Path(__file__).resolve().parents[1] / "scripts" / "recompute_highlight_episode_order.py"
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "db"
+    / "053_recompute_highlight_episode_order.py"
+)
 _SPEC = importlib.util.spec_from_file_location(
-    "recompute_highlight_episode_order", SCRIPT_PATH
+    "recompute_highlight_episode_order", MIGRATION_PATH
 )
 _MODULE = importlib.util.module_from_spec(_SPEC)
 assert _SPEC and _SPEC.loader
@@ -167,6 +171,52 @@ class RecomputeHighlightEpisodeOrderTests(unittest.TestCase):
             self.assertEqual(rows["m-extra"], 2)
             self.assertEqual(rows["m-part"], 1)
             self.assertEqual(rows["m-same"], 2)
+
+    def test_initialise_database_records_migration_53(self) -> None:
+        with app.database() as conn:
+            version = conn.execute(
+                "SELECT name FROM schema_migration WHERE version = 53"
+            ).fetchone()
+        self.assertIsNotNone(version)
+        self.assertEqual(version[0], "recompute_highlight_episode_order")
+
+    def test_initialise_database_does_not_rerun_migration_53(self) -> None:
+        calls = {"n": 0}
+        original = app.apply_migration_053
+
+        def _count(connection: sqlite3.Connection) -> None:
+            calls["n"] += 1
+            original(connection)
+
+        app.apply_migration_053 = _count  # type: ignore[method-assign]
+        try:
+            app.initialise_database()
+            self.assertEqual(calls["n"], 0)
+        finally:
+            app.apply_migration_053 = original  # type: ignore[method-assign]
+
+    def test_unmapped_scenes_are_skipped(self) -> None:
+        with app.database() as conn:
+            conn.row_factory = sqlite3.Row
+            conn.execute(
+                "INSERT INTO glump_highlight_moments"
+                "(id, work_id, episode_id, episode_order, moment_type, "
+                "excerpt, reason, created_at) VALUES "
+                "('m-ghost', '99999', '88888', 10, 'scene', 'x', 'y', "
+                "strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))"
+            )
+            changes, total = _MODULE.plan_episode_order_updates(conn)
+            self.assertEqual(total, 1)
+            self.assertEqual(changes, [])
+            updated = _MODULE.apply_episode_order_updates(conn, changes)
+            self.assertEqual(updated, 0)
+            leftover = int(
+                conn.execute(
+                    "SELECT episode_order FROM glump_highlight_moments "
+                    "WHERE id = 'm-ghost'"
+                ).fetchone()[0]
+            )
+            self.assertEqual(leftover, 10)
 
 
 if __name__ == "__main__":

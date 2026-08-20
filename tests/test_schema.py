@@ -398,6 +398,24 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "reader_debate")
 
+    def test_recompute_highlight_episode_order_migration(self) -> None:
+        import importlib.util
+
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "db"
+            / "053_recompute_highlight_episode_order.py"
+        )
+        spec = importlib.util.spec_from_file_location(path.stem, path)
+        module = importlib.util.module_from_spec(spec)
+        assert spec and spec.loader
+        spec.loader.exec_module(module)
+        module.apply(self.db)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 53"
+        ).fetchone()[0]
+        self.assertEqual(version, "recompute_highlight_episode_order")
+
 
 if __name__ == "__main__":
     unittest.main()
