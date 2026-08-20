@@ -2868,7 +2868,10 @@ body.ai-panel-collapsed .outline-panel-inner {
   display: inline-flex;
   align-items: center;
   flex: 0 0 auto;
-  z-index: 13;
+  z-index: 12;
+}
+.binder-ambient-control:has(.ambient-sound-popup.is-open) {
+  z-index: 14;
 }
 .header-ambient-btn .ambient-sound-icon {
   display: block;
