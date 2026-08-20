@@ -2265,6 +2265,52 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   margin: 8px 0 0 !important;
   font-size: 11px !important;
 }
+.admin-auth-form {
+  display: grid;
+  gap: 10px;
+  margin-top: 10px;
+}
+.admin-auth-form[hidden] {
+  display: none !important;
+}
+.admin-auth-form .admin-lang-row {
+  max-width: none;
+}
+.admin-auth-signed-in {
+  margin-top: 10px;
+}
+.admin-auth-status {
+  margin: 0 0 10px;
+  font-size: 13px;
+}
+.admin-auth-message {
+  margin: 0 !important;
+}
+.admin-auth-message.admin-auth-error {
+  color: var(--danger, #b42318);
+}
+.admin-auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.admin-auth-switch {
+  margin: 0 !important;
+}
+.admin-auth-link {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.admin-auth-link:hover {
+  color: var(--muted, #6b5e4e);
+}
 .admin-update-row {
   display: flex;
   flex-wrap: wrap;
@@ -16344,6 +16390,49 @@ html.is-electron .viewer-modal.is-maximized {
   display: flex;
   flex-direction: column;
   gap: 4px;
+}
+.viewer-comments-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 4px 10px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.viewer-comment-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface-2, var(--surface));
+}
+.viewer-comment-card-body {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.viewer-comment-card-name {
+  display: block;
+  margin: 0 0 4px;
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+.viewer-comment-card-text {
+  font-size: 13px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.viewer-comment-pending {
+  padding: 8px 10px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+  color: var(--muted);
+  font-size: 12px;
 }
 .viewer-toc-item {
   display: flex;

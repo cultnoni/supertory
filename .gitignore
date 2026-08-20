@@ -6,6 +6,7 @@ __pycache__/
 data/*.sqlite3
 data/*.sqlite3-*
 data/illustrations/
+data/auth_session.json
 .DS_Store
 _test_export.*
 

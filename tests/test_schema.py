@@ -416,6 +416,59 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "recompute_highlight_episode_order")
 
+    def test_scene_reader_comments_table(self) -> None:
+        self.create_story()
+        self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS virtual_reader_personas (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL DEFAULT 'taste_preference',
+                name TEXT NOT NULL DEFAULT '',
+                identity TEXT NOT NULL DEFAULT '',
+                tone TEXT NOT NULL DEFAULT '',
+                criteria TEXT NOT NULL DEFAULT '[]',
+                forbidden TEXT NOT NULL DEFAULT '',
+                sample_responses TEXT NOT NULL DEFAULT '[]',
+                discussion_attitude TEXT NOT NULL DEFAULT '',
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        self.db.execute(
+            "INSERT INTO virtual_reader_personas(id, name, created_at) "
+            "VALUES ('p1', '독자', '2026-01-01T00:00:00.000000Z')"
+        )
+        migration = Path(__file__).resolve().parents[1] / "db" / "054_scene_reader_comments.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("scene_reader_comments", tables)
+        self.db.execute(
+            "INSERT INTO scene_reader_comments(scene_id, persona_id, comment_text) "
+            "VALUES (30, 'p1', '좋았어요')"
+        )
+        value = self.db.execute(
+            "SELECT comment_text FROM scene_reader_comments WHERE scene_id = 30"
+        ).fetchone()[0]
+        self.assertEqual(value, "좋았어요")
+        self.assert_integrity_error(
+            "INSERT INTO scene_reader_comments(scene_id, persona_id, comment_text) "
+            "VALUES (30, 'p1', '중복')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO scene_reader_comments(scene_id, persona_id, comment_text) "
+            "VALUES (999, 'p1', '없는 씬')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 54"
+        ).fetchone()[0]
+        self.assertEqual(version, "scene_reader_comments")
+
 
 if __name__ == "__main__":
     unittest.main()

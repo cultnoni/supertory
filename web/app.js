@@ -130,6 +130,10 @@ async function setLanguage(lang) {
   applyTranslations();
   applyWelcomeAdFeedToDom();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
+  if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
+  if (typeof refreshAdminAccountPanel === "function") {
+    refreshAdminAccountPanel().catch(() => {});
+  }
 }
 
 // DOM이 준비되면 data-i18n 요소들 한 번 더 정리 (혹시 남는 게 있으면)
@@ -33053,6 +33057,9 @@ const BOOK_FLIP_MS = 720;
 /** Viewer manuscript scope: "scene" | "full" */
 let viewerScope = "scene";
 let viewerTocOpen = false;
+let viewerCommentsOpen = false;
+let viewerCommentsPollTimer = null;
+let viewerCommentsLoadToken = 0;
 /** sceneId → normalized HTML (other scenes only; current always from editor) */
 const viewerEpisodeCache = new Map();
 let viewerLoadToken = 0;
@@ -33243,6 +33250,11 @@ function syncViewerScopeTabs() {
 
 function setViewerTocOpen(open) {
   viewerTocOpen = Boolean(open);
+  if (viewerTocOpen && viewerCommentsOpen) {
+    viewerCommentsOpen = false;
+    applyViewerCommentsPanelVisibility();
+    stopViewerCommentsPolling();
+  }
   const panel = $("viewerTocPanel");
   const toggle = $("viewerTocToggle");
   if (panel) panel.classList.toggle("hidden", !viewerTocOpen);
@@ -33250,6 +33262,126 @@ function setViewerTocOpen(open) {
     toggle.setAttribute("aria-expanded", viewerTocOpen ? "true" : "false");
     toggle.classList.toggle("is-active", viewerTocOpen);
   }
+}
+
+function applyViewerCommentsPanelVisibility() {
+  const panel = $("viewerReaderCommentsPanel");
+  const toggle = $("viewerReaderCommentsButton");
+  if (panel) panel.classList.toggle("hidden", !viewerCommentsOpen);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", viewerCommentsOpen ? "true" : "false");
+    toggle.classList.toggle("is-active", viewerCommentsOpen);
+  }
+}
+
+function stopViewerCommentsPolling() {
+  if (viewerCommentsPollTimer) {
+    clearInterval(viewerCommentsPollTimer);
+    viewerCommentsPollTimer = null;
+  }
+}
+
+function startViewerCommentsPolling(sceneId) {
+  const id = Number(sceneId);
+  stopViewerCommentsPolling();
+  if (!id) return;
+  viewerCommentsPollTimer = setInterval(() => {
+    if (!viewerCommentsOpen) {
+      stopViewerCommentsPolling();
+      return;
+    }
+    if (Number(state.sceneId) !== id) {
+      stopViewerCommentsPolling();
+      return;
+    }
+    loadViewerReaderComments({ startIfNeeded: false }).catch(() => {});
+  }, 3000);
+}
+
+function setViewerCommentsOpen(open) {
+  viewerCommentsOpen = Boolean(open);
+  if (viewerCommentsOpen && viewerTocOpen) {
+    setViewerTocOpen(false);
+  }
+  applyViewerCommentsPanelVisibility();
+  if (!viewerCommentsOpen) stopViewerCommentsPolling();
+}
+
+function renderViewerReaderComments(data) {
+  const list = $("viewerReaderCommentsList");
+  const hint = $("viewerReaderCommentsHint");
+  if (!list) return;
+  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  const expected = Math.max(1, Number(data?.expected) || 3);
+  const generating = Boolean(data?.generating);
+  const ready = comments.length;
+  if (hint) {
+    if (generating) {
+      hint.textContent = ready
+        ? i18n.t("app.가상독자_댓글_생성_중", { ready, expected })
+        : i18n.t("app.가상독자_댓글을_준비하는_중");
+    } else if (!ready) {
+      hint.textContent = i18n.t("app.가상독자_댓글이_아직_없어요");
+    } else {
+      hint.textContent = "";
+    }
+  }
+  const cards = comments.map((item) => {
+    const personaId = String(item.persona_id || "").trim();
+    const name = String(item.persona_name || "").trim() || i18n.t("app.가상_독자");
+    const body = escapeHtml(item.comment_text || "").replace(/\r\n|\r|\n/g, "<br>");
+    return `<div class="viewer-comment-card">`
+      + readerAvatarMarkup(personaId, name, "reader-chat-msg-avatar")
+      + `<div class="viewer-comment-card-body">`
+      + `<span class="viewer-comment-card-name">${escapeHtml(name)}</span>`
+      + `<div class="viewer-comment-card-text">${body}</div>`
+      + `</div></div>`;
+  });
+  if (generating && ready < expected) {
+    cards.push(
+      `<div class="viewer-comment-pending">${i18n.t("app.가상독자_댓글_생성_중", { ready, expected })}</div>`,
+    );
+  } else if (!ready && !generating) {
+    cards.push(
+      `<div class="viewer-comment-pending">${i18n.t("app.가상독자_댓글이_아직_없어요")}</div>`,
+    );
+  }
+  list.innerHTML = cards.join("");
+  bindReaderAvatarErrors(list);
+}
+
+async function loadViewerReaderComments(options = {}) {
+  const sceneId = Number(state.sceneId);
+  if (!sceneId) return null;
+  const token = ++viewerCommentsLoadToken;
+  if (options.startIfNeeded) {
+    try {
+      await api(`/api/scenes/${sceneId}/reader-comments/generate`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+    } catch (_) { /* GET still shows whatever is stored */ }
+  }
+  const data = await api(`/api/scenes/${sceneId}/reader-comments`);
+  if (token !== viewerCommentsLoadToken) return data;
+  renderViewerReaderComments(data);
+  const generating = Boolean(data?.generating);
+  if (generating && viewerCommentsOpen && Number(state.sceneId) === sceneId) {
+    if (!viewerCommentsPollTimer) startViewerCommentsPolling(sceneId);
+  } else {
+    stopViewerCommentsPolling();
+  }
+  return data;
+}
+
+function openViewerReaderCommentsFromCta() {
+  hideToast();
+  markReaderCommentsStarted();
+  if (typeof isViewerOpen === "function" && !isViewerOpen() && typeof openViewerMode === "function") {
+    openViewerMode();
+  }
+  setViewerCommentsOpen(true);
+  loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
 }
 
 function renderViewerToc() {
@@ -35206,6 +35338,10 @@ function openViewerMode(preferredMode = null) {
   syncViewerScopeTabs();
   setViewerTocOpen(viewerTocOpen);
   renderViewerToc();
+  setViewerCommentsOpen(viewerCommentsOpen);
+  if (viewerCommentsOpen && lastPersistedSceneStatus === "complete") {
+    loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
+  }
 
   const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
   if ($("viewerTitle")) {
@@ -35230,6 +35366,7 @@ function openViewerMode(preferredMode = null) {
 }
 
 function closeViewerMode() {
+  stopViewerCommentsPolling();
   $("viewerModal")?.classList.add("hidden");
   document.body.classList.remove("viewer-open");
   viewerResize = null;
@@ -35296,7 +35433,15 @@ function setupViewerMode() {
 
   $("viewerReaderCommentsButton")?.addEventListener("click", () => {
     if ($("viewerReaderCommentsButton")?.disabled) return;
-    startVirtualReaderCommentsFlow();
+    const nextOpen = !viewerCommentsOpen;
+    setViewerCommentsOpen(nextOpen);
+    if (nextOpen) {
+      markReaderCommentsStarted();
+      loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
+    }
+  });
+  $("viewerReaderCommentsClose")?.addEventListener("click", () => {
+    setViewerCommentsOpen(false);
   });
 
   $("viewerMaximizeButton")?.addEventListener("click", (event) => {
@@ -45144,6 +45289,11 @@ function fillSceneEditorFields(scene) {
   if ($("sceneStatus")) $("sceneStatus").value = scene.status || "idea";
   lastPersistedSceneStatus = scene.status || "idea";
   syncViewerReaderCommentsButton();
+  if (lastPersistedSceneStatus !== "complete") {
+    if (viewerCommentsOpen) setViewerCommentsOpen(false);
+  } else if (viewerCommentsOpen && typeof isViewerOpen === "function" && isViewerOpen()) {
+    loadViewerReaderComments({ startIfNeeded: true }).catch(() => {});
+  }
   if ($("sceneSynopsis")) $("sceneSynopsis").value = scene.synopsis_md || "";
   setEditorContent(scene.content_md || "");
   if ($("sceneNotes")) $("sceneNotes").value = scene.notes_md || "";
@@ -46530,13 +46680,7 @@ function clearReaderCommentsPulsePlayed(sceneId) {
 }
 
 function startVirtualReaderCommentsFlow() {
-  hideToast();
-  markReaderCommentsStarted();
-  if (typeof isViewerOpen === "function" && isViewerOpen() && typeof closeViewerMode === "function") {
-    closeViewerMode();
-  }
-  if (typeof setAiPanelTab === "function") setAiPanelTab("chat");
-  if (typeof openReaderPersonaPicker === "function") openReaderPersonaPicker();
+  openViewerReaderCommentsFromCta();
 }
 
 const READER_COMMENT_TOAST_SEEN_KEY = "supertory.readerCommentToastSeen";
@@ -50348,7 +50492,7 @@ function openAdminModal(tab = null) {
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
   refreshAdminInfoPanel();
-  refreshAdminAccountPanel();
+  refreshAdminAccountPanel().catch(handleError);
   loadTrashList().catch(handleError);
 }
 
@@ -50385,7 +50529,7 @@ function setAdminTab(tabId) {
     renderAdminHelpManual($("adminHelpSearch")?.value || "");
     renderAdminHelpQa();
   }
-  if (id === "account") refreshAdminAccountPanel();
+  if (id === "account") refreshAdminAccountPanel().catch(handleError);
 }
 
 function renderAdminProjectList() {
@@ -51588,10 +51732,38 @@ function refreshAdminInfoPanel() {
   refreshAiStatus().catch(handleError);
 }
 
-function refreshAdminAccountPanel() {
-  if ($("adminUserStatus")) $("adminUserStatus").textContent = i18n.t('app.로컬_사용자');
-  if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = i18n.t('app.이_기기');
-  if ($("adminUserAccount")) $("adminUserAccount").textContent = i18n.t('app.로그인_없음_로컬');
+function setAdminAuthMessage(text, isError = false) {
+  const node = $("adminAuthMessage");
+  if (!node) return;
+  const message = String(text || "").trim();
+  node.hidden = !message;
+  node.textContent = message;
+  node.classList.toggle("admin-auth-error", Boolean(isError && message));
+}
+
+function syncAdminAuthModeUi() {
+  const form = $("adminAuthForm");
+  const signup = form?.dataset.authMode === "signup";
+  const submit = $("adminAuthSubmitButton");
+  if (submit) {
+    const key = signup ? "app.회원가입" : "app.로그인";
+    submit.setAttribute("data-i18n", key);
+    submit.textContent = i18n.t(key);
+  }
+  const toggle = $("adminAuthModeToggle");
+  if (toggle) {
+    const key = signup ? "app.이미_계정이_있으신가요_로그인" : "app.계정이_없으신가요_회원가입";
+    toggle.setAttribute("data-i18n", key);
+    toggle.textContent = i18n.t(key);
+  }
+  const password = $("adminAuthPassword");
+  if (password) {
+    password.setAttribute("autocomplete", signup ? "new-password" : "current-password");
+  }
+}
+
+async function refreshAdminAccountPanel() {
+  syncAdminAuthModeUi();
   if ($("adminUserPlan")) $("adminUserPlan").textContent = i18n.t('app.로컬_무료_전체_기능');
   if ($("adminUserPlanPeriod")) $("adminUserPlanPeriod").textContent = i18n.t('app.제한_없음');
   if ($("adminUserPlanPerks")) {
@@ -51600,6 +51772,90 @@ function refreshAdminAccountPanel() {
   if ($("adminUserPaymentMethod")) $("adminUserPaymentMethod").textContent = i18n.t('app.해당_없음');
   if ($("adminUserPaymentLast")) $("adminUserPaymentLast").textContent = "—";
   if ($("adminUserPaymentReceipt")) $("adminUserPaymentReceipt").textContent = "—";
+
+  let user = null;
+  try {
+    const data = await api("/api/auth/me");
+    user = data?.user || null;
+  } catch (error) {
+    handleError(error);
+  }
+
+  const email = String(user?.email || "").trim();
+  const signedIn = Boolean(email || user?.id);
+  const signedInBox = $("adminAuthSignedIn");
+  const form = $("adminAuthForm");
+  if (signedInBox) signedInBox.hidden = !signedIn;
+  if (form) {
+    form.hidden = signedIn;
+    if (signedIn) form.setAttribute("hidden", "");
+    else form.removeAttribute("hidden");
+  }
+
+  if (signedIn) {
+    if ($("adminUserStatus")) $("adminUserStatus").textContent = i18n.t("app.온라인_계정");
+    if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = email || i18n.t("app.이_기기");
+    if ($("adminUserAccount")) $("adminUserAccount").textContent = email || "—";
+    const label = $("adminAuthSignedInLabel");
+    if (label) {
+      label.textContent = i18n.t("app.로그인됨_email", { email: email || "—" });
+    }
+  } else {
+    if ($("adminUserStatus")) $("adminUserStatus").textContent = i18n.t("app.로컬_사용자");
+    if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = i18n.t("app.이_기기");
+    if ($("adminUserAccount")) $("adminUserAccount").textContent = i18n.t("app.로그인_없음_로컬");
+  }
+}
+
+async function submitAdminAuthForm(event) {
+  event?.preventDefault?.();
+  const form = $("adminAuthForm");
+  const submit = $("adminAuthSubmitButton");
+  const email = String($("adminAuthEmail")?.value || "").trim();
+  const password = String($("adminAuthPassword")?.value || "");
+  const signup = form?.dataset.authMode === "signup";
+  setAdminAuthMessage("");
+  if (submit) submit.disabled = true;
+  try {
+    const path = signup ? "/api/auth/signup" : "/api/auth/login";
+    const data = await api(path, {
+      method: "POST",
+      body: JSON.stringify({ email, password }),
+    });
+    if (signup && data?.needs_email_confirmation) {
+      const message = data.message || i18n.t("app.확인_이메일을_확인해_주세요");
+      setAdminAuthMessage(message, false);
+      toast(message);
+      if (form) form.dataset.authMode = "login";
+      syncAdminAuthModeUi();
+      if ($("adminAuthPassword")) $("adminAuthPassword").value = "";
+      return;
+    }
+    if ($("adminAuthPassword")) $("adminAuthPassword").value = "";
+    setAdminAuthMessage("");
+    await refreshAdminAccountPanel();
+    toast(signup ? i18n.t("app.회원가입이_완료되었습니다") : i18n.t("app.로그인했습니다"));
+  } catch (error) {
+    setAdminAuthMessage(error?.message || i18n.t("app.문제가_생겼습니다_다시_시도해_주세요"), true);
+    handleError(error);
+  } finally {
+    if (submit) submit.disabled = false;
+  }
+}
+
+async function logoutAdminAccount() {
+  const button = $("adminAuthLogoutButton");
+  if (button) button.disabled = true;
+  try {
+    await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
+    setAdminAuthMessage("");
+    await refreshAdminAccountPanel();
+    toast(i18n.t("app.로그아웃했습니다"));
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function renderAdminHelpManual(filterText = "") {
@@ -51861,6 +52117,19 @@ function maybeStartOnboardingTutorial() {
 
 function setupAdminMode() {
   $("adminModeButton")?.addEventListener("click", () => openAdminModal("info"));
+  $("adminAuthForm")?.addEventListener("submit", (event) => {
+    submitAdminAuthForm(event).catch(handleError);
+  });
+  $("adminAuthModeToggle")?.addEventListener("click", () => {
+    const form = $("adminAuthForm");
+    if (!form) return;
+    form.dataset.authMode = form.dataset.authMode === "signup" ? "login" : "signup";
+    setAdminAuthMessage("");
+    syncAdminAuthModeUi();
+  });
+  $("adminAuthLogoutButton")?.addEventListener("click", () => {
+    logoutAdminAccount().catch(handleError);
+  });
   document.querySelectorAll("[data-close-admin]").forEach((el) => {
     el.addEventListener("click", closeAdminModal);
   });
@@ -51940,7 +52209,7 @@ function setupAdminMode() {
   renderAdminHelpManual();
   renderAdminHelpQa();
   refreshAdminInfoPanel();
-  refreshAdminAccountPanel();
+  refreshAdminAccountPanel().catch(handleError);
   setupAutoUpdateUi();
 }
 

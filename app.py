@@ -14,6 +14,7 @@ import binascii
 import html as html_lib
 import json
 import os
+import random
 import re
 import socket
 import sqlite3
@@ -60,7 +61,14 @@ from sync.project_sync import (
     mark_draft_merged,
     sync_scenes_snapshot,
 )
-from sync.supabase_client import get_supabase_client
+from sync.supabase_client import (
+    get_current_user,
+    get_supabase_client,
+    restore_session,
+    sign_in,
+    sign_out,
+    sign_up,
+)
 
 def _is_frozen() -> bool:
     """True when running as a PyInstaller (or similar) bundle."""
@@ -141,6 +149,7 @@ MIGRATION_050_PATH = ROOT / "db" / "050_character_tori_analysis.sql"
 MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
 MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
 MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
+MIGRATION_054_PATH = ROOT / "db" / "054_scene_reader_comments.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -581,6 +590,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_052_PATH.read_text(encoding="utf-8"))
         if 53 not in applied:
             apply_migration_053(connection)
+        if 54 not in applied:
+            connection.executescript(MIGRATION_054_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -588,6 +599,7 @@ def initialise_database() -> None:
         ensure_character_tori_analysis_table(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
+        ensure_scene_reader_comments_table(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -739,6 +751,36 @@ def ensure_world_tori_analysis_table(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (51, 'world_tori_analysis')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_scene_reader_comments_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: scene_reader_comments (migration 054)."""
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS scene_reader_comments (
+                id              INTEGER PRIMARY KEY,
+                scene_id        INTEGER NOT NULL,
+                persona_id      TEXT NOT NULL,
+                comment_text    TEXT NOT NULL DEFAULT '',
+                created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+                UNIQUE (scene_id, persona_id),
+                FOREIGN KEY (scene_id) REFERENCES scene(id) ON DELETE CASCADE,
+                FOREIGN KEY (persona_id) REFERENCES virtual_reader_personas(id) ON DELETE RESTRICT
+            );
+            CREATE INDEX IF NOT EXISTS ix_scene_reader_comments_scene
+                ON scene_reader_comments(scene_id, created_at, id);
+            """
+        )
+    except sqlite3.Error:
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (54, 'scene_reader_comments')"
         )
     except sqlite3.Error:
         pass
@@ -1002,6 +1044,23 @@ READER_DEBATE_TASK_ADDON = (
     "다른 독자들의 이전 발언을 참고해서, 동의하거나 다른 관점을 제시하며 "
     "자연스럽게 토론에 참여해라. 이미 나온 얘기를 그대로 반복하지 마라."
 )
+READER_COMMENTS_EXPECTED = 3
+READER_COMMENT_WILDCARD_CATEGORIES = (
+    "narrative_critic",
+    "taste_preference",
+    "structure_wildcard",
+)
+READER_COMMENT_TASK_ADDON = (
+    "지금은 작가와 1:1로 대화하는 상황이 아닙니다. "
+    "작가가 이 회차를 완성으로 표시했습니다. "
+    "완성된 회차 본문에 대한 짧은 독자 댓글 하나만 작성하세요. "
+    "댓글은 2~5문장 정도로, 웹소설 댓창에 다는 반응처럼 자연스럽게. "
+    "제목·이름 접두어·따옴표·머리말은 붙이지 마세요. "
+    "다른 가상 독자나 AI라는 사실을 언급하지 마세요."
+)
+READER_AVATAR_URL_PREFIX = "/assets/reader_avatars"
+_reader_comments_inflight: set[int] = set()
+_reader_comments_inflight_lock = Lock()
 
 GLUMP_Q1_ANSWERS = ("block", "perfectionism", "self_doubt", "burnout")
 GLUMP_Q2_ANSWERS = ("event", "sentence_struggle", "start", "together")
@@ -3576,6 +3635,318 @@ _character_analysis_thread: Thread | None = None
 IMPORT_ANALYSIS_GEMINI_GAP_SECONDS = 1.8
 # Reuse import-analysis stagger between sequential debate persona calls.
 READER_DEBATE_GEMINI_GAP_SECONDS = IMPORT_ANALYSIS_GEMINI_GAP_SECONDS
+
+
+def reader_persona_avatar_url(persona_id: object) -> str:
+    token = str(persona_id or "").strip()
+    if not token:
+        return f"{READER_AVATAR_URL_PREFIX}/.png"
+    return f"{READER_AVATAR_URL_PREFIX}/{token}.png"
+
+
+def _genre_search_needles(raw_key: object) -> list[str]:
+    """Keys/labels to look for inside persona name + identity."""
+    key = str(raw_key or "").strip()
+    needles: list[str] = []
+    if not key:
+        return needles
+    if key.startswith("custom:"):
+        custom = key[len("custom:") :].strip()
+        if custom:
+            needles.append(custom)
+    else:
+        needles.append(key)
+        label = SuperToryHandler._genre_display_label(None, key)
+        if label and label not in {"미정", "기타"} and label not in needles:
+            needles.append(label)
+    return [item for item in needles if item]
+
+
+def _persona_matches_needles(persona: dict, needles: list[str]) -> bool:
+    if not needles:
+        return False
+    haystack = f"{persona.get('name') or ''}\n{persona.get('identity') or ''}"
+    lowered = haystack.lower()
+    for needle in needles:
+        text = str(needle or "").strip()
+        if not text:
+            continue
+        if text in haystack or text.lower() in lowered:
+            return True
+    return False
+
+
+def _pick_reader_comment_persona(
+    pool: list[dict],
+    used_ids: set[str],
+    rng: random.Random,
+    needles: list[str] | None = None,
+) -> dict | None:
+    available = [
+        item
+        for item in pool
+        if str(item.get("id") or "").strip() not in used_ids
+    ]
+    if not available:
+        return None
+    if needles:
+        matched = [item for item in available if _persona_matches_needles(item, needles)]
+        if matched:
+            return rng.choice(matched)
+    return rng.choice(available)
+
+
+def select_reader_comment_personas(
+    main_genre: object,
+    sub_genre: object,
+    *,
+    connection: sqlite3.Connection | None = None,
+    rng: random.Random | None = None,
+) -> list[dict]:
+    """Pick 3 distinct virtual readers: genre, sub-genre, then a wildcard."""
+    picker = rng if rng is not None else random.Random()
+
+    def _load(conn: sqlite3.Connection) -> list[dict]:
+        rows = conn.execute(
+            "SELECT id, category, name, identity, tone, criteria, forbidden, "
+            "sample_responses, discussion_attitude, display_order "
+            "FROM virtual_reader_personas "
+            "ORDER BY display_order, id"
+        ).fetchall()
+        return [serialize_reader_persona(row) for row in rows]
+
+    if connection is None:
+        with database() as conn:
+            personas = _load(conn)
+    else:
+        personas = _load(connection)
+
+    by_category: dict[str, list[dict]] = {key: [] for key in READER_PERSONA_CATEGORIES}
+    for item in personas:
+        category = str(item.get("category") or "")
+        by_category.setdefault(category, []).append(item)
+
+    picked: list[dict] = []
+    used_ids: set[str] = set()
+    genre_pick = _pick_reader_comment_persona(
+        by_category.get("genre_specialist") or [],
+        used_ids,
+        picker,
+        _genre_search_needles(main_genre),
+    )
+    if genre_pick is not None:
+        picked.append(genre_pick)
+        used_ids.add(str(genre_pick.get("id") or ""))
+    sub_pick = _pick_reader_comment_persona(
+        by_category.get("sub_genre_specialist") or [],
+        used_ids,
+        picker,
+        _genre_search_needles(sub_genre),
+    )
+    if sub_pick is not None:
+        picked.append(sub_pick)
+        used_ids.add(str(sub_pick.get("id") or ""))
+    wildcard_pool: list[dict] = []
+    for category in READER_COMMENT_WILDCARD_CATEGORIES:
+        wildcard_pool.extend(by_category.get(category) or [])
+    wild_pick = _pick_reader_comment_persona(wildcard_pool, used_ids, picker)
+    if wild_pick is not None:
+        picked.append(wild_pick)
+        used_ids.add(str(wild_pick.get("id") or ""))
+    if len(picked) < READER_COMMENTS_EXPECTED:
+        remainder = [
+            item
+            for item in personas
+            if str(item.get("id") or "").strip() not in used_ids
+        ]
+        picker.shuffle(remainder)
+        for item in remainder:
+            picked.append(item)
+            used_ids.add(str(item.get("id") or ""))
+            if len(picked) >= READER_COMMENTS_EXPECTED:
+                break
+    return picked[:READER_COMMENTS_EXPECTED]
+
+
+def _reader_comment_system_prompt(persona: dict, shared_context: str) -> str:
+    return (
+        _reader_persona_system_prompt(persona)
+        + "\n"
+        + READER_COMMENT_TASK_ADDON
+        + "\n\n"
+        + shared_context
+    )
+
+
+def _reader_comments_generating(scene_id: int) -> bool:
+    with _reader_comments_inflight_lock:
+        return int(scene_id) in _reader_comments_inflight
+
+
+def list_scene_reader_comments(scene_id: int) -> dict:
+    scene_id = int(scene_id)
+    with database() as connection:
+        scene = connection.execute(
+            "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
+            (scene_id,),
+        ).fetchone()
+        if scene is None:
+            raise LookupError("씬을 찾을 수 없습니다.")
+        rows = connection.execute(
+            """
+            SELECT c.id, c.scene_id, c.persona_id, c.comment_text, c.created_at,
+                   p.name, p.category
+            FROM scene_reader_comments c
+            JOIN virtual_reader_personas p ON p.id = c.persona_id
+            WHERE c.scene_id = ?
+            ORDER BY c.created_at ASC, c.id ASC
+            """,
+            (scene_id,),
+        ).fetchall()
+    comments = []
+    for row in rows:
+        item = as_dict(row) or {}
+        persona_id = str(item.get("persona_id") or "").strip()
+        comments.append(
+            {
+                "id": item.get("id"),
+                "scene_id": int(item.get("scene_id") or scene_id),
+                "persona_id": persona_id,
+                "persona_name": str(item.get("name") or "").strip() or "가상 독자",
+                "category": str(item.get("category") or "").strip(),
+                "avatar_url": reader_persona_avatar_url(persona_id),
+                "comment_text": str(item.get("comment_text") or ""),
+                "created_at": str(item.get("created_at") or ""),
+            }
+        )
+    return {
+        "ok": True,
+        "scene_id": scene_id,
+        "comments": comments,
+        "expected": READER_COMMENTS_EXPECTED,
+        "generating": _reader_comments_generating(scene_id),
+    }
+
+
+def schedule_scene_reader_comments(scene_id: int) -> dict:
+    """Start background generation if this scene has no comments yet."""
+    scene_id = int(scene_id)
+    payload = list_scene_reader_comments(scene_id)
+    if payload["comments"]:
+        payload["started"] = False
+        return payload
+    with _reader_comments_inflight_lock:
+        already = scene_id in _reader_comments_inflight
+        if not already:
+            _reader_comments_inflight.add(scene_id)
+    if already:
+        payload["generating"] = True
+        payload["started"] = False
+        return payload
+    try:
+        worker = Thread(
+            target=_scene_reader_comments_worker,
+            args=(scene_id,),
+            daemon=True,
+            name=f"scene-reader-comments-{scene_id}",
+        )
+        worker.start()
+    except Exception:
+        with _reader_comments_inflight_lock:
+            _reader_comments_inflight.discard(scene_id)
+        raise
+    payload["generating"] = True
+    payload["started"] = True
+    return payload
+
+
+def _scene_reader_comments_worker(scene_id: int) -> None:
+    try:
+        generate_scene_reader_comments(scene_id)
+    except Exception as error:
+        print(f"가상독자 댓글 생성 실패 (scene {scene_id}): {error}")
+    finally:
+        with _reader_comments_inflight_lock:
+            _reader_comments_inflight.discard(int(scene_id))
+
+
+def generate_scene_reader_comments(scene_id: int) -> None:
+    """Generate up to 3 virtual-reader comments; persist each as soon as it arrives."""
+    scene_id = int(scene_id)
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT COUNT(*) FROM scene_reader_comments WHERE scene_id = ?",
+            (scene_id,),
+        ).fetchone()[0]
+        if int(existing or 0) > 0:
+            return
+        row = connection.execute(
+            """
+            SELECT s.id, s.project_id, s.title, p.main_genre, p.sub_genre,
+                   r.content_md
+            FROM scene s
+            JOIN project p ON p.id = s.project_id
+            JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1
+            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
+            """,
+            (scene_id,),
+        ).fetchone()
+        if row is None:
+            return
+        work_id = str(row["project_id"])
+        episode_plain = plain_text_from_content(str(row["content_md"] or "")).strip()
+        scene_title = str(row["title"] or "").strip()
+        personas = select_reader_comment_personas(
+            row["main_genre"],
+            row["sub_genre"],
+            connection=connection,
+        )
+    if not personas:
+        return
+    shared_context = _reader_dynamic_context(work_id, episode_plain)
+    for index, persona in enumerate(personas):
+        persona_id = str(persona.get("id") or "").strip()
+        if not persona_id:
+            continue
+        reader_name = str(persona.get("name") or "").strip() or "가상 독자"
+        system = _reader_comment_system_prompt(persona, shared_context)
+        prompt = (
+            f"아래 회차가 완성되었습니다. '{reader_name}'로서 짧은 댓글 하나만 남겨 주세요.\n"
+            f"회차 제목: {scene_title or '(제목 없음)'}"
+        )
+        if index > 0 and READER_DEBATE_GEMINI_GAP_SECONDS > 0:
+            time.sleep(READER_DEBATE_GEMINI_GAP_SECONDS)
+        try:
+            reply = gemini_client.generate_text(
+                prompt,
+                system=system,
+                temperature=0.9,
+                max_output_tokens=512,
+            )
+        except gemini_client.GeminiError as error:
+            if not is_gemini_quota_error(error):
+                print(f"가상독자 댓글 건너뜀 ({reader_name}): {error}")
+            continue
+        except Exception as error:
+            print(f"가상독자 댓글 건너뜀 ({reader_name}): {error}")
+            continue
+        reply_text = str(reply or "").strip()
+        if not reply_text:
+            continue
+        try:
+            with database() as connection:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO scene_reader_comments
+                        (scene_id, persona_id, comment_text, created_at)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (scene_id, persona_id, reply_text, utc_timestamp_now()),
+                )
+        except sqlite3.Error as error:
+            print(f"가상독자 댓글 저장 실패 ({reader_name}): {error}")
+
+
 _cast_candidate_lock = Lock()
 _cast_candidate_last_at = 0.0
 _cast_candidate_inflight: set[int] = set()
@@ -4023,6 +4394,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.serve_ambient_file(match.group(1))
                 return
 
+            if path == "/api/auth/me":
+                self.send_json({"user": get_current_user()})
+                return
+
             if path == "/api/pairing/code":
                 if get_supabase_client() is None:
                     self.send_json(
@@ -4277,6 +4652,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_baits(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments", path)
+            if match:
+                self.send_json(list_scene_reader_comments(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
             if match:
                 self.send_json(self.scene_detail(int(match.group(1))))
@@ -4355,6 +4735,40 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         try:
             body = self.read_json()
+            if path == "/api/auth/signup":
+                result = sign_up(
+                    str(body.get("email") or ""),
+                    str(body.get("password") or ""),
+                )
+                if not result.get("ok"):
+                    status = result.get("status") or HTTPStatus.BAD_REQUEST
+                    self.api_error(
+                        str(result.get("error") or "회원가입에 실패했습니다."),
+                        HTTPStatus(int(status)),
+                    )
+                    return
+                self.send_json(result)
+                return
+
+            if path == "/api/auth/login":
+                result = sign_in(
+                    str(body.get("email") or ""),
+                    str(body.get("password") or ""),
+                )
+                if not result.get("ok"):
+                    status = result.get("status") or HTTPStatus.BAD_REQUEST
+                    self.api_error(
+                        str(result.get("error") or "로그인에 실패했습니다."),
+                        HTTPStatus(int(status)),
+                    )
+                    return
+                self.send_json({"ok": True, "user": result.get("user")})
+                return
+
+            if path == "/api/auth/logout":
+                self.send_json(sign_out())
+                return
+
             if path in {"/api/index/rebuild", "/api/index-rebuild"}:
                 self.send_json(self.start_index_rebuild(body or {}))
                 return
@@ -4972,6 +5386,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/cast-candidates", path)
             if match:
                 self.send_json(self.suggest_scene_cast_candidates(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments/generate", path)
+            if match:
+                result = schedule_scene_reader_comments(int(match.group(1)))
+                status = (
+                    HTTPStatus.ACCEPTED
+                    if result.get("started") or result.get("generating")
+                    else HTTPStatus.OK
+                )
+                if result.get("comments"):
+                    status = HTTPStatus.OK
+                self.send_json(result, status)
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments-started", path)
@@ -16989,12 +17416,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             links_json = json.dumps(parse_reference_links(body.get("reference_links")), ensure_ascii=False)
         with database() as connection:
             scene = connection.execute(
-                "SELECT row_version FROM scene WHERE id = ? AND deleted_at IS NULL", (scene_id,)
+                "SELECT row_version, status FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (scene_id,),
             ).fetchone()
             if scene is None:
                 raise ValueError("씬을 찾을 수 없습니다.")
             if expected_version and scene["row_version"] != expected_version:
                 raise ValueError("다른 화면에서 이 씬이 변경되었습니다. 새로 열고 다시 저장해 주세요.")
+            previous_status = str(scene["status"] or "")
             if links_json is None:
                 connection.execute(
                     "UPDATE scene SET title = ?, synopsis_md = ?, notes_md = ?, status = ?, "
@@ -17046,6 +17475,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             schedule_glump_highlight_analysis(scene_id, content)
         except Exception:
             pass
+        if status == "complete" and previous_status != "complete":
+            try:
+                schedule_scene_reader_comments(scene_id)
+            except Exception:
+                pass
         return payload
 
     def save_scene_characters(self, scene_id: int, body: dict) -> None:
@@ -18439,6 +18873,7 @@ def build_app_url(project_id: int | None = None) -> str:
 def _init_desktop_sync() -> None:
     """Optional Supabase login + device row. Failures must not stop the app."""
     try:
+        restore_session()
         client = get_supabase_client()
         if client is not None:
             ensure_device_registered()

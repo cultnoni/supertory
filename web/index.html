@@ -5206,25 +5206,61 @@
           </div>
         </section>
 
-        <!-- 사용자 관리 (판매·플랜 대비 자리) -->
+        <!-- 사용자 관리 -->
         <section class="admin-panel" data-admin-panel="account" aria-label="사용자 관리" data-i18n-aria-label="index.사용자_관리" hidden>
           <div class="admin-section-box">
             <div class="admin-trash-heading">
               <div>
                 <h3 class="admin-section-title" data-i18n="index.사용자_관리">사용자 관리</h3>
-                <p class="hint" data-i18n="index.판매_구독_시_본인_계정_플랜_결제_정보를">판매·구독 시 본인 계정·플랜·결제 정보를 확인할 공간입니다. 현재는 로컬 전용 미리보기입니다.</p>
+                <p class="hint" data-i18n="index.계정으로_로그인하면_이_기기에_세션이_저장됩">계정으로 로그인하면 이 기기에 세션이 저장됩니다. 플랜·결제 정보는 아직 미리보기입니다.</p>
               </div>
             </div>
 
             <div class="admin-account-grid">
-              <article class="admin-account-card">
+              <article class="admin-account-card" id="adminAccountAuthCard">
                 <h4 class="admin-subsection-title" data-i18n="index.회원_정보">회원 정보</h4>
                 <dl class="admin-info-meta">
                   <div class="admin-info-row"><dt data-i18n="index.상태">상태</dt><dd id="adminUserStatus" data-i18n="app.로컬_사용자">로컬 사용자</dd></div>
                   <div class="admin-info-row"><dt data-i18n="index.표시_이름">표시 이름</dt><dd id="adminUserDisplayName">—</dd></div>
                   <div class="admin-info-row"><dt data-i18n="index.계정">계정</dt><dd id="adminUserAccount" data-i18n="app.로그인_없음_로컬">로그인 없음 (로컬)</dd></div>
                 </dl>
-                <p class="hint admin-soon-hint" data-i18n="index.온라인_계정_연동_시_여기에_프로필이_표시됩">온라인 계정 연동 시 여기에 프로필이 표시됩니다.</p>
+
+                <div id="adminAuthSignedIn" class="admin-auth-signed-in" hidden>
+                  <p id="adminAuthSignedInLabel" class="admin-auth-status">로그인됨: —</p>
+                  <button type="button" id="adminAuthLogoutButton" class="secondary compact-btn" data-i18n="app.로그아웃">로그아웃</button>
+                </div>
+
+                <form id="adminAuthForm" class="admin-auth-form" data-auth-mode="login">
+                  <label class="admin-lang-row" for="adminAuthEmail">
+                    <span data-i18n="app.이메일">이메일</span>
+                    <input
+                      id="adminAuthEmail"
+                      type="email"
+                      class="admin-help-search"
+                      autocomplete="username"
+                      placeholder="이메일 주소"
+                      data-i18n-placeholder="index.이메일_주소"
+                    >
+                  </label>
+                  <label class="admin-lang-row" for="adminAuthPassword">
+                    <span data-i18n="app.비밀번호">비밀번호</span>
+                    <input
+                      id="adminAuthPassword"
+                      type="password"
+                      class="admin-help-search"
+                      autocomplete="current-password"
+                      placeholder="비밀번호"
+                      data-i18n-placeholder="app.비밀번호"
+                    >
+                  </label>
+                  <p id="adminAuthMessage" class="hint admin-auth-message" hidden></p>
+                  <div class="admin-auth-actions">
+                    <button type="submit" id="adminAuthSubmitButton" class="primary compact-btn" data-i18n="app.로그인">로그인</button>
+                  </div>
+                  <p class="hint admin-auth-switch">
+                    <button type="button" id="adminAuthModeToggle" class="admin-auth-link" data-i18n="app.계정이_없으신가요_회원가입">계정이 없으신가요? 회원가입</button>
+                  </p>
+                </form>
               </article>
               <article class="admin-account-card">
                 <h4 class="admin-subsection-title" data-i18n="index.플랜_정보">플랜 정보</h4>
@@ -5491,6 +5527,8 @@
               class="secondary compact-btn"
               id="viewerReaderCommentsButton"
               title="회차를 완성으로 바꾸면 가상독자 댓글을 받을 수 있어요" data-i18n-title="app.회차를_완성으로_바꾸면_가상독자_댓글을_받을"
+              aria-expanded="false"
+              aria-controls="viewerReaderCommentsPanel"
               disabled
              data-i18n="index.가상독자_댓글_받기">가상독자 댓글 받기</button>
             <button type="button" class="secondary compact-btn" id="viewerTocToggle" title="목차 열기/닫기" data-i18n-title="index.목차_열기_닫기" aria-expanded="false" aria-controls="viewerTocPanel" data-i18n="app.목차">목차</button>
@@ -5513,6 +5551,16 @@
             <button type="button" class="secondary compact-btn viewer-toc-close" id="viewerTocClose" title="목차 닫기" data-i18n-title="index.목차_닫기" aria-label="목차 닫기" data-i18n-aria-label="index.목차_닫기" data-i18n="app.닫기">닫기</button>
           </div>
           <div class="viewer-toc-list" id="viewerTocList"></div>
+        </div>
+        <div class="viewer-toc-panel hidden" id="viewerReaderCommentsPanel" aria-label="가상독자 댓글" data-i18n-aria-label="index.가상독자_댓글_패널">
+          <div class="viewer-toc-head">
+            <div class="viewer-toc-head-text">
+              <strong data-i18n="app.가상독자_댓글">가상독자 댓글</strong>
+              <span class="hint" id="viewerReaderCommentsHint"></span>
+            </div>
+            <button type="button" class="secondary compact-btn viewer-toc-close" id="viewerReaderCommentsClose" title="댓글 닫기" data-i18n-title="index.가상독자_댓글_닫기" aria-label="댓글 닫기" data-i18n-aria-label="index.가상독자_댓글_닫기" data-i18n="app.닫기">닫기</button>
+          </div>
+          <div class="viewer-comments-list" id="viewerReaderCommentsList"></div>
         </div>
         <div class="viewer-toolbar" id="viewerToolbar">
           <!-- PDF controls -->
