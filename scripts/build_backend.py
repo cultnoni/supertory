@@ -3,8 +3,9 @@
 Output:
   backend-dist/supertory-server/supertory-server.exe  (+ _internal/)
 
-Also embeds GEMINI_API_KEY (and related) from the project .env into
-``bundled_env.py`` so the frozen server works without a user-supplied key.
+Also embeds GEMINI_API_KEY / GEMINI_MODEL and the Supabase pairing keys
+from the project .env into ``bundled_env.py`` so the frozen server works
+without a user-supplied .env.
 
 Usage (from repo root):
   python scripts/build_backend.py
@@ -26,7 +27,20 @@ SERVER_NAME = "supertory-server"
 BUNDLED_ENV_PY = ROOT / "bundled_env.py"
 
 # Keys copied from .env into the frozen fallback module.
-BUNDLE_KEYS = ("GEMINI_API_KEY", "GEMINI_MODEL")
+BUNDLE_KEYS = (
+    "GEMINI_API_KEY",
+    "GEMINI_MODEL",
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_USER_EMAIL",
+    "SUPABASE_USER_PASSWORD",
+)
+SUPABASE_KEYS = (
+    "SUPABASE_URL",
+    "SUPABASE_ANON_KEY",
+    "SUPABASE_USER_EMAIL",
+    "SUPABASE_USER_PASSWORD",
+)
 
 
 def ensure_pyinstaller() -> None:
@@ -83,6 +97,16 @@ def write_bundled_env() -> dict[str, str]:
             f"Embedding GEMINI_API_KEY into bundled_env.py "
             f"(len={len(selected['GEMINI_API_KEY'])})."
         )
+
+    missing_supabase = [key for key in SUPABASE_KEYS if key not in selected]
+    if missing_supabase:
+        print(
+            "WARNING: Supabase keys missing from .env — frozen sync will stay "
+            f"offline until they are supplied ({', '.join(missing_supabase)}).",
+            file=sys.stderr,
+        )
+    else:
+        print("Embedding Supabase credentials into bundled_env.py.")
 
     lines = [
         '"""Build-time env defaults for the frozen SuperTory backend.',
