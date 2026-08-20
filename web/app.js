@@ -52784,15 +52784,15 @@ const AMBIENT_CATEGORY_META = [
 ];
 
 const AMBIENT_LABEL_RULES = [
-  { test: /alpha|알파/i, key: "app.알파파" },
-  { test: /beta|gamma|베타|감마/i, key: "app.베타_감마파" },
+  { test: /alpha|알파/i, key: "app.알파파", hintKey: "app.알파파_힌트" },
+  { test: /beta|gamma|베타|감마/i, key: "app.베타_감마파", hintKey: "app.베타_감마파_힌트" },
   { test: /theta|세타/i, key: "app.세타파" },
   { test: /delta|델타/i, key: "app.델타파" },
-  { test: /528/, key: "app.528Hz" },
+  { test: /528/, key: "app.528Hz", hintKey: "app.528Hz_힌트" },
   { test: /432/, key: "app.432Hz" },
-  { test: /white|화이트/i, key: "app.화이트노이즈" },
-  { test: /pink|핑크/i, key: "app.핑크노이즈" },
-  { test: /brown|브라운/i, key: "app.브라운노이즈" },
+  { test: /white|화이트/i, key: "app.화이트노이즈", hintKey: "app.화이트노이즈_힌트" },
+  { test: /pink|핑크/i, key: "app.핑크노이즈", hintKey: "app.핑크노이즈_힌트" },
+  { test: /brown|브라운/i, key: "app.브라운노이즈", hintKey: "app.브라운노이즈_힌트" },
   { test: /blue|블루/i, key: "app.블루노이즈" },
   { test: /green|그린/i, key: "app.그린노이즈" },
   { test: /jungle/i, key: "app.정글_비" },
@@ -52840,13 +52840,24 @@ function humanizeAmbientStem(stem) {
   return stripAmbientLoopJunk(String(stem || "").replace(/[_-]+/g, " "));
 }
 
+function ambientTrackRule(id) {
+  const track = ambientSound.tracks[id];
+  if (!track) return null;
+  const hay = stripAmbientLoopJunk(`${track.stem} ${track.file || ""}`);
+  return AMBIENT_LABEL_RULES.find((item) => item.test.test(hay) || item.test.test(`${track.stem} ${track.file || ""}`)) || null;
+}
+
 function ambientTrackLabel(id) {
   const track = ambientSound.tracks[id];
   if (!track) return i18n.t("app.배경음");
-  const hay = stripAmbientLoopJunk(`${track.stem} ${track.file || ""}`);
-  const rule = AMBIENT_LABEL_RULES.find((item) => item.test.test(hay) || item.test.test(`${track.stem} ${track.file || ""}`));
+  const rule = ambientTrackRule(id);
   if (rule) return i18n.t(rule.key);
   return humanizeAmbientStem(track.stem) || i18n.t("app.배경음");
+}
+
+function ambientTrackHint(id) {
+  const rule = ambientTrackRule(id);
+  return rule?.hintKey ? i18n.t(rule.hintKey) : "";
 }
 
 function ambientCategoryLabel(catId) {
@@ -52862,8 +52873,8 @@ function ambientTrackGain(track) {
 
 function ambientDefaultTrackId() {
   const all = Object.values(ambientSound.tracks);
-  const pink = all.find((track) => /pink|핑크/i.test(`${track.stem} ${track.file || ""}`));
-  if (pink) return pink.id;
+  const brown = all.find((track) => /brown|브라운/i.test(`${track.stem} ${track.file || ""}`));
+  if (brown) return brown.id;
   const noise = ambientSound.categories.find((cat) => cat.id === "noise");
   if (noise?.tracks?.[0]) return noise.tracks[0].id;
   return all[0]?.id || "";
@@ -53125,7 +53136,8 @@ function preloadAmbientArt() {
   });
 }
 
-function renderAmbientTrackButtons(selected) {
+function renderAmbientTrackButtons(selected, options = {}) {
+  const withHint = Boolean(options.withHint);
   const total = Object.keys(ambientSound.tracks).length;
   if (!total) {
     return `<p class="ambient-empty-hint">${escapeHtml(i18n.t("app.음원_없음"))}</p>`;
@@ -53133,14 +53145,19 @@ function renderAmbientTrackButtons(selected) {
   return ambientSound.categories.map((cat) => {
     const items = cat.tracks.map((track) => {
       const active = track.id === selected;
-      const label = escapeHtml(ambientTrackLabel(track.id));
+      const label = ambientTrackLabel(track.id);
+      const hint = withHint ? ambientTrackHint(track.id) : "";
+      const title = hint ? `${label} ${hint}` : label;
       const art = ambientTrackArt(track);
       const img = art
         ? `<img src="${escapeHtml(art)}" alt="" width="46" height="46" decoding="async">`
         : "";
-      return `<button type="button" class="ambient-chip${active ? " is-active" : ""}" role="menuitemradio" data-ambient-track="${escapeHtml(track.id)}" aria-checked="${active ? "true" : "false"}" title="${label}">
+      const hintHtml = hint
+        ? `<span class="ambient-chip-hint">${escapeHtml(hint)}</span>`
+        : "";
+      return `<button type="button" class="ambient-chip${active ? " is-active" : ""}" role="menuitemradio" data-ambient-track="${escapeHtml(track.id)}" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(title)}">
         <span class="ambient-chip-art" aria-hidden="true">${img}<span class="ambient-chip-check">✓</span></span>
-        <span class="ambient-chip-label">${label}</span>
+        <span class="ambient-chip-label">${escapeHtml(label)}${hintHtml}</span>
       </button>`;
     }).join("");
     return `<section class="ambient-rail-group" data-ambient-cat="${escapeHtml(cat.id)}">
@@ -53165,7 +53182,7 @@ function fillAmbientPopup(force = false) {
 function renderAdminAmbientList() {
   const host = $("adminAmbientTrackList");
   if (!host) return;
-  host.innerHTML = renderAmbientTrackButtons(ambientSound.selectedId);
+  host.innerHTML = renderAmbientTrackButtons(ambientSound.selectedId, { withHint: true });
 }
 
 function positionAmbientPopup() {

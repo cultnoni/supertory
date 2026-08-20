@@ -3139,6 +3139,17 @@ body.ai-panel-collapsed .outline-panel-inner {
   width: 56px;
   height: 56px;
 }
+.ambient-admin-list .ambient-chip-label {
+  -webkit-line-clamp: 4;
+}
+.ambient-chip-hint {
+  display: block;
+  margin-top: 2px;
+  font-size: 9.5px;
+  font-weight: 600;
+  line-height: 1.25;
+  color: var(--muted);
+}
 .ambient-empty-hint {
   margin: 4px 6px 0;
   font-size: 12px;
