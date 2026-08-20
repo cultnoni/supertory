@@ -1,4 +1,4 @@
-"""Stable local device_id and optional Supabase devices-row registration."""
+"""이 PC의 device_id를 로컬에 저장하고, 연동되어 있으면 Supabase devices에 등록/last_seen을 갱신한다."""
 
 from __future__ import annotations
 

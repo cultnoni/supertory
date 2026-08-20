@@ -1,7 +1,4 @@
-"""Lazy Supabase client for optional desktop sync.
-
-Missing config or a failed login must not break local writing.
-"""
+"""Supabase 클라이언트를 필요할 때만 로그인해서 돌려준다. 설정이 없거나 실패하면 None (로컬 작성은 계속)."""
 
 from __future__ import annotations
 

@@ -46,6 +46,7 @@ hiddenimports = [
     "sync.supabase_client",
     "sync.device",
     "sync.pairing",
+    "sync.project_sync",
     # stdlib modules sometimes missed under freeze
     "sqlite3",
     "http.server",

@@ -7189,8 +7189,39 @@ async function markProjectOpened(projectId = state.projectId) {
       state.projectListMode = result.list_mode;
     }
     bumpOpenedProjectInLocalList(id, result?.last_opened_at || null);
+    const title = state.projects.find((project) => Number(project.id) === id)?.title || "";
+    api(`/api/projects/${id}/checkout`, {
+      method: "POST",
+      body: JSON.stringify({ title }),
+    }).catch((error) => {
+      console.warn("[supertory] project checkout failed", error);
+    });
   } catch (_) {
     // Opening must not fail because of list bookkeeping.
+  }
+}
+
+function postProjectCheckinKeepalive(projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const url = `/api/projects/${id}/checkin`;
+  try {
+    if (typeof navigator !== "undefined" && typeof navigator.sendBeacon === "function") {
+      const blob = new Blob(["{}"], { type: "application/json" });
+      if (navigator.sendBeacon(url, blob)) return;
+    }
+  } catch (_) {
+    /* fall through to fetch */
+  }
+  try {
+    fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: "{}",
+      keepalive: true,
+    }).catch(() => {});
+  } catch (_) {
+    /* ignore */
   }
 }
 
@@ -52670,6 +52701,15 @@ safeSetup("setupSplitEditMode", setupSplitEditMode);
 onEl("projectSelect", "change", (event) => {
   const nextId = Number(event.target.value);
   const applyProjectSwitch = () => {
+    const previousId = Number(state.projectId);
+    if (Number.isFinite(previousId) && previousId > 0) {
+      fetch(`/api/projects/${previousId}/checkin`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+        keepalive: true,
+      }).catch(() => {});
+    }
     state.projectId = nextId;
     // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
     state.outline = [];
@@ -52706,6 +52746,13 @@ onEl("newAlias", "keydown", (event) => {
     event.preventDefault();
     addAlias().catch(handleError);
   }
+});
+
+window.addEventListener("beforeunload", () => {
+  if (state.projectId) postProjectCheckinKeepalive(state.projectId);
+});
+window.addEventListener("pagehide", () => {
+  if (state.projectId) postProjectCheckinKeepalive(state.projectId);
 });
 
 loadProjects().catch(handleError);

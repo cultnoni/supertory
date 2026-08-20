@@ -1,4 +1,4 @@
-"""Short-lived numeric pairing codes stored in Supabase."""
+"""모바일 페어링용 6자리 코드를 Supabase pairing_codes에 잠시 저장한다."""
 
 from __future__ import annotations
 

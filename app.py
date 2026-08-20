@@ -52,6 +52,7 @@ import success_pattern
 import tarot_deck
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
+from sync.project_sync import checkin_project, checkout_project
 from sync.supabase_client import get_supabase_client
 
 def _is_frozen() -> bool:
@@ -4415,6 +4416,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "last_opened_at": stamp,
                     "list_mode": mode,
                 })
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/checkout", path)
+            if match:
+                project_id = int(match.group(1))
+                if get_supabase_client() is None:
+                    self.send_json(
+                        {"error": "sync_not_configured"},
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return
+                title = str(body.get("title") or "").strip()
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    if not title:
+                        row = connection.execute(
+                            "SELECT title FROM project WHERE id = ? AND deleted_at IS NULL",
+                            (project_id,),
+                        ).fetchone()
+                        title = str((row["title"] if row else "") or "")
+                checkout_project(project_id, title)
+                self.send_json({"ok": True, "id": project_id})
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/checkin", path)
+            if match:
+                project_id = int(match.group(1))
+                checkin_project(project_id)
+                self.send_json({"ok": True, "id": project_id})
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/parts", path)
