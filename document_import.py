@@ -71,6 +71,8 @@ TOC_PAGE_SUFFIX = re.compile(
     r"[\s\.·⋯…‧･ㆍ]{2,}\s*\d+\s*$|"
     r"\s+\d+\s*$"
 )
+# SuperTory export wraps each scene title: 【1화.제목】 / 【소개】
+BRACKET_TITLE_RE = re.compile(r"^【\s*(.+?)\s*】$")
 
 
 @dataclass(frozen=True)
@@ -682,6 +684,22 @@ def _split_by_headings(text: str, default_title: str) -> list[ImportedSection]:
     return sections
 
 
+def _unwrap_corner_brackets(title: str) -> str | None:
+    """Inner text when the whole line is 【제목】; otherwise None."""
+    text = (title or "").strip()
+    match = BRACKET_TITLE_RE.match(text)
+    if not match:
+        return None
+    inner = (match.group(1) or "").strip()
+    return inner or None
+
+
+def _strip_corner_brackets(title: str) -> str:
+    """Peel a wrapping 【…】 pair so TOC '소개' matches body '【소개】'."""
+    inner = _unwrap_corner_brackets(title)
+    return inner if inner is not None else (title or "").strip()
+
+
 def _clean_heading_title(raw: str) -> str:
     title = raw.strip()
     title = re.sub(r"^#{1,6}\s+", "", title)
@@ -807,6 +825,7 @@ def _split_by_blank_lines(
 class _TocEntry:
     title: str
     level: int  # 0 = chapter, 1+ = nested scene
+    from_bracket: bool = False  # True when the heading was a 【제목】 line
 
 
 def _split_by_toc(text: str, default_title: str) -> ImportPlan:
@@ -843,7 +862,7 @@ def _split_by_toc(text: str, default_title: str) -> ImportPlan:
 
 def _struct_id(title: str) -> tuple[str, int | None] | None:
     """Structural heading id: ('prologue', None), ('epilogue', None), ('장', 1), ('부', 2), …"""
-    raw = (title or "").strip()
+    raw = _strip_corner_brackets(title)
     if not raw:
         return None
     if re.match(r"^(?:프롤로그|서문|서장|머리말|서론|prologue)\b", raw, re.I):
@@ -1161,6 +1180,7 @@ def _titles_match(left: str, right: str) -> bool:
 
 def _title_key(title: str) -> str:
     text = _clean_heading_title(title)
+    text = _strip_corner_brackets(text)
     text = TOC_PAGE_SUFFIX.sub("", text)
     text = re.sub(r"\s+", "", text)
     text = re.sub(r"[\.·⋯…‧･ㆍ:#]+", "", text)

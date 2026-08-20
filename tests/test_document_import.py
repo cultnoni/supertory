@@ -221,8 +221,8 @@ class HierarchyImportPlanTests(unittest.TestCase):
         # 장 only (no 화) → 서문(프롤로그) 폴더 + each 장 folder under 1권
         folders = h.volumes[0].folders
         self.assertEqual([f.title for f in folders], ["서문", "1장", "2장"])
-        self.assertEqual([ep.title for ep in folders[1].episodes], ["만남"])
-        self.assertEqual([ep.title for ep in folders[2].episodes], ["이별"])
+        self.assertEqual([ep.title for ep in folders[1].episodes], ["제1장 만남"])
+        self.assertEqual([ep.title for ep in folders[2].episodes], ["제2장 이별"])
         self.assertIn("카페", folders[1].episodes[0].content)
 
     def test_toc_absent_heuristic_fallback(self) -> None:
@@ -248,8 +248,177 @@ class HierarchyImportPlanTests(unittest.TestCase):
         # Number-only 1화 → N회차_세어절
         self.assertTrue(eps[0].title.startswith("1회차_"), eps[0].title)
         self.assertIn("가난한", eps[0].title)
-        # Subtitle kept
-        self.assertEqual(eps[1].title, "첫눈")
+        # Subtitle kept with 화 번호
+        self.assertEqual(eps[1].title, "2화 첫눈")
+
+    def test_title_key_strips_corner_brackets(self) -> None:
+        self.assertEqual(
+            document_import._title_key("소개"),
+            document_import._title_key("【소개】"),
+        )
+        self.assertEqual(
+            document_import._title_key("1화.한 겨울 밤의 꿈"),
+            document_import._title_key("【1화.한 겨울 밤의 꿈】"),
+        )
+        self.assertTrue(
+            document_import._titles_match("소개", "【소개】"),
+        )
+
+    def test_bracket_markers_are_episodes_not_misc_or_prologue(self) -> None:
+        text = """
+1권
+----
+
+【소개】
+
+소개 본문입니다.
+
+【줄거리】
+
+줄거리 본문입니다.
+
+1부
+----
+
+【1화.한 겨울 밤의 꿈】
+
+꿈 장면이 시작된다.
+
+【프롤로그+한겨울밤의 꿈】
+
+하위 원고 본문입니다.
+
+【2화.파가몬 제국에 가다】
+
+제국으로 떠난다.
+
+1. 스무 살이 된 걸 축하한다.
+
+리스트 본문은 회차가 아니다.
+""".strip()
+        # Keep Gemini from rewriting the assembled TOC text.
+        original_ai = import_hierarchy._maybe_ai_toc
+        import_hierarchy._maybe_ai_toc = lambda *a, **k: None
+        try:
+            h = import_hierarchy.build_hierarchy_plan(text)
+        finally:
+            import_hierarchy._maybe_ai_toc = original_ai
+        self.assertEqual(h.volumes[0].title, "1권")
+        folders = {f.title: f for f in h.volumes[0].folders}
+        self.assertIn("1부", folders)
+        hon = next(
+            f for f in h.volumes[0].folders
+            if f.transparent or f.title == import_hierarchy.TRANSPARENT_CHAPTER_TITLE
+        )
+        hon_titles = [ep.title for ep in hon.episodes]
+        self.assertIn("소개", hon_titles)
+        self.assertIn("줄거리", hon_titles)
+        intro = next(ep for ep in hon.episodes if ep.title == "소개")
+        plot = next(ep for ep in hon.episodes if ep.title == "줄거리")
+        self.assertIn("소개 본문", intro.content)
+        self.assertIn("줄거리 본문", plot.content)
+        self.assertNotIn("1화 본문", intro.content)
+        part = folders["1부"]
+        part_titles = [ep.title for ep in part.episodes]
+        self.assertIn("1화.한 겨울 밤의 꿈", part_titles)
+        self.assertIn("프롤로그+한겨울밤의 꿈", part_titles)
+        self.assertTrue(any("파가몬" in t for t in part_titles), part_titles)
+        ep1 = next(ep for ep in part.episodes if ep.title == "1화.한 겨울 밤의 꿈")
+        child = next(ep for ep in part.episodes if ep.title == "프롤로그+한겨울밤의 꿈")
+        ep2 = next(ep for ep in part.episodes if "파가몬" in ep.title)
+        self.assertIn("꿈 장면", ep1.content)
+        self.assertNotIn("하위 원고", ep1.content)
+        self.assertIn("하위 원고", child.content)
+        self.assertIn("제국으로", ep2.content)
+        all_titles = [ep.title for ep in h.all_episodes()]
+        self.assertFalse(any("스무 살이" in t for t in all_titles), all_titles)
+        self.assertIn("스무 살이", ep2.content)
+
+    def test_export_cover_title_page_is_skipped(self) -> None:
+        text = """
+노예 수집하는 레이디 (개정판) 백업
+
+====================
+
+
+1권
+----
+
+【소개】
+
+소개 본문입니다.
+
+1부
+----
+
+【1화.한 겨울 밤의 꿈】
+
+꿈 장면이 시작된다.
+""".strip()
+        original_ai = import_hierarchy._maybe_ai_toc
+        import_hierarchy._maybe_ai_toc = lambda *a, **k: None
+        try:
+            h = import_hierarchy.build_hierarchy_plan(text)
+        finally:
+            import_hierarchy._maybe_ai_toc = original_ai
+        folder_titles = [f.title for f in h.volumes[0].folders]
+        self.assertNotIn("노예 수집하는 레이디 (개정판) 백업", folder_titles)
+        self.assertFalse(any("=" in t for t in folder_titles), folder_titles)
+        self.assertIn("소개", [ep.title for f in h.volumes[0].folders for ep in f.episodes])
+
+    def test_preamble_cover_with_copy_suffix_is_not_untitled(self) -> None:
+        """목차 앞 작품명+(3) 표지는 미정회차로 넣지 않음."""
+        text = """
+노예 수집하는 레이디 (개정판) 백업 (3)
+
+========================
+
+목차
+1권
+1부
+1화.한 겨울 밤의 꿈
+
+1권
+
+1부
+
+1화.한 겨울 밤의 꿈
+
+꿈 장면이 시작된다.
+""".strip()
+        original_ai = import_hierarchy._maybe_ai_toc
+        import_hierarchy._maybe_ai_toc = lambda *a, **k: None
+        try:
+            h = import_hierarchy.build_hierarchy_plan(text)
+        finally:
+            import_hierarchy._maybe_ai_toc = original_ai
+        folder_titles = [f.title for f in h.volumes[0].folders]
+        episode_titles = [ep.title for f in h.volumes[0].folders for ep in f.episodes]
+        self.assertNotIn(import_hierarchy.UNTITLED_FOLDER, folder_titles)
+        self.assertNotIn(import_hierarchy.UNTITLED_FOLDER, episode_titles)
+        self.assertNotIn("노예 수집하는 레이디 (개정판) 백업 (3)", folder_titles)
+        self.assertIn("1화.한 겨울 밤의 꿈", episode_titles)
+
+    def test_numbered_dot_fallback_without_brackets(self) -> None:
+        text = """
+1권
+
+1. 첫 회
+첫 본문.
+
+2. 둘째 회
+둘째 본문.
+""".strip()
+        original_ai = import_hierarchy._maybe_ai_toc
+        import_hierarchy._maybe_ai_toc = lambda *a, **k: None
+        try:
+            h = import_hierarchy.build_hierarchy_plan(text)
+        finally:
+            import_hierarchy._maybe_ai_toc = original_ai
+        eps = h.volumes[0].folders[0].episodes
+        self.assertEqual(len(eps), 2)
+        self.assertIn("첫 본문", eps[0].content)
+        self.assertIn("둘째 본문", eps[1].content)
 
     def test_volume_only_transparent_chapter(self) -> None:
         text = """
@@ -272,7 +441,7 @@ class HierarchyImportPlanTests(unittest.TestCase):
         self.assertEqual([v.title for v in h.volumes], ["1권"])
         self.assertEqual(len(h.volumes[0].folders), 1)
         self.assertTrue(h.volumes[0].folders[0].transparent)
-        self.assertEqual([e.title for e in h.volumes[0].folders[0].episodes], ["시작", "끝"])
+        self.assertEqual([e.title for e in h.volumes[0].folders[0].episodes], ["1화 시작", "2화 끝"])
 
     def test_volume_and_parts(self) -> None:
         text = """
@@ -302,8 +471,8 @@ class HierarchyImportPlanTests(unittest.TestCase):
         folders = h.volumes[0].folders
         self.assertEqual([f.title for f in folders], ["1부", "2부"])
         self.assertFalse(folders[0].transparent)
-        self.assertEqual(folders[0].episodes[0].title, "아침")
-        self.assertEqual(folders[1].episodes[0].title, "저녁")
+        self.assertEqual(folders[0].episodes[0].title, "1화 아침")
+        self.assertEqual(folders[1].episodes[0].title, "2화 저녁")
 
     def test_prologue_folder_episode(self) -> None:
         text = """
@@ -326,8 +495,8 @@ class HierarchyImportPlanTests(unittest.TestCase):
         # 프롤로그 폴더 다음 본편 회차
         titles = [f.title for f in h.volumes[0].folders]
         self.assertEqual(titles[0], "프롤로그")
-        hwa = next(f for f in h.volumes[0].folders if f.title == import_hierarchy.TRANSPARENT_CHAPTER_TITLE or f.episodes and f.episodes[0].title == "본편시작")
-        self.assertEqual(hwa.episodes[0].title, "본편시작")
+        hwa = next(f for f in h.volumes[0].folders if f.title == import_hierarchy.TRANSPARENT_CHAPTER_TITLE or f.episodes and f.episodes[0].title == "1화 본편시작")
+        self.assertEqual(hwa.episodes[0].title, "1화 본편시작")
 
     def test_unmatched_toc_creates_empty_episode(self) -> None:
         text = """
@@ -342,9 +511,9 @@ class HierarchyImportPlanTests(unittest.TestCase):
         h = import_hierarchy.build_hierarchy_plan(text)
         eps = h.volumes[0].folders[0].episodes
         self.assertEqual(len(eps), 2)
-        self.assertEqual(eps[0].title, "있는회차")
+        self.assertEqual(eps[0].title, "1화 있는회차")
         self.assertIn("본문", eps[0].content)
-        self.assertEqual(eps[1].title, "없는회차")
+        self.assertEqual(eps[1].title, "2화 없는회차")
         self.assertEqual(eps[1].content, "")
         self.assertTrue(any("빈 회차" in w for w in h.warnings))
 
@@ -406,7 +575,7 @@ class HierarchyImportPlanTests(unittest.TestCase):
         self.assertTrue(any(t.startswith("프롤로그") for t in folder_titles))
         self.assertNotIn("선 밖", folder_titles)  # 표지 제목은 목차 씬에만
         jang1 = next(f for f in h.volumes[0].folders if f.title == "1장")
-        self.assertEqual(jang1.episodes[0].title, "사랑에 눈이 멀면")
+        self.assertEqual(jang1.episodes[0].title, "1장. 사랑에 눈이 멀면")
 
     def test_front_matter_and_misc_under_volume(self) -> None:
         """소개/머릿말·미정 글은 1권 안 순서; 권 밖은 목차만."""
@@ -546,7 +715,7 @@ class HierarchyImportPlanTests(unittest.TestCase):
         self.assertTrue(any("프롤로그" in t for t in folders))
         # 부+장(leaf): 1권 / N부 / 장 원고
         self.assertIn("UNIQUE_CH1", folders["1부"].episodes[0].content)
-        self.assertEqual(folders["1부"].episodes[0].title, "사랑에 눈이 멀면 보이지 않는 것들이 있다")
+        self.assertEqual(folders["1부"].episodes[0].title, "1장. 사랑에 눈이 멀면 보이지 않는 것들이 있다")
         self.assertIn("UNIQUE_CH5", folders["1부"].episodes[4].content)
         self.assertIn("UNIQUE_CH10", folders["2부"].episodes[4].content)
         for part in ("3부", "4부", "5부"):
@@ -599,11 +768,11 @@ class HierarchyImportPlanTests(unittest.TestCase):
         self.assertEqual(titles, ["1부 · 1장", "1부 · 2장"])
         self.assertEqual(
             [e.title for e in h.volumes[0].folders[0].episodes],
-            ["아침", "점심"],
+            ["1화 아침", "2화 점심"],
         )
         self.assertEqual(
             [e.title for e in h.volumes[0].folders[1].episodes],
-            ["저녁"],
+            ["3화 저녁"],
         )
 
     def test_jang_folder_with_hwa_only(self) -> None:
@@ -629,7 +798,7 @@ class HierarchyImportPlanTests(unittest.TestCase):
         eps = h.volumes[0].folders[0].episodes
         self.assertTrue(eps[0].title.startswith("1회차_"), eps[0].title)
         self.assertIn("첫번째", eps[0].title)
-        self.assertEqual(eps[1].title, "부제")
+        self.assertEqual(eps[1].title, "2화 부제")
 
     def test_nonfiction_multipart_toc_full_block(self) -> None:
         """Long 부/장 목차 must keep ALL groups in 목차 scene (not stop after first blank)."""

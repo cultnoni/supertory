@@ -190,7 +190,10 @@ def build_hierarchy_plan(text: str, default_title: str = "원고") -> HierarchyI
                 warnings=tuple(warnings),
             )
 
-    classified = [_classify_entry(e.title) for e in entries]
+    classified = [
+        _classify_entry(e.title, from_bracket=bool(getattr(e, "from_bracket", False)))
+        for e in entries
+    ]
     positions = di._locate_titles_in_body(body, [e.title for e in entries])
     contents: list[str] = []
     for index, (entry, pos) in enumerate(zip(entries, positions)):
@@ -271,6 +274,8 @@ def _extract_preamble_folders(full_text: str) -> list[dict]:
         return []
 
     preamble = lines[:heading_index]
+    if _is_title_page_lines(preamble):
+        return []
     return _blocks_to_misc_folders(preamble, allow_title_page_skip=True)
 
 
@@ -296,7 +301,56 @@ def _extract_body_prefix_folders(body: str, positions: list[int | None]) -> list
     prefix = body[:first_pos].strip()
     if not prefix:
         return []
-    return _blocks_to_misc_folders(prefix.split("\n"), allow_title_page_skip=False)
+    prefix_lines = prefix.split("\n")
+    # 내보내기 표지(작품명 + ====) 또는 짧은 제목만 있고 곧 권/부로 이어지면 폴더를 만들지 않음.
+    if _is_title_page_lines(prefix_lines):
+        return []
+    return _blocks_to_misc_folders(prefix_lines, allow_title_page_skip=True)
+
+
+def _is_divider_line(line: str) -> bool:
+    """Export / markdown rule: ====, ----, **** …"""
+    stripped = (line or "").strip()
+    return bool(stripped) and bool(re.fullmatch(r"[=\-_~*]{4,}", stripped))
+
+
+def _body_is_empty_or_divider(body_lines: list[str]) -> bool:
+    return all(
+        (not ln.strip()) or _is_divider_line(ln)
+        for ln in body_lines
+    )
+
+
+def _is_title_page_lines(lines: list[str]) -> bool:
+    """True for a cover: short title(s), optional ====, no real body, then 권/부."""
+    nonempty = [ln.strip() for ln in lines if ln.strip()]
+    if not nonempty:
+        return True
+    leftover = [ln for ln in nonempty if not _is_divider_line(ln)]
+    if not leftover:
+        return True
+    if len(leftover) > 3:
+        return False
+    for item in leftover:
+        if len(item) > 80:
+            return False
+        if VOLUME_RE.match(item) or PART_RE.match(item) or CHAPTER_JANG_RE.match(item):
+            return False
+        if EPISODE_HWA_RE.match(item) or MISC_SECTION_RE.match(item) or PROLOGUE_RE.match(item):
+            return False
+        # 긴 산문만 본문으로 보고, 띄어쓰기 있는 작품명은 표지로 유지
+        if _looks_like_body_paragraph(item) and len(item) > 70:
+            return False
+    return True
+
+
+# 가져오기 사본 제목 접미사: "작품명 (3)" — 표지 판단에서만 무시
+_COVER_COPY_SUFFIX_RE = re.compile(r"\s*\(\s*\d{1,3}\s*\)\s*$")
+
+
+def _line_for_prose_check(line: str) -> str:
+    """표지 vs 산문 판정용. 끝의 '(3)' 같은 짧은 사본 번호는 길이에 넣지 않음."""
+    return _COVER_COPY_SUFFIX_RE.sub("", (line or "").strip()).strip()
 
 
 def _looks_like_body_paragraph(line: str) -> bool:
@@ -308,7 +362,8 @@ def _looks_like_body_paragraph(line: str) -> bool:
     # 한국어 문장·소개 문단
     if re.search(r"[.。!?…]|다\.?$|요\.?$|음\.?$|다\s", s) and len(s) >= 15:
         return True
-    if s.count(" ") >= 2 and len(s) > 22:
+    core = _line_for_prose_check(s)
+    if core.count(" ") >= 2 and len(core) > 22:
         return True
     return False
 
@@ -322,7 +377,7 @@ def _blocks_to_misc_folders(lines: list[str], *, allow_title_page_skip: bool) ->
     while i < n:
         line = lines[i]
         stripped = line.strip()
-        if not stripped:
+        if not stripped or _is_divider_line(stripped):
             i += 1
             continue
         # Heading candidate: short line, next has content or blank+content
@@ -385,9 +440,9 @@ def _blocks_to_misc_folders(lines: list[str], *, allow_title_page_skip: bool) ->
         blocks.append((None, body_lines))
 
     if allow_title_page_skip and blocks:
-        # 표지만 있는 경우 (짧은 제목 1~3개, 본문 없음) → 폴더 생성 안 함 (목차 씬에만 남음)
+        # 표지만 있는 경우 (짧은 제목 1~3개, 본문 없음·구분선만) → 폴더 생성 안 함
         only_titles = all(
-            h is not None and not any(x.strip() for x in body)
+            h is not None and _body_is_empty_or_divider(body)
             for h, body in blocks
         )
         if only_titles and len(blocks) <= 4:
@@ -395,7 +450,9 @@ def _blocks_to_misc_folders(lines: list[str], *, allow_title_page_skip: bool) ->
 
     folders: list[dict] = []
     for heading, body_lines in blocks:
-        body = "\n".join(body_lines).strip()
+        body = "\n".join(
+            ln for ln in body_lines if not _is_divider_line(ln)
+        ).strip()
         if heading and not body:
             if allow_title_page_skip:
                 continue
@@ -404,7 +461,8 @@ def _blocks_to_misc_folders(lines: list[str], *, allow_title_page_skip: bool) ->
         if heading and body:
             # 짧은 부제만 붙은 책 제목(표지)은 폴더로 만들지 않음 → 목차 씬에만 유지
             body_only_short_lines = all(
-                len(x.strip()) <= 80 for x in body_lines if x.strip()
+                len(x.strip()) <= 80 for x in body_lines
+                if x.strip() and not _is_divider_line(x)
             )
             if (
                 allow_title_page_skip
@@ -631,8 +689,46 @@ def _assemble_hierarchy(
     return prologue, epilogue, volumes
 
 
-def _classify_entry(title: str) -> dict:
+def _classify_entry(title: str, *, from_bracket: bool = False) -> dict:
     raw = title.strip()
+    inner = None
+    try:
+        import document_import as di
+
+        inner = di._unwrap_corner_brackets(raw)
+    except Exception:
+        inner = None
+    if inner:
+        raw = inner
+        from_bracket = True
+
+    # 【제목】 export markers are scenes. Keep 권/부 as higher structure only.
+    if from_bracket:
+        m = VOLUME_RE.match(raw)
+        if m:
+            n = int(m.group(1) or m.group(2))
+            return {"kind": "volume", "title": f"{n}권", "number": n}
+        m_bu_close = re.match(r"^(?:제\s*)?(\d+)\s*부를\s*\S", raw)
+        if m_bu_close:
+            return {"kind": "episode", "number": None, "title": raw, "marker": "other"}
+        m = PART_RE.match(raw)
+        if m:
+            n = int(m.group(1))
+            rest = raw[m.end() :]
+            if rest and re.match(r"^[가-힣]", rest):
+                return {"kind": "episode", "number": None, "title": raw, "marker": "other"}
+            return {"kind": "part", "title": f"{n}부", "number": n, "full_title": raw}
+        m = EPISODE_HWA_RE.match(raw)
+        number = None
+        marker = "bracket"
+        if m:
+            number = int(next(g for g in m.groups() if g))
+            if re.match(r"^(?:제\s*)?\d+\s*(?:회차|회|화)\b", raw, re.I):
+                marker = "hwa"
+            else:
+                marker = "num"
+        return {"kind": "episode", "number": number, "title": raw, "marker": marker}
+
     if PROLOGUE_RE.match(raw):
         return {"kind": "prologue", "title": raw}
     if EPILOGUE_RE.match(raw):
@@ -677,7 +773,7 @@ def _classify_entry(title: str) -> dict:
 
 
 def _resolve_episode_title(raw_title: str, content: str, episode_num: int) -> str:
-    """원고명: 제목이 있으면 제목, 회차 표시만 있으면 본문 첫 어절(N회차_…)."""
+    """원고명: 원문 제목을 유지. 회차 표시만 있으면 본문 첫 어절(N회차_…)."""
     raw = raw_title.strip()
     m = EPISODE_SUBTITLE_RE.match(raw)
     subtitle = ""
@@ -691,8 +787,8 @@ def _resolve_episode_title(raw_title: str, content: str, episode_num: int) -> st
         )
     )
     if subtitle and not bare_number:
-        # "1화 첫눈" / "1장. 사랑에…" → 부제
-        return subtitle[:120]
+        # "1화.한 겨울 밤의 꿈" / "1화 첫눈" — 번호 포함 원제목 유지 (별도 화수 필드 없음)
+        return raw[:120]
     if bare_number or re.fullmatch(r"\d+", raw):
         # 제목 없는 회차 → 본문 앞 어절
         return _episode_title_from_content(raw, content, episode_num)
@@ -738,25 +834,71 @@ def _extract_raw_toc_block(text: str) -> str:
     return ""
 
 
-def _scan_structure_entries(text: str) -> list:
-    """Scan body lines for 권/부/장/화/프롤로그 headings when no TOC page exists."""
+# 권/부/장/화/프롤로그 — 【】 유무와 관계없이 상위·명시 회차 마커
+_STRUCTURE_HEADING_RE = re.compile(
+    r"^(?:#{1,6}\s*)?("
+    r"프롤로그\b.*|에필로그\b.*|서문\b.*|맺음말\b.*|"
+    r"제?\s*\d+\s*권\b.*|제?\s*\d+\s*부\b.*|제?\s*\d+\s*장\b.*|"
+    r"제?\s*\d+\s*(?:회차|회|화|편)\b.*"
+    r")$",
+    re.IGNORECASE,
+)
+# 외부 붙여넣기 폴백. 문서에 【제목】이 하나라도 있으면 쓰지 않음.
+_NUMBERED_DOT_HEADING_RE = re.compile(
+    r"^\d+\s*[.、．]\s*.{0,80}$",
+    re.IGNORECASE,
+)
+
+
+def _has_bracket_scene_markers(text: str) -> bool:
     import document_import as di
 
-    pattern = re.compile(
-        r"^(?:#{1,6}\s*)?("
-        r"프롤로그\b.*|에필로그\b.*|서문\b.*|맺음말\b.*|"
-        r"제?\s*\d+\s*권\b.*|제?\s*\d+\s*부\b.*|제?\s*\d+\s*장\b.*|"
-        r"제?\s*\d+\s*(?:회차|회|화|편)\b.*|"
-        r"\d+\s*[.、．]\s*.{0,80}"
-        r")$",
-        re.IGNORECASE,
-    )
+    for line in (text or "").split("\n"):
+        if di._unwrap_corner_brackets(line):
+            return True
+    return False
+
+
+def _scan_structure_entries(text: str) -> list:
+    """Scan body lines for 권/부/장/화/프롤로그 and 【제목】 scene markers."""
+    import document_import as di
+
+    has_brackets = _has_bracket_scene_markers(text)
     entries = []
     for line in text.split("\n"):
         stripped = line.strip()
         if not stripped or len(stripped) > 120:
             continue
-        if pattern.match(stripped) or VOLUME_RE.match(stripped) or PART_RE.match(stripped) or CHAPTER_JANG_RE.match(stripped):
+        inner = di._unwrap_corner_brackets(stripped)
+        if inner:
+            title = di._clean_heading_title(inner)
+            title = di.TOC_PAGE_SUFFIX.sub("", title).strip(" .-·")[:120]
+            if title:
+                entries.append(di._TocEntry(title=title, level=0, from_bracket=True))
+            continue
+        # 【】가 있으면 화/회/숫자점은 본문 오인 방지를 위해 【제목】만 회차로 본다.
+        # 권·부·장·프롤로그 상위 줄은 그대로 둔다.
+        if has_brackets:
+            is_structure = bool(
+                VOLUME_RE.match(stripped)
+                or PART_RE.match(stripped)
+                or CHAPTER_JANG_RE.match(stripped)
+                or re.match(
+                    r"^(?:#{1,6}\s*)?(?:프롤로그|에필로그|서문|맺음말)\b",
+                    stripped,
+                    re.I,
+                )
+            )
+            is_numbered_dot = False
+        else:
+            is_structure = bool(
+                _STRUCTURE_HEADING_RE.match(stripped)
+                or VOLUME_RE.match(stripped)
+                or PART_RE.match(stripped)
+                or CHAPTER_JANG_RE.match(stripped)
+            )
+            is_numbered_dot = bool(_NUMBERED_DOT_HEADING_RE.match(stripped))
+        if is_structure or is_numbered_dot:
             title = di._clean_heading_title(stripped)
             title = di.TOC_PAGE_SUFFIX.sub("", title).strip(" .-·")[:120]
             if title:
