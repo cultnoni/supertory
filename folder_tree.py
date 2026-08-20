@@ -429,6 +429,20 @@ def build_folder_forest(
     return roots
 
 
+def walk_folder_forest_preorder(roots: list[dict]):
+    """Yield folder nodes depth-first.
+
+    Sibling order is the binder display order already applied by
+    ``build_folder_forest`` / ``folder_sibling_sort_key``
+    (pinned, then ``sort_order``, then id).
+    """
+    for node in roots or []:
+        if not node:
+            continue
+        yield node
+        yield from walk_folder_forest_preorder(node.get("children") or [])
+
+
 def folder_id_for_source(
     connection: sqlite3.Connection,
     project_id: int,

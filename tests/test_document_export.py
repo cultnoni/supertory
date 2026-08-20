@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import http.client
 import json
+import sqlite3
 import tempfile
 import threading
 import unittest
@@ -13,6 +14,7 @@ from pathlib import Path
 import app
 import document_export
 import document_import
+import folder_tree
 
 
 class HwpxExportUnitTests(unittest.TestCase):
@@ -306,6 +308,104 @@ class HwpxExportApiTests(unittest.TestCase):
         self.assertNotIn("2개 회차", text)
         self.assertIn("첫째 본문", text)
         self.assertIn("둘째 본문", text)
+
+    def test_full_export_follows_binder_folder_order(self) -> None:
+        """Sibling folder.sort_order wins over stale chapter.sort_order."""
+        status, project = self.request_json(
+            "POST",
+            "/api/projects",
+            {"title": "내보내기순서", "main_genre": "판타지"},
+        )
+        self.assertEqual(status, 201)
+        pid = int(project["id"])
+        status, volume = self.request_json(
+            "POST", f"/api/projects/{pid}/parts", {"title": "1권"}
+        )
+        self.assertEqual(status, 201)
+        # Create 추가확인 first so chapter.sort_order stays ahead of 1부.
+        status, extra = self.request_json(
+            "POST",
+            f"/api/projects/{pid}/chapters",
+            {"title": "추가확인", "part_id": volume["id"]},
+        )
+        self.assertEqual(status, 201)
+        status, part = self.request_json(
+            "POST",
+            f"/api/projects/{pid}/chapters",
+            {"title": "1부", "part_id": volume["id"]},
+        )
+        self.assertEqual(status, 201)
+
+        for chapter, heading, body in (
+            (extra, "추가확인", "추가확인 본문"),
+            (part, "1부", "1부 본문"),
+        ):
+            status, scene = self.request_json(
+                "POST",
+                f"/api/chapters/{chapter['id']}/scenes",
+                {"title": f"{heading} 회차"},
+            )
+            self.assertEqual(status, 201)
+            status, detail = self.request_json("GET", f"/api/scenes/{scene['id']}")
+            self.assertEqual(status, 200)
+            status, _ = self.request_json(
+                "PUT",
+                f"/api/scenes/{scene['id']}",
+                {
+                    "content_md": f"<p>{body}</p>",
+                    "title": f"{heading} 회차",
+                    "row_version": detail["row_version"],
+                },
+            )
+            self.assertEqual(status, 200)
+
+        with app.database() as conn:
+            conn.row_factory = sqlite3.Row
+            extra_folder = folder_tree.folder_id_for_source(
+                conn, pid, "chapter", int(extra["id"])
+            )
+            part_folder = folder_tree.folder_id_for_source(
+                conn, pid, "chapter", int(part["id"])
+            )
+            self.assertIsNotNone(extra_folder)
+            self.assertIsNotNone(part_folder)
+            ch_rows = conn.execute(
+                "SELECT title, sort_order FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (pid,),
+            ).fetchall()
+            self.assertEqual(
+                [row["title"] for row in ch_rows],
+                ["추가확인", "1부"],
+                "precondition: chapter.sort_order still has 추가확인 first",
+            )
+
+        # Binder reorder: 1권 > 1부 > 추가확인 (folder.sort_order only).
+        status, moved = self.request_json(
+            "POST",
+            f"/api/folders/{part_folder}/reparent",
+            {"position": "before", "target_id": extra_folder},
+        )
+        self.assertEqual(status, 200, moved)
+
+        status, outline = self.request_json("GET", f"/api/projects/{pid}/outline")
+        self.assertEqual(status, 200)
+        vol = (outline.get("folders") or [None])[0]
+        self.assertIsNotNone(vol)
+        self.assertEqual(vol.get("title"), "1권")
+        binder_titles = [c.get("title") for c in (vol.get("children") or [])]
+        self.assertEqual(binder_titles, ["1부", "추가확인"])
+
+        status, data, _ = self.request_raw(
+            "POST",
+            f"/api/projects/{pid}/export",
+            {"format": "txt", "save_to_folder": False},
+        )
+        self.assertEqual(status, 200)
+        text = data.decode("utf-8-sig")
+        self.assertLess(text.find("1부"), text.find("추가확인"), text)
+        self.assertLess(text.find("1부 본문"), text.find("추가확인 본문"), text)
 
 
 if __name__ == "__main__":

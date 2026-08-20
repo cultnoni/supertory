@@ -39749,7 +39749,7 @@ function closeOutlineOverview() {
   $("outlineOverviewModal")?.classList.add("hidden");
 }
 
-function renderOutlineOverviewSceneTree(scenes, depth = 0) {
+function renderOutlineOverviewSceneTree(scenes, depth = 0, includeChildChapters = true) {
   const list = Array.isArray(scenes) ? scenes : [];
   const currentId = Number(state.sceneId) || 0;
   return list.map((scene) => {
@@ -39760,10 +39760,12 @@ function renderOutlineOverviewSceneTree(scenes, depth = 0) {
     const depthClass = depth > 0 ? ` is-depth-${Math.min(depth, 5)}` : "";
     const currentClass = sid === currentId ? " is-current" : "";
     const previewClass = display.isPreview ? " is-body-preview" : "";
-    const kids = renderOutlineOverviewSceneTree(scene.children || [], depth + 1);
-    const nestedFolders = (scene.child_chapters || [])
-      .map((ch) => renderOutlineOverviewChapter(ch, "is-level-2"))
-      .join("");
+    const kids = renderOutlineOverviewSceneTree(scene.children || [], depth + 1, includeChildChapters);
+    const nestedFolders = includeChildChapters
+      ? (scene.child_chapters || [])
+        .map((ch) => renderOutlineOverviewChapter(ch, "is-level-2"))
+        .join("")
+      : "";
     return `
       <button type="button" class="outline-overview-scene${depthClass}${currentClass}" data-overview-scene="${sid}" title="${escapeHtml(display.tooltip || display.label)}">
         <span class="outline-overview-scene-label${previewClass}">${escapeHtml(display.label)}</span>
@@ -39773,10 +39775,10 @@ function renderOutlineOverviewSceneTree(scenes, depth = 0) {
   }).join("");
 }
 
-function renderOutlineOverviewChapter(chapter, folderLevel = "is-level-1") {
+function renderOutlineOverviewChapter(chapter, folderLevel = "is-level-1", includeChildChapters = true) {
   const transparent = Boolean(chapter.transparent)
     || String(chapter.notes_md || "").includes("supertory:transparent_volume");
-  const scenesHtml = renderOutlineOverviewSceneTree(chapter.scenes || [], 0);
+  const scenesHtml = renderOutlineOverviewSceneTree(chapter.scenes || [], 0, includeChildChapters);
   if (transparent) {
     return scenesHtml || "";
   }
@@ -39787,6 +39789,43 @@ function renderOutlineOverviewChapter(chapter, folderLevel = "is-level-1") {
     ${scenesHtml}`;
 }
 
+function outlineOverviewFolderLevel(depth) {
+  if (depth <= 0) return "is-level-0";
+  if (depth >= 2) return "is-level-2";
+  return "is-level-1";
+}
+
+/** Recurse binder folder forest. Boxes are containers; non-box folders are chapter rows. */
+function renderOutlineOverviewFolderNode(node, depth = 0) {
+  if (!node) return "";
+  const kids = typeof getBinderChildFolders === "function"
+    ? getBinderChildFolders(node)
+    : (node.children || []);
+  const isBox = typeof binderFolderNodeIsBox === "function" && binderFolderNodeIsBox(node);
+  if (isBox) {
+    const scenesHtml = renderOutlineOverviewSceneTree(node.scenes || [], 0, false);
+    const nested = kids.map((child) => renderOutlineOverviewFolderNode(child, depth + 1)).join("");
+    const inner = `${scenesHtml}${nested}`;
+    if (typeof isTransparentBinderNode === "function" && isTransparentBinderNode(node)) {
+      return inner || i18n.t('app.p_class_outline_overvie_2');
+    }
+    return `
+      <section class="outline-overview-part">
+        <button type="button" class="outline-overview-part-title" data-overview-part="${node.id}" title="${escapeHtml(node.title || "폴더")}">
+          ${escapeHtml(node.title || i18n.t('app.폴더'))}
+        </button>
+        ${inner || i18n.t('app.p_class_outline_overvie_2')}
+      </section>`;
+  }
+  const chapterHtml = renderOutlineOverviewChapter(
+    node,
+    outlineOverviewFolderLevel(depth),
+    false
+  );
+  const nested = kids.map((child) => renderOutlineOverviewFolderNode(child, depth + 1)).join("");
+  return `${chapterHtml}${nested}`;
+}
+
 function renderOutlineOverviewBody() {
   const body = $("outlineOverviewBody");
   if (!body) return;
@@ -39794,6 +39833,43 @@ function renderOutlineOverviewBody() {
     body.innerHTML = i18n.t('app.p_class_outline_overvie');
     return;
   }
+
+  if (typeof shouldUseFoldersOutline === "function" && shouldUseFoldersOutline()) {
+    const roots = (state.folders || []).map((folder) => (
+      typeof normalizeApiFolderNode === "function" ? normalizeApiFolderNode(folder) : folder
+    ));
+    const forestHtml = roots.map((node) => renderOutlineOverviewFolderNode(node, 0)).join("");
+    const seen = new Set();
+    const markSeen = (nodes) => {
+      for (const node of nodes || []) {
+        if (!node) continue;
+        const id = Number(node.id);
+        if (id) seen.add(id);
+        const children = typeof getBinderChildFolders === "function"
+          ? getBinderChildFolders(node)
+          : (node.children || []);
+        markSeen(children);
+      }
+    };
+    markSeen(roots);
+    const leftover = [];
+    walkReadingOrderChapters(state.outline || [], (chapter) => {
+      const id = Number(chapter.id);
+      if (!id || seen.has(id)) return;
+      seen.add(id);
+      leftover.push(chapter);
+    });
+    const leftoverHtml = leftover.length
+      ? `${i18n.t('app.div_class_outline_overv')}${leftover.map((ch) => renderOutlineOverviewChapter(ch, "is-level-1")).join("")}`
+      : "";
+    if (!forestHtml && !leftoverHtml) {
+      body.innerHTML = i18n.t('app.p_class_outline_overvie_3');
+      return;
+    }
+    body.innerHTML = `${forestHtml}${leftoverHtml}`;
+    return;
+  }
+
   const parts = Array.isArray(state.parts) ? state.parts : [];
   const ungrouped = Array.isArray(state.ungroupedChapters)
     ? state.ungroupedChapters
@@ -39844,9 +39920,10 @@ function focusOutlineBinderTarget({ partId = null, chapterId = null, sceneId = n
   if (!outline) return;
   if (partId != null) {
     setPartCollapsed?.(Number(partId), false);
-    const el = outline.querySelector(`.outline-part[data-part-id="${partId}"]`);
+    const el = outline.querySelector(`.outline-part[data-part-id="${partId}"]`)
+      || outline.querySelector(`.outline-part[data-chapter-id="${partId}"]`);
     el?.scrollIntoView?.({ block: "nearest", behavior: "smooth" });
-    el?.querySelector?.("[data-rename-part]")?.classList?.add("is-selected");
+    el?.querySelector?.("[data-rename-part], [data-rename-chapter]")?.classList?.add("is-selected");
     return;
   }
   if (chapterId != null) {
@@ -41281,15 +41358,77 @@ function saveEpisodeTabsToStorage() {
   }
 }
 
+/** Chapters in binder folder DFS order (same source as the sidebar tree). */
+function chaptersForReadingOrder() {
+  if (typeof getBinderChaptersInOrder === "function") {
+    const binder = getBinderChaptersInOrder();
+    if (binder.length) return binder;
+  }
+  return Array.isArray(state.outline) ? state.outline.slice() : [];
+}
+
+function walkReadingOrderChapters(chapters, visit) {
+  if (typeof walkBinderChapters === "function") {
+    walkBinderChapters(chapters, visit);
+    return;
+  }
+  for (const chapter of chapters || []) visit(chapter);
+}
+
+/**
+ * Leftover scenes that live on state.outline but were not reached via the
+ * folder tree (no folder_id / missing map). Appended last — same policy as
+ * export_project's chapter.sort_order fallback.
+ */
+function walkOrphanOutlineChapters(seenSceneIds, visit) {
+  if (!Array.isArray(state.outline) || !state.outline.length) return;
+  walkReadingOrderChapters(state.outline, (chapter) => {
+    const flat = flattenChapterScenes(chapter);
+    if (!flat.some((scene) => {
+      const id = Number(scene.id);
+      return id > 0 && !seenSceneIds.has(id);
+    })) return;
+    visit(chapter);
+  });
+}
+
+/**
+ * Unique manuscript folders in binder DFS order (import chapter dropdown).
+ * Same walk as getEpisodeSequence: getBinderChaptersInOrder + nested
+ * child_chapters, then leftover state.outline. Boxes are skipped.
+ */
+function chaptersInBinderDisplayOrder() {
+  const seen = new Set();
+  const list = [];
+  const push = (chapter) => {
+    const id = Number(chapter?.id);
+    if (!id || seen.has(id)) return;
+    if (typeof binderFolderNodeIsBox === "function" && binderFolderNodeIsBox(chapter)) {
+      return;
+    }
+    if (chapter.source_kind === "part") return;
+    seen.add(id);
+    list.push(chapter);
+  };
+  walkReadingOrderChapters(chaptersForReadingOrder(), push);
+  if (Array.isArray(state.outline) && state.outline.length) {
+    walkReadingOrderChapters(state.outline, push);
+  }
+  return list;
+}
+
 /** Flatten outline scenes in binder order (depth-first) → episode list. */
 function getEpisodeSequence() {
   const list = [];
-  let index = 0;
-  for (const chapter of state.outline || []) {
+  const seen = new Set();
+  const pushFromChapter = (chapter) => {
+    const chapterTitle = String(chapter.title || "").trim();
     const flat = flattenChapterScenes(chapter);
     for (const scene of flat) {
-      index += 1;
-      const chapterTitle = String(chapter.title || "").trim();
+      const sceneId = Number(scene.id);
+      if (!sceneId || seen.has(sceneId)) continue;
+      seen.add(sceneId);
+      const index = list.length + 1;
       const sceneTitle = String(scene.title || "").trim();
       let label = chapterTitle || sceneTitle || `${i18n.t('app.index_화', {index: index})}`;
       if (flat.length > 1 && sceneTitle && chapterTitle && sceneTitle !== chapterTitle) {
@@ -41299,7 +41438,7 @@ function getEpisodeSequence() {
       }
       const short = label.length > 22 ? `${label.slice(0, 22)}…` : label;
       list.push({
-        sceneId: Number(scene.id),
+        sceneId,
         chapterId: Number(chapter.id),
         index,
         label,
@@ -41308,19 +41447,24 @@ function getEpisodeSequence() {
         sceneTitle,
       });
     }
-  }
+  };
+  walkReadingOrderChapters(chaptersForReadingOrder(), pushFromChapter);
+  walkOrphanOutlineChapters(seen, pushFromChapter);
   return list;
 }
 
 /** All scene synopses in binder order (for 요약 list). */
 function getSynopsisSequence() {
   const list = [];
-  let index = 0;
-  for (const chapter of state.outline || []) {
+  const seen = new Set();
+  const pushFromChapter = (chapter) => {
     const chapterTitle = String(chapter.title || "").trim();
-    for (const scene of chapter.scenes || []) {
-      index += 1;
+    const flat = flattenChapterScenes(chapter);
+    for (const scene of flat) {
       const sceneId = Number(scene.id);
+      if (!sceneId || seen.has(sceneId)) continue;
+      seen.add(sceneId);
+      const index = list.length + 1;
       const sceneTitle = String(scene.title || "").trim();
       let title = chapterTitle || sceneTitle || `${i18n.t('app.index_화', {index: index})}`;
       if (chapterTitle && sceneTitle && sceneTitle !== chapterTitle) {
@@ -41339,7 +41483,9 @@ function getSynopsisSequence() {
         synopsis,
       });
     }
-  }
+  };
+  walkReadingOrderChapters(chaptersForReadingOrder(), pushFromChapter);
+  walkOrphanOutlineChapters(seen, pushFromChapter);
   return list;
 }
 
@@ -48829,21 +48975,54 @@ async function saveExportPrefsFromUi() {
 }
 
 function listExportEpisodes() {
-  // Prefer outline order; fall back to flat allScenes()
+  // Binder folder order (folder.sort_order among siblings), not legacy chapter.sort_order.
   const episodes = [];
-  if (Array.isArray(state.outline) && state.outline.length) {
-    for (const chapter of state.outline) {
-      const chapterTitle = String(chapter.title || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
-      const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : [];
-      for (const scene of scenes) {
-        const id = Number(scene.id);
-        if (!id) continue;
-        episodes.push({
-          id,
-          title: String(scene.title || `${i18n.t('app.회차_id', {id: id})}`).trim() || `${i18n.t('app.회차_id', {id: id})}`,
-          chapterTitle,
-          label: `${chapterTitle} · ${String(scene.title || `회차 #${id}`).trim()}`,
-        });
+  const seen = new Set();
+  const pushScene = (scene, chapterTitle) => {
+    const id = Number(scene?.id);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+    const fallback = `${i18n.t('app.회차_id', {id: id})}`;
+    const title = String(scene.title || fallback).trim() || fallback;
+    const heading = String(chapterTitle || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
+    episodes.push({
+      id,
+      title,
+      chapterTitle: heading,
+      label: `${heading} · ${title}`,
+    });
+  };
+
+  if (typeof shouldUseFoldersOutline === "function" && shouldUseFoldersOutline()) {
+    const roots = (state.folders || []).map((f) => normalizeApiFolderNode(f));
+    const walk = (nodes) => {
+      for (const node of nodes || []) {
+        if (!node) continue;
+        const heading = String(node.title || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
+        for (const scene of flattenChapterScenes(node)) {
+          pushScene(scene, heading);
+        }
+        walk(typeof getBinderChildFolders === "function" ? getBinderChildFolders(node) : (node.children || []));
+      }
+    };
+    walk(roots);
+  }
+  if (!episodes.length) {
+    const chapters = typeof getBinderChaptersInOrder === "function"
+      ? getBinderChaptersInOrder()
+      : (state.outline || []);
+    if (typeof walkBinderChapters === "function") {
+      walkBinderChapters(chapters, (chapter) => {
+        const heading = String(chapter.title || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
+        for (const scene of flattenChapterScenes(chapter)) {
+          pushScene(scene, heading);
+        }
+      });
+    } else {
+      for (const chapter of chapters) {
+        const heading = String(chapter.title || i18n.t('app.챕터')).trim() || i18n.t('app.챕터');
+        const scenes = Array.isArray(chapter.scenes) ? chapter.scenes : [];
+        for (const scene of scenes) pushScene(scene, heading);
       }
     }
   }
@@ -49533,6 +49712,11 @@ function refreshImportDestinationOptions() {
   const select = $("importDestination");
   const current = importModalMode === "proof" ? getImportProofMethod() : select.value;
   const proofMode = importModalMode === "proof";
+  const binderChapters = proofMode
+    ? []
+    : (typeof chaptersInBinderDisplayOrder === "function"
+      ? chaptersInBinderDisplayOrder()
+      : (state.outline || []));
   const options = proofMode
     ? [
       {
@@ -49554,7 +49738,7 @@ function refreshImportDestinationOptions() {
     : [
       { value: "new_project", label: i18n.t('app.새_작품으로_만들기'), enabled: true },
       { value: "new_chapter", label: i18n.t('app.현재_작품에_새_챕터로_넣기'), enabled: Boolean(state.projectId) },
-      { value: "existing_chapter", label: i18n.t('app.현재_작품의_챕터에_새_씬으로_넣기'), enabled: Boolean(state.projectId && state.outline.length) },
+      { value: "existing_chapter", label: i18n.t('app.현재_작품의_챕터에_새_씬으로_넣기'), enabled: Boolean(state.projectId && binderChapters.length) },
       { value: "replace_scene", label: i18n.t('app.지금_열린_씬에_덮어쓰기'), enabled: Boolean(state.sceneId) },
     ];
   select.innerHTML = options
@@ -49573,9 +49757,13 @@ function refreshImportDestinationOptions() {
     });
   }
   const chapterSelect = $("importChapterSelect");
-  chapterSelect.innerHTML = state.outline.map((chapter) =>
+  const currentChapter = chapterSelect.value;
+  chapterSelect.innerHTML = binderChapters.map((chapter) =>
     `<option value="${chapter.id}">${escapeHtml(chapter.title)}</option>`
   ).join("") || i18n.t('app.option_value_챕터가_없어요_op');
+  if (binderChapters.some((chapter) => String(chapter.id) === String(currentChapter))) {
+    chapterSelect.value = currentChapter;
+  }
 }
 
 function getImportTitleMode() {

@@ -11,6 +11,7 @@ from pathlib import Path
 
 import app
 import chapter_match
+import folder_tree
 
 
 class ChapterMatchUnitTests(unittest.TestCase):
@@ -177,6 +178,97 @@ class ChapterMatchApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIn("교정된 문장", scene["content_md"])
         self.assertEqual(scene["title"], "제2화: 약속의 장소")
+
+    def test_episode_candidates_follow_binder_folder_order(self) -> None:
+        """N화 follows folder.sort_order, not stale chapter.sort_order."""
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "화수순서", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201)
+        pid = int(project["id"])
+        status, volume = self.request(
+            "POST", f"/api/projects/{pid}/parts", {"title": "1권"}
+        )
+        self.assertEqual(status, 201)
+        status, extra = self.request(
+            "POST",
+            f"/api/projects/{pid}/chapters",
+            {"title": "추가확인", "part_id": volume["id"]},
+        )
+        self.assertEqual(status, 201)
+        status, part = self.request(
+            "POST",
+            f"/api/projects/{pid}/chapters",
+            {"title": "1부", "part_id": volume["id"]},
+        )
+        self.assertEqual(status, 201)
+
+        scene_ids: dict[str, int] = {}
+        for chapter, heading, body in (
+            (extra, "추가확인", "추가확인 본문입니다."),
+            (part, "1부", "1부 본문입니다."),
+        ):
+            status, scene = self.request(
+                "POST",
+                f"/api/chapters/{chapter['id']}/scenes",
+                {"title": f"{heading} 회차"},
+            )
+            self.assertEqual(status, 201)
+            scene_ids[heading] = int(scene["id"])
+            status, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+            self.assertEqual(status, 200)
+            status, _ = self.request(
+                "PUT",
+                f"/api/scenes/{scene['id']}",
+                {
+                    "content_md": f"<p>{body}</p>",
+                    "title": f"{heading} 회차",
+                    "row_version": detail["row_version"],
+                },
+            )
+            self.assertEqual(status, 200)
+
+        with app.database() as conn:
+            extra_folder = folder_tree.folder_id_for_source(
+                conn, pid, "chapter", int(extra["id"])
+            )
+            part_folder = folder_tree.folder_id_for_source(
+                conn, pid, "chapter", int(part["id"])
+            )
+            ch_rows = conn.execute(
+                "SELECT title FROM chapter "
+                "WHERE project_id = ? AND deleted_at IS NULL "
+                "ORDER BY sort_order, id",
+                (pid,),
+            ).fetchall()
+            self.assertEqual(
+                [row["title"] for row in ch_rows],
+                ["추가확인", "1부"],
+            )
+
+        status, moved = self.request(
+            "POST",
+            f"/api/folders/{part_folder}/reparent",
+            {"position": "before", "target_id": extra_folder},
+        )
+        self.assertEqual(status, 200, moved)
+
+        with app.database() as conn:
+            handler = object.__new__(app.SuperToryHandler)
+            episodes = handler._list_episode_candidates(conn, pid)
+            self.assertEqual(
+                [ep.title for ep in episodes],
+                ["1부 회차", "추가확인 회차"],
+            )
+            self.assertEqual([ep.episode_number for ep in episodes], [1, 2])
+            self.assertEqual(episodes[0].scene_id, scene_ids["1부"])
+            self.assertEqual(episodes[1].scene_id, scene_ids["추가확인"])
+            self.assertEqual(
+                app._scene_episode_order(conn, pid, scene_ids["1부"]), 1
+            )
+            self.assertEqual(
+                app._scene_episode_order(conn, pid, scene_ids["추가확인"]), 2
+            )
 
 
 if __name__ == "__main__":

@@ -2345,17 +2345,19 @@ def _highlight_char_count(content: object) -> tuple[str, int]:
     return plain, len(plain)
 
 
+def list_scenes_in_binder_order(
+    connection: sqlite3.Connection, project_id: int
+) -> list[dict]:
+    """Active scenes in binder folder DFS order (same walk as getEpisodeSequence)."""
+    handler = object.__new__(SuperToryHandler)
+    return handler._list_scenes_in_binder_order(connection, int(project_id))
+
+
 def _scene_episode_order(connection: sqlite3.Connection, project_id: int, scene_id: int) -> int:
-    rows = connection.execute(
-        "SELECT s.id "
-        "FROM scene s "
-        "JOIN chapter c ON c.id = s.chapter_id AND c.deleted_at IS NULL "
-        "WHERE s.project_id = ? AND s.deleted_at IS NULL "
-        "ORDER BY c.sort_order, c.id, s.sort_order, s.id",
-        (project_id,),
-    ).fetchall()
-    for index, row in enumerate(rows, start=1):
-        if int(row["id"]) == int(scene_id):
+    for index, scene in enumerate(
+        list_scenes_in_binder_order(connection, project_id), start=1
+    ):
+        if int(scene["id"]) == int(scene_id):
             return index
     return 0
 
@@ -11415,6 +11417,254 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # noqa: BLE001
             raise ValueError(f"내보내기에 실패했습니다: {error}") from error
 
+    def _load_export_scene_rows(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> list[sqlite3.Row]:
+        """Full scene bodies for export (folder_id / parent when available)."""
+        try:
+            return connection.execute(
+                "SELECT s.id, s.chapter_id, s.folder_id, s.parent_scene_id, s.title, "
+                "s.sort_order, r.content_md "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.sort_order, s.id",
+                (project_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            return connection.execute(
+                "SELECT s.id, s.chapter_id, s.title, s.sort_order, r.content_md "
+                "FROM scene s "
+                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.sort_order, s.id",
+                (project_id,),
+            ).fetchall()
+
+    def _load_binder_order_scene_rows(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> list[sqlite3.Row]:
+        """Active scenes for binder reading order (revision optional)."""
+        try:
+            return connection.execute(
+                "SELECT s.id, s.chapter_id, s.folder_id, s.parent_scene_id, s.title, "
+                "s.sort_order, COALESCE(r.content_md, '') AS content_md "
+                "FROM scene s "
+                "LEFT JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                "ORDER BY s.sort_order, s.id",
+                (project_id,),
+            ).fetchall()
+        except sqlite3.OperationalError:
+            try:
+                return connection.execute(
+                    "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, "
+                    "s.sort_order, COALESCE(r.content_md, '') AS content_md "
+                    "FROM scene s "
+                    "LEFT JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                    "ORDER BY s.sort_order, s.id",
+                    (project_id,),
+                ).fetchall()
+            except sqlite3.OperationalError:
+                return connection.execute(
+                    "SELECT s.id, s.chapter_id, s.title, "
+                    "s.sort_order, COALESCE(r.content_md, '') AS content_md "
+                    "FROM scene s "
+                    "LEFT JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
+                    "WHERE s.project_id = ? AND s.deleted_at IS NULL "
+                    "ORDER BY s.sort_order, s.id",
+                    (project_id,),
+                ).fetchall()
+
+    def _list_scenes_in_binder_order(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> list[dict]:
+        """Scenes in binder DFS order — same walk as getEpisodeSequence.
+
+        Non-box folders are collected in ``walk_folder_forest_preorder``
+        (folder sibling sort). Box folders are skipped as chapter nodes
+        but their children are still visited. Leftover scenes (no folder
+        / box-only) are appended last in ``chapter.sort_order``, matching
+        ``walkOrphanOutlineChapters``.
+        """
+        scenes_rows = self._load_binder_order_scene_rows(connection, project_id)
+        chapters_rows = connection.execute(
+            "SELECT id, title, sort_order FROM chapter "
+            "WHERE project_id = ? AND deleted_at IS NULL "
+            "ORDER BY sort_order, id",
+            (project_id,),
+        ).fetchall()
+        titles_by_chapter = {
+            int(row["id"]): str(row["title"] or "") for row in chapters_rows
+        }
+
+        ordered: list[dict] = []
+        seen: set[int] = set()
+
+        def push_scene(scene: dict, folder_title: str | None = None) -> None:
+            try:
+                sid = int(scene.get("id") or 0)
+            except (TypeError, ValueError):
+                return
+            if sid <= 0 or sid in seen:
+                return
+            seen.add(sid)
+            raw_chapter = scene.get("chapter_id")
+            try:
+                chapter_id = int(raw_chapter) if raw_chapter is not None else 0
+            except (TypeError, ValueError):
+                chapter_id = 0
+            chapter_title = (folder_title or "").strip() or titles_by_chapter.get(
+                chapter_id, ""
+            )
+            ordered.append(
+                {
+                    "id": sid,
+                    "chapter_id": chapter_id,
+                    "title": str(scene.get("title") or ""),
+                    "chapter_title": chapter_title,
+                    "content_md": str(scene.get("content_md") or ""),
+                }
+            )
+
+        def push_tree(nodes: list[dict], folder_title: str | None = None) -> None:
+            for scene in self._flatten_scene_tree(nodes or []):
+                push_scene(scene, folder_title)
+
+        if folder_tree.folder_table_ready(connection):
+            forest = self._build_folders_tree_from_db(
+                connection, project_id, scenes_rows=scenes_rows
+            )
+            if forest:
+                for node in folder_tree.walk_folder_forest_preorder(forest):
+                    if bool(node.get("is_box")):
+                        continue
+                    push_tree(
+                        node.get("scenes") or [],
+                        str(node.get("title") or ""),
+                    )
+
+        leftover_by_chapter: dict[int, list[dict]] = {}
+        for row in scenes_rows:
+            sid = int(row["id"])
+            if sid in seen:
+                continue
+            raw_chapter = row["chapter_id"]
+            try:
+                chapter_key = int(raw_chapter) if raw_chapter is not None else 0
+            except (TypeError, ValueError):
+                chapter_key = 0
+            data = as_dict(row)
+            if data:
+                leftover_by_chapter.setdefault(chapter_key, []).append(data)
+        for chapter in chapters_rows:
+            flats = leftover_by_chapter.pop(int(chapter["id"]), None)
+            if not flats:
+                continue
+            push_tree(
+                self._build_scene_tree(flats),
+                str(chapter["title"] or ""),
+            )
+        for flats in leftover_by_chapter.values():
+            push_tree(self._build_scene_tree(flats))
+
+        return ordered
+
+    def _export_chapters_from_legacy_order(
+        self,
+        chapters_rows: list,
+        scenes_rows: list,
+        selected: set[int] | None,
+        skip_scene_ids: set[int] | None = None,
+    ) -> list[dict]:
+        """Fallback: group scenes by chapter.sort_order (pre-folder / orphans)."""
+        skip = skip_scene_ids or set()
+        scenes_by_chapter: dict[int, list[dict]] = {}
+        for scene in scenes_rows:
+            sid = int(scene["id"])
+            if selected is not None and sid not in selected:
+                continue
+            if sid in skip:
+                continue
+            scenes_by_chapter.setdefault(int(scene["chapter_id"]), []).append(
+                {
+                    "title": scene["title"] or "",
+                    "content_plain": plain_text_from_content(scene["content_md"] or ""),
+                }
+            )
+        return [
+            {
+                "title": chapter["title"] or "",
+                "scenes": scenes_by_chapter.get(int(chapter["id"]), []),
+            }
+            for chapter in chapters_rows
+            if scenes_by_chapter.get(int(chapter["id"]))
+        ]
+
+    def _export_chapters_in_binder_order(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        scenes_rows: list,
+        chapters_rows: list,
+        selected: set[int] | None,
+    ) -> list[dict]:
+        """Manuscript chapters in binder tree order (folder sibling sort_order).
+
+        Binder walks ``outline.folders`` with ``folder_sibling_sort_key``
+        (is_pinned, folder.sort_order, id). Export used to flatten ``chapter``
+        by ``chapter.sort_order``, which drifts after binder reparent.
+        """
+        if folder_tree.folder_table_ready(connection):
+            forest = self._build_folders_tree_from_db(
+                connection, project_id, scenes_rows=scenes_rows
+            )
+            if forest:
+                chapters: list[dict] = []
+                included: set[int] = set()
+                for node in folder_tree.walk_folder_forest_preorder(forest):
+                    flat = self._flatten_scene_tree(node.get("scenes") or [])
+                    export_scenes: list[dict] = []
+                    for scene in flat:
+                        try:
+                            sid = int(scene.get("id") or 0)
+                        except (TypeError, ValueError):
+                            continue
+                        if sid <= 0:
+                            continue
+                        if selected is not None and sid not in selected:
+                            continue
+                        export_scenes.append(
+                            {
+                                "title": scene.get("title") or "",
+                                "content_plain": plain_text_from_content(
+                                    scene.get("content_md") or ""
+                                ),
+                            }
+                        )
+                        included.add(sid)
+                    if export_scenes:
+                        chapters.append(
+                            {
+                                "title": node.get("title") or "",
+                                "scenes": export_scenes,
+                            }
+                        )
+                leftover = self._export_chapters_from_legacy_order(
+                    chapters_rows,
+                    scenes_rows,
+                    selected,
+                    skip_scene_ids=included,
+                )
+                if leftover:
+                    chapters.extend(leftover)
+                if chapters:
+                    return chapters
+        return self._export_chapters_from_legacy_order(
+            chapters_rows, scenes_rows, selected
+        )
+
     def export_project(
         self,
         project_id: int,
@@ -11425,6 +11675,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         """Build a downloadable manuscript file for the given project.
 
         scene_ids: when set, export only those 회차 (episodes). Full work when None/empty.
+        Chapter/scene order follows the binder folder tree (folder.sort_order
+        among siblings), not the legacy chapter.sort_order column.
         """
         selected: set[int] | None = None
         if scene_ids:
@@ -11447,14 +11699,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "ORDER BY sort_order, id",
                 (project_id,),
             ).fetchall()
-            scenes_rows = connection.execute(
-                "SELECT s.id, s.chapter_id, s.title, s.sort_order, r.content_md "
-                "FROM scene s "
-                "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
-                "WHERE s.project_id = ? AND s.deleted_at IS NULL "
-                "ORDER BY s.sort_order, s.id",
-                (project_id,),
-            ).fetchall()
+            scenes_rows = self._load_export_scene_rows(connection, project_id)
+
+            if selected is not None:
+                found = {int(s["id"]) for s in scenes_rows}
+                missing = selected - found
+                if missing:
+                    raise ValueError("선택한 회차 중 일부를 찾지 못했어요.")
+
+            chapters = self._export_chapters_in_binder_order(
+                connection,
+                project_id,
+                scenes_rows,
+                chapters_rows,
+                selected,
+            )
+            if selected is not None and not chapters:
+                raise ValueError("내보낼 회차 내용이 없어요.")
 
             stg_bytes: bytes | None = None
             if str(format_key or "").lower() == "stg":
@@ -11473,34 +11734,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     raise ValueError("연결 파일(.stg)을 찾지 못했습니다.")
                 stg_bytes = path.read_bytes()
 
-        # Filter to selected scenes when requested
-        if selected is not None:
-            found = {int(s["id"]) for s in scenes_rows}
-            missing = selected - found
-            if missing:
-                raise ValueError("선택한 회차 중 일부를 찾지 못했어요.")
-            scenes_rows = [s for s in scenes_rows if int(s["id"]) in selected]
-            if not scenes_rows:
-                raise ValueError("내보낼 회차 내용이 없어요.")
-
-        scenes_by_chapter: dict[int, list[dict]] = {}
         single_scene_title = ""
-        for scene in scenes_rows:
-            scenes_by_chapter.setdefault(scene["chapter_id"], []).append({
-                "title": scene["title"] or "",
-                "content_plain": plain_text_from_content(scene["content_md"] or ""),
-            })
-            if selected is not None and len(selected) == 1:
-                single_scene_title = str(scene["title"] or "").strip()
-
-        chapters = [
-            {
-                "title": chapter["title"] or "",
-                "scenes": scenes_by_chapter.get(chapter["id"], []),
-            }
-            for chapter in chapters_rows
-            if scenes_by_chapter.get(chapter["id"])
-        ]
+        if selected is not None and len(selected) == 1:
+            for scene in scenes_rows:
+                if int(scene["id"]) in selected:
+                    single_scene_title = str(scene["title"] or "").strip()
+                    break
         # Title: full project keeps a document heading.
         # Partial (회차 선택) export omits the top heading so UI labels like
         # "선택회차2" / "2개 회차" never appear inside the manuscript file.
@@ -16961,29 +17200,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         }
 
     def _list_episode_candidates(self, connection: sqlite3.Connection, project_id: int) -> list[chapter_match.EpisodeCandidate]:
-        """Active scenes in reading order with first-100-char body previews."""
-        rows = connection.execute(
-            "SELECT s.id AS scene_id, s.chapter_id, s.title AS scene_title, "
-            "c.title AS chapter_title, c.sort_order AS chapter_sort, s.sort_order AS scene_sort, "
-            "r.content_md "
-            "FROM scene s "
-            "JOIN chapter c ON c.id = s.chapter_id AND c.deleted_at IS NULL "
-            "JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
-            "WHERE s.project_id = ? AND s.deleted_at IS NULL "
-            "ORDER BY c.sort_order, c.id, s.sort_order, s.id",
-            (project_id,),
-        ).fetchall()
+        """Active scenes in binder DFS order with first-100-char body previews."""
         episodes: list[chapter_match.EpisodeCandidate] = []
-        for index, row in enumerate(rows, start=1):
-            plain = plain_text_from_content(row["content_md"] or "")
+        for index, scene in enumerate(
+            self._list_scenes_in_binder_order(connection, project_id), start=1
+        ):
+            plain = plain_text_from_content(scene.get("content_md") or "")
             episodes.append(
                 chapter_match.EpisodeCandidate(
-                    scene_id=int(row["scene_id"]),
-                    chapter_id=int(row["chapter_id"]),
+                    scene_id=int(scene["id"]),
+                    chapter_id=int(scene["chapter_id"]),
                     episode_number=index,
-                    title=str(row["scene_title"] or "") or f"{index}화",
+                    title=str(scene.get("title") or "") or f"{index}화",
                     preview=chapter_match.plain_preview(plain, 100),
-                    chapter_title=str(row["chapter_title"] or ""),
+                    chapter_title=str(scene.get("chapter_title") or ""),
                 )
             )
         return episodes
