@@ -20,6 +20,7 @@ import sqlite3
 import subprocess
 import sys
 import time
+import unicodedata
 import uuid
 import webbrowser
 from contextlib import contextmanager
@@ -28,7 +29,7 @@ from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Lock, Thread, Timer
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, unquote, urlparse
 import urllib.error
 import urllib.request
 
@@ -52,7 +53,13 @@ import success_pattern
 import tarot_deck
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
-from sync.project_sync import checkin_project, checkout_project
+from sync.project_sync import (
+    checkin_project,
+    checkout_project,
+    fetch_pending_drafts,
+    mark_draft_merged,
+    sync_scenes_snapshot,
+)
 from sync.supabase_client import get_supabase_client
 
 def _is_frozen() -> bool:
@@ -135,6 +142,64 @@ MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
 MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
 MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
 WEB_ROOT = ROOT / "web"
+AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
+AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
+
+
+def ambient_file_token(folder: str, filename: str) -> str:
+    """ASCII-only token so Korean filenames never go through HTTP path encoding."""
+    return f"{folder}/{filename}".encode("utf-8").hex()
+
+
+def resolve_ambient_sound_file(folder: str, filename: str) -> Path | None:
+    """Find an MP3 in assets/sounds, matching Unicode-normalized Korean names."""
+    if folder not in AMBIENT_SOUND_FOLDERS:
+        return None
+    root = AMBIENT_SOUND_ROOT.resolve()
+    folder_dir = (root / folder).resolve()
+    try:
+        folder_dir.relative_to(root)
+    except ValueError:
+        return None
+    if not folder_dir.is_dir():
+        return None
+    wanted_name = unicodedata.normalize("NFC", str(filename or ""))
+    if not wanted_name or wanted_name in {".", ".."} or "/" in wanted_name or "\\" in wanted_name:
+        return None
+    direct = folder_dir / wanted_name
+    if direct.is_file():
+        return direct
+    wanted_cf = wanted_name.casefold()
+    wanted_stem = Path(wanted_name).stem.casefold()
+    for item in folder_dir.iterdir():
+        if not item.is_file() or item.suffix.lower() != ".mp3":
+            continue
+        name_n = unicodedata.normalize("NFC", item.name)
+        if name_n.casefold() == wanted_cf or item.stem.casefold() == wanted_stem:
+            return item
+    return None
+
+
+def list_ambient_sound_catalog() -> dict:
+    """MP3 tracks under assets/sounds/{frequency,noise,nature,ambient}."""
+    root = AMBIENT_SOUND_ROOT.resolve()
+    categories = []
+    for folder in AMBIENT_SOUND_FOLDERS:
+        folder_dir = root / folder
+        tracks = []
+        if folder_dir.is_dir():
+            for path in sorted(folder_dir.iterdir(), key=lambda item: item.name.lower()):
+                if not path.is_file() or path.suffix.lower() != ".mp3":
+                    continue
+                tracks.append({
+                    "id": f"{folder}:{path.stem}",
+                    "category": folder,
+                    "file": path.name,
+                    "stem": path.stem,
+                    "url": f"/api/ambient-file/{ambient_file_token(folder, path.name)}",
+                })
+        categories.append({"id": folder, "tracks": tracks})
+    return {"categories": categories}
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
 FOLDER_COLORS = {"red", "orange", "yellow", "green", "blue", "purple", "gray"}
@@ -2385,6 +2450,27 @@ def _upsert_highlight_progress(
     )
 
 
+def schedule_scenes_snapshot_sync(project_id: int) -> None:
+    """Fire-and-forget manuscript snapshot to Supabase. Must not block checkout."""
+    try:
+        worker = Thread(
+            target=_scenes_snapshot_worker,
+            args=(int(project_id),),
+            daemon=True,
+            name=f"scenes-snapshot-{project_id}",
+        )
+        worker.start()
+    except Exception:
+        pass
+
+
+def _scenes_snapshot_worker(project_id: int) -> None:
+    try:
+        sync_scenes_snapshot(int(project_id))
+    except Exception:
+        pass
+
+
 def schedule_glump_highlight_analysis(scene_id: int, content: str) -> None:
     """Fire-and-forget highlight scan. Must never block the save path."""
     try:
@@ -3807,7 +3893,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     """Serves the app and a deliberately small JSON API."""
 
     def translate_path(self, path: str) -> str:
-        parsed = urlparse(path).path
+        parsed = unquote(urlparse(path).path)
         if parsed == "/":
             parsed = "/index.html"
         if parsed.startswith("/assets/"):
@@ -3820,11 +3906,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return str((WEB_ROOT / parsed.lstrip("/")).resolve())
             if candidate.is_file():
                 return str(candidate)
+            parts = [part for part in rel.replace("\\", "/").split("/") if part]
+            if len(parts) >= 3 and parts[0] == "sounds":
+                found = resolve_ambient_sound_file(parts[1], "/".join(parts[2:]))
+                if found is not None:
+                    return str(found)
         return str((WEB_ROOT / parsed.lstrip("/")).resolve())
 
     def guess_type(self, path: str) -> str:
         if str(path).lower().endswith(".webp"):
             return "image/webp"
+        if str(path).lower().endswith(".wav"):
+            return "audio/wav"
+        if str(path).lower().endswith(".mp3"):
+            return "audio/mpeg"
         return super().guess_type(path)
 
     def end_headers(self) -> None:
@@ -3834,6 +3929,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path
         if path.startswith("/api/illustrations") or "/illustrations/" in path:
             pass  # illustration bytes may keep their own Cache-Control
+        elif path.startswith("/assets/sounds/") or path.startswith("/ambient-art/"):
+            self.send_header("Cache-Control", "private, max-age=86400")
         else:
             self.send_header("Cache-Control", "no-store, max-age=0, must-revalidate")
             self.send_header("Pragma", "no-cache")
@@ -3915,6 +4012,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/ai/status":
                 self.send_json(gemini_client.status())
+                return
+
+            if path == "/api/ambient-tracks":
+                self.send_json(list_ambient_sound_catalog())
+                return
+
+            match = re.fullmatch(r"/api/ambient-file/([0-9a-fA-F]+)", path)
+            if match:
+                self.serve_ambient_file(match.group(1))
                 return
 
             if path == "/api/pairing/code":
@@ -4056,6 +4162,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/manuscript-stats", path)
             if match:
                 self.send_json(self.project_manuscript_stats(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/mobile-drafts", path)
+            if match:
+                self.send_json(self.list_mobile_drafts(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/export", path)
@@ -4446,6 +4557,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         ).fetchone()
                         title = str((row["title"] if row else "") or "")
                 checkout_project(project_id, title)
+                schedule_scenes_snapshot_sync(project_id)
                 self.send_json({"ok": True, "id": project_id})
                 return
 
@@ -4454,6 +4566,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 project_id = int(match.group(1))
                 checkin_project(project_id)
                 self.send_json({"ok": True, "id": project_id})
+                return
+
+            match = re.fullmatch(r"/api/scene-drafts/([^/]+)/merge", path)
+            if match:
+                self.send_json(self.merge_mobile_draft(match.group(1), body or {}))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/parts", path)
@@ -15065,6 +15182,91 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             })
         return {"items": items}
 
+    def list_mobile_drafts(self, project_id: int) -> list:
+        """Pending phone drafts plus local scene title / current revision_no."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+        drafts = fetch_pending_drafts(project_id)
+        if not drafts:
+            return []
+        scene_ids = [
+            int(item["local_scene_id"])
+            for item in drafts
+            if item.get("local_scene_id") is not None
+        ]
+        meta_by_id: dict[int, dict] = {}
+        if scene_ids:
+            placeholders = ",".join("?" * len(scene_ids))
+            with database() as connection:
+                rows = connection.execute(
+                    f"""
+                    SELECT s.id, s.title, v.revision_no
+                    FROM scene s
+                    LEFT JOIN v_current_scene_revision v ON v.scene_id = s.id
+                    WHERE s.project_id = ?
+                      AND s.id IN ({placeholders})
+                      AND s.deleted_at IS NULL
+                    """,
+                    (int(project_id), *scene_ids),
+                ).fetchall()
+            for row in rows:
+                revision_no = row["revision_no"]
+                try:
+                    revision_no = int(revision_no) if revision_no is not None else None
+                except (TypeError, ValueError):
+                    revision_no = None
+                meta_by_id[int(row["id"])] = {
+                    "title": str(row["title"] or "").strip() or "제목 없음",
+                    "revision_no": revision_no,
+                }
+        payload = []
+        for item in drafts:
+            sid = int(item["local_scene_id"])
+            meta = meta_by_id.get(sid) or {}
+            payload.append(
+                {
+                    **item,
+                    "title": meta.get("title") or "제목 없음",
+                    "revision_no": meta.get("revision_no"),
+                }
+            )
+        return payload
+
+    def merge_mobile_draft(self, draft_id: str, body: dict) -> dict:
+        """Apply a phone draft as a new current scene_revision, then mark merged."""
+        if not isinstance(body, dict):
+            raise ValueError("요청 본문이 올바르지 않습니다.")
+        try:
+            local_scene_id = int(body.get("local_scene_id"))
+        except (TypeError, ValueError) as error:
+            raise ValueError("회차 정보가 올바르지 않습니다.") from error
+        content = str(body.get("content") or "")
+        with database() as connection:
+            scene = connection.execute(
+                "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                (local_scene_id,),
+            ).fetchone()
+            if scene is None:
+                raise ValueError("씬을 찾을 수 없습니다.")
+            self._write_scene_content(
+                connection,
+                local_scene_id,
+                content,
+                save_note="폰 초안 반영",
+            )
+            connection.execute(
+                "UPDATE scene SET row_version = row_version + 1, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (local_scene_id,),
+            )
+        mark_draft_merged(draft_id)
+        try:
+            schedule_glump_highlight_analysis(local_scene_id, content)
+        except Exception:
+            pass
+        return {"ok": True, "draft_id": draft_id, "local_scene_id": local_scene_id}
+
     def mark_mobile_inbox_read(self, item_id: int) -> dict:
         with database() as connection:
             row = connection.execute(
@@ -15820,6 +16022,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+    def serve_ambient_file(self, token: str) -> None:
+        try:
+            relative = bytes.fromhex(token).decode("utf-8")
+        except (ValueError, UnicodeDecodeError) as error:
+            raise ValueError("배경음 파일을 찾을 수 없습니다.") from error
+        folder, sep, filename = relative.partition("/")
+        if not sep:
+            raise ValueError("배경음 파일을 찾을 수 없습니다.")
+        path = resolve_ambient_sound_file(folder, filename)
+        if path is None:
+            raise ValueError("배경음 파일을 찾을 수 없습니다.")
+        data = path.read_bytes()
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/mpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "private, max-age=86400")
+        self.end_headers()
+        self.wfile.write(data)
 
     def serve_illustration_image(self, illustration_id: int) -> None:
         with database() as connection:

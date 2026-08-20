@@ -129,6 +129,7 @@ async function setLanguage(lang) {
   await i18n.loadLocale(lang);
   applyTranslations();
   applyWelcomeAdFeedToDom();
+  if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
 }
 
 // DOM이 준비되면 data-i18n 요소들 한 번 더 정리 (혹시 남는 게 있으면)
@@ -7190,15 +7191,158 @@ async function markProjectOpened(projectId = state.projectId) {
     }
     bumpOpenedProjectInLocalList(id, result?.last_opened_at || null);
     const title = state.projects.find((project) => Number(project.id) === id)?.title || "";
-    api(`/api/projects/${id}/checkout`, {
-      method: "POST",
-      body: JSON.stringify({ title }),
-    }).catch((error) => {
+    try {
+      await api(`/api/projects/${id}/checkout`, {
+        method: "POST",
+        body: JSON.stringify({ title }),
+      });
+    } catch (error) {
       console.warn("[supertory] project checkout failed", error);
-    });
+    }
+    await refreshMobileDraftsBanner(id);
   } catch (_) {
     // Opening must not fail because of list bookkeeping.
   }
+}
+
+let mobileDraftItems = [];
+const ignoredMobileDraftIds = new Set();
+
+function visibleMobileDrafts() {
+  return (mobileDraftItems || []).filter((item) => !ignoredMobileDraftIds.has(String(item.draft_id)));
+}
+
+function draftConflictsWithDesktop(draft) {
+  const based = Number(draft?.based_on_revision_no);
+  const current = Number(draft?.revision_no);
+  if (!Number.isFinite(based) || !Number.isFinite(current)) return false;
+  return based !== current;
+}
+
+function hideMobileDraftBanner() {
+  $("mobileDraftBanner")?.classList.add("hidden");
+}
+
+function updateMobileDraftBanner() {
+  const banner = $("mobileDraftBanner");
+  const text = $("mobileDraftBannerText");
+  if (!banner || !text) return;
+  const items = visibleMobileDrafts();
+  if (!items.length) {
+    banner.classList.add("hidden");
+    return;
+  }
+  text.textContent = i18n.t("app.폰에서_쓴_초안이_n개_있어요", { n: items.length });
+  banner.classList.remove("hidden");
+}
+
+async function refreshMobileDraftsBanner(projectId = state.projectId) {
+  const id = Number(projectId);
+  ignoredMobileDraftIds.clear();
+  mobileDraftItems = [];
+  hideMobileDraftBanner();
+  if (!Number.isFinite(id) || id <= 0) return;
+  try {
+    const drafts = await api(`/api/projects/${id}/mobile-drafts`);
+    mobileDraftItems = Array.isArray(drafts) ? drafts : [];
+  } catch (error) {
+    console.warn("[supertory] mobile drafts fetch failed", error);
+    mobileDraftItems = [];
+  }
+  updateMobileDraftBanner();
+}
+
+function closeMobileDraftModal() {
+  $("mobileDraftModal")?.classList.add("hidden");
+}
+
+function renderMobileDraftList() {
+  const list = $("mobileDraftList");
+  if (!list) return;
+  const items = visibleMobileDrafts();
+  if (!items.length) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.확인할_초안이_없어요"))}</p>`;
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const preview = String(item.content || "").replace(/\s+/g, " ").trim().slice(0, 200);
+    const when = item.created_at ? formatLocalTimeFromIso(item.created_at) : "";
+    const datePart = String(item.created_at || "").slice(0, 10);
+    const conflict = draftConflictsWithDesktop(item)
+      ? `<p class="mobile-draft-conflict">${escapeHtml(i18n.t("app.그_사이_데스크탑에서도_수정됐어요"))}</p>`
+      : "";
+    const draftId = escapeHtml(String(item.draft_id));
+    return `
+      <article class="mobile-draft-item" data-draft-id="${draftId}">
+        <div class="mobile-draft-item-head">
+          <strong>${escapeHtml(item.title || i18n.t("app.제목_없음"))}</strong>
+          <span>${escapeHtml(datePart)} ${escapeHtml(when)}</span>
+        </div>
+        <p class="mobile-draft-preview">${escapeHtml(preview || "")}</p>
+        ${conflict}
+        <div class="mobile-draft-item-actions">
+          <button type="button" class="primary compact-btn" data-draft-merge="${draftId}">${escapeHtml(i18n.t("app.반영하기"))}</button>
+          <button type="button" class="secondary compact-btn" data-draft-ignore="${draftId}">${escapeHtml(i18n.t("app.무시하기"))}</button>
+        </div>
+      </article>
+    `;
+  }).join("");
+}
+
+function openMobileDraftModal() {
+  const modal = $("mobileDraftModal");
+  if (!modal) return;
+  renderMobileDraftList();
+  modal.classList.remove("hidden");
+}
+
+function ignoreMobileDraft(draftId) {
+  ignoredMobileDraftIds.add(String(draftId));
+  updateMobileDraftBanner();
+  renderMobileDraftList();
+  if (!visibleMobileDrafts().length) closeMobileDraftModal();
+}
+
+async function mergeMobileDraft(draftId) {
+  const draft = mobileDraftItems.find((item) => String(item.draft_id) === String(draftId));
+  if (!draft) return;
+  await api(`/api/scene-drafts/${encodeURIComponent(String(draft.draft_id))}/merge`, {
+    method: "POST",
+    body: JSON.stringify({
+      local_scene_id: draft.local_scene_id,
+      content: draft.content || "",
+    }),
+  });
+  mobileDraftItems = mobileDraftItems.filter((item) => String(item.draft_id) !== String(draftId));
+  updateMobileDraftBanner();
+  renderMobileDraftList();
+  toast(i18n.t("app.초안을_반영했어요"));
+  if (Number(state.sceneId) === Number(draft.local_scene_id)) {
+    await openScene(draft.local_scene_id, { keepBinder: true });
+  }
+  if (!visibleMobileDrafts().length) closeMobileDraftModal();
+}
+
+function setupMobileDraftUi() {
+  const bannerReview = $("mobileDraftBannerReview");
+  bannerReview?.addEventListener("click", () => openMobileDraftModal());
+  document.querySelectorAll("[data-close-mobile-drafts]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeMobileDraftModal();
+    });
+  });
+  $("mobileDraftList")?.addEventListener("click", (event) => {
+    const mergeBtn = event.target.closest?.("[data-draft-merge]");
+    if (mergeBtn) {
+      mergeMobileDraft(mergeBtn.getAttribute("data-draft-merge")).catch(handleError);
+      return;
+    }
+    const ignoreBtn = event.target.closest?.("[data-draft-ignore]");
+    if (ignoreBtn) {
+      ignoreMobileDraft(ignoreBtn.getAttribute("data-draft-ignore"));
+    }
+  });
 }
 
 function postProjectCheckinKeepalive(projectId) {
@@ -50234,6 +50378,7 @@ function setAdminTab(tabId) {
   if (id === "settings") {
     renderAdminThemeList();
     renderHiddenFeaturesList();
+    if (typeof renderAdminAmbientList === "function") renderAdminAmbientList();
   }
   if (id === "info") {
     refreshAdminInfoPanel();
@@ -50786,6 +50931,7 @@ function isFeatureHideExempt(el) {
     id === "adminModeButton"
     || id === "featureHideResetButton"
     || id === "uiThemeToggleButton"
+    || id === "ambientSoundButton"
     || id === "uiFeatureHideMenuItem"
     || id === "adminContactDevButton"
     || id === "adminHelpSearch"
@@ -50934,7 +51080,7 @@ function applyFeatureHideClasses() {
   document.querySelectorAll(".feature-hide-exempt, #toryChatHighlightButton").forEach((el) => {
     el.classList.remove("ui-feature-hidden");
   });
-  ["adminModeButton", "featureHideResetButton", "guideTipResetButton", "uiThemeToggleButton", "adminContactDevButton"]
+  ["adminModeButton", "featureHideResetButton", "guideTipResetButton", "uiThemeToggleButton", "ambientSoundButton", "adminContactDevButton"]
     .forEach((id) => $(id)?.classList.add("feature-hide-exempt"));
   updateFeatureHideCountUi();
 }
@@ -51079,6 +51225,7 @@ function onUiFeatureHideAction() {
 function onGlobalUiFeatureContextMenu(event) {
   if (event.defaultPrevented) return;
   if (isManuscriptWritingSurface(event.target)) return;
+  if (event.target.closest?.("#ambientSoundPopup, #binderAmbientControl, #adminAmbientSection")) return;
   if (event.target.closest?.("#projectSelect, .project-picker")) return;
   if (event.target.closest?.([
     "#adminModal",
@@ -52147,6 +52294,7 @@ function openUiThemeRail() {
   const button = $("uiThemeToggleButton");
   const rail = ensureUiThemeRailFilled();
   if (!button || !rail) return;
+  if (typeof closeAmbientPopup === "function") closeAmbientPopup();
   syncUiThemeRailActive(getUiTheme());
   button.setAttribute("aria-expanded", "true");
   positionUiThemeRail();
@@ -52495,7 +52643,6 @@ function setTarotTheme(themeId, options = {}) {
   try {
     localStorage.setItem(TAROT_THEME_STORAGE_KEY, next);
   } catch (_) { /* ignore */ }
-  syncTarotThemePicker();
   if (options.announce) {
     toast(next === "dreamer" ? i18n.t("app.몽상가_토리") : i18n.t("app.모험가_토리"));
   }
@@ -52503,31 +52650,6 @@ function setTarotTheme(themeId, options = {}) {
     renderGlumpErStep();
   }
   return next;
-}
-
-function syncTarotThemePicker() {
-  const host = $("adminTarotThemeList");
-  if (!host) return;
-  const current = getTarotTheme();
-  host.querySelectorAll("[data-tarot-theme-pick]").forEach((btn) => {
-    const id = btn.getAttribute("data-tarot-theme-pick");
-    const active = id === current;
-    btn.classList.toggle("is-active", active);
-    btn.setAttribute("aria-checked", active ? "true" : "false");
-  });
-}
-
-function setupTarotThemePicker() {
-  syncTarotThemePicker();
-  if (document.documentElement.dataset.tarotThemePickerBound === "1") return;
-  document.documentElement.dataset.tarotThemePickerBound = "1";
-  document.addEventListener("click", (event) => {
-    const btn = event.target?.closest?.("#adminTarotThemeList [data-tarot-theme-pick]");
-    if (!btn) return;
-    event.preventDefault();
-    event.stopPropagation();
-    setTarotTheme(btn.getAttribute("data-tarot-theme-pick"), { announce: true });
-  }, true);
 }
 
 let toriTarotDataV3 = null;
@@ -52622,7 +52744,6 @@ function setupUiThemeToggle() {
     });
   }
   setupAdminThemePicker();
-  setupTarotThemePicker();
   setupHighContrastToggle();
   try {
     // Must call applyUiTheme (not setTheme): assigning window.setTheme = () => setTheme()
@@ -52643,6 +52764,579 @@ try {
   setupUiThemeToggle();
 } catch (err) {
   console.warn("[supertory] setupUiThemeToggle failed", err);
+}
+
+/* —— Ambient background sound (header speaker + 설정 음원관리) —— */
+const AMBIENT_TRACK_KEY = "supertory.ambientTrack";
+const AMBIENT_VOLUME_KEY = "supertory.ambientVolume";
+const AMBIENT_VOLUME_CALIBRATION_KEY = "supertory.ambientVolumeCalibrated";
+const AMBIENT_VOLUME_CALIBRATION = "50";
+const AMBIENT_FADE_SEC = 0.3;
+const AMBIENT_DEFAULT_VOLUME = 0.5;
+const AMBIENT_NATIVE_VOLUME = 1;
+const AMBIENT_WHITE_NATIVE_VOLUME = 0.6;
+
+const AMBIENT_CATEGORY_META = [
+  { id: "frequency", labelKey: "app.뇌파_주파수" },
+  { id: "noise", labelKey: "app.색상_노이즈" },
+  { id: "nature", labelKey: "app.자연_소리" },
+  { id: "ambient", labelKey: "app.공간_환경음" },
+];
+
+const AMBIENT_LABEL_RULES = [
+  { test: /alpha|알파/i, key: "app.알파파" },
+  { test: /beta|gamma|베타|감마/i, key: "app.베타_감마파" },
+  { test: /theta|세타/i, key: "app.세타파" },
+  { test: /delta|델타/i, key: "app.델타파" },
+  { test: /528/, key: "app.528Hz" },
+  { test: /432/, key: "app.432Hz" },
+  { test: /white|화이트/i, key: "app.화이트노이즈" },
+  { test: /pink|핑크/i, key: "app.핑크노이즈" },
+  { test: /brown|브라운/i, key: "app.브라운노이즈" },
+  { test: /blue|블루/i, key: "app.블루노이즈" },
+  { test: /green|그린/i, key: "app.그린노이즈" },
+  { test: /jungle/i, key: "app.정글_비" },
+  { test: /창가|window.?rain/i, key: "app.창가_빗소리" },
+  { test: /light.?rain/i, key: "app.빗소리" },
+  { test: /campfire|camp.?fire|모닥|bonfire|fireplace/i, key: "app.모닥불" },
+  { test: /ocean|wave|파도|sea|beach/i, key: "app.파도_소리" },
+  { test: /forest|숲/i, key: "app.숲_소리" },
+  { test: /wind|바람/i, key: "app.바람_소리" },
+  { test: /시냇물|시냇|stream|brook|river|개울/i, key: "app.시냇물" },
+  { test: /thunder|천둥/i, key: "app.천둥" },
+  { test: /cafe|caf[eé]|coffee|카페/i, key: "app.카페_소리" },
+  { test: /밤소리/i, key: "app.밤소리" },
+  { test: /library|도서관/i, key: "app.도서관" },
+  { test: /train|기차/i, key: "app.기차" },
+  { test: /office|사무실/i, key: "app.사무실" },
+  { test: /night|밤/i, key: "app.밤소리" },
+  { test: /rain|빗/i, key: "app.빗소리" },
+];
+
+const ambientSound = {
+  ctx: null,
+  master: null,
+  voices: [],
+  buffers: new Map(),
+  tracks: {},
+  categories: [],
+  selectedId: "",
+  volume: AMBIENT_DEFAULT_VOLUME,
+  playing: false,
+  switchToken: 0,
+  catalogReady: false,
+};
+
+function stripAmbientLoopJunk(text) {
+  return String(text || "")
+    .replace(/[-_\s]*loop[-_\s]*0?m?\d+s?/gi, "")
+    .replace(/[-_\s]+loop\b/gi, "")
+    .replace(/\b\d+m\d+s\b/gi, "")
+    .replace(/[-_\s]+/g, " ")
+    .trim();
+}
+
+function humanizeAmbientStem(stem) {
+  return stripAmbientLoopJunk(String(stem || "").replace(/[_-]+/g, " "));
+}
+
+function ambientTrackLabel(id) {
+  const track = ambientSound.tracks[id];
+  if (!track) return i18n.t("app.배경음");
+  const hay = stripAmbientLoopJunk(`${track.stem} ${track.file || ""}`);
+  const rule = AMBIENT_LABEL_RULES.find((item) => item.test.test(hay) || item.test.test(`${track.stem} ${track.file || ""}`));
+  if (rule) return i18n.t(rule.key);
+  return humanizeAmbientStem(track.stem) || i18n.t("app.배경음");
+}
+
+function ambientCategoryLabel(catId) {
+  const meta = AMBIENT_CATEGORY_META.find((item) => item.id === catId);
+  return meta ? i18n.t(meta.labelKey) : catId;
+}
+
+function ambientTrackGain(track) {
+  const hay = `${track?.id || ""} ${track?.stem || ""} ${track?.file || ""}`;
+  const native = /white|화이트/i.test(hay) ? AMBIENT_WHITE_NATIVE_VOLUME : AMBIENT_NATIVE_VOLUME;
+  return native / AMBIENT_DEFAULT_VOLUME;
+}
+
+function ambientDefaultTrackId() {
+  const all = Object.values(ambientSound.tracks);
+  const pink = all.find((track) => /pink|핑크/i.test(`${track.stem} ${track.file || ""}`));
+  if (pink) return pink.id;
+  const noise = ambientSound.categories.find((cat) => cat.id === "noise");
+  if (noise?.tracks?.[0]) return noise.tracks[0].id;
+  return all[0]?.id || "";
+}
+
+function resolveAmbientTrackId(raw) {
+  const value = String(raw || "").trim();
+  if (value && ambientSound.tracks[value]) return value;
+  const aliases = {
+    "모닥불": "campfire",
+    "시냇물": "stream",
+    "파도": "waves",
+    "밤소리": "night",
+    "창가-비": "window-rain",
+    "카페": "cafe",
+  };
+  let mapped = value;
+  Object.entries(aliases).forEach(([from, to]) => {
+    mapped = mapped.replace(from, to);
+  });
+  if (mapped && ambientSound.tracks[mapped]) return mapped;
+  const strippedId = value
+    .replace(/[-_]?loop[-_]?0?m?\d+s?/gi, "")
+    .replace(/[-_]+$/g, "");
+  if (strippedId && ambientSound.tracks[strippedId]) return strippedId;
+  const all = Object.values(ambientSound.tracks);
+  if (!all.length) return "";
+  const lower = value.toLowerCase();
+  const stemHit = all.find((track) => {
+    const stem = String(track.stem || "").toLowerCase();
+    const idTail = String(track.id || "").toLowerCase().split(":").pop();
+    return stem === lower || idTail === lower || stem.replace(/[\s_-]+/g, "") === lower.replace(/[\s_-]+/g, "");
+  });
+  if (stemHit) return stemHit.id;
+  const fuzzy = all.find((track) => {
+    const hay = `${track.id} ${track.stem} ${track.file || ""}`.toLowerCase();
+    return lower && hay.includes(lower);
+  });
+  if (fuzzy) return fuzzy.id;
+  return ambientDefaultTrackId();
+}
+
+function applyAmbientCatalog(payload) {
+  const categories = Array.isArray(payload?.categories) ? payload.categories : [];
+  const tracks = {};
+  const normalized = AMBIENT_CATEGORY_META.map((meta) => {
+    const found = categories.find((cat) => cat?.id === meta.id) || { id: meta.id, tracks: [] };
+    const list = (Array.isArray(found.tracks) ? found.tracks : [])
+      .filter((item) => item && item.id && item.url)
+      .map((item) => {
+        const track = {
+          id: String(item.id),
+          category: meta.id,
+          file: String(item.file || ""),
+          stem: String(item.stem || item.file || item.id),
+          url: String(item.url),
+          gain: ambientTrackGain({
+            id: String(item.id),
+            file: String(item.file || ""),
+            stem: String(item.stem || item.file || item.id),
+          }),
+        };
+        tracks[track.id] = track;
+        return track;
+      });
+    return { id: meta.id, tracks: list };
+  });
+  ambientSound.tracks = tracks;
+  ambientSound.categories = normalized;
+  ambientSound.catalogReady = true;
+  preloadAmbientArt();
+  let stored = "";
+  try { stored = String(localStorage.getItem(AMBIENT_TRACK_KEY) || "").trim(); } catch (_) { /* ignore */ }
+  ambientSound.selectedId = resolveAmbientTrackId(stored || ambientSound.selectedId);
+  if (ambientSound.selectedId) {
+    try { localStorage.setItem(AMBIENT_TRACK_KEY, ambientSound.selectedId); } catch (_) { /* ignore */ }
+  }
+}
+
+async function loadAmbientCatalog() {
+  const data = await api("/api/ambient-tracks");
+  applyAmbientCatalog(data);
+  renderAdminAmbientList();
+  if (isAmbientPopupOpen()) fillAmbientPopup(true);
+  syncAmbientSoundUi();
+}
+
+function loadAmbientPrefs() {
+  try {
+    const calibrated = String(localStorage.getItem(AMBIENT_VOLUME_CALIBRATION_KEY) || "");
+    if (calibrated !== AMBIENT_VOLUME_CALIBRATION) {
+      ambientSound.volume = AMBIENT_DEFAULT_VOLUME;
+      localStorage.setItem(AMBIENT_VOLUME_KEY, String(AMBIENT_DEFAULT_VOLUME));
+      localStorage.setItem(AMBIENT_VOLUME_CALIBRATION_KEY, AMBIENT_VOLUME_CALIBRATION);
+      return;
+    }
+    const raw = localStorage.getItem(AMBIENT_VOLUME_KEY);
+    if (raw != null && raw !== "") {
+      const n = Number(raw);
+      if (Number.isFinite(n)) ambientSound.volume = Math.min(1, Math.max(0, n));
+    }
+  } catch (_) { /* ignore */ }
+}
+
+function saveAmbientTrack(id) {
+  const next = resolveAmbientTrackId(id);
+  ambientSound.selectedId = next;
+  if (!next) return;
+  try { localStorage.setItem(AMBIENT_TRACK_KEY, next); } catch (_) { /* ignore */ }
+}
+
+function saveAmbientVolume(vol) {
+  ambientSound.volume = Math.min(1, Math.max(0, Number(vol) || 0));
+  try { localStorage.setItem(AMBIENT_VOLUME_KEY, String(ambientSound.volume)); } catch (_) { /* ignore */ }
+  if (ambientSound.master && ambientSound.ctx) {
+    const now = ambientSound.ctx.currentTime;
+    ambientSound.master.gain.cancelScheduledValues(now);
+    ambientSound.master.gain.setTargetAtTime(ambientSound.volume, now, 0.03);
+  }
+}
+
+async function ensureAmbientContext() {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) throw new Error(i18n.t("app.이_브라우저에서는_배경음을_재생할_수_없어요"));
+  if (!ambientSound.ctx) {
+    ambientSound.ctx = new AC();
+    ambientSound.master = ambientSound.ctx.createGain();
+    ambientSound.master.gain.value = ambientSound.volume;
+    ambientSound.master.connect(ambientSound.ctx.destination);
+  }
+  if (ambientSound.ctx.state === "suspended") {
+    await ambientSound.ctx.resume();
+  }
+  return ambientSound.ctx;
+}
+
+async function getAmbientBuffer(track) {
+  const ctx = ambientSound.ctx;
+  const cacheKey = `file:${track.url}`;
+  if (ambientSound.buffers.has(cacheKey)) return ambientSound.buffers.get(cacheKey);
+  const res = await fetch(track.url, { cache: "no-store" });
+  if (!res.ok) throw new Error(i18n.t("app.배경음_파일을_찾지_못했어요"));
+  const arr = await res.arrayBuffer();
+  const decoded = await ctx.decodeAudioData(arr.slice(0));
+  ambientSound.buffers.set(cacheKey, decoded);
+  return decoded;
+}
+
+function stopAmbientVoices(fadeSec = AMBIENT_FADE_SEC) {
+  const ctx = ambientSound.ctx;
+  if (!ctx) {
+    ambientSound.voices = [];
+    return;
+  }
+  const now = ctx.currentTime;
+  const old = ambientSound.voices;
+  ambientSound.voices = [];
+  old.forEach((voice) => {
+    try {
+      const current = Math.max(0, voice.gain.gain.value);
+      voice.gain.gain.cancelScheduledValues(now);
+      voice.gain.gain.setValueAtTime(current, now);
+      voice.gain.gain.linearRampToValueAtTime(0, now + fadeSec);
+      const stopAt = now + fadeSec + 0.05;
+      voice.nodes.forEach((node) => {
+        try { if (typeof node.stop === "function") node.stop(stopAt); } catch (_) { /* ignore */ }
+      });
+      window.setTimeout(() => {
+        voice.nodes.forEach((node) => {
+          try { node.disconnect(); } catch (_) { /* ignore */ }
+        });
+        try { voice.gain.disconnect(); } catch (_) { /* ignore */ }
+      }, (fadeSec + 0.08) * 1000);
+    } catch (_) { /* ignore */ }
+  });
+}
+
+function createAmbientVoiceGain(targetGain) {
+  const ctx = ambientSound.ctx;
+  const gain = ctx.createGain();
+  gain.gain.setValueAtTime(0, ctx.currentTime);
+  gain.gain.linearRampToValueAtTime(targetGain, ctx.currentTime + AMBIENT_FADE_SEC);
+  gain.connect(ambientSound.master);
+  return gain;
+}
+
+async function startAmbientTrack(trackId) {
+  if (!ambientSound.catalogReady) {
+    try { await loadAmbientCatalog(); } catch (_) { /* ignore */ }
+  }
+  const id = resolveAmbientTrackId(trackId);
+  const track = ambientSound.tracks[id];
+  if (!track?.url) throw new Error(i18n.t("app.배경음_파일을_찾지_못했어요"));
+  saveAmbientTrack(id);
+  syncAmbientSoundUi();
+  const token = ++ambientSound.switchToken;
+  await ensureAmbientContext();
+  if (token !== ambientSound.switchToken) return;
+  stopAmbientVoices(AMBIENT_FADE_SEC);
+  const buffer = await getAmbientBuffer(track);
+  if (token !== ambientSound.switchToken) return;
+  const voiceGain = createAmbientVoiceGain(track.gain || ambientTrackGain(track));
+  const src = ambientSound.ctx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  src.connect(voiceGain);
+  src.start();
+  ambientSound.voices.push({ gain: voiceGain, nodes: [src] });
+  ambientSound.playing = true;
+  syncAmbientSoundUi();
+}
+
+async function toggleAmbientPlayback() {
+  if (ambientSound.playing) {
+    stopAmbientVoices(AMBIENT_FADE_SEC);
+    ambientSound.playing = false;
+    syncAmbientSoundUi();
+    return;
+  }
+  await startAmbientTrack(ambientSound.selectedId || ambientDefaultTrackId());
+}
+
+function isAmbientPopupOpen() {
+  const popup = $("ambientSoundPopup");
+  return Boolean(popup && !popup.hidden && popup.classList.contains("is-open"));
+}
+
+function ambientTrackArt(track) {
+  const hay = `${track?.stem || ""} ${track?.file || ""}`;
+  const rules = [
+    [/alpha|알파/i, "ambient-alpha.png"],
+    [/beta|gamma|베타|감마/i, "ambient-beta-gamma.png"],
+    [/528/, "ambient-528.png"],
+    [/white|화이트/i, "ambient-white.png"],
+    [/pink|핑크/i, "ambient-pink.png"],
+    [/brown|브라운/i, "ambient-brown.png"],
+    [/jungle/i, "ambient-jungle.png"],
+    [/창가|window.?rain/i, "ambient-window-rain.png"],
+    [/모닥|campfire|bonfire|fireplace/i, "ambient-campfire.png"],
+    [/파도|ocean|wave|sea/i, "ambient-waves.png"],
+    [/시냇물|시냇|stream|brook/i, "ambient-stream.png"],
+    [/카페|cafe|coffee/i, "ambient-cafe.png"],
+    [/밤|night/i, "ambient-night.png"],
+    [/rain|빗/i, "ambient-light-rain.png"],
+  ];
+  const hit = rules.find((item) => item[0].test(hay));
+  return hit ? `/ambient-art/${hit[1]}` : "";
+}
+
+function preloadAmbientArt() {
+  const seen = new Set();
+  Object.values(ambientSound.tracks).forEach((track) => {
+    const src = ambientTrackArt(track);
+    if (!src || seen.has(src)) return;
+    seen.add(src);
+    const img = new Image();
+    img.decoding = "async";
+    img.src = src;
+  });
+}
+
+function renderAmbientTrackButtons(selected) {
+  const total = Object.keys(ambientSound.tracks).length;
+  if (!total) {
+    return `<p class="ambient-empty-hint">${escapeHtml(i18n.t("app.음원_없음"))}</p>`;
+  }
+  return ambientSound.categories.map((cat) => {
+    const items = cat.tracks.map((track) => {
+      const active = track.id === selected;
+      const label = escapeHtml(ambientTrackLabel(track.id));
+      const art = ambientTrackArt(track);
+      const img = art
+        ? `<img src="${escapeHtml(art)}" alt="" width="46" height="46" decoding="async">`
+        : "";
+      return `<button type="button" class="ambient-chip${active ? " is-active" : ""}" role="menuitemradio" data-ambient-track="${escapeHtml(track.id)}" aria-checked="${active ? "true" : "false"}" title="${label}">
+        <span class="ambient-chip-art" aria-hidden="true">${img}<span class="ambient-chip-check">✓</span></span>
+        <span class="ambient-chip-label">${label}</span>
+      </button>`;
+    }).join("");
+    return `<section class="ambient-rail-group" data-ambient-cat="${escapeHtml(cat.id)}">
+      <h4 class="ambient-rail-title">${escapeHtml(ambientCategoryLabel(cat.id))}</h4>
+      <div class="ambient-rail-row">${items}</div>
+    </section>`;
+  }).join("");
+}
+
+function fillAmbientPopup(force = false) {
+  const popup = $("ambientSoundPopup");
+  if (!popup) return popup;
+  if (!force && popup.querySelector("[data-ambient-track]")) {
+    syncAmbientSoundUi();
+    return popup;
+  }
+  const body = renderAmbientTrackButtons(ambientSound.selectedId);
+  popup.innerHTML = `<div class="ambient-popup-body">${body}</div><button type="button" class="ambient-popup-manage" data-ambient-manage="1">${escapeHtml(i18n.t("app.음원_관리_전체_보기"))}</button>`;
+  return popup;
+}
+
+function renderAdminAmbientList() {
+  const host = $("adminAmbientTrackList");
+  if (!host) return;
+  host.innerHTML = renderAmbientTrackButtons(ambientSound.selectedId);
+}
+
+function positionAmbientPopup() {
+  const popup = $("ambientSoundPopup");
+  const button = $("ambientSoundButton");
+  if (!popup || !button) return;
+  const rect = button.getBoundingClientRect();
+  const pad = 8;
+  const wasOpen = popup.classList.contains("is-open");
+  popup.hidden = false;
+  popup.style.visibility = "hidden";
+  popup.classList.add("is-open");
+  const mw = Math.min(popup.offsetWidth || 520, window.innerWidth - pad * 2);
+  let left = rect.right + 8;
+  let top = rect.bottom - (popup.offsetHeight || 56);
+  if (left + mw > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - mw - pad);
+  }
+  if (top < pad) top = pad;
+  if (top + (popup.offsetHeight || 56) > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - (popup.offsetHeight || 56) - pad);
+  }
+  popup.style.left = `${Math.round(left)}px`;
+  popup.style.top = `${Math.round(top)}px`;
+  popup.style.bottom = "auto";
+  popup.style.visibility = "";
+  if (!wasOpen) {
+    popup.classList.remove("is-open");
+    void popup.offsetWidth;
+    requestAnimationFrame(() => popup.classList.add("is-open"));
+  }
+}
+
+function closeAmbientPopup() {
+  const popup = $("ambientSoundPopup");
+  const button = $("ambientSoundButton");
+  if (popup) {
+    popup.classList.remove("is-open");
+    popup.hidden = true;
+    popup.style.visibility = "";
+  }
+  if (button) button.setAttribute("aria-expanded", "false");
+}
+
+function openAmbientPopup() {
+  if (typeof closeUiThemeRail === "function") closeUiThemeRail();
+  const button = $("ambientSoundButton");
+  const popup = fillAmbientPopup();
+  if (!button || !popup) return;
+  button.setAttribute("aria-expanded", "true");
+  positionAmbientPopup();
+}
+
+function toggleAmbientPopup() {
+  if (isAmbientPopupOpen()) closeAmbientPopup();
+  else openAmbientPopup();
+}
+
+function syncAmbientSoundUi() {
+  const button = $("ambientSoundButton");
+  const playing = Boolean(ambientSound.playing);
+  const label = ambientSound.selectedId
+    ? ambientTrackLabel(ambientSound.selectedId)
+    : i18n.t("app.배경음");
+  if (button) {
+    button.classList.toggle("is-playing", playing);
+    button.setAttribute("aria-pressed", playing ? "true" : "false");
+    const title = playing
+      ? `${i18n.t("app.배경음_정지")} · ${label}`
+      : `${i18n.t("app.배경음_재생")} · ${label}`;
+    button.title = title;
+    button.setAttribute("aria-label", title);
+  }
+  const selected = ambientSound.selectedId;
+  document.querySelectorAll("#ambientSoundPopup [data-ambient-track], #adminAmbientTrackList [data-ambient-track]").forEach((btn) => {
+    const active = btn.getAttribute("data-ambient-track") === selected;
+    btn.classList.toggle("is-active", active);
+    btn.setAttribute("aria-checked", active ? "true" : "false");
+  });
+  const name = $("adminAmbientTrackLabel");
+  if (name) name.textContent = label;
+  const slider = $("adminAmbientVolume");
+  const percent = $("adminAmbientVolumeValue");
+  const pct = Math.round(ambientSound.volume * 100);
+  if (slider && document.activeElement !== slider) slider.value = String(pct);
+  if (percent) percent.textContent = `${pct}%`;
+}
+
+function openAmbientSettingsPanel() {
+  closeAmbientPopup();
+  openAdminModal("settings");
+  window.setTimeout(() => {
+    $("adminAmbientSection")?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, 40);
+}
+
+function refreshAmbientSoundUi() {
+  if (isAmbientPopupOpen()) fillAmbientPopup(true);
+  renderAdminAmbientList();
+  syncAmbientSoundUi();
+}
+
+function setupAmbientSound() {
+  loadAmbientPrefs();
+  syncAmbientSoundUi();
+  loadAmbientCatalog().catch((err) => console.warn("[supertory] ambient catalog", err));
+  if (document.documentElement.dataset.ambientSoundBound === "1") return;
+  document.documentElement.dataset.ambientSoundBound = "1";
+
+  const button = $("ambientSoundButton");
+  if (button) {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleAmbientPlayback().catch(handleError);
+    });
+    button.addEventListener("contextmenu", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleAmbientPopup();
+    }, true);
+  }
+
+  document.addEventListener("click", (event) => {
+    const acc = event.target?.closest?.("#ambientSoundPopup [data-ambient-acc], #adminAmbientTrackList [data-ambient-acc]");
+    if (acc) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleAmbientAccordion(acc);
+      return;
+    }
+    const manage = event.target?.closest?.("#ambientSoundPopup [data-ambient-manage]");
+    if (manage) {
+      event.preventDefault();
+      event.stopPropagation();
+      openAmbientSettingsPanel();
+      return;
+    }
+    const pick = event.target?.closest?.("#ambientSoundPopup [data-ambient-track], #adminAmbientTrackList [data-ambient-track]");
+    if (pick) {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = pick.getAttribute("data-ambient-track");
+      startAmbientTrack(id).catch(handleError);
+      return;
+    }
+    if (isAmbientPopupOpen() && !event.target?.closest?.("#ambientSoundPopup, #binderAmbientControl")) {
+      closeAmbientPopup();
+    }
+  }, true);
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isAmbientPopupOpen()) closeAmbientPopup();
+  });
+
+  window.addEventListener("resize", () => {
+    if (isAmbientPopupOpen()) positionAmbientPopup();
+  });
+
+  $("adminAmbientVolume")?.addEventListener("input", (event) => {
+    const pct = Number(event.target.value);
+    saveAmbientVolume((Number.isFinite(pct) ? pct : 50) / 100);
+    const percent = $("adminAmbientVolumeValue");
+    if (percent) percent.textContent = `${Math.round(ambientSound.volume * 100)}%`;
+  });
+}
+
+try {
+  setupAmbientSound();
+} catch (err) {
+  console.warn("[supertory] setupAmbientSound failed", err);
 }
 
 function closeCreateMenu() {
@@ -52834,6 +53528,7 @@ onEl("newChapterButton", "click", () => {
   }
   createChapter().catch(handleError);
 });
+safeSetup("setupMobileDraftUi", setupMobileDraftUi);
 safeSetup("setupRenumberChaptersModal", setupRenumberChaptersModal);
 safeSetup("setupTextPromptModal", setupTextPromptModal);
 safeSetup("setupOutlineBinderChrome", setupOutlineBinderChrome);
@@ -52862,6 +53557,7 @@ safeSetup("setupBinderPanelToggle", setupBinderPanelToggle);
 safeSetup("setupNarrowLayoutAutoCollapse", setupNarrowLayoutAutoCollapse);
 // Theme controls already bound earlier (setupUiThemeToggle); keep a safe re-entry.
 safeSetup("setupUiThemeToggle", setupUiThemeToggle);
+safeSetup("setupAmbientSound", setupAmbientSound);
 safeSetup("setupBinderContextMenu", setupBinderContextMenu);
 safeSetup("setupSettingsContextMenu", setupSettingsContextMenu);
 safeSetup("setupSceneFeatureBar", setupSceneFeatureBar);
