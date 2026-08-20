@@ -21806,11 +21806,17 @@ body[data-ui-scheme="dark"] .tory-opening-hint-btn {
   cursor: not-allowed;
 }
 /* 재생성(refresh) 아이콘 — 인라인 SVG라 크기와 상관없이 항상 선명하고,
-   이미지 마스크 관련 문제(흐림/회색 박스 등) 자체가 생기지 않는다. 항상 검정 고정. */
+   이미지 마스크 관련 문제(흐림/회색 박스 등) 자체가 생기지 않는다. 기본은 검정. */
 .chapter-subtitle-regen-icon {
   width: 19px;
   height: 19px;
   fill: #000;
+}
+html[data-theme="dark"] .chapter-subtitle-regen-icon,
+html[data-ui-theme="dark"] .chapter-subtitle-regen-icon,
+html[data-theme="attic"] .chapter-subtitle-regen-icon,
+html[data-ui-theme="attic"] .chapter-subtitle-regen-icon {
+  fill: var(--ink);
 }
 .chapter-subtitle-modal-card { width: min(760px, calc(100vw - 28px)); }
 .chapter-subtitle-body { min-height: 120px; }
