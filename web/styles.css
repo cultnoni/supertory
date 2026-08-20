@@ -22884,6 +22884,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-word-item,
 .glump-er-sentence-item,
 .glump-er-tarot-card {
+  min-width: 0;
   padding: 10px 12px;
   border-radius: 10px;
   border: 1px solid var(--border, #d8d2c8);
@@ -22893,33 +22894,238 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  width: 100%;
+  max-width: 660px;
+  margin: 0 auto;
+}
+.glump-er-tarot-intro > p,
+.glump-er-tarot-pick-head p {
+  margin: 0;
+  font-weight: 700;
+}
+.glump-er-tarot-reader-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 14px;
+}
+.glump-er-tarot-reader {
+  display: grid;
+  justify-items: center;
+  gap: 7px;
+  padding: 16px;
+  border: 2px solid var(--border, #d8d2c8);
+  border-radius: 16px;
+  background: var(--surface, #fff);
+  color: inherit;
+  cursor: pointer;
+  transition: transform 160ms ease, border-color 160ms ease, box-shadow 160ms ease;
+}
+.glump-er-tarot-reader:hover,
+.glump-er-tarot-reader.is-current {
+  transform: translateY(-2px);
+  border-color: var(--accent, #aa7652);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--accent, #aa7652) 18%, transparent);
+}
+.glump-er-tarot-reader img {
+  display: block;
+  width: min(116px, 62%);
+  aspect-ratio: 2 / 3;
+  object-fit: cover;
+  border-radius: 10px;
+}
+.glump-er-tarot-reader strong {
+  font-size: 16px;
+}
+.glump-er-tarot-reader span {
+  color: var(--muted, #706b64);
+  font-size: 12px;
+}
+.glump-er-tarot-pick-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.glump-er-tarot-pick-head strong {
+  flex: 0 0 auto;
+  padding: 4px 9px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent, #aa7652) 16%, transparent);
+}
+.glump-er-tarot-deck {
+  display: grid;
+  grid-template-columns: repeat(11, minmax(42px, 1fr));
+  gap: 7px;
+}
+.glump-er-tarot-choice {
+  position: relative;
+  min-width: 0;
+  padding: 0;
+  aspect-ratio: 2 / 3;
+  border: 2px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  cursor: pointer;
+  transition: transform 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.glump-er-tarot-choice:hover {
+  transform: translateY(-4px) rotate(-1deg);
+}
+.glump-er-tarot-choice.is-selected {
+  z-index: 1;
+  transform: translateY(-7px);
+  border-color: var(--accent, #aa7652);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent, #aa7652) 24%, transparent);
+}
+.glump-er-tarot-choice img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 7px;
+  object-fit: cover;
+}
+.glump-er-tarot-pick-badge,
+.glump-er-tarot-position {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--accent, #aa7652);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 750;
+}
+.glump-er-tarot-pick-badge {
+  position: absolute;
+  left: 50%;
+  bottom: 5px;
+  width: max-content;
+  max-width: calc(100% - 6px);
+  padding: 3px 6px;
+  transform: translateX(-50%);
+  white-space: nowrap;
+}
+.glump-er-tarot-pick-actions {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+}
+.glump-er-tarot-pick-actions button {
+  flex: 1;
+}
+.glump-er-tarot-reveal {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  width: 100%;
+  max-width: 660px;
+  margin: 8px auto;
+  padding: 4px 2px 8px;
+}
+.glump-er-tarot-flip-card {
+  min-width: 0;
+  text-align: center;
+  perspective: 1100px;
+}
+.glump-er-tarot-position {
+  margin: 0 0 7px;
+  padding: 4px 10px;
+}
+.glump-er-tarot-flip-inner {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 2 / 3;
+  transform-style: preserve-3d;
+  transition: transform 520ms cubic-bezier(.2, .75, .25, 1);
+}
+.glump-er-tarot-flip-card.is-flipped .glump-er-tarot-flip-inner {
+  transform: rotateY(180deg);
+}
+.glump-er-tarot-flip-inner img {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  object-fit: cover;
+  background: transparent;
+  backface-visibility: hidden;
+  box-shadow: 0 8px 22px rgba(41, 29, 20, 0.18);
+}
+.glump-er-tarot-flip-front {
+  transform: rotateY(180deg);
 }
 .glump-er-tarot-visual {
   position: relative;
   margin: 0 0 8px;
+  width: 100%;
   aspect-ratio: 2 / 3;
-  border-radius: 8px;
+  border-radius: 12px;
   overflow: hidden;
-  background: #1a1612;
+  background: transparent;
 }
-.glump-er-tarot-visual img {
+.glump-er-tarot-visual img,
+.glump-er-tarot-visual .glump-er-tarot-front,
+.glump-er-tarot-visual .glump-er-tarot-back {
+  position: absolute;
+  inset: 0;
   display: block;
   width: 100%;
   height: 100%;
   object-fit: cover;
+  background: transparent;
 }
-.glump-er-tarot-visual.has-back .glump-er-tarot-back {
-  position: absolute;
-  inset: 0;
-  z-index: 0;
+.glump-er-tarot-general {
+  margin-top: 14px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--accent, #aa7652) 40%, var(--border, #d8d2c8));
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--accent, #aa7652) 9%, var(--surface, #fff));
 }
-.glump-er-tarot-visual.has-back .glump-er-tarot-front {
-  position: relative;
-  z-index: 1;
+.glump-er-tarot-general p {
+  margin: 6px 0 0;
+  line-height: 1.6;
+}
+.glump-er-tarot-again {
+  width: 100%;
+  margin-top: 10px;
 }
 @media (max-width: 720px) {
   .glump-er-tarot-spread {
     grid-template-columns: 1fr;
+  }
+  .glump-er-tarot-reader-grid {
+    gap: 10px;
+  }
+  .glump-er-tarot-reader {
+    padding: 12px 8px;
+  }
+  .glump-er-tarot-deck {
+    grid-template-columns: repeat(6, minmax(38px, 1fr));
+  }
+  .glump-er-tarot-reveal {
+    gap: 8px;
+  }
+}
+@media (max-width: 430px) {
+  .glump-er-tarot-reader-grid {
+    grid-template-columns: 1fr;
+  }
+  .glump-er-tarot-reader {
+    grid-template-columns: 72px 1fr;
+    justify-items: start;
+    text-align: left;
+  }
+  .glump-er-tarot-reader img {
+    grid-row: 1 / span 2;
+    width: 64px;
+  }
+  .glump-er-tarot-deck {
+    grid-template-columns: repeat(5, minmax(38px, 1fr));
   }
 }
 .theme-option-group-grid.tarot-theme-options {
@@ -23341,6 +23547,11 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   background: color-mix(in srgb, var(--surface-input, var(--surface, #fff)) 88%, var(--ink, #222));
   max-height: min(46vh, 420px);
   overflow: auto;
+  min-width: 0;
+}
+#glumpErDiversionBody.glump-er-chat-pane:has(.glump-er-tarot-spread),
+#glumpErDiversionBody.glump-er-chat-pane:has(.glump-er-tarot-reveal) {
+  max-height: min(64vh, 620px);
 }
 .glump-er-ping-frame {
   flex: 1 1 auto;

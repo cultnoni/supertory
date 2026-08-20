@@ -304,13 +304,24 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("세상에 이런 일이", sentence_user)
         self.assertIn("wit", sentence_user)
         tarot_sys, tarot_user = app._character_tarot_prompt(
-            "로맨스 판타지", "리아", "이름: 리아"
+            "로맨스 판타지",
+            "리아",
+            "이름: 리아",
+            [
+                {"id": 16, "ko": "탑", "en": "The Tower"},
+                {"id": 18, "ko": "달", "en": "The Moon"},
+                {"id": 17, "ko": "별", "en": "The Star"},
+            ],
+            "adventurer",
         )
         self.assertTrue(tarot_sys.startswith("[Tory Core Identity]"))
         self.assertIn(core, tarot_sys)
         self.assertIn("타로 카드", tarot_user)
         self.assertIn("실제 점술이 아니라", tarot_user)
         self.assertIn("창작 놀이", tarot_user)
+        self.assertIn("모험가 토리", tarot_user)
+        self.assertIn("상투어", tarot_user)
+        self.assertIn("16번 탑", tarot_sys)
         self.assertNotIn("[Core Identity]\n당신은 '", tarot_sys)
         name_sys, name_user = app._naming_shop_prompt("로맨스 판타지")
         self.assertTrue(name_sys.startswith("[Tory Core Identity]"))
@@ -487,18 +498,29 @@ class GlumpDiversionTests(unittest.TestCase):
         pid = self._make_project()
         self._make_protagonist(pid)
         status, data = self.request(
-            "POST", "/api/glump/character-tarot", {"work_id": pid}
+            "POST",
+            "/api/glump/character-tarot",
+            {
+                "work_id": pid,
+                "style": "adventurer",
+                "card_ids": [16, 18, 17],
+            },
         )
         self.assertEqual(status, 200, data)
         self.assertEqual(data.get("character_name"), "리아")
+        self.assertEqual(data.get("style"), "adventurer")
         cards = data.get("cards") or []
         self.assertEqual(len(cards), 3)
         self.assertEqual(cards[0]["name"], "탑")
-        self.assertIn("가짜 신분", cards[0]["meaning"])
+        self.assertEqual(cards[0]["position"], "cause")
+        self.assertIn("가짜 신분", cards[0]["text"])
+        self.assertEqual([card["id"] for card in cards], [16, 18, 17])
+        self.assertTrue(data.get("generalTip"))
         self.assertEqual(self._log_count(pid, "character_tarot"), 1)
         self.assertTrue(self.calls)
         self.assertIn("[Tory Core Identity]", str(self.calls[0]["system"]))
         self.assertIn("리아", self.calls[0]["prompt"])
+        self.assertIn("원인: 16번 탑", self.calls[0]["system"])
 
     def test_character_tarot_named_character(self) -> None:
         pid = self._make_project()
@@ -527,16 +549,28 @@ class GlumpDiversionTests(unittest.TestCase):
         status, data = self.request(
             "POST",
             "/api/glump/character-tarot",
-            {"work_id": pid, "character_name": "카엘"},
+            {
+                "work_id": pid,
+                "character_name": "카엘",
+                "style": "dreamer",
+                "card_ids": [16, 18, 17],
+            },
         )
         self.assertEqual(status, 200, data)
         self.assertEqual(data.get("character_name"), "카엘")
         self.assertIn("카엘", self.calls[-1]["prompt"])
+        self.assertIn("몽상가 토리", self.calls[-1]["prompt"])
 
     def test_character_tarot_needs_protagonist(self) -> None:
         pid = self._make_project()
         status, data = self.request(
-            "POST", "/api/glump/character-tarot", {"work_id": pid}
+            "POST",
+            "/api/glump/character-tarot",
+            {
+                "work_id": pid,
+                "style": "adventurer",
+                "card_ids": [16, 18, 17],
+            },
         )
         self.assertEqual(status, 400, data)
         self.assertIn("주인공", str(data.get("error") or data))
@@ -557,6 +591,25 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertEqual(len(app._parse_character_tarot(two)), 2)
         with self.assertRaises(ValueError):
             app._parse_character_tarot('{"cards": [{"name": "탑", "meaning": "하나"}]}')
+
+    def test_character_tarot_rejects_invalid_style_and_card_selection(self) -> None:
+        pid = self._make_project()
+        self._make_protagonist(pid)
+        status, data = self.request(
+            "POST",
+            "/api/glump/character-tarot",
+            {"work_id": pid, "style": "unknown", "card_ids": [16, 18, 17]},
+        )
+        self.assertEqual(status, 400, data)
+        self.assertIn("토리", str(data.get("error") or data))
+        status, data = self.request(
+            "POST",
+            "/api/glump/character-tarot",
+            {"work_id": pid, "style": "dreamer", "card_ids": [16, 16, 17]},
+        )
+        self.assertEqual(status, 400, data)
+        self.assertIn("서로 다른", str(data.get("error") or data))
+        self.assertEqual(self._log_count(pid, "character_tarot"), 0)
 
     def test_naming_shop_endpoint_and_parser(self) -> None:
         groups = app._parse_naming_shop(NAMING_JSON)
@@ -602,6 +655,11 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertIn("data-glump-name-copy", js)
         self.assertIn("/api/glump/character-tarot", js)
         self.assertIn("character_tarot", js)
+        self.assertIn("data-tarot-reader", js)
+        self.assertIn("data-tarot-card-id", js)
+        self.assertIn("data-tarot-confirm", js)
+        self.assertIn("card_ids: [...tarot.selected]", js)
+        self.assertIn("GLUMP_TAROT_POSITIONS", js)
         self.assertIn('data-glump-tool="brain_park"', html)
         self.assertIn("손가락 놀이터", html)
         self.assertIn("타이핑 말고 클릭만, 캐릭터랑 잠깐 놀아요", html)

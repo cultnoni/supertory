@@ -6,8 +6,8 @@
       "dreamer": { "label": "몽상가 토리" }
     },
     "cardBack": {
-      "adventurer": "",
-      "dreamer": ""
+      "adventurer": "/assets/tarot/adventurer/card-back.webp",
+      "dreamer": "/assets/tarot/dreamer/card-back.webp"
     }
   },
   "cards": [
@@ -17,8 +17,8 @@
       "name_en": "The Fool",
       "slug": "the-fool",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/00-the-fool.jpg",
-        "dreamer": "/assets/tarot/dreamer/00-the-fool.jpg"
+        "adventurer": "/assets/tarot/adventurer/00-the-fool.webp",
+        "dreamer": "/assets/tarot/dreamer/00-the-fool.webp"
       }
     },
     {
@@ -27,8 +27,8 @@
       "name_en": "The Magician",
       "slug": "the-magician",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/01-the-magician.jpg",
-        "dreamer": "/assets/tarot/dreamer/01-the-magician.jpg"
+        "adventurer": "/assets/tarot/adventurer/01-the-magician.webp",
+        "dreamer": "/assets/tarot/dreamer/01-the-magician.webp"
       }
     },
     {
@@ -37,8 +37,8 @@
       "name_en": "The High Priestess",
       "slug": "the-high-priestess",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/02-the-high-priestess.jpg",
-        "dreamer": "/assets/tarot/dreamer/02-the-high-priestess.jpg"
+        "adventurer": "/assets/tarot/adventurer/02-the-high-priestess.webp",
+        "dreamer": "/assets/tarot/dreamer/02-the-high-priestess.webp"
       }
     },
     {
@@ -47,8 +47,8 @@
       "name_en": "The Empress",
       "slug": "the-empress",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/03-the-empress.jpg",
-        "dreamer": "/assets/tarot/dreamer/03-the-empress.jpg"
+        "adventurer": "/assets/tarot/adventurer/03-the-empress.webp",
+        "dreamer": "/assets/tarot/dreamer/03-the-empress.webp"
       }
     },
     {
@@ -57,8 +57,8 @@
       "name_en": "The Emperor",
       "slug": "the-emperor",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/04-the-emperor.jpg",
-        "dreamer": "/assets/tarot/dreamer/04-the-emperor.jpg"
+        "adventurer": "/assets/tarot/adventurer/04-the-emperor.webp",
+        "dreamer": "/assets/tarot/dreamer/04-the-emperor.webp"
       }
     },
     {
@@ -67,8 +67,8 @@
       "name_en": "The Hierophant",
       "slug": "the-hierophant",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/05-the-hierophant.jpg",
-        "dreamer": "/assets/tarot/dreamer/05-the-hierophant.jpg"
+        "adventurer": "/assets/tarot/adventurer/05-the-hierophant.webp",
+        "dreamer": "/assets/tarot/dreamer/05-the-hierophant.webp"
       }
     },
     {
@@ -77,8 +77,8 @@
       "name_en": "The Lovers",
       "slug": "the-lovers",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/06-the-lovers.jpg",
-        "dreamer": "/assets/tarot/dreamer/06-the-lovers.jpg"
+        "adventurer": "/assets/tarot/adventurer/06-the-lovers.webp",
+        "dreamer": "/assets/tarot/dreamer/06-the-lovers.webp"
       }
     },
     {
@@ -87,8 +87,8 @@
       "name_en": "The Chariot",
       "slug": "the-chariot",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/07-the-chariot.jpg",
-        "dreamer": "/assets/tarot/dreamer/07-the-chariot.jpg"
+        "adventurer": "/assets/tarot/adventurer/07-the-chariot.webp",
+        "dreamer": "/assets/tarot/dreamer/07-the-chariot.webp"
       }
     },
     {
@@ -97,8 +97,8 @@
       "name_en": "Strength",
       "slug": "strength",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/08-strength.jpg",
-        "dreamer": "/assets/tarot/dreamer/08-strength.jpg"
+        "adventurer": "/assets/tarot/adventurer/08-strength.webp",
+        "dreamer": "/assets/tarot/dreamer/08-strength.webp"
       }
     },
     {
@@ -107,8 +107,8 @@
       "name_en": "The Hermit",
       "slug": "the-hermit",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/09-the-hermit.jpg",
-        "dreamer": "/assets/tarot/dreamer/09-the-hermit.jpg"
+        "adventurer": "/assets/tarot/adventurer/09-the-hermit.webp",
+        "dreamer": "/assets/tarot/dreamer/09-the-hermit.webp"
       }
     },
     {
@@ -117,8 +117,8 @@
       "name_en": "Wheel of Fortune",
       "slug": "wheel-of-fortune",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/10-wheel-of-fortune.jpg",
-        "dreamer": "/assets/tarot/dreamer/10-wheel-of-fortune.jpg"
+        "adventurer": "/assets/tarot/adventurer/10-wheel-of-fortune.webp",
+        "dreamer": "/assets/tarot/dreamer/10-wheel-of-fortune.webp"
       }
     },
     {
@@ -127,8 +127,8 @@
       "name_en": "Justice",
       "slug": "justice",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/11-justice.jpg",
-        "dreamer": "/assets/tarot/dreamer/11-justice.jpg"
+        "adventurer": "/assets/tarot/adventurer/11-justice.webp",
+        "dreamer": "/assets/tarot/dreamer/11-justice.webp"
       }
     },
     {
@@ -137,8 +137,8 @@
       "name_en": "The Hanged Man",
       "slug": "the-hanged-man",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/12-the-hanged-man.jpg",
-        "dreamer": "/assets/tarot/dreamer/12-the-hanged-man.jpg"
+        "adventurer": "/assets/tarot/adventurer/12-the-hanged-man.webp",
+        "dreamer": "/assets/tarot/dreamer/12-the-hanged-man.webp"
       }
     },
     {
@@ -147,8 +147,8 @@
       "name_en": "Death",
       "slug": "death",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/13-death.jpg",
-        "dreamer": "/assets/tarot/dreamer/13-death.jpg"
+        "adventurer": "/assets/tarot/adventurer/13-death.webp",
+        "dreamer": "/assets/tarot/dreamer/13-death.webp"
       }
     },
     {
@@ -157,8 +157,8 @@
       "name_en": "Temperance",
       "slug": "temperance",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/14-temperance.jpg",
-        "dreamer": "/assets/tarot/dreamer/14-temperance.jpg"
+        "adventurer": "/assets/tarot/adventurer/14-temperance.webp",
+        "dreamer": "/assets/tarot/dreamer/14-temperance.webp"
       }
     },
     {
@@ -167,8 +167,8 @@
       "name_en": "The Devil",
       "slug": "the-devil",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/15-the-devil.jpg",
-        "dreamer": "/assets/tarot/dreamer/15-the-devil.jpg"
+        "adventurer": "/assets/tarot/adventurer/15-the-devil.webp",
+        "dreamer": "/assets/tarot/dreamer/15-the-devil.webp"
       }
     },
     {
@@ -177,8 +177,8 @@
       "name_en": "The Tower",
       "slug": "the-tower",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/16-the-tower.jpg",
-        "dreamer": "/assets/tarot/dreamer/16-the-tower.jpg"
+        "adventurer": "/assets/tarot/adventurer/16-the-tower.webp",
+        "dreamer": "/assets/tarot/dreamer/16-the-tower.webp"
       }
     },
     {
@@ -187,8 +187,8 @@
       "name_en": "The Star",
       "slug": "the-star",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/17-the-star.jpg",
-        "dreamer": "/assets/tarot/dreamer/17-the-star.jpg"
+        "adventurer": "/assets/tarot/adventurer/17-the-star.webp",
+        "dreamer": "/assets/tarot/dreamer/17-the-star.webp"
       }
     },
     {
@@ -197,8 +197,8 @@
       "name_en": "The Moon",
       "slug": "the-moon",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/18-the-moon.jpg",
-        "dreamer": "/assets/tarot/dreamer/18-the-moon.jpg"
+        "adventurer": "/assets/tarot/adventurer/18-the-moon.webp",
+        "dreamer": "/assets/tarot/dreamer/18-the-moon.webp"
       }
     },
     {
@@ -207,8 +207,8 @@
       "name_en": "The Sun",
       "slug": "the-sun",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/19-the-sun.jpg",
-        "dreamer": "/assets/tarot/dreamer/19-the-sun.jpg"
+        "adventurer": "/assets/tarot/adventurer/19-the-sun.webp",
+        "dreamer": "/assets/tarot/dreamer/19-the-sun.webp"
       }
     },
     {
@@ -217,8 +217,8 @@
       "name_en": "Judgement",
       "slug": "judgement",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/20-judgement.jpg",
-        "dreamer": "/assets/tarot/dreamer/20-judgement.jpg"
+        "adventurer": "/assets/tarot/adventurer/20-judgement.webp",
+        "dreamer": "/assets/tarot/dreamer/20-judgement.webp"
       }
     },
     {
@@ -227,8 +227,8 @@
       "name_en": "The World",
       "slug": "the-world",
       "images": {
-        "adventurer": "/assets/tarot/adventurer/21-the-world.jpg",
-        "dreamer": "/assets/tarot/dreamer/21-the-world.jpg"
+        "adventurer": "/assets/tarot/adventurer/21-the-world.webp",
+        "dreamer": "/assets/tarot/dreamer/21-the-world.webp"
       }
     }
   ]

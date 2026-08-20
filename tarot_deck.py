@@ -59,12 +59,30 @@ def normalize_tarot_style(value: object) -> str:
     return DEFAULT_TAROT_STYLE
 
 
+def selected_tarot_cards(card_ids: object) -> list[dict[str, Any]]:
+    if not isinstance(card_ids, list) or len(card_ids) != len(TAROT_POSITIONS):
+        raise ValueError("타로 카드를 3장 골라 주세요.")
+    try:
+        normalized = [int(card_id) for card_id in card_ids]
+    except (TypeError, ValueError) as error:
+        raise ValueError("올바른 타로 카드를 골라 주세요.") from error
+    if len(set(normalized)) != len(normalized):
+        raise ValueError("서로 다른 타로 카드를 골라 주세요.")
+    cards = []
+    for card_id in normalized:
+        card = _ARCANA_BY_ID.get(card_id)
+        if not card:
+            raise ValueError("올바른 타로 카드를 골라 주세요.")
+        cards.append(dict(card))
+    return cards
+
+
 def tarot_image_path(card_id: int, style: object = DEFAULT_TAROT_STYLE) -> str:
     card = _ARCANA_BY_ID.get(int(card_id))
     if not card:
         return ""
     style_key = normalize_tarot_style(style)
-    return f"/assets/tarot/{style_key}/{int(card_id):02d}-{card['slug']}.jpg"
+    return f"/assets/tarot/{style_key}/{int(card_id):02d}-{card['slug']}.webp"
 
 
 def pick_tarot_spread(count: int = 3, rng: random.Random | None = None) -> list[dict[str, Any]]:

@@ -22691,6 +22691,7 @@ const glumpErState = {
   interrogation: null,
   diversion: null,
   diversionCharacterName: "",
+  tarot: null,
   busy: false,
   modalDismissed: false,
 };
@@ -22737,6 +22738,7 @@ function resetGlumpErState() {
   glumpErState.interrogation = null;
   glumpErState.diversion = null;
   glumpErState.diversionCharacterName = "";
+  glumpErState.tarot = null;
   glumpErState.busy = false;
 }
 
@@ -23675,7 +23677,16 @@ function renderGlumpErStep() {
   const diversionExit = $("glumpErDiversionExit");
   if (diversionTitle) diversionTitle.textContent = diversionMeta.title;
   if (diversionStatus) {
-    if (glumpErState.busy && glumpErState.step === "diversionResult") {
+    const tarotPhase = diversionKind === "character_tarot" ? glumpErState.tarot?.phase : "";
+    if (tarotPhase === "reader") {
+      diversionStatus.textContent = i18n.t("app.먼저_타로를_읽어_줄_토리를_골라_주세요");
+    } else if (tarotPhase === "pick") {
+      diversionStatus.textContent = i18n.t("app.뒷면이_끌리는_카드_세_장을_차례대로_골라_주세요");
+    } else if (tarotPhase === "reveal" && Number(glumpErState.tarot?.revealedCount || 0) < 3) {
+      diversionStatus.textContent = i18n.t("app.선택한_카드를_뒤집는_중이에요");
+    } else if (tarotPhase === "reveal") {
+      diversionStatus.textContent = i18n.t("app.토리가_카드_사이의_수상한_연결을_찾는_중이에요");
+    } else if (glumpErState.busy && glumpErState.step === "diversionResult") {
       diversionStatus.textContent = diversionMeta.loading;
     } else if (diversion?.error) {
       diversionStatus.textContent = String(diversion.message || i18n.t('app.이번에는_못_보여_줬어요'));
@@ -23698,7 +23709,8 @@ function renderGlumpErStep() {
   }
   const showDiversionExit = glumpErState.step === "diversionResult"
     && Boolean(diversionKind)
-    && !glumpErState.busy;
+    && !glumpErState.busy
+    && (diversionKind !== "character_tarot" || glumpErState.tarot?.phase === "result" || diversion?.error);
   diversionExit?.classList.toggle("hidden", !showDiversionExit);
 
   $("glumpErModal")?.querySelectorAll("button").forEach((btn) => {
@@ -24511,6 +24523,148 @@ function renderGlumpColorCharacterBar(diversion) {
   return `<div class="glump-er-color-who"><p>${who}</p>${picker}</div>`;
 }
 
+const GLUMP_TAROT_POSITIONS = [
+  { id: "cause", label: () => i18n.t("app.원인") },
+  { id: "incident", label: () => i18n.t("app.돌발사건") },
+  { id: "ending", label: () => i18n.t("app.결말") },
+];
+
+function shuffledTarotCardIds() {
+  const ids = Array.isArray(toriTarotDataV3?.cards)
+    ? toriTarotDataV3.cards.map((card) => Number(card?.id)).filter(Number.isInteger)
+    : [];
+  for (let index = ids.length - 1; index > 0; index -= 1) {
+    const picked = Math.floor(Math.random() * (index + 1));
+    [ids[index], ids[picked]] = [ids[picked], ids[index]];
+  }
+  return ids;
+}
+
+function tarotCatalogCard(cardId) {
+  const cards = Array.isArray(toriTarotDataV3?.cards) ? toriTarotDataV3.cards : [];
+  return cards.find((card) => Number(card?.id) === Number(cardId)) || null;
+}
+
+function tarotFrontSrc(item, theme, fallbackId = null) {
+  const catalog = tarotCatalogCard(item?.id ?? fallbackId);
+  const raw = String(
+    catalog?.images?.[theme]
+    || item?.images?.[theme]
+    || resolveTarotCardImageSrc(item || { id: fallbackId }, theme)
+    || item?.image
+    || ""
+  ).trim();
+  return raw.replace(/\.jpe?g(\?.*)?$/i, ".webp$1");
+}
+
+function renderGlumpTarotReaderChoice(tarot) {
+  const styles = [
+    {
+      id: "adventurer",
+      name: i18n.t("app.모험가_토리"),
+      caption: i18n.t("index.모험가_토리_카드"),
+    },
+    {
+      id: "dreamer",
+      name: i18n.t("app.몽상가_토리"),
+      caption: i18n.t("index.몽상가_토리_카드"),
+    },
+  ];
+  return `<div class="glump-er-tarot-intro">
+    <p>${escapeHtml(i18n.t("app.누구에게_타로를_볼까요"))}</p>
+    <div class="glump-er-tarot-reader-grid">${styles.map((style) => {
+      const backSrc = String(toriTarotDataV3?.meta?.cardBack?.[style.id] || "");
+      const current = style.id === tarot.style ? " is-current" : "";
+      return `<button type="button" class="glump-er-tarot-reader${current}" data-tarot-reader="${style.id}">
+        <img src="${escapeHtml(backSrc)}" alt="" aria-hidden="true">
+        <strong>${escapeHtml(style.name)}</strong>
+        <span>${escapeHtml(style.caption)}</span>
+      </button>`;
+    }).join("")}</div>
+  </div>`;
+}
+
+function renderGlumpTarotPicker(tarot) {
+  const selected = Array.isArray(tarot.selected) ? tarot.selected : [];
+  const backSrc = String(toriTarotDataV3?.meta?.cardBack?.[tarot.style] || "");
+  return `<div class="glump-er-tarot-picker">
+    <div class="glump-er-tarot-pick-head">
+      <p>${escapeHtml(i18n.t("app.카드_세_장을_차례대로_골라_주세요"))}</p>
+      <strong>${selected.length} / 3</strong>
+    </div>
+    <div class="glump-er-tarot-deck">${tarot.deck.map((cardId, deckIndex) => {
+      const selectedIndex = selected.indexOf(cardId);
+      const isSelected = selectedIndex >= 0;
+      const position = isSelected ? GLUMP_TAROT_POSITIONS[selectedIndex] : null;
+      return `<button type="button" class="glump-er-tarot-choice${isSelected ? " is-selected" : ""}"
+        data-tarot-card-id="${cardId}" aria-pressed="${isSelected ? "true" : "false"}"
+        aria-label="${escapeHtml(i18n.t("app.타로_카드_고르기"))} ${deckIndex + 1}">
+        <img src="${escapeHtml(backSrc)}" alt="" aria-hidden="true">
+        ${position ? `<span class="glump-er-tarot-pick-badge">${selectedIndex + 1}. ${escapeHtml(position.label())}</span>` : ""}
+      </button>`;
+    }).join("")}</div>
+    <div class="glump-er-tarot-pick-actions">
+      <button type="button" class="secondary compact-btn" data-tarot-back="reader">${escapeHtml(i18n.t("app.토리_다시_고르기"))}</button>
+      <button type="button" class="primary compact-btn" data-tarot-confirm${selected.length === 3 ? "" : " disabled"}>${escapeHtml(i18n.t("app.선택한_카드_뒤집기"))}</button>
+    </div>
+  </div>`;
+}
+
+function renderGlumpTarotReveal(tarot) {
+  const selected = Array.isArray(tarot.selected) ? tarot.selected : [];
+  const backSrc = String(toriTarotDataV3?.meta?.cardBack?.[tarot.style] || "");
+  return `<div class="glump-er-tarot-reveal">${selected.map((cardId, index) => {
+    const card = tarotCatalogCard(cardId);
+    const frontSrc = tarotFrontSrc(card || { id: cardId }, tarot.style, cardId);
+    const flipped = index < Number(tarot.revealedCount || 0);
+    return `<article class="glump-er-tarot-flip-card${flipped ? " is-flipped" : ""}">
+      <span class="glump-er-tarot-position">${escapeHtml(GLUMP_TAROT_POSITIONS[index].label())}</span>
+      <div class="glump-er-tarot-flip-inner">
+        <img class="glump-er-tarot-flip-back" src="${escapeHtml(backSrc)}" alt="">
+        <img class="glump-er-tarot-flip-front" src="${escapeHtml(frontSrc)}" alt="${escapeHtml(String(card?.name || ""))}">
+      </div>
+    </article>`;
+  }).join("")}</div>`;
+}
+
+function renderGlumpTarotResult(diversion) {
+  const apiCards = Array.isArray(diversion.cards) ? diversion.cards : [];
+  const tarot = glumpErState.tarot;
+  const theme = String(diversion.style || tarot?.style || getTarotTheme());
+  const selected = Array.isArray(tarot?.selected) ? tarot.selected : [];
+  const spread = [0, 1, 2].map((index) => {
+    const item = apiCards[index] || {};
+    const catalog = tarotCatalogCard(item?.id ?? selected[index]);
+    const name = escapeHtml(String(catalog?.name || item?.name || `${i18n.t("app.카드")} ${index + 1}`));
+    const meaning = escapeHtml(String(item?.text || item?.meaning || ""));
+    const frontSrc = tarotFrontSrc(item, theme, selected[index]);
+    const position = GLUMP_TAROT_POSITIONS[index];
+    const media = frontSrc
+      ? `<div class="glump-er-tarot-visual"><img class="glump-er-tarot-front" src="${escapeHtml(frontSrc)}" alt="${name}"></div>`
+      : `<div class="glump-er-tarot-visual" aria-hidden="true"></div>`;
+    return `<article class="glump-er-tarot-card">
+      <span class="glump-er-tarot-position">${escapeHtml(position?.label() || "")}</span>
+      ${media}
+      <strong>${name}</strong>
+      ${meaning ? `<p>${meaning}</p>` : ""}
+    </article>`;
+  }).join("");
+  const generalTip = escapeHtml(String(diversion.generalTip || ""));
+  return `<div class="glump-er-tarot-spread">${spread}</div>
+    ${generalTip ? `<aside class="glump-er-tarot-general"><strong>${escapeHtml(i18n.t("app.종합_한마디"))}</strong><p>${generalTip}</p></aside>` : ""}
+    <button type="button" class="secondary compact-btn glump-er-tarot-again" data-tarot-back="cards">${escapeHtml(i18n.t("app.카드_다시_고르기"))}</button>`;
+}
+
+function renderGlumpTarotBody(diversion) {
+  const tarot = glumpErState.tarot;
+  if (!tarot) return "";
+  if (tarot.phase === "reader") return renderGlumpTarotReaderChoice(tarot);
+  if (tarot.phase === "pick") return renderGlumpTarotPicker(tarot);
+  if (tarot.phase === "reveal") return renderGlumpTarotReveal(tarot);
+  if (tarot.phase === "result") return renderGlumpTarotResult(diversion);
+  return "";
+}
+
 function renderGlumpDiversionBody(diversion) {
   if (!diversion || diversion.error) return "";
   const kind = String(diversion.kind || "");
@@ -24579,21 +24733,7 @@ function renderGlumpDiversionBody(diversion) {
     }).join("");
   }
   if (kind === "character_tarot") {
-    const cards = Array.isArray(diversion.cards) ? diversion.cards : [];
-    const theme = getTarotTheme();
-    const backSrc = getTarotCardBackSrc(theme);
-    return `<div class="glump-er-tarot-spread">${cards.map((item, index) => {
-      const name = escapeHtml(String(item?.name || `${i18n.t('app.카드_index_1', {'index + 1': index + 1})}`));
-      const meaning = escapeHtml(String(item?.meaning || item?.text || ""));
-      const frontSrc = resolveTarotCardImageSrc(item, theme);
-      const media = frontSrc
-        ? `<div class="glump-er-tarot-visual${backSrc ? " has-back" : ""}">
-            ${backSrc ? `<img class="glump-er-tarot-back" src="${escapeHtml(backSrc)}" alt="" aria-hidden="true">` : ""}
-            <img class="glump-er-tarot-front" src="${escapeHtml(frontSrc)}" alt="${name}">
-          </div>`
-        : "";
-      return `<article class="glump-er-tarot-card">${media}<strong>${index + 1}. ${name}</strong>${meaning ? `<p>${meaning}</p>` : ""}</article>`;
-    }).join("")}</div>`;
+    return renderGlumpTarotBody(diversion);
   }
   if (kind === "naming_shop") {
     const groups = Array.isArray(diversion.groups) ? diversion.groups : [];
@@ -24622,11 +24762,128 @@ async function ensureGlumpCharacters() {
   return Array.isArray(state.characters) ? state.characters : [];
 }
 
+async function startGlumpTarotFlow() {
+  if (glumpErState.busy) return;
+  glumpErState.busy = true;
+  glumpErState.step = "diversionResult";
+  glumpErState.diversion = { kind: "character_tarot" };
+  glumpErState.tarot = {
+    phase: "loading",
+    style: getTarotTheme(),
+    deck: [],
+    selected: [],
+    revealedCount: 0,
+  };
+  renderGlumpErStep();
+  try {
+    const catalog = await loadToriTarotDataV3();
+    const cards = Array.isArray(catalog?.cards) ? catalog.cards : [];
+    const backs = catalog?.meta?.cardBack || {};
+    if (cards.length !== 22 || !backs.adventurer || !backs.dreamer) {
+      throw new Error(i18n.t("app.타로_카드를_불러오지_못했어요"));
+    }
+    glumpErState.tarot.phase = "reader";
+  } catch (error) {
+    handleError(error);
+    glumpErState.diversion = {
+      kind: "character_tarot",
+      error: true,
+      message: String(error?.message || i18n.t("app.타로_카드를_불러오지_못했어요")),
+    };
+  } finally {
+    glumpErState.busy = false;
+    renderGlumpErStep();
+  }
+}
+
+function chooseGlumpTarotReader(style) {
+  const tarot = glumpErState.tarot;
+  const nextStyle = String(style || "");
+  if (!tarot || !TAROT_THEME_IDS.has(nextStyle) || glumpErState.busy) return;
+  setTarotTheme(nextStyle);
+  tarot.style = nextStyle;
+  tarot.deck = shuffledTarotCardIds();
+  tarot.selected = [];
+  tarot.revealedCount = 0;
+  tarot.phase = "pick";
+  renderGlumpErStep();
+}
+
+function toggleGlumpTarotCard(cardId) {
+  const tarot = glumpErState.tarot;
+  const id = Number(cardId);
+  if (!tarot || tarot.phase !== "pick" || !Number.isInteger(id) || glumpErState.busy) return;
+  const selectedIndex = tarot.selected.indexOf(id);
+  if (selectedIndex >= 0) {
+    tarot.selected.splice(selectedIndex, 1);
+  } else if (tarot.selected.length < 3 && tarot.deck.includes(id)) {
+    tarot.selected.push(id);
+  }
+  renderGlumpErStep();
+}
+
+function returnGlumpTarotTo(target) {
+  const tarot = glumpErState.tarot;
+  if (!tarot || glumpErState.busy) return;
+  tarot.selected = [];
+  tarot.revealedCount = 0;
+  tarot.phase = target === "reader" ? "reader" : "pick";
+  if (tarot.phase === "pick") tarot.deck = shuffledTarotCardIds();
+  glumpErState.diversion = { kind: "character_tarot" };
+  renderGlumpErStep();
+}
+
+async function confirmGlumpTarotSelection() {
+  const tarot = glumpErState.tarot;
+  if (!tarot || tarot.phase !== "pick" || tarot.selected.length !== 3 || glumpErState.busy) return;
+  tarot.phase = "reveal";
+  tarot.revealedCount = 0;
+  glumpErState.busy = true;
+  renderGlumpErStep();
+  const readingPromise = api("/api/glump/character-tarot", {
+    method: "POST",
+    body: JSON.stringify({
+      work_id: state.projectId,
+      style: tarot.style,
+      card_ids: [...tarot.selected],
+    }),
+  }).then((data) => ({ data }), (error) => ({ error }));
+  for (let count = 1; count <= 3; count += 1) {
+    await new Promise((resolve) => window.setTimeout(resolve, 520));
+    if (glumpErState.tarot !== tarot) return;
+    tarot.revealedCount = count;
+    renderGlumpErStep();
+  }
+  const settled = await readingPromise;
+  if (glumpErState.tarot !== tarot) return;
+  if (settled.error) {
+    handleError(settled.error);
+    tarot.phase = "error";
+    glumpErState.diversion = {
+      kind: "character_tarot",
+      error: true,
+      message: String(settled.error?.message || i18n.t("app.이번에는_못_보여_줬어요")),
+    };
+  } else {
+    tarot.phase = "result";
+    glumpErState.diversion = {
+      kind: "character_tarot",
+      ...(settled.data || {}),
+    };
+  }
+  glumpErState.busy = false;
+  renderGlumpErStep();
+}
+
 async function runGlumpDiversion(kind) {
   const id = String(kind || "").trim();
   if (!GLUMP_DIVERSION_META[id]) return;
   if (!state.projectId) {
     toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+    return;
+  }
+  if (id === "character_tarot") {
+    await startGlumpTarotFlow();
     return;
   }
   if (glumpErState.busy) return;
@@ -24651,12 +24908,6 @@ async function runGlumpDiversion(kind) {
       });
     } else if (id === "mood_playlist") {
       data = await api("/api/glump/mood-playlist", {
-        method: "POST",
-        body: JSON.stringify({ work_id: state.projectId }),
-      });
-    } else if (id === "character_tarot") {
-      await loadToriTarotDataV3();
-      data = await api("/api/glump/character-tarot", {
         method: "POST",
         body: JSON.stringify({ work_id: state.projectId }),
       });
@@ -24715,6 +24966,29 @@ function setupGlumpErUi() {
       runGlumpDiversion("mood_color").catch(handleError);
     });
     modal.addEventListener("click", (event) => {
+      const tarotReader = event.target.closest?.("[data-tarot-reader]");
+      if (tarotReader) {
+        event.preventDefault();
+        chooseGlumpTarotReader(tarotReader.getAttribute("data-tarot-reader") || "");
+        return;
+      }
+      const tarotCard = event.target.closest?.("[data-tarot-card-id]");
+      if (tarotCard) {
+        event.preventDefault();
+        toggleGlumpTarotCard(tarotCard.getAttribute("data-tarot-card-id"));
+        return;
+      }
+      const tarotBack = event.target.closest?.("[data-tarot-back]");
+      if (tarotBack) {
+        event.preventDefault();
+        returnGlumpTarotTo(tarotBack.getAttribute("data-tarot-back") || "cards");
+        return;
+      }
+      if (event.target.closest?.("[data-tarot-confirm]")) {
+        event.preventDefault();
+        confirmGlumpTarotSelection().catch(handleError);
+        return;
+      }
       const copyBtn = event.target.closest?.("[data-glump-name-copy]");
       if (copyBtn) {
         event.preventDefault();

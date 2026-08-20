@@ -49,6 +49,7 @@ import proof_extract
 import proof_pipeline
 import scene_cast_detect
 import success_pattern
+import tarot_deck
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
 from sync.supabase_client import get_supabase_client
@@ -1953,30 +1954,53 @@ def _parse_naming_shop(raw: object) -> list[dict]:
 
 
 def _character_tarot_prompt(
-    genre: object, character_name: object, character_settings: object
+    genre: object,
+    character_name: object,
+    character_settings: object,
+    picked_cards: list[dict],
+    style: object,
 ) -> tuple[str, str]:
-    """Assemble character-tarot prompts. Reuses Tory Core Identity as-is."""
+    """Assemble a selected-card character-tarot prompt with a distinct Tory voice."""
     genre_label = str(genre or "").strip() or "미정"
     name = str(character_name or "").strip() or "주인공"
     settings = str(character_settings or "").strip() or "(설정집 인물 없음)"
+    style_key = tarot_deck.normalize_tarot_style(style)
+    reader_name = "몽상가 토리" if style_key == "dreamer" else "모험가 토리"
+    voice = (
+        "엉뚱하고 몽환적인 비유를 쓰되 문장은 또렷하게 끝내세요. "
+        "꿈, 별빛, 구름, 엉뚱한 사물의 연결로 웃음을 만들고 마지막에 현실적인 한마디로 착지하세요."
+        if style_key == "dreamer"
+        else
+        "빠르고 씩씩한 탐험 비유를 쓰세요. 지도, 배낭, 함정, 퀘스트 같은 표현으로 "
+        "경쾌하게 놀리되 마지막에는 당장 써먹을 수 있는 서사 힌트로 착지하세요."
+    )
+    positions = [
+        f"{tarot_deck.TAROT_POSITION_LABELS[position]}: {card['id']}번 {card['ko']} ({card['en']})"
+        for position, card in zip(tarot_deck.TAROT_POSITIONS, picked_cards)
+    ]
     core = SuperToryHandler._tory_core_identity_system_prompt()
     dynamic = (
         "[Dynamic Context]\n"
         f"작품 장르: {genre_label}\n\n"
         "[해당 캐릭터 설정]\n"
-        f"{settings}"
+        f"{settings}\n\n"
+        f"[타로 리더]\n{reader_name}\n\n"
+        "[사용자가 직접 고른 카드와 위치]\n"
+        + "\n".join(positions)
     )
     user_prompt = (
         "[Task Instruction]\n"
-        f"{name}에게 어울리는 가상의 타로 카드 2~3장을 뽑아서, "
-        "이 캐릭터의 성격이나 지금까지의 서사에 빗대어 재미있게 풀이하세요. "
-        "실제 타로 카드 이름(운명의 수레바퀴, 탑, 별 등 전통적인 타로 명칭)을 "
-        "써도 되지만, 이건 실제 점술이 아니라 캐릭터 서사를 위한 창작 놀이임을 "
-        "톤에서 느껴지게 가볍고 재미있게 쓰세요. "
-        "진지한 예언처럼 쓰지 말고, 캐릭터 서사를 재밌게 비트는 정도로만 쓰세요.\n\n"
+        f"사용자가 고른 타로 카드 세 장만 사용해 {name}의 서사를 풀이하세요. 카드나 순서를 바꾸지 마세요.\n"
+        f"{reader_name}의 말투 지침: {voice}\n\n"
+        "반드시 캐릭터 설정에 나온 구체적인 성격, 버릇, 관계, 갈등 중 하나 이상을 각 풀이에 연결하세요. "
+        "누구에게나 통하는 위로, 엄숙한 예언, '새로운 시작', '내면의 힘' 같은 상투어만으로 채우지 마세요. "
+        "각 항목은 2~3문장으로 쓰고, 적어도 한 문장은 짧은 비유·말장난·반전으로 웃기세요. "
+        "비웃거나 모욕하지 말고 캐릭터를 다정하게 놀리세요. "
+        "generalTip은 작가가 다음 장면에 바로 써먹을 수 있는 한 문장과 재치 있는 마무리 한 문장으로 쓰세요. "
+        "실제 점술이 아니라 캐릭터 서사를 위한 창작 놀이임이 자연스럽게 느껴져야 합니다.\n\n"
         "출력은 JSON 객체만 반환하세요. 설명 문장이나 마크다운 코드펜스를 넣지 마세요.\n"
-        '형식: {"cards": [{"name": "카드 이름", "meaning": "이 캐릭터에게 어떻게 적용되는지 재미있는 풀이"}]}\n'
-        "cards는 2개 또는 3개입니다."
+        '형식: {"positions":{"cause":"원인 카드 풀이","incident":"돌발사건 카드 풀이",'
+        '"ending":"결말 카드 풀이"},"generalTip":"종합 한마디"}'
     )
     return core + "\n" + dynamic, user_prompt
 
@@ -3787,6 +3811,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if candidate.is_file():
                 return str(candidate)
         return str((WEB_ROOT / parsed.lstrip("/")).resolve())
+
+    def guess_type(self, path: str) -> str:
+        if str(path).lower().endswith(".webp"):
+            return "image/webp"
+        return super().guess_type(path)
 
     def end_headers(self) -> None:
         # Electron loads http://127.0.0.1 — without this, Chromium can keep an old
@@ -6534,30 +6563,42 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         """Show a playful character tarot reading. Does not edit the manuscript."""
         work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
         character_name = str(body.get("character_name") or "").strip()
+        style = str(body.get("style") or "").strip().lower()
         if not work_id:
             raise ValueError("작품을 선택해 주세요.")
+        if style not in tarot_deck.TAROT_STYLES:
+            raise ValueError("타로를 읽어 줄 토리를 골라 주세요.")
+        picked_cards = tarot_deck.selected_tarot_cards(body.get("card_ids"))
         character = _glump_load_interrogation_character(work_id, character_name or None)
         genre = _glump_work_genre_label(work_id)
         system, user_prompt = _character_tarot_prompt(
-            genre, character["name"], character["settings_text"]
+            genre,
+            character["name"],
+            character["settings_text"],
+            picked_cards,
+            style,
         )
         last_error: Exception | None = None
-        cards: list[dict] | None = None
+        reading: dict | None = None
         for _attempt in range(2):
             try:
                 raw = gemini_client.generate_text(
-                    user_prompt, system=system, temperature=0.9
+                    user_prompt, system=system, temperature=0.9, max_output_tokens=4096
                 )
-                cards = _parse_character_tarot(raw)
+                reading = tarot_deck.parse_character_tarot_v2(raw, picked_cards, style)
                 break
             except gemini_client.GeminiError as error:
                 raise ValueError(str(error)) from error
             except (ValueError, json.JSONDecodeError) as error:
                 last_error = error
-        if cards is None:
+        if reading is None:
             raise GlumpRetryError("다시 시도해주세요") from last_error
         self._insert_glump_tool_log(work_id, "character_tarot")
-        return {"cards": cards, "character_name": character["name"]}
+        return {
+            **reading,
+            "style": style,
+            "character_name": character["name"],
+        }
 
     def glump_naming_shop(self, body: dict) -> dict:
         """Show a view-only naming shop. Does not edit the manuscript."""
