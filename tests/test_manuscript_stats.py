@@ -25,6 +25,15 @@ class PlainTextFromContentTests(unittest.TestCase):
         self.assertEqual(stats["chars_no_space"], 4)
         self.assertEqual(stats["letters"], 4)
 
+    def test_div_blocks_match_editor_innertext_newlines(self) -> None:
+        """contenteditable usually stores lines as <div>; innerText uses one newline."""
+        html = "".join(f"<div>문단{i}</div>" for i in range(1, 16))
+        plain = app.plain_text_from_content(html)
+        expected = "\n".join(f"문단{i}" for i in range(1, 16))
+        self.assertEqual(plain, expected)
+        stats = app.compute_text_stats(plain)
+        self.assertEqual(stats["chars_with_space"], len(expected))
+
 
 if __name__ == "__main__":
     unittest.main()

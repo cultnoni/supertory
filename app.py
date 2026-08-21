@@ -3370,11 +3370,12 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
 
 
 def plain_text_from_content(content: str) -> str:
-    """Strip HTML for counts/preview. Drop tags (do not replace with spaces)."""
+    """Strip HTML for counts. Match editor innerText (div → one newline, p → blank line)."""
     text = content or ""
     text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
-    text = re.sub(r"(?i)</(p|div|h[1-6]|li|blockquote|tr)\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</p\s*>", "\n\n", text)
+    text = re.sub(r"(?i)</(div|h[1-6]|li|blockquote|tr)\s*>", "\n", text)
     text = re.sub(r"(?s)<[^>]+>", "", text)
     text = html_lib.unescape(text)
     text = text.replace("\xa0", " ").replace("\u200b", "")
