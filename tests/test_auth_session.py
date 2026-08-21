@@ -154,7 +154,7 @@ class RestoreAndAuthFlowTests(unittest.TestCase):
         saved = auth_session.load_session()
         self.assertEqual(saved["access_token"], "new-acc")
 
-    def test_get_current_user_ignores_env_client_without_file(self) -> None:
+    def test_get_current_user_requires_session_file(self) -> None:
         session = self._session()
         client = _FakeClient(_FakeAuth(session=session, user=session.user))
         supabase_client._set_client(client)
@@ -164,13 +164,23 @@ class RestoreAndAuthFlowTests(unittest.TestCase):
         auth_session.save_session("old-acc", "old-ref", "user-1", "a@example.com")
         session = self._session()
         user_client = _FakeClient(_FakeAuth(session=session, user=session.user))
-        with (
-            patch.object(supabase_client, "_create_anon_client", return_value=user_client),
-            patch.object(supabase_client, "sign_in_with_env_credentials") as env_login,
-        ):
+        with patch.object(supabase_client, "_create_anon_client", return_value=user_client):
             client = supabase_client.get_supabase_client()
-            env_login.assert_not_called()
         self.assertIs(client, user_client)
+
+    def test_get_supabase_client_returns_none_when_logged_out(self) -> None:
+        self.assertIsNone(supabase_client.get_supabase_client())
+
+    def test_sign_out_leaves_logged_out_state(self) -> None:
+        auth_session.save_session("acc", "ref", "user-1", "a@example.com")
+        session = self._session()
+        client = _FakeClient(_FakeAuth(session=session, user=session.user))
+        supabase_client._set_client(client)
+        result = supabase_client.sign_out()
+        self.assertTrue(result["ok"])
+        self.assertTrue(client.auth.signed_out)
+        self.assertIsNone(auth_session.load_session())
+        self.assertIsNone(supabase_client.get_supabase_client())
 
 
 class AuthApiTests(unittest.TestCase):

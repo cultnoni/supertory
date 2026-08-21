@@ -1,4 +1,4 @@
-"""Supabase 클라이언트를 필요할 때만 로그인해서 돌려준다. 설정이 없거나 실패하면 None (로컬 작성은 계속)."""
+"""저장된 세션으로 Supabase 클라이언트를 복원한다. 로그인되지 않았으면 None (로컬 작성은 계속)."""
 
 from __future__ import annotations
 
@@ -146,35 +146,6 @@ def _normalize_email_password(email: str, password: str) -> tuple[str, str] | di
     return email_text, password_text
 
 
-def sign_in_with_env_credentials() -> Any | None:
-    """Legacy shared-account login from .env. Keep until user login fully replaces it."""
-    url = get_env("SUPABASE_URL")
-    anon_key = get_env("SUPABASE_ANON_KEY")
-    email = get_env("SUPABASE_USER_EMAIL")
-    password = get_env("SUPABASE_USER_PASSWORD")
-    if not url or not anon_key or not email or not password:
-        _warn(
-            "Supabase 연동 설정이 없어 동기화를 건너뜁니다. "
-            "(.env 에 SUPABASE_URL, SUPABASE_ANON_KEY, "
-            "SUPABASE_USER_EMAIL, SUPABASE_USER_PASSWORD)"
-        )
-        return None
-
-    try:
-        from supabase import create_client
-    except ImportError:
-        _warn("supabase 패키지가 설치되어 있지 않아 동기화를 건너뜁니다.")
-        return None
-
-    try:
-        client = create_client(url, anon_key)
-        client.auth.sign_in_with_password({"email": email, "password": password})
-    except Exception as error:  # noqa: BLE001 — optional sync must not crash the app
-        _warn(f"Supabase 로그인에 실패했습니다: {error}")
-        return None
-    return client
-
-
 def restore_session() -> Any | None:
     """Hydrate the client from auth_session.json. Rotates tokens; clears file on failure."""
     payload = load_session()
@@ -286,7 +257,7 @@ def sign_in(email: str, password: str) -> dict[str, Any]:
 
 
 def sign_out() -> dict[str, Any]:
-    """Sign out the user session, then fall back to the legacy .env account if present."""
+    """Sign out the user session and leave the app logged out."""
     client = _client
     if client is not None:
         try:
@@ -294,14 +265,12 @@ def sign_out() -> dict[str, Any]:
         except Exception as error:  # noqa: BLE001
             _warn(f"Supabase 로그아웃에 실패했습니다: {error}")
     clear_session()
-    _set_client(None, resolved=False)
-    fallback = sign_in_with_env_credentials()
-    _set_client(fallback, resolved=True)
+    _set_client(None, resolved=True)
     return {"ok": True}
 
 
 def get_current_user() -> dict[str, str] | None:
-    """Return the interactive (file-backed) user, not the legacy .env sync account."""
+    """Return the signed-in user from the session file, or None if logged out."""
     if load_session() is None:
         return None
     client = _client
@@ -320,10 +289,7 @@ def get_current_user() -> dict[str, str] | None:
 
 
 def get_supabase_client() -> Any | None:
-    """Return a logged-in Supabase client, or None if sync is not configured.
-
-    Prefers a restored user session; falls back to the legacy .env account.
-    """
+    """Return a logged-in Supabase client, or None if nobody is signed in."""
     global _client, _resolved
     if _resolved:
         return _client
@@ -332,6 +298,4 @@ def get_supabase_client() -> Any | None:
     if restored is not None:
         return restored
 
-    _resolved = True
-    _client = sign_in_with_env_credentials()
-    return _client
+    return _set_client(None, resolved=True)

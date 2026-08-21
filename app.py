@@ -19140,10 +19140,9 @@ def build_app_url(project_id: int | None = None) -> str:
 
 
 def _init_desktop_sync() -> None:
-    """Optional Supabase login + device row. Failures must not stop the app."""
+    """Restore a saved user session if present. Logged-out is not an error."""
     try:
-        restore_session()
-        client = get_supabase_client()
+        client = restore_session()
         if client is not None:
             ensure_device_registered()
     except Exception as error:  # noqa: BLE001
