@@ -1045,21 +1045,44 @@ READER_DEBATE_TASK_ADDON = (
     "자연스럽게 토론에 참여해라. 이미 나온 얘기를 그대로 반복하지 마라."
 )
 READER_COMMENTS_EXPECTED = 3
+READER_COMMENTS_MAX_REFRESHES = 3
+READER_COMMENT_JOKER_CHANCE = 0.25
 READER_COMMENT_WILDCARD_CATEGORIES = (
     "narrative_critic",
     "taste_preference",
     "structure_wildcard",
 )
-READER_COMMENT_TASK_ADDON = (
-    "지금은 작가와 1:1로 대화하는 상황이 아닙니다. "
-    "작가가 이 회차를 완성으로 표시했습니다. "
-    "완성된 회차 본문에 대한 짧은 독자 댓글 하나만 작성하세요. "
-    "댓글은 2~5문장 정도로, 웹소설 댓창에 다는 반응처럼 자연스럽게. "
-    "제목·이름 접두어·따옴표·머리말은 붙이지 마세요. "
-    "다른 가상 독자나 AI라는 사실을 언급하지 마세요."
-)
+READER_COMMENT_TASK_ADDON = """지금은 작가와 1:1로 대화하는 상황이 아닙니다.
+작가가 이 회차를 완성으로 표시했습니다.
+위의 1:1 대화 지시(이유를 설명하라, 정중하게 반응하라 등)는 이번 작업에 적용하지 마세요.
+형식만 짧고 즉흥적인 댓글창 한 줄로 맞추고, 말투·어휘·감정 온도는 위에서 정의된 이 독자의 [말투]·[정체성]·[말투 예시]를 우선하세요.
+ㅋㅋ/ㄹㅇ/이모지를 모든 댓글에 넣지 마세요. 이 독자의 말투에 맞을 때만 쓰세요.
+
+[Task Instruction — 이번 작업이 우선]
+이 회차를 평가하지 마세요. 웹소설 플랫폼 댓글창에 이 독자가 남길 법한 댓글 하나를 쓰세요.
+다른 독자와 비슷한 유행어·말투로 평평하게 만들지 마세요.
+
+[댓글 작성 규칙 — 형식은 공통, 말투는 페르소나마다 다름]
+- 1~2문장. 짧고 즉흥적으로. 제목·이름 접두어·따옴표·머리말은 붙이지 마세요.
+- 존댓말/정중한 피드백 톤 금지. 리뷰어처럼 정리하지 마세요.
+- '좋았어요', '기대됩니다', '잘 읽었습니다', '다음 전개가 기대돼요', '이 부분이 좋았어요' 같은 정중한 감상평/피드백 문구는 쓰지 마세요.
+- 특정 장면·대사·행동을 구체적으로 집어서 반응하세요. 막연한 감상은 금지입니다.
+- [말투]와 [말투 예시]의 결을 댓글에도 적극적으로 살리세요. 문장을 그대로 베끼지는 마세요.
+  · 날카롭고 분석적인 독자: ㅋㅋ/이모지 거의 없이, 팩폭하듯 단정적으로.
+  · 감정 이입·취향형 독자: 감탄사, ㅠㅠ/ㅋㅋㅋ를 쓰고 흥분한 톤.
+  · 구조·전개를 파고드는 독자: 복선/떡밥 회수 여부를 구체적으로 짚되, 분석하듯 살짝 냉정하게.
+- 웹소설 독자 커뮤니티 표현(떡밥, 복선, 회수, 이탈, 흑화, 개연성 터짐, 실화냐, 인성 등)은 이 독자의 관심사·말투와 맞을 때만 쓰세요.
+- [프로젝트 누적 정보]에 이전 화 떡밥·복선·타임라인·추적 사실이 있으면, 이번 화에서 회수되거나 어긋난 부분을 이 독자의 관심사에 맞게 녹여도 됩니다. 목록에 없는 설정은 지어내지 마세요.
+- 다른 가상 독자나 AI라는 사실을 언급하지 마세요.
+
+[형식 참고 예시 — 페르소나마다 결이 다릅니다. 이 독자의 [말투]에 가까운 결만 참고하고, 문장을 그대로 베끼지 마세요]
+- (분석적) 이 전개 그냥 개연성 터진 거 아님?
+- (취향·감정) 남주 인성 실화냐? 여기서 여주 버리면 진짜 이탈함
+- (구조·복선) 다음 화에 주인공 흑화할 듯? 떡밥 정리해 둠
+- (흥분한 회수) ㅋㅋ 3화에 나왔던 열쇠 복선 여기서 회수하네 미쳤다"""
 READER_AVATAR_URL_PREFIX = "/assets/reader_avatars"
 _reader_comments_inflight: set[int] = set()
+_reader_comments_last_error: dict[int, str] = {}
 _reader_comments_inflight_lock = Lock()
 
 GLUMP_Q1_ANSWERS = ("block", "perfectionism", "self_doubt", "burnout")
@@ -3581,19 +3604,19 @@ _index_rebuild_state: dict = {
 
 
 def is_gemini_quota_error(error: object) -> bool:
-    text = str(error or "").lower()
-    needles = (
-        "quota",
-        "resource_exhausted",
-        "resource has been exhausted",
-        "rate limit",
-        "rate-limit",
-        "429",
-        "exceeded your current quota",
-        "free_tier",
-        "free tier",
-    )
-    return any(needle in text for needle in needles)
+    current: object | None = error
+    seen: set[int] = set()
+    while current is not None:
+        marker = id(current)
+        if marker in seen:
+            break
+        seen.add(marker)
+        if getattr(current, "code", None) == "quota":
+            return True
+        current = getattr(current, "__cause__", None) or getattr(
+            current, "__context__", None
+        )
+    return False
 
 
 def tracked_facts_json_is_missing(raw: object) -> bool:
@@ -3676,6 +3699,60 @@ def _persona_matches_needles(persona: dict, needles: list[str]) -> bool:
     return False
 
 
+def _normalize_exclude_persona_ids(raw: object) -> set[str]:
+    if raw is None:
+        return set()
+    if isinstance(raw, (str, bytes)):
+        token = str(raw).strip()
+        return {token} if token else set()
+    try:
+        items = list(raw)
+    except TypeError:
+        token = str(raw).strip()
+        return {token} if token else set()
+    return {str(item or "").strip() for item in items if str(item or "").strip()}
+
+
+def _load_virtual_reader_personas(connection: sqlite3.Connection) -> list[dict]:
+    rows = connection.execute(
+        "SELECT id, category, name, identity, tone, criteria, forbidden, "
+        "sample_responses, discussion_attitude, display_order "
+        "FROM virtual_reader_personas "
+        "ORDER BY display_order, id"
+    ).fetchall()
+    return [serialize_reader_persona(row) for row in rows]
+
+
+def reader_comment_refresh_count(comment_count: object) -> int:
+    n = max(0, int(comment_count or 0))
+    if n <= READER_COMMENTS_EXPECTED:
+        return 0
+    return (n - READER_COMMENTS_EXPECTED) // READER_COMMENTS_EXPECTED
+
+
+def _reader_comment_refresh_meta(
+    comment_count: object,
+    *,
+    generating: bool,
+    remaining: object,
+    last_error_code: object = None,
+) -> dict:
+    n = max(0, int(comment_count or 0))
+    refresh_count = reader_comment_refresh_count(n)
+    can_refresh = (
+        n >= READER_COMMENTS_EXPECTED
+        and refresh_count < READER_COMMENTS_MAX_REFRESHES
+        and int(remaining or 0) > 0
+        and not generating
+        and str(last_error_code or "") != "quota"
+    )
+    return {
+        "refresh_count": refresh_count,
+        "max_refreshes": READER_COMMENTS_MAX_REFRESHES,
+        "can_refresh": can_refresh,
+    }
+
+
 def _pick_reader_comment_persona(
     pool: list[dict],
     used_ids: set[str],
@@ -3702,24 +3779,16 @@ def select_reader_comment_personas(
     *,
     connection: sqlite3.Connection | None = None,
     rng: random.Random | None = None,
+    exclude_persona_ids: object = None,
 ) -> list[dict]:
     """Pick 3 distinct virtual readers: genre, sub-genre, then a wildcard."""
     picker = rng if rng is not None else random.Random()
 
-    def _load(conn: sqlite3.Connection) -> list[dict]:
-        rows = conn.execute(
-            "SELECT id, category, name, identity, tone, criteria, forbidden, "
-            "sample_responses, discussion_attitude, display_order "
-            "FROM virtual_reader_personas "
-            "ORDER BY display_order, id"
-        ).fetchall()
-        return [serialize_reader_persona(row) for row in rows]
-
     if connection is None:
         with database() as conn:
-            personas = _load(conn)
+            personas = _load_virtual_reader_personas(conn)
     else:
-        personas = _load(connection)
+        personas = _load_virtual_reader_personas(connection)
 
     by_category: dict[str, list[dict]] = {key: [] for key in READER_PERSONA_CATEGORIES}
     for item in personas:
@@ -3727,7 +3796,7 @@ def select_reader_comment_personas(
         by_category.setdefault(category, []).append(item)
 
     picked: list[dict] = []
-    used_ids: set[str] = set()
+    used_ids: set[str] = _normalize_exclude_persona_ids(exclude_persona_ids)
     genre_pick = _pick_reader_comment_persona(
         by_category.get("genre_specialist") or [],
         used_ids,
@@ -3768,6 +3837,65 @@ def select_reader_comment_personas(
     return picked[:READER_COMMENTS_EXPECTED]
 
 
+def select_additional_reader_comment_personas(
+    main_genre: object,
+    sub_genre: object,
+    *,
+    exclude_persona_ids: object = None,
+    connection: sqlite3.Connection | None = None,
+    rng: random.Random | None = None,
+) -> list[dict]:
+    """Pick up to 3 unused readers; ~25% of the time inject one off-genre joker."""
+    picker = rng if rng is not None else random.Random()
+    exclude = _normalize_exclude_persona_ids(exclude_persona_ids)
+
+    def _pick(conn: sqlite3.Connection) -> tuple[list[dict], list[dict]]:
+        all_personas = _load_virtual_reader_personas(conn)
+        chosen = select_reader_comment_personas(
+            main_genre,
+            sub_genre,
+            connection=conn,
+            rng=picker,
+            exclude_persona_ids=exclude,
+        )
+        return chosen, all_personas
+
+    if connection is None:
+        with database() as conn:
+            picked, all_personas = _pick(conn)
+    else:
+        picked, all_personas = _pick(connection)
+
+    if len(picked) < READER_COMMENTS_EXPECTED:
+        return picked
+    if picker.random() >= READER_COMMENT_JOKER_CHANCE:
+        return picked
+    picked_ids = {
+        str(item.get("id") or "").strip()
+        for item in picked
+        if str(item.get("id") or "").strip()
+    }
+    blocked = exclude | picked_ids
+    joker_pool = [
+        item
+        for item in all_personas
+        if str(item.get("id") or "").strip() not in blocked
+        and str(item.get("category") or "") in READER_COMMENT_WILDCARD_CATEGORIES
+    ]
+    if not joker_pool:
+        return picked
+    joker = picker.choice(joker_pool)
+    genre_slots = [
+        index
+        for index, item in enumerate(picked)
+        if str(item.get("category") or "")
+        in {"genre_specialist", "sub_genre_specialist"}
+    ]
+    slot = picker.choice(genre_slots) if genre_slots else picker.randrange(len(picked))
+    picked[slot] = joker
+    return picked
+
+
 def _reader_comment_system_prompt(persona: dict, shared_context: str) -> str:
     return (
         _reader_persona_system_prompt(persona)
@@ -3778,9 +3906,44 @@ def _reader_comment_system_prompt(persona: dict, shared_context: str) -> str:
     )
 
 
+def _reader_comment_user_prompt(reader_name: str, scene_title: str) -> str:
+    return (
+        f"웹소설 플랫폼 댓글창에 실제 독자가 남길 법한 댓글 하나를 "
+        f"'{reader_name}'로서 써 주세요.\n"
+        f"이 회차를 평가하지 말고, 댓글창에 바로 달 한 줄을 쓰세요.\n"
+        f"회차 제목: {scene_title or '(제목 없음)'}"
+    )
+
+
+def _log_reader_comment_error(scene_id: int, persona_id: object, error: object) -> None:
+    if getattr(error, "code", None) == "quota":
+        detail = f"일일 할당량 소진 ({error})"
+    else:
+        detail = str(error)
+    print(
+        "가상독자 댓글 생성 실패: "
+        f"persona={persona_id or '-'}, scene={scene_id}, error={detail}"
+    )
+
+
 def _reader_comments_generating(scene_id: int) -> bool:
     with _reader_comments_inflight_lock:
         return int(scene_id) in _reader_comments_inflight
+
+
+def _reader_comments_last_error_code(scene_id: int) -> str | None:
+    with _reader_comments_inflight_lock:
+        return _reader_comments_last_error.get(int(scene_id))
+
+
+def _set_reader_comments_last_error(scene_id: int, code: str | None) -> None:
+    scene_id = int(scene_id)
+    with _reader_comments_inflight_lock:
+        token = str(code or "").strip()
+        if token:
+            _reader_comments_last_error[scene_id] = token
+        else:
+            _reader_comments_last_error.pop(scene_id, None)
 
 
 def list_scene_reader_comments(scene_id: int) -> dict:
@@ -3803,6 +3966,9 @@ def list_scene_reader_comments(scene_id: int) -> dict:
             """,
             (scene_id,),
         ).fetchall()
+        total = connection.execute(
+            "SELECT COUNT(*) FROM virtual_reader_personas"
+        ).fetchone()[0]
     comments = []
     for row in rows:
         item = as_dict(row) or {}
@@ -3819,22 +3985,31 @@ def list_scene_reader_comments(scene_id: int) -> dict:
                 "created_at": str(item.get("created_at") or ""),
             }
         )
+    generating = _reader_comments_generating(scene_id)
+    remaining = max(0, int(total or 0) - len(comments))
+    last_error_code = _reader_comments_last_error_code(scene_id)
+    meta = _reader_comment_refresh_meta(
+        len(comments),
+        generating=generating,
+        remaining=remaining,
+        last_error_code=last_error_code,
+    )
     return {
         "ok": True,
         "scene_id": scene_id,
         "comments": comments,
         "expected": READER_COMMENTS_EXPECTED,
-        "generating": _reader_comments_generating(scene_id),
+        "generating": generating,
+        "last_error_code": last_error_code,
+        **meta,
     }
 
 
-def schedule_scene_reader_comments(scene_id: int) -> dict:
-    """Start background generation if this scene has no comments yet."""
+def _start_reader_comments_worker(
+    scene_id: int, personas: list[dict] | None = None
+) -> dict:
     scene_id = int(scene_id)
     payload = list_scene_reader_comments(scene_id)
-    if payload["comments"]:
-        payload["started"] = False
-        return payload
     with _reader_comments_inflight_lock:
         already = scene_id in _reader_comments_inflight
         if not already:
@@ -3846,7 +4021,7 @@ def schedule_scene_reader_comments(scene_id: int) -> dict:
     try:
         worker = Thread(
             target=_scene_reader_comments_worker,
-            args=(scene_id,),
+            args=(scene_id, personas),
             daemon=True,
             name=f"scene-reader-comments-{scene_id}",
         )
@@ -3857,29 +4032,97 @@ def schedule_scene_reader_comments(scene_id: int) -> dict:
         raise
     payload["generating"] = True
     payload["started"] = True
+    payload["can_refresh"] = False
     return payload
 
 
-def _scene_reader_comments_worker(scene_id: int) -> None:
+def schedule_scene_reader_comments(scene_id: int) -> dict:
+    """Start background generation until the first batch of 3 exists."""
+    scene_id = int(scene_id)
+    payload = list_scene_reader_comments(scene_id)
+    if len(payload["comments"]) >= READER_COMMENTS_EXPECTED:
+        payload["started"] = False
+        return payload
+    return _start_reader_comments_worker(scene_id)
+
+
+def schedule_additional_scene_reader_comments(scene_id: int) -> dict:
+    """Start a refresh batch of unused personas (up to 3)."""
+    scene_id = int(scene_id)
+    payload = list_scene_reader_comments(scene_id)
+    n = len(payload["comments"])
+    if reader_comment_refresh_count(n) >= READER_COMMENTS_MAX_REFRESHES:
+        raise ValueError("max_refreshes_reached")
+    if payload["generating"]:
+        payload["started"] = False
+        return payload
+    used_ids = [
+        str(item.get("persona_id") or "").strip()
+        for item in payload["comments"]
+        if str(item.get("persona_id") or "").strip()
+    ]
+    with database() as connection:
+        row = connection.execute(
+            """
+            SELECT p.main_genre, p.sub_genre
+            FROM scene s
+            JOIN project p ON p.id = s.project_id
+            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
+            """,
+            (scene_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError("씬을 찾을 수 없습니다.")
+        extra = select_additional_reader_comment_personas(
+            row["main_genre"],
+            row["sub_genre"],
+            exclude_persona_ids=used_ids,
+            connection=connection,
+        )
+    if not extra:
+        raise ValueError("no_more_personas")
+    return _start_reader_comments_worker(scene_id, extra)
+
+
+def request_scene_reader_comments(scene_id: int) -> dict:
+    """Fill the first batch of 3, or refresh when that batch is already present."""
+    scene_id = int(scene_id)
+    payload = list_scene_reader_comments(scene_id)
+    if payload["generating"]:
+        payload["started"] = False
+        return payload
+    n = len(payload["comments"])
+    if n < READER_COMMENTS_EXPECTED:
+        return schedule_scene_reader_comments(scene_id)
+    return schedule_additional_scene_reader_comments(scene_id)
+
+
+def _scene_reader_comments_worker(
+    scene_id: int, personas: list[dict] | None = None
+) -> None:
     try:
-        generate_scene_reader_comments(scene_id)
+        generate_scene_reader_comments(scene_id, personas)
     except Exception as error:
-        print(f"가상독자 댓글 생성 실패 (scene {scene_id}): {error}")
+        _log_reader_comment_error(scene_id, "-", error)
     finally:
         with _reader_comments_inflight_lock:
             _reader_comments_inflight.discard(int(scene_id))
 
 
-def generate_scene_reader_comments(scene_id: int) -> None:
-    """Generate up to 3 virtual-reader comments; persist each as soon as it arrives."""
+def generate_scene_reader_comments(
+    scene_id: int, personas: list[dict] | None = None
+) -> None:
+    """Generate virtual-reader comments; persist each as soon as it arrives."""
     scene_id = int(scene_id)
     with database() as connection:
-        existing = connection.execute(
-            "SELECT COUNT(*) FROM scene_reader_comments WHERE scene_id = ?",
-            (scene_id,),
-        ).fetchone()[0]
-        if int(existing or 0) > 0:
-            return
+        existing_ids = {
+            str(row[0] or "").strip()
+            for row in connection.execute(
+                "SELECT persona_id FROM scene_reader_comments WHERE scene_id = ?",
+                (scene_id,),
+            ).fetchall()
+            if str(row[0] or "").strip()
+        }
         row = connection.execute(
             """
             SELECT s.id, s.project_id, s.title, p.main_genre, p.sub_genre,
@@ -3896,24 +4139,35 @@ def generate_scene_reader_comments(scene_id: int) -> None:
         work_id = str(row["project_id"])
         episode_plain = plain_text_from_content(str(row["content_md"] or "")).strip()
         scene_title = str(row["title"] or "").strip()
-        personas = select_reader_comment_personas(
-            row["main_genre"],
-            row["sub_genre"],
-            connection=connection,
-        )
+        if personas is None:
+            needed = READER_COMMENTS_EXPECTED - len(existing_ids)
+            if needed <= 0:
+                return
+            personas = select_reader_comment_personas(
+                row["main_genre"],
+                row["sub_genre"],
+                connection=connection,
+                exclude_persona_ids=existing_ids,
+            )[:needed]
+        else:
+            personas = [
+                item
+                for item in personas
+                if str(item.get("id") or "").strip()
+                and str(item.get("id") or "").strip() not in existing_ids
+            ]
     if not personas:
         return
     shared_context = _reader_dynamic_context(work_id, episode_plain)
+    run_error_code: str | None = None
+    saved_any = False
     for index, persona in enumerate(personas):
         persona_id = str(persona.get("id") or "").strip()
         if not persona_id:
             continue
         reader_name = str(persona.get("name") or "").strip() or "가상 독자"
         system = _reader_comment_system_prompt(persona, shared_context)
-        prompt = (
-            f"아래 회차가 완성되었습니다. '{reader_name}'로서 짧은 댓글 하나만 남겨 주세요.\n"
-            f"회차 제목: {scene_title or '(제목 없음)'}"
-        )
+        prompt = _reader_comment_user_prompt(reader_name, scene_title)
         if index > 0 and READER_DEBATE_GEMINI_GAP_SECONDS > 0:
             time.sleep(READER_DEBATE_GEMINI_GAP_SECONDS)
         try:
@@ -3924,14 +4178,23 @@ def generate_scene_reader_comments(scene_id: int) -> None:
                 max_output_tokens=512,
             )
         except gemini_client.GeminiError as error:
-            if not is_gemini_quota_error(error):
-                print(f"가상독자 댓글 건너뜀 ({reader_name}): {error}")
+            _log_reader_comment_error(scene_id, persona_id, error)
+            if error.code == "quota":
+                run_error_code = "quota"
+                break
+            if run_error_code != "quota":
+                run_error_code = error.code or "unknown"
             continue
         except Exception as error:
-            print(f"가상독자 댓글 건너뜀 ({reader_name}): {error}")
+            _log_reader_comment_error(scene_id, persona_id, error)
+            if run_error_code != "quota":
+                run_error_code = "unknown"
             continue
         reply_text = str(reply or "").strip()
         if not reply_text:
+            _log_reader_comment_error(scene_id, persona_id, "empty_response")
+            if run_error_code != "quota":
+                run_error_code = "empty"
             continue
         try:
             with database() as connection:
@@ -3943,8 +4206,15 @@ def generate_scene_reader_comments(scene_id: int) -> None:
                     """,
                     (scene_id, persona_id, reply_text, utc_timestamp_now()),
                 )
+            saved_any = True
         except sqlite3.Error as error:
-            print(f"가상독자 댓글 저장 실패 ({reader_name}): {error}")
+            _log_reader_comment_error(scene_id, persona_id, error)
+            if run_error_code != "quota":
+                run_error_code = "unknown"
+    if run_error_code:
+        _set_reader_comments_last_error(scene_id, run_error_code)
+    elif saved_any:
+        _set_reader_comments_last_error(scene_id, None)
 
 
 _cast_candidate_lock = Lock()
@@ -5390,14 +5660,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments/generate", path)
             if match:
-                result = schedule_scene_reader_comments(int(match.group(1)))
+                result = request_scene_reader_comments(int(match.group(1)))
                 status = (
                     HTTPStatus.ACCEPTED
                     if result.get("started") or result.get("generating")
                     else HTTPStatus.OK
                 )
-                if result.get("comments"):
-                    status = HTTPStatus.OK
                 self.send_json(result, status)
                 return
 

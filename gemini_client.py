@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import urllib.error
 import urllib.request
 from typing import Any
@@ -16,9 +17,25 @@ load_all_dotenv()
 DEFAULT_MODEL = "gemini-flash-lite-latest"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
+GEMINI_ERROR_CODES = ("quota", "rate_limit", "auth", "empty", "network", "unknown")
+
 
 class GeminiError(RuntimeError):
     """Raised when the Gemini API cannot complete a request."""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str = "unknown",
+        http_status: int | None = None,
+        retry_after: float | None = None,
+    ) -> None:
+        super().__init__(message)
+        normalized = str(code or "unknown").strip() or "unknown"
+        self.code = normalized if normalized in GEMINI_ERROR_CODES else "unknown"
+        self.http_status = int(http_status) if http_status is not None else None
+        self.retry_after = float(retry_after) if retry_after is not None else None
 
 
 def is_configured() -> bool:
@@ -40,7 +57,8 @@ def generate_text(
     """Call Gemini generateContent and return plain text."""
     if not is_configured():
         raise GeminiError(
-            "Gemini API 키가 없습니다. 프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 넣어 주세요."
+            "Gemini API 키가 없습니다. 프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 넣어 주세요.",
+            code="auth",
         )
     api_key = get_env("GEMINI_API_KEY")
     assert api_key is not None
@@ -80,15 +98,33 @@ def generate_text(
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
-        message = _extract_api_error(detail) or f"HTTP {error.code}"
-        raise GeminiError(f"Gemini 호출 실패: {message}") from error
+        header_retry = None
+        try:
+            header_retry = error.headers.get("Retry-After") if error.headers else None
+        except Exception:
+            header_retry = None
+        code, retry_after, message = classify_gemini_http_error(
+            error.code, detail, retry_after_header=header_retry
+        )
+        raise GeminiError(
+            f"Gemini 호출 실패: {message}",
+            code=code,
+            http_status=int(error.code),
+            retry_after=retry_after,
+        ) from error
     except urllib.error.URLError as error:
-        raise GeminiError(f"Gemini에 연결하지 못했습니다: {error.reason}") from error
+        raise GeminiError(
+            f"Gemini에 연결하지 못했습니다: {error.reason}",
+            code="network",
+        ) from error
 
     try:
         body = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise GeminiError("Gemini 응답을 해석하지 못했습니다.") from error
+        raise GeminiError(
+            "Gemini 응답을 해석하지 못했습니다.",
+            code="unknown",
+        ) from error
 
     text = _extract_text(body)
     if not text:
@@ -100,8 +136,113 @@ def generate_text(
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
             )
-        raise GeminiError("Gemini가 빈 응답을 돌려주었습니다. 잠시 후 다시 시도해 주세요.")
+        raise GeminiError(
+            "Gemini가 빈 응답을 돌려주었습니다. 잠시 후 다시 시도해 주세요.",
+            code="empty",
+        )
     return text
+
+
+def classify_gemini_http_error(
+    http_status: int,
+    detail: str,
+    *,
+    retry_after_header: str | None = None,
+) -> tuple[str, float | None, str]:
+    """Return (code, retry_after_seconds, message) for an HTTP error body."""
+    status = int(http_status)
+    payload = _parse_error_payload(detail)
+    message = _extract_api_error(detail) or f"HTTP {status}"
+    retry_after = _retry_after_seconds(payload, message, retry_after_header)
+    if status in {401, 403}:
+        return "auth", retry_after, message
+    if status == 429:
+        quota_ids = _collect_quota_ids(payload)
+        if any("perday" in token.lower() for token in quota_ids):
+            return "quota", retry_after, message
+        return "rate_limit", retry_after, message
+    return "unknown", retry_after, message
+
+
+def _parse_error_payload(detail: str) -> dict[str, Any]:
+    try:
+        payload = json.loads(detail)
+    except json.JSONDecodeError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _collect_quota_ids(payload: dict[str, Any]) -> list[str]:
+    tokens: list[str] = []
+    error = payload.get("error")
+    root = error if isinstance(error, dict) else payload
+    details = root.get("details") if isinstance(root, dict) else None
+    if not isinstance(details, list):
+        return tokens
+    keys = ("quotaId", "quota_id", "quotaMetric", "quota_metric", "quota_limit")
+    for item in details:
+        if not isinstance(item, dict):
+            continue
+        for key in keys:
+            value = item.get(key)
+            if value:
+                tokens.append(str(value))
+        metadata = item.get("metadata")
+        if isinstance(metadata, dict):
+            for key in keys:
+                value = metadata.get(key)
+                if value:
+                    tokens.append(str(value))
+        violations = item.get("violations")
+        if isinstance(violations, list):
+            for violation in violations:
+                if not isinstance(violation, dict):
+                    continue
+                for key in keys:
+                    value = violation.get(key)
+                    if value:
+                        tokens.append(str(value))
+    return tokens
+
+
+def _retry_after_seconds(
+    payload: dict[str, Any],
+    message: str,
+    header_value: str | None,
+) -> float | None:
+    error = payload.get("error")
+    root = error if isinstance(error, dict) else payload
+    details = root.get("details") if isinstance(root, dict) else None
+    if isinstance(details, list):
+        for item in details:
+            if not isinstance(item, dict):
+                continue
+            raw = item.get("retryDelay") or item.get("retry_delay")
+            parsed = _parse_duration_seconds(raw)
+            if parsed is not None:
+                return parsed
+    header_parsed = _parse_duration_seconds(header_value)
+    if header_parsed is not None:
+        return header_parsed
+    match = re.search(r"retry in\s+([\d.]+)\s*s", str(message or ""), re.I)
+    if match:
+        return _parse_duration_seconds(match.group(1))
+    return None
+
+
+def _parse_duration_seconds(raw: object) -> float | None:
+    text = str(raw or "").strip()
+    if not text:
+        return None
+    if text.lower().endswith("s") and not text.lower().endswith("ms"):
+        text = text[:-1]
+    try:
+        value = float(text)
+    except ValueError:
+        return None
+    if value < 0:
+        return None
+    return value
 
 
 def _extract_text(body: dict[str, Any]) -> str:

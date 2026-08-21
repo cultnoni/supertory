@@ -81,8 +81,15 @@ class IndexRebuildContractTests(unittest.TestCase):
         return int(project["id"]), int(scene["id"])
 
     def test_quota_helper(self) -> None:
-        self.assertTrue(app.is_gemini_quota_error("RESOURCE_EXHAUSTED: quota exceeded"))
-        self.assertTrue(app.is_gemini_quota_error("HTTP 429 rate limit"))
+        quota = gemini_client.GeminiError("daily", code="quota", http_status=429)
+        rate = gemini_client.GeminiError("rpm", code="rate_limit", http_status=429)
+        wrapped = ValueError(str(quota))
+        wrapped.__cause__ = quota
+        self.assertTrue(app.is_gemini_quota_error(quota))
+        self.assertTrue(app.is_gemini_quota_error(wrapped))
+        self.assertFalse(app.is_gemini_quota_error(rate))
+        self.assertFalse(app.is_gemini_quota_error("RESOURCE_EXHAUSTED: quota exceeded"))
+        self.assertFalse(app.is_gemini_quota_error("HTTP 429 rate limit"))
         self.assertFalse(app.is_gemini_quota_error("JSON을 찾지 못했습니다"))
 
     def test_admin_ui_has_rebuild_menu(self) -> None:

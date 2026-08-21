@@ -33307,6 +33307,76 @@ function setViewerCommentsOpen(open) {
   if (!viewerCommentsOpen) stopViewerCommentsPolling();
 }
 
+function viewerCommentsQuotaExhausted(data) {
+  return String(data?.last_error_code || "") === "quota";
+}
+
+function viewerCommentsQuotaMessage() {
+  return i18n.t("app.오늘_AI_사용량을_다_썼어요_내일_다시_시도");
+}
+
+function syncViewerCommentsRetryRow(data) {
+  const row = $("viewerReaderCommentsRetryRow");
+  const btn = $("viewerReaderCommentsRetryButton");
+  const hint = $("viewerReaderCommentsRetryHint");
+  if (!row || !btn) return;
+  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  const generating = Boolean(data?.generating);
+  const expected = Math.max(1, Number(data?.expected) || 3);
+  const ready = comments.length;
+  const quota = viewerCommentsQuotaExhausted(data);
+  const showRetry = !generating && ready === 0 && !quota;
+  const showFill = !generating && ready > 0 && ready < expected && !quota;
+  const showQuota = quota && !generating && ready < expected;
+  row.classList.toggle("hidden", !(showRetry || showFill || showQuota));
+  if (hint) {
+    hint.classList.toggle("hidden", !(showRetry || showQuota));
+    if (showQuota) hint.textContent = viewerCommentsQuotaMessage();
+    else if (showRetry) hint.textContent = i18n.t("app.댓글_생성에_실패했어요");
+  }
+  if (showQuota) {
+    btn.disabled = true;
+    btn.classList.add("hidden");
+    return;
+  }
+  btn.classList.remove("hidden");
+  btn.disabled = generating;
+  if (showRetry) btn.textContent = i18n.t("app.다시_시도");
+  else if (showFill) btn.textContent = i18n.t("app.댓글을_더_받아볼게요");
+}
+
+function syncViewerCommentsRefreshRow(data) {
+  const row = $("viewerReaderCommentsRefreshRow");
+  const btn = $("viewerReaderCommentsRefreshButton");
+  const note = $("viewerReaderCommentsRefreshNote");
+  if (!row || !btn || !note) return;
+  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  const generating = Boolean(data?.generating);
+  const canRefresh = Boolean(data?.can_refresh);
+  const ready = comments.length;
+  const quota = viewerCommentsQuotaExhausted(data);
+  const showRow = ready >= 3 || (generating && ready > 0);
+  row.classList.toggle("hidden", !showRow);
+  const exhausted = showRow && !generating && !canRefresh;
+  if (quota && !generating && showRow) {
+    btn.disabled = true;
+    btn.classList.add("hidden");
+    note.classList.remove("hidden");
+    note.textContent = viewerCommentsQuotaMessage();
+    return;
+  }
+  note.textContent = i18n.t("app.댓글은_여기까지예요");
+  if (exhausted) {
+    btn.disabled = true;
+    btn.classList.add("hidden");
+    note.classList.remove("hidden");
+  } else {
+    note.classList.add("hidden");
+    btn.classList.remove("hidden");
+    btn.disabled = !canRefresh || generating;
+  }
+}
+
 function renderViewerReaderComments(data) {
   const list = $("viewerReaderCommentsList");
   const hint = $("viewerReaderCommentsHint");
@@ -33317,11 +33387,15 @@ function renderViewerReaderComments(data) {
   const ready = comments.length;
   if (hint) {
     if (generating) {
-      hint.textContent = ready
-        ? i18n.t("app.가상독자_댓글_생성_중", { ready, expected })
-        : i18n.t("app.가상독자_댓글을_준비하는_중");
+      hint.textContent = ready >= expected
+        ? i18n.t("app.가상독자_추가_댓글을_준비하는_중")
+        : (ready
+          ? i18n.t("app.가상독자_댓글_생성_중", { ready, expected })
+          : i18n.t("app.가상독자_댓글을_준비하는_중"));
     } else if (!ready) {
-      hint.textContent = i18n.t("app.가상독자_댓글이_아직_없어요");
+      hint.textContent = viewerCommentsQuotaExhausted(data)
+        ? viewerCommentsQuotaMessage()
+        : i18n.t("app.댓글_생성에_실패했어요");
     } else {
       hint.textContent = "";
     }
@@ -33337,32 +33411,41 @@ function renderViewerReaderComments(data) {
       + `<div class="viewer-comment-card-text">${body}</div>`
       + `</div></div>`;
   });
-  if (generating && ready < expected) {
+  if (generating) {
     cards.push(
-      `<div class="viewer-comment-pending">${i18n.t("app.가상독자_댓글_생성_중", { ready, expected })}</div>`,
-    );
-  } else if (!ready && !generating) {
-    cards.push(
-      `<div class="viewer-comment-pending">${i18n.t("app.가상독자_댓글이_아직_없어요")}</div>`,
+      `<div class="viewer-comment-pending">${
+        ready >= expected
+          ? i18n.t("app.가상독자_추가_댓글을_준비하는_중")
+          : i18n.t("app.가상독자_댓글_생성_중", { ready, expected })
+      }</div>`,
     );
   }
   list.innerHTML = cards.join("");
   bindReaderAvatarErrors(list);
+  syncViewerCommentsRetryRow(data);
+  syncViewerCommentsRefreshRow(data);
 }
 
 async function loadViewerReaderComments(options = {}) {
   const sceneId = Number(state.sceneId);
   if (!sceneId) return null;
   const token = ++viewerCommentsLoadToken;
-  if (options.startIfNeeded) {
+  let data = await api(`/api/scenes/${sceneId}/reader-comments`);
+  if (
+    options.startIfNeeded
+    && !data?.generating
+    && !(data?.comments || []).length
+    && String(data?.last_error_code || "") !== "quota"
+  ) {
     try {
       await api(`/api/scenes/${sceneId}/reader-comments/generate`, {
         method: "POST",
         body: JSON.stringify({}),
       });
     } catch (_) { /* GET still shows whatever is stored */ }
+    if (token !== viewerCommentsLoadToken) return data;
+    data = await api(`/api/scenes/${sceneId}/reader-comments`);
   }
-  const data = await api(`/api/scenes/${sceneId}/reader-comments`);
   if (token !== viewerCommentsLoadToken) return data;
   renderViewerReaderComments(data);
   const generating = Boolean(data?.generating);
@@ -33372,6 +33455,34 @@ async function loadViewerReaderComments(options = {}) {
     stopViewerCommentsPolling();
   }
   return data;
+}
+
+async function refreshViewerReaderComments() {
+  const sceneId = Number(state.sceneId);
+  if (!sceneId) return;
+  const refreshBtn = $("viewerReaderCommentsRefreshButton");
+  const retryBtn = $("viewerReaderCommentsRetryButton");
+  if (refreshBtn) refreshBtn.disabled = true;
+  if (retryBtn) retryBtn.disabled = true;
+  try {
+    await api(`/api/scenes/${sceneId}/reader-comments/generate`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+  } catch (error) {
+    const code = String(error?.message || "");
+    if (code === "max_refreshes_reached" || code === "no_more_personas") {
+      const data = await api(`/api/scenes/${sceneId}/reader-comments`).catch(() => null);
+      if (data) renderViewerReaderComments(data);
+      else syncViewerCommentsRefreshRow({ comments: [{}, {}, {}], can_refresh: false, generating: false });
+      return;
+    }
+    if (refreshBtn) refreshBtn.disabled = false;
+    if (retryBtn) retryBtn.disabled = false;
+    handleError(error);
+    return;
+  }
+  await loadViewerReaderComments({ startIfNeeded: false });
 }
 
 function openViewerReaderCommentsFromCta() {
@@ -35442,6 +35553,17 @@ function setupViewerMode() {
   });
   $("viewerReaderCommentsClose")?.addEventListener("click", () => {
     setViewerCommentsOpen(false);
+  });
+  $("viewerReaderCommentsRefreshButton")?.addEventListener("click", () => {
+    const btn = $("viewerReaderCommentsRefreshButton");
+    if (!btn || btn.disabled || btn.classList.contains("hidden")) return;
+    refreshViewerReaderComments().catch(handleError);
+  });
+  $("viewerReaderCommentsRetryButton")?.addEventListener("click", () => {
+    const btn = $("viewerReaderCommentsRetryButton");
+    const row = $("viewerReaderCommentsRetryRow");
+    if (!btn || btn.disabled || row?.classList.contains("hidden")) return;
+    refreshViewerReaderComments().catch(handleError);
   });
 
   $("viewerMaximizeButton")?.addEventListener("click", (event) => {
