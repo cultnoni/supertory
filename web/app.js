@@ -52996,12 +52996,20 @@ function setupUiThemeToggle() {
       if (toggleBtn) {
         event.preventDefault();
         event.stopPropagation();
-        toggleUiThemeRail();
+        if (isUiThemeRailOpen()) closeUiThemeRail();
+        toggleUiTheme();
         return;
       }
       if (isUiThemeRailOpen() && !event.target?.closest?.("#uiThemeRail, #binderThemeControl")) {
         closeUiThemeRail();
       }
+    }, true);
+    document.addEventListener("contextmenu", (event) => {
+      const toggleBtn = event.target?.closest?.("#uiThemeToggleButton");
+      if (!toggleBtn) return;
+      event.preventDefault();
+      event.stopPropagation();
+      toggleUiThemeRail();
     }, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && isUiThemeRailOpen()) {
