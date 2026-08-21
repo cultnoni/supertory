@@ -8749,6 +8749,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 context_after = plain_text_from_content(
                     str(body.get("context_after") or "")
                 )
+                direction_hint = str(
+                    body.get("expand_direction") or body.get("user_prompt") or ""
+                ).strip()
                 if not selected_text and not indexed_expand:
                     raise ValueError("펼칠 문장이나 문단을 먼저 드래그로 선택해 주세요.")
                 if indexed_expand:
@@ -8758,6 +8761,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         selected_text,
                         context_before,
                         context_after,
+                        direction_hint,
                     )
                 context_parts = [
                     active_project_context,
@@ -10047,20 +10051,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         selected_text: str,
         context_before: str = "",
         context_after: str = "",
+        direction_hint: str = "",
     ) -> str:
         """Expand selected manuscript description (descexpand). Task scope only."""
         selected = str(selected_text or "").strip()
         before = str(context_before or "").strip()
         after = str(context_after or "").strip()
+        direction = str(direction_hint or "").strip()
         before_block = f"[앞 문맥]\n{before}\n\n" if before else ""
         after_block = f"[뒤 문맥]\n{after}\n\n" if after else ""
+        direction_block = (
+            f"[작가 요청 방향]\n{direction}\n"
+            "이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n"
+            if direction else ""
+        )
         return (
             "[현재 작업]\n"
             "아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채\n"
             "더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수\n"
             "있는 본문만 씁니다.\n\n"
             f"[선택 원문]\n{selected}\n\n"
-            f"{before_block}{after_block}"
+            f"{before_block}{after_block}{direction_block}"
             "[판단 기준]\n"
             "1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
             "2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.\n"

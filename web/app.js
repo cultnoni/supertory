@@ -12736,6 +12736,7 @@ function updateContinuePanelVisibility() {
   const mode = $("aiMode")?.value || "";
   const panel = $("continuePanel");
   const rewritePanel = $("rewritePanel");
+  const descExpandPanel = $("descExpandPanel");
   const brainstormPanel = $("brainstormPanel");
   const worldDescPanel = $("worldDescPanel");
   const subsynopsisPanel = $("subsynopsisPanel");
@@ -12744,6 +12745,7 @@ function updateContinuePanelVisibility() {
   const prompt = $("aiPrompt");
   const showContinue = mode === "continue";
   const showRewrite = mode === "rewrite";
+  const showDescExpand = mode === "descexpand";
   const showBrainstorm = mode === "brainstorm";
   const showWorldDesc = mode === "worlddesc";
   const showSubsynopsis = mode === "subsynopsis";
@@ -12757,6 +12759,7 @@ function updateContinuePanelVisibility() {
   // Panels for popup modes stay visible inside the modal only when that mode is active.
   panel?.classList.toggle("hidden", !showContinue);
   rewritePanel?.classList.toggle("hidden", !showRewrite);
+  descExpandPanel?.classList.toggle("hidden", !showDescExpand);
   brainstormPanel?.classList.toggle("hidden", !showBrainstorm);
   worldDescPanel?.classList.toggle("hidden", !showWorldDesc);
   subsynopsisPanel?.classList.toggle("hidden", !showSubsynopsis);
@@ -12768,7 +12771,7 @@ function updateContinuePanelVisibility() {
   // Select-tab list view also hides the shared prompt (only inline form modes show it).
   const showSuccessPattern = mode === "successpattern";
   const showGlumpEr = mode === "glumpescape";
-  const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showBrainstorm || showWorldDesc
+  const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showDescExpand || showBrainstorm || showWorldDesc
     || showSubsynopsis || showSuccessPattern || showGlumpEr || toolPopup || isForeshadowToolMode(mode);
   promptWrap?.classList.toggle("hidden", hideSidePrompt);
   // Side submit is hidden for wizard/tool popup modes (run from modal) and select list.
@@ -13497,6 +13500,25 @@ async function submitAiAssist(event) {
       return;
     }
     await executeRewriteAssist(payload);
+    return;
+  }
+
+  if (mode === "descexpand") {
+    const payload = typeof getDescExpandAssistPayload === "function"
+      ? getDescExpandAssistPayload()
+      : getRewriteSelectionPayload();
+    if (!payload?.selectedText) {
+      toast(
+        (typeof getDescExpandSourceMode === "function" && getDescExpandSourceMode() === "direct")
+          ? i18n.t("app.펼칠_문장을_직접_입력해_주세요")
+          : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"),
+      );
+      if (typeof getDescExpandSourceMode === "function" && getDescExpandSourceMode() === "direct") {
+        $("descExpandDirectText")?.focus();
+      }
+      return;
+    }
+    await executeDescriptionExpandAssist(payload);
     return;
   }
 
@@ -14424,6 +14446,7 @@ function setupAiAssist() {
   setupContinueSourceUi();
   setupContinueStyleResultsUi();
   setupRewriteSourceUi();
+  setupDescExpandSourceUi();
   setupRewriteCompareModal();
   setupRewriteLengthWarnModal();
   setupDupcheckTargetModal();
@@ -20157,6 +20180,7 @@ function aiModeLabel(mode) {
   const map = {
     continue: i18n.t('app.이어서_쓰기'),
     rewrite: i18n.t('app.문장_다듬기'),
+    descexpand: i18n.t('app.묘사_확장'),
     summarize: i18n.t('app.회차_요약'),
     summarize_multi: i18n.t('app.회차_요약'),
     ideas: i18n.t('app.다음_아이디어_제안'),
@@ -20277,6 +20301,7 @@ const AI_TOOL_POPUP_MODES = new Set([
   "brainstorm",
   "continue",
   "rewrite",
+  "descexpand",
   "worlddesc",
   "subsynopsis",
   "summarize",
@@ -21479,6 +21504,13 @@ const AI_TOOL_MODAL_META = {
     showExtraPrompt: false,
     submitLabel: i18n.t('app.다듬기'),
   },
+  descexpand: {
+    title: i18n.t('app.묘사_확장'),
+    lead: "",
+    panelId: "descExpandPanel",
+    showExtraPrompt: false,
+    submitLabel: i18n.t('app.펼치기'),
+  },
   worlddesc: {
     title: i18n.t('app.세계관_묘사'),
     lead: i18n.t('app.묘사_대상을_적으면_이_작품_문체_설정에_맞'),
@@ -21554,7 +21586,7 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
   if ($("aiToolModalLead")) $("aiToolModalLead").textContent = meta.lead || "";
 
   // Show only the panel for this mode (foreshadow/plottwist share one panel).
-  ["foreshadowPanel", "continuePanel", "rewritePanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
+  ["foreshadowPanel", "continuePanel", "rewritePanel", "descExpandPanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
     const el = $(id);
     if (!el) return;
     const show = id === meta.panelId;
@@ -21572,6 +21604,10 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
   if (m === "rewrite") {
     if (typeof setupRewriteSourceUi === "function") setupRewriteSourceUi();
     if (typeof updateRewriteSourceUi === "function") updateRewriteSourceUi();
+  }
+  if (m === "descexpand") {
+    if (typeof setupDescExpandSourceUi === "function") setupDescExpandSourceUi();
+    if (typeof updateDescExpandSourceUi === "function") updateDescExpandSourceUi();
   }
   // Callout only (title/lead live on #aiToolModal). No duplicate bottom hint.
   if (m === "foreshadow" || m === "plottwist") {
@@ -31504,6 +31540,23 @@ function setupDesktopThemeMenu() {
     pendingBaitQuote = getSelectedManuscriptText(editor);
     const hasSelection = Boolean(pendingBaitQuote);
     const menu = $("desktopContextMenu");
+    const selectionCountWith = $("selectionCharCountWithSpace");
+    const selectionCountNo = $("selectionCharCountNoSpace");
+    if (selectionCountWith || selectionCountNo) {
+      const selectionStats = hasSelection
+        ? computeTextStats(pendingBaitQuote)
+        : { chars_with_space: 0, chars_no_space: 0 };
+      if (selectionCountWith) {
+        selectionCountWith.textContent = i18n.t("index.선택_글자수_값", {
+          count: formatStatNumber(selectionStats.chars_with_space),
+        });
+      }
+      if (selectionCountNo) {
+        selectionCountNo.textContent = i18n.t("index.선택_글자수_값", {
+          count: formatStatNumber(selectionStats.chars_no_space),
+        });
+      }
+    }
     const isSettingsDoc = Boolean(editor && (editor.id === "synopsisContent" || editor.id === "synopsisContentB"));
     // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
     menu?.classList.toggle("is-text-selection", hasSelection);
@@ -42820,10 +42873,14 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
       directionHint,
     );
   } else if (mode === "descexpand") {
+    const directionHint = String(
+      body.expand_direction || body.user_hint || body.user_prompt || ""
+    ).trim();
     taskInstruction = buildDescriptionExpandPrompt(
       plain,
       body.context_before || "",
       body.context_after || "",
+      directionHint,
     );
   } else if (mode === "worldscan") {
     taskInstruction = buildSettingBreakScanPrompt(plain);
@@ -43680,12 +43737,16 @@ ${contextAfter}...
 [결과]`;
 }
 
-function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "") {
+function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
   const selected = String(selectedText || "").trim();
   const before = String(contextBefore || "").trim();
   const after = String(contextAfter || "").trim();
   const beforeBlock = before ? `[앞 문맥]\n${before}\n\n` : "";
   const afterBlock = after ? `[뒤 문맥]\n${after}\n\n` : "";
+  const direction = String(directionHint || "").trim();
+  const directionBlock = direction
+    ? `[작가 요청 방향]\n${direction}\n이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n`
+    : "";
   return `[현재 작업]
 아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채
 더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수
@@ -43694,7 +43755,7 @@ function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextA
 [선택 원문]
 ${selected}
 
-${beforeBlock}${afterBlock}[판단 기준]
+${beforeBlock}${afterBlock}${directionBlock}[판단 기준]
 1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
 2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.
    모든 감각을 억지로 채우지 않는다.
@@ -44203,6 +44264,60 @@ function setupRewriteSourceUi() {
     }
   });
   updateRewriteSourceUi();
+}
+
+function getDescExpandDirectionHint() {
+  return String($("descExpandDirectionHint")?.value || "").trim().slice(0, 500);
+}
+
+function getDescExpandSourceMode() {
+  const checked = document.querySelector('input[name="descExpandSourceMode"]:checked');
+  const raw = String(checked?.value || "selection").trim().toLowerCase();
+  return raw === "direct" ? "direct" : "selection";
+}
+
+function updateDescExpandSourceUi() {
+  $("descExpandDirectWrap")?.classList.remove("hidden");
+  $("descExpandDirectHint")?.classList.remove("hidden");
+}
+
+function setupDescExpandSourceUi() {
+  const host = $("descExpandSourceOptions");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("change", (event) => {
+    if (!event.target?.matches?.('input[name="descExpandSourceMode"]')) return;
+    updateDescExpandSourceUi();
+    if (getDescExpandSourceMode() === "direct") {
+      requestAnimationFrame(() => {
+        try {
+          $("descExpandDirectText")?.focus({ preventScroll: true });
+        } catch (_) {
+          $("descExpandDirectText")?.focus();
+        }
+      });
+    }
+  });
+  updateDescExpandSourceUi();
+}
+
+function getDescExpandAssistPayload() {
+  const directionHint = getDescExpandDirectionHint();
+  if (getDescExpandSourceMode() === "direct") {
+    const text = String($("descExpandDirectText")?.value || "").trim();
+    if (!text) return null;
+    return {
+      selectedText: text,
+      contextBefore: "",
+      contextAfter: "",
+      range: null,
+      sourceMode: "direct",
+      directionHint,
+    };
+  }
+  const payload = getRewriteSelectionPayload();
+  if (!payload) return null;
+  return { ...payload, directionHint };
 }
 
 /** Selection + ±context for rewrite (dropdown and context-menu share this). */
@@ -44775,7 +44890,11 @@ async function runRewriteFromSelection() {
 async function executeDescriptionExpandAssist(payload) {
   const selectedText = String(payload?.selectedText || "").trim();
   if (!selectedText) {
-    toast(i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"));
+    toast(
+      payload?.sourceMode === "direct"
+        ? i18n.t("app.펼칠_문장을_직접_입력해_주세요")
+        : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"),
+    );
     return null;
   }
   const mayProceed = await checkRewriteLengthGate(selectedText);
@@ -44789,8 +44908,12 @@ async function executeDescriptionExpandAssist(payload) {
     return null;
   }
 
-  const contextBefore = String(payload?.contextBefore || "");
-  const contextAfter = String(payload?.contextAfter || "");
+  const isDirectWrite = String(payload?.sourceMode || "") === "direct";
+  const contextBefore = isDirectWrite ? "" : String(payload?.contextBefore || "");
+  const contextAfter = isDirectWrite ? "" : String(payload?.contextAfter || "");
+  const directionHint = String(
+    payload?.directionHint != null ? payload.directionHint : getDescExpandDirectionHint()
+  ).trim().slice(0, 500);
   const project = state.projects.find((item) => item.id === state.projectId);
   const mainGenre = state.mainGenre || project?.main_genre || "";
   const subGenre = state.subGenre || project?.sub_genre || "";
@@ -44798,7 +44921,8 @@ async function executeDescriptionExpandAssist(payload) {
   const body = {
     mode: "descexpand",
     prompt: "",
-    user_prompt: "",
+    user_prompt: directionHint,
+    expand_direction: directionHint,
     project_title: project?.title || "",
     purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
     main_genre: mainGenre,
@@ -44806,8 +44930,8 @@ async function executeDescriptionExpandAssist(payload) {
     main_genre_label: mainGenreLabel(mainGenre),
     sub_genre_label: subGenreLabel(mainGenre, subGenre),
     keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
-    scene_title: state.scene?.title || $("sceneTitle")?.value || "",
-    scene_synopsis: state.scene?.synopsis_md || $("sceneSynopsis")?.value || "",
+    scene_title: isDirectWrite ? "" : (state.scene?.title || $("sceneTitle")?.value || ""),
+    scene_synopsis: isDirectWrite ? "" : (state.scene?.synopsis_md || $("sceneSynopsis")?.value || ""),
     scene_content: selectedText,
     context_before: contextBefore,
     context_after: contextAfter,
@@ -44818,7 +44942,13 @@ async function executeDescriptionExpandAssist(payload) {
 
   rewriteAssistInFlight = true;
   setAiPanelOpen(true);
-  if ($("aiResult")) $("aiResult").value = i18n.t("app.선택_문장의_묘사를_펼치는_중");
+  if ($("aiMode")) $("aiMode").value = "descexpand";
+  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
+  if ($("aiResult")) {
+    $("aiResult").value = isDirectWrite
+      ? i18n.t("app.묘사를_펼치는_중")
+      : i18n.t("app.선택_문장의_묘사를_펼치는_중");
+  }
   ensureAiResultVisible();
 
   const aiButton = $("aiSubmitButton");
@@ -44826,6 +44956,12 @@ async function executeDescriptionExpandAssist(payload) {
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t("app.묘사를_펼치는_중");
+  }
+  const toolSubmit = $("aiToolModalSubmitButton");
+  const toolPrev = toolSubmit?.textContent;
+  if (toolSubmit) {
+    toolSubmit.disabled = true;
+    toolSubmit.textContent = i18n.t("app.묘사를_펼치는_중");
   }
 
   try {
@@ -44844,7 +44980,7 @@ async function executeDescriptionExpandAssist(payload) {
       referenceText: `${contextBefore}${selectedText}${contextAfter}`.trim() || selectedText,
       contextBefore,
       contextAfter,
-      sourceMode: "selection",
+      sourceMode: payload?.sourceMode || "selection",
       resultKind: displayParsed.kind,
       alternatives: displayParsed.alternatives || [],
       reason: "",
@@ -44860,7 +44996,7 @@ async function executeDescriptionExpandAssist(payload) {
     revealAiAssistResult({ openModal: false, mode: "descexpand" });
     openRewriteCompareModal(selectedText, expanded, {
       parsed: displayParsed,
-      sourceMode: "selection",
+      sourceMode: payload?.sourceMode || "selection",
       intent: "descexpand",
     });
     toast(expanded
@@ -44877,6 +45013,10 @@ async function executeDescriptionExpandAssist(payload) {
       aiButton.disabled = false;
       aiButton.textContent = prevLabel || i18n.t("app.토리에게_물어보기");
     }
+    if (toolSubmit) {
+      toolSubmit.disabled = false;
+      toolSubmit.textContent = toolPrev || i18n.t("app.펼치기");
+    }
   }
 }
 
@@ -44886,7 +45026,21 @@ async function runDescriptionExpandFromSelection() {
     toast(i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"));
     return null;
   }
-  return executeDescriptionExpandAssist(payload);
+  const selRadio = document.querySelector('input[name="descExpandSourceMode"][value="selection"]');
+  if (selRadio) selRadio.checked = true;
+  try { updateDescExpandSourceUi?.(); } catch (_) { /* ignore */ }
+  if ($("aiMode")) $("aiMode").value = "descexpand";
+  try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
+  openAiToolModal("descexpand", { force: true });
+  requestAnimationFrame(() => {
+    try {
+      $("descExpandDirectionHint")?.focus({ preventScroll: true });
+    } catch (_) {
+      $("descExpandDirectionHint")?.focus();
+    }
+  });
+  toast(i18n.t("app.확장_방향을_적은_뒤_펼치기_를_눌러_주세요"));
+  return null;
 }
 
 function setupRewriteCompareModal() {

@@ -106,7 +106,7 @@
           'html[data-ui-theme="eink"] .folder-title-box,html[data-ui-theme="eink"] .folder-title-box.is-level-0{',
           'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
           'html[data-theme="eink"] .folder-title-box:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
-          'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
+          'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #descExpandGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
           'html[data-theme="eink"] #aiToolModal .tory-helper-callout,html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,',
           'html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note{background:#fff!important;border:1px solid #000!important;color:#000!important;}',
           'html[data-theme="eink"] .chapter-twistie,html[data-ui-theme="eink"] .chapter-twistie{color:#000!important;background:transparent!important;}',
@@ -1639,7 +1639,7 @@
               <!-- AI 유사단어 찾기 결과 패널 -->
               <div id="similarWordPanel" class="similar-word-panel hidden" role="dialog" aria-label="유사단어 찾기" data-i18n-aria-label="index.유사단어_찾기" aria-modal="false">
                 <div class="similar-word-panel-head">
-                  <strong data-i18n="app.단어찾기">단어찾기</strong>
+                  <strong data-i18n="app.단어찾기">단어 찾기</strong>
                   <button type="button" class="format-btn" id="similarWordClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
                 </div>
                 <div class="similar-word-panel-query">
@@ -2577,6 +2577,7 @@
                     <optgroup label="토리와 함께 써요" data-i18n-label="index.토리와_함께_써요">
                       <option value="continue" data-i18n="app.이어서_쓰기">이어서 쓰기</option>
                       <option value="rewrite" data-i18n="app.문장_다듬기">문장 다듬기</option>
+                      <option value="descexpand" data-i18n="app.묘사_확장">묘사 확장</option>
                       <option value="worlddesc" data-i18n="app.세계관_묘사">세계관 묘사</option>
                       <option value="subsynopsis" data-i18n="app.투고_공모전용_시놉시스">투고·공모전용 시놉시스</option>
                     </optgroup>
@@ -3521,6 +3522,48 @@
             </label>
             <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectHint">
               입력하신 문장만 따로 점검해 드려요.
+            </p>
+          </div>
+
+          <div id="descExpandPanel" class="foreshadow-panel rewrite-panel hidden" aria-label="묘사 확장" data-i18n-aria-label="app.묘사_확장">
+            <p class="tory-helper-callout rewrite-guide-note" id="descExpandGuideNote" data-i18n="app.선택한_장면의_감각_공간_분위기를_같은_문체">
+              선택한 장면의 감각·공간·분위기를 같은 문체로 더 풍부하게 펼쳐 줘요.
+            </p>
+            <label class="foreshadow-field tory-helper-section-label" for="descExpandDirectionHint">
+              <span data-i18n="index.확장_방향">확장 방향</span>
+              <textarea
+                id="descExpandDirectionHint"
+                rows="2"
+                maxlength="500"
+                placeholder="예: 공간 분위기를 더 / 오감을 살려 / 인물의 내면으로" data-i18n-placeholder="index.예_공간_분위기를_더_오감을_살려_인물의_내"
+              ></textarea>
+            </label>
+            <p class="hint foreshadow-hint tory-helper-hint" id="descExpandDirectionHintHelp" data-i18n="index.어떤_쪽으로_펼칠지_적어_주세요_비워_두면">
+              어떤 쪽으로 펼칠지 적어 주세요. 비워 두면 기본 기준으로 판단해요.
+            </p>
+            <p class="tory-helper-section-label" data-i18n="index.펼칠_문장_입력_방식">펼칠 문장 입력 방식</p>
+            <fieldset class="continue-length-options rewrite-source-options tory-helper-options" id="descExpandSourceOptions">
+              <legend class="sr-only" data-i18n="index.문장_입력_방식">문장 입력 방식</legend>
+              <label class="continue-length-option">
+                <input type="radio" name="descExpandSourceMode" value="selection" checked>
+                <span data-i18n="index.본문에서_선택">본문에서 선택</span>
+              </label>
+              <label class="continue-length-option">
+                <input type="radio" name="descExpandSourceMode" value="direct">
+                <span data-i18n="index.직접_쓰기">직접 쓰기</span>
+              </label>
+            </fieldset>
+            <label class="foreshadow-field rewrite-direct-wrap tory-helper-section-label" id="descExpandDirectWrap" for="descExpandDirectText">
+              <span data-i18n="index.펼칠_문장">펼칠 문장</span>
+              <textarea
+                id="descExpandDirectText"
+                rows="5"
+                maxlength="8000"
+                placeholder="펼치고 싶은 장면·문장을 여기에 직접 입력하거나 붙여 넣으세요." data-i18n-placeholder="index.펼치고_싶은_장면_문장을_여기에_직접_입력하"
+              ></textarea>
+            </label>
+            <p class="hint foreshadow-hint tory-helper-hint" id="descExpandDirectHint" data-i18n="index.입력하신_문장만_따로_펼쳐_드려요">
+              입력하신 문장만 따로 펼쳐 드려요.
             </p>
           </div>
 
@@ -4873,6 +4916,24 @@
       <div class="context-menu-divider" data-ctx-selection-ok></div>
       <!-- 드래그 선택 후 우클릭: 사전·떡밥·각주만 (data-ctx-selection-ok) -->
       <div class="context-menu-label" data-ctx-selection-only data-i18n="index.선택_문장">선택 문장</div>
+      <div
+        class="context-selection-count"
+        id="selectionCharCount"
+        data-ctx-selection-only
+        role="status"
+        aria-live="polite"
+        data-i18n-aria-label="index.선택한_글자_수"
+        aria-label="선택한 글자 수"
+      >
+        <div class="context-selection-count-item">
+          <span data-i18n="index.공백_포함">공백 포함</span>
+          <strong id="selectionCharCountWithSpace">0자</strong>
+        </div>
+        <div class="context-selection-count-item">
+          <span data-i18n="index.공백_제외">공백 제외</span>
+          <strong id="selectionCharCountNoSpace">0자</strong>
+        </div>
+      </div>
       <div class="context-menu-label" data-ctx-full-only data-i18n="app.이_회차">이 회차</div>
       <button type="button" role="menuitem" data-context-action="bookmark" id="bookmarkSceneMenuItem" data-ctx-full-only>
         <strong id="bookmarkSceneMenuTitle" data-i18n="app.북마크하기">북마크하기</strong>
@@ -4888,8 +4949,8 @@
         사전 찾기
       </button>
       <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-only>
-        <strong data-i18n="app.단어찾기">단어찾기</strong>
-        <span data-i18n="index.단어_문장에서_비슷한_표현을_토리가_찾아_줘">단어·문장에서 비슷한 표현을 토리가 찾아 줘요</span>
+        <strong data-i18n="app.단어찾기">단어 찾기</strong>
+        <span data-i18n="index.단어_문장에서_비슷한_표현을_토리가_찾아_줘">단어·문장에서 비슷한 표현을 찾아요</span>
       </button>
       <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-only>
         토리에게 물어보기
@@ -4911,9 +4972,9 @@
         id="expandDescriptionMenuItem"
         data-ctx-selection-only
         title="선택한 장면의 감각·공간·분위기를 같은 문체로 더 풍부하게 펼쳐 줘요" data-i18n-title="app.선택한_장면의_감각_공간_분위기를_같은_문체"
+        data-i18n="app.묘사_확장"
       >
-        <strong data-i18n="app.묘사_확장">묘사 확장</strong>
-        <span data-i18n="index.선택한_장면의_묘사를_더_풍부하게_펼쳐_줘요">선택한 장면의 묘사를 더 풍부하게 펼쳐 줘요</span>
+        묘사 확장
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기

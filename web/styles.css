@@ -6716,20 +6716,24 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 .ai-tool-modal-card .rewrite-guide-note {
   font-size: 13.5px !important;
 }
-/* 문장 다듬기: 제목 직후 안내 박스를 살짝 내려 위·아래 간격 균형 */
+/* 문장 다듬기·묘사 확장: 제목 직후 안내 박스를 살짝 내려 위·아래 간격 균형 */
 #rewritePanel > #rewriteGuideNote,
-#rewritePanel > .rewrite-guide-note.tory-helper-callout {
+#rewritePanel > .rewrite-guide-note.tory-helper-callout,
+#descExpandPanel > #descExpandGuideNote,
+#descExpandPanel > .rewrite-guide-note.tory-helper-callout {
   margin-top: 12px !important;
   margin-bottom: 14px !important;
 }
-#rewritePanel #rewriteDirectionHint {
+#rewritePanel #rewriteDirectionHint,
+#descExpandPanel #descExpandDirectionHint {
   width: 100%;
   min-height: 52px;
   resize: vertical;
   font-weight: 400;
   line-height: 1.45;
 }
-#rewritePanel #rewriteDirectionHintHelp {
+#rewritePanel #rewriteDirectionHintHelp,
+#descExpandPanel #descExpandDirectionHintHelp {
   margin-top: 2px;
   margin-bottom: 8px;
 }
@@ -6738,7 +6742,8 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 }
 .rewrite-direct-wrap.hidden,
 #rewriteDirectHint.hidden,
-#rewriteSelectionHint.hidden {
+#rewriteSelectionHint.hidden,
+#descExpandDirectHint.hidden {
   display: none !important;
 }
 .rewrite-direct-wrap textarea {
@@ -20987,6 +20992,47 @@ body[data-ui-scheme="dark"] .proof-diff-card {
 #desktopContextMenu.is-text-selection > [data-ctx-selection-only] {
   display: block;
 }
+#desktopContextMenu.is-text-selection > .context-selection-count[data-ctx-selection-only] {
+  display: flex;
+}
+.context-selection-count {
+  display: flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0;
+  margin: 0 4px 4px;
+  padding: 4px 2px;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--selection) 70%, transparent);
+  pointer-events: none;
+  user-select: none;
+  white-space: nowrap;
+}
+.context-selection-count-item {
+  flex: 1 1 0;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding: 4px 8px;
+}
+.context-selection-count-item strong {
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1.2;
+  color: var(--ink);
+  font-variant-numeric: tabular-nums;
+}
+.context-selection-count-item span {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--muted);
+}
+.context-selection-count-item + .context-selection-count-item {
+  border-left: 1px solid var(--line);
+}
 .context-menu-label {
   padding: 6px 10px 4px;
   font-size: 11px;
@@ -25434,6 +25480,25 @@ html[data-theme="eink"] .context-menu-label,
 html[data-ui-theme="eink"] .context-menu-label {
   color: #000 !important;
 }
+html[data-theme="eink"] .context-selection-count,
+html[data-ui-theme="eink"] .context-selection-count {
+  background: #fff !important;
+  color: #000 !important;
+  border: 1px solid #000 !important;
+  box-shadow: none !important;
+}
+html[data-theme="eink"] .context-selection-count-item strong,
+html[data-ui-theme="eink"] .context-selection-count-item strong {
+  color: #000 !important;
+}
+html[data-theme="eink"] .context-selection-count-item span,
+html[data-ui-theme="eink"] .context-selection-count-item span {
+  color: #000 !important;
+}
+html[data-theme="eink"] .context-selection-count-item + .context-selection-count-item,
+html[data-ui-theme="eink"] .context-selection-count-item + .context-selection-count-item {
+  border-left-color: #000 !important;
+}
 html[data-theme="eink"] .context-menu-divider,
 html[data-ui-theme="eink"] .context-menu-divider {
   background: #000 !important;
@@ -25746,8 +25811,10 @@ html[data-theme="eink"] #aiToolModal .tory-helper-callout,
 html[data-theme="eink"] #aiToolModal .rewrite-guide-note,
 html[data-theme="eink"] #foreshadowPanelHint,
 html[data-theme="eink"] #rewriteGuideNote,
+html[data-theme="eink"] #descExpandGuideNote,
 html[data-theme="eink"] #subsynopsisPanelHint,
 html[data-theme="eink"] #rewritePanel > .rewrite-guide-note.tory-helper-callout,
+html[data-theme="eink"] #descExpandPanel > .rewrite-guide-note.tory-helper-callout,
 html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
 html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note,
 html[data-theme="eink"] .foreshadow-panel .tory-helper-callout,
@@ -25756,6 +25823,7 @@ html[data-theme="eink"] .subsynopsis-panel .tory-helper-callout,
 html[data-ui-theme="eink"] #aiToolModal .tory-helper-callout,
 html[data-ui-theme="eink"] #foreshadowPanelHint,
 html[data-ui-theme="eink"] #rewriteGuideNote,
+html[data-ui-theme="eink"] #descExpandGuideNote,
 html[data-ui-theme="eink"] #subsynopsisPanelHint,
 html[data-ui-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
 html[data-ui-theme="eink"] .ai-tool-modal-card .rewrite-guide-note {
