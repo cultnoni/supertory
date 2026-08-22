@@ -59,6 +59,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   cycleGitsiWindowMode: () => ipcRenderer.invoke("supertory:gitsi-window-cycle"),
   setGitsiWindowMode: (mode, opts) => ipcRenderer.invoke("supertory:gitsi-window-mode", mode, opts || {}),
   gitsiWindowReady: () => ipcRenderer.invoke("supertory:gitsi-window-ready"),
+  setGitsiShareBlur: (on) => ipcRenderer.invoke("supertory:gitsi-share-blur", Boolean(on)),
+  cleanupGitsiShareBlur: () => ipcRenderer.invoke("supertory:gitsi-share-blur-cleanup"),
   onGitsiJoin: (callback) => {
     if (typeof callback !== "function") return () => {};
     const handler = (_event, payload) => {

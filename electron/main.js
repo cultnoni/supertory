@@ -3,7 +3,7 @@
  * Starts the bundled PyInstaller backend (or local Python in dev), then loads the UI.
  * Packaged builds check for updates via electron-updater (GitHub Releases).
  */
-const { app, BrowserWindow, shell, ipcMain, dialog, Menu, session, desktopCapturer, screen, clipboard } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog, Menu, session, desktopCapturer, screen, clipboard, webFrameMain } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -38,6 +38,8 @@ let gitsiPickerWindow = null;
 let gitsiPickerResolve = null;
 /** Latest serialized sources shown in the Gitsi share picker. */
 let gitsiPickerSources = [];
+/** Session preload id for Jitsi getDisplayMedia blur wrap (frame context). */
+let gitsiBlurPreloadId = null;
 /** @type {import('child_process').ChildProcess | null} */
 let backendProcess = null;
 let isQuitting = false;
@@ -843,6 +845,15 @@ const GITSI_STRIP = { width: 360, height: 40 };
 const GITSI_MINI = { width: 320, height: 240 };
 const GITSI_MAX_PAD = 16;
 const GITSI_DEBUG_LOG = path.join(__dirname, "..", "data", "_gitsi_debug.log");
+let gitsiShareBlurInject = "";
+try {
+  gitsiShareBlurInject = fs.readFileSync(
+    path.join(__dirname, "gitsi-share-blur-inject.js"),
+    "utf8"
+  );
+} catch (error) {
+  console.warn("[supertory] gitsi share-blur inject missing:", error?.message || error);
+}
 
 function gitsiDebugLog(entry) {
   const line = JSON.stringify({ t: Date.now(), ...entry }) + "\n";
@@ -853,6 +864,75 @@ function gitsiDebugLog(entry) {
     /* ignore */
   }
   console.log("[gitsi:main]", entry.src || "main", entry.handler || entry.action || "", entry);
+}
+
+function visitGitsiFrames(fn, win) {
+  const target = win || gitsiWindow;
+  if (!target || target.isDestroyed()) return;
+  const visit = (frame) => {
+    if (!frame) return;
+    try {
+      if (typeof frame.isDestroyed === "function" && frame.isDestroyed()) return;
+    } catch (_) {
+      return;
+    }
+    try { fn(frame); } catch (_) { /* ignore */ }
+    let children = [];
+    try { children = frame.frames || []; } catch (_) { children = []; }
+    for (const child of children) visit(child);
+  };
+  try { visit(target.webContents.mainFrame); } catch (_) { /* ignore */ }
+}
+
+function injectGitsiShareBlur(frame) {
+  if (!gitsiShareBlurInject || !frame) return;
+  try {
+    if (typeof frame.isDestroyed === "function" && frame.isDestroyed()) return;
+  } catch (_) {
+    return;
+  }
+  frame.executeJavaScript(gitsiShareBlurInject).catch((error) => {
+    console.warn("[gitsi] share-blur inject failed:", error?.message || error);
+  });
+}
+
+function attachGitsiShareBlurInjection(win) {
+  if (!win || win.isDestroyed()) return;
+  const onFrameReady = (_event, isMainFrame, processId, routingId) => {
+    if (isMainFrame) return;
+    const frame = webFrameMain.fromId(processId, routingId);
+    if (frame) injectGitsiShareBlur(frame);
+  };
+  win.webContents.on("did-frame-finish-load", onFrameReady);
+  win.webContents.on("frame-created", (_event, details) => {
+    const frame = details && details.frame;
+    if (!frame) return;
+    const inject = () => injectGitsiShareBlur(frame);
+    try { frame.once("dom-ready", inject); } catch (_) { inject(); }
+  });
+  win.webContents.on("did-finish-load", () => {
+    visitGitsiFrames((frame) => {
+      if (frame === win.webContents.mainFrame) return;
+      injectGitsiShareBlur(frame);
+    });
+  });
+}
+
+function setGitsiShareBlur(enabled) {
+  const on = Boolean(enabled);
+  const script = "window.__gitsiShareBlur && window.__gitsiShareBlur.setEnabled(" + (on ? "true" : "false") + ")";
+  visitGitsiFrames((frame) => {
+    frame.executeJavaScript(script).catch(() => {});
+  });
+  return on;
+}
+
+function cleanupGitsiShareBlur(win) {
+  visitGitsiFrames((frame) => {
+    frame.executeJavaScript(
+      "window.__gitsiShareBlur && window.__gitsiShareBlur.cleanup && window.__gitsiShareBlur.cleanup()"
+    ).catch(() => {});
+  }, win);
 }
 
 function notifyGitsiStatus(payload) {
@@ -1032,6 +1112,7 @@ function cycleGitsiWindowMode() {
 
 function closeGitsiMeetingWindow() {
   const win = gitsiWindow;
+  cleanupGitsiShareBlur(win);
   gitsiWindow = null;
   gitsiJoinPayload = null;
   gitsiWindowMode = "mini";
@@ -1073,6 +1154,7 @@ function createGitsiMeetingWindow() {
     },
   });
   try { win.setAlwaysOnTop(true, "floating"); } catch (_) { /* ignore */ }
+  attachGitsiShareBlurInjection(win);
   gitsiWindow = win;
   gitsiWindowMode = "mini";
   gitsiCompactBounds = start;
@@ -1103,7 +1185,7 @@ function createGitsiMeetingWindow() {
       sourceId: String(sourceId || ""),
     });
   });
-  win.loadURL(`${APP_URL}gitsi-meet.html?v=1.4.6`).catch((error) => {
+  win.loadURL(`${APP_URL}gitsi-meet.html?v=1.4.8`).catch((error) => {
     console.warn("[supertory] gitsi window load failed:", error?.message || error);
     closeGitsiMeetingWindow();
   });
@@ -1193,6 +1275,17 @@ function setupGitsiMedia() {
       callback({});
     }
   });
+  if (!gitsiBlurPreloadId) {
+    try {
+      gitsiBlurPreloadId = ses.registerPreloadScript({
+        type: "frame",
+        id: "gitsi-share-blur",
+        filePath: path.join(__dirname, "gitsi-frame-preload.js"),
+      });
+    } catch (error) {
+      console.warn("[supertory] gitsi blur preload failed:", error?.message || error);
+    }
+  }
 }
 
 function setupIpc() {
@@ -1275,6 +1368,13 @@ function setupIpc() {
       ...(gitsiJoinPayload || {}),
       mode: gitsiWindowMode,
     };
+  });
+  ipcMain.handle("supertory:gitsi-share-blur", (_event, enabled) => {
+    return { ok: true, on: setGitsiShareBlur(enabled) };
+  });
+  ipcMain.handle("supertory:gitsi-share-blur-cleanup", () => {
+    cleanupGitsiShareBlur();
+    return true;
   });
   ipcMain.handle("supertory:gitsi-copy", (_event, text) => {
     const value = String(text || "");

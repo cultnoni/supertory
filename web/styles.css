@@ -26101,8 +26101,36 @@ html[lang="es"] .format-tool-label-wrap {
   width: 100%;
   box-sizing: border-box;
 }
+.gitsi-popover-actions {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
 .gitsi-popover-join {
-  width: 100%;
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+.gitsi-popover-default {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex: 0 0 auto;
+  margin: 0;
+  padding: 0 10px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+.gitsi-popover-default:hover {
+  border-color: var(--primary, #292524);
+  color: #d4a017;
 }
 .gitsi-popover .gitsi-recent {
   margin: 0;
@@ -26121,12 +26149,19 @@ html[lang="es"] .format-tool-label-wrap {
   font-size: 12px;
   color: var(--muted);
 }
+.gitsi-recent-row {
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
 .gitsi-recent-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  width: 100%;
+  flex: 1 1 auto;
+  min-width: 0;
+  width: auto;
   margin: 0;
   padding: 8px 10px;
   border: 1px solid var(--line);
@@ -26135,6 +26170,27 @@ html[lang="es"] .format-tool-label-wrap {
   color: inherit;
   text-align: left;
   cursor: pointer;
+}
+.gitsi-recent-star {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+}
+.gitsi-recent-star:hover,
+.gitsi-recent-star.is-on {
+  color: #d4a017;
+  border-color: color-mix(in srgb, #d4a017 55%, var(--line));
 }
 .gitsi-recent-item:hover {
   border-color: var(--primary, #292524);

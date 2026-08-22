@@ -154,6 +154,7 @@
         height: 100%;
         border: 0;
         display: block;
+        z-index: 1;
       }
       .gitsi-mini-controls {
         display: none;
@@ -180,6 +181,20 @@
       }
       .gitsi-ctrl.is-muted { color: #fda4af; }
       .gitsi-ctrl.is-on { color: #bbf7d0; }
+      .gitsi-icon-btn.gitsi-blur-btn {
+        display: none;
+        color: #d6d3d1;
+      }
+      html.gitsi-sharing .gitsi-icon-btn.gitsi-blur-btn {
+        display: inline-flex;
+      }
+      .gitsi-icon-btn.gitsi-blur-btn:hover {
+        background: rgba(255, 255, 255, 0.12);
+      }
+      .gitsi-icon-btn.gitsi-blur-btn.is-on {
+        color: #fbbf24;
+        background: rgba(251, 191, 36, 0.22);
+      }
       #gitsiStatus {
         position: absolute;
         inset: 0;
@@ -213,6 +228,12 @@
         <code class="gitsi-room-badge" id="gitsiRoomBadge"></code>
       </div>
       <div class="gitsi-title-actions" id="gitsiTitleActions">
+        <button type="button" class="gitsi-icon-btn gitsi-blur-btn" id="gitsiBlurBtn" hidden title="화면 블러" aria-label="화면 블러" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <circle cx="9" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <circle cx="15" cy="12" r="5.2" fill="none" stroke="currentColor" stroke-width="1.7" opacity="0.55"/>
+          </svg>
+        </button>
         <button type="button" class="gitsi-icon-btn" id="gitsiCopyBtn" title="코드 복사" aria-label="코드 복사">
           <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
             <rect x="8" y="8" width="11" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
@@ -279,6 +300,9 @@
             mic: "마이크",
             cam: "카메라",
             share: "화면 공유",
+            blur: "화면 블러",
+            blurOn: "블러 켜짐",
+            blurOff: "블러 꺼짐",
             move: "창 이동",
           },
           en: {
@@ -296,6 +320,9 @@
             mic: "Microphone",
             cam: "Camera",
             share: "Share screen",
+            blur: "Screen blur",
+            blurOn: "Blur on",
+            blurOff: "Blur off",
             move: "Move window",
           },
           es: {
@@ -313,6 +340,9 @@
             mic: "Micrófono",
             cam: "Cámara",
             share: "Compartir pantalla",
+            blur: "Desenfoque de pantalla",
+            blurOn: "Desenfoque activado",
+            blurOff: "Desenfoque desactivado",
             move: "Mover ventana",
           },
         };
@@ -330,6 +360,7 @@
         let audioMuted = true;
         let videoMuted = true;
         let sharing = false;
+        let blurOn = false;
         let scriptPromise = null;
         let joinGen = 0;
         let longPressTimer = null;
@@ -386,6 +417,7 @@
           document.getElementById("gitsiMicBtn").title = t.mic;
           document.getElementById("gitsiCamBtn").title = t.cam;
           document.getElementById("gitsiShareBtn").title = t.share;
+          syncBlurButtons();
           if (status && !status.classList.contains("hidden") && status.querySelector("p")) {
             status.querySelector("p").textContent = t.loading;
           }
@@ -421,6 +453,59 @@
           cam.classList.toggle("is-muted", videoMuted);
           cam.classList.toggle("is-on", !videoMuted);
           share.classList.toggle("is-on", sharing);
+          syncBlurButtons();
+        }
+
+        function blurLabel() {
+          if (!sharing) return t.blur;
+          return blurOn ? t.blurOn : t.blurOff;
+        }
+
+        function syncBlurButtons() {
+          const btn = document.getElementById("gitsiBlurBtn");
+          document.documentElement.classList.toggle("gitsi-sharing", sharing);
+          if (!btn) return;
+          btn.hidden = !sharing;
+          btn.classList.toggle("is-on", blurOn);
+          btn.setAttribute("aria-pressed", blurOn ? "true" : "false");
+          btn.title = blurLabel();
+          btn.setAttribute("aria-label", blurLabel());
+        }
+
+        function postBlurToMeet(type, on) {
+          const iframe = meetIframe();
+          if (!iframe || !iframe.contentWindow) return;
+          try {
+            iframe.contentWindow.postMessage({
+              channel: "gitsi-share-blur",
+              type: type,
+              on: Boolean(on),
+            }, "*");
+          } catch (_) { /* ignore */ }
+        }
+
+        async function applyShareBlur(next) {
+          blurOn = Boolean(next);
+          syncBlurButtons();
+          gitsiLog("blur-set", { on: blurOn, sharing: sharing });
+          try {
+            if (apiBridge && typeof apiBridge.setGitsiShareBlur === "function") {
+              await apiBridge.setGitsiShareBlur(blurOn);
+            }
+          } catch (_) { /* ignore */ }
+          postBlurToMeet("set", blurOn);
+        }
+
+        async function stopSharePipeline(reason) {
+          gitsiLog("blur-cleanup", { reason: reason || "", wasOn: blurOn });
+          blurOn = false;
+          try {
+            if (apiBridge && typeof apiBridge.cleanupGitsiShareBlur === "function") {
+              await apiBridge.cleanupGitsiShareBlur();
+            }
+          } catch (_) { /* ignore */ }
+          postBlurToMeet("cleanup", false);
+          syncBlurButtons();
         }
 
         function meetIframe() {
@@ -460,6 +545,7 @@
         }
 
         function disposeApi() {
+          if (sharing) stopSharePipeline("dispose");
           const api = gitsiApi;
           gitsiApi = null;
           if (api) {
@@ -491,6 +577,7 @@
           audioMuted = true;
           videoMuted = true;
           sharing = false;
+          blurOn = false;
           syncCtrl();
           if (status) {
             status.classList.remove("hidden");
@@ -542,7 +629,15 @@
             syncCtrl();
           });
           gitsiApi.addListener("screenSharingStatusChanged", function (payload) {
-            sharing = Boolean(payload && payload.on);
+            const next = Boolean(payload && payload.on);
+            const wasSharing = sharing;
+            sharing = next;
+            if (sharing && !wasSharing) {
+              blurOn = false;
+              applyShareBlur(false);
+            } else if (!sharing && wasSharing) {
+              stopSharePipeline("share-ended");
+            }
             syncCtrl();
           });
           gitsiApi.addListener("readyToClose", function () {
@@ -632,6 +727,13 @@
         document.getElementById("gitsiMicBtn").addEventListener("click", function () { exec("toggleAudio"); });
         document.getElementById("gitsiCamBtn").addEventListener("click", function () { exec("toggleVideo"); });
         document.getElementById("gitsiShareBtn").addEventListener("click", function () { exec("toggleShareScreen"); });
+        function onBlurToggle(event) {
+          event.preventDefault();
+          event.stopPropagation();
+          if (!sharing) return;
+          applyShareBlur(!blurOn);
+        }
+        document.getElementById("gitsiBlurBtn").addEventListener("click", onBlurToggle);
         document.getElementById("gitsiRestoreHit").addEventListener("click", function (event) {
           event.preventDefault();
           event.stopPropagation();

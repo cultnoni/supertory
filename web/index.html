@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.1">
+    <link rel="stylesheet" href="/styles.css?v=1.4.2">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1005,7 +1005,21 @@
                       data-i18n-aria-label="index.짓시_룸_코드"
                     >
                   </label>
-                  <button type="button" id="gitsiJoinButton" class="primary gitsi-popover-join" data-i18n="index.입장">입장</button>
+                  <div class="gitsi-popover-actions">
+                    <button type="button" id="gitsiJoinButton" class="primary gitsi-popover-join" data-i18n="index.입장">입장</button>
+                    <button
+                      type="button"
+                      id="gitsiSetDefaultButton"
+                      class="gitsi-popover-default"
+                      title="기본으로 설정"
+                      data-i18n-title="index.기본으로_설정"
+                      aria-label="기본으로 설정"
+                      data-i18n-aria-label="index.기본으로_설정"
+                    >
+                      <span aria-hidden="true">★</span>
+                      <span data-i18n="index.기본으로_설정">기본으로 설정</span>
+                    </button>
+                  </div>
                   <div class="gitsi-recent">
                     <div class="settings-field-title" data-i18n="index.최근_룸">최근 룸</div>
                     <div id="gitsiRecentList" class="gitsi-recent-list" aria-label="최근 짓시 룸" data-i18n-aria-label="index.최근_짓시_룸"></div>
@@ -6464,6 +6478,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.2"></script>
+    <script src="/app.js?v=1.4.3"></script>
   </body>
 </html>

@@ -494,6 +494,26 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "gitsi_rooms")
 
+    def test_gitsi_room_default_column(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "055_gitsi_rooms.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "056_gitsi_room_default.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(gitsi_rooms)").fetchall()
+        }
+        self.assertIn("is_default", cols)
+        self.db.execute(
+            "INSERT INTO gitsi_rooms(room_code, is_default) VALUES ('supertory-one', 1)"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO gitsi_rooms(room_code, is_default) VALUES ('supertory-two', 1)"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 56"
+        ).fetchone()[0]
+        self.assertEqual(version, "gitsi_room_default")
+
 
 if __name__ == "__main__":
     unittest.main()

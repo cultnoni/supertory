@@ -36547,6 +36547,11 @@ let gitsiSharing = false;
 let gitsiDrag = null;
 let gitsiNativeInCall = false;
 let gitsiNativeRoom = "";
+let gitsiDefaultRoomCode = "";
+let gitsiRoomsReady = false;
+let gitsiIconLongPressTimer = null;
+let gitsiIconLongPressFired = false;
+const GITSI_ICON_LONG_PRESS_MS = 500;
 
 function canUseGitsiWindow() {
   return typeof window.electronAPI?.openGitsiWindow === "function";
@@ -36692,6 +36697,14 @@ function renderGitsiRecent(rooms) {
   const host = $("gitsiRecentList");
   if (!host) return;
   const list = Array.isArray(rooms) ? rooms : [];
+  gitsiDefaultRoomCode = "";
+  for (const room of list) {
+    if (room && (room.is_default === 1 || room.is_default === true)) {
+      gitsiDefaultRoomCode = String(room.room_code || "").trim();
+      break;
+    }
+  }
+  gitsiRoomsReady = true;
   if (!list.length) {
     host.innerHTML = `<p class="hint gitsi-recent-empty">${i18n.t("index.아직_만든_룸이_없어요")}</p>`;
     return;
@@ -36702,7 +36715,15 @@ function renderGitsiRecent(rooms) {
       .replace(/&/g, "&amp;")
       .replace(/</g, "&lt;")
       .replace(/>/g, "&gt;");
-    return `<button type="button" class="gitsi-recent-item" data-gitsi-room="${code}"><code>${safe}</code></button>`;
+    const isDefault = Boolean(room?.is_default);
+    const starLabel = (isDefault ? i18n.t("index.기본_룸") : i18n.t("index.기본으로_설정"))
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
+    return `<div class="gitsi-recent-row">
+      <button type="button" class="gitsi-recent-item" data-gitsi-room="${code}"><code>${safe}</code></button>
+      <button type="button" class="gitsi-recent-star${isDefault ? " is-on" : ""}" data-gitsi-star="${code}" title="${starLabel}" aria-label="${starLabel}" aria-pressed="${isDefault ? "true" : "false"}">${isDefault ? "★" : "☆"}</button>
+    </div>`;
   }).join("");
 }
 
@@ -36714,6 +36735,60 @@ async function refreshGitsiRecent() {
     renderGitsiRecent([]);
     handleError?.(error);
   }
+}
+
+async function setGitsiDefaultRoom(roomCode, enabled) {
+  const payload = { is_default: Boolean(enabled) };
+  const code = String(roomCode || "").trim();
+  if (code) payload.room_code = code;
+  const room = await api("/api/gitsi/rooms/default", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  const next = String(room?.room_code || "").trim();
+  const input = $("gitsiRoomCodeInput");
+  if (input && next && enabled) input.value = next;
+  toast(enabled ? i18n.t("index.기본_룸으로_지정했어요") : i18n.t("index.기본_룸을_해제했어요"));
+  await refreshGitsiRecent();
+  return room;
+}
+
+async function ensureGitsiRoomsLoaded() {
+  if (gitsiRoomsReady) return;
+  await refreshGitsiRecent();
+}
+
+function clearGitsiIconLongPress() {
+  if (gitsiIconLongPressTimer) {
+    clearTimeout(gitsiIconLongPressTimer);
+    gitsiIconLongPressTimer = null;
+  }
+}
+
+function openGitsiPopoverForced() {
+  if (isGitsiPopoverOpen()) {
+    positionGitsiPopover();
+    return;
+  }
+  openGitsiPopover();
+}
+
+async function handleGitsiIconActivate() {
+  if (gitsiIconLongPressFired) return;
+  if (isGitsiInCall()) {
+    toggleGitsiPopover();
+    return;
+  }
+  if (isGitsiPopoverOpen()) {
+    closeGitsiPopover();
+    return;
+  }
+  await ensureGitsiRoomsLoaded();
+  if (gitsiDefaultRoomCode) {
+    void joinGitsiRoom(gitsiDefaultRoomCode);
+    return;
+  }
+  openGitsiPopover();
 }
 
 async function suggestGitsiRoomCode() {
@@ -37098,12 +37173,46 @@ function setupGitsi() {
   } catch (_) {
     /* ignore */
   }
+  void refreshGitsiRecent();
+  $("gitsiPopoverButton")?.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    gitsiIconLongPressFired = false;
+    clearGitsiIconLongPress();
+    gitsiIconLongPressTimer = setTimeout(() => {
+      gitsiIconLongPressFired = true;
+      openGitsiPopoverForced();
+    }, GITSI_ICON_LONG_PRESS_MS);
+  });
+  $("gitsiPopoverButton")?.addEventListener("pointerup", () => {
+    clearGitsiIconLongPress();
+  });
+  $("gitsiPopoverButton")?.addEventListener("pointerleave", () => {
+    clearGitsiIconLongPress();
+  });
+  $("gitsiPopoverButton")?.addEventListener("pointercancel", () => {
+    clearGitsiIconLongPress();
+  });
   $("gitsiPopoverButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
-    toggleGitsiPopover();
+    if (gitsiIconLongPressFired) {
+      event.preventDefault();
+      return;
+    }
+    void handleGitsiIconActivate();
+  });
+  $("gitsiPopoverButton")?.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearGitsiIconLongPress();
+    gitsiIconLongPressFired = true;
+    openGitsiPopoverForced();
   });
   $("gitsiJoinButton")?.addEventListener("click", () => {
     void joinGitsiRoom();
+  });
+  $("gitsiSetDefaultButton")?.addEventListener("click", () => {
+    const code = String($("gitsiRoomCodeInput")?.value || "").trim();
+    void setGitsiDefaultRoom(code, true).catch((error) => handleError?.(error));
   });
   $("gitsiLeaveButton")?.addEventListener("click", leaveGitsiMeeting);
   $("gitsiLeaveMiniButton")?.addEventListener("click", leaveGitsiMeeting);
@@ -37130,6 +37239,16 @@ function setupGitsi() {
     }
   });
   $("gitsiRecentList")?.addEventListener("click", (event) => {
+    const star = event.target.closest?.("[data-gitsi-star]");
+    if (star) {
+      event.preventDefault();
+      event.stopPropagation();
+      const code = String(star.getAttribute("data-gitsi-star") || "").trim();
+      if (!code) return;
+      const nextOn = star.getAttribute("aria-pressed") !== "true";
+      void setGitsiDefaultRoom(code, nextOn).catch((error) => handleError?.(error));
+      return;
+    }
     const button = event.target.closest?.("[data-gitsi-room]");
     if (!button) return;
     const code = String(button.getAttribute("data-gitsi-room") || "").trim();

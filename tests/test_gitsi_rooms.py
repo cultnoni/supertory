@@ -78,6 +78,55 @@ class GitsiRoomsApiTests(unittest.TestCase):
         self.assertEqual(status, 400)
         self.assertIn("error", result)
 
+    def test_default_room_is_exclusive_and_persists(self) -> None:
+        self.request("POST", "/api/gitsi/rooms", {"room_code": "supertory-alpha"})
+        self.request("POST", "/api/gitsi/rooms", {"room_code": "supertory-beta"})
+
+        status, first = self.request(
+            "POST",
+            "/api/gitsi/rooms/default",
+            {"room_code": "supertory-alpha"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(first["room_code"], "supertory-alpha")
+        self.assertEqual(int(first["is_default"]), 1)
+
+        status, second = self.request(
+            "POST",
+            "/api/gitsi/rooms/default",
+            {"room_code": "supertory-beta"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(second["room_code"], "supertory-beta")
+        self.assertEqual(int(second["is_default"]), 1)
+
+        status, listed = self.request("GET", "/api/gitsi/rooms")
+        self.assertEqual(status, 200)
+        by_code = {row["room_code"]: int(row["is_default"]) for row in listed["rooms"]}
+        self.assertEqual(by_code["supertory-beta"], 1)
+        self.assertEqual(by_code["supertory-alpha"], 0)
+        self.assertEqual(sum(by_code.values()), 1)
+
+        status, current = self.request("GET", "/api/gitsi/rooms/default")
+        self.assertEqual(status, 200)
+        self.assertEqual(current["room"]["room_code"], "supertory-beta")
+
+        app.initialise_database()
+        status, after = self.request("GET", "/api/gitsi/rooms/default")
+        self.assertEqual(status, 200)
+        self.assertEqual(after["room"]["room_code"], "supertory-beta")
+
+        status, cleared = self.request(
+            "POST",
+            "/api/gitsi/rooms/default",
+            {"room_code": "supertory-beta", "is_default": False},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(int(cleared["is_default"]), 0)
+        status, empty = self.request("GET", "/api/gitsi/rooms/default")
+        self.assertEqual(status, 200)
+        self.assertIsNone(empty["room"])
+
 
 if __name__ == "__main__":
     unittest.main()

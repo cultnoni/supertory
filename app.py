@@ -152,6 +152,7 @@ MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
 MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
 MIGRATION_054_PATH = ROOT / "db" / "054_scene_reader_comments.sql"
 MIGRATION_055_PATH = ROOT / "db" / "055_gitsi_rooms.sql"
+MIGRATION_056_PATH = ROOT / "db" / "056_gitsi_room_default.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -596,6 +597,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_054_PATH.read_text(encoding="utf-8"))
         if 55 not in applied:
             connection.executescript(MIGRATION_055_PATH.read_text(encoding="utf-8"))
+        if 56 not in applied:
+            connection.executescript(MIGRATION_056_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -892,8 +895,11 @@ def ensure_scene_reader_comments_started_column(connection: sqlite3.Connection) 
         pass
 
 
+GITSI_ROOM_FIELDS = "id, room_code, created_by, created_at, is_active, is_default"
+
+
 def ensure_gitsi_rooms_table(connection: sqlite3.Connection) -> None:
-    """Idempotent: gitsi_rooms (migration 055)."""
+    """Idempotent: gitsi_rooms (migration 055) + is_default (migration 056)."""
     try:
         connection.executescript(
             """
@@ -911,9 +917,28 @@ def ensure_gitsi_rooms_table(connection: sqlite3.Connection) -> None:
     except sqlite3.Error:
         return
     try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(gitsi_rooms)").fetchall()
+        }
+        if "is_default" not in cols:
+            connection.execute(
+                "ALTER TABLE gitsi_rooms ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0"
+            )
+        connection.execute(
+            "CREATE UNIQUE INDEX IF NOT EXISTS ux_gitsi_rooms_one_default "
+            "ON gitsi_rooms(is_default) WHERE is_default = 1"
+        )
+    except sqlite3.Error:
+        pass
+    try:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (55, 'gitsi_rooms')"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (56, 'gitsi_room_default')"
         )
     except sqlite3.Error:
         pass
@@ -939,6 +964,7 @@ def gitsi_room_public(row: sqlite3.Row | dict | None) -> dict | None:
     if not data:
         return None
     data["is_active"] = 1 if data.get("is_active") in (1, True, "1") else 0
+    data["is_default"] = 1 if data.get("is_default") in (1, True, "1") else 0
     return data
 
 
@@ -947,18 +973,27 @@ def list_gitsi_rooms(*, active_only: bool = True, limit: int = 40) -> list[dict]
     with database() as connection:
         if active_only:
             rows = connection.execute(
-                "SELECT id, room_code, created_by, created_at, is_active "
+                f"SELECT {GITSI_ROOM_FIELDS} "
                 "FROM gitsi_rooms WHERE is_active = 1 "
-                "ORDER BY datetime(created_at) DESC, id DESC LIMIT ?",
+                "ORDER BY is_default DESC, datetime(created_at) DESC, id DESC LIMIT ?",
                 (cap,),
             ).fetchall()
         else:
             rows = connection.execute(
-                "SELECT id, room_code, created_by, created_at, is_active "
-                "FROM gitsi_rooms ORDER BY datetime(created_at) DESC, id DESC LIMIT ?",
+                f"SELECT {GITSI_ROOM_FIELDS} "
+                "FROM gitsi_rooms ORDER BY is_default DESC, datetime(created_at) DESC, id DESC LIMIT ?",
                 (cap,),
             ).fetchall()
     return [gitsi_room_public(row) for row in rows]
+
+
+def get_default_gitsi_room() -> dict | None:
+    with database() as connection:
+        row = connection.execute(
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms "
+            "WHERE is_default = 1 AND is_active = 1 LIMIT 1"
+        ).fetchone()
+    return gitsi_room_public(row)
 
 
 def upsert_gitsi_room(room_code: str | None, created_by: str | None) -> dict:
@@ -981,8 +1016,7 @@ def upsert_gitsi_room(room_code: str | None, created_by: str | None) -> dict:
     creator = (created_by or "").strip() or None
     with database() as connection:
         existing = connection.execute(
-            "SELECT id, room_code, created_by, created_at, is_active "
-            "FROM gitsi_rooms WHERE room_code = ?",
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
             (code,),
         ).fetchone()
         if existing is not None:
@@ -991,25 +1025,58 @@ def upsert_gitsi_room(room_code: str | None, created_by: str | None) -> dict:
                 (existing["id"],),
             )
             row = connection.execute(
-                "SELECT id, room_code, created_by, created_at, is_active "
-                "FROM gitsi_rooms WHERE id = ?",
+                f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
                 (existing["id"],),
             ).fetchone()
             data = gitsi_room_public(row)
             data["created"] = False
             return data
         cursor = connection.execute(
-            "INSERT INTO gitsi_rooms(room_code, created_by, is_active) VALUES (?, ?, 1)",
+            "INSERT INTO gitsi_rooms(room_code, created_by, is_active, is_default) "
+            "VALUES (?, ?, 1, 0)",
             (code, creator),
         )
         row = connection.execute(
-            "SELECT id, room_code, created_by, created_at, is_active "
-            "FROM gitsi_rooms WHERE id = ?",
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
             (cursor.lastrowid,),
         ).fetchone()
     data = gitsi_room_public(row)
     data["created"] = True
     return data
+
+
+def set_gitsi_room_default(room_code: str | None, enabled: bool, created_by: str | None) -> dict:
+    """Mark one room as the default join target (clears any previous default)."""
+    if enabled:
+        data = upsert_gitsi_room(room_code, created_by)
+        with database() as connection:
+            connection.execute("UPDATE gitsi_rooms SET is_default = 0 WHERE is_default = 1")
+            connection.execute(
+                "UPDATE gitsi_rooms SET is_default = 1, is_active = 1 WHERE id = ?",
+                (data["id"],),
+            )
+            row = connection.execute(
+                f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE id = ?",
+                (data["id"],),
+            ).fetchone()
+        result = gitsi_room_public(row)
+        result["created"] = bool(data.get("created"))
+        return result
+    code = normalize_gitsi_room_code(room_code or "")
+    if not code:
+        raise ValueError("룸 코드를 입력해 주세요.")
+    with database() as connection:
+        connection.execute(
+            "UPDATE gitsi_rooms SET is_default = 0 WHERE room_code = ?",
+            (code,),
+        )
+        row = connection.execute(
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
+            (code,),
+        ).fetchone()
+    if row is None:
+        raise ValueError("그 룸을 찾지 못했어요.")
+    return gitsi_room_public(row)
 
 
 def gitsi_creator_label() -> str:
@@ -4793,6 +4860,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
+            if path == "/api/gitsi/rooms/default":
+                self.send_json({"room": get_default_gitsi_room()})
+                return
+
             if path == "/api/gitsi/rooms":
                 self.send_json({"rooms": list_gitsi_rooms()})
                 return
@@ -5183,6 +5254,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/auth/logout":
                 self.send_json(sign_out())
+                return
+
+            if path == "/api/gitsi/rooms/default":
+                body = body or {}
+                enabled = body.get("is_default")
+                if enabled is None:
+                    enabled = True
+                creator = str(body.get("created_by") or "").strip() or gitsi_creator_label()
+                result = set_gitsi_room_default(body.get("room_code"), bool(enabled), creator)
+                self.send_json(result)
                 return
 
             if path == "/api/gitsi/rooms":
