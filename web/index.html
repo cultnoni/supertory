@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.3.9">
+    <link rel="stylesheet" href="/styles.css?v=1.4.1">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -967,6 +967,50 @@
                   aria-label="배경음 트랙 선택" data-i18n-aria-label="index.배경음_트랙_선택"
                   hidden
                 ></div>
+              </div>
+              <div class="binder-theme-control binder-gitsi-control" id="binderGitsiControl">
+                <button
+                  id="gitsiPopoverButton"
+                  class="icon-btn header-theme-btn header-gitsi-btn feature-hide-exempt"
+                  type="button"
+                  title="짓시" data-i18n-title="app.짓시"
+                  aria-label="짓시" data-i18n-aria-label="app.짓시"
+                  aria-haspopup="dialog"
+                  aria-expanded="false"
+                  aria-controls="gitsiPopover"
+                >
+                  <svg class="gitsi-icon" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+                    <path fill="currentColor" d="M4.4 6.4h9.4A1.9 1.9 0 0 1 15.7 8.3v7.4a1.9 1.9 0 0 1-1.9 1.9H4.4A1.9 1.9 0 0 1 2.5 15.7V8.3A1.9 1.9 0 0 1 4.4 6.4z"/>
+                    <path fill="currentColor" d="M17.1 9.2 21.2 6.8a.7.7 0 0 1 1.05.6v9.2a.7.7 0 0 1-1.05.6l-4.1-2.4V9.2z"/>
+                  </svg>
+                </button>
+                <div
+                  id="gitsiPopover"
+                  class="gitsi-popover"
+                  role="dialog"
+                  aria-label="짓시" data-i18n-aria-label="app.짓시"
+                  hidden
+                >
+                  <label class="gitsi-field">
+                    <span data-i18n="index.룸_코드">룸 코드</span>
+                    <input
+                      id="gitsiRoomCodeInput"
+                      type="text"
+                      maxlength="64"
+                      spellcheck="false"
+                      autocomplete="off"
+                      placeholder="supertory-xxxx"
+                      data-i18n-placeholder="index.짓시_룸_코드_예시"
+                      aria-label="짓시 룸 코드"
+                      data-i18n-aria-label="index.짓시_룸_코드"
+                    >
+                  </label>
+                  <button type="button" id="gitsiJoinButton" class="primary gitsi-popover-join" data-i18n="index.입장">입장</button>
+                  <div class="gitsi-recent">
+                    <div class="settings-field-title" data-i18n="index.최근_룸">최근 룸</div>
+                    <div id="gitsiRecentList" class="gitsi-recent-list" aria-label="최근 짓시 룸" data-i18n-aria-label="index.최근_짓시_룸"></div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -6343,6 +6387,70 @@
       </div>
     </div>
 
+    <div id="gitsiFloat" class="gitsi-float hidden is-mini" aria-hidden="true">
+      <div class="gitsi-float-bar" id="gitsiFloatDrag">
+        <span class="gitsi-float-grip" aria-hidden="true"></span>
+        <span class="gitsi-float-title" data-i18n="app.짓시">짓시</span>
+        <code id="gitsiActiveRoomCode" class="gitsi-meeting-code"></code>
+        <button type="button" id="gitsiCopyCodeButton" class="gitsi-float-icon-btn" title="코드 복사" data-i18n-title="index.코드_복사" aria-label="코드 복사" data-i18n-aria-label="index.코드_복사">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <rect x="8" y="8" width="11" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.7" d="M6 16H5a1.6 1.6 0 0 1-1.6-1.6V5A1.6 1.6 0 0 1 5 3.4h9.4A1.6 1.6 0 0 1 16 5v1"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiExpandButton" class="gitsi-float-icon-btn gitsi-float-mini-only" title="확대" data-i18n-title="index.짓시_확대" aria-label="확대" data-i18n-aria-label="index.짓시_확대">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 4.5H4.5V8M16 4.5h3.5V8M8 19.5H4.5V16M16 19.5h3.5V16"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiShrinkButton" class="gitsi-float-icon-btn gitsi-float-expanded-only" title="축소" data-i18n-title="index.짓시_축소" aria-label="축소" data-i18n-aria-label="index.짓시_축소">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M9 4.5v4.5H4.5M15 4.5V9h4.5M9 19.5V15H4.5M15 19.5V15h4.5"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiLeaveButton" class="gitsi-float-icon-btn gitsi-float-leave gitsi-float-expanded-only" title="룸에서 나가기" data-i18n-title="index.룸에서_나가기" aria-label="룸에서 나가기" data-i18n-aria-label="index.룸에서_나가기">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M15 7.5 19.5 12 15 16.5M19.2 12H9M11 5H7.2A2.2 2.2 0 0 0 5 7.2v9.6A2.2 2.2 0 0 0 7.2 19H11"/>
+          </svg>
+        </button>
+      </div>
+      <div class="gitsi-float-stage">
+        <div
+          id="gitsiMeetHost"
+          class="gitsi-meet-frame"
+          title="짓시 화상 룸"
+          data-i18n-title="index.짓시_화상_룸"
+        ></div>
+        <button type="button" id="gitsiMiniHit" class="gitsi-mini-hit" tabindex="-1" aria-label="확대" data-i18n-aria-label="index.짓시_확대"></button>
+      </div>
+      <div class="gitsi-float-mini-controls">
+        <button type="button" id="gitsiMicButton" class="gitsi-float-ctrl is-muted" title="마이크" data-i18n-title="index.짓시_마이크" aria-label="마이크" data-i18n-aria-label="index.짓시_마이크" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <path fill="currentColor" d="M12 3.4a3.1 3.1 0 0 1 3.1 3.1v5.2a3.1 3.1 0 1 1-6.2 0V6.5A3.1 3.1 0 0 1 12 3.4z"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M6.6 11.4a5.4 5.4 0 0 0 10.8 0M12 16.8V20"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiCamButton" class="gitsi-float-ctrl is-muted" title="카메라" data-i18n-title="index.짓시_카메라" aria-label="카메라" data-i18n-aria-label="index.짓시_카메라" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <rect x="3.2" y="7" width="12.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <path fill="currentColor" d="M16.2 10.1 21 7.6v8.8l-4.8-2.5z"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiShareButton" class="gitsi-float-ctrl" title="화면 공유" data-i18n-title="index.짓시_화면공유" aria-label="화면 공유" data-i18n-aria-label="index.짓시_화면공유" aria-pressed="false">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <rect x="3.4" y="4.6" width="17.2" height="12.2" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8 20.2h8M12 16.8v3.4"/>
+            <path fill="currentColor" d="M12 7.4 15.4 11h-2.1v3.2h-2.6V11H8.6z"/>
+          </svg>
+        </button>
+        <button type="button" id="gitsiLeaveMiniButton" class="gitsi-float-ctrl gitsi-float-leave" title="룸에서 나가기" data-i18n-title="index.룸에서_나가기" aria-label="룸에서 나가기" data-i18n-aria-label="index.룸에서_나가기">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M15 7.5 19.5 12 15 16.5M19.2 12H9M11 5H7.2A2.2 2.2 0 0 0 5 7.2v9.6A2.2 2.2 0 0 0 7.2 19H11"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
     <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- Auto-update progress banner (Electron packaged builds) -->
@@ -6356,6 +6464,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.3.9"></script>
+    <script src="/app.js?v=1.4.2"></script>
   </body>
 </html>

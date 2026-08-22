@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>짓시 화면 공유</title>
+    <style>
+      :root {
+        --bg: #F8FAFC;
+        --ink: #0F172A;
+        --muted: #57534E;
+        --line: #D6D3D1;
+        --card: #fff;
+        --accent: #292524;
+      }
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--ink);
+        font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        box-sizing: border-box;
+      }
+      header {
+        padding: 14px 18px 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      h1 {
+        margin: 0 0 6px;
+        font-size: 16px;
+      }
+      .hint {
+        margin: 0;
+        font-size: 13px;
+        color: var(--muted);
+        line-height: 1.45;
+      }
+      .hint strong { color: var(--ink); }
+      #list {
+        flex: 1;
+        overflow: auto;
+        padding: 12px 16px 20px;
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+        gap: 12px;
+        align-content: start;
+      }
+      .group-title {
+        grid-column: 1 / -1;
+        margin: 8px 0 0;
+        font-size: 12px;
+        font-weight: 700;
+        color: var(--muted);
+      }
+      button.source {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin: 0;
+        padding: 8px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: var(--card);
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+      }
+      button.source:hover,
+      button.source:focus {
+        border-color: var(--accent);
+        outline: 2px solid color-mix(in srgb, var(--accent) 25%, transparent);
+      }
+      button.source img {
+        width: 100%;
+        height: 96px;
+        object-fit: cover;
+        border-radius: 6px;
+        background: #e7e5e4;
+      }
+      button.source span {
+        font-size: 12px;
+        line-height: 1.3;
+        display: -webkit-box;
+        -webkit-line-clamp: 2;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+      footer {
+        display: flex;
+        justify-content: flex-end;
+        gap: 8px;
+        padding: 10px 16px 14px;
+        border-top: 1px solid var(--line);
+      }
+      .ghost {
+        border: 1px solid var(--line);
+        background: #fff;
+        border-radius: 8px;
+        padding: 8px 14px;
+        cursor: pointer;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1 id="pickerTitle">공유할 창을 선택하세요</h1>
+      <p class="hint" id="pickerHint"><strong>전체 화면</strong>이 아니라 쓰고 있는 <strong>창</strong>을 고르면, 코워킹 상대에게 수퍼토리만 보여 줄 수 있어요.</p>
+    </header>
+    <div id="list"></div>
+    <footer>
+      <button type="button" class="ghost" id="pickerCancel">취소</button>
+    </footer>
+    <script>
+      (function () {
+        const api = window.electronAPI;
+        const list = document.getElementById("list");
+        const lang = (document.documentElement.lang || "ko");
+        const copy = {
+          ko: { windows: "창", screens: "화면 (전체)", empty: "공유할 창을 찾지 못했어요.", cancel: "취소", title: "공유할 창을 선택하세요", hint: "<strong>전체 화면</strong>이 아니라 쓰고 있는 <strong>창</strong>을 고르면, 코워킹 상대에게 수퍼토리만 보여 줄 수 있어요." },
+          en: { windows: "Windows", screens: "Entire screen", empty: "No windows were found to share.", cancel: "Cancel", title: "Choose a window to share", hint: "Pick a <strong>window</strong>, not the entire screen, so others see SuperTory instead of your whole desktop." },
+          es: { windows: "Ventanas", screens: "Pantalla completa", empty: "No se encontraron ventanas para compartir.", cancel: "Cancelar", title: "Elige una ventana para compartir", hint: "Elige una <strong>ventana</strong>, no la pantalla completa, para que vean SuperTory y no todo el escritorio." },
+        };
+        const t = copy[lang] || copy.ko;
+        document.getElementById("pickerTitle").textContent = t.title;
+        document.getElementById("pickerHint").innerHTML = t.hint;
+        document.getElementById("pickerCancel").textContent = t.cancel;
+
+        function render(sources) {
+          list.innerHTML = "";
+          const windows = (sources || []).filter((s) => !s.isScreen);
+          const screens = (sources || []).filter((s) => s.isScreen);
+          if (!windows.length && !screens.length) {
+            const p = document.createElement("p");
+            p.className = "hint";
+            p.textContent = t.empty;
+            list.appendChild(p);
+            return;
+          }
+          function addGroup(title, items) {
+            if (!items.length) return;
+            const h = document.createElement("div");
+            h.className = "group-title";
+            h.textContent = title;
+            list.appendChild(h);
+            items.forEach((source) => {
+              const btn = document.createElement("button");
+              btn.type = "button";
+              btn.className = "source";
+              btn.title = source.name;
+              const img = document.createElement("img");
+              img.alt = "";
+              img.src = source.thumbnail || source.appIcon || "";
+              const span = document.createElement("span");
+              span.textContent = source.name || source.id;
+              btn.appendChild(img);
+              btn.appendChild(span);
+              btn.addEventListener("click", () => api?.chooseGitsiShareSource?.(source.id));
+              list.appendChild(btn);
+            });
+          }
+          addGroup(t.windows, windows);
+          addGroup(t.screens, screens);
+        }
+
+        document.getElementById("pickerCancel").addEventListener("click", () => {
+          api?.cancelGitsiShareSource?.();
+        });
+        if (api && typeof api.onGitsiShareSources === "function") {
+          api.onGitsiShareSources(render);
+        }
+        Promise.resolve(api?.gitsiPickerReady?.())
+          .then((sources) => {
+            if (Array.isArray(sources) && sources.length) render(sources);
+          })
+          .catch(() => {});
+      })();
+    </script>
+  </body>
+</html>

@@ -3,7 +3,7 @@
  * Starts the bundled PyInstaller backend (or local Python in dev), then loads the UI.
  * Packaged builds check for updates via electron-updater (GitHub Releases).
  */
-const { app, BrowserWindow, shell, ipcMain, dialog, Menu, session } = require("electron");
+const { app, BrowserWindow, shell, ipcMain, dialog, Menu, session, desktopCapturer, screen, clipboard } = require("electron");
 const { autoUpdater } = require("electron-updater");
 const path = require("path");
 const fs = require("fs");
@@ -21,6 +21,23 @@ const SERVER_EXE_NAME = "supertory-server.exe";
 
 /** @type {import('electron').BrowserWindow | null} */
 let mainWindow = null;
+/** @type {import('electron').BrowserWindow | null} */
+let gitsiWindow = null;
+/** @type {"strip" | "mini" | "max"} */
+let gitsiWindowMode = "mini";
+/** Last compact (strip/mini) bounds so maximize can return. */
+let gitsiCompactBounds = null;
+/** Ignore leftover clicks after a mode change (cycle + titlebar restore). */
+let gitsiInputLockUntil = 0;
+const GITSI_INPUT_LOCK_MS = 800;
+/** Pending/current Gitsi join payload for the dedicated window. */
+let gitsiJoinPayload = null;
+/** @type {import('electron').BrowserWindow | null} */
+let gitsiPickerWindow = null;
+/** @type {((source: import('electron').DesktopCapturerSource | null) => void) | null} */
+let gitsiPickerResolve = null;
+/** Latest serialized sources shown in the Gitsi share picker. */
+let gitsiPickerSources = [];
 /** @type {import('child_process').ChildProcess | null} */
 let backendProcess = null;
 let isQuitting = false;
@@ -399,6 +416,31 @@ function createMainWindow() {
   });
 
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    try {
+      const host = new URL(url).hostname;
+      if (
+        host === "meet.jit.si"
+        || host.endsWith(".jit.si")
+        || host.endsWith(".8x8.vc")
+        || host.endsWith(".jitsi.net")
+      ) {
+        return {
+          action: "allow",
+          overrideBrowserWindowOptions: {
+            parent: mainWindow || undefined,
+            autoHideMenuBar: true,
+            webPreferences: {
+              preload: path.join(__dirname, "preload.js"),
+              contextIsolation: true,
+              nodeIntegration: false,
+              sandbox: false,
+            },
+          },
+        };
+      }
+    } catch (_) {
+      /* fall through */
+    }
     shell.openExternal(url);
     return { action: "deny" };
   });
@@ -418,6 +460,9 @@ function createMainWindow() {
 
   mainWindow.on("closed", () => {
     mainWindow = null;
+    if (gitsiWindow && !gitsiWindow.isDestroyed()) {
+      try { gitsiWindow.close(); } catch (_) { /* ignore */ }
+    }
   });
 
   // Packaged upgrades must not reuse Chromium's cached SPA from a previous install
@@ -701,6 +746,455 @@ function applyUpdateFeed() {
   }
 }
 
+function serializeGitsiSources(sources) {
+  return (sources || []).map((source) => ({
+    id: source.id,
+    name: source.name,
+    isScreen: String(source.id || "").startsWith("screen:"),
+    thumbnail: source.thumbnail && !source.thumbnail.isEmpty()
+      ? source.thumbnail.toDataURL()
+      : "",
+    appIcon: source.appIcon && !source.appIcon.isEmpty()
+      ? source.appIcon.toDataURL()
+      : "",
+  }));
+}
+
+function closeGitsiPicker(result) {
+  const resolve = gitsiPickerResolve;
+  gitsiPickerResolve = null;
+  gitsiPickerSources = [];
+  const win = gitsiPickerWindow;
+  gitsiPickerWindow = null;
+  if (win && !win.isDestroyed()) {
+    try {
+      win.close();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  if (typeof resolve === "function") {
+    resolve(result);
+  }
+}
+
+/**
+ * Show a window/screen picker so Gitsi screen share can choose a window
+ * (Windows has no Chromium system picker in Electron).
+ * @param {import('electron').DesktopCapturerSource[]} sources
+ * @returns {Promise<import('electron').DesktopCapturerSource | null>}
+ */
+function promptGitsiShareSource(sources) {
+  if (gitsiPickerResolve) {
+    closeGitsiPicker(null);
+  }
+  return new Promise((resolve) => {
+    gitsiPickerResolve = resolve;
+    gitsiPickerSources = sources || [];
+    const iconPath = path.join(projectRoot(), "assets", "icon.ico");
+    const parentWin = (gitsiWindow && !gitsiWindow.isDestroyed())
+      ? gitsiWindow
+      : (mainWindow && !mainWindow.isDestroyed() ? mainWindow : undefined);
+    const picker = new BrowserWindow({
+      width: 760,
+      height: 560,
+      minWidth: 520,
+      minHeight: 400,
+      parent: parentWin,
+      modal: Boolean(parentWin),
+      show: false,
+      alwaysOnTop: true,
+      autoHideMenuBar: true,
+      title: "짓시 화면 공유",
+      backgroundColor: "#F8FAFC",
+      icon: fs.existsSync(iconPath) ? iconPath : undefined,
+      webPreferences: {
+        preload: path.join(__dirname, "preload.js"),
+        contextIsolation: true,
+        nodeIntegration: false,
+        sandbox: false,
+      },
+    });
+    gitsiPickerWindow = picker;
+    picker.once("ready-to-show", () => picker.show());
+    picker.on("closed", () => {
+      if (gitsiPickerWindow === picker) {
+        closeGitsiPicker(null);
+      }
+    });
+    picker.webContents.on("did-finish-load", () => {
+      try {
+        picker.webContents.send(
+          "supertory:gitsi-share-sources",
+          serializeGitsiSources(gitsiPickerSources)
+        );
+      } catch (_) {
+        /* ignore */
+      }
+    });
+    picker.loadURL(`${APP_URL}gitsi-picker.html`).catch((error) => {
+      console.warn("[supertory] gitsi picker load failed:", error?.message || error);
+      closeGitsiPicker(null);
+    });
+  });
+}
+
+const GITSI_STRIP = { width: 360, height: 40 };
+const GITSI_MINI = { width: 320, height: 240 };
+const GITSI_MAX_PAD = 16;
+const GITSI_DEBUG_LOG = path.join(__dirname, "..", "data", "_gitsi_debug.log");
+
+function gitsiDebugLog(entry) {
+  const line = JSON.stringify({ t: Date.now(), ...entry }) + "\n";
+  try {
+    fs.mkdirSync(path.dirname(GITSI_DEBUG_LOG), { recursive: true });
+    fs.appendFileSync(GITSI_DEBUG_LOG, line);
+  } catch (_) {
+    /* ignore */
+  }
+  console.log("[gitsi:main]", entry.src || "main", entry.handler || entry.action || "", entry);
+}
+
+function notifyGitsiStatus(payload) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    try {
+      mainWindow.webContents.send("supertory:gitsi-status", payload);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+}
+
+function gitsiMaxBounds() {
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: area.x + GITSI_MAX_PAD,
+    y: area.y + GITSI_MAX_PAD,
+    width: Math.max(640, area.width - GITSI_MAX_PAD * 2),
+    height: Math.max(400, area.height - GITSI_MAX_PAD * 2),
+  };
+}
+
+function clampGitsiBounds(bounds, size) {
+  const area = screen.getPrimaryDisplay().workArea;
+  const width = size.width;
+  const height = size.height;
+  const x = Math.min(
+    Math.max(area.x, bounds.x),
+    area.x + Math.max(0, area.width - width)
+  );
+  const y = Math.min(
+    Math.max(area.y, bounds.y),
+    area.y + Math.max(0, area.height - height)
+  );
+  return { x, y, width, height };
+}
+
+function defaultGitsiMiniBounds() {
+  const area = screen.getPrimaryDisplay().workArea;
+  return {
+    x: area.x + area.width - GITSI_MINI.width - GITSI_MAX_PAD,
+    y: area.y + area.height - GITSI_MINI.height - GITSI_MAX_PAD,
+    width: GITSI_MINI.width,
+    height: GITSI_MINI.height,
+  };
+}
+
+function normalizeGitsiWindowMode(mode) {
+  const value = String(mode || "");
+  if (value === "strip" || value === "minimized") return "strip";
+  if (value === "max" || value === "maximized") return "max";
+  return "mini";
+}
+
+function nextGitsiWindowMode(current) {
+  switch (normalizeGitsiWindowMode(current)) {
+    case "strip":
+      return "mini";
+    case "mini":
+      return "max";
+    case "max":
+    default:
+      return "strip";
+  }
+}
+
+function applyGitsiWindowMode(mode, options = {}) {
+  const win = gitsiWindow;
+  if (!win || win.isDestroyed()) return gitsiWindowMode;
+  const next = normalizeGitsiWindowMode(mode);
+  const locked = Date.now() < gitsiInputLockUntil;
+  const force = Boolean(options.force);
+  console.log("[gitsi:main]", Date.now(), "apply", {
+    from: gitsiWindowMode,
+    to: next,
+    force,
+    locked,
+    remainMs: locked ? gitsiInputLockUntil - Date.now() : 0,
+  });
+  gitsiDebugLog({
+    src: "main",
+    handler: "apply",
+    from: gitsiWindowMode,
+    to: next,
+    force,
+    locked,
+  });
+  if (
+    next === "mini"
+    && gitsiWindowMode === "strip"
+    && Date.now() < gitsiInputLockUntil
+    && !force
+  ) {
+    console.log("[gitsi:main]", Date.now(), "apply-blocked-restore", { from: gitsiWindowMode, to: next });
+    gitsiDebugLog({ src: "main", handler: "apply-blocked-restore", from: gitsiWindowMode, to: next });
+    return gitsiWindowMode;
+  }
+  const animate = options.animate !== false;
+  if (gitsiWindowMode !== "max") {
+    try {
+      gitsiCompactBounds = win.getBounds();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  const prev = gitsiWindowMode;
+  gitsiWindowMode = next;
+  if (prev !== next && next === "strip") {
+    gitsiInputLockUntil = Date.now() + GITSI_INPUT_LOCK_MS;
+    console.log("[gitsi:main]", Date.now(), "mode-change", { from: prev, to: next, lockMs: GITSI_INPUT_LOCK_MS });
+    gitsiDebugLog({ src: "main", handler: "mode-change", from: prev, to: next, lockMs: GITSI_INPUT_LOCK_MS });
+  } else if (prev !== next) {
+    console.log("[gitsi:main]", Date.now(), "mode-change", { from: prev, to: next, lockMs: 0 });
+    gitsiDebugLog({ src: "main", handler: "mode-change", from: prev, to: next, lockMs: 0 });
+  }
+  try {
+    win.webContents.send("supertory:gitsi-mode", next);
+  } catch (_) {
+    /* ignore */
+  }
+  let bounds;
+  if (next === "max") {
+    bounds = gitsiMaxBounds();
+  } else {
+    const size = next === "strip" ? GITSI_STRIP : GITSI_MINI;
+    const origin = gitsiCompactBounds || win.getBounds();
+    bounds = clampGitsiBounds(origin, size);
+  }
+  try { win.setResizable(true); } catch (_) { /* ignore */ }
+  try { win.setMinimumSize(1, 1); } catch (_) { /* ignore */ }
+  try {
+    const area = screen.getPrimaryDisplay().workArea;
+    win.setMaximumSize(Math.max(area.width, 800), Math.max(area.height, 600));
+  } catch (_) {
+    /* ignore */
+  }
+  try {
+    win.setAlwaysOnTop(next !== "max", "floating");
+  } catch (_) {
+    try { win.setAlwaysOnTop(next !== "max"); } catch (_2) { /* ignore */ }
+  }
+  try {
+    win.setSize(bounds.width, bounds.height, animate);
+    win.setPosition(bounds.x, bounds.y);
+  } catch (_) {
+    try {
+      win.setBounds(bounds, animate);
+    } catch (_2) {
+      /* ignore */
+    }
+  }
+  try {
+    if (next === "max") {
+      win.setMinimumSize(320, 40);
+      win.setResizable(true);
+    } else {
+      win.setMinimumSize(bounds.width, bounds.height);
+      win.setMaximumSize(bounds.width, bounds.height);
+      win.setResizable(false);
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  if (next !== "max") gitsiCompactBounds = bounds;
+  return next;
+}
+
+function cycleGitsiWindowMode() {
+  const next = nextGitsiWindowMode(gitsiWindowMode);
+  console.log("[gitsi:main]", Date.now(), "cycle", {
+    from: gitsiWindowMode,
+    to: next,
+  });
+  gitsiDebugLog({ src: "main", handler: "cycle", from: gitsiWindowMode, to: next });
+  return applyGitsiWindowMode(next);
+}
+
+function closeGitsiMeetingWindow() {
+  const win = gitsiWindow;
+  gitsiWindow = null;
+  gitsiJoinPayload = null;
+  gitsiWindowMode = "mini";
+  gitsiCompactBounds = null;
+  notifyGitsiStatus({ inCall: false, room: "", closed: true });
+  if (win && !win.isDestroyed()) {
+    try { win.close(); } catch (_) { /* ignore */ }
+  }
+  return true;
+}
+
+function createGitsiMeetingWindow() {
+  const iconPath = path.join(projectRoot(), "assets", "icon.ico");
+  const start = defaultGitsiMiniBounds();
+  const win = new BrowserWindow({
+    ...start,
+    minWidth: GITSI_MINI.width,
+    minHeight: GITSI_STRIP.height,
+    useContentSize: true,
+    thickFrame: false,
+    show: false,
+    frame: false,
+    autoHideMenuBar: true,
+    fullscreenable: false,
+    maximizable: false,
+    minimizable: false,
+    resizable: false,
+    alwaysOnTop: true,
+    skipTaskbar: false,
+    backgroundColor: "#1c1917",
+    title: "짓시",
+    icon: fs.existsSync(iconPath) ? iconPath : undefined,
+    webPreferences: {
+      preload: path.join(__dirname, "preload.js"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: false,
+      backgroundThrottling: false,
+    },
+  });
+  try { win.setAlwaysOnTop(true, "floating"); } catch (_) { /* ignore */ }
+  gitsiWindow = win;
+  gitsiWindowMode = "mini";
+  gitsiCompactBounds = start;
+  win.once("ready-to-show", () => {
+    try { win.show(); } catch (_) { /* ignore */ }
+  });
+  win.on("closed", () => {
+    if (gitsiWindow === win) {
+      gitsiWindow = null;
+      gitsiJoinPayload = null;
+      gitsiWindowMode = "mini";
+      gitsiCompactBounds = null;
+      notifyGitsiStatus({ inCall: false, room: "", closed: true });
+    }
+  });
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("console-message", (_event, level, message, line, sourceId) => {
+    const text = String(message || "");
+    if (!text.includes("[gitsi]")) return;
+    gitsiDebugLog({
+      src: "renderer-console",
+      level,
+      message: text,
+      line,
+      sourceId: String(sourceId || ""),
+    });
+  });
+  win.loadURL(`${APP_URL}gitsi-meet.html?v=1.4.6`).catch((error) => {
+    console.warn("[supertory] gitsi window load failed:", error?.message || error);
+    closeGitsiMeetingWindow();
+  });
+  win.webContents.on("did-finish-load", () => {
+    try {
+      win.webContents.send("supertory:gitsi-mode", gitsiWindowMode);
+      if (gitsiJoinPayload) {
+        win.webContents.send("supertory:gitsi-join", {
+          ...gitsiJoinPayload,
+          mode: gitsiWindowMode,
+        });
+      }
+    } catch (_) {
+      /* ignore */
+    }
+  });
+  return win;
+}
+
+async function openGitsiMeetingWindow(payload) {
+  const room = String(payload?.room || "").trim();
+  if (!room) return { ok: false, error: "missing_room" };
+  gitsiJoinPayload = {
+    room,
+    name: String(payload?.name || "").trim(),
+    lang: String(payload?.lang || "ko").slice(0, 8),
+    mode: gitsiWindowMode || "mini",
+  };
+  if (!gitsiWindow || gitsiWindow.isDestroyed()) {
+    createGitsiMeetingWindow();
+  }
+  const win = gitsiWindow;
+  if (!win || win.isDestroyed()) return { ok: false, error: "window" };
+  if (win.isMinimized()) {
+    try { win.restore(); } catch (_) { /* ignore */ }
+  }
+  try { win.show(); win.focus(); } catch (_) { /* ignore */ }
+  if (gitsiWindowMode === "max") {
+    applyGitsiWindowMode("mini", { animate: false });
+  } else if (gitsiWindowMode !== "mini") {
+    applyGitsiWindowMode("mini");
+  }
+  gitsiJoinPayload.mode = gitsiWindowMode;
+  try {
+    win.webContents.send("supertory:gitsi-join", gitsiJoinPayload);
+  } catch (_) {
+    /* page may still be loading; gitsi-window-ready will pick it up */
+  }
+  notifyGitsiStatus({ inCall: true, room, closed: false });
+  return { ok: true, room, mode: gitsiWindowMode };
+}
+
+function setupGitsiMedia() {
+  const ses = session.defaultSession;
+  const allowPermission = (permission) => {
+    const name = String(permission || "");
+    return (
+      name === "media"
+      || name === "display-capture"
+      || name === "fullscreen"
+      || name === "clipboard-sanitized-write"
+      || name === "notifications"
+    );
+  };
+  ses.setPermissionRequestHandler((_webContents, permission, callback) => {
+    callback(allowPermission(permission));
+  });
+  ses.setPermissionCheckHandler((_webContents, permission) => allowPermission(permission));
+  ses.setDisplayMediaRequestHandler(async (request, callback) => {
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ["window", "screen"],
+        thumbnailSize: { width: 320, height: 180 },
+        fetchWindowIcons: true,
+      });
+      const chosen = await promptGitsiShareSource(sources);
+      if (!chosen) {
+        callback({});
+        return;
+      }
+      callback({
+        video: chosen,
+        audio: request.audioRequested ? "loopback" : undefined,
+      });
+    } catch (error) {
+      console.warn("[supertory] Gitsi display-capture failed:", error?.message || error);
+      callback({});
+    }
+  });
+}
+
 function setupIpc() {
   ipcMain.handle("supertory:minimize", () => {
     mainWindow?.minimize();
@@ -732,6 +1226,65 @@ function setupIpc() {
     });
     if (result.canceled || !result.filePaths?.length) return null;
     return result.filePaths[0];
+  });
+  ipcMain.handle("supertory:gitsi-picker-ready", () => {
+    return serializeGitsiSources(gitsiPickerSources);
+  });
+  ipcMain.handle("supertory:gitsi-picker-choose", (_event, sourceId) => {
+    const id = String(sourceId || "");
+    const chosen = gitsiPickerSources.find((source) => source.id === id) || null;
+    closeGitsiPicker(chosen);
+    return Boolean(chosen);
+  });
+  ipcMain.handle("supertory:gitsi-picker-cancel", () => {
+    closeGitsiPicker(null);
+    return true;
+  });
+  ipcMain.on("supertory:gitsi-debug", (_event, payload) => {
+    gitsiDebugLog({ src: "renderer-ipc", ...(payload || {}) });
+  });
+  ipcMain.handle("supertory:gitsi-window-open", (_event, payload) => {
+    return openGitsiMeetingWindow(payload || {});
+  });
+  ipcMain.handle("supertory:gitsi-window-close", () => {
+    closeGitsiMeetingWindow();
+    return true;
+  });
+  ipcMain.handle("supertory:gitsi-window-focus", () => {
+    if (!gitsiWindow || gitsiWindow.isDestroyed()) return false;
+    try {
+      if (gitsiWindow.isMinimized()) gitsiWindow.restore();
+      gitsiWindow.show();
+      gitsiWindow.focus();
+    } catch (_) {
+      /* ignore */
+    }
+    return true;
+  });
+  ipcMain.handle("supertory:gitsi-window-cycle", () => {
+    return { ok: true, mode: cycleGitsiWindowMode() };
+  });
+  ipcMain.handle("supertory:gitsi-window-mode", (_event, mode, options) => {
+    return {
+      ok: true,
+      mode: applyGitsiWindowMode(String(mode || "mini"), options && typeof options === "object" ? options : {}),
+    };
+  });
+  ipcMain.handle("supertory:gitsi-window-ready", () => {
+    return {
+      ...(gitsiJoinPayload || {}),
+      mode: gitsiWindowMode,
+    };
+  });
+  ipcMain.handle("supertory:gitsi-copy", (_event, text) => {
+    const value = String(text || "");
+    if (!value) return false;
+    try {
+      clipboard.writeText(value);
+      return true;
+    } catch (_) {
+      return false;
+    }
   });
   /** Manual re-check from UI (관리자 → 정보 등). */
   ipcMain.handle("supertory:check-for-updates", async () => {
@@ -773,10 +1326,95 @@ function setupIpc() {
   });
 }
 
+async function clickGitsiElement(win, elementId) {
+  const info = await win.webContents.executeJavaScript(`
+    (() => {
+      const el = document.getElementById(${JSON.stringify(elementId)});
+      if (!el) return { missing: true };
+      el.click();
+      return {
+        clicked: true,
+        id: el.id,
+        mode: document.documentElement.dataset.mode || "",
+      };
+    })()
+  `);
+  gitsiDebugLog({
+    src: "repro",
+    action: "dom-click",
+    elementId,
+    info,
+    mode: gitsiWindowMode,
+    bounds: win && !win.isDestroyed() ? win.getBounds() : null,
+  });
+  return info;
+}
+
+async function runGitsiReproSequence() {
+  const win = gitsiWindow;
+  const outPath = path.join(__dirname, "..", "data", "_gitsi_repro.json");
+  const snapshot = (label) => ({
+    label,
+    t: Date.now(),
+    mode: gitsiWindowMode,
+    bounds: win && !win.isDestroyed() ? win.getBounds() : null,
+  });
+  const result = { steps: [] };
+  try {
+    await new Promise((r) => setTimeout(r, 1500));
+    result.steps.push(snapshot("start"));
+    await clickGitsiElement(win, "gitsiCycleBtn");
+    await new Promise((r) => setTimeout(r, 400));
+    result.steps.push(snapshot("after-click-1"));
+    await clickGitsiElement(win, "gitsiCycleBtn");
+    const waitFrom = Date.now();
+    await new Promise((r) => setTimeout(r, 1100));
+    result.steps.push({
+      ...snapshot("after-click-2-wait-1100ms"),
+      waitedMs: Date.now() - waitFrom,
+    });
+    await clickGitsiElement(win, "gitsiRestoreHit");
+    await new Promise((r) => setTimeout(r, 400));
+    result.steps.push(snapshot("after-restore-click"));
+  } catch (error) {
+    result.error = String(error && error.stack || error);
+    gitsiDebugLog({ src: "repro", handler: "error", error: result.error });
+  }
+  result.passStayStrip = result.steps[2] && result.steps[2].mode === "strip";
+  result.passRestoreMini = result.steps[3] && result.steps[3].mode === "mini";
+  try {
+    fs.writeFileSync(outPath, JSON.stringify(result, null, 2));
+  } catch (_) {
+    /* ignore */
+  }
+  gitsiDebugLog({ src: "repro", handler: "done", result });
+  console.log("[gitsi:repro]", JSON.stringify(result, null, 2));
+  isQuitting = true;
+  closeGitsiMeetingWindow();
+  app.quit();
+}
+
 async function bootstrap() {
   setupIpc();
   // Remove default File / Edit / View / Window / Help menu bar.
   Menu.setApplicationMenu(null);
+
+  if (process.env.GITSI_REPRO === "1") {
+    try {
+      try { fs.unlinkSync(GITSI_DEBUG_LOG); } catch (_) { /* ignore */ }
+      gitsiDebugLog({ src: "repro", handler: "start", href: APP_URL });
+      await waitForPort(HOST, PORT, 8000);
+      setupGitsiMedia();
+      await openGitsiMeetingWindow({ room: "repro-room", name: "repro", lang: "ko" });
+      await runGitsiReproSequence();
+    } catch (error) {
+      console.error("[gitsi:repro] failed:", error);
+      gitsiDebugLog({ src: "repro", handler: "fatal", error: String(error && error.stack || error) });
+      isQuitting = true;
+      app.quit();
+    }
+    return;
+  }
 
   const gotLock = app.requestSingleInstanceLock();
   if (!gotLock) {
@@ -793,6 +1431,7 @@ async function bootstrap() {
   try {
     startBackendServer();
     await waitForPort(HOST, PORT);
+    setupGitsiMedia();
     await createMainWindow();
     setupAutoUpdater();
   } catch (error) {

@@ -1,0 +1,684 @@
+<!doctype html>
+<html lang="ko" data-mode="mini">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>짓시</title>
+    <script>
+      console.log("[gitsi] head-boot", location.href);
+    </script>
+    <style>
+      html, body {
+        margin: 0;
+        height: 100%;
+        background: #1c1917;
+        color: #f5f5f4;
+        font-family: "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+        overflow: hidden;
+        user-select: none;
+      }
+      body {
+        display: flex;
+        flex-direction: column;
+        min-height: 0;
+      }
+      .gitsi-titlebar {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 0 40px;
+        height: 40px;
+        padding: 0 8px 0 10px;
+        box-sizing: border-box;
+        background: #292524;
+        border-bottom: 1px solid #44403c;
+      }
+      .gitsi-drag {
+        -webkit-app-region: drag;
+        flex: 0 0 auto;
+        width: 18px;
+        height: 18px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        color: #a8a29e;
+        cursor: grab;
+      }
+      .gitsi-restore-hit {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        flex: 0 1 auto;
+        min-width: 0;
+        max-width: calc(100% - 8.5rem);
+        margin: 0;
+        padding: 0;
+        -webkit-app-region: no-drag;
+      }
+      .gitsi-brand {
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.02em;
+      }
+      .gitsi-room-badge {
+        font-size: 11px;
+        padding: 2px 7px;
+        border-radius: 999px;
+        background: #44403c;
+        color: #e7e5e4;
+        max-width: 11em;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .gitsi-title-actions {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 2px;
+        position: relative;
+        margin-left: auto;
+        padding-left: 8px;
+        border-left: 1px solid #57534e;
+        -webkit-app-region: no-drag;
+      }
+      html[data-mode="strip"] .gitsi-restore-hit { cursor: pointer; }
+      html.gitsi-restore-lock .gitsi-restore-hit {
+        pointer-events: none;
+      }
+      .gitsi-icon-btn,
+      .gitsi-ctrl {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 28px;
+        height: 28px;
+        margin: 0;
+        padding: 0;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: inherit;
+        cursor: pointer;
+      }
+      .gitsi-icon-btn:hover,
+      .gitsi-ctrl:hover {
+        background: rgba(255,255,255,0.1);
+      }
+      .gitsi-icon-btn.is-leave:hover {
+        background: rgba(239, 68, 68, 0.35);
+        color: #fecaca;
+      }
+      .gitsi-mode-menu {
+        position: absolute;
+        top: 32px;
+        right: 28px;
+        z-index: 8;
+        min-width: 8.5rem;
+        padding: 6px;
+        border-radius: 10px;
+        background: #292524;
+        border: 1px solid #57534e;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+      }
+      .gitsi-mode-menu[hidden] { display: none !important; }
+      .gitsi-mode-menu button {
+        display: block;
+        width: 100%;
+        margin: 0;
+        padding: 7px 10px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: inherit;
+        text-align: left;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .gitsi-mode-menu button:hover,
+      .gitsi-mode-menu button.is-active {
+        background: rgba(255,255,255,0.1);
+      }
+      .gitsi-stage {
+        position: relative;
+        flex: 1 1 0%;
+        min-height: 0;
+        min-width: 0;
+        background: #111;
+      }
+      #gitsiMeetHost,
+      #gitsiMeetHost iframe {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        border: 0;
+        display: block;
+      }
+      .gitsi-mini-controls {
+        display: none;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        flex: 0 0 36px;
+        height: 36px;
+        background: #1c1917;
+      }
+      html[data-mode="mini"] .gitsi-mini-controls { display: flex; }
+      html[data-mode="strip"] .gitsi-stage {
+        position: absolute;
+        left: -9999px;
+        top: 0;
+        width: 320px;
+        height: 200px;
+        flex: none;
+        opacity: 0;
+        pointer-events: none;
+      }
+      html[data-mode="strip"] .gitsi-mini-controls {
+        display: none !important;
+      }
+      .gitsi-ctrl.is-muted { color: #fda4af; }
+      .gitsi-ctrl.is-on { color: #bbf7d0; }
+      #gitsiStatus {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 16px;
+        text-align: center;
+        z-index: 2;
+        pointer-events: none;
+        font-size: 13px;
+        color: #d6d3d1;
+      }
+      #gitsiStatus.hidden { display: none; }
+    </style>
+  </head>
+  <body>
+    <header class="gitsi-titlebar" id="gitsiTitlebar">
+      <span class="gitsi-drag" id="gitsiDrag" title="창 이동" aria-label="창 이동">
+        <svg viewBox="0 0 18 18" width="14" height="14" aria-hidden="true" focusable="false">
+          <circle cx="6" cy="5" r="1.15" fill="currentColor"/>
+          <circle cx="12" cy="5" r="1.15" fill="currentColor"/>
+          <circle cx="6" cy="9" r="1.15" fill="currentColor"/>
+          <circle cx="12" cy="9" r="1.15" fill="currentColor"/>
+          <circle cx="6" cy="13" r="1.15" fill="currentColor"/>
+          <circle cx="12" cy="13" r="1.15" fill="currentColor"/>
+        </svg>
+      </span>
+      <div class="gitsi-restore-hit" id="gitsiRestoreHit">
+        <span class="gitsi-brand" id="gitsiBrand">짓시</span>
+        <code class="gitsi-room-badge" id="gitsiRoomBadge"></code>
+      </div>
+      <div class="gitsi-title-actions" id="gitsiTitleActions">
+        <button type="button" class="gitsi-icon-btn" id="gitsiCopyBtn" title="코드 복사" aria-label="코드 복사">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <rect x="8" y="8" width="11" height="13" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.7"/>
+            <path fill="none" stroke="currentColor" stroke-width="1.7" d="M6 16H5a1.6 1.6 0 0 1-1.6-1.6V5A1.6 1.6 0 0 1 5 3.4h9.4A1.6 1.6 0 0 1 16 5v1"/>
+          </svg>
+        </button>
+        <button type="button" class="gitsi-icon-btn" id="gitsiCycleBtn" title="창 크기" aria-label="창 크기">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M8 4.5H4.5V8M16 4.5h3.5V8M8 19.5H4.5V16M16 19.5h3.5V16"/>
+          </svg>
+        </button>
+        <div class="gitsi-mode-menu" id="gitsiModeMenu" hidden>
+          <button type="button" data-gitsi-mode="strip" id="gitsiModeStrip">최소화</button>
+          <button type="button" data-gitsi-mode="mini" id="gitsiModeMini">미니창</button>
+          <button type="button" data-gitsi-mode="max" id="gitsiModeMax">최대화</button>
+        </div>
+        <button type="button" class="gitsi-icon-btn is-leave" id="gitsiCloseBtn" title="나가기" aria-label="나가기">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" focusable="false">
+            <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/>
+          </svg>
+        </button>
+      </div>
+    </header>
+    <div class="gitsi-stage">
+      <div id="gitsiStatus"><p>짓시 룸에 연결하는 중…</p></div>
+      <div id="gitsiMeetHost"></div>
+    </div>
+    <div class="gitsi-mini-controls">
+      <button type="button" class="gitsi-ctrl is-muted" id="gitsiMicBtn" title="마이크" aria-label="마이크" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+          <path fill="currentColor" d="M12 3.4a3.1 3.1 0 0 1 3.1 3.1v5.2a3.1 3.1 0 1 1-6.2 0V6.5A3.1 3.1 0 0 1 12 3.4z"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M6.6 11.4a5.4 5.4 0 0 0 10.8 0M12 16.8V20"/>
+        </svg>
+      </button>
+      <button type="button" class="gitsi-ctrl is-muted" id="gitsiCamBtn" title="카메라" aria-label="카메라" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+          <rect x="3.2" y="7" width="12.2" height="10" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          <path fill="currentColor" d="M16.2 10.1 21 7.6v8.8l-4.8-2.5z"/>
+        </svg>
+      </button>
+      <button type="button" class="gitsi-ctrl" id="gitsiShareBtn" title="화면 공유" aria-label="화면 공유" aria-pressed="false">
+        <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true" focusable="false">
+          <rect x="3.4" y="4.6" width="17.2" height="12.2" rx="1.8" fill="none" stroke="currentColor" stroke-width="1.7"/>
+          <path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" d="M8 20.2h8M12 16.8v3.4"/>
+          <path fill="currentColor" d="M12 7.4 15.4 11h-2.1v3.2h-2.6V11H8.6z"/>
+        </svg>
+      </button>
+    </div>
+    <script>
+      (function () {
+        const COPY = {
+          ko: {
+            brand: "짓시",
+            loading: "짓시 룸에 연결하는 중…",
+            missing: "룸 코드가 없어요.",
+            scriptFail: "Jitsi를 불러오지 못했어요. 인터넷 연결을 확인한 뒤 다시 시도해 주세요.",
+            copy: "코드 복사",
+            copied: "코드를 복사했어요.",
+            size: "창 크기",
+            strip: "최소화",
+            mini: "미니창",
+            max: "최대화",
+            leave: "나가기",
+            mic: "마이크",
+            cam: "카메라",
+            share: "화면 공유",
+            move: "창 이동",
+          },
+          en: {
+            brand: "Gitsi",
+            loading: "Connecting to the Gitsi room…",
+            missing: "No room code.",
+            scriptFail: "Couldn't load Jitsi. Check your internet connection and try again.",
+            copy: "Copy code",
+            copied: "Room code copied.",
+            size: "Window size",
+            strip: "Minimized",
+            mini: "Mini",
+            max: "Maximized",
+            leave: "Leave",
+            mic: "Microphone",
+            cam: "Camera",
+            share: "Share screen",
+            move: "Move window",
+          },
+          es: {
+            brand: "Gitsi",
+            loading: "Conectando a la sala de Gitsi…",
+            missing: "No hay código de sala.",
+            scriptFail: "No se pudo cargar Jitsi. Comprueba la conexión a internet.",
+            copy: "Copiar código",
+            copied: "Código copiado.",
+            size: "Tamaño de ventana",
+            strip: "Minimizada",
+            mini: "Mini",
+            max: "Maximizada",
+            leave: "Salir",
+            mic: "Micrófono",
+            cam: "Cámara",
+            share: "Compartir pantalla",
+            move: "Mover ventana",
+          },
+        };
+
+        const host = document.getElementById("gitsiMeetHost");
+        const status = document.getElementById("gitsiStatus");
+        const badge = document.getElementById("gitsiRoomBadge");
+        const menu = document.getElementById("gitsiModeMenu");
+        const apiBridge = window.electronAPI || null;
+        let lang = "ko";
+        let t = COPY.ko;
+        let roomCode = "";
+        let displayName = "SuperTory";
+        let gitsiApi = null;
+        let audioMuted = true;
+        let videoMuted = true;
+        let sharing = false;
+        let scriptPromise = null;
+        let joinGen = 0;
+        let longPressTimer = null;
+        let longPressFired = false;
+        let localMode = "mini";
+        let restoreLockUntil = 0;
+        let restoreLockTimer = null;
+        const RESTORE_LOCK_MS = 800;
+
+        function gitsiLog(handler, extra) {
+          const payload = extra || {};
+          console.log("[gitsi]", Date.now(), "mode=" + localMode, handler, payload);
+          try {
+            if (apiBridge && typeof apiBridge.logGitsi === "function") {
+              apiBridge.logGitsi({ handler: handler, mode: localMode, extra: payload, href: location.href });
+            }
+          } catch (_) { /* ignore */ }
+        }
+
+        function isRestoreLocked(handler) {
+          const remain = restoreLockUntil - Date.now();
+          if (remain > 0) {
+            gitsiLog(handler + ":blocked", { remainMs: Math.round(remain) });
+            return true;
+          }
+          return false;
+        }
+
+        function armRestoreLock(reason) {
+          restoreLockUntil = Date.now() + RESTORE_LOCK_MS;
+          document.documentElement.classList.add("gitsi-restore-lock");
+          gitsiLog("restore-lock", { reason: reason, ms: RESTORE_LOCK_MS });
+          clearTimeout(restoreLockTimer);
+          restoreLockTimer = setTimeout(function () {
+            document.documentElement.classList.remove("gitsi-restore-lock");
+            gitsiLog("restore-unlock", {});
+          }, RESTORE_LOCK_MS);
+        }
+
+        function applyCopy() {
+          t = COPY[lang] || COPY.ko;
+          document.documentElement.lang = lang;
+          document.getElementById("gitsiBrand").textContent = t.brand;
+          document.getElementById("gitsiDrag").title = t.move;
+          document.getElementById("gitsiCopyBtn").title = t.copy;
+          document.getElementById("gitsiCopyBtn").setAttribute("aria-label", t.copy);
+          document.getElementById("gitsiCycleBtn").title = t.size;
+          document.getElementById("gitsiCycleBtn").setAttribute("aria-label", t.size);
+          document.getElementById("gitsiCloseBtn").title = t.leave;
+          document.getElementById("gitsiCloseBtn").setAttribute("aria-label", t.leave);
+          document.getElementById("gitsiModeStrip").textContent = t.strip;
+          document.getElementById("gitsiModeMini").textContent = t.mini;
+          document.getElementById("gitsiModeMax").textContent = t.max;
+          document.getElementById("gitsiMicBtn").title = t.mic;
+          document.getElementById("gitsiCamBtn").title = t.cam;
+          document.getElementById("gitsiShareBtn").title = t.share;
+          if (status && !status.classList.contains("hidden") && status.querySelector("p")) {
+            status.querySelector("p").textContent = t.loading;
+          }
+        }
+
+        function setModeClass(mode) {
+          const next = mode === "strip" || mode === "max" ? mode : "mini";
+          const prev = localMode;
+          gitsiLog("setModeClass", { prev: prev, incoming: mode, next: next });
+          if (prev !== next && next === "strip") armRestoreLock(prev + "->" + next);
+          localMode = next;
+          document.documentElement.dataset.mode = next;
+          menu.querySelectorAll("[data-gitsi-mode]").forEach((btn) => {
+            btn.classList.toggle("is-active", btn.getAttribute("data-gitsi-mode") === next);
+          });
+          requestAnimationFrame(syncFrameSize);
+        }
+
+        function hideMenu() {
+          menu.hidden = true;
+        }
+
+        function showMenu() {
+          menu.hidden = false;
+        }
+
+        function syncCtrl() {
+          const mic = document.getElementById("gitsiMicBtn");
+          const cam = document.getElementById("gitsiCamBtn");
+          const share = document.getElementById("gitsiShareBtn");
+          mic.classList.toggle("is-muted", audioMuted);
+          mic.classList.toggle("is-on", !audioMuted);
+          cam.classList.toggle("is-muted", videoMuted);
+          cam.classList.toggle("is-on", !videoMuted);
+          share.classList.toggle("is-on", sharing);
+        }
+
+        function meetIframe() {
+          try {
+            const fromApi = gitsiApi && gitsiApi.getIFrame && gitsiApi.getIFrame();
+            if (fromApi) return fromApi;
+          } catch (_) { /* ignore */ }
+          return host ? host.querySelector("iframe") : null;
+        }
+
+        function syncFrameSize() {
+          if (!host) return;
+          const rect = host.getBoundingClientRect();
+          const w = Math.max(1, Math.round(rect.width));
+          const h = Math.max(1, Math.round(rect.height));
+          const iframe = meetIframe();
+          if (!iframe || !iframe.style) return;
+          iframe.style.setProperty("width", w + "px", "important");
+          iframe.style.setProperty("height", h + "px", "important");
+        }
+
+        function loadScript() {
+          if (typeof window.JitsiMeetExternalAPI === "function") return Promise.resolve();
+          if (scriptPromise) return scriptPromise;
+          scriptPromise = new Promise(function (resolve, reject) {
+            const script = document.createElement("script");
+            script.src = "https://meet.jit.si/external_api.js";
+            script.async = true;
+            script.onload = function () {
+              if (typeof window.JitsiMeetExternalAPI === "function") resolve();
+              else reject(new Error(t.scriptFail));
+            };
+            script.onerror = function () { reject(new Error(t.scriptFail)); };
+            document.head.appendChild(script);
+          });
+          return scriptPromise;
+        }
+
+        function disposeApi() {
+          const api = gitsiApi;
+          gitsiApi = null;
+          if (api) {
+            try { api.dispose(); } catch (_) { /* ignore */ }
+          }
+          if (host) host.innerHTML = "";
+        }
+
+        async function joinMeeting(payload) {
+          const room = String((payload && payload.room) || "").trim();
+          lang = String((payload && payload.lang) || document.documentElement.lang || "ko").slice(0, 8);
+          displayName = String((payload && payload.name) || "").trim() || "SuperTory";
+          applyCopy();
+          if (!room) {
+            if (status) {
+              status.classList.remove("hidden");
+              status.querySelector("p").textContent = t.missing;
+            }
+            return;
+          }
+          if (gitsiApi && roomCode === room) {
+            badge.textContent = room;
+            return;
+          }
+          const gen = ++joinGen;
+          disposeApi();
+          roomCode = room;
+          badge.textContent = room;
+          audioMuted = true;
+          videoMuted = true;
+          sharing = false;
+          syncCtrl();
+          if (status) {
+            status.classList.remove("hidden");
+            status.querySelector("p").textContent = t.loading;
+          }
+          try {
+            await loadScript();
+          } catch (error) {
+            if (status) status.querySelector("p").textContent = t.scriptFail;
+            return;
+          }
+          if (gen !== joinGen) return;
+          gitsiApi = new window.JitsiMeetExternalAPI("meet.jit.si", {
+            roomName: room,
+            parentNode: host,
+            width: "100%",
+            height: "100%",
+            lang: lang,
+            userInfo: { displayName: displayName },
+            configOverwrite: {
+              startWithAudioMuted: true,
+              startWithVideoMuted: true,
+              disableShortcuts: true,
+              prejoinConfig: { enabled: false },
+              prejoinPageEnabled: false,
+              disableInviteFunctions: true,
+              toolbarButtons: [
+                "microphone", "camera", "desktop", "chat", "raisehand",
+                "participants-pane", "tileview", "settings", "hangup",
+              ],
+            },
+            interfaceConfigOverwrite: {
+              SHOW_CHROME_EXTENSION_BANNER: false,
+              DISABLE_JOIN_LEAVE_NOTIFICATIONS: true,
+              TOOLBAR_ALWAYS_VISIBLE: true,
+            },
+          });
+          gitsiApi.addListener("videoConferenceJoined", function () {
+            try { gitsiApi.executeCommand("displayName", displayName); } catch (_) { /* ignore */ }
+            if (status) status.classList.add("hidden");
+            syncFrameSize();
+          });
+          gitsiApi.addListener("audioMuteStatusChanged", function (payload) {
+            audioMuted = !payload || payload.muted !== false;
+            syncCtrl();
+          });
+          gitsiApi.addListener("videoMuteStatusChanged", function (payload) {
+            videoMuted = !payload || payload.muted !== false;
+            syncCtrl();
+          });
+          gitsiApi.addListener("screenSharingStatusChanged", function (payload) {
+            sharing = Boolean(payload && payload.on);
+            syncCtrl();
+          });
+          gitsiApi.addListener("readyToClose", function () {
+            leave();
+          });
+          requestAnimationFrame(syncFrameSize);
+        }
+
+        function leave() {
+          disposeApi();
+          if (apiBridge && typeof apiBridge.closeGitsiWindow === "function") {
+            apiBridge.closeGitsiWindow();
+          } else {
+            window.close();
+          }
+        }
+
+        function exec(command) {
+          try { if (gitsiApi) gitsiApi.executeCommand(command); } catch (_) { /* ignore */ }
+        }
+
+        gitsiLog("boot", {
+          href: location.href,
+          hasBridge: Boolean(apiBridge),
+          hasRestore: Boolean(document.getElementById("gitsiRestoreHit")),
+          hasCycle: Boolean(document.getElementById("gitsiCycleBtn")),
+          dataMode: document.documentElement.dataset.mode,
+        });
+        document.getElementById("gitsiCopyBtn").addEventListener("click", async function (event) {
+          event.stopPropagation();
+          if (!roomCode) return;
+          try {
+            if (apiBridge && typeof apiBridge.copyText === "function") {
+              await apiBridge.copyText(roomCode);
+            } else {
+              await navigator.clipboard.writeText(roomCode);
+            }
+          } catch (_) { /* ignore */ }
+        });
+        document.getElementById("gitsiCycleBtn").addEventListener("pointerdown", function (event) {
+          if (event.button !== 0) return;
+          event.stopPropagation();
+          longPressFired = false;
+          longPressTimer = setTimeout(function () {
+            longPressFired = true;
+            showMenu();
+          }, 480);
+        });
+        document.getElementById("gitsiCycleBtn").addEventListener("pointerup", function (event) {
+          event.stopPropagation();
+          clearTimeout(longPressTimer);
+        });
+        document.getElementById("gitsiCycleBtn").addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          gitsiLog("cycle-click", {
+            longPressFired: longPressFired,
+            target: event.target && (event.target.id || event.target.tagName),
+          });
+          if (longPressFired) return;
+          hideMenu();
+          if (apiBridge && apiBridge.cycleGitsiWindowMode) apiBridge.cycleGitsiWindowMode();
+        });
+        document.getElementById("gitsiCycleBtn").addEventListener("pointerleave", function () {
+          clearTimeout(longPressTimer);
+        });
+        document.getElementById("gitsiCycleBtn").addEventListener("contextmenu", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          showMenu();
+        });
+        menu.addEventListener("click", function (event) {
+          const btn = event.target.closest("[data-gitsi-mode]");
+          if (!btn) return;
+          event.stopPropagation();
+          hideMenu();
+          const next = btn.getAttribute("data-gitsi-mode");
+          gitsiLog("mode-menu", { next: next });
+          if (apiBridge && apiBridge.setGitsiWindowMode) {
+            apiBridge.setGitsiWindowMode(next, { force: true });
+          }
+        });
+        document.getElementById("gitsiCloseBtn").addEventListener("click", function (event) {
+          event.stopPropagation();
+          leave();
+        });
+        document.getElementById("gitsiMicBtn").addEventListener("click", function () { exec("toggleAudio"); });
+        document.getElementById("gitsiCamBtn").addEventListener("click", function () { exec("toggleVideo"); });
+        document.getElementById("gitsiShareBtn").addEventListener("click", function () { exec("toggleShareScreen"); });
+        document.getElementById("gitsiRestoreHit").addEventListener("click", function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          gitsiLog("titlebar-restore", {
+            target: event.target && (event.target.id || event.target.tagName),
+          });
+          if (isRestoreLocked("titlebar-restore")) return;
+          if (localMode !== "strip") {
+            gitsiLog("titlebar-restore:ignored-not-strip", {});
+            return;
+          }
+          gitsiLog("titlebar-restore:apply-mini", {});
+          if (apiBridge && apiBridge.setGitsiWindowMode) apiBridge.setGitsiWindowMode("mini");
+        });
+        document.addEventListener("click", function (event) {
+          if (!menu.hidden && !event.target.closest("#gitsiModeMenu, #gitsiCycleBtn")) hideMenu();
+        });
+
+        if (typeof ResizeObserver === "function") {
+          new ResizeObserver(syncFrameSize).observe(host);
+        }
+        window.addEventListener("resize", syncFrameSize);
+
+        if (apiBridge && typeof apiBridge.onGitsiJoin === "function") {
+          apiBridge.onGitsiJoin(joinMeeting);
+        }
+        if (apiBridge && typeof apiBridge.onGitsiMode === "function") {
+          apiBridge.onGitsiMode(setModeClass);
+        }
+        if (apiBridge && typeof apiBridge.gitsiWindowReady === "function") {
+          Promise.resolve(apiBridge.gitsiWindowReady()).then(function (payload) {
+            if (payload && payload.mode) setModeClass(payload.mode);
+            if (payload && payload.room) joinMeeting(payload);
+          }).catch(function () { /* ignore */ });
+        } else {
+          const params = new URLSearchParams(window.location.search);
+          const room = String(params.get("room") || "").trim();
+          if (room) {
+            joinMeeting({
+              room: room,
+              lang: params.get("lang") || "ko",
+              name: params.get("name") || "",
+            });
+          }
+        }
+        applyCopy();
+      })();
+    </script>
+  </body>
+</html>

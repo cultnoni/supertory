@@ -15,6 +15,7 @@ import html as html_lib
 import json
 import os
 import random
+import secrets
 import re
 import socket
 import sqlite3
@@ -150,6 +151,7 @@ MIGRATION_051_PATH = ROOT / "db" / "051_world_tori_analysis.sql"
 MIGRATION_052_PATH = ROOT / "db" / "052_reader_debate.sql"
 MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
 MIGRATION_054_PATH = ROOT / "db" / "054_scene_reader_comments.sql"
+MIGRATION_055_PATH = ROOT / "db" / "055_gitsi_rooms.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -592,6 +594,8 @@ def initialise_database() -> None:
             apply_migration_053(connection)
         if 54 not in applied:
             connection.executescript(MIGRATION_054_PATH.read_text(encoding="utf-8"))
+        if 55 not in applied:
+            connection.executescript(MIGRATION_055_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -600,6 +604,7 @@ def initialise_database() -> None:
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
         ensure_scene_reader_comments_table(connection)
+        ensure_gitsi_rooms_table(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -885,6 +890,138 @@ def ensure_scene_reader_comments_started_column(connection: sqlite3.Connection) 
         )
     except sqlite3.Error:
         pass
+
+
+def ensure_gitsi_rooms_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: gitsi_rooms (migration 055)."""
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS gitsi_rooms (
+                id INTEGER PRIMARY KEY,
+                room_code TEXT UNIQUE NOT NULL,
+                created_by TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                is_active BOOLEAN DEFAULT 1
+            );
+            CREATE INDEX IF NOT EXISTS ix_gitsi_rooms_active
+                ON gitsi_rooms(is_active, created_at, id);
+            """
+        )
+    except sqlite3.Error:
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (55, 'gitsi_rooms')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+GITSI_ROOM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,62}[A-Za-z0-9]$")
+GITSI_ROOM_CODE_ALPHABET = "abcdefghijkmnpqrstuvwxyz23456789"
+
+
+def generate_gitsi_room_code() -> str:
+    suffix = "".join(secrets.choice(GITSI_ROOM_CODE_ALPHABET) for _ in range(4))
+    return f"supertory-{suffix}"
+
+
+def normalize_gitsi_room_code(raw: str) -> str:
+    text = unicodedata.normalize("NFKC", str(raw or "")).strip()
+    text = re.sub(r"\s+", "-", text)
+    return text.strip("-._")
+
+
+def gitsi_room_public(row: sqlite3.Row | dict | None) -> dict | None:
+    data = as_dict(row) if row is not None and not isinstance(row, dict) else (dict(row) if row else None)
+    if not data:
+        return None
+    data["is_active"] = 1 if data.get("is_active") in (1, True, "1") else 0
+    return data
+
+
+def list_gitsi_rooms(*, active_only: bool = True, limit: int = 40) -> list[dict]:
+    cap = max(1, min(int(limit or 40), 100))
+    with database() as connection:
+        if active_only:
+            rows = connection.execute(
+                "SELECT id, room_code, created_by, created_at, is_active "
+                "FROM gitsi_rooms WHERE is_active = 1 "
+                "ORDER BY datetime(created_at) DESC, id DESC LIMIT ?",
+                (cap,),
+            ).fetchall()
+        else:
+            rows = connection.execute(
+                "SELECT id, room_code, created_by, created_at, is_active "
+                "FROM gitsi_rooms ORDER BY datetime(created_at) DESC, id DESC LIMIT ?",
+                (cap,),
+            ).fetchall()
+    return [gitsi_room_public(row) for row in rows]
+
+
+def upsert_gitsi_room(room_code: str | None, created_by: str | None) -> dict:
+    """Create a room if needed, or reactivate an existing code on join."""
+    code = normalize_gitsi_room_code(room_code or "")
+    if not code:
+        for _ in range(8):
+            candidate = generate_gitsi_room_code()
+            with database() as connection:
+                exists = connection.execute(
+                    "SELECT 1 FROM gitsi_rooms WHERE room_code = ?", (candidate,)
+                ).fetchone()
+            if exists is None:
+                code = candidate
+                break
+        else:
+            raise ValueError("룸 코드를 만들지 못했습니다. 잠시 후 다시 시도해 주세요.")
+    if len(code) < 3 or len(code) > 64 or not GITSI_ROOM_CODE_RE.fullmatch(code):
+        raise ValueError("룸 코드는 3~64자의 영문·숫자·하이픈만 사용할 수 있어요.")
+    creator = (created_by or "").strip() or None
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT id, room_code, created_by, created_at, is_active "
+            "FROM gitsi_rooms WHERE room_code = ?",
+            (code,),
+        ).fetchone()
+        if existing is not None:
+            connection.execute(
+                "UPDATE gitsi_rooms SET is_active = 1 WHERE id = ?",
+                (existing["id"],),
+            )
+            row = connection.execute(
+                "SELECT id, room_code, created_by, created_at, is_active "
+                "FROM gitsi_rooms WHERE id = ?",
+                (existing["id"],),
+            ).fetchone()
+            data = gitsi_room_public(row)
+            data["created"] = False
+            return data
+        cursor = connection.execute(
+            "INSERT INTO gitsi_rooms(room_code, created_by, is_active) VALUES (?, ?, 1)",
+            (code, creator),
+        )
+        row = connection.execute(
+            "SELECT id, room_code, created_by, created_at, is_active "
+            "FROM gitsi_rooms WHERE id = ?",
+            (cursor.lastrowid,),
+        ).fetchone()
+    data = gitsi_room_public(row)
+    data["created"] = True
+    return data
+
+
+def gitsi_creator_label() -> str:
+    user = get_current_user()
+    if user:
+        email = str(user.get("email") or "").strip()
+        if email:
+            return email[:120]
+        user_id = str(user.get("id") or "").strip()
+        if user_id:
+            return user_id[:120]
+    return "local"
 
 
 def ensure_idea_note_pin_column(connection: sqlite3.Connection) -> None:
@@ -4656,6 +4793,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(gemini_client.status())
                 return
 
+            if path == "/api/gitsi/rooms":
+                self.send_json({"rooms": list_gitsi_rooms()})
+                return
+
+            if path == "/api/gitsi/suggest-code":
+                self.send_json({"room_code": generate_gitsi_room_code()})
+                return
+
             if path == "/api/ambient-tracks":
                 self.send_json(list_ambient_sound_catalog())
                 return
@@ -5038,6 +5183,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/auth/logout":
                 self.send_json(sign_out())
+                return
+
+            if path == "/api/gitsi/rooms":
+                body = body or {}
+                creator = str(body.get("created_by") or "").strip() or gitsi_creator_label()
+                result = upsert_gitsi_room(body.get("room_code"), creator)
+                status = HTTPStatus.CREATED if result.get("created") else HTTPStatus.OK
+                self.send_json(result, status)
                 return
 
             if path in {"/api/index/rebuild", "/api/index-rebuild"}:

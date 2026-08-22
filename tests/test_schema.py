@@ -469,6 +469,31 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "scene_reader_comments")
 
+    def test_gitsi_rooms_table(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "055_gitsi_rooms.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("gitsi_rooms", tables)
+        self.db.execute(
+            "INSERT INTO gitsi_rooms(room_code, created_by) VALUES ('supertory-ab12', 'local')"
+        )
+        code = self.db.execute(
+            "SELECT room_code FROM gitsi_rooms WHERE room_code = 'supertory-ab12'"
+        ).fetchone()[0]
+        self.assertEqual(code, "supertory-ab12")
+        self.assert_integrity_error(
+            "INSERT INTO gitsi_rooms(room_code) VALUES ('supertory-ab12')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 55"
+        ).fetchone()[0]
+        self.assertEqual(version, "gitsi_rooms")
+
 
 if __name__ == "__main__":
     unittest.main()

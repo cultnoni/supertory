@@ -31,4 +31,56 @@ contextBridge.exposeInMainWorld("electronAPI", {
 
   /** Pick a folder for manuscript export. Returns path string or null if cancelled. */
   pickExportDirectory: () => ipcRenderer.invoke("supertory:pick-export-directory"),
+
+  /** Gitsi (Jitsi) screen-share picker — used only by gitsi-picker.html. */
+  gitsiPickerReady: () => ipcRenderer.invoke("supertory:gitsi-picker-ready"),
+  onGitsiShareSources: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, payload) => {
+      try {
+        callback(payload);
+      } catch (_) {
+        /* ignore renderer errors */
+      }
+    };
+    ipcRenderer.on("supertory:gitsi-share-sources", handler);
+    return () => {
+      ipcRenderer.removeListener("supertory:gitsi-share-sources", handler);
+    };
+  },
+  chooseGitsiShareSource: (sourceId) => ipcRenderer.invoke("supertory:gitsi-picker-choose", sourceId),
+  cancelGitsiShareSource: () => ipcRenderer.invoke("supertory:gitsi-picker-cancel"),
+
+  logGitsi: (payload) => ipcRenderer.send("supertory:gitsi-debug", payload),
+  copyText: (text) => ipcRenderer.invoke("supertory:gitsi-copy", text),
+  openGitsiWindow: (opts) => ipcRenderer.invoke("supertory:gitsi-window-open", opts || {}),
+  closeGitsiWindow: () => ipcRenderer.invoke("supertory:gitsi-window-close"),
+  focusGitsiWindow: () => ipcRenderer.invoke("supertory:gitsi-window-focus"),
+  cycleGitsiWindowMode: () => ipcRenderer.invoke("supertory:gitsi-window-cycle"),
+  setGitsiWindowMode: (mode, opts) => ipcRenderer.invoke("supertory:gitsi-window-mode", mode, opts || {}),
+  gitsiWindowReady: () => ipcRenderer.invoke("supertory:gitsi-window-ready"),
+  onGitsiJoin: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, payload) => {
+      try { callback(payload); } catch (_) { /* ignore */ }
+    };
+    ipcRenderer.on("supertory:gitsi-join", handler);
+    return () => ipcRenderer.removeListener("supertory:gitsi-join", handler);
+  },
+  onGitsiMode: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, mode) => {
+      try { callback(mode); } catch (_) { /* ignore */ }
+    };
+    ipcRenderer.on("supertory:gitsi-mode", handler);
+    return () => ipcRenderer.removeListener("supertory:gitsi-mode", handler);
+  },
+  onGitsiWindowStatus: (callback) => {
+    if (typeof callback !== "function") return () => {};
+    const handler = (_event, payload) => {
+      try { callback(payload); } catch (_) { /* ignore */ }
+    };
+    ipcRenderer.on("supertory:gitsi-status", handler);
+    return () => ipcRenderer.removeListener("supertory:gitsi-status", handler);
+  },
 });
