@@ -6072,16 +6072,17 @@ const GENRE_DETAIL_LABEL_KEYS = {
   urban: "app.현대판타지",
   hidden_world: "app.어반판타지",
   traditional: "app.정통판타지",
+  sports: "app.스포츠물",
 };
 const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
   "romance|modern": ["historical"],
   "romance|romfant": ["oriental_romfant"],
-  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "traditional"],
+  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "traditional", "sports"],
 };
 const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
   romance: ["historical"],
   romfant: ["oriental_romfant"],
-  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "traditional"],
+  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "traditional", "sports"],
 };
 
 function genreDetailLabel(key) {
