@@ -97,7 +97,7 @@ CLUSTER_HIDDEN_FEATURES: dict[str, frozenset[str]] = {
 GENRE_DETAIL_OPTIONS: dict[tuple[str, str], frozenset[str]] = {
     ("romance", "modern"): frozenset({"", "historical"}),
     ("romance", "romfant"): frozenset({"", "oriental_romfant"}),
-    ("fantasy", "male"): frozenset({"", "alt_history"}),
+    ("fantasy", "male"): frozenset({"", "alt_history", "murim"}),
     ("fantasy", "female"): frozenset({""}),
 }
 
@@ -106,6 +106,7 @@ GENRE_DETAIL_LABELS: dict[str, str] = {
     "historical": "사극",
     "oriental_romfant": "동양로판",
     "alt_history": "대체역사",
+    "murim": "무협",
 }
 
 

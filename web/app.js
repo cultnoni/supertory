@@ -6068,16 +6068,17 @@ const GENRE_DETAIL_LABEL_KEYS = {
   historical: "app.사극",
   oriental_romfant: "app.동양로판",
   alt_history: "app.대체역사",
+  murim: "app.무협",
 };
 const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
   "romance|modern": ["historical"],
   "romance|romfant": ["oriental_romfant"],
-  "fantasy|male": ["alt_history"],
+  "fantasy|male": ["alt_history", "murim"],
 };
 const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
   romance: ["historical"],
   romfant: ["oriental_romfant"],
-  male_fantasy: ["alt_history"],
+  male_fantasy: ["alt_history", "murim"],
 };
 
 function genreDetailLabel(key) {
