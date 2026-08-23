@@ -1746,13 +1746,20 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                 self.assertTrue(base, msg=f"{main}/{sub}")
                 self.assertEqual(fmt(main, sub, ""), base)
                 self.assertEqual(fmt(main, sub, None), base)
+                self.assertEqual(fmt(main, sub, "alt_history"), base)
                 if (main, sub) == ("romance", "modern"):
                     historical = fmt(main, sub, "historical")
                     self.assertNotEqual(historical, base)
                     self.assertIn("[세부장르 추가", historical)
+                    self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
+                elif (main, sub) == ("romance", "romfant"):
+                    oriental = fmt(main, sub, "oriental_romfant")
+                    self.assertNotEqual(oriental, base)
+                    self.assertIn("[세부장르 추가", oriental)
+                    self.assertEqual(fmt(main, sub, "historical"), base)
                 else:
                     self.assertEqual(fmt(main, sub, "historical"), base)
-                self.assertEqual(fmt(main, sub, "alt_history"), base)
+                    self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
                 self.assertNotIn("[세부장르 추가", base)
 
     def test_regression_dry_run_without_genre_detail_matches_existing_structure(self) -> None:
@@ -1776,15 +1783,15 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
             "POST",
             "/api/projects",
             {
-                "title": "동양로판 델타 없음",
+                "title": "대체역사 델타 없음",
                 "purpose": "web_novel",
-                "main_genre": "romance",
-                "sub_genre": "romfant",
-                "genre_detail": "oriental_romfant",
+                "main_genre": "fantasy",
+                "sub_genre": "male",
+                "genre_detail": "alt_history",
             },
         )
         self.assertEqual(status, 201, project)
-        self.assertEqual(project.get("genre_detail"), "oriental_romfant")
+        self.assertEqual(project.get("genre_detail"), "alt_history")
         cases = (
             ("worldscan", "[장르별 판단 기준]"),
             ("ideas", "[장르별 판단 기준]"),
@@ -1799,10 +1806,10 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     "dry_run": True,
                     "mode": mode,
                     "project_id": project["id"],
-                    "project_title": "동양로판 델타 없음",
+                    "project_title": "대체역사 델타 없음",
                     "purpose": "web_novel",
-                    "main_genre": "romance",
-                    "sub_genre": "romfant",
+                    "main_genre": "fantasy",
+                    "sub_genre": "male",
                     "scene_title": "1화",
                     "scene_content": "한 줄 원고",
                     **extra,
@@ -2199,6 +2206,266 @@ class GenrePlaybookHistoricalTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_speech_register_flagged(str(result.get("text") or ""))
+
+
+ORIENTAL_FOX_SCENE = (
+    "설화는 구미호 저주를 받은 지 일곱 해째였다. "
+    "보름달이 뜨면 여우 귀가 돋고, 그 대가로 다음날 내공이 반나절 막혔다. "
+    "규칙대로 오늘도 달이 차오르자 귀가 섰다. "
+    "그녀는 청운문 연무장에 나가지 않고 별원에 숨었다. "
+    "운혁은 초절정 고수였지만, 저주의 대가를 대신 져 주지는 않았다."
+)
+
+ORIENTAL_WESTERN_TITLE_SCENE = (
+    "운혁 대공은 청운문 장문인의 공자였다. "
+    "설화가 포권으로 예를 갖추자 그는 손을 내밀어 말했다. "
+    '"각하께서 이번 비무의 심판을 맡으셨소. 공작 전하의 명이오." '
+    "설화는 영애처럼 치마폭을 쥐었다."
+)
+
+ORIENTAL_CROSS_PHRASES = (
+    "내공/경지",
+    "강호체 어투",
+    "서양풍 호칭이 섞이지 않도록",
+    "문파 간 갈등이나 강호 정세",
+)
+
+
+class GenrePlaybookOrientalRomfantTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.original_data_dir = app.DATA_DIR
+        self.original_database_path = app.DATABASE_PATH
+        app.DATA_DIR = Path(self.temporary_directory.name) / "data"
+        app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
+        app._GENRE_PLAYBOOKS_CACHE = None
+        app.initialise_database()
+        self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+        app.DATA_DIR = self.original_data_dir
+        app.DATABASE_PATH = self.original_database_path
+        app._GENRE_PLAYBOOKS_CACHE = None
+        self.temporary_directory.cleanup()
+
+    def request(self, method: str, path: str, payload: dict | None = None) -> tuple[int, object]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=180)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        connection.request(method, path, body, {"Content-Type": "application/json"} if body else {})
+        response = connection.getresponse()
+        result = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        return response.status, result
+
+    def test_load_oriental_romfant_delta(self) -> None:
+        delta = app.load_genre_playbook_delta("romance", "romfant", "oriental_romfant")
+        self.assertIsInstance(delta, dict)
+        self.assertIn("무협적 형태소", delta["identity_addition"])
+        self.assertIn("서양풍 호칭·구조가 섞여 있으면", delta["group_rules_addition"]["A_judge"])
+        self.assertIn("문파 간 갈등이나 강호 정세", delta["group_rules_addition"]["B_suggest"])
+        self.assertIn("서양풍 호칭이 섞이지 않도록", delta["group_rules_addition"]["C_style"])
+        self.assertIsNone(app.load_genre_playbook_delta("romance", "romfant", ""))
+        self.assertIsNone(app.load_genre_playbook_delta("romance", "modern", "oriental_romfant"))
+
+    def test_oriental_builders_inject_delta_and_plain_romfant_does_not(self) -> None:
+        worldscan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고",
+            main_genre="romance",
+            sub_genre="romfant",
+            genre_detail="oriental_romfant",
+        )
+        self.assertIn("[장르별 판단 기준]", worldscan)
+        self.assertIn("[세부장르 추가 기준]", worldscan)
+        self.assertIn("내공/경지", worldscan)
+        self.assertIn("대량학살", worldscan)
+        self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
+        self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
+
+        ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고",
+            main_genre="romance",
+            sub_genre="romfant",
+            genre_detail="oriental_romfant",
+        )
+        self.assertIn("[세부장르 추가 기준]", ideas)
+        self.assertIn("문파 간 갈등이나 강호 정세", ideas)
+        self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
+
+        continue_p = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고",
+            "short",
+            "",
+            "",
+            main_genre="romance",
+            sub_genre="romfant",
+            genre_detail="oriental_romfant",
+        )
+        self.assertIn("[세부장르 추가 문체 기준]", continue_p)
+        self.assertIn("강호체 어투", continue_p)
+        self.assertIn("격식 있는 대사체", continue_p)
+        self.assertLess(continue_p.find("[세부장르 추가 문체 기준]"), continue_p.find("[원고]"))
+
+        plain_scan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고", main_genre="romance", sub_genre="romfant"
+        )
+        plain_ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고", main_genre="romance", sub_genre="romfant"
+        )
+        plain_continue = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고", "short", "", "", main_genre="romance", sub_genre="romfant"
+        )
+        for phrase in ORIENTAL_CROSS_PHRASES:
+            self.assertNotIn(phrase, plain_scan, msg=phrase)
+            self.assertNotIn(phrase, plain_ideas, msg=phrase)
+            self.assertNotIn(phrase, plain_continue, msg=phrase)
+        self.assertNotIn("[세부장르 추가 기준]", plain_scan)
+        self.assertNotIn("[세부장르 추가 기준]", plain_ideas)
+        self.assertNotIn("[세부장르 추가 문체 기준]", plain_continue)
+        self.assertIn("대량학살", plain_scan)
+        self.assertIn("여주의 주체적 선택", plain_ideas)
+        self.assertIn("격식 있는 대사체", plain_continue)
+
+    def test_oriental_dry_run_abc_api(self) -> None:
+        cases = (
+            {
+                "mode": "worldscan",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "내공/경지",
+                "needle": "[본문]",
+            },
+            {
+                "mode": "ideas",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "문파 간 갈등이나 강호 정세",
+                "needle": "[현재 회차 본문]",
+            },
+            {
+                "mode": "continue",
+                "heading": "[장르별 문체 기준]",
+                "extra": "[세부장르 추가 문체 기준]",
+                "must": "강호체 어투",
+                "needle": "[원고]",
+                "length_mode": "short",
+            },
+        )
+        for extra in cases:
+            heading = extra.pop("heading")
+            extra_heading = extra.pop("extra")
+            must = extra.pop("must")
+            needle = extra.pop("needle")
+            payload = {
+                "dry_run": True,
+                "project_title": "청운문의 소저",
+                "purpose": "web_novel",
+                "main_genre": "romance",
+                "sub_genre": "romfant",
+                "genre_detail": "oriental_romfant",
+                "scene_title": "1화",
+                "scene_content": ORIENTAL_FOX_SCENE,
+                **extra,
+            }
+            status, result = self.request("POST", "/api/ai/assist", payload)
+            self.assertEqual(status, 200, result)
+            full = str(result.get("full_prompt") or "")
+            self.assertIn(heading, full, msg=extra["mode"])
+            self.assertIn(extra_heading, full, msg=extra["mode"])
+            self.assertEqual(full.count(heading), 1, msg=extra["mode"])
+            self.assertEqual(full.count(extra_heading), 1, msg=extra["mode"])
+            self.assertIn(must, full, msg=extra["mode"])
+            self.assertLess(full.find(heading), full.find(extra_heading), msg=extra["mode"])
+            self.assertLess(full.find(extra_heading), full.find(needle), msg=extra["mode"])
+
+            plain = {
+                **payload,
+                "project_title": "악녀는 살아남기로 했다",
+                "genre_detail": "",
+            }
+            status, romfant = self.request("POST", "/api/ai/assist", plain)
+            self.assertEqual(status, 200, romfant)
+            romfant_full = str(romfant.get("full_prompt") or "")
+            self.assertNotIn(extra_heading, romfant_full, msg=extra["mode"])
+            self.assertNotIn(must, romfant_full, msg=extra["mode"])
+
+    def _oriental_live_body(self, scene_content: str, **extra) -> dict:
+        return {
+            "project_title": "청운문의 소저",
+            "purpose": "web_novel",
+            "main_genre": "romance",
+            "sub_genre": "romfant",
+            "genre_detail": "oriental_romfant",
+            "main_genre_label": "로맨스",
+            "sub_genre_label": "로판",
+            "genre_detail_label": "동양로판",
+            "scene_title": "1화",
+            "scene_content": scene_content,
+            "world_setting": (
+                "동양 무협풍 강호. 문파와 내공·경지가 실재한다. "
+                "구미호 저주는 보름달에 여우 귀가 돋고 다음날 내공이 반나절 막히는 규칙이다. "
+                "이 저주는 세계관 근간이며 장르 이탈이 아니다. "
+                "호칭은 소저·공자·대협을 쓰고, 공작·대공·각하 같은 서양 귀족 호칭은 없다."
+            ),
+            "character_profiles": {
+                "설화": "청운문 소저. 구미호 저주를 받은 여주. 회귀자다.",
+                "운혁": "초절정 고수. 설화와 정혼 관계에 가깝다.",
+            },
+            **extra,
+        }
+
+    def _assert_no_supernatural_existence_misread(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip())
+        self.assertNotRegex(
+            body,
+            r"(장르\s*이탈|로판이\s*아닌|수인(이|은)\s*(문제|오류)|구미호.{0,16}(안\s*됨|오류|이탈))",
+        )
+        lowered = body.replace(" ", "")
+        self.assertFalse(
+            any(
+                bad in lowered
+                for bad in (
+                    "초자연요소가문제",
+                    "요괴설정이오류",
+                    "수인은안됨",
+                    "저주가장르이탈",
+                    "구미호는안됨",
+                )
+            ),
+            msg=body,
+        )
+
+    def _assert_western_title_flagged(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip())
+        self.assertNotIn("어긋나는 지점이 발견되지 않았습니다", body)
+        hits = ("공작", "대공", "각하", "영애", "서양", "호칭")
+        self.assertTrue(any(hit in body for hit in hits), msg=body)
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_oriental_does_not_flag_fox_curse_existence(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._oriental_live_body(ORIENTAL_FOX_SCENE, mode="worldscan"),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_no_supernatural_existence_misread(str(result.get("text") or ""))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_oriental_flags_western_titles(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._oriental_live_body(ORIENTAL_WESTERN_TITLE_SCENE, mode="worldscan"),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_western_title_flagged(str(result.get("text") or ""))
 
 
 if __name__ == "__main__":
