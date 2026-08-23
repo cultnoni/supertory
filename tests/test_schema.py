@@ -606,6 +606,123 @@ class SuperTorySchemaTests(unittest.TestCase):
             "VALUES ('nature:시냇물', 2)"
         )
 
+    def test_translation_jobs_tables_are_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertTrue(
+            {
+                "translation_jobs",
+                "translation_scene_contexts",
+                "translation_proper_nouns",
+                "translation_segments",
+                "translation_chat_messages",
+                "translation_submission_package",
+            }.issubset(tables)
+        )
+        job_cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(translation_jobs)").fetchall()
+        }
+        self.assertEqual(
+            job_cols,
+            {
+                "id",
+                "local_project_id",
+                "target_language",
+                "cliffhanger_chapter",
+                "style_guide_json",
+                "culture_localization_level",
+                "status",
+                "created_at",
+                "updated_at",
+            },
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 61"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_jobs")
+        indexes = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'index' AND name LIKE 'ix_translation_%'"
+            ).fetchall()
+        }
+        self.assertEqual(
+            indexes,
+            {
+                "ix_translation_jobs_project",
+                "ix_translation_scene_contexts_job",
+                "ix_translation_proper_nouns_job",
+                "ix_translation_segments_job",
+                "ix_translation_segments_scene_context",
+                "ix_translation_chat_messages_job",
+                "ix_translation_chat_messages_segment",
+                "ix_translation_submission_package_job",
+            },
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_jobs(local_project_id, target_language) VALUES (999, 'en')"
+        )
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language, cliffhanger_chapter, "
+            "culture_localization_level) VALUES (1, 'en', 12, 'moderate')"
+        )
+        job_id = self.db.execute("SELECT id FROM translation_jobs").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_scene_contexts"
+            "(translation_job_id, chapter_number, scene_order, relationship_tag, mood_tag) "
+            "VALUES (?, 1, 0, '연인-다정', '장난스러움')",
+            (job_id,),
+        )
+        context_id = self.db.execute("SELECT id FROM translation_scene_contexts").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_proper_nouns"
+            "(translation_job_id, source_term, term_type, fit_judgment, user_decision, final_term) "
+            "VALUES (?, '한서진', 'character', 'fits', 'keep_romanized', 'Han Seojin')",
+            (job_id,),
+        )
+        self.db.execute(
+            "INSERT INTO translation_segments"
+            "(translation_job_id, scene_context_id, chapter_number, segment_order, source_text, "
+            "translated_text) VALUES (?, ?, 1, 0, '원문', 'Translated.')",
+            (job_id, context_id),
+        )
+        segment_id = self.db.execute("SELECT id FROM translation_segments").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_chat_messages"
+            "(translation_job_id, segment_id, dragged_text, role, message) "
+            "VALUES (?, ?, '원문', 'user', '이 문장 톤을 더 부드럽게')",
+            (job_id, segment_id),
+        )
+        self.db.execute(
+            "INSERT INTO translation_submission_package"
+            "(translation_job_id, synopsis_translated, sample_chapters_range) "
+            "VALUES (?, 'Synopsis', '1-4')",
+            (job_id,),
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_jobs(local_project_id, target_language, status) "
+            "VALUES (1, 'es', 'paused')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_chat_messages"
+            "(translation_job_id, role, message) VALUES (?, 'assistant', 'nope')",
+            (job_id,),
+        )
+        self.db.execute("DELETE FROM project WHERE id = 1")
+        leftover = self.db.execute("SELECT COUNT(*) FROM translation_jobs").fetchone()[0]
+        self.assertEqual(leftover, 0)
+        leftover_segments = self.db.execute(
+            "SELECT COUNT(*) FROM translation_segments"
+        ).fetchone()[0]
+        self.assertEqual(leftover_segments, 0)
+
 
 if __name__ == "__main__":
     unittest.main()
