@@ -1757,22 +1757,28 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     self.assertIn("[세부장르 추가", historical)
                     self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
                     self.assertEqual(fmt(main, sub, "alt_history"), base)
+                    self.assertEqual(fmt(main, sub, "murim"), base)
                 elif (main, sub) == ("romance", "romfant"):
                     oriental = fmt(main, sub, "oriental_romfant")
                     self.assertNotEqual(oriental, base)
                     self.assertIn("[세부장르 추가", oriental)
                     self.assertEqual(fmt(main, sub, "historical"), base)
                     self.assertEqual(fmt(main, sub, "alt_history"), base)
+                    self.assertEqual(fmt(main, sub, "murim"), base)
                 elif (main, sub) == ("fantasy", "male"):
                     alt = fmt(main, sub, "alt_history")
                     self.assertNotEqual(alt, base)
                     self.assertIn("[세부장르 추가", alt)
+                    murim = fmt(main, sub, "murim")
+                    self.assertNotEqual(murim, base)
+                    self.assertIn("[세부장르 추가", murim)
                     self.assertEqual(fmt(main, sub, "historical"), base)
                     self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
                 else:
                     self.assertEqual(fmt(main, sub, "historical"), base)
                     self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
                     self.assertEqual(fmt(main, sub, "alt_history"), base)
+                    self.assertEqual(fmt(main, sub, "murim"), base)
                 self.assertNotIn("[세부장르 추가", base)
 
     def test_regression_dry_run_without_genre_detail_matches_existing_structure(self) -> None:
@@ -2799,6 +2805,332 @@ class GenrePlaybookAltHistoryTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_no_knowledge_cheat_misread(str(result.get("text") or ""))
+
+
+MURIM_MODERN_SPEECH_SCENE = (
+    "청운검문 삼류무사 진운이 장로 앞에 무릎을 꿇었다. "
+    "\"고맙습니다, 도와주셔서. 진짜 살 것 같아요.\" "
+    "맞은편 사매가 검집을 만지며 속삭였다. "
+    "\"그 사람 되게 강하다. 우리 그냥 도망가자.\" "
+    "진운은 물병을 들이키고 고개를 끄덕였다. "
+    "\"알겠어. 다음에 보자.\""
+)
+
+MURIM_HYPOCRISY_SCENE = (
+    "화산파 장로 청송은 정파의 대의와 인의를 입에 올렸다. "
+    "그날 밤 그는 사파 포로 열두 명의 단전을 뽑고, 시체를 계곡에 버렸다. "
+    "문중 제자들에게는 '사파의 잔당을 정화했다'고만 알렸다. "
+    "진운은 그 광경을 보고도, 이건 실수가 아니라 화산파가 오래 써 온 방식임을 알고 있었다. "
+    "장문인은 이를 알고도 눈을 감았다. 명분은 인의요, 실리는 단전이었다."
+)
+
+MURIM_CROSS_PHRASES = (
+    "정파의 이중잣대가 의도적 설정인지",
+    "다음 경지 돌파나 은원 해소",
+    "뼈에 새기겠소",
+    "강호체 어투와 관용구",
+)
+
+
+class GenrePlaybookMurimTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.original_data_dir = app.DATA_DIR
+        self.original_database_path = app.DATABASE_PATH
+        app.DATA_DIR = Path(self.temporary_directory.name) / "data"
+        app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
+        app._GENRE_PLAYBOOKS_CACHE = None
+        app.initialise_database()
+        self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+        app.DATA_DIR = self.original_data_dir
+        app.DATABASE_PATH = self.original_database_path
+        app._GENRE_PLAYBOOKS_CACHE = None
+        self.temporary_directory.cleanup()
+
+    def request(self, method: str, path: str, payload: dict | None = None) -> tuple[int, object]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=180)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        connection.request(method, path, body, {"Content-Type": "application/json"} if body else {})
+        response = connection.getresponse()
+        result = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        return response.status, result
+
+    def test_load_murim_delta(self) -> None:
+        delta = app.load_genre_playbook_delta("fantasy", "male", "murim")
+        self.assertIsInstance(delta, dict)
+        self.assertIn("중국풍 무협 세계관", delta["identity_addition"])
+        self.assertIn("정파의 이중잣대가 의도적 설정인지", delta["group_rules_addition"]["A_judge"])
+        self.assertIn("다음 경지 돌파나 은원 해소", delta["group_rules_addition"]["B_suggest"])
+        self.assertIn("강호체 어투와 관용구", delta["group_rules_addition"]["C_style"])
+        alt = app.load_genre_playbook_delta("fantasy", "male", "alt_history")
+        self.assertIsInstance(alt, dict)
+        self.assertNotEqual(delta["identity_addition"], alt["identity_addition"])
+        self.assertIsNone(app.load_genre_playbook_delta("fantasy", "male", ""))
+        self.assertIsNone(app.load_genre_playbook_delta("fantasy", "female", "murim"))
+        self.assertIsNone(app.load_genre_playbook_delta("romance", "romfant", "murim"))
+        self.assertIsNone(app.load_genre_playbook_delta("romance", "modern", "murim"))
+
+    def test_murim_builders_inject_delta_and_plain_male_does_not(self) -> None:
+        worldscan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="murim",
+        )
+        self.assertIn("[장르별 판단 기준]", worldscan)
+        self.assertIn("[세부장르 추가 기준]", worldscan)
+        self.assertIn("정파의 이중잣대가 의도적 설정인지", worldscan)
+        self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
+        self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
+        self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
+
+        ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="murim",
+        )
+        self.assertIn("[세부장르 추가 기준]", ideas)
+        self.assertIn("다음 경지 돌파나 은원 해소", ideas)
+        self.assertIn("사이다 구조(위기→응징)", ideas)
+        self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
+
+        continue_p = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고",
+            "short",
+            "",
+            "",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="murim",
+        )
+        self.assertIn("[세부장르 추가 문체 기준]", continue_p)
+        self.assertIn("뼈에 새기겠소", continue_p)
+        self.assertIn("전투 장면은 타격감 있게", continue_p)
+        self.assertLess(continue_p.find("[세부장르 추가 문체 기준]"), continue_p.find("[원고]"))
+
+        analyze = app.SuperToryHandler._build_focused_analysis_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="murim",
+        )
+        self.assertIn("[장르별 판단 기준]", analyze)
+        self.assertIn("[세부장르 추가 기준]", analyze)
+        self.assertIn("정파의 이중잣대가 의도적 설정인지", analyze)
+        self.assertLess(analyze.find("[세부장르 추가 기준]"), analyze.find("[본문]"))
+
+        plain_scan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고", main_genre="fantasy", sub_genre="male"
+        )
+        plain_ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고", main_genre="fantasy", sub_genre="male"
+        )
+        plain_continue = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고", "short", "", "", main_genre="fantasy", sub_genre="male"
+        )
+        plain_analyze = app.SuperToryHandler._build_focused_analysis_prompt(
+            "한 줄 원고", main_genre="fantasy", sub_genre="male"
+        )
+        for phrase in MURIM_CROSS_PHRASES:
+            self.assertNotIn(phrase, plain_scan, msg=phrase)
+            self.assertNotIn(phrase, plain_ideas, msg=phrase)
+            self.assertNotIn(phrase, plain_continue, msg=phrase)
+            self.assertNotIn(phrase, plain_analyze, msg=phrase)
+        self.assertNotIn("[세부장르 추가 기준]", plain_scan)
+        self.assertNotIn("[세부장르 추가 기준]", plain_ideas)
+        self.assertNotIn("[세부장르 추가 문체 기준]", plain_continue)
+        self.assertNotIn("[세부장르 추가 기준]", plain_analyze)
+        self.assertIn("폭력성/전투 스케일 오판 방지", plain_scan)
+        self.assertIn("사이다 구조(위기→응징)", plain_ideas)
+        self.assertIn("전투 장면은 타격감 있게", plain_continue)
+
+    def test_murim_dry_run_abc_api(self) -> None:
+        cases = (
+            {
+                "mode": "worldscan",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "정파의 이중잣대가 의도적 설정인지",
+                "needle": "[본문]",
+            },
+            {
+                "mode": "ideas",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "다음 경지 돌파나 은원 해소",
+                "needle": "[현재 회차 본문]",
+            },
+            {
+                "mode": "continue",
+                "heading": "[장르별 문체 기준]",
+                "extra": "[세부장르 추가 문체 기준]",
+                "must": "뼈에 새기겠소",
+                "needle": "[원고]",
+                "length_mode": "short",
+            },
+        )
+        for extra in cases:
+            heading = extra.pop("heading")
+            extra_heading = extra.pop("extra")
+            must = extra.pop("must")
+            needle = extra.pop("needle")
+            payload = {
+                "dry_run": True,
+                "project_title": "청운검문의 진운",
+                "purpose": "web_novel",
+                "main_genre": "fantasy",
+                "sub_genre": "male",
+                "genre_detail": "murim",
+                "scene_title": "1화",
+                "scene_content": MURIM_MODERN_SPEECH_SCENE,
+                **extra,
+            }
+            status, result = self.request("POST", "/api/ai/assist", payload)
+            self.assertEqual(status, 200, result)
+            full = str(result.get("full_prompt") or "")
+            self.assertIn(heading, full, msg=extra["mode"])
+            self.assertIn(extra_heading, full, msg=extra["mode"])
+            self.assertEqual(full.count(heading), 1, msg=extra["mode"])
+            self.assertEqual(full.count(extra_heading), 1, msg=extra["mode"])
+            self.assertIn(must, full, msg=extra["mode"])
+            self.assertLess(full.find(heading), full.find(extra_heading), msg=extra["mode"])
+            self.assertLess(full.find(extra_heading), full.find(needle), msg=extra["mode"])
+
+            plain = {
+                **payload,
+                "project_title": "회귀한 영주",
+                "genre_detail": "",
+            }
+            status, male = self.request("POST", "/api/ai/assist", plain)
+            self.assertEqual(status, 200, male)
+            male_full = str(male.get("full_prompt") or "")
+            self.assertNotIn(extra_heading, male_full, msg=extra["mode"])
+            self.assertNotIn(must, male_full, msg=extra["mode"])
+
+    def _murim_live_body(self, scene_content: str, **extra) -> dict:
+        return {
+            "project_title": "청운검문의 진운",
+            "purpose": "web_novel",
+            "main_genre": "fantasy",
+            "sub_genre": "male",
+            "genre_detail": "murim",
+            "main_genre_label": "판타지",
+            "sub_genre_label": "남성향판타지",
+            "genre_detail_label": "무협",
+            "scene_title": "1화",
+            "scene_content": scene_content,
+            "world_setting": (
+                "중국풍 무협. 경지는 삼류-이류-일류-절정-초절정-화경-현경으로 일관된다. "
+                "정파/사파/마교 세력 대립과 은원이 서사의 축이다. "
+                "화산파가 인의를 내세우면서 실제로는 단전을 뽑는 위선은 의도된 설정이다. "
+                "정파답지 않다고 설정 붕괴로 보지 말 것. "
+                "어투는 강호체 관용구를 쓰고, 현대어 어미만 '~하오'로 바꾸는 수준에 그치지 말 것."
+            ),
+            "character_profiles": {
+                "진운": "청운검문 삼류무사. 회귀자다.",
+                "청송": "화산파 장로. 정파 명분을 내세우되 실리는 잔혹하다. 의도된 위선.",
+            },
+            **extra,
+        }
+
+    def _assert_jianghu_idioms_not_just_hao(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip())
+        idiom_hits = (
+            "은혜",
+            "뼈에",
+            "경지",
+            "초절정",
+            "대협",
+            "소협",
+            "문주",
+            "장문",
+            "강호",
+            "은원",
+            "의리",
+            "내공",
+            "무공",
+            "단전",
+            "검기",
+            "기연",
+            "화경",
+            "현경",
+            "절정",
+            "사제",
+            "문파",
+        )
+        self.assertTrue(any(hit in body for hit in idiom_hits), msg=body)
+
+    def _assert_hypocrisy_is_distinguished(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip())
+        intent_hits = ("의도", "위선", "이중", "명분", "설정", "구분", "가면", "표리")
+        self.assertTrue(any(hit in body for hit in intent_hits), msg=body)
+        self.assertNotRegex(
+            body,
+            r"(정파답지\s*않.{0,12}(오류|붕괴|문제)|정파라면.{0,16}(이러면\s*안|모순|오류)|장르\s*이탈)",
+        )
+        lowered = body.replace(" ", "")
+        self.assertFalse(
+            any(
+                bad in lowered
+                for bad in (
+                    "정파답지않다오류",
+                    "정파설정붕괴",
+                    "정파가아니라오류",
+                    "정파모순이문제",
+                    "정파라면이러면안됨",
+                )
+            ),
+            msg=body,
+        )
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_murim_continue_uses_jianghu_idioms(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._murim_live_body(
+                MURIM_MODERN_SPEECH_SCENE,
+                mode="continue",
+                length_mode="short",
+            ),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_jianghu_idioms_not_just_hao(str(result.get("text") or ""))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_murim_rewrite_uses_jianghu_idioms(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._murim_live_body(
+                MURIM_MODERN_SPEECH_SCENE,
+                mode="rewrite",
+                selected_text=MURIM_MODERN_SPEECH_SCENE,
+            ),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_jianghu_idioms_not_just_hao(str(result.get("text") or ""))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_murim_does_not_misread_orthodox_hypocrisy(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._murim_live_body(MURIM_HYPOCRISY_SCENE, mode="worldscan"),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_hypocrisy_is_distinguished(str(result.get("text") or ""))
 
 
 if __name__ == "__main__":
