@@ -131,6 +131,10 @@ class GenreClusterLogicTests(unittest.TestCase):
             genre_clusters.normalize_genre_detail("fantasy", "male", "hidden_world"),
             "hidden_world",
         )
+        self.assertEqual(
+            genre_clusters.normalize_genre_detail("fantasy", "male", "sports"),
+            "sports",
+        )
         self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "alt_history"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "alt_history"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "murim"), "")
@@ -138,6 +142,8 @@ class GenreClusterLogicTests(unittest.TestCase):
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "traditional"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "hidden_world"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "hidden_world"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "sports"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "sports"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", ""), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("mystery", "honkaku", "historical"), "")
         self.assertEqual(genre_clusters.genre_detail_label("historical"), "사극")
@@ -147,6 +153,7 @@ class GenreClusterLogicTests(unittest.TestCase):
         self.assertEqual(genre_clusters.genre_detail_label("urban"), "현대판타지")
         self.assertEqual(genre_clusters.genre_detail_label("hidden_world"), "어반판타지")
         self.assertEqual(genre_clusters.genre_detail_label("traditional"), "정통판타지")
+        self.assertEqual(genre_clusters.genre_detail_label("sports"), "스포츠물")
         self.assertEqual(genre_clusters.genre_detail_label(""), "")
         self.assertEqual(genre_clusters.genre_detail_label("unknown"), "")
 

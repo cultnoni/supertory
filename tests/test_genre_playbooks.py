@@ -1761,6 +1761,7 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     self.assertEqual(fmt(main, sub, "urban"), base)
                     self.assertEqual(fmt(main, sub, "hidden_world"), base)
                     self.assertEqual(fmt(main, sub, "traditional"), base)
+                    self.assertEqual(fmt(main, sub, "sports"), base)
                 elif (main, sub) == ("romance", "romfant"):
                     oriental = fmt(main, sub, "oriental_romfant")
                     self.assertNotEqual(oriental, base)
@@ -1771,6 +1772,7 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     self.assertEqual(fmt(main, sub, "urban"), base)
                     self.assertEqual(fmt(main, sub, "hidden_world"), base)
                     self.assertEqual(fmt(main, sub, "traditional"), base)
+                    self.assertEqual(fmt(main, sub, "sports"), base)
                 elif (main, sub) == ("fantasy", "male"):
                     alt = fmt(main, sub, "alt_history")
                     self.assertNotEqual(alt, base)
@@ -1787,8 +1789,13 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     traditional = fmt(main, sub, "traditional")
                     self.assertNotEqual(traditional, base)
                     self.assertIn("[세부장르 추가", traditional)
+                    sports = fmt(main, sub, "sports")
+                    self.assertNotEqual(sports, base)
+                    self.assertIn("[세부장르 추가", sports)
                     self.assertNotEqual(urban, hidden)
                     self.assertNotEqual(urban, traditional)
+                    self.assertNotEqual(sports, urban)
+                    self.assertNotEqual(sports, hidden)
                     self.assertEqual(fmt(main, sub, "historical"), base)
                     self.assertEqual(fmt(main, sub, "oriental_romfant"), base)
                 else:
@@ -1799,6 +1806,7 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
                     self.assertEqual(fmt(main, sub, "urban"), base)
                     self.assertEqual(fmt(main, sub, "hidden_world"), base)
                     self.assertEqual(fmt(main, sub, "traditional"), base)
+                    self.assertEqual(fmt(main, sub, "sports"), base)
                 self.assertNotIn("[세부장르 추가", base)
 
     def test_regression_dry_run_without_genre_detail_matches_existing_structure(self) -> None:
@@ -3954,6 +3962,310 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_urban_does_not_require_masquerade(str(result.get("text") or ""))
+
+
+SPORTS_WRONG_OFFSIDE_SCENE = (
+    "후반 32분, 민호가 상대 골문 바로 앞에서 공을 잡았다. "
+    "골키퍼와 수비수 전원이 하프라인 뒤에 남아 있었는데도 "
+    "주심은 '공격수가 공보다 뒤에 있으면 오프사이드'라며 휘슬을 불었다. "
+    "민호는 손을 들어 공을 잡아 네트에 넣고 득점을 인정받았다. "
+    "해설은 코너킥에서 손으로 넣어도 골이라고 설명했다."
+)
+
+SPORTS_INTENDED_PLAYER_TWIST_SCENE = (
+    "잠실 야구장. 선발 투수 손흥민이 160km 직구를 꽂아 삼진을 잡았다. "
+    "관중은 국가대표 야구 에이스의 이름에 환호했고, "
+    "민호는 덕아웃에서 '형, 월드시리즈 가자'고 외쳤다. "
+    "축구 국가대표 이야기는 한 줄도 없다. 이 세계에서 손흥민은 처음부터 야구 선수다."
+)
+
+SPORTS_CROSS_PHRASES = (
+    "종목 규칙/전술 정확성",
+    "다음 시합/훈련 사이클",
+    "종목 전문 용어와 경기 상황 묘사",
+)
+
+OTHER_DELTA_CROSS_PHRASES = (
+    *MURIM_CROSS_PHRASES,
+    *ALT_HISTORY_CROSS_PHRASES,
+    *URBAN_CROSS_PHRASES,
+    *TRADITIONAL_CROSS_PHRASES,
+    *HIDDEN_WORLD_CROSS_PHRASES,
+)
+
+
+class GenrePlaybookSportsTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.original_data_dir = app.DATA_DIR
+        self.original_database_path = app.DATABASE_PATH
+        app.DATA_DIR = Path(self.temporary_directory.name) / "data"
+        app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
+        app._GENRE_PLAYBOOKS_CACHE = None
+        app.initialise_database()
+        self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+        app.DATA_DIR = self.original_data_dir
+        app.DATABASE_PATH = self.original_database_path
+        app._GENRE_PLAYBOOKS_CACHE = None
+        self.temporary_directory.cleanup()
+
+    def request(self, method: str, path: str, payload: dict | None = None) -> tuple[int, object]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=180)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        connection.request(method, path, body, {"Content-Type": "application/json"} if body else {})
+        response = connection.getresponse()
+        result = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        return response.status, result
+
+    def test_load_sports_delta(self) -> None:
+        sports = app.load_genre_playbook_delta("fantasy", "male", "sports")
+        self.assertIsInstance(sports, dict)
+        self.assertIn("특정 종목 정상 도달", sports["identity_addition"])
+        self.assertIn("종목 규칙/전술 정확성", sports["group_rules_addition"]["A_judge"])
+        self.assertIn("다음 시합/훈련 사이클", sports["group_rules_addition"]["B_suggest"])
+        self.assertIn("종목 전문 용어와 경기 상황 묘사", sports["group_rules_addition"]["C_style"])
+        self.assertIsNone(app.load_genre_playbook_delta("fantasy", "male", ""))
+        self.assertIsNone(app.load_genre_playbook_delta("fantasy", "female", "sports"))
+        self.assertIsNone(app.load_genre_playbook_delta("romance", "modern", "sports"))
+
+    def test_sports_builders_inject_delta_and_plain_male_does_not(self) -> None:
+        worldscan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="sports",
+        )
+        self.assertIn("[장르별 판단 기준]", worldscan)
+        self.assertIn("[세부장르 추가 기준]", worldscan)
+        self.assertIn("종목 규칙/전술 정확성", worldscan)
+        self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
+        self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
+        self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
+
+        ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="sports",
+        )
+        self.assertIn("[세부장르 추가 기준]", ideas)
+        self.assertIn("다음 시합/훈련 사이클", ideas)
+        self.assertIn("사이다 구조(위기→응징)", ideas)
+        self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
+
+        continue_p = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고",
+            "short",
+            "",
+            "",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="sports",
+        )
+        self.assertIn("[세부장르 추가 문체 기준]", continue_p)
+        self.assertIn("종목 전문 용어와 경기 상황 묘사", continue_p)
+        self.assertIn("전투 장면은 타격감 있게", continue_p)
+        self.assertLess(continue_p.find("[세부장르 추가 문체 기준]"), continue_p.find("[원고]"))
+
+        analyze = app.SuperToryHandler._build_focused_analysis_prompt(
+            "한 줄 원고",
+            main_genre="fantasy",
+            sub_genre="male",
+            genre_detail="sports",
+        )
+        self.assertIn("[세부장르 추가 기준]", analyze)
+        self.assertIn("종목 규칙/전술 정확성", analyze)
+
+        plain_scan = app.SuperToryHandler._build_setting_break_scan_prompt(
+            "한 줄 원고", main_genre="fantasy", sub_genre="male"
+        )
+        plain_ideas = app.SuperToryHandler._build_next_idea_prompt(
+            "한 줄 원고", main_genre="fantasy", sub_genre="male"
+        )
+        plain_continue = app.SuperToryHandler._build_continue_prompt(
+            "한 줄 원고", "short", "", "", main_genre="fantasy", sub_genre="male"
+        )
+        for phrase in SPORTS_CROSS_PHRASES:
+            self.assertNotIn(phrase, plain_scan, msg=phrase)
+            self.assertNotIn(phrase, plain_ideas, msg=phrase)
+            self.assertNotIn(phrase, plain_continue, msg=phrase)
+        self.assertNotIn("[세부장르 추가 기준]", plain_scan)
+        self.assertNotIn("[세부장르 추가 문체 기준]", plain_continue)
+        self.assertIn("폭력성/전투 스케일 오판 방지", plain_scan)
+
+    def test_sports_does_not_mix_with_other_deltas(self) -> None:
+        cases = (
+            (
+                "worldscan",
+                app.SuperToryHandler._build_setting_break_scan_prompt,
+                SPORTS_CROSS_PHRASES[0],
+            ),
+            (
+                "ideas",
+                app.SuperToryHandler._build_next_idea_prompt,
+                SPORTS_CROSS_PHRASES[1],
+            ),
+            (
+                "continue",
+                lambda text, **kw: app.SuperToryHandler._build_continue_prompt(
+                    text, "short", "", "", **kw
+                ),
+                SPORTS_CROSS_PHRASES[2],
+            ),
+        )
+        other_details = ("murim", "alt_history", "urban", "hidden_world", "traditional")
+        for label, builder, sports_must in cases:
+            sports = builder(
+                "한 줄 원고", main_genre="fantasy", sub_genre="male", genre_detail="sports"
+            )
+            self.assertIn(sports_must, sports, msg=label)
+            for detail in other_details:
+                other = builder(
+                    "한 줄 원고", main_genre="fantasy", sub_genre="male", genre_detail=detail
+                )
+                self.assertNotIn(sports_must, other, msg=f"{label}:{detail}")
+                for phrase in SPORTS_CROSS_PHRASES:
+                    self.assertNotIn(phrase, other, msg=f"{label}:{detail}:{phrase}")
+            for phrase in OTHER_DELTA_CROSS_PHRASES:
+                self.assertNotIn(phrase, sports, msg=f"{label}:{phrase}")
+
+    def test_sports_dry_run_abc_api(self) -> None:
+        cases = (
+            {
+                "mode": "worldscan",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "종목 규칙/전술 정확성",
+                "needle": "[본문]",
+            },
+            {
+                "mode": "ideas",
+                "heading": "[장르별 판단 기준]",
+                "extra": "[세부장르 추가 기준]",
+                "must": "다음 시합/훈련 사이클",
+                "needle": "[현재 회차 본문]",
+            },
+            {
+                "mode": "continue",
+                "heading": "[장르별 문체 기준]",
+                "extra": "[세부장르 추가 문체 기준]",
+                "must": "종목 전문 용어와 경기 상황 묘사",
+                "needle": "[원고]",
+                "length_mode": "short",
+            },
+        )
+        for extra in cases:
+            heading = extra.pop("heading")
+            extra_heading = extra.pop("extra")
+            must = extra.pop("must")
+            needle = extra.pop("needle")
+            payload = {
+                "dry_run": True,
+                "project_title": "골라인의 왕",
+                "purpose": "web_novel",
+                "main_genre": "fantasy",
+                "sub_genre": "male",
+                "genre_detail": "sports",
+                "scene_title": "1화",
+                "scene_content": SPORTS_WRONG_OFFSIDE_SCENE,
+                **extra,
+            }
+            status, result = self.request("POST", "/api/ai/assist", payload)
+            self.assertEqual(status, 200, result)
+            full = str(result.get("full_prompt") or "")
+            self.assertIn(heading, full, msg=extra["mode"])
+            self.assertIn(extra_heading, full, msg=extra["mode"])
+            self.assertEqual(full.count(heading), 1, msg=extra["mode"])
+            self.assertEqual(full.count(extra_heading), 1, msg=extra["mode"])
+            self.assertIn(must, full, msg=extra["mode"])
+            self.assertLess(full.find(heading), full.find(extra_heading), msg=extra["mode"])
+            self.assertLess(full.find(extra_heading), full.find(needle), msg=extra["mode"])
+            for phrase in OTHER_DELTA_CROSS_PHRASES:
+                self.assertNotIn(phrase, full, msg=f"{extra['mode']}:{phrase}")
+
+            plain = {**payload, "project_title": "회귀한 영주", "genre_detail": ""}
+            status, male = self.request("POST", "/api/ai/assist", plain)
+            self.assertEqual(status, 200, male)
+            male_full = str(male.get("full_prompt") or "")
+            self.assertNotIn(extra_heading, male_full, msg=extra["mode"])
+            self.assertNotIn(must, male_full, msg=extra["mode"])
+
+    def _live_body(self, scene_content: str, world_setting: str, **extra) -> dict:
+        return {
+            "project_title": "골라인의 왕",
+            "purpose": "web_novel",
+            "main_genre": "fantasy",
+            "sub_genre": "male",
+            "genre_detail": "sports",
+            "main_genre_label": "판타지",
+            "sub_genre_label": "남성향판타지",
+            "genre_detail_label": "스포츠물",
+            "scene_title": "1화",
+            "scene_content": scene_content,
+            "world_setting": world_setting,
+            "character_profiles": {
+                "민호": "2부 리그 축구 유망주. 주전 경쟁 중이다.",
+                "손흥민": "이 세계의 야구 국가대표 에이스. 축구 선수가 아니다. 의도된 각색.",
+            },
+            **extra,
+        }
+
+    def _assert_flags_wrong_offside(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip(), msg="empty live response")
+        hits = ("오프사이드", "규칙", "핸드볼", "손", "골키퍼", "잘못", "틀린", "오류")
+        self.assertTrue(any(hit in body for hit in hits), msg=body)
+        problem = ("붕괴", "모순", "불일치", "어긋", "오류", "잘못", "틀린", "규칙")
+        self.assertTrue(any(hit in body for hit in problem), msg=body)
+
+    def _assert_intended_player_twist_not_flagged(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip(), msg="empty live response")
+        recognized = ("의도", "각색", "개변", "장르 장치", "핵심 설정")
+        self.assertTrue(any(hit in body for hit in recognized), msg=body)
+        self.assertNotRegex(
+            body,
+            r"(고증\s*오류|실존\s*선수.{0,12}오류|축구\s*선수여야|야구\s*설정.{0,8}(오류|문제))",
+        )
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_sports_flags_wrong_offside(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._live_body(
+                SPORTS_WRONG_OFFSIDE_SCENE,
+                "현대 한국 축구. 실제 축구 규칙(오프사이드, 핸드볼 등)을 따른다. "
+                "규칙이 명백히 틀리면 설정 붕괴로 짚어야 한다.",
+                mode="worldscan",
+            ),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_flags_wrong_offside(str(result.get("text") or ""))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_sports_accepts_intended_player_twist(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._live_body(
+                SPORTS_INTENDED_PLAYER_TWIST_SCENE,
+                "스포츠물. 핵심 설정은 손흥민이 축구가 아니라 야구 국가대표라는 의도된 각색이다. "
+                "실제 행적과 다른 것은 고증 오류가 아니라 작품의 장르 장치다. "
+                "대체역사 델타와 같이 의도된 각색은 오류로 보지 마라.",
+                mode="worldscan",
+            ),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_intended_player_twist_not_flagged(str(result.get("text") or ""))
 
 
 if __name__ == "__main__":
