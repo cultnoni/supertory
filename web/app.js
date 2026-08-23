@@ -6069,16 +6069,19 @@ const GENRE_DETAIL_LABEL_KEYS = {
   oriental_romfant: "app.동양로판",
   alt_history: "app.대체역사",
   murim: "app.무협",
+  urban: "app.현대판타지",
+  hidden_world: "app.어반판타지",
+  traditional: "app.정통판타지",
 };
 const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
   "romance|modern": ["historical"],
   "romance|romfant": ["oriental_romfant"],
-  "fantasy|male": ["alt_history", "murim"],
+  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "traditional"],
 };
 const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
   romance: ["historical"],
   romfant: ["oriental_romfant"],
-  male_fantasy: ["alt_history", "murim"],
+  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "traditional"],
 };
 
 function genreDetailLabel(key) {

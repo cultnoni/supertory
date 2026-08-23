@@ -119,15 +119,34 @@ class GenreClusterLogicTests(unittest.TestCase):
             genre_clusters.normalize_genre_detail("fantasy", "male", "murim"),
             "murim",
         )
+        self.assertEqual(
+            genre_clusters.normalize_genre_detail("fantasy", "male", "urban"),
+            "urban",
+        )
+        self.assertEqual(
+            genre_clusters.normalize_genre_detail("fantasy", "male", "traditional"),
+            "traditional",
+        )
+        self.assertEqual(
+            genre_clusters.normalize_genre_detail("fantasy", "male", "hidden_world"),
+            "hidden_world",
+        )
         self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "alt_history"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "alt_history"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "murim"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "urban"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "traditional"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("fantasy", "female", "hidden_world"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", "hidden_world"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "modern", ""), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("mystery", "honkaku", "historical"), "")
         self.assertEqual(genre_clusters.genre_detail_label("historical"), "사극")
         self.assertEqual(genre_clusters.genre_detail_label("oriental_romfant"), "동양로판")
         self.assertEqual(genre_clusters.genre_detail_label("alt_history"), "대체역사")
         self.assertEqual(genre_clusters.genre_detail_label("murim"), "무협")
+        self.assertEqual(genre_clusters.genre_detail_label("urban"), "현대판타지")
+        self.assertEqual(genre_clusters.genre_detail_label("hidden_world"), "어반판타지")
+        self.assertEqual(genre_clusters.genre_detail_label("traditional"), "정통판타지")
         self.assertEqual(genre_clusters.genre_detail_label(""), "")
         self.assertEqual(genre_clusters.genre_detail_label("unknown"), "")
 
