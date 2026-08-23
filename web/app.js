@@ -220,8 +220,10 @@ const state = {
   forceFoldersOutline: false,
   outlineProjectId: null, // projectId that state.outline currently belongs to
   projectPurpose: null,
+  clusterId: "",
   mainGenre: "",
   subGenre: "",
+  genreDetail: "",
   /** @type {string[]} 설정집 키워드 태그 */
   keywords: [],
   illustrations: [],
@@ -310,7 +312,8 @@ async function api(path, options = {}) {
   if (trackWriting) setAiPanelWriting(true);
   try {
     const headers = { ...(options.headers || {}) };
-    if (options.body != null && !headers["Content-Type"]) {
+    const hasContentType = Object.keys(headers).some((key) => key.toLowerCase() === "content-type");
+    if (options.body != null && !hasContentType && !(typeof FormData !== "undefined" && options.body instanceof FormData)) {
       headers["Content-Type"] = "application/json";
     }
     let response;
@@ -5827,6 +5830,566 @@ const purposeLabel = {
   other: i18n.t('app.기타'),
 };
 
+const KNOWN_CLUSTER_IDS = ["webnovel", "genre_literature", "general_literature", "fairytale", "locked"];
+const LOCKED_CLUSTER_PURPOSES = [
+  "short_story", "translation", "nonfiction", "paper", "autobiography",
+  "poetry", "script", "diary", "report", "column", "other",
+];
+const GENRE_LITERATURE_MAIN = new Set(["mystery", "thriller", "genre_lit", "sf"]);
+const GENRE_LITERATURE_SUB = new Set([
+  "honkaku", "social", "cozy", "legal", "crime",
+  "psycho", "action", "horror", "suspense", "detective",
+  "space", "dystopia", "cyberpunk", "timeslip", "postapo",
+]);
+const GENRE_CLUSTERS = [
+  {
+    id: "webnovel",
+    labelKey: "app.웹소설",
+    status: "active",
+    subGenres: [
+      { key: "romance", labelKey: "app.로맨스" },
+      { key: "romfant", labelKey: "app.로판" },
+      { key: "female_fantasy", labelKey: "app.여성향_판타지" },
+      { key: "male_fantasy", labelKey: "app.남성향_판타지" },
+    ],
+  },
+  {
+    id: "genre_literature",
+    labelKey: "app.장르문학",
+    status: "active",
+    subGenres: [
+      { key: "mystery_detective", labelKey: "app.추리_미스터리" },
+      { key: "thriller", labelKey: "app.스릴러" },
+      { key: "sf", labelKey: "app.SF" },
+    ],
+  },
+  {
+    id: "general_literature",
+    labelKey: "app.일반소설_문학_에세이",
+    status: "active",
+    subGenres: [
+      { key: "general_novel", labelKey: "app.일반소설" },
+      { key: "general_lit", labelKey: "app.일반문학" },
+      { key: "literary", labelKey: "app.순문학" },
+      { key: "essay", labelKey: "app.에세이" },
+    ],
+  },
+  {
+    id: "fairytale",
+    labelKey: "app.동화",
+    status: "active",
+    subGenres: [
+      { key: "fairytale", labelKey: "app.동화" },
+    ],
+  },
+  {
+    id: "locked",
+    labelKey: "app.기타_준비중",
+    status: "locked",
+    subGenres: [],
+  },
+];
+const CLUSTER_SUBGENRE_MAP = {
+  webnovel: {
+    romance: { purpose: "web_novel", main: "romance", sub: "modern" },
+    romfant: { purpose: "web_novel", main: "romance", sub: "romfant" },
+    female_fantasy: { purpose: "web_novel", main: "fantasy", sub: "female" },
+    male_fantasy: { purpose: "web_novel", main: "fantasy", sub: "male" },
+  },
+  genre_literature: {
+    mystery_detective: { purpose: "general_novel", main: "mystery", sub: "honkaku" },
+    thriller: { purpose: "general_novel", main: "thriller", sub: "psycho" },
+    sf: { purpose: "general_novel", main: "sf", sub: "space" },
+  },
+  general_literature: {
+    general_novel: { purpose: "general_novel", main: "contemporary", sub: "daily" },
+    general_lit: { purpose: "general_novel", main: "literary", sub: "mid" },
+    literary: { purpose: "general_novel", main: "literary", sub: "long" },
+    essay: { purpose: "essay", main: "other", sub: "tbd" },
+  },
+  fairytale: {
+    fairytale: { purpose: "fairy_tale", main: "", sub: "" },
+    preschool: { purpose: "fairy_tale", main: "preschool", sub: "" },
+    elementary: { purpose: "fairy_tale", main: "elementary", sub: "" },
+  },
+};
+const ALL_CLUSTER_FEATURE_IDS = [
+  "baits", "success_profile", "summarize", "foreshadow", "plottwist",
+  "temphook", "worldscan", "successfeedback", "worlddesc", "successpattern",
+  "character_chat", "character_sim", "reader_debate", "reader_comments",
+];
+const CLUSTER_HIDDEN_FEATURES = {
+  webnovel: [],
+  genre_literature: [],
+  locked: [],
+  general_literature: [
+    "baits", "success_profile", "summarize", "foreshadow", "plottwist",
+    "temphook", "worldscan", "successfeedback", "worlddesc", "successpattern",
+    "character_chat", "character_sim", "reader_debate", "reader_comments",
+  ],
+  fairytale: [
+    "success_profile", "foreshadow", "plottwist", "temphook", "worldscan",
+    "successfeedback", "successpattern", "reader_debate",
+  ],
+};
+const AI_MODE_CLUSTER_FEATURE = {
+  summarize: "summarize",
+  foreshadow: "foreshadow",
+  plottwist: "plottwist",
+  temphook: "temphook",
+  worldscan: "worldscan",
+  successfeedback: "successfeedback",
+  worlddesc: "worlddesc",
+  successpattern: "successpattern",
+};
+const CLUSTER_FEATURE_TARGETS = {
+  baits: [
+    { selector: '[data-settings-section="baits"]' },
+    { id: "throwBaitMenuItem" },
+  ],
+  success_profile: [
+    { selector: '[data-settings-section="successProfile"]' },
+  ],
+  character_chat: [
+    { id: "charListModeChat" },
+  ],
+  character_sim: [
+    { id: "charListModeSim" },
+  ],
+  reader_debate: [
+    { id: "readerListModeDebate" },
+    { id: "readerDebatePane" },
+  ],
+  reader_comments: [
+    { id: "viewerReaderCommentsButton" },
+    { id: "viewerReaderCommentsPanel" },
+  ],
+};
+
+function normalizeClusterId(value) {
+  const key = String(value || "").trim();
+  return KNOWN_CLUSTER_IDS.includes(key) ? key : "";
+}
+
+function inferClusterId(purpose, mainGenre, subGenre, stored) {
+  const storedId = normalizeClusterId(stored);
+  if (storedId) return storedId;
+  const rawPurpose = String(purpose || "").trim();
+  const mainKey = String(mainGenre || "").trim();
+  const subKey = String(subGenre || "").trim();
+  if (!rawPurpose && !mainKey && !subKey) return "webnovel";
+  const purposeKey = normalizePurposeKey(purpose);
+  if (purposeKey === "web_novel") return "webnovel";
+  if (purposeKey === "fairy_tale") return "fairytale";
+  if (purposeKey === "essay") return "general_literature";
+  if (purposeKey === "general_novel") {
+    if (GENRE_LITERATURE_MAIN.has(mainKey) || GENRE_LITERATURE_SUB.has(subKey)) {
+      return "genre_literature";
+    }
+    return "general_literature";
+  }
+  if (LOCKED_CLUSTER_PURPOSES.includes(purposeKey)) return "locked";
+  return "webnovel";
+}
+
+
+function promptPipelineId(clusterId) {
+  const raw = clusterId === undefined || clusterId === null || clusterId === ""
+    ? (typeof getProjectClusterId === "function" ? getProjectClusterId() : "")
+    : clusterId;
+  const key = typeof normalizeClusterId === "function" ? normalizeClusterId(raw) : String(raw || "").trim();
+  return key === "genre_literature" ? "genre_literature" : "webnovel";
+}
+
+function getProjectClusterId() {
+  if (!state.projectId) return "webnovel";
+  const project = state.projects.find((item) => item.id === state.projectId);
+  return inferClusterId(
+    state.projectPurpose || project?.purpose,
+    state.mainGenre || project?.main_genre,
+    state.subGenre || project?.sub_genre,
+    state.clusterId || project?.cluster_id,
+  );
+}
+
+function getHiddenFeatures(clusterId) {
+  const key = normalizeClusterId(clusterId) || getProjectClusterId();
+  return CLUSTER_HIDDEN_FEATURES[key] || [];
+}
+
+function isClusterFeatureVisible(featureId, clusterId = getProjectClusterId()) {
+  const key = String(featureId || "").trim();
+  if (!key) return true;
+  return !getHiddenFeatures(clusterId).includes(key);
+}
+
+function getVisibleFeatures(clusterId = getProjectClusterId()) {
+  return ALL_CLUSTER_FEATURE_IDS.filter((id) => isClusterFeatureVisible(id, clusterId));
+}
+
+function usesKeywordPresetCatalog(clusterId = getProjectClusterId()) {
+  const key = normalizeClusterId(clusterId);
+  return key !== "general_literature" && key !== "fairytale";
+}
+
+function assertClusterFeature(featureId, { quiet = false } = {}) {
+  if (isClusterFeatureVisible(featureId)) return true;
+  if (!quiet) toast(i18n.t("app.이_작품에서는_쓸_수_없는_기능이에요"));
+  return false;
+}
+
+function clusterLabel(cluster) {
+  return cluster?.labelKey ? i18n.t(cluster.labelKey) : (cluster?.id || "");
+}
+
+function clusterSubGenreOptions(clusterId) {
+  const cluster = GENRE_CLUSTERS.find((item) => item.id === clusterId);
+  return (cluster?.subGenres || []).map((item) => ({
+    key: item.key,
+    label: i18n.t(item.labelKey),
+  }));
+}
+
+const CLUSTER_SUBGENRE_ALIASES = {
+  genre_literature: {
+    detective: "mystery_detective",
+    mystery: "mystery_detective",
+  },
+};
+
+function mapClusterSubgenre(clusterId, subKey) {
+  const cluster = normalizeClusterId(clusterId);
+  const raw = String(subKey || "").trim();
+  const key = CLUSTER_SUBGENRE_ALIASES[cluster]?.[raw] || raw;
+  return CLUSTER_SUBGENRE_MAP[cluster]?.[key] || null;
+}
+
+const GENRE_DETAIL_LABEL_KEYS = {
+  historical: "app.사극",
+  oriental_romfant: "app.동양로판",
+  alt_history: "app.대체역사",
+};
+const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
+  "romance|modern": ["historical"],
+  "romance|romfant": ["oriental_romfant"],
+  "fantasy|male": ["alt_history"],
+};
+const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
+  romance: ["historical"],
+  romfant: ["oriental_romfant"],
+  male_fantasy: ["alt_history"],
+};
+
+function genreDetailLabel(key) {
+  const raw = String(key || "").trim();
+  if (!raw) return "";
+  const i18nKey = GENRE_DETAIL_LABEL_KEYS[raw];
+  return i18nKey ? i18n.t(i18nKey) : "";
+}
+
+function genreDetailChoiceList(keys) {
+  return [
+    { key: "", label: i18n.t("app.없음") },
+    ...keys.map((item) => ({ key: item, label: genreDetailLabel(item) || item })),
+  ];
+}
+
+function genreDetailOptionsForMainSub(mainGenre, subGenre) {
+  const keys = GENRE_DETAIL_KEYS_BY_MAIN_SUB[`${String(mainGenre || "").trim()}|${String(subGenre || "").trim()}`] || [];
+  return keys.length ? genreDetailChoiceList(keys) : [];
+}
+
+function genreDetailOptionsForClusterSub(clusterId, clusterSubKey) {
+  if (normalizeClusterId(clusterId) !== "webnovel") return [];
+  const keys = GENRE_DETAIL_KEYS_BY_CLUSTER_SUB[String(clusterSubKey || "").trim()] || [];
+  return keys.length ? genreDetailChoiceList(keys) : [];
+}
+
+function normalizeGenreDetailKey(mainGenre, subGenre, detail) {
+  const key = String(detail || "").trim();
+  if (!key) return "";
+  const allowed = GENRE_DETAIL_KEYS_BY_MAIN_SUB[`${String(mainGenre || "").trim()}|${String(subGenre || "").trim()}`] || [];
+  return allowed.includes(key) ? key : "";
+}
+
+function fillGenreDetailSelectEl(select, options, selected) {
+  if (!select) return "";
+  if (!options.length) {
+    select.innerHTML = `<option value="">${escapeHtml(i18n.t("app.없음"))}</option>`;
+    select.value = "";
+    return "";
+  }
+  select.innerHTML = options.map((opt) =>
+    `<option value="${escapeHtml(opt.key)}">${escapeHtml(opt.label)}</option>`
+  ).join("");
+  const next = options.some((opt) => opt.key === selected) ? selected : "";
+  select.value = next;
+  return next;
+}
+
+function hideModalGenreDetail(prefix) {
+  const wrap = $(`${prefix}GenreDetailWrap`);
+  const select = $(`${prefix}GenreDetail`);
+  wrap?.classList.add("hidden");
+  if (select) {
+    select.innerHTML = `<option value="">${escapeHtml(i18n.t("app.없음"))}</option>`;
+    select.value = "";
+  }
+}
+
+function syncModalGenreDetail(prefix) {
+  const wrap = $(`${prefix}GenreDetailWrap`);
+  const select = $(`${prefix}GenreDetail`);
+  if (!wrap || !select) return;
+  const options = genreDetailOptionsForClusterSub(
+    getModalClusterId(prefix),
+    $(`${prefix}MainGenre`)?.value || "",
+  );
+  if (!options.length) {
+    hideModalGenreDetail(prefix);
+    return;
+  }
+  wrap.classList.remove("hidden");
+  fillGenreDetailSelectEl(select, options, "");
+}
+
+function readModalGenreDetail(prefix) {
+  const wrap = $(`${prefix}GenreDetailWrap`);
+  const select = $(`${prefix}GenreDetail`);
+  if (!wrap || wrap.classList.contains("hidden") || !select) return "";
+  return String(select.value || "").trim();
+}
+
+function inferClusterSubKey(clusterId, mainGenre, subGenre) {
+  const cluster = normalizeClusterId(clusterId);
+  const mapping = CLUSTER_SUBGENRE_MAP[cluster] || {};
+  const main = String(mainGenre || "").trim();
+  const sub = String(subGenre || "").trim();
+  if (cluster === "genre_literature") {
+    if (
+      main === "mystery_detective"
+      || main === "mystery"
+      || main === "detective"
+      || ["honkaku", "social", "cozy", "legal", "crime"].includes(sub)
+    ) {
+      return "mystery_detective";
+    }
+    if (main === "thriller" || ["psycho", "action", "horror", "suspense"].includes(sub)) {
+      return "thriller";
+    }
+    if (main === "sf" || ["space", "dystopia", "cyberpunk", "timeslip", "postapo"].includes(sub)) {
+      return "sf";
+    }
+  }
+  const entries = Object.entries(mapping);
+  const subHit = entries.find(([, mapped]) => mapped.sub && mapped.sub === sub);
+  if (subHit) return subHit[0];
+  const mainHit = entries.find(([, mapped]) => mapped.main === main);
+  return mainHit ? mainHit[0] : "";
+}
+
+function getModalClusterId(prefix) {
+  return normalizeClusterId($(`${prefix}ClusterId`)?.value);
+}
+
+function setModalClusterId(prefix, clusterId) {
+  const field = $(`${prefix}ClusterId`);
+  if (field) field.value = normalizeClusterId(clusterId);
+}
+
+function hideModalGenreSelects(prefix) {
+  const mainWrap = $(`${prefix}MainGenreWrap`);
+  const subWrap = $(`${prefix}SubGenreWrap`);
+  const mainSelect = $(`${prefix}MainGenre`);
+  const subSelect = $(`${prefix}SubGenre`);
+  mainWrap?.classList.add("hidden");
+  subWrap?.classList.add("hidden");
+  hideModalGenreDetail(prefix);
+  if (mainSelect) {
+    mainSelect.required = false;
+    mainSelect.disabled = true;
+    mainSelect.value = "";
+  }
+  if (subSelect) {
+    subSelect.required = false;
+    subSelect.disabled = true;
+    subSelect.value = "";
+  }
+}
+
+function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
+  const mainSelect = $(`${prefix}MainGenre`);
+  const subSelect = $(`${prefix}SubGenre`);
+  const mainWrap = $(`${prefix}MainGenreWrap`);
+  const subWrap = $(`${prefix}SubGenreWrap`);
+  if (!mainSelect) return;
+  const options = clusterSubGenreOptions(clusterId);
+  const prevMain = opts.keepMain ? mainSelect.value : (opts.main || opts.clusterSub || "");
+  mainWrap?.classList.remove("hidden");
+  if ($(`${prefix}MainGenreLabel`)) {
+    $(`${prefix}MainGenreLabel`).textContent = i18n.t("app.세부_장르를_선택해_주세요");
+  }
+  mainSelect.innerHTML = `<option value="">${escapeHtml(i18n.t("app.세부_장르를_선택해_주세요"))}</option>`
+    + options.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`).join("");
+  if (prevMain && options.some((item) => item.key === prevMain)) mainSelect.value = prevMain;
+  else if (options.length === 1) mainSelect.value = options[0].key;
+  else mainSelect.value = "";
+  mainSelect.required = true;
+  mainSelect.disabled = false;
+  subWrap?.classList.add("hidden");
+  if (subSelect) {
+    subSelect.innerHTML = `<option value="">—</option>`;
+    subSelect.value = "";
+    subSelect.required = false;
+    subSelect.disabled = true;
+  }
+  applyModalClusterPurpose(prefix);
+  syncModalGenreDetail(prefix);
+}
+
+function applyModalClusterPurpose(prefix) {
+  const clusterId = getModalClusterId(prefix);
+  const purposeSelect = $(`${prefix}Purpose`);
+  if (!clusterId || !purposeSelect) return;
+  if (clusterId === "fairytale") {
+    purposeSelect.value = "fairy_tale";
+    return;
+  }
+  const mapped = mapClusterSubgenre(clusterId, $(`${prefix}MainGenre`)?.value);
+  if (mapped?.purpose) purposeSelect.value = mapped.purpose;
+  else if (clusterId === "webnovel") purposeSelect.value = "web_novel";
+  else purposeSelect.value = "general_novel";
+}
+
+function renderGenreClusterGrid(prefix, selectedId = "") {
+  const grid = $(`${prefix}ClusterGrid`);
+  if (!grid) return;
+  const selected = normalizeClusterId(selectedId || getModalClusterId(prefix));
+  grid.innerHTML = GENRE_CLUSTERS.map((cluster) => {
+    const locked = cluster.status === "locked";
+    const on = cluster.id === selected && !locked;
+    return `<button type="button" class="genre-cluster-card${on ? " is-selected" : ""}${locked ? " is-locked" : ""}" data-cluster-id="${escapeHtml(cluster.id)}" data-cluster-status="${escapeHtml(cluster.status)}" aria-pressed="${on ? "true" : "false"}" ${locked ? 'aria-disabled="true"' : ""}><strong>${escapeHtml(clusterLabel(cluster))}</strong></button>`;
+  }).join("");
+}
+
+function selectModalCluster(prefix, clusterId, opts = {}) {
+  const cluster = GENRE_CLUSTERS.find((item) => item.id === clusterId);
+  if (!cluster) return;
+  if (cluster.status === "locked") {
+    toast(i18n.t("app.곧_지원_예정이에요_우선_지원되는_장르로"));
+    return;
+  }
+  setModalClusterId(prefix, cluster.id);
+  renderGenreClusterGrid(prefix, cluster.id);
+  applyModalClusterPurpose(prefix);
+  syncModalGenreFields(prefix, $(`${prefix}Purpose`)?.value || "general_novel", opts);
+}
+
+function setupGenreClusterPicker(prefix) {
+  const grid = $(`${prefix}ClusterGrid`);
+  if (!grid || grid.dataset.clusterBound === "1") return;
+  grid.dataset.clusterBound = "1";
+  grid.addEventListener("click", (event) => {
+    const card = event.target.closest?.("[data-cluster-id]");
+    if (!card || !grid.contains(card)) return;
+    event.preventDefault();
+    selectModalCluster(prefix, card.getAttribute("data-cluster-id") || "");
+  });
+}
+
+function setClusterFeatureHidden(el, hidden) {
+  if (!el) return;
+  el.classList.toggle("hidden", hidden);
+  el.classList.toggle("cluster-feature-hidden", hidden);
+  if (hidden) el.setAttribute("hidden", "");
+  else el.removeAttribute("hidden");
+  if (el.tagName === "OPTION") {
+    el.hidden = hidden;
+    el.disabled = hidden;
+  }
+}
+
+function applyClusterFeatureGating() {
+  const clusterId = getProjectClusterId();
+  ALL_CLUSTER_FEATURE_IDS.forEach((featureId) => {
+    const visible = isClusterFeatureVisible(featureId, clusterId);
+    (CLUSTER_FEATURE_TARGETS[featureId] || []).forEach((target) => {
+      const nodes = target.id
+        ? [$(target.id)].filter(Boolean)
+        : [...document.querySelectorAll(target.selector)];
+      nodes.forEach((el) => setClusterFeatureHidden(el, !visible));
+    });
+  });
+
+  const sel = $("aiMode");
+  if (sel) {
+    [...sel.querySelectorAll("option")].forEach((opt) => {
+      const featureId = AI_MODE_CLUSTER_FEATURE[opt.value];
+      if (!featureId) return;
+      const visible = isClusterFeatureVisible(featureId, clusterId);
+      opt.hidden = !visible;
+      opt.disabled = !visible;
+    });
+    const currentFeature = AI_MODE_CLUSTER_FEATURE[sel.value];
+    if (currentFeature && !isClusterFeatureVisible(currentFeature, clusterId)) {
+      setAiModeValue("free", { silent: true });
+    }
+    try { renderAiModePickerMenu(); } catch (_) { /* ignore */ }
+  }
+
+  const hideCharacters = !isClusterFeatureVisible("character_chat", clusterId)
+    && !isClusterFeatureVisible("character_sim", clusterId);
+  document.querySelectorAll('[data-chat-hub-pick="characters"]').forEach((el) => {
+    setClusterFeatureHidden(el, hideCharacters);
+  });
+  if (hideCharacters && (typeof toryChatHub === "string") && (toryChatHub === "characters" || toryChatHub === "character-room")) {
+    try { setToryChatHub("home", { quiet: true }); } catch (_) { /* ignore */ }
+  }
+  if (!isClusterFeatureVisible("character_chat", clusterId) && isClusterFeatureVisible("character_sim", clusterId)) {
+    try { setCharListMode("sim"); } catch (_) { /* ignore */ }
+  } else if (isClusterFeatureVisible("character_chat", clusterId) && !isClusterFeatureVisible("character_sim", clusterId)) {
+    try { setCharListMode("chat"); } catch (_) { /* ignore */ }
+  }
+
+  if (!isClusterFeatureVisible("reader_debate", clusterId)) {
+    try { setReaderListMode("chat"); } catch (_) { /* ignore */ }
+  }
+
+  if (!isClusterFeatureVisible("reader_comments", clusterId)) {
+    try {
+      if (typeof viewerCommentsOpen !== "undefined" && viewerCommentsOpen && typeof setViewerCommentsOpen === "function") {
+        setViewerCommentsOpen(false);
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  if (!isClusterFeatureVisible("success_profile", clusterId) || !isClusterFeatureVisible("successfeedback", clusterId)) {
+    $("toryChatSuccessSummonButton")?.classList.add("hidden");
+    try {
+      if (typeof getToryChatMode === "function" && getToryChatMode() === "successAnalysis") {
+        setToryChatMode("general", { quiet: true });
+      }
+    } catch (_) { /* ignore */ }
+  }
+
+  const openSection = state.openSettingsSection;
+  if (openSection === "baits" && !isClusterFeatureVisible("baits", clusterId)) {
+    state.openSettingsSection = null;
+    try { applySettingsSectionState(); } catch (_) { /* ignore */ }
+  }
+  if (openSection === "successProfile" && !isClusterFeatureVisible("success_profile", clusterId)) {
+    state.openSettingsSection = null;
+    try { applySettingsSectionState(); } catch (_) { /* ignore */ }
+  }
+  if (state.settingsCollectionKind === "baits" && !isClusterFeatureVisible("baits", clusterId)) {
+    try { closeSettingsCollectionMain(); } catch (_) { /* ignore */ }
+  }
+  if (state.settingsCollectionKind === "successProfile" && !isClusterFeatureVisible("success_profile", clusterId)) {
+    try { closeSettingsCollectionMain(); } catch (_) { /* ignore */ }
+  }
+  try { syncKeywordClusterUi(); } catch (_) { /* ignore */ }
+}
+
 /* Curated language list for 번역 (source / target). */
 const WORK_LANGUAGES = [
   { key: "ko", label: i18n.t('app.한국어') },
@@ -5924,6 +6487,7 @@ const SUB_GENRES = {
     { key: "dark", label: i18n.t('app.다크판타지') },
     { key: "urban", label: i18n.t('app.어반판타지') },
     { key: "female", label: i18n.t('app.여성향_판타지') },
+    { key: "male", label: i18n.t('app.남성향_판타지') },
     { key: "other", label: i18n.t('app.기타') },
   ],
   sf: [
@@ -6036,7 +6600,7 @@ function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
 
 /** Header genre <select>s are value stores only — never interactive dropdowns. */
 function lockHeaderGenreSelects() {
-  for (const id of ["mainGenreSelect", "subGenreSelect"]) {
+  for (const id of ["mainGenreSelect", "subGenreSelect", "genreDetailSelect"]) {
     const select = $(id);
     if (!select) continue;
     select.disabled = true;
@@ -6330,6 +6894,14 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
   }
 }
 
+function fillGenreDetailSelect(mainKey = "", selectedSub = "", selectedStored = "") {
+  const select = $("genreDetailSelect");
+  const options = genreDetailOptionsForMainSub(mainKey, selectedSub);
+  const next = fillGenreDetailSelectEl(select, options, selectedStored || "");
+  state.genreDetail = next;
+  lockHeaderGenreSelects();
+}
+
 function readGenreValuesFromUi() {
   const mainSelect = $("mainGenreSelect")?.value || "";
   const subSelect = $("subGenreSelect")?.value || "";
@@ -6343,7 +6915,8 @@ function readGenreValuesFromUi() {
   if (subSelect === "other") {
     sub = subCustom ? toCustomGenreValue(subCustom) : "other";
   }
-  return { main, sub };
+  const detail = normalizeGenreDetailKey(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+  return { main, sub, genre_detail: detail };
 }
 
 function syncGenrePickerFromState() {
@@ -6355,6 +6928,7 @@ function syncGenrePickerFromState() {
   const mode = getPurposeCategoryMode();
   const hasProject = Boolean(state.projectId);
   if (mode === "none") {
+    fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
     return;
@@ -6366,6 +6940,7 @@ function syncGenrePickerFromState() {
   if (mode === "fairy_tale") {
     // 대상만 — 서브 비움
     fillSubGenreSelect("", "");
+    fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
     return;
@@ -6373,6 +6948,7 @@ function syncGenrePickerFromState() {
   if (mode === "translation") {
     // Always show both language lists (원문 / 번역문)
     fillSubGenreSelect("lang", state.subGenre || "");
+    fillGenreDetailSelect("", "", "");
     lockHeaderGenreSelects();
     updateGenreCustomVisibility();
     if (hasProject) {
@@ -6404,6 +6980,7 @@ function syncGenrePickerFromState() {
   const mainKeyForSubs = resolveMainGenreSelectValue(state.mainGenre || "", mode);
   const subListKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || "");
   fillSubGenreSelect(subListKey, state.subGenre || "");
+  fillGenreDetailSelect(subListKey, state.subGenre || "", state.genreDetail || "");
   lockHeaderGenreSelects();
   updateGenreCustomVisibility();
   if (hasProject) {
@@ -6442,22 +7019,32 @@ function schedulePersistProjectGenre() {
 
 async function persistProjectGenre({ quiet = true } = {}) {
   if (!state.projectId) return;
-  const { main, sub } = readGenreValuesFromUi();
+  const { main, sub, genre_detail } = readGenreValuesFromUi();
   state.mainGenre = main;
   state.subGenre = sub;
+  state.genreDetail = genre_detail;
+  state.clusterId = inferClusterId(state.projectPurpose, main, sub);
   await api(`/api/projects/${state.projectId}/settings`, {
     method: "POST",
-    body: JSON.stringify({ main_genre: main, sub_genre: sub }),
+    body: JSON.stringify({
+      main_genre: main,
+      sub_genre: sub,
+      cluster_id: state.clusterId,
+      genre_detail,
+    }),
   });
   const project = state.projects.find((p) => p.id === state.projectId);
   if (project) {
     project.main_genre = main;
     project.sub_genre = sub;
+    project.cluster_id = state.clusterId;
+    project.genre_detail = genre_detail;
   }
   syncGenreDisplayButtons();
   if (typeof renderSettingsCodex === "function") {
     try { renderSettingsCodex(); } catch (_) { /* ignore */ }
   }
+  try { applyClusterFeatureGating(); } catch (_) { /* ignore */ }
   if (!quiet) toast(i18n.t('app.장르를_저장했습니다'));
 }
 
@@ -6478,7 +7065,11 @@ function syncGenreDisplayButtons() {
       const custom = ($("mainGenreCustom")?.value || "").trim();
       if (custom) label = custom;
     }
+    const detailKey = $("genreDetailSelect")?.value || state.genreDetail || "";
+    const detailText = genreDetailLabel(detailKey);
+    if (detailText) label = `${label} · ${detailText}`;
     mainBtn.textContent = label || i18n.t('app.장르');
+    mainBtn.classList.toggle("is-with-detail", Boolean(detailText));
     mainBtn.disabled = !hasProject || mode === "none";
     mainBtn.title = hasProject
       ? i18n.t('app.우클릭_장르_변경')
@@ -6583,13 +7174,31 @@ function showGenreContextMenu(kind, clientX, clientY) {
     },
     ...options,
   ];
-  host.innerHTML = rows.map((opt) => {
+  const mainHtml = rows.map((opt) => {
     const key = String(opt.key ?? "");
     const active = key === current ? " is-active" : "";
     return `<button type="button" role="menuitem" class="${active.trim()}" data-genre-kind="${escapeHtml(kind)}" data-genre-key="${escapeHtml(key)}">
       <strong>${escapeHtml(opt.label)}</strong>
     </button>`;
   }).join("");
+  const detailOptions = getPurposeCategoryMode() === "fiction"
+    ? genreDetailOptionsForMainSub(
+      $("mainGenreSelect")?.value || state.mainGenre || "",
+      $("subGenreSelect")?.value || state.subGenre || "",
+    )
+    : [];
+  const currentDetail = $("genreDetailSelect")?.value || state.genreDetail || "";
+  const detailHtml = detailOptions.length
+    ? `<div class="context-menu-divider" role="separator"></div><div class="context-menu-label">${escapeHtml(i18n.t("app.세부_장르_선택"))}</div>`
+      + detailOptions.map((opt) => {
+        const key = String(opt.key ?? "");
+        const active = key === currentDetail ? " is-active" : "";
+        return `<button type="button" role="menuitem" class="${active.trim()}" data-genre-kind="detail" data-genre-key="${escapeHtml(key)}">
+          <strong>${escapeHtml(opt.label)}</strong>
+        </button>`;
+      }).join("")
+    : "";
+  host.innerHTML = mainHtml + detailHtml;
   placeGenreContextMenu(clientX, clientY);
 }
 
@@ -6605,7 +7214,9 @@ function applyMainGenreChoice(mainKey) {
   state.mainGenre = next === "other" ? "other" : next;
   if (mode === "fairy_tale") {
     state.subGenre = "";
+    state.genreDetail = "";
     fillSubGenreSelect("", "");
+    fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
     persistProjectGenre({ quiet: false }).catch(handleError);
@@ -6614,6 +7225,7 @@ function applyMainGenreChoice(mainKey) {
   if (mode === "translation") {
     const keepSub = state.subGenre || "";
     fillSubGenreSelect("lang", keepSub);
+    fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
     if (next === "other") {
@@ -6626,7 +7238,9 @@ function applyMainGenreChoice(mainKey) {
   }
   // fiction
   state.subGenre = "";
+  state.genreDetail = "";
   fillSubGenreSelect(next, "");
+  fillGenreDetailSelect(next, "", "");
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -6646,6 +7260,9 @@ function applySubGenreChoice(subKey) {
 
   select.value = next;
   state.subGenre = next === "other" ? "other" : next;
+  const mainKey = $("mainGenreSelect")?.value || state.mainGenre || "";
+  state.genreDetail = "";
+  fillGenreDetailSelect(mainKey, next === "other" ? "other" : next, "");
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -6653,6 +7270,17 @@ function applySubGenreChoice(subKey) {
     schedulePersistProjectGenre();
     return;
   }
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function applyGenreDetailChoice(detailKey) {
+  if (!state.projectId) return;
+  const mainKey = $("mainGenreSelect")?.value || state.mainGenre || "";
+  const subKey = $("subGenreSelect")?.value || state.subGenre || "";
+  const next = normalizeGenreDetailKey(mainKey, subKey, detailKey);
+  if (state.genreDetail === next && ($("genreDetailSelect")?.value || "") === next) return;
+  fillGenreDetailSelect(mainKey, subKey, next);
+  syncGenreDisplayButtons();
   persistProjectGenre({ quiet: false }).catch(handleError);
 }
 
@@ -6697,7 +7325,8 @@ function setupGenrePicker() {
     const kind = item.dataset.genreKind || "main";
     const key = item.dataset.genreKey ?? "";
     hideGenreContextMenu();
-    if (kind === "sub") applySubGenreChoice(key);
+    if (kind === "detail") applyGenreDetailChoice(key);
+    else if (kind === "sub") applySubGenreChoice(key);
     else applyMainGenreChoice(key);
   });
   document.addEventListener("click", (event) => {
@@ -6757,12 +7386,78 @@ function setKeywordPickerOpen(open) {
   panel.classList.toggle("hidden", !open);
   if (toggle) toggle.setAttribute("aria-expanded", open ? "true" : "false");
   if (open) {
-    renderKeywordCatalog();
+    if (usesKeywordPresetCatalog()) renderKeywordCatalog();
     // Ensure the keywords settings box is open so the picker is visible.
     if (state.openSettingsSection !== "keywords") {
       setOpenSettingsSection("keywords");
     }
+    if (!usesKeywordPresetCatalog()) {
+      window.setTimeout(() => $("keywordCustomInput")?.focus(), 0);
+    }
   }
+}
+
+function shakeKeywordChip(label) {
+  const cleaned = String(label || "").trim();
+  if (!cleaned) return;
+  document.querySelectorAll(`[data-keyword="${CSS.escape(cleaned)}"]`).forEach((chip) => {
+    chip.classList.remove("is-shake");
+    void chip.offsetWidth;
+    chip.classList.add("is-shake");
+    window.setTimeout(() => chip.classList.remove("is-shake"), 420);
+  });
+}
+
+function keywordLabelMax() {
+  return usesKeywordPresetCatalog() ? 40 : 15;
+}
+
+function syncKeywordClusterUi() {
+  const presets = usesKeywordPresetCatalog();
+  $("keywordBank")?.classList.toggle("is-keyword-custom-only", !presets);
+  $("keywordBoard")?.classList.toggle("is-keyword-custom-only", !presets);
+  $("keywordPickerPanel")?.classList.toggle("is-keyword-custom-only", !presets);
+
+  const toggle = $("keywordPickerToggle");
+  if (toggle) {
+    toggle.textContent = presets ? i18n.t("app.키워드_버튼") : i18n.t("app.태그_추가");
+    toggle.title = presets ? i18n.t("index.태그에서_고르기") : i18n.t("index.태그_직접_추가");
+    toggle.setAttribute("data-i18n", presets ? "app.키워드_버튼" : "app.태그_추가");
+    toggle.setAttribute("data-i18n-title", presets ? "index.태그에서_고르기" : "index.태그_직접_추가");
+  }
+
+  const hint = $("keywordsHint");
+  if (hint) {
+    hint.textContent = presets
+      ? i18n.t("index.태그를_고르면_이_작품_키워드로_저장됩니다")
+      : i18n.t("index.태그를_직접_입력하면_이_작품_키워드로_저장");
+    hint.setAttribute(
+      "data-i18n",
+      presets ? "index.태그를_고르면_이_작품_키워드로_저장됩니다" : "index.태그를_직접_입력하면_이_작품_키워드로_저장",
+    );
+  }
+
+  const boardHint = $("keywordBoardHint");
+  if (boardHint) {
+    boardHint.textContent = presets
+      ? i18n.t("index.위에서_작품_종류_장르를_보고_바꾸고_아래에")
+      : i18n.t("index.위에서_작품_종류_장르를_보고_바꾸고_태그를");
+    boardHint.setAttribute(
+      "data-i18n",
+      presets ? "index.위에서_작품_종류_장르를_보고_바꾸고_아래에" : "index.위에서_작품_종류_장르를_보고_바꾸고_태그를",
+    );
+  }
+
+  const pickerTitle = $("keywordPickerTitle") || document.querySelector("#keywordPickerPanel .keyword-picker-title");
+  if (pickerTitle) {
+    pickerTitle.textContent = presets ? i18n.t("index.태그_고르기") : i18n.t("index.태그_추가");
+  }
+
+  const maxLen = keywordLabelMax();
+  ["keywordCustomInput", "keywordBoardCustomInput"].forEach((id) => {
+    const input = $(id);
+    if (input) input.maxLength = maxLen;
+  });
 }
 
 function keywordChipsHtml() {
@@ -6808,9 +7503,10 @@ function renderKeywordCatalog() {
 }
 
 function renderKeywordBox() {
+  syncKeywordClusterUi();
   renderKeywordChips();
   const panel = $("keywordPickerPanel");
-  if ((panel && !panel.classList.contains("hidden")) || state.keywordBoardOpen) {
+  if (usesKeywordPresetCatalog() && ((panel && !panel.classList.contains("hidden")) || state.keywordBoardOpen)) {
     renderKeywordCatalog();
   }
 }
@@ -6874,14 +7570,12 @@ function openKeywordBoard() {
   hideCenterViewsForKeywordBoard();
   placeGenreBlockForKeywordBoard(true);
   renderKeywordBox();
-  renderKeywordCatalog();
 }
 
 function renderKeywordBoard() {
   if (!state.keywordBoardOpen) return;
   placeGenreBlockForKeywordBoard(true);
-  renderKeywordChips();
-  renderKeywordCatalog();
+  renderKeywordBox();
 }
 
 let keywordPersistTimer = null;
@@ -6906,9 +7600,13 @@ async function persistProjectKeywords({ quiet = true } = {}) {
 }
 
 function addProjectKeyword(label) {
-  const cleaned = String(label || "").trim().slice(0, 40);
+  const cleaned = String(label || "").trim().slice(0, keywordLabelMax());
   if (!cleaned) return false;
-  if (state.keywords.includes(cleaned)) return false;
+  if (state.keywords.includes(cleaned)) {
+    shakeKeywordChip(cleaned);
+    toast(i18n.t("app.이미_있는_태그예요"));
+    return false;
+  }
   if (state.keywords.length >= KEYWORD_MAX) {
     toast(`${i18n.t('app.키워드는_최대_KEYWORD_MAX_개까지', {KEYWORD_MAX: KEYWORD_MAX})}`);
     return false;
@@ -7095,6 +7793,7 @@ function applyPurposeChoice(nextRaw) {
   if (prevMode !== nextMode || nextMode === "none") {
     state.mainGenre = "";
     state.subGenre = "";
+    state.genreDetail = "";
   }
   fillPurposeSelect(nextPurpose);
   syncPurposeDisplayButton();
@@ -7483,18 +8182,24 @@ async function persistProjectPurpose({ quiet = true } = {}) {
   if (!state.projectId) return;
   const select = $("purposeSelect");
   const purpose = normalizePurposeKey(select?.value || state.projectPurpose || "general_novel");
+  const clusterId = inferClusterId(purpose, state.mainGenre, state.subGenre);
   const result = await api(`/api/projects/${state.projectId}/settings`, {
     method: "POST",
-    body: JSON.stringify({ purpose }),
+    body: JSON.stringify({ purpose, cluster_id: clusterId }),
   });
   const next = normalizePurposeKey(result?.purpose || purpose);
   state.projectPurpose = next;
+  state.clusterId = result?.cluster_id || clusterId;
   const project = state.projects.find((p) => p.id === state.projectId);
-  if (project) project.purpose = next;
+  if (project) {
+    project.purpose = next;
+    project.cluster_id = state.clusterId;
+  }
   refreshProjectSelectOptions();
   if (typeof renderSettingsCodex === "function") {
     try { renderSettingsCodex(); } catch (_) { /* ignore */ }
   }
+  try { applyClusterFeatureGating(); } catch (_) { /* ignore */ }
   if (!quiet) toast(`${i18n.t('app.작품_종류를_purposeLabel_next', {'purposeLabel[next] || next': purposeLabel[next] || next})}`);
 }
 
@@ -7711,6 +8416,14 @@ async function loadProject() {
   }
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
+  state.genreDetail = outline.project?.genre_detail || fromList?.genre_detail || "";
+  state.clusterId = inferClusterId(
+    state.projectPurpose || outline.project?.purpose || fromList?.purpose,
+    state.mainGenre,
+    state.subGenre,
+    outline.project?.cluster_id || fromList?.cluster_id,
+  );
+  if (fromList) fromList.cluster_id = state.clusterId;
   state.keywords = normalizeKeywordList(
     outline.project?.keywords ?? fromList?.keywords ?? [],
   );
@@ -7725,6 +8438,7 @@ async function loadProject() {
   // Settings accordion open state is per work.
   restoreOpenSettingsSection(projectIdAtStart);
   renderSettingsCodex();
+  try { applyClusterFeatureGating(); } catch (_) { /* ignore */ }
   $("newChapterButton").disabled = false;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
   $("newCharacterButton").disabled = false;
@@ -9478,67 +10192,6 @@ function getAnalyzeTargetMode() {
   return "current";
 }
 
-function renderAnalyzeEpisodeOptions() {
-  const select = $("analyzeOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
-function renderAnalyzeMultiEpisodeOptions() {
-  const host = $("analyzeMultiSceneList");
-  if (!host) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
-    return;
-  }
-  const prevChecked = new Set(
-    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
-      .map((el) => String(el.value || "")),
-  );
-  host.innerHTML = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    const checked = prevChecked.has(String(id)) ? " checked" : "";
-    return (
-      `<label class="tory-multi-episode-option analyze-multi-option">`
-      + `<input type="checkbox" name="analyzeMultiScene" value="${id}"${checked}>`
-      + `<span>${escapeHtml(label)}</span>`
-      + `</label>`
-    );
-  }).join("");
-  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
-    box.addEventListener("change", () => {
-      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
-      if (checked.length > ANALYZE_MULTI_MAX) {
-        box.checked = false;
-        toast(`${i18n.t('app.다중_회차는_최대_ANALYZE_MULTI', {ANALYZE_MULTI_MAX: ANALYZE_MULTI_MAX})}`);
-      }
-    });
-  });
-}
-
 /** Keep "다른 회차" select always visible; enable only when mode is other. */
 function setOtherSceneSelectActive(wrapId, selectId, active) {
   const wrap = $(wrapId);
@@ -9548,13 +10201,299 @@ function setOtherSceneSelectActive(wrapId, selectId, active) {
   if (select) select.disabled = !active;
 }
 
+function getEpisodeTargetModeFromConfig(config) {
+  const checked = document.querySelector(`input[name="${config.radioName}"]:checked`);
+  const raw = String(checked?.value || "current").trim().toLowerCase();
+  if (raw === "other") return "other";
+  if (raw === "multi" && Number(config.multiMax) > 0) return "multi";
+  return "current";
+}
+
+function episodeTargetOptionLabel(ep, currentId) {
+  const id = Number(ep.sceneId);
+  const mark = currentId && id === currentId ? i18n.t("app.현재_2") : "";
+  return `${i18n.t("app.ep_index_화_ep_label_ep", {
+    "ep.index": ep.index,
+    "ep.label || ep.shortLabel || id": ep.label || ep.shortLabel || id,
+    mark,
+  })}`;
+}
+
+function fillEpisodeTargetSelect(selectId) {
+  const select = $(selectId);
+  if (!select) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const prev = String(select.value || "");
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    select.innerHTML = i18n.t("app.option_value_열_수_있는_회차가");
+    return;
+  }
+  const opts = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    return `<option value="${id}">${escapeHtml(episodeTargetOptionLabel(ep, currentId))}</option>`;
+  });
+  select.innerHTML = `${i18n.t("app.option_value_회차를_선택하세요", { 'opts.join("")': opts.join("") })}`;
+  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
+    select.value = prev;
+  } else {
+    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
+    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
+  }
+}
+
+function fillEpisodeTargetMultiList(config) {
+  const host = $(config.multiListId);
+  if (!host) return;
+  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const currentId = state.sceneId ? Number(state.sceneId) : null;
+  if (!sequence.length) {
+    host.innerHTML = i18n.t("app.p_class_hint_열_수_있는_회차가");
+    return;
+  }
+  const prevChecked = new Set(
+    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((el) => String(el.value || "")),
+  );
+  host.innerHTML = sequence.map((ep) => {
+    const id = Number(ep.sceneId);
+    const checked = prevChecked.has(String(id)) ? " checked" : "";
+    return (
+      `<label class="${config.multiOptionClass}">`
+      + `<input type="checkbox" name="${config.multiCheckboxName}" value="${id}"${checked}>`
+      + `<span>${escapeHtml(episodeTargetOptionLabel(ep, currentId))}</span>`
+      + `</label>`
+    );
+  }).join("");
+  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
+    box.addEventListener("change", () => {
+      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
+      if (checked.length > config.multiMax) {
+        box.checked = false;
+        toast(`${i18n.t(config.multiMaxToastKey, config.multiMaxToastParams)}`);
+        return;
+      }
+      if (config.multiWarnAt && box.checked && checked.length >= config.multiWarnAt) {
+        toast(`${i18n.t(config.multiWarnToastKey, { "checked.length": checked.length })}`);
+      }
+    });
+  });
+}
+
+function ensureEpisodeTargetExtraSlot(config) {
+  if (!config.extraOptionSlot) return;
+  const modal = $(config.modalId);
+  if (!modal || modal.querySelector(".episode-target-extra-options")) return;
+  const slot = document.createElement("div");
+  slot.className = "episode-target-extra-options";
+  const actions = modal.querySelector(".modal-actions");
+  if (actions?.parentNode) actions.parentNode.insertBefore(slot, actions);
+}
+
+function renderEpisodeTargetOptions(config) {
+  ensureEpisodeTargetExtraSlot(config);
+  fillEpisodeTargetSelect(config.otherSelectId);
+  const mode = getEpisodeTargetModeFromConfig(config);
+  setOtherSceneSelectActive(config.otherWrapId, config.otherSelectId, mode === "other");
+  if (!(Number(config.multiMax) > 0)) return;
+  if (config.multiWrapId) {
+    $(config.multiWrapId)?.classList.toggle("hidden", mode !== "multi");
+  }
+  if (config.multiHintId) {
+    $(config.multiHintId)?.classList.toggle("hidden", mode !== "multi");
+  }
+  if (mode === "multi") fillEpisodeTargetMultiList(config);
+}
+
+function resolveEpisodeTargetSceneIds(config) {
+  const mode = getEpisodeTargetModeFromConfig(config);
+  if (mode === "multi" && Number(config.multiMax) > 0) {
+    const boxes = Array.from(
+      document.querySelectorAll(`#${config.multiListId} input[type="checkbox"]:checked`),
+    );
+    return boxes
+      .map((el) => Number(el.value || 0))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .slice(0, config.multiMax);
+  }
+  if (mode === "other") {
+    const n = Number($(config.otherSelectId)?.value || 0);
+    return Number.isFinite(n) && n > 0 ? [n] : [];
+  }
+  const id = state.sceneId ? Number(state.sceneId) : 0;
+  return id ? [id] : [];
+}
+
+function confirmEpisodeTarget(config) {
+  const mode = getEpisodeTargetModeFromConfig(config);
+  let ids = resolveEpisodeTargetSceneIds(config);
+  if (!ids.length) {
+    if (mode === "multi") {
+      toast(i18n.t(config.emptyMultiMessageKey));
+      return;
+    }
+    if (mode === "other") {
+      toast(i18n.t(config.emptyOtherMessageKey || config.emptyMessageKey));
+      if (config.focusOtherOnEmpty) $(config.otherSelectId)?.focus();
+      return;
+    }
+    toast(i18n.t(config.emptyCurrentMessageKey || config.emptyMessageKey));
+    return;
+  }
+  if (config.sortIds) {
+    ids = typeof sortSceneIdsByEpisodeSequence === "function"
+      ? sortSceneIdsByEpisodeSequence(ids)
+      : ids;
+  }
+  if (config.confirmWarnAt && ids.length >= config.confirmWarnAt && config.confirmWarnToastKey) {
+    toast(`${i18n.t(config.confirmWarnToastKey, { "ids.length": ids.length })}`);
+  }
+  const extraValue = config.extraFieldId ? String($(config.extraFieldId)?.value || "") : "";
+  const selection = { mode, sceneIds: ids, sceneId: ids[0] || null };
+  if (config.extraFieldId) config.onConfirm(selection, extraValue);
+  else config.onConfirm(selection);
+}
+
+const EPISODE_TARGET_MODAL_CONFIGS = {
+  summarize: {
+    modalId: "summarizeMultiTargetModal",
+    radioName: "summarizeMultiTargetMode",
+    otherWrapId: "summarizeMultiOtherSceneWrap",
+    otherSelectId: "summarizeMultiOtherSceneSelect",
+    multiMax: 20,
+    multiWrapId: "summarizeMultiSceneWrap",
+    multiListId: "summarizeMultiSceneList",
+    multiCheckboxName: "summarizeMultiScene",
+    multiOptionClass: "tory-multi-episode-option summarize-multi-option",
+    multiMaxToastKey: "app.다중_회차는_최대_SUMMARIZE_MULT",
+    multiMaxToastParams: { SUMMARIZE_MULTI_MAX: 20 },
+    multiWarnAt: 10,
+    multiWarnToastKey: "app.checked_length_개_회차예요_요",
+    emptyMultiMessageKey: "app.요약할_회차를_한_개_이상_선택해_주세요",
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    sortIds: true,
+    confirmWarnAt: 10,
+    confirmWarnToastKey: "app.ids_length_개_회차_요약은_시간이",
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeSummarizeMultiTargetModal({ returnToList: false });
+      const ids = selection.sceneIds;
+      if (ids.length === 1) runDetailedSceneSummaryForTarget(ids[0]).catch(handleError);
+      else runDetailedSceneSummaryMulti(ids).catch(handleError);
+    },
+  },
+  worldscan: {
+    modalId: "worldscanTargetModal",
+    radioName: "worldscanTargetMode",
+    otherWrapId: "worldscanOtherSceneWrap",
+    otherSelectId: "worldscanOtherSceneSelect",
+    multiMax: 5,
+    multiWrapId: "worldscanMultiSceneWrap",
+    multiListId: "worldscanMultiSceneList",
+    multiCheckboxName: "worldscanMultiScene",
+    multiOptionClass: "tory-multi-episode-option worldscan-multi-option",
+    multiMaxToastKey: "app.다중_회차는_최대_WORLDSCAN_MULT",
+    multiMaxToastParams: { WORLDSCAN_MULTI_MAX: 5 },
+    emptyMultiMessageKey: "app.검사할_회차를_한_개_이상_선택해_주세요",
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    sortIds: true,
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeWorldscanTargetModal({ returnToList: false });
+      const ids = selection.sceneIds;
+      if (ids.length === 1) runWorldScanForTarget(ids[0]).catch(handleError);
+      else runWorldScanMulti(ids).catch(handleError);
+    },
+  },
+  analyze: {
+    modalId: "analyzeTargetModal",
+    radioName: "analyzeTargetMode",
+    otherWrapId: "analyzeOtherSceneWrap",
+    otherSelectId: "analyzeOtherSceneSelect",
+    multiMax: ANALYZE_MULTI_MAX,
+    multiWrapId: "analyzeMultiSceneWrap",
+    multiListId: "analyzeMultiSceneList",
+    multiHintId: "analyzeMultiHint",
+    multiCheckboxName: "analyzeMultiScene",
+    multiOptionClass: "tory-multi-episode-option analyze-multi-option",
+    multiMaxToastKey: "app.다중_회차는_최대_ANALYZE_MULTI",
+    multiMaxToastParams: { ANALYZE_MULTI_MAX },
+    emptyMultiMessageKey: "app.피드백할_회차를_한_개_이상_선택해_주세요",
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    sortIds: true,
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeAnalyzeTargetModal({ returnToList: false });
+      runAnalyzeFromSelection(selection.sceneIds).catch(handleError);
+    },
+  },
+  dupcheck: {
+    modalId: "dupcheckTargetModal",
+    radioName: "dupcheckTargetMode",
+    otherWrapId: "dupcheckOtherSceneWrap",
+    otherSelectId: "dupcheckOtherSceneSelect",
+    multiMax: 0,
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    emptyCurrentMessageKey: "app.현재_열린_회차가_없어요_다른_회차를_지정해",
+    focusOtherOnEmpty: true,
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeDupcheckTargetModal({ returnToList: false });
+      runDuplicateCheck(selection.sceneId).catch(handleError);
+    },
+  },
+  ideas: {
+    modalId: "ideasTargetModal",
+    radioName: "ideasTargetMode",
+    otherWrapId: "ideasOtherSceneWrap",
+    otherSelectId: "ideasOtherSceneSelect",
+    multiMax: 0,
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    emptyCurrentMessageKey: "app.현재_열린_회차가_없어요_다른_회차를_지정해",
+    focusOtherOnEmpty: true,
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeIdeasTargetModal({ returnToList: false });
+      runNextIdeaSuggestion(selection.sceneId).catch(handleError);
+    },
+  },
+  brainstorm: {
+    modalId: "brainstormTargetModal",
+    radioName: "brainstormTargetMode",
+    otherWrapId: "brainstormOtherSceneWrap",
+    otherSelectId: "brainstormOtherSceneSelect",
+    multiMax: 0,
+    extraFieldId: "brainstormTopic",
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    emptyCurrentMessageKey: "app.현재_열린_회차가_없어요_다른_회차를_지정해",
+    focusOtherOnEmpty: true,
+    extraOptionSlot: false,
+    onConfirm(selection, extraValue) {
+      brainstormTargetSceneId = selection.sceneId;
+      closeBrainstormTargetModal({ returnToList: false });
+      runBrainstormSuggestion().catch(handleError);
+    },
+  },
+  temphook: {
+    modalId: "tempoHookTargetModal",
+    radioName: "tempoHookTargetMode",
+    otherWrapId: "tempoHookOtherSceneWrap",
+    otherSelectId: "tempoHookOtherSceneSelect",
+    multiMax: 0,
+    emptyMessageKey: "app.기준_회차를_선택해_주세요",
+    emptyCurrentMessageKey: "app.현재_열린_회차가_없어요_다른_회차를_지정해",
+    focusOtherOnEmpty: true,
+    extraOptionSlot: false,
+    onConfirm(selection) {
+      closeTempoHookTargetModal({ returnToList: false });
+      openTempoHookResultsModal();
+      runTempoHookAnalysis(selection.sceneId).catch(handleError);
+    },
+  },
+};
+
 function updateAnalyzeTargetUi() {
-  const mode = getAnalyzeTargetMode();
-  setOtherSceneSelectActive("analyzeOtherSceneWrap", "analyzeOtherSceneSelect", mode === "other");
-  $("analyzeMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
-  $("analyzeMultiHint")?.classList.toggle("hidden", mode !== "multi");
-  renderAnalyzeEpisodeOptions();
-  if (mode === "multi") renderAnalyzeMultiEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.analyze);
 }
 
 function openAnalyzeTargetModal() {
@@ -9595,25 +10534,6 @@ function closeAnalyzeTargetModal({ returnToList = true } = {}) {
   try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
-function resolveAnalyzeSelectedSceneIds() {
-  const mode = getAnalyzeTargetMode();
-  if (mode === "current") {
-    const id = state.sceneId ? Number(state.sceneId) : 0;
-    return id ? [id] : [];
-  }
-  if (mode === "other") {
-    const n = Number($("analyzeOtherSceneSelect")?.value || 0);
-    return Number.isFinite(n) && n > 0 ? [n] : [];
-  }
-  const boxes = Array.from(
-    document.querySelectorAll('#analyzeMultiSceneList input[type="checkbox"]:checked'),
-  );
-  return boxes
-    .map((el) => Number(el.value || 0))
-    .filter((id) => Number.isFinite(id) && id > 0)
-    .slice(0, ANALYZE_MULTI_MAX);
-}
-
 function areContiguousInSequence(sceneIds) {
   if (!Array.isArray(sceneIds) || sceneIds.length < 2) return false;
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
@@ -9630,20 +10550,7 @@ function areContiguousInSequence(sceneIds) {
 }
 
 function confirmAnalyzeTarget() {
-  let ids = resolveAnalyzeSelectedSceneIds();
-  if (!ids.length) {
-    toast(
-      getAnalyzeTargetMode() === "multi"
-        ? i18n.t('app.피드백할_회차를_한_개_이상_선택해_주세요')
-        : i18n.t('app.기준_회차를_선택해_주세요'),
-    );
-    return;
-  }
-  ids = typeof sortSceneIdsByEpisodeSequence === "function"
-    ? sortSceneIdsByEpisodeSequence(ids)
-    : ids;
-  closeAnalyzeTargetModal({ returnToList: false });
-  runAnalyzeFromSelection(ids).catch(handleError);
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.analyze);
 }
 
 function setupAnalyzeTargetModal() {
@@ -9987,81 +10894,8 @@ function getSummarizeMultiTargetMode() {
   return "current";
 }
 
-function renderSummarizeMultiEpisodeOptions() {
-  const select = $("summarizeMultiOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
-function renderSummarizeMultiCheckboxList() {
-  const host = $("summarizeMultiSceneList");
-  if (!host) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
-    return;
-  }
-  const prevChecked = new Set(
-    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
-      .map((el) => String(el.value || "")),
-  );
-  host.innerHTML = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    const checked = prevChecked.has(String(id)) ? " checked" : "";
-    return (
-      `<label class="tory-multi-episode-option summarize-multi-option">`
-      + `<input type="checkbox" name="summarizeMultiScene" value="${id}"${checked}>`
-      + `<span>${escapeHtml(label)}</span>`
-      + `</label>`
-    );
-  }).join("");
-  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
-    box.addEventListener("change", () => {
-      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
-      if (checked.length > SUMMARIZE_MULTI_MAX) {
-        box.checked = false;
-        toast(`${i18n.t('app.다중_회차는_최대_SUMMARIZE_MULT', {SUMMARIZE_MULTI_MAX: SUMMARIZE_MULTI_MAX})}`);
-        return;
-      }
-      if (checked.length >= SUMMARIZE_MULTI_WARN_AT && box.checked) {
-        toast(`${i18n.t('app.checked_length_개_회차예요_요', {'checked.length': checked.length})}`);
-      }
-    });
-  });
-}
-
 function updateSummarizeMultiTargetUi() {
-  const mode = getSummarizeMultiTargetMode();
-  setOtherSceneSelectActive(
-    "summarizeMultiOtherSceneWrap",
-    "summarizeMultiOtherSceneSelect",
-    mode === "other",
-  );
-  $("summarizeMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
-  renderSummarizeMultiEpisodeOptions();
-  if (mode === "multi") renderSummarizeMultiCheckboxList();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.summarize);
 }
 
 function openSummarizeMultiTargetModal() {
@@ -10103,47 +10937,8 @@ function closeSummarizeMultiTargetModal({ returnToList = true } = {}) {
   try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
-function resolveSummarizeMultiSelectedSceneIds() {
-  const mode = getSummarizeMultiTargetMode();
-  if (mode === "current") {
-    const id = state.sceneId ? Number(state.sceneId) : 0;
-    return id ? [id] : [];
-  }
-  if (mode === "other") {
-    const n = Number($("summarizeMultiOtherSceneSelect")?.value || 0);
-    return Number.isFinite(n) && n > 0 ? [n] : [];
-  }
-  const boxes = Array.from(
-    document.querySelectorAll('#summarizeMultiSceneList input[type="checkbox"]:checked'),
-  );
-  return boxes
-    .map((el) => Number(el.value || 0))
-    .filter((id) => Number.isFinite(id) && id > 0)
-    .slice(0, SUMMARIZE_MULTI_MAX);
-}
-
 function confirmSummarizeMultiTarget() {
-  let ids = resolveSummarizeMultiSelectedSceneIds();
-  if (!ids.length) {
-    toast(
-      getSummarizeMultiTargetMode() === "multi"
-        ? i18n.t('app.요약할_회차를_한_개_이상_선택해_주세요')
-        : i18n.t('app.기준_회차를_선택해_주세요'),
-    );
-    return;
-  }
-  ids = typeof sortSceneIdsByEpisodeSequence === "function"
-    ? sortSceneIdsByEpisodeSequence(ids)
-    : ids;
-  if (ids.length >= SUMMARIZE_MULTI_WARN_AT) {
-    toast(`${i18n.t('app.ids_length_개_회차_요약은_시간이', {'ids.length': ids.length})}`);
-  }
-  closeSummarizeMultiTargetModal({ returnToList: false });
-  if (ids.length === 1) {
-    runDetailedSceneSummaryForTarget(ids[0]).catch(handleError);
-  } else {
-    runDetailedSceneSummaryMulti(ids).catch(handleError);
-  }
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.summarize);
 }
 
 function setupSummarizeMultiTargetModal() {
@@ -10877,35 +11672,8 @@ function getDupcheckTargetMode() {
   return raw === "other" ? "other" : "current";
 }
 
-function renderDupcheckEpisodeOptions() {
-  const select = $("dupcheckOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
 function updateDupcheckTargetUi() {
-  const other = getDupcheckTargetMode() === "other";
-  setOtherSceneSelectActive("dupcheckOtherSceneWrap", "dupcheckOtherSceneSelect", other);
-  renderDupcheckEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.dupcheck);
 }
 
 /** Open episode picker for panel-driven 중복 체크 (does not run the scan yet). */
@@ -10946,24 +11714,7 @@ function closeDupcheckTargetModal({ returnToList = true } = {}) {
 }
 
 function confirmDupcheckTarget() {
-  let sceneId = null;
-  if (getDupcheckTargetMode() === "other") {
-    const n = Number($("dupcheckOtherSceneSelect")?.value || 0);
-    sceneId = Number.isFinite(n) && n > 0 ? n : null;
-    if (!sceneId) {
-      toast(i18n.t('app.기준_회차를_선택해_주세요'));
-      $("dupcheckOtherSceneSelect")?.focus();
-      return;
-    }
-  } else {
-    sceneId = state.sceneId ? Number(state.sceneId) : null;
-    if (!sceneId) {
-      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
-      return;
-    }
-  }
-  closeDupcheckTargetModal({ returnToList: false });
-  runDuplicateCheck(sceneId).catch(handleError);
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.dupcheck);
 }
 
 function setupDupcheckTargetModal() {
@@ -11007,35 +11758,8 @@ function getIdeasTargetMode() {
   return raw === "other" ? "other" : "current";
 }
 
-function renderIdeasEpisodeOptions() {
-  const select = $("ideasOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
 function updateIdeasTargetUi() {
-  const other = getIdeasTargetMode() === "other";
-  setOtherSceneSelectActive("ideasOtherSceneWrap", "ideasOtherSceneSelect", other);
-  renderIdeasEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.ideas);
 }
 
 function openIdeasTargetModal() {
@@ -11075,24 +11799,7 @@ function closeIdeasTargetModal({ returnToList = true } = {}) {
 }
 
 function confirmIdeasTarget() {
-  let sceneId = null;
-  if (getIdeasTargetMode() === "other") {
-    const n = Number($("ideasOtherSceneSelect")?.value || 0);
-    sceneId = Number.isFinite(n) && n > 0 ? n : null;
-    if (!sceneId) {
-      toast(i18n.t('app.기준_회차를_선택해_주세요'));
-      $("ideasOtherSceneSelect")?.focus();
-      return;
-    }
-  } else {
-    sceneId = state.sceneId ? Number(state.sceneId) : null;
-    if (!sceneId) {
-      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
-      return;
-    }
-  }
-  closeIdeasTargetModal({ returnToList: false });
-  runNextIdeaSuggestion(sceneId).catch(handleError);
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.ideas);
 }
 
 function setupIdeasTargetModal() {
@@ -11135,35 +11842,8 @@ function getBrainstormTargetMode() {
   return raw === "other" ? "other" : "current";
 }
 
-function renderBrainstormEpisodeOptions() {
-  const select = $("brainstormOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
 function updateBrainstormTargetUi() {
-  const other = getBrainstormTargetMode() === "other";
-  setOtherSceneSelectActive("brainstormOtherSceneWrap", "brainstormOtherSceneSelect", other);
-  renderBrainstormEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.brainstorm);
 }
 
 function openBrainstormTargetModal() {
@@ -11203,26 +11883,7 @@ function closeBrainstormTargetModal({ returnToList = true } = {}) {
 }
 
 function confirmBrainstormTarget() {
-  let sceneId = null;
-  if (getBrainstormTargetMode() === "other") {
-    const n = Number($("brainstormOtherSceneSelect")?.value || 0);
-    sceneId = Number.isFinite(n) && n > 0 ? n : null;
-    if (!sceneId) {
-      toast(i18n.t('app.기준_회차를_선택해_주세요'));
-      $("brainstormOtherSceneSelect")?.focus();
-      return;
-    }
-  } else {
-    sceneId = state.sceneId ? Number(state.sceneId) : null;
-    if (!sceneId) {
-      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
-      return;
-    }
-  }
-  brainstormTargetSceneId = sceneId;
-  closeBrainstormTargetModal({ returnToList: false });
-  // 1-step UI: episode + topic already in this modal → run immediately.
-  runBrainstormSuggestion().catch(handleError);
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.brainstorm);
 }
 
 function setupBrainstormTargetModal() {
@@ -11820,73 +12481,8 @@ function getWorldscanTargetMode() {
   return "current";
 }
 
-function renderWorldscanEpisodeOptions() {
-  const select = $("worldscanOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
-function renderWorldscanMultiEpisodeOptions() {
-  const host = $("worldscanMultiSceneList");
-  if (!host) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    host.innerHTML = i18n.t('app.p_class_hint_열_수_있는_회차가');
-    return;
-  }
-  const prevChecked = new Set(
-    Array.from(host.querySelectorAll('input[type="checkbox"]:checked'))
-      .map((el) => String(el.value || "")),
-  );
-  host.innerHTML = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    const checked = prevChecked.has(String(id)) ? " checked" : "";
-    return (
-      `<label class="tory-multi-episode-option worldscan-multi-option">`
-      + `<input type="checkbox" name="worldscanMultiScene" value="${id}"${checked}>`
-      + `<span>${escapeHtml(label)}</span>`
-      + `</label>`
-    );
-  }).join("");
-  host.querySelectorAll('input[type="checkbox"]').forEach((box) => {
-    box.addEventListener("change", () => {
-      const checked = host.querySelectorAll('input[type="checkbox"]:checked');
-      if (checked.length > WORLDSCAN_MULTI_MAX) {
-        box.checked = false;
-        toast(`${i18n.t('app.다중_회차는_최대_WORLDSCAN_MULT', {WORLDSCAN_MULTI_MAX: WORLDSCAN_MULTI_MAX})}`);
-      }
-    });
-  });
-}
-
 function updateWorldscanTargetUi() {
-  const mode = getWorldscanTargetMode();
-  setOtherSceneSelectActive("worldscanOtherSceneWrap", "worldscanOtherSceneSelect", mode === "other");
-  $("worldscanMultiSceneWrap")?.classList.toggle("hidden", mode !== "multi");
-  renderWorldscanEpisodeOptions();
-  if (mode === "multi") renderWorldscanMultiEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.worldscan);
 }
 
 function openWorldscanTargetModal() {
@@ -11927,27 +12523,6 @@ function closeWorldscanTargetModal({ returnToList = true } = {}) {
   try { returnToAiSelectList(); } catch (_) { /* ignore */ }
 }
 
-function resolveWorldscanSelectedSceneIds() {
-  const mode = getWorldscanTargetMode();
-  if (mode === "current") {
-    const id = state.sceneId ? Number(state.sceneId) : 0;
-    return id ? [id] : [];
-  }
-  if (mode === "other") {
-    const n = Number($("worldscanOtherSceneSelect")?.value || 0);
-    return Number.isFinite(n) && n > 0 ? [n] : [];
-  }
-  // multi
-  const boxes = Array.from(
-    document.querySelectorAll('#worldscanMultiSceneList input[type="checkbox"]:checked'),
-  );
-  const ids = boxes
-    .map((el) => Number(el.value || 0))
-    .filter((id) => Number.isFinite(id) && id > 0)
-    .slice(0, WORLDSCAN_MULTI_MAX);
-  return ids;
-}
-
 function sortSceneIdsByEpisodeSequence(sceneIds) {
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
   const order = new Map(sequence.map((ep, i) => [Number(ep.sceneId), i]));
@@ -11959,22 +12534,7 @@ function sortSceneIdsByEpisodeSequence(sceneIds) {
 }
 
 function confirmWorldscanTarget() {
-  let ids = resolveWorldscanSelectedSceneIds();
-  if (!ids.length) {
-    toast(
-      getWorldscanTargetMode() === "multi"
-        ? i18n.t('app.검사할_회차를_한_개_이상_선택해_주세요')
-        : i18n.t('app.기준_회차를_선택해_주세요'),
-    );
-    return;
-  }
-  ids = sortSceneIdsByEpisodeSequence(ids);
-  closeWorldscanTargetModal({ returnToList: false });
-  if (ids.length === 1) {
-    runWorldScanForTarget(ids[0]).catch(handleError);
-  } else {
-    runWorldScanMulti(ids).catch(handleError);
-  }
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.worldscan);
 }
 
 function setupWorldscanTargetModal() {
@@ -12408,6 +12968,7 @@ function buildToryProjectContextPayload(options = {}) {
     world_setting_keywords,
     tory_priority_md: String(state.toryPriorityMd || "").trim(),
     project_id: state.projectId || null,
+    cluster_id: getProjectClusterId(),
   };
 }
 
@@ -13063,20 +13624,26 @@ function renderAiModePickerMenu() {
       const iconHtml = kind === "wand"
         ? `<span class="ai-mode-picker-icon" aria-hidden="true">🪄</span>`
         : `<span class="ai-mode-picker-icon ai-mode-tory-icon" aria-hidden="true"></span>`;
-      chunks.push(`<div class="ai-mode-picker-group">`);
-      chunks.push(`<div class="ai-mode-picker-group-label">${iconHtml}${escapeHtml(label)}</div>`);
+      const optionHtml = [];
       [...node.children].forEach((opt) => {
         if (!(opt instanceof HTMLOptionElement)) return;
+        const featureId = AI_MODE_CLUSTER_FEATURE[opt.value];
+        if (featureId && !isClusterFeatureVisible(featureId)) return;
+        if (opt.hidden || opt.disabled) return;
         const cls = [
           "ai-mode-picker-option",
           opt.classList.contains("ai-mode-success-opt") ? "is-success" : "",
           opt.classList.contains("ai-mode-coming-opt") ? "is-coming" : "",
           opt.value === sel.value ? "is-active" : "",
         ].filter(Boolean).join(" ");
-        chunks.push(
+        optionHtml.push(
           `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}">${escapeHtml(opt.textContent || "")}</button>`,
         );
       });
+      if (!optionHtml.length) return;
+      chunks.push(`<div class="ai-mode-picker-group">`);
+      chunks.push(`<div class="ai-mode-picker-group-label">${iconHtml}${escapeHtml(label)}</div>`);
+      chunks.push(...optionHtml);
       chunks.push(`</div>`);
       return;
     }
@@ -13105,6 +13672,11 @@ function setAiModeValue(value, { silent = false } = {}) {
   const sel = $("aiMode");
   if (!sel) return;
   const next = String(value || "");
+  const featureId = AI_MODE_CLUSTER_FEATURE[next];
+  if (featureId && !isClusterFeatureVisible(featureId)) {
+    if (!silent) assertClusterFeature(featureId);
+    return;
+  }
   if (sel.value !== next) sel.value = next;
   syncAiModePickerUi();
   if (!silent) {
@@ -13163,6 +13735,8 @@ function setupAiModePicker() {
       toast(i18n.t('app.아직_준비_중인_기능이에요'));
       return;
     }
+    const featureId = AI_MODE_CLUSTER_FEATURE[value];
+    if (featureId && !assertClusterFeature(featureId)) return;
     setAiModeValue(value);
     syncAiSelectViewUi();
   });
@@ -13345,6 +13919,8 @@ function setupForeshadowPanel() {
 async function submitAiAssist(event) {
   event.preventDefault();
   const mode = $("aiMode").value;
+  const gated = AI_MODE_CLUSTER_FEATURE[mode];
+  if (gated && !assertClusterFeature(gated)) return;
   if (mode === "successpattern") {
     // Wizard has its own 분석 시작 button.
     if (successPatternState.step < 6) {
@@ -13603,6 +14179,7 @@ async function submitAiAssist(event) {
     tory_focus: Boolean(state.toryFocusSceneId),
     focus_scene_id: state.toryFocusSceneId || state.sceneId || null,
     persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+    cluster_id: getProjectClusterId(),
   };
   if (mode === "continue") {
     body.length_mode = continueLengthMode;
@@ -16654,6 +17231,13 @@ function openToryChatCharacterAllModal() {
 }
 
 function setCharListMode(mode) {
+  if (mode === "sim" && !assertClusterFeature("character_sim")) return;
+  if (mode !== "sim" && !isClusterFeatureVisible("character_chat") && isClusterFeatureVisible("character_sim")) {
+    mode = "sim";
+  } else if (mode !== "sim" && !isClusterFeatureVisible("character_chat")) {
+    assertClusterFeature("character_chat");
+    return;
+  }
   const next = mode === "sim" ? "sim" : "chat";
   charListMode = next;
   const isSim = next === "sim";
@@ -16673,6 +17257,10 @@ function setCharListMode(mode) {
 }
 
 async function openToryChatCharacterPicker() {
+  if (!isClusterFeatureVisible("character_chat") && !isClusterFeatureVisible("character_sim")) {
+    assertClusterFeature("character_chat");
+    return;
+  }
   if (!state.projectId) {
     setToryChatHub("characters", { quiet: true });
     toast(i18n.t('app.먼저_작품을_선택해_주세요'));
@@ -16690,6 +17278,7 @@ async function openToryChatCharacterPicker() {
 }
 
 function startToryChatWithSelectedCharacters() {
+  if (!assertClusterFeature("character_chat")) return;
   const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
   if (!ids.length) return toast(i18n.t('app.대화할_인물을_한_명_이상_골라_주세요'));
   toryChatCharacterIds = ids;
@@ -17414,6 +18003,7 @@ function toggleReaderDebatePersona(personaId, checked) {
 }
 
 function setReaderListMode(mode) {
+  if (mode === "debate" && !assertClusterFeature("reader_debate")) return;
   const next = mode === "debate" ? "debate" : "chat";
   readerListMode = next;
   const isDebate = next === "debate";
@@ -17732,6 +18322,7 @@ function closeReaderDebateRoom() {
 }
 
 function startReaderDebate() {
+  if (!assertClusterFeature("reader_debate")) return;
   if (readerDebateSelectedIds.length < READER_DEBATE_MIN_START) return;
   if (readerDebateSelectedIds.length > READER_DEBATE_MAX_TOTAL) return;
   closeReaderPersonaAllModal();
@@ -19967,6 +20558,8 @@ function closeSettingsCollectionMain() {
 function openSettingsCollectionMain(key) {
   const cfg = SETTINGS_COLLECTION_MAIN[key];
   if (!cfg) return;
+  if (key === "baits" && !assertClusterFeature("baits")) return;
+  if (key === "successProfile" && !assertClusterFeature("success_profile")) return;
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
@@ -20506,35 +21099,8 @@ function getTempoHookTargetMode() {
   return raw === "other" ? "other" : "current";
 }
 
-function renderTempoHookEpisodeOptions() {
-  const select = $("tempoHookOtherSceneSelect");
-  if (!select) return;
-  const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
-  const prev = String(select.value || "");
-  const currentId = state.sceneId ? Number(state.sceneId) : null;
-  if (!sequence.length) {
-    select.innerHTML = i18n.t('app.option_value_열_수_있는_회차가');
-    return;
-  }
-  const opts = sequence.map((ep) => {
-    const id = Number(ep.sceneId);
-    const mark = currentId && id === currentId ? i18n.t('app.현재_2') : "";
-    const label = `${i18n.t('app.ep_index_화_ep_label_ep', {'ep.index': ep.index, 'ep.label || ep.shortLabel || id': ep.label || ep.shortLabel || id, mark: mark})}`;
-    return `<option value="${id}">${escapeHtml(label)}</option>`;
-  });
-  select.innerHTML = `${i18n.t('app.option_value_회차를_선택하세요', {'opts.join("")': opts.join("")})}`;
-  if (prev && sequence.some((ep) => String(ep.sceneId) === prev)) {
-    select.value = prev;
-  } else {
-    const other = sequence.find((ep) => Number(ep.sceneId) !== currentId);
-    select.value = other ? String(other.sceneId) : (currentId ? String(currentId) : "");
-  }
-}
-
 function updateTempoHookTargetUi() {
-  const other = getTempoHookTargetMode() === "other";
-  setOtherSceneSelectActive("tempoHookOtherSceneWrap", "tempoHookOtherSceneSelect", other);
-  renderTempoHookEpisodeOptions();
+  renderEpisodeTargetOptions(EPISODE_TARGET_MODAL_CONFIGS.temphook);
 }
 
 function closeTempoHookTargetModal({ returnToList = true } = {}) {
@@ -20574,25 +21140,7 @@ function openTempoHookTargetModal() {
 }
 
 function confirmTempoHookTarget() {
-  let sceneId = null;
-  if (getTempoHookTargetMode() === "other") {
-    const n = Number($("tempoHookOtherSceneSelect")?.value || 0);
-    sceneId = Number.isFinite(n) && n > 0 ? n : null;
-    if (!sceneId) {
-      toast(i18n.t('app.기준_회차를_선택해_주세요'));
-      $("tempoHookOtherSceneSelect")?.focus();
-      return;
-    }
-  } else {
-    sceneId = state.sceneId ? Number(state.sceneId) : null;
-    if (!sceneId) {
-      toast(i18n.t('app.현재_열린_회차가_없어요_다른_회차를_지정해'));
-      return;
-    }
-  }
-  closeTempoHookTargetModal({ returnToList: false });
-  openTempoHookResultsModal();
-  runTempoHookAnalysis(sceneId).catch(handleError);
+  confirmEpisodeTarget(EPISODE_TARGET_MODAL_CONFIGS.temphook);
 }
 
 function setupTempoHookTargetModal() {
@@ -21321,6 +21869,7 @@ async function postCharDebateAssist(taskPrompt, extra = {}) {
 }
 
 async function runCharacterDebate({ keepScenario = true } = {}) {
+  if (!assertClusterFeature("character_sim")) return;
   if (charDebateState.busy) return;
   const ids = charDebateState.selectedIds.map(Number).filter((id) => id > 0);
   if (ids.length < CHAR_DEBATE_MIN || ids.length > CHAR_DEBATE_MAX) {
@@ -22530,6 +23079,7 @@ function formatSuccessProfileDisplay(profileRow, { usedMock = false } = {}) {
  * 체크박스와 무관하게 프로파일을 항상 참고 레이어로 붙입니다.
  */
 async function runSuccessFormulaFeedback() {
+  if (!assertClusterFeature("successfeedback")) return;
   if (!state.projectId) {
     toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return;
@@ -22571,7 +23121,7 @@ async function runSuccessFormulaFeedback() {
 
   try {
     const assistBody = {
-      mode: "analyze",
+      mode: "successfeedback",
       project_title: project?.title || "",
       purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
       main_genre: mainGenre,
@@ -22621,6 +23171,7 @@ async function runSuccessFormulaFeedback() {
 }
 
 async function runSuccessPatternAnalysis() {
+  if (!assertClusterFeature("successpattern")) return;
   const selected = getSpSelectedSections();
   for (const key of selected) {
     if (!(successPatternState.uploads[key]?.episodes || []).length) {
@@ -27187,7 +27738,9 @@ function setupSettingsSectionDrag() {
     dragEnabledBox = null;
   };
 
-  const boxes = () => [...accordion.querySelectorAll(".settings-box[data-settings-section]")];
+  const boxes = () => [...accordion.querySelectorAll(".settings-box[data-settings-section]")].filter(
+    (box) => !box.classList.contains("cluster-feature-hidden"),
+  );
 
   // Default: section not draggable; grip enables drag for this pointer sequence.
   boxes().forEach((box) => box.setAttribute("draggable", "false"));
@@ -27345,6 +27898,7 @@ function renderBaitList() {
 }
 
 function openBaitModal(options = {}) {
+  if (!assertClusterFeature("baits")) return;
   const modal = $("baitModal");
   if (!modal) return;
   const mode = options.kind === "idea" || options.mode === "idea" ? "idea" : "plant";
@@ -27532,6 +28086,7 @@ function lookupDictionaryFromSelection() {
 }
 
 function throwBaitFromSelection() {
+  if (!assertClusterFeature("baits")) return;
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (!state.sceneId) return toast(i18n.t('app.떡밥을_심을_회차를_먼저_열어_주세요'));
   const quote = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
@@ -33487,6 +34042,7 @@ function renderViewerReaderComments(data) {
 }
 
 async function loadViewerReaderComments(options = {}) {
+  if (!assertClusterFeature("reader_comments", { quiet: !options.startIfNeeded })) return;
   const sceneId = Number(state.sceneId);
   if (!sceneId) return null;
   const token = ++viewerCommentsLoadToken;
@@ -33546,6 +34102,7 @@ async function refreshViewerReaderComments() {
 }
 
 function openViewerReaderCommentsFromCta() {
+  if (!assertClusterFeature("reader_comments")) return;
   hideToast();
   markReaderCommentsStarted();
   if (typeof isViewerOpen === "function" && !isViewerOpen() && typeof openViewerMode === "function") {
@@ -35603,6 +36160,7 @@ function setupViewerMode() {
   });
 
   $("viewerReaderCommentsButton")?.addEventListener("click", () => {
+    if (!assertClusterFeature("reader_comments")) return;
     if ($("viewerReaderCommentsButton")?.disabled) return;
     const nextOpen = !viewerCommentsOpen;
     setViewerCommentsOpen(nextOpen);
@@ -39981,6 +40539,8 @@ function openNewProjectModal() {
       .join("");
     purposeSelect.value = "general_novel";
   }
+  setModalClusterId("newProject", "");
+  renderGenreClusterGrid("newProject", "");
   syncModalGenreFields("newProject", purposeSelect?.value || "general_novel");
   resetModalDraftKeywords("newProject");
   const submit = $("newProjectSubmitButton");
@@ -40009,7 +40569,9 @@ async function submitNewProject(event) {
     $("newProjectTitle")?.focus();
     return;
   }
-  const purpose = normalizePurposeKey($("newProjectPurpose")?.value || "general_novel");
+  const purpose = normalizePurposeKey(
+    $("newProjectPurpose")?.value || "general_novel",
+  );
   const genres = readModalGenreValues("newProject", purpose);
   if (!genres.ok) {
     toast(genres.error || i18n.t('app.장르를_선택해_주세요_토리_학습에_필요해요'));
@@ -40026,9 +40588,11 @@ async function submitNewProject(event) {
       method: "POST",
       body: JSON.stringify({
         title,
-        purpose,
+        purpose: genres.purpose || purpose,
         main_genre: genres.main,
         sub_genre: genres.sub,
+        genre_detail: genres.genre_detail || "",
+        cluster_id: genres.cluster_id || getModalClusterId("newProject"),
         keywords: getModalDraftKeywords("newProject"),
       }),
     });
@@ -40058,10 +40622,12 @@ function setupNewProjectModal() {
   document.querySelectorAll("[data-close-new-project]").forEach((element) => {
     element.addEventListener("click", closeNewProjectModal);
   });
+  setupGenreClusterPicker("newProject");
   $("newProjectPurpose")?.addEventListener("change", () => {
     syncModalGenreFields("newProject", $("newProjectPurpose")?.value || "general_novel");
   });
   $("newProjectMainGenre")?.addEventListener("change", () => {
+    applyModalClusterPurpose("newProject");
     syncModalGenreFields("newProject", $("newProjectPurpose")?.value || "general_novel", {
       keepMain: true,
     });
@@ -40278,6 +40844,22 @@ function setupTextPromptModal() {
  * @param {{ keepMain?: boolean, keepSub?: boolean, main?: string, sub?: string }} [opts]
  */
 function syncModalGenreFields(prefix, purpose, opts = {}) {
+  const clusterId = getModalClusterId(prefix);
+  if ($(`${prefix}ClusterGrid`)) {
+    if (!clusterId || clusterId === "locked") {
+      hideModalGenreSelects(prefix);
+      return;
+    }
+    if (clusterId === "fairytale") {
+      purpose = "fairy_tale";
+      if ($(`${prefix}Purpose`)) $(`${prefix}Purpose`).value = "fairy_tale";
+      $(`${prefix}MainGenreWrap`)?.classList.remove("hidden");
+      hideModalGenreDetail(prefix);
+    } else {
+      fillModalClusterSubGenres(prefix, clusterId, opts);
+      return;
+    }
+  }
   const mode = getPurposeCategoryMode(purpose);
   const mainSelect = $(`${prefix}MainGenre`);
   const subSelect = $(`${prefix}SubGenre`);
@@ -40360,6 +40942,32 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
  * @returns {{ ok: true, main: string, sub: string } | { ok: false, error: string, focusId: string }}
  */
 function readModalGenreValues(prefix, purpose) {
+  const clusterId = getModalClusterId(prefix);
+  if ($(`${prefix}ClusterGrid`) && (!clusterId || clusterId === "locked")) {
+    return {
+      ok: false,
+      error: i18n.t("app.클러스터를_선택해_주세요"),
+      focusId: `${prefix}ClusterGrid`,
+    };
+  }
+  if (clusterId && clusterId !== "fairytale") {
+    const mapped = mapClusterSubgenre(clusterId, $(`${prefix}MainGenre`)?.value);
+    if (!mapped) {
+      return {
+        ok: false,
+        error: i18n.t("app.세부_장르를_선택해_주세요"),
+        focusId: `${prefix}MainGenre`,
+      };
+    }
+    return {
+      ok: true,
+      main: mapped.main,
+      sub: mapped.sub,
+      purpose: mapped.purpose,
+      cluster_id: clusterId,
+      genre_detail: readModalGenreDetail(prefix),
+    };
+  }
   const mode = getPurposeCategoryMode(purpose);
   const main = String($(`${prefix}MainGenre`)?.value || "").trim();
   const sub = String($(`${prefix}SubGenre`)?.value || "").trim();
@@ -40379,7 +40987,14 @@ function readModalGenreValues(prefix, purpose) {
       focusId: `${prefix}SubGenre`,
     };
   }
-  return { ok: true, main, sub: (mode === "fiction" || mode === "translation") ? sub : "" };
+  return {
+    ok: true,
+    main,
+    sub: (mode === "fiction" || mode === "translation") ? sub : "",
+    purpose: normalizePurposeKey(purpose),
+    cluster_id: clusterId || inferClusterId(purpose, main, sub),
+    genre_detail: readModalGenreDetail(prefix),
+  };
 }
 
 /** Pending insert for +챕터: { partId, index } or null. */
@@ -41771,7 +42386,47 @@ const OPENING_IDEA_TYPES = [
   "action_tension",
 ];
 
-function buildOpeningIdeaPrompt() {
+function buildOpeningIdeaPrompt(clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildOpeningIdeaPrompt_GenreLit();
+  }
+  return buildOpeningIdeaPrompt_Webnovel();
+}
+
+function buildOpeningIdeaPrompt_Webnovel() {
+  return [
+    i18n.t('app.첫_문장을_떼지_못해_고민_중인_작가를_위해'),
+    "",
+    i18n.t('app.작성_원칙'),
+    i18n.t('app.1_지루하고_긴_풍경_설명은_금지하며_독자의'),
+    i18n.t('app.2_기존_작품_정보_장르_시놉시스_캐릭터_가'),
+    i18n.t('app.3_장르와_맞지_않는_억지스러운_요소를_넣지'),
+    i18n.t('app.4_결과는_아래_JSON_스키마_그대로만_반'),
+    "",
+    i18n.t('app.6가지_실전_카테고리_가이드_type_값은'),
+    i18n.t('app.1_concept_direct_핵심_설정_세'),
+    i18n.t('app.2_in_media_res_사건_한복판_대사'),
+    i18n.t('app.3_absurd_dilemma_황당_딜레마'),
+    i18n.t('app.4_emotional_atmosphere_감'),
+    i18n.t('app.5_inner_monologue_인물_내면'),
+    i18n.t('app.6_action_tension_긴박한_사건'),
+    "",
+    i18n.t('app.JSON_스키마_정확히_이_형태로만_반환'),
+    "{",
+    i18n.t('app.notice_이_6가지는_키워드와_줄거리만'),
+    '  "openings": [',
+    i18n.t('app.type_concept_direct_lab'),
+    i18n.t('app.type_in_media_res_label'),
+    i18n.t('app.type_absurd_dilemma_lab'),
+    i18n.t('app.type_emotional_atmosphe'),
+    i18n.t('app.type_inner_monologue_la'),
+    i18n.t('app.type_action_tension_lab'),
+    "  ]",
+    "}",
+  ].join("\n");
+}
+
+function buildOpeningIdeaPrompt_GenreLit() {
   return [
     i18n.t('app.첫_문장을_떼지_못해_고민_중인_작가를_위해'),
     "",
@@ -42743,7 +43398,44 @@ function getSummaryTargetLength(originalLength) {
   return 150;
 }
 
-function buildSummaryPrompt(originalText) {
+function buildSummaryPrompt(originalText, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildSummaryPrompt_GenreLit(originalText);
+  }
+  return buildSummaryPrompt_Webnovel(originalText);
+}
+
+function buildSummaryPrompt_Webnovel(originalText) {
+  const length = originalText.length;
+  const target = getSummaryTargetLength(length);
+
+  return `[현재 작업]
+아래 본문을 ${target}자 내외(최대 ${target + 15}자를 넘지 않도록)로 요약하세요.
+
+[판단 기준]
+1. 이 장면/문단이 전체 이야기에서 어떤 기능을 하는지 먼저 파악한다
+   (사건의 발단인가, 갈등의 심화인가, 전환점인가).
+2. 그 기능을 가장 잘 드러내는 핵심 사건 → 그로 인한 결과/의미 순으로 압축한다.
+3. 여러 정보 중 하나를 덜어내야 한다면, 서사적 기능이 약한 것부터 덜어낸다
+   (배경 묘사 > 부차적 인물 > 핵심 갈등과 무관한 디테일 순으로 우선 제거).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+
+[문장 규칙]
+5. 원문의 표현을 그대로 가져오지 말고 자신의 언어로 재서술한다. 단, 고유명사(인물명,
+   지명 등)는 원문 그대로 유지한다.
+6. i18n.t('app.이_글은'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+7. 수식어, 감탄사, 접속사 남발을 피하고 명사형·서술형 위주로 간결하게 쓴다.
+8. 초안 작성 후 글자 수를 직접 세어 기준을 넘으면, 서사적 기능이 약한 정보부터
+   덜어내며 다시 압축한다. 이 과정은 출력하지 않는다.
+9. 완성된 요약문만 출력한다. 설명, 따옴표, 부연은 붙이지 않는다.
+
+[본문]
+${originalText}
+
+[요약]`;
+}
+
+function buildSummaryPrompt_GenreLit(originalText) {
   const length = originalText.length;
   const target = getSummaryTargetLength(length);
 
@@ -42778,7 +43470,49 @@ ${originalText}
  * Not for binder captions (buildSummaryPrompt) or indexing JSON (buildSceneSummaryPrompt).
  * Task scope only — no Core Identity / no project index (avoid inventing off-page facts).
  */
-function buildDetailedSceneSummaryPrompt(sceneContent) {
+function buildDetailedSceneSummaryPrompt(sceneContent, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildDetailedSceneSummaryPrompt_GenreLit(sceneContent);
+  }
+  return buildDetailedSceneSummaryPrompt_Webnovel(sceneContent);
+}
+
+/**
+ * Helper dropdown "회차 요약" (mode=summarize) — detailed reading summary (≈300–500자).
+ * Not for binder captions (buildSummaryPrompt) or indexing JSON (buildSceneSummaryPrompt).
+ * Task scope only — no Core Identity / no project index (avoid inventing off-page facts).
+ */
+function buildDetailedSceneSummaryPrompt_Webnovel(sceneContent) {
+  return `[현재 작업]
+아래 회차를 다시 읽지 않고도 내용을 제대로 파악할 수 있도록 요약하세요.
+바인더 캡션용 짧은 요약이 아니라, 이 회차에서 무슨 일이 있었는지 충분히
+설명하는 요약입니다.
+
+[판단 기준]
+1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을
+   순서대로 전달한다.
+2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.
+3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+5. 분량은 대략 300~500자 내외로, 이 회차의 복잡도에 맞게 조절한다.
+   짧은 회차를 억지로 늘리지 않고, 긴 회차를 무리해서 압축하지 않는다.
+
+[문장 규칙]
+6. i18n.t('app.이_회차는'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.
+7. 완성된 요약문만 출력한다.
+
+[본문]
+${sceneContent}
+
+[요약]`;
+}
+
+/**
+ * Helper dropdown "회차 요약" (mode=summarize) — detailed reading summary (≈300–500자).
+ * Not for binder captions (buildSummaryPrompt) or indexing JSON (buildSceneSummaryPrompt).
+ * Task scope only — no Core Identity / no project index (avoid inventing off-page facts).
+ */
+function buildDetailedSceneSummaryPrompt_GenreLit(sceneContent) {
   return `[현재 작업]
 아래 회차를 다시 읽지 않고도 내용을 제대로 파악할 수 있도록 요약하세요.
 바인더 캡션용 짧은 요약이 아니라, 이 회차에서 무슨 일이 있었는지 충분히
@@ -42807,7 +43541,18 @@ ${sceneContent}
  * Multi-episode detailed summary (summarize_multi). No project index.
  * Do not alter buildDetailedSceneSummaryPrompt.
  */
-function buildDetailedSceneSummaryMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+function buildDetailedSceneSummaryMultiPrompt(combinedManuscriptBlock, episodeCount = 0, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildDetailedSceneSummaryMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount);
+  }
+  return buildDetailedSceneSummaryMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount);
+}
+
+/**
+ * Multi-episode detailed summary (summarize_multi). No project index.
+ * Do not alter buildDetailedSceneSummaryPrompt.
+ */
+function buildDetailedSceneSummaryMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount = 0) {
   const n = Number(episodeCount) > 0
     ? Number(episodeCount)
     : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
@@ -42847,7 +43592,58 @@ ${combinedManuscriptBlock}
 [요약 결과]`;
 }
 
-function buildTensionCurvePrompt(episodeContent) {
+/**
+ * Multi-episode detailed summary (summarize_multi). No project index.
+ * Do not alter buildDetailedSceneSummaryPrompt.
+ */
+function buildDetailedSceneSummaryMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 여러 회차입니다. 각 회차를 다시 읽지 않고도 내용을 제대로 파악할
+수 있도록, 회차마다 요약을 작성하세요. 바인더 캡션용 짧은 요약이 아니라,
+각 회차에서 무슨 일이 있었는지 충분히 설명하는 요약입니다.
+
+[판단 기준]
+1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을
+   순서대로 전달한다.
+2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.
+3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).
+4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.
+5. 분량은 회차당 대략 300~500자 내외로, 각 회차의 복잡도에 맞게 조절한다.
+6. 각 회차의 요약은 그 회차 안의 내용만으로 작성한다. 다른 회차의 사건을
+   섞어 넣거나 미리 언급하지 않는다.
+
+[문장 규칙]
+7. i18n.t('app.이_회차는'), i18n.t('app.본문에서는') 같은 메타 표현으로 시작하지 않고 바로 내용으로
+   시작한다.
+8. 각 회차 요약 앞에 아래 [출력 형식]의 제목만 붙이고, 그 외 완성된 요약문만
+   출력한다.
+
+[출력 형식]
+### {회차 제목 1}
+{요약}
+
+### {회차 제목 2}
+{요약}
+
+(선택한 회차 수만큼 반복)
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[요약 결과]`;
+}
+
+function buildTensionCurvePrompt(episodeContent, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildTensionCurvePrompt_GenreLit(episodeContent);
+  }
+  return buildTensionCurvePrompt_Webnovel(episodeContent);
+}
+
+function buildTensionCurvePrompt_Webnovel(episodeContent) {
   return `[현재 작업]
 이 회차를 자연스러운 단락 흐름 기준으로 6~12개 구간으로 나누고, 각 구간의
 긴장도(몰입 자극 강도)를 평가하세요.
@@ -42891,7 +43687,58 @@ ${episodeContent}
 [분석 결과]`;
 }
 
-function buildCliffhangerScorePrompt(lastThreeParagraphs) {
+function buildTensionCurvePrompt_GenreLit(episodeContent) {
+  return `[현재 작업]
+이 회차를 자연스러운 단락 흐름 기준으로 6~12개 구간으로 나누고, 각 구간의
+긴장도(몰입 자극 강도)를 평가하세요.
+
+[점수 기준 - 반드시 아래 앵커를 기준으로 삼는다, 점수를 중간에 몰아주지 않는다]
+- 0~2점: 평온한 일상, 정보 전달 위주 서술, 갈등 없음
+- 3~4점: 약한 긴장감, 인물 간 소소한 마찰이나 복선성 암시
+- 5~6점: 뚜렷한 갈등이나 문제 상황이 진행 중
+- 7~8점: 위기 상황, 대립 격화, 예상 밖 전개
+- 9~10점: 생사가 걸리거나 판을 뒤집는 결정적 반전/절정
+
+[구간 분류 시 유의]
+- 실제 서사 흐름(장면 전환, 대화-서술 전환 등)을 기준으로 자연스럽게 나눈다.
+  글자 수를 억지로 맞추지 않는다.
+- 같은 회차 안에서 점수가 다 비슷하게 몰리지 않도록, 위 앵커 기준을
+  엄격히 적용해서 실제 기복이 드러나게 한다.
+
+[각 구간마다 기록]
+- segment_index: 순서
+- segment_position_pct: 이 구간이 전체 회차에서 몇 % 지점인지
+  (정수, 백엔드에서 segment_index/전체구간수*100로 계산)
+- score: 0~10 (위 앵커 기준)
+- emotion_tag: 이 구간의 지배적 감정/자극 유형 (긴장/해소/반전/설렘/슬픔/
+  유머/공포 중 하나, 애매하면 가장 가까운 것 선택)
+- reason: 왜 이 점수인지 1문장 이내
+- text_preview: 이 구간 시작 부분 15자 이내 (구간 식별용, 원문 그대로
+  길게 인용하지 않는다)
+
+[출력 형식 - JSON]
+{
+  "segments": [
+    {"segment_index": 1, "segment_position_pct": 8, "score": 3,
+     "emotion_tag": i18n.t('app.해소'), "reason": "...", "text_preview": "..."},
+    ...
+  ]
+}
+
+[본문]
+${episodeContent}
+
+[분석 결과]`;
+}
+
+function buildCliffhangerScorePrompt(lastThreeParagraphs, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildCliffhangerScorePrompt_GenreLit(lastThreeParagraphs);
+  }
+  return buildCliffhangerScorePrompt_Webnovel(lastThreeParagraphs);
+}
+
+function buildCliffhangerScorePrompt_Webnovel(lastThreeParagraphs) {
   return `[현재 작업]
 이 회차의 마지막 3문단을 분석해, i18n.t('app.다음_화를_보고_싶게_만드는_힘')을
 평가하세요.
@@ -42915,7 +43762,38 @@ ${lastThreeParagraphs}
 [평가 결과]`;
 }
 
-function buildEndingRewritePrompt(lastThreeParagraphs, cliffhangerReason) {
+function buildCliffhangerScorePrompt_GenreLit(lastThreeParagraphs) {
+  return `[현재 작업]
+이 회차의 마지막 3문단을 분석해, i18n.t('app.다음_화를_보고_싶게_만드는_힘')을
+평가하세요.
+
+[점수 기준]
+- 0~2점: 그냥 장면이 마무리됨, 궁금증 유발 요소 없음
+- 3~5점: 약한 궁금증은 있으나 절박하지 않음
+- 6~7점: 명확한 질문이나 긴장 상태로 끝남 (독자가 답을 알고 싶어함)
+- 8~10점: 강력한 위기/반전/정보 공백으로 끝남, 즉시 다음 화를 눌러야
+  할 정도
+
+[출력 형식 - JSON]
+{
+  "score": 0~10,
+  "reason": i18n.t('app.이_점수를_준_이유_2문장_이내')
+}
+
+[본문 마지막 부분]
+${lastThreeParagraphs}
+
+[평가 결과]`;
+}
+
+function buildEndingRewritePrompt(lastThreeParagraphs, cliffhangerReason, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildEndingRewritePrompt_GenreLit(lastThreeParagraphs, cliffhangerReason);
+  }
+  return buildEndingRewritePrompt_Webnovel(lastThreeParagraphs, cliffhangerReason);
+}
+
+function buildEndingRewritePrompt_Webnovel(lastThreeParagraphs, cliffhangerReason) {
   return `[현재 작업]
 아래 회차 엔딩의 훅이 약하다고 판단됐습니다 (이유: ${cliffhangerReason}).
 더 강력한 훅으로 개작한 버전을 3가지 서로 다른 연출 방식으로 제안하세요.
@@ -42946,7 +43824,78 @@ ${lastThreeParagraphs}
 [개작 제안]`;
 }
 
-function buildCharacterDebatePrompt(charactersInfo, scenario) {
+function buildEndingRewritePrompt_GenreLit(lastThreeParagraphs, cliffhangerReason) {
+  return `[현재 작업]
+아래 회차 엔딩의 훅이 약하다고 판단됐습니다 (이유: ${cliffhangerReason}).
+더 강력한 훅으로 개작한 버전을 3가지 서로 다른 연출 방식으로 제안하세요.
+
+[3가지 연출 방식 - 각각 다른 전략을 쓴다]
+1. 즉각적 위기 노출형: 예상치 못한 위험이나 사건을 마지막 문장에서
+   바로 드러낸다
+2. 정보 공백형: 결정적 정보를 의도적으로 숨기고 궁금증만 남긴다
+   (예: i18n.t('app.그가_문을_열었을_때_거기_있던_건'))
+3. 감정 절정형: 인물의 감정이 극에 달하는 순간에서 끊는다
+
+각 버전은 원래 장면의 맥락(등장인물, 상황)을 유지하되, 마지막 3문단만
+새로 쓴다. 원문 문체를 최대한 따라간다.
+
+[출력 형식]
+## 버전 1: 즉각적 위기 노출형
+(개작된 마지막 3문단)
+
+## 버전 2: 정보 공백형
+(개작된 마지막 3문단)
+
+## 버전 3: 감정 절정형
+(개작된 마지막 3문단)
+
+[원본 마지막 3문단]
+${lastThreeParagraphs}
+
+[개작 제안]`;
+}
+
+function buildCharacterDebatePrompt(charactersInfo, scenario, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildCharacterDebatePrompt_GenreLit(charactersInfo, scenario);
+  }
+  return buildCharacterDebatePrompt_Webnovel(charactersInfo, scenario);
+}
+
+function buildCharacterDebatePrompt_Webnovel(charactersInfo, scenario) {
+  // charactersInfo: [{name, personality, tone, currentFacts}, ...] (2~3명)
+  return `[현재 작업]
+아래 캐릭터들을 다음 상황에 놓았을 때 나올 법한 대화를 시뮬레이션하세요.
+
+[상황]
+${scenario}
+
+[참여 캐릭터]
+${(Array.isArray(charactersInfo) ? charactersInfo : []).map((c) =>
+  `- ${c.name}: 성격/말투 - ${c.personality}. 현재 상태 - ${c.currentFacts}`
+).join("\n")}
+
+[작성 원칙]
+1. 각 캐릭터는 반드시 설정집에 명시된 본인의 말투와 성격을 그대로 유지한다.
+   캐릭터 간 말투가 서로 섞이지 않도록 각별히 주의한다.
+2. 이 상황에서 각 캐릭터가 실제로 취할 법한 반응과 태도를 개연성 있게
+   보여준다. 극적 효과를 위해 캐릭터의 확립된 성격을 왜곡하지 않는다.
+3. 8~12번의 대사 교환으로 구성한다 (한쪽이 일방적으로 말하지 않고,
+   실제 논쟁/대화처럼 주고받는다).
+4. 대사 사이사이 짧은 지문(행동, 표정 묘사)을 필요한 곳에만 넣는다.
+   과하게 넣지 않는다.
+5. 이건 실제 원고가 아니라 i18n.t('app.이_대화가_캐릭터답게_성립하는지') 확인하는
+   테스트 목적이므로, 결말을 억지로 봉합하거나 화해시키지 않는다.
+   상황이 해결 안 된 채 끝나도 된다.
+
+[출력 형식]
+캐릭터명: 대사
+(지문이 있다면 캐릭터명 다음 줄에 이탤릭이나 괄호로 짧게)
+
+[대화 시뮬레이션]`;
+}
+
+function buildCharacterDebatePrompt_GenreLit(charactersInfo, scenario) {
   // charactersInfo: [{name, personality, tone, currentFacts}, ...] (2~3명)
   return `[현재 작업]
 아래 캐릭터들을 다음 상황에 놓았을 때 나올 법한 대화를 시뮬레이션하세요.
@@ -42984,7 +43933,91 @@ ${(Array.isArray(charactersInfo) ? charactersInfo : []).map((c) =>
  * Uses project index + outline_summary only — no scene manuscript.
  * Task scope only — no Core Identity re-declaration.
  */
-function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
+function buildSubmissionSynopsisPrompt(outlineSummary, synopsisLengthLimit, intentLengthLimit, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildSubmissionSynopsisPrompt_GenreLit(outlineSummary, synopsisLengthLimit, intentLengthLimit);
+  }
+  return buildSubmissionSynopsisPrompt_Webnovel(outlineSummary, synopsisLengthLimit, intentLengthLimit);
+}
+
+/**
+ * Helper dropdown "투고·공모전용 시놉시스" (mode=subsynopsis).
+ * Uses project index + outline_summary only — no scene manuscript.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSubmissionSynopsisPrompt_Webnovel(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
+  const outlineBlock = outlineSummary
+    ? `[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n${outlineSummary}`
+    : i18n.t('app.작가가_제공한_줄거리_개요_제공되지_않음');
+
+  const synopsisLengthNote = synopsisLengthLimit
+    ? `${i18n.t('app.시놉시스는_synopsisLengthLimi', {synopsisLengthLimit: synopsisLengthLimit})}`
+    : i18n.t('app.시놉시스_길이_제한은_없다_내용을_충분히_전');
+
+  const intentLengthNote = intentLengthLimit
+    ? `${i18n.t('app.작품의도는_intentLengthLimit', {intentLengthLimit: intentLengthLimit})}`
+    : i18n.t('app.작품의도_길이_제한은_없다_1_2문단_정도로');
+
+  return `[현재 작업]
+투고·공모전 제출용 자료를 작성하세요. 아래 세 가지를 준비합니다.
+
+[작품의도]
+- 이 작품을 통해 작가가 전달하고자 하는 주제의식이나 문제의식을 정리한다.
+- ${intentLengthNote}
+- [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,
+  지어내지 않는다.
+- [프로젝트 누적 정보]에는 인물 이름과 사건 요약만 있고 인물의 목표·동기·
+  갈등 관계는 명시되어 있지 않을 수 있다. 이런 정보가 없으면 사건 흐름에서
+  합리적으로 추론하되, 추론이라는 티가 나지 않게 단정적으로 서술하지 말고
+  개연성 있는 해석으로 제시한다.
+
+[로그라인 후보]
+- 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.
+- 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.
+- 5개 중 2개 이상이 같은 사건이나 같은 문장 구조를 재사용하면 안 된다.
+  주어-술어 구조 자체를 다르게 가져간다.
+- 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.
+- 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.
+
+[시놉시스 - 기승전결 구조]
+- 이야기를 기(도입)-승(전개)-전(전환/절정)-결(결말) 순서로, 심사자가
+  전체 줄거리를 파악할 수 있도록 서술형으로 정리한다.
+- 이미 쓰인 부분은 [프로젝트 누적 정보]를, 결말을 포함해 아직 쓰이지
+  않은 부분은 [작가가 제공한 줄거리 개요]를 근거로 삼는다.
+- ${synopsisLengthNote}
+- 문학적 표현보다 명확한 전달을 우선한다. 반전이나 결말도 숨기지 않고
+  솔직하게 서술한다 (독자용 홍보문이 아니라 심사용 자료이므로).
+
+[출력 형식]
+## 작품의도
+(내용)
+
+## 로그라인 후보
+1. (로그라인) — [강조점]
+2. ...
+(5개)
+
+## 시놉시스
+### 기 (도입)
+(내용)
+### 승 (전개)
+(내용)
+### 전 (전환/절정)
+(내용)
+### 결 (결말)
+(내용)
+
+${outlineBlock}
+
+[제출용 자료]`;
+}
+
+/**
+ * Helper dropdown "투고·공모전용 시놉시스" (mode=subsynopsis).
+ * Uses project index + outline_summary only — no scene manuscript.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSubmissionSynopsisPrompt_GenreLit(outlineSummary, synopsisLengthLimit, intentLengthLimit) {
   const outlineBlock = outlineSummary
     ? `[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n${outlineSummary}`
     : i18n.t('app.작가가_제공한_줄거리_개요_제공되지_않음');
@@ -43055,7 +44088,58 @@ ${outlineBlock}
  * Continue / rewrite follow-up: check whether new text blends with the author's voice.
  * Task scope only — no Core Identity re-declaration, no project index.
  */
-function buildStyleBlendCheckPrompt(referenceText, targetText) {
+function buildStyleBlendCheckPrompt(referenceText, targetText, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildStyleBlendCheckPrompt_GenreLit(referenceText, targetText);
+  }
+  return buildStyleBlendCheckPrompt_Webnovel(referenceText, targetText);
+}
+
+/**
+ * Continue / rewrite follow-up: check whether new text blends with the author's voice.
+ * Task scope only — no Core Identity re-declaration, no project index.
+ */
+function buildStyleBlendCheckPrompt_Webnovel(referenceText, targetText) {
+  return `[현재 작업]
+아래 [비교 대상 텍스트]가 [기준 텍스트]와 문체·어투·리듬 면에서 자연스럽게
+어우러지는지 확인하세요.
+
+[판단 기준]
+1. 어휘 수준, 문장 길이의 리듬, 어투(존댓말/반말), 인물의 말투가 기준
+   텍스트와 일관되는지 비교한다.
+2. 기준 텍스트에서 비교 대상 텍스트로 넘어가는 경계 지점이 부자연스럽게
+   튀는지 특히 주의 깊게 본다.
+3. 상투적이거나 기계적으로 느껴지는 표현 패턴이 있는지 확인한다.
+   (예: 과도한 대구법, 상투적인 헤지 표현의 반복, 나열식 문장 구조 반복,
+   감정을 설명으로 덧붙이는 문장 등)
+4. 발견한 것을 i18n.t('app.문제')로 단정하지 않는다. 관찰과 근거만 전달한다
+   (i18n.t('app.해_보여요'), i18n.t('app.일_수_있어요') 표현을 쓴다).
+5. 특별히 튀는 부분이 없다면, 억지로 지적을 만들어내지 않고 자연스럽게
+   잘 어우러진다고 알려준다.
+
+[출력 형식]
+## 스며듦 체크 결과
+- 전반적 판단: 잘 어우러짐 / 약간 다르게 느껴짐 / 뚜렷하게 튐
+- 근거: (구체적인 문장이나 표현을 들어 설명)
+- (다르게 느껴지는 경우) 어느 지점이 특히 그런지, 왜 그런지
+
+이 결과는 문제 여부를 판정한 것이 아니라 관찰입니다. 유지할지 수정할지는
+작가님의 선택입니다.
+
+[기준 텍스트 - 원래 문체]
+${referenceText}
+
+[비교 대상 텍스트 - 새로 생성/수정된 부분]
+${targetText}
+
+[스며듦 체크 결과]`;
+}
+
+/**
+ * Continue / rewrite follow-up: check whether new text blends with the author's voice.
+ * Task scope only — no Core Identity re-declaration, no project index.
+ */
+function buildStyleBlendCheckPrompt_GenreLit(referenceText, targetText) {
   return `[현재 작업]
 아래 [비교 대상 텍스트]가 [기준 텍스트]와 문체·어투·리듬 면에서 자연스럽게
 어우러지는지 확인하세요.
@@ -43095,7 +44179,63 @@ ${targetText}
  * Helper dropdown "세계관 묘사" (mode=worlddesc).
  * Task scope only — Core Identity / index applied by attachIndexedPromptToAssistBody.
  */
-function buildWorldDescriptionPrompt(targetSubject, sceneContent) {
+function buildWorldDescriptionPrompt(targetSubject, sceneContent, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildWorldDescriptionPrompt_GenreLit(targetSubject, sceneContent);
+  }
+  return buildWorldDescriptionPrompt_Webnovel(targetSubject, sceneContent);
+}
+
+/**
+ * Helper dropdown "세계관 묘사" (mode=worlddesc).
+ * Task scope only — Core Identity / index applied by attachIndexedPromptToAssistBody.
+ */
+function buildWorldDescriptionPrompt_Webnovel(targetSubject, sceneContent) {
+  return `[현재 작업]
+아래 대상에 대해, 이 작품의 문체와 세계관에 맞는 묘사 문장을 작성하세요.
+작가가 원고에 바로 이어 붙이거나 참고해서 쓸 수 있는 수준으로 씁니다.
+
+[묘사 대상]
+${targetSubject}
+
+[판단 기준]
+1. 시스템 메시지의 장르·세계관 키워드와 [프로젝트 누적 정보]에 이미 확립된
+   설정(세계관 규칙, 지금까지 등장한 배경)에 부합하는 묘사를 만든다.
+   장르에 안 맞는 클리셰(예: 동양풍 세계관에 서구식 성 묘사)를 섞지 않는다.
+2. 현재 회차의 문체(문장 길이, 어휘 수준, 시점)와 어울리게 쓴다. 원고
+   전체와 톤이 튀지 않아야 한다.
+3. 오감(시각/청각/후각/촉각) 중 최소 2가지 이상을 활용해 입체적으로 묘사한다.
+   단, 모든 감각을 억지로 다 채우지 않는다.
+4. 정보 나열이 아니라 장면 속에서 자연스럽게 읽히는 묘사로 쓴다
+   (i18n.t('app.이곳은_한_곳이다') 같은 설명체보다, 인물의 시선이나 행동에 녹인
+   묘사를 우선한다).
+5. 이미 확립된 설정과 모순되는 새로운 설정을 지어내지 않는다. 다만
+   기존 설정을 구체화하는 선에서는 세부 디테일을 자유롭게 채운다.
+
+[출력 형식]
+2~3개의 버전을 제공한다. 서로 다른 각도(예: 웅장함 강조 / 스산함 강조 /
+인물의 감정과 연결 등)로 다양화한다.
+
+**버전 1** [강조점: ...]
+(묘사 문장)
+
+**버전 2** [강조점: ...]
+(묘사 문장)
+
+**버전 3** [강조점: ...]
+(묘사 문장)
+
+[현재 회차 - 문체 참고용]
+${sceneContent}
+
+[묘사 제안]`;
+}
+
+/**
+ * Helper dropdown "세계관 묘사" (mode=worlddesc).
+ * Task scope only — Core Identity / index applied by attachIndexedPromptToAssistBody.
+ */
+function buildWorldDescriptionPrompt_GenreLit(targetSubject, sceneContent) {
   return `[현재 작업]
 아래 대상에 대해, 이 작품의 문체와 세계관에 맞는 묘사 문장을 작성하세요.
 작가가 원고에 바로 이어 붙이거나 참고해서 쓸 수 있는 수준으로 씁니다.
@@ -43209,7 +44349,7 @@ const INDEX_AWARE_ASSIST_MODES = new Set([
   "descexpand",
 ]);
 
-const INDEX_TASK_INSTRUCTIONS = {
+const INDEX_TASK_INSTRUCTIONS_WEBNOVEL = {
   dupcheck:
     i18n.t('app.현재_회차_안의_반복_표현과_앞뒤_인근_회차')
     + i18n.t('app.사실과_짧은_관찰만_전달하세요_고치라고_지시'),
@@ -43248,6 +44388,54 @@ const INDEX_TASK_INSTRUCTIONS = {
   brainstorm_next_exists:
     i18n.t('app.현재_회차와_이미_작성된_다음_회차를_참고해'),
 };
+
+const INDEX_TASK_INSTRUCTIONS_GENRE_LIT = {
+  dupcheck:
+    i18n.t('app.현재_회차_안의_반복_표현과_앞뒤_인근_회차')
+    + i18n.t('app.사실과_짧은_관찰만_전달하세요_고치라고_지시'),
+  // Keep format headers aligned with app.py so client index wrap doesn't blur modes.
+  foreshadow:
+    i18n.t('app.모드_떡밥_복선_탐색기_단서_심기_추적')
+    + i18n.t('app.이_모드는_반전_개연성_검사가_아닙니다_반전')
+    + i18n.t('app.등록된_복선_단서를_하나도_빠짐없이_전부_체')
+    + i18n.t('app.등록되지_않은_잠재_복선_후보와_인덱스의_미')
+    + i18n.t('app.필수_출력_형식_등록된_단서_체크_토리가_포')
+    + i18n.t('app.등록_안_된_미회수_떡밥_보강_제안'),
+  plottwist:
+    i18n.t('app.모드_반전_개연성_검사기_반전_설득력_평가')
+    + i18n.t('app.이_모드는_떡밥_복선_탐색기가_아닙니다_등록')
+    + i18n.t('app.등록된_복선_빌드업과_프로젝트_누적_정보_인')
+    + i18n.t('app.현재_원고의_반전_폭로가_설득력_있게_지지되')
+    + i18n.t('app.필수_출력_형식_반전_요약_개연성_평가_충격'),
+  worldscan:
+    i18n.t('app.프로젝트_누적_정보와_설정_캐릭터를_참고해')
+    + i18n.t('app.원고의_세계관_캐릭터_일관성_붕괴를_점검하세'),
+  worldscan_multi:
+    i18n.t('app.프로젝트_누적_정보와_설정_캐릭터를_참고해')
+    + i18n.t('app.여러_회차_원고의_세계관_캐릭터_일관성_붕괴'),
+  worlddesc:
+    i18n.t('app.지정한_대상에_대해_이_작품의_장르_세계관'),
+  analyze:
+    i18n.t('app.현재_회차를_편집자_독자_관점에서_분석해_균'),
+  analyze_multi:
+    i18n.t('app.연속된_여러_회차를_한_흐름으로_보고_편집자'),
+  ideas:
+    i18n.t('app.현재_회차_흐름에서_자연스럽게_이어질_다음'),
+  ideas_next_exists:
+    i18n.t('app.직전_회차와_이미_작성된_다음_회차_시작부를'),
+  brainstorm:
+    i18n.t('app.현재_회차를_바탕으로_작품을_확장할_아이디어'),
+  brainstorm_next_exists:
+    i18n.t('app.현재_회차와_이미_작성된_다음_회차를_참고해'),
+};
+
+function getIndexTaskInstructions(clusterId) {
+  return promptPipelineId(clusterId) === "genre_literature"
+    ? INDEX_TASK_INSTRUCTIONS_GENRE_LIT
+    : INDEX_TASK_INSTRUCTIONS_WEBNOVEL;
+}
+
+const INDEX_TASK_INSTRUCTIONS = INDEX_TASK_INSTRUCTIONS_WEBNOVEL;
 
 function hasUsableProjectIndex(projectIndex) {
   if (!projectIndex || typeof projectIndex !== "object") return false;
@@ -43615,7 +44803,7 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
   if (!body || !INDEX_AWARE_ASSIST_MODES.has(mode)) return body;
   const projectIndex = await ensureFreshProjectIndex();
   const plain = String(originalText || "").trim();
-  let taskInstruction = INDEX_TASK_INSTRUCTIONS[mode] || "";
+  let taskInstruction = getIndexTaskInstructions()[mode] || "";
   if (mode === "continue") {
     const lengthMode = String(
       body.length_mode || body.continue_length_mode || "short"
@@ -43902,7 +45090,70 @@ function getProportionalContinueLength(originalLength) {
  * Feedback request / focused analysis (analyze mode).
  * Task scope only — no Core Identity re-declaration.
  */
-function buildFocusedAnalysisPrompt(sceneContent) {
+function buildFocusedAnalysisPrompt(sceneContent, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildFocusedAnalysisPrompt_GenreLit(sceneContent);
+  }
+  return buildFocusedAnalysisPrompt_Webnovel(sceneContent);
+}
+
+/**
+ * Feedback request / focused analysis (analyze mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildFocusedAnalysisPrompt_Webnovel(sceneContent) {
+  return `[현재 작업]
+아래 회차를 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.
+
+[분석 원칙]
+1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.
+2. 막연한 칭찬(i18n.t('app.좋아요'), i18n.t('app.잘_쓰셨어요'))이나 막연한 비판(i18n.t('app.별로예요'))을 하지 않는다.
+   반드시 원고 안의 구체적인 근거(어떤 장면, 어떤 문장, 어떤 흐름)를 들어 설명한다.
+3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지
+   방향을 함께 제시한다.
+4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지 않는다.
+   의도된 것으로 보이면 그 자체를 지적하지 않고, 의도가 실제로 잘 구현되고
+   있는지를 본다.
+5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.
+   장르 관습과 무관한 일반적 기준을 들이대지 않는다.
+
+[편집자 관점 - 구조와 기법]
+- 전개 속도: 정보/사건이 너무 빠르게 혹은 느리게 배치되지 않았는지
+- 장면 구성: 장면 전환, 시점 처리, 묘사와 대사의 균형이 적절한지
+- 문장 기법: 반복되는 문장 패턴, 어색한 리듬, 정보 과잉/부족 여부
+
+[독자 관점 - 몰입 경험]
+- 흥미 유지: 어느 지점에서 몰입이 잘 되고, 어느 지점에서 흥미가 떨어질 수 있는지
+- 감정적 반응: 의도된 감정(긴장, 설렘, 슬픔 등)이 실제로 전달되는지
+- 다음 화 기대감: 이 회차가 다음 내용을 궁금하게 만드는지
+
+[출력 형식]
+## 편집자 관점
+**좋은 점**
+- (구체적 근거와 함께 1~3개)
+**개선점**
+- (구체적 근거 + 방향 제안과 함께 1~3개)
+
+## 독자 관점
+**좋은 점**
+- (구체적 근거와 함께 1~3개)
+**개선점**
+- (구체적 근거 + 방향 제안과 함께 1~3개)
+
+## 한 줄 총평
+(이 회차 전체를 관통하는 핵심 조언 한 문장)
+
+[본문]
+${sceneContent}
+
+[분석 결과]`;
+}
+
+/**
+ * Feedback request / focused analysis (analyze mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildFocusedAnalysisPrompt_GenreLit(sceneContent) {
   return `[현재 작업]
 아래 회차를 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.
 
@@ -43954,7 +45205,87 @@ ${sceneContent}
  * Contiguous multi-episode feedback (analyze_multi). Task scope only.
  * Do not alter buildFocusedAnalysisPrompt.
  */
-function buildFocusedAnalysisMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+function buildFocusedAnalysisMultiPrompt(combinedManuscriptBlock, episodeCount = 0, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildFocusedAnalysisMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount);
+  }
+  return buildFocusedAnalysisMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount);
+}
+
+/**
+ * Contiguous multi-episode feedback (analyze_multi). Task scope only.
+ * Do not alter buildFocusedAnalysisPrompt.
+ */
+function buildFocusedAnalysisMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 연속된 여러 회차입니다. 개별 회차 단위가 아니라, 이 구간 전체를
+하나의 흐름으로 보고 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.
+
+[분석 원칙]
+1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.
+2. 막연한 칭찬이나 막연한 비판을 하지 않는다. 반드시 몇 화의 어떤 장면·
+   문장·흐름인지 구체적으로 짚어 설명한다.
+3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지
+   방향을 함께 제시한다. 대부분의 경우 방향 제안에 그치되, 장르 관습을
+   명백히 벗어나거나 개연성이 무너지는 등 원문 자체가 그대로 두기 어려운
+   수준이라고 판단되면, 문제를 정확히 설명한 뒤 대체 가능한 전개나 장면을
+   직접 예시로 써서 제시한다. 다만 최종 선택은 작가의 몫임을 분명히 하고,
+   이 경우에도 i18n.t('app.반드시_이렇게_고쳐야_한다')고 단정하지 않는다.
+4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지
+   않는다. 의도가 실제로 잘 구현되고 있는지를 본다.
+5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.
+
+[편집자 관점 - 구조와 기법]
+- 회차 간 강약 조절: 회차마다 긴장도·정보량이 적절히 완급 조절되는지,
+  특정 화만 처지거나 과열되지 않는지
+- 전개 속도: 이 구간 전체에서 사건이 너무 빠르게 혹은 느리게 배치되지
+  않았는지
+- 개연성: 회차를 넘어가며 사건·설정·인물 반응이 논리적으로 이어지는지
+- 캐릭터 일관성: 여러 회차에 걸쳐 인물의 성격·말투·가치관이 일관되게
+  유지되는지, 근거 없이 흔들리는 지점이 있는지
+- 문장 기법: 회차마다 반복되는 문장 패턴이나 상투적 표현이 누적되고
+  있지 않은지
+
+[독자 관점 - 몰입 경험]
+- 흡입력: 중간에 멈추지 않고 이 구간을 쭉 읽어나갈 만큼 매 화가 다음
+  화를 궁금하게 만드는지, 흐름이 끊기는 지점이 있는지
+- 감정적 반응: 의도된 감정이 회차를 거치며 축적되고 전달되는지
+- 시장성: 이 흐름이 독자층에게 소구할 만한 훅과 페이스를 갖추고 있는지
+  (장르 관습·연재 플랫폼 관행을 참고 기준으로 삼는다)
+
+[출력 형식]
+## 편집자 관점
+**좋은 점**
+- (몇 화의 어떤 부분인지 근거와 함께 1~3개)
+**개선점**
+- (근거 + 구체적 수정 방향과 함께 1~3개)
+
+## 독자 관점
+**좋은 점**
+- (근거와 함께 1~3개)
+**개선점**
+- (근거 + 구체적 수정 방향과 함께 1~3개)
+
+## 회차 간 흐름 총평
+이 구간 전체를 하나의 아크로 봤을 때 강약·속도·흡입력이 어떤지 3~5문장으로.
+
+## 한 줄 총평
+(이 구간 전체를 관통하는 핵심 조언 한 문장)
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[분석 결과]`;
+}
+
+/**
+ * Contiguous multi-episode feedback (analyze_multi). Task scope only.
+ * Do not alter buildFocusedAnalysisPrompt.
+ */
+function buildFocusedAnalysisMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount = 0) {
   const n = Number(episodeCount) > 0
     ? Number(episodeCount)
     : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
@@ -44023,7 +45354,52 @@ ${combinedManuscriptBlock}
  * Next-idea suggestions (ideas mode).
  * Task scope only — no Core Identity re-declaration.
  */
-function buildNextIdeaPrompt(sceneContent) {
+function buildNextIdeaPrompt(sceneContent, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildNextIdeaPrompt_GenreLit(sceneContent);
+  }
+  return buildNextIdeaPrompt_Webnovel(sceneContent);
+}
+
+/**
+ * Next-idea suggestions (ideas mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaPrompt_Webnovel(sceneContent) {
+  return `[현재 작업]
+아래는 방금 작성된 회차입니다. 이 흐름에서 자연스럽게 이어질 다음 전개
+아이디어를 3~5개 제안하세요.
+
+[판단 기준]
+1. 지금 회차의 마지막 장면에서 개연성 있게 이어지는 전개만 제안한다.
+   원고의 전체 흐름과 동떨어진 뜬금없는 사건을 제안하지 않는다.
+2. [프로젝트 누적 정보]에 있는 인물 성격, 세계관 규칙, 미회수 복선을 참고해
+   그 작품다운 방향으로 제안한다. 미회수 복선이 있다면 그것을 회수하거나
+   진전시키는 아이디어를 최소 1개 포함한다.
+3. 후보들은 서로 겹치지 않게, 각기 다른 방향(예: 갈등 심화 / 관계 변화 /
+   새로운 정보 공개 / 반전 등)을 다루도록 다양성을 준다.
+4. 이미 회수된 떡밥이나 이미 밝혀진 정보를 다시 반복해서 제안하지 않는다.
+
+[출력 형식]
+각 후보는 아래 형식으로 제시한다.
+**후보 N: (짧은 제목)**
+- 무엇을 하는 전개인지 1~2문장
+- 왜 이 시점에 자연스러운지 (근거 1문장)
+
+후보 수는 3~5개로 하고, 마지막에 "이 중 어떤 방향이든 편하게 말씀해주시면
+더 구체적으로 함께 풀어볼게요." 같은 짧은 안내를 덧붙인다.
+
+[현재 회차 본문]
+${sceneContent}
+
+[다음 아이디어 제안]`;
+}
+
+/**
+ * Next-idea suggestions (ideas mode).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaPrompt_GenreLit(sceneContent) {
   return `[현재 작업]
 아래는 방금 작성된 회차입니다. 이 흐름에서 자연스럽게 이어질 다음 전개
 아이디어를 3~5개 제안하세요.
@@ -44057,7 +45433,61 @@ ${sceneContent}
  * Next-idea when the following episode already has manuscript (ideas_next_exists).
  * Task scope only — no Core Identity re-declaration.
  */
-function buildNextIdeaWithNextScenePrompt(prevTail, nextFull) {
+function buildNextIdeaWithNextScenePrompt(prevTail, nextFull, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildNextIdeaWithNextScenePrompt_GenreLit(prevTail, nextFull);
+  }
+  return buildNextIdeaWithNextScenePrompt_Webnovel(prevTail, nextFull);
+}
+
+/**
+ * Next-idea when the following episode already has manuscript (ideas_next_exists).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaWithNextScenePrompt_Webnovel(prevTail, nextFull) {
+  return `[현재 작업]
+아래는 방금 마무리된 회차와, 그 다음으로 이미 작성된 회차의 시작 부분입니다.
+다음 회차의 시작 전개가 적절한지 짧게 의견을 드리고, 이를 대체할 수 있는
+다른 전개·묘사 아이디어를 5개 제안하세요.
+
+[판단 기준]
+1. 직전 회차의 흐름(감정선, 사건의 여운, 마지막 장면)에서 다음 회차 시작이
+   자연스럽게 이어지는지 평가한다.
+2. 이미 매력적이고 개연성 있게 시작됐다면 그 점을 짧게 인정하고 넘어간다.
+   억지로 문제를 만들어내지 않는다.
+3. 평가와 별개로, 다른 방향에서 시작할 수 있는 후킹 있는 대안을 5개 제시한다.
+   기존 시작부를 재활용한 변주(같은 장면, 다른 묘사)와, 아예 다른 지점에서
+   시작하는 전개(다른 장면, 다른 사건)를 섞어서 다양성을 준다.
+4. 각 대안이 왜 이 시점에 효과적인지 짧게 근거를 단다.
+5. [프로젝트 누적 정보]의 인물 성격·세계관 규칙·미회수 복선을 참고해
+   그 작품다운 방향을 벗어나지 않는다.
+
+[출력 형식]
+## 지금 시작부에 대한 의견
+(2~3문장, 강요하지 않는 톤)
+
+## 대체 가능한 다른 시작 5가지
+**대안 N: (짧은 제목)**
+- 어떤 전개/묘사로 시작하는지 1~2문장
+- 왜 효과적인지 (근거 1문장)
+
+마지막에 i18n.t('app.어떤_방향이든_편하게_골라주시면_이어서_함께') 같은
+짧은 안내를 덧붙인다.
+
+[직전 회차 마지막 부분]
+${prevTail}
+
+[다음 회차 시작부 (이미 작성됨)]
+${nextFull}
+
+[검토 결과]`;
+}
+
+/**
+ * Next-idea when the following episode already has manuscript (ideas_next_exists).
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildNextIdeaWithNextScenePrompt_GenreLit(prevTail, nextFull) {
   return `[현재 작업]
 아래는 방금 마무리된 회차와, 그 다음으로 이미 작성된 회차의 시작 부분입니다.
 다음 회차의 시작 전개가 적절한지 짧게 의견을 드리고, 이를 대체할 수 있는
@@ -44100,7 +45530,56 @@ ${nextFull}
  * Brainstorming (brainstorm mode): wide idea exploration, optional topic.
  * Task scope only — no Core Identity re-declaration.
  */
-function buildBrainstormPrompt(sceneContent, userTopic = "") {
+function buildBrainstormPrompt(sceneContent, userTopic = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildBrainstormPrompt_GenreLit(sceneContent, userTopic);
+  }
+  return buildBrainstormPrompt_Webnovel(sceneContent, userTopic);
+}
+
+/**
+ * Brainstorming (brainstorm mode): wide idea exploration, optional topic.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildBrainstormPrompt_Webnovel(sceneContent, userTopic = "") {
+  const topicInstruction = userTopic
+    ? `[작가가 지정한 주제]\n"${userTopic}"에 대해 집중적으로 브레인스토밍한다.`
+    : `[주제]\n작가가 특정 주제를 지정하지 않았다. 현재 회차와 지금까지의 흐름을
+       참고해, 이 작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.`;
+
+  return `[현재 작업]
+아래 원고를 바탕으로 이 작품에 적용할 수 있는 아이디어를 5~8개 브레인스토밍하세요.
+
+${topicInstruction}
+
+[판단 기준]
+1. i18n.t('app.다음_회차에_바로_이어지는_전개')로 범위를 좁히지 않는다. 서브플롯, 반전,
+   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
+   아이디어를 던진다.
+2. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를
+   둔다. 다소 과감하거나 실험적인 아이디어도 배제하지 않는다.
+3. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다 (설정을 깨는 것과 설정을 확장하는 것은 다르다).
+4. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+   같은 층위의 아이디어만 나열하지 않는다.
+
+[출력 형식]
+각 아이디어는 아래 형식으로 제시한다.
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차 또는 최근 원고]
+${sceneContent}
+
+[브레인스토밍 결과]`;
+}
+
+/**
+ * Brainstorming (brainstorm mode): wide idea exploration, optional topic.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildBrainstormPrompt_GenreLit(sceneContent, userTopic = "") {
   const topicInstruction = userTopic
     ? `[작가가 지정한 주제]\n"${userTopic}"에 대해 집중적으로 브레인스토밍한다.`
     : `[주제]\n작가가 특정 주제를 지정하지 않았다. 현재 회차와 지금까지의 흐름을
@@ -44138,7 +45617,95 @@ ${sceneContent}
  * Brainstorm when the next episode already has text (brainstorm_next_exists).
  * C = with topic, D = without. Task scope only — do not alter buildBrainstormPrompt.
  */
-function buildBrainstormWithNextScenePrompt(sceneContent, nextSceneContent, userTopic = "") {
+function buildBrainstormWithNextScenePrompt(sceneContent, nextSceneContent, userTopic = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildBrainstormWithNextScenePrompt_GenreLit(sceneContent, nextSceneContent, userTopic);
+  }
+  return buildBrainstormWithNextScenePrompt_Webnovel(sceneContent, nextSceneContent, userTopic);
+}
+
+/**
+ * Brainstorm when the next episode already has text (brainstorm_next_exists).
+ * C = with topic, D = without. Task scope only — do not alter buildBrainstormPrompt.
+ */
+function buildBrainstormWithNextScenePrompt_Webnovel(sceneContent, nextSceneContent, userTopic = "") {
+  const topic = String(userTopic || "").trim();
+  if (topic) {
+    return `[현재 작업]
+아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에
+확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을
+요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 아래 주제를 중심으로
+이 지점에서 작품을 확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를
+5~8개 제시하세요.
+
+[작가가 지정한 주제]
+"${topic}"에 대해 집중적으로 브레인스토밍한다.
+
+[판단 기준]
+1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은
+   참고 맥락일 뿐이다.
+2. 지정된 주제를 중심으로 전개하되, 다음 회차의 방향을 살리는 아이디어와
+   완전히 다른 방향으로 전환하는 아이디어를 균형 있게 섞는다.
+3. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.
+4. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다.
+5. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+
+[출력 형식]
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차]
+${sceneContent}
+
+[다음 회차 (이미 작성됨)]
+${nextSceneContent}
+
+[브레인스토밍 결과]`;
+  }
+  return `[현재 작업]
+아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에
+확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을
+요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 이 지점에서 작품을
+확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를 5~8개 제시하세요.
+
+[주제]
+작가가 특정 주제를 지정하지 않았다. 두 회차의 흐름을 참고해, 이 지점에서
+작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.
+
+[판단 기준]
+1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은
+   참고 맥락일 뿐이다.
+2. 다음 회차의 방향을 살리는 아이디어와, 완전히 다른 방향으로 전환하는
+   아이디어를 균형 있게 섞는다.
+3. i18n.t('app.다음_회차에_바로_이어지는_전개')로만 범위를 좁히지 않는다. 서브플롯, 반전,
+   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서
+   아이디어를 던진다.
+4. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.
+5. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는
+   범위 안에서 자유롭게 확장한다.
+6. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.
+
+[출력 형식]
+**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]
+- 무엇인지 1~2문장
+- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장
+
+[현재 회차]
+${sceneContent}
+
+[다음 회차 (이미 작성됨)]
+${nextSceneContent}
+
+[브레인스토밍 결과]`;
+}
+
+/**
+ * Brainstorm when the next episode already has text (brainstorm_next_exists).
+ * C = with topic, D = without. Task scope only — do not alter buildBrainstormPrompt.
+ */
+function buildBrainstormWithNextScenePrompt_GenreLit(sceneContent, nextSceneContent, userTopic = "") {
   const topic = String(userTopic || "").trim();
   if (topic) {
     return `[현재 작업]
@@ -44215,7 +45782,75 @@ ${nextSceneContent}
  * Setting-break detector (worldscan): world / character consistency.
  * Task scope only — no Core Identity re-declaration.
  */
-function buildSettingBreakScanPrompt(originalText) {
+function buildSettingBreakScanPrompt(originalText, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildSettingBreakScanPrompt_GenreLit(originalText);
+  }
+  return buildSettingBreakScanPrompt_Webnovel(originalText);
+}
+
+/**
+ * Setting-break detector (worldscan): world / character consistency.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSettingBreakScanPrompt_Webnovel(originalText) {
+  return `[현재 작업]
+아래 원고에서 이 작품의 세계관 또는 캐릭터 설정과 어긋나는 지점을 찾아내세요.
+
+[판단 근거 우선순위]
+1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
+2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
+소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
+정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
+(예: tracked_facts에 i18n.t('app.오른팔_부상') 기록이 있는데 원고에서 그 인물이
+오른손으로 무기를 사용) 반드시 지적한다.
+3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
+   지금까지 써온 말투)을 기준으로 삼는다.
+4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
+
+[세계관 검사 기준]
+5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
+   (예: 동양풍 세계관에 i18n.t('app.드래곤')이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
+   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
+   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
+   있다면 문제로 판단한다.
+
+[캐릭터 일관성 검사 기준]
+7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, i18n.t('app.이_작품의_세계관_안에서_통용되는_규범')이다.
+   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
+   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
+   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
+   i18n.t('app.그_인물_자신의_확립된_캐릭터')에서 벗어나는 지점이다.
+9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
+   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
+   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
+   시선에서 i18n.t('app.처럼_보였다'), i18n.t('app.같았다')와 같이 주관적으로 포착된 인상은, 그 자체로
+   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
+
+[출력 형식]
+발견된 항목이 있으면 아래 형식으로 나열한다.
+- 유형: [세계관 / 캐릭터]
+- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)
+- 문제: 무엇이 왜 어긋나는지
+- 제안: 어떻게 고치면 좋을지 짧게
+
+발견된 항목이 없으면 i18n.t('app.이번_구간에서는_설정과_어긋나는_지점이_발견')라고만 답한다.
+과잉 지적하지 않는다. 확실한 것만 표시한다.
+
+[본문]
+${originalText}
+
+[검사 결과]`;
+}
+
+/**
+ * Setting-break detector (worldscan): world / character consistency.
+ * Task scope only — no Core Identity re-declaration.
+ */
+function buildSettingBreakScanPrompt_GenreLit(originalText) {
   return `[현재 작업]
 아래 원고에서 이 작품의 세계관 또는 캐릭터 설정과 어긋나는 지점을 찾아내세요.
 
@@ -44272,7 +45907,88 @@ ${originalText}
  * Multi-episode setting-break scan (worldscan_multi). Task scope only.
  * Do not alter buildSettingBreakScanPrompt.
  */
-function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount = 0) {
+function buildSettingBreakScanMultiPrompt(combinedManuscriptBlock, episodeCount = 0, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildSettingBreakScanMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount);
+  }
+  return buildSettingBreakScanMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount);
+}
+
+/**
+ * Multi-episode setting-break scan (worldscan_multi). Task scope only.
+ * Do not alter buildSettingBreakScanPrompt.
+ */
+function buildSettingBreakScanMultiPrompt_Webnovel(combinedManuscriptBlock, episodeCount = 0) {
+  const n = Number(episodeCount) > 0
+    ? Number(episodeCount)
+    : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
+  return `[현재 작업]
+아래는 여러 회차입니다. 각 회차에서 이 작품의 세계관 또는 캐릭터 설정과
+어긋나는 지점을 찾아내세요. 회차별로 구분해서 결과를 제시합니다.
+
+[판단 근거 우선순위]
+1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.
+2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.
+2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/
+소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리
+정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면
+(예: tracked_facts에 i18n.t('app.오른팔_부상') 기록이 있는데 원고에서 그 인물이
+오른손으로 무기를 사용) 반드시 지적한다.
+3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이
+   지금까지 써온 말투)을 기준으로 삼는다.
+4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.
+
+[세계관 검사 기준]
+5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.
+   (예: 동양풍 세계관에 i18n.t('app.드래곤')이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)
+6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나
+   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도
+   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여
+   있다면 문제로 판단한다.
+
+[캐릭터 일관성 검사 기준]
+7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.
+8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, i18n.t('app.이_작품의_세계관_안에서_통용되는_규범')이다.
+   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로
+   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적
+   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,
+   i18n.t('app.그_인물_자신의_확립된_캐릭터')에서 벗어나는 지점이다.
+9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의
+   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는
+   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의
+   시선에서 i18n.t('app.처럼_보였다'), i18n.t('app.같았다')와 같이 주관적으로 포착된 인상은, 그 자체로
+   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.
+10. 각 회차의 판정은 그 회차 안의 내용만을 근거로 한다. 다른 회차에서 발견한 문제를
+    엉뚱한 회차의 결과에 섞어 넣지 않는다.
+
+[출력 형식]
+회차마다 아래 형식으로 결과를 제시한다.
+
+### {회차 제목}
+발견된 항목이 있으면 아래 형식으로 나열한다.
+- 유형: [세계관 / 캐릭터]
+- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)
+- 문제: 무엇이 왜 어긋나는지
+- 제안: 어떻게 고치면 좋을지 짧게
+
+발견된 항목이 없으면 i18n.t('app.이_회차에서는_설정과_어긋나는_지점이_발견되')
+라고만 답한다.
+
+(선택한 회차 수만큼 반복)
+
+과잉 지적하지 않는다. 확실한 것만 표시한다.
+
+[본문 - ${n}개 회차, 순서대로]
+${combinedManuscriptBlock}
+
+[검사 결과]`;
+}
+
+/**
+ * Multi-episode setting-break scan (worldscan_multi). Task scope only.
+ * Do not alter buildSettingBreakScanPrompt.
+ */
+function buildSettingBreakScanMultiPrompt_GenreLit(combinedManuscriptBlock, episodeCount = 0) {
   const n = Number(episodeCount) > 0
     ? Number(episodeCount)
     : Math.max(1, String(combinedManuscriptBlock || "").split(/^### /m).length - 1);
@@ -44363,7 +46079,50 @@ function buildContinueStyleDirectionBlock(styleMode) {
 `;
 }
 
-function buildContinuePrompt(originalText, lengthMode, userHint = "", styleMode = "") {
+function buildContinuePrompt(originalText, lengthMode, userHint = "", styleMode = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildContinuePrompt_GenreLit(originalText, lengthMode, userHint, styleMode);
+  }
+  return buildContinuePrompt_Webnovel(originalText, lengthMode, userHint, styleMode);
+}
+
+function buildContinuePrompt_Webnovel(originalText, lengthMode, userHint = "", styleMode = "") {
+  const modeKey = CONTINUE_LENGTH_MODES[lengthMode] ? lengthMode : "short";
+  const modeConfig = CONTINUE_LENGTH_MODES[modeKey];
+  const lengthInstruction =
+    modeKey === "proportional"
+      ? modeConfig.instruction(getProportionalContinueLength(String(originalText || "").length))
+      : modeConfig.instruction;
+  const styleBlock = buildContinueStyleDirectionBlock(styleMode);
+
+  return `[현재 작업]
+아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.
+
+[판단 기준]
+1. 원문의 문장 길이, 어휘 수준, 문체 리듬을 그대로 따른다. 더 화려하거나
+   단조롭게 바꾸지 않는다.
+2. 원문의 시점(1인칭/3인칭)과 시제를 그대로 유지한다.
+3. 등장인물의 말투와 사고방식을 원문에서 추론해 일관되게 재현한다.
+4. 이미 원문에 나온 설정(인물의 능력, 관계, 세계관 규칙 등) 안에서만 전개한다.
+   새로운 핵심 설정을 임의로 만들어내지 않는다.
+5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을
+   요약하거나 반복하지 않는다.
+${userHint ? `6. 사용자가 다음 방향에 대해 다음과 같은 힌트를 주었다면 반영한다: "${userHint}"` : ""}
+${styleBlock}${lengthInstruction}
+
+[문장 규칙]
+- 이어지는 본문만 출력한다. i18n.t('app.이어서_작성하면'), i18n.t('app.다음은_이어지는_내용입니다') 같은
+  메타 표현이나 설명을 붙이지 않는다.
+- 원문과 이어지는 부분의 경계가 어색하지 않도록, 필요하면 원문 마지막 문장의
+  흐름을 고려해 접속어나 시간 표현으로 자연스럽게 시작한다.
+
+[원고]
+${originalText}
+
+[이어지는 내용]`;
+}
+
+function buildContinuePrompt_GenreLit(originalText, lengthMode, userHint = "", styleMode = "") {
   const modeKey = CONTINUE_LENGTH_MODES[lengthMode] ? lengthMode : "short";
   const modeConfig = CONTINUE_LENGTH_MODES[modeKey];
   const lengthInstruction =
@@ -44403,7 +46162,45 @@ ${originalText}
  * Free-form author request (직접 요청하기). Task scope only.
  * Scene-summary button uses buildSummaryPrompt instead and must not call this.
  */
-function buildFreeRequestPrompt(originalText, userRequest) {
+function buildFreeRequestPrompt(originalText, userRequest, clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildFreeRequestPrompt_GenreLit(originalText, userRequest);
+  }
+  return buildFreeRequestPrompt_Webnovel(originalText, userRequest);
+}
+
+/**
+ * Free-form author request (직접 요청하기). Task scope only.
+ * Scene-summary button uses buildSummaryPrompt instead and must not call this.
+ */
+function buildFreeRequestPrompt_Webnovel(originalText, userRequest) {
+  return `[현재 작업]
+아래는 작가가 원고에 대해 직접 남긴 요청입니다. 이 요청에 최대한 구체적이고
+실질적으로 응답하세요.
+
+[요청 처리 원칙]
+1. 작가의 요청 의도를 최우선으로 따른다. 요청이 모호하면, 원고 맥락에서
+   가장 합리적인 해석으로 판단해 응답하고, 어떤 해석으로 답했는지 짧게 밝힌다.
+2. 요청과 무관한 부가 조언을 늘어놓지 않는다. 딱 필요한 만큼만 답한다.
+3. 원고에 없는 사실을 새로 지어내 단정하지 않는다. 추측이 필요한 경우
+   i18n.t('app.로_보입니다')처럼 추측임을 밝힌다.
+4. 요청이 원고와 무관한 일반 대화(잡담, 기술 질문 등)라면, 토리의 정체성
+   (편집자·비평가·독자)에 맞는 선에서 자연스럽게 응대한다.
+
+[본문]
+${originalText}
+
+[작가의 요청]
+${userRequest}
+
+[응답]`;
+}
+
+/**
+ * Free-form author request (직접 요청하기). Task scope only.
+ * Scene-summary button uses buildSummaryPrompt instead and must not call this.
+ */
+function buildFreeRequestPrompt_GenreLit(originalText, userRequest) {
   return `[현재 작업]
 아래는 작가가 원고에 대해 직접 남긴 요청입니다. 이 요청에 최대한 구체적이고
 실질적으로 응답하세요.
@@ -44432,7 +46229,20 @@ ${userRequest}
  * Used by manuscript selection / right-click rewrite only — not direct-write.
  * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
  */
-function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildRewritePrompt_GenreLit(selectedText, contextBefore, contextAfter, directionHint);
+  }
+  return buildRewritePrompt_Webnovel(selectedText, contextBefore, contextAfter, directionHint);
+}
+
+/**
+ * Polish a selected sentence/paragraph. Task scope only.
+ * contextBefore / contextAfter are reference-only (±~200 chars).
+ * Used by manuscript selection / right-click rewrite only — not direct-write.
+ * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
+ */
+function buildRewritePrompt_Webnovel(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
   const directionBlock = String(directionHint || "").trim()
     ? `
 [작가 요청 방향]
@@ -44505,7 +46315,136 @@ ${contextAfter}...
 [결과]`;
 }
 
-function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+/**
+ * Polish a selected sentence/paragraph. Task scope only.
+ * contextBefore / contextAfter are reference-only (±~200 chars).
+ * Used by manuscript selection / right-click rewrite only — not direct-write.
+ * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
+ */
+function buildRewritePrompt_GenreLit(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+  const directionBlock = String(directionHint || "").trim()
+    ? `
+[작가 요청 방향]
+${String(directionHint).trim()}
+이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. 요청과 무관한 재창작·내용 추가는 하지 않는다.
+`
+    : "";
+  return `[현재 작업]
+아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.
+${directionBlock}
+[판단 기준]
+1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.
+2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.
+   - 불필요하게 반복되는 단어나 상투적 표현 제거
+   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)
+   - 의미가 모호하거나 어색한 조사·어순
+   - 상황과 안 맞는 과도한 수식어
+3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다. (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
+4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.
+
+[먼저 판단할 것 - 개선이 필요한가]
+문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.
+이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
+
+[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
+왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
+(i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 또는 "저는 ~한 관점에서
+이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).
+그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
+장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
+
+[개선이 필요 없는 경우 - 대안 표현 제시]
+문장은 이미 충분히 좋으므로 i18n.t('app.다듬을_필요_없음')으로 판단하고, 대신
+같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
+이는 i18n.t('app.틀렸다')는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
+문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
+(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
+
+[문장 규칙]
+5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.
+6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).
+
+[출력 형식]
+개선이 필요한 경우:
+## 다듬기 제안
+저는 (이유)로 다듬기가 필요해 보였어요.
+
+**다듬은 결과:** (다듬어진 문장)
+
+작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?
+
+개선이 필요 없는 경우:
+## 이미 좋은 문장이에요
+다른 표현으로 바꿔보고 싶으시다면 참고하세요.
+- 대안 1: ...
+- 대안 2: ...
+- 대안 3: ...
+
+[앞뒤 맥락 - 참고용, 다듬지 않음]
+...${contextBefore}
+
+[다듬을 문장]
+${selectedText}
+
+[뒤 맥락 - 참고용, 다듬지 않음]
+${contextAfter}...
+
+[결과]`;
+}
+
+function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildDescriptionExpandPrompt_GenreLit(selectedText, contextBefore, contextAfter, directionHint);
+  }
+  return buildDescriptionExpandPrompt_Webnovel(selectedText, contextBefore, contextAfter, directionHint);
+}
+
+function buildDescriptionExpandPrompt_Webnovel(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+  const selected = String(selectedText || "").trim();
+  const before = String(contextBefore || "").trim();
+  const after = String(contextAfter || "").trim();
+  const beforeBlock = before ? `[앞 문맥]\n${before}\n\n` : "";
+  const afterBlock = after ? `[뒤 문맥]\n${after}\n\n` : "";
+  const direction = String(directionHint || "").trim();
+  const directionBlock = direction
+    ? `[작가 요청 방향]\n${direction}\n이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n`
+    : "";
+  return `[현재 작업]
+아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채
+더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수
+있는 본문만 씁니다.
+
+[선택 원문]
+${selected}
+
+${beforeBlock}${afterBlock}${directionBlock}[판단 기준]
+1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
+2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.
+   모든 감각을 억지로 채우지 않는다.
+3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다.
+4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.
+5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.
+6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.
+
+[출력 형식]
+## 묘사 확장
+**확장 결과:**
+(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)
+
+**버전 2:**
+(다른 각도. 예: 공간·분위기 강조)
+
+**버전 3:**
+(다른 각도. 예: 인물의 감각·내면 강조)
+
+머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.
+`;
+}
+
+function buildDescriptionExpandPrompt_GenreLit(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
   const selected = String(selectedText || "").trim();
   const before = String(contextBefore || "").trim();
   const after = String(contextAfter || "").trim();
@@ -44553,7 +46492,90 @@ ${beforeBlock}${afterBlock}${directionBlock}[판단 기준]
  * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
  * Needs-improvement path: short reason + question (same tone as rewrite).
  */
-function buildPlainExpressionCheckPrompt(inputText, directionHint = "") {
+function buildPlainExpressionCheckPrompt(inputText, directionHint = "", clusterId) {
+  if (promptPipelineId(clusterId) === "genre_literature") {
+    return buildPlainExpressionCheckPrompt_GenreLit(inputText, directionHint);
+  }
+  return buildPlainExpressionCheckPrompt_Webnovel(inputText, directionHint);
+}
+
+/**
+ * Direct-write expression check (popup "직접 쓰기").
+ * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
+ * Needs-improvement path: short reason + question (same tone as rewrite).
+ */
+function buildPlainExpressionCheckPrompt_Webnovel(inputText, directionHint = "") {
+  const directionBlock = String(directionHint || "").trim()
+    ? `
+[작가 요청 방향]
+${String(directionHint).trim()}
+이 방향을 우선 반영하되, 의미를 바꾸거나 없는 내용을 넣지 않는다.
+`
+    : "";
+  return `[현재 작업]
+아래 문장(들)에서 어색한 표현이나 부정확한 표현을 짚어 다듬을 수 있는지 판단하세요.
+특정 작품의 문맥이나 문체에 맞추는 작업이 아니라, 문장 자체의
+정확성과 자연스러움만 판단합니다.
+${directionBlock}
+[판단 기준]
+1. 어색한 문장 구조나 어순을 찾는다 (번역체, 불필요한 피동/사동 표현 등).
+2. 의미가 불명확하거나 중의적으로 읽히는 표현을 찾는다.
+3. 잘못된 단어 선택이나 부정확한 어휘 사용을 찾는다.
+4. 문법적으로 어긋난 부분(조사, 어미, 호응 관계 등)을 찾는다.
+5. 특정 문체(격식체/구어체 등)로 통일하라고 요구하지 않는다. 원문의
+   문체 자체는 존중하고, 그 문체 안에서의 어색함·부정확성만 본다.
+   (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
+
+[먼저 판단할 것 - 개선이 필요한가]
+문장에 실제로 위 기준에 해당하는 부분이 있는지 먼저 판단한다.
+이미 자연스럽고 정확한 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
+(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
+
+[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
+왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
+(i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 같은 자연스러운 말투로).
+그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
+장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
+
+[개선이 필요 없는 경우]
+이미 자연스럽고 정확한 문장은 그대로 둔다 (억지로 고치지 않는다).
+필요하면 아주 가벼운 대안 표현을 2~3개만 제시해도 되지만, 필수 아니다.
+(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
+
+[문장 규칙]
+6. 개선이 필요 없는 경우엔 원문을 그대로 두거나, 대안만 간결히 제시한다.
+7. 다듬은 결과 본문에는 설명 문장을 섞지 않는다 (이유는 지정된 출력 칸에만).
+
+[출력 형식]
+개선이 필요한 경우:
+## 다듬기 제안
+저는 (이유)로 다듬기가 필요해 보였어요.
+
+**다듬은 결과:** (다듬어진 문장)
+
+작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?
+
+개선이 필요 없는 경우 (원문 유지):
+## 이미 좋은 문장이에요
+다른 표현으로 바꿔보고 싶으시다면 참고하세요.
+- 대안 1: ...
+- 대안 2: ...
+- 대안 3: ...
+
+또는 원문만 그대로 출력해도 됩니다.
+
+[입력 문장]
+${inputText}
+
+[결과]`;
+}
+
+/**
+ * Direct-write expression check (popup "직접 쓰기").
+ * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
+ * Needs-improvement path: short reason + question (same tone as rewrite).
+ */
+function buildPlainExpressionCheckPrompt_GenreLit(inputText, directionHint = "") {
   const directionBlock = String(directionHint || "").trim()
     ? `
 [작가 요청 방향]
@@ -47780,7 +49802,9 @@ function pulseViewerReaderCommentsButtonIfNeeded() {
 function syncViewerReaderCommentsButton(options = {}) {
   const btn = $("viewerReaderCommentsButton");
   if (btn) {
-    const enabled = Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
+    const gatedOff = !isClusterFeatureVisible("reader_comments");
+    setClusterFeatureHidden(btn, gatedOff);
+    const enabled = !gatedOff && Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
     btn.disabled = !enabled;
     btn.title = enabled
       ? i18n.t('app.이_회차에_가상독자_댓글을_받아_봐요')
@@ -50976,8 +53000,20 @@ function openImportModal(options = {}) {
   $("importPurpose").value = current?.purpose && purposeLabel[normalizePurposeKey(current.purpose)]
     ? normalizePurposeKey(current.purpose)
     : "general_novel";
+  const importCluster = current
+    ? inferClusterId(
+      current.purpose,
+      current.main_genre,
+      current.sub_genre,
+      current.cluster_id,
+    )
+    : "";
+  setModalClusterId("import", importCluster === "locked" ? "" : importCluster);
+  renderGenreClusterGrid("import", importCluster === "locked" ? "" : importCluster);
   syncModalGenreFields("import", $("importPurpose").value, {
-    main: current?.main_genre || "",
+    main: inferClusterSubKey(importCluster, current?.main_genre, current?.sub_genre)
+      || current?.main_genre
+      || "",
     sub: current?.sub_genre || "",
   });
   const seedKeywords = mode === "proof"
@@ -51362,6 +53398,8 @@ async function submitImport(event) {
   const purpose = normalizePurposeKey($("importPurpose")?.value || "general_novel");
   let mainGenre = "";
   let subGenre = "";
+  let genreDetail = "";
+  let importClusterId = getModalClusterId("import");
   const isDocumentImport = importModalMode !== "proof"
     && destination !== "proof_pipeline"
     && destination !== "proof_compare"
@@ -51375,10 +53413,20 @@ async function submitImport(event) {
     }
     mainGenre = genres.main;
     subGenre = genres.sub;
+    genreDetail = genres.genre_detail || "";
+    if (genres.purpose) $("importPurpose").value = genres.purpose;
+    importClusterId = genres.cluster_id || importClusterId;
   } else {
     const current = state.projects.find((project) => project.id === state.projectId);
     mainGenre = String(current?.main_genre || state.mainGenre || "").trim();
     subGenre = String(current?.sub_genre || state.subGenre || "").trim();
+    genreDetail = String(current?.genre_detail || state.genreDetail || "").trim();
+    importClusterId = inferClusterId(
+      current?.purpose || purpose,
+      mainGenre,
+      subGenre,
+      current?.cluster_id,
+    );
   }
 
   const customTitle = getImportTitleMode() === "custom"
@@ -51415,9 +53463,11 @@ async function submitImport(event) {
       destination,
       split: $("importSplit").value,
       delimiter_config: $("importSplit").value === "blank_lines" ? getImportDelimiterConfig() : undefined,
-      purpose: purpose,
+      purpose: normalizePurposeKey($("importPurpose")?.value || purpose),
+      cluster_id: importClusterId,
       main_genre: mainGenre,
       sub_genre: subGenre,
+      genre_detail: genreDetail,
       keywords: isDocumentImport ? getModalDraftKeywords("import") : undefined,
       project_title: projectTitle,
       chapter_title: chapterTitle,
@@ -54150,7 +56200,11 @@ const ambientSound = {
   playing: false,
   switchToken: 0,
   catalogReady: false,
+  customUsage: { usedBytes: 0, limitBytes: 400 * 1024 * 1024 },
 };
+
+let ambientCustomUploading = false;
+let ambientCustomUploadCategory = "";
 
 function stripAmbientLoopJunk(text) {
   return String(text || "")
@@ -54175,9 +56229,16 @@ function ambientTrackRule(id) {
 function ambientTrackLabel(id) {
   const track = ambientSound.tracks[id];
   if (!track) return i18n.t("app.배경음");
+  const customTitle = String(track.customTitle || "").trim();
+  if (customTitle) return customTitle;
+  if (track.custom) {
+    const display = String(track.displayTitle || "").trim();
+    return display || humanizeAmbientStem(track.stem) || i18n.t("app.내_음원");
+  }
   const rule = ambientTrackRule(id);
   if (rule) return i18n.t(rule.key);
-  return humanizeAmbientStem(track.stem) || i18n.t("app.배경음");
+  const display = String(track.displayTitle || "").trim();
+  return display || humanizeAmbientStem(track.stem) || i18n.t("app.배경음");
 }
 
 function ambientTrackHint(id) {
@@ -54256,6 +56317,11 @@ function applyAmbientCatalog(payload) {
           file: String(item.file || ""),
           stem: String(item.stem || item.file || item.id),
           url: String(item.url),
+          custom: Boolean(item.custom),
+          customId: item.custom_id != null ? Number(item.custom_id) : 0,
+          customTitle: String(item.custom_title || "").trim(),
+          displayTitle: String(item.display_title || "").trim(),
+          enabledInPopup: item.enabled_in_popup !== false && item.enabled_in_popup !== 0,
           gain: ambientTrackGain({
             id: String(item.id),
             file: String(item.file || ""),
@@ -54270,6 +56336,11 @@ function applyAmbientCatalog(payload) {
   ambientSound.tracks = tracks;
   ambientSound.categories = normalized;
   ambientSound.catalogReady = true;
+  const usage = payload?.usage || {};
+  ambientSound.customUsage = {
+    usedBytes: Number(usage.used_bytes) || 0,
+    limitBytes: Number(usage.limit_bytes) || 400 * 1024 * 1024,
+  };
   preloadAmbientArt();
   let stored = "";
   try { stored = String(localStorage.getItem(AMBIENT_TRACK_KEY) || "").trim(); } catch (_) { /* ignore */ }
@@ -54449,6 +56520,69 @@ function ambientTrackArt(track) {
   return hit ? `/ambient-art/${hit[1]}` : "";
 }
 
+const AMBIENT_CUSTOM_BADGE_COLORS = [
+  "#F4C7C3",
+  "#F8D4A8",
+  "#F3E6A4",
+  "#C8E6C0",
+  "#B7E0D4",
+  "#BFD7EA",
+  "#C9C4E8",
+  "#E4C4D9",
+  "#D7CCC8",
+  "#C5D5C0",
+];
+
+function hashAmbientTrackId(id) {
+  const text = String(id || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) | 0;
+  }
+  return Math.abs(hash);
+}
+
+function ambientCustomBadgeColors(trackId) {
+  const hex = AMBIENT_CUSTOM_BADGE_COLORS[
+    hashAmbientTrackId(trackId) % AMBIENT_CUSTOM_BADGE_COLORS.length
+  ];
+  const raw = hex.slice(1);
+  const r = parseInt(raw.slice(0, 2), 16) / 255;
+  const g = parseInt(raw.slice(2, 4), 16) / 255;
+  const b = parseInt(raw.slice(4, 6), 16) / 255;
+  const toLin = (channel) => (
+    channel <= 0.03928 ? channel / 12.92 : ((channel + 0.055) / 1.055) ** 2.4
+  );
+  const luminance = 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
+  return { background: hex, color: luminance > 0.55 ? "#1a1a1a" : "#ffffff" };
+}
+
+function ambientCustomBadgeInitials(title) {
+  const text = String(title || "").trim();
+  if (!text) return "?";
+  const hangul = /[\u1100-\u11FF\u3130-\u318F\uAC00-\uD7A3]/;
+  const latin = /[A-Za-z]/;
+  const first = text[0];
+  if (hangul.test(first)) return first;
+  if (latin.test(first)) {
+    const letters = text.replace(/[^A-Za-z]/g, "").slice(0, 2);
+    return (letters || first).toUpperCase();
+  }
+  return text.slice(0, 1);
+}
+
+function ambientChipArtHtml(track, label) {
+  if (track?.custom) {
+    const initials = ambientCustomBadgeInitials(label);
+    const colors = ambientCustomBadgeColors(track.id);
+    return `<span class="ambient-chip-initial" style="background:${escapeHtml(colors.background)};color:${escapeHtml(colors.color)}">${escapeHtml(initials)}</span>`;
+  }
+  const art = ambientTrackArt(track);
+  return art
+    ? `<img src="${escapeHtml(art)}" alt="" width="46" height="46" decoding="async">`
+    : "";
+}
+
 function preloadAmbientArt() {
   const seen = new Set();
   Object.values(ambientSound.tracks).forEach((track) => {
@@ -54463,33 +56597,71 @@ function preloadAmbientArt() {
 
 function renderAmbientTrackButtons(selected, options = {}) {
   const withHint = Boolean(options.withHint);
+  const manage = Boolean(options.manage);
   const total = Object.keys(ambientSound.tracks).length;
-  if (!total) {
+  if (!total && !manage) {
     return `<p class="ambient-empty-hint">${escapeHtml(i18n.t("app.음원_없음"))}</p>`;
   }
-  return ambientSound.categories.map((cat) => {
-    const items = cat.tracks.map((track) => {
+  const html = ambientSound.categories.map((cat) => {
+    const visibleTracks = manage
+      ? cat.tracks
+      : cat.tracks.filter((track) => track.enabledInPopup !== false);
+    if (!visibleTracks.length && !manage) return "";
+    const items = visibleTracks.map((track) => {
       const active = track.id === selected;
       const label = ambientTrackLabel(track.id);
       const hint = withHint ? ambientTrackHint(track.id) : "";
       const title = hint ? `${label} ${hint}` : label;
-      const art = ambientTrackArt(track);
-      const img = art
-        ? `<img src="${escapeHtml(art)}" alt="" width="46" height="46" decoding="async">`
-        : "";
+      const artHtml = ambientChipArtHtml(track, label);
       const hintHtml = hint
         ? `<span class="ambient-chip-hint">${escapeHtml(hint)}</span>`
         : "";
-      return `<button type="button" class="ambient-chip${active ? " is-active" : ""}" role="menuitemradio" data-ambient-track="${escapeHtml(track.id)}" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(title)}">
-        <span class="ambient-chip-art" aria-hidden="true">${img}<span class="ambient-chip-check">✓</span></span>
-        <span class="ambient-chip-label">${escapeHtml(label)}${hintHtml}</span>
+      const badge = track.custom
+        ? `<span class="ambient-chip-badge">${escapeHtml(i18n.t("app.내_음원"))}</span>`
+        : "";
+      const chip = `<button type="button" class="ambient-chip${active ? " is-active" : ""}${track.custom ? " is-custom" : ""}" role="menuitemradio" data-ambient-track="${escapeHtml(track.id)}" aria-checked="${active ? "true" : "false"}" title="${escapeHtml(title)}">
+        <span class="ambient-chip-art${track.custom ? " is-initial" : ""}" aria-hidden="true">${artHtml}<span class="ambient-chip-check">✓</span></span>
+        <span class="ambient-chip-label">${escapeHtml(label)}${badge}${hintHtml}</span>
       </button>`;
+      if (!manage) return chip;
+      const enabled = track.enabledInPopup !== false;
+      const renameBtn = `<button type="button" class="ambient-chip-rename" data-ambient-rename="${escapeHtml(track.id)}" title="${escapeHtml(i18n.t("app.제목_바꾸기"))}" aria-label="${escapeHtml(i18n.t("app.제목_바꾸기"))}">
+          <svg viewBox="0 0 24 24" width="13" height="13" aria-hidden="true"><path fill="currentColor" d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25zm17.71-10.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"></path></svg>
+        </button>`;
+      const toggle = `<label class="ambient-popup-toggle">
+          <input type="checkbox" data-ambient-popup-enabled="${escapeHtml(track.id)}" ${enabled ? "checked" : ""}>
+          <span>${escapeHtml(i18n.t("app.토글박스에_표시"))}</span>
+        </label>`;
+      const deleteBtn = track.custom
+        ? `<button type="button" class="ambient-chip-delete" data-ambient-custom-delete="${escapeHtml(String(track.customId || ""))}" title="${escapeHtml(i18n.t("app.음원_삭제"))}" aria-label="${escapeHtml(i18n.t("app.음원_삭제"))}">
+          <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="currentColor" d="M9 3h6l1 2h4v2H4V5h4zm1 6h2v9h-2zm4 0h2v9h-2zM7 9h2v9H7z"></path></svg>
+        </button>`
+        : "";
+      return `<div class="ambient-chip-wrap${enabled ? "" : " is-hidden-from-popup"}">
+        ${chip}
+        ${renameBtn}
+        ${deleteBtn}
+        ${toggle}
+      </div>`;
     }).join("");
+    const uploadingHere = manage && ambientCustomUploading && ambientCustomUploadCategory === cat.id;
+    const addBtn = manage
+      ? `<button type="button" class="ambient-add-custom${uploadingHere ? " is-busy" : ""}" data-ambient-add="${escapeHtml(cat.id)}" ${ambientCustomUploading ? "disabled" : ""}>
+          ${uploadingHere
+            ? `<span class="ambient-add-spin" aria-hidden="true"></span>${escapeHtml(i18n.t("app.변환_중"))}`
+            : escapeHtml(i18n.t("app.내_음원_추가"))}
+        </button>`
+      : "";
     return `<section class="ambient-rail-group" data-ambient-cat="${escapeHtml(cat.id)}">
       <h4 class="ambient-rail-title">${escapeHtml(ambientCategoryLabel(cat.id))}</h4>
       <div class="ambient-rail-row">${items}</div>
+      ${addBtn}
     </section>`;
   }).join("");
+  if (!manage && !html.trim()) {
+    return `<p class="ambient-empty-hint">${escapeHtml(i18n.t("app.음원_없음"))}</p>`;
+  }
+  return html;
 }
 
 function fillAmbientPopup(force = false) {
@@ -54507,7 +56679,8 @@ function fillAmbientPopup(force = false) {
 function renderAdminAmbientList() {
   const host = $("adminAmbientTrackList");
   if (!host) return;
-  host.innerHTML = renderAmbientTrackButtons(ambientSound.selectedId, { withHint: true });
+  host.innerHTML = renderAmbientTrackButtons(ambientSound.selectedId, { withHint: true, manage: true });
+  syncAmbientQuotaUi();
 }
 
 function positionAmbientPopup() {
@@ -54556,7 +56729,7 @@ function openAmbientPopup() {
   if (typeof closeUiThemeRail === "function") closeUiThemeRail();
   if (typeof closeGitsiPopover === "function") closeGitsiPopover();
   const button = $("ambientSoundButton");
-  const popup = fillAmbientPopup();
+  const popup = fillAmbientPopup(true);
   if (!button || !popup) return;
   button.setAttribute("aria-expanded", "true");
   positionAmbientPopup();
@@ -54595,6 +56768,7 @@ function syncAmbientSoundUi() {
   const pct = Math.round(ambientSound.volume * 100);
   if (slider && document.activeElement !== slider) slider.value = String(pct);
   if (percent) percent.textContent = `${pct}%`;
+  syncAmbientQuotaUi();
 }
 
 function openAmbientSettingsPanel() {
@@ -54609,6 +56783,151 @@ function refreshAmbientSoundUi() {
   if (isAmbientPopupOpen()) fillAmbientPopup(true);
   renderAdminAmbientList();
   syncAmbientSoundUi();
+}
+
+function formatAmbientMb(bytes) {
+  const mb = Number(bytes || 0) / (1024 * 1024);
+  if (!Number.isFinite(mb) || mb <= 0) return "0";
+  if (mb < 10) return String(Math.round(mb * 10) / 10).replace(/\.0$/, "");
+  return String(Math.round(mb));
+}
+
+function syncAmbientQuotaUi() {
+  const el = $("adminAmbientQuota");
+  if (!el) return;
+  const used = formatAmbientMb(ambientSound.customUsage?.usedBytes);
+  const limit = formatAmbientMb(ambientSound.customUsage?.limitBytes || 400 * 1024 * 1024);
+  el.textContent = i18n.t("app.내_음원_용량", { used, limit });
+}
+
+function syncAmbientUploadStatus(on) {
+  const el = $("adminAmbientUploadStatus");
+  if (!el) return;
+  el.hidden = !on;
+  el.textContent = on ? i18n.t("app.변환_중") : "";
+}
+
+function pickCustomAmbientFile(category) {
+  if (ambientCustomUploading) return;
+  ambientCustomUploadCategory = String(category || "");
+  const input = $("adminAmbientFileInput");
+  if (!input || !ambientCustomUploadCategory) return;
+  input.click();
+}
+
+async function uploadCustomAmbientFile(category, file) {
+  if (!file || ambientCustomUploading) return;
+  ambientCustomUploading = true;
+  ambientCustomUploadCategory = String(category || "");
+  renderAdminAmbientList();
+  syncAmbientUploadStatus(true);
+  try {
+    const form = new FormData();
+    form.append("category", ambientCustomUploadCategory);
+    form.append("file", file);
+    await api("/api/ambient/upload", { method: "POST", body: form });
+    await loadAmbientCatalog();
+    toast(i18n.t("app.음원을_추가했어요"));
+  } catch (error) {
+    handleError(error);
+    renderAdminAmbientList();
+  } finally {
+    ambientCustomUploading = false;
+    ambientCustomUploadCategory = "";
+    syncAmbientUploadStatus(false);
+    renderAdminAmbientList();
+  }
+}
+
+async function deleteCustomAmbientTrack(customId) {
+  if (!window.confirm(i18n.t("app.이_음원을_삭제할까요"))) return;
+  const track = Object.values(ambientSound.tracks).find((item) => Number(item.customId) === Number(customId));
+  const wasSelected = Boolean(track && track.id === ambientSound.selectedId);
+  if (wasSelected && ambientSound.playing) {
+    stopAmbientVoices();
+    ambientSound.playing = false;
+  }
+  await api(`/api/ambient/custom/${customId}`, { method: "DELETE" });
+  if (track?.url) ambientSound.buffers.delete(`file:${track.url}`);
+  await loadAmbientCatalog();
+  if (wasSelected) {
+    saveAmbientTrack(ambientDefaultTrackId());
+    syncAmbientSoundUi();
+  }
+  toast(i18n.t("app.음원을_삭제했어요"));
+}
+
+function applyAmbientOverrideResult(trackId, data) {
+  const track = ambientSound.tracks[trackId];
+  if (!track || !data) return track;
+  if ("custom_title" in data) track.customTitle = String(data.custom_title || "").trim();
+  if ("display_title" in data) track.displayTitle = String(data.display_title || "").trim();
+  if ("enabled_in_popup" in data) {
+    track.enabledInPopup = data.enabled_in_popup !== false && data.enabled_in_popup !== 0;
+  }
+  return track;
+}
+
+async function patchAmbientTrackOverride(trackId, body) {
+  const data = await api(`/api/ambient/overrides/${encodeURIComponent(trackId)}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  applyAmbientOverrideResult(trackId, data);
+  renderAdminAmbientList();
+  if (isAmbientPopupOpen()) fillAmbientPopup(true);
+  syncAmbientSoundUi();
+  return data;
+}
+
+function startAmbientTitleEdit(trackId) {
+  const chip = document.querySelector(
+    `#adminAmbientTrackList [data-ambient-track="${CSS.escape(trackId)}"]`
+  );
+  const label = chip?.querySelector(".ambient-chip-label");
+  if (!label || label.querySelector("input")) return;
+  const current = ambientTrackLabel(trackId);
+  const badgeHtml = label.querySelector(".ambient-chip-badge")?.outerHTML || "";
+  const hintHtml = label.querySelector(".ambient-chip-hint")?.outerHTML || "";
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "ambient-chip-title-input";
+  input.value = current;
+  input.maxLength = 80;
+  input.setAttribute("aria-label", i18n.t("app.제목_바꾸기"));
+  label.textContent = "";
+  label.appendChild(input);
+  if (badgeHtml) label.insertAdjacentHTML("beforeend", badgeHtml);
+  if (hintHtml) label.insertAdjacentHTML("beforeend", hintHtml);
+  input.focus();
+  input.select();
+  let done = false;
+  const finish = async (commit) => {
+    if (done) return;
+    done = true;
+    const next = String(input.value || "").trim();
+    if (!commit || next === current) {
+      renderAdminAmbientList();
+      return;
+    }
+    try {
+      await patchAmbientTrackOverride(trackId, { custom_title: next || null });
+    } catch (error) {
+      handleError(error);
+      renderAdminAmbientList();
+    }
+  };
+  input.addEventListener("click", (event) => event.stopPropagation());
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      finish(true);
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      finish(false);
+    }
+  });
+  input.addEventListener("blur", () => finish(true));
 }
 
 function setupAmbientSound() {
@@ -54633,6 +56952,36 @@ function setupAmbientSound() {
   }
 
   document.addEventListener("click", (event) => {
+    if (event.target?.closest?.("#adminAmbientTrackList .ambient-chip-title-input")) {
+      event.stopPropagation();
+      return;
+    }
+    const del = event.target?.closest?.("#adminAmbientTrackList [data-ambient-custom-delete]");
+    if (del) {
+      event.preventDefault();
+      event.stopPropagation();
+      const customId = Number(del.getAttribute("data-ambient-custom-delete"));
+      if (Number.isFinite(customId) && customId > 0) {
+        deleteCustomAmbientTrack(customId).catch(handleError);
+      }
+      return;
+    }
+    const rename = event.target?.closest?.("#adminAmbientTrackList [data-ambient-rename], #adminAmbientTrackList .ambient-chip-label");
+    if (rename) {
+      event.preventDefault();
+      event.stopPropagation();
+      const id = rename.getAttribute("data-ambient-rename")
+        || rename.closest("[data-ambient-track]")?.getAttribute("data-ambient-track");
+      if (id) startAmbientTitleEdit(id);
+      return;
+    }
+    const add = event.target?.closest?.("#adminAmbientTrackList [data-ambient-add]");
+    if (add) {
+      event.preventDefault();
+      event.stopPropagation();
+      pickCustomAmbientFile(add.getAttribute("data-ambient-add"));
+      return;
+    }
     const acc = event.target?.closest?.("#ambientSoundPopup [data-ambient-acc], #adminAmbientTrackList [data-ambient-acc]");
     if (acc) {
       event.preventDefault();
@@ -54660,6 +57009,18 @@ function setupAmbientSound() {
     }
   }, true);
 
+  document.addEventListener("change", (event) => {
+    const box = event.target?.closest?.("#adminAmbientTrackList [data-ambient-popup-enabled]");
+    if (!box) return;
+    const id = box.getAttribute("data-ambient-popup-enabled");
+    if (!id) return;
+    const enabled = Boolean(box.checked);
+    patchAmbientTrackOverride(id, { enabled_in_popup: enabled }).catch((error) => {
+      box.checked = !enabled;
+      handleError(error);
+    });
+  });
+
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && isAmbientPopupOpen()) closeAmbientPopup();
   });
@@ -54673,6 +57034,14 @@ function setupAmbientSound() {
     saveAmbientVolume((Number.isFinite(pct) ? pct : 50) / 100);
     const percent = $("adminAmbientVolumeValue");
     if (percent) percent.textContent = `${Math.round(ambientSound.volume * 100)}%`;
+  });
+
+  $("adminAmbientFileInput")?.addEventListener("change", (event) => {
+    const file = event.target.files && event.target.files[0];
+    event.target.value = "";
+    const category = ambientCustomUploadCategory;
+    if (!file || !category) return;
+    uploadCustomAmbientFile(category, file).catch(handleError);
   });
 }
 
@@ -54755,6 +57124,7 @@ setupOpeningHintUi();
 setupOpeningIdeasModal();
 setupChapterSubtitleModal();
 setupModalKeywordField("import");
+setupGenreClusterPicker("import");
 setupWelcomeScreen();
 setupAdminMode();
 setupCharacterPortraitUi();
@@ -54769,6 +57139,7 @@ $("importPurpose")?.addEventListener("change", () => {
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel");
 });
 $("importMainGenre")?.addEventListener("change", () => {
+  applyModalClusterPurpose("import");
   syncModalGenreFields("import", $("importPurpose")?.value || "general_novel", { keepMain: true });
 });
 $("importSplit").addEventListener("change", updateImportFormVisibility);

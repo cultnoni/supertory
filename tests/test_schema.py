@@ -514,6 +514,98 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "gitsi_room_default")
 
+    def test_project_genre_detail_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "057_project_cluster.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "058_project_genre_detail.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("genre_detail", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 58"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_genre_detail")
+        self.db.execute(
+            "INSERT INTO project(title, genre_detail) VALUES ('세부장르', 'historical')"
+        )
+        stored = self.db.execute(
+            "SELECT genre_detail FROM project WHERE title = '세부장르'"
+        ).fetchone()[0]
+        self.assertEqual(stored, "historical")
+
+    def test_user_ambient_tracks_table_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "059_user_ambient_tracks.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(user_ambient_tracks)").fetchall()
+        }
+        self.assertEqual(
+            cols,
+            {
+                "id",
+                "original_filename",
+                "stored_filename",
+                "duration_seconds",
+                "file_size_bytes",
+                "category",
+                "created_at",
+            },
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 59"
+        ).fetchone()[0]
+        self.assertEqual(version, "user_ambient_tracks")
+        self.db.execute(
+            "INSERT INTO user_ambient_tracks("
+            "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+            "VALUES ('rain.wav', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mp3', 12.5, 2048, 'nature')"
+        )
+        stored = self.db.execute(
+            "SELECT category, original_filename FROM user_ambient_tracks"
+        ).fetchone()
+        self.assertEqual(tuple(stored), ("nature", "rain.wav"))
+        self.assert_integrity_error(
+            "INSERT INTO user_ambient_tracks("
+            "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+            "VALUES ('x.wav', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.mp3', 1, 10, 'invalid')"
+        )
+
+    def test_ambient_track_overrides_table_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "060_ambient_track_overrides.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(ambient_track_overrides)").fetchall()
+        }
+        self.assertEqual(
+            cols,
+            {
+                "track_id",
+                "custom_title",
+                "enabled_in_popup",
+                "updated_at",
+            },
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 60"
+        ).fetchone()[0]
+        self.assertEqual(version, "ambient_track_overrides")
+        self.db.execute(
+            "INSERT INTO ambient_track_overrides(track_id, custom_title, enabled_in_popup) "
+            "VALUES ('nature:모닥불', '모닥불 루프', 0)"
+        )
+        stored = self.db.execute(
+            "SELECT custom_title, enabled_in_popup FROM ambient_track_overrides"
+        ).fetchone()
+        self.assertEqual(tuple(stored), ("모닥불 루프", 0))
+        self.assert_integrity_error(
+            "INSERT INTO ambient_track_overrides(track_id, enabled_in_popup) "
+            "VALUES ('nature:시냇물', 2)"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

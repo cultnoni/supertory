@@ -18,6 +18,9 @@ datas = [
 _persona_seed = ROOT / "data" / "virtual_reader_personas.json"
 if _persona_seed.is_file():
     datas.append((str(_persona_seed), "data"))
+_genre_playbooks = ROOT / "data" / "genre_playbooks.json"
+if _genre_playbooks.is_file():
+    datas.append((str(_genre_playbooks), "data"))
 # Ship project .env into MEIPASS when present so frozen loaders find GEMINI_API_KEY.
 if (ROOT / ".env").is_file():
     datas.append((str(ROOT / ".env"), "."))

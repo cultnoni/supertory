@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import prompt_pipelines
+
 import json
 import re
 from dataclasses import dataclass, field
@@ -238,7 +240,43 @@ def parse_document_to_episodes(
     return episodes
 
 
-def build_structural_observation_prompt(scene_content: str) -> str:
+def build_structural_observation_prompt(scene_content: str, cluster_id: object = "") -> str:
+    if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+        return build_structural_observation_prompt_genre_lit(scene_content)
+    return build_structural_observation_prompt_webnovel(scene_content)
+
+def build_structural_observation_prompt_webnovel(scene_content: str) -> str:
+    return f"""[현재 작업]
+아래 회차에서 관찰되는 글쓰기 기법·구조적 특징을 짧게 기록하세요.
+줄거리 내용이 아니라 "어떻게 쓰였는지"에 집중합니다.
+
+[저작권 관련 원칙]
+원문 문장을 그대로 인용하거나 재현하지 않는다. 패턴에 대한 관찰과
+설명만 작성하고, 구체적 대사나 문장을 그대로 옮기지 않는다.
+
+[관찰 항목]
+1. 회차 끝맺음 방식: 훅으로 끝나는지, 잔잔하게 마무리되는지, 어떤 종류의
+   긴장(반전/위기/궁금증/여운)으로 끝나는지
+2. 전개 속도: 이 회차 안에서 사건이 빠르게 전개되는지, 묘사·심리에
+   시간을 들이는지
+3. 대사와 지문의 비중: 대사 위주인지 묘사 위주인지 체감 수준으로
+4. 문장 스타일: 문장 길이, 리듬, 눈에 띄는 문체적 특징
+
+[출력 형식 - JSON만 출력]
+{{
+  "ending_hook": "...",
+  "pacing": "...",
+  "dialogue_narration_balance": "...",
+  "style_notes": "..."
+}}
+
+[본문]
+{scene_content}
+
+[JSON 출력]"""
+
+
+def build_structural_observation_prompt_genre_lit(scene_content: str) -> str:
     return f"""[현재 작업]
 아래 회차에서 관찰되는 글쓰기 기법·구조적 특징을 짧게 기록하세요.
 줄거리 내용이 아니라 "어떻게 쓰였는지"에 집중합니다.
@@ -270,6 +308,52 @@ def build_structural_observation_prompt(scene_content: str) -> str:
 
 
 def build_success_pattern_merge_prompt(
+    quantitative_stats: dict[str, Any],
+    chapter_notes_list: list[dict[str, Any]],
+    cluster_id: object = "",
+) -> str:
+    if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+        return build_success_pattern_merge_prompt_genre_lit(quantitative_stats, chapter_notes_list)
+    return build_success_pattern_merge_prompt_webnovel(quantitative_stats, chapter_notes_list)
+
+def build_success_pattern_merge_prompt_webnovel(
+    quantitative_stats: dict[str, Any],
+    chapter_notes_list: list[dict[str, Any]],
+) -> str:
+    return f"""[현재 작업]
+아래는 한 작품 일부 구간의 회차별 구조 관찰 기록과 정량 통계입니다.
+이를 종합해 이 작품이 성공했던 글쓰기 패턴을 하나의 프로파일로 정리하세요.
+
+[저작권 관련 원칙]
+원문을 그대로 인용하거나 재현하지 않는다. 패턴에 대한 설명만 작성한다.
+
+[판단 기준]
+1. 회차마다 반복적으로 나타나는 패턴을 우선적으로 뽑는다. 한두 번만
+   나타난 특이 케이스는 패턴으로 일반화하지 않는다.
+2. 왜 이 패턴이 효과적이었을지 간단히 설명을 덧붙인다.
+3. 있는 그대로 관찰하고, 근거 없이 미화하거나 과장하지 않는다.
+4. 분석 대상이 작품의 일부 구간(앞부분/중간부분/결말부분)이라는 점을
+   감안해, 어느 구간에서 나온 관찰인지 구분해서 서술한다.
+
+[출력 형식 - JSON만 출력]
+{{
+  "hook_style": "이 작품의 회차 끝맺음 패턴과 그 효과",
+  "pacing_pattern": "전개 속도의 전형적 패턴",
+  "dialogue_narration_balance": "대사/지문 비중의 전형적 패턴",
+  "style_signature": "이 작가 특유의 문체적 특징",
+  "summary": "이 작품이 독자를 사로잡았던 핵심 요인 종합 (2~3문장)"
+}}
+
+[정량 통계]
+{json.dumps(quantitative_stats, ensure_ascii=False)}
+
+[회차별 관찰 기록]
+{json.dumps(chapter_notes_list, ensure_ascii=False)}
+
+[JSON 출력]"""
+
+
+def build_success_pattern_merge_prompt_genre_lit(
     quantitative_stats: dict[str, Any],
     chapter_notes_list: list[dict[str, Any]],
 ) -> str:
@@ -451,7 +535,36 @@ def _profile_factor_lists(success_profile: dict[str, Any]) -> dict[str, list[str
     }
 
 
-def build_success_analyst_chat_scope(success_profile: dict[str, Any] | None) -> str:
+def build_success_analyst_chat_scope(success_profile: dict[str, Any] | None, cluster_id: object = "") -> str:
+    if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+        return build_success_analyst_chat_scope_genre_lit(success_profile)
+    return build_success_analyst_chat_scope_webnovel(success_profile)
+
+def build_success_analyst_chat_scope_webnovel(success_profile: dict[str, Any] | None) -> str:
+    """Extra system scope for 흥행요인 분석가 chat (on top of Core Identity + persona)."""
+    factors = _profile_factor_lists(success_profile or {})
+    reader = ", ".join(factors["reader"]) if factors["reader"] else "(기록 없음)"
+    editor = ", ".join(factors["editor"]) if factors["editor"] else "(기록 없음)"
+    must = ", ".join(factors["must"]) if factors["must"] else "(지정 없음)"
+    return (
+        "[Tory Core Identity]를 유지한 채, 지금은 흥행요인 분석가 역할에\n"
+        "집중하세요. 작가의 흥행작에서 관찰된 성공 요인을 바탕으로, 지금\n"
+        "작가가 쓰고 있는 원고와 비교하며 대화하세요.\n\n"
+        "[이 작가의 흥행작에서 관찰된 성공 요인]\n"
+        f"독자 관점: {reader}\n"
+        f"편집자·비평가 관점: {editor}\n"
+        f"특히 놓치지 않아야 할 요인: {must}\n"
+        f"참고 패턴: 훅 스타일({factors['hook_style']}), "
+        f"전개 속도({factors['pacing_pattern']}),\n"
+        f"대사/지문 비중({factors['dialogue_narration_balance']}), "
+        f"문체({factors['style_signature']})\n\n"
+        "작가가 구체적인 질문(예: \"재미요소가 뭐가 부족해?\", \"다음화 훅으로\n"
+        "뭘 추가하면 좋을까?\")을 하면, 위 성공 요인을 근거로 구체적이고\n"
+        "실질적으로 답하세요.\n"
+    )
+
+
+def build_success_analyst_chat_scope_genre_lit(success_profile: dict[str, Any] | None) -> str:
     """Extra system scope for 흥행요인 분석가 chat (on top of Core Identity + persona)."""
     factors = _profile_factor_lists(success_profile or {})
     reader = ", ".join(factors["reader"]) if factors["reader"] else "(기록 없음)"
@@ -476,6 +589,45 @@ def build_success_analyst_chat_scope(success_profile: dict[str, Any] | None) -> 
 
 
 def build_task_prompt_with_success_profile(
+    task_prompt: str,
+    success_profile: dict[str, Any] | None,
+    cluster_id: object = "",
+) -> str:
+    if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+        return build_task_prompt_with_success_profile_genre_lit(task_prompt, success_profile)
+    return build_task_prompt_with_success_profile_webnovel(task_prompt, success_profile)
+
+def build_task_prompt_with_success_profile_webnovel(
+    task_prompt: str,
+    success_profile: dict[str, Any] | None,
+) -> str:
+    """Pure text wrap — optional 흥행 공식 참고 layer (no Core Identity)."""
+    if not success_profile:
+        return task_prompt
+    factors = _profile_factor_lists(success_profile)
+    reader = factors["reader"]
+    editor = factors["editor"]
+    must = factors["must"]
+
+    must_line = (
+        f"특히 놓치지 않아야 할 요인: {', '.join(must)}\n" if must else ""
+    )
+    profile_block = (
+        "[흥행 공식 참고 - 작가가 선택적으로 추가한 참고자료]\n"
+        "아래는 작가의 이전 흥행작에서 관찰된 성공 요인입니다. 이번 작업의\n"
+        "본래 목적을 벗어나지 않는 범위에서 참고하세요. 무리하게 모든 요인을\n"
+        "반영하려 하지 않습니다.\n\n"
+        f"독자 관점: {', '.join(reader) if reader else '(기록 없음)'}\n"
+        f"편집자·비평가 관점: {', '.join(editor) if editor else '(기록 없음)'}\n"
+        f"{must_line}"
+        f"참고 패턴: 훅 스타일({factors['hook_style']}), "
+        f"전개 속도({factors['pacing_pattern']}), "
+        f"대사/지문 비중({factors['dialogue_narration_balance']}), "
+        f"문체({factors['style_signature']})\n"
+    )
+    return f"{profile_block}\n{task_prompt}"
+
+def build_task_prompt_with_success_profile_genre_lit(
     task_prompt: str,
     success_profile: dict[str, Any] | None,
 ) -> str:

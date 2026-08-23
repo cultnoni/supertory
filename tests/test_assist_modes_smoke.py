@@ -201,6 +201,67 @@ class AssistModesSmokeTests(unittest.TestCase):
 
         self.assertFalse(failures, "\n".join(failures))
 
+    def _helper_extra(self, mode: str) -> dict:
+        extra: dict = {}
+        if mode == "free":
+            extra = {"prompt": "이 장면을 한 문장으로 요약해 줘.", "user_prompt": "이 장면을 한 문장으로 요약해 줘."}
+        elif mode == "continue":
+            extra = {"length_mode": "short", "user_hint": ""}
+        elif mode == "rewrite":
+            extra = {
+                "scene_content": "문이 열렸다.",
+                "selected_text": "문이 열렸다.",
+                "context_before": "복도 끝에서 ",
+                "context_after": " 바람이 들어왔다.",
+            }
+        elif mode == "worlddesc":
+            extra = {"target_subject": "왕궁 내부 묘사", "prompt": "왕궁 내부 묘사"}
+        elif mode == "brainstorm":
+            extra = {"user_topic": "조연 인물", "prompt": "조연 인물"}
+        elif mode in {"foreshadow", "plottwist"}:
+            extra = {"foreshadow": FORESHADOW}
+        elif mode == "subsynopsis":
+            extra = {
+                "scene_content": "",
+                "outline_summary": "주인공이 시험을 보고 왕궁에 들어가 음모를 밝혀 평화를 되찾는다.",
+            }
+        elif mode == "dupcheck":
+            extra = {
+                "neighbor_scenes": [
+                    {"index": 1, "title": "1화", "content": "등잔 연기가 코끝을 스쳤다."},
+                ],
+                "local_hits": [{"phrase": "등잔 연기", "where": "1화", "kind": "표현"}],
+            }
+        elif mode == "descexpand":
+            extra = {
+                "scene_content": "문이 열렸다.",
+                "selected_text": "문이 열렸다.",
+            }
+        return extra
+
+    def test_genre_literature_dry_run_matches_webnovel(self) -> None:
+        """Until genre-lit tuning, both pipelines must emit the same task prompt."""
+        modes = list(HELPER_MODES) + ["descexpand"]
+        failures: list[str] = []
+        for mode in modes:
+            extra = self._helper_extra(mode)
+            web_status, web = self.request(
+                "POST", "/api/ai/assist", self.base_body(mode, cluster_id="webnovel", **extra)
+            )
+            lit_status, lit = self.request(
+                "POST",
+                "/api/ai/assist",
+                self.base_body(mode, cluster_id="genre_literature", **extra),
+            )
+            if web_status != 200 or lit_status != 200:
+                failures.append(f"{mode}: HTTP web={web_status} lit={lit_status}")
+                continue
+            web_full = str(web.get("full_prompt") or "")
+            lit_full = str(lit.get("full_prompt") or "")
+            if web_full != lit_full:
+                failures.append(f"{mode}: full_prompt mismatch ({len(web_full)} vs {len(lit_full)})")
+        self.assertFalse(failures, "\n".join(failures))
+
     def test_mode_specific_validation(self) -> None:
         status, result = self.request(
             "POST",

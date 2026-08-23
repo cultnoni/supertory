@@ -88,7 +88,9 @@ class RewriteBranchPromptTests(unittest.TestCase):
         self.assertIn("그대로 둘래요", html)
         self.assertIn('id="rewriteCompareAltList"', html)
         # plain expression still separate
-        self.assertEqual(js.count("function buildPlainExpressionCheckPrompt"), 1)
+        self.assertGreaterEqual(js.count("function buildPlainExpressionCheckPrompt"), 1)
+        self.assertIn("function buildPlainExpressionCheckPrompt_Webnovel", js)
+        self.assertIn("function buildPlainExpressionCheckPrompt_GenreLit", js)
         self.assertIn("buildPlainExpressionCheckPrompt(selectedText, directionHint)", js)
         self.assertIn("rewriteDirectionHint", html)
         self.assertIn("다듬기 방향", html)

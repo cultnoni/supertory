@@ -1,0 +1,34 @@
+{
+  "clusters": [
+    {
+      "id": "webnovel",
+      "label": "웹소설",
+      "sub_genres": ["로맨스", "로판", "여성향판타지", "남성향판타지"],
+      "status": "active"
+    },
+    {
+      "id": "genre_literature",
+      "label": "장르문학",
+      "sub_genres": ["추리/미스터리", "스릴러", "SF"],
+      "status": "active"
+    },
+    {
+      "id": "general_literature",
+      "label": "일반소설/문학/에세이",
+      "sub_genres": ["일반소설", "일반문학", "순문학", "에세이"],
+      "status": "active"
+    },
+    {
+      "id": "fairytale",
+      "label": "동화",
+      "sub_genres": ["동화"],
+      "status": "active"
+    },
+    {
+      "id": "locked",
+      "label": "기타 (준비중)",
+      "sub_genres": ["단편", "정보전달", "논문", "자서전", "회고록", "시나리오/희곡", "일기/기록", "보고서", "칼럼/비평", "기타"],
+      "status": "locked"
+    }
+  ]
+}

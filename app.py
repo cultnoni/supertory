@@ -17,16 +17,20 @@ import os
 import random
 import secrets
 import re
+import shutil
 import socket
 import sqlite3
 import subprocess
 import sys
+import tempfile
 import time
 import unicodedata
 import uuid
 import webbrowser
 from contextlib import contextmanager
 from datetime import datetime, timezone
+from email.parser import BytesParser
+from email.policy import default as email_policy
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -41,6 +45,8 @@ import document_export
 import world_import_analysis
 import document_import
 import env_loader
+import genre_clusters
+import prompt_pipelines
 import folder_tree
 import gemini_client
 import import_hierarchy
@@ -153,9 +159,19 @@ MIGRATION_053_PATH = ROOT / "db" / "053_recompute_highlight_episode_order.py"
 MIGRATION_054_PATH = ROOT / "db" / "054_scene_reader_comments.sql"
 MIGRATION_055_PATH = ROOT / "db" / "055_gitsi_rooms.sql"
 MIGRATION_056_PATH = ROOT / "db" / "056_gitsi_room_default.sql"
+MIGRATION_057_PATH = ROOT / "db" / "057_project_cluster.sql"
+MIGRATION_058_PATH = ROOT / "db" / "058_project_genre_detail.sql"
+MIGRATION_059_PATH = ROOT / "db" / "059_user_ambient_tracks.sql"
+MIGRATION_060_PATH = ROOT / "db" / "060_ambient_track_overrides.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
+CUSTOM_AMBIENT_FOLDER = "custom"
+CUSTOM_AMBIENT_QUOTA_BYTES = 400 * 1024 * 1024
+CUSTOM_AMBIENT_MAX_SECONDS = 20 * 60
+CUSTOM_AMBIENT_MAX_UPLOAD_BYTES = 250 * 1024 * 1024
+CUSTOM_AMBIENT_EXTENSIONS = {".mp3", ".wav", ".m4a", ".flac", ".ogg"}
+CUSTOM_AMBIENT_FILE_RE = re.compile(r"^[0-9a-f]{32}\.mp3$", re.IGNORECASE)
 
 
 def ambient_file_token(folder: str, filename: str) -> str:
@@ -163,8 +179,29 @@ def ambient_file_token(folder: str, filename: str) -> str:
     return f"{folder}/{filename}".encode("utf-8").hex()
 
 
+def ambient_custom_dir() -> Path:
+    path = DATA_DIR / "ambient_custom"
+    path.mkdir(parents=True, exist_ok=True)
+    return path
+
+
+def resolve_custom_ambient_file(filename: str) -> Path | None:
+    name = Path(str(filename or "")).name
+    if not CUSTOM_AMBIENT_FILE_RE.fullmatch(name):
+        return None
+    root = ambient_custom_dir().resolve()
+    path = (root / name).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return None
+    return path if path.is_file() else None
+
+
 def resolve_ambient_sound_file(folder: str, filename: str) -> Path | None:
     """Find an MP3 in assets/sounds, matching Unicode-normalized Korean names."""
+    if folder == CUSTOM_AMBIENT_FOLDER:
+        return resolve_custom_ambient_file(filename)
     if folder not in AMBIENT_SOUND_FOLDERS:
         return None
     root = AMBIENT_SOUND_ROOT.resolve()
@@ -211,7 +248,499 @@ def list_ambient_sound_catalog() -> dict:
                     "url": f"/api/ambient-file/{ambient_file_token(folder, path.name)}",
                 })
         categories.append({"id": folder, "tracks": tracks})
-    return {"categories": categories}
+    custom_by_category, usage = load_custom_ambient_tracks()
+    for category in categories:
+        category["tracks"].extend(custom_by_category.get(category["id"], []))
+    apply_ambient_track_overrides(categories)
+    return {"categories": categories, "usage": usage}
+
+
+def _unlink_quiet(path: Path | None) -> None:
+    if path is None:
+        return
+    try:
+        path.unlink(missing_ok=True)
+    except OSError:
+        pass
+
+
+def _subprocess_hidden_kwargs() -> dict:
+    kwargs: dict = {}
+    flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+    if flags:
+        kwargs["creationflags"] = flags
+    return kwargs
+
+
+def find_ffmpeg_tools() -> tuple[str, str]:
+    ffmpeg = shutil.which("ffmpeg")
+    ffprobe = shutil.which("ffprobe")
+    if not ffmpeg or not ffprobe:
+        raise ValueError("음원을 변환할 수 없어요. ffmpeg가 설치되어 있는지 확인해 주세요.")
+    return ffmpeg, ffprobe
+
+
+def transcode_to_ambient_mp3(source: Path, destination: Path) -> None:
+    ffmpeg, _ffprobe = find_ffmpeg_tools()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    result = subprocess.run(
+        [
+            ffmpeg,
+            "-y",
+            "-i",
+            str(source),
+            "-b:a",
+            "128k",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            str(destination),
+        ],
+        capture_output=True,
+        timeout=180,
+        **_subprocess_hidden_kwargs(),
+    )
+    if result.returncode != 0 or not destination.is_file() or destination.stat().st_size < 32:
+        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
+
+
+def probe_audio_duration_seconds(path: Path) -> float:
+    _ffmpeg, ffprobe = find_ffmpeg_tools()
+    result = subprocess.run(
+        [
+            ffprobe,
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            str(path),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=30,
+        **_subprocess_hidden_kwargs(),
+    )
+    if result.returncode != 0:
+        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
+    try:
+        duration = float((result.stdout or "").strip())
+    except (TypeError, ValueError) as error:
+        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.") from error
+    if duration <= 0:
+        raise ValueError("이 파일은 변환할 수 없어요. 파일이 손상됐거나 지원하지 않는 형식일 수 있어요.")
+    return duration
+
+
+def custom_ambient_usage(connection: sqlite3.Connection | None = None) -> dict:
+    empty = {"used_bytes": 0, "limit_bytes": CUSTOM_AMBIENT_QUOTA_BYTES}
+
+    def _read(conn: sqlite3.Connection) -> dict:
+        used = conn.execute(
+            "SELECT COALESCE(SUM(file_size_bytes), 0) FROM user_ambient_tracks"
+        ).fetchone()[0]
+        return {"used_bytes": int(used or 0), "limit_bytes": CUSTOM_AMBIENT_QUOTA_BYTES}
+
+    if connection is not None:
+        try:
+            return _read(connection)
+        except sqlite3.Error:
+            return empty
+    try:
+        with database() as conn:
+            return _read(conn)
+    except sqlite3.Error:
+        return empty
+
+
+def custom_ambient_track_public(row: sqlite3.Row | dict) -> dict:
+    stored = str(row["stored_filename"])
+    original = str(row["original_filename"])
+    category = str(row["category"])
+    return {
+        "id": f"custom:{int(row['id'])}",
+        "category": category,
+        "file": original,
+        "stem": Path(original).stem,
+        "url": f"/api/ambient-file/{ambient_file_token(CUSTOM_AMBIENT_FOLDER, stored)}",
+        "custom": True,
+        "custom_id": int(row["id"]),
+        "duration_seconds": float(row["duration_seconds"] or 0),
+        "file_size_bytes": int(row["file_size_bytes"] or 0),
+    }
+
+
+def load_custom_ambient_tracks() -> tuple[dict[str, list[dict]], dict]:
+    grouped = {folder: [] for folder in AMBIENT_SOUND_FOLDERS}
+    usage = custom_ambient_usage()
+    try:
+        with database() as connection:
+            rows = connection.execute(
+                "SELECT id, original_filename, stored_filename, duration_seconds, "
+                "file_size_bytes, category FROM user_ambient_tracks "
+                "ORDER BY created_at, id"
+            ).fetchall()
+            usage = custom_ambient_usage(connection)
+    except sqlite3.Error:
+        return grouped, usage
+    for row in rows:
+        category = str(row["category"])
+        if category not in grouped:
+            continue
+        stored = str(row["stored_filename"])
+        if resolve_custom_ambient_file(stored) is None:
+            continue
+        grouped[category].append(custom_ambient_track_public(row))
+    return grouped, usage
+
+
+def sanitize_ambient_upload_filename(name: str) -> str:
+    cleaned = unicodedata.normalize("NFC", Path(str(name or "")).name).replace("\x00", "").strip()
+    if len(cleaned) > 200:
+        stem = Path(cleaned).stem[:180]
+        suffix = Path(cleaned).suffix[:20]
+        cleaned = f"{stem}{suffix}" if suffix else stem
+    return cleaned or "audio.mp3"
+
+
+def parse_multipart_form(handler) -> tuple[dict[str, str], dict[str, tuple[str, bytes]]]:
+    content_type = handler.headers.get("Content-Type", "")
+    if "multipart/form-data" not in content_type.lower():
+        raise ValueError("파일 업로드 형식이 올바르지 않습니다.")
+    try:
+        length = int(handler.headers.get("Content-Length") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError("파일 업로드 형식이 올바르지 않습니다.") from error
+    if length <= 0:
+        raise ValueError("업로드 파일이 비어 있습니다.")
+    if length > CUSTOM_AMBIENT_MAX_UPLOAD_BYTES:
+        remaining = length
+        while remaining > 0:
+            chunk = handler.rfile.read(min(65536, remaining))
+            if not chunk:
+                break
+            remaining -= len(chunk)
+        raise ValueError("파일이 너무 큽니다.")
+    raw = handler.rfile.read(length)
+    header_block = f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode("utf-8")
+    message = BytesParser(policy=email_policy).parsebytes(header_block + raw)
+    fields: dict[str, str] = {}
+    files: dict[str, tuple[str, bytes]] = {}
+    for part in message.iter_parts():
+        name = part.get_param("name", header="content-disposition")
+        if not name:
+            continue
+        filename = part.get_filename()
+        payload = part.get_payload(decode=True)
+        if payload is None:
+            payload = b""
+        if filename:
+            files[str(name)] = (str(filename), payload)
+        else:
+            charset = part.get_content_charset() or "utf-8"
+            try:
+                fields[str(name)] = payload.decode(charset, errors="replace")
+            except LookupError:
+                fields[str(name)] = payload.decode("utf-8", errors="replace")
+    return fields, files
+
+
+def save_custom_ambient_track(category: str, original_filename: str, file_bytes: bytes) -> dict:
+    category = str(category or "").strip()
+    if category not in AMBIENT_SOUND_FOLDERS:
+        raise ValueError("카테고리를 선택해 주세요.")
+    if not file_bytes:
+        raise ValueError("업로드 파일이 비어 있습니다.")
+    original_filename = sanitize_ambient_upload_filename(original_filename)
+    extension = Path(original_filename).suffix.lower()
+    if extension not in CUSTOM_AMBIENT_EXTENSIONS:
+        raise ValueError("mp3, wav, m4a, flac, ogg 파일만 올릴 수 있어요.")
+    stored_filename = f"{uuid.uuid4().hex}.mp3"
+    source_path: Path | None = None
+    encoded_path: Path | None = None
+    dest_path: Path | None = None
+    try:
+        handle = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
+        try:
+            handle.write(file_bytes)
+            handle.flush()
+        finally:
+            handle.close()
+        source_path = Path(handle.name)
+        encoded_handle = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+        encoded_handle.close()
+        encoded_path = Path(encoded_handle.name)
+        transcode_to_ambient_mp3(source_path, encoded_path)
+        duration = probe_audio_duration_seconds(encoded_path)
+        if duration > CUSTOM_AMBIENT_MAX_SECONDS:
+            raise ValueError("배경음은 짧은 루프 소스를 권장해요")
+        encoded_size = encoded_path.stat().st_size
+        with database() as connection:
+            used = int(
+                connection.execute(
+                    "SELECT COALESCE(SUM(file_size_bytes), 0) FROM user_ambient_tracks"
+                ).fetchone()[0]
+                or 0
+            )
+            if used + encoded_size > CUSTOM_AMBIENT_QUOTA_BYTES:
+                raise ValueError("저장 공간이 가득 찼어요 (400MB 제한)")
+            dest_path = ambient_custom_dir() / stored_filename
+            shutil.move(str(encoded_path), str(dest_path))
+            encoded_path = None
+            cursor = connection.execute(
+                "INSERT INTO user_ambient_tracks("
+                "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (original_filename, stored_filename, duration, encoded_size, category),
+            )
+            track_id = int(cursor.lastrowid)
+            row = connection.execute(
+                "SELECT id, original_filename, stored_filename, duration_seconds, "
+                "file_size_bytes, category FROM user_ambient_tracks WHERE id = ?",
+                (track_id,),
+            ).fetchone()
+            usage = custom_ambient_usage(connection)
+        return {"track": custom_ambient_track_public(row), "usage": usage}
+    except Exception:
+        _unlink_quiet(encoded_path)
+        _unlink_quiet(dest_path)
+        raise
+    finally:
+        _unlink_quiet(source_path)
+
+
+def upload_custom_ambient_track_from_request(handler) -> dict:
+    fields, files = parse_multipart_form(handler)
+    upload = files.get("file")
+    if not upload:
+        raise ValueError("업로드 파일이 비어 있습니다.")
+    filename, payload = upload
+    category = str(fields.get("category") or "").strip()
+    return save_custom_ambient_track(category, filename, payload)
+
+
+def delete_custom_ambient_track(track_id: int) -> dict:
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, stored_filename FROM user_ambient_tracks WHERE id = ?",
+            (int(track_id),),
+        ).fetchone()
+        if row is None:
+            raise ValueError("음원을 찾을 수 없습니다.")
+        stored = str(row["stored_filename"])
+        connection.execute("DELETE FROM user_ambient_tracks WHERE id = ?", (int(track_id),))
+        try:
+            connection.execute(
+                "DELETE FROM ambient_track_overrides WHERE track_id = ?",
+                (f"custom:{int(track_id)}",),
+            )
+        except sqlite3.Error:
+            pass
+        usage = custom_ambient_usage(connection)
+    path = resolve_custom_ambient_file(stored)
+    if path is None:
+        candidate = ambient_custom_dir() / Path(stored).name
+        if candidate.is_file() and CUSTOM_AMBIENT_FILE_RE.fullmatch(candidate.name):
+            path = candidate
+    _unlink_quiet(path)
+    return {"ok": True, "usage": usage}
+
+
+def _json_flag(value, default: bool = True) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, str):
+        lowered = value.strip().lower()
+        if lowered in {"1", "true", "yes", "on"}:
+            return True
+        if lowered in {"0", "false", "no", "off"}:
+            return False
+        raise ValueError("토글박스 표시 값이 올바르지 않습니다.")
+    if isinstance(value, (int, float)) and value in (0, 1):
+        return bool(value)
+    if isinstance(value, bool):
+        return value
+    raise ValueError("토글박스 표시 값이 올바르지 않습니다.")
+
+
+def parse_ambient_track_id(track_id: str) -> tuple[str, str] | None:
+    raw = unicodedata.normalize("NFC", unquote(str(track_id or "")).strip())
+    if not raw or len(raw) > 240 or "/" in raw or "\\" in raw:
+        return None
+    folder, sep, stem = raw.partition(":")
+    if not sep or not folder or not stem:
+        return None
+    if folder == CUSTOM_AMBIENT_FOLDER:
+        if not stem.isdigit():
+            return None
+        return folder, str(int(stem))
+    if folder not in AMBIENT_SOUND_FOLDERS:
+        return None
+    return folder, stem
+
+
+def canonical_ambient_track_id(track_id: str) -> str | None:
+    parsed = parse_ambient_track_id(track_id)
+    if parsed is None:
+        return None
+    folder, stem = parsed
+    return f"{folder}:{stem}"
+
+
+def ambient_track_exists(track_id: str) -> bool:
+    parsed = parse_ambient_track_id(track_id)
+    if parsed is None:
+        return False
+    folder, stem = parsed
+    if folder == CUSTOM_AMBIENT_FOLDER:
+        try:
+            with database() as connection:
+                row = connection.execute(
+                    "SELECT id FROM user_ambient_tracks WHERE id = ?",
+                    (int(stem),),
+                ).fetchone()
+            return row is not None
+        except sqlite3.Error:
+            return False
+    return resolve_ambient_sound_file(folder, f"{stem}.mp3") is not None
+
+
+def original_ambient_title(track_id: str) -> str:
+    parsed = parse_ambient_track_id(track_id)
+    if parsed is None:
+        return ""
+    folder, stem = parsed
+    if folder != CUSTOM_AMBIENT_FOLDER:
+        return stem
+    try:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT original_filename FROM user_ambient_tracks WHERE id = ?",
+                (int(stem),),
+            ).fetchone()
+    except sqlite3.Error:
+        return ""
+    if row is None:
+        return ""
+    return Path(str(row["original_filename"] or "")).stem
+
+
+def load_ambient_track_overrides(connection: sqlite3.Connection | None = None) -> dict[str, dict]:
+    def _read(conn: sqlite3.Connection) -> dict[str, dict]:
+        try:
+            rows = conn.execute(
+                "SELECT track_id, custom_title, enabled_in_popup FROM ambient_track_overrides"
+            ).fetchall()
+        except sqlite3.Error:
+            return {}
+        result: dict[str, dict] = {}
+        for row in rows:
+            tid = canonical_ambient_track_id(str(row["track_id"] or ""))
+            if not tid:
+                continue
+            title = row["custom_title"]
+            if title is not None:
+                title = str(title).strip() or None
+            enabled = row["enabled_in_popup"]
+            result[tid] = {
+                "custom_title": title,
+                "enabled_in_popup": False if enabled in (0, "0", False) else True,
+            }
+        return result
+
+    if connection is not None:
+        return _read(connection)
+    try:
+        with database() as conn:
+            return _read(conn)
+    except sqlite3.Error:
+        return {}
+
+
+def apply_ambient_track_overrides(categories: list[dict]) -> None:
+    overrides = load_ambient_track_overrides()
+    for category in categories:
+        for track in category.get("tracks") or []:
+            original = str(track.get("stem") or Path(str(track.get("file") or "")).stem or "").strip()
+            ov = overrides.get(str(track.get("id") or "")) or {}
+            custom = ov.get("custom_title")
+            custom = str(custom).strip() if custom else None
+            track["custom_title"] = custom
+            track["display_title"] = custom or original
+            track["enabled_in_popup"] = (
+                bool(ov["enabled_in_popup"]) if "enabled_in_popup" in ov else True
+            )
+
+
+def upsert_ambient_track_override(track_id: str, payload: dict | None) -> dict:
+    canonical = canonical_ambient_track_id(track_id)
+    if not canonical or not ambient_track_exists(canonical):
+        raise LookupError("트랙을 찾을 수 없습니다.")
+    body = payload if isinstance(payload, dict) else {}
+    has_title = "custom_title" in body
+    has_enabled = "enabled_in_popup" in body
+    if not has_title and not has_enabled:
+        raise ValueError("변경할 값이 없습니다.")
+
+    custom_title = None
+    if has_title:
+        raw = body.get("custom_title")
+        if raw is None or str(raw).strip() == "":
+            custom_title = None
+        else:
+            custom_title = unicodedata.normalize("NFC", str(raw).strip())[:80]
+
+    enabled_value = None
+    if has_enabled:
+        enabled_value = 1 if _json_flag(body.get("enabled_in_popup"), default=True) else 0
+
+    with database() as connection:
+        existing = connection.execute(
+            "SELECT custom_title, enabled_in_popup FROM ambient_track_overrides WHERE track_id = ?",
+            (canonical,),
+        ).fetchone()
+        if existing is None:
+            connection.execute(
+                "INSERT INTO ambient_track_overrides("
+                "track_id, custom_title, enabled_in_popup, updated_at) "
+                "VALUES (?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))",
+                (
+                    canonical,
+                    custom_title if has_title else None,
+                    enabled_value if has_enabled else 1,
+                ),
+            )
+        else:
+            next_title = custom_title if has_title else existing["custom_title"]
+            if next_title is not None:
+                next_title = str(next_title).strip() or None
+            next_enabled = enabled_value if has_enabled else existing["enabled_in_popup"]
+            next_enabled = 1 if next_enabled in (1, True, "1") else 0
+            connection.execute(
+                "UPDATE ambient_track_overrides "
+                "SET custom_title = ?, enabled_in_popup = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE track_id = ?",
+                (next_title, next_enabled, canonical),
+            )
+        row = connection.execute(
+            "SELECT track_id, custom_title, enabled_in_popup FROM ambient_track_overrides "
+            "WHERE track_id = ?",
+            (canonical,),
+        ).fetchone()
+    custom = str(row["custom_title"]).strip() if row and row["custom_title"] else None
+    enabled = True if row is None else bool(int(row["enabled_in_popup"] or 0))
+    original = original_ambient_title(canonical)
+    return {
+        "track_id": canonical,
+        "custom_title": custom,
+        "enabled_in_popup": enabled,
+        "display_title": custom or original,
+    }
+
+
 GOAL_METRICS = {"chars_with_space", "chars_no_space", "words", "letters"}
 IDEA_COLORS = {"yellow", "pink", "blue", "green", "orange", "purple"}
 FOLDER_COLORS = {"red", "orange", "yellow", "green", "blue", "purple", "gray"}
@@ -234,6 +763,13 @@ elif _is_frozen():
 else:
     DATA_DIR = ROOT / "data"
 DATABASE_PATH = DATA_DIR / "supertory.sqlite3"
+# Repo/bundle seed — not the writable DATA_DIR (tests swap that path).
+GENRE_PLAYBOOKS_PATH = ROOT / "data" / "genre_playbooks.json"
+GENRE_PLAYBOOK_JUDGE_HEADING = "[장르별 판단 기준]"
+GENRE_PLAYBOOK_STYLE_HEADING = "[장르별 문체 기준]"
+GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING = "[세부장르 추가 기준]"
+GENRE_PLAYBOOK_DETAIL_STYLE_HEADING = "[세부장르 추가 문체 기준]"
+_GENRE_PLAYBOOKS_CACHE: dict | None = None
 _PROJECTS_DIR_ENV = (
     os.environ.get("SUPERTORY_PROJECTS_DIR") or os.environ.get("STORYGUIDE_PROJECTS_DIR") or ""
 ).strip()
@@ -258,6 +794,216 @@ ALLOWED_IMAGE_TYPES = {
     "image/webp": ".webp",
     "image/gif": ".gif",
 }
+
+
+def load_genre_playbooks() -> dict:
+    """Load data/genre_playbooks.json once. Missing/invalid file → empty dict."""
+    global _GENRE_PLAYBOOKS_CACHE
+    if _GENRE_PLAYBOOKS_CACHE is not None:
+        return _GENRE_PLAYBOOKS_CACHE
+    path = GENRE_PLAYBOOKS_PATH
+    if not path.is_file():
+        _GENRE_PLAYBOOKS_CACHE = {}
+        return _GENRE_PLAYBOOKS_CACHE
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        payload = {}
+    _GENRE_PLAYBOOKS_CACHE = payload if isinstance(payload, dict) else {}
+    return _GENRE_PLAYBOOKS_CACHE
+
+
+def load_genre_playbook(main_genre, sub_genre) -> dict | None:
+    """Return the playbook for `{main}_{sub}`, or None if that pair is not defined."""
+    main = str(main_genre or "").strip().lower()
+    sub = str(sub_genre or "").strip().lower()
+    if not main or not sub:
+        return None
+    item = load_genre_playbooks().get(f"{main}_{sub}")
+    return item if isinstance(item, dict) else None
+
+
+def load_genre_playbook_delta(main_genre, sub_genre, genre_detail) -> dict | None:
+    """Return `deltas[{main}_{sub}__{detail}]`, or nested `_delta[detail]`. Missing → None."""
+    detail = str(genre_detail or "").strip().lower()
+    main = str(main_genre or "").strip().lower()
+    sub = str(sub_genre or "").strip().lower()
+    if not detail or not main or not sub:
+        return None
+    books = load_genre_playbooks()
+    raw_deltas = books.get("deltas")
+    if isinstance(raw_deltas, dict):
+        item = raw_deltas.get(f"{main}_{sub}__{detail}")
+        if isinstance(item, dict):
+            return item
+    book = books.get(f"{main}_{sub}")
+    if not isinstance(book, dict):
+        return None
+    nested = book.get("_delta")
+    if not isinstance(nested, dict):
+        return None
+    item = nested.get(detail)
+    return item if isinstance(item, dict) else None
+
+
+def _playbook_delta_rules(delta: dict) -> dict:
+    rules = delta.get("group_rules_addition")
+    if isinstance(rules, dict):
+        return rules
+    rules = delta.get("group_rules")
+    return rules if isinstance(rules, dict) else {}
+
+
+def _format_playbook_block(heading: str, primary, secondary) -> str:
+    primary_text = str(primary or "").strip()
+    secondary_text = str(secondary or "").strip()
+    if not primary_text and not secondary_text:
+        return ""
+    parts = [heading]
+    if primary_text:
+        parts.append(primary_text)
+    if secondary_text:
+        parts.append(secondary_text)
+    return "\n".join(parts)
+
+
+def _append_playbook_delta_block(base: str, extra: str) -> str:
+    if not extra:
+        return base
+    if not base:
+        return extra
+    return base + "\n\n" + extra
+
+
+def format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail="") -> str:
+    """A-group judge block, plus optional `[세부장르 추가 기준]` when `_delta` exists."""
+    book = load_genre_playbook(main_genre, sub_genre)
+    if not book:
+        return ""
+    rules = book.get("group_rules") if isinstance(book.get("group_rules"), dict) else {}
+    base = _format_playbook_block(
+        GENRE_PLAYBOOK_JUDGE_HEADING,
+        book.get("checklist"),
+        rules.get("A_judge"),
+    )
+    if not base:
+        return ""
+    delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
+    if not delta:
+        return base
+    d_rules = _playbook_delta_rules(delta)
+    extra = _format_playbook_block(
+        GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
+        delta.get("checklist_addition") or delta.get("checklist"),
+        d_rules.get("A_judge"),
+    )
+    return _append_playbook_delta_block(base, extra)
+
+
+def inject_genre_playbook_judge_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
+    """Insert the A-group playbook section before [본문]. Idempotent; no-op if missing."""
+    section = format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail)
+    text = str(prompt or "")
+    if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
+        return text
+    for needle in ("[본문]", "[원본 마지막 3문단]"):
+        idx = text.find(needle)
+        if idx >= 0:
+            return text[:idx] + section + "\n\n" + text[idx:]
+    return text + "\n\n" + section
+
+
+def format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail="") -> str:
+    """B-group suggest block, plus optional `[세부장르 추가 기준]` when `_delta` exists."""
+    book = load_genre_playbook(main_genre, sub_genre)
+    if not book:
+        return ""
+    rules = book.get("group_rules") if isinstance(book.get("group_rules"), dict) else {}
+    base = _format_playbook_block(
+        GENRE_PLAYBOOK_JUDGE_HEADING,
+        book.get("reader_expectations"),
+        rules.get("B_suggest"),
+    )
+    if not base:
+        return ""
+    delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
+    if not delta:
+        return base
+    d_rules = _playbook_delta_rules(delta)
+    extra = _format_playbook_block(
+        GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
+        delta.get("reader_expectations_addition") or delta.get("reader_expectations"),
+        d_rules.get("B_suggest"),
+    )
+    return _append_playbook_delta_block(base, extra)
+
+
+def inject_genre_playbook_suggest_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
+    """Insert the B-group playbook section before the manuscript block. Idempotent."""
+    section = format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail)
+    text = str(prompt or "")
+    if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
+        return text
+    for needle in (
+        "[현재 회차 본문]",
+        "[현재 회차 또는 최근 원고]",
+        "[직전 회차 마지막 부분]",
+        "[작가가 제공한 줄거리 개요 - 시작부터 결말까지]",
+        "[작가가 제공한 줄거리 개요]\n(제공되지 않음",
+        "[본문]",
+        "[원본 마지막 3문단]",
+        "[현재 회차]",
+        "[제출용 자료]",
+    ):
+        idx = text.find(needle)
+        if idx >= 0:
+            return text[:idx] + section + "\n\n" + text[idx:]
+    return text + "\n\n" + section
+
+
+def format_genre_playbook_style_section(main_genre, sub_genre, genre_detail="") -> str:
+    """C-group style block, plus optional `[세부장르 추가 문체 기준]` when `_delta` exists."""
+    book = load_genre_playbook(main_genre, sub_genre)
+    if not book:
+        return ""
+    rules = book.get("group_rules") if isinstance(book.get("group_rules"), dict) else {}
+    base = _format_playbook_block(
+        GENRE_PLAYBOOK_STYLE_HEADING,
+        book.get("tone"),
+        rules.get("C_style"),
+    )
+    if not base:
+        return ""
+    delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
+    if not delta:
+        return base
+    d_rules = _playbook_delta_rules(delta)
+    extra = _format_playbook_block(
+        GENRE_PLAYBOOK_DETAIL_STYLE_HEADING,
+        delta.get("tone_addition") or delta.get("tone"),
+        d_rules.get("C_style"),
+    )
+    return _append_playbook_delta_block(base, extra)
+
+
+def inject_genre_playbook_style_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
+    """Insert the C-group style section before the manuscript block. Idempotent."""
+    section = format_genre_playbook_style_section(main_genre, sub_genre, genre_detail)
+    text = str(prompt or "")
+    if not section or GENRE_PLAYBOOK_STYLE_HEADING in text:
+        return text
+    for needle in (
+        "[원고]",
+        "[앞뒤 맥락 - 참고용, 다듬지 않음]",
+        "[다듬을 문장]",
+        "[선택 원문]",
+        "[현재 회차 - 문체 참고용]",
+        "[본문]",
+    ):
+        idx = text.find(needle)
+        if idx >= 0:
+            return text[:idx] + section + "\n\n" + text[idx:]
+    return text + "\n\n" + section
 
 
 def connect() -> sqlite3.Connection:
@@ -475,6 +1221,7 @@ def _migrate_legacy_database_file() -> None:
 def initialise_database() -> None:
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "illustrations").mkdir(exist_ok=True)
+    (DATA_DIR / "ambient_custom").mkdir(exist_ok=True)
     projects_root()
     _migrate_legacy_database_file()
     with database() as connection:
@@ -599,6 +1346,14 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_055_PATH.read_text(encoding="utf-8"))
         if 56 not in applied:
             connection.executescript(MIGRATION_056_PATH.read_text(encoding="utf-8"))
+        if 57 not in applied:
+            connection.executescript(MIGRATION_057_PATH.read_text(encoding="utf-8"))
+        if 58 not in applied:
+            connection.executescript(MIGRATION_058_PATH.read_text(encoding="utf-8"))
+        if 59 not in applied:
+            connection.executescript(MIGRATION_059_PATH.read_text(encoding="utf-8"))
+        if 60 not in applied:
+            connection.executescript(MIGRATION_060_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -608,6 +1363,10 @@ def initialise_database() -> None:
         ensure_reader_debate_tables(connection)
         ensure_scene_reader_comments_table(connection)
         ensure_gitsi_rooms_table(connection)
+        ensure_project_cluster_column(connection)
+        ensure_project_genre_detail_column(connection)
+        ensure_user_ambient_tracks_table(connection)
+        ensure_ambient_track_overrides_table(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -942,6 +1701,160 @@ def ensure_gitsi_rooms_table(connection: sqlite3.Connection) -> None:
         )
     except sqlite3.Error:
         pass
+
+
+def ensure_project_cluster_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.cluster_id (migration 057) + backfill from purpose/genre."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        if "cluster_id" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN cluster_id TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (57, 'project_cluster')"
+        )
+        rows = connection.execute(
+            "SELECT id, purpose, main_genre, sub_genre, cluster_id FROM project"
+        ).fetchall()
+        for row in rows:
+            stored = str(row["cluster_id"] or "").strip()
+            if stored:
+                continue
+            cluster_id = genre_clusters.infer_cluster_id(
+                row["purpose"],
+                row["main_genre"],
+                row["sub_genre"],
+            )
+            connection.execute(
+                "UPDATE project SET cluster_id = ? WHERE id = ?",
+                (cluster_id, int(row["id"])),
+            )
+    except sqlite3.Error:
+        pass
+
+
+def set_project_cluster_id(
+    connection: sqlite3.Connection,
+    project_id: int,
+    cluster_id: str,
+) -> None:
+    try:
+        connection.execute(
+            "UPDATE project SET cluster_id = ? WHERE id = ?",
+            (str(cluster_id or "").strip(), int(project_id)),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
+def attach_cluster_id(item: dict) -> dict:
+    if not isinstance(item, dict):
+        return item
+    item["cluster_id"] = genre_clusters.resolve_cluster_id(
+        cluster_id=item.get("cluster_id"),
+        purpose=item.get("purpose"),
+        main_genre=item.get("main_genre"),
+        sub_genre=item.get("sub_genre"),
+    )
+    return attach_genre_detail(item)
+
+
+def ensure_project_genre_detail_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.genre_detail (migration 058)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        if "genre_detail" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN genre_detail TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (58, 'project_genre_detail')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_user_ambient_tracks_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: user_ambient_tracks (migration 059)."""
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS user_ambient_tracks (
+                id INTEGER PRIMARY KEY,
+                original_filename TEXT NOT NULL,
+                stored_filename TEXT NOT NULL UNIQUE,
+                duration_seconds REAL NOT NULL DEFAULT 0,
+                file_size_bytes INTEGER NOT NULL DEFAULT 0,
+                category TEXT NOT NULL CHECK (category IN ('frequency', 'noise', 'nature', 'ambient')),
+                created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            CREATE INDEX IF NOT EXISTS ix_user_ambient_tracks_category
+                ON user_ambient_tracks(category, created_at, id);
+            """
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (59, 'user_ambient_tracks')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_ambient_track_overrides_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: ambient_track_overrides (migration 060)."""
+    try:
+        connection.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS ambient_track_overrides (
+                track_id TEXT PRIMARY KEY,
+                custom_title TEXT,
+                enabled_in_popup INTEGER NOT NULL DEFAULT 1 CHECK (enabled_in_popup IN (0, 1)),
+                updated_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+            );
+            """
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (60, 'ambient_track_overrides')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def set_project_genre_detail(
+    connection: sqlite3.Connection,
+    project_id: int,
+    genre_detail: str,
+) -> None:
+    try:
+        connection.execute(
+            "UPDATE project SET genre_detail = ? WHERE id = ?",
+            (str(genre_detail or "").strip(), int(project_id)),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
+def attach_genre_detail(item: dict) -> dict:
+    if not isinstance(item, dict):
+        return item
+    detail = genre_clusters.normalize_genre_detail(
+        item.get("main_genre"),
+        item.get("sub_genre"),
+        item.get("genre_detail"),
+    )
+    item["genre_detail"] = detail
+    item["genre_detail_label"] = genre_clusters.genre_detail_label(detail)
+    return item
 
 
 GITSI_ROOM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,62}[A-Za-z0-9]$")
@@ -3341,6 +4254,7 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
         item["linked_success_profile_id"] = None
     item["main_genre"] = item.get("main_genre") or ""
     item["sub_genre"] = item.get("sub_genre") or ""
+    item["genre_detail"] = item.get("genre_detail") or ""
     item["keywords"] = parse_project_keywords(item.get("keywords"))
     item["import_delimiter_config"] = parse_import_delimiter_config(
         item.get("import_delimiter_config")
@@ -3350,7 +4264,7 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
         item["list_sort_order"] = int(item.get("list_sort_order") or 0)
     except (TypeError, ValueError):
         item["list_sort_order"] = 0
-    return item
+    return attach_cluster_id(item)
 
 
 def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
@@ -3369,6 +4283,16 @@ def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     try:
         connection.execute("SELECT import_delimiter_config FROM project LIMIT 1")
         cols += ", import_delimiter_config"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT cluster_id FROM project LIMIT 1")
+        cols += ", cluster_id"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT genre_detail FROM project LIMIT 1")
+        cols += ", genre_detail"
     except sqlite3.OperationalError:
         pass
     rows = connection.execute(
@@ -5221,6 +6145,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
         try:
+            if path == "/api/ambient/upload":
+                self.send_json(upload_custom_ambient_track_from_request(self), HTTPStatus.CREATED)
+                return
             body = self.read_json()
             if path == "/api/auth/signup":
                 result = sign_up(
@@ -5404,6 +6331,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 keywords = parse_project_keywords(body.get("keywords"))
                 if not main_genre:
                     raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
+                cluster_id = genre_clusters.resolve_cluster_id(
+                    cluster_id=body.get("cluster_id"),
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                )
+                genre_detail = genre_clusters.normalize_genre_detail(
+                    main_genre, sub_genre, body.get("genre_detail")
+                )
                 with database() as connection:
                     # Append after current max manual order so manual lists stay stable.
                     max_order_row = connection.execute(
@@ -5412,12 +6348,36 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     next_order = int(max_order_row["m"] if max_order_row else -1) + 1
                     opened_stamp = utc_timestamp_now()
                     keywords_json = json.dumps(keywords, ensure_ascii=False)
-                    cursor = connection.execute(
-                        "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
-                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                        (title, purpose, main_genre, sub_genre, keywords_json, opened_stamp, next_order),
-                    )
+                    try:
+                        cursor = connection.execute(
+                            "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, "
+                            "cluster_id, genre_detail, last_opened_at, list_sort_order) "
+                            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                            (
+                                title, purpose, main_genre, sub_genre, keywords_json,
+                                cluster_id, genre_detail, opened_stamp, next_order,
+                            ),
+                        )
+                    except sqlite3.OperationalError:
+                        try:
+                            cursor = connection.execute(
+                                "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, "
+                                "cluster_id, last_opened_at, list_sort_order) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                                (
+                                    title, purpose, main_genre, sub_genre, keywords_json,
+                                    cluster_id, opened_stamp, next_order,
+                                ),
+                            )
+                        except sqlite3.OperationalError:
+                            cursor = connection.execute(
+                                "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
+                                "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                                (title, purpose, main_genre, sub_genre, keywords_json, opened_stamp, next_order),
+                            )
                     project_id = int(cursor.lastrowid)
+                    set_project_cluster_id(connection, project_id, cluster_id)
+                    set_project_genre_detail(connection, project_id, genre_detail)
                     package_info = ensure_project_package(connection, project_id)
                 self.send_json(
                     {
@@ -5425,6 +6385,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "purpose": purpose,
                         "main_genre": main_genre,
                         "sub_genre": sub_genre,
+                        "genre_detail": genre_detail,
+                        "genre_detail_label": genre_clusters.genre_detail_label(genre_detail),
+                        "cluster_id": cluster_id,
                         "keywords": keywords,
                         **package_info,
                     },
@@ -6203,6 +7166,28 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             return
         self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
 
+    def do_PATCH(self) -> None:  # noqa: N802
+        path = urlparse(self.path).path.rstrip("/")
+        try:
+            body = self.read_json()
+            match = re.fullmatch(r"/api/ambient/overrides/(.+)", path)
+            if match:
+                self.send_json(upsert_ambient_track_override(unquote(match.group(1)), body))
+                return
+        except LookupError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
+        except ValueError as error:
+            self.api_error(str(error))
+            return
+        except sqlite3.IntegrityError as error:
+            self.api_error(f"저장할 수 없습니다: {error}")
+            return
+        except sqlite3.Error as error:
+            self.api_error(f"데이터베이스 오류: {error}", HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.api_error("알 수 없는 요청입니다.", HTTPStatus.NOT_FOUND)
+
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
         try:
@@ -6210,6 +7195,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.delete_illustration(int(match.group(1)))
                 self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/ambient/custom/(\d+)", path)
+            if match:
+                self.send_json(delete_custom_ambient_track(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/ideas/(\d+)", path)
@@ -7769,6 +8759,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "continue", "rewrite", "summarize", "summarize_multi",
             "ideas", "ideas_next_exists",
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
+            "successfeedback",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
             "worlddesc", "descexpand", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
             "similar_words", "chapter_subtitles",
@@ -7811,6 +8802,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         purpose_label = document_import.WORK_PURPOSES.get(purpose, purpose)
         main_genre_key = str(body.get("main_genre") or "").strip()
         sub_genre_key = str(body.get("sub_genre") or "").strip()
+        prompt_cluster_id = str(body.get("cluster_id") or "").strip()
+        if not prompt_cluster_id:
+            prompt_cluster_id = genre_clusters.infer_cluster_id(
+                purpose, main_genre_key, sub_genre_key, ""
+            )
         # Prefer system_instruction_vars labels when provided (absolute project context)
         main_genre_label = self._genre_display_label(
             siv.get("project_genre_main") or body.get("main_genre_label") or body.get("project_genre_main"),
@@ -7820,6 +8816,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             siv.get("project_genre_sub") or body.get("sub_genre_label") or body.get("project_genre_sub"),
             sub_genre_key,
         )
+        genre_detail_key = str(
+            siv.get("genre_detail")
+            or body.get("genre_detail")
+            or ""
+        ).strip()
+        genre_detail_label_preferred = str(
+            siv.get("project_genre_detail")
+            or body.get("genre_detail_label")
+            or body.get("project_genre_detail")
+            or ""
+        ).strip()
         keywords = parse_project_keywords(body.get("keywords"))
         keywords_from_siv = str(
             siv.get("world_setting_keywords")
@@ -7860,28 +8867,44 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             or ""
         ).strip()
         # Prefer saved project value when client omitted it but project_id is known.
-        if not tory_priority:
-            project_id_raw = body.get("project_id")
+        project_id_raw = body.get("project_id")
+        try:
+            project_id_for_priority = int(project_id_raw) if project_id_raw not in (None, "") else 0
+        except (TypeError, ValueError):
+            project_id_for_priority = 0
+        if project_id_for_priority and (not tory_priority or not genre_detail_key):
             try:
-                project_id_for_priority = int(project_id_raw) if project_id_raw not in (None, "") else 0
-            except (TypeError, ValueError):
-                project_id_for_priority = 0
-            if project_id_for_priority:
-                try:
-                    with database() as connection:
-                        self.require_project(connection, project_id_for_priority)
+                with database() as connection:
+                    self.require_project(connection, project_id_for_priority)
+                    try:
+                        prow = connection.execute(
+                            "SELECT tory_priority_md, genre_detail FROM project WHERE id = ?",
+                            (project_id_for_priority,),
+                        ).fetchone()
+                    except sqlite3.OperationalError:
                         prow = connection.execute(
                             "SELECT tory_priority_md FROM project WHERE id = ?",
                             (project_id_for_priority,),
                         ).fetchone()
-                        if prow and "tory_priority_md" in prow.keys():
+                    if prow:
+                        if not tory_priority and "tory_priority_md" in prow.keys():
                             tory_priority = str(prow["tory_priority_md"] or "").strip()
-                except Exception:
-                    tory_priority = tory_priority
+                        if not genre_detail_key and "genre_detail" in prow.keys():
+                            genre_detail_key = str(prow["genre_detail"] or "").strip()
+            except Exception:
+                tory_priority = tory_priority
+
+        genre_detail_key = genre_clusters.normalize_genre_detail(
+            main_genre_key, sub_genre_key, genre_detail_key
+        )
+        genre_detail_label = self._genre_detail_display_label(
+            genre_detail_label_preferred, genre_detail_key
+        )
 
         active_project_context = self._tory_active_project_context(
             main_genre_label=main_genre_label,
             sub_genre_label=sub_genre_label,
+            genre_detail_label=genre_detail_label,
             purpose_label=purpose_label,
             keywords_label=keywords_label,
             world_setting=world_for_context,
@@ -7896,13 +8919,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 sub_genre_label=sub_genre_label,
                 world_setting_keywords=keywords_label,
                 character_profiles=character_profiles_text or character_profiles_raw,
+                genre_detail_label=genre_detail_label,
             )
         )
-        genre_context = (
-            f"메인 장르: {main_genre_label}\n"
-            f"서브 장르: {sub_genre_label}\n"
-            f"키워드/태그: {keywords_label}"
-        )
+        genre_context_lines = [
+            f"메인 장르: {main_genre_label}",
+            f"서브 장르: {sub_genre_label}",
+        ]
+        if genre_detail_label:
+            genre_context_lines.append(f"세부 장르: {genre_detail_label}")
+        genre_context_lines.append(f"키워드/태그: {keywords_label}")
+        genre_context = "\n".join(genre_context_lines)
         persona_mode = str(
             body.get("persona_mode")
             or body.get("tory_persona")
@@ -8027,7 +9054,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if isinstance(sp_raw.get("profile"), dict):
                     nested = sp_raw.get("profile") or {}
                     sp_raw = {**nested, **{k: v for k, v in sp_raw.items() if k != "profile"}}
-                system += "\n" + success_pattern.build_success_analyst_chat_scope(sp_raw)
+                system += "\n" + success_pattern.build_success_analyst_chat_scope(
+                    sp_raw, cluster_id=prompt_cluster_id
+                )
             context_bits = [
                 active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
@@ -8214,7 +9243,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if indexed_worldscan:
                 instruction = indexed_worldscan
             else:
-                instruction = self._build_setting_break_scan_prompt(scene_content)
+                instruction = self._build_setting_break_scan_prompt(
+                    scene_content,
+                    cluster_id=prompt_cluster_id,
+                    main_genre=main_genre_key,
+                    sub_genre=sub_genre_key,
+                    genre_detail=genre_detail_key,
+                )
+            instruction = inject_genre_playbook_judge_section(
+                instruction, main_genre_key, sub_genre_key, genre_detail_key
+            )
             context_parts = [
                 active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
@@ -8245,7 +9283,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if indexed_multi:
                 instruction = indexed_multi
             else:
-                instruction = self._build_setting_break_scan_multi_prompt(scene_content)
+                instruction = self._build_setting_break_scan_multi_prompt(scene_content, cluster_id=prompt_cluster_id)
             context_parts = [
                 active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
@@ -8487,6 +9525,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 context_parts.append(f"현재 씬 요약: {scene_synopsis}")
             if user_prompt:
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            instruction = inject_genre_playbook_judge_section(
+                instruction, main_genre_key, sub_genre_key, genre_detail_key
+            )
         elif mode == "subsynopsis":
             # 투고·공모전용 시놉시스 — index + outline_summary only (no manuscript).
             outline_summary = plain_text_from_content(
@@ -8526,7 +9567,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     outline_summary,
                     synopsis_length_limit,
                     intent_length_limit,
+                    cluster_id=prompt_cluster_id,
+                    main_genre=main_genre_key,
+                    sub_genre=sub_genre_key,
+                    genre_detail=genre_detail_key,
                 )
+            instruction = inject_genre_playbook_suggest_section(
+                instruction, main_genre_key, sub_genre_key, genre_detail_key
+            )
             context_parts = [
                 active_project_context,
                 f"작품 제목: {project_title or '(없음)'}",
@@ -8554,7 +9602,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             system = genre_system
             task = str(body.get("task_prompt") or body.get("indexed_prompt") or "").strip()
             if not task:
-                task = self._build_style_blend_check_prompt(reference_text, target_text)
+                task = self._build_style_blend_check_prompt(reference_text, target_text, cluster_id=prompt_cluster_id)
             instruction = task
             context_parts = [
                 active_project_context,
@@ -8616,7 +9664,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         length_mode,
                         user_hint,
                         style_mode,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_style_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 # Task prompt already embeds the manuscript — keep only project meta here.
                 context_parts = [
                     active_project_context,
@@ -8638,7 +9693,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if indexed_analyze:
                     instruction = indexed_analyze
                 else:
-                    instruction = self._build_focused_analysis_prompt(scene_content)
+                    instruction = self._build_focused_analysis_prompt(
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
+                instruction = inject_genre_playbook_judge_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8661,7 +9725,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if indexed_multi:
                     instruction = indexed_multi
                 else:
-                    instruction = self._build_focused_analysis_multi_prompt(scene_content)
+                    instruction = self._build_focused_analysis_multi_prompt(
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
+                instruction = inject_genre_playbook_judge_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8672,13 +9745,52 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ]
                 if user_prompt:
                     context_parts.append(f"작가 추가 요청:\n{user_prompt}")
+            elif mode == "successfeedback":
+                # 흥행 공식 피드백 — analyze 프롬프트를 재사용하되 B그룹 플레이북만 삽입.
+                # 클라이언트는 열린 회차만 보내고, 장르는 프로젝트 main/sub를 그대로 쓴다.
+                indexed_sf = str(body.get("indexed_prompt") or "").strip()
+                system = genre_system + (persona_system if use_persona else "")
+                if focus_only:
+                    system += (
+                        " 지금은 지정된 한 편의 원고(씬)에만 집중합니다. "
+                        "다른 장·다른 씬을 지어내거나 범위를 넓히지 말고, 이 원고만 다루세요."
+                    )
+                if indexed_sf:
+                    instruction = indexed_sf
+                else:
+                    instruction = self._build_focused_analysis_prompt(
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                    )
+                instruction = inject_genre_playbook_suggest_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
+                context_parts = [
+                    active_project_context,
+                    f"작품 제목: {project_title or '(없음)'}",
+                    f"작품 종류: {purpose_label}",
+                    genre_context,
+                    f"씬 제목: {scene_title or '(없음)'}",
+                    f"씬 요약: {scene_synopsis or '(없음)'}",
+                ]
+                if user_prompt:
+                    context_parts.append(f"작가 추가 요청:\n{user_prompt}")
             elif mode == "ideas":
                 # 다음 아이디어 제안 — buildNextIdeaPrompt + index (task only).
                 indexed_ideas = str(body.get("indexed_prompt") or "").strip()
                 if indexed_ideas:
                     instruction = indexed_ideas
                 else:
-                    instruction = self._build_next_idea_prompt(scene_content)
+                    instruction = self._build_next_idea_prompt(
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
+                instruction = inject_genre_playbook_suggest_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8706,8 +9818,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     instruction = indexed_next
                 else:
                     instruction = self._build_next_idea_with_next_scene_prompt(
-                        prev_tail, next_text
+                        prev_tail,
+                        next_text,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_suggest_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 next_title = str(body.get("next_scene_title") or "").strip()
                 context_parts = [
                     active_project_context,
@@ -8729,7 +9849,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if indexed_brainstorm:
                     instruction = indexed_brainstorm
                 else:
-                    instruction = self._build_brainstorm_prompt(scene_content, user_topic)
+                    instruction = self._build_brainstorm_prompt(
+                        scene_content,
+                        user_topic,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
+                instruction = inject_genre_playbook_suggest_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8756,8 +9886,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     instruction = indexed_bn
                 else:
                     instruction = self._build_brainstorm_with_next_scene_prompt(
-                        scene_full, next_text, user_topic
+                        scene_full,
+                        next_text,
+                        user_topic,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_suggest_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 next_title = str(body.get("next_scene_title") or "").strip()
                 context_parts = [
                     active_project_context,
@@ -8780,8 +9919,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     instruction = indexed_worlddesc
                 else:
                     instruction = self._build_world_description_prompt(
-                        target_subject, scene_content
+                        target_subject,
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_style_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8810,7 +9957,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     else []
                 )
                 instruction = self._build_chapter_subtitle_prompt(
-                    episode_content, subtitle_genre, recent_subtitles
+                    episode_content, subtitle_genre, recent_subtitles, cluster_id=prompt_cluster_id
                 )
                 context_parts = [
                     active_project_context,
@@ -8926,6 +10073,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         instruction = self._build_free_request_prompt(
                             scene_content,
                             user_request,
+                            cluster_id=prompt_cluster_id,
                         )
                         context_parts = [
                             active_project_context,
@@ -8963,7 +10111,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         context_before,
                         context_after,
                         direction_hint,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_style_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -8996,7 +10151,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         context_before,
                         context_after,
                         direction_hint,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
                     )
+                instruction = inject_genre_playbook_style_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -9018,11 +10180,33 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if detailed:
                     instruction = detailed
                 elif kind == "score":
-                    instruction = self._build_cliffhanger_score_prompt(last_three)
+                    instruction = self._build_cliffhanger_score_prompt(
+                        last_three,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
                 elif kind == "rewrite":
-                    instruction = self._build_ending_rewrite_prompt(last_three, cliff_reason)
+                    instruction = self._build_ending_rewrite_prompt(
+                        last_three,
+                        cliff_reason,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
                 else:
-                    instruction = self._build_tension_curve_prompt(scene_content)
+                    instruction = self._build_tension_curve_prompt(
+                        scene_content,
+                        cluster_id=prompt_cluster_id,
+                        main_genre=main_genre_key,
+                        sub_genre=sub_genre_key,
+                        genre_detail=genre_detail_key,
+                    )
+                instruction = inject_genre_playbook_judge_section(
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                )
                 context_parts = [
                     active_project_context,
                     f"작품 제목: {project_title or '(없음)'}",
@@ -9039,6 +10223,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     instruction = self._build_character_debate_prompt(
                         body.get("characters_info") or [],
                         body.get("scenario") or user_prompt,
+                        cluster_id=prompt_cluster_id,
                     )
                 context_parts = [
                     active_project_context,
@@ -9058,7 +10243,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     if detailed:
                         instruction = detailed
                     else:
-                        instruction = self._build_detailed_scene_summary_prompt(scene_content)
+                        instruction = self._build_detailed_scene_summary_prompt(scene_content, cluster_id=prompt_cluster_id)
                     context_parts = [
                         active_project_context,
                         f"작품 제목: {project_title or '(없음)'}",
@@ -9085,7 +10270,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         instruction = detailed
                     else:
                         instruction = self._build_detailed_scene_summary_multi_prompt(
-                            scene_content, episode_count
+                            scene_content, episode_count, cluster_id=prompt_cluster_id
                         )
                     context_parts = [
                         active_project_context,
@@ -9149,6 +10334,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "text": "(dry_run)",
                 "dry_run": True,
                 "full_prompt": full_prompt,
+                "system": system,
                 "indexed_prompt_present": bool(indexed_prompt),
                 "indexed_prompt_has_index_block": "[프로젝트 누적 정보" in indexed_prompt,
                 "model": gemini_client.model_name(),
@@ -9157,6 +10343,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "sub_genre": sub_genre_key,
                 "main_genre_label": main_genre_label,
                 "sub_genre_label": sub_genre_label,
+                "genre_detail": genre_detail_key,
+                "genre_detail_label": genre_detail_label,
                 "index_merge": index_merge_info,
             }
         try:
@@ -9314,6 +10502,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return known.get(key, key)[:80]
 
     @staticmethod
+    def _genre_detail_display_label(preferred: object, raw_key: object) -> str:
+        """Prefer client-provided Korean label; empty key stays hidden."""
+        key = str(raw_key or "").strip()
+        if not key:
+            return ""
+        label = str(preferred or "").strip()
+        if label:
+            return label[:80]
+        return genre_clusters.genre_detail_label(key)
+
+    @staticmethod
     def _tory_author_priority_system_prompt(priority_text: str) -> str:
         """Author guidance — prepended when filled in; applied selectively per task scope."""
         text = str(priority_text or "").strip()
@@ -9383,6 +10582,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     @classmethod
     def _build_continue_prompt(
+        cls,
+        original_text: str,
+        length_mode: str = "short",
+        user_hint: str = "",
+        style_mode: str = "",
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_continue_prompt_genre_lit(original_text, length_mode, user_hint, style_mode)
+        return inject_genre_playbook_style_section(
+            cls._build_continue_prompt_webnovel(original_text, length_mode, user_hint, style_mode),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @classmethod
+    def _build_continue_prompt_webnovel(
         cls,
         original_text: str,
         length_mode: str = "short",
@@ -9483,8 +10703,116 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[이어지는 내용]"
         )
 
+    @classmethod
+    def _build_continue_prompt_genre_lit(
+        cls,
+        original_text: str,
+        length_mode: str = "short",
+        user_hint: str = "",
+        style_mode: str = "",
+    ) -> str:
+        """Task-only continue prompt (Core Identity lives in system)."""
+        text = str(original_text or "").strip()
+        mode = str(length_mode or "short").strip().lower()
+        if mode not in {"short", "medium", "long", "scene", "proportional"}:
+            mode = "short"
+        hint = str(user_hint or "").strip()
+        style = str(style_mode or "").strip()
+
+        def _cap_length_instruction(limit: int) -> str:
+            return (
+                "\n[길이 지침]\n"
+                f"- 최대 {limit}자를 넘기지 않는다. 이 상한은 절대 기준이며, 넘겨서는 안 된다.\n"
+                "- 상한을 다 채우려 하지 말고, 그 안에서 자연스럽게 끊을 수 있는 지점\n"
+                "  (문장이 완결되고, 다음 흐름으로 넘어가기 좋은 지점)에서 마무리한다.\n"
+                "- 글자 수를 채우기 위해 불필요하게 늘리거나 문장을 억지로 잇지 않는다.\n"
+                "- 장면을 마무리 짓지 말고, 다음 흐름이 자연스럽게 이어질 수 있는 지점에서 멈춘다.\n"
+                "- 사용자가 이 결과를 보고 다시 \"이어서 쓰기\"를 누를 것을 전제로, 다음 전개의\n"
+                "  방향을 하나 제시하는 선에서 그친다 (여러 갈래를 한 번에 펼치지 않는다).\n"
+            )
+
+        if mode == "short":
+            length_instruction = _cap_length_instruction(700)
+        elif mode == "medium":
+            length_instruction = _cap_length_instruction(1200)
+        elif mode == "long":
+            length_instruction = _cap_length_instruction(2000)
+        elif mode == "scene":
+            length_instruction = (
+                "\n[길이 지침]\n"
+                "- 현재 장면이 자연스러운 완결점(장소 이동, 시간 경과, 갈등의 일단락 등)에 "
+                "도달할 때까지 작성한다.\n"
+                "- 임의로 새로운 씬으로 전환하지 않는다. 장면이 끝나면 그 지점에서 멈춘다.\n"
+                "- 장면 안에서 사건, 대사, 감정선이 유기적으로 이어지도록 구성한다.\n"
+            )
+        else:
+            target = cls._get_proportional_continue_length(len(text))
+            length_instruction = (
+                "\n[길이 지침]\n"
+                f"- 약 {target}자 내외로 작성한다.\n"
+                "- 이 길이 안에서 자연스럽게 끊을 수 있는 지점(문장이 완결되는 곳)에서 마무리한다.\n"
+                "- 글자 수를 맞추기 위해 불필요하게 늘리거나 문장을 어색하게 자르지 않는다.\n"
+            )
+
+        hint_line = (
+            f'6. 사용자가 다음 방향에 대해 다음과 같은 힌트를 주었다면 반영한다: "{hint}"\n'
+            if hint
+            else ""
+        )
+
+        style_block = ""
+        if style in {"후킹형", "전개형", "전환형"}:
+            style_block = (
+                "\n[전개 방향]\n"
+                "아래 세 가지 중 하나를 골라 그 방향으로 이어 쓴다.\n\n"
+                "- 후킹형: 다음 문장부터 긴장감, 호기심, 사건성을 끌어올린다. 평온한 묘사나\n"
+                "  설명보다 상황의 전환, 갈등의 조짐, 의미심장한 대사나 사건을 우선한다.\n"
+                "  다음 내용이 궁금해지도록 여운이나 긴장을 남기고 끝낸다.\n"
+                "- 전개형: 군더더기 묘사나 감정 서술을 줄이고, 사건과 정보를 효율적으로\n"
+                "  진행시킨다. 이야기를 앞으로 밀어붙이는 데 집중하며, 다음 사건이나\n"
+                "  전개로 자연스럽게 넘어간다.\n"
+                "- 전환형: 직전까지의 긴장이나 사건을 잠시 누그러뜨린다. 인물의 여운,\n"
+                "  잔잔한 디테일, 분위기나 장면의 전환으로 리듬을 조절한다. 다음 사건을\n"
+                "  준비하는 숨 고르는 구간으로 쓴다.\n\n"
+                f"지금 선택된 방향: {style}\n\n"
+                "작가가 힌트를 주었다면, 그 힌트가 다루는 내용(무엇이 일어나는지)을 항상\n"
+                "우선한다. 위 방향(후킹형/전개형/전환형)은 그 내용을 어떤 톤과 리듬으로\n"
+                "전개할지를 정하는 것이며, 힌트의 내용 자체를 바꾸거나 무시하지 않는다.\n"
+            )
+
+        return (
+            "[현재 작업]\n"
+            "아래 원고의 뒷부분을 자연스럽게 이어서 작성하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 원문의 문장 길이, 어휘 수준, 문체 리듬을 그대로 따른다. 더 화려하거나 "
+            "단조롭게 바꾸지 않는다.\n"
+            "2. 원문의 시점(1인칭/3인칭)과 시제를 그대로 유지한다.\n"
+            "3. 등장인물의 말투와 사고방식을 원문에서 추론해 일관되게 재현한다.\n"
+            "4. 이미 원문에 나온 설정(인물의 능력, 관계, 세계관 규칙 등) 안에서만 전개한다. "
+            "새로운 핵심 설정을 임의로 만들어내지 않는다.\n"
+            "5. 원고의 마지막 문장에서 이질감 없이 이어지도록 시작한다. 이미 쓰인 내용을 "
+            "요약하거나 반복하지 않는다.\n"
+            f"{hint_line}"
+            f"{style_block}"
+            f"{length_instruction}\n"
+            "[문장 규칙]\n"
+            "- 이어지는 본문만 출력한다. \"이어서 작성하면\", \"다음은 이어지는 내용입니다\" 같은 "
+            "메타 표현이나 설명을 붙이지 않는다.\n"
+            "- 원문과 이어지는 부분의 경계가 어색하지 않도록, 필요하면 원문 마지막 문장의 "
+            "흐름을 고려해 접속어나 시간 표현으로 자연스럽게 시작한다.\n\n"
+            "[원고]\n"
+            f"{text}\n\n"
+            "[이어지는 내용]"
+        )
+
+    @classmethod
+    def _build_free_request_prompt(cls, original_text: str, user_request: str, cluster_id: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_free_request_prompt_genre_lit(original_text, user_request)
+        return cls._build_free_request_prompt_webnovel(original_text, user_request)
+
     @staticmethod
-    def _build_free_request_prompt(original_text: str, user_request: str) -> str:
+    def _build_free_request_prompt_webnovel(original_text: str, user_request: str) -> str:
         """Task-only free request prompt (Core Identity lives in system)."""
         text = str(original_text or "").strip()
         request = str(user_request or "").strip()
@@ -9506,7 +10834,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_rewrite_prompt(
+    def _build_free_request_prompt_genre_lit(original_text: str, user_request: str) -> str:
+        """Task-only free request prompt (Core Identity lives in system)."""
+        text = str(original_text or "").strip()
+        request = str(user_request or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 작가가 원고에 대해 직접 남긴 요청입니다. 이 요청에 최대한 구체적이고\n"
+            "실질적으로 응답하세요.\n\n"
+            "[요청 처리 원칙]\n"
+            "1. 작가의 요청 의도를 최우선으로 따른다. 요청이 모호하면, 원고 맥락에서\n"
+            "   가장 합리적인 해석으로 판단해 응답하고, 어떤 해석으로 답했는지 짧게 밝힌다.\n"
+            "2. 요청과 무관한 부가 조언을 늘어놓지 않는다. 딱 필요한 만큼만 답한다.\n"
+            "3. 원고에 없는 사실을 새로 지어내 단정하지 않는다. 추측이 필요한 경우\n"
+            "   \"~로 보입니다\"처럼 추측임을 밝힌다.\n"
+            "4. 요청이 원고와 무관한 일반 대화(잡담, 기술 질문 등)라면, 토리의 정체성\n"
+            "   (편집자·비평가·독자)에 맞는 선에서 자연스럽게 응대한다.\n\n"
+            f"[본문]\n{text}\n\n"
+            f"[작가의 요청]\n{request}\n\n"
+            "[응답]"
+        )
+
+    @classmethod
+    def _build_rewrite_prompt(cls, 
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+        direction_hint: str = "",
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_rewrite_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
+        return inject_genre_playbook_style_section(
+            cls._build_rewrite_prompt_webnovel(selected_text, context_before, context_after, direction_hint),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_rewrite_prompt_webnovel(
         selected_text: str,
         context_before: str = "",
         context_after: str = "",
@@ -9605,7 +10975,112 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_detailed_scene_summary_prompt(scene_content: str) -> str:
+    def _build_rewrite_prompt_genre_lit(
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+        direction_hint: str = "",
+    ) -> str:
+        """Task-only rewrite prompt (Core Identity lives in system).
+
+        Mirrors web/app.js buildRewritePrompt: polish if needed, else 2–3
+        tone-safe alternatives (no forced defects). Optional direction_hint
+        from the author steers how to polish.
+        """
+        selected = str(selected_text or "").strip()
+        before = str(context_before or "")
+        after = str(context_after or "")
+        direction = str(direction_hint or "").strip()
+        if len(direction) > 500:
+            direction = direction[:500]
+        direction_block = ""
+        if direction:
+            direction_block = (
+                "\n[작가 요청 방향]\n"
+                f"{direction}\n"
+                "이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. "
+                "요청과 무관한 재창작·내용 추가는 하지 않는다.\n"
+            )
+        style_rule = (
+            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
+            "   당신의 취향으로 문체 자체를 바꾸지 않는다."
+            + (
+                " (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)\n"
+                if direction
+                else "\n"
+            )
+        )
+        judge_extra = (
+            "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
+            if direction
+            else ""
+        )
+        alt_extra = (
+            "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
+            if direction
+            else ""
+        )
+        return (
+            "[현재 작업]\n"
+            "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n"
+            f"{direction_block}\n"
+            "[판단 기준]\n"
+            "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
+            "2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.\n"
+            "   - 불필요하게 반복되는 단어나 상투적 표현 제거\n"
+            "   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)\n"
+            "   - 의미가 모호하거나 어색한 조사·어순\n"
+            "   - 상황과 안 맞는 과도한 수식어\n"
+            f"{style_rule}"
+            "4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.\n\n"
+            "[먼저 판단할 것 - 개선이 필요한가]\n"
+            "문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.\n"
+            "이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.\n"
+            f"{judge_extra}\n"
+            "[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]\n"
+            "왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다\n"
+            '("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서\n'
+            '이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).\n'
+            "그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.\n"
+            "장황한 설명은 피하고 핵심 이유만 짧게 전달한다.\n\n"
+            "[개선이 필요 없는 경우 - 대안 표현 제시]\n"
+            '문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신\n'
+            "같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.\n"
+            '이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도\n'
+            "문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.\n"
+            f"{alt_extra}\n"
+            "[문장 규칙]\n"
+            "5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.\n"
+            "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n\n"
+            "[출력 형식]\n"
+            "개선이 필요한 경우:\n"
+            "## 다듬기 제안\n"
+            "저는 (이유)로 다듬기가 필요해 보였어요.\n\n"
+            "**다듬은 결과:** (다듬어진 문장)\n\n"
+            "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?\n\n"
+            "개선이 필요 없는 경우:\n"
+            "## 이미 좋은 문장이에요\n"
+            "다른 표현으로 바꿔보고 싶으시다면 참고하세요.\n"
+            "- 대안 1: ...\n"
+            "- 대안 2: ...\n"
+            "- 대안 3: ...\n\n"
+            "[앞뒤 맥락 - 참고용, 다듬지 않음]\n"
+            f"...{before}\n\n"
+            "[다듬을 문장]\n"
+            f"{selected}\n\n"
+            "[뒤 맥락 - 참고용, 다듬지 않음]\n"
+            f"{after}...\n\n"
+            "[결과]"
+        )
+
+    @classmethod
+    def _build_detailed_scene_summary_prompt(cls, scene_content: str, cluster_id: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_detailed_scene_summary_prompt_genre_lit(scene_content)
+        return cls._build_detailed_scene_summary_prompt_webnovel(scene_content)
+
+    @staticmethod
+    def _build_detailed_scene_summary_prompt_webnovel(scene_content: str) -> str:
         """Helper dropdown 회차 요약 (mode=summarize). Task only — no index."""
         text = str(scene_content or "").strip()
         return (
@@ -9630,7 +11105,82 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_detailed_scene_summary_multi_prompt(
+    def _build_detailed_scene_summary_prompt_genre_lit(scene_content: str) -> str:
+        """Helper dropdown 회차 요약 (mode=summarize). Task only — no index."""
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 회차를 다시 읽지 않고도 내용을 제대로 파악할 수 있도록 요약하세요.\n"
+            "바인더 캡션용 짧은 요약이 아니라, 이 회차에서 무슨 일이 있었는지 충분히\n"
+            "설명하는 요약입니다.\n\n"
+            "[판단 기준]\n"
+            "1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을\n"
+            "   순서대로 전달한다.\n"
+            "2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.\n"
+            "3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).\n"
+            "4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.\n"
+            "5. 분량은 대략 300~500자 내외로, 이 회차의 복잡도에 맞게 조절한다.\n"
+            "   짧은 회차를 억지로 늘리지 않고, 긴 회차를 무리해서 압축하지 않는다.\n\n"
+            "[문장 규칙]\n"
+            "6. \"이 회차는\", \"본문에서는\" 같은 메타 표현으로 시작하지 않고 바로 내용으로 시작한다.\n"
+            "7. 완성된 요약문만 출력한다.\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[요약]"
+        )
+
+    @classmethod
+    def _build_detailed_scene_summary_multi_prompt(cls, 
+        combined_text: str,
+        episode_count: int = 0,
+        cluster_id: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_detailed_scene_summary_multi_prompt_genre_lit(combined_text, episode_count)
+        return cls._build_detailed_scene_summary_multi_prompt_webnovel(combined_text, episode_count)
+
+    @staticmethod
+    def _build_detailed_scene_summary_multi_prompt_webnovel(
+        combined_text: str,
+        episode_count: int = 0,
+    ) -> str:
+        """Multi-episode detailed summary (summarize_multi). Task only — no index."""
+        text = str(combined_text or "").strip()
+        n = int(episode_count) if episode_count else 0
+        if n <= 0:
+            n = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        return (
+            "[현재 작업]\n"
+            "아래는 여러 회차입니다. 각 회차를 다시 읽지 않고도 내용을 제대로 파악할\n"
+            "수 있도록, 회차마다 요약을 작성하세요. 바인더 캡션용 짧은 요약이 아니라,\n"
+            "각 회차에서 무슨 일이 있었는지 충분히 설명하는 요약입니다.\n\n"
+            "[판단 기준]\n"
+            "1. 핵심 사건뿐 아니라, 사건의 흐름(무엇이 먼저 일어나고 무엇으로 이어졌는지)을\n"
+            "   순서대로 전달한다.\n"
+            "2. 등장한 인물들의 상태 변화나 관계 변화가 있었다면 포함한다.\n"
+            "3. 인상적인 대사나 장면이 있었다면, 짧게라도 언급한다 (통째로 인용하지 않는다).\n"
+            "4. 본문에 없는 내용을 추측하거나 덧붙이지 않는다.\n"
+            "5. 분량은 회차당 대략 300~500자 내외로, 각 회차의 복잡도에 맞게 조절한다.\n"
+            "6. 각 회차의 요약은 그 회차 안의 내용만으로 작성한다. 다른 회차의 사건을\n"
+            "   섞어 넣거나 미리 언급하지 않는다.\n\n"
+            "[문장 규칙]\n"
+            "7. \"이 회차는\", \"본문에서는\" 같은 메타 표현으로 시작하지 않고 바로 내용으로\n"
+            "   시작한다.\n"
+            "8. 각 회차 요약 앞에 아래 [출력 형식]의 제목만 붙이고, 그 외 완성된 요약문만\n"
+            "   출력한다.\n\n"
+            "[출력 형식]\n"
+            "### {회차 제목 1}\n"
+            "{요약}\n\n"
+            "### {회차 제목 2}\n"
+            "{요약}\n\n"
+            "(선택한 회차 수만큼 반복)\n\n"
+            f"[본문 - {n}개 회차, 순서대로]\n"
+            f"{text}\n\n"
+            "[요약 결과]"
+        )
+
+    @staticmethod
+    def _build_detailed_scene_summary_multi_prompt_genre_lit(
         combined_text: str,
         episode_count: int = 0,
     ) -> str:
@@ -9695,8 +11245,67 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
         return "\n\n".join(part for part in merged if part)
 
+    @classmethod
+    def _build_tension_curve_prompt(
+        cls,
+        episode_content: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_tension_curve_prompt_genre_lit(episode_content)
+        return cls._build_tension_curve_prompt_webnovel(
+            episode_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+        )
+
     @staticmethod
-    def _build_tension_curve_prompt(episode_content: str) -> str:
+    def _build_tension_curve_prompt_webnovel(
+        episode_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+    ) -> str:
+        text = str(episode_content or "").strip()
+        prompt = (
+            "[현재 작업]\n"
+            "이 회차를 자연스러운 단락 흐름 기준으로 6~12개 구간으로 나누고, 각 구간의\n"
+            "긴장도(몰입 자극 강도)를 평가하세요.\n\n"
+            "[점수 기준 - 반드시 아래 앵커를 기준으로 삼는다, 점수를 중간에 몰아주지 않는다]\n"
+            "- 0~2점: 평온한 일상, 정보 전달 위주 서술, 갈등 없음\n"
+            "- 3~4점: 약한 긴장감, 인물 간 소소한 마찰이나 복선성 암시\n"
+            "- 5~6점: 뚜렷한 갈등이나 문제 상황이 진행 중\n"
+            "- 7~8점: 위기 상황, 대립 격화, 예상 밖 전개\n"
+            "- 9~10점: 생사가 걸리거나 판을 뒤집는 결정적 반전/절정\n\n"
+            "[구간 분류 시 유의]\n"
+            "- 실제 서사 흐름(장면 전환, 대화-서술 전환 등)을 기준으로 자연스럽게 나눈다.\n"
+            "  글자 수를 억지로 맞추지 않는다.\n"
+            "- 같은 회차 안에서 점수가 다 비슷하게 몰리지 않도록, 위 앵커 기준을\n"
+            "  엄격히 적용해서 실제 기복이 드러나게 한다.\n\n"
+            "[각 구간마다 기록]\n"
+            "- segment_index: 순서\n"
+            "- segment_position_pct: 이 구간이 전체 회차에서 몇 % 지점인지\n"
+            "  (정수, 백엔드에서 segment_index/전체구간수*100로 계산)\n"
+            "- score: 0~10 (위 앵커 기준)\n"
+            "- emotion_tag: 이 구간의 지배적 감정/자극 유형 (긴장/해소/반전/설렘/슬픔/\n"
+            "  유머/공포 중 하나, 애매하면 가장 가까운 것 선택)\n"
+            "- reason: 왜 이 점수인지 1문장 이내\n"
+            "- text_preview: 이 구간 시작 부분 15자 이내 (구간 식별용, 원문 그대로\n"
+            "  길게 인용하지 않는다)\n\n"
+            "[출력 형식 - JSON]\n"
+            "{\n"
+            '  "segments": [\n'
+            '    {"segment_index": 1, "segment_position_pct": 8, "score": 3,\n'
+            '     "emotion_tag": "해소", "reason": "...", "text_preview": "..."},\n'
+            "    ...\n"
+            "  ]\n"
+            "}\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_tension_curve_prompt_genre_lit(episode_content: str) -> str:
         text = str(episode_content or "").strip()
         return (
             "[현재 작업]\n"
@@ -9736,8 +11345,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[분석 결과]"
         )
 
+    @classmethod
+    def _build_cliffhanger_score_prompt(
+        cls,
+        last_three_paragraphs: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs)
+        return cls._build_cliffhanger_score_prompt_webnovel(
+            last_three_paragraphs, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+        )
+
     @staticmethod
-    def _build_cliffhanger_score_prompt(last_three_paragraphs: str) -> str:
+    def _build_cliffhanger_score_prompt_webnovel(
+        last_three_paragraphs: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+    ) -> str:
+        text = str(last_three_paragraphs or "").strip()
+        prompt = (
+            "[현재 작업]\n"
+            '이 회차의 마지막 3문단을 분석해, "다음 화를 보고 싶게 만드는 힘"을\n'
+            "평가하세요.\n\n"
+            "[점수 기준]\n"
+            "- 0~2점: 그냥 장면이 마무리됨, 궁금증 유발 요소 없음\n"
+            "- 3~5점: 약한 궁금증은 있으나 절박하지 않음\n"
+            "- 6~7점: 명확한 질문이나 긴장 상태로 끝남 (독자가 답을 알고 싶어함)\n"
+            "- 8~10점: 강력한 위기/반전/정보 공백으로 끝남, 즉시 다음 화를 눌러야\n"
+            "  할 정도\n\n"
+            "[출력 형식 - JSON]\n"
+            "{\n"
+            '  "score": 0~10,\n'
+            '  "reason": "이 점수를 준 이유 2문장 이내"\n'
+            "}\n\n"
+            "[본문 마지막 부분]\n"
+            f"{text}\n\n"
+            "[평가 결과]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs: str) -> str:
         text = str(last_three_paragraphs or "").strip()
         return (
             "[현재 작업]\n"
@@ -9759,8 +11409,63 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[평가 결과]"
         )
 
+    @classmethod
+    def _build_ending_rewrite_prompt(
+        cls,
+        last_three_paragraphs: str,
+        cliffhanger_reason: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_ending_rewrite_prompt_genre_lit(last_three_paragraphs, cliffhanger_reason)
+        return cls._build_ending_rewrite_prompt_webnovel(
+            last_three_paragraphs,
+            cliffhanger_reason,
+            main_genre=main_genre,
+            sub_genre=sub_genre,
+            genre_detail=genre_detail,
+        )
+
     @staticmethod
-    def _build_ending_rewrite_prompt(last_three_paragraphs: str, cliffhanger_reason: str) -> str:
+    def _build_ending_rewrite_prompt_webnovel(
+        last_three_paragraphs: str,
+        cliffhanger_reason: str,
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        text = str(last_three_paragraphs or "").strip()
+        reason = str(cliffhanger_reason or "").strip()
+        prompt = (
+            "[현재 작업]\n"
+            f"아래 회차 엔딩의 훅이 약하다고 판단됐습니다 (이유: {reason}).\n"
+            "더 강력한 훅으로 개작한 버전을 3가지 서로 다른 연출 방식으로 제안하세요.\n\n"
+            "[3가지 연출 방식 - 각각 다른 전략을 쓴다]\n"
+            "1. 즉각적 위기 노출형: 예상치 못한 위험이나 사건을 마지막 문장에서\n"
+            "   바로 드러낸다\n"
+            "2. 정보 공백형: 결정적 정보를 의도적으로 숨기고 궁금증만 남긴다\n"
+            '   (예: "그가 문을 열었을 때, 거기 있던 건...")\n'
+            "3. 감정 절정형: 인물의 감정이 극에 달하는 순간에서 끊는다\n\n"
+            "각 버전은 원래 장면의 맥락(등장인물, 상황)을 유지하되, 마지막 3문단만\n"
+            "새로 쓴다. 원문 문체를 최대한 따라간다.\n\n"
+            "[출력 형식]\n"
+            "## 버전 1: 즉각적 위기 노출형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "## 버전 2: 정보 공백형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "## 버전 3: 감정 절정형\n"
+            "(개작된 마지막 3문단)\n\n"
+            "[원본 마지막 3문단]\n"
+            f"{text}\n\n"
+            "[개작 제안]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_ending_rewrite_prompt_genre_lit(last_three_paragraphs: str, cliffhanger_reason: str) -> str:
         text = str(last_three_paragraphs or "").strip()
         reason = str(cliffhanger_reason or "").strip()
         return (
@@ -9811,8 +11516,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 hits.append(line)
         return "; ".join(hits) if hits else "기록된 현재 상태 없음"
 
+    @classmethod
+    def _build_character_debate_prompt(cls, characters_info: object, scenario: object, cluster_id: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_character_debate_prompt_genre_lit(characters_info, scenario)
+        return cls._build_character_debate_prompt_webnovel(characters_info, scenario)
+
     @staticmethod
-    def _build_character_debate_prompt(characters_info: object, scenario: object) -> str:
+    def _build_character_debate_prompt_webnovel(characters_info: object, scenario: object) -> str:
         people = characters_info if isinstance(characters_info, list) else []
         lines = []
         for item in people:
@@ -9850,7 +11561,68 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_submission_synopsis_prompt(
+    def _build_character_debate_prompt_genre_lit(characters_info: object, scenario: object) -> str:
+        people = characters_info if isinstance(characters_info, list) else []
+        lines = []
+        for item in people:
+            if not isinstance(item, dict):
+                continue
+            name = str(item.get("name") or "").strip() or "이름 없는 인물"
+            personality = str(item.get("personality") or item.get("tone") or "").strip() or "설정 미기입"
+            current = str(item.get("currentFacts") or item.get("current_facts") or "").strip() or "기록된 현재 상태 없음"
+            lines.append(f"- {name}: 성격/말투 - {personality}. 현재 상태 - {current}")
+        roster = "\n".join(lines) if lines else "(참여 캐릭터 없음)"
+        scene = str(scenario or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 캐릭터들을 다음 상황에 놓았을 때 나올 법한 대화를 시뮬레이션하세요.\n\n"
+            "[상황]\n"
+            f"{scene}\n\n"
+            "[참여 캐릭터]\n"
+            f"{roster}\n\n"
+            "[작성 원칙]\n"
+            "1. 각 캐릭터는 반드시 설정집에 명시된 본인의 말투와 성격을 그대로 유지한다.\n"
+            "   캐릭터 간 말투가 서로 섞이지 않도록 각별히 주의한다.\n"
+            "2. 이 상황에서 각 캐릭터가 실제로 취할 법한 반응과 태도를 개연성 있게\n"
+            "   보여준다. 극적 효과를 위해 캐릭터의 확립된 성격을 왜곡하지 않는다.\n"
+            "3. 8~12번의 대사 교환으로 구성한다 (한쪽이 일방적으로 말하지 않고,\n"
+            "   실제 논쟁/대화처럼 주고받는다).\n"
+            "4. 대사 사이사이 짧은 지문(행동, 표정 묘사)을 필요한 곳에만 넣는다.\n"
+            "   과하게 넣지 않는다.\n"
+            "5. 이건 실제 원고가 아니라 \"이 대화가 캐릭터답게 성립하는지\" 확인하는\n"
+            "   테스트 목적이므로, 결말을 억지로 봉합하거나 화해시키지 않는다.\n"
+            "   상황이 해결 안 된 채 끝나도 된다.\n\n"
+            "[출력 형식]\n"
+            "캐릭터명: 대사\n"
+            "(지문이 있다면 캐릭터명 다음 줄에 이탤릭이나 괄호로 짧게)\n\n"
+            "[대화 시뮬레이션]"
+        )
+
+    @classmethod
+    def _build_submission_synopsis_prompt(cls, 
+        outline_summary: str,
+        synopsis_length_limit: int | None = None,
+        intent_length_limit: int | None = None,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_submission_synopsis_prompt_genre_lit(outline_summary, synopsis_length_limit, intent_length_limit)
+        return inject_genre_playbook_suggest_section(
+            cls._build_submission_synopsis_prompt_webnovel(
+                outline_summary,
+                synopsis_length_limit,
+                intent_length_limit,
+            ),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_submission_synopsis_prompt_webnovel(
         outline_summary: str,
         synopsis_length_limit: int | None = None,
         intent_length_limit: int | None = None,
@@ -9931,7 +11703,94 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_style_blend_check_prompt(reference_text: str, target_text: str) -> str:
+    def _build_submission_synopsis_prompt_genre_lit(
+        outline_summary: str,
+        synopsis_length_limit: int | None = None,
+        intent_length_limit: int | None = None,
+    ) -> str:
+        """투고·공모전용 시놉시스 task prompt. No Core Identity re-declaration."""
+        outline = str(outline_summary or "").strip()
+        if outline:
+            outline_block = (
+                "[작가가 제공한 줄거리 개요 - 시작부터 결말까지]\n" + outline
+            )
+        else:
+            outline_block = (
+                "[작가가 제공한 줄거리 개요]\n"
+                "(제공되지 않음 - 지금까지 쓰인 원고만 근거로 작성하며, "
+                "결말 관련 내용은 추측하지 않고 빈 부분으로 남긴다)"
+            )
+        if synopsis_length_limit:
+            synopsis_length_note = (
+                f"시놉시스는 {int(synopsis_length_limit)}자 이내로 작성한다."
+            )
+        else:
+            synopsis_length_note = (
+                "시놉시스 길이 제한은 없다. 내용을 충분히 전달할 수 있는 분량으로 작성한다."
+            )
+        if intent_length_limit:
+            intent_length_note = (
+                f"작품의도는 {int(intent_length_limit)}자 이내로 작성한다."
+            )
+        else:
+            intent_length_note = (
+                "작품의도 길이 제한은 없다. 1~2문단 정도로 작성한다."
+            )
+        return (
+            "[현재 작업]\n"
+            "투고·공모전 제출용 자료를 작성하세요. 아래 세 가지를 준비합니다.\n\n"
+            "[작품의도]\n"
+            "- 이 작품을 통해 작가가 전달하고자 하는 주제의식이나 문제의식을 정리한다.\n"
+            f"- {intent_length_note}\n"
+            "- [프로젝트 누적 정보]와 [작가가 제공한 줄거리 개요]에서 근거를 찾고,\n"
+            "  지어내지 않는다.\n"
+            "- [프로젝트 누적 정보]에는 인물 이름과 사건 요약만 있고 인물의 목표·동기·\n"
+            "  갈등 관계는 명시되어 있지 않을 수 있다. 이런 정보가 없으면 사건 흐름에서\n"
+            "  합리적으로 추론하되, 추론이라는 티가 나지 않게 단정적으로 서술하지 말고\n"
+            "  개연성 있는 해석으로 제시한다.\n\n"
+            "[로그라인 후보]\n"
+            "- 이 작품을 한두 문장으로 압축한 로그라인을 5개 제시한다.\n"
+            "- 각기 다른 강조점(인물/갈등/세계관/반전/정서 중심)으로 다양화한다.\n"
+            "- 5개 중 2개 이상이 같은 사건이나 같은 문장 구조를 재사용하면 안 된다.\n"
+            "  주어-술어 구조 자체를 다르게 가져간다.\n"
+            "- 주인공이 누구인지, 무엇을 원하는지, 무엇이 가로막는지가 드러나야 한다.\n"
+            "- 과장된 클리셰 수식어를 피하고 구체적인 인물·상황으로 승부한다.\n\n"
+            "[시놉시스 - 기승전결 구조]\n"
+            "- 이야기를 기(도입)-승(전개)-전(전환/절정)-결(결말) 순서로, 심사자가\n"
+            "  전체 줄거리를 파악할 수 있도록 서술형으로 정리한다.\n"
+            "- 이미 쓰인 부분은 [프로젝트 누적 정보]를, 결말을 포함해 아직 쓰이지\n"
+            "  않은 부분은 [작가가 제공한 줄거리 개요]를 근거로 삼는다.\n"
+            f"- {synopsis_length_note}\n"
+            "- 문학적 표현보다 명확한 전달을 우선한다. 반전이나 결말도 숨기지 않고\n"
+            "  솔직하게 서술한다 (독자용 홍보문이 아니라 심사용 자료이므로).\n\n"
+            "[출력 형식]\n"
+            "## 작품의도\n"
+            "(내용)\n\n"
+            "## 로그라인 후보\n"
+            "1. (로그라인) — [강조점]\n"
+            "2. ...\n"
+            "(5개)\n\n"
+            "## 시놉시스\n"
+            "### 기 (도입)\n"
+            "(내용)\n"
+            "### 승 (전개)\n"
+            "(내용)\n"
+            "### 전 (전환/절정)\n"
+            "(내용)\n"
+            "### 결 (결말)\n"
+            "(내용)\n\n"
+            f"{outline_block}\n\n"
+            "[제출용 자료]"
+        )
+
+    @classmethod
+    def _build_style_blend_check_prompt(cls, reference_text: str, target_text: str, cluster_id: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_style_blend_check_prompt_genre_lit(reference_text, target_text)
+        return cls._build_style_blend_check_prompt_webnovel(reference_text, target_text)
+
+    @staticmethod
+    def _build_style_blend_check_prompt_webnovel(reference_text: str, target_text: str) -> str:
         """스며듦 검사 task prompt. No Core Identity re-declaration."""
         reference = str(reference_text or "").strip()
         target = str(target_text or "").strip()
@@ -9966,7 +11825,104 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_focused_analysis_prompt(scene_content: str) -> str:
+    def _build_style_blend_check_prompt_genre_lit(reference_text: str, target_text: str) -> str:
+        """스며듦 검사 task prompt. No Core Identity re-declaration."""
+        reference = str(reference_text or "").strip()
+        target = str(target_text or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 [비교 대상 텍스트]가 [기준 텍스트]와 문체·어투·리듬 면에서 자연스럽게\n"
+            "어우러지는지 확인하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 어휘 수준, 문장 길이의 리듬, 어투(존댓말/반말), 인물의 말투가 기준\n"
+            "   텍스트와 일관되는지 비교한다.\n"
+            "2. 기준 텍스트에서 비교 대상 텍스트로 넘어가는 경계 지점이 부자연스럽게\n"
+            "   튀는지 특히 주의 깊게 본다.\n"
+            "3. 상투적이거나 기계적으로 느껴지는 표현 패턴이 있는지 확인한다.\n"
+            "   (예: 과도한 대구법, 상투적인 헤지 표현의 반복, 나열식 문장 구조 반복,\n"
+            "   감정을 설명으로 덧붙이는 문장 등)\n"
+            "4. 발견한 것을 \"문제\"로 단정하지 않는다. 관찰과 근거만 전달한다\n"
+            "   (\"~해 보여요\", \"~일 수 있어요\" 표현을 쓴다).\n"
+            "5. 특별히 튀는 부분이 없다면, 억지로 지적을 만들어내지 않고 자연스럽게\n"
+            "   잘 어우러진다고 알려준다.\n\n"
+            "[출력 형식]\n"
+            "## 스며듦 체크 결과\n"
+            "- 전반적 판단: 잘 어우러짐 / 약간 다르게 느껴짐 / 뚜렷하게 튐\n"
+            "- 근거: (구체적인 문장이나 표현을 들어 설명)\n"
+            "- (다르게 느껴지는 경우) 어느 지점이 특히 그런지, 왜 그런지\n\n"
+            "이 결과는 문제 여부를 판정한 것이 아니라 관찰입니다. 유지할지 수정할지는\n"
+            "작가님의 선택입니다.\n\n"
+            "[기준 텍스트 - 원래 문체]\n"
+            f"{reference}\n\n"
+            "[비교 대상 텍스트 - 새로 생성/수정된 부분]\n"
+            f"{target}\n\n"
+            "[스며듦 체크 결과]"
+        )
+
+    @classmethod
+    def _build_focused_analysis_prompt(
+        cls,
+        scene_content: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_focused_analysis_prompt_genre_lit(scene_content)
+        return cls._build_focused_analysis_prompt_webnovel(
+            scene_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+        )
+
+    @staticmethod
+    def _build_focused_analysis_prompt_webnovel(
+        scene_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+    ) -> str:
+        """Feedback request / focused analysis (analyze). Task scope only."""
+        text = str(scene_content or "").strip()
+        prompt = (
+            "[현재 작업]\n"
+            "아래 회차를 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.\n\n"
+            "[분석 원칙]\n"
+            "1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.\n"
+            "2. 막연한 칭찬(\"좋아요\", \"잘 쓰셨어요\")이나 막연한 비판(\"별로예요\")을 하지 않는다.\n"
+            "   반드시 원고 안의 구체적인 근거(어떤 장면, 어떤 문장, 어떤 흐름)를 들어 설명한다.\n"
+            "3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지\n"
+            "   방향을 함께 제시한다.\n"
+            "4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지 않는다.\n"
+            "   의도된 것으로 보이면 그 자체를 지적하지 않고, 의도가 실제로 잘 구현되고\n"
+            "   있는지를 본다.\n"
+            "5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.\n"
+            "   장르 관습과 무관한 일반적 기준을 들이대지 않는다.\n\n"
+            "[편집자 관점 - 구조와 기법]\n"
+            "- 전개 속도: 정보/사건이 너무 빠르게 혹은 느리게 배치되지 않았는지\n"
+            "- 장면 구성: 장면 전환, 시점 처리, 묘사와 대사의 균형이 적절한지\n"
+            "- 문장 기법: 반복되는 문장 패턴, 어색한 리듬, 정보 과잉/부족 여부\n\n"
+            "[독자 관점 - 몰입 경험]\n"
+            "- 흥미 유지: 어느 지점에서 몰입이 잘 되고, 어느 지점에서 흥미가 떨어질 수 있는지\n"
+            "- 감정적 반응: 의도된 감정(긴장, 설렘, 슬픔 등)이 실제로 전달되는지\n"
+            "- 다음 화 기대감: 이 회차가 다음 내용을 궁금하게 만드는지\n\n"
+            "[출력 형식]\n"
+            "## 편집자 관점\n"
+            "**좋은 점**\n"
+            "- (구체적 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (구체적 근거 + 방향 제안과 함께 1~3개)\n\n"
+            "## 독자 관점\n"
+            "**좋은 점**\n"
+            "- (구체적 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (구체적 근거 + 방향 제안과 함께 1~3개)\n\n"
+            "## 한 줄 총평\n"
+            "(이 회차 전체를 관통하는 핵심 조언 한 문장)\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_focused_analysis_prompt_genre_lit(scene_content: str) -> str:
         """Feedback request / focused analysis (analyze). Task scope only."""
         text = str(scene_content or "").strip()
         return (
@@ -10009,8 +11965,84 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[분석 결과]"
         )
 
+    @classmethod
+    def _build_focused_analysis_multi_prompt(
+        cls,
+        combined_text: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_focused_analysis_multi_prompt_genre_lit(combined_text)
+        return cls._build_focused_analysis_multi_prompt_webnovel(
+            combined_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+        )
+
     @staticmethod
-    def _build_focused_analysis_multi_prompt(combined_text: str) -> str:
+    def _build_focused_analysis_multi_prompt_webnovel(
+        combined_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+    ) -> str:
+        """Contiguous multi-episode feedback (analyze_multi). Task scope only."""
+        text = str(combined_text or "").strip()
+        episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        prompt = (
+            "[현재 작업]\n"
+            "아래는 연속된 여러 회차입니다. 개별 회차 단위가 아니라, 이 구간 전체를\n"
+            "하나의 흐름으로 보고 편집자 관점과 독자 관점에서 분석해 피드백을 제공하세요.\n\n"
+            "[분석 원칙]\n"
+            "1. 장점과 개선점을 균형 있게 다룬다. 어느 한쪽으로 치우치지 않는다.\n"
+            "2. 막연한 칭찬이나 막연한 비판을 하지 않는다. 반드시 몇 화의 어떤 장면·\n"
+            "   문장·흐름인지 구체적으로 짚어 설명한다.\n"
+            "3. 개선점을 지적할 때는 왜 문제인지에서 그치지 않고, 어떻게 고칠 수 있을지\n"
+            "   방향을 함께 제시한다. 대부분의 경우 방향 제안에 그치되, 장르 관습을\n"
+            "   명백히 벗어나거나 개연성이 무너지는 등 원문 자체가 그대로 두기 어려운\n"
+            "   수준이라고 판단되면, 문제를 정확히 설명한 뒤 대체 가능한 전개나 장면을\n"
+            "   직접 예시로 써서 제시한다. 다만 최종 선택은 작가의 몫임을 분명히 하고,\n"
+            "   이 경우에도 \"반드시 이렇게 고쳐야 한다\"고 단정하지 않는다.\n"
+            "4. 작가의 의도된 스타일(예: 담백한 문체, 느린 전개)을 결함으로 오인하지\n"
+            "   않는다. 의도가 실제로 잘 구현되고 있는지를 본다.\n"
+            "5. 이 원고의 장르·설정([프로젝트 누적 정보] 참고)에 맞는 기준으로 평가한다.\n\n"
+            "[편집자 관점 - 구조와 기법]\n"
+            "- 회차 간 강약 조절: 회차마다 긴장도·정보량이 적절히 완급 조절되는지,\n"
+            "  특정 화만 처지거나 과열되지 않는지\n"
+            "- 전개 속도: 이 구간 전체에서 사건이 너무 빠르게 혹은 느리게 배치되지\n"
+            "  않았는지\n"
+            "- 개연성: 회차를 넘어가며 사건·설정·인물 반응이 논리적으로 이어지는지\n"
+            "- 캐릭터 일관성: 여러 회차에 걸쳐 인물의 성격·말투·가치관이 일관되게\n"
+            "  유지되는지, 근거 없이 흔들리는 지점이 있는지\n"
+            "- 문장 기법: 회차마다 반복되는 문장 패턴이나 상투적 표현이 누적되고\n"
+            "  있지 않은지\n\n"
+            "[독자 관점 - 몰입 경험]\n"
+            "- 흡입력: 중간에 멈추지 않고 이 구간을 쭉 읽어나갈 만큼 매 화가 다음\n"
+            "  화를 궁금하게 만드는지, 흐름이 끊기는 지점이 있는지\n"
+            "- 감정적 반응: 의도된 감정이 회차를 거치며 축적되고 전달되는지\n"
+            "- 시장성: 이 흐름이 독자층에게 소구할 만한 훅과 페이스를 갖추고 있는지\n"
+            "  (장르 관습·연재 플랫폼 관행을 참고 기준으로 삼는다)\n\n"
+            "[출력 형식]\n"
+            "## 편집자 관점\n"
+            "**좋은 점**\n"
+            "- (몇 화의 어떤 부분인지 근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (근거 + 구체적 수정 방향과 함께 1~3개)\n\n"
+            "## 독자 관점\n"
+            "**좋은 점**\n"
+            "- (근거와 함께 1~3개)\n"
+            "**개선점**\n"
+            "- (근거 + 구체적 수정 방향과 함께 1~3개)\n\n"
+            "## 회차 간 흐름 총평\n"
+            "이 구간 전체를 하나의 아크로 봤을 때 강약·속도·흡입력이 어떤지 3~5문장으로.\n\n"
+            "## 한 줄 총평\n"
+            "(이 구간 전체를 관통하는 핵심 조언 한 문장)\n\n"
+            f"[본문 - {episode_count}개 회차, 순서대로]\n"
+            f"{text}\n\n"
+            "[분석 결과]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_focused_analysis_multi_prompt_genre_lit(combined_text: str) -> str:
         """Contiguous multi-episode feedback (analyze_multi). Task scope only."""
         text = str(combined_text or "").strip()
         episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
@@ -10067,8 +12099,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[분석 결과]"
         )
 
+    @classmethod
+    def _build_next_idea_prompt(cls, scene_content: str, cluster_id: object = "",
+                                main_genre: object = "", sub_genre: object = "", genre_detail: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_next_idea_prompt_genre_lit(scene_content)
+        return inject_genre_playbook_suggest_section(
+            cls._build_next_idea_prompt_webnovel(scene_content),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
     @staticmethod
-    def _build_next_idea_prompt(scene_content: str) -> str:
+    def _build_next_idea_prompt_webnovel(scene_content: str) -> str:
         """Next-idea suggestions (ideas mode). Task scope only."""
         text = str(scene_content or "").strip()
         return (
@@ -10097,7 +12141,55 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_next_idea_with_next_scene_prompt(prev_tail: str, next_text: str) -> str:
+    def _build_next_idea_prompt_genre_lit(scene_content: str) -> str:
+        """Next-idea suggestions (ideas mode). Task scope only."""
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 방금 작성된 회차입니다. 이 흐름에서 자연스럽게 이어질 다음 전개\n"
+            "아이디어를 3~5개 제안하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 지금 회차의 마지막 장면에서 개연성 있게 이어지는 전개만 제안한다.\n"
+            "   원고의 전체 흐름과 동떨어진 뜬금없는 사건을 제안하지 않는다.\n"
+            "2. [프로젝트 누적 정보]에 있는 인물 성격, 세계관 규칙, 미회수 복선을 참고해\n"
+            "   그 작품다운 방향으로 제안한다. 미회수 복선이 있다면 그것을 회수하거나\n"
+            "   진전시키는 아이디어를 최소 1개 포함한다.\n"
+            "3. 후보들은 서로 겹치지 않게, 각기 다른 방향(예: 갈등 심화 / 관계 변화 /\n"
+            "   새로운 정보 공개 / 반전 등)을 다루도록 다양성을 준다.\n"
+            "4. 이미 회수된 떡밥이나 이미 밝혀진 정보를 다시 반복해서 제안하지 않는다.\n\n"
+            "[출력 형식]\n"
+            "각 후보는 아래 형식으로 제시한다.\n"
+            "**후보 N: (짧은 제목)**\n"
+            "- 무엇을 하는 전개인지 1~2문장\n"
+            "- 왜 이 시점에 자연스러운지 (근거 1문장)\n\n"
+            "후보 수는 3~5개로 하고, 마지막에 \"이 중 어떤 방향이든 편하게 말씀해주시면\n"
+            "더 구체적으로 함께 풀어볼게요.\" 같은 짧은 안내를 덧붙인다.\n\n"
+            "[현재 회차 본문]\n"
+            f"{text}\n\n"
+            "[다음 아이디어 제안]"
+        )
+
+    @classmethod
+    def _build_next_idea_with_next_scene_prompt(
+        cls,
+        prev_tail: str,
+        next_text: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_next_idea_with_next_scene_prompt_genre_lit(prev_tail, next_text)
+        return inject_genre_playbook_suggest_section(
+            cls._build_next_idea_with_next_scene_prompt_webnovel(prev_tail, next_text),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_next_idea_with_next_scene_prompt_webnovel(prev_tail: str, next_text: str) -> str:
         """Next-idea when following episode already exists (ideas_next_exists)."""
         prev = str(prev_tail or "").strip()
         nxt = str(next_text or "").strip()
@@ -10134,7 +12226,63 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_brainstorm_prompt(scene_content: str, user_topic: str = "") -> str:
+    def _build_next_idea_with_next_scene_prompt_genre_lit(prev_tail: str, next_text: str) -> str:
+        """Next-idea when following episode already exists (ideas_next_exists)."""
+        prev = str(prev_tail or "").strip()
+        nxt = str(next_text or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래는 방금 마무리된 회차와, 그 다음으로 이미 작성된 회차의 시작 부분입니다.\n"
+            "다음 회차의 시작 전개가 적절한지 짧게 의견을 드리고, 이를 대체할 수 있는\n"
+            "다른 전개·묘사 아이디어를 5개 제안하세요.\n\n"
+            "[판단 기준]\n"
+            "1. 직전 회차의 흐름(감정선, 사건의 여운, 마지막 장면)에서 다음 회차 시작이\n"
+            "   자연스럽게 이어지는지 평가한다.\n"
+            "2. 이미 매력적이고 개연성 있게 시작됐다면 그 점을 짧게 인정하고 넘어간다.\n"
+            "   억지로 문제를 만들어내지 않는다.\n"
+            "3. 평가와 별개로, 다른 방향에서 시작할 수 있는 후킹 있는 대안을 5개 제시한다.\n"
+            "   기존 시작부를 재활용한 변주(같은 장면, 다른 묘사)와, 아예 다른 지점에서\n"
+            "   시작하는 전개(다른 장면, 다른 사건)를 섞어서 다양성을 준다.\n"
+            "4. 각 대안이 왜 이 시점에 효과적인지 짧게 근거를 단다.\n"
+            "5. [프로젝트 누적 정보]의 인물 성격·세계관 규칙·미회수 복선을 참고해\n"
+            "   그 작품다운 방향을 벗어나지 않는다.\n\n"
+            "[출력 형식]\n"
+            "## 지금 시작부에 대한 의견\n"
+            "(2~3문장, 강요하지 않는 톤)\n\n"
+            "## 대체 가능한 다른 시작 5가지\n"
+            "**대안 N: (짧은 제목)**\n"
+            "- 어떤 전개/묘사로 시작하는지 1~2문장\n"
+            "- 왜 효과적인지 (근거 1문장)\n\n"
+            "마지막에 \"어떤 방향이든 편하게 골라주시면 이어서 함께 다듬어볼게요.\" 같은\n"
+            "짧은 안내를 덧붙인다.\n\n"
+            "[직전 회차 마지막 부분]\n"
+            f"{prev}\n\n"
+            "[다음 회차 시작부 (이미 작성됨)]\n"
+            f"{nxt}\n\n"
+            "[검토 결과]"
+        )
+
+    @classmethod
+    def _build_brainstorm_prompt(
+        cls,
+        scene_content: str,
+        user_topic: str = "",
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_brainstorm_prompt_genre_lit(scene_content, user_topic)
+        return inject_genre_playbook_suggest_section(
+            cls._build_brainstorm_prompt_webnovel(scene_content, user_topic),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_brainstorm_prompt_webnovel(scene_content: str, user_topic: str = "") -> str:
         """Brainstorming (brainstorm mode). Task scope only."""
         text = str(scene_content or "").strip()
         topic = str(user_topic or "").strip()
@@ -10174,7 +12322,64 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_brainstorm_with_next_scene_prompt(
+    def _build_brainstorm_prompt_genre_lit(scene_content: str, user_topic: str = "") -> str:
+        """Brainstorming (brainstorm mode). Task scope only."""
+        text = str(scene_content or "").strip()
+        topic = str(user_topic or "").strip()
+        if topic:
+            topic_instruction = (
+                "[작가가 지정한 주제]\n"
+                f'"{topic}"에 대해 집중적으로 브레인스토밍한다.'
+            )
+        else:
+            topic_instruction = (
+                "[주제]\n"
+                "작가가 특정 주제를 지정하지 않았다. 현재 회차와 지금까지의 흐름을\n"
+                "       참고해, 이 작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다."
+            )
+        return (
+            "[현재 작업]\n"
+            "아래 원고를 바탕으로 이 작품에 적용할 수 있는 아이디어를 5~8개 브레인스토밍하세요.\n\n"
+            f"{topic_instruction}\n\n"
+            "[판단 기준]\n"
+            "1. \"다음 회차에 바로 이어지는 전개\"로 범위를 좁히지 않는다. 서브플롯, 반전,\n"
+            "   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서\n"
+            "   아이디어를 던진다.\n"
+            "2. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를\n"
+            "   둔다. 다소 과감하거나 실험적인 아이디어도 배제하지 않는다.\n"
+            "3. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+            "   범위 안에서 자유롭게 확장한다 (설정을 깨는 것과 설정을 확장하는 것은 다르다).\n"
+            "4. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n"
+            "   같은 층위의 아이디어만 나열하지 않는다.\n\n"
+            "[출력 형식]\n"
+            "각 아이디어는 아래 형식으로 제시한다.\n"
+            "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+            "- 무엇인지 1~2문장\n"
+            "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+            "[현재 회차 또는 최근 원고]\n"
+            f"{text}\n\n"
+            "[브레인스토밍 결과]"
+        )
+
+    @classmethod
+    def _build_brainstorm_with_next_scene_prompt(cls, 
+        prev_tail: str, next_text: str, user_topic: str = "",
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_brainstorm_with_next_scene_prompt_genre_lit(prev_tail, next_text, user_topic)
+        return inject_genre_playbook_suggest_section(
+            cls._build_brainstorm_with_next_scene_prompt_webnovel(prev_tail, next_text, user_topic),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_brainstorm_with_next_scene_prompt_webnovel(
         prev_tail: str, next_text: str, user_topic: str = ""
     ) -> str:
         """Brainstorm when next episode exists (brainstorm_next_exists). C/D by topic."""
@@ -10243,7 +12448,95 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_world_description_prompt(target_subject: str, scene_content: str) -> str:
+    def _build_brainstorm_with_next_scene_prompt_genre_lit(
+        prev_tail: str, next_text: str, user_topic: str = ""
+    ) -> str:
+        """Brainstorm when next episode exists (brainstorm_next_exists). C/D by topic."""
+        scene_content = str(prev_tail or "").strip()
+        next_scene_content = str(next_text or "").strip()
+        topic = str(user_topic or "").strip()
+        if topic:
+            return (
+                "[현재 작업]\n"
+                "아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에\n"
+                "확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을\n"
+                "요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 아래 주제를 중심으로\n"
+                "이 지점에서 작품을 확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를\n"
+                "5~8개 제시하세요.\n\n"
+                "[작가가 지정한 주제]\n"
+                f'"{topic}"에 대해 집중적으로 브레인스토밍한다.\n\n'
+                "[판단 기준]\n"
+                "1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은\n"
+                "   참고 맥락일 뿐이다.\n"
+                "2. 지정된 주제를 중심으로 전개하되, 다음 회차의 방향을 살리는 아이디어와\n"
+                "   완전히 다른 방향으로 전환하는 아이디어를 균형 있게 섞는다.\n"
+                "3. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.\n"
+                "4. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+                "   범위 안에서 자유롭게 확장한다.\n"
+                "5. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n\n"
+                "[출력 형식]\n"
+                "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+                "- 무엇인지 1~2문장\n"
+                "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+                "[현재 회차]\n"
+                f"{scene_content}\n\n"
+                "[다음 회차 (이미 작성됨)]\n"
+                f"{next_scene_content}\n\n"
+                "[브레인스토밍 결과]"
+            )
+        return (
+            "[현재 작업]\n"
+            "아래는 현재 회차와, 그 뒤로 이미 작성된 다음 회차입니다. 작가가 다음 전개에\n"
+            "확신이 없거나 이미 쓴 다음 회차의 방향이 마음에 들지 않아 이 브레인스토밍을\n"
+            "요청했을 수 있습니다. 두 회차의 흐름을 모두 참고해, 이 지점에서 작품을\n"
+            "확장하거나 다른 방향으로 풀어갈 수 있는 아이디어를 5~8개 제시하세요.\n\n"
+            "[주제]\n"
+            "작가가 특정 주제를 지정하지 않았다. 두 회차의 흐름을 참고해, 이 지점에서\n"
+            "작품이 확장될 수 있는 다양한 방향을 자유롭게 탐색한다.\n\n"
+            "[판단 기준]\n"
+            "1. 이미 쓰인 다음 회차의 방향을 그대로 평가하거나 지적하지 않는다. 그 내용은\n"
+            "   참고 맥락일 뿐이다.\n"
+            "2. 다음 회차의 방향을 살리는 아이디어와, 완전히 다른 방향으로 전환하는\n"
+            "   아이디어를 균형 있게 섞는다.\n"
+            "3. \"다음 회차에 바로 이어지는 전개\"로만 범위를 좁히지 않는다. 서브플롯, 반전,\n"
+            "   새로운 인물, 세계관 확장, 관계 구도 변화, 주제 의식 등 다양한 층위에서\n"
+            "   아이디어를 던진다.\n"
+            "4. 지금 당장 실현 가능한지보다, 이 작품을 더 풍부하게 만들 가능성에 무게를 둔다.\n"
+            "5. [프로젝트 누적 정보]에 있는 인물·세계관 설정과 완전히 모순되지 않는\n"
+            "   범위 안에서 자유롭게 확장한다.\n"
+            "6. 아이디어끼리 서로 다른 층위(플롯/인물/세계관/주제)를 다루도록 다양성을 준다.\n\n"
+            "[출력 형식]\n"
+            "**아이디어 N: (짧은 제목)** [층위: 플롯/인물/세계관/주제 중 표시]\n"
+            "- 무엇인지 1~2문장\n"
+            "- 이 작품에 어떤 재미나 깊이를 더할 수 있는지 1문장\n\n"
+            "[현재 회차]\n"
+            f"{scene_content}\n\n"
+            "[다음 회차 (이미 작성됨)]\n"
+            f"{next_scene_content}\n\n"
+            "[브레인스토밍 결과]"
+        )
+
+    @classmethod
+    def _build_world_description_prompt(
+        cls,
+        target_subject: str,
+        scene_content: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_world_description_prompt_genre_lit(target_subject, scene_content)
+        return inject_genre_playbook_style_section(
+            cls._build_world_description_prompt_webnovel(target_subject, scene_content),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_world_description_prompt_webnovel(target_subject: str, scene_content: str) -> str:
         """세계관 묘사 도우미 (worlddesc). Task scope only."""
         subject = str(target_subject or "").strip()
         text = str(scene_content or "").strip()
@@ -10281,7 +12574,67 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_description_expand_prompt(
+    def _build_world_description_prompt_genre_lit(target_subject: str, scene_content: str) -> str:
+        """세계관 묘사 도우미 (worlddesc). Task scope only."""
+        subject = str(target_subject or "").strip()
+        text = str(scene_content or "").strip()
+        return (
+            "[현재 작업]\n"
+            "아래 대상에 대해, 이 작품의 문체와 세계관에 맞는 묘사 문장을 작성하세요.\n"
+            "작가가 원고에 바로 이어 붙이거나 참고해서 쓸 수 있는 수준으로 씁니다.\n\n"
+            "[묘사 대상]\n"
+            f"{subject}\n\n"
+            "[판단 기준]\n"
+            "1. 시스템 메시지의 장르·세계관 키워드와 [프로젝트 누적 정보]에 이미 확립된\n"
+            "   설정(세계관 규칙, 지금까지 등장한 배경)에 부합하는 묘사를 만든다.\n"
+            "   장르에 안 맞는 클리셰(예: 동양풍 세계관에 서구식 성 묘사)를 섞지 않는다.\n"
+            "2. 현재 회차의 문체(문장 길이, 어휘 수준, 시점)와 어울리게 쓴다. 원고\n"
+            "   전체와 톤이 튀지 않아야 한다.\n"
+            "3. 오감(시각/청각/후각/촉각) 중 최소 2가지 이상을 활용해 입체적으로 묘사한다.\n"
+            "   단, 모든 감각을 억지로 다 채우지 않는다.\n"
+            "4. 정보 나열이 아니라 장면 속에서 자연스럽게 읽히는 묘사로 쓴다\n"
+            "   (\"이곳은 ~한 곳이다\" 같은 설명체보다, 인물의 시선이나 행동에 녹인\n"
+            "   묘사를 우선한다).\n"
+            "5. 이미 확립된 설정과 모순되는 새로운 설정을 지어내지 않는다. 다만\n"
+            "   기존 설정을 구체화하는 선에서는 세부 디테일을 자유롭게 채운다.\n\n"
+            "[출력 형식]\n"
+            "2~3개의 버전을 제공한다. 서로 다른 각도(예: 웅장함 강조 / 스산함 강조 /\n"
+            "인물의 감정과 연결 등)로 다양화한다.\n\n"
+            "**버전 1** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "**버전 2** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "**버전 3** [강조점: ...]\n"
+            "(묘사 문장)\n\n"
+            "[현재 회차 - 문체 참고용]\n"
+            f"{text}\n\n"
+            "[묘사 제안]"
+        )
+
+    @classmethod
+    def _build_description_expand_prompt(cls, 
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+        direction_hint: str = "",
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_description_expand_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
+        return inject_genre_playbook_style_section(
+            cls._build_description_expand_prompt_webnovel(
+                selected_text, context_before, context_after, direction_hint
+            ),
+            main_genre,
+            sub_genre,
+            genre_detail,
+        )
+
+    @staticmethod
+    def _build_description_expand_prompt_webnovel(
         selected_text: str,
         context_before: str = "",
         context_after: str = "",
@@ -10327,7 +12680,121 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_setting_break_scan_prompt(original_text: str) -> str:
+    def _build_description_expand_prompt_genre_lit(
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+        direction_hint: str = "",
+    ) -> str:
+        """Expand selected manuscript description (descexpand). Task scope only."""
+        selected = str(selected_text or "").strip()
+        before = str(context_before or "").strip()
+        after = str(context_after or "").strip()
+        direction = str(direction_hint or "").strip()
+        before_block = f"[앞 문맥]\n{before}\n\n" if before else ""
+        after_block = f"[뒤 문맥]\n{after}\n\n" if after else ""
+        direction_block = (
+            f"[작가 요청 방향]\n{direction}\n"
+            "이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n"
+            if direction else ""
+        )
+        return (
+            "[현재 작업]\n"
+            "아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채\n"
+            "더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수\n"
+            "있는 본문만 씁니다.\n\n"
+            f"[선택 원문]\n{selected}\n\n"
+            f"{before_block}{after_block}{direction_block}"
+            "[판단 기준]\n"
+            "1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
+            "2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.\n"
+            "   모든 감각을 억지로 채우지 않는다.\n"
+            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.\n"
+            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
+            "4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.\n"
+            "5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.\n"
+            "6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.\n\n"
+            "[출력 형식]\n"
+            "## 묘사 확장\n"
+            "**확장 결과:**\n"
+            "(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)\n\n"
+            "**버전 2:**\n"
+            "(다른 각도. 예: 공간·분위기 강조)\n\n"
+            "**버전 3:**\n"
+            "(다른 각도. 예: 인물의 감각·내면 강조)\n\n"
+            "머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.\n"
+        )
+
+    @classmethod
+    def _build_setting_break_scan_prompt(
+        cls,
+        original_text: str,
+        cluster_id: object = "",
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_setting_break_scan_prompt_genre_lit(original_text)
+        return cls._build_setting_break_scan_prompt_webnovel(
+            original_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+        )
+
+    @staticmethod
+    def _build_setting_break_scan_prompt_webnovel(
+        original_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+    ) -> str:
+        """Setting-break detector task prompt (worldscan). No Core Identity block."""
+        text = str(original_text or "").strip()
+        prompt = (
+            "[현재 작업]\n"
+            "아래 원고에서 이 작품의 세계관 또는 캐릭터 설정과 어긋나는 지점을 찾아내세요.\n\n"
+            "[판단 근거 우선순위]\n"
+            "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
+            "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/\n"
+            "소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리\n"
+            "정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면\n"
+            "(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이\n"
+            "오른손으로 무기를 사용) 반드시 지적한다.\n"
+            "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
+            "   지금까지 써온 말투)을 기준으로 삼는다.\n"
+            "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
+            "[세계관 검사 기준]\n"
+            "5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.\n"
+            "   (예: 동양풍 세계관에 \"드래곤\"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)\n"
+            "6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나\n"
+            "   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도\n"
+            "   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여\n"
+            "   있다면 문제로 판단한다.\n\n"
+            "[캐릭터 일관성 검사 기준]\n"
+            "7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.\n"
+            "8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, \"이 작품의 세계관 안에서 통용되는 규범\"이다.\n"
+            "   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로\n"
+            "   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적\n"
+            "   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,\n"
+            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n"
+            "9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의\n"
+            "   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는\n"
+            "   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의\n"
+            "   시선에서 \"~처럼 보였다\", \"~같았다\"와 같이 주관적으로 포착된 인상은, 그 자체로\n"
+            "   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.\n\n"
+            "[출력 형식]\n"
+            "발견된 항목이 있으면 아래 형식으로 나열한다.\n"
+            "- 유형: [세계관 / 캐릭터]\n"
+            "- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)\n"
+            "- 문제: 무엇이 왜 어긋나는지\n"
+            "- 제안: 어떻게 고치면 좋을지 짧게\n\n"
+            "발견된 항목이 없으면 \"이번 구간에서는 설정과 어긋나는 지점이 발견되지 않았습니다.\"라고만 답한다.\n"
+            "과잉 지적하지 않는다. 확실한 것만 표시한다.\n\n"
+            "[본문]\n"
+            f"{text}\n\n"
+            "[검사 결과]"
+        )
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+
+    @staticmethod
+    def _build_setting_break_scan_prompt_genre_lit(original_text: str) -> str:
         """Setting-break detector task prompt (worldscan). No Core Identity block."""
         text = str(original_text or "").strip()
         return (
@@ -10376,8 +12843,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[검사 결과]"
         )
 
+    @classmethod
+    def _build_setting_break_scan_multi_prompt(cls, combined_text: str, cluster_id: object = "") -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_setting_break_scan_multi_prompt_genre_lit(combined_text)
+        return cls._build_setting_break_scan_multi_prompt_webnovel(combined_text)
+
     @staticmethod
-    def _build_setting_break_scan_multi_prompt(combined_text: str) -> str:
+    def _build_setting_break_scan_multi_prompt_webnovel(combined_text: str) -> str:
         """Multi-episode setting-break detector (worldscan_multi). No Core Identity."""
         text = str(combined_text or "").strip()
         episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
@@ -10437,7 +12910,158 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         )
 
     @staticmethod
-    def _build_chapter_subtitle_prompt(
+    def _build_setting_break_scan_multi_prompt_genre_lit(combined_text: str) -> str:
+        """Multi-episode setting-break detector (worldscan_multi). No Core Identity."""
+        text = str(combined_text or "").strip()
+        episode_count = max(1, text.count("\n### ") + (1 if text.startswith("### ") else 0))
+        if episode_count < 1:
+            episode_count = 1
+        return (
+            "[현재 작업]\n"
+            "아래는 여러 회차입니다. 각 회차에서 이 작품의 세계관 또는 캐릭터 설정과\n"
+            "어긋나는 지점을 찾아내세요. 회차별로 구분해서 결과를 제시합니다.\n\n"
+            "[판단 근거 우선순위]\n"
+            "1. 시스템 메시지에 이미 제공된 메인 장르·세계관 키워드·캐릭터 프로필을 최우선 기준으로 삼는다.\n"
+            "2. [프로젝트 누적 정보]에 담긴 등장인물 특징·세계관 설정·지금까지의 줄거리를 다음 기준으로 삼는다.\n"
+            "2-1. [프로젝트 누적 정보]의 tracked_facts에 있는 구체적 사실(신체상태/\n"
+            "소지품/관계)은 다른 어떤 근거보다 우선한다. 이 필드는 서술 요약과 달리\n"
+            "정확한 사실 기록이므로, 현재 원고 내용이 이 사실과 직접 모순되면\n"
+            "(예: tracked_facts에 '오른팔 부상' 기록이 있는데 원고에서 그 인물이\n"
+            "오른손으로 무기를 사용) 반드시 지적한다.\n"
+            "3. 위 두 곳에 명시되지 않은 부분은, 원고 안에서 이미 반복적으로 확립된 패턴(예: 이 인물이\n"
+            "   지금까지 써온 말투)을 기준으로 삼는다.\n"
+            "4. 위 어디에도 근거가 없으면 지적하지 않는다. 확실하지 않은 것을 추측해서 지적하지 않는다.\n\n"
+            "[세계관 검사 기준]\n"
+            "5. 이 작품의 장르·시대·문화적 배경과 맞지 않는 어휘, 개념, 사물, 존칭 등을 찾는다.\n"
+            "   (예: 동양풍 세계관에 \"드래곤\"이 나오거나, 시대와 안 맞는 현대적 표현이 나오는 경우)\n"
+            "6. 예외: 회귀·빙의·환생(회빙환) 설정이 확인된 인물이라면, 그 인물 본인의 내적 독백이나\n"
+            "   발화에서 현대적 어휘·개념이 나오는 것은 설정상 자연스러울 수 있다. 다만 이 경우에도\n"
+            "   서술자 시점의 지문(내레이션)이나 그 세계 토착 인물들의 발화에까지 그런 표현이 섞여\n"
+            "   있다면 문제로 판단한다.\n\n"
+            "[캐릭터 일관성 검사 기준]\n"
+            "7. 인물의 행동·대사·가치관이 지금까지 확립된 성격에서 근거 없이 벗어나는지 확인한다.\n"
+            "8. 판단 기준은 현실 세계의 일반적 도덕이 아니라, \"이 작품의 세계관 안에서 통용되는 규범\"이다.\n"
+            "   예를 들어 폭력성이 높게 설정된 세계관에서 전투 중 살상이 일어나는 것은 그 자체로\n"
+            "   문제가 아니다. 문제로 판단해야 하는 경우는, 이전까지 온건하게 확립된 인물이 서사적\n"
+            "   맥락(동기, 계기) 없이 갑자기 그 세계관의 평균치를 넘어서는 행동을 보이는 등,\n"
+            "   \"그 인물 자신의 확립된 캐릭터\"에서 벗어나는 지점이다.\n"
+            "9. 서술자(전지적 작가) 시점의 지문이 캐릭터를 직접 규정하는 것과, 작중 다른 인물의\n"
+            "   주관적 인상·반응으로 캐릭터가 묘사되는 것을 구분한다. 확립된 성격과 어긋나는\n"
+            "   비유·어휘로 서술자가 캐릭터를 직접 규정하면 문제로 판단한다. 반면 다른 인물의\n"
+            "   시선에서 \"~처럼 보였다\", \"~같았다\"와 같이 주관적으로 포착된 인상은, 그 자체로\n"
+            "   캐릭터의 성격이 바뀐 것이 아니므로 문제로 판단하지 않는다.\n"
+            "10. 각 회차의 판정은 그 회차 안의 내용만을 근거로 한다. 다른 회차에서 발견한 문제를\n"
+            "    엉뚱한 회차의 결과에 섞어 넣지 않는다.\n\n"
+            "[출력 형식]\n"
+            "회차마다 아래 형식으로 결과를 제시한다.\n\n"
+            "### {회차 제목}\n"
+            "발견된 항목이 있으면 아래 형식으로 나열한다.\n"
+            "- 유형: [세계관 / 캐릭터]\n"
+            "- 위치: 어느 부분인지 간단히 설명 (원문을 그대로 길게 인용하지 않는다)\n"
+            "- 문제: 무엇이 왜 어긋나는지\n"
+            "- 제안: 어떻게 고치면 좋을지 짧게\n\n"
+            "발견된 항목이 없으면 \"이 회차에서는 설정과 어긋나는 지점이 발견되지 않았습니다.\"\n"
+            "라고만 답한다.\n\n"
+            "(선택한 회차 수만큼 반복)\n\n"
+            "과잉 지적하지 않는다. 확실한 것만 표시한다.\n\n"
+            f"[본문 - {episode_count}개 회차, 순서대로]\n"
+            f"{text}\n\n"
+            "[검사 결과]"
+        )
+
+    @classmethod
+    def _build_chapter_subtitle_prompt(cls, 
+        episode_content: str,
+        genre: str = "",
+        recent_subtitles: list | None = None,
+        cluster_id: object = "",
+    ) -> str:
+        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
+            return cls._build_chapter_subtitle_prompt_genre_lit(episode_content, genre, recent_subtitles)
+        return cls._build_chapter_subtitle_prompt_webnovel(episode_content, genre, recent_subtitles)
+
+    @staticmethod
+    def _build_chapter_subtitle_prompt_webnovel(
+        episode_content: str,
+        genre: str = "",
+        recent_subtitles: list | None = None,
+    ) -> str:
+        """Chapter subtitle suggestions (chapter_subtitles mode). Task scope only —
+        Core Identity/Dynamic Context는 genre_system이 이미 앞에서 담당하므로 여기서는
+        정체성을 다시 선언하지 않는다."""
+        content = plain_text_from_content(str(episode_content or "")).strip()
+        genre_label = str(genre or "").strip() or "미입력"
+        subtitles = [str(s).strip() for s in (recent_subtitles or []) if str(s or "").strip()]
+
+        principles = [
+            "1. 절대 '작품 전체 제목(Series Title)'을 짓지 마라. 오직 이번 회차(Episode) 안에서 "
+            "벌어지는 사건, 감정, 대사에 집중한 소제목이어야 한다.",
+            "2. 각 소제목은 회차 목록(Tree View)과 상단 제목란에 깔끔하게 들어갈 수 있도록 "
+            "글자 수 제약을 철저히 준수하라.",
+            "3. genre가 입력된 경우 해당 장르 톤에 맞추고, 특히 D유형(문장/서사형)은 장르와 어울리지 "
+            "않는 억지스러운 유머·경쾌함을 넣지 마라 (예: 무협·진지한 현판에 코믹 반전형 문장을 "
+            "강제로 끼워 넣는 행위 금지). genre가 없으면 특정 장르색을 강요하지 않는 중립적인 "
+            "톤으로 작성하라.",
+            "4. A(사건/상황형)·B(대사형)·C(감성/복선형)는 결정적 반전의 결과 자체를 직접 발설하지 "
+            "말고 긴장감·궁금증을 유발하는 방향으로 작성하라. 단, D(문장/서사형)는 장르 관습상 반전의 "
+            "전제를 문장 안에 직접 드러내는 것이 정상적인 훅 방식이므로 이 제약에서 예외로 한다.",
+            "5. 아래 [스타일 예시]는 형식과 톤을 이해하기 위한 참고용일 뿐이다. 예시 문장의 표현·구조를 "
+            "그대로 따르거나 살짝 변형해 재사용하지 말고, 이번 회차 본문에서 나온 고유한 소재로 새로 "
+            "작성하라. 또한 실제 존재할 법한 유명 작품의 제목·구절과 우연히 겹치지 않도록 주의하라.",
+            "6. 각 소제목 작성 후 글자 수(공백 포함)를 직접 세어 지정된 범위를 벗어나면 범위 안에 "
+            "들어올 때까지 다시 압축한다. 이 검산 과정은 출력하지 않는다.",
+            "7. 결과물은 반드시 제공된 JSON 포맷으로만 응답하라. 설명, 부연은 붙이지 않는다.",
+        ]
+        # recent_subtitles가 없으면 8번(중복 방지) 원칙은 적용 대상이 없으므로 프롬프트에서 생략한다.
+        if subtitles:
+            principles.append(
+                "8. [기존 회차 소제목 목록]이 주어진 경우, 그 목록과 표현이나 문장 구조가 겹치지 "
+                "않도록 한다."
+            )
+        subtitles_block = "\n".join(f"- {s}" for s in subtitles) if subtitles else "없음"
+
+        return (
+            "[현재 작업]\n"
+            "이번 회차 본문을 분석하여, 독자의 클릭을 유도할 '회차별 소제목(Chapter Subtitle)' "
+            "4가지를 추천하라.\n\n"
+            "[엄격한 작성 원칙]\n"
+            + "\n".join(principles) + "\n\n"
+            "[소제목 4가지 추천 스타일 및 글자 수 제약]\n"
+            "- A. short_hook (사건/상황형): 이번 회차의 결정적 사건 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"그녀의 비밀\", \"첫 번째 대치\"\n"
+            "- B. dialogue (대사형): 이번 회차의 가장 임팩트 있는 대사/독백 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"당신은 누구십니까?\", \"절대 안 된다니까\"\n"
+            "- C. emotional (감성/복선형): 정서적 분위기나 소품/복선 은유 (공백 포함 5자~10자 내외)\n"
+            "  * 스타일 예시: \"그와 그녀의 사정\", \"금 간 유리잔\"\n"
+            "- D. sentence_narrative (문장/서사형): 웹소설 특유의 상황과 훅이 드러나는 문장형 소제목 "
+            "(공백 포함 12자~20자 이내)\n"
+            "  * 스타일 예시: \"시한부인 줄 알았는데 주식을 너무 잘함\", \"죽었다 깨어나니 아카데미 영애\"\n\n"
+            "[JSON 스키마 — 정확히 이 형태로만 반환]\n"
+            "{\n"
+            '  "subtitles": [\n'
+            '    {"type":"short_hook","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"dialogue","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"emotional","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"},\n'
+            '    {"type":"sentence_narrative","label":"이모지 1개 + 한글 라벨","text":"소제목","reason":"짧은 추천 이유"}\n'
+            "  ]\n"
+            "}\n\n"
+            "[본문]\n"
+            f"{content}\n\n"
+            "[장르]\n"
+            f"{genre_label}\n\n"
+            "[기존 회차 소제목 목록]\n"
+            f"{subtitles_block}"
+        )
+
+    _CHAPTER_SUBTITLE_LENGTH_RANGES = {
+        "short_hook": (5, 10),
+        "dialogue": (5, 10),
+        "emotional": (5, 10),
+        "sentence_narrative": (12, 20),
+    }
+
+    @staticmethod
+    def _build_chapter_subtitle_prompt_genre_lit(
         episode_content: str,
         genre: str = "",
         recent_subtitles: list | None = None,
@@ -10743,6 +13367,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         # Back-compat positional aliases
         main_label: str = "",
         sub_label: str = "",
+        genre_detail_label: str = "",
     ) -> str:
         """
         Rebuild system_instruction on every request from live project metadata.
@@ -10754,6 +13379,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         sub = (
             (sub_genre_label or sub_label or "미정").strip() or "미정"
         )
+        detail = str(genre_detail_label or "").strip()
         keywords = (world_setting_keywords or "").strip() or "미정"
         if isinstance(character_profiles, str):
             chars = character_profiles.strip() or "(캐릭터 미입력)"
@@ -10772,6 +13398,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"너는 {specialist}야. "
             f"메인장르: {main}"
             + (f" · 서브장르: {sub}" if sub and sub != "미정" else "")
+            + (f" · 세부장르: {detail}" if detail else "")
             + "."
         )
 
@@ -10797,7 +13424,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "2. 현재 주입된 프로젝트 메타데이터 (이번 요청 절대 기준):\n"
             f"   - 메인 장르 (project_genre_main): {main}  ← 기본 디폴트·전문 모드 기준\n"
             f"   - 서브 장르 (project_genre_sub): {sub}\n"
-            f"   - 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
+            + (f"   - 세부 장르 (project_genre_detail): {detail}\n" if detail else "")
+            + f"   - 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
             f"   - 캐릭터 설정 (character_profiles): {chars}\n\n"
             "3. 원고 해석 지침:\n"
             f"   - 지금은 '{main}' 전문 에디터 시선으로만 원고를 읽고 의견을 주세요.\n"
@@ -10819,6 +13447,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         world_setting: str = "",
         character_profiles: object = None,
         project_title: str = "",
+        genre_detail_label: str = "",
     ) -> str:
         """Serialize [Current Active Project Context] for prompts."""
         world = (world_setting or "").strip() or "(설정집 미입력)"
@@ -10831,13 +13460,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         keywords = (keywords_label or "").strip() or "미정"
         purpose = (purpose_label or "").strip() or "미정"
         title = (project_title or "").strip() or "(제목 없음)"
+        detail = str(genre_detail_label or "").strip()
         return (
             "[Current Active Project Context] (= 현재 프로젝트 메타데이터 상세)\n"
             f"* 작품 제목: {title}\n"
             f"* 작품 종류: {purpose}\n"
             f"* 메인 장르 (project_genre_main): {main_genre_label or '미정'}\n"
             f"* 서브 장르 (project_genre_sub): {sub_genre_label or '미정'}\n"
-            f"* 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
+            + (f"* 세부 장르 (project_genre_detail): {detail}\n" if detail else "")
+            + f"* 세계관 & 설정집 키워드 (world_setting_keywords): {keywords}\n"
             f"* 세계관·설정집 본문 (world_setting):\n{world}\n"
             f"* 캐릭터 설정 (character_profiles):\n{chars}\n"
         )
@@ -11417,6 +14048,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def run_success_pattern_analysis(self, body: dict) -> dict:
         work_title = str(body.get("work_title") or body.get("workTitle") or "").strip()
+        prompt_cluster_id = str(body.get("cluster_id") or "").strip()
         if not work_title:
             raise ValueError("작품명을 입력해 주세요.")
         try:
@@ -11447,7 +14079,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 content = ep.text or ""
                 if len(content) > max_scene_chars:
                     content = content[:max_scene_chars] + "\n…(이하 생략)"
-                prompt = success_pattern.build_structural_observation_prompt(content)
+                prompt = success_pattern.build_structural_observation_prompt(
+                    content, cluster_id=prompt_cluster_id
+                )
                 if dry_run or not gemini_client.is_configured():
                     note = success_pattern.mock_observation_note(ep.text or "")
                     used_mock = True
@@ -11477,7 +14111,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
         quantitative = success_pattern.compute_quantitative_stats(sections)
         merge_prompt = success_pattern.build_success_pattern_merge_prompt(
-            quantitative, chapter_notes
+            quantitative, chapter_notes, cluster_id=prompt_cluster_id
         )
         profile_mock = True
         if dry_run or not gemini_client.is_configured() or any(n.get("mock") for n in chapter_notes):
@@ -14694,6 +17328,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         project_data["outline_summary"] = project_data.get("outline_summary") or ""
         project_data["main_genre"] = project_data.get("main_genre") or ""
         project_data["sub_genre"] = project_data.get("sub_genre") or ""
+        project_data["genre_detail"] = project_data.get("genre_detail") or ""
+        attach_cluster_id(project_data)
         project_data["keywords"] = parse_project_keywords(project_data.get("keywords"))
         project_data["goal_word_count"] = int(project_data.get("goal_word_count") or 0)
         try:
@@ -14710,20 +17346,29 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     ) -> sqlite3.Row | None:
         try:
             return connection.execute(
-                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                "SELECT title, purpose, main_genre, sub_genre, genre_detail, cluster_id, keywords, uuid, package_path, "
                 "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
                 "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
                 "FROM project WHERE id = ?",
                 (project_id,),
             ).fetchone()
         except sqlite3.OperationalError:
-            return connection.execute(
-                "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-                "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                "tory_priority_md, outline_summary, goal_word_count "
-                "FROM project WHERE id = ?",
-                (project_id,),
-            ).fetchone()
+            try:
+                return connection.execute(
+                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
+            except sqlite3.OperationalError:
+                return connection.execute(
+                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                    "tory_priority_md, outline_summary, goal_word_count "
+                    "FROM project WHERE id = ?",
+                    (project_id,),
+                ).fetchone()
 
     def _load_outline_scenes(
         self, connection: sqlite3.Connection, project_id: int
@@ -15676,7 +18321,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 row = connection.execute(
                     "SELECT description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
                     "tory_priority_md, outline_summary, "
-                    "main_genre, sub_genre, keywords, purpose, goal_word_count, "
+                    "main_genre, sub_genre, genre_detail, cluster_id, keywords, purpose, goal_word_count, "
                     "linked_success_profile_id "
                     "FROM project WHERE id = ?",
                     (project_id,),
@@ -15703,6 +18348,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
             main_genre = row["main_genre"] if row else ""
             sub_genre = row["sub_genre"] if row else ""
+            stored_genre_detail = ""
+            if row and "genre_detail" in row.keys():
+                stored_genre_detail = str(row["genre_detail"] or "").strip()
+            else:
+                try:
+                    detail_row = connection.execute(
+                        "SELECT genre_detail FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
+                    if detail_row:
+                        stored_genre_detail = str(detail_row["genre_detail"] or "").strip()
+                except sqlite3.OperationalError:
+                    stored_genre_detail = ""
             keywords = parse_project_keywords(
                 row["keywords"] if row and "keywords" in row.keys() else []
             )
@@ -15737,6 +18395,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 main_genre = str(body.get("main_genre") or "").strip()[:80]
             if "sub_genre" in body:
                 sub_genre = str(body.get("sub_genre") or "").strip()[:80]
+            if "genre_detail" in body:
+                stored_genre_detail = str(body.get("genre_detail") or "").strip()
             if "keywords" in body:
                 keywords = parse_project_keywords(body.get("keywords"))
             if "purpose" in body:
@@ -15761,6 +18421,27 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     ).fetchone()
                     if exists is None:
                         raise ValueError("연결할 흥행 프로파일을 찾을 수 없어요.")
+            stored_cluster = ""
+            if row and "cluster_id" in row.keys():
+                stored_cluster = str(row["cluster_id"] or "").strip()
+            if "cluster_id" in body:
+                cluster_id = genre_clusters.resolve_cluster_id(
+                    cluster_id=body.get("cluster_id"),
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                )
+            elif "purpose" in body or "main_genre" in body or "sub_genre" in body:
+                cluster_id = genre_clusters.infer_cluster_id(
+                    purpose, main_genre, sub_genre, ""
+                )
+            else:
+                cluster_id = genre_clusters.resolve_cluster_id(
+                    cluster_id=stored_cluster,
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                )
             keywords_json = json.dumps(keywords, ensure_ascii=False)
             if has_link_col:
                 connection.execute(
@@ -15790,6 +18471,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     ensure_project_package(connection, project_id)
                 except Exception:
                     pass
+            set_project_cluster_id(connection, project_id, cluster_id)
+            genre_detail = genre_clusters.normalize_genre_detail(
+                main_genre, sub_genre, stored_genre_detail
+            )
+            set_project_genre_detail(connection, project_id, genre_detail)
         return {
             "ok": True,
             "synopsis_md": synopsis,
@@ -15801,6 +18487,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "outline_summary": outline_summary,
             "main_genre": main_genre,
             "sub_genre": sub_genre,
+            "genre_detail": genre_detail,
+            "genre_detail_label": genre_clusters.genre_detail_label(genre_detail),
+            "cluster_id": cluster_id,
             "keywords": keywords,
             "purpose": purpose,
             "goal_word_count": goal_word_count,
@@ -16979,7 +19668,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "audio/mpeg")
         self.send_header("Content-Length", str(len(data)))
-        self.send_header("Cache-Control", "private, max-age=86400")
+        self.send_header(
+            "Cache-Control",
+            "private, no-store" if folder == CUSTOM_AMBIENT_FOLDER else "private, max-age=86400",
+        )
         self.end_headers()
         self.wfile.write(data)
 
@@ -18978,26 +21670,50 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 keywords = parse_project_keywords(body.get("keywords"))
                 if not main_genre:
                     raise ValueError("장르를 선택해 주세요. 토리 학습에 필요해요.")
+                cluster_id = genre_clusters.resolve_cluster_id(
+                    cluster_id=body.get("cluster_id"),
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                )
                 # Explicit last_opened_at (μs) so import-created works sort correctly vs rapid creates.
                 max_order_row = connection.execute(
                     "SELECT COALESCE(MAX(list_sort_order), -1) AS m FROM project WHERE deleted_at IS NULL"
                 ).fetchone()
                 next_order = int(max_order_row["m"] if max_order_row else -1) + 1
                 keywords_json = json.dumps(keywords, ensure_ascii=False)
-                cursor = connection.execute(
-                    "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
-                    "VALUES (?, ?, ?, ?, ?, ?, ?)",
-                    (
-                        project_title,
-                        purpose,
-                        main_genre,
-                        sub_genre,
-                        keywords_json,
-                        utc_timestamp_now(),
-                        next_order,
-                    ),
-                )
+                try:
+                    cursor = connection.execute(
+                        "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, "
+                        "cluster_id, last_opened_at, list_sort_order) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            project_title,
+                            purpose,
+                            main_genre,
+                            sub_genre,
+                            keywords_json,
+                            cluster_id,
+                            utc_timestamp_now(),
+                            next_order,
+                        ),
+                    )
+                except sqlite3.OperationalError:
+                    cursor = connection.execute(
+                        "INSERT INTO project(title, purpose, main_genre, sub_genre, keywords, last_opened_at, list_sort_order) "
+                        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+                        (
+                            project_title,
+                            purpose,
+                            main_genre,
+                            sub_genre,
+                            keywords_json,
+                            utc_timestamp_now(),
+                            next_order,
+                        ),
+                    )
                 project_id = int(cursor.lastrowid)
+                set_project_cluster_id(connection, project_id, cluster_id)
                 created_project = True
                 destination = "new_chapter"
                 package_info = ensure_project_package(connection, project_id)
@@ -19022,6 +21738,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "UPDATE project SET keywords = ? WHERE id = ?",
                         (json.dumps(keywords, ensure_ascii=False), project_id),
                     )
+                cluster_id = genre_clusters.resolve_cluster_id(
+                    cluster_id=body.get("cluster_id"),
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                )
+                set_project_cluster_id(connection, project_id, cluster_id)
                 package_info = ensure_project_package(connection, project_id)
 
             self._save_import_delimiter_config(
@@ -19192,6 +21915,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "title": extracted.title,
                 "format": extracted.format_name,
                 "purpose": purpose,
+                "cluster_id": genre_clusters.resolve_cluster_id(
+                    cluster_id=locals().get("cluster_id"),
+                    purpose=purpose,
+                    main_genre=locals().get("main_genre") or body.get("main_genre"),
+                    sub_genre=locals().get("sub_genre") or body.get("sub_genre"),
+                ),
                 "section_count": plan.section_count,
                 "chapter_count": len(chapter_ids),
                 "word_count": total_words,

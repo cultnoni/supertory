@@ -586,13 +586,14 @@
                             disabled
                           >
                         </label>
+                        <select id="genreDetailSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled></select>
                       </div>
                     </div>
                   </div>
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="index.키워드">키워드</span>
                   </div>
-                  <p class="hint" data-i18n="index.태그를_고르면_이_작품_키워드로_저장됩니다">태그를 고르면 이 작품 키워드로 저장됩니다. 나중에 더 추가할 수 있어요.</p>
+                  <p class="hint" id="keywordsHint" data-i18n="index.태그를_고르면_이_작품_키워드로_저장됩니다">태그를 고르면 이 작품 키워드로 저장됩니다. 나중에 더 추가할 수 있어요.</p>
                   <div class="keyword-selected-row">
                     <div id="keywordChipList" class="keyword-chip-list" aria-label="선택한 키워드" data-i18n-aria-label="index.선택한_키워드"></div>
                     <button type="button" id="keywordPickerToggle" class="secondary keyword-picker-toggle" title="태그에서 고르기" data-i18n-title="index.태그에서_고르기" aria-expanded="false" aria-controls="keywordPickerPanel" data-i18n="app.키워드_버튼">
@@ -601,7 +602,7 @@
                   </div>
                   <div id="keywordPickerPanel" class="keyword-picker-panel hidden" role="region" aria-label="키워드 태그 선택" data-i18n-aria-label="index.키워드_태그_선택">
                     <div class="keyword-picker-toolbar">
-                      <span class="keyword-picker-title" data-i18n="index.태그_고르기">태그 고르기</span>
+                      <span class="keyword-picker-title" id="keywordPickerTitle" data-i18n="index.태그_고르기">태그 고르기</span>
                       <button type="button" id="keywordPickerClose" class="secondary keyword-picker-close" title="닫기" data-i18n-title="app.닫기" data-i18n="app.닫기">닫기</button>
                     </div>
                     <div id="keywordCatalog" class="keyword-catalog"></div>
@@ -1117,7 +1118,7 @@
           <div class="keyword-board-toolbar">
             <div>
               <h2 class="keyword-board-title" data-i18n="app.장르_키워드">장르·키워드</h2>
-              <p class="hint" data-i18n="index.위에서_작품_종류_장르를_보고_바꾸고_아래에">위에서 작품 종류·장르를 보고 바꾸고, 아래에서 분위기 태그를 고르세요. 선택한 태그는 자동 저장됩니다.</p>
+              <p class="hint" id="keywordBoardHint" data-i18n="index.위에서_작품_종류_장르를_보고_바꾸고_아래에">위에서 작품 종류·장르를 보고 바꾸고, 아래에서 분위기 태그를 고르세요. 선택한 태그는 자동 저장됩니다.</p>
             </div>
             <div class="keyword-board-actions">
               <button type="button" id="keywordBoardCloseButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
@@ -1132,6 +1133,7 @@
             <div class="keyword-board-section-label" data-i18n="index.태그_고르기">태그 고르기</div>
             <div id="keywordBoardCatalog" class="keyword-catalog keyword-board-catalog"></div>
           </div>
+          <div class="keyword-board-section-label keyword-board-custom-heading" data-i18n="index.태그_추가">태그 추가</div>
           <div class="keyword-custom-row keyword-board-custom">
             <input
               type="text"
@@ -4286,8 +4288,14 @@
               <strong data-i18n="index.작품의_장르와_분위기_키워드를_자세히_알려줄">작품의 장르와 분위기, 키워드를 자세히 알려줄수록 토리가 작가님의 세계관을 더 정확하게 이해해요!</strong>
               <span data-i18n="index.꼼꼼하게_채워주실수록_내_원고에_딱_맞는_스">꼼꼼하게 채워주실수록 내 원고에 딱 맞는 스마트한 도움을 드립니다.</span>
             </div>
-            <label>작품 종류
-              <select id="newProjectPurpose">
+            <div class="genre-cluster-block" id="newProjectClusterBlock">
+              <span class="modal-genre-label" data-i18n="app.작품_종류">작품 종류</span>
+              <div class="genre-cluster-grid" id="newProjectClusterGrid" role="radiogroup" aria-label="작품 종류" data-i18n-aria-label="app.작품_종류"></div>
+              <input type="hidden" id="newProjectClusterId" value="">
+            </div>
+            <label id="newProjectPurposeWrap" class="hidden">
+              <span class="sr-only" data-i18n="app.작품_종류">작품 종류</span>
+              <select id="newProjectPurpose" tabindex="-1" aria-hidden="true">
                 <option value="general_novel" data-i18n="app.일반소설">일반소설</option>
                 <option value="web_novel" data-i18n="app.웹소설">웹소설</option>
                 <option value="fairy_tale" data-i18n="app.동화">동화</option>
@@ -4308,6 +4316,12 @@
             <label id="newProjectMainGenreWrap"><span class="modal-genre-label" id="newProjectMainGenreLabel" data-i18n="app.메인_장르">메인 장르</span>
               <select id="newProjectMainGenre" required>
                 <option value="" data-i18n="app.장르를_선택해_주세요">장르를 선택해 주세요</option>
+              </select>
+            </label>
+            <label id="newProjectGenreDetailWrap" class="hidden">
+              <span class="modal-genre-label" data-i18n="app.세부_장르_선택">세부 장르(선택)</span>
+              <select id="newProjectGenreDetail">
+                <option value="" data-i18n="app.없음">없음</option>
               </select>
             </label>
             <label id="newProjectSubGenreWrap"><span class="modal-genre-label" id="newProjectSubGenreLabel" data-i18n="app.서브_장르">서브 장르</span>
@@ -4430,8 +4444,14 @@
               <strong data-i18n="index.작품의_장르와_분위기_키워드를_자세히_알려줄">작품의 장르와 분위기, 키워드를 자세히 알려줄수록 토리가 작가님의 세계관을 더 정확하게 이해해요!</strong>
               <span data-i18n="index.꼼꼼하게_채워주실수록_내_원고에_딱_맞는_스">꼼꼼하게 채워주실수록 내 원고에 딱 맞는 스마트한 도움을 드립니다.</span>
             </div>
-            <label id="importPurposeWrap">작품 종류
-              <select id="importPurpose">
+            <div class="genre-cluster-block" id="importClusterBlock">
+              <span class="modal-genre-label" data-i18n="app.작품_종류">작품 종류</span>
+              <div class="genre-cluster-grid" id="importClusterGrid" role="radiogroup" aria-label="작품 종류" data-i18n-aria-label="app.작품_종류"></div>
+              <input type="hidden" id="importClusterId" value="">
+            </div>
+            <label id="importPurposeWrap" class="hidden">
+              <span class="sr-only" data-i18n="app.작품_종류">작품 종류</span>
+              <select id="importPurpose" tabindex="-1" aria-hidden="true">
                 <option value="general_novel" data-i18n="app.일반소설">일반소설</option>
                 <option value="web_novel" data-i18n="app.웹소설">웹소설</option>
                 <option value="fairy_tale" data-i18n="app.동화">동화</option>
@@ -4452,6 +4472,12 @@
             <label id="importMainGenreWrap"><span class="modal-genre-label" id="importMainGenreLabel" data-i18n="app.메인_장르">메인 장르</span>
               <select id="importMainGenre" required>
                 <option value="" data-i18n="app.장르를_선택해_주세요">장르를 선택해 주세요</option>
+              </select>
+            </label>
+            <label id="importGenreDetailWrap" class="hidden">
+              <span class="modal-genre-label" data-i18n="app.세부_장르_선택">세부 장르(선택)</span>
+              <select id="importGenreDetail">
+                <option value="" data-i18n="app.없음">없음</option>
               </select>
             </label>
             <label id="importSubGenreWrap"><span class="modal-genre-label" id="importSubGenreLabel" data-i18n="app.서브_장르">서브 장르</span>
@@ -5288,6 +5314,9 @@
                 <span id="adminAmbientVolumeValue" class="ambient-mixer-percent">50%</span>
               </div>
               <p class="hint" data-i18n="app.음원관리_믹서_힌트">트랙을 고르면 바로 바뀌어요. 헤더 스피커로 재생·정지하고, 볼륨은 여기에서 조절해요.</p>
+              <p id="adminAmbientQuota" class="hint ambient-quota">내 음원: 0MB / 400MB</p>
+              <p id="adminAmbientUploadStatus" class="hint ambient-upload-status" hidden>변환 중...</p>
+              <input id="adminAmbientFileInput" type="file" accept=".mp3,.wav,.m4a,.flac,.ogg,audio/mpeg,audio/wav,audio/mp4,audio/x-m4a,audio/flac,audio/ogg" hidden>
               <div id="adminAmbientTrackList" class="ambient-admin-list" aria-label="배경음 트랙 목록" data-i18n-aria-label="index.배경음_트랙_선택"></div>
             </div>
           </div>
