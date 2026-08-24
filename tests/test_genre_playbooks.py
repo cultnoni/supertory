@@ -101,9 +101,17 @@ class GenrePlaybookTests(unittest.TestCase):
         self.assertIsNotNone(app.load_genre_playbook("fantasy", "female"))
         self.assertIsNotNone(app.load_genre_playbook("fantasy", "male"))
         self.assertEqual(
-            {key for key in app.load_genre_playbooks() if key != "deltas"},
+            {
+                key
+                for key in app.load_genre_playbooks()
+                if key not in {"deltas", "reference_tags"}
+            },
             {"romance_modern", "romance_romfant", "fantasy_female", "fantasy_male"},
         )
+        self.assertIn("male", book["reference_tags"])
+        self.assertIn("집착남", book["reference_tags"]["male"])
+        fantasy_male = app.load_genre_playbook("fantasy", "male")
+        self.assertNotIn("reference_tags", fantasy_male)
 
     def test_worldscan_prompt_injects_only_for_romance_modern(self) -> None:
         baseline = app.SuperToryHandler._build_setting_break_scan_prompt("한 줄 원고")
@@ -1734,9 +1742,139 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
     def test_json_has_no_delta_content(self) -> None:
         books = app.load_genre_playbooks()
         for key, book in books.items():
-            if key == "deltas":
+            if key in {"deltas", "reference_tags"}:
                 continue
             self.assertNotIn("_delta", book, msg=key)
+
+    def test_must_haves_addition_is_not_injected_into_prompts(self) -> None:
+        """must_haves_addition is seed metadata; A/B/C formatters do not copy it."""
+        unique = (
+            ("murim", "사문 복수물"),
+            ("alt_history", "책사/모사"),
+            ("sports", "은사/감독캐"),
+            ("traditional", "동료 파티"),
+            ("hidden_world", "이면세계 안내자"),
+        )
+        builders = (
+            lambda detail: app.SuperToryHandler._build_setting_break_scan_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            ),
+            lambda detail: app.SuperToryHandler._build_next_idea_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            ),
+            lambda detail: app.SuperToryHandler._build_continue_prompt(
+                "한 줄 원고",
+                "short",
+                "",
+                "",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            ),
+            lambda detail: app.SuperToryHandler._build_focused_analysis_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            ),
+        )
+        for detail, phrase in unique:
+            delta = app.load_genre_playbook_delta("fantasy", "male", detail)
+            self.assertIn(phrase, delta["must_haves_addition"], msg=detail)
+            self.assertIn("하위소재:", delta["must_haves_addition"], msg=detail)
+            self.assertIn("캐릭터 성향:", delta["must_haves_addition"], msg=detail)
+            for builder in builders:
+                prompt = builder(detail)
+                self.assertNotIn(phrase, prompt, msg=f"{detail}:{phrase}")
+                self.assertNotIn("하위소재:", prompt, msg=f"{detail}:하위소재")
+                self.assertNotIn("캐릭터 성향:", prompt, msg=f"{detail}:캐릭터 성향")
+            worldscan = self._dry_run("fantasy", "male", "worldscan", detail)
+            self.assertNotIn(phrase, worldscan, msg=f"dry-run worldscan {detail}:{phrase}")
+            self.assertNotIn("하위소재:", worldscan, msg=f"dry-run worldscan {detail}:하위소재")
+            self.assertNotIn("캐릭터 성향:", worldscan, msg=f"dry-run worldscan {detail}:캐릭터 성향")
+
+    def test_subgenre_tropes_injected_into_checklist_and_b_suggest(self) -> None:
+        """checklist_addition → A(worldscan/analyze), B_suggest → ideas. continue는 C만."""
+        cases = (
+            (
+                "murim",
+                "5) 하위소재(세가물/재건물/사문복수물)",
+                "세가물/재건물/사문복수물이면 그 소재에 맞는 다음 전개",
+            ),
+            (
+                "alt_history",
+                "5) 하위소재(삼국지물/개화기물/특정 전란물)",
+                "삼국지물/개화기물/전란물이면 그 시대에 맞는 역사적 사건",
+            ),
+            (
+                "sports",
+                "4) 학원스포츠물이면 리그/대회 구조",
+                "학원스포츠물이면 다음 경기/대회 일정을",
+            ),
+            (
+                "traditional",
+                "4) 용병물/아카데미물이면 그 소재 특유의 구조",
+                "용병물이면 다음 의뢰를",
+            ),
+            (
+                "hidden_world",
+                "4) 다크히어로물이면 주인공의 자경 행위",
+                "다크히어로물이면 다음 자경 행위의 도덕적 딜레마",
+            ),
+        )
+        for detail, checklist_phrase, suggest_phrase in cases:
+            delta = app.load_genre_playbook_delta("fantasy", "male", detail)
+            self.assertIn(checklist_phrase, delta["checklist_addition"], msg=detail)
+            self.assertIn(suggest_phrase, delta["group_rules_addition"]["B_suggest"], msg=detail)
+
+            worldscan = app.SuperToryHandler._build_setting_break_scan_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            )
+            ideas = app.SuperToryHandler._build_next_idea_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            )
+            analyze = app.SuperToryHandler._build_focused_analysis_prompt(
+                "한 줄 원고",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            )
+            continue_p = app.SuperToryHandler._build_continue_prompt(
+                "한 줄 원고",
+                "short",
+                "",
+                "",
+                main_genre="fantasy",
+                sub_genre="male",
+                genre_detail=detail,
+            )
+            self.assertIn(checklist_phrase, worldscan, msg=f"worldscan {detail}")
+            self.assertIn(checklist_phrase, analyze, msg=f"analyze {detail}")
+            self.assertNotIn(checklist_phrase, ideas, msg=f"ideas A-only {detail}")
+            self.assertNotIn(checklist_phrase, continue_p, msg=f"continue A-only {detail}")
+            self.assertIn(suggest_phrase, ideas, msg=f"ideas {detail}")
+            self.assertNotIn(suggest_phrase, worldscan, msg=f"worldscan B-only {detail}")
+            self.assertNotIn(suggest_phrase, analyze, msg=f"analyze B-only {detail}")
+            self.assertNotIn(suggest_phrase, continue_p, msg=f"continue B-only {detail}")
+
+            dry_scan = self._dry_run("fantasy", "male", "worldscan", detail)
+            dry_ideas = self._dry_run("fantasy", "male", "ideas", detail)
+            self.assertIn(checklist_phrase, dry_scan, msg=f"dry worldscan {detail}")
+            self.assertIn(suggest_phrase, dry_ideas, msg=f"dry ideas {detail}")
+            self.assertNotIn(suggest_phrase, dry_scan, msg=f"dry worldscan B-only {detail}")
+            self.assertNotIn(checklist_phrase, dry_ideas, msg=f"dry ideas A-only {detail}")
 
     def test_missing_delta_keeps_base_byte_identical(self) -> None:
         formatters = (
@@ -1898,8 +2036,19 @@ class GenrePlaybookDeltaTests(unittest.TestCase):
         self.assertEqual(judge.count("[장르별 판단 기준]"), 1)
         self.assertEqual(judge.count("[세부장르 추가 기준]"), 1)
         base_judge = app.format_genre_playbook_judge_section("romance", "modern")
-        self.assertEqual(judge[: len(base_judge)], base_judge)
+        heading = app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING
+        self.assertIn(heading, base_judge)
+        self.assertIn(heading, judge)
+        self.assertEqual(base_judge.count(heading), 1)
+        self.assertEqual(judge.count(heading), 1)
         self.assertNotIn("TEST_DELTA_CHECKLIST_TOKEN", base_judge)
+        self.assertLess(judge.find("[세부장르 추가 기준]"), judge.find(heading))
+
+        def _without_tags(section: str) -> str:
+            idx = section.find(heading)
+            return section[:idx].rstrip() if idx >= 0 else section
+
+        self.assertTrue(_without_tags(judge).startswith(_without_tags(base_judge)))
 
         suggest = app.format_genre_playbook_suggest_section("romance", "modern", "historical")
         self.assertIn("[장르별 판단 기준]", suggest)
@@ -2583,6 +2732,11 @@ class GenrePlaybookAltHistoryTests(unittest.TestCase):
         self.assertIn("의도된 개변 여부 구분", delta["group_rules_addition"]["A_judge"])
         self.assertIn("다음 역사적 분기점이나 실존인물", delta["group_rules_addition"]["B_suggest"])
         self.assertIn("정치/전략적 서술과 사이다식 응징", delta["group_rules_addition"]["C_style"])
+        self.assertIn("삼국지물", delta["must_haves_addition"])
+        self.assertIn("개화기물", delta["must_haves_addition"])
+        self.assertIn("책사/모사", delta["must_haves_addition"])
+        self.assertIn("5) 하위소재(삼국지물/개화기물/특정 전란물)", delta["checklist_addition"])
+        self.assertIn("삼국지물/개화기물/전란물이면 그 시대에 맞는 역사적 사건", delta["group_rules_addition"]["B_suggest"])
         self.assertIsNone(app.load_genre_playbook_delta("fantasy", "male", ""))
         self.assertIsNone(app.load_genre_playbook_delta("fantasy", "female", "alt_history"))
         self.assertIsNone(app.load_genre_playbook_delta("romance", "modern", "alt_history"))
@@ -2597,6 +2751,7 @@ class GenrePlaybookAltHistoryTests(unittest.TestCase):
         self.assertIn("[장르별 판단 기준]", worldscan)
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("의도된 개변", worldscan)
+        self.assertIn("5) 하위소재(삼국지물/개화기물/특정 전란물)", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
@@ -2609,6 +2764,7 @@ class GenrePlaybookAltHistoryTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", ideas)
         self.assertIn("다음 역사적 분기점이나 실존인물", ideas)
+        self.assertIn("삼국지물/개화기물/전란물이면 그 시대에 맞는 역사적 사건", ideas)
         self.assertIn("사이다 구조(위기→응징)", ideas)
         self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
 
@@ -2852,6 +3008,14 @@ MURIM_HYPOCRISY_SCENE = (
     "장문인은 이를 알고도 눈을 감았다. 명분은 인의요, 실리는 단전이었다."
 )
 
+MURIM_CLAN_SAGA_SCENE = (
+    "진운은 몰락한 청운세가의 유일한 혈손이었다. "
+    "가주 인장을 받아든 날, 장로들은 영지 장부와 세가 무공을 내밀었다. "
+    "그는 사문이 멸문당한 빚을 갚기 전에, 먼저 세가의 곡식과 제자를 다시 모아야 했다. "
+    "마교 출신 마두 흑염이 찾아와 말했다. "
+    '"네 세가를 재건하려면 내 신념도 받아들여야 한다."'
+)
+
 MURIM_CROSS_PHRASES = (
     "정파의 이중잣대가 의도적 설정인지",
     "다음 경지 돌파나 은원 해소",
@@ -2898,6 +3062,11 @@ class GenrePlaybookMurimTests(unittest.TestCase):
         self.assertIn("정파의 이중잣대가 의도적 설정인지", delta["group_rules_addition"]["A_judge"])
         self.assertIn("다음 경지 돌파나 은원 해소", delta["group_rules_addition"]["B_suggest"])
         self.assertIn("강호체 어투와 관용구", delta["group_rules_addition"]["C_style"])
+        self.assertIn("세가물(무림세가 계승/경영)", delta["must_haves_addition"])
+        self.assertIn("사문 복수물", delta["must_haves_addition"])
+        self.assertIn("마두", delta["must_haves_addition"])
+        self.assertIn("5) 하위소재(세가물/재건물/사문복수물)", delta["checklist_addition"])
+        self.assertIn("세가물/재건물/사문복수물이면 그 소재에 맞는 다음 전개", delta["group_rules_addition"]["B_suggest"])
         alt = app.load_genre_playbook_delta("fantasy", "male", "alt_history")
         self.assertIsInstance(alt, dict)
         self.assertNotEqual(delta["identity_addition"], alt["identity_addition"])
@@ -2916,6 +3085,7 @@ class GenrePlaybookMurimTests(unittest.TestCase):
         self.assertIn("[장르별 판단 기준]", worldscan)
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("정파의 이중잣대가 의도적 설정인지", worldscan)
+        self.assertIn("5) 하위소재(세가물/재건물/사문복수물)", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
@@ -2928,6 +3098,7 @@ class GenrePlaybookMurimTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", ideas)
         self.assertIn("다음 경지 돌파나 은원 해소", ideas)
+        self.assertIn("세가물/재건물/사문복수물이면 그 소재에 맞는 다음 전개", ideas)
         self.assertIn("사이다 구조(위기→응징)", ideas)
         self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
 
@@ -3160,6 +3331,38 @@ class GenrePlaybookMurimTests(unittest.TestCase):
         self.assertEqual(status, 200, result)
         self._assert_hypocrisy_is_distinguished(str(result.get("text") or ""))
 
+    def _assert_clan_saga_ideas(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip(), msg="empty live ideas response")
+        hits = ("세가", "가문", "재건", "경영", "계승", "가주", "사문", "마두", "자원", "위기")
+        self.assertTrue(any(hit in body for hit in hits), msg=body)
+        self.assertNotRegex(body, r"(장르\s*이탈|무협이\s*아닌|세가물이\s*(오류|문제))")
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_murim_ideas_reflects_clan_saga(self) -> None:
+        payload = self._murim_live_body(
+            MURIM_CLAN_SAGA_SCENE,
+            mode="ideas",
+            world_setting=(
+                "중국풍 무협. 청운세가의 몰락과 재건, 가주 계승이 축이다. "
+                "세가 경영(곡식·제자·영지)이 무공 성장과 함께 간다. "
+                "마두 흑염은 악역이지만 신념이 있다."
+            ),
+            character_profiles={
+                "진운": "몰락한 청운세가의 혈손. 세가를 재건하려 한다.",
+                "흑염": "마교 출신 마두. 악역이지만 나름의 신념이 있다.",
+            },
+        )
+        status, dry = self.request("POST", "/api/ai/assist", {**payload, "dry_run": True})
+        self.assertEqual(status, 200, dry)
+        self.assertIn(
+            "세가물/재건물/사문복수물이면 그 소재에 맞는 다음 전개",
+            str(dry.get("full_prompt") or ""),
+        )
+        status, result = self.request("POST", "/api/ai/assist", payload)
+        self.assertEqual(status, 200, result)
+        self._assert_clan_saga_ideas(str(result.get("text") or ""))
+
 
 URBAN_SECRET_VS_PUBLIC_SCENE = (
     "각성자 민수는 정부 기밀 헌터였다. 동료에게도, 뉴스에도, 길드 명단에도 이름이 없었다. "
@@ -3167,6 +3370,14 @@ URBAN_SECRET_VS_PUBLIC_SCENE = (
     "스마트폰 카메라 수십 대가 푸른 검기를 찍었고 실시간 방송 채팅이 폭발했다. "
     "다음 장면, 회사 회의실에서 김부장은 아무 일도 없었다는 듯 실적 보고를 받았다. "
     "뉴스도, 경찰도, SNS 해명도 없었다. 민수는 '이 힘은 나만의 비밀이야'라고 중얼거렸다."
+)
+
+URBAN_TOWER_INCONSISTENT_SCENE = (
+    "각성자 민수는 서울 한복판에 솟은 탑 3층을 클리어했다. "
+    "탑의 규칙은 명확했다. 한 층에 한 번만 입장할 수 있고, 마나가 떨어지면 그 층에서 영구 퇴장이다. "
+    "그런데 민수는 죽은 뒤 아무 설명 없이 3층 입구로 돌아와 다시 싸웠다. "
+    "동료는 '어제도 100층을 한 번에 올랐잖아'라고 말했고, "
+    "상태창에는 여전히 3층이라고 떠 있었다."
 )
 
 TRADITIONAL_SYSTEM_WINDOW_SCENE = (
@@ -3233,10 +3444,16 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         self.assertIn("현대 사회 시스템과 초자연적 힘의 공존 논리", urban["group_rules_addition"]["A_judge"])
         self.assertIn("현실 사회 시스템(회사/언론/팬덤 등)을 다음 갈등 장치로", urban["group_rules_addition"]["B_suggest"])
         self.assertIn("현대 구어체와 실제 사회 용어", urban["group_rules_addition"]["C_style"])
+        self.assertIn("탑등반물", urban["must_haves_addition"])
+        self.assertIn("4) 하위소재", urban["checklist_addition"])
 
         traditional = app.load_genre_playbook_delta("fantasy", "male", "traditional")
         self.assertIsInstance(traditional, dict)
         self.assertIn("회빙환·치트·시스템창 없는 로우파워 서구풍 정통 판타지", traditional["identity_addition"])
+        self.assertIn("용병물", traditional["must_haves_addition"])
+        self.assertIn("동료 파티", traditional["must_haves_addition"])
+        self.assertIn("4) 용병물/아카데미물이면 그 소재 특유의 구조", traditional["checklist_addition"])
+        self.assertIn("용병물이면 다음 의뢰를", traditional["group_rules_addition"]["B_suggest"])
         self.assertIn("성장 속도가 노력에 비례하는지 엄격히 확인", traditional["group_rules_addition"]["A_judge"])
         self.assertIn("노력/시행착오 기반의 다음 성장 단계", traditional["group_rules_addition"]["B_suggest"])
         self.assertIn("게임적 어휘(레벨, 스킬 등) 없이", traditional["group_rules_addition"]["C_style"])
@@ -3259,6 +3476,9 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("현대 사회 시스템과 초자연적 힘의 공존 논리", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
+        self.assertIn("4) 하위소재", worldscan)
+        self.assertIn("탑등반", worldscan)
+        self.assertNotIn("[캐릭터/관계 참고 어휘]", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
 
@@ -3320,6 +3540,9 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         self.assertIn("폭력성/전투 스케일 오판 방지", plain_scan)
         self.assertIn("사이다 구조(위기→응징)", plain_ideas)
         self.assertIn("전투 장면은 타격감 있게", plain_continue)
+        self.assertNotIn("4) 하위소재", plain_scan)
+        self.assertNotIn("탑등반", plain_scan)
+        self.assertNotIn(app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING, plain_scan)
 
     def test_traditional_builders_inject_delta_and_plain_male_does_not(self) -> None:
         worldscan = app.SuperToryHandler._build_setting_break_scan_prompt(
@@ -3330,6 +3553,7 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("성장 속도가 노력에 비례하는지 엄격히 확인", worldscan)
+        self.assertIn("4) 용병물/아카데미물이면 그 소재 특유의 구조", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
@@ -3342,6 +3566,7 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", ideas)
         self.assertIn("노력/시행착오 기반의 다음 성장 단계", ideas)
+        self.assertIn("용병물이면 다음 의뢰를", ideas)
         self.assertIn("사이다 구조(위기→응징)", ideas)
 
         continue_p = app.SuperToryHandler._build_continue_prompt(
@@ -3548,6 +3773,14 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         problem = ("붕괴", "모순", "불일치", "어긋", "충돌", "문제", "일관되지", "안 맞")
         self.assertTrue(any(hit in body for hit in problem), msg=body)
 
+    def _assert_flags_tower_rule_inconsistency(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip(), msg="empty live response")
+        hits = ("탑", "층", "규칙", "일관", "입장", "퇴장")
+        self.assertTrue(any(hit in body for hit in hits), msg=body)
+        problem = ("붕괴", "모순", "불일치", "어긋", "충돌", "깨", "위반", "일관되지")
+        self.assertTrue(any(hit in body for hit in problem), msg=body)
+
     def _assert_flags_system_window_mix(self, text: str) -> None:
         body = str(text or "")
         self.assertTrue(body.strip(), msg="empty live response")
@@ -3583,6 +3816,23 @@ class GenrePlaybookUrbanTraditionalTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_flags_secret_vs_public(str(result.get("text") or ""))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_urban_flags_tower_climb_rule_inconsistency(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            self._live_body(
+                "urban",
+                URBAN_TOWER_INCONSISTENT_SCENE,
+                "현대 서울. 각성자와 던전, 그리고 탑등반물이 공존한다. "
+                "탑은 한 층에 한 번만 입장할 수 있고 마나가 떨어지면 그 층에서 영구 퇴장이다. "
+                "그 규칙이 원고 안에서 깨지면 설정 붕괴로 짚어야 한다.",
+                mode="worldscan",
+            ),
+        )
+        self.assertEqual(status, 200, result)
+        self._assert_flags_tower_rule_inconsistency(str(result.get("text") or ""))
 
     @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
     def test_live_traditional_flags_system_window_mix(self) -> None:
@@ -3627,6 +3877,14 @@ HIDDEN_WORLD_INSTANT_MUNCHKIN_SCENE = (
     "구미호 족장과 뱀파이어 공의회가 그에게 무릎을 꿇었고, "
     "그는 하품하며 도시 하나를 손짓으로 지웠다. "
     "평범한 회사원에서 시작한다는 언급은 없다."
+)
+
+HIDDEN_WORLD_DARK_HERO_SCENE = (
+    "민수는 경찰이 아닌 이면세계 사냥꾼이었다. "
+    "안내자 노파가 뒷골목에서 속삭였다. "
+    '"저 뱀파이어는 호적에 없어. 법으로는 못 잡아." '
+    "민수는 밤마다 스스로 처단했다. 살인은 불법이었지만, 일반인 앞에선 사고사로 남겼다. "
+    "그는 자경단의 회색지대에 서 있었다."
 )
 
 HIDDEN_WORLD_CROSS_PHRASES = (
@@ -3674,6 +3932,10 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         self.assertIn("마스커레이드·이면세계 규칙 일관성 확인", hidden["group_rules_addition"]["A_judge"])
         self.assertIn("이면세계 확장(새 신화 존재/세력과의 조우)", hidden["group_rules_addition"]["B_suggest"])
         self.assertIn("미스터리/오컬트 분위기", hidden["group_rules_addition"]["C_style"])
+        self.assertIn("다크히어로물", hidden["must_haves_addition"])
+        self.assertIn("이면세계 안내자", hidden["must_haves_addition"])
+        self.assertIn("4) 다크히어로물이면 주인공의 자경 행위", hidden["checklist_addition"])
+        self.assertIn("다크히어로물이면 다음 자경 행위의 도덕적 딜레마", hidden["group_rules_addition"]["B_suggest"])
         urban = app.load_genre_playbook_delta("fantasy", "male", "urban")
         self.assertIsInstance(urban, dict)
         self.assertNotEqual(hidden["identity_addition"], urban["identity_addition"])
@@ -3691,6 +3953,7 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         self.assertIn("[장르별 판단 기준]", worldscan)
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("마스커레이드·이면세계 규칙 일관성 확인", worldscan)
+        self.assertIn("4) 다크히어로물이면 주인공의 자경 행위", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
@@ -3703,6 +3966,7 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", ideas)
         self.assertIn("이면세계 확장(새 신화 존재/세력과의 조우)", ideas)
+        self.assertIn("다크히어로물이면 다음 자경 행위의 도덕적 딜레마", ideas)
         self.assertIn("사이다 구조(위기→응징)", ideas)
         self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
 
@@ -3728,6 +3992,7 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", analyze)
         self.assertIn("마스커레이드·이면세계 규칙 일관성 확인", analyze)
+        self.assertIn("4) 다크히어로물이면 주인공의 자경 행위", analyze)
 
         plain_scan = app.SuperToryHandler._build_setting_break_scan_prompt(
             "한 줄 원고", main_genre="fantasy", sub_genre="male"
@@ -3893,7 +4158,7 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         self.assertTrue(any(hit in body for hit in hits), msg=body)
         mismatch = ("어긋", "다르", "충돌", "기대", "장르", "발견→적응", "약자")
         self.assertTrue(any(hit in body for hit in mismatch), msg=body)
-        twist = ("의도", "비틀", "구분", "설정이라면", "의도된")
+        twist = ("의도", "비틀", "구분", "설정이라면", "의도된", "조기", "생략", "재구성", "재작성")
         self.assertTrue(any(hit in body for hit in twist), msg=body)
 
     def _assert_urban_does_not_require_masquerade(self, text: str) -> None:
@@ -3940,6 +4205,53 @@ class GenrePlaybookHiddenWorldTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_flags_instant_munchkin(str(result.get("text") or ""))
+
+    def _assert_dark_hero_is_genre_device(self, text: str) -> None:
+        body = str(text or "")
+        self.assertTrue(body.strip(), msg="empty live analyze response")
+        hits = ("자경", "회색", "이면", "사냥", "마스커레이드", "안내", "법", "미화", "딜레마", "대가")
+        self.assertTrue(any(hit in body for hit in hits), msg=body)
+        compact = body.replace(" ", "")
+        self.assertNotRegex(
+            body,
+            r"(장르\s*이탈|어반판타지가\s*아닌|다크히어로.{0,12}(오류|이탈|문제))",
+        )
+        self.assertFalse(
+            any(
+                bad in compact
+                for bad in (
+                    "자경단은장르이탈",
+                    "살인이장르오류",
+                    "다크히어로는오류",
+                    "범죄물이문제",
+                )
+            ),
+            msg=body,
+        )
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_hidden_world_analyze_accepts_dark_hero(self) -> None:
+        payload = self._live_body(
+            "hidden_world",
+            HIDDEN_WORLD_DARK_HERO_SCENE,
+            "현대 서울 이면세계. 마스커레이드가 핵심이다. "
+            "주인공은 법 밖에서 초자연 존재를 처단하는 자경단형 다크히어로다. "
+            "도덕적 회색지대는 의도된 장르 장치이며 범죄/장르 이탈이 아니다.",
+            mode="analyze",
+            character_profiles={
+                "민수": "이면세계 사냥꾼. 자경단형 다크히어로.",
+                "노파": "이면세계 안내자.",
+            },
+        )
+        status, dry = self.request("POST", "/api/ai/assist", {**payload, "dry_run": True})
+        self.assertEqual(status, 200, dry)
+        self.assertIn(
+            "4) 다크히어로물이면 주인공의 자경 행위가 도덕적 회색지대로 다뤄지는지",
+            str(dry.get("full_prompt") or ""),
+        )
+        status, result = self.request("POST", "/api/ai/assist", payload)
+        self.assertEqual(status, 200, result)
+        self._assert_dark_hero_is_genre_device(str(result.get("text") or ""))
 
     @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
     def test_live_urban_accepts_public_hunters_without_masquerade(self) -> None:
@@ -4032,6 +4344,10 @@ class GenrePlaybookSportsTests(unittest.TestCase):
         self.assertIn("종목 규칙/전술 정확성", sports["group_rules_addition"]["A_judge"])
         self.assertIn("다음 시합/훈련 사이클", sports["group_rules_addition"]["B_suggest"])
         self.assertIn("종목 전문 용어와 경기 상황 묘사", sports["group_rules_addition"]["C_style"])
+        self.assertIn("학원스포츠물", sports["must_haves_addition"])
+        self.assertIn("은사/감독캐", sports["must_haves_addition"])
+        self.assertIn("4) 학원스포츠물이면 리그/대회 구조", sports["checklist_addition"])
+        self.assertIn("학원스포츠물이면 다음 경기/대회 일정을", sports["group_rules_addition"]["B_suggest"])
         self.assertIsNone(app.load_genre_playbook_delta("fantasy", "male", ""))
         self.assertIsNone(app.load_genre_playbook_delta("fantasy", "female", "sports"))
         self.assertIsNone(app.load_genre_playbook_delta("romance", "modern", "sports"))
@@ -4046,6 +4362,7 @@ class GenrePlaybookSportsTests(unittest.TestCase):
         self.assertIn("[장르별 판단 기준]", worldscan)
         self.assertIn("[세부장르 추가 기준]", worldscan)
         self.assertIn("종목 규칙/전술 정확성", worldscan)
+        self.assertIn("4) 학원스포츠물이면 리그/대회 구조", worldscan)
         self.assertIn("폭력성/전투 스케일 오판 방지", worldscan)
         self.assertLess(worldscan.find("[장르별 판단 기준]"), worldscan.find("[세부장르 추가 기준]"))
         self.assertLess(worldscan.find("[세부장르 추가 기준]"), worldscan.find("[본문]"))
@@ -4058,6 +4375,7 @@ class GenrePlaybookSportsTests(unittest.TestCase):
         )
         self.assertIn("[세부장르 추가 기준]", ideas)
         self.assertIn("다음 시합/훈련 사이클", ideas)
+        self.assertIn("학원스포츠물이면 다음 경기/대회 일정을", ideas)
         self.assertIn("사이다 구조(위기→응징)", ideas)
         self.assertLess(ideas.find("[세부장르 추가 기준]"), ideas.find("[현재 회차 본문]"))
 
@@ -4229,11 +4547,18 @@ class GenrePlaybookSportsTests(unittest.TestCase):
     def _assert_intended_player_twist_not_flagged(self, text: str) -> None:
         body = str(text or "")
         self.assertTrue(body.strip(), msg="empty live response")
-        recognized = ("의도", "각색", "개변", "장르 장치", "핵심 설정")
+        recognized = (
+            "의도",
+            "각색",
+            "개변",
+            "장르 장치",
+            "핵심 설정",
+            "어긋나는 지점이 발견되지 않았습니다",
+        )
         self.assertTrue(any(hit in body for hit in recognized), msg=body)
         self.assertNotRegex(
             body,
-            r"(고증\s*오류|실존\s*선수.{0,12}오류|축구\s*선수여야|야구\s*설정.{0,8}(오류|문제))",
+            r"(고증\s*오류(?!\s*(로\s*판단하지|에\s*해당하지))|실존\s*선수.{0,12}오류|축구\s*선수여야|야구\s*설정.{0,8}(오류|문제))",
         )
 
     @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
@@ -4266,6 +4591,176 @@ class GenrePlaybookSportsTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         self._assert_intended_player_twist_not_flagged(str(result.get("text") or ""))
+
+
+REFERENCE_TAG_SAMPLES = (
+    "집착남",
+    "걸크러시",
+    "선결혼후연애",
+    "회귀/타임슬립",
+    "달달물",
+)
+REFERENCE_TAG_LABELS = ("남주 유형:", "여주 유형:", "관계구도:", "서사장치:", "분위기:")
+ROMANCE_REFERENCE_TAG_LINES = (
+    ("romance", "modern", ""),
+    ("romance", "romfant", ""),
+    ("romance", "modern", "historical"),
+    ("romance", "romfant", "oriental_romfant"),
+)
+FANTASY_NO_REFERENCE_TAG_LINES = (
+    ("fantasy", "male", ""),
+    ("fantasy", "female", ""),
+    ("fantasy", "male", "urban"),
+    ("fantasy", "male", "traditional"),
+)
+ROMANCE_OBSESSION_TIMESLIP_SCENE = (
+    "민혁은 서연이 다른 남자와 웃는 것만 봐도 숨이 막혔다. "
+    "회사 복도에서 그녀의 손목을 붙잡고 낮게 말했다. \"오늘은 나만 봐.\" "
+    "서연은 타임슬립 전의 기억을 떠올렸다. 그때도 그는 이렇게 집착했고, 그래서 그녀가 떠났었다. "
+    "이번 생에서는 그 집착의 이유를 알고 있었다. 민혁은 전생에서 그녀를 지키지 못한 채 죽었다. "
+    "\"이번엔 놓치지 않겠어.\" 서연은 그의 손을 뿌리치지 않았다."
+)
+
+
+class GenrePlaybookReferenceTagTests(unittest.TestCase):
+    def setUp(self) -> None:
+        self.temporary_directory = tempfile.TemporaryDirectory()
+        self.original_data_dir = app.DATA_DIR
+        self.original_database_path = app.DATABASE_PATH
+        app.DATA_DIR = Path(self.temporary_directory.name) / "data"
+        app.DATABASE_PATH = app.DATA_DIR / "supertory.sqlite3"
+        app._GENRE_PLAYBOOKS_CACHE = None
+        app.initialise_database()
+        self.server = app.ThreadingHTTPServer(("127.0.0.1", 0), app.SuperToryHandler)
+        self.thread = threading.Thread(target=self.server.serve_forever, daemon=True)
+        self.thread.start()
+
+    def tearDown(self) -> None:
+        self.server.shutdown()
+        self.thread.join()
+        self.server.server_close()
+        app.DATA_DIR = self.original_data_dir
+        app.DATABASE_PATH = self.original_database_path
+        app._GENRE_PLAYBOOKS_CACHE = None
+        self.temporary_directory.cleanup()
+
+    def request(self, method: str, path: str, payload: dict | None = None) -> tuple[int, object]:
+        connection = http.client.HTTPConnection("127.0.0.1", self.server.server_port, timeout=180)
+        body = json.dumps(payload, ensure_ascii=False).encode("utf-8") if payload is not None else None
+        connection.request(method, path, body, {"Content-Type": "application/json"} if body else {})
+        response = connection.getresponse()
+        result = json.loads(response.read().decode("utf-8"))
+        connection.close()
+        return response.status, result
+
+    def _assert_reference_tags(self, text: str, msg: str = "") -> None:
+        heading = app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING
+        self.assertIn(heading, text, msg=msg)
+        self.assertEqual(text.count(heading), 1, msg=msg)
+        for sample in REFERENCE_TAG_SAMPLES:
+            self.assertIn(sample, text, msg=f"{msg}:{sample}")
+        for label in REFERENCE_TAG_LABELS:
+            self.assertIn(label, text, msg=f"{msg}:{label}")
+        self.assertIn("존재 자체를 지적하지 말고", text, msg=msg)
+
+    def test_romance_a_group_worldscan_includes_filled_reference_tags(self) -> None:
+        for main, sub, detail in ROMANCE_REFERENCE_TAG_LINES:
+            prompt = app.SuperToryHandler._build_setting_break_scan_prompt(
+                "한 줄 원고",
+                main_genre=main,
+                sub_genre=sub,
+                genre_detail=detail,
+            )
+            self._assert_reference_tags(prompt, msg=f"{main}/{sub}/{detail}")
+            payload = {
+                "dry_run": True,
+                "mode": "worldscan",
+                "project_title": "참조 태그",
+                "purpose": "web_novel",
+                "main_genre": main,
+                "sub_genre": sub,
+                "scene_title": "1화",
+                "scene_content": "한 줄 원고",
+            }
+            if detail:
+                payload["genre_detail"] = detail
+            status, result = self.request("POST", "/api/ai/assist", payload)
+            self.assertEqual(status, 200, result)
+            self._assert_reference_tags(str(result.get("full_prompt") or ""), msg=f"api:{main}/{sub}/{detail}")
+
+        for fmt in (
+            app.format_genre_playbook_judge_section,
+            app.format_genre_playbook_suggest_section,
+            app.format_genre_playbook_style_section,
+        ):
+            self._assert_reference_tags(fmt("romance", "modern"), msg=fmt.__name__)
+
+    def test_fantasy_lines_do_not_include_romance_reference_tags(self) -> None:
+        heading = app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING
+        for main, sub, detail in FANTASY_NO_REFERENCE_TAG_LINES:
+            prompt = app.SuperToryHandler._build_setting_break_scan_prompt(
+                "한 줄 원고",
+                main_genre=main,
+                sub_genre=sub,
+                genre_detail=detail,
+            )
+            self.assertNotIn(heading, prompt, msg=f"{main}/{sub}/{detail}")
+            for sample in REFERENCE_TAG_SAMPLES:
+                self.assertNotIn(sample, prompt, msg=f"{main}/{sub}/{detail}:{sample}")
+            for fmt in (
+                app.format_genre_playbook_judge_section,
+                app.format_genre_playbook_suggest_section,
+                app.format_genre_playbook_style_section,
+            ):
+                self.assertNotIn(heading, fmt(main, sub, detail), msg=f"{fmt.__name__}:{main}/{sub}/{detail}")
+
+    def test_reference_tag_inject_is_idempotent(self) -> None:
+        seed = "[현재 작업]\n설정 붕괴를 찾으세요.\n\n[본문]\n한 줄 원고\n"
+        once = app.inject_genre_playbook_judge_section(seed, "romance", "modern")
+        twice = app.inject_genre_playbook_judge_section(once, "romance", "modern")
+        self.assertEqual(once, twice)
+        self.assertEqual(once.count(app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING), 1)
+        self.assertLess(once.find("[장르별 판단 기준]"), once.find(app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING))
+        self.assertLess(once.find(app.GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING), once.find("[본문]"))
+
+    @unittest.skipUnless(gemini_client.is_configured(), "Gemini API key not configured")
+    def test_live_romance_analyze_does_not_flag_obsession_or_timeslip_as_break(self) -> None:
+        status, result = self.request(
+            "POST",
+            "/api/ai/assist",
+            {
+                "mode": "analyze",
+                "project_title": "집착과 회귀",
+                "purpose": "web_novel",
+                "main_genre": "romance",
+                "sub_genre": "modern",
+                "main_genre_label": "로맨스",
+                "sub_genre_label": "현대로맨스",
+                "scene_title": "1화",
+                "scene_content": ROMANCE_OBSESSION_TIMESLIP_SCENE,
+                "world_setting": (
+                    "현대 서울 오피스 로맨스. 남주 민혁은 집착남 유형이고, "
+                    "여주 서연은 회귀/타임슬립으로 전생 기억을 가진다. "
+                    "집착과 타임슬립은 이 작품의 장르 장치이며 윤리 문제나 장르 이탈이 아니다."
+                ),
+                "character_profiles": {
+                    "서연": "회귀/타임슬립한 여주. 전생 기억을 갖고 민혁의 집착을 이해한다.",
+                    "민혁": "집착남. 서연을 잃지 않으려 집착하지만 폭력으로 번지지는 않는다.",
+                },
+            },
+        )
+        self.assertEqual(status, 200, result)
+        text = str(result.get("text") or "")
+        self.assertTrue(text.strip())
+        compact = text.replace(" ", "")
+        self.assertNotRegex(
+            text,
+            r"(장르\s*이탈|윤리\s*문제|스토커|범죄|병적|로맨스가\s*아닌|판타지\s*(장르\s*)?(이탈|오류))",
+        )
+        self.assertFalse(
+            any(token in compact for token in ("집착남이미성숙", "타임슬립은오류", "회귀는장르이탈", "윤리적문제")),
+            msg=text,
+        )
 
 
 if __name__ == "__main__":
