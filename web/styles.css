@@ -26658,6 +26658,27 @@ html[lang="es"] .format-tool-label-wrap {
   min-width: 160px;
   max-width: 240px;
 }
+.translation-language-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--panel, #fff) 88%, var(--ink) 8%);
+  font-size: 12px;
+}
+.translation-language-field select {
+  min-width: 118px;
+  max-width: 180px;
+  border: 0;
+  background: transparent;
+  font-weight: 750;
+  color: inherit;
+}
+.translation-language-field option:disabled {
+  color: var(--muted);
+}
 .translation-culture-badge {
   display: inline-flex;
   align-items: center;

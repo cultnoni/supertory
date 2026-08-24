@@ -25949,6 +25949,19 @@ function updateTranslationCultureBadge() {
   if (value) value.textContent = cultureLevelLabel(translationWorkspaceState.job?.culture_localization_level);
 }
 
+function selectedTranslationLanguage() {
+  return $("translationLanguageSelect")?.value || "en";
+}
+
+function updateTranslationLanguageSelect() {
+  const select = $("translationLanguageSelect");
+  if (!select) return;
+  const language = String(translationWorkspaceState.job?.target_language || "en");
+  if ([...select.options].some((option) => option.value === language)) {
+    select.value = language;
+  }
+}
+
 function isTranslationProperNounsConfirmed() {
   const job = translationWorkspaceState.job || {};
   return Boolean(job.proper_nouns_confirmed);
@@ -26257,6 +26270,7 @@ function applyTranslationJobPayload(payload) {
   if (payload.chat_messages) translationWorkspaceState.chat = payload.chat_messages;
   if (payload.segments) translationWorkspaceState.segments = payload.segments;
   updateTranslationCultureBadge();
+  updateTranslationLanguageSelect();
   renderTranslationChapters();
   renderTranslationFormatting();
   renderTranslationScenes();
@@ -26488,10 +26502,13 @@ async function ensureTranslationJob() {
   if (!state.projectId) throw new Error(i18n.t("index.번역_작업을_열려면_작품을_먼저_선택해_주세요"));
   const listing = await api(`/api/projects/${state.projectId}/translation/jobs`);
   const jobs = listing.jobs || [];
-  if (jobs.length) return jobs[0];
+  const language = selectedTranslationLanguage();
+  const match = jobs.find((job) => String(job.target_language || "en") === language);
+  if (match) return match;
+  if (jobs.length && language === "en") return jobs[0];
   return api(`/api/projects/${state.projectId}/translation/jobs`, {
     method: "POST",
-    body: JSON.stringify({ target_language: "en", culture_localization_level: "moderate" }),
+    body: JSON.stringify({ target_language: language, culture_localization_level: "moderate" }),
   });
 }
 
@@ -26504,6 +26521,7 @@ async function loadTranslationChapter(chapterNumber) {
   translationWorkspaceState.chapters = payload.chapters || translationWorkspaceState.chapters;
   translationWorkspaceState.segments = payload.segments || [];
   updateTranslationCultureBadge();
+  updateTranslationLanguageSelect();
   renderTranslationChapters();
   renderTranslationColumns();
 }
@@ -26515,6 +26533,7 @@ async function refreshTranslationJob() {
   translationWorkspaceState.chapters = detail.chapters || [];
   translationWorkspaceState.chat = detail.chat_messages || [];
   updateTranslationCultureBadge();
+  updateTranslationLanguageSelect();
   renderTranslationChapters();
   renderTranslationChat();
 }
@@ -26642,6 +26661,7 @@ function setupTranslationWorkspace() {
       });
       translationWorkspaceState.job = job;
       updateTranslationCultureBadge();
+      updateTranslationLanguageSelect();
       $("translationCultureModal")?.classList.add("hidden");
       toast(i18n.t("index.문화반영범위를_다시_고르세요"));
     } catch (error) {
