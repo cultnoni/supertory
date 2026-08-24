@@ -535,6 +535,31 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(stored, "historical")
 
+    def test_project_content_rating_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "065_project_content_rating.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("content_rating", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 65"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_content_rating")
+        self.db.execute("INSERT INTO project(title) VALUES ('수위 미설정')")
+        stored = self.db.execute(
+            "SELECT content_rating FROM project WHERE title = '수위 미설정'"
+        ).fetchone()[0]
+        self.assertEqual(stored, "")
+        self.db.execute(
+            "INSERT INTO project(title, content_rating) VALUES ('매운맛', '19_hard')"
+        )
+        stored_hard = self.db.execute(
+            "SELECT content_rating FROM project WHERE title = '매운맛'"
+        ).fetchone()[0]
+        self.assertEqual(stored_hard, "19_hard")
+
     def test_user_ambient_tracks_table_is_added(self) -> None:
         root = Path(__file__).resolve().parents[1] / "db"
         self.db.executescript((root / "059_user_ambient_tracks.sql").read_text(encoding="utf-8"))
