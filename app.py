@@ -770,6 +770,7 @@ GENRE_PLAYBOOK_JUDGE_HEADING = "[장르별 판단 기준]"
 GENRE_PLAYBOOK_STYLE_HEADING = "[장르별 문체 기준]"
 GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING = "[세부장르 추가 기준]"
 GENRE_PLAYBOOK_DETAIL_STYLE_HEADING = "[세부장르 추가 문체 기준]"
+GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING = "[캐릭터/관계 참고 어휘]"
 _GENRE_PLAYBOOKS_CACHE: dict | None = None
 _PROJECTS_DIR_ENV = (
     os.environ.get("SUPERTORY_PROJECTS_DIR") or os.environ.get("STORYGUIDE_PROJECTS_DIR") or ""
@@ -814,14 +815,34 @@ def load_genre_playbooks() -> dict:
     return _GENRE_PLAYBOOKS_CACHE
 
 
+def _romance_character_archetypes() -> dict | None:
+    tags = load_genre_playbooks().get("reference_tags")
+    if not isinstance(tags, dict):
+        return None
+    archetypes = tags.get("romance_character_archetypes")
+    return archetypes if isinstance(archetypes, dict) else None
+
+
 def load_genre_playbook(main_genre, sub_genre) -> dict | None:
-    """Return the playbook for `{main}_{sub}`, or None if that pair is not defined."""
+    """Return the playbook for `{main}_{sub}`, or None if that pair is not defined.
+
+    Romance books also carry `reference_tags` from the shared romance archetype dictionary.
+    """
     main = str(main_genre or "").strip().lower()
     sub = str(sub_genre or "").strip().lower()
     if not main or not sub:
         return None
     item = load_genre_playbooks().get(f"{main}_{sub}")
-    return item if isinstance(item, dict) else None
+    if not isinstance(item, dict):
+        return None
+    if main != "romance":
+        return item
+    archetypes = _romance_character_archetypes()
+    if not archetypes:
+        return item
+    book = dict(item)
+    book["reference_tags"] = archetypes
+    return book
 
 
 def load_genre_playbook_delta(main_genre, sub_genre, genre_detail) -> dict | None:
@@ -876,6 +897,61 @@ def _append_playbook_delta_block(base: str, extra: str) -> str:
     return base + "\n\n" + extra
 
 
+def _join_playbook_tag_list(value) -> str:
+    if not isinstance(value, list):
+        return ""
+    parts = [str(item).strip() for item in value if str(item).strip()]
+    return ", ".join(parts)
+
+
+def format_genre_playbook_reference_tags_section(main_genre, book=None) -> str:
+    """Shared romance archetype vocabulary. Fantasy and missing tags → empty."""
+    if str(main_genre or "").strip().lower() != "romance":
+        return ""
+    tags = book.get("reference_tags") if isinstance(book, dict) else None
+    if not isinstance(tags, dict):
+        tags = _romance_character_archetypes()
+    if not isinstance(tags, dict):
+        return ""
+    male = _join_playbook_tag_list(tags.get("male"))
+    female = _join_playbook_tag_list(tags.get("female"))
+    relationships = _join_playbook_tag_list(tags.get("relationship_structures"))
+    devices = _join_playbook_tag_list(tags.get("narrative_devices"))
+    moods = _join_playbook_tag_list(tags.get("mood_tags"))
+    if not any((male, female, relationships, devices, moods)):
+        return ""
+    return "\n".join(
+        [
+            GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING,
+            "이 장르에서 흔히 쓰이는 캐릭터 유형·관계구도·서사장치 키워드입니다. "
+            "아래 나열된 유형(예: 집착남, 걸크러시, 회귀/타임슬립 등)이 등장하면 이는 장르 클리셰이므로 "
+            "존재 자체를 지적하지 말고, 그 유형의 특성이 캐릭터 안에서 일관되게 유지되는지만 판단하세요.",
+            f"남주 유형: {male}",
+            f"여주 유형: {female}",
+            f"관계구도: {relationships}",
+            f"서사장치: {devices}",
+            f"분위기: {moods}",
+        ]
+    )
+
+
+def _with_playbook_reference_tags(section: str, main_genre, book=None) -> str:
+    if not section:
+        return ""
+    return _append_playbook_delta_block(
+        section, format_genre_playbook_reference_tags_section(main_genre, book)
+    )
+
+
+def _drop_reference_tags_if_present(section: str, text: str) -> str:
+    if GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING not in text:
+        return section
+    idx = section.find(GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING)
+    if idx < 0:
+        return section
+    return section[:idx].rstrip()
+
+
 def format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail="") -> str:
     """A-group judge block, plus optional `[세부장르 추가 기준]` when `_delta` exists."""
     book = load_genre_playbook(main_genre, sub_genre)
@@ -889,16 +965,17 @@ def format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail="") 
     )
     if not base:
         return ""
+    result = base
     delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
-    if not delta:
-        return base
-    d_rules = _playbook_delta_rules(delta)
-    extra = _format_playbook_block(
-        GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
-        delta.get("checklist_addition") or delta.get("checklist"),
-        d_rules.get("A_judge"),
-    )
-    return _append_playbook_delta_block(base, extra)
+    if delta:
+        d_rules = _playbook_delta_rules(delta)
+        extra = _format_playbook_block(
+            GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
+            delta.get("checklist_addition") or delta.get("checklist"),
+            d_rules.get("A_judge"),
+        )
+        result = _append_playbook_delta_block(base, extra)
+    return _with_playbook_reference_tags(result, main_genre, book)
 
 
 def inject_genre_playbook_judge_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
@@ -906,6 +983,9 @@ def inject_genre_playbook_judge_section(prompt: str, main_genre, sub_genre, genr
     section = format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
     if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
+        return text
+    section = _drop_reference_tags_if_present(section, text)
+    if not section:
         return text
     for needle in ("[본문]", "[원본 마지막 3문단]"):
         idx = text.find(needle)
@@ -927,16 +1007,17 @@ def format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail=""
     )
     if not base:
         return ""
+    result = base
     delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
-    if not delta:
-        return base
-    d_rules = _playbook_delta_rules(delta)
-    extra = _format_playbook_block(
-        GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
-        delta.get("reader_expectations_addition") or delta.get("reader_expectations"),
-        d_rules.get("B_suggest"),
-    )
-    return _append_playbook_delta_block(base, extra)
+    if delta:
+        d_rules = _playbook_delta_rules(delta)
+        extra = _format_playbook_block(
+            GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING,
+            delta.get("reader_expectations_addition") or delta.get("reader_expectations"),
+            d_rules.get("B_suggest"),
+        )
+        result = _append_playbook_delta_block(base, extra)
+    return _with_playbook_reference_tags(result, main_genre, book)
 
 
 def inject_genre_playbook_suggest_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
@@ -944,6 +1025,9 @@ def inject_genre_playbook_suggest_section(prompt: str, main_genre, sub_genre, ge
     section = format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
     if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
+        return text
+    section = _drop_reference_tags_if_present(section, text)
+    if not section:
         return text
     for needle in (
         "[현재 회차 본문]",
@@ -975,16 +1059,17 @@ def format_genre_playbook_style_section(main_genre, sub_genre, genre_detail="") 
     )
     if not base:
         return ""
+    result = base
     delta = load_genre_playbook_delta(main_genre, sub_genre, genre_detail)
-    if not delta:
-        return base
-    d_rules = _playbook_delta_rules(delta)
-    extra = _format_playbook_block(
-        GENRE_PLAYBOOK_DETAIL_STYLE_HEADING,
-        delta.get("tone_addition") or delta.get("tone"),
-        d_rules.get("C_style"),
-    )
-    return _append_playbook_delta_block(base, extra)
+    if delta:
+        d_rules = _playbook_delta_rules(delta)
+        extra = _format_playbook_block(
+            GENRE_PLAYBOOK_DETAIL_STYLE_HEADING,
+            delta.get("tone_addition") or delta.get("tone"),
+            d_rules.get("C_style"),
+        )
+        result = _append_playbook_delta_block(base, extra)
+    return _with_playbook_reference_tags(result, main_genre, book)
 
 
 def inject_genre_playbook_style_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
@@ -992,6 +1077,9 @@ def inject_genre_playbook_style_section(prompt: str, main_genre, sub_genre, genr
     section = format_genre_playbook_style_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
     if not section or GENRE_PLAYBOOK_STYLE_HEADING in text:
+        return text
+    section = _drop_reference_tags_if_present(section, text)
+    if not section:
         return text
     for needle in (
         "[원고]",
