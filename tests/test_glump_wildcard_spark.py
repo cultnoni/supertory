@@ -245,10 +245,10 @@ class GlumpWildcardSparkTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        idle = root / "assets" / "glump" / "tori-spark-idle.png"
-        anim = root / "assets" / "glump" / "tori-spark.gif"
+        idle = root / "assets" / "glump" / "tory-joker1-idle.png"
+        anim = root / "assets" / "glump" / "tory-joker1.webp"
         self.assertIn('id="glumpErSparkTori"', html)
-        self.assertIn("/assets/glump/tori-spark.gif", html)
+        self.assertIn("/assets/glump/tory-joker1.webp", html)
         self.assertIn("function playGlumpSparkToriIntro()", js)
         self.assertIn("playGlumpSparkToriIntro()", js)
         self.assertIn("restartGlumpAnimatedTori", js)
@@ -262,5 +262,5 @@ class GlumpWildcardSparkTests(unittest.TestCase):
             self.assertLess(extrema[0], 20, idle.name)
             self.assertGreater(extrema[1], 200, idle.name)
         with Image.open(anim) as webp:
-            self.assertTrue(getattr(webp, "is_animated", False), "spark gif should animate")
+            self.assertTrue(getattr(webp, "is_animated", False), "spark webp should animate")
             self.assertGreater(getattr(webp, "n_frames", 1), 20)

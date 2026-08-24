@@ -23476,22 +23476,6 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   grid-column: 1;
   grid-row: 1;
   margin: 0;
-  height: 112px;
-}
-#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-stage,
-#glumpErStepHome #glumpErHomeTori.is-settled .glump-er-spark-tori-stage {
-  box-sizing: border-box;
-  width: 112px;
-  height: 112px;
-  overflow: hidden;
-  border-radius: 14px;
-  border: 3px solid color-mix(in srgb, var(--accent, #c47b3a) 62%, var(--border, #d8d2c8));
-  background: color-mix(in srgb, var(--accent, #c47b3a) 6%, var(--surface, #fff));
-  filter: none;
-}
-#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-frame {
-  object-fit: cover;
-  object-position: center center;
 }
 #glumpErStepHome #glumpErStartDiagnosis {
   grid-column: 2;
@@ -24051,7 +24035,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori,
 .glump-er-wide-tori,
 .glump-er-joker-tori {
-  height: 118px;
+  height: 132px;
   margin: 0 0 6px;
   align-items: center;
 }
@@ -24065,9 +24049,8 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori.is-settled .glump-er-spark-tori-stage,
 .glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
 .glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
-  width: 210px;
-  height: 118px;
-  overflow: hidden;
+  width: 168px;
+  height: 132px;
 }
 .glump-er-vitamin-tori .glump-er-spark-tori-frame,
 .glump-er-pingpong-tori .glump-er-spark-tori-frame,
@@ -24083,22 +24066,22 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori.is-settled,
 .glump-er-wide-tori.is-settled,
 .glump-er-joker-tori.is-settled {
-  height: 118px;
+  height: 132px;
   margin: 0 0 6px;
 }
 .glump-er-puzzle-tori {
-  height: 148px;
+  height: 155px;
 }
 .glump-er-puzzle-tori .glump-er-spark-tori-stage {
-  width: 220px;
-  height: 148px;
+  width: 196px;
+  height: 155px;
 }
 .glump-er-puzzle-tori.is-settled {
-  height: 104px;
+  height: 132px;
 }
 .glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
-  width: 156px;
-  height: 104px;
+  width: 168px;
+  height: 132px;
 }
 .glump-er-desk-tori {
   height: 148px;
@@ -24106,9 +24089,8 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   align-items: center;
 }
 .glump-er-desk-tori .glump-er-spark-tori-stage {
-  width: 168px;
+  width: 188px;
   height: 148px;
-  overflow: hidden;
 }
 .glump-er-desk-tori .glump-er-spark-tori-frame {
   object-fit: contain;
@@ -24149,7 +24131,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   .glump-er-wide-tori.is-settled,
   .glump-er-joker-tori,
   .glump-er-joker-tori.is-settled {
-    height: 118px;
+    height: 132px;
     margin: 0 0 6px;
   }
   .glump-er-vitamin-tori .glump-er-spark-tori-stage,
@@ -24162,25 +24144,25 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   .glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
   .glump-er-joker-tori .glump-er-spark-tori-stage,
   .glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
-    width: 210px;
-    height: 118px;
+    width: 168px;
+    height: 132px;
   }
   .glump-er-puzzle-tori,
   .glump-er-puzzle-tori.is-settled {
-    height: 104px;
+    height: 132px;
     margin: 2px 0 6px;
   }
   .glump-er-puzzle-tori .glump-er-spark-tori-stage,
   .glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
-    width: 156px;
-    height: 104px;
+    width: 168px;
+    height: 132px;
   }
   .glump-er-desk-tori {
     height: 148px;
     margin: 0 0 4px;
   }
   .glump-er-desk-tori .glump-er-spark-tori-stage {
-    width: 168px;
+    width: 188px;
     height: 148px;
   }
 }
@@ -24317,7 +24299,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 }
 .glump-er-ping-header .glump-er-pingpong-tori .glump-er-spark-tori-stage,
 .glump-er-ping-header .glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage {
-  width: 114px;
+  width: 82px;
   height: 64px;
 }
 .glump-er-chat-frame {
@@ -24560,7 +24542,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   }
   .glump-er-ping-header .glump-er-pingpong-tori .glump-er-spark-tori-stage,
   .glump-er-ping-header .glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage {
-    width: 114px;
+    width: 82px;
     height: 64px;
   }
 }

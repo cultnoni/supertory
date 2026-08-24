@@ -24682,15 +24682,15 @@ const glumpToolToriIntro = {
 };
 
 const GLUMP_ANIMATED_TORI = {
-  home: { stillSrc: "/assets/glump/tori-doctor-idle.png" },
-  spark: { stillSrc: "/assets/glump/tori-spark-idle.png" },
-  vitamin: { stillSrc: "/assets/glump/tori-vitamin-idle.png" },
-  pingpong: { stillSrc: "/assets/glump/tori-pingpong-idle.png" },
-  fillblank: { stillSrc: "/assets/glump/tori-puzzle-idle.png" },
-  diversions: { stillSrc: "/assets/glump/tori-mouse.png" },
-  sprint: { stillSrc: "/assets/glump/tori-writing.png" },
-  lucky: { stillSrc: "/assets/glump/tori-lucky-idle.png" },
-  interrogation: { stillSrc: "/assets/glump/tori-mic-idle.png" },
+  home: { stillSrc: "/assets/glump/tory-doc-idle.png" },
+  spark: { stillSrc: "/assets/glump/tory-joker1-idle.png" },
+  vitamin: { stillSrc: "/assets/glump/tory-vitamin-idle.png" },
+  pingpong: { stillSrc: "/assets/glump/tory-pingpong-idle.png" },
+  fillblank: { stillSrc: "/assets/glump/tory-puzzle-idle.png" },
+  diversions: { stillSrc: "/assets/glump/tory-mouse-idle.png" },
+  sprint: { stillSrc: "/assets/glump/speedytory-idle.png" },
+  lucky: { stillSrc: "/assets/glump/tory-pick-idle.png" },
+  interrogation: { stillSrc: "/assets/glump/tory-mic-idle.png" },
 };
 
 function clearGlumpToolToriTimers(kind) {

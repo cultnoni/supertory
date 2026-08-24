@@ -671,10 +671,10 @@ class GlumpDiversionTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        mouse = root / "assets" / "glump" / "tori-mouse.gif"
-        writing = root / "assets" / "glump" / "tori-writing.gif"
-        idle_mouse = root / "assets" / "glump" / "tori-mouse.png"
-        idle_writing = root / "assets" / "glump" / "tori-writing.png"
+        mouse = root / "assets" / "glump" / "tory-mouse.webp"
+        writing = root / "assets" / "glump" / "speedytory.webp"
+        idle_mouse = root / "assets" / "glump" / "tory-mouse-idle.png"
+        idle_writing = root / "assets" / "glump" / "speedytory-idle.png"
         div_idx = html.find('id="glumpErStepDiversions"')
         mouse_idx = html.find('id="glumpErDiversionsTori"')
         sprint_idx = html.find('id="glumpErStepSprint"')
@@ -683,8 +683,8 @@ class GlumpDiversionTests(unittest.TestCase):
         self.assertGreater(mouse_idx, div_idx)
         self.assertGreater(sprint_idx, 0)
         self.assertGreater(write_idx, sprint_idx)
-        self.assertIn("/assets/glump/tori-mouse.gif", html)
-        self.assertIn("/assets/glump/tori-writing.gif", html)
+        self.assertIn("/assets/glump/tory-mouse.webp", html)
+        self.assertIn("/assets/glump/speedytory.webp", html)
         self.assertIn("function playGlumpDiversionsToriIntro()", js)
         self.assertIn("playGlumpDiversionsToriIntro()", js)
         self.assertIn("function playGlumpSprintToriIntro()", js)
@@ -699,10 +699,10 @@ class GlumpDiversionTests(unittest.TestCase):
         from PIL import Image
 
         for path in (mouse, writing):
-            with Image.open(path) as gif:
-                self.assertEqual(gif.format, "GIF", path.name)
-                self.assertTrue(getattr(gif, "is_animated", False), path.name)
-                self.assertGreater(getattr(gif, "n_frames", 1), 20, path.name)
+            with Image.open(path) as webp:
+                self.assertEqual(webp.format, "WEBP", path.name)
+                self.assertTrue(getattr(webp, "is_animated", False), path.name)
+                self.assertGreater(getattr(webp, "n_frames", 1), 20, path.name)
 
 
 if __name__ == "__main__":

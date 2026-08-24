@@ -275,10 +275,10 @@ class GlumpInterrogationTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        idle = root / "assets" / "glump" / "tori-mic-idle.png"
-        anim = root / "assets" / "glump" / "tori-mic.gif"
+        idle = root / "assets" / "glump" / "tory-mic-idle.png"
+        anim = root / "assets" / "glump" / "tory-mic.webp"
         self.assertIn('id="glumpErInterrogationTori"', html)
-        self.assertIn("/assets/glump/tori-mic.gif", html)
+        self.assertIn("/assets/glump/tory-mic.webp", html)
         self.assertIn("function playGlumpInterrogationToriIntro()", js)
         self.assertIn("playGlumpInterrogationToriIntro()", js)
         self.assertTrue(idle.is_file())
