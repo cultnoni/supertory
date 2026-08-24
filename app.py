@@ -163,6 +163,7 @@ MIGRATION_057_PATH = ROOT / "db" / "057_project_cluster.sql"
 MIGRATION_058_PATH = ROOT / "db" / "058_project_genre_detail.sql"
 MIGRATION_059_PATH = ROOT / "db" / "059_user_ambient_tracks.sql"
 MIGRATION_060_PATH = ROOT / "db" / "060_ambient_track_overrides.sql"
+MIGRATION_065_PATH = ROOT / "db" / "065_project_content_rating.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -770,6 +771,14 @@ GENRE_PLAYBOOK_STYLE_HEADING = "[장르별 문체 기준]"
 GENRE_PLAYBOOK_DETAIL_JUDGE_HEADING = "[세부장르 추가 기준]"
 GENRE_PLAYBOOK_DETAIL_STYLE_HEADING = "[세부장르 추가 문체 기준]"
 GENRE_PLAYBOOK_REFERENCE_TAGS_HEADING = "[캐릭터/관계 참고 어휘]"
+CONTENT_RATING_HEADING_PREFIX = "[표현 수위 기준"
+CONTENT_RATING_ALLOWED = frozenset({"all", "15", "19_soft", "19_hard"})
+CONTENT_RATING_LABELS = {
+    "all": "전체",
+    "15": "15세",
+    "19_soft": "19세(순한맛)",
+    "19_hard": "19세(매운맛)",
+}
 _GENRE_PLAYBOOKS_CACHE: dict | None = None
 _PROJECTS_DIR_ENV = (
     os.environ.get("SUPERTORY_PROJECTS_DIR") or os.environ.get("STORYGUIDE_PROJECTS_DIR") or ""
@@ -977,20 +986,26 @@ def format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail="") 
     return _with_playbook_reference_tags(result, main_genre, book)
 
 
-def inject_genre_playbook_judge_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
+def inject_genre_playbook_judge_section(
+    prompt: str, main_genre, sub_genre, genre_detail="", content_rating=""
+) -> str:
     """Insert the A-group playbook section before [본문]. Idempotent; no-op if missing."""
     section = format_genre_playbook_judge_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
+    needles = ("[본문]", "[원본 마지막 3문단]")
     if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
-        return text
+        return inject_content_rating_section(text, main_genre, content_rating, "judge", needles)
     section = _drop_reference_tags_if_present(section, text)
     if not section:
-        return text
-    for needle in ("[본문]", "[원본 마지막 3문단]"):
+        return inject_content_rating_section(text, main_genre, content_rating, "judge", needles)
+    for needle in needles:
         idx = text.find(needle)
         if idx >= 0:
-            return text[:idx] + section + "\n\n" + text[idx:]
-    return text + "\n\n" + section
+            text = text[:idx] + section + "\n\n" + text[idx:]
+            break
+    else:
+        text = text + "\n\n" + section
+    return inject_content_rating_section(text, main_genre, content_rating, "judge", needles)
 
 
 def format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail="") -> str:
@@ -1019,8 +1034,14 @@ def format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail=""
     return _with_playbook_reference_tags(result, main_genre, book)
 
 
-def inject_genre_playbook_suggest_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
-    """Insert the B-group playbook section before the manuscript block. Idempotent."""
+def inject_genre_playbook_suggest_section(
+    prompt: str, main_genre, sub_genre, genre_detail="", content_rating=""
+) -> str:
+    """Insert the B-group playbook section before the manuscript block. Idempotent.
+
+    content_rating is accepted for call-site symmetry and is never injected (B-group).
+    """
+    del content_rating
     section = format_genre_playbook_suggest_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
     if not section or GENRE_PLAYBOOK_JUDGE_HEADING in text:
@@ -1071,23 +1092,104 @@ def format_genre_playbook_style_section(main_genre, sub_genre, genre_detail="") 
     return _with_playbook_reference_tags(result, main_genre, book)
 
 
-def inject_genre_playbook_style_section(prompt: str, main_genre, sub_genre, genre_detail="") -> str:
+def inject_genre_playbook_style_section(
+    prompt: str, main_genre, sub_genre, genre_detail="", content_rating=""
+) -> str:
     """Insert the C-group style section before the manuscript block. Idempotent."""
     section = format_genre_playbook_style_section(main_genre, sub_genre, genre_detail)
     text = str(prompt or "")
-    if not section or GENRE_PLAYBOOK_STYLE_HEADING in text:
-        return text
-    section = _drop_reference_tags_if_present(section, text)
-    if not section:
-        return text
-    for needle in (
+    needles = (
         "[원고]",
         "[앞뒤 맥락 - 참고용, 다듬지 않음]",
         "[다듬을 문장]",
         "[선택 원문]",
         "[현재 회차 - 문체 참고용]",
         "[본문]",
-    ):
+    )
+    if not section or GENRE_PLAYBOOK_STYLE_HEADING in text:
+        return inject_content_rating_section(text, main_genre, content_rating, "style", needles)
+    section = _drop_reference_tags_if_present(section, text)
+    if not section:
+        return inject_content_rating_section(text, main_genre, content_rating, "style", needles)
+    for needle in needles:
+        idx = text.find(needle)
+        if idx >= 0:
+            text = text[:idx] + section + "\n\n" + text[idx:]
+            break
+    else:
+        text = text + "\n\n" + section
+    return inject_content_rating_section(text, main_genre, content_rating, "style", needles)
+
+
+def parse_content_rating(value) -> str:
+    """Empty/missing → ''. Allowed keys pass through. Anything else raises."""
+    if value is None:
+        return ""
+    key = str(value).strip().lower()
+    if not key:
+        return ""
+    if key not in CONTENT_RATING_ALLOWED:
+        raise ValueError("표현 수위 값이 올바르지 않습니다.")
+    return key
+
+
+def content_rating_heading(key: str) -> str:
+    label = CONTENT_RATING_LABELS.get(key, "")
+    if not label:
+        return ""
+    return f"{CONTENT_RATING_HEADING_PREFIX} - {label}]"
+
+
+def format_content_rating_section(main_genre, content_rating, kind: str) -> str:
+    """Romance-only overlay. Empty/unknown rating or non-romance → no section."""
+    if str(main_genre or "").strip().lower() != "romance":
+        return ""
+    key = str(content_rating or "").strip().lower()
+    if key not in CONTENT_RATING_ALLOWED:
+        return ""
+    heading = content_rating_heading(key)
+    if not heading:
+        return ""
+    blob = load_genre_playbooks().get("content_ratings")
+    if not isinstance(blob, dict):
+        return ""
+    if kind == "style":
+        principles = blob.get("style_principles")
+        body = principles.get(key) if isinstance(principles, dict) else ""
+        body = str(body or "").strip()
+        if not body:
+            return ""
+        return heading + "\n" + body
+    principles = blob.get("judge_principles")
+    principle = principles.get(key) if isinstance(principles, dict) else ""
+    principle = str(principle or "").strip()
+    common = str(blob.get("judge_common") or "").strip()
+    if not principle and not common:
+        return ""
+    parts = [heading]
+    if principle:
+        parts.append(principle)
+    if common:
+        parts.append(common)
+    return "\n".join(parts)
+
+
+def inject_content_rating_section(
+    prompt: str,
+    main_genre,
+    content_rating,
+    kind: str,
+    needles: tuple[str, ...] = ("[본문]",),
+) -> str:
+    """Insert `[표현 수위 기준 - …]` before the manuscript marker. Idempotent."""
+    text = str(prompt or "")
+    section = format_content_rating_section(main_genre, content_rating, kind)
+    if not section:
+        return text
+    heading = section.split("\n", 1)[0]
+    if heading in text or CONTENT_RATING_HEADING_PREFIX in text:
+        return text
+    for needle in needles:
         idx = text.find(needle)
         if idx >= 0:
             return text[:idx] + section + "\n\n" + text[idx:]
@@ -1442,6 +1544,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_059_PATH.read_text(encoding="utf-8"))
         if 60 not in applied:
             connection.executescript(MIGRATION_060_PATH.read_text(encoding="utf-8"))
+        if 65 not in applied:
+            connection.executescript(MIGRATION_065_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1453,6 +1557,7 @@ def initialise_database() -> None:
         ensure_gitsi_rooms_table(connection)
         ensure_project_cluster_column(connection)
         ensure_project_genre_detail_column(connection)
+        ensure_project_content_rating_column(connection)
         ensure_user_ambient_tracks_table(connection)
         ensure_ambient_track_overrides_table(connection)
         ensure_virtual_reader_personas(connection)
@@ -1871,6 +1976,25 @@ def ensure_project_genre_detail_column(connection: sqlite3.Connection) -> None:
         pass
 
 
+def ensure_project_content_rating_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.content_rating (migration 065)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        if "content_rating" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN content_rating TEXT NOT NULL DEFAULT ''"
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (65, 'project_content_rating')"
+        )
+    except sqlite3.Error:
+        pass
+
+
 def ensure_user_ambient_tracks_table(connection: sqlite3.Connection) -> None:
     """Idempotent: user_ambient_tracks (migration 059)."""
     try:
@@ -1927,6 +2051,20 @@ def set_project_genre_detail(
         connection.execute(
             "UPDATE project SET genre_detail = ? WHERE id = ?",
             (str(genre_detail or "").strip(), int(project_id)),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
+def set_project_content_rating(
+    connection: sqlite3.Connection,
+    project_id: int,
+    content_rating: str,
+) -> None:
+    try:
+        connection.execute(
+            "UPDATE project SET content_rating = ? WHERE id = ?",
+            (parse_content_rating(content_rating), int(project_id)),
         )
     except sqlite3.OperationalError:
         pass
@@ -4343,6 +4481,7 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     item["main_genre"] = item.get("main_genre") or ""
     item["sub_genre"] = item.get("sub_genre") or ""
     item["genre_detail"] = item.get("genre_detail") or ""
+    item["content_rating"] = item.get("content_rating") or ""
     item["keywords"] = parse_project_keywords(item.get("keywords"))
     item["import_delimiter_config"] = parse_import_delimiter_config(
         item.get("import_delimiter_config")
@@ -4381,6 +4520,11 @@ def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     try:
         connection.execute("SELECT genre_detail FROM project LIMIT 1")
         cols += ", genre_detail"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT content_rating FROM project LIMIT 1")
+        cols += ", content_rating"
     except sqlite3.OperationalError:
         pass
     rows = connection.execute(
@@ -6428,6 +6572,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 genre_detail = genre_clusters.normalize_genre_detail(
                     main_genre, sub_genre, body.get("genre_detail")
                 )
+                content_rating = parse_content_rating(body.get("content_rating"))
                 with database() as connection:
                     # Append after current max manual order so manual lists stay stable.
                     max_order_row = connection.execute(
@@ -6466,6 +6611,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     project_id = int(cursor.lastrowid)
                     set_project_cluster_id(connection, project_id, cluster_id)
                     set_project_genre_detail(connection, project_id, genre_detail)
+                    set_project_content_rating(connection, project_id, content_rating)
                     package_info = ensure_project_package(connection, project_id)
                 self.send_json(
                     {
@@ -6475,6 +6621,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "sub_genre": sub_genre,
                         "genre_detail": genre_detail,
                         "genre_detail_label": genre_clusters.genre_detail_label(genre_detail),
+                        "content_rating": content_rating,
                         "cluster_id": cluster_id,
                         "keywords": keywords,
                         **package_info,
@@ -8909,6 +9056,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             or body.get("genre_detail")
             or ""
         ).strip()
+        content_rating_key = str(
+            siv.get("content_rating")
+            or body.get("content_rating")
+            or ""
+        ).strip()
         genre_detail_label_preferred = str(
             siv.get("project_genre_detail")
             or body.get("genre_detail_label")
@@ -8960,31 +9112,46 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             project_id_for_priority = int(project_id_raw) if project_id_raw not in (None, "") else 0
         except (TypeError, ValueError):
             project_id_for_priority = 0
-        if project_id_for_priority and (not tory_priority or not genre_detail_key):
+        if project_id_for_priority and (
+            not tory_priority or not genre_detail_key or not content_rating_key
+        ):
             try:
                 with database() as connection:
                     self.require_project(connection, project_id_for_priority)
                     try:
                         prow = connection.execute(
-                            "SELECT tory_priority_md, genre_detail FROM project WHERE id = ?",
+                            "SELECT tory_priority_md, genre_detail, content_rating "
+                            "FROM project WHERE id = ?",
                             (project_id_for_priority,),
                         ).fetchone()
                     except sqlite3.OperationalError:
-                        prow = connection.execute(
-                            "SELECT tory_priority_md FROM project WHERE id = ?",
-                            (project_id_for_priority,),
-                        ).fetchone()
+                        try:
+                            prow = connection.execute(
+                                "SELECT tory_priority_md, genre_detail FROM project WHERE id = ?",
+                                (project_id_for_priority,),
+                            ).fetchone()
+                        except sqlite3.OperationalError:
+                            prow = connection.execute(
+                                "SELECT tory_priority_md FROM project WHERE id = ?",
+                                (project_id_for_priority,),
+                            ).fetchone()
                     if prow:
                         if not tory_priority and "tory_priority_md" in prow.keys():
                             tory_priority = str(prow["tory_priority_md"] or "").strip()
                         if not genre_detail_key and "genre_detail" in prow.keys():
                             genre_detail_key = str(prow["genre_detail"] or "").strip()
+                        if not content_rating_key and "content_rating" in prow.keys():
+                            content_rating_key = str(prow["content_rating"] or "").strip()
             except Exception:
                 tory_priority = tory_priority
 
         genre_detail_key = genre_clusters.normalize_genre_detail(
             main_genre_key, sub_genre_key, genre_detail_key
         )
+        try:
+            content_rating_key = parse_content_rating(content_rating_key)
+        except ValueError:
+            content_rating_key = ""
         genre_detail_label = self._genre_detail_display_label(
             genre_detail_label_preferred, genre_detail_key
         )
@@ -9337,9 +9504,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre=main_genre_key,
                     sub_genre=sub_genre_key,
                     genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                 )
             instruction = inject_genre_playbook_judge_section(
-                instruction, main_genre_key, sub_genre_key, genre_detail_key
+                instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
             )
             context_parts = [
                 active_project_context,
@@ -9614,7 +9782,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if user_prompt:
                 context_parts.append(f"작가 추가 요청:\n{user_prompt}")
             instruction = inject_genre_playbook_judge_section(
-                instruction, main_genre_key, sub_genre_key, genre_detail_key
+                instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
             )
         elif mode == "subsynopsis":
             # 투고·공모전용 시놉시스 — index + outline_summary only (no manuscript).
@@ -9659,9 +9827,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre=main_genre_key,
                     sub_genre=sub_genre_key,
                     genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                 )
             instruction = inject_genre_playbook_suggest_section(
-                instruction, main_genre_key, sub_genre_key, genre_detail_key
+                instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
             )
             context_parts = [
                 active_project_context,
@@ -9756,9 +9925,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 # Task prompt already embeds the manuscript — keep only project meta here.
                 context_parts = [
@@ -9787,9 +9957,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -9819,9 +9990,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -9851,7 +10023,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         cluster_id=prompt_cluster_id,
                     )
                 instruction = inject_genre_playbook_suggest_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -9875,9 +10047,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -9912,9 +10085,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 next_title = str(body.get("next_scene_title") or "").strip()
                 context_parts = [
@@ -9944,9 +10118,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -9981,9 +10156,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 next_title = str(body.get("next_scene_title") or "").strip()
                 context_parts = [
@@ -10013,9 +10189,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -10203,9 +10380,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -10243,9 +10421,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -10274,6 +10453,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 elif kind == "rewrite":
                     instruction = self._build_ending_rewrite_prompt(
@@ -10283,6 +10463,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 else:
                     instruction = self._build_tension_curve_prompt(
@@ -10291,9 +10472,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
+                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key
+                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
                 )
                 context_parts = [
                     active_project_context,
@@ -10679,6 +10861,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_continue_prompt_genre_lit(original_text, length_mode, user_hint, style_mode)
@@ -10687,6 +10870,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @classmethod
@@ -10953,6 +11137,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_rewrite_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
@@ -10961,6 +11146,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -11341,16 +11527,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_tension_curve_prompt_genre_lit(episode_content)
         return cls._build_tension_curve_prompt_webnovel(
-            episode_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+            episode_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
         )
 
     @staticmethod
     def _build_tension_curve_prompt_webnovel(
-        episode_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+        episode_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
     ) -> str:
         text = str(episode_content or "").strip()
         prompt = (
@@ -11390,7 +11577,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_tension_curve_prompt_genre_lit(episode_content: str) -> str:
@@ -11441,16 +11628,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs)
         return cls._build_cliffhanger_score_prompt_webnovel(
-            last_three_paragraphs, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+            last_three_paragraphs, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
         )
 
     @staticmethod
     def _build_cliffhanger_score_prompt_webnovel(
-        last_three_paragraphs: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+        last_three_paragraphs: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
     ) -> str:
         text = str(last_three_paragraphs or "").strip()
         prompt = (
@@ -11472,7 +11660,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[평가 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs: str) -> str:
@@ -11506,6 +11694,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_ending_rewrite_prompt_genre_lit(last_three_paragraphs, cliffhanger_reason)
@@ -11524,6 +11713,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         text = str(last_three_paragraphs or "").strip()
         reason = str(cliffhanger_reason or "").strip()
@@ -11550,7 +11740,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[개작 제안]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_ending_rewrite_prompt_genre_lit(last_three_paragraphs: str, cliffhanger_reason: str) -> str:
@@ -11695,6 +11885,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_submission_synopsis_prompt_genre_lit(outline_summary, synopsis_length_limit, intent_length_limit)
@@ -11707,6 +11898,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -11955,16 +12147,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_focused_analysis_prompt_genre_lit(scene_content)
         return cls._build_focused_analysis_prompt_webnovel(
-            scene_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+            scene_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
         )
 
     @staticmethod
     def _build_focused_analysis_prompt_webnovel(
-        scene_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+        scene_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
     ) -> str:
         """Feedback request / focused analysis (analyze). Task scope only."""
         text = str(scene_content or "").strip()
@@ -12007,7 +12200,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_focused_analysis_prompt_genre_lit(scene_content: str) -> str:
@@ -12061,16 +12254,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_focused_analysis_multi_prompt_genre_lit(combined_text)
         return cls._build_focused_analysis_multi_prompt_webnovel(
-            combined_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+            combined_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
         )
 
     @staticmethod
     def _build_focused_analysis_multi_prompt_webnovel(
-        combined_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+        combined_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
     ) -> str:
         """Contiguous multi-episode feedback (analyze_multi). Task scope only."""
         text = str(combined_text or "").strip()
@@ -12127,7 +12321,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_focused_analysis_multi_prompt_genre_lit(combined_text: str) -> str:
@@ -12189,7 +12383,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     @classmethod
     def _build_next_idea_prompt(cls, scene_content: str, cluster_id: object = "",
-                                main_genre: object = "", sub_genre: object = "", genre_detail: object = "") -> str:
+                                main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = "") -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_next_idea_prompt_genre_lit(scene_content)
         return inject_genre_playbook_suggest_section(
@@ -12197,6 +12391,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12266,6 +12461,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_next_idea_with_next_scene_prompt_genre_lit(prev_tail, next_text)
@@ -12274,6 +12470,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12359,6 +12556,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_brainstorm_prompt_genre_lit(scene_content, user_topic)
@@ -12367,6 +12565,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12456,6 +12655,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_brainstorm_with_next_scene_prompt_genre_lit(prev_tail, next_text, user_topic)
@@ -12464,6 +12664,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12613,6 +12814,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_world_description_prompt_genre_lit(target_subject, scene_content)
@@ -12621,6 +12823,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12709,6 +12912,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_description_expand_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
@@ -12719,6 +12923,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
+            content_rating,
         )
 
     @staticmethod
@@ -12821,16 +13026,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_setting_break_scan_prompt_genre_lit(original_text)
         return cls._build_setting_break_scan_prompt_webnovel(
-            original_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
+            original_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
         )
 
     @staticmethod
     def _build_setting_break_scan_prompt_webnovel(
-        original_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
+        original_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
     ) -> str:
         """Setting-break detector task prompt (worldscan). No Core Identity block."""
         text = str(original_text or "").strip()
@@ -12879,7 +13085,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[검사 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
 
     @staticmethod
     def _build_setting_break_scan_prompt_genre_lit(original_text: str) -> str:
@@ -18485,6 +18691,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 sub_genre = str(body.get("sub_genre") or "").strip()[:80]
             if "genre_detail" in body:
                 stored_genre_detail = str(body.get("genre_detail") or "").strip()
+            stored_content_rating = ""
+            if row and "content_rating" in row.keys():
+                stored_content_rating = str(row["content_rating"] or "").strip()
+            else:
+                try:
+                    rating_row = connection.execute(
+                        "SELECT content_rating FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
+                    if rating_row:
+                        stored_content_rating = str(rating_row["content_rating"] or "").strip()
+                except sqlite3.OperationalError:
+                    stored_content_rating = ""
+            if "content_rating" in body:
+                stored_content_rating = parse_content_rating(body.get("content_rating"))
             if "keywords" in body:
                 keywords = parse_project_keywords(body.get("keywords"))
             if "purpose" in body:
@@ -18564,6 +18785,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 main_genre, sub_genre, stored_genre_detail
             )
             set_project_genre_detail(connection, project_id, genre_detail)
+            set_project_content_rating(connection, project_id, stored_content_rating)
         return {
             "ok": True,
             "synopsis_md": synopsis,
@@ -18577,6 +18799,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "sub_genre": sub_genre,
             "genre_detail": genre_detail,
             "genre_detail_label": genre_clusters.genre_detail_label(genre_detail),
+            "content_rating": stored_content_rating,
             "cluster_id": cluster_id,
             "keywords": keywords,
             "purpose": purpose,

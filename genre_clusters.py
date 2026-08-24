@@ -97,6 +97,8 @@ CLUSTER_HIDDEN_FEATURES: dict[str, frozenset[str]] = {
 GENRE_DETAIL_OPTIONS: dict[tuple[str, str], frozenset[str]] = {
     ("romance", "modern"): frozenset({"", "historical"}),
     ("romance", "romfant"): frozenset({"", "oriental_romfant"}),
+    ("romance", "bl"): frozenset({""}),
+    ("romance", "gl"): frozenset({""}),
     ("fantasy", "male"): frozenset({"", "alt_history", "murim", "urban", "hidden_world", "traditional", "sports"}),
     ("fantasy", "female"): frozenset({""}),
 }
@@ -144,6 +146,8 @@ CLUSTER_SUBGENRE_MAP: dict[str, dict[str, tuple[str, str, str]]] = {
     "webnovel": {
         "romance": ("web_novel", "romance", "modern"),
         "romfant": ("web_novel", "romance", "romfant"),
+        "bl": ("web_novel", "romance", "bl"),
+        "gl": ("web_novel", "romance", "gl"),
         "female_fantasy": ("web_novel", "fantasy", "female"),
         "male_fantasy": ("web_novel", "fantasy", "male"),
     },

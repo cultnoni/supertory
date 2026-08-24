@@ -82,6 +82,14 @@ class GenreClusterLogicTests(unittest.TestCase):
         mapped = genre_clusters.map_cluster_subgenre("webnovel", "romfant")
         self.assertEqual(mapped, ("web_novel", "romance", "romfant"))
         self.assertEqual(
+            genre_clusters.map_cluster_subgenre("webnovel", "bl"),
+            ("web_novel", "romance", "bl"),
+        )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("webnovel", "gl"),
+            ("web_novel", "romance", "gl"),
+        )
+        self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "mystery_detective"),
             ("general_novel", "mystery", "honkaku"),
         )
@@ -111,6 +119,10 @@ class GenreClusterLogicTests(unittest.TestCase):
             genre_clusters.normalize_genre_detail("romance", "romfant", "oriental_romfant"),
             "oriental_romfant",
         )
+        self.assertEqual(genre_clusters.allowed_genre_details("romance", "bl"), frozenset({""}))
+        self.assertEqual(genre_clusters.allowed_genre_details("romance", "gl"), frozenset({""}))
+        self.assertEqual(genre_clusters.normalize_genre_detail("romance", "bl", "historical"), "")
+        self.assertEqual(genre_clusters.normalize_genre_detail("romance", "gl", "oriental_romfant"), "")
         self.assertEqual(
             genre_clusters.normalize_genre_detail("fantasy", "male", "alt_history"),
             "alt_history",
