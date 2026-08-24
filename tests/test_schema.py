@@ -535,31 +535,6 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(stored, "historical")
 
-    def test_project_content_rating_column_is_added(self) -> None:
-        root = Path(__file__).resolve().parents[1] / "db"
-        self.db.executescript((root / "065_project_content_rating.sql").read_text(encoding="utf-8"))
-        cols = {
-            str(row[1])
-            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
-        }
-        self.assertIn("content_rating", cols)
-        version = self.db.execute(
-            "SELECT name FROM schema_migration WHERE version = 65"
-        ).fetchone()[0]
-        self.assertEqual(version, "project_content_rating")
-        self.db.execute("INSERT INTO project(title) VALUES ('수위 미설정')")
-        stored = self.db.execute(
-            "SELECT content_rating FROM project WHERE title = '수위 미설정'"
-        ).fetchone()[0]
-        self.assertEqual(stored, "")
-        self.db.execute(
-            "INSERT INTO project(title, content_rating) VALUES ('매운맛', '19_hard')"
-        )
-        stored_hard = self.db.execute(
-            "SELECT content_rating FROM project WHERE title = '매운맛'"
-        ).fetchone()[0]
-        self.assertEqual(stored_hard, "19_hard")
-
     def test_user_ambient_tracks_table_is_added(self) -> None:
         root = Path(__file__).resolve().parents[1] / "db"
         self.db.executescript((root / "059_user_ambient_tracks.sql").read_text(encoding="utf-8"))
@@ -596,6 +571,38 @@ class SuperTorySchemaTests(unittest.TestCase):
             "INSERT INTO user_ambient_tracks("
             "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
             "VALUES ('x.wav', 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb.mp3', 1, 10, 'invalid')"
+        )
+
+    def test_user_ambient_tracks_custom_category_migration(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "059_user_ambient_tracks.sql").read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO user_ambient_tracks("
+            "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+            "VALUES ('rain.wav', 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.mp3', 12.5, 2048, 'nature')"
+        )
+        self.db.executescript(
+            (root / "066_user_ambient_tracks_custom_category.sql").read_text(encoding="utf-8")
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 66"
+        ).fetchone()[0]
+        self.assertEqual(version, "user_ambient_tracks_custom_category")
+        stored = self.db.execute(
+            "SELECT category, original_filename FROM user_ambient_tracks"
+        ).fetchone()
+        self.assertEqual(tuple(stored), ("custom", "rain.wav"))
+        self.db.execute(
+            "INSERT INTO user_ambient_tracks("
+            "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+            "VALUES ('mine.wav', 'cccccccccccccccccccccccccccccccc.mp3', 3, 100, 'custom')"
+        )
+        count = self.db.execute("SELECT COUNT(*) FROM user_ambient_tracks").fetchone()[0]
+        self.assertEqual(count, 2)
+        self.assert_integrity_error(
+            "INSERT INTO user_ambient_tracks("
+            "original_filename, stored_filename, duration_seconds, file_size_bytes, category) "
+            "VALUES ('x.wav', 'dddddddddddddddddddddddddddddddd.mp3', 1, 10, 'invalid')"
         )
 
     def test_ambient_track_overrides_table_is_added(self) -> None:
@@ -747,6 +754,146 @@ class SuperTorySchemaTests(unittest.TestCase):
             "SELECT COUNT(*) FROM translation_segments"
         ).fetchone()[0]
         self.assertEqual(leftover_segments, 0)
+
+    def test_translation_proper_nouns_source_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "062_translation_proper_nouns_origin.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(translation_proper_nouns)").fetchall()
+        }
+        self.assertIn("source", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 62"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_proper_nouns_source")
+
+    def test_translation_pipeline_schema_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "062_translation_proper_nouns_origin.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "063_translation_pipeline.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(translation_jobs)").fetchall()
+        }
+        self.assertTrue(
+            {
+                "narrative_formatting_rules_json",
+                "pipeline_failed_step",
+                "pipeline_error",
+                "proper_nouns_confirmed",
+                "proper_nouns_extracted",
+            }.issubset(cols)
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 63"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_pipeline_orchestration")
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language, status) "
+            "VALUES (1, 'en', 'awaiting_review')"
+        )
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language, status) "
+            "VALUES (1, 'en', 'translated')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_jobs(local_project_id, target_language, status) "
+            "VALUES (1, 'es', 'paused')"
+        )
+
+    def test_translation_word_context_cache_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "062_translation_proper_nouns_origin.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "063_translation_pipeline.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "064_translation_word_context_cache.sql").read_text(encoding="utf-8")
+        )
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("translation_word_context_cache", tables)
+        cols = {
+            str(row[1])
+            for row in self.db.execute(
+                "PRAGMA table_info(translation_word_context_cache)"
+            ).fetchall()
+        }
+        self.assertEqual(
+            cols,
+            {"id", "segment_id", "word", "explanation", "created_at"},
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 64"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_word_context_cache")
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language) VALUES (1, 'en')"
+        )
+        job_id = self.db.execute("SELECT id FROM translation_jobs").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_segments"
+            "(translation_job_id, chapter_number, segment_order, source_text, translated_text) "
+            "VALUES (?, 1, 0, '원문', 'Iona hurried home.')",
+            (job_id,),
+        )
+        segment_id = self.db.execute("SELECT id FROM translation_segments").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_word_context_cache(segment_id, word, explanation) "
+            "VALUES (?, 'hurried', '서두름을 담았어요.')",
+            (segment_id,),
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_word_context_cache(segment_id, word, explanation) "
+            "VALUES (?, 'hurried', '중복')",
+            (segment_id,),
+        )
+        self.db.execute("DELETE FROM translation_segments WHERE id = ?", (segment_id,))
+        leftover = self.db.execute(
+            "SELECT COUNT(*) FROM translation_word_context_cache"
+        ).fetchone()[0]
+        self.assertEqual(leftover, 0)
+
+    def test_project_content_rating_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "065_project_content_rating.sql").read_text(encoding="utf-8"))
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("content_rating", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 65"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_content_rating")
+        self.db.execute("INSERT INTO project(title) VALUES ('수위 미설정')")
+        stored = self.db.execute(
+            "SELECT content_rating FROM project WHERE title = '수위 미설정'"
+        ).fetchone()[0]
+        self.assertEqual(stored, "")
+        self.db.execute(
+            "INSERT INTO project(title, content_rating) VALUES ('매운맛', '19_hard')"
+        )
+        stored_hard = self.db.execute(
+            "SELECT content_rating FROM project WHERE title = '매운맛'"
+        ).fetchone()[0]
+        self.assertEqual(stored_hard, "19_hard")
 
 
 if __name__ == "__main__":

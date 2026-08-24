@@ -59,6 +59,8 @@ import proof_pipeline
 import scene_cast_detect
 import success_pattern
 import tarot_deck
+import translation_context
+import translation_prompts
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
 from sync.project_sync import (
@@ -164,7 +166,11 @@ MIGRATION_058_PATH = ROOT / "db" / "058_project_genre_detail.sql"
 MIGRATION_059_PATH = ROOT / "db" / "059_user_ambient_tracks.sql"
 MIGRATION_060_PATH = ROOT / "db" / "060_ambient_track_overrides.sql"
 MIGRATION_061_PATH = ROOT / "db" / "061_translation_jobs.sql"
+MIGRATION_062_PATH = ROOT / "db" / "062_translation_proper_nouns_origin.sql"
+MIGRATION_063_PATH = ROOT / "db" / "063_translation_pipeline.sql"
+MIGRATION_064_PATH = ROOT / "db" / "064_translation_word_context_cache.sql"
 MIGRATION_065_PATH = ROOT / "db" / "065_project_content_rating.sql"
+MIGRATION_066_PATH = ROOT / "db" / "066_user_ambient_tracks_custom_category.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -250,9 +256,8 @@ def list_ambient_sound_catalog() -> dict:
                     "url": f"/api/ambient-file/{ambient_file_token(folder, path.name)}",
                 })
         categories.append({"id": folder, "tracks": tracks})
-    custom_by_category, usage = load_custom_ambient_tracks()
-    for category in categories:
-        category["tracks"].extend(custom_by_category.get(category["id"], []))
+    custom_tracks, usage = load_custom_ambient_tracks()
+    categories.append({"id": CUSTOM_AMBIENT_FOLDER, "tracks": custom_tracks})
     apply_ambient_track_overrides(categories)
     return {"categories": categories, "usage": usage}
 
@@ -360,10 +365,9 @@ def custom_ambient_usage(connection: sqlite3.Connection | None = None) -> dict:
 def custom_ambient_track_public(row: sqlite3.Row | dict) -> dict:
     stored = str(row["stored_filename"])
     original = str(row["original_filename"])
-    category = str(row["category"])
     return {
         "id": f"custom:{int(row['id'])}",
-        "category": category,
+        "category": CUSTOM_AMBIENT_FOLDER,
         "file": original,
         "stem": Path(original).stem,
         "url": f"/api/ambient-file/{ambient_file_token(CUSTOM_AMBIENT_FOLDER, stored)}",
@@ -374,8 +378,8 @@ def custom_ambient_track_public(row: sqlite3.Row | dict) -> dict:
     }
 
 
-def load_custom_ambient_tracks() -> tuple[dict[str, list[dict]], dict]:
-    grouped = {folder: [] for folder in AMBIENT_SOUND_FOLDERS}
+def load_custom_ambient_tracks() -> tuple[list[dict], dict]:
+    tracks: list[dict] = []
     usage = custom_ambient_usage()
     try:
         with database() as connection:
@@ -386,16 +390,13 @@ def load_custom_ambient_tracks() -> tuple[dict[str, list[dict]], dict]:
             ).fetchall()
             usage = custom_ambient_usage(connection)
     except sqlite3.Error:
-        return grouped, usage
+        return tracks, usage
     for row in rows:
-        category = str(row["category"])
-        if category not in grouped:
-            continue
         stored = str(row["stored_filename"])
         if resolve_custom_ambient_file(stored) is None:
             continue
-        grouped[category].append(custom_ambient_track_public(row))
-    return grouped, usage
+        tracks.append(custom_ambient_track_public(row))
+    return tracks, usage
 
 
 def sanitize_ambient_upload_filename(name: str) -> str:
@@ -450,9 +451,7 @@ def parse_multipart_form(handler) -> tuple[dict[str, str], dict[str, tuple[str, 
 
 
 def save_custom_ambient_track(category: str, original_filename: str, file_bytes: bytes) -> dict:
-    category = str(category or "").strip()
-    if category not in AMBIENT_SOUND_FOLDERS:
-        raise ValueError("카테고리를 선택해 주세요.")
+    category = CUSTOM_AMBIENT_FOLDER
     if not file_bytes:
         raise ValueError("업로드 파일이 비어 있습니다.")
     original_filename = sanitize_ambient_upload_filename(original_filename)
@@ -1547,8 +1546,16 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_060_PATH.read_text(encoding="utf-8"))
         if 61 not in applied:
             connection.executescript(MIGRATION_061_PATH.read_text(encoding="utf-8"))
+        if 62 not in applied:
+            connection.executescript(MIGRATION_062_PATH.read_text(encoding="utf-8"))
+        if 63 not in applied:
+            connection.executescript(MIGRATION_063_PATH.read_text(encoding="utf-8"))
+        if 64 not in applied:
+            connection.executescript(MIGRATION_064_PATH.read_text(encoding="utf-8"))
         if 65 not in applied:
             connection.executescript(MIGRATION_065_PATH.read_text(encoding="utf-8"))
+        if 66 not in applied:
+            connection.executescript(MIGRATION_066_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1562,6 +1569,7 @@ def initialise_database() -> None:
         ensure_project_genre_detail_column(connection)
         ensure_project_content_rating_column(connection)
         ensure_user_ambient_tracks_table(connection)
+        ensure_user_ambient_tracks_custom_category(connection)
         ensure_ambient_track_overrides_table(connection)
         ensure_translation_jobs_tables(connection)
         ensure_virtual_reader_personas(connection)
@@ -2010,7 +2018,7 @@ def ensure_user_ambient_tracks_table(connection: sqlite3.Connection) -> None:
                 stored_filename TEXT NOT NULL UNIQUE,
                 duration_seconds REAL NOT NULL DEFAULT 0,
                 file_size_bytes INTEGER NOT NULL DEFAULT 0,
-                category TEXT NOT NULL CHECK (category IN ('frequency', 'noise', 'nature', 'ambient')),
+                category TEXT NOT NULL DEFAULT 'custom' CHECK (category IN ('frequency', 'noise', 'nature', 'ambient', 'custom')),
                 created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
             );
             CREATE INDEX IF NOT EXISTS ix_user_ambient_tracks_category
@@ -2020,6 +2028,31 @@ def ensure_user_ambient_tracks_table(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (59, 'user_ambient_tracks')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_user_ambient_tracks_custom_category(connection: sqlite3.Connection) -> None:
+    """Idempotent: user_ambient_tracks custom style (migration 066)."""
+    try:
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'user_ambient_tracks'"
+        ).fetchone()
+        if row is None:
+            return
+        sql = str(row[0] or "")
+        needs_rebuild = "'custom'" not in sql
+        if needs_rebuild:
+            connection.executescript(MIGRATION_066_PATH.read_text(encoding="utf-8"))
+            return
+        connection.execute(
+            "UPDATE user_ambient_tracks SET category = 'custom' "
+            "WHERE category IS NULL OR category != 'custom'"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (66, 'user_ambient_tracks_custom_category')"
         )
     except sqlite3.Error:
         pass
@@ -2061,9 +2094,20 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
                     CHECK (culture_localization_level IS NULL
                            OR culture_localization_level IN ('tight', 'moderate', 'as_is')),
                 status TEXT NOT NULL DEFAULT 'draft'
-                    CHECK (status IN ('draft', 'in_progress', 'completed')),
+                    CHECK (status IN (
+                        'draft',
+                        'awaiting_review',
+                        'in_progress',
+                        'translated',
+                        'completed'
+                    )),
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+                narrative_formatting_rules_json TEXT,
+                pipeline_failed_step TEXT,
+                pipeline_error TEXT,
+                proper_nouns_confirmed INTEGER NOT NULL DEFAULT 0,
+                proper_nouns_extracted INTEGER NOT NULL DEFAULT 0,
                 FOREIGN KEY (local_project_id) REFERENCES project(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS ix_translation_jobs_project
@@ -2097,6 +2141,7 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
                     CHECK (user_decision IS NULL
                            OR user_decision IN ('keep_romanized', 'rename', 'keep_as_is')),
                 final_term TEXT,
+                source TEXT NOT NULL DEFAULT 'ai_detected',
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (translation_job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE
             );
@@ -2148,14 +2193,2122 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_translation_submission_package_job
                 ON translation_submission_package(translation_job_id);
+            CREATE TABLE IF NOT EXISTS translation_word_context_cache (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                segment_id INTEGER NOT NULL,
+                word TEXT NOT NULL,
+                explanation TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                FOREIGN KEY (segment_id) REFERENCES translation_segments(id) ON DELETE CASCADE,
+                UNIQUE(segment_id, word)
+            );
+            CREATE INDEX IF NOT EXISTS ix_translation_word_context_cache_segment
+                ON translation_word_context_cache(segment_id);
             """
         )
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (61, 'translation_jobs')"
         )
+        ensure_translation_proper_nouns_source_column(connection)
+        ensure_translation_pipeline_schema(connection)
+        ensure_translation_word_context_cache(connection)
     except sqlite3.Error:
         pass
+
+
+def _translation_proper_noun_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_proper_nouns)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def ensure_translation_proper_nouns_source_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: translation_proper_nouns.source (migration 062)."""
+    cols = _translation_proper_noun_columns(connection)
+    if not cols:
+        return
+    if "source" not in cols:
+        connection.execute(
+            "ALTER TABLE translation_proper_nouns "
+            "ADD COLUMN source TEXT NOT NULL DEFAULT 'ai_detected'"
+        )
+        cols = _translation_proper_noun_columns(connection)
+    if "origin" in cols and "source" in cols:
+        try:
+            connection.execute(
+                "UPDATE translation_proper_nouns "
+                "SET source = origin "
+                "WHERE origin IN ('character_index', 'ai_detected')"
+            )
+        except sqlite3.Error:
+            pass
+    try:
+        connection.execute(
+            "UPDATE schema_migration SET name = 'translation_proper_nouns_source' "
+            "WHERE version = 62"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (62, 'translation_proper_nouns_source')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_translation_proper_nouns_origin_column(connection: sqlite3.Connection) -> None:
+    ensure_translation_proper_nouns_source_column(connection)
+
+
+TRANSLATION_JOB_STATUSES = (
+    "draft",
+    "awaiting_review",
+    "in_progress",
+    "translated",
+    "completed",
+)
+TRANSLATION_PIPELINE_STEPS = (
+    "narrative_formatting",
+    "scene_split",
+    "proper_nouns",
+    "paragraph_translation",
+    "submission_package",
+)
+
+
+def _translation_job_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_jobs)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def ensure_translation_pipeline_schema(connection: sqlite3.Connection) -> None:
+    """Idempotent: pipeline columns and expanded translation_jobs.status (migration 063)."""
+    cols = _translation_job_columns(connection)
+    if not cols:
+        return
+    additions = (
+        ("narrative_formatting_rules_json", "TEXT"),
+        ("pipeline_failed_step", "TEXT"),
+        ("pipeline_error", "TEXT"),
+        ("proper_nouns_confirmed", "INTEGER NOT NULL DEFAULT 0"),
+        ("proper_nouns_extracted", "INTEGER NOT NULL DEFAULT 0"),
+    )
+    for name, declaration in additions:
+        if name not in cols:
+            connection.execute(
+                f"ALTER TABLE translation_jobs ADD COLUMN {name} {declaration}"
+            )
+            cols.add(name)
+    create_sql = ""
+    row = connection.execute(
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'translation_jobs'"
+    ).fetchone()
+    if row:
+        create_sql = str(row[0] or "")
+    if "awaiting_review" not in create_sql:
+        _rebuild_translation_jobs_status_check(connection)
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (63, 'translation_pipeline_orchestration')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_translation_word_context_cache(connection: sqlite3.Connection) -> None:
+    """Idempotent: translation_word_context_cache (migration 064)."""
+    connection.execute(
+        """
+        CREATE TABLE IF NOT EXISTS translation_word_context_cache (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            segment_id INTEGER NOT NULL,
+            word TEXT NOT NULL,
+            explanation TEXT NOT NULL,
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (segment_id) REFERENCES translation_segments(id) ON DELETE CASCADE,
+            UNIQUE(segment_id, word)
+        )
+        """
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS ix_translation_word_context_cache_segment "
+        "ON translation_word_context_cache(segment_id)"
+    )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (64, 'translation_word_context_cache')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> None:
+    rows = [
+        dict(item)
+        for item in connection.execute("SELECT * FROM translation_jobs").fetchall()
+    ]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute("ALTER TABLE translation_jobs RENAME TO translation_jobs_old_063")
+    connection.execute(
+        """
+        CREATE TABLE translation_jobs (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            local_project_id INTEGER NOT NULL,
+            target_language TEXT NOT NULL,
+            cliffhanger_chapter INTEGER,
+            style_guide_json TEXT,
+            culture_localization_level TEXT
+                CHECK (culture_localization_level IS NULL
+                       OR culture_localization_level IN ('tight', 'moderate', 'as_is')),
+            status TEXT NOT NULL DEFAULT 'draft'
+                CHECK (status IN (
+                    'draft',
+                    'awaiting_review',
+                    'in_progress',
+                    'translated',
+                    'completed'
+                )),
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+            narrative_formatting_rules_json TEXT,
+            pipeline_failed_step TEXT,
+            pipeline_error TEXT,
+            proper_nouns_confirmed INTEGER NOT NULL DEFAULT 0,
+            proper_nouns_extracted INTEGER NOT NULL DEFAULT 0,
+            FOREIGN KEY (local_project_id) REFERENCES project(id) ON DELETE CASCADE
+        )
+        """
+    )
+    for item in rows:
+        connection.execute(
+            """
+            INSERT INTO translation_jobs(
+                id, local_project_id, target_language, cliffhanger_chapter, style_guide_json,
+                culture_localization_level, status, created_at, updated_at,
+                narrative_formatting_rules_json, pipeline_failed_step, pipeline_error,
+                proper_nouns_confirmed, proper_nouns_extracted
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.get("id"),
+                item.get("local_project_id"),
+                item.get("target_language") or "en",
+                item.get("cliffhanger_chapter"),
+                item.get("style_guide_json"),
+                item.get("culture_localization_level"),
+                item.get("status") or "draft",
+                item.get("created_at"),
+                item.get("updated_at"),
+                item.get("narrative_formatting_rules_json"),
+                item.get("pipeline_failed_step"),
+                item.get("pipeline_error"),
+                int(item.get("proper_nouns_confirmed") or 0),
+                int(item.get("proper_nouns_extracted") or 0),
+            ),
+        )
+    connection.execute("DROP TABLE translation_jobs_old_063")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS ix_translation_jobs_project "
+        "ON translation_jobs(local_project_id)"
+    )
+    connection.execute("PRAGMA foreign_keys = ON")
+
+
+CULTURE_LOCALIZATION_LEVELS = ("tight", "moderate", "as_is")
+
+
+def split_source_paragraphs(text: str) -> list[str]:
+    """Split manuscript HTML/markdown into paragraph-sized translation segments."""
+    plain = plain_text_from_content(text or "")
+    chunks = re.split(r"\n\s*\n+", plain)
+    return [chunk.strip() for chunk in chunks if chunk.strip()]
+
+
+def _json_load_optional(raw: object) -> object | None:
+    if raw is None:
+        return None
+    text = str(raw).strip()
+    if not text:
+        return None
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        return text
+
+
+def serialize_translation_job(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    status = data.get("status") or "draft"
+    rules_raw = data.get("narrative_formatting_rules_json")
+    confirmed = data.get("proper_nouns_confirmed")
+    extracted = data.get("proper_nouns_extracted")
+    if confirmed is None:
+        proper_nouns_confirmed = status not in ("draft", "awaiting_review")
+    else:
+        proper_nouns_confirmed = bool(int(confirmed or 0))
+    return {
+        "id": int(data["id"]),
+        "local_project_id": int(data["local_project_id"]),
+        "target_language": data.get("target_language") or "en",
+        "cliffhanger_chapter": data.get("cliffhanger_chapter"),
+        "style_guide_json": _json_load_optional(data.get("style_guide_json")),
+        "culture_localization_level": data.get("culture_localization_level"),
+        "status": status,
+        "narrative_formatting_rules": _json_load_optional(rules_raw),
+        "pipeline_failed_step": data.get("pipeline_failed_step") or "",
+        "pipeline_error": data.get("pipeline_error") or "",
+        "proper_nouns_confirmed": proper_nouns_confirmed,
+        "proper_nouns_extracted": bool(int(extracted or 0)),
+        "created_at": data.get("created_at"),
+        "updated_at": data.get("updated_at"),
+    }
+
+
+def serialize_translation_scene_context(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    return {
+        "id": int(data["id"]),
+        "translation_job_id": int(data["translation_job_id"]),
+        "chapter_number": int(data["chapter_number"]),
+        "scene_order": int(data["scene_order"] or 0),
+        "relationship_tag": data.get("relationship_tag") or "",
+        "mood_tag": data.get("mood_tag") or "",
+        "situation_note": data.get("situation_note") or "",
+        "created_at": data.get("created_at"),
+    }
+
+
+def serialize_translation_segment(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    return {
+        "id": int(data["id"]),
+        "translation_job_id": int(data["translation_job_id"]),
+        "scene_context_id": data.get("scene_context_id"),
+        "chapter_number": int(data["chapter_number"]),
+        "segment_order": int(data["segment_order"]),
+        "source_text": data.get("source_text") or "",
+        "translated_text": data.get("translated_text") or "",
+        "translation_notes_json": _json_load_optional(data.get("translation_notes_json")),
+        "polished_text": data.get("polish_text") or data.get("polished_text") or "",
+        "is_approved": bool(int(data.get("is_approved") or 0)),
+        "created_at": data.get("created_at"),
+        "updated_at": data.get("updated_at"),
+    }
+
+
+def serialize_translation_proper_noun(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    alternatives_raw = _json_load_optional(data.get("suggested_alternatives_json"))
+    romanized = ""
+    alternatives: list[str] = []
+    if isinstance(alternatives_raw, dict):
+        romanized = str(alternatives_raw.get("romanized") or "").strip()
+        alt_list = (
+            alternatives_raw.get("alternatives")
+            or alternatives_raw.get("alternatives")
+            or alternatives_raw.get("suggested_alternatives")
+            or []
+        )
+        if isinstance(alt_list, list):
+            alternatives = [str(item).strip() for item in alt_list if str(item).strip()]
+    elif isinstance(alternatives_raw, list):
+        alternatives = [str(item).strip() for item in alternatives_raw if str(item).strip()]
+    source = str(data.get("source") or data.get("origin") or "ai_detected").strip() or "ai_detected"
+    if source not in ("character_index", "ai_detected"):
+        source = "ai_detected"
+    return {
+        "id": int(data["id"]),
+        "translation_job_id": int(data["translation_job_id"]),
+        "source_term": data.get("source_term") or "",
+        "term_type": data.get("term_type"),
+        "fit_judgment": data.get("fit_judgment"),
+        "judgment_reason": data.get("judgment_reason") or "",
+        "suggested_alternatives_json": alternatives_raw,
+        "suggested_alternatives": alternatives,
+        "romanized": romanized,
+        "user_decision": data.get("user_decision"),
+        "final_term": data.get("final_term") or "",
+        "source": source,
+        "origin": source,
+        "created_at": data.get("created_at"),
+    }
+
+
+def serialize_translation_chat_message(row: sqlite3.Row | dict) -> dict:
+    data = dict(row)
+    return {
+        "id": int(data["id"]),
+        "translation_job_id": int(data["translation_job_id"]),
+        "segment_id": data.get("segment_id"),
+        "dragged_text": data.get("dragged_text") or data.get("quoted_text") or "",
+        "quoted_text": data.get("dragged_text") or data.get("quoted_text") or "",
+        "role": data.get("role") or "user",
+        "message": data.get("message") or "",
+        "created_at": data.get("created_at"),
+    }
+
+
+def load_translation_job(
+    connection: sqlite3.Connection, job_id: int
+) -> sqlite3.Row:
+    ensure_translation_jobs_tables(connection)
+    row = connection.execute(
+        "SELECT * FROM translation_jobs WHERE id = ?",
+        (int(job_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("번역 작업을 찾을 수 없습니다.")
+    return row
+
+
+def translation_job_chapter_catalog(
+    connection: sqlite3.Connection, job_id: int, project_id: int
+) -> list[dict]:
+    rows = connection.execute(
+        "SELECT chapter_number, COUNT(*) AS segment_count "
+        "FROM translation_segments WHERE translation_job_id = ? "
+        "GROUP BY chapter_number ORDER BY chapter_number",
+        (int(job_id),),
+    ).fetchall()
+    scenes = list_scenes_in_binder_order(connection, int(project_id))
+    catalog = []
+    for row in rows:
+        number = int(row["chapter_number"])
+        title = f"{number}화"
+        index = number - 1
+        if 0 <= index < len(scenes):
+            scene_title = str(scenes[index].get("title") or "").strip()
+            chapter_title = str(scenes[index].get("chapter_title") or "").strip()
+            title = scene_title or chapter_title or title
+        catalog.append(
+            {
+                "number": number,
+                "title": title,
+                "segment_count": int(row["segment_count"] or 0),
+            }
+        )
+    return catalog
+
+
+def list_translation_jobs_for_project(
+    connection: sqlite3.Connection, project_id: int
+) -> list[dict]:
+    ensure_translation_jobs_tables(connection)
+    rows = connection.execute(
+        "SELECT * FROM translation_jobs WHERE local_project_id = ? "
+        "ORDER BY datetime(updated_at) DESC, id DESC",
+        (int(project_id),),
+    ).fetchall()
+    return [serialize_translation_job(row) for row in rows]
+
+
+def seed_translation_segments_from_manuscript(
+    connection: sqlite3.Connection,
+    *,
+    job_id: int,
+    project_id: int,
+) -> int:
+    """Create paragraph segments from the current manuscript. Idempotent per job."""
+    existing = connection.execute(
+        "SELECT COUNT(*) FROM translation_segments WHERE translation_job_id = ?",
+        (int(job_id),),
+    ).fetchone()
+    if existing and int(existing[0] or 0) > 0:
+        return int(existing[0] or 0)
+    scenes = list_scenes_in_binder_order(connection, int(project_id))
+    inserted = 0
+    stamp = utc_timestamp_now()
+    for episode_index, scene in enumerate(scenes, start=1):
+        paragraphs = split_source_paragraphs(str(scene.get("content_md") or ""))
+        for order, paragraph in enumerate(paragraphs, start=1):
+            connection.execute(
+                """
+                INSERT INTO translation_segments(
+                    translation_job_id, chapter_number, segment_order, source_text,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (int(job_id), episode_index, order, paragraph, stamp, stamp),
+            )
+            inserted += 1
+    return inserted
+
+
+def create_translation_job(
+    connection: sqlite3.Connection,
+    project_id: int,
+    body: dict | None = None,
+) -> dict:
+    payload = body if isinstance(body, dict) else {}
+    target_language = str(payload.get("target_language") or "en").strip() or "en"
+    culture = str(payload.get("culture_localization_level") or "moderate").strip()
+    if culture not in CULTURE_LOCALIZATION_LEVELS:
+        raise ValueError("문화반영범위 값이 올바르지 않습니다.")
+    style_guide = payload.get("style_guide_json")
+    if isinstance(style_guide, (dict, list)):
+        style_raw = json.dumps(style_guide, ensure_ascii=False)
+    else:
+        style_raw = str(style_guide).strip() if style_guide else None
+    cliffhanger = payload.get("cliffhanger_chapter")
+    try:
+        cliffhanger_chapter = int(cliffhanger) if cliffhanger not in (None, "") else None
+    except (TypeError, ValueError) as error:
+        raise ValueError("클리프행어 회차 번호가 올바르지 않습니다.") from error
+    stamp = utc_timestamp_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO translation_jobs(
+            local_project_id, target_language, cliffhanger_chapter, style_guide_json,
+            culture_localization_level, status, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
+        """,
+        (
+            int(project_id),
+            target_language,
+            cliffhanger_chapter,
+            style_raw,
+            culture,
+            stamp,
+            stamp,
+        ),
+    )
+    job_id = int(cursor.lastrowid)
+    seeded = seed_translation_segments_from_manuscript(
+        connection, job_id=job_id, project_id=int(project_id)
+    )
+    job = serialize_translation_job(load_translation_job(connection, job_id))
+    job["chapters"] = translation_job_chapter_catalog(connection, job_id, int(project_id))
+    job["seeded_segments"] = seeded
+    return job
+
+
+def translation_job_detail(connection: sqlite3.Connection, job_id: int) -> dict:
+    row = load_translation_job(connection, job_id)
+    job = serialize_translation_job(row)
+    project_id = int(job["local_project_id"])
+    job["chapters"] = translation_job_chapter_catalog(connection, int(job_id), project_id)
+    chat_rows = connection.execute(
+        "SELECT * FROM translation_chat_messages WHERE translation_job_id = ? "
+        "ORDER BY id ASC",
+        (int(job_id),),
+    ).fetchall()
+    job["chat_messages"] = [serialize_translation_chat_message(item) for item in chat_rows]
+    job["scene_contexts"] = list_translation_scene_contexts(connection, int(job_id))
+    package = load_translation_submission_package(connection, int(job_id))
+    if package:
+        job["submission_package"] = package
+    return job
+
+
+def list_translation_scene_contexts(
+    connection: sqlite3.Connection, job_id: int
+) -> list[dict]:
+    rows = connection.execute(
+        "SELECT * FROM translation_scene_contexts WHERE translation_job_id = ? "
+        "ORDER BY chapter_number ASC, scene_order ASC, id ASC",
+        (int(job_id),),
+    ).fetchall()
+    return [serialize_translation_scene_context(item) for item in rows]
+
+
+def load_translation_submission_package(
+    connection: sqlite3.Connection, job_id: int
+) -> dict | None:
+    row = connection.execute(
+        "SELECT * FROM translation_submission_package WHERE translation_job_id = ? "
+        "ORDER BY id DESC LIMIT 1",
+        (int(job_id),),
+    ).fetchone()
+    if row is None:
+        return None
+    data = dict(row)
+    return {
+        "id": int(data["id"]),
+        "translation_job_id": int(data["translation_job_id"]),
+        "synopsis_translated": data.get("synopsis_translated") or "",
+        "logline_translated": data.get("logline_translated") or "",
+        "sample_chapters_range": data.get("sample_chapters_range") or "",
+        "generated_at": data.get("generated_at"),
+    }
+
+
+def list_translation_segments(
+    connection: sqlite3.Connection, job_id: int, chapter: int | None
+) -> dict:
+    job_row = load_translation_job(connection, job_id)
+    job = serialize_translation_job(job_row)
+    project_id = int(job["local_project_id"])
+    sql = (
+        "SELECT * FROM translation_segments WHERE translation_job_id = ?"
+    )
+    params: list[object] = [int(job_id)]
+    if chapter is not None:
+        sql += " AND chapter_number = ?"
+        params.append(int(chapter))
+    sql += " ORDER BY chapter_number ASC, segment_order ASC, id ASC"
+    rows = connection.execute(sql, params).fetchall()
+    job["scene_contexts"] = list_translation_scene_contexts(connection, int(job_id))
+    return {
+        "job": job,
+        "chapter": chapter,
+        "chapters": translation_job_chapter_catalog(connection, int(job_id), project_id),
+        "segments": [serialize_translation_segment(row) for row in rows],
+        "scene_contexts": job["scene_contexts"],
+    }
+
+
+def list_translation_proper_nouns(connection: sqlite3.Connection, job_id: int) -> dict:
+    load_translation_job(connection, job_id)
+    rows = connection.execute(
+        "SELECT * FROM translation_proper_nouns WHERE translation_job_id = ? "
+        "ORDER BY id ASC",
+        (int(job_id),),
+    ).fetchall()
+    return {
+        "proper_nouns": [serialize_translation_proper_noun(row) for row in rows],
+    }
+
+
+PROPER_NOUN_SOURCES = ("character_index", "ai_detected")
+PROPER_NOUN_ORIGINS = PROPER_NOUN_SOURCES
+PROPER_NOUN_TERM_TYPES = ("character", "place", "item", "organization")
+PROPER_NOUN_FIT_JUDGMENTS = ("fits", "does_not_fit")
+PROPER_NOUN_USER_DECISIONS = ("keep_romanized", "rename", "keep_as_is")
+_INDEX_TERM_SPLIT = re.compile(r"[,，、/;·•|\n]+")
+_PROPER_NOUN_TERM_TYPE_MAP = {
+    "character": "character",
+    "character": "character",
+    "place": "place",
+    "place": "place",
+    "location": "place",
+    "item": "item",
+    "item": "item",
+    "organization": "organization",
+    "organization": "organization",
+    "org": "organization",
+}
+_PROPER_NOUN_FIT_MAP = {
+    "fits": "fits",
+    "does_not_fit": "does_not_fit",
+    "does_not_fit": "does_not_fit",
+}
+
+
+def _split_index_term_tokens(raw: object) -> list[str]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    chunks = _INDEX_TERM_SPLIT.split(text) if _INDEX_TERM_SPLIT.search(text) else [text]
+    tokens: list[str] = []
+    for chunk in chunks:
+        token = " ".join(str(chunk).split()).strip(" -–—·•")
+        if not token or len(token) > 40:
+            continue
+        if re.search(r"[.。!?]", token):
+            continue
+        tokens.append(token)
+    return tokens
+
+
+def _index_term_from_item(item: object) -> str:
+    if isinstance(item, dict):
+        for key in ("name", "name", "term", "title", "source_term", "source_term"):
+            value = str(item.get(key) or "").strip()
+            if value:
+                return value
+        return ""
+    return str(item or "").strip()
+
+
+def collect_character_world_index_terms(
+    connection: sqlite3.Connection, project_id: int
+) -> list[dict[str, str]]:
+    """Reuse character sheets + project auto-index + worldbuilding names/places/terms."""
+    collected: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add(term: object, term_type: str) -> None:
+        text = " ".join(str(term or "").split()).strip()
+        if not text:
+            return
+        key = text.casefold()
+        if key in seen:
+            return
+        kind = term_type if term_type in PROPER_NOUN_TERM_TYPES else "item"
+        seen.add(key)
+        collected.append({"source_term": text, "term_type": kind})
+
+    try:
+        existing = character_import_analysis.list_existing_characters(
+            connection, int(project_id)
+        )
+    except sqlite3.Error:
+        existing = []
+    for row in existing:
+        add(row.get("name") or row.get("name"), "character")
+
+    try:
+        alias_rows = connection.execute(
+            "SELECT alias FROM character_alias WHERE project_id = ? ORDER BY id",
+            (int(project_id),),
+        ).fetchall()
+    except sqlite3.Error:
+        alias_rows = []
+    for row in alias_rows:
+        add(row["alias"] if "alias" in row.keys() else row[0], "character")
+
+    try:
+        index_cols = {
+            str(col[1])
+            for col in connection.execute("PRAGMA table_info(project_index)").fetchall()
+        }
+    except sqlite3.Error:
+        index_cols = set()
+    char_col = next(
+        (name for name in ("characters_json", "characters_json") if name in index_cols),
+        None,
+    )
+    world_col = next(
+        (
+            name
+            for name in ("world_rules_json", "world_rules_json")
+            if name in index_cols
+        ),
+        None,
+    )
+    if char_col or world_col:
+        select_cols = ", ".join(part for part in (char_col, world_col) if part)
+        try:
+            index_row = connection.execute(
+                f"SELECT {select_cols} FROM project_index WHERE project_id = ?",
+                (int(project_id),),
+            ).fetchone()
+        except sqlite3.Error:
+            index_row = None
+        if index_row is not None:
+            parse_list = SuperToryHandler._parse_json_list
+            if char_col:
+                for item in parse_list(index_row[char_col]):
+                    add(_index_term_from_item(item), "character")
+            if world_col:
+                for item in parse_list(index_row[world_col]):
+                    label = _index_term_from_item(item)
+                    for token in _split_index_term_tokens(label):
+                        add(token, "item")
+
+    try:
+        project_cols = {
+            str(col[1])
+            for col in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        world_field = (
+            "worldbuilding_md"
+            if "worldbuilding_md" in project_cols
+            else "worldbuilding_md"
+            if "worldbuilding_md" in project_cols
+            else None
+        )
+        world_md = ""
+        if world_field:
+            world_row = connection.execute(
+                f"SELECT {world_field} FROM project WHERE id = ?",
+                (int(project_id),),
+            ).fetchone()
+            world_md = str(world_row[0] if world_row else "") if world_row else ""
+        values = world_import_analysis.parse_worldbuilding_md(world_md)
+    except (sqlite3.Error, AttributeError, TypeError):
+        values = {}
+    field_types = {
+        "locale": "place",
+        "factions": "organization",
+        "special": "item",
+        "unique": "item",
+    }
+    for field_id, term_type in field_types.items():
+        for token in _split_index_term_tokens(values.get(field_id)):
+            add(token, term_type)
+    return collected
+
+
+def _existing_proper_noun_keys(
+    connection: sqlite3.Connection, job_id: int
+) -> set[str]:
+    rows = connection.execute(
+        "SELECT source_term FROM translation_proper_nouns WHERE translation_job_id = ?",
+        (int(job_id),),
+    ).fetchall()
+    keys: set[str] = set()
+    for row in rows:
+        term = str(row["source_term"] if "source_term" in row.keys() else row[0] or "")
+        key = term.casefold().strip()
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _insert_translation_proper_noun(
+    connection: sqlite3.Connection,
+    *,
+    job_id: int,
+    source_term: str,
+    term_type: str | None,
+    fit_judgment: str | None,
+    judgment_reason: str,
+    alternatives_payload: object,
+    user_decision: str | None,
+    final_term: str | None,
+    source: str | None = None,
+    origin: str | None = None,
+) -> None:
+    stamp = utc_timestamp_now()
+    alternatives_json = None
+    if alternatives_payload is not None:
+        alternatives_json = json.dumps(alternatives_payload, ensure_ascii=False)
+    kind = term_type if term_type in PROPER_NOUN_TERM_TYPES else None
+    fit = fit_judgment if fit_judgment in PROPER_NOUN_FIT_JUDGMENTS else None
+    decision = user_decision if user_decision in PROPER_NOUN_USER_DECISIONS else None
+    source_value = source if source in PROPER_NOUN_SOURCES else None
+    if source_value is None:
+        source_value = origin if origin in PROPER_NOUN_SOURCES else "ai_detected"
+    ensure_translation_proper_nouns_source_column(connection)
+    cols = _translation_proper_noun_columns(connection)
+    columns = [
+        "translation_job_id",
+        "source_term",
+        "term_type",
+        "fit_judgment",
+        "judgment_reason",
+        "suggested_alternatives_json",
+        "user_decision",
+        "final_term",
+    ]
+    values: list[object] = [
+        int(job_id),
+        source_term,
+        kind,
+        fit,
+        judgment_reason or "",
+        alternatives_json,
+        decision,
+        final_term,
+    ]
+    if "source" in cols:
+        columns.append("source")
+        values.append(source_value)
+    if "origin" in cols:
+        columns.append("origin")
+        values.append(source_value)
+    columns.append("created_at")
+    values.append(stamp)
+    placeholders = ", ".join("?" for _ in columns)
+    connection.execute(
+        f"INSERT INTO translation_proper_nouns({', '.join(columns)}) VALUES ({placeholders})",
+        tuple(values),
+    )
+
+
+def _translation_job_source_text(connection: sqlite3.Connection, job_id: int) -> str:
+    rows = connection.execute(
+        "SELECT source_text FROM translation_segments WHERE translation_job_id = ? "
+        "ORDER BY chapter_number ASC, segment_order ASC, id ASC",
+        (int(job_id),),
+    ).fetchall()
+    parts = [str(row["source_text"] or "").strip() for row in rows]
+    return "\n\n".join(part for part in parts if part)
+
+
+def _parse_detected_proper_nouns(raw: str) -> list[dict]:
+    try:
+        parsed = SuperToryHandler._extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        parsed = {}
+    items = (
+        parsed.get("proper_nouns")
+        or parsed.get("proper_nouns")
+        or parsed.get("items")
+        or []
+    )
+    if not isinstance(items, list):
+        return []
+    results: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        source_term = str(
+            item.get("source_term")
+            or item.get("source_term")
+            or item.get("term")
+            or ""
+        ).strip()
+        if not source_term:
+            continue
+        term_type = _PROPER_NOUN_TERM_TYPE_MAP.get(
+            str(item.get("term_type") or item.get("term_type") or "").strip().casefold(),
+            "character",
+        )
+        fit = _PROPER_NOUN_FIT_MAP.get(
+            str(item.get("fit_judgment") or item.get("fit_judgment") or "").strip().casefold(),
+            "fits",
+        )
+        reason = str(
+            item.get("judgment_reason") or item.get("judgment_reason") or ""
+        ).strip()
+        romanized = str(item.get("romanized") or item.get("romanized") or "").strip()
+        alternatives = (
+            item.get("suggested_alternatives")
+            or item.get("suggested_alternatives")
+            or []
+        )
+        if not isinstance(alternatives, list):
+            alternatives = []
+        clean_alts = [str(alt).strip() for alt in alternatives if str(alt).strip()]
+        results.append(
+            {
+                "source_term": source_term,
+                "term_type": term_type,
+                "fit_judgment": fit,
+                "judgment_reason": reason,
+                "romanized": romanized,
+                "suggested_alternatives": clean_alts,
+            }
+        )
+    return results
+
+
+def extract_translation_proper_nouns(
+    connection: sqlite3.Connection, job_id: int
+) -> dict:
+    ensure_translation_proper_nouns_source_column(connection)
+    job_row = load_translation_job(connection, job_id)
+    job = serialize_translation_job(job_row)
+    project_id = int(job["local_project_id"])
+    existing_keys = _existing_proper_noun_keys(connection, job_id)
+    index_terms = collect_character_world_index_terms(connection, project_id)
+    seeded = 0
+    for item in index_terms:
+        source_term = item["source_term"]
+        key = source_term.casefold()
+        if key in existing_keys:
+            continue
+        _insert_translation_proper_noun(
+            connection,
+            job_id=int(job_id),
+            source_term=source_term,
+            term_type=item["term_type"],
+            fit_judgment="fits",
+            judgment_reason="",
+            alternatives_payload={"romanized": "", "alternatives": []},
+            user_decision="keep_as_is",
+            final_term=source_term,
+            source="character_index",
+        )
+        existing_keys.add(key)
+        seeded += 1
+
+    chapter_text = _translation_job_source_text(connection, job_id)
+    if len(chapter_text) > 100_000:
+        chapter_text = chapter_text[:100_000]
+    existing_names = [item["source_term"] for item in index_terms]
+    detected = 0
+    if chapter_text.strip():
+        if not gemini_client.is_configured():
+            raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+        prompt = translation_prompts.build_proper_noun_fit_prompt(
+            chapter_text, existing_index_terms=existing_names
+        )
+        try:
+            raw = gemini_client.generate_text(
+                prompt, temperature=0.3, max_output_tokens=4096
+            )
+        except gemini_client.GeminiError as error:
+            raise ValueError(str(error)) from error
+        for item in _parse_detected_proper_nouns(raw):
+            key = item["source_term"].casefold()
+            if key in existing_keys:
+                continue
+            _insert_translation_proper_noun(
+                connection,
+                job_id=int(job_id),
+                source_term=item["source_term"],
+                term_type=item["term_type"],
+                fit_judgment=item["fit_judgment"],
+                judgment_reason=item["judgment_reason"],
+                alternatives_payload={
+                    "romanized": item["romanized"],
+                    "alternatives": item["suggested_alternatives"],
+                },
+                user_decision=None,
+                final_term=None,
+                source="ai_detected",
+            )
+            existing_keys.add(key)
+            detected += 1
+
+    payload = list_translation_proper_nouns(connection, job_id)
+    payload["job"] = serialize_translation_job(load_translation_job(connection, job_id))
+    payload["seeded_from_index"] = seeded
+    payload["detected_new"] = detected
+    connection.execute(
+        "UPDATE translation_jobs SET proper_nouns_extracted = 1, "
+        "updated_at = datetime('now') WHERE id = ?",
+        (int(job_id),),
+    )
+    payload["job"] = serialize_translation_job(load_translation_job(connection, job_id))
+    return payload
+
+
+def decide_translation_proper_noun(
+    connection: sqlite3.Connection, noun_id: int, body: dict | None
+) -> dict:
+    ensure_translation_proper_nouns_source_column(connection)
+    payload = body if isinstance(body, dict) else {}
+    row = connection.execute(
+        "SELECT * FROM translation_proper_nouns WHERE id = ?",
+        (int(noun_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("고유명사 항목을 찾을 수 없습니다.")
+    decision = str(payload.get("user_decision") or "").strip()
+    if decision not in PROPER_NOUN_USER_DECISIONS:
+        raise ValueError("고유명사 결정 값이 올바르지 않습니다.")
+    final_term = str(payload.get("final_term") or "").strip()
+    if not final_term:
+        extras = serialize_translation_proper_noun(row)
+        if decision == "keep_romanized":
+            final_term = str(extras.get("romanized") or extras.get("source_term") or "").strip()
+        elif decision == "keep_as_is":
+            final_term = str(extras.get("source_term") or "").strip()
+    if not final_term:
+        raise ValueError("최종 표기를 입력해 주세요.")
+    connection.execute(
+        """
+        UPDATE translation_proper_nouns
+        SET user_decision = ?, final_term = ?
+        WHERE id = ?
+        """,
+        (decision, final_term, int(noun_id)),
+    )
+    updated = connection.execute(
+        "SELECT * FROM translation_proper_nouns WHERE id = ?",
+        (int(noun_id),),
+    ).fetchone()
+    return serialize_translation_proper_noun(updated)
+
+
+def confirm_translation_proper_nouns(
+    connection: sqlite3.Connection, job_id: int
+) -> dict:
+    ensure_translation_proper_nouns_source_column(connection)
+    load_translation_job(connection, job_id)
+    rows = connection.execute(
+        "SELECT id, source_term, final_term FROM translation_proper_nouns "
+        "WHERE translation_job_id = ?",
+        (int(job_id),),
+    ).fetchall()
+    missing = [
+        str(row["source_term"] or "")
+        for row in rows
+        if not str(row["final_term"] or "").strip()
+    ]
+    if missing:
+        raise ValueError(
+            "아직 최종 표기가 없는 고유명사가 있어요: " + ", ".join(missing[:8])
+        )
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET proper_nouns_confirmed = 1, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (int(job_id),),
+    )
+    detail = translation_job_detail(connection, job_id)
+    listing = list_translation_proper_nouns(connection, job_id)
+    detail["proper_nouns"] = listing["proper_nouns"]
+    return detail
+
+
+def _translation_pipeline_gemini(prompt: str, *, temperature: float, max_output_tokens: int) -> str:
+    if not gemini_client.is_configured():
+        raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+    try:
+        return gemini_client.generate_text(
+            prompt, temperature=temperature, max_output_tokens=max_output_tokens
+        )
+    except gemini_client.GeminiError as error:
+        raise ValueError(str(error)) from error
+
+
+def _record_translation_pipeline_failure(
+    connection: sqlite3.Connection, job_id: int, step: str, error: BaseException
+) -> None:
+    message = str(error).strip() or step
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET pipeline_failed_step = ?, pipeline_error = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (step, message[:2000], int(job_id)),
+    )
+    connection.commit()
+
+
+def _clear_translation_pipeline_failure(
+    connection: sqlite3.Connection, job_id: int
+) -> None:
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET pipeline_failed_step = NULL, pipeline_error = NULL, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (int(job_id),),
+    )
+
+
+def _translation_chapter_numbers(
+    connection: sqlite3.Connection, job_id: int
+) -> list[int]:
+    rows = connection.execute(
+        "SELECT DISTINCT chapter_number FROM translation_segments "
+        "WHERE translation_job_id = ? ORDER BY chapter_number ASC",
+        (int(job_id),),
+    ).fetchall()
+    return [int(row["chapter_number"]) for row in rows]
+
+
+def _translation_chapter_source_text(
+    connection: sqlite3.Connection, job_id: int, chapter_number: int
+) -> str:
+    rows = connection.execute(
+        "SELECT source_text FROM translation_segments "
+        "WHERE translation_job_id = ? AND chapter_number = ? "
+        "ORDER BY segment_order ASC, id ASC",
+        (int(job_id), int(chapter_number)),
+    ).fetchall()
+    parts = [str(row["source_text"] or "").strip() for row in rows]
+    return "\n\n".join(part for part in parts if part)
+
+
+def _translation_chapter_has_scenes(
+    connection: sqlite3.Connection, job_id: int, chapter_number: int
+) -> bool:
+    row = connection.execute(
+        "SELECT COUNT(*) AS n FROM translation_scene_contexts "
+        "WHERE translation_job_id = ? AND chapter_number = ?",
+        (int(job_id), int(chapter_number)),
+    ).fetchone()
+    return bool(row and int(row["n"] or 0) > 0)
+
+
+def _parse_narrative_formatting_output(raw: str) -> dict:
+    try:
+        parsed = SuperToryHandler._extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    conventions = parsed.get("detected_conventions") or []
+    if not isinstance(conventions, list):
+        conventions = []
+    handling = str(parsed.get("recommended_handling") or "").strip()
+    reason = str(parsed.get("recommendation_reason") or "").strip()
+    return {
+        "detected_conventions": conventions,
+        "recommended_handling": handling,
+        "recommendation_reason": reason,
+    }
+
+
+def detect_translation_narrative_formatting(
+    connection: sqlite3.Connection, job_id: int
+) -> tuple[dict, bool]:
+    """Detect narrative formatting rules. Skip when already stored. Returns (rules, skipped)."""
+    job = load_translation_job(connection, job_id)
+    existing = str(dict(job).get("narrative_formatting_rules_json") or "").strip()
+    if existing:
+        loaded = _json_load_optional(existing)
+        return (loaded if isinstance(loaded, dict) else {"raw": existing}, True)
+    source = _translation_job_source_text(connection, job_id)
+    if len(source) > 40_000:
+        source = source[:40_000]
+    prompt = translation_prompts.build_narrative_formatting_prompt(source)
+    raw = _translation_pipeline_gemini(prompt, temperature=0.2, max_output_tokens=2048)
+    rules = _parse_narrative_formatting_output(raw)
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET narrative_formatting_rules_json = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (json.dumps(rules, ensure_ascii=False), int(job_id)),
+    )
+    connection.commit()
+    return rules, False
+
+
+def _parse_scene_split_output(raw: str) -> list[dict]:
+    try:
+        parsed = SuperToryHandler._extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        parsed = {}
+    items = parsed.get("scenes") if isinstance(parsed, dict) else []
+    if not isinstance(items, list):
+        return []
+    scenes: list[dict] = []
+    for index, item in enumerate(items):
+        if not isinstance(item, dict):
+            continue
+        try:
+            start = int(item.get("start_paragraph_index", 0))
+            end = int(item.get("end_paragraph_index", start))
+        except (TypeError, ValueError):
+            continue
+        if end < start:
+            start, end = end, start
+        try:
+            order = int(item.get("scene_order", index + 1))
+        except (TypeError, ValueError):
+            order = index + 1
+        scenes.append(
+            {
+                "scene_order": order,
+                "start_paragraph_index": max(0, start),
+                "end_paragraph_index": max(0, end),
+                "relationship_tag": str(item.get("relationship_tag") or "").strip(),
+                "mood_tag": str(item.get("mood_tag") or "").strip(),
+                "situation_note": str(item.get("situation_note") or "").strip(),
+            }
+        )
+    return scenes
+
+
+def _attach_scene_context_to_segments(
+    connection: sqlite3.Connection,
+    *,
+    job_id: int,
+    chapter_number: int,
+    scene_id: int,
+    start_index: int,
+    end_index: int,
+) -> None:
+    rows = connection.execute(
+        "SELECT id FROM translation_segments "
+        "WHERE translation_job_id = ? AND chapter_number = ? "
+        "ORDER BY segment_order ASC, id ASC",
+        (int(job_id), int(chapter_number)),
+    ).fetchall()
+    ids = [int(row["id"]) for row in rows]
+    lo = max(0, int(start_index))
+    hi = min(len(ids) - 1, int(end_index))
+    if not ids or hi < lo:
+        return
+    for segment_id in ids[lo : hi + 1]:
+        connection.execute(
+            "UPDATE translation_segments SET scene_context_id = ?, updated_at = datetime('now') "
+            "WHERE id = ?",
+            (int(scene_id), int(segment_id)),
+        )
+
+
+def split_translation_scenes(
+    connection: sqlite3.Connection, job_id: int
+) -> tuple[list[dict], list[int]]:
+    """Split chapters into scene contexts. Skip chapters that already have scenes."""
+    skipped_chapters: list[int] = []
+    ran_chapters: list[int] = []
+    stamp = utc_timestamp_now()
+    for chapter_number in _translation_chapter_numbers(connection, job_id):
+        if _translation_chapter_has_scenes(connection, job_id, chapter_number):
+            skipped_chapters.append(chapter_number)
+            continue
+        chapter_text = _translation_chapter_source_text(
+            connection, job_id, chapter_number
+        )
+        if not chapter_text.strip():
+            skipped_chapters.append(chapter_number)
+            continue
+        prompt = translation_prompts.build_scene_split_prompt(chapter_text)
+        raw = _translation_pipeline_gemini(prompt, temperature=0.2, max_output_tokens=4096)
+        scenes = _parse_scene_split_output(raw)
+        if not scenes:
+            paragraph_count = connection.execute(
+                "SELECT COUNT(*) AS n FROM translation_segments "
+                "WHERE translation_job_id = ? AND chapter_number = ?",
+                (int(job_id), int(chapter_number)),
+            ).fetchone()
+            last_index = max(0, int(paragraph_count["n"] or 1) - 1)
+            scenes = [
+                {
+                    "scene_order": 1,
+                    "start_paragraph_index": 0,
+                    "end_paragraph_index": last_index,
+                    "relationship_tag": "",
+                    "mood_tag": "",
+                    "situation_note": "",
+                }
+            ]
+        for scene in scenes:
+            cursor = connection.execute(
+                """
+                INSERT INTO translation_scene_contexts(
+                    translation_job_id, chapter_number, scene_order,
+                    relationship_tag, mood_tag, situation_note, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    int(job_id),
+                    int(chapter_number),
+                    int(scene["scene_order"]),
+                    scene["relationship_tag"],
+                    scene["mood_tag"],
+                    scene["situation_note"],
+                    stamp,
+                ),
+            )
+            scene_id = int(cursor.lastrowid)
+            _attach_scene_context_to_segments(
+                connection,
+                job_id=int(job_id),
+                chapter_number=int(chapter_number),
+                scene_id=scene_id,
+                start_index=int(scene["start_paragraph_index"]),
+                end_index=int(scene["end_paragraph_index"]),
+            )
+        ran_chapters.append(chapter_number)
+        connection.commit()
+    return list_translation_scene_contexts(connection, job_id), skipped_chapters
+
+
+def start_translation_pipeline(connection: sqlite3.Connection, job_id: int) -> dict:
+    """Run formatting → scene split → proper-noun extract, then pause for review."""
+    ensure_translation_pipeline_schema(connection)
+    load_translation_job(connection, job_id)
+    skipped: list[str] = []
+    try:
+        _rules, formatting_skipped = detect_translation_narrative_formatting(
+            connection, job_id
+        )
+        if formatting_skipped:
+            skipped.append("narrative_formatting")
+    except Exception as error:
+        _record_translation_pipeline_failure(
+            connection, job_id, "narrative_formatting", error
+        )
+        raise
+    try:
+        _scenes, skipped_chapters = split_translation_scenes(connection, job_id)
+        chapters = _translation_chapter_numbers(connection, job_id)
+        if chapters and skipped_chapters and len(skipped_chapters) == len(chapters):
+            skipped.append("scene_split")
+    except Exception as error:
+        _record_translation_pipeline_failure(connection, job_id, "scene_split", error)
+        raise
+    try:
+        job = serialize_translation_job(load_translation_job(connection, job_id))
+        if job.get("proper_nouns_extracted"):
+            skipped.append("proper_nouns")
+            nouns_payload = list_translation_proper_nouns(connection, job_id)
+        else:
+            nouns_payload = extract_translation_proper_nouns(connection, job_id)
+            connection.commit()
+    except Exception as error:
+        _record_translation_pipeline_failure(connection, job_id, "proper_nouns", error)
+        raise
+    _clear_translation_pipeline_failure(connection, job_id)
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET status = 'awaiting_review', updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (int(job_id),),
+    )
+    connection.commit()
+    detail = translation_job_detail(connection, job_id)
+    detail["skipped_steps"] = skipped
+    detail["proper_nouns"] = nouns_payload.get("proper_nouns") or []
+    return detail
+
+
+def _confirmed_proper_nouns_glossary(
+    connection: sqlite3.Connection, job_id: int
+) -> str:
+    rows = connection.execute(
+        "SELECT source_term, final_term FROM translation_proper_nouns "
+        "WHERE translation_job_id = ? ORDER BY id ASC",
+        (int(job_id),),
+    ).fetchall()
+    parts = []
+    for row in rows:
+        source = str(row["source_term"] or "").strip()
+        final = str(row["final_term"] or "").strip()
+        if source and final:
+            parts.append(f"{source}→{final}")
+        elif source:
+            parts.append(source)
+    return ", ".join(parts)
+
+
+def _format_narrative_rules_for_prompt(rules: object) -> str:
+    if isinstance(rules, str):
+        text = rules.strip()
+        if not text:
+            return ""
+        loaded = _json_load_optional(text)
+        rules = loaded if loaded is not None else text
+    if not isinstance(rules, dict):
+        return str(rules or "").strip()
+    lines: list[str] = []
+    handling = str(rules.get("recommended_handling") or "").strip()
+    reason = str(rules.get("recommendation_reason") or "").strip()
+    if handling:
+        lines.append(f"권장 처리: {handling}")
+    if reason:
+        lines.append(reason)
+    conventions = rules.get("detected_conventions") or []
+    if isinstance(conventions, list):
+        for item in conventions:
+            if not isinstance(item, dict):
+                continue
+            marker = str(item.get("marker") or "").strip()
+            meaning = str(item.get("meaning") or "").strip()
+            if marker or meaning:
+                lines.append(f"- {marker}: {meaning}".strip())
+    return "\n".join(lines)
+
+
+def _parse_paragraph_translation_output(raw: str) -> tuple[str, object]:
+    try:
+        parsed = SuperToryHandler._extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    translated = str(
+        parsed.get("translated_text") or parsed.get("translation") or ""
+    ).strip()
+    notes = parsed.get("translation_notes") or parsed.get("notes") or []
+    if not translated:
+        raise ValueError("문단 번역 결과에서 translated_text 를 찾지 못했습니다.")
+    return translated, notes
+
+
+def _load_segment_scene_tags(
+    connection: sqlite3.Connection, scene_context_id: object
+) -> tuple[str, str]:
+    if not scene_context_id:
+        return "", ""
+    row = connection.execute(
+        "SELECT relationship_tag, mood_tag FROM translation_scene_contexts WHERE id = ?",
+        (int(scene_context_id),),
+    ).fetchone()
+    if row is None:
+        return "", ""
+    return str(row["relationship_tag"] or ""), str(row["mood_tag"] or "")
+
+
+def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) -> dict:
+    """Translate remaining segments in order after proper nouns are confirmed."""
+    ensure_translation_pipeline_schema(connection)
+    job_row = load_translation_job(connection, job_id)
+    job = serialize_translation_job(job_row)
+    if not job.get("proper_nouns_confirmed"):
+        raise ValueError("고유명사를 먼저 확정해야 번역을 진행할 수 있어요.")
+    rules = job.get("narrative_formatting_rules")
+    if not rules:
+        raise ValueError("번역 시작을 먼저 실행해 주세요.")
+    style = _style_guide_mapping(job.get("style_guide_json"))
+    glossary = _confirmed_proper_nouns_glossary(connection, job_id)
+    formatting = _format_narrative_rules_for_prompt(rules)
+    segments = connection.execute(
+        "SELECT * FROM translation_segments WHERE translation_job_id = ? "
+        "ORDER BY chapter_number ASC, segment_order ASC, id ASC",
+        (int(job_id),),
+    ).fetchall()
+    translated_count = 0
+    skipped_count = 0
+    try:
+        for row in segments:
+            existing = str(row["translated_text"] or "").strip()
+            if existing:
+                skipped_count += 1
+                continue
+            relationship, mood = _load_segment_scene_tags(
+                connection, row["scene_context_id"]
+            )
+            previous = translation_context.load_previous_translated_context(
+                connection,
+                int(job_id),
+                before_chapter_number=int(row["chapter_number"]),
+                before_segment_order=int(row["segment_order"]),
+            )
+            settings = {
+                "tense": style.get("tense") or "",
+                "character_voices": style.get("character_voices")
+                or style.get("voices")
+                or "",
+                "proper_nouns_confirmed": glossary,
+                "culture_localization_level": job.get("culture_localization_level")
+                or "moderate",
+                "relationship_tag": relationship,
+                "mood_tag": mood,
+                "narrative_formatting_rules": formatting,
+                "previous_context_summary": previous,
+            }
+            prompt = translation_prompts.build_paragraph_translation_prompt(
+                str(row["source_text"] or ""), settings
+            )
+            raw = _translation_pipeline_gemini(
+                prompt, temperature=0.4, max_output_tokens=4096
+            )
+            translated, notes = _parse_paragraph_translation_output(raw)
+            notes_raw = (
+                json.dumps(notes, ensure_ascii=False)
+                if not isinstance(notes, str)
+                else notes
+            )
+            connection.execute(
+                """
+                UPDATE translation_segments
+                SET translated_text = ?, translation_notes_json = ?, updated_at = datetime('now')
+                WHERE id = ?
+                """,
+                (translated, notes_raw, int(row["id"])),
+            )
+            connection.commit()
+            translated_count += 1
+    except Exception as error:
+        _record_translation_pipeline_failure(
+            connection, job_id, "paragraph_translation", error
+        )
+        raise
+    _clear_translation_pipeline_failure(connection, job_id)
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET status = 'translated', updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (int(job_id),),
+    )
+    connection.commit()
+    detail = translation_job_detail(connection, job_id)
+    listing = list_translation_segments(connection, job_id, None)
+    detail["segments"] = listing.get("segments") or []
+    detail["translated_count"] = translated_count
+    detail["skipped_segments"] = skipped_count
+    return detail
+
+
+def generate_translation_submission_package(
+    connection: sqlite3.Connection, job_id: int
+) -> dict:
+    """Build the English logline/synopsis package. Skip when already filled."""
+    ensure_translation_pipeline_schema(connection)
+    job_row = load_translation_job(connection, job_id)
+    job = serialize_translation_job(job_row)
+    existing = load_translation_submission_package(connection, job_id)
+    if (
+        existing
+        and str(existing.get("logline_translated") or "").strip()
+        and str(existing.get("synopsis_translated") or "").strip()
+    ):
+        detail = translation_job_detail(connection, job_id)
+        detail["skipped_steps"] = ["submission_package"]
+        return detail
+    project_id = int(job["local_project_id"])
+    project = connection.execute(
+        "SELECT description_md FROM project WHERE id = ?",
+        (project_id,),
+    ).fetchone()
+    korean_synopsis = str(project["description_md"] or "").strip() if project else ""
+    glossary = _confirmed_proper_nouns_glossary(connection, job_id)
+    settings = {"proper_nouns_confirmed": glossary}
+    prompt = translation_prompts.build_submission_query_prompt(
+        korean_synopsis, settings
+    )
+    try:
+        raw = _translation_pipeline_gemini(
+            prompt, temperature=0.4, max_output_tokens=4096
+        )
+        try:
+            parsed = SuperToryHandler._extract_json_object(raw)
+        except (ValueError, json.JSONDecodeError, TypeError):
+            parsed = {}
+        if not isinstance(parsed, dict):
+            parsed = {}
+        logline = str(parsed.get("logline") or "").strip()
+        synopsis = str(parsed.get("synopsis") or "").strip()
+        if not logline or not synopsis:
+            raise ValueError("투고 패키지 결과에서 logline/synopsis 를 찾지 못했습니다.")
+        chapters = _translation_chapter_numbers(connection, job_id)
+        cliff = job.get("cliffhanger_chapter")
+        if chapters:
+            last = int(cliff) if cliff not in (None, "") else chapters[-1]
+            sample_range = f"{chapters[0]}-{last}"
+        else:
+            sample_range = ""
+        stamp = utc_timestamp_now()
+        if existing:
+            connection.execute(
+                """
+                UPDATE translation_submission_package
+                SET synopsis_translated = ?, logline_translated = ?,
+                    sample_chapters_range = ?, generated_at = ?
+                WHERE id = ?
+                """,
+                (synopsis, logline, sample_range, stamp, int(existing["id"])),
+            )
+        else:
+            connection.execute(
+                """
+                INSERT INTO translation_submission_package(
+                    translation_job_id, synopsis_translated, logline_translated,
+                    sample_chapters_range, generated_at
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (int(job_id), synopsis, logline, sample_range, stamp),
+            )
+        connection.commit()
+    except Exception as error:
+        _record_translation_pipeline_failure(
+            connection, job_id, "submission_package", error
+        )
+        raise
+    _clear_translation_pipeline_failure(connection, job_id)
+    connection.commit()
+    return translation_job_detail(connection, job_id)
+
+
+FREE_DICTIONARY_API_URL = "https://api.dictionaryapi.dev/api/v2/entries/en/"
+_DICTIONARY_EDGE_PUNCT = re.compile(r"^[^\w']+|[^\w']+$", re.UNICODE)
+
+
+def normalize_dictionary_word(word: object) -> str:
+    text = str(word or "").strip()
+    if not text:
+        return ""
+    return _DICTIONARY_EDGE_PUNCT.sub("", text)
+
+
+def fetch_free_dictionary_payload(word: str) -> tuple[int, object]:
+    """Call Free Dictionary API. Returns (status_code, parsed_json)."""
+    clean = normalize_dictionary_word(word)
+    url = FREE_DICTIONARY_API_URL + quote(clean)
+    request = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "SuperTory/1.0",
+            "Accept": "application/json",
+        },
+        method="GET",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            raw = response.read().decode("utf-8") or "[]"
+            status = int(getattr(response, "status", 200) or 200)
+            return status, json.loads(raw)
+    except urllib.error.HTTPError as error:
+        body = error.read().decode("utf-8") if error.fp else ""
+        parsed: object = {}
+        if body:
+            try:
+                parsed = json.loads(body)
+            except json.JSONDecodeError:
+                parsed = {"title": body}
+        return int(error.code), parsed
+    except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as error:
+        raise ValueError("사전 조회에 실패했어요.") from error
+
+
+def lookup_translation_dictionary(word: object) -> dict:
+    clean = normalize_dictionary_word(word)
+    if not clean:
+        return {"found": False, "word": ""}
+    try:
+        status, payload = fetch_free_dictionary_payload(clean)
+    except ValueError:
+        return {"found": False, "word": clean}
+    if status != 200:
+        return {"found": False, "word": clean}
+    entries = payload if isinstance(payload, list) else []
+    entry = entries[0] if entries and isinstance(entries[0], dict) else None
+    if not entry:
+        return {"found": False, "word": clean}
+    phonetic = str(entry.get("phonetic") or "").strip()
+    if not phonetic:
+        for item in entry.get("phonetics") or []:
+            if isinstance(item, dict) and str(item.get("text") or "").strip():
+                phonetic = str(item.get("text") or "").strip()
+                break
+    meanings: list[dict] = []
+    for meaning in entry.get("meanings") or []:
+        if not isinstance(meaning, dict):
+            continue
+        definitions: list[str] = []
+        for item in meaning.get("definitions") or []:
+            if not isinstance(item, dict):
+                continue
+            definition = str(item.get("definition") or "").strip()
+            if definition:
+                definitions.append(definition)
+            if len(definitions) >= 2:
+                break
+        if not definitions:
+            continue
+        meanings.append(
+            {
+                "part_of_speech": str(meaning.get("partOfSpeech") or "").strip(),
+                "definitions": definitions,
+            }
+        )
+        if len(meanings) >= 3:
+            break
+    if not meanings:
+        return {"found": False, "word": clean}
+    return {
+        "found": True,
+        "word": str(entry.get("word") or clean),
+        "phonetic": phonetic,
+        "meanings": meanings,
+    }
+
+
+def _parse_translation_notes_list(raw: object) -> list[dict]:
+    data = raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return []
+    if isinstance(data, dict):
+        nested = data.get("notes") or data.get("translation_notes") or data.get("paraphrases")
+        data = nested if nested is not None else data
+    if not isinstance(data, list):
+        return []
+    return [item for item in data if isinstance(item, dict)]
+
+
+def _format_translation_notes_for_prompt(notes: list[dict]) -> str:
+    lines: list[str] = []
+    for item in notes:
+        translated_as = str(item.get("translated_as") or "").strip()
+        source_phrase = str(item.get("source_phrase") or "").strip()
+        note = str(item.get("note") or item.get("text") or item.get("reason") or "").strip()
+        if not note:
+            continue
+        if translated_as or source_phrase:
+            prefix = " → ".join(
+                part for part in (source_phrase, translated_as) if part
+            )
+            lines.append(f"{prefix}: {note}")
+        else:
+            lines.append(note)
+    return "\n".join(lines) if lines else "(없음)"
+
+
+def _note_explanation_for_word(notes: list[dict], word: str) -> str:
+    token = word.casefold()
+    if not token:
+        return ""
+    pattern = re.compile(r"\b" + re.escape(word) + r"\b", re.IGNORECASE)
+    for item in notes:
+        translated_as = str(item.get("translated_as") or "")
+        source_phrase = str(item.get("source_phrase") or "")
+        note = str(item.get("note") or item.get("text") or item.get("reason") or "").strip()
+        if not note:
+            continue
+        haystack = f"{translated_as} {source_phrase}"
+        if pattern.search(haystack) or token == translated_as.casefold():
+            return note
+    return ""
+
+
+def _parse_word_context_explanation(raw: str) -> str:
+    try:
+        parsed = SuperToryHandler._extract_json_object(raw)
+    except (ValueError, json.JSONDecodeError, TypeError):
+        parsed = {}
+    if not isinstance(parsed, dict):
+        parsed = {}
+    explanation = str(parsed.get("explanation") or "").strip()
+    if explanation:
+        return explanation
+    text = str(raw or "").strip()
+    if not text:
+        raise ValueError("문맥 설명을 만들지 못했어요.")
+    return text
+
+
+def _load_cached_word_context(
+    connection: sqlite3.Connection, segment_id: int, word: str
+) -> dict | None:
+    row = connection.execute(
+        "SELECT explanation FROM translation_word_context_cache "
+        "WHERE segment_id = ? AND word = ?",
+        (int(segment_id), word),
+    ).fetchone()
+    if row is None:
+        return None
+    return {
+        "segment_id": int(segment_id),
+        "word": word,
+        "explanation": str(row["explanation"] or ""),
+        "source": "cache",
+    }
+
+
+def _store_word_context(
+    connection: sqlite3.Connection, segment_id: int, word: str, explanation: str
+) -> None:
+    connection.execute(
+        """
+        INSERT INTO translation_word_context_cache(segment_id, word, explanation)
+        VALUES (?, ?, ?)
+        ON CONFLICT(segment_id, word) DO UPDATE SET explanation = excluded.explanation
+        """,
+        (int(segment_id), word, explanation),
+    )
+
+
+def explain_translation_word_context(
+    connection: sqlite3.Connection, body: dict | None
+) -> dict:
+    ensure_translation_word_context_cache(connection)
+    payload = body if isinstance(body, dict) else {}
+    try:
+        segment_id = int(payload.get("segment_id"))
+    except (TypeError, ValueError) as error:
+        raise ValueError("문단을 찾을 수 없습니다.") from error
+    word = normalize_dictionary_word(payload.get("word")).casefold()
+    if not word:
+        raise ValueError("단어를 선택해 주세요.")
+    cached = _load_cached_word_context(connection, segment_id, word)
+    if cached:
+        return cached
+    row = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("번역 문단을 찾을 수 없습니다.")
+    notes = _parse_translation_notes_list(row["translation_notes_json"])
+    from_note = _note_explanation_for_word(notes, word)
+    if from_note:
+        _store_word_context(connection, segment_id, word, from_note)
+        return {
+            "segment_id": int(segment_id),
+            "word": word,
+            "explanation": from_note,
+            "source": "translation_notes",
+        }
+    polish = str(row["polish_text"] or "").strip()
+    translated = polish or str(row["translated_text"] or "").strip()
+    prompt = translation_prompts.build_word_context_prompt(
+        {
+            "source_text": str(row["source_text"] or ""),
+            "translated_text": translated,
+        },
+        word,
+        _format_translation_notes_for_prompt(notes),
+    )
+    raw = _translation_pipeline_gemini(prompt, temperature=0.3, max_output_tokens=512)
+    explanation = _parse_word_context_explanation(raw)
+    _store_word_context(connection, segment_id, word, explanation)
+    return {
+        "segment_id": int(segment_id),
+        "word": word,
+        "explanation": explanation,
+        "source": "gemini",
+    }
+
+
+def update_translation_culture_level(
+    connection: sqlite3.Connection, job_id: int, level: object
+) -> dict:
+    culture = str(level or "").strip()
+    if culture not in CULTURE_LOCALIZATION_LEVELS:
+        raise ValueError("문화반영범위 값이 올바르지 않습니다.")
+    load_translation_job(connection, job_id)
+    connection.execute(
+        "UPDATE translation_jobs SET culture_localization_level = ?, updated_at = datetime('now') "
+        "WHERE id = ?",
+        (culture, int(job_id)),
+    )
+    return translation_job_detail(connection, job_id)
+
+
+def approve_translation_segment(
+    connection: sqlite3.Connection, segment_id: int, body: dict | None
+) -> dict:
+    payload = body if isinstance(body, dict) else {}
+    row = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("번역 문단을 찾을 수 없습니다.")
+    if "is_approved" in payload:
+        approved = 1 if payload.get("is_approved") else 0
+    else:
+        approved = 0 if int(row["is_approved"] or 0) else 1
+    connection.execute(
+        "UPDATE translation_segments SET is_approved = ?, updated_at = datetime('now') WHERE id = ?",
+        (approved, int(segment_id)),
+    )
+    updated = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    return serialize_translation_segment(updated)
+
+
+def _style_guide_mapping(raw: object) -> dict[str, object]:
+    if isinstance(raw, dict):
+        return raw
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
+
+
+def _parse_polish_model_output(raw: str) -> tuple[str, list]:
+    text = str(raw or "").strip()
+    parsed: dict = {}
+    try:
+        parsed = SuperToryHandler._extract_json_object(text)
+    except (ValueError, json.JSONDecodeError, AttributeError):
+        parsed = {}
+    polished = str(
+        parsed.get("polished_text")
+        or parsed.get("polished")
+        or parsed.get("text")
+        or ""
+    ).strip()
+    change_log = parsed.get("change_log") or parsed.get("changes") or []
+    if not isinstance(change_log, list):
+        change_log = []
+    if not polished:
+        polished = text
+    return polished, change_log
+
+
+def polish_translation_segment(
+    connection: sqlite3.Connection, segment_id: int
+) -> dict:
+    row = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("번역 문단을 찾을 수 없습니다.")
+    source_english = str(row["translated_text"] or "").strip()
+    if not source_english:
+        raise ValueError("1차 번역문이 없어 윤문할 수 없습니다.")
+    job = load_translation_job(connection, int(row["translation_job_id"]))
+    settings = _style_guide_mapping(job["style_guide_json"] if "style_guide_json" in job.keys() else None)
+    prompt = translation_prompts.build_polish_prompt(source_english, settings)
+    if not gemini_client.is_configured():
+        raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+    try:
+        raw = gemini_client.generate_text(prompt, temperature=0.4, max_output_tokens=4096)
+    except gemini_client.GeminiError as error:
+        raise ValueError(str(error)) from error
+    polished, change_log = _parse_polish_model_output(raw)
+    connection.execute(
+        "UPDATE translation_segments SET polish_text = ?, updated_at = datetime('now') WHERE id = ?",
+        (polished, int(segment_id)),
+    )
+    updated = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    payload = serialize_translation_segment(updated)
+    payload["change_log"] = change_log
+    return payload
+
+
+def _translation_segment_chat_history(
+    connection: sqlite3.Connection,
+    job_id: int,
+    segment_id: int | None,
+    *,
+    skip_id: int | None = None,
+    limit: int = 12,
+) -> list[sqlite3.Row]:
+    """Past Tory chat turns for this paragraph only, oldest first."""
+    if segment_id is None:
+        rows = connection.execute(
+            "SELECT id, role, message, dragged_text FROM translation_chat_messages "
+            "WHERE translation_job_id = ? AND segment_id IS NULL "
+            "ORDER BY id DESC LIMIT ?",
+            (int(job_id), int(limit) + 1),
+        ).fetchall()
+    else:
+        rows = connection.execute(
+            "SELECT id, role, message, dragged_text FROM translation_chat_messages "
+            "WHERE translation_job_id = ? AND segment_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (int(job_id), int(segment_id), int(limit) + 1),
+        ).fetchall()
+    items = [
+        row
+        for row in reversed(list(rows))
+        if skip_id is None or int(row["id"]) != int(skip_id)
+    ]
+    if len(items) > limit:
+        items = items[-limit:]
+    return items
+
+
+def post_translation_chat(connection: sqlite3.Connection, body: dict | None) -> dict:
+    payload = body if isinstance(body, dict) else {}
+    try:
+        job_id = int(payload.get("job_id") or 0)
+    except (TypeError, ValueError) as error:
+        raise ValueError("job_id 가 올바르지 않습니다.") from error
+    if job_id <= 0:
+        raise ValueError("job_id 가 필요합니다.")
+    job = load_translation_job(connection, job_id)
+    message = str(payload.get("message") or "").strip()
+    if not message:
+        raise ValueError("질문 내용을 입력해 주세요.")
+    quoted = str(payload.get("dragged_text") or payload.get("quoted_text") or "").strip()
+    raw_segment = payload.get("segment_id")
+    segment_id = None
+    if raw_segment not in (None, ""):
+        try:
+            segment_id = int(raw_segment)
+        except (TypeError, ValueError) as error:
+            raise ValueError("segment_id 가 올바르지 않습니다.") from error
+        found = connection.execute(
+            "SELECT id FROM translation_segments WHERE id = ? AND translation_job_id = ?",
+            (segment_id, job_id),
+        ).fetchone()
+        if found is None:
+            raise LookupError("번역 문단을 찾을 수 없습니다.")
+    stamp = utc_timestamp_now()
+    cursor = connection.execute(
+        """
+        INSERT INTO translation_chat_messages(
+            translation_job_id, segment_id, dragged_text, role, message, created_at
+        ) VALUES (?, ?, ?, 'user', ?, ?)
+        """,
+        (job_id, segment_id, quoted or None, message, stamp),
+    )
+    user_id = int(cursor.lastrowid)
+    history_rows = _translation_segment_chat_history(
+        connection, job_id, segment_id, skip_id=user_id
+    )
+    history_lines = []
+    for item in history_rows:
+        role = "작가" if item["role"] == "user" else "토리"
+        quote_bit = str(item["dragged_text"] or "").strip()
+        prefix = f"[인용] {quote_bit}\n" if quote_bit else ""
+        history_lines.append(f"{role}: {prefix}{item['message']}")
+    segment_row = None
+    if segment_id is not None:
+        segment_row = connection.execute(
+            "SELECT * FROM translation_segments WHERE id = ? AND translation_job_id = ?",
+            (segment_id, job_id),
+        ).fetchone()
+    source_text = str(segment_row["source_text"] or "") if segment_row else ""
+    translated_text = ""
+    if segment_row is not None:
+        translated_text = str(
+            segment_row["polish_text"] or segment_row["translated_text"] or ""
+        )
+    relationship = ""
+    mood = ""
+    if segment_row is not None:
+        context_id = (
+            segment_row["scene_context_id"]
+            if "scene_context_id" in segment_row.keys()
+            else None
+        )
+        if context_id:
+            context_row = connection.execute(
+                "SELECT relationship_tag, mood_tag FROM translation_scene_contexts WHERE id = ?",
+                (int(context_id),),
+            ).fetchone()
+            if context_row is not None:
+                relationship = str(context_row["relationship_tag"] or "")
+                mood = str(context_row["mood_tag"] or "")
+    style = _style_guide_mapping(
+        job["style_guide_json"] if "style_guide_json" in job.keys() else None
+    )
+    culture = job["culture_localization_level"] if "culture_localization_level" in job.keys() else ""
+    prompt = translation_prompts.build_translation_chat_prompt(
+        message,
+        {
+            "source_text": source_text,
+            "translated_text": translated_text,
+            "dragged_text": quoted,
+            "tense": style.get("tense") or "",
+            "character_voices": style.get("character_voices") or "",
+            "relationship_tag": relationship,
+            "mood_tag": mood,
+            "culture_localization_level": culture or "",
+            "chat_history": "\n".join(history_lines),
+        },
+    )
+    if not gemini_client.is_configured():
+        raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
+    try:
+        reply = gemini_client.generate_text(
+            prompt,
+            temperature=0.5,
+            max_output_tokens=1024,
+        )
+    except gemini_client.GeminiError as error:
+        raise ValueError(str(error)) from error
+    response_text, suggested_revision = translation_prompts.parse_translation_qa_output(reply)
+    reply_text = response_text.strip() or "지금은 답을 만들지 못했어요. 조금 뒤에 다시 물어봐 주세요."
+    if suggested_revision:
+        reply_text = f"{reply_text}\n\n{suggested_revision}"
+    reply_stamp = utc_timestamp_now()
+    reply_cursor = connection.execute(
+        """
+        INSERT INTO translation_chat_messages(
+            translation_job_id, segment_id, dragged_text, role, message, created_at
+        ) VALUES (?, ?, ?, 'tori', ?, ?)
+        """,
+        (job_id, segment_id, None, reply_text, reply_stamp),
+    )
+    connection.execute(
+        "UPDATE translation_jobs SET updated_at = datetime('now') WHERE id = ?",
+        (job_id,),
+    )
+    user_row = connection.execute(
+        "SELECT * FROM translation_chat_messages WHERE id = ?",
+        (user_id,),
+    ).fetchone()
+    tori_row = connection.execute(
+        "SELECT * FROM translation_chat_messages WHERE id = ?",
+        (int(reply_cursor.lastrowid),),
+    ).fetchone()
+    tori = serialize_translation_chat_message(tori_row)
+    tori["suggested_revision"] = suggested_revision
+    return {
+        "user": serialize_translation_chat_message(user_row),
+        "tori": tori,
+    }
 
 
 def set_project_genre_detail(
@@ -6475,6 +8628,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_character_portrait(int(match.group(1)))
                 return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/translation/jobs", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    jobs = list_translation_jobs_for_project(connection, project_id)
+                self.send_json({"jobs": jobs})
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)", path)
+            if match:
+                with database() as connection:
+                    payload = translation_job_detail(connection, int(match.group(1)))
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/segments", path)
+            if match:
+                query = parse_qs(urlparse(self.path).query)
+                chapter_raw = (query.get("chapter") or [""])[0].strip()
+                chapter = int(chapter_raw) if chapter_raw else None
+                with database() as connection:
+                    payload = list_translation_segments(
+                        connection, int(match.group(1)), chapter
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/proper_nouns", path)
+            if match:
+                with database() as connection:
+                    payload = list_translation_proper_nouns(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            if path == "/api/translation/dictionary":
+                query = parse_qs(urlparse(self.path).query)
+                word = (query.get("word") or [""])[0]
+                self.send_json(lookup_translation_dictionary(word))
+                return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -7360,6 +9556,111 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/scene-goals", path)
             if match:
                 self.send_json(self.bulk_set_scene_goals(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/translation/jobs", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = create_translation_job(connection, project_id, body or {})
+                self.send_json(payload, HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/culture", path)
+            if match:
+                level = (body or {}).get("culture_localization_level")
+                with database() as connection:
+                    payload = update_translation_culture_level(
+                        connection, int(match.group(1)), level
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/segments/(\d+)/approve", path)
+            if match:
+                with database() as connection:
+                    payload = approve_translation_segment(
+                        connection, int(match.group(1)), body or {}
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/segments/(\d+)/polish", path)
+            if match:
+                with database() as connection:
+                    payload = polish_translation_segment(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/extract_proper_nouns", path)
+            if match:
+                with database() as connection:
+                    payload = extract_translation_proper_nouns(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/proper_nouns/(\d+)/decide", path)
+            if match:
+                with database() as connection:
+                    payload = decide_translation_proper_noun(
+                        connection, int(match.group(1)), body or {}
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/confirm_proper_nouns", path)
+            if match:
+                with database() as connection:
+                    payload = confirm_translation_proper_nouns(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/start", path)
+            if match:
+                with database() as connection:
+                    payload = start_translation_pipeline(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/proceed_to_translation", path)
+            if match:
+                with database() as connection:
+                    payload = proceed_translation_pipeline(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/generate_submission_package", path
+            )
+            if match:
+                with database() as connection:
+                    payload = generate_translation_submission_package(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            if path == "/api/translation/chat":
+                with database() as connection:
+                    payload = post_translation_chat(connection, body or {})
+                self.send_json(payload, HTTPStatus.CREATED)
+                return
+
+            if path == "/api/translation/word_context":
+                with database() as connection:
+                    payload = explain_translation_word_context(connection, body or {})
+                self.send_json(payload)
                 return
 
             # Graceful app exit (header X / future desktop shell).
@@ -9620,7 +11921,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre=main_genre_key,
                     sub_genre=sub_genre_key,
                     genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
+                    content_rating=content_rating_key,
                 )
             instruction = inject_genre_playbook_judge_section(
                 instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -9943,7 +12244,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre=main_genre_key,
                     sub_genre=sub_genre_key,
                     genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                 )
             instruction = inject_genre_playbook_suggest_section(
                 instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10073,7 +12373,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10106,7 +12405,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10163,7 +12461,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10201,7 +12498,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10234,7 +12530,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10272,7 +12567,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_suggest_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10305,7 +12599,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10496,7 +12789,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10537,7 +12829,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_style_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10569,7 +12860,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 elif kind == "rewrite":
                     instruction = self._build_ending_rewrite_prompt(
@@ -10579,7 +12869,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 else:
                     instruction = self._build_tension_curve_prompt(
@@ -10588,7 +12877,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         main_genre=main_genre_key,
                         sub_genre=sub_genre_key,
                         genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
                     )
                 instruction = inject_genre_playbook_judge_section(
                     instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
@@ -10731,6 +13019,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "sub_genre_label": sub_genre_label,
                 "genre_detail": genre_detail_key,
                 "genre_detail_label": genre_detail_label,
+                "content_rating": content_rating_key,
                 "index_merge": index_merge_info,
             }
         try:
@@ -11253,7 +13542,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_rewrite_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
@@ -11262,7 +13550,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -11643,17 +13930,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_tension_curve_prompt_genre_lit(episode_content)
         return cls._build_tension_curve_prompt_webnovel(
-            episode_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
+            episode_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
         )
 
     @staticmethod
     def _build_tension_curve_prompt_webnovel(
-        episode_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
+        episode_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
     ) -> str:
         text = str(episode_content or "").strip()
         prompt = (
@@ -11693,7 +13979,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
 
     @staticmethod
     def _build_tension_curve_prompt_genre_lit(episode_content: str) -> str:
@@ -11744,17 +14030,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs)
         return cls._build_cliffhanger_score_prompt_webnovel(
-            last_three_paragraphs, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
+            last_three_paragraphs, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
         )
 
     @staticmethod
     def _build_cliffhanger_score_prompt_webnovel(
-        last_three_paragraphs: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
+        last_three_paragraphs: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
     ) -> str:
         text = str(last_three_paragraphs or "").strip()
         prompt = (
@@ -11776,7 +14061,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[평가 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
 
     @staticmethod
     def _build_cliffhanger_score_prompt_genre_lit(last_three_paragraphs: str) -> str:
@@ -11810,7 +14095,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_ending_rewrite_prompt_genre_lit(last_three_paragraphs, cliffhanger_reason)
@@ -11829,7 +14113,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         text = str(last_three_paragraphs or "").strip()
         reason = str(cliffhanger_reason or "").strip()
@@ -11856,7 +14139,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[개작 제안]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
 
     @staticmethod
     def _build_ending_rewrite_prompt_genre_lit(last_three_paragraphs: str, cliffhanger_reason: str) -> str:
@@ -12001,7 +14284,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_submission_synopsis_prompt_genre_lit(outline_summary, synopsis_length_limit, intent_length_limit)
@@ -12014,7 +14296,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -12263,17 +14544,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_focused_analysis_prompt_genre_lit(scene_content)
         return cls._build_focused_analysis_prompt_webnovel(
-            scene_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
+            scene_content, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
         )
 
     @staticmethod
     def _build_focused_analysis_prompt_webnovel(
-        scene_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
+        scene_content: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
     ) -> str:
         """Feedback request / focused analysis (analyze). Task scope only."""
         text = str(scene_content or "").strip()
@@ -12316,7 +14596,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
 
     @staticmethod
     def _build_focused_analysis_prompt_genre_lit(scene_content: str) -> str:
@@ -12370,17 +14650,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_focused_analysis_multi_prompt_genre_lit(combined_text)
         return cls._build_focused_analysis_multi_prompt_webnovel(
-            combined_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
+            combined_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail
         )
 
     @staticmethod
     def _build_focused_analysis_multi_prompt_webnovel(
-        combined_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
+        combined_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = ""
     ) -> str:
         """Contiguous multi-episode feedback (analyze_multi). Task scope only."""
         text = str(combined_text or "").strip()
@@ -12437,7 +14716,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[분석 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail)
 
     @staticmethod
     def _build_focused_analysis_multi_prompt_genre_lit(combined_text: str) -> str:
@@ -12499,7 +14778,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     @classmethod
     def _build_next_idea_prompt(cls, scene_content: str, cluster_id: object = "",
-                                main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = "") -> str:
+                                main_genre: object = "", sub_genre: object = "", genre_detail: object = "") -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_next_idea_prompt_genre_lit(scene_content)
         return inject_genre_playbook_suggest_section(
@@ -12507,7 +14786,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -12577,7 +14855,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_next_idea_with_next_scene_prompt_genre_lit(prev_tail, next_text)
@@ -12586,7 +14863,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -12672,7 +14948,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_brainstorm_prompt_genre_lit(scene_content, user_topic)
@@ -12681,7 +14956,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -12771,7 +15045,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_brainstorm_with_next_scene_prompt_genre_lit(prev_tail, next_text, user_topic)
@@ -12780,7 +15053,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -12930,7 +15202,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_world_description_prompt_genre_lit(target_subject, scene_content)
@@ -12939,7 +15210,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -13028,7 +15298,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         main_genre: object = "",
         sub_genre: object = "",
         genre_detail: object = "",
-        content_rating: object = "",
     ) -> str:
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_description_expand_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
@@ -13039,7 +15308,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             main_genre,
             sub_genre,
             genre_detail,
-            content_rating,
         )
 
     @staticmethod
@@ -13147,12 +15415,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
             return cls._build_setting_break_scan_prompt_genre_lit(original_text)
         return cls._build_setting_break_scan_prompt_webnovel(
-            original_text, main_genre=main_genre, sub_genre=sub_genre, genre_detail=genre_detail, content_rating=content_rating
+            original_text,
+            main_genre=main_genre,
+            sub_genre=sub_genre,
+            genre_detail=genre_detail,
+            content_rating=content_rating,
         )
 
     @staticmethod
     def _build_setting_break_scan_prompt_webnovel(
-        original_text: str, main_genre: object = "", sub_genre: object = "", genre_detail: object = "", content_rating: object = ""
+        original_text: str,
+        main_genre: object = "",
+        sub_genre: object = "",
+        genre_detail: object = "",
+        content_rating: object = "",
     ) -> str:
         """Setting-break detector task prompt (worldscan). No Core Identity block."""
         text = str(original_text or "").strip()
@@ -13201,7 +15477,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{text}\n\n"
             "[검사 결과]"
         )
-        return inject_genre_playbook_judge_section(prompt, main_genre, sub_genre, genre_detail, content_rating)
+        return inject_genre_playbook_judge_section(
+            prompt, main_genre, sub_genre, genre_detail, content_rating
+        )
 
     @staticmethod
     def _build_setting_break_scan_prompt_genre_lit(original_text: str) -> str:

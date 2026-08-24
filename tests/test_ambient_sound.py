@@ -108,7 +108,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
     def insert_custom_track(
         self,
         *,
-        category: str = "nature",
+        category: str = "custom",
         original_filename: str = "빗소리.wav",
         data: bytes = FAKE_MP3,
         duration: float = 8.0,
@@ -168,21 +168,37 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         self.assertEqual(status, 200)
         payload = json.loads(raw.decode("utf-8"))
         self.assertIn("usage", payload)
-        nature = next(cat for cat in payload["categories"] if cat["id"] == "nature")
-        custom = next(track for track in nature["tracks"] if track.get("custom"))
+        self.assertEqual(payload["categories"][-1]["id"], "custom")
+        custom_cat = next(cat for cat in payload["categories"] if cat["id"] == "custom")
+        custom = next(track for track in custom_cat["tracks"] if track.get("custom"))
         self.assertEqual(custom["id"], f"custom:{track_id}")
+        self.assertEqual(custom["category"], "custom")
         self.assertEqual(custom["file"], "빗소리.wav")
         self.assertTrue(custom["custom"])
+        for builtin in ("frequency", "noise", "nature", "ambient"):
+            cat = next(item for item in payload["categories"] if item["id"] == builtin)
+            self.assertFalse(any(track.get("custom") for track in cat["tracks"]))
         status, body = self.request(custom["url"])
         self.assertEqual(status, 200)
         self.assertEqual(body, FAKE_MP3)
         self.assertIsNotNone(app.resolve_ambient_sound_file("custom", stored))
         self.assertIsNone(app.resolve_ambient_sound_file("custom", "../x.mp3"))
 
+    def test_legacy_custom_tracks_move_into_custom_style(self) -> None:
+        track_id, _stored = self.insert_custom_track(category="nature")
+        status, raw = self.request("/api/ambient-tracks")
+        self.assertEqual(status, 200)
+        payload = json.loads(raw.decode("utf-8"))
+        nature = next(cat for cat in payload["categories"] if cat["id"] == "nature")
+        self.assertFalse(any(track.get("custom") for track in nature["tracks"]))
+        custom_cat = next(cat for cat in payload["categories"] if cat["id"] == "custom")
+        custom = next(track for track in custom_cat["tracks"] if track["id"] == f"custom:{track_id}")
+        self.assertEqual(custom["category"], "custom")
+
     def test_upload_custom_track_reencodes_and_enforces_limits(self) -> None:
         self.install_fake_ffmpeg(duration=9.5, output=FAKE_MP3 * 8)
         body, content_type = _multipart(
-            {"category": "noise"},
+            {"category": "custom"},
             {"file": ("brown-noise.wav", b"RIFF" + b"\x00" * 64)},
         )
         status, raw = self.request(
@@ -194,7 +210,7 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         self.assertEqual(status, 201, raw.decode("utf-8", errors="replace"))
         payload = json.loads(raw.decode("utf-8"))
         track = payload["track"]
-        self.assertEqual(track["category"], "noise")
+        self.assertEqual(track["category"], "custom")
         self.assertTrue(track["custom"])
         self.assertEqual(track["file"], "brown-noise.wav")
         with app.database() as connection:
@@ -314,8 +330,8 @@ class AmbientSoundCatalogTests(unittest.TestCase):
         self.assertEqual(body["display_title"], "비 오는 밤")
         status, raw = self.request("/api/ambient-tracks")
         payload = json.loads(raw.decode("utf-8"))
-        nature = next(cat for cat in payload["categories"] if cat["id"] == "nature")
-        custom = next(track for track in nature["tracks"] if track["id"] == custom_key)
+        custom_cat = next(cat for cat in payload["categories"] if cat["id"] == "custom")
+        custom = next(track for track in custom_cat["tracks"] if track["id"] == custom_key)
         self.assertEqual(custom["display_title"], "비 오는 밤")
         self.assertTrue(custom["enabled_in_popup"])
 
