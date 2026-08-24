@@ -25954,6 +25954,16 @@ function isTranslationProperNounsConfirmed() {
   return Boolean(job.proper_nouns_confirmed);
 }
 
+function areTranslationProperNounsReady() {
+  if (isTranslationProperNounsConfirmed()) return true;
+  if (!translationPipelineStarted()) return false;
+  const items = translationWorkspaceState.properNouns || [];
+  if (!items.length) {
+    return Boolean(translationWorkspaceState.job?.proper_nouns_extracted);
+  }
+  return items.every((item) => String(item.final_term || "").trim());
+}
+
 function translationPipelineStarted() {
   const status = String(translationWorkspaceState.job?.status || "draft");
   return ["awaiting_review", "in_progress", "translated", "completed"].includes(status);
@@ -25991,34 +26001,46 @@ function setTranslationStage(stage) {
     tab.setAttribute("aria-selected", on ? "true" : "false");
   });
   updateTranslationPipelineButtons();
-  document.querySelectorAll("[data-translation-pass]").forEach((tab) => {
-    tab.disabled = next !== "paragraphs";
-  });
 }
 
 function updateTranslationPipelineButtons() {
   const started = translationPipelineStarted();
-  const confirmed = isTranslationProperNounsConfirmed();
+  const nounsReady = areTranslationProperNounsReady();
   const translated = translationPipelineTranslated();
+  const busy = Boolean(translationWorkspaceState.busy);
   const startBtn = $("translationStartButton");
   if (startBtn) {
-    startBtn.disabled = Boolean(translationWorkspaceState.busy);
+    startBtn.disabled = started || busy;
+    startBtn.classList.toggle("is-complete", started);
+    startBtn.classList.toggle("is-ready", !started && !busy);
+    startBtn.classList.toggle("primary", !started);
+    startBtn.classList.toggle("secondary", started);
+    const startKey = started ? "app.준비_완료" : "app.번역_준비";
+    startBtn.setAttribute("data-i18n", startKey);
+    startBtn.textContent = i18n.t(startKey);
     startBtn.title = started
-      ? i18n.t("index.이미_준비한_단계는_건너뛰고_이어서_진행해요")
+      ? i18n.t("index.번역_준비는_이미_끝났어요")
       : "";
   }
+  document.querySelectorAll("[data-translation-stage]").forEach((tab) => {
+    tab.disabled = !started || busy;
+  });
   const proceedBtn = $("translationProceedButton");
   if (proceedBtn) {
-    const canProceed = confirmed && started && !translationWorkspaceState.busy;
+    const canProceed = nounsReady && started && !busy && !translated;
     proceedBtn.disabled = !canProceed;
-    proceedBtn.title = confirmed
+    proceedBtn.classList.toggle("is-ready", canProceed);
+    proceedBtn.title = canProceed
       ? ""
       : i18n.t("index.고유명사를_먼저_확정해야_번역을_진행할_수_있어요");
   }
+  document.querySelectorAll("[data-translation-pass]").forEach((tab) => {
+    tab.disabled = !translated || busy;
+  });
   const packageBtn = $("translationPackageButton");
   if (packageBtn) {
     packageBtn.classList.toggle("hidden", !translated);
-    packageBtn.disabled = Boolean(translationWorkspaceState.busy);
+    packageBtn.disabled = busy;
   }
 }
 
@@ -26036,7 +26058,7 @@ function renderTranslationFormatting() {
   if (!host) return;
   const rules = translationWorkspaceState.job?.narrative_formatting_rules;
   if (!rules || typeof rules !== "object") {
-    host.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.번역_시작을_누르면_표기규칙을_찾아요"))}</p>`;
+    host.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.번역_준비를_누르면_표기규칙을_찾아요"))}</p>`;
     applyTranslations();
     return;
   }
@@ -26062,7 +26084,7 @@ function renderTranslationScenes() {
   if (!host) return;
   const scenes = translationWorkspaceState.job?.scene_contexts || [];
   if (!scenes.length) {
-    host.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.번역_시작을_누르면_씬을_나눠요"))}</p>`;
+    host.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.번역_준비를_누르면_씬을_나눠요"))}</p>`;
     applyTranslations();
     return;
   }
@@ -26113,6 +26135,7 @@ function renderTranslationProperNouns() {
     ? detectedItems.map((item) => translationProperNounCardHtml(item, false)).join("")
     : empty;
   applyTranslations();
+  updateTranslationPipelineButtons();
 }
 
 function translationProperNounCardHtml(item, fromIndex) {
@@ -26165,6 +26188,14 @@ function nounDecisionFromCard(card) {
 async function persistTranslationNounCard(card) {
   if (!card) return;
   const payload = nounDecisionFromCard(card);
+  const local = (translationWorkspaceState.properNouns || []).find(
+    (noun) => Number(noun.id) === Number(payload.id),
+  );
+  if (local) {
+    local.user_decision = payload.user_decision;
+    local.final_term = payload.final_term;
+  }
+  updateTranslationPipelineButtons();
   if (!payload.id || !payload.final_term) return;
   const updated = await api(`/api/translation/proper_nouns/${payload.id}/decide`, {
     method: "POST",
@@ -26176,6 +26207,7 @@ async function persistTranslationNounCard(card) {
   const list = translationWorkspaceState.properNouns || [];
   const index = list.findIndex((item) => Number(item.id) === Number(updated.id));
   if (index >= 0) list[index] = { ...list[index], ...updated };
+  updateTranslationPipelineButtons();
 }
 
 async function extractTranslationProperNouns() {
@@ -26258,9 +26290,22 @@ async function startTranslationPipeline() {
 
 async function proceedTranslationPipeline() {
   if (!translationWorkspaceState.jobId) return;
-  if (!isTranslationProperNounsConfirmed()) {
+  if (!areTranslationProperNounsReady()) {
     toast(i18n.t("index.고유명사를_먼저_확정해야_번역을_진행할_수_있어요"));
     return;
+  }
+  if (!isTranslationProperNounsConfirmed()) {
+    const cards = document.querySelectorAll("#translationProperNounPanel [data-noun-id]");
+    for (const card of cards) {
+      await persistTranslationNounCard(card);
+    }
+    const confirmed = await api(
+      `/api/translation/jobs/${translationWorkspaceState.jobId}/confirm_proper_nouns`,
+      { method: "POST", body: "{}" },
+    );
+    translationWorkspaceState.job = confirmed;
+    if (confirmed.proper_nouns) translationWorkspaceState.properNouns = confirmed.proper_nouns;
+    updateTranslationPipelineButtons();
   }
   translationWorkspaceState.busy = true;
   updateTranslationPipelineButtons();
@@ -26605,6 +26650,7 @@ function setupTranslationWorkspace() {
   });
   document.querySelectorAll("[data-translation-stage]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.disabled) return;
       const stage = btn.getAttribute("data-translation-stage") || "formatting";
       setTranslationStage(stage);
       if (stage === "paragraphs") {
@@ -26621,9 +26667,11 @@ function setupTranslationWorkspace() {
     });
   });
   $("translationStartButton")?.addEventListener("click", () => {
+    if ($("translationStartButton")?.disabled) return;
     startTranslationPipeline().catch(handleError);
   });
   $("translationProceedButton")?.addEventListener("click", () => {
+    if ($("translationProceedButton")?.disabled) return;
     proceedTranslationPipeline().catch(handleError);
   });
   $("translationPackageButton")?.addEventListener("click", () => {
@@ -26662,6 +26710,15 @@ function setupTranslationWorkspace() {
     }
     persistTranslationNounCard(card).catch(handleError);
   });
+  $("translationProperNounPanel")?.addEventListener("input", (event) => {
+    if (!event.target.matches?.("[data-noun-final]")) return;
+    const id = Number(event.target.getAttribute("data-noun-final"));
+    const item = translationWorkspaceState.properNouns.find(
+      (noun) => Number(noun.id) === id,
+    );
+    if (item) item.final_term = event.target.value;
+    updateTranslationPipelineButtons();
+  });
   $("translationProperNounPanel")?.addEventListener("click", (event) => {
     const alt = event.target.closest?.("[data-noun-alt]");
     if (!alt) return;
@@ -26675,6 +26732,7 @@ function setupTranslationWorkspace() {
   });
   document.querySelectorAll("[data-translation-pass]").forEach((btn) => {
     btn.addEventListener("click", () => {
+      if (btn.disabled) return;
       translationWorkspaceState.pass = btn.getAttribute("data-translation-pass") || "first";
       document.querySelectorAll("[data-translation-pass]").forEach((tab) => {
         const on = tab === btn;

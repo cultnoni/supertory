@@ -26728,9 +26728,40 @@ html[lang="es"] .format-tool-label-wrap {
   background: var(--ink);
   color: var(--panel, #fff);
 }
-.translation-stage-tab:disabled {
+.translation-stage-toggle:has(button:disabled),
+.translation-pass-toggle:has(button:disabled) {
   opacity: 0.45;
+}
+.translation-stage-tab:disabled,
+.translation-pass-tab:disabled {
   cursor: not-allowed;
+}
+.translation-stage-tab:disabled.is-active,
+.translation-pass-tab:disabled.is-active {
+  background: transparent;
+  color: inherit;
+}
+.translation-workspace-toolbar .compact-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: none;
+  background: var(--surface-2);
+  color: var(--muted);
+}
+.translation-workspace-toolbar .compact-btn.is-complete {
+  background: var(--surface-2);
+  color: var(--muted);
+  font-weight: 650;
+}
+.translation-workspace-toolbar .compact-btn.is-complete:disabled {
+  opacity: 1;
+  cursor: default;
+}
+.translation-workspace-toolbar .compact-btn.is-complete::before {
+  content: "✓ ";
+}
+.translation-workspace-toolbar .primary.compact-btn.is-ready:not(:disabled) {
+  box-shadow: var(--depth-shadow-hover, 0 6px 16px rgba(28, 25, 23, 0.12));
 }
 .translation-nouns-panel,
 .translation-nouns-panel {

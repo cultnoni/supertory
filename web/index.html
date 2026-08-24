@@ -2646,9 +2646,10 @@
                       <option value="glumpescape" data-i18n="app.글럼프_응급실">글럼프 응급실</option>
                     </optgroup>
                     <optgroup label="토리와 새 무대를 찾아요" data-i18n-label="index.토리와_새_무대를_찾아요">
+                      <!-- TRANSLATION_WORKSPACE_DEV_UNLOCK in app.js re-locks this option for release. -->
+                      <option value="multilang" class="ai-mode-coming-opt" data-i18n="index.다국어_번역하기_준비중">🔒 투고용 다국어 번역하기 · 준비중</option>
                       <option value="scriptadapt" class="ai-mode-coming-opt" data-i18n="index.영상_각본으로_바꾸기_준비중">🔒 영상 각본으로 바꾸기 · 준비중</option>
                       <option value="audiobook" class="ai-mode-coming-opt" data-i18n="index.오디오북_낭독_대본으로_바꾸기_준비중">🔒 오디오북 낭독 대본으로 바꾸기 · 준비중</option>
-                      <option value="multilang" class="ai-mode-coming-opt" data-i18n="index.다국어_번역하기_준비중">🔒 투고용 다국어 번역하기 · 준비중</option>
                     </optgroup>
                   </select>
                 </div>
@@ -6491,6 +6492,166 @@
             <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M15 7.5 19.5 12 15 16.5M19.2 12H9M11 5H7.2A2.2 2.2 0 0 0 5 7.2v9.6A2.2 2.2 0 0 0 7.2 19H11"/>
           </svg>
         </button>
+      </div>
+    </div>
+
+    <!-- 투고용 다국어 번역 작업 화면 (개발 중 잠금 해제 가능) -->
+    <div id="translationWorkspaceModal" class="modal translation-workspace-modal hidden" role="dialog" aria-modal="true" aria-labelledby="translationWorkspaceTitle">
+      <div class="modal-backdrop" data-close-translation-workspace></div>
+      <div class="modal-card translation-workspace-card" role="document">
+        <div class="translation-workspace-head">
+          <div class="translation-workspace-head-text">
+            <h2 id="translationWorkspaceTitle" data-i18n="app.투고용_다국어_번역">투고용 다국어 번역</h2>
+            <p class="hint translation-workspace-hint" data-i18n="index.원문과_번역을_나란히_보고_문단마다_승인해요">원문과 번역을 나란히 보고, 문단마다 승인해요.</p>
+          </div>
+          <div class="translation-workspace-toolbar">
+            <label class="translation-chapter-field">
+              <span class="sr-only" data-i18n="index.챕터_선택">챕터 선택</span>
+              <select id="translationChapterSelect" aria-label="챕터 선택" data-i18n-aria-label="index.챕터_선택"></select>
+            </label>
+            <button
+              type="button"
+              id="translationCultureBadge"
+              class="translation-culture-badge"
+              aria-haspopup="dialog"
+              aria-controls="translationCultureModal"
+              title="문화반영범위 다시 고르기"
+              data-i18n-title="index.문화반영범위_다시_고르기"
+            >
+              <span data-i18n="index.문화반영범위">문화반영범위</span>
+              <strong id="translationCultureBadgeValue">적절</strong>
+            </button>
+            <button type="button" class="primary compact-btn" id="translationStartButton" data-i18n="app.번역_준비">번역 준비</button>
+            <span class="toolbar-sep" aria-hidden="true"></span>
+            <div class="translation-stage-toggle" role="tablist" aria-label="번역 준비 단계" data-i18n-aria-label="index.번역_준비_단계">
+              <button type="button" class="translation-stage-tab is-active" id="translationStageFormatting" data-translation-stage="formatting" aria-selected="true" disabled data-i18n="index.표기규칙_확인">표기규칙 확인</button>
+              <button type="button" class="translation-stage-tab" id="translationStageScenes" data-translation-stage="scenes" aria-selected="false" disabled data-i18n="index.씬태그_확인">씬 태그 확인</button>
+              <button type="button" class="translation-stage-tab" id="translationStageNouns" data-translation-stage="nouns" aria-selected="false" disabled data-i18n="index.고유명사_확인">고유명사 확인</button>
+            </div>
+            <span class="toolbar-sep" aria-hidden="true"></span>
+            <button type="button" class="primary compact-btn" id="translationProceedButton" disabled data-i18n="app.번역_진행">번역 진행</button>
+            <span class="toolbar-sep" aria-hidden="true"></span>
+            <div class="translation-pass-toggle" role="tablist" aria-label="번역 단계" data-i18n-aria-label="index.번역_단계">
+              <button type="button" class="translation-pass-tab is-active" id="translationPassFirst" data-translation-pass="first" aria-selected="true" disabled data-i18n="app.1차_번역">1차 번역</button>
+              <button type="button" class="translation-pass-tab" id="translationPassPolish" data-translation-pass="polish" aria-selected="false" disabled data-i18n="app.윤문">윤문</button>
+            </div>
+            <button type="button" class="secondary compact-btn hidden" id="translationPackageButton" data-i18n="index.투고_패키지">투고 패키지</button>
+            <button type="button" class="secondary compact-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
+          </div>
+        </div>
+
+        <div id="translationFormattingPanel" class="translation-nouns-panel">
+          <p class="hint translation-nouns-lead" data-i18n="index.표기규칙이_원문에_어떻게_쓰였는지_확인하고_번역에_반영해요">원문에서 대사·속마음 표기 규칙이 어떻게 쓰였는지 확인하고, 번역에 그대로 살릴지 정해요.</p>
+          <div id="translationFormattingStatus" class="translation-nouns-status hint" hidden></div>
+          <div id="translationFormattingBody" class="translation-review-body"></div>
+          <div class="translation-nouns-actions">
+            <button type="button" class="primary" id="translationFormattingNext" data-i18n="index.다음_단계">다음 단계</button>
+          </div>
+        </div>
+
+        <div id="translationScenesPanel" class="translation-nouns-panel hidden">
+          <p class="hint translation-nouns-lead" data-i18n="index.씬태그가_장면의_관계와_분위기를_잘_담았는지_확인해요">씬 태그가 장면의 관계와 분위기를 잘 담았는지 확인해요.</p>
+          <div id="translationScenesBody" class="translation-review-body"></div>
+          <div class="translation-nouns-actions">
+            <button type="button" class="primary" id="translationScenesNext" data-i18n="index.다음_단계">다음 단계</button>
+          </div>
+        </div>
+
+        <div id="translationProperNounPanel" class="translation-nouns-panel hidden">
+          <p class="hint translation-nouns-lead" data-i18n="index.고유명사가_원문에_잘_맞는지_확인하고_번역에_쓸_이름을_정해요">고유명사가 원문에 잘 맞는지 확인하고, 번역에 쓸 이름을 정해요.</p>
+          <div id="translationNounsStatus" class="translation-nouns-status hint" hidden></div>
+          <section class="translation-nouns-section" aria-labelledby="translationIndexNounsTitle">
+            <h3 id="translationIndexNounsTitle" data-i18n="index.기존_설정에서_가져옴">기존 설정에서 가져옴</h3>
+            <div id="translationIndexNouns" class="translation-nouns-list"></div>
+          </section>
+          <section class="translation-nouns-section" aria-labelledby="translationDetectedNounsTitle">
+            <h3 id="translationDetectedNounsTitle" data-i18n="index.이번에_새로_발견됨">이번에 새로 발견됨</h3>
+            <div id="translationDetectedNouns" class="translation-nouns-list"></div>
+          </section>
+          <div class="translation-nouns-actions">
+            <button type="button" class="primary" id="translationConfirmNounsButton" data-i18n="index.전체_확정">전체 확정</button>
+          </div>
+        </div>
+
+        <div id="translationParagraphPanel" class="translation-workspace-body hidden">
+          <section class="translation-pane" aria-label="원문" data-i18n-aria-label="index.원문">
+            <header class="translation-pane-head" data-i18n="index.원문">원문</header>
+            <div id="translationSourceColumn" class="translation-pane-scroll"></div>
+          </section>
+          <section class="translation-pane" aria-label="번역문" data-i18n-aria-label="app.번역문">
+            <header class="translation-pane-head" data-i18n="app.번역문">번역문</header>
+            <div id="translationTargetColumn" class="translation-pane-scroll"></div>
+          </section>
+        </div>
+
+        <button type="button" id="translationAskButton" class="translation-ask-button hidden" hidden>
+          <span data-i18n="index.이_문장으로_질문하기">이 문장으로 질문하기</span>
+        </button>
+        <div id="translationNotesPopover" class="translation-notes-popover hidden" hidden role="tooltip"></div>
+        <div id="translationWordPopover" class="translation-notes-popover translation-word-popover hidden" hidden role="dialog" aria-label="단어 사전" data-i18n-aria-label="index.단어_사전"></div>
+
+        <div id="translationChatDock" class="translation-chat-dock is-collapsed">
+          <button type="button" id="translationChatToggle" class="translation-chat-toggle" aria-expanded="false" aria-controls="translationChatBody">
+            <span data-i18n="index.토리에게_질문하기">토리에게 질문하기</span>
+            <span class="translation-chat-chevron" aria-hidden="true">▴</span>
+          </button>
+          <div id="translationChatBody" class="translation-chat-body" hidden>
+            <div id="translationChatHistory" class="translation-chat-history" aria-live="polite"></div>
+            <div id="translationChatQuote" class="translation-chat-quote hidden" hidden>
+              <p id="translationChatQuoteText"></p>
+              <button type="button" id="translationChatQuoteClear" class="secondary compact-btn" data-i18n="index.인용_지우기">인용 지우기</button>
+            </div>
+            <div class="translation-chat-compose">
+              <textarea id="translationChatInput" rows="2" placeholder="번역에 대해 질문하세요" data-i18n-placeholder="index.번역에_대해_질문하세요"></textarea>
+              <button type="button" class="primary compact-btn" id="translationChatSend" data-i18n="app.보내기">보내기</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="translationCultureModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="translationCultureTitle">
+      <div class="modal-backdrop" data-close-translation-culture></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="translationCultureTitle" class="tory-helper-title" data-i18n="index.문화반영범위를_다시_고르세요">문화반영범위를 다시 고르세요</h2>
+          <button type="button" class="modal-close" data-close-translation-culture title="닫기" data-i18n-title="app.닫기">×</button>
+        </div>
+        <p class="tory-helper-lead" data-i18n="index.번역에서_한국_문화를_얼마나_풀어_쓸지_정해요">번역에서 한국 문화를 얼마나 풀어 쓸지 정해요.</p>
+        <div class="translation-culture-choices" role="group" aria-label="문화반영범위" data-i18n-aria-label="index.문화반영범위">
+          <button type="button" class="translation-culture-choice" data-culture-level="tight">
+            <strong data-i18n="app.타이트">타이트</strong>
+            <span data-i18n="index.문화반영_타이트_설명">현지 표현으로 강하게 바꿉니다. 정보는 지우지 않아요.</span>
+          </button>
+          <button type="button" class="translation-culture-choice" data-culture-level="moderate">
+            <strong data-i18n="app.적절">적절</strong>
+            <span data-i18n="index.문화반영_적절_설명">뜻을 살리되 읽기 쉽게 다듬어요.</span>
+          </button>
+          <button type="button" class="translation-culture-choice" data-culture-level="as_is">
+            <strong data-i18n="app.원문_유지">원문 유지</strong>
+            <span data-i18n="index.문화반영_원문유지_설명">한국 고유 표현을 되도록 그대로 살려요.</span>
+          </button>
+        </div>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-translation-culture data-i18n="index.취소">취소</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="translationSubmissionCheerModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="translationSubmissionCheerTitle">
+      <div class="modal-backdrop" data-close-translation-cheer></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="translationSubmissionCheerTitle" class="tory-helper-title" data-i18n="app.토리의_응원">토리의 응원</h2>
+          <button type="button" class="modal-close" data-close-translation-cheer title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+        </div>
+        <p class="tory-helper-callout" data-i18n-html="index.투고_패키지_토리_응원">번역이 끝났어요. 이제 이 원고로 새로운 무대에 도전할 시간이에요.<br><br>혹시 투고에 성공해서 해외 출간 소식이 들려오면, 저 토리에게도 꼭 알려주세요.<br>작가님의 좋은 소식을 함께 축하하고, 세상에도 알려드리고 싶어요.<br><br>작가님의 해외 진출을 진심으로 응원할게요.</p>
+        <p class="translation-cheer-email">
+          <a href="mailto:contact@supertory.com">contact@supertory.com</a>
+        </p>
+        <div class="modal-actions">
+          <button type="button" class="primary" data-close-translation-cheer data-i18n="app.확인">확인</button>
+        </div>
       </div>
     </div>
 

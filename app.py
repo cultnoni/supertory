@@ -3629,7 +3629,7 @@ def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) ->
         raise ValueError("고유명사를 먼저 확정해야 번역을 진행할 수 있어요.")
     rules = job.get("narrative_formatting_rules")
     if not rules:
-        raise ValueError("번역 시작을 먼저 실행해 주세요.")
+        raise ValueError("번역 준비를 먼저 실행해 주세요.")
     style = _style_guide_mapping(job.get("style_guide_json"))
     glossary = _confirmed_proper_nouns_glossary(connection, job_id)
     formatting = _format_narrative_rules_for_prompt(rules)
