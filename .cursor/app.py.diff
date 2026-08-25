@@ -1,0 +1,177 @@
+﻿diff --git a/app.py b/app.py
+index e3d17fb..ffe85d6 100644
+--- a/app.py
++++ b/app.py
+@@ -49,8 +49,10 @@ import proof_extract
+ import proof_pipeline
+ import scene_cast_detect
+ import success_pattern
++import tarot_deck
+ from sync.device import ensure_device_registered, get_desktop_device_id
+ from sync.pairing import generate_pairing_code
++from sync.project_sync import checkin_project, checkout_project
+ from sync.supabase_client import get_supabase_client
+ 
+ def _is_frozen() -> bool:
+@@ -1953,30 +1955,53 @@ def _parse_naming_shop(raw: object) -> list[dict]:
+ 
+ 
+ def _character_tarot_prompt(
+-    genre: object, character_name: object, character_settings: object
++    genre: object,
++    character_name: object,
++    character_settings: object,
++    picked_cards: list[dict],
++    style: object,
+ ) -> tuple[str, str]:
+-    """Assemble character-tarot prompts. Reuses Tory Core Identity as-is."""
++    """Assemble a selected-card character-tarot prompt with a distinct Tory voice."""
+     genre_label = str(genre or "").strip() or "誘몄젙"
+     name = str(character_name or "").strip() or "二쇱씤怨?
+     settings = str(character_settings or "").strip() or "(?ㅼ젙吏??몃Ъ ?놁쓬)"
++    style_key = tarot_deck.normalize_tarot_style(style)
++    reader_name = "紐쎌긽媛 ?좊━" if style_key == "dreamer" else "紐⑦뿕媛 ?좊━"
++    voice = (
++        "?됰슧?섍퀬 紐쏀솚?곸씤 鍮꾩쑀瑜??곕릺 臾몄옣? ?먮졆?섍쾶 ?앸궡?몄슂. "
++        "轅? 蹂꾨튆, 援щ쫫, ?됰슧???щЪ???곌껐濡??껋쓬??留뚮뱾怨?留덉?留됱뿉 ?꾩떎?곸씤 ?쒕쭏?붾줈 李⑹??섏꽭??"
++        if style_key == "dreamer"
++        else
++        "鍮좊Ⅴ怨??⑹뵫???먰뿕 鍮꾩쑀瑜??곗꽭?? 吏?? 諛곕궘, ?⑥젙, ?섏뒪??媛숈? ?쒗쁽?쇰줈 "
++        "寃쎌풄?섍쾶 ?由щ릺 留덉?留됱뿉???뱀옣 ?⑤㉨?????덈뒗 ?쒖궗 ?뚰듃濡?李⑹??섏꽭??"
++    )
++    positions = [
++        f"{tarot_deck.TAROT_POSITION_LABELS[position]}: {card['id']}踰?{card['ko']} ({card['en']})"
++        for position, card in zip(tarot_deck.TAROT_POSITIONS, picked_cards)
++    ]
+     core = SuperToryHandler._tory_core_identity_system_prompt()
+     dynamic = (
+         "[Dynamic Context]\n"
+         f"?묓뭹 ?λⅤ: {genre_label}\n\n"
+         "[?대떦 罹먮┃???ㅼ젙]\n"
+-        f"{settings}"
++        f"{settings}\n\n"
++        f"[?濡?由щ뜑]\n{reader_name}\n\n"
++        "[?ъ슜?먭? 吏곸젒 怨좊Ⅸ 移대뱶? ?꾩튂]\n"
++        + "\n".join(positions)
+     )
+     user_prompt = (
+         "[Task Instruction]\n"
+-        f"{name}?먭쾶 ?댁슱由щ뒗 媛?곸쓽 ?濡?移대뱶 2~3?μ쓣 戮묒븘?? "
+-        "??罹먮┃?곗쓽 ?깃꺽?대굹 吏湲덇퉴吏???쒖궗??鍮쀫????щ??덇쾶 ??댄븯?몄슂. "
+-        "?ㅼ젣 ?濡?移대뱶 ?대쫫(?대챸???섎젅諛뷀? ?? 蹂????꾪넻?곸씤 ?濡?紐낆묶)??"
+-        "?⑤룄 ?섏?留? ?닿굔 ?ㅼ젣 ?먯닠???꾨땲??罹먮┃???쒖궗瑜??꾪븳 李쎌옉 ??댁엫??"
+-        "?ㅼ뿉???먭뺨吏寃?媛蹂띻퀬 ?щ??덇쾶 ?곗꽭?? "
+-        "吏꾩????덉뼵泥섎읆 ?곗? 留먭퀬, 罹먮┃???쒖궗瑜??щ컡寃?鍮꾪듃???뺣룄濡쒕쭔 ?곗꽭??\n\n"
++        f"?ъ슜?먭? 怨좊Ⅸ ?濡?移대뱶 ???λ쭔 ?ъ슜??{name}???쒖궗瑜???댄븯?몄슂. 移대뱶???쒖꽌瑜?諛붽씀吏 留덉꽭??\n"
++        f"{reader_name}??留먰닾 吏移? {voice}\n\n"
++        "諛섎뱶??罹먮┃???ㅼ젙???섏삩 援ъ껜?곸씤 ?깃꺽, 踰꾨쫯, 愿怨? 媛덈벑 以??섎굹 ?댁긽??媛???댁뿉 ?곌껐?섏꽭?? "
++        "?꾧뎄?먭쾶???듯븯???꾨줈, ?꾩닕???덉뼵, '?덈줈???쒖옉', '?대㈃???? 媛숈? ?곹닾?대쭔?쇰줈 梨꾩슦吏 留덉꽭?? "
++        "媛???ぉ? 2~3臾몄옣?쇰줈 ?곌퀬, ?곸뼱????臾몄옣? 吏㏃? 鍮꾩쑀쨌留먯옣?쑣룸컲?꾩쑝濡??껉린?몄슂. "
++        "鍮꾩썐嫄곕굹 紐⑥슃?섏? 留먭퀬 罹먮┃?곕? ?ㅼ젙?섍쾶 ?由ъ꽭?? "
++        "generalTip? ?묎?媛 ?ㅼ쓬 ?λ㈃??諛붾줈 ?⑤㉨?????덈뒗 ??臾몄옣怨??ъ튂 ?덈뒗 留덈Т由???臾몄옣?쇰줈 ?곗꽭?? "
++        "?ㅼ젣 ?먯닠???꾨땲??罹먮┃???쒖궗瑜??꾪븳 李쎌옉 ??댁엫???먯뿰?ㅻ읇寃??먭뺨?몄빞 ?⑸땲??\n\n"
+         "異쒕젰? JSON 媛앹껜留?諛섑솚?섏꽭?? ?ㅻ챸 臾몄옣?대굹 留덊겕?ㅼ슫 肄붾뱶?쒖뒪瑜??ｌ? 留덉꽭??\n"
+-        '?뺤떇: {"cards": [{"name": "移대뱶 ?대쫫", "meaning": "??罹먮┃?곗뿉寃??대뼸寃??곸슜?섎뒗吏 ?щ??덈뒗 ???}]}\n'
+-        "cards??2媛??먮뒗 3媛쒖엯?덈떎."
++        '?뺤떇: {"positions":{"cause":"?먯씤 移대뱶 ???,"incident":"?뚮컻?ш굔 移대뱶 ???,'
++        '"ending":"寃곕쭚 移대뱶 ???},"generalTip":"醫낇빀 ?쒕쭏??}'
+     )
+     return core + "\n" + dynamic, user_prompt
+ 
+@@ -3788,6 +3813,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
+                 return str(candidate)
+         return str((WEB_ROOT / parsed.lstrip("/")).resolve())
+ 
++    def guess_type(self, path: str) -> str:
++        if str(path).lower().endswith(".webp"):
++            return "image/webp"
++        return super().guess_type(path)
++
+     def end_headers(self) -> None:
+         # Electron loads http://127.0.0.1 ??without this, Chromium can keep an old
+         # index.html/app.js after an upgrade while electronAPI.getVersion() is new.
+@@ -4388,6 +4418,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
+                 })
+                 return
+ 
++            match = re.fullmatch(r"/api/projects/(\d+)/checkout", path)
++            if match:
++                project_id = int(match.group(1))
++                if get_supabase_client() is None:
++                    self.send_json(
++                        {"error": "sync_not_configured"},
++                        HTTPStatus.SERVICE_UNAVAILABLE,
++                    )
++                    return
++                title = str(body.get("title") or "").strip()
++                with database() as connection:
++                    self.require_project(connection, project_id)
++                    if not title:
++                        row = connection.execute(
++                            "SELECT title FROM project WHERE id = ? AND deleted_at IS NULL",
++                            (project_id,),
++                        ).fetchone()
++                        title = str((row["title"] if row else "") or "")
++                checkout_project(project_id, title)
++                self.send_json({"ok": True, "id": project_id})
++                return
++
++            match = re.fullmatch(r"/api/projects/(\d+)/checkin", path)
++            if match:
++                project_id = int(match.group(1))
++                checkin_project(project_id)
++                self.send_json({"ok": True, "id": project_id})
++                return
++
+             match = re.fullmatch(r"/api/projects/(\d+)/parts", path)
+             if match:
+                 self.send_json(
+@@ -6534,30 +6593,42 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
+         """Show a playful character tarot reading. Does not edit the manuscript."""
+         work_id = str(body.get("work_id") or body.get("project_id") or "").strip()
+         character_name = str(body.get("character_name") or "").strip()
++        style = str(body.get("style") or "").strip().lower()
+         if not work_id:
+             raise ValueError("?묓뭹???좏깮??二쇱꽭??")
++        if style not in tarot_deck.TAROT_STYLES:
++            raise ValueError("?濡쒕? ?쎌뼱 以??좊━瑜?怨⑤씪 二쇱꽭??")
++        picked_cards = tarot_deck.selected_tarot_cards(body.get("card_ids"))
+         character = _glump_load_interrogation_character(work_id, character_name or None)
+         genre = _glump_work_genre_label(work_id)
+         system, user_prompt = _character_tarot_prompt(
+-            genre, character["name"], character["settings_text"]
++            genre,
++            character["name"],
++            character["settings_text"],
++            picked_cards,
++            style,
+         )
+         last_error: Exception | None = None
+-        cards: list[dict] | None = None
++        reading: dict | None = None
+         for _attempt in range(2):
+             try:
+                 raw = gemini_client.generate_text(
+-                    user_prompt, system=system, temperature=0.9
++                    user_prompt, system=system, temperature=0.9, max_output_tokens=4096
+                 )
+-                cards = _parse_character_tarot(raw)
++                reading = tarot_deck.parse_character_tarot_v2(raw, picked_cards, style)
+                 break
+             except gemini_client.GeminiError as error:
+                 raise ValueError(str(error)) from error
+             except (ValueError, json.JSONDecodeError) as error:
+                 last_error = error
+-        if cards is None:
++        if reading is None:
+             raise GlumpRetryError("?ㅼ떆 ?쒕룄?댁＜?몄슂") from last_error
+         self._insert_glump_tool_log(work_id, "character_tarot")
+-        return {"cards": cards, "character_name": character["name"]}
++        return {
++            **reading,
++            "style": style,
++            "character_name": character["name"],
++        }
+ 
+     def glump_naming_shop(self, body: dict) -> dict:
+         """Show a view-only naming shop. Does not edit the manuscript."""

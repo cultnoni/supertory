@@ -1,0 +1,56 @@
+ERROR: test_no_trope_invention_across_all_personas (test_reader_persona_sampling.ReaderPersonaSamplingTests.test_no_trope_invention_across_all_personas)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\cultn\supertory\tests\test_reader_persona_sampling.py", line 259, in test_no_trope_invention_across_all_personas
+    print_results_table(rows, total)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\cultn\supertory\tests\test_reader_persona_sampling.py", line 143, in print_results_table
+    print(text)
+    ~~~~~^^^^^^
+UnicodeEncodeError: 'cp949' codec can't encode character '\u2014' in position 1973: illegal multibyte sequence
+
+======================================================================
+
+====
+
+ERROR: test_live_b_full_structure_no_limits (test_submission_synopsis.SubmissionSynopsisTests.test_live_b_full_structure_no_limits)
+(b) With outline, no length limits �� intent / 5 loglines / �������.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\cultn\supertory\tests\test_submission_synopsis.py", line 164, in test_live_b_full_structure_no_limits
+    print("\n===== (b) ���� ���� =====\n", text)
+    ~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+UnicodeEncodeError: 'cp949' codec can't encode character '\u2014' in position 668: illegal multibyte sequence
+
+======================================================================
+
+====
+
+ERROR: test_live_c_length_limits (test_submission_synopsis.SubmissionSynopsisTests.test_live_c_length_limits)
+(c) synopsis 800 / intent 300 limits roughly respected.
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\cultn\supertory\tests\test_submission_synopsis.py", line 205, in test_live_c_length_limits
+    print(
+    ~~~~~^
+        f"\n===== (c) ���� ���� �� ��ǰ�ǵ� {_char_len(intent)}�� / "
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        f"�ó�ý� {_char_len(synopsis)}�� =====\n",
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        text,
+        ^^^^^
+    )
+    ^
+UnicodeEncodeError: 'cp949' codec can't encode character '\u2014' in position 479: illegal multibyte sequence
+
+======================================================================
+
+====
+
+FAIL: test_admin_ui_has_rebuild_menu (test_index_rebuild.IndexRebuildContractTests.test_admin_ui_has_rebuild_menu)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "C:\Users\cultn\supertory\tests\test_index_rebuild.py", line 95, in test_admin_ui_has_rebuild_menu
+    self.assertIn("���� ���ѿ� �����߽��ϴ�. ��� �� �ٽ� �õ����ּ���", js)
+    ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+AssertionError: '���� ���ѿ� �����߽��ϴ�. ��� �� �ٽ� �õ����ּ���' not found in '// ============================================================\n// SuperTory i18n helper (v3 \u2014 �ε� Ÿ�̹� ���� ������)\n// web/app.js �� ���� ���� i18n �ڵ带 �̰ɷ� ��°�� ��ü�ϼ���.\n//\n// �ٽ� ������: ȭ���� �׷����� ���� �ѱ��� �ܾ����� "����������"\n// �̸� �о���Դϴ� (XHR sync). �׷��� �ʱ� ������ ������\n// i18n.t()�� �ٷ� ���� ã�� �� �־��.\n// ============================================================\n\n/** ����� ��� ������ ���� ��, OS/������ �� ���� �⺻���� ���Ѵ�.\n *  �ѱ��� �迭(ko, ko-KR ��)�̸� "ko", �����ξ� �迭(es, es-ES, es-MX ��)�̸� "es",\n *  �� �ܿ��� ���� "en"���� ����. */\nfunction detectDefaultLang() {\n  const nav = (navigator.language || navigator.userLanguage || "ko").toLowerCase();\n  if (nav.startsWith("ko")) return "ko";\n  if (nav.startsWith("es")) return "es";\n  return "en";\n}\n\nconst i18n = (() => {\n  const savedLang = localStorage.getItem("supertory_lang");\n  let currentLang = savedLang || detectDefaultLang();\n  let currentTranslations = {};\n  let koFallback = {};\n\n  /** ���������� JSON ������ �о�´� (�ʱ� �ε� ����, ���� ª�Ը� ���) */\n  function loadJsonSync(lang) {\n    try {\n      const xhr = new XMLHttpRequest();\n      xhr.open("GET", `locales/${lang}.json`, false); // false = ����\n      xhr.send(null)

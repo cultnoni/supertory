@@ -1,0 +1,51 @@
+{
+  "steps": [
+    {
+      "label": "start",
+      "t": 1787413648508,
+      "mode": "mini",
+      "bounds": {
+        "x": 1104,
+        "y": 596,
+        "width": 320,
+        "height": 240
+      }
+    },
+    {
+      "label": "after-click-1",
+      "t": 1787413648922,
+      "mode": "max",
+      "bounds": {
+        "x": 16,
+        "y": 16,
+        "width": 1408,
+        "height": 820
+      }
+    },
+    {
+      "label": "after-click-2-wait-1100ms",
+      "t": 1787413650046,
+      "mode": "strip",
+      "bounds": {
+        "x": 1080,
+        "y": 596,
+        "width": 360,
+        "height": 40
+      },
+      "waitedMs": 1113
+    },
+    {
+      "label": "after-restore-click",
+      "t": 1787413650462,
+      "mode": "mini",
+      "bounds": {
+        "x": 1080,
+        "y": 596,
+        "width": 320,
+        "height": 240
+      }
+    }
+  ],
+  "passStayStrip": true,
+  "passRestoreMini": true
+}

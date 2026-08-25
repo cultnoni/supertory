@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Mapping
 from typing import TypedDict
 
@@ -121,20 +123,32 @@ def build_scene_split_prompt(chapter_text: str) -> str:
 
 PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
 아래 원고에서 고유명사(인명, 지명, 사물명, 조직명 등)를 찾아 영어권 독자에게 어울리는지 판단하세요.
-[판단 기준 — 이 4가지 관점에서만 판단합니다]
+[판단 기준 — 이 5가지 관점에서 판단합니다]
 1. 발음 부자연스러움: 로마자 표기 시 영어권에서 발음하기 어렵거나 어색한 음절 조합인가
 2. 의도치 않은 의미: 영어 단어/비속어와 발음이 겹쳐 원치 않는 뜻으로 들리는가
 3. 기존 유명인/브랜드와 혼동: 실존 유명인, 유명 캐릭터, 브랜드명과 우연히 겹치는가
 4. 희화화 위험: 진지한 장면에서 이름이 우스꽝스럽게 들려 몰입을 깨는가
-이 4가지에 해당하지 않으면 "fits"로 판정하세요. 막연히 "한국식 이름이라서"라는 이유만으로
+5. 시대감/장르 톤 부적합: 이름 자체는 문제없지만, 이 캐릭터/사물의 설정(나이, 신분,
+   장르 분위기)과 어울리지 않게 지나치게 올드패션이거나 톤이 안 맞는 인상을 주는가.
+이 5가지에 해당하지 않으면 "fits"로 판정하세요. 막연히 "한국식 이름이라서"라는 이유만으로
 안 어울린다고 판정하지 마세요 — 로마자 표기된 한국 이름은 영어권 판타지/로맨스 장르에서도
 흔하게 쓰입니다.
+5번 기준을 판단할 때는 이 이름이 서사적으로 의도된 것인지 원문 맥락에서 먼저 판단하세요:
+- 캐릭터가 실제로 노년/구세대 인물인가
+- 촌스러운 이름이 개그 요소, 콤플렉스, 플롯 장치로 쓰이고 있는가
+위에 해당하면 fits로 판정하고 그대로 유지하세요. 위에 해당하지 않는데 이름이
+설정과 안 맞아 보이면 does_not_fit으로 판정하고, 그 장르/캐릭터 분위기에
+어울리는 대안을 추천하세요.
 [처리 방식]
 - fits로 판정된 경우: 그대로 진행해도 좋다는 의견과 함께, 그래도 영어식 이름으로 바꾸고 싶다면
   그 이유(장르 관습, 발음 편의 등)를 간단히 언급하세요.
 - does_not_fit으로 판정된 경우: 구체적인 이유를 설명하고, 두 가지 선택지를 제시하세요.
   1) 로마자 표기 그대로 유지 2) 새 이름으로 작명 — 작명 선택 시를 대비해 원래 이름의 어감/
   느낌(강인함, 우아함, 순박함 등)을 살린 대안 이름 2~3개를 미리 추천하세요.
+대안 이름을 추천할 때는 원래 이름이 주던 어감(우아함/발랄함/신비로움/이국적 느낌 등)과
+캐릭터의 장르·설정 톤을 유지하는 방향으로 추천하세요. 동양풍 설정을 영어권으로 옮길 때도
+'이국적이고 신비로운 느낌'처럼 원문이 주던 인상을 영어권 독자에게도 비슷하게 전달하는
+이름을 찾으세요.
 [출력 형식 — JSON만 출력]
 {
   "proper_nouns": [
@@ -186,14 +200,67 @@ PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고�
     }
   ]
 }
-이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:
+[예시3 — 시대감/장르 톤 does_not_fit]
+원문: "스물셋의 패션 에디터 순자가 도심 카페에 들어섰다. 블랙 슬랙스에 단정한 블라우스, 짧은 단발."
+출력:
+{
+  "proper_nouns": [
+    {
+      "source_term": "순자",
+      "term_type": "character",
+      "romanized": "Sunja",
+      "fit_judgment": "does_not_fit",
+      "judgment_reason": "이름 자체에 발음·의미 문제는 없지만, 20대 세련된 도시 여성 이미지와 안 맞고 서사적 의도(노년, 개그, 콤플렉스, 플롯 장치)도 보이지 않습니다. 장르 톤에 맞는 이름으로 바꾸는 것을 추천합니다.",
+      "suggested_alternatives": ["Sian", "Iris", "Noelle"]
+    }
+  ]
+}
+[예시4 — 시대감/장르 톤 fits]
+원문: "여든이 넘은 순자 할머니가 마루에 앉아 손주를 불렀다."
+출력:
+{
+  "proper_nouns": [
+    {
+      "source_term": "순자",
+      "term_type": "character",
+      "romanized": "Sunja",
+      "fit_judgment": "fits",
+      "judgment_reason": "80대 할머니 캐릭터의 나이대·세대감과 잘 어울립니다. 서사적으로 의도된 이름으로 보이므로 그대로 유지하세요.",
+      "suggested_alternatives": []
+    }
+  ]
+}
+"""
+
+PROPER_NOUN_FIT_PROMPT_TAIL = """이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:
 """
 
 
-def build_proper_noun_fit_prompt(chapter_text: str) -> str:
-    """Insert chapter text into the proper-noun fit judgment prompt."""
+def build_proper_noun_fit_prompt(
+    chapter_text: str,
+    existing_index_terms: list[str] | None = None,
+) -> str:
+    """Insert chapter text into the proper-noun fit judgment prompt.
+
+    When existing_index_terms is non-empty, the model is told to skip those
+    names and only report newly found proper nouns.
+    """
     body = "" if chapter_text is None else str(chapter_text)
-    return f"{PROPER_NOUN_FIT_PROMPT_HEAD}{body}"
+    terms = [
+        str(item).strip()
+        for item in (existing_index_terms or [])
+        if str(item).strip()
+    ]
+    skip_block = ""
+    if terms:
+        listed = "\n".join(f"- {term}" for term in terms)
+        skip_block = (
+            "[기존에 이미 정리된 고유명사 목록 — 아래 이름들은 건너뛰세요, 다시 판정하지 마세요]\n"
+            f"{listed}\n"
+            "위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만 등장하는 지명 등)만\n"
+            "찾아서 아래 기준으로 판정하세요.\n"
+        )
+    return f"{PROPER_NOUN_FIT_PROMPT_HEAD}{skip_block}{PROPER_NOUN_FIT_PROMPT_TAIL}{body}"
 
 
 CULTURE_MARKER_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
@@ -574,3 +641,178 @@ def build_submission_query_prompt(
         f"{SUBMISSION_QUERY_PROMPT_TAIL}"
         f"{body}"
     )
+
+
+WORD_CONTEXT_PROMPT_HEAD = """당신은 "토리"입니다. 영어권 투고용으로 번역된 한국 웹소설의 특정 단어 선택에 대해
+간단히 설명합니다.
+"""
+
+WORD_CONTEXT_PROMPT_RULES = """[답변 원칙]
+1. 이 단어가 원문의 어떤 뉘앙스/느낌을 살리기 위해 선택되었는지 1~2문장으로 설명하세요.
+2. 단순 사전적 정의를 반복하지 마세요 — "왜 이 단어를 골랐는지"에 집중하세요.
+3. 특별한 의역 의도가 없는 평범한 단어라면, 그렇다고 짧게 말해도 됩니다.
+4. 장황하게 설명하지 마세요. 2문장 이내로 답하세요.
+[출력 형식 — JSON만 출력]
+{
+  "explanation": "..."
+}
+[예시1 — 의역 의도가 있는 경우]
+원문: "이오나는 서둘러 집으로 발길을 옮겼다."
+번역: "Iona hurried home."
+클릭한 단어: "hurried"
+출력:
+{
+  "explanation": "원문의 '발길을 옮겼다'는 문학적 표현을 직역하면 어색해서, 서두르는 행동 자체를 담은 'hurried'로 압축했어요. 눈 내리는 날씨에 서둘러 귀가하는 다급함이 자연스럽게 전달돼요."
+}
+[예시2 — 특별한 의도 없는 경우]
+원문: "이오나가 작은 탄식을 뱉었다."
+번역: "Iona let out a small sigh."
+클릭한 단어: "small"
+출력:
+{
+  "explanation": "이 부분은 특별한 의역 없이 원문의 '작은'을 그대로 옮긴 표현이에요."
+}
+이제 아래 질문에 답하세요.
+"""
+
+
+def build_word_context_prompt(
+    segment_text_info: Mapping[str, object] | str | None,
+    word: object,
+    existing_translation_notes: object = None,
+) -> str:
+    """Fill paragraph text, clicked word, and existing notes into the word-context prompt."""
+    if isinstance(segment_text_info, Mapping):
+        source = "" if segment_text_info.get("source_text") is None else str(
+            segment_text_info.get("source_text")
+        )
+        translated = "" if segment_text_info.get("translated_text") is None else str(
+            segment_text_info.get("translated_text")
+        )
+    else:
+        source = "" if segment_text_info is None else str(segment_text_info)
+        translated = ""
+    token = "" if word is None else str(word)
+    notes = (
+        ""
+        if existing_translation_notes is None
+        else str(existing_translation_notes)
+    )
+    return (
+        f"{WORD_CONTEXT_PROMPT_HEAD}"
+        f"{WORD_CONTEXT_PROMPT_RULES}"
+        f"[이 문단의 정보]\n"
+        f"원문: {source}\n"
+        f"현재 번역: {translated}\n"
+        f"사용자가 클릭한 단어: {token}\n"
+        f"[이미 기록된 의역 노트 — 있으면 참고만, 중복 설명하지 마세요]\n"
+        f"{notes}\n"
+    )
+
+
+TRANSLATION_QA_PROMPT_HEAD = """당신은 "토리"입니다. 한국 웹소설을 영어권 투고용으로 번역하는 작업을 돕는 AI
+편집 파트너로서, 작가(사용자)의 질문에 답합니다.
+"""
+
+TRANSLATION_QA_PROMPT_RULES = """[답변 원칙]
+1. 사용자가 "왜 이렇게 번역했는지" 물으면, 그 부분의 번역 근거를 구체적으로 설명하세요.
+   막연한 설명 대신 원문의 어떤 뉘앙스를 살리려 했는지 짚어주세요.
+2. 사용자가 "이렇게 바꿔줘" 같은 수정 요청을 하면, 설명만 하지 말고 실제 대안 문장을
+   1~2개 제시하세요. 요청한 방향(더 슬프게, 더 격식있게 등)이 왜 그 문장으로
+   구현되는지 짧게 덧붙이세요.
+3. 원문에 없는 내용을 새로 지어내지 마세요. 번역 뉘앙스 조정이지 창작이 아닙니다.
+4. 답변은 짧고 실용적으로. 불필요한 서두나 격식 있는 인사는 생략하세요.
+5. 이 문단 범위를 벗어난 질문(작품 전체 방향, 다른 챕터 등)이면, 지금은 이 문단에
+   집중된 대화라는 걸 안내하고 범위 내에서 답할 수 있는 부분만 답하세요.
+[출력 형식 — JSON만 출력]
+{
+  "response": "...",
+  "suggested_revision": "..."
+}
+suggested_revision 값은 수정 제안이 있으면 대안 문장, 없으면 빈 문자열입니다.
+[예시1 — 수정 요청]
+드래그한 부분: "Have you eaten, babe?"
+사용자 질문: "이 문장 조금 더 슬프게 바꿀 수 있어? 사실 이 장면에서 여자친구가 아파서 걱정하는 거거든"
+출력:
+{
+  "response": "아, 걱정하는 뉘앙스라면 가벼운 애칭보다 직접적인 안부 확인이 더 어울릴 것 같아요. 'babe' 대신 이름을 부르면서 조금 더 조심스러운 어조로 바꿔봤어요.",
+  "suggested_revision": "Have you eaten anything today? You should, even if it's just a little."
+}
+[예시2 — 이유를 묻는 질문]
+드래그한 부분: "Did you have dinner."
+사용자 질문: "왜 물음표를 없앤 거야?"
+출력:
+{
+  "response": "원문이 냉랭한 가족 갈등 장면이라, 의문형보다 건조한 평서문이 추궁하는 듯한 거리감을 더 잘 살린다고 판단했어요. 물음표를 넣으면 오히려 부드러운 인상이 될 수 있어서요.",
+  "suggested_revision": ""
+}
+이제 아래 사용자 질문에 답하세요.
+"""
+
+
+def build_translation_qa_prompt(
+    user_question: str,
+    settings: Mapping[str, object] | None = None,
+) -> str:
+    """Fill paragraph context and the writer's question into the Tory QA prompt."""
+    question = "" if user_question is None else str(user_question)
+    source_text = _setting(settings, "source_text")
+    translated_text = _setting(settings, "translated_text")
+    dragged_text = _setting(settings, "dragged_text")
+    tense = _setting(settings, "tense")
+    voices = _setting(settings, "character_voices")
+    relationship = _setting(settings, "relationship_tag")
+    mood = _setting(settings, "mood_tag")
+    culture = _setting(settings, "culture_localization_level")
+    history = _setting(settings, "chat_history")
+    return (
+        f"{TRANSLATION_QA_PROMPT_HEAD}"
+        f"[이 문단의 정보]\n"
+        f"원문: {source_text}\n"
+        f"현재 번역: {translated_text}\n"
+        f"사용자가 지목한 부분: {dragged_text}\n"
+        f"[스타일가이드]\n"
+        f"- 시제: {tense}\n"
+        f"- 인물별 어조: {voices}\n"
+        f"[씬 컨텍스트]: relationship_tag={relationship}, mood_tag={mood}\n"
+        f"[문화반영범위]: {culture}\n"
+        f"[지난 대화 기록]\n"
+        f"{history}\n"
+        f"{TRANSLATION_QA_PROMPT_RULES}"
+        f"{question}"
+    )
+
+
+def parse_translation_qa_output(raw: str | None) -> tuple[str, str]:
+    """Return (response, suggested_revision) from a Tory QA JSON reply."""
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return "", ""
+    cleaned = re.sub(r"^```(?:json)?\s*", "", text, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned).strip()
+    data: dict | None = None
+    try:
+        parsed = json.loads(cleaned)
+        if isinstance(parsed, dict):
+            data = parsed
+    except json.JSONDecodeError:
+        match = re.search(r"\{[\s\S]*\}", cleaned)
+        if match:
+            try:
+                parsed = json.loads(match.group(0))
+            except json.JSONDecodeError:
+                parsed = None
+            if isinstance(parsed, dict):
+                data = parsed
+    if not data:
+        return text, ""
+    response = str(data.get("response") or "").strip()
+    revision = str(
+        data.get("suggested_revision") or data.get("suggested_revision") or ""
+    ).strip()
+    if not response:
+        return text, revision
+    return response, revision
+
+
+build_translation_chat_prompt = build_translation_qa_prompt

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import json
 import unittest
 
 import translation_prompts
@@ -84,6 +85,68 @@ class ProperNounFitPromptTests(unittest.TestCase):
         self.assertTrue(prompt.endswith("처리하세요:\n"))
         none_prompt = translation_prompts.build_proper_noun_fit_prompt(None)  # type: ignore[arg-type]
         self.assertEqual(none_prompt, prompt)
+
+    def test_skips_existing_index_terms_when_provided(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(
+            CHAPTER, existing_index_terms=["이오나", "아르카디아"]
+        )
+        self.assertIn("건너뛰세요", prompt)
+        self.assertIn("- 이오나", prompt)
+        self.assertIn("- 아르카디아", prompt)
+        self.assertTrue(prompt.endswith(CHAPTER))
+
+    def test_without_existing_terms_scans_everything(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
+        self.assertNotIn("건너뛰세요", prompt)
+        self.assertNotIn("다시 판정하지 마세요", prompt)
+        self.assertIn(
+            "이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:\n" + CHAPTER,
+            prompt,
+        )
+
+    def test_skip_block_uses_index_header_and_only_new_terms_instruction(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(
+            CHAPTER, existing_index_terms=["이오나", "아르카디아"]
+        )
+        self.assertIn(
+            "[기존에 이미 정리된 고유명사 목록 — 아래 이름들은 건너뛰세요, 다시 판정하지 마세요]",
+            prompt,
+        )
+        self.assertIn("위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만 등장하는 지명 등)만", prompt)
+        self.assertIn("찾아서 아래 기준으로 판정하세요.", prompt)
+        self.assertIn("- 이오나", prompt)
+        self.assertIn("- 아르카디아", prompt)
+        self.assertIn(
+            "이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:\n" + CHAPTER,
+            prompt,
+        )
+
+    def test_judges_five_criteria_including_period_and_genre_tone(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
+        self.assertIn("[판단 기준 — 이 5가지 관점에서 판단합니다]", prompt)
+        self.assertIn("1. 발음 부자연스러움", prompt)
+        self.assertIn("2. 의도치 않은 의미", prompt)
+        self.assertIn("3. 기존 유명인/브랜드와 혼동", prompt)
+        self.assertIn("4. 희화화 위험", prompt)
+        self.assertIn("5. 시대감/장르 톤 부적합", prompt)
+        self.assertIn("이 이름이 서사적으로 의도된 것인지 원문 맥락에서 먼저 판단하세요", prompt)
+        self.assertIn("캐릭터가 실제로 노년/구세대 인물인가", prompt)
+        self.assertIn("촌스러운 이름이 개그 요소, 콤플렉스, 플롯 장치로 쓰이고 있는가", prompt)
+        self.assertNotIn("이 4가지 관점에서만 판단합니다", prompt)
+
+    def test_period_tone_few_shots_include_soonja_cases(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
+        self.assertIn('"source_term": "순자"', prompt)
+        self.assertIn("20대 세련된 도시 여성", prompt)
+        self.assertIn('"suggested_alternatives": ["Sian", "Iris", "Noelle"]', prompt)
+        self.assertIn("80대 할머니", prompt)
+        self.assertIn("서사적으로 의도된 이름으로 보이므로 그대로 유지하세요", prompt)
+
+    def test_alternative_names_keep_original_feel_and_genre_tone(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
+        self.assertIn("원래 이름이 주던 어감(우아함/발랄함/신비로움/이국적 느낌 등)", prompt)
+        self.assertIn("캐릭터의 장르·설정 톤을 유지하는 방향으로 추천하세요", prompt)
+        self.assertIn("이국적이고 신비로운 느낌", prompt)
 
 
 class CultureMarkerPromptTests(unittest.TestCase):
@@ -250,6 +313,142 @@ class SubmissionQueryPromptTests(unittest.TestCase):
             None, settings  # type: ignore[arg-type]
         )
         self.assertEqual(none_prompt, prompt)
+
+
+QA_SETTINGS = {
+    "source_text": "밥은 먹었니.",
+    "translated_text": "Have you eaten, babe?",
+    "dragged_text": "Have you eaten, babe?",
+    "tense": "past",
+    "character_voices": "이오나=캐주얼, 메리=격식",
+    "relationship_tag": "연인-걱정",
+    "mood_tag": "불안",
+    "culture_localization_level": "moderate",
+    "chat_history": "작가: 이 장면 톤이 맞나요?\n토리: 걱정이 묻어 있는 장면이에요.",
+}
+
+
+class TranslationQaPromptTests(unittest.TestCase):
+    def test_inserts_question_and_context(self) -> None:
+        prompt = translation_prompts.build_translation_qa_prompt(
+            "이 문장 조금 더 슬프게 바꿀 수 있어?", QA_SETTINGS
+        )
+        self.assertTrue(prompt.startswith('당신은 "토리"입니다'))
+        self.assertTrue(prompt.endswith("이 문장 조금 더 슬프게 바꿀 수 있어?"))
+        self.assertIn("원문: 밥은 먹었니.\n", prompt)
+        self.assertIn("현재 번역: Have you eaten, babe?\n", prompt)
+        self.assertIn("사용자가 지목한 부분: Have you eaten, babe?\n", prompt)
+        self.assertIn("- 시제: past\n", prompt)
+        self.assertIn("- 인물별 어조: 이오나=캐주얼, 메리=격식\n", prompt)
+        self.assertIn(
+            "[씬 컨텍스트]: relationship_tag=연인-걱정, mood_tag=불안\n",
+            prompt,
+        )
+        self.assertIn("[문화반영범위]: moderate\n", prompt)
+        self.assertIn("작가: 이 장면 톤이 맞나요?", prompt)
+        self.assertNotIn("[원문 삽입]", prompt)
+        self.assertNotIn("{source_text}", prompt)
+        self.assertNotIn("{translated_text}", prompt)
+        self.assertNotIn("{dragged_text}", prompt)
+        self.assertNotIn("{tense}", prompt)
+        self.assertNotIn("{character_voices}", prompt)
+        self.assertNotIn("{relationship_tag}", prompt)
+        self.assertNotIn("{mood_tag}", prompt)
+        self.assertNotIn("{culture_localization_level}", prompt)
+        self.assertNotIn("{chat_history}", prompt)
+
+    def test_keeps_json_example_braces(self) -> None:
+        prompt = translation_prompts.build_translation_qa_prompt(
+            "본문 {중괄호} 테스트", QA_SETTINGS
+        )
+        self.assertIn('"response"', prompt)
+        self.assertIn('"suggested_revision"', prompt)
+        self.assertIn("Have you eaten anything today?", prompt)
+        self.assertIn("왜 물음표를 없앤 거야?", prompt)
+        self.assertIn("본문 {중괄호} 테스트", prompt)
+
+    def test_empty_question_still_builds(self) -> None:
+        prompt = translation_prompts.build_translation_qa_prompt("", QA_SETTINGS)
+        self.assertIn("JSON만 출력", prompt)
+        self.assertTrue(prompt.endswith("이제 아래 사용자 질문에 답하세요.\n"))
+        none_prompt = translation_prompts.build_translation_qa_prompt(
+            None, QA_SETTINGS  # type: ignore[arg-type]
+        )
+        self.assertEqual(none_prompt, prompt)
+
+    def test_chat_prompt_alias_matches_qa_builder(self) -> None:
+        via_qa = translation_prompts.build_translation_qa_prompt(
+            "이 문장 조금 더 슬프게 바꿀 수 있어?", QA_SETTINGS
+        )
+        via_chat = translation_prompts.build_translation_chat_prompt(
+            "이 문장 조금 더 슬프게 바꿀 수 있어?", QA_SETTINGS
+        )
+        self.assertIs(
+            translation_prompts.build_translation_chat_prompt,
+            translation_prompts.build_translation_qa_prompt,
+        )
+        self.assertEqual(via_chat, via_qa)
+        self.assertIn("원문: 밥은 먹었니.\n", via_chat)
+        self.assertIn("- 시제: past\n", via_chat)
+
+    def test_parses_json_response_and_revision(self) -> None:
+        raw = json.dumps(
+            {
+                "response": "걱정이 묻어 있게 바꿨어요.",
+                "suggested_revision": "Have you eaten anything today?",
+            },
+            ensure_ascii=False,
+        )
+        response, revision = translation_prompts.parse_translation_qa_output(raw)
+        self.assertEqual(response, "걱정이 묻어 있게 바꿨어요.")
+        self.assertEqual(revision, "Have you eaten anything today?")
+
+    def test_parses_plain_text_when_json_missing(self) -> None:
+        response, revision = translation_prompts.parse_translation_qa_output(
+            "지금은 이 문단만 보고 답할게요."
+        )
+        self.assertEqual(response, "지금은 이 문단만 보고 답할게요.")
+        self.assertEqual(revision, "")
+
+
+class WordContextPromptTests(unittest.TestCase):
+    def test_inserts_segment_and_word(self) -> None:
+        prompt = translation_prompts.build_word_context_prompt(
+            {
+                "source_text": "이오나는 서둘러 집으로 발길을 옮겼다.",
+                "translated_text": "Iona hurried home.",
+            },
+            "hurried",
+            "발길을 옮겼다 → hurried: 서두름으로 압축",
+        )
+        self.assertTrue(prompt.startswith('당신은 "토리"입니다. 영어권 투고용으로'))
+        self.assertIn("원문: 이오나는 서둘러 집으로 발길을 옮겼다.\n", prompt)
+        self.assertIn("현재 번역: Iona hurried home.\n", prompt)
+        self.assertIn("사용자가 클릭한 단어: hurried\n", prompt)
+        self.assertIn("발길을 옮겼다 → hurried: 서두름으로 압축", prompt)
+        self.assertIn("이제 아래 질문에 답하세요.\n", prompt)
+        self.assertNotIn("[원문 삽입]", prompt)
+        self.assertNotIn("{word}", prompt)
+        self.assertNotIn("{source_text}", prompt)
+        self.assertNotIn("{translated_text}", prompt)
+        self.assertNotIn("{existing_translation_notes}", prompt)
+
+    def test_keeps_json_example_braces(self) -> None:
+        prompt = translation_prompts.build_word_context_prompt(
+            {"source_text": "본문 {중괄호}", "translated_text": "body {braces}"},
+            "small",
+            "",
+        )
+        self.assertIn('"explanation"', prompt)
+        self.assertIn("본문 {중괄호}", prompt)
+        self.assertIn("body {braces}", prompt)
+
+    def test_empty_inputs_still_build(self) -> None:
+        prompt = translation_prompts.build_word_context_prompt(None, None, None)
+        self.assertIn("JSON만 출력", prompt)
+        self.assertIn("사용자가 클릭한 단어: \n", prompt)
+        none_prompt = translation_prompts.build_word_context_prompt({}, "", "")
+        self.assertIn("사용자가 클릭한 단어: \n", none_prompt)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,27 @@
+---
+description: UI 문자열은 ko/en/es 로케일에 동시에 반영
+alwaysApply: true
+---
+
+# i18n: Korean, English, Spanish together
+
+Since SuperTory gained language support, **every user-visible change must ship in all three locales at once**.
+
+Whenever you add or change UI copy (labels, hints, toasts, placeholders, titles, aria-labels, option text, modal body, HTML with markup):
+
+1. Update **all three** in the same change, with the **same key**:
+   - `web/locales/ko.json`
+   - `web/locales/en.json`
+   - `web/locales/es.json`
+2. Do not leave Korean-only strings in `web/index.html` or `web/app.js`.
+3. Wire the DOM:
+   - plain text → `data-i18n`
+   - HTML markup → `data-i18n-html` (keep tags inside the locale value)
+   - placeholders → `data-i18n-placeholder`
+   - tooltips → `data-i18n-title`
+   - aria → `data-i18n-aria-label`
+4. JS-built strings use `i18n.t("…")`, never a hardcoded Korean (or English) sentence.
+5. Default visible text in `index.html` stays Korean and must match `ko.json`.
+6. English and Spanish should match the Korean **meaning and tone**, not a stiff word-for-word calque.
+
+CSS-only or backend-only changes with no user-facing copy do not need locale edits.
