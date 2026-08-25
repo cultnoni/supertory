@@ -3590,19 +3590,100 @@ def _format_narrative_rules_for_prompt(rules: object) -> str:
     return "\n".join(lines)
 
 
-def _parse_paragraph_translation_output(raw: str) -> tuple[str, object]:
+_PARAGRAPH_TRANSLATION_TEXT_KEYS = (
+    "translated_text",
+    "translation",
+    "translated",
+    "english",
+    "english_text",
+    "text",
+)
+
+
+def _json_string_field(text: str, field: str) -> str:
+    marker = f'"{field}"'
+    start = str(text or "").find(marker)
+    if start < 0:
+        return ""
+    colon = str(text).find(":", start + len(marker))
+    if colon < 0:
+        return ""
+    rest = str(text)[colon + 1 :].lstrip()
+    if not rest.startswith('"'):
+        return ""
     try:
-        parsed = SuperToryHandler._extract_json_object(raw)
-    except (ValueError, json.JSONDecodeError, TypeError):
-        parsed = {}
-    if not isinstance(parsed, dict):
-        parsed = {}
-    translated = str(
-        parsed.get("translated_text") or parsed.get("translation") or ""
-    ).strip()
+        value, _end = json.JSONDecoder().raw_decode(rest)
+    except json.JSONDecodeError:
+        return ""
+    return str(value).strip() if isinstance(value, str) else ""
+
+
+def _candidate_json_objects(raw: str) -> list[dict]:
+    cleaned = str(raw or "").strip()
+    cleaned = re.sub(r"^```(?:json)?\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(r"\s*```$", "", cleaned)
+    found: list[dict] = []
+    try:
+        loaded = json.loads(cleaned)
+        if isinstance(loaded, dict):
+            found.append(loaded)
+        elif isinstance(loaded, list):
+            found.extend(item for item in loaded if isinstance(item, dict))
+    except json.JSONDecodeError:
+        pass
+    decoder = json.JSONDecoder()
+    index = 0
+    while index < len(cleaned):
+        start = cleaned.find("{", index)
+        if start < 0:
+            break
+        try:
+            obj, end = decoder.raw_decode(cleaned, start)
+        except json.JSONDecodeError:
+            index = start + 1
+            continue
+        if isinstance(obj, dict):
+            found.append(obj)
+        index = max(end, start + 1)
+    return found
+
+
+def _translated_text_from_mapping(data: dict) -> str:
+    for key in _PARAGRAPH_TRANSLATION_TEXT_KEYS:
+        value = data.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    for nest_key in ("result", "data", "output"):
+        nested = data.get(nest_key)
+        if isinstance(nested, dict):
+            found = _translated_text_from_mapping(nested)
+            if found:
+                return found
+    return ""
+
+
+def _parse_paragraph_translation_output(raw: str) -> tuple[str, object]:
+    text = str(raw or "").strip()
+    parsed: dict = {}
+    for candidate in _candidate_json_objects(text):
+        if _translated_text_from_mapping(candidate):
+            parsed = candidate
+            break
+        if not parsed:
+            parsed = candidate
+    translated = _translated_text_from_mapping(parsed)
     notes = parsed.get("translation_notes") or parsed.get("notes") or []
     if not translated:
-        raise ValueError("문단 번역 결과에서 translated_text 를 찾지 못했습니다.")
+        for key in _PARAGRAPH_TRANSLATION_TEXT_KEYS:
+            translated = _json_string_field(text, key)
+            if translated:
+                break
+    if not translated:
+        prose = re.sub(r"^```(?:json)?\s*|\s*```$", "", text, flags=re.IGNORECASE).strip()
+        if prose and prose[0] not in "{[":
+            translated = prose
+    if not translated:
+        raise ValueError("문단 번역 결과를 읽지 못했어요. 다시 「번역 진행」을 눌러 주세요.")
     return translated, notes
 
 
