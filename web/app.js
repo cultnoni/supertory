@@ -13389,7 +13389,7 @@ function updateContinuePanelVisibility() {
 const AI_SUCCESS_MODE_VALUES = new Set(["successpattern", "successfeedback"]);
 const AI_COMING_MODE_VALUES = new Set(["scriptadapt", "audiobook", "multilang"]);
 // Flip to false before public release to re-lock 「투고용 다국어 번역하기」.
-const TRANSLATION_WORKSPACE_DEV_UNLOCK = true;
+const TRANSLATION_WORKSPACE_DEV_UNLOCK = false;
 const TRANSLATION_DEV_UNLOCK_STORAGE_KEY = "supertory.devUnlockTranslation";
 
 function isTranslationWorkspaceUnlocked() {
