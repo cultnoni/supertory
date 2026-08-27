@@ -1,0 +1,5 @@
+web/app.js 수정 내역
+렌더링(`data-folder-color-bright` 속성), 컨텍스트메뉴 상태 전달, 클릭 시 `{color, color_bright}` 동시 전송(한쪽 고르면 다른 쪽 자동 해제)
+
+3) 화면 동기화
+✅ 단일 폴더 응답과 `outline` 트리 응답 양쪽에서 `color_bright` 값이 항상 함께 내려오는 것 확인. (프론트: `normalizeApiFolderNode`/`findFolderMetaInState`/렌더 템플릿 3곳 모두 `color_bright` 통과하도록 반영 — 목차 트리 아이콘 채움색·우클릭 팔레트 활성 표시 포함)
