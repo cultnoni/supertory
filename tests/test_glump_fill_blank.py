@@ -288,10 +288,10 @@ class GlumpFillBlankTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        idle = root / "assets" / "glump" / "tori-puzzle-idle.png"
-        anim = root / "assets" / "glump" / "tori-puzzle.gif"
+        idle = root / "assets" / "glump" / "tory-puzzle-idle.png"
+        anim = root / "assets" / "glump" / "tory-puzzle.webp"
         self.assertIn('id="glumpErFillBlankTori"', html)
-        self.assertIn("/assets/glump/tori-puzzle.gif", html)
+        self.assertIn("/assets/glump/tory-puzzle.webp", html)
         self.assertIn("function playGlumpFillBlankToriIntro()", js)
         self.assertIn("playGlumpFillBlankToriIntro()", js)
         self.assertTrue(idle.is_file())
@@ -303,7 +303,7 @@ class GlumpFillBlankTests(unittest.TestCase):
             extrema = still.getchannel("A").getextrema()
             self.assertLess(extrema[0], 20, idle.name)
             self.assertGreater(extrema[1], 200, idle.name)
-        with Image.open(anim) as gif:
-            self.assertEqual(gif.format, "GIF")
-            self.assertTrue(getattr(gif, "is_animated", False), "puzzle gif should animate")
-            self.assertGreater(getattr(gif, "n_frames", 1), 20)
+        with Image.open(anim) as webp:
+            self.assertEqual(webp.format, "WEBP")
+            self.assertTrue(getattr(webp, "is_animated", False), "puzzle webp should animate")
+            self.assertGreater(getattr(webp, "n_frames", 1), 20)

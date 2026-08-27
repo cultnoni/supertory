@@ -4488,6 +4488,29 @@ def set_gitsi_room_default(room_code: str | None, enabled: bool, created_by: str
     return gitsi_room_public(row)
 
 
+def deactivate_gitsi_room(room_code: str | None) -> dict:
+    """Hide a room from the recent list. Joining the same code later reactivates it."""
+    code = normalize_gitsi_room_code(room_code or "")
+    if not code:
+        raise ValueError("룸 코드를 입력해 주세요.")
+    with database() as connection:
+        row = connection.execute(
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
+            (code,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("그 룸을 찾지 못했어요.")
+        connection.execute(
+            "UPDATE gitsi_rooms SET is_active = 0, is_default = 0 WHERE room_code = ?",
+            (code,),
+        )
+        row = connection.execute(
+            f"SELECT {GITSI_ROOM_FIELDS} FROM gitsi_rooms WHERE room_code = ?",
+            (code,),
+        ).fetchone()
+    return gitsi_room_public(row)
+
+
 def gitsi_creator_label() -> str:
     user = get_current_user()
     if user:
@@ -9864,6 +9887,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
             if match:
                 self.send_json(self.delete_typeset_preset(unquote(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/gitsi/rooms/([^/]+)", path)
+            if match:
+                result = deactivate_gitsi_room(unquote(match.group(1)))
+                self.send_json({"ok": True, "room": result})
                 return
 
             match = re.fullmatch(r"/api/illustrations/(\d+)", path)

@@ -186,10 +186,10 @@ class GlumpLuckySentenceTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        idle = root / "assets" / "glump" / "tori-lucky-idle.png"
-        anim = root / "assets" / "glump" / "tori-lucky.gif"
+        idle = root / "assets" / "glump" / "tory-pick-idle.png"
+        anim = root / "assets" / "glump" / "tory-pick.webp"
         self.assertIn('id="glumpErLuckyTori"', html)
-        self.assertIn("/assets/glump/tori-lucky.gif", html)
+        self.assertIn("/assets/glump/tory-pick.webp", html)
         self.assertIn("function playGlumpLuckyToriIntro()", js)
         self.assertIn("playGlumpLuckyToriIntro()", js)
         self.assertTrue(idle.is_file())

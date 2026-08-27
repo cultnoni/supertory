@@ -256,12 +256,12 @@ class GlumpPingpongTests(unittest.TestCase):
         root = Path(__file__).resolve().parents[1]
         html = (root / "web" / "index.html").read_text(encoding="utf-8")
         js = (root / "web" / "app.js").read_text(encoding="utf-8")
-        idle = root / "assets" / "glump" / "tori-pingpong-idle.png"
-        anim = root / "assets" / "glump" / "tori-pingpong.gif"
+        idle = root / "assets" / "glump" / "tory-pingpong-idle.png"
+        anim = root / "assets" / "glump" / "tory-pingpong.webp"
         self.assertIn('id="glumpErPingpongTori"', html)
         self.assertIn('id="glumpErPingpongCanvas"', html)
         self.assertIn('id="glumpErPingpongTyping"', html)
-        self.assertIn("/assets/glump/tori-pingpong.gif", html)
+        self.assertIn("/assets/glump/tory-pingpong.webp", html)
         self.assertIn("function playGlumpPingpongToriIntro()", js)
         self.assertIn("playGlumpPingpongToriIntro()", js)
         self.assertIn("function scrollGlumpPingpongCanvas(", js)
@@ -276,5 +276,5 @@ class GlumpPingpongTests(unittest.TestCase):
             self.assertLess(extrema[0], 20, idle.name)
             self.assertGreater(extrema[1], 200, idle.name)
         with Image.open(anim) as webp:
-            self.assertTrue(getattr(webp, "is_animated", False), "pingpong gif should animate")
+            self.assertTrue(getattr(webp, "is_animated", False), "pingpong webp should animate")
             self.assertGreater(getattr(webp, "n_frames", 1), 20)

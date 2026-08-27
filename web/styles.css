@@ -23764,22 +23764,6 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   grid-column: 1;
   grid-row: 1;
   margin: 0;
-  height: 112px;
-}
-#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-stage,
-#glumpErStepHome #glumpErHomeTori.is-settled .glump-er-spark-tori-stage {
-  box-sizing: border-box;
-  width: 112px;
-  height: 112px;
-  overflow: hidden;
-  border-radius: 14px;
-  border: 3px solid color-mix(in srgb, var(--accent, #c47b3a) 62%, var(--border, #d8d2c8));
-  background: color-mix(in srgb, var(--accent, #c47b3a) 6%, var(--surface, #fff));
-  filter: none;
-}
-#glumpErStepHome #glumpErHomeTori .glump-er-spark-tori-frame {
-  object-fit: cover;
-  object-position: center center;
 }
 #glumpErStepHome #glumpErStartDiagnosis {
   grid-column: 2;
@@ -24339,7 +24323,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori,
 .glump-er-wide-tori,
 .glump-er-joker-tori {
-  height: 118px;
+  height: 132px;
   margin: 0 0 6px;
   align-items: center;
 }
@@ -24353,9 +24337,8 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori.is-settled .glump-er-spark-tori-stage,
 .glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
 .glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
-  width: 210px;
-  height: 118px;
-  overflow: hidden;
+  width: 168px;
+  height: 132px;
 }
 .glump-er-vitamin-tori .glump-er-spark-tori-frame,
 .glump-er-pingpong-tori .glump-er-spark-tori-frame,
@@ -24371,22 +24354,22 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 .glump-er-doctor-tori.is-settled,
 .glump-er-wide-tori.is-settled,
 .glump-er-joker-tori.is-settled {
-  height: 118px;
+  height: 132px;
   margin: 0 0 6px;
 }
 .glump-er-puzzle-tori {
-  height: 148px;
+  height: 155px;
 }
 .glump-er-puzzle-tori .glump-er-spark-tori-stage {
-  width: 220px;
-  height: 148px;
+  width: 196px;
+  height: 155px;
 }
 .glump-er-puzzle-tori.is-settled {
-  height: 104px;
+  height: 132px;
 }
 .glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
-  width: 156px;
-  height: 104px;
+  width: 168px;
+  height: 132px;
 }
 .glump-er-desk-tori {
   height: 148px;
@@ -24394,9 +24377,8 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   align-items: center;
 }
 .glump-er-desk-tori .glump-er-spark-tori-stage {
-  width: 168px;
+  width: 188px;
   height: 148px;
-  overflow: hidden;
 }
 .glump-er-desk-tori .glump-er-spark-tori-frame {
   object-fit: contain;
@@ -24437,7 +24419,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   .glump-er-wide-tori.is-settled,
   .glump-er-joker-tori,
   .glump-er-joker-tori.is-settled {
-    height: 118px;
+    height: 132px;
     margin: 0 0 6px;
   }
   .glump-er-vitamin-tori .glump-er-spark-tori-stage,
@@ -24450,25 +24432,25 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   .glump-er-wide-tori.is-settled .glump-er-spark-tori-stage,
   .glump-er-joker-tori .glump-er-spark-tori-stage,
   .glump-er-joker-tori.is-settled .glump-er-spark-tori-stage {
-    width: 210px;
-    height: 118px;
+    width: 168px;
+    height: 132px;
   }
   .glump-er-puzzle-tori,
   .glump-er-puzzle-tori.is-settled {
-    height: 104px;
+    height: 132px;
     margin: 2px 0 6px;
   }
   .glump-er-puzzle-tori .glump-er-spark-tori-stage,
   .glump-er-puzzle-tori.is-settled .glump-er-spark-tori-stage {
-    width: 156px;
-    height: 104px;
+    width: 168px;
+    height: 132px;
   }
   .glump-er-desk-tori {
     height: 148px;
     margin: 0 0 4px;
   }
   .glump-er-desk-tori .glump-er-spark-tori-stage {
-    width: 168px;
+    width: 188px;
     height: 148px;
   }
 }
@@ -24605,7 +24587,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
 }
 .glump-er-ping-header .glump-er-pingpong-tori .glump-er-spark-tori-stage,
 .glump-er-ping-header .glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage {
-  width: 114px;
+  width: 82px;
   height: 64px;
 }
 .glump-er-chat-frame {
@@ -24848,7 +24830,7 @@ html[data-ui-scheme="dark"] .driver-popover.supertory-tutorial-popover .driver-p
   }
   .glump-er-ping-header .glump-er-pingpong-tori .glump-er-spark-tori-stage,
   .glump-er-ping-header .glump-er-pingpong-tori.is-settled .glump-er-spark-tori-stage {
-    width: 114px;
+    width: 82px;
     height: 64px;
   }
 }
@@ -24921,6 +24903,41 @@ body[data-theme="eink"] .glump-er-chat-frame::before {
   opacity: 1;
   margin-right: 5px;
   font-weight: 400;
+}
+.glump-er-tool-card .glump-er-tool-mascot {
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  object-fit: contain;
+  flex: 0 0 auto;
+}
+.glump-er-tool-card strong .glump-er-tool-name {
+  font-size: inherit;
+  font-weight: inherit;
+  line-height: inherit;
+  opacity: 1;
+  white-space: nowrap;
+}
+.glump-er-speedy-soon {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  min-height: 240px;
+  padding: 18px 8px 10px;
+}
+.glump-er-speedy-soon img {
+  width: min(220px, 58%);
+  height: auto;
+  object-fit: contain;
+  filter: drop-shadow(0 8px 14px color-mix(in srgb, #000 18%, transparent));
+}
+.glump-er-speedy-soon-msg {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
 }
 .glump-er-interrogation-qa {
   margin: 0 0 10px;
@@ -26646,6 +26663,27 @@ html[lang="es"] .format-tool-label-wrap {
   width: 100%;
   box-sizing: border-box;
 }
+.gitsi-popover-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--muted, #7a746b);
+}
+.gitsi-popover-hint .gitsi-blur-guide-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 3px;
+  vertical-align: -3px;
+  border-radius: 5px;
+  background: #292524;
+  color: #fbbf24;
+}
+.gitsi-popover-hint .gitsi-blur-guide-icon svg {
+  display: block;
+}
 .gitsi-popover-actions {
   display: flex;
   align-items: stretch;
@@ -26736,6 +26774,26 @@ html[lang="es"] .format-tool-label-wrap {
 .gitsi-recent-star.is-on {
   color: #d4a017;
   border-color: color-mix(in srgb, #d4a017 55%, var(--line));
+}
+.gitsi-recent-remove {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 32px;
+  width: 32px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface, #fff);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.gitsi-recent-remove:hover {
+  color: #e11d48;
+  border-color: color-mix(in srgb, #e11d48 50%, var(--line));
 }
 .gitsi-recent-item:hover {
   border-color: var(--primary, #292524);

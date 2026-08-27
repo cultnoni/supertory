@@ -127,6 +127,44 @@ class GitsiRoomsApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertIsNone(empty["room"])
 
+    def test_deactivate_room_hides_from_list(self) -> None:
+        self.request("POST", "/api/gitsi/rooms", {"room_code": "supertory-keep"})
+        self.request("POST", "/api/gitsi/rooms", {"room_code": "supertory-drop"})
+        self.request(
+            "POST",
+            "/api/gitsi/rooms/default",
+            {"room_code": "supertory-drop"},
+        )
+
+        status, deleted = self.request("DELETE", "/api/gitsi/rooms/supertory-drop")
+        self.assertEqual(status, 200)
+        self.assertEqual(deleted["ok"], True)
+        self.assertEqual(deleted["room"]["room_code"], "supertory-drop")
+        self.assertEqual(int(deleted["room"]["is_active"]), 0)
+        self.assertEqual(int(deleted["room"]["is_default"]), 0)
+
+        status, listed = self.request("GET", "/api/gitsi/rooms")
+        self.assertEqual(status, 200)
+        codes = [row["room_code"] for row in listed["rooms"]]
+        self.assertIn("supertory-keep", codes)
+        self.assertNotIn("supertory-drop", codes)
+
+        status, current = self.request("GET", "/api/gitsi/rooms/default")
+        self.assertEqual(status, 200)
+        self.assertIsNone(current["room"])
+
+        status, rejoined = self.request("POST", "/api/gitsi/rooms", {"room_code": "supertory-drop"})
+        self.assertEqual(status, 200)
+        self.assertFalse(rejoined["created"])
+        self.assertEqual(int(rejoined["is_active"]), 1)
+
+        status, listed_again = self.request("GET", "/api/gitsi/rooms")
+        self.assertEqual(status, 200)
+        self.assertIn("supertory-drop", [row["room_code"] for row in listed_again["rooms"]])
+
+        status, missing = self.request("DELETE", "/api/gitsi/rooms/supertory-missing")
+        self.assertEqual(status, 404)
+
 
 if __name__ == "__main__":
     unittest.main()

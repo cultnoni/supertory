@@ -23454,6 +23454,7 @@ const GLUMP_TOOL_LABELS = {
   sentence_list: i18n.t('app.문장집_둘러보기'),
   character_tarot: i18n.t('app.캐릭터_타로_풀이'),
   naming_shop: i18n.t('app.작명소'),
+  speedy_tory: i18n.t('app.SpeedyTORY'),
 };
 
 const GLUMP_DIVERSION_META = {
@@ -23620,6 +23621,10 @@ function launchGlumpHomeTool(toolId) {
   }
   if (id === "brain_park") {
     openGlumpDiversionsStep();
+    return;
+  }
+  if (id === "speedy_tory") {
+    openGlumpSpeedyToryStep();
     return;
   }
   const name = GLUMP_TOOL_LABELS[id] || i18n.t('app.이_도구');
@@ -24160,6 +24165,11 @@ function openGlumpDiversionsStep() {
   playGlumpDiversionsToriIntro();
 }
 
+function openGlumpSpeedyToryStep() {
+  glumpErState.step = "speedy";
+  renderGlumpErStep();
+}
+
 function renderGlumpErStep() {
   const steps = {
     home: $("glumpErStepHome"),
@@ -24169,6 +24179,7 @@ function renderGlumpErStep() {
     spark: $("glumpErStepSpark"),
     sprint: $("glumpErStepSprint"),
     vitamin: $("glumpErStepVitamin"),
+    speedy: $("glumpErStepSpeedy"),
     fillblank: $("glumpErStepFillBlank"),
     pingpong: $("glumpErStepPingpong"),
     lucky: $("glumpErStepLucky"),
@@ -24569,6 +24580,8 @@ function renderGlumpErStep() {
   if (sparkBack) sparkBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const vitaminBack = $("glumpErVitaminBack");
   if (vitaminBack) vitaminBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
+  const speedyBack = $("glumpErSpeedyBack");
+  if (speedyBack) speedyBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const fillBack = $("glumpErFillBlankBack");
   if (fillBack) fillBack.textContent = glumpErState.diagnosis ? i18n.t('app.진단으로') : i18n.t('app.목록으로');
   const pingBack = $("glumpErPingpongBack");
@@ -24596,7 +24609,7 @@ function openGlumpErModal() {
     try { closeAiToolModal({ dismissed: false, returnToList: false }); } catch (_) { /* ignore */ }
   }
   glumpErState.modalDismissed = false;
-  if (!glumpErState.busy && !["spark", "sprint", "result", "vitamin", "fillblank", "pingpong", "lucky", "interrogation", "diversions", "diversionResult"].includes(glumpErState.step)) {
+  if (!glumpErState.busy && !["spark", "sprint", "result", "vitamin", "speedy", "fillblank", "pingpong", "lucky", "interrogation", "diversions", "diversionResult"].includes(glumpErState.step)) {
     resetGlumpErState();
   }
   renderGlumpErStep();
@@ -24682,15 +24695,15 @@ const glumpToolToriIntro = {
 };
 
 const GLUMP_ANIMATED_TORI = {
-  home: { stillSrc: "/assets/glump/tori-doctor-idle.png" },
-  spark: { stillSrc: "/assets/glump/tori-spark-idle.png" },
-  vitamin: { stillSrc: "/assets/glump/tori-vitamin-idle.png" },
-  pingpong: { stillSrc: "/assets/glump/tori-pingpong-idle.png" },
-  fillblank: { stillSrc: "/assets/glump/tori-puzzle-idle.png" },
-  diversions: { stillSrc: "/assets/glump/tori-mouse.png" },
-  sprint: { stillSrc: "/assets/glump/tori-writing.png" },
-  lucky: { stillSrc: "/assets/glump/tori-lucky-idle.png" },
-  interrogation: { stillSrc: "/assets/glump/tori-mic-idle.png" },
+  home: { stillSrc: "/assets/glump/tory-doc-idle.png" },
+  spark: { stillSrc: "/assets/glump/tory-joker1-idle.png" },
+  vitamin: { stillSrc: "/assets/glump/tory-vitamin-idle.png" },
+  pingpong: { stillSrc: "/assets/glump/tory-pingpong-idle.png" },
+  fillblank: { stillSrc: "/assets/glump/tory-puzzle-idle.png" },
+  diversions: { stillSrc: "/assets/glump/tory-mouse-idle.png" },
+  sprint: { stillSrc: "/assets/glump/tory-writing-idle.png" },
+  lucky: { stillSrc: "/assets/glump/tory-pick-idle.png" },
+  interrogation: { stillSrc: "/assets/glump/tory-mic-idle.png" },
 };
 
 function clearGlumpToolToriTimers(kind) {
@@ -27007,6 +27020,11 @@ function setupGlumpErUi() {
     renderGlumpErStep();
   });
   $("glumpErVitaminBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    glumpErState.step = glumpErReturnStep();
+    renderGlumpErStep();
+  });
+  $("glumpErSpeedyBack")?.addEventListener("click", (event) => {
     event.preventDefault();
     glumpErState.step = glumpErReturnStep();
     renderGlumpErStep();
@@ -38978,9 +38996,14 @@ function renderGitsiRecent(rooms) {
       .replace(/&/g, "&amp;")
       .replace(/"/g, "&quot;")
       .replace(/</g, "&lt;");
+    const removeLabel = i18n.t("index.목록에서_삭제")
+      .replace(/&/g, "&amp;")
+      .replace(/"/g, "&quot;")
+      .replace(/</g, "&lt;");
     return `<div class="gitsi-recent-row">
       <button type="button" class="gitsi-recent-item" data-gitsi-room="${code}"><code>${safe}</code></button>
       <button type="button" class="gitsi-recent-star${isDefault ? " is-on" : ""}" data-gitsi-star="${code}" title="${starLabel}" aria-label="${starLabel}" aria-pressed="${isDefault ? "true" : "false"}">${isDefault ? "★" : "☆"}</button>
+      <button type="button" class="gitsi-recent-remove" data-gitsi-remove="${code}" title="${removeLabel}" aria-label="${removeLabel}">×</button>
     </div>`;
   }).join("");
 }
@@ -39009,6 +39032,14 @@ async function setGitsiDefaultRoom(roomCode, enabled) {
   toast(enabled ? i18n.t("index.기본_룸으로_지정했어요") : i18n.t("index.기본_룸을_해제했어요"));
   await refreshGitsiRecent();
   return room;
+}
+
+async function removeGitsiRecentRoom(roomCode) {
+  const code = String(roomCode || "").trim();
+  if (!code) return;
+  await api(`/api/gitsi/rooms/${encodeURIComponent(code)}`, { method: "DELETE" });
+  toast(i18n.t("index.룸을_목록에서_지웠어요"));
+  await refreshGitsiRecent();
 }
 
 async function ensureGitsiRoomsLoaded() {
@@ -39497,6 +39528,15 @@ function setupGitsi() {
     }
   });
   $("gitsiRecentList")?.addEventListener("click", (event) => {
+    const remove = event.target.closest?.("[data-gitsi-remove]");
+    if (remove) {
+      event.preventDefault();
+      event.stopPropagation();
+      const code = String(remove.getAttribute("data-gitsi-remove") || "").trim();
+      if (!code) return;
+      void removeGitsiRecentRoom(code).catch((error) => handleError?.(error));
+      return;
+    }
     const star = event.target.closest?.("[data-gitsi-star]");
     if (star) {
       event.preventDefault();

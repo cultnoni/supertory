@@ -32,6 +32,8 @@
         box-sizing: border-box;
         background: #292524;
         border-bottom: 1px solid #44403c;
+        position: relative;
+        z-index: 10;
       }
       .gitsi-drag {
         -webkit-app-region: drag;
@@ -195,6 +197,24 @@
         color: #fbbf24;
         background: rgba(251, 191, 36, 0.22);
       }
+      .gitsi-blur-hint {
+        position: absolute;
+        top: 36px;
+        right: 8px;
+        z-index: 9;
+        max-width: 230px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        background: #292524;
+        border: 1px solid #57534e;
+        color: #f5f5f4;
+        font-size: 12px;
+        line-height: 1.45;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.35);
+        pointer-events: none;
+      }
+      .gitsi-blur-hint[hidden] { display: none !important; }
+      html[data-mode="strip"] .gitsi-blur-hint { display: none !important; }
       #gitsiStatus {
         position: absolute;
         inset: 0;
@@ -255,6 +275,7 @@
             <path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" d="M6 6l12 12M18 6 6 18"/>
           </svg>
         </button>
+        <p class="gitsi-blur-hint" id="gitsiBlurHint" hidden></p>
       </div>
     </header>
     <div class="gitsi-stage">
@@ -300,9 +321,10 @@
             mic: "마이크",
             cam: "카메라",
             share: "화면 공유",
-            blur: "화면 블러",
-            blurOn: "블러 켜짐",
-            blurOff: "블러 꺼짐",
+            blur: "내 화면 블러",
+            blurOn: "내 화면 블러 켜짐",
+            blurOff: "내 화면 블러 꺼짐",
+            blurHint: "이 겹친 원 아이콘이 내 화면 블러예요. 누르면 상대가 글을 읽지 못해요.",
             move: "창 이동",
           },
           en: {
@@ -320,9 +342,10 @@
             mic: "Microphone",
             cam: "Camera",
             share: "Share screen",
-            blur: "Screen blur",
-            blurOn: "Blur on",
-            blurOff: "Blur off",
+            blur: "Blur my screen",
+            blurOn: "Screen blur on",
+            blurOff: "Screen blur off",
+            blurHint: "This overlapping-circles icon blurs your screen so others can’t read your writing.",
             move: "Move window",
           },
           es: {
@@ -340,9 +363,10 @@
             mic: "Micrófono",
             cam: "Cámara",
             share: "Compartir pantalla",
-            blur: "Desenfoque de pantalla",
+            blur: "Desenfocar mi pantalla",
             blurOn: "Desenfoque activado",
             blurOff: "Desenfoque desactivado",
+            blurHint: "Este icono de círculos superpuestos desenfoca tu pantalla para que no puedan leer tu texto.",
             move: "Mover ventana",
           },
         };
@@ -361,6 +385,7 @@
         let videoMuted = true;
         let sharing = false;
         let blurOn = false;
+        let blurHintTimer = null;
         let scriptPromise = null;
         let joinGen = 0;
         let longPressTimer = null;
@@ -418,6 +443,8 @@
           document.getElementById("gitsiCamBtn").title = t.cam;
           document.getElementById("gitsiShareBtn").title = t.share;
           syncBlurButtons();
+          const hint = document.getElementById("gitsiBlurHint");
+          if (hint && !hint.hidden) hint.textContent = t.blurHint;
           if (status && !status.classList.contains("hidden") && status.querySelector("p")) {
             status.querySelector("p").textContent = t.loading;
           }
@@ -459,6 +486,24 @@
         function blurLabel() {
           if (!sharing) return t.blur;
           return blurOn ? t.blurOn : t.blurOff;
+        }
+
+        function hideBlurHint() {
+          const hint = document.getElementById("gitsiBlurHint");
+          if (hint) hint.hidden = true;
+          if (blurHintTimer) {
+            clearTimeout(blurHintTimer);
+            blurHintTimer = null;
+          }
+        }
+
+        function showBlurHint() {
+          const hint = document.getElementById("gitsiBlurHint");
+          if (!hint || localMode === "strip") return;
+          hint.textContent = t.blurHint;
+          hint.hidden = false;
+          if (blurHintTimer) clearTimeout(blurHintTimer);
+          blurHintTimer = setTimeout(hideBlurHint, 7000);
         }
 
         function syncBlurButtons() {
@@ -635,8 +680,10 @@
             if (sharing && !wasSharing) {
               blurOn = false;
               applyShareBlur(false);
+              showBlurHint();
             } else if (!sharing && wasSharing) {
               stopSharePipeline("share-ended");
+              hideBlurHint();
             }
             syncCtrl();
           });
@@ -731,6 +778,7 @@
           event.preventDefault();
           event.stopPropagation();
           if (!sharing) return;
+          hideBlurHint();
           applyShareBlur(!blurOn);
         }
         document.getElementById("gitsiBlurBtn").addEventListener("click", onBlurToggle);
