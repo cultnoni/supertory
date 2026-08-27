@@ -61,6 +61,7 @@ import success_pattern
 import tarot_deck
 import translation_context
 import translation_prompts
+import typeset_export
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
 from sync.project_sync import (
@@ -8597,6 +8598,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 })
                 return
 
+            if path == "/api/typeset/presets":
+                self.send_json(self.list_typeset_presets())
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
             if match:
                 self.send_json(self.list_trash(int(match.group(1))))
@@ -8892,6 +8897,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 reveal_in_explorer(folder)
                 self.send_json({"ok": True, "export_dir": str(folder)})
+                return
+
+            if path == "/api/typeset/export":
+                self.send_typeset_export(body)
+                return
+
+            if path == "/api/typeset/presets":
+                self.send_json(self.create_typeset_preset(body))
                 return
 
             # POST export with JSON body: { format, scene_ids?, save_to_folder?, export_dir? }
@@ -9796,6 +9809,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         try:
             body = self.read_json()
+            match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
+            if match:
+                self.send_json(self.update_typeset_preset(match.group(1), body))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
             if match:
                 self.send_json(self.save_scene(int(match.group(1)), body))
@@ -9924,6 +9942,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
         try:
+            match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
+            if match:
+                self.send_json(self.delete_typeset_preset(unquote(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/illustrations/(\d+)", path)
             if match:
                 self.delete_illustration(int(match.group(1)))
@@ -18165,6 +18188,100 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     return chapters
         return self._export_chapters_from_legacy_order(
             chapters_rows, scenes_rows, selected
+        )
+
+    def list_typeset_presets(self) -> dict:
+        presets = typeset_export.load_typeset_presets(root=ROOT, data_dir=DATA_DIR)
+        return {
+            "ok": True,
+            "order": typeset_export.ordered_preset_ids(presets),
+            "presets": presets,
+        }
+
+    def create_typeset_preset(self, body: dict) -> dict:
+        presets = typeset_export.load_typeset_presets(root=ROOT, data_dir=DATA_DIR)
+        next_presets, platform_id, created = typeset_export.create_preset(
+            presets,
+            label=str((body or {}).get("label") or ""),
+            copy_from=str((body or {}).get("copy_from") or "").strip() or None,
+        )
+        saved = typeset_export.save_typeset_presets(next_presets, data_dir=DATA_DIR)
+        return {
+            "ok": True,
+            "platform_id": platform_id,
+            "preset": saved.get(platform_id) or created,
+            "order": typeset_export.ordered_preset_ids(saved),
+            "presets": saved,
+        }
+
+    def update_typeset_preset(self, platform_id: str, body: dict) -> dict:
+        presets = typeset_export.load_typeset_presets(root=ROOT, data_dir=DATA_DIR)
+        next_presets, updated = typeset_export.update_preset(presets, platform_id, body)
+        saved = typeset_export.save_typeset_presets(next_presets, data_dir=DATA_DIR)
+        return {
+            "ok": True,
+            "platform_id": str(platform_id),
+            "preset": saved.get(platform_id) or updated,
+            "order": typeset_export.ordered_preset_ids(saved),
+            "presets": saved,
+        }
+
+    def delete_typeset_preset(self, platform_id: str) -> dict:
+        presets = typeset_export.load_typeset_presets(root=ROOT, data_dir=DATA_DIR)
+        next_presets = typeset_export.delete_preset(presets, platform_id)
+        saved = typeset_export.save_typeset_presets(next_presets, data_dir=DATA_DIR)
+        return {
+            "ok": True,
+            "platform_id": str(platform_id),
+            "order": typeset_export.ordered_preset_ids(saved),
+            "presets": saved,
+        }
+
+    def send_typeset_export(self, body: dict) -> None:
+        """Export the current 회차 with a platform typeset preset as DOCX or HWPX."""
+        platform_id = typeset_export.platform_id_from_body(body)
+        scene_id = typeset_export.scene_id_from_body(body)
+        format_key = typeset_export.format_key_from_body(body)
+        presets = typeset_export.load_typeset_presets(root=ROOT, data_dir=DATA_DIR)
+        preset = typeset_export.get_preset(presets, platform_id)
+        detail = self.scene_detail(scene_id)
+        plain = plain_text_from_content(str(detail.get("content_md") or ""))
+        exported = typeset_export.export_typeset_file(
+            plain_text=plain,
+            preset=preset,
+            scene_title=str(detail.get("title") or ""),
+            platform_id=platform_id,
+            format_key=format_key,
+        )
+        prefs = load_export_prefs()
+        if "save_to_folder" in body:
+            save_to_folder = bool(body.get("save_to_folder"))
+        else:
+            save_to_folder = bool(prefs.get("save_to_folder", True))
+        if save_to_folder:
+            reveal = body.get("reveal_after_save")
+            if reveal is None:
+                reveal = prefs.get("reveal_after_save", True)
+            saved = write_export_file(
+                exported.data,
+                exported.filename,
+                directory=str(body.get("export_dir") or prefs.get("export_dir") or ""),
+                reveal=bool(reveal),
+            )
+            self.send_json({
+                "ok": True,
+                "saved": True,
+                "filename": exported.filename,
+                "mime": exported.mime,
+                "platform_id": platform_id,
+                "format": exported.format_key,
+                **saved,
+            })
+            return
+        self.send_download(
+            exported.data,
+            filename=exported.filename,
+            content_type=exported.mime,
         )
 
     def export_project(
