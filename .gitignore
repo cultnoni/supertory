@@ -8,6 +8,7 @@ data/*.sqlite3-*
 data/illustrations/
 data/ambient_custom/
 data/auth_session.json
+data/device_id.json
 .DS_Store
 _test_export.*
 
