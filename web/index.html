@@ -1596,7 +1596,7 @@
                   class="format-tool-item format-viewer-btn"
                   id="viewerModeButton"
                   data-icon-key="viewer"
-                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 (편집 불가)" data-i18n-title="index.뷰어_PDF_종이책_핸드폰_리더기_편집_불가"
+                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 · 조판 (편집 불가)" data-i18n-title="index.뷰어_PDF_종이책_핸드폰_리더기_편집_불가"
                   aria-label="뷰어" data-i18n-aria-label="index.뷰어"
                 >
                   <span class="format-tool-glyph" aria-hidden="true">
@@ -5664,6 +5664,7 @@
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="book" aria-selected="false" data-i18n="app.종이책">종이책</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="phone" aria-selected="false" data-i18n="app.핸드폰">핸드폰</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="eink" aria-selected="false" data-i18n="app.리더기">리더기</button>
+            <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="typeset" aria-selected="false" data-i18n="index.조판">조판</button>
           </div>
           <div class="viewer-scope-tabs" id="viewerScopeTabs" role="group" aria-label="원고 범위" data-i18n-aria-label="index.원고_범위">
             <button type="button" class="viewer-scope-tab is-active" data-viewer-scope="scene" aria-pressed="true" data-i18n="app.현재_회차">현재 회차</button>
@@ -5850,6 +5851,102 @@
               </select>
             </label>
             <span class="viewer-ctrl-hint" data-i18n="index.책_넘김_휠_버튼_스와이프_스크롤_아래로_자">책 넘김: 휠·버튼·스와이프 · 스크롤: 아래로 자연 스크롤</span>
+          </div>
+          <!-- Platform typeset (Munpia / KakaoPage / Ridibooks / Naver Series) -->
+          <div class="viewer-controls hidden" data-viewer-controls="typeset">
+            <div class="viewer-typeset-platform-wrap">
+              <div id="viewerTypesetPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
+              <div id="viewerTypesetNewPop" class="viewer-typeset-pop hidden" hidden>
+                <label class="viewer-typeset-pop-label" for="viewerTypesetNewLabel">
+                  <span data-i18n="index.조판양식_이름">조판양식 이름</span>
+                  <input
+                    id="viewerTypesetNewLabel"
+                    type="text"
+                    maxlength="40"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="예: 조아라" data-i18n-placeholder="index.예_조아라"
+                  >
+                </label>
+                <div class="viewer-typeset-pop-actions">
+                  <button type="button" class="secondary compact-btn" id="viewerTypesetNewCancel" data-i18n="index.취소">취소</button>
+                  <button type="button" class="primary compact-btn" id="viewerTypesetNewConfirm" data-i18n="index.추가">추가</button>
+                </div>
+              </div>
+            </div>
+            <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
+            <label class="viewer-ctrl"><span data-i18n="app.글꼴">글꼴</span>
+              <input id="viewerTypesetFont" type="text" maxlength="40" spellcheck="false" value="바탕체">
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.글자_크기">글자 크기</span>
+              <input id="viewerTypesetFontSize" type="number" min="1" max="72" step="1" value="10">
+              <span>pt</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="app.줄간격">줄간격</span>
+              <input id="viewerTypesetLineHeight" type="number" min="50" max="400" step="1" value="140">
+              <span>%</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.자간">자간</span>
+              <input id="viewerTypesetLetterSpacing" type="number" min="-20" max="40" step="1" value="0">
+              <span>pt</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.들여쓰기">들여쓰기</span>
+              <input id="viewerTypesetIndent" type="number" min="0" max="400" step="1" value="0">
+              <span>pt</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.문단_간격">문단 간격</span>
+              <input id="viewerTypesetParaSpacing" type="number" min="0" max="120" step="1" value="0">
+              <span>pt</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.왼쪽_여백">왼쪽 여백</span>
+              <input id="viewerTypesetMarginLeft" type="number" min="0" max="80" step="1" value="20">
+              <span>mm</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.오른쪽_여백">오른쪽 여백</span>
+              <input id="viewerTypesetMarginRight" type="number" min="0" max="80" step="1" value="20">
+              <span>mm</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.위_여백">위 여백</span>
+              <input id="viewerTypesetMarginTop" type="number" min="0" max="80" step="1" value="20">
+              <span>mm</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.아래_여백">아래 여백</span>
+              <input id="viewerTypesetMarginBottom" type="number" min="0" max="80" step="1" value="20">
+              <span>mm</span>
+            </label>
+            <label class="viewer-ctrl"><span data-i18n="index.미리보기_폭">미리보기 폭</span>
+              <input id="viewerTypesetViewport" type="number" min="200" max="800" step="1" value="360">
+              <span>px</span>
+            </label>
+            <button type="button" class="secondary compact-btn" id="viewerTypesetSave" data-i18n="index.조판양식_저장">조판양식 저장</button>
+            <div class="viewer-typeset-export-wrap">
+              <button
+                type="button"
+                class="primary compact-btn"
+                id="viewerTypesetExport"
+                aria-haspopup="menu"
+                aria-expanded="false"
+                aria-controls="viewerTypesetExportMenu"
+                data-i18n="index.내보내기"
+              >내보내기 ▾</button>
+              <div
+                id="viewerTypesetExportMenu"
+                class="viewer-typeset-export-menu hidden"
+                role="menu"
+                hidden
+                aria-label="조판 내보내기 형식" data-i18n-aria-label="index.조판_내보내기_형식"
+              >
+                <button type="button" role="menuitem" data-typeset-export="docx">
+                  <strong data-i18n="index.Word_docx">Word (.docx)</strong>
+                  <span data-i18n="index.같은_서식으로">같은 서식으로</span>
+                </button>
+                <button type="button" role="menuitem" data-typeset-export="hwpx">
+                  <strong data-i18n="index.한글_hwpx">한글 (.hwpx)</strong>
+                  <span data-i18n="index.같은_서식으로">같은 서식으로</span>
+                </button>
+              </div>
+            </div>
+            <span class="viewer-ctrl-hint" data-i18n="index.플랫폼_조판으로_모바일_줄바꿈을_확인하고_같">플랫폼 조판으로 모바일 줄바꿈을 확인하고, 같은 서식으로 Word나 한글 파일을 받아요. 여백은 파일에 반영됩니다.</span>
           </div>
         </div>
         <div class="viewer-stage" id="viewerStage" data-viewer-mode="pdf">

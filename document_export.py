@@ -424,7 +424,7 @@ def _hwpx_paragraph_lines(blocks: list[ManuscriptBlock]) -> list[str]:
     return lines
 
 
-def _hwpx_section_xml(blocks: list[ManuscriptBlock], skeleton_section: str) -> bytes:
+def _hwpx_section_xml_from_lines(lines: list[str], skeleton_section: str) -> bytes:
     """Build section0.xml using skeleton namespaces + secPr (Hangul-safe)."""
     # Hangul crashes on newlines inside section XML; keep one continuous stream.
     root_match = re.match(r"<\?xml[^?]*\?>\s*<hs:sec\b[^>]*>", skeleton_section)
@@ -447,7 +447,8 @@ def _hwpx_section_xml(blocks: list[ManuscriptBlock], skeleton_section: str) -> b
     sec_bundle = re.sub(r">\s+<", "><", sec_bundle_match.group(1))
 
     paras: list[str] = []
-    for index, line in enumerate(_hwpx_paragraph_lines(blocks)):
+    source_lines = list(lines) if lines else [""]
+    for index, line in enumerate(source_lines):
         body = escape_xml_text(line)
         text_xml = f"<hp:t>{body}</hp:t>" if body else "<hp:t/>"
         if index == 0:
@@ -470,6 +471,10 @@ def _hwpx_section_xml(blocks: list[ManuscriptBlock], skeleton_section: str) -> b
     if "\n" in section or "\r" in section:
         section = section.replace("\r", "").replace("\n", "")
     return section.encode("utf-8")
+
+
+def _hwpx_section_xml(blocks: list[ManuscriptBlock], skeleton_section: str) -> bytes:
+    return _hwpx_section_xml_from_lines(_hwpx_paragraph_lines(blocks), skeleton_section)
 
 
 def validate_hwpx_package(data: bytes) -> list[str]:

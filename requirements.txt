@@ -1,3 +1,5 @@
 # SuperTory Python extras (local HTTP server itself is stdlib).
 # Optional cloud sync for desktop ↔ phone pairing.
 supabase>=2.15.0
+# Platform typeset DOCX export (Munpia / KakaoPage / Ridibooks / Naver Series).
+python-docx>=1.1.0
