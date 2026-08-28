@@ -62,6 +62,7 @@ import tarot_deck
 import translation_context
 import translation_prompts
 import typeset_export
+from repositories.scene_content_repository import SceneContentRepository
 from repositories.typeset_repository import TypesetRepository
 from repositories.translation_job_repository import TranslationJobRepository
 from repositories.translation_preparation_repository import (
@@ -79,6 +80,7 @@ from services import (
     translation_job_service,
     translation_preparation_service,
 )
+from services.scene_content_service import SceneContentService
 from services.typeset_service import TypesetService
 from sync.device import ensure_device_registered, get_desktop_device_id
 from sync.pairing import generate_pairing_code
@@ -97,6 +99,7 @@ from sync.supabase_client import (
     sign_out,
     sign_up,
 )
+from sync.user_settings import current_user_settings_payload, save_user_settings
 
 def _is_frozen() -> bool:
     """True when running as a PyInstaller (or similar) bundle."""
@@ -2616,6 +2619,17 @@ def get_translation_extras_repository(
     return TranslationExtrasRepository(
         connection,
         timestamp_provider=utc_timestamp_now,
+    )
+
+
+def get_scene_content_service() -> SceneContentService:
+    """Build the manuscript save service against the current SQLite database."""
+    return SceneContentService(
+        database=database,
+        word_count=word_count,
+        parse_reference_links=parse_reference_links,
+        goal_metrics=GOAL_METRICS,
+        repository_factory=SceneContentRepository,
     )
 
 
@@ -6492,6 +6506,15 @@ def as_dict(row: sqlite3.Row | None) -> dict | None:
     return dict(row) if row is not None else None
 
 
+# Binder untitled labels (keep in sync with web/app.js UNTITLED_SCENE_TITLES).
+UNTITLED_SCENE_TITLES = frozenset({"", "제목 없음", "새 씬", "새 하위 원고"})
+BODY_PREVIEW_PLAIN_LIMIT = 1200
+_OUTLINE_CONTENT_HEAD_SQL = (
+    "CASE WHEN trim(COALESCE(s.title, '')) IN ('', '제목 없음', '새 씬', '새 하위 원고') "
+    "THEN r.content_md ELSE NULL END AS content_head"
+)
+
+
 def plain_text_from_content(content: str) -> str:
     """Strip HTML for counts. Match editor innerText (div → one newline, p → blank line)."""
     text = content or ""
@@ -6500,6 +6523,9 @@ def plain_text_from_content(content: str) -> str:
     text = re.sub(r"(?i)</p\s*>", "\n\n", text)
     text = re.sub(r"(?i)</(div|h[1-6]|li|blockquote|tr)\s*>", "\n", text)
     text = re.sub(r"(?s)<[^>]+>", "", text)
+    # Truncated HTML (e.g. outline used to cut at 1200 chars mid-attribute) has no
+    # closing '>'. Drop that dangling opener so it cannot leak as visible text.
+    text = re.sub(r"<[^>]*$", "", text)
     text = html_lib.unescape(text)
     text = text.replace("\xa0", " ").replace("\u200b", "")
     text = re.sub(r"[ \t]+\n", "\n", text)
@@ -6527,16 +6553,29 @@ def compute_text_stats(plain_text: str) -> dict:
 
 
 def first_sentence_preview(content: str, limit: int = 160) -> str:
-    """First sentence (or line) of manuscript body for binder untitled titles."""
+    """First sentence (or line) of manuscript body for binder untitled titles.
+
+    Strip tags from the full fragment first, then crop plain text. Cutting HTML
+    before stripping can leave a sliced tag such as ``<br style="...`` as text.
+    """
     plain = plain_text_from_content(content or "")
     if not plain:
         return ""
+    if len(plain) > BODY_PREVIEW_PLAIN_LIMIT:
+        plain = plain[:BODY_PREVIEW_PLAIN_LIMIT]
     compact = re.sub(r"\s+", " ", plain).strip()
     match = re.match(r"^(.+?(?:[.。!?？…]|$))(?:\s|$)", compact)
     sentence = (match.group(1) if match else compact).strip()
     if len(sentence) > limit:
         return sentence[: max(1, limit - 1)].rstrip() + "…"
     return sentence
+
+
+def outline_body_preview(title: str, content: str | None) -> str:
+    """Binder label for untitled scenes; titled scenes keep an empty preview."""
+    if str(title or "").strip() not in UNTITLED_SCENE_TITLES:
+        return ""
+    return first_sentence_preview(content or "")
 
 
 def word_count(markdown: str) -> int:
@@ -7812,6 +7851,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             if path == "/api/auth/me":
                 self.send_json({"user": get_current_user()})
+                return
+
+            if path == "/api/user-settings":
+                query = parse_qs(urlparse(self.path).query)
+                device_type = (query.get("device_type") or [""])[0]
+                payload = current_user_settings_payload(device_type)
+                if payload.get("error") == "sync_not_configured":
+                    self.send_json(
+                        {"error": "sync_not_configured"},
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return
+                self.send_json(payload)
                 return
 
             if path == "/api/pairing/code":
@@ -9370,6 +9422,39 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         path = urlparse(self.path).path.rstrip("/")
         try:
             body = self.read_json()
+            if path == "/api/user-settings":
+                user = get_current_user()
+                if not user or not str(user.get("id") or "").strip():
+                    self.api_error("로그인해 주세요.", HTTPStatus.UNAUTHORIZED)
+                    return
+                if get_supabase_client() is None:
+                    self.send_json(
+                        {"error": "sync_not_configured"},
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return
+                try:
+                    settings = save_user_settings(
+                        str(user["id"]),
+                        str(body.get("primary_device_type") or ""),
+                        agree=bool(body.get("agree")),
+                    )
+                except RuntimeError as error:
+                    message = str(error or "").strip()
+                    if message == "sync_not_configured":
+                        self.send_json(
+                            {"error": "sync_not_configured"},
+                            HTTPStatus.SERVICE_UNAVAILABLE,
+                        )
+                        return
+                    self.api_error(
+                        message or "우선 기기 설정을 저장하지 못했습니다.",
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                    )
+                    return
+                self.send_json({"ok": True, "settings": settings})
+                return
+
             match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
             if match:
                 self.send_json(get_typeset_service().update_preset(
@@ -19822,7 +19907,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             return connection.execute(
                 "SELECT s.id, s.chapter_id, s.folder_id, s.parent_scene_id, s.title, s.status, "
                 "s.synopsis_md, s.sort_order, r.word_count, "
-                "substr(r.content_md, 1, 1200) AS content_head "
+                f"{_OUTLINE_CONTENT_HEAD_SQL} "
                 "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                 "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                 "ORDER BY s.chapter_id, s.sort_order, s.id",
@@ -19833,7 +19918,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return connection.execute(
                     "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, s.status, "
                     "s.synopsis_md, s.sort_order, r.word_count, "
-                    "substr(r.content_md, 1, 1200) AS content_head "
+                    f"{_OUTLINE_CONTENT_HEAD_SQL} "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                     "ORDER BY s.chapter_id, s.sort_order, s.id",
@@ -19843,7 +19928,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 return connection.execute(
                     "SELECT s.id, s.chapter_id, s.title, s.status, "
                     "s.synopsis_md, s.sort_order, r.word_count, "
-                    "substr(r.content_md, 1, 1200) AS content_head "
+                    f"{_OUTLINE_CONTENT_HEAD_SQL} "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
                     "ORDER BY s.chapter_id, s.sort_order, s.id",
@@ -19860,17 +19945,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     ) -> dict:
         """Shared parts/chapters/scenes assembly (legacy-shaped)."""
         flat_by_chapter: dict[int, list[dict]] = {}
-        untitled_titles = {"", "제목 없음", "새 씬", "새 하위 원고"}
         for scene in scenes_rows:
             data = as_dict(scene)
             if "parent_scene_id" not in data:
                 data["parent_scene_id"] = None
             title = str(data.get("title") or "").strip()
             content_head = data.pop("content_head", None)
-            if title in untitled_titles:
-                data["body_preview"] = first_sentence_preview(content_head or "")
-            else:
-                data["body_preview"] = ""
+            data["body_preview"] = outline_body_preview(title, content_head)
             flat_by_chapter.setdefault(int(scene["chapter_id"]), []).append(data)
 
         by_parent_scene: dict[int, list[dict]] = {}
@@ -19935,7 +20016,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         self, scenes_rows: list[sqlite3.Row]
     ) -> list[dict]:
         """Normalize scene rows for outline trees (body_preview, parent_scene_id)."""
-        untitled_titles = {"", "제목 없음", "새 씬", "새 하위 원고"}
         prepared: list[dict] = []
         for scene in scenes_rows:
             data = as_dict(scene)
@@ -19943,10 +20023,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 data["parent_scene_id"] = None
             title = str(data.get("title") or "").strip()
             content_head = data.pop("content_head", None)
-            if title in untitled_titles:
-                data["body_preview"] = first_sentence_preview(content_head or "")
-            else:
-                data["body_preview"] = ""
+            data["body_preview"] = outline_body_preview(title, content_head)
             prepared.append(data)
         return prepared
 
@@ -21332,25 +21409,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         except (TypeError, ValueError) as error:
             raise ValueError("회차 정보가 올바르지 않습니다.") from error
         content = str(body.get("content") or "")
-        with database() as connection:
-            scene = connection.execute(
-                "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
-                (local_scene_id,),
-            ).fetchone()
-            if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
-            self._write_scene_content(
-                connection,
-                local_scene_id,
-                content,
-                save_note="폰 초안 반영",
-            )
-            connection.execute(
-                "UPDATE scene SET row_version = row_version + 1, "
-                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
-                "WHERE id = ?",
-                (local_scene_id,),
-            )
+        get_scene_content_service().merge_mobile_draft(local_scene_id, content)
         mark_draft_merged(draft_id)
         try:
             schedule_glump_highlight_analysis(local_scene_id, content)
@@ -23065,89 +23124,49 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         }
 
     def save_scene(self, scene_id: int, body: dict) -> dict:
-        title = str(body.get("title", "")).strip()
-        if not title:
-            raise ValueError("씬 제목을 입력해 주세요.")
-        status = str(body.get("status", "idea"))
-        if status not in {"idea", "outline", "draft", "revision", "complete"}:
-            raise ValueError("올바르지 않은 씬 상태입니다.")
-        content = str(body.get("content_md", ""))
-        expected_version = int(body.get("row_version", 0))
-        goal_count = max(0, int(body.get("goal_word_count", 0) or 0))
-        goal_metric = str(body.get("goal_metric", "chars_with_space") or "chars_with_space")
-        if goal_metric not in GOAL_METRICS:
-            raise ValueError("목표 글자 수 기준이 올바르지 않습니다.")
-        save_note = str(body.get("save_note", "") or "").strip() or "저장"
-        links_json = None
-        if "reference_links" in body:
-            links_json = json.dumps(parse_reference_links(body.get("reference_links")), ensure_ascii=False)
-        with database() as connection:
-            scene = connection.execute(
-                "SELECT row_version, status FROM scene WHERE id = ? AND deleted_at IS NULL",
-                (scene_id,),
-            ).fetchone()
-            if scene is None:
-                raise ValueError("씬을 찾을 수 없습니다.")
-            if expected_version and scene["row_version"] != expected_version:
-                raise ValueError("다른 화면에서 이 씬이 변경되었습니다. 새로 열고 다시 저장해 주세요.")
-            previous_status = str(scene["status"] or "")
-            if links_json is None:
-                connection.execute(
-                    "UPDATE scene SET title = ?, synopsis_md = ?, notes_md = ?, status = ?, "
-                    "goal_word_count = ?, goal_metric = ?, row_version = row_version + 1 WHERE id = ?",
-                    (title, str(body.get("synopsis_md", "")), str(body.get("notes_md", "")), status,
-                     goal_count, goal_metric, scene_id),
-                )
-            else:
-                connection.execute(
-                    "UPDATE scene SET title = ?, synopsis_md = ?, notes_md = ?, status = ?, "
-                    "goal_word_count = ?, goal_metric = ?, reference_links_json = ?, "
-                    "row_version = row_version + 1 WHERE id = ?",
-                    (title, str(body.get("synopsis_md", "")), str(body.get("notes_md", "")), status,
-                     goal_count, goal_metric, links_json, scene_id),
-                )
-            current = connection.execute(
-                "SELECT id, revision_no, content_md, word_count FROM scene_revision "
-                "WHERE scene_id = ? AND is_current = 1",
-                (scene_id,),
-            ).fetchone()
-            if current is None:
-                raise ValueError("현재 원고를 찾을 수 없습니다.")
-            revision_no = int(current["revision_no"])
-            words = int(current["word_count"] or 0)
-            if current["content_md"] != content:
-                words = word_count(content)
-                cursor = connection.execute(
-                    "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note, is_current) "
-                    "VALUES (?, ?, ?, ?, ?, 0)",
-                    (scene_id, current["revision_no"] + 1, content, words, save_note),
-                )
-                connection.execute(
-                    "UPDATE scene_revision SET is_current = CASE "
-                    "WHEN id = ? THEN 1 WHEN id = ? THEN 0 ELSE is_current END "
-                    "WHERE id IN (?, ?)",
-                    (cursor.lastrowid, current["id"], cursor.lastrowid, current["id"]),
-                )
-                revision_no = int(current["revision_no"]) + 1
-            row = connection.execute(
-                "SELECT row_version FROM scene WHERE id = ?", (scene_id,)
-            ).fetchone()
-            payload = {
-                "ok": True,
-                "row_version": int(row["row_version"]),
-                "revision_no": revision_no,
-                "word_count": words,
-            }
-        try:
-            schedule_glump_highlight_analysis(scene_id, content)
-        except Exception:
-            pass
-        if status == "complete" and previous_status != "complete":
+        payload_in = body if isinstance(body, dict) else {}
+        if "content_md" in payload_in:
+            content: str | None = str(payload_in.get("content_md") or "")
+        elif "content_html" in payload_in:
+            content = str(payload_in.get("content_html") or "")
+        else:
+            content = None
+        meta: dict = {}
+        for key in (
+            "title",
+            "status",
+            "synopsis_md",
+            "notes_md",
+            "goal_word_count",
+            "goal_metric",
+            "save_note",
+        ):
+            if key in payload_in:
+                meta[key] = payload_in.get(key)
+        if "reference_links" in payload_in:
+            meta["reference_links"] = payload_in.get("reference_links")
+        payload = get_scene_content_service().persist_scene(
+            scene_id,
+            content,
+            meta,
+            payload_in.get("row_version", 0),
+        )
+        if content is not None:
+            try:
+                schedule_glump_highlight_analysis(scene_id, content)
+            except Exception:
+                pass
+        if payload.get("status") == "complete" and payload.get("previous_status") != "complete":
             try:
                 schedule_scene_reader_comments(scene_id)
             except Exception:
                 pass
-        return payload
+        return {
+            "ok": True,
+            "row_version": payload["row_version"],
+            "revision_no": payload["revision_no"],
+            "word_count": payload["word_count"],
+        }
 
     def save_scene_characters(self, scene_id: int, body: dict) -> None:
         pov_id = body.get("pov_id")
@@ -24532,29 +24551,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         content: str,
         save_note: str = "문서 가져오기",
     ) -> None:
-        current = connection.execute(
-            "SELECT id, revision_no, content_md FROM scene_revision WHERE scene_id = ? AND is_current = 1",
-            (scene_id,),
-        ).fetchone()
-        if current is None:
-            connection.execute(
-                "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note) "
-                "VALUES (?, 1, ?, ?, ?)",
-                (scene_id, content, word_count(content), save_note),
-            )
-            return
-        if current["content_md"] == content:
-            return
-        cursor = connection.execute(
-            "INSERT INTO scene_revision(scene_id, revision_no, content_md, word_count, save_note, is_current) "
-            "VALUES (?, ?, ?, ?, ?, 0)",
-            (scene_id, current["revision_no"] + 1, content, word_count(content), save_note),
-        )
-        connection.execute(
-            "UPDATE scene_revision SET is_current = CASE "
-            "WHEN id = ? THEN 1 WHEN id = ? THEN 0 ELSE is_current END "
-            "WHERE id IN (?, ?)",
-            (cursor.lastrowid, current["id"], cursor.lastrowid, current["id"]),
+        get_scene_content_service().write_scene_content(
+            connection,
+            scene_id,
+            content,
+            save_note=save_note,
         )
 
 

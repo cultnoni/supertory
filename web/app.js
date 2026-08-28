@@ -31813,6 +31813,27 @@ function isOutlineInlineRenaming() {
   return Boolean(document.querySelector(".scene-rename-input, .chapter-rename-input"));
 }
 
+function applySceneLockFromServer(sceneId, payload, extras = {}) {
+  const id = Number(sceneId);
+  if (!id || !payload || typeof payload !== "object") return;
+  const version = payload.row_version;
+  const title = extras.title != null ? String(extras.title) : "";
+  if (state.scene && Number(state.scene.id) === id) {
+    if (version != null) state.scene.row_version = version;
+    if (title) {
+      state.scene.title = title;
+      if ($("sceneTitle")) $("sceneTitle").value = title;
+    }
+  }
+  if (state.splitScene && Number(state.splitScene.id) === id) {
+    if (version != null) state.splitScene.row_version = version;
+    if (title) {
+      state.splitScene.title = title;
+      if ($("splitSceneTitleInput")) $("splitSceneTitleInput").value = title;
+    }
+  }
+}
+
 async function beginSceneRename(titleButton) {
   const sceneId = Number(titleButton.dataset.scene);
   if (!sceneId) return;
@@ -31840,13 +31861,11 @@ async function beginSceneRename(titleButton) {
       return;
     }
     try {
-      await api(`/api/scenes/${sceneId}`, {
+      const saved = await api(`/api/scenes/${sceneId}`, {
         method: "PUT",
         body: JSON.stringify({ title: nextTitle }),
       });
-      if (state.scene && Number(state.scene.id) === sceneId) {
-        state.scene.title = nextTitle;
-      }
+      applySceneLockFromServer(sceneId, saved, { title: nextTitle });
       await loadProject();
       toast(i18n.t('app.회차_이름을_바꿨어요'));
     } catch (error) {
@@ -57634,11 +57653,11 @@ async function refreshAdminAccountPanel() {
     const data = await api("/api/auth/me");
     user = data?.user || null;
   } catch (error) {
-    handleError(error);
+    if (error?.status !== 401 && error?.status !== 503) handleError(error);
   }
 
   const email = String(user?.email || "").trim();
-  const signedIn = Boolean(email || user?.id);
+  const signedIn = Boolean(String(user?.id || "").trim() || email);
   const signedInBox = $("adminAuthSignedIn");
   const form = $("adminAuthForm");
   if (signedInBox) signedInBox.hidden = !signedIn;
@@ -57660,6 +57679,15 @@ async function refreshAdminAccountPanel() {
     if ($("adminUserStatus")) $("adminUserStatus").textContent = i18n.t("app.로컬_사용자");
     if ($("adminUserDisplayName")) $("adminUserDisplayName").textContent = i18n.t("app.이_기기");
     if ($("adminUserAccount")) $("adminUserAccount").textContent = i18n.t("app.로그인_없음_로컬");
+    closePrimaryDeviceModal();
+  }
+  const deviceBox = $("adminPrimaryDeviceBox");
+  if (deviceBox) deviceBox.hidden = !signedIn;
+  if (signedIn && String(user?.id || "").trim()) {
+    refreshPrimaryDeviceSettings(user).catch(() => {});
+  } else {
+    closePrimaryDeviceModal();
+    if (deviceBox) deviceBox.hidden = true;
   }
 }
 
@@ -57689,6 +57717,7 @@ async function submitAdminAuthForm(event) {
     }
     if ($("adminAuthPassword")) $("adminAuthPassword").value = "";
     setAdminAuthMessage("");
+    primaryDevicePromptDismissed = false;
     await refreshAdminAccountPanel();
     toast(signup ? i18n.t("app.회원가입이_완료되었습니다") : i18n.t("app.로그인했습니다"));
   } catch (error) {
@@ -57705,9 +57734,236 @@ async function logoutAdminAccount() {
   try {
     await api("/api/auth/logout", { method: "POST", body: JSON.stringify({}) });
     setAdminAuthMessage("");
+    primaryDevicePromptDismissed = false;
+    closePrimaryDeviceModal();
     await refreshAdminAccountPanel();
     toast(i18n.t("app.로그아웃했습니다"));
   } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function currentClientDeviceType() {
+  if (window.electronAPI) return "desktop";
+  const ua = String(navigator.userAgent || "");
+  if (/Android|iPhone|iPad|iPod|Mobile/i.test(ua)) return "mobile";
+  return "browser";
+}
+
+var primaryDevicePromptDismissed = false;
+
+function primaryDeviceSeenKey(userId, deviceType) {
+  return `supertory.primaryDeviceSeen.${userId}.${deviceType}`;
+}
+
+function markPrimaryDeviceSeen(userId, deviceType) {
+  try {
+    localStorage.setItem(primaryDeviceSeenKey(userId, deviceType), "1");
+  } catch (_) { /* private mode */ }
+}
+
+function hasPrimaryDeviceSeen(userId, deviceType) {
+  try {
+    return localStorage.getItem(primaryDeviceSeenKey(userId, deviceType)) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function selectedPrimaryDeviceType(name) {
+  const node = document.querySelector(`input[name="${name}"]:checked`);
+  return node ? String(node.value || "") : "";
+}
+
+function setPrimaryDeviceTypeRadios(name, value) {
+  document.querySelectorAll(`input[name="${name}"]`).forEach((input) => {
+    input.checked = input.value === value;
+  });
+}
+
+function syncPrimaryDeviceConfirmEnabled() {
+  const confirm = $("primaryDeviceConfirm");
+  if (!confirm) return;
+  const modal = $("primaryDeviceModal");
+  const requireConsent = modal?.dataset.requireConsent === "1";
+  const hasRadio = Boolean(selectedPrimaryDeviceType("primaryDeviceType"));
+  const agreed = Boolean($("primaryDeviceAgree")?.checked);
+  confirm.disabled = !(hasRadio && (!requireConsent || agreed));
+}
+
+function setPrimaryDeviceModalMessage(text, isError = false) {
+  const node = $("primaryDeviceModalMessage");
+  if (!node) return;
+  const message = String(text || "").trim();
+  node.hidden = !message;
+  node.textContent = message;
+  node.classList.toggle("admin-auth-error", Boolean(isError && message));
+}
+
+function closePrimaryDeviceModal() {
+  const modal = $("primaryDeviceModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  modal.hidden = true;
+  setPrimaryDeviceModalMessage("");
+}
+
+function dismissPrimaryDeviceModal() {
+  primaryDevicePromptDismissed = true;
+  closePrimaryDeviceModal();
+}
+
+function isPrimaryDeviceModalOpen() {
+  const modal = $("primaryDeviceModal");
+  return Boolean(modal && !modal.classList.contains("hidden") && !modal.hidden);
+}
+
+function openPrimaryDeviceModal({ requireConsent, selectedType }) {
+  const modal = $("primaryDeviceModal");
+  if (!modal || primaryDevicePromptDismissed) return;
+  modal.dataset.requireConsent = requireConsent ? "1" : "0";
+  const agreeRow = $("primaryDeviceAgreeRow");
+  const agree = $("primaryDeviceAgree");
+  if (agreeRow) agreeRow.hidden = !requireConsent;
+  if (agree) {
+    agree.checked = !requireConsent;
+    agree.disabled = !requireConsent;
+  }
+  const fallback = currentClientDeviceType();
+  setPrimaryDeviceTypeRadios("primaryDeviceType", selectedType || fallback);
+  setPrimaryDeviceModalMessage("");
+  modal.classList.remove("hidden");
+  modal.hidden = false;
+  syncPrimaryDeviceConfirmEnabled();
+}
+
+function fillAdminPrimaryDeviceRadios(settings) {
+  const current = settings?.primary_device_type || currentClientDeviceType();
+  setPrimaryDeviceTypeRadios("adminPrimaryDeviceType", current);
+}
+
+async function refreshPrimaryDeviceSettings(user) {
+  const deviceBox = $("adminPrimaryDeviceBox");
+  const deviceType = currentClientDeviceType();
+  const userId = String(user?.id || "").trim();
+  if (!userId) {
+    if (deviceBox) deviceBox.hidden = true;
+    closePrimaryDeviceModal();
+    return;
+  }
+  let data = null;
+  try {
+    data = await api(`/api/user-settings?device_type=${encodeURIComponent(deviceType)}`);
+  } catch (error) {
+    if (deviceBox) deviceBox.hidden = true;
+    closePrimaryDeviceModal();
+    if (error?.status !== 401 && error?.status !== 503) handleError(error);
+    return;
+  }
+  const remoteUserId = String(data?.user?.id || "").trim();
+  if (!remoteUserId) {
+    if (deviceBox) deviceBox.hidden = true;
+    closePrimaryDeviceModal();
+    return;
+  }
+  const needsConsent = Boolean(data?.needs_consent);
+  const settings = data?.settings || null;
+  fillAdminPrimaryDeviceRadios(settings);
+  if (deviceBox) deviceBox.hidden = needsConsent;
+  if (primaryDevicePromptDismissed) return;
+  if (needsConsent) {
+    openPrimaryDeviceModal({
+      requireConsent: true,
+      selectedType: settings?.primary_device_type || deviceType,
+    });
+    return;
+  }
+  markPrimaryDeviceSeen(userId, settings?.primary_device_type || deviceType);
+  if (deviceType === settings?.primary_device_type) {
+    markPrimaryDeviceSeen(userId, deviceType);
+    return;
+  }
+  if (!hasPrimaryDeviceSeen(userId, deviceType)) {
+    openPrimaryDeviceModal({
+      requireConsent: false,
+      selectedType: settings?.primary_device_type || deviceType,
+    });
+  }
+}
+
+async function submitPrimaryDeviceModal() {
+  const confirm = $("primaryDeviceConfirm");
+  const modal = $("primaryDeviceModal");
+  const requireConsent = modal?.dataset.requireConsent === "1";
+  const primary = selectedPrimaryDeviceType("primaryDeviceType");
+  if (!primary) {
+    toast(i18n.t("app.우선_기기를_선택해_주세요"));
+    return;
+  }
+  if (requireConsent && !$("primaryDeviceAgree")?.checked) {
+    toast(i18n.t("app.충돌_정책에_동의해_주세요"));
+    return;
+  }
+  if (confirm) confirm.disabled = true;
+  setPrimaryDeviceModalMessage("");
+  try {
+    const data = await api("/api/user-settings", {
+      method: "PUT",
+      body: JSON.stringify({
+        primary_device_type: primary,
+        agree: requireConsent,
+      }),
+    });
+    const userId = String(data?.settings?.user_id || "").trim();
+    if (userId) markPrimaryDeviceSeen(userId, currentClientDeviceType());
+    primaryDevicePromptDismissed = true;
+    closePrimaryDeviceModal();
+    fillAdminPrimaryDeviceRadios(data?.settings);
+    const deviceBox = $("adminPrimaryDeviceBox");
+    if (deviceBox) deviceBox.hidden = false;
+    toast(i18n.t("app.우선_기기를_저장했습니다"));
+  } catch (error) {
+    const loginRequired = Number(error?.status) === 401;
+    setPrimaryDeviceModalMessage(
+      loginRequired
+        ? i18n.t("app.로그인이_필요합니다")
+        : (error?.message || i18n.t("app.우선_기기_설정을_저장하지_못했습니다")),
+      true,
+    );
+    if (!loginRequired) handleError(error);
+  } finally {
+    if (isPrimaryDeviceModalOpen()) syncPrimaryDeviceConfirmEnabled();
+  }
+}
+
+async function saveAdminPrimaryDevice() {
+  const button = $("adminPrimaryDeviceSave");
+  const message = $("adminPrimaryDeviceMessage");
+  const primary = selectedPrimaryDeviceType("adminPrimaryDeviceType");
+  if (message) {
+    message.hidden = true;
+    message.textContent = "";
+  }
+  if (!primary) {
+    toast(i18n.t("app.우선_기기를_선택해_주세요"));
+    return;
+  }
+  if (button) button.disabled = true;
+  try {
+    const data = await api("/api/user-settings", {
+      method: "PUT",
+      body: JSON.stringify({ primary_device_type: primary, agree: false }),
+    });
+    fillAdminPrimaryDeviceRadios(data?.settings);
+    toast(i18n.t("app.우선_기기를_저장했습니다"));
+  } catch (error) {
+    if (message) {
+      message.hidden = false;
+      message.textContent = error?.message || i18n.t("app.문제가_생겼습니다_다시_시도해_주세요");
+      message.classList.add("admin-auth-error");
+    }
     handleError(error);
   } finally {
     if (button) button.disabled = false;
@@ -57985,6 +58241,25 @@ function setupAdminMode() {
   });
   $("adminAuthLogoutButton")?.addEventListener("click", () => {
     logoutAdminAccount().catch(handleError);
+  });
+  $("primaryDeviceConfirm")?.addEventListener("click", () => {
+    submitPrimaryDeviceModal().catch(handleError);
+  });
+  document.querySelectorAll("[data-close-primary-device]").forEach((el) => {
+    el.addEventListener("click", () => dismissPrimaryDeviceModal());
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape" || !isPrimaryDeviceModalOpen()) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    dismissPrimaryDeviceModal();
+  }, true);
+  $("primaryDeviceAgree")?.addEventListener("change", syncPrimaryDeviceConfirmEnabled);
+  document.querySelectorAll('input[name="primaryDeviceType"]').forEach((input) => {
+    input.addEventListener("change", syncPrimaryDeviceConfirmEnabled);
+  });
+  $("adminPrimaryDeviceSave")?.addEventListener("click", () => {
+    saveAdminPrimaryDevice().catch(handleError);
   });
   document.querySelectorAll("[data-close-admin]").forEach((el) => {
     el.addEventListener("click", closeAdminModal);

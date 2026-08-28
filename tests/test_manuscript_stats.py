@@ -34,6 +34,63 @@ class PlainTextFromContentTests(unittest.TestCase):
         stats = app.compute_text_stats(plain)
         self.assertEqual(stats["chars_with_space"], len(expected))
 
+    def test_dangling_truncated_tag_is_dropped(self) -> None:
+        fragment = '이슬이 맺혔다.<br style="box-sizing: border-box; color: rgb(10, 1'
+        plain = app.plain_text_from_content(fragment)
+        self.assertEqual(plain, "이슬이 맺혔다.")
+        self.assertNotIn("<", plain)
+        self.assertNotIn("box-sizing", plain)
+
+
+class BinderBodyPreviewTests(unittest.TestCase):
+    def test_word_paste_html_does_not_leak_cut_tags(self) -> None:
+        html = _word_paste_html("***", "이오나의 마음속은 외로움인지 그리움인지 알 수 없었다.")
+        br_at = html.find("<br")
+        br_close = html.find(">", br_at)
+        self.assertGreater(br_close, 1200)
+        preview = app.first_sentence_preview(html)
+        self.assertTrue(preview)
+        self.assertNotIn("<br", preview)
+        self.assertNotIn("style=", preview)
+        self.assertNotIn("box-sizing", preview)
+        self.assertIn("이오나의 마음속은", preview)
+
+    def test_truncated_html_head_still_strips_dangling_tag(self) -> None:
+        html = _word_paste_html("***", "이오나의 마음속은 외로움인지 그리움인지 알 수 없었다.")
+        preview = app.first_sentence_preview(html[:1200])
+        self.assertNotIn("<br", preview)
+        self.assertNotIn("style=", preview)
+        self.assertNotIn("box-sizing", preview)
+
+    def test_short_plain_untitled_preview_unchanged(self) -> None:
+        self.assertEqual(
+            app.first_sentence_preview("테스트88888\n테스트"),
+            "테스트88888 테스트",
+        )
+        self.assertEqual(
+            app.outline_body_preview("새 씬", "테스트 제목없음 테스트"),
+            "테스트 제목없음 테스트",
+        )
+
+    def test_titled_scene_has_empty_preview(self) -> None:
+        html = _word_paste_html("", "비가 내리던 날, 두 사람은 처음 만났다.")
+        self.assertEqual(app.outline_body_preview("첫 만남", html), "")
+        self.assertIn("비가 내리던 날", app.first_sentence_preview(html))
+
+
+def _word_paste_html(lead: str, sentence: str) -> str:
+    """Chrome/Word computed-style dump: the styled <br> closes after 1200 HTML chars."""
+    style = (
+        "box-sizing: border-box; color: rgb(10, 10, 10); "
+        'font-family: Batang, "Apple Myungjo", serif; font-size: medium; '
+        "font-style: normal; font-variant-ligatures: normal; "
+        "font-variant-caps: normal; font-weight: 400; letter-spacing: normal; "
+        "orphans: 2; text-align: start; text-indent: 0px; text-transform: none; "
+        "widows: 2; word-spacing: 0px; -webkit-text-stroke-width: 0px; "
+        "caret-color: rgb(10, 10, 10); white-space: normal; "
+    ) * 4
+    return f'<span style="{style}">{lead}</span><br style="{style}">{sentence}'
+
 
 if __name__ == "__main__":
     unittest.main()

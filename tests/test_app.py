@@ -144,6 +144,55 @@ class SuperToryAppTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(members, [{"character_id": character["id"], "appearance_role": "primary", "is_pov": 1}])
 
+    def test_title_only_put_does_not_blank_revision_or_stale_lock(self) -> None:
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "제목만 변경 검증", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201)
+        status, chapter = self.request("POST", f"/api/projects/{project['id']}/chapters", {"title": "1장"})
+        self.assertEqual(status, 201)
+        status, scene = self.request("POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "초고 제목"})
+        self.assertEqual(status, 201)
+        status, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.assertEqual(status, 200)
+        status, saved = self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "title": "초고 제목",
+            "status": "draft",
+            "content_md": "본문이 있다.",
+            "row_version": detail["row_version"],
+        })
+        self.assertEqual(status, 200)
+        after_body = saved["row_version"]
+        status, renamed = self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "title": "바인더에서 바꾼 제목",
+        })
+        self.assertEqual(status, 200)
+        self.assertGreater(int(renamed["row_version"]), int(after_body))
+        self.assertEqual(int(renamed["revision_no"]), 2)
+        status, opened = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(opened["title"], "바인더에서 바꾼 제목")
+        self.assertEqual(opened["content_md"], "본문이 있다.")
+        self.assertEqual(opened["revision_no"], 2)
+        status, stale = self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "title": "바인더에서 바꾼 제목",
+            "status": "draft",
+            "content_md": "이어서 타이핑",
+            "row_version": after_body,
+        })
+        self.assertEqual(status, 400)
+        status, typed = self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "title": "바인더에서 바꾼 제목",
+            "status": "draft",
+            "content_md": "이어서 타이핑",
+            "row_version": renamed["row_version"],
+        })
+        self.assertEqual(status, 200)
+        status, latest = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(latest["content_md"], "이어서 타이핑")
+        self.assertEqual(latest["revision_no"], 3)
+
 
 if __name__ == "__main__":
     unittest.main()

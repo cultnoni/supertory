@@ -5404,6 +5404,27 @@
                   <button type="button" id="adminAuthLogoutButton" class="secondary compact-btn" data-i18n="app.로그아웃">로그아웃</button>
                 </div>
 
+                <div id="adminPrimaryDeviceBox" class="admin-primary-device-box" hidden>
+                  <h5 class="admin-primary-device-title" data-i18n="app.우선_기기">우선 기기</h5>
+                  <p class="hint" data-i18n="app.같은_원고를_여러_기기에서_고치면_우선_기">같은 원고를 여러 기기에서 고치면 우선 기기의 내용이 저장됩니다.</p>
+                  <div class="primary-device-radios" role="radiogroup" aria-label="우선 기기" data-i18n-aria-label="app.우선_기기">
+                    <label class="primary-device-option">
+                      <input type="radio" name="adminPrimaryDeviceType" value="desktop">
+                      <span data-i18n="app.설치형_앱">설치형 앱</span>
+                    </label>
+                    <label class="primary-device-option">
+                      <input type="radio" name="adminPrimaryDeviceType" value="browser">
+                      <span data-i18n="app.브라우저">브라우저</span>
+                    </label>
+                    <label class="primary-device-option">
+                      <input type="radio" name="adminPrimaryDeviceType" value="mobile">
+                      <span data-i18n="app.모바일">모바일</span>
+                    </label>
+                  </div>
+                  <button type="button" id="adminPrimaryDeviceSave" class="primary compact-btn" data-i18n="app.우선_기기_저장">우선 기기 저장</button>
+                  <p id="adminPrimaryDeviceMessage" class="hint admin-auth-message" hidden></p>
+                </div>
+
                 <form id="adminAuthForm" class="admin-auth-form" data-auth-mode="login">
                   <label class="admin-lang-row" for="adminAuthEmail">
                     <span data-i18n="app.이메일">이메일</span>
@@ -6909,6 +6930,40 @@
       </div>
     </div>
 
+    <div id="primaryDeviceModal" class="modal hidden primary-device-modal" role="dialog" aria-modal="true" aria-labelledby="primaryDeviceModalTitle">
+      <div class="modal-backdrop" data-close-primary-device></div>
+      <div class="modal-card primary-device-modal-card">
+        <div class="modal-heading">
+          <h2 id="primaryDeviceModalTitle" data-i18n="app.여러_기기에서_사용하시나요">여러 기기에서 사용하시나요?</h2>
+          <button type="button" class="modal-close" data-close-primary-device title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+        </div>
+        <p class="hint modal-hint" data-i18n="app.설치형_앱_브라우저_모바일_중_대표로_삼을">설치형 앱, 브라우저, 모바일 중 대표로 삼을 기기를 선택해주세요. 같은 원고를 여러 기기에서 동시에 수정하면, 선택하신 기기의 내용이 우선 저장됩니다.</p>
+        <div class="primary-device-radios" role="radiogroup" aria-labelledby="primaryDeviceModalTitle">
+          <label class="primary-device-option">
+            <input type="radio" name="primaryDeviceType" value="desktop">
+            <span data-i18n="app.설치형_앱">설치형 앱</span>
+          </label>
+          <label class="primary-device-option">
+            <input type="radio" name="primaryDeviceType" value="browser">
+            <span data-i18n="app.브라우저">브라우저</span>
+          </label>
+          <label class="primary-device-option">
+            <input type="radio" name="primaryDeviceType" value="mobile">
+            <span data-i18n="app.모바일">모바일</span>
+          </label>
+        </div>
+        <label id="primaryDeviceAgreeRow" class="primary-device-agree">
+          <input type="checkbox" id="primaryDeviceAgree">
+          <span data-i18n="app.여러_기기에서_동시에_같은_원고를_수정할_경">여러 기기에서 동시에 같은 원고를 수정할 경우, 나중에 저장된 비우선 기기의 변경사항이 우선 기기 내용으로 대체될 수 있으며, 이 경우 발생하는 원고 손실에 대해 SuperTory는 책임지지 않음을 이해했습니다. (단, 대체된 내용은 30일간 백업에서 복구 가능합니다)</span>
+        </label>
+        <p id="primaryDeviceModalMessage" class="hint admin-auth-message" hidden></p>
+        <div class="modal-actions">
+          <button type="button" class="secondary" id="primaryDeviceLater" data-close-primary-device data-i18n="app.나중에_하기">나중에 하기</button>
+          <button type="button" class="primary" id="primaryDeviceConfirm" disabled data-i18n="app.확인">확인</button>
+        </div>
+      </div>
+    </div>
+
     <div id="toast" role="status" aria-live="polite"></div>
 
     <!-- Auto-update progress banner (Electron packaged builds) -->
@@ -6922,6 +6977,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.12"></script>
+    <script src="/app.js?v=1.4.15"></script>
   </body>
 </html>

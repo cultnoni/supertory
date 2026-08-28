@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 import folder_tree
+from sync.auth_helpers import _auth_user_id
 from sync.device import get_desktop_device_id
 from sync.supabase_client import get_supabase_client
 
@@ -20,22 +21,6 @@ def _warn(message: str) -> None:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
-
-
-def _auth_user_id(client: object) -> str | None:
-    try:
-        session_user = getattr(getattr(client, "auth", None), "get_user", None)
-        if callable(session_user):
-            result = session_user()
-            user = getattr(result, "user", None) or (
-                result.get("user") if isinstance(result, dict) else None
-            )
-            user_id = getattr(user, "id", None) if user is not None else None
-            if user_id:
-                return str(user_id)
-    except Exception:  # noqa: BLE001
-        return None
-    return None
 
 
 def ensure_project_mirror(local_project_id: int, title: str) -> str | None:

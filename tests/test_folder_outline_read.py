@@ -371,6 +371,82 @@ class FolderOutlineReadTests(unittest.TestCase):
         kids = outline["folders"][0].get("children") or []
         self.assertGreaterEqual(len(kids), 7)
 
+    def test_untitled_word_paste_binder_preview_hides_html(self) -> None:
+        st, project = self.request(
+            "POST", "/api/projects", {"title": "미리보기 검증", "main_genre": "판타지"}
+        )
+        self.assertEqual(st, 201)
+        pid = int(project["id"])
+        st, chapter = self.request(
+            "POST", f"/api/projects/{pid}/chapters", {"title": "1장"}
+        )
+        self.assertEqual(st, 201)
+        style = (
+            "box-sizing: border-box; color: rgb(10, 10, 10); "
+            'font-family: Batang, "Apple Myungjo", serif; font-size: medium; '
+        ) * 20
+        html = (
+            f'<span style="{style}">***</span>'
+            f'<br style="{style}">'
+            "이오나의 마음속은 외로움인지 그리움인지 알 수 없었다. 그는 창밖을 보았다."
+        )
+        br_close = html.find(">", html.find("<br"))
+        self.assertGreater(br_close, 1200)
+
+        st, untitled = self.request(
+            "POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "새 씬"}
+        )
+        self.assertIn(st, (200, 201))
+        st, titled = self.request(
+            "POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "1화 제목"}
+        )
+        self.assertIn(st, (200, 201))
+        st, short = self.request(
+            "POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "새 씬"}
+        )
+        self.assertIn(st, (200, 201))
+
+        for scene, body in (
+            (untitled, html),
+            (titled, html),
+            (short, "테스트88888<div>테스트</div><div><br></div>"),
+        ):
+            st, detail = self.request("GET", f"/api/scenes/{scene['id']}")
+            self.assertEqual(st, 200)
+            st, saved = self.request(
+                "PUT",
+                f"/api/scenes/{scene['id']}",
+                {
+                    "title": scene["title"],
+                    "content_md": body,
+                    "row_version": detail["row_version"],
+                },
+            )
+            self.assertEqual(st, 200, saved)
+
+        st, outline = self.request("GET", f"/api/projects/{pid}/outline")
+        self.assertEqual(st, 200)
+        by_id = {
+            int(s["id"]): s
+            for ch in outline.get("chapters") or []
+            for s in ch.get("scenes_flat") or []
+        }
+        untitled_row = by_id[int(untitled["id"])]
+        titled_row = by_id[int(titled["id"])]
+        short_row = by_id[int(short["id"])]
+
+        self.assertEqual(untitled_row["title"], "새 씬")
+        preview = untitled_row.get("body_preview") or ""
+        self.assertIn("이오나의 마음속은", preview)
+        self.assertNotIn("<br", preview)
+        self.assertNotIn("style=", preview)
+        self.assertNotIn("box-sizing", preview)
+
+        self.assertEqual(titled_row["title"], "1화 제목")
+        self.assertEqual(titled_row.get("body_preview") or "", "")
+
+        self.assertEqual(short_row.get("body_preview") or "", "테스트88888테스트")
+
 
 if __name__ == "__main__":
     unittest.main()

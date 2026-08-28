@@ -2297,6 +2297,62 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   flex-wrap: wrap;
   gap: 8px;
 }
+.admin-primary-device-box {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+  display: grid;
+  gap: 8px;
+}
+.admin-primary-device-box[hidden] {
+  display: none !important;
+}
+.admin-primary-device-title {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 650;
+}
+.primary-device-radios {
+  display: grid;
+  gap: 8px;
+}
+.primary-device-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  cursor: pointer;
+}
+.primary-device-option:has(input:checked) {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: color-mix(in srgb, var(--selection) 55%, #fff);
+}
+.primary-device-agree {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 14px 0 0;
+  font-size: 12px;
+  line-height: 1.5;
+}
+.primary-device-agree[hidden] {
+  display: none !important;
+}
+.primary-device-agree input {
+  margin-top: 3px;
+}
+.modal.primary-device-modal {
+  z-index: 260;
+}
+.modal-card.primary-device-modal-card {
+  width: min(560px, calc(100vw - 32px));
+}
+#primaryDeviceModalMessage.admin-auth-error {
+  color: #a33;
+}
 .admin-auth-switch {
   margin: 0 !important;
 }
