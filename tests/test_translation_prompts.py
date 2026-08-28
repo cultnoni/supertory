@@ -250,38 +250,83 @@ class ParagraphTranslationPromptTests(unittest.TestCase):
         prompt = translation_prompts.build_paragraph_translation_prompt(CHAPTER)
         self.assertTrue(prompt.endswith(CHAPTER))
         self.assertIn("- 시제: \n", prompt)
-        self.assertIn("이미 확정된 영문 번역입니다", prompt)
+        self.assertIn("이미 확정된 대상 언어 번역입니다", prompt)
+
+    def test_short_source_adds_never_empty_instruction(self) -> None:
+        short = translation_prompts.build_paragraph_translation_prompt("싱긋")
+        long = translation_prompts.build_paragraph_translation_prompt(CHAPTER)
+        self.assertIn("translated_text를 절대 빈 문자열로", short)
+        self.assertIn("[짧은 문단 지침]", short)
+        self.assertNotIn("translated_text를 절대 빈 문자열로", long)
+        self.assertTrue(short.endswith("싱긋"))
+
+    def test_batch_prompt_keeps_ids_order_context_and_short_instruction(self) -> None:
+        prompt = translation_prompts.build_paragraph_translation_batch_prompt(
+            [
+                {
+                    "id": 17,
+                    "source_text": "싱긋",
+                    "relationship_tag": "초면",
+                    "mood_tag": "설렘",
+                },
+                {
+                    "id": 19,
+                    "source_text": "그녀가 우산을 내밀었다.",
+                    "relationship_tag": "초면",
+                    "mood_tag": "설렘",
+                },
+            ],
+            {**TRANSLATION_KWARGS, "target_language": "en"},
+        )
+        self.assertIn("[대상 언어]: 영어 (en)", prompt)
+        self.assertIn("<<<SEGMENT id=17>>>\n", prompt)
+        self.assertIn("<<<SEGMENT id=19>>>\n", prompt)
+        self.assertLess(prompt.index("id=17"), prompt.index("id=19"))
+        self.assertIn("이 문단은 10자 이하입니다", prompt)
+        self.assertIn("relationship_tag=초면, mood_tag=설렘", prompt)
+        self.assertIn('"paragraphs"', prompt)
+        self.assertIn("(없음, 챕터 첫 문단)", prompt)
 
 
 class PolishPromptTests(unittest.TestCase):
     def test_inserts_chapter_text_and_styleguide(self) -> None:
         settings = {"tense": "past", "character_voices": "이오나=캐주얼, 메리=격식"}
-        prompt = translation_prompts.build_polish_prompt(CHAPTER, settings)
+        paragraphs = ["Iona stopped.", "She looked back."]
+        prompt = translation_prompts.build_chapter_polish_prompt(paragraphs, settings)
         self.assertTrue(prompt.startswith("당신은 영어권 출판 편집자입니다"))
-        self.assertTrue(prompt.endswith(CHAPTER))
+        self.assertTrue(prompt.endswith("<<<PARAGRAPH 2>>>\nShe looked back."))
         self.assertIn("- 시제: past\n", prompt)
         self.assertIn("- 인물별 어조: 이오나=캐주얼, 메리=격식\n", prompt)
-        self.assertIn("이제 아래 챕터를 윤문하세요.\n" + CHAPTER, prompt)
-        self.assertNotIn("[원문 삽입]", prompt)
+        self.assertIn("원문 대조 없이 번역문 자체의 자연스러움만", prompt)
+        self.assertIn("<<<PARAGRAPH 1>>>\nIona stopped.", prompt)
+        self.assertIn('"paragraphs"', prompt)
         self.assertNotIn("{tense}", prompt)
         self.assertNotIn("{character_voices}", prompt)
 
     def test_keeps_json_example_braces(self) -> None:
-        prompt = translation_prompts.build_polish_prompt(
-            "본문 {중괄호} 테스트",
+        prompt = translation_prompts.build_chapter_polish_prompt(
+            ["Text with {braces}."],
             {"tense": "past", "character_voices": "Iona=casual"},
         )
         self.assertIn('"polished_text"', prompt)
-        self.assertIn('"change_log"', prompt)
-        self.assertIn("본문 {중괄호} 테스트", prompt)
+        self.assertIn('"index"', prompt)
+        self.assertIn("Text with {braces}.", prompt)
 
     def test_empty_chapter_still_builds(self) -> None:
         settings = {"tense": "past", "character_voices": "이오나=캐주얼"}
-        prompt = translation_prompts.build_polish_prompt("", settings)
-        self.assertIn("translationese", prompt)
+        prompt = translation_prompts.build_chapter_polish_prompt([], settings)
+        self.assertIn("번역문만 보고 판단", prompt)
         self.assertTrue(prompt.endswith("윤문하세요.\n"))
-        none_prompt = translation_prompts.build_polish_prompt(None, settings)  # type: ignore[arg-type]
-        self.assertEqual(none_prompt, prompt)
+
+    def test_batch_output_still_receives_full_chapter_context(self) -> None:
+        paragraphs = [f"Paragraph {index}." for index in range(1, 51)]
+        prompt = translation_prompts.build_chapter_polish_prompt(
+            paragraphs, {}, target_start=41, target_end=50
+        )
+        self.assertIn("전체 50개 문단을 모두 문맥으로 읽되", prompt)
+        self.assertIn("index 41~50 문단만 반환", prompt)
+        self.assertIn("<<<PARAGRAPH 1>>>\nParagraph 1.", prompt)
+        self.assertTrue(prompt.endswith("<<<PARAGRAPH 50>>>\nParagraph 50."))
 
 
 class SubmissionQueryPromptTests(unittest.TestCase):
@@ -307,7 +352,7 @@ class SubmissionQueryPromptTests(unittest.TestCase):
     def test_empty_chapter_still_builds(self) -> None:
         settings = {"proper_nouns_confirmed": "이오나→Iona"}
         prompt = translation_prompts.build_submission_query_prompt("", settings)
-        self.assertIn("300~500단어", prompt)
+        self.assertIn("[대상 시장 지침]", prompt)
         self.assertTrue(prompt.endswith("처리하세요.\n"))
         none_prompt = translation_prompts.build_submission_query_prompt(
             None, settings  # type: ignore[arg-type]
@@ -426,6 +471,7 @@ class WordContextPromptTests(unittest.TestCase):
         self.assertIn("현재 번역: Iona hurried home.\n", prompt)
         self.assertIn("사용자가 클릭한 단어: hurried\n", prompt)
         self.assertIn("발길을 옮겼다 → hurried: 서두름으로 압축", prompt)
+
         self.assertIn("이제 아래 질문에 답하세요.\n", prompt)
         self.assertNotIn("[원문 삽입]", prompt)
         self.assertNotIn("{word}", prompt)
@@ -449,6 +495,101 @@ class WordContextPromptTests(unittest.TestCase):
         self.assertIn("사용자가 클릭한 단어: \n", prompt)
         none_prompt = translation_prompts.build_word_context_prompt({}, "", "")
         self.assertIn("사용자가 클릭한 단어: \n", none_prompt)
+
+
+class MultilingualPromptTests(unittest.TestCase):
+    def test_all_translation_prompts_use_spanish_profile_without_english_bias(self) -> None:
+        prompts = [
+            translation_prompts.build_narrative_formatting_prompt(CHAPTER, "es"),
+            translation_prompts.build_scene_split_prompt(CHAPTER, "es"),
+            translation_prompts.build_proper_noun_fit_prompt(
+                CHAPTER, target_language="es"
+            ),
+            translation_prompts.build_culture_marker_prompt(
+                CHAPTER, "moderate", "친구", "평온", "es"
+            ),
+            translation_prompts.build_paragraph_translation_prompt(
+                CHAPTER, TRANSLATION_KWARGS, target_language="es"
+            ),
+            translation_prompts.build_paragraph_translation_batch_prompt(
+                [{"id": 1, "source_text": CHAPTER}],
+                TRANSLATION_KWARGS,
+                target_language="es",
+            ),
+            translation_prompts.build_chapter_polish_prompt(
+                ["La lluvia caía."], target_language="es"
+            ),
+            translation_prompts.build_submission_query_prompt(
+                CHAPTER,
+                {"culture_localization_level": "moderate"},
+                target_language="es",
+            ),
+            translation_prompts.build_word_context_prompt(
+                {"source_text": "비가 왔다.", "translated_text": "Llovía."},
+                "llovía",
+                target_language="es",
+            ),
+            translation_prompts.build_translation_chat_prompt(
+                "더 자연스럽게 바꿔줘.",
+                {"translated_text": "Llovía."},
+                target_language="es",
+            ),
+        ]
+        for prompt in prompts:
+            self.assertTrue("스페인어" in prompt or "스페인어권" in prompt)
+            self.assertNotIn("영어권", prompt)
+            self.assertNotIn("English", prompt)
+            self.assertNotIn("he/she/they", prompt)
+        self.assertIn("악센트가 있으면 유지", prompts[2])
+        self.assertIn("él/ella/ellos/ellas", prompts[4])
+
+    def test_all_translation_prompts_use_french_profile(self) -> None:
+        prompts = [
+            translation_prompts.build_narrative_formatting_prompt(CHAPTER, "fr"),
+            translation_prompts.build_scene_split_prompt(CHAPTER, "fr"),
+            translation_prompts.build_proper_noun_fit_prompt(
+                CHAPTER, target_language="fr"
+            ),
+            translation_prompts.build_culture_marker_prompt(
+                CHAPTER, "moderate", "친구", "평온", "fr"
+            ),
+            translation_prompts.build_paragraph_translation_prompt(
+                CHAPTER, TRANSLATION_KWARGS, target_language="fr"
+            ),
+            translation_prompts.build_paragraph_translation_batch_prompt(
+                [{"id": 1, "source_text": CHAPTER}],
+                TRANSLATION_KWARGS,
+                target_language="fr",
+            ),
+            translation_prompts.build_chapter_polish_prompt(
+                ["La pluie tombait."], target_language="fr"
+            ),
+            translation_prompts.build_submission_query_prompt(
+                CHAPTER,
+                {"culture_localization_level": "moderate"},
+                target_language="fr",
+            ),
+            translation_prompts.build_word_context_prompt(
+                {"source_text": "비가 왔다.", "translated_text": "Il pleuvait."},
+                "pleuvait",
+                target_language="fr",
+            ),
+            translation_prompts.build_translation_chat_prompt(
+                "더 자연스럽게 바꿔줘.",
+                {"translated_text": "Il pleuvait."},
+                target_language="fr",
+            ),
+        ]
+        for prompt in prompts:
+            self.assertTrue("프랑스어" in prompt or "프랑스어권" in prompt)
+            self.assertNotIn("영어권", prompt)
+            self.assertNotIn("English", prompt)
+            self.assertNotIn("he/she/they", prompt)
+        self.assertIn("기메 따옴표(« … »)", prompts[0])
+        self.assertIn("é, è, à, ç", prompts[2])
+        self.assertIn("프랑스어 발음", prompts[2])
+        self.assertIn("il/elle/ils/elles", prompts[4])
+        self.assertIn("개별 출판사 지침", prompts[7])
 
 
 if __name__ == "__main__":

@@ -895,6 +895,84 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(leftover, 0)
 
+    def test_translation_segment_manual_review_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "067_translation_segment_manual_review.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(translation_segments)").fetchall()
+        }
+        self.assertIn("needs_manual_review", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 67"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_segment_manual_review")
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language) VALUES (1, 'en')"
+        )
+        job_id = self.db.execute("SELECT id FROM translation_jobs").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_segments"
+            "(translation_job_id, chapter_number, segment_order, source_text) "
+            "VALUES (?, 1, 0, '싱긋')",
+            (job_id,),
+        )
+        flag = self.db.execute(
+            "SELECT needs_manual_review FROM translation_segments"
+        ).fetchone()[0]
+        self.assertEqual(flag, 0)
+
+    def test_translation_segment_polish_proposal_columns_are_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript(
+            (root / "061_translation_jobs.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "069_translation_segment_polish_proposal.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute(
+                "PRAGMA table_info(translation_segments)"
+            ).fetchall()
+        }
+        self.assertIn("polish_proposal_text", cols)
+        self.assertIn("polish_choice", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 69"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_segment_polish_proposal")
+
+    def test_translation_job_chapter_range_columns_are_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "068_translation_job_chapter_range.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(translation_jobs)").fetchall()
+        }
+        self.assertIn("start_chapter", cols)
+        self.assertIn("end_chapter", cols)
+        self.assertIn("translate_all_chapters", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 68"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_job_chapter_range")
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language) VALUES (1, 'en')"
+        )
+        row = self.db.execute(
+            "SELECT start_chapter, end_chapter, translate_all_chapters FROM translation_jobs"
+        ).fetchone()
+        self.assertEqual(tuple(row), (None, None, 0))
+
     def test_project_content_rating_column_is_added(self) -> None:
         root = Path(__file__).resolve().parents[1] / "db"
         self.db.executescript((root / "065_project_content_rating.sql").read_text(encoding="utf-8"))

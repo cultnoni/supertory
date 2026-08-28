@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.2">
+    <link rel="stylesheet" href="/styles.css?v=1.4.12">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -6627,47 +6627,105 @@
             <p class="hint translation-workspace-hint" data-i18n="index.원문과_번역을_나란히_보고_문단마다_승인해요">원문과 번역을 나란히 보고, 문단마다 승인해요.</p>
           </div>
           <div class="translation-workspace-toolbar">
-            <label class="translation-chapter-field">
-              <span class="sr-only" data-i18n="index.챕터_선택">챕터 선택</span>
-              <select id="translationChapterSelect" aria-label="챕터 선택" data-i18n-aria-label="index.챕터_선택"></select>
-            </label>
-            <label class="translation-language-field">
-              <span data-i18n="index.번역_언어">번역 언어</span>
-              <select id="translationLanguageSelect" aria-label="번역 언어" data-i18n-aria-label="index.번역_언어">
-                <option value="en" selected data-i18n="app.영어">영어</option>
-                <option value="zh" disabled data-i18n="index.중국어_준비중">중국어 · 준비중</option>
-                <option value="ja" disabled data-i18n="index.일본어_준비중">일본어 · 준비중</option>
-                <option value="es" disabled data-i18n="index.스페인어_준비중">스페인어 · 준비중</option>
-              </select>
-            </label>
-            <button
-              type="button"
-              id="translationCultureBadge"
-              class="translation-culture-badge"
-              aria-haspopup="dialog"
-              aria-controls="translationCultureModal"
-              title="문화반영범위 다시 고르기"
-              data-i18n-title="index.문화반영범위_다시_고르기"
-            >
-              <span data-i18n="index.문화반영범위">문화반영범위</span>
-              <strong id="translationCultureBadgeValue">적절</strong>
-            </button>
-            <button type="button" class="primary compact-btn" id="translationStartButton" data-i18n="app.번역_준비">번역 준비</button>
-            <span class="toolbar-sep" aria-hidden="true"></span>
-            <div class="translation-stage-toggle" role="tablist" aria-label="번역 준비 단계" data-i18n-aria-label="index.번역_준비_단계">
-              <button type="button" class="translation-stage-tab is-active" id="translationStageFormatting" data-translation-stage="formatting" aria-selected="true" disabled data-i18n="index.표기규칙_확인">표기규칙 확인</button>
-              <button type="button" class="translation-stage-tab" id="translationStageScenes" data-translation-stage="scenes" aria-selected="false" disabled data-i18n="index.씬태그_확인">씬 태그 확인</button>
-              <button type="button" class="translation-stage-tab" id="translationStageNouns" data-translation-stage="nouns" aria-selected="false" disabled data-i18n="index.고유명사_확인">고유명사 확인</button>
+            <div class="translation-toolbar-primary-row">
+              <label class="translation-language-field translation-toolbar-control">
+                <span data-i18n="index.번역_언어">번역 언어</span>
+                <select id="translationLanguageSelect" aria-label="번역 언어" data-i18n-aria-label="index.번역_언어">
+                  <option value="en" selected data-i18n="app.영어">영어</option>
+                  <option value="zh" disabled data-i18n="index.중국어_준비중">중국어 · 준비중</option>
+                  <option value="ja" disabled data-i18n="index.일본어_준비중">일본어 · 준비중</option>
+                  <option value="es" data-i18n="app.스페인어">스페인어</option>
+                  <option value="fr" data-i18n="app.프랑스어">프랑스어</option>
+                </select>
+              </label>
+              <div class="translation-toolbar-range-row">
+                <div id="translationRangeControls" class="translation-range-bar translation-toolbar-control">
+                  <span class="translation-range-label" data-i18n="index.번역할_회차_범위">번역할 회차 범위</span>
+                  <div id="translationRangePair" class="translation-range-pair">
+                    <label class="translation-range-select-field">
+                      <span class="sr-only" data-i18n="index.시작_회차">시작 회차</span>
+                      <select id="translationRangeStart" aria-label="시작 회차" data-i18n-aria-label="index.시작_회차"></select>
+                    </label>
+                    <span class="translation-range-connector" aria-hidden="true"></span>
+                    <label class="translation-range-select-field">
+                      <span class="sr-only" data-i18n="index.끝_회차">끝 회차</span>
+                      <select id="translationRangeEnd" aria-label="끝 회차" data-i18n-aria-label="index.끝_회차"></select>
+                    </label>
+                  </div>
+                  <label class="translation-range-all-toggle">
+                    <span data-i18n="index.전체_회차_번역">전체 회차 번역</span>
+                    <span class="tory-switch translation-range-switch">
+                      <input type="checkbox" id="translationRangeAll">
+                      <span class="tory-switch-track" aria-hidden="true"></span>
+                    </span>
+                  </label>
+                </div>
+                <button
+                  type="button"
+                  class="translation-range-card translation-toolbar-control hidden"
+                  id="translationJobSettingsButton"
+                  title="설정 수정"
+                  data-i18n-title="index.설정_수정"
+                  aria-haspopup="dialog"
+                  aria-controls="translationSettingsModal"
+                >
+                  <span class="translation-range-card-kicker" data-i18n="index.번역할_회차_범위">번역할 회차 범위</span>
+                  <span class="translation-range-card-body">
+                    <span id="translationRangeCardPair" class="translation-range-card-pair">
+                      <strong id="translationRangeCardStart">1화</strong>
+                      <span class="translation-range-connector" aria-hidden="true"></span>
+                      <strong id="translationRangeCardEnd">1화</strong>
+                    </span>
+                    <span id="translationRangeCardAll" class="translation-range-card-all" hidden data-i18n="index.전체_회차">전체 회차</span>
+                  </span>
+                  <span class="translation-range-card-edit" aria-hidden="true">✎</span>
+                  <span class="sr-only" data-i18n="index.설정_수정">설정 수정</span>
+                </button>
+              </div>
+              <label class="translation-chapter-field translation-toolbar-control">
+                <span data-i18n="index.번역할_회차_목록">번역할 회차 목록</span>
+                <select id="translationChapterSelect" aria-label="챕터 선택" data-i18n-aria-label="index.챕터_선택"></select>
+              </label>
             </div>
-            <span class="toolbar-sep" aria-hidden="true"></span>
-            <button type="button" class="primary compact-btn" id="translationProceedButton" disabled data-i18n="app.번역_진행">번역 진행</button>
-            <span class="toolbar-sep" aria-hidden="true"></span>
-            <div class="translation-pass-toggle" role="tablist" aria-label="번역 단계" data-i18n-aria-label="index.번역_단계">
-              <button type="button" class="translation-pass-tab is-active" id="translationPassFirst" data-translation-pass="first" aria-selected="true" disabled data-i18n="app.1차_번역">1차 번역</button>
-              <button type="button" class="translation-pass-tab" id="translationPassPolish" data-translation-pass="polish" aria-selected="false" disabled data-i18n="app.윤문">윤문</button>
+            <div class="translation-toolbar-pipeline-row">
+              <button
+                type="button"
+                id="translationCultureBadge"
+                class="translation-culture-badge"
+                aria-haspopup="dialog"
+                aria-controls="translationCultureModal"
+                title="문화반영범위 다시 고르기"
+                data-i18n-title="index.문화반영범위_다시_고르기"
+              >
+                <span data-i18n="index.문화반영범위">문화반영범위</span>
+                <strong id="translationCultureBadgeValue">적절</strong>
+              </button>
+              <button type="button" class="primary compact-btn" id="translationStartButton" data-i18n="app.번역_준비">번역 준비</button>
+              <span class="toolbar-sep" aria-hidden="true"></span>
+              <div class="translation-stage-toggle" role="tablist" aria-label="번역 준비 단계" data-i18n-aria-label="index.번역_준비_단계">
+                <button type="button" class="translation-stage-tab is-active" id="translationStageFormatting" data-translation-stage="formatting" aria-selected="true" disabled data-i18n="index.표기규칙_확인">표기규칙 확인</button>
+                <button type="button" class="translation-stage-tab" id="translationStageScenes" data-translation-stage="scenes" aria-selected="false" disabled data-i18n="index.씬태그_확인">씬 태그 확인</button>
+                <button type="button" class="translation-stage-tab" id="translationStageNouns" data-translation-stage="nouns" aria-selected="false" disabled data-i18n="index.고유명사_확인">고유명사 확인</button>
+              </div>
+              <span class="toolbar-sep" aria-hidden="true"></span>
+              <button type="button" class="primary compact-btn" id="translationProceedButton" disabled data-i18n="app.번역_진행">번역 진행</button>
+              <span id="translationPipelineWaitHint" class="translation-pipeline-wait-hint" hidden></span>
+              <span class="toolbar-sep" aria-hidden="true"></span>
+              <div class="translation-pass-toggle" role="tablist" aria-label="번역 단계" data-i18n-aria-label="index.번역_단계">
+                <button type="button" class="translation-pass-tab is-active" id="translationPassFirst" data-translation-pass="first" aria-selected="true" disabled data-i18n="app.1차_번역">1차 번역</button>
+                <button type="button" class="translation-pass-tab" id="translationPassPolish" data-translation-pass="polish" aria-selected="false" disabled data-i18n="app.윤문">윤문</button>
+              </div>
+              <button type="button" class="secondary compact-btn hidden" id="translationPackageButton" data-i18n="index.투고_패키지">투고 패키지</button>
+              <button type="button" class="secondary compact-btn translation-workspace-close-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
             </div>
-            <button type="button" class="secondary compact-btn hidden" id="translationPackageButton" data-i18n="index.투고_패키지">투고 패키지</button>
-            <button type="button" class="secondary compact-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
+            <p class="hint translation-range-hint" data-i18n="index.투고는_보통_로그라인_시놉시스_샘플_3화">투고용 번역은 보통 로그라인+시놉시스+샘플 3화 내외가 적정 분량입니다.</p>
+          </div>
+        </div>
+
+        <div id="translationRangePanel" class="translation-nouns-panel hidden">
+          <p id="translationRangeEstimate" class="hint"></p>
+          <div class="translation-nouns-actions">
+            <button type="button" class="primary" id="translationCreateJobButton" data-i18n="index.이_범위로_작업_만들기">이 범위로 작업 만들기</button>
           </div>
         </div>
 
@@ -6705,14 +6763,21 @@
         </div>
 
         <div id="translationParagraphPanel" class="translation-workspace-body hidden">
-          <section class="translation-pane" aria-label="원문" data-i18n-aria-label="index.원문">
-            <header class="translation-pane-head" data-i18n="index.원문">원문</header>
-            <div id="translationSourceColumn" class="translation-pane-scroll"></div>
-          </section>
-          <section class="translation-pane" aria-label="번역문" data-i18n-aria-label="app.번역문">
-            <header class="translation-pane-head" data-i18n="app.번역문">번역문</header>
-            <div id="translationTargetColumn" class="translation-pane-scroll"></div>
-          </section>
+          <div id="translationPolishToolbar" class="translation-polish-toolbar hidden">
+            <div>
+              <strong data-i18n="index.회차_전체_윤문">회차 전체 윤문</strong>
+              <p id="translationPolishStatus" class="hint"></p>
+            </div>
+            <div class="translation-polish-toolbar-actions">
+              <button type="button" class="primary compact-btn" id="translationChapterPolishStart" disabled data-i18n="index.회차_전체_윤문_시작">회차 전체 윤문 시작</button>
+              <button type="button" class="secondary compact-btn" id="translationChapterPolishApplyAll" disabled data-i18n="index.전체_윤문_적용">전체 윤문 적용</button>
+            </div>
+          </div>
+          <div class="translation-pane-heads">
+            <header class="translation-pane-head" id="translationLeftPaneHead" data-i18n="index.원문">원문</header>
+            <header class="translation-pane-head" id="translationRightPaneHead" data-i18n="app.번역문">번역문</header>
+          </div>
+          <div id="translationSegmentRows" class="translation-segment-rows"></div>
         </div>
 
         <button type="button" id="translationAskButton" class="translation-ask-button hidden" hidden>
@@ -6769,6 +6834,64 @@
       </div>
     </div>
 
+    <div id="translationSettingsModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="translationSettingsTitle">
+      <div class="modal-backdrop" data-close-translation-settings></div>
+      <div class="modal-card tory-helper-card">
+        <div class="modal-heading">
+          <h2 id="translationSettingsTitle" class="tory-helper-title" data-i18n="index.번역_설정_수정">번역 설정 수정</h2>
+          <button type="button" class="modal-close" data-close-translation-settings title="닫기" data-i18n-title="app.닫기">×</button>
+        </div>
+        <p class="tory-helper-lead" data-i18n="index.문화반영범위와_회차_범위를_다시_정해요">문화반영범위와 회차 범위를 다시 정해요.</p>
+        <section class="translation-settings-section" aria-labelledby="translationSettingsRangeHeading">
+          <h3 id="translationSettingsRangeHeading" class="translation-settings-section-title" data-i18n="index.번역할_회차_범위">번역할 회차 범위</h3>
+          <div class="translation-range-bar">
+            <div id="translationSettingsRangePair" class="translation-range-pair">
+              <label class="translation-range-select-field">
+                <span class="sr-only" data-i18n="index.시작_회차">시작 회차</span>
+                <select id="translationSettingsRangeStart" aria-label="시작 회차" data-i18n-aria-label="index.시작_회차"></select>
+              </label>
+              <span class="translation-range-connector" aria-hidden="true"></span>
+              <label class="translation-range-select-field">
+                <span class="sr-only" data-i18n="index.끝_회차">끝 회차</span>
+                <select id="translationSettingsRangeEnd" aria-label="끝 회차" data-i18n-aria-label="index.끝_회차"></select>
+              </label>
+            </div>
+            <label class="translation-range-all-toggle">
+              <span data-i18n="index.전체_회차_번역">전체 회차 번역</span>
+              <span class="tory-switch translation-range-switch">
+                <input type="checkbox" id="translationSettingsRangeAll">
+                <span class="tory-switch-track" aria-hidden="true"></span>
+              </span>
+            </label>
+          </div>
+          <p class="hint translation-range-hint" data-i18n="index.투고는_보통_로그라인_시놉시스_샘플_3화">투고용 번역은 보통 로그라인+시놉시스+샘플 3화 내외가 적정 분량입니다.</p>
+          <p id="translationSettingsEstimate" class="hint"></p>
+        </section>
+        <section class="translation-settings-section" aria-labelledby="translationSettingsCultureHeading">
+          <h3 id="translationSettingsCultureHeading" class="translation-settings-section-title" data-i18n="index.문화반영범위">문화반영범위</h3>
+          <div class="translation-culture-choices" role="group" aria-label="문화반영범위" data-i18n-aria-label="index.문화반영범위">
+            <button type="button" class="translation-culture-choice" data-settings-culture-level="tight">
+              <strong data-i18n="app.타이트">타이트</strong>
+              <span data-i18n="index.문화반영_타이트_설명">현지 표현으로 강하게 바꿉니다. 정보는 지우지 않아요.</span>
+            </button>
+            <button type="button" class="translation-culture-choice" data-settings-culture-level="moderate">
+              <strong data-i18n="app.적절">적절</strong>
+              <span data-i18n="index.문화반영_적절_설명">뜻을 살리되 읽기 쉽게 다듬어요.</span>
+            </button>
+            <button type="button" class="translation-culture-choice" data-settings-culture-level="as_is">
+              <strong data-i18n="app.원문_유지">원문 유지</strong>
+              <span data-i18n="index.문화반영_원문유지_설명">한국 고유 표현을 되도록 그대로 살려요.</span>
+            </button>
+          </div>
+          <p class="hint" data-i18n="index.이미_번역된_문단은_새_설정이_적용되지_않습니다">이미 번역된 문단은 새 설정이 적용되지 않습니다. 새로 추가되거나 재번역하는 문단부터 적용됩니다.</p>
+        </section>
+        <div class="modal-actions">
+          <button type="button" class="secondary" data-close-translation-settings data-i18n="index.취소">취소</button>
+          <button type="button" class="primary" id="translationSettingsSave" data-i18n="app.저장">저장</button>
+        </div>
+      </div>
+    </div>
+
     <div id="translationSubmissionCheerModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="translationSubmissionCheerTitle">
       <div class="modal-backdrop" data-close-translation-cheer></div>
       <div class="modal-card tory-helper-card">
@@ -6799,6 +6922,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.3"></script>
+    <script src="/app.js?v=1.4.12"></script>
   </body>
 </html>

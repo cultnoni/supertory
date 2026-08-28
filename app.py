@@ -172,6 +172,9 @@ MIGRATION_063_PATH = ROOT / "db" / "063_translation_pipeline.sql"
 MIGRATION_064_PATH = ROOT / "db" / "064_translation_word_context_cache.sql"
 MIGRATION_065_PATH = ROOT / "db" / "065_project_content_rating.sql"
 MIGRATION_066_PATH = ROOT / "db" / "066_user_ambient_tracks_custom_category.sql"
+MIGRATION_067_PATH = ROOT / "db" / "067_translation_segment_manual_review.sql"
+MIGRATION_068_PATH = ROOT / "db" / "068_translation_job_chapter_range.sql"
+MIGRATION_069_PATH = ROOT / "db" / "069_translation_segment_polish_proposal.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1557,6 +1560,12 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_065_PATH.read_text(encoding="utf-8"))
         if 66 not in applied:
             connection.executescript(MIGRATION_066_PATH.read_text(encoding="utf-8"))
+        if 67 not in applied:
+            connection.executescript(MIGRATION_067_PATH.read_text(encoding="utf-8"))
+        if 68 not in applied:
+            connection.executescript(MIGRATION_068_PATH.read_text(encoding="utf-8"))
+        if 69 not in applied:
+            connection.executescript(MIGRATION_069_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -2158,7 +2167,10 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
                 translated_text TEXT,
                 translation_notes_json TEXT,
                 polish_text TEXT,
+                polish_proposal_text TEXT,
+                polish_choice TEXT,
                 is_approved INTEGER NOT NULL DEFAULT 0 CHECK (is_approved IN (0, 1)),
+                needs_manual_review INTEGER NOT NULL DEFAULT 0 CHECK (needs_manual_review IN (0, 1)),
                 created_at TEXT NOT NULL DEFAULT (datetime('now')),
                 updated_at TEXT NOT NULL DEFAULT (datetime('now')),
                 FOREIGN KEY (translation_job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE,
@@ -2214,6 +2226,9 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
         ensure_translation_proper_nouns_source_column(connection)
         ensure_translation_pipeline_schema(connection)
         ensure_translation_word_context_cache(connection)
+        ensure_translation_segment_manual_review_column(connection)
+        ensure_translation_segment_polish_proposal_columns(connection)
+        ensure_translation_job_chapter_range_columns(connection)
     except sqlite3.Error:
         pass
 
@@ -2354,6 +2369,83 @@ def ensure_translation_word_context_cache(connection: sqlite3.Connection) -> Non
         pass
 
 
+def _translation_segment_columns(connection: sqlite3.Connection) -> set[str]:
+    try:
+        return {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(translation_segments)").fetchall()
+        }
+    except sqlite3.Error:
+        return set()
+
+
+def ensure_translation_segment_manual_review_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: translation_segments.needs_manual_review (migration 067)."""
+    cols = _translation_segment_columns(connection)
+    if cols and "needs_manual_review" not in cols:
+        connection.execute(
+            "ALTER TABLE translation_segments "
+            "ADD COLUMN needs_manual_review INTEGER NOT NULL DEFAULT 0"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (67, 'translation_segment_manual_review')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_translation_segment_polish_proposal_columns(
+    connection: sqlite3.Connection,
+) -> None:
+    """Idempotent: polish_proposal_text / polish_choice (migration 069)."""
+    cols = _translation_segment_columns(connection)
+    if not cols:
+        return
+    if "polish_proposal_text" not in cols:
+        connection.execute(
+            "ALTER TABLE translation_segments ADD COLUMN polish_proposal_text TEXT"
+        )
+        cols = _translation_segment_columns(connection)
+    if "polish_choice" not in cols:
+        connection.execute(
+            "ALTER TABLE translation_segments ADD COLUMN polish_choice TEXT"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (69, 'translation_segment_polish_proposal')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_translation_job_chapter_range_columns(connection: sqlite3.Connection) -> None:
+    """Idempotent: translation_jobs start/end chapter range (migration 068)."""
+    cols = _translation_job_columns(connection)
+    if not cols:
+        return
+    additions = (
+        ("start_chapter", "INTEGER"),
+        ("end_chapter", "INTEGER"),
+        ("translate_all_chapters", "INTEGER NOT NULL DEFAULT 0"),
+    )
+    for name, declaration in additions:
+        if name not in cols:
+            connection.execute(
+                f"ALTER TABLE translation_jobs ADD COLUMN {name} {declaration}"
+            )
+            cols.add(name)
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (68, 'translation_job_chapter_range')"
+        )
+    except sqlite3.Error:
+        pass
+
+
 def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> None:
     rows = [
         dict(item)
@@ -2387,6 +2479,9 @@ def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> No
             pipeline_error TEXT,
             proper_nouns_confirmed INTEGER NOT NULL DEFAULT 0,
             proper_nouns_extracted INTEGER NOT NULL DEFAULT 0,
+            start_chapter INTEGER,
+            end_chapter INTEGER,
+            translate_all_chapters INTEGER NOT NULL DEFAULT 0,
             FOREIGN KEY (local_project_id) REFERENCES project(id) ON DELETE CASCADE
         )
         """
@@ -2398,8 +2493,9 @@ def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> No
                 id, local_project_id, target_language, cliffhanger_chapter, style_guide_json,
                 culture_localization_level, status, created_at, updated_at,
                 narrative_formatting_rules_json, pipeline_failed_step, pipeline_error,
-                proper_nouns_confirmed, proper_nouns_extracted
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                proper_nouns_confirmed, proper_nouns_extracted,
+                start_chapter, end_chapter, translate_all_chapters
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 item.get("id"),
@@ -2416,6 +2512,9 @@ def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> No
                 item.get("pipeline_error"),
                 int(item.get("proper_nouns_confirmed") or 0),
                 int(item.get("proper_nouns_extracted") or 0),
+                item.get("start_chapter"),
+                item.get("end_chapter"),
+                int(item.get("translate_all_chapters") or 0),
             ),
         )
     connection.execute("DROP TABLE translation_jobs_old_063")
@@ -2427,6 +2526,67 @@ def _rebuild_translation_jobs_status_check(connection: sqlite3.Connection) -> No
 
 
 CULTURE_LOCALIZATION_LEVELS = ("tight", "moderate", "as_is")
+TRANSLATION_DEFAULT_SAMPLE_CHAPTERS = 3
+TRANSLATION_SEGMENT_CONFIRM_THRESHOLD = 500
+TRANSLATION_RANGE_REQUIRED_MESSAGE = (
+    "번역할 회차 범위를 선택해 주세요. 전체를 번역할 때는 「전체 회차 번역」을 명시해야 해요."
+)
+
+
+def _translation_payload_flag(value: object) -> bool:
+    if value is True:
+        return True
+    if value is False or value is None:
+        return False
+    if isinstance(value, (int, float)):
+        return int(value) != 0
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _translation_optional_int(value: object, *, field_name: str) -> int | None:
+    if value is None or value == "":
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError) as error:
+        raise ValueError(f"{field_name} 값이 올바르지 않습니다.") from error
+
+
+def _translation_row_int(value: object) -> int | None:
+    if value in (None, ""):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+TRANSLATION_SEPARATOR_PARAGRAPH_RE = re.compile(r"^[=*~—\-]{2,}$")
+
+
+def is_translation_separator_paragraph(text: str) -> bool:
+    """True when the paragraph is only a repeated divider like ==== or ----."""
+    return bool(TRANSLATION_SEPARATOR_PARAGRAPH_RE.fullmatch(str(text or "").strip()))
+
+
+def apply_translation_separator_passthrough(
+    connection: sqlite3.Connection, row: sqlite3.Row | dict
+) -> bool:
+    """Copy source to translation without Gemini. Returns True when applied."""
+    source = str(row["source_text"] or "")
+    if not is_translation_separator_paragraph(source):
+        return False
+    connection.execute(
+        """
+        UPDATE translation_segments
+        SET translated_text = ?, polish_text = ?, translation_notes_json = ?,
+            needs_manual_review = 0, is_approved = 1, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (source, source, "[]", int(row["id"])),
+    )
+    connection.commit()
+    return True
 
 
 def split_source_paragraphs(text: str) -> list[str]:
@@ -2463,17 +2623,47 @@ def serialize_translation_job(row: sqlite3.Row | dict) -> dict:
         "local_project_id": int(data["local_project_id"]),
         "target_language": data.get("target_language") or "en",
         "cliffhanger_chapter": data.get("cliffhanger_chapter"),
+        "start_chapter": _translation_row_int(data.get("start_chapter")),
+        "end_chapter": _translation_row_int(data.get("end_chapter")),
+        "translate_all_chapters": bool(int(data.get("translate_all_chapters") or 0)),
         "style_guide_json": _json_load_optional(data.get("style_guide_json")),
         "culture_localization_level": data.get("culture_localization_level"),
         "status": status,
         "narrative_formatting_rules": _json_load_optional(rules_raw),
         "pipeline_failed_step": data.get("pipeline_failed_step") or "",
         "pipeline_error": data.get("pipeline_error") or "",
+        "pipeline_wait_seconds": _translation_pipeline_wait_seconds(int(data["id"])),
         "proper_nouns_confirmed": proper_nouns_confirmed,
         "proper_nouns_extracted": bool(int(extracted or 0)),
         "created_at": data.get("created_at"),
         "updated_at": data.get("updated_at"),
     }
+
+
+def translation_job_progress(connection: sqlite3.Connection, job_id: int) -> dict:
+    row = connection.execute(
+        """
+        SELECT COUNT(*) AS total,
+               COALESCE(SUM(
+                   CASE WHEN trim(COALESCE(translated_text, '')) != '' THEN 1 ELSE 0 END
+               ), 0) AS translated
+        FROM translation_segments
+        WHERE translation_job_id = ?
+        """,
+        (int(job_id),),
+    ).fetchone()
+    total = int(row["total"] or 0) if row else 0
+    translated = int(row["translated"] or 0) if row else 0
+    return {
+        "total_segments": total,
+        "translated_segments": translated,
+        "pending_segments": max(0, total - translated),
+    }
+
+
+def decorate_translation_job(connection: sqlite3.Connection, job: dict) -> dict:
+    job.update(translation_job_progress(connection, int(job["id"])))
+    return job
 
 
 def serialize_translation_scene_context(row: sqlite3.Row | dict) -> dict:
@@ -2502,7 +2692,10 @@ def serialize_translation_segment(row: sqlite3.Row | dict) -> dict:
         "translated_text": data.get("translated_text") or "",
         "translation_notes_json": _json_load_optional(data.get("translation_notes_json")),
         "polished_text": data.get("polish_text") or data.get("polished_text") or "",
+        "polish_proposal_text": data.get("polish_proposal_text") or "",
+        "polish_choice": str(data.get("polish_choice") or "").strip(),
         "is_approved": bool(int(data.get("is_approved") or 0)),
+        "needs_manual_review": bool(int(data.get("needs_manual_review") or 0)),
         "created_at": data.get("created_at"),
         "updated_at": data.get("updated_at"),
     }
@@ -2576,27 +2769,37 @@ def load_translation_job(
 def translation_job_chapter_catalog(
     connection: sqlite3.Connection, job_id: int, project_id: int
 ) -> list[dict]:
-    rows = connection.execute(
+    ensure_translation_job_chapter_range_columns(connection)
+    job = serialize_translation_job(load_translation_job(connection, job_id))
+    scenes = list_scenes_in_binder_order(connection, int(project_id))
+    start = int(job.get("start_chapter") or 1)
+    end = int(job.get("end_chapter") or start)
+    if job.get("translate_all_chapters"):
+        start, end = 1, len(scenes)
+    if start < 1:
+        start = 1
+    if end < start:
+        end = start
+    count_rows = connection.execute(
         "SELECT chapter_number, COUNT(*) AS segment_count "
         "FROM translation_segments WHERE translation_job_id = ? "
-        "GROUP BY chapter_number ORDER BY chapter_number",
+        "GROUP BY chapter_number",
         (int(job_id),),
     ).fetchall()
-    scenes = list_scenes_in_binder_order(connection, int(project_id))
+    counts = {
+        int(row["chapter_number"]): int(row["segment_count"] or 0) for row in count_rows
+    }
     catalog = []
-    for row in rows:
-        number = int(row["chapter_number"])
-        title = f"{number}화"
-        index = number - 1
-        if 0 <= index < len(scenes):
-            scene_title = str(scenes[index].get("title") or "").strip()
-            chapter_title = str(scenes[index].get("chapter_title") or "").strip()
-            title = scene_title or chapter_title or title
+    for episode_index, scene in enumerate(scenes, start=1):
+        if episode_index < start or episode_index > end:
+            continue
+        scene_title = str(scene.get("title") or "").strip()
+        chapter_title = str(scene.get("chapter_title") or "").strip()
         catalog.append(
             {
-                "number": number,
-                "title": title,
-                "segment_count": int(row["segment_count"] or 0),
+                "number": episode_index,
+                "title": scene_title or chapter_title or f"{episode_index}화",
+                "segment_count": int(counts.get(episode_index) or 0),
             }
         )
     return catalog
@@ -2614,35 +2817,150 @@ def list_translation_jobs_for_project(
     return [serialize_translation_job(row) for row in rows]
 
 
+def manuscript_episode_catalog(
+    connection: sqlite3.Connection, project_id: int
+) -> list[dict]:
+    scenes = list_scenes_in_binder_order(connection, int(project_id))
+    catalog = []
+    for episode_index, scene in enumerate(scenes, start=1):
+        paragraphs = split_source_paragraphs(str(scene.get("content_md") or ""))
+        scene_title = str(scene.get("title") or "").strip()
+        chapter_title = str(scene.get("chapter_title") or "").strip()
+        catalog.append(
+            {
+                "number": episode_index,
+                "title": scene_title or chapter_title or f"{episode_index}화",
+                "segment_count": len(paragraphs),
+            }
+        )
+    return catalog
+
+
+def resolve_translation_chapter_range(
+    payload: dict | None, episode_count: int
+) -> tuple[int, int, bool]:
+    data = payload if isinstance(payload, dict) else {}
+    if episode_count < 1:
+        raise ValueError("번역할 회차가 없어요.")
+    translate_all = _translation_payload_flag(data.get("translate_all_chapters"))
+    start = _translation_optional_int(data.get("start_chapter"), field_name="시작 회차")
+    end = _translation_optional_int(data.get("end_chapter"), field_name="끝 회차")
+    if not translate_all and (start is None or end is None):
+        raise ValueError(TRANSLATION_RANGE_REQUIRED_MESSAGE)
+    if translate_all:
+        return 1, episode_count, True
+    if start < 1 or end < 1 or start > episode_count or end > episode_count:
+        raise ValueError(f"회차 범위는 1화부터 {episode_count}화 사이여야 해요.")
+    if start > end:
+        raise ValueError("시작 회차가 끝 회차보다 클 수 없어요.")
+    return start, end, False
+
+
+def preview_translation_chapter_range(
+    connection: sqlite3.Connection,
+    project_id: int,
+    payload: dict | None = None,
+) -> dict:
+    catalog = manuscript_episode_catalog(connection, int(project_id))
+    episode_count = len(catalog)
+    recommended_end = (
+        min(TRANSLATION_DEFAULT_SAMPLE_CHAPTERS, episode_count) if episode_count else 0
+    )
+    data = payload if isinstance(payload, dict) else {}
+    translate_all = _translation_payload_flag(data.get("translate_all_chapters"))
+    has_start = data.get("start_chapter") not in (None, "")
+    has_end = data.get("end_chapter") not in (None, "")
+    if episode_count < 1:
+        start = end = None
+        estimated = 0
+        translate_all = False
+    elif translate_all or (has_start and has_end):
+        start, end, translate_all = resolve_translation_chapter_range(data, episode_count)
+        estimated = sum(
+            item["segment_count"]
+            for item in catalog
+            if start <= int(item["number"]) <= end
+        )
+    else:
+        start = 1
+        end = recommended_end
+        translate_all = False
+        estimated = sum(
+            item["segment_count"]
+            for item in catalog
+            if start <= int(item["number"]) <= end
+        )
+    return {
+        "episode_count": episode_count,
+        "episodes": catalog,
+        "recommended_start_chapter": 1 if episode_count else None,
+        "recommended_end_chapter": recommended_end or None,
+        "start_chapter": start,
+        "end_chapter": end,
+        "translate_all_chapters": translate_all,
+        "estimated_segments": estimated,
+        "confirm_threshold": TRANSLATION_SEGMENT_CONFIRM_THRESHOLD,
+    }
+
+
 def seed_translation_segments_from_manuscript(
     connection: sqlite3.Connection,
     *,
     job_id: int,
     project_id: int,
+    start_chapter: int,
+    end_chapter: int,
+    only_chapters: set[int] | None = None,
 ) -> int:
-    """Create paragraph segments from the current manuscript. Idempotent per job."""
-    existing = connection.execute(
-        "SELECT COUNT(*) FROM translation_segments WHERE translation_job_id = ?",
-        (int(job_id),),
-    ).fetchone()
-    if existing and int(existing[0] or 0) > 0:
-        return int(existing[0] or 0)
+    """Create paragraph segments for chapters that do not already have any."""
+    existing_chapters = {
+        int(row["chapter_number"])
+        for row in connection.execute(
+            "SELECT DISTINCT chapter_number FROM translation_segments "
+            "WHERE translation_job_id = ?",
+            (int(job_id),),
+        )
+    }
     scenes = list_scenes_in_binder_order(connection, int(project_id))
+    start = int(start_chapter)
+    end = int(end_chapter)
     inserted = 0
     stamp = utc_timestamp_now()
     for episode_index, scene in enumerate(scenes, start=1):
+        if episode_index < start or episode_index > end:
+            continue
+        if only_chapters is not None and episode_index not in only_chapters:
+            continue
+        if episode_index in existing_chapters:
+            continue
         paragraphs = split_source_paragraphs(str(scene.get("content_md") or ""))
         for order, paragraph in enumerate(paragraphs, start=1):
+            passthrough = is_translation_separator_paragraph(paragraph)
             connection.execute(
                 """
                 INSERT INTO translation_segments(
                     translation_job_id, chapter_number, segment_order, source_text,
+                    translated_text, polish_text, needs_manual_review,
                     created_at, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?)
+                ) VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)
                 """,
-                (int(job_id), episode_index, order, paragraph, stamp, stamp),
+                (
+                    int(job_id),
+                    episode_index,
+                    order,
+                    paragraph,
+                    paragraph if passthrough else None,
+                    paragraph if passthrough else None,
+                    stamp,
+                    stamp,
+                ),
             )
             inserted += 1
+    print(
+        f"[translation-seed] job={int(job_id)} start_chapter={start} "
+        f"end_chapter={end} seeded={inserted}",
+        flush=True,
+    )
     return inserted
 
 
@@ -2661,42 +2979,245 @@ def create_translation_job(
         style_raw = json.dumps(style_guide, ensure_ascii=False)
     else:
         style_raw = str(style_guide).strip() if style_guide else None
-    cliffhanger = payload.get("cliffhanger_chapter")
-    try:
-        cliffhanger_chapter = int(cliffhanger) if cliffhanger not in (None, "") else None
-    except (TypeError, ValueError) as error:
-        raise ValueError("클리프행어 회차 번호가 올바르지 않습니다.") from error
+    ensure_translation_job_chapter_range_columns(connection)
+    catalog = manuscript_episode_catalog(connection, int(project_id))
+    start_chapter, end_chapter, translate_all = resolve_translation_chapter_range(
+        payload, len(catalog)
+    )
     stamp = utc_timestamp_now()
     cursor = connection.execute(
         """
         INSERT INTO translation_jobs(
             local_project_id, target_language, cliffhanger_chapter, style_guide_json,
-            culture_localization_level, status, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?)
+            culture_localization_level, status, created_at, updated_at,
+            start_chapter, end_chapter, translate_all_chapters
+        ) VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?)
         """,
         (
             int(project_id),
             target_language,
-            cliffhanger_chapter,
+            end_chapter,
             style_raw,
             culture,
             stamp,
             stamp,
+            start_chapter,
+            end_chapter,
+            1 if translate_all else 0,
         ),
     )
     job_id = int(cursor.lastrowid)
     seeded = seed_translation_segments_from_manuscript(
-        connection, job_id=job_id, project_id=int(project_id)
+        connection,
+        job_id=job_id,
+        project_id=int(project_id),
+        start_chapter=start_chapter,
+        end_chapter=end_chapter,
     )
     job = serialize_translation_job(load_translation_job(connection, job_id))
+    decorate_translation_job(connection, job)
     job["chapters"] = translation_job_chapter_catalog(connection, job_id, int(project_id))
     job["seeded_segments"] = seeded
     return job
 
 
+class TranslationSettingsConfirmRequired(ValueError):
+    def __init__(self, preview: dict):
+        removed = len(preview.get("removed_chapters") or [])
+        deleted = int(preview.get("deleted_segments") or 0)
+        super().__init__(f"{removed}개 회차, {deleted}개 문단이 삭제됩니다. 계속할까요?")
+        self.preview = preview
+
+
+def _translation_job_existing_chapter_numbers(
+    connection: sqlite3.Connection, job_id: int
+) -> set[int]:
+    chapters: set[int] = set()
+    for table in ("translation_segments", "translation_scene_contexts"):
+        rows = connection.execute(
+            f"SELECT DISTINCT chapter_number FROM {table} "
+            "WHERE translation_job_id = ?",
+            (int(job_id),),
+        ).fetchall()
+        chapters.update(int(row["chapter_number"]) for row in rows)
+    return chapters
+
+
+def _delete_translation_rows_for_chapters(
+    connection: sqlite3.Connection,
+    *,
+    table: str,
+    job_id: int,
+    chapters: list[int],
+) -> int:
+    if not chapters:
+        return 0
+    placeholders = ",".join("?" * len(chapters))
+    cursor = connection.execute(
+        f"DELETE FROM {table} WHERE translation_job_id = ? "
+        f"AND chapter_number IN ({placeholders})",
+        [int(job_id), *[int(number) for number in chapters]],
+    )
+    return int(cursor.rowcount or 0)
+
+
+def sync_translation_job_status_from_progress(
+    connection: sqlite3.Connection, job_id: int
+) -> None:
+    progress = translation_job_progress(connection, int(job_id))
+    row = load_translation_job(connection, job_id)
+    status = str(row["status"] or "draft")
+    pending = int(progress["pending_segments"] or 0)
+    translated = int(progress["translated_segments"] or 0)
+    if pending > 0 and status in {"translated", "completed"}:
+        connection.execute(
+            "UPDATE translation_jobs SET status = 'in_progress', "
+            "updated_at = datetime('now') WHERE id = ?",
+            (int(job_id),),
+        )
+    elif pending == 0 and translated > 0 and status == "in_progress":
+        connection.execute(
+            "UPDATE translation_jobs SET status = 'translated', "
+            "updated_at = datetime('now') WHERE id = ?",
+            (int(job_id),),
+        )
+
+
+def preview_translation_job_settings(
+    connection: sqlite3.Connection,
+    job_id: int,
+    payload: dict | None = None,
+) -> dict:
+    ensure_translation_job_chapter_range_columns(connection)
+    job = serialize_translation_job(load_translation_job(connection, job_id))
+    project_id = int(job["local_project_id"])
+    catalog = manuscript_episode_catalog(connection, project_id)
+    data = payload if isinstance(payload, dict) else {}
+    start, end, translate_all = resolve_translation_chapter_range(data, len(catalog))
+    culture = str(
+        data.get("culture_localization_level")
+        or job.get("culture_localization_level")
+        or "moderate"
+    ).strip()
+    if culture not in CULTURE_LOCALIZATION_LEVELS:
+        raise ValueError("문화반영범위 값이 올바르지 않습니다.")
+    old_start = int(job.get("start_chapter") or 1)
+    old_end = int(job.get("end_chapter") or old_start)
+    old_all = bool(job.get("translate_all_chapters"))
+    if old_all and catalog:
+        old_start, old_end = 1, len(catalog)
+    new_range = set(range(start, end + 1))
+    old_range = set(range(old_start, old_end + 1)) if old_end >= old_start else set()
+    added = sorted(new_range - old_range)
+    leftover = _translation_job_existing_chapter_numbers(connection, int(job_id))
+    removed = sorted((old_range | leftover) - new_range)
+    catalog_counts = {
+        int(item["number"]): int(item["segment_count"] or 0) for item in catalog
+    }
+    estimated_added = sum(catalog_counts.get(number, 0) for number in added)
+    removed_rows: list[sqlite3.Row] = []
+    if removed:
+        placeholders = ",".join("?" * len(removed))
+        removed_rows = list(
+            connection.execute(
+                "SELECT translated_text FROM translation_segments "
+                "WHERE translation_job_id = ? AND chapter_number IN "
+                f"({placeholders})",
+                [int(job_id), *removed],
+            ).fetchall()
+        )
+    deleted_segments = len(removed_rows)
+    translated_to_delete = sum(
+        1 for row in removed_rows if str(row["translated_text"] or "").strip()
+    )
+    return {
+        "start_chapter": start,
+        "end_chapter": end,
+        "translate_all_chapters": translate_all,
+        "culture_localization_level": culture,
+        "culture_changed": culture != str(job.get("culture_localization_level") or ""),
+        "range_changed": (start, end, translate_all) != (old_start, old_end, old_all),
+        "added_chapters": added,
+        "removed_chapters": removed,
+        "deleted_segments": deleted_segments,
+        "translated_segments_to_delete": translated_to_delete,
+        "estimated_added_segments": estimated_added,
+        "confirm_threshold": TRANSLATION_SEGMENT_CONFIRM_THRESHOLD,
+        "confirm_delete_required": translated_to_delete > 0,
+        "episodes": catalog,
+        "current_start_chapter": old_start,
+        "current_end_chapter": old_end,
+        "current_translate_all_chapters": old_all,
+        "current_culture_localization_level": job.get("culture_localization_level"),
+    }
+
+
+def update_translation_job_settings(
+    connection: sqlite3.Connection,
+    job_id: int,
+    payload: dict | None = None,
+) -> dict:
+    data = payload if isinstance(payload, dict) else {}
+    preview = preview_translation_job_settings(connection, job_id, data)
+    confirm_delete = _translation_payload_flag(data.get("confirm_delete"))
+    if preview["confirm_delete_required"] and not confirm_delete:
+        raise TranslationSettingsConfirmRequired(preview)
+    job_row = load_translation_job(connection, job_id)
+    project_id = int(job_row["local_project_id"])
+    removed = list(preview["removed_chapters"] or [])
+    added = set(int(number) for number in (preview["added_chapters"] or []))
+    if removed:
+        _delete_translation_rows_for_chapters(
+            connection,
+            table="translation_segments",
+            job_id=int(job_id),
+            chapters=removed,
+        )
+        _delete_translation_rows_for_chapters(
+            connection,
+            table="translation_scene_contexts",
+            job_id=int(job_id),
+            chapters=removed,
+        )
+    seeded = 0
+    if added:
+        seeded = seed_translation_segments_from_manuscript(
+            connection,
+            job_id=int(job_id),
+            project_id=project_id,
+            start_chapter=int(preview["start_chapter"]),
+            end_chapter=int(preview["end_chapter"]),
+            only_chapters=added,
+        )
+    connection.execute(
+        """
+        UPDATE translation_jobs
+        SET start_chapter = ?, end_chapter = ?, translate_all_chapters = ?,
+            cliffhanger_chapter = ?, culture_localization_level = ?,
+            updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            int(preview["start_chapter"]),
+            int(preview["end_chapter"]),
+            1 if preview["translate_all_chapters"] else 0,
+            int(preview["end_chapter"]),
+            preview["culture_localization_level"],
+            int(job_id),
+        ),
+    )
+    sync_translation_job_status_from_progress(connection, job_id)
+    detail = translation_job_detail(connection, job_id)
+    detail["seeded_segments"] = seeded
+    detail["deleted_segments"] = int(preview["deleted_segments"] or 0)
+    detail["settings_preview"] = preview
+    return detail
+
+
 def translation_job_detail(connection: sqlite3.Connection, job_id: int) -> dict:
     row = load_translation_job(connection, job_id)
     job = serialize_translation_job(row)
+    decorate_translation_job(connection, job)
     project_id = int(job["local_project_id"])
     job["chapters"] = translation_job_chapter_catalog(connection, int(job_id), project_id)
     chat_rows = connection.execute(
@@ -2747,8 +3268,10 @@ def load_translation_submission_package(
 def list_translation_segments(
     connection: sqlite3.Connection, job_id: int, chapter: int | None
 ) -> dict:
+    ensure_translation_segment_polish_proposal_columns(connection)
     job_row = load_translation_job(connection, job_id)
     job = serialize_translation_job(job_row)
+    decorate_translation_job(connection, job)
     project_id = int(job["local_project_id"])
     sql = (
         "SELECT * FROM translation_segments WHERE translation_job_id = ?"
@@ -2760,12 +3283,36 @@ def list_translation_segments(
     sql += " ORDER BY chapter_number ASC, segment_order ASC, id ASC"
     rows = connection.execute(sql, params).fetchall()
     job["scene_contexts"] = list_translation_scene_contexts(connection, int(job_id))
-    return {
+    payload = {
         "job": job,
         "chapter": chapter,
         "chapters": translation_job_chapter_catalog(connection, int(job_id), project_id),
         "segments": [serialize_translation_segment(row) for row in rows],
         "scene_contexts": job["scene_contexts"],
+    }
+    payload.update(_chapter_polish_state(rows))
+    return payload
+
+
+def _chapter_polish_state(rows: Sequence[sqlite3.Row | dict]) -> dict:
+    items = [dict(row) for row in rows]
+    count = len(items)
+    approved = sum(1 for row in items if int(row.get("is_approved") or 0))
+    translated = sum(
+        1 for row in items if str(row.get("translated_text") or "").strip()
+    )
+    proposed = sum(
+        1 for row in items if str(row.get("polish_proposal_text") or "").strip()
+    )
+    decided = sum(1 for row in items if str(row.get("polish_choice") or "").strip())
+    return {
+        "chapter_segment_count": count,
+        "chapter_approved_count": approved,
+        "chapter_polish_ready": count > 0
+        and approved == count
+        and translated == count,
+        "chapter_polish_proposed": count > 0 and proposed == count,
+        "chapter_polish_decided_count": decided,
     }
 
 
@@ -3126,14 +3673,16 @@ def extract_translation_proper_nouns(
         if not gemini_client.is_configured():
             raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
         prompt = translation_prompts.build_proper_noun_fit_prompt(
-            chapter_text, existing_index_terms=existing_names
+            chapter_text,
+            existing_index_terms=existing_names,
+            target_language=job.get("target_language") or "en",
         )
-        try:
-            raw = gemini_client.generate_text(
-                prompt, temperature=0.3, max_output_tokens=4096
-            )
-        except gemini_client.GeminiError as error:
-            raise ValueError(str(error)) from error
+        raw = _translation_pipeline_gemini(
+            prompt,
+            temperature=0.3,
+            max_output_tokens=4096,
+            job_id=int(job_id),
+        )
         for item in _parse_detected_proper_nouns(raw):
             key = item["source_term"].casefold()
             if key in existing_keys:
@@ -3240,15 +3789,101 @@ def confirm_translation_proper_nouns(
     return detail
 
 
-def _translation_pipeline_gemini(prompt: str, *, temperature: float, max_output_tokens: int) -> str:
+_translation_wait_lock = Lock()
+_translation_wait_until: dict[int, float] = {}
+
+
+def _translation_sleep(seconds: float) -> None:
+    delay = float(seconds or 0)
+    if delay > 0:
+        time.sleep(delay)
+
+
+def _is_translation_rate_limit_error(error: BaseException) -> bool:
+    if isinstance(error, gemini_client.GeminiError):
+        if int(error.http_status or 0) == 429:
+            return True
+        return str(error.code or "") in {"rate_limit", "quota"}
+    return False
+
+
+def _translation_rate_limit_wait_seconds(error: BaseException) -> float:
+    retry_after = getattr(error, "retry_after", None)
+    try:
+        if retry_after is not None and float(retry_after) >= 0:
+            return float(retry_after)
+    except (TypeError, ValueError):
+        pass
+    match = re.search(r"retry in\s+([\d.]+)\s*s", str(error or ""), re.I)
+    if match:
+        try:
+            parsed = float(match.group(1))
+        except ValueError:
+            parsed = 0.0
+        if parsed > 0:
+            return parsed
+    return float(TRANSLATION_RATE_LIMIT_DEFAULT_WAIT)
+
+
+def _set_translation_pipeline_wait(job_id: int | None, seconds: float) -> None:
+    if job_id is None:
+        return
+    with _translation_wait_lock:
+        _translation_wait_until[int(job_id)] = time.monotonic() + max(0.0, float(seconds or 0))
+
+
+def _clear_translation_pipeline_wait(job_id: int | None) -> None:
+    if job_id is None:
+        return
+    with _translation_wait_lock:
+        _translation_wait_until.pop(int(job_id), None)
+
+
+def _translation_pipeline_wait_seconds(job_id: int | None) -> float:
+    if job_id is None:
+        return 0.0
+    with _translation_wait_lock:
+        until = _translation_wait_until.get(int(job_id))
+    if until is None:
+        return 0.0
+    remaining = until - time.monotonic()
+    return remaining if remaining > 0 else 0.0
+
+
+def _translation_pipeline_gemini(
+    prompt: str,
+    *,
+    temperature: float,
+    max_output_tokens: int,
+    job_id: int | None = None,
+) -> str:
     if not gemini_client.is_configured():
         raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
-    try:
-        return gemini_client.generate_text(
-            prompt, temperature=temperature, max_output_tokens=max_output_tokens
-        )
-    except gemini_client.GeminiError as error:
-        raise ValueError(str(error)) from error
+    rate_limit_tries = 0
+    while True:
+        try:
+            return gemini_client.generate_text(
+                prompt, temperature=temperature, max_output_tokens=max_output_tokens
+            )
+        except gemini_client.GeminiError as error:
+            if not _is_translation_rate_limit_error(error):
+                raise ValueError(str(error)) from error
+            if rate_limit_tries >= TRANSLATION_RATE_LIMIT_RETRIES:
+                raise ValueError(str(error)) from error
+            rate_limit_tries += 1
+            wait = _translation_rate_limit_wait_seconds(error)
+            print(
+                f"[translation-rate-limit] job={job_id} wait={wait:.1f}s "
+                f"attempt={rate_limit_tries}/{TRANSLATION_RATE_LIMIT_RETRIES} "
+                f"code={error.code}",
+                flush=True,
+            )
+            if wait > 0:
+                _set_translation_pipeline_wait(job_id, wait)
+            try:
+                _translation_sleep(wait)
+            finally:
+                _clear_translation_pipeline_wait(job_id)
 
 
 def _record_translation_pipeline_failure(
@@ -3345,8 +3980,12 @@ def detect_translation_narrative_formatting(
     source = _translation_job_source_text(connection, job_id)
     if len(source) > 40_000:
         source = source[:40_000]
-    prompt = translation_prompts.build_narrative_formatting_prompt(source)
-    raw = _translation_pipeline_gemini(prompt, temperature=0.2, max_output_tokens=2048)
+    prompt = translation_prompts.build_narrative_formatting_prompt(
+        source, dict(job).get("target_language") or "en"
+    )
+    raw = _translation_pipeline_gemini(
+        prompt, temperature=0.2, max_output_tokens=2048, job_id=int(job_id)
+    )
     rules = _parse_narrative_formatting_output(raw)
     connection.execute(
         """
@@ -3428,6 +4067,8 @@ def split_translation_scenes(
     connection: sqlite3.Connection, job_id: int
 ) -> tuple[list[dict], list[int]]:
     """Split chapters into scene contexts. Skip chapters that already have scenes."""
+    job = load_translation_job(connection, job_id)
+    target_language = dict(job).get("target_language") or "en"
     skipped_chapters: list[int] = []
     ran_chapters: list[int] = []
     stamp = utc_timestamp_now()
@@ -3441,8 +4082,12 @@ def split_translation_scenes(
         if not chapter_text.strip():
             skipped_chapters.append(chapter_number)
             continue
-        prompt = translation_prompts.build_scene_split_prompt(chapter_text)
-        raw = _translation_pipeline_gemini(prompt, temperature=0.2, max_output_tokens=4096)
+        prompt = translation_prompts.build_scene_split_prompt(
+            chapter_text, target_language
+        )
+        raw = _translation_pipeline_gemini(
+            prompt, temperature=0.2, max_output_tokens=4096, job_id=int(job_id)
+        )
         scenes = _parse_scene_split_output(raw)
         if not scenes:
             paragraph_count = connection.execute(
@@ -3595,8 +4240,6 @@ _PARAGRAPH_TRANSLATION_TEXT_KEYS = (
     "translated_text",
     "translation",
     "translated",
-    "english",
-    "english_text",
     "text",
 )
 
@@ -3684,8 +4327,173 @@ def _parse_paragraph_translation_output(raw: str) -> tuple[str, object]:
         if prose and prose[0] not in "{[":
             translated = prose
     if not translated:
+        if parsed:
+            return "", notes
         raise ValueError("문단 번역 결과를 읽지 못했어요. 다시 「번역 진행」을 눌러 주세요.")
     return translated, notes
+
+
+def _debug_log_paragraph_translation_raw(
+    *,
+    segment_id: int,
+    source_text: str,
+    raw: str,
+    error: BaseException | None = None,
+    attempt: int | None = None,
+    retrying: bool = False,
+    used_fallback: bool = False,
+) -> None:
+    """Temporary diagnostics for paragraph-translation parse failures. Remove later."""
+    text = str(raw or "")
+    stripped = text.strip()
+    reasons: list[str] = []
+    if not stripped:
+        reasons.append("empty_or_whitespace")
+    else:
+        reasons.append(f"len={len(text)}")
+        reasons.append(f"stripped_len={len(stripped)}")
+        reasons.append(f"first={stripped[:1]!r}")
+        if stripped[:1] in "{[":
+            reasons.append("starts_with_json_bracket")
+        try:
+            json.loads(stripped)
+            reasons.append("json_loads=ok")
+        except json.JSONDecodeError as exc:
+            reasons.append(
+                f"json_loads={type(exc).__name__}:{exc.msg} pos={exc.pos}"
+            )
+        candidates = _candidate_json_objects(stripped)
+        reasons.append(f"candidates={len(candidates)}")
+        if candidates:
+            keys = list(candidates[0].keys())
+            reasons.append(f"first_keys={keys}")
+            mapped = _translated_text_from_mapping(candidates[0])
+            reasons.append(f"mapped_text_len={len(mapped or '')}")
+    if attempt is not None:
+        reasons.append(f"attempt={attempt}")
+    if retrying:
+        reasons.append("retrying=True")
+    if used_fallback:
+        reasons.append("used_fallback=True")
+    header = (
+        f"[translation-paragraph-debug] segment={segment_id} "
+        f"source_len={len(source_text or '')} source={source_text!r} "
+        f"error={type(error).__name__ if error else '-'} "
+        f"error_msg={str(error) if error else '-'} "
+        f"reasons={'; '.join(reasons)}"
+    )
+    print(header, flush=True)
+    preview = stripped[:2000]
+    print(f"[translation-paragraph-debug] raw_preview={preview!r}", flush=True)
+    try:
+        path = DATA_DIR / "translation_paragraph_debug.log"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(header + "\n")
+            handle.write("--- RAW START ---\n")
+            handle.write(text)
+            handle.write("\n--- RAW END ---\n\n")
+    except OSError as write_error:
+        print(
+            f"[translation-paragraph-debug] log write failed: {write_error}",
+            flush=True,
+        )
+
+
+PARAGRAPH_EMPTY_ATTEMPTS = 3
+PARAGRAPH_FALLBACK_NOTE = (
+    "자동번역 실패로 원문이 유지되었습니다. 수동 확인이 필요합니다"
+)
+
+
+def _paragraph_empty_retry_delay() -> float:
+    return 0.5
+
+
+def _translation_notes_as_list(notes: object) -> list:
+    if isinstance(notes, list):
+        return [item for item in notes if item not in (None, "")]
+    if isinstance(notes, str) and notes.strip():
+        return [{"note": notes.strip()}]
+    return []
+
+
+def _fallback_paragraph_translation(source_text: str, notes: object) -> tuple[str, list]:
+    fallback_notes = _translation_notes_as_list(notes)
+    fallback_notes.append(
+        {"note": PARAGRAPH_FALLBACK_NOTE, "needs_manual_review": True}
+    )
+    return str(source_text or ""), fallback_notes
+
+
+def _translate_paragraph_with_retries(
+    *,
+    segment_id: int,
+    source_text: str,
+    prompt: str,
+    job_id: int | None = None,
+) -> tuple[str, object, bool]:
+    """Return (translated_text, notes, used_fallback). Empty model text is retried then filled."""
+    last_notes: object = []
+    last_raw = ""
+    if is_translation_separator_paragraph(source_text):
+        return str(source_text or "").strip(), [], False
+    for attempt in range(1, PARAGRAPH_EMPTY_ATTEMPTS + 1):
+        raw = _translation_pipeline_gemini(
+            prompt,
+            temperature=0.4,
+            max_output_tokens=4096,
+            job_id=job_id,
+        )
+        last_raw = raw
+        try:
+            translated, notes = _parse_paragraph_translation_output(raw)
+        except ValueError as parse_error:
+            _debug_log_paragraph_translation_raw(
+                segment_id=segment_id,
+                source_text=source_text,
+                raw=raw,
+                error=parse_error,
+                attempt=attempt,
+            )
+            raise
+        last_notes = notes
+        if str(translated or "").strip():
+            if attempt > 1:
+                _debug_log_paragraph_translation_raw(
+                    segment_id=segment_id,
+                    source_text=source_text,
+                    raw=raw,
+                    error=None,
+                    attempt=attempt,
+                    retrying=False,
+                    used_fallback=False,
+                )
+            return translated, notes, False
+        if attempt < PARAGRAPH_EMPTY_ATTEMPTS:
+            _debug_log_paragraph_translation_raw(
+                segment_id=segment_id,
+                source_text=source_text,
+                raw=raw,
+                error=None,
+                attempt=attempt,
+                retrying=True,
+                used_fallback=False,
+            )
+            delay = _paragraph_empty_retry_delay()
+            if delay > 0:
+                time.sleep(delay)
+    translated, notes = _fallback_paragraph_translation(source_text, last_notes)
+    _debug_log_paragraph_translation_raw(
+        segment_id=segment_id,
+        source_text=source_text,
+        raw=last_raw,
+        error=None,
+        attempt=PARAGRAPH_EMPTY_ATTEMPTS,
+        retrying=False,
+        used_fallback=True,
+    )
+    return translated, notes, True
 
 
 def _load_segment_scene_tags(
@@ -3702,9 +4510,288 @@ def _load_segment_scene_tags(
     return str(row["relationship_tag"] or ""), str(row["mood_tag"] or "")
 
 
+def _translate_one_segment_row(
+    connection: sqlite3.Connection,
+    row: sqlite3.Row,
+    job: dict,
+    *,
+    style: dict,
+    glossary: object,
+    formatting: object,
+) -> None:
+    relationship, mood = _load_segment_scene_tags(
+        connection, row["scene_context_id"]
+    )
+    previous = translation_context.load_previous_translated_context(
+        connection,
+        int(job["id"]),
+        before_chapter_number=int(row["chapter_number"]),
+        before_segment_order=int(row["segment_order"]),
+    )
+    settings = {
+        "target_language": job.get("target_language") or "en",
+        "tense": style.get("tense") or "",
+        "character_voices": style.get("character_voices")
+        or style.get("voices")
+        or "",
+        "proper_nouns_confirmed": glossary,
+        "culture_localization_level": job.get("culture_localization_level")
+        or "moderate",
+        "relationship_tag": relationship,
+        "mood_tag": mood,
+        "narrative_formatting_rules": formatting,
+        "previous_context_summary": previous,
+    }
+    prompt = translation_prompts.build_paragraph_translation_prompt(
+        str(row["source_text"] or ""),
+        settings,
+        target_language=job.get("target_language") or "en",
+    )
+    translated, notes, used_fallback = _translate_paragraph_with_retries(
+        segment_id=int(row["id"]),
+        source_text=str(row["source_text"] or ""),
+        prompt=prompt,
+        job_id=int(job["id"]),
+    )
+    notes_raw = (
+        json.dumps(notes, ensure_ascii=False)
+        if not isinstance(notes, str)
+        else notes
+    )
+    connection.execute(
+        """
+        UPDATE translation_segments
+        SET translated_text = ?, translation_notes_json = ?,
+            polish_text = NULL, polish_proposal_text = NULL, polish_choice = NULL,
+            is_approved = 0, needs_manual_review = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (
+            translated,
+            notes_raw,
+            1 if used_fallback else 0,
+            int(row["id"]),
+        ),
+    )
+    connection.commit()
+
+
+TRANSLATION_PARAGRAPH_BATCH_SIZE = 36
+TRANSLATION_BATCH_STRUCTURE_ATTEMPTS = 3
+
+
+def _parse_paragraph_translation_batch_output(raw: str) -> list[dict]:
+    try:
+        parsed = SuperToryHandler._extract_json_object(str(raw or "").strip())
+    except (ValueError, json.JSONDecodeError, AttributeError, TypeError):
+        return []
+    items = parsed.get("paragraphs") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        return []
+    result: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return []
+        try:
+            segment_id = int(item.get("id"))
+        except (TypeError, ValueError):
+            return []
+        notes = item.get("translation_notes") or item.get("notes") or []
+        if not isinstance(notes, (list, str)):
+            notes = []
+        result.append(
+            {
+                "id": segment_id,
+                "translated_text": str(item.get("translated_text") or "").strip(),
+                "translation_notes": notes,
+            }
+        )
+    return result
+
+
+def _paragraph_translation_batch_settings(
+    connection: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    job: dict,
+    *,
+    style: dict,
+    glossary: object,
+    formatting: object,
+) -> tuple[list[dict], dict]:
+    first = rows[0]
+    previous = translation_context.load_previous_translated_context(
+        connection,
+        int(job["id"]),
+        before_chapter_number=int(first["chapter_number"]),
+        before_segment_order=int(first["segment_order"]),
+    )
+    paragraphs = []
+    for row in rows:
+        relationship, mood = _load_segment_scene_tags(
+            connection, row["scene_context_id"]
+        )
+        paragraphs.append(
+            {
+                "id": int(row["id"]),
+                "source_text": str(row["source_text"] or ""),
+                "relationship_tag": relationship,
+                "mood_tag": mood,
+            }
+        )
+    settings = {
+        "target_language": job.get("target_language") or "en",
+        "tense": style.get("tense") or "",
+        "character_voices": style.get("character_voices")
+        or style.get("voices")
+        or "",
+        "proper_nouns_confirmed": glossary,
+        "culture_localization_level": job.get("culture_localization_level")
+        or "moderate",
+        "narrative_formatting_rules": formatting,
+        "previous_context_summary": previous,
+    }
+    return paragraphs, settings
+
+
+def _store_paragraph_translation_batch(
+    connection: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    translated_items: list[dict],
+) -> list[sqlite3.Row]:
+    empty_rows: list[sqlite3.Row] = []
+    by_id = {int(row["id"]): row for row in rows}
+    for item in translated_items:
+        row = by_id[int(item["id"])]
+        translated = str(item.get("translated_text") or "").strip()
+        if not translated:
+            empty_rows.append(row)
+            continue
+        notes = item.get("translation_notes") or []
+        notes_raw = notes if isinstance(notes, str) else json.dumps(
+            notes, ensure_ascii=False
+        )
+        connection.execute(
+            """
+            UPDATE translation_segments
+            SET translated_text = ?, translation_notes_json = ?,
+                polish_text = NULL, polish_proposal_text = NULL,
+                polish_choice = NULL, is_approved = 0,
+                needs_manual_review = 0, updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (translated, notes_raw, int(row["id"])),
+        )
+    connection.commit()
+    return empty_rows
+
+
+def _translate_paragraph_batch_recursive(
+    connection: sqlite3.Connection,
+    rows: list[sqlite3.Row],
+    job: dict,
+    *,
+    style: dict,
+    glossary: object,
+    formatting: object,
+    depth: int = 0,
+) -> tuple[int, int]:
+    """Return (translated segment count, successful batch count)."""
+    if not rows:
+        return 0, 0
+    paragraphs, settings = _paragraph_translation_batch_settings(
+        connection,
+        rows,
+        job,
+        style=style,
+        glossary=glossary,
+        formatting=formatting,
+    )
+    expected_ids = [int(row["id"]) for row in rows]
+    prompt = translation_prompts.build_paragraph_translation_batch_prompt(
+        paragraphs,
+        settings,
+        target_language=job.get("target_language") or "en",
+    )
+    for attempt in range(1, TRANSLATION_BATCH_STRUCTURE_ATTEMPTS + 1):
+        print(
+            f"[translation-batch] job={int(job['id'])} "
+            f"chapter={int(rows[0]['chapter_number'])} size={len(rows)} "
+            f"first_id={expected_ids[0]} last_id={expected_ids[-1]} "
+            f"attempt={attempt}/{TRANSLATION_BATCH_STRUCTURE_ATTEMPTS} depth={depth}",
+            flush=True,
+        )
+        raw = _translation_pipeline_gemini(
+            prompt,
+            temperature=0.4,
+            max_output_tokens=8192,
+            job_id=int(job["id"]),
+        )
+        translated_items = _parse_paragraph_translation_batch_output(raw)
+        returned_ids = [int(item["id"]) for item in translated_items]
+        if len(translated_items) == len(rows) and returned_ids == expected_ids:
+            empty_rows = _store_paragraph_translation_batch(
+                connection, rows, translated_items
+            )
+            for empty_row in empty_rows:
+                _translate_one_segment_row(
+                    connection,
+                    empty_row,
+                    job,
+                    style=style,
+                    glossary=glossary,
+                    formatting=formatting,
+                )
+            return len(rows), 1
+        if attempt < TRANSLATION_BATCH_STRUCTURE_ATTEMPTS:
+            prompt += (
+                "\n\n[재시도 지시]\n"
+                f"직전 응답의 id·개수·순서가 잘못되었습니다. 정확히 {len(rows)}개를 "
+                f"다음 id 순서 그대로 반환하세요: {expected_ids}"
+            )
+    if len(rows) == 1:
+        _translate_one_segment_row(
+            connection,
+            rows[0],
+            job,
+            style=style,
+            glossary=glossary,
+            formatting=formatting,
+        )
+        return 1, 0
+    midpoint = len(rows) // 2
+    print(
+        f"[translation-batch-split] job={int(job['id'])} "
+        f"chapter={int(rows[0]['chapter_number'])} size={len(rows)} "
+        f"into={midpoint}+{len(rows) - midpoint}",
+        flush=True,
+    )
+    left_count, left_batches = _translate_paragraph_batch_recursive(
+        connection,
+        rows[:midpoint],
+        job,
+        style=style,
+        glossary=glossary,
+        formatting=formatting,
+        depth=depth + 1,
+    )
+    _translation_sleep(TRANSLATION_GEMINI_GAP_SECONDS)
+    right_count, right_batches = _translate_paragraph_batch_recursive(
+        connection,
+        rows[midpoint:],
+        job,
+        style=style,
+        glossary=glossary,
+        formatting=formatting,
+        depth=depth + 1,
+    )
+    return left_count + right_count, left_batches + right_batches
+
+
 def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) -> dict:
     """Translate remaining segments in order after proper nouns are confirmed."""
     ensure_translation_pipeline_schema(connection)
+    ensure_translation_segment_manual_review_column(connection)
+    ensure_translation_segment_polish_proposal_columns(connection)
     job_row = load_translation_job(connection, job_id)
     job = serialize_translation_job(job_row)
     if not job.get("proper_nouns_confirmed"):
@@ -3720,63 +4807,52 @@ def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) ->
         "ORDER BY chapter_number ASC, segment_order ASC, id ASC",
         (int(job_id),),
     ).fetchall()
+    pending = sum(
+        1 for row in segments if not str(row["translated_text"] or "").strip()
+    )
+    print(
+        f"[translation-proceed] job={int(job_id)} total_segments={len(segments)} "
+        f"pending={pending} already_translated={len(segments) - pending} "
+        f"start_chapter={job.get('start_chapter')} end_chapter={job.get('end_chapter')} "
+        f"translate_all_chapters={int(bool(job.get('translate_all_chapters')))}",
+        flush=True,
+    )
     translated_count = 0
     skipped_count = 0
+    completed_batches = 0
     try:
+        pending_by_chapter: dict[int, list[sqlite3.Row]] = {}
         for row in segments:
+            if apply_translation_separator_passthrough(connection, row):
+                skipped_count += 1
+                continue
             existing = str(row["translated_text"] or "").strip()
             if existing:
                 skipped_count += 1
                 continue
-            relationship, mood = _load_segment_scene_tags(
-                connection, row["scene_context_id"]
-            )
-            previous = translation_context.load_previous_translated_context(
-                connection,
-                int(job_id),
-                before_chapter_number=int(row["chapter_number"]),
-                before_segment_order=int(row["segment_order"]),
-            )
-            settings = {
-                "tense": style.get("tense") or "",
-                "character_voices": style.get("character_voices")
-                or style.get("voices")
-                or "",
-                "proper_nouns_confirmed": glossary,
-                "culture_localization_level": job.get("culture_localization_level")
-                or "moderate",
-                "relationship_tag": relationship,
-                "mood_tag": mood,
-                "narrative_formatting_rules": formatting,
-                "previous_context_summary": previous,
-            }
-            prompt = translation_prompts.build_paragraph_translation_prompt(
-                str(row["source_text"] or ""), settings
-            )
-            raw = _translation_pipeline_gemini(
-                prompt, temperature=0.4, max_output_tokens=4096
-            )
-            translated, notes = _parse_paragraph_translation_output(raw)
-            notes_raw = (
-                json.dumps(notes, ensure_ascii=False)
-                if not isinstance(notes, str)
-                else notes
-            )
-            connection.execute(
-                """
-                UPDATE translation_segments
-                SET translated_text = ?, translation_notes_json = ?, updated_at = datetime('now')
-                WHERE id = ?
-                """,
-                (translated, notes_raw, int(row["id"])),
-            )
-            connection.commit()
-            translated_count += 1
+            pending_by_chapter.setdefault(int(row["chapter_number"]), []).append(row)
+        for chapter_rows in pending_by_chapter.values():
+            for start in range(0, len(chapter_rows), TRANSLATION_PARAGRAPH_BATCH_SIZE):
+                batch = chapter_rows[start : start + TRANSLATION_PARAGRAPH_BATCH_SIZE]
+                if completed_batches > 0:
+                    _translation_sleep(TRANSLATION_GEMINI_GAP_SECONDS)
+                count, successful_batches = _translate_paragraph_batch_recursive(
+                    connection,
+                    batch,
+                    job,
+                    style=style,
+                    glossary=glossary,
+                    formatting=formatting,
+                )
+                translated_count += count
+                completed_batches += max(1, successful_batches)
     except Exception as error:
+        _clear_translation_pipeline_wait(job_id)
         _record_translation_pipeline_failure(
             connection, job_id, "paragraph_translation", error
         )
         raise
+    _clear_translation_pipeline_wait(job_id)
     _clear_translation_pipeline_failure(connection, job_id)
     connection.execute(
         """
@@ -3798,7 +4874,7 @@ def proceed_translation_pipeline(connection: sqlite3.Connection, job_id: int) ->
 def generate_translation_submission_package(
     connection: sqlite3.Connection, job_id: int
 ) -> dict:
-    """Build the English logline/synopsis package. Skip when already filled."""
+    """Build the target-language logline/synopsis package. Skip when already filled."""
     ensure_translation_pipeline_schema(connection)
     job_row = load_translation_job(connection, job_id)
     job = serialize_translation_job(job_row)
@@ -3818,13 +4894,19 @@ def generate_translation_submission_package(
     ).fetchone()
     korean_synopsis = str(project["description_md"] or "").strip() if project else ""
     glossary = _confirmed_proper_nouns_glossary(connection, job_id)
-    settings = {"proper_nouns_confirmed": glossary}
+    settings = {
+        "proper_nouns_confirmed": glossary,
+        "culture_localization_level": job.get("culture_localization_level")
+        or "moderate",
+    }
     prompt = translation_prompts.build_submission_query_prompt(
-        korean_synopsis, settings
+        korean_synopsis,
+        settings,
+        target_language=job.get("target_language") or "en",
     )
     try:
         raw = _translation_pipeline_gemini(
-            prompt, temperature=0.4, max_output_tokens=4096
+            prompt, temperature=0.4, max_output_tokens=4096, job_id=int(job_id)
         )
         try:
             parsed = SuperToryHandler._extract_json_object(raw)
@@ -3837,10 +4919,14 @@ def generate_translation_submission_package(
         if not logline or not synopsis:
             raise ValueError("투고 패키지 결과에서 logline/synopsis 를 찾지 못했습니다.")
         chapters = _translation_chapter_numbers(connection, job_id)
-        cliff = job.get("cliffhanger_chapter")
+        start = job.get("start_chapter")
+        end = job.get("end_chapter")
+        if end in (None, ""):
+            end = job.get("cliffhanger_chapter")
         if chapters:
-            last = int(cliff) if cliff not in (None, "") else chapters[-1]
-            sample_range = f"{chapters[0]}-{last}"
+            first = int(start) if start not in (None, "") else chapters[0]
+            last = int(end) if end not in (None, "") else chapters[-1]
+            sample_range = f"{first}-{last}"
         else:
             sample_range = ""
         stamp = utc_timestamp_now()
@@ -3875,7 +4961,9 @@ def generate_translation_submission_package(
     return translation_job_detail(connection, job_id)
 
 
-FREE_DICTIONARY_API_URL = "https://api.dictionaryapi.dev/api/v2/entries/en/"
+FREE_DICTIONARY_API_URL = "https://api.dictionaryapi.dev/api/v2/entries/{language}/"
+FREE_DICTIONARY_TIMEOUT_SECONDS = 4
+FREE_DICTIONARY_MAX_ATTEMPTS = 2
 _DICTIONARY_EDGE_PUNCT = re.compile(r"^[^\w']+|[^\w']+$", re.UNICODE)
 
 
@@ -3886,10 +4974,13 @@ def normalize_dictionary_word(word: object) -> str:
     return _DICTIONARY_EDGE_PUNCT.sub("", text)
 
 
-def fetch_free_dictionary_payload(word: str) -> tuple[int, object]:
-    """Call Free Dictionary API. Returns (status_code, parsed_json)."""
+def fetch_free_dictionary_payload(
+    word: str, target_language: object = "en"
+) -> tuple[int, object]:
+    """Call Free Dictionary API once. Returns (status_code, parsed_json)."""
     clean = normalize_dictionary_word(word)
-    url = FREE_DICTIONARY_API_URL + quote(clean)
+    language = translation_prompts.normalize_target_language(target_language)
+    url = FREE_DICTIONARY_API_URL.format(language=quote(language, safe="")) + quote(clean)
     request = urllib.request.Request(
         url,
         headers={
@@ -3899,7 +4990,9 @@ def fetch_free_dictionary_payload(word: str) -> tuple[int, object]:
         method="GET",
     )
     try:
-        with urllib.request.urlopen(request, timeout=12) as response:
+        with urllib.request.urlopen(
+            request, timeout=FREE_DICTIONARY_TIMEOUT_SECONDS
+        ) as response:
             raw = response.read().decode("utf-8") or "[]"
             status = int(getattr(response, "status", 200) or 200)
             return status, json.loads(raw)
@@ -3916,57 +5009,80 @@ def fetch_free_dictionary_payload(word: str) -> tuple[int, object]:
         raise ValueError("사전 조회에 실패했어요.") from error
 
 
-def lookup_translation_dictionary(word: object) -> dict:
+def _dictionary_not_found_payload(word: str) -> dict:
+    return {"found": False, "status": "not_found", "word": word}
+
+
+def _dictionary_lookup_failed_payload(word: str) -> dict:
+    return {"found": False, "status": "lookup_failed", "word": word}
+
+
+def lookup_translation_dictionary(
+    word: object, target_language: object = "en"
+) -> dict:
     clean = normalize_dictionary_word(word)
     if not clean:
-        return {"found": False, "word": ""}
-    try:
-        status, payload = fetch_free_dictionary_payload(clean)
-    except ValueError:
-        return {"found": False, "word": clean}
-    if status != 200:
-        return {"found": False, "word": clean}
-    entries = payload if isinstance(payload, list) else []
-    entry = entries[0] if entries and isinstance(entries[0], dict) else None
-    if not entry:
-        return {"found": False, "word": clean}
-    phonetic = str(entry.get("phonetic") or "").strip()
-    if not phonetic:
-        for item in entry.get("phonetics") or []:
-            if isinstance(item, dict) and str(item.get("text") or "").strip():
-                phonetic = str(item.get("text") or "").strip()
-                break
-    meanings: list[dict] = []
-    for meaning in entry.get("meanings") or []:
-        if not isinstance(meaning, dict):
+        return _dictionary_not_found_payload("")
+    last_status: int | None = None
+    for attempt in range(1, FREE_DICTIONARY_MAX_ATTEMPTS + 1):
+        try:
+            status, payload = fetch_free_dictionary_payload(clean, target_language)
+        except (ValueError, TimeoutError, urllib.error.URLError, OSError):
+            if attempt >= FREE_DICTIONARY_MAX_ATTEMPTS:
+                return _dictionary_lookup_failed_payload(clean)
             continue
-        definitions: list[str] = []
-        for item in meaning.get("definitions") or []:
-            if not isinstance(item, dict):
+        last_status = int(status or 0)
+        if last_status == 404:
+            return _dictionary_not_found_payload(clean)
+        if last_status != 200:
+            if attempt >= FREE_DICTIONARY_MAX_ATTEMPTS:
+                return _dictionary_lookup_failed_payload(clean)
+            continue
+        entries = payload if isinstance(payload, list) else []
+        entry = entries[0] if entries and isinstance(entries[0], dict) else None
+        if not entry:
+            return _dictionary_not_found_payload(clean)
+        phonetic = str(entry.get("phonetic") or "").strip()
+        if not phonetic:
+            for item in entry.get("phonetics") or []:
+                if isinstance(item, dict) and str(item.get("text") or "").strip():
+                    phonetic = str(item.get("text") or "").strip()
+                    break
+        meanings: list[dict] = []
+        for meaning in entry.get("meanings") or []:
+            if not isinstance(meaning, dict):
                 continue
-            definition = str(item.get("definition") or "").strip()
-            if definition:
-                definitions.append(definition)
-            if len(definitions) >= 2:
+            definitions: list[str] = []
+            for item in meaning.get("definitions") or []:
+                if not isinstance(item, dict):
+                    continue
+                definition = str(item.get("definition") or "").strip()
+                if definition:
+                    definitions.append(definition)
+                if len(definitions) >= 2:
+                    break
+            if not definitions:
+                continue
+            meanings.append(
+                {
+                    "part_of_speech": str(meaning.get("partOfSpeech") or "").strip(),
+                    "definitions": definitions,
+                }
+            )
+            if len(meanings) >= 3:
                 break
-        if not definitions:
-            continue
-        meanings.append(
-            {
-                "part_of_speech": str(meaning.get("partOfSpeech") or "").strip(),
-                "definitions": definitions,
-            }
-        )
-        if len(meanings) >= 3:
-            break
-    if not meanings:
-        return {"found": False, "word": clean}
-    return {
-        "found": True,
-        "word": str(entry.get("word") or clean),
-        "phonetic": phonetic,
-        "meanings": meanings,
-    }
+        if not meanings:
+            return _dictionary_not_found_payload(clean)
+        return {
+            "found": True,
+            "status": "ok",
+            "word": str(entry.get("word") or clean),
+            "phonetic": phonetic,
+            "meanings": meanings,
+        }
+    if last_status == 404:
+        return _dictionary_not_found_payload(clean)
+    return _dictionary_lookup_failed_payload(clean)
 
 
 def _parse_translation_notes_list(raw: object) -> list[dict]:
@@ -4106,8 +5222,17 @@ def explain_translation_word_context(
         },
         word,
         _format_translation_notes_for_prompt(notes),
+        target_language=dict(
+            load_translation_job(connection, int(row["translation_job_id"]))
+        ).get("target_language")
+        or "en",
     )
-    raw = _translation_pipeline_gemini(prompt, temperature=0.3, max_output_tokens=512)
+    raw = _translation_pipeline_gemini(
+        prompt,
+        temperature=0.3,
+        max_output_tokens=512,
+        job_id=int(row["translation_job_id"]) if row["translation_job_id"] else None,
+    )
     explanation = _parse_word_context_explanation(raw)
     _store_word_context(connection, segment_id, word, explanation)
     return {
@@ -4170,60 +5295,226 @@ def _style_guide_mapping(raw: object) -> dict[str, object]:
     return {}
 
 
-def _parse_polish_model_output(raw: str) -> tuple[str, list]:
-    text = str(raw or "").strip()
-    parsed: dict = {}
-    try:
-        parsed = SuperToryHandler._extract_json_object(text)
-    except (ValueError, json.JSONDecodeError, AttributeError):
-        parsed = {}
-    polished = str(
-        parsed.get("polished_text")
-        or parsed.get("polished")
-        or parsed.get("text")
-        or ""
-    ).strip()
-    change_log = parsed.get("change_log") or parsed.get("changes") or []
-    if not isinstance(change_log, list):
-        change_log = []
-    if not polished:
-        polished = text
-    return polished, change_log
-
-
-def polish_translation_segment(
+def retranslate_translation_segment(
     connection: sqlite3.Connection, segment_id: int
 ) -> dict:
+    ensure_translation_pipeline_schema(connection)
+    ensure_translation_segment_manual_review_column(connection)
     row = connection.execute(
         "SELECT * FROM translation_segments WHERE id = ?",
         (int(segment_id),),
     ).fetchone()
     if row is None:
         raise LookupError("번역 문단을 찾을 수 없습니다.")
-    source_english = str(row["translated_text"] or "").strip()
-    if not source_english:
-        raise ValueError("1차 번역문이 없어 윤문할 수 없습니다.")
-    job = load_translation_job(connection, int(row["translation_job_id"]))
-    settings = _style_guide_mapping(job["style_guide_json"] if "style_guide_json" in job.keys() else None)
-    prompt = translation_prompts.build_polish_prompt(source_english, settings)
-    if not gemini_client.is_configured():
-        raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
-    try:
-        raw = gemini_client.generate_text(prompt, temperature=0.4, max_output_tokens=4096)
-    except gemini_client.GeminiError as error:
-        raise ValueError(str(error)) from error
-    polished, change_log = _parse_polish_model_output(raw)
-    connection.execute(
-        "UPDATE translation_segments SET polish_text = ?, updated_at = datetime('now') WHERE id = ?",
-        (polished, int(segment_id)),
+    if apply_translation_separator_passthrough(connection, row):
+        updated = connection.execute(
+            "SELECT * FROM translation_segments WHERE id = ?",
+            (int(segment_id),),
+        ).fetchone()
+        return serialize_translation_segment(updated)
+    job = serialize_translation_job(
+        load_translation_job(connection, int(row["translation_job_id"]))
+    )
+    if not job.get("proper_nouns_confirmed"):
+        raise ValueError("고유명사를 먼저 확정해야 번역을 진행할 수 있어요.")
+    rules = job.get("narrative_formatting_rules")
+    if not rules:
+        raise ValueError("번역 준비를 먼저 실행해 주세요.")
+    style = _style_guide_mapping(job.get("style_guide_json"))
+    glossary = _confirmed_proper_nouns_glossary(
+        connection, int(row["translation_job_id"])
+    )
+    formatting = _format_narrative_rules_for_prompt(rules)
+    _translate_one_segment_row(
+        connection,
+        row,
+        job,
+        style=style,
+        glossary=glossary,
+        formatting=formatting,
     )
     updated = connection.execute(
         "SELECT * FROM translation_segments WHERE id = ?",
         (int(segment_id),),
     ).fetchone()
-    payload = serialize_translation_segment(updated)
-    payload["change_log"] = change_log
-    return payload
+    return serialize_translation_segment(updated)
+
+
+CHAPTER_POLISH_RESPONSE_ATTEMPTS = 3
+CHAPTER_POLISH_OUTPUT_BATCH_SIZE = 40
+
+
+def _parse_chapter_polish_model_output(raw: str) -> list[dict]:
+    try:
+        parsed = SuperToryHandler._extract_json_object(str(raw or "").strip())
+    except (ValueError, json.JSONDecodeError, AttributeError, TypeError):
+        return []
+    items = parsed.get("paragraphs") if isinstance(parsed, dict) else None
+    if not isinstance(items, list):
+        return []
+    result: list[dict] = []
+    for item in items:
+        if not isinstance(item, dict):
+            return []
+        try:
+            index = int(item.get("index"))
+        except (TypeError, ValueError):
+            return []
+        text = str(item.get("polished_text") or "").strip()
+        if not text:
+            return []
+        result.append({"index": index, "polished_text": text})
+    return result
+
+
+def polish_translation_chapter(
+    connection: sqlite3.Connection, job_id: int, chapter_number: int
+) -> dict:
+    """Review one approved English chapter and store per-paragraph proposals."""
+    ensure_translation_segment_polish_proposal_columns(connection)
+    job = load_translation_job(connection, int(job_id))
+    rows = connection.execute(
+        "SELECT * FROM translation_segments "
+        "WHERE translation_job_id = ? AND chapter_number = ? "
+        "ORDER BY segment_order ASC, id ASC",
+        (int(job_id), int(chapter_number)),
+    ).fetchall()
+    if not rows:
+        raise LookupError("윤문할 회차를 찾을 수 없습니다.")
+    if not _chapter_polish_state(rows)["chapter_polish_ready"]:
+        raise ValueError("1차 번역의 모든 문단을 승인한 뒤 윤문할 수 있어요.")
+    paragraphs = [str(row["translated_text"] or "").strip() for row in rows]
+    settings = _style_guide_mapping(
+        job["style_guide_json"] if "style_guide_json" in job.keys() else None
+    )
+    proposals: list[dict] = []
+    for batch_start in range(1, len(rows) + 1, CHAPTER_POLISH_OUTPUT_BATCH_SIZE):
+        batch_end = min(
+            len(rows), batch_start + CHAPTER_POLISH_OUTPUT_BATCH_SIZE - 1
+        )
+        expected_indices = list(range(batch_start, batch_end + 1))
+        prompt = translation_prompts.build_chapter_polish_prompt(
+            paragraphs,
+            settings,
+            target_start=batch_start,
+            target_end=batch_end,
+            target_language=dict(job).get("target_language") or "en",
+        )
+        batch_proposals: list[dict] = []
+        for attempt in range(1, CHAPTER_POLISH_RESPONSE_ATTEMPTS + 1):
+            raw = _translation_pipeline_gemini(
+                prompt,
+                temperature=0.35,
+                max_output_tokens=8192,
+                job_id=int(job_id),
+            )
+            batch_proposals = _parse_chapter_polish_model_output(raw)
+            indices = [int(item["index"]) for item in batch_proposals]
+            separators_match = len(batch_proposals) == len(expected_indices) and all(
+                not is_translation_separator_paragraph(paragraphs[index - 1])
+                or batch_proposals[offset]["polished_text"] == paragraphs[index - 1]
+                for offset, index in enumerate(expected_indices)
+            )
+            if indices == expected_indices and separators_match:
+                break
+            batch_proposals = []
+            if attempt < CHAPTER_POLISH_RESPONSE_ATTEMPTS:
+                prompt += (
+                    "\n\n[재시도 지시]\n"
+                    f"직전 응답 형식이 잘못되었습니다. 이번 paragraphs는 정확히 "
+                    f"{len(expected_indices)}개이며 index는 {batch_start}부터 "
+                    f"{batch_end}까지 빠짐없이 순서대로 반환하세요."
+                )
+        if not batch_proposals:
+            raise ValueError(
+                f"윤문 응답의 문단 개수 또는 순서가 맞지 않습니다 "
+                f"(index {batch_start}~{batch_end}). "
+                f"{CHAPTER_POLISH_RESPONSE_ATTEMPTS}회 재시도했어요."
+            )
+        proposals.extend(batch_proposals)
+    for row, proposal in zip(rows, proposals):
+        connection.execute(
+            """
+            UPDATE translation_segments
+            SET polish_proposal_text = ?, polish_choice = NULL, polish_text = NULL,
+                updated_at = datetime('now')
+            WHERE id = ?
+            """,
+            (proposal["polished_text"], int(row["id"])),
+        )
+    connection.commit()
+    return list_translation_segments(connection, int(job_id), int(chapter_number))
+
+
+def choose_translation_segment_polish(
+    connection: sqlite3.Connection, segment_id: int, body: dict | None
+) -> dict:
+    ensure_translation_segment_polish_proposal_columns(connection)
+    payload = body if isinstance(body, dict) else {}
+    choice = str(payload.get("choice") or "").strip()
+    if choice not in {"apply", "keep"}:
+        raise ValueError("윤문 선택 값이 올바르지 않습니다.")
+    row = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    if row is None:
+        raise LookupError("번역 문단을 찾을 수 없습니다.")
+    if not int(row["is_approved"] or 0):
+        raise ValueError("승인된 1차 번역만 윤문을 선택할 수 있어요.")
+    if choice == "apply":
+        final_text = str(
+            payload.get("polished_text") or row["polish_proposal_text"] or ""
+        ).strip()
+        if not final_text:
+            raise ValueError("적용할 윤문 제안이 없습니다.")
+    else:
+        final_text = str(row["translated_text"] or "").strip()
+        if not final_text:
+            raise ValueError("유지할 1차 번역문이 없습니다.")
+    connection.execute(
+        """
+        UPDATE translation_segments
+        SET polish_text = ?, polish_choice = ?, updated_at = datetime('now')
+        WHERE id = ?
+        """,
+        (final_text, choice, int(segment_id)),
+    )
+    updated = connection.execute(
+        "SELECT * FROM translation_segments WHERE id = ?",
+        (int(segment_id),),
+    ).fetchone()
+    return serialize_translation_segment(updated)
+
+
+def apply_all_translation_chapter_polish(
+    connection: sqlite3.Connection, job_id: int, chapter_number: int
+) -> dict:
+    ensure_translation_segment_polish_proposal_columns(connection)
+    rows = connection.execute(
+        "SELECT * FROM translation_segments "
+        "WHERE translation_job_id = ? AND chapter_number = ? "
+        "ORDER BY segment_order ASC, id ASC",
+        (int(job_id), int(chapter_number)),
+    ).fetchall()
+    if not rows:
+        raise LookupError("윤문할 회차를 찾을 수 없습니다.")
+    if any(
+        not int(row["is_approved"] or 0)
+        or not str(row["polish_proposal_text"] or "").strip()
+        for row in rows
+    ):
+        raise ValueError("회차 전체 윤문 제안을 먼저 만든 뒤 적용해 주세요.")
+    connection.execute(
+        """
+        UPDATE translation_segments
+        SET polish_text = polish_proposal_text, polish_choice = 'apply',
+            updated_at = datetime('now')
+        WHERE translation_job_id = ? AND chapter_number = ?
+        """,
+        (int(job_id), int(chapter_number)),
+    )
+    return list_translation_segments(connection, int(job_id), int(chapter_number))
 
 
 def _translation_segment_chat_history(
@@ -4349,6 +5640,7 @@ def post_translation_chat(connection: sqlite3.Connection, body: dict | None) -> 
             "culture_localization_level": culture or "",
             "chat_history": "\n".join(history_lines),
         },
+        target_language=dict(job).get("target_language") or "en",
     )
     if not gemini_client.is_configured():
         raise ValueError("Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요.")
@@ -7393,6 +8685,10 @@ _character_analysis_thread: Thread | None = None
 IMPORT_ANALYSIS_GEMINI_GAP_SECONDS = 1.8
 # Reuse import-analysis stagger between sequential debate persona calls.
 READER_DEBATE_GEMINI_GAP_SECONDS = IMPORT_ANALYSIS_GEMINI_GAP_SECONDS
+# Free-tier RPM is 15/min; stay just above 4s between paragraph calls.
+TRANSLATION_GEMINI_GAP_SECONDS = 4.5
+TRANSLATION_RATE_LIMIT_RETRIES = 5
+TRANSLATION_RATE_LIMIT_DEFAULT_WAIT = 10.0
 
 
 def reader_persona_avatar_url(persona_id: object) -> str:
@@ -8747,6 +10043,46 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"jobs": jobs})
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/translation/preview", path)
+            if match:
+                project_id = int(match.group(1))
+                query = parse_qs(urlparse(self.path).query)
+
+                def _query_value(key: str) -> str | None:
+                    raw = (query.get(key) or [None])[0]
+                    if raw is None:
+                        return None
+                    text = str(raw).strip()
+                    return text if text else None
+
+                preview_payload = {
+                    "start_chapter": _query_value("start_chapter"),
+                    "end_chapter": _query_value("end_chapter"),
+                    "translate_all_chapters": _query_value("translate_all_chapters"),
+                }
+                try:
+                    with database() as connection:
+                        self.require_project(connection, project_id)
+                        preview = preview_translation_chapter_range(
+                            connection, project_id, preview_payload
+                        )
+                    self.send_json(preview)
+                except ValueError as error:
+                    self.api_error(str(error), HTTPStatus.BAD_REQUEST)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/pipeline_wait", path)
+            if match:
+                job_id = int(match.group(1))
+                self.send_json(
+                    {
+                        "pipeline_wait_seconds": _translation_pipeline_wait_seconds(
+                            job_id
+                        )
+                    }
+                )
+                return
+
             match = re.fullmatch(r"/api/translation/jobs/(\d+)", path)
             if match:
                 with database() as connection:
@@ -8778,7 +10114,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if path == "/api/translation/dictionary":
                 query = parse_qs(urlparse(self.path).query)
                 word = (query.get("word") or [""])[0]
-                self.send_json(lookup_translation_dictionary(word))
+                target_language = (query.get("target_language") or ["en"])[0]
+                self.send_json(
+                    lookup_translation_dictionary(word, target_language)
+                )
                 return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -9694,6 +11033,37 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/settings_preview", path
+            )
+            if match:
+                with database() as connection:
+                    payload = preview_translation_job_settings(
+                        connection, int(match.group(1)), body or {}
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/settings", path)
+            if match:
+                try:
+                    with database() as connection:
+                        payload = update_translation_job_settings(
+                            connection, int(match.group(1)), body or {}
+                        )
+                except TranslationSettingsConfirmRequired as error:
+                    self.send_json(
+                        {
+                            "error": str(error),
+                            "code": "confirm_delete_required",
+                            "preview": error.preview,
+                        },
+                        HTTPStatus.CONFLICT,
+                    )
+                    return
+                self.send_json(payload)
+                return
+
             match = re.fullmatch(r"/api/translation/segments/(\d+)/approve", path)
             if match:
                 with database() as connection:
@@ -9703,11 +11073,42 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
-            match = re.fullmatch(r"/api/translation/segments/(\d+)/polish", path)
+            match = re.fullmatch(r"/api/translation/segments/(\d+)/retranslate", path)
             if match:
                 with database() as connection:
-                    payload = polish_translation_segment(
+                    payload = retranslate_translation_segment(
                         connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/chapters/(\d+)/polish", path
+            )
+            if match:
+                with database() as connection:
+                    payload = polish_translation_chapter(
+                        connection, int(match.group(1)), int(match.group(2))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/chapters/(\d+)/polish/apply_all", path
+            )
+            if match:
+                with database() as connection:
+                    payload = apply_all_translation_chapter_polish(
+                        connection, int(match.group(1)), int(match.group(2))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/segments/(\d+)/polish_choice", path)
+            if match:
+                with database() as connection:
+                    payload = choose_translation_segment_polish(
+                        connection, int(match.group(1)), body or {}
                     )
                 self.send_json(payload)
                 return

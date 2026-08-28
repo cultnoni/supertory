@@ -4,10 +4,118 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import TypedDict
 
-NARRATIVE_FORMATTING_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
+TARGET_LANGUAGE_PROFILES: dict[str, dict[str, str]] = {
+    "en": {
+        "name": "영어",
+        "audience": "영어권",
+        "reference_examples": "he/she/they",
+        "naming_guidance": (
+            "한국어 이름은 통용 로마자 표기를 기본으로 삼고, 영어 철자·발음 규칙과 "
+            "영어 단어·비속어의 의도치 않은 중첩을 검토하세요."
+        ),
+        "submission_guidance": (
+            "영어권 에이전트·출판사의 일반적인 투고 관행을 따르세요. 시놉시스는 "
+            "3인칭 현재시제로 쓰고, 주요 인물은 첫 등장 때 대문자로 표기하세요."
+        ),
+        "dialogue_guidance": (
+            "영어권 소설의 큰따옴표 대화 관습을 고려하되 원문의 언어·텔레파시 "
+            "구분을 잃지 않도록 작품 전체에 적용할 규칙을 제안하세요."
+        ),
+    },
+    "es": {
+        "name": "스페인어",
+        "audience": "스페인어권",
+        "reference_examples": "él/ella/ellos/ellas/usted/ustedes",
+        "naming_guidance": (
+            "한국어 이름은 일관된 라틴 문자 전사를 기본으로 삼되 스페인어 철자·발음 "
+            "규칙에서 오독되지 않는지 검토하세요. 원래 표기에 악센트가 있으면 유지하고, "
+            "발음 근거 없이 악센트를 새로 붙이지 마세요. 스페인어 단어·비속어와의 "
+            "의도치 않은 중첩도 확인하세요."
+        ),
+        "submission_guidance": (
+            "스페인어권 출판사·에이전트의 일반적인 투고 관행에 맞춰 자연스러운 "
+            "로그라인과 시놉시스를 작성하세요. 다른 언어권의 대문자·시제 관행을 "
+            "기계적으로 적용하지 마세요."
+        ),
+        "dialogue_guidance": (
+            "스페인어권 소설에서 대화 앞에 긴 줄표(—)를 쓰는 관습을 고려하되, "
+            "원문의 인용부호가 언어·텔레파시를 구분한다면 그 기능을 보존할 규칙을 "
+            "제안하세요."
+        ),
+    },
+    "fr": {
+        "name": "프랑스어",
+        "audience": "프랑스어권",
+        "reference_examples": "il/elle/ils/elles/on/vous",
+        "naming_guidance": (
+            "한국어 이름은 일관된 라틴 문자 전사를 기본으로 삼고 프랑스어 발음 "
+            "규칙에서 오독되거나 지나치게 어려운 철자가 없는지 검토하세요. 원래 "
+            "표기에 é, è, à, ç 같은 악센트가 있으면 유지하되, 확립된 표기나 발음 "
+            "근거 없이 악센트를 새로 붙이지 마세요. 프랑스어 단어·비속어와의 "
+            "의도치 않은 중첩도 확인하세요."
+        ),
+        "submission_guidance": (
+            "프랑스어권 출판사·에이전트의 일반적인 투고 관행을 따르세요. 로그라인은 "
+            "간결하게 쓰고 시놉시스는 현재시제를 기본으로 하되, 다른 언어권의 "
+            "대문자 강조를 기계적으로 적용하지 마세요. 개별 출판사 지침이 있다면 "
+            "그 지침을 우선하세요."
+        ),
+        "dialogue_guidance": (
+            "프랑스어 출판물의 기메 따옴표(« … »)와 대화 전환용 긴 줄표 관습을 "
+            "고려하세요. 다만 기메 사용을 일률적으로 강제하지 말고, 원문의 언어·"
+            "텔레파시 구분 기능과 목표 출판 관행을 함께 보존할 규칙을 제안하세요."
+        ),
+    },
+}
+
+
+def normalize_target_language(target_language: object = "en") -> str:
+    code = str(target_language or "en").strip().lower()
+    return code if code in TARGET_LANGUAGE_PROFILES else "en"
+
+
+def target_language_profile(target_language: object = "en") -> dict[str, str]:
+    return TARGET_LANGUAGE_PROFILES[normalize_target_language(target_language)]
+
+
+def _render_language_tokens(text: str, target_language: object = "en") -> str:
+    profile = target_language_profile(target_language)
+    return (
+        str(text)
+        .replace("__TARGET_LANGUAGE__", profile["name"])
+        .replace("__TARGET_AUDIENCE__", profile["audience"])
+        .replace("__REFERENCE_EXAMPLES__", profile["reference_examples"])
+        .replace("__NAMING_GUIDANCE__", profile["naming_guidance"])
+        .replace("__SUBMISSION_GUIDANCE__", profile["submission_guidance"])
+        .replace("__DIALOGUE_GUIDANCE__", profile["dialogue_guidance"])
+    )
+
+
+def _omit_non_target_examples(
+    text: str,
+    target_language: object,
+    *,
+    example_marker: str,
+    resume_marker: str | None = None,
+) -> str:
+    rendered = _render_language_tokens(text, target_language)
+    if normalize_target_language(target_language) == "en":
+        return rendered
+    start = rendered.find(example_marker)
+    if start < 0:
+        return rendered
+    if not resume_marker:
+        return rendered[:start]
+    resume = rendered.find(resume_marker, start)
+    return rendered[:start] + (rendered[resume:] if resume >= 0 else "")
+
+
+NARRATIVE_FORMATTING_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
+[대상 언어 대화 표기 지침]
+__DIALOGUE_GUIDANCE__
 아래 원고 앞부분(또는 전체)을 읽고, 이 작품에 "서사 표기 규칙(narrative formatting convention)"이
 있는지 확인하세요.
 [서사 표기 규칙이란]
@@ -23,7 +131,7 @@ NARRATIVE_FORMATTING_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 �
 3. 발견된 규칙에 대해 두 가지 처리 방식 중 하나를 추천하세요:
    - "preserve_with_note": 원문 표기 그대로 유지하고, 투고 패키지에 범례(legend) 설명을 첨부.
      세계관 설정(언어 구분, 텔레파시 등)이 스토리에 중요한 요소일 때 추천.
-   - "domesticate_to_standard": 영어권 관습대로 전부 큰따옴표로 통일하고, 언어 구분이 필요한
+   - "domesticate_to_standard": __TARGET_AUDIENCE__ 관습에 맞는 표기로 통일하고, 언어 구분이 필요한
      경우 이탤릭체나 짧은 태그(예: *[in Pagamon]*)로 대체. 표기 구분이 스토리 핵심이 아니거나
      너무 많은 기호가 섞여 오히려 가독성을 해칠 때 추천.
 4. 왜 그 방식을 추천하는지 이유를 1~2문장으로 설명하세요.
@@ -52,13 +160,21 @@ NARRATIVE_FORMATTING_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 �
 """
 
 
-def build_narrative_formatting_prompt(chapter_text: str) -> str:
+def build_narrative_formatting_prompt(
+    chapter_text: str, target_language: object = "en"
+) -> str:
     """Insert chapter text into the narrative-formatting convention prompt."""
     body = "" if chapter_text is None else str(chapter_text)
-    return f"{NARRATIVE_FORMATTING_PROMPT_HEAD}{body}"
+    head = _omit_non_target_examples(
+        NARRATIVE_FORMATTING_PROMPT_HEAD,
+        target_language,
+        example_marker="[예시]",
+        resume_marker="이제 아래 원고",
+    )
+    return f"{head}{body}"
 
 
-SCENE_SPLIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
+SCENE_SPLIT_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
 아래 챕터 원문을 읽고, 이 챕터를 "씬(scene)" 단위로 나누세요.
 [씬 분할 기준 — 아래 중 하나라도 바뀌면 새로운 씬으로 나눕니다]
 1. 장소가 바뀔 때
@@ -115,23 +231,31 @@ SCENE_SPLIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용�
 """
 
 
-def build_scene_split_prompt(chapter_text: str) -> str:
+def build_scene_split_prompt(chapter_text: str, target_language: object = "en") -> str:
     """Insert chapter text into the scene-split prompt."""
     body = "" if chapter_text is None else str(chapter_text)
-    return f"{SCENE_SPLIT_PROMPT_HEAD}{body}"
+    head = _omit_non_target_examples(
+        SCENE_SPLIT_PROMPT_HEAD,
+        target_language,
+        example_marker="[예시]",
+        resume_marker="이제 아래 원문",
+    )
+    return f"{head}{body}"
 
 
-PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
-아래 원고에서 고유명사(인명, 지명, 사물명, 조직명 등)를 찾아 영어권 독자에게 어울리는지 판단하세요.
+PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
+아래 원고에서 고유명사(인명, 지명, 사물명, 조직명 등)를 찾아 __TARGET_AUDIENCE__ 독자에게 어울리는지 판단하세요.
+[대상 언어별 이름 지침]
+__NAMING_GUIDANCE__
 [판단 기준 — 이 5가지 관점에서 판단합니다]
-1. 발음 부자연스러움: 로마자 표기 시 영어권에서 발음하기 어렵거나 어색한 음절 조합인가
-2. 의도치 않은 의미: 영어 단어/비속어와 발음이 겹쳐 원치 않는 뜻으로 들리는가
+1. 발음 부자연스러움: 대상 언어 표기 시 독자가 발음하기 어렵거나 어색한 조합인가
+2. 의도치 않은 의미: 대상 언어의 단어/비속어와 발음이 겹쳐 원치 않는 뜻으로 들리는가
 3. 기존 유명인/브랜드와 혼동: 실존 유명인, 유명 캐릭터, 브랜드명과 우연히 겹치는가
 4. 희화화 위험: 진지한 장면에서 이름이 우스꽝스럽게 들려 몰입을 깨는가
 5. 시대감/장르 톤 부적합: 이름 자체는 문제없지만, 이 캐릭터/사물의 설정(나이, 신분,
    장르 분위기)과 어울리지 않게 지나치게 올드패션이거나 톤이 안 맞는 인상을 주는가.
 이 5가지에 해당하지 않으면 "fits"로 판정하세요. 막연히 "한국식 이름이라서"라는 이유만으로
-안 어울린다고 판정하지 마세요 — 로마자 표기된 한국 이름은 영어권 판타지/로맨스 장르에서도
+안 어울린다고 판정하지 마세요 — 전사된 한국 이름은 대상 언어권 판타지/로맨스 장르에서도
 흔하게 쓰입니다.
 5번 기준을 판단할 때는 이 이름이 서사적으로 의도된 것인지 원문 맥락에서 먼저 판단하세요:
 - 캐릭터가 실제로 노년/구세대 인물인가
@@ -140,14 +264,14 @@ PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고�
 설정과 안 맞아 보이면 does_not_fit으로 판정하고, 그 장르/캐릭터 분위기에
 어울리는 대안을 추천하세요.
 [처리 방식]
-- fits로 판정된 경우: 그대로 진행해도 좋다는 의견과 함께, 그래도 영어식 이름으로 바꾸고 싶다면
+- fits로 판정된 경우: 그대로 진행해도 좋다는 의견과 함께, 그래도 대상 언어권 이름으로 바꾸고 싶다면
   그 이유(장르 관습, 발음 편의 등)를 간단히 언급하세요.
 - does_not_fit으로 판정된 경우: 구체적인 이유를 설명하고, 두 가지 선택지를 제시하세요.
-  1) 로마자 표기 그대로 유지 2) 새 이름으로 작명 — 작명 선택 시를 대비해 원래 이름의 어감/
+  1) 기존 전사 표기 유지 2) 새 이름으로 작명 — 작명 선택 시를 대비해 원래 이름의 어감/
   느낌(강인함, 우아함, 순박함 등)을 살린 대안 이름 2~3개를 미리 추천하세요.
 대안 이름을 추천할 때는 원래 이름이 주던 어감(우아함/발랄함/신비로움/이국적 느낌 등)과
-캐릭터의 장르·설정 톤을 유지하는 방향으로 추천하세요. 동양풍 설정을 영어권으로 옮길 때도
-'이국적이고 신비로운 느낌'처럼 원문이 주던 인상을 영어권 독자에게도 비슷하게 전달하는
+캐릭터의 장르·설정 톤을 유지하는 방향으로 추천하세요. 동양풍 설정을 대상 언어권으로 옮길 때도
+'이국적이고 신비로운 느낌'처럼 원문이 주던 인상을 대상 언어권 독자에게도 비슷하게 전달하는
 이름을 찾으세요.
 [출력 형식 — JSON만 출력]
 {
@@ -239,6 +363,7 @@ PROPER_NOUN_FIT_PROMPT_TAIL = """이제 아래 원문에서 고유명사를 찾�
 def build_proper_noun_fit_prompt(
     chapter_text: str,
     existing_index_terms: list[str] | None = None,
+    target_language: object = "en",
 ) -> str:
     """Insert chapter text into the proper-noun fit judgment prompt.
 
@@ -260,10 +385,15 @@ def build_proper_noun_fit_prompt(
             "위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만 등장하는 지명 등)만\n"
             "찾아서 아래 기준으로 판정하세요.\n"
         )
-    return f"{PROPER_NOUN_FIT_PROMPT_HEAD}{skip_block}{PROPER_NOUN_FIT_PROMPT_TAIL}{body}"
+    head = _omit_non_target_examples(
+        PROPER_NOUN_FIT_PROMPT_HEAD,
+        target_language,
+        example_marker="[예시1",
+    )
+    return f"{head}{skip_block}{PROPER_NOUN_FIT_PROMPT_TAIL}{body}"
 
 
-CULTURE_MARKER_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
+CULTURE_MARKER_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
 아래 문단에서 "문화 마커"에 해당하는 표현을 찾아, 지정된 문화반영범위(culture_localization_level)에
 맞게 번역 방향을 제시하세요.
 
@@ -284,7 +414,8 @@ CULTURE_MARKER_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고�
   (어휘 선택, 문장 리듬, 문장부호)로 반드시 보존해야 합니다.
 - moderate (적절): 개념은 살리되 표현은 자연스럽게 순화합니다. 원문의 문화적 색채가
   옅게라도 느껴지되 읽기에 걸리지 않아야 합니다.
-- as_is (원문유지): 한국 문화 고유성을 최대한 살립니다. 로마자 표기 유지 + 필요시
+- as_is (원문유지): 한국 문화 고유성을 최대한 살립니다. 대상 언어권에서 읽을 수 있는
+  일관된 전사 표기 유지 + 필요시
   짧은 설명을 자연스럽게 문장에 녹이거나 용어집으로 뺍니다.
 
 [입력으로 주어지는 씬 컨텍스트를 반드시 참고하세요]
@@ -378,6 +509,7 @@ def build_culture_marker_prompt(
     culture_localization_level: str,
     relationship_tag: str,
     mood_tag: str,
+    target_language: object = "en",
 ) -> str:
     """Insert level, scene context, and chapter text into the culture-marker prompt."""
     body = "" if chapter_text is None else str(chapter_text)
@@ -385,25 +517,26 @@ def build_culture_marker_prompt(
     relationship = "" if relationship_tag is None else str(relationship_tag)
     mood = "" if mood_tag is None else str(mood_tag)
     return (
-        f"{CULTURE_MARKER_PROMPT_HEAD}"
+        f"{_omit_non_target_examples(CULTURE_MARKER_PROMPT_HEAD, target_language, example_marker='[예시', resume_marker='이제 아래 문단')}"
+        f"[대상 언어]: {target_language_profile(target_language)['name']}\n"
         f"[문화반영범위 설정]: {level}\n"
         f"[씬 컨텍스트]: relationship_tag={relationship}, mood_tag={mood}\n"
         f"{body}"
     )
 
 
-PARAGRAPH_TRANSLATION_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 투고용으로 번역하는 전문 번역가입니다.
-아래 문단을 지정된 설정에 따라 자연스러운 영어로 번역하세요.
+PARAGRAPH_TRANSLATION_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하는 전문 번역가입니다.
+아래 문단을 지정된 설정에 따라 자연스러운 __TARGET_LANGUAGE__(으)로 번역하세요.
 
 """
 
 PARAGRAPH_TRANSLATION_PROMPT_TAIL = """
 [번역 시 지켜야 할 것]
-1. 직역이 아니라 영어권 소설처럼 자연스럽게 읽히는 문장으로 만드세요.
+1. 직역이 아니라 __TARGET_AUDIENCE__ 소설처럼 자연스럽게 읽히는 문장으로 만드세요.
 2. 원문의 정보를 임의로 추가하거나 생략하지 마세요.
 3. 의역했거나 뉘앙스를 다른 방식으로 옮긴 부분이 있다면 translation_notes에 기록하세요.
    단순 직역인 부분은 굳이 기록하지 않아도 됩니다.
-4. 대명사(he/she/they)가 직전 문맥과 일치하는지 확인하세요.
+4. 인칭·성·수·격식 표현(예: __REFERENCE_EXAMPLES__)이 직전 문맥과 일치하는지 확인하세요.
 
 [출력 형식 — JSON만 출력]
 {
@@ -459,8 +592,19 @@ PARAGRAPH_TRANSLATION_PROMPT_TAIL = """
 이제 아래 문단을 번역하세요.
 """
 
+SHORT_PARAGRAPH_TRANSLATION_INSTRUCTION = """
+[짧은 문단 지침]
+이 문단이 의성어, 의태어, 감탄사처럼 짧더라도 translated_text를 절대 빈 문자열로
+두지 말고, 대상 언어의 자연스러운 대응 표현(예: 짧은 미소를 나타내는 동작 묘사)을
+반드시 채워라. 대응 표현이 애매하면 원문 발음을 대상 언어의 음가에 맞게 전사하거나 가장 근접한
+의미의 단어를 사용하라.
+"""
+
+PARAGRAPH_SHORT_SOURCE_LIMIT = 10
+
 
 class ParagraphTranslationSettings(TypedDict, total=False):
+    target_language: str
     tense: str
     character_voices: str
     proper_nouns_confirmed: str
@@ -481,11 +625,12 @@ def _setting(settings: Mapping[str, object] | None, key: str) -> str:
 def build_paragraph_translation_prompt(
     chapter_text: str,
     settings: Mapping[str, object] | None = None,
+    target_language: object | None = None,
 ) -> str:
     """Insert style, glossary, scene context, and paragraph text into the translation prompt.
 
     `settings` is a single dict (see ParagraphTranslationSettings). Keep
-    `previous_context_summary` as already-confirmed English translation, never
+    `previous_context_summary` as already-confirmed target-language translation, never
     Korean source — use translation_context.load_previous_translated_context.
     """
     body = "" if chapter_text is None else str(chapter_text)
@@ -497,8 +642,13 @@ def build_paragraph_translation_prompt(
     mood = _setting(settings, "mood_tag")
     formatting = _setting(settings, "narrative_formatting_rules")
     previous = _setting(settings, "previous_context_summary")
+    language = target_language or _setting(settings, "target_language") or "en"
+    extra = ""
+    if len(body) <= PARAGRAPH_SHORT_SOURCE_LIMIT:
+        extra = SHORT_PARAGRAPH_TRANSLATION_INSTRUCTION
     return (
-        f"{PARAGRAPH_TRANSLATION_PROMPT_HEAD}"
+        f"{_render_language_tokens(PARAGRAPH_TRANSLATION_PROMPT_HEAD, language)}"
+        f"[대상 언어]: {target_language_profile(language)['name']}\n"
         f"[스타일가이드]\n"
         f"- 시제: {tense}\n"
         f"- 인물별 어조: {voices}\n\n"
@@ -511,96 +661,211 @@ def build_paragraph_translation_prompt(
         f"[대사 표기 규칙]\n"
         f"{formatting}\n"
         f"이 규칙에 따라 언어/텔레파시 구분 표기를 유지하세요.\n\n"
-        f"[직전 문맥 — 이미 확정된 영문 번역입니다. 대명사와 시제의 연속성을 위해 참고하세요, 번역 대상 아님]\n"
+        f"[직전 문맥 — 이미 확정된 대상 언어 번역입니다. 인칭과 시제의 연속성을 위해 참고하세요, 번역 대상 아님]\n"
         f"{previous}\n"
-        f"{PARAGRAPH_TRANSLATION_PROMPT_TAIL}"
+        f"{extra}"
+        f"{_omit_non_target_examples(PARAGRAPH_TRANSLATION_PROMPT_TAIL, language, example_marker='[예시]', resume_marker='이제 아래 문단')}"
         f"{body}"
     )
 
 
-POLISH_PROMPT_HEAD = """당신은 영어권 출판 편집자입니다. 아래는 한국 웹소설을 1차 번역한 챕터 전체입니다.
-의미를 바꾸지 않으면서, 번역투(translationese)를 제거하고 원어민이 쓴 소설처럼
-자연스러운 리듬으로 다듬으세요.
-[윤문 시 지켜야 할 것]
-1. 절대 원문의 정보를 추가/삭제/변경하지 마세요. 사건, 대사 내용, 묘사 대상은 그대로입니다.
-2. 다음 번역투 패턴을 우선적으로 손보세요:
-   - 같은 문장 종결 패턴이 반복될 때 (예: "-ed. -ed. -ed."로만 계속되는 단조로운 리듬)
-   - 한국어 어순을 그대로 옮겨 어색한 문장 구조
-   - 불필요하게 늘어진 수식어/부사 나열
-   - 대명사나 주어가 과도하게 반복되는 부분
-3. 문단 간 흐름(한 문단에서 다음 문단으로 넘어가는 호흡)이 매끄러운지 확인하세요.
-4. 대사 톤은 스타일가이드의 인물별 어조를 유지하세요.
-5. 무엇을 왜 고쳤는지 change_log에 기록하세요. 사소한 어순 조정까지 전부 기록할 필요는 없고,
-   문장 구조나 리듬이 눈에 띄게 바뀐 부분만 기록하세요.
+PARAGRAPH_TRANSLATION_BATCH_PROMPT_HEAD = """당신은 한국 웹소설을 대상 언어의 자연스러운 소설로 번역하는 전문 번역가입니다.
+다음은 소설 한 회차 중 연속된 문단들입니다. 각 문단을 대상 언어로 번역하세요.
+문단 간 맥락(등장인물 관계, 시점, 어투)을 참고해 전체적으로 일관된 어투를 유지하세요.
+
+[반드시 지켜야 할 것]
+1. 각 문단의 id와 입력 순서를 그대로 유지하세요.
+2. 입력된 모든 문단에 대해 정확히 하나씩 응답하세요. 문단을 합치거나 나누지 마세요.
+3. 사건과 의미를 추가·삭제·변경하지 마세요.
+4. 출력에는 한국어 원문을 포함하지 말고 JSON만 반환하세요.
+5. translation_notes에는 의역하거나 문화적 표현을 조정한 경우만 간단히 기록하세요.
 
 """
 
-POLISH_PROMPT_TAIL = """
+PARAGRAPH_TRANSLATION_BATCH_PROMPT_TAIL = """
 [출력 형식 — JSON만 출력]
 {
-  "polished_text": "...",
-  "change_log": [
-    {"before": "...", "after": "...", "reason": "..."}
-  ]
-}
-
-[예시]
-1차 번역 입력:
-"Iona stood in front of the bakery. The bakery was closed. Iona sighed.
-She looked up at the chimney. The chimney was quiet. She felt disappointed."
-출력:
-{
-  "polished_text": "Iona stood before the shuttered bakery and let out a sigh. She looked up at the quiet chimney, disappointment settling over her.",
-  "change_log": [
+  "paragraphs": [
     {
-      "before": "Iona stood in front of the bakery. The bakery was closed. Iona sighed.",
-      "after": "Iona stood before the shuttered bakery and let out a sigh.",
-      "reason": "세 개의 짧은 단문이 주어를 반복하며 끊어져 번역투 리듬이었습니다. 하나의 문장으로 합쳐 자연스러운 호흡으로 만들었습니다. 정보 손실은 없습니다."
-    },
-    {
-      "before": "She looked up at the chimney. The chimney was quiet. She felt disappointed.",
-      "after": "She looked up at the quiet chimney, disappointment settling over her.",
-      "reason": "동일한 명사(chimney)와 주어(She)가 연속 반복되어 기계번역처럼 읽혔습니다. 분사구문으로 자연스럽게 연결했습니다."
+      "id": 101,
+      "translated_text": "...",
+      "translation_notes": []
     }
   ]
 }
 
-이제 아래 챕터를 윤문하세요.
+이제 아래 문단을 같은 id와 순서로 모두 번역하세요.
 """
 
 
-def build_polish_prompt(
-    chapter_text: str,
+def build_paragraph_translation_batch_prompt(
+    paragraphs: Sequence[Mapping[str, object]],
     settings: Mapping[str, object] | None = None,
+    target_language: object | None = None,
 ) -> str:
-    """Insert styleguide and first-pass English chapter into the polish prompt."""
-    body = "" if chapter_text is None else str(chapter_text)
+    """Build one contextual first-pass translation request for ordered segments."""
+    items = list(paragraphs or [])
     tense = _setting(settings, "tense")
     voices = _setting(settings, "character_voices")
+    nouns = _setting(settings, "proper_nouns_confirmed")
+    level = _setting(settings, "culture_localization_level")
+    formatting = _setting(settings, "narrative_formatting_rules")
+    previous = _setting(settings, "previous_context_summary")
+    target = target_language or _setting(settings, "target_language") or "en"
+    target_name = target_language_profile(target)["name"]
+    blocks: list[str] = []
+    for item in items:
+        segment_id = int(item.get("id") or 0)
+        source = str(item.get("source_text") or "")
+        relationship = str(item.get("relationship_tag") or "")
+        mood = str(item.get("mood_tag") or "")
+        short = (
+            "\n[이 문단은 10자 이하입니다. 의성어·의태어·감탄사라도 "
+            "translated_text를 비우지 말고 자연스러운 대응 표현을 반드시 채우세요.]"
+            if len(source) <= PARAGRAPH_SHORT_SOURCE_LIMIT
+            else ""
+        )
+        blocks.append(
+            f"<<<SEGMENT id={segment_id}>>>\n"
+            f"[scene relationship_tag={relationship}, mood_tag={mood}]"
+            f"{short}\n{source}"
+        )
+    body = "\n\n".join(blocks)
     return (
-        f"{POLISH_PROMPT_HEAD}"
-        f"[스타일가이드]\n"
-        f"- 시제: {tense}\n"
-        f"- 인물별 어조: {voices}\n"
-        f"{POLISH_PROMPT_TAIL}"
+        f"{PARAGRAPH_TRANSLATION_BATCH_PROMPT_HEAD}"
+        f"[대상 언어]: {target_name} ({normalize_target_language(target)})\n"
+        f"[스타일가이드]\n- 시제: {tense}\n- 인물별 어조: {voices}\n\n"
+        f"[확정된 고유명사 — 반드시 이 표기를 그대로 사용하세요]\n{nouns}\n\n"
+        f"[문화반영범위]: {level}\n"
+        f"[대사 표기 규칙]\n{formatting}\n\n"
+        f"[직전 확정 번역 문맥 — 번역 대상 아님]\n{previous}\n"
+        f"{PARAGRAPH_TRANSLATION_BATCH_PROMPT_TAIL}"
         f"{body}"
     )
 
 
-SUBMISSION_QUERY_PROMPT_HEAD = """당신은 한국 웹소설을 영어권 에이전트/출판사에 투고하기 위해 자료를 준비하는 편집 보조자입니다.
-아래는 이 작품의 한국어 시놉시스입니다. 이것을 영어권 투고 관행에 맞는 로그라인과 시놉시스로
+CHAPTER_POLISH_PROMPT_HEAD = """당신은 __TARGET_AUDIENCE__ 출판 편집자입니다.
+다음은 소설 한 회차의 __TARGET_LANGUAGE__ 번역문입니다. 원문 대조 없이 번역문 자체의 자연스러움만 검토하세요.
+문단 간 흐름, 대명사 지칭, 반복 표현, 어색한 연결을 다듬되, 문단 순서와 개수, 각 문단이 담긴
+사건/의미는 절대 바꾸지 마세요. 각 문단별로 다듬어진 버전을 반환하세요.
+
+[지켜야 할 것]
+1. 입력 문단 개수와 출력 문단 개수는 반드시 같습니다. 문단을 합치거나 나누거나 순서를 바꾸지 마세요.
+2. 구분선만 있는 문단(====, ---- 등)은 글자를 그대로 두세요.
+3. 의미를 바꾸지 마세요. 사건, 대사 내용, 고유명사는 유지하세요.
+4. 같은 문장 종결이 반복되거나 대명사/주어가 과도하게 되풀이되면 호흡을 다듬으세요.
+5. 한국어 원문은 주어지지 않았습니다. 번역문만 보고 판단하세요.
+
+"""
+
+CHAPTER_POLISH_PROMPT_TAIL = """
+[출력 형식 — JSON만 출력]
+{
+  "paragraphs": [
+    {"index": 1, "polished_text": "..."},
+    {"index": 2, "polished_text": "..."}
+  ]
+}
+
+[예시]
+입력:
+<<<PARAGRAPH 1>>>
+Iona stood in front of the bakery. The bakery was closed. Iona sighed.
+<<<PARAGRAPH 2>>>
+She looked up at the chimney. The chimney was quiet. She felt disappointed.
+출력:
+{
+  "paragraphs": [
+    {
+      "index": 1,
+      "polished_text": "Iona stood before the shuttered bakery and let out a sigh."
+    },
+    {
+      "index": 2,
+      "polished_text": "She looked up at the quiet chimney, disappointment settling over her."
+    }
+  ]
+}
+
+이제 아래 회차를 같은 문단 개수와 순서로 윤문하세요.
+"""
+
+
+def format_chapter_polish_paragraphs(paragraphs: Sequence[object] | None) -> str:
+    items = list(paragraphs or [])
+    parts: list[str] = []
+    for index, item in enumerate(items, start=1):
+        text = "" if item is None else str(item)
+        parts.append(f"<<<PARAGRAPH {index}>>>\n{text}")
+    return "\n\n".join(parts)
+
+
+def build_chapter_polish_prompt(
+    paragraphs: Sequence[object] | None,
+    settings: Mapping[str, object] | None = None,
+    *,
+    target_start: int | None = None,
+    target_end: int | None = None,
+    target_language: object = "en",
+) -> str:
+    """Build a translation-only chapter polish prompt. Paragraph count must be preserved."""
+    items = list(paragraphs or [])
+    body = format_chapter_polish_paragraphs(items)
+    tense = _setting(settings, "tense")
+    voices = _setting(settings, "character_voices")
+    first = max(1, int(target_start or 1))
+    last = min(len(items), int(target_end or len(items))) if items else 0
+    target = (
+        f"[이번 응답 대상]\n전체 {len(items)}개 문단을 모두 문맥으로 읽되, "
+        f"이번 응답에는 index {first}~{last} 문단만 반환하세요. "
+        "index 번호는 전체 회차 기준 번호를 유지하세요.\n"
+        if items and (first != 1 or last != len(items))
+        else ""
+    )
+    return (
+        f"{_render_language_tokens(CHAPTER_POLISH_PROMPT_HEAD, target_language)}"
+        f"[대상 언어]: {target_language_profile(target_language)['name']}\n"
+        f"[스타일가이드]\n"
+        f"- 시제: {tense}\n"
+        f"- 인물별 어조: {voices}\n"
+        f"{target}"
+        f"{_omit_non_target_examples(CHAPTER_POLISH_PROMPT_TAIL, target_language, example_marker='[예시]', resume_marker='이제 아래 회차')}"
+        f"{body}"
+    )
+
+
+def build_polish_prompt(
+    chapter_text: str | Sequence[object] | None,
+    settings: Mapping[str, object] | None = None,
+    target_language: object = "en",
+) -> str:
+    """Back-compat wrapper: a string is treated as a single paragraph."""
+    if isinstance(chapter_text, (list, tuple)):
+        paragraphs: Sequence[object] = chapter_text
+    elif chapter_text is None:
+        paragraphs = []
+    else:
+        paragraphs = [str(chapter_text)]
+    return build_chapter_polish_prompt(
+        paragraphs, settings, target_language=target_language
+    )
+
+
+SUBMISSION_QUERY_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 에이전트/출판사에 투고하기 위해 자료를 준비하는 편집 보조자입니다.
+아래는 이 작품의 한국어 시놉시스입니다. 이것을 대상 언어권 투고 관행에 맞는 로그라인과 시놉시스로
 번역/재구성하세요.
+[대상 시장 지침]
+__SUBMISSION_GUIDANCE__
 [로그라인 작성 기준]
-- 1~2문장, 40단어 이내
+- 간결한 1~2문장으로 작성합니다
 - 주인공, 주인공이 원하는 것(목표), 그것을 막는 장애물, 이 작품만의 독특한 훅(장르 관습을
   비트는 지점)이 담겨야 합니다
 - 결말은 밝히지 않습니다
 [시놉시스 작성 기준]
-- 분량: 300~500단어 (에이전트 투고 관행상 1~2페이지 분량)
+- 해당 언어권 에이전트의 일반적인 샘플 시놉시스 분량을 따릅니다
 - 기승전결 전체를 요약하되, 세부 사건을 나열하지 말고 핵심 갈등의 전개만 따라가세요
 - 결말(반전 포함)까지 명시합니다 — 투고용 시놉시스는 스포일러를 감추지 않는 것이 관행입니다
-- 3인칭 현재시제로 작성합니다 (영어권 시놉시스 관행)
-- 등장인물은 처음 등장할 때만 대문자로 강조 표기합니다 (예: IONA)
+- 인칭·시제·인물명 강조 방식은 위 대상 시장 지침을 따릅니다
 
 """
 
@@ -630,20 +895,24 @@ SUBMISSION_QUERY_PROMPT_TAIL = """
 def build_submission_query_prompt(
     chapter_text: str,
     settings: Mapping[str, object] | None = None,
+    target_language: object = "en",
 ) -> str:
     """Insert confirmed proper nouns and Korean synopsis into the query-package prompt."""
     body = "" if chapter_text is None else str(chapter_text)
     nouns = _setting(settings, "proper_nouns_confirmed")
+    culture = _setting(settings, "culture_localization_level")
     return (
-        f"{SUBMISSION_QUERY_PROMPT_HEAD}"
+        f"{_render_language_tokens(SUBMISSION_QUERY_PROMPT_HEAD, target_language)}"
+        f"[대상 언어]: {target_language_profile(target_language)['name']}\n"
+        f"[문화반영범위]: {culture}\n"
         f"[확정된 고유명사 — 반드시 이 표기를 사용하세요]\n"
         f"{nouns}\n"
-        f"{SUBMISSION_QUERY_PROMPT_TAIL}"
+        f"{_omit_non_target_examples(SUBMISSION_QUERY_PROMPT_TAIL, target_language, example_marker='[예시]', resume_marker='이제 아래 시놉시스')}"
         f"{body}"
     )
 
 
-WORD_CONTEXT_PROMPT_HEAD = """당신은 "토리"입니다. 영어권 투고용으로 번역된 한국 웹소설의 특정 단어 선택에 대해
+WORD_CONTEXT_PROMPT_HEAD = """당신은 "토리"입니다. __TARGET_AUDIENCE__ 투고용으로 번역된 한국 웹소설의 특정 단어 선택에 대해
 간단히 설명합니다.
 """
 
@@ -680,6 +949,7 @@ def build_word_context_prompt(
     segment_text_info: Mapping[str, object] | str | None,
     word: object,
     existing_translation_notes: object = None,
+    target_language: object = "en",
 ) -> str:
     """Fill paragraph text, clicked word, and existing notes into the word-context prompt."""
     if isinstance(segment_text_info, Mapping):
@@ -699,8 +969,9 @@ def build_word_context_prompt(
         else str(existing_translation_notes)
     )
     return (
-        f"{WORD_CONTEXT_PROMPT_HEAD}"
-        f"{WORD_CONTEXT_PROMPT_RULES}"
+        f"{_render_language_tokens(WORD_CONTEXT_PROMPT_HEAD, target_language)}"
+        f"[대상 언어]: {target_language_profile(target_language)['name']}\n"
+        f"{_omit_non_target_examples(WORD_CONTEXT_PROMPT_RULES, target_language, example_marker='[예시1', resume_marker='이제 아래 질문')}"
         f"[이 문단의 정보]\n"
         f"원문: {source}\n"
         f"현재 번역: {translated}\n"
@@ -710,7 +981,7 @@ def build_word_context_prompt(
     )
 
 
-TRANSLATION_QA_PROMPT_HEAD = """당신은 "토리"입니다. 한국 웹소설을 영어권 투고용으로 번역하는 작업을 돕는 AI
+TRANSLATION_QA_PROMPT_HEAD = """당신은 "토리"입니다. 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하는 작업을 돕는 AI
 편집 파트너로서, 작가(사용자)의 질문에 답합니다.
 """
 
@@ -753,6 +1024,7 @@ suggested_revision 값은 수정 제안이 있으면 대안 문장, 없으면 �
 def build_translation_qa_prompt(
     user_question: str,
     settings: Mapping[str, object] | None = None,
+    target_language: object = "en",
 ) -> str:
     """Fill paragraph context and the writer's question into the Tory QA prompt."""
     question = "" if user_question is None else str(user_question)
@@ -766,7 +1038,8 @@ def build_translation_qa_prompt(
     culture = _setting(settings, "culture_localization_level")
     history = _setting(settings, "chat_history")
     return (
-        f"{TRANSLATION_QA_PROMPT_HEAD}"
+        f"{_render_language_tokens(TRANSLATION_QA_PROMPT_HEAD, target_language)}"
+        f"[대상 언어]: {target_language_profile(target_language)['name']}\n"
         f"[이 문단의 정보]\n"
         f"원문: {source_text}\n"
         f"현재 번역: {translated_text}\n"
@@ -778,7 +1051,7 @@ def build_translation_qa_prompt(
         f"[문화반영범위]: {culture}\n"
         f"[지난 대화 기록]\n"
         f"{history}\n"
-        f"{TRANSLATION_QA_PROMPT_RULES}"
+        f"{_omit_non_target_examples(TRANSLATION_QA_PROMPT_RULES, target_language, example_marker='[예시1', resume_marker='이제 아래 사용자 질문')}"
         f"{question}"
     )
 
