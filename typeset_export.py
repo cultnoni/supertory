@@ -3,12 +3,8 @@
 from __future__ import annotations
 
 import io
-import json
 import re
 import zipfile
-from copy import deepcopy
-from pathlib import Path
-from threading import Lock
 
 from document_export import (
     ExportFile,
@@ -69,8 +65,6 @@ DEFAULT_PRESETS: dict[str, dict] = {
     },
 }
 
-_STRING_FIELDS = frozenset({"label", "font_family"})
-_BOOL_FIELDS = frozenset({"is_verified"})
 _INT_FIELDS = frozenset({
     "font_size_pt",
     "line_height_percent",
@@ -83,7 +77,6 @@ _INT_FIELDS = frozenset({
     "margin_bottom_mm",
     "mobile_viewport_px",
 })
-_EDITABLE_FIELDS = _STRING_FIELDS | _INT_FIELDS | _BOOL_FIELDS
 
 _FIELD_RANGE = {
     "font_size_pt": (1, 72),
@@ -127,84 +120,9 @@ _HANGUL_FONT_NAMES = {
 _HWPUNIT_PER_MM = 7200 / 25.4
 _TYPESET_EXPORT_FORMATS = frozenset({"docx", "hwpx"})
 
-_COPY_FIELDS = ("font_family",) + tuple(_INT_FIELDS)
-
-_CHOSEONG = (
-    "g", "kk", "n", "d", "tt", "r", "m", "b", "pp", "s", "ss", "",
-    "j", "jj", "ch", "k", "t", "p", "h",
-)
-_JUNGSEONG = (
-    "a", "ae", "ya", "yae", "eo", "e", "yeo", "ye", "o", "wa", "wae", "oe",
-    "yo", "u", "wo", "we", "wi", "yu", "eu", "ui", "i",
-)
-_JONGSEONG = (
-    "", "k", "k", "k", "n", "n", "n", "t", "l", "k", "m", "l", "l", "l", "p",
-    "l", "m", "p", "p", "t", "t", "ng", "t", "t", "k", "t", "p", "t",
-)
-
-_WRITE_LOCK = Lock()
-
 
 def is_builtin_platform(platform_id: str) -> bool:
     return str(platform_id or "").strip() in PLATFORM_ORDER
-
-
-def ordered_preset_ids(presets: dict[str, dict]) -> list[str]:
-    ids: list[str] = []
-    for key in PLATFORM_ORDER:
-        if key in presets:
-            ids.append(key)
-    for key in presets:
-        if key not in ids:
-            ids.append(str(key))
-    return ids
-
-
-def _hangul_syllable_to_roman(char: str) -> str:
-    code = ord(char)
-    if code < 0xAC00 or code > 0xD7A3:
-        return char
-    syllable = code - 0xAC00
-    cho = syllable // 588
-    jung = (syllable % 588) // 28
-    jong = syllable % 28
-    return f"{_CHOSEONG[cho]}{_JUNGSEONG[jung]}{_JONGSEONG[jong]}"
-
-
-def slug_from_label(label: str) -> str:
-    parts: list[str] = []
-    for char in str(label or "").strip():
-        code = ord(char)
-        if 0xAC00 <= code <= 0xD7A3:
-            parts.append(_hangul_syllable_to_roman(char))
-        elif char.isalnum():
-            parts.append(char.lower())
-        else:
-            parts.append("_")
-    slug = re.sub(r"_+", "_", "".join(parts)).strip("_")
-    slug = re.sub(r"[^a-z0-9_]+", "", slug)
-    return (slug or "preset")[:40]
-
-
-def unique_preset_id(label: str, existing: dict[str, dict] | set[str]) -> str:
-    taken = set(existing) if not isinstance(existing, dict) else set(existing.keys())
-    base = slug_from_label(label)
-    candidate = base
-    index = 2
-    while candidate in taken:
-        candidate = f"{base}_{index}"
-        index += 1
-        if index > 999:
-            raise ValueError("같은 이름의 조판양식이 너무 많아요.")
-    return candidate
-
-
-def seed_path(root: Path) -> Path:
-    return Path(root) / "data" / "typeset_presets.json"
-
-
-def runtime_path(data_dir: Path) -> Path:
-    return Path(data_dir) / "typeset_presets.json"
 
 
 def map_font_family(name: str) -> str:
@@ -294,156 +212,6 @@ def normalize_preset(
     out["is_verified"] = bool(out.get("is_verified"))
     out["is_default"] = is_builtin_platform(platform_id)
     return out
-
-
-def _read_json_file(path: Path) -> dict:
-    if not path.is_file():
-        return {}
-    try:
-        payload = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError, TypeError, ValueError):
-        return {}
-    return payload if isinstance(payload, dict) else {}
-
-
-def _merge_platform_map(raw: dict, *, into: dict[str, dict] | None = None) -> dict[str, dict]:
-    merged = deepcopy(into) if into else deepcopy(DEFAULT_PRESETS)
-    for key, value in raw.items():
-        platform_id = str(key or "").strip()
-        if not platform_id or not isinstance(value, dict):
-            continue
-        fallback = merged.get(platform_id) or {
-            **_DEFAULT_FIELDS,
-            "label": platform_id,
-        }
-        merged[platform_id] = normalize_preset(
-            value, fallback=fallback, platform_id=platform_id
-        )
-    return merged
-
-
-def load_typeset_presets(*, root: Path, data_dir: Path) -> dict[str, dict]:
-    """Seed file, then runtime DATA_DIR overlay (user edits)."""
-    presets = deepcopy(DEFAULT_PRESETS)
-    seed = seed_path(root)
-    runtime = runtime_path(data_dir)
-    presets = _merge_platform_map(_read_json_file(seed), into=presets)
-    if runtime.resolve() != seed.resolve():
-        presets = _merge_platform_map(_read_json_file(runtime), into=presets)
-    return presets
-
-
-def save_typeset_presets(presets: dict[str, dict], *, data_dir: Path) -> dict[str, dict]:
-    cleaned: dict[str, dict] = {}
-    for platform_id, preset in presets.items():
-        key = str(platform_id or "").strip()
-        if not key:
-            continue
-        cleaned[key] = normalize_preset(
-            preset, fallback=DEFAULT_PRESETS.get(key), platform_id=key
-        )
-    folder = Path(data_dir)
-    folder.mkdir(parents=True, exist_ok=True)
-    target = runtime_path(folder)
-    payload = json.dumps(cleaned, ensure_ascii=False, indent=2) + "\n"
-    with _WRITE_LOCK:
-        target.write_text(payload, encoding="utf-8")
-    return cleaned
-
-
-def get_preset(presets: dict[str, dict], platform_id: str) -> dict:
-    key = str(platform_id or "").strip()
-    if not key:
-        raise ValueError("플랫폼을 선택해 주세요.")
-    preset = presets.get(key)
-    if not isinstance(preset, dict):
-        raise ValueError("없는 조판양식이에요.")
-    return normalize_preset(preset, fallback=DEFAULT_PRESETS.get(key), platform_id=key)
-
-
-def update_preset(
-    presets: dict[str, dict],
-    platform_id: str,
-    body: dict,
-) -> tuple[dict[str, dict], dict]:
-    key = str(platform_id or "").strip()
-    if not key:
-        raise ValueError("플랫폼을 선택해 주세요.")
-    if key not in presets:
-        raise ValueError("없는 조판양식이에요.")
-    if not isinstance(body, dict):
-        raise ValueError("수정할 값이 없어요.")
-    current = normalize_preset(
-        presets.get(key), fallback=DEFAULT_PRESETS.get(key), platform_id=key
-    )
-    patch = {k: body[k] for k in _EDITABLE_FIELDS if k in body}
-    if not patch:
-        raise ValueError("바꿀 조판 항목이 없어요.")
-    if "font_family" in patch:
-        family = str(patch.get("font_family") or "").strip()
-        if not family:
-            raise ValueError("글꼴 이름을 입력해 주세요.")
-        if len(family) > 80:
-            raise ValueError("글꼴 이름이 너무 길어요.")
-        patch["font_family"] = family
-    if "label" in patch:
-        label = str(patch.get("label") or "").strip()
-        if not label:
-            raise ValueError("조판양식 이름을 입력해 주세요.")
-        patch["label"] = label[:40]
-    updated = normalize_preset({**current, **patch}, fallback=current, platform_id=key)
-    next_presets = dict(presets)
-    next_presets[key] = updated
-    return next_presets, updated
-
-
-def create_preset(
-    presets: dict[str, dict],
-    *,
-    label: str,
-    copy_from: str | None = None,
-) -> tuple[dict[str, dict], str, dict]:
-    name = str(label or "").strip()
-    if not name:
-        raise ValueError("조판양식 이름을 입력해 주세요.")
-    name = name[:40]
-    source_id = str(copy_from or "").strip()
-    if source_id:
-        if source_id not in presets:
-            raise ValueError("복사할 조판양식을 찾지 못했어요.")
-    else:
-        source_id = "munpia" if "munpia" in presets else (ordered_preset_ids(presets)[0] if presets else "")
-        if not source_id:
-            source_id = "munpia"
-    source = normalize_preset(
-        presets.get(source_id) or DEFAULT_PRESETS.get("munpia"),
-        fallback=DEFAULT_PRESETS.get(source_id) or DEFAULT_PRESETS["munpia"],
-        platform_id=source_id,
-    )
-    new_id = unique_preset_id(name, presets)
-    copied = {key: source[key] for key in _COPY_FIELDS if key in source}
-    copied["label"] = name
-    copied["is_verified"] = False
-    copied["is_default"] = False
-    created = normalize_preset(copied, platform_id=new_id)
-    next_presets = dict(presets)
-    next_presets[new_id] = created
-    return next_presets, new_id, created
-
-
-def delete_preset(presets: dict[str, dict], platform_id: str) -> dict[str, dict]:
-    key = str(platform_id or "").strip()
-    if not key:
-        raise ValueError("플랫폼을 선택해 주세요.")
-    if key not in presets:
-        raise ValueError("없는 조판양식이에요.")
-    if is_builtin_platform(key) or bool(
-        normalize_preset(presets.get(key), platform_id=key).get("is_default")
-    ):
-        raise ValueError("기본 조판양식은 삭제할 수 없습니다")
-    next_presets = dict(presets)
-    del next_presets[key]
-    return next_presets
 
 
 def _require_docx():

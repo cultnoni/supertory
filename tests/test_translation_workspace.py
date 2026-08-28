@@ -1211,6 +1211,13 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertTrue(package.get("submission_package", {}).get("logline_translated"))
+        package_prompt = next(
+            call["prompt"]
+            for call in reversed(self.calls)
+            if '"logline"' in str(call.get("prompt") or "")
+        )
+        self.assertIn("[완료된 번역 샘플", package_prompt)
+        self.assertIn("Batch translation", package_prompt)
         package_calls = self._count_steps('"logline"')
         status, again = self.request(
             "POST", f"/api/translation/jobs/{job_id}/generate_submission_package", {}

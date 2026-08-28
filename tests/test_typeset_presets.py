@@ -17,6 +17,8 @@ from docx.shared import Mm, Pt
 import app
 import document_export
 import typeset_export
+from repositories.typeset_repository import TypesetRepository
+from services.typeset_service import TypesetService
 
 
 class TypesetPresetUnitTests(unittest.TestCase):
@@ -96,11 +98,78 @@ class TypesetPresetUnitTests(unittest.TestCase):
         self.assertIn(f'left="{typeset_export._hwp_units_from_mm(20)}"', section)
 
     def test_update_rejects_unknown_platform(self) -> None:
-        presets = typeset_export.load_typeset_presets(
-            root=Path(app.ROOT), data_dir=Path(app.ROOT) / "data"
-        )
-        with self.assertRaises(ValueError):
-            typeset_export.update_preset(presets, "unknown_site", {"font_size_pt": 12})
+        with tempfile.TemporaryDirectory() as folder:
+            service = TypesetService(TypesetRepository(
+                root=Path(app.ROOT),
+                data_dir=Path(folder),
+            ))
+            with self.assertRaises(ValueError):
+                service.update_preset("unknown_site", {"font_size_pt": 12})
+
+    def test_service_creates_copies_updates_and_deletes_custom_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data_dir = Path(folder)
+            repository = TypesetRepository(root=Path(app.ROOT), data_dir=data_dir)
+            service = TypesetService(repository)
+
+            created = service.create_preset("내 조판", copy_from="ridibooks")
+            platform_id = str(created["platform_id"])
+            self.assertEqual(platform_id, "nae_jopan")
+            self.assertEqual(created["preset"]["paragraph_indent_pt"], 100)
+            self.assertFalse(created["preset"]["is_default"])
+            self.assertFalse(created["preset"]["is_verified"])
+
+            updated = service.update_preset(platform_id, {
+                "label": "내 조판 수정",
+                "font_size_pt": 13,
+            })
+            self.assertEqual(updated["preset"]["label"], "내 조판 수정")
+            self.assertEqual(updated["preset"]["font_size_pt"], 13)
+            self.assertTrue((data_dir / "typeset_presets.json").is_file())
+
+            deleted = service.delete_preset(platform_id)
+            self.assertNotIn(platform_id, deleted["presets"])
+
+    def test_service_rejects_deleting_default_preset(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            service = TypesetService(TypesetRepository(
+                root=Path(app.ROOT),
+                data_dir=Path(folder),
+            ))
+            with self.assertRaisesRegex(
+                ValueError,
+                "기본 조판양식은 삭제할 수 없습니다",
+            ):
+                service.delete_preset("munpia")
+
+    def test_repository_crud_contract_and_corrupt_runtime_fallback(self) -> None:
+        with tempfile.TemporaryDirectory() as folder:
+            data_dir = Path(folder)
+            repository = TypesetRepository(root=Path(app.ROOT), data_dir=data_dir)
+            self.assertEqual(len(repository.list_presets(None)), 4)
+            self.assertEqual(repository.get_preset(None, "munpia")["label"], "문피아")
+
+            created = repository.create_preset(None, "저장소 검증", {
+                "platform_id": "repository_check",
+                "font_size_pt": 12,
+                "is_default": False,
+            })
+            self.assertEqual(created["font_size_pt"], 12)
+            updated = repository.update_preset(
+                None,
+                "repository_check",
+                {**created, "font_size_pt": 13},
+            )
+            self.assertEqual(updated["font_size_pt"], 13)
+            self.assertTrue(repository.delete_preset(None, "repository_check"))
+            self.assertFalse(repository.delete_preset(None, "repository_check"))
+
+            (data_dir / "typeset_presets.json").write_text("{broken", encoding="utf-8")
+            fallback = repository.list_presets(None)
+            self.assertEqual(
+                {row["platform_id"] for row in fallback},
+                {"munpia", "kakaopage", "ridibooks", "naver_series"},
+            )
 
 
 class TypesetPresetApiTests(unittest.TestCase):
@@ -205,6 +274,37 @@ class TypesetPresetApiTests(unittest.TestCase):
         status, again = self.request("GET", "/api/typeset/presets")
         self.assertEqual(status, 200)
         self.assertEqual(again["presets"]["kakaopage"]["font_size_pt"], 11)
+
+    def test_custom_preset_create_rename_delete_round_trip(self) -> None:
+        status, created = self.request("POST", "/api/typeset/presets", {
+            "label": "투고용",
+            "copy_from": "ridibooks",
+        })
+        self.assertEqual(status, 200, created)
+        platform_id = str(created["platform_id"])
+        self.assertFalse(created["preset"]["is_default"])
+        self.assertEqual(created["preset"]["paragraph_indent_pt"], 100)
+
+        status, updated = self.request(
+            "PUT",
+            f"/api/typeset/presets/{platform_id}",
+            {"label": "투고용 수정", "font_size_pt": 12},
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["preset"]["label"], "투고용 수정")
+        self.assertEqual(updated["preset"]["font_size_pt"], 12)
+
+        status, deleted = self.request(
+            "DELETE",
+            f"/api/typeset/presets/{platform_id}",
+        )
+        self.assertEqual(status, 200, deleted)
+        self.assertNotIn(platform_id, deleted["presets"])
+
+    def test_delete_rejects_default_preset(self) -> None:
+        status, result = self.request("DELETE", "/api/typeset/presets/munpia")
+        self.assertEqual(status, 404)
+        self.assertEqual(result.get("error"), "기본 조판양식은 삭제할 수 없습니다")
 
     def test_export_docx_to_folder(self) -> None:
         scene_id = self._make_scene()

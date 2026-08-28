@@ -895,6 +895,31 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(leftover, 0)
 
+    def test_translation_word_lookup_cache_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript(
+            (root / "061_translation_jobs.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "070_translation_word_lookup_cache.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute(
+                "PRAGMA table_info(translation_word_lookup_cache)"
+            ).fetchall()
+        }
+        self.assertEqual(
+            cols,
+            {"segment_id", "word", "result_json", "updated_at"},
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 70"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_word_lookup_cache")
+
     def test_translation_segment_manual_review_column_is_added(self) -> None:
         root = Path(__file__).resolve().parents[1] / "db"
         self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))

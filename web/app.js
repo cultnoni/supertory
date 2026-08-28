@@ -26072,7 +26072,7 @@ async function openTranslationWordPopover(word, segmentId, anchor, { sentence = 
   try {
     const language = translationWorkspaceState.job?.target_language || selectedTranslationLanguage();
     const data = await api(
-      `/api/translation/dictionary?word=${encodeURIComponent(word)}&target_language=${encodeURIComponent(language || "en")}`
+      `/api/translation/dictionary?word=${encodeURIComponent(word)}&target_language=${encodeURIComponent(language || "en")}&segment_id=${Number(segmentId)}`
     );
     pop.innerHTML = translationDictionaryPopoverHtml(data, word, segmentId);
     applyTranslations();
