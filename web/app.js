@@ -56621,7 +56621,12 @@ async function renameProjectFromAdmin(projectId) {
   if (!id) return;
   const project = (state.projects || []).find((p) => Number(p.id) === id);
   const oldTitle = String(project?.title || `${i18n.t('app.작품_id', {id: id})}`);
-  const nextTitle = window.prompt(i18n.t('app.새_작품_제목을_입력해_주세요'), oldTitle);
+  const nextTitle = await promptText({
+    title: i18n.t('app.작품_이름_바꾸기'),
+    message: i18n.t('app.새_작품_제목을_입력해_주세요'),
+    defaultValue: oldTitle,
+    confirmLabel: i18n.t('app.저장'),
+  });
   if (nextTitle == null) return; // 취소
   const trimmed = nextTitle.trim();
   if (!trimmed) return toast(i18n.t('app.작품_제목을_입력해_주세요'));

@@ -2475,6 +2475,7 @@
   "app.선택한_selected_length_개_작품": "Re-indexing ${selected.length} selected work(s), ${sceneCount} episodes in total.",
   "app.예상_소요_시간은_eta_입니다_회차당_평균": "Estimated time: ${eta}. (Based on average per-episode processing time, about ${calls} Gemini calls)",
   "app.Gemini_API_호출이_발생하니_참고해주": "Please note this will make Gemini API calls.",
+  "app.작품_이름_바꾸기": "Rename work",
   "app.새_작품_제목을_입력해_주세요": "Please enter the new work title.",
   "app.작품_제목을_입력해_주세요": "Please enter the work title.",
   "app.작품_이름을_trimmed_으_로_바꿨어요": "Renamed the work to \"${trimmed}\".",

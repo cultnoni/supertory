@@ -1240,8 +1240,15 @@ async function openGitsiMeetingWindow(payload) {
 
 function setupGitsiMedia() {
   const ses = session.defaultSession;
-  const allowPermission = (permission) => {
+  const allowPermission = (permission, requestingUrl = "") => {
     const name = String(permission || "");
+    if (name === "clipboard-read") {
+      try {
+        return new URL(String(requestingUrl || "")).origin === new URL(APP_URL).origin;
+      } catch (_) {
+        return false;
+      }
+    }
     return (
       name === "media"
       || name === "display-capture"
@@ -1250,10 +1257,17 @@ function setupGitsiMedia() {
       || name === "notifications"
     );
   };
-  ses.setPermissionRequestHandler((_webContents, permission, callback) => {
-    callback(allowPermission(permission));
+  ses.setPermissionRequestHandler((webContents, permission, callback, details) => {
+    const requestingUrl = details?.requestingUrl || webContents?.getURL?.() || "";
+    callback(allowPermission(permission, requestingUrl));
   });
-  ses.setPermissionCheckHandler((_webContents, permission) => allowPermission(permission));
+  ses.setPermissionCheckHandler((webContents, permission, requestingOrigin, details) => {
+    const requestingUrl = requestingOrigin
+      || details?.requestingUrl
+      || webContents?.getURL?.()
+      || "";
+    return allowPermission(permission, requestingUrl);
+  });
   ses.setDisplayMediaRequestHandler(async (request, callback) => {
     try {
       const sources = await desktopCapturer.getSources({
