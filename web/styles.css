@@ -18753,6 +18753,12 @@ details { margin-top: 18px; border-top: 1px solid var(--line); border-bottom: 1p
 summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .scene-characters, .aliases { margin-top: 22px; padding: 15px; border: 1px solid var(--line); border-radius: 8px; background: var(--header-bg); }
 .scene-characters > label, .aliases h3 { margin: 0 0 8px; font-size: 14px; }
+.aliases h3 {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px;
+}
 .scene-characters-head {
   display: flex;
   align-items: flex-start;

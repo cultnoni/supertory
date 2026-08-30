@@ -1023,6 +1023,32 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(stored_hard, "19_hard")
 
-
-if __name__ == "__main__":
-    unittest.main()
+    def test_character_trait_history_table(self) -> None:
+        self.create_story()
+        self.create_character()
+        migration = Path(__file__).resolve().parents[1] / "db" / "072_character_trait_history.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("character_trait_history", tables)
+        self.db.execute(
+            "INSERT INTO character_trait_history"
+            "(character_id, project_id, scene_id, field_name, detected_content) "
+            "VALUES (40, 1, 30, 'profile_md', '검은 머리')"
+        )
+        value = self.db.execute(
+            "SELECT detected_content FROM character_trait_history WHERE character_id = 40"
+        ).fetchone()[0]
+        self.assertEqual(value, "검은 머리")
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 72"
+        ).fetchone()[0]
+        self.assertEqual(version, "character_trait_history")
+        stored = self.db.execute(
+            "SELECT field_name FROM character_trait_history WHERE character_id = 40"
+        ).fetchone()[0]
+        self.assertEqual(stored, "profile_md")

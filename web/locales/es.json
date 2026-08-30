@@ -2254,6 +2254,7 @@
   "app.중": "…",
   "app.오프라인_이_기기에_보관_중": "Sin conexión — almacenado en este dispositivo…",
   "app.완성_처리됐어요_가상독자_댓글도_받아볼_수": "¡Marcado como completo! Ahora puedes obtener comentarios de lectores virtuales",
+  "app.name_의_인물_설정에_새로운_내용_count가지가_추가됐어요": "Se añadieron ${count} datos nuevos a la ficha de ${name}",
   "app.나중엔_회차_뷰어_안_가상독자_댓글_받기_버": "Puedes volver a esto en cualquier momento con el botón 'Obtener comentarios de lectores virtuales' en el visor de episodios",
   "app.지금_받아보기": "Obtenerlos ahora",
   "app.이_회차에_가상독자_댓글을_받아_봐요": "Obtén comentarios de lectores virtuales en este episodio",

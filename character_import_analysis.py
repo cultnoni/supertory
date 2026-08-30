@@ -19,6 +19,8 @@ SHEET_FIELDS: tuple[tuple[str, str], ...] = (
 )
 SHEET_FIELD_KEYS = {key for key, _label in SHEET_FIELDS}
 FIELD_LABELS = {key: label for key, label in SHEET_FIELDS}
+PENDING_FIELD_KEYS = SHEET_FIELD_KEYS | {"aliases"}
+PENDING_FIELD_LABELS = {**FIELD_LABELS, "aliases": "다른 이름 / 별칭"}
 
 ROLE_KEYS = {"protagonist", "antagonist", "supporting", "minor"}
 ROLE_ALIASES = {
@@ -387,11 +389,11 @@ def list_pending_for_character(connection: sqlite3.Connection, character_id: int
     pending: dict[str, dict] = {}
     for row in rows:
         key = str(row["field_name"] or "")
-        if key not in SHEET_FIELD_KEYS:
+        if key not in PENDING_FIELD_KEYS:
             continue
         pending[key] = {
             "field_name": key,
-            "label": field_label(key),
+            "label": PENDING_FIELD_LABELS.get(key, key),
             "content": str(row["analyzed_content"] or ""),
             "created_at": row["created_at"],
         }

@@ -490,6 +490,17 @@ function toast(message, durationMs, options) {
     element.textContent = message;
   }
   element.classList.add("show");
+  if (typeof opts.onClick === "function") {
+    element.style.cursor = "pointer";
+    element.onclick = (event) => {
+      if (event.target.closest(".toast-close, .toast-action")) return;
+      hideToast();
+      opts.onClick();
+    };
+  } else {
+    element.style.cursor = "";
+    element.onclick = null;
+  }
   if (opts.sticky) {
     if (opts.closeOnOutside) {
       const outsideHandler = (event) => {
@@ -52397,6 +52408,107 @@ function showSceneCompleteReaderCommentsToast() {
   });
 }
 
+let sceneTraitAnalysisWatchTimer = 0;
+let sceneTraitAnalysisWatchSceneId = null;
+const characterTraitToastQueue = [];
+let characterTraitToastShowing = false;
+
+function stopSceneTraitAnalysisWatch() {
+  if (sceneTraitAnalysisWatchTimer) {
+    window.clearInterval(sceneTraitAnalysisWatchTimer);
+    sceneTraitAnalysisWatchTimer = 0;
+  }
+  sceneTraitAnalysisWatchSceneId = null;
+}
+
+function enqueueCharacterTraitToasts(characters) {
+  const items = Array.isArray(characters) ? characters : [];
+  for (const item of items) {
+    const count = Number(item?.count) || 0;
+    if (count <= 0) continue;
+    characterTraitToastQueue.push(item);
+  }
+  showNextCharacterTraitToast();
+}
+
+function showNextCharacterTraitToast() {
+  if (characterTraitToastShowing) return;
+  const item = characterTraitToastQueue.shift();
+  if (!item) return;
+  characterTraitToastShowing = true;
+  const name = String(item.name || "").trim() || i18n.t("app.이_인물");
+  const count = Number(item.count) || 0;
+  const characterId = Number(item.id);
+  const duration = 4200;
+  const openSheet = () => {
+    if (Number.isFinite(characterId) && characterId > 0) {
+      openCharacter(characterId).catch(handleError);
+    }
+  };
+  toast(
+    i18n.t("app.name_의_인물_설정에_새로운_내용_count가지가_추가됐어요", {
+      name,
+      count,
+    }),
+    duration,
+    {
+      dismissible: true,
+      action: {
+        label: i18n.t("app.인물_설정_열기"),
+        onClick: openSheet,
+      },
+      onClick: openSheet,
+    },
+  );
+  window.setTimeout(() => {
+    characterTraitToastShowing = false;
+    showNextCharacterTraitToast();
+  }, duration + 200);
+}
+
+function watchSceneTraitAnalysis(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  stopSceneTraitAnalysisWatch();
+  sceneTraitAnalysisWatchSceneId = id;
+  const startedAt = Date.now();
+  const tick = async () => {
+    if (sceneTraitAnalysisWatchSceneId !== id) return;
+    try {
+      const job = await api(`/api/scenes/${id}/trait-analysis`);
+      const status = String(job?.status || "idle");
+      if (status === "running") return;
+      if (status === "idle" && Date.now() - startedAt < 8000) return;
+      stopSceneTraitAnalysisWatch();
+      if (status === "done") {
+        const characters = Array.isArray(job?.characters) ? job.characters : [];
+        enqueueCharacterTraitToasts(characters);
+        if (
+          state.characterId &&
+          !$("characterEditor")?.classList.contains("hidden")
+        ) {
+          const touched = characters.some(
+            (entry) => Number(entry.id) === Number(state.characterId),
+          );
+          if (touched) {
+            try {
+              await openCharacter(state.characterId);
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        }
+      }
+    } catch (_) {
+      if (Date.now() - startedAt > 90000) stopSceneTraitAnalysisWatch();
+    }
+  };
+  sceneTraitAnalysisWatchTimer = window.setInterval(() => {
+    tick().catch(() => { /* keep quiet */ });
+  }, 1200);
+  tick().catch(() => { /* keep quiet */ });
+}
+
 function pulseViewerReaderCommentsButtonIfNeeded() {
   const btn = $("viewerReaderCommentsButton");
   const sceneId = Number(state.sceneId);
@@ -52599,7 +52711,10 @@ async function persistScene(options = {}) {
       clearReaderCommentsPulsePlayed(state.sceneId);
     }
     lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
-    if (becameComplete) showSceneCompleteReaderCommentsToast();
+    if (becameComplete) {
+      showSceneCompleteReaderCommentsToast();
+      watchSceneTraitAnalysis(state.sceneId);
+    }
     else if (!quiet) toast(i18n.t('app.저장했습니다'));
     syncViewerReaderCommentsButton({ pulse: becameComplete });
     return saved;
@@ -52869,6 +52984,7 @@ const CHARACTER_TORI_FIELDS = [
   { key: "profile_md", label: i18n.t('app.인물_설정'), inputId: "characterProfile" },
   { key: "strengths_md", label: i18n.t('app.무기_강점'), inputId: "characterStrengths" },
   { key: "weaknesses_md", label: i18n.t('app.약점'), inputId: "characterWeaknesses" },
+  { key: "aliases", label: i18n.t('index.다른_이름_별칭'), inputId: null },
 ];
 
 const TORI_TEXT_PREFIX = "〔토리〕";
@@ -52991,6 +53107,9 @@ async function applyCharacterToriAnalysis() {
     if ($("characterProfile")) $("characterProfile").value = character.profile_md || "";
     if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";
     if ($("characterWeaknesses")) $("characterWeaknesses").value = character.weaknesses_md || "";
+    if (Array.isArray(result.aliases)) {
+      setCharacterAliases(result.aliases);
+    }
     if (state.character.character) {
       state.character.character = character;
     }
@@ -53333,16 +53452,20 @@ function characterPayloadUnchanged(payload) {
 
 function applyCharacterSaveToState(payload) {
   if (state.character?.character) {
+    const currentVersion = Number(state.character.character.row_version || 0);
     Object.assign(state.character.character, {
       name: payload.name,
       sort_name: payload.sort_name,
-      role: payload.role,
+      role: payload.role || "",
       short_description: payload.short_description,
       profile_md: payload.profile_md,
       strengths_md: payload.strengths_md,
       weaknesses_md: payload.weaknesses_md,
       author_notes_md: payload.author_notes_md,
     });
+    if (currentVersion > 0) {
+      state.character.character.row_version = currentVersion + 1;
+    }
   }
   if (Array.isArray(payload.aliases)) {
     setCharacterAliases(payload.aliases);

@@ -41,6 +41,7 @@ import urllib.request
 
 import chapter_match
 import character_import_analysis
+import character_scene_traits
 import document_export
 import world_import_analysis
 import document_import
@@ -198,6 +199,7 @@ MIGRATION_068_PATH = ROOT / "db" / "068_translation_job_chapter_range.sql"
 MIGRATION_069_PATH = ROOT / "db" / "069_translation_segment_polish_proposal.sql"
 MIGRATION_070_PATH = ROOT / "db" / "070_translation_word_lookup_cache.sql"
 MIGRATION_071_PATH = ROOT / "db" / "071_character_role_nullable.py"
+MIGRATION_072_PATH = ROOT / "db" / "072_character_trait_history.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1600,11 +1602,14 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_070_PATH.read_text(encoding="utf-8"))
         if 71 not in applied:
             apply_migration_071(connection)
+        if 72 not in applied:
+            connection.executescript(MIGRATION_072_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
         ensure_import_delimiter_config_column(connection)
         ensure_character_tori_analysis_table(connection)
+        ensure_character_trait_history_table(connection)
         ensure_character_role_nullable(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
@@ -1857,6 +1862,45 @@ def ensure_reader_debate_tables(connection: sqlite3.Connection) -> None:
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (52, 'reader_debate')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_character_trait_history_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_trait_history (migration 072)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_trait_history'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.execute(
+            "CREATE TABLE IF NOT EXISTS character_trait_history ("
+            "id INTEGER PRIMARY KEY, "
+            "character_id INTEGER NOT NULL, "
+            "project_id INTEGER NOT NULL, "
+            "scene_id INTEGER NOT NULL, "
+            "field_name TEXT NOT NULL CHECK (length(trim(field_name)) > 0), "
+            "detected_content TEXT NOT NULL DEFAULT '', "
+            "created_at TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')), "
+            "FOREIGN KEY (character_id) REFERENCES character(id) ON DELETE CASCADE, "
+            "FOREIGN KEY (project_id) REFERENCES project(id) ON DELETE RESTRICT, "
+            "FOREIGN KEY (scene_id) REFERENCES scene(id) ON DELETE CASCADE)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_character_trait_history_character "
+            "ON character_trait_history(character_id, created_at, id)"
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_character_trait_history_scene "
+            "ON character_trait_history(scene_id, id)"
+        )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (72, 'character_trait_history')"
         )
     except sqlite3.Error:
         pass
@@ -4220,6 +4264,15 @@ READER_AVATAR_URL_PREFIX = "/assets/reader_avatars"
 _reader_comments_inflight: set[int] = set()
 _reader_comments_last_error: dict[int, str] = {}
 _reader_comments_inflight_lock = Lock()
+_trait_analysis_jobs: dict[int, dict] = {}
+_trait_analysis_inflight: set[int] = set()
+_trait_analysis_lock = Lock()
+
+
+def reset_trait_analysis_state() -> None:
+    with _trait_analysis_lock:
+        _trait_analysis_jobs.clear()
+        _trait_analysis_inflight.clear()
 
 GLUMP_Q1_ANSWERS = ("block", "perfectionism", "self_doubt", "burnout")
 GLUMP_Q2_ANSWERS = ("event", "sentence_struggle", "start", "together")
@@ -7262,6 +7315,171 @@ def schedule_scene_reader_comments(scene_id: int) -> dict:
     return _start_reader_comments_worker(scene_id)
 
 
+def _set_trait_analysis_job(scene_id: int, **kwargs) -> dict:
+    scene_id = int(scene_id)
+    with _trait_analysis_lock:
+        job = dict(_trait_analysis_jobs.get(scene_id) or {})
+        job.update(kwargs)
+        job.setdefault("scene_id", scene_id)
+        job.setdefault("characters", [])
+        job.setdefault("error", None)
+        _trait_analysis_jobs[scene_id] = job
+        generating = scene_id in _trait_analysis_inflight
+    return _trait_analysis_payload(scene_id, job, generating)
+
+
+def _trait_analysis_payload(scene_id: int, job: dict | None = None, generating: bool | None = None) -> dict:
+    scene_id = int(scene_id)
+    with _trait_analysis_lock:
+        if job is None:
+            job = dict(_trait_analysis_jobs.get(scene_id) or {})
+        if generating is None:
+            generating = scene_id in _trait_analysis_inflight
+    status = str(job.get("status") or ("running" if generating else "idle"))
+    if generating and status not in {"done", "skipped", "error"}:
+        status = "running"
+    return {
+        "ok": True,
+        "scene_id": scene_id,
+        "status": status,
+        "generating": generating,
+        "characters": list(job.get("characters") or []),
+        "error": job.get("error"),
+    }
+
+
+def get_scene_trait_analysis(scene_id: int) -> dict:
+    scene_id = int(scene_id)
+    with database() as connection:
+        scene = connection.execute(
+            "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
+            (scene_id,),
+        ).fetchone()
+        if scene is None:
+            raise LookupError("씬을 찾을 수 없습니다.")
+    return _trait_analysis_payload(scene_id)
+
+
+def schedule_scene_trait_analysis(scene_id: int) -> dict:
+    """Start background trait detection for a newly completed scene."""
+    scene_id = int(scene_id)
+    with _trait_analysis_lock:
+        already = scene_id in _trait_analysis_inflight
+        if not already:
+            _trait_analysis_inflight.add(scene_id)
+            _trait_analysis_jobs[scene_id] = {
+                "scene_id": scene_id,
+                "status": "running",
+                "characters": [],
+                "error": None,
+            }
+    if already:
+        payload = _trait_analysis_payload(scene_id)
+        payload["started"] = False
+        return payload
+    try:
+        worker = Thread(
+            target=_scene_trait_analysis_worker,
+            args=(scene_id,),
+            daemon=True,
+            name=f"scene-trait-analysis-{scene_id}",
+        )
+        worker.start()
+    except Exception:
+        with _trait_analysis_lock:
+            _trait_analysis_inflight.discard(scene_id)
+        _set_trait_analysis_job(scene_id, status="error", error="worker_start_failed")
+        raise
+    payload = _trait_analysis_payload(scene_id)
+    payload["started"] = True
+    return payload
+
+
+def _scene_trait_analysis_worker(scene_id: int) -> None:
+    try:
+        generate_scene_trait_analysis(scene_id)
+    except Exception as error:
+        _set_trait_analysis_job(
+            scene_id,
+            status="error",
+            characters=[],
+            error=str(error)[:400],
+        )
+    finally:
+        with _trait_analysis_lock:
+            _trait_analysis_inflight.discard(int(scene_id))
+
+
+def generate_scene_trait_analysis(scene_id: int) -> dict:
+    """Detect lasting traits of registered appearing characters. Never blocks persist."""
+    scene_id = int(scene_id)
+    with database() as connection:
+        row = connection.execute(
+            """
+            SELECT s.id, s.project_id, r.content_md
+            FROM scene s
+            JOIN project p ON p.id = s.project_id
+            JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1
+            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
+            """,
+            (scene_id,),
+        ).fetchone()
+        if row is None:
+            return _set_trait_analysis_job(
+                scene_id, status="skipped", characters=[], error="scene_missing"
+            )
+        project_id = int(row["project_id"])
+        manuscript = plain_text_from_content(str(row["content_md"] or "")).strip()
+        appearing = character_scene_traits.list_appearing_characters(
+            connection, project_id, manuscript
+        )
+    if not appearing:
+        return _set_trait_analysis_job(
+            scene_id, status="skipped", characters=[], error=None
+        )
+    if not gemini_client.is_configured():
+        return _set_trait_analysis_job(
+            scene_id,
+            status="skipped",
+            characters=[],
+            error="gemini_not_configured",
+        )
+    system, prompt = character_scene_traits.build_trait_prompt(manuscript, appearing)
+    try:
+        raw = gemini_client.generate_text(
+            prompt,
+            system=system,
+            temperature=0.1,
+            max_output_tokens=2048,
+        )
+    except gemini_client.GeminiError as error:
+        return _set_trait_analysis_job(
+            scene_id,
+            status="error",
+            characters=[],
+            error=str(error)[:400],
+        )
+    parsed = character_scene_traits.parse_trait_json(raw, appearing)
+    with database() as connection:
+        appearing = character_scene_traits.list_appearing_characters(
+            connection, project_id, manuscript
+        )
+        summaries = character_scene_traits.apply_trait_detections(
+            connection,
+            project_id=project_id,
+            scene_id=scene_id,
+            appearing=appearing,
+            parsed=parsed,
+        )
+    status = "done" if summaries else "skipped"
+    return _set_trait_analysis_job(
+        scene_id,
+        status=status,
+        characters=summaries,
+        error=None,
+    )
+
+
 def schedule_additional_scene_reader_comments(scene_id: int) -> dict:
     """Start a refresh batch of unused personas (up to 3)."""
     scene_id = int(scene_id)
@@ -8170,6 +8388,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/reader-comments", path)
             if match:
                 self.send_json(list_scene_reader_comments(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/trait-analysis", path)
+            if match:
+                self.send_json(get_scene_trait_analysis(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
@@ -23003,6 +23226,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 schedule_scene_reader_comments(scene_id)
             except Exception:
                 pass
+            try:
+                schedule_scene_trait_analysis(scene_id)
+            except Exception:
+                pass
         return {
             "ok": True,
             "row_version": payload["row_version"],
@@ -23117,7 +23344,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 item = {
                     "id": int(row["id"]),
                     "name": str(row["name"] or ""),
-                    "role": str(row["role"] or "supporting"),
+                    "role": str(row["role"] or "") or None,
                     "aliases": alias_by_id.get(int(row["id"]), []),
                 }
                 characters.append(item)
@@ -23359,8 +23586,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def apply_character_tori_analysis(self, character_id: int, body: dict) -> dict:
         field_name = str(body.get("field_name") or body.get("field") or "").strip()
-        if not character_import_analysis.is_sheet_field(field_name):
-            raise ValueError("바꿀 수 있는 인물 설정 칸이 아닙니다.")
         with database() as connection:
             row = connection.execute(
                 "SELECT id, project_id FROM character WHERE id = ? AND deleted_at IS NULL",
@@ -23368,9 +23593,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             ).fetchone()
             if row is None:
                 raise ValueError("캐릭터를 찾을 수 없습니다.")
-            character_import_analysis.apply_pending_field(
-                connection, int(character_id), field_name
-            )
+            if field_name == "aliases":
+                character_scene_traits.apply_pending_aliases(connection, int(character_id))
+            elif character_import_analysis.is_sheet_field(field_name):
+                character_import_analysis.apply_pending_field(
+                    connection, int(character_id), field_name
+                )
+            else:
+                raise ValueError("바꿀 수 있는 인물 설정 칸이 아닙니다.")
         return self.character_detail(int(character_id))
 
     def apply_world_tori_analysis(self, project_id: int, body: dict) -> dict:

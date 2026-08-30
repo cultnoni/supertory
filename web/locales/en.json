@@ -2254,6 +2254,7 @@
   "app.중": "…",
   "app.오프라인_이_기기에_보관_중": "Offline — stored on this device…",
   "app.완성_처리됐어요_가상독자_댓글도_받아볼_수": "Marked as complete! You can now get virtual reader comments",
+  "app.name_의_인물_설정에_새로운_내용_count가지가_추가됐어요": "${name}'s character sheet has ${count} new detail(s)",
   "app.나중엔_회차_뷰어_안_가상독자_댓글_받기_버": "You can revisit this anytime via the 'Get virtual reader comments' button in the episode viewer",
   "app.지금_받아보기": "Get them now",
   "app.이_회차에_가상독자_댓글을_받아_봐요": "Get virtual reader comments on this episode",

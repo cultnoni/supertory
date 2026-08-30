@@ -2212,7 +2212,12 @@
             <textarea id="characterNotes" placeholder="독자에게 보이지 않는 비밀 설정이나 수정 메모" data-i18n-placeholder="index.독자에게_보이지_않는_비밀_설정이나_수정_메"></textarea>
           </label>
           <section class="aliases">
-            <h3 data-i18n="index.다른_이름_별칭">다른 이름 / 별칭</h3>
+            <h3>
+              <span data-i18n="index.다른_이름_별칭">다른 이름 / 별칭</span>
+              <span class="character-sheet-field-head">
+                <button type="button" class="character-analysis-badge hidden" data-tori-field="aliases" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">새 분석 있음</button>
+              </span>
+            </h3>
             <div id="aliasList" class="chips"></div>
             <div class="inline-add">
               <input id="newAlias" placeholder="예: 검은 여우" data-i18n-placeholder="index.예_검은_여우" aria-label="다른 이름 / 별칭" data-i18n-aria-label="index.다른_이름_별칭">
