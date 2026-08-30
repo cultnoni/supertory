@@ -5811,7 +5811,19 @@ function setupRichEditor() {
 }
 
 const statusLabel = { idea: i18n.t('app.구상'), outline: i18n.t('app.개요'), draft: i18n.t('app.초고'), revision: i18n.t('app.수정'), complete: i18n.t('app.완성') };
-const roleLabel = { protagonist: i18n.t('app.주인공'), antagonist: i18n.t('app.대립_인물'), supporting: i18n.t('app.조연'), minor: i18n.t('app.단역') };
+const CHARACTER_STORY_ROLES = ["protagonist", "antagonist", "supporting", "minor"];
+const roleLabel = {
+  protagonist: i18n.t('app.주연'),
+  antagonist: i18n.t('app.적대자'),
+  supporting: i18n.t('app.조력자'),
+  minor: i18n.t('app.단역'),
+};
+const CHARACTER_ROLE_FILTER_KEY = "supertory.characterRoleFilter";
+const CHARACTER_BOARD_GROUP_KEY = "supertory.characterBoardGroupView";
+const CHARACTER_ROLE_COLLAPSE_KEY = "supertory.characterRoleGroupsCollapsed";
+let characterRoleFilter = "all";
+let characterBoardGroupView = false;
+let characterRoleGroupsCollapsed = {};
 const purposeLabel = {
   general_novel: i18n.t('app.일반소설'),
   web_novel: i18n.t('app.웹소설'),
@@ -9294,34 +9306,206 @@ async function openSynopsisMain() {
 function renderCharacterBoard() {
   const grid = $("characterBoardGrid");
   if (!grid) return;
-  if (!state.characters.length) {
+  const list = Array.isArray(state.characters) ? state.characters : [];
+  renderCharacterRoleFilterRow(list);
+  syncCharacterBoardGroupToggle();
+  if (!list.length) {
+    grid.classList.remove("is-grouped");
     grid.innerHTML = i18n.t('app.p_class_character_board');
     return;
   }
-  grid.innerHTML = state.characters.map((character) => {
-    const name = escapeHtml(character.name || i18n.t('app.이름_없음'));
-    const role = escapeHtml(roleLabel[character.role] || character.role || "");
-    const summary = escapeHtml(
-      String(character.short_description || "").trim()
-      || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
-      || i18n.t('app.소개를_적어_보세요')
-    );
-    const active = Number(state.characterId) === Number(character.id) ? "is-active" : "";
-    const analysisMark = character.has_tori_analysis
-      ? i18n.t('app.span_class_character_bo')
-      : "";
-    return `
+  if (characterBoardGroupView) {
+    grid.classList.add("is-grouped");
+    grid.innerHTML = CHARACTER_STORY_ROLES.concat(["unspecified"]).map((key) => {
+      const members = key === "unspecified"
+        ? list.filter((ch) => !characterStoryRole(ch.role))
+        : list.filter((ch) => characterStoryRole(ch.role) === key);
+      const collapsed = Boolean(characterRoleGroupsCollapsed[key]);
+      const label = key === "unspecified" ? i18n.t("app.미지정") : (roleLabel[key] || key);
+      const cards = members.length
+        ? `<div class="character-board-group-cards">${members.map(characterBoardCardHtml).join("")}</div>`
+        : `<p class="character-board-group-empty">${escapeHtml(i18n.t("app.이_역할의_인물이_아직_없어요"))}</p>`;
+      return `
+        <section class="character-board-group ${collapsed ? "is-collapsed" : ""}" data-character-role-group="${key}">
+          <button type="button" class="character-board-group-head" data-character-role-group-toggle="${key}" aria-expanded="${collapsed ? "false" : "true"}">
+            <span class="character-board-group-caret" aria-hidden="true">${collapsed ? "▸" : "▼"}</span>
+            <span class="character-board-group-title">${escapeHtml(label)} (${members.length})</span>
+          </button>
+          <div class="character-board-group-body">${cards}</div>
+        </section>`;
+    }).join("");
+  } else {
+    grid.classList.remove("is-grouped");
+    const shown = filteredCharactersForBoard(list);
+    grid.innerHTML = shown.length
+      ? shown.map(characterBoardCardHtml).join("")
+      : `<p class="character-board-empty">${escapeHtml(i18n.t("app.이_역할의_인물이_아직_없어요"))}</p>`;
+  }
+  grid.querySelectorAll("[data-character-board]").forEach((button) => {
+    button.addEventListener("click", () => {
+      openCharacter(button.dataset.characterBoard).catch(handleError);
+    });
+  });
+  grid.querySelectorAll("[data-character-role-group-toggle]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      const key = button.getAttribute("data-character-role-group-toggle") || "";
+      if (!key) return;
+      characterRoleGroupsCollapsed[key] = !characterRoleGroupsCollapsed[key];
+      persistCharacterBoardViewPrefs();
+      renderCharacterBoard();
+    });
+  });
+}
+
+function characterStoryRole(role) {
+  const key = String(role || "").trim();
+  return CHARACTER_STORY_ROLES.includes(key) ? key : "";
+}
+
+function characterStoryRoleLabel(role) {
+  const key = characterStoryRole(role);
+  return key ? (roleLabel[key] || key) : i18n.t("app.미지정");
+}
+
+function characterRoleCounts(list) {
+  const counts = {
+    all: list.length,
+    protagonist: 0,
+    antagonist: 0,
+    supporting: 0,
+    minor: 0,
+    unspecified: 0,
+  };
+  list.forEach((ch) => {
+    const key = characterStoryRole(ch.role);
+    if (key) counts[key] += 1;
+    else counts.unspecified += 1;
+  });
+  return counts;
+}
+
+function filteredCharactersForBoard(list) {
+  const rows = Array.isArray(list) ? list : [];
+  const filter = characterRoleFilter || "all";
+  if (filter === "all") return rows;
+  if (filter === "unspecified") return rows.filter((ch) => !characterStoryRole(ch.role));
+  return rows.filter((ch) => characterStoryRole(ch.role) === filter);
+}
+
+function characterBoardCardHtml(character) {
+  const name = escapeHtml(character.name || i18n.t('app.이름_없음'));
+  const role = escapeHtml(characterStoryRoleLabel(character.role));
+  const summary = escapeHtml(
+    String(character.short_description || "").trim()
+    || String(character.profile_md || "").split(/\n/).map((l) => l.trim()).find(Boolean)
+    || i18n.t('app.소개를_적어_보세요')
+  );
+  const active = Number(state.characterId) === Number(character.id) ? "is-active" : "";
+  const analysisMark = character.has_tori_analysis
+    ? i18n.t('app.span_class_character_bo')
+    : "";
+  return `
       <button type="button" class="character-board-card ${active}" data-character-board="${character.id}" title="${name}">
         <span class="character-board-card-name">${name}</span>
         <span class="character-board-card-role">${role}</span>
         <span class="character-board-card-summary">${summary}</span>
         ${analysisMark}
       </button>`;
+}
+
+function persistCharacterBoardViewPrefs() {
+  try {
+    localStorage.setItem(CHARACTER_ROLE_FILTER_KEY, characterRoleFilter || "all");
+    localStorage.setItem(CHARACTER_BOARD_GROUP_KEY, characterBoardGroupView ? "1" : "0");
+    localStorage.setItem(CHARACTER_ROLE_COLLAPSE_KEY, JSON.stringify(characterRoleGroupsCollapsed || {}));
+  } catch (_) { /* ignore */ }
+}
+
+function loadCharacterBoardViewPrefs() {
+  try {
+    const filter = String(localStorage.getItem(CHARACTER_ROLE_FILTER_KEY) || "all").trim();
+    characterRoleFilter = (filter === "all" || CHARACTER_STORY_ROLES.includes(filter) || filter === "unspecified")
+      ? filter
+      : "all";
+    characterBoardGroupView = localStorage.getItem(CHARACTER_BOARD_GROUP_KEY) === "1";
+    const raw = JSON.parse(localStorage.getItem(CHARACTER_ROLE_COLLAPSE_KEY) || "{}");
+    characterRoleGroupsCollapsed = raw && typeof raw === "object" ? raw : {};
+  } catch (_) {
+    characterRoleFilter = "all";
+    characterBoardGroupView = false;
+    characterRoleGroupsCollapsed = {};
+  }
+}
+
+function renderCharacterRoleFilterRow(list) {
+  const row = $("characterRoleFilterRow");
+  if (!row) return;
+  const counts = characterRoleCounts(list);
+  const chips = [
+    ["all", i18n.t("app.전체"), counts.all],
+    ["protagonist", roleLabel.protagonist, counts.protagonist],
+    ["antagonist", roleLabel.antagonist, counts.antagonist],
+    ["supporting", roleLabel.supporting, counts.supporting],
+    ["minor", roleLabel.minor, counts.minor],
+    ["unspecified", i18n.t("app.미지정"), counts.unspecified],
+  ];
+  row.classList.toggle("is-grouped", characterBoardGroupView);
+  row.innerHTML = chips.map(([value, label, count]) => {
+    const active = !characterBoardGroupView && characterRoleFilter === value ? "is-active" : "";
+    return `<button type="button" class="character-role-filter-chip ${active}" data-character-role-filter="${value}" role="tab" aria-selected="${active ? "true" : "false"}">${escapeHtml(label)} (${count})</button>`;
   }).join("");
-  grid.querySelectorAll("[data-character-board]").forEach((button) => {
-    button.addEventListener("click", () => {
-      openCharacter(button.dataset.characterBoard).catch(handleError);
+  row.querySelectorAll("[data-character-role-filter]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      characterRoleFilter = btn.getAttribute("data-character-role-filter") || "all";
+      characterBoardGroupView = false;
+      persistCharacterBoardViewPrefs();
+      renderCharacterBoard();
     });
+  });
+}
+
+function syncCharacterBoardGroupToggle() {
+  const toggle = $("characterBoardGroupToggle");
+  if (toggle) toggle.checked = Boolean(characterBoardGroupView);
+}
+
+function setupCharacterBoardViewControls() {
+  loadCharacterBoardViewPrefs();
+  const toggle = $("characterBoardGroupToggle");
+  if (toggle && toggle.dataset.bound !== "1") {
+    toggle.dataset.bound = "1";
+    toggle.addEventListener("change", () => {
+      characterBoardGroupView = Boolean(toggle.checked);
+      persistCharacterBoardViewPrefs();
+      renderCharacterBoard();
+    });
+  }
+}
+
+function syncCharacterRoleChips(role) {
+  const key = characterStoryRole(role);
+  const hidden = $("characterRole");
+  if (hidden) hidden.value = key;
+  document.querySelectorAll("#characterRoleChips [data-character-role]").forEach((btn) => {
+    const on = btn.getAttribute("data-character-role") === key && Boolean(key);
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function setupCharacterRoleChips() {
+  const host = $("characterRoleChips");
+  if (!host || host.dataset.bound === "1") return;
+  host.dataset.bound = "1";
+  host.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-character-role]");
+    if (!chip || !host.contains(chip)) return;
+    event.preventDefault();
+    const next = chip.getAttribute("data-character-role") || "";
+    const current = String($("characterRole")?.value || "");
+    syncCharacterRoleChips(current === next ? "" : next);
+    markCharacterDirty();
   });
 }
 
@@ -9558,6 +9742,7 @@ function setupSettingsCodex() {
   $("closeCharacterBoardButton")?.addEventListener("click", () => closeCharacterBoard().catch(handleError));
   $("closeCharacterEditorButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
+  setupCharacterBoardViewControls();
   bindSettingsDocSidebarInput("intro");
   bindSettingsDocSidebarInput("intent");
   bindSettingsDocSidebarInput("synopsis");
@@ -42864,7 +43049,7 @@ function renderCharacters() {
   list.innerHTML = state.characters.length ? state.characters.map((character) => {
     const firstLine = String(character.short_description || "").trim()
       || String(character.profile_md || "").split(/\n/).map((line) => line.trim()).find(Boolean)
-      || roleLabel[character.role]
+      || roleLabel[characterStoryRole(character.role)]
       || "";
     const analysisMark = character.has_tori_analysis
       ? i18n.t('app.span_class_character_li')
@@ -53119,7 +53304,7 @@ function characterEditorPayload() {
   return {
     name: String($("characterName")?.value || "").trim(),
     sort_name: String($("characterSortName")?.value || ""),
-    role: $("characterRole")?.value || "supporting",
+    role: characterStoryRole($("characterRole")?.value),
     short_description: String($("characterSummary")?.value || ""),
     profile_md: String($("characterProfile")?.value || ""),
     strengths_md: String($("characterStrengths")?.value || ""),
@@ -53136,7 +53321,7 @@ function characterPayloadUnchanged(payload) {
   return (
     payload.name === String(ch.name || "").trim()
     && payload.sort_name === String(ch.sort_name || "")
-    && payload.role === (ch.role || "supporting")
+    && characterStoryRole(payload.role) === characterStoryRole(ch.role)
     && payload.short_description === String(ch.short_description || "")
     && payload.profile_md === String(ch.profile_md || "")
     && payload.strengths_md === String(ch.strengths_md || "")
@@ -53167,7 +53352,7 @@ function applyCharacterSaveToState(payload) {
   if (listItem) {
     listItem.name = payload.name;
     listItem.sort_name = payload.sort_name;
-    listItem.role = payload.role;
+    listItem.role = payload.role || "";
     listItem.short_description = payload.short_description;
     listItem.profile_md = payload.profile_md;
     listItem.strengths_md = payload.strengths_md;
@@ -53276,6 +53461,7 @@ function setupCharacterEditorAutosave() {
   const form = $("characterEditor");
   if (!form || form.dataset.autosaveBound === "1") return;
   form.dataset.autosaveBound = "1";
+  setupCharacterRoleChips();
   CHARACTER_EDITOR_FIELD_IDS.forEach((id) => {
     const el = $(id);
     if (!el) return;
@@ -53343,7 +53529,7 @@ async function openCharacter(characterId) {
   characterDirty = false;
   $("characterName").value = character.name;
   $("characterSortName").value = character.sort_name;
-  $("characterRole").value = character.role;
+  syncCharacterRoleChips(character.role);
   $("characterSummary").value = character.short_description;
   $("characterProfile").value = character.profile_md;
   if ($("characterStrengths")) $("characterStrengths").value = character.strengths_md || "";

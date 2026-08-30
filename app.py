@@ -197,6 +197,7 @@ MIGRATION_067_PATH = ROOT / "db" / "067_translation_segment_manual_review.sql"
 MIGRATION_068_PATH = ROOT / "db" / "068_translation_job_chapter_range.sql"
 MIGRATION_069_PATH = ROOT / "db" / "069_translation_segment_polish_proposal.sql"
 MIGRATION_070_PATH = ROOT / "db" / "070_translation_word_lookup_cache.sql"
+MIGRATION_071_PATH = ROOT / "db" / "071_character_role_nullable.py"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1597,11 +1598,14 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_069_PATH.read_text(encoding="utf-8"))
         if 70 not in applied:
             connection.executescript(MIGRATION_070_PATH.read_text(encoding="utf-8"))
+        if 71 not in applied:
+            apply_migration_071(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
         ensure_import_delimiter_config_column(connection)
         ensure_character_tori_analysis_table(connection)
+        ensure_character_role_nullable(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
         ensure_scene_reader_comments_table(connection)
@@ -1680,6 +1684,18 @@ def apply_migration_046(connection: sqlite3.Connection) -> None:
 
 def apply_migration_053(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_053_PATH).apply(connection)
+
+
+def apply_migration_071(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_071_PATH).apply(connection)
+
+
+def ensure_character_role_nullable(connection: sqlite3.Connection) -> None:
+    """Idempotent: character.role may be NULL (migration 071)."""
+    try:
+        _load_py_migration(MIGRATION_071_PATH).apply(connection)
+    except sqlite3.Error:
+        pass
 
 
 def ensure_virtual_reader_personas(connection: sqlite3.Connection) -> None:
@@ -4296,11 +4312,38 @@ LUCKY_SENTENCE_MAX_DRAWS = 3
 INTERROGATION_MIN_CHARS = WILDCARD_SPARK_MIN_CHARS
 INTERROGATION_EPISODE_CAP = 1500
 _CHARACTER_ROLE_KO = {
-    "protagonist": "주인공",
-    "antagonist": "대립 인물",
-    "supporting": "조연",
+    "protagonist": "주연",
+    "antagonist": "적대자",
+    "supporting": "조력자",
     "minor": "단역",
 }
+CHARACTER_STORY_ROLES = frozenset({"protagonist", "antagonist", "supporting", "minor"})
+CHARACTER_STORY_ROLE_ALIASES = {
+    "protagonist": "protagonist",
+    "주인공": "protagonist",
+    "주연": "protagonist",
+    "antagonist": "antagonist",
+    "대립": "antagonist",
+    "대립 인물": "antagonist",
+    "적대자": "antagonist",
+    "악역": "antagonist",
+    "supporting": "supporting",
+    "조연": "supporting",
+    "조력자": "supporting",
+    "minor": "minor",
+    "단역": "minor",
+}
+
+
+def normalize_character_story_role(value: object) -> str | None:
+    """Map UI/API role to stored key, or None for 미지정."""
+    raw = str(value or "").strip()
+    if not raw or raw.lower() in {"unspecified", "none", "null", "미지정"}:
+        return None
+    mapped = CHARACTER_STORY_ROLE_ALIASES.get(raw) or CHARACTER_STORY_ROLE_ALIASES.get(raw.lower())
+    if mapped in CHARACTER_STORY_ROLES:
+        return mapped
+    raise ValueError("올바르지 않은 캐릭터 역할입니다.")
 
 
 def _clip_recent_episode(episode_content: object, limit: int = WILDCARD_SPARK_MAX_CHARS) -> str:
@@ -11423,12 +11466,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         continue
                     name = str(item.get("name") or "").strip() or "이름 없는 인물"
                     role = str(item.get("role") or "").strip()
-                    role_ko = {
-                        "protagonist": "주인공",
-                        "antagonist": "대립 인물",
-                        "supporting": "조연",
-                        "minor": "단역",
-                    }.get(role, role)
+                    role_ko = _CHARACTER_ROLE_KO.get(role, role)
                     bits = [f"이름: {name}"]
                     if role_ko:
                         bits.append(f"역할: {role_ko}")
@@ -23243,8 +23281,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         name = str(body.get("name", "")).strip()
         if not name:
             raise ValueError("캐릭터 이름을 입력해 주세요.")
-        role = str(body.get("role", "supporting"))
-        if role not in {"protagonist", "antagonist", "supporting", "minor"}:
+        try:
+            role = normalize_character_story_role(body.get("role"))
+        except ValueError:
             raise ValueError("올바르지 않은 캐릭터 역할입니다.")
         expected_version = int(body.get("row_version", 0))
         with database() as connection:

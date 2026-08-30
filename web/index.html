@@ -2156,12 +2156,6 @@
           </div>
           <div class="editor-topline">
             <input id="characterName" class="title-input" aria-label="캐릭터 이름" data-i18n-aria-label="index.캐릭터_이름" placeholder="캐릭터 이름" data-i18n-placeholder="index.캐릭터_이름">
-            <select id="characterRole" aria-label="캐릭터 역할" data-i18n-aria-label="index.캐릭터_역할">
-              <option value="protagonist" data-i18n="app.주인공">주인공</option>
-              <option value="antagonist" data-i18n="app.대립_인물">대립 인물</option>
-              <option value="supporting" data-i18n="app.조연">조연</option>
-              <option value="minor" data-i18n="app.단역">단역</option>
-            </select>
           </div>
           <div class="character-portrait-row" aria-label="캐릭터 이미지" data-i18n-aria-label="index.캐릭터_이미지">
             <div class="character-portrait-preview-wrap">
@@ -2178,6 +2172,16 @@
           <label><span data-i18n="app.정렬용_이름">정렬용 이름</span>
             <input id="characterSortName" placeholder="예: 김, 지은" data-i18n-placeholder="index.예_김_지은">
           </label>
+          <div class="character-role-field">
+            <p class="character-role-label" data-i18n="index.역할">역할</p>
+            <input type="hidden" id="characterRole" value="">
+            <div id="characterRoleChips" class="character-role-chips" role="radiogroup" aria-label="역할" data-i18n-aria-label="index.역할">
+              <button type="button" class="character-role-chip" data-character-role="protagonist" data-i18n="app.주연">주연</button>
+              <button type="button" class="character-role-chip" data-character-role="antagonist" data-i18n="app.적대자">적대자</button>
+              <button type="button" class="character-role-chip" data-character-role="supporting" data-i18n="app.조력자">조력자</button>
+              <button type="button" class="character-role-chip" data-character-role="minor" data-i18n="app.단역">단역</button>
+            </div>
+          </div>
           <label><span data-i18n="app.한_줄_소개">한 줄 소개</span>
             <span class="character-sheet-field-head">
               <button type="button" class="character-analysis-badge hidden" data-tori-field="short_description" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">새 분석 있음</button>
@@ -2491,6 +2495,13 @@
               <button type="button" id="newCharacterMainButton" class="secondary compact-btn" data-i18n="index.캐릭터">+ 캐릭터</button>
               <button type="button" id="closeCharacterBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
+          </div>
+          <div class="character-board-view-bar">
+            <div id="characterRoleFilterRow" class="character-role-filter-row" role="tablist" aria-label="역할 필터" data-i18n-aria-label="index.역할별_필터"></div>
+            <label class="character-board-group-toggle">
+              <input type="checkbox" id="characterBoardGroupToggle">
+              <span data-i18n="app.그룹으로_보기">그룹으로 보기</span>
+            </label>
           </div>
           <div id="characterBoardGrid" class="character-board-grid" aria-label="캐릭터 카드 목록" data-i18n-aria-label="index.캐릭터_카드_목록"></div>
         </div>

@@ -24,13 +24,16 @@ ROLE_KEYS = {"protagonist", "antagonist", "supporting", "minor"}
 ROLE_ALIASES = {
     "protagonist": "protagonist",
     "주인공": "protagonist",
+    "주연": "protagonist",
     "주역": "protagonist",
     "antagonist": "antagonist",
     "대립": "antagonist",
     "대립 인물": "antagonist",
+    "적대자": "antagonist",
     "악역": "antagonist",
     "supporting": "supporting",
     "조연": "supporting",
+    "조력자": "supporting",
     "minor": "minor",
     "단역": "minor",
 }
@@ -323,9 +326,9 @@ def apply_parsed_characters(
         created = False
         if character_id is None:
             sort_order = _next_sort_order(connection, project_id)
-            role = item.get("role") or "supporting"
+            role = item.get("role")
             if role not in ROLE_KEYS:
-                role = "supporting"
+                role = None
             cursor = connection.execute(
                 "INSERT INTO character(project_id, name, role, sort_order) VALUES (?, ?, ?, ?)",
                 (int(project_id), name, role, sort_order),
