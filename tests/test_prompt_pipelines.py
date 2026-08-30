@@ -38,7 +38,6 @@ class PromptCopyIdentityTests(unittest.TestCase):
             "buildWorldDescriptionPrompt",
             "buildSubmissionSynopsisPrompt",
             "buildTensionCurvePrompt",
-            "buildDescriptionExpandPrompt",
         ):
             self.assertIn(f"function {name}_Webnovel(", js)
             self.assertIn(f"function {name}_GenreLit(", js)
@@ -85,10 +84,6 @@ class PromptCopyIdentityTests(unittest.TestCase):
             (
                 "styleblend",
                 lambda cid: app.SuperToryHandler._build_style_blend_check_prompt(SAMPLE, SAMPLE, cluster_id=cid),
-            ),
-            (
-                "descexpand",
-                lambda cid: app.SuperToryHandler._build_description_expand_prompt(SAMPLE, "", "", "", cluster_id=cid),
             ),
             (
                 "subsynopsis",

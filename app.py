@@ -11168,13 +11168,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def ai_assist(self, body: dict) -> dict:
         """Writing helper powered by Gemini (.env GEMINI_API_KEY)."""
         mode = str(body.get("mode", "free") or "free").strip().lower()
+        if mode == "descexpand":
+            # Merged into rewrite (same target-text + direction interface).
+            mode = "rewrite"
+            if not str(body.get("rewrite_direction") or "").strip():
+                expand_dir = str(body.get("expand_direction") or "").strip()
+                if expand_dir:
+                    body["rewrite_direction"] = expand_dir
         allowed = {
             "continue", "rewrite", "summarize", "summarize_multi",
             "ideas", "ideas_next_exists",
             "analyze", "analyze_multi", "brainstorm", "brainstorm_next_exists",
             "successfeedback",
             "foreshadow", "plottwist", "worldscan", "worldscan_multi",
-            "worlddesc", "descexpand", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
+            "worlddesc", "dupcheck", "temphook", "chardebate", "free", "chat", "subsynopsis", "styleblend",
             "similar_words", "chapter_subtitles",
         }
         if mode not in allowed:
@@ -11663,7 +11670,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 raise ValueError("빌드업·단서를 한 줄 이상 적어 주세요.")
             if not scene_content:
                 raise ValueError("검수할 현재 원고를 먼저 열어 주세요.")
-        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm", "worlddesc", "descexpand"} and not scene_content and not user_prompt:
+        if mode in {"continue", "rewrite", "summarize", "analyze", "brainstorm", "worlddesc"} and not scene_content and not user_prompt:
             raise ValueError("먼저 원고를 쓰거나, 요청 내용을 적어 주세요.")
         if mode == "subsynopsis":
             # Index + outline_summary only — manuscript not required.
@@ -12571,47 +12578,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     f"씬 제목: {scene_title or '(없음)'}",
                     f"씬 요약: {scene_synopsis or '(없음)'}",
                 ]
-            elif mode == "descexpand":
-                indexed_expand = str(body.get("indexed_prompt") or "").strip()
-                selected_text = plain_text_from_content(
-                    str(body.get("selected_text") or scene_content or "")
-                )
-                context_before = plain_text_from_content(
-                    str(body.get("context_before") or "")
-                )
-                context_after = plain_text_from_content(
-                    str(body.get("context_after") or "")
-                )
-                direction_hint = str(
-                    body.get("expand_direction") or body.get("user_prompt") or ""
-                ).strip()
-                if not selected_text and not indexed_expand:
-                    raise ValueError("펼칠 문장이나 문단을 먼저 드래그로 선택해 주세요.")
-                if indexed_expand:
-                    instruction = indexed_expand
-                else:
-                    instruction = self._build_description_expand_prompt(
-                        selected_text,
-                        context_before,
-                        context_after,
-                        direction_hint,
-                        cluster_id=prompt_cluster_id,
-                        main_genre=main_genre_key,
-                        sub_genre=sub_genre_key,
-                        genre_detail=genre_detail_key,
-                        content_rating=content_rating_key,
-                    )
-                instruction = inject_genre_playbook_style_section(
-                    instruction, main_genre_key, sub_genre_key, genre_detail_key, content_rating_key
-                )
-                context_parts = [
-                    active_project_context,
-                    f"작품 제목: {project_title or '(없음)'}",
-                    f"작품 종류: {purpose_label}",
-                    genre_context,
-                    f"씬 제목: {scene_title or '(없음)'}",
-                    f"씬 요약: {scene_synopsis or '(없음)'}",
-                ]
             elif mode == "temphook":
                 # 서사 템포 & 훅 분석기 — manuscript-only, no project_index.
                 kind = str(body.get("temphook_kind") or "curve").strip().lower()
@@ -13328,18 +13294,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             content_rating,
         )
 
+
     @staticmethod
-    def _build_rewrite_prompt_webnovel(
+    def _rewrite_prompt_body(
         selected_text: str,
         context_before: str = "",
         context_after: str = "",
         direction_hint: str = "",
     ) -> str:
-        """Task-only rewrite prompt (Core Identity lives in system).
-
-        Mirrors web/app.js buildRewritePrompt: polish if needed, else 2–3
-        tone-safe alternatives (no forced defects). Optional direction_hint
-        from the author steers how to polish.
+        """Shared rewrite task prompt. Empty direction also considers thin
+        atmosphere / space / sensory description as a polish axis.
         """
         selected = str(selected_text or "").strip()
         before = str(context_before or "")
@@ -13347,44 +13311,65 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         direction = str(direction_hint or "").strip()
         if len(direction) > 500:
             direction = direction[:500]
-        direction_block = ""
         if direction:
             direction_block = (
                 "\n[작가 요청 방향]\n"
                 f"{direction}\n"
                 "이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. "
-                "요청과 무관한 재창작·내용 추가는 하지 않는다.\n"
+                "방향에 맞는 묘사·대사·심리 보강은 허용한다. "
+                "요청과 무관한 재창작·새로운 사건·설정 추가는 하지 않는다.\n"
             )
-        style_rule = (
-            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
-            "   당신의 취향으로 문체 자체를 바꾸지 않는다."
-            + (
-                " (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)\n"
-                if direction
-                else "\n"
+            meaning_rule = (
+                "1. 원문의 의미, 정보, 사건의 순서를 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
+                "   작가가 방향을 명시한 범위 안에서는 그에 맞는 묘사·대사·심리를 보강할 수 있다.\n"
             )
-        )
-        judge_extra = (
-            "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
-            if direction
-            else ""
-        )
-        alt_extra = (
-            "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
-            if direction
-            else ""
-        )
+            desc_axis = ""
+            style_rule = (
+                "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
+                "   당신의 취향으로 문체 자체를 바꾸지 않는다. "
+                "(단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)\n"
+            )
+            judge_extra = (
+                "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
+            )
+            alt_extra = (
+                "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
+            )
+            structure_rule = (
+                "6. 원문의 핵심 구조는 지키되, 작가 방향(풍부화·대사·심리·배경 등)에 맞추려면\n"
+                "   문장 수나 분량이 늘어나거나 줄어들어도 된다. 통째로 다른 장면으로 재구성하지는 않는다.\n"
+            )
+        else:
+            direction_block = ""
+            meaning_rule = (
+                "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
+            )
+            desc_axis = (
+                "   - 지문·분위기·공간·신체 감각이 유난히 빈약해 장면이 안 그려질 때만, "
+                "오감 중 어울리는 한두 가지로 구체화할 수 있는지 본다. "
+                "이미 충분한 묘사는 손대지 않는다. 모든 감각을 억지로 채우지 않는다.\n"
+            )
+            style_rule = (
+                "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
+                "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
+            )
+            judge_extra = ""
+            alt_extra = ""
+            structure_rule = (
+                "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n"
+            )
         return (
             "[현재 작업]\n"
             "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n"
             f"{direction_block}\n"
             "[판단 기준]\n"
-            "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
+            f"{meaning_rule}"
             "2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.\n"
             "   - 불필요하게 반복되는 단어나 상투적 표현 제거\n"
             "   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)\n"
             "   - 의미가 모호하거나 어색한 조사·어순\n"
             "   - 상황과 안 맞는 과도한 수식어\n"
+            f"{desc_axis}"
             f"{style_rule}"
             "4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.\n\n"
             "[먼저 판단할 것 - 개선이 필요한가]\n"
@@ -13405,7 +13390,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             f"{alt_extra}\n"
             "[문장 규칙]\n"
             "5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.\n"
-            "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n\n"
+            f"{structure_rule}\n"
             "[출력 형식]\n"
             "개선이 필요한 경우:\n"
             "## 다듬기 제안\n"
@@ -13425,6 +13410,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[뒤 맥락 - 참고용, 다듬지 않음]\n"
             f"{after}...\n\n"
             "[결과]"
+        )
+
+    @staticmethod
+    def _build_rewrite_prompt_webnovel(
+        selected_text: str,
+        context_before: str = "",
+        context_after: str = "",
+        direction_hint: str = "",
+    ) -> str:
+        """Task-only rewrite prompt (Core Identity lives in system).
+
+        Mirrors web/app.js buildRewritePrompt: polish if needed, else 2–3
+        tone-safe alternatives (no forced defects). Optional direction_hint
+        from the author steers how to polish.
+        """
+        return SuperToryHandler._rewrite_prompt_body(
+            selected_text, context_before, context_after, direction_hint
         )
 
     @staticmethod
@@ -13440,90 +13442,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         tone-safe alternatives (no forced defects). Optional direction_hint
         from the author steers how to polish.
         """
-        selected = str(selected_text or "").strip()
-        before = str(context_before or "")
-        after = str(context_after or "")
-        direction = str(direction_hint or "").strip()
-        if len(direction) > 500:
-            direction = direction[:500]
-        direction_block = ""
-        if direction:
-            direction_block = (
-                "\n[작가 요청 방향]\n"
-                f"{direction}\n"
-                "이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. "
-                "요청과 무관한 재창작·내용 추가는 하지 않는다.\n"
-            )
-        style_rule = (
-            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.\n"
-            "   당신의 취향으로 문체 자체를 바꾸지 않는다."
-            + (
-                " (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)\n"
-                if direction
-                else "\n"
-            )
-        )
-        judge_extra = (
-            "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
-            if direction
-            else ""
-        )
-        alt_extra = (
-            "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
-            if direction
-            else ""
-        )
-        return (
-            "[현재 작업]\n"
-            "아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.\n"
-            f"{direction_block}\n"
-            "[판단 기준]\n"
-            "1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.\n"
-            "2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.\n"
-            "   - 불필요하게 반복되는 단어나 상투적 표현 제거\n"
-            "   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)\n"
-            "   - 의미가 모호하거나 어색한 조사·어순\n"
-            "   - 상황과 안 맞는 과도한 수식어\n"
-            f"{style_rule}"
-            "4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.\n\n"
-            "[먼저 판단할 것 - 개선이 필요한가]\n"
-            "문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.\n"
-            "이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.\n"
-            f"{judge_extra}\n"
-            "[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]\n"
-            "왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다\n"
-            '("저는 ~한 이유로 다듬기가 필요해 보였어요" 또는 "저는 ~한 관점에서\n'
-            '이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).\n'
-            "그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.\n"
-            "장황한 설명은 피하고 핵심 이유만 짧게 전달한다.\n\n"
-            "[개선이 필요 없는 경우 - 대안 표현 제시]\n"
-            '문장은 이미 충분히 좋으므로 "다듬을 필요 없음"으로 판단하고, 대신\n'
-            "같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.\n"
-            '이는 "틀렸다"는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도\n'
-            "문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.\n"
-            f"{alt_extra}\n"
-            "[문장 규칙]\n"
-            "5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.\n"
-            "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).\n\n"
-            "[출력 형식]\n"
-            "개선이 필요한 경우:\n"
-            "## 다듬기 제안\n"
-            "저는 (이유)로 다듬기가 필요해 보였어요.\n\n"
-            "**다듬은 결과:** (다듬어진 문장)\n\n"
-            "작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?\n\n"
-            "개선이 필요 없는 경우:\n"
-            "## 이미 좋은 문장이에요\n"
-            "다른 표현으로 바꿔보고 싶으시다면 참고하세요.\n"
-            "- 대안 1: ...\n"
-            "- 대안 2: ...\n"
-            "- 대안 3: ...\n\n"
-            "[앞뒤 맥락 - 참고용, 다듬지 않음]\n"
-            f"...{before}\n\n"
-            "[다듬을 문장]\n"
-            f"{selected}\n\n"
-            "[뒤 맥락 - 참고용, 다듬지 않음]\n"
-            f"{after}...\n\n"
-            "[결과]"
+        return SuperToryHandler._rewrite_prompt_body(
+            selected_text, context_before, context_after, direction_hint
         )
 
     @classmethod
@@ -15079,122 +14999,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "[현재 회차 - 문체 참고용]\n"
             f"{text}\n\n"
             "[묘사 제안]"
-        )
-
-    @classmethod
-    def _build_description_expand_prompt(cls, 
-        selected_text: str,
-        context_before: str = "",
-        context_after: str = "",
-        direction_hint: str = "",
-        cluster_id: object = "",
-        main_genre: object = "",
-        sub_genre: object = "",
-        genre_detail: object = "",
-        content_rating: object = "",
-    ) -> str:
-        if prompt_pipelines.is_genre_literature_pipeline(cluster_id):
-            return cls._build_description_expand_prompt_genre_lit(selected_text, context_before, context_after, direction_hint)
-        return inject_genre_playbook_style_section(
-            cls._build_description_expand_prompt_webnovel(
-                selected_text, context_before, context_after, direction_hint
-            ),
-            main_genre,
-            sub_genre,
-            genre_detail,
-            content_rating,
-        )
-
-    @staticmethod
-    def _build_description_expand_prompt_webnovel(
-        selected_text: str,
-        context_before: str = "",
-        context_after: str = "",
-        direction_hint: str = "",
-    ) -> str:
-        """Expand selected manuscript description (descexpand). Task scope only."""
-        selected = str(selected_text or "").strip()
-        before = str(context_before or "").strip()
-        after = str(context_after or "").strip()
-        direction = str(direction_hint or "").strip()
-        before_block = f"[앞 문맥]\n{before}\n\n" if before else ""
-        after_block = f"[뒤 문맥]\n{after}\n\n" if after else ""
-        direction_block = (
-            f"[작가 요청 방향]\n{direction}\n"
-            "이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n"
-            if direction else ""
-        )
-        return (
-            "[현재 작업]\n"
-            "아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채\n"
-            "더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수\n"
-            "있는 본문만 씁니다.\n\n"
-            f"[선택 원문]\n{selected}\n\n"
-            f"{before_block}{after_block}{direction_block}"
-            "[판단 기준]\n"
-            "1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
-            "2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.\n"
-            "   모든 감각을 억지로 채우지 않는다.\n"
-            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.\n"
-            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
-            "4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.\n"
-            "5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.\n"
-            "6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.\n\n"
-            "[출력 형식]\n"
-            "## 묘사 확장\n"
-            "**확장 결과:**\n"
-            "(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)\n\n"
-            "**버전 2:**\n"
-            "(다른 각도. 예: 공간·분위기 강조)\n\n"
-            "**버전 3:**\n"
-            "(다른 각도. 예: 인물의 감각·내면 강조)\n\n"
-            "머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.\n"
-        )
-
-    @staticmethod
-    def _build_description_expand_prompt_genre_lit(
-        selected_text: str,
-        context_before: str = "",
-        context_after: str = "",
-        direction_hint: str = "",
-    ) -> str:
-        """Expand selected manuscript description (descexpand). Task scope only."""
-        selected = str(selected_text or "").strip()
-        before = str(context_before or "").strip()
-        after = str(context_after or "").strip()
-        direction = str(direction_hint or "").strip()
-        before_block = f"[앞 문맥]\n{before}\n\n" if before else ""
-        after_block = f"[뒤 문맥]\n{after}\n\n" if after else ""
-        direction_block = (
-            f"[작가 요청 방향]\n{direction}\n"
-            "이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n"
-            if direction else ""
-        )
-        return (
-            "[현재 작업]\n"
-            "아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채\n"
-            "더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수\n"
-            "있는 본문만 씁니다.\n\n"
-            f"[선택 원문]\n{selected}\n\n"
-            f"{before_block}{after_block}{direction_block}"
-            "[판단 기준]\n"
-            "1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.\n"
-            "2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.\n"
-            "   모든 감각을 억지로 채우지 않는다.\n"
-            "3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.\n"
-            "   당신의 취향으로 문체 자체를 바꾸지 않는다.\n"
-            "4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.\n"
-            "5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.\n"
-            "6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.\n\n"
-            "[출력 형식]\n"
-            "## 묘사 확장\n"
-            "**확장 결과:**\n"
-            "(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)\n\n"
-            "**버전 2:**\n"
-            "(다른 각도. 예: 공간·분위기 강조)\n\n"
-            "**버전 3:**\n"
-            "(다른 각도. 예: 인물의 감각·내면 강조)\n\n"
-            "머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.\n"
         )
 
     @classmethod

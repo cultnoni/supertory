@@ -13322,7 +13322,6 @@ function updateContinuePanelVisibility() {
   const mode = $("aiMode")?.value || "";
   const panel = $("continuePanel");
   const rewritePanel = $("rewritePanel");
-  const descExpandPanel = $("descExpandPanel");
   const brainstormPanel = $("brainstormPanel");
   const worldDescPanel = $("worldDescPanel");
   const subsynopsisPanel = $("subsynopsisPanel");
@@ -13331,7 +13330,6 @@ function updateContinuePanelVisibility() {
   const prompt = $("aiPrompt");
   const showContinue = mode === "continue";
   const showRewrite = mode === "rewrite";
-  const showDescExpand = mode === "descexpand";
   const showBrainstorm = mode === "brainstorm";
   const showWorldDesc = mode === "worlddesc";
   const showSubsynopsis = mode === "subsynopsis";
@@ -13345,7 +13343,6 @@ function updateContinuePanelVisibility() {
   // Panels for popup modes stay visible inside the modal only when that mode is active.
   panel?.classList.toggle("hidden", !showContinue);
   rewritePanel?.classList.toggle("hidden", !showRewrite);
-  descExpandPanel?.classList.toggle("hidden", !showDescExpand);
   brainstormPanel?.classList.toggle("hidden", !showBrainstorm);
   worldDescPanel?.classList.toggle("hidden", !showWorldDesc);
   subsynopsisPanel?.classList.toggle("hidden", !showSubsynopsis);
@@ -13359,7 +13356,7 @@ function updateContinuePanelVisibility() {
   const showGlumpEr = mode === "glumpescape";
   const showTranslationWs = mode === "multilang" && typeof isTranslationWorkspaceUnlocked === "function"
     && isTranslationWorkspaceUnlocked();
-  const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showDescExpand || showBrainstorm || showWorldDesc
+  const hideSidePrompt = selectList || aiSuccessFeedbackBlocked || showContinue || showRewrite || showBrainstorm || showWorldDesc
     || showSubsynopsis || showSuccessPattern || showGlumpEr || showTranslationWs || toolPopup || isForeshadowToolMode(mode);
   promptWrap?.classList.toggle("hidden", hideSidePrompt);
   // Side submit is hidden for wizard/tool popup modes (run from modal) and select list.
@@ -13674,7 +13671,19 @@ function ensureAiModePickerMascots() {
   });
 }
 
+/** Removed from the picker; never re-surface even if cached HTML still has the option. */
+const REMOVED_AI_ASSIST_MODES = new Set(["descexpand"]);
+
+function pruneRemovedAiAssistModeOptions() {
+  const sel = $("aiMode");
+  if (!sel) return;
+  sel.querySelectorAll("option").forEach((opt) => {
+    if (REMOVED_AI_ASSIST_MODES.has(String(opt.value || ""))) opt.remove();
+  });
+}
+
 function renderAiModePickerMenu() {
+  pruneRemovedAiAssistModeOptions();
   const sel = $("aiMode");
   const menu = $("aiModePickerMenu");
   if (!sel || !menu) return;
@@ -13690,6 +13699,7 @@ function renderAiModePickerMenu() {
       const optionHtml = [];
       [...node.children].forEach((opt) => {
         if (!(opt instanceof HTMLOptionElement)) return;
+        if (REMOVED_AI_ASSIST_MODES.has(String(opt.value || ""))) return;
         const featureId = AI_MODE_CLUSTER_FEATURE[opt.value];
         if (featureId && !isClusterFeatureVisible(featureId)) return;
         if (opt.hidden || opt.disabled) return;
@@ -13713,6 +13723,7 @@ function renderAiModePickerMenu() {
     if (node instanceof HTMLOptionElement) {
       // 직접 작성하기(free)는 「직접요청」탭 전용 — 선택하기 드롭바 목록에서 제외
       if (node.value === "free") return;
+      if (REMOVED_AI_ASSIST_MODES.has(String(node.value || ""))) return;
       const cls = [
         "ai-mode-picker-option",
         node.value === sel.value ? "is-active" : "",
@@ -14153,25 +14164,6 @@ async function submitAiAssist(event) {
       return;
     }
     await executeRewriteAssist(payload);
-    return;
-  }
-
-  if (mode === "descexpand") {
-    const payload = typeof getDescExpandAssistPayload === "function"
-      ? getDescExpandAssistPayload()
-      : getRewriteSelectionPayload();
-    if (!payload?.selectedText) {
-      toast(
-        (typeof getDescExpandSourceMode === "function" && getDescExpandSourceMode() === "direct")
-          ? i18n.t("app.펼칠_문장을_직접_입력해_주세요")
-          : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"),
-      );
-      if (typeof getDescExpandSourceMode === "function" && getDescExpandSourceMode() === "direct") {
-        $("descExpandDirectText")?.focus();
-      }
-      return;
-    }
-    await executeDescriptionExpandAssist(payload);
     return;
   }
 
@@ -15100,7 +15092,7 @@ function setupAiAssist() {
   setupContinueSourceUi();
   setupContinueStyleResultsUi();
   setupRewriteSourceUi();
-  setupDescExpandSourceUi();
+  setupRewritePresetChips();
   setupRewriteCompareModal();
   setupRewriteLengthWarnModal();
   setupDupcheckTargetModal();
@@ -20851,8 +20843,7 @@ function saveToryVault(list) {
 function aiModeLabel(mode) {
   const map = {
     continue: i18n.t('app.이어서_쓰기'),
-    rewrite: i18n.t('app.문장_다듬기'),
-    descexpand: i18n.t('app.묘사_확장'),
+    rewrite: i18n.t('app.글_다듬기'),
     summarize: i18n.t('app.회차_요약'),
     summarize_multi: i18n.t('app.회차_요약'),
     ideas: i18n.t('app.다음_아이디어_제안'),
@@ -20973,7 +20964,6 @@ const AI_TOOL_POPUP_MODES = new Set([
   "brainstorm",
   "continue",
   "rewrite",
-  "descexpand",
   "worlddesc",
   "subsynopsis",
   "summarize",
@@ -22124,20 +22114,13 @@ const AI_TOOL_MODAL_META = {
     showExtraPrompt: false,
     submitLabel: i18n.t('app.확인'),
   },
-  rewrite: {
-    title: i18n.t('app.문장_다듬기'),
+    rewrite: {
+    title: i18n.t('app.글_다듬기'),
     // Lead empty: guide lives only in #rewriteGuideNote (beige callout).
     lead: "",
     panelId: "rewritePanel",
     showExtraPrompt: false,
     submitLabel: i18n.t('app.다듬기'),
-  },
-  descexpand: {
-    title: i18n.t('app.묘사_확장'),
-    lead: "",
-    panelId: "descExpandPanel",
-    showExtraPrompt: false,
-    submitLabel: i18n.t('app.펼치기'),
   },
   worlddesc: {
     title: i18n.t('app.세계관_묘사'),
@@ -22190,7 +22173,16 @@ function syncAiToolExtraPromptFromForm() {
   extra.value = panel.value || "";
 }
 
-function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}) {
+/** Shared 글 다듬기 entry: panel (empty box) and context menu (fill from selection). */
+function openRewriteAssistModal({ fromSelection = false } = {}) {
+  const sel = $("aiMode");
+  if (sel && sel.value !== "rewrite") sel.value = "rewrite";
+  try { syncAiModePickerUi?.(); } catch (_) { /* ignore */ }
+  openAiToolModal("rewrite", { rewriteFromSelection: fromSelection });
+}
+
+function openAiToolModal(mode = $("aiMode")?.value || "", options = {}) {
+  const { rewriteFromSelection = false } = options;
   const m = String(mode || "");
   if (!isAiToolPopupMode(m)) return;
   const modal = $("aiToolModal");
@@ -22214,7 +22206,7 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
   if ($("aiToolModalLead")) $("aiToolModalLead").textContent = meta.lead || "";
 
   // Show only the panel for this mode (foreshadow/plottwist share one panel).
-  ["foreshadowPanel", "continuePanel", "rewritePanel", "descExpandPanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
+  ["foreshadowPanel", "continuePanel", "rewritePanel", "brainstormPanel", "worldDescPanel", "subsynopsisPanel"].forEach((id) => {
     const el = $(id);
     if (!el) return;
     const show = id === meta.panelId;
@@ -22230,12 +22222,12 @@ function openAiToolModal(mode = $("aiMode")?.value || "", { force = false } = {}
     if (typeof updateContinueSourceUi === "function") updateContinueSourceUi();
   }
   if (m === "rewrite") {
-    if (typeof setupRewriteSourceUi === "function") setupRewriteSourceUi();
-    if (typeof updateRewriteSourceUi === "function") updateRewriteSourceUi();
-  }
-  if (m === "descexpand") {
-    if (typeof setupDescExpandSourceUi === "function") setupDescExpandSourceUi();
-    if (typeof updateDescExpandSourceUi === "function") updateDescExpandSourceUi();
+    if (typeof prepareRewritePanel === "function") {
+      prepareRewritePanel({ fromSelection: Boolean(rewriteFromSelection) });
+    } else {
+      if (typeof setupRewriteSourceUi === "function") setupRewriteSourceUi();
+      if (typeof updateRewriteSourceUi === "function") updateRewriteSourceUi();
+    }
   }
   // Callout only (title/lead live on #aiToolModal). No duplicate bottom hint.
   if (m === "foreshadow" || m === "plottwist") {
@@ -22326,6 +22318,8 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
         openBrainstormToolFlow({ resetTarget: modeChanged, force: forceOpen });
       } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
         openDedicatedAiTargetModal(mode);
+      } else if (mode === "rewrite") {
+        openRewriteAssistModal({ fromSelection: false });
       } else {
         openAiToolModal(mode);
       }
@@ -22334,6 +22328,8 @@ function updateAiToolPopupVisibility({ forceOpen = false } = {}) {
         openBrainstormToolFlow({ force: false });
       } else if (AI_DEDICATED_TARGET_MODAL_MODES.has(mode)) {
         openDedicatedAiTargetModal(mode);
+      } else if (mode === "rewrite") {
+        openRewriteAssistModal({ fromSelection: false });
       } else {
         openAiToolModal(mode);
       }
@@ -34370,21 +34366,13 @@ function setupDesktopThemeMenu() {
         : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
       askToryItem.style.opacity = hasSelection ? "1" : "0.45";
     }
-    const rewriteItem = $("rewriteSentenceMenuItem");
+    const rewriteItem = $("rewriteTextMenuItem") || $("rewriteSentenceMenuItem");
     if (rewriteItem) {
       rewriteItem.disabled = !hasSelection;
       rewriteItem.title = hasSelection
         ? i18n.t('app.토리는_문장을_억지로_다듬지_않아요_이미_충')
         : i18n.t('app.먼저_본문에서_다듬을_문장을_드래그로_선택하');
       rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const expandItem = $("expandDescriptionMenuItem");
-    if (expandItem) {
-      expandItem.disabled = !hasSelection;
-      expandItem.title = hasSelection
-        ? i18n.t("app.선택한_장면의_감각_공간_분위기를_같은_문체")
-        : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하");
-      expandItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const throwItem = $("throwBaitMenuItem");
     if (throwItem) {
@@ -34526,12 +34514,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "ask-tory") {
         hideDesktopContextMenu();
         askToryFromSelection();
-      } else if (action === "rewrite-sentence") {
+      } else if (action === "rewrite-text" || action === "rewrite-sentence") {
         hideDesktopContextMenu();
         runRewriteFromSelection().catch(handleError);
-      } else if (action === "expand-description") {
-        hideDesktopContextMenu();
-        runDescriptionExpandFromSelection().catch(handleError);
       } else if (action === "insert-image") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
@@ -47118,7 +47103,6 @@ const INDEX_AWARE_ASSIST_MODES = new Set([
   "continue",
   "free",
   "rewrite",
-  "descexpand",
 ]);
 
 const INDEX_TASK_INSTRUCTIONS_WEBNOVEL = {
@@ -47595,16 +47579,6 @@ async function attachIndexedPromptToAssistBody(body, mode, originalText) {
       body.rewrite_direction || body.user_hint || body.user_prompt || ""
     ).trim();
     taskInstruction = buildRewritePrompt(
-      plain,
-      body.context_before || "",
-      body.context_after || "",
-      directionHint,
-    );
-  } else if (mode === "descexpand") {
-    const directionHint = String(
-      body.expand_direction || body.user_hint || body.user_prompt || ""
-    ).trim();
-    taskInstruction = buildDescriptionExpandPrompt(
       plain,
       body.context_before || "",
       body.context_after || "",
@@ -49014,33 +48988,55 @@ function buildRewritePrompt(selectedText, contextBefore = "", contextAfter = "",
  * Used by manuscript selection / right-click rewrite only — not direct-write.
  * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
  */
-function buildRewritePrompt_Webnovel(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
-  const directionBlock = String(directionHint || "").trim()
+function buildRewritePromptBody(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+  const direction = String(directionHint || "").trim().slice(0, 500);
+  const directionBlock = direction
     ? `
 [작가 요청 방향]
-${String(directionHint).trim()}
-이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. 요청과 무관한 재창작·내용 추가는 하지 않는다.
+${direction}
+이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. 방향에 맞는 묘사·대사·심리 보강은 허용한다. 요청과 무관한 재창작·새로운 사건·설정 추가는 하지 않는다.
 `
     : "";
+  const meaningRule = direction
+    ? `1. 원문의 의미, 정보, 사건의 순서를 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
+   작가가 방향을 명시한 범위 안에서는 그에 맞는 묘사·대사·심리를 보강할 수 있다.`
+    : `1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.`;
+  const descAxis = direction
+    ? ""
+    : `   - 지문·분위기·공간·신체 감각이 유난히 빈약해 장면이 안 그려질 때만, 오감 중 어울리는 한두 가지로 구체화할 수 있는지 본다. 이미 충분한 묘사는 손대지 않는다. 모든 감각을 억지로 채우지 않는다.
+`;
+  const styleRule = direction
+    ? `3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다. (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)`
+    : `3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
+   당신의 취향으로 문체 자체를 바꾸지 않는다.`;
+  const judgeExtra = direction
+    ? "(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)\n"
+    : "";
+  const altExtra = direction
+    ? "(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)\n"
+    : "";
+  const structureRule = direction
+    ? `6. 원문의 핵심 구조는 지키되, 작가 방향(풍부화·대사·심리·배경 등)에 맞추려면
+   문장 수나 분량이 늘어나거나 줄어들어도 된다. 통째로 다른 장면으로 재구성하지는 않는다.`
+    : "6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).";
   return `[현재 작업]
 아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.
 ${directionBlock}
 [판단 기준]
-1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.
+${meaningRule}
 2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.
    - 불필요하게 반복되는 단어나 상투적 표현 제거
    - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)
    - 의미가 모호하거나 어색한 조사·어순
    - 상황과 안 맞는 과도한 수식어
-3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
-   당신의 취향으로 문체 자체를 바꾸지 않는다. (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
+${descAxis}${styleRule}
 4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.
 
 [먼저 판단할 것 - 개선이 필요한가]
 문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.
 이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
-(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
-
+${judgeExtra}
 [개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
 왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
 (i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 또는 "저는 ~한 관점에서
@@ -49053,11 +49049,10 @@ ${directionBlock}
 같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
 이는 i18n.t('app.틀렸다')는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
 문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
-(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
-
+${altExtra}
 [문장 규칙]
 5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.
-6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).
+${structureRule}
 
 [출력 형식]
 개선이 필요한 경우:
@@ -49085,6 +49080,10 @@ ${selectedText}
 ${contextAfter}...
 
 [결과]`;
+}
+
+function buildRewritePrompt_Webnovel(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
+  return buildRewritePromptBody(selectedText, contextBefore, contextAfter, directionHint);
 }
 
 /**
@@ -49094,176 +49093,9 @@ ${contextAfter}...
  * If no real defect: suggest 2–3 alternatives in the same tone/context (not forced “fixes”).
  */
 function buildRewritePrompt_GenreLit(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
-  const directionBlock = String(directionHint || "").trim()
-    ? `
-[작가 요청 방향]
-${String(directionHint).trim()}
-이 방향을 우선 반영하되, 원문의 의미·정보·문체·인물 말투는 지킨다. 요청과 무관한 재창작·내용 추가는 하지 않는다.
-`
-    : "";
-  return `[현재 작업]
-아래 선택된 문장(또는 문단)을 더 나은 문장으로 다듬을 수 있는지 판단하세요.
-${directionBlock}
-[판단 기준]
-1. 원문의 의미, 정보, 뉘앙스를 그대로 유지한다. 내용을 더하거나 빼지 않는다.
-2. 아래 개선 축을 살펴 필요한 부분만 고친다. 이미 좋은 부분은 그대로 둔다.
-   - 불필요하게 반복되는 단어나 상투적 표현 제거
-   - 리듬이 어색한 문장 길이/구조 조정 (너무 길게 늘어지거나 뚝뚝 끊기는 곳)
-   - 의미가 모호하거나 어색한 조사·어순
-   - 상황과 안 맞는 과도한 수식어
-3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 어조는 유지한다.
-   당신의 취향으로 문체 자체를 바꾸지 않는다. (단, 작가가 방향을 명시한 범위 안에서는 그에 맞춘다.)
-4. 대사가 포함되어 있다면, 그 인물의 기존 말투를 벗어나지 않는 선에서만 다듬는다.
-
-[먼저 판단할 것 - 개선이 필요한가]
-문장에 실제로 위 개선 축에 해당하는 부분이 있는지 먼저 판단한다.
-이미 충분히 좋은 문장이라면, 있지도 않은 문제를 억지로 만들어 고치지 않는다.
-(작가 요청 방향이 있으면 그 방향에 맞는 손질이 가능한지 우선 본다.)
-
-[개선이 필요한 경우 - 이유 설명 + 다듬은 결과]
-왜 다듬는 게 좋다고 판단했는지 1~2문장으로 짧게 설명한다
-(i18n.t('app.저는_한_이유로_다듬기가_필요해_보였어요') 또는 "저는 ~한 관점에서
-이 표현이 어울리지 않는다고 판단했어요" 같은 자연스러운 말투로).
-그다음 다듬은 결과를 제시하고, 작가의 생각을 묻는다.
-장황한 설명은 피하고 핵심 이유만 짧게 전달한다.
-
-[개선이 필요 없는 경우 - 대안 표현 제시]
-문장은 이미 충분히 좋으므로 i18n.t('app.다듬을_필요_없음')으로 판단하고, 대신
-같은 문맥과 문체 안에서 선택할 수 있는 대안 표현을 2~3개 제시한다.
-이는 i18n.t('app.틀렸다')는 뜻이 아니라, 선택지를 넓혀주는 목적이다. 대안 표현도
-문맥·문체·인물 말투(판단 기준 3, 4번)를 그대로 지켜야 한다.
-(작가 요청 방향이 있으면 그 방향에 가깝게 대안을 고른다.)
-
-[문장 규칙]
-5. 개선이 필요 없는 경우엔 부연 설명 없이 대안만 제시한다.
-6. 원문과 문장 수·문단 구조가 크게 달라지지 않게 한다 (통째로 재구성하지 않는다).
-
-[출력 형식]
-개선이 필요한 경우:
-## 다듬기 제안
-저는 (이유)로 다듬기가 필요해 보였어요.
-
-**다듬은 결과:** (다듬어진 문장)
-
-작가님의 생각은 어떤가요? 이 문장으로 대체하시겠어요?
-
-개선이 필요 없는 경우:
-## 이미 좋은 문장이에요
-다른 표현으로 바꿔보고 싶으시다면 참고하세요.
-- 대안 1: ...
-- 대안 2: ...
-- 대안 3: ...
-
-[앞뒤 맥락 - 참고용, 다듬지 않음]
-...${contextBefore}
-
-[다듬을 문장]
-${selectedText}
-
-[뒤 맥락 - 참고용, 다듬지 않음]
-${contextAfter}...
-
-[결과]`;
+  return buildRewritePromptBody(selectedText, contextBefore, contextAfter, directionHint);
 }
 
-function buildDescriptionExpandPrompt(selectedText, contextBefore = "", contextAfter = "", directionHint = "", clusterId) {
-  if (promptPipelineId(clusterId) === "genre_literature") {
-    return buildDescriptionExpandPrompt_GenreLit(selectedText, contextBefore, contextAfter, directionHint);
-  }
-  return buildDescriptionExpandPrompt_Webnovel(selectedText, contextBefore, contextAfter, directionHint);
-}
-
-function buildDescriptionExpandPrompt_Webnovel(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
-  const selected = String(selectedText || "").trim();
-  const before = String(contextBefore || "").trim();
-  const after = String(contextAfter || "").trim();
-  const beforeBlock = before ? `[앞 문맥]\n${before}\n\n` : "";
-  const afterBlock = after ? `[뒤 문맥]\n${after}\n\n` : "";
-  const direction = String(directionHint || "").trim();
-  const directionBlock = direction
-    ? `[작가 요청 방향]\n${direction}\n이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n`
-    : "";
-  return `[현재 작업]
-아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채
-더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수
-있는 본문만 씁니다.
-
-[선택 원문]
-${selected}
-
-${beforeBlock}${afterBlock}${directionBlock}[판단 기준]
-1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
-2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.
-   모든 감각을 억지로 채우지 않는다.
-3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.
-   당신의 취향으로 문체 자체를 바꾸지 않는다.
-4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.
-5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.
-6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.
-
-[출력 형식]
-## 묘사 확장
-**확장 결과:**
-(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)
-
-**버전 2:**
-(다른 각도. 예: 공간·분위기 강조)
-
-**버전 3:**
-(다른 각도. 예: 인물의 감각·내면 강조)
-
-머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.
-`;
-}
-
-function buildDescriptionExpandPrompt_GenreLit(selectedText, contextBefore = "", contextAfter = "", directionHint = "") {
-  const selected = String(selectedText || "").trim();
-  const before = String(contextBefore || "").trim();
-  const after = String(contextAfter || "").trim();
-  const beforeBlock = before ? `[앞 문맥]\n${before}\n\n` : "";
-  const afterBlock = after ? `[뒤 문맥]\n${after}\n\n` : "";
-  const direction = String(directionHint || "").trim();
-  const directionBlock = direction
-    ? `[작가 요청 방향]\n${direction}\n이 방향을 우선 반영하되, 의미와 문체를 바꾸거나 없는 내용을 넣지 않는다.\n\n`
-    : "";
-  return `[현재 작업]
-아래 선택된 문장(또는 문단)의 장면 묘사를, 같은 의미와 문체를 유지한 채
-더 구체적이고 감각적으로 확장하세요. 작가가 원고에 바로 대체해 넣을 수
-있는 본문만 씁니다.
-
-[선택 원문]
-${selected}
-
-${beforeBlock}${afterBlock}${directionBlock}[판단 기준]
-1. 사건의 순서, 인물의 행동·대사 의미, 정보는 유지한다. 새로운 사건·반전·설정을 만들지 않는다.
-2. 빈약한 지문·분위기·공간·신체 감각을 오감 중 어울리는 것만으로 구체화한다.
-   모든 감각을 억지로 채우지 않는다.
-3. 원문의 문체(간결한지 화려한지, 문어체인지 구어체인지)와 시점을 유지한다.
-   당신의 취향으로 문체 자체를 바꾸지 않는다.
-4. 대사는 필요한 경우에만 아주 짧게 손질한다. 인물 말투를 바꾸지 않는다.
-5. 원문보다 대략 1.5~2.5배 분량으로 늘린다. 에세이처럼 장황하게 늘어놓지 않는다.
-6. 확립된 세계관·캐릭터와 모순되는 디테일을 지어내지 않는다.
-
-[출력 형식]
-## 묘사 확장
-**확장 결과:**
-(대체용 본문. 설명·머리말 없이 원고에 넣을 문장만.)
-
-**버전 2:**
-(다른 각도. 예: 공간·분위기 강조)
-
-**버전 3:**
-(다른 각도. 예: 인물의 감각·내면 강조)
-
-머리말, 번호, '버전 1' 같은 라벨을 본문 안에 넣지 않는다.
-`;
-}
-
-/**
- * Direct-write expression check (popup "직접 쓰기").
- * Task-only — no Core Identity re-declaration, no manuscript context, no project_index.
- * Needs-improvement path: short reason + question (same tone as rewrite).
- */
 function buildPlainExpressionCheckPrompt(inputText, directionHint = "", clusterId) {
   if (promptPipelineId(clusterId) === "genre_literature") {
     return buildPlainExpressionCheckPrompt_GenreLit(inputText, directionHint);
@@ -49426,7 +49258,7 @@ function parseRewriteAssistDisplay(resultText) {
     ask: "",
     alternatives: [],
     displayText: "",
-    title: i18n.t('app.문장_다듬기_비교'),
+    title: i18n.t('app.글_다듬기_비교'),
     resultHeader: i18n.t('app.다듬은_결과'),
     hint: i18n.t('app.원문과_결과를_비교한_뒤_반영_여부를_고르세'),
   };
@@ -49528,65 +49360,9 @@ function parseRewriteAssistDisplay(resultText) {
     ask: "",
     alternatives: [],
     displayText: raw,
-    title: i18n.t('app.문장_다듬기_비교'),
+    title: i18n.t('app.글_다듬기_비교'),
     resultHeader: i18n.t('app.다듬은_결과'),
     hint: i18n.t('app.원문과_결과를_비교한_뒤_반영_여부를_고르세'),
-  };
-}
-
-function parseDescriptionExpandDisplay(resultText) {
-  const raw = String(resultText || "").replace(/\r\n/g, "\n").trim();
-  const empty = {
-    kind: "plain",
-    polished: "",
-    reason: "",
-    ask: "",
-    alternatives: [],
-    displayText: "",
-    title: i18n.t("app.묘사_확장_비교"),
-    resultHeader: i18n.t("app.확장한_결과"),
-    hint: i18n.t("app.원문과_펼친_묘사를_비교한_뒤_반영_여부를_고"),
-  };
-  if (!raw) return empty;
-  const versions = [];
-  const primaryMatch = raw.match(/\*\*확장\s*결과:\*\*\s*([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\n##|\s*$)/i)
-    || raw.match(/##\s*묘사\s*확장\s*\n+([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\s*$)/i);
-  if (primaryMatch) {
-    const primary = String(primaryMatch[1] || "").replace(/^\*\*확장\s*결과:\*\*\s*/i, "").trim();
-    if (primary) versions.push(primary);
-  }
-  const verRe = /\*\*버전\s*(\d+)\s*[:：]?\*\*\s*([\s\S]*?)(?=\n\s*\*\*버전\s*\d|\n##|\s*$)/gi;
-  let match;
-  while ((match = verRe.exec(raw)) !== null) {
-    const text = String(match[2] || "").replace(/^\[강조점:[^\]]*\]\s*/u, "").trim();
-    if (text) versions.push(text);
-  }
-  const unique = [...new Set(versions.map((item) => item.trim()).filter(Boolean))];
-  if (unique.length > 1) {
-    return {
-      kind: "alternatives",
-      polished: unique[0],
-      reason: "",
-      ask: "",
-      alternatives: unique,
-      displayText: unique[0],
-      title: i18n.t("app.묘사_확장_비교"),
-      resultHeader: i18n.t("app.확장한_결과_클릭해_선택"),
-      hint: i18n.t("app.각도_다른_묘사_중_골라_반영하세요"),
-    };
-  }
-  const display = unique[0]
-    || raw.replace(/^##\s*묘사\s*확장\s*/i, "").replace(/\*\*확장\s*결과:\*\*\s*/i, "").trim();
-  return {
-    kind: "polish",
-    polished: display,
-    reason: "",
-    ask: "",
-    alternatives: [],
-    displayText: display,
-    title: i18n.t("app.묘사_확장_비교"),
-    resultHeader: i18n.t("app.확장한_결과"),
-    hint: i18n.t("app.원문과_펼친_묘사를_비교한_뒤_반영_여부를_고"),
   };
 }
 
@@ -49828,61 +49604,105 @@ function setupRewriteSourceUi() {
   updateRewriteSourceUi();
 }
 
-function getDescExpandDirectionHint() {
-  return String($("descExpandDirectionHint")?.value || "").trim().slice(0, 500);
-}
+/** Chip labels stay i18n; fill phrases stay Korean so the model gets a stable direction. */
+const REWRITE_PRESET_HINTS = {
+  concise: "더 짧고 간결하게 다듬어 줘",
+  enrich: "감각과 분위기를 살려서 더 풍부하게 펼쳐 줘",
+  dialogue: "서술 부분에 어울리는 캐릭터의 대사를 추가해 줘",
+  psychology: "캐릭터의 내면 심리를 추가해 줘",
+  setting: "배경이나 주변 환경 묘사를 보강해 줘",
+};
 
-function getDescExpandSourceMode() {
-  const checked = document.querySelector('input[name="descExpandSourceMode"]:checked');
-  const raw = String(checked?.value || "selection").trim().toLowerCase();
-  return raw === "direct" ? "direct" : "selection";
-}
+let rewriteOpenSnapshot = null;
 
-function updateDescExpandSourceUi() {
-  $("descExpandDirectWrap")?.classList.remove("hidden");
-  $("descExpandDirectHint")?.classList.remove("hidden");
-}
-
-function setupDescExpandSourceUi() {
-  const host = $("descExpandSourceOptions");
-  if (!host || host.dataset.bound === "1") return;
-  host.dataset.bound = "1";
-  host.addEventListener("change", (event) => {
-    if (!event.target?.matches?.('input[name="descExpandSourceMode"]')) return;
-    updateDescExpandSourceUi();
-    if (getDescExpandSourceMode() === "direct") {
-      requestAnimationFrame(() => {
-        try {
-          $("descExpandDirectText")?.focus({ preventScroll: true });
-        } catch (_) {
-          $("descExpandDirectText")?.focus();
-        }
-      });
-    }
+function applyRewritePreset(presetId) {
+  const hint = REWRITE_PRESET_HINTS[presetId];
+  if (!hint) return;
+  const el = $("rewriteDirectionHint");
+  if (!el) return;
+  el.value = hint;
+  document.querySelectorAll("[data-rewrite-preset]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.getAttribute("data-rewrite-preset") === presetId);
   });
-  updateDescExpandSourceUi();
+  requestAnimationFrame(() => {
+    try {
+      el.focus({ preventScroll: true });
+    } catch (_) {
+      el.focus();
+    }
+    const len = String(el.value || "").length;
+    try {
+      el.setSelectionRange(len, len);
+    } catch (_) { /* ignore */ }
+  });
 }
 
-function getDescExpandAssistPayload() {
-  const directionHint = getDescExpandDirectionHint();
-  if (getDescExpandSourceMode() === "direct") {
-    const text = String($("descExpandDirectText")?.value || "").trim();
-    if (!text) return null;
-    return {
-      selectedText: text,
-      contextBefore: "",
-      contextAfter: "",
-      range: null,
-      sourceMode: "direct",
-      directionHint,
-    };
+function setRewritePresetMoreOpen(open) {
+  const extra = $("rewritePresetExtra");
+  const btn = $("rewritePresetMoreBtn");
+  extra?.classList.toggle("hidden", !open);
+  if (btn) {
+    btn.setAttribute("aria-expanded", open ? "true" : "false");
+    btn.classList.toggle("is-open", open);
+    const label = $("rewritePresetMoreLabel");
+    if (label) label.textContent = open ? i18n.t("index.접기") : i18n.t("app.더_보기");
   }
-  const payload = getRewriteSelectionPayload();
-  if (!payload) return null;
-  return { ...payload, directionHint };
 }
 
-/** Selection + ±context for rewrite (dropdown and context-menu share this). */
+function setupRewritePresetChips() {
+  const row = $("rewritePresetRow");
+  if (row && row.dataset.bound !== "1") {
+    row.dataset.bound = "1";
+    row.addEventListener("click", (event) => {
+      const chip = event.target?.closest?.("[data-rewrite-preset]");
+      if (!chip || !row.contains(chip)) return;
+      event.preventDefault();
+      applyRewritePreset(chip.getAttribute("data-rewrite-preset"));
+    });
+  }
+  const extra = $("rewritePresetExtra");
+  if (extra && extra.dataset.bound !== "1") {
+    extra.dataset.bound = "1";
+    extra.addEventListener("click", (event) => {
+      const chip = event.target?.closest?.("[data-rewrite-preset]");
+      if (!chip || !extra.contains(chip)) return;
+      event.preventDefault();
+      applyRewritePreset(chip.getAttribute("data-rewrite-preset"));
+    });
+  }
+  const more = $("rewritePresetMoreBtn");
+  if (more && more.dataset.bound !== "1") {
+    more.dataset.bound = "1";
+    more.addEventListener("click", (event) => {
+      event.preventDefault();
+      const willOpen = $("rewritePresetExtra")?.classList.contains("hidden");
+      setRewritePresetMoreOpen(Boolean(willOpen));
+    });
+  }
+}
+
+function prepareRewritePanel({ fromSelection = false } = {}) {
+  setupRewriteSourceUi();
+  setupRewritePresetChips();
+  setRewritePresetMoreOpen(false);
+  document.querySelectorAll("[data-rewrite-preset]").forEach((btn) => {
+    btn.classList.remove("is-active");
+  });
+  const box = $("rewriteDirectText");
+  if (fromSelection) {
+    const payload = getRewriteSelectionPayload();
+    const selRadio = document.querySelector('input[name="rewriteSourceMode"][value="selection"]');
+    if (selRadio) selRadio.checked = true;
+    if (box) box.value = payload?.selectedText || "";
+    rewriteOpenSnapshot = payload || null;
+  } else {
+    if (box) box.value = "";
+    rewriteOpenSnapshot = null;
+  }
+  updateRewriteSourceUi();
+}
+
+/** Selection + ±context for 글 다듬기 (panel and context-menu share openRewriteAssistModal). */
 function getRewriteSelectionPayload() {
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
   if (!editor) return null;
@@ -49959,20 +49779,32 @@ function getRewriteSelectionPayload() {
 
 /** Payload for rewrite from popup (selection or direct write). */
 function getRewriteAssistPayload() {
+  const directionHint = getRewriteDirectionHint();
+  const boxText = String($("rewriteDirectText")?.value || "").trim();
   if (getRewriteSourceMode() === "direct") {
-    const text = String($("rewriteDirectText")?.value || "").trim();
-    if (!text) return null;
-    // Independent of manuscript position — no context / no index.
+    if (!boxText) return null;
     return {
-      selectedText: text,
+      selectedText: boxText,
       contextBefore: "",
       contextAfter: "",
       range: null,
       sourceMode: "direct",
-      directionHint: getRewriteDirectionHint(),
+      directionHint,
     };
   }
-  return getRewriteSelectionPayload();
+  const live = getRewriteSelectionPayload();
+  const snap = rewriteOpenSnapshot;
+  const base = live || snap;
+  const selectedText = boxText || String(base?.selectedText || "").trim();
+  if (!selectedText) return null;
+  return {
+    selectedText,
+    contextBefore: base?.contextBefore || "",
+    contextAfter: base?.contextAfter || "",
+    range: base?.range || null,
+    sourceMode: "selection",
+    directionHint,
+  };
 }
 
 function closeRewriteCompareModal() {
@@ -50004,8 +49836,6 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   const parsed = options.parsed || parseRewriteAssistDisplay(resultText);
   const kind = parsed.kind || "plain";
   const sourceMode = String(options.sourceMode || pendingRewriteState?.sourceMode || "selection");
-  const intent = String(options.intent || pendingRewriteState?.intent || "rewrite");
-  const isExpand = intent === "descexpand";
   const isDirect = sourceMode === "direct";
 
   if ($("rewriteCompareOriginal")) {
@@ -50013,28 +49843,23 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   }
   if ($("rewriteCompareModalTitle")) {
     $("rewriteCompareModalTitle").textContent = parsed.title
-      || (isExpand ? i18n.t("app.묘사_확장_비교") : i18n.t("app.문장_다듬기_비교"));
+      || i18n.t("app.글_다듬기_비교");
   }
   if ($("rewriteCompareResultHeader")) {
     $("rewriteCompareResultHeader").textContent = parsed.resultHeader
-      || (isExpand ? i18n.t("app.확장한_결과") : i18n.t("app.다듬은_결과"));
+      || i18n.t("app.다듬은_결과");
   }
 
   const guide = $("rewriteCompareGuide");
   if (guide) {
-    guide.textContent = isExpand
-      ? i18n.t("app.선택한_장면의_감각_공간_분위기를_같은_문체")
-      : i18n.t("app.토리는_문장을_억지로_다듬지_않아요_이미_충");
+    guide.textContent = i18n.t("app.토리는_문장을_억지로_다듬지_않아요_이미_충");
   }
 
   // Reason / ask banner (polish path)
   const reasonEl = $("rewriteCompareReason");
   const reasonBits = [parsed.reason, parsed.ask].filter(Boolean);
   if (reasonEl) {
-    if (isExpand) {
-      reasonEl.textContent = "";
-      reasonEl.classList.add("hidden");
-    } else if (kind === "polish" && reasonBits.length) {
+    if (kind === "polish" && reasonBits.length) {
       reasonEl.textContent = reasonBits.join("\n\n");
       reasonEl.classList.remove("hidden");
     } else if (kind === "alternatives") {
@@ -50046,9 +49871,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     }
   }
   if ($("rewriteCompareHint")) {
-    if (isExpand && parsed.hint) {
-      $("rewriteCompareHint").textContent = parsed.hint;
-    } else if (isDirect) {
+    if (isDirect) {
       $("rewriteCompareHint").textContent = i18n.t('app.직접_쓴_문장의_표현_점검_결과예요_원고_위');
     } else if (kind === "alternatives") {
       $("rewriteCompareHint").textContent = i18n.t('app.원문은_이미_충분해요_바꾸고_싶을_때만_대안');
@@ -50068,9 +49891,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
     $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.선택한_대안_표현_수정_가능'));
   } else {
     renderRewriteAlternativeList([]);
-    $("rewriteCompareResult")?.setAttribute("aria-label", isExpand
-      ? i18n.t("app.확장한_결과")
-      : i18n.t('app.다듬은_결과_수정_가능'));
+    $("rewriteCompareResult")?.setAttribute("aria-label", i18n.t('app.다듬은_결과_수정_가능'));
   }
 
   // Buttons: selection → replace / copy / keep ; direct → copy only
@@ -50098,7 +49919,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
   // Style-blend: selection polish only
   $("rewriteStyleBlendOffer")?.classList.toggle(
     "hidden",
-    isDirect || kind === "alternatives" || isExpand,
+    isDirect || kind === "alternatives",
   );
 
   $("rewriteCompareModal")?.classList.remove("hidden");
@@ -50107,9 +49928,7 @@ function openRewriteCompareModal(originalText, resultText, options = {}) {
 function applyPendingRewriteToEditor() {
   const edited = String($("rewriteCompareResult")?.value || "").trim();
   if (!edited) {
-    toast(pendingRewriteState?.intent === "descexpand"
-      ? i18n.t("app.적용할_확장_결과가_없어요")
-      : i18n.t('app.적용할_다듬은_결과가_없어요'));
+    toast(i18n.t('app.적용할_다듬은_결과가_없어요'));
     return false;
   }
   const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
@@ -50185,9 +50004,7 @@ function applyPendingRewriteToEditor() {
     markSceneDirty();
   }
   closeRewriteCompareModal();
-  toast(pendingRewriteState?.intent === "descexpand"
-    ? i18n.t("app.확장한_문장으로_바꿨어요_자동_저장됩니다")
-    : i18n.t('app.다듬은_문장으로_바꿨어요_자동_저장됩니다'));
+  toast(i18n.t('app.다듬은_문장으로_바꿨어요_자동_저장됩니다'));
   return true;
 }
 
@@ -50326,13 +50143,13 @@ async function executeRewriteAssist(payload) {
   const prevLabel = aiButton?.textContent;
   if (aiButton) {
     aiButton.disabled = true;
-    aiButton.textContent = i18n.t('app.문장_다듬는_중');
+    aiButton.textContent = i18n.t('app.글_다듬는_중');
   }
   const toolSubmit = $("aiToolModalSubmitButton");
   const toolPrev = toolSubmit?.textContent;
   if (toolSubmit) {
     toolSubmit.disabled = true;
-    toolSubmit.textContent = i18n.t('app.문장_다듬는_중');
+    toolSubmit.textContent = i18n.t('app.글_다듬는_중');
   }
 
   try {
@@ -50420,7 +50237,7 @@ async function executeRewriteAssist(payload) {
     }
     if (toolSubmit) {
       toolSubmit.disabled = false;
-      toolSubmit.textContent = toolPrev || i18n.t('app.문장_다듬기');
+      toolSubmit.textContent = toolPrev || i18n.t('app.글_다듬기');
     }
   }
 }
@@ -50431,13 +50248,7 @@ async function runRewriteFromSelection() {
     toast(i18n.t('app.다듬을_문장_문단을_드래그로_선택해_주세요'));
     return null;
   }
-  // 방향을 적을 수 있도록 팝업을 먼저 연다 (바로 실행하지 않음)
-  const selRadio = document.querySelector('input[name="rewriteSourceMode"][value="selection"]');
-  if (selRadio) selRadio.checked = true;
-  try { updateRewriteSourceUi?.(); } catch (_) { /* ignore */ }
-  if ($("aiMode")) $("aiMode").value = "rewrite";
-  try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
-  openAiToolModal("rewrite", { force: true });
+  openRewriteAssistModal({ fromSelection: true });
   requestAnimationFrame(() => {
     try {
       $("rewriteDirectionHint")?.focus({ preventScroll: true });
@@ -50446,162 +50257,6 @@ async function runRewriteFromSelection() {
     }
   });
   toast(i18n.t('app.다듬기_방향을_적은_뒤_다듬기_를_눌러_주세'));
-  return null;
-}
-
-async function executeDescriptionExpandAssist(payload) {
-  const selectedText = String(payload?.selectedText || "").trim();
-  if (!selectedText) {
-    toast(
-      payload?.sourceMode === "direct"
-        ? i18n.t("app.펼칠_문장을_직접_입력해_주세요")
-        : i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"),
-    );
-    return null;
-  }
-  const mayProceed = await checkRewriteLengthGate(selectedText);
-  if (!mayProceed) return null;
-  if (!state.projectId) {
-    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
-    return null;
-  }
-  if (rewriteAssistInFlight) {
-    toast(i18n.t("app.이미_묘사를_펼치고_있어요"));
-    return null;
-  }
-
-  const isDirectWrite = String(payload?.sourceMode || "") === "direct";
-  const contextBefore = isDirectWrite ? "" : String(payload?.contextBefore || "");
-  const contextAfter = isDirectWrite ? "" : String(payload?.contextAfter || "");
-  const directionHint = String(
-    payload?.directionHint != null ? payload.directionHint : getDescExpandDirectionHint()
-  ).trim().slice(0, 500);
-  const project = state.projects.find((item) => item.id === state.projectId);
-  const mainGenre = state.mainGenre || project?.main_genre || "";
-  const subGenre = state.subGenre || project?.sub_genre || "";
-
-  const body = {
-    mode: "descexpand",
-    prompt: "",
-    user_prompt: directionHint,
-    expand_direction: directionHint,
-    project_title: project?.title || "",
-    purpose: normalizePurposeKey(state.projectPurpose || project?.purpose || "general_novel"),
-    main_genre: mainGenre,
-    sub_genre: subGenre,
-    main_genre_label: mainGenreLabel(mainGenre),
-    sub_genre_label: subGenreLabel(mainGenre, subGenre),
-    keywords: normalizeKeywordList(state.keywords || project?.keywords || []),
-    scene_title: isDirectWrite ? "" : (state.scene?.title || $("sceneTitle")?.value || ""),
-    scene_synopsis: isDirectWrite ? "" : (state.scene?.synopsis_md || $("sceneSynopsis")?.value || ""),
-    scene_content: selectedText,
-    context_before: contextBefore,
-    context_after: contextAfter,
-    selected_text: selectedText,
-    persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
-    ...(typeof buildToryProjectContextPayload === "function" ? buildToryProjectContextPayload() : {}),
-  };
-
-  rewriteAssistInFlight = true;
-  setAiPanelOpen(true);
-  if ($("aiMode")) $("aiMode").value = "descexpand";
-  if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
-  if ($("aiResult")) {
-    $("aiResult").value = isDirectWrite
-      ? i18n.t("app.묘사를_펼치는_중")
-      : i18n.t("app.선택_문장의_묘사를_펼치는_중");
-  }
-  ensureAiResultVisible();
-
-  const aiButton = $("aiSubmitButton");
-  const prevLabel = aiButton?.textContent;
-  if (aiButton) {
-    aiButton.disabled = true;
-    aiButton.textContent = i18n.t("app.묘사를_펼치는_중");
-  }
-  const toolSubmit = $("aiToolModalSubmitButton");
-  const toolPrev = toolSubmit?.textContent;
-  if (toolSubmit) {
-    toolSubmit.disabled = true;
-    toolSubmit.textContent = i18n.t("app.묘사를_펼치는_중");
-  }
-
-  try {
-    await attachIndexedPromptToAssistBody(body, "descexpand", selectedText);
-    const result = await api("/api/ai/assist", {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
-    const expanded = String(result.text || "").trim();
-    const displayParsed = parseDescriptionExpandDisplay(expanded);
-    const applyText = displayParsed.displayText || displayParsed.polished || expanded;
-    pendingRewriteState = {
-      original: selectedText,
-      result: expanded,
-      range: payload?.range || null,
-      referenceText: `${contextBefore}${selectedText}${contextAfter}`.trim() || selectedText,
-      contextBefore,
-      contextAfter,
-      sourceMode: payload?.sourceMode || "selection",
-      resultKind: displayParsed.kind,
-      alternatives: displayParsed.alternatives || [],
-      reason: "",
-      intent: "descexpand",
-    };
-    pendingStyleBlendContext = null;
-    if ($("aiResult")) {
-      $("aiResult").value = expanded
-        ? `【원문】\n${selectedText}\n\n【결과】\n${applyText}`
-        : i18n.t("app.결과_없음");
-    }
-    prepareStyleBlendOffer(null);
-    revealAiAssistResult({ openModal: false, mode: "descexpand" });
-    openRewriteCompareModal(selectedText, expanded, {
-      parsed: displayParsed,
-      sourceMode: payload?.sourceMode || "selection",
-      intent: "descexpand",
-    });
-    toast(expanded
-      ? i18n.t("app.묘사_확장_제안이_왔어요_대체_복사_유지_중")
-      : i18n.t("app.묘사_확장_응답이_비어_있어요"));
-    return result;
-  } catch (error) {
-    if ($("aiResult")) $("aiResult").value = "";
-    handleError(error);
-    return null;
-  } finally {
-    rewriteAssistInFlight = false;
-    if (aiButton) {
-      aiButton.disabled = false;
-      aiButton.textContent = prevLabel || i18n.t("app.토리에게_물어보기");
-    }
-    if (toolSubmit) {
-      toolSubmit.disabled = false;
-      toolSubmit.textContent = toolPrev || i18n.t("app.펼치기");
-    }
-  }
-}
-
-async function runDescriptionExpandFromSelection() {
-  const payload = getRewriteSelectionPayload();
-  if (!payload?.selectedText) {
-    toast(i18n.t("app.먼저_본문에서_펼칠_문장을_드래그로_선택하"));
-    return null;
-  }
-  const selRadio = document.querySelector('input[name="descExpandSourceMode"][value="selection"]');
-  if (selRadio) selRadio.checked = true;
-  try { updateDescExpandSourceUi?.(); } catch (_) { /* ignore */ }
-  if ($("aiMode")) $("aiMode").value = "descexpand";
-  try { updateForeshadowPanelVisibility?.(); } catch (_) { /* ignore */ }
-  openAiToolModal("descexpand", { force: true });
-  requestAnimationFrame(() => {
-    try {
-      $("descExpandDirectionHint")?.focus({ preventScroll: true });
-    } catch (_) {
-      $("descExpandDirectionHint")?.focus();
-    }
-  });
-  toast(i18n.t("app.확장_방향을_적은_뒤_펼치기_를_눌러_주세요"));
   return null;
 }
 

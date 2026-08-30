@@ -162,7 +162,7 @@ class StyleBlendTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         text = (result.get("text") or "").strip()
-        print("\n===== (b) 문장 다듬기형 · 문체 튀는 케이스 =====\n", text)
+        print("\n===== (b) 글 다듬기형 · 문체 튀는 케이스 =====\n", text)
         self.assertIn("스며듦", text)
         self.assertRegex(text, r"약간 다르게 느껴짐|뚜렷하게 튐")
         self.assertNotRegex(text, r"전반적 판단:\s*잘 어우러짐")

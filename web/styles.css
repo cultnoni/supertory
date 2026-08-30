@@ -6964,24 +6964,20 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 .ai-tool-modal-card .rewrite-guide-note {
   font-size: 13.5px !important;
 }
-/* 문장 다듬기·묘사 확장: 제목 직후 안내 박스를 살짝 내려 위·아래 간격 균형 */
+/* 글 다듬기: 안내 박스는 다듬기 방향 아래 */
 #rewritePanel > #rewriteGuideNote,
-#rewritePanel > .rewrite-guide-note.tory-helper-callout,
-#descExpandPanel > #descExpandGuideNote,
-#descExpandPanel > .rewrite-guide-note.tory-helper-callout {
+#rewritePanel > .rewrite-guide-note.tory-helper-callout {
   margin-top: 12px !important;
-  margin-bottom: 14px !important;
+  margin-bottom: 4px !important;
 }
-#rewritePanel #rewriteDirectionHint,
-#descExpandPanel #descExpandDirectionHint {
+#rewritePanel #rewriteDirectionHint {
   width: 100%;
   min-height: 52px;
   resize: vertical;
   font-weight: 400;
   line-height: 1.45;
 }
-#rewritePanel #rewriteDirectionHintHelp,
-#descExpandPanel #descExpandDirectionHintHelp {
+#rewritePanel #rewriteDirectionHintHelp {
   margin-top: 2px;
   margin-bottom: 8px;
 }
@@ -6990,8 +6986,7 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 }
 .rewrite-direct-wrap.hidden,
 #rewriteDirectHint.hidden,
-#rewriteSelectionHint.hidden,
-#descExpandDirectHint.hidden {
+#rewriteSelectionHint.hidden {
   display: none !important;
 }
 .rewrite-direct-wrap textarea {
@@ -7004,6 +6999,66 @@ html[data-ui-scheme="dark"] #toryPriorityInput {
 .ai-tool-modal-card .rewrite-direct-wrap textarea {
   font-size: 14px !important;
   min-height: 130px;
+}
+.rewrite-preset-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 6px 0 10px;
+}
+.rewrite-preset-row,
+.rewrite-preset-extra {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.rewrite-preset-extra.hidden {
+  display: none !important;
+}
+.rewrite-preset-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface, #fff) 88%, var(--bg-main, #FAFAF9) 12%);
+  font-size: 13px;
+  line-height: 1.25;
+  color: var(--ink, #1a1510);
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.rewrite-preset-chip:hover {
+  border-color: color-mix(in srgb, var(--accent, #c47b3a) 40%, var(--line));
+}
+.rewrite-preset-chip.is-active {
+  border-color: color-mix(in srgb, var(--accent, #c47b3a) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent, #c47b3a) 12%, var(--surface, #fff));
+  font-weight: 600;
+}
+.rewrite-preset-more {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  border: 0;
+  background: transparent;
+  color: var(--accent, #c47b3a);
+  font-size: 13px;
+  line-height: 1.25;
+  cursor: pointer;
+}
+.rewrite-preset-more:hover {
+  text-decoration: underline;
+}
+.rewrite-preset-more.is-open .rewrite-preset-more-caret {
+  transform: rotate(180deg);
+}
+.rewrite-preset-more-caret {
+  display: inline-block;
+  font-size: 11px;
+  transition: transform 0.15s ease;
 }
 #aiPromptWrap.hidden {
   display: none !important;
@@ -26423,11 +26478,19 @@ html[data-ui-theme="eink"] .secondary:hover {
   background: #000 !important;
   color: #fff !important;
 }
-html[data-theme="eink"] .tory-helper-callout,
-html[data-theme="eink"] .rewrite-guide-note,
-html[data-ui-theme="eink"] .tory-helper-callout {
+html[data-theme="eink"] .rewrite-preset-chip,
+html[data-ui-theme="eink"] .rewrite-preset-chip {
   background: #fff !important;
   border: 1px solid #000 !important;
+  color: #000 !important;
+}
+html[data-theme="eink"] .rewrite-preset-chip.is-active,
+html[data-ui-theme="eink"] .rewrite-preset-chip.is-active {
+  background: #000 !important;
+  color: #fff !important;
+}
+html[data-theme="eink"] .rewrite-preset-more,
+html[data-ui-theme="eink"] .rewrite-preset-more {
   color: #000 !important;
 }
 
@@ -26436,10 +26499,8 @@ html[data-theme="eink"] #aiToolModal .tory-helper-callout,
 html[data-theme="eink"] #aiToolModal .rewrite-guide-note,
 html[data-theme="eink"] #foreshadowPanelHint,
 html[data-theme="eink"] #rewriteGuideNote,
-html[data-theme="eink"] #descExpandGuideNote,
 html[data-theme="eink"] #subsynopsisPanelHint,
 html[data-theme="eink"] #rewritePanel > .rewrite-guide-note.tory-helper-callout,
-html[data-theme="eink"] #descExpandPanel > .rewrite-guide-note.tory-helper-callout,
 html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
 html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note,
 html[data-theme="eink"] .foreshadow-panel .tory-helper-callout,
@@ -26448,7 +26509,6 @@ html[data-theme="eink"] .subsynopsis-panel .tory-helper-callout,
 html[data-ui-theme="eink"] #aiToolModal .tory-helper-callout,
 html[data-ui-theme="eink"] #foreshadowPanelHint,
 html[data-ui-theme="eink"] #rewriteGuideNote,
-html[data-ui-theme="eink"] #descExpandGuideNote,
 html[data-ui-theme="eink"] #subsynopsisPanelHint,
 html[data-ui-theme="eink"] .ai-tool-modal-card .tory-helper-callout,
 html[data-ui-theme="eink"] .ai-tool-modal-card .rewrite-guide-note {

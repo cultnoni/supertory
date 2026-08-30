@@ -106,7 +106,7 @@
           'html[data-ui-theme="eink"] .folder-title-box,html[data-ui-theme="eink"] .folder-title-box.is-level-0{',
           'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
           'html[data-theme="eink"] .folder-title-box:hover{background:#000!important;color:#fff!important;border-color:#000!important;}',
-          'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #descExpandGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
+          'html[data-theme="eink"] #foreshadowPanelHint,html[data-theme="eink"] #rewriteGuideNote,html[data-theme="eink"] #subsynopsisPanelHint,',
           'html[data-theme="eink"] #aiToolModal .tory-helper-callout,html[data-theme="eink"] .ai-tool-modal-card .tory-helper-callout,',
           'html[data-theme="eink"] .ai-tool-modal-card .rewrite-guide-note{background:#fff!important;border:1px solid #000!important;color:#000!important;}',
           'html[data-theme="eink"] .chapter-twistie,html[data-ui-theme="eink"] .chapter-twistie{color:#000!important;background:transparent!important;}',
@@ -2646,8 +2646,7 @@
                     <!-- successfeedback: 연결 프로파일 기반 회차 비교 피드백 -->
                     <optgroup label="토리와 함께 써요" data-i18n-label="index.토리와_함께_써요">
                       <option value="continue" data-i18n="app.이어서_쓰기">이어서 쓰기</option>
-                      <option value="rewrite" data-i18n="app.문장_다듬기">문장 다듬기</option>
-                      <option value="descexpand" data-i18n="app.묘사_확장">묘사 확장</option>
+                      <option value="rewrite" data-i18n="app.글_다듬기">글 다듬기</option>
                       <option value="worlddesc" data-i18n="app.세계관_묘사">세계관 묘사</option>
                       <option value="subsynopsis" data-i18n="app.투고_공모전용_시놉시스">투고·공모전용 시놉시스</option>
                     </optgroup>
@@ -3554,22 +3553,7 @@
             </label>
           </div>
 
-          <div id="rewritePanel" class="foreshadow-panel rewrite-panel hidden" aria-label="문장 다듬기" data-i18n-aria-label="app.문장_다듬기">
-            <p class="tory-helper-callout rewrite-guide-note" id="rewriteGuideNote">
-              토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
-              대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
-            </p>
-            <label class="foreshadow-field tory-helper-section-label" for="rewriteDirectionHint">다듬기 방향
-              <textarea
-                id="rewriteDirectionHint"
-                rows="2"
-                maxlength="500"
-                placeholder="예: 더 짧게 / 긴장감 있게 / 구어체로 / 비유를 줄여 줘 / 대사만 손봐 줘" data-i18n-placeholder="index.예_더_짧게_긴장감_있게_구어체로_비유를_줄"
-              ></textarea>
-            </label>
-            <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectionHintHelp">
-              어떤 방향으로 손보길 원하는지 적어 주세요. 비워 두면 기본 기준으로 판단해요.
-            </p>
+          <div id="rewritePanel" class="foreshadow-panel rewrite-panel hidden" aria-label="글 다듬기" data-i18n-aria-label="app.글_다듬기">
             <p class="tory-helper-section-label" data-i18n="index.다듬을_문장_입력_방식">다듬을 문장 입력 방식</p>
             <fieldset class="continue-length-options rewrite-source-options tory-helper-options" id="rewriteSourceOptions">
               <legend class="sr-only" data-i18n="index.문장_입력_방식">문장 입력 방식</legend>
@@ -3583,7 +3567,7 @@
               </label>
             </fieldset>
             <label class="foreshadow-field rewrite-direct-wrap tory-helper-section-label" id="rewriteDirectWrap" for="rewriteDirectText">
-              다듬을 문장
+              <span data-i18n="index.다듬을_문장">다듬을 문장</span>
               <textarea
                 id="rewriteDirectText"
                 rows="5"
@@ -3591,50 +3575,45 @@
                 placeholder="다듬고 싶은 문장·문단을 여기에 직접 입력하거나 붙여 넣으세요." data-i18n-placeholder="index.다듬고_싶은_문장_문단을_여기에_직접_입력하"
               ></textarea>
             </label>
-            <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectHint">
+            <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectHint" data-i18n="index.입력하신_문장만_따로_점검해_드려요">
               입력하신 문장만 따로 점검해 드려요.
             </p>
-          </div>
-
-          <div id="descExpandPanel" class="foreshadow-panel rewrite-panel hidden" aria-label="묘사 확장" data-i18n-aria-label="app.묘사_확장">
-            <p class="tory-helper-callout rewrite-guide-note" id="descExpandGuideNote" data-i18n="app.선택한_장면의_감각_공간_분위기를_같은_문체">
-              선택한 장면의 감각·공간·분위기를 같은 문체로 더 풍부하게 펼쳐 줘요.
-            </p>
-            <label class="foreshadow-field tory-helper-section-label" for="descExpandDirectionHint">
-              <span data-i18n="index.확장_방향">확장 방향</span>
+            <div class="rewrite-preset-block" id="rewritePresetBlock">
+              <div class="rewrite-preset-row" id="rewritePresetRow">
+                <button type="button" class="rewrite-preset-chip" data-rewrite-preset="concise" data-i18n="app.간결화">간결화</button>
+                <button type="button" class="rewrite-preset-chip" data-rewrite-preset="enrich" data-i18n="app.풍부화">풍부화</button>
+                <button type="button" class="rewrite-preset-chip" data-rewrite-preset="dialogue" data-i18n="app.대사_추가">대사 추가</button>
+                <button
+                  type="button"
+                  class="rewrite-preset-more"
+                  id="rewritePresetMoreBtn"
+                  aria-expanded="false"
+                  aria-controls="rewritePresetExtra"
+                >
+                  <span id="rewritePresetMoreLabel" data-i18n="app.더_보기">더 보기</span>
+                  <span class="rewrite-preset-more-caret" aria-hidden="true">▾</span>
+                </button>
+              </div>
+              <div class="rewrite-preset-extra hidden" id="rewritePresetExtra">
+                <button type="button" class="rewrite-preset-chip" data-rewrite-preset="psychology" data-i18n="app.심리_묘사">심리 묘사</button>
+                <button type="button" class="rewrite-preset-chip" data-rewrite-preset="setting" data-i18n="app.배경_묘사">배경 묘사</button>
+              </div>
+            </div>
+            <label class="foreshadow-field tory-helper-section-label" for="rewriteDirectionHint">
+              <span data-i18n="index.다듬기_방향">다듬기 방향</span>
               <textarea
-                id="descExpandDirectionHint"
+                id="rewriteDirectionHint"
                 rows="2"
                 maxlength="500"
-                placeholder="예: 공간 분위기를 더 / 오감을 살려 / 인물의 내면으로" data-i18n-placeholder="index.예_공간_분위기를_더_오감을_살려_인물의_내"
+                placeholder="예: 더 짧게 / 긴장감 있게 / 구어체로 / 비유를 줄여 줘 / 대사만 손봐 줘 / 공간 분위기를 더 / 오감을 살려 / 인물의 내면으로" data-i18n-placeholder="index.예_더_짧게_긴장감_있게_구어체로_비유를_줄"
               ></textarea>
             </label>
-            <p class="hint foreshadow-hint tory-helper-hint" id="descExpandDirectionHintHelp" data-i18n="index.어떤_쪽으로_펼칠지_적어_주세요_비워_두면">
-              어떤 쪽으로 펼칠지 적어 주세요. 비워 두면 기본 기준으로 판단해요.
+            <p class="hint foreshadow-hint tory-helper-hint" id="rewriteDirectionHintHelp" data-i18n="index.어떤_방향으로_손보길_원하는지_적어_주세요">
+              어떤 방향으로 손보길 원하는지 적어 주세요. 비워 두면 기본 기준으로 판단해요.
             </p>
-            <p class="tory-helper-section-label" data-i18n="index.펼칠_문장_입력_방식">펼칠 문장 입력 방식</p>
-            <fieldset class="continue-length-options rewrite-source-options tory-helper-options" id="descExpandSourceOptions">
-              <legend class="sr-only" data-i18n="index.문장_입력_방식">문장 입력 방식</legend>
-              <label class="continue-length-option">
-                <input type="radio" name="descExpandSourceMode" value="selection" checked>
-                <span data-i18n="index.본문에서_선택">본문에서 선택</span>
-              </label>
-              <label class="continue-length-option">
-                <input type="radio" name="descExpandSourceMode" value="direct">
-                <span data-i18n="index.직접_쓰기">직접 쓰기</span>
-              </label>
-            </fieldset>
-            <label class="foreshadow-field rewrite-direct-wrap tory-helper-section-label" id="descExpandDirectWrap" for="descExpandDirectText">
-              <span data-i18n="index.펼칠_문장">펼칠 문장</span>
-              <textarea
-                id="descExpandDirectText"
-                rows="5"
-                maxlength="8000"
-                placeholder="펼치고 싶은 장면·문장을 여기에 직접 입력하거나 붙여 넣으세요." data-i18n-placeholder="index.펼치고_싶은_장면_문장을_여기에_직접_입력하"
-              ></textarea>
-            </label>
-            <p class="hint foreshadow-hint tory-helper-hint" id="descExpandDirectHint" data-i18n="index.입력하신_문장만_따로_펼쳐_드려요">
-              입력하신 문장만 따로 펼쳐 드려요.
+            <p class="tory-helper-callout rewrite-guide-note" id="rewriteGuideNote" data-i18n="app.토리는_문장을_억지로_다듬지_않아요_이미_충">
+              토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면
+              대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다.
             </p>
           </div>
 
@@ -4160,7 +4139,7 @@
       <div class="modal-backdrop" data-close-rewrite-compare></div>
       <div class="modal-card rewrite-compare-modal-card tory-helper-card">
         <div class="modal-heading">
-          <h2 id="rewriteCompareModalTitle" class="tory-helper-title" data-i18n="app.문장_다듬기_비교">문장 다듬기 비교</h2>
+          <h2 id="rewriteCompareModalTitle" class="tory-helper-title" data-i18n="app.글_다듬기_비교">글 다듬기 비교</h2>
           <button type="button" class="modal-close" data-close-rewrite-compare title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
         <p class="tory-helper-callout rewrite-guide-note" id="rewriteCompareGuide">
@@ -4207,9 +4186,8 @@
           <h2 id="rewriteLengthWarnTitle" class="tory-helper-title" data-i18n="index.분량이_꽤_많아요">분량이 꽤 많아요</h2>
           <button type="button" class="modal-close" data-close-rewrite-length-warn title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
-        <p class="tory-helper-callout" id="rewriteLengthWarnBody">
-          선택하신 분량이 꽤 많아요. 문장 다듬기는 짧은 구간을 세밀하게 손보는 기능이라,
-          너무 길면 원래 문체가 흐려질 수 있어요. 그래도 계속하시겠어요?
+        <p class="tory-helper-callout" id="rewriteLengthWarnBody" data-i18n="index.글_다듬기_분량_안내">
+          선택하신 분량이 꽤 많아요. 글 다듬기는 짧은 구간을 세밀하게 손보는 기능이라, 너무 길면 원래 문체가 흐려질 수 있어요. 그래도 계속하시겠어요?
         </p>
         <div class="modal-actions">
           <button type="button" class="secondary" data-close-rewrite-length-warn id="rewriteLengthWarnCancel" data-i18n="index.선택_다시_하기">선택 다시 하기</button>
@@ -5068,23 +5046,13 @@
       <button
         type="button"
         role="menuitem"
-        data-context-action="rewrite-sentence"
-        id="rewriteSentenceMenuItem"
+        data-context-action="rewrite-text"
+        id="rewriteTextMenuItem"
         data-ctx-selection-only
+        data-i18n="app.글_다듬기"
         title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다." data-i18n-title="app.토리는_문장을_억지로_다듬지_않아요_이미_충"
       >
-        문장 다듬기
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        data-context-action="expand-description"
-        id="expandDescriptionMenuItem"
-        data-ctx-selection-only
-        title="선택한 장면의 감각·공간·분위기를 같은 문체로 더 풍부하게 펼쳐 줘요" data-i18n-title="app.선택한_장면의_감각_공간_분위기를_같은_문체"
-        data-i18n="app.묘사_확장"
-      >
-        묘사 확장
+        글 다듬기
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기

@@ -111,7 +111,7 @@ class AssistModesSmokeTests(unittest.TestCase):
             "brainstorm": "브레인스토밍",
             "analyze": "피드백 요청",
             "continue": "이어서 쓰기",
-            "rewrite": "문장 다듬기",
+            "rewrite": "글 다듬기",
             "worlddesc": "세계관 묘사",
             "subsynopsis": "투고·공모전용 시놉시스",
         }
@@ -232,16 +232,11 @@ class AssistModesSmokeTests(unittest.TestCase):
                 ],
                 "local_hits": [{"phrase": "등잔 연기", "where": "1화", "kind": "표현"}],
             }
-        elif mode == "descexpand":
-            extra = {
-                "scene_content": "문이 열렸다.",
-                "selected_text": "문이 열렸다.",
-            }
         return extra
 
     def test_genre_literature_dry_run_matches_webnovel(self) -> None:
         """Until genre-lit tuning, both pipelines must emit the same task prompt."""
-        modes = list(HELPER_MODES) + ["descexpand"]
+        modes = list(HELPER_MODES)
         failures: list[str] = []
         for mode in modes:
             extra = self._helper_extra(mode)

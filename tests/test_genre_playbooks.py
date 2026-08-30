@@ -830,12 +830,6 @@ class GenrePlaybookCGroupTests(unittest.TestCase):
                 "[다듬을 문장]",
             ),
             (
-                lambda g, s: app.SuperToryHandler._build_description_expand_prompt(
-                    "한 줄", "", "", "", main_genre=g, sub_genre=s
-                ),
-                "[선택 원문]",
-            ),
-            (
                 lambda g, s: app.SuperToryHandler._build_world_description_prompt(
                     "옥상", "한 줄 원고", main_genre=g, sub_genre=s
                 ),
@@ -878,12 +872,6 @@ class GenrePlaybookCGroupTests(unittest.TestCase):
                 "body_needle": "[다듬을 문장]",
             },
             {
-                "mode": "descexpand",
-                "scene_content": C_ROMANCE_SCENE,
-                "selected_text": C_ROMANCE_SELECTED,
-                "body_needle": "[선택 원문]",
-            },
-            {
                 "mode": "worlddesc",
                 "scene_content": C_ROMANCE_SCENE,
                 "target_subject": "비 오는 회사 옥상",
@@ -913,11 +901,6 @@ class GenrePlaybookCGroupTests(unittest.TestCase):
             },
             {
                 "mode": "rewrite",
-                "scene_content": C_FANTASY_SCENE,
-                "selected_text": C_FANTASY_SELECTED,
-            },
-            {
-                "mode": "descexpand",
                 "scene_content": C_FANTASY_SCENE,
                 "selected_text": C_FANTASY_SELECTED,
             },
