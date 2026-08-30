@@ -128,6 +128,7 @@ function applyTranslations() {
 async function setLanguage(lang) {
   await i18n.loadLocale(lang);
   applyTranslations();
+  if (typeof syncSmartPunctuationMenuLabel === "function") syncSmartPunctuationMenuLabel();
   applyWelcomeAdFeedToDom();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
@@ -3170,6 +3171,237 @@ function setupTypewriterMode() {
   });
 }
 
+/* —— 스마트 문장부호 (따옴표 짝 자동완성) ——
+ * 뮤블식 '엔터 후 홀수 추측'이 아니라, 코드 에디터 괄호처럼 입력 순간에 짝을 넣어요.
+ * 직선 따옴표(" ')만 쓰고, 곡선형(“ ”)로 바꾸지 않아요.
+ */
+const SMART_PUNCTUATION_STORAGE_KEY = "supertory.smartPunctuation";
+const SMART_PUNCTUATION_QUOTES = { '"': true, "'": true };
+let smartPunctuationOn = true;
+let smartPunctuationMute = false;
+
+function readSmartPunctuationPref() {
+  try {
+    const raw = localStorage.getItem(SMART_PUNCTUATION_STORAGE_KEY);
+    if (raw === null) return true;
+    return raw !== "0";
+  } catch (_) {
+    return true;
+  }
+}
+
+function writeSmartPunctuationPref(on) {
+  try {
+    localStorage.setItem(SMART_PUNCTUATION_STORAGE_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function isSmartPunctuationEnabled() {
+  return smartPunctuationOn;
+}
+
+function getSmartPunctuationEditor(event) {
+  const target = event?.target;
+  if (!target?.closest) return null;
+  const host = target.closest("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, [contenteditable].rich-editor");
+  if (!host) return null;
+  if (host.isContentEditable || host.getAttribute?.("contenteditable") === "true") return host;
+  return null;
+}
+
+function syncSmartPunctuationMenuLabel() {
+  const btn = $("smartPunctuationMenuItem");
+  if (!btn) return;
+  btn.textContent = smartPunctuationOn
+    ? i18n.t("index.스마트_문장부호_끄기")
+    : i18n.t("index.스마트_문장부호_켜기");
+}
+
+function setSmartPunctuationEnabled(on, options = {}) {
+  smartPunctuationOn = !!on;
+  writeSmartPunctuationPref(smartPunctuationOn);
+  syncSmartPunctuationMenuLabel();
+  if (options.announce) {
+    toast(smartPunctuationOn
+      ? i18n.t("index.스마트_문장부호를_켰어요")
+      : i18n.t("index.스마트_문장부호를_껐어요"));
+  }
+}
+
+function toggleSmartPunctuation(options = {}) {
+  setSmartPunctuationEnabled(!smartPunctuationOn, options);
+}
+
+function peekAdjacentChar(direction) {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount || !sel.isCollapsed) return "";
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  const offset = range.startOffset;
+  if (node.nodeType === Node.TEXT_NODE) {
+    if (direction > 0 && offset < node.data.length) {
+      const ch = node.data.charAt(offset);
+      if (ch === "\n" || ch === "\r") return "";
+      return ch;
+    }
+    if (direction < 0 && offset > 0) {
+      const ch = node.data.charAt(offset - 1);
+      if (ch === "\n" || ch === "\r") return "";
+      return ch;
+    }
+  }
+  const saved = range.cloneRange();
+  try {
+    sel.modify("move", direction > 0 ? "forward" : "backward", "character");
+    const moved = sel.getRangeAt(0);
+    const probe = document.createRange();
+    if (direction > 0) {
+      probe.setStart(saved.startContainer, saved.startOffset);
+      probe.setEnd(moved.startContainer, moved.startOffset);
+    } else {
+      probe.setStart(moved.startContainer, moved.startOffset);
+      probe.setEnd(saved.startContainer, saved.startOffset);
+    }
+    const text = probe.toString();
+    sel.removeAllRanges();
+    sel.addRange(saved);
+    if (!text || text.length !== 1 || text === "\n" || text === "\r") return "";
+    return text;
+  } catch (_) {
+    try {
+      sel.removeAllRanges();
+      sel.addRange(saved);
+    } catch (_) {
+      /* ignore */
+    }
+    return "";
+  }
+}
+
+function moveCaretOneChar(direction) {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount) return;
+  const range = sel.getRangeAt(0);
+  const node = range.startContainer;
+  const offset = range.startOffset;
+  if (node.nodeType === Node.TEXT_NODE) {
+    const next = offset + direction;
+    if (next >= 0 && next <= node.data.length) {
+      range.setStart(node, next);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+  }
+  try {
+    sel.modify("move", direction > 0 ? "forward" : "backward", "character");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function deleteEmptyQuotePairAroundCaret() {
+  const sel = window.getSelection();
+  if (!sel?.rangeCount || !sel.isCollapsed) return false;
+  const origin = sel.getRangeAt(0).cloneRange();
+  try {
+    sel.modify("move", "backward", "character");
+    const start = sel.getRangeAt(0).cloneRange();
+    sel.removeAllRanges();
+    sel.addRange(origin);
+    sel.modify("move", "forward", "character");
+    const end = sel.getRangeAt(0);
+    const wipe = document.createRange();
+    wipe.setStart(start.startContainer, start.startOffset);
+    wipe.setEnd(end.startContainer, end.startOffset);
+    sel.removeAllRanges();
+    sel.addRange(wipe);
+    smartPunctuationMute = true;
+    try {
+      document.execCommand("delete");
+    } finally {
+      smartPunctuationMute = false;
+    }
+    return true;
+  } catch (_) {
+    try {
+      sel.removeAllRanges();
+      sel.addRange(origin);
+    } catch (_) {
+      /* ignore */
+    }
+    return false;
+  }
+}
+
+function insertSmartQuotePair(quote, selectedText) {
+  smartPunctuationMute = true;
+  try {
+    document.execCommand("insertText", false, quote + selectedText + quote);
+    moveCaretOneChar(-1);
+  } finally {
+    smartPunctuationMute = false;
+  }
+}
+
+function onSmartPunctuationBeforeInput(event) {
+  if (smartPunctuationMute || !smartPunctuationOn) return;
+  if (event.isComposing || event.defaultPrevented) return;
+  const editor = getSmartPunctuationEditor(event);
+  if (!editor) return;
+  const sel = window.getSelection();
+  if (!sel || !sel.rangeCount) return;
+  if (!editor.contains(sel.anchorNode) && sel.anchorNode !== editor) return;
+
+  const inputType = String(event.inputType || "");
+  if (inputType === "deleteContentBackward") {
+    if (!sel.isCollapsed) return;
+    const prev = peekAdjacentChar(-1);
+    const next = peekAdjacentChar(1);
+    if (!SMART_PUNCTUATION_QUOTES[prev] || prev !== next) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    deleteEmptyQuotePairAroundCaret();
+    return;
+  }
+
+  if (inputType !== "insertText") return;
+  const quote = event.data;
+  if (!quote || !SMART_PUNCTUATION_QUOTES[quote]) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
+
+  if (sel.isCollapsed) {
+    if (peekAdjacentChar(1) === quote) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      moveCaretOneChar(1);
+      return;
+    }
+    // don't → 영문 축약형은 홑따옴표 하나만. 한글 조사 뒤는 짝을 만들어요.
+    if (quote === "'" && /[A-Za-z0-9]/.test(peekAdjacentChar(-1))) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    insertSmartQuotePair(quote, "");
+    return;
+  }
+
+  const selected = sel.toString();
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  insertSmartQuotePair(quote, selected);
+}
+
+function setupSmartPunctuation() {
+  if (document.documentElement.dataset.smartPunctuationBound === "1") return;
+  document.documentElement.dataset.smartPunctuationBound = "1";
+  smartPunctuationOn = readSmartPunctuationPref();
+  syncSmartPunctuationMenuLabel();
+  document.addEventListener("beforeinput", onSmartPunctuationBeforeInput, true);
+}
+
 function setupSceneStats() {
   syncStatsScopeUi();
   applyStatDisplayVisibility();
@@ -3236,6 +3468,7 @@ function setupSceneStats() {
   setupFindBar();
   setupSimilarWordFind();
   setupTypewriterMode();
+  setupSmartPunctuation();
 }
 
 function updateEditorPlaceholder(editorEl = null) {
@@ -34454,7 +34687,7 @@ function setupDesktopThemeMenu() {
 
   const openManuscriptMenu = (clientX, clientY, event = null, editorEl = null) => {
     const editor = editorEl
-      || event?.target?.closest?.("#sceneContent, #synopsisContent, #synopsisContentB")
+      || event?.target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB")
       || getActiveRichEditor()
       || $("sceneContent");
     contextMenuEditor = editor;
@@ -34485,6 +34718,7 @@ function setupDesktopThemeMenu() {
     menu?.classList.toggle("is-text-selection", hasSelection);
     menu?.classList.toggle("is-settings-doc", isSettingsDoc);
     setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
+    syncSmartPunctuationMenuLabel();
     syncPageThemeScopeUi();
     // 잘라내기 · 복사 · 서식 복사: 선택한 글이 있어야 동작
     const cutItem = $("cutMenuItem");
@@ -34621,6 +34855,16 @@ function setupDesktopThemeMenu() {
     openManuscriptMenu(event.clientX, event.clientY, event, $("sceneContent"));
   });
 
+  $("focusWritePage")?.addEventListener("contextmenu", (event) => {
+    if (!isFocusWriteOpen?.()) return;
+    const editor = $("focusWriteEditor");
+    if (!editor || !editor.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pendingFootnoteId = findFootnoteIdFromEventTarget(event.target);
+    openManuscriptMenu(event.clientX, event.clientY, event, editor);
+  });
+
   // 세계관·시놉시스 등 설정 문서 메인 편집도 본문과 같은 바탕 우클릭 메뉴.
   $("synopsisPage")?.addEventListener("contextmenu", (event) => {
     event.preventDefault();
@@ -34681,6 +34925,10 @@ function setupDesktopThemeMenu() {
       } else if (action === "copy-format") {
         hideDesktopContextMenu();
         copyFormatFromSelection();
+      } else if (action === "toggle-smart-punctuation") {
+        event.preventDefault();
+        event.stopPropagation();
+        toggleSmartPunctuation({ announce: true });
       } else if (action === "bookmark") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
