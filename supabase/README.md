@@ -10,5 +10,8 @@ Project ref: `zspsoestybyvycfurhpw`
   The homepage editor lists both browser-only and desktop-mirrored rows. Browser saves
   apply `resolve_write` rules in the client for this pilot; server-side enforcement
   (Edge Function) is a later step. Browser → desktop SQLite pull is phase 4.
+- `reading_invites` / `reading_invite_scenes` / `reading_invite_comments`:
+  desktop snapshot links for beta readers (`/read/{token}` on the homepage).
+  Public readers use `get_reading_invite(p_token)` — table SELECT is not granted to anon.
 
 Apply new files under `migrations/` in the Supabase SQL editor, or with the Supabase CLI (`supabase db push`) against that project.
