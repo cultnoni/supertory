@@ -142,6 +142,36 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
         self.assertIn("persistCharacter", add_fn)
         self.assertNotIn("openCharacter(state.characterId)", add_fn)
 
+    def test_project_switch_uses_load_generation(self) -> None:
+        self.assertIn("function bumpProjectLoadGen", self.js)
+        self.assertIn("function isCurrentProjectLoadGen", self.js)
+        self.assertIn("function isAbortError", self.js)
+        self.assertIn("const switchGen = bumpProjectLoadGen()", self.js)
+        self.assertIn("if (!isCurrentProjectLoadGen(switchGen)) return;", self.js)
+        load = self.js.split("async function loadProject()", 1)[1].split(
+            "function previewLines", 1
+        )[0]
+        self.assertIn("projectLoadController?.signal", load)
+        self.assertIn("if (isAbortError(error) || !stillCurrent()) return;", load)
+        persist = self.js.split("async function persistSettingsDoc", 1)[1].split(
+            "async function persistSynopsis", 1
+        )[0]
+        self.assertIn("liveProjectId(options.projectId ?? state.projectId)", persist)
+        self.assertIn("`/api/projects/${projectId}/settings`", persist)
+        genre = self.js.split("async function persistProjectGenre", 1)[1].split(
+            "function syncGenreDisplayButtons", 1
+        )[0]
+        self.assertIn("`/api/projects/${projectId}/settings`", genre)
+        keywords = self.js.split("async function persistProjectKeywords", 1)[1].split(
+            "function addProjectKeyword", 1
+        )[0]
+        self.assertIn("`/api/projects/${projectId}/settings`", keywords)
+        flush = self.js.split("async function flushPendingCodexSaves()", 1)[1].split(
+            "function hideSynopsisMain", 1
+        )[0]
+        self.assertIn("persistProjectGenre({ quiet: true, projectId })", flush)
+        self.assertIn("persistProjectKeywords({ quiet: true, projectId })", flush)
+
 
 if __name__ == "__main__":
     unittest.main()

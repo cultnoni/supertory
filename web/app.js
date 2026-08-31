@@ -293,6 +293,48 @@ const state = {
 const $ = (id) => document.getElementById(id);
 
 /**
+ * Generation token for work switching. Incremented on every projectSelect
+ * change so an older loadProject / applyProjectSwitch cannot toast or
+ * overwrite the work the user clicked last.
+ */
+let projectLoadGen = 0;
+/** @type {AbortController|null} */
+let projectLoadController = typeof AbortController !== "undefined"
+  ? new AbortController()
+  : null;
+
+function bumpProjectLoadGen() {
+  projectLoadGen += 1;
+  const previous = projectLoadController;
+  projectLoadController = typeof AbortController !== "undefined"
+    ? new AbortController()
+    : null;
+  if (previous) {
+    try { previous.abort(); } catch (_) { /* ignore */ }
+  }
+  return projectLoadGen;
+}
+
+function isCurrentProjectLoadGen(gen) {
+  return Number(gen) === Number(projectLoadGen);
+}
+
+function isAbortError(error) {
+  if (!error) return false;
+  if (error.isAbort) return true;
+  if (error.name === "AbortError") return true;
+  const cause = error.cause;
+  if (cause && (cause.name === "AbortError" || cause.code === 20)) return true;
+  const msg = String(error.message || error || "");
+  return /aborted|AbortError|The user aborted a request/i.test(msg);
+}
+
+function liveProjectId(raw = state.projectId) {
+  const id = Number(raw);
+  return Number.isFinite(id) && id > 0 ? id : null;
+}
+
+/**
  * Small inline SVG for chip icons only (회차 칩).
  * Bell / wand / find use emoji again (pre-SVG look).
  */
@@ -335,6 +377,13 @@ async function api(path, options = {}) {
         headers,
       });
     } catch (networkError) {
+      if (isAbortError(networkError) || options.signal?.aborted) {
+        const err = new Error("aborted");
+        err.name = "AbortError";
+        err.isAbort = true;
+        err.cause = networkError;
+        throw err;
+      }
       const err = new Error(
         i18n.t('app.서버에_연결할_수_없습니다_작성_중인_글은'),
       );
@@ -2742,23 +2791,27 @@ function syncProjectGoalFromState() {
 }
 
 function scheduleProjectGoalSave() {
-  if (!state.projectId) return;
+  const projectId = liveProjectId();
+  if (!projectId) return;
   if (projectGoalSaveTimer) window.clearTimeout(projectGoalSaveTimer);
   projectGoalSaveTimer = window.setTimeout(() => {
-    persistProjectGoal().catch(handleError);
+    persistProjectGoal({ projectId }).catch(handleError);
   }, 600);
 }
 
-async function persistProjectGoal() {
-  if (!state.projectId) return;
+async function persistProjectGoal(options = {}) {
+  const projectId = liveProjectId(options.projectId ?? state.projectId);
+  if (!projectId) return;
+  if (liveProjectId() !== projectId) return;
   const goal = Math.max(0, Number($("projectGoalCount")?.value || state.projectGoalCount || 0) || 0);
-  state.projectGoalCount = goal;
-  if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
-  const result = await api(`/api/projects/${state.projectId}/settings`, {
+  const result = await api(`/api/projects/${projectId}/settings`, {
     method: "PUT",
     body: JSON.stringify({ goal_word_count: goal }),
   });
-  const project = state.projects?.find((p) => Number(p.id) === Number(state.projectId));
+  if (liveProjectId() !== projectId) return;
+  state.projectGoalCount = goal;
+  if ($("projectGoalCount")) $("projectGoalCount").value = String(goal);
+  const project = state.projects?.find((p) => Number(p.id) === Number(projectId));
   if (project) project.goal_word_count = goal;
   if (result?.goal_word_count != null && project) {
     project.goal_word_count = Number(result.goal_word_count) || 0;
@@ -7923,33 +7976,39 @@ function syncGenrePickerFromState() {
 
 let genrePersistTimer = null;
 function schedulePersistProjectGenre() {
+  const projectId = liveProjectId();
+  if (!projectId) return;
   if (genrePersistTimer) window.clearTimeout(genrePersistTimer);
   genrePersistTimer = window.setTimeout(() => {
-    persistProjectGenre({ quiet: true }).catch(handleError);
+    persistProjectGenre({ quiet: true, projectId }).catch(handleError);
   }, 400);
 }
 
-async function persistProjectGenre({ quiet = true } = {}) {
-  if (!state.projectId) return;
+async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {}) {
+  const projectId = liveProjectId(projectIdOpt ?? state.projectId);
+  if (!projectId) return;
+  if (liveProjectId() !== projectId) return;
   const { main, sub, genre_detail } = readGenreValuesFromUi();
-  state.mainGenre = main;
-  state.subGenre = sub;
-  state.genreDetail = genre_detail;
-  state.clusterId = inferClusterId(state.projectPurpose, main, sub);
-  await api(`/api/projects/${state.projectId}/settings`, {
+  const clusterId = inferClusterId(state.projectPurpose, main, sub);
+  await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
     body: JSON.stringify({
       main_genre: main,
       sub_genre: sub,
-      cluster_id: state.clusterId,
+      cluster_id: clusterId,
       genre_detail,
     }),
   });
-  const project = state.projects.find((p) => p.id === state.projectId);
+  if (liveProjectId() !== projectId) return;
+  state.mainGenre = main;
+  state.subGenre = sub;
+  state.genreDetail = genre_detail;
+  state.clusterId = clusterId;
+  const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
     project.main_genre = main;
     project.sub_genre = sub;
-    project.cluster_id = state.clusterId;
+    project.cluster_id = clusterId;
     project.genre_detail = genre_detail;
   }
   syncGenreDisplayButtons();
@@ -8495,21 +8554,26 @@ function renderKeywordBoard() {
 
 let keywordPersistTimer = null;
 function schedulePersistProjectKeywords() {
+  const projectId = liveProjectId();
+  if (!projectId) return;
   if (keywordPersistTimer) window.clearTimeout(keywordPersistTimer);
   keywordPersistTimer = window.setTimeout(() => {
-    persistProjectKeywords({ quiet: true }).catch(handleError);
+    persistProjectKeywords({ quiet: true, projectId }).catch(handleError);
   }, 350);
 }
 
-async function persistProjectKeywords({ quiet = true } = {}) {
-  if (!state.projectId) return;
+async function persistProjectKeywords({ quiet = true, projectId: projectIdOpt } = {}) {
+  const projectId = liveProjectId(projectIdOpt ?? state.projectId);
+  if (!projectId) return;
+  if (liveProjectId() !== projectId) return;
   const keywords = normalizeKeywordList(state.keywords);
-  state.keywords = keywords;
-  await api(`/api/projects/${state.projectId}/settings`, {
+  await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
     body: JSON.stringify({ keywords }),
   });
-  const project = state.projects.find((p) => p.id === state.projectId);
+  if (liveProjectId() !== projectId) return;
+  state.keywords = keywords;
+  const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) project.keywords = [...keywords];
   if (!quiet) toast(i18n.t('app.키워드를_저장했습니다'));
 }
@@ -9093,19 +9157,22 @@ function setupProjectListContextMenu() {
   });
 }
 
-async function persistProjectPurpose({ quiet = true } = {}) {
-  if (!state.projectId) return;
+async function persistProjectPurpose({ quiet = true, projectId: projectIdOpt } = {}) {
+  const projectId = liveProjectId(projectIdOpt ?? state.projectId);
+  if (!projectId) return;
+  if (liveProjectId() !== projectId) return;
   const select = $("purposeSelect");
   const purpose = normalizePurposeKey(select?.value || state.projectPurpose || "general_novel");
   const clusterId = inferClusterId(purpose, state.mainGenre, state.subGenre);
-  const result = await api(`/api/projects/${state.projectId}/settings`, {
+  const result = await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
     body: JSON.stringify({ purpose, cluster_id: clusterId }),
   });
+  if (liveProjectId() !== projectId) return;
   const next = normalizePurposeKey(result?.purpose || purpose);
   state.projectPurpose = next;
   state.clusterId = result?.cluster_id || clusterId;
-  const project = state.projects.find((p) => p.id === state.projectId);
+  const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
     project.purpose = next;
     project.cluster_id = state.clusterId;
@@ -9251,17 +9318,36 @@ async function loadProjects(preferredId = null) {
 async function loadProject() {
   if (!state.projectId) return;
   const projectIdAtStart = state.projectId;
+  const genAtStart = projectLoadGen;
+  const stillCurrent = () => (
+    isCurrentProjectLoadGen(genAtStart)
+    && Number(state.projectId) === Number(projectIdAtStart)
+  );
   if (translationWorkspaceBelongsToOtherProject(projectIdAtStart)) {
     detachTranslationWorkspaceForProjectChange();
   }
-  const [outline, characters, ideas, items] = await Promise.all([
-    api(`/api/projects/${state.projectId}/outline`),
-    api(`/api/projects/${state.projectId}/characters`),
-    api(`/api/projects/${state.projectId}/ideas`),
-    api(`/api/projects/${state.projectId}/items`).catch(() => []),
-  ]);
+  const signal = projectLoadController?.signal;
+  const apiOpts = signal ? { signal } : {};
+  let outline;
+  let characters;
+  let ideas;
+  let items;
+  try {
+    [outline, characters, ideas, items] = await Promise.all([
+      api(`/api/projects/${projectIdAtStart}/outline`, apiOpts),
+      api(`/api/projects/${projectIdAtStart}/characters`, apiOpts),
+      api(`/api/projects/${projectIdAtStart}/ideas`, apiOpts),
+      api(`/api/projects/${projectIdAtStart}/items`, apiOpts).catch((error) => {
+        if (isAbortError(error)) throw error;
+        return [];
+      }),
+    ]);
+  } catch (error) {
+    if (isAbortError(error) || !stillCurrent()) return;
+    throw error;
+  }
   // Ignore stale responses if the user switched works mid-flight.
-  if (state.projectId !== projectIdAtStart) return;
+  if (!stillCurrent()) return;
   state.characters = characters;
   state.items = Array.isArray(items) ? items : [];
   state.outline = outline.chapters || [];
@@ -9296,7 +9382,7 @@ async function loadProject() {
       state.baits = [];
     }
   }
-  if (state.projectId !== projectIdAtStart) return;
+  if (!stillCurrent()) return;
   state.readerSessions = loadReaderChatSessions(projectIdAtStart);
   state.synopsisMd = outline.project?.synopsis_md || outline.project?.description_md || "";
   state.loglineMd = outline.project?.logline_md || "";
@@ -9345,6 +9431,7 @@ async function loadProject() {
       renderLinkedSuccessProfileCard().catch(() => {});
     }
   }
+  if (!stillCurrent()) return;
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
   state.genreDetail = outline.project?.genre_detail || fromList?.genre_detail || "";
@@ -9391,6 +9478,7 @@ async function loadProject() {
   updateSceneStats();
   if (typeof renderToryChatMessages === "function") renderToryChatMessages();
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+  if (!stillCurrent()) return;
   // Record open time for recent-first list (manual mode keeps fixed order).
   markProjectOpened(projectIdAtStart).catch(() => {});
   if (typeof checkReadingInviteFeedback === "function") {
@@ -9813,7 +9901,7 @@ function markSynopsisDirty(kind = null) {
   setSynopsisSaveStatus(i18n.t('app.저장_대기_중'));
   if (synopsisAutoSaveTimer) window.clearTimeout(synopsisAutoSaveTimer);
   synopsisAutoSaveTimer = window.setTimeout(() => {
-    persistSettingsDoc(saveKind, { quiet: true }).catch(handleError);
+    persistSettingsDoc(saveKind, { quiet: true, projectId: liveProjectId() }).catch(handleError);
   }, 1200);
 }
 
@@ -9830,18 +9918,20 @@ function markSettingsDocEditorDirty(editor) {
 }
 
 function scheduleSettingsDocAutoSave(kind) {
-  if (!state.projectId || !kind) return;
+  const projectId = liveProjectId();
+  if (!projectId || !kind) return;
   if (settingsDocPending[kind]) window.clearTimeout(settingsDocPending[kind]);
   settingsDocPending[kind] = window.setTimeout(() => {
     settingsDocPending[kind] = null;
-    persistSettingsDoc(kind, { quiet: true }).catch(handleError);
+    persistSettingsDoc(kind, { quiet: true, projectId }).catch(handleError);
   }, 900);
 }
 
 async function persistSettingsDoc(kind, options = {}) {
   const quiet = Boolean(options.quiet);
   const meta = getSettingsDocMeta(kind);
-  if (!state.projectId) {
+  const projectId = liveProjectId(options.projectId ?? state.projectId);
+  if (!projectId) {
     if (!quiet) toast(i18n.t('app.먼저_작품을_선택해_주세요'));
     return null;
   }
@@ -9855,16 +9945,18 @@ async function persistSettingsDoc(kind, options = {}) {
       await new Promise((r) => window.setTimeout(r, 50));
     }
   }
+  if (liveProjectId() !== projectId) return null;
   synopsisAutoSaveInFlight = true;
   if (quiet) setSynopsisSaveStatus(i18n.t('app.자동_저장_중'));
   try {
     // Always take latest from DOM/state right before request.
     const value = getSettingsDocTextForSave(kind);
     state[meta.stateKey] = value;
-    const result = await api(`/api/projects/${state.projectId}/settings`, {
+    const result = await api(`/api/projects/${projectId}/settings`, {
       method: "PUT",
       body: JSON.stringify({ [meta.apiField]: value }),
     });
+    if (liveProjectId() !== projectId) return result;
     const saved = result[meta.apiField] != null ? result[meta.apiField] : value;
     state[meta.stateKey] = saved;
     // Keep other fields from API if returned.
@@ -9889,9 +9981,10 @@ async function persistSettingsDoc(kind, options = {}) {
     if (!quiet) toast(`${i18n.t('app.meta_toastLabel_을_를_저장했', {'meta.toastLabel': meta.toastLabel})}`);
     return result;
   } catch (error) {
+    if (liveProjectId() !== projectId || isAbortError(error)) return null;
     if (quiet) {
       setSynopsisSaveStatus(i18n.t('app.자동_저장_실패_다시_시도'));
-      scheduleSettingsDocAutoSave(kind);
+      if (liveProjectId() === projectId) scheduleSettingsDocAutoSave(kind);
     }
     throw error;
   } finally {
@@ -9948,11 +10041,11 @@ function pendingSettingsDocKinds() {
   return [...kinds];
 }
 
-async function flushPendingSettingsDocs() {
+async function flushPendingSettingsDocs(projectId = state.projectId) {
   const kinds = pendingSettingsDocKinds();
   for (const kind of kinds) {
     try {
-      await persistSettingsDoc(kind, { quiet: true });
+      await persistSettingsDoc(kind, { quiet: true, projectId });
     } catch (_) {
       /* keep pending retry via persistSettingsDoc */
     }
@@ -9960,20 +10053,36 @@ async function flushPendingSettingsDocs() {
 }
 
 async function flushPendingCodexSaves() {
+  const projectId = liveProjectId();
   const tasks = [
     flushCharacterAutoSave().catch(() => {}),
-    flushPendingSettingsDocs(),
+    flushPendingSettingsDocs(projectId),
     flushIdeaCardAutosaves().catch(() => {}),
   ];
   if (typeof outlineSummarySaveTimer !== "undefined" && outlineSummarySaveTimer) {
     window.clearTimeout(outlineSummarySaveTimer);
     outlineSummarySaveTimer = null;
-    tasks.push(persistOutlineSummary({ quiet: true }).catch(() => {}));
+    tasks.push(persistOutlineSummary({ quiet: true, projectId }).catch(() => {}));
   }
   if (typeof toryPrioritySaveTimer !== "undefined" && toryPrioritySaveTimer) {
     window.clearTimeout(toryPrioritySaveTimer);
     toryPrioritySaveTimer = null;
-    tasks.push(persistToryPriority({ quiet: true }).catch(() => {}));
+    tasks.push(persistToryPriority({ quiet: true, projectId }).catch(() => {}));
+  }
+  if (genrePersistTimer) {
+    window.clearTimeout(genrePersistTimer);
+    genrePersistTimer = null;
+    tasks.push(persistProjectGenre({ quiet: true, projectId }).catch(() => {}));
+  }
+  if (keywordPersistTimer) {
+    window.clearTimeout(keywordPersistTimer);
+    keywordPersistTimer = null;
+    tasks.push(persistProjectKeywords({ quiet: true, projectId }).catch(() => {}));
+  }
+  if (projectGoalSaveTimer) {
+    window.clearTimeout(projectGoalSaveTimer);
+    projectGoalSaveTimer = null;
+    tasks.push(persistProjectGoal({ projectId }).catch(() => {}));
   }
   await Promise.all(tasks);
 }
@@ -17727,19 +17836,22 @@ function syncOutlineSummaryInput() {
   }
 }
 
-async function persistOutlineSummary({ quiet = true } = {}) {
-  if (!state.projectId || outlineSummarySaving) return;
+async function persistOutlineSummary({ quiet = true, projectId: projectIdOpt } = {}) {
+  const projectId = liveProjectId(projectIdOpt ?? state.projectId);
+  if (!projectId || outlineSummarySaving) return;
+  if (liveProjectId() !== projectId) return;
   const input = $("projectOutlineSummary");
   const value = String(input?.value ?? state.outlineSummary ?? "").slice(0, 20000);
   if (value === String(state.outlineSummary || "")) return;
   outlineSummarySaving = true;
   try {
-    const result = await api(`/api/projects/${state.projectId}/settings`, {
+    const result = await api(`/api/projects/${projectId}/settings`, {
       method: "PUT",
       body: JSON.stringify({ outline_summary: value }),
     });
+    if (liveProjectId() !== projectId) return;
     state.outlineSummary = result.outline_summary != null ? String(result.outline_summary) : value;
-    const project = state.projects.find((item) => item.id === state.projectId);
+    const project = state.projects.find((item) => Number(item.id) === Number(projectId));
     if (project) project.outline_summary = state.outlineSummary;
     if (!quiet) toast(i18n.t('app.줄거리_개요를_저장했어요'));
   } catch (error) {
@@ -17758,7 +17870,7 @@ function setupOutlineSummaryField() {
     state.outlineSummary = String(input.value || "");
     if (outlineSummarySaveTimer) window.clearTimeout(outlineSummarySaveTimer);
     outlineSummarySaveTimer = window.setTimeout(() => {
-      persistOutlineSummary({ quiet: true }).catch(handleError);
+      persistOutlineSummary({ quiet: true, projectId: liveProjectId() }).catch(handleError);
     }, 700);
   });
   input.addEventListener("blur", () => {
@@ -18233,8 +18345,10 @@ function syncToryPriorityInput() {
   if (toggle) toggle.disabled = !hasProject;
 }
 
-async function persistToryPriority({ quiet = true } = {}) {
-  if (!state.projectId || toryPrioritySaving) return;
+async function persistToryPriority({ quiet = true, projectId: projectIdOpt } = {}) {
+  const projectId = liveProjectId(projectIdOpt ?? state.projectId);
+  if (!projectId || toryPrioritySaving) return;
+  if (liveProjectId() !== projectId) return;
   const input = $("toryPriorityInput");
   const value = String(input?.value ?? state.toryPriorityMd ?? "").slice(0, 4000);
   if (value === String(state.toryPriorityMd || "")) {
@@ -18247,12 +18361,13 @@ async function persistToryPriority({ quiet = true } = {}) {
   const hint = $("toryPrioritySaveHint");
   if (hint) hint.textContent = i18n.t('app.저장_중');
   try {
-    const result = await api(`/api/projects/${state.projectId}/settings`, {
+    const result = await api(`/api/projects/${projectId}/settings`, {
       method: "PUT",
       body: JSON.stringify({ tory_priority_md: value }),
     });
+    if (liveProjectId() !== projectId) return;
     state.toryPriorityMd = result.tory_priority_md != null ? String(result.tory_priority_md) : value;
-    const project = state.projects.find((item) => item.id === state.projectId);
+    const project = state.projects.find((item) => Number(item.id) === Number(projectId));
     if (project) project.tory_priority_md = state.toryPriorityMd;
     if (hint) hint.textContent = state.toryPriorityMd.trim() ? i18n.t('app.저장됨_작업에_맞게_참고합니다') : i18n.t('app.비움_일반_기준으로_동작');
     syncToryPriorityPreview();
@@ -18276,7 +18391,7 @@ function setupToryPriorityField() {
   const schedule = () => {
     if (toryPrioritySaveTimer) window.clearTimeout(toryPrioritySaveTimer);
     toryPrioritySaveTimer = window.setTimeout(() => {
-      persistToryPriority({ quiet: true }).catch(handleError);
+      persistToryPriority({ quiet: true, projectId: liveProjectId() }).catch(handleError);
     }, 700);
   };
   input.addEventListener("input", () => {
@@ -58081,6 +58196,7 @@ function setupPopupDragging() {
 }
 
 function handleError(error) {
+  if (isAbortError(error)) return;
   console.error(error);
   if (error?.aiAssist) {
     handleAiAssistError(error);
@@ -63489,7 +63605,10 @@ safeSetup("setupFocusWriteSplitResizer", setupFocusWriteSplitResizer);
 safeSetup("setupSplitEditMode", setupSplitEditMode);
 onEl("projectSelect", "change", (event) => {
   const nextId = Number(event.target.value);
+  if (!Number.isFinite(nextId) || nextId <= 0) return;
+  const switchGen = bumpProjectLoadGen();
   const applyProjectSwitch = () => {
+    if (!isCurrentProjectLoadGen(switchGen)) return;
     const previousId = Number(state.projectId);
     if (Number.isFinite(previousId) && previousId > 0 && previousId !== nextId) {
       detachTranslationWorkspaceForProjectChange();
@@ -63524,7 +63643,10 @@ onEl("projectSelect", "change", (event) => {
     renderBookmarkBar({ persistSanitize: false });
     renderForeshadowSelect("");
     fillForeshadowForm(null);
-    loadProject().catch(handleError);
+    loadProject().catch((error) => {
+      if (isAbortError(error) || !isCurrentProjectLoadGen(switchGen)) return;
+      handleError(error);
+    });
   };
   flushPendingCodexSaves().catch(() => {}).finally(applyProjectSwitch);
 });
