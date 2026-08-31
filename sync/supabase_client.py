@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import sys
+import threading
 from typing import Any
 
 from env_loader import get_env, load_all_dotenv
@@ -146,34 +147,83 @@ def _normalize_email_password(email: str, password: str) -> tuple[str, str] | di
     return email_text, password_text
 
 
-def restore_session() -> Any | None:
-    """Hydrate the client from auth_session.json. Rotates tokens; clears file on failure."""
+def _should_clear_session_on_restore_error(error: BaseException) -> bool:
+    """Keep the file on network blips; drop it only when the token is actually invalid."""
+    text = str(getattr(error, "message", None) or error or "").lower()
+    network_needles = (
+        "timeout",
+        "timed out",
+        "getaddrinfo",
+        "name or service not known",
+        "failed to resolve",
+        "nodename nor servname",
+        "network is unreachable",
+        "connection",
+        "offline",
+        "winerror",
+        "temporarily unavailable",
+        "failed to establish",
+        "max retries",
+        "connect error",
+        "unreachable",
+    )
+    if any(needle in text for needle in network_needles):
+        return False
+    invalid_needles = (
+        "invalid",
+        "expired",
+        "refresh_token",
+        "not authenticated",
+        "jwt",
+        "invalid login",
+        "invalid_credentials",
+    )
+    return any(needle in text for needle in invalid_needles)
+
+
+def restore_session(*, timeout_sec: float = 5.0) -> Any | None:
+    """Hydrate the client from auth_session.json. Rotates tokens; clears file on auth failure."""
     payload = load_session()
     if not payload:
         return None
 
-    client = _create_anon_client()
-    if client is None:
-        clear_session()
-        return None
+    def _restore() -> Any | None:
+        client = _create_anon_client()
+        if client is None:
+            return None
+        try:
+            response = client.auth.set_session(
+                payload["access_token"],
+                payload["refresh_token"],
+            )
+            session = _attr_or_key(response, "session") or response
+            tokens = _session_tokens(session)
+            if not tokens:
+                raise RuntimeError("세션 토큰을 복원하지 못했습니다.")
+            user = _user_from_auth_payload(response, session)
+            _persist_from_session(session, user)
+            _bind_session_persistence(client)
+            return _set_client(client)
+        except Exception as error:  # noqa: BLE001
+            _warn(f"저장된 계정 세션을 복원하지 못했습니다: {error}")
+            if _should_clear_session_on_restore_error(error):
+                clear_session()
+            return None
 
-    try:
-        response = client.auth.set_session(
-            payload["access_token"],
-            payload["refresh_token"],
-        )
-        session = _attr_or_key(response, "session") or response
-        tokens = _session_tokens(session)
-        if not tokens:
-            raise RuntimeError("세션 토큰을 복원하지 못했습니다.")
-        user = _user_from_auth_payload(response, session)
-        _persist_from_session(session, user)
-        _bind_session_persistence(client)
-        return _set_client(client)
-    except Exception as error:  # noqa: BLE001
-        _warn(f"저장된 계정 세션을 복원하지 못했습니다: {error}")
-        clear_session()
-        return None
+    if timeout_sec and timeout_sec > 0:
+        box: list[Any] = []
+
+        def _run() -> None:
+            box.append(_restore())
+
+        worker = threading.Thread(target=_run, daemon=True, name="supabase-restore")
+        worker.start()
+        worker.join(timeout=float(timeout_sec))
+        if worker.is_alive():
+            _warn("세션 복원 시간 초과 — 로컬으로 계속합니다.")
+            return None
+        return box[0] if box else None
+    return _restore()
 
 
 def sign_up(email: str, password: str) -> dict[str, Any]:
@@ -289,13 +339,13 @@ def get_current_user() -> dict[str, str] | None:
 
 
 def get_supabase_client() -> Any | None:
-    """Return a logged-in Supabase client, or None if nobody is signed in."""
-    global _client, _resolved
-    if _resolved:
+    """Return a hydrated client. Never blocks on a live network restore.
+
+    Restore runs in the background at startup and when get_current_user() is
+    called (admin / reading invites). Local manuscript paths must not wait.
+    """
+    if _client is not None:
         return _client
-
-    restored = restore_session()
-    if restored is not None:
-        return restored
-
-    return _set_client(None, resolved=True)
+    if load_session() is None:
+        return _set_client(None, resolved=True)
+    return None

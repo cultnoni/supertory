@@ -18,6 +18,7 @@ DEFAULT_MODEL = "gemini-flash-lite-latest"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
 GEMINI_ERROR_CODES = ("quota", "rate_limit", "auth", "empty", "network", "unknown")
+NETWORK_USER_MESSAGE = "인터넷 연결이 필요해요. 연결을 확인한 뒤 다시 시도해 주세요."
 
 
 class GeminiError(RuntimeError):
@@ -94,8 +95,13 @@ def generate_text(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=90) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
             raw = response.read().decode("utf-8")
+    except TimeoutError as error:
+        raise GeminiError(
+            NETWORK_USER_MESSAGE,
+            code="network",
+        ) from error
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
         header_retry = None
@@ -114,7 +120,12 @@ def generate_text(
         ) from error
     except urllib.error.URLError as error:
         raise GeminiError(
-            f"Gemini에 연결하지 못했습니다: {error.reason}",
+            NETWORK_USER_MESSAGE,
+            code="network",
+        ) from error
+    except OSError as error:
+        raise GeminiError(
+            NETWORK_USER_MESSAGE,
             code="network",
         ) from error
 
@@ -265,6 +276,14 @@ def _extract_api_error(detail: str) -> str:
     error = payload.get("error") or {}
     message = error.get("message")
     return str(message) if message else detail[:300]
+
+
+def user_visible_message(error: BaseException) -> str:
+    """Short copy for toasts. Network failures stay user-facing, not a traceback."""
+    if isinstance(error, GeminiError) and error.code == "network":
+        return NETWORK_USER_MESSAGE
+    text = str(error or "").strip()
+    return text or NETWORK_USER_MESSAGE
 
 
 def status() -> dict[str, Any]:

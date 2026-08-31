@@ -152,6 +152,30 @@ class GeminiErrorClassificationTests(unittest.TestCase):
         self.assertEqual(retry_after, 21.0)
         self.assertIn("exceeded your current quota", message)
 
+    def test_urlerror_is_friendly_network_message(self) -> None:
+        import urllib.error
+        from unittest.mock import patch
+
+        with (
+            patch.object(gemini_client, "is_configured", return_value=True),
+            patch.object(
+                gemini_client,
+                "get_env",
+                side_effect=lambda key, default=None: (
+                    "fake-key" if key == "GEMINI_API_KEY" else (default or gemini_client.DEFAULT_MODEL)
+                ),
+            ),
+            patch(
+                "urllib.request.urlopen",
+                side_effect=urllib.error.URLError("offline"),
+            ),
+        ):
+            with self.assertRaises(gemini_client.GeminiError) as ctx:
+                gemini_client.generate_text("안녕")
+        self.assertEqual(ctx.exception.code, "network")
+        self.assertEqual(str(ctx.exception), gemini_client.NETWORK_USER_MESSAGE)
+        self.assertIn("인터넷 연결이 필요해요", gemini_client.user_visible_message(ctx.exception))
+
 
 if __name__ == "__main__":
     unittest.main()

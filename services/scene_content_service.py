@@ -18,16 +18,14 @@ SCENE_STATUSES = {"idea", "outline", "draft", "revision", "complete"}
 
 
 def _signed_in_user_id() -> str | None:
-    """Return the logged-in Supabase user id, or None for local-only mode."""
+    """Return the cached session user id, or None. Never talks to the network."""
     try:
-        from sync.supabase_client import get_current_user
+        from sync.auth_session import load_session
 
-        user = get_current_user()
+        payload = load_session() or {}
     except Exception:  # noqa: BLE001 — mirroring is optional
         return None
-    if not user:
-        return None
-    user_id = str(user.get("id") or "").strip()
+    user_id = str(payload.get("user_id") or "").strip()
     return user_id or None
 
 

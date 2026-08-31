@@ -192,6 +192,13 @@ def mirror_desktop_scene(
 
     supabase = client if client is not None else get_supabase_client()
     if supabase is None:
+        try:
+            from sync.supabase_client import restore_session
+
+            supabase = restore_session()
+        except Exception:  # noqa: BLE001 — mirroring is optional
+            supabase = None
+    if supabase is None:
         return None
 
     scene_id = int(local_scene_id)
@@ -254,8 +261,11 @@ def schedule_browser_scene_mirror(
 ) -> None:
     """Fire-and-forget mirror. No-ops when logged out; never raises."""
     try:
-        user = get_current_user()
-        if not user or not str(user.get("id") or "").strip():
+        from sync.auth_session import load_session
+
+        payload = load_session() or {}
+        user_id = str(payload.get("user_id") or "").strip()
+        if not user_id:
             return
         worker = Thread(
             target=_browser_scene_mirror_worker,
@@ -264,7 +274,7 @@ def schedule_browser_scene_mirror(
                 str(content_html or ""),
                 str(title or ""),
                 int(local_project_id),
-                str(user["id"]),
+                user_id,
             ),
             daemon=True,
             name=f"browser-scene-mirror-{local_scene_id}",

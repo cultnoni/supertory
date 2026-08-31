@@ -132,7 +132,11 @@ async function setLanguage(lang) {
   applyWelcomeAdFeedToDom();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
-  if (typeof refreshAdminAccountPanel === "function") {
+  if (
+    typeof refreshAdminAccountPanel === "function"
+    && $("adminModal")
+    && !$("adminModal").classList.contains("hidden")
+  ) {
     refreshAdminAccountPanel().catch(() => {});
   }
 }
@@ -382,7 +386,7 @@ function setAiPanelWriting(on) {
 }
 
 const AI_ASSIST_ERR_CONNECTION =
-  i18n.t('app.연결이_끊긴_것_같아요_인터넷_확인_후_다시');
+  i18n.t('app.인터넷_연결이_필요해요');
 const AI_ASSIST_ERR_GENERIC =
   i18n.t('app.잠깐_결과를_못_가져왔어요_잠시_후_다시_시');
 
@@ -393,7 +397,12 @@ function isAiAssistConnectionError(error) {
     if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
   } catch (_) { /* ignore */ }
   const msg = String(error.message || error || "");
-  return /failed to fetch|networkerror|load failed|offline|연결할 수 없/i.test(msg);
+  return /failed to fetch|networkerror|load failed|offline|연결할 수 없|연결하지 못했|인터넷 연결이 필요|need an internet connection|conexión a internet/i.test(msg);
+}
+
+function isExternalServiceOfflineMessage(error) {
+  const msg = String(error?.message || error || "");
+  return /인터넷 연결이 필요|need an internet connection|conexión a internet|연결이 끊긴 것 같아요|gemini에 연결/i.test(msg);
 }
 
 /** Friendly Tory copy for /api/ai/assist failures (keeps original flags). */
@@ -427,7 +436,7 @@ function isOfflineSafeError(error) {
   if (!error) return false;
   if (error.isNetwork || error.offlineSafe) return true;
   const msg = String(error.message || error || "");
-  return /failed to fetch|networkerror|load failed|offline|연결/i.test(msg);
+  return /failed to fetch|networkerror|load failed|offline|서버에 연결할 수 없/i.test(msg);
 }
 
 function hideToast() {
@@ -10853,6 +10862,8 @@ async function requestRelationSuggestions() {
     toast(added
       ? i18n.t("app.count건의_관계를_제안했어요", { count: added })
       : i18n.t("app.새_관계_제안이_없어요"));
+  } catch (error) {
+    handleError(toAiAssistError(error));
   } finally {
     if (button) button.disabled = false;
   }
@@ -23126,7 +23137,11 @@ async function refreshReadingInvitePanel() {
     if (error?.status === 401) {
       setReadingInviteAuthHint(i18n.t("app.로그인이_필요해요_읽기_초대"));
     } else if (error?.status === 503) {
-      setReadingInviteAuthHint(i18n.t("app.클라우드_연결이_필요해요"));
+      setReadingInviteAuthHint(
+        isExternalServiceOfflineMessage(error)
+          ? (error.message || i18n.t("app.인터넷_연결이_필요해요"))
+          : i18n.t("app.클라우드_연결이_필요해요"),
+      );
     } else {
       setReadingInviteAuthHint(error?.message || i18n.t("app.링크_목록을_불러오지_못했어요"));
     }
@@ -45917,18 +45932,27 @@ function parseWelcomeAdFeed(data) {
   return out;
 }
 
-async function fetchWelcomeAdFeedJson(url) {
+async function fetchWelcomeAdFeedJson(url, timeoutMs = 2500) {
   const sep = url.includes("?") ? "&" : "?";
-  const response = await fetch(`${url}${sep}t=${Date.now()}`, {
-    method: "GET",
-    cache: "no-store",
-    credentials: "omit",
-  });
-  if (!response.ok) throw new Error(`notice-feed HTTP ${response.status}`);
-  const data = await response.json();
-  const parsed = parseWelcomeAdFeed(data);
-  if (!parsed) throw new Error("notice-feed empty or invalid");
-  return parsed;
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const timer = controller && timeoutMs
+    ? window.setTimeout(() => controller.abort(), timeoutMs)
+    : 0;
+  try {
+    const response = await fetch(`${url}${sep}t=${Date.now()}`, {
+      method: "GET",
+      cache: "no-store",
+      credentials: "omit",
+      signal: controller ? controller.signal : undefined,
+    });
+    if (!response.ok) throw new Error(`notice-feed HTTP ${response.status}`);
+    const data = await response.json();
+    const parsed = parseWelcomeAdFeed(data);
+    if (!parsed) throw new Error("notice-feed empty or invalid");
+    return parsed;
+  } finally {
+    if (timer) window.clearTimeout(timer);
+  }
 }
 
 /**
@@ -45941,10 +45965,13 @@ async function loadWelcomeAdFeed() {
   welcomeAdFeedLoading = (async () => {
     let feed = null;
     try {
-      feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_REMOTE_URL);
+      if (typeof navigator !== "undefined" && navigator.onLine === false) {
+        throw new Error("offline");
+      }
+      feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_REMOTE_URL, 2500);
     } catch (remoteError) {
       try {
-        feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_LOCAL_URL);
+        feed = await fetchWelcomeAdFeedJson(NOTICE_FEED_LOCAL_URL, 2500);
       } catch (localError) {
         console.warn(
           "welcome ad feed unavailable",
@@ -57918,6 +57945,10 @@ function handleError(error) {
     handleAiAssistError(error);
     return;
   }
+  if (isExternalServiceOfflineMessage(error) && !error?.isNetwork) {
+    toast(error.message || i18n.t("app.인터넷_연결이_필요해요"), 4200);
+    return;
+  }
   // Never scare the writer into thinking manuscript is lost on network blips.
   if (isOfflineSafeError(error) || error?.localOnly) {
     ensureLocalDraftSaved("handleError");
@@ -61279,7 +61310,6 @@ function setupAdminMode() {
   renderAdminHelpManual();
   renderAdminHelpQa();
   refreshAdminInfoPanel();
-  refreshAdminAccountPanel().catch(handleError);
   setupAutoUpdateUi();
 }
 

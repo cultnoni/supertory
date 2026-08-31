@@ -134,6 +134,40 @@ class RestoreAndAuthFlowTests(unittest.TestCase):
             self.assertIsNone(supabase_client.restore_session())
         self.assertIsNone(auth_session.load_session())
 
+    def test_restore_session_keeps_file_on_network_error(self) -> None:
+        auth_session.save_session("old-acc", "old-ref", "user-1", "a@example.com")
+
+        class NetAuth(_FakeAuth):
+            def set_session(self, access_token, refresh_token):
+                raise OSError("getaddrinfo failed")
+
+        client = _FakeClient(NetAuth())
+        with patch.object(supabase_client, "_create_anon_client", return_value=client):
+            self.assertIsNone(supabase_client.restore_session())
+        saved = auth_session.load_session()
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["access_token"], "old-acc")
+
+    def test_restore_session_times_out_without_clearing(self) -> None:
+        import time
+
+        auth_session.save_session("old-acc", "old-ref", "user-1", "a@example.com")
+
+        class SlowAuth(_FakeAuth):
+            def set_session(self, access_token, refresh_token):
+                time.sleep(20)
+                return super().set_session(access_token, refresh_token)
+
+        client = _FakeClient(SlowAuth())
+        with patch.object(supabase_client, "_create_anon_client", return_value=client):
+            started = time.perf_counter()
+            self.assertIsNone(supabase_client.restore_session(timeout_sec=0.4))
+            elapsed = time.perf_counter() - started
+        self.assertLess(elapsed, 2.0)
+        saved = auth_session.load_session()
+        self.assertIsNotNone(saved)
+        self.assertEqual(saved["access_token"], "old-acc")
+
     def test_sign_up_needs_email_confirmation_when_session_missing(self) -> None:
         user = SimpleNamespace(id="user-1", email="a@example.com")
         client = _FakeClient(_FakeAuth(session=None, user=user))
@@ -165,7 +199,9 @@ class RestoreAndAuthFlowTests(unittest.TestCase):
         session = self._session()
         user_client = _FakeClient(_FakeAuth(session=session, user=session.user))
         with patch.object(supabase_client, "_create_anon_client", return_value=user_client):
+            restored = supabase_client.restore_session()
             client = supabase_client.get_supabase_client()
+        self.assertIs(restored, user_client)
         self.assertIs(client, user_client)
 
     def test_get_supabase_client_returns_none_when_logged_out(self) -> None:

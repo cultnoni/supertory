@@ -8411,6 +8411,7 @@ def _run_character_analysis_job(
     char_stats, world_stats = _empty_import_analysis_stats()
     gemini_called = False
     quota_hit = False
+    last_error = ""
     manuscript = ""
     plot_context = ""
     try:
@@ -8474,6 +8475,7 @@ def _run_character_analysis_job(
                 quota_hit = True
             else:
                 print(f"캐릭터 자동 분석 건너뜀: {error}")
+                last_error = gemini_client.user_visible_message(error)
 
     if include_world and not quota_hit:
         try:
@@ -8500,8 +8502,10 @@ def _run_character_analysis_job(
         except Exception as error:
             if not is_gemini_quota_error(error):
                 print(f"세계관 자동 분석 건너뜀: {error}")
+                if not last_error:
+                    last_error = gemini_client.user_visible_message(error)
 
-    _finish_import_analysis_job(char_stats, world_stats)
+    _finish_import_analysis_job(char_stats, world_stats, error=last_error)
 
 
 def start_character_analysis_job(
@@ -8755,6 +8759,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def _require_reading_invite_user(self) -> dict | None:
         user = get_current_user()
         if not user or not str(user.get("id") or "").strip():
+            try:
+                from sync.auth_session import load_session
+
+                if load_session():
+                    self.api_error(
+                        "인터넷 연결이 필요해요. 연결을 확인한 뒤 다시 시도해 주세요.",
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                    )
+                    return None
+            except Exception:  # noqa: BLE001
+                pass
             self.api_error(
                 "로그인해 주세요. 읽기 권한 초대는 수퍼토리 계정이 필요합니다.",
                 HTTPStatus.UNAUTHORIZED,
@@ -26003,13 +26018,16 @@ def build_app_url(project_id: int | None = None) -> str:
 
 
 def _init_desktop_sync() -> None:
-    """Restore a saved user session if present. Logged-out is not an error."""
-    try:
-        client = restore_session()
-        if client is not None:
-            ensure_device_registered()
-    except Exception as error:  # noqa: BLE001
-        print(f"경고: SuperTory 동기화 초기화에 실패했습니다: {error}", file=sys.stderr)
+    """Restore a saved user session in the background. Never blocks local listen."""
+    def _run() -> None:
+        try:
+            client = restore_session()
+            if client is not None:
+                ensure_device_registered()
+        except Exception as error:  # noqa: BLE001
+            print(f"경고: SuperTory 동기화 초기화에 실패했습니다: {error}", file=sys.stderr)
+
+    Thread(target=_run, daemon=True, name="desktop-sync-init").start()
 
 
 def main(argv: list[str] | None = None) -> None:

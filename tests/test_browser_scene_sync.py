@@ -183,7 +183,7 @@ class BrowserSceneMirrorTests(unittest.TestCase):
 
     def test_schedule_does_not_start_work_when_logged_out(self) -> None:
         with (
-            patch.object(browser_scene_sync, "get_current_user", return_value=None),
+            patch("sync.auth_session.load_session", return_value=None),
             patch.object(browser_scene_sync, "Thread") as thread_cls,
             patch.object(browser_scene_sync, "mirror_desktop_scene") as mirror,
         ):
@@ -363,8 +363,37 @@ class PersistSceneMirrorHookTests(unittest.TestCase):
     def test_signed_in_user_id_none_when_logged_out(self) -> None:
         from services.scene_content_service import _signed_in_user_id
 
-        with patch("sync.supabase_client.get_current_user", return_value=None):
+        with patch("sync.auth_session.load_session", return_value=None):
             self.assertIsNone(_signed_in_user_id())
+
+    def test_persist_returns_before_cloud_mirror_finishes(self) -> None:
+        import time
+
+        hung = []
+
+        def hang_get_user():
+            hung.append("called")
+            time.sleep(20)
+            return {"id": "should-not-block"}
+
+        service = SceneContentService(
+            database=app.database,
+            word_count=app.word_count,
+            parse_reference_links=app.parse_reference_links,
+            goal_metrics=app.GOAL_METRICS,
+        )
+        with (
+            patch("sync.auth_session.load_session", return_value=None),
+            patch("sync.supabase_client.get_current_user", side_effect=hang_get_user),
+        ):
+            started = time.perf_counter()
+            result = service.persist_scene(
+                self.scene_id, "오프라인 저장", self._meta(), 1
+            )
+            elapsed = time.perf_counter() - started
+        self.assertTrue(result["ok"])
+        self.assertLess(elapsed, 2.0)
+        self.assertEqual(hung, [])
 
     def test_logged_in_default_path_schedules_mirror(self) -> None:
         scheduled = []
