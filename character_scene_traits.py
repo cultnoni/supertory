@@ -263,13 +263,49 @@ def _record_history(
     scene_id: int,
     field_name: str,
     content: str,
+    applied: bool = False,
 ) -> None:
     connection.execute(
         "INSERT INTO character_trait_history"
-        "(character_id, project_id, scene_id, field_name, detected_content) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (int(character_id), int(project_id), int(scene_id), field_name, content),
+        "(character_id, project_id, scene_id, field_name, detected_content, applied) "
+        "VALUES (?, ?, ?, ?, ?, ?)",
+        (
+            int(character_id),
+            int(project_id),
+            int(scene_id),
+            field_name,
+            content,
+            1 if applied else 0,
+        ),
     )
+
+
+def list_trait_history(
+    connection: sqlite3.Connection, character_id: int
+) -> list[dict]:
+    rows = connection.execute(
+        "SELECT h.id, h.scene_id, h.field_name, h.detected_content, h.applied, "
+        "h.created_at, s.title AS scene_title "
+        "FROM character_trait_history h "
+        "LEFT JOIN scene s ON s.id = h.scene_id "
+        "WHERE h.character_id = ? "
+        "ORDER BY h.id",
+        (int(character_id),),
+    ).fetchall()
+    entries: list[dict] = []
+    for row in rows:
+        entries.append(
+            {
+                "id": int(row["id"]),
+                "scene_id": int(row["scene_id"]),
+                "field_name": str(row["field_name"] or ""),
+                "detected_content": str(row["detected_content"] or ""),
+                "applied": bool(row["applied"]),
+                "created_at": row["created_at"],
+                "scene_title": str(row["scene_title"] or ""),
+            }
+        )
+    return entries
 
 
 def _add_aliases(
@@ -348,6 +384,7 @@ def apply_trait_detections(
         profile = _usable_text(fields.get("profile_md"))
         if profile:
             marked = character_import_analysis.mark_tori_text(profile)
+            empty_profile = _field_is_empty(row, "profile_md")
             _record_history(
                 connection,
                 character_id=character_id,
@@ -355,9 +392,10 @@ def apply_trait_detections(
                 scene_id=scene_id,
                 field_name="profile_md",
                 content=marked,
+                applied=empty_profile,
             )
-            detections.append({"field": "profile_md", "applied": _field_is_empty(row, "profile_md")})
-            if _field_is_empty(row, "profile_md"):
+            detections.append({"field": "profile_md", "applied": empty_profile})
+            if empty_profile:
                 updates["profile_md"] = marked
                 row["profile_md"] = marked
                 character_import_analysis._clear_pending(connection, character_id, "profile_md")
@@ -374,6 +412,7 @@ def apply_trait_detections(
             if new_aliases:
                 joined = "\n".join(new_aliases)
                 marked_aliases = character_import_analysis.mark_tori_text(joined)
+                empty_aliases = _field_is_empty(row, "aliases")
                 _record_history(
                     connection,
                     character_id=character_id,
@@ -381,9 +420,10 @@ def apply_trait_detections(
                     scene_id=scene_id,
                     field_name="aliases",
                     content=marked_aliases,
+                    applied=empty_aliases,
                 )
-                detections.append({"field": "aliases", "applied": _field_is_empty(row, "aliases")})
-                if _field_is_empty(row, "aliases"):
+                detections.append({"field": "aliases", "applied": empty_aliases})
+                if empty_aliases:
                     added = _add_aliases(connection, character_id, project_id, new_aliases)
                     row["aliases"] = list(existing) + added
                     character_import_analysis._clear_pending(connection, character_id, "aliases")
@@ -399,6 +439,7 @@ def apply_trait_detections(
             if not content:
                 continue
             marked = character_import_analysis.mark_tori_text(content)
+            empty_field = _field_is_empty(row, field_name)
             _record_history(
                 connection,
                 character_id=character_id,
@@ -406,9 +447,10 @@ def apply_trait_detections(
                 scene_id=scene_id,
                 field_name=field_name,
                 content=marked,
+                applied=empty_field,
             )
-            detections.append({"field": field_name, "applied": _field_is_empty(row, field_name)})
-            if _field_is_empty(row, field_name):
+            detections.append({"field": field_name, "applied": empty_field})
+            if empty_field:
                 updates[field_name] = marked
                 row[field_name] = marked
                 character_import_analysis._clear_pending(connection, character_id, field_name)

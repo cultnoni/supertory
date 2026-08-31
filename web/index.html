@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.12">
+    <link rel="stylesheet" href="/styles.css?v=1.4.13">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -660,6 +660,11 @@
                         </span>
                         <textarea data-world-field="locale" rows="2" placeholder="예: 해안 도시 하버라인과 그 지하 구역 (이야기의 80%가 여기서 진행)" data-i18n-placeholder="index.예_해안_도시_하버라인과_그_지하_구역_이야"></textarea>
                       </label>
+                      <label class="world-cat-field"><span class="world-sheet-field-head"><span data-i18n="app.관련_전승_역사">관련 전승·역사</span>
+                          <button type="button" class="character-analysis-badge world-analysis-badge hidden" data-world-tori-field="heritage" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">새 분석 있음</button>
+                        </span>
+                        <textarea data-world-field="heritage" rows="2" placeholder="예: 검은 비의 기원에 대한 구전, 옛 왕조의 몰락 기록" data-i18n-placeholder="index.예_관련_전승_역사"></textarea>
+                      </label>
                     </article>
                     <article class="world-cat" data-world-section="unique_concept">
                       <h3 class="world-cat-title" data-i18n="index.2_세계의_특이점">2. 세계의 특이점 <span class="world-cat-en">(Unique Concept)</span></h3>
@@ -761,6 +766,26 @@
                 </div>
               </section>
 
+              <section class="settings-box" data-settings-section="items" draggable="true">
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="items" aria-expanded="false">
+                    <span class="settings-box-title" data-i18n="app.아이템">아이템</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="items" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="itemsPreview"></div>
+                <div class="settings-box-body" id="itemsBody" hidden>
+                  <div class="settings-box-toolbar">
+                    <button type="button" id="newItemButton" class="secondary" title="새 아이템" data-i18n-title="app.새_아이템" data-i18n="index.아이템">+ 아이템</button>
+                  </div>
+                  <p class="hint" data-i18n="index.아이템을_눌러_설정을_수정하거나_오른쪽_아이콘">아이템을 눌러 설정을 수정하거나, 오른쪽 → 아이콘으로 메인에서 볼 수 있어요.</p>
+                  <nav id="itemList" aria-label="아이템 목록" data-i18n-aria-label="index.아이템_목록"></nav>
+                </div>
+              </section>
+
               <section class="settings-box" data-settings-section="baits" id="baitBank" draggable="true">
                 <div class="settings-box-header">
                   <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
@@ -838,6 +863,47 @@
                   </div>
                   <p class="hint" data-i18n="index.토리와_이야기하다_나온_아이디어를">토리와 이야기하다 나온 아이디어를 <strong data-i18n="app.수집">수집</strong>하면 여기에 쌓입니다.</p>
                   <div id="toryVaultList" class="tory-vault-list" aria-label="토리 수집창고 목록" data-i18n-aria-label="index.토리_수집창고_목록"></div>
+                </div>
+              </section>
+
+              <section class="settings-box" data-settings-section="readingInvite" id="readingInviteBank" draggable="true">
+                <div class="settings-box-header">
+                  <span class="settings-drag-handle" title="끌어 순서 변경" data-i18n-title="index.끌어_순서_변경" aria-hidden="true">⋮⋮</span>
+                  <button type="button" class="settings-box-toggle" data-settings-toggle="readingInvite" aria-expanded="false">
+                    <span class="settings-box-title" data-i18n="app.읽기_권한_초대">읽기 권한 초대</span>
+                  </button>
+                  <button type="button" class="settings-main-open" data-settings-main="readingInvite" aria-label="메인에서 보기" data-i18n-aria-label="index.메인에서_보기" title="메인에서 보기" data-i18n-title="index.메인에서_보기">
+                    <span class="settings-main-arrow" aria-hidden="true">→</span>
+                  </button>
+                </div>
+                <div class="settings-box-preview" id="readingInvitePreview"></div>
+                <div class="settings-box-body" id="readingInviteBody" hidden>
+                  <p class="hint" data-i18n="index.완결된_화가_기본으로_선택됩니다_링크를_보낸">완성된 화가 기본으로 선택됩니다. 링크를 보낸 시점의 원고로 고정되며, 비노출 주석은 빠집니다.</p>
+                  <div id="readingInvitePanel" class="reading-invite-panel">
+                    <div id="readingInviteAuthHint" class="reading-invite-auth-hint hidden" hidden></div>
+                    <div id="readingInviteCreateBlock" class="reading-invite-create">
+                      <div id="readingInviteEpisodeList" class="export-scene-list reading-invite-episode-list" role="group" aria-label="공유할 화" data-i18n-aria-label="index.공유할_화"></div>
+                      <div class="settings-box-toolbar reading-invite-toolbar">
+                        <button type="button" id="readingInviteCreateButton" class="secondary" data-i18n="app.링크_만들기">링크 만들기</button>
+                      </div>
+                      <div id="readingInviteCreated" class="reading-invite-created hidden" hidden>
+                        <label class="reading-invite-created-label" for="readingInviteCreatedUrl" data-i18n="app.만든_링크">만든 링크</label>
+                        <div class="reading-invite-url-row">
+                          <input type="text" id="readingInviteCreatedUrl" readonly>
+                          <button type="button" id="readingInviteCopyButton" class="secondary" data-i18n="app.복사">복사</button>
+                        </div>
+                      </div>
+                    </div>
+                    <h3 class="reading-invite-heading" data-i18n="app.만든_링크_관리">만든 링크 관리</h3>
+                    <div id="readingInviteList" class="reading-invite-list"></div>
+                    <div id="readingInviteFeedback" class="reading-invite-feedback hidden" hidden>
+                      <div class="reading-invite-feedback-toolbar">
+                        <button type="button" id="readingInviteFeedbackBack" class="secondary compact-btn" data-i18n="app.목록으로">목록으로</button>
+                        <h3 class="reading-invite-heading" id="readingInviteFeedbackTitle" data-i18n="app.받은_피드백">받은 피드백</h3>
+                      </div>
+                      <div id="readingInviteFeedbackBody" class="reading-invite-feedback-body"></div>
+                    </div>
+                  </div>
                 </div>
               </section>
 
@@ -1914,6 +1980,11 @@
                     <p class="hint scene-cast-candidate-status" id="sceneCastCandidateStatus"></p>
                     <div id="sceneCastCandidateList" class="scene-cast-candidate-list"></div>
                   </div>
+                  <div id="sceneItemCandidatePanel" class="scene-cast-candidates hidden">
+                    <p class="scene-cast-group-title" data-i18n="index.새_아이템_후보">새 아이템 후보</p>
+                    <p class="hint scene-cast-candidate-status" id="sceneItemCandidateStatus"></p>
+                    <div id="sceneItemCandidateList" class="scene-cast-candidate-list"></div>
+                  </div>
                   <label class="pov-label">
                     <span class="pov-label-text scene-characters-title tory-helper-section-label" data-i18n="index.이_회차_시점_인물">이 회차 시점 인물</span>
                     <select id="povSelect" form="sceneEditor" aria-label="시점 인물" data-i18n-aria-label="index.시점_인물">
@@ -2149,11 +2220,17 @@
             <div class="character-editor-actions">
               <span id="characterInfo" class="save-info"></span>
               <button type="button" class="secondary compact-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+              <button type="button" id="characterChronicleButton" class="secondary compact-btn" aria-pressed="false" data-i18n="index.연대기">연대기</button>
               <button type="button" id="deleteCharacterButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.인물_삭제">인물 삭제</button>
               <button type="submit" class="primary compact-btn" data-i18n="index.인물_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">인물 설정 저장</button>
               <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
           </div>
+          <section id="characterChronicle" class="trait-chronicle hidden" hidden>
+            <h3 class="trait-chronicle-title" data-i18n="index.연대기">연대기</h3>
+            <p class="hint" data-i18n="index.연대기_인물_안내">이 인물에 대해 토리가 본문에서 짚어 둔 변화입니다. 회차 순입니다.</p>
+            <div id="characterChronicleList" class="trait-chronicle-list"></div>
+          </section>
           <div class="editor-topline">
             <input id="characterName" class="title-input" aria-label="캐릭터 이름" data-i18n-aria-label="index.캐릭터_이름" placeholder="캐릭터 이름" data-i18n-placeholder="index.캐릭터_이름">
           </div>
@@ -2222,6 +2299,51 @@
             <div class="inline-add">
               <input id="newAlias" placeholder="예: 검은 여우" data-i18n-placeholder="index.예_검은_여우" aria-label="다른 이름 / 별칭" data-i18n-aria-label="index.다른_이름_별칭">
               <button id="addAliasButton" type="button" class="secondary" data-i18n="index.별칭_추가">별칭 추가</button>
+            </div>
+          </section>
+        </form>
+
+        <form id="itemEditor" class="editor hidden">
+          <div class="character-editor-toolbar">
+            <div>
+              <h2 class="character-editor-title" data-i18n="index.아이템_설정">아이템 설정</h2>
+              <p class="hint" data-i18n="index.소품_도구_고유한_물건을_가운데에서_자세히_편">소품·도구·고유한 물건을 가운데에서 자세히 편집합니다.</p>
+            </div>
+            <div class="character-editor-actions">
+              <span id="itemInfo" class="save-info"></span>
+              <button type="button" id="itemChronicleButton" class="secondary compact-btn" aria-pressed="false" data-i18n="index.연대기">연대기</button>
+              <button type="button" id="deleteItemButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.아이템_삭제">아이템 삭제</button>
+              <button type="submit" class="primary compact-btn" data-i18n="index.아이템_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">아이템 설정 저장</button>
+              <button type="button" id="closeItemEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+            </div>
+          </div>
+          <section id="itemChronicle" class="trait-chronicle hidden" hidden>
+            <h3 class="trait-chronicle-title" data-i18n="index.연대기">연대기</h3>
+            <p class="hint" data-i18n="index.연대기_아이템_안내">이 아이템에 대해 토리가 본문에서 짚어 둔 변화입니다. 회차 순입니다.</p>
+            <div id="itemChronicleList" class="trait-chronicle-list"></div>
+          </section>
+          <div class="editor-topline">
+            <input id="itemName" class="title-input" aria-label="아이템 이름" data-i18n-aria-label="index.아이템_이름" placeholder="아이템 이름" data-i18n-placeholder="index.아이템_이름">
+          </div>
+          <label><span data-i18n="index.소유자">소유자</span>
+            <select id="itemOwner" aria-label="소유자 인물" data-i18n-aria-label="index.소유자">
+              <option value="" data-i18n="index.소유자_없음">소유자 없음</option>
+            </select>
+          </label>
+          <label><span data-i18n="app.아이템_설명">설명</span>
+            <span class="character-sheet-field-head">
+              <button type="button" class="character-analysis-badge item-analysis-badge hidden" data-item-tori-field="description" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">새 분석 있음</button>
+            </span>
+            <textarea id="itemDescription" rows="8" placeholder="속성, 외형, 능력, 유래 등을 자유롭게 적으세요." data-i18n-placeholder="index.아이템_설명_자리표시"></textarea>
+          </label>
+          <section class="aliases">
+            <h3>
+              <span data-i18n="index.다른_이름_별칭">다른 이름 / 별칭</span>
+            </h3>
+            <div id="itemAliasList" class="chips"></div>
+            <div class="inline-add">
+              <input id="newItemAlias" placeholder="예: 흑염검" data-i18n-placeholder="index.예_아이템_별칭" aria-label="다른 이름 / 별칭" data-i18n-aria-label="index.다른_이름_별칭">
+              <button id="addItemAliasButton" type="button" class="secondary" data-i18n="index.별칭_추가">별칭 추가</button>
             </div>
           </section>
         </form>
@@ -2509,6 +2631,20 @@
             </label>
           </div>
           <div id="characterBoardGrid" class="character-board-grid" aria-label="캐릭터 카드 목록" data-i18n-aria-label="index.캐릭터_카드_목록"></div>
+        </div>
+
+        <div id="itemBoard" class="character-board item-board hidden" aria-label="아이템 메인" data-i18n-aria-label="index.아이템_메인">
+          <div class="character-board-toolbar">
+            <div>
+              <h2 class="character-board-title" data-i18n="app.아이템">아이템</h2>
+              <p class="hint" data-i18n="index.아이템_카드를_누르면_가운데에서_상세_설정을">아이템 카드를 누르면 가운데에서 상세 설정을 편집합니다.</p>
+            </div>
+            <div class="character-board-actions">
+              <button type="button" id="newItemMainButton" class="secondary compact-btn" data-i18n="index.아이템">+ 아이템</button>
+              <button type="button" id="closeItemBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+            </div>
+          </div>
+          <div id="itemBoardGrid" class="character-board-grid" aria-label="아이템 카드 목록" data-i18n-aria-label="index.아이템_카드_목록"></div>
         </div>
       </section>
 
@@ -3371,6 +3507,18 @@
         <p id="toryCheerMessage" class="tory-cheer-message"></p>
       </div>
       <button type="button" class="tory-cheer-close" id="toryCheerClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+    </div>
+
+    <div id="readingInviteCheerCard" class="tory-cheer-card reading-invite-cheer hidden" role="status" aria-live="polite">
+      <div class="tory-cheer-avatar" aria-hidden="true">
+        <img src="/assets/tori-mascot.png" width="28" height="28" alt="">
+      </div>
+      <div class="tory-cheer-body">
+        <strong class="tory-cheer-title" data-i18n="app.토리의_응원">토리의 응원</strong>
+        <p id="readingInviteCheerMessage" class="tory-cheer-message"></p>
+        <button type="button" class="reading-invite-cheer-action" id="readingInviteCheerGo" data-i18n="app.확인하러_가기">확인하러 가기</button>
+      </div>
+      <button type="button" class="tory-cheer-close" id="readingInviteCheerClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
     </div>
 
     <button type="button" id="toryOpeningHintButton" class="tory-opening-hint-btn hidden" aria-live="polite">
@@ -5087,6 +5235,12 @@
       </button>
       <button type="button" role="menuitem" data-context-action="delete-footnote" id="deleteFootnoteMenuItem" class="hidden binder-action-danger" data-ctx-selection-ok>
         ✕ 각주 삭제
+      </button>
+      <button type="button" role="menuitem" data-context-action="to-author-note" id="toAuthorNoteMenuItem" data-ctx-selection-ok data-i18n="index.주석_단락으로_전환">
+        주석 단락으로 전환
+      </button>
+      <button type="button" role="menuitem" data-context-action="to-body-paragraph" id="toBodyParagraphMenuItem" class="hidden" data-ctx-selection-ok data-i18n="index.일반_문단으로_전환">
+        일반 문단으로 전환
       </button>
       <div class="context-menu-divider" data-ctx-full-only></div>
       <div class="context-menu-label" data-ctx-full-only data-i18n="index.본문_페이지_색_적용_범위">본문 페이지 색 · 적용 범위</div>
@@ -6964,6 +7118,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.15"></script>
+    <script src="/app.js?v=1.4.16"></script>
   </body>
 </html>

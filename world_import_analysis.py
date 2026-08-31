@@ -22,6 +22,7 @@ WORLD_BUILDING_SCHEMA: tuple[dict, ...] = (
             ("reality", "현실 / 가상 구분"),
             ("era", "시대 배경"),
             ("locale", "주요 배경"),
+            ("heritage", "관련 전승·역사"),
         ),
     },
     {
@@ -261,6 +262,7 @@ def build_analysis_prompt(
         '  "reality": "현실 / 가상 구분",\n'
         '  "era": "시대 배경",\n'
         '  "locale": "주요 배경",\n'
+        '  "heritage": "관련 전승·역사",\n'
         '  "special": "특수 요소",\n'
         '  "rules": "작동 규칙",\n'
         '  "limits": "한계와 대가",\n'

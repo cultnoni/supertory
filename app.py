@@ -39,9 +39,11 @@ from urllib.parse import parse_qs, quote, unquote, urlparse
 import urllib.error
 import urllib.request
 
+import author_note_blocks
 import chapter_match
 import character_import_analysis
 import character_scene_traits
+import item_scene_traits
 import document_export
 import world_import_analysis
 import document_import
@@ -91,6 +93,14 @@ from sync.project_sync import (
     fetch_pending_drafts,
     mark_draft_merged,
     sync_scenes_snapshot,
+)
+from sync.reading_invites import (
+    ReadingInviteError,
+    create_invite as create_reading_invite,
+    feedback_summary as reading_invite_feedback_summary,
+    list_invite_comments as list_reading_invite_comments,
+    list_invites as list_reading_invites,
+    revoke_invite as revoke_reading_invite,
 )
 from sync.supabase_client import (
     get_current_user,
@@ -200,6 +210,8 @@ MIGRATION_069_PATH = ROOT / "db" / "069_translation_segment_polish_proposal.sql"
 MIGRATION_070_PATH = ROOT / "db" / "070_translation_word_lookup_cache.sql"
 MIGRATION_071_PATH = ROOT / "db" / "071_character_role_nullable.py"
 MIGRATION_072_PATH = ROOT / "db" / "072_character_trait_history.sql"
+MIGRATION_073_PATH = ROOT / "db" / "073_item.sql"
+MIGRATION_074_PATH = ROOT / "db" / "074_trait_history_applied.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1604,12 +1616,18 @@ def initialise_database() -> None:
             apply_migration_071(connection)
         if 72 not in applied:
             connection.executescript(MIGRATION_072_PATH.read_text(encoding="utf-8"))
+        if 73 not in applied:
+            connection.executescript(MIGRATION_073_PATH.read_text(encoding="utf-8"))
+        if 74 not in applied:
+            apply_migration_074(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
         ensure_import_delimiter_config_column(connection)
         ensure_character_tori_analysis_table(connection)
         ensure_character_trait_history_table(connection)
+        ensure_item_tables(connection)
+        ensure_trait_history_applied_column(connection)
         ensure_character_role_nullable(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
@@ -1693,6 +1711,86 @@ def apply_migration_053(connection: sqlite3.Connection) -> None:
 
 def apply_migration_071(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_071_PATH).apply(connection)
+
+
+def _table_column_names(connection: sqlite3.Connection, table: str) -> set[str]:
+    try:
+        rows = connection.execute(f"PRAGMA table_info({table})").fetchall()
+    except sqlite3.Error:
+        return set()
+    names: set[str] = set()
+    for row in rows:
+        name = row[1] if not isinstance(row, sqlite3.Row) else row["name"]
+        names.add(str(name or ""))
+    return names
+
+
+def ensure_trait_history_applied_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_trait_history.applied and item_trait_history.applied (migration 074)."""
+    for table in ("character_trait_history", "item_trait_history"):
+        try:
+            exists = connection.execute(
+                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+                (table,),
+            ).fetchone()
+        except sqlite3.Error:
+            continue
+        if exists is None:
+            continue
+        columns = _table_column_names(connection, table)
+        if "applied" not in columns:
+            connection.execute(
+                f"ALTER TABLE {table} ADD COLUMN applied INTEGER NOT NULL DEFAULT 0"
+            )
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (74, 'trait_history_applied')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def _backfill_trait_history_applied(connection: sqlite3.Connection) -> None:
+    try:
+        connection.execute(
+            "UPDATE character_trait_history SET applied = 1 "
+            "WHERE applied = 0 AND field_name = 'profile_md' AND EXISTS ("
+            "SELECT 1 FROM character c WHERE c.id = character_trait_history.character_id "
+            "AND c.deleted_at IS NULL AND c.profile_md = character_trait_history.detected_content)"
+        )
+        connection.execute(
+            "UPDATE character_trait_history SET applied = 1 "
+            "WHERE applied = 0 AND field_name = 'strengths_md' AND EXISTS ("
+            "SELECT 1 FROM character c WHERE c.id = character_trait_history.character_id "
+            "AND c.deleted_at IS NULL AND c.strengths_md = character_trait_history.detected_content)"
+        )
+        connection.execute(
+            "UPDATE character_trait_history SET applied = 1 "
+            "WHERE applied = 0 AND field_name = 'weaknesses_md' AND EXISTS ("
+            "SELECT 1 FROM character c WHERE c.id = character_trait_history.character_id "
+            "AND c.deleted_at IS NULL AND c.weaknesses_md = character_trait_history.detected_content)"
+        )
+        connection.execute(
+            "UPDATE item_trait_history SET applied = 1 "
+            "WHERE applied = 0 AND field_name = 'description' AND EXISTS ("
+            "SELECT 1 FROM item i WHERE i.id = item_trait_history.item_id "
+            "AND i.deleted_at IS NULL AND i.description = item_trait_history.detected_content)"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def apply_migration_074(connection: sqlite3.Connection) -> None:
+    ensure_trait_history_applied_column(connection)
+    _backfill_trait_history_applied(connection)
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (74, 'trait_history_applied')"
+        )
+    except sqlite3.Error:
+        pass
 
 
 def ensure_character_role_nullable(connection: sqlite3.Connection) -> None:
@@ -1901,6 +1999,25 @@ def ensure_character_trait_history_table(connection: sqlite3.Connection) -> None
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (72, 'character_trait_history')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_item_tables(connection: sqlite3.Connection) -> None:
+    """Idempotent: item / item_alias / item_tori_analysis / item_trait_history (migration 073)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'item'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_073_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) VALUES (73, 'item')"
         )
     except sqlite3.Error:
         pass
@@ -4274,6 +4391,17 @@ def reset_trait_analysis_state() -> None:
         _trait_analysis_jobs.clear()
         _trait_analysis_inflight.clear()
 
+
+_item_analysis_jobs: dict[int, dict] = {}
+_item_analysis_inflight: set[int] = set()
+_item_analysis_lock = Lock()
+
+
+def reset_item_analysis_state() -> None:
+    with _item_analysis_lock:
+        _item_analysis_jobs.clear()
+        _item_analysis_inflight.clear()
+
 GLUMP_Q1_ANSWERS = ("block", "perfectionism", "self_doubt", "burnout")
 GLUMP_Q2_ANSWERS = ("event", "sentence_struggle", "start", "together")
 GLUMP_Q2_TOOLS = {
@@ -6080,7 +6208,7 @@ def _reader_persona_system_prompt(persona_row: dict) -> str:
 
 
 def _reader_filled_worldbuilding_summary(worldbuilding_md: object) -> str:
-    """Reuse world_import_analysis sheet schema: only non-empty of 5×13 fields."""
+    """Reuse world_import_analysis sheet schema: only non-empty sheet fields."""
     try:
         values = world_import_analysis.parse_worldbuilding_md(worldbuilding_md)
     except Exception:
@@ -6611,9 +6739,17 @@ _OUTLINE_CONTENT_HEAD_SQL = (
 )
 
 
-def plain_text_from_content(content: str) -> str:
-    """Strip HTML for counts. Match editor innerText (div → one newline, p → blank line)."""
+def plain_text_from_content(content: str, *, include_author_notes: bool = False) -> str:
+    """Strip HTML for counts. Match editor innerText (div → one newline, p → blank line).
+
+    Writer-only comment paragraphs (``data-author-note``) are removed by default
+    so reader/export/stats never see them. Pass ``include_author_notes=True``
+    for Tory writing-assist (continue/rewrite/etc.) that should honour in-draft
+    author intent. Character/item auto-fill analysis must keep the default.
+    """
     text = content or ""
+    if not include_author_notes:
+        text = author_note_blocks.strip_author_note_html(text)
     text = re.sub(r"(?is)<(script|style)[^>]*>.*?</\1>", "", text)
     text = re.sub(r"(?i)<br\s*/?>", "\n", text)
     text = re.sub(r"(?i)</p\s*>", "\n\n", text)
@@ -7429,6 +7565,7 @@ def generate_scene_trait_analysis(scene_id: int) -> dict:
                 scene_id, status="skipped", characters=[], error="scene_missing"
             )
         project_id = int(row["project_id"])
+        # Permanent profile fields must never ingest writer-only notes.
         manuscript = plain_text_from_content(str(row["content_md"] or "")).strip()
         appearing = character_scene_traits.list_appearing_characters(
             connection, project_id, manuscript
@@ -7476,6 +7613,153 @@ def generate_scene_trait_analysis(scene_id: int) -> dict:
         scene_id,
         status=status,
         characters=summaries,
+        error=None,
+    )
+
+
+def _set_item_analysis_job(scene_id: int, **kwargs) -> dict:
+    scene_id = int(scene_id)
+    with _item_analysis_lock:
+        job = dict(_item_analysis_jobs.get(scene_id) or {})
+        job.update(kwargs)
+        _item_analysis_jobs[scene_id] = job
+        generating = scene_id in _item_analysis_inflight
+    return _item_analysis_payload(scene_id, job, generating)
+
+
+def _item_analysis_payload(scene_id: int, job: dict | None = None, generating: bool | None = None) -> dict:
+    scene_id = int(scene_id)
+    with _item_analysis_lock:
+        if job is None:
+            job = dict(_item_analysis_jobs.get(scene_id) or {})
+        if generating is None:
+            generating = scene_id in _item_analysis_inflight
+    return {
+        "scene_id": scene_id,
+        "status": str(job.get("status") or ("running" if generating else "idle")),
+        "items": list(job.get("items") or []),
+        "candidates": list(job.get("candidates") or []),
+        "error": job.get("error"),
+        "generating": bool(generating),
+    }
+
+
+def get_scene_item_analysis(scene_id: int) -> dict:
+    return _item_analysis_payload(int(scene_id))
+
+
+def schedule_scene_item_analysis(scene_id: int) -> dict:
+    scene_id = int(scene_id)
+    with _item_analysis_lock:
+        already = scene_id in _item_analysis_inflight
+        if not already:
+            _item_analysis_inflight.add(scene_id)
+            _item_analysis_jobs[scene_id] = {
+                "status": "running",
+                "items": [],
+                "candidates": [],
+                "error": None,
+            }
+    if already:
+        payload = _item_analysis_payload(scene_id)
+        payload["started"] = False
+        return payload
+    try:
+        thread = Thread(
+            target=_scene_item_analysis_worker,
+            args=(scene_id,),
+            daemon=True,
+            name=f"scene-item-analysis-{scene_id}",
+        )
+        thread.start()
+    except Exception:
+        with _item_analysis_lock:
+            _item_analysis_inflight.discard(scene_id)
+        _set_item_analysis_job(scene_id, status="error", error="worker_start_failed")
+        payload = _item_analysis_payload(scene_id)
+        payload["started"] = False
+        return payload
+    payload = _item_analysis_payload(scene_id)
+    payload["started"] = True
+    return payload
+
+
+def _scene_item_analysis_worker(scene_id: int) -> None:
+    try:
+        generate_scene_item_analysis(scene_id)
+    except Exception as error:
+        _set_item_analysis_job(
+            scene_id,
+            status="error",
+            items=[],
+            candidates=[],
+            error=str(error)[:400],
+        )
+    finally:
+        with _item_analysis_lock:
+            _item_analysis_inflight.discard(int(scene_id))
+
+
+def generate_scene_item_analysis(scene_id: int) -> dict:
+    scene_id = int(scene_id)
+    with database() as connection:
+        scene = connection.execute(
+            "SELECT id, project_id FROM scene WHERE id = ? AND deleted_at IS NULL",
+            (scene_id,),
+        ).fetchone()
+        if scene is None:
+            return _set_item_analysis_job(
+                scene_id, status="error", items=[], candidates=[], error="scene_missing"
+            )
+        project_id = int(scene["project_id"])
+        row = connection.execute(
+            "SELECT content_md FROM scene_revision WHERE scene_id = ? AND is_current = 1",
+            (scene_id,),
+        ).fetchone()
+        manuscript = plain_text_from_content(str(row["content_md"] if row else "") or "")
+        mentioned = item_scene_traits.list_mentioned_items(connection, project_id, manuscript)
+        known_labels = item_scene_traits.known_item_labels(connection, project_id)
+    if not gemini_client.is_configured():
+        return _set_item_analysis_job(
+            scene_id,
+            status="skipped",
+            items=[],
+            candidates=[],
+            error="gemini_not_configured",
+        )
+    system, prompt = item_scene_traits.build_item_prompt(manuscript, mentioned, known_labels)
+    try:
+        raw = gemini_client.generate_text(
+            prompt,
+            system=system,
+            temperature=0.1,
+            max_output_tokens=1024,
+        )
+    except gemini_client.GeminiError as error:
+        return _set_item_analysis_job(
+            scene_id,
+            status="error",
+            items=[],
+            candidates=[],
+            error=str(error)[:400],
+        )
+    parsed, candidates = item_scene_traits.parse_item_analysis_json(raw, mentioned)
+    candidates = item_scene_traits.filter_repeated_candidates(manuscript, candidates, known_labels)
+    with database() as connection:
+        mentioned = item_scene_traits.list_mentioned_items(connection, project_id, manuscript)
+        summaries = item_scene_traits.apply_item_detections(
+            connection,
+            project_id=project_id,
+            scene_id=scene_id,
+            mentioned=mentioned,
+            parsed=parsed,
+        )
+    status = "done" if summaries or candidates else "skipped"
+    return _set_item_analysis_job(
+        scene_id,
+        status=status,
+        items=summaries,
+        candidates=candidates,
         error=None,
     )
 
@@ -8061,6 +8345,44 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def api_error(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
         self.send_json({"error": message}, status)
 
+    def _send_reading_invite_error(self, error: ReadingInviteError) -> None:
+        status = str(getattr(error, "status", "") or "")
+        if status == "auth":
+            self.api_error(str(error), HTTPStatus.UNAUTHORIZED)
+            return
+        if status == "sync":
+            self.send_json(
+                {"error": "sync_not_configured", "message": str(error)},
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return
+        if status == "not_found":
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
+        if status == "server":
+            self.api_error(str(error), HTTPStatus.INTERNAL_SERVER_ERROR)
+            return
+        self.api_error(str(error))
+
+    def _require_reading_invite_user(self) -> dict | None:
+        user = get_current_user()
+        if not user or not str(user.get("id") or "").strip():
+            self.api_error(
+                "로그인해 주세요. 읽기 권한 초대는 수퍼토리 계정이 필요합니다.",
+                HTTPStatus.UNAUTHORIZED,
+            )
+            return None
+        if get_supabase_client() is None:
+            self.send_json(
+                {
+                    "error": "sync_not_configured",
+                    "message": "클라우드 연결이 설정되지 않았습니다.",
+                },
+                HTTPStatus.SERVICE_UNAVAILABLE,
+            )
+            return None
+        return user
+
     def require_project(self, connection: sqlite3.Connection, project_id: int) -> None:
         if connection.execute(
             "SELECT 1 FROM project WHERE id = ? AND deleted_at IS NULL", (project_id,)
@@ -8273,6 +8595,39 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_mobile_drafts(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/reading-invite-episodes", path)
+            if match:
+                self.send_json(self.list_reading_invite_episodes(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reading-invites/feedback-summary", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                query = parse_qs(urlparse(self.path).query)
+                since = (query.get("since") or [""])[0]
+                self.send_json(
+                    self.reading_invite_feedback_summary_api(
+                        int(match.group(1)),
+                        since=since or None,
+                    )
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reading-invites", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.list_reading_invites_api(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/reading-invites/([^/]+)/comments", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.list_reading_invite_comments_api(unquote(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/export", path)
             if match:
                 query = parse_qs(urlparse(self.path).query)
@@ -8375,6 +8730,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/items", path)
+            if match:
+                self.send_json(self.list_project_items(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
             if match:
                 self.send_json(self.list_ideas(int(match.group(1))))
@@ -8393,6 +8753,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/scenes/(\d+)/trait-analysis", path)
             if match:
                 self.send_json(get_scene_trait_analysis(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/scenes/(\d+)/item-analysis", path)
+            if match:
+                self.send_json(get_scene_item_analysis(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
@@ -8445,9 +8810,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.serve_illustration_image(int(match.group(1)))
                 return
 
+            match = re.fullmatch(r"/api/characters/(\d+)/trait-history", path)
+            if match:
+                self.send_json(self.character_trait_history(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)/trait-history", path)
+            if match:
+                self.send_json(self.item_trait_history(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/characters/(\d+)", path)
             if match:
                 self.send_json(self.character_detail(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)", path)
+            if match:
+                self.send_json(self.item_detail(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/characters/(\d+)/portrait", path)
@@ -8553,6 +8933,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     )
                 )
                 return
+        except ReadingInviteError as error:
+            self._send_reading_invite_error(error)
+            return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -9153,6 +9536,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/items", path)
+            if match:
+                self.send_json(
+                    self.create_item(int(match.group(1)), body or {}),
+                    HTTPStatus.CREATED,
+                )
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
             if match:
                 self.send_json(self.create_idea(int(match.group(1)), body), HTTPStatus.CREATED)
@@ -9166,6 +9557,23 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/baits/import", path)
             if match:
                 self.send_json(self.import_baits(int(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reading-invites", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(
+                    self.create_reading_invite_api(int(match.group(1)), body or {}),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/reading-invites/([^/]+)/revoke", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.revoke_reading_invite_api(unquote(match.group(1))))
                 return
 
             if path == "/api/ai/assist":
@@ -9272,6 +9680,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     cursor = connection.execute(
                         "INSERT INTO character_alias(character_id, project_id, alias, alias_type) VALUES (?, ?, ?, ?)",
                         (character_id, character["project_id"], alias, str(body.get("alias_type", "other"))),
+                    )
+                self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)/aliases", path)
+            if match:
+                item_id = int(match.group(1))
+                alias = str(body.get("alias", "")).strip()
+                if not alias:
+                    raise ValueError("별칭을 입력해 주세요.")
+                with database() as connection:
+                    item = connection.execute(
+                        "SELECT project_id FROM item WHERE id = ? AND deleted_at IS NULL",
+                        (item_id,),
+                    ).fetchone()
+                    if item is None:
+                        raise ValueError("아이템을 찾을 수 없습니다.")
+                    cursor = connection.execute(
+                        "INSERT INTO item_alias(item_id, project_id, alias, alias_type) "
+                        "VALUES (?, ?, ?, ?)",
+                        (
+                            item_id,
+                            item["project_id"],
+                            alias,
+                            str(body.get("alias_type", "other")),
+                        ),
                     )
                 self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
                 return
@@ -9403,6 +9837,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/characters/(\d+)/tori-analysis/apply", path)
             if match:
                 self.send_json(self.apply_character_tori_analysis(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)/tori-analysis/apply", path)
+            if match:
+                self.send_json(self.apply_item_tori_analysis(int(match.group(1)), body or {}))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/world-analysis/apply", path)
@@ -9667,6 +10106,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if path == "/api/mobile/push":
                 self.send_json(self.mobile_push_text(body), HTTPStatus.CREATED)
                 return
+        except ReadingInviteError as error:
+            self._send_reading_invite_error(error)
+            return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -9769,6 +10211,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/characters/(\d+)", path)
             if match:
                 self.save_character(int(match.group(1)), body)
+                self.send_json({"ok": True})
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)", path)
+            if match:
+                self.save_item(int(match.group(1)), body or {})
                 self.send_json({"ok": True})
                 return
 
@@ -9911,6 +10359,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/characters/(\d+)", path)
             if match:
                 self.send_json(self.trash_character(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/items/(\d+)", path)
+            if match:
+                self.send_json(self.trash_item(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/characters/(\d+)/portrait", path)
@@ -11478,7 +11931,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         ).strip()
         scene_title = str(body.get("scene_title", "")).strip()
         scene_synopsis = str(body.get("scene_synopsis", "")).strip()
-        scene_content = plain_text_from_content(str(body.get("scene_content", "") or ""))
+        scene_content = plain_text_from_content(
+            str(body.get("scene_content", "") or ""),
+            include_author_notes=True,
+        )
         project_title = str(body.get("project_title", "")).strip()
         world_setting_text = plain_text_from_content(
             str(body.get("world_setting_text") or body.get("worldbuilding_md") or "")
@@ -12512,10 +12968,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 # 다음 회차 이미 있음 — 시작부 검토 + 대안 5 (task only).
                 indexed_next = str(body.get("indexed_prompt") or "").strip()
                 prev_tail = plain_text_from_content(
-                    str(body.get("prev_scene_tail") or scene_content or "")
+                    str(body.get("prev_scene_tail") or scene_content or ""),
+                    include_author_notes=True,
                 )
                 next_text = plain_text_from_content(
-                    str(body.get("next_scene_content") or "")
+                    str(body.get("next_scene_content") or ""),
+                    include_author_notes=True,
                 )
                 if len(prev_tail) > 2000:
                     prev_tail = prev_tail[-2000:]
@@ -12583,9 +13041,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 user_topic = str(
                     body.get("user_topic") or user_prompt or ""
                 ).strip()
-                scene_full = plain_text_from_content(str(scene_content or ""))
+                scene_full = plain_text_from_content(
+                    str(scene_content or ""),
+                    include_author_notes=True,
+                )
                 next_text = plain_text_from_content(
-                    str(body.get("next_scene_content") or "")
+                    str(body.get("next_scene_content") or ""),
+                    include_author_notes=True,
                 )
                 if len(scene_full) > 12000:
                     scene_full = scene_full[-12000:]
@@ -12797,13 +13259,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             elif mode == "rewrite":
                 indexed_rewrite = str(body.get("indexed_prompt") or "").strip()
                 selected_text = plain_text_from_content(
-                    str(body.get("selected_text") or scene_content or "")
+                    str(body.get("selected_text") or scene_content or ""),
+                    include_author_notes=True,
                 )
                 context_before = plain_text_from_content(
-                    str(body.get("context_before") or "")
+                    str(body.get("context_before") or ""),
+                    include_author_notes=True,
                 )
                 context_after = plain_text_from_content(
-                    str(body.get("context_after") or "")
+                    str(body.get("context_after") or ""),
+                    include_author_notes=True,
                 )
                 if indexed_rewrite:
                     instruction = indexed_rewrite
@@ -12844,7 +13309,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 kind = str(body.get("temphook_kind") or "curve").strip().lower()
                 detailed = str(body.get("task_prompt") or "").strip()
                 last_three = plain_text_from_content(
-                    str(body.get("last_three_paragraphs") or "")
+                    str(body.get("last_three_paragraphs") or ""),
+                    include_author_notes=True,
                 ).strip()
                 if not last_three:
                     last_three = self._last_three_paragraphs(scene_content)
@@ -21415,6 +21881,141 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             })
         return {"items": items}
 
+    def list_reading_invite_episodes(self, project_id: int) -> dict:
+        """Binder-ordered scenes with complete-by-default checkbox flags."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            ordered = self._list_scenes_in_binder_order(connection, project_id)
+            statuses: dict[int, str] = {}
+            for row in connection.execute(
+                "SELECT id, status FROM scene WHERE project_id = ? AND deleted_at IS NULL",
+                (int(project_id),),
+            ):
+                try:
+                    statuses[int(row["id"])] = str(row["status"] or "draft")
+                except (TypeError, ValueError):
+                    continue
+        episodes = []
+        for scene in ordered:
+            try:
+                sid = int(scene["id"])
+            except (TypeError, ValueError):
+                continue
+            status = statuses.get(sid, "draft")
+            episodes.append(
+                {
+                    "id": sid,
+                    "title": str(scene.get("title") or ""),
+                    "chapter_title": str(scene.get("chapter_title") or ""),
+                    "status": status,
+                    "checked": status == "complete",
+                }
+            )
+        return {"episodes": episodes}
+
+    def list_reading_invites_api(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+        try:
+            return {"invites": list_reading_invites(project_id=int(project_id))}
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"링크 목록을 불러오지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def create_reading_invite_api(self, project_id: int, body: dict) -> dict:
+        if not isinstance(body, dict):
+            raise ReadingInviteError("요청 본문이 올바르지 않습니다.")
+        raw_ids = body.get("scene_ids") or body.get("scenes") or []
+        if not isinstance(raw_ids, list):
+            raise ReadingInviteError("회차 목록이 올바르지 않습니다.")
+        wanted: list[int] = []
+        seen: set[int] = set()
+        for part in raw_ids:
+            try:
+                sid = int(part)
+            except (TypeError, ValueError):
+                continue
+            if sid <= 0 or sid in seen:
+                continue
+            seen.add(sid)
+            wanted.append(sid)
+        if not wanted:
+            raise ReadingInviteError("선택한 화가 없습니다.")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            project_row = connection.execute(
+                "SELECT title FROM project WHERE id = ? AND deleted_at IS NULL",
+                (int(project_id),),
+            ).fetchone()
+            title = str((project_row["title"] if project_row else "") or "").strip() or "제목 없음"
+            ordered = self._list_scenes_in_binder_order(connection, project_id)
+        selected = [scene for scene in ordered if int(scene["id"]) in seen]
+        if not selected:
+            raise ReadingInviteError("선택한 화를 찾을 수 없습니다.")
+        snapshots = []
+        for index, scene in enumerate(selected):
+            snapshots.append(
+                {
+                    "order_index": index,
+                    "scene_title": str(scene.get("title") or "").strip() or f"{index + 1}화",
+                    "content_snapshot": plain_text_from_content(str(scene.get("content_md") or "")),
+                    "local_scene_id": int(scene["id"]),
+                }
+            )
+        try:
+            invite = create_reading_invite(
+                project_id=int(project_id),
+                title=title,
+                scenes=snapshots,
+            )
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"초대 링크를 만들지 못했습니다: {error}",
+                status="server",
+            ) from error
+        return {"invite": invite}
+
+    def revoke_reading_invite_api(self, invite_id: str) -> dict:
+        try:
+            return {"invite": revoke_reading_invite(invite_id=str(invite_id or ""))}
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"링크를 끄지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def list_reading_invite_comments_api(self, invite_id: str) -> dict:
+        try:
+            return list_reading_invite_comments(invite_id=str(invite_id or ""))
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"피드백을 불러오지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def reading_invite_feedback_summary_api(self, project_id: int, since: str | None = None) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+        try:
+            return reading_invite_feedback_summary(project_id=int(project_id), since=since)
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"피드백을 확인하지 못했습니다: {error}",
+                status="server",
+            ) from error
+
     def list_mobile_drafts(self, project_id: int) -> list:
         """Pending phone drafts plus local scene title / current revision_no."""
         with database() as connection:
@@ -22323,6 +22924,75 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
         return {"character": char_data, "aliases": [as_dict(alias) for alias in aliases]}
 
+    def _history_in_binder_order(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        rows: list[dict],
+    ) -> list[dict]:
+        ordered = self._list_scenes_in_binder_order(connection, project_id)
+        index_by_id = {int(item["id"]): i for i, item in enumerate(ordered)}
+        meta_by_id = {int(item["id"]): item for item in ordered}
+        entries: list[dict] = []
+        for row in rows:
+            try:
+                sid = int(row.get("scene_id") or 0)
+            except (TypeError, ValueError):
+                sid = 0
+            meta = meta_by_id.get(sid) or {}
+            idx = index_by_id.get(sid)
+            entries.append(
+                {
+                    "id": int(row["id"]),
+                    "scene_id": sid,
+                    "episode_index": (idx + 1) if idx is not None else None,
+                    "scene_title": str(row.get("scene_title") or meta.get("title") or ""),
+                    "chapter_title": str(meta.get("chapter_title") or ""),
+                    "field_name": str(row.get("field_name") or ""),
+                    "detected_content": str(row.get("detected_content") or ""),
+                    "applied": bool(row.get("applied")),
+                    "created_at": row.get("created_at"),
+                }
+            )
+        entries.sort(
+            key=lambda item: (
+                item["episode_index"] is None,
+                item["episode_index"] if item["episode_index"] is not None else 0,
+                int(item["id"]),
+            )
+        )
+        return entries
+
+    def character_trait_history(self, character_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id FROM character WHERE id = ? AND deleted_at IS NULL",
+                (character_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("캐릭터를 찾을 수 없습니다.")
+            entries = self._history_in_binder_order(
+                connection,
+                int(row["project_id"]),
+                character_scene_traits.list_trait_history(connection, character_id),
+            )
+        return {"entries": entries}
+
+    def item_trait_history(self, item_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id FROM item WHERE id = ? AND deleted_at IS NULL",
+                (item_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("아이템을 찾을 수 없습니다.")
+            entries = self._history_in_binder_order(
+                connection,
+                int(row["project_id"]),
+                item_scene_traits.list_trait_history(connection, item_id),
+            )
+        return {"entries": entries}
+
     def trash_project(self, project_id: int) -> dict:
         """Soft-delete a whole work so it leaves the project picker (admin)."""
         with database() as connection:
@@ -22365,6 +23035,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
             try:
                 connection.execute(
+                    "UPDATE item SET owner_character_id = NULL, "
+                    "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                    "WHERE owner_character_id = ?",
+                    (character_id,),
+                )
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute(
                     "DELETE FROM character_tori_analysis WHERE character_id = ?",
                     (character_id,),
                 )
@@ -22376,6 +23055,206 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "project_id": int(row["project_id"]),
             "name": row["name"],
         }
+
+    def _resolve_item_owner(
+        self,
+        connection: sqlite3.Connection,
+        project_id: int,
+        raw,
+    ) -> int | None:
+        if raw in (None, "", 0, "0"):
+            return None
+        try:
+            owner_id = int(raw)
+        except (TypeError, ValueError) as error:
+            raise ValueError("소유자 인물이 올바르지 않습니다.") from error
+        owner = connection.execute(
+            "SELECT id FROM character "
+            "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+            (owner_id, int(project_id)),
+        ).fetchone()
+        if owner is None:
+            raise ValueError("소유자 인물을 찾을 수 없습니다.")
+        return int(owner["id"])
+
+    def _replace_item_aliases(
+        self,
+        connection: sqlite3.Connection,
+        item_id: int,
+        project_id: int,
+        raw,
+    ) -> None:
+        names = self._normalize_character_alias_names(raw)
+        connection.execute("DELETE FROM item_alias WHERE item_id = ?", (item_id,))
+        for alias in names:
+            connection.execute(
+                "INSERT INTO item_alias(item_id, project_id, alias, alias_type) "
+                "VALUES (?, ?, ?, ?)",
+                (item_id, project_id, alias, "other"),
+            )
+
+    def list_project_items(self, project_id: int) -> list[dict]:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            rows = connection.execute(
+                "SELECT i.id, i.name, i.description, i.owner_character_id, i.sort_order, "
+                "i.row_version, c.name AS owner_name "
+                "FROM item i "
+                "LEFT JOIN character c ON c.id = i.owner_character_id AND c.deleted_at IS NULL "
+                "WHERE i.project_id = ? AND i.deleted_at IS NULL "
+                "ORDER BY i.sort_order, i.id",
+                (project_id,),
+            ).fetchall()
+            alias_rows = connection.execute(
+                "SELECT item_id, alias FROM item_alias WHERE project_id = ? ORDER BY id",
+                (project_id,),
+            ).fetchall()
+            pending_ids = item_scene_traits.pending_item_ids(connection, project_id)
+        alias_by_id: dict[int, list[str]] = {}
+        for row in alias_rows:
+            alias = str(row["alias"] or "").strip()
+            if alias:
+                alias_by_id.setdefault(int(row["item_id"]), []).append(alias)
+        payload = []
+        for row in rows:
+            item = as_dict(row)
+            item["has_tori_analysis"] = int(item["id"]) in pending_ids
+            item["aliases"] = alias_by_id.get(int(item["id"]), [])
+            payload.append(item)
+        return payload
+
+    def create_item(self, project_id: int, body: dict) -> dict:
+        name = str(body.get("name", "새 아이템")).strip() or "새 아이템"
+        description = str(body.get("description") or "")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            owner_id = self._resolve_item_owner(
+                connection, project_id, body.get("owner_character_id")
+            )
+            sort_order = connection.execute(
+                "SELECT COALESCE(MAX(sort_order) + 1, 0) FROM item "
+                "WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchone()[0]
+            cursor = connection.execute(
+                "INSERT INTO item(project_id, name, description, owner_character_id, sort_order) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (project_id, name, description, owner_id, sort_order),
+            )
+            item_id = int(cursor.lastrowid)
+            if "aliases" in body:
+                self._replace_item_aliases(
+                    connection, item_id, project_id, body.get("aliases")
+                )
+        return {"id": item_id}
+
+    def item_detail(self, item_id: int) -> dict:
+        with database() as connection:
+            item = connection.execute(
+                "SELECT i.id, i.project_id, i.name, i.description, i.owner_character_id, "
+                "i.sort_order, i.row_version, c.name AS owner_name "
+                "FROM item i "
+                "LEFT JOIN character c ON c.id = i.owner_character_id AND c.deleted_at IS NULL "
+                "WHERE i.id = ? AND i.deleted_at IS NULL",
+                (item_id,),
+            ).fetchone()
+            if item is None:
+                raise ValueError("아이템을 찾을 수 없습니다.")
+            aliases = connection.execute(
+                "SELECT id, alias, alias_type FROM item_alias WHERE item_id = ? ORDER BY id",
+                (item_id,),
+            ).fetchall()
+            data = as_dict(item)
+            data["tori_analysis"] = item_scene_traits.list_pending_for_item(
+                connection, item_id
+            )
+        return {"item": data, "aliases": [as_dict(alias) for alias in aliases]}
+
+    def trash_item(self, item_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id, project_id, name FROM item WHERE id = ? AND deleted_at IS NULL",
+                (item_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("아이템을 찾을 수 없습니다. 이미 삭제되었을 수 있어요.")
+            connection.execute(
+                "UPDATE item SET deleted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (item_id,),
+            )
+            try:
+                connection.execute(
+                    "DELETE FROM item_tori_analysis WHERE item_id = ?",
+                    (item_id,),
+                )
+            except sqlite3.OperationalError:
+                pass
+        return {
+            "ok": True,
+            "id": int(item_id),
+            "project_id": int(row["project_id"]),
+            "name": row["name"],
+        }
+
+    def save_item(self, item_id: int, body: dict) -> None:
+        name = str(body.get("name", "")).strip()
+        if not name:
+            raise ValueError("아이템 이름을 입력해 주세요.")
+        expected_version = int(body.get("row_version", 0) or 0)
+        with database() as connection:
+            item = connection.execute(
+                "SELECT row_version, project_id FROM item WHERE id = ? AND deleted_at IS NULL",
+                (item_id,),
+            ).fetchone()
+            if item is None:
+                raise ValueError("아이템을 찾을 수 없습니다.")
+            if expected_version and item["row_version"] != expected_version:
+                raise ValueError("다른 화면에서 이 아이템이 변경되었습니다. 새로 열고 다시 저장해 주세요.")
+            owner_id = self._resolve_item_owner(
+                connection,
+                int(item["project_id"]),
+                body.get("owner_character_id") if "owner_character_id" in body else None,
+            )
+            if "owner_character_id" not in body:
+                owner_row = connection.execute(
+                    "SELECT owner_character_id FROM item WHERE id = ?",
+                    (item_id,),
+                ).fetchone()
+                owner_id = owner_row["owner_character_id"] if owner_row else None
+            connection.execute(
+                "UPDATE item SET name = ?, description = ?, owner_character_id = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
+                (
+                    name,
+                    str(body.get("description", "")),
+                    owner_id,
+                    item_id,
+                ),
+            )
+            if "aliases" in body:
+                self._replace_item_aliases(
+                    connection,
+                    item_id,
+                    int(item["project_id"]),
+                    body.get("aliases"),
+                )
+
+    def apply_item_tori_analysis(self, item_id: int, body: dict) -> dict:
+        field_name = str(body.get("field_name") or body.get("field") or "").strip()
+        if field_name != "description":
+            raise ValueError("바꿀 수 있는 아이템 칸이 아닙니다.")
+        with database() as connection:
+            row = connection.execute(
+                "SELECT id FROM item WHERE id = ? AND deleted_at IS NULL",
+                (int(item_id),),
+            ).fetchone()
+            if row is None:
+                raise ValueError("아이템을 찾을 수 없습니다.")
+            item_scene_traits.apply_pending_description(connection, int(item_id))
+        return self.item_detail(int(item_id))
 
     def save_character_portrait(self, character_id: int, body: dict) -> dict:
         filename = str(body.get("filename") or body.get("file_name") or "portrait.jpg").strip()
@@ -23228,6 +24107,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 pass
             try:
                 schedule_scene_trait_analysis(scene_id)
+            except Exception:
+                pass
+            try:
+                schedule_scene_item_analysis(scene_id)
             except Exception:
                 pass
         return {

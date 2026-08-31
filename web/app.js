@@ -202,9 +202,12 @@ const state = {
    */
   freshOpeningSceneId: loadPersistedFreshOpeningSceneId(),
   characterId: null,
+  itemId: null,
   scene: null,
   character: null,
+  item: null,
   characters: [],
+  items: [],
   sceneMembers: [],
   outline: [],
   /** @type {Array<{id:number,title:string,chapters:any[]}>} 권·부 상위 상자 */
@@ -234,7 +237,7 @@ const state = {
   baits: [],
   ideaBoardOpen: false,
   keywordBoardOpen: false,
-  /** @type {null|"baits"|"toryVault"|"sources"} 설정집 목록 메인 */
+  /** @type {null|"baits"|"toryVault"|"sources"|"successProfile"|"readingInvite"} 설정집 목록 메인 */
   settingsCollectionKind: null,
   synopsisMd: "",
   loglineMd: "",
@@ -254,6 +257,7 @@ const state = {
   settingsDocPair: null, // e.g. ["intro","intent"] | ["logline","synopsis"] when dual main open
   settingsDocFocusKind: null, // which pane last focused in dual main
   characterBoardOpen: false,
+  itemBoardOpen: false,
   gitsiOpen: false,
   activeBinder: "manuscript", // "manuscript" | "settings"
   splitEnabled: false,
@@ -534,10 +538,30 @@ function looksLikeHtml(text) {
   return /<\/?[a-z][\s\S]*>/i.test(String(text || ""));
 }
 
-function plainTextFromHtml(html) {
+function stripAuthorNoteHtml(html) {
+  if (!html || !/data-author-note|st-author-note/i.test(String(html))) return html || "";
+  const host = document.createElement("div");
+  host.innerHTML = html;
+  host.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  return host.innerHTML;
+}
+
+function plainTextFromHtml(html, options = null) {
+  const includeAuthorNotes = Boolean(options && options.includeAuthorNotes);
   const host = document.createElement("div");
   host.innerHTML = html || "";
+  if (!includeAuthorNotes) {
+    host.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  }
   return (host.innerText || host.textContent || "").replace(/\u00a0/g, " ").trim();
+}
+
+function manuscriptPlainForTory(htmlOrText) {
+  const raw = htmlOrText == null ? "" : String(htmlOrText);
+  if (!raw.trim()) return "";
+  return (looksLikeHtml(raw)
+    ? plainTextFromHtml(raw, { includeAuthorNotes: true })
+    : raw).trim();
 }
 
 function sanitizeEditorHtml(html) {
@@ -570,6 +594,7 @@ function setEditorContent(raw, editorEl = null) {
   }
   // Re-attach edit/delete controls on loaded footnotes.
   if (typeof hydrateFootnoteUi === "function") hydrateFootnoteUi(editor);
+  if (typeof hydrateAuthorNoteUi === "function") hydrateAuthorNoteUi(editor);
   updateEditorPlaceholder(editor);
 }
 
@@ -605,10 +630,453 @@ function getEditorContent(editorEl = null) {
   return sanitizeEditorHtml(raw);
 }
 
-function getEditorPlainText(editorEl = null) {
+function getEditorPlainText(editorEl = null, options = null) {
   const editor = editorEl || $("sceneContent");
   if (!editor) return "";
-  return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
+  const includeAuthorNotes = Boolean(options && options.includeAuthorNotes);
+  if (includeAuthorNotes) {
+    return (editor.innerText || editor.textContent || "").replace(/\u00a0/g, " ");
+  }
+  const clone = editor.cloneNode(true);
+  clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  return (clone.innerText || clone.textContent || "").replace(/\u00a0/g, " ");
+}
+
+const AUTHOR_NOTE_LINE_RE = /^\s*\/\//;
+const AUTHOR_NOTE_BLOCK_SEL = "p, div, li, h1, h2, h3, h4, h5, h6, blockquote, pre";
+
+function isManuscriptAuthorNoteEditor(el) {
+  if (!el || !el.id) return false;
+  return el.id === "sceneContent"
+    || el.id === "splitSceneBodyEditor"
+    || el.id === "focusWriteEditor";
+}
+
+function authorNoteLabelText() {
+  try {
+    return (typeof i18n !== "undefined" && i18n.t)
+      ? i18n.t("app.주석")
+      : "주석";
+  } catch (_) {
+    return "주석";
+  }
+}
+
+function isAuthorNoteBlock(block) {
+  if (!block || block.nodeType !== 1) return false;
+  return block.hasAttribute("data-author-note")
+    || block.classList.contains("st-author-note");
+}
+
+function markAuthorNoteBlock(block) {
+  if (!block || block.nodeType !== 1) return;
+  if (block.closest(".fn-footer")) return;
+  block.setAttribute("data-author-note", "1");
+  block.classList.add("st-author-note");
+  block.setAttribute("data-author-note-label", authorNoteLabelText());
+  try {
+    block.setAttribute("title", i18n.t("app.이_단락은_독자에게_노출되지_않아요"));
+  } catch (_) {
+    block.setAttribute("title", "이 단락은 독자에게 노출되지 않아요");
+  }
+}
+
+function unmarkAuthorNoteBlock(block) {
+  if (!block || block.nodeType !== 1) return;
+  block.removeAttribute("data-author-note");
+  block.removeAttribute("data-author-note-label");
+  block.removeAttribute("title");
+  block.classList.remove("st-author-note");
+}
+
+function hydrateAuthorNoteUi(editor = $("sceneContent")) {
+  if (!editor || !isManuscriptAuthorNoteEditor(editor)) return;
+  editor.querySelectorAll("[data-author-note], .st-author-note").forEach((block) => {
+    if (block.closest(".fn-footer")) {
+      unmarkAuthorNoteBlock(block);
+      return;
+    }
+    markAuthorNoteBlock(block);
+  });
+  syncAuthorNoteBlocksFromSlash(editor);
+}
+
+function isAuthorNoteLineParent(parent, editor) {
+  if (!parent || !editor) return false;
+  if (parent === editor || parent.classList?.contains("ms-dan")) return true;
+  if (/^(UL|OL)$/i.test(parent.tagName)) {
+    const gp = parent.parentElement;
+    return gp === editor || gp?.classList?.contains("ms-dan");
+  }
+  return false;
+}
+
+function authorNoteLineBlocks(editor) {
+  if (!editor) return [];
+  return [...editor.querySelectorAll(AUTHOR_NOTE_BLOCK_SEL)].filter((block) => {
+    if (block.closest(".fn-footer")) return false;
+    return isAuthorNoteLineParent(block.parentElement, editor);
+  });
+}
+
+function getAuthorNoteContextRange(editor) {
+  const range = manuscriptContextRange
+    || (window.getSelection()?.rangeCount ? window.getSelection().getRangeAt(0) : null);
+  if (!range || !editor) return null;
+  const root = range.commonAncestorContainer;
+  if (root === editor || editor.contains(root)) return range;
+  return null;
+}
+
+function isRangeInsideAuthorNote(editor, range) {
+  if (!editor || !range) return false;
+  const hostOf = (node) => (node && node.nodeType === 1 ? node : node?.parentElement);
+  const a = hostOf(range.startContainer)?.closest?.("[data-author-note], .st-author-note");
+  const b = hostOf(range.endContainer)?.closest?.("[data-author-note], .st-author-note");
+  return Boolean((a && editor.contains(a)) || (b && editor.contains(b)));
+}
+
+function authorNoteNodeAtBoundary(editor, container, offset, fromEnd) {
+  if (!editor || !container) return container;
+  if (container !== editor) return container;
+  const kids = editor.childNodes;
+  if (!kids.length) return editor;
+  const idx = fromEnd
+    ? Math.max(0, Math.min(offset, kids.length) - (offset > 0 ? 1 : 0))
+    : Math.min(Math.max(0, offset), kids.length - 1);
+  return kids[idx] || editor;
+}
+
+function authorNoteRangeTouchesNode(range, node) {
+  if (!range || !node) return false;
+  try {
+    if (typeof range.intersectsNode === "function") return range.intersectsNode(node);
+  } catch (_) {
+    /* ignore */
+  }
+  return node.contains(range.startContainer) || node.contains(range.endContainer)
+    || range.startContainer === node || range.endContainer === node;
+}
+
+function blockPlainText(block) {
+  return String(block?.innerText || block?.textContent || "").replace(/\u00a0/g, " ");
+}
+
+function prependAuthorNoteMarker(block) {
+  if (AUTHOR_NOTE_LINE_RE.test(blockPlainText(block))) return;
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node && !String(node.textContent || "").replace(/\u00a0/g, " ").trim()) {
+    node = walker.nextNode();
+  }
+  if (!node) {
+    block.insertBefore(document.createTextNode("// "), block.firstChild);
+    return;
+  }
+  node.textContent = `// ${String(node.textContent || "").replace(/^\s+/, "")}`;
+}
+
+function stripLeadingAuthorNoteMarker(block) {
+  const walker = document.createTreeWalker(block, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  while (node) {
+    const text = String(node.textContent || "").replace(/\u00a0/g, " ");
+    if (!text.trim()) {
+      node = walker.nextNode();
+      continue;
+    }
+    node.textContent = String(node.textContent || "").replace(/^\s*\/\/[ \t]?/, "");
+    break;
+  }
+}
+
+function syncAuthorNoteBlocksFromSlash(editor) {
+  if (!isManuscriptAuthorNoteEditor(editor)) return;
+  authorNoteLineBlocks(editor).forEach((block) => {
+    const isNote = AUTHOR_NOTE_LINE_RE.test(blockPlainText(block));
+    if (isNote) markAuthorNoteBlock(block);
+    else if (isAuthorNoteBlock(block)) unmarkAuthorNoteBlock(block);
+  });
+}
+
+function authorNoteTargetBlocks(editor) {
+  if (!isManuscriptAuthorNoteEditor(editor)) return [];
+  const lineBlocks = authorNoteLineBlocks(editor);
+  const range = getAuthorNoteContextRange(editor);
+  if (!range) return lineBlocks.length ? [lineBlocks[0]] : [];
+
+  if (lineBlocks.length) {
+    const hit = lineBlocks.filter((block) => authorNoteRangeTouchesNode(range, block));
+    if (hit.length) return hit;
+    // Ctrl+A / 범위가 에디터 자신에 걸린 경우: 자식 문단을 경계에서 다시 찾는다.
+    if (range.startContainer === editor || range.endContainer === editor) {
+      const startNode = authorNoteNodeAtBoundary(editor, range.startContainer, range.startOffset, false);
+      const endNode = authorNoteNodeAtBoundary(editor, range.endContainer, range.endOffset, true);
+      const start = getBlockElementForParagraph(startNode, editor);
+      const end = getBlockElementForParagraph(endNode, editor) || start;
+      if (start && end) {
+        const from = lineBlocks.indexOf(start);
+        const to = lineBlocks.indexOf(end);
+        if (from >= 0 && to >= 0) {
+          const lo = Math.min(from, to);
+          const hi = Math.max(from, to);
+          return lineBlocks.slice(lo, hi + 1);
+        }
+      }
+      if (!range.collapsed) return lineBlocks;
+    }
+  }
+
+  const start = getBlockElementForParagraph(
+    authorNoteNodeAtBoundary(editor, range.startContainer, range.startOffset, false),
+    editor,
+  );
+  const end = getBlockElementForParagraph(
+    authorNoteNodeAtBoundary(editor, range.endContainer, range.endOffset, true),
+    editor,
+  ) || start;
+  if (!start || start === editor || !editor.contains(start)) return [];
+  if (start === end) return start.closest?.(".fn-footer") ? [] : [start];
+  const collected = [];
+  let cur = start;
+  while (cur && editor.contains(cur)) {
+    if (/^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE)$/i.test(cur.tagName) && !cur.closest(".fn-footer")) {
+      collected.push(cur);
+    }
+    if (cur === end) break;
+    cur = cur.nextElementSibling;
+  }
+  return collected.filter((block) => isAuthorNoteLineParent(block.parentElement, editor)
+    || collected.includes(block.parentElement));
+}
+
+function isAuthorNoteHardBreak(node) {
+  return Boolean(node && node.nodeType === 1 && node.tagName === "BR");
+}
+
+function isAuthorNoteStructuralBlock(node) {
+  return Boolean(node && node.nodeType === 1
+    && /^(P|DIV|LI|H[1-6]|BLOCKQUOTE|PRE|UL|OL|TABLE|SECTION|ARTICLE)$/i.test(node.tagName));
+}
+
+function authorNoteChildIndex(parent, node) {
+  return [...parent.childNodes].indexOf(node);
+}
+
+function findAuthorNoteLineBound(editor, node, offset, which) {
+  if (!editor || !node) return { node: editor, offset: 0 };
+  if (node.nodeType === 3) {
+    const text = String(node.textContent || "");
+    if (which === "start") {
+      const slice = text.slice(0, offset);
+      const nl = Math.max(slice.lastIndexOf("\n"), slice.lastIndexOf("\r"));
+      if (nl >= 0) return { node, offset: nl + 1 };
+    } else {
+      const rest = text.slice(offset);
+      const nl = rest.search(/[\r\n]/);
+      if (nl >= 0) return { node, offset: offset + nl };
+    }
+  }
+
+  let child = node;
+  if (node === editor) {
+    const kids = editor.childNodes;
+    if (!kids.length) return { node: editor, offset: 0 };
+    const idx = which === "end"
+      ? Math.max(0, Math.min(offset, kids.length) - (offset > 0 ? 1 : 0))
+      : Math.min(Math.max(0, offset), kids.length - 1);
+    child = kids[idx] || editor.firstChild;
+  }
+  while (child && child !== editor && child.parentNode !== editor) {
+    if (isAuthorNoteStructuralBlock(child) && child !== editor) {
+      return which === "start"
+        ? { node: child, offset: 0 }
+        : { node: child, offset: child.childNodes.length };
+    }
+    child = child.parentNode;
+  }
+  if (!child || child === editor) {
+    return { node: editor, offset: which === "start" ? 0 : editor.childNodes.length };
+  }
+  if (which === "start") {
+    let prev = child.previousSibling;
+    let first = child;
+    while (prev && !isAuthorNoteHardBreak(prev) && !isAuthorNoteStructuralBlock(prev)) {
+      first = prev;
+      prev = first.previousSibling;
+    }
+    if (prev && isAuthorNoteHardBreak(prev)) {
+      return { node: editor, offset: authorNoteChildIndex(editor, prev) + 1 };
+    }
+    return { node: editor, offset: authorNoteChildIndex(editor, first) };
+  }
+  let next = child.nextSibling;
+  let last = child;
+  while (next && !isAuthorNoteHardBreak(next) && !isAuthorNoteStructuralBlock(next)) {
+    last = next;
+    next = last.nextSibling;
+  }
+  if (next && isAuthorNoteHardBreak(next)) {
+    return { node: editor, offset: authorNoteChildIndex(editor, next) };
+  }
+  return { node: editor, offset: authorNoteChildIndex(editor, last) + 1 };
+}
+
+function expandRangeToBrSeparatedLine(editor, range) {
+  const out = document.createRange();
+  const start = findAuthorNoteLineBound(editor, range.startContainer, range.startOffset, "start");
+  const end = findAuthorNoteLineBound(editor, range.endContainer, range.endOffset, "end");
+  try {
+    out.setStart(start.node, start.offset);
+    out.setEnd(end.node, end.offset);
+    return out;
+  } catch (_) {
+    try {
+      return range.cloneRange();
+    } catch (__) {
+      return null;
+    }
+  }
+}
+
+function wrapBareAuthorNoteLine(editor, range) {
+  if (!editor || !range) return [];
+  const line = expandRangeToBrSeparatedLine(editor, range);
+  if (!line) return [];
+  const p = document.createElement("p");
+  try {
+    if (line.collapsed) {
+      line.insertNode(p);
+      p.appendChild(document.createElement("br"));
+      return [p];
+    }
+    const frag = line.extractContents();
+    if (!frag.childNodes.length && !String(frag.textContent || "").length) {
+      p.appendChild(document.createElement("br"));
+    } else {
+      p.appendChild(frag);
+    }
+    line.insertNode(p);
+    return [p];
+  } catch (_) {
+    return [];
+  }
+}
+
+function ensureAuthorNoteTargetBlocks(editor) {
+  try {
+    if (typeof restoreManuscriptContextRange === "function") restoreManuscriptContextRange(editor);
+  } catch (_) { /* ignore */ }
+  try {
+    document.execCommand("formatBlock", false, "<p>");
+  } catch (_) {
+    try {
+      document.execCommand("formatBlock", false, "p");
+    } catch (__) { /* ignore */ }
+  }
+  try {
+    const sel = window.getSelection();
+    if (sel?.rangeCount) manuscriptContextRange = sel.getRangeAt(0).cloneRange();
+  } catch (_) { /* ignore */ }
+  let blocks = authorNoteTargetBlocks(editor);
+  if (blocks.length) return blocks;
+  const range = getAuthorNoteContextRange(editor);
+  return wrapBareAuthorNoteLine(editor, range);
+}
+
+function convertSelectionToAuthorNote(editorEl = null) {
+  const editor = editorEl
+    || contextMenuEditor
+    || (document.activeElement && isManuscriptAuthorNoteEditor(document.activeElement)
+      ? document.activeElement
+      : $("sceneContent"));
+  if (!isManuscriptAuthorNoteEditor(editor)) {
+    toast(i18n.t("app.주석_단락은_원고_회차에서만_쓸_수_있어요"));
+    return;
+  }
+  let blocks = authorNoteTargetBlocks(editor);
+  if (!blocks.length) blocks = ensureAuthorNoteTargetBlocks(editor);
+  if (!blocks.length) {
+    toast(i18n.t("app.바꿀_문단을_찾지_못했어요"));
+    return;
+  }
+  blocks.forEach((block) => {
+    prependAuthorNoteMarker(block);
+    markAuthorNoteBlock(block);
+  });
+  if (editor.id === "splitSceneBodyEditor") {
+    if (typeof markSplitDirty === "function") markSplitDirty();
+  } else if (typeof markSceneDirty === "function") {
+    markSceneDirty();
+  }
+}
+
+function convertAuthorNoteToBody(editorEl = null) {
+  const editor = editorEl
+    || contextMenuEditor
+    || (document.activeElement && isManuscriptAuthorNoteEditor(document.activeElement)
+      ? document.activeElement
+      : $("sceneContent"));
+  if (!isManuscriptAuthorNoteEditor(editor)) return;
+  let blocks = authorNoteTargetBlocks(editor).filter(isAuthorNoteBlock);
+  if (!blocks.length) {
+    const range = getAuthorNoteContextRange(editor);
+    if (isRangeInsideAuthorNote(editor, range)) {
+      const host = (range.startContainer.nodeType === 1
+        ? range.startContainer
+        : range.startContainer.parentElement)?.closest?.("[data-author-note], .st-author-note");
+      if (host && editor.contains(host)) blocks = [host];
+    }
+  }
+  if (!blocks.length) {
+    toast(i18n.t("app.바꿀_문단을_찾지_못했어요"));
+    return;
+  }
+  blocks.forEach((block) => {
+    stripLeadingAuthorNoteMarker(block);
+    unmarkAuthorNoteBlock(block);
+  });
+  if (editor.id === "splitSceneBodyEditor") {
+    if (typeof markSplitDirty === "function") markSplitDirty();
+  } else if (typeof markSceneDirty === "function") {
+    markSceneDirty();
+  }
+}
+
+function syncAuthorNoteContextMenu(editor, isSettingsDoc) {
+  const toNote = $("toAuthorNoteMenuItem");
+  const toBody = $("toBodyParagraphMenuItem");
+  if (!toNote && !toBody) return;
+  const manuscriptOk = Boolean(state.sceneId) && !isSettingsDoc && isManuscriptAuthorNoteEditor(editor);
+  const range = manuscriptOk ? getAuthorNoteContextRange(editor) : null;
+  const rangeInEditor = Boolean(range);
+  const blocks = manuscriptOk ? authorNoteTargetBlocks(editor) : [];
+  const inNote = blocks.some(isAuthorNoteBlock) || isRangeInsideAuthorNote(editor, range);
+  if (toNote) {
+    toNote.classList.toggle("hidden", !manuscriptOk || inNote);
+    // 선택 길이 조건은 없음. 캐럿만 있어도 되고, <p>/<div>가 없는 <br> 원고도 전환 가능.
+    toNote.disabled = !manuscriptOk || inNote || !rangeInEditor;
+    toNote.style.opacity = (!toNote.disabled) ? "1" : "0.45";
+    toNote.title = !manuscriptOk
+      ? i18n.t("app.주석_단락은_원고_회차에서만_쓸_수_있어요")
+      : i18n.t("index.주석_단락으로_전환");
+  }
+  if (toBody) {
+    toBody.classList.toggle("hidden", !manuscriptOk || !inNote);
+    toBody.disabled = !inNote;
+    toBody.style.opacity = inNote ? "1" : "0.45";
+  }
+}
+
+function setupAuthorNoteUi() {
+  const onInput = (event) => {
+    const editor = event.currentTarget;
+    if (!isManuscriptAuthorNoteEditor(editor)) return;
+    syncAuthorNoteBlocksFromSlash(editor);
+  };
+  ["sceneContent", "splitSceneBodyEditor", "focusWriteEditor"].forEach((id) => {
+    $(id)?.addEventListener("input", onInput);
+  });
 }
 
 function isWorldbuildingMainOpen() {
@@ -739,6 +1207,7 @@ const WORLD_BUILDING_SCHEMA = [
       { id: "reality", labelKey: "index.현실_가상_구분", label: i18n.t('index.현실_가상_구분'), example: i18n.t('app.현실에_가상이_섞인_형태_현대_도시_숨겨진') },
       { id: "era", label: i18n.t('app.시대_배경'), example: i18n.t('app.현대') },
       { id: "locale", label: i18n.t('app.주요_배경'), example: i18n.t('app.해안_도시_하버라인과_그_지하_구역') },
+      { id: "heritage", label: i18n.t('app.관련_전승_역사'), example: i18n.t('index.예_관련_전승_역사') },
     ],
   },
   {
@@ -1000,7 +1469,7 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
     if (!key) return;
     if (!force && active === el) return;
     el.value = v[key] || "";
-    el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+    applyToriDraftClass(el);
     autoResizeSettingsSidebarTextarea(el, { preserve: false });
   });
   restoreOverflowScroll(snap);
@@ -7783,6 +8252,7 @@ function hideCenterViewsForKeywordBoard() {
   $("welcome")?.classList.add("hidden");
   $("sceneWorkspace")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
+  hideItemViews();
   $("ideaBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
   hideGitsiWorkspace();
@@ -8600,14 +9070,16 @@ async function loadProject() {
   if (translationWorkspaceBelongsToOtherProject(projectIdAtStart)) {
     detachTranslationWorkspaceForProjectChange();
   }
-  const [outline, characters, ideas] = await Promise.all([
+  const [outline, characters, ideas, items] = await Promise.all([
     api(`/api/projects/${state.projectId}/outline`),
     api(`/api/projects/${state.projectId}/characters`),
     api(`/api/projects/${state.projectId}/ideas`),
+    api(`/api/projects/${state.projectId}/items`).catch(() => []),
   ]);
   // Ignore stale responses if the user switched works mid-flight.
   if (state.projectId !== projectIdAtStart) return;
   state.characters = characters;
+  state.items = Array.isArray(items) ? items : [];
   state.outline = outline.chapters || [];
   state.parts = Array.isArray(outline.parts) ? outline.parts : [];
   state.ungroupedChapters = Array.isArray(outline.ungrouped_chapters)
@@ -8708,6 +9180,7 @@ async function loadProject() {
   refreshProjectSelectOptions();
   renderOutline(outline.chapters);
   renderCharacters();
+  renderItems();
   renderIdeaBank();
   renderKeywordBox();
   // Settings accordion open state is per work.
@@ -8717,6 +9190,7 @@ async function loadProject() {
   $("newChapterButton").disabled = false;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = false;
   $("newCharacterButton").disabled = false;
+  if ($("newItemButton")) $("newItemButton").disabled = false;
   $("newIdeaButton").disabled = false;
   // U4: binder undo button from server stack (don't await — keep loadProject snappy)
   refreshFolderUndoHintFromServer().catch(() => {});
@@ -8735,6 +9209,9 @@ async function loadProject() {
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
   // Record open time for recent-first list (manual mode keeps fixed order).
   markProjectOpened(projectIdAtStart).catch(() => {});
+  if (typeof checkReadingInviteFeedback === "function") {
+    checkReadingInviteFeedback().catch(() => {});
+  }
 }
 
 function previewLines(text, count = 2) {
@@ -8827,6 +9304,15 @@ function renderSettingsCodex() {
   }
   renderPreviewElement($("charactersPreview"), characterLines, i18n.t('app.아직_인물이_없어요_더블클릭_또는'));
 
+  const itemLines = [];
+  for (const item of (state.items || [])) {
+    if (itemLines.length >= 2) break;
+    const name = String(item.name || i18n.t('app.이름_없음')).trim();
+    const first = String(item.description || "").replace(/\s+/g, " ").trim();
+    itemLines.push(first ? `${name} — ${first}` : name);
+  }
+  renderPreviewElement($("itemsPreview"), itemLines, i18n.t('app.아직_아이템이_없어요_더블클릭_또는'));
+
   const sources = loadSources();
   const sourceLines = sources.slice(0, 2).map((src) => {
     const head = String(src.title || i18n.t('app.자료')).replace(/\s+/g, " ").trim();
@@ -8839,6 +9325,11 @@ function renderSettingsCodex() {
   );
   renderSourceList();
   renderToryVaultList();
+  renderPreviewElement(
+    $("readingInvitePreview"),
+    [i18n.t("app.완성된_화를_베타_리더에게_링크로")],
+    i18n.t("app.완성된_화를_베타_리더에게_링크로"),
+  );
 
   if (!isSettingsDocMainOpen()) {
     syncSettingsDocSidebarFromState("intro");
@@ -8856,6 +9347,7 @@ function renderSettingsCodex() {
   applySettingsSectionOrder();
   applySettingsSectionState();
   if (state.characterBoardOpen) renderCharacterBoard();
+  if (state.itemBoardOpen) renderItemBoard();
   renderBookmarkBar();
   markBookmarkedTargets();
 }
@@ -8964,6 +9456,9 @@ function setOpenSettingsSection(sectionKey) {
     setKeywordPickerOpen(true);
   } else if (typeof setKeywordPickerOpen === "function") {
     setKeywordPickerOpen(false);
+  }
+  if (state.openSettingsSection === "readingInvite" && state.projectId) {
+    refreshReadingInvitePanel().catch(handleError);
   }
 }
 
@@ -9317,6 +9812,16 @@ function hideCharacterBoard() {
   $("characterBoard")?.classList.add("hidden");
 }
 
+function hideItemBoard() {
+  state.itemBoardOpen = false;
+  $("itemBoard")?.classList.add("hidden");
+}
+
+function hideItemViews() {
+  hideItemBoard();
+  $("itemEditor")?.classList.add("hidden");
+}
+
 function lastSceneIdForSettingsClose() {
   const current = Number(state.sceneId);
   if (Number.isFinite(current) && current > 0) return current;
@@ -9343,12 +9848,14 @@ async function returnToManuscriptFromSettingsMain() {
   }
   hideKeywordBoard();
   hideCharacterBoard();
+  hideItemViews();
   hideSynopsisMain();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
   state.ideaBoardOpen = false;
   $("ideaBoard")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
+  $("itemEditor")?.classList.add("hidden");
   $("welcome")?.classList.add("hidden");
 
   const sceneId = lastSceneIdForSettingsClose();
@@ -9476,6 +9983,7 @@ async function openSettingsDocMain(kind = "synopsis") {
   state.settingsDocPair = pair.length >= 2 ? pair.slice() : [kind];
   state.settingsDocFocusKind = kind;
   state.characterBoardOpen = false;
+  state.itemBoardOpen = false;
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
   hideSettingsCollectionBoard();
@@ -9486,6 +9994,7 @@ async function openSettingsDocMain(kind = "synopsis") {
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
+  hideItemViews();
   $("sceneWorkspace")?.classList.add("hidden");
   closeSceneToolsDrawer();
   closeSplitView().catch(() => {});
@@ -9797,6 +10306,7 @@ async function openCharacterBoard() {
   $("keywordBoard")?.classList.add("hidden");
   $("sceneWorkspace")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
+  hideItemViews();
   closeSceneToolsDrawer();
   await closeSplitView().catch(() => {});
 
@@ -9817,6 +10327,647 @@ async function closeCharacterEditor() {
   }
   $("characterEditor")?.classList.add("hidden");
   await returnToManuscriptFromSettingsMain();
+}
+
+function itemPreviewText(item, max = 90) {
+  const cleaned = String(item?.description || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return i18n.t("app.소개를_적어_보세요");
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
+function renderItems() {
+  const list = $("itemList");
+  if (!list) return;
+  const rows = Array.isArray(state.items) ? state.items : [];
+  list.innerHTML = rows.length ? rows.map((item) => {
+    const analysisMark = item.has_tori_analysis
+      ? i18n.t("app.span_class_character_li")
+      : "";
+    return `
+    <button class="character-link ${Number(state.itemId) === Number(item.id) ? "active" : ""}" data-item="${item.id}" title="${escapeHtml(item.name)}">
+      <span class="character-name">${escapeHtml(item.name)}${analysisMark}</span>
+      <span class="character-role">${escapeHtml(itemPreviewText(item, 48))}</span>
+    </button>`;
+  }).join("") : i18n.t("app.p_class_hint_아직_아이템이_없어요");
+  list.querySelectorAll("[data-item]").forEach((button) => {
+    button.addEventListener("click", () => openItem(button.dataset.item).catch(handleError));
+  });
+  renderSettingsCodex();
+}
+
+function itemBoardCardHtml(item) {
+  const name = escapeHtml(item.name || i18n.t("app.이름_없음"));
+  const owner = String(item.owner_name || "").trim();
+  const summary = escapeHtml(itemPreviewText(item));
+  const active = Number(state.itemId) === Number(item.id) ? "is-active" : "";
+  const analysisMark = item.has_tori_analysis
+    ? i18n.t("app.span_class_character_bo")
+    : "";
+  return `
+      <button type="button" class="character-board-card ${active}" data-item-board="${item.id}" title="${name}">
+        <span class="character-board-card-name">${name}</span>
+        <span class="character-board-card-role">${escapeHtml(owner)}</span>
+        <span class="character-board-card-summary">${summary}</span>
+        ${analysisMark}
+      </button>`;
+}
+
+function renderItemBoard() {
+  const grid = $("itemBoardGrid");
+  if (!grid) return;
+  const list = Array.isArray(state.items) ? state.items : [];
+  if (!list.length) {
+    grid.innerHTML = i18n.t("app.p_class_item_board");
+    return;
+  }
+  grid.innerHTML = list.map(itemBoardCardHtml).join("");
+  grid.querySelectorAll("[data-item-board]").forEach((button) => {
+    button.addEventListener("click", () => openItem(button.dataset.itemBoard).catch(handleError));
+  });
+}
+
+async function openItemBoard() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
+  try {
+    await flushItemAutoSave();
+  } catch (_) {
+    /* continue */
+  }
+  try {
+    await flushCharacterAutoSave();
+  } catch (_) {
+    /* continue */
+  }
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") });
+    } catch (_) {
+      /* continue */
+    }
+  }
+  setActiveBinder("settings");
+  state.openSettingsSection = "items";
+  applySettingsSectionState();
+  state.itemBoardOpen = true;
+  state.characterBoardOpen = false;
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  hideSynopsisMain();
+  hideSettingsCollectionBoard();
+  hideGitsiWorkspace();
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  $("itemEditor")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  await closeSplitView().catch(() => {});
+  $("itemBoard")?.classList.remove("hidden");
+  renderItemBoard();
+}
+
+async function closeItemBoard() {
+  hideItemBoard();
+  await returnToManuscriptFromSettingsMain();
+}
+
+async function closeItemEditor() {
+  try {
+    await flushItemAutoSave();
+  } catch (_) {
+    /* keep going */
+  }
+  $("itemEditor")?.classList.add("hidden");
+  await returnToManuscriptFromSettingsMain();
+}
+
+function fillItemOwnerSelect(ownerId) {
+  const select = $("itemOwner");
+  if (!select) return;
+  const current = ownerId == null || ownerId === "" ? "" : String(ownerId);
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  const options = [`<option value="">${escapeHtml(i18n.t("index.소유자_없음"))}</option>`]
+    .concat(people.map((person) => {
+      const id = String(person.id);
+      const selected = current && id === current ? " selected" : "";
+      return `<option value="${escapeHtml(id)}"${selected}>${escapeHtml(person.name || i18n.t("app.이름_없음"))}</option>`;
+    }));
+  select.innerHTML = options.join("");
+  select.value = current;
+}
+
+function itemAliasNamesFrom(aliases) {
+  return characterAliasNamesFrom(aliases);
+}
+
+function renderItemAliasList(aliases) {
+  const list = $("itemAliasList");
+  if (!list) return;
+  const names = itemAliasNamesFrom(aliases);
+  if (!names.length) {
+    list.innerHTML = i18n.t("app.span_class_hint_아직_별칭이");
+    return;
+  }
+  list.innerHTML = names.map((alias) => `
+    <button type="button" class="chip alias-chip" data-item-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
+      ${escapeHtml(alias)}
+    </button>`).join("");
+  list.querySelectorAll("[data-item-alias-remove]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      removeItemAlias(button.dataset.itemAliasRemove);
+    });
+  });
+}
+
+function setItemAliases(names, { render = true } = {}) {
+  if (!state.item) state.item = { item: {}, aliases: [] };
+  state.item.aliases = itemAliasNamesFrom(names).map((alias) => ({ alias }));
+  if (render) renderItemAliasList(state.item.aliases);
+}
+
+function commitItemAliasInputToState() {
+  const input = $("newItemAlias");
+  const pending = splitAliasInput(input?.value || "");
+  if (input) input.value = "";
+  if (!pending.length || !state.item) return false;
+  const merged = itemAliasNamesFrom([
+    ...(state.item.aliases || []),
+    ...pending,
+  ]);
+  if (sameAliasNames(merged, state.item.aliases)) return false;
+  setItemAliases(merged);
+  return true;
+}
+
+function removeItemAlias(alias) {
+  if (!state.item || suppressItemDirty) return;
+  const target = String(alias || "").trim().toLowerCase();
+  if (!target) return;
+  const next = itemAliasNamesFrom(state.item.aliases)
+    .filter((name) => name.toLowerCase() !== target);
+  setItemAliases(next);
+  markItemDirty();
+}
+
+let itemDirty = false;
+let suppressItemDirty = false;
+let itemAutoSaveTimer = 0;
+let itemAutoSaveInFlight = false;
+const ITEM_AUTOSAVE_MS = 800;
+const ITEM_EDITOR_FIELD_IDS = ["itemName", "itemDescription", "itemOwner"];
+
+function setItemSaveStatus(text) {
+  if ($("itemInfo")) $("itemInfo").textContent = text || "";
+}
+
+function markItemDirty() {
+  if (suppressItemDirty) return;
+  itemDirty = true;
+  scheduleItemAutoSave();
+}
+
+function cancelItemAutoSave() {
+  if (itemAutoSaveTimer) {
+    window.clearTimeout(itemAutoSaveTimer);
+    itemAutoSaveTimer = 0;
+  }
+}
+
+function scheduleItemAutoSave() {
+  if (!state.itemId || !state.item) return;
+  cancelItemAutoSave();
+  itemAutoSaveTimer = window.setTimeout(() => {
+    itemAutoSaveTimer = null;
+    persistItem({ quiet: true }).catch(handleError);
+  }, ITEM_AUTOSAVE_MS);
+}
+
+function currentItemAliasNames() {
+  const fromState = itemAliasNamesFrom(state.item?.aliases);
+  const pending = splitAliasInput($("newItemAlias")?.value || "");
+  const seen = new Set(fromState.map((name) => name.toLowerCase()));
+  const names = fromState.slice();
+  pending.forEach((name) => {
+    const key = name.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    names.push(name);
+  });
+  return names;
+}
+
+function itemEditorPayload() {
+  const ownerRaw = $("itemOwner")?.value || "";
+  return {
+    name: String($("itemName")?.value || "").trim(),
+    description: String($("itemDescription")?.value || ""),
+    owner_character_id: ownerRaw ? Number(ownerRaw) : null,
+    aliases: currentItemAliasNames(),
+    row_version: state.item?.item?.row_version,
+  };
+}
+
+function syncItemToriBadges(item) {
+  const pending = item?.tori_analysis && typeof item.tori_analysis === "object"
+    ? item.tori_analysis
+    : {};
+  document.querySelectorAll(".item-analysis-badge").forEach((button) => {
+    const field = button.getAttribute("data-item-tori-field");
+    const has = Boolean(field && pending[field]?.content);
+    button.classList.toggle("hidden", !has);
+  });
+}
+
+function syncItemToriDraftStyle() {
+  const el = $("itemDescription");
+  if (el) applyToriDraftClass(el);
+}
+
+async function persistItem(options = {}) {
+  const quiet = Boolean(options.quiet);
+  const itemId = options.itemId ?? state.itemId;
+  if (!itemId || (!state.item && !options.payload)) return;
+  if (!options.payload) commitItemAliasInputToState();
+  const payload = options.payload || itemEditorPayload();
+  if (!payload.name) {
+    setItemSaveStatus(i18n.t("app.이름을_입력해야_저장됩니다"));
+    if (!quiet) toast(i18n.t("app.아이템_이름을_적어_주세요"));
+    return;
+  }
+  if (itemAutoSaveInFlight) {
+    if (quiet && !options.payload) {
+      scheduleItemAutoSave();
+      return;
+    }
+    for (let i = 0; i < 40 && itemAutoSaveInFlight; i += 1) {
+      await new Promise((r) => window.setTimeout(r, 50));
+    }
+  }
+  itemAutoSaveInFlight = true;
+  if (quiet) setItemSaveStatus(i18n.t("app.자동_저장_중"));
+  try {
+    await api(`/api/items/${itemId}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+    itemDirty = false;
+    if (Number(state.itemId) === Number(itemId) && state.item?.item) {
+      state.item.item = { ...state.item.item, ...payload };
+      setItemAliases(payload.aliases, { render: true });
+    }
+    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+    setItemSaveStatus(
+      quiet
+        ? `${i18n.t("app.자동_저장됨_stamp", { stamp })}`
+        : `${i18n.t("app.저장됨_stamp", { stamp })}`,
+    );
+    if (!quiet) toast(i18n.t("app.아이템_설정을_저장했습니다"));
+    try {
+      const items = await api(`/api/projects/${state.projectId}/items`);
+      if (Array.isArray(items)) state.items = items;
+    } catch (_) {
+      /* keep local list */
+    }
+    renderItems();
+    if (state.itemBoardOpen) renderItemBoard();
+  } catch (error) {
+    if (quiet) {
+      setItemSaveStatus(i18n.t("app.자동_저장_실패_다시_시도"));
+      scheduleItemAutoSave();
+    }
+    throw error;
+  } finally {
+    itemAutoSaveInFlight = false;
+  }
+}
+
+async function flushItemAutoSave() {
+  const hasPendingAlias = Boolean(String($("newItemAlias")?.value || "").trim());
+  const shouldSave = itemDirty || hasPendingAlias;
+  cancelItemAutoSave();
+  if (itemAutoSaveInFlight) {
+    for (let i = 0; i < 40 && itemAutoSaveInFlight; i += 1) {
+      await new Promise((r) => window.setTimeout(r, 50));
+    }
+  }
+  if (!shouldSave || !state.itemId) return;
+  await persistItem({ quiet: true });
+}
+
+function setupItemEditorAutosave() {
+  const form = $("itemEditor");
+  if (!form || form.dataset.autosaveBound === "1") return;
+  form.dataset.autosaveBound = "1";
+  ITEM_EDITOR_FIELD_IDS.forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("input", (event) => {
+      if (id === "itemDescription") claimToriDraftOnInput(el, event);
+      markItemDirty();
+    });
+    el.addEventListener("change", markItemDirty);
+    if (id === "itemDescription") {
+      el.addEventListener("compositionend", () => {
+        if (claimToriDraftOnInput(el)) markItemDirty();
+      });
+    }
+    el.addEventListener("blur", () => {
+      if (!itemDirty) return;
+      cancelItemAutoSave();
+      persistItem({ quiet: true }).catch(handleError);
+    });
+  });
+  const aliasInput = $("newItemAlias");
+  if (aliasInput) {
+    aliasInput.addEventListener("input", markItemDirty);
+    aliasInput.addEventListener("change", markItemDirty);
+    aliasInput.addEventListener("blur", () => {
+      commitItemAliasInputToState();
+      if (!itemDirty) return;
+      cancelItemAutoSave();
+      persistItem({ quiet: true }).catch(handleError);
+    });
+  }
+}
+
+async function createItem(presetName = "") {
+  if (!state.projectId) return toast(i18n.t("app.먼저_새_작품을_만들어_주세요"));
+  const name = presetName
+    ? String(presetName).trim()
+    : await promptText({
+      title: i18n.t("app.아이템_만들기"),
+      message: i18n.t("app.아이템_이름을_적어_주세요"),
+      label: i18n.t("app.이름"),
+      defaultValue: i18n.t("app.새_아이템"),
+      confirmLabel: i18n.t("app.만들기"),
+    });
+  if (name === null) return null;
+  const created = await api(`/api/projects/${state.projectId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ name: String(name).trim() || i18n.t("app.새_아이템") }),
+  });
+  state.openSettingsSection = "items";
+  await loadProject();
+  await openItem(created.id);
+  toast(i18n.t("app.아이템_설정을_적어_보세요"));
+  return created;
+}
+
+async function openItem(itemId) {
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
+  const nextId = Number(itemId);
+  if (state.itemId && Number(state.itemId) !== nextId) {
+    try {
+      await flushItemAutoSave();
+    } catch (_) {
+      /* keep going */
+    }
+  }
+  try {
+    await flushCharacterAutoSave();
+  } catch (_) {
+    /* continue */
+  }
+  await closeSplitView();
+  if (sceneDirty && state.sceneId) {
+    try {
+      await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") });
+    } catch (_) {
+      /* keep going */
+    }
+  }
+  state.ideaBoardOpen = false;
+  state.characterBoardOpen = false;
+  state.itemBoardOpen = false;
+  state.keywordBoardOpen = false;
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("itemBoard")?.classList.add("hidden");
+  hideSynopsisMain();
+  hideGitsiWorkspace();
+  state.itemId = nextId;
+  state.item = await api(`/api/items/${itemId}`);
+  const item = state.item.item;
+  setActiveBinder("settings");
+  state.openSettingsSection = "items";
+  applySettingsSectionState();
+  $("welcome").classList.add("hidden");
+  $("sceneWorkspace").classList.add("hidden");
+  $("itemEditor").classList.remove("hidden");
+  closeSceneToolsDrawer();
+  suppressItemDirty = true;
+  cancelItemAutoSave();
+  itemDirty = false;
+  if ($("itemName")) $("itemName").value = item.name || "";
+  if ($("itemDescription")) $("itemDescription").value = item.description || "";
+  fillItemOwnerSelect(item.owner_character_id);
+  state.item.aliases = Array.isArray(state.item.aliases)
+    ? state.item.aliases.map((entry) => ({ ...entry }))
+    : [];
+  if ($("newItemAlias")) $("newItemAlias").value = "";
+  renderItemAliasList(state.item.aliases);
+  setItemSaveStatus("");
+  suppressItemDirty = false;
+  syncItemToriBadges(item);
+  syncItemToriDraftStyle();
+  resetItemChronicle();
+  setupItemEditorAutosave();
+  await loadProject();
+}
+
+async function saveItem(event) {
+  event.preventDefault();
+  cancelItemAutoSave();
+  await persistItem({ quiet: false });
+}
+
+async function deleteItem() {
+  if (!state.itemId || !state.item?.item) return;
+  const name = String(state.item.item.name || i18n.t("app.이_아이템")).trim() || i18n.t("app.이_아이템");
+  const ok = window.confirm(`「${name}」 아이템을 삭제할까요?\n\n목록에서 사라집니다.`);
+  if (!ok) return;
+  cancelItemAutoSave();
+  itemDirty = false;
+  await api(`/api/items/${state.itemId}`, { method: "DELETE" });
+  state.itemId = null;
+  state.item = null;
+  $("itemEditor")?.classList.add("hidden");
+  await loadProject();
+  await openItemBoard();
+  toast(`${i18n.t("app.name_을_를_삭제했어요", { name })}`);
+}
+
+async function addItemAlias() {
+  if (!state.itemId || !state.item) return;
+  const added = commitItemAliasInputToState();
+  if (!added) return;
+  cancelItemAutoSave();
+  await persistItem({ quiet: true });
+  toast(i18n.t("app.별칭을_추가했습니다"));
+}
+
+function openItemAnalysisModal(fieldName) {
+  const item = state.item?.item;
+  const pending = item?.tori_analysis && typeof item.tori_analysis === "object"
+    ? item.tori_analysis
+    : {};
+  const entry = pending[fieldName];
+  if (!entry?.content) {
+    toast(i18n.t("app.보여줄_토리_분석이_없어요"));
+    return;
+  }
+  characterAnalysisKind = "item";
+  characterAnalysisField = fieldName;
+  fillAnalysisModal(i18n.t("app.아이템_설명"), entry.content);
+}
+
+async function applyItemToriAnalysis() {
+  if (!state.itemId || !characterAnalysisField) return;
+  const ok = window.confirm(
+    `「${i18n.t("app.아이템_설명")}」을(를) 토리 분석으로 바꿀까요?\n지금 적어 둔 내용은 사라집니다.`,
+  );
+  if (!ok) return;
+  const result = await api(`/api/items/${state.itemId}/tori-analysis/apply`, {
+    method: "POST",
+    body: JSON.stringify({ field_name: characterAnalysisField }),
+  });
+  closeCharacterAnalysisModal();
+  state.item = result;
+  const item = result?.item;
+  if (item && $("itemDescription")) $("itemDescription").value = item.description || "";
+  if (Array.isArray(result?.aliases)) setItemAliases(result.aliases);
+  syncItemToriBadges(item);
+  syncItemToriDraftStyle();
+  await loadProject();
+  toast(i18n.t("app.토리_분석으로_바꿨어요"));
+}
+
+let sceneItemCandidates = [];
+let sceneItemDismissedCandidates = new Set();
+let sceneItemAnalysisWatchTimer = 0;
+let sceneItemAnalysisWatchSceneId = 0;
+
+function stopSceneItemAnalysisWatch() {
+  if (sceneItemAnalysisWatchTimer) {
+    window.clearInterval(sceneItemAnalysisWatchTimer);
+    sceneItemAnalysisWatchTimer = 0;
+  }
+  sceneItemAnalysisWatchSceneId = 0;
+}
+
+function renderSceneItemCandidates() {
+  const panel = $("sceneItemCandidatePanel");
+  const list = $("sceneItemCandidateList");
+  const statusEl = $("sceneItemCandidateStatus");
+  if (!panel || !list) return;
+  const names = sceneItemCandidates.filter(
+    (name) => !sceneItemDismissedCandidates.has(String(name).toLowerCase()),
+  );
+  panel.classList.toggle("hidden", !names.length);
+  if (statusEl) statusEl.textContent = "";
+  if (!names.length) {
+    list.innerHTML = "";
+    return;
+  }
+  list.innerHTML = names.map((name) => {
+    const safe = escapeHtml(name);
+    const token = encodeURIComponent(name);
+    return `<div class="scene-cast-candidate-row">
+      <span class="scene-cast-name" title="${safe}">${safe}</span>
+      <button type="button" class="secondary compact-btn" data-add-item-candidate="${token}">${i18n.t("index.아이템으로_등록")}</button>
+    </div>`;
+  }).join("");
+}
+
+async function addSceneItemCandidate(name) {
+  const displayName = String(name || "").trim();
+  if (!displayName || !state.projectId) return;
+  const created = await api(`/api/projects/${state.projectId}/items`, {
+    method: "POST",
+    body: JSON.stringify({ name: displayName }),
+  });
+  if (!created?.id) return;
+  sceneItemDismissedCandidates.add(displayName.toLowerCase());
+  sceneItemCandidates = sceneItemCandidates.filter(
+    (item) => String(item).toLowerCase() !== displayName.toLowerCase(),
+  );
+  renderSceneItemCandidates();
+  await loadProject();
+  toast(i18n.t("app.names_을_를_아이템으로_저장했어요", { names: displayName }));
+}
+
+function showItemTraitToast(entry) {
+  const name = String(entry?.name || i18n.t("app.이_아이템"));
+  const itemId = Number(entry?.id);
+  const openSheet = () => {
+    if (Number.isFinite(itemId) && itemId > 0) openItem(itemId).catch(handleError);
+  };
+  toast(
+    i18n.t("app.name_의_아이템_설정에_새로운_내용이_추가됐어요", { name }),
+    4200,
+    {
+      dismissible: true,
+      action: { label: i18n.t("app.아이템_설정_열기"), onClick: openSheet },
+      onClick: openSheet,
+    },
+  );
+}
+
+function watchSceneItemAnalysis(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  stopSceneItemAnalysisWatch();
+  sceneItemAnalysisWatchSceneId = id;
+  const startedAt = Date.now();
+  const tick = async () => {
+    if (sceneItemAnalysisWatchSceneId !== id) return;
+    try {
+      const job = await api(`/api/scenes/${id}/item-analysis`);
+      const status = String(job?.status || "idle");
+      if (status === "running") return;
+      if (status === "idle" && Date.now() - startedAt < 8000) return;
+      stopSceneItemAnalysisWatch();
+      const candidates = Array.isArray(job?.candidates) ? job.candidates : [];
+      sceneItemCandidates = candidates.filter((name) => {
+        const key = String(name || "").trim().toLowerCase();
+        return key && !sceneItemDismissedCandidates.has(key);
+      });
+      renderSceneItemCandidates();
+      if (status === "done") {
+        const items = Array.isArray(job?.items) ? job.items : [];
+        items.forEach((entry) => {
+          if (entry?.filled || entry?.pending) showItemTraitToast(entry);
+        });
+        if (state.itemId && !$("itemEditor")?.classList.contains("hidden")) {
+          const touched = items.some((entry) => Number(entry.id) === Number(state.itemId));
+          if (touched) {
+            try {
+              await openItem(state.itemId);
+            } catch (_) {
+              /* ignore */
+            }
+          }
+        }
+      }
+    } catch (_) {
+      if (Date.now() - startedAt > 90000) stopSceneItemAnalysisWatch();
+    }
+  };
+  sceneItemAnalysisWatchTimer = window.setInterval(() => {
+    tick().catch(() => { /* keep quiet */ });
+  }, 1200);
+  tick().catch(() => { /* keep quiet */ });
 }
 
 function bindSettingsDocSidebarInput(kind) {
@@ -9881,10 +11032,15 @@ function bindWorldBuildingFormRoot(form) {
     const el = event.target?.closest?.("[data-world-field]");
     if (!el) return;
     autoResizeSettingsSidebarTextarea(el, { shrink: false });
-    el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+    claimToriDraftOnInput(el, event);
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
     if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus(i18n.t('app.저장_대기_중'));
+  });
+  form.addEventListener("compositionend", (event) => {
+    const el = event.target?.closest?.("[data-world-field]");
+    if (!el) return;
+    if (claimToriDraftOnInput(el)) syncFromThisForm();
   });
   form.addEventListener("change", (event) => {
     if (!event.target?.closest?.("[data-world-field]")) return;
@@ -9982,10 +11138,15 @@ function setupSettingsCodex() {
   $("closeWorldbuildingMainButton")?.addEventListener("click", () => closeSynopsisMain().catch(handleError));
   $("worldPreview")?.addEventListener("dblclick", () => openSettingsDocMain("world").catch(handleError));
   $("charactersPreview")?.addEventListener("dblclick", () => openCharacterBoard().catch(handleError));
+  $("itemsPreview")?.addEventListener("dblclick", () => openItemBoard().catch(handleError));
   $("keywordsPreview")?.addEventListener("dblclick", () => openKeywordBoard());
   $("closeCharacterBoardButton")?.addEventListener("click", () => closeCharacterBoard().catch(handleError));
   $("closeCharacterEditorButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
+  $("closeItemBoardButton")?.addEventListener("click", () => closeItemBoard().catch(handleError));
+  $("closeItemEditorButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));
+  $("newItemMainButton")?.addEventListener("click", () => createItem().catch(handleError));
+  $("deleteItemButton")?.addEventListener("click", () => deleteItem().catch(handleError));
   setupCharacterBoardViewControls();
   bindSettingsDocSidebarInput("intro");
   bindSettingsDocSidebarInput("intent");
@@ -10103,6 +11264,7 @@ function hideCenterViewsForIdeaBoard() {
   $("welcome").classList.add("hidden");
   $("sceneWorkspace").classList.add("hidden");
   $("characterEditor").classList.add("hidden");
+  hideItemViews();
   hideSynopsisMain();
   hideCharacterBoard();
   hideKeywordBoard();
@@ -11628,7 +12790,7 @@ async function runFocusedAnalysis(options = {}) {
     return;
   }
   const sceneContent = getEditorContent() || "";
-  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContent);
   if (!scenePlain) {
     toast(i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤'));
     return;
@@ -12563,7 +13725,7 @@ async function loadSceneManuscriptForAssist(sceneId) {
   }
   if (Number(state.sceneId) === id) {
     const content = getEditorContent() || "";
-    const plain = (looksLikeHtml(content) ? plainTextFromHtml(content) : content).trim();
+    const plain = manuscriptPlainForTory(content);
     return {
       sceneId: id,
       title: state.scene?.title || $("sceneTitle")?.value || "",
@@ -12574,7 +13736,7 @@ async function loadSceneManuscriptForAssist(sceneId) {
   }
   const detail = await api(`/api/scenes/${id}`);
   const content = detail?.content_md || "";
-  const plain = (looksLikeHtml(content) ? plainTextFromHtml(content) : String(content || "")).trim();
+  const plain = manuscriptPlainForTory(content);
   return {
     sceneId: id,
     title: detail?.title || "",
@@ -12791,7 +13953,7 @@ async function runDuplicateCheck(targetSceneId) {
     }
   }
 
-  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContent);
   if (!scenePlain) {
     toast(isLiveEditor
       ? i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤_2')
@@ -13266,7 +14428,7 @@ async function runWorldScan() {
     return;
   }
   const sceneContent = getEditorContent() || "";
-  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContent);
   if (!scenePlain) {
     toast(i18n.t('app.현재_회차_원고가_비어_있어요_본문을_쓴_뒤_3'));
     return;
@@ -14597,9 +15759,7 @@ async function submitAiAssist(event) {
   }
 
   const sceneContentRaw = state.sceneId ? getEditorContent() : "";
-  const scenePlain = (looksLikeHtml(sceneContentRaw)
-    ? plainTextFromHtml(sceneContentRaw)
-    : String(sceneContentRaw || "")).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContentRaw);
   if (mode === "continue" && !scenePlain) {
     toast(i18n.t('app.이어_쓰려면_원고_본문이_필요해요_본문을_먼'));
     return;
@@ -14931,9 +16091,7 @@ async function runContinueWithThreeStyles() {
     return;
   }
   const sceneContentRaw = getEditorContent() || "";
-  const scenePlain = (looksLikeHtml(sceneContentRaw)
-    ? plainTextFromHtml(sceneContentRaw)
-    : String(sceneContentRaw || "")).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContentRaw);
   if (!scenePlain) {
     toast(i18n.t('app.이어_쓰려면_원고_본문이_필요해요_본문을_먼'));
     return;
@@ -20964,9 +22122,427 @@ const SETTINGS_BOOKMARK_META = {
   logline: { title: i18n.t('app.로그라인'), open: () => openSettingsDocMain("logline") },
   world: { title: i18n.t('app.세계관'), open: () => openSettingsDocMain("world") },
   characters: { title: i18n.t('app.캐릭터'), open: () => openCharacterBoard() },
+  items: { title: i18n.t('app.아이템'), open: () => openItemBoard() },
   sources: { title: i18n.t('app.참고자료_출처'), open: () => openSettingsCollectionMain("sources") },
   toryVault: { title: i18n.t('app.토리의_수집창고'), open: () => openSettingsCollectionMain("toryVault") },
+  readingInvite: { title: i18n.t('app.읽기_권한_초대'), open: () => openSettingsCollectionMain("readingInvite") },
 };
+
+const READING_INVITE_SEEN_PREFIX = "supertory.readingInviteSeen.";
+let readingInviteEpisodes = [];
+let readingInviteListCache = [];
+
+function readingInviteSeenKey(projectId = state.projectId) {
+  const id = Number(projectId);
+  if (!Number.isFinite(id) || id <= 0) return null;
+  return `${READING_INVITE_SEEN_PREFIX}${id}`;
+}
+
+function readReadingInviteSeenAt(projectId = state.projectId) {
+  const key = readingInviteSeenKey(projectId);
+  if (!key) return "";
+  try {
+    return String(localStorage.getItem(key) || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function markReadingInviteSeen(iso, projectId = state.projectId) {
+  const key = readingInviteSeenKey(projectId);
+  if (!key) return;
+  const stamp = String(iso || new Date().toISOString());
+  try {
+    localStorage.setItem(key, stamp);
+  } catch (_) { /* quota */ }
+}
+
+function formatReadingInviteDate(value) {
+  const text = String(value || "").trim();
+  if (!text) return "—";
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) return text;
+  try {
+    return parsed.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  } catch (_) {
+    return parsed.toLocaleString();
+  }
+}
+
+function readingInviteStatusLabel(displayStatus) {
+  if (displayStatus === "revoked") return i18n.t("app.꺼짐");
+  if (displayStatus === "expired") return i18n.t("app.만료됨");
+  return i18n.t("app.활성");
+}
+
+function setReadingInviteAuthHint(message) {
+  const el = $("readingInviteAuthHint");
+  if (!el) return;
+  const text = String(message || "").trim();
+  el.textContent = text;
+  el.classList.toggle("hidden", !text);
+  el.hidden = !text;
+}
+
+function renderReadingInviteEpisodeList() {
+  const host = $("readingInviteEpisodeList");
+  if (!host) return;
+  if (!readingInviteEpisodes.length) {
+    host.innerHTML = `<p class="export-scene-empty">${escapeHtml(i18n.t("app.공유할_화가_없어요"))}</p>`;
+    return;
+  }
+  host.innerHTML = readingInviteEpisodes.map((ep) => {
+    const title = String(ep.title || i18n.t("app.제목_없음")).trim() || i18n.t("app.제목_없음");
+    const chapter = String(ep.chapter_title || "").trim();
+    const label = chapter ? `${chapter} · ${title}` : title;
+    const complete = ep.status === "complete";
+    const badge = complete ? ` <span class="reading-invite-status">${escapeHtml(i18n.t("app.완성"))}</span>` : "";
+    return `<label class="export-scene-item">`
+      + `<input type="checkbox" data-reading-invite-scene="${Number(ep.id)}" ${ep.checked ? "checked" : ""}>`
+      + `<span>${escapeHtml(label)}${badge}</span>`
+      + `</label>`;
+  }).join("");
+}
+
+function selectedReadingInviteSceneIds() {
+  return [...document.querySelectorAll("#readingInviteEpisodeList [data-reading-invite-scene]")]
+    .filter((input) => input.checked)
+    .map((input) => Number(input.dataset.readingInviteScene))
+    .filter((id) => Number.isFinite(id) && id > 0);
+}
+
+function renderReadingInviteList() {
+  const host = $("readingInviteList");
+  if (!host) return;
+  if (!readingInviteListCache.length) {
+    host.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_만든_링크가_없어요"))}</p>`;
+    return;
+  }
+  host.innerHTML = readingInviteListCache.map((invite) => {
+    const display = invite.display_status || invite.status || "active";
+    const comments = Number(invite.comment_count || 0);
+    const commentLabel = comments
+      ? i18n.t("app.피드백_n개", { n: comments })
+      : i18n.t("app.받은_피드백");
+    const canRevoke = display === "active";
+    return `<article class="reading-invite-item" data-invite-id="${escapeHtml(invite.id)}">`
+      + `<div class="reading-invite-item-head">`
+      + `<div class="reading-invite-item-title">${escapeHtml(invite.title || i18n.t("app.제목_없음"))}</div>`
+      + `<span class="reading-invite-status is-${escapeHtml(display)}">${escapeHtml(readingInviteStatusLabel(display))}</span>`
+      + `</div>`
+      + `<div class="reading-invite-item-meta">`
+      + `<span>${escapeHtml(i18n.t("app.생성일"))}: ${escapeHtml(formatReadingInviteDate(invite.created_at))}</span>`
+      + `<span>${escapeHtml(i18n.t("app.만료일"))}: ${escapeHtml(formatReadingInviteDate(invite.expires_at))}</span>`
+      + `</div>`
+      + `<div class="reading-invite-item-actions">`
+      + `<button type="button" class="secondary compact-btn" data-copy-invite="${escapeHtml(invite.id)}" ${invite.public_url ? "" : "disabled"}>${escapeHtml(i18n.t("app.복사"))}</button>`
+      + `<button type="button" class="secondary compact-btn" data-open-invite-feedback="${escapeHtml(invite.id)}">${escapeHtml(commentLabel)}</button>`
+      + (canRevoke
+        ? `<button type="button" class="secondary compact-btn" data-revoke-invite="${escapeHtml(invite.id)}">${escapeHtml(i18n.t("app.링크_끄기"))}</button>`
+        : "")
+      + `</div>`
+      + `</article>`;
+  }).join("");
+}
+
+function showReadingInviteCreated(url) {
+  const box = $("readingInviteCreated");
+  const input = $("readingInviteCreatedUrl");
+  if (input) input.value = url || "";
+  if (box) {
+    box.classList.toggle("hidden", !url);
+    box.hidden = !url;
+  }
+}
+
+function closeReadingInviteFeedback() {
+  const panel = $("readingInviteFeedback");
+  if (panel) {
+    panel.classList.add("hidden");
+    panel.hidden = true;
+  }
+}
+
+async function copyReadingInviteUrl(url) {
+  const text = String(url || "").trim();
+  if (!text) return;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const input = $("readingInviteCreatedUrl");
+      if (input) {
+        input.value = text;
+        input.select();
+        document.execCommand("copy");
+      }
+    }
+    toast(i18n.t("app.링크를_복사했어요"));
+  } catch (_) {
+    toast(i18n.t("app.링크를_복사하지_못했어요"));
+  }
+}
+
+async function refreshReadingInvitePanel() {
+  if (!state.projectId) return;
+  try {
+    const payload = await api(`/api/projects/${state.projectId}/reading-invite-episodes`);
+    readingInviteEpisodes = Array.isArray(payload?.episodes) ? payload.episodes : [];
+  } catch (error) {
+    readingInviteEpisodes = [];
+    handleError(error);
+  }
+  renderReadingInviteEpisodeList();
+  try {
+    const payload = await api(`/api/projects/${state.projectId}/reading-invites`);
+    readingInviteListCache = Array.isArray(payload?.invites) ? payload.invites : [];
+    setReadingInviteAuthHint("");
+  } catch (error) {
+    readingInviteListCache = [];
+    if (error?.status === 401) {
+      setReadingInviteAuthHint(i18n.t("app.로그인이_필요해요_읽기_초대"));
+    } else if (error?.status === 503) {
+      setReadingInviteAuthHint(i18n.t("app.클라우드_연결이_필요해요"));
+    } else {
+      setReadingInviteAuthHint(error?.message || i18n.t("app.링크_목록을_불러오지_못했어요"));
+    }
+  }
+  renderReadingInviteList();
+}
+
+async function createReadingInviteLink() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const sceneIds = selectedReadingInviteSceneIds();
+  if (!sceneIds.length) return toast(i18n.t("app.선택한_화가_없어요"));
+  const button = $("readingInviteCreateButton");
+  if (button) button.disabled = true;
+  try {
+    const payload = await api(`/api/projects/${state.projectId}/reading-invites`, {
+      method: "POST",
+      body: JSON.stringify({ scene_ids: sceneIds }),
+    });
+    const invite = payload?.invite || {};
+    showReadingInviteCreated(invite.public_url || "");
+    toast(i18n.t("app.베타_리더_링크를_만들었어요"));
+    await refreshReadingInvitePanel();
+    if (invite.public_url) showReadingInviteCreated(invite.public_url);
+  } catch (error) {
+    handleError(error);
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+async function revokeReadingInvite(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  try {
+    await api(`/api/reading-invites/${encodeURIComponent(id)}/revoke`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    toast(i18n.t("app.링크를_껐어요"));
+    await refreshReadingInvitePanel();
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function renderReadingInviteComments(payload) {
+  const host = $("readingInviteFeedbackBody");
+  const titleEl = $("readingInviteFeedbackTitle");
+  if (titleEl) {
+    const inviteTitle = payload?.invite?.title;
+    titleEl.textContent = inviteTitle
+      ? `${i18n.t("app.받은_피드백")} · ${inviteTitle}`
+      : i18n.t("app.받은_피드백");
+  }
+  if (!host) return;
+  const scenes = Array.isArray(payload?.scenes) ? payload.scenes : [];
+  const ungrouped = Array.isArray(payload?.ungrouped) ? payload.ungrouped : [];
+  const parts = [];
+  const renderComment = (comment, sceneTitle) => {
+    const author = String(comment.author_name || "").trim() || i18n.t("app.익명");
+    const when = formatReadingInviteDate(comment.created_at);
+    const sceneBit = sceneTitle ? ` · ${sceneTitle}` : "";
+    return `<article class="reading-invite-comment">`
+      + `<div class="reading-invite-comment-meta">${escapeHtml(author)} · ${escapeHtml(when)}${escapeHtml(sceneBit)}</div>`
+      + `<div>${escapeHtml(comment.content || "")}</div>`
+      + `</article>`;
+  };
+  for (const scene of scenes) {
+    const comments = Array.isArray(scene.comments) ? scene.comments : [];
+    const sceneTitle = String(scene.scene_title || i18n.t("app.제목_없음"));
+    parts.push(`<section class="reading-invite-scene-block">`
+      + `<h4 class="reading-invite-heading">${escapeHtml(sceneTitle)}</h4>`
+      + (comments.length
+        ? comments.map((comment) => renderComment(comment, sceneTitle)).join("")
+        : `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_피드백이_없어요"))}</p>`)
+      + `</section>`);
+  }
+  if (ungrouped.length) {
+    parts.push(`<section class="reading-invite-scene-block">`
+      + `<h4 class="reading-invite-heading">${escapeHtml(i18n.t("app.화_미지정"))}</h4>`
+      + ungrouped.map((comment) => renderComment(comment, "")).join("")
+      + `</section>`);
+  }
+  if (!parts.length) {
+    host.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_피드백이_없어요"))}</p>`;
+    return;
+  }
+  host.innerHTML = parts.join("");
+}
+
+async function openReadingInviteFeedback(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  const panel = $("readingInviteFeedback");
+  if (panel) {
+    panel.classList.remove("hidden");
+    panel.hidden = false;
+  }
+  try {
+    const payload = await api(`/api/reading-invites/${encodeURIComponent(id)}/comments`);
+    renderReadingInviteComments(payload);
+    const comments = [];
+    for (const scene of payload?.scenes || []) comments.push(...(scene.comments || []));
+    comments.push(...(payload?.ungrouped || []));
+    let newest = "";
+    for (const comment of comments) {
+      const created = String(comment.created_at || "");
+      if (created && created > newest) newest = created;
+    }
+    if (newest) markReadingInviteSeen(newest);
+    else markReadingInviteSeen(new Date().toISOString());
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+function readingInviteCheerCopy(count, title) {
+  const work = String(title || "").trim() || i18n.t("app.제목_없음");
+  const n = Math.max(1, Number(count) || 1);
+  if (n > 1) return i18n.t("app.새_감상평이_n개_도착했어요", { title: work, n: String(n) });
+  return i18n.t("app.새_감상평이_도착했어요", { title: work });
+}
+
+function hideReadingInviteCheer() {
+  $("readingInviteCheerCard")?.classList.add("hidden");
+  if (hideReadingInviteCheer.timer) {
+    window.clearTimeout(hideReadingInviteCheer.timer);
+    hideReadingInviteCheer.timer = null;
+  }
+}
+
+function showReadingInviteCheer({ count, title, inviteId } = {}) {
+  const card = $("readingInviteCheerCard");
+  const message = readingInviteCheerCopy(count, title);
+  const id = String(inviteId || "").trim();
+  showReadingInviteCheer.inviteId = id;
+  if (!card) {
+    toast(message, 4200, {
+      dismissible: true,
+      action: {
+        label: i18n.t("app.확인하러_가기"),
+        onClick: () => openReadingInviteFromCheer(),
+      },
+    });
+    return;
+  }
+  const body = $("readingInviteCheerMessage");
+  if (body) body.textContent = message;
+  if (id) card.dataset.inviteId = id;
+  else delete card.dataset.inviteId;
+  card.classList.remove("hidden");
+  if (hideReadingInviteCheer.timer) window.clearTimeout(hideReadingInviteCheer.timer);
+  hideReadingInviteCheer.timer = window.setTimeout(() => hideReadingInviteCheer(), 12000);
+}
+
+function openReadingInviteFromCheer() {
+  const inviteId = showReadingInviteCheer.inviteId
+    || $("readingInviteCheerCard")?.dataset?.inviteId
+    || "";
+  hideReadingInviteCheer();
+  openSettingsCollectionMain("readingInvite");
+  if (inviteId) openReadingInviteFeedback(inviteId).catch(handleError);
+}
+
+async function checkReadingInviteFeedback(options = {}) {
+  if (!state.projectId) return;
+  const quiet = Boolean(options.quiet);
+  try {
+    const since = readReadingInviteSeenAt();
+    const qs = since ? `?since=${encodeURIComponent(since)}` : "";
+    const payload = await api(`/api/projects/${state.projectId}/reading-invites/feedback-summary${qs}`);
+    const count = Number(payload?.new_count || 0);
+    const latest = String(payload?.latest_created_at || "");
+    if (count <= 0) return;
+    if (quiet) return;
+    if (latest && checkReadingInviteFeedback._lastToast === latest) return;
+    checkReadingInviteFeedback._lastToast = latest;
+    showReadingInviteCheer({
+      count,
+      title: payload?.title || "",
+      inviteId: payload?.invite_id || "",
+    });
+  } catch (error) {
+    if (error?.status === 401 || error?.status === 503) return;
+    if (!quiet) console.warn(error);
+  }
+}
+
+function setupReadingInvite() {
+  if (setupReadingInvite._bound) return;
+  setupReadingInvite._bound = true;
+  $("readingInviteCreateButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    createReadingInviteLink().catch(handleError);
+  });
+  $("readingInviteCopyButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    copyReadingInviteUrl($("readingInviteCreatedUrl")?.value || "").catch(handleError);
+  });
+  $("readingInviteFeedbackBack")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeReadingInviteFeedback();
+  });
+  $("readingInviteCheerClose")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    hideReadingInviteCheer();
+  });
+  $("readingInviteCheerGo")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openReadingInviteFromCheer();
+  });
+  $("readingInviteCheerCard")?.addEventListener("click", (event) => {
+    if (event.target.closest("#readingInviteCheerClose")) return;
+    if (event.target.closest("#readingInviteCheerGo")) return;
+    event.preventDefault();
+    openReadingInviteFromCheer();
+  });
+  $("readingInvitePanel")?.addEventListener("click", (event) => {
+    const copyId = event.target.closest?.("[data-copy-invite]")?.dataset?.copyInvite;
+    if (copyId) {
+      event.preventDefault();
+      const invite = readingInviteListCache.find((item) => String(item.id) === String(copyId));
+      copyReadingInviteUrl(invite?.public_url || "").catch(handleError);
+      return;
+    }
+    const revokeId = event.target.closest?.("[data-revoke-invite]")?.dataset?.revokeInvite;
+    if (revokeId) {
+      event.preventDefault();
+      revokeReadingInvite(revokeId).catch(handleError);
+      return;
+    }
+    const feedbackId = event.target.closest?.("[data-open-invite-feedback]")?.dataset?.openInviteFeedback;
+    if (feedbackId) {
+      event.preventDefault();
+      openReadingInviteFeedback(feedbackId).catch(handleError);
+    }
+  });
+}
 
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
 const SETTINGS_COLLECTION_MAIN = {
@@ -21016,6 +22592,16 @@ const SETTINGS_COLLECTION_MAIN = {
     onAdd: () => $("newSourceButton")?.click(),
     render: () => renderSourceList(),
   },
+  readingInvite: {
+    title: i18n.t('app.읽기_권한_초대'),
+    hint: i18n.t('index.완결된_화가_기본으로_선택됩니다_링크를_보낸'),
+    section: "readingInvite",
+    listId: "readingInvitePanel",
+    hideAdd: true,
+    render: () => {
+      refreshReadingInvitePanel().catch(handleError);
+    },
+  },
 };
 
 let settingsCollectionMountRestore = null;
@@ -21062,6 +22648,7 @@ function openSettingsCollectionMain(key) {
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
   state.characterBoardOpen = false;
+  hideItemViews();
   hideSynopsisMain();
   hideGitsiWorkspace();
   $("welcome")?.classList.add("hidden");
@@ -21100,11 +22687,19 @@ function openSettingsCollectionMain(key) {
   if (tipMount) tipMount.replaceChildren();
   const addBtn = $("settingsCollectionAddButton");
   if (addBtn) {
-    addBtn.textContent = cfg.addLabel || i18n.t('app.추가');
-    addBtn.onclick = (event) => {
-      event.preventDefault();
-      cfg.onAdd?.();
-    };
+    if (cfg.hideAdd) {
+      addBtn.hidden = true;
+      addBtn.classList.add("hidden");
+      addBtn.onclick = null;
+    } else {
+      addBtn.hidden = false;
+      addBtn.classList.remove("hidden");
+      addBtn.textContent = cfg.addLabel || i18n.t('app.추가');
+      addBtn.onclick = (event) => {
+        event.preventDefault();
+        cfg.onAdd?.();
+      };
+    }
   }
   const extraBtn = $("settingsCollectionExtraButton");
   if (extraBtn) {
@@ -21147,13 +22742,14 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "successProfile", "toryVault", "sources",
+  "ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
   ["ideas", "baits", "intro", "logsyn", "keywords", "world", "characters", "toryVault", "sources"],
   ["ideas", "intro", "logsyn", "baits", "keywords", "world", "characters", "toryVault", "sources"],
   ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "toryVault", "sources"],
+  ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "successProfile", "toryVault", "sources"],
 ];
 
 /**
@@ -23590,7 +25186,7 @@ async function runSuccessFormulaFeedback() {
     return;
   }
   const sceneContent = getEditorContent() || "";
-  const scenePlain = (looksLikeHtml(sceneContent) ? plainTextFromHtml(sceneContent) : sceneContent).trim();
+  const scenePlain = manuscriptPlainForTory(sceneContent);
   if (!scenePlain) {
     toast(i18n.t('app.현재_회차_원고가_비어_있어요'));
     return;
@@ -30273,6 +31869,17 @@ function loadSettingsOrder() {
       ordered.splice(successAt, 1);
       ordered.splice(ordered.indexOf("baits") + 1, 0, "successProfile");
     }
+    const inviteAt = ordered.indexOf("readingInvite");
+    const sourcesForInvite = ordered.indexOf("sources");
+    if (
+      inviteAt >= 0
+      && sourcesForInvite >= 0
+      && inviteAt === ordered.length - 1
+      && inviteAt !== sourcesForInvite - 1
+    ) {
+      ordered.splice(inviteAt, 1);
+      ordered.splice(ordered.indexOf("sources"), 0, "readingInvite");
+    }
     return ordered;
   } catch (_) {
     return [...DEFAULT_SETTINGS_ORDER];
@@ -34843,6 +36450,7 @@ function setupDesktopThemeMenu() {
       deleteFnItem.classList.toggle("hidden", !pendingFootnoteId);
       deleteFnItem.disabled = !pendingFootnoteId;
     }
+    syncAuthorNoteContextMenu(editor, isSettingsDoc);
     // Keep ink picker in sync with current default body color.
     syncPageInkUi(getSavedPageInk() || themeDefaultInk(document.body.dataset.pageTheme || "ivory"));
     showDesktopContextMenu(clientX, clientY);
@@ -34858,6 +36466,16 @@ function setupDesktopThemeMenu() {
   $("focusWritePage")?.addEventListener("contextmenu", (event) => {
     if (!isFocusWriteOpen?.()) return;
     const editor = $("focusWriteEditor");
+    if (!editor || !editor.contains(event.target)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    pendingFootnoteId = findFootnoteIdFromEventTarget(event.target);
+    openManuscriptMenu(event.clientX, event.clientY, event, editor);
+  });
+
+  $("splitSceneBodyEditor")?.addEventListener("contextmenu", (event) => {
+    if (!state.splitEditEnabled) return;
+    const editor = $("splitSceneBodyEditor");
     if (!editor || !editor.contains(event.target)) return;
     event.preventDefault();
     event.stopPropagation();
@@ -34987,6 +36605,12 @@ function setupDesktopThemeMenu() {
         pendingFootnoteId = null;
         if (id) deleteFootnoteById(id);
         else toast(i18n.t('app.삭제할_각주를_찾지_못했어요'));
+      } else if (action === "to-author-note") {
+        hideDesktopContextMenu();
+        convertSelectionToAuthorNote();
+      } else if (action === "to-body-paragraph") {
+        hideDesktopContextMenu();
+        convertAuthorNoteToBody();
       }
       return;
     }
@@ -36718,7 +38342,7 @@ function clearViewerEpisodeCache() {
 function normalizeViewerHtml(raw) {
   const text = raw == null ? "" : String(raw);
   if (!text.trim()) return "";
-  const stripped = stripFindHitMarkup(text);
+  const stripped = stripAuthorNoteHtml(stripFindHitMarkup(text));
   if (looksLikeHtml(stripped)) return sanitizeEditorHtml(stripped);
   return escapeHtml(stripped).replace(/\r\n|\r|\n/g, "<br>");
 }
@@ -43346,6 +44970,7 @@ function showWelcome() {
     $("keywordBoard")?.classList.add("hidden");
   }
   hideCharacterBoard();
+  hideItemViews();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
   $("welcome").classList.remove("hidden");
@@ -43355,6 +44980,7 @@ function showWelcome() {
   $("newChapterButton").disabled = !state.projectId;
   if ($("renumberChaptersButton")) $("renumberChaptersButton").disabled = !state.projectId;
   $("newCharacterButton").disabled = !state.projectId;
+  if ($("newItemButton")) $("newItemButton").disabled = !state.projectId;
   $("newIdeaButton").disabled = !state.projectId;
   if (!state.projectId) {
     state.folderUndoHint = 0;
@@ -51166,6 +52792,7 @@ function showSceneEditorPane() {
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
+  hideItemViews();
   hideSynopsisMain();
   const workspace = $("sceneWorkspace");
   if (workspace) {
@@ -52962,6 +54589,7 @@ async function persistScene(options = {}) {
     if (becameComplete) {
       showSceneCompleteReaderCommentsToast();
       watchSceneTraitAnalysis(state.sceneId);
+      watchSceneItemAnalysis(state.sceneId);
     }
     else if (!quiet) toast(i18n.t('app.저장했습니다'));
     syncViewerReaderCommentsButton({ pulse: becameComplete });
@@ -53089,6 +54717,19 @@ function setupSceneAutoSave() {
     try { name = decodeURIComponent(raw); } catch (_) { /* keep raw */ }
     addBtn.disabled = true;
     addSceneCastCandidate(name).catch((error) => {
+      addBtn.disabled = false;
+      handleError(error);
+    });
+  });
+  $("sceneItemCandidateList")?.addEventListener("click", (event) => {
+    const addBtn = event.target.closest?.("[data-add-item-candidate]");
+    if (!addBtn) return;
+    event.preventDefault();
+    const raw = addBtn.getAttribute("data-add-item-candidate") || "";
+    let name = raw;
+    try { name = decodeURIComponent(raw); } catch (_) { /* keep raw */ }
+    addBtn.disabled = true;
+    addSceneItemCandidate(name).catch((error) => {
       addBtn.disabled = false;
       handleError(error);
     });
@@ -53241,10 +54882,54 @@ function isToriDraftText(value) {
   return String(value || "").trimStart().startsWith(TORI_TEXT_PREFIX);
 }
 
+function stripToriTextPrefix(value) {
+  const text = String(value || "");
+  const leading = (text.match(/^\s*/) || [""])[0];
+  const rest = text.slice(leading.length);
+  if (!rest.startsWith(TORI_TEXT_PREFIX)) return text;
+  return rest.slice(TORI_TEXT_PREFIX.length).replace(/^\s+/, "");
+}
+
+function applyToriDraftClass(el) {
+  if (!el) return;
+  el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+}
+
+function claimToriDraftOnInput(el, event) {
+  if (!el) return false;
+  if (event && event.isComposing) {
+    applyToriDraftClass(el);
+    return false;
+  }
+  const value = String(el.value || "");
+  if (!isToriDraftText(value)) {
+    el.classList.remove("is-tori-draft");
+    return false;
+  }
+  const next = stripToriTextPrefix(value);
+  if (next === value) {
+    el.classList.add("is-tori-draft");
+    return false;
+  }
+  const start = Number(el.selectionStart);
+  const end = Number(el.selectionEnd);
+  const delta = value.length - next.length;
+  el.value = next;
+  try {
+    if (Number.isFinite(start) && Number.isFinite(end)) {
+      el.setSelectionRange(Math.max(0, start - delta), Math.max(0, end - delta));
+    }
+  } catch (_) {
+    /* some inputs do not support selection */
+  }
+  el.classList.remove("is-tori-draft");
+  return true;
+}
+
 function syncCharacterToriDraftStyle() {
   CHARACTER_TORI_FIELDS.forEach((item) => {
     const el = $(item.inputId);
-    if (el) el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+    if (el) applyToriDraftClass(el);
   });
 }
 
@@ -53362,6 +55047,7 @@ async function applyCharacterToriAnalysis() {
       state.character.character = character;
     }
     syncCharacterToriBadges(character);
+    syncCharacterToriDraftStyle();
   }
   await loadProject();
   toast(i18n.t('app.토리_분석으로_바꿨어요'));
@@ -53396,15 +55082,24 @@ function setupCharacterAnalysisModal() {
   $("characterAnalysisApplyButton")?.addEventListener("click", () => {
     if (characterAnalysisKind === "world") {
       applyWorldToriAnalysis().catch(handleError);
+    } else if (characterAnalysisKind === "item") {
+      applyItemToriAnalysis().catch(handleError);
     } else {
       applyCharacterToriAnalysis().catch(handleError);
     }
   });
-  document.querySelectorAll(".character-analysis-badge:not(.world-analysis-badge)").forEach((button) => {
+  document.querySelectorAll(".character-analysis-badge:not(.world-analysis-badge):not(.item-analysis-badge)").forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
       openCharacterAnalysisModal(button.getAttribute("data-tori-field") || "");
+    });
+  });
+  document.querySelectorAll(".item-analysis-badge").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openItemAnalysisModal(button.getAttribute("data-item-tori-field") || "");
     });
   });
   document.addEventListener("click", (event) => {
@@ -53421,11 +55116,151 @@ function setupCharacterAnalysisModal() {
     openWorldAnalysisModal(button.getAttribute("data-world-tori-field") || "");
   });
   CHARACTER_TORI_FIELDS.forEach((item) => {
-    $(item.inputId)?.addEventListener("input", () => {
-      const el = $(item.inputId);
-      if (el) el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+    const el = $(item.inputId);
+    if (!el) return;
+    el.addEventListener("input", (event) => {
+      claimToriDraftOnInput(el, event);
+    });
+    el.addEventListener("compositionend", () => {
+      claimToriDraftOnInput(el);
     });
   });
+  $("characterChronicleButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleCharacterChronicle().catch(handleError);
+  });
+  $("itemChronicleButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleItemChronicle().catch(handleError);
+  });
+}
+
+function setChronicleOpen(kind, open) {
+  const panel = $(kind === "item" ? "itemChronicle" : "characterChronicle");
+  const button = $(kind === "item" ? "itemChronicleButton" : "characterChronicleButton");
+  if (panel) {
+    panel.classList.toggle("hidden", !open);
+    panel.hidden = !open;
+  }
+  button?.setAttribute("aria-pressed", open ? "true" : "false");
+}
+
+function resetCharacterChronicle() {
+  setChronicleOpen("character", false);
+  const list = $("characterChronicleList");
+  if (list) list.innerHTML = "";
+}
+
+function resetItemChronicle() {
+  setChronicleOpen("item", false);
+  const list = $("itemChronicleList");
+  if (list) list.innerHTML = "";
+}
+
+function chronicleFieldLabel(kind, fieldName) {
+  if (kind === "item") {
+    if (fieldName === "description") return i18n.t("app.아이템_설명");
+    return fieldName;
+  }
+  const meta = CHARACTER_TORI_FIELDS.find((item) => item.key === fieldName);
+  return meta?.label || fieldName;
+}
+
+function chronicleEpisodeLabel(entry) {
+  const n = Number(entry?.episode_index);
+  const title = String(entry?.scene_title || "").trim();
+  const chapter = String(entry?.chapter_title || "").trim();
+  const ep = Number.isFinite(n) && n > 0
+    ? i18n.t("app.회차_n화", { n })
+    : "";
+  const bits = [];
+  if (ep) bits.push(ep);
+  if (chapter && chapter !== title && chapter !== ep) bits.push(chapter);
+  if (title && title !== ep) bits.push(title);
+  return bits.join(" · ") || i18n.t("app.회차");
+}
+
+function renderTraitChronicleList(listEl, entries, kind) {
+  if (!listEl) return;
+  const rows = Array.isArray(entries) ? entries : [];
+  if (!rows.length) {
+    listEl.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.아직_짚어_둔_변화가_없어요"))}</p>`;
+    return;
+  }
+  listEl.innerHTML = rows.map((entry) => {
+    const applied = Boolean(entry.applied);
+    const status = applied
+      ? i18n.t("app.적용됨")
+      : i18n.t("app.이미_있던_내용이라_참고만");
+    const statusClass = applied ? "is-applied" : "is-reference";
+    const sceneId = Number(entry.scene_id) || 0;
+    return `<article class="trait-chronicle-item">
+      <div class="trait-chronicle-item-head">
+        <span class="trait-chronicle-ep">${escapeHtml(chronicleEpisodeLabel(entry))}</span>
+        <span class="trait-chronicle-field">${escapeHtml(chronicleFieldLabel(kind, entry.field_name))}</span>
+      </div>
+      <p class="trait-chronicle-content">${escapeHtml(String(entry.detected_content || ""))}</p>
+      <div class="trait-chronicle-actions">
+        <span class="trait-chronicle-status ${statusClass}">${escapeHtml(status)}</span>
+        <button type="button" class="secondary compact-btn" data-chronicle-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>
+      </div>
+    </article>`;
+  }).join("");
+  listEl.querySelectorAll("[data-chronicle-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      openChronicleScene(button.getAttribute("data-chronicle-scene")).catch(handleError);
+    });
+  });
+}
+
+async function loadCharacterChronicle() {
+  const list = $("characterChronicleList");
+  if (!list || !state.characterId) return;
+  list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
+  const data = await api(`/api/characters/${state.characterId}/trait-history`);
+  renderTraitChronicleList(list, data?.entries, "character");
+}
+
+async function loadItemChronicle() {
+  const list = $("itemChronicleList");
+  if (!list || !state.itemId) return;
+  list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
+  const data = await api(`/api/items/${state.itemId}/trait-history`);
+  renderTraitChronicleList(list, data?.entries, "item");
+}
+
+async function toggleCharacterChronicle() {
+  const panel = $("characterChronicle");
+  const open = Boolean(panel?.classList.contains("hidden") || panel?.hidden);
+  setChronicleOpen("character", open);
+  if (open) await loadCharacterChronicle();
+}
+
+async function toggleItemChronicle() {
+  const panel = $("itemChronicle");
+  const open = Boolean(panel?.classList.contains("hidden") || panel?.hidden);
+  setChronicleOpen("item", open);
+  if (open) await loadItemChronicle();
+}
+
+async function openChronicleScene(sceneId) {
+  const sid = Number(sceneId);
+  if (!Number.isFinite(sid) || sid <= 0) {
+    toast(i18n.t("app.씬을_열_수_없어요"));
+    return;
+  }
+  try {
+    if (state.characterId) await flushCharacterAutoSave();
+  } catch (_) {
+    /* keep going */
+  }
+  try {
+    if (state.itemId) await flushItemAutoSave();
+  } catch (_) {
+    /* keep going */
+  }
+  await openScene(sid);
 }
 
 function stopCharacterAnalysisWatch() {
@@ -53883,6 +55718,7 @@ async function openCharacter(characterId) {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideItemViews();
   hideSynopsisMain();
   hideGitsiWorkspace();
   state.characterId = nextId;
@@ -53916,6 +55752,7 @@ async function openCharacter(characterId) {
   renderCharacterPortrait(character);
   syncCharacterToriBadges(character);
   syncCharacterToriDraftStyle();
+  resetCharacterChronicle();
   await loadProject();
 }
 
@@ -56890,6 +58727,9 @@ async function deleteProjectFromAdmin(projectId) {
     state.characterId = null;
     state.outline = [];
     state.characters = [];
+    state.items = [];
+    state.itemId = null;
+    state.item = null;
     state.ideas = [];
     state.baits = [];
     $("characterEditor")?.classList.add("hidden");
@@ -60534,6 +62374,9 @@ safeSetup("setupGuideTips", setupGuideTips);
 safeSetup("setupOutlineOverview", setupOutlineOverview);
 safeSetup("setupFolderUndoUi", setupFolderUndoUi);
 onEl("newCharacterButton", "click", () => createCharacter().catch(handleError));
+onEl("newItemButton", "click", () => createItem().catch(handleError));
+onEl("itemEditor", "submit", (event) => saveItem(event).catch(handleError));
+onEl("addItemAliasButton", "click", () => addItemAlias().catch(handleError));
 onEl("closeSplitButton", "click", () => closeSplitView().catch(handleError));
 onEl("splitSceneSelect", "change", () => selectSplitScene().catch(handleError));
 safeSetup("setupPopupDragging", setupPopupDragging);
@@ -60545,6 +62388,7 @@ safeSetup("setupSynopsisList", setupSynopsisList);
 safeSetup("setupIdeaBank", setupIdeaBank);
 safeSetup("setupSettingsCodex", setupSettingsCodex);
 safeSetup("setupSettingsCollectionBoard", setupSettingsCollectionBoard);
+safeSetup("setupReadingInvite", setupReadingInvite);
 safeSetup("setupAiAssist", setupAiAssist);
 safeSetup("setupDesktopThemeMenu", setupDesktopThemeMenu);
 safeSetup("setupBaitCollection", setupBaitCollection);
@@ -60573,7 +62417,9 @@ safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
 safeSetup("renderBookmarkBar", () => renderBookmarkBar());
 safeSetup("setupSceneAutoSave", setupSceneAutoSave);
+safeSetup("setupAuthorNoteUi", setupAuthorNoteUi);
 safeSetup("setupCharacterEditorAutosave", setupCharacterEditorAutosave);
+safeSetup("setupItemEditorAutosave", setupItemEditorAutosave);
 safeSetup("setupBinderSwitch", setupBinderSwitch);
 safeSetup("setupGitsi", setupGitsi);
 safeSetup("setupOutlineResizer", setupOutlineResizer);
