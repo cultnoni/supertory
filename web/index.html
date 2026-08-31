@@ -206,6 +206,22 @@
           <img class="brand-logo" src="/assets/tori-mascot.png" width="22" height="22" alt="" aria-hidden="true">
           <span class="brand-name">SuperTORY</span>
         </div>
+        <button
+          type="button"
+          id="offlineModeBadge"
+          class="offline-mode-badge hidden"
+          hidden
+          aria-expanded="false"
+          aria-controls="offlineModeHint"
+          data-i18n-title="app.오프라인_모드_설명"
+          title="인터넷 없이도 원고 작성은 그대로 가능해요. AI 기능만 연결되면 다시 쓸 수 있어요"
+        >
+          <span class="offline-mode-dot" aria-hidden="true"></span>
+          <span data-i18n="app.오프라인_모드">오프라인 모드</span>
+        </button>
+        <div id="offlineModeHint" class="offline-mode-hint hidden" hidden role="tooltip">
+          <span data-i18n="app.오프라인_모드_설명">인터넷 없이도 원고 작성은 그대로 가능해요. AI 기능만 연결되면 다시 쓸 수 있어요</span>
+        </div>
       </div>
     </header>
 
@@ -7220,6 +7236,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.21"></script>
+    <script src="/app.js?v=1.4.22"></script>
   </body>
 </html>

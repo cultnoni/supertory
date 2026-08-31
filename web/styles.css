@@ -1038,6 +1038,8 @@ header.app-chrome {
   background: var(--chrome-bg, var(--header-bg));
   border-bottom: 0; /* 로고·제품명 아래 가로선 제거 */
   -webkit-app-region: drag;
+  position: relative;
+  gap: 8px;
   /* Leave room for Windows caption buttons when titleBarOverlay is active */
   padding-right: max(12px, calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 100vw) + 12px));
 }
@@ -1057,7 +1059,9 @@ html.is-electron .app-toolbar label,
 html.is-electron .header-notice-strip button,
 html.is-electron .create-menu,
 html.is-electron .genre-display,
-html.is-electron .purpose-display {
+html.is-electron .purpose-display,
+html.is-electron .offline-mode-badge,
+html.is-electron .offline-mode-hint {
   -webkit-app-region: no-drag;
 }
 html.is-electron-mac .app-titlebar {
@@ -1097,6 +1101,58 @@ html.is-electron-mac .app-titlebar {
   color: var(--accent-dark);
   line-height: 1;
   white-space: nowrap;
+}
+.offline-mode-badge {
+  -webkit-app-region: no-drag;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 2px 8px 2px 6px;
+  border: 1px solid color-mix(in srgb, var(--accent-dark) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-2, #f3efe6) 88%, var(--accent-dark));
+  color: var(--accent-dark);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.92;
+}
+.offline-mode-badge.hidden,
+.offline-mode-hint.hidden {
+  display: none !important;
+}
+.offline-mode-badge:hover,
+.offline-mode-badge[aria-expanded="true"] {
+  opacity: 1;
+  background: var(--surface-2, #f3efe6);
+}
+.offline-mode-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #8a7a5a;
+  box-shadow: 0 0 0 3px color-mix(in srgb, #8a7a5a 18%, transparent);
+}
+.offline-mode-hint {
+  -webkit-app-region: no-drag;
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 12px;
+  z-index: 40;
+  max-width: min(280px, calc(100vw - 24px));
+  padding: 8px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--border-strong, rgba(0, 0, 0, 0.12));
+  background: var(--surface-1, #fffdf8);
+  color: var(--ink, #2b261c);
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 8px 24px rgba(40, 32, 18, 0.14);
 }
 .icon-btn {
   flex: 0 0 auto;

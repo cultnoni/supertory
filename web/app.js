@@ -132,6 +132,7 @@ async function setLanguage(lang) {
   applyWelcomeAdFeedToDom();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
+  if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
   if (
     typeof refreshAdminAccountPanel === "function"
     && $("adminModal")
@@ -396,6 +397,7 @@ function isAiAssistConnectionError(error) {
   try {
     if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
   } catch (_) { /* ignore */ }
+  if (typeof isInternetOfflineMode === "function" && isInternetOfflineMode()) return true;
   const msg = String(error.message || error || "");
   return /failed to fetch|networkerror|load failed|offline|연결할 수 없|연결하지 못했|인터넷 연결이 필요|need an internet connection|conexión a internet/i.test(msg);
 }
@@ -430,6 +432,175 @@ function isOnlineNow() {
   } catch (_) {
     return true;
   }
+}
+
+const INTERNET_PROBE_URL = "https://www.gstatic.com/generate_204";
+const networkProbe = {
+  navigatorOnline: true,
+  localAppOk: true,
+  internetOk: true,
+  internetFailStreak: 0,
+  probing: false,
+  timer: 0,
+};
+
+function isInternetOfflineMode() {
+  return Boolean(networkProbe.localAppOk && !networkProbe.internetOk);
+}
+
+function isLocalAppReachableNow() {
+  return networkProbe.localAppOk !== false;
+}
+
+async function probeLocalAppReachable() {
+  try {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? window.setTimeout(() => controller.abort(), 1500) : 0;
+    const response = await fetch("/api/ai/status?probe=1", {
+      method: "GET",
+      cache: "no-store",
+      credentials: "same-origin",
+      signal: controller ? controller.signal : undefined,
+    });
+    if (timer) window.clearTimeout(timer);
+    return Boolean(response && response.ok);
+  } catch (_) {
+    return false;
+  }
+}
+
+async function probeInternetReachable() {
+  try {
+    const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+    const timer = controller ? window.setTimeout(() => controller.abort(), 2000) : 0;
+    await fetch(INTERNET_PROBE_URL, {
+      method: "GET",
+      mode: "no-cors",
+      cache: "no-store",
+      credentials: "omit",
+      signal: controller ? controller.signal : undefined,
+    });
+    if (timer) window.clearTimeout(timer);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function closeOfflineModeHint() {
+  const badge = $("offlineModeBadge");
+  const hint = $("offlineModeHint");
+  if (badge) badge.setAttribute("aria-expanded", "false");
+  if (hint) {
+    hint.classList.add("hidden");
+    hint.hidden = true;
+  }
+}
+
+function syncOfflineModeBadge() {
+  const badge = $("offlineModeBadge");
+  const hint = $("offlineModeHint");
+  if (!badge) return;
+  const offline = isInternetOfflineMode();
+  badge.classList.toggle("hidden", !offline);
+  badge.hidden = !offline;
+  const label = i18n.t("app.오프라인_모드");
+  const detail = i18n.t("app.오프라인_모드_설명");
+  const textEl = badge.querySelector("[data-i18n='app.오프라인_모드']");
+  if (textEl) textEl.textContent = label;
+  badge.setAttribute("aria-label", label);
+  badge.title = detail;
+  if (hint) {
+    const hintText = hint.querySelector("[data-i18n='app.오프라인_모드_설명']");
+    if (hintText) hintText.textContent = detail;
+    if (!offline) closeOfflineModeHint();
+  }
+}
+
+async function refreshNetworkStatus(options = {}) {
+  const wasOffline = isInternetOfflineMode();
+  try {
+    networkProbe.navigatorOnline = isOnlineNow();
+  } catch (_) {
+    networkProbe.navigatorOnline = true;
+  }
+  if (networkProbe.probing) {
+    syncOfflineModeBadge();
+    return;
+  }
+  networkProbe.probing = true;
+  try {
+    const localOk = await probeLocalAppReachable();
+    networkProbe.localAppOk = localOk;
+    const probed = await probeInternetReachable();
+    if (!networkProbe.navigatorOnline) {
+      networkProbe.internetOk = probed;
+      networkProbe.internetFailStreak = probed ? 0 : 2;
+    } else if (probed) {
+      networkProbe.internetFailStreak = 0;
+      networkProbe.internetOk = true;
+    } else {
+      networkProbe.internetFailStreak += 1;
+      if (networkProbe.internetFailStreak >= 2) networkProbe.internetOk = false;
+    }
+  } finally {
+    networkProbe.probing = false;
+  }
+  const nowOffline = isInternetOfflineMode();
+  syncOfflineModeBadge();
+  if (options.toastOnReconnect && wasOffline && !nowOffline) {
+    toast(i18n.t("app.다시_연결됐어요"), 2200);
+  }
+}
+
+function setupOfflineModeUi() {
+  const badge = $("offlineModeBadge");
+  badge?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (badge.hidden) return;
+    const hint = $("offlineModeHint");
+    const open = badge.getAttribute("aria-expanded") === "true";
+    if (open) {
+      closeOfflineModeHint();
+      return;
+    }
+    badge.setAttribute("aria-expanded", "true");
+    if (hint) {
+      hint.classList.remove("hidden");
+      hint.hidden = false;
+    }
+  });
+  document.addEventListener("click", (event) => {
+    if (event.target.closest?.("#offlineModeBadge, #offlineModeHint")) return;
+    closeOfflineModeHint();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeOfflineModeHint();
+  });
+  window.addEventListener("online", () => {
+    const wasOffline = isInternetOfflineMode();
+    networkProbe.navigatorOnline = true;
+    networkProbe.internetOk = true;
+    networkProbe.internetFailStreak = 0;
+    syncOfflineModeBadge();
+    if (wasOffline) toast(i18n.t("app.다시_연결됐어요"), 2200);
+    refreshNetworkStatus().then(() => {
+      if (isLocalAppReachableNow()) scheduleOnlineSync();
+    }).catch(() => {});
+  });
+  window.addEventListener("offline", () => {
+    networkProbe.navigatorOnline = false;
+    networkProbe.internetOk = false;
+    syncOfflineModeBadge();
+    if (typeof sceneDirty !== "undefined" && sceneDirty) ensureLocalDraftSaved("offline-event");
+    refreshNetworkStatus().catch(() => {});
+  });
+  refreshNetworkStatus().catch(() => {});
+  if (networkProbe.timer) window.clearInterval(networkProbe.timer);
+  networkProbe.timer = window.setInterval(() => {
+    refreshNetworkStatus().catch(() => {});
+  }, 45000);
 }
 
 function isOfflineSafeError(error) {
@@ -54939,18 +55110,14 @@ function scheduleAutoSaveRetry() {
 }
 
 function notifyLocalDraftKept(error) {
+  if (isInternetOfflineMode()) return;
   const now = Date.now();
   // Once per failure streak, then at most once a minute (avoid toast loops).
   if (localDraftToastShownForStreak && now - lastLocalDraftToastAt < 60000) return;
   if (!localDraftToastShownForStreak && now - lastLocalDraftToastAt < 8000) return;
   lastLocalDraftToastAt = now;
   localDraftToastShownForStreak = true;
-  const offline = isOfflineSafeError(error) || !isOnlineNow();
-  toast(
-    offline
-      ? i18n.t('app.연결이_불안정해_이_기기에_원고를_보관했어요')
-      : i18n.t('app.서버_저장에_실패해_이_기기에_원고를_보관했'),
-  );
+  toast(i18n.t('app.서버_저장에_실패해_이_기기에_원고를_보관했'));
 }
 
 /**
@@ -55028,7 +55195,7 @@ function scheduleOnlineSync() {
 }
 
 async function flushLocalDraftsToServer() {
-  if (!isOnlineNow()) return;
+  if (!isLocalAppReachableNow()) return;
   // Current open scene first
   if (sceneDirty && state.sceneId) {
     try {
@@ -55066,7 +55233,7 @@ function markSceneDirty() {
   sceneSaveGen += 1;
   // Local-first: device storage before any network hop.
   scheduleLocalDraftWrite();
-  setSceneSaveStatus(isOnlineNow() ? i18n.t('app.저장_대기_중') : i18n.t('app.오프라인_이_기기에_보관_중'));
+  setSceneSaveStatus(i18n.t('app.저장_대기_중'));
   scheduleAutoSave();
   scheduleKnownCastPreview();
 }
@@ -55408,20 +55575,9 @@ async function persistScene(options = {}) {
 
   autoSaveInFlight = true;
   if (quiet) {
-    setSceneSaveStatus(
-      isOnlineNow() ? i18n.t('app.자동_저장_중') : i18n.t('app.오프라인_보관_중'),
-    );
+    setSceneSaveStatus(i18n.t('app.자동_저장_중'));
   }
   try {
-    if (!isOnlineNow()) {
-      const offlineErr = new Error(
-        i18n.t('app.오프라인_상태입니다_원고는_이_기기에_보관되'),
-      );
-      offlineErr.isNetwork = true;
-      offlineErr.offlineSafe = true;
-      throw offlineErr;
-    }
-
     const saved = await api(`/api/scenes/${state.sceneId}`, {
       method: "PUT",
       body: JSON.stringify(body),
@@ -55504,7 +55660,7 @@ async function persistScene(options = {}) {
     // 2) Local already has the manuscript — never treat this as total loss.
     ensureLocalDraftSaved(isOfflineSafeError(error) ? "offline" : "server-error");
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    if (isOfflineSafeError(error) || !isOnlineNow()) {
+    if (isOfflineSafeError(error) && !isLocalAppReachableNow()) {
       setSceneSaveStatus(`${i18n.t('app.이_기기에_보관됨_stamp_연결_시_동기화', {stamp: stamp})}`);
       notifyLocalDraftKept(error);
       scheduleAutoSaveRetry();
@@ -55538,7 +55694,9 @@ async function saveScene(event) {
     await persistScene({ quiet: false, saveNote: i18n.t('app.수동_저장') });
   } catch (error) {
     if (error?.localOnly || isOfflineSafeError(error)) {
-      toast(i18n.t('app.서버_저장은_보류되었지만_원고는_이_기기에'));
+      if (!isInternetOfflineMode()) {
+        toast(i18n.t('app.서버_저장은_보류되었지만_원고는_이_기기에'));
+      }
       return;
     }
     throw error;
@@ -55686,7 +55844,7 @@ function setupSceneAutoSave() {
       }
       // Try keepalive PUT for current scene (may be ignored by browser).
       try {
-        if (state.sceneId && state.scene && isOnlineNow()) {
+        if (state.sceneId && state.scene) {
           const payload = JSON.stringify(buildSceneSaveBody(i18n.t('app.종료_전_저장')));
           // keepalive fetch PUT
           fetch(`/api/scenes/${state.sceneId}`, {
@@ -55721,17 +55879,6 @@ function setupSceneAutoSave() {
     }
   });
 
-  window.addEventListener("online", () => {
-    toast(i18n.t('app.연결되었습니다_보관된_원고를_서버에_동기화합'));
-    scheduleOnlineSync();
-  });
-  window.addEventListener("offline", () => {
-    if (sceneDirty) ensureLocalDraftSaved("offline-event");
-    setSceneSaveStatus(i18n.t('app.오프라인_이_기기에_보관_중'));
-    toast(i18n.t('app.오프라인입니다_작성_내용은_이_기기에_계속'));
-  });
-
-  // pagehide is more reliable than beforeunload on mobile.
   window.addEventListener("pagehide", () => {
     cancelScheduledAutoSave();
     if (sceneDirty) ensureLocalDraftSaved("pagehide");
@@ -56840,7 +56987,7 @@ function setSplitSaveStatus(text) {
 function markSplitDirty() {
   if (suppressSplitDirty || !state.splitEditEnabled || !state.splitSceneId) return;
   splitDirty = true;
-  setSplitSaveStatus(isOnlineNow() ? i18n.t('app.저장_대기_중') : i18n.t('app.오프라인_이_기기에_보관_중'));
+  setSplitSaveStatus(i18n.t('app.저장_대기_중'));
   // Immediate local snapshot for split editor.
   try {
     const bodyEl = $("splitSceneBodyEditor");
@@ -56932,14 +57079,8 @@ async function persistSplitScene(options = {}) {
   });
 
   splitAutoSaveInFlight = true;
-  if (quiet) setSplitSaveStatus(isOnlineNow() ? i18n.t('app.자동_저장_중') : i18n.t('app.오프라인_보관_중'));
+  if (quiet) setSplitSaveStatus(i18n.t('app.자동_저장_중'));
   try {
-    if (!isOnlineNow()) {
-      const offlineErr = new Error(i18n.t('app.오프라인_분할_창_원고를_기기에_보관했습니다'));
-      offlineErr.isNetwork = true;
-      offlineErr.offlineSafe = true;
-      throw offlineErr;
-    }
     const saved = await api(`/api/scenes/${state.splitSceneId}`, {
       method: "PUT",
       body: JSON.stringify(body),
@@ -56970,7 +57111,7 @@ async function persistSplitScene(options = {}) {
       if (isOfflineSafeError(error)) return { localOnly: true, error };
     }
     if (isOfflineSafeError(error)) {
-      notifyLocalDraftKept(error);
+      if (!isInternetOfflineMode()) notifyLocalDraftKept(error);
       if (quiet) return { localOnly: true, error };
     }
     throw error;
@@ -57952,6 +58093,7 @@ function handleError(error) {
   // Never scare the writer into thinking manuscript is lost on network blips.
   if (isOfflineSafeError(error) || error?.localOnly) {
     ensureLocalDraftSaved("handleError");
+    if (isInternetOfflineMode()) return;
     toast(
       error?.message
       || i18n.t('app.연결_문제로_서버_저장은_보류되었지만_원고는'),
@@ -63334,6 +63476,7 @@ safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
 safeSetup("renderBookmarkBar", () => renderBookmarkBar());
 safeSetup("setupSceneAutoSave", setupSceneAutoSave);
+safeSetup("setupOfflineModeUi", setupOfflineModeUi);
 safeSetup("setupAuthorNoteUi", setupAuthorNoteUi);
 safeSetup("setupCharacterEditorAutosave", setupCharacterEditorAutosave);
 safeSetup("setupItemEditorAutosave", setupItemEditorAutosave);
