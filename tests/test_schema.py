@@ -1052,3 +1052,65 @@ class SuperTorySchemaTests(unittest.TestCase):
             "SELECT field_name FROM character_trait_history WHERE character_id = 40"
         ).fetchone()[0]
         self.assertEqual(stored, "profile_md")
+
+    def test_item_tables(self) -> None:
+        self.create_story()
+        self.create_character()
+        migration = Path(__file__).resolve().parents[1] / "db" / "073_item.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("item", tables)
+        self.assertIn("item_alias", tables)
+        self.assertIn("item_tori_analysis", tables)
+        self.assertIn("item_trait_history", tables)
+        self.db.execute(
+            "INSERT INTO item(id, project_id, name, description, owner_character_id, sort_order) "
+            "VALUES (50, 1, '흑염검', '', 40, 0)"
+        )
+        self.db.execute(
+            "INSERT INTO item_alias(item_id, project_id, alias) VALUES (50, 1, '흑검')"
+        )
+        self.db.execute(
+            "INSERT INTO item_trait_history"
+            "(item_id, project_id, scene_id, field_name, detected_content) "
+            "VALUES (50, 1, 30, 'description', '검은 칼날')"
+        )
+        name = self.db.execute("SELECT name FROM item WHERE id = 50").fetchone()[0]
+        self.assertEqual(name, "흑염검")
+        alias = self.db.execute("SELECT alias FROM item_alias WHERE item_id = 50").fetchone()[0]
+        self.assertEqual(alias, "흑검")
+        history = self.db.execute(
+            "SELECT detected_content FROM item_trait_history WHERE item_id = 50"
+        ).fetchone()[0]
+        self.assertEqual(history, "검은 칼날")
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 73"
+        ).fetchone()[0]
+        self.assertEqual(version, "item")
+
+    def test_trait_history_applied_column(self) -> None:
+        self.create_story()
+        self.create_character()
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "072_character_trait_history.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "073_item.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "074_trait_history_applied.sql").read_text(encoding="utf-8"))
+        char_cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(character_trait_history)").fetchall()
+        }
+        item_cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(item_trait_history)").fetchall()
+        }
+        self.assertIn("applied", char_cols)
+        self.assertIn("applied", item_cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 74"
+        ).fetchone()[0]
+        self.assertEqual(version, "trait_history_applied")

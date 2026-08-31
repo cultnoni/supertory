@@ -37,8 +37,12 @@ def main() -> int:
     if m and "characters" in m.group(1) and "baits" in m.group(1):
         order = re.findall(r'"([^"]+)"', m.group(1))
         ok("DEFAULT_SETTINGS_ORDER", " → ".join(order))
-        if order.index("baits") == order.index("characters") + 1:
-            ok("baits immediately after characters")
+        if (order.index("items") == order.index("characters") + 1:
+            ok("items immediately after characters")
+        else:
+            fail("minor", "items position", str(order))
+        if "items" in order and "baits" in order and order.index("baits") == order.index("items") + 1:
+            ok("baits immediately after items")
         else:
             fail("minor", "baits position", str(order))
     else:
@@ -46,7 +50,7 @@ def main() -> int:
 
     sections = re.findall(r'data-settings-section="([^"]+)"', html)
     ok("HTML settings sections", " → ".join(sections))
-    expected = ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "toryVault", "sources"]
+    expected = ["ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "baits", "successProfile", "toryVault", "sources"]
     if sections == expected:
         ok("HTML section order matches DEFAULT")
     else:

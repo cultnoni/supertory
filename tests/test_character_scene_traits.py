@@ -249,7 +249,7 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.assertEqual(jieun_detail["character"].get("tori_analysis") or {}, {})
         with app.database() as connection:
             history = connection.execute(
-                "SELECT character_id, field_name FROM character_trait_history "
+                "SELECT character_id, field_name, applied FROM character_trait_history "
                 "WHERE scene_id = ? ORDER BY id",
                 (scene_id,),
             ).fetchall()
@@ -257,6 +257,12 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
             self.assertIn((int(seoyun["id"]), "profile_md"), pairs)
             self.assertIn((int(seoyun["id"]), "aliases"), pairs)
             self.assertIn((int(jieun["id"]), "profile_md"), pairs)
+            applied_by = {
+                (int(row["character_id"]), row["field_name"]): int(row["applied"])
+                for row in history
+            }
+            self.assertEqual(applied_by[(int(seoyun["id"]), "profile_md")], 0)
+            self.assertEqual(applied_by[(int(jieun["id"]), "profile_md")], 1)
             notes = connection.execute(
                 "SELECT short_description, author_notes_md FROM character WHERE id = ?",
                 (seoyun["id"],),
@@ -391,6 +397,57 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.assertEqual(count, 2)
         self.assertGreaterEqual(history, 3)
 
+    @patch.object(gemini_client, "is_configured", return_value=True)
+    def test_complete_analysis_ignores_author_note_spoilers(self, _configured) -> None:
+        project_id, scene_id = self._make_project_scene()
+        status, seoyun = self.request("POST", f"/api/projects/{project_id}/characters", {"name": "서윤"})
+        self.assertEqual(status, 201, seoyun)
+        status, minjae = self.request("POST", f"/api/projects/{project_id}/characters", {"name": "민재"})
+        self.assertEqual(status, 201, minjae)
+        html = (
+            "<p>서윤이 문을 열고 들어왔다.</p>"
+            '<p data-author-note="1" class="st-author-note">'
+            "// 사실 민재는 배신자다 TRAITOR_SPOILER_XYZ</p>"
+            "<p>지은이 말했다. \"나는 원래 왼손잡이야.\"</p>"
+        )
+        prompts: list[str] = []
+
+        def _fake(prompt: str, *, system: str | None = None, **kwargs: object) -> str:
+            blob = f"{system or ''}\n{prompt}"
+            prompts.append(blob)
+            if "지속적 특성" in blob or "등록된 등장 인물" in blob:
+                return json.dumps({
+                    "characters": [
+                        {
+                            "id": int(seoyun["id"]),
+                            "name": "서윤",
+                            "appearance": "검은 머리",
+                            "personality": "차분하다",
+                        }
+                    ]
+                }, ensure_ascii=False)
+            return "댓글"
+
+        with patch.object(gemini_client, "generate_text", side_effect=_fake):
+            self._save_scene(scene_id, status="draft", content=html)
+            self._save_scene(scene_id, status="complete", content=html)
+            job = self._wait_trait(scene_id)
+        self.assertEqual(job["status"], "done", job)
+        trait_blobs = [blob for blob in prompts if "등록된 등장 인물" in blob or "지속적 특성" in blob]
+        self.assertTrue(trait_blobs)
+        joined = "\n".join(trait_blobs)
+        self.assertNotIn("TRAITOR_SPOILER_XYZ", joined)
+        self.assertNotIn("배신자", joined)
+        self.assertIn("문을 열고 들어왔다", joined)
+        self.assertIn("왼손잡이", joined)
+        names = {item["name"] for item in job["characters"]}
+        self.assertIn("서윤", names)
+        self.assertNotIn("민재", names)
+        status, detail = self.request("GET", f"/api/characters/{seoyun['id']}")
+        profile = str(detail["character"].get("profile_md") or "")
+        self.assertNotIn("TRAITOR_SPOILER_XYZ", profile)
+        self.assertNotIn("배신자", profile)
+
     @patch.object(gemini_client, "is_configured", return_value=False)
     def test_complete_skips_without_gemini(self, _configured) -> None:
         project_id, scene_id = self._make_project_scene()
@@ -404,6 +461,83 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.assertEqual(job.get("error"), "gemini_not_configured")
         status, detail = self.request("GET", f"/api/characters/{seoyun['id']}")
         self.assertEqual(detail["character"]["profile_md"], "")
+
+    def test_trait_history_api_binder_order_and_applied(self) -> None:
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "연대기", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201, project)
+        pid = int(project["id"])
+        status, ch_a = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "먼저 폴더"})
+        self.assertEqual(status, 201, ch_a)
+        status, ch_b = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "나중 폴더"})
+        self.assertEqual(status, 201, ch_b)
+        status, scene_a = self.request(
+            "POST", f"/api/chapters/{ch_a['id']}/scenes", {"title": "1화"}
+        )
+        self.assertEqual(status, 201, scene_a)
+        status, scene_b = self.request(
+            "POST", f"/api/chapters/{ch_b['id']}/scenes", {"title": "2화"}
+        )
+        self.assertEqual(status, 201, scene_b)
+        status, character = self.request(
+            "POST", f"/api/projects/{pid}/characters", {"name": "린"}
+        )
+        self.assertEqual(status, 201, character)
+        cid = int(character["id"])
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE chapter SET sort_order = 99 WHERE id = ?", (ch_a["id"],)
+            )
+            connection.execute(
+                "UPDATE chapter SET sort_order = 0 WHERE id = ?", (ch_b["id"],)
+            )
+            connection.execute(
+                "UPDATE chapter SET sort_order = 1 WHERE id = ?", (ch_a["id"],)
+            )
+            handler = object.__new__(app.SuperToryHandler)
+            binder = handler._list_scenes_in_binder_order(connection, pid)
+            binder_ids = [int(item["id"]) for item in binder]
+            self.assertEqual(
+                binder_ids[:2],
+                [int(scene_a["id"]), int(scene_b["id"])],
+                "폴더 DFS 순서는 먼저 만든 회차가 앞에 있어야 합니다.",
+            )
+            appearing = [
+                {
+                    "id": cid,
+                    "name": "린",
+                    "aliases": [],
+                    "profile_md": "",
+                    "strengths_md": "",
+                    "weaknesses_md": "",
+                }
+            ]
+            character_scene_traits.apply_trait_detections(
+                connection,
+                project_id=pid,
+                scene_id=int(scene_b["id"]),
+                appearing=appearing,
+                parsed=[{"id": cid, "name": "린", "fields": {"profile_md": "검은 머리"}}],
+            )
+            appearing[0]["profile_md"] = character_import_analysis.mark_tori_text("검은 머리")
+            character_scene_traits.apply_trait_detections(
+                connection,
+                project_id=pid,
+                scene_id=int(scene_a["id"]),
+                appearing=appearing,
+                parsed=[{"id": cid, "name": "린", "fields": {"profile_md": "차분하다"}}],
+            )
+        status, payload = self.request("GET", f"/api/characters/{cid}/trait-history")
+        self.assertEqual(status, 200, payload)
+        entries = payload.get("entries") or []
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(int(entries[0]["scene_id"]), int(scene_a["id"]))
+        self.assertEqual(int(entries[1]["scene_id"]), int(scene_b["id"]))
+        self.assertFalse(entries[0]["applied"])
+        self.assertTrue(entries[1]["applied"])
+        self.assertEqual(entries[0]["scene_title"], "1화")
+        self.assertEqual(entries[1]["scene_title"], "2화")
 
 
 if __name__ == "__main__":

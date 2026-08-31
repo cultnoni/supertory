@@ -42,6 +42,8 @@ class WorldImportAnalysisUnitTests(unittest.TestCase):
         self.assertEqual(parsed["era"], "근미래")
         self.assertEqual(parsed["legacy"], "옛 메모")
         self.assertEqual(parsed["locale"], "")
+        self.assertEqual(parsed["heritage"], "")
+        self.assertIn("heritage", values)
 
 
     def test_infer_prompt_uses_plot(self) -> None:
@@ -53,6 +55,8 @@ class WorldImportAnalysisUnitTests(unittest.TestCase):
         self.assertIn("줄거리만", user)
         self.assertIn("검은 비", user)
         self.assertIn("비어 있는 칸", system)
+        self.assertIn('"heritage"', user)
+        self.assertIn("관련 전승·역사", user)
 
 
 class WorldImportAnalysisApplyTests(unittest.TestCase):

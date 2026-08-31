@@ -286,6 +286,37 @@ class AssistModesSmokeTests(unittest.TestCase):
         )
         self.assertEqual(status, 400, result)
 
+    def test_continue_and_rewrite_keep_author_note_blocks(self) -> None:
+        html = (
+            "<p>서연은 문을 밀고 들어갔다.</p>"
+            '<p data-author-note="1" class="st-author-note">'
+            "// 여기서 복선을 심어야 함 CONTINUE_NOTE_XYZ</p>"
+        )
+        status, continued = self.request(
+            "POST",
+            "/api/ai/assist",
+            self.base_body("continue", scene_content=html, length_mode="short", user_hint=""),
+        )
+        self.assertEqual(status, 200, continued)
+        continue_prompt = str(continued.get("full_prompt") or "")
+        self.assertIn("CONTINUE_NOTE_XYZ", continue_prompt)
+        self.assertIn("문을 밀고", continue_prompt)
+
+        status, rewritten = self.request(
+            "POST",
+            "/api/ai/assist",
+            self.base_body(
+                "rewrite",
+                scene_content=html,
+                selected_text=html,
+                context_before="",
+                context_after="",
+            ),
+        )
+        self.assertEqual(status, 200, rewritten)
+        rewrite_prompt = str(rewritten.get("full_prompt") or "")
+        self.assertIn("CONTINUE_NOTE_XYZ", rewrite_prompt)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

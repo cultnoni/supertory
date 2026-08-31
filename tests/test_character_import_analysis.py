@@ -279,6 +279,12 @@ class CharacterImportAnalysisApiTests(unittest.TestCase):
         self.assertIn('data-tori-fill="characters"', html)
         self.assertIn("startToriSettingsFill", js)
         self.assertIn("is-tori-draft", js)
+        self.assertIn("claimToriDraftOnInput", js)
+        self.assertIn("syncItemToriDraftStyle", js)
+        self.assertIn("stripToriTextPrefix", js)
+        self.assertIn('id="characterChronicle"', html)
+        self.assertIn('id="itemChronicle"', html)
+        self.assertIn("/trait-history", js)
 
 
 if __name__ == "__main__":

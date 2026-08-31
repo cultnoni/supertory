@@ -38,6 +38,17 @@ class PlainTextFromContentTests(unittest.TestCase):
         fragment = '이슬이 맺혔다.<br style="box-sizing: border-box; color: rgb(10, 1'
         plain = app.plain_text_from_content(fragment)
         self.assertEqual(plain, "이슬이 맺혔다.")
+
+    def test_author_note_blocks_are_not_counted(self) -> None:
+        html = (
+            "<p>안녕</p>"
+            '<p data-author-note="1">// 이건 세지 않음</p>'
+            "<p>세계</p>"
+        )
+        plain = app.plain_text_from_content(html)
+        self.assertEqual(plain, "안녕\n\n세계")
+        stats = app.compute_text_stats(plain)
+        self.assertEqual(stats["letters"], 4)
         self.assertNotIn("<", plain)
         self.assertNotIn("box-sizing", plain)
 
