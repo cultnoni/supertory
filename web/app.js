@@ -11291,7 +11291,7 @@ function renderItemAliasList(aliases) {
     return;
   }
   list.innerHTML = names.map((alias) => `
-    <button type="button" class="chip alias-chip" data-item-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
+    <button type="button" class="chip alias-chip${isToriDraftText(alias) ? " is-tori-draft" : ""}" data-item-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
       ${escapeHtml(alias)}
     </button>`).join("");
   list.querySelectorAll("[data-item-alias-remove]").forEach((button) => {
@@ -46203,6 +46203,12 @@ function openNewProjectModal() {
     submit.disabled = false;
     submit.textContent = i18n.t('app.만들기');
   }
+  const inheritToggle = $("newProjectInheritToggle");
+  const inheritChronicle = $("newProjectInheritChronicle");
+  if (inheritToggle) inheritToggle.checked = false;
+  if (inheritChronicle) inheritChronicle.checked = false;
+  fillNewProjectInheritSources();
+  syncNewProjectInheritExtras();
   modal.classList.remove("hidden");
   window.setTimeout(() => titleInput?.focus(), 0);
 }
@@ -46233,15 +46239,20 @@ async function submitNewProject(event) {
     $(genres.focusId)?.focus();
     return;
   }
+  const inheritOn = Boolean($("newProjectInheritToggle")?.checked);
+  const inheritFrom = Number($("newProjectInheritSource")?.value || 0);
+  if (inheritOn && !inheritFrom) {
+    toast(i18n.t("app.이어받을_작품을_골라_주세요"));
+    $("newProjectInheritSource")?.focus();
+    return;
+  }
   const submit = $("newProjectSubmitButton");
   if (submit) {
     submit.disabled = true;
     submit.textContent = i18n.t('app.만드는_중');
   }
   try {
-    const project = await api("/api/projects", {
-      method: "POST",
-      body: JSON.stringify({
+    const payload = {
         title,
         purpose: genres.purpose || purpose,
         main_genre: genres.main,
@@ -46249,7 +46260,14 @@ async function submitNewProject(event) {
         genre_detail: genres.genre_detail || "",
         cluster_id: genres.cluster_id || getModalClusterId("newProject"),
         keywords: getModalDraftKeywords("newProject"),
-      }),
+    };
+    if (inheritOn && inheritFrom) {
+      payload.inherit_from_project_id = inheritFrom;
+      payload.inherit_chronicle = Boolean($("newProjectInheritChronicle")?.checked);
+    }
+    const project = await api("/api/projects", {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
     resetModalDraftKeywords("newProject");
     closeNewProjectModal();
@@ -46260,7 +46278,11 @@ async function submitNewProject(event) {
       console.warn("[supertory] default opening structure failed", err);
     }
     const packageNote = project.package_name ? ` 파일: projects\\${project.package_name}` : "";
-    toast(`${i18n.t('app.새_purposeLabel_purpose_작', {'purposeLabel[purpose] || "작품"': purposeLabel[purpose] || "작품", packageNote: packageNote})}`);
+    if (project.inherited_from_title) {
+      toast(i18n.t("app.title_의_설정을_이어받았어요", { title: project.inherited_from_title }));
+    } else {
+      toast(`${i18n.t('app.새_purposeLabel_purpose_작', {'purposeLabel[purpose] || "작품"': purposeLabel[purpose] || "작품", packageNote: packageNote})}`);
+    }
   } catch (error) {
     if (submit) {
       submit.disabled = false;
@@ -46268,6 +46290,32 @@ async function submitNewProject(event) {
     }
     throw error;
   }
+}
+
+function fillNewProjectInheritSources() {
+  const select = $("newProjectInheritSource");
+  if (!select) return;
+  const rows = Array.isArray(state.projects) ? state.projects : [];
+  const current = Number(state.projectId || 0);
+  const options = rows
+    .filter((item) => Number(item?.id) > 0)
+    .map((item) => {
+      const id = Number(item.id);
+      const selected = current && id === current ? " selected" : "";
+      return `<option value="${id}"${selected}>${escapeHtml(item.title || i18n.t("app.작품"))}</option>`;
+    });
+  const placeholder = `<option value="">${escapeHtml(i18n.t("app.이어받을_작품을_골라_주세요"))}</option>`;
+  select.innerHTML = placeholder + options.join("");
+  if (current && rows.some((item) => Number(item.id) === current)) {
+    select.value = String(current);
+  }
+  const block = $("newProjectInheritBlock");
+  if (block) block.classList.toggle("is-empty", !rows.length);
+}
+
+function syncNewProjectInheritExtras() {
+  const on = Boolean($("newProjectInheritToggle")?.checked);
+  $("newProjectInheritExtras")?.classList.toggle("hidden", !on);
 }
 
 function setupNewProjectModal() {
@@ -46288,6 +46336,7 @@ function setupNewProjectModal() {
     });
   });
   setupModalKeywordField("newProject");
+  $("newProjectInheritToggle")?.addEventListener("change", syncNewProjectInheritExtras);
 }
 
 /** Draft keywords for new-project / import modals (do not touch state.keywords until saved). */
@@ -55997,6 +56046,8 @@ function chronicleFieldLabel(kind, fieldName) {
 }
 
 function chronicleEpisodeLabel(entry) {
+  const inherited = entry?.scene_id == null || entry?.scene_id === "" || Number(entry?.scene_id) <= 0;
+  if (inherited) return i18n.t("app.이전_작품에서_이어옴");
   const n = Number(entry?.episode_index);
   const title = String(entry?.scene_title || "").trim();
   const chapter = String(entry?.chapter_title || "").trim();
@@ -56023,7 +56074,11 @@ function renderTraitChronicleList(listEl, entries, kind) {
       ? i18n.t("app.적용됨")
       : i18n.t("app.이미_있던_내용이라_참고만");
     const statusClass = applied ? "is-applied" : "is-reference";
-    const sceneId = Number(entry.scene_id) || 0;
+    const sceneId = entry.scene_id == null || entry.scene_id === "" ? 0 : Number(entry.scene_id);
+    const inherited = !Number.isFinite(sceneId) || sceneId <= 0;
+    const sceneButton = inherited
+      ? ""
+      : `<button type="button" class="secondary compact-btn" data-chronicle-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`;
     return `<article class="trait-chronicle-item">
       <div class="trait-chronicle-item-head">
         <span class="trait-chronicle-ep">${escapeHtml(chronicleEpisodeLabel(entry))}</span>
@@ -56032,7 +56087,7 @@ function renderTraitChronicleList(listEl, entries, kind) {
       <p class="trait-chronicle-content">${escapeHtml(String(entry.detected_content || ""))}</p>
       <div class="trait-chronicle-actions">
         <span class="trait-chronicle-status ${statusClass}">${escapeHtml(status)}</span>
-        <button type="button" class="secondary compact-btn" data-chronicle-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>
+        ${sceneButton}
       </div>
     </article>`;
   }).join("");
@@ -56290,7 +56345,7 @@ function renderAliasList(aliases) {
     return;
   }
   list.innerHTML = names.map((alias) => `
-    <button type="button" class="chip alias-chip" data-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
+    <button type="button" class="chip alias-chip${isToriDraftText(alias) ? " is-tori-draft" : ""}" data-alias-remove="${escapeHtml(alias)}" title="${escapeHtml(i18n.t("app.별칭_삭제"))}">
       ${escapeHtml(alias)}
     </button>`).join("");
   list.querySelectorAll("[data-alias-remove]").forEach((button) => {

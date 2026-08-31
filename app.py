@@ -44,6 +44,7 @@ import chapter_match
 import character_import_analysis
 import character_relations
 import character_scene_traits
+import settings_inherit
 import settings_search
 import item_scene_traits
 import document_export
@@ -216,6 +217,7 @@ MIGRATION_073_PATH = ROOT / "db" / "073_item.sql"
 MIGRATION_074_PATH = ROOT / "db" / "074_trait_history_applied.sql"
 MIGRATION_075_PATH = ROOT / "db" / "075_character_relations.sql"
 MIGRATION_076_PATH = ROOT / "db" / "076_character_relations_label_unique.sql"
+MIGRATION_077_PATH = ROOT / "db" / "077_trait_history_scene_nullable.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1628,6 +1630,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_075_PATH.read_text(encoding="utf-8"))
         if 76 not in applied:
             apply_migration_076(connection)
+        if 77 not in applied:
+            apply_migration_077(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1637,6 +1641,7 @@ def initialise_database() -> None:
         ensure_item_tables(connection)
         ensure_character_relations_tables(connection)
         ensure_trait_history_applied_column(connection)
+        ensure_trait_history_scene_nullable(connection)
         ensure_character_role_nullable(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
@@ -2050,6 +2055,50 @@ def apply_migration_076(connection: sqlite3.Connection) -> None:
     if exists is None:
         return
     connection.executescript(MIGRATION_076_PATH.read_text(encoding="utf-8"))
+
+
+def _scene_id_is_notnull(connection: sqlite3.Connection, table: str) -> bool:
+    try:
+        for row in connection.execute(f"PRAGMA table_info({table})").fetchall():
+            if str(row[1]) == "scene_id":
+                return int(row[3] or 0) == 1
+    except sqlite3.Error:
+        return False
+    return False
+
+
+def apply_migration_077(connection: sqlite3.Connection) -> None:
+    """Allow trait-history rows with no scene (settings inherit)."""
+    try:
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migration WHERE version = 77"
+        ).fetchone()
+    except sqlite3.Error:
+        applied = None
+    if applied is not None:
+        return
+    char_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_trait_history'"
+    ).fetchone()
+    item_exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'item_trait_history'"
+    ).fetchone()
+    if char_exists is None or item_exists is None:
+        return
+    connection.executescript(MIGRATION_077_PATH.read_text(encoding="utf-8"))
+
+
+def ensure_trait_history_scene_nullable(connection: sqlite3.Connection) -> None:
+    """Idempotent: trait history scene_id may be NULL (migration 077)."""
+    try:
+        still_notnull = _scene_id_is_notnull(
+            connection, "character_trait_history"
+        ) or _scene_id_is_notnull(connection, "item_trait_history")
+        if still_notnull:
+            connection.execute("DELETE FROM schema_migration WHERE version = 77")
+        apply_migration_077(connection)
+    except sqlite3.Error:
+        pass
 
 
 def _clamp_canvas_coord(value: object) -> float:
@@ -9518,6 +9567,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre, sub_genre, body.get("genre_detail")
                 )
                 content_rating = parse_content_rating(body.get("content_rating"))
+                inherit_from_id = None
+                raw_inherit = body.get("inherit_from_project_id") or body.get("inherit_from")
+                if raw_inherit not in (None, "", 0, "0"):
+                    try:
+                        inherit_from_id = int(raw_inherit)
+                    except (TypeError, ValueError) as error:
+                        raise ValueError("이어받을 작품을 선택해 주세요.") from error
+                inherit_chronicle = settings_inherit._truthy(
+                    body.get("inherit_chronicle") or body.get("inherit_timeline")
+                )
+                inherit_info: dict = {}
                 with database() as connection:
                     # Append after current max manual order so manual lists stay stable.
                     max_order_row = connection.execute(
@@ -9558,6 +9618,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     set_project_genre_detail(connection, project_id, genre_detail)
                     set_project_content_rating(connection, project_id, content_rating)
                     package_info = ensure_project_package(connection, project_id)
+                    if inherit_from_id:
+                        inherit_info = settings_inherit.inherit_project_settings(
+                            connection,
+                            inherit_from_id,
+                            project_id,
+                            inherit_chronicle=inherit_chronicle,
+                        )
                 self.send_json(
                     {
                         "id": project_id,
@@ -9570,6 +9637,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "cluster_id": cluster_id,
                         "keywords": keywords,
                         **package_info,
+                        **inherit_info,
                     },
                     HTTPStatus.CREATED,
                 )
@@ -23320,12 +23388,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         meta_by_id = {int(item["id"]): item for item in ordered}
         entries: list[dict] = []
         for row in rows:
-            try:
-                sid = int(row.get("scene_id") or 0)
-            except (TypeError, ValueError):
-                sid = 0
-            meta = meta_by_id.get(sid) or {}
-            idx = index_by_id.get(sid)
+            raw_sid = row.get("scene_id")
+            if raw_sid in (None, ""):
+                sid = None
+            else:
+                try:
+                    sid = int(raw_sid)
+                except (TypeError, ValueError):
+                    sid = None
+                if sid is not None and sid <= 0:
+                    sid = None
+            meta = meta_by_id.get(sid) or {} if sid else {}
+            idx = index_by_id.get(sid) if sid else None
             entries.append(
                 {
                     "id": int(row["id"]),

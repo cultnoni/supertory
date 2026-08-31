@@ -106,6 +106,18 @@ def main() -> int:
     ]:
         ok(name) if good else fail("misbehave", name, "missing")
 
+    # settings inherit
+    for name, good in [
+        ("db/077_trait_history_scene_nullable.sql", (ROOT / "db" / "077_trait_history_scene_nullable.sql").exists()),
+        ("module settings_inherit", (ROOT / "settings_inherit.py").exists()),
+        ("html newProjectInheritToggle", 'id="newProjectInheritToggle"' in html),
+        ("html newProjectInheritSource", 'id="newProjectInheritSource"' in html),
+        ("html newProjectInheritChronicle", 'id="newProjectInheritChronicle"' in html),
+        ("js inherit_from_project_id", "inherit_from_project_id" in js),
+        ("js 이전 작품에서 이어옴", "이전_작품에서_이어옴" in js),
+    ]:
+        ok(name) if good else fail("misbehave", name, "missing")
+
     # 함께보기 rename (user-facing)
     user_facing_old = []
     for i, line in enumerate(js.splitlines(), 1):

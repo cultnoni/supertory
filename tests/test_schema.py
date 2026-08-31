@@ -1115,6 +1115,47 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "trait_history_applied")
 
+    def test_trait_history_scene_id_nullable_migration(self) -> None:
+        self.create_story()
+        self.create_character()
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "072_character_trait_history.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "073_item.sql").read_text(encoding="utf-8"))
+        self.db.executescript((root / "074_trait_history_applied.sql").read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO item(id, project_id, name, description, sort_order) "
+            "VALUES (50, 1, '흑염검', '', 0)"
+        )
+        self.db.execute(
+            "INSERT INTO character_trait_history"
+            "(character_id, project_id, scene_id, field_name, detected_content) "
+            "VALUES (40, 1, 30, 'profile_md', '검은 머리')"
+        )
+        self.db.executescript((root / "077_trait_history_scene_nullable.sql").read_text(encoding="utf-8"))
+        kept = self.db.execute(
+            "SELECT scene_id, detected_content FROM character_trait_history WHERE character_id = 40"
+        ).fetchone()
+        self.assertEqual(kept[0], 30)
+        self.assertEqual(kept[1], "검은 머리")
+        self.db.execute(
+            "INSERT INTO character_trait_history"
+            "(character_id, project_id, scene_id, field_name, detected_content) "
+            "VALUES (40, 1, NULL, 'strengths_md', '이어받은 강점')"
+        )
+        self.db.execute(
+            "INSERT INTO item_trait_history"
+            "(item_id, project_id, scene_id, field_name, detected_content) "
+            "VALUES (50, 1, NULL, 'description', '이어받은 설명')"
+        )
+        null_scene = self.db.execute(
+            "SELECT scene_id FROM character_trait_history WHERE field_name = 'strengths_md'"
+        ).fetchone()[0]
+        self.assertIsNone(null_scene)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 77"
+        ).fetchone()[0]
+        self.assertEqual(version, "trait_history_scene_nullable")
+
     def test_character_relations_tables(self) -> None:
         self.create_character()
         self.db.execute("INSERT INTO character(id, project_id, name, sort_order) VALUES (41, 1, 'Min', 1)")

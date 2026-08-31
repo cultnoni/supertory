@@ -372,7 +372,7 @@ def list_trait_history(connection: sqlite3.Connection, item_id: int) -> list[dic
         entries.append(
             {
                 "id": int(row["id"]),
-                "scene_id": int(row["scene_id"]),
+                "scene_id": int(row["scene_id"]) if row["scene_id"] not in (None, "") else None,
                 "field_name": str(row["field_name"] or ""),
                 "detected_content": str(row["detected_content"] or ""),
                 "applied": bool(row["applied"]),
