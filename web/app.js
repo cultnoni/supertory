@@ -259,6 +259,7 @@ const state = {
   characterBoardOpen: false,
   relationCanvasOpen: false,
   itemBoardOpen: false,
+  settingsSearchOpen: false,
   gitsiOpen: false,
   activeBinder: "manuscript", // "manuscript" | "settings"
   splitEnabled: false,
@@ -8260,6 +8261,7 @@ function hideCenterViewsForKeywordBoard() {
   hideGitsiWorkspace();
   hideSynopsisMain();
   hideSettingsCollectionBoard();
+  hideSettingsSearchBoard();
   closeSceneToolsDrawer();
   void closeSplitView();
   $("keywordBoard")?.classList.remove("hidden");
@@ -9827,6 +9829,189 @@ function hideItemBoard() {
   $("itemBoard")?.classList.add("hidden");
 }
 
+function hideSettingsSearchBoard() {
+  state.settingsSearchOpen = false;
+  $("settingsSearchBoard")?.classList.add("hidden");
+}
+
+let settingsSearchTimer = 0;
+let settingsSearchToken = 0;
+let settingsSearchBound = false;
+
+function settingsSearchHighlight(text, query) {
+  const raw = String(text || "");
+  const needle = String(query || "").trim();
+  if (!raw) return "";
+  if (!needle) return escapeHtml(raw);
+  const lower = raw.toLowerCase();
+  const idx = lower.indexOf(needle.toLowerCase());
+  if (idx < 0) return escapeHtml(raw);
+  return (
+    escapeHtml(raw.slice(0, idx))
+    + "<mark>" + escapeHtml(raw.slice(idx, idx + needle.length)) + "</mark>"
+    + escapeHtml(raw.slice(idx + needle.length))
+  );
+}
+
+function settingsSearchHitButton(hit, query) {
+  const type = String(hit?.type || "");
+  const title = escapeHtml(hit?.title || "");
+  const field = escapeHtml(hit?.field_label || hit?.field || "");
+  const snippet = settingsSearchHighlight(hit?.snippet || "", query);
+  const attrs = [
+    "type=\"button\"",
+    "class=\"settings-search-hit\"",
+    `data-search-type="${escapeHtml(type)}"`,
+    `data-search-id="${escapeHtml(String(hit?.id ?? ""))}"`,
+  ];
+  if (type === "world") {
+    attrs.push(`data-search-field="${escapeHtml(String(hit.field || hit.id || ""))}"`);
+  }
+  if (type === "relation") {
+    attrs.push(`data-search-a="${escapeHtml(String(hit.character_a_id || ""))}"`);
+    attrs.push(`data-search-b="${escapeHtml(String(hit.character_b_id || ""))}"`);
+  }
+  return `<button ${attrs.join(" ")}><span class="settings-search-hit-title">${title}</span><span class="settings-search-hit-field">${field}</span><span class="settings-search-hit-snippet">${snippet}</span></button>`;
+}
+
+function renderSettingsSearchResults(payload, query) {
+  const root = $("settingsSearchResults");
+  if (!root) return;
+  const q = String(query || "").trim();
+  if (!q) {
+    root.innerHTML = `<p class="hint settings-search-empty">${escapeHtml(i18n.t("index.캐릭터_아이템_세계관_관계를_한_번에_찾아요"))}</p>`;
+    return;
+  }
+  const groups = [
+    { key: "characters", title: i18n.t("app.캐릭터") },
+    { key: "items", title: i18n.t("app.아이템") },
+    { key: "world", title: i18n.t("app.세계관") },
+    { key: "relations", title: i18n.t("app.관계_이어보기") },
+  ];
+  let total = 0;
+  const html = groups.map((group) => {
+    const hits = Array.isArray(payload?.[group.key]) ? payload[group.key] : [];
+    total += hits.length;
+    if (!hits.length) return "";
+    return `<section class="settings-search-group"><h3 class="settings-search-group-title">${escapeHtml(group.title)} <span>${hits.length}</span></h3><div class="settings-search-group-list">${hits.map((hit) => settingsSearchHitButton(hit, q)).join("")}</div></section>`;
+  }).join("");
+  root.innerHTML = total
+    ? html
+    : `<p class="hint settings-search-empty">${escapeHtml(i18n.t("app.일치하는_설정이_없어요"))}</p>`;
+  root.querySelectorAll("[data-search-type]").forEach((button) => {
+    button.addEventListener("click", () => openSettingsSearchHit(button).catch(handleError));
+  });
+}
+
+async function openSettingsSearchHit(button) {
+  const type = button.getAttribute("data-search-type") || "";
+  const id = button.getAttribute("data-search-id") || "";
+  if (type === "character") {
+    await openCharacter(id);
+    return;
+  }
+  if (type === "item") {
+    await openItem(id);
+    return;
+  }
+  if (type === "world") {
+    await openSettingsDocMain("world", {
+      worldField: button.getAttribute("data-search-field") || id,
+    });
+    return;
+  }
+  if (type === "relation") {
+    await openRelationCanvas({
+      characterAId: Number(button.getAttribute("data-search-a")),
+      characterBId: Number(button.getAttribute("data-search-b")),
+    });
+  }
+}
+
+async function runSettingsSearch(rawQuery) {
+  const query = String(rawQuery || "").trim();
+  const token = ++settingsSearchToken;
+  if (!query) {
+    renderSettingsSearchResults({}, "");
+    return;
+  }
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return;
+  }
+  const payload = await api(
+    `/api/projects/${state.projectId}/settings-search?q=${encodeURIComponent(query)}`,
+  );
+  if (token !== settingsSearchToken) return;
+  renderSettingsSearchResults(payload, query);
+}
+
+function scheduleSettingsSearch() {
+  window.clearTimeout(settingsSearchTimer);
+  settingsSearchTimer = window.setTimeout(() => {
+    runSettingsSearch($("settingsSearchInput")?.value || "").catch(handleError);
+  }, 300);
+}
+
+async function openSettingsSearchBoard() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
+  try { await flushCharacterAutoSave(); } catch (_) { /* continue */ }
+  try { await flushItemAutoSave(); } catch (_) { /* continue */ }
+  if (sceneDirty && state.sceneId) {
+    try { await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") }); } catch (_) { /* continue */ }
+  }
+  setActiveBinder("settings");
+  state.settingsSearchOpen = true;
+  state.characterBoardOpen = false;
+  state.itemBoardOpen = false;
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  hideKeywordBoard();
+  hideCharacterBoard();
+  hideRelationCanvas();
+  hideItemViews();
+  hideSynopsisMain();
+  hideSettingsCollectionBoard();
+  hideGitsiWorkspace();
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  await closeSplitView().catch(() => {});
+  $("settingsSearchBoard")?.classList.remove("hidden");
+  const input = $("settingsSearchInput");
+  try { input?.focus({ preventScroll: true }); } catch (_) { input?.focus(); }
+  if (String(input?.value || "").trim()) {
+    runSettingsSearch(input.value).catch(handleError);
+  } else {
+    renderSettingsSearchResults({}, "");
+  }
+}
+
+async function closeSettingsSearchBoard() {
+  hideSettingsSearchBoard();
+  await returnToManuscriptFromSettingsMain();
+}
+
+function bindSettingsSearchEvents() {
+  if (settingsSearchBound) return;
+  settingsSearchBound = true;
+  $("openSettingsSearchButton")?.addEventListener("click", () => openSettingsSearchBoard().catch(handleError));
+  $("closeSettingsSearchButton")?.addEventListener("click", () => closeSettingsSearchBoard().catch(handleError));
+  $("settingsSearchInput")?.addEventListener("input", scheduleSettingsSearch);
+  $("settingsSearchInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      closeSettingsSearchBoard().catch(handleError);
+    }
+  });
+}
+
 function hideItemViews() {
   hideItemBoard();
   $("itemEditor")?.classList.add("hidden");
@@ -9863,6 +10048,7 @@ async function returnToManuscriptFromSettingsMain() {
   hideSynopsisMain();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   state.ideaBoardOpen = false;
   $("ideaBoard")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
@@ -9931,7 +10117,7 @@ function applySettingsDocChrome(kind) {
   }
 }
 
-async function openSettingsDocMain(kind = "synopsis") {
+async function openSettingsDocMain(kind = "synopsis", options = {}) {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
@@ -9999,6 +10185,7 @@ async function openSettingsDocMain(kind = "synopsis") {
   state.keywordBoardOpen = false;
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
 
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
@@ -10023,8 +10210,19 @@ async function openSettingsDocMain(kind = "synopsis") {
     synopsisDirty = false;
     setSynopsisSaveStatus(i18n.t('app.편집_중'));
     requestAnimationFrame(() => {
-      const first = $("worldbuildingMainForm")?.querySelector?.("[data-world-field]");
-      try { first?.focus?.({ preventScroll: true }); } catch (_) { first?.focus?.(); }
+      const fieldId = String(options?.worldField || "").trim();
+      const form = $("worldbuildingMainForm");
+      let target = null;
+      if (fieldId) {
+        try {
+          target = form?.querySelector?.(`[data-world-field="${CSS.escape(fieldId)}"]`);
+        } catch (_) {
+          target = form?.querySelector?.(`[data-world-field="${fieldId}"]`);
+        }
+      }
+      if (!target) target = form?.querySelector?.("[data-world-field]");
+      try { target?.focus?.({ preventScroll: true }); } catch (_) { target?.focus?.(); }
+      try { target?.scrollIntoView?.({ block: "center", behavior: "smooth" }); } catch (_) { /* ignore */ }
     });
     return;
   }
@@ -10313,6 +10511,7 @@ async function openCharacterBoard() {
   hideSynopsisMain();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
 
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
@@ -10886,7 +11085,7 @@ function bindRelationCanvasEvents() {
   });
 }
 
-async function openRelationCanvas() {
+async function openRelationCanvas(focus = null) {
   if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
@@ -10905,6 +11104,7 @@ async function openRelationCanvas() {
   hideSynopsisMain();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
@@ -10917,8 +11117,15 @@ async function openRelationCanvas() {
   $("relationCanvas")?.classList.remove("hidden");
   bindRelationCanvasEvents();
   relationSelectedIds = [];
+  const focusA = Number(focus?.characterAId);
+  const focusB = Number(focus?.characterBId);
+  if (Number.isFinite(focusA) && focusA > 0) relationSelectedIds.push(focusA);
+  if (Number.isFinite(focusB) && focusB > 0 && !relationSelectedIds.includes(focusB)) {
+    relationSelectedIds.push(focusB);
+  }
   hideRelationPopups();
   await loadRelationCanvas();
+  if (relationSelectedIds.length) paintRelationCanvas();
   scheduleFitRelationCanvas();
 }
 
@@ -11034,6 +11241,7 @@ async function openItemBoard() {
   $("characterBoard")?.classList.add("hidden");
   hideRelationCanvas();
   $("itemEditor")?.classList.add("hidden");
+  hideSettingsSearchBoard();
   closeSceneToolsDrawer();
   await closeSplitView().catch(() => {});
   $("itemBoard")?.classList.remove("hidden");
@@ -11366,6 +11574,7 @@ async function openItem(itemId) {
   $("itemBoard")?.classList.add("hidden");
   hideSynopsisMain();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   state.itemId = nextId;
   state.item = await api(`/api/items/${itemId}`);
   const item = state.item.item;
@@ -11759,6 +11968,7 @@ function setupSettingsCodex() {
   $("closeItemEditorButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));
   $("newItemMainButton")?.addEventListener("click", () => createItem().catch(handleError));
   $("deleteItemButton")?.addEventListener("click", () => deleteItem().catch(handleError));
+  bindSettingsSearchEvents();
   setupCharacterBoardViewControls();
   bindSettingsDocSidebarInput("intro");
   bindSettingsDocSidebarInput("intent");
@@ -11883,6 +12093,7 @@ function hideCenterViewsForIdeaBoard() {
   hideKeywordBoard();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   $("ideaBoard").classList.remove("hidden");
   closeSceneToolsDrawer();
   void closeSplitView();
@@ -23264,6 +23475,7 @@ function openSettingsCollectionMain(key) {
   hideItemViews();
   hideSynopsisMain();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
@@ -45588,6 +45800,7 @@ function showWelcome() {
   hideItemViews();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   $("welcome").classList.remove("hidden");
   $("sceneWorkspace").classList.add("hidden");
   $("characterEditor").classList.add("hidden");
@@ -53402,6 +53615,7 @@ function showSceneEditorPane() {
   state.keywordBoardOpen = false;
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   $("welcome")?.classList.add("hidden");
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
@@ -56338,6 +56552,7 @@ async function openCharacter(characterId) {
   hideItemViews();
   hideSynopsisMain();
   hideGitsiWorkspace();
+  hideSettingsSearchBoard();
   state.characterId = nextId;
   state.character = await api(`/api/characters/${characterId}`);
   const character = state.character.character;

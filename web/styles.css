@@ -11403,7 +11403,10 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area > #synopsisWorkspace,
 .work-area > #worldbuildingWorkspace,
 .work-area > #characterBoard,
-.work-area > #relationCanvas {
+.work-area > #relationCanvas,
+.work-area > #itemBoard,
+.work-area > #itemEditor,
+.work-area > #settingsSearchBoard {
   grid-column: 1;
   grid-row: 1;
   min-width: 0;
@@ -13180,6 +13183,99 @@ body.ai-panel-collapsed .synopsis-writing-column {
   box-sizing: border-box;
 }
 .character-board.hidden { display: none !important; }
+
+#settingsBinder .settings-search-open {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  cursor: pointer;
+}
+#settingsBinder .settings-search-open:hover {
+  background: var(--surface-3, var(--surface-2));
+}
+.settings-search-board {
+  min-height: 0;
+}
+.settings-search-bar {
+  flex: 0 0 auto;
+  margin: 0 0 12px;
+}
+.settings-search-bar input[type="search"] {
+  width: 100%;
+  max-width: 42rem;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  font-size: 15px;
+}
+.settings-search-results {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  display: grid;
+  gap: 18px;
+  align-content: start;
+}
+.settings-search-empty {
+  margin: 8px 0 0;
+}
+.settings-search-group-title {
+  margin: 0 0 8px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ink);
+}
+.settings-search-group-title span {
+  font-weight: 500;
+  color: var(--muted);
+}
+.settings-search-group-list {
+  display: grid;
+  gap: 8px;
+}
+.settings-search-hit {
+  display: grid;
+  gap: 4px;
+  text-align: left;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+}
+.settings-search-hit:hover {
+  background: var(--surface-2, var(--surface-3));
+}
+.settings-search-hit-title {
+  font-weight: 650;
+}
+.settings-search-hit-field {
+  font-size: 12px;
+  color: var(--muted);
+}
+.settings-search-hit-snippet {
+  font-size: 13px;
+  line-height: 1.45;
+  color: var(--ink);
+}
+.settings-search-hit-snippet mark {
+  background: rgba(250, 204, 21, 0.45);
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+}
 
 /* Main-screen worldbuilding (boxed categories) */
 .worldbuilding-workspace {

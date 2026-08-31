@@ -44,6 +44,7 @@ import chapter_match
 import character_import_analysis
 import character_relations
 import character_scene_traits
+import settings_search
 import item_scene_traits
 import document_export
 import world_import_analysis
@@ -9071,6 +9072,19 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/character-canvas", path)
             if match:
                 self.send_json(get_character_canvas(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/settings-search", path)
+            if match:
+                project_id = int(match.group(1))
+                query = parse_qs(urlparse(self.path).query)
+                q = str((query.get("q") or [""])[0] or "")
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                    payload = settings_search.search_project_settings(
+                        connection, project_id, q
+                    )
+                self.send_json(payload)
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/items", path)

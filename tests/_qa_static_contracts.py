@@ -93,6 +93,19 @@ def main() -> int:
     ]:
         ok(name) if good else fail("misbehave", name, "missing")
 
+    # cross-reference / settings search
+    for name, good in [
+        ("API settings-search", "/settings-search" in app_py),
+        ("module settings_search", (ROOT / "settings_search.py").exists()),
+        ("html openSettingsSearchButton", 'id="openSettingsSearchButton"' in html),
+        ("html settingsSearchBoard", 'id="settingsSearchBoard"' in html),
+        ("html settingsSearchInput", 'id="settingsSearchInput"' in html),
+        ("js openSettingsSearchBoard", "openSettingsSearchBoard" in js),
+        ("js hideSettingsSearchBoard", "hideSettingsSearchBoard" in js),
+        ("locale 크로스 레퍼런스", "크로스 레퍼런스 시스템" in html),
+    ]:
+        ok(name) if good else fail("misbehave", name, "missing")
+
     # 함께보기 rename (user-facing)
     user_facing_old = []
     for i, line in enumerate(js.splitlines(), 1):

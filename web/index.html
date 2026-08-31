@@ -410,6 +410,23 @@
             <div class="settings-panel-top">
               <div class="panel-heading">
                 <h2 data-i18n="app.설정집">설정집</h2>
+                <div class="panel-heading-actions">
+                  <button
+                    type="button"
+                    class="settings-search-open"
+                    id="openSettingsSearchButton"
+                    title="크로스 레퍼런스 시스템"
+                    data-i18n-title="app.크로스_레퍼런스_시스템"
+                    aria-label="크로스 레퍼런스 시스템"
+                    data-i18n-aria-label="app.크로스_레퍼런스_시스템"
+                  >
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
+                      <circle cx="11" cy="11" r="6.25"/>
+                      <path d="M16 16.5 20.5 21"/>
+                    </svg>
+                    <span class="sr-only" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</span>
+                  </button>
+                </div>
               </div>
               <div id="settingsBinderTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="settingsBinder" role="note">
                 <div class="guide-tip-body">
@@ -2687,6 +2704,30 @@
             </div>
           </div>
           <div id="itemBoardGrid" class="character-board-grid" aria-label="아이템 카드 목록" data-i18n-aria-label="index.아이템_카드_목록"></div>
+        </div>
+
+        <div id="settingsSearchBoard" class="character-board settings-search-board hidden" aria-label="크로스 레퍼런스 시스템" data-i18n-aria-label="app.크로스_레퍼런스_시스템">
+          <div class="character-board-toolbar">
+            <div>
+              <h2 class="character-board-title" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</h2>
+              <p class="hint" data-i18n="index.캐릭터_아이템_세계관_관계를_한_번에_찾아요">캐릭터·아이템·세계관·관계를 한 번에 찾아요.</p>
+            </div>
+            <div class="character-board-actions">
+              <button type="button" id="closeSettingsSearchButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+            </div>
+          </div>
+          <div class="settings-search-bar">
+            <label class="sr-only" for="settingsSearchInput" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</label>
+            <input
+              id="settingsSearchInput"
+              type="search"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="이름, 별칭, 설명, 관계 라벨…"
+              data-i18n-placeholder="index.이름_별칭_설명_관계_라벨"
+            >
+          </div>
+          <div id="settingsSearchResults" class="settings-search-results" aria-live="polite"></div>
         </div>
       </section>
 
@@ -7160,6 +7201,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.18"></script>
+    <script src="/app.js?v=1.4.19"></script>
   </body>
 </html>
