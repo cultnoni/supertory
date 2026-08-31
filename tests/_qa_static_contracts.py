@@ -37,7 +37,7 @@ def main() -> int:
     if m and "characters" in m.group(1) and "baits" in m.group(1):
         order = re.findall(r'"([^"]+)"', m.group(1))
         ok("DEFAULT_SETTINGS_ORDER", " → ".join(order))
-        if (order.index("items") == order.index("characters") + 1:
+        if order.index("items") == order.index("characters") + 1:
             ok("items immediately after characters")
         else:
             fail("minor", "items position", str(order))
@@ -76,6 +76,20 @@ def main() -> int:
         ("baitNotifyModal", 'id="baitNotifyModal"' in html),
         ("newBaitButton", 'id="newBaitButton"' in html),
         ("snoozeUntil mapping", "snoozeUntil" in js and "snooze_until" in app_py),
+    ]:
+        ok(name) if good else fail("misbehave", name, "missing")
+
+    # relation canvas
+    for name, good in [
+        ("db/075_character_relations.sql", (ROOT / "db" / "075_character_relations.sql").exists()),
+        ("db/076_character_relations_label_unique.sql", (ROOT / "db" / "076_character_relations_label_unique.sql").exists()),
+        ("API character-canvas", "/character-canvas" in app_py),
+        ("API character-relations", "/character-relations" in app_py),
+        ("html relationCanvas", 'id="relationCanvas"' in html),
+        ("html relationFitButton", 'id="relationFitButton"' in html),
+        ("html relationFullscreenExitButton", 'id="relationFullscreenExitButton"' in html),
+        ("js openRelationCanvas", "openRelationCanvas" in js),
+        ("js enterRelationCanvasFullscreen", "enterRelationCanvasFullscreen" in js),
     ]:
         ok(name) if good else fail("misbehave", name, "missing")
 

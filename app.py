@@ -42,6 +42,7 @@ import urllib.request
 import author_note_blocks
 import chapter_match
 import character_import_analysis
+import character_relations
 import character_scene_traits
 import item_scene_traits
 import document_export
@@ -212,6 +213,8 @@ MIGRATION_071_PATH = ROOT / "db" / "071_character_role_nullable.py"
 MIGRATION_072_PATH = ROOT / "db" / "072_character_trait_history.sql"
 MIGRATION_073_PATH = ROOT / "db" / "073_item.sql"
 MIGRATION_074_PATH = ROOT / "db" / "074_trait_history_applied.sql"
+MIGRATION_075_PATH = ROOT / "db" / "075_character_relations.sql"
+MIGRATION_076_PATH = ROOT / "db" / "076_character_relations_label_unique.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1620,6 +1623,10 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_073_PATH.read_text(encoding="utf-8"))
         if 74 not in applied:
             apply_migration_074(connection)
+        if 75 not in applied:
+            connection.executescript(MIGRATION_075_PATH.read_text(encoding="utf-8"))
+        if 76 not in applied:
+            apply_migration_076(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1627,6 +1634,7 @@ def initialise_database() -> None:
         ensure_character_tori_analysis_table(connection)
         ensure_character_trait_history_table(connection)
         ensure_item_tables(connection)
+        ensure_character_relations_tables(connection)
         ensure_trait_history_applied_column(connection)
         ensure_character_role_nullable(connection)
         ensure_world_tori_analysis_table(connection)
@@ -2002,6 +2010,336 @@ def ensure_character_trait_history_table(connection: sqlite3.Connection) -> None
         )
     except sqlite3.Error:
         pass
+
+
+def ensure_character_relations_tables(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_canvas_position / character_relations (075 + 076)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_relations'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_075_PATH.read_text(encoding="utf-8"))
+    else:
+        try:
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migration(version, name) "
+                "VALUES (75, 'character_relations')"
+            )
+        except sqlite3.Error:
+            pass
+    apply_migration_076(connection)
+
+
+def apply_migration_076(connection: sqlite3.Connection) -> None:
+    """Widen character_relations uniqueness to include label. Copies existing rows."""
+    try:
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migration WHERE version = 76"
+        ).fetchone()
+    except sqlite3.Error:
+        applied = None
+    if applied is not None:
+        return
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_relations'"
+    ).fetchone()
+    if exists is None:
+        return
+    connection.executescript(MIGRATION_076_PATH.read_text(encoding="utf-8"))
+
+
+def _clamp_canvas_coord(value: object) -> float:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        number = 0.0
+    if number != number:  # NaN
+        number = 0.0
+    return max(-2000.0, min(20000.0, number))
+
+
+def _character_relation_row(row: sqlite3.Row | dict) -> dict:
+    item = as_dict(row)
+    item["id"] = int(item["id"])
+    item["character_a_id"] = int(item["character_a_id"])
+    item["character_b_id"] = int(item["character_b_id"])
+    item["label"] = str(item.get("label") or "")
+    item["status"] = str(item.get("status") or "")
+    item["source"] = str(item.get("source") or "")
+    return item
+
+
+def list_character_canvas_roster(connection: sqlite3.Connection, project_id: int) -> list[dict]:
+    rows = connection.execute(
+        "SELECT id, name, role, short_description, profile_md "
+        "FROM character WHERE project_id = ? AND deleted_at IS NULL "
+        "ORDER BY sort_order, id",
+        (int(project_id),),
+    ).fetchall()
+    alias_rows = connection.execute(
+        "SELECT character_id, alias FROM character_alias "
+        "WHERE project_id = ? ORDER BY id",
+        (int(project_id),),
+    ).fetchall()
+    alias_by_id: dict[int, list[str]] = {}
+    for row in alias_rows:
+        alias = str(row["alias"] or "").strip()
+        if alias:
+            alias_by_id.setdefault(int(row["character_id"]), []).append(alias)
+    people: list[dict] = []
+    for row in rows:
+        cid = int(row["id"])
+        profile = str(row["profile_md"] or "")
+        people.append({
+            "id": cid,
+            "name": str(row["name"] or ""),
+            "role": str(row["role"] or "") or None,
+            "short_description": str(row["short_description"] or ""),
+            "profile_md": profile,
+            "relations_text": character_relations.extract_relations_text(profile),
+            "aliases": alias_by_id.get(cid, []),
+        })
+    return people
+
+
+def _require_live_project(connection: sqlite3.Connection, project_id: int) -> None:
+    if connection.execute(
+        "SELECT 1 FROM project WHERE id = ? AND deleted_at IS NULL", (project_id,)
+    ).fetchone() is None:
+        raise ValueError("소설을 찾을 수 없습니다.")
+
+
+def get_character_canvas(project_id: int) -> dict:
+    project_id = int(project_id)
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        people = list_character_canvas_roster(connection, project_id)
+        pos_rows = connection.execute(
+            "SELECT character_id, x, y FROM character_canvas_position WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+        positions = {
+            int(row["character_id"]): (float(row["x"]), float(row["y"]))
+            for row in pos_rows
+        }
+        rel_rows = connection.execute(
+            "SELECT id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE project_id = ? ORDER BY id",
+            (project_id,),
+        ).fetchall()
+    live_ids = {int(item["id"]) for item in people}
+    characters = []
+    for item in people:
+        xy = positions.get(int(item["id"]))
+        characters.append({
+            "id": item["id"],
+            "name": item["name"],
+            "role": item["role"],
+            "short_description": item["short_description"],
+            "profile_md": item["profile_md"],
+            "aliases": item["aliases"],
+            "x": xy[0] if xy else None,
+            "y": xy[1] if xy else None,
+        })
+    relations = [
+        _character_relation_row(row)
+        for row in rel_rows
+        if int(row["character_a_id"]) in live_ids and int(row["character_b_id"]) in live_ids
+    ]
+    return {"characters": characters, "relations": relations}
+
+
+def save_character_canvas_positions(project_id: int, body: dict) -> dict:
+    project_id = int(project_id)
+    raw_positions = body.get("positions") if isinstance(body, dict) else None
+    if not isinstance(raw_positions, list):
+        raise ValueError("배치 정보가 없습니다.")
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        live_ids = {
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM character WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchall()
+        }
+        saved = 0
+        for item in raw_positions:
+            if not isinstance(item, dict):
+                continue
+            try:
+                cid = int(item.get("character_id") or item.get("id"))
+            except (TypeError, ValueError):
+                continue
+            if cid not in live_ids:
+                continue
+            x = _clamp_canvas_coord(item.get("x"))
+            y = _clamp_canvas_coord(item.get("y"))
+            connection.execute(
+                "INSERT INTO character_canvas_position(project_id, character_id, x, y, updated_at) "
+                "VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(project_id, character_id) DO UPDATE SET "
+                "x = excluded.x, y = excluded.y, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')",
+                (project_id, cid, x, y),
+            )
+            saved += 1
+    return {"ok": True, "saved": saved}
+
+
+def create_character_relation(project_id: int, body: dict) -> dict:
+    project_id = int(project_id)
+    try:
+        left = int(body.get("character_a_id") or body.get("a_id"))
+        right = int(body.get("character_b_id") or body.get("b_id"))
+        pair = character_relations.ordered_pair(left, right)
+    except (TypeError, ValueError) as error:
+        raise ValueError(str(error) or "두 인물을 선택해 주세요.") from error
+    label = character_relations.clean_label(body.get("label"))
+    if not label:
+        raise ValueError("관계 이름을 입력해 주세요.")
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        live = {
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM character WHERE project_id = ? AND deleted_at IS NULL "
+                "AND id IN (?, ?)",
+                (project_id, pair[0], pair[1]),
+            ).fetchall()
+        }
+        if pair[0] not in live or pair[1] not in live:
+            raise ValueError("등록된 인물만 이을 수 있어요.")
+        existing = connection.execute(
+            "SELECT id, status FROM character_relations "
+            "WHERE project_id = ? AND character_a_id = ? AND character_b_id = ? AND label = ?",
+            (project_id, pair[0], pair[1], label),
+        ).fetchone()
+        if existing is None:
+            cursor = connection.execute(
+                "INSERT INTO character_relations"
+                "(project_id, character_a_id, character_b_id, label, status, source) "
+                "VALUES (?, ?, ?, ?, 'confirmed', 'manual')",
+                (project_id, pair[0], pair[1], label),
+            )
+            rel_id = int(cursor.lastrowid)
+        else:
+            connection.execute(
+                "UPDATE character_relations SET status = 'confirmed', source = 'manual' "
+                "WHERE id = ?",
+                (int(existing["id"]),),
+            )
+            rel_id = int(existing["id"])
+        row = connection.execute(
+            "SELECT id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE id = ?",
+            (rel_id,),
+        ).fetchone()
+    return {"ok": True, "relation": _character_relation_row(row)}
+
+
+def suggest_character_relations(project_id: int) -> dict:
+    project_id = int(project_id)
+    if not gemini_client.is_configured():
+        raise ValueError(
+            "Gemini API 키가 없습니다. 프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 넣어 주세요."
+        )
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        roster = list_character_canvas_roster(connection, project_id)
+        existing_rows = connection.execute(
+            "SELECT character_a_id, character_b_id, label FROM character_relations "
+            "WHERE project_id = ?",
+            (project_id,),
+        ).fetchall()
+    existing_keys = {
+        character_relations.relation_key(
+            int(row["character_a_id"]), int(row["character_b_id"]), row["label"]
+        )
+        for row in existing_rows
+    }
+    if len(roster) < 2:
+        return {"ok": True, "added": [], "skipped": 0, "canvas": get_character_canvas(project_id)}
+    system, prompt = character_relations.build_suggest_prompt(roster)
+    try:
+        raw = gemini_client.generate_text(
+            prompt,
+            system=system,
+            temperature=0.1,
+            max_output_tokens=4096,
+        )
+    except gemini_client.GeminiError as error:
+        raise ValueError(str(error)[:400]) from error
+    parsed = character_relations.parse_relations_json(raw, roster)
+    kept = character_relations.filter_suggestions(parsed, roster, existing_keys)
+    added: list[dict] = []
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        for item in kept:
+            pair = (int(item["character_a_id"]), int(item["character_b_id"]))
+            try:
+                cursor = connection.execute(
+                    "INSERT INTO character_relations"
+                    "(project_id, character_a_id, character_b_id, label, status, source) "
+                    "VALUES (?, ?, ?, ?, 'suggested', 'ai')",
+                    (project_id, pair[0], pair[1], item["label"]),
+                )
+            except sqlite3.IntegrityError:
+                continue
+            added.append({
+                "id": int(cursor.lastrowid),
+                "character_a_id": pair[0],
+                "character_b_id": pair[1],
+                "label": item["label"],
+                "status": "suggested",
+                "source": "ai",
+            })
+    return {
+        "ok": True,
+        "added": added,
+        "skipped": max(0, len(parsed) - len(added)),
+        "canvas": get_character_canvas(project_id),
+    }
+
+
+def accept_character_relation(relation_id: int) -> dict:
+    relation_id = int(relation_id)
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("관계선을 찾을 수 없습니다.")
+        _require_live_project(connection, int(row["project_id"]))
+        connection.execute(
+            "UPDATE character_relations SET status = 'confirmed' WHERE id = ?",
+            (relation_id,),
+        )
+        row = connection.execute(
+            "SELECT id, project_id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+    return {"ok": True, "relation": _character_relation_row(row)}
+
+
+def delete_character_relation(relation_id: int) -> dict:
+    relation_id = int(relation_id)
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id FROM character_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("관계선을 찾을 수 없습니다.")
+        _require_live_project(connection, int(row["project_id"]))
+        connection.execute("DELETE FROM character_relations WHERE id = ?", (relation_id,))
+    return {"ok": True, "id": relation_id}
 
 
 def ensure_item_tables(connection: sqlite3.Connection) -> None:
@@ -8730,6 +9068,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/character-canvas", path)
+            if match:
+                self.send_json(get_character_canvas(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/items", path)
             if match:
                 self.send_json(self.list_project_items(int(match.group(1))))
@@ -9536,6 +9879,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/character-relations/suggest", path)
+            if match:
+                self.send_json(suggest_character_relations(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/character-relations", path)
+            if match:
+                self.send_json(
+                    create_character_relation(int(match.group(1)), body or {}),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/character-relations/(\d+)/accept", path)
+            if match:
+                self.send_json(accept_character_relation(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/items", path)
             if match:
                 self.send_json(
@@ -10214,6 +10575,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True})
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/character-canvas/positions", path)
+            if match:
+                self.send_json(save_character_canvas_positions(int(match.group(1)), body or {}))
+                return
+
             match = re.fullmatch(r"/api/items/(\d+)", path)
             if match:
                 self.save_item(int(match.group(1)), body or {})
@@ -10359,6 +10725,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/characters/(\d+)", path)
             if match:
                 self.send_json(self.trash_character(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/character-relations/(\d+)", path)
+            if match:
+                self.send_json(delete_character_relation(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/items/(\d+)", path)
@@ -23039,6 +23410,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
                     "WHERE owner_character_id = ?",
                     (character_id,),
+                )
+            except sqlite3.OperationalError:
+                pass
+            try:
+                connection.execute(
+                    "DELETE FROM character_canvas_position WHERE character_id = ?",
+                    (character_id,),
+                )
+                connection.execute(
+                    "DELETE FROM character_relations "
+                    "WHERE character_a_id = ? OR character_b_id = ?",
+                    (character_id, character_id),
                 )
             except sqlite3.OperationalError:
                 pass

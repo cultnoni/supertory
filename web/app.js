@@ -257,6 +257,7 @@ const state = {
   settingsDocPair: null, // e.g. ["intro","intent"] | ["logline","synopsis"] when dual main open
   settingsDocFocusKind: null, // which pane last focused in dual main
   characterBoardOpen: false,
+  relationCanvasOpen: false,
   itemBoardOpen: false,
   gitsiOpen: false,
   activeBinder: "manuscript", // "manuscript" | "settings"
@@ -8255,6 +8256,7 @@ function hideCenterViewsForKeywordBoard() {
   hideItemViews();
   $("ideaBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   hideGitsiWorkspace();
   hideSynopsisMain();
   hideSettingsCollectionBoard();
@@ -9347,6 +9349,7 @@ function renderSettingsCodex() {
   applySettingsSectionOrder();
   applySettingsSectionState();
   if (state.characterBoardOpen) renderCharacterBoard();
+  if (state.relationCanvasOpen) paintRelationCanvas();
   if (state.itemBoardOpen) renderItemBoard();
   renderBookmarkBar();
   markBookmarkedTargets();
@@ -9807,6 +9810,13 @@ function hideSynopsisMain() {
   lastSettingsDocEditor = null;
 }
 
+function hideRelationCanvas() {
+  state.relationCanvasOpen = false;
+  exitRelationCanvasFullscreen();
+  $("relationCanvas")?.classList.add("hidden");
+  hideRelationPopups();
+}
+
 function hideCharacterBoard() {
   state.characterBoardOpen = false;
   $("characterBoard")?.classList.add("hidden");
@@ -9848,6 +9858,7 @@ async function returnToManuscriptFromSettingsMain() {
   }
   hideKeywordBoard();
   hideCharacterBoard();
+  hideRelationCanvas();
   hideItemViews();
   hideSynopsisMain();
   hideSettingsCollectionBoard();
@@ -9993,6 +10004,7 @@ async function openSettingsDocMain(kind = "synopsis") {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   $("characterEditor")?.classList.add("hidden");
   hideItemViews();
   $("sceneWorkspace")?.classList.add("hidden");
@@ -10297,6 +10309,7 @@ async function openCharacterBoard() {
   state.characterBoardOpen = true;
   state.ideaBoardOpen = false;
   state.keywordBoardOpen = false;
+  hideRelationCanvas();
   hideSynopsisMain();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
@@ -10316,6 +10329,601 @@ async function openCharacterBoard() {
 
 async function closeCharacterBoard() {
   hideCharacterBoard();
+  await returnToManuscriptFromSettingsMain();
+}
+
+const REL_CARD_W = 188;
+const REL_CARD_H = 124;
+const REL_CARD_GAP = 36;
+const REL_CARD_COLS = 4;
+let relationCanvasData = { characters: [], relations: [] };
+let relationCanvasPan = { x: 48, y: 36 };
+let relationCanvasZoom = 1;
+let relationSelectedIds = [];
+let relationDrag = null;
+let relationPanDrag = null;
+let relationPopupId = null;
+let relationLabelPair = null;
+let relationCanvasBound = false;
+
+function hideRelationPopups() {
+  relationPopupId = null;
+  relationLabelPair = null;
+  $("relationSuggestPopup")?.classList.add("hidden");
+  $("relationLabelModal")?.classList.add("hidden");
+}
+
+function relationCardSummary(character) {
+  const fromProfile = String(character.profile_md || "")
+    .replace(/^\[[^\]]+\]\s*/gm, "")
+    .split(/\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  const cleaned = String(character.short_description || fromProfile || "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned) return i18n.t("app.소개를_적어_보세요");
+  return cleaned.length > 90 ? `${cleaned.slice(0, 90)}…` : cleaned;
+}
+
+function defaultRelationPosition(index) {
+  return {
+    x: 40 + (index % REL_CARD_COLS) * (REL_CARD_W + REL_CARD_GAP),
+    y: 40 + Math.floor(index / REL_CARD_COLS) * (REL_CARD_H + REL_CARD_GAP),
+  };
+}
+
+function applyRelationTransform() {
+  const world = $("relationCanvasWorld");
+  if (!world) return;
+  world.style.transform = `translate(${relationCanvasPan.x}px, ${relationCanvasPan.y}px) scale(${relationCanvasZoom})`;
+}
+
+function relationCardCenter(character) {
+  return {
+    x: Number(character.x) + REL_CARD_W / 2,
+    y: Number(character.y) + REL_CARD_H / 2,
+  };
+}
+
+function relationPairKey(rel) {
+  const a = Number(rel.character_a_id);
+  const b = Number(rel.character_b_id);
+  return a < b ? `${a}:${b}` : `${b}:${a}`;
+}
+
+function offsetRelationLine(ac, bc, index, total) {
+  if (total <= 1) {
+    return { a: ac, b: bc, midX: (ac.x + bc.x) / 2, midY: (ac.y + bc.y) / 2 };
+  }
+  const dx = bc.x - ac.x;
+  const dy = bc.y - ac.y;
+  const len = Math.hypot(dx, dy) || 1;
+  const shift = (index - (total - 1) / 2) * 18;
+  const ox = (-dy / len) * shift;
+  const oy = (dx / len) * shift;
+  const a = { x: ac.x + ox, y: ac.y + oy };
+  const b = { x: bc.x + ox, y: bc.y + oy };
+  return { a, b, midX: (a.x + b.x) / 2, midY: (a.y + b.y) / 2 };
+}
+
+/** Pin a horizontal label so its visual center sits on a line-segment midpoint. */
+function setRelationLabelAtLineMid(text, midX, midY) {
+  text.setAttribute("text-anchor", "middle");
+  text.setAttribute("dominant-baseline", "central");
+  text.setAttribute("alignment-baseline", "middle");
+  text.setAttribute("x", String(midX));
+  text.setAttribute("y", String(midY));
+}
+
+function paintRelationLines() {
+  const svg = $("relationCanvasSvg");
+  if (!svg) return;
+  const NS = "http://www.w3.org/2000/svg";
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+  const byId = {};
+  (relationCanvasData.characters || []).forEach((ch) => { byId[ch.id] = ch; });
+  const groups = new Map();
+  (relationCanvasData.relations || []).forEach((rel) => {
+    const a = byId[rel.character_a_id];
+    const b = byId[rel.character_b_id];
+    if (!a || !b) return;
+    const key = relationPairKey(rel);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(rel);
+  });
+  groups.forEach((rels) => {
+    const sample = rels[0];
+    const ac = relationCardCenter(byId[sample.character_a_id]);
+    const bc = relationCardCenter(byId[sample.character_b_id]);
+    rels.forEach((rel, index) => {
+      const placed = offsetRelationLine(ac, bc, index, rels.length);
+      const suggested = rel.status === "suggested";
+      const hit = document.createElementNS(NS, "line");
+      hit.setAttribute("class", "rel-hit");
+      hit.setAttribute("data-rel-id", String(rel.id));
+      hit.setAttribute("x1", String(placed.a.x));
+      hit.setAttribute("y1", String(placed.a.y));
+      hit.setAttribute("x2", String(placed.b.x));
+      hit.setAttribute("y2", String(placed.b.y));
+      const line = document.createElementNS(NS, "line");
+      line.setAttribute("class", `rel-line ${suggested ? "is-suggested" : ""}`);
+      line.setAttribute("data-rel-id", String(rel.id));
+      line.setAttribute("x1", String(placed.a.x));
+      line.setAttribute("y1", String(placed.a.y));
+      line.setAttribute("x2", String(placed.b.x));
+      line.setAttribute("y2", String(placed.b.y));
+      const text = document.createElementNS(NS, "text");
+      text.setAttribute("class", "rel-label");
+      text.textContent = suggested ? `${rel.label}${i18n.t("app.추정_접미사")}` : rel.label;
+      hit.addEventListener("pointerdown", (event) => {
+        event.stopPropagation();
+        event.preventDefault();
+        if (suggested) showRelationSuggestPopup(rel, event);
+      });
+      svg.appendChild(hit);
+      svg.appendChild(line);
+      svg.appendChild(text);
+      setRelationLabelAtLineMid(text, placed.midX, placed.midY);
+    });
+  });
+}
+
+function paintRelationCards() {
+  const host = $("relationCanvasCards");
+  if (!host) return;
+  const rows = relationCanvasData.characters || [];
+  if (!rows.length) {
+    host.innerHTML = `<p class="character-board-empty">${escapeHtml(i18n.t("app.등록된_인물이_아직_없어요"))}</p>`;
+    return;
+  }
+  host.innerHTML = rows.map((ch) => {
+    const selected = relationSelectedIds.includes(Number(ch.id)) ? "is-selected" : "";
+    return `
+      <article class="relation-canvas-card ${selected}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px">
+        <span class="relation-canvas-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
+        <span class="relation-canvas-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
+        <span class="relation-canvas-card-summary">${escapeHtml(relationCardSummary(ch))}</span>
+        <button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>
+      </article>`;
+  }).join("");
+  host.querySelectorAll("[data-rel-profile]").forEach((button) => {
+    button.addEventListener("pointerdown", (event) => event.stopPropagation());
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openCharacter(button.getAttribute("data-rel-profile")).catch(handleError);
+    });
+  });
+}
+
+function paintRelationCanvas() {
+  paintRelationCards();
+  paintRelationLines();
+  applyRelationTransform();
+}
+
+async function persistRelationPositions(positions) {
+  if (!state.projectId || !positions.length) return;
+  await api(`/api/projects/${state.projectId}/character-canvas/positions`, {
+    method: "PUT",
+    body: JSON.stringify({ positions }),
+  });
+}
+
+function ensureRelationLayout(characters) {
+  let dirty = false;
+  const laid = characters.map((ch, index) => {
+    const next = { ...ch };
+    if (next.x == null || next.y == null || Number.isNaN(Number(next.x)) || Number.isNaN(Number(next.y))) {
+      const pos = defaultRelationPosition(index);
+      next.x = pos.x;
+      next.y = pos.y;
+      dirty = true;
+    }
+    return next;
+  });
+  return { characters: laid, dirty };
+}
+
+async function loadRelationCanvas() {
+  if (!state.projectId) return;
+  const data = await api(`/api/projects/${state.projectId}/character-canvas`);
+  const laid = ensureRelationLayout(Array.isArray(data.characters) ? data.characters : []);
+  relationCanvasData = {
+    characters: laid.characters,
+    relations: Array.isArray(data.relations) ? data.relations : [],
+  };
+  paintRelationCanvas();
+  if (laid.dirty) {
+    persistRelationPositions(
+      laid.characters.map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y }))
+    ).catch(handleError);
+  }
+}
+
+function relationStagePoint(event, stage) {
+  const rect = stage.getBoundingClientRect();
+  return {
+    x: (event.clientX - rect.left - relationCanvasPan.x) / relationCanvasZoom,
+    y: (event.clientY - rect.top - relationCanvasPan.y) / relationCanvasZoom,
+  };
+}
+
+function toggleRelationSelection(characterId) {
+  const id = Number(characterId);
+  const idx = relationSelectedIds.indexOf(id);
+  if (idx >= 0) relationSelectedIds.splice(idx, 1);
+  else {
+    if (relationSelectedIds.length >= 2) relationSelectedIds.shift();
+    relationSelectedIds.push(id);
+  }
+  paintRelationCards();
+}
+
+function showRelationSuggestPopup(rel, event) {
+  const popup = $("relationSuggestPopup");
+  const stage = $("relationCanvasStage");
+  if (!popup || !stage) return;
+  hideRelationPopups();
+  relationPopupId = Number(rel.id);
+  $("relationSuggestPopupLabel").textContent = `${rel.label}${i18n.t("app.추정_접미사")}`;
+  const rect = stage.getBoundingClientRect();
+  popup.style.left = `${Math.min(rect.width - 200, Math.max(8, event.clientX - rect.left - 40))}px`;
+  popup.style.top = `${Math.min(rect.height - 90, Math.max(8, event.clientY - rect.top - 20))}px`;
+  popup.classList.remove("hidden");
+}
+
+function showRelationLabelModal() {
+  if (relationSelectedIds.length !== 2) {
+    toast(i18n.t("app.인물을_두_명_고른_뒤_관계를_이으세요"));
+    return;
+  }
+  const modal = $("relationLabelModal");
+  const stage = $("relationCanvasStage");
+  if (!modal || !stage) return;
+  hideRelationPopups();
+  relationLabelPair = relationSelectedIds.slice();
+  const input = $("relationLabelInput");
+  if (input) input.value = "";
+  modal.style.left = "24px";
+  modal.style.top = "24px";
+  modal.classList.remove("hidden");
+  input?.focus();
+}
+
+async function saveManualRelation() {
+  if (!state.projectId || !relationLabelPair || relationLabelPair.length !== 2) return;
+  const label = String($("relationLabelInput")?.value || "").trim();
+  if (!label) {
+    toast(i18n.t("app.관계_이름"));
+    return;
+  }
+  await api(`/api/projects/${state.projectId}/character-relations`, {
+    method: "POST",
+    body: JSON.stringify({
+      character_a_id: relationLabelPair[0],
+      character_b_id: relationLabelPair[1],
+      label,
+    }),
+  });
+  hideRelationPopups();
+  relationSelectedIds = [];
+  toast(i18n.t("app.관계를_이었어요"));
+  await loadRelationCanvas();
+}
+
+async function acceptSuggestedRelation() {
+  if (!relationPopupId) return;
+  await api(`/api/character-relations/${relationPopupId}/accept`, { method: "POST" });
+  hideRelationPopups();
+  toast(i18n.t("app.관계_제안을_수락했어요"));
+  await loadRelationCanvas();
+}
+
+async function deleteRelationEdge(relationId) {
+  const id = Number(relationId || relationPopupId);
+  if (!id) return;
+  await api(`/api/character-relations/${id}`, { method: "DELETE" });
+  hideRelationPopups();
+  toast(i18n.t("app.관계_제안을_거절했어요"));
+  await loadRelationCanvas();
+}
+
+async function requestRelationSuggestions() {
+  if (!state.projectId) return;
+  const button = $("relationSuggestButton");
+  if (button) button.disabled = true;
+  toast(i18n.t("app.관계_필드를_분석하는_중"));
+  try {
+    const result = await api(`/api/projects/${state.projectId}/character-relations/suggest`, {
+      method: "POST",
+      body: "{}",
+    });
+    if (result.canvas) {
+      const laid = ensureRelationLayout(result.canvas.characters || relationCanvasData.characters);
+      relationCanvasData = {
+        characters: laid.characters,
+        relations: result.canvas.relations || [],
+      };
+      paintRelationCanvas();
+    } else {
+      await loadRelationCanvas();
+    }
+    const added = Array.isArray(result.added) ? result.added.length : 0;
+    toast(added
+      ? i18n.t("app.count건의_관계를_제안했어요", { count: added })
+      : i18n.t("app.새_관계_제안이_없어요"));
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function setRelationZoom(next, origin) {
+  const stage = $("relationCanvasStage");
+  const zoom = Math.max(0.35, Math.min(2.2, next));
+  if (!stage) {
+    relationCanvasZoom = zoom;
+    applyRelationTransform();
+    return;
+  }
+  const rect = stage.getBoundingClientRect();
+  const cx = origin ? origin.x - rect.left : rect.width / 2;
+  const cy = origin ? origin.y - rect.top : rect.height / 2;
+  const worldX = (cx - relationCanvasPan.x) / relationCanvasZoom;
+  const worldY = (cy - relationCanvasPan.y) / relationCanvasZoom;
+  relationCanvasZoom = zoom;
+  relationCanvasPan.x = cx - worldX * relationCanvasZoom;
+  relationCanvasPan.y = cy - worldY * relationCanvasZoom;
+  applyRelationTransform();
+}
+
+function fitRelationCanvas() {
+  const stage = $("relationCanvasStage");
+  const rows = relationCanvasData.characters || [];
+  if (!stage || !rows.length) return false;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  rows.forEach((ch) => {
+    minX = Math.min(minX, Number(ch.x));
+    minY = Math.min(minY, Number(ch.y));
+    maxX = Math.max(maxX, Number(ch.x) + REL_CARD_W);
+    maxY = Math.max(maxY, Number(ch.y) + REL_CARD_H);
+  });
+  const width = Math.max(120, maxX - minX);
+  const height = Math.max(80, maxY - minY);
+  const rect = stage.getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 40) return false;
+  const zoom = Math.max(0.35, Math.min(1.4, Math.min((rect.width - 48) / width, (rect.height - 48) / height)));
+  relationCanvasZoom = zoom;
+  relationCanvasPan.x = (rect.width - width * zoom) / 2 - minX * zoom;
+  relationCanvasPan.y = (rect.height - height * zoom) / 2 - minY * zoom;
+  applyRelationTransform();
+  return true;
+}
+
+function scheduleFitRelationCanvas() {
+  requestAnimationFrame(() => {
+    if (fitRelationCanvas()) return;
+    requestAnimationFrame(() => fitRelationCanvas());
+  });
+}
+
+function isRelationCanvasFullscreen() {
+  return Boolean($("relationCanvas")?.classList.contains("is-fullscreen"));
+}
+
+function syncRelationCanvasFullscreenUi() {
+  const on = isRelationCanvasFullscreen();
+  document.body.classList.toggle("relation-canvas-fullscreen", on);
+  const exitBtn = $("relationFullscreenExitButton");
+  if (exitBtn) {
+    exitBtn.classList.toggle("hidden", !on);
+    exitBtn.setAttribute("aria-hidden", on ? "false" : "true");
+  }
+  $("relationFitButton")?.setAttribute("aria-pressed", on ? "true" : "false");
+}
+
+function enterRelationCanvasFullscreen() {
+  const canvas = $("relationCanvas");
+  if (!canvas || canvas.classList.contains("hidden")) return;
+  canvas.classList.add("is-fullscreen");
+  syncRelationCanvasFullscreenUi();
+  scheduleFitRelationCanvas();
+}
+
+function exitRelationCanvasFullscreen() {
+  const canvas = $("relationCanvas");
+  if (!canvas) return;
+  const wasOn = canvas.classList.contains("is-fullscreen");
+  canvas.classList.remove("is-fullscreen");
+  syncRelationCanvasFullscreenUi();
+  if (wasOn && state.relationCanvasOpen && !canvas.classList.contains("hidden")) {
+    scheduleFitRelationCanvas();
+  }
+}
+
+function onRelationCanvasFitClick() {
+  if (isRelationCanvasFullscreen()) {
+    scheduleFitRelationCanvas();
+    return;
+  }
+  enterRelationCanvasFullscreen();
+}
+
+function onRelationCanvasKeydown(event) {
+  if (event.key !== "Escape") return;
+  if (!$("relationCanvas") || $("relationCanvas").classList.contains("hidden")) return;
+  const labelModal = $("relationLabelModal");
+  if (labelModal && !labelModal.classList.contains("hidden")) {
+    hideRelationPopups();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
+  if (!isRelationCanvasFullscreen()) return;
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  exitRelationCanvasFullscreen();
+}
+
+async function autoLayoutRelationCanvas() {
+  const laid = (relationCanvasData.characters || []).map((ch, index) => {
+    const pos = defaultRelationPosition(index);
+    return { ...ch, x: pos.x, y: pos.y };
+  });
+  relationCanvasData.characters = laid;
+  paintRelationCanvas();
+  await persistRelationPositions(laid.map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y })));
+  scheduleFitRelationCanvas();
+}
+
+function bindRelationCanvasEvents() {
+  if (relationCanvasBound) return;
+  relationCanvasBound = true;
+  const stage = $("relationCanvasStage");
+  if (stage) {
+  stage.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    const profile = event.target.closest?.("[data-rel-profile]");
+    if (profile) return;
+    const card = event.target.closest?.("[data-rel-card]");
+    if (card) {
+      hideRelationPopups();
+      const id = Number(card.getAttribute("data-rel-card"));
+      const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === id);
+      if (!ch) return;
+      relationDrag = {
+        id,
+        startX: event.clientX,
+        startY: event.clientY,
+        origX: Number(ch.x),
+        origY: Number(ch.y),
+        moved: false,
+      };
+      card.classList.add("is-dragging");
+      stage.setPointerCapture?.(event.pointerId);
+      return;
+    }
+    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal")) return;
+    hideRelationPopups();
+    relationPanDrag = {
+      startX: event.clientX,
+      startY: event.clientY,
+      origX: relationCanvasPan.x,
+      origY: relationCanvasPan.y,
+    };
+    stage.classList.add("is-panning");
+    stage.setPointerCapture?.(event.pointerId);
+  });
+  stage.addEventListener("pointermove", (event) => {
+    if (relationDrag) {
+      const dx = (event.clientX - relationDrag.startX) / relationCanvasZoom;
+      const dy = (event.clientY - relationDrag.startY) / relationCanvasZoom;
+      if (Math.abs(dx) + Math.abs(dy) > 3) relationDrag.moved = true;
+      const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === relationDrag.id);
+      if (!ch) return;
+      ch.x = relationDrag.origX + dx;
+      ch.y = relationDrag.origY + dy;
+      const el = stage.querySelector(`[data-rel-card="${relationDrag.id}"]`);
+      if (el) {
+        el.style.left = `${ch.x}px`;
+        el.style.top = `${ch.y}px`;
+      }
+      paintRelationLines();
+      return;
+    }
+    if (relationPanDrag) {
+      relationCanvasPan.x = relationPanDrag.origX + (event.clientX - relationPanDrag.startX);
+      relationCanvasPan.y = relationPanDrag.origY + (event.clientY - relationPanDrag.startY);
+      applyRelationTransform();
+    }
+  });
+  const endPointer = (event) => {
+    if (relationDrag) {
+      const drag = relationDrag;
+      relationDrag = null;
+      stage.querySelector("[data-rel-card].is-dragging")?.classList.remove("is-dragging");
+      if (!drag.moved) toggleRelationSelection(drag.id);
+      else {
+        const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
+        if (ch) persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+      }
+    }
+    if (relationPanDrag) {
+      relationPanDrag = null;
+      stage.classList.remove("is-panning");
+    }
+  };
+  stage.addEventListener("pointerup", endPointer);
+  stage.addEventListener("pointercancel", endPointer);
+  stage.addEventListener("wheel", (event) => {
+    event.preventDefault();
+    const factor = event.deltaY > 0 ? 0.92 : 1.08;
+    setRelationZoom(relationCanvasZoom * factor, { x: event.clientX, y: event.clientY });
+  }, { passive: false });
+  }
+  $("relationSuggestButton")?.addEventListener("click", () => requestRelationSuggestions().catch(handleError));
+  $("relationLinkButton")?.addEventListener("click", () => showRelationLabelModal());
+  $("relationFitButton")?.addEventListener("click", () => onRelationCanvasFitClick());
+  $("relationFullscreenExitButton")?.addEventListener("click", () => exitRelationCanvasFullscreen());
+  $("relationLayoutButton")?.addEventListener("click", () => autoLayoutRelationCanvas().catch(handleError));
+  $("relationZoomInButton")?.addEventListener("click", () => setRelationZoom(relationCanvasZoom * 1.12));
+  $("relationZoomOutButton")?.addEventListener("click", () => setRelationZoom(relationCanvasZoom / 1.12));
+  $("closeRelationCanvasButton")?.addEventListener("click", () => closeRelationCanvas().catch(handleError));
+  document.addEventListener("keydown", onRelationCanvasKeydown, true);
+  $("relationSuggestAcceptButton")?.addEventListener("click", () => acceptSuggestedRelation().catch(handleError));
+  $("relationSuggestRejectButton")?.addEventListener("click", () => deleteRelationEdge().catch(handleError));
+  $("relationLabelSaveButton")?.addEventListener("click", () => saveManualRelation().catch(handleError));
+  $("relationLabelCancelButton")?.addEventListener("click", () => hideRelationPopups());
+  $("relationLabelInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveManualRelation().catch(handleError);
+    }
+  });
+}
+
+async function openRelationCanvas() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
+  try { await flushCharacterAutoSave(); } catch (_) { /* continue */ }
+  if (sceneDirty && state.sceneId) {
+    try { await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") }); } catch (_) { /* continue */ }
+  }
+  setActiveBinder("settings");
+  state.openSettingsSection = "characters";
+  applySettingsSectionState();
+  state.relationCanvasOpen = true;
+  state.characterBoardOpen = false;
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  hideSynopsisMain();
+  hideSettingsCollectionBoard();
+  hideGitsiWorkspace();
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  $("characterBoard")?.classList.add("hidden");
+  hideItemViews();
+  closeSceneToolsDrawer();
+  await closeSplitView().catch(() => {});
+  $("relationCanvas")?.classList.remove("hidden");
+  bindRelationCanvasEvents();
+  relationSelectedIds = [];
+  hideRelationPopups();
+  await loadRelationCanvas();
+  scheduleFitRelationCanvas();
+}
+
+async function closeRelationCanvas() {
+  hideRelationCanvas();
   await returnToManuscriptFromSettingsMain();
 }
 
@@ -10424,6 +11032,7 @@ async function openItemBoard() {
   $("sceneWorkspace")?.classList.add("hidden");
   $("characterEditor")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   $("itemEditor")?.classList.add("hidden");
   closeSceneToolsDrawer();
   await closeSplitView().catch(() => {});
@@ -10752,6 +11361,7 @@ async function openItem(itemId) {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   $("characterEditor")?.classList.add("hidden");
   $("itemBoard")?.classList.add("hidden");
   hideSynopsisMain();
@@ -11141,6 +11751,8 @@ function setupSettingsCodex() {
   $("itemsPreview")?.addEventListener("dblclick", () => openItemBoard().catch(handleError));
   $("keywordsPreview")?.addEventListener("dblclick", () => openKeywordBoard());
   $("closeCharacterBoardButton")?.addEventListener("click", () => closeCharacterBoard().catch(handleError));
+  $("openRelationCanvasButton")?.addEventListener("click", () => openRelationCanvas().catch(handleError));
+  $("openRelationCanvasMainButton")?.addEventListener("click", () => openRelationCanvas().catch(handleError));
   $("closeCharacterEditorButton")?.addEventListener("click", () => closeCharacterEditor().catch(handleError));
   $("newCharacterMainButton")?.addEventListener("click", () => createCharacter().catch(handleError));
   $("closeItemBoardButton")?.addEventListener("click", () => closeItemBoard().catch(handleError));
@@ -11267,6 +11879,7 @@ function hideCenterViewsForIdeaBoard() {
   hideItemViews();
   hideSynopsisMain();
   hideCharacterBoard();
+  hideRelationCanvas();
   hideKeywordBoard();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
@@ -22655,6 +23268,7 @@ function openSettingsCollectionMain(key) {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   $("characterEditor")?.classList.add("hidden");
   $("sceneWorkspace")?.classList.add("hidden");
   closeSceneToolsDrawer();
@@ -44970,6 +45584,7 @@ function showWelcome() {
     $("keywordBoard")?.classList.add("hidden");
   }
   hideCharacterBoard();
+  hideRelationCanvas();
   hideItemViews();
   hideSettingsCollectionBoard();
   hideGitsiWorkspace();
@@ -52791,6 +53406,7 @@ function showSceneEditorPane() {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   $("characterEditor")?.classList.add("hidden");
   hideItemViews();
   hideSynopsisMain();
@@ -55718,6 +56334,7 @@ async function openCharacter(characterId) {
   $("ideaBoard")?.classList.add("hidden");
   $("keywordBoard")?.classList.add("hidden");
   $("characterBoard")?.classList.add("hidden");
+  hideRelationCanvas();
   hideItemViews();
   hideSynopsisMain();
   hideGitsiWorkspace();

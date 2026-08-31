@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.13">
+    <link rel="stylesheet" href="/styles.css?v=1.4.18">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -759,6 +759,7 @@
                 <div class="settings-box-body" id="charactersBody" hidden>
                   <div class="settings-box-toolbar">
                     <button type="button" id="newCharacterButton" class="secondary" title="새 캐릭터" data-i18n-title="app.새_캐릭터" data-i18n="index.캐릭터">+ 캐릭터</button>
+                    <button type="button" id="openRelationCanvasButton" class="secondary" data-i18n="app.관계_이어보기">관계 이어보기</button>
                     <button type="button" class="secondary" id="toriFillCharactersButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
                   </div>
                   <p class="hint" data-i18n="index.인물을_눌러_설정을_수정하거나_오른쪽_아이콘">인물을 눌러 설정을 수정하거나, 오른쪽 → 아이콘으로 메인에서 볼 수 있어요.</p>
@@ -2618,6 +2619,7 @@
               <p class="hint" data-i18n="index.인물_카드를_누르면_가운데에서_상세_설정을">인물 카드를 누르면 가운데에서 상세 설정을 편집합니다.</p>
             </div>
             <div class="character-board-actions">
+              <button type="button" class="secondary compact-btn" id="openRelationCanvasMainButton" data-i18n="app.관계_이어보기">관계 이어보기</button>
               <button type="button" class="secondary compact-btn" id="toriFillCharactersMainButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
               <button type="button" id="newCharacterMainButton" class="secondary compact-btn" data-i18n="index.캐릭터">+ 캐릭터</button>
               <button type="button" id="closeCharacterBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
@@ -2631,6 +2633,46 @@
             </label>
           </div>
           <div id="characterBoardGrid" class="character-board-grid" aria-label="캐릭터 카드 목록" data-i18n-aria-label="index.캐릭터_카드_목록"></div>
+        </div>
+
+        <div id="relationCanvas" class="relation-canvas hidden" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
+          <div class="character-board-toolbar">
+            <div>
+              <h2 class="character-board-title" data-i18n="app.관계_이어보기">관계 이어보기</h2>
+              <p class="hint" data-i18n="index.등장인물_카드를_끌어_배치하고_관계선을">등장인물 카드를 끌어 배치하고, 관계선을 잇거나 AI 제안을 받을 수 있어요.</p>
+            </div>
+            <div class="character-board-actions">
+              <button type="button" class="secondary compact-btn" id="relationSuggestButton" data-i18n="app.AI_제안_받기">AI 제안 받기</button>
+              <button type="button" class="secondary compact-btn" id="relationLinkButton" data-i18n="app.관계_잇기">관계 잇기</button>
+              <button type="button" class="secondary compact-btn" id="relationFitButton" data-i18n="app.전체_보기" aria-pressed="false">전체 보기</button>
+              <button type="button" class="secondary compact-btn hidden" id="relationFullscreenExitButton" data-i18n="app.전체화면_닫기">전체화면 닫기</button>
+              <button type="button" class="secondary compact-btn" id="relationLayoutButton" data-i18n="app.정렬">정렬</button>
+              <button type="button" class="secondary compact-btn" id="relationZoomOutButton" title="축소" data-i18n-title="app.축소" aria-label="축소" data-i18n-aria-label="app.축소">−</button>
+              <button type="button" class="secondary compact-btn" id="relationZoomInButton" title="확대" data-i18n-title="app.확대" aria-label="확대" data-i18n-aria-label="app.확대">+</button>
+              <button type="button" class="secondary compact-btn" id="closeRelationCanvasButton" data-i18n="app.닫기">닫기</button>
+            </div>
+          </div>
+          <div id="relationCanvasStage" class="relation-canvas-stage">
+            <div id="relationCanvasWorld" class="relation-canvas-world">
+              <svg id="relationCanvasSvg" class="relation-canvas-svg" aria-hidden="true"></svg>
+              <div id="relationCanvasCards" class="relation-canvas-cards"></div>
+            </div>
+            <div id="relationSuggestPopup" class="relation-suggest-popup hidden" role="dialog">
+              <p id="relationSuggestPopupLabel" class="relation-suggest-popup-label"></p>
+              <div class="relation-suggest-popup-actions">
+                <button type="button" class="primary compact-btn" id="relationSuggestAcceptButton" data-i18n="app.수락">수락</button>
+                <button type="button" class="secondary compact-btn" id="relationSuggestRejectButton" data-i18n="app.거절">거절</button>
+              </div>
+            </div>
+            <div id="relationLabelModal" class="relation-label-modal hidden" role="dialog">
+              <label for="relationLabelInput" data-i18n="app.관계_이름">관계 이름</label>
+              <input id="relationLabelInput" type="text" maxlength="40" placeholder="예: 연인, 라이벌, 이복형제" data-i18n-placeholder="index.예_연인_라이벌_이복형제">
+              <div class="relation-suggest-popup-actions">
+                <button type="button" class="primary compact-btn" id="relationLabelSaveButton" data-i18n="app.관계_잇기">관계 잇기</button>
+                <button type="button" class="secondary compact-btn" id="relationLabelCancelButton" data-i18n="app.닫기">닫기</button>
+              </div>
+            </div>
+          </div>
         </div>
 
         <div id="itemBoard" class="character-board item-board hidden" aria-label="아이템 메인" data-i18n-aria-label="index.아이템_메인">
@@ -7118,6 +7160,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.16"></script>
+    <script src="/app.js?v=1.4.18"></script>
   </body>
 </html>

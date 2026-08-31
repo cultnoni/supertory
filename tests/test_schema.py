@@ -1114,3 +1114,94 @@ class SuperTorySchemaTests(unittest.TestCase):
             "SELECT name FROM schema_migration WHERE version = 74"
         ).fetchone()[0]
         self.assertEqual(version, "trait_history_applied")
+
+    def test_character_relations_tables(self) -> None:
+        self.create_character()
+        self.db.execute("INSERT INTO character(id, project_id, name, sort_order) VALUES (41, 1, 'Min', 1)")
+        migration = Path(__file__).resolve().parents[1] / "db" / "075_character_relations.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("character_canvas_position", tables)
+        self.assertIn("character_relations", tables)
+        self.db.execute(
+            "INSERT INTO character_canvas_position(project_id, character_id, x, y) "
+            "VALUES (1, 40, 12.5, 40)"
+        )
+        self.db.execute(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 40, 41, '연인', 'suggested', 'ai')"
+        )
+        x = self.db.execute(
+            "SELECT x FROM character_canvas_position WHERE character_id = 40"
+        ).fetchone()[0]
+        self.assertEqual(x, 12.5)
+        self.assert_integrity_error(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 40, 40, '자아', 'confirmed', 'manual')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 41, 40, '연인', 'confirmed', 'manual')"
+        )
+        self.db.execute(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 40, 41, '주인', 'confirmed', 'manual')"
+        )
+        labels = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT label FROM character_relations WHERE character_a_id = 40"
+            ).fetchall()
+        }
+        self.assertEqual(labels, {"연인", "주인"})
+        self.assert_integrity_error(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 40, 41, '연인', 'suggested', 'ai')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 75"
+        ).fetchone()[0]
+        self.assertEqual(version, "character_relations")
+
+    def test_character_relations_label_unique_migration_preserves_rows(self) -> None:
+        self.create_character()
+        self.db.execute("INSERT INTO character(id, project_id, name, sort_order) VALUES (41, 1, 'Min', 1)")
+        root = Path(__file__).resolve().parents[1] / "db"
+        old_sql = (root / "075_character_relations.sql").read_text(encoding="utf-8")
+        # Simulate a pre-076 database whose unique key was the pair only.
+        legacy = old_sql.replace(
+            "UNIQUE (project_id, character_a_id, character_b_id, label)",
+            "UNIQUE (project_id, character_a_id, character_b_id)",
+        )
+        self.db.executescript(legacy)
+        self.db.execute(
+            "INSERT INTO character_relations"
+            "(id, project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (9, 1, 40, 41, '연인', 'confirmed', 'ai')"
+        )
+        self.db.executescript((root / "076_character_relations_label_unique.sql").read_text(encoding="utf-8"))
+        row = self.db.execute(
+            "SELECT id, label, status FROM character_relations WHERE id = 9"
+        ).fetchone()
+        self.assertEqual(row[0], 9)
+        self.assertEqual(row[1], "연인")
+        self.assertEqual(row[2], "confirmed")
+        self.db.execute(
+            "INSERT INTO character_relations"
+            "(project_id, character_a_id, character_b_id, label, status, source) "
+            "VALUES (1, 40, 41, '주인', 'suggested', 'ai')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 76"
+        ).fetchone()[0]
+        self.assertEqual(version, "character_relations_label_unique")
