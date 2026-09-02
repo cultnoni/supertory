@@ -86,11 +86,11 @@ class ProperNounFitPromptTests(unittest.TestCase):
         none_prompt = translation_prompts.build_proper_noun_fit_prompt(None)  # type: ignore[arg-type]
         self.assertEqual(none_prompt, prompt)
 
-    def test_skips_existing_index_terms_when_provided(self) -> None:
+    def test_judges_existing_index_terms_when_provided(self) -> None:
         prompt = translation_prompts.build_proper_noun_fit_prompt(
             CHAPTER, existing_index_terms=["이오나", "아르카디아"]
         )
-        self.assertIn("건너뛰세요", prompt)
+        self.assertIn("반드시 같은 기준으로 판정하세요", prompt)
         self.assertIn("- 이오나", prompt)
         self.assertIn("- 아르카디아", prompt)
         self.assertTrue(prompt.endswith(CHAPTER))
@@ -99,23 +99,25 @@ class ProperNounFitPromptTests(unittest.TestCase):
         prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
         self.assertNotIn("건너뛰세요", prompt)
         self.assertNotIn("다시 판정하지 마세요", prompt)
+        self.assertNotIn("설정집에 이미 있는 고유명사", prompt)
         self.assertIn(
             "이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:\n" + CHAPTER,
             prompt,
         )
 
-    def test_skip_block_uses_index_header_and_only_new_terms_instruction(self) -> None:
+    def test_index_block_requires_judgment_and_still_finds_new_terms(self) -> None:
         prompt = translation_prompts.build_proper_noun_fit_prompt(
             CHAPTER, existing_index_terms=["이오나", "아르카디아"]
         )
         self.assertIn(
-            "[기존에 이미 정리된 고유명사 목록 — 아래 이름들은 건너뛰세요, 다시 판정하지 마세요]",
+            "[설정집에 이미 있는 고유명사 — 아래 이름들도 반드시 같은 기준으로 판정하세요]",
             prompt,
         )
-        self.assertIn("위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만 등장하는 지명 등)만", prompt)
-        self.assertIn("찾아서 아래 기준으로 판정하세요.", prompt)
+        self.assertIn("설정집 이름은 빠짐없이 판정하세요", prompt)
+        self.assertIn("위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만", prompt)
         self.assertIn("- 이오나", prompt)
         self.assertIn("- 아르카디아", prompt)
+        self.assertNotIn("건너뛰세요", prompt)
         self.assertIn(
             "이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:\n" + CHAPTER,
             prompt,

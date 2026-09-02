@@ -12,7 +12,10 @@ from typing import Protocol
 
 import gemini_client
 import translation_prompts
-from services.translation_preparation_service import serialize_scene_context
+from services.translation_preparation_service import (
+    format_proper_noun_glossary,
+    serialize_scene_context,
+)
 
 
 TRANSLATION_PARAGRAPH_BATCH_SIZE = 36
@@ -490,6 +493,30 @@ class TranslationBatchService:
         self.repository.commit()
         return serialize_translation_segment(updated)
 
+    def replace_translated_text(
+        self,
+        segment_id: int,
+        payload: dict | None,
+    ) -> dict:
+        data = payload if isinstance(payload, dict) else {}
+        text = str(
+            data.get("translated_text") or data.get("text") or ""
+        ).strip()
+        if not text:
+            raise ValueError("바꿀 번역문을 입력해 주세요.")
+        row = self.repository.get_segment(int(segment_id))
+        if row is None:
+            raise LookupError("번역 문단을 찾을 수 없습니다.")
+        updated = self.repository.save_translated_segment(
+            int(row["translation_job_id"]),
+            int(segment_id),
+            text,
+            row.get("translation_notes_json") or [],
+            needs_manual_review=False,
+        )
+        self.repository.commit()
+        return serialize_translation_segment(updated)
+
     def apply_all_polish(
         self,
         job_id: int,
@@ -533,6 +560,19 @@ class TranslationBatchService:
         )
         self.repository.commit()
         return serialize_translation_segment(updated)
+
+    def approve_chapter_segments(
+        self,
+        job_id: int,
+        chapter_number: int,
+    ) -> dict:
+        counts = self.repository.approve_unapproved_chapter_segments(
+            int(job_id), int(chapter_number)
+        )
+        self.repository.commit()
+        payload = self.list_segments(int(job_id), int(chapter_number))
+        payload.update(counts)
+        return payload
 
     def list_segments(
         self,
@@ -813,15 +853,9 @@ class TranslationBatchService:
         return str(source_text or ""), notes, True
 
     def _confirmed_glossary(self, job_id: int) -> str:
-        parts = []
-        for row in self.preparation_repository.get_proper_nouns(int(job_id)):
-            source = str(row.get("source_term") or "").strip()
-            final = str(row.get("final_term") or "").strip()
-            if source and final:
-                parts.append(f"{source}→{final}")
-            elif source:
-                parts.append(source)
-        return ", ".join(parts)
+        return format_proper_noun_glossary(
+            self.preparation_repository.get_proper_nouns(int(job_id))
+        )
 
     def _scene_tags(self, scene_context_id: object) -> tuple[str, str]:
         if not scene_context_id:

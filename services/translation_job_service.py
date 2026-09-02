@@ -6,7 +6,11 @@ import json
 from collections.abc import Callable
 from typing import Protocol
 
-from services.translation_preparation_service import serialize_scene_context
+from services.translation_extras_service import serialize_qa_message
+from services.translation_preparation_service import (
+    scene_context_in_job_range,
+    serialize_scene_context,
+)
 
 
 CULTURE_LOCALIZATION_LEVELS = ("tight", "moderate", "as_is")
@@ -154,18 +158,7 @@ def serialize_translation_job(
 
 
 def serialize_translation_chat_message(row: dict) -> dict:
-    data = dict(row)
-    dragged = data.get("dragged_text") or data.get("quoted_text") or ""
-    return {
-        "id": int(data["id"]),
-        "translation_job_id": int(data["translation_job_id"]),
-        "segment_id": data.get("segment_id"),
-        "dragged_text": dragged,
-        "quoted_text": dragged,
-        "role": data.get("role") or "user",
-        "message": data.get("message") or "",
-        "created_at": data.get("created_at"),
-    }
+    return serialize_qa_message(row)
 
 
 def serialize_translation_submission_package(row: dict) -> dict:
@@ -212,6 +205,7 @@ class TranslationJobService:
         job["scene_contexts"] = [
             serialize_scene_context(item)
             for item in self.preparation_repository.get_scene_contexts(int(job_id))
+            if scene_context_in_job_range(job, int(item["chapter_number"]))
         ]
         package = self.extras_repository.get_submission_package(int(job_id))
         if package:
@@ -445,6 +439,8 @@ class TranslationJobService:
             {
                 "number": int(item["number"]),
                 "title": item["title"],
+                "chapter_title": item.get("chapter_title") or "",
+                "folder_path": item.get("folder_path") or "",
                 "segment_count": int(counts.get(int(item["number"])) or 0),
             }
             for item in scenes

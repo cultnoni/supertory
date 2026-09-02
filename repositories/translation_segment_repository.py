@@ -202,6 +202,40 @@ class TranslationSegmentRepository:
             raise LookupError("번역 문단을 찾을 수 없습니다.")
         return self.get_segment(int(segment_id)) or {}
 
+    def approve_unapproved_chapter_segments(
+        self,
+        job_id: int,
+        chapter_number: int,
+    ) -> dict:
+        rows = self.get_segments_for_chapter(int(job_id), int(chapter_number))
+        already_approved = 0
+        skipped_manual_review = 0
+        skipped_empty = 0
+        to_approve: list[int] = []
+        for row in rows:
+            if int(row.get("is_approved") or 0):
+                already_approved += 1
+                continue
+            if not str(row.get("translated_text") or "").strip():
+                skipped_empty += 1
+                continue
+            if int(row.get("needs_manual_review") or 0):
+                skipped_manual_review += 1
+                continue
+            to_approve.append(int(row["id"]))
+        if to_approve:
+            self.connection.executemany(
+                "UPDATE translation_segments SET is_approved = 1, "
+                "updated_at = datetime('now') WHERE id = ?",
+                [(segment_id,) for segment_id in to_approve],
+            )
+        return {
+            "approved_count": len(to_approve),
+            "already_approved": already_approved,
+            "skipped_manual_review": skipped_manual_review,
+            "skipped_empty": skipped_empty,
+        }
+
     def get_approved_segments_for_chapter(
         self,
         job_id: int,

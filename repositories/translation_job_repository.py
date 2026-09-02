@@ -199,9 +199,12 @@ class TranslationJobRepository:
             paragraphs = self.paragraph_splitter(str(scene.get("content_md") or ""))
             scene_title = str(scene.get("title") or "").strip()
             chapter_title = str(scene.get("chapter_title") or "").strip()
+            folder_path = str(scene.get("folder_path") or "").strip()
             catalog.append({
                 "number": episode_index,
                 "title": scene_title or chapter_title or f"{episode_index}화",
+                "chapter_title": chapter_title,
+                "folder_path": folder_path,
                 "segment_count": len(paragraphs),
             })
         return catalog

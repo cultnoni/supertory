@@ -367,8 +367,9 @@ def build_proper_noun_fit_prompt(
 ) -> str:
     """Insert chapter text into the proper-noun fit judgment prompt.
 
-    When existing_index_terms is non-empty, the model is told to skip those
-    names and only report newly found proper nouns.
+    When existing_index_terms is non-empty, the model must judge those
+    setting-book names with the same criteria, then also report newly
+    found proper nouns from the chapter text.
     """
     body = "" if chapter_text is None else str(chapter_text)
     terms = [
@@ -376,21 +377,24 @@ def build_proper_noun_fit_prompt(
         for item in (existing_index_terms or [])
         if str(item).strip()
     ]
-    skip_block = ""
+    index_block = ""
     if terms:
         listed = "\n".join(f"- {term}" for term in terms)
-        skip_block = (
-            "[기존에 이미 정리된 고유명사 목록 — 아래 이름들은 건너뛰세요, 다시 판정하지 마세요]\n"
+        index_block = (
+            "[설정집에 이미 있는 고유명사 — 아래 이름들도 반드시 같은 기준으로 판정하세요]\n"
             f"{listed}\n"
-            "위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만 등장하는 지명 등)만\n"
-            "찾아서 아래 기준으로 판정하세요.\n"
+            "위 목록의 이름마다 romanized, fit_judgment, judgment_reason,\n"
+            "suggested_alternatives를 출력에 포함하세요. 이번 원문에 안 나와도\n"
+            "설정집 이름은 빠짐없이 판정하세요.\n"
+            "그 다음, 위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만\n"
+            "등장하는 지명 등)도 원문에서 찾아 같은 방식으로 판정하세요.\n"
         )
     head = _omit_non_target_examples(
         PROPER_NOUN_FIT_PROMPT_HEAD,
         target_language,
         example_marker="[예시1",
     )
-    return f"{head}{skip_block}{PROPER_NOUN_FIT_PROMPT_TAIL}{body}"
+    return f"{head}{index_block}{PROPER_NOUN_FIT_PROMPT_TAIL}{body}"
 
 
 CULTURE_MARKER_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
