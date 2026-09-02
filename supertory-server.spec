@@ -64,7 +64,7 @@ hiddenimports = [
 ]
 
 # Optional proof/import parsers (include when installed on the build machine).
-for pkg in ("docx", "olefile", "six", "hwp5", "lxml", "supabase"):
+for pkg in ("docx", "olefile", "six", "hwp5", "lxml", "supabase", "simplemma"):
     try:
         collected = collect_all(pkg)
         datas += collected[0]

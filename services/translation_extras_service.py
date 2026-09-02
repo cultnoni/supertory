@@ -11,6 +11,7 @@ from typing import Protocol
 from urllib.parse import quote
 
 import translation_prompts
+from services.translation_preparation_service import format_proper_noun_glossary
 
 
 FREE_DICTIONARY_API_URL = (
@@ -18,7 +19,15 @@ FREE_DICTIONARY_API_URL = (
 )
 FREE_DICTIONARY_TIMEOUT_SECONDS = 4
 FREE_DICTIONARY_MAX_ATTEMPTS = 2
+QA_REVISION_MARKER = "\n\n⟦수정 제안⟧\n"
 _DICTIONARY_EDGE_PUNCT = re.compile(r"^[^\w']+|[^\w']+$", re.UNICODE)
+_SIMPLEMM_LANGS = {"en", "es", "fr"}
+_PARTICLE_HYPHEN = re.compile(
+    r"^(?P<stem>[A-Za-z]{4,})(?P<particle>by|out|up|off|over)$",
+    re.IGNORECASE,
+)
+_simplemma_lemmatize = None
+_simplemma_import_tried = False
 
 
 class ExtrasRepositoryContract(Protocol):
@@ -84,6 +93,61 @@ def normalize_dictionary_word(word: object) -> str:
     return _DICTIONARY_EDGE_PUNCT.sub("", text) if text else ""
 
 
+def _load_simplemma_lemmatize():
+    global _simplemma_lemmatize, _simplemma_import_tried
+    if _simplemma_import_tried:
+        return _simplemma_lemmatize
+    _simplemma_import_tried = True
+    try:
+        from simplemma import lemmatize as loaded
+    except ImportError:
+        _simplemma_lemmatize = None
+        return None
+    _simplemma_lemmatize = loaded
+    return loaded
+
+
+def lemmatize_dictionary_word(word: str, language: str) -> str:
+    token = normalize_dictionary_word(word)
+    lang = str(language or "en").strip().lower() or "en"
+    if not token or lang not in _SIMPLEMM_LANGS:
+        return token
+    lemmatize = _load_simplemma_lemmatize()
+    if lemmatize is None:
+        return token
+    try:
+        lemma = str(lemmatize(token, lang=lang) or token).strip()
+    except (ValueError, TypeError, OSError):
+        return token
+    return lemma or token
+
+
+def hyphenated_particle_form(word: str) -> str:
+    token = normalize_dictionary_word(word)
+    if not token or "-" in token:
+        return ""
+    match = _PARTICLE_HYPHEN.match(token)
+    if match is None:
+        return ""
+    return f"{match.group('stem')}-{match.group('particle')}"
+
+
+def dictionary_lookup_forms(word: str, language: str = "en") -> list[str]:
+    original = normalize_dictionary_word(word)
+    if not original:
+        return []
+    forms = [original]
+    seen = {original.casefold()}
+    lemma = lemmatize_dictionary_word(original, language)
+    if lemma and lemma.casefold() not in seen:
+        forms.append(lemma)
+        seen.add(lemma.casefold())
+    hyphen = hyphenated_particle_form(lemma or original)
+    if hyphen and hyphen.casefold() not in seen:
+        forms.append(hyphen)
+    return forms
+
+
 def fetch_free_dictionary_payload(
     word: str,
     target_language: object = "en",
@@ -125,8 +189,17 @@ def fetch_free_dictionary_payload(
         raise ValueError("사전 조회에 실패했어요.") from error
 
 
+def split_qa_suggested_revision(message: object) -> tuple[str, str]:
+    text = str(message or "")
+    if QA_REVISION_MARKER in text:
+        body, revision = text.rsplit(QA_REVISION_MARKER, 1)
+        return body.strip(), revision.strip()
+    return text, ""
+
+
 def serialize_qa_message(row: dict) -> dict:
     data = dict(row)
+    message, revision = split_qa_suggested_revision(data.get("message"))
     return {
         "id": int(data["id"]),
         "translation_job_id": int(data["translation_job_id"]),
@@ -138,7 +211,8 @@ def serialize_qa_message(row: dict) -> dict:
         or data.get("quoted_text")
         or "",
         "role": data.get("role") or "user",
-        "message": data.get("message") or "",
+        "message": message,
+        "suggested_revision": revision,
         "created_at": data.get("created_at"),
     }
 
@@ -197,10 +271,34 @@ class TranslationExtrasService:
                 result.pop("target_language", None)
                 result["source"] = "cache"
                 return result
+        last_failed: dict | None = None
+        for index, form in enumerate(dictionary_lookup_forms(clean, language)):
+            result = self._fetch_dictionary_form(form, language)
+            if result.get("status") == "lookup_failed":
+                if index == 0:
+                    return result
+                last_failed = result
+                continue
+            if not result.get("found"):
+                continue
+            if form.casefold() != clean.casefold():
+                result["looked_up_as"] = str(result.get("word") or form)
+                result["queried_word"] = clean
+            return self._cache_dictionary_result(
+                segment_id, clean, language, result
+            )
+        if last_failed is not None:
+            return last_failed
+        result = _dictionary_not_found_payload(clean)
+        return self._cache_dictionary_result(
+            segment_id, clean, language, result
+        )
+
+    def _fetch_dictionary_form(self, form: str, language: str) -> dict:
         last_status: int | None = None
         for attempt in range(1, FREE_DICTIONARY_MAX_ATTEMPTS + 1):
             try:
-                status, payload = self.dictionary_fetch(clean, language)
+                status, payload = self.dictionary_fetch(form, language)
             except (
                 ValueError,
                 TimeoutError,
@@ -208,25 +306,22 @@ class TranslationExtrasService:
                 OSError,
             ):
                 if attempt >= FREE_DICTIONARY_MAX_ATTEMPTS:
-                    return _dictionary_lookup_failed_payload(clean)
+                    return _dictionary_lookup_failed_payload(form)
                 continue
             last_status = int(status or 0)
             if last_status == 404:
-                result = _dictionary_not_found_payload(clean)
-                return self._cache_dictionary_result(
-                    segment_id, clean, language, result
-                )
+                return _dictionary_not_found_payload(form)
             if last_status != 200:
                 if attempt >= FREE_DICTIONARY_MAX_ATTEMPTS:
-                    return _dictionary_lookup_failed_payload(clean)
+                    return _dictionary_lookup_failed_payload(form)
                 continue
-            result = _parse_dictionary_payload(clean, payload)
-            return self._cache_dictionary_result(
-                segment_id, clean, language, result
-            )
+            parsed = _parse_dictionary_payload(form, payload)
+            if parsed.get("found"):
+                return parsed
+            return _dictionary_not_found_payload(form)
         if last_status == 404:
-            return _dictionary_not_found_payload(clean)
-        return _dictionary_lookup_failed_payload(clean)
+            return _dictionary_not_found_payload(form)
+        return _dictionary_lookup_failed_payload(form)
 
     def explain_word_context(self, body: dict | None) -> dict:
         payload = body if isinstance(body, dict) else {}
@@ -373,19 +468,21 @@ class TranslationExtrasService:
             response_text.strip()
             or "지금은 답을 만들지 못했어요. 조금 뒤에 다시 물어봐 주세요."
         )
+        stored_reply = reply_text
         if suggested_revision:
-            reply_text = f"{reply_text}\n\n{suggested_revision}"
+            stored_reply = f"{reply_text}{QA_REVISION_MARKER}{suggested_revision}"
         saved = self.repository.save_qa_message(
             int(job_id),
             message,
-            reply_text,
+            stored_reply,
             segment_id=segment_id,
             dragged_text=str(dragged_text or "").strip() or None,
         )
         self.repository.commit()
         user = serialize_qa_message(saved["user"])
         tori = serialize_qa_message(saved["tori"])
-        tori["suggested_revision"] = suggested_revision
+        if suggested_revision:
+            tori["suggested_revision"] = suggested_revision
         return {"user": user, "tori": tori}
 
     def answer_qa_payload(self, body: dict | None) -> dict:
@@ -498,15 +595,9 @@ class TranslationExtrasService:
         return result
 
     def _confirmed_glossary(self, job_id: int) -> str:
-        parts = []
-        for row in self.preparation_repository.get_proper_nouns(int(job_id)):
-            source = str(row.get("source_term") or "").strip()
-            final = str(row.get("final_term") or "").strip()
-            if source and final:
-                parts.append(f"{source}→{final}")
-            elif source:
-                parts.append(source)
-        return ", ".join(parts)
+        return format_proper_noun_glossary(
+            self.preparation_repository.get_proper_nouns(int(job_id))
+        )
 
     def _require_job(self, job_id: int) -> dict:
         row = self.repository.get_job(int(job_id))
