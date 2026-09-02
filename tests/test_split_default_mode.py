@@ -18,18 +18,15 @@ class SplitDefaultModeUiTests(unittest.TestCase):
         cls.en = json.loads((ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8"))
         cls.es = json.loads((ROOT / "web" / "locales" / "es.json").read_text(encoding="utf-8"))
 
-    def test_admin_settings_has_default_view_mode(self) -> None:
-        self.assertIn('id="adminSplitDefaultSection"', self.html)
-        self.assertIn('name="adminSplitDefaultMode"', self.html)
-        self.assertIn('value="ask"', self.html)
-        self.assertIn('value="split"', self.html)
-        self.assertIn('value="popup"', self.html)
+    def test_admin_settings_has_no_default_view_mode_block(self) -> None:
+        self.assertNotIn('id="adminSplitDefaultSection"', self.html)
+        self.assertNotIn('name="adminSplitDefaultMode"', self.html)
+        self.assertNotIn("function syncAdminSplitDefaultRadios", self.js)
         settings_html = self.html.split('data-admin-panel="settings"', 1)[1].split(
             'data-admin-panel="account"', 1
         )[0]
-        self.assertIn("index.기본_보기_방식", settings_html)
-        self.assertIn("index.화면_나누기", settings_html)
-        self.assertIn("index.팝업으로_보기", settings_html)
+        self.assertNotIn("index.매번_고르기", settings_html)
+        self.assertNotIn("index.분할_버튼을_눌렀을_때_바로_적용할_방식을", settings_html)
 
     def test_context_menu_change_and_clear(self) -> None:
         self.assertIn('id="splitDefaultChangeMenu"', self.html)

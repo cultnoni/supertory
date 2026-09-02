@@ -59939,20 +59939,12 @@ function splitDefaultButtonTitle() {
   return i18n.t("app.분할_다른_회차를_화면_나누기_또는_팝업으로");
 }
 
-function syncAdminSplitDefaultRadios() {
-  const current = getSplitDefaultMode() || "ask";
-  document.querySelectorAll('input[name="adminSplitDefaultMode"]').forEach((input) => {
-    input.checked = input.value === current;
-  });
-}
-
 function setSplitDefaultMode(mode, { toastMsg = true } = {}) {
   const next = normalizeSplitDefaultMode(mode);
   try {
     if (next) localStorage.setItem(SPLIT_DEFAULT_MODE_KEY, next);
     else localStorage.removeItem(SPLIT_DEFAULT_MODE_KEY);
   } catch (_) { /* ignore */ }
-  syncAdminSplitDefaultRadios();
   if (typeof updateSplitChrome === "function") updateSplitChrome();
   if (typeof syncSplitModeMenuExtras === "function") syncSplitModeMenuExtras();
   if (!toastMsg) return;
@@ -62603,7 +62595,6 @@ function openAdminModal(tab = null) {
     langSel.value = i18n.getLang();
   }
   if (tab) setAdminTab(tab);
-  syncAdminSplitDefaultRadios();
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
   if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
@@ -62640,7 +62631,6 @@ function setAdminTab(tabId) {
     renderHiddenFeaturesList();
     if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
     if (typeof renderAdminAmbientList === "function") renderAdminAmbientList();
-    syncAdminSplitDefaultRadios();
   }
   if (id === "info") {
     refreshAdminInfoPanel();
@@ -64726,12 +64716,6 @@ function setupAdminMode() {
   });
   $("adminPrimaryDeviceSave")?.addEventListener("click", () => {
     saveAdminPrimaryDevice().catch(handleError);
-  });
-  document.querySelectorAll('input[name="adminSplitDefaultMode"]').forEach((input) => {
-    input.addEventListener("change", () => {
-      const value = input.value === "ask" ? "" : input.value;
-      setSplitDefaultMode(value);
-    });
   });
   document.querySelectorAll("[data-close-admin]").forEach((el) => {
     el.addEventListener("click", closeAdminModal);
