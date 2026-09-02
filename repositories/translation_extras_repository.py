@@ -284,6 +284,15 @@ class TranslationExtrasRepository:
         ).fetchone()
         return str(row["description_md"] or "").strip() if row else ""
 
+    def get_project_title(self, project_id: int) -> str:
+        if not project_id:
+            return ""
+        row = self.connection.execute(
+            "SELECT title FROM project WHERE id = ?",
+            (int(project_id),),
+        ).fetchone()
+        return str(row["title"] or "").strip() if row else ""
+
     def get_completed_segments(self, job_id: int) -> list[dict]:
         rows = self.connection.execute(
             "SELECT * FROM translation_segments "

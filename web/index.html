@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.18">
+    <link rel="stylesheet" href="/styles.css?v=1.4.31">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -5986,6 +5986,8 @@
               aria-controls="viewerReaderCommentsPanel"
               disabled
              data-i18n="index.가상독자_댓글_받기">가상독자 댓글 받기</button>
+            <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportTxt" data-i18n="index.텍스트로_내보내기">텍스트로 내보내기</button>
+            <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportDocx" data-i18n="index.DOCX로_내보내기">DOCX로 내보내기</button>
             <button type="button" class="secondary compact-btn" id="viewerTocToggle" title="목차 열기/닫기" data-i18n-title="index.목차_열기_닫기" aria-expanded="false" aria-controls="viewerTocPanel" data-i18n="app.목차">목차</button>
             <button
               type="button"
@@ -6996,12 +6998,15 @@
                 <button type="button" class="translation-pass-tab" id="translationPassPolish" data-translation-pass="polish" aria-selected="false" disabled data-i18n="app.윤문">윤문</button>
               </div>
               <button type="button" class="secondary compact-btn hidden" id="translationPackageButton" data-i18n="index.투고_패키지">투고 패키지</button>
+              <button type="button" class="secondary compact-btn hidden" id="translationResultButton" data-i18n="index.번역_결과">번역 결과</button>
               <button type="button" class="secondary compact-btn translation-workspace-close-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
             </div>
             <p class="hint translation-range-hint" data-i18n="index.투고는_보통_로그라인_시놉시스_샘플_3화">투고용 번역은 보통 로그라인+시놉시스+샘플 3화 내외가 적정 분량입니다.</p>
           </div>
         </div>
 
+        <div class="translation-workspace-split is-chat-collapsed" id="translationWorkspaceSplit">
+        <div class="translation-workspace-main" id="translationWorkspaceMain">
         <div id="translationRangePanel" class="translation-nouns-panel hidden">
           <p id="translationRangeEstimate" class="hint"></p>
           <div class="translation-nouns-actions">
@@ -7095,6 +7100,12 @@
         </button>
         <div id="translationNotesPopover" class="translation-notes-popover hidden" hidden role="tooltip"></div>
         <div id="translationWordPopover" class="translation-notes-popover translation-word-popover hidden" hidden role="dialog" aria-label="단어 사전" data-i18n-aria-label="index.단어_사전"></div>
+        </div>
+
+        <button type="button" id="translationChatResizer" class="translation-chat-resizer hidden" aria-orientation="vertical" aria-label="채팅 패널 너비 조절" data-i18n-aria-label="index.채팅_패널_너비_조절">
+          <span class="translation-chat-resizer-hit" aria-hidden="true"></span>
+          <span class="translation-chat-resizer-grip" aria-hidden="true"></span>
+        </button>
 
         <div id="translationChatDock" class="translation-chat-dock is-collapsed">
           <div class="translation-chat-bar">
@@ -7102,7 +7113,6 @@
               <span data-i18n="index.토리에게_질문하기">토리에게 질문하기</span>
               <span class="translation-chat-chevron" aria-hidden="true">▴</span>
             </button>
-            <button type="button" class="secondary compact-btn translation-chat-expand" id="translationChatExpand" data-i18n="app.전체보기" aria-pressed="false" title="전체보기" data-i18n-title="app.전체보기">전체보기</button>
           </div>
           <div id="translationChatBody" class="translation-chat-body" hidden>
             <div id="translationChatHistory" class="translation-chat-history" aria-live="polite"></div>
@@ -7110,11 +7120,13 @@
               <p id="translationChatQuoteText"></p>
               <button type="button" id="translationChatQuoteClear" class="secondary compact-btn" data-i18n="index.인용_지우기">인용 지우기</button>
             </div>
+            <p class="hint translation-chat-compose-hint" data-i18n="index.특정_문장을_드래그해서_선택한_뒤_질문하면">특정 문장을 드래그해서 선택한 뒤 질문하면, 답변을 바로 그 문장에 반영할 수 있어요</p>
             <div class="translation-chat-compose">
-              <textarea id="translationChatInput" rows="2" placeholder="번역에 대해 질문하세요" data-i18n-placeholder="index.번역에_대해_질문하세요"></textarea>
+              <textarea id="translationChatInput" rows="3" placeholder="특정 문장을 드래그해 선택한 뒤 질문하세요" data-i18n-placeholder="index.특정_문장을_드래그해_선택한_뒤_질문하세요"></textarea>
               <button type="button" class="primary compact-btn" id="translationChatSend" data-i18n="app.보내기">보내기</button>
             </div>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -7217,7 +7229,36 @@
           <a href="mailto:contact@supertory.com">contact@supertory.com</a>
         </p>
         <div class="modal-actions">
+          <button type="button" class="secondary" id="translationCheerViewResult" data-i18n="index.번역_결과_보기">번역 결과 보기</button>
           <button type="button" class="primary" data-close-translation-cheer data-i18n="app.확인">확인</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="translationSubmissionResultModal" class="modal hidden tory-helper-modal" role="dialog" aria-modal="true" aria-labelledby="translationSubmissionResultTitle">
+      <div class="modal-backdrop" data-close-translation-result></div>
+      <div class="modal-card tory-helper-card translation-result-modal-card">
+        <div class="modal-heading">
+          <h2 id="translationSubmissionResultTitle" class="tory-helper-title" data-i18n="index.번역_결과">번역 결과</h2>
+          <button type="button" class="modal-close" data-close-translation-result title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+        </div>
+        <section class="translation-result-section">
+          <h3 data-i18n="app.로그라인">로그라인</h3>
+          <pre class="translation-result-pre" id="translationResultLogline"></pre>
+        </section>
+        <section class="translation-result-section">
+          <h3 data-i18n="app.시놉시스">시놉시스</h3>
+          <pre class="translation-result-pre" id="translationResultSynopsis"></pre>
+        </section>
+        <section class="translation-result-section">
+          <h3 data-i18n="index.번역_원고">번역 원고</h3>
+          <div id="translationResultChapters"></div>
+        </section>
+        <div class="modal-actions translation-result-actions">
+          <button type="button" class="secondary" id="translationResultPdfPreview" data-i18n="index.PDF로_보기">PDF로 보기</button>
+          <button type="button" class="secondary" id="translationResultExportTxt" data-i18n="index.텍스트로_내보내기">텍스트로 내보내기</button>
+          <button type="button" class="secondary" id="translationResultExportDocx" data-i18n="index.DOCX로_내보내기">DOCX로 내보내기</button>
+          <button type="button" class="primary" data-close-translation-result data-i18n="app.닫기">닫기</button>
         </div>
       </div>
     </div>
@@ -7269,6 +7310,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.25"></script>
+    <script src="/app.js?v=1.4.31"></script>
   </body>
 </html>

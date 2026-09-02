@@ -20,6 +20,7 @@ FREE_DICTIONARY_API_URL = (
 FREE_DICTIONARY_TIMEOUT_SECONDS = 4
 FREE_DICTIONARY_MAX_ATTEMPTS = 2
 QA_REVISION_MARKER = "\n\n⟦수정 제안⟧\n"
+SUBMISSION_EXPORT_FORMATS = ("txt", "docx")
 _DICTIONARY_EDGE_PUNCT = re.compile(r"^[^\w']+|[^\w']+$", re.UNICODE)
 _SIMPLEMM_LANGS = {"en", "es", "fr"}
 _PARTICLE_HYPHEN = re.compile(
@@ -70,6 +71,7 @@ class ExtrasRepositoryContract(Protocol):
         self, segment_id: int, job_id: int
     ) -> dict | None: ...
     def get_project_synopsis(self, project_id: int) -> str: ...
+    def get_project_title(self, project_id: int) -> str: ...
     def get_completed_segments(self, job_id: int) -> list[dict]: ...
     def commit(self) -> None: ...
 
@@ -577,6 +579,101 @@ class TranslationExtrasService:
             self.preparation_repository.commit()
             raise
         return self.job_service.get_job(int(job_id))
+
+    def get_submission_result(self, job_id: int) -> dict:
+        job = self.job_service.get_job(int(job_id))
+        package = job.get("submission_package")
+        if not isinstance(package, dict) or not (
+            str(package.get("logline_translated") or "").strip()
+            or str(package.get("synopsis_translated") or "").strip()
+        ):
+            raise LookupError("투고 패키지를 아직 만들지 않았어요.")
+        project_title = self.repository.get_project_title(
+            int(job.get("local_project_id") or 0)
+        )
+        chapter_meta = {
+            int(item["number"]): item
+            for item in job.get("chapters") or []
+            if item.get("number") not in (None, "")
+        }
+        grouped: dict[int, list[str]] = {}
+        for row in self.repository.get_completed_segments(int(job_id)):
+            number = int(row.get("chapter_number") or 0)
+            if number <= 0:
+                continue
+            text = str(
+                row.get("polish_text") or row.get("translated_text") or ""
+            ).strip()
+            if text:
+                grouped.setdefault(number, []).append(text)
+        chapters = []
+        for number in sorted(grouped):
+            meta = chapter_meta.get(number) or {}
+            title = str(meta.get("title") or "").strip() or f"{number}화"
+            chapters.append(
+                {
+                    "number": number,
+                    "title": title,
+                    "text": "\n\n".join(grouped[number]),
+                }
+            )
+        return {
+            "job_id": int(job_id),
+            "target_language": job.get("target_language") or "en",
+            "project_title": project_title,
+            "logline_translated": str(package.get("logline_translated") or ""),
+            "synopsis_translated": str(package.get("synopsis_translated") or ""),
+            "sample_chapters_range": str(package.get("sample_chapters_range") or ""),
+            "generated_at": package.get("generated_at"),
+            "chapters": chapters,
+        }
+
+    def export_submission_package(
+        self,
+        job_id: int,
+        format_key: str = "docx",
+    ):
+        import document_export
+
+        key = (format_key or "docx").strip().lower()
+        if key not in SUBMISSION_EXPORT_FORMATS:
+            raise ValueError("지원 형식: txt, docx")
+        result = self.get_submission_result(int(job_id))
+        title = str(result.get("project_title") or "").strip() or "투고 패키지"
+        chapters = []
+        logline = str(result.get("logline_translated") or "").strip()
+        synopsis = str(result.get("synopsis_translated") or "").strip()
+        if logline:
+            chapters.append(
+                {
+                    "title": "Logline",
+                    "scenes": [{"title": "", "content_plain": logline}],
+                }
+            )
+        if synopsis:
+            chapters.append(
+                {
+                    "title": "Synopsis",
+                    "scenes": [{"title": "", "content_plain": synopsis}],
+                }
+            )
+        for item in result.get("chapters") or []:
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            chapters.append(
+                {
+                    "title": str(item.get("title") or "").strip() or "Chapter",
+                    "scenes": [{"title": "", "content_plain": text}],
+                }
+            )
+        if not chapters:
+            raise ValueError("내보낼 번역 결과가 없어요.")
+        return document_export.export_bytes(
+            key,
+            project_title=f"{title} 투고 패키지",
+            chapters=chapters,
+        )
 
     def _cache_dictionary_result(
         self,

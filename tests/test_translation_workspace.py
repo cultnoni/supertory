@@ -404,6 +404,25 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             parsed = {"raw": raw}
         return response.status, parsed
 
+    def request_bytes(
+        self, method: str, path: str, payload: dict | None = None
+    ) -> tuple[int, bytes, str]:
+        connection = http.client.HTTPConnection(
+            "127.0.0.1", self.server.server_port, timeout=15
+        )
+        body = (
+            json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            if payload is not None
+            else None
+        )
+        headers = {"Content-Type": "application/json"} if body else {}
+        connection.request(method, path, body, headers)
+        response = connection.getresponse()
+        raw = response.read()
+        content_type = response.getheader("Content-Type") or ""
+        connection.close()
+        return response.status, raw, content_type
+
     def _decide_empty_nouns(self, job_id: int, overrides: dict | None = None) -> None:
         overrides = overrides or {}
         status, listing = self.request(
@@ -758,20 +777,142 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
         en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
         es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
-        self.assertIn('id="translationChatExpand"', html)
+        self.assertIn('id="translationChatResizer"', html)
+        self.assertIn('id="translationWorkspaceSplit"', html)
+        self.assertNotIn('id="translationChatExpand"', html)
         self.assertIn("data-revision-apply", js)
         self.assertIn("data-revision-edit", js)
         self.assertIn("data-revision-save", js)
         self.assertIn("applyTranslationChatRevision", js)
-        self.assertIn("setTranslationChatExpanded", js)
+        self.assertIn("setupTranslationChatResizer", js)
+        self.assertIn("translation-chat-select-hint", js)
         self.assertIn("/segments/${id}/text", js)
-        self.assertIn("is-chat-expanded", css)
-        self.assertIn("translation-chat-dock.is-expanded", css)
+        self.assertIn("translation-workspace-split", css)
+        self.assertIn("translation-chat-resizer", css)
+        self.assertNotIn("is-chat-expanded", css)
+        collapsed_toggle = css.split(
+            ".translation-chat-dock.is-collapsed .translation-chat-toggle"
+        )[1].split(".translation-chat-dock.is-collapsed .translation-chat-chevron")[0]
+        self.assertIn("writing-mode: vertical-rl", collapsed_toggle)
+        self.assertNotIn("rotate(180deg)", collapsed_toggle)
         for locale in (ko, en, es):
             self.assertIn("index.이_문장으로_바꾸기", locale)
             self.assertIn("index.직접_수정", locale)
-            self.assertIn("index.좁게_보기", locale)
+            self.assertIn("index.특정_문장을_드래그해서_선택한_뒤_질문하면", locale)
+            self.assertIn("index.이_문장을_드래그해서_다시_질문하면", locale)
             self.assertIn("index.번역문에_반영했어요", locale)
+
+    def test_submission_result_ui_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn('id="translationCheerViewResult"', html)
+        self.assertIn('id="translationSubmissionResultModal"', html)
+        self.assertIn('id="translationResultButton"', html)
+        self.assertIn("openTranslationSubmissionResultModal", js)
+        self.assertIn("downloadTranslationSubmissionExport", js)
+        self.assertIn("/submission_result", js)
+        self.assertIn("/export_submission", js)
+        self.assertIn("translation-result-modal-card", css)
+        self.assertIn('id="translationResultPdfPreview"', html)
+        self.assertIn('id="viewerTranslationExportTxt"', html)
+        self.assertIn("openTranslationSubmissionPdfPreview", js)
+        self.assertIn("buildTranslationSubmissionViewerHtml", js)
+        self.assertIn("is-translation-preview", js)
+        self.assertIn("is-translation-preview", css)
+        self.assertIn("layoutDevicePages", js)
+        self.assertIn("wrapViewerEpisode", js)
+        self.assertIn("openViewerMode(\"pdf\"", js)
+        for locale in (ko, en, es):
+            self.assertIn("index.번역_결과_보기", locale)
+            self.assertIn("index.텍스트로_내보내기", locale)
+            self.assertIn("index.PDF로_보기", locale)
+            self.assertIn("index.번역_원고", locale)
+            self.assertIn("index.투고_패키지를_아직_만들지_않았어요", locale)
+
+    def test_submission_result_and_export_use_saved_package_and_segments(self) -> None:
+        project_id, _ = self._make_story()
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            self._translation_job_body(),
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        status, missing = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/submission_result"
+        )
+        self.assertEqual(status, 404)
+
+        status, listing = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/segments?chapter=1"
+        )
+        self.assertEqual(status, 200)
+        segments = listing["segments"]
+        self.assertGreaterEqual(len(segments), 2)
+        first_id = int(segments[0]["id"])
+        second_id = int(segments[1]["id"])
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE translation_segments "
+                "SET translated_text = ?, polish_text = ? WHERE id = ?",
+                ("First draft.", "Polished rain.", first_id),
+            )
+            connection.execute(
+                "UPDATE translation_segments SET translated_text = ? WHERE id = ?",
+                ("One umbrella covered them both.", second_id),
+            )
+            app.get_translation_extras_repository(connection).save_submission_package(
+                job_id,
+                "Two strangers share an umbrella.",
+                "A rainy city brings two people together.",
+            )
+
+        status, result = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/submission_result"
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            result["logline_translated"], "Two strangers share an umbrella."
+        )
+        self.assertIn("rainy city", result["synopsis_translated"])
+        self.assertEqual(result["project_title"], "비의 도시")
+        self.assertTrue(result["chapters"])
+        manuscript = result["chapters"][0]["text"]
+        self.assertIn("Polished rain.", manuscript)
+        self.assertNotIn("First draft.", manuscript)
+        self.assertIn("One umbrella covered them both.", manuscript)
+
+        status, exported = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/export_submission",
+            {"format": "txt"},
+        )
+        self.assertEqual(status, 200)
+        raw = str(exported.get("raw") or "")
+        self.assertIn("Two strangers share an umbrella.", raw)
+        self.assertIn("A rainy city brings two people together.", raw)
+        self.assertIn("Polished rain.", raw)
+
+        status, docx, content_type = self.request_bytes(
+            "POST",
+            f"/api/translation/jobs/{job_id}/export_submission",
+            {"format": "docx"},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(docx.startswith(b"PK"))
+        self.assertIn("wordprocessingml", content_type)
+
+        status, bad = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/export_submission",
+            {"format": "pdf"},
+        )
+        self.assertEqual(status, 400)
 
     def test_approve_all_skips_manual_review_and_already_approved(self) -> None:
         project_id, _ = self._make_story(

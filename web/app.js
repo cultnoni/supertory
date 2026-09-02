@@ -28957,7 +28957,6 @@ const translationWorkspaceState = {
   stage: "formatting",
   pass: "first",
   chatOpen: false,
-  chatExpanded: false,
   quote: { text: "", segmentId: null },
   syncing: false,
   dismissed: false,
@@ -28967,6 +28966,7 @@ const translationWorkspaceState = {
   pendingCulture: "moderate",
   rangeEpisodes: [],
   chapterPolish: {},
+  submissionResult: null,
 };
 
 const CULTURE_LEVEL_I18N = {
@@ -28994,13 +28994,13 @@ function resetTranslationWorkspaceState() {
   translationWorkspaceState.stage = "formatting";
   translationWorkspaceState.pass = "first";
   translationWorkspaceState.chatOpen = false;
-  translationWorkspaceState.chatExpanded = false;
   translationWorkspaceState.quote = { text: "", segmentId: null };
   translationWorkspaceState.syncing = false;
   translationWorkspaceState.busy = false;
   translationWorkspaceState.pendingCulture = "moderate";
   translationWorkspaceState.rangeEpisodes = [];
   translationWorkspaceState.chapterPolish = {};
+  translationWorkspaceState.submissionResult = null;
 }
 
 function translationWorkspaceBelongsToOtherProject(projectId) {
@@ -29029,6 +29029,7 @@ function detachTranslationWorkspaceForProjectChange() {
   $("translationCultureModal")?.classList.add("hidden");
   $("translationSettingsModal")?.classList.add("hidden");
   closeTranslationSubmissionCheerModal();
+  closeTranslationSubmissionResultModal();
   hideTranslationAskButton();
   hideTranslationNotesPopover();
   hideTranslationWordPopover();
@@ -29714,6 +29715,15 @@ function translationHasTranslatedWork() {
   return translationPipelineTranslated();
 }
 
+function translationHasSubmissionPackage() {
+  const pkg = translationWorkspaceState.job?.submission_package;
+  if (!pkg || typeof pkg !== "object") return false;
+  return Boolean(
+    String(pkg.logline_translated || "").trim()
+    || String(pkg.synopsis_translated || "").trim()
+  );
+}
+
 function properNounTypeLabel(type) {
   const map = {
     character: "app.인물",
@@ -29806,6 +29816,12 @@ function updateTranslationPipelineButtons() {
   if (packageBtn) {
     packageBtn.classList.toggle("hidden", !hasTranslatedWork);
     packageBtn.disabled = busy;
+  }
+  const resultBtn = $("translationResultButton");
+  if (resultBtn) {
+    const hasPackage = translationHasSubmissionPackage();
+    resultBtn.classList.toggle("hidden", !hasPackage);
+    resultBtn.disabled = busy || !hasPackage;
   }
   ["translationRefreshNounsButton", "translationConfirmNounsButton", "translationAddNounToggle"].forEach((id) => {
     const el = $(id);
@@ -30374,6 +30390,150 @@ function closeTranslationSubmissionCheerModal() {
   $("translationSubmissionCheerModal")?.classList.add("hidden");
 }
 
+function openTranslationSubmissionResultModal() {
+  return loadTranslationSubmissionResult().then(() => {
+    const modal = $("translationSubmissionResultModal");
+    if (!modal) return;
+    if (typeof ensureToryModalTitleMascots === "function") ensureToryModalTitleMascots();
+    modal.classList.remove("hidden");
+    applyTranslations();
+  });
+}
+
+function closeTranslationSubmissionResultModal() {
+  $("translationSubmissionResultModal")?.classList.add("hidden");
+}
+
+function renderTranslationSubmissionResult(result) {
+  translationWorkspaceState.submissionResult = result || null;
+  const loglineEl = $("translationResultLogline");
+  const synopsisEl = $("translationResultSynopsis");
+  const chaptersEl = $("translationResultChapters");
+  if (loglineEl) {
+    loglineEl.textContent = String(result?.logline_translated || "").trim() || "—";
+  }
+  if (synopsisEl) {
+    synopsisEl.textContent = String(result?.synopsis_translated || "").trim() || "—";
+  }
+  if (!chaptersEl) return;
+  const chapters = Array.isArray(result?.chapters) ? result.chapters : [];
+  const bodies = chapters.filter((chapter) => String(chapter?.text || "").trim());
+  if (!bodies.length) {
+    chaptersEl.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.아직_확인할_번역_원고가_없어요"))}</p>`;
+    applyTranslations();
+    return;
+  }
+  chaptersEl.innerHTML = bodies.map((chapter) => {
+    const title = escapeHtml(chapter.title || `${chapter.number || ""}`);
+    const text = escapeHtml(String(chapter.text || "").trim());
+    return `<section class="translation-result-chapter"><h3>${title}</h3><pre class="translation-result-pre">${text}</pre></section>`;
+  }).join("");
+}
+
+async function loadTranslationSubmissionResult() {
+  const jobId = translationWorkspaceState.jobId;
+  if (!jobId) throw new Error(i18n.t("index.투고_패키지를_아직_만들지_않았어요"));
+  const result = await api(`/api/translation/jobs/${jobId}/submission_result`);
+  renderTranslationSubmissionResult(result);
+  return result;
+}
+
+async function downloadTranslationSubmissionExport(formatKey) {
+  const jobId = translationWorkspaceState.jobId;
+  if (!jobId) return;
+  const key = String(formatKey || "docx").toLowerCase();
+  let response;
+  try {
+    response = await fetch(`/api/translation/jobs/${jobId}/export_submission`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ format: key }),
+    });
+  } catch (_) {
+    throw new Error(i18n.t("app.내보내기_서버에_연결하지_못했어요_Super"));
+  }
+  if (!response.ok) {
+    let message = i18n.t("app.내보내기에_실패했습니다");
+    try {
+      const err = await response.json();
+      if (err?.error) message = err.error;
+    } catch (_) { /* ignore */ }
+    throw new Error(message);
+  }
+  const blob = await response.blob();
+  let filename = `translation.${key === "docx" ? "docx" : "txt"}`;
+  const dispo = response.headers.get("Content-Disposition") || "";
+  const encoded = dispo.match(/filename\*=UTF-8''([^;]+)/i);
+  const quoted = dispo.match(/filename="([^"]+)"/i);
+  if (encoded || quoted) {
+    try {
+      filename = decodeURIComponent((encoded && encoded[1]) || (quoted && quoted[1]) || filename);
+    } catch (_) { /* keep */ }
+  }
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  window.setTimeout(() => URL.revokeObjectURL(url), 2000);
+  toast(i18n.t("app.filename_내려받기를_시작했어요", { filename }));
+}
+
+function buildTranslationSubmissionViewerHtml(result) {
+  const parts = [];
+  const logline = String(result?.logline_translated || "").trim();
+  const synopsis = String(result?.synopsis_translated || "").trim();
+  if (logline) {
+    parts.push(wrapViewerEpisode(
+      { sceneId: -1, index: 0, label: "Logline", shortLabel: "Logline" },
+      normalizeViewerHtml(logline),
+      { showTitle: true, useRawTitle: true },
+    ));
+  }
+  if (synopsis) {
+    parts.push(wrapViewerEpisode(
+      { sceneId: -2, index: 0, label: "Synopsis", shortLabel: "Synopsis" },
+      normalizeViewerHtml(synopsis),
+      { showTitle: true, useRawTitle: true },
+    ));
+  }
+  const chapters = Array.isArray(result?.chapters) ? result.chapters : [];
+  chapters.forEach((chapter, index) => {
+    const text = String(chapter?.text || "").trim();
+    if (!text) return;
+    const title = String(chapter?.title || "").trim()
+      || `Chapter ${chapter?.number || index + 1}`;
+    parts.push(wrapViewerEpisode(
+      { sceneId: -10 - index, index: index + 1, label: title, shortLabel: title },
+      normalizeViewerHtml(text),
+      { showTitle: true, useRawTitle: true },
+    ));
+  });
+  return joinViewerEpisodeParts(parts);
+}
+
+function openTranslationSubmissionPdfPreview() {
+  const result = translationWorkspaceState.submissionResult;
+  if (!result) {
+    toast(i18n.t("index.아직_확인할_번역_원고가_없어요"));
+    return;
+  }
+  const html = buildTranslationSubmissionViewerHtml(result);
+  if (!String(html || "").trim()) {
+    toast(i18n.t("index.아직_확인할_번역_원고가_없어요"));
+    return;
+  }
+  $("translationSubmissionResultModal")?.classList.add("hidden");
+  openViewerMode("pdf", {
+    previewSource: "translation-submission",
+    previewHtml: html,
+    previewTitle: String(result.project_title || "").trim() || i18n.t("index.번역_결과"),
+    previewLang: String(result.target_language || "en").trim() || "en",
+  });
+}
+
 function renderTranslationChapters() {
   const select = $("translationChapterSelect");
   if (!select) return;
@@ -30622,7 +30782,7 @@ function renderTranslationChat() {
             <textarea rows="3" data-revision-input="${msgId}">${escapeHtml(revision)}</textarea>
             <button type="button" class="primary compact-btn" data-revision-save="${segmentId}" data-revision-input-for="${msgId}">${escapeHtml(i18n.t("index.적용"))}</button>
           </div>`
-        : "";
+        : `<p class="translation-chat-select-hint">${escapeHtml(i18n.t("index.이_문장을_드래그해서_다시_질문하면"))}</p>`;
       revisionBlock = `<div class="translation-chat-revision"><span>${escapeHtml(i18n.t("index.수정_제안"))}</span><p>${escapeHtml(revision)}</p>${actions}</div>`;
     }
     return `<div class="translation-chat-bubble ${roleClass}">${quote}<div>${escapeHtml(body)}</div>${revisionBlock}</div>`;
@@ -30630,21 +30790,92 @@ function renderTranslationChat() {
   history.scrollTop = history.scrollHeight;
 }
 
-function translationWorkspaceCard() {
-  return document.querySelector("#translationWorkspaceModal .translation-workspace-card");
+function translationWorkspaceSplit() {
+  return $("translationWorkspaceSplit");
 }
 
-function syncTranslationChatExpandButton() {
-  const btn = $("translationChatExpand");
-  if (!btn) return;
-  const expanded = Boolean(translationWorkspaceState.chatExpanded);
-  const key = expanded ? "index.좁게_보기" : "app.전체보기";
-  const label = i18n.t(key);
-  btn.setAttribute("data-i18n", key);
-  btn.setAttribute("data-i18n-title", key);
-  btn.textContent = label;
-  btn.title = label;
-  btn.setAttribute("aria-pressed", expanded ? "true" : "false");
+const TRANSLATION_CHAT_WIDTH_STORAGE_KEY = "supertory.translationChatWidth";
+const TRANSLATION_CHAT_WIDTH_MIN = 260;
+const TRANSLATION_CHAT_WIDTH_DEFAULT = 360;
+const TRANSLATION_CHAT_MAIN_MIN = 420;
+const TRANSLATION_CHAT_HANDLE = 10;
+
+function applyTranslationChatWidth(widthPx) {
+  const split = translationWorkspaceSplit();
+  if (!split) return widthPx;
+  const total = split.getBoundingClientRect().width || window.innerWidth;
+  const maxChat = Math.max(
+    TRANSLATION_CHAT_WIDTH_MIN,
+    total - TRANSLATION_CHAT_MAIN_MIN - TRANSLATION_CHAT_HANDLE,
+  );
+  const raw = Number(widthPx);
+  const preferred = Number.isFinite(raw) && raw > 0 ? raw : TRANSLATION_CHAT_WIDTH_DEFAULT;
+  const width = Math.max(
+    TRANSLATION_CHAT_WIDTH_MIN,
+    Math.min(maxChat, Math.round(preferred)),
+  );
+  split.style.setProperty("--translation-chat-width", `${width}px`);
+  return width;
+}
+
+function rememberedTranslationChatWidth() {
+  try {
+    const stored = Number(sessionStorage.getItem(TRANSLATION_CHAT_WIDTH_STORAGE_KEY));
+    if (Number.isFinite(stored) && stored >= TRANSLATION_CHAT_WIDTH_MIN) return stored;
+  } catch (_) { /* ignore */ }
+  return TRANSLATION_CHAT_WIDTH_DEFAULT;
+}
+
+function setupTranslationChatResizer() {
+  const resizer = $("translationChatResizer");
+  if (!resizer || resizer.dataset.bound === "1") return;
+  resizer.dataset.bound = "1";
+  applyTranslationChatWidth(rememberedTranslationChatWidth());
+  let drag = null;
+
+  const onMove = (event) => {
+    if (!drag) return;
+    const split = translationWorkspaceSplit();
+    if (!split) return;
+    const rect = split.getBoundingClientRect();
+    const next = applyTranslationChatWidth(rect.right - event.clientX);
+    drag.currentWidth = next;
+  };
+
+  const onUp = () => {
+    if (!drag) return;
+    document.body.classList.remove("translation-chat-resizing");
+    try {
+      sessionStorage.setItem(
+        TRANSLATION_CHAT_WIDTH_STORAGE_KEY,
+        String(drag.currentWidth || TRANSLATION_CHAT_WIDTH_DEFAULT),
+      );
+    } catch (_) { /* ignore */ }
+    drag = null;
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    window.removeEventListener("pointercancel", onUp);
+  };
+
+  resizer.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if (!translationWorkspaceState.chatOpen) return;
+    const dock = $("translationChatDock");
+    drag = {
+      currentWidth: dock?.getBoundingClientRect().width || rememberedTranslationChatWidth(),
+    };
+    document.body.classList.add("translation-chat-resizing");
+    try { resizer.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+    event.preventDefault();
+  });
+
+  window.addEventListener("resize", () => {
+    if (!isTranslationWorkspaceOpen() || !translationWorkspaceState.chatOpen) return;
+    applyTranslationChatWidth(rememberedTranslationChatWidth());
+  });
 }
 
 function ensureTranslationParagraphsVisible() {
@@ -30655,21 +30886,6 @@ function ensureTranslationParagraphsVisible() {
     setTranslationStage("paragraphs");
     renderTranslationColumns();
   }
-}
-
-function setTranslationChatExpanded(expanded) {
-  translationWorkspaceState.chatExpanded = Boolean(expanded);
-  if (translationWorkspaceState.chatExpanded) {
-    ensureTranslationParagraphsVisible();
-    setTranslationChatOpen(true);
-  }
-  const dock = $("translationChatDock");
-  dock?.classList.toggle("is-expanded", translationWorkspaceState.chatExpanded);
-  translationWorkspaceCard()?.classList.toggle(
-    "is-chat-expanded",
-    translationWorkspaceState.chatExpanded,
-  );
-  syncTranslationChatExpandButton();
 }
 
 function translationChatSuggestedRevision(msgId) {
@@ -30714,24 +30930,23 @@ async function applyTranslationChatRevision(segmentId, text) {
 
 function setTranslationChatOpen(open) {
   translationWorkspaceState.chatOpen = Boolean(open);
-  if (!translationWorkspaceState.chatOpen) {
-    translationWorkspaceState.chatExpanded = false;
-  }
   const dock = $("translationChatDock");
   const body = $("translationChatBody");
   const toggle = $("translationChatToggle");
+  const resizer = $("translationChatResizer");
+  const split = translationWorkspaceSplit();
   dock?.classList.toggle("is-collapsed", !open);
-  dock?.classList.toggle("is-expanded", Boolean(translationWorkspaceState.chatExpanded));
-  translationWorkspaceCard()?.classList.toggle(
-    "is-chat-expanded",
-    Boolean(translationWorkspaceState.chatExpanded),
-  );
+  split?.classList.toggle("is-chat-collapsed", !open);
+  if (resizer) {
+    resizer.hidden = !open;
+    resizer.classList.toggle("hidden", !open);
+  }
+  if (open) applyTranslationChatWidth(rememberedTranslationChatWidth());
   if (body) {
     body.hidden = !open;
     body.toggleAttribute("hidden", !open);
   }
   toggle?.setAttribute("aria-expanded", open ? "true" : "false");
-  syncTranslationChatExpandButton();
 }
 
 function setTranslationQuote(text, segmentId) {
@@ -30901,10 +31116,16 @@ async function openTranslationWorkspace({ quiet = false } = {}) {
 }
 
 function closeTranslationWorkspace({ dismissed = true, returnToList = dismissed } = {}) {
+  if (typeof isTranslationViewerPreview === "function" && isTranslationViewerPreview()) {
+    viewerPreviewSource = null;
+    viewerPreviewHtml = "";
+    if (typeof closeViewerMode === "function") closeViewerMode();
+  }
   $("translationWorkspaceModal")?.classList.add("hidden");
   $("translationCultureModal")?.classList.add("hidden");
   $("translationSettingsModal")?.classList.add("hidden");
   closeTranslationSubmissionCheerModal();
+  closeTranslationSubmissionResultModal();
   hideTranslationAskButton();
   hideTranslationNotesPopover();
   hideTranslationWordPopover();
@@ -30933,6 +31154,7 @@ function bindTranslationScrollSync() {
 function setupTranslationWorkspace() {
   applyTranslationComingLock();
   bindTranslationScrollSync();
+  setupTranslationChatResizer();
   $("aiMode")?.addEventListener("change", () => {
     if (isTranslationMode()) translationWorkspaceState.dismissed = false;
     updateTranslationWorkspaceVisibility({ forceOpen: isTranslationMode() });
@@ -30953,6 +31175,12 @@ function setupTranslationWorkspace() {
     el.addEventListener("click", (event) => {
       event.preventDefault();
       closeTranslationSubmissionCheerModal();
+    });
+  });
+  document.querySelectorAll("[data-close-translation-result]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeTranslationSubmissionResultModal();
     });
   });
   $("translationChapterSelect")?.addEventListener("change", (event) => {
@@ -31100,6 +31328,28 @@ function setupTranslationWorkspace() {
   $("translationPackageButton")?.addEventListener("click", () => {
     generateTranslationSubmissionPackage().catch(handleError);
   });
+  $("translationResultButton")?.addEventListener("click", () => {
+    openTranslationSubmissionResultModal().catch(handleError);
+  });
+  $("translationCheerViewResult")?.addEventListener("click", () => {
+    closeTranslationSubmissionCheerModal();
+    openTranslationSubmissionResultModal().catch(handleError);
+  });
+  $("translationResultPdfPreview")?.addEventListener("click", () => {
+    openTranslationSubmissionPdfPreview();
+  });
+  $("translationResultExportTxt")?.addEventListener("click", () => {
+    downloadTranslationSubmissionExport("txt").catch(handleError);
+  });
+  $("translationResultExportDocx")?.addEventListener("click", () => {
+    downloadTranslationSubmissionExport("docx").catch(handleError);
+  });
+  $("viewerTranslationExportTxt")?.addEventListener("click", () => {
+    downloadTranslationSubmissionExport("txt").catch(handleError);
+  });
+  $("viewerTranslationExportDocx")?.addEventListener("click", () => {
+    downloadTranslationSubmissionExport("docx").catch(handleError);
+  });
   $("translationFormattingNext")?.addEventListener("click", () => {
     setTranslationStage("scenes");
   });
@@ -31208,11 +31458,6 @@ function setupTranslationWorkspace() {
   });
   $("translationChatToggle")?.addEventListener("click", () => {
     setTranslationChatOpen(!translationWorkspaceState.chatOpen);
-  });
-  $("translationChatExpand")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    setTranslationChatExpanded(!translationWorkspaceState.chatExpanded);
   });
   $("translationChatHistory")?.addEventListener("click", (event) => {
     const node = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
@@ -31395,9 +31640,9 @@ function setupTranslationWorkspace() {
     hideTranslationWordPopover();
     hideTranslationNotesPopover();
     if (!isTranslationWorkspaceOpen()) return;
-    if (translationWorkspaceState.chatExpanded) {
+    if (translationWorkspaceState.chatOpen) {
       event.preventDefault();
-      setTranslationChatExpanded(false);
+      setTranslationChatOpen(false);
     }
   });
   try {
@@ -39884,9 +40129,35 @@ let viewerEpisodePageSlots = [];
 let viewerPageMetricsKey = "";
 /** Keep the on-screen scene/page while earlier episodes are prepended. */
 let viewerViewAnchor = null;
+/** Overlay source when the typeset viewer is reused for translation PDF preview. */
+let viewerPreviewSource = null;
+let viewerPreviewHtml = "";
+let viewerPreviewTitle = "";
+let viewerPreviewLang = "en";
+let viewerPreviewRestore = null;
 
 function isViewerOpen() {
   return Boolean($("viewerModal") && !$("viewerModal").classList.contains("hidden"));
+}
+
+function isTranslationViewerPreview() {
+  return viewerPreviewSource === "translation-submission";
+}
+
+function syncTranslationViewerChrome() {
+  const preview = isTranslationViewerPreview();
+  const modal = $("viewerModal");
+  modal?.classList.toggle("is-translation-preview", preview);
+  $("viewerModeTabs")?.classList.toggle("hidden", preview);
+  $("viewerScopeTabs")?.classList.toggle("hidden", preview);
+  $("viewerReaderCommentsButton")?.classList.toggle("hidden", preview);
+  $("viewerTocToggle")?.classList.toggle("hidden", preview);
+  $("viewerTranslationExportTxt")?.classList.toggle("hidden", !preview);
+  $("viewerTranslationExportDocx")?.classList.toggle("hidden", !preview);
+  if (preview) {
+    setViewerTocOpen(false);
+    setViewerCommentsOpen(false);
+  }
 }
 
 function clearViewerEpisodeCache() {
@@ -39906,9 +40177,13 @@ function getViewerEpisodeLabel(ep) {
   return formatEpisodeNavLabel(ep, ep.label || ep.shortLabel || `${i18n.t('app.ep_index_화_3', {'ep.index || ""': ep.index || ""})}`);
 }
 
-function wrapViewerEpisode(ep, bodyHtml, { showTitle = true } = {}) {
+function wrapViewerEpisode(ep, bodyHtml, { showTitle = true, useRawTitle = false } = {}) {
   const id = Number(ep?.sceneId) || 0;
-  const title = escapeHtml(getViewerEpisodeLabel(ep));
+  const title = escapeHtml(
+    useRawTitle
+      ? (ep?.label || ep?.shortLabel || "")
+      : getViewerEpisodeLabel(ep)
+  );
   const titleBlock = showTitle
     ? `<h2 class="viewer-episode-title" data-viewer-scene="${id}" id="viewer-episode-${id}">${title}</h2>`
     : `<span class="viewer-episode-anchor" data-viewer-scene="${id}" id="viewer-episode-${id}" hidden></span>`;
@@ -40298,6 +40573,7 @@ function openViewerReaderCommentsFromCta() {
 }
 
 function renderViewerToc() {
+  if (isTranslationViewerPreview()) return;
   const list = $("viewerTocList");
   const hint = $("viewerTocHint");
   if (!list) return;
@@ -40436,9 +40712,18 @@ async function paintViewerBody(html, { token, jumpId = null, resetBook = false, 
   if (!body || token !== viewerLoadToken || !isViewerOpen()) return false;
   body.innerHTML = html;
   body.setAttribute("contenteditable", "false");
+  if (isTranslationViewerPreview()) {
+    body.setAttribute("lang", viewerPreviewLang || "en");
+  } else {
+    body.removeAttribute("lang");
+  }
   if (viewerSettings.mode === "typeset") applyTypesetBodyStyles();
   else applyEditorWideLineHeight(getStoredLineHeight(), [body]);
-  if (viewerScope === "full") {
+  if (isTranslationViewerPreview()) {
+    if ($("viewerTitle")) {
+      $("viewerTitle").textContent = viewerPreviewTitle || i18n.t("index.번역_결과");
+    }
+  } else if (viewerScope === "full") {
     if ($("viewerTitle")) {
       $("viewerTitle").textContent = titleN
         ? `${i18n.t('app.뷰어_전체_원고_n_화', { n: titleN })}`
@@ -40545,6 +40830,20 @@ async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {
   viewerPageLayoutToken += 1;
   resetViewerPerf();
   const token = ++viewerLoadToken;
+
+  if (isTranslationViewerPreview() && viewerPreviewHtml) {
+    viewerScope = "full";
+    syncViewerScopeTabs();
+    const painted = await paintViewerBody(viewerPreviewHtml, {
+      token,
+      jumpId: null,
+      resetBook: true,
+      titleN: 0,
+    });
+    if (!painted) return;
+    return;
+  }
+
   const scope = viewerScope === "full" ? "full" : "scene";
   viewerScope = scope;
   syncViewerScopeTabs();
@@ -40589,6 +40888,7 @@ async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {
 }
 
 async function setViewerScope(scope, { jumpToSceneId = null } = {}) {
+  if (isTranslationViewerPreview()) return;
   const next = scope === "full" ? "full" : "scene";
   viewerScope = next;
   syncViewerScopeTabs();
@@ -41018,7 +41318,7 @@ function applyViewerLayout() {
     body.style.transform = "";
     stage.removeAttribute("data-viewer-flow");
   }
-  saveViewerSettings();
+  if (!isTranslationViewerPreview()) saveViewerSettings();
 }
 
 function scheduleBookPageLayout({ resetPage = false } = {}) {
@@ -41287,9 +41587,15 @@ function computeViewerPageBox() {
     scale: mode === "pdf" ? scalePct : 100,
     lineHeight,
     fontFamily: mode === "pdf"
-      ? '"Malgun Gothic","Noto Serif KR",Georgia,serif'
+      ? (isTranslationViewerPreview()
+        ? 'Georgia,"Times New Roman","Palatino Linotype","Noto Serif KR","Malgun Gothic",serif'
+        : '"Malgun Gothic","Noto Serif KR",Georgia,serif')
       : 'Georgia,"Noto Serif KR","Malgun Gothic",serif',
   };
+  if (isTranslationViewerPreview()) {
+    devicePageMetrics.wordBreak = "normal";
+    devicePageMetrics.overflowWrap = "break-word";
+  }
   return {
     kind: "device",
     innerW,
@@ -41297,6 +41603,8 @@ function computeViewerPageBox() {
     fontPx,
     lineHeight,
     fontFamily: devicePageMetrics.fontFamily,
+    wordBreak: devicePageMetrics.wordBreak,
+    overflowWrap: devicePageMetrics.overflowWrap,
   };
 }
 
@@ -41328,6 +41636,9 @@ function makePdfSheetWrap(html, pageIndex) {
   inner.style.padding = `${padT}px ${padX}px ${padB}px ${padX}px`;
   inner.style.fontSize = `${metrics.fontPx}px`;
   inner.style.lineHeight = String(metrics.lineHeight || 1.8);
+  if (metrics.fontFamily) inner.style.fontFamily = metrics.fontFamily;
+  if (metrics.wordBreak) inner.style.wordBreak = metrics.wordBreak;
+  if (metrics.overflowWrap) inner.style.overflowWrap = metrics.overflowWrap;
   inner.innerHTML = html || "";
   sheet.appendChild(inner);
   wrap.appendChild(sheet);
@@ -41615,6 +41926,8 @@ async function paginateViewerEpisodesIncremental({
     const pages = paginateHtmlToPages(slot.html, box.innerW, box.innerH, box.fontPx, {
       lineHeight: box.lineHeight,
       fontFamily: box.fontFamily,
+      wordBreak: box.wordBreak,
+      overflowWrap: box.overflowWrap,
     });
     slot.pages = pages.length ? pages : [""];
     console.log(
@@ -41797,8 +42110,9 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
     `font-size:${fontSizePx}px`,
     `font-family:${fontFamily}`,
     `line-height:${lineHeight}`,
-    "white-space:pre-wrap",
-    "word-break:break-word",
+    `white-space:pre-wrap`,
+    `word-break:${styleOpts.wordBreak || "break-word"}`,
+    `overflow-wrap:${styleOpts.overflowWrap || "break-word"}`,
   ].join(";");
   document.body.appendChild(measureHost);
 
@@ -42285,39 +42599,56 @@ function turnBookSpread(delta) {
   animateBookFlip(dir, next);
 }
 
-function openViewerMode(preferredMode = null) {
-  if (!state.sceneId) {
+function openViewerMode(preferredMode = null, options = {}) {
+  const previewSource = options.previewSource || null;
+  const previewHtml = options.previewHtml || "";
+  if (!previewSource && !state.sceneId) {
     toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
   const modal = $("viewerModal");
   const body = $("viewerBody");
   const mainEd = $("sceneContent");
-  if (!modal || !body || !mainEd) return;
+  if (!modal || !body) return;
+  if (!previewSource && !mainEd) return;
+
+  viewerPreviewSource = previewSource;
+  viewerPreviewHtml = previewSource ? previewHtml : "";
+  viewerPreviewTitle = previewSource ? String(options.previewTitle || "").trim() : "";
+  viewerPreviewLang = previewSource
+    ? (String(options.previewLang || "en").trim() || "en")
+    : "en";
+  viewerPreviewRestore = previewSource
+    ? { tocOpen: viewerTocOpen, commentsOpen: viewerCommentsOpen }
+    : null;
 
   viewerSettings = loadViewerSettings();
-  if (preferredMode && VIEWER_MODES.includes(preferredMode)) {
+  if (previewSource) {
+    viewerSettings.mode = "pdf";
+  } else if (preferredMode && VIEWER_MODES.includes(preferredMode)) {
     viewerSettings.mode = preferredMode;
   }
   syncViewerControlValues();
   syncViewerScopeTabs();
-  setViewerTocOpen(viewerTocOpen);
+  setViewerTocOpen(previewSource ? false : viewerTocOpen);
   renderViewerToc();
-  setViewerCommentsOpen(viewerCommentsOpen);
-  if (viewerCommentsOpen && lastPersistedSceneStatus === "complete") {
+  setViewerCommentsOpen(previewSource ? false : viewerCommentsOpen);
+  if (!previewSource && viewerCommentsOpen && lastPersistedSceneStatus === "complete") {
     loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
   }
 
   const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
   if ($("viewerTitle")) {
-    $("viewerTitle").textContent = viewerScope === "full"
-      ? i18n.t('app.뷰어_전체_원고')
-      : `${i18n.t('app.뷰어_title', {title: title})}`;
+    $("viewerTitle").textContent = previewSource
+      ? (viewerPreviewTitle || i18n.t("index.번역_결과"))
+      : (viewerScope === "full"
+        ? i18n.t('app.뷰어_전체_원고')
+        : `${i18n.t('app.뷰어_title', {title: title})}`);
   }
 
   bookSpreadIndex = 0;
   viewerPendingJumpSceneId = null;
-  if (viewerScope === "full") clearViewerEpisodeCache();
+  if (!previewSource && viewerScope === "full") clearViewerEpisodeCache();
   $("splitPaneResizer")?.classList.add("hidden");
   $("focusWriteSplitResizer")?.classList.add("hidden");
   modal.classList.remove("hidden");
@@ -42325,10 +42656,11 @@ function openViewerMode(preferredMode = null) {
   document.body.classList.toggle("viewer-maximized", isViewerMaximized());
   // Sync maximize button label in case preference was restored before button existed
   setViewerMaximized(isViewerMaximized(), { relayout: false });
+  syncTranslationViewerChrome();
   applyViewerLayout();
   applyViewerContent({ resetBook: true }).catch(handleError);
-  syncViewerReaderCommentsButton({ pulse: true });
-  if (viewerSettings.mode === "typeset") {
+  if (!previewSource) syncViewerReaderCommentsButton({ pulse: true });
+  if (!previewSource && viewerSettings.mode === "typeset") {
     renderTypesetPlatformTabs();
     ensureTypesetPresets()
       .then(() => {
@@ -42337,11 +42669,20 @@ function openViewerMode(preferredMode = null) {
       })
       .catch(handleError);
   }
+  if (previewSource) {
+    applyTranslations();
+    if ($("viewerTitle")) {
+      $("viewerTitle").textContent = viewerPreviewTitle || i18n.t("index.번역_결과");
+    }
+  }
 }
 
 function closeViewerMode() {
+  const restoreTranslationResult = isTranslationViewerPreview();
+  const previewRestore = viewerPreviewRestore;
   stopViewerCommentsPolling();
   $("viewerModal")?.classList.add("hidden");
+  $("viewerModal")?.classList.remove("is-translation-preview");
   document.body.classList.remove("viewer-open");
   viewerResize = null;
   viewerLoadToken += 1;
@@ -42350,11 +42691,25 @@ function closeViewerMode() {
   viewerPageMetricsKey = "";
   viewerPendingJumpSceneId = null;
   viewerViewAnchor = null;
+  viewerPreviewSource = null;
+  viewerPreviewHtml = "";
+  viewerPreviewTitle = "";
+  viewerPreviewLang = "en";
+  viewerPreviewRestore = null;
+  syncTranslationViewerChrome();
   cancelBookFlipAnimation();
   // Keep maximize preference, but clear transient body class
   document.body.classList.remove("viewer-maximized");
+  if (previewRestore) {
+    viewerTocOpen = Boolean(previewRestore.tocOpen);
+    viewerCommentsOpen = Boolean(previewRestore.commentsOpen);
+  }
   if (typeof applySplitLayout === "function") {
     applySplitLayout();
+  }
+  if (restoreTranslationResult) {
+    $("translationSubmissionResultModal")?.classList.remove("hidden");
+    applyTranslations();
   }
 }
 
@@ -42439,6 +42794,7 @@ function setupViewerMode() {
   $("viewerModeTabs")?.addEventListener("click", (event) => {
     const tab = event.target.closest?.("[data-viewer-mode]");
     if (!tab) return;
+    if (isTranslationViewerPreview()) return;
     viewerSettings.mode = tab.dataset.viewerMode;
     if (viewerSettings.mode === "book") bookSpreadIndex = 0;
     if (isDevicePagedMode()) devicePageIndex = 0;

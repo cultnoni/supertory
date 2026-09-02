@@ -4364,6 +4364,25 @@ def generate_translation_submission_package(
     ).generate_submission_package(int(job_id))
 
 
+def get_translation_submission_result(
+    connection: sqlite3.Connection, job_id: int
+) -> dict:
+    ensure_translation_pipeline_schema(connection)
+    return get_translation_extras_service(connection).get_submission_result(
+        int(job_id)
+    )
+
+
+def export_translation_submission_package(
+    connection: sqlite3.Connection, job_id: int, format_key: str
+):
+    ensure_translation_pipeline_schema(connection)
+    return get_translation_extras_service(connection).export_submission_package(
+        int(job_id),
+        format_key,
+    )
+
+
 FREE_DICTIONARY_API_URL = translation_extras_service.FREE_DICTIONARY_API_URL
 FREE_DICTIONARY_TIMEOUT_SECONDS = (
     translation_extras_service.FREE_DICTIONARY_TIMEOUT_SECONDS
@@ -9494,6 +9513,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/submission_result", path
+            )
+            if match:
+                with database() as connection:
+                    payload = get_translation_submission_result(
+                        connection, int(match.group(1))
+                    )
+                self.send_json(payload)
+                return
+
             if path == "/api/translation/dictionary":
                 query = parse_qs(urlparse(self.path).query)
                 word = (query.get("word") or [""])[0]
@@ -10718,6 +10748,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         connection, int(match.group(1))
                     )
                 self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/export_submission", path
+            )
+            if match:
+                format_key = str((body or {}).get("format") or "docx")
+                with database() as connection:
+                    exported = export_translation_submission_package(
+                        connection, int(match.group(1)), format_key
+                    )
+                self.send_download(
+                    exported.data,
+                    filename=exported.filename,
+                    content_type=exported.mime,
+                )
                 return
 
             if path == "/api/translation/chat":
