@@ -4311,7 +4311,6 @@ function wrapSelectionWithSpan(styles, options = {}) {
 
 function applyEditorCommand(command, value = null) {
   if (typeof isActiveManuscriptCompleteLocked === "function" && isActiveManuscriptCompleteLocked()) {
-    if (typeof showCompleteLockHint === "function") showCompleteLockHint();
     return;
   }
   try {
@@ -9467,6 +9466,7 @@ async function loadProject() {
     || Boolean(Number(fromList?.completion_guide_shown))
     || (completionGuideShownThisSession.has(Number(projectIdAtStart)));
   if (fromList) fromList.completion_guide_shown = state.completionGuideShown;
+  if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
   state.clusterId = inferClusterId(
     state.projectPurpose || outline.project?.purpose || fromList?.purpose,
     state.mainGenre,
@@ -46366,41 +46366,89 @@ function syncGuideTipBoxes() {
 }
 
 function updateGuideTipCountUi() {
-  const n = hiddenGuideTips.size;
+  const extra = isCurrentProjectCompletionGuideShown() ? 1 : 0;
+  const n = hiddenGuideTips.size + extra;
   const hint = $("guideTipCountHint");
   if (hint) hint.textContent = n ? `${i18n.t('app.숨긴_안내_n_개', {n: n})}` : i18n.t('app.숨긴_안내_없음');
+}
+
+function isCurrentProjectCompletionGuideShown() {
+  const id = Number(state.projectId);
+  if (!id) return false;
+  const fromList = state.projects?.find((item) => Number(item.id) === id);
+  if (fromList && fromList.completion_guide_shown != null) {
+    return Boolean(fromList.completion_guide_shown);
+  }
+  return Boolean(state.completionGuideShown);
 }
 
 function renderHiddenGuideTipsList() {
   const list = $("hiddenGuideTipsList");
   if (!list) return;
   const items = GUIDE_TIP_DEFS.filter((d) => hiddenGuideTips.has(d.id));
-  if (!items.length) {
-    list.innerHTML = i18n.t('app.p_class_hint_trash_empt_5');
-    updateGuideTipCountUi();
-    return;
+  const parts = [];
+  if (!state.projectId) {
+    parts.push(
+      `<p class="hint trash-empty">${i18n.t("app.작품을_열면_완성_처리_안내를_다시_볼_수")}</p>`,
+    );
+  } else if (isCurrentProjectCompletionGuideShown()) {
+    parts.push(`
+      <div class="hidden-feature-item" data-completion-guide-hidden="1">
+        <div class="hidden-feature-main">
+          <span class="hidden-feature-title">${escapeHtml(i18n.t("app.완성_처리_안내_카드"))}</span>
+        </div>
+        <button type="button" class="primary compact-btn" data-completion-guide-reset="1">${i18n.t("app.다시_보기")}</button>
+      </div>
+    `);
   }
-  list.innerHTML = items.map((d) => `
+  parts.push(...items.map((d) => `
     <div class="hidden-feature-item" data-guide-tip-id="${escapeHtml(d.id)}">
       <div class="hidden-feature-main">
         <span class="hidden-feature-title">${escapeHtml(d.label)}</span>
       </div>
-      <button type="button" class="primary compact-btn" data-guide-tip-activate="${escapeHtml(d.id)}">${i18n.t('index.다시_표시')}</button>
+      <button type="button" class="primary compact-btn" data-guide-tip-activate="${escapeHtml(d.id)}">${i18n.t("index.다시_표시")}</button>
     </div>
-  `).join("");
+  `));
+  if (!parts.length) {
+    list.innerHTML = i18n.t("app.p_class_hint_trash_empt_5");
+  } else {
+    list.innerHTML = parts.join("");
+  }
   updateGuideTipCountUi();
 }
 
+async function resetCurrentProjectCompletionGuide() {
+  const projectId = Number(state.projectId);
+  if (!projectId) return;
+  completionGuideShownThisSession.delete(projectId);
+  state.completionGuideShown = false;
+  const fromList = state.projects?.find((item) => Number(item.id) === projectId);
+  if (fromList) fromList.completion_guide_shown = false;
+  if (typeof hideCompletionGuideCard === "function") hideCompletionGuideCard();
+  renderHiddenGuideTipsList();
+  try {
+    await api(`/api/projects/${projectId}/completion-guide-shown`, {
+      method: "POST",
+      body: JSON.stringify({ shown: false }),
+    });
+  } catch (error) {
+    handleError(error);
+  }
+}
+
 function resetAllHiddenGuideTips() {
-  if (!hiddenGuideTips.size) {
-    toast(i18n.t('app.숨긴_안내가_없어요'));
+  const hasCompletion = isCurrentProjectCompletionGuideShown();
+  const total = hiddenGuideTips.size + (hasCompletion ? 1 : 0);
+  if (!total) {
+    toast(i18n.t("app.숨긴_안내가_없어요"));
     return;
   }
-  if (!window.confirm(`${i18n.t('app.숨긴_안내_hiddenGuideTips_si', {'hiddenGuideTips.size': hiddenGuideTips.size})}`)) return;
+  if (!window.confirm(`${i18n.t("app.숨긴_안내_hiddenGuideTips_si", { "hiddenGuideTips.size": total })}`)) return;
   hiddenGuideTips = new Set();
   saveHiddenGuideTips();
   syncGuideTipBoxes();
-  toast(i18n.t('app.모든_안내를_다시_표시했습니다'));
+  if (hasCompletion) resetCurrentProjectCompletionGuide().catch(handleError);
+  toast(i18n.t("app.모든_안내를_다시_표시했습니다"));
 }
 
 function setupGuideTips() {
@@ -46420,6 +46468,12 @@ function setupGuideTips() {
 
   $("guideTipResetButton")?.addEventListener("click", resetAllHiddenGuideTips);
   $("hiddenGuideTipsList")?.addEventListener("click", (event) => {
+    const resetBtn = event.target.closest?.("[data-completion-guide-reset]");
+    if (resetBtn) {
+      event.preventDefault();
+      resetCurrentProjectCompletionGuide().catch(handleError);
+      return;
+    }
     const btn = event.target.closest?.("[data-guide-tip-activate]");
     if (!btn) return;
     event.preventDefault();
@@ -57973,7 +58027,6 @@ function startVirtualReaderCommentsFlow() {
 }
 
 const completionGuideShownThisSession = new Set();
-let completeLockHintAt = 0;
 let glumpWritableOverride = null;
 
 function convertTypographicQuotes(html) {
@@ -58110,13 +58163,6 @@ function applySceneCompleteLock(options = {}) {
   document.body.classList.toggle("scene-complete-locked", completeLocked);
 }
 
-function showCompleteLockHint() {
-  const now = Date.now();
-  if (now - completeLockHintAt < 2200) return;
-  completeLockHintAt = now;
-  toast(i18n.t("app.완성된_원고는_실수_방지를_위해_보호돼요"), 2800);
-}
-
 function isCompleteLockEditKey(event) {
   if (event.ctrlKey || event.metaKey) {
     const key = String(event.key || "").toLowerCase();
@@ -58141,16 +58187,10 @@ function setupSceneCompleteLock() {
     if (event.type === "keydown") {
       if (!isCompleteLockEditKey(event)) return;
       event.preventDefault();
-      showCompleteLockHint();
       return;
     }
     if (event.type === "beforeinput" || event.type === "paste" || event.type === "cut" || event.type === "drop") {
       event.preventDefault();
-      showCompleteLockHint();
-      return;
-    }
-    if (event.type === "pointerdown" || event.type === "click") {
-      showCompleteLockHint();
     }
   };
   ["sceneContent", "focusWriteEditor"].forEach((id) => {
@@ -58161,7 +58201,6 @@ function setupSceneCompleteLock() {
     el.addEventListener("paste", onAttempt);
     el.addEventListener("cut", onAttempt);
     el.addEventListener("drop", onAttempt);
-    el.addEventListener("pointerdown", onAttempt);
   });
 }
 
@@ -58206,6 +58245,7 @@ function markProjectCompletionGuideShownLocal() {
   state.completionGuideShown = true;
   const fromList = state.projects?.find((item) => Number(item.id) === id);
   if (fromList) fromList.completion_guide_shown = true;
+  if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
 }
 
 function maybeShowCompletionGuideOnComplete() {
@@ -62566,6 +62606,7 @@ function openAdminModal(tab = null) {
   syncAdminSplitDefaultRadios();
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
+  if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
   refreshAdminInfoPanel();
   refreshAdminAccountPanel().catch(handleError);
   loadTrashList().catch(handleError);
@@ -62597,6 +62638,7 @@ function setAdminTab(tabId) {
   if (id === "settings") {
     renderAdminThemeList();
     renderHiddenFeaturesList();
+    if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
     if (typeof renderAdminAmbientList === "function") renderAdminAmbientList();
     syncAdminSplitDefaultRadios();
   }
@@ -62882,6 +62924,7 @@ async function deleteProjectFromAdmin(projectId) {
   if (wasCurrent) {
     detachTranslationWorkspaceForProjectChange();
     state.projectId = null;
+    state.completionGuideShown = false;
     state.sceneId = null;
     state.characterId = null;
     state.outline = [];
@@ -62898,6 +62941,7 @@ async function deleteProjectFromAdmin(projectId) {
   }
   await loadProjects(wasCurrent ? null : state.projectId);
   renderAdminProjectList();
+  if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
 }
 
 /* —— Auto-update UI (Electron + electron-updater) —— */
@@ -66851,6 +66895,10 @@ onEl("projectSelect", "change", (event) => {
       }).catch(() => {});
     }
     state.projectId = nextId;
+    const nextProject = state.projects.find((p) => Number(p.id) === nextId);
+    state.completionGuideShown = Boolean(nextProject?.completion_guide_shown)
+      || completionGuideShownThisSession.has(nextId);
+    if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
     // Detach previous work's outline so bookmark sanitize cannot wipe the new work's list.
     state.outline = [];
     state.parts = [];

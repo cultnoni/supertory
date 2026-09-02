@@ -10834,7 +10834,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             match = re.fullmatch(r"/api/projects/(\d+)/completion-guide-shown", path)
             if match:
-                self.send_json(self.mark_completion_guide_shown(int(match.group(1))))
+                shown = True
+                if isinstance(body, dict) and "shown" in body:
+                    shown = bool(body.get("shown"))
+                self.send_json(
+                    self.mark_completion_guide_shown(int(match.group(1)), shown=shown)
+                )
                 return
 
             match = re.fullmatch(r"/api/reading-invites/([^/]+)/revoke", path)
@@ -23580,15 +23585,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             pass
         return {"ok": True, "draft_id": draft_id, "local_scene_id": local_scene_id}
 
-    def mark_completion_guide_shown(self, project_id: int) -> dict:
-        """Record that this project's first-complete guide card was shown."""
+    def mark_completion_guide_shown(self, project_id: int, shown: bool = True) -> dict:
+        """Record or clear that this project's first-complete guide card was shown."""
+        flag = 1 if shown else 0
         with database() as connection:
             self.require_project(connection, project_id)
             connection.execute(
-                "UPDATE project SET completion_guide_shown = 1 WHERE id = ?",
-                (project_id,),
+                "UPDATE project SET completion_guide_shown = ? WHERE id = ?",
+                (flag, project_id),
             )
-        return {"ok": True, "completion_guide_shown": True}
+        return {"ok": True, "completion_guide_shown": bool(flag)}
 
     def mark_mobile_inbox_read(self, item_id: int) -> dict:
         with database() as connection:

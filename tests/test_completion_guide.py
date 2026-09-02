@@ -125,6 +125,14 @@ class CompletionGuideTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertFalse(bool(outline_b["project"].get("completion_guide_shown")))
 
+        status, reset = self.request(
+            "POST", f"/api/projects/{project_a}/completion-guide-shown", {"shown": False}
+        )
+        self.assertEqual(status, 200)
+        self.assertFalse(reset["completion_guide_shown"])
+        status, outline_a = self.request("GET", f"/api/projects/{project_a}/outline")
+        self.assertFalse(bool(outline_a["project"].get("completion_guide_shown")))
+
 
 class CompletionGuideCopyTests(unittest.TestCase):
     def test_complete_guide_is_a_single_card_with_viewer_line(self) -> None:
@@ -144,9 +152,21 @@ class CompletionGuideCopyTests(unittest.TestCase):
         self.assertIn("완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요", html)
 
         self.assertIn("function maybeShowCompletionGuideOnComplete", app_js)
+        self.assertIn("function resetCurrentProjectCompletionGuide", app_js)
+        self.assertIn("data-completion-guide-reset", app_js)
+        self.assertIn("app.완성_처리_안내_카드", ko)
+        self.assertIn("app.다시_보기", ko)
+        self.assertIn("app.작품을_열면_완성_처리_안내를_다시_볼_수", ko)
         self.assertIn("function updateCompletionGuideTraitLine", app_js)
+        self.assertNotIn("showCompleteLockHint", app_js)
         self.assertNotIn("완성_처리됐어요_가상독자_댓글도_받아볼_수", app_js)
         self.assertNotIn("app.가상독자_댓글은_뷰어에서_확인할_수_있어요", app_js)
+        self.assertNotIn("완성된_원고는_실수_방지를_위해_보호돼요", ko)
+        self.assertEqual(
+            ko["app.완성_안내_보호"],
+            "완성된 원고는 실수로 고쳐지지 않도록 보호돼요. 작성상태는 언제든 자유롭게 바꿀 수 있어요",
+        )
+        self.assertEqual(ko["app.완성_안내_따옴표"], "따옴표가 출간용 스타일로 자동 정리돼요")
 
         self.assertEqual(
             ko["app.완성_안내_가상독자"],
@@ -154,3 +174,5 @@ class CompletionGuideCopyTests(unittest.TestCase):
         )
         self.assertEqual(ko["app.완성_안내_제목"], "✅ 완성 처리됐어요")
         self.assertIn("app.완성_안내_인물", ko)
+        self.assertIn("따옴표가 출간용 스타일로 자동 정리돼요", html)
+        self.assertIn("완성된 원고는 실수로 고쳐지지 않도록 보호돼요", html)
