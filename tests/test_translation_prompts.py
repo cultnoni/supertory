@@ -288,6 +288,37 @@ class ParagraphTranslationPromptTests(unittest.TestCase):
         self.assertIn("relationship_tag=초면, mood_tag=설렘", prompt)
         self.assertIn('"paragraphs"', prompt)
         self.assertIn("(없음, 챕터 첫 문단)", prompt)
+        self.assertIn("note 설명 문장은 반드시 원고 원문 언어(한국어)", prompt)
+        self.assertIn("translated_text에는 한국어 원문을 넣지 말고", prompt)
+        self.assertNotIn("출력에는 한국어 원문을 포함하지 말고", prompt)
+
+    def test_translation_notes_must_be_korean_for_all_target_languages(self) -> None:
+        marker = "note 설명 문장은 반드시 원고 원문 언어(한국어)"
+        for language in ("en", "es", "fr"):
+            single = translation_prompts.build_paragraph_translation_prompt(
+                CHAPTER, TRANSLATION_KWARGS, target_language=language
+            )
+            batch = translation_prompts.build_paragraph_translation_batch_prompt(
+                [{"id": 1, "source_text": CHAPTER}],
+                TRANSLATION_KWARGS,
+                target_language=language,
+            )
+            word = translation_prompts.build_word_context_prompt(
+                {"source_text": CHAPTER, "translated_text": "It rained."},
+                "rained",
+                target_language=language,
+            )
+            chat = translation_prompts.build_translation_chat_prompt(
+                "왜 이렇게 번역했어?",
+                {"translated_text": "It rained."},
+                target_language=language,
+            )
+            self.assertIn(marker, single)
+            self.assertIn(marker, batch)
+            self.assertIn("explanation은 반드시 원고 원문 언어(한국어)", word)
+            self.assertIn("답변(response)은 반드시 한국어로 작성하세요", chat)
+            self.assertIn("'하아'라는 감탄사를 'Ugh...'로 의역했어요", single)
+            self.assertIn("'하아'라는 감탄사를 'Ugh...'로 의역했어요", batch)
 
 
 class PolishPromptTests(unittest.TestCase):
