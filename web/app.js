@@ -28957,6 +28957,7 @@ const translationWorkspaceState = {
   stage: "formatting",
   pass: "first",
   chatOpen: false,
+  chatExpanded: false,
   quote: { text: "", segmentId: null },
   syncing: false,
   dismissed: false,
@@ -28993,6 +28994,7 @@ function resetTranslationWorkspaceState() {
   translationWorkspaceState.stage = "formatting";
   translationWorkspaceState.pass = "first";
   translationWorkspaceState.chatOpen = false;
+  translationWorkspaceState.chatExpanded = false;
   translationWorkspaceState.quote = { text: "", segmentId: null };
   translationWorkspaceState.syncing = false;
   translationWorkspaceState.busy = false;
@@ -29196,7 +29198,13 @@ function translationDictionaryPopoverHtml(data, word, segmentId) {
       const defs = (item.definitions || []).map((def) => `<li>${escapeHtml(def)}</li>`).join("");
       return `<section class="translation-word-meaning">${pos ? `<strong>${pos}</strong>` : ""}<ul>${defs}</ul></section>`;
     }).join("");
+    const lookedUpAs = String(data.looked_up_as || "").trim();
+    const clicked = String(word || "").trim();
+    const lemmaNote = lookedUpAs && lookedUpAs.toLowerCase() !== clicked.toLowerCase()
+      ? `<p class="translation-word-lemma">${escapeHtml(i18n.t("index.원래_형태_word", { word: lookedUpAs }))}</p>`
+      : "";
     body = `<strong class="translation-word-term">${escapeHtml(data.word || word)}</strong>
+      ${lemmaNote}
       ${data.phonetic ? `<p class="translation-word-phonetic">${escapeHtml(data.phonetic)}</p>` : ""}
       ${meanings}`;
   }
@@ -29303,9 +29311,11 @@ function fillTranslationRangeSelects(episodes, start, end, startEl, endEl) {
   const options = (episodes || []).map((episode) => {
     const number = Number(episode.number);
     const title = String(episode.title || "").trim();
-    const label = title
-      ? `${number}${i18n.t("app.화")} · ${title}`
-      : `${number}${i18n.t("app.화")}`;
+    const label = translationEpisodeLabel(episode, number) || (
+      title
+        ? `${number}${i18n.t("app.화")} · ${title}`
+        : `${number}${i18n.t("app.화")}`
+    );
     return `<option value="${number}">${escapeHtml(label)}</option>`;
   }).join("");
   if (startEl) {
@@ -29360,6 +29370,43 @@ function chaptersInTranslationJobRange(chapters) {
   });
 }
 
+function scenesInTranslationJobRange(scenes) {
+  const bounds = translationJobChapterBounds();
+  const list = Array.isArray(scenes) ? scenes : [];
+  if (!bounds) return list;
+  return list.filter((scene) => {
+    const number = Number(scene.chapter_number);
+    return number >= bounds.start && number <= bounds.end;
+  });
+}
+
+function translationEpisodeByNumber(number) {
+  const wanted = Number(number);
+  const pools = [
+    translationWorkspaceState.chapters || [],
+    translationWorkspaceState.rangeEpisodes || [],
+  ];
+  for (const pool of pools) {
+    const found = pool.find((item) => Number(item.number) === wanted);
+    if (found) return found;
+  }
+  return null;
+}
+
+function translationEpisodeLabel(episode, fallbackNumber) {
+  const number = Number(episode?.number || fallbackNumber || 0);
+  const overall = i18n.t("index.전체_n번째", { n: number });
+  const parts = [];
+  const path = String(episode?.folder_path || "").trim();
+  if (path) parts.push(path);
+  const chapterTitle = String(episode?.chapter_title || "").trim();
+  const title = String(episode?.title || "").trim();
+  if (chapterTitle && chapterTitle !== path) parts.push(chapterTitle);
+  if (title && title !== chapterTitle && title !== path) parts.push(title);
+  if (!parts.length && title) parts.push(title);
+  return parts.length ? `${overall} · ${parts.join(" · ")}` : overall;
+}
+
 function renderTranslationRangeSummary() {
   const card = $("translationJobSettingsButton");
   const pair = $("translationRangeCardPair");
@@ -29384,9 +29431,8 @@ function renderTranslationRangeSummary() {
   if (allEl) allEl.hidden = true;
   const start = Number(job.start_chapter || 1);
   const end = Number(job.end_chapter || start);
-  const unit = i18n.t("app.화");
-  if (startEl) startEl.textContent = `${start}${unit}`;
-  if (endEl) endEl.textContent = `${end}${unit}`;
+  if (startEl) startEl.textContent = i18n.t("index.전체_n번째", { n: start });
+  if (endEl) endEl.textContent = i18n.t("index.전체_n번째", { n: end });
 }
 
 function syncTranslationRangeSetupVisibility(setup) {
@@ -29672,10 +29718,23 @@ function properNounTypeLabel(type) {
   const map = {
     character: "app.인물",
     place: "app.지명",
-    item: "app.사물",
     organization: "app.조직",
+    item: "app.사물",
   };
-  return i18n.t(map[String(type || "")] || "app.인물");
+  return i18n.t(map[String(type || "")] || "app.사물");
+}
+
+function properNounTypeSelectHtml(id, type) {
+  const allowed = ["character", "place", "organization", "item"];
+  const current = allowed.includes(String(type || "")) ? String(type) : "item";
+  const options = allowed.map((value) => {
+    const selected = value === current ? " selected" : "";
+    return `<option value="${value}"${selected}>${escapeHtml(properNounTypeLabel(value))}</option>`;
+  }).join("");
+  return `<label class="translation-noun-type-field">
+    <span class="sr-only">${escapeHtml(i18n.t("index.고유명사_유형"))}</span>
+    <select data-noun-type="${id}">${options}</select>
+  </label>`;
 }
 
 function setTranslationStage(stage) {
@@ -29748,6 +29807,10 @@ function updateTranslationPipelineButtons() {
     packageBtn.classList.toggle("hidden", !hasTranslatedWork);
     packageBtn.disabled = busy;
   }
+  ["translationRefreshNounsButton", "translationConfirmNounsButton", "translationAddNounToggle"].forEach((id) => {
+    const el = $(id);
+    if (el) el.disabled = !hasJob || busy;
+  });
 }
 
 function narrativeHandlingLabel(value) {
@@ -29788,21 +29851,27 @@ function renderTranslationFormatting() {
 function renderTranslationScenes() {
   const host = $("translationScenesBody");
   if (!host) return;
-  const scenes = translationWorkspaceState.job?.scene_contexts || [];
+  const scenes = scenesInTranslationJobRange(
+    translationWorkspaceState.job?.scene_contexts || []
+  );
   if (!scenes.length) {
     host.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.번역_준비를_누르면_씬을_나눠요"))}</p>`;
     applyTranslations();
     return;
   }
-  host.innerHTML = scenes.map((scene) => `
+  host.innerHTML = scenes.map((scene) => {
+    const episode = translationEpisodeByNumber(scene.chapter_number);
+    const heading = `${translationEpisodeLabel(episode, scene.chapter_number)} · ${i18n.t("index.씬")} ${scene.scene_order || ""}`;
+    return `
     <article class="translation-scene-card">
       <div class="translation-noun-head">
-        <span class="translation-noun-term">${escapeHtml(String(scene.chapter_number || ""))}${escapeHtml(i18n.t("app.화"))} · ${escapeHtml(i18n.t("index.씬"))} ${escapeHtml(String(scene.scene_order || ""))}</span>
+        <span class="translation-noun-term">${escapeHtml(heading)}</span>
       </div>
       <p class="translation-noun-reason">${escapeHtml(scene.situation_note || "")}</p>
       <p class="hint">${escapeHtml(scene.relationship_tag || "—")} · ${escapeHtml(scene.mood_tag || "—")}</p>
     </article>
-  `).join("");
+  `;
+  }).join("");
   applyTranslations();
 }
 
@@ -29858,32 +29927,34 @@ function translationNounAltsHtml(id, alternatives, finalTerm, renameSelected) {
 
 function translationProperNounCardHtml(item, fromIndex) {
   const id = Number(item.id);
-  const decision = item.user_decision || (fromIndex ? "keep_as_is" : "keep_romanized");
+  const decision = item.user_decision || "keep_romanized";
   const romanized = String(item.romanized || "").trim();
   const finalTerm = String(item.final_term || (decision === "keep_romanized" ? romanized : item.source_term) || "").trim();
   const alternatives = Array.isArray(item.suggested_alternatives) ? item.suggested_alternatives : [];
   const fit = item.fit_judgment === "does_not_fit"
     ? i18n.t("index.다시_짓는_편이_좋아요")
     : i18n.t("index.잘_맞음");
-  const reason = fromIndex
-    ? i18n.t("index.기존_설정에_있는_이름이에요")
-    : String(item.judgment_reason || "").trim();
+  const reason = String(item.judgment_reason || "").trim()
+    || (fromIndex ? i18n.t("index.기존_설정에_있는_이름이에요") : "");
   const renameOpen = decision === "rename";
-  const altsBlock = translationNounAltsHtml(id, alternatives, finalTerm, fromIndex || renameOpen);
+  const altsBlock = translationNounAltsHtml(id, alternatives, finalTerm, renameOpen);
   return `<article class="translation-noun-card" data-noun-id="${id}" data-noun-source="${escapeHtml(item.source || item.origin || "")}">
     <div class="translation-noun-head">
-      <span class="translation-noun-term">${escapeHtml(item.source_term || "")}</span>
-      <span class="translation-noun-type">${escapeHtml(properNounTypeLabel(item.term_type))}</span>
-      <span class="translation-noun-fit">${escapeHtml(fit)}</span>
+      <div class="translation-noun-head-main">
+        <span class="translation-noun-term">${escapeHtml(item.source_term || "")}</span>
+        ${properNounTypeSelectHtml(id, item.term_type)}
+        <span class="translation-noun-fit">${escapeHtml(fit)}</span>
+      </div>
+      <button type="button" class="secondary compact-btn translation-noun-delete" data-noun-delete="${id}">${escapeHtml(i18n.t("app.삭제"))}</button>
     </div>
     ${reason ? `<p class="translation-noun-reason">${escapeHtml(reason)}</p>` : ""}
-    ${fromIndex ? altsBlock : `<div class="translation-noun-choices">
+    <div class="translation-noun-choices">
       <label class="translation-noun-choice"><input type="radio" name="noun-decision-${id}" value="keep_romanized" ${decision !== "rename" ? "checked" : ""}> ${escapeHtml(i18n.t("index.로마자_표기_유지"))}${romanized ? ` (${escapeHtml(romanized)})` : ""}</label>
       <div class="translation-noun-rename">
         <label class="translation-noun-choice"><input type="radio" name="noun-decision-${id}" value="rename" ${renameOpen ? "checked" : ""}> ${escapeHtml(i18n.t("index.새_이름으로"))}</label>
         ${altsBlock}
       </div>
-    </div>`}
+    </div>
     <label class="translation-noun-final">
       <span>${escapeHtml(i18n.t("index.최종_표기"))}</span>
       <input type="text" data-noun-final="${id}" value="${escapeHtml(finalTerm)}" placeholder="${escapeHtml(i18n.t("index.직접_입력"))}">
@@ -29906,13 +29977,11 @@ function setTranslationNounAltSelected(card, selectedBtn) {
 
 function nounDecisionFromCard(card) {
   const id = Number(card.getAttribute("data-noun-id"));
-  const source = card.getAttribute("data-noun-source") || card.getAttribute("data-noun-origin") || "";
   const checked = card.querySelector("input[type='radio']:checked");
-  const userDecision = source === "character_index"
-    ? "keep_as_is"
-    : (checked?.value || "keep_romanized");
+  const userDecision = checked?.value || "keep_romanized";
   const finalTerm = String(card.querySelector("[data-noun-final]")?.value || "").trim();
-  return { id, user_decision: userDecision, final_term: finalTerm };
+  const termType = String(card.querySelector("[data-noun-type]")?.value || "").trim();
+  return { id, user_decision: userDecision, final_term: finalTerm, term_type: termType };
 }
 
 async function persistTranslationNounCard(card) {
@@ -29924,6 +29993,7 @@ async function persistTranslationNounCard(card) {
   if (local) {
     local.user_decision = payload.user_decision;
     local.final_term = payload.final_term;
+    if (payload.term_type) local.term_type = payload.term_type;
   }
   updateTranslationPipelineButtons();
   if (!payload.id || !payload.final_term) return;
@@ -29932,12 +30002,79 @@ async function persistTranslationNounCard(card) {
     body: JSON.stringify({
       user_decision: payload.user_decision,
       final_term: payload.final_term,
+      ...(payload.term_type ? { term_type: payload.term_type } : {}),
     }),
   });
   const list = translationWorkspaceState.properNouns || [];
   const index = list.findIndex((item) => Number(item.id) === Number(updated.id));
   if (index >= 0) list[index] = { ...list[index], ...updated };
   updateTranslationPipelineButtons();
+}
+
+async function deleteTranslationProperNoun(nounId) {
+  if (!nounId || !translationWorkspaceState.jobId) return;
+  const payload = await api(`/api/translation/proper_nouns/${nounId}`, {
+    method: "DELETE",
+  });
+  translationWorkspaceState.properNouns = payload.proper_nouns || [];
+  renderTranslationProperNouns();
+  toast(i18n.t("index.고유명사를_지웠어요"));
+}
+
+function translationAddNounTypeOptions() {
+  return ["character", "place", "organization", "item"].map((value) => {
+    const selected = value === "character" ? " selected" : "";
+    return `<option value="${value}"${selected}>${escapeHtml(properNounTypeLabel(value))}</option>`;
+  }).join("");
+}
+
+function syncTranslationAddNounForm() {
+  const typeEl = $("translationAddNounType");
+  if (typeEl && !typeEl.options.length) {
+    typeEl.innerHTML = translationAddNounTypeOptions();
+  }
+}
+
+function toggleTranslationAddNounForm(forceOpen) {
+  const form = $("translationAddNounForm");
+  if (!form) return;
+  const open = forceOpen == null ? form.classList.contains("hidden") : Boolean(forceOpen);
+  form.classList.toggle("hidden", !open);
+  if (open) {
+    syncTranslationAddNounForm();
+    applyTranslations();
+    $("translationAddNounSource")?.focus();
+  }
+}
+
+async function submitTranslationAddNoun(event) {
+  event?.preventDefault?.();
+  if (!translationWorkspaceState.jobId) return;
+  const source = String($("translationAddNounSource")?.value || "").trim();
+  const finalTerm = String($("translationAddNounFinal")?.value || "").trim() || source;
+  const termType = String($("translationAddNounType")?.value || "character").trim();
+  if (!source) {
+    toast(i18n.t("index.고유명사를_입력해_주세요"));
+    $("translationAddNounSource")?.focus();
+    return;
+  }
+  const payload = await api(
+    `/api/translation/jobs/${translationWorkspaceState.jobId}/proper_nouns`,
+    {
+      method: "POST",
+      body: JSON.stringify({
+        source_term: source,
+        term_type: termType,
+        final_term: finalTerm,
+      }),
+    },
+  );
+  translationWorkspaceState.properNouns = payload.proper_nouns || [];
+  if ($("translationAddNounSource")) $("translationAddNounSource").value = "";
+  if ($("translationAddNounFinal")) $("translationAddNounFinal").value = "";
+  renderTranslationProperNouns();
+  toast(i18n.t("index.고유명사를_추가했어요"));
+  $("translationAddNounSource")?.focus();
 }
 
 async function extractTranslationProperNouns() {
@@ -29960,6 +30097,34 @@ async function extractTranslationProperNouns() {
     setTranslationStage(isTranslationProperNounsConfirmed() ? "nouns" : (translationWorkspaceState.stage || "nouns"));
   } finally {
     if (statusEl) statusEl.hidden = true;
+  }
+}
+
+async function refreshTranslationProperNouns() {
+  if (!translationWorkspaceState.jobId) return;
+  if (translationWorkspaceState.busy) return;
+  translationWorkspaceState.busy = true;
+  const btn = $("translationRefreshNounsButton");
+  if (btn) btn.disabled = true;
+  updateTranslationPipelineButtons();
+  const statusEl = $("translationNounsStatus");
+  if (statusEl) {
+    statusEl.hidden = false;
+    statusEl.textContent = i18n.t("index.고유명사를_다시_확인하고_있어요");
+  }
+  try {
+    const payload = await api(
+      `/api/translation/jobs/${translationWorkspaceState.jobId}/extract_proper_nouns`,
+      { method: "POST", body: JSON.stringify({ refresh: true }) },
+    );
+    translationWorkspaceState.properNouns = payload.proper_nouns || [];
+    if (payload.job) translationWorkspaceState.job = payload.job;
+    renderTranslationProperNouns();
+    toast(i18n.t("index.고유명사_목록을_새로_확인했어요"));
+  } finally {
+    translationWorkspaceState.busy = false;
+    if (statusEl) statusEl.hidden = true;
+    updateTranslationPipelineButtons();
   }
 }
 
@@ -30220,7 +30385,7 @@ function renderTranslationChapters() {
   select.innerHTML = chapters.map((chapter) => {
     const number = Number(chapter.number);
     const selected = number === Number(translationWorkspaceState.chapter) ? " selected" : "";
-    const label = `${number}${i18n.t("app.화")} · ${chapter.title || ""}`;
+    const label = translationEpisodeLabel(chapter, number);
     return `<option value="${number}"${selected}>${escapeHtml(label)}</option>`;
   }).join("");
 }
@@ -30230,6 +30395,86 @@ function translationChapterPolishReady() {
   return segments.length > 0 && segments.every(
     (segment) => segment.is_approved && String(segment.translated_text || "").trim()
   );
+}
+
+function translationApproveAllCandidates() {
+  const pending = [];
+  const skippedReview = [];
+  for (const segment of translationWorkspaceState.segments || []) {
+    if (segment.is_approved) continue;
+    if (!String(segment.translated_text || "").trim()) continue;
+    if (segment.needs_manual_review) {
+      skippedReview.push(segment);
+      continue;
+    }
+    pending.push(segment);
+  }
+  return { pending, skippedReview };
+}
+
+function updateTranslationApproveToolbar() {
+  const toolbar = $("translationApproveToolbar");
+  const firstPass = translationWorkspaceState.pass !== "polish";
+  toolbar?.classList.toggle("hidden", !firstPass);
+  if (toolbar) toolbar.hidden = !firstPass;
+  const { pending, skippedReview } = translationApproveAllCandidates();
+  const segments = translationWorkspaceState.segments || [];
+  const approved = segments.filter((segment) => segment.is_approved).length;
+  const btn = $("translationApproveAllButton");
+  if (btn) btn.disabled = !firstPass || !pending.length || Boolean(translationWorkspaceState.busy);
+  const status = $("translationApproveStatus");
+  if (!status) return;
+  if (!segments.length) {
+    status.textContent = i18n.t("index.아직_번역할_문단이_없어요");
+    return;
+  }
+  let text = i18n.t("index.승인된_문단_n_m", { n: approved, m: segments.length });
+  if (skippedReview.length) {
+    text += ` ${i18n.t("index.n개는_확인이_필요해서_제외돼요", { n: skippedReview.length })}`;
+  }
+  status.textContent = text;
+}
+
+async function approveAllTranslationSegments() {
+  const { pending, skippedReview } = translationApproveAllCandidates();
+  if (!pending.length) {
+    toast(
+      skippedReview.length
+        ? i18n.t("index.n개는_확인이_필요해서_제외됐어요", { n: skippedReview.length })
+        : i18n.t("index.승인할_문단이_없어요")
+    );
+    return;
+  }
+  const lines = [i18n.t("index.n개_문단을_한_번에_승인할까요", { n: pending.length })];
+  if (skippedReview.length) {
+    lines.push(i18n.t("index.n개는_확인이_필요해서_제외돼요", { n: skippedReview.length }));
+  }
+  if (!window.confirm(lines.join("\n"))) return;
+  const jobId = translationWorkspaceState.jobId;
+  const chapter = resolveTranslationChapter();
+  if (!jobId || !chapter) return;
+  const btn = $("translationApproveAllButton");
+  if (btn) btn.disabled = true;
+  try {
+    const payload = await api(
+      `/api/translation/jobs/${jobId}/chapters/${chapter}/approve_all`,
+      { method: "POST", body: "{}" },
+    );
+    if (Array.isArray(payload.segments)) {
+      translationWorkspaceState.segments = payload.segments;
+    }
+    renderTranslationColumns();
+    const approvedCount = Number(payload.approved_count || 0);
+    const skippedCount = Number(payload.skipped_manual_review || 0);
+    let message = i18n.t("index.n개_문단을_승인했어요", { n: approvedCount });
+    if (skippedCount) {
+      message += ` ${i18n.t("index.n개는_확인이_필요해서_제외됐어요", { n: skippedCount })}`;
+    }
+    toast(message);
+  } finally {
+    if (btn) btn.disabled = false;
+    updateTranslationApproveToolbar();
+  }
 }
 
 function translationChapterPolishProposed() {
@@ -30288,6 +30533,7 @@ function renderTranslationColumns() {
     rightHead.textContent = i18n.t(polishMode ? "index.윤문_제안" : "app.번역문");
   }
   updateTranslationPolishToolbar();
+  updateTranslationApproveToolbar();
   if (!segments.length) {
     host.innerHTML = `<p class="translation-empty">${escapeHtml(i18n.t("index.아직_번역할_문단이_없어요"))}</p>`;
     return;
@@ -30363,25 +30609,129 @@ function renderTranslationChat() {
     if (revision && body.endsWith(revision)) {
       body = body.slice(0, body.length - revision.length).trim();
     }
-    const revisionBlock = revision
-      ? `<div class="translation-chat-revision"><span>${escapeHtml(i18n.t("index.수정_제안"))}</span><p>${escapeHtml(revision)}</p></div>`
-      : "";
+    const segmentId = Number(msg.segment_id || 0);
+    const msgId = Number(msg.id || 0);
+    let revisionBlock = "";
+    if (revision) {
+      const actions = segmentId > 0
+        ? `<div class="translation-chat-revision-actions">
+            <button type="button" class="primary compact-btn" data-revision-apply="${segmentId}" data-revision-msg="${msgId}">${escapeHtml(i18n.t("index.이_문장으로_바꾸기"))}</button>
+            <button type="button" class="secondary compact-btn" data-revision-edit="${msgId}" aria-expanded="false">${escapeHtml(i18n.t("index.직접_수정"))}</button>
+          </div>
+          <div class="translation-chat-revision-editor hidden" data-revision-editor="${msgId}">
+            <textarea rows="3" data-revision-input="${msgId}">${escapeHtml(revision)}</textarea>
+            <button type="button" class="primary compact-btn" data-revision-save="${segmentId}" data-revision-input-for="${msgId}">${escapeHtml(i18n.t("index.적용"))}</button>
+          </div>`
+        : "";
+      revisionBlock = `<div class="translation-chat-revision"><span>${escapeHtml(i18n.t("index.수정_제안"))}</span><p>${escapeHtml(revision)}</p>${actions}</div>`;
+    }
     return `<div class="translation-chat-bubble ${roleClass}">${quote}<div>${escapeHtml(body)}</div>${revisionBlock}</div>`;
   }).join("");
   history.scrollTop = history.scrollHeight;
 }
 
+function translationWorkspaceCard() {
+  return document.querySelector("#translationWorkspaceModal .translation-workspace-card");
+}
+
+function syncTranslationChatExpandButton() {
+  const btn = $("translationChatExpand");
+  if (!btn) return;
+  const expanded = Boolean(translationWorkspaceState.chatExpanded);
+  const key = expanded ? "index.좁게_보기" : "app.전체보기";
+  const label = i18n.t(key);
+  btn.setAttribute("data-i18n", key);
+  btn.setAttribute("data-i18n-title", key);
+  btn.textContent = label;
+  btn.title = label;
+  btn.setAttribute("aria-pressed", expanded ? "true" : "false");
+}
+
+function ensureTranslationParagraphsVisible() {
+  const canOpenParagraphs = translationPipelineTranslated()
+    || isTranslationProperNounsConfirmed();
+  if (!canOpenParagraphs) return;
+  if (translationWorkspaceState.stage !== "paragraphs") {
+    setTranslationStage("paragraphs");
+    renderTranslationColumns();
+  }
+}
+
+function setTranslationChatExpanded(expanded) {
+  translationWorkspaceState.chatExpanded = Boolean(expanded);
+  if (translationWorkspaceState.chatExpanded) {
+    ensureTranslationParagraphsVisible();
+    setTranslationChatOpen(true);
+  }
+  const dock = $("translationChatDock");
+  dock?.classList.toggle("is-expanded", translationWorkspaceState.chatExpanded);
+  translationWorkspaceCard()?.classList.toggle(
+    "is-chat-expanded",
+    translationWorkspaceState.chatExpanded,
+  );
+  syncTranslationChatExpandButton();
+}
+
+function translationChatSuggestedRevision(msgId) {
+  const wanted = String(msgId ?? "");
+  const match = (translationWorkspaceState.chat || []).find(
+    (msg) => String(msg.id ?? "") === wanted,
+  );
+  return String(match?.suggested_revision || "").trim();
+}
+
+async function applyTranslationChatRevision(segmentId, text) {
+  const next = String(text || "").trim();
+  if (!next) {
+    toast(i18n.t("index.바꿀_번역문을_입력해_주세요"));
+    return;
+  }
+  const id = Number(segmentId);
+  if (!Number.isFinite(id) || id <= 0) {
+    toast(i18n.t("index.문단을_찾을_수_없어_제안을_반영하지_못했어요"));
+    return;
+  }
+  const updated = await api(`/api/translation/segments/${id}/text`, {
+    method: "POST",
+    body: JSON.stringify({ translated_text: next }),
+  });
+  ensureTranslationParagraphsVisible();
+  const chapter = Number(updated?.chapter_number);
+  if (chapter && chapter !== Number(translationWorkspaceState.chapter)) {
+    await loadTranslationChapter(chapter);
+  } else {
+    const item = translationWorkspaceState.segments.find(
+      (seg) => Number(seg.id) === id,
+    );
+    if (item) Object.assign(item, updated);
+    renderTranslationColumns();
+  }
+  toast(i18n.t("index.번역문에_반영했어요"));
+  const row = $("translationSegmentRows")
+    ?.querySelector(`[data-segment-id="${id}"]`);
+  row?.closest("article")?.scrollIntoView({ block: "nearest", behavior: "smooth" });
+}
+
 function setTranslationChatOpen(open) {
   translationWorkspaceState.chatOpen = Boolean(open);
+  if (!translationWorkspaceState.chatOpen) {
+    translationWorkspaceState.chatExpanded = false;
+  }
   const dock = $("translationChatDock");
   const body = $("translationChatBody");
   const toggle = $("translationChatToggle");
   dock?.classList.toggle("is-collapsed", !open);
+  dock?.classList.toggle("is-expanded", Boolean(translationWorkspaceState.chatExpanded));
+  translationWorkspaceCard()?.classList.toggle(
+    "is-chat-expanded",
+    Boolean(translationWorkspaceState.chatExpanded),
+  );
   if (body) {
     body.hidden = !open;
     body.toggleAttribute("hidden", !open);
   }
   toggle?.setAttribute("aria-expanded", open ? "true" : "false");
+  syncTranslationChatExpandButton();
 }
 
 function setTranslationQuote(text, segmentId) {
@@ -30560,6 +30910,7 @@ function closeTranslationWorkspace({ dismissed = true, returnToList = dismissed 
   hideTranslationWordPopover();
   if (dismissed) translationWorkspaceState.dismissed = true;
   resetTranslationWorkspaceState();
+  setTranslationChatOpen(false);
   if (returnToList) {
     try { returnToAiSelectList(); } catch (_) { /* ignore */ }
   }
@@ -30761,6 +31112,25 @@ function setupTranslationWorkspace() {
   $("translationConfirmNounsButton")?.addEventListener("click", () => {
     confirmTranslationProperNouns().catch(handleError);
   });
+  $("translationRefreshNounsButton")?.addEventListener("click", () => {
+    if ($("translationRefreshNounsButton")?.disabled) return;
+    refreshTranslationProperNouns().catch(handleError);
+  });
+  $("translationAddNounToggle")?.addEventListener("click", () => {
+    toggleTranslationAddNounForm();
+  });
+  $("translationAddNounForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    submitTranslationAddNoun(event).catch(handleError);
+  });
+  $("translationAddNounSource")?.addEventListener("input", () => {
+    const sourceEl = $("translationAddNounSource");
+    const finalEl = $("translationAddNounFinal");
+    if (!sourceEl || !finalEl) return;
+    if (!String(finalEl.value || "").trim()) {
+      finalEl.placeholder = String(sourceEl.value || "").trim() || i18n.t("index.직접_입력");
+    }
+  });
   $("translationProperNounPanel")?.addEventListener("change", (event) => {
     const card = event.target.closest?.("[data-noun-id]");
     if (!card) return;
@@ -30785,6 +31155,12 @@ function setupTranslationWorkspace() {
     updateTranslationPipelineButtons();
   });
   $("translationProperNounPanel")?.addEventListener("click", (event) => {
+    const del = event.target.closest?.("[data-noun-delete]");
+    if (del) {
+      event.preventDefault();
+      deleteTranslationProperNoun(Number(del.getAttribute("data-noun-delete"))).catch(handleError);
+      return;
+    }
     const alt = event.target.closest?.("[data-noun-alt]");
     if (!alt) return;
     const card = alt.closest("[data-noun-id]");
@@ -30826,8 +31202,53 @@ function setupTranslationWorkspace() {
     if ($("translationChapterPolishApplyAll")?.disabled) return;
     applyAllTranslationChapterPolish().catch(handleError);
   });
+  $("translationApproveAllButton")?.addEventListener("click", () => {
+    if ($("translationApproveAllButton")?.disabled) return;
+    approveAllTranslationSegments().catch(handleError);
+  });
   $("translationChatToggle")?.addEventListener("click", () => {
     setTranslationChatOpen(!translationWorkspaceState.chatOpen);
+  });
+  $("translationChatExpand")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setTranslationChatExpanded(!translationWorkspaceState.chatExpanded);
+  });
+  $("translationChatHistory")?.addEventListener("click", (event) => {
+    const node = event.target?.nodeType === 1 ? event.target : event.target?.parentElement;
+    const applyBtn = node?.closest?.("[data-revision-apply]");
+    if (applyBtn) {
+      event.preventDefault();
+      const segmentId = applyBtn.getAttribute("data-revision-apply");
+      const revision = translationChatSuggestedRevision(applyBtn.getAttribute("data-revision-msg"))
+        || String(applyBtn.closest(".translation-chat-revision")?.querySelector("p")?.textContent || "").trim();
+      applyBtn.disabled = true;
+      applyTranslationChatRevision(segmentId, revision)
+        .catch(handleError)
+        .finally(() => { applyBtn.disabled = false; });
+      return;
+    }
+    const editBtn = node?.closest?.("[data-revision-edit]");
+    if (editBtn) {
+      event.preventDefault();
+      const msgId = editBtn.getAttribute("data-revision-edit");
+      const editor = $("translationChatHistory")?.querySelector(`[data-revision-editor="${CSS.escape(String(msgId || ""))}"]`);
+      if (!editor) return;
+      const show = editor.classList.contains("hidden");
+      editor.classList.toggle("hidden", !show);
+      editBtn.setAttribute("aria-expanded", show ? "true" : "false");
+      if (show) editor.querySelector("[data-revision-input]")?.focus();
+      return;
+    }
+    const saveBtn = node?.closest?.("[data-revision-save]");
+    if (!saveBtn) return;
+    event.preventDefault();
+    const msgId = saveBtn.getAttribute("data-revision-input-for");
+    const input = $("translationChatHistory")?.querySelector(`[data-revision-input="${CSS.escape(String(msgId || ""))}"]`);
+    saveBtn.disabled = true;
+    applyTranslationChatRevision(saveBtn.getAttribute("data-revision-save"), input?.value || "")
+      .catch(handleError)
+      .finally(() => { saveBtn.disabled = false; });
   });
   $("translationChatQuoteClear")?.addEventListener("click", () => setTranslationQuote("", null));
   $("translationChatSend")?.addEventListener("click", () => sendTranslationChat().catch(handleError));
@@ -30870,6 +31291,7 @@ function setupTranslationWorkspace() {
       const item = translationWorkspaceState.segments.find((seg) => Number(seg.id) === Number(segmentId));
       if (item) item.is_approved = updated.is_approved;
       updateTranslationPolishToolbar();
+      updateTranslationApproveToolbar();
     } catch (error) {
       box.checked = !box.checked;
       handleError(error);
@@ -30972,6 +31394,11 @@ function setupTranslationWorkspace() {
     if (event.key !== "Escape") return;
     hideTranslationWordPopover();
     hideTranslationNotesPopover();
+    if (!isTranslationWorkspaceOpen()) return;
+    if (translationWorkspaceState.chatExpanded) {
+      event.preventDefault();
+      setTranslationChatExpanded(false);
+    }
   });
   try {
     if (window.location.hash === "#translation-workspace" && isTranslationWorkspaceUnlocked()) {

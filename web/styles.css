@@ -28364,6 +28364,21 @@ html[lang="es"] .format-tool-label-wrap {
   -webkit-user-select: all;
 }
 .translation-nouns-lead { margin: 0; }
+.translation-nouns-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px 12px;
+  margin: 0 0 8px;
+}
+.translation-nouns-toolbar .translation-nouns-lead {
+  flex: 1 1 16rem;
+}
+#translationRefreshNounsButton:disabled {
+  opacity: 0.55;
+  cursor: wait;
+}
 .translation-nouns-section h3 {
   margin: 0 0 8px;
   font-size: 14px;
@@ -28385,11 +28400,31 @@ html[lang="es"] .format-tool-label-wrap {
   gap: 8px;
   align-items: baseline;
 }
+.translation-noun-head-main {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: baseline;
+  flex: 1 1 auto;
+}
+.translation-noun-delete {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
 .translation-noun-term { font-weight: 750; }
 .translation-noun-type,
 .translation-noun-fit {
   font-size: 11px;
   color: var(--muted);
+}
+.translation-noun-type-field select {
+  font-size: 11px;
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: transparent;
+  padding: 1px 8px;
+  cursor: pointer;
 }
 .translation-noun-reason {
   margin: 6px 0 8px;
@@ -28458,6 +28493,34 @@ html[lang="es"] .format-tool-label-wrap {
   width: min(320px, 100%);
 }
 .translation-nouns-actions { margin-top: 4px; }
+.translation-noun-add {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  margin: 12px 0 8px;
+}
+.translation-noun-add-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px;
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px dashed var(--line);
+  border-radius: 12px;
+}
+.translation-noun-add-form.hidden { display: none; }
+.translation-noun-add-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12px;
+}
+.translation-noun-add-form input,
+.translation-noun-add-form select {
+  min-width: 140px;
+}
 .translation-workspace-body.hidden { display: none; }
 .translation-workspace-body {
   flex: 1 1 auto;
@@ -28473,6 +28536,18 @@ html[lang="es"] .format-tool-label-wrap {
   border-bottom: 1px solid var(--line);
   background: var(--panel, #fff);
 }
+.translation-approve-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--line);
+  background: var(--panel, #fff);
+  flex: 0 0 auto;
+}
+.translation-approve-toolbar.hidden { display: none; }
+.translation-approve-toolbar .hint { margin: 0; }
 .translation-polish-toolbar {
   display: flex;
   align-items: center;
@@ -28540,6 +28615,7 @@ html[lang="es"] .format-tool-label-wrap {
   background: color-mix(in srgb, var(--accent, #a66b3a) 16%, var(--panel, #fff));
 }
 @media (max-width: 760px) {
+  .translation-approve-toolbar,
   .translation-polish-toolbar { align-items: flex-start; flex-direction: column; }
   .translation-pane-heads,
   .translation-pair-row { grid-template-columns: 1fr; }
@@ -28665,6 +28741,11 @@ html[lang="es"] .format-tool-label-wrap {
   overflow: auto;
 }
 .translation-word-term { font-size: 15px; }
+.translation-word-lemma {
+  margin: 2px 0 0;
+  color: var(--muted, #7a7268);
+  font-size: 12px;
+}
 .translation-word-phonetic {
   margin: 0;
   color: var(--muted, #7a7268);
@@ -28684,9 +28765,19 @@ html[lang="es"] .format-tool-label-wrap {
   border-top: 1px solid var(--line);
   background: var(--panel, #fff);
   flex: 0 0 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.translation-chat-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-right: 10px;
+  flex: 0 0 auto;
 }
 .translation-chat-toggle {
-  width: 100%;
+  flex: 1 1 auto;
   display: flex;
   justify-content: space-between;
   align-items: center;
@@ -28697,12 +28788,17 @@ html[lang="es"] .format-tool-label-wrap {
   font-weight: 650;
 }
 .translation-chat-dock.is-collapsed .translation-chat-chevron { transform: rotate(180deg); }
+.translation-chat-expand {
+  flex: 0 0 auto;
+  white-space: nowrap;
+}
 .translation-chat-body {
   display: flex;
   flex-direction: column;
   max-height: 220px;
   padding: 0 12px 12px;
   gap: 8px;
+  min-height: 0;
 }
 .translation-chat-body[hidden] {
   display: none !important;
@@ -28714,6 +28810,24 @@ html[lang="es"] .format-tool-label-wrap {
   display: flex;
   flex-direction: column;
   gap: 8px;
+}
+.translation-workspace-card.is-chat-expanded .translation-nouns-panel:not(.hidden),
+.translation-workspace-card.is-chat-expanded .translation-workspace-body:not(.hidden) {
+  flex: 1 1 34%;
+  min-height: 140px;
+}
+.translation-chat-dock.is-expanded {
+  flex: 1 1 66%;
+  min-height: 240px;
+}
+.translation-chat-dock.is-expanded .translation-chat-body {
+  flex: 1 1 auto;
+  max-height: none;
+}
+.translation-chat-dock.is-expanded .translation-chat-history {
+  flex: 1 1 auto;
+  max-height: none;
+  min-height: 120px;
 }
 .translation-chat-bubble {
   max-width: 92%;
@@ -28747,6 +28861,7 @@ html[lang="es"] .format-tool-label-wrap {
   border-radius: 8px;
   background: color-mix(in srgb, var(--ink) 8%, transparent);
   font-size: 13px;
+  white-space: normal;
 }
 .translation-chat-revision span {
   display: block;
@@ -28755,6 +28870,32 @@ html[lang="es"] .format-tool-label-wrap {
   opacity: 0.7;
 }
 .translation-chat-revision p { margin: 0; white-space: pre-wrap; }
+.translation-chat-revision-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.translation-chat-revision-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.translation-chat-revision-editor.hidden { display: none; }
+.translation-chat-revision-editor textarea {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--panel, #fff);
+  color: inherit;
+  font: inherit;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
 .translation-chat-compose {
   display: flex;
   gap: 8px;

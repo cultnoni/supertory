@@ -37,6 +37,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.rate_limit_raises = 0
         self.dictionary_languages: list[str] = []
         self.polish_mismatch_left = 0
+        self.proper_noun_round = 0
         self._orig_generate = gemini_client.generate_text
         self._orig_configured = gemini_client.is_configured
         self._orig_retry_delay = app._paragraph_empty_retry_delay
@@ -128,21 +129,59 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
                     ensure_ascii=False,
                 )
             if step == "proper_nouns":
-                return json.dumps(
-                    {
-                        "proper_nouns": [
-                            {
-                                "source_term": "우산골",
-                                "term_type": "place",
-                                "romanized": "Usangol",
-                                "fit_judgment": "does_not_fit",
-                                "judgment_reason": "발음이 어색하고 지명처럼 들리지 않습니다.",
-                                "suggested_alternatives": ["Rainvale", "Umberwick"],
-                            }
-                        ]
-                    },
-                    ensure_ascii=False,
+                self.proper_noun_round += 1
+                seen: set[str] = set()
+                nouns: list[dict] = []
+                round_suffix = (
+                    f" {self.proper_noun_round}" if self.proper_noun_round > 1 else ""
                 )
+
+                def add_noun(source_term: str, payload: dict) -> None:
+                    if source_term in seen:
+                        return
+                    seen.add(source_term)
+                    nouns.append({"source_term": source_term, **payload})
+
+                capturing = False
+                for line in prompt.splitlines():
+                    if "설정집에 이미 있는 고유명사" in line:
+                        capturing = True
+                        continue
+                    if not capturing:
+                        continue
+                    if line.startswith("- "):
+                        name = line[2:].strip()
+                        romanized = {
+                            "이오나": "Iona",
+                            "안테레스": "Anteres",
+                            "세리나": "Serena",
+                        }.get(name, name)
+                        romanized = f"{romanized}{round_suffix}"
+                        add_noun(
+                            name,
+                            {
+                                "term_type": "character",
+                                "romanized": romanized,
+                                "fit_judgment": "fits",
+                                "judgment_reason": (
+                                    f"'{romanized}' 표기가 대상 언어권에서 자연스럽습니다."
+                                ),
+                                "suggested_alternatives": [],
+                            },
+                        )
+                    elif line.startswith("[") or line.startswith("그 다음"):
+                        capturing = False
+                add_noun(
+                    "우산골",
+                    {
+                        "term_type": "place",
+                        "romanized": f"Usangol{round_suffix}",
+                        "fit_judgment": "does_not_fit",
+                        "judgment_reason": "발음이 어색하고 지명처럼 들리지 않습니다.",
+                        "suggested_alternatives": ["Rainvale", "Umberwick"],
+                    },
+                )
+                return json.dumps({"proper_nouns": nouns}, ensure_ascii=False)
             if step == "polish":
                 spanish = "[대상 언어]: 스페인어" in prompt
                 french = "[대상 언어]: 프랑스어" in prompt
@@ -364,6 +403,30 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         except json.JSONDecodeError:
             parsed = {"raw": raw}
         return response.status, parsed
+
+    def _decide_empty_nouns(self, job_id: int, overrides: dict | None = None) -> None:
+        overrides = overrides or {}
+        status, listing = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/proper_nouns"
+        )
+        self.assertEqual(status, 200)
+        for item in listing["proper_nouns"]:
+            name = str(item.get("source_term") or "")
+            if name in overrides:
+                payload = overrides[name]
+            elif str(item.get("final_term") or "").strip():
+                continue
+            else:
+                payload = {
+                    "user_decision": "keep_romanized",
+                    "final_term": item.get("romanized") or name,
+                }
+            status, _ = self.request(
+                "POST",
+                f"/api/translation/proper_nouns/{item['id']}/decide",
+                payload,
+            )
+            self.assertEqual(status, 200)
 
     def _make_story(self, content_md: str | None = None) -> tuple[int, int]:
         status, project = self.request(
@@ -593,7 +656,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertEqual(chat["user"]["role"], "user")
         self.assertEqual(chat["tori"]["role"], "tori")
         self.assertIn("부드럽게", chat["tori"]["message"])
-        self.assertIn("The rain had already begun", chat["tori"]["message"])
+        self.assertNotIn("⟦수정 제안⟧", chat["tori"]["message"])
         self.assertEqual(
             chat["tori"].get("suggested_revision"),
             "The rain had already begun when they first met.",
@@ -628,6 +691,177 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         status, detail = self.request("GET", f"/api/translation/jobs/{job_id}")
         self.assertEqual(status, 200)
         self.assertGreaterEqual(len(detail["chat_messages"]), 2)
+        tori_messages = [
+            item for item in detail["chat_messages"] if item.get("role") == "tori"
+        ]
+        self.assertTrue(
+            any(
+                item.get("suggested_revision")
+                == "The rain had already begun when they first met."
+                for item in tori_messages
+            )
+        )
+
+        status, replaced = self.request(
+            "POST",
+            f"/api/translation/segments/{segment_id}/text",
+            {
+                "translated_text": (
+                    "The rain had already begun when they first met."
+                )
+            },
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            replaced["translated_text"],
+            "The rain had already begun when they first met.",
+        )
+        self.assertFalse(replaced.get("polished_text"))
+        self.assertFalse(replaced.get("is_approved"))
+
+        status, edited = self.request(
+            "POST",
+            f"/api/translation/segments/{segment_id}/text",
+            {"translated_text": "Rain was already falling when they first met."},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            edited["translated_text"],
+            "Rain was already falling when they first met.",
+        )
+        status, empty = self.request(
+            "POST",
+            f"/api/translation/segments/{segment_id}/text",
+            {"translated_text": "   "},
+        )
+        self.assertEqual(status, 400)
+        self.assertIn("바꿀 번역문", str(empty.get("error") or empty))
+        status, listing = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/segments?chapter=1"
+        )
+        self.assertEqual(status, 200)
+        saved = next(
+            item
+            for item in listing["segments"]
+            if int(item["id"]) == int(segment_id)
+        )
+        self.assertEqual(
+            saved["translated_text"],
+            "Rain was already falling when they first met.",
+        )
+
+    def test_qa_revision_and_chat_expand_ui_are_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn('id="translationChatExpand"', html)
+        self.assertIn("data-revision-apply", js)
+        self.assertIn("data-revision-edit", js)
+        self.assertIn("data-revision-save", js)
+        self.assertIn("applyTranslationChatRevision", js)
+        self.assertIn("setTranslationChatExpanded", js)
+        self.assertIn("/segments/${id}/text", js)
+        self.assertIn("is-chat-expanded", css)
+        self.assertIn("translation-chat-dock.is-expanded", css)
+        for locale in (ko, en, es):
+            self.assertIn("index.이_문장으로_바꾸기", locale)
+            self.assertIn("index.직접_수정", locale)
+            self.assertIn("index.좁게_보기", locale)
+            self.assertIn("index.번역문에_반영했어요", locale)
+
+    def test_approve_all_skips_manual_review_and_already_approved(self) -> None:
+        project_id, _ = self._make_story(
+            "첫 문단입니다.\n\n둘째 문단입니다.\n\n셋째 문단입니다."
+        )
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            self._translation_job_body(),
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        status, payload = self.request(
+            "GET", f"/api/translation/jobs/{job_id}/segments?chapter=1"
+        )
+        self.assertEqual(status, 200)
+        segments = payload["segments"]
+        self.assertGreaterEqual(len(segments), 3)
+        first_id = int(segments[0]["id"])
+        review_id = int(segments[1]["id"])
+        pending_id = int(segments[2]["id"])
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE translation_segments SET translated_text = ? WHERE id = ?",
+                ("First paragraph.", first_id),
+            )
+            connection.execute(
+                "UPDATE translation_segments SET translated_text = ?, "
+                "needs_manual_review = 1 WHERE id = ?",
+                ("Needs a check.", review_id),
+            )
+            connection.execute(
+                "UPDATE translation_segments SET translated_text = ? WHERE id = ?",
+                ("Pending paragraph.", pending_id),
+            )
+            connection.commit()
+        status, approved = self.request(
+            "POST",
+            f"/api/translation/segments/{first_id}/approve",
+            {"is_approved": True},
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(approved["is_approved"])
+
+        status, bulk = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/chapters/1/approve_all",
+            {},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(int(bulk["approved_count"]), 1)
+        self.assertEqual(int(bulk["already_approved"]), 1)
+        self.assertEqual(int(bulk["skipped_manual_review"]), 1)
+        by_id = {int(item["id"]): item for item in bulk["segments"]}
+        self.assertTrue(by_id[first_id]["is_approved"])
+        self.assertTrue(by_id[pending_id]["is_approved"])
+        self.assertFalse(by_id[review_id]["is_approved"])
+        self.assertTrue(by_id[review_id]["needs_manual_review"])
+
+        status, again = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/chapters/1/approve_all",
+            {},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(int(again["approved_count"]), 0)
+        self.assertEqual(int(again["already_approved"]), 2)
+        self.assertEqual(int(again["skipped_manual_review"]), 1)
+        again_by_id = {int(item["id"]): item for item in again["segments"]}
+        self.assertFalse(again_by_id[review_id]["is_approved"])
+
+    def test_approve_all_ui_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn('id="translationApproveAllButton"', html)
+        self.assertIn("translationApproveToolbar", html)
+        self.assertIn("approveAllTranslationSegments", js)
+        self.assertIn("window.confirm", js)
+        self.assertIn("/chapters/${chapter}/approve_all", js)
+        self.assertIn("needs_manual_review", js)
+        self.assertIn("translation-approve-toolbar", css)
+        for locale in (ko, en, es):
+            self.assertIn("index.전체_승인", locale)
+            self.assertIn("index.n개_문단을_한_번에_승인할까요", locale)
+            self.assertIn("index.n개는_확인이_필요해서_제외됐어요", locale)
 
     def test_chapter_polish_retries_count_mismatch_and_applies_all(self) -> None:
         project_id, _ = self._make_story()
@@ -997,6 +1231,12 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             {"name": "이오나"},
         )
         self.assertEqual(status, 201)
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/characters",
+            {"name": "안테레스"},
+        )
+        self.assertEqual(status, 201)
         with app.database() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO project_index(project_id) VALUES (?)",
@@ -1026,32 +1266,45 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         nouns = extracted["proper_nouns"]
         names = {item["source_term"] for item in nouns}
         self.assertIn("이오나", names)
+        self.assertIn("안테레스", names)
         self.assertIn("세리나", names)
         self.assertIn("우산골", names)
         index_item = next(item for item in nouns if item["source_term"] == "이오나")
         self.assertEqual(index_item["source"], "character_index")
-        self.assertEqual(index_item["final_term"], "이오나")
+        self.assertEqual(index_item["romanized"], "Iona")
+        self.assertEqual(index_item["fit_judgment"], "fits")
+        self.assertTrue(str(index_item.get("judgment_reason") or "").strip())
+        self.assertFalse(str(index_item.get("final_term") or "").strip())
+        anteres = next(item for item in nouns if item["source_term"] == "안테레스")
+        self.assertEqual(anteres["source"], "character_index")
+        self.assertEqual(anteres["romanized"], "Anteres")
+        self.assertTrue(str(anteres.get("judgment_reason") or "").strip())
         detected = next(item for item in nouns if item["source_term"] == "우산골")
         self.assertEqual(detected["source"], "ai_detected")
         self.assertEqual(detected["fit_judgment"], "does_not_fit")
         self.assertFalse(str(detected.get("final_term") or "").strip())
-        self.assertTrue(
-            any("건너뛰" in call["prompt"] for call in self.calls),
+        noun_prompt = next(
+            call["prompt"]
+            for call in reversed(self.calls)
+            if '"proper_nouns"' in call["prompt"] or "fit_judgment" in call["prompt"]
         )
+        self.assertIn("반드시 같은 기준으로 판정하세요", noun_prompt)
+        self.assertNotIn("건너뛰세요", noun_prompt)
 
         status, _ = self.request(
             "POST", f"/api/translation/jobs/{job_id}/confirm_proper_nouns", {}
         )
         self.assertEqual(status, 400)
 
-        status, decided = self.request(
-            "POST",
-            f"/api/translation/proper_nouns/{detected['id']}/decide",
-            {"user_decision": "rename", "final_term": "Rainvale"},
+        self._decide_empty_nouns(
+            job_id,
+            {
+                "우산골": {
+                    "user_decision": "rename",
+                    "final_term": "Rainvale",
+                }
+            },
         )
-        self.assertEqual(status, 200)
-        self.assertEqual(decided["final_term"], "Rainvale")
-        self.assertEqual(decided["user_decision"], "rename")
 
         status, confirmed = self.request(
             "POST", f"/api/translation/jobs/{job_id}/confirm_proper_nouns", {}
@@ -1059,6 +1312,232 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(confirmed["status"], "draft")
         self.assertTrue(confirmed.get("proper_nouns_confirmed"))
+
+    def test_add_and_delete_proper_nouns_update_translation_glossary(self) -> None:
+        project_id, _ = self._make_story()
+        status, created = self.request(
+            "POST", f"/api/projects/{project_id}/translation/jobs", self._translation_job_body()
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        status, started = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/start", {}
+        )
+        self.assertEqual(status, 200)
+        nouns = started.get("proper_nouns") or []
+        if not nouns:
+            status, listing = self.request(
+                "GET", f"/api/translation/jobs/{job_id}/proper_nouns"
+            )
+            self.assertEqual(status, 200)
+            nouns = listing["proper_nouns"]
+        detected = next(
+            item for item in nouns if item["source_term"] == "우산골"
+        )
+        status, after_delete = self.request(
+            "DELETE", f"/api/translation/proper_nouns/{detected['id']}"
+        )
+        self.assertEqual(status, 200)
+        names = {item["source_term"] for item in after_delete["proper_nouns"]}
+        self.assertNotIn("우산골", names)
+
+        status, added = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/proper_nouns",
+            {
+                "source_term": "뮤온",
+                "term_type": "item",
+                "final_term": "Muon",
+            },
+        )
+        self.assertEqual(status, 201)
+        created_noun = added["proper_noun"]
+        self.assertEqual(created_noun["source_term"], "뮤온")
+        self.assertEqual(created_noun["final_term"], "Muon")
+        self.assertEqual(created_noun["term_type"], "item")
+        self.assertEqual(created_noun["user_decision"], "rename")
+        self.assertEqual(created_noun["source"], "user_added")
+        names = {item["source_term"] for item in added["proper_nouns"]}
+        self.assertIn("뮤온", names)
+        self.assertNotIn("우산골", names)
+
+        status, edited = self.request(
+            "POST",
+            f"/api/translation/proper_nouns/{created_noun['id']}/decide",
+            {"user_decision": "rename", "final_term": "Myuon"},
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(edited["final_term"], "Myuon")
+
+        status, duplicate = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/proper_nouns",
+            {"source_term": "뮤온", "term_type": "item", "final_term": "Muon"},
+        )
+        self.assertEqual(status, 400)
+
+        for item in added["proper_nouns"]:
+            if item["source_term"] == "뮤온":
+                continue
+            if str(item.get("final_term") or "").strip():
+                continue
+            status, _ = self.request(
+                "POST",
+                f"/api/translation/proper_nouns/{item['id']}/decide",
+                {"user_decision": "keep_as_is", "final_term": item["source_term"]},
+            )
+            self.assertEqual(status, 200)
+
+        status, confirmed = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/confirm_proper_nouns", {}
+        )
+        self.assertEqual(status, 200)
+        self.assertTrue(confirmed.get("proper_nouns_confirmed"))
+
+        status, done = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/proceed_to_translation", {}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(done["status"], "translated")
+        paragraph_prompt = next(
+            call["prompt"]
+            for call in reversed(self.calls)
+            if "[확정된 고유명사 — 반드시 이 표기를 그대로 사용하세요]" in str(call.get("prompt") or "")
+        )
+        glossary = paragraph_prompt.split(
+            "[확정된 고유명사 — 반드시 이 표기를 그대로 사용하세요]", 1
+        )[1].split("[문화반영범위]", 1)[0]
+        self.assertIn("뮤온→Myuon", glossary)
+        self.assertNotIn("우산골", glossary)
+
+    def test_refresh_proper_nouns_keeps_locked_and_user_edits(self) -> None:
+        project_id, _ = self._make_story()
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/characters",
+            {"name": "이오나"},
+        )
+        self.assertEqual(status, 201)
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/characters",
+            {"name": "안테레스"},
+        )
+        self.assertEqual(status, 201)
+        with app.database() as connection:
+            connection.execute(
+                "INSERT OR IGNORE INTO project_index(project_id) VALUES (?)",
+                (project_id,),
+            )
+            connection.execute(
+                "UPDATE project_index SET characters_json = ? WHERE project_id = ?",
+                (json.dumps(["세리나"], ensure_ascii=False), project_id),
+            )
+        status, created = self.request(
+            "POST", f"/api/projects/{project_id}/translation/jobs", self._translation_job_body()
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        status, extracted = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/extract_proper_nouns", {}
+        )
+        self.assertEqual(status, 200)
+        nouns = {item["source_term"]: item for item in extracted["proper_nouns"]}
+        self.assertEqual(nouns["이오나"]["romanized"], "Iona")
+        self.assertEqual(nouns["안테레스"]["romanized"], "Anteres")
+        self.assertEqual(nouns["세리나"]["romanized"], "Serena")
+        self.assertIn("우산골", nouns)
+
+        status, _ = self.request(
+            "POST",
+            f"/api/translation/proper_nouns/{nouns['이오나']['id']}/decide",
+            {"user_decision": "keep_romanized", "final_term": "Iona"},
+        )
+        self.assertEqual(status, 200)
+        status, _ = self.request(
+            "POST",
+            f"/api/translation/proper_nouns/{nouns['세리나']['id']}/decide",
+            {"user_decision": "keep_as_is", "final_term": "세리나"},
+        )
+        self.assertEqual(status, 200)
+        status, _ = self.request(
+            "DELETE", f"/api/translation/proper_nouns/{nouns['우산골']['id']}"
+        )
+        self.assertEqual(status, 200)
+        status, added = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/proper_nouns",
+            {
+                "source_term": "뮤온",
+                "term_type": "item",
+                "final_term": "Muon",
+            },
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(added["proper_noun"]["source"], "user_added")
+        muon_id = int(added["proper_noun"]["id"])
+
+        status, refreshed = self.request(
+            "POST",
+            f"/api/translation/jobs/{job_id}/extract_proper_nouns",
+            {"refresh": True},
+        )
+        self.assertEqual(status, 200)
+        after = {item["source_term"]: item for item in refreshed["proper_nouns"]}
+        self.assertEqual(after["이오나"]["romanized"], "Iona")
+        self.assertEqual(after["이오나"]["final_term"], "Iona")
+        self.assertEqual(after["이오나"]["user_decision"], "keep_romanized")
+        self.assertEqual(after["안테레스"]["romanized"], "Anteres 2")
+        self.assertFalse(str(after["안테레스"].get("final_term") or "").strip())
+        self.assertIsNone(after["안테레스"].get("user_decision"))
+        self.assertEqual(after["세리나"]["romanized"], "Serena 2")
+        self.assertFalse(str(after["세리나"].get("final_term") or "").strip())
+        self.assertEqual(after["뮤온"]["final_term"], "Muon")
+        self.assertEqual(after["뮤온"]["source"], "user_added")
+        self.assertEqual(int(after["뮤온"]["id"]), muon_id)
+        self.assertNotIn("우산골", after)
+        job = refreshed.get("job") or {}
+        self.assertFalse(job.get("proper_nouns_confirmed"))
+
+        status, extracted_again = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/extract_proper_nouns", {}
+        )
+        self.assertEqual(status, 200)
+        again_names = {
+            item["source_term"] for item in extracted_again["proper_nouns"]
+        }
+        self.assertNotIn("우산골", again_names)
+        self.assertEqual(
+            next(
+                item["romanized"]
+                for item in extracted_again["proper_nouns"]
+                if item["source_term"] == "이오나"
+            ),
+            "Iona",
+        )
+
+    def test_refresh_proper_nouns_ui_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('id="translationRefreshNounsButton"', html)
+        self.assertIn("translation-nouns-toolbar", html)
+        self.assertIn('data-i18n="index.전체_새로고침"', html)
+        self.assertIn("refreshTranslationProperNouns", js)
+        self.assertIn("refresh: true", js)
+        self.assertIn("/extract_proper_nouns", js)
+        self.assertIn("translation-nouns-toolbar", css)
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn("index.전체_새로고침", ko)
+        self.assertIn("index.전체_새로고침", en)
+        self.assertIn("index.전체_새로고침", es)
+        self.assertIn("index.고유명사를_다시_확인하고_있어요", ko)
+        self.assertIn("index.고유명사_목록을_새로_확인했어요", ko)
+        self.assertIn("index.고유명사를_다시_확인하고_있어요", js)
+        self.assertIn("index.고유명사_목록을_새로_확인했어요", js)
 
     def _count_steps(self, *needles: str) -> int:
         return sum(
@@ -1158,17 +1637,15 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             "GET", f"/api/translation/jobs/{job_id}/proper_nouns"
         )
         self.assertEqual(status, 200)
-        detected = next(
-            item
-            for item in extracted["proper_nouns"]
-            if item["source_term"] == "우산골"
+        self._decide_empty_nouns(
+            job_id,
+            {
+                "우산골": {
+                    "user_decision": "rename",
+                    "final_term": "Rainvale",
+                }
+            },
         )
-        status, _ = self.request(
-            "POST",
-            f"/api/translation/proper_nouns/{detected['id']}/decide",
-            {"user_decision": "rename", "final_term": "Rainvale"},
-        )
-        self.assertEqual(status, 200)
         status, confirmed = self.request(
             "POST", f"/api/translation/jobs/{job_id}/confirm_proper_nouns", {}
         )
@@ -1539,6 +2016,21 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertFalse(missing.get("found"))
         self.assertEqual(missing.get("word"), "xyzzy")
         self.assertEqual(missing.get("status"), "not_found")
+
+    def test_dictionary_lemma_fallback_ui_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn("looked_up_as", js)
+        self.assertIn("translation-word-lemma", js)
+        self.assertIn("index.원래_형태_word", js)
+        self.assertIn("translation-word-lemma", css)
+        self.assertIn("원래 형태: ${word}", ko)
+        self.assertIn("index.원래_형태_word", en)
+        self.assertIn("index.원래_형태_word", es)
 
     def test_dictionary_timeout_seconds_are_short(self) -> None:
         self.assertGreaterEqual(app.FREE_DICTIONARY_TIMEOUT_SECONDS, 4)
@@ -2192,6 +2684,132 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             [int(item["number"]) for item in widened.get("chapters") or []],
             [1, 2, 3],
         )
+
+    def test_scene_contexts_follow_job_range_not_leftover_rows(self) -> None:
+        texts = [
+            f"{index}화 문단 하나.\n\n{index}화 문단 둘."
+            for index in range(1, 8)
+        ]
+        project_id = self._make_story_with_episodes(texts)
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            {
+                "target_language": "en",
+                "start_chapter": 5,
+                "end_chapter": 6,
+                "translate_all_chapters": False,
+            },
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        status, started = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/start", {}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            {
+                int(item["chapter_number"])
+                for item in started.get("scene_contexts") or []
+            },
+            {5, 6},
+        )
+        with app.database() as connection:
+            connection.execute(
+                """
+                INSERT INTO translation_scene_contexts
+                (translation_job_id, chapter_number, scene_order,
+                 relationship_tag, mood_tag, situation_note, created_at)
+                VALUES (?, 7, 1, '범위밖', '분위기', '7화 잔여', datetime('now'))
+                """,
+                (job_id,),
+            )
+        status, detail = self.request("GET", f"/api/translation/jobs/{job_id}")
+        self.assertEqual(status, 200)
+        numbers = {
+            int(item["chapter_number"])
+            for item in detail.get("scene_contexts") or []
+        }
+        self.assertEqual(numbers, {5, 6})
+
+    def test_split_scenes_skips_leftover_segments_outside_range(self) -> None:
+        texts = [
+            f"{index}화 문단 하나.\n\n{index}화 문단 둘."
+            for index in range(1, 4)
+        ]
+        project_id = self._make_story_with_episodes(texts)
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            {
+                "target_language": "en",
+                "start_chapter": 1,
+                "end_chapter": 1,
+                "translate_all_chapters": False,
+            },
+        )
+        self.assertEqual(status, 201)
+        job_id = int(created["id"])
+        with app.database() as connection:
+            connection.execute(
+                """
+                INSERT INTO translation_segments(
+                    translation_job_id, chapter_number, segment_order, source_text,
+                    created_at, updated_at
+                ) VALUES (?, 3, 1, '범위 밖 문단', datetime('now'), datetime('now'))
+                """,
+                (job_id,),
+            )
+        before_scene_calls = self._count_steps("start_paragraph_index")
+        status, started = self.request(
+            "POST", f"/api/translation/jobs/{job_id}/start", {}
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            {
+                int(item["chapter_number"])
+                for item in started.get("scene_contexts") or []
+            },
+            {1},
+        )
+        self.assertEqual(
+            self._count_steps("start_paragraph_index") - before_scene_calls,
+            1,
+        )
+
+    def test_episode_catalog_includes_volume_folder_path(self) -> None:
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "권부 라벨", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201)
+        pid = int(project["id"])
+        status, volume = self.request(
+            "POST", f"/api/projects/{pid}/parts", {"title": "1권"}
+        )
+        self.assertEqual(status, 201)
+        status, chapter = self.request(
+            "POST",
+            f"/api/projects/{pid}/chapters",
+            {"title": "2화. 파가몬 제국에 가다", "part_id": volume["id"]},
+        )
+        self.assertEqual(status, 201)
+        status, scene = self.request(
+            "POST",
+            f"/api/chapters/{chapter['id']}/scenes",
+            {"title": "2화. 파가몬 제국에 가다"},
+        )
+        self.assertEqual(status, 201)
+        status, preview = self.request(
+            "GET",
+            f"/api/projects/{pid}/translation/preview?translate_all_chapters=1",
+        )
+        self.assertEqual(status, 200)
+        episodes = preview.get("episodes") or []
+        self.assertTrue(episodes)
+        first = episodes[0]
+        self.assertEqual(first.get("folder_path"), "1권")
+        self.assertEqual(first.get("chapter_title"), "2화. 파가몬 제국에 가다")
+        self.assertEqual(int(first["number"]), 1)
 
 
 class ParagraphTranslationParseTests(unittest.TestCase):

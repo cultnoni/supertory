@@ -218,6 +218,7 @@ MIGRATION_074_PATH = ROOT / "db" / "074_trait_history_applied.sql"
 MIGRATION_075_PATH = ROOT / "db" / "075_character_relations.sql"
 MIGRATION_076_PATH = ROOT / "db" / "076_character_relations_label_unique.sql"
 MIGRATION_077_PATH = ROOT / "db" / "077_trait_history_scene_nullable.sql"
+MIGRATION_078_PATH = ROOT / "db" / "078_translation_proper_noun_suppressions.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1632,6 +1633,8 @@ def initialise_database() -> None:
             apply_migration_076(connection)
         if 77 not in applied:
             apply_migration_077(connection)
+        if 78 not in applied:
+            connection.executescript(MIGRATION_078_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1654,6 +1657,7 @@ def initialise_database() -> None:
         ensure_user_ambient_tracks_custom_category(connection)
         ensure_ambient_track_overrides_table(connection)
         ensure_translation_jobs_tables(connection)
+        ensure_translation_proper_noun_suppressions(connection)
         ensure_virtual_reader_personas(connection)
         ensure_writing_first_met_day(connection)
         ensure_all_project_packages(connection)
@@ -2813,12 +2817,23 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
             );
             CREATE INDEX IF NOT EXISTS ix_translation_word_context_cache_segment
                 ON translation_word_context_cache(segment_id);
+            CREATE TABLE IF NOT EXISTS translation_proper_noun_suppressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                translation_job_id INTEGER NOT NULL,
+                source_term_key TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(translation_job_id, source_term_key),
+                FOREIGN KEY (translation_job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE
+            );
+            CREATE INDEX IF NOT EXISTS ix_translation_proper_noun_suppressions_job
+                ON translation_proper_noun_suppressions(translation_job_id);
             """
         )
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (61, 'translation_jobs')"
         )
+        ensure_translation_proper_noun_suppressions(connection)
         ensure_translation_proper_nouns_source_column(connection)
         ensure_translation_pipeline_schema(connection)
         ensure_translation_word_context_cache(connection)
@@ -2837,6 +2852,35 @@ def _translation_proper_noun_columns(connection: sqlite3.Connection) -> set[str]
         }
     except sqlite3.Error:
         return set()
+
+
+def ensure_translation_proper_noun_suppressions(
+    connection: sqlite3.Connection,
+) -> None:
+    """Idempotent: deleted proper-noun keys stay suppressed (migration 078)."""
+    try:
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS translation_proper_noun_suppressions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                translation_job_id INTEGER NOT NULL,
+                source_term_key TEXT NOT NULL,
+                created_at TEXT NOT NULL DEFAULT (datetime('now')),
+                UNIQUE(translation_job_id, source_term_key),
+                FOREIGN KEY (translation_job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE
+            )
+            """
+        )
+        connection.execute(
+            "CREATE INDEX IF NOT EXISTS ix_translation_proper_noun_suppressions_job "
+            "ON translation_proper_noun_suppressions(translation_job_id)"
+        )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (78, 'translation_proper_noun_suppressions')"
+        )
+    except sqlite3.Error:
+        pass
 
 
 def ensure_translation_proper_nouns_source_column(connection: sqlite3.Connection) -> None:
@@ -3365,28 +3409,130 @@ def list_translation_proper_nouns(connection: sqlite3.Connection, job_id: int) -
 
 
 PROPER_NOUN_TERM_TYPES = translation_preparation_service.PROPER_NOUN_TERM_TYPES
-_INDEX_TERM_SPLIT = re.compile(r"[,，、/;·•|\n]+")
+_INDEX_TERM_DELIMS = set(",，、/;·•|\n")
+_INDEX_TERM_OPEN = set("(（")
+_INDEX_TERM_CLOSE = set(")）")
+_INDEX_ORG_HINT = re.compile(
+    r"(제국|왕국|공국|공화국|기사단|왕가|길드|교단|함대|연합|부족)$"
+)
+_TRAILING_PAREN_LIST = re.compile(
+    r"^(?P<name>.+?)\s*[\(（](?P<inner>[^()（）]+)[\)）]\s*$"
+)
+
+
+def _split_outside_parens(text: str) -> list[str]:
+    parts: list[str] = []
+    buf: list[str] = []
+    depth = 0
+    for char in str(text or ""):
+        if char in _INDEX_TERM_OPEN:
+            depth += 1
+            buf.append(char)
+            continue
+        if char in _INDEX_TERM_CLOSE:
+            if depth:
+                depth -= 1
+            buf.append(char)
+            continue
+        if depth == 0 and char in _INDEX_TERM_DELIMS:
+            part = "".join(buf).strip()
+            if part:
+                parts.append(part)
+            buf = []
+            continue
+        buf.append(char)
+    tail = "".join(buf).strip()
+    if tail:
+        parts.append(tail)
+    return parts
+
+
+def _peel_trailing_paren_list(chunk: str) -> tuple[str, str | None]:
+    text = str(chunk or "").strip()
+    match = _TRAILING_PAREN_LIST.match(text)
+    if not match:
+        return text, None
+    name = " ".join(match.group("name").split()).strip()
+    inner = " ".join(match.group("inner").split()).strip()
+    if not inner:
+        return text, None
+    return name, inner
+
+
+def _clean_index_term_token(raw: object) -> str:
+    token = character_import_analysis.strip_tori_text(raw)
+    token = " ".join(token.split()).strip(" -–—·•")
+    if not token or len(token) > 40:
+        return ""
+    if re.search(r"[.。!?]", token):
+        return ""
+    return token
 
 
 def _split_index_term_tokens(raw: object) -> list[str]:
-    text = str(raw or "").strip()
+    text = character_import_analysis.strip_tori_text(raw)
     if not text:
         return []
-    chunks = _INDEX_TERM_SPLIT.split(text) if _INDEX_TERM_SPLIT.search(text) else [text]
     tokens: list[str] = []
-    for chunk in chunks:
-        token = " ".join(str(chunk).split()).strip(" -–—·•")
-        if not token or len(token) > 40:
-            continue
-        if re.search(r"[.。!?]", token):
-            continue
+    seen: set[str] = set()
+
+    def emit(piece: object) -> None:
+        token = _clean_index_term_token(piece)
+        if not token:
+            return
+        key = token.casefold()
+        if key in seen:
+            return
+        seen.add(key)
         tokens.append(token)
+
+    for chunk in _split_outside_parens(text):
+        outer_name, inner = _peel_trailing_paren_list(chunk)
+        if inner is None:
+            emit(chunk)
+            continue
+        if outer_name:
+            emit(outer_name)
+        for inner_chunk in _split_outside_parens(inner):
+            emit(inner_chunk)
     return tokens
+
+
+def _index_term_looks_like_organization(name: str) -> bool:
+    return bool(_INDEX_ORG_HINT.search(str(name or "").strip()))
+
+
+def _resolve_index_term_type(
+    name: str, incoming: str, current: str | None = None
+) -> str:
+    incoming_kind = incoming if incoming in PROPER_NOUN_TERM_TYPES else "item"
+    if _index_term_looks_like_organization(name) and incoming_kind in {
+        "place",
+        "organization",
+        "item",
+    }:
+        incoming_kind = "organization"
+    if current is None:
+        return incoming_kind
+    current_kind = current if current in PROPER_NOUN_TERM_TYPES else "item"
+    if current_kind == incoming_kind:
+        return current_kind
+    kinds = {current_kind, incoming_kind}
+    if kinds <= {"place", "organization"}:
+        return (
+            "organization"
+            if _index_term_looks_like_organization(name)
+            else current_kind
+        )
+    rank = {"character": 3, "organization": 2, "place": 1, "item": 0}
+    if rank.get(incoming_kind, 0) > rank.get(current_kind, 0):
+        return incoming_kind
+    return current_kind
 
 
 def _index_term_from_item(item: object) -> str:
     if isinstance(item, dict):
-        for key in ("name", "name", "term", "title", "source_term", "source_term"):
+        for key in ("name", "term", "title", "source_term"):
             value = str(item.get(key) or "").strip()
             if value:
                 return value
@@ -3399,18 +3545,24 @@ def collect_character_world_index_terms(
 ) -> list[dict[str, str]]:
     """Reuse character sheets + project auto-index + worldbuilding names/places/terms."""
     collected: list[dict[str, str]] = []
-    seen: set[str] = set()
+    seen: dict[str, dict[str, str]] = {}
 
     def add(term: object, term_type: str) -> None:
-        text = " ".join(str(term or "").split()).strip()
+        text = character_import_analysis.strip_tori_text(term)
+        text = " ".join(text.split()).strip()
         if not text:
             return
         key = text.casefold()
-        if key in seen:
+        existing = seen.get(key)
+        if existing is not None:
+            existing["term_type"] = _resolve_index_term_type(
+                text, term_type, existing.get("term_type")
+            )
             return
-        kind = term_type if term_type in PROPER_NOUN_TERM_TYPES else "item"
-        seen.add(key)
-        collected.append({"source_term": text, "term_type": kind})
+        kind = _resolve_index_term_type(text, term_type)
+        item = {"source_term": text, "term_type": kind}
+        seen[key] = item
+        collected.append(item)
 
     try:
         existing = character_import_analysis.list_existing_characters(
@@ -3419,7 +3571,7 @@ def collect_character_world_index_terms(
     except sqlite3.Error:
         existing = []
     for row in existing:
-        add(row.get("name") or row.get("name"), "character")
+        add(row.get("name"), "character")
 
     try:
         alias_rows = connection.execute(
@@ -3438,18 +3590,8 @@ def collect_character_world_index_terms(
         }
     except sqlite3.Error:
         index_cols = set()
-    char_col = next(
-        (name for name in ("characters_json", "characters_json") if name in index_cols),
-        None,
-    )
-    world_col = next(
-        (
-            name
-            for name in ("world_rules_json", "world_rules_json")
-            if name in index_cols
-        ),
-        None,
-    )
+    char_col = "characters_json" if "characters_json" in index_cols else None
+    world_col = "world_rules_json" if "world_rules_json" in index_cols else None
     if char_col or world_col:
         select_cols = ", ".join(part for part in (char_col, world_col) if part)
         try:
@@ -3476,11 +3618,7 @@ def collect_character_world_index_terms(
             for col in connection.execute("PRAGMA table_info(project)").fetchall()
         }
         world_field = (
-            "worldbuilding_md"
-            if "worldbuilding_md" in project_cols
-            else "worldbuilding_md"
-            if "worldbuilding_md" in project_cols
-            else None
+            "worldbuilding_md" if "worldbuilding_md" in project_cols else None
         )
         world_md = ""
         if world_field:
@@ -3508,6 +3646,14 @@ def extract_translation_proper_nouns(
     connection: sqlite3.Connection, job_id: int
 ) -> dict:
     return get_translation_preparation_service(connection).extract_proper_nouns(
+        int(job_id)
+    )
+
+
+def refresh_translation_proper_nouns(
+    connection: sqlite3.Connection, job_id: int
+) -> dict:
+    return get_translation_preparation_service(connection).refresh_proper_nouns(
         int(job_id)
     )
 
@@ -3637,15 +3783,7 @@ def _confirmed_proper_nouns_glossary(
     rows = get_translation_preparation_repository(connection).get_proper_nouns(
         int(job_id)
     )
-    parts = []
-    for row in rows:
-        source = str(row["source_term"] or "").strip()
-        final = str(row["final_term"] or "").strip()
-        if source and final:
-            parts.append(f"{source}→{final}")
-        elif source:
-            parts.append(source)
-    return ", ".join(parts)
+    return translation_preparation_service.format_proper_noun_glossary(rows)
 
 
 def _format_narrative_rules_for_prompt(rules: object) -> str:
@@ -4272,6 +4410,22 @@ def approve_translation_segment(
     connection: sqlite3.Connection, segment_id: int, body: dict | None
 ) -> dict:
     return get_translation_batch_service(connection).approve_segment(
+        int(segment_id), body
+    )
+
+
+def approve_translation_chapter_segments(
+    connection: sqlite3.Connection, job_id: int, chapter_number: int
+) -> dict:
+    return get_translation_batch_service(connection).approve_chapter_segments(
+        int(job_id), int(chapter_number)
+    )
+
+
+def replace_translation_segment_text(
+    connection: sqlite3.Connection, segment_id: int, body: dict | None
+) -> dict:
+    return get_translation_batch_service(connection).replace_translated_text(
         int(segment_id), body
     )
 
@@ -10417,6 +10571,26 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(payload)
                 return
 
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/chapters/(\d+)/approve_all", path
+            )
+            if match:
+                with database() as connection:
+                    payload = approve_translation_chapter_segments(
+                        connection, int(match.group(1)), int(match.group(2))
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/segments/(\d+)/text", path)
+            if match:
+                with database() as connection:
+                    payload = replace_translation_segment_text(
+                        connection, int(match.group(1)), body or {}
+                    )
+                self.send_json(payload)
+                return
+
             match = re.fullmatch(r"/api/translation/segments/(\d+)/retranslate", path)
             if match:
                 with database() as connection:
@@ -10463,6 +10637,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     payload = get_translation_preparation_service(
                         connection
                     ).extract_proper_nouns(
+                        int(match.group(1)),
+                        refresh=bool((body or {}).get("refresh")),
+                    )
+                self.send_json(payload)
+                return
+
+            match = re.fullmatch(
+                r"/api/translation/jobs/(\d+)/refresh_proper_nouns", path
+            )
+            if match:
+                with database() as connection:
+                    payload = get_translation_preparation_service(
+                        connection
+                    ).refresh_proper_nouns(
                         int(match.group(1))
                     )
                 self.send_json(payload)
@@ -10477,6 +10665,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         int(match.group(1)), body or {}
                     )
                 self.send_json(payload)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs/(\d+)/proper_nouns", path)
+            if match:
+                with database() as connection:
+                    payload = get_translation_preparation_service(
+                        connection
+                    ).add_proper_noun(
+                        int(match.group(1)), body or {}
+                    )
+                self.send_json(payload, HTTPStatus.CREATED)
                 return
 
             match = re.fullmatch(r"/api/translation/jobs/(\d+)/confirm_proper_nouns", path)
@@ -10838,6 +11037,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(self.clear_character_portrait(int(match.group(1))))
                 return
+
+            match = re.fullmatch(r"/api/translation/proper_nouns/(\d+)", path)
+            if match:
+                with database() as connection:
+                    payload = get_translation_preparation_service(
+                        connection
+                    ).delete_proper_noun(int(match.group(1)))
+                self.send_json(payload)
+                return
+        except LookupError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
         except ValueError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -18683,7 +18894,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         ordered: list[dict] = []
         seen: set[int] = set()
 
-        def push_scene(scene: dict, folder_title: str | None = None) -> None:
+        def push_scene(
+            scene: dict,
+            folder_title: str | None = None,
+            folder_path: str = "",
+        ) -> None:
             try:
                 sid = int(scene.get("id") or 0)
             except (TypeError, ValueError):
@@ -18705,26 +18920,43 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "chapter_id": chapter_id,
                     "title": str(scene.get("title") or ""),
                     "chapter_title": chapter_title,
+                    "folder_path": str(folder_path or "").strip(),
                     "content_md": str(scene.get("content_md") or ""),
                 }
             )
 
-        def push_tree(nodes: list[dict], folder_title: str | None = None) -> None:
+        def push_tree(
+            nodes: list[dict],
+            folder_title: str | None = None,
+            folder_path: str = "",
+        ) -> None:
             for scene in self._flatten_scene_tree(nodes or []):
-                push_scene(scene, folder_title)
+                push_scene(scene, folder_title, folder_path)
+
+        def walk_manuscript_folders(
+            nodes: list[dict], ancestors: list[str]
+        ) -> None:
+            for node in nodes or []:
+                title = str(node.get("title") or "").strip()
+                notes = str(node.get("notes_md") or "")
+                transparent = "supertory:transparent_volume" in notes
+                next_ancestors = list(ancestors)
+                if title and not transparent:
+                    next_ancestors.append(title)
+                if not bool(node.get("is_box")):
+                    leaf = next_ancestors[-1] if next_ancestors else title
+                    parent_path = " · ".join(next_ancestors[:-1])
+                    push_tree(node.get("scenes") or [], leaf, parent_path)
+                walk_manuscript_folders(
+                    node.get("children") or [], next_ancestors
+                )
 
         if folder_tree.folder_table_ready(connection):
             forest = self._build_folders_tree_from_db(
                 connection, project_id, scenes_rows=scenes_rows
             )
             if forest:
-                for node in folder_tree.walk_folder_forest_preorder(forest):
-                    if bool(node.get("is_box")):
-                        continue
-                    push_tree(
-                        node.get("scenes") or [],
-                        str(node.get("title") or ""),
-                    )
+                walk_manuscript_folders(forest, [])
 
         leftover_by_chapter: dict[int, list[dict]] = {}
         for row in scenes_rows:
