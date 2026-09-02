@@ -638,7 +638,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertFalse(polished["segments"][0].get("polished_text"))
         polish_prompt = next(
             call["prompt"] for call in reversed(self.calls)
-            if "원문 대조 없이 번역문 자체의 자연스러움만" in call["prompt"]
+            if "[핵심 임무 — 반드시 수행" in call["prompt"]
         )
         self.assertNotIn("비가 내리던 날", polish_prompt)
         self.assertIn("It was raining when they first met.", polish_prompt)
@@ -1033,7 +1033,7 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         polish_calls = [
             call for call in self.calls
-            if "원문 대조 없이 번역문 자체의 자연스러움만" in call["prompt"]
+            if "[핵심 임무 — 반드시 수행" in call["prompt"]
         ]
         self.assertEqual(len(polish_calls), 2)
         self.assertEqual(

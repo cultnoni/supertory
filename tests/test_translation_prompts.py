@@ -114,7 +114,7 @@ class ProperNounFitPromptTests(unittest.TestCase):
             prompt,
         )
         self.assertIn("설정집 이름은 빠짐없이 판정하세요", prompt)
-        self.assertIn("위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만", prompt)
+        self.assertIn("위 목록에 없는 고유명사(단역 이름, 아이템명, 작가 조어,", prompt)
         self.assertIn("- 이오나", prompt)
         self.assertIn("- 아르카디아", prompt)
         self.assertNotIn("건너뛰세요", prompt)
@@ -149,6 +149,15 @@ class ProperNounFitPromptTests(unittest.TestCase):
         self.assertIn("원래 이름이 주던 어감(우아함/발랄함/신비로움/이국적 느낌 등)", prompt)
         self.assertIn("캐릭터의 장르·설정 톤을 유지하는 방향으로 추천하세요", prompt)
         self.assertIn("이국적이고 신비로운 느낌", prompt)
+
+    def test_includes_repeated_coined_terms_as_proper_noun_candidates(self) -> None:
+        prompt = translation_prompts.build_proper_noun_fit_prompt(CHAPTER)
+        self.assertIn("[찾을 대상]", prompt)
+        self.assertIn("작가 조어(사전에 없는 표현 포함)도 고유명사 후보로 포함하세요", prompt)
+        self.assertIn("짧은 구간에서 여러 번 반복되는 표현은 우선적으로 후보에 넣으세요", prompt)
+        self.assertIn("일반 동사·형용사·흔한 명사", prompt)
+        self.assertIn('"source_term": "구속줄"', prompt)
+        self.assertIn("작가 조어", prompt)
 
 
 class CultureMarkerPromptTests(unittest.TestCase):
@@ -320,6 +329,28 @@ class ParagraphTranslationPromptTests(unittest.TestCase):
             self.assertIn("'하아'라는 감탄사를 'Ugh...'로 의역했어요", single)
             self.assertIn("'하아'라는 감탄사를 'Ugh...'로 의역했어요", batch)
 
+    def test_glossary_lock_outranks_stylistic_variation(self) -> None:
+        single = translation_prompts.build_paragraph_translation_prompt(
+            CHAPTER, TRANSLATION_KWARGS
+        )
+        batch = translation_prompts.build_paragraph_translation_batch_prompt(
+            [{"id": 1, "source_text": CHAPTER}],
+            TRANSLATION_KWARGS,
+        )
+        for prompt in (single, batch):
+            self.assertIn("[용어 고정 — 문체 다양화보다 우선]", prompt)
+            self.assertIn("동의어로 바꾸지 마세요", prompt)
+            self.assertIn("같은 단어 반복은 피하라", prompt)
+            self.assertIn("자연스러운 문체 다양성을 유지하세요", prompt)
+        self.assertLess(
+            single.index("[용어 고정 — 문체 다양화보다 우선]"),
+            single.index("직역이 아니라"),
+        )
+        self.assertLess(
+            batch.index("[용어 고정 — 문체 다양화보다 우선]"),
+            batch.index("각 문단의 id"),
+        )
+
 
 class PolishPromptTests(unittest.TestCase):
     def test_inserts_chapter_text_and_styleguide(self) -> None:
@@ -330,11 +361,19 @@ class PolishPromptTests(unittest.TestCase):
         self.assertTrue(prompt.endswith("<<<PARAGRAPH 2>>>\nShe looked back."))
         self.assertIn("- 시제: past\n", prompt)
         self.assertIn("- 인물별 어조: 이오나=캐주얼, 메리=격식\n", prompt)
-        self.assertIn("원문 대조 없이 번역문 자체의 자연스러움만", prompt)
         self.assertIn("<<<PARAGRAPH 1>>>\nIona stopped.", prompt)
         self.assertIn('"paragraphs"', prompt)
         self.assertNotIn("{tense}", prompt)
         self.assertNotIn("{character_voices}", prompt)
+        self.assertIn("마지막 방어선", prompt)
+        self.assertIn("[핵심 임무 — 반드시 수행", prompt)
+        self.assertIn("용어집 등록 여부와 무관하게", prompt)
+        self.assertIn("가장 먼저 등장한 표기로 통일하세요", prompt)
+        self.assertIn("확정 용어집 없음", prompt)
+        self.assertIn("조어를 동의어로 바꿔 반복을 숨기지는 마세요", prompt)
+        self.assertIn("binding cord", prompt)
+        self.assertIn("restraint cord", prompt)
+        self.assertNotIn("원문 대조 없이 번역문 자체의 자연스러움만", prompt)
 
     def test_keeps_json_example_braces(self) -> None:
         prompt = translation_prompts.build_chapter_polish_prompt(
@@ -360,6 +399,15 @@ class PolishPromptTests(unittest.TestCase):
         self.assertIn("index 41~50 문단만 반환", prompt)
         self.assertIn("<<<PARAGRAPH 1>>>\nParagraph 1.", prompt)
         self.assertTrue(prompt.endswith("<<<PARAGRAPH 50>>>\nParagraph 50."))
+
+    def test_polish_includes_glossary_when_provided_but_still_requires_self_check(self) -> None:
+        prompt = translation_prompts.build_chapter_polish_prompt(
+            ["The binding cord snapped."],
+            {"proper_nouns_confirmed": "구속줄→restraint cord"},
+        )
+        self.assertIn("구속줄→restraint cord", prompt)
+        self.assertIn("없어도 위 핵심 임무는 반드시 수행하세요", prompt)
+        self.assertIn("용어집 등록 여부와 무관하게", prompt)
 
 
 class SubmissionQueryPromptTests(unittest.TestCase):

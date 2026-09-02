@@ -101,6 +101,27 @@ TRANSLATION_NOTES_LANGUAGE_RULE = (
     "설명 문장 자체는 한국어여야 합니다."
 )
 
+GLOSSARY_TERM_LOCK_RULE = (
+    "[용어 고정 — 문체 다양화보다 우선]\n"
+    "확정된 고유명사·용어집 표기는 같은 문단이나 씬에서 아무리 반복되어도 "
+    "문체를 다채롭게 하려고 동의어로 바꾸지 마세요. 항상 동일한 번역어를 쓰세요. "
+    "일반적인 '같은 단어 반복은 피하라'는 작문 습관보다 이 규칙이 우선합니다. "
+    "원문에서 작가가 만든 조어·특수 용어가 한 형태로만 쓰였다면 번역도 한 형태로만 "
+    "쓰세요. 평범한 서술 동사·형용사·일반 명사(보다/바라보다, 손, 문 등)는 "
+    "자연스러운 문체 다양성을 유지하세요."
+)
+
+POLISH_TERM_CONSISTENCY_MISSION = (
+    "[핵심 임무 — 반드시 수행. 윤문은 1차 번역의 실수를 걸러내는 마지막 단계입니다]\n"
+    "용어집 등록 여부와 무관하게, 챕터 전체를 다시 읽고 같은 사물·개념·행위·작가 "
+    "조어를 가리키는 표현이 서로 다른 단어로 번역된 곳이 있는지 스스로 찾아내세요. "
+    "발견하면 맥락상 더 적절한 표기로 챕터 전체를 통일하세요. 어느 쪽이 맞는지 "
+    "판단하기 어려우면 가장 먼저 등장한 표기로 통일하세요. 이 점검은 선택 사항이 "
+    "아닙니다.\n"
+    "일반 서술의 문체 다양성(동사 리듬, 대명사, 평범한 배경 명사)은 유지하세요. "
+    "특정 대상을 이름처럼 가리키는 반복 표현만 고정합니다."
+)
+
 
 def _omit_non_target_examples(
     text: str,
@@ -252,7 +273,12 @@ def build_scene_split_prompt(chapter_text: str, target_language: object = "en") 
 
 
 PROPER_NOUN_FIT_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AUDIENCE__ 투고용으로 번역하기 위해 준비하는 편집 보조자입니다.
-아래 원고에서 고유명사(인명, 지명, 사물명, 조직명 등)를 찾아 __TARGET_AUDIENCE__ 독자에게 어울리는지 판단하세요.
+아래 원고에서 고유명사(인명, 지명, 사물명, 조직명, 작가 조어·특수 용어 등)를 찾아 __TARGET_AUDIENCE__ 독자에게 어울리는지 판단하세요.
+[찾을 대상]
+인명·지명·사물명·조직명뿐 아니라, 작품 안에서 반복 등장하며 특정 사물이나 개념을
+가리키는 것으로 보이는 작가 조어(사전에 없는 표현 포함)도 고유명사 후보로 포함하세요.
+짧은 구간에서 여러 번 반복되는 표현은 우선적으로 후보에 넣으세요.
+일반 동사·형용사·흔한 명사(손, 문, 눈, 달리다 등)는 넣지 마세요.
 [대상 언어별 이름 지침]
 __NAMING_GUIDANCE__
 [판단 기준 — 이 5가지 관점에서 판단합니다]
@@ -362,6 +388,21 @@ __NAMING_GUIDANCE__
     }
   ]
 }
+[예시5 — 반복되는 작가 조어]
+원문: "구속줄이 손목을 조였다. 구속줄을 끊으려 발버둥 쳤지만 구속줄은 더 팽팽해졌다."
+출력:
+{
+  "proper_nouns": [
+    {
+      "source_term": "구속줄",
+      "term_type": "item",
+      "romanized": "restraint cord",
+      "fit_judgment": "fits",
+      "judgment_reason": "짧은 장면에서 같은 대상을 한 형태로만 가리키는 작가 조어입니다. 사전적 일반명사가 아니라 작품 고유 개념어이므로 후보에 넣고, 이후 번역에서 한 표기로 고정해야 합니다.",
+      "suggested_alternatives": []
+    }
+  ]
+}
 """
 
 PROPER_NOUN_FIT_PROMPT_TAIL = """이제 아래 원문에서 고유명사를 찾아 같은 방식으로 처리하세요:
@@ -394,8 +435,8 @@ def build_proper_noun_fit_prompt(
             "위 목록의 이름마다 romanized, fit_judgment, judgment_reason,\n"
             "suggested_alternatives를 출력에 포함하세요. 이번 원문에 안 나와도\n"
             "설정집 이름은 빠짐없이 판정하세요.\n"
-            "그 다음, 위 목록에 없는 고유명사(단역 이름, 아이템명, 이번 장면에서만\n"
-            "등장하는 지명 등)도 원문에서 찾아 같은 방식으로 판정하세요.\n"
+            "그 다음, 위 목록에 없는 고유명사(단역 이름, 아이템명, 작가 조어,\n"
+            "이번 장면에서만 등장하는 지명 등)도 원문에서 찾아 같은 방식으로 판정하세요.\n"
         )
     head = _omit_non_target_examples(
         PROPER_NOUN_FIT_PROMPT_HEAD,
@@ -544,7 +585,9 @@ PARAGRAPH_TRANSLATION_PROMPT_HEAD = """당신은 한국 웹소설을 __TARGET_AU
 
 PARAGRAPH_TRANSLATION_PROMPT_TAIL = """
 [번역 시 지켜야 할 것]
+""" + GLOSSARY_TERM_LOCK_RULE + """
 1. 직역이 아니라 __TARGET_AUDIENCE__ 소설처럼 자연스럽게 읽히는 문장으로 만드세요.
+   다만 위 용어 고정 규칙과 충돌하면 용어 고정을 따릅니다.
 2. 원문의 정보를 임의로 추가하거나 생략하지 마세요.
 3. 의역했거나 뉘앙스를 다른 방식으로 옮긴 부분이 있다면 translation_notes에 기록하세요.
    단순 직역인 부분은 굳이 기록하지 않아도 됩니다.
@@ -687,6 +730,7 @@ PARAGRAPH_TRANSLATION_BATCH_PROMPT_HEAD = """당신은 한국 웹소설을 대�
 문단 간 맥락(등장인물 관계, 시점, 어투)을 참고해 전체적으로 일관된 어투를 유지하세요.
 
 [반드시 지켜야 할 것]
+""" + GLOSSARY_TERM_LOCK_RULE + """
 1. 각 문단의 id와 입력 순서를 그대로 유지하세요.
 2. 입력된 모든 문단에 대해 정확히 하나씩 응답하세요. 문단을 합치거나 나누지 마세요.
 3. 사건과 의미를 추가·삭제·변경하지 마세요.
@@ -759,15 +803,20 @@ def build_paragraph_translation_batch_prompt(
 
 
 CHAPTER_POLISH_PROMPT_HEAD = """당신은 __TARGET_AUDIENCE__ 출판 편집자입니다.
-다음은 소설 한 회차의 __TARGET_LANGUAGE__ 번역문입니다. 원문 대조 없이 번역문 자체의 자연스러움만 검토하세요.
-문단 간 흐름, 대명사 지칭, 반복 표현, 어색한 연결을 다듬되, 문단 순서와 개수, 각 문단이 담긴
-사건/의미는 절대 바꾸지 마세요. 각 문단별로 다듬어진 버전을 반환하세요.
+윤문은 문장을 조금 더 자연스럽게 다듬는 작업이기도 하지만, 그보다 먼저
+1차 번역에서 같은 대상이 여러 단어로 흔들린 것을 찾아 바로잡는 마지막 방어선입니다.
+""" + POLISH_TERM_CONSISTENCY_MISSION + """
+
+다음은 소설 한 회차의 __TARGET_LANGUAGE__ 번역문입니다. 문단 간 흐름, 대명사 지칭,
+어색한 연결을 다듬되, 문단 순서와 개수, 각 문단이 담긴 사건/의미는 절대 바꾸지 마세요.
+각 문단별로 다듬어진 버전을 반환하세요.
 
 [지켜야 할 것]
 1. 입력 문단 개수와 출력 문단 개수는 반드시 같습니다. 문단을 합치거나 나누거나 순서를 바꾸지 마세요.
 2. 구분선만 있는 문단(====, ---- 등)은 글자를 그대로 두세요.
-3. 의미를 바꾸지 마세요. 사건, 대사 내용, 고유명사는 유지하세요.
+3. 의미를 바꾸지 마세요. 사건, 대사 내용, 고유명사·조어 표기는 유지·통일하세요.
 4. 같은 문장 종결이 반복되거나 대명사/주어가 과도하게 되풀이되면 호흡을 다듬으세요.
+   다만 특정 사물·개념을 가리키는 조어를 동의어로 바꿔 반복을 숨기지는 마세요.
 5. 한국어 원문은 주어지지 않았습니다. 번역문만 보고 판단하세요.
 
 """
@@ -801,6 +850,26 @@ She looked up at the chimney. The chimney was quiet. She felt disappointed.
   ]
 }
 
+[예시2 — 같은 대상을 가리키는 조어가 흔들린 경우]
+입력:
+<<<PARAGRAPH 1>>>
+The restraint cord snapped tight around her wrist.
+<<<PARAGRAPH 2>>>
+She clawed at the binding cord, but the restraint cord only pulled tighter.
+출력:
+{
+  "paragraphs": [
+    {
+      "index": 1,
+      "polished_text": "The restraint cord snapped tight around her wrist."
+    },
+    {
+      "index": 2,
+      "polished_text": "She clawed at the restraint cord, but it only pulled tighter."
+    }
+  ]
+}
+
 이제 아래 회차를 같은 문단 개수와 순서로 윤문하세요.
 """
 
@@ -827,6 +896,13 @@ def build_chapter_polish_prompt(
     body = format_chapter_polish_paragraphs(items)
     tense = _setting(settings, "tense")
     voices = _setting(settings, "character_voices")
+    nouns = _setting(settings, "proper_nouns_confirmed")
+    glossary = (
+        "[확정 용어집 — 있으면 이 표기로 통일하세요. 없어도 위 핵심 임무는 반드시 수행하세요]\n"
+        f"{nouns}\n"
+        if str(nouns).strip()
+        else "[확정 용어집 없음 — 등록 여부와 무관하게 위 핵심 임무를 반드시 수행하세요]\n"
+    )
     first = max(1, int(target_start or 1))
     last = min(len(items), int(target_end or len(items))) if items else 0
     target = (
@@ -842,6 +918,7 @@ def build_chapter_polish_prompt(
         f"[스타일가이드]\n"
         f"- 시제: {tense}\n"
         f"- 인물별 어조: {voices}\n"
+        f"{glossary}"
         f"{target}"
         f"{_omit_non_target_examples(CHAPTER_POLISH_PROMPT_TAIL, target_language, example_marker='[예시]', resume_marker='이제 아래 회차')}"
         f"{body}"

@@ -412,7 +412,10 @@ class TranslationBatchService:
         paragraphs = [
             str(row.get("translated_text") or "").strip() for row in rows
         ]
-        settings = _style_guide_mapping(job.get("style_guide_json"))
+        settings = {
+            **_style_guide_mapping(job.get("style_guide_json")),
+            "proper_nouns_confirmed": self._confirmed_glossary(int(job_id)),
+        }
         proposals: list[dict] = []
         for batch_start in range(
             1, len(rows) + 1, CHAPTER_POLISH_OUTPUT_BATCH_SIZE
