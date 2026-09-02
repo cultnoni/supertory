@@ -27,6 +27,7 @@ PARAGRAPH_FALLBACK_NOTE = (
 CHAPTER_POLISH_RESPONSE_ATTEMPTS = 3
 CHAPTER_POLISH_OUTPUT_BATCH_SIZE = 40
 TRANSLATION_GEMINI_GAP_SECONDS = 4.5
+TRANSLATION_GEMINI_TIMEOUT_SECONDS = 90.0
 TRANSLATION_RATE_LIMIT_RETRIES = 5
 TRANSLATION_RATE_LIMIT_DEFAULT_WAIT = 10.0
 TRANSLATION_SEPARATOR_PARAGRAPH_RE = re.compile(r"^[=*~—\-]{2,}$")
@@ -116,12 +117,14 @@ def generate_translation_text(
                 prompt,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
+                timeout=TRANSLATION_GEMINI_TIMEOUT_SECONDS,
             )
         except gemini_client.GeminiError as error:
+            visible = gemini_client.user_visible_message(error)
             if not is_translation_rate_limit_error(error):
-                raise ValueError(str(error)) from error
+                raise ValueError(visible) from error
             if rate_limit_tries >= TRANSLATION_RATE_LIMIT_RETRIES:
-                raise ValueError(str(error)) from error
+                raise ValueError(visible) from error
             rate_limit_tries += 1
             wait = translation_rate_limit_wait_seconds(error)
             print(

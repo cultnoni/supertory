@@ -152,29 +152,105 @@ class GeminiErrorClassificationTests(unittest.TestCase):
         self.assertEqual(retry_after, 21.0)
         self.assertIn("exceeded your current quota", message)
 
-    def test_urlerror_is_friendly_network_message(self) -> None:
-        import urllib.error
+    def _patch_generate(self, side_effect):
+        from contextlib import contextmanager
         from unittest.mock import patch
 
-        with (
-            patch.object(gemini_client, "is_configured", return_value=True),
-            patch.object(
-                gemini_client,
-                "get_env",
-                side_effect=lambda key, default=None: (
-                    "fake-key" if key == "GEMINI_API_KEY" else (default or gemini_client.DEFAULT_MODEL)
+        @contextmanager
+        def _patched():
+            with (
+                patch.object(gemini_client, "is_configured", return_value=True),
+                patch.object(
+                    gemini_client,
+                    "get_env",
+                    side_effect=lambda key, default=None: (
+                        "fake-key"
+                        if key == "GEMINI_API_KEY"
+                        else (default or gemini_client.DEFAULT_MODEL)
+                    ),
                 ),
-            ),
-            patch(
-                "urllib.request.urlopen",
-                side_effect=urllib.error.URLError("offline"),
-            ),
-        ):
+                patch("urllib.request.urlopen", side_effect=side_effect),
+            ):
+                yield
+
+        return _patched()
+
+    def test_urlerror_offline_is_friendly_network_message(self) -> None:
+        import urllib.error
+
+        with self._patch_generate(urllib.error.URLError("offline")):
             with self.assertRaises(gemini_client.GeminiError) as ctx:
                 gemini_client.generate_text("안녕")
         self.assertEqual(ctx.exception.code, "network")
         self.assertEqual(str(ctx.exception), gemini_client.NETWORK_USER_MESSAGE)
-        self.assertIn("인터넷 연결이 필요해요", gemini_client.user_visible_message(ctx.exception))
+        self.assertIn(
+            "인터넷 연결이 필요해요",
+            gemini_client.user_visible_message(ctx.exception),
+        )
+
+    def test_timeout_is_api_failure_not_offline(self) -> None:
+        with self._patch_generate(TimeoutError("timed out")):
+            with self.assertRaises(gemini_client.GeminiError) as ctx:
+                gemini_client.generate_text("안녕")
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertEqual(str(ctx.exception), gemini_client.API_USER_MESSAGE)
+        self.assertEqual(
+            gemini_client.user_visible_message(ctx.exception),
+            gemini_client.API_USER_MESSAGE,
+        )
+        self.assertNotIn("인터넷 연결이 필요", str(ctx.exception))
+
+    def test_urlerror_timeout_is_api_failure(self) -> None:
+        import urllib.error
+
+        with self._patch_generate(urllib.error.URLError(TimeoutError("timed out"))):
+            with self.assertRaises(gemini_client.GeminiError) as ctx:
+                gemini_client.generate_text("안녕")
+        self.assertEqual(ctx.exception.code, "timeout")
+        self.assertEqual(str(ctx.exception), gemini_client.API_USER_MESSAGE)
+
+    def test_http_500_is_api_failure_not_offline(self) -> None:
+        import urllib.error
+        from io import BytesIO
+
+        http_error = urllib.error.HTTPError(
+            "https://generativelanguage.googleapis.com/v1beta/models",
+            500,
+            "boom",
+            hdrs=None,
+            fp=BytesIO(b'{"error":{"message":"boom"}}'),
+        )
+        with self._patch_generate(http_error):
+            with self.assertRaises(gemini_client.GeminiError) as ctx:
+                gemini_client.generate_text("안녕")
+        self.assertEqual(ctx.exception.code, "unknown")
+        self.assertEqual(ctx.exception.http_status, 500)
+        self.assertEqual(str(ctx.exception), gemini_client.API_USER_MESSAGE)
+        self.assertNotIn("인터넷 연결이 필요", str(ctx.exception))
+
+    def test_classify_transport_error_splits_offline_and_timeout(self) -> None:
+        import urllib.error
+
+        self.assertEqual(
+            gemini_client.classify_transport_error(OSError("Network is unreachable")),
+            "network",
+        )
+        self.assertEqual(
+            gemini_client.classify_transport_error(TimeoutError("timed out")),
+            "timeout",
+        )
+        self.assertEqual(
+            gemini_client.classify_transport_error(
+                urllib.error.URLError(TimeoutError("timed out"))
+            ),
+            "timeout",
+        )
+        self.assertEqual(
+            gemini_client.classify_transport_error(
+                urllib.error.URLError(OSError("Connection reset by peer"))
+            ),
+            "unknown",
+        )
 
 
 if __name__ == "__main__":

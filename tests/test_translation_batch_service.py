@@ -87,6 +87,31 @@ class TranslationBatchServiceRetryTests(unittest.TestCase):
         self.assertEqual(result, "ok")
         self.assertEqual(generate.call_count, 6)
         self.assertEqual(waits, [1.25] * 5)
+        self.assertEqual(
+            generate.call_args.kwargs.get("timeout"),
+            translation_batch_service.TRANSLATION_GEMINI_TIMEOUT_SECONDS,
+        )
+
+    def test_timeout_error_becomes_api_failure_message(self) -> None:
+        with (
+            mock.patch.object(gemini_client, "is_configured", return_value=True),
+            mock.patch.object(
+                gemini_client,
+                "generate_text",
+                side_effect=gemini_client.GeminiError(
+                    gemini_client.API_USER_MESSAGE, code="timeout"
+                ),
+            ),
+        ):
+            with self.assertRaises(ValueError) as ctx:
+                translation_batch_service.generate_translation_text(
+                    "prompt",
+                    temperature=0.35,
+                    max_output_tokens=8192,
+                    job_id=3,
+                )
+        self.assertEqual(str(ctx.exception), gemini_client.API_USER_MESSAGE)
+        self.assertNotIn("인터넷 연결이 필요", str(ctx.exception))
 
     def test_parser_keeps_hidden_nested_and_truncated_json_support(self) -> None:
         nested, _notes = translation_batch_service._parse_paragraph_output(

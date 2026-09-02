@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import re
+import socket
+import sys
 import urllib.error
 import urllib.request
 from typing import Any
@@ -17,8 +20,57 @@ load_all_dotenv()
 DEFAULT_MODEL = "gemini-flash-lite-latest"
 API_BASE = "https://generativelanguage.googleapis.com/v1beta/models"
 
-GEMINI_ERROR_CODES = ("quota", "rate_limit", "auth", "empty", "network", "unknown")
+GEMINI_ERROR_CODES = (
+    "quota",
+    "rate_limit",
+    "auth",
+    "empty",
+    "network",
+    "timeout",
+    "unknown",
+)
 NETWORK_USER_MESSAGE = "인터넷 연결이 필요해요. 연결을 확인한 뒤 다시 시도해 주세요."
+API_USER_MESSAGE = "AI 응답을 받지 못했어요. 잠시 후 다시 시도해 주세요."
+DEFAULT_TIMEOUT_SECONDS = 20.0
+
+_CONNECTIVITY_ERRNOS = {
+    value
+    for value in (
+        getattr(errno, "ENETUNREACH", None),
+        getattr(errno, "EHOSTUNREACH", None),
+        getattr(errno, "ENETDOWN", None),
+        getattr(errno, "EHOSTDOWN", None),
+        getattr(errno, "EAI_AGAIN", None),
+        getattr(errno, "EAI_NONAME", None),
+        getattr(errno, "EAI_NODATA", None),
+        getattr(errno, "EAI_FAIL", None),
+    )
+    if value is not None
+}
+_CONNECTIVITY_WINERRORS = {10050, 10051, 10065, 11001, 11002, 11003, 11004}
+_TIMEOUT_ERRNOS = {
+    value
+    for value in (getattr(errno, "ETIMEDOUT", None),)
+    if value is not None
+}
+_TIMEOUT_WINERRORS = {10060}
+_CONNECTIVITY_MARKERS = (
+    "network is unreachable",
+    "no route to host",
+    "getaddrinfo failed",
+    "name or service not known",
+    "nodename nor servname",
+    "temporary failure in name resolution",
+    "enotfound",
+    "eai_again",
+    "eai_noname",
+    "offline",
+)
+_TIMEOUT_MARKERS = (
+    "timed out",
+    "the read operation timed out",
+    "timeout",
+)
 
 
 class GeminiError(RuntimeError):
@@ -54,6 +106,7 @@ def generate_text(
     system: str | None = None,
     temperature: float = 0.8,
     max_output_tokens: int = 2048,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
 ) -> str:
     """Call Gemini generateContent and return plain text."""
     if not is_configured():
@@ -94,14 +147,10 @@ def generate_text(
         headers={"Content-Type": "application/json; charset=utf-8"},
         method="POST",
     )
+    wait = max(5.0, float(timeout or DEFAULT_TIMEOUT_SECONDS))
     try:
-        with urllib.request.urlopen(request, timeout=20) as response:  # noqa: S310
+        with urllib.request.urlopen(request, timeout=wait) as response:  # noqa: S310
             raw = response.read().decode("utf-8")
-    except TimeoutError as error:
-        raise GeminiError(
-            NETWORK_USER_MESSAGE,
-            code="network",
-        ) from error
     except urllib.error.HTTPError as error:
         detail = error.read().decode("utf-8", errors="replace")
         header_retry = None
@@ -112,28 +161,27 @@ def generate_text(
         code, retry_after, message = classify_gemini_http_error(
             error.code, detail, retry_after_header=header_retry
         )
+        _log_gemini_failure(code, error, detail=message, http_status=int(error.code))
         raise GeminiError(
-            f"Gemini 호출 실패: {message}",
+            _user_message_for_code(code),
             code=code,
             http_status=int(error.code),
             retry_after=retry_after,
         ) from error
-    except urllib.error.URLError as error:
+    except (TimeoutError, urllib.error.URLError, OSError) as error:
+        code = classify_transport_error(error)
+        _log_gemini_failure(code, error)
         raise GeminiError(
-            NETWORK_USER_MESSAGE,
-            code="network",
-        ) from error
-    except OSError as error:
-        raise GeminiError(
-            NETWORK_USER_MESSAGE,
-            code="network",
+            _user_message_for_code(code),
+            code=code,
         ) from error
 
     try:
         body = json.loads(raw)
     except json.JSONDecodeError as error:
+        _log_gemini_failure("unknown", error, detail="json")
         raise GeminiError(
-            "Gemini 응답을 해석하지 못했습니다.",
+            API_USER_MESSAGE,
             code="unknown",
         ) from error
 
@@ -146,12 +194,43 @@ def generate_text(
                 system=None,
                 temperature=temperature,
                 max_output_tokens=max_output_tokens,
+                timeout=wait,
             )
         raise GeminiError(
-            "Gemini가 빈 응답을 돌려주었습니다. 잠시 후 다시 시도해 주세요.",
+            API_USER_MESSAGE,
             code="empty",
         )
     return text
+
+
+def classify_transport_error(error: BaseException) -> str:
+    """Return network | timeout | unknown for urllib/socket failures."""
+    saw_network = False
+    saw_timeout = False
+    for item in _iter_error_chain(error):
+        if isinstance(item, TimeoutError):
+            saw_timeout = True
+        if isinstance(item, socket.gaierror):
+            saw_network = True
+        err_no = getattr(item, "errno", None)
+        winerror = getattr(item, "winerror", None)
+        if err_no in _CONNECTIVITY_ERRNOS or winerror in _CONNECTIVITY_WINERRORS:
+            saw_network = True
+        if err_no in _TIMEOUT_ERRNOS or winerror in _TIMEOUT_WINERRORS:
+            saw_timeout = True
+        text = str(item or "").lower()
+        reason = getattr(item, "reason", None)
+        if reason is not None and not isinstance(reason, BaseException):
+            text = f"{text} {reason}".lower()
+        if any(marker in text for marker in _CONNECTIVITY_MARKERS):
+            saw_network = True
+        if any(marker in text for marker in _TIMEOUT_MARKERS):
+            saw_timeout = True
+    if saw_network:
+        return "network"
+    if saw_timeout:
+        return "timeout"
+    return "unknown"
 
 
 def classify_gemini_http_error(
@@ -278,12 +357,57 @@ def _extract_api_error(detail: str) -> str:
     return str(message) if message else detail[:300]
 
 
-def user_visible_message(error: BaseException) -> str:
-    """Short copy for toasts. Network failures stay user-facing, not a traceback."""
-    if isinstance(error, GeminiError) and error.code == "network":
+def _iter_error_chain(error: BaseException):
+    seen: set[int] = set()
+    current: BaseException | None = error
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        yield current
+        reason = getattr(current, "reason", None)
+        if isinstance(reason, BaseException):
+            current = reason
+            continue
+        current = current.__cause__ or current.__context__
+
+
+def _user_message_for_code(code: str) -> str:
+    if code == "network":
         return NETWORK_USER_MESSAGE
+    if code == "auth":
+        return (
+            "Gemini API 키가 없거나 권한이 없습니다. "
+            "프로젝트 폴더의 .env 파일에 GEMINI_API_KEY를 확인해 주세요."
+        )
+    return API_USER_MESSAGE
+
+
+def _log_gemini_failure(
+    code: str,
+    error: BaseException,
+    *,
+    detail: str = "",
+    http_status: int | None = None,
+) -> None:
+    extra = f" status={http_status}" if http_status is not None else ""
+    snippet = str(detail or error).replace("\n", " ").strip()[:300]
+    print(
+        f"[gemini] code={code}{extra} type={type(error).__name__}: {snippet}",
+        file=sys.stderr,
+        flush=True,
+    )
+
+
+def user_visible_message(error: BaseException) -> str:
+    """Short copy for toasts. True offline stays distinct from API failures."""
+    if isinstance(error, GeminiError):
+        if error.code == "network":
+            return NETWORK_USER_MESSAGE
+        if error.code == "auth":
+            text = str(error).strip()
+            return text or _user_message_for_code("auth")
+        return API_USER_MESSAGE
     text = str(error or "").strip()
-    return text or NETWORK_USER_MESSAGE
+    return text or API_USER_MESSAGE
 
 
 def status() -> dict[str, Any]:
