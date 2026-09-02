@@ -69,6 +69,15 @@ def is_tori_text(value: object) -> bool:
     return str(value or "").lstrip().startswith("〔토리〕")
 
 
+def strip_tori_text(value: object) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    if text.startswith("〔토리〕"):
+        return text[len("〔토리〕") :].lstrip()
+    return text
+
+
 def mark_tori_text(value: object) -> str:
     text = str(value or "").strip()
     if not text:

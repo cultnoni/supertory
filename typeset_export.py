@@ -68,7 +68,6 @@ DEFAULT_PRESETS: dict[str, dict] = {
 _INT_FIELDS = frozenset({
     "font_size_pt",
     "line_height_percent",
-    "letter_spacing_pt",
     "paragraph_indent_pt",
     "paragraph_spacing_pt",
     "margin_left_mm",
@@ -76,6 +75,9 @@ _INT_FIELDS = frozenset({
     "margin_top_mm",
     "margin_bottom_mm",
     "mobile_viewport_px",
+})
+_FLOAT_FIELDS = frozenset({
+    "letter_spacing_pt",
 })
 
 _FIELD_RANGE = {
@@ -165,6 +167,15 @@ def _as_int(value, default: int) -> int:
         return int(default)
 
 
+def _as_float(value, default: float) -> float:
+    try:
+        if isinstance(value, bool):
+            raise TypeError
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
 def _as_bool(value, default: bool) -> bool:
     if isinstance(value, bool):
         return value
@@ -186,6 +197,14 @@ def _clamp(name: str, value: int) -> int:
     return max(int(low), min(int(high), int(value)))
 
 
+def _clamp_float(name: str, value: float) -> float:
+    bounds = _FIELD_RANGE.get(name)
+    if not bounds:
+        return value
+    low, high = bounds
+    return max(float(low), min(float(high), float(value)))
+
+
 def normalize_preset(
     raw: dict | None,
     *,
@@ -203,12 +222,17 @@ def normalize_preset(
     for key in _INT_FIELDS:
         if key in src:
             out[key] = _clamp(key, _as_int(src.get(key), int(base.get(key) or 0)))
+    for key in _FLOAT_FIELDS:
+        if key in src:
+            out[key] = _clamp_float(key, _as_float(src.get(key), float(base.get(key) or 0)))
     if "is_verified" in src:
         out["is_verified"] = _as_bool(src.get("is_verified"), bool(base.get("is_verified")))
     out["label"] = str(out.get("label") or "").strip()
     out["font_family"] = str(out.get("font_family") or "바탕체").strip() or "바탕체"
     for key in _INT_FIELDS:
         out[key] = _clamp(key, _as_int(out.get(key), int(_DEFAULT_FIELDS[key])))
+    for key in _FLOAT_FIELDS:
+        out[key] = _clamp_float(key, _as_float(out.get(key), float(_DEFAULT_FIELDS[key])))
     out["is_verified"] = bool(out.get("is_verified"))
     out["is_default"] = is_builtin_platform(platform_id)
     return out
@@ -240,16 +264,23 @@ def _set_run_rfonts(run, mapped: str, east_asia: str, qn, OxmlElement) -> None:
     rFonts.set(qn("w:eastAsia"), east_asia)
 
 
-def _set_run_letter_spacing(run, letter_spacing_pt: int, qn, OxmlElement) -> None:
-    if not letter_spacing_pt:
+def _letter_spacing_is_relative(value: float) -> bool:
+    """Dropdown 자간(-0.05~0.1) is em; legacy integers stay pt."""
+    return 0 < abs(float(value or 0)) <= 0.5
+
+
+def _set_run_letter_spacing(run, letter_spacing_pt: float, font_size_pt: float, qn, OxmlElement) -> None:
+    raw = float(letter_spacing_pt or 0)
+    if not raw:
         return
+    size = max(1.0, float(font_size_pt or 10))
+    twips = raw * size * 20 if _letter_spacing_is_relative(raw) else raw * 20
     rPr = run._element.get_or_add_rPr()
     spacing = rPr.find(qn("w:spacing"))
     if spacing is None:
         spacing = OxmlElement("w:spacing")
         rPr.append(spacing)
-    # Word character spacing is in twips (1 pt = 20 twips).
-    spacing.set(qn("w:val"), str(int(letter_spacing_pt) * 20))
+    spacing.set(qn("w:val"), str(int(round(twips))))
 
 
 def _apply_paragraph_format(paragraph, preset: dict, Pt) -> None:
@@ -265,7 +296,13 @@ def _apply_run_style(run, preset: dict, *, mapped: str, east_asia: str, Pt, qn, 
     run.font.name = mapped
     run.font.size = Pt(int(preset["font_size_pt"]))
     _set_run_rfonts(run, mapped, east_asia, qn, OxmlElement)
-    _set_run_letter_spacing(run, int(preset["letter_spacing_pt"]), qn, OxmlElement)
+    _set_run_letter_spacing(
+        run,
+        float(preset["letter_spacing_pt"] or 0),
+        float(preset["font_size_pt"] or 10),
+        qn,
+        OxmlElement,
+    )
 
 
 def build_typeset_docx(plain_text: str, preset: dict) -> bytes:
@@ -348,7 +385,11 @@ def _patch_hwpx_header(header: str, preset: dict) -> str:
     font_name = _xml_attr_escape(map_hangul_font_family(str(preset.get("font_family") or "바탕체")))
     height = max(100, int(preset["font_size_pt"]) * 100)
     size_pt = max(1, int(preset["font_size_pt"]))
-    spacing = int(round(float(preset["letter_spacing_pt"]) / float(size_pt) * 100.0))
+    raw_spacing = float(preset["letter_spacing_pt"] or 0)
+    if _letter_spacing_is_relative(raw_spacing):
+        spacing = int(round(raw_spacing * 100.0))
+    else:
+        spacing = int(round(raw_spacing / float(size_pt) * 100.0))
     spacing = max(-50, min(50, spacing))
     indent_hwp = max(0, _hwp_units_from_pt(int(preset["paragraph_indent_pt"])))
     indent_char = indent_hwp // 2

@@ -99,10 +99,16 @@ from sync.project_sync import (
 )
 from sync.reading_invites import (
     ReadingInviteError,
+    apply_fragment_to_content as apply_reading_invite_fragment,
     create_invite as create_reading_invite,
+    delete_invite as delete_reading_invite,
     feedback_summary as reading_invite_feedback_summary,
     list_invite_comments as list_reading_invite_comments,
+    list_invite_edits as list_reading_invite_edits,
     list_invites as list_reading_invites,
+    load_edit_change_for_review as load_reading_invite_edit_change,
+    mark_edit_change_status as mark_reading_invite_edit_status,
+    normalize_permission as normalize_reading_invite_permission,
     revoke_invite as revoke_reading_invite,
 )
 from sync.supabase_client import (
@@ -219,6 +225,9 @@ MIGRATION_075_PATH = ROOT / "db" / "075_character_relations.sql"
 MIGRATION_076_PATH = ROOT / "db" / "076_character_relations_label_unique.sql"
 MIGRATION_077_PATH = ROOT / "db" / "077_trait_history_scene_nullable.sql"
 MIGRATION_078_PATH = ROOT / "db" / "078_translation_proper_noun_suppressions.sql"
+MIGRATION_079_PATH = ROOT / "db" / "079_project_completion_guide.sql"
+MIGRATION_080_PATH = ROOT / "db" / "080_scene_reader_comment_batches.sql"
+MIGRATION_081_PATH = ROOT / "db" / "081_update_reader_personas_v2.py"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1635,6 +1644,12 @@ def initialise_database() -> None:
             apply_migration_077(connection)
         if 78 not in applied:
             connection.executescript(MIGRATION_078_PATH.read_text(encoding="utf-8"))
+        if 79 not in applied:
+            connection.executescript(MIGRATION_079_PATH.read_text(encoding="utf-8"))
+        if 80 not in applied:
+            apply_migration_080(connection)
+        if 81 not in applied:
+            apply_migration_081(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1649,10 +1664,12 @@ def initialise_database() -> None:
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
         ensure_scene_reader_comments_table(connection)
+        ensure_scene_reader_comment_batches(connection)
         ensure_gitsi_rooms_table(connection)
         ensure_project_cluster_column(connection)
         ensure_project_genre_detail_column(connection)
         ensure_project_content_rating_column(connection)
+        ensure_project_completion_guide_column(connection)
         ensure_user_ambient_tracks_table(connection)
         ensure_user_ambient_tracks_custom_category(connection)
         ensure_ambient_track_overrides_table(connection)
@@ -1725,6 +1742,10 @@ def apply_migration_046(connection: sqlite3.Connection) -> None:
 
 def apply_migration_053(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_053_PATH).apply(connection)
+
+
+def apply_migration_081(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_081_PATH).apply(connection)
 
 
 def apply_migration_071(connection: sqlite3.Connection) -> None:
@@ -1914,15 +1935,16 @@ def ensure_scene_reader_comments_table(connection: sqlite3.Connection) -> None:
             CREATE TABLE IF NOT EXISTS scene_reader_comments (
                 id              INTEGER PRIMARY KEY,
                 scene_id        INTEGER NOT NULL,
+                batch_id        TEXT NOT NULL DEFAULT '',
                 persona_id      TEXT NOT NULL,
                 comment_text    TEXT NOT NULL DEFAULT '',
                 created_at      TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-                UNIQUE (scene_id, persona_id),
+                UNIQUE (scene_id, batch_id, persona_id),
                 FOREIGN KEY (scene_id) REFERENCES scene(id) ON DELETE CASCADE,
                 FOREIGN KEY (persona_id) REFERENCES virtual_reader_personas(id) ON DELETE RESTRICT
             );
             CREATE INDEX IF NOT EXISTS ix_scene_reader_comments_scene
-                ON scene_reader_comments(scene_id, created_at, id);
+                ON scene_reader_comments(scene_id, batch_id, created_at, id);
             """
         )
     except sqlite3.Error:
@@ -2069,6 +2091,59 @@ def _scene_id_is_notnull(connection: sqlite3.Connection, table: str) -> bool:
     except sqlite3.Error:
         return False
     return False
+
+
+def _scene_reader_comments_has_batch_id(connection: sqlite3.Connection) -> bool:
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(scene_reader_comments)").fetchall()
+        }
+        return "batch_id" in cols
+    except sqlite3.Error:
+        return False
+
+
+def apply_migration_080(connection: sqlite3.Connection) -> None:
+    """Split virtual-reader comments into timestamped batches per scene."""
+    try:
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migration WHERE version = 80"
+        ).fetchone()
+    except sqlite3.Error:
+        applied = None
+    if applied is not None:
+        return
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scene_reader_comments'"
+    ).fetchone()
+    if exists is None or _scene_reader_comments_has_batch_id(connection):
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (80, 'scene_reader_comment_batches')"
+        )
+        return
+    connection.executescript(MIGRATION_080_PATH.read_text(encoding="utf-8"))
+
+
+def ensure_scene_reader_comment_batches(connection: sqlite3.Connection) -> None:
+    """Idempotent: scene_reader_comments.batch_id (migration 080)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scene_reader_comments'"
+        ).fetchone()
+        if exists is None:
+            return
+        if not _scene_reader_comments_has_batch_id(connection):
+            connection.execute("DELETE FROM schema_migration WHERE version = 80")
+            apply_migration_080(connection)
+        else:
+            connection.execute(
+                "INSERT OR IGNORE INTO schema_migration(version, name) "
+                "VALUES (80, 'scene_reader_comment_batches')"
+            )
+    except sqlite3.Error:
+        pass
 
 
 def apply_migration_077(connection: sqlite3.Connection) -> None:
@@ -2612,6 +2687,26 @@ def ensure_project_content_rating_column(connection: sqlite3.Connection) -> None
         connection.execute(
             "INSERT OR IGNORE INTO schema_migration(version, name) "
             "VALUES (65, 'project_content_rating')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_project_completion_guide_column(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.completion_guide_shown (migration 079)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        if "completion_guide_shown" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN completion_guide_shown "
+                "INTEGER NOT NULL DEFAULT 0"
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (79, 'project_completion_guide')"
         )
     except sqlite3.Error:
         pass
@@ -4938,8 +5033,120 @@ READER_COMMENT_TASK_ADDON = """지금은 작가와 1:1로 대화하는 상황이
 - (취향·감정) 남주 인성 실화냐? 여기서 여주 버리면 진짜 이탈함
 - (구조·복선) 다음 화에 주인공 흑화할 듯? 떡밥 정리해 둠
 - (흥분한 회수) ㅋㅋ 3화에 나왔던 열쇠 복선 여기서 회수하네 미쳤다"""
+READER_GENRE_SPECIALIST_CATEGORIES = frozenset({
+    "genre_specialist",
+    "sub_genre_specialist",
+})
+# Category is narrative_critic, but the name itself is a genre specialty.
+READER_EXPLICIT_GENRE_PERSONA_IDS = frozenset({"academy_immersive"})
+# persona_id → (독자가 기대하는 장르 호칭, 작품 장르와 맞출 토큰)
+READER_PERSONA_SPECIALTY: dict[str, tuple[str, frozenset[str]]] = {
+    "roppan_cider": (
+        "로맨스·로판",
+        frozenset({
+            "romance", "romfant", "modern", "period", "romcom", "high", "low",
+            "office", "contract", "chaebol", "bl", "gl", "omega",
+            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
+            "저루판", "오피스", "재벌", "BL", "GL",
+        }),
+    ),
+    "roppan_narrative": (
+        "로맨스·로판",
+        frozenset({
+            "romance", "romfant", "modern", "period", "romcom", "high", "low",
+            "office", "contract", "chaebol", "bl", "gl", "omega",
+            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
+            "저루판", "재벌", "BL", "GL",
+        }),
+    ),
+    "modern_romance_flutter": (
+        "로맨스·로판",
+        frozenset({
+            "romance", "romfant", "modern", "period", "romcom", "high", "low",
+            "office", "contract", "chaebol",
+            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
+            "저루판",
+        }),
+    ),
+    "modern_romance_tension": (
+        "로맨스·로판",
+        frozenset({
+            "romance", "romfant", "modern", "period", "romcom", "high", "low",
+            "office", "contract", "chaebol",
+            "로맨스", "로판", "현대로맨스", "시대로맨스", "로코", "하이루판",
+            "저루판",
+        }),
+    ),
+    "modern_fantasy_pro": (
+        "현판·전문직·재벌물",
+        frozenset({
+            "urban", "chaebol", "office", "contemporary",
+            "현판", "현대판타지", "어반판타지", "재벌", "오피스", "전문직",
+        }),
+    ),
+    "hunter_speedrunner": (
+        "헌터물",
+        frozenset({
+            "urban", "hidden_world",
+            "헌터", "헌터물", "현대판타지", "어반판타지", "레이드", "던전", "각성",
+        }),
+    ),
+    "game_system_maniac": (
+        "게임물",
+        frozenset({"game", "게임", "게임판타지", "게임물", "시스템"}),
+    ),
+    "high_fantasy_adventurer": (
+        "정통 판타지",
+        frozenset({
+            "traditional", "isekai", "dark", "female",
+            "정통판타지", "이세계", "다크판타지", "여성향 판타지",
+        }),
+    ),
+    "wuxia_romantic": (
+        "무협",
+        frozenset({
+            "martial", "classic", "new", "modern_wu", "murim",
+            "무협", "정통무협", "신무협", "현대한무", "강호",
+        }),
+    ),
+    "sf_hardcore_critic": (
+        "SF",
+        frozenset({
+            "sf", "SF", "space", "dystopia", "cyberpunk", "timeslip", "postapo",
+            "스페이스", "디스토피아", "사이버펑크", "타임슬립", "아포칼립스",
+        }),
+    ),
+    "mystery_trick_analyst": (
+        "추리·스릴러",
+        frozenset({
+            "mystery", "thriller", "honkaku", "social", "cozy", "legal", "crime",
+            "psycho", "horror", "suspense",
+            "추리", "스릴러", "미스터리", "호러", "본격추리", "서스펜스",
+        }),
+    ),
+    "sports_sim_fan": (
+        "스포츠·영지경영",
+        frozenset({
+            "sports", "스포츠", "스포츠물", "영지", "시뮬레이션", "경영", "리그",
+        }),
+    ),
+    "alt_history_analyst": (
+        "대체역사",
+        frozenset({
+            "alt_history", "alt", "대체역사",
+        }),
+    ),
+    "academy_immersive": (
+        "아카데미물",
+        frozenset({
+            "school", "youth", "academy",
+            "아카데미", "아카데미물", "학원", "학원물",
+        }),
+    ),
+}
 READER_AVATAR_URL_PREFIX = "/assets/reader_avatars"
 _reader_comments_inflight: set[int] = set()
+_reader_comments_inflight_batch: dict[int, str] = {}
 _reader_comments_last_error: dict[int, str] = {}
 _reader_comments_inflight_lock = Lock()
 _trait_analysis_jobs: dict[int, dict] = {}
@@ -6660,12 +6867,26 @@ def reader_debate_persona_ids_key(persona_ids: list[str]) -> str:
     return ",".join(sorted({str(pid).strip() for pid in persona_ids if str(pid).strip()}))
 
 
-def _reader_debate_system_prompt(persona: dict, shared_context: str) -> str:
+def _reader_debate_system_prompt(
+    persona: dict,
+    shared_context: str,
+    *,
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+) -> str:
     """Reuse 1:1 persona prompt + debate task line + shared work context."""
     return (
         _reader_persona_system_prompt(persona)
         + "\n"
         + READER_DEBATE_TASK_ADDON
+        + _reader_genre_mismatch_block(
+            persona,
+            main_genre=main_genre,
+            sub_genre=sub_genre,
+            genre_detail=genre_detail,
+            shared_context=shared_context,
+        )
         + "\n\n"
         + shared_context
     )
@@ -6923,13 +7144,15 @@ def _reader_dynamic_context(
     title = ""
     main_genre = ""
     sub_genre = ""
+    genre_detail = ""
     synopsis_plain = ""
     world_summary = ""
     if work_key:
         with database() as connection:
             try:
                 row = connection.execute(
-                    "SELECT title, main_genre, sub_genre, description_md, worldbuilding_md "
+                    "SELECT title, main_genre, sub_genre, genre_detail, "
+                    "description_md, worldbuilding_md "
                     "FROM project WHERE id = ? AND deleted_at IS NULL",
                     (work_key,),
                 ).fetchone()
@@ -6943,6 +7166,10 @@ def _reader_dynamic_context(
             title = str(row["title"] or "").strip()
             main_genre = str(row["main_genre"] or "").strip()
             sub_genre = str(row["sub_genre"] or "").strip()
+            try:
+                genre_detail = str(row["genre_detail"] or "").strip()
+            except (KeyError, IndexError, TypeError):
+                genre_detail = ""
             try:
                 synopsis_plain = plain_text_from_content(
                     str(row["description_md"] or "")
@@ -6959,12 +7186,22 @@ def _reader_dynamic_context(
         synopsis_plain = synopsis_plain[:READER_CHAT_SYNOPSIS_CAP] + "…"
     main_label = SuperToryHandler._genre_display_label(None, main_genre)
     sub_label = SuperToryHandler._genre_display_label(None, sub_genre)
+    detail_label = ""
+    if genre_detail:
+        try:
+            detail_label = str(genre_clusters.genre_detail_label(genre_detail) or "").strip()
+        except Exception:
+            detail_label = ""
+        if not detail_label:
+            detail_label = SuperToryHandler._genre_display_label(None, genre_detail)
     parts = [
         "[작품 정보]",
         f"작품 제목: {title or '(없음)'}",
         f"메인 장르: {main_label}",
         f"서브 장르: {sub_label}",
     ]
+    if detail_label and detail_label not in {"미정", "기타"}:
+        parts.append(f"세부장르: {detail_label}")
     # 장르 → 시놉시스 → 세계관 → 누적 인덱스 → 원고
     settings_bits: list[str] = []
     if synopsis_plain:
@@ -7044,6 +7281,10 @@ def serialize_project_list_row(row: sqlite3.Row | dict) -> dict:
     item["sub_genre"] = item.get("sub_genre") or ""
     item["genre_detail"] = item.get("genre_detail") or ""
     item["content_rating"] = item.get("content_rating") or ""
+    try:
+        item["completion_guide_shown"] = bool(int(item.get("completion_guide_shown") or 0))
+    except (TypeError, ValueError):
+        item["completion_guide_shown"] = bool(item.get("completion_guide_shown"))
     item["keywords"] = parse_project_keywords(item.get("keywords"))
     item["import_delimiter_config"] = parse_import_delimiter_config(
         item.get("import_delimiter_config")
@@ -7087,6 +7328,11 @@ def list_projects_payload(connection: sqlite3.Connection) -> list[dict]:
     try:
         connection.execute("SELECT content_rating FROM project LIMIT 1")
         cols += ", content_rating"
+    except sqlite3.OperationalError:
+        pass
+    try:
+        connection.execute("SELECT completion_guide_shown FROM project LIMIT 1")
+        cols += ", completion_guide_shown"
     except sqlite3.OperationalError:
         pass
     rows = connection.execute(
@@ -7499,6 +7745,30 @@ def listening_pids(port: int) -> list[int]:
     return pids
 
 
+def process_image_name(pid: int) -> str:
+    """Best-effort Windows process name for a PID (python.exe, SuperTory.exe, …)."""
+    if sys.platform != "win32" or int(pid or 0) <= 0:
+        return ""
+    try:
+        completed = subprocess.run(
+            ["tasklist", "/FI", f"PID eq {int(pid)}", "/FO", "CSV", "/NH"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=False,
+        )
+    except OSError:
+        return ""
+    line = (completed.stdout or "").strip().splitlines()
+    if not line:
+        return ""
+    name = line[0].split(",")[0].strip().strip('"')
+    if not name or name.lower().startswith("info:"):
+        return ""
+    return name
+
+
 def stop_server_on_port(port: int) -> bool:
     """Stop an already-running SuperTORY instance so restarts load new code."""
     pids = listening_pids(port)
@@ -7508,6 +7778,8 @@ def stop_server_on_port(port: int) -> bool:
     for pid in pids:
         if pid == os.getpid():
             continue
+        image = process_image_name(pid)
+        label = f"{image} PID {pid}" if image else f"PID {pid}"
         try:
             if sys.platform == "win32":
                 subprocess.run(
@@ -7518,9 +7790,11 @@ def stop_server_on_port(port: int) -> bool:
             else:
                 os.kill(pid, 15)
             stopped = True
-            print(f"이전 SuperTORY 서버(PID {pid})를 종료하고 새 버전으로 다시 시작합니다.")
+            print(
+                f"이전 SuperTORY 서버({label})를 종료하고 새 버전으로 다시 시작합니다."
+            )
         except OSError as error:
-            print(f"이전 서버(PID {pid})를 종료하지 못했습니다: {error}")
+            print(f"이전 서버({label})를 종료하지 못했습니다: {error}")
     # Brief wait so the port is released.
     if stopped:
         for _ in range(20):
@@ -7665,6 +7939,184 @@ def _persona_matches_needles(persona: dict, needles: list[str]) -> bool:
     return False
 
 
+def _reader_persona_has_explicit_genre(persona: dict) -> bool:
+    category = str(persona.get("category") or "").strip()
+    persona_id = str(persona.get("id") or "").strip()
+    return (
+        category in READER_GENRE_SPECIALIST_CATEGORIES
+        or persona_id in READER_EXPLICIT_GENRE_PERSONA_IDS
+    )
+
+
+def _reader_persona_specialty(persona: dict) -> tuple[str, frozenset[str]] | None:
+    persona_id = str(persona.get("id") or "").strip()
+    mapped = READER_PERSONA_SPECIALTY.get(persona_id)
+    if mapped:
+        return mapped
+    if not _reader_persona_has_explicit_genre(persona):
+        return None
+    name = str(persona.get("name") or "").strip()
+    return (name or "자기 전문 장르", frozenset())
+
+
+def _reader_genre_token_hits(token: str, work_tokens: set[str]) -> bool:
+    raw = str(token or "").strip()
+    if not raw:
+        return False
+    lowered = raw.lower()
+    work_lower = {item.lower() for item in work_tokens if item}
+    if lowered in work_lower:
+        return True
+    # ASCII keys must match exactly so "modern" does not hit "modern_wu".
+    if raw.isascii():
+        return False
+    for item in work_tokens:
+        other = str(item or "").strip()
+        if len(raw) < 2 or len(other) < 2:
+            continue
+        if lowered in other.lower() or other.lower() in lowered:
+            return True
+    return False
+
+
+def _reader_work_genre_tokens(
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+    extra_labels: object = None,
+) -> list[str]:
+    skip = {"", "미정", "기타", "(없음)", "tbd", "other"}
+    tokens: list[str] = []
+
+    def _add(raw: object) -> None:
+        text = str(raw or "").strip()
+        if not text or text in skip:
+            return
+        if text not in tokens:
+            tokens.append(text)
+
+    for key in (main_genre, sub_genre, genre_detail):
+        _add(key)
+        _add(SuperToryHandler._genre_display_label(None, key))
+    detail_key = str(genre_detail or "").strip()
+    if detail_key:
+        try:
+            _add(genre_clusters.genre_detail_label(detail_key))
+        except Exception:
+            pass
+    if extra_labels:
+        for label in extra_labels:
+            _add(label)
+    return tokens
+
+
+def _reader_context_genre_labels(shared_context: str) -> list[str]:
+    labels: list[str] = []
+    for line in str(shared_context or "").splitlines():
+        stripped = line.strip()
+        for prefix in ("메인 장르:", "서브 장르:", "세부장르:", "세부 장르:"):
+            if stripped.startswith(prefix):
+                labels.append(stripped[len(prefix) :].strip())
+                break
+    return labels
+
+
+def _reader_work_genre_label(tokens: list[str]) -> str:
+    skip_keys = {
+        "romance", "fantasy", "sf", "mystery", "thriller", "historical", "martial",
+        "contemporary", "youth", "literary", "romfant", "modern", "high", "low",
+        "urban", "hidden_world", "traditional", "isekai", "game", "dark", "school",
+        "classic", "new", "murim", "sports", "chaebol", "office",
+    }
+    labels = [
+        item for item in tokens
+        if item and item not in skip_keys and not item.isascii()
+    ]
+    if not labels:
+        labels = [item for item in tokens if item]
+    unique: list[str] = []
+    for item in labels:
+        if item not in unique:
+            unique.append(item)
+    return " · ".join(unique[:3]) if unique else "미정"
+
+
+def reader_persona_genre_matches(
+    persona: dict,
+    *,
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+    shared_context: str = "",
+) -> bool | None:
+    """True=match, False=mismatch, None=not a genre-explicit persona or no work genre."""
+    if not _reader_persona_has_explicit_genre(persona):
+        return None
+    specialty = _reader_persona_specialty(persona)
+    if specialty is None:
+        return None
+    work_tokens = _reader_work_genre_tokens(
+        main_genre,
+        sub_genre,
+        genre_detail,
+        extra_labels=_reader_context_genre_labels(shared_context),
+    )
+    if not work_tokens:
+        return None
+    _expected, specialty_tokens = specialty
+    if not specialty_tokens:
+        needles = _genre_search_needles(main_genre) + _genre_search_needles(sub_genre)
+        return _persona_matches_needles(persona, needles)
+    work_set = set(work_tokens)
+    return any(_reader_genre_token_hits(token, work_set) for token in specialty_tokens)
+
+
+def _reader_genre_mismatch_block(
+    persona: dict,
+    *,
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+    shared_context: str = "",
+) -> str:
+    matched = reader_persona_genre_matches(
+        persona,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+        genre_detail=genre_detail,
+        shared_context=shared_context,
+    )
+    if matched is not False:
+        return ""
+    specialty = _reader_persona_specialty(persona) or ("자기 전문 장르", frozenset())
+    expected, _tokens = specialty
+    actual = _reader_work_genre_label(
+        _reader_work_genre_tokens(
+            main_genre,
+            sub_genre,
+            genre_detail,
+            extra_labels=_reader_context_genre_labels(shared_context),
+        )
+    )
+    return (
+        "\n\n[장르 불일치 인지 — 이번 작품에만 적용]\n"
+        f"이 작품의 실제 장르는 '{actual}'이다. 당신은 평소 '{expected}'를 주로 읽는 독자다.\n"
+        f"이 작품을 '{expected}'라고 단정하지 마라. '{expected}' 클리셰·문법이 안 나온다고 "
+        "작품 오류처럼 말하지 마라.\n"
+        "당신이 기대와 다르다는 걸 스스로 아는 기색이 한 번 묻어나면 된다. "
+        "문장을 고정하지 말고, 매번 다른 표현을 쓰며, 이전에 썼던 대사를 반복하지 마라. "
+        "아래는 톤의 결만 참고하는 방향이다. 예시 문장을 그대로 베끼지 마라.\n"
+        f"- 제목이나 초반 설정만 보고 '{expected}'인 줄 알았다가, 읽고 나서 아니라는 걸 깨닫는 쪽\n"
+        "- '어라, 내가 생각하던 분위기랑은 다르네' 정도의 가벼운 당황\n"
+        f"- '{expected}' 쪽 용어를 꺼냈다가 스스로 정정하는 쪽\n"
+        "- 대놓고 착각을 시인하지 않고 '기대한 맛은 아닌데'로 돌려 말하는 쪽\n"
+        "그 다음엔 헛소리를 하지 말고, 원고에서 눈에 띄는 한 장면·대사·행동만 소박하게 반응해라. "
+        f"'{expected}' 전문가인 척 장르 문법을 들이밀며 비평하지 마라. "
+        f"인지한 뒤에는 '{expected}' 클리셰가 안 나온다고 아쉬워하거나 그걸 요구하지 마라. "
+        "댓글이면 1~2문장 안에 이 기색을 녹이고, 장르 불일치 설명만으로 채우지 마라.\n"
+    )
+
+
 def _normalize_exclude_persona_ids(raw: object) -> set[str]:
     if raw is None:
         return set()
@@ -7702,13 +8154,13 @@ def _reader_comment_refresh_meta(
     generating: bool,
     remaining: object,
     last_error_code: object = None,
+    batch_count: object = 0,
 ) -> dict:
     n = max(0, int(comment_count or 0))
-    refresh_count = reader_comment_refresh_count(n)
+    batches = max(0, int(batch_count or 0))
+    refresh_count = max(0, batches - 1) if batches else reader_comment_refresh_count(n)
     can_refresh = (
         n >= READER_COMMENTS_EXPECTED
-        and refresh_count < READER_COMMENTS_MAX_REFRESHES
-        and int(remaining or 0) > 0
         and not generating
         and str(last_error_code or "") != "quota"
     )
@@ -7862,11 +8314,25 @@ def select_additional_reader_comment_personas(
     return picked
 
 
-def _reader_comment_system_prompt(persona: dict, shared_context: str) -> str:
+def _reader_comment_system_prompt(
+    persona: dict,
+    shared_context: str,
+    *,
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+) -> str:
     return (
         _reader_persona_system_prompt(persona)
         + "\n"
         + READER_COMMENT_TASK_ADDON
+        + _reader_genre_mismatch_block(
+            persona,
+            main_genre=main_genre,
+            sub_genre=sub_genre,
+            genre_detail=genre_detail,
+            shared_context=shared_context,
+        )
         + "\n\n"
         + shared_context
     )
@@ -7912,6 +8378,65 @@ def _set_reader_comments_last_error(scene_id: int, code: str | None) -> None:
             _reader_comments_last_error.pop(scene_id, None)
 
 
+def group_reader_comment_batches(comments: list[dict]) -> list[dict]:
+    """Group comments by batch_id. Newest batch first.
+
+    Rows without batch_id (pre-migration inserts) share one legacy bucket,
+    stamped with the earliest created_at in that group.
+    """
+    groups: dict[str, dict] = {}
+    order: list[str] = []
+    for item in comments:
+        raw_id = str(item.get("batch_id") or "").strip()
+        created = str(item.get("created_at") or "").strip()
+        key = raw_id or "_legacy_"
+        if key not in groups:
+            groups[key] = {
+                "batch_id": raw_id or created or key,
+                "created_at": created,
+                "comments": [],
+            }
+            order.append(key)
+        bucket = groups[key]
+        bucket["comments"].append(item)
+        if created and (not bucket["created_at"] or created < bucket["created_at"]):
+            bucket["created_at"] = created
+            if not raw_id:
+                bucket["batch_id"] = created
+    batches = [groups[key] for key in order]
+    batches.sort(
+        key=lambda batch: (
+            str(batch.get("created_at") or ""),
+            str(batch.get("batch_id") or ""),
+        ),
+        reverse=True,
+    )
+    return batches
+
+
+def _latest_batch_persona_ids(connection: sqlite3.Connection, scene_id: int) -> list[str]:
+    row = connection.execute(
+        """
+        SELECT batch_id FROM scene_reader_comments
+        WHERE scene_id = ?
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1
+        """,
+        (int(scene_id),),
+    ).fetchone()
+    if row is None:
+        return []
+    batch_id = str(row[0] or "")
+    rows = connection.execute(
+        """
+        SELECT persona_id FROM scene_reader_comments
+        WHERE scene_id = ? AND batch_id = ?
+        """,
+        (int(scene_id), batch_id),
+    ).fetchall()
+    return [str(item[0] or "").strip() for item in rows if str(item[0] or "").strip()]
+
+
 def list_scene_reader_comments(scene_id: int) -> dict:
     scene_id = int(scene_id)
     with database() as connection:
@@ -7924,7 +8449,7 @@ def list_scene_reader_comments(scene_id: int) -> dict:
         rows = connection.execute(
             """
             SELECT c.id, c.scene_id, c.persona_id, c.comment_text, c.created_at,
-                   p.name, p.category
+                   c.batch_id, p.name, p.category
             FROM scene_reader_comments c
             JOIN virtual_reader_personas p ON p.id = c.persona_id
             WHERE c.scene_id = ?
@@ -7943,6 +8468,7 @@ def list_scene_reader_comments(scene_id: int) -> dict:
             {
                 "id": item.get("id"),
                 "scene_id": int(item.get("scene_id") or scene_id),
+                "batch_id": str(item.get("batch_id") or "").strip(),
                 "persona_id": persona_id,
                 "persona_name": str(item.get("name") or "").strip() or "가상 독자",
                 "category": str(item.get("category") or "").strip(),
@@ -7951,19 +8477,39 @@ def list_scene_reader_comments(scene_id: int) -> dict:
                 "created_at": str(item.get("created_at") or ""),
             }
         )
+    batches = group_reader_comment_batches(comments)
     generating = _reader_comments_generating(scene_id)
+    with _reader_comments_inflight_lock:
+        inflight_batch_id = str(_reader_comments_inflight_batch.get(scene_id) or "").strip()
+    if generating and inflight_batch_id:
+        known = {str(item.get("batch_id") or "") for item in batches}
+        if inflight_batch_id not in known:
+            batches.insert(
+                0,
+                {
+                    "batch_id": inflight_batch_id,
+                    "created_at": inflight_batch_id,
+                    "comments": [],
+                },
+            )
     remaining = max(0, int(total or 0) - len(comments))
     last_error_code = _reader_comments_last_error_code(scene_id)
+    persisted_batches = [item for item in batches if item.get("comments")]
     meta = _reader_comment_refresh_meta(
         len(comments),
         generating=generating,
         remaining=remaining,
         last_error_code=last_error_code,
+        batch_count=len(persisted_batches),
     )
+    latest = batches[0] if batches else None
     return {
         "ok": True,
         "scene_id": scene_id,
         "comments": comments,
+        "batches": batches,
+        "latest_batch_id": str((latest or {}).get("batch_id") or ""),
+        "has_history": bool(comments),
         "expected": READER_COMMENTS_EXPECTED,
         "generating": generating,
         "last_error_code": last_error_code,
@@ -7972,22 +8518,26 @@ def list_scene_reader_comments(scene_id: int) -> dict:
 
 
 def _start_reader_comments_worker(
-    scene_id: int, personas: list[dict] | None = None
+    scene_id: int,
+    personas: list[dict] | None = None,
+    batch_id: str | None = None,
 ) -> dict:
     scene_id = int(scene_id)
-    payload = list_scene_reader_comments(scene_id)
+    batch_id = str(batch_id or "").strip() or utc_timestamp_now()
     with _reader_comments_inflight_lock:
         already = scene_id in _reader_comments_inflight
         if not already:
             _reader_comments_inflight.add(scene_id)
+            _reader_comments_inflight_batch[scene_id] = batch_id
     if already:
+        payload = list_scene_reader_comments(scene_id)
         payload["generating"] = True
         payload["started"] = False
         return payload
     try:
         worker = Thread(
             target=_scene_reader_comments_worker,
-            args=(scene_id, personas),
+            args=(scene_id, personas, batch_id),
             daemon=True,
             name=f"scene-reader-comments-{scene_id}",
         )
@@ -7995,21 +8545,63 @@ def _start_reader_comments_worker(
     except Exception:
         with _reader_comments_inflight_lock:
             _reader_comments_inflight.discard(scene_id)
+            _reader_comments_inflight_batch.pop(scene_id, None)
         raise
+    payload = list_scene_reader_comments(scene_id)
     payload["generating"] = True
     payload["started"] = True
     payload["can_refresh"] = False
     return payload
 
 
-def schedule_scene_reader_comments(scene_id: int) -> dict:
-    """Start background generation until the first batch of 3 exists."""
+def schedule_new_scene_reader_comment_batch(scene_id: int) -> dict:
+    """Always start a fresh batch of three comments for the scene."""
     scene_id = int(scene_id)
     payload = list_scene_reader_comments(scene_id)
-    if len(payload["comments"]) >= READER_COMMENTS_EXPECTED:
+    if payload["generating"]:
         payload["started"] = False
         return payload
-    return _start_reader_comments_worker(scene_id)
+    with database() as connection:
+        row = connection.execute(
+            """
+            SELECT p.main_genre, p.sub_genre
+            FROM scene s
+            JOIN project p ON p.id = s.project_id
+            WHERE s.id = ? AND s.deleted_at IS NULL AND p.deleted_at IS NULL
+            """,
+            (scene_id,),
+        ).fetchone()
+        if row is None:
+            raise LookupError("씬을 찾을 수 없습니다.")
+        exclude_ids = _latest_batch_persona_ids(connection, scene_id)
+        personas = select_reader_comment_personas(
+            row["main_genre"],
+            row["sub_genre"],
+            connection=connection,
+            exclude_persona_ids=exclude_ids,
+        )
+        if len(personas) < READER_COMMENTS_EXPECTED:
+            personas = select_reader_comment_personas(
+                row["main_genre"],
+                row["sub_genre"],
+                connection=connection,
+            )
+    if not personas:
+        payload["started"] = False
+        return payload
+    return _start_reader_comments_worker(
+        scene_id, personas, batch_id=utc_timestamp_now()
+    )
+
+
+def schedule_scene_reader_comments(scene_id: int) -> dict:
+    """Start the first batch in the background when a scene is marked complete."""
+    scene_id = int(scene_id)
+    payload = list_scene_reader_comments(scene_id)
+    if payload["comments"]:
+        payload["started"] = False
+        return payload
+    return schedule_new_scene_reader_comment_batch(scene_id)
 
 
 def _set_trait_analysis_job(scene_id: int, **kwargs) -> dict:
@@ -8364,48 +8956,49 @@ def schedule_additional_scene_reader_comments(scene_id: int) -> dict:
 
 
 def request_scene_reader_comments(scene_id: int) -> dict:
-    """Fill the first batch of 3, or refresh when that batch is already present."""
-    scene_id = int(scene_id)
-    payload = list_scene_reader_comments(scene_id)
-    if payload["generating"]:
-        payload["started"] = False
-        return payload
-    n = len(payload["comments"])
-    if n < READER_COMMENTS_EXPECTED:
-        return schedule_scene_reader_comments(scene_id)
-    return schedule_additional_scene_reader_comments(scene_id)
+    """Always create a new comment batch; previous batches are kept."""
+    return schedule_new_scene_reader_comment_batch(scene_id)
 
 
 def _scene_reader_comments_worker(
-    scene_id: int, personas: list[dict] | None = None
+    scene_id: int,
+    personas: list[dict] | None = None,
+    batch_id: str | None = None,
 ) -> None:
     try:
-        generate_scene_reader_comments(scene_id, personas)
+        generate_scene_reader_comments(scene_id, personas, batch_id=batch_id)
     except Exception as error:
         _log_reader_comment_error(scene_id, "-", error)
     finally:
         with _reader_comments_inflight_lock:
             _reader_comments_inflight.discard(int(scene_id))
+            _reader_comments_inflight_batch.pop(int(scene_id), None)
 
 
 def generate_scene_reader_comments(
-    scene_id: int, personas: list[dict] | None = None
+    scene_id: int,
+    personas: list[dict] | None = None,
+    batch_id: str | None = None,
 ) -> None:
     """Generate virtual-reader comments; persist each as soon as it arrives."""
     scene_id = int(scene_id)
+    batch_id = str(batch_id or "").strip() or utc_timestamp_now()
     with database() as connection:
         existing_ids = {
             str(row[0] or "").strip()
             for row in connection.execute(
-                "SELECT persona_id FROM scene_reader_comments WHERE scene_id = ?",
-                (scene_id,),
+                """
+                SELECT persona_id FROM scene_reader_comments
+                WHERE scene_id = ? AND batch_id = ?
+                """,
+                (scene_id, batch_id),
             ).fetchall()
             if str(row[0] or "").strip()
         }
         row = connection.execute(
             """
             SELECT s.id, s.project_id, s.title, p.main_genre, p.sub_genre,
-                   r.content_md
+                   p.genre_detail, r.content_md
             FROM scene s
             JOIN project p ON p.id = s.project_id
             JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1
@@ -8418,16 +9011,31 @@ def generate_scene_reader_comments(
         work_id = str(row["project_id"])
         episode_plain = plain_text_from_content(str(row["content_md"] or "")).strip()
         scene_title = str(row["title"] or "").strip()
+        main_genre = str(row["main_genre"] or "").strip()
+        sub_genre = str(row["sub_genre"] or "").strip()
+        try:
+            genre_detail = str(row["genre_detail"] or "").strip()
+        except (KeyError, IndexError, TypeError):
+            genre_detail = ""
         if personas is None:
             needed = READER_COMMENTS_EXPECTED - len(existing_ids)
             if needed <= 0:
                 return
+            exclude_ids = set(existing_ids)
+            exclude_ids.update(_latest_batch_persona_ids(connection, scene_id))
             personas = select_reader_comment_personas(
-                row["main_genre"],
-                row["sub_genre"],
+                main_genre,
+                sub_genre,
                 connection=connection,
-                exclude_persona_ids=existing_ids,
+                exclude_persona_ids=exclude_ids,
             )[:needed]
+            if len(personas) < needed:
+                personas = select_reader_comment_personas(
+                    main_genre,
+                    sub_genre,
+                    connection=connection,
+                    exclude_persona_ids=existing_ids,
+                )[:needed]
         else:
             personas = [
                 item
@@ -8445,7 +9053,13 @@ def generate_scene_reader_comments(
         if not persona_id:
             continue
         reader_name = str(persona.get("name") or "").strip() or "가상 독자"
-        system = _reader_comment_system_prompt(persona, shared_context)
+        system = _reader_comment_system_prompt(
+            persona,
+            shared_context,
+            main_genre=main_genre,
+            sub_genre=sub_genre,
+            genre_detail=genre_detail,
+        )
         prompt = _reader_comment_user_prompt(reader_name, scene_title)
         if index > 0 and READER_DEBATE_GEMINI_GAP_SECONDS > 0:
             time.sleep(READER_DEBATE_GEMINI_GAP_SECONDS)
@@ -8480,10 +9094,10 @@ def generate_scene_reader_comments(
                 connection.execute(
                     """
                     INSERT OR IGNORE INTO scene_reader_comments
-                        (scene_id, persona_id, comment_text, created_at)
-                    VALUES (?, ?, ?, ?)
+                        (scene_id, batch_id, persona_id, comment_text, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (scene_id, persona_id, reply_text, utc_timestamp_now()),
+                    (scene_id, batch_id, persona_id, reply_text, utc_timestamp_now()),
                 )
             saved_any = True
         except sqlite3.Error as error:
@@ -9202,6 +9816,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if not self._require_reading_invite_user():
                     return
                 self.send_json(self.list_reading_invite_comments_api(unquote(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/reading-invites/([^/]+)/edits", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.list_reading_invite_edits_api(unquote(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/export", path)
@@ -10211,11 +10832,25 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/completion-guide-shown", path)
+            if match:
+                self.send_json(self.mark_completion_guide_shown(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/reading-invites/([^/]+)/revoke", path)
             if match:
                 if not self._require_reading_invite_user():
                     return
                 self.send_json(self.revoke_reading_invite_api(unquote(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/reading-invite-changes/([^/]+)/review", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(
+                    self.review_reading_invite_change_api(unquote(match.group(1)), body or {})
+                )
                 return
 
             if path == "/api/ai/assist":
@@ -11013,6 +11648,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
         try:
+            match = re.fullmatch(r"/api/reading-invites/([^/]+)", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.delete_reading_invite_api(unquote(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/typeset/presets/([^/]+)", path)
             if match:
                 self.send_json(get_typeset_service().delete_preset(
@@ -11092,6 +11734,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     ).delete_proper_noun(int(match.group(1)))
                 self.send_json(payload)
                 return
+        except ReadingInviteError as error:
+            self._send_reading_invite_error(error)
+            return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
             return
@@ -11385,10 +12030,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             who = "작가" if role == "user" else reader_name
             history_lines.append(f"{who}: {content}")
         transcript = "\n".join(history_lines) if history_lines else "(이전 대화 없음)"
+        shared_context = _reader_dynamic_context(work_id, episode_content)
         system = (
             _reader_persona_system_prompt(persona)
+            + _reader_genre_mismatch_block(
+                persona,
+                shared_context=shared_context,
+            )
             + "\n\n"
-            + _reader_dynamic_context(work_id, episode_content)
+            + shared_context
         )
         full_prompt = (
             f"아래는 작가와 '{reader_name}'의 이전 대화, 그리고 작가의 새 메시지입니다. "
@@ -11687,7 +12337,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             transcript = (
                 "\n".join(transcript_lines) if transcript_lines else "(이전 발언 없음)"
             )
-            system = _reader_debate_system_prompt(persona, shared_context)
+            system = _reader_debate_system_prompt(
+                persona,
+                shared_context,
+            )
             full_prompt = _reader_debate_user_prompt(
                 reader_name, transcript, user_message
             )
@@ -21145,6 +21798,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
         except (TypeError, ValueError):
             project_data["linked_success_profile_id"] = None
+        try:
+            project_data["completion_guide_shown"] = bool(
+                int(project_data.get("completion_guide_shown") or 0)
+            )
+        except (TypeError, ValueError):
+            project_data["completion_guide_shown"] = bool(
+                project_data.get("completion_guide_shown")
+            )
         return project_data
 
     def _load_outline_project_row(
@@ -21154,27 +21815,37 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             return connection.execute(
                 "SELECT title, purpose, main_genre, sub_genre, genre_detail, cluster_id, keywords, uuid, package_path, "
                 "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
+                "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id, "
+                "completion_guide_shown "
                 "FROM project WHERE id = ?",
                 (project_id,),
             ).fetchone()
         except sqlite3.OperationalError:
             try:
                 return connection.execute(
-                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                    "SELECT title, purpose, main_genre, sub_genre, genre_detail, cluster_id, keywords, uuid, package_path, "
                     "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
                     "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
                     "FROM project WHERE id = ?",
                     (project_id,),
                 ).fetchone()
             except sqlite3.OperationalError:
-                return connection.execute(
-                    "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
-                    "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
-                    "tory_priority_md, outline_summary, goal_word_count "
-                    "FROM project WHERE id = ?",
-                    (project_id,),
-                ).fetchone()
+                try:
+                    return connection.execute(
+                        "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                        "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                        "tory_priority_md, outline_summary, goal_word_count, linked_success_profile_id "
+                        "FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
+                except sqlite3.OperationalError:
+                    return connection.execute(
+                        "SELECT title, purpose, main_genre, sub_genre, keywords, uuid, package_path, "
+                        "description_md, logline_md, worldbuilding_md, intro_md, intent_md, "
+                        "tory_priority_md, outline_summary, goal_word_count "
+                        "FROM project WHERE id = ?",
+                        (project_id,),
+                    ).fetchone()
 
     def _load_outline_scenes(
         self, connection: sqlite3.Connection, project_id: int
@@ -21183,7 +21854,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         try:
             return connection.execute(
                 "SELECT s.id, s.chapter_id, s.folder_id, s.parent_scene_id, s.title, s.status, "
-                "s.synopsis_md, s.sort_order, r.word_count, "
+                "s.synopsis_md, s.notes_md, s.sort_order, r.word_count, "
                 f"{_OUTLINE_CONTENT_HEAD_SQL} "
                 "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                 "WHERE s.project_id = ? AND s.deleted_at IS NULL "
@@ -21194,7 +21865,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             try:
                 return connection.execute(
                     "SELECT s.id, s.chapter_id, s.parent_scene_id, s.title, s.status, "
-                    "s.synopsis_md, s.sort_order, r.word_count, "
+                    "s.synopsis_md, s.notes_md, s.sort_order, r.word_count, "
                     f"{_OUTLINE_CONTENT_HEAD_SQL} "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
@@ -21204,7 +21875,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             except sqlite3.OperationalError:
                 return connection.execute(
                     "SELECT s.id, s.chapter_id, s.title, s.status, "
-                    "s.synopsis_md, s.sort_order, r.word_count, "
+                    "s.synopsis_md, s.notes_md, s.sort_order, r.word_count, "
                     f"{_OUTLINE_CONTENT_HEAD_SQL} "
                     "FROM scene s JOIN scene_revision r ON r.scene_id = s.id AND r.is_current = 1 "
                     "WHERE s.project_id = ? AND s.deleted_at IS NULL "
@@ -22717,6 +23388,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 project_id=int(project_id),
                 title=title,
                 scenes=snapshots,
+                permission=normalize_reading_invite_permission(body.get("permission")),
+                message=body.get("message"),
             )
         except ReadingInviteError:
             raise
@@ -22738,6 +23411,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 status="server",
             ) from error
 
+    def delete_reading_invite_api(self, invite_id: str) -> dict:
+        try:
+            return {"ok": True, "invite": delete_reading_invite(invite_id=str(invite_id or ""))}
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"링크를 삭제하지 못했습니다: {error}",
+                status="server",
+            ) from error
+
     def list_reading_invite_comments_api(self, invite_id: str) -> dict:
         try:
             return list_reading_invite_comments(invite_id=str(invite_id or ""))
@@ -22746,6 +23430,73 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # noqa: BLE001
             raise ReadingInviteError(
                 f"피드백을 불러오지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def list_reading_invite_edits_api(self, invite_id: str) -> dict:
+        try:
+            return list_reading_invite_edits(invite_id=str(invite_id or ""))
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"수정 제안을 불러오지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def review_reading_invite_change_api(self, change_id: str, body: dict) -> dict:
+        if not isinstance(body, dict):
+            raise ReadingInviteError("요청 본문이 올바르지 않습니다.")
+        action = str(body.get("action") or "").strip().lower()
+        if action not in {"accept", "reject"}:
+            raise ReadingInviteError("수락 또는 거절만 할 수 있어요.")
+        loaded = load_reading_invite_edit_change(change_id=str(change_id or ""))
+        if action == "accept":
+            local_id = loaded.get("scene", {}).get("local_scene_id")
+            try:
+                scene_id = int(local_id)
+            except (TypeError, ValueError):
+                raise ReadingInviteError("이 화의 로컬 원고를 찾을 수 없습니다.") from None
+            change = loaded.get("change") or {}
+            with database() as connection:
+                revision = connection.execute(
+                    "SELECT content_md FROM scene_revision "
+                    "WHERE scene_id = ? AND is_current = 1",
+                    (scene_id,),
+                ).fetchone()
+                scene_row = connection.execute(
+                    "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
+                    (scene_id,),
+                ).fetchone()
+            if scene_row is None:
+                raise ReadingInviteError("이 화의 로컬 원고를 찾을 수 없습니다.")
+            current = str(revision["content_md"] if revision else "") or ""
+            try:
+                updated = apply_reading_invite_fragment(
+                    current,
+                    original_fragment=str(change.get("original_fragment") or ""),
+                    replacement_fragment=str(change.get("replacement_fragment") or ""),
+                    start_offset=change.get("start_offset"),
+                    end_offset=change.get("end_offset"),
+                )
+            except ReadingInviteError:
+                raise
+            get_scene_content_service().persist_scene(
+                scene_id,
+                updated,
+                {"save_note": "베타 리더 수정 수락"},
+                0,
+            )
+        try:
+            return mark_reading_invite_edit_status(
+                change_id=str(change_id or ""),
+                status="accepted" if action == "accept" else "rejected",
+            )
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"수정 조각을 처리하지 못했습니다: {error}",
                 status="server",
             ) from error
 
@@ -22828,6 +23579,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         except Exception:
             pass
         return {"ok": True, "draft_id": draft_id, "local_scene_id": local_scene_id}
+
+    def mark_completion_guide_shown(self, project_id: int) -> dict:
+        """Record that this project's first-complete guide card was shown."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            connection.execute(
+                "UPDATE project SET completion_guide_shown = 1 WHERE id = ?",
+                (project_id,),
+            )
+        return {"ok": True, "completion_guide_shown": True}
 
     def mark_mobile_inbox_read(self, item_id: int) -> dict:
         with database() as connection:
@@ -26359,6 +27120,7 @@ def main(argv: list[str] | None = None) -> None:
     else:
         print("\nSuperTory가 열렸습니다.")
         print(f"브라우저가 열리지 않으면 {url} 을 주소창에 입력해 주세요.")
+        print(f"데이터: {DATA_DIR}")
         print(f"작품 파일 폴더: {projects_root()}")
         print("이 창을 닫으면 앱도 종료됩니다.\n")
     if not NO_BROWSER:

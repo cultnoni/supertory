@@ -128,8 +128,10 @@ function applyTranslations() {
 async function setLanguage(lang) {
   await i18n.loadLocale(lang);
   applyTranslations();
+  if (typeof applySplitEditMode === "function") applySplitEditMode();
   if (typeof syncSmartPunctuationMenuLabel === "function") syncSmartPunctuationMenuLabel();
   applyWelcomeAdFeedToDom();
+  if (typeof updateSplitChrome === "function") updateSplitChrome();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
   if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
@@ -233,6 +235,8 @@ const state = {
   mainGenre: "",
   subGenre: "",
   genreDetail: "",
+  /** Per-project: first-complete guide card already shown */
+  completionGuideShown: false,
   /** @type {string[]} 설정집 키워드 태그 */
   keywords: [],
   illustrations: [],
@@ -830,11 +834,11 @@ function setEditorContent(raw, editorEl = null) {
 }
 
 function stripFindHitMarkup(html) {
-  // Find highlights must never be persisted into manuscript HTML.
-  if (!html || !/find-hit/i.test(html)) return html || "";
+  // Transient editor highlights must never be persisted into manuscript HTML.
+  if (!html || !/(find-hit|spell-apply-hit)/i.test(html)) return html || "";
   const host = document.createElement("div");
   host.innerHTML = html;
-  host.querySelectorAll("mark.find-hit").forEach((mark) => {
+  host.querySelectorAll("mark.find-hit, mark.spell-apply-hit").forEach((mark) => {
     const parent = mark.parentNode;
     if (!parent) return;
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
@@ -2198,6 +2202,11 @@ const GOAL_BAR_THEME_DEFAULTS = {
     complete: { ...GOAL_BAR_ENTRY_GREEN },
     overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
   },
+  "deep-dark": {
+    progress: { ...GOAL_BAR_ENTRY_GOLD },
+    complete: { ...GOAL_BAR_ENTRY_GREEN },
+    overflow: { ...GOAL_BAR_ENTRY_RED_GRAD },
+  },
   eink: {
     progress: { ...GOAL_BAR_ENTRY_BLACK },
     complete: { ...GOAL_BAR_ENTRY_BLACK },
@@ -2257,6 +2266,7 @@ const UI_THEME_GROUPS = [
       { id: "light", caption: i18n.t('app.정갈하고_눈이_편안한_오프화이트') },
       { id: "sand", caption: i18n.t('app.햇살을_머금은_따스한_샌드_베이지') },
       { id: "dark", caption: i18n.t('app.심야에도_눈부심_없는_딥_다크_브라운') },
+      { id: "deep-dark", caption: i18n.t('app.완전_검정에_가까운_초저명도_다크그레이') },
       { id: "eink", caption: i18n.t('app.전자종이처럼_대비가_명확한_모노크롬') },
     ],
   },
@@ -2308,7 +2318,7 @@ function normalizeUiThemeId(theme) {
 
 function isUiThemeDark(theme) {
   const id = normalizeUiThemeId(theme);
-  return id === "dark" || id === "attic";
+  return id === "dark" || id === "attic" || id === "deep-dark";
 }
 
 function uiThemeScheme(theme) {
@@ -3160,6 +3170,7 @@ function closeFindBar() {
 
 function setupFindBar() {
   $("findToggleButton")?.addEventListener("click", () => {
+    if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     if ($("findBar")?.classList.contains("hidden")) openFindBar();
     else closeFindBar();
   });
@@ -3838,6 +3849,7 @@ function setupTypewriterMode() {
   $("typewriterModeButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
+    if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     toggleTypewriterMode({ announce: true });
   });
 
@@ -4298,6 +4310,10 @@ function wrapSelectionWithSpan(styles, options = {}) {
 }
 
 function applyEditorCommand(command, value = null) {
+  if (typeof isActiveManuscriptCompleteLocked === "function" && isActiveManuscriptCompleteLocked()) {
+    if (typeof showCompleteLockHint === "function") showCompleteLockHint();
+    return;
+  }
   try {
     document.execCommand("styleWithCSS", false, "true");
   } catch (_) {
@@ -5617,6 +5633,7 @@ function hideFormatColorPalette() {
 function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
   const palette = $("formatColorPalette");
   if (!palette || !anchorEl) return;
+  if (typeof setActiveTooltip === "function") setActiveTooltip("color-palette");
   formatPaletteKind = kind;
   formatPaletteTarget = options.target === "tory-chat" ? "tory-chat" : "editor";
   if (formatPaletteTarget === "tory-chat") {
@@ -5979,6 +5996,7 @@ function hideFormatListPalette() {
 function showFormatListPalette(anchorBtn, editor = null) {
   const palette = $("formatListPalette");
   if (!palette || !anchorBtn) return;
+  if (typeof setActiveTooltip === "function") setActiveTooltip("list-palette");
   hideFormatColorPalette?.();
   hideFormatSpecialPalette?.();
   formatListPaletteEditor = editor || getActiveRichEditor() || $("sceneContent");
@@ -6922,6 +6940,7 @@ const CLUSTER_FEATURE_TARGETS = {
   ],
   reader_comments: [
     { id: "viewerReaderCommentsButton" },
+    { id: "viewerReaderCommentsHistoryButton" },
     { id: "viewerReaderCommentsPanel" },
   ],
 };
@@ -9326,6 +9345,9 @@ async function loadProject() {
   if (translationWorkspaceBelongsToOtherProject(projectIdAtStart)) {
     detachTranslationWorkspaceForProjectChange();
   }
+  if (Number(state.outlineProjectId) && Number(state.outlineProjectId) !== Number(projectIdAtStart)) {
+    hideCompletionGuideCard();
+  }
   const signal = projectLoadController?.signal;
   const apiOpts = signal ? { signal } : {};
   let outline;
@@ -9360,6 +9382,12 @@ async function loadProject() {
   state.outlineProjectId = projectIdAtStart;
   // Drop cached episode HTML from the previous work.
   if (typeof clearViewerEpisodeCache === "function") clearViewerEpisodeCache();
+  const ideaFloatProjectChanged = (
+    ideaFloatProjectId != null
+    && Number(ideaFloatProjectId) !== Number(projectIdAtStart)
+  );
+  if (ideaFloatProjectChanged) closeAllIdeaFloats();
+  ideaFloatProjectId = Number(projectIdAtStart);
   state.ideas = ideas;
   try {
     const localPins = loadLocalIdeaPins();
@@ -9435,6 +9463,10 @@ async function loadProject() {
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
   state.genreDetail = outline.project?.genre_detail || fromList?.genre_detail || "";
+  state.completionGuideShown = Boolean(Number(outline.project?.completion_guide_shown))
+    || Boolean(Number(fromList?.completion_guide_shown))
+    || (completionGuideShownThisSession.has(Number(projectIdAtStart)));
+  if (fromList) fromList.completion_guide_shown = state.completionGuideShown;
   state.clusterId = inferClusterId(
     state.projectPurpose || outline.project?.purpose || fromList?.purpose,
     state.mainGenre,
@@ -9453,6 +9485,7 @@ async function loadProject() {
   renderCharacters();
   renderItems();
   renderIdeaBank();
+  pruneAndSyncIdeaFloats();
   renderKeywordBox();
   // Settings accordion open state is per work.
   restoreOpenSettingsSection(projectIdAtStart);
@@ -10058,6 +10091,9 @@ async function flushPendingCodexSaves() {
     flushCharacterAutoSave().catch(() => {}),
     flushPendingSettingsDocs(projectId),
     flushIdeaCardAutosaves().catch(() => {}),
+    typeof flushPendingSceneAuthorNotesSaves === "function"
+      ? flushPendingSceneAuthorNotesSaves()
+      : Promise.resolve(),
   ];
   if (typeof outlineSummarySaveTimer !== "undefined" && outlineSummarySaveTimer) {
     window.clearTimeout(outlineSummarySaveTimer);
@@ -12304,6 +12340,12 @@ function ideaIsPinned(idea) {
   }
 }
 
+function ideaDisplayTitle(idea) {
+  const title = String(idea?.title || "").trim();
+  if (!title || title === "새 메모") return i18n.t("app.새_메모");
+  return title;
+}
+
 function ideaPinStorageKey() {
   return `supertory.ideaPins.v1.${state.projectId || 0}`;
 }
@@ -12341,12 +12383,344 @@ function ideaPinGlyphHtml(size = 18) {
   );
 }
 
+let ideaBankPane = "stickies";
+const sceneAuthorNotesOpenIds = new Set();
+const sceneAuthorNotesSaveTimers = new Map();
+
+function applyIdeaBankPane() {
+  const pane = ideaBankPane === "sceneNotes" ? "sceneNotes" : "stickies";
+  document.querySelectorAll("[data-idea-bank-tab]").forEach((btn) => {
+    const on = btn.dataset.ideaBankTab === pane;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", String(on));
+  });
+  document.querySelectorAll("[data-idea-bank-pane]").forEach((el) => {
+    const show = el.dataset.ideaBankPane === pane;
+    el.classList.toggle("hidden", !show);
+    if (show) el.removeAttribute("hidden");
+    else el.setAttribute("hidden", "");
+  });
+}
+
+function setIdeaBankPane(pane) {
+  ideaBankPane = pane === "sceneNotes" ? "sceneNotes" : "stickies";
+  applyIdeaBankPane();
+  if (ideaBankPane === "sceneNotes") renderSceneAuthorNotesList();
+  else if (state.ideaBoardOpen) renderIdeaBoard();
+}
+
+function authorNotesPreview(text, max = 90) {
+  const cleaned = String(text || "").replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
+function collectOutlineScenesById() {
+  const map = new Map();
+  const ingestChapter = (chapter) => {
+    if (typeof walkSceneTree === "function") {
+      walkSceneTree(chapter.scenes || [], (scene) => {
+        const id = Number(scene?.id);
+        if (id && !map.has(id)) map.set(id, scene);
+      });
+    }
+    if (Array.isArray(chapter.scenes_flat)) {
+      for (const scene of chapter.scenes_flat) {
+        const id = Number(scene?.id);
+        if (id && !map.has(id)) map.set(id, scene);
+      }
+    }
+  };
+  const seen = new Set();
+  const chapters = [];
+  if (typeof getBinderChaptersInOrder === "function") {
+    chapters.push(...getBinderChaptersInOrder());
+  }
+  if (Array.isArray(state.outline)) chapters.push(...state.outline);
+  for (const chapter of chapters) {
+    const cid = Number(chapter?.id);
+    if (cid) {
+      if (seen.has(cid)) continue;
+      seen.add(cid);
+    }
+    ingestChapter(chapter);
+  }
+  return map;
+}
+
+function patchOutlineSceneNotes(sceneId, notesMd) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const text = String(notesMd ?? "");
+  const apply = (scene) => {
+    if (!scene || Number(scene.id) !== id) return;
+    scene.notes_md = text;
+  };
+  const seen = new Set();
+  const chapters = [];
+  if (typeof getBinderChaptersInOrder === "function") {
+    chapters.push(...getBinderChaptersInOrder());
+  }
+  if (Array.isArray(state.outline)) chapters.push(...state.outline);
+  for (const chapter of chapters) {
+    const cid = Number(chapter?.id);
+    if (cid) {
+      if (seen.has(cid)) continue;
+      seen.add(cid);
+    }
+    if (typeof walkSceneTree === "function") {
+      walkSceneTree(chapter.scenes || [], apply);
+    }
+    if (Array.isArray(chapter.scenes_flat)) {
+      for (const scene of chapter.scenes_flat) apply(scene);
+    }
+  }
+  if (state.scene && Number(state.scene.id || state.sceneId) === id) {
+    state.scene.notes_md = text;
+  }
+}
+
+function getSceneAuthorNotesSequence() {
+  const episodes = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
+  const scenesById = collectOutlineScenesById();
+  const list = [];
+  for (const ep of episodes) {
+    const sceneId = Number(ep.sceneId);
+    if (!sceneId) continue;
+    const scene = scenesById.get(sceneId);
+    let notes = String(scene?.notes_md || "");
+    if (sceneId === Number(state.sceneId) && $("sceneNotes")) {
+      notes = String($("sceneNotes").value || "");
+    }
+    if (!notes.trim() && !sceneAuthorNotesOpenIds.has(sceneId)) continue;
+    list.push({
+      sceneId,
+      title: ep.label || ep.sceneTitle || `${i18n.t("app.index_화", { index: ep.index })}`,
+      notes,
+    });
+  }
+  return list;
+}
+
+function sceneAuthorNotesListRoots() {
+  return [...document.querySelectorAll(".scene-author-notes-list")];
+}
+
+function bindSceneAuthorNotesList(root) {
+  if (!root) return;
+  root.querySelectorAll("[data-author-note-toggle]").forEach((btn) => {
+    btn.addEventListener("click", () => toggleSceneAuthorNoteItem(Number(btn.dataset.authorNoteToggle)));
+  });
+  root.querySelectorAll("[data-scene-author-note-id]").forEach((ta) => {
+    ta.addEventListener("input", () => onSceneAuthorNoteEditorInput(ta));
+  });
+  root.querySelectorAll("[data-author-note-go]").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      goToSceneAuthorNote(Number(btn.dataset.authorNoteGo)).catch(handleError);
+    });
+  });
+}
+
+function renderSceneAuthorNotesList({ preserveFocus = true } = {}) {
+  const roots = sceneAuthorNotesListRoots();
+  if (!roots.length) return;
+  const focused = preserveFocus
+    ? document.activeElement?.closest?.(".scene-author-notes-list textarea")
+    : null;
+  const focusedId = focused ? Number(focused.dataset.sceneAuthorNoteId) : 0;
+  const focusedRoot = focused?.closest?.(".scene-author-notes-list") || null;
+  const selStart = focused?.selectionStart;
+  const selEnd = focused?.selectionEnd;
+  let html;
+  if (!state.projectId) {
+    html = `<p class="idea-sticky-empty">${escapeHtml(i18n.t("app.작성된_작가메모가_없어요"))}</p>`;
+  } else {
+    const items = getSceneAuthorNotesSequence();
+    if (!items.length) {
+      html = `<p class="idea-sticky-empty">${escapeHtml(i18n.t("app.작성된_작가메모가_없어요"))}</p>`;
+    } else {
+      html = items.map((item) => {
+        const open = sceneAuthorNotesOpenIds.has(item.sceneId);
+        return `
+      <article class="scene-author-note-item${open ? " is-open" : ""}" data-scene-author-note="${item.sceneId}">
+        <button type="button" class="scene-author-note-head" data-author-note-toggle="${item.sceneId}" aria-expanded="${open}">
+          <span class="scene-author-note-title">${escapeHtml(item.title)}</span>
+          <span class="scene-author-note-preview" data-author-note-preview>${escapeHtml(authorNotesPreview(item.notes))}</span>
+        </button>
+        <div class="scene-author-note-body"${open ? "" : " hidden"}>
+          <textarea class="scene-author-note-editor" data-scene-author-note-id="${item.sceneId}" rows="6" aria-label="${escapeHtml(i18n.t("app.작가_메모"))}">${escapeHtml(item.notes)}</textarea>
+          <button type="button" class="scene-author-note-go secondary" data-author-note-go="${item.sceneId}">${escapeHtml(i18n.t("app.이_화로_이동"))}</button>
+        </div>
+      </article>`;
+      }).join("");
+    }
+  }
+  for (const root of roots) {
+    root.innerHTML = html;
+    bindSceneAuthorNotesList(root);
+  }
+  if (focusedId) {
+    const host = focusedRoot && document.body.contains(focusedRoot) ? focusedRoot : roots[0];
+    const ta = host?.querySelector(`textarea[data-scene-author-note-id="${focusedId}"]`);
+    if (ta) {
+      ta.focus();
+      if (selStart != null && selEnd != null) {
+        try { ta.setSelectionRange(selStart, selEnd); } catch (_) { /* ignore */ }
+      }
+    }
+  }
+}
+
+function toggleSceneAuthorNoteItem(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  if (sceneAuthorNotesOpenIds.has(id)) sceneAuthorNotesOpenIds.delete(id);
+  else sceneAuthorNotesOpenIds.add(id);
+  const items = document.querySelectorAll(`[data-scene-author-note="${id}"]`);
+  if (!items.length) {
+    renderSceneAuthorNotesList();
+    return;
+  }
+  const open = sceneAuthorNotesOpenIds.has(id);
+  items.forEach((item) => {
+    item.classList.toggle("is-open", open);
+    const body = item.querySelector(".scene-author-note-body");
+    if (body) {
+      if (open) body.removeAttribute("hidden");
+      else body.setAttribute("hidden", "");
+    }
+    const head = item.querySelector("[data-author-note-toggle]");
+    if (head) head.setAttribute("aria-expanded", String(open));
+  });
+  if (open) {
+    const host = document.activeElement?.closest?.(".scene-author-notes-list")
+      || $("ideaBoardSceneNotes")
+      || $("sceneAuthorNotesList");
+    host?.querySelector(`[data-scene-author-note="${id}"] textarea`)?.focus();
+  } else {
+    const ta = items[0].querySelector("textarea");
+    if (ta && !String(ta.value || "").trim()) renderSceneAuthorNotesList();
+  }
+}
+
+function syncSceneAuthorNotesListLive(sceneId, text) {
+  if (ideaBankPane !== "sceneNotes") return;
+  const id = Number(sceneId);
+  if (!id) return;
+  const items = document.querySelectorAll(`[data-scene-author-note="${id}"]`);
+  const trimmed = String(text || "").trim();
+  if (!items.length && trimmed) {
+    renderSceneAuthorNotesList();
+    return;
+  }
+  if (items.length && !trimmed && !sceneAuthorNotesOpenIds.has(id)) {
+    renderSceneAuthorNotesList();
+    return;
+  }
+  if (!items.length) return;
+  items.forEach((item) => {
+    const preview = item.querySelector("[data-author-note-preview]");
+    if (preview) preview.textContent = authorNotesPreview(text);
+    const ta = item.querySelector("textarea");
+    if (ta && document.activeElement !== ta) ta.value = text;
+  });
+}
+
+function onSceneAuthorNoteEditorInput(textarea) {
+  const sceneId = Number(textarea.dataset.sceneAuthorNoteId);
+  if (!sceneId) return;
+  const text = String(textarea.value || "");
+  patchOutlineSceneNotes(sceneId, text);
+  document.querySelectorAll(`[data-scene-author-note="${sceneId}"] [data-author-note-preview]`).forEach((preview) => {
+    preview.textContent = authorNotesPreview(text);
+  });
+  document.querySelectorAll(`textarea[data-scene-author-note-id="${sceneId}"]`).forEach((ta) => {
+    if (ta !== textarea) ta.value = text;
+  });
+  if (sceneId === Number(state.sceneId) && $("sceneNotes")) {
+    if (document.activeElement !== $("sceneNotes")) $("sceneNotes").value = text;
+    updateAuthorNotesBadge();
+    markSceneDirty();
+    return;
+  }
+  scheduleOtherSceneAuthorNotesSave(sceneId);
+}
+
+function scheduleOtherSceneAuthorNotesSave(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const prev = sceneAuthorNotesSaveTimers.get(id);
+  if (prev) window.clearTimeout(prev);
+  const delay = typeof AUTO_SAVE_DELAY_MS === "number" ? AUTO_SAVE_DELAY_MS : 1200;
+  const timer = window.setTimeout(() => {
+    sceneAuthorNotesSaveTimers.delete(id);
+    persistOtherSceneAuthorNotes(id).catch(handleError);
+  }, delay);
+  sceneAuthorNotesSaveTimers.set(id, timer);
+}
+
+async function persistOtherSceneAuthorNotes(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const ta = document.querySelector(`textarea[data-scene-author-note-id="${id}"]`);
+  const text = ta
+    ? String(ta.value || "")
+    : String(collectOutlineScenesById().get(id)?.notes_md || "");
+  const detail = await api(`/api/scenes/${id}`);
+  await api(`/api/scenes/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      notes_md: text,
+      row_version: detail.row_version,
+    }),
+  });
+  patchOutlineSceneNotes(id, text);
+  if (ideaBankPane === "sceneNotes") renderSceneAuthorNotesList();
+}
+
+async function flushPendingSceneAuthorNotesSaves() {
+  const ids = [...sceneAuthorNotesSaveTimers.keys()];
+  const tasks = [];
+  for (const id of ids) {
+    const timer = sceneAuthorNotesSaveTimers.get(id);
+    if (timer) window.clearTimeout(timer);
+    sceneAuthorNotesSaveTimers.delete(id);
+    if (id === Number(state.sceneId)) continue;
+    tasks.push(persistOtherSceneAuthorNotes(id).catch(() => {}));
+  }
+  if (tasks.length) await Promise.all(tasks);
+}
+
+async function goToSceneAuthorNote(sceneId) {
+  const id = Number(sceneId);
+  if (!id) return;
+  const pending = sceneAuthorNotesSaveTimers.get(id);
+  if (pending) {
+    window.clearTimeout(pending);
+    sceneAuthorNotesSaveTimers.delete(id);
+    if (id !== Number(state.sceneId)) {
+      try { await persistOtherSceneAuthorNotes(id); } catch (_) { /* continue */ }
+    }
+  }
+  await openScene(id);
+  if (Number(state.sceneId) === id) {
+    openSceneToolsDrawer("notes", { force: true });
+  }
+}
+
 function renderIdeaBank() {
   const list = $("ideaNoteList");
-  if (!list) return;
+  applyIdeaBankPane();
+  if (!list) {
+    renderSceneAuthorNotesList();
+    return;
+  }
   if (!state.projectId) {
     list.innerHTML = i18n.t('app.p_class_idea_sticky_emp');
     if ($("newIdeaButton")) $("newIdeaButton").disabled = true;
+    renderSceneAuthorNotesList();
     renderHeaderIdeaBar();
     return;
   }
@@ -12364,9 +12738,10 @@ function renderIdeaBank() {
       </button>`;
     }).join("");
     list.querySelectorAll("[data-idea]").forEach((button) => {
-      button.addEventListener("click", () => openIdeaBoard(Number(button.dataset.idea)));
+      button.addEventListener("click", () => openIdeaFloat(Number(button.dataset.idea)));
     });
   }
+  renderSceneAuthorNotesList();
   if (state.ideaBoardOpen) renderIdeaBoard();
   renderSettingsCodex();
   renderHeaderIdeaBar();
@@ -12594,18 +12969,67 @@ async function flushIdeaCardAutosaves() {
   const pendingIds = new Set(ideaCardSaveTimers.keys());
   for (const timer of ideaCardSaveTimers.values()) window.clearTimeout(timer);
   ideaCardSaveTimers.clear();
-  const grid = $("ideaBoardGrid");
   const activeCard = document.activeElement?.closest?.("[data-idea-card]");
   const activeId = Number(activeCard?.dataset?.ideaCard || 0);
   if (activeId) pendingIds.add(activeId);
-  if (!grid || !pendingIds.size) return;
-  const cards = [...pendingIds]
-    .map((id) => grid.querySelector(`[data-idea-card="${id}"]`))
-    .filter(Boolean);
+  if (!pendingIds.size) return;
+  const cards = [...document.querySelectorAll("[data-idea-card]")]
+    .filter((card) => pendingIds.has(Number(card.dataset.ideaCard)));
   await Promise.all(cards.map((card) => saveIdeaFromCard(card, { quiet: true }).catch(() => {})));
 }
 
+function bindIdeaCardEditors(card, { resize = true } = {}) {
+  const id = Number(card?.dataset?.ideaCard);
+  if (!id) return;
+  if (resize) bindIdeaCardResize(card, id);
+  const titleEl = card.querySelector('[data-role="idea-title"]');
+  const bodyEl = card.querySelector('[data-role="idea-body"]');
+  titleEl?.addEventListener("input", () => {
+    scheduleIdeaCardAutoSave(card);
+    const float = card.closest("[data-idea-float]");
+    const heading = float?.querySelector(".idea-float-title");
+    if (heading) heading.textContent = String(titleEl.value || "").trim() || i18n.t("app.새_메모");
+  });
+  bodyEl?.addEventListener("input", () => scheduleIdeaCardAutoSave(card));
+  const flushIdeaCard = () => {
+    if (ideaCardSaveTimers.has(id)) {
+      window.clearTimeout(ideaCardSaveTimers.get(id));
+      ideaCardSaveTimers.delete(id);
+    }
+    saveIdeaFromCard(card, { quiet: true }).catch(handleError);
+  };
+  titleEl?.addEventListener("blur", flushIdeaCard);
+  bodyEl?.addEventListener("blur", flushIdeaCard);
+  card.querySelector('[data-role="save-idea"]')?.addEventListener("click", () => {
+    saveIdeaFromCard(card).catch(handleError);
+  });
+  card.querySelector('[data-role="delete-idea"]')?.addEventListener("click", () => {
+    deleteIdea(id).catch(handleError);
+  });
+  card.querySelector('[data-role="pin-idea"]')?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleIdeaPin(id).catch(handleError);
+  });
+  card.querySelectorAll('[data-role="idea-clip"]').forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = btn.dataset.ideaColorPick;
+      if (!key) return;
+      applyIdeaCardColor(card, key, { save: true });
+      syncIdeaCardClips(card, key);
+      toast(`${i18n.t('app.메모_색_IDEA_COLORS_find_c', {'IDEA_COLORS.find((c) => c.key === key)?.label || key': IDEA_COLORS.find((c) => c.key === key)?.label || key})}`);
+    });
+  });
+}
+
 function renderIdeaBoard(focusId = null) {
+  applyIdeaBankPane();
+  if (ideaBankPane === "sceneNotes") {
+    renderSceneAuthorNotesList();
+    return;
+  }
   const grid = $("ideaBoardGrid");
   if (!grid || !state.ideaBoardOpen) return;
   if (!state.ideas.length) {
@@ -12658,45 +13082,7 @@ function renderIdeaBoard(focusId = null) {
     </article>`;
   }).join("");
 
-  grid.querySelectorAll("[data-idea-card]").forEach((card) => {
-    const id = Number(card.dataset.ideaCard);
-    bindIdeaCardResize(card, id);
-    const titleEl = card.querySelector('[data-role="idea-title"]');
-    const bodyEl = card.querySelector('[data-role="idea-body"]');
-    titleEl?.addEventListener("input", () => scheduleIdeaCardAutoSave(card));
-    bodyEl?.addEventListener("input", () => scheduleIdeaCardAutoSave(card));
-    const flushIdeaCard = () => {
-      if (ideaCardSaveTimers.has(id)) {
-        window.clearTimeout(ideaCardSaveTimers.get(id));
-        ideaCardSaveTimers.delete(id);
-      }
-      saveIdeaFromCard(card, { quiet: true }).catch(handleError);
-    };
-    titleEl?.addEventListener("blur", flushIdeaCard);
-    bodyEl?.addEventListener("blur", flushIdeaCard);
-    card.querySelector('[data-role="save-idea"]').addEventListener("click", () => {
-      saveIdeaFromCard(card).catch(handleError);
-    });
-    card.querySelector('[data-role="delete-idea"]').addEventListener("click", () => {
-      deleteIdea(id).catch(handleError);
-    });
-    card.querySelector('[data-role="pin-idea"]')?.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      toggleIdeaPin(id).catch(handleError);
-    });
-    card.querySelectorAll('[data-role="idea-clip"]').forEach((btn) => {
-      btn.addEventListener("click", (event) => {
-        event.preventDefault();
-        event.stopPropagation();
-        const key = btn.dataset.ideaColorPick;
-        if (!key) return;
-        applyIdeaCardColor(card, key, { save: true });
-        syncIdeaCardClips(card, key);
-        toast(`${i18n.t('app.메모_색_IDEA_COLORS_find_c', {'IDEA_COLORS.find((c) => c.key === key)?.label || key': IDEA_COLORS.find((c) => c.key === key)?.label || key})}`);
-      });
-    });
-  });
+  grid.querySelectorAll("[data-idea-card]").forEach((card) => bindIdeaCardEditors(card));
 
   if (focusId) {
     const focusCard = grid.querySelector(`[data-idea-card="${focusId}"]`);
@@ -12772,6 +13158,7 @@ async function toggleIdeaPin(ideaId) {
     return (Number(a.sort_order) || 0) - (Number(b.sort_order) || 0) || (a.id - b.id);
   });
   renderIdeaBank();
+  syncIdeaFloatChrome(state.ideas[index]);
   toast(nextPinned ? i18n.t('app.목차_하단에_고정했어요') : i18n.t('app.목차_하단_고정을_해제했어요'));
 }
 
@@ -12791,9 +13178,11 @@ async function saveIdeaFromCard(card, options = {}) {
   if (index >= 0) state.ideas[index] = updated;
   if (quiet) {
     patchIdeaBankPreview(updated);
+    syncIdeaFloatChrome(updated);
     return;
   }
   renderIdeaBank();
+  syncIdeaFloatChrome(updated);
   toast(i18n.t('app.메모를_저장했습니다'));
 }
 
@@ -12801,15 +13190,316 @@ async function deleteIdea(id) {
   if (!window.confirm(i18n.t('app.이_메모를_삭제할까요'))) return;
   await api(`/api/ideas/${id}`, { method: "DELETE", body: JSON.stringify({}) });
   state.ideas = state.ideas.filter((item) => item.id !== id);
+  closeIdeaFloat(id, { skipSave: true });
   renderIdeaBank();
   if (state.ideaBoardOpen) renderIdeaBoard();
   toast(i18n.t('app.메모를_삭제했습니다'));
 }
 
+const ideaFloatWindows = new Map();
+const ideaFloatLayouts = new Map();
+let ideaFloatZ = 1;
+let ideaFloatProjectId = null;
+
+function ideaFloatHost() {
+  let host = document.getElementById("ideaFloatHost");
+  if (!host) {
+    host = document.createElement("div");
+    host.id = "ideaFloatHost";
+    host.className = "idea-float-host";
+    host.setAttribute("aria-live", "off");
+  }
+  if (host.parentElement !== document.body) {
+    document.body.appendChild(host);
+  }
+  return host;
+}
+
+function rememberIdeaFloatLayout(win, ideaId) {
+  if (!win) return;
+  const id = Number(ideaId);
+  if (!id) return;
+  const rect = win.getBoundingClientRect();
+  const z = Number(win.style.zIndex) || ideaFloatZ;
+  ideaFloatLayouts.set(id, {
+    left: Math.round(rect.left),
+    top: Math.round(rect.top),
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+    z,
+  });
+}
+
+function applyIdeaFloatLayout(win, ideaId, fallbackLeft, fallbackTop) {
+  const saved = ideaFloatLayouts.get(Number(ideaId));
+  const left = saved ? saved.left : fallbackLeft;
+  const top = saved ? saved.top : fallbackTop;
+  win.style.left = `${left}px`;
+  win.style.top = `${top}px`;
+  win.style.right = "auto";
+  win.style.bottom = "auto";
+  if (saved?.width) win.style.width = `${saved.width}px`;
+  if (saved?.height) win.style.height = `${saved.height}px`;
+  if (saved?.z) {
+    win.style.zIndex = String(saved.z);
+    if (saved.z >= ideaFloatZ) ideaFloatZ = saved.z;
+  }
+}
+
+function pruneAndSyncIdeaFloats() {
+  const live = new Set((state.ideas || []).map((item) => Number(item.id)));
+  for (const id of [...ideaFloatWindows.keys()]) {
+    if (!live.has(Number(id))) closeIdeaFloat(id, { skipSave: true });
+  }
+  for (const idea of state.ideas || []) syncIdeaFloatChrome(idea);
+}
+
+function raiseIdeaFloat(win) {
+  if (!win) return;
+  ideaFloatZ += 1;
+  win.style.zIndex = String(ideaFloatZ);
+  ideaFloatHost().querySelectorAll(".idea-float").forEach((el) => {
+    el.classList.toggle("is-front", el === win);
+  });
+  rememberIdeaFloatLayout(win, Number(win.dataset.ideaFloat));
+}
+
+function syncIdeaFloatChrome(idea) {
+  if (!idea?.id) return;
+  const win = ideaFloatWindows.get(Number(idea.id));
+  if (!win) return;
+  const heading = win.querySelector(".idea-float-title");
+  if (heading) heading.textContent = ideaDisplayTitle(idea);
+  const card = win.querySelector("[data-idea-card]");
+  if (!card) return;
+  const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+  const pinned = ideaIsPinned(idea);
+  const titleEl = card.querySelector('[data-role="idea-title"]');
+  const bodyEl = card.querySelector('[data-role="idea-body"]');
+  if (titleEl && document.activeElement !== titleEl) titleEl.value = ideaDisplayTitle(idea);
+  if (bodyEl && document.activeElement !== bodyEl) bodyEl.value = idea.body_md || "";
+  card.dataset.ideaColor = colorKey;
+  card.dataset.ideaPinned = pinned ? "1" : "0";
+  card.classList.toggle("is-pinned", pinned);
+  IDEA_COLORS.forEach((c) => card.classList.toggle(`color-${c.key}`, c.key === colorKey));
+  const pinBtn = card.querySelector('[data-role="pin-idea"]');
+  if (pinBtn) {
+    pinBtn.classList.toggle("is-on", pinned);
+    pinBtn.setAttribute("aria-pressed", pinned ? "true" : "false");
+    pinBtn.title = pinned ? "목차 하단 고정 해제" : "목차 하단에 고정";
+    pinBtn.setAttribute("aria-label", pinBtn.title);
+  }
+  syncIdeaCardClips(card, colorKey);
+}
+
+function bindIdeaFloatWindow(win, ideaId) {
+  const dragBar = win.querySelector(".idea-float-drag");
+  const resizeHandle = win.querySelector("[data-resize-edge]");
+  let drag = null;
+  let resize = null;
+  const MIN_W = 240;
+  const MIN_H = 180;
+  const lockGeom = () => {
+    const rect = win.getBoundingClientRect();
+    win.style.left = `${Math.round(rect.left)}px`;
+    win.style.top = `${Math.round(rect.top)}px`;
+    win.style.right = "auto";
+    win.style.bottom = "auto";
+    win.style.width = `${Math.round(rect.width)}px`;
+    win.style.height = `${Math.round(rect.height)}px`;
+    rememberIdeaFloatLayout(win, ideaId);
+    return rect;
+  };
+  win.addEventListener("pointerdown", () => raiseIdeaFloat(win), true);
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockGeom();
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("idea-float-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+  resizeHandle?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = lockGeom();
+    resize = {
+      edge: "se",
+      startX: event.clientX,
+      startY: event.clientY,
+      startLeft: rect.left,
+      startTop: rect.top,
+      startW: rect.width,
+      startH: rect.height,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("idea-float-resizing");
+    try { resizeHandle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  });
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = win.getBoundingClientRect().width || MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      win.style.left = `${Math.round(left)}px`;
+      win.style.top = `${Math.round(top)}px`;
+      win.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      applyFloatingPopupResize(win, resize, event, MIN_W, MIN_H);
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("idea-float-dragging");
+      rememberIdeaFloatLayout(win, ideaId);
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+      document.body.classList.remove("idea-float-resizing");
+      rememberIdeaFloatLayout(win, ideaId);
+    }
+  };
+  dragBar?.addEventListener("pointermove", onMove);
+  dragBar?.addEventListener("pointerup", onUp);
+  dragBar?.addEventListener("pointercancel", onUp);
+  resizeHandle?.addEventListener("pointermove", onMove);
+  resizeHandle?.addEventListener("pointerup", onUp);
+  resizeHandle?.addEventListener("pointercancel", onUp);
+  win.querySelector('[data-role="close-idea-float"]')?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeIdeaFloat(ideaId);
+  });
+}
+
+function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
+  const id = Number(ideaId);
+  const win = ideaFloatWindows.get(id);
+  if (!win) return;
+  const card = win.querySelector("[data-idea-card]");
+  if (!skipSave && card) {
+    if (ideaCardSaveTimers.has(id)) {
+      window.clearTimeout(ideaCardSaveTimers.get(id));
+      ideaCardSaveTimers.delete(id);
+    }
+    saveIdeaFromCard(card, { quiet: true }).catch(() => {});
+  }
+  win.remove();
+  ideaFloatWindows.delete(id);
+  ideaFloatLayouts.delete(id);
+}
+
+function closeAllIdeaFloats() {
+  for (const id of [...ideaFloatWindows.keys()]) {
+    closeIdeaFloat(id, { skipSave: true });
+  }
+  ideaFloatLayouts.clear();
+  ideaFloatZ = 1;
+}
+
+function openIdeaFloat(ideaId) {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const id = Number(ideaId);
+  if (!id) return;
+  const existing = ideaFloatWindows.get(id);
+  if (existing) {
+    raiseIdeaFloat(existing);
+    existing.querySelector('[data-role="idea-body"]')?.focus();
+    return;
+  }
+  const idea = state.ideas.find((item) => Number(item.id) === id);
+  if (!idea) return;
+  const colorKey = IDEA_COLORS.some((c) => c.key === idea.color) ? idea.color : "yellow";
+  const pinned = ideaIsPinned(idea);
+  const clipSwatches = IDEA_COLORS.map((c) => `
+      <button
+        type="button"
+        class="idea-clip-swatch color-${escapeHtml(c.key)}${c.key === colorKey ? " is-active" : ""}"
+        data-role="idea-clip"
+        data-idea-color-pick="${escapeHtml(c.key)}"
+        title="${escapeHtml(c.label)}"
+        aria-label="메모 색 ${escapeHtml(c.label)}"
+        aria-pressed="${c.key === colorKey ? "true" : "false"}"
+      ></button>
+    `).join("");
+  const win = document.createElement("div");
+  win.className = "idea-float";
+  win.dataset.ideaFloat = String(id);
+  win.setAttribute("role", "dialog");
+  win.setAttribute("aria-modal", "false");
+  const title = ideaDisplayTitle(idea);
+  win.setAttribute("aria-label", title);
+  const offset = ideaFloatWindows.size % 5;
+  const left = Math.max(16, Math.round(window.innerWidth / 2 - 190 + offset * 22));
+  const top = Math.max(48, Math.round(window.innerHeight / 2 - 180 + offset * 22));
+  applyIdeaFloatLayout(win, id, left, top);
+  win.innerHTML = `
+    <div class="idea-float-drag" title="${escapeHtml(i18n.t("index.끌어_이동"))}">
+      <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
+      <strong class="idea-float-title">${escapeHtml(title)}</strong>
+      <button type="button" class="idea-float-close" data-role="close-idea-float" title="${escapeHtml(i18n.t("app.메모_창_닫기"))}" aria-label="${escapeHtml(i18n.t("app.메모_창_닫기"))}">×</button>
+    </div>
+    <div class="idea-float-body">
+      <article
+        class="idea-card color-${escapeHtml(colorKey)}${pinned ? " is-pinned" : ""}"
+        data-idea-card="${id}"
+        data-idea-color="${escapeHtml(colorKey)}"
+        data-idea-pinned="${pinned ? "1" : "0"}"
+      >
+        <div class="idea-card-clips" role="group" aria-label="${escapeHtml(i18n.t("app.메모_색_클립"))}">
+          ${clipSwatches}
+        </div>
+        <div class="idea-card-top">
+          <input type="text" data-role="idea-title" value="${escapeHtml(title)}" placeholder="${escapeHtml(i18n.t("app.제목_예_결말_아이디어"))}">
+          <button
+            type="button"
+            class="idea-card-pin${pinned ? " is-on" : ""}"
+            data-role="pin-idea"
+            title="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+            aria-label="${pinned ? "목차 하단 고정 해제" : "목차 하단에 고정"}"
+            aria-pressed="${pinned ? "true" : "false"}"
+          >${ideaPinGlyphHtml(26)}</button>
+        </div>
+        <textarea data-role="idea-body" placeholder="${escapeHtml(i18n.t("app.러프하게_적어_두세요"))}">${escapeHtml(idea.body_md || "")}</textarea>
+        <div class="idea-card-actions">
+          <button type="button" data-role="save-idea" title="${escapeHtml(i18n.t("index.저장_자동_저장됨"))}">${escapeHtml(i18n.t("app.저장"))}</button>
+          <button type="button" data-role="delete-idea">${escapeHtml(i18n.t("app.삭제"))}</button>
+        </div>
+      </article>
+    </div>
+    <div class="idea-float-resize" data-resize-edge="se" title="${escapeHtml(i18n.t("app.끌어서_크기_조절"))}" aria-hidden="true"></div>
+  `;
+  ideaFloatHost().appendChild(win);
+  ideaFloatWindows.set(id, win);
+  ideaFloatProjectId = Number(state.projectId) || ideaFloatProjectId;
+  rememberIdeaFloatLayout(win, id);
+  bindIdeaCardEditors(win.querySelector("[data-idea-card]"), { resize: false });
+  bindIdeaFloatWindow(win, id);
+  raiseIdeaFloat(win);
+  win.querySelector('[data-role="idea-body"]')?.focus();
+}
+
 function setupIdeaBank() {
+  ideaFloatHost();
   $("newIdeaButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardAddButton")?.addEventListener("click", () => createIdeaNote().catch(handleError));
   $("ideaBoardCloseButton")?.addEventListener("click", () => closeIdeaBoard().catch(handleError));
+  document.addEventListener("click", (event) => {
+    const tab = event.target?.closest?.("[data-idea-bank-tab]");
+    if (!tab) return;
+    event.preventDefault();
+    setIdeaBankPane(tab.dataset.ideaBankTab);
+  });
 }
 
 async function refreshAiStatus() {
@@ -14096,10 +14786,12 @@ function closeAnalyzeMenu() {
   clearFeatureDropdownPlacement(menu);
   portalAnalyzeMenuToBody(false);
   $("analyzeMenuButton")?.setAttribute("aria-expanded", "false");
+  if (typeof activeTooltipId !== "undefined" && activeTooltipId === "analyze") activeTooltipId = null;
 }
 
 /** Place a feature-bar dropdown in the viewport (avoids overflow clipping). */
 let viewModeDropdownHomeParent = null;
+let splitModeDropdownHomeParent = null;
 let analyzeMenuHomeParent = null;
 
 function ensureViewModeDropdownHome() {
@@ -14128,6 +14820,28 @@ function portalViewModeDropdownToBody(enable) {
   const menu = $("viewModeDropdown");
   if (!menu) return;
   const home = ensureViewModeDropdownHome();
+  if (enable) {
+    if (menu.parentElement !== document.body) document.body.appendChild(menu);
+  } else if (home && menu.parentElement !== home) {
+    home.appendChild(menu);
+  }
+}
+
+function ensureSplitModeDropdownHome() {
+  const menu = $("splitModeDropdown");
+  if (!menu) return null;
+  if (!splitModeDropdownHomeParent || splitModeDropdownHomeParent === document.body) {
+    if (menu.parentElement && menu.parentElement !== document.body) {
+      splitModeDropdownHomeParent = menu.parentElement;
+    }
+  }
+  return splitModeDropdownHomeParent;
+}
+
+function portalSplitModeDropdownToBody(enable) {
+  const menu = $("splitModeDropdown");
+  if (!menu) return;
+  const home = ensureSplitModeDropdownHome();
   if (enable) {
     if (menu.parentElement !== document.body) document.body.appendChild(menu);
   } else if (home && menu.parentElement !== home) {
@@ -14170,15 +14884,16 @@ function placeFeatureDropdown(menu, anchor) {
   const minW = Math.min(300, vw - pad * 2);
   const preferredW = Math.max(minW, Math.min(340, rect.width + 80));
 
-  // 큰 창(z-index 45) 위에 메뉴가 오도록 body로 포털 + 높은 z-index
+  // 큰 창·분할 패널 overflow에 잘리지 않도록 body로 포털 + 높은 z-index
   const overFocusWrite = typeof isFocusWriteOpen === "function" && isFocusWriteOpen()
     && (anchor.id === "focusWriteSplitButton" || Boolean(anchor.closest?.("#focusWriteModal")));
-  if (menu.id === "viewModeDropdown") portalViewModeDropdownToBody(overFocusWrite);
+  if (menu.id === "viewModeDropdown") portalViewModeDropdownToBody(true);
+  if (menu.id === "splitModeDropdown") portalSplitModeDropdownToBody(true);
   if (menu.id === "analyzeMenuDropdown") portalAnalyzeMenuToBody(true);
 
   menu.classList.add("is-fixed-dropdown");
   menu.style.position = "fixed";
-  menu.style.zIndex = overFocusWrite ? "60" : "240";
+  menu.style.zIndex = overFocusWrite ? "60" : "250";
   menu.style.minWidth = `${minW}px`;
   menu.style.width = `${preferredW}px`;
   menu.style.right = "auto";
@@ -14211,8 +14926,7 @@ function toggleAnalyzeMenu() {
   const btn = $("analyzeMenuButton");
   if (!menu || !btn) return;
   const open = menu.classList.contains("hidden");
-  // Close other feature menus so only one is open.
-  if (typeof closeViewModeMenu === "function") closeViewModeMenu();
+  if (typeof setActiveTooltip === "function") setActiveTooltip(open ? "analyze" : "");
   if (open) {
     renderCustomAnalyzeMenuItems();
     ensureAnalyzeMenuSectionMascots();
@@ -19792,6 +20506,7 @@ function setToryPersonaMode(mode, { silent = false } = {}) {
 
 function hideToryPersonaMenu() {
   $("toryPersonaMenu")?.classList.add("hidden");
+  if (typeof activeTooltipId !== "undefined" && activeTooltipId === "persona") activeTooltipId = null;
 }
 
 function syncToryPersonaMenuUi() {
@@ -19804,7 +20519,9 @@ function syncToryPersonaMenuUi() {
 function showToryPersonaMenu(clientX, clientY) {
   const menu = $("toryPersonaMenu");
   if (!menu) return;
+  if (typeof setActiveTooltip === "function") setActiveTooltip("persona");
   hideToryPersonaMenu();
+  if (typeof activeTooltipId !== "undefined") activeTooltipId = "persona";
   syncToryPersonaMenuUi();
   menu.classList.remove("hidden");
   const pad = 8;
@@ -23107,28 +23824,8 @@ function setupWritingLog() {
     logBtn.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
+      if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
       toggleWritingRecording();
-    });
-    logBtn.addEventListener("contextmenu", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      setUiFeatureCtxTarget?.(logBtn);
-      if (typeof showUiFeatureContextMenu === "function") {
-        showUiFeatureContextMenu(event.clientX, event.clientY, logBtn, [
-          {
-            label: i18n.t('app.기록_달력_설정'),
-            hint: i18n.t('app.글쓰기_기록_열기'),
-            run: () => { openWritingLogModal("calendar").catch(handleError); },
-          },
-          {
-            label: i18n.t('app.폰_연동'),
-            hint: i18n.t('app.연동_코드_핸드폰_기록_포함'),
-            run: () => { openWritingLogModal("phone").catch(handleError); },
-          },
-        ]);
-      } else {
-        openWritingLogModal().catch(handleError);
-      }
     });
   }
   writingTracker.prefs.show_timer = loadShowTimerPref();
@@ -23252,6 +23949,14 @@ const SETTINGS_BOOKMARK_META = {
 const READING_INVITE_SEEN_PREFIX = "supertory.readingInviteSeen.";
 let readingInviteEpisodes = [];
 let readingInviteListCache = [];
+let readingInviteFeedbackInvite = null;
+let readingInviteEditsCache = null;
+let readingInviteFeedbackTab = "comments";
+let readingInviteOpenEditId = "";
+/** @type {Record<string, {comments?: object, edits?: object}>} */
+let readingInviteDetailCache = {};
+/** @type {Record<string, {comments: boolean, edits: boolean}>} */
+let readingInviteOpenPanels = {};
 
 function readingInviteSeenKey(projectId = state.projectId) {
   const id = Number(projectId);
@@ -23296,6 +24001,19 @@ function readingInviteStatusLabel(displayStatus) {
   return i18n.t("app.활성");
 }
 
+function readingInvitePermissionLabel(permission) {
+  return permission === "edit" ? i18n.t("app.수정가능") : i18n.t("app.읽기전용");
+}
+
+function selectedReadingInvitePermission() {
+  const checked = document.querySelector('input[name="readingInvitePermission"]:checked');
+  return checked?.value === "edit" ? "edit" : "read";
+}
+
+function readingInviteMessageValue() {
+  return String($("readingInviteMessage")?.value || "").trim();
+}
+
 function setReadingInviteAuthHint(message) {
   const el = $("readingInviteAuthHint");
   if (!el) return;
@@ -23332,38 +24050,75 @@ function selectedReadingInviteSceneIds() {
     .filter((id) => Number.isFinite(id) && id > 0);
 }
 
+function readingInvitePanelState(inviteId) {
+  const id = String(inviteId || "");
+  if (!id) return { comments: false, edits: false };
+  if (!readingInviteOpenPanels[id]) readingInviteOpenPanels[id] = { comments: false, edits: false };
+  return readingInviteOpenPanels[id];
+}
+
+function readingInviteItemEl(inviteId) {
+  const id = String(inviteId || "");
+  if (!id) return null;
+  return document.querySelector(`#readingInviteList .reading-invite-item[data-invite-id="${CSS.escape(id)}"]`);
+}
+
 function renderReadingInviteList() {
   const host = $("readingInviteList");
   if (!host) return;
   if (!readingInviteListCache.length) {
+    readingInviteOpenPanels = {};
+    readingInviteDetailCache = {};
     host.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_만든_링크가_없어요"))}</p>`;
     return;
+  }
+  const liveIds = new Set(readingInviteListCache.map((item) => String(item.id)));
+  for (const id of Object.keys(readingInviteOpenPanels)) {
+    if (!liveIds.has(id)) delete readingInviteOpenPanels[id];
+  }
+  for (const id of Object.keys(readingInviteDetailCache)) {
+    if (!liveIds.has(id)) delete readingInviteDetailCache[id];
   }
   host.innerHTML = readingInviteListCache.map((invite) => {
     const display = invite.display_status || invite.status || "active";
     const comments = Number(invite.comment_count || 0);
+    const edits = Number(invite.edit_count || 0);
     const commentLabel = comments
       ? i18n.t("app.피드백_n개", { n: comments })
       : i18n.t("app.받은_피드백");
+    const editLabel = edits
+      ? i18n.t("app.수정_n건", { n: edits })
+      : i18n.t("app.받은_수정");
+    const permission = invite.permission === "edit" ? "edit" : "read";
     const canRevoke = display === "active";
+    const showEdits = permission === "edit" || edits > 0;
+    const panels = readingInvitePanelState(invite.id);
     return `<article class="reading-invite-item" data-invite-id="${escapeHtml(invite.id)}">`
       + `<div class="reading-invite-item-head">`
       + `<div class="reading-invite-item-title">${escapeHtml(invite.title || i18n.t("app.제목_없음"))}</div>`
       + `<span class="reading-invite-status is-${escapeHtml(display)}">${escapeHtml(readingInviteStatusLabel(display))}</span>`
       + `</div>`
       + `<div class="reading-invite-item-meta">`
+      + `<span>${escapeHtml(readingInvitePermissionLabel(permission))}</span>`
       + `<span>${escapeHtml(i18n.t("app.생성일"))}: ${escapeHtml(formatReadingInviteDate(invite.created_at))}</span>`
       + `<span>${escapeHtml(i18n.t("app.만료일"))}: ${escapeHtml(formatReadingInviteDate(invite.expires_at))}</span>`
       + `</div>`
       + `<div class="reading-invite-item-actions">`
       + `<button type="button" class="secondary compact-btn" data-copy-invite="${escapeHtml(invite.id)}" ${invite.public_url ? "" : "disabled"}>${escapeHtml(i18n.t("app.복사"))}</button>`
-      + `<button type="button" class="secondary compact-btn" data-open-invite-feedback="${escapeHtml(invite.id)}">${escapeHtml(commentLabel)}</button>`
+      + `<button type="button" class="secondary compact-btn" data-toggle-invite-comments="${escapeHtml(invite.id)}" aria-expanded="${panels.comments ? "true" : "false"}">${escapeHtml(commentLabel)}</button>`
+      + (showEdits
+        ? `<button type="button" class="secondary compact-btn" data-toggle-invite-edits="${escapeHtml(invite.id)}" aria-expanded="${panels.edits ? "true" : "false"}">${escapeHtml(editLabel)}</button>`
+        : "")
       + (canRevoke
         ? `<button type="button" class="secondary compact-btn" data-revoke-invite="${escapeHtml(invite.id)}">${escapeHtml(i18n.t("app.링크_끄기"))}</button>`
         : "")
+      + `<button type="button" class="secondary compact-btn reading-invite-delete-btn" data-delete-invite="${escapeHtml(invite.id)}">${escapeHtml(i18n.t("app.삭제"))}</button>`
       + `</div>`
+      + `<div class="reading-invite-item-accordion${panels.comments ? "" : " hidden"}" data-invite-comments-panel="${escapeHtml(invite.id)}" ${panels.comments ? "" : "hidden"}></div>`
+      + `<div class="reading-invite-item-accordion${panels.edits ? "" : " hidden"}" data-invite-edits-panel="${escapeHtml(invite.id)}" ${panels.edits ? "" : "hidden"}></div>`
       + `</article>`;
   }).join("");
+  restoreReadingInviteOpenPanels();
 }
 
 function showReadingInviteCreated(url) {
@@ -23381,6 +24136,51 @@ function closeReadingInviteFeedback() {
   if (panel) {
     panel.classList.add("hidden");
     panel.hidden = true;
+  }
+  readingInviteFeedbackInvite = null;
+  readingInviteEditsCache = null;
+  readingInviteOpenEditId = "";
+  setReadingInviteFeedbackTab("comments");
+}
+
+function setReadingInviteAccordionVisible(host, visible) {
+  if (!host) return;
+  host.classList.toggle("hidden", !visible);
+  host.hidden = !visible;
+}
+
+function paintReadingInviteCardPanels(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  const card = readingInviteItemEl(id);
+  const panels = readingInvitePanelState(id);
+  const commentsHost = card?.querySelector("[data-invite-comments-panel]");
+  const editsHost = card?.querySelector("[data-invite-edits-panel]");
+  const commentsBtn = card?.querySelector("[data-toggle-invite-comments]");
+  const editsBtn = card?.querySelector("[data-toggle-invite-edits]");
+  commentsBtn?.setAttribute("aria-expanded", panels.comments ? "true" : "false");
+  editsBtn?.setAttribute("aria-expanded", panels.edits ? "true" : "false");
+  setReadingInviteAccordionVisible(commentsHost, panels.comments);
+  setReadingInviteAccordionVisible(editsHost, panels.edits);
+  if (panels.comments) {
+    const cached = readingInviteDetailCache[id]?.comments;
+    if (cached) renderReadingInviteComments(cached, commentsHost);
+    else if (commentsHost && !commentsHost.innerHTML) {
+      commentsHost.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
+    }
+  }
+  if (panels.edits) {
+    const cached = readingInviteDetailCache[id]?.edits;
+    if (cached) renderReadingInviteEdits(cached, editsHost);
+    else if (editsHost && !editsHost.innerHTML) {
+      editsHost.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
+    }
+  }
+}
+
+function restoreReadingInviteOpenPanels() {
+  for (const [id, panels] of Object.entries(readingInviteOpenPanels)) {
+    if (panels?.comments || panels?.edits) paintReadingInviteCardPanels(id);
   }
 }
 
@@ -23444,7 +24244,11 @@ async function createReadingInviteLink() {
   try {
     const payload = await api(`/api/projects/${state.projectId}/reading-invites`, {
       method: "POST",
-      body: JSON.stringify({ scene_ids: sceneIds }),
+      body: JSON.stringify({
+        scene_ids: sceneIds,
+        permission: selectedReadingInvitePermission(),
+        message: readingInviteMessageValue(),
+      }),
     });
     const invite = payload?.invite || {};
     showReadingInviteCreated(invite.public_url || "");
@@ -23473,15 +24277,8 @@ async function revokeReadingInvite(inviteId) {
   }
 }
 
-function renderReadingInviteComments(payload) {
-  const host = $("readingInviteFeedbackBody");
-  const titleEl = $("readingInviteFeedbackTitle");
-  if (titleEl) {
-    const inviteTitle = payload?.invite?.title;
-    titleEl.textContent = inviteTitle
-      ? `${i18n.t("app.받은_피드백")} · ${inviteTitle}`
-      : i18n.t("app.받은_피드백");
-  }
+function renderReadingInviteComments(payload, hostEl) {
+  const host = hostEl || $("readingInviteFeedbackBody");
   if (!host) return;
   const scenes = Array.isArray(payload?.scenes) ? payload.scenes : [];
   const ungrouped = Array.isArray(payload?.ungrouped) ? payload.ungrouped : [];
@@ -23518,17 +24315,163 @@ function renderReadingInviteComments(payload) {
   host.innerHTML = parts.join("");
 }
 
-async function openReadingInviteFeedback(inviteId) {
+function setReadingInviteFeedbackTab(tab) {
+  const next = tab === "edits" ? "edits" : "comments";
+  readingInviteFeedbackTab = next;
+  const commentsTab = $("readingInviteCommentsTab");
+  const editsTab = $("readingInviteEditsTab");
+  const commentsBody = $("readingInviteFeedbackBody");
+  const editsBody = $("readingInviteEditsBody");
+  commentsTab?.classList.toggle("is-active", next === "comments");
+  editsTab?.classList.toggle("is-active", next === "edits");
+  commentsTab?.setAttribute("aria-selected", next === "comments" ? "true" : "false");
+  editsTab?.setAttribute("aria-selected", next === "edits" ? "true" : "false");
+  if (commentsBody) {
+    commentsBody.classList.toggle("hidden", next !== "comments");
+    commentsBody.hidden = next !== "comments";
+  }
+  if (editsBody) {
+    editsBody.classList.toggle("hidden", next !== "edits");
+    editsBody.hidden = next !== "edits";
+  }
+}
+
+function setReadingInviteEditsTabVisible(visible) {
+  const tabs = $("readingInviteFeedbackTabs");
+  if (!tabs) return;
+  tabs.classList.toggle("hidden", !visible);
+  tabs.hidden = !visible;
+  if (!visible && readingInviteFeedbackTab === "edits") setReadingInviteFeedbackTab("comments");
+}
+
+function readingInviteChangeStatusLabel(status) {
+  if (status === "accepted") return i18n.t("app.수락됨");
+  if (status === "rejected") return i18n.t("app.거절됨");
+  if (status === "conflict") return i18n.t("app.충돌");
+  return "";
+}
+
+function renderTrackChangedSnapshot(snapshot, changes) {
+  const text = String(snapshot || "");
+  const items = [...(changes || [])].sort((a, b) => {
+    const start = (Number(a.start_offset) || 0) - (Number(b.start_offset) || 0);
+    if (start) return start;
+    return (Number(a.change_index) || 0) - (Number(b.change_index) || 0);
+  });
+  let html = "";
+  let cursor = 0;
+  for (const change of items) {
+    const start = Math.max(0, Number(change.start_offset) || 0);
+    const end = Math.max(start, Number(change.end_offset) || start);
+    if (start < cursor) continue;
+    if (start > cursor) html += escapeHtml(text.slice(cursor, start)).replace(/\n/g, "<br>");
+    const orig = String(change.original_fragment || text.slice(start, end) || "");
+    const repl = String(change.replacement_fragment || "");
+    const status = change.display_status || change.status || "pending";
+    const del = orig ? `<del class="ri-tc-del">${escapeHtml(orig)}</del>` : "";
+    const ins = repl ? `<ins class="ri-tc-ins">${escapeHtml(repl)}</ins>` : "";
+    let actions = "";
+    if (status === "pending") {
+      actions = `<span class="ri-tc-actions">`
+        + `<button type="button" class="secondary compact-btn" data-review-change="${escapeHtml(change.id)}" data-review-action="accept">${escapeHtml(i18n.t("app.수락"))}</button>`
+        + `<button type="button" class="secondary compact-btn" data-review-change="${escapeHtml(change.id)}" data-review-action="reject">${escapeHtml(i18n.t("app.거절"))}</button>`
+        + `</span>`;
+    } else if (status === "conflict") {
+      actions = `<span class="ri-tc-actions">`
+        + `<span class="ri-tc-badge">${escapeHtml(i18n.t("app.충돌"))}</span>`
+        + `<button type="button" class="secondary compact-btn" data-review-change="${escapeHtml(change.id)}" data-review-action="reject">${escapeHtml(i18n.t("app.거절"))}</button>`
+        + `</span>`;
+    } else {
+      const label = readingInviteChangeStatusLabel(status);
+      actions = label ? `<span class="ri-tc-badge">${escapeHtml(label)}</span>` : "";
+    }
+    html += `<span class="ri-tc-change is-${escapeHtml(status)}" data-change-id="${escapeHtml(change.id)}">${del}${ins}${actions}</span>`;
+    cursor = end;
+  }
+  if (cursor < text.length) html += escapeHtml(text.slice(cursor)).replace(/\n/g, "<br>");
+  return html || `<span class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_수정_제안이_없어요"))}</span>`;
+}
+
+function renderReadingInviteEdits(payload, hostEl) {
+  const inviteId = String(payload?.invite?.id || "");
+  const host = hostEl
+    || readingInviteItemEl(inviteId)?.querySelector("[data-invite-edits-panel]")
+    || $("readingInviteEditsBody");
+  if (!host) return;
+  const scenes = Array.isArray(payload?.scenes) ? payload.scenes : [];
+  const parts = [];
+  for (const scene of scenes) {
+    const submissions = Array.isArray(scene.submissions) ? scene.submissions : [];
+    if (!submissions.length) continue;
+    const sceneTitle = String(scene.scene_title || i18n.t("app.제목_없음"));
+    const snapshot = String(scene.content_snapshot || "");
+    const cards = submissions.map((edit) => {
+      const name = String(edit.commenter_name || "").trim() || i18n.t("app.익명");
+      const when = formatReadingInviteDate(edit.created_at);
+      const open = String(edit.id) === String(readingInviteOpenEditId);
+      const body = open
+        ? `<div class="reading-invite-edit-doc">${renderTrackChangedSnapshot(snapshot, edit.changes || [])}</div>`
+        : "";
+      return `<article class="reading-invite-edit-item${open ? " is-open" : ""}" data-open-edit="${escapeHtml(edit.id)}">`
+        + `<button type="button" class="reading-invite-edit-meta" data-toggle-edit="${escapeHtml(edit.id)}">${escapeHtml(name)} · ${escapeHtml(when)}</button>`
+        + body
+        + `</article>`;
+    }).join("");
+    parts.push(`<section class="reading-invite-scene-block">`
+      + `<h4 class="reading-invite-heading">${escapeHtml(sceneTitle)}</h4>`
+      + cards
+      + `</section>`);
+  }
+  host.innerHTML = parts.length
+    ? parts.join("")
+    : `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.아직_수정_제안이_없어요"))}</p>`;
+}
+
+async function loadReadingInviteEdits(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return null;
+  const payload = await api(`/api/reading-invites/${encodeURIComponent(id)}/edits`);
+  readingInviteEditsCache = payload;
+  readingInviteDetailCache[id] = { ...(readingInviteDetailCache[id] || {}), edits: payload };
+  const host = readingInviteItemEl(id)?.querySelector("[data-invite-edits-panel]");
+  renderReadingInviteEdits(payload, host);
+  return payload;
+}
+
+async function reviewReadingInviteChange(changeId, action, inviteIdHint) {
+  const id = String(changeId || "").trim();
+  if (!id) return;
+  const payload = await api(`/api/reading-invite-changes/${encodeURIComponent(id)}/review`, {
+    method: "POST",
+    body: JSON.stringify({ action }),
+  });
+  toast(action === "accept" ? i18n.t("app.수정_조각을_수락했어요") : i18n.t("app.수정_조각을_거절했어요"));
+  const localId = Number(payload?.scene?.local_scene_id);
+  if (action === "accept" && Number.isFinite(localId) && localId > 0 && Number(state.sceneId) === localId) {
+    openScene(localId).catch(() => {});
+  }
+  const inviteId = inviteIdHint || payload?.invite?.id || readingInviteFeedbackInvite?.id;
+  if (inviteId) await loadReadingInviteEdits(inviteId);
+}
+
+async function toggleReadingInviteComments(inviteId, options = {}) {
   const id = String(inviteId || "").trim();
   if (!id) return;
-  const panel = $("readingInviteFeedback");
-  if (panel) {
-    panel.classList.remove("hidden");
-    panel.hidden = false;
+  const panels = readingInvitePanelState(id);
+  const forceOpen = Boolean(options.forceOpen);
+  if (panels.comments && !forceOpen) {
+    panels.comments = false;
+    paintReadingInviteCardPanels(id);
+    return;
   }
+  panels.comments = true;
+  paintReadingInviteCardPanels(id);
+  const cachedInvite = readingInviteListCache.find((item) => String(item.id) === id) || null;
+  readingInviteFeedbackInvite = cachedInvite;
   try {
     const payload = await api(`/api/reading-invites/${encodeURIComponent(id)}/comments`);
-    renderReadingInviteComments(payload);
+    readingInviteFeedbackInvite = payload?.invite || cachedInvite;
+    readingInviteDetailCache[id] = { ...(readingInviteDetailCache[id] || {}), comments: payload };
     const comments = [];
     for (const scene of payload?.scenes || []) comments.push(...(scene.comments || []));
     comments.push(...(payload?.ungrouped || []));
@@ -23539,6 +24482,57 @@ async function openReadingInviteFeedback(inviteId) {
     }
     if (newest) markReadingInviteSeen(newest);
     else markReadingInviteSeen(new Date().toISOString());
+    paintReadingInviteCardPanels(id);
+  } catch (error) {
+    panels.comments = false;
+    paintReadingInviteCardPanels(id);
+    handleError(error);
+  }
+}
+
+async function toggleReadingInviteEdits(inviteId, options = {}) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  const panels = readingInvitePanelState(id);
+  const forceOpen = Boolean(options.forceOpen);
+  if (panels.edits && !forceOpen) {
+    panels.edits = false;
+    paintReadingInviteCardPanels(id);
+    return;
+  }
+  panels.edits = true;
+  paintReadingInviteCardPanels(id);
+  const cachedInvite = readingInviteListCache.find((item) => String(item.id) === id) || null;
+  readingInviteFeedbackInvite = cachedInvite;
+  try {
+    await loadReadingInviteEdits(id);
+    paintReadingInviteCardPanels(id);
+  } catch (error) {
+    panels.edits = false;
+    paintReadingInviteCardPanels(id);
+    handleError(error);
+  }
+}
+
+async function openReadingInviteFeedback(inviteId) {
+  await toggleReadingInviteComments(inviteId, { forceOpen: true });
+}
+
+async function deleteReadingInvite(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  if (!window.confirm(i18n.t("app.이_링크를_삭제하면_더_이상_접속할_수_없고"))) return;
+  try {
+    await api(`/api/reading-invites/${encodeURIComponent(id)}`, { method: "DELETE" });
+    readingInviteListCache = readingInviteListCache.filter((item) => String(item.id) !== id);
+    delete readingInviteOpenPanels[id];
+    delete readingInviteDetailCache[id];
+    if (String(readingInviteFeedbackInvite?.id || "") === id) {
+      readingInviteFeedbackInvite = null;
+      readingInviteEditsCache = null;
+    }
+    toast(i18n.t("app.링크를_삭제했어요"));
+    renderReadingInviteList();
   } catch (error) {
     handleError(error);
   }
@@ -23589,7 +24583,10 @@ function openReadingInviteFromCheer() {
     || "";
   hideReadingInviteCheer();
   openSettingsCollectionMain("readingInvite");
-  if (inviteId) openReadingInviteFeedback(inviteId).catch(handleError);
+  if (!inviteId) return;
+  refreshReadingInvitePanel()
+    .then(() => toggleReadingInviteComments(inviteId, { forceOpen: true }))
+    .catch(handleError);
 }
 
 async function checkReadingInviteFeedback(options = {}) {
@@ -23631,6 +24628,12 @@ function setupReadingInvite() {
     event.preventDefault();
     closeReadingInviteFeedback();
   });
+  $("readingInviteFeedbackTabs")?.addEventListener("click", (event) => {
+    const tab = event.target.closest?.("[data-feedback-tab]")?.dataset?.feedbackTab;
+    if (!tab) return;
+    event.preventDefault();
+    setReadingInviteFeedbackTab(tab);
+  });
   $("readingInviteCheerClose")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
@@ -23661,10 +24664,40 @@ function setupReadingInvite() {
       revokeReadingInvite(revokeId).catch(handleError);
       return;
     }
-    const feedbackId = event.target.closest?.("[data-open-invite-feedback]")?.dataset?.openInviteFeedback;
-    if (feedbackId) {
+    const deleteId = event.target.closest?.("[data-delete-invite]")?.dataset?.deleteInvite;
+    if (deleteId) {
       event.preventDefault();
-      openReadingInviteFeedback(feedbackId).catch(handleError);
+      deleteReadingInvite(deleteId).catch(handleError);
+      return;
+    }
+    const card = event.target.closest?.(".reading-invite-item");
+    const cardInviteId = String(card?.dataset?.inviteId || "");
+    const toggleEdit = event.target.closest?.("[data-toggle-edit]")?.dataset?.toggleEdit;
+    if (toggleEdit) {
+      event.preventDefault();
+      readingInviteOpenEditId = String(readingInviteOpenEditId) === String(toggleEdit) ? "" : String(toggleEdit);
+      const payload = (cardInviteId && readingInviteDetailCache[cardInviteId]?.edits) || readingInviteEditsCache;
+      renderReadingInviteEdits(payload, card?.querySelector("[data-invite-edits-panel]"));
+      return;
+    }
+    const reviewBtn = event.target.closest?.("[data-review-change]");
+    if (reviewBtn) {
+      event.preventDefault();
+      const changeId = reviewBtn.dataset.reviewChange;
+      const action = reviewBtn.dataset.reviewAction;
+      reviewReadingInviteChange(changeId, action, cardInviteId).catch(handleError);
+      return;
+    }
+    const commentsId = event.target.closest?.("[data-toggle-invite-comments]")?.dataset?.toggleInviteComments;
+    if (commentsId) {
+      event.preventDefault();
+      toggleReadingInviteComments(commentsId).catch(handleError);
+      return;
+    }
+    const editsId = event.target.closest?.("[data-toggle-invite-edits]")?.dataset?.toggleInviteEdits;
+    if (editsId) {
+      event.preventDefault();
+      toggleReadingInviteEdits(editsId).catch(handleError);
     }
   });
 }
@@ -26822,6 +27855,10 @@ function setGlumpSprintElHidden(el, hidden) {
 }
 
 function setGlumpSprintEditorWritable(writable) {
+  if (typeof applySceneCompleteLock === "function") {
+    applySceneCompleteLock({ glumpWritable: writable });
+    return;
+  }
   const editor = $("sceneContent");
   if (!editor) return;
   editor.setAttribute("contenteditable", writable ? "true" : "false");
@@ -32413,7 +33450,6 @@ function setSplitSourceUiMode(isSource) {
   const sceneBody = $("splitSceneBodyEditor");
   const titleInput = $("splitSceneTitleInput");
   const sceneSelect = $("splitSceneSelect");
-  const editBtn = $("toggleSplitEditButton");
   const caption = viewer?.querySelector?.(".split-scene-caption");
   viewer?.classList.toggle("is-source-file", Boolean(isSource));
   sourceView?.classList.toggle("hidden", !isSource);
@@ -32452,14 +33488,12 @@ function setSplitSourceUiMode(isSource) {
     sceneSelect.disabled = false;
     sceneSelect.closest(".split-scene-label")?.classList.remove("hidden");
   }
-  if (editBtn) {
-    editBtn.classList.toggle("hidden", Boolean(isSource));
-    if (isSource) {
-      editBtn.disabled = true;
-      editBtn.setAttribute("aria-pressed", "false");
-    } else {
-      editBtn.disabled = false;
-    }
+  const editGroup = $("splitEditModeGroup");
+  if (editGroup) {
+    editGroup.classList.toggle("hidden", Boolean(isSource));
+    editGroup.querySelectorAll("[data-split-edit]").forEach((btn) => {
+      btn.disabled = Boolean(isSource);
+    });
   }
   if (caption) caption.textContent = i18n.t('app.분할_화면');
 }
@@ -34953,7 +35987,7 @@ function renderHeaderIdeaBar() {
     );
   }).join("");
   bar.querySelectorAll("[data-header-idea]").forEach((btn) => {
-    btn.addEventListener("click", () => openIdeaBoard(Number(btn.dataset.headerIdea)));
+    btn.addEventListener("click", () => openIdeaFloat(Number(btn.dataset.headerIdea)));
   });
 }
 
@@ -35671,7 +36705,9 @@ async function beginSceneRename(titleButton) {
   const row = titleButton.closest(".scene-row") || titleButton.parentElement;
   if (!row || row.querySelector(".scene-rename-input")) return;
   const titleSpan = titleButton.querySelector(".scene-title");
-  const original = (titleSpan?.textContent || titleButton.textContent || "").trim();
+  const original = (titleSpan?.textContent || "").trim()
+    || (titleButton.getAttribute("title") || "").split(" · ")[0].trim()
+    || i18n.t("app.새_씬");
   const input = document.createElement("input");
   input.type = "text";
   input.className = "chapter-rename-input scene-rename-input";
@@ -35680,13 +36716,29 @@ async function beginSceneRename(titleButton) {
   input.maxLength = 200;
   titleButton.replaceWith(input);
   try { input.scrollIntoView({ block: "nearest", inline: "nearest" }); } catch (_) { /* ignore */ }
-  input.focus();
-  input.select();
+  let ignoreBlurUntil = Date.now() + 500;
+  let didSelect = false;
+  const holdFocus = () => {
+    if (!input.isConnected) return;
+    try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+    if (!didSelect) {
+      input.select();
+      didSelect = true;
+    }
+  };
+  holdFocus();
+  requestAnimationFrame(holdFocus);
+  window.setTimeout(holdFocus, 0);
   let finished = false;
+  const detachInput = () => {
+    if (!input.isConnected) return;
+    try { input.replaceWith(titleButton); } catch (_) { /* ignore */ }
+  };
   const finish = async (save) => {
     if (finished) return;
     finished = true;
     const nextTitle = input.value.trim();
+    detachInput();
     if (!save || !nextTitle || nextTitle === original) {
       await loadProject();
       return;
@@ -35713,7 +36765,14 @@ async function beginSceneRename(titleButton) {
       finish(false).catch(handleError);
     }
   });
-  input.addEventListener("blur", () => finish(true).catch(handleError));
+  input.addEventListener("blur", () => {
+    if (!input.isConnected) return;
+    if (Date.now() < ignoreBlurUntil) {
+      holdFocus();
+      return;
+    }
+    finish(true).catch(handleError);
+  });
   input.addEventListener("mousedown", (event) => event.stopPropagation());
   input.addEventListener("click", (event) => event.stopPropagation());
 }
@@ -35870,6 +36929,7 @@ async function trashScene(sceneId, sceneTitle = "") {
   }
 
   await api(`/api/scenes/${id}/trash`, { method: "POST", body: "{}" });
+  try { clearLocalSceneDraft(id); } catch (_) { /* ignore */ }
 
   try {
     savePinnedSceneIds(loadPinnedSceneIds().filter((x) => Number(x) !== id));
@@ -36558,6 +37618,8 @@ const UI_THEME_WRITING_PAGE_DEFAULTS = {
   cabin: { theme: "custom", customColor: "#F9FDF7" },
   // 심야 다락방: R217 G217 B217
   attic: { theme: "custom", customColor: "#D9D9D9" },
+  // 딥다크: 본문 편집 영역도 #121212로 통일
+  "deep-dark": { theme: "custom", customColor: "#121212" },
   // 노을빛 창가: 세피아
   "sunset-window": { theme: "sepia", customColor: null },
 };
@@ -37000,7 +38062,9 @@ function themeDefaultInk(theme = document.body.dataset.pageTheme || "ivory", cus
     const color = customColor
       || $("desktopColorPicker")?.value
       || "#fffdf8";
-    return isColorDark(color) ? "#ffffff" : "#24211d";
+    return isColorDark(color)
+      ? (sameCssHex(color, "#121212") ? "#E8E8E8" : "#ffffff")
+      : "#24211d";
   }
   return THEME_DEFAULT_INK[theme] || THEME_DEFAULT_INK.ivory;
 }
@@ -37093,16 +38157,17 @@ function applyChalkboardEditorDefaults(enabled) {
       applyPageInk(saved, { announce: false });
       return;
     }
-    // 테마 CSS(--page-ink: #fff)가 먹도록 인라인 덮어쓰기 제거 후 에디터만 흰색
+    // 테마 CSS(--page-ink)가 먹도록 인라인 덮어쓰기 제거 후 에디터만 밝은 글자
+    const ink = normalizeUiThemeId(getUiTheme()) === "deep-dark" ? "#E8E8E8" : "#ffffff";
     try { document.body.style.removeProperty("--page-ink"); } catch (_) { /* ignore */ }
     document.querySelectorAll(
       ".rich-editor, #sceneContent, #splitSceneContent, .focus-write-editor, .split-body-editor"
     ).forEach((node) => {
       if (!(node instanceof HTMLElement)) return;
-      node.style.color = "#ffffff";
-      node.style.caretColor = "#ffffff";
+      node.style.color = ink;
+      node.style.caretColor = ink;
     });
-    syncPageInkUi("#ffffff");
+    syncPageInkUi(ink);
     return;
   }
   if (saved) {
@@ -37151,7 +38216,9 @@ function applyDesktopTheme(theme, customColor = null, options = {}) {
 
   if (next === "custom") {
     const color = customColor || "#fffdf8";
-    const ink = isColorDark(color) ? "#ffffff" : "#24211d";
+    const ink = isColorDark(color)
+      ? (sameCssHex(color, "#121212") ? "#E8E8E8" : "#ffffff")
+      : "#24211d";
     document.documentElement.style.setProperty("--page-bg", color);
     document.documentElement.style.setProperty("--page-editor-bg", color);
     document.documentElement.style.setProperty("--page-ink", ink);
@@ -39280,15 +40347,22 @@ function closeViewModeMenu() {
   clearFeatureDropdownPlacement(viewMenu);
   clearFeatureDropdownPlacement(splitMenu);
   portalViewModeDropdownToBody(false);
+  portalSplitModeDropdownToBody(false);
   $("splitViewButton")?.setAttribute("aria-expanded", "false");
   $("focusWriteSplitButton")?.setAttribute("aria-expanded", "false");
   $("switchSplitModeButton")?.setAttribute("aria-expanded", "false");
+  if (typeof activeTooltipId !== "undefined" && (activeTooltipId === "split" || activeTooltipId === "split-switch")) {
+    activeTooltipId = null;
+  }
 }
 
 function openViewModeMenu(which = "main") {
+  const tooltipId = which === "split" ? "split-switch" : "split";
+  if (typeof setActiveTooltip === "function") setActiveTooltip(tooltipId);
   closeViewModeMenu();
-  if (typeof closeAnalyzeMenu === "function") closeAnalyzeMenu();
+  if (typeof activeTooltipId !== "undefined") activeTooltipId = tooltipId;
   $("viewModeCloseItem")?.classList.toggle("hidden", !state.splitEnabled);
+  if (typeof syncSplitModeMenuExtras === "function") syncSplitModeMenuExtras();
   if (which === "split") {
     const menu = $("splitModeDropdown");
     const btn = $("switchSplitModeButton");
@@ -39323,16 +40397,16 @@ function closeSceneToolsDrawer() {
   });
 }
 
-function openSceneToolsDrawer(toolKey) {
+function openSceneToolsDrawer(toolKey, options = {}) {
   const drawer = $("sceneToolsDrawer");
   if (!drawer) return;
   if (!state.sceneId) {
     toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
     return;
   }
-  // Toggle closed if same panel is already open.
+  // Toggle closed if same panel is already open — skip when a caller must keep it open.
   const current = drawer.querySelector(`[data-tool-panel="${toolKey}"]:not(.hidden)`);
-  if (!drawer.classList.contains("hidden") && current) {
+  if (!options.force && !drawer.classList.contains("hidden") && current) {
     closeSceneToolsDrawer();
     return;
   }
@@ -39515,12 +40589,7 @@ function setupFocusWrite() {
     event.preventDefault();
     event.stopPropagation();
     if (!isFocusWriteOpen()) return;
-    if (!state.sceneId) {
-      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
-      return;
-    }
-    // Open explicitly (don't toggle-close on the same gesture that opened)
-    openViewModeMenu("focus");
+    applySplitDefaultOrOpenMenu("focus");
   });
 
   document.addEventListener("keydown", (event) => {
@@ -39799,6 +40868,175 @@ function renderTypesetPlatformTabs() {
     <button type="button" class="viewer-typeset-add" data-typeset-add>${escapeHtml(i18n.t("index.새_조판양식"))}</button>`;
 }
 
+const TYPESET_SELECT_CUSTOM = "__custom__";
+const TYPESET_FIELD_PRESETS = {
+  fontSize: [9, 10, 11, 12, 13, 14],
+  lineHeight: [130, 140, 150, 160, 170, 180],
+  letterSpacing: [-0.05, 0, 0.05, 0.1],
+  paraSpacing: [0, 5, 10],
+  margin: [10, 15, 20, 25, 30],
+  viewport: [320, 360, 375, 414],
+};
+
+function typesetNumbersClose(left, right) {
+  const a = Number(left);
+  const b = Number(right);
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return false;
+  return Math.abs(a - b) <= 1e-6;
+}
+
+function typesetPresetMatch(presets, value) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return null;
+  return presets.find((item) => typesetNumbersClose(item, n)) ?? null;
+}
+
+function setTypesetCustomVisible(input, visible, { focus = false } = {}) {
+  if (!input) return;
+  input.hidden = !visible;
+  input.classList.toggle("hidden", !visible);
+  if (visible && focus) {
+    requestAnimationFrame(() => {
+      input.focus();
+      input.select();
+    });
+  }
+}
+
+function setTypesetChoice(selectId, customId, value, presets, { focusCustom = false } = {}) {
+  const select = $(selectId);
+  const custom = $(customId);
+  if (!select) return Number(value);
+  const n = Number(value);
+  const matched = Number.isFinite(n) ? typesetPresetMatch(presets, n) : null;
+  if (matched != null) {
+    select.value = String(matched);
+    setTypesetCustomVisible(custom, false);
+    if (custom) custom.value = String(matched);
+    return matched;
+  }
+  select.value = TYPESET_SELECT_CUSTOM;
+  if (custom && Number.isFinite(n)) custom.value = String(n);
+  setTypesetCustomVisible(custom, true, { focus: focusCustom });
+  return Number.isFinite(n) ? n : Number(custom?.value);
+}
+
+function readTypesetChoice(selectId, customId, presets, fallback) {
+  const select = $(selectId);
+  const custom = $(customId);
+  if (!select) return fallback;
+  if (select.value === TYPESET_SELECT_CUSTOM) {
+    const n = Number(custom?.value);
+    return Number.isFinite(n) ? n : fallback;
+  }
+  const n = Number(select.value);
+  if (Number.isFinite(n)) return n;
+  const matched = typesetPresetMatch(presets, n);
+  return matched != null ? matched : fallback;
+}
+
+function readTypesetFontSizePt() {
+  return readTypesetChoice(
+    "viewerTypesetFontSize",
+    "viewerTypesetFontSizeCustom",
+    TYPESET_FIELD_PRESETS.fontSize,
+    10,
+  );
+}
+
+function typesetIndentCharsFromPt(pt, fontSize) {
+  const size = Number(fontSize);
+  const value = Number(pt);
+  if (!Number.isFinite(value) || value <= 0) return 0;
+  if (!Number.isFinite(size) || size <= 0) return null;
+  if (typesetNumbersClose(value, size)) return 1;
+  if (typesetNumbersClose(value, size * 2)) return 2;
+  return null;
+}
+
+function setTypesetIndentChoice(pt, fontSize, { focusCustom = false } = {}) {
+  const select = $("viewerTypesetIndent");
+  const custom = $("viewerTypesetIndentCustom");
+  const unit = document.querySelector(".viewer-typeset-indent-unit");
+  const n = Number(pt);
+  const chars = typesetIndentCharsFromPt(n, fontSize);
+  if (!select) return;
+  if (chars != null) {
+    select.value = String(chars);
+    setTypesetCustomVisible(custom, false);
+    if (custom && Number.isFinite(n)) custom.value = String(n);
+    if (unit) {
+      unit.hidden = true;
+      unit.classList.add("hidden");
+    }
+    return;
+  }
+  select.value = TYPESET_SELECT_CUSTOM;
+  if (custom && Number.isFinite(n)) custom.value = String(n);
+  setTypesetCustomVisible(custom, true, { focus: focusCustom });
+  if (unit) {
+    unit.hidden = false;
+    unit.classList.remove("hidden");
+  }
+}
+
+function readTypesetIndentPt() {
+  const select = $("viewerTypesetIndent");
+  const custom = $("viewerTypesetIndentCustom");
+  const fontSize = readTypesetFontSizePt();
+  if (!select) return 0;
+  if (select.value === TYPESET_SELECT_CUSTOM) {
+    const n = Number(custom?.value);
+    return Number.isFinite(n) ? n : 0;
+  }
+  const chars = Number(select.value);
+  if (!Number.isFinite(chars) || chars <= 0) return 0;
+  return chars * fontSize;
+}
+
+function typesetCssLetterSpacing(value) {
+  const n = Number(value) || 0;
+  if (!n) return "0";
+  if (Math.abs(n) <= 0.5) return `${n}em`;
+  return `${n}pt`;
+}
+
+function onTypesetChoiceSelect(select) {
+  const kind = select?.dataset?.typesetChoice;
+  if (!kind) return;
+  const custom = $(`${select.id}Custom`);
+  if (select.value === TYPESET_SELECT_CUSTOM) {
+    if (custom && !String(custom.value || "").trim()) {
+      const previous = Number(select.dataset.lastNumeric);
+      custom.value = Number.isFinite(previous) ? String(previous) : "0";
+    }
+    setTypesetCustomVisible(custom, true, { focus: true });
+    if (kind === "indent") {
+      const unit = document.querySelector(".viewer-typeset-indent-unit");
+      if (unit) {
+        unit.hidden = false;
+        unit.classList.remove("hidden");
+      }
+    }
+    return;
+  }
+  setTypesetCustomVisible(custom, false);
+  if (kind === "indent") {
+    const unit = document.querySelector(".viewer-typeset-indent-unit");
+    if (unit) {
+      unit.hidden = true;
+      unit.classList.add("hidden");
+    }
+    const fontSize = readTypesetFontSizePt();
+    const chars = Number(select.value);
+    if (custom && Number.isFinite(chars)) custom.value = String(chars * fontSize);
+    select.dataset.lastNumeric = custom ? custom.value : "";
+  } else if (custom) {
+    custom.value = select.value;
+    select.dataset.lastNumeric = select.value;
+  }
+}
+
 function readTypesetDraftFromForm() {
   const id = normalizeTypesetPlatform(viewerSettings.typesetPlatform);
   const base = { ...(getTypesetPreset(id) || {}) };
@@ -39808,23 +41046,57 @@ function readTypesetDraftFromForm() {
     const value = String(el.value || "").trim();
     if (value) base[key] = value;
   };
-  const numVal = (elId, key) => {
-    const el = $(elId);
-    if (!el) return;
-    const n = Number(el.value);
-    if (Number.isFinite(n)) base[key] = n;
-  };
   textVal("viewerTypesetFont", "font_family");
-  numVal("viewerTypesetFontSize", "font_size_pt");
-  numVal("viewerTypesetLineHeight", "line_height_percent");
-  numVal("viewerTypesetLetterSpacing", "letter_spacing_pt");
-  numVal("viewerTypesetIndent", "paragraph_indent_pt");
-  numVal("viewerTypesetParaSpacing", "paragraph_spacing_pt");
-  numVal("viewerTypesetMarginLeft", "margin_left_mm");
-  numVal("viewerTypesetMarginRight", "margin_right_mm");
-  numVal("viewerTypesetMarginTop", "margin_top_mm");
-  numVal("viewerTypesetMarginBottom", "margin_bottom_mm");
-  numVal("viewerTypesetViewport", "mobile_viewport_px");
+  base.font_size_pt = readTypesetFontSizePt();
+  base.line_height_percent = readTypesetChoice(
+    "viewerTypesetLineHeight",
+    "viewerTypesetLineHeightCustom",
+    TYPESET_FIELD_PRESETS.lineHeight,
+    150,
+  );
+  base.letter_spacing_pt = readTypesetChoice(
+    "viewerTypesetLetterSpacing",
+    "viewerTypesetLetterSpacingCustom",
+    TYPESET_FIELD_PRESETS.letterSpacing,
+    0,
+  );
+  base.paragraph_indent_pt = readTypesetIndentPt();
+  base.paragraph_spacing_pt = readTypesetChoice(
+    "viewerTypesetParaSpacing",
+    "viewerTypesetParaSpacingCustom",
+    TYPESET_FIELD_PRESETS.paraSpacing,
+    0,
+  );
+  base.margin_left_mm = readTypesetChoice(
+    "viewerTypesetMarginLeft",
+    "viewerTypesetMarginLeftCustom",
+    TYPESET_FIELD_PRESETS.margin,
+    20,
+  );
+  base.margin_right_mm = readTypesetChoice(
+    "viewerTypesetMarginRight",
+    "viewerTypesetMarginRightCustom",
+    TYPESET_FIELD_PRESETS.margin,
+    20,
+  );
+  base.margin_top_mm = readTypesetChoice(
+    "viewerTypesetMarginTop",
+    "viewerTypesetMarginTopCustom",
+    TYPESET_FIELD_PRESETS.margin,
+    20,
+  );
+  base.margin_bottom_mm = readTypesetChoice(
+    "viewerTypesetMarginBottom",
+    "viewerTypesetMarginBottomCustom",
+    TYPESET_FIELD_PRESETS.margin,
+    20,
+  );
+  base.mobile_viewport_px = readTypesetChoice(
+    "viewerTypesetViewport",
+    "viewerTypesetViewportCustom",
+    TYPESET_FIELD_PRESETS.viewport,
+    360,
+  );
   return base;
 }
 
@@ -39832,20 +41104,64 @@ function syncTypesetControlValues() {
   const id = normalizeTypesetPlatform(viewerSettings.typesetPlatform);
   viewerSettings.typesetPlatform = id;
   const preset = getTypesetPreset(id) || {};
-  const setVal = (elId, value) => {
-    if ($(elId)) $(elId).value = value == null ? "" : String(value);
-  };
-  setVal("viewerTypesetFont", preset.font_family || "바탕체");
-  setVal("viewerTypesetFontSize", preset.font_size_pt ?? 10);
-  setVal("viewerTypesetLineHeight", preset.line_height_percent ?? 150);
-  setVal("viewerTypesetLetterSpacing", preset.letter_spacing_pt ?? 0);
-  setVal("viewerTypesetIndent", preset.paragraph_indent_pt ?? 0);
-  setVal("viewerTypesetParaSpacing", preset.paragraph_spacing_pt ?? 0);
-  setVal("viewerTypesetMarginLeft", preset.margin_left_mm ?? 20);
-  setVal("viewerTypesetMarginRight", preset.margin_right_mm ?? 20);
-  setVal("viewerTypesetMarginTop", preset.margin_top_mm ?? 20);
-  setVal("viewerTypesetMarginBottom", preset.margin_bottom_mm ?? 20);
-  setVal("viewerTypesetViewport", preset.mobile_viewport_px ?? 360);
+  if ($("viewerTypesetFont")) {
+    $("viewerTypesetFont").value = preset.font_family || "바탕체";
+  }
+  const fontSize = setTypesetChoice(
+    "viewerTypesetFontSize",
+    "viewerTypesetFontSizeCustom",
+    preset.font_size_pt ?? 10,
+    TYPESET_FIELD_PRESETS.fontSize,
+  );
+  setTypesetChoice(
+    "viewerTypesetLineHeight",
+    "viewerTypesetLineHeightCustom",
+    preset.line_height_percent ?? 150,
+    TYPESET_FIELD_PRESETS.lineHeight,
+  );
+  setTypesetChoice(
+    "viewerTypesetLetterSpacing",
+    "viewerTypesetLetterSpacingCustom",
+    preset.letter_spacing_pt ?? 0,
+    TYPESET_FIELD_PRESETS.letterSpacing,
+  );
+  setTypesetIndentChoice(preset.paragraph_indent_pt ?? 0, fontSize);
+  setTypesetChoice(
+    "viewerTypesetParaSpacing",
+    "viewerTypesetParaSpacingCustom",
+    preset.paragraph_spacing_pt ?? 0,
+    TYPESET_FIELD_PRESETS.paraSpacing,
+  );
+  setTypesetChoice(
+    "viewerTypesetMarginLeft",
+    "viewerTypesetMarginLeftCustom",
+    preset.margin_left_mm ?? 20,
+    TYPESET_FIELD_PRESETS.margin,
+  );
+  setTypesetChoice(
+    "viewerTypesetMarginRight",
+    "viewerTypesetMarginRightCustom",
+    preset.margin_right_mm ?? 20,
+    TYPESET_FIELD_PRESETS.margin,
+  );
+  setTypesetChoice(
+    "viewerTypesetMarginTop",
+    "viewerTypesetMarginTopCustom",
+    preset.margin_top_mm ?? 20,
+    TYPESET_FIELD_PRESETS.margin,
+  );
+  setTypesetChoice(
+    "viewerTypesetMarginBottom",
+    "viewerTypesetMarginBottomCustom",
+    preset.margin_bottom_mm ?? 20,
+    TYPESET_FIELD_PRESETS.margin,
+  );
+  setTypesetChoice(
+    "viewerTypesetViewport",
+    "viewerTypesetViewportCustom",
+    preset.mobile_viewport_px ?? 360,
+    TYPESET_FIELD_PRESETS.viewport,
+  );
   renderTypesetPlatformTabs();
   const badge = $("viewerTypesetUnverified");
   if (badge) badge.classList.toggle("hidden", Boolean(preset.is_verified));
@@ -39957,7 +41273,7 @@ function applyTypesetBodyStyles(preset = null) {
   body.style.fontFamily = typesetCssFontFamily(spec.font_family);
   body.style.fontSize = `${Number(spec.font_size_pt) || 10}pt`;
   body.style.lineHeight = `${Number(spec.line_height_percent) || 150}%`;
-  body.style.letterSpacing = `${Number(spec.letter_spacing_pt) || 0}pt`;
+  body.style.letterSpacing = typesetCssLetterSpacing(spec.letter_spacing_pt);
   body.style.setProperty("--typeset-indent", `${Number(spec.paragraph_indent_pt) || 0}pt`);
   body.style.setProperty("--typeset-para-gap", `${Number(spec.paragraph_spacing_pt) || 0}pt`);
 }
@@ -40009,6 +41325,50 @@ function toggleTypesetExportMenu() {
     menu.hidden = false;
     $("viewerTypesetExport")?.setAttribute("aria-expanded", "true");
   }
+}
+
+const TYPESET_DETAILS_OPEN_KEY = "supertory.viewerTypesetDetailsOpen";
+
+function isTypesetDetailsOpen() {
+  try {
+    return localStorage.getItem(TYPESET_DETAILS_OPEN_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function applyTypesetDetailsOpen(open, { persist = true, relayout = false } = {}) {
+  const panel = document.querySelector('[data-viewer-controls="typeset"]');
+  const details = $("viewerTypesetDetails");
+  const toggle = $("viewerTypesetDetailsToggle");
+  const next = Boolean(open);
+  if (panel) panel.classList.toggle("is-details-open", next);
+  if (details) {
+    details.classList.toggle("hidden", !next);
+    details.hidden = !next;
+  }
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", next ? "true" : "false");
+    toggle.setAttribute("aria-label", next ? i18n.t("index.접기") : i18n.t("index.상세_설정"));
+    const openLabel = toggle.querySelector(".viewer-typeset-details-open-label");
+    const closeLabel = toggle.querySelector(".viewer-typeset-details-close-label");
+    if (openLabel) openLabel.setAttribute("aria-hidden", next ? "true" : "false");
+    if (closeLabel) closeLabel.setAttribute("aria-hidden", next ? "false" : "true");
+  }
+  if (!next) hideTypesetExportMenu();
+  if (persist) {
+    try {
+      localStorage.setItem(TYPESET_DETAILS_OPEN_KEY, next ? "1" : "0");
+    } catch (_) { /* ignore */ }
+  }
+  if (relayout && viewerSettings.mode === "typeset") {
+    requestAnimationFrame(() => applyViewerLayout());
+  }
+}
+
+function toggleTypesetDetailsOpen() {
+  const panel = document.querySelector('[data-viewer-controls="typeset"]');
+  applyTypesetDetailsOpen(!panel?.classList.contains("is-details-open"), { relayout: true });
 }
 
 function filenameFromContentDisposition(header, fallback) {
@@ -40103,6 +41463,10 @@ const BOOK_FLIP_MS = 720;
 let viewerScope = "scene";
 let viewerTocOpen = false;
 let viewerCommentsOpen = false;
+let viewerCommentsHistoryOpen = false;
+let viewerCommentsHasHistory = false;
+let viewerCommentsBatchesCache = [];
+let viewerCommentsPrefetchSceneId = 0;
 let viewerCommentsPollTimer = null;
 let viewerCommentsLoadToken = 0;
 /** sceneId → normalized HTML (other scenes only; current always from editor) */
@@ -40151,6 +41515,7 @@ function syncTranslationViewerChrome() {
   $("viewerModeTabs")?.classList.toggle("hidden", preview);
   $("viewerScopeTabs")?.classList.toggle("hidden", preview);
   $("viewerReaderCommentsButton")?.classList.toggle("hidden", preview);
+  $("viewerReaderCommentsHistoryButton")?.classList.toggle("hidden", preview);
   $("viewerTocToggle")?.classList.toggle("hidden", preview);
   $("viewerTranslationExportTxt")?.classList.toggle("hidden", !preview);
   $("viewerTranslationExportDocx")?.classList.toggle("hidden", !preview);
@@ -40342,10 +41707,21 @@ function setViewerTocOpen(open) {
 function applyViewerCommentsPanelVisibility() {
   const panel = $("viewerReaderCommentsPanel");
   const toggle = $("viewerReaderCommentsButton");
+  const card = document.querySelector(".viewer-card");
   if (panel) panel.classList.toggle("hidden", !viewerCommentsOpen);
   if (toggle) {
     toggle.setAttribute("aria-expanded", viewerCommentsOpen ? "true" : "false");
     toggle.classList.toggle("is-active", viewerCommentsOpen);
+  }
+  card?.classList.toggle("has-comments-dock", viewerCommentsOpen);
+  if (!viewerCommentsOpen) {
+    viewerCommentsHistoryOpen = false;
+    syncViewerCommentsHistoryToggle(viewerCommentsBatchesCache);
+  }
+  if (typeof isViewerOpen === "function" && isViewerOpen() && typeof applyViewerLayout === "function") {
+    window.requestAnimationFrame(() => {
+      try { applyViewerLayout(); } catch (_) { /* ignore */ }
+    });
   }
 }
 
@@ -40395,7 +41771,8 @@ function syncViewerCommentsRetryRow(data) {
   const btn = $("viewerReaderCommentsRetryButton");
   const hint = $("viewerReaderCommentsRetryHint");
   if (!row || !btn) return;
-  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  const latest = viewerReaderCommentLatestBatch(data);
+  const comments = Array.isArray(latest?.comments) ? latest.comments : [];
   const generating = Boolean(data?.generating);
   const expected = Math.max(1, Number(data?.expected) || 3);
   const ready = comments.length;
@@ -40425,7 +41802,8 @@ function syncViewerCommentsRefreshRow(data) {
   const btn = $("viewerReaderCommentsRefreshButton");
   const note = $("viewerReaderCommentsRefreshNote");
   if (!row || !btn || !note) return;
-  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  const latest = viewerReaderCommentLatestBatch(data);
+  const comments = Array.isArray(latest?.comments) ? latest.comments : [];
   const generating = Boolean(data?.generating);
   const canRefresh = Boolean(data?.can_refresh);
   const ready = comments.length;
@@ -40452,14 +41830,187 @@ function syncViewerCommentsRefreshRow(data) {
   }
 }
 
+function viewerReaderCommentBatches(data) {
+  if (Array.isArray(data?.batches) && data.batches.length) {
+    return data.batches.slice();
+  }
+  const list = Array.isArray(data?.comments) ? data.comments : Array.isArray(data) ? data : [];
+  if (!list.length) return [];
+  const groups = new Map();
+  for (const item of list) {
+    const key = String(item?.batch_id || "").trim() || "_legacy_";
+    if (!groups.has(key)) {
+      groups.set(key, {
+        batch_id: String(item?.batch_id || item?.created_at || key),
+        created_at: String(item?.created_at || ""),
+        comments: [],
+      });
+    }
+    const bucket = groups.get(key);
+    bucket.comments.push(item);
+    const created = String(item?.created_at || "");
+    if (created && (!bucket.created_at || created < bucket.created_at)) {
+      bucket.created_at = created;
+      if (!String(item?.batch_id || "").trim()) bucket.batch_id = created;
+    }
+  }
+  return Array.from(groups.values()).sort((a, b) => {
+    const left = String(a.created_at || "");
+    const right = String(b.created_at || "");
+    if (left === right) return String(b.batch_id || "").localeCompare(String(a.batch_id || ""));
+    return left < right ? 1 : -1;
+  });
+}
+
+function viewerReaderCommentLatestBatch(data) {
+  const batches = viewerReaderCommentBatches(data);
+  return batches[0] || { batch_id: "", created_at: "", comments: [] };
+}
+
+function parseViewerCommentTimestamp(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return null;
+  const parsed = new Date(raw);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
+function formatViewerCommentBatchLabel(iso, { includeTime = false } = {}) {
+  const parsed = parseViewerCommentTimestamp(iso);
+  if (!parsed) return i18n.t("app.받은_댓글");
+  const year = parsed.getFullYear();
+  const month = parsed.getMonth() + 1;
+  const day = parsed.getDate();
+  if (!includeTime) {
+    return i18n.t("app.year_월_day_일에_받은_댓글", { year, month, day });
+  }
+  const time = `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+  return i18n.t("app.year_월_day_일_time_에_받은_댓글", { year, month, day, time });
+}
+
+function viewerCommentBatchDateKey(iso) {
+  const parsed = parseViewerCommentTimestamp(iso);
+  if (!parsed) return "";
+  return `${parsed.getFullYear()}-${String(parsed.getMonth() + 1).padStart(2, "0")}-${String(parsed.getDate()).padStart(2, "0")}`;
+}
+
+function viewerCommentCardMarkup(item) {
+  const personaId = String(item?.persona_id || "").trim();
+  const name = String(item?.persona_name || "").trim() || i18n.t("app.가상_독자");
+  const body = escapeHtml(item?.comment_text || "").replace(/\r\n|\r|\n/g, "<br>");
+  return `<div class="viewer-comment-card">`
+    + readerAvatarMarkup(personaId, name, "reader-chat-msg-avatar")
+    + `<div class="viewer-comment-card-body">`
+    + `<span class="viewer-comment-card-name">${escapeHtml(name)}</span>`
+    + `<div class="viewer-comment-card-text">${body}</div>`
+    + `</div></div>`;
+}
+
+function syncViewerCommentsHistoryControls() {
+  const gatedOff = !isClusterFeatureVisible("reader_comments");
+  const sceneComplete = Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
+  const enabled = !gatedOff && sceneComplete && viewerCommentsHasHistory;
+  const title = enabled
+    ? i18n.t("app.이_화에서_받은_댓글을_날짜별로_봐요")
+    : i18n.t("app.이_화에서_아직_받은_댓글이_없어요");
+  const expanded = Boolean(enabled && viewerCommentsHistoryOpen);
+  const label = expanded ? i18n.t("app.이전_댓글_숨기기") : i18n.t("app.이전_댓글_보기");
+  ["viewerReaderCommentsHistoryButton", "viewerReaderCommentsHistoryToggle"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.disabled = !enabled;
+    el.setAttribute("aria-expanded", expanded ? "true" : "false");
+    el.setAttribute("title", title);
+    el.textContent = label;
+    el.classList.toggle("is-active", expanded);
+  });
+}
+
+function applyViewerCommentsHistoryAvailability(data) {
+  const batches = viewerReaderCommentBatches(data);
+  const comments = Array.isArray(data?.comments) ? data.comments : [];
+  viewerCommentsHasHistory = Boolean(data?.has_history) || comments.length > 0
+    || batches.some((batch) => (batch?.comments || []).length);
+  viewerCommentsBatchesCache = batches;
+  if (!viewerCommentsHasHistory) viewerCommentsHistoryOpen = false;
+  syncViewerCommentsHistoryControls();
+}
+
+async function prefetchViewerReaderCommentBatches() {
+  if (!assertClusterFeature("reader_comments", { quiet: true })) {
+    viewerCommentsHasHistory = false;
+    viewerCommentsBatchesCache = [];
+    syncViewerCommentsHistoryControls();
+    return;
+  }
+  const sceneId = Number(state.sceneId);
+  if (!sceneId || lastPersistedSceneStatus !== "complete") {
+    viewerCommentsHasHistory = false;
+    viewerCommentsBatchesCache = [];
+    viewerCommentsPrefetchSceneId = 0;
+    syncViewerCommentsHistoryControls();
+    return;
+  }
+  try {
+    const data = await api(`/api/scenes/${sceneId}/reader-comments`);
+    if (Number(state.sceneId) !== sceneId) return;
+    applyViewerCommentsHistoryAvailability(data);
+  } catch (_) { /* keep previous flag */ }
+}
+
+function syncViewerCommentsHistoryToggle(batches) {
+  const list = $("viewerReaderCommentsHistoryList");
+  const items = Array.isArray(batches) ? batches : viewerCommentsBatchesCache;
+  const persisted = items.filter((batch) => (batch?.comments || []).length);
+  syncViewerCommentsHistoryControls();
+  if (!list) return;
+  const show = viewerCommentsHasHistory && viewerCommentsHistoryOpen && persisted.length > 0;
+  list.classList.toggle("hidden", !show);
+  if (!show) {
+    list.innerHTML = "";
+    return;
+  }
+  const dateCounts = new Map();
+  persisted.forEach((batch) => {
+    const key = viewerCommentBatchDateKey(batch.created_at || batch.batch_id);
+    dateCounts.set(key, (dateCounts.get(key) || 0) + 1);
+  });
+  list.innerHTML = persisted.map((batch, index) => {
+    const stamp = batch.created_at || batch.batch_id;
+    const dateKey = viewerCommentBatchDateKey(stamp);
+    const includeTime = (dateCounts.get(dateKey) || 0) > 1;
+    const label = formatViewerCommentBatchLabel(stamp, { includeTime });
+    const cards = (batch.comments || []).map((item) => viewerCommentCardMarkup(item)).join("");
+    const open = index === 0 ? " open" : "";
+    return `<details class="viewer-comments-batch"${open}>`
+      + `<summary class="viewer-comments-batch-summary">${escapeHtml(label)}</summary>`
+      + `<div class="viewer-comments-batch-cards">${cards}</div>`
+      + `</details>`;
+  }).join("");
+  bindReaderAvatarErrors(list);
+}
+
+function toggleViewerCommentsHistory() {
+  if (!viewerCommentsHasHistory) return;
+  const opening = !viewerCommentsHistoryOpen;
+  viewerCommentsHistoryOpen = opening;
+  if (opening) {
+    setViewerCommentsOpen(true);
+    loadViewerReaderComments({ startIfNeeded: false }).catch(handleError);
+    return;
+  }
+  syncViewerCommentsHistoryToggle(viewerCommentsBatchesCache);
+}
+
 function renderViewerReaderComments(data) {
   const list = $("viewerReaderCommentsList");
   const hint = $("viewerReaderCommentsHint");
   if (!list) return;
-  const comments = Array.isArray(data?.comments) ? data.comments : [];
   const expected = Math.max(1, Number(data?.expected) || 3);
   const generating = Boolean(data?.generating);
-  const ready = comments.length;
+  const latest = viewerReaderCommentLatestBatch(data);
+  const current = Array.isArray(latest?.comments) ? latest.comments : [];
+  applyViewerCommentsHistoryAvailability(data);
+  const ready = current.length;
   if (hint) {
     if (generating) {
       hint.textContent = ready >= expected
@@ -40475,17 +42026,7 @@ function renderViewerReaderComments(data) {
       hint.textContent = "";
     }
   }
-  const cards = comments.map((item) => {
-    const personaId = String(item.persona_id || "").trim();
-    const name = String(item.persona_name || "").trim() || i18n.t("app.가상_독자");
-    const body = escapeHtml(item.comment_text || "").replace(/\r\n|\r|\n/g, "<br>");
-    return `<div class="viewer-comment-card">`
-      + readerAvatarMarkup(personaId, name, "reader-chat-msg-avatar")
-      + `<div class="viewer-comment-card-body">`
-      + `<span class="viewer-comment-card-name">${escapeHtml(name)}</span>`
-      + `<div class="viewer-comment-card-text">${body}</div>`
-      + `</div></div>`;
-  });
+  const cards = current.map((item) => viewerCommentCardMarkup(item));
   if (generating) {
     cards.push(
       `<div class="viewer-comment-pending">${
@@ -40497,6 +42038,7 @@ function renderViewerReaderComments(data) {
   }
   list.innerHTML = cards.join("");
   bindReaderAvatarErrors(list);
+  syncViewerCommentsHistoryToggle(viewerCommentsBatchesCache);
   syncViewerCommentsRetryRow(data);
   syncViewerCommentsRefreshRow(data);
 }
@@ -40510,7 +42052,6 @@ async function loadViewerReaderComments(options = {}) {
   if (
     options.startIfNeeded
     && !data?.generating
-    && !(data?.comments || []).length
     && String(data?.last_error_code || "") !== "quota"
   ) {
     try {
@@ -42629,12 +44170,13 @@ function openViewerMode(preferredMode = null, options = {}) {
     viewerSettings.mode = preferredMode;
   }
   syncViewerControlValues();
+  applyTypesetDetailsOpen(isTypesetDetailsOpen(), { persist: false });
   syncViewerScopeTabs();
   setViewerTocOpen(previewSource ? false : viewerTocOpen);
   renderViewerToc();
   setViewerCommentsOpen(previewSource ? false : viewerCommentsOpen);
   if (!previewSource && viewerCommentsOpen && lastPersistedSceneStatus === "complete") {
-    loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
+    loadViewerReaderComments({ startIfNeeded: false }).catch(handleError);
   }
 
   const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t('app.본문');
@@ -42754,24 +44296,31 @@ function setupViewerMode() {
       setViewerMaximized(true, { relayout: false });
     }
   } catch (_) { /* ignore */ }
+  applyTypesetDetailsOpen(isTypesetDetailsOpen(), { persist: false });
 
   // Book icon on format toolbar (right of find)
   $("viewerModeButton")?.addEventListener("click", () => {
+    if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     openViewerMode();
   });
 
   $("viewerReaderCommentsButton")?.addEventListener("click", () => {
     if (!assertClusterFeature("reader_comments")) return;
     if ($("viewerReaderCommentsButton")?.disabled) return;
-    const nextOpen = !viewerCommentsOpen;
-    setViewerCommentsOpen(nextOpen);
-    if (nextOpen) {
-      markReaderCommentsStarted();
-      loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
-    }
+    setViewerCommentsOpen(true);
+    markReaderCommentsStarted();
+    loadViewerReaderComments({ startIfNeeded: true }).catch(handleError);
   });
   $("viewerReaderCommentsClose")?.addEventListener("click", () => {
     setViewerCommentsOpen(false);
+  });
+  $("viewerReaderCommentsHistoryButton")?.addEventListener("click", () => {
+    if ($("viewerReaderCommentsHistoryButton")?.disabled) return;
+    toggleViewerCommentsHistory();
+  });
+  $("viewerReaderCommentsHistoryToggle")?.addEventListener("click", () => {
+    if ($("viewerReaderCommentsHistoryToggle")?.disabled) return;
+    toggleViewerCommentsHistory();
   });
   $("viewerReaderCommentsRefreshButton")?.addEventListener("click", () => {
     const btn = $("viewerReaderCommentsRefreshButton");
@@ -42856,6 +44405,10 @@ function setupViewerMode() {
     const chip = label.closest("[data-typeset-platform]");
     if (chip) startTypesetRename(chip.dataset.typesetPlatform);
   });
+  $("viewerTypesetDetailsToggle")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleTypesetDetailsOpen();
+  });
   $("viewerTypesetNewConfirm")?.addEventListener("click", () => {
     createTypesetPresetFromPop().catch(handleError);
   });
@@ -42871,29 +44424,47 @@ function setupViewerMode() {
     }
   });
 
+  const relayoutTypeset = () => {
+    if (viewerSettings.mode !== "typeset") return;
+    applyViewerLayout();
+  };
   const bindTypesetField = (id) => {
     const el = $(id);
     if (!el) return;
-    const relayout = () => {
-      if (viewerSettings.mode !== "typeset") return;
-      applyViewerLayout();
-    };
-    el.addEventListener("input", relayout);
-    el.addEventListener("change", relayout);
+    el.addEventListener("input", relayoutTypeset);
+    el.addEventListener("change", relayoutTypeset);
   };
-  [
-    "viewerTypesetFont",
-    "viewerTypesetFontSize",
-    "viewerTypesetLineHeight",
-    "viewerTypesetLetterSpacing",
-    "viewerTypesetIndent",
-    "viewerTypesetParaSpacing",
-    "viewerTypesetMarginLeft",
-    "viewerTypesetMarginRight",
-    "viewerTypesetMarginTop",
-    "viewerTypesetMarginBottom",
-    "viewerTypesetViewport",
-  ].forEach(bindTypesetField);
+  bindTypesetField("viewerTypesetFont");
+  document.querySelectorAll("[data-typeset-choice]").forEach((select) => {
+    const remember = () => {
+      if (select.value !== TYPESET_SELECT_CUSTOM) {
+        if (select.dataset.typesetChoice === "indent") {
+          select.dataset.lastNumeric = String(readTypesetIndentPt());
+        } else {
+          select.dataset.lastNumeric = select.value;
+        }
+      }
+    };
+    remember();
+    select.addEventListener("focus", remember);
+    select.addEventListener("change", () => {
+      onTypesetChoiceSelect(select);
+      relayoutTypeset();
+    });
+    const custom = $(`${select.id}Custom`);
+    if (!custom) return;
+    custom.addEventListener("input", relayoutTypeset);
+    custom.addEventListener("change", () => {
+      const kind = select.dataset.typesetChoice;
+      if (kind === "indent") {
+        setTypesetIndentChoice(Number(custom.value), readTypesetFontSizePt());
+      } else {
+        const presets = TYPESET_FIELD_PRESETS[kind];
+        if (presets) setTypesetChoice(select.id, custom.id, Number(custom.value), presets);
+      }
+      relayoutTypeset();
+    });
+  });
 
   $("viewerTypesetSave")?.addEventListener("click", () => {
     saveTypesetPresetFromForm().catch(handleError);
@@ -43269,6 +44840,7 @@ function setupViewerMode() {
 }
 
 function handleToolsAction(action) {
+  if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
   if (action === "import") {
     openImportModal();
     return;
@@ -43325,36 +44897,157 @@ function setBrowserSpellcheckEnabled(enabled) {
   }
 }
 
+const SPELL_APPLY_HIT_MS = 1400;
+let spellApplyRevealTimer = 0;
+
+function unwrapElementKeepText(el) {
+  const parent = el?.parentNode;
+  if (!parent) return;
+  while (el.firstChild) parent.insertBefore(el.firstChild, el);
+  parent.removeChild(el);
+}
+
+function clearSpellApplyHits(editor) {
+  if (spellApplyRevealTimer) {
+    window.clearTimeout(spellApplyRevealTimer);
+    spellApplyRevealTimer = 0;
+  }
+  const roots = [];
+  if (editor) {
+    roots.push(editor);
+  } else {
+    ["sceneContent", "synopsisContent", "synopsisContentB", "splitSceneBodyEditor", "focusWriteEditor"]
+      .forEach((id) => {
+        const el = $(id);
+        if (el) roots.push(el);
+      });
+  }
+  roots.forEach((root) => {
+    root.querySelectorAll("mark.spell-apply-hit").forEach((mark) => unwrapElementKeepText(mark));
+    root.querySelectorAll(".spell-apply-flash").forEach((el) => el.classList.remove("spell-apply-flash"));
+  });
+}
+
+function wrapSpellApplyHitInTextNode(textNode, index, originalLength, replacement) {
+  const parent = textNode?.parentNode;
+  if (!parent) return null;
+  const value = textNode.nodeValue || "";
+  const before = value.slice(0, index);
+  const after = value.slice(index + originalLength);
+  const mark = document.createElement("mark");
+  mark.className = "spell-apply-hit";
+  mark.textContent = replacement;
+  const frag = document.createDocumentFragment();
+  if (before) frag.appendChild(document.createTextNode(before));
+  frag.appendChild(mark);
+  if (after) frag.appendChild(document.createTextNode(after));
+  parent.replaceChild(frag, textNode);
+  return mark;
+}
+
+function scrollRichEditorNodeIntoView(editor, node) {
+  if (!editor || !node) return;
+  const scroller = (typeof getTypewriterScrollParent === "function"
+    ? getTypewriterScrollParent(editor)
+    : null)
+    || editor.closest?.(".manuscript-page")
+    || editor;
+  try {
+    const nodeRect = node.getBoundingClientRect();
+    const scrollerRect = scroller.getBoundingClientRect();
+    if (!nodeRect || !scrollerRect) throw new Error("no rect");
+    const nodeMid = nodeRect.top + Math.max(nodeRect.height, 18) / 2;
+    const viewMid = scrollerRect.top + scrollerRect.height / 2;
+    const nextTop = scroller.scrollTop + (nodeMid - viewMid);
+    if (typeof scroller.scrollTo === "function") {
+      scroller.scrollTo({ top: Math.max(0, nextTop), behavior: "auto" });
+    } else {
+      scroller.scrollTop = Math.max(0, nextTop);
+    }
+  } catch (_) {
+    try {
+      node.scrollIntoView({ block: "center", behavior: "auto", inline: "nearest" });
+    } catch (__) {
+      try { node.scrollIntoView(true); } catch (___) { /* ignore */ }
+    }
+  }
+}
+
+function revealSpellApplyHit(editor, mark) {
+  if (!editor || !mark) return;
+  const block = mark.closest?.("p, li, h1, h2, h3, h4, h5, h6, blockquote, pre, td, th");
+  if (block && editor.contains(block) && block !== editor && !block.classList.contains("ms-dan")) {
+    block.classList.add("spell-apply-flash");
+  }
+  try {
+    editor.focus({ preventScroll: true });
+  } catch (_) {
+    try { editor.focus(); } catch (__) { /* ignore */ }
+  }
+  try {
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(mark);
+    sel.removeAllRanges();
+    sel.addRange(range);
+  } catch (_) { /* ignore */ }
+  scrollRichEditorNodeIntoView(editor, mark);
+  if (typeof syncTypewriterModeView === "function") {
+    try { syncTypewriterModeView(); } catch (_) { /* ignore */ }
+  }
+  if (spellApplyRevealTimer) window.clearTimeout(spellApplyRevealTimer);
+  spellApplyRevealTimer = window.setTimeout(() => {
+    spellApplyRevealTimer = 0;
+    if (block?.isConnected) block.classList.remove("spell-apply-flash");
+    if (!mark.isConnected) return;
+    const textNode = mark.firstChild && mark.firstChild.nodeType === 3 ? mark.firstChild : null;
+    const offset = textNode ? String(textNode.nodeValue || "").length : 0;
+    unwrapElementKeepText(mark);
+    try {
+      const sel = window.getSelection();
+      const range = document.createRange();
+      if (textNode?.parentNode) {
+        range.setStart(textNode, offset);
+        range.collapse(true);
+      } else {
+        return;
+      }
+      sel.removeAllRanges();
+      sel.addRange(range);
+    } catch (_) { /* ignore */ }
+  }, SPELL_APPLY_HIT_MS);
+}
+
 function replaceTextInContentEditable(editor, original, replacement) {
-  if (!editor || !original) return false;
+  if (!editor || !original) return null;
+  clearSpellApplyHits(editor);
   const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT);
   let node = walker.nextNode();
   while (node) {
     const value = node.nodeValue || "";
     const idx = value.indexOf(original);
     if (idx >= 0) {
-      node.nodeValue = value.slice(0, idx) + replacement + value.slice(idx + original.length);
-      return true;
+      return wrapSpellApplyHitInTextNode(node, idx, original.length, replacement);
     }
     node = walker.nextNode();
   }
   // Fallback: plain text replace once (may lose some rich spans if not found in text nodes).
   const plain = editor.innerText || "";
   const at = plain.indexOf(original);
-  if (at < 0) return false;
+  if (at < 0) return null;
   // Last resort: replace first HTML text occurrence carefully
   const html = editor.innerHTML || "";
   const escaped = original.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  const next = html.replace(new RegExp(escaped), () => {
-    // Keep simple text; if original had no tags this is fine.
-    return replacement
-      .replace(/&/g, "&amp;")
-      .replace(/</g, "&lt;")
-      .replace(/>/g, "&gt;");
-  });
-  if (next === html) return false;
+  const safeReplacement = String(replacement)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+  const next = html.replace(new RegExp(escaped), () => (
+    `<mark class="spell-apply-hit">${safeReplacement}</mark>`
+  ));
+  if (next === html) return null;
   editor.innerHTML = next;
-  return true;
+  return editor.querySelector("mark.spell-apply-hit");
 }
 
 function renderSpellcheckResults(payload) {
@@ -43482,11 +45175,12 @@ function setupSpellcheckPanel() {
     if (!err?.original || !suggestion) return;
     const editor = getActiveRichEditor() || $("sceneContent");
     if (!editor) return;
-    const ok = replaceTextInContentEditable(editor, err.original, suggestion);
-    if (!ok) {
+    const mark = replaceTextInContentEditable(editor, err.original, suggestion);
+    if (!mark) {
       toast(i18n.t('app.본문에서_해당_표현을_찾지_못했어요_직접_고'));
       return;
     }
+    revealSpellApplyHit(editor, mark);
     updateEditorPlaceholder(editor);
     if (editor.id === "sceneContent") {
       updateSceneStats();
@@ -43716,6 +45410,11 @@ function setupSceneFeatureBar() {
   setupSceneToolsDrawerDrag();
   $("sceneNotes")?.addEventListener("input", () => {
     updateAuthorNotesBadge();
+    if (state.sceneId) {
+      const text = $("sceneNotes")?.value || "";
+      patchOutlineSceneNotes(state.sceneId, text);
+      syncSceneAuthorNotesListLive(state.sceneId, text);
+    }
   });
   updateAuthorNotesBadge();
   updateReferenceMaterialsBadge();
@@ -43723,11 +45422,7 @@ function setupSceneFeatureBar() {
 
   $("splitViewButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
-    if (!state.sceneId) {
-      toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
-      return;
-    }
-    toggleViewModeMenu("main");
+    applySplitDefaultOrOpenMenu("main");
   });
   $("switchSplitModeButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -43735,6 +45430,24 @@ function setupSceneFeatureBar() {
   });
 
   const onViewModePick = (event) => {
+    const hintBtn = event.target.closest("[data-split-rightclick-hint]");
+    if (hintBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      setSplitRightClickHintHidden(true);
+      closeViewModeMenu();
+      toast(i18n.t("index.우클릭_안내를_숨겼어요"));
+      return;
+    }
+    const defaultBtn = event.target.closest("[data-split-default-set]");
+    if (defaultBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const val = defaultBtn.dataset.splitDefaultSet;
+      setSplitDefaultMode(val === "clear" ? "" : val);
+      closeViewModeMenu();
+      return;
+    }
     const button = event.target.closest("[data-view-mode]");
     if (!button) return;
     event.preventDefault();
@@ -45251,11 +46964,13 @@ function syncOpenSceneToOutlineBinder(patch = {}) {
     : (typeof getEditorPlainText === "function"
       ? firstSentenceFromPlain(getEditorPlainText())
       : null);
+  const nextNotes = patch.notes_md != null ? String(patch.notes_md) : null;
 
   const applyToScene = (scene) => {
     if (!scene || Number(scene.id) !== sceneId) return false;
     if (nextStatus != null) scene.status = nextStatus;
     if (nextTitle != null && nextTitle !== "") scene.title = nextTitle;
+    if (nextNotes != null) scene.notes_md = nextNotes;
     if (isUntitledSceneTitle(scene.title) && nextBodyPreview != null) {
       scene.body_preview = nextBodyPreview;
     }
@@ -45291,9 +47006,11 @@ function syncOpenSceneToOutlineBinder(patch = {}) {
   if (state.scene && Number(state.scene.id || state.sceneId) === sceneId) {
     if (nextStatus != null) state.scene.status = nextStatus;
     if (nextTitle != null && nextTitle !== "") state.scene.title = nextTitle;
+    if (nextNotes != null) state.scene.notes_md = nextNotes;
   }
 
   if (!found) return false;
+  if (typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming()) return true;
   renderOutline(state.outline);
   return true;
 }
@@ -45956,7 +47673,10 @@ function renderOutline(chaptersArg) {
       if (event.detail > 1) return;
       if (isOutlineInlineRenaming()) return;
       const sceneId = button.dataset.scene;
-      if (Number(sceneId) === Number(state.sceneId)) return;
+      if (Number(sceneId) === Number(state.sceneId)) {
+        startRenameScene(sceneId);
+        return;
+      }
       if (outlineSceneOpenTimer) window.clearTimeout(outlineSceneOpenTimer);
       outlineSceneOpenTimer = window.setTimeout(() => {
         outlineSceneOpenTimer = null;
@@ -49098,7 +50818,7 @@ async function createScene(chapterId, options = {}) {
   await loadProject();
   if (scene?.id) {
     await openScene(scene.id, { skipOutlineReload: true, skipEditorFocus: true });
-    requestAnimationFrame(() => startRenameScene(scene.id));
+    window.setTimeout(() => startRenameScene(scene.id), 40);
   }
 }
 
@@ -54811,7 +56531,6 @@ function showSceneEditorPane() {
   renderEpisodeChrome();
   const editor = $("sceneContent");
   if (editor) {
-    editor.setAttribute("contenteditable", "true");
     editor.setAttribute("spellcheck", "true");
     editor.removeAttribute("readonly");
     editor.removeAttribute("disabled");
@@ -54821,22 +56540,32 @@ function showSceneEditorPane() {
     editor.style.visibility = "visible";
     editor.tabIndex = 0;
   }
+  if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
 }
 
 function fillSceneEditorFields(scene) {
   suppressSceneDirty = true;
-  if ($("sceneTitle")) $("sceneTitle").value = scene.title || "";
+  const titleEl = $("sceneTitle");
+  if (titleEl) {
+    titleEl.value = scene.title || "";
+    titleEl.readOnly = false;
+    titleEl.disabled = false;
+  }
   if ($("sceneStatus")) $("sceneStatus").value = scene.status || "idea";
   lastPersistedSceneStatus = scene.status || "idea";
   syncViewerReaderCommentsButton();
   if (lastPersistedSceneStatus !== "complete") {
     if (viewerCommentsOpen) setViewerCommentsOpen(false);
   } else if (viewerCommentsOpen && typeof isViewerOpen === "function" && isViewerOpen()) {
-    loadViewerReaderComments({ startIfNeeded: true }).catch(() => {});
+    loadViewerReaderComments({ startIfNeeded: false }).catch(() => {});
   }
   if ($("sceneSynopsis")) $("sceneSynopsis").value = scene.synopsis_md || "";
   setEditorContent(scene.content_md || "");
   if ($("sceneNotes")) $("sceneNotes").value = scene.notes_md || "";
+  if (scene.id && typeof patchOutlineSceneNotes === "function") {
+    patchOutlineSceneNotes(scene.id, scene.notes_md || "");
+    syncSceneAuthorNotesListLive(scene.id, scene.notes_md || "");
+  }
   updateAuthorNotesBadge();
   updateReferenceMaterialsBadge();
   if ($("sceneGoalMetric")) {
@@ -54850,6 +56579,7 @@ function fillSceneEditorFields(scene) {
   }
   sceneDirty = false;
   suppressSceneDirty = false;
+  if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
 }
 
 async function openScene(sceneId, options = {}) {
@@ -54869,14 +56599,37 @@ async function openScene(sceneId, options = {}) {
   }
 
   // Flush pending edits before leaving the current scene.
-  if (sceneDirty && state.sceneId && state.sceneId !== nextId) {
-    ensureLocalDraftSaved("scene-switch");
-    cancelScheduledAutoSave();
-    try {
-      await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
-    } catch (_) {
-      /* local draft kept for previous scene; continue */
+  // Wait out an in-flight save too: persistScene({ quiet }) returns immediately
+  // while autoSaveInFlight, and applying that result after the switch used to
+  // copy the previous scene's word count / status / title onto the new one.
+  if (state.sceneId && Number(state.sceneId) !== nextId) {
+    if (sceneDirty) {
+      ensureLocalDraftSaved("scene-switch");
+      cancelScheduledAutoSave();
+      try {
+        await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
+      } catch (_) {
+        /* local draft kept for previous scene; continue */
+      }
+    } else {
+      cancelScheduledAutoSave();
     }
+    if (typeof waitForSceneSaveIdle === "function") {
+      await waitForSceneSaveIdle();
+    }
+    if (sceneDirty && state.sceneId && Number(state.sceneId) !== nextId) {
+      try {
+        await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
+      } catch (_) {
+        /* local draft kept for previous scene; continue */
+      }
+      if (typeof waitForSceneSaveIdle === "function") {
+        await waitForSceneSaveIdle();
+      }
+    }
+    // persistScene({ quiet }) may have queued another autosave while in-flight.
+    // Do not let that timer fire against the scene we are about to open.
+    cancelScheduledAutoSave();
   }
   try {
     await flushPendingCodexSaves();
@@ -55018,7 +56771,7 @@ async function openScene(sceneId, options = {}) {
     if (options.skipEditorFocus || isOutlineInlineRenaming()) return;
     const editor = $("sceneContent");
     if (!editor) return;
-    editor.setAttribute("contenteditable", "true");
+    if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
     // Keep focus on find input when searching.
     if (!$("findBar")?.classList.contains("hidden") && document.activeElement === $("findInput")) {
       return;
@@ -56219,38 +57972,264 @@ function startVirtualReaderCommentsFlow() {
   openViewerReaderCommentsFromCta();
 }
 
-const READER_COMMENT_TOAST_SEEN_KEY = "supertory.readerCommentToastSeen";
+const completionGuideShownThisSession = new Set();
+let completeLockHintAt = 0;
+let glumpWritableOverride = null;
 
-function hasSeenReaderCommentToast() {
-  try {
-    return localStorage.getItem(READER_COMMENT_TOAST_SEEN_KEY) === "1";
-  } catch (_) {
-    return false;
+function convertTypographicQuotes(html) {
+  const source = html == null ? "" : String(html);
+  if (!source) return source;
+  const DOUBLE_OPEN = "\u201c";
+  const DOUBLE_CLOSE = "\u201d";
+  const SINGLE_OPEN = "\u2018";
+  const SINGLE_CLOSE = "\u2019";
+  const doubleEntities = ["&quot;", "&#34;", "&#x22;", "&#X22;"];
+  const singleEntities = ["&apos;", "&#39;", "&#x27;", "&#X27;"];
+  const isWordChar = (ch) => Boolean(ch) && (/[0-9A-Za-z_]/.test(ch) || /\p{L}/u.test(ch));
+  const matchEntity = (index, list) => {
+    for (const entity of list) {
+      if (source.startsWith(entity, index)) return entity;
+    }
+    return "";
+  };
+  const nextTextChar = (start) => {
+    let j = start;
+    let nestedTag = false;
+    while (j < source.length) {
+      const ch = source[j];
+      if (nestedTag) {
+        if (ch === ">") nestedTag = false;
+        j += 1;
+        continue;
+      }
+      if (ch === "<") {
+        nestedTag = true;
+        j += 1;
+        continue;
+      }
+      if (matchEntity(j, doubleEntities)) return "\"";
+      if (matchEntity(j, singleEntities)) return "'";
+      return ch;
+    }
+    return "";
+  };
+  let out = "";
+  let i = 0;
+  let inTag = false;
+  let doubleOpen = false;
+  let singleOpen = false;
+  let lastText = "";
+  while (i < source.length) {
+    const ch = source[i];
+    if (inTag) {
+      if (ch === ">") inTag = false;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    if (ch === "<") {
+      inTag = true;
+      out += ch;
+      i += 1;
+      continue;
+    }
+    const doubleEnt = matchEntity(i, doubleEntities);
+    if (doubleEnt || ch === "\"") {
+      i += doubleEnt ? doubleEnt.length : 1;
+      if (doubleOpen) {
+        out += DOUBLE_CLOSE;
+        doubleOpen = false;
+      } else {
+        out += DOUBLE_OPEN;
+        doubleOpen = true;
+      }
+      lastText = out.slice(-1);
+      continue;
+    }
+    const singleEnt = matchEntity(i, singleEntities);
+    if (singleEnt || ch === "'") {
+      i += singleEnt ? singleEnt.length : 1;
+      const nxt = nextTextChar(i);
+      if (isWordChar(lastText) && isWordChar(nxt)) {
+        out += SINGLE_CLOSE;
+      } else if (singleOpen) {
+        out += SINGLE_CLOSE;
+        singleOpen = false;
+      } else {
+        out += SINGLE_OPEN;
+        singleOpen = true;
+      }
+      lastText = out.slice(-1);
+      continue;
+    }
+    out += ch;
+    lastText = ch;
+    i += 1;
   }
+  return out;
 }
 
-function markReaderCommentToastSeen() {
-  try {
-    localStorage.setItem(READER_COMMENT_TOAST_SEEN_KEY, "1");
-  } catch (_) { /* quota */ }
+function isSceneManuscriptLocked() {
+  return String($("sceneStatus")?.value || state.scene?.status || "") === "complete";
 }
 
-function showSceneCompleteReaderCommentsToast() {
-  const firstTime = !hasSeenReaderCommentToast();
-  toast(i18n.t('app.완성_처리됐어요_가상독자_댓글도_받아볼_수'), firstTime ? 0 : 2600, {
-    sticky: firstTime,
-    dismissible: true,
-    detail: firstTime
-      ? i18n.t('app.나중엔_회차_뷰어_안_가상독자_댓글_받기_버')
-      : undefined,
-    action: {
-      label: i18n.t('app.지금_받아보기'),
-      onClick: () => {
-        markReaderCommentToastSeen();
-        startVirtualReaderCommentsFlow();
-      },
-    },
-    onClose: firstTime ? markReaderCommentToastSeen : undefined,
+function isActiveManuscriptCompleteLocked() {
+  if (!isSceneManuscriptLocked()) return false;
+  const active = document.activeElement;
+  return Boolean(active?.closest?.("#sceneContent, #focusWriteEditor"));
+}
+
+function applySceneCompleteLock(options = {}) {
+  if (Object.prototype.hasOwnProperty.call(options, "glumpWritable")) {
+    glumpWritableOverride = options.glumpWritable ? true : false;
+  }
+  const completeLocked = isSceneManuscriptLocked();
+  let glumpLocked = false;
+  if (glumpWritableOverride === false) glumpLocked = true;
+  else if (glumpWritableOverride === true) glumpLocked = false;
+  else {
+    try {
+      glumpLocked = Boolean(glumpSprintState?.locked);
+    } catch (_) {
+      glumpLocked = false;
+    }
+  }
+  const sceneEl = $("sceneContent");
+  if (sceneEl) {
+    const writable = !completeLocked && !glumpLocked;
+    sceneEl.setAttribute("contenteditable", writable ? "true" : "false");
+    sceneEl.classList.toggle("is-complete-locked", completeLocked);
+    sceneEl.setAttribute("aria-readonly", completeLocked ? "true" : "false");
+  }
+  const focusEl = $("focusWriteEditor");
+  if (focusEl) {
+    focusEl.setAttribute("contenteditable", completeLocked ? "false" : "true");
+    focusEl.classList.toggle("is-complete-locked", completeLocked);
+    focusEl.setAttribute("aria-readonly", completeLocked ? "true" : "false");
+  }
+  document.body.classList.toggle("scene-complete-locked", completeLocked);
+}
+
+function showCompleteLockHint() {
+  const now = Date.now();
+  if (now - completeLockHintAt < 2200) return;
+  completeLockHintAt = now;
+  toast(i18n.t("app.완성된_원고는_실수_방지를_위해_보호돼요"), 2800);
+}
+
+function isCompleteLockEditKey(event) {
+  if (event.ctrlKey || event.metaKey) {
+    const key = String(event.key || "").toLowerCase();
+    return key === "v" || key === "x" || key === "z" || key === "y" || key === "b" || key === "i" || key === "u";
+  }
+  if (event.altKey) return false;
+  const key = event.key || "";
+  if ([
+    "Shift", "Control", "Meta", "Alt", "CapsLock", "Tab", "Escape",
+    "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight",
+    "Home", "End", "PageUp", "PageDown",
+  ].includes(key)) return false;
+  if (key.length === 1) return true;
+  return key === "Backspace" || key === "Delete" || key === "Enter";
+}
+
+function setupSceneCompleteLock() {
+  const onAttempt = (event) => {
+    if (!isSceneManuscriptLocked()) return;
+    const editor = event.target?.closest?.("#sceneContent, #focusWriteEditor");
+    if (!editor) return;
+    if (event.type === "keydown") {
+      if (!isCompleteLockEditKey(event)) return;
+      event.preventDefault();
+      showCompleteLockHint();
+      return;
+    }
+    if (event.type === "beforeinput" || event.type === "paste" || event.type === "cut" || event.type === "drop") {
+      event.preventDefault();
+      showCompleteLockHint();
+      return;
+    }
+    if (event.type === "pointerdown" || event.type === "click") {
+      showCompleteLockHint();
+    }
+  };
+  ["sceneContent", "focusWriteEditor"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.addEventListener("keydown", onAttempt);
+    el.addEventListener("beforeinput", onAttempt);
+    el.addEventListener("paste", onAttempt);
+    el.addEventListener("cut", onAttempt);
+    el.addEventListener("drop", onAttempt);
+    el.addEventListener("pointerdown", onAttempt);
+  });
+}
+
+function hideCompletionGuideCard() {
+  $("completionGuideCard")?.classList.add("hidden");
+}
+
+function resetCompletionGuideTraitItem() {
+  const item = $("completionGuideTraitItem");
+  if (!item) return;
+  item.classList.add("hidden");
+  item.textContent = "";
+}
+
+function updateCompletionGuideTraitLine(characters) {
+  const item = $("completionGuideTraitItem");
+  const card = $("completionGuideCard");
+  if (!item || !card || card.classList.contains("hidden")) return;
+  const total = (Array.isArray(characters) ? characters : []).reduce(
+    (sum, entry) => sum + (Number(entry?.count) || 0),
+    0,
+  );
+  if (total <= 0) {
+    resetCompletionGuideTraitItem();
+    return;
+  }
+  item.textContent = i18n.t("app.완성_안내_인물", { count: total });
+  item.classList.remove("hidden");
+}
+
+function isProjectCompletionGuideShown() {
+  const id = Number(state.projectId);
+  if (id && completionGuideShownThisSession.has(id)) return true;
+  if (state.completionGuideShown) return true;
+  const fromList = state.projects?.find((item) => Number(item.id) === id);
+  return Boolean(Number(fromList?.completion_guide_shown));
+}
+
+function markProjectCompletionGuideShownLocal() {
+  const id = Number(state.projectId);
+  if (id) completionGuideShownThisSession.add(id);
+  state.completionGuideShown = true;
+  const fromList = state.projects?.find((item) => Number(item.id) === id);
+  if (fromList) fromList.completion_guide_shown = true;
+}
+
+function maybeShowCompletionGuideOnComplete() {
+  const card = $("completionGuideCard");
+  if (!card || isProjectCompletionGuideShown()) return;
+  markProjectCompletionGuideShownLocal();
+  const projectId = Number(state.projectId);
+  if (projectId) {
+    api(`/api/projects/${projectId}/completion-guide-shown`, {
+      method: "POST",
+      body: "{}",
+    }).catch(() => { /* keep session flag so it does not repeat this visit */ });
+  }
+  resetCompletionGuideTraitItem();
+  card.classList.remove("hidden");
+}
+
+function setupCompletionGuideCard() {
+  $("completionGuideDismissBtn")?.addEventListener("click", () => {
+    hideCompletionGuideCard();
+  });
+  $("completionGuideReaderBtn")?.addEventListener("click", () => {
+    hideCompletionGuideCard();
+    startVirtualReaderCommentsFlow();
   });
 }
 
@@ -56328,6 +58307,7 @@ function watchSceneTraitAnalysis(sceneId) {
       stopSceneTraitAnalysisWatch();
       if (status === "done") {
         const characters = Array.isArray(job?.characters) ? job.characters : [];
+        updateCompletionGuideTraitLine(characters);
         enqueueCharacterTraitToasts(characters);
         if (
           state.characterId &&
@@ -56371,17 +58351,30 @@ function pulseViewerReaderCommentsButtonIfNeeded() {
 
 function syncViewerReaderCommentsButton(options = {}) {
   const btn = $("viewerReaderCommentsButton");
+  const gatedOff = !isClusterFeatureVisible("reader_comments");
+  const sceneId = Number(state.sceneId) || 0;
+  const enabled = !gatedOff && Boolean(sceneId) && lastPersistedSceneStatus === "complete";
   if (btn) {
-    const gatedOff = !isClusterFeatureVisible("reader_comments");
     setClusterFeatureHidden(btn, gatedOff);
-    const enabled = !gatedOff && Boolean(state.sceneId) && lastPersistedSceneStatus === "complete";
     btn.disabled = !enabled;
     btn.title = enabled
       ? i18n.t('app.이_회차에_가상독자_댓글을_받아_봐요')
       : i18n.t('app.회차를_완성으로_바꾸면_가상독자_댓글을_받을');
   }
+  const historyBtn = $("viewerReaderCommentsHistoryButton");
+  if (historyBtn) setClusterFeatureHidden(historyBtn, gatedOff);
+  if (!enabled) {
+    viewerCommentsHasHistory = false;
+    viewerCommentsBatchesCache = [];
+    viewerCommentsPrefetchSceneId = 0;
+  }
+  syncViewerCommentsHistoryControls();
   syncViewerEntryCommentsBadge();
   if (options.pulse) pulseViewerReaderCommentsButtonIfNeeded();
+  if (enabled && sceneId && sceneId !== viewerCommentsPrefetchSceneId) {
+    viewerCommentsPrefetchSceneId = sceneId;
+    prefetchViewerReaderCommentBatches();
+  }
 }
 
 function isReaderCommentsUnusedForOpenScene() {
@@ -56447,6 +58440,14 @@ async function persistScene(options = {}) {
 
   const saveGen = sceneSaveGen;
 
+  const nextStatusPreview = $("sceneStatus")?.value || "draft";
+  if (nextStatusPreview === "complete") {
+    const currentHtml = getEditorContent();
+    const convertedHtml = convertTypographicQuotes(currentHtml);
+    if (convertedHtml !== currentHtml) setEditorContent(convertedHtml);
+  }
+  applySceneCompleteLock();
+
   // 1) LOCAL FIRST — always, before network.
   const body = buildSceneSaveBody(saveNote);
   const localSnap = {
@@ -56471,88 +58472,105 @@ async function persistScene(options = {}) {
     console.warn("[supertory] local draft write failed — still attempting server save");
   }
 
+  const persistSceneId = Number(state.sceneId);
+
   autoSaveInFlight = true;
   if (quiet) {
     setSceneSaveStatus(i18n.t('app.자동_저장_중'));
   }
   try {
-    const saved = await api(`/api/scenes/${state.sceneId}`, {
+    const saved = await api(`/api/scenes/${persistSceneId}`, {
       method: "PUT",
       body: JSON.stringify(body),
     });
+    const stillOpen = Number(state.sceneId) === persistSceneId
+      && state.scene
+      && Number(state.scene.id || persistSceneId) === persistSceneId;
     // Characters are secondary — failure must not discard content that already saved.
-    try {
-      if (sceneCastDirty) {
-        await persistSceneCharacterLinks({ quiet: true });
-      } else {
-        await syncSceneCastFromManuscript({ quiet: true });
+    if (stillOpen) {
+      try {
+        if (sceneCastDirty) {
+          await persistSceneCharacterLinks({ quiet: true });
+        } else {
+          await syncSceneCastFromManuscript({ quiet: true });
+        }
+      } catch (charError) {
+        console.warn("[supertory] character membership save failed", charError);
       }
-    } catch (charError) {
-      console.warn("[supertory] character membership save failed", charError);
     }
-    if (saved && typeof saved === "object") {
+    if (stillOpen && saved && typeof saved === "object") {
       if (saved.row_version != null) state.scene.row_version = saved.row_version;
       if (saved.revision_no != null) state.scene.revision_no = saved.revision_no;
       if (saved.word_count != null) state.scene.word_count = saved.word_count;
       if (saved.status != null) state.scene.status = saved.status;
       if (saved.title != null) state.scene.title = saved.title;
     }
-    if (state.scene) {
+    if (stillOpen && state.scene) {
       state.scene.goal_word_count = body.goal_word_count;
       state.scene.goal_metric = body.goal_metric;
     }
-    if (saveGen !== sceneSaveGen) {
-      sceneDirty = true;
-      scheduleAutoSave();
+    if (stillOpen) {
+      if (saveGen !== sceneSaveGen) {
+        sceneDirty = true;
+        scheduleAutoSave();
+      } else {
+        sceneDirty = false;
+        clearLocalSceneDraft(persistSceneId);
+      }
     } else {
-      sceneDirty = false;
-      clearLocalSceneDraft(state.sceneId);
+      clearLocalSceneDraft(persistSceneId);
     }
     resetAutoSaveFailStreak();
-    // Binder left rail: status / title must match the open scene immediately.
+    // Binder left rail: status / title must match the *saved* scene.
     syncOpenSceneToOutlineBinder({
-      sceneId: state.sceneId,
+      sceneId: persistSceneId,
       status: body.status || saved?.status,
       title: body.title || saved?.title,
+      notes_md: body.notes_md,
     });
-    const revision = state.scene.revision_no ?? "";
-    const words = state.scene.word_count ?? 0;
-    const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-    setSceneSaveStatus(
-      quiet
-        ? `${i18n.t('app.자동_저장됨_stamp_저장본_revisio', {stamp: stamp, revision: revision, words: words})}`
-        : `${i18n.t('app.저장됨_stamp_저장본_revision_w', {stamp: stamp, revision: revision, words: words})}`,
-    );
-    if ($("focusWriteSaveInfo") && isFocusWriteOpen()) {
-      $("focusWriteSaveInfo").textContent = quiet
-        ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}`
-        : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`;
+    if (stillOpen && typeof syncSceneAuthorNotesListLive === "function") {
+      syncSceneAuthorNotesListLive(persistSceneId, body.notes_md);
     }
-    // Keep open tab title in sync with renames.
-    if (state.sceneId) {
+    if (stillOpen) {
+      const revision = state.scene.revision_no ?? "";
+      const words = state.scene.word_count ?? 0;
+      const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      setSceneSaveStatus(
+        quiet
+          ? `${i18n.t('app.자동_저장됨_stamp_저장본_revisio', {stamp: stamp, revision: revision, words: words})}`
+          : `${i18n.t('app.저장됨_stamp_저장본_revision_w', {stamp: stamp, revision: revision, words: words})}`,
+      );
+      if ($("focusWriteSaveInfo") && isFocusWriteOpen()) {
+        $("focusWriteSaveInfo").textContent = quiet
+          ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}`
+          : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`;
+      }
       const title = $("sceneTitle")?.value?.trim() || state.scene?.title || "";
-      if (title) upsertEpisodeTab(state.sceneId, title);
+      if (title) upsertEpisodeTab(persistSceneId, title);
       renderEpisodeChrome();
     }
     // Refresh full-manuscript totals after content is saved.
     scheduleProjectManuscriptStats();
     // Project auto-index: debounce scene_summary regeneration after idle.
     try {
-      scheduleSceneIndexAfterSave(state.sceneId, body.content_md);
+      scheduleSceneIndexAfterSave(persistSceneId, body.content_md);
     } catch (_) { /* ignore */ }
-    const nextStatus = String(body.status || saved?.status || lastPersistedSceneStatus || "");
-    const becameComplete = nextStatus === "complete" && lastPersistedSceneStatus !== "complete";
-    if (nextStatus && nextStatus !== "complete" && state.sceneId) {
-      clearReaderCommentsPulsePlayed(state.sceneId);
+    if (stillOpen) {
+      const nextStatus = String(body.status || saved?.status || lastPersistedSceneStatus || "");
+      const becameComplete = nextStatus === "complete" && lastPersistedSceneStatus !== "complete";
+      if (nextStatus && nextStatus !== "complete") {
+        clearReaderCommentsPulsePlayed(persistSceneId);
+      }
+      lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
+      applySceneCompleteLock();
+      if (becameComplete) {
+        maybeShowCompletionGuideOnComplete();
+        watchSceneTraitAnalysis(persistSceneId);
+        watchSceneItemAnalysis(persistSceneId);
+      }
+      else if (!quiet) toast(i18n.t('app.저장했습니다'));
+      syncViewerReaderCommentsButton({ pulse: becameComplete });
     }
-    lastPersistedSceneStatus = nextStatus || lastPersistedSceneStatus;
-    if (becameComplete) {
-      showSceneCompleteReaderCommentsToast();
-      watchSceneTraitAnalysis(state.sceneId);
-      watchSceneItemAnalysis(state.sceneId);
-    }
-    else if (!quiet) toast(i18n.t('app.저장했습니다'));
-    syncViewerReaderCommentsButton({ pulse: becameComplete });
     return saved;
   } catch (error) {
     // 2) Local already has the manuscript — never treat this as total loss.
@@ -56618,12 +58636,14 @@ function setupSceneAutoSave() {
   $("sceneStatus")?.addEventListener("change", () => {
     const status = $("sceneStatus")?.value || "draft";
     syncOpenSceneToOutlineBinder({ status });
+    applySceneCompleteLock();
     markSceneDirty();
   });
   // Some browsers fire input on <select> when using keyboard; keep binder in sync.
   $("sceneStatus")?.addEventListener("input", () => {
     const status = $("sceneStatus")?.value || "draft";
     syncOpenSceneToOutlineBinder({ status });
+    applySceneCompleteLock();
   });
   // Title renames also reflect on the binder list (live, while typing ends on change/blur).
   $("sceneTitle")?.addEventListener("change", () => {
@@ -57815,6 +59835,158 @@ function allScenes() {
 }
 
 const SPLIT_EDIT_STORAGE_KEY = "supertory.splitEditEnabled";
+const SPLIT_DEFAULT_MODE_KEY = "supertory.splitDefaultMode";
+const SPLIT_RIGHTCLICK_HINT_KEY = "supertory.splitRightClickHintHidden";
+let splitDefaultMenuPoint = { x: 0, y: 0 };
+
+function normalizeSplitDefaultMode(value) {
+  const mode = String(value || "").trim();
+  return mode === "popup" || mode === "split" ? mode : "";
+}
+
+function getSplitDefaultMode() {
+  try {
+    return normalizeSplitDefaultMode(localStorage.getItem(SPLIT_DEFAULT_MODE_KEY));
+  } catch (_) {
+    return "";
+  }
+}
+
+function isSplitRightClickHintHidden() {
+  try {
+    return localStorage.getItem(SPLIT_RIGHTCLICK_HINT_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function setSplitRightClickHintHidden(hidden) {
+  try {
+    if (hidden) localStorage.setItem(SPLIT_RIGHTCLICK_HINT_KEY, "1");
+    else localStorage.removeItem(SPLIT_RIGHTCLICK_HINT_KEY);
+  } catch (_) { /* ignore */ }
+  if (typeof updateSplitChrome === "function") updateSplitChrome();
+  if (typeof syncSplitModeMenuExtras === "function") syncSplitModeMenuExtras();
+}
+
+function syncSplitModeMenuExtras() {
+  const current = getSplitDefaultMode();
+  const hideHint = isSplitRightClickHintHidden();
+  document.querySelectorAll("#viewModeDropdown, #splitModeDropdown").forEach((menu) => {
+    menu.querySelectorAll("[data-split-default-set]").forEach((btn) => {
+      const val = btn.dataset.splitDefaultSet;
+      btn.classList.toggle("is-active", val === current);
+    });
+    menu.querySelectorAll("[data-split-rightclick-hint]").forEach((btn) => {
+      btn.classList.toggle("hidden", hideHint);
+    });
+  });
+}
+
+function splitDefaultButtonTitle() {
+  const mode = getSplitDefaultMode();
+  const hintHidden = isSplitRightClickHintHidden();
+  if (mode === "popup") {
+    return hintHidden
+      ? i18n.t("index.분할_기본_팝업으로_보기")
+      : i18n.t("index.분할_기본_팝업으로_보기_우클릭으로_변경_해제");
+  }
+  if (mode === "split") {
+    return hintHidden
+      ? i18n.t("index.분할_기본_화면_나누기")
+      : i18n.t("index.분할_기본_화면_나누기_우클릭으로_변경_해제");
+  }
+  return i18n.t("app.분할_다른_회차를_화면_나누기_또는_팝업으로");
+}
+
+function syncAdminSplitDefaultRadios() {
+  const current = getSplitDefaultMode() || "ask";
+  document.querySelectorAll('input[name="adminSplitDefaultMode"]').forEach((input) => {
+    input.checked = input.value === current;
+  });
+}
+
+function setSplitDefaultMode(mode, { toastMsg = true } = {}) {
+  const next = normalizeSplitDefaultMode(mode);
+  try {
+    if (next) localStorage.setItem(SPLIT_DEFAULT_MODE_KEY, next);
+    else localStorage.removeItem(SPLIT_DEFAULT_MODE_KEY);
+  } catch (_) { /* ignore */ }
+  syncAdminSplitDefaultRadios();
+  if (typeof updateSplitChrome === "function") updateSplitChrome();
+  if (typeof syncSplitModeMenuExtras === "function") syncSplitModeMenuExtras();
+  if (!toastMsg) return;
+  if (next === "popup") toast(i18n.t("index.기본_보기_방식을_팝업으로_저장했어요"));
+  else if (next === "split") toast(i18n.t("index.기본_보기_방식을_화면_나누기로_저장했어요"));
+  else toast(i18n.t("index.기본_보기_방식을_해제했어요"));
+}
+
+function hideSplitDefaultChangeMenu() {
+  $("splitDefaultChangeMenu")?.classList.add("hidden");
+  if (typeof activeTooltipId !== "undefined" && activeTooltipId === "split-default") activeTooltipId = null;
+}
+
+function openSplitDefaultChangeMenu(clientX, clientY) {
+  const menu = $("splitDefaultChangeMenu");
+  if (!menu) return;
+  if (typeof setActiveTooltip === "function") setActiveTooltip("split-default");
+  const current = getSplitDefaultMode();
+  menu.querySelectorAll("[data-split-default-set]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.splitDefaultSet === current);
+  });
+  if (typeof applyTranslations === "function") applyTranslations();
+  placeContextMenuEl(menu, clientX, clientY);
+}
+
+function splitDefaultContextExtras() {
+  if (isSplitRightClickHintHidden()) return [];
+  const current = getSplitDefaultMode();
+  return [
+    {
+      label: i18n.t("index.기본값_변경"),
+      hint: current === "popup"
+        ? i18n.t("index.지금_기본_팝업으로_보기")
+        : (current === "split"
+          ? i18n.t("index.지금_기본_화면_나누기")
+          : i18n.t("index.화면_나누기_또는_팝업으로_보기")),
+      run: () => openSplitDefaultChangeMenu(splitDefaultMenuPoint.x, splitDefaultMenuPoint.y),
+    },
+    {
+      label: i18n.t("index.기본값_해제"),
+      hint: i18n.t("index.분할할_때마다_방식을_고릅니다"),
+      run: () => {
+        if (!getSplitDefaultMode()) {
+          toast(i18n.t("index.지정된_기본_보기_방식이_없어요"));
+          return;
+        }
+        setSplitDefaultMode("");
+      },
+    },
+  ];
+}
+
+function isSplitDefaultControl(el) {
+  if (!el?.closest) return false;
+  if (el.closest("#viewModeDropdown, #splitModeDropdown, #splitDefaultChangeMenu")) return false;
+  return Boolean(el.closest("#splitViewButton, #formatSplitControl, #focusWriteSplitButton"));
+}
+
+function applySplitDefaultOrOpenMenu(which = "main") {
+  if (!state.sceneId) {
+    toast(i18n.t("app.먼저_목차에서_씬_하나를_열어_주세요"));
+    return;
+  }
+  const def = getSplitDefaultMode();
+  if (def === "split" || def === "popup") {
+    if (state.splitEnabled) {
+      closeSplitView().catch(handleError);
+      return;
+    }
+    handleViewModeChoice(def).catch(handleError);
+    return;
+  }
+  toggleViewModeMenu(which);
+}
 
 function loadSplitEditPreference() {
   try {
@@ -57836,8 +60008,8 @@ function setSplitEditEnabled(enabled, options = {}) {
   applySplitEditMode();
   if (changed && !options.silent) {
     toast(next
-      ? i18n.t('app.분할_자유_편집을_켰어요_끄기_전까지_유지됩')
-      : i18n.t('app.분할_자유_편집을_껐어요_읽기_전용입니다'));
+      ? i18n.t('app.편집모드로_바꿨어요')
+      : i18n.t('app.읽기모드로_바꿨어요'));
   }
 }
 
@@ -57845,7 +60017,9 @@ function applySplitEditMode() {
   const viewer = $("splitViewer");
   const body = $("splitSceneBodyEditor");
   const title = $("splitSceneTitleInput");
-  const btn = $("toggleSplitEditButton");
+  const group = $("splitEditModeGroup");
+  const readBtn = $("splitReadModeButton");
+  const editBtn = $("splitEditModeButton");
   const sourceMode = state.splitEnabled && state.splitKind === "source";
   const on = Boolean(state.splitEditEnabled && state.splitEnabled && !sourceMode);
   viewer?.classList.toggle("split-edit-on", on);
@@ -57857,19 +60031,16 @@ function applySplitEditMode() {
     title.readOnly = !on;
     title.tabIndex = on ? 0 : -1;
   }
-  if (btn) {
-    btn.classList.toggle("is-on", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
-    btn.classList.toggle("hidden", sourceMode);
+  if (group) group.classList.toggle("hidden", sourceMode);
+  const syncSeg = (btn, selected) => {
+    if (!btn) return;
+    btn.classList.toggle("is-active", selected);
+    btn.setAttribute("aria-checked", selected ? "true" : "false");
+    btn.setAttribute("aria-pressed", selected ? "true" : "false");
     btn.disabled = sourceMode;
-    // Short labels fit between "함께볼 회차" and the split-mode control.
-    btn.textContent = on ? i18n.t('app.편집_중') : i18n.t('app.자유_편집');
-    btn.title = sourceMode
-      ? i18n.t('app.참고자료는_패널_안_편집_버튼으로_수정하세요')
-      : on
-        ? i18n.t('app.자유_편집_켜짐_누르면_읽기_전용으로_돌아갑')
-        : i18n.t('app.함께보는_회차를_자유롭게_편집합니다_한_번');
-  }
+  };
+  syncSeg(readBtn, !on);
+  syncSeg(editBtn, on);
   if (sourceMode) applySplitSourceEditUi();
 }
 
@@ -57995,7 +60166,9 @@ async function persistSplitScene(options = {}) {
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setSplitSaveStatus(quiet ? `${i18n.t('app.자동_저장됨_stamp', {stamp: stamp})}` : `${i18n.t('app.저장됨_stamp', {stamp: stamp})}`);
     // Refresh outline titles if this scene is listed.
-    loadProject().catch(() => { /* ignore */ });
+    if (!(typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming())) {
+      loadProject().catch(() => { /* ignore */ });
+    }
     if (!quiet) toast(i18n.t('app.함께보는_회차를_저장했습니다'));
     return saved;
   } catch (error) {
@@ -58090,23 +60263,40 @@ function updateSplitChrome() {
   const focusBtn = $("focusWriteSplitButton");
   const switchBtn = $("switchSplitModeButton");
   const viewer = $("splitViewer");
+  const def = getSplitDefaultMode();
   const syncMainLike = (btn, { iconOnly = false } = {}) => {
     if (!btn) return;
-    if (!state.splitEnabled) {
-      if (!iconOnly) btn.textContent = i18n.t('app.분할');
-      btn.title = i18n.t('app.분할_다른_회차를_화면_나누기_또는_팝업으로');
-      btn.classList.remove("is-active");
-      btn.disabled = !state.sceneId;
+    btn.disabled = !state.sceneId && !state.splitEnabled;
+    btn.classList.toggle("is-active", Boolean(state.splitEnabled));
+    const labelEl = btn.querySelector(".format-tool-label");
+    if (def) {
+      const labelKey = state.splitEnabled ? "index.끄기" : "index.켜기";
+      if (iconOnly && labelEl) {
+        labelEl.setAttribute("data-i18n", labelKey);
+        labelEl.textContent = i18n.t(labelKey);
+      } else if (!iconOnly) {
+        btn.textContent = i18n.t(labelKey);
+      }
+      btn.title = state.splitEnabled ? i18n.t("index.분할_끄기") : splitDefaultButtonTitle();
+      btn.setAttribute("aria-label", i18n.t(labelKey));
       return;
     }
-    btn.disabled = false;
-    btn.classList.add("is-active");
+    if (labelEl) {
+      labelEl.setAttribute("data-i18n", "index.분할");
+      labelEl.textContent = i18n.t("index.분할");
+    }
+    btn.setAttribute("aria-label", i18n.t("index.분할"));
+    if (!state.splitEnabled) {
+      if (!iconOnly) btn.textContent = i18n.t("app.분할");
+      btn.title = splitDefaultButtonTitle();
+      return;
+    }
     if (state.splitMode === "popup") {
-      if (!iconOnly) btn.textContent = i18n.t('app.팝업_중');
-      btn.title = i18n.t('app.팝업으로_보는_중_Ctrl_Alt_S_화면');
+      if (!iconOnly) btn.textContent = i18n.t("app.팝업_중");
+      btn.title = i18n.t("app.팝업으로_보는_중_Ctrl_Alt_S_화면");
     } else {
-      if (!iconOnly) btn.textContent = i18n.t('app.화면_나누기_중');
-      btn.title = i18n.t('app.화면_나누기_중_Ctrl_Alt_P_팝업_E');
+      if (!iconOnly) btn.textContent = i18n.t("app.화면_나누기_중");
+      btn.title = i18n.t("app.화면_나누기_중_Ctrl_Alt_P_팝업_E");
     }
   };
   if (!state.splitEnabled) {
@@ -58358,7 +60548,7 @@ function clearSplitPrimaryPaneLayout() {
 const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";
 const SPLIT_LEFT_MIN = 240;
 const SPLIT_RIGHT_MIN = 200;
-const SPLIT_HANDLE = 28; // layout gutter = full click/hover hit (do not overflow into panes)
+const SPLIT_HANDLE = 12; // layout gutter = full click/hover hit (do not overflow into panes)
 const FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY = "supertory.focusSplitRightWidth";
 const FOCUS_SPLIT_RIGHT_MIN = 200;
 const FOCUS_SPLIT_LEFT_MIN = 280;
@@ -58777,7 +60967,7 @@ function setupSplitEditMode() {
   loadSplitEditPreference();
   applySplitEditMode();
 
-  $("toggleSplitEditButton")?.addEventListener("click", async () => {
+  const chooseSplitEditMode = async (wantEdit) => {
     if (!state.splitEnabled) {
       toast(i18n.t('app.먼저_분할을_켜_주세요'));
       return;
@@ -58786,17 +60976,24 @@ function setupSplitEditMode() {
       toast(i18n.t('app.참고자료_파일은_뷰어_전용이에요_수정할_수'));
       return;
     }
-    if (state.splitEditEnabled) {
-      await flushSplitEdits();
-      setSplitEditEnabled(false);
-      setSplitSaveStatus(i18n.t('app.읽기_전용'));
-    } else {
+    if (Boolean(wantEdit) === Boolean(state.splitEditEnabled)) return;
+    if (wantEdit) {
       setSplitEditEnabled(true);
       setSplitSaveStatus(i18n.t('app.편집_가능'));
       requestAnimationFrame(() => {
         $("splitSceneBodyEditor")?.focus();
       });
+      return;
     }
+    await flushSplitEdits();
+    setSplitEditEnabled(false);
+    setSplitSaveStatus(i18n.t('app.읽기_전용'));
+  };
+
+  $("splitEditModeGroup")?.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("[data-split-edit]");
+    if (!btn || btn.disabled) return;
+    chooseSplitEditMode(btn.getAttribute("data-split-edit") === "edit").catch(handleError);
   });
 
   $("splitSceneTitleInput")?.addEventListener("input", () => {
@@ -60359,12 +62556,14 @@ async function submitImport(event) {
 function openAdminModal(tab = null) {
   closeCreateMenu();
   hideUiFeatureContextMenu();
+  hideSplitDefaultChangeMenu();
   $("adminModal")?.classList.remove("hidden");
   const langSel = $("adminLangSelect");
   if (langSel && typeof i18n !== "undefined" && typeof i18n.getLang === "function") {
     langSel.value = i18n.getLang();
   }
   if (tab) setAdminTab(tab);
+  syncAdminSplitDefaultRadios();
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
   refreshAdminInfoPanel();
@@ -60399,6 +62598,7 @@ function setAdminTab(tabId) {
     renderAdminThemeList();
     renderHiddenFeaturesList();
     if (typeof renderAdminAmbientList === "function") renderAdminAmbientList();
+    syncAdminSplitDefaultRadios();
   }
   if (id === "info") {
     refreshAdminInfoPanel();
@@ -60690,6 +62890,7 @@ async function deleteProjectFromAdmin(projectId) {
     state.itemId = null;
     state.item = null;
     state.ideas = [];
+    closeAllIdeaFloats();
     state.baits = [];
     $("characterEditor")?.classList.add("hidden");
     $("sceneWorkspace")?.classList.add("hidden");
@@ -60850,6 +63051,187 @@ function setupAutoUpdateUi() {
       btn.disabled = false;
     }
   });
+}
+
+/* —— Single-active icon guide / tooltip (left-click menus + right-click + hover) —— */
+let activeTooltipId = null;
+let iconGuideTooltipTimer = 0;
+let iconGuideTooltipAnchor = null;
+
+function hideIconGuideTooltip() {
+  if (iconGuideTooltipTimer) {
+    window.clearTimeout(iconGuideTooltipTimer);
+    iconGuideTooltipTimer = 0;
+  }
+  const tip = $("iconGuideTooltip");
+  if (tip) {
+    tip.classList.add("hidden");
+    tip.textContent = "";
+  }
+  if (iconGuideTooltipAnchor?.dataset?.iconTipParked) {
+    iconGuideTooltipAnchor.setAttribute("title", iconGuideTooltipAnchor.dataset.iconTipParked);
+    delete iconGuideTooltipAnchor.dataset.iconTipParked;
+  }
+  iconGuideTooltipAnchor = null;
+  if (activeTooltipId === "hover-tip") activeTooltipId = null;
+}
+
+function placeIconGuideTooltip(anchor, text) {
+  const tip = $("iconGuideTooltip");
+  if (!tip || !anchor || !text) return;
+  tip.textContent = text;
+  tip.classList.remove("hidden");
+  const pad = 8;
+  const rect = anchor.getBoundingClientRect();
+  const tw = tip.offsetWidth || 180;
+  const th = tip.offsetHeight || 36;
+  let left = rect.left + (rect.width / 2) - (tw / 2);
+  let top = rect.bottom + 6;
+  if (left < pad) left = pad;
+  if (left + tw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - tw - pad);
+  if (top + th > window.innerHeight - pad) top = Math.max(pad, rect.top - th - 6);
+  tip.style.left = `${Math.round(left)}px`;
+  tip.style.top = `${Math.round(top)}px`;
+}
+
+function closeIconGuidePopovers(exceptId = "") {
+  hideIconGuideTooltip();
+  if (exceptId !== "analyze" && typeof closeAnalyzeMenu === "function") closeAnalyzeMenu();
+  if (exceptId !== "split" && typeof closeViewModeMenu === "function") closeViewModeMenu();
+  if (exceptId !== "ui-feature") hideUiFeatureContextMenu();
+  if (exceptId !== "split-default" && typeof hideSplitDefaultChangeMenu === "function") {
+    hideSplitDefaultChangeMenu();
+  }
+  if (exceptId !== "color-palette" && typeof hideFormatColorPalette === "function") {
+    hideFormatColorPalette();
+  }
+  if (exceptId !== "list-palette" && typeof hideFormatListPalette === "function") {
+    hideFormatListPalette();
+  }
+  if (exceptId !== "special-palette" && typeof hideFormatSpecialPalette === "function") {
+    hideFormatSpecialPalette();
+  }
+  if (exceptId !== "persona" && typeof hideToryPersonaMenu === "function") {
+    hideToryPersonaMenu();
+  }
+  activeTooltipId = exceptId || null;
+}
+
+function setActiveTooltip(id) {
+  const next = String(id || "").trim();
+  if (!next) {
+    closeIconGuidePopovers("");
+    return null;
+  }
+  if (activeTooltipId && activeTooltipId !== next) {
+    closeIconGuidePopovers(next);
+  } else if (next !== "hover-tip") {
+    hideIconGuideTooltip();
+  }
+  activeTooltipId = next;
+  return next;
+}
+
+function iconGuideTooltipText(el) {
+  if (!el) return "";
+  return String(el.dataset?.iconTipParked || el.getAttribute("title") || "").trim();
+}
+
+function parkNativeTitle(el) {
+  if (!el || el.dataset.iconTipParked) return;
+  const title = (el.getAttribute("title") || "").trim();
+  if (!title) return;
+  el.dataset.iconTipParked = title;
+  el.removeAttribute("title");
+}
+
+function restoreNativeTitle(el) {
+  if (!el?.dataset?.iconTipParked) return;
+  el.setAttribute("title", el.dataset.iconTipParked);
+  delete el.dataset.iconTipParked;
+}
+
+function iconGuideAnchorFromEvent(event) {
+  const target = event.target;
+  if (!target?.closest) return null;
+  if (target.closest(".view-mode-dropdown, #analyzeMenuDropdown, #uiFeatureContextMenu, #iconGuideTooltip")) {
+    return null;
+  }
+  return target.closest([
+    ".format-toolbar-row-icons .format-tool-item",
+    ".format-toolbar-row-format .format-btn",
+    ".format-toolbar-row-format .format-tool-item",
+    ".format-toolbar-row-format [data-color-kind]",
+    "#focusWriteSplitButton",
+    "#focusWriteButton",
+    "#analyzeMenuButton",
+    "#splitViewButton",
+  ].join(", "));
+}
+
+function setupIconGuideTooltips() {
+  if (document.documentElement.dataset.iconGuideBound === "1") return;
+  document.documentElement.dataset.iconGuideBound = "1";
+  const onEnter = (event) => {
+    const anchor = iconGuideAnchorFromEvent(event);
+    if (!anchor) return;
+    if (iconGuideTooltipTimer) {
+      window.clearTimeout(iconGuideTooltipTimer);
+      iconGuideTooltipTimer = 0;
+    }
+    if (iconGuideTooltipAnchor && iconGuideTooltipAnchor !== anchor) {
+      restoreNativeTitle(iconGuideTooltipAnchor);
+      hideIconGuideTooltip();
+    }
+    parkNativeTitle(anchor);
+    const text = iconGuideTooltipText(anchor);
+    if (!text) return;
+    iconGuideTooltipTimer = window.setTimeout(() => {
+      iconGuideTooltipTimer = 0;
+      if (activeTooltipId && activeTooltipId !== "hover-tip") return;
+      setActiveTooltip("hover-tip");
+      iconGuideTooltipAnchor = anchor;
+      placeIconGuideTooltip(anchor, text);
+    }, 420);
+  };
+  const onLeave = (event) => {
+    const anchor = iconGuideAnchorFromEvent(event);
+    if (!anchor) return;
+    const related = event.relatedTarget;
+    if (related && anchor.contains(related)) return;
+    if (iconGuideTooltipTimer) {
+      window.clearTimeout(iconGuideTooltipTimer);
+      iconGuideTooltipTimer = 0;
+    }
+    restoreNativeTitle(anchor);
+    if (iconGuideTooltipAnchor === anchor) hideIconGuideTooltip();
+  };
+  const onDown = (event) => {
+    const anchor = iconGuideAnchorFromEvent(event);
+    if (!anchor) return;
+    hideIconGuideTooltip();
+    restoreNativeTitle(anchor);
+  };
+  document.addEventListener("pointerover", (event) => {
+    const anchor = iconGuideAnchorFromEvent(event);
+    if (!anchor) return;
+    const from = event.relatedTarget;
+    if (from && (from === anchor || anchor.contains(from))) return;
+    onEnter(event);
+  });
+  document.addEventListener("pointerout", (event) => {
+    const anchor = iconGuideAnchorFromEvent(event);
+    if (!anchor) return;
+    const to = event.relatedTarget;
+    if (to && (to === anchor || anchor.contains(to))) return;
+    onLeave(event);
+  });
+  document.addEventListener("pointerdown", onDown, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeIconGuidePopovers("");
+  });
+  window.addEventListener("scroll", () => hideIconGuideTooltip(), true);
+  window.addEventListener("resize", () => hideIconGuideTooltip());
 }
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
@@ -61183,6 +63565,7 @@ function setUiFeatureCtxTarget(el) {
 function hideUiFeatureContextMenu() {
   $("uiFeatureContextMenu")?.classList.add("hidden");
   uiFeatureCtxMenuTarget = null;
+  if (typeof activeTooltipId !== "undefined" && activeTooltipId === "ui-feature") activeTooltipId = null;
 }
 
 function placeContextMenuEl(menu, clientX, clientY) {
@@ -61209,6 +63592,8 @@ function placeContextMenuEl(menu, clientX, clientY) {
 function showUiFeatureContextMenu(x, y, el, extraItems = []) {
   const menu = $("uiFeatureContextMenu");
   if (!menu || !el) return;
+  if (typeof setActiveTooltip === "function") setActiveTooltip("ui-feature");
+  hideSplitDefaultChangeMenu();
   uiFeatureCtxMenuTarget = el;
   setUiFeatureCtxTarget(el);
   const labelEl = $("uiFeatureContextLabel");
@@ -61286,6 +63671,15 @@ function onGlobalUiFeatureContextMenu(event) {
 
   event.preventDefault();
   event.stopPropagation();
+
+  if (isSplitDefaultControl(el)) {
+    const btn = el.closest?.("#splitViewButton, #focusWriteSplitButton") || el;
+    closeViewModeMenu();
+    splitDefaultMenuPoint = { x: event.clientX, y: event.clientY };
+    setUiFeatureCtxTarget(btn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, splitDefaultContextExtras());
+    return;
+  }
 
   const formatListBtn = el.closest?.(".format-list-btn, [data-format='list']") || (el.dataset?.format === "list" ? el : null);
   const formatColorBtn = el.closest?.("[data-color-kind]") || (el.dataset?.colorKind ? el : null);
@@ -61383,6 +63777,20 @@ function setupUiFeatureHideSystem() {
     onUiFeatureHideAction();
   });
 
+  $("splitDefaultChangeMenu")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-split-default-set]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    hideSplitDefaultChangeMenu();
+    setSplitDefaultMode(btn.dataset.splitDefaultSet);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (event.target.closest?.("#splitDefaultChangeMenu, #uiFeatureContextMenu")) return;
+    hideSplitDefaultChangeMenu();
+  });
+
   document.addEventListener("click", (event) => {
     const hideBtn = event.target.closest?.("[data-ui-feature-hide]");
     if (!hideBtn) return;
@@ -61398,7 +63806,10 @@ function setupUiFeatureHideSystem() {
     hideUiFeatureContextMenu();
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideUiFeatureContextMenu();
+    if (event.key === "Escape") {
+      hideUiFeatureContextMenu();
+      hideSplitDefaultChangeMenu();
+    }
   });
 
   let featureHideApplyTimer = null;
@@ -62272,6 +64683,12 @@ function setupAdminMode() {
   $("adminPrimaryDeviceSave")?.addEventListener("click", () => {
     saveAdminPrimaryDevice().catch(handleError);
   });
+  document.querySelectorAll('input[name="adminSplitDefaultMode"]').forEach((input) => {
+    input.addEventListener("change", () => {
+      const value = input.value === "ask" ? "" : input.value;
+      setSplitDefaultMode(value);
+    });
+  });
   document.querySelectorAll("[data-close-admin]").forEach((el) => {
     el.addEventListener("click", closeAdminModal);
   });
@@ -62348,6 +64765,7 @@ function setupAdminMode() {
     deleteProjectFromAdmin(delBtn.dataset.adminDeleteProject).catch(handleError);
   });
   setupUiFeatureHideSystem();
+  setupIconGuideTooltips();
   renderAdminHelpManual();
   renderAdminHelpQa();
   refreshAdminInfoPanel();
@@ -62373,8 +64791,8 @@ const UI_THEME_PRESETS = [
   {
     id: "sand",
     emoji: "☀️",
-    short: i18n.t('app.주간'),
-    title: i18n.t('app.주간'),
+    short: i18n.t('app.라이트'),
+    title: i18n.t('app.라이트'),
     tone: i18n.t('app.오트밀_샌드_따뜻한_베이지'),
     blurb: i18n.t('app.이전_연베이지_오트밀_기본_톤을_그대로_쓸'),
     recommend: i18n.t('app.따뜻하고_부드러운_베이지_분위기를_원할_때'),
@@ -62383,8 +64801,8 @@ const UI_THEME_PRESETS = [
   {
     id: "dark",
     emoji: "🌙",
-    short: i18n.t('app.야간'),
-    title: i18n.t('app.야간'),
+    short: i18n.t('app.다크'),
+    title: i18n.t('app.다크'),
     tone: i18n.t('app.다크_모드'),
     blurb: i18n.t('app.기본_다크_모드_작성_화면_바탕_기본은_R6'),
     recommend: i18n.t('app.기본_야간_다크_화면으로_전환합니다'),
@@ -62439,6 +64857,16 @@ const UI_THEME_PRESETS = [
     tone: i18n.t('app.네이비_차콜_야간_눈부심_방지'),
     blurb: i18n.t('app.야간_작업_시_눈부심을_완벽하게_잡아줘요_작'),
     recommend: i18n.t('app.밤늦게_조명을_낮추고_작업하는_야간_집필용'),
+    dark: true,
+  },
+  {
+    id: "deep-dark",
+    emoji: "🌑",
+    short: i18n.t('app.딥다크'),
+    title: i18n.t('app.딥다크'),
+    tone: i18n.t('app.초저명도_다크그레이'),
+    blurb: i18n.t('app.완전_검정에_가까운_다크그레이로_영역을_단색'),
+    recommend: i18n.t('app.빛_번짐을_최소화한_야간_집필용'),
     dark: true,
   },
   {
@@ -62556,6 +64984,7 @@ const UI_THEME_SWATCH = {
   library: { bg: "#E1E6EB", fg: "#526D82" },
   classroom: { bg: "#B8956A", fg: "#3E6B4A" },
   attic: { bg: "#1A2030", fg: "#C8D0E0" },
+  "deep-dark": { bg: "#121212", fg: "#E8E8E8" },
   eink: { bg: "#FFFFFF", fg: "#000000" },
   "cloud-walk": { bg: "#B8D4F0", fg: "#FFFFFF" },
   "spring-garden": { bg: "#FBF0F2", fg: "#B88692" },
@@ -62578,7 +65007,7 @@ function updateUiThemeToggleButton(theme) {
   button.setAttribute("aria-label", open
     ? `${i18n.t('app.테마_선택_닫기_지금은_label', {label: label})}`
     : `${i18n.t('app.테마_선택_지금은_label', {label: label})}`);
-  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog", "daydream"];
+  const iconIds = ["light", "sand", "dark", "cabin", "study", "library", "classroom", "attic", "deep-dark", "eink", "cloud-walk", "spring-garden", "sunset-window", "silver-fog", "daydream"];
   iconIds.forEach((id) => {
     button.querySelector(`.theme-icon-${id}`)?.classList.toggle("hidden", id !== current);
   });
@@ -62605,7 +65034,11 @@ const UI_THEME_SWITCH_TIP_LINES = [
 
 function ensureUiThemeRailFilled() {
   const rail = $("uiThemeRail");
-  if (!rail || rail.dataset.filled === "1") return rail;
+  if (!rail) return rail;
+  if (rail.parentElement !== document.body) {
+    document.body.appendChild(rail);
+  }
+  if (rail.dataset.filled === "1") return rail;
   const tip = `<div class="ui-theme-rail-tip"><span class="theme-switch-tip-mark" aria-hidden="true">💡</span><div class="theme-switch-tip-copy">${UI_THEME_SWITCH_TIP_LINES.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}</div></div>`;
   const rows = UI_THEME_GROUPS.map((group) => {
     const chips = group.themes.map((item) => {
@@ -62653,29 +65086,39 @@ function positionUiThemeRail() {
   const rail = $("uiThemeRail");
   const button = $("uiThemeToggleButton");
   if (!rail || !button) return;
+  if (rail.parentElement !== document.body) {
+    document.body.appendChild(rail);
+  }
   const rect = button.getBoundingClientRect();
   const pad = 8;
   const wasOpen = rail.classList.contains("is-open");
+  rail.style.position = "fixed";
+  rail.style.right = "auto";
+  rail.style.width = "";
+  rail.style.height = "auto";
+  rail.style.maxHeight = "";
+  rail.style.overflowY = "";
+  rail.style.top = "auto";
+  rail.style.bottom = "auto";
+  rail.style.left = "0px";
   rail.hidden = false;
   rail.style.visibility = "hidden";
   rail.classList.add("is-open");
   const mw = Math.min(rail.offsetWidth || 520, window.innerWidth - pad * 2);
   let left = rect.right + 8;
-  let top = rect.bottom - (rail.offsetHeight || 56);
   if (left + mw > window.innerWidth - pad) {
     left = Math.max(pad, window.innerWidth - mw - pad);
   }
-  if (top < pad) top = pad;
-  if (top + (rail.offsetHeight || 56) > window.innerHeight - pad) {
-    top = Math.max(pad, window.innerHeight - (rail.offsetHeight || 56) - pad);
-  }
+  const bottom = Math.max(pad, window.innerHeight - rect.bottom);
+  const maxH = Math.max(120, rect.bottom - pad);
   rail.style.left = `${Math.round(left)}px`;
-  rail.style.top = `${Math.round(top)}px`;
-  rail.style.bottom = "auto";
+  rail.style.top = "auto";
+  rail.style.bottom = `${Math.round(bottom)}px`;
+  rail.style.maxHeight = `${Math.round(maxH)}px`;
+  rail.style.overflowY = (rail.scrollHeight || 0) > maxH ? "auto" : "";
   rail.style.visibility = "";
   if (!wasOpen) {
     rail.classList.remove("is-open");
-    // Force reflow so chips animate in.
     void rail.offsetWidth;
     requestAnimationFrame(() => rail.classList.add("is-open"));
   }
@@ -62740,6 +65183,7 @@ function getTitleBarOverlayPayload(themeId = getUiTheme()) {
     study: { color: "#EAE0D3", symbolColor: "#4A3B32" },
     library: { color: "#E1E6EB", symbolColor: "#2B323B" },
     attic: { color: "#14181F", symbolColor: "#E6E0D4" },
+    "deep-dark": { color: "#121212", symbolColor: "#E8E8E8" },
     eink: { color: "#FFFFFF", symbolColor: "#000000" },
     "sunset-window": { color: "#F6E6C8", symbolColor: "#4D382C" },
     "silver-fog": { color: "#F1F3F5", symbolColor: "#343A40" },
@@ -62932,7 +65376,7 @@ function syncEinkBwForceStyle(theme) {
   document.head.appendChild(el);
 }
 
-/** Apply a named theme (`light` | `sand` | `dark` | `cabin` | `study` | `library` | `classroom` | `attic` | `eink` | `cloud-walk` | `spring-garden` | `sunset-window` | `silver-fog`). */
+/** Apply a named theme (`light` | `sand` | `dark` | `cabin` | `study` | `library` | `classroom` | `attic` | `deep-dark` | `eink` | `cloud-walk` | `spring-garden` | `sunset-window` | `silver-fog`). */
 function applyUiTheme(themeName, { announce = false } = {}) {
   const prev = normalizeUiThemeId(getUiTheme());
   const next = normalizeUiThemeId(themeName || "light");
@@ -64375,6 +66819,8 @@ safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
 safeSetup("renderBookmarkBar", () => renderBookmarkBar());
 safeSetup("setupSceneAutoSave", setupSceneAutoSave);
+safeSetup("setupSceneCompleteLock", setupSceneCompleteLock);
+safeSetup("setupCompletionGuideCard", setupCompletionGuideCard);
 safeSetup("setupOfflineModeUi", setupOfflineModeUi);
 safeSetup("setupAuthorNoteUi", setupAuthorNoteUi);
 safeSetup("setupCharacterEditorAutosave", setupCharacterEditorAutosave);

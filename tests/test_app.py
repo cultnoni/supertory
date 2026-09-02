@@ -193,6 +193,56 @@ class SuperToryAppTests(unittest.TestCase):
         self.assertEqual(latest["content_md"], "이어서 타이핑")
         self.assertEqual(latest["revision_no"], 3)
 
+    def test_outline_includes_scene_notes_md(self) -> None:
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "작가메모 목록", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201)
+        pid = project["id"]
+        status, chapter = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1장"})
+        self.assertEqual(status, 201)
+        status, with_notes = self.request(
+            "POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "메모있음"}
+        )
+        self.assertEqual(status, 201)
+        status, empty = self.request(
+            "POST", f"/api/chapters/{chapter['id']}/scenes", {"title": "메모없음"}
+        )
+        self.assertEqual(status, 201)
+
+        status, detail = self.request("GET", f"/api/scenes/{with_notes['id']}")
+        self.assertEqual(status, 200)
+        status, saved = self.request("PUT", f"/api/scenes/{with_notes['id']}", {
+            "notes_md": "회차 메모입니다.",
+            "row_version": detail["row_version"],
+        })
+        self.assertEqual(status, 200)
+        status, after_notes = self.request("GET", f"/api/scenes/{with_notes['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(after_notes["notes_md"], "회차 메모입니다.")
+        self.assertEqual(after_notes.get("content_md") or "", detail.get("content_md") or "")
+
+        status, outline = self.request("GET", f"/api/projects/{pid}/outline")
+        self.assertEqual(status, 200)
+        scenes = (outline["chapters"][0].get("scenes_flat") or []) if outline.get("chapters") else []
+        by_title = {str(item.get("title") or ""): item for item in scenes}
+        self.assertIn("메모있음", by_title)
+        self.assertIn("메모없음", by_title)
+        self.assertEqual(by_title["메모있음"].get("notes_md"), "회차 메모입니다.")
+        self.assertEqual(str(by_title["메모없음"].get("notes_md") or "").strip(), "")
+
+        folders = outline.get("folders") or []
+        if folders:
+            folder_scenes = []
+            stack = list(folders)
+            while stack:
+                node = stack.pop()
+                folder_scenes.extend(node.get("scenes") or [])
+                stack.extend(node.get("children") or [])
+            folder_by_title = {str(item.get("title") or ""): item for item in folder_scenes}
+            if "메모있음" in folder_by_title:
+                self.assertEqual(folder_by_title["메모있음"].get("notes_md"), "회차 메모입니다.")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -45,6 +45,8 @@ class CharacterImportAnalysisUnitTests(unittest.TestCase):
         )
         self.assertTrue(character_import_analysis.is_tori_text("〔토리〕 소개"))
         self.assertFalse(character_import_analysis.is_tori_text("기존 소개"))
+        self.assertEqual(character_import_analysis.strip_tori_text("〔토리〕 소개"), "소개")
+        self.assertEqual(character_import_analysis.strip_tori_text("소개"), "소개")
 
     def test_infer_prompt_uses_plot_when_no_manuscript(self) -> None:
         system, user = character_import_analysis.build_analysis_prompt(

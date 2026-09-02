@@ -13,6 +13,7 @@ from repositories.scene_content_repository import (
     ROW_VERSION_CONFLICT_MESSAGE,
     SceneContentRepository,
 )
+from typographic_quotes import convert_typographic_quotes
 
 SCENE_STATUSES = {"idea", "outline", "draft", "revision", "complete"}
 
@@ -159,8 +160,18 @@ class SceneContentService:
             revision_no = int(current["revision_no"])
             words = int(current["word_count"] or 0)
             body = str(current.get("content_md") or "")
-            if content_provided:
-                content = str(content_html)
+            provided = content_provided
+            html = str(content_html) if content_provided else None
+            if status == "complete":
+                if provided:
+                    html = convert_typographic_quotes(html)
+                else:
+                    converted = convert_typographic_quotes(body)
+                    if converted != body:
+                        html = converted
+                        provided = True
+            if provided:
+                content = str(html)
                 if current["content_md"] != content:
                     words = self.word_count(content)
                     saved = repo.save_new_revision(

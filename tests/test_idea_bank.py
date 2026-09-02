@@ -108,5 +108,71 @@ class IdeaBankApiTests(unittest.TestCase):
             self.assertIn("is_pinned", cols)
 
 
+class IdeaFloatPersistenceTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.js = (Path(__file__).resolve().parent.parent / "web" / "app.js").read_text(
+            encoding="utf-8"
+        )
+        cls.css = (Path(__file__).resolve().parent.parent / "web" / "styles.css").read_text(
+            encoding="utf-8"
+        )
+
+    def test_same_project_load_keeps_idea_floats(self) -> None:
+        load = self.js.split("async function loadProject()", 1)[1].split(
+            "function previewLines", 1
+        )[0]
+        self.assertIn("ideaFloatProjectChanged", load)
+        self.assertIn("if (ideaFloatProjectChanged) closeAllIdeaFloats();", load)
+        self.assertNotIn(
+            'if (typeof closeAllIdeaFloats === "function") closeAllIdeaFloats();',
+            load,
+        )
+        self.assertIn("pruneAndSyncIdeaFloats();", load)
+
+    def test_float_host_is_body_overlay(self) -> None:
+        self.assertIn("if (host.parentElement !== document.body)", self.js)
+        self.assertIn("document.body.appendChild(host)", self.js)
+        self.assertIn("const ideaFloatLayouts = new Map()", self.js)
+        self.assertIn("z-index: 220;", self.css)
+        self.assertRegex(
+            self.css,
+            r"\.idea-float-host\s*\{[^}]*pointer-events:\s*none",
+        )
+
+
+class SceneAuthorNotesIdeaBankTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        root = Path(__file__).resolve().parent.parent
+        cls.js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        cls.html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        cls.locales = {
+            lang: (root / "web" / "locales" / f"{lang}.json").read_text(encoding="utf-8")
+            for lang in ("ko", "en", "es")
+        }
+
+    def test_idea_bank_has_episode_author_notes_tab(self) -> None:
+        self.assertIn('id="sceneAuthorNotesList"', self.html)
+        self.assertIn('id="ideaBoardSceneNotes"', self.html)
+        self.assertIn('id="ideaBoardTabSceneNotes"', self.html)
+        self.assertIn("[data-idea-bank-tab]", self.js.split("function setupIdeaBank()", 1)[1].split("async function refreshAiStatus", 1)[0])
+        self.assertIn('document.querySelectorAll("[data-idea-bank-tab]")', self.js.split("function applyIdeaBankPane()", 1)[1].split("function setIdeaBankPane", 1)[0])
+        self.assertIn('data-idea-bank-tab="sceneNotes"', self.html)
+        self.assertIn('id="ideaBankTabSceneNotes"', self.html)
+        self.assertIn("function getSceneAuthorNotesSequence()", self.js)
+        self.assertIn("getEpisodeSequence()", self.js.split("function getSceneAuthorNotesSequence()", 1)[1])
+        self.assertIn("if (!notes.trim() && !sceneAuthorNotesOpenIds.has(sceneId)) continue;", self.js)
+        self.assertIn('openSceneToolsDrawer("notes", { force: true })', self.js)
+        self.assertIn("patchOutlineSceneNotes", self.js)
+        self.assertIn("markSceneDirty()", self.js.split("function onSceneAuthorNoteEditorInput", 1)[1].split("function scheduleOtherSceneAuthorNotesSave", 1)[0])
+        self.assertIn('notes_md: text', self.js.split("async function persistOtherSceneAuthorNotes", 1)[1].split("async function flushPendingSceneAuthorNotesSaves", 1)[0])
+        for text in self.locales.values():
+            self.assertIn('"app.회차별_작가메모"', text)
+            self.assertIn('"app.회차별_작가메모_안내"', text)
+            self.assertIn('"app.이_화로_이동"', text)
+            self.assertIn('"app.작성된_작가메모가_없어요"', text)
+
+
 if __name__ == "__main__":
     unittest.main()

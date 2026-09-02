@@ -393,6 +393,71 @@ class VirtualReaderPersonasMigrationTests(unittest.TestCase):
             for row, persona in zip(rows, _PERSONAS):
                 self.assertEqual(row["display_order"], persona["display_order"])
 
+    def test_migration_81_updates_identity_and_criteria_only(self) -> None:
+        migration = app._load_py_migration(app.MIGRATION_081_PATH)
+        seed = {persona["id"]: persona for persona in _PERSONAS}
+        with app.database() as connection:
+            before_other = connection.execute(
+                """
+                SELECT id, name, identity, criteria, tone, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'modern_fantasy_pro'
+                """
+            ).fetchone()
+            connection.execute(
+                "UPDATE virtual_reader_personas SET identity = '옛문장' "
+                "WHERE id = 'roppan_cider'"
+            )
+            connection.execute(
+                "UPDATE virtual_reader_personas SET criteria = '[]' "
+                "WHERE id = 'hunter_speedrunner'"
+            )
+            migration.apply(connection)
+            cider = connection.execute(
+                "SELECT identity, criteria FROM virtual_reader_personas "
+                "WHERE id = 'roppan_cider'"
+            ).fetchone()
+            narrative = connection.execute(
+                "SELECT identity, criteria FROM virtual_reader_personas "
+                "WHERE id = 'roppan_narrative'"
+            ).fetchone()
+            hunter = connection.execute(
+                "SELECT identity, criteria FROM virtual_reader_personas "
+                "WHERE id = 'hunter_speedrunner'"
+            ).fetchone()
+            after_other = connection.execute(
+                """
+                SELECT id, name, identity, criteria, tone, display_order
+                FROM virtual_reader_personas
+                WHERE id = 'modern_fantasy_pro'
+                """
+            ).fetchone()
+            versions = connection.execute(
+                "SELECT COUNT(*) FROM schema_migration WHERE version = 81"
+            ).fetchone()[0]
+        self.assertEqual(
+            cider["identity"],
+            "억울함이 쌓일수록 좋다, 대신 터질 땐 확실하게 터져야 한다 — "
+            "속도가 아니라 카타르시스의 완성도가 기준",
+        )
+        self.assertNotIn("배경이 이세계든 현대든", cider["identity"])
+        self.assertEqual(cider["identity"], seed["roppan_cider"]["identity"])
+        self.assertEqual(json.loads(cider["criteria"]), seed["roppan_cider"]["criteria"])
+        self.assertEqual(narrative["identity"], seed["roppan_narrative"]["identity"])
+        self.assertIn("설정(세계관·현실 배경) 몰입도", json.loads(narrative["criteria"]))
+        self.assertNotIn(
+            "세계관(이세계) 또는 현실 설정(현대)에 대한 몰입도",
+            json.loads(narrative["criteria"]),
+        )
+        self.assertEqual(hunter["identity"], seed["hunter_speedrunner"]["identity"])
+        self.assertEqual(
+            json.loads(hunter["criteria"]),
+            seed["hunter_speedrunner"]["criteria"],
+        )
+        self.assertNotIn("초반 후킹 속도", json.loads(hunter["criteria"]))
+        self.assertEqual(dict(after_other), dict(before_other))
+        self.assertEqual(versions, 1)
+
 
 
 

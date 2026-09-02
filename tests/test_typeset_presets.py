@@ -106,6 +106,18 @@ class TypesetPresetUnitTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 service.update_preset("unknown_site", {"font_size_pt": 12})
 
+    def test_letter_spacing_preserves_fractional_values(self) -> None:
+        preset = typeset_export.normalize_preset({
+            "letter_spacing_pt": 0.05,
+            "font_size_pt": 10,
+        })
+        self.assertAlmostEqual(preset["letter_spacing_pt"], 0.05)
+        ridibooks = typeset_export.normalize_preset(
+            typeset_export.DEFAULT_PRESETS["ridibooks"],
+            platform_id="ridibooks",
+        )
+        self.assertEqual(ridibooks["paragraph_indent_pt"], 100)
+
     def test_service_creates_copies_updates_and_deletes_custom_preset(self) -> None:
         with tempfile.TemporaryDirectory() as folder:
             data_dir = Path(folder)

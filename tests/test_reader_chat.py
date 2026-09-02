@@ -231,6 +231,48 @@ class ReaderChatTests(unittest.TestCase):
         self.assertEqual(first["id"], "roppan_cider")
         self.assertIsInstance(first["criteria"], list)
         self.assertGreaterEqual(len(first["criteria"]), 1)
+        self.assertEqual(
+            first["identity"],
+            "억울함이 쌓일수록 좋다, 대신 터질 땐 확실하게 터져야 한다 — "
+            "속도가 아니라 카타르시스의 완성도가 기준",
+        )
+        self.assertNotIn("배경이 이세계든 현대든", first["identity"])
+        by_id = {
+            person["id"]: person
+            for people in grouped.values()
+            for person in people
+        }
+        self.assertEqual(
+            by_id["roppan_narrative"]["identity"],
+            "사이다 없어도 주인공이 왜 그런 선택을 하는지 납득되면 된다, 개연성과 독창성을 봄",
+        )
+        self.assertIn(
+            "설정(세계관·현실 배경) 몰입도",
+            by_id["roppan_narrative"]["criteria"],
+        )
+        self.assertEqual(
+            by_id["modern_romance_flutter"]["identity"],
+            "두근거림이 생명, 직접적인 다정함과 츤데레의 숨은 마음 둘 다 좋음",
+        )
+        self.assertEqual(
+            by_id["modern_romance_tension"]["identity"],
+            "밀당 없는 로맨스는 밍밍하다, 긴장감이 심장을 뛰게 해야 함",
+        )
+        hunter = by_id["hunter_speedrunner"]
+        self.assertEqual(
+            hunter["identity"],
+            "각성부터 랭크업까지 성장 곡선이 납득 가능해야 함, "
+            "등급 체계와 힘의 논리가 헐거우면 감점",
+        )
+        self.assertEqual(
+            hunter["criteria"],
+            [
+                "각성·랭크업 서사의 개연성",
+                "랭크·등급 체계의 논리적 일관성",
+                "성장 속도와 보상(레벨업, 스킬 습득)의 밸런스",
+            ],
+        )
+        self.assertNotIn("초반 후킹 속도", hunter["criteria"])
 
     def test_missing_persona_is_404(self) -> None:
         pid = self._make_project()
@@ -267,6 +309,7 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("임의로 가정해서 언급하지 마라", system)
         self.assertNotIn("당신은 '토리'입니다", system)
         self.assertNotIn("로판 서사파", system)
+        self.assertNotIn("장르 불일치 인지", system)
 
         status, history = self.request(
             "GET",
@@ -414,6 +457,9 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn('id="readerPersonaAllButton"', html)
         self.assertIn('id="readerPersonaAllModal"', html)
         self.assertIn("openReaderPersonaAllModal", js)
+        all_modal = html[html.find('id="readerPersonaAllModal"'):html.find('id="toryChatCharacterAllModal"')]
+        self.assertIn("modal-close", all_modal)
+        self.assertNotIn("modal-actions", all_modal)
         self.assertIn('id="readerChatForm"', html)
         self.assertIn('id="readerChatAttachButton"', html)
         self.assertIn("listExportEpisodes", js)

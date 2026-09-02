@@ -15,9 +15,9 @@
             || localStorage.getItem("supertory.uiTheme")
             || "light";
           if (theme === "dawn") theme = "library";
-          var known = { light: 1, sand: 1, dark: 1, cabin: 1, study: 1, library: 1, classroom: 1, attic: 1, eink: 1, "cloud-walk": 1, "spring-garden": 1, "sunset-window": 1, "silver-fog": 1 };
+          var known = { light: 1, sand: 1, dark: 1, cabin: 1, study: 1, library: 1, classroom: 1, attic: 1, "deep-dark": 1, eink: 1, "cloud-walk": 1, "spring-garden": 1, "sunset-window": 1, "silver-fog": 1, daydream: 1 };
           if (!known[theme]) theme = "light";
-          var scheme = (theme === "dark" || theme === "attic") ? "dark" : "light";
+          var scheme = (theme === "dark" || theme === "attic" || theme === "deep-dark") ? "dark" : "light";
           document.documentElement.setAttribute("data-theme", theme);
           document.documentElement.setAttribute("data-ui-theme", theme);
           document.documentElement.setAttribute("data-ui-scheme", scheme);
@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.31">
+    <link rel="stylesheet" href="/styles.css?v=1.4.42">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -466,10 +466,15 @@
                 </div>
                 <div class="settings-box-preview" id="ideasPreview"></div>
                 <div class="settings-box-body" id="ideasBody" hidden>
-                  <div class="settings-box-toolbar">
+                  <div class="idea-bank-tabs" role="tablist" aria-label="생각수첩">
+                    <button type="button" id="ideaBankTabStickies" class="idea-bank-tab is-active" data-idea-bank-tab="stickies" role="tab" aria-selected="true" aria-controls="ideaNoteList" data-i18n="app.생각수첩_메모">메모</button>
+                    <button type="button" id="ideaBankTabSceneNotes" class="idea-bank-tab" data-idea-bank-tab="sceneNotes" role="tab" aria-selected="false" aria-controls="sceneAuthorNotesList" data-i18n="app.회차별_작가메모">회차별 작가메모</button>
+                  </div>
+                  <div class="settings-box-toolbar" id="ideaBankStickiesToolbar" data-idea-bank-pane="stickies">
                     <button type="button" id="newIdeaButton" class="secondary" title="새 메모" data-i18n-title="app.새_메모" data-i18n="app.메모">+ 메모</button>
                   </div>
-                  <div id="ideaNoteList" class="idea-note-list"></div>
+                  <div id="ideaNoteList" class="idea-note-list" data-idea-bank-pane="stickies"></div>
+                  <div id="sceneAuthorNotesList" class="scene-author-notes-list hidden" hidden data-idea-bank-pane="sceneNotes"></div>
                 </div>
               </section>
 
@@ -917,6 +922,27 @@
                     <div id="readingInviteAuthHint" class="reading-invite-auth-hint hidden" hidden></div>
                     <div id="readingInviteCreateBlock" class="reading-invite-create">
                       <div id="readingInviteEpisodeList" class="export-scene-list reading-invite-episode-list" role="group" aria-label="공유할 화" data-i18n-aria-label="index.공유할_화"></div>
+                      <fieldset class="reading-invite-permission" role="radiogroup" aria-label="링크 권한" data-i18n-aria-label="app.링크_권한">
+                        <legend data-i18n="app.링크_권한">링크 권한</legend>
+                        <label class="reading-invite-permission-option">
+                          <input type="radio" name="readingInvitePermission" value="read" checked>
+                          <span data-i18n="app.읽기전용">읽기전용</span>
+                        </label>
+                        <label class="reading-invite-permission-option">
+                          <input type="radio" name="readingInvitePermission" value="edit">
+                          <span data-i18n="app.수정가능">수정가능</span>
+                        </label>
+                      </fieldset>
+                      <label class="reading-invite-message-label" for="readingInviteMessage">
+                        <span data-i18n="app.초대_메시지_선택">초대 메시지 (선택)</span>
+                        <textarea
+                          id="readingInviteMessage"
+                          rows="3"
+                          maxlength="2000"
+                          placeholder="예: 병원에서 일하는 네가 볼 때 병원 파트 구조나 위계가 이상한 곳 없는지 봐줄래?"
+                          data-i18n-placeholder="app.초대_메시지_예시"
+                        ></textarea>
+                      </label>
                       <div class="settings-box-toolbar reading-invite-toolbar">
                         <button type="button" id="readingInviteCreateButton" class="secondary" data-i18n="app.링크_만들기">링크 만들기</button>
                       </div>
@@ -935,7 +961,12 @@
                         <button type="button" id="readingInviteFeedbackBack" class="secondary compact-btn" data-i18n="app.목록으로">목록으로</button>
                         <h3 class="reading-invite-heading" id="readingInviteFeedbackTitle" data-i18n="app.받은_피드백">받은 피드백</h3>
                       </div>
-                      <div id="readingInviteFeedbackBody" class="reading-invite-feedback-body"></div>
+                      <div class="reading-invite-feedback-tabs hidden" id="readingInviteFeedbackTabs" hidden role="tablist" aria-label="받은 내용" data-i18n-aria-label="app.받은_내용">
+                        <button type="button" class="reading-invite-feedback-tab is-active" id="readingInviteCommentsTab" data-feedback-tab="comments" role="tab" aria-selected="true" data-i18n="app.받은_피드백">받은 피드백</button>
+                        <button type="button" class="reading-invite-feedback-tab" id="readingInviteEditsTab" data-feedback-tab="edits" role="tab" aria-selected="false" data-i18n="app.받은_수정">받은 수정</button>
+                      </div>
+                      <div id="readingInviteFeedbackBody" class="reading-invite-feedback-body" data-feedback-panel="comments"></div>
+                      <div id="readingInviteEditsBody" class="reading-invite-feedback-body hidden" hidden data-feedback-panel="edits"></div>
                     </div>
                   </div>
                 </div>
@@ -1013,6 +1044,9 @@
                 <span class="theme-icon theme-icon-library theme-icon-img hidden" aria-hidden="true"></span>
                 <svg class="theme-icon theme-icon-attic hidden" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
                   <path fill="currentColor" d="M12 2.35 14.35 9.1l7.15.42-5.55 4.55 1.78 6.95L12 16.7l-5.73 4.32 1.78-6.95-5.55-4.55 7.15-.42L12 2.35z"/>
+                </svg>
+                <svg class="theme-icon theme-icon-deep-dark hidden" viewBox="0 0 24 24" width="17" height="17" aria-hidden="true" focusable="false">
+                  <circle cx="12" cy="12" r="8" fill="currentColor"/>
                 </svg>
                 <span class="theme-icon theme-icon-classroom theme-icon-img hidden" aria-hidden="true"></span>
                 <span class="theme-icon theme-icon-eink theme-icon-img hidden" aria-hidden="true"></span>
@@ -1211,17 +1245,23 @@
           <div class="idea-board-toolbar">
             <div>
               <h2 data-i18n="app.생각수첩">생각수첩</h2>
-              <div id="ideaBoardTipBox" class="guide-tip-box idea-board-guide-tip" data-guide-tip="ideaBoard" role="note">
+              <div class="idea-bank-tabs idea-board-tabs" role="tablist" aria-label="생각수첩">
+                <button type="button" id="ideaBoardTabStickies" class="idea-bank-tab is-active" data-idea-bank-tab="stickies" role="tab" aria-selected="true" aria-controls="ideaBoardGrid" data-i18n="app.생각수첩_메모">메모</button>
+                <button type="button" id="ideaBoardTabSceneNotes" class="idea-bank-tab" data-idea-bank-tab="sceneNotes" role="tab" aria-selected="false" aria-controls="ideaBoardSceneNotes" data-i18n="app.회차별_작가메모">회차별 작가메모</button>
+              </div>
+              <div id="ideaBoardTipBox" class="guide-tip-box idea-board-guide-tip" data-guide-tip="ideaBoard" data-idea-bank-pane="stickies" role="note">
                 <p class="hint guide-tip-text" data-i18n="index.포스트잇_메모를_크게_펼쳐_한눈에_볼_수_있">포스트잇 메모를 크게 펼쳐 한눈에 볼 수 있어요.<br><span class="idea-resize-tip" data-i18n="index.위_클립으로_색">위 클립으로 색</span> · <span class="idea-resize-tip" data-i18n="index.모서리로_크기">모서리로 크기</span> · <span class="idea-resize-tip" data-i18n="index.고정핀으로_목록_하단에_고정">고정핀으로 목록 하단에 고정</span>을 바꿀 수 있습니다.</p>
                 <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="ideaBoard" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
               </div>
+              <p id="ideaBoardSceneNotesHint" class="hint idea-board-scene-notes-hint hidden" hidden data-idea-bank-pane="sceneNotes" data-i18n="app.회차별_작가메모_안내">작성 페이지에 적어 둔 회차별 작가메모만 모아서 봅니다.</p>
             </div>
             <div class="idea-board-actions">
-              <button type="button" id="ideaBoardAddButton" class="secondary compact-btn" data-i18n="app.메모">+ 메모</button>
+              <button type="button" id="ideaBoardAddButton" class="secondary compact-btn" data-idea-bank-pane="stickies" data-i18n="app.메모">+ 메모</button>
               <button type="button" id="ideaBoardCloseButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
           </div>
-          <div id="ideaBoardGrid" class="idea-board-grid"></div>
+          <div id="ideaBoardGrid" class="idea-board-grid" data-idea-bank-pane="stickies"></div>
+          <div id="ideaBoardSceneNotes" class="scene-author-notes-list idea-board-author-notes hidden" hidden data-idea-bank-pane="sceneNotes"></div>
         </div>
 
         <div id="keywordBoard" class="keyword-board hidden" aria-label="장르·키워드 메인" data-i18n-aria-label="index.장르_키워드_메인">
@@ -1749,6 +1789,13 @@
                       <strong data-i18n="app.닫기">닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
                       <span data-i18n="index.분할을_끝냅니다">분할을 끝냅니다</span>
                     </button>
+                    <div class="view-mode-dropdown-divider"></div>
+                    <div class="view-mode-dropdown-mini" role="group" aria-label="기본값" data-i18n-aria-label="index.기본_보기_방식">
+                      <button type="button" class="view-mode-mini-btn" data-split-default-set="split" data-i18n="index.기본값_화면_나누기">기본값 · 나누기</button>
+                      <button type="button" class="view-mode-mini-btn" data-split-default-set="popup" data-i18n="index.기본값_팝업">기본값 · 팝업</button>
+                      <button type="button" class="view-mode-mini-btn" data-split-default-set="clear" data-i18n="index.해제">해제</button>
+                    </div>
+                    <button type="button" class="view-mode-mini-link" data-split-rightclick-hint="hide" data-i18n="index.우클릭_안내_숨기기">우클릭 안내 숨기기</button>
                   </div>
                 </div>
                 <button
@@ -2121,13 +2168,32 @@
               <div class="split-heading-main">
                 <div class="split-heading-title-row">
                   <span class="split-scene-caption" data-i18n="app.분할_화면">분할 화면</span>
-                  <button
-                    type="button"
-                    id="toggleSplitEditButton"
-                    class="secondary compact-btn split-edit-toggle"
-                    title="함께보는 회차를 자유롭게 편집합니다. 한 번 켜면 끄기 전까지 유지됩니다." data-i18n-title="app.함께보는_회차를_자유롭게_편집합니다_한_번"
-                    aria-pressed="false"
-                   data-i18n="app.자유_편집">자유 편집</button>
+                  <div
+                    class="split-edit-mode-group status-seg"
+                    id="splitEditModeGroup"
+                    role="radiogroup"
+                    aria-label="분할 화면 모드"
+                    data-i18n-aria-label="app.분할_화면_모드"
+                  >
+                    <button
+                      type="button"
+                      id="splitReadModeButton"
+                      class="status-seg-btn is-active"
+                      role="radio"
+                      aria-checked="true"
+                      data-split-edit="read"
+                      data-i18n="app.읽기모드"
+                    >읽기모드</button>
+                    <button
+                      type="button"
+                      id="splitEditModeButton"
+                      class="status-seg-btn"
+                      role="radio"
+                      aria-checked="false"
+                      data-split-edit="edit"
+                      data-i18n="app.편집모드"
+                    >편집모드</button>
+                  </div>
                   <div class="split-heading-actions">
                     <div class="view-mode-control split-mode-control">
                       <button
@@ -2151,6 +2217,13 @@
                           <strong data-i18n="app.닫기">닫기 <kbd class="shortcut-kbd">Esc</kbd></strong>
                           <span data-i18n="index.분할를_끝냅니다">분할를 끝냅니다</span>
                         </button>
+                        <div class="view-mode-dropdown-divider"></div>
+                        <div class="view-mode-dropdown-mini" role="group" aria-label="기본값" data-i18n-aria-label="index.기본_보기_방식">
+                          <button type="button" class="view-mode-mini-btn" data-split-default-set="split" data-i18n="index.기본값_화면_나누기">기본값 · 나누기</button>
+                          <button type="button" class="view-mode-mini-btn" data-split-default-set="popup" data-i18n="index.기본값_팝업">기본값 · 팝업</button>
+                          <button type="button" class="view-mode-mini-btn" data-split-default-set="clear" data-i18n="index.해제">해제</button>
+                        </div>
+                        <button type="button" class="view-mode-mini-link" data-split-rightclick-hint="hide" data-i18n="index.우클릭_안내_숨기기">우클릭 안내 숨기기</button>
                       </div>
                     </div>
                     <button id="closeSplitButton" type="button" title="분할 닫기" data-i18n-title="index.분할_닫기">×</button>
@@ -2231,7 +2304,7 @@
                 role="textbox"
                 aria-multiline="true"
                 aria-label="분할 원고" data-i18n-aria-label="index.분할_원고"
-                data-placeholder="함께보는 회차의 원고가 여기 표시됩니다. 자유 편집을 켜면 바로 수정할 수 있어요." data-i18n-placeholder="index.함께보는_회차의_원고가_여기_표시됩니다_자유"
+                data-placeholder="함께보는 회차의 원고가 여기 표시됩니다. 편집모드로 전환하면 바로 수정할 수 있어요." data-i18n-placeholder="index.함께보는_회차의_원고가_여기_표시됩니다_자유"
               ></div>
             </article>
             <div class="tory-float-resize is-n split-popup-edge" data-resize-edge="n" title="위쪽 크기 조절" data-i18n-title="index.위쪽_크기_조절" aria-hidden="true"></div>
@@ -3330,15 +3403,14 @@
       <div class="modal-backdrop" data-close-reader-persona-all></div>
       <div class="modal-card reader-persona-all-modal-card">
         <div class="modal-heading">
-          <h2 id="readerPersonaAllTitle" data-i18n="app.가상_독자_전체보기">가상 독자 전체보기</h2>
+          <div class="reader-persona-all-heading-copy">
+            <h2 id="readerPersonaAllTitle" data-i18n="app.가상_독자_전체보기">가상 독자 전체보기</h2>
+            <p class="hint modal-hint" id="readerPersonaAllHint" data-i18n="app.카드를_눌러_대화할_독자를_고른_뒤_대화_시">카드를 눌러 대화할 독자를 고른 뒤, 대화 시작하기를 눌러 주세요.</p>
+          </div>
           <button type="button" class="modal-close" data-close-reader-persona-all title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" id="readerPersonaAllHint" data-i18n="index.카드를_누르면_그_독자와_대화를_시작해요_소">카드를 누르면 그 독자와 대화를 시작해요. 소개는 잘리지 않고 전부 보여 줍니다.</p>
         <p class="reader-debate-count hidden" id="readerPersonaAllDebateCount" aria-live="polite" data-i18n="index.0_5명_선택됨">0 / 5명 선택됨</p>
         <div id="readerPersonaAllGrid" class="reader-persona-all-grid" aria-label="가상 독자 전체 목록" data-i18n-aria-label="index.가상_독자_전체_목록"></div>
-        <div class="modal-actions">
-          <button type="button" class="secondary" data-close-reader-persona-all data-i18n="app.닫기">닫기</button>
-        </div>
       </div>
     </div>
 
@@ -3442,6 +3514,8 @@
       <div class="tory-float-resize is-se" data-resize-edge="se" title="오른쪽 아래 크기 조절" data-i18n-title="index.오른쪽_아래_크기_조절" aria-hidden="true"></div>
       <div class="tory-float-resize is-sw" data-resize-edge="sw" title="왼쪽 아래 크기 조절" data-i18n-title="index.왼쪽_아래_크기_조절" aria-hidden="true"></div>
     </div>
+
+    <div id="ideaFloatHost" class="idea-float-host" aria-live="off"></div>
 
     <div id="writingLogModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="writingLogModalTitle">
       <div class="modal-backdrop" data-close-writing-log></div>
@@ -3618,6 +3692,20 @@
         <button type="button" class="reading-invite-cheer-action" id="readingInviteCheerGo" data-i18n="app.확인하러_가기">확인하러 가기</button>
       </div>
       <button type="button" class="tory-cheer-close" id="readingInviteCheerClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
+    </div>
+
+    <div id="completionGuideCard" class="completion-guide-card hidden" role="dialog" aria-labelledby="completionGuideTitle" aria-live="polite">
+      <strong id="completionGuideTitle" class="completion-guide-title" data-i18n="app.완성_안내_제목">✅ 완성 처리됐어요</strong>
+      <ul class="completion-guide-list">
+        <li data-i18n="app.완성_안내_보호">완성된 원고는 실수로 고쳐지지 않도록 보호돼요. 작성상태는 언제든 자유롭게 바꿀 수 있어요</li>
+        <li data-i18n="app.완성_안내_따옴표">따옴표가 출간용 스타일로 자동 정리돼요</li>
+        <li id="completionGuideTraitItem" class="hidden"></li>
+        <li data-i18n-html="app.완성_안내_가상독자">완성되면 <strong>[뷰어]</strong>에서 가상독자 댓글을 확인할 수 있어요</li>
+      </ul>
+      <div class="completion-guide-actions">
+        <button type="button" class="completion-guide-primary" id="completionGuideReaderBtn" data-i18n="app.가상독자_댓글_받아보기">가상독자 댓글 받아보기</button>
+        <button type="button" class="completion-guide-secondary" id="completionGuideDismissBtn" data-i18n="app.다시_보지_않기">다시 보지 않기</button>
+      </div>
     </div>
 
     <button type="button" id="toryOpeningHintButton" class="tory-opening-hint-btn hidden" aria-live="polite">
@@ -5437,6 +5525,18 @@
       </button>
     </div>
 
+    <div id="splitDefaultChangeMenu" class="context-menu hidden" role="menu" aria-label="기본값 변경" data-i18n-aria-label="index.기본값_변경">
+      <div class="context-menu-label" data-i18n="index.기본값_변경">기본값 변경</div>
+      <button type="button" role="menuitem" data-split-default-set="split">
+        <strong data-i18n="index.화면_나누기">↔ 화면 나누기</strong>
+        <span data-i18n="index.편집_화면_옆에_나란히_둡니다">편집 화면 옆에 나란히 둡니다</span>
+      </button>
+      <button type="button" role="menuitem" data-split-default-set="popup">
+        <strong data-i18n="index.팝업으로_보기">⧉ 팝업으로 보기</strong>
+        <span data-i18n="index.떠_있는_창으로_참고합니다">떠 있는 창으로 참고합니다</span>
+      </button>
+    </div>
+
     <div id="adminModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="adminModalTitle">
       <div class="modal-backdrop" data-close-admin></div>
       <div class="modal-card admin-modal-card admin-modal-wide admin-modal-scroll">
@@ -5579,6 +5679,29 @@
               </div>
             </div>
             <div id="adminThemeList" class="theme-options theme-options-grouped" role="listbox" aria-label="UI 테마" data-i18n-aria-label="index.UI_테마"></div>
+          </div>
+
+          <div class="admin-section-box" id="adminSplitDefaultSection">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title" data-i18n="index.기본_보기_방식">기본 보기 방식</h3>
+                <p class="hint" data-i18n="index.분할_버튼을_눌렀을_때_바로_적용할_방식을">분할 버튼을 눌렀을 때 바로 적용할 방식을 정해요. 우클릭으로 바꾸거나 해제할 수 있어요.</p>
+              </div>
+            </div>
+            <div class="primary-device-radios" id="adminSplitDefaultRadios" role="radiogroup" aria-label="기본 보기 방식" data-i18n-aria-label="index.기본_보기_방식">
+              <label class="primary-device-option">
+                <input type="radio" name="adminSplitDefaultMode" value="ask" checked>
+                <span data-i18n="index.매번_고르기">매번 고르기</span>
+              </label>
+              <label class="primary-device-option">
+                <input type="radio" name="adminSplitDefaultMode" value="split">
+                <span data-i18n="index.화면_나누기">↔ 화면 나누기</span>
+              </label>
+              <label class="primary-device-option">
+                <input type="radio" name="adminSplitDefaultMode" value="popup">
+                <span data-i18n="index.팝업으로_보기">⧉ 팝업으로 보기</span>
+              </label>
+            </div>
           </div>
 
           <div class="admin-section-box" id="adminAmbientSection">
@@ -5985,7 +6108,18 @@
               aria-expanded="false"
               aria-controls="viewerReaderCommentsPanel"
               disabled
-             data-i18n="index.가상독자_댓글_받기">가상독자 댓글 받기</button>
+              data-i18n="index.가상독자_댓글_받기">가상독자 댓글 받기</button>
+            <button
+              type="button"
+              class="secondary compact-btn"
+              id="viewerReaderCommentsHistoryButton"
+              title="이 화에서 아직 받은 댓글이 없어요"
+              data-i18n-title="app.이_화에서_아직_받은_댓글이_없어요"
+              aria-expanded="false"
+              aria-controls="viewerReaderCommentsHistoryList"
+              disabled
+              data-i18n="app.이전_댓글_보기"
+            >이전 댓글 보기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportTxt" data-i18n="index.텍스트로_내보내기">텍스트로 내보내기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportDocx" data-i18n="index.DOCX로_내보내기">DOCX로 내보내기</button>
             <button type="button" class="secondary compact-btn" id="viewerTocToggle" title="목차 열기/닫기" data-i18n-title="index.목차_열기_닫기" aria-expanded="false" aria-controls="viewerTocPanel" data-i18n="app.목차">목차</button>
@@ -6008,34 +6142,6 @@
             <button type="button" class="secondary compact-btn viewer-toc-close" id="viewerTocClose" title="목차 닫기" data-i18n-title="index.목차_닫기" aria-label="목차 닫기" data-i18n-aria-label="index.목차_닫기" data-i18n="app.닫기">닫기</button>
           </div>
           <div class="viewer-toc-list" id="viewerTocList"></div>
-        </div>
-        <div class="viewer-toc-panel hidden" id="viewerReaderCommentsPanel" aria-label="가상독자 댓글" data-i18n-aria-label="index.가상독자_댓글_패널">
-          <div class="viewer-toc-head">
-            <div class="viewer-toc-head-text">
-              <strong data-i18n="app.가상독자_댓글">가상독자 댓글</strong>
-              <span class="hint" id="viewerReaderCommentsHint"></span>
-            </div>
-            <button type="button" class="secondary compact-btn viewer-toc-close" id="viewerReaderCommentsClose" title="댓글 닫기" data-i18n-title="index.가상독자_댓글_닫기" aria-label="댓글 닫기" data-i18n-aria-label="index.가상독자_댓글_닫기" data-i18n="app.닫기">닫기</button>
-          </div>
-          <div class="viewer-comments-list" id="viewerReaderCommentsList"></div>
-          <div class="viewer-comments-retry-row hidden" id="viewerReaderCommentsRetryRow">
-            <span class="hint viewer-comments-retry-hint" id="viewerReaderCommentsRetryHint"></span>
-            <button type="button" class="secondary compact-btn" id="viewerReaderCommentsRetryButton" data-i18n="app.다시_시도">다시 시도</button>
-          </div>
-          <div class="viewer-comments-refresh-row hidden" id="viewerReaderCommentsRefreshRow">
-            <button
-              type="button"
-              class="viewer-comments-refresh-btn"
-              id="viewerReaderCommentsRefreshButton"
-              title="새로고침으로 추가 댓글 받기"
-              data-i18n-title="app.새로고침으로_추가_댓글_받기"
-              aria-label="새로고침으로 추가 댓글 받기"
-              data-i18n-aria-label="app.새로고침으로_추가_댓글_받기"
-            >
-              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
-            </button>
-            <span class="hint viewer-comments-refresh-note hidden" id="viewerReaderCommentsRefreshNote" data-i18n="app.댓글은_여기까지예요">댓글은 여기까지예요</span>
-          </div>
         </div>
         <div class="viewer-toolbar" id="viewerToolbar">
           <!-- PDF controls -->
@@ -6162,99 +6268,232 @@
           </div>
           <!-- Platform typeset (Munpia / KakaoPage / Ridibooks / Naver Series) -->
           <div class="viewer-controls hidden" data-viewer-controls="typeset">
-            <div class="viewer-typeset-platform-wrap">
-              <div id="viewerTypesetPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
-              <div id="viewerTypesetNewPop" class="viewer-typeset-pop hidden" hidden>
-                <label class="viewer-typeset-pop-label" for="viewerTypesetNewLabel">
-                  <span data-i18n="index.조판양식_이름">조판양식 이름</span>
-                  <input
-                    id="viewerTypesetNewLabel"
-                    type="text"
-                    maxlength="40"
-                    autocomplete="off"
-                    spellcheck="false"
-                    placeholder="예: 조아라" data-i18n-placeholder="index.예_조아라"
+            <div class="viewer-typeset-presets">
+              <div class="viewer-typeset-platform-wrap">
+                <div id="viewerTypesetPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
+                <div id="viewerTypesetNewPop" class="viewer-typeset-pop hidden" hidden>
+                  <label class="viewer-typeset-pop-label" for="viewerTypesetNewLabel">
+                    <span data-i18n="index.조판양식_이름">조판양식 이름</span>
+                    <input
+                      id="viewerTypesetNewLabel"
+                      type="text"
+                      maxlength="40"
+                      autocomplete="off"
+                      spellcheck="false"
+                      placeholder="예: 조아라" data-i18n-placeholder="index.예_조아라"
+                    >
+                  </label>
+                  <div class="viewer-typeset-pop-actions">
+                    <button type="button" class="secondary compact-btn" id="viewerTypesetNewCancel" data-i18n="index.취소">취소</button>
+                    <button type="button" class="primary compact-btn" id="viewerTypesetNewConfirm" data-i18n="index.추가">추가</button>
+                  </div>
+                </div>
+              </div>
+              <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
+              <button
+                type="button"
+                id="viewerTypesetDetailsToggle"
+                class="viewer-typeset-details-toggle"
+                aria-expanded="false"
+                aria-controls="viewerTypesetDetails"
+                aria-label="상세 설정"
+                data-i18n-aria-label="index.상세_설정"
+              >
+                <span class="viewer-typeset-details-open-label" data-i18n="index.상세_설정">상세 설정</span>
+                <span class="viewer-typeset-details-close-label" data-i18n="index.접기" aria-hidden="true">접기</span>
+              </button>
+            </div>
+            <div id="viewerTypesetDetails" class="viewer-typeset-details hidden" hidden>
+              <div class="viewer-typeset-fields">
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field viewer-typeset-field-font" for="viewerTypesetFont">
+                    <span data-i18n="app.글꼴">글꼴</span>
+                    <input id="viewerTypesetFont" type="text" maxlength="40" spellcheck="false" value="바탕체">
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetFontSize">
+                    <span data-i18n="index.글자_크기">글자 크기</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetFontSize" data-typeset-choice="fontSize">
+                        <option value="9">9</option>
+                        <option value="10" selected>10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14">14</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetFontSizeCustom" class="viewer-typeset-custom-input hidden" type="number" min="1" max="72" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">pt</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetLineHeight">
+                    <span data-i18n="app.줄간격">줄간격</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetLineHeight" data-typeset-choice="lineHeight">
+                        <option value="130">130</option>
+                        <option value="140" selected>140</option>
+                        <option value="150">150</option>
+                        <option value="160">160</option>
+                        <option value="170">170</option>
+                        <option value="180">180</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetLineHeightCustom" class="viewer-typeset-custom-input hidden" type="number" min="50" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">%</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetLetterSpacing">
+                    <span data-i18n="index.자간">자간</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetLetterSpacing" data-typeset-choice="letterSpacing">
+                        <option value="-0.05">-0.05</option>
+                        <option value="0" selected>0</option>
+                        <option value="0.05">0.05</option>
+                        <option value="0.1">0.1</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetLetterSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="-20" max="40" step="0.01" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field" for="viewerTypesetIndent">
+                    <span data-i18n="index.들여쓰기">들여쓰기</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetIndent" data-typeset-choice="indent">
+                        <option value="0" selected>0</option>
+                        <option value="1" data-i18n="index.들여쓰기_1칸">1칸</option>
+                        <option value="2" data-i18n="index.들여쓰기_2칸">2칸</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetIndentCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit viewer-typeset-indent-unit hidden" hidden>pt</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetParaSpacing">
+                    <span data-i18n="index.문단_간격">문단 간격</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetParaSpacing" data-typeset-choice="paraSpacing">
+                        <option value="0" selected>0</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetParaSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="120" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">pt</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginLeft">
+                    <span data-i18n="index.왼쪽_여백">왼쪽 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginLeft" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginLeftCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginRight">
+                    <span data-i18n="index.오른쪽_여백">오른쪽 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginRight" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginRightCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginTop">
+                    <span data-i18n="index.위_여백">위 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginTop" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginTopCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginBottom">
+                    <span data-i18n="index.아래_여백">아래 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginBottom" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginBottomCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field viewer-typeset-field-viewport" for="viewerTypesetViewport">
+                    <span data-i18n="index.미리보기_폭">미리보기 폭</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetViewport" data-typeset-choice="viewport">
+                        <option value="320">320</option>
+                        <option value="360" selected>360</option>
+                        <option value="375">375</option>
+                        <option value="414">414</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetViewportCustom" class="viewer-typeset-custom-input hidden" type="number" min="200" max="800" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">px</span>
+                    </span>
+                  </label>
+                </div>
+              </div>
+              <div class="viewer-typeset-actions">
+                <button type="button" class="secondary compact-btn" id="viewerTypesetSave" data-i18n="index.조판양식_저장">조판양식 저장</button>
+                <div class="viewer-typeset-export-wrap">
+                  <button
+                    type="button"
+                    class="primary compact-btn"
+                    id="viewerTypesetExport"
+                    aria-haspopup="menu"
+                    aria-expanded="false"
+                    aria-controls="viewerTypesetExportMenu"
+                    data-i18n="index.내보내기"
+                  >내보내기 ▾</button>
+                  <div
+                    id="viewerTypesetExportMenu"
+                    class="viewer-typeset-export-menu hidden"
+                    role="menu"
+                    hidden
+                    aria-label="조판 내보내기 형식" data-i18n-aria-label="index.조판_내보내기_형식"
                   >
-                </label>
-                <div class="viewer-typeset-pop-actions">
-                  <button type="button" class="secondary compact-btn" id="viewerTypesetNewCancel" data-i18n="index.취소">취소</button>
-                  <button type="button" class="primary compact-btn" id="viewerTypesetNewConfirm" data-i18n="index.추가">추가</button>
+                    <button type="button" role="menuitem" data-typeset-export="docx">
+                      <strong data-i18n="index.Word_docx">Word (.docx)</strong>
+                      <span data-i18n="index.같은_서식으로">같은 서식으로</span>
+                    </button>
+                    <button type="button" role="menuitem" data-typeset-export="hwpx">
+                      <strong data-i18n="index.한글_hwpx">한글 (.hwpx)</strong>
+                      <span data-i18n="index.같은_서식으로">같은 서식으로</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             </div>
-            <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
-            <label class="viewer-ctrl"><span data-i18n="app.글꼴">글꼴</span>
-              <input id="viewerTypesetFont" type="text" maxlength="40" spellcheck="false" value="바탕체">
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.글자_크기">글자 크기</span>
-              <input id="viewerTypesetFontSize" type="number" min="1" max="72" step="1" value="10">
-              <span>pt</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="app.줄간격">줄간격</span>
-              <input id="viewerTypesetLineHeight" type="number" min="50" max="400" step="1" value="140">
-              <span>%</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.자간">자간</span>
-              <input id="viewerTypesetLetterSpacing" type="number" min="-20" max="40" step="1" value="0">
-              <span>pt</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.들여쓰기">들여쓰기</span>
-              <input id="viewerTypesetIndent" type="number" min="0" max="400" step="1" value="0">
-              <span>pt</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.문단_간격">문단 간격</span>
-              <input id="viewerTypesetParaSpacing" type="number" min="0" max="120" step="1" value="0">
-              <span>pt</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.왼쪽_여백">왼쪽 여백</span>
-              <input id="viewerTypesetMarginLeft" type="number" min="0" max="80" step="1" value="20">
-              <span>mm</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.오른쪽_여백">오른쪽 여백</span>
-              <input id="viewerTypesetMarginRight" type="number" min="0" max="80" step="1" value="20">
-              <span>mm</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.위_여백">위 여백</span>
-              <input id="viewerTypesetMarginTop" type="number" min="0" max="80" step="1" value="20">
-              <span>mm</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.아래_여백">아래 여백</span>
-              <input id="viewerTypesetMarginBottom" type="number" min="0" max="80" step="1" value="20">
-              <span>mm</span>
-            </label>
-            <label class="viewer-ctrl"><span data-i18n="index.미리보기_폭">미리보기 폭</span>
-              <input id="viewerTypesetViewport" type="number" min="200" max="800" step="1" value="360">
-              <span>px</span>
-            </label>
-            <button type="button" class="secondary compact-btn" id="viewerTypesetSave" data-i18n="index.조판양식_저장">조판양식 저장</button>
-            <div class="viewer-typeset-export-wrap">
-              <button
-                type="button"
-                class="primary compact-btn"
-                id="viewerTypesetExport"
-                aria-haspopup="menu"
-                aria-expanded="false"
-                aria-controls="viewerTypesetExportMenu"
-                data-i18n="index.내보내기"
-              >내보내기 ▾</button>
-              <div
-                id="viewerTypesetExportMenu"
-                class="viewer-typeset-export-menu hidden"
-                role="menu"
-                hidden
-                aria-label="조판 내보내기 형식" data-i18n-aria-label="index.조판_내보내기_형식"
-              >
-                <button type="button" role="menuitem" data-typeset-export="docx">
-                  <strong data-i18n="index.Word_docx">Word (.docx)</strong>
-                  <span data-i18n="index.같은_서식으로">같은 서식으로</span>
-                </button>
-                <button type="button" role="menuitem" data-typeset-export="hwpx">
-                  <strong data-i18n="index.한글_hwpx">한글 (.hwpx)</strong>
-                  <span data-i18n="index.같은_서식으로">같은 서식으로</span>
-                </button>
-              </div>
-            </div>
-            <span class="viewer-ctrl-hint" data-i18n="index.플랫폼_조판으로_모바일_줄바꿈을_확인하고_같">플랫폼 조판으로 모바일 줄바꿈을 확인하고, 같은 서식으로 Word나 한글 파일을 받아요. 여백은 파일에 반영됩니다.</span>
           </div>
         </div>
         <div class="viewer-stage" id="viewerStage" data-viewer-mode="pdf">
@@ -6282,6 +6521,46 @@
             <div class="viewer-book-pager" id="viewerBookPager" aria-live="polite">1 / 1</div>
             <div class="viewer-device-home viewer-phone-home" aria-hidden="true"></div>
             <div class="viewer-resize-handle" id="viewerResizeHandle" title="드래그하여 책 크기 조절" data-i18n-title="index.드래그하여_책_크기_조절" aria-hidden="true"></div>
+          </div>
+        </div>
+        <div class="viewer-comments-dock hidden" id="viewerReaderCommentsPanel" aria-label="가상독자 댓글" data-i18n-aria-label="index.가상독자_댓글_패널">
+          <div class="viewer-comments-dock-head">
+            <div class="viewer-toc-head-text">
+              <strong data-i18n="app.가상독자_댓글">가상독자 댓글</strong>
+              <span class="hint" id="viewerReaderCommentsHint"></span>
+            </div>
+            <button
+              type="button"
+              class="viewer-comments-history-toggle"
+              id="viewerReaderCommentsHistoryToggle"
+              title="이 화에서 아직 받은 댓글이 없어요"
+              data-i18n-title="app.이_화에서_아직_받은_댓글이_없어요"
+              aria-expanded="false"
+              aria-controls="viewerReaderCommentsHistoryList"
+              disabled
+              data-i18n="app.이전_댓글_보기"
+            >이전 댓글 보기</button>
+            <button type="button" class="secondary compact-btn viewer-comments-collapse" id="viewerReaderCommentsClose" title="댓글 접기" data-i18n-title="index.가상독자_댓글_접기" aria-label="댓글 접기" data-i18n-aria-label="index.가상독자_댓글_접기" data-i18n="index.접기">접기</button>
+          </div>
+          <div class="viewer-comments-list" id="viewerReaderCommentsList"></div>
+          <div class="viewer-comments-history-list hidden" id="viewerReaderCommentsHistoryList"></div>
+          <div class="viewer-comments-retry-row hidden" id="viewerReaderCommentsRetryRow">
+            <span class="hint viewer-comments-retry-hint" id="viewerReaderCommentsRetryHint"></span>
+            <button type="button" class="secondary compact-btn" id="viewerReaderCommentsRetryButton" data-i18n="app.다시_시도">다시 시도</button>
+          </div>
+          <div class="viewer-comments-refresh-row hidden" id="viewerReaderCommentsRefreshRow">
+            <button
+              type="button"
+              class="viewer-comments-refresh-btn"
+              id="viewerReaderCommentsRefreshButton"
+              title="새로고침으로 추가 댓글 받기"
+              data-i18n-title="app.새로고침으로_추가_댓글_받기"
+              aria-label="새로고침으로 추가 댓글 받기"
+              data-i18n-aria-label="app.새로고침으로_추가_댓글_받기"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>
+            </button>
+            <span class="hint viewer-comments-refresh-note hidden" id="viewerReaderCommentsRefreshNote" data-i18n="app.댓글은_여기까지예요">댓글은 여기까지예요</span>
           </div>
         </div>
       </div>
@@ -7298,6 +7577,7 @@
     </div>
 
     <div id="toast" role="status" aria-live="polite"></div>
+    <div id="iconGuideTooltip" class="icon-guide-tooltip hidden" role="tooltip"></div>
 
     <!-- Auto-update progress banner (Electron packaged builds) -->
     <div id="appUpdateBanner" class="app-update-banner hidden" role="status" aria-live="polite" hidden>
@@ -7310,6 +7590,6 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.31"></script>
+    <script src="/app.js?v=1.4.38"></script>
   </body>
 </html>

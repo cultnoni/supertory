@@ -142,6 +142,7 @@ class ReaderDebateTests(unittest.TestCase):
             self.assertIn(app.READER_DEBATE_TASK_ADDON, system)
             self.assertIn("[작품 정보]", system)
             self.assertNotIn("당신은 '토리'입니다", system)
+            self.assertNotIn("장르 불일치 인지", system)
         # 뒷사람이 앞사람 발언을 컨텍스트로 받는지
         second_prompt = self.calls[1]["prompt"]
         self.assertIn("사이다가 아직 덜 터졌어", second_prompt)

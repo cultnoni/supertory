@@ -50,6 +50,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         app.READER_DEBATE_GEMINI_GAP_SECONDS = self.original_gap
         with app._reader_comments_inflight_lock:
             app._reader_comments_inflight.clear()
+            app._reader_comments_inflight_batch.clear()
             app._reader_comments_last_error.clear()
         self.server.shutdown()
         self.thread.join()
@@ -204,7 +205,6 @@ class SceneReaderCommentsTests(unittest.TestCase):
 
         status, detail = self.request("GET", f"/api/scenes/{scene_id}")
         self.assertEqual(status, 200, detail)
-        before_count = len(self.calls)
         status, saved = self.request(
             "PUT",
             f"/api/scenes/{scene_id}",
@@ -219,9 +219,10 @@ class SceneReaderCommentsTests(unittest.TestCase):
         time.sleep(0.2)
         status, after = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
         self.assertEqual(status, 200, after)
+        self.assertFalse(after.get("generating"), after)
         self.assertEqual(len(after["comments"]), 3)
+        self.assertEqual(len(after["batches"]), 1)
         self.assertEqual([item["id"] for item in after["comments"]], first_ids)
-        self.assertEqual(len(self.calls), before_count)
         self.assertTrue(after["can_refresh"])
 
     def test_save_scene_complete_triggers_generation(self) -> None:
@@ -278,6 +279,7 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.assertIn("다음 화에 주인공 흑화할 듯? 떡밥 정리해 둠", system)
         self.assertIn("이 독자의 [말투]에 가까운 결만 참고", system)
         self.assertNotIn("2~5문장", system)
+        self.assertNotIn("장르 불일치 인지", system)
         user = app._reader_comment_user_prompt("사이다 중독자", "완성 회차")
         self.assertIn("웹소설 플랫폼 댓글창에 실제 독자가 남길 법한 댓글", user)
         self.assertIn("사이다 중독자", user)
@@ -329,16 +331,25 @@ class SceneReaderCommentsTests(unittest.TestCase):
             ).fetchall()
         return [str(row["id"]) for row in rows]
 
-    def _insert_comments(self, scene_id: int, persona_ids: list[str]) -> None:
+    def _insert_comments(
+        self, scene_id: int, persona_ids: list[str], batch_id: str = ""
+    ) -> None:
+        stamp = batch_id or app.utc_timestamp_now()
         with app.database() as connection:
             for persona_id in persona_ids:
                 connection.execute(
                     """
                     INSERT INTO scene_reader_comments
-                        (scene_id, persona_id, comment_text, created_at)
-                    VALUES (?, ?, ?, ?)
+                        (scene_id, batch_id, persona_id, comment_text, created_at)
+                    VALUES (?, ?, ?, ?, ?)
                     """,
-                    (scene_id, persona_id, f"댓글 {persona_id}", app.utc_timestamp_now()),
+                    (
+                        scene_id,
+                        batch_id,
+                        persona_id,
+                        f"댓글 {persona_id}",
+                        stamp,
+                    ),
                 )
 
     def test_select_excludes_existing_persona_ids(self) -> None:
@@ -414,41 +425,49 @@ class SceneReaderCommentsTests(unittest.TestCase):
         self.assertEqual(empty["refresh_count"], 0)
         self.assertEqual(empty["max_refreshes"], 3)
         self.assertFalse(empty["can_refresh"])
+        self.assertFalse(empty["has_history"])
+        self.assertEqual(empty["batches"], [])
         self.assertIsNone(empty.get("last_error_code"))
 
-    def test_refresh_generate_appends_more_comments(self) -> None:
+    def test_post_generate_starts_a_new_batch_and_keeps_previous(self) -> None:
         scene_id = self._make_scene()
         status, first = self.request("POST", f"/api/scenes/{scene_id}/reader-comments/generate")
         self.assertIn(status, (200, 202), first)
         ready = self._wait_comments(scene_id, minimum=3)
-        first_ids = {item["persona_id"] for item in ready["comments"]}
+        first_ids = {item["id"] for item in ready["comments"]}
+        first_batch = ready["batches"][0]["batch_id"]
+        self.assertEqual(len(ready["batches"]), 1)
+        self.assertTrue(ready["has_history"])
         status, refresh = self.request("POST", f"/api/scenes/{scene_id}/reader-comments/generate")
         self.assertEqual(status, 202, refresh)
         self.assertTrue(refresh.get("started") or refresh.get("generating"))
         more = self._wait_comments(scene_id, minimum=6)
         self.assertEqual(len(more["comments"]), 6)
+        self.assertEqual(len(more["batches"]), 2)
         self.assertEqual(more["refresh_count"], 1)
         self.assertTrue(more["can_refresh"])
-        later_ids = {item["persona_id"] for item in more["comments"]}
-        self.assertTrue(first_ids.issubset(later_ids))
-        self.assertEqual(len(later_ids), 6)
+        self.assertTrue(first_ids.issubset({item["id"] for item in more["comments"]}))
+        batch_ids = [item["batch_id"] for item in more["batches"]]
+        self.assertEqual(len(set(batch_ids)), 2)
+        self.assertIn(first_batch, batch_ids)
+        self.assertNotEqual(more["batches"][0]["created_at"], more["batches"][1]["created_at"])
 
-    def test_refresh_stops_after_three_rounds(self) -> None:
+    def test_legacy_comments_without_batch_id_form_one_history_group(self) -> None:
         scene_id = self._make_scene()
-        self._insert_comments(scene_id, self._persona_ids()[:12])
+        used = self._persona_ids()[:3]
+        self._insert_comments(scene_id, used, batch_id="")
         status, data = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
         self.assertEqual(status, 200, data)
-        self.assertEqual(data["refresh_count"], 3)
-        self.assertFalse(data["can_refresh"])
-        status, blocked = self.request("POST", f"/api/scenes/{scene_id}/reader-comments/generate")
-        self.assertEqual(status, 400, blocked)
-        self.assertEqual(blocked["error"], "max_refreshes_reached")
+        self.assertEqual(len(data["comments"]), 3)
+        self.assertEqual(len(data["batches"]), 1)
+        self.assertTrue(data["has_history"])
+        self.assertEqual(len(data["batches"][0]["comments"]), 3)
 
     def test_refresh_returns_no_more_personas_when_pool_empty(self) -> None:
         scene_id = self._make_scene()
-        self._insert_comments(scene_id, self._persona_ids()[:3])
-        original = app.select_additional_reader_comment_personas
-        app.select_additional_reader_comment_personas = (  # type: ignore[method-assign]
+        self._insert_comments(scene_id, self._persona_ids()[:3], batch_id="legacy-one")
+        original = app.select_reader_comment_personas
+        app.select_reader_comment_personas = (  # type: ignore[method-assign]
             lambda *args, **kwargs: []
         )
         try:
@@ -456,29 +475,33 @@ class SceneReaderCommentsTests(unittest.TestCase):
                 "POST", f"/api/scenes/{scene_id}/reader-comments/generate"
             )
         finally:
-            app.select_additional_reader_comment_personas = original  # type: ignore[method-assign]
-        self.assertEqual(status, 400, data)
-        self.assertEqual(data["error"], "no_more_personas")
+            app.select_reader_comment_personas = original  # type: ignore[method-assign]
+        self.assertEqual(status, 200, data)
+        self.assertFalse(data.get("started"))
+        self.assertEqual(len(data["comments"]), 3)
 
-    def test_post_generate_fills_partial_first_batch(self) -> None:
+    def test_post_generate_does_not_fill_previous_batch(self) -> None:
         scene_id = self._make_scene()
         used = self._persona_ids()[:2]
-        self._insert_comments(scene_id, used)
+        self._insert_comments(scene_id, used, batch_id="2026-08-15T00:00:00.000000Z")
         status, before = self.request("GET", f"/api/scenes/{scene_id}/reader-comments")
         self.assertEqual(status, 200, before)
         self.assertEqual(len(before["comments"]), 2)
-        self.assertEqual(before["refresh_count"], 0)
-        self.assertFalse(before["can_refresh"])
+        self.assertEqual(len(before["batches"]), 1)
         status, fill = self.request("POST", f"/api/scenes/{scene_id}/reader-comments/generate")
         self.assertEqual(status, 202, fill)
         self.assertTrue(fill.get("started") or fill.get("generating"))
-        ready = self._wait_comments(scene_id, minimum=3)
-        self.assertEqual(len(ready["comments"]), 3)
-        self.assertEqual(ready["refresh_count"], 0)
-        self.assertTrue(ready["can_refresh"])
-        ids = [item["persona_id"] for item in ready["comments"]]
-        self.assertEqual(len(set(ids)), 3)
-        self.assertTrue(set(used).issubset(set(ids)))
+        ready = self._wait_comments(scene_id, minimum=5)
+        self.assertEqual(len(ready["comments"]), 5)
+        self.assertEqual(len(ready["batches"]), 2)
+        kept = {item["id"] for item in before["comments"]}
+        self.assertTrue(kept.issubset({item["id"] for item in ready["comments"]}))
+        new_batch = next(
+            item
+            for item in ready["batches"]
+            if item["batch_id"] != "2026-08-15T00:00:00.000000Z"
+        )
+        self.assertEqual(len(new_batch["comments"]), 3)
 
     def test_generate_logs_gemini_failures_including_quota(self) -> None:
         scene_id = self._make_scene()

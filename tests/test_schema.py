@@ -469,6 +469,78 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "scene_reader_comments")
 
+    def test_scene_reader_comment_batches(self) -> None:
+        self.create_story()
+        self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS virtual_reader_personas (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL DEFAULT 'taste_preference',
+                name TEXT NOT NULL DEFAULT '',
+                identity TEXT NOT NULL DEFAULT '',
+                tone TEXT NOT NULL DEFAULT '',
+                criteria TEXT NOT NULL DEFAULT '[]',
+                forbidden TEXT NOT NULL DEFAULT '',
+                sample_responses TEXT NOT NULL DEFAULT '[]',
+                discussion_attitude TEXT NOT NULL DEFAULT '',
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        self.db.execute(
+            "INSERT INTO virtual_reader_personas(id, name, created_at) "
+            "VALUES ('p1', '독자', '2026-01-01T00:00:00.000000Z')"
+        )
+        self.db.execute(
+            "INSERT INTO virtual_reader_personas(id, name, created_at) "
+            "VALUES ('p2', '독자2', '2026-01-01T00:00:00.000000Z')"
+        )
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "054_scene_reader_comments.sql").read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO scene_reader_comments(scene_id, persona_id, comment_text, created_at) "
+            "VALUES (30, 'p1', '예전 댓글', '2026-08-15T01:00:00.000000Z')"
+        )
+        self.db.execute(
+            "INSERT INTO scene_reader_comments(scene_id, persona_id, comment_text, created_at) "
+            "VALUES (30, 'p2', '예전 댓글2', '2026-08-15T01:00:01.000000Z')"
+        )
+        self.db.executescript(
+            (root / "080_scene_reader_comment_batches.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(scene_reader_comments)").fetchall()
+        }
+        self.assertIn("batch_id", cols)
+        rows = self.db.execute(
+            "SELECT persona_id, batch_id FROM scene_reader_comments WHERE scene_id = 30 "
+            "ORDER BY persona_id"
+        ).fetchall()
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0][1], rows[1][1])
+        self.assertEqual(rows[0][1], "2026-08-15T01:00:00.000000Z")
+        self.db.execute(
+            "INSERT INTO scene_reader_comments"
+            "(scene_id, batch_id, persona_id, comment_text, created_at) "
+            "VALUES (30, '2026-09-02T10:00:00.000000Z', 'p1', '새 묶음', "
+            "'2026-09-02T10:00:00.000000Z')"
+        )
+        count = self.db.execute(
+            "SELECT COUNT(*) FROM scene_reader_comments WHERE scene_id = 30"
+        ).fetchone()[0]
+        self.assertEqual(count, 3)
+        self.assert_integrity_error(
+            "INSERT INTO scene_reader_comments"
+            "(scene_id, batch_id, persona_id, comment_text) "
+            "VALUES (30, '2026-09-02T10:00:00.000000Z', 'p1', '중복')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 80"
+        ).fetchone()[0]
+        self.assertEqual(version, "scene_reader_comment_batches")
+
     def test_gitsi_rooms_table(self) -> None:
         migration = Path(__file__).resolve().parents[1] / "db" / "055_gitsi_rooms.sql"
         self.db.executescript(migration.read_text(encoding="utf-8"))
@@ -1054,6 +1126,26 @@ class SuperTorySchemaTests(unittest.TestCase):
             "SELECT content_rating FROM project WHERE title = '매운맛'"
         ).fetchone()[0]
         self.assertEqual(stored_hard, "19_hard")
+
+    def test_project_completion_guide_column_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript(
+            (root / "079_project_completion_guide.sql").read_text(encoding="utf-8")
+        )
+        cols = {
+            str(row[1])
+            for row in self.db.execute("PRAGMA table_info(project)").fetchall()
+        }
+        self.assertIn("completion_guide_shown", cols)
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 79"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_completion_guide")
+        self.db.execute("INSERT INTO project(title) VALUES ('안내 미표시')")
+        stored = self.db.execute(
+            "SELECT completion_guide_shown FROM project WHERE title = '안내 미표시'"
+        ).fetchone()[0]
+        self.assertEqual(stored, 0)
 
     def test_character_trait_history_table(self) -> None:
         self.create_story()
