@@ -796,6 +796,38 @@ class SuperTorySchemaTests(unittest.TestCase):
         ).fetchone()[0]
         self.assertEqual(version, "translation_proper_nouns_source")
 
+    def test_translation_proper_noun_suppressions_table_is_added(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "078_translation_proper_noun_suppressions.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        tables = {
+            str(row[0])
+            for row in self.db.execute(
+                "SELECT name FROM sqlite_master WHERE type = 'table'"
+            ).fetchall()
+        }
+        self.assertIn("translation_proper_noun_suppressions", tables)
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language) "
+            "VALUES (1, 'en')"
+        )
+        self.db.execute(
+            "INSERT INTO translation_proper_noun_suppressions"
+            "(translation_job_id, source_term_key) VALUES (1, '우산골')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO translation_proper_noun_suppressions"
+            "(translation_job_id, source_term_key) VALUES (1, '우산골')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 78"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_proper_noun_suppressions")
+
     def test_translation_pipeline_schema_is_added(self) -> None:
         root = Path(__file__).resolve().parents[1] / "db"
         self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))

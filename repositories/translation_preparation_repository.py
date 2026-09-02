@@ -6,6 +6,8 @@ import json
 import sqlite3
 from collections.abc import Callable
 
+import character_import_analysis
+
 
 class TranslationPreparationRepository:
     """Store formatting rules, scene contexts, and proper-noun decisions."""
@@ -116,7 +118,7 @@ class TranslationPreparationRepository:
 
     def save_proper_nouns(self, job_id: int, nouns: list[dict]) -> None:
         existing = {
-            str(row["source_term"] or "").strip().casefold()
+            character_import_analysis.strip_tori_text(row["source_term"]).casefold()
             for row in self.connection.execute(
                 "SELECT source_term FROM translation_proper_nouns "
                 "WHERE translation_job_id = ?",
@@ -131,14 +133,16 @@ class TranslationPreparationRepository:
         }
         stamp = self.timestamp_provider()
         for noun in nouns:
-            source_term = str(noun.get("source_term") or "").strip()
+            source_term = character_import_analysis.strip_tori_text(
+                noun.get("source_term")
+            )
             key = source_term.casefold()
             if not key or key in existing:
                 continue
             source = str(
                 noun.get("source") or noun.get("origin") or "ai_detected"
             ).strip()
-            if source not in {"character_index", "ai_detected"}:
+            if source not in {"character_index", "ai_detected", "user_added"}:
                 source = "ai_detected"
             alternatives = noun.get("suggested_alternatives_json")
             if alternatives is None:
@@ -214,6 +218,8 @@ class TranslationPreparationRepository:
         source: str,
         *,
         user_decision: str | None = None,
+        term_type: str | None = None,
+        source_term: str | None = None,
     ) -> dict:
         columns = {
             str(row[1])
@@ -226,6 +232,14 @@ class TranslationPreparationRepository:
         if user_decision is not None:
             assignments.append("user_decision = ?")
             values.append(str(user_decision))
+        if term_type is not None:
+            assignments.append("term_type = ?")
+            values.append(str(term_type))
+        if source_term is not None:
+            assignments.append("source_term = ?")
+            values.append(
+                character_import_analysis.strip_tori_text(source_term)
+            )
         if "source" in columns:
             assignments.append("source = ?")
             values.append(str(source))
@@ -242,9 +256,104 @@ class TranslationPreparationRepository:
             raise LookupError("고유명사 항목을 찾을 수 없습니다.")
         return self.get_proper_noun(int(noun_id)) or {}
 
+    def apply_proper_noun_ai_fields(
+        self,
+        job_id: int,
+        noun_id: int,
+        *,
+        fit_judgment: str | None,
+        judgment_reason: str,
+        romanized: str,
+        suggested_alternatives: list[str],
+        term_type: str | None = None,
+    ) -> dict:
+        alternatives = {
+            "romanized": str(romanized or "").strip(),
+            "alternatives": [
+                str(item).strip()
+                for item in (suggested_alternatives or [])
+                if str(item).strip()
+            ],
+        }
+        assignments = [
+            "fit_judgment = ?",
+            "judgment_reason = ?",
+            "suggested_alternatives_json = ?",
+            "user_decision = NULL",
+            "final_term = NULL",
+        ]
+        values: list[object] = [
+            fit_judgment,
+            str(judgment_reason or ""),
+            json.dumps(alternatives, ensure_ascii=False),
+        ]
+        if term_type is not None:
+            assignments.append("term_type = ?")
+            values.append(str(term_type))
+        values.extend((int(job_id), int(noun_id)))
+        cursor = self.connection.execute(
+            f"UPDATE translation_proper_nouns SET {', '.join(assignments)} "
+            "WHERE translation_job_id = ? AND id = ?",
+            values,
+        )
+        if int(cursor.rowcount or 0) < 1:
+            raise LookupError("고유명사 항목을 찾을 수 없습니다.")
+        return self.get_proper_noun(int(noun_id)) or {}
+
+    def delete_proper_noun(self, job_id: int, noun_id: int) -> None:
+        cursor = self.connection.execute(
+            "DELETE FROM translation_proper_nouns "
+            "WHERE translation_job_id = ? AND id = ?",
+            (int(job_id), int(noun_id)),
+        )
+        if int(cursor.rowcount or 0) < 1:
+            raise LookupError("고유명사 항목을 찾을 수 없습니다.")
+
+    def suppress_proper_noun_term(self, job_id: int, source_term: str) -> None:
+        key = character_import_analysis.strip_tori_text(source_term).casefold()
+        if not key:
+            return
+        self.connection.execute(
+            "INSERT OR IGNORE INTO translation_proper_noun_suppressions"
+            "(translation_job_id, source_term_key, created_at) VALUES (?, ?, ?)",
+            (int(job_id), key, self.timestamp_provider()),
+        )
+
+    def unsuppress_proper_noun_term(self, job_id: int, source_term: str) -> None:
+        key = character_import_analysis.strip_tori_text(source_term).casefold()
+        if not key:
+            return
+        self.connection.execute(
+            "DELETE FROM translation_proper_noun_suppressions "
+            "WHERE translation_job_id = ? AND source_term_key = ?",
+            (int(job_id), key),
+        )
+
+    def suppressed_proper_noun_keys(self, job_id: int) -> set[str]:
+        rows = self.connection.execute(
+            "SELECT source_term_key FROM translation_proper_noun_suppressions "
+            "WHERE translation_job_id = ?",
+            (int(job_id),),
+        ).fetchall()
+        keys: set[str] = set()
+        for row in rows:
+            key = str(row["source_term_key"] or "").strip()
+            if key:
+                keys.add(key)
+        return keys
+
     def confirm_all_proper_nouns(self, job_id: int) -> None:
         cursor = self.connection.execute(
             "UPDATE translation_jobs SET proper_nouns_confirmed = 1, "
+            "updated_at = datetime('now') WHERE id = ?",
+            (int(job_id),),
+        )
+        if int(cursor.rowcount or 0) < 1:
+            raise LookupError("번역 작업을 찾을 수 없습니다.")
+
+    def clear_proper_nouns_confirmed(self, job_id: int) -> None:
+        cursor = self.connection.execute(
+            "UPDATE translation_jobs SET proper_nouns_confirmed = 0, "
             "updated_at = datetime('now') WHERE id = ?",
             (int(job_id),),
         )

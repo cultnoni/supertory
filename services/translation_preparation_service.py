@@ -7,10 +7,11 @@ import re
 from collections.abc import Callable
 from typing import Protocol
 
+import character_import_analysis
 import translation_prompts
 
 
-PROPER_NOUN_SOURCES = ("character_index", "ai_detected")
+PROPER_NOUN_SOURCES = ("character_index", "ai_detected", "user_added")
 PROPER_NOUN_TERM_TYPES = ("character", "place", "item", "organization")
 PROPER_NOUN_FIT_JUDGMENTS = ("fits", "does_not_fit")
 PROPER_NOUN_USER_DECISIONS = ("keep_romanized", "rename", "keep_as_is")
@@ -29,6 +30,64 @@ _PROPER_NOUN_FIT_MAP = {
 }
 
 
+_INDEX_ORG_HINT = re.compile(
+    r"(제국|왕국|공국|공화국|기사단|왕가|길드|교단|함대|연합|부족)$"
+)
+
+
+def _proper_noun_key(value: object) -> str:
+    return character_import_analysis.strip_tori_text(value).casefold()
+
+
+def _stored_term_type(value: object) -> str:
+    mapped = _PROPER_NOUN_TERM_TYPE_MAP.get(
+        str(value or "").strip().casefold(),
+        "",
+    )
+    return mapped if mapped in PROPER_NOUN_TERM_TYPES else "item"
+
+
+def _merged_stored_term_type(name: str, types: list[object]) -> str:
+    kinds = [_stored_term_type(item) for item in types]
+    if _INDEX_ORG_HINT.search(str(name or "").strip()) and (
+        "place" in kinds or "organization" in kinds
+    ):
+        return "organization"
+    rank = {"character": 3, "organization": 2, "place": 1, "item": 0}
+    return max(kinds, key=lambda kind: rank.get(kind, 0))
+
+
+def _proper_noun_keep_rank(row: dict) -> tuple:
+    name = character_import_analysis.strip_tori_text(row.get("source_term"))
+    stored = str(row.get("source_term") or "").strip()
+    source = str(row.get("source") or row.get("origin") or "").strip()
+    return (
+        1 if source == "user_added" else 0,
+        1 if str(row.get("user_decision") or "").strip() else 0,
+        1 if str(row.get("final_term") or "").strip() else 0,
+        1 if _stored_term_type(row.get("term_type")) == "organization" else 0,
+        1 if stored == name else 0,
+        -int(row.get("id") or 0),
+    )
+
+
+def _proper_noun_is_user_locked(row: dict) -> bool:
+    """Keep user-added and already-chosen translations; refresh placeholders only."""
+    source = str(row.get("source") or row.get("origin") or "").strip()
+    if source == "user_added":
+        return True
+    decision = str(row.get("user_decision") or "").strip()
+    if not decision:
+        return False
+    if decision == "rename":
+        return True
+    final_term = character_import_analysis.strip_tori_text(row.get("final_term"))
+    source_term = character_import_analysis.strip_tori_text(row.get("source_term"))
+    if not final_term:
+        return False
+    return final_term.casefold() != source_term.casefold()
+
+
 class PreparationRepositoryContract(Protocol):
     def save_formatting_rules(self, job_id: int, rules_json: object) -> None: ...
     def get_formatting_rules(self, job_id: int) -> dict | None: ...
@@ -45,14 +104,35 @@ class PreparationRepositoryContract(Protocol):
         source: str,
         *,
         user_decision: str | None = None,
+        term_type: str | None = None,
+        source_term: str | None = None,
     ) -> dict: ...
+    def apply_proper_noun_ai_fields(
+        self,
+        job_id: int,
+        noun_id: int,
+        *,
+        fit_judgment: str | None,
+        judgment_reason: str,
+        romanized: str,
+        suggested_alternatives: list[str],
+        term_type: str | None = None,
+    ) -> dict: ...
+    def delete_proper_noun(self, job_id: int, noun_id: int) -> None: ...
+    def suppress_proper_noun_term(self, job_id: int, source_term: str) -> None: ...
+    def unsuppress_proper_noun_term(self, job_id: int, source_term: str) -> None: ...
+    def suppressed_proper_noun_keys(self, job_id: int) -> set[str]: ...
     def confirm_all_proper_nouns(self, job_id: int) -> None: ...
+    def clear_proper_nouns_confirmed(self, job_id: int) -> None: ...
     def source_text(self, job_id: int, chapter_number: int | None = None) -> str: ...
     def chapter_numbers(self, job_id: int) -> list[int]: ...
     def chapter_segment_count(self, job_id: int, chapter_number: int) -> int: ...
     def chapter_has_scene_contexts(
         self, job_id: int, chapter_number: int
     ) -> bool: ...
+    def delete_scene_contexts_outside_range(
+        self, job_id: int, start_chapter: int, end_chapter: int
+    ) -> int: ...
     def mark_proper_nouns_extracted(self, job_id: int) -> None: ...
     def set_preparation_status(self, job_id: int, status: str) -> None: ...
     def record_pipeline_failure(
@@ -69,6 +149,23 @@ class JobRepositoryContract(Protocol):
 class JobServiceContract(Protocol):
     def get_job(self, job_id: int) -> dict: ...
     def get_job_summary(self, job_id: int) -> dict: ...
+
+
+def job_chapter_range(job: dict) -> tuple[int, int]:
+    start = int(job.get("start_chapter") or 1)
+    end = int(job.get("end_chapter") or start)
+    if start > end:
+        start, end = end, start
+    return start, end
+
+
+def scene_context_in_job_range(job: dict, chapter_number: int) -> bool:
+    start, end = job_chapter_range(job)
+    try:
+        number = int(chapter_number)
+    except (TypeError, ValueError):
+        return False
+    return start <= number <= end
 
 
 def serialize_scene_context(row: dict) -> dict:
@@ -117,7 +214,9 @@ def serialize_proper_noun(row: dict) -> dict:
     return {
         "id": int(data["id"]),
         "translation_job_id": int(data["translation_job_id"]),
-        "source_term": data.get("source_term") or "",
+        "source_term": character_import_analysis.strip_tori_text(
+            data.get("source_term")
+        ),
         "term_type": data.get("term_type"),
         "fit_judgment": data.get("fit_judgment"),
         "judgment_reason": data.get("judgment_reason") or "",
@@ -130,6 +229,22 @@ def serialize_proper_noun(row: dict) -> dict:
         "origin": source,
         "created_at": data.get("created_at"),
     }
+
+
+def format_proper_noun_glossary(rows: list[dict]) -> str:
+    parts: list[str] = []
+    seen: set[str] = set()
+    for row in rows:
+        source = character_import_analysis.strip_tori_text(row.get("source_term"))
+        final = character_import_analysis.strip_tori_text(row.get("final_term"))
+        if not source:
+            continue
+        key = source.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        parts.append(f"{source}→{final}" if final else source)
+    return ", ".join(parts)
 
 
 class TranslationPreparationService:
@@ -209,9 +324,17 @@ class TranslationPreparationService:
 
     def split_scenes(self, job_id: int) -> tuple[list[dict], list[int]]:
         job = self._require_job(job_id)
+        start, end = job_chapter_range(job)
+        self.repository.delete_scene_contexts_outside_range(
+            int(job_id), start, end
+        )
+        self.repository.commit()
         target_language = str(job.get("target_language") or "en")
         skipped_chapters: list[int] = []
         for chapter_number in self.repository.chapter_numbers(int(job_id)):
+            if not scene_context_in_job_range(job, chapter_number):
+                skipped_chapters.append(chapter_number)
+                continue
             if self.repository.chapter_has_scene_contexts(
                 int(job_id), chapter_number
             ):
@@ -259,29 +382,36 @@ class TranslationPreparationService:
             self.repository.commit()
         return self.list_scene_contexts(int(job_id)), skipped_chapters
 
-    def extract_proper_nouns(self, job_id: int) -> dict:
+    def refresh_proper_nouns(self, job_id: int) -> dict:
+        return self.extract_proper_nouns(int(job_id), refresh=True)
+
+    def extract_proper_nouns(self, job_id: int, *, refresh: bool = False) -> dict:
         job = self._require_job(job_id)
         project_id = int(job["local_project_id"])
+        self._collapse_duplicate_proper_nouns(int(job_id))
+        suppressed = self.repository.suppressed_proper_noun_keys(int(job_id))
         existing = {
-            str(item.get("source_term") or "").strip().casefold()
+            _proper_noun_key(item.get("source_term"))
             for item in self.repository.get_proper_nouns(int(job_id))
         }
         index_terms = self.index_terms_provider(project_id)
         index_nouns: list[dict] = []
         for item in index_terms:
-            source_term = str(item.get("source_term") or "").strip()
-            key = source_term.casefold()
-            if not key or key in existing:
+            source_term = character_import_analysis.strip_tori_text(
+                item.get("source_term")
+            )
+            key = _proper_noun_key(source_term)
+            if not key or key in existing or key in suppressed:
                 continue
             index_nouns.append({
                 "source_term": source_term,
                 "term_type": item.get("term_type") or "item",
-                "fit_judgment": "fits",
+                "fit_judgment": None,
                 "judgment_reason": "",
                 "romanized": "",
                 "suggested_alternatives": [],
-                "user_decision": "keep_as_is",
-                "final_term": source_term,
+                "user_decision": None,
+                "final_term": None,
                 "source": "character_index",
             })
             existing.add(key)
@@ -289,7 +419,8 @@ class TranslationPreparationService:
 
         source_text = self.repository.source_text(int(job_id))[:100_000]
         detected_nouns: list[dict] = []
-        if source_text.strip():
+        judged = 0
+        if source_text.strip() or index_terms:
             if not self.gemini_is_configured():
                 raise ValueError(
                     "Gemini API 키가 없습니다. .env 에 GEMINI_API_KEY 를 넣어 주세요."
@@ -297,7 +428,7 @@ class TranslationPreparationService:
             prompt = translation_prompts.build_proper_noun_fit_prompt(
                 source_text,
                 existing_index_terms=[
-                    str(item.get("source_term") or "")
+                    character_import_analysis.strip_tori_text(item.get("source_term"))
                     for item in index_terms
                 ],
                 target_language=str(job.get("target_language") or "en"),
@@ -305,21 +436,59 @@ class TranslationPreparationService:
             raw = self.gemini_generate(
                 prompt,
                 temperature=0.3,
-                max_output_tokens=4096,
+                max_output_tokens=8192,
                 job_id=int(job_id),
             )
+            rows_by_key = {
+                _proper_noun_key(row.get("source_term")): row
+                for row in self.repository.get_proper_nouns(int(job_id))
+            }
             for item in _parse_detected_proper_nouns(raw):
-                key = item["source_term"].casefold()
-                if key in existing:
+                source_term = character_import_analysis.strip_tori_text(
+                    item.get("source_term")
+                )
+                key = _proper_noun_key(source_term)
+                if not key or key in suppressed:
+                    continue
+                current = rows_by_key.get(key)
+                if current is not None:
+                    if _proper_noun_is_user_locked(current):
+                        continue
+                    if not refresh and _row_has_ai_judgment(current):
+                        continue
+                    source = str(
+                        current.get("source") or current.get("origin") or ""
+                    ).strip()
+                    self.repository.apply_proper_noun_ai_fields(
+                        int(job_id),
+                        int(current["id"]),
+                        fit_judgment=item.get("fit_judgment") or "fits",
+                        judgment_reason=str(item.get("judgment_reason") or ""),
+                        romanized=str(item.get("romanized") or ""),
+                        suggested_alternatives=list(
+                            item.get("suggested_alternatives") or []
+                        ),
+                        term_type=(
+                            None
+                            if source == "character_index"
+                            else item.get("term_type")
+                        ),
+                    )
+                    judged += 1
                     continue
                 detected_nouns.append({
                     **item,
+                    "source_term": source_term,
                     "user_decision": None,
                     "final_term": None,
                     "source": "ai_detected",
                 })
                 existing.add(key)
-            self.repository.save_proper_nouns(int(job_id), detected_nouns)
+            if detected_nouns:
+                self.repository.save_proper_nouns(int(job_id), detected_nouns)
+            self._fallback_unjudged_index_nouns(int(job_id))
+        if refresh:
+            self.repository.clear_proper_nouns_confirmed(int(job_id))
         self.repository.mark_proper_nouns_extracted(int(job_id))
         self.repository.commit()
         payload = self.list_proper_nouns(int(job_id))
@@ -327,18 +496,88 @@ class TranslationPreparationService:
             "job": self.job_service.get_job_summary(int(job_id)),
             "seeded_from_index": len(index_nouns),
             "detected_new": len(detected_nouns),
+            "judged_existing": judged,
         })
         return payload
 
+    def _fallback_unjudged_index_nouns(self, job_id: int) -> None:
+        for row in self.repository.get_proper_nouns(int(job_id)):
+            source = str(row.get("source") or row.get("origin") or "").strip()
+            if source != "character_index":
+                continue
+            if _row_has_ai_judgment(row):
+                continue
+            if str(row.get("user_decision") or "").strip():
+                continue
+            name = character_import_analysis.strip_tori_text(row.get("source_term"))
+            self.repository.update_proper_noun(
+                int(job_id),
+                int(row["id"]),
+                name,
+                "character_index",
+                user_decision="keep_as_is",
+            )
+
     def list_scene_contexts(self, job_id: int) -> list[dict]:
-        self._require_job(job_id)
+        job = self._require_job(job_id)
         return [
             serialize_scene_context(item)
             for item in self.repository.get_scene_contexts(int(job_id))
+            if scene_context_in_job_range(job, int(item["chapter_number"]))
         ]
+
+    def _collapse_duplicate_proper_nouns(self, job_id: int) -> None:
+        rows = self.repository.get_proper_nouns(int(job_id))
+        groups: dict[str, list[dict]] = {}
+        changed = False
+        for row in rows:
+            name = character_import_analysis.strip_tori_text(row.get("source_term"))
+            key = name.casefold()
+            if not key:
+                continue
+            groups.setdefault(key, []).append(row)
+            if name != str(row.get("source_term") or "").strip():
+                changed = True
+        if any(len(group) > 1 for group in groups.values()):
+            changed = True
+        if not changed:
+            return
+        for _key, group in groups.items():
+            keeper = max(group, key=_proper_noun_keep_rank)
+            name = character_import_analysis.strip_tori_text(
+                keeper.get("source_term")
+            )
+            term_type = _merged_stored_term_type(
+                name,
+                [item.get("term_type") for item in group],
+            )
+            source = str(
+                keeper.get("source") or keeper.get("origin") or "ai_detected"
+            ).strip()
+            if source not in PROPER_NOUN_SOURCES:
+                source = "ai_detected"
+            needs_update = (
+                name != str(keeper.get("source_term") or "").strip()
+                or _stored_term_type(keeper.get("term_type")) != term_type
+            )
+            if needs_update:
+                self.repository.update_proper_noun(
+                    int(job_id),
+                    int(keeper["id"]),
+                    str(keeper.get("final_term") or ""),
+                    source,
+                    term_type=term_type,
+                    source_term=name,
+                )
+            for extra in group:
+                if int(extra["id"]) == int(keeper["id"]):
+                    continue
+                self.repository.delete_proper_noun(int(job_id), int(extra["id"]))
+        self.repository.commit()
 
     def list_proper_nouns(self, job_id: int) -> dict:
         self._require_job(job_id)
+        self._collapse_duplicate_proper_nouns(int(job_id))
         return {
             "proper_nouns": [
                 serialize_proper_noun(item)
@@ -364,15 +603,90 @@ class TranslationPreparationService:
             final_term = str(current.get("source_term") or "").strip()
         if not final_term:
             raise ValueError("최종 표기를 입력해 주세요.")
+        term_type = None
+        if data.get("term_type") not in (None, ""):
+            term_type = _PROPER_NOUN_TERM_TYPE_MAP.get(
+                str(data.get("term_type") or "").strip().casefold(),
+                "",
+            )
+            if term_type not in PROPER_NOUN_TERM_TYPES:
+                raise ValueError("고유명사 유형이 올바르지 않습니다.")
         updated = self.repository.update_proper_noun(
             int(row["translation_job_id"]),
             int(noun_id),
             final_term,
             str(current.get("source") or "ai_detected"),
             user_decision=decision,
+            term_type=term_type,
         )
         self.repository.commit()
         return serialize_proper_noun(updated)
+
+    def add_proper_noun(self, job_id: int, payload: dict | None) -> dict:
+        self._require_job(job_id)
+        data = payload if isinstance(payload, dict) else {}
+        source_term = character_import_analysis.strip_tori_text(
+            data.get("source_term")
+        )
+        final_term = character_import_analysis.strip_tori_text(
+            data.get("final_term") or source_term
+        )
+        term_type = _PROPER_NOUN_TERM_TYPE_MAP.get(
+            str(data.get("term_type") or "").strip().casefold(),
+            "",
+        )
+        if not source_term:
+            raise ValueError("고유명사를 입력해 주세요.")
+        if not final_term:
+            raise ValueError("최종 표기를 입력해 주세요.")
+        if term_type not in PROPER_NOUN_TERM_TYPES:
+            raise ValueError("고유명사 유형이 올바르지 않습니다.")
+        existing = {
+            _proper_noun_key(item.get("source_term"))
+            for item in self.repository.get_proper_nouns(int(job_id))
+        }
+        if _proper_noun_key(source_term) in existing:
+            raise ValueError("이미 같은 고유명사가 있어요.")
+        decision = "keep_as_is" if final_term == source_term else "rename"
+        self.repository.unsuppress_proper_noun_term(int(job_id), source_term)
+        self.repository.save_proper_nouns(int(job_id), [{
+            "source_term": source_term,
+            "term_type": term_type,
+            "fit_judgment": "fits",
+            "judgment_reason": "",
+            "romanized": "",
+            "suggested_alternatives": [],
+            "user_decision": decision,
+            "final_term": final_term,
+            "source": "user_added",
+        }])
+        self.repository.commit()
+        created = next(
+            (
+                item
+                for item in self.repository.get_proper_nouns(int(job_id))
+                if str(item.get("source_term") or "").strip().casefold()
+                == source_term.casefold()
+            ),
+            None,
+        )
+        if created is None:
+            raise ValueError("고유명사를 추가하지 못했어요.")
+        payload_out = self.list_proper_nouns(int(job_id))
+        payload_out["proper_noun"] = serialize_proper_noun(created)
+        return payload_out
+
+    def delete_proper_noun(self, noun_id: int) -> dict:
+        row = self.repository.get_proper_noun(int(noun_id))
+        if row is None:
+            raise LookupError("고유명사 항목을 찾을 수 없습니다.")
+        job_id = int(row["translation_job_id"])
+        self._require_job(job_id)
+        source_term = character_import_analysis.strip_tori_text(row.get("source_term"))
+        self.repository.suppress_proper_noun_term(job_id, source_term)
+        self.repository.delete_proper_noun(job_id, int(noun_id))
+        self.repository.commit()
+        return self.list_proper_nouns(job_id)
 
     def confirm_all_proper_nouns(self, job_id: int) -> dict:
         self._require_job(job_id)
@@ -499,6 +813,17 @@ def _parse_scene_split_output(raw: str) -> list[dict]:
             "situation_note": str(item.get("situation_note") or "").strip(),
         })
     return scenes
+
+
+def _row_has_ai_judgment(row: dict) -> bool:
+    if str(row.get("judgment_reason") or "").strip():
+        return True
+    parsed = serialize_proper_noun(row)
+    if str(parsed.get("romanized") or "").strip():
+        return True
+    if parsed.get("suggested_alternatives"):
+        return True
+    return False
 
 
 def _parse_detected_proper_nouns(raw: str) -> list[dict]:

@@ -124,12 +124,72 @@ class TranslationPreparationRepositoryTests(unittest.TestCase):
         self.assertEqual(updated["final_term"], "Rainvale")
         self.assertEqual(updated["user_decision"], "rename")
 
+        applied = self.repository.apply_proper_noun_ai_fields(
+            self.job_id,
+            int(nouns[0]["id"]),
+            fit_judgment="fits",
+            judgment_reason="'Iona' 표기가 자연스럽습니다.",
+            romanized="Iona",
+            suggested_alternatives=["Yona"],
+        )
+        self.assertEqual(applied["fit_judgment"], "fits")
+        self.assertEqual(applied["judgment_reason"], "'Iona' 표기가 자연스럽습니다.")
+        self.assertIsNone(applied["user_decision"])
+        self.assertIsNone(applied["final_term"])
+        self.assertIn("Iona", str(applied.get("suggested_alternatives_json") or ""))
+
         self.repository.confirm_all_proper_nouns(self.job_id)
         job = self.connection.execute(
             "SELECT proper_nouns_confirmed FROM translation_jobs WHERE id = ?",
             (self.job_id,),
         ).fetchone()
         self.assertEqual(int(job["proper_nouns_confirmed"]), 1)
+
+    def test_delete_proper_noun_removes_row(self) -> None:
+        self.repository.save_proper_nouns(self.job_id, [
+            {
+                "source_term": "우산골",
+                "term_type": "place",
+                "fit_judgment": "does_not_fit",
+                "user_decision": "rename",
+                "final_term": "Rainvale",
+                "source": "ai_detected",
+            },
+        ])
+        noun_id = int(self.repository.get_proper_nouns(self.job_id)[0]["id"])
+        self.repository.delete_proper_noun(self.job_id, noun_id)
+        self.assertEqual(self.repository.get_proper_nouns(self.job_id), [])
+        with self.assertRaises(LookupError):
+            self.repository.delete_proper_noun(self.job_id, noun_id)
+
+    def test_save_user_added_and_suppress_keys(self) -> None:
+        self.repository.save_proper_nouns(self.job_id, [{
+            "source_term": "뮤온",
+            "term_type": "item",
+            "user_decision": "rename",
+            "final_term": "Muon",
+            "source": "user_added",
+        }])
+        saved = self.repository.get_proper_nouns(self.job_id)[0]
+        self.assertEqual(saved["source"], "user_added")
+        self.repository.suppress_proper_noun_term(self.job_id, "우산골")
+        self.repository.suppress_proper_noun_term(self.job_id, "우산골")
+        self.assertEqual(
+            self.repository.suppressed_proper_noun_keys(self.job_id),
+            {"우산골"},
+        )
+        self.repository.unsuppress_proper_noun_term(self.job_id, "우산골")
+        self.assertEqual(
+            self.repository.suppressed_proper_noun_keys(self.job_id),
+            set(),
+        )
+        self.repository.confirm_all_proper_nouns(self.job_id)
+        self.repository.clear_proper_nouns_confirmed(self.job_id)
+        job = self.connection.execute(
+            "SELECT proper_nouns_confirmed FROM translation_jobs WHERE id = ?",
+            (self.job_id,),
+        ).fetchone()
+        self.assertEqual(int(job["proper_nouns_confirmed"]), 0)
 
     def test_save_proper_nouns_deduplicates_source_terms(self) -> None:
         noun = {
