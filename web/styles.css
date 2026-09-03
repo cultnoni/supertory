@@ -3784,24 +3784,6 @@ body.ai-panel-collapsed .ai-dock-rail {
   color: var(--accent-dark);
   background: color-mix(in srgb, var(--selection) 78%, var(--surface-2));
 }
-.panel-dock-item.is-pinned-dock {
-  position: relative;
-}
-.panel-dock-item.is-pinned-dock::after {
-  content: "";
-  position: absolute;
-  right: 5px;
-  bottom: 5px;
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: currentColor;
-  opacity: 0.45;
-  pointer-events: none;
-}
-.panel-dock-item.is-pinned-dock.is-open::after {
-  opacity: 0.8;
-}
 .panel-dock-rail-items {
   flex: 1 1 auto;
   min-height: 0;
@@ -9854,6 +9836,75 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   flex: 0 0 auto;
   margin: 0;
 }
+.idea-float.dock-float.dock-float-manuscript {
+  width: 320px;
+  height: 480px;
+  min-width: 240px;
+  min-height: 240px;
+}
+.idea-float.dock-float.dock-float-manuscript .idea-float-body {
+  overflow: hidden;
+}
+.dock-manuscript {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1 1 auto;
+  height: 100%;
+}
+.dock-manuscript-hint {
+  flex: 0 0 auto;
+  margin: 0;
+}
+.dock-manuscript-tree {
+  display: flex;
+  flex-direction: column;
+  gap: var(--outline-row-gap, 4px);
+  align-content: start;
+  align-items: stretch;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding-bottom: 6px;
+  --outline-title-size: 12px;
+  --outline-row-gap: 4px;
+  --outline-folder-tree-line: #c9b8a4;
+}
+.dock-manuscript-tree [data-add-after-scene],
+.dock-manuscript-tree .chapter-add-scene,
+.dock-manuscript-tree .chapter-insert-slot,
+.dock-manuscript-tree .transparent-add-scene {
+  display: none !important;
+}
+.dock-manuscript-tree .scene-tree-item,
+.dock-manuscript-tree .scene-link,
+.dock-manuscript-tree .chapter-row,
+.dock-manuscript-tree .part-row,
+.dock-manuscript-tree .chapter-title,
+.dock-manuscript-tree .part-title {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+.dock-manuscript-tree .scene-title {
+  font-size: inherit;
+  line-height: inherit;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1 1 auto;
+  margin: 0;
+  padding: 0;
+}
+.dock-manuscript-tree .scene-title.is-title-italic {
+  font-style: italic;
+}
+.dock-manuscript-tree .scene-title.is-body-preview {
+  font-style: italic;
+  font-weight: 500;
+  color: var(--muted);
+}
 .dock-baits-list {
   flex: 1 1 auto;
   min-height: 0;
@@ -10064,13 +10115,60 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   flex-direction: column;
   gap: 10px;
 }
-.idea-float.dock-float-character.is-expanded .dock-char-extra {
+.idea-float.dock-float-character.is-expanded .dock-char-extra,
+.idea-float.dock-float-world.is-expanded .dock-char-extra,
+.idea-float.dock-float-item.is-expanded .dock-char-extra {
   display: flex;
 }
 #sceneContent.is-over-character-name,
 #focusWriteEditor.is-over-character-name,
-#splitSceneBodyEditor.is-over-character-name {
+#splitSceneBodyEditor.is-over-character-name,
+#sceneContent.is-over-world-term,
+#focusWriteEditor.is-over-world-term,
+#splitSceneBodyEditor.is-over-world-term,
+#sceneContent.is-over-item-name,
+#focusWriteEditor.is-over-item-name,
+#splitSceneBodyEditor.is-over-item-name {
   cursor: pointer;
+}
+.idea-float.dock-float.dock-float-world {
+  width: 280px;
+  height: 360px;
+  min-width: 260px;
+  min-height: 280px;
+}
+.idea-float.dock-float.dock-float-world .idea-float-body {
+  overflow: auto;
+}
+.idea-float.dock-float.dock-float-item {
+  width: 280px;
+  height: 360px;
+  min-width: 260px;
+  min-height: 280px;
+}
+.idea-float.dock-float.dock-float-item .idea-float-body {
+  overflow: auto;
+}
+.dock-world-cat {
+  margin: 0 0 4px;
+  font-size: 11px;
+  font-weight: 750;
+  color: var(--muted);
+}
+.dock-world-list-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+}
+.dock-world-list-name {
+  font-weight: 650;
+}
+.dock-world-list-preview {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted);
+  line-height: 1.35;
 }
 .dock-stats-card {
   display: flex;

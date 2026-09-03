@@ -10042,6 +10042,7 @@ async function persistSettingsDoc(kind, options = {}) {
       syncSettingsDocMainFromState(kind);
     }
     if (!quiet) toast(`${i18n.t('app.meta_toastLabel_을_를_저장했', {'meta.toastLabel': meta.toastLabel})}`);
+    if (kind === "world" && typeof refreshDockWorldCards === "function") refreshDockWorldCards();
     return result;
   } catch (error) {
     if (liveProjectId() !== projectId || isAbortError(error)) return null;
@@ -11581,6 +11582,18 @@ function renderItems() {
     button.addEventListener("click", () => openItem(button.dataset.item).catch(handleError));
   });
   renderSettingsCodex();
+  syncDockItemsFloat();
+  syncDockTimelineFloat();
+  [...ideaFloatWindows.keys()].forEach((id) => {
+    if (!String(id).startsWith(DOCK_ITEM_KEY_PREFIX)) return;
+    const iid = dockItemIdFromKey(id);
+    if (!iid || !(state.items || []).some((it) => Number(it.id) === iid)) {
+      closeIdeaFloat(id, { skipSave: true });
+      return;
+    }
+    dockItemDetailCache.delete(iid);
+    syncDockItemCard(id);
+  });
 }
 
 function itemBoardCardHtml(item) {
@@ -13321,6 +13334,26 @@ const DOCK_CHAR_DEFAULT_W = 280;
 const DOCK_CHAR_DEFAULT_H = 360;
 const DOCK_CHAR_MIN_W = 260;
 const DOCK_CHAR_MIN_H = 280;
+const DOCK_WORLD_KEY = "dock:world";
+const DOCK_WORLD_KEY_PREFIX = "dock:world:";
+const DOCK_WORLD_DEFAULT_W = 280;
+const DOCK_WORLD_DEFAULT_H = 360;
+const DOCK_WORLD_MIN_W = 260;
+const DOCK_WORLD_MIN_H = 280;
+const DOCK_ITEM_KEY = "dock:items";
+const DOCK_ITEM_KEY_PREFIX = "dock:item:";
+const DOCK_ITEM_DEFAULT_W = 280;
+const DOCK_ITEM_DEFAULT_H = 360;
+const DOCK_ITEM_MIN_W = 260;
+const DOCK_ITEM_MIN_H = 280;
+const WORLD_SECTION_LEAD_FIELD = {
+  where_when: "locale",
+  unique_concept: "special",
+  extreme_factor: "extreme_event",
+  system_life: "daily",
+  factions: "factions",
+  legacy: "legacy",
+};
 const DOCK_TIMELINE_KEY = "dock:timeline";
 const DOCK_TIMELINE_DEFAULT_W = 360;
 const DOCK_TIMELINE_DEFAULT_H = 420;
@@ -13331,6 +13364,11 @@ const DOCK_BAITS_DEFAULT_W = 360;
 const DOCK_BAITS_DEFAULT_H = 420;
 const DOCK_BAITS_MIN_W = 280;
 const DOCK_BAITS_MIN_H = 240;
+const DOCK_MANUSCRIPT_KEY = "dock:manuscript";
+const DOCK_MANUSCRIPT_DEFAULT_W = 320;
+const DOCK_MANUSCRIPT_DEFAULT_H = 480;
+const DOCK_MANUSCRIPT_MIN_W = 240;
+const DOCK_MANUSCRIPT_MIN_H = 240;
 const DOCK_RELATION_KEY = "dock:relationMinimap";
 const DOCK_RELATION_DEFAULT_W = 420;
 const DOCK_RELATION_DEFAULT_H = 380;
@@ -13345,15 +13383,22 @@ const DOCK_RAIL_FLOAT_KEYS = {
   ideas: "dock:ideas",
   statsTracker: DOCK_STATS_TRACKER_KEY,
   characters: "dock:characters",
+  world: DOCK_WORLD_KEY,
+  items: DOCK_ITEM_KEY,
   timeline: DOCK_TIMELINE_KEY,
   baits: DOCK_BAITS_KEY,
+  manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
 };
 const dockCharacterDetailCache = new Map();
+const dockItemDetailCache = new Map();
 let pendingDockCharacterId = null;
+let pendingDockWorldSectionId = null;
+let pendingDockItemId = null;
+let dockTimelineKind = "character";
 let dockTimelineFilterId = 0;
 let dockTimelineLoadGen = 0;
-let dockTimelineCache = { projectId: 0, entries: [] };
+let dockTimelineCache = { projectId: 0, kind: "character", filterId: 0, entries: [] };
 let dockBaitsLoadGen = 0;
 let dockBaitsCache = { projectId: 0, threads: [] };
 let dockRelationFocusId = 0;
@@ -13401,7 +13446,23 @@ function pruneAndSyncIdeaFloats() {
     if (typeof id === "string" && String(id).startsWith("dock:")) {
       if (id === "dock:ideas") syncDockIdeasFloat();
       if (id === "dock:characters") syncDockCharactersFloat();
+      if (id === DOCK_WORLD_KEY) syncDockWorldFloat();
+      if (id === DOCK_ITEM_KEY) syncDockItemsFloat();
       if (id === DOCK_BAITS_KEY) syncDockBaitsFloat();
+      if (id === DOCK_MANUSCRIPT_KEY) syncDockManuscriptFloat();
+      if (String(id).startsWith(DOCK_WORLD_KEY_PREFIX)) {
+        syncDockWorldCard(id);
+        continue;
+      }
+      if (String(id).startsWith(DOCK_ITEM_KEY_PREFIX)) {
+        const iid = Number(String(id).slice(DOCK_ITEM_KEY_PREFIX.length));
+        if (!iid || !(state.items || []).some((it) => Number(it.id) === iid)) {
+          closeIdeaFloat(id, { skipSave: true });
+        } else {
+          syncDockItemCard(id);
+        }
+        continue;
+      }
       if (String(id).startsWith("dock:character:")) {
         const cid = Number(String(id).slice("dock:character:".length));
         if (!cid || !(state.characters || []).some((ch) => Number(ch.id) === cid)) {
@@ -13580,7 +13641,9 @@ function closeAllIdeaFloats() {
   if (trackerLayout) ideaFloatLayouts.set(DOCK_STATS_TRACKER_KEY, trackerLayout);
   ideaFloatZ = 1;
   dockCharacterDetailCache.clear();
-  dockTimelineCache = { projectId: 0, entries: [] };
+  dockItemDetailCache.clear();
+  dockTimelineCache = { projectId: 0, kind: "character", filterId: 0, entries: [] };
+  dockTimelineKind = "character";
   dockTimelineFilterId = 0;
   if (typeof syncDockRailButtons === "function") syncDockRailButtons();
 }
@@ -13708,6 +13771,18 @@ const DOCK_FLOAT_SPECS = {
     resize: false,
     render(body) { renderDockCharactersBody(body); },
   },
+  world: {
+    titleKey: "app.세계관",
+    side: "left",
+    resize: false,
+    render(body) { renderDockWorldBody(body); },
+  },
+  items: {
+    titleKey: "app.아이템",
+    side: "left",
+    resize: false,
+    render(body) { renderDockItemsBody(body); },
+  },
   timeline: {
     titleKey: "index.연대기",
     windowClass: "dock-float-timeline",
@@ -13725,6 +13800,15 @@ const DOCK_FLOAT_SPECS = {
     defaultHeight: DOCK_BAITS_DEFAULT_H,
     resize: { minWidth: DOCK_BAITS_MIN_W, minHeight: DOCK_BAITS_MIN_H },
     render(body) { renderDockBaitsBody(body); },
+  },
+  manuscript: {
+    titleKey: "index.목차보기",
+    windowClass: "dock-float-manuscript",
+    side: "left",
+    defaultWidth: DOCK_MANUSCRIPT_DEFAULT_W,
+    defaultHeight: DOCK_MANUSCRIPT_DEFAULT_H,
+    resize: { minWidth: DOCK_MANUSCRIPT_MIN_W, minHeight: DOCK_MANUSCRIPT_MIN_H },
+    render(body) { renderDockManuscriptBody(body); },
   },
   settingsSearch: {
     titleKey: "app.크로스_레퍼런스_시스템",
@@ -13800,6 +13884,16 @@ function isDockRailItemActive(itemId) {
   if (itemId === "characters") {
     for (const openKey of ideaFloatWindows.keys()) {
       if (String(openKey).startsWith(DOCK_CHAR_KEY_PREFIX)) return true;
+    }
+  }
+  if (itemId === "world") {
+    for (const openKey of ideaFloatWindows.keys()) {
+      if (String(openKey).startsWith(DOCK_WORLD_KEY_PREFIX)) return true;
+    }
+  }
+  if (itemId === "items") {
+    for (const openKey of ideaFloatWindows.keys()) {
+      if (String(openKey).startsWith(DOCK_ITEM_KEY_PREFIX)) return true;
     }
   }
   return false;
@@ -14233,24 +14327,524 @@ function syncDockCharactersFloat() {
   renderDockCharactersBody(win.querySelector("[data-role='dock-float-body']"));
 }
 
+function worldSectionPlainTitle(section) {
+  return String(section?.title || "").replace(/\s*\([^)]*\)\s*$/, "").trim();
+}
+
+function dockWorldLegacySection() {
+  return {
+    id: "legacy",
+    title: i18n.t("app.기타_기존_메모_2"),
+    blurb: i18n.t("index.세계관_기존_메모_안내"),
+    fields: [{ id: "legacy", label: i18n.t("app.기타_기존_메모_2") }],
+  };
+}
+
+function dockWorldValues() {
+  if (typeof worldbuildingExampleDraft !== "undefined" && worldbuildingExampleDraft) {
+    return emptyWorldBuildingValues();
+  }
+  return parseWorldbuildingMd(state.worldbuildingMd || "");
+}
+
+function dockWorldSectionList() {
+  const values = dockWorldValues();
+  const list = WORLD_BUILDING_SCHEMA.slice();
+  if (String(values.legacy || "").trim()) list.push(dockWorldLegacySection());
+  return list;
+}
+
+function dockWorldSectionById(sectionId) {
+  const id = String(sectionId || "");
+  if (id === "legacy") return dockWorldLegacySection();
+  return WORLD_BUILDING_SCHEMA.find((section) => section.id === id) || null;
+}
+
+function dockWorldSectionFields(section) {
+  if (!section) return [];
+  if (section.id === "legacy") return dockWorldLegacySection().fields;
+  return Array.isArray(section.fields) ? section.fields : [];
+}
+
+function dockWorldFieldValue(values, fieldId) {
+  return String(values?.[fieldId] || "").trim();
+}
+
+function dockWorldCoreFieldId(section, values) {
+  const fields = dockWorldSectionFields(section);
+  const lead = WORLD_SECTION_LEAD_FIELD[section?.id] || fields[0]?.id;
+  if (lead && dockWorldFieldValue(values, lead)) return lead;
+  const filled = fields.find((field) => dockWorldFieldValue(values, field.id));
+  return filled?.id || lead || "";
+}
+
+function dockWorldPreviewText(section, values, max = 72) {
+  const coreId = dockWorldCoreFieldId(section, values);
+  const text = dockWorldFieldValue(values, coreId) || String(section?.blurb || "").trim();
+  const cleaned = text.replace(/\s+/g, " ").trim();
+  if (!cleaned) return "";
+  return cleaned.length > max ? `${cleaned.slice(0, max)}…` : cleaned;
+}
+
+function dockWorldFloatKey(sectionId) {
+  return `${DOCK_WORLD_KEY_PREFIX}${String(sectionId || "")}`;
+}
+
+function dockWorldSectionIdFromKey(key) {
+  const text = String(key || "");
+  if (!text.startsWith(DOCK_WORLD_KEY_PREFIX)) return "";
+  return text.slice(DOCK_WORLD_KEY_PREFIX.length);
+}
+
+function collectWorldMatchNames(text) {
+  const src = String(text || "").trim();
+  const names = [];
+  if (!src) return names;
+  const quoted = src.matchAll(/[「『“"‘']([^」』”"'']{2,40})[」』”"'']/g);
+  for (const match of quoted) {
+    const name = String(match[1] || "").trim();
+    if (name.length >= 2) names.push(name);
+  }
+  if (src.length >= 2 && src.length <= 28 && !/[\n.]/.test(src)) names.push(src);
+  src.split(/\s*(?:·|\/|,|;|\||\n|(?:\bvs\.?\b))+\s*/i).forEach((part) => {
+    const name = String(part || "").trim().replace(/^[「『“"‘']|[」』”"'']$/g, "");
+    if (name.length >= 2 && name.length <= 24) names.push(name);
+  });
+  return names;
+}
+
+function dockWorldTermIndex() {
+  const values = dockWorldValues();
+  const skip = new Set();
+  WORLD_BUILDING_SCHEMA.forEach((section) => {
+    skip.add(worldSectionPlainTitle(section));
+    (section.fields || []).forEach((field) => {
+      if (field.label) skip.add(String(field.label).trim());
+      if (field.example) skip.add(String(field.example).trim());
+    });
+  });
+  const terms = [];
+  dockWorldSectionList().forEach((section) => {
+    dockWorldSectionFields(section).forEach((field) => {
+      const value = dockWorldFieldValue(values, field.id);
+      if (!value || value === String(field.example || "").trim()) return;
+      collectWorldMatchNames(value).forEach((name) => {
+        if (skip.has(name)) return;
+        terms.push({ name, sectionId: section.id });
+      });
+    });
+  });
+  terms.sort((a, b) => b.name.length - a.name.length);
+  return terms;
+}
+
+function worldTermAtTextOffset(text, offset, terms) {
+  const source = String(text || "");
+  const pos = Math.max(0, Math.min(source.length, Number(offset) || 0));
+  let best = null;
+  (terms || []).forEach((term) => {
+    const name = String(term?.name || "");
+    const sectionId = String(term?.sectionId || "");
+    if (!name || !sectionId) return;
+    let from = 0;
+    while (from < source.length) {
+      const index = source.indexOf(name, from);
+      if (index < 0) break;
+      const end = index + name.length;
+      const prev = index > 0 ? source[index - 1] : "";
+      if (/[가-힣]/.test(prev)) {
+        from = index + 1;
+        continue;
+      }
+      if (!SCENE_CAST_AFTER_OK.test(source.slice(end))) {
+        from = index + 1;
+        continue;
+      }
+      if (pos >= index && pos <= end) {
+        if (!best || name.length > best.name.length) best = { sectionId, name };
+      }
+      from = index + 1;
+    }
+  });
+  return best;
+}
+
+function worldTermFromSelectedText(text) {
+  const needle = String(text || "").trim();
+  if (!needle) return null;
+  for (const term of dockWorldTermIndex()) {
+    if (term.name === needle) return { sectionId: term.sectionId, name: needle };
+  }
+  return null;
+}
+
+function worldTermFromEditorPoint(editor, clientX, clientY) {
+  if (!editor) return null;
+  const terms = dockWorldTermIndex();
+  if (!terms.length) return null;
+  const range = rangeFromEditorPoint(editor, clientX, clientY);
+  if (!range) return null;
+  const offset = editorTextOffsetFromRange(editor, range);
+  if (offset < 0) return null;
+  return worldTermAtTextOffset(editor.textContent || "", offset, terms);
+}
+
+function paintDockWorldCard(body, section) {
+  if (!body || !section) return;
+  const values = dockWorldValues();
+  const title = worldSectionPlainTitle(section) || i18n.t("app.세계관");
+  const blurb = String(section.blurb || "").trim();
+  const fields = dockWorldSectionFields(section);
+  const coreId = dockWorldCoreFieldId(section, values);
+  const coreField = fields.find((field) => field.id === coreId) || null;
+  const coreText = coreField ? dockWorldFieldValue(values, coreField.id) : "";
+  const extraHtml = fields
+    .filter((field) => field.id !== coreId && dockWorldFieldValue(values, field.id))
+    .map((field) => `
+    <section class="dock-char-field">
+      <h4>${escapeHtml(field.label || field.id)}</h4>
+      <p>${escapeHtml(dockWorldFieldValue(values, field.id))}</p>
+    </section>`).join("");
+  body.innerHTML = `
+    <div class="dock-char-card dock-world-card">
+      <div class="dock-char-head-text">
+        <p class="dock-world-cat">${escapeHtml(title)}</p>
+        ${blurb ? `<p class="dock-char-summary">${escapeHtml(blurb)}</p>` : `<p class="dock-char-summary is-empty">${escapeHtml(i18n.t("index.세계관_소개를_적어_보세요"))}</p>`}
+      </div>
+      <section class="dock-char-field">
+        <h4>${escapeHtml(coreField?.label || i18n.t("index.핵심_설명"))}</h4>
+        <p>${coreText ? escapeHtml(coreText) : escapeHtml(i18n.t("index.세계관_설명을_적어_보세요"))}</p>
+      </section>
+      <div class="dock-char-extra dock-world-extra">${extraHtml}</div>
+    </div>
+  `;
+  const win = body.closest(".idea-float");
+  const heading = win?.querySelector(".idea-float-title");
+  if (heading) heading.textContent = title;
+  if (win) win.setAttribute("aria-label", title);
+}
+
+function renderDockWorldCard(body, sectionId) {
+  if (!body) return;
+  const section = dockWorldSectionById(sectionId);
+  if (!section) {
+    body.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.세계관_항목을_찾지_못했어요"))}</p>`;
+    return;
+  }
+  paintDockWorldCard(body, section);
+}
+
+function syncDockWorldCard(key) {
+  const sectionId = dockWorldSectionIdFromKey(key);
+  const win = ideaFloatWindows.get(key);
+  if (!sectionId || !win) return;
+  renderDockWorldCard(win.querySelector("[data-role='dock-float-body']"), sectionId);
+  syncDockWorldCardExpanded(win);
+}
+
+function refreshDockWorldCards() {
+  syncDockWorldFloat();
+  [...ideaFloatWindows.keys()].forEach((id) => {
+    if (String(id).startsWith(DOCK_WORLD_KEY_PREFIX)) syncDockWorldCard(id);
+  });
+}
+
+function syncDockWorldCardExpanded(win) {
+  if (!win?.classList?.contains("dock-float-world")) return;
+  const rect = win.getBoundingClientRect();
+  const expanded = rect.width >= DOCK_WORLD_DEFAULT_W * 1.5 || rect.height >= DOCK_WORLD_DEFAULT_H * 1.5;
+  win.classList.toggle("is-expanded", expanded);
+}
+
+function openWorldCardFloat(sectionId, sourceEl) {
+  const id = String(sectionId || "");
+  const section = dockWorldSectionById(id);
+  if (!id || !section) return null;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const title = worldSectionPlainTitle(section) || i18n.t("index.세계관_카드");
+  const openCount = [...ideaFloatWindows.keys()].filter((key) => String(key).startsWith(DOCK_WORLD_KEY_PREFIX)).length;
+  const offset = openCount % 6;
+  return openDockFloatWindow(dockWorldFloatKey(id), {
+    title,
+    itemId: "world-card",
+    windowClass: "dock-float-world",
+    side: "left",
+    defaultWidth: DOCK_WORLD_DEFAULT_W,
+    defaultHeight: DOCK_WORLD_DEFAULT_H,
+    resize: { minWidth: DOCK_WORLD_MIN_W, minHeight: DOCK_WORLD_MIN_H },
+    fallbackPos(el) {
+      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_WORLD_DEFAULT_W);
+      return {
+        left: Math.max(16, 94 + offset * 22),
+        top: Math.max(48, 94 + offset * 22),
+      };
+    },
+    onResize: syncDockWorldCardExpanded,
+    render(body) { renderDockWorldCard(body, id); },
+  }, sourceEl);
+}
+
+function renderDockWorldBody(body) {
+  if (!body) return;
+  const empty = !state.projectId
+    ? i18n.t("app.먼저_작품을_선택해_주세요")
+    : i18n.t("index.세계관을_적어_보세요");
+  const values = dockWorldValues();
+  const sections = dockWorldSectionList();
+  const rows = sections.map((section) => {
+    const preview = dockWorldPreviewText(section, values);
+    return `
+    <button type="button" class="dock-char-list-item dock-world-list-item" data-dock-world="${escapeHtml(section.id)}">
+      <span class="dock-world-list-name">${escapeHtml(worldSectionPlainTitle(section))}</span>
+      ${preview ? `<span class="dock-world-list-preview">${escapeHtml(preview)}</span>` : ""}
+    </button>`;
+  }).join("");
+  body.innerHTML = `
+    <div class="dock-char-list">
+      ${!state.projectId
+        ? `<p class="hint idea-sticky-empty">${escapeHtml(empty)}</p>`
+        : rows}
+    </div>
+  `;
+  body.querySelectorAll("[data-dock-world]").forEach((button) => {
+    button.addEventListener("click", () => openWorldCardFloat(button.dataset.dockWorld, button));
+  });
+}
+
+function syncDockWorldFloat() {
+  const win = ideaFloatWindows.get(DOCK_WORLD_KEY);
+  if (!win) return;
+  renderDockWorldBody(win.querySelector("[data-role='dock-float-body']"));
+}
+
+function dockItemFloatKey(itemId) {
+  return `${DOCK_ITEM_KEY_PREFIX}${Number(itemId) || 0}`;
+}
+
+function dockItemIdFromKey(key) {
+  const text = String(key || "");
+  if (!text.startsWith(DOCK_ITEM_KEY_PREFIX)) return 0;
+  return Number(text.slice(DOCK_ITEM_KEY_PREFIX.length)) || 0;
+}
+
+function normalizeDockItemCard(source) {
+  const listed = source?.item && typeof source.item === "object" ? source.item : source;
+  const aliases = itemAliasNamesFrom(source?.aliases || listed?.aliases);
+  return {
+    id: Number(listed?.id) || 0,
+    name: String(listed?.name || "").trim(),
+    description: String(listed?.description || ""),
+    owner_name: String(listed?.owner_name || "").trim(),
+    aliases,
+  };
+}
+
+function listedDockItem(itemId) {
+  const id = Number(itemId);
+  return (state.items || []).find((item) => Number(item.id) === id) || null;
+}
+
+function dockItemCardData(itemId) {
+  const id = Number(itemId);
+  if (dockItemDetailCache.has(id)) return dockItemDetailCache.get(id);
+  const listed = listedDockItem(id);
+  return listed ? normalizeDockItemCard(listed) : null;
+}
+
+function dockItemSummaryAndCore(description) {
+  const text = String(description || "").trim();
+  if (!text) return { summary: "", core: "" };
+  const first = text.split(/\n/).map((line) => line.trim()).find(Boolean) || "";
+  return { summary: first, core: text };
+}
+
+function paintDockItemCard(body, data) {
+  if (!body || !data) return;
+  const name = data.name || i18n.t("app.이름_없음");
+  const { summary, core } = dockItemSummaryAndCore(data.description);
+  const aliases = Array.isArray(data.aliases) ? data.aliases : [];
+  const owner = String(data.owner_name || "").trim();
+  body.innerHTML = `
+    <div class="dock-char-card dock-item-card">
+      <div class="dock-char-head-text">
+        ${summary ? `<p class="dock-char-summary">${escapeHtml(summary)}</p>` : `<p class="dock-char-summary is-empty">${escapeHtml(i18n.t("app.소개를_적어_보세요"))}</p>`}
+      </div>
+      <section class="dock-char-field">
+        <h4>${escapeHtml(i18n.t("index.핵심_설명"))}</h4>
+        <p>${core ? escapeHtml(core) : escapeHtml(i18n.t("app.아이템_설정을_적어_보세요"))}</p>
+      </section>
+      <div class="dock-char-extra dock-item-extra">
+        ${owner ? dockCharacterFieldHtml("index.소유자", owner) : ""}
+        ${aliases.length ? dockCharacterFieldHtml("index.다른_이름_별칭", aliases.join(" · ")) : ""}
+      </div>
+      <div class="dock-char-actions">
+        <button type="button" class="secondary compact-btn" data-role="dock-item-timeline">${escapeHtml(i18n.t("index.연대기_보기"))}</button>
+      </div>
+    </div>
+  `;
+  const win = body.closest(".idea-float");
+  const heading = win?.querySelector(".idea-float-title");
+  if (heading) heading.textContent = name;
+  if (win) win.setAttribute("aria-label", name);
+  body.querySelector("[data-role='dock-item-timeline']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openDockTimelineFloat(data.id, event.currentTarget, { kind: "item" });
+  });
+}
+
+function renderDockItemCard(body, itemId) {
+  if (!body) return;
+  const id = Number(itemId);
+  const data = dockItemCardData(id);
+  if (!data) {
+    body.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.아직_아이템이_없어요"))}</p>`;
+    return;
+  }
+  paintDockItemCard(body, data);
+  if (dockItemDetailCache.has(id)) return;
+  api(`/api/items/${id}`).then((detail) => {
+    const next = normalizeDockItemCard(detail);
+    if (!next.id) return;
+    dockItemDetailCache.set(id, next);
+    const win = ideaFloatWindows.get(dockItemFloatKey(id));
+    if (!win) return;
+    paintDockItemCard(win.querySelector("[data-role='dock-float-body']"), next);
+  }).catch(() => { /* keep list snapshot */ });
+}
+
+function syncDockItemCard(key) {
+  const id = dockItemIdFromKey(key);
+  const win = ideaFloatWindows.get(key);
+  if (!id || !win) return;
+  renderDockItemCard(win.querySelector("[data-role='dock-float-body']"), id);
+  syncDockItemCardExpanded(win);
+}
+
+function refreshDockItemCard(itemId) {
+  const id = Number(itemId);
+  if (!id) return;
+  dockItemDetailCache.delete(id);
+  const key = dockItemFloatKey(id);
+  if (ideaFloatWindows.get(key)) syncDockItemCard(key);
+}
+
+function syncDockItemCardExpanded(win) {
+  if (!win?.classList?.contains("dock-float-item")) return;
+  const rect = win.getBoundingClientRect();
+  const expanded = rect.width >= DOCK_ITEM_DEFAULT_W * 1.5 || rect.height >= DOCK_ITEM_DEFAULT_H * 1.5;
+  win.classList.toggle("is-expanded", expanded);
+}
+
+function openItemCardFloat(itemId, sourceEl) {
+  const id = Number(itemId);
+  if (!id) return null;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const listed = listedDockItem(id);
+  const title = listed?.name || i18n.t("index.아이템_카드");
+  const openCount = [...ideaFloatWindows.keys()].filter((key) => String(key).startsWith(DOCK_ITEM_KEY_PREFIX)).length;
+  const offset = openCount % 6;
+  return openDockFloatWindow(dockItemFloatKey(id), {
+    title,
+    itemId: "item-card",
+    windowClass: "dock-float-item",
+    side: "left",
+    defaultWidth: DOCK_ITEM_DEFAULT_W,
+    defaultHeight: DOCK_ITEM_DEFAULT_H,
+    resize: { minWidth: DOCK_ITEM_MIN_W, minHeight: DOCK_ITEM_MIN_H },
+    fallbackPos(el) {
+      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_ITEM_DEFAULT_W);
+      return {
+        left: Math.max(16, 94 + offset * 22),
+        top: Math.max(48, 94 + offset * 22),
+      };
+    },
+    onResize: syncDockItemCardExpanded,
+    render(body) { renderDockItemCard(body, id); },
+  }, sourceEl);
+}
+
+function renderDockItemsBody(body) {
+  if (!body) return;
+  const rowsData = Array.isArray(state.items) ? state.items : [];
+  const empty = !state.projectId
+    ? i18n.t("app.먼저_작품을_선택해_주세요")
+    : i18n.t("index.아직_아이템이_없어요");
+  const rows = rowsData.map((item) => `
+    <button type="button" class="dock-char-list-item" data-dock-item-card="${item.id}">
+      ${escapeHtml(item.name || i18n.t("app.이름_없음"))}
+    </button>`).join("");
+  body.innerHTML = `
+    <div class="dock-char-list">
+      ${!state.projectId || !rowsData.length
+        ? `<p class="hint idea-sticky-empty">${escapeHtml(empty)}</p>`
+        : rows}
+    </div>
+  `;
+  body.querySelectorAll("[data-dock-item-card]").forEach((button) => {
+    button.addEventListener("click", () => openItemCardFloat(button.dataset.dockItemCard, button));
+  });
+}
+
+function syncDockItemsFloat() {
+  const win = ideaFloatWindows.get(DOCK_ITEM_KEY);
+  if (!win) return;
+  renderDockItemsBody(win.querySelector("[data-role='dock-float-body']"));
+}
+
+function dockTimelineEntities() {
+  return dockTimelineKind === "item"
+    ? (Array.isArray(state.items) ? state.items : [])
+    : (Array.isArray(state.characters) ? state.characters : []);
+}
+
+function dockTimelineFilterLabel() {
+  return dockTimelineKind === "item"
+    ? i18n.t("index.연대기_아이템_필터")
+    : i18n.t("index.연대기_인물_필터");
+}
+
+function dockTimelineHintText() {
+  return dockTimelineKind === "item"
+    ? i18n.t("index.연대기_아이템_안내")
+    : i18n.t("index.연대기_작품_안내");
+}
+
+function dockTimelineFallbackEntityLabel() {
+  return dockTimelineKind === "item" ? i18n.t("app.아이템") : i18n.t("app.캐릭터");
+}
+
+function applyDockTimelineChrome(root) {
+  if (!root) return;
+  const label = dockTimelineFilterLabel();
+  const hint = dockTimelineHintText();
+  root.querySelectorAll("[data-role='dock-timeline-filter-label']").forEach((el) => {
+    el.textContent = label;
+  });
+  const select = root.querySelector("[data-role='dock-timeline-filter']");
+  if (select) select.setAttribute("aria-label", label);
+  const hintEl = root.querySelector("[data-role='dock-timeline-hint']");
+  if (hintEl) hintEl.textContent = hint;
+}
+
 function dockTimelineFilterOptionsHtml() {
-  const people = Array.isArray(state.characters) ? state.characters : [];
+  const entities = dockTimelineEntities();
   return `<option value="0">${escapeHtml(i18n.t("app.전체"))}</option>`
-    + people.map((character) => (
-      `<option value="${Number(character.id) || 0}">${escapeHtml(character.name || i18n.t("app.이름_없음"))}</option>`
+    + entities.map((entity) => (
+      `<option value="${Number(entity.id) || 0}">${escapeHtml(entity.name || i18n.t("app.이름_없음"))}</option>`
     )).join("");
 }
 
 function fillDockTimelineFilter(root) {
   const select = root?.querySelector("[data-role='dock-timeline-filter']");
   if (!select) return;
-  const people = Array.isArray(state.characters) ? state.characters : [];
+  const entities = dockTimelineEntities();
   const current = Number(dockTimelineFilterId) || 0;
   select.innerHTML = dockTimelineFilterOptionsHtml();
-  if (current > 0 && !people.some((character) => Number(character.id) === current)) {
+  if (current > 0 && !entities.some((entity) => Number(entity.id) === current)) {
     select.insertAdjacentHTML(
       "beforeend",
-      `<option value="${current}">${escapeHtml(i18n.t("app.캐릭터"))}</option>`,
+      `<option value="${current}">${escapeHtml(dockTimelineFallbackEntityLabel())}</option>`,
     );
   }
   select.value = String(current || 0);
@@ -14260,59 +14854,119 @@ function filteredDockTimelineEntries() {
   const filterId = Number(dockTimelineFilterId) || 0;
   const rows = Array.isArray(dockTimelineCache.entries) ? dockTimelineCache.entries : [];
   if (!filterId) return rows;
+  if (dockTimelineKind === "item") {
+    return rows.filter((entry) => Number(entry.item_id) === filterId);
+  }
   return rows.filter((entry) => Number(entry.character_id) === filterId);
 }
 
 function paintDockTimelineList(win) {
   const list = win?.querySelector("[data-role='dock-timeline-list']");
   if (!list) return;
-  renderTraitChronicleList(list, filteredDockTimelineEntries(), "character", {
+  const kind = dockTimelineKind === "item" ? "item" : "character";
+  renderTraitChronicleList(list, filteredDockTimelineEntries(), kind, {
     showNames: !Number(dockTimelineFilterId),
   });
+}
+
+function tagDockItemHistoryEntries(item, entries) {
+  const id = Number(item?.id) || 0;
+  const name = String(item?.name || "").trim();
+  return (Array.isArray(entries) ? entries : []).map((entry) => ({
+    ...entry,
+    item_id: id,
+    item_name: name,
+  }));
+}
+
+async function loadDockItemTimelineEntries(filterId) {
+  const items = Array.isArray(state.items) ? state.items : [];
+  const targets = filterId
+    ? items.filter((item) => Number(item.id) === filterId)
+    : items;
+  if (!targets.length) return [];
+  const batches = await Promise.all(targets.map(async (item) => {
+    const data = await api(`/api/items/${item.id}/trait-history`);
+    return tagDockItemHistoryEntries(item, data?.entries);
+  }));
+  const merged = batches.flat();
+  merged.sort((a, b) => {
+    const ca = String(a.created_at || "");
+    const cb = String(b.created_at || "");
+    if (ca !== cb) return ca.localeCompare(cb);
+    return (Number(a.id) || 0) - (Number(b.id) || 0);
+  });
+  return merged;
 }
 
 async function loadDockTimelineEntries(options = {}) {
   const force = Boolean(options.force);
   const pid = Number(state.projectId) || 0;
+  const kind = dockTimelineKind === "item" ? "item" : "character";
+  const filterId = Number(dockTimelineFilterId) || 0;
   if (!pid) {
-    dockTimelineCache = { projectId: 0, entries: [] };
+    dockTimelineCache = { projectId: 0, kind, filterId: 0, entries: [] };
     return [];
   }
-  if (!force && dockTimelineCache.projectId === pid) return dockTimelineCache.entries;
+  if (!force && dockTimelineCache.projectId === pid && dockTimelineCache.kind === kind) {
+    if (kind !== "item" || dockTimelineCache.filterId === filterId) {
+      return dockTimelineCache.entries;
+    }
+  }
   const gen = ++dockTimelineLoadGen;
-  const data = await api(`/api/projects/${pid}/trait-history`);
+  let entries = [];
+  if (kind === "item") {
+    entries = await loadDockItemTimelineEntries(filterId);
+  } else {
+    const data = await api(`/api/projects/${pid}/trait-history`);
+    entries = Array.isArray(data?.entries) ? data.entries : [];
+  }
   if (gen !== dockTimelineLoadGen) return dockTimelineCache.entries;
   dockTimelineCache = {
     projectId: pid,
-    entries: Array.isArray(data?.entries) ? data.entries : [],
+    kind,
+    filterId: kind === "item" ? filterId : 0,
+    entries,
   };
   return dockTimelineCache.entries;
+}
+
+function bindDockTimelineFilter(root, win) {
+  root?.querySelector("[data-role='dock-timeline-filter']")?.addEventListener("change", (event) => {
+    dockTimelineFilterId = Number(event.target.value) || 0;
+    if (dockTimelineKind === "item") {
+      loadDockTimelineEntries({ force: true }).then(() => {
+        if (!ideaFloatWindows.get(DOCK_TIMELINE_KEY)) return;
+        paintDockTimelineList(win);
+      }).catch(handleError);
+      return;
+    }
+    paintDockTimelineList(win);
+  });
 }
 
 function renderDockTimelineBody(body) {
   if (!body) return;
   const win = body.closest(".idea-float");
+  const label = dockTimelineFilterLabel();
   body.innerHTML = `
     <div class="dock-timeline">
       <div class="dock-timeline-toolbar">
         <label class="dock-timeline-filter-label">
-          <span>${escapeHtml(i18n.t("index.연대기_인물_필터"))}</span>
-          <select data-role="dock-timeline-filter" aria-label="${escapeHtml(i18n.t("index.연대기_인물_필터"))}">
+          <span data-role="dock-timeline-filter-label">${escapeHtml(label)}</span>
+          <select data-role="dock-timeline-filter" aria-label="${escapeHtml(label)}">
             ${dockTimelineFilterOptionsHtml()}
           </select>
         </label>
       </div>
-      <p class="hint dock-timeline-hint">${escapeHtml(i18n.t("index.연대기_작품_안내"))}</p>
+      <p class="hint dock-timeline-hint" data-role="dock-timeline-hint">${escapeHtml(dockTimelineHintText())}</p>
       <div class="dock-timeline-list trait-chronicle-list" data-role="dock-timeline-list">
         <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
       </div>
     </div>
   `;
   fillDockTimelineFilter(body);
-  body.querySelector("[data-role='dock-timeline-filter']")?.addEventListener("change", (event) => {
-    dockTimelineFilterId = Number(event.target.value) || 0;
-    paintDockTimelineList(win);
-  });
+  bindDockTimelineFilter(body, win);
   loadDockTimelineEntries({ force: true }).then(() => {
     if (!ideaFloatWindows.get(DOCK_TIMELINE_KEY)) return;
     paintDockTimelineList(win);
@@ -14322,33 +14976,44 @@ function renderDockTimelineBody(body) {
 function syncDockTimelineFloat() {
   const win = ideaFloatWindows.get(DOCK_TIMELINE_KEY);
   if (!win) return;
-  const people = Array.isArray(state.characters) ? state.characters : [];
+  const entities = dockTimelineEntities();
   const current = Number(dockTimelineFilterId) || 0;
-  if (current > 0 && people.length && !people.some((character) => Number(character.id) === current)) {
+  if (current > 0 && entities.length && !entities.some((entity) => Number(entity.id) === current)) {
     dockTimelineFilterId = 0;
   }
+  applyDockTimelineChrome(win);
   fillDockTimelineFilter(win);
-  if (dockTimelineCache.projectId === Number(state.projectId)) paintDockTimelineList(win);
+  const pid = Number(state.projectId) || 0;
+  if (dockTimelineCache.projectId !== pid || dockTimelineCache.kind !== dockTimelineKind) return;
+  if (dockTimelineKind === "item" && dockTimelineCache.filterId !== Number(dockTimelineFilterId)) return;
+  paintDockTimelineList(win);
 }
 
-function openDockTimelineFloat(characterId, sourceEl) {
+function openDockTimelineFloat(entityId, sourceEl, options = {}) {
   if (!state.projectId) {
     toast(i18n.t("app.먼저_작품을_선택해_주세요"));
     return null;
   }
-  dockTimelineFilterId = Number(characterId) || 0;
+  const kind = options.kind === "item" ? "item" : "character";
+  const kindChanged = dockTimelineKind !== kind;
+  dockTimelineKind = kind;
+  dockTimelineFilterId = Number(entityId) || 0;
   const existing = ideaFloatWindows.get(DOCK_TIMELINE_KEY);
   const spec = DOCK_FLOAT_SPECS.timeline;
   const win = openDockFloatWindow(DOCK_TIMELINE_KEY, { ...spec, itemId: "timeline" }, sourceEl);
   if (existing) {
+    applyDockTimelineChrome(existing);
     fillDockTimelineFilter(existing);
-    if (dockTimelineCache.projectId === Number(state.projectId)) {
-      paintDockTimelineList(existing);
-    } else {
+    const sameProject = dockTimelineCache.projectId === Number(state.projectId);
+    const sameKind = dockTimelineCache.kind === kind;
+    const sameItemFilter = kind !== "item" || dockTimelineCache.filterId === Number(dockTimelineFilterId);
+    if (kindChanged || !sameProject || !sameKind || !sameItemFilter) {
       loadDockTimelineEntries({ force: true }).then(() => {
         if (!ideaFloatWindows.get(DOCK_TIMELINE_KEY)) return;
         paintDockTimelineList(existing);
       }).catch(handleError);
+    } else {
+      paintDockTimelineList(existing);
     }
   }
   return win;
@@ -14472,6 +15137,97 @@ function syncDockBaitsFloat() {
     if (!ideaFloatWindows.get(DOCK_BAITS_KEY)) return;
     paintDockBaitsList(win);
   }).catch(handleError);
+}
+
+function dockManuscriptWin() {
+  return ideaFloatWindows.get(DOCK_MANUSCRIPT_KEY) || null;
+}
+
+function dockManuscriptTree(win = dockManuscriptWin()) {
+  return win?.querySelector("[data-role='dock-manuscript-tree']") || null;
+}
+
+function applyDockManuscriptTreeMetrics(tree) {
+  if (!tree) return;
+  try {
+    tree.style.setProperty("--outline-title-size", `${getOutlineTitleFontSize()}px`);
+    tree.style.setProperty("--outline-row-gap", `${getOutlineRowGap()}px`);
+  } catch (_) { /* ignore */ }
+}
+
+function paintDockManuscriptTree(win = dockManuscriptWin()) {
+  const tree = dockManuscriptTree(win);
+  if (!tree) return;
+  const scrollTop = tree.scrollTop;
+  tree.innerHTML = buildOutlineTreeHtml({ readOnly: true });
+  applyDockManuscriptTreeMetrics(tree);
+  tree.scrollTop = scrollTop;
+}
+
+function bindDockManuscriptRoot(root) {
+  if (!root || root.dataset.dockManuscriptBound === "1") return;
+  root.dataset.dockManuscriptBound = "1";
+  root.addEventListener("dragstart", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("dblclick", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  });
+  root.addEventListener("click", (event) => {
+    const tree = root.querySelector("[data-role='dock-manuscript-tree']");
+    if (!tree || !tree.contains(event.target)) return;
+    const twistie = event.target.closest?.("[data-toggle-chapter], [data-toggle-part], [data-toggle-scene]");
+    if (twistie && tree.contains(twistie)) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (twistie.dataset.toggleChapter) toggleChapterExpanded(twistie.dataset.toggleChapter);
+      else if (twistie.dataset.togglePart) togglePartExpanded(twistie.dataset.togglePart);
+      else if (twistie.dataset.toggleScene) toggleSceneExpanded(twistie.dataset.toggleScene);
+      return;
+    }
+    const sceneBtn = event.target.closest?.("[data-scene]");
+    if (sceneBtn && tree.contains(sceneBtn)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const sceneId = sceneBtn.dataset.scene;
+      if (!sceneId || Number(sceneId) === Number(state.sceneId)) return;
+      openScene(sceneId).catch(handleError);
+      return;
+    }
+    const folderTitle = event.target.closest?.(".chapter-title, .part-title");
+    if (folderTitle && tree.contains(folderTitle)) {
+      event.preventDefault();
+      event.stopPropagation();
+      const row = folderTitle.closest(".chapter-row, .part-row");
+      const toggle = row?.querySelector("[data-toggle-chapter], [data-toggle-part]");
+      if (toggle?.dataset.toggleChapter) toggleChapterExpanded(toggle.dataset.toggleChapter);
+      else if (toggle?.dataset.togglePart) togglePartExpanded(toggle.dataset.togglePart);
+    }
+  });
+}
+
+function renderDockManuscriptBody(body) {
+  if (!body) return;
+  body.innerHTML = `
+    <div class="dock-manuscript">
+      <p class="hint dock-manuscript-hint">${escapeHtml(i18n.t("index.목차보기_안내"))}</p>
+      <nav class="dock-manuscript-tree" data-role="dock-manuscript-tree" aria-label="${escapeHtml(i18n.t("index.목차보기"))}"></nav>
+    </div>
+  `;
+  bindDockManuscriptRoot(body.querySelector(".dock-manuscript"));
+  paintDockManuscriptTree(body.closest(".idea-float"));
+}
+
+function syncDockManuscriptFloat() {
+  const win = dockManuscriptWin();
+  if (!win) return;
+  paintDockManuscriptTree(win);
 }
 
 function neighborhoodRelationData(all, characterId) {
@@ -14890,6 +15646,60 @@ function characterFromEditorPoint(editor, clientX, clientY) {
   return characterAtTextOffset(editor.textContent || "", offset, state.characters);
 }
 
+function itemAtTextOffset(text, offset, items) {
+  const source = String(text || "");
+  const pos = Math.max(0, Math.min(source.length, Number(offset) || 0));
+  let best = null;
+  (items || []).forEach((item) => {
+    const id = Number(item?.id);
+    if (!id) return;
+    sceneCastLabels(item).forEach((name) => {
+      if (!name) return;
+      let from = 0;
+      while (from < source.length) {
+        const index = source.indexOf(name, from);
+        if (index < 0) break;
+        const end = index + name.length;
+        const prev = index > 0 ? source[index - 1] : "";
+        if (/[가-힣]/.test(prev)) {
+          from = index + 1;
+          continue;
+        }
+        if (!SCENE_CAST_AFTER_OK.test(source.slice(end))) {
+          from = index + 1;
+          continue;
+        }
+        if (pos >= index && pos <= end) {
+          if (!best || name.length > best.name.length) best = { id, name };
+        }
+        from = index + 1;
+      }
+    });
+  });
+  return best;
+}
+
+function itemFromSelectedText(text) {
+  const needle = String(text || "").trim();
+  if (!needle) return null;
+  const items = state.items || [];
+  for (const item of items) {
+    if (sceneCastLabels(item).some((name) => name === needle)) {
+      return { id: Number(item.id), name: needle };
+    }
+  }
+  return null;
+}
+
+function itemFromEditorPoint(editor, clientX, clientY) {
+  if (!editor || !(state.items || []).length) return null;
+  const range = rangeFromEditorPoint(editor, clientX, clientY);
+  if (!range) return null;
+  const offset = editorTextOffsetFromRange(editor, range);
+  if (offset < 0) return null;
+  return itemAtTextOffset(editor.textContent || "", offset, state.items);
+}
+
 function isManuscriptBodyEditor(node) {
   const id = node?.id;
   return id === "sceneContent" || id === "focusWriteEditor" || id === "splitSceneBodyEditor";
@@ -14903,16 +15713,29 @@ function onManuscriptCharacterNameClick(event) {
   if (!isManuscriptBodyEditor(editor)) return;
   const selection = window.getSelection();
   if (selection && !selection.isCollapsed && editor.contains(selection.anchorNode)) return;
-  const hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
-  if (!hit) return;
-  openCharacterCardFloat(hit.id);
+  const charHit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  if (charHit) {
+    openCharacterCardFloat(charHit.id);
+    return;
+  }
+  const worldHit = worldTermFromEditorPoint(editor, event.clientX, event.clientY);
+  if (worldHit) {
+    openWorldCardFloat(worldHit.sectionId);
+    return;
+  }
+  const itemHit = itemFromEditorPoint(editor, event.clientX, event.clientY);
+  if (itemHit) openItemCardFloat(itemHit.id);
 }
 
 function onManuscriptCharacterNameMove(event) {
   const editor = event.currentTarget;
   if (!isManuscriptBodyEditor(editor)) return;
-  const hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
-  editor.classList.toggle("is-over-character-name", Boolean(hit));
+  const charHit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  const worldHit = !charHit && worldTermFromEditorPoint(editor, event.clientX, event.clientY);
+  const itemHit = !charHit && !worldHit && itemFromEditorPoint(editor, event.clientX, event.clientY);
+  editor.classList.toggle("is-over-character-name", Boolean(charHit));
+  editor.classList.toggle("is-over-world-term", Boolean(worldHit));
+  editor.classList.toggle("is-over-item-name", Boolean(itemHit));
 }
 
 function setupDockCharacterNameClicks() {
@@ -14922,23 +15745,55 @@ function setupDockCharacterNameClicks() {
     editor.dataset.dockCharBound = "1";
     editor.addEventListener("click", onManuscriptCharacterNameClick);
     editor.addEventListener("mousemove", onManuscriptCharacterNameMove);
-    editor.addEventListener("mouseleave", () => editor.classList.remove("is-over-character-name"));
+    editor.addEventListener("mouseleave", () => {
+      editor.classList.remove("is-over-character-name");
+      editor.classList.remove("is-over-world-term");
+      editor.classList.remove("is-over-item-name");
+    });
   });
 }
 
 function syncOpenCharacterCardMenu(editor, event) {
   const btn = $("openCharacterCardMenuItem");
   const hint = $("openCharacterCardMenuHint");
+  const worldBtn = $("openWorldCardMenuItem");
+  const worldHint = $("openWorldCardMenuHint");
+  const itemBtn = $("openItemCardMenuItem");
+  const itemHint = $("openItemCardMenuHint");
   pendingDockCharacterId = null;
-  if (!btn) return;
-  let hit = characterFromSelectedText(getSelectedManuscriptText(editor));
-  if (!hit && event && editor) {
-    hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  pendingDockWorldSectionId = null;
+  pendingDockItemId = null;
+  if (!btn && !worldBtn && !itemBtn) return;
+  let charHit = characterFromSelectedText(getSelectedManuscriptText(editor));
+  if (!charHit && event && editor) {
+    charHit = characterFromEditorPoint(editor, event.clientX, event.clientY);
   }
-  pendingDockCharacterId = hit?.id || null;
-  btn.classList.toggle("hidden", !pendingDockCharacterId);
-  btn.disabled = !pendingDockCharacterId;
-  if (hint) hint.textContent = hit?.name ? hit.name : "";
+  pendingDockCharacterId = charHit?.id || null;
+  btn?.classList.toggle("hidden", !pendingDockCharacterId);
+  if (btn) btn.disabled = !pendingDockCharacterId;
+  if (hint) hint.textContent = charHit?.name ? charHit.name : "";
+  let worldHit = null;
+  if (!charHit) {
+    worldHit = worldTermFromSelectedText(getSelectedManuscriptText(editor));
+    if (!worldHit && event && editor) {
+      worldHit = worldTermFromEditorPoint(editor, event.clientX, event.clientY);
+    }
+  }
+  pendingDockWorldSectionId = worldHit?.sectionId || null;
+  worldBtn?.classList.toggle("hidden", !pendingDockWorldSectionId);
+  if (worldBtn) worldBtn.disabled = !pendingDockWorldSectionId;
+  if (worldHint) worldHint.textContent = worldHit?.name ? worldHit.name : "";
+  let itemHit = null;
+  if (!charHit && !worldHit) {
+    itemHit = itemFromSelectedText(getSelectedManuscriptText(editor));
+    if (!itemHit && event && editor) {
+      itemHit = itemFromEditorPoint(editor, event.clientX, event.clientY);
+    }
+  }
+  pendingDockItemId = itemHit?.id || null;
+  itemBtn?.classList.toggle("hidden", !pendingDockItemId);
+  if (itemBtn) itemBtn.disabled = !pendingDockItemId;
+  if (itemHint) itemHint.textContent = itemHit?.name ? itemHit.name : "";
 }
 
 function setupPanelDock() {
@@ -37385,7 +38240,7 @@ function toggleScenePin(sceneId) {
   else pinSceneToTop(sceneId);
 }
 
-function renderPinnedOutlineSectionHtml() {
+function renderPinnedOutlineSectionHtml({ readOnly = false } = {}) {
   const pinnedIds = sanitizePinnedSceneIds();
   if (pinnedIds.length !== loadPinnedSceneIds().length) {
     savePinnedSceneIds(pinnedIds);
@@ -37398,6 +38253,9 @@ function renderPinnedOutlineSectionHtml() {
     const chapterId = findChapterIdForScene(sid) || "";
     const active = Number(state.sceneId) === Number(sid) ? "active" : "";
     const previewClass = display.isPreview ? " is-body-preview" : "";
+    const pinHint = readOnly
+      ? `${titleAttr} · ${escapeHtml(i18n.t("app.상단_고정"))}`
+      : `${titleAttr} · 상단 고정 · 우클릭: 고정 해제`;
     return `
       <div class="outline-pin-item" data-pinned-scene="${sid}">
         <button
@@ -37406,7 +38264,7 @@ function renderPinnedOutlineSectionHtml() {
           data-scene="${sid}"
           data-chapter-id="${chapterId}"
           data-pinned="1"
-          title="${titleAttr} · 상단 고정 · 우클릭: 고정 해제"
+          title="${pinHint}"
         >
           <span class="outline-pin-badge" aria-hidden="true">고</span>
           <span class="scene-title${previewClass}">${escapeHtml(display.label)}</span>
@@ -40936,7 +41794,11 @@ function setupDesktopThemeMenu() {
     if (!isSettingsDoc) syncOpenCharacterCardMenu(editor, event);
     else {
       pendingDockCharacterId = null;
+      pendingDockWorldSectionId = null;
+      pendingDockItemId = null;
       $("openCharacterCardMenuItem")?.classList.add("hidden");
+      $("openWorldCardMenuItem")?.classList.add("hidden");
+      $("openItemCardMenuItem")?.classList.add("hidden");
     }
     setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
     syncSmartPunctuationMenuLabel();
@@ -41232,6 +42094,20 @@ function setupDesktopThemeMenu() {
         hideDesktopContextMenu();
         if (pendingDockCharacterId) openCharacterCardFloat(pendingDockCharacterId);
         pendingDockCharacterId = null;
+        pendingDockWorldSectionId = null;
+        pendingDockItemId = null;
+      } else if (action === "open-world-card") {
+        hideDesktopContextMenu();
+        if (pendingDockWorldSectionId) openWorldCardFloat(pendingDockWorldSectionId);
+        pendingDockCharacterId = null;
+        pendingDockWorldSectionId = null;
+        pendingDockItemId = null;
+      } else if (action === "open-item-card") {
+        hideDesktopContextMenu();
+        if (pendingDockItemId) openItemCardFloat(pendingDockItemId);
+        pendingDockCharacterId = null;
+        pendingDockWorldSectionId = null;
+        pendingDockItemId = null;
       }
       return;
     }
@@ -48735,8 +49611,7 @@ function toggleSceneExpanded(sceneId) {
   const wasCollapsed = getCollapsedSceneIds().has(id);
   setSceneCollapsed(id, !wasCollapsed);
   const expanded = wasCollapsed; // we just expanded if it was collapsed
-  const host = $("outline")?.querySelector(`.scene-tree-item[data-scene-node="${id}"]`);
-  if (host) {
+  document.querySelectorAll(`.scene-tree-item[data-scene-node="${id}"]`).forEach((host) => {
     host.classList.toggle("is-collapsed", !expanded);
     const kids = host.querySelector(":scope > .scene-children");
     if (kids) {
@@ -48745,7 +49620,7 @@ function toggleSceneExpanded(sceneId) {
     }
     const twistie = host.querySelector(":scope > .scene-row .scene-twistie");
     if (twistie) twistie.setAttribute("aria-expanded", expanded ? "true" : "false");
-  }
+  });
 }
 
 function persistCollapsedChapterIds(collapsedSet) {
@@ -48802,13 +49677,15 @@ function setPartCollapsed(partId, collapsed) {
 function togglePartExpanded(partId) {
   const id = Number(partId);
   if (!id) return;
-  const outline = $("outline");
   // Box shell is always .outline-part; chapter-source boxes use data-chapter-id.
-  const section = outline?.querySelector(`.outline-part[data-part-id="${id}"]`)
-    || outline?.querySelector(`.outline-part[data-chapter-id="${id}"]`);
-  const expanded = section?.dataset?.expanded !== "true";
+  const sections = [...document.querySelectorAll(`.outline-part[data-part-id="${id}"]`)]
+    .concat([...document.querySelectorAll(`.outline-part[data-chapter-id="${id}"]`)])
+    .filter((section, index, list) => list.indexOf(section) === index);
+  const expanded = sections.length
+    ? sections[0].dataset.expanded !== "true"
+    : getCollapsedPartIds().has(id);
   setPartCollapsed(id, !expanded);
-  if (section) applyPartExpandedState(section, expanded);
+  sections.forEach((section) => applyPartExpandedState(section, expanded));
 }
 
 function applyPartExpandedState(section, expanded) {
@@ -49005,11 +49882,15 @@ function applyChapterExpandedState(section, expanded) {
 }
 
 function toggleChapterExpanded(chapterId) {
-  const outline = $("outline");
-  const section = outline?.querySelector(`.outline-chapter[data-chapter-id="${chapterId}"]`);
-  if (!section) return;
-  const expanded = section.dataset.expanded !== "true";
-  applyChapterExpandedState(section, expanded);
+  const id = Number(chapterId);
+  if (!id) return;
+  const sections = [...document.querySelectorAll(`.outline-chapter[data-chapter-id="${id}"]`)];
+  if (!sections.length) {
+    setChapterCollapsed(id, !getCollapsedChapterIds().has(id));
+    return;
+  }
+  const expanded = sections[0].dataset.expanded !== "true";
+  sections.forEach((section) => applyChapterExpandedState(section, expanded));
 }
 
 /**
@@ -49092,6 +49973,7 @@ function renderSceneTreeHtml(scenes, {
   pinnedSet,
   parentSceneId = null,
   hasTrailingSiblings = false,
+  readOnly = false,
 }) {
   const list = Array.isArray(scenes) ? scenes : [];
   const folderCollapse = collapsed instanceof Set ? collapsed : new Set();
@@ -49175,6 +50057,7 @@ function renderSceneTreeHtml(scenes, {
             nestDepth,
             binderDepth: Math.min(nestDepth, 8),
             isLastSibling: folderIndex === childFolders.length - 1,
+            readOnly,
           },
         )).join("")
       : "";
@@ -49190,16 +50073,24 @@ function renderSceneTreeHtml(scenes, {
             pinnedSet: pins,
             parentSceneId: sid,
             hasTrailingSiblings: hasChildFolders,
+            readOnly,
           }) : ""}
           ${nestedFoldersHtml}
         </div>`
       : "";
-    const addAfterBtn = `${i18n.t('app.button_type_button_clas_11', {sid: sid, chapterId: chapterId, parentAttr: parentAttr})}`;
+    const addAfterBtn = readOnly
+      ? ""
+      : `${i18n.t('app.button_type_button_clas_11', {sid: sid, chapterId: chapterId, parentAttr: parentAttr})}`;
+    const dragAttr = readOnly ? "false" : "true";
+    const sceneHint = `${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""}`;
+    const sceneTitle = readOnly
+      ? sceneHint
+      : `${sceneHint} · 더블클릭: 이름 바꾸기 · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)`;
     return `
-      <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="true">
+      <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="${dragAttr}">
         <div class="scene-row">
           ${twistie}
-          <button type="button" draggable="true" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""} · 더블클릭: 이름 바꾸기 · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)">
+          <button type="button" draggable="${dragAttr}" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${sceneTitle}">
             ${bookmarkMark}
             ${statusMarkup}
             ${pinIcon}
@@ -49306,6 +50197,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     nestDepth = 1,
     binderDepth = 0,
     isLastSibling = true,
+    readOnly = false,
   } = opts;
   const depth = Math.max(0, Math.min(Number(binderDepth) || 0, 8));
   const depthClass = ` binder-depth-${depth}`;
@@ -49329,9 +50221,11 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     const sourceKindAttr = sk ? ` data-source-kind="${escapeHtml(sk)}"` : "";
     // APIs: part source → part id attrs; chapter source boxed as shell still uses chapter APIs
     const isChapterSource = sk === "chapter";
-    const renameAttr = isChapterSource
-      ? `data-rename-chapter="${node.id}"`
-      : `data-rename-part="${node.id}"`;
+    const renameAttr = readOnly
+      ? ""
+      : (isChapterSource
+        ? `data-rename-chapter="${node.id}"`
+        : `data-rename-part="${node.id}"`);
     // Box shell is always .outline-part; expand/collapse via part toggle only.
     const toggleAttr = `data-toggle-part="${node.id}"`;
     const titleClass = isChapterSource
@@ -49348,6 +50242,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
       baitRecoverIds,
       pinnedSet,
       binderDepth: depth + 1,
+      readOnly,
     };
     const scenes = Array.isArray(node.scenes) ? node.scenes : [];
     const hasScenes = scenes.length > 0;
@@ -49361,6 +50256,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
           baitRecoverIds,
           pinnedSet,
           parentSceneId: null,
+          readOnly,
         })
       : "";
     const foldersHtml = childFolders.length
@@ -49381,9 +50277,14 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     const folderTreeClass = (!nestedUnderScene && depth > 0) ? " is-folder-tree-child" : "";
     const lastClass = (depth > 0 && isLastSibling) ? " is-last" : "";
     const nestedFoldersClass = childFolders.length ? " has-nested-folders" : "";
+    const folderTitleHint = readOnly
+      ? escapeHtml(node.title)
+      : `${escapeHtml(node.title)} (더블클릭: 이름 바꾸기 · 끌어 이동)`;
+    const rowDrag = readOnly ? "false" : "true";
+    const rowTitle = readOnly ? "" : ` title="${i18n.t('app.끌어_폴더_순서_바꾸기')}"`;
     return `
     <section class="outline-part${depthClass} ${partExpanded ? "" : "is-collapsed"}${folderTreeClass}${lastClass}"${idAttrs}${folderIdAttr}${depthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${partExpanded ? "true" : "false"}" draggable="false">
-      <div class="part-row" draggable="true" title="${i18n.t('app.끌어_폴더_순서_바꾸기')}">
+      <div class="part-row" draggable="${rowDrag}"${rowTitle}>
         <button
           type="button"
           class="part-twistie chapter-twistie folder-icon-btn"
@@ -49392,7 +50293,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
           title="${partExpanded ? "폴더 목록 접기" : "폴더 목록 펼치기"}"
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
-        <button type="button" draggable="true" class="${titleClass}" ${renameAttr} title="${escapeHtml(node.title)} (더블클릭: 이름 바꾸기 · 끌어 이동)">${escapeHtml(node.title)}</button>
+        <button type="button" draggable="${rowDrag}" class="${titleClass}" ${renameAttr} title="${folderTitleHint}">${escapeHtml(node.title)}</button>
       </div>
       <div class="part-children ${partExpanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${partExpanded ? "" : "hidden"} data-part-chapters="${isChapterSource ? "" : node.id}" role="group" aria-label="${escapeHtml(node.title)} 폴더">
         ${chapterHtml}
@@ -49413,6 +50314,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     nestDepth,
     binderDepth: depth,
     isLastSibling,
+    readOnly,
   });
 }
 
@@ -49428,6 +50330,7 @@ function renderChapterOutlineHtml(chapter, {
   nestDepth = 1,
   binderDepth = 0,
   isLastSibling = true,
+  readOnly = false,
 }) {
   const scenes = chapter.scenes || [];
   const hasScenes = scenes.length > 0;
@@ -49454,6 +50357,7 @@ function renderChapterOutlineHtml(chapter, {
         baitRecoverIds,
         pinnedSet,
         parentSceneId: null,
+        readOnly,
       })
     : (transparent || hasNestedFolders
       ? ""
@@ -49473,6 +50377,7 @@ function renderChapterOutlineHtml(chapter, {
             ? "is-level-0"
             : (depth >= 1 ? "is-level-2" : "is-level-1"),
           isLastSibling: idx === nestedChildFolders.length - 1,
+          readOnly,
         },
       )).join("")
     : "";
@@ -49508,17 +50413,26 @@ function renderChapterOutlineHtml(chapter, {
   const nestedFoldersClass = hasNestedFolders ? " has-nested-folders" : "";
   if (transparent) {
     // Internal 「본편」 folder: hide row, show manuscripts directly under the 권.
+    const addSceneBtn = readOnly
+      ? ""
+      : `<button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="${i18n.t('app.원고_추가')}">+</button>`;
     return `
     <section class="outline-chapter is-transparent-chapter${nestClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${boxAttr}${sourceKindAttr} data-transparent="true" data-expanded="true" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="false">
       <div class="chapter-children" role="group" aria-label="${i18n.t('app.원고')}">
         ${sceneItems}${afterScenesHtml}
-        <button type="button" class="chapter-add-scene transparent-add-scene" data-chapter="${chapter.id}" title="${i18n.t('app.원고_추가')}">+</button>
+        ${addSceneBtn}
       </div>
     </section>`;
   }
+  const chapterDrag = readOnly || nestedUnderScene ? "false" : "true";
+  const renameAttr = readOnly ? "" : `data-rename-chapter="${chapter.id}"`;
+  const chapterTitleHint = readOnly
+    ? `${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""}`
+    : `${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})`;
+  const rowTitle = readOnly ? "" : ` title="${i18n.t('app.끌어_폴더_순서_바꾸기')}"`;
   return `
-    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${folderTreeClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${nestedUnderScene ? "false" : "true"}">
-      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}" title="${i18n.t('app.끌어_폴더_순서_바꾸기')}">
+    <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${folderTreeClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${chapterDrag}">
+      <div class="chapter-row ${allComplete ? "is-chapter-complete" : ""}"${rowTitle}>
         <button
           type="button"
           class="chapter-twistie folder-icon-btn"
@@ -49528,7 +50442,7 @@ function renderChapterOutlineHtml(chapter, {
           aria-label="${expanded ? "원고 목록 접기" : "원고 목록 펼치기"}"
         >${FOLDER_ICON_SVG}</button>
         ${folderBookmarkMarkHtml(bmOn)}
-        <button type="button" draggable="${nestedUnderScene ? "false" : "true"}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" data-rename-chapter="${chapter.id}" title="${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})">${escapeHtml(chapter.title)}</button>
+        <button type="button" draggable="${chapterDrag}" class="chapter-title folder-title-box folder-title ${folderLevel}${bmOn ? " is-bookmarked" : ""} ${allComplete ? "is-complete" : ""}" ${renameAttr} title="${chapterTitleHint}">${escapeHtml(chapter.title)}</button>
       </div>
       <div class="chapter-children ${expanded ? "" : "is-collapsed"}${nestedFoldersClass}" ${expanded ? "" : "hidden"} role="group" aria-label="${escapeHtml(chapter.title)} 씬">
         ${sceneItems}${afterScenesHtml}
@@ -49538,12 +50452,7 @@ function renderChapterOutlineHtml(chapter, {
 
 let outlineSceneOpenTimer = null;
 
-function renderOutline(chaptersArg) {
-  const outline = $("outline");
-  if (!outline) return;
-  // Keep the in-progress title/folder input. Callers may still patch
-  // state.outline; the next loadProject after rename redraws the tree.
-  if (typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming()) return;
+function buildOutlineTreeHtml({ readOnly = false, chaptersArg } = {}) {
   const useFolders = shouldUseFoldersOutline();
   const parts = Array.isArray(state.parts) ? state.parts : [];
   const ungrouped = Array.isArray(state.ungroupedChapters)
@@ -49552,9 +50461,7 @@ function renderOutline(chaptersArg) {
   const flatChapters = getBinderChaptersInOrder();
   const foldersEmpty = useFolders && !(state.folders || []).length;
   if (foldersEmpty || (!useFolders && !flatChapters.length && !parts.length)) {
-    outline.innerHTML = i18n.t('app.p_class_hint_아직_챕터가_없어요');
-    try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
-    return;
+    return i18n.t('app.p_class_hint_아직_챕터가_없어요');
   }
 
   ensureActiveSceneChapterExpanded(flatChapters);
@@ -49571,22 +50478,17 @@ function renderOutline(chaptersArg) {
     baitPlantIds,
     baitRecoverIds,
     pinnedSet,
+    readOnly,
   };
-
-  try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
-  try { applyOutlineRowGap(getOutlineRowGap(), { persist: false }); } catch (_) { /* ignore */ }
-  try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
 
   let bodyHtml = "";
   if (useFolders) {
-    // Canonical unlimited-depth tree (outline.folders → folder.id on data-folder-id)
     const roots = (state.folders || []).map((f) => normalizeApiFolderNode(f));
     bodyHtml = roots.map((node) => renderBinderFolderNodeHtml(
       asBinderFolderNode(node, { isBox: binderFolderNodeIsBox(node) }),
       chapterOpts,
     )).join("");
   } else {
-    // Legacy fallback: parts (boxes) + ungrouped chapters
     const partBlocks = parts.map((part) => renderBinderFolderNodeHtml(
       asBinderFolderNode(part, { isBox: true }),
       chapterOpts,
@@ -49605,8 +50507,33 @@ function renderOutline(chaptersArg) {
         : "");
     bodyHtml = `${partBlocks}${ungroupedHtml}`;
   }
+  return `${renderPinnedOutlineSectionHtml({ readOnly })}${bodyHtml}`;
+}
 
-  outline.innerHTML = `${renderPinnedOutlineSectionHtml()}${bodyHtml}`;
+function renderOutline(chaptersArg) {
+  const outline = $("outline");
+  if (!outline) {
+    syncDockManuscriptFloat();
+    return;
+  }
+  // Keep the in-progress title/folder input. Callers may still patch
+  // state.outline; the next loadProject after rename redraws the tree.
+  if (typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming()) return;
+
+  try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
+  try { applyOutlineRowGap(getOutlineRowGap(), { persist: false }); } catch (_) { /* ignore */ }
+  try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
+
+  outline.innerHTML = buildOutlineTreeHtml({ readOnly: false, chaptersArg });
+
+  const foldersEmpty = shouldUseFoldersOutline() && !(state.folders || []).length;
+  const parts = Array.isArray(state.parts) ? state.parts : [];
+  const flatChapters = getBinderChaptersInOrder();
+  if (foldersEmpty || (!shouldUseFoldersOutline() && !flatChapters.length && !parts.length)) {
+    try { updateOutlineFolderCount(); } catch (_) { /* ignore */ }
+    syncDockManuscriptFloat();
+    return;
+  }
 
   try { applyOutlineTitleFontSize(getOutlineTitleFontSize(), { persist: false }); } catch (_) { /* ignore */ }
   try { applyOutlineRowGap(getOutlineRowGap(), { persist: false }); } catch (_) { /* ignore */ }
@@ -49803,6 +50730,7 @@ function renderOutline(chaptersArg) {
   updateToryFocusUi();
   renderBookmarkBar();
   markBookmarkedTargets();
+  syncDockManuscriptFloat();
 }
 
 async function beginChapterRename(titleButton) {
@@ -51965,6 +52893,9 @@ function applyOutlineRowGap(gapPx, { persist = true } = {}) {
   const root = $("manuscriptBinder") || $("outline");
   if (root) root.style.setProperty("--outline-row-gap", `${gap}px`);
   if ($("outline")) $("outline").style.setProperty("--outline-row-gap", `${gap}px`);
+  document.querySelectorAll(".dock-manuscript-tree").forEach((el) => {
+    el.style.setProperty("--outline-row-gap", `${gap}px`);
+  });
   if ($("outlineRowGapValue")) $("outlineRowGapValue").textContent = String(gap);
   document.querySelectorAll("#outlineSpacingMenu [data-outline-gap]").forEach((btn) => {
     btn.classList.toggle("is-active", Number(btn.dataset.outlineGap) === gap);
@@ -52146,6 +53077,9 @@ function applyOutlineTitleFontSize(sizePx, { persist = true } = {}) {
   const root = $("manuscriptBinder") || $("outline");
   if (root) root.style.setProperty("--outline-title-size", `${size}px`);
   if ($("outline")) $("outline").style.setProperty("--outline-title-size", `${size}px`);
+  document.querySelectorAll(".dock-manuscript-tree").forEach((el) => {
+    el.style.setProperty("--outline-title-size", `${size}px`);
+  });
   if ($("outlineTitleFontValue")) $("outlineTitleFontValue").textContent = String(size);
   document.querySelectorAll("#outlineSpacingMenu [data-outline-font]").forEach((btn) => {
     btn.classList.toggle("is-active", Number(btn.dataset.outlineFont) === size);
@@ -61336,7 +62270,7 @@ function renderTraitChronicleList(listEl, entries, kind, options = {}) {
     const sceneButton = inherited
       ? ""
       : `<button type="button" class="secondary compact-btn" data-chronicle-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`;
-    const who = showNames ? String(entry.character_name || "").trim() : "";
+    const who = showNames ? String(entry.character_name || entry.item_name || "").trim() : "";
     const whoBadge = who
       ? `<span class="trait-chronicle-who">${escapeHtml(who)}</span>`
       : "";

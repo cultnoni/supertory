@@ -69,9 +69,9 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_stats_tracker_is_pinned_dock_widget(self) -> None:
         self.assertIn('data-dock-item="statsTracker"', self.html)
-        self.assertIn("is-pinned-dock", self.html)
+        self.assertNotIn("is-pinned-dock", self.html)
         self.assertNotIn("panel-dock-pin", self.html)
-        self.assertIn(".panel-dock-item.is-pinned-dock::after", self.css)
+        self.assertNotIn(".panel-dock-item.is-pinned-dock", self.css)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         self.assertIn("statsTracker:", spec)
         self.assertIn("function isDockTrackerOpenPref()", self.js)
@@ -96,7 +96,6 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("sceneStats[metric]", stats_fn)
         self.assertNotIn("lastSceneCountSnapshot", self.js)
         self.assertNotIn("computeTextStats(", self.js.split("function renderDockStatsTracker", 1)[1].split("function syncDockStatsTracker", 1)[0])
-        self.assertIn(".panel-dock-item.is-pinned-dock", self.css)
         self.assertIn(".idea-float.dock-float.dock-float-mini", self.css)
         for locale in self.locales.values():
             self.assertIn("app.글자수_트래커", locale)
@@ -168,6 +167,81 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.연대기_보기", locale)
             self.assertIn("index.관계도_보기", locale)
 
+    def test_world_card_dock_widget(self) -> None:
+        self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="world"')
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
+        self.assertIn("world:", spec)
+        self.assertIn("function openWorldCardFloat(", self.js)
+        self.assertIn("function renderDockWorldBody(", self.js)
+        self.assertIn("function paintDockWorldCard(", self.js)
+        self.assertIn("function worldTermAtTextOffset(", self.js)
+        self.assertIn("function worldTermFromEditorPoint(", self.js)
+        click_fn = self.js.split("function onManuscriptCharacterNameClick(", 1)[1].split("function onManuscriptCharacterNameMove(", 1)[0]
+        self.assertIn("characterFromEditorPoint", click_fn)
+        self.assertIn("openCharacterCardFloat(charHit.id)", click_fn)
+        self.assertIn("worldTermFromEditorPoint", click_fn)
+        self.assertIn("openWorldCardFloat(worldHit.sectionId)", click_fn)
+        self.assertLess(click_fn.find("openCharacterCardFloat"), click_fn.find("openWorldCardFloat"))
+        self.assertIn("resize: { minWidth: DOCK_WORLD_MIN_W, minHeight: DOCK_WORLD_MIN_H }", self.js)
+        self.assertIn('windowClass: "dock-float-world"', self.js)
+        self.assertIn("syncDockWorldCardExpanded", self.js)
+        self.assertIn('data-context-action="open-world-card"', self.html)
+        self.assertIn("WORLD_SECTION_LEAD_FIELD", self.js)
+        self.assertIn("where_when: \"locale\"", self.js)
+        self.assertIn("unique_concept: \"special\"", self.js)
+        self.assertIn("extreme_factor: \"extreme_event\"", self.js)
+        self.assertIn("system_life: \"daily\"", self.js)
+        self.assertIn("factions: \"factions\"", self.js)
+        self.assertIn(".idea-float.dock-float.dock-float-world", self.css)
+        self.assertIn(".idea-float.dock-float-world.is-expanded .dock-char-extra", self.css)
+        self.assertIn("is-over-world-term", self.css)
+        self.assertIn("function setupDockCharacterNameClicks()", self.js)
+        for locale in self.locales.values():
+            self.assertIn("index.세계관_카드", locale)
+            self.assertIn("index.세계관_카드_보기", locale)
+            self.assertIn("index.세계관_카드_힌트", locale)
+
+    def test_item_card_dock_widget(self) -> None:
+        self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="items"')
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
+        self.assertIn("items:", spec)
+        items_spec = spec.split("items:", 1)[1].split("timeline:", 1)[0]
+        self.assertIn("resize: false", items_spec)
+        self.assertIn("function openItemCardFloat(", self.js)
+        self.assertIn("function renderDockItemsBody(", self.js)
+        self.assertIn("function paintDockItemCard(", self.js)
+        self.assertIn("function itemAtTextOffset(", self.js)
+        self.assertIn("function itemFromEditorPoint(", self.js)
+        self.assertIn(
+            "sceneCastLabels(item)",
+            self.js.split("function itemAtTextOffset", 1)[1].split("function itemFromSelectedText", 1)[0],
+        )
+        click_fn = self.js.split("function onManuscriptCharacterNameClick(", 1)[1].split("function onManuscriptCharacterNameMove(", 1)[0]
+        self.assertIn("characterFromEditorPoint", click_fn)
+        self.assertIn("openCharacterCardFloat(charHit.id)", click_fn)
+        self.assertIn("worldTermFromEditorPoint", click_fn)
+        self.assertIn("openWorldCardFloat(worldHit.sectionId)", click_fn)
+        self.assertIn("itemFromEditorPoint", click_fn)
+        self.assertIn("openItemCardFloat(itemHit.id)", click_fn)
+        self.assertLess(click_fn.find("openCharacterCardFloat"), click_fn.find("openWorldCardFloat"))
+        self.assertLess(click_fn.find("openWorldCardFloat"), click_fn.find("openItemCardFloat"))
+        self.assertIn("resize: { minWidth: DOCK_ITEM_MIN_W, minHeight: DOCK_ITEM_MIN_H }", self.js)
+        self.assertIn('windowClass: "dock-float-item"', self.js)
+        self.assertIn("syncDockItemCardExpanded", self.js)
+        self.assertIn("openDockTimelineFloat(data.id, event.currentTarget, { kind: \"item\" })", self.js)
+        self.assertNotIn("openDockRelationMinimapFloat", self.js.split("function paintDockItemCard(", 1)[1].split("function renderDockItemCard(", 1)[0])
+        self.assertIn('data-context-action="open-item-card"', self.html)
+        self.assertIn(".idea-float.dock-float.dock-float-item", self.css)
+        self.assertIn(".idea-float.dock-float-item.is-expanded .dock-char-extra", self.css)
+        self.assertIn("is-over-item-name", self.css)
+        self.assertIn("function setupDockCharacterNameClicks()", self.js)
+        for locale in self.locales.values():
+            self.assertIn("index.아이템_카드", locale)
+            self.assertIn("index.아이템_카드_보기", locale)
+            self.assertIn("index.아이템_카드_힌트", locale)
+            self.assertIn("index.아직_아이템이_없어요", locale)
+            self.assertIn("index.연대기_아이템_필터", locale)
+
     def test_timeline_dock_widget(self) -> None:
         self.assertIn('data-dock-item="timeline"', self.html)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
@@ -178,12 +252,15 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("function openDockTimelineFloat(", self.js)
         self.assertIn("function renderDockTimelineBody(", self.js)
         self.assertIn("/api/projects/${pid}/trait-history", self.js)
-        self.assertIn("renderTraitChronicleList(list, filteredDockTimelineEntries(), \"character\"", self.js)
+        self.assertIn("/api/items/${item.id}/trait-history", self.js)
+        self.assertIn("renderTraitChronicleList(list, filteredDockTimelineEntries(), kind,", self.js)
         self.assertIn("openChronicleScene(", self.js.split("function renderTraitChronicleList", 1)[1].split("async function loadTraitChronicle", 1)[0])
         self.assertIn("showNames", self.js.split("function renderTraitChronicleList", 1)[1].split("async function loadTraitChronicle", 1)[0])
+        self.assertIn("entry.character_name || entry.item_name", self.js.split("function renderTraitChronicleList", 1)[1].split("async function loadTraitChronicle", 1)[0])
         self.assertIn("data-role=\"dock-char-timeline\"", self.js)
         self.assertIn("openDockTimelineFloat(data.id", self.js)
         self.assertIn("if (itemId === \"timeline\") return openDockTimelineFloat(0, sourceEl);", self.js)
+        self.assertIn('options.kind === "item"', self.js.split("function openDockTimelineFloat(", 1)[1].split("function dockBaitEpisodeLabel(", 1)[0])
         self.assertIn(".idea-float.dock-float.dock-float-timeline", self.css)
         self.assertIn(".dock-timeline-list", self.css)
         self.assertIn(".trait-chronicle-who", self.css)
@@ -191,7 +268,9 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.연대기", locale)
             self.assertIn("index.연대기_보기", locale)
             self.assertIn("index.연대기_인물_필터", locale)
+            self.assertIn("index.연대기_아이템_필터", locale)
             self.assertIn("index.연대기_작품_안내", locale)
+            self.assertIn("index.연대기_아이템_안내", locale)
 
     def test_relation_minimap_widget(self) -> None:
         self.assertNotIn('data-dock-item="relationMinimap"', self.html)
@@ -272,6 +351,44 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("app.해결됨", locale)
             self.assertIn("app.본문_보기", locale)
 
+    def test_manuscript_dock_widget(self) -> None:
+        self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="manuscript"')
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("manuscript:", spec)
+        manuscript_spec = spec.split("manuscript:", 1)[1].split("settingsSearch:", 1)[0]
+        self.assertIn("resize: { minWidth: DOCK_MANUSCRIPT_MIN_W, minHeight: DOCK_MANUSCRIPT_MIN_H }", manuscript_spec)
+        self.assertIn('windowClass: "dock-float-manuscript"', manuscript_spec)
+        self.assertIn("manuscript: DOCK_MANUSCRIPT_KEY", self.js)
+        self.assertIn("function buildOutlineTreeHtml(", self.js)
+        self.assertIn("function renderDockManuscriptBody(", self.js)
+        self.assertIn("function bindDockManuscriptRoot(", self.js)
+        self.assertIn("function paintDockManuscriptTree(", self.js)
+        self.assertIn("function syncDockManuscriptFloat(", self.js)
+        self.assertIn("buildOutlineTreeHtml({ readOnly: true })", self.js)
+        self.assertIn("buildOutlineTreeHtml({ readOnly: false, chaptersArg })", self.js)
+        paint_fn = self.js.split("function paintDockManuscriptTree(", 1)[1].split("function bindDockManuscriptRoot(", 1)[0]
+        self.assertIn("readOnly: true", paint_fn)
+        bind_fn = self.js.split("function bindDockManuscriptRoot(", 1)[1].split("function renderDockManuscriptBody(", 1)[0]
+        self.assertIn("openScene(sceneId)", bind_fn)
+        self.assertIn("toggleChapterExpanded", bind_fn)
+        self.assertIn("togglePartExpanded", bind_fn)
+        self.assertIn("toggleSceneExpanded", bind_fn)
+        self.assertNotIn("startRenameScene", bind_fn)
+        self.assertNotIn("createScene", bind_fn)
+        self.assertNotIn("setupChapterDragAndDrop", bind_fn)
+        self.assertNotIn("setupSceneNestDragAndDrop", bind_fn)
+        self.assertNotIn("setupBinderContextMenu", bind_fn)
+        self.assertNotIn("beginChapterRename", bind_fn)
+        outline_fn = self.js.split("function renderOutline(chaptersArg)", 1)[1].split("async function beginChapterRename", 1)[0]
+        self.assertIn("setupChapterDragAndDrop(outline)", outline_fn)
+        self.assertIn("setupSceneNestDragAndDrop(outline)", outline_fn)
+        self.assertIn("syncDockManuscriptFloat()", outline_fn)
+        self.assertIn(".idea-float.dock-float.dock-float-manuscript", self.css)
+        self.assertIn(".dock-manuscript-tree", self.css)
+        for locale in self.locales.values():
+            self.assertIn("index.목차보기", locale)
+            self.assertIn("index.목차보기_안내", locale)
+
     def test_locale_keys_exist(self) -> None:
         keys = (
             "index.바인더_펼치기",
@@ -296,6 +413,16 @@ class PanelDockContractTests(unittest.TestCase):
             "index.열린_떡밥",
             "app.아직_열린_떡밥이_없어요",
             "app.해결됨",
+            "index.목차보기",
+            "index.목차보기_안내",
+            "index.세계관_카드",
+            "index.세계관_카드_보기",
+            "index.세계관_카드_힌트",
+            "index.아이템_카드",
+            "index.아이템_카드_보기",
+            "index.아이템_카드_힌트",
+            "index.아직_아이템이_없어요",
+            "index.연대기_아이템_필터",
         )
         for locale in self.locales.values():
             for key in keys:

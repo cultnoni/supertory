@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.59">
+    <link rel="stylesheet" href="/styles.css?v=1.4.63">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1193,14 +1193,14 @@
             </svg>
           </button>
           <div class="panel-dock-rail-items" role="toolbar" aria-label="바인더 항목" data-i18n-aria-label="index.바인더_항목">
-            <button type="button" class="panel-dock-item" data-dock-item="manuscript" title="목차" data-i18n-title="app.목차" aria-label="목차" data-i18n-aria-label="app.목차">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="manuscript" title="목차보기" data-i18n-title="index.목차보기" aria-label="목차보기" data-i18n-aria-label="index.목차보기">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <rect x="6.5" y="3.75" width="11.5" height="16.5" rx="1.6"/>
                 <path d="M9.25 3.75v16.5"/>
                 <path d="M11.75 8.5h4M11.75 12h4M11.75 15.5h3"/>
               </svg>
             </button>
-            <button type="button" class="panel-dock-item is-ready is-pinned-dock" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M5.5 18.2V12.4"/>
                 <path d="M10.2 18.2V7.5"/>
@@ -1215,7 +1215,7 @@
                 <path d="M8.8 9.2h6.4M8.8 12.4h6.4M8.8 15.6h4.2"/>
               </svg>
             </button>
-            <button type="button" class="panel-dock-item" data-dock-item="world" title="세계관" data-i18n-title="app.세계관" aria-label="세계관" data-i18n-aria-label="app.세계관">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="world" title="세계관" data-i18n-title="app.세계관" aria-label="세계관" data-i18n-aria-label="app.세계관">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <circle cx="12" cy="12" r="7.25"/>
                 <path d="M4.8 12h14.4M12 4.8c1.8 2.2 2.7 4.6 2.7 7.2s-.9 5-2.7 7.2c-1.8-2.2-2.7-4.6-2.7-7.2s.9-5 2.7-7.2z"/>
@@ -1233,7 +1233,7 @@
                 <path d="M12 8.4v4.1l2.9 1.7"/>
               </svg>
             </button>
-            <button type="button" class="panel-dock-item" data-dock-item="items" title="아이템" data-i18n-title="app.아이템" aria-label="아이템" data-i18n-aria-label="app.아이템">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="items" title="아이템" data-i18n-title="app.아이템" aria-label="아이템" data-i18n-aria-label="app.아이템">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M12 4.8 19 8.4v7.2L12 19.2 5 15.6V8.4z"/>
                 <path d="M12 19.2V11.6M5 8.4 12 11.6 19 8.4"/>
@@ -5545,6 +5545,14 @@
         <strong data-i18n="index.인물_카드_보기">인물 카드 보기</strong>
         <span id="openCharacterCardMenuHint" data-i18n="index.인물_카드_힌트">등록된 인물 요약을 띄워요</span>
       </button>
+      <button type="button" role="menuitem" data-context-action="open-world-card" id="openWorldCardMenuItem" class="hidden">
+        <strong data-i18n="index.세계관_카드_보기">세계관 카드 보기</strong>
+        <span id="openWorldCardMenuHint" data-i18n="index.세계관_카드_힌트">등록된 세계관 요약을 띄워요</span>
+      </button>
+      <button type="button" role="menuitem" data-context-action="open-item-card" id="openItemCardMenuItem" class="hidden">
+        <strong data-i18n="index.아이템_카드_보기">아이템 카드 보기</strong>
+        <span id="openItemCardMenuHint" data-i18n="index.아이템_카드_힌트">등록된 아이템 요약을 띄워요</span>
+      </button>
       <button type="button" role="menuitem" data-context-action="cross-ref-search" id="crossRefSearchMenuItem" data-ctx-selection-only>
         <strong data-i18n="index.크로스_레퍼런스로_검색">크로스 레퍼런스로 검색</strong>
         <span data-i18n="index.크로스_레퍼런스_검색_힌트">설정집에서 같은 말을 찾아요</span>
@@ -7739,6 +7747,6 @@
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
     <script src="/typeset_metrics.js?v=1.4.45"></script>
-    <script src="/app.js?v=1.4.59"></script>
+    <script src="/app.js?v=1.4.63"></script>
   </body>
 </html>
