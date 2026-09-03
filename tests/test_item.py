@@ -137,7 +137,11 @@ class ItemApiTests(unittest.TestCase):
         self.assertIn("heritage", app_js)
         self.assertIn("syncItemToriDraftStyle", app_js)
         self.assertIn('id="itemChronicle"', html)
+        self.assertIn('id="itemChronicleButton"', html)
         self.assertIn("toggleItemChronicle", app_js)
+        self.assertIn("toggleTraitChronicle", app_js)
+        self.assertIn("renderTraitChronicleList", app_js)
+        self.assertIn("/api/items/${state.itemId}/trait-history", app_js)
 
 
 if __name__ == "__main__":

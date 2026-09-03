@@ -539,6 +539,57 @@ class CharacterSceneTraitHttpTests(unittest.TestCase):
         self.assertEqual(entries[0]["scene_title"], "1화")
         self.assertEqual(entries[1]["scene_title"], "2화")
 
+    def test_project_trait_history_api_includes_character_names(self) -> None:
+        status, project = self.request(
+            "POST", "/api/projects", {"title": "작품연대기", "main_genre": "판타지"}
+        )
+        self.assertEqual(status, 201, project)
+        pid = int(project["id"])
+        status, ch_a = self.request("POST", f"/api/projects/{pid}/chapters", {"title": "1장"})
+        self.assertEqual(status, 201, ch_a)
+        status, scene_a = self.request(
+            "POST", f"/api/chapters/{ch_a['id']}/scenes", {"title": "1화"}
+        )
+        self.assertEqual(status, 201, scene_a)
+        status, scene_b = self.request(
+            "POST", f"/api/chapters/{ch_a['id']}/scenes", {"title": "2화"}
+        )
+        self.assertEqual(status, 201, scene_b)
+        status, char_a = self.request("POST", f"/api/projects/{pid}/characters", {"name": "린"})
+        self.assertEqual(status, 201, char_a)
+        status, char_b = self.request("POST", f"/api/projects/{pid}/characters", {"name": "서윤"})
+        self.assertEqual(status, 201, char_b)
+        cid_a = int(char_a["id"])
+        cid_b = int(char_b["id"])
+        with app.database() as connection:
+            connection.execute(
+                "INSERT INTO character_trait_history"
+                "(character_id, project_id, scene_id, field_name, detected_content, applied) "
+                "VALUES (?, ?, ?, 'profile_md', '나중 회차', 1)",
+                (cid_b, pid, int(scene_b["id"])),
+            )
+            connection.execute(
+                "INSERT INTO character_trait_history"
+                "(character_id, project_id, scene_id, field_name, detected_content, applied) "
+                "VALUES (?, ?, ?, 'profile_md', '먼저 회차', 0)",
+                (cid_a, pid, int(scene_a["id"])),
+            )
+            connection.commit()
+        status, payload = self.request("GET", f"/api/projects/{pid}/trait-history")
+        self.assertEqual(status, 200, payload)
+        entries = payload.get("entries") or []
+        self.assertEqual(len(entries), 2)
+        self.assertEqual(int(entries[0]["scene_id"]), int(scene_a["id"]))
+        self.assertEqual(entries[0]["character_name"], "린")
+        self.assertEqual(int(entries[0]["character_id"]), cid_a)
+        self.assertEqual(int(entries[1]["scene_id"]), int(scene_b["id"]))
+        self.assertEqual(entries[1]["character_name"], "서윤")
+        self.assertEqual(int(entries[1]["character_id"]), cid_b)
+        status, one = self.request("GET", f"/api/characters/{cid_a}/trait-history")
+        self.assertEqual(status, 200, one)
+        self.assertEqual(len(one.get("entries") or []), 1)
+        self.assertNotIn("character_name", one["entries"][0])
+
 
 if __name__ == "__main__":
     unittest.main()

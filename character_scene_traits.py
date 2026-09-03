@@ -308,6 +308,37 @@ def list_trait_history(
     return entries
 
 
+def list_project_trait_history(
+    connection: sqlite3.Connection, project_id: int
+) -> list[dict]:
+    rows = connection.execute(
+        "SELECT h.id, h.character_id, h.scene_id, h.field_name, h.detected_content, "
+        "h.applied, h.created_at, s.title AS scene_title, c.name AS character_name "
+        "FROM character_trait_history h "
+        "JOIN character c ON c.id = h.character_id "
+        "LEFT JOIN scene s ON s.id = h.scene_id "
+        "WHERE h.project_id = ? AND c.deleted_at IS NULL "
+        "ORDER BY h.id",
+        (int(project_id),),
+    ).fetchall()
+    entries: list[dict] = []
+    for row in rows:
+        entries.append(
+            {
+                "id": int(row["id"]),
+                "character_id": int(row["character_id"]),
+                "character_name": str(row["character_name"] or ""),
+                "scene_id": int(row["scene_id"]) if row["scene_id"] not in (None, "") else None,
+                "field_name": str(row["field_name"] or ""),
+                "detected_content": str(row["detected_content"] or ""),
+                "applied": bool(row["applied"]),
+                "created_at": row["created_at"],
+                "scene_title": str(row["scene_title"] or ""),
+            }
+        )
+    return entries
+
+
 def _add_aliases(
     connection: sqlite3.Connection,
     character_id: int,

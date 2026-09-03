@@ -285,8 +285,21 @@ class CharacterImportAnalysisApiTests(unittest.TestCase):
         self.assertIn("syncItemToriDraftStyle", js)
         self.assertIn("stripToriTextPrefix", js)
         self.assertIn('id="characterChronicle"', html)
+        self.assertIn('id="characterChronicleButton"', html)
         self.assertIn('id="itemChronicle"', html)
-        self.assertIn("/trait-history", js)
+        self.assertIn('id="itemChronicleButton"', html)
+        editor = html.split('id="characterEditor"', 1)[1].split('id="itemEditor"', 1)[0]
+        tori = editor.find('id="toriFillCharacterEditorButton"')
+        chronicle = editor.find('id="characterChronicleButton"')
+        delete = editor.find('id="deleteCharacterButton"')
+        self.assertTrue(0 <= tori < chronicle < delete)
+        self.assertIn("function setupTraitChronicle()", js)
+        self.assertIn("function toggleTraitChronicle(", js)
+        self.assertIn("function renderTraitChronicleList(", js)
+        self.assertIn("/api/characters/${state.characterId}/trait-history", js)
+        self.assertIn("/api/items/${state.itemId}/trait-history", js)
+        self.assertIn("/api/projects/${pid}/trait-history", js)
+        self.assertIn('safeSetup("setupTraitChronicle", setupTraitChronicle)', js)
 
 
 if __name__ == "__main__":

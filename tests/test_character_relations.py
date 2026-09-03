@@ -312,6 +312,11 @@ class CharacterRelationHttpTests(unittest.TestCase):
         self.assertIn("function openRelationCanvas", app_js)
         self.assertIn("function setRelationLabelAtLineMid", app_js)
         self.assertNotIn("placed.midY - 8", app_js)
+        self.assertIn("function openDockRelationMinimapFloat", app_js)
+        self.assertIn("function neighborhoodRelationData", app_js)
+        self.assertIn("interactive: false", app_js)
+        self.assertIn("showProfile: false", app_js)
+        self.assertIn("function centerRelationCanvasOnCharacter", app_js)
 
 
 if __name__ == "__main__":
