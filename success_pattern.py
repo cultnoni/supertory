@@ -23,6 +23,13 @@ SECTION_LABELS = {
     "middle": "중간부분",
     "ending": "결말부분",
 }
+PROFILE_FIELDS = (
+    "hook_style",
+    "pacing_pattern",
+    "dialogue_narration_balance",
+    "style_signature",
+    "summary",
+)
 
 
 @dataclass
@@ -484,21 +491,15 @@ def mock_merge_profile(stats: dict[str, Any], notes: list[dict[str, Any]]) -> di
             f"{stats.get('total_chars', 0):,}자) 기준으로 보면 "
             "회차 단위 긴장 유지와 읽기 쉬운 문체가 핵심 요인으로 보입니다."
         ),
-        # Shape used by 흥행 공식 참고 (buildTaskPromptWithSuccessProfile)
-        "reader_popularity_factors": [
-            "회차 말미 궁금증 훅",
-            "읽기 쉬운 문장 리듬",
-            "캐릭터 감정선 유지",
-        ],
-        "editor_popularity_factors": [
-            "전개 속도의 균형",
-            "대사·지문 비중 조절",
-            "설정 일관성",
-        ],
-        "must_follow_factors": [
-            "캐릭터 말투·성격 일관성",
-            "회차 단위 긴장 유지",
-        ],
+    }
+
+
+def normalize_merge_profile(profile: dict[str, Any] | None) -> dict[str, str]:
+    """Keep newly generated mock/live profiles on one stable five-field schema."""
+    source = profile if isinstance(profile, dict) else {}
+    return {
+        key: str(source.get(key) or "").strip()
+        for key in PROFILE_FIELDS
     }
 
 

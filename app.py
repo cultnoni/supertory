@@ -229,6 +229,8 @@ MIGRATION_079_PATH = ROOT / "db" / "079_project_completion_guide.sql"
 MIGRATION_080_PATH = ROOT / "db" / "080_scene_reader_comment_batches.sql"
 MIGRATION_081_PATH = ROOT / "db" / "081_update_reader_personas_v2.py"
 MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
+MIGRATION_083_PATH = ROOT / "db" / "083_linked_success_profile_fk.sql"
+MIGRATION_084_PATH = ROOT / "db" / "084_success_pattern_chapter_notes.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1653,6 +1655,10 @@ def initialise_database() -> None:
             apply_migration_081(connection)
         if 82 not in applied:
             apply_migration_082(connection)
+        if 83 not in applied:
+            connection.executescript(MIGRATION_083_PATH.read_text(encoding="utf-8"))
+        if 84 not in applied:
+            connection.executescript(MIGRATION_084_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -11576,6 +11582,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ))
                 return
 
+            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
+            if match:
+                self.send_json(
+                    self.rename_success_pattern_profile(int(match.group(1)), body)
+                )
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)", path)
             if match:
                 self.send_json(self.save_scene(int(match.group(1)), body))
@@ -11732,6 +11745,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(get_typeset_service().delete_preset(
                     unquote(match.group(1)),
                 ))
+                return
+
+            match = re.fullmatch(r"/api/success-pattern/profiles/(\d+)", path)
+            if match:
+                self.send_json(
+                    self.delete_success_pattern_profile(int(match.group(1)))
+                )
                 return
 
             match = re.fullmatch(r"/api/gitsi/rooms/([^/]+)", path)
@@ -18512,7 +18532,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def run_success_pattern_analysis(self, body: dict) -> dict:
         work_title = str(body.get("work_title") or body.get("workTitle") or "").strip()
-        prompt_cluster_id = str(body.get("cluster_id") or "").strip()
+        prompt_cluster_id = genre_clusters.resolve_cluster_id(
+            cluster_id=body.get("cluster_id"),
+            purpose=body.get("purpose"),
+            main_genre=body.get("main_genre"),
+            sub_genre=body.get("sub_genre"),
+        )
         if not work_title:
             raise ValueError("작품명을 입력해 주세요.")
         try:
@@ -18594,6 +18619,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 profile = success_pattern.mock_merge_profile(quantitative, chapter_notes)
                 profile_mock = True
 
+        profile = success_pattern.normalize_merge_profile(profile)
         analyzed_sections = [
             {
                 "key": s.key,
@@ -18620,6 +18646,35 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 ),
             )
             profile_id = int(cursor.lastrowid)
+            connection.executemany(
+                "INSERT INTO success_pattern_chapter_notes("
+                "profile_id, note_order, section_key, section_label, episode_title, "
+                "episode_index, char_count, observation_json, used_mock"
+                ") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                [
+                    (
+                        profile_id,
+                        note_order,
+                        str(note.get("section_key") or ""),
+                        str(note.get("section_label") or ""),
+                        str(note.get("episode_title") or ""),
+                        (
+                            int(note["episode_index"])
+                            if note.get("episode_index") is not None
+                            else None
+                        ),
+                        max(0, int(note.get("char_count") or 0)),
+                        json.dumps(
+                            note.get("observation")
+                            if isinstance(note.get("observation"), dict)
+                            else {},
+                            ensure_ascii=False,
+                        ),
+                        1 if note.get("mock") else 0,
+                    )
+                    for note_order, note in enumerate(chapter_notes)
+                ],
+            )
             row = connection.execute(
                 "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
                 "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
@@ -18630,6 +18685,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "profile": self._serialize_success_pattern_row(row),
             "chapter_notes": chapter_notes,
             "used_mock": profile_mock,
+            "cluster_id": prompt_cluster_id,
             "episode_budget": ep_budget,
             "character_budget": char_budget,
         }
@@ -18675,6 +18731,44 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 (profile_id,),
             ).fetchone()
         return self._serialize_success_pattern_row(row)
+
+    def rename_success_pattern_profile(self, profile_id: int, body: dict) -> dict:
+        work_title = str(body.get("work_title") or body.get("title") or "").strip()
+        if not work_title:
+            raise ValueError("프로파일 이름을 입력해 주세요.")
+        if len(work_title) > 200:
+            raise ValueError("프로파일 이름은 200자 이하로 입력해 주세요.")
+        with database() as connection:
+            cursor = connection.execute(
+                "UPDATE success_pattern_profile SET work_title = ? WHERE id = ?",
+                (work_title, int(profile_id)),
+            )
+            if cursor.rowcount < 1:
+                raise LookupError("프로파일을 찾을 수 없습니다.")
+            row = connection.execute(
+                "SELECT id, work_title, total_chapters, analyzed_sections_json, profile_json, "
+                "quantitative_json, built_at FROM success_pattern_profile WHERE id = ?",
+                (int(profile_id),),
+            ).fetchone()
+        return self._serialize_success_pattern_row(row)
+
+    def delete_success_pattern_profile(self, profile_id: int) -> dict:
+        with database() as connection:
+            linked_count = int(connection.execute(
+                "SELECT COUNT(*) FROM project WHERE linked_success_profile_id = ?",
+                (int(profile_id),),
+            ).fetchone()[0])
+            cursor = connection.execute(
+                "DELETE FROM success_pattern_profile WHERE id = ?",
+                (int(profile_id),),
+            )
+            if cursor.rowcount < 1:
+                raise LookupError("프로파일을 찾을 수 없습니다.")
+        return {
+            "ok": True,
+            "id": int(profile_id),
+            "unlinked_projects": linked_count,
+        }
 
     def save_chapter(self, chapter_id: int, body: dict) -> None:
         """Rename a chapter folder.
