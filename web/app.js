@@ -13326,6 +13326,11 @@ const DOCK_TIMELINE_DEFAULT_W = 360;
 const DOCK_TIMELINE_DEFAULT_H = 420;
 const DOCK_TIMELINE_MIN_W = 280;
 const DOCK_TIMELINE_MIN_H = 240;
+const DOCK_BAITS_KEY = "dock:baits";
+const DOCK_BAITS_DEFAULT_W = 360;
+const DOCK_BAITS_DEFAULT_H = 420;
+const DOCK_BAITS_MIN_W = 280;
+const DOCK_BAITS_MIN_H = 240;
 const DOCK_RELATION_KEY = "dock:relationMinimap";
 const DOCK_RELATION_DEFAULT_W = 420;
 const DOCK_RELATION_DEFAULT_H = 380;
@@ -13341,6 +13346,7 @@ const DOCK_RAIL_FLOAT_KEYS = {
   statsTracker: DOCK_STATS_TRACKER_KEY,
   characters: "dock:characters",
   timeline: DOCK_TIMELINE_KEY,
+  baits: DOCK_BAITS_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
 };
 const dockCharacterDetailCache = new Map();
@@ -13348,6 +13354,8 @@ let pendingDockCharacterId = null;
 let dockTimelineFilterId = 0;
 let dockTimelineLoadGen = 0;
 let dockTimelineCache = { projectId: 0, entries: [] };
+let dockBaitsLoadGen = 0;
+let dockBaitsCache = { projectId: 0, threads: [] };
 let dockRelationFocusId = 0;
 let dockRelationLoadGen = 0;
 let dockRelationData = { characters: [], relations: [] };
@@ -13393,6 +13401,7 @@ function pruneAndSyncIdeaFloats() {
     if (typeof id === "string" && String(id).startsWith("dock:")) {
       if (id === "dock:ideas") syncDockIdeasFloat();
       if (id === "dock:characters") syncDockCharactersFloat();
+      if (id === DOCK_BAITS_KEY) syncDockBaitsFloat();
       if (String(id).startsWith("dock:character:")) {
         const cid = Number(String(id).slice("dock:character:".length));
         if (!cid || !(state.characters || []).some((ch) => Number(ch.id) === cid)) {
@@ -13707,6 +13716,15 @@ const DOCK_FLOAT_SPECS = {
     defaultHeight: DOCK_TIMELINE_DEFAULT_H,
     resize: { minWidth: DOCK_TIMELINE_MIN_W, minHeight: DOCK_TIMELINE_MIN_H },
     render(body) { renderDockTimelineBody(body); },
+  },
+  baits: {
+    titleKey: "index.열린_떡밥",
+    windowClass: "dock-float-baits",
+    side: "left",
+    defaultWidth: DOCK_BAITS_DEFAULT_W,
+    defaultHeight: DOCK_BAITS_DEFAULT_H,
+    resize: { minWidth: DOCK_BAITS_MIN_W, minHeight: DOCK_BAITS_MIN_H },
+    render(body) { renderDockBaitsBody(body); },
   },
   settingsSearch: {
     titleKey: "app.크로스_레퍼런스_시스템",
@@ -14334,6 +14352,126 @@ function openDockTimelineFloat(characterId, sourceEl) {
     }
   }
   return win;
+}
+
+function dockBaitEpisodeLabel(thread) {
+  const sceneId = Number(thread?.scene_id) || 0;
+  if (!sceneId) return "";
+  const title = String(thread?.scene_title || "").trim();
+  const chapter = String(thread?.chapter_title || "").trim();
+  const bits = [];
+  if (chapter && chapter !== title) bits.push(chapter);
+  if (title) bits.push(title);
+  return bits.join(" · ");
+}
+
+function paintDockBaitsList(win) {
+  const list = win?.querySelector("[data-role='dock-baits-list']");
+  if (!list) return;
+  const rows = Array.isArray(dockBaitsCache.threads) ? dockBaitsCache.threads : [];
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
+    return;
+  }
+  if (!rows.length) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.아직_열린_떡밥이_없어요"))}</p>`;
+    return;
+  }
+  list.innerHTML = rows.map((thread) => {
+    const text = String(thread?.text || "").trim();
+    const resolved = Boolean(thread?.resolved);
+    const sceneId = Number(thread?.scene_id) || 0;
+    const ep = dockBaitEpisodeLabel(thread);
+    const sceneButton = sceneId
+      ? `<button type="button" class="secondary compact-btn" data-dock-bait-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`
+      : "";
+    return `<article class="dock-bait-item${resolved ? " is-resolved" : ""}">
+      <label class="dock-bait-resolve">
+        <input type="checkbox" data-dock-bait-resolved="${escapeHtml(text)}" ${resolved ? "checked" : ""}>
+        <span>${escapeHtml(i18n.t("app.해결됨"))}</span>
+      </label>
+      <p class="dock-bait-text">${escapeHtml(text)}</p>
+      <div class="dock-bait-meta">
+        <span class="dock-bait-ep">${escapeHtml(ep)}</span>
+        ${sceneButton}
+      </div>
+    </article>`;
+  }).join("");
+  list.querySelectorAll("[data-dock-bait-resolved]").forEach((input) => {
+    input.addEventListener("change", () => {
+      setDockBaitResolved(input.getAttribute("data-dock-bait-resolved"), input.checked).catch(handleError);
+    });
+  });
+  list.querySelectorAll("[data-dock-bait-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      openChronicleScene(button.getAttribute("data-dock-bait-scene")).catch(handleError);
+    });
+  });
+}
+
+async function loadDockBaits(options = {}) {
+  const force = Boolean(options.force);
+  const pid = Number(state.projectId) || 0;
+  if (!pid) {
+    dockBaitsCache = { projectId: 0, threads: [] };
+    return [];
+  }
+  if (!force && dockBaitsCache.projectId === pid) return dockBaitsCache.threads;
+  const gen = ++dockBaitsLoadGen;
+  const data = await api(`/api/projects/${pid}/open-threads`);
+  if (gen !== dockBaitsLoadGen) return dockBaitsCache.threads;
+  dockBaitsCache = {
+    projectId: pid,
+    threads: Array.isArray(data?.threads) ? data.threads : [],
+  };
+  return dockBaitsCache.threads;
+}
+
+async function setDockBaitResolved(text, resolved) {
+  const pid = Number(state.projectId) || 0;
+  const threadText = String(text || "").trim();
+  if (!pid || !threadText) return;
+  const data = await api(`/api/projects/${pid}/open-threads`, {
+    method: "PATCH",
+    body: JSON.stringify({ text: threadText, resolved: Boolean(resolved) }),
+  });
+  dockBaitsCache = {
+    projectId: pid,
+    threads: Array.isArray(data?.threads) ? data.threads : dockBaitsCache.threads,
+  };
+  const win = ideaFloatWindows.get(DOCK_BAITS_KEY);
+  if (win) paintDockBaitsList(win);
+}
+
+function renderDockBaitsBody(body) {
+  if (!body) return;
+  const win = body.closest(".idea-float");
+  body.innerHTML = `
+    <div class="dock-baits">
+      <p class="hint dock-baits-hint">${escapeHtml(i18n.t("index.열린_떡밥_안내"))}</p>
+      <div class="dock-baits-list" data-role="dock-baits-list">
+        <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
+      </div>
+    </div>
+  `;
+  loadDockBaits({ force: true }).then(() => {
+    if (!ideaFloatWindows.get(DOCK_BAITS_KEY)) return;
+    paintDockBaitsList(win);
+  }).catch(handleError);
+}
+
+function syncDockBaitsFloat() {
+  const win = ideaFloatWindows.get(DOCK_BAITS_KEY);
+  if (!win) return;
+  if (dockBaitsCache.projectId === Number(state.projectId)) {
+    paintDockBaitsList(win);
+    return;
+  }
+  loadDockBaits({ force: true }).then(() => {
+    if (!ideaFloatWindows.get(DOCK_BAITS_KEY)) return;
+    paintDockBaitsList(win);
+  }).catch(handleError);
 }
 
 function neighborhoodRelationData(all, characterId) {
@@ -54976,9 +55114,21 @@ function hasUsableProjectIndex(projectIndex) {
     list(projectIndex.characters).length > 0
     || list(projectIndex.world_rules).length > 0
     || list(projectIndex.timeline).length > 0
-    || list(projectIndex.open_threads).length > 0
+    || openThreadTexts(projectIndex.open_threads).length > 0
     || facts.length > 0
   );
+}
+
+function openThreadTexts(value, options = {}) {
+  const includeResolved = Boolean(options.includeResolved);
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    if (item && typeof item === "object") {
+      if (!includeResolved && item.resolved) return "";
+      return String(item.text || item.thread || item.content || "").trim();
+    }
+    return String(item || "").trim();
+  }).filter(Boolean);
 }
 
 function formatProjectIndexContext(projectIndex) {
@@ -54986,7 +55136,7 @@ function formatProjectIndexContext(projectIndex) {
   const characters = Array.isArray(projectIndex.characters) ? projectIndex.characters : [];
   const worldRules = Array.isArray(projectIndex.world_rules) ? projectIndex.world_rules : [];
   const timeline = Array.isArray(projectIndex.timeline) ? projectIndex.timeline : [];
-  const openThreads = Array.isArray(projectIndex.open_threads) ? projectIndex.open_threads : [];
+  const openThreads = openThreadTexts(projectIndex.open_threads);
   const trackedFacts = Array.isArray(projectIndex.tracked_facts) ? projectIndex.tracked_facts : [];
   const factsLine = trackedFacts.length
     ? `\n추적 대상 사실: ${JSON.stringify(trackedFacts)}`

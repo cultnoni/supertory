@@ -249,6 +249,29 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.크로스_레퍼런스로_검색", locale)
             self.assertIn("index.크로스_레퍼런스_검색_힌트", locale)
 
+    def test_baits_dock_widget(self) -> None:
+        self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="baits"')
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("baits:", spec)
+        baits_spec = spec.split("baits:", 1)[1].split("settingsSearch:", 1)[0]
+        self.assertIn("resize: { minWidth: DOCK_BAITS_MIN_W, minHeight: DOCK_BAITS_MIN_H }", baits_spec)
+        self.assertIn('windowClass: "dock-float-baits"', baits_spec)
+        self.assertIn("function renderDockBaitsBody(", self.js)
+        self.assertIn("function loadDockBaits(", self.js)
+        self.assertIn("function setDockBaitResolved(", self.js)
+        self.assertIn("/api/projects/${pid}/open-threads", self.js)
+        self.assertIn("method: \"PATCH\"", self.js.split("function setDockBaitResolved(", 1)[1].split("function renderDockBaitsBody(", 1)[0])
+        self.assertIn("baits: DOCK_BAITS_KEY", self.js)
+        self.assertIn(".idea-float.dock-float.dock-float-baits", self.css)
+        self.assertIn(".dock-bait-item.is-resolved", self.css)
+        self.assertIn("data-settings-section=\"baits\"", self.html)
+        for locale in self.locales.values():
+            self.assertIn("index.열린_떡밥", locale)
+            self.assertIn("index.열린_떡밥_안내", locale)
+            self.assertIn("app.아직_열린_떡밥이_없어요", locale)
+            self.assertIn("app.해결됨", locale)
+            self.assertIn("app.본문_보기", locale)
+
     def test_locale_keys_exist(self) -> None:
         keys = (
             "index.바인더_펼치기",
@@ -270,6 +293,9 @@ class PanelDockContractTests(unittest.TestCase):
             "app.아직_등록된_관계가_없어요",
             "app.크로스_레퍼런스_시스템",
             "index.크로스_레퍼런스로_검색",
+            "index.열린_떡밥",
+            "app.아직_열린_떡밥이_없어요",
+            "app.해결됨",
         )
         for locale in self.locales.values():
             for key in keys:
