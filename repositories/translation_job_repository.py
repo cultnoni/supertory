@@ -83,11 +83,30 @@ class TranslationJobRepository:
         return dict(row) if row is not None else None
 
     def list_jobs_for_project(self, project_id: int) -> list[dict]:
-        rows = self.connection.execute(
-            "SELECT * FROM translation_jobs WHERE local_project_id = ? "
-            "ORDER BY datetime(updated_at) DESC, id DESC",
-            (int(project_id),),
-        ).fetchall()
+        return self.list_jobs(int(project_id))
+
+    def list_jobs(self, project_id: int | None = None) -> list[dict]:
+        sql = """
+            SELECT j.*,
+                   p.title AS project_title,
+                   CASE
+                     WHEN TRIM(COALESCE(sp.logline_translated, '')) != ''
+                       OR TRIM(COALESCE(sp.synopsis_translated, '')) != ''
+                     THEN 1 ELSE 0
+                   END AS has_submission_package,
+                   sp.generated_at AS submission_generated_at
+            FROM translation_jobs j
+            JOIN project p ON p.id = j.local_project_id
+            LEFT JOIN translation_submission_package sp
+              ON sp.translation_job_id = j.id
+            WHERE p.deleted_at IS NULL
+        """
+        params: list[object] = []
+        if project_id is not None:
+            sql += " AND j.local_project_id = ?"
+            params.append(int(project_id))
+        sql += " ORDER BY datetime(j.updated_at) DESC, j.id DESC"
+        rows = self.connection.execute(sql, params).fetchall()
         return [dict(row) for row in rows]
 
     def update_job_settings(self, job_id: int, values: dict) -> dict:

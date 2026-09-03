@@ -228,6 +228,7 @@ MIGRATION_078_PATH = ROOT / "db" / "078_translation_proper_noun_suppressions.sql
 MIGRATION_079_PATH = ROOT / "db" / "079_project_completion_guide.sql"
 MIGRATION_080_PATH = ROOT / "db" / "080_scene_reader_comment_batches.sql"
 MIGRATION_081_PATH = ROOT / "db" / "081_update_reader_personas_v2.py"
+MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1650,6 +1651,8 @@ def initialise_database() -> None:
             apply_migration_080(connection)
         if 81 not in applied:
             apply_migration_081(connection)
+        if 82 not in applied:
+            apply_migration_082(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1746,6 +1749,40 @@ def apply_migration_053(connection: sqlite3.Connection) -> None:
 
 def apply_migration_081(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_081_PATH).apply(connection)
+
+
+def apply_migration_082(connection: sqlite3.Connection) -> None:
+    """Rewrite project_index.open_threads_json strings into {text, resolved} objects."""
+    try:
+        applied = connection.execute(
+            "SELECT 1 FROM schema_migration WHERE version = 82"
+        ).fetchone()
+    except sqlite3.Error:
+        applied = None
+    if applied is not None:
+        return
+    exists = connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_index'"
+    ).fetchone()
+    if exists is None:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (82, 'open_threads_resolved')"
+        )
+        return
+    try:
+        rows = connection.execute(
+            "SELECT project_id, open_threads_json FROM project_index"
+        ).fetchall()
+    except sqlite3.Error:
+        rows = []
+    for row in rows:
+        normalized = SuperToryHandler._normalize_open_threads(row["open_threads_json"])
+        connection.execute(
+            "UPDATE project_index SET open_threads_json = ? WHERE project_id = ?",
+            (json.dumps(normalized, ensure_ascii=False), row["project_id"]),
+        )
+    connection.executescript(MIGRATION_082_PATH.read_text(encoding="utf-8"))
 
 
 def apply_migration_071(connection: sqlite3.Connection) -> None:
@@ -3559,7 +3596,7 @@ def _clean_index_term_token(raw: object) -> str:
     token = " ".join(token.split()).strip(" -–—·•")
     if not token or len(token) > 40:
         return ""
-    if re.search(r"[.。!?]", token):
+    if translation_preparation_service.is_sentence_like_proper_noun(token):
         return ""
     return token
 
@@ -7063,11 +7100,7 @@ def _reader_project_index_block(work_id: object) -> str:
         for item in parse_list(row["timeline_json"])
         if str(item).strip()
     ]
-    open_threads = [
-        str(item).strip()
-        for item in parse_list(row["open_threads_json"])
-        if str(item).strip()
-    ]
+    open_threads = SuperToryHandler._open_thread_unresolved_texts(row["open_threads_json"])
     # tracked_facts_json NULL (pre-048) → normalize returns []; omit quietly
     tracked_raw = None
     try:
@@ -7450,10 +7483,24 @@ def parse_overlays(raw: object) -> list[dict]:
     return cleaned[:40]
 
 
+def reference_item_kind(item: dict) -> str:
+    """Decide link vs file. sourceId only means 'mirrored in 설정집', not file."""
+    explicit = str(item.get("kind") or "").strip().lower()
+    file_name = str(item.get("fileName") or item.get("file_name") or "").strip()
+    url = str(item.get("url") or "").strip()
+    if explicit == "link":
+        return "link"
+    if explicit == "file":
+        if not file_name and url:
+            return "link"
+        return "file"
+    return "file" if file_name else "link"
+
+
 def parse_reference_links(raw: object) -> list[dict]:
     """Normalise scene reference materials: links and file refs.
 
-    Link:  {id, kind:'link', title, url}
+    Link:  {id, kind:'link', title, url, sourceId?}
     File:  {id, kind:'file', title, sourceId, fileName, fileExt, viewer, url?}
     """
     if raw is None or raw == "":
@@ -7469,9 +7516,7 @@ def parse_reference_links(raw: object) -> list[dict]:
     for index, item in enumerate(raw):
         if not isinstance(item, dict):
             continue
-        kind = str(item.get("kind") or "link").strip().lower()
-        if kind not in {"link", "file"}:
-            kind = "file" if (item.get("fileName") or item.get("sourceId") or item.get("source_id")) else "link"
+        kind = reference_item_kind(item)
         link_id = str(item.get("id") or f"ref-{index + 1}")[:64]
 
         if kind == "file":
@@ -10003,6 +10048,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.get_project_index(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/open-threads", path)
+            if match:
+                self.send_json(self.list_open_threads(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
             if match:
                 scene_id = int(match.group(1))
@@ -10028,6 +10078,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/characters/(\d+)/trait-history", path)
             if match:
                 self.send_json(self.character_trait_history(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/trait-history", path)
+            if match:
+                self.send_json(self.project_trait_history(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/items/(\d+)/trait-history", path)
@@ -10088,6 +10143,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     self.send_json(preview)
                 except ValueError as error:
                     self.api_error(str(error), HTTPStatus.BAD_REQUEST)
+                return
+
+            match = re.fullmatch(r"/api/translation/jobs", path)
+            if match:
+                with database() as connection:
+                    jobs = get_translation_job_service(connection).list_jobs()
+                self.send_json({"jobs": jobs})
                 return
 
             match = re.fullmatch(r"/api/translation/jobs/(\d+)/pipeline_wait", path)
@@ -11635,6 +11697,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/ambient/overrides/(.+)", path)
             if match:
                 self.send_json(upsert_ambient_track_override(unquote(match.group(1)), body))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/open-threads", path)
+            if match:
+                self.send_json(self.patch_open_thread(int(match.group(1)), body or {}))
                 return
         except LookupError as error:
             self.api_error(str(error), HTTPStatus.NOT_FOUND)
@@ -24496,6 +24563,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "created_at": row.get("created_at"),
                 }
             )
+            raw_cid = row.get("character_id")
+            if raw_cid not in (None, ""):
+                try:
+                    entries[-1]["character_id"] = int(raw_cid)
+                except (TypeError, ValueError):
+                    pass
+            if "character_name" in row:
+                entries[-1]["character_name"] = str(row.get("character_name") or "")
         entries.sort(
             key=lambda item: (
                 item["episode_index"] is None,
@@ -24517,6 +24592,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 connection,
                 int(row["project_id"]),
                 character_scene_traits.list_trait_history(connection, character_id),
+            )
+        return {"entries": entries}
+
+    def project_trait_history(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            entries = self._history_in_binder_order(
+                connection,
+                int(project_id),
+                character_scene_traits.list_project_trait_history(connection, project_id),
             )
         return {"entries": entries}
 
@@ -24946,6 +25031,70 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return data if isinstance(data, list) else list(fallback)
 
     @staticmethod
+    def _open_thread_text(item: object) -> str:
+        if isinstance(item, dict):
+            for key in ("text", "thread", "content", "summary"):
+                value = str(item.get(key) or "").strip()
+                if value:
+                    return value
+            return ""
+        return str(item or "").strip()
+
+    @staticmethod
+    def _open_thread_resolved(item: object) -> bool:
+        if not isinstance(item, dict):
+            return False
+        value = item.get("resolved")
+        if value is True or value == 1:
+            return True
+        if isinstance(value, str) and value.strip().lower() in {"1", "true", "yes"}:
+            return True
+        return False
+
+    @staticmethod
+    def _normalize_open_threads(raw: object) -> list[dict]:
+        items = SuperToryHandler._parse_json_list(raw)
+        out: list[dict] = []
+        seen: set[str] = set()
+        for item in items:
+            text = SuperToryHandler._open_thread_text(item)
+            if not text or text in seen:
+                continue
+            seen.add(text)
+            out.append({
+                "text": text,
+                "resolved": SuperToryHandler._open_thread_resolved(item),
+            })
+        return out
+
+    @staticmethod
+    def _merge_open_thread_state(existing: object, incoming: object) -> list[dict]:
+        existing_n = SuperToryHandler._normalize_open_threads(existing)
+        if not isinstance(incoming, list):
+            return existing_n
+        incoming_n = SuperToryHandler._normalize_open_threads(incoming)
+        by_text = {item["text"]: item for item in existing_n}
+        seen: set[str] = set()
+        result: list[dict] = []
+        for item in incoming_n:
+            prev = by_text.get(item["text"])
+            resolved = bool(prev["resolved"]) if prev else bool(item["resolved"])
+            result.append({"text": item["text"], "resolved": resolved})
+            seen.add(item["text"])
+        for item in existing_n:
+            if item["text"] not in seen and item["resolved"]:
+                result.append({"text": item["text"], "resolved": True})
+        return result
+
+    @staticmethod
+    def _open_thread_unresolved_texts(raw: object) -> list[str]:
+        return [
+            str(item["text"])
+            for item in SuperToryHandler._normalize_open_threads(raw)
+            if not item["resolved"]
+        ]
+
+    @staticmethod
     def _normalize_tracked_facts(raw: object) -> list:
         if isinstance(raw, str) and raw.strip():
             try:
@@ -25132,7 +25281,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             chars = self._parse_json_list(row["characters_json"])
             rules = self._parse_json_list(row["world_rules_json"])
             timeline = self._parse_json_list(row["timeline_json"])
-            threads = self._parse_json_list(row["open_threads_json"])
+            threads = self._open_thread_unresolved_texts(row["open_threads_json"])
             facts = self._normalize_tracked_facts(row["tracked_facts_json"])
             if chars:
                 parts.append("인물: " + ", ".join(str(c) for c in chars[:40]))
@@ -25192,7 +25341,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "characters": self._parse_json_list(data.get("characters_json")),
             "world_rules": self._parse_json_list(data.get("world_rules_json")),
             "timeline": self._parse_json_list(data.get("timeline_json")),
-            "open_threads": self._parse_json_list(data.get("open_threads_json")),
+            "open_threads": self._normalize_open_threads(data.get("open_threads_json")),
             "tracked_facts": self._normalize_tracked_facts(data.get("tracked_facts_json")),
             "last_synced_scene_id": data.get("last_synced_scene_id"),
             "index_dirty": int(data.get("index_dirty") or 0),
@@ -25200,6 +25349,98 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "updated_at": data.get("updated_at"),
             "previous_context": self._project_index_previous_context_readonly(project_id),
         }
+
+    def _open_thread_scene_lookup(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> dict[str, dict]:
+        """First scene in binder DFS whose summary.new_threads mentions the thread text."""
+        ordered = self._list_scenes_in_binder_order(connection, project_id)
+        lookup: dict[str, dict] = {}
+        if not ordered:
+            return lookup
+        rows = connection.execute(
+            "SELECT ss.scene_id, ss.summary FROM scene_summary ss "
+            "JOIN scene s ON s.id = ss.scene_id "
+            "WHERE s.project_id = ? AND s.deleted_at IS NULL",
+            (project_id,),
+        ).fetchall()
+        summaries = {int(row["scene_id"]): row["summary"] for row in rows}
+        for index, scene in enumerate(ordered):
+            sid = int(scene["id"])
+            parsed = self._parse_json_object(summaries.get(sid) or "")
+            for item in parsed.get("new_threads") or []:
+                text = self._open_thread_text(item)
+                if not text or text in lookup:
+                    continue
+                lookup[text] = {
+                    "scene_id": sid,
+                    "scene_title": str(scene.get("title") or "").strip(),
+                    "chapter_title": str(scene.get("chapter_title") or "").strip(),
+                    "binder_index": index,
+                }
+        return lookup
+
+    def list_open_threads(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            self._ensure_project_index_row(connection, project_id)
+            row = connection.execute(
+                "SELECT open_threads_json FROM project_index WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            threads = self._normalize_open_threads(row["open_threads_json"] if row else "[]")
+            lookup = self._open_thread_scene_lookup(connection, project_id)
+        missing_order = 10**9
+        enriched = []
+        for item in threads:
+            hit = lookup.get(item["text"]) or {}
+            scene_id = hit.get("scene_id")
+            binder_index = hit.get("binder_index")
+            if binder_index is None:
+                binder_index = missing_order
+            enriched.append({
+                "text": item["text"],
+                "resolved": bool(item["resolved"]),
+                "scene_id": scene_id,
+                "scene_title": hit.get("scene_title") or "",
+                "chapter_title": hit.get("chapter_title") or "",
+                "binder_index": binder_index,
+            })
+        enriched.sort(
+            key=lambda row: (1 if row["resolved"] else 0, row["binder_index"], row["text"])
+        )
+        return {"threads": enriched}
+
+    def patch_open_thread(self, project_id: int, body: dict | None) -> dict:
+        body = body or {}
+        text = self._open_thread_text(body)
+        if not text:
+            raise ValueError("떡밥 내용이 비어 있습니다.")
+        if "resolved" not in body:
+            raise ValueError("resolved 값이 필요합니다.")
+        resolved = bool(body.get("resolved"))
+        with database() as connection:
+            self.require_project(connection, project_id)
+            self._ensure_project_index_row(connection, project_id)
+            row = connection.execute(
+                "SELECT open_threads_json FROM project_index WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            threads = self._normalize_open_threads(row["open_threads_json"] if row else "[]")
+            found = False
+            for item in threads:
+                if item["text"] == text:
+                    item["resolved"] = resolved
+                    found = True
+            if not found:
+                raise LookupError("해당 떡밥을 찾을 수 없습니다.")
+            connection.execute(
+                "UPDATE project_index SET open_threads_json = ?, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE project_id = ?",
+                (json.dumps(threads, ensure_ascii=False), project_id),
+            )
+        return self.list_open_threads(project_id)
 
     def _project_index_previous_context_readonly(self, project_id: int) -> str:
         with database() as connection:
@@ -25375,7 +25616,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "characters": self._parse_json_list(row["characters_json"]),
                 "world_rules": self._parse_json_list(row["world_rules_json"]),
                 "timeline": self._parse_json_list(row["timeline_json"]),
-                "open_threads": self._parse_json_list(row["open_threads_json"]),
+                "open_threads": self._normalize_open_threads(row["open_threads_json"]),
                 "tracked_facts": self._normalize_tracked_facts(row["tracked_facts_json"]),
             }
             new_summaries = []
@@ -25418,7 +25659,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         characters = merged.get("characters")
         world_rules = merged.get("world_rules")
         timeline = merged.get("timeline")
-        open_threads = merged.get("open_threads")
+        open_threads = self._merge_open_thread_state(
+            existing_index["open_threads"],
+            merged.get("open_threads"),
+        )
         tracked_facts = self._normalize_tracked_facts(merged.get("tracked_facts"))
         if not isinstance(characters, list):
             characters = existing_index["characters"]
@@ -25426,8 +25670,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             world_rules = existing_index["world_rules"]
         if not isinstance(timeline, list):
             timeline = existing_index["timeline"]
-        if not isinstance(open_threads, list):
-            open_threads = existing_index["open_threads"]
         if "tracked_facts" not in merged:
             tracked_facts = existing_index["tracked_facts"]
 

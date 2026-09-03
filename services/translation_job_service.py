@@ -38,6 +38,7 @@ class TranslationJobRepositoryContract(Protocol):
     def get_job(self, job_id: int) -> dict | None: ...
     def get_job_for_project(self, project_id: int) -> dict | None: ...
     def list_jobs_for_project(self, project_id: int) -> list[dict]: ...
+    def list_jobs(self, project_id: int | None = None) -> list[dict]: ...
     def update_job_settings(self, job_id: int, values: dict) -> dict: ...
     def update_job_status(self, job_id: int, status: str) -> dict: ...
     def delete_segments_outside_range(
@@ -154,6 +155,13 @@ def serialize_translation_job(
         ),
         "created_at": data.get("created_at"),
         "updated_at": data.get("updated_at"),
+        "project_title": str(data.get("project_title") or "").strip(),
+        "has_submission_package": bool(int(data.get("has_submission_package") or 0)),
+        "submission_generated_at": str(data.get("submission_generated_at") or "").strip(),
+        "is_complete": (
+            status in {"translated", "completed"}
+            or bool(int(data.get("has_submission_package") or 0))
+        ),
     }
 
 
@@ -191,9 +199,16 @@ class TranslationJobService:
 
     def list_jobs_for_project(self, project_id: int) -> list[dict]:
         self._require_project(project_id)
+        return self.list_jobs(int(project_id))
+
+    def list_jobs(self, project_id: int | None = None) -> list[dict]:
+        if project_id is not None:
+            self._require_project(project_id)
         return [
             self._serialize(row)
-            for row in self.repository.list_jobs_for_project(int(project_id))
+            for row in self.repository.list_jobs(
+                None if project_id is None else int(project_id)
+            )
         ]
 
     def get_job(self, job_id: int) -> dict:

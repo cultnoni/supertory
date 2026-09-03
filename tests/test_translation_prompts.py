@@ -158,6 +158,9 @@ class ProperNounFitPromptTests(unittest.TestCase):
         self.assertIn("일반 동사·형용사·흔한 명사", prompt)
         self.assertIn('"source_term": "구속줄"', prompt)
         self.assertIn("작가 조어", prompt)
+        self.assertIn("[source_term 작성 규칙]", prompt)
+        self.assertIn("반드시 인명·지명·사물명·조직명·조어 같은 명사(구)여야", prompt)
+        self.assertIn("도릭스는 출처를 알 수 없는 가공된 운석이며", prompt)
 
 
 class CultureMarkerPromptTests(unittest.TestCase):

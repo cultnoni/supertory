@@ -542,6 +542,9 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         status, listing = self.request("GET", f"/api/projects/{project_id}/translation/jobs")
         self.assertEqual(status, 200)
         self.assertEqual(len(listing["jobs"]), 1)
+        self.assertEqual(listing["jobs"][0]["project_title"], "비의 도시")
+        self.assertIn("is_complete", listing["jobs"][0])
+        self.assertIn("has_submission_package", listing["jobs"][0])
 
         status, payload = self.request(
             "GET", f"/api/translation/jobs/{job_id}/segments?chapter=1"
@@ -833,6 +836,125 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             self.assertIn("index.PDF로_보기", locale)
             self.assertIn("index.번역_원고", locale)
             self.assertIn("index.투고_패키지를_아직_만들지_않았어요", locale)
+
+    def test_translation_history_archive_ui_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn('data-translation-home-tab="new"', html)
+        self.assertIn('data-translation-home-tab="history"', html)
+        self.assertIn('id="translationHistoryPanel"', html)
+        self.assertIn('id="translationHistoryList"', html)
+        self.assertIn('id="translationHistoryStatusFilter"', html)
+        self.assertIn("openTranslationJobFromHistory", js)
+        self.assertIn("setTranslationHomeTab", js)
+        self.assertIn("translationHistoryJobIsDone", js)
+        self.assertIn('api("/api/translation/jobs")', js)
+        self.assertIn(".translation-history-card", css)
+        for locale in (ko, en, es):
+            self.assertIn("index.새_번역", locale)
+            self.assertIn("index.번역_기록", locale)
+            self.assertIn("index.진행_중", locale)
+            self.assertIn("index.번역_기록이_없어요", locale)
+            self.assertIn("index.모든_작품", locale)
+
+    def test_completed_job_is_skipped_on_workspace_reentry(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        finished_fn = js.split("function translationJobIsFinished", 1)[1].split(
+            "function translationHistoryJobIsDone", 1
+        )[0]
+        self.assertIn('status === "translated"', finished_fn)
+        self.assertIn('status === "completed"', finished_fn)
+        pick_fn = js.split("function pickResumableTranslationJob", 1)[1].split(
+            "async function findExistingTranslationJob", 1
+        )[0]
+        self.assertIn("translationJobIsFinished", pick_fn)
+        find_fn = js.split("async function findExistingTranslationJob", 1)[1].split(
+            "async function loadTranslationProperNouns", 1
+        )[0]
+        self.assertIn("pickResumableTranslationJob", find_fn)
+        open_fn = js.split("async function openTranslationWorkspace", 1)[1].split(
+            "function closeTranslationWorkspace", 1
+        )[0]
+        self.assertIn("findExistingTranslationJob", open_fn)
+        self.assertIn("applyOpenedTranslationJob", open_fn)
+        self.assertIn("leaveOpenedTranslationJob", open_fn)
+        self.assertIn("loadTranslationRangeSetup", open_fn)
+        buttons_fn = js.split("function updateTranslationPipelineButtons", 1)[1].split(
+            "document.querySelectorAll(\"[data-translation-stage]\")", 1
+        )[0]
+        self.assertIn("hasActiveJob", buttons_fn)
+        self.assertIn("translationJobIsFinished", buttons_fn)
+        self.assertIn("translationCreateJobButton", buttons_fn)
+
+    def test_creating_new_job_keeps_completed_job(self) -> None:
+        project_id, _ = self._make_story()
+        status, first = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            self._translation_job_body(),
+        )
+        self.assertEqual(status, 201)
+        first_id = int(first["id"])
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE translation_jobs SET status = 'translated' WHERE id = ?",
+                (first_id,),
+            )
+        status, second = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            self._translation_job_body(target_language="es"),
+        )
+        self.assertEqual(status, 201)
+        self.assertNotEqual(int(second["id"]), first_id)
+        status, listing = self.request(
+            "GET", f"/api/projects/{project_id}/translation/jobs"
+        )
+        self.assertEqual(status, 200)
+        ids = {int(item["id"]) for item in listing["jobs"]}
+        self.assertEqual(ids, {first_id, int(second["id"])})
+        completed = next(item for item in listing["jobs"] if int(item["id"]) == first_id)
+        self.assertEqual(completed["status"], "translated")
+        self.assertTrue(completed["is_complete"])
+
+    def test_list_jobs_history_fields_and_all_projects_endpoint(self) -> None:
+        project_id, _ = self._make_story()
+        other_id, _ = self._make_story()
+        status, first = self.request(
+            "POST",
+            f"/api/projects/{project_id}/translation/jobs",
+            self._translation_job_body(),
+        )
+        self.assertEqual(status, 201)
+        status, second = self.request(
+            "POST",
+            f"/api/projects/{other_id}/translation/jobs",
+            self._translation_job_body(target_language="es"),
+        )
+        self.assertEqual(status, 201)
+        with app.database() as connection:
+            connection.execute(
+                "UPDATE translation_jobs SET status = 'translated' WHERE id = ?",
+                (int(first["id"]),),
+            )
+        status, listing = self.request("GET", f"/api/projects/{project_id}/translation/jobs")
+        self.assertEqual(status, 200)
+        self.assertEqual(len(listing["jobs"]), 1)
+        self.assertEqual(listing["jobs"][0]["project_title"], "비의 도시")
+        self.assertTrue(listing["jobs"][0]["is_complete"])
+        status, all_jobs = self.request("GET", "/api/translation/jobs")
+        self.assertEqual(status, 200)
+        ids = {int(item["id"]) for item in all_jobs["jobs"]}
+        self.assertIn(int(first["id"]), ids)
+        self.assertIn(int(second["id"]), ids)
+        ordered = [int(item["id"]) for item in all_jobs["jobs"]]
+        self.assertLess(ordered.index(int(second["id"])), ordered.index(int(first["id"])))
 
     def test_submission_result_and_export_use_saved_package_and_segments(self) -> None:
         project_id, _ = self._make_story()
@@ -1679,6 +1801,21 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertIn("index.고유명사_목록을_새로_확인했어요", ko)
         self.assertIn("index.고유명사를_다시_확인하고_있어요", js)
         self.assertIn("index.고유명사_목록을_새로_확인했어요", js)
+
+    def test_translation_term_needed_badge_is_wired(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        ko = (root / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (root / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (root / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn("needs_translation_term", js)
+        self.assertIn("index.번역_표기_필요", js)
+        self.assertIn("index.번역_표기를_입력해_주세요", js)
+        self.assertIn("translation-noun-need-term", css)
+        self.assertIn("index.번역_표기_필요", ko)
+        self.assertIn("index.번역_표기_필요", en)
+        self.assertIn("index.번역_표기_필요", es)
 
     def _count_steps(self, *needles: str) -> int:
         return sum(

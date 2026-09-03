@@ -49,6 +49,21 @@ class SplitIndexTermTokenTests(unittest.TestCase):
             ["파가몬 제국"],
         )
 
+    def test_drops_sentence_like_clause_after_comma_split(self) -> None:
+        self.assertEqual(
+            app._split_index_term_tokens(
+                "도릭스는 출처를 알 수 없는 가공된 운석이며, 운석 도릭스"
+            ),
+            ["운석 도릭스"],
+        )
+
+    def test_drops_unmatched_paren_fragment(self) -> None:
+        self.assertEqual(app._clean_index_term_token("신비의 동물 (뮤온"), "")
+
+    def test_keeps_short_noun_phrases(self) -> None:
+        self.assertEqual(app._clean_index_term_token("운석 도릭스"), "운석 도릭스")
+        self.assertEqual(app._clean_index_term_token("파가몬 제국"), "파가몬 제국")
+
 
 class ResolveIndexTermTypeTests(unittest.TestCase):
     def test_empire_place_vs_organization_defaults_to_organization(self) -> None:
@@ -115,6 +130,25 @@ class CollectCharacterWorldIndexTermsTests(unittest.TestCase):
         self.assertEqual(by_name["운석 도릭스"], "item")
         self.assertNotIn("신비의 동물 (뮤온", names)
         self.assertNotIn("쿼크)", names)
+
+    def test_worldbuilding_prose_is_not_imported_as_a_name(self) -> None:
+        md = compose_worldbuilding_md({
+            "unique": "도릭스는 출처를 알 수 없는 가공된 운석이며",
+            "special": "운석 도릭스",
+        })
+        with app.database() as connection:
+            project_id = int(
+                connection.execute(
+                    "INSERT INTO project(title, worldbuilding_md) VALUES (?, ?)",
+                    ("문장형 설정집 제외", md),
+                ).lastrowid
+            )
+            terms = app.collect_character_world_index_terms(connection, project_id)
+        names = [item["source_term"] for item in terms]
+        self.assertIn("운석 도릭스", names)
+        self.assertFalse(
+            any("이며" in name or "출처를" in name for name in names)
+        )
 
 
 class CollapseStoredProperNounsTests(unittest.TestCase):

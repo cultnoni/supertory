@@ -33,10 +33,46 @@ _PROPER_NOUN_FIT_MAP = {
 _INDEX_ORG_HINT = re.compile(
     r"(제국|왕국|공국|공화국|기사단|왕가|길드|교단|함대|연합|부족)$"
 )
+DETECTED_PROPER_NOUN_MAX_CHARS = 15
+_SENTENCE_LIKE_MIN_CHARS = 8
+_PREDICATE_ENDING = re.compile(
+    r"(이며|있으며|이고|였으며|었으며|였다|었다|했다|한다|된다|이다|"
+    r"입니다|습니다|합니까|해요|했어요|했고|했는데|하면서|하지만|"
+    r"하는데|습니까)$"
+)
+_PARTICLE_ENDING = re.compile(
+    r"(은|는|이|가|을|를|에|에서|으로|로|와|과|도|만|부터|까지)$"
+)
+_MID_CLAUSE_PARTICLE = re.compile(r"[은는이가을를]\s")
 
 
 def _proper_noun_key(value: object) -> str:
     return character_import_analysis.strip_tori_text(value).casefold()
+
+
+def is_sentence_like_proper_noun(
+    value: object, *, max_chars: int | None = None
+) -> bool:
+    """True when a candidate looks like a clause/sentence, not a noun phrase."""
+    text = character_import_analysis.strip_tori_text(value)
+    text = " ".join(text.split()).strip()
+    if not text:
+        return False
+    if re.search(r"[.。!?]", text):
+        return True
+    if text.count("(") != text.count(")") or text.count("（") != text.count("）"):
+        return True
+    if max_chars is not None and len(text) >= int(max_chars):
+        return True
+    if text.count(" ") >= 3:
+        return True
+    if len(text) >= _SENTENCE_LIKE_MIN_CHARS and (
+        _PREDICATE_ENDING.search(text)
+        or _PARTICLE_ENDING.search(text)
+        or _MID_CLAUSE_PARTICLE.search(text)
+    ):
+        return True
+    return False
 
 
 def _stored_term_type(value: object) -> str:
@@ -225,6 +261,8 @@ def serialize_proper_noun(row: dict) -> dict:
         "romanized": romanized,
         "user_decision": data.get("user_decision"),
         "final_term": data.get("final_term") or "",
+        "needs_translation_term": not str(data.get("final_term") or "").strip()
+        and not romanized,
         "source": source,
         "origin": source,
         "created_at": data.get("created_at"),
@@ -389,6 +427,7 @@ class TranslationPreparationService:
         job = self._require_job(job_id)
         project_id = int(job["local_project_id"])
         self._collapse_duplicate_proper_nouns(int(job_id))
+        dropped_sentence_like = self._drop_sentence_like_proper_nouns(int(job_id))
         suppressed = self.repository.suppressed_proper_noun_keys(int(job_id))
         existing = {
             _proper_noun_key(item.get("source_term"))
@@ -402,6 +441,8 @@ class TranslationPreparationService:
             )
             key = _proper_noun_key(source_term)
             if not key or key in existing or key in suppressed:
+                continue
+            if is_sentence_like_proper_noun(source_term):
                 continue
             index_nouns.append({
                 "source_term": source_term,
@@ -430,6 +471,7 @@ class TranslationPreparationService:
                 existing_index_terms=[
                     character_import_analysis.strip_tori_text(item.get("source_term"))
                     for item in index_terms
+                    if not is_sentence_like_proper_noun(item.get("source_term"))
                 ],
                 target_language=str(job.get("target_language") or "en"),
             )
@@ -497,26 +539,37 @@ class TranslationPreparationService:
             "seeded_from_index": len(index_nouns),
             "detected_new": len(detected_nouns),
             "judged_existing": judged,
+            "dropped_sentence_like": dropped_sentence_like,
         })
         return payload
 
-    def _fallback_unjudged_index_nouns(self, job_id: int) -> None:
-        for row in self.repository.get_proper_nouns(int(job_id)):
+    def _drop_sentence_like_proper_nouns(self, job_id: int) -> int:
+        dropped = 0
+        for row in list(self.repository.get_proper_nouns(int(job_id))):
             source = str(row.get("source") or row.get("origin") or "").strip()
-            if source != "character_index":
+            if source == "user_added":
                 continue
-            if _row_has_ai_judgment(row):
-                continue
-            if str(row.get("user_decision") or "").strip():
-                continue
-            name = character_import_analysis.strip_tori_text(row.get("source_term"))
-            self.repository.update_proper_noun(
-                int(job_id),
-                int(row["id"]),
-                name,
-                "character_index",
-                user_decision="keep_as_is",
+            term = character_import_analysis.strip_tori_text(row.get("source_term"))
+            max_chars = (
+                DETECTED_PROPER_NOUN_MAX_CHARS if source == "ai_detected" else None
             )
+            if not is_sentence_like_proper_noun(term, max_chars=max_chars):
+                continue
+            self.repository.suppress_proper_noun_term(int(job_id), term)
+            self.repository.delete_proper_noun(int(job_id), int(row["id"]))
+            dropped += 1
+        if dropped:
+            self.repository.commit()
+        return dropped
+
+    def _fallback_unjudged_index_nouns(self, job_id: int) -> None:
+        """Leave unjudged index names empty so the user must set a translation form.
+
+        Previously this copied the Korean source_term into final_term with
+        keep_as_is, which made the review screen look 'done' without a romanized
+        or translated form.
+        """
+        return
 
     def list_scene_contexts(self, job_id: int) -> list[dict]:
         job = self._require_job(job_id)
@@ -578,6 +631,7 @@ class TranslationPreparationService:
     def list_proper_nouns(self, job_id: int) -> dict:
         self._require_job(job_id)
         self._collapse_duplicate_proper_nouns(int(job_id))
+        self._drop_sentence_like_proper_nouns(int(job_id))
         return {
             "proper_nouns": [
                 serialize_proper_noun(item)
@@ -596,12 +650,14 @@ class TranslationPreparationService:
         current = serialize_proper_noun(row)
         final_term = str(data.get("final_term") or "").strip()
         if not final_term and decision == "keep_romanized":
-            final_term = str(
-                current.get("romanized") or current.get("source_term") or ""
-            ).strip()
+            final_term = str(current.get("romanized") or "").strip()
         elif not final_term and decision == "keep_as_is":
             final_term = str(current.get("source_term") or "").strip()
         if not final_term:
+            if decision == "keep_romanized":
+                raise ValueError(
+                    "로마자 표기가 없어요. 최종 표기를 직접 입력해 주세요."
+                )
             raise ValueError("최종 표기를 입력해 주세요.")
         term_type = None
         if data.get("term_type") not in (None, ""):
@@ -842,6 +898,10 @@ def _parse_detected_proper_nouns(raw: str) -> list[dict]:
             item.get("source_term") or item.get("term") or ""
         ).strip()
         if not source_term:
+            continue
+        if is_sentence_like_proper_noun(
+            source_term, max_chars=DETECTED_PROPER_NOUN_MAX_CHARS
+        ):
             continue
         alternatives = item.get("suggested_alternatives") or []
         if not isinstance(alternatives, list):

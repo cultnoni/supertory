@@ -88,7 +88,34 @@ class SuperToryAppTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(len(with_links["reference_links"]), 2)
         self.assertEqual(with_links["reference_links"][0]["title"], "날씨 자료")
+        self.assertEqual(with_links["reference_links"][0]["kind"], "link")
         self.assertTrue(with_links["reference_links"][1]["url"].startswith("https://"))
+        self.assertEqual(with_links["reference_links"][1]["kind"], "link")
+
+        status, detail_for_source = self.request("GET", f"/api/scenes/{scene['id']}")
+        status, _saved_with_source = self.request("PUT", f"/api/scenes/{scene['id']}", {
+            "title": "첫 만남",
+            "status": "draft",
+            "synopsis_md": "두 사람이 만난다.",
+            "notes_md": "비가 온다.",
+            "content_md": "비가 내리던 날, 두 사람은 처음 만났다.",
+            "reference_links": [
+                {
+                    "kind": "file",
+                    "title": "블로그",
+                    "url": "https://example.com/blog",
+                    "sourceId": "src-mirror",
+                    "fileName": "",
+                },
+            ],
+            "row_version": detail_for_source["row_version"],
+        })
+        self.assertEqual(status, 200)
+        status, healed = self.request("GET", f"/api/scenes/{scene['id']}")
+        self.assertEqual(status, 200)
+        self.assertEqual(healed["reference_links"][0]["kind"], "link")
+        self.assertEqual(healed["reference_links"][0]["sourceId"], "src-mirror")
+        self.assertEqual(healed["reference_links"][0]["url"], "https://example.com/blog")
 
         status, detail_for_goal = self.request("GET", f"/api/scenes/{scene['id']}")
         status, _ = self.request("PUT", f"/api/scenes/{scene['id']}", {
