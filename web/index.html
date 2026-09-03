@@ -872,10 +872,25 @@
                       작품을 선택하면 연결 상태를 볼 수 있어요.
                     </p>
                     <div id="linkedSuccessProfileActions" class="linked-success-profile-actions hidden">
-                      <label id="linkedSuccessProfileSelectWrap" class="linked-success-profile-select-wrap hidden">
-                        <span class="sr-only" data-i18n="index.프로파일_선택">프로파일 선택</span>
-                        <select id="linkedSuccessProfileSelect" aria-label="흥행 프로파일 선택" data-i18n-aria-label="index.흥행_프로파일_선택"></select>
-                      </label>
+                      <div id="linkedSuccessProfileSelectWrap" class="linked-success-profile-select-wrap hidden">
+                        <button
+                          type="button"
+                          class="linked-success-profile-picker-button"
+                          id="linkedSuccessProfilePickerButton"
+                          aria-haspopup="listbox"
+                          aria-expanded="false"
+                          aria-controls="linkedSuccessProfileMenu"
+                        >
+                          <span id="linkedSuccessProfilePickerLabel" data-i18n="index.프로파일_선택">프로파일 선택</span>
+                          <span aria-hidden="true">▾</span>
+                        </button>
+                        <div
+                          id="linkedSuccessProfileMenu"
+                          class="linked-success-profile-menu hidden"
+                          role="listbox"
+                          aria-label="흥행 프로파일 선택" data-i18n-aria-label="index.흥행_프로파일_선택"
+                        ></div>
+                      </div>
                       <button type="button" class="secondary compact-btn" id="linkedSuccessProfileUnlinkButton" title="이 작품에서 연결 해제" data-i18n-title="index.이_작품에서_연결_해제">
                         연결 해제
                       </button>
@@ -3095,8 +3110,8 @@
               </div>
 
               <div id="aiSuccessFeedbackGuide" class="ai-inline-guide hidden" hidden aria-live="polite">
-                <p class="hint" id="aiSuccessFeedbackGuideText" data-i18n="app.아직_분석한_흥행_작품이_없어요_흥행_공식">아직 분석한 흥행 작품이 없어요. 흥행 공식 분석을 먼저 이용하세요.</p>
-                <button type="button" class="secondary compact-btn" id="aiSuccessFeedbackOpenAnalysis" data-i18n="index.흥행_공식_분석_열기">흥행 공식 분석 열기</button>
+                <p class="hint" id="aiSuccessFeedbackGuideText" data-i18n="app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요">먼저 설정집에서 흥행작 프로파일을 연결해 주세요.</p>
+                <button type="button" class="secondary compact-btn" id="aiSuccessFeedbackOpenAnalysis" data-i18n="index.설정집에서_프로파일_연결하기">설정집에서 프로파일 연결하기</button>
               </div>
 
               <div id="aiPromptWrap" class="ai-prompt-wrap">

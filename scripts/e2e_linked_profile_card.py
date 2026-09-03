@@ -124,7 +124,8 @@ def main() -> int:
         (OUT / "02_status.txt").write_text(status2, encoding="utf-8")
 
         # Re-link via dropdown to beta
-        page.select_option("#linkedSuccessProfileSelect", str(info["bId"]))
+        page.locator("#linkedSuccessProfilePickerButton").click()
+        page.locator(f'[data-success-profile-pick="{info["bId"]}"]').click()
         page.wait_for_timeout(700)
         page.evaluate("async () => { if (typeof renderLinkedSuccessProfileCard === 'function') await renderLinkedSuccessProfileCard(); }")
         page.wait_for_timeout(300)

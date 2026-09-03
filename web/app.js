@@ -19281,9 +19281,9 @@ function syncAiSelectViewUi() {
   if (!showForm || mode !== "successfeedback") {
     hideAiSuccessFeedbackGuide();
   } else {
-    // Gate until profile catalog confirms at least one analysis exists.
-    const knownHas = Array.isArray(successProfileCatalog) && successProfileCatalog.length > 0;
-    if (!knownHas) {
+    // A saved analysis alone is not usable here; this project must link one.
+    const hasLinkedProfile = Boolean(getLinkedSuccessProfileId());
+    if (!hasLinkedProfile) {
       aiSuccessFeedbackBlocked = true;
       $("aiPromptWrap")?.classList.add("hidden");
       $("aiSubmitButton")?.classList.add("hidden");
@@ -19303,8 +19303,7 @@ function hideAiSuccessFeedbackGuide() {
 }
 
 /**
- * 흥행 공식 피드백: 분석 프로파일이 없으면 안내만 보여 줌.
- * (연결은 흥행 공식 분석 결과 프로파일이 있어야 가능)
+ * 흥행 공식 피드백: 현재 프로젝트에 연결된 프로파일이 없으면 안내만 보여 줌.
  */
 async function updateSuccessFeedbackGuideUi() {
   const guide = $("aiSuccessFeedbackGuide");
@@ -19318,27 +19317,11 @@ async function updateSuccessFeedbackGuideUi() {
     return;
   }
 
-  let profiles = [];
-  try {
-    profiles = typeof listSuccessProfiles === "function" ? await listSuccessProfiles() : [];
-  } catch (_) {
-    profiles = [];
-  }
-  // Mode may have changed while awaiting.
-  if (($("aiMode")?.value || "") !== "successfeedback") {
-    hideAiSuccessFeedbackGuide();
-    return;
-  }
-  if ($("aiToolsView")?.getAttribute("data-helper-pane") !== "select") {
-    hideAiSuccessFeedbackGuide();
-    return;
-  }
-
-  const hasAny = Array.isArray(profiles) && profiles.length > 0;
-  if (!hasAny) {
+  const hasLinkedProfile = Boolean(getLinkedSuccessProfileId());
+  if (!hasLinkedProfile) {
     aiSuccessFeedbackBlocked = true;
     if (textEl) {
-      textEl.textContent = i18n.t('app.아직_분석한_흥행_작품이_없어요_흥행_공식');
+      textEl.textContent = i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요");
     }
     guide.classList.remove("hidden");
     guide.removeAttribute("hidden");
@@ -19435,10 +19418,12 @@ function renderAiModePickerMenu() {
           "ai-mode-picker-option",
           opt.classList.contains("ai-mode-success-opt") ? "is-success" : "",
           opt.classList.contains("ai-mode-coming-opt") ? "is-coming" : "",
+          opt.value === "successfeedback" && !getLinkedSuccessProfileId() ? "is-unavailable" : "",
           opt.value === sel.value ? "is-active" : "",
         ].filter(Boolean).join(" ");
+        const unavailable = opt.value === "successfeedback" && !getLinkedSuccessProfileId();
         optionHtml.push(
-          `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}">${escapeHtml(opt.textContent || "")}</button>`,
+          `<button type="button" role="option" class="${cls}" data-ai-mode-value="${escapeHtml(opt.value)}" aria-selected="${opt.value === sel.value ? "true" : "false"}"${unavailable ? ` aria-disabled="true" title="${i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요")}"` : ""}>${escapeHtml(opt.textContent || "")}</button>`,
         );
       });
       if (!optionHtml.length) return;
@@ -19474,16 +19459,23 @@ function setAiModeValue(value, { silent = false } = {}) {
   const sel = $("aiMode");
   if (!sel) return;
   const next = String(value || "");
+  if (next === "successfeedback" && !getLinkedSuccessProfileId()) {
+    if (!silent) {
+      toast(i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요"));
+    }
+    return false;
+  }
   const featureId = AI_MODE_CLUSTER_FEATURE[next];
   if (featureId && !isClusterFeatureVisible(featureId)) {
     if (!silent) assertClusterFeature(featureId);
-    return;
+    return false;
   }
   if (sel.value !== next) sel.value = next;
   syncAiModePickerUi();
   if (!silent) {
     sel.dispatchEvent(new Event("change", { bubbles: true }));
   }
+  return true;
 }
 
 function installAiModeValueSync(sel) {
@@ -19538,6 +19530,10 @@ function setupAiModePicker() {
       toast(i18n.t('app.아직_준비_중인_기능이에요'));
       return;
     }
+    if (value === "successfeedback" && !getLinkedSuccessProfileId()) {
+      toast(i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요"));
+      return;
+    }
     const featureId = AI_MODE_CLUSTER_FEATURE[value];
     if (featureId && !assertClusterFeature(featureId)) return;
     setAiModeValue(value);
@@ -19549,7 +19545,8 @@ function setupAiModePicker() {
   });
   $("aiSuccessFeedbackOpenAnalysis")?.addEventListener("click", (event) => {
     event.preventDefault();
-    setAiModeValue("successpattern");
+    returnToAiSelectList();
+    openSettingsCollectionMain("successProfile");
   });
   sel.addEventListener("change", () => {
     syncAiModePickerUi();
@@ -27389,8 +27386,9 @@ const successPatternState = {
     ending: { start: 1, end: 10 },
   },
   uploads: {
-    // key -> { episodes: [{title,text,length}], filename, totalChars }
+    // key -> { episodes: [{title,text,length,sourceType?,sourceFile?}], filename, totalChars }
   },
+  inputModes: {},
   pendingUploadKey: null,
   analyzing: false,
   /** User closed the step popup while still on this mode — don't force re-open. */
@@ -29119,13 +29117,41 @@ function updateSpEpisodeBudgetUi() {
   }
 }
 
+function getSpSectionEpisodes(key, { includeEmptyText = false } = {}) {
+  const episodes = successPatternState.uploads[key]?.episodes;
+  if (!Array.isArray(episodes)) return [];
+  if (includeEmptyText) return episodes;
+  return episodes.filter((ep) => (
+    ep?.sourceType !== "text" || String(ep.text || "").trim().length > 0
+  ));
+}
+
+function getSpInputMode(key) {
+  return successPatternState.inputModes[key] === "text" ? "text" : "file";
+}
+
+function setSpInputMode(key, mode) {
+  if (!key) return;
+  successPatternState.inputModes[key] = mode === "text" ? "text" : "file";
+  renderSpUploadRows();
+}
+
+function refreshSpUploadTotals(key) {
+  const up = successPatternState.uploads[key];
+  if (!up) return;
+  up.totalChars = getSpSectionEpisodes(key).reduce(
+    (sum, ep) => sum + (Number(ep.length) || String(ep.text || "").length),
+    0,
+  );
+}
+
 function getSpUploadedSectionsForBudget() {
   return getSpSelectedSections().map((key) => {
-    const up = successPatternState.uploads[key] || { episodes: [] };
+    const episodes = getSpSectionEpisodes(key);
     return {
       key,
-      chapters: (up.episodes || []).map((ep) => String(ep.text || "")),
-      episodes: up.episodes || [],
+      chapters: episodes.map((ep) => String(ep.text || "")),
+      episodes,
     };
   });
 }
@@ -29151,8 +29177,25 @@ function updateSpCharBudgetUi() {
   }
   const analyzeBtn = $("spAnalyzeButton");
   if (analyzeBtn) {
-    const allReady = getSpSelectedSections().every((key) => (successPatternState.uploads[key]?.episodes || []).length > 0);
-    analyzeBtn.disabled = !allReady || budget.status === "blocked" || successPatternState.analyzing;
+    const uploadedEpisodeTotal = getSpSelectedSections().reduce(
+      (sum, key) => sum + getSpSectionEpisodes(key).length,
+      0,
+    );
+    const episodeBudget = checkSpEpisodeBudget(uploadedEpisodeTotal);
+    const allReady = getSpSelectedSections().every((key) => getSpSectionEpisodes(key).length > 0);
+    analyzeBtn.disabled = !allReady
+      || budget.status === "blocked"
+      || episodeBudget.status === "blocked"
+      || successPatternState.analyzing;
+    if (msg && episodeBudget.status === "blocked") {
+      msg.textContent = episodeBudget.message;
+      msg.classList.remove("is-warn");
+      msg.classList.add("is-blocked");
+    } else if (msg && !budget.message && episodeBudget.status === "warning") {
+      msg.textContent = episodeBudget.message;
+      msg.classList.add("is-warn");
+      msg.classList.remove("is-blocked");
+    }
   }
   return budget;
 }
@@ -29228,13 +29271,68 @@ function clearSpEpisode(key, index) {
     delete successPatternState.uploads[key];
     toast(`${i18n.t('app.removed_title_회차_을_를_지웠', {'removed?.title || "회차"': removed?.title || "회차"})}`);
   } else {
-    up.totalChars = up.episodes.reduce(
-      (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
-      0,
-    );
+    refreshSpUploadTotals(key);
     toast(`${i18n.t('app.removed_title_회차_을_를_목록', {'removed?.title || "회차"': removed?.title || "회차", 'up.episodes.length': up.episodes.length})}`);
   }
   renderSpUploadRows();
+}
+
+function addSpTextEpisode(key) {
+  if (!key) return;
+  const up = successPatternState.uploads[key] || { episodes: [], totalChars: 0 };
+  if (!Array.isArray(up.episodes)) up.episodes = [];
+  const range = successPatternState.ranges[key] || { start: 1 };
+  const textCount = up.episodes.filter((ep) => ep?.sourceType === "text").length;
+  const episodeNumber = Math.max(1, Number(range.start) || 1) + textCount;
+  up.episodes.push({
+    title: i18n.t("app.n화", { n: episodeNumber }),
+    text: "",
+    length: 0,
+    sourceType: "text",
+  });
+  successPatternState.uploads[key] = up;
+  successPatternState.inputModes[key] = "text";
+  renderSpUploadRows();
+  const index = up.episodes.length - 1;
+  const textarea = document.querySelector(
+    `[data-sp-text-body="${key}"][data-sp-ep-index="${index}"]`,
+  );
+  textarea?.focus();
+}
+
+function updateSpTextEpisode(key, index, field, value) {
+  const up = successPatternState.uploads[key];
+  const episode = up?.episodes?.[Number(index)];
+  if (!episode || episode.sourceType !== "text") return;
+  if (field === "title") {
+    episode.title = String(value || "");
+  } else {
+    episode.text = String(value || "");
+    episode.length = episode.text.length;
+  }
+  refreshSpUploadTotals(key);
+  const count = document.querySelector(
+    `[data-sp-text-count="${key}"][data-sp-ep-index="${Number(index)}"]`,
+  );
+  if (count) {
+    count.textContent = i18n.t("app.직접_입력_글자수_Gemini_전달", {
+      count: episode.length.toLocaleString(),
+    });
+    count.classList.toggle("is-warn", episode.length > 12000);
+  }
+  const summary = document.querySelector(`[data-sp-section-summary="${key}"]`);
+  if (summary) {
+    const ready = getSpSectionEpisodes(key);
+    const chars = ready.reduce(
+      (sum, ep) => sum + (Number(ep.length) || String(ep.text || "").length),
+      0,
+    );
+    summary.textContent = i18n.t("app.입력_합계_n화_chars자", {
+      n: ready.length,
+      chars: chars.toLocaleString(),
+    });
+  }
+  updateSpCharBudgetUi();
 }
 
 function renderSpUploadRows() {
@@ -29243,64 +29341,143 @@ function renderSpUploadRows() {
   const selected = getSpSelectedSections();
   const zoneGuide = `
     <span class="sp-dropzone-label">${i18n.t('app.파일_드롭_또는_클릭')}</span>
-    <span class="sp-dropzone-hint">(docx, hwpx, txt, md)</span>`;
+    <span class="sp-dropzone-hint">(txt, md, docx, hwpx, odt, rtf, html, epub, csv)</span>`;
 
   host.innerHTML = selected.map((key) => {
-    const up = successPatternState.uploads[key];
     const r = successPatternState.ranges[key] || {};
-    const episodes = Array.isArray(up?.episodes) ? up.episodes : [];
-    const filled = episodes.length > 0;
+    const mode = getSpInputMode(key);
+    const storedEpisodes = getSpSectionEpisodes(key, { includeEmptyText: true });
+    const indexedEpisodes = storedEpisodes.map((ep, index) => ({ ep, index }));
+    const readyEpisodes = indexedEpisodes.filter(({ ep }) => (
+      ep?.sourceType !== "text" || String(ep.text || "").trim().length > 0
+    ));
+    const fileEpisodes = indexedEpisodes.filter(({ ep }) => ep?.sourceType !== "text");
+    const textEpisodes = indexedEpisodes.filter(({ ep }) => ep?.sourceType === "text");
+    const listedEpisodes = mode === "file" ? readyEpisodes : fileEpisodes;
     let listHtml = "";
-    if (filled) {
-      const chars = episodes.reduce(
-        (s, ep) => s + (Number(ep.length) || String(ep.text || "").length),
-        0,
-      );
-      const epUnit = episodes.length === 1 ? i18n.t('app.화_단위_단수') : i18n.t('app.화_단위');
-      const charUnit = chars === 1 ? i18n.t('app.자_접미사_단수') : i18n.t('app.자_접미사');
-      const items = episodes.map((ep, idx) => {
-        const title = escapeHtml(ep.title || `${i18n.t('app.idx_1_화', {'idx + 1': idx + 1})}`);
+    if (listedEpisodes.length) {
+      const items = listedEpisodes.map(({ ep, index }) => {
+        const title = escapeHtml(ep.title || `${i18n.t('app.idx_1_화', {'idx + 1': index + 1})}`);
         const len = Number(ep.length) || String(ep.text || "").length;
-        const src = ep.sourceFile ? escapeHtml(ep.sourceFile) : "";
+        const source = ep.sourceFile
+          ? escapeHtml(ep.sourceFile)
+          : (ep.sourceType === "text" ? i18n.t("app.텍스트_직접_입력") : "");
         return `
-          <div class="sp-episode-item" data-sp-ep-row="${key}:${idx}">
+          <div class="sp-episode-item" data-sp-ep-row="${key}:${index}">
             <button
               type="button"
               class="sp-dropzone-clear"
               data-sp-ep-clear="${key}"
-              data-sp-ep-index="${idx}"
+              data-sp-ep-index="${index}"
               title="${i18n.t('app.이_회차_삭제')}"
               aria-label="${i18n.t('app.title_삭제_2', { title: title })}"
             >${i18n.t('app.삭제')}</button>
             <div class="sp-episode-meta">
               <span class="sp-episode-title" title="${title}">${title}</span>
-              <span class="sp-episode-stats">${len.toLocaleString()}${charUnit}${src ? ` · ${src}` : ""}</span>
+              <span class="sp-episode-stats">${len.toLocaleString()}${i18n.t('app.자_접미사')}${source ? ` · ${source}` : ""}</span>
             </div>
           </div>`;
       }).join("");
       listHtml = `
         <div class="sp-episode-list" aria-label="${i18n.t('app.업로드된_회차_목록')}">
           ${items}
-        </div>
-        <div class="sp-episode-summary">${episodes.length}${epUnit}${i18n.t('app.화_가운뎃점')}${chars.toLocaleString()}${charUnit}</div>`;
+        </div>`;
     }
+    const chars = readyEpisodes.reduce(
+      (s, { ep }) => s + (Number(ep.length) || String(ep.text || "").length),
+      0,
+    );
+    const textEditorHtml = textEpisodes.length
+      ? textEpisodes.map(({ ep, index }) => {
+        const count = Number(ep.length) || String(ep.text || "").length;
+        return `
+          <div class="sp-text-episode" data-sp-text-episode="${key}:${index}">
+            <div class="sp-text-episode-head">
+              <input
+                type="text"
+                value="${escapeHtml(ep.title || "")}"
+                data-sp-text-title="${key}"
+                data-sp-ep-index="${index}"
+                aria-label="${i18n.t("app.회차_제목")}"
+                placeholder="${i18n.t("app.회차_제목")}"
+              >
+              <button
+                type="button"
+                class="secondary compact-btn"
+                data-sp-ep-clear="${key}"
+                data-sp-ep-index="${index}"
+              >${i18n.t("app.삭제")}</button>
+            </div>
+            <textarea
+              rows="8"
+              data-sp-text-body="${key}"
+              data-sp-ep-index="${index}"
+              aria-label="${i18n.t("app.회차_본문")}"
+              placeholder="${i18n.t("app.회차_본문을_붙여넣어_주세요")}"
+            >${escapeHtml(ep.text || "")}</textarea>
+            <p
+              class="sp-text-count${count > 12000 ? " is-warn" : ""}"
+              data-sp-text-count="${key}"
+              data-sp-ep-index="${index}"
+            >${i18n.t("app.직접_입력_글자수_Gemini_전달", { count: count.toLocaleString() })}</p>
+          </div>`;
+      }).join("")
+      : `<p class="hint">${i18n.t("app.화_추가를_눌러_회차별로_본문을_입력해_주세요")}</p>`;
     return `
       <div class="sp-upload-row" data-sp-upload="${key}">
         <div class="sp-upload-head">
           <strong>${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)}</strong>
           <span class="hint">${i18n.t('app.물결_화_물음표', { start: r.start || "?", end: r.end || "?" })}</span>
         </div>
-        ${listHtml}
+        <div class="sp-input-mode-toggle" role="group" aria-label="${i18n.t("app.입력_방식")}">
+          <button
+            type="button"
+            class="secondary compact-btn${mode === "file" ? " is-active" : ""}"
+            data-sp-input-mode="file"
+            data-sp-input-key="${key}"
+            aria-pressed="${mode === "file"}"
+          >${i18n.t("app.파일_업로드")}</button>
+          <button
+            type="button"
+            class="secondary compact-btn${mode === "text" ? " is-active" : ""}"
+            data-sp-input-mode="text"
+            data-sp-input-key="${key}"
+            aria-pressed="${mode === "text"}"
+          >${i18n.t("app.텍스트_직접_입력")}</button>
+        </div>
+        <div class="sp-file-input-panel${mode === "file" ? "" : " hidden"}">
+          ${listHtml}
+          <div
+            class="sp-dropzone${fileEpisodes.length ? " is-filled-add" : ""}"
+            data-sp-drop="${key}"
+            tabindex="0"
+            role="button"
+            aria-label="${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)} ${i18n.t('app.파일_올리기')}"
+          >${zoneGuide}</div>
+        </div>
+        <div class="sp-text-input-panel${mode === "text" ? "" : " hidden"}">
+          <p class="hint">${i18n.t("app.회차마다_본문_칸을_하나씩_추가해_붙여넣어_주세요")}</p>
+          ${listHtml}
+          <div class="sp-text-episode-list">${textEditorHtml}</div>
+          <button type="button" class="secondary compact-btn sp-add-text-episode" data-sp-text-add="${key}">
+            ${i18n.t("app.화_추가")}
+          </button>
+        </div>
         <div
-          class="sp-dropzone${filled ? " is-filled-add" : ""}"
-          data-sp-drop="${key}"
-          tabindex="0"
-          role="button"
-          aria-label="${i18n.t(SP_SECTION_LABELS_KEY_MAP[key] || key)} ${i18n.t('app.파일_올리기')}"
-        >${zoneGuide}</div>
+          class="sp-episode-summary"
+          data-sp-section-summary="${key}"
+        >${i18n.t("app.입력_합계_n화_chars자", {
+          n: readyEpisodes.length,
+          chars: chars.toLocaleString(),
+        })}</div>
       </div>`;
   }).join("");
 
+  host.querySelectorAll("[data-sp-input-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      setSpInputMode(button.dataset.spInputKey, button.dataset.spInputMode);
+    });
+  });
   host.querySelectorAll("[data-sp-drop]").forEach((zone) => {
     bindSpDropzone(zone, zone.dataset.spDrop);
   });
@@ -29311,6 +29488,29 @@ function renderSpUploadRows() {
       clearSpEpisode(
         btn.getAttribute("data-sp-ep-clear") || "",
         btn.getAttribute("data-sp-ep-index"),
+      );
+    });
+  });
+  host.querySelectorAll("[data-sp-text-add]").forEach((button) => {
+    button.addEventListener("click", () => addSpTextEpisode(button.dataset.spTextAdd));
+  });
+  host.querySelectorAll("[data-sp-text-title]").forEach((input) => {
+    input.addEventListener("input", () => {
+      updateSpTextEpisode(
+        input.dataset.spTextTitle,
+        input.dataset.spEpIndex,
+        "title",
+        input.value,
+      );
+    });
+  });
+  host.querySelectorAll("[data-sp-text-body]").forEach((textarea) => {
+    textarea.addEventListener("input", () => {
+      updateSpTextEpisode(
+        textarea.dataset.spTextBody,
+        textarea.dataset.spEpIndex,
+        "text",
+        textarea.value,
       );
     });
   });
@@ -29646,7 +29846,7 @@ async function runSuccessFormulaFeedback() {
     return;
   }
   if (!getLinkedSuccessProfileId()) {
-    toast(i18n.t('app.아직_분석한_흥행_작품이_없거나_연결되지_않'));
+    toast(i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요"));
     return;
   }
   if (!state.sceneId) {
@@ -29735,10 +29935,19 @@ async function runSuccessPatternAnalysis() {
   if (!assertClusterFeature("successpattern")) return;
   const selected = getSpSelectedSections();
   for (const key of selected) {
-    if (!(successPatternState.uploads[key]?.episodes || []).length) {
+    if (!getSpSectionEpisodes(key).length) {
       toast(`${i18n.t('app.SP_SECTION_LABELS_key_파', {'SP_SECTION_LABELS[key]': SP_SECTION_LABELS[key]})}`);
       return;
     }
+  }
+  const uploadedEpisodeTotal = selected.reduce(
+    (sum, key) => sum + getSpSectionEpisodes(key).length,
+    0,
+  );
+  const episodeBudget = checkSpEpisodeBudget(uploadedEpisodeTotal);
+  if (episodeBudget.status === "blocked") {
+    toast(episodeBudget.message);
+    return;
   }
   const charBudget = updateSpCharBudgetUi();
   if (charBudget.status === "blocked") {
@@ -29747,12 +29956,11 @@ async function runSuccessPatternAnalysis() {
   }
   const sections = selected.map((key) => {
     const r = successPatternState.ranges[key] || { start: 1, end: 1 };
-    const up = successPatternState.uploads[key];
     return {
       key,
       start_ep: r.start,
       end_ep: r.end,
-      episodes: (up.episodes || []).map((ep) => ({
+      episodes: getSpSectionEpisodes(key).map((ep) => ({
         title: ep.title,
         text: ep.text,
         length: ep.length,
@@ -29768,6 +29976,7 @@ async function runSuccessPatternAnalysis() {
       body: JSON.stringify({
         work_title: successPatternState.workTitle,
         total_chapters: successPatternState.totalChapters,
+        cluster_id: getProjectClusterId(),
         sections,
       }),
     });
@@ -29800,7 +30009,14 @@ async function runSuccessPatternAnalysis() {
         if ($("aiResult")) {
           $("aiResult").value = `${display}\n\n——\n✓ 신작 프로젝트에 자동 연결됨 (linked_success_profile_id=${profile.id})`;
         }
-      } catch (_) { /* ignore link failure */ }
+      } catch (error) {
+        console.error("Success profile auto-link failed", {
+          error,
+          profileId: profile.id,
+          projectId: state.projectId,
+        });
+        toast(i18n.t("app.흥행_프로파일_자동_연결_실패"));
+      }
     } else if (typeof renderLinkedSuccessProfileCard === "function") {
       renderLinkedSuccessProfileCard().catch(() => {});
     }
@@ -29820,17 +30036,6 @@ function setupSuccessPatternWizard() {
     // Selecting a multi-step helper always opens its wizard popup once.
     if (isSuccessPatternMode()) successPatternState.modalDismissed = false;
     updateSuccessPatternWizardVisibility({ forceOpen: isSuccessPatternMode() });
-  });
-  $("spOpenWizardButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    if (!isSuccessPatternMode()) {
-      if ($("aiMode")) $("aiMode").value = "successpattern";
-      successPatternState.modalDismissed = false;
-      updateForeshadowPanelVisibility();
-      updateSuccessPatternWizardVisibility({ forceOpen: true });
-      return;
-    }
-    openSuccessPatternModal();
   });
   $("spPrevButton")?.addEventListener("click", () => {
     if (successPatternState.step > 1) {
@@ -56227,6 +56432,8 @@ async function linkSuccessProfileToProject(profileId, { quiet = false } = {}) {
   }
   updateSuccessProfileRefUi();
   if (typeof updateToryChatSuccessUi === "function") updateToryChatSuccessUi();
+  if (typeof renderAiModePickerMenu === "function") renderAiModePickerMenu();
+  if (typeof updateSuccessFeedbackGuideUi === "function") updateSuccessFeedbackGuideUi();
   if (typeof renderLinkedSuccessProfileCard === "function") {
     await renderLinkedSuccessProfileCard();
   }
@@ -56266,7 +56473,8 @@ async function renderLinkedSuccessProfileCard() {
   const statusEl = $("linkedSuccessProfileStatus");
   const actionsEl = $("linkedSuccessProfileActions");
   const selectWrap = $("linkedSuccessProfileSelectWrap");
-  const selectEl = $("linkedSuccessProfileSelect");
+  const pickerLabel = $("linkedSuccessProfilePickerLabel");
+  const menuEl = $("linkedSuccessProfileMenu");
   const unlinkBtn = $("linkedSuccessProfileUnlinkButton");
   const previewEl = $("successProfilePreview");
   if (!statusEl && !previewEl) return;
@@ -56328,40 +56536,132 @@ async function renderLinkedSuccessProfileCard() {
     setPreview([], i18n.t('app.연결된_프로파일_없음_흥행_공식_분석에서_만'));
   }
 
-  // Dropdown only when 2+ profiles (switch / pick connection)
-  if (selectEl && selectWrap) {
-    if (profiles.length >= 2) {
+  // Custom dropdown: native <option> cannot contain rename/delete icon buttons.
+  if (menuEl && selectWrap) {
+    if (profiles.length >= 1) {
       selectWrap.classList.remove("hidden");
-      const current = linkedId ? String(linkedId) : "";
-      selectEl.innerHTML = [
-        `${i18n.t('app.option_value_linkedId_다', {'linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"': linkedId ? "다른 프로파일로 변경…" : "프로파일 선택…"})}`,
-        ...profiles.map((p) => {
-          const id = Number(p.id);
-          const title = escapeHtml(String(p.work_title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음'));
-          const selected = current && Number(current) === id ? " selected" : "";
-          return `<option value="${id}"${selected}>${title} (#${id})</option>`;
-        }),
-      ].join("");
-      actionsEl?.classList.remove("hidden");
-    } else if (profiles.length === 1 && !linkedId) {
-      // Single profile, not linked yet — still allow pick via select
-      selectWrap.classList.remove("hidden");
-      const only = profiles[0];
-      const id = Number(only.id);
-      const title = escapeHtml(String(only.work_title || i18n.t('app.제목_없음')).trim() || i18n.t('app.제목_없음'));
-      selectEl.innerHTML = [
-        i18n.t('app.option_value_프로파일_선택_op'),
-        `<option value="${id}">${title} (#${id})</option>`,
-      ].join("");
+      const currentProfile = profiles.find((p) => Number(p.id) === Number(linkedId));
+      if (pickerLabel) {
+        pickerLabel.textContent = currentProfile
+          ? String(currentProfile.work_title || i18n.t("app.제목_없음"))
+          : i18n.t("index.프로파일_선택");
+      }
+      menuEl.innerHTML = profiles.map((profile) => {
+        const id = Number(profile.id);
+        const title = String(profile.work_title || i18n.t("app.제목_없음")).trim()
+          || i18n.t("app.제목_없음");
+        const active = Number(linkedId) === id;
+        return `
+          <div
+            class="linked-success-profile-option${active ? " is-selected" : ""}"
+            role="option"
+            aria-selected="${active}"
+            data-success-profile-row="${id}"
+          >
+            <button type="button" class="linked-success-profile-option-pick" data-success-profile-pick="${id}">
+              <span>${escapeHtml(title)}</span>
+              <small>#${id}</small>
+            </button>
+            <div class="linked-success-profile-option-actions">
+              <button
+                type="button"
+                class="linked-success-profile-icon-button"
+                data-success-profile-rename="${id}"
+                title="${i18n.t("app.프로파일_이름_수정")}"
+                aria-label="${i18n.t("app.프로파일_이름_수정")}"
+              ><span aria-hidden="true">✎</span></button>
+              <button
+                type="button"
+                class="linked-success-profile-icon-button is-danger"
+                data-success-profile-delete="${id}"
+                title="${i18n.t("app.프로파일_삭제")}"
+                aria-label="${i18n.t("app.프로파일_삭제")}"
+              ><span aria-hidden="true">🗑</span></button>
+            </div>
+          </div>`;
+      }).join("");
       actionsEl?.classList.remove("hidden");
     } else {
       selectWrap.classList.add("hidden");
+      menuEl.innerHTML = "";
       // No profiles and no link → hide action row entirely
       if (!linkedId && profiles.length === 0) {
         actionsEl?.classList.add("hidden");
       }
     }
   }
+}
+
+function setSuccessProfileMenuOpen(open) {
+  const menu = $("linkedSuccessProfileMenu");
+  const button = $("linkedSuccessProfilePickerButton");
+  const next = Boolean(open);
+  menu?.classList.toggle("hidden", !next);
+  button?.setAttribute("aria-expanded", next ? "true" : "false");
+}
+
+async function renameSuccessProfile(profileId) {
+  const id = Number(profileId);
+  const profile = (successProfileCatalog || []).find((item) => Number(item.id) === id);
+  if (!profile) return;
+  const current = String(profile.work_title || "").trim();
+  const next = window.prompt(i18n.t("app.프로파일의_새_이름을_입력해_주세요"), current);
+  if (next == null) return;
+  const workTitle = String(next).trim();
+  if (!workTitle) {
+    toast(i18n.t("app.프로파일_이름을_입력해_주세요"));
+    return;
+  }
+  const updated = await api(`/api/success-pattern/profiles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify({ work_title: workTitle }),
+  });
+  successProfileCatalog = (successProfileCatalog || []).map((item) => (
+    Number(item.id) === id ? { ...item, ...updated } : item
+  ));
+  successProfileCatalogAt = Date.now();
+  if (Number(state.linkedSuccessProfile?.id) === id) {
+    state.linkedSuccessProfile = { ...state.linkedSuccessProfile, ...updated };
+  }
+  setSuccessProfileMenuOpen(false);
+  await renderLinkedSuccessProfileCard();
+  toast(i18n.t("app.프로파일_이름을_수정했어요"));
+}
+
+async function deleteSuccessProfile(profileId) {
+  const id = Number(profileId);
+  const profile = (successProfileCatalog || []).find((item) => Number(item.id) === id);
+  if (!profile) return;
+  const title = String(profile.work_title || i18n.t("app.제목_없음")).trim()
+    || i18n.t("app.제목_없음");
+  if (!window.confirm(i18n.t("app.이_프로파일을_삭제할까요_연결된_작품에서도_연결이_해제됩니다", {
+    title,
+  }))) return;
+  const result = await api(`/api/success-pattern/profiles/${id}`, {
+    method: "DELETE",
+  });
+  successProfileCatalog = (successProfileCatalog || []).filter(
+    (item) => Number(item.id) !== id,
+  );
+  successProfileCatalogAt = Date.now();
+  state.projects.forEach((project) => {
+    if (Number(project.linked_success_profile_id) === id) {
+      project.linked_success_profile_id = null;
+    }
+  });
+  if (Number(getLinkedSuccessProfileId()) === id) {
+    state.linkedSuccessProfileId = null;
+    state.linkedSuccessProfile = null;
+  }
+  setSuccessProfileMenuOpen(false);
+  updateSuccessProfileRefUi();
+  if (typeof updateToryChatSuccessUi === "function") updateToryChatSuccessUi();
+  if (typeof renderAiModePickerMenu === "function") renderAiModePickerMenu();
+  if (typeof updateSuccessFeedbackGuideUi === "function") updateSuccessFeedbackGuideUi();
+  await renderLinkedSuccessProfileCard();
+  toast(i18n.t("app.프로파일을_삭제했어요_n개_작품_연결_해제", {
+    n: Number(result?.unlinked_projects) || 0,
+  }));
 }
 
 function setupLinkedSuccessProfileCard() {
@@ -56375,13 +56675,44 @@ function setupLinkedSuccessProfileCard() {
     linkSuccessProfileToProject(null).catch(handleError);
   });
 
-  $("linkedSuccessProfileSelect")?.addEventListener("change", (event) => {
-    const raw = event.target.value;
-    if (!raw) return;
-    const id = Number(raw);
+  $("linkedSuccessProfilePickerButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const menu = $("linkedSuccessProfileMenu");
+    setSuccessProfileMenuOpen(menu?.classList.contains("hidden"));
+  });
+
+  $("linkedSuccessProfileMenu")?.addEventListener("click", (event) => {
+    const renameButton = event.target.closest("[data-success-profile-rename]");
+    if (renameButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      renameSuccessProfile(renameButton.dataset.successProfileRename).catch(handleError);
+      return;
+    }
+    const deleteButton = event.target.closest("[data-success-profile-delete]");
+    if (deleteButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      deleteSuccessProfile(deleteButton.dataset.successProfileDelete).catch(handleError);
+      return;
+    }
+    const pickButton = event.target.closest("[data-success-profile-pick]");
+    if (!pickButton) return;
+    const id = Number(pickButton.dataset.successProfilePick);
     if (!Number.isFinite(id) || id <= 0) return;
+    setSuccessProfileMenuOpen(false);
     if (Number(id) === Number(getLinkedSuccessProfileId())) return;
     linkSuccessProfileToProject(id).catch(handleError);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!event.target.closest("#linkedSuccessProfileSelectWrap")) {
+      setSuccessProfileMenuOpen(false);
+    }
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") setSuccessProfileMenuOpen(false);
   });
 }
 
