@@ -66340,7 +66340,10 @@ function setupIconGuideTooltips() {
 
 /* —— UI feature hide (right-click) + admin “숨긴 기능” box —— */
 const FEATURE_HIDE_STORAGE_KEY = "supertory.hiddenUiFeatures";
-const APP_VERSION_FALLBACK = "1.3.10";
+/** @type {Promise<object|null>|null} */
+let appBuildInfoPromise = null;
+/** Last formatted label for admin / mailto (includes commit when built). */
+let appVersionLabelCache = "";
 /** @type {Map<string, string>} hideId → label */
 let featureHideMap = new Map();
 /** Last control targeted by a multi-item context menu (for footer “숨기기”). */
@@ -67104,8 +67107,52 @@ function getAppVersionSync() {
     if (typeof window !== "undefined" && window.__SUPERTORY_VERSION) {
       return String(window.__SUPERTORY_VERSION);
     }
+    if (typeof window !== "undefined" && window.__SUPERTORY_BUILD_INFO?.version) {
+      return String(window.__SUPERTORY_BUILD_INFO.version);
+    }
   } catch (_) { /* ignore */ }
-  return APP_VERSION_FALLBACK;
+  // Never invent a marketing version number — that caused "1.3.10" vs real 1.3.11 confusion.
+  return "—";
+}
+
+function formatBuildAtShort(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return "";
+  // "2026-09-03T09:14:00+09:00" or "2026-09-03T09:14:00Z" → "09-03 09:14"
+  const m = raw.match(/(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})/);
+  if (!m) return "";
+  return `${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+}
+
+function formatAppVersionLabel(version, buildInfo) {
+  const ver = String(version || "").trim() || "—";
+  const commit = buildInfo && String(buildInfo.commit || "").trim();
+  if (commit) {
+    const when = formatBuildAtShort(buildInfo.built_at);
+    return when ? `${ver} (${commit}, ${when})` : `${ver} (${commit})`;
+  }
+  return `${ver} · ${i18n.t("app.개발_모드_커밋_해시_없음")}`;
+}
+
+function fetchAppBuildInfo() {
+  if (!appBuildInfoPromise) {
+    appBuildInfoPromise = fetch("/build_info.json", { cache: "no-store" })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data && typeof data === "object") {
+          try {
+            window.__SUPERTORY_BUILD_INFO = data;
+            if (data.version && !window.__SUPERTORY_VERSION) {
+              window.__SUPERTORY_VERSION = String(data.version);
+            }
+          } catch (_) { /* ignore */ }
+          return data;
+        }
+        return null;
+      })
+      .catch(() => null);
+  }
+  return appBuildInfoPromise;
 }
 
 async function resolveAppVersion() {
@@ -67118,12 +67165,27 @@ async function resolveAppVersion() {
       }
     }
   } catch (_) { /* ignore */ }
+  const info = await fetchAppBuildInfo();
+  if (info?.version) {
+    window.__SUPERTORY_VERSION = String(info.version);
+    return String(info.version);
+  }
   return getAppVersionSync();
 }
 
+async function resolveAppVersionLabel() {
+  const [version, buildInfo] = await Promise.all([resolveAppVersion(), fetchAppBuildInfo()]);
+  const label = formatAppVersionLabel(version, buildInfo);
+  appVersionLabelCache = label;
+  try {
+    window.__SUPERTORY_VERSION_LABEL = label;
+  } catch (_) { /* ignore */ }
+  return label;
+}
+
 function refreshAdminInfoPanel() {
-  resolveAppVersion().then((v) => {
-    if ($("adminAppVersion")) $("adminAppVersion").textContent = v;
+  resolveAppVersionLabel().then((label) => {
+    if ($("adminAppVersion")) $("adminAppVersion").textContent = label;
   });
   const runtime = $("adminAppRuntime");
   if (runtime) {
@@ -67548,7 +67610,7 @@ function openDeveloperContact() {
   const local = ["cult", "noni"].join("");
   const host = ["gmail", "com"].join(".");
   const to = `${local}\u0040${host}`;
-  const ver = getAppVersionSync();
+  const ver = appVersionLabelCache || window.__SUPERTORY_VERSION_LABEL || getAppVersionSync();
   const subject = encodeURIComponent(`${i18n.t('app.SuperTory_문의_v_ver', {ver: ver})}`);
   const body = encodeURIComponent(
     `앱 버전: ${ver}\n실행: ${window.electronAPI ? "Electron" : "브라우저"}\n\n문의 내용:\n`,

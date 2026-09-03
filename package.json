@@ -10,7 +10,8 @@
     "start": "electron .",
     "dev": "electron .",
     "build:backend": "python scripts/build_backend.py",
-    "build:win": "npm run build:backend && electron-builder --win nsis"
+    "build:write-info": "python scripts/write_build_info.py",
+    "build:win": "python scripts/build_win_check.py"
   },
   "dependencies": {
     "driver.js": "^1.8.0",

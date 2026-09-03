@@ -2608,6 +2608,7 @@
   "app.업데이트_확인은_설치된_앱에서만_사용할_수": "Update checks are only available in the installed app.",
   "app.개발_실행_중에는_자동_업데이트가_꺼져_있어": "Auto-update is off while running in development mode.",
   "app.개발_모드에서는_업데이트를_확인하지_않습니다": "Update checks are disabled in development mode. Please check from the installed version.",
+  "app.개발_모드_커밋_해시_없음": "dev mode (no commit hash)",
   "app.업데이트_서버가_설정되지_않았습니다_upda": "The update server isn't configured. Please check update-feed.json.",
   "app.업데이트_확인_실패_result_error": "Update check failed: ${result.error}",
   "app.숨긴_기능": "Hidden features",

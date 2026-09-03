@@ -22,3 +22,6 @@ backend-dist/
 build/pyinstaller/
 *.log
 .electron-builder*
+
+# Generated at installer build time (commit hash + built_at)
+web/build_info.json

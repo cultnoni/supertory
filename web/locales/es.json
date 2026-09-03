@@ -2608,6 +2608,7 @@
   "app.업데이트_확인은_설치된_앱에서만_사용할_수": "Las comprobaciones de actualización solo están disponibles en la app instalada.",
   "app.개발_실행_중에는_자동_업데이트가_꺼져_있어": "La actualización automática está desactivada en modo de desarrollo.",
   "app.개발_모드에서는_업데이트를_확인하지_않습니다": "Las comprobaciones de actualización están deshabilitadas en modo de desarrollo. Verifica desde la versión instalada.",
+  "app.개발_모드_커밋_해시_없음": "modo desarrollo (sin hash de commit)",
   "app.업데이트_서버가_설정되지_않았습니다_upda": "El servidor de actualización no está configurado. Verifica update-feed.json.",
   "app.업데이트_확인_실패_result_error": "Falló la comprobación de actualización: ${result.error}",
   "app.숨긴_기능": "Funciones ocultas",
