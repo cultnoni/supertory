@@ -5,6 +5,7 @@ from __future__ import annotations
 import http.client
 import json
 import re
+import sys
 import tempfile
 import threading
 import unittest
@@ -39,6 +40,16 @@ def _section(text: str, heading: str) -> str:
     pattern = rf"##\s*{re.escape(heading)}\s*\n(.*?)(?=\n##\s|\Z)"
     match = re.search(pattern, text, flags=re.S)
     return (match.group(1) if match else "").strip()
+
+
+def _print_live(label: str, text: str) -> None:
+    payload = f"\n===== {label} =====\n{text}\n"
+    try:
+        print(payload)
+    except UnicodeEncodeError:
+        encoding = getattr(sys.stdout, "encoding", None) or "utf-8"
+        sys.stdout.buffer.write(payload.encode(encoding, errors="replace"))
+        sys.stdout.buffer.flush()
 
 
 class SubmissionSynopsisTests(unittest.TestCase):
@@ -161,7 +172,7 @@ class SubmissionSynopsisTests(unittest.TestCase):
         )
         self.assertEqual(status, 200, result)
         text = (result.get("text") or "").strip()
-        print("\n===== (b) 제한 없음 =====\n", text)
+        _print_live("제한 없음", text)
         self.assertIn("## 작품의도", text)
         self.assertIn("## 로그라인 후보", text)
         self.assertIn("## 시놉시스", text)
@@ -202,9 +213,8 @@ class SubmissionSynopsisTests(unittest.TestCase):
         # Synopsis body: from ## 시놉시스 to end (or next top-level if any)
         syn_match = re.search(r"##\s*시놉시스\s*\n(.*)\Z", text, flags=re.S)
         synopsis = (syn_match.group(1) if syn_match else "").strip()
-        print(
-            f"\n===== (c) 제한 있음 · 작품의도 {_char_len(intent)}자 / "
-            f"시놉시스 {_char_len(synopsis)}자 =====\n",
+        _print_live(
+            f"제한 있음 · 작품의도 {_char_len(intent)}자 / 시놉시스 {_char_len(synopsis)}자",
             text,
         )
         self.assertTrue(intent, text)

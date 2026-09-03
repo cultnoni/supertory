@@ -64,9 +64,8 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
     def test_settings_main_close_returns_to_manuscript(self) -> None:
         self.assertIn("async function returnToManuscriptFromSettingsMain", self.js)
         self.assertIn("keepBinder: true", self.js)
-        board_close = self.js.split("async function closeCharacterBoard", 1)[1].split(
-            "async function closeCharacterEditor", 1
-        )[0]
+        board_close = self.js.split("async function closeCharacterBoard", 1)[1]
+        board_close = board_close.split("\n}", 1)[0]
         self.assertIn("returnToManuscriptFromSettingsMain", board_close)
         self.assertNotIn("openCharacter(", board_close)
         synopsis_close = self.js.split("async function closeSynopsisMain", 1)[1].split(
@@ -118,11 +117,15 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
     def test_idea_card_autosave(self) -> None:
         self.assertIn("function scheduleIdeaCardAutoSave", self.js)
         self.assertIn("function flushIdeaCardAutosaves", self.js)
+        bind = self.js.split("function bindIdeaCardEditors", 1)[1].split(
+            "function renderIdeaBoard", 1
+        )[0]
+        self.assertIn("scheduleIdeaCardAutoSave", bind)
+        self.assertIn("flushIdeaCard", bind)
         board = self.js.split("function renderIdeaBoard", 1)[1].split(
             "function applyIdeaCardColor", 1
         )[0]
-        self.assertIn("scheduleIdeaCardAutoSave", board)
-        self.assertIn("flushIdeaCard", board)
+        self.assertIn("bindIdeaCardEditors(card)", board)
 
     def test_character_aliases_are_per_character(self) -> None:
         self.assertIn("function currentCharacterAliasNames", self.js)

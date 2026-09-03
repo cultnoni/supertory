@@ -65,7 +65,6 @@ class SplitDefaultModeUiTests(unittest.TestCase):
     def test_locale_keys_exist(self) -> None:
         keys = (
             "index.기본_보기_방식",
-            "index.매번_고르기",
             "index.기본값_변경",
             "index.기본값_해제",
             "index.기본값_화면_나누기",

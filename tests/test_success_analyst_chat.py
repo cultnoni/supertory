@@ -83,7 +83,7 @@ class SuccessAnalystChatTests(unittest.TestCase):
         self.assertIn("function loadToryChatHistory(chatMode", js)
         self.assertIn("function saveToryChatHistory(list, chatMode", js)
         self.assertIn("function loadToryChatArchives(chatMode", js)
-        self.assertIn("chatMode = getToryChatMode()", js)
+        self.assertIn("chatMode = getToryChatSessionKey()", js)
         self.assertIn("function archiveCurrentToryChat(", js)
         self.assertIn("function restoreToryChatArchive(archiveId, chatMode", js)
 

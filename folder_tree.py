@@ -9,6 +9,14 @@ import json
 import sqlite3
 from collections import defaultdict
 
+# Advance stored updated_at by 1ms so ``scene_touch`` does not treat a
+# same-millisecond follow-up UPDATE as "updated_at unchanged" and bump row_version.
+SCENE_TOUCH_SAFE_UPDATED_AT = (
+    "strftime('%Y-%m-%dT%H:%M:%fZ', "
+    "REPLACE(REPLACE(COALESCE(updated_at, 'now'), 'T', ' '), 'Z', ''), "
+    "'+0.001 seconds')"
+)
+
 
 def folder_table_ready(connection: sqlite3.Connection) -> bool:
     try:
@@ -809,6 +817,10 @@ def _renumber_active_siblings(connection: sqlite3.Connection, project_id: int) -
 
 
 def _flatten_nested_scenes(connection: sqlite3.Connection, chapter_id: int) -> None:
+    """One-shot backfill: lift nested manuscripts to chapter roots.
+
+    Sets ``updated_at`` so ``scene_touch`` does not bump ``row_version``.
+    """
     scenes = connection.execute(
         """
         SELECT id, parent_scene_id, sort_order
@@ -838,14 +850,16 @@ def _flatten_nested_scenes(connection: sqlite3.Connection, chapter_id: int) -> N
     for s in scenes:
         if int(s["id"]) not in seen:
             ordered.append(s)
+    stamp = SCENE_TOUCH_SAFE_UPDATED_AT
     for i, s in enumerate(ordered):
         connection.execute(
-            "UPDATE scene SET parent_scene_id = NULL, sort_order = ? WHERE id = ?",
+            f"UPDATE scene SET parent_scene_id = NULL, sort_order = ?, "
+            f"updated_at = {stamp} WHERE id = ?",
             (1_000_000 + i, int(s["id"])),
         )
     for i, s in enumerate(ordered):
         connection.execute(
-            "UPDATE scene SET sort_order = ? WHERE id = ?",
+            f"UPDATE scene SET sort_order = ?, updated_at = {stamp} WHERE id = ?",
             (i, int(s["id"])),
         )
 
@@ -863,10 +877,12 @@ def sync_project_folder_tree(
     if not folder_table_ready(connection):
         return {"ok": False, "reason": "folder schema missing"}
 
-    # Clear this project's folders and scene links (break self-FK before delete)
+    # Clear this project's folders and scene links (break self-FK before delete).
+    # Touch-safe updated_at — do not bump scene.row_version (in-flight editor save).
     connection.execute(
-        """
-        UPDATE scene SET folder_id = NULL
+        f"""
+        UPDATE scene SET folder_id = NULL,
+            updated_at = {SCENE_TOUCH_SAFE_UPDATED_AT}
         WHERE project_id = ? AND folder_id IS NOT NULL
         """,
         (project_id,),
@@ -1006,7 +1022,9 @@ def sync_project_folder_tree(
         fid = chapter_map.get(int(s["chapter_id"]))
         if fid is not None:
             connection.execute(
-                "UPDATE scene SET folder_id = ? WHERE id = ?",
+                f"UPDATE scene SET folder_id = ?, "
+                f"updated_at = {SCENE_TOUCH_SAFE_UPDATED_AT} "
+                "WHERE id = ?",
                 (fid, int(s["id"])),
             )
 

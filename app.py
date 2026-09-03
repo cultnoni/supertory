@@ -22447,22 +22447,28 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         parent_scene_id: int | None,
         ordered_ids: list[int],
     ) -> None:
-        """Park then assign 0..n-1 within one sibling group."""
+        """Park then assign 0..n-1 within one sibling group.
+
+        Sets ``updated_at`` so ``scene_touch`` does not bump ``row_version``
+        (same pattern as ``save_scene_goal`` — avoids rejecting an in-flight manuscript save).
+        """
         base = 1_000_000
+        stamp = folder_tree.SCENE_TOUCH_SAFE_UPDATED_AT
         for index, sid in enumerate(ordered_ids):
             connection.execute(
-                "UPDATE scene SET sort_order = ? WHERE id = ? AND chapter_id = ?",
+                f"UPDATE scene SET sort_order = ?, updated_at = {stamp} "
+                "WHERE id = ? AND chapter_id = ?",
                 (base + index, sid, chapter_id),
             )
         for index, sid in enumerate(ordered_ids):
             connection.execute(
-                "UPDATE scene SET sort_order = ? WHERE id = ?",
+                f"UPDATE scene SET sort_order = ?, updated_at = {stamp} WHERE id = ?",
                 (index, sid),
             )
         # Ensure parent pointers match (in case of drift).
         for sid in ordered_ids:
             connection.execute(
-                "UPDATE scene SET parent_scene_id = ? WHERE id = ?",
+                f"UPDATE scene SET parent_scene_id = ?, updated_at = {stamp} WHERE id = ?",
                 (parent_scene_id, sid),
             )
 
@@ -22724,14 +22730,18 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
 
             # Park mover with a unique temporary order, then relocate.
+            # Touch-safe updated_at — do not bump row_version (in-flight editor save).
+            stamp = folder_tree.SCENE_TOUCH_SAFE_UPDATED_AT
             connection.execute(
-                "UPDATE scene SET sort_order = ? WHERE id = ?",
+                f"UPDATE scene SET sort_order = ?, updated_at = {stamp} "
+                "WHERE id = ?",
                 (9_000_000 + scene_id, scene_id),
             )
             # folder_id first when column exists, then chapter/parent
             try:
                 connection.execute(
-                    "UPDATE scene SET folder_id = ? WHERE id = ?",
+                    f"UPDATE scene SET folder_id = ?, updated_at = {stamp} "
+                    "WHERE id = ?",
                     (target_folder_id, scene_id),
                 )
             except sqlite3.OperationalError:
@@ -22749,7 +22759,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         continue
                     try:
                         connection.execute(
-                            "UPDATE scene SET folder_id = ? WHERE id = ?",
+                            f"UPDATE scene SET folder_id = ?, "
+                            f"updated_at = {folder_tree.SCENE_TOUCH_SAFE_UPDATED_AT} "
+                            "WHERE id = ?",
                             (target_folder_id, sid),
                         )
                     except sqlite3.OperationalError:
@@ -23707,7 +23719,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return detail
 
     def mark_reader_comments_started(self, scene_id: int) -> dict:
-        """Record that the virtual-reader comments flow was opened for this scene."""
+        """Record that the virtual-reader comments flow was opened for this scene.
+
+        Sets ``updated_at`` so ``scene_touch`` does not bump ``row_version``
+        (same pattern as ``save_scene_goal`` — avoids rejecting an in-flight manuscript save).
+        """
         with database() as connection:
             scene = connection.execute(
                 "SELECT id FROM scene WHERE id = ? AND deleted_at IS NULL",
@@ -23716,7 +23732,9 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if scene is None:
                 raise ValueError("씬을 찾을 수 없습니다.")
             connection.execute(
-                "UPDATE scene SET reader_comments_started = 1 WHERE id = ?",
+                "UPDATE scene SET reader_comments_started = 1, "
+                "updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') "
+                "WHERE id = ?",
                 (scene_id,),
             )
         return {"ok": True, "reader_comments_started": 1}
@@ -23763,10 +23781,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 clone_title = clone_title[:197] + "…"
 
             # Park existing rows, then insert clone and reassign 0..n.
+            # Touch-safe updated_at — sibling row_version must stay (in-flight editor save).
             base = 1_000_000
+            stamp = folder_tree.SCENE_TOUCH_SAFE_UPDATED_AT
             for index, existing_id in enumerate(ordered_ids):
                 connection.execute(
-                    "UPDATE scene SET sort_order = ? WHERE id = ? AND deleted_at IS NULL",
+                    f"UPDATE scene SET sort_order = ?, updated_at = {stamp} "
+                    "WHERE id = ? AND deleted_at IS NULL",
                     (base + index, existing_id),
                 )
 
@@ -23848,9 +23869,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
             final_order = ordered_ids[:]
             final_order.insert(insert_at, new_id)
+            stamp = folder_tree.SCENE_TOUCH_SAFE_UPDATED_AT
             for index, sid in enumerate(final_order):
                 connection.execute(
-                    "UPDATE scene SET sort_order = ? WHERE id = ? AND deleted_at IS NULL",
+                    f"UPDATE scene SET sort_order = ?, updated_at = {stamp} "
+                    "WHERE id = ? AND deleted_at IS NULL",
                     (index, sid),
                 )
 

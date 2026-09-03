@@ -99,9 +99,9 @@ class IndexRebuildContractTests(unittest.TestCase):
         self.assertIn("선택 작품 재인덱싱", html)
         self.assertIn("indexRebuildConfirmModal", html)
         self.assertIn("loadIndexRebuildOverview", js)
-        self.assertIn("쿼터 제한에 도달했습니다. 잠시 후 다시 시도해주세요", js)
+        self.assertIn("app.쿼터_제한에_도달했습니다_잠시_후_다시_시도", js)
         self.assertIn("예상 소요 시간은", js)
-        self.assertIn("Gemini API 호출이 발생하니 참고해주세요", js)
+        self.assertIn("app.Gemini_API_호출이_발생하니_참고해주", js)
 
     def test_overview_counts_null_vs_filled(self) -> None:
         project_a, scene_a = self.create_project_scene(

@@ -6694,6 +6694,11 @@ function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolve
     onInput?.();
   });
   editor.addEventListener("mousedown", () => {
+    if (
+      (editor.id === "sceneContent" || editor.id === "focusWriteEditor")
+      && typeof isSceneManuscriptLocked === "function"
+      && isSceneManuscriptLocked()
+    ) return;
     if (editor.getAttribute("contenteditable") !== "true") {
       editor.setAttribute("contenteditable", "true");
     }
@@ -6701,6 +6706,11 @@ function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolve
   page?.addEventListener("mousedown", (event) => {
     if (event.target.closest(`#${editor.id}`)) return;
     if (event.button !== 0) return;
+    if (
+      (editor.id === "sceneContent" || editor.id === "focusWriteEditor")
+      && typeof isSceneManuscriptLocked === "function"
+      && isSceneManuscriptLocked()
+    ) return;
     editor.setAttribute("contenteditable", "true");
     editor.focus();
   });
@@ -56528,7 +56538,7 @@ function setupEpisodeChrome() {
   renderEpisodeChrome();
 }
 
-function showSceneEditorPane() {
+function showSceneEditorPane(options = {}) {
   state.ideaBoardOpen = false;
   state.characterBoardOpen = false;
   state.keywordBoardOpen = false;
@@ -56594,7 +56604,10 @@ function showSceneEditorPane() {
     editor.style.visibility = "visible";
     editor.tabIndex = 0;
   }
-  if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
+  if (typeof applySceneCompleteLock === "function") {
+    if (options.pendingLock) applySceneCompleteLock({ pending: true });
+    else applySceneCompleteLock();
+  }
 }
 
 function fillSceneEditorFields(scene) {
@@ -56704,7 +56717,8 @@ async function openScene(sceneId, options = {}) {
   let openedFromLocalOnly = false;
   try {
     // Show shell immediately so the center is never a blank dead pane.
-    showSceneEditorPane();
+    // Lock until fillSceneEditorFields applies the fetched status.
+    showSceneEditorPane({ pendingLock: true });
     detail = await api(`/api/scenes/${nextId}`);
     try {
       members = await api(`/api/scenes/${nextId}/characters`);
@@ -56757,7 +56771,7 @@ async function openScene(sceneId, options = {}) {
   }
 
   cancelScheduledAutoSave();
-  showSceneEditorPane();
+  showSceneEditorPane({ pendingLock: true });
   fillSceneEditorFields(detail);
   if (!openedFromLocalOnly) {
     await maybeRestoreLocalDraft(detail);
@@ -57539,6 +57553,7 @@ let onlineSyncTimer = null;
 let lastLocalDraftToastAt = 0;
 let localDraftToastShownForStreak = false;
 let lastPersistedSceneStatus = null;
+let manuscriptLockPending = false;
 
 /* ── Offline-first local draft (never lose manuscript on API failure) ── */
 const LOCAL_DRAFT_PREFIX = "supertory.sceneDraft.v1.";
@@ -57888,6 +57903,7 @@ async function maybeRestoreLocalDraft(serverScene) {
   setSceneSaveStatus(i18n.t('app.이_기기_보관본_복구됨_동기화_대기'));
   toast(i18n.t('app.연결_전_편집_내용을_이_기기에서_복구했습니'));
   scheduleAutoSave();
+  if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
   return true;
 }
 
@@ -58123,6 +58139,7 @@ function convertTypographicQuotes(html) {
 }
 
 function isSceneManuscriptLocked() {
+  if (manuscriptLockPending) return true;
   return String($("sceneStatus")?.value || state.scene?.status || "") === "complete";
 }
 
@@ -58133,6 +58150,11 @@ function isActiveManuscriptCompleteLocked() {
 }
 
 function applySceneCompleteLock(options = {}) {
+  if (options.pending === true) {
+    manuscriptLockPending = true;
+  } else if (!Object.prototype.hasOwnProperty.call(options, "glumpWritable")) {
+    manuscriptLockPending = false;
+  }
   if (Object.prototype.hasOwnProperty.call(options, "glumpWritable")) {
     glumpWritableOverride = options.glumpWritable ? true : false;
   }
