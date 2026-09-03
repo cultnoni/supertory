@@ -265,6 +265,107 @@ class SuccessProfileRefTests(unittest.TestCase):
             }
             self.assertIn("linked_success_profile_id", cols)
 
+    def test_rename_title_only_and_delete_unlinks_all_projects(self) -> None:
+        first = self._seed_project()["project"]
+        st, second = self.req(
+            "POST",
+            "/api/projects",
+            {"title": "두 번째 신작", "main_genre": "판타지"},
+        )
+        self.assertEqual(st, 201, second)
+        profile = self._create_profile()
+        profile_id = profile["id"]
+        original_analysis = profile["profile"]
+
+        for project_id in (first["id"], second["id"]):
+            st, linked = self.req(
+                "PUT",
+                f"/api/projects/{project_id}/settings",
+                {"linked_success_profile_id": profile_id},
+            )
+            self.assertEqual(st, 200, linked)
+            self.assertEqual(linked["linked_success_profile_id"], profile_id)
+
+        st, renamed = self.req(
+            "PUT",
+            f"/api/success-pattern/profiles/{profile_id}",
+            {
+                "work_title": "수정된 프로파일 이름",
+                "profile": {"summary": "사용자가 바꾸려 한 값"},
+                "summary": "사용자가 바꾸려 한 값",
+            },
+        )
+        self.assertEqual(st, 200, renamed)
+        self.assertEqual(renamed["work_title"], "수정된 프로파일 이름")
+        self.assertEqual(renamed["profile"], original_analysis)
+
+        st, deleted = self.req(
+            "DELETE",
+            f"/api/success-pattern/profiles/{profile_id}",
+        )
+        self.assertEqual(st, 200, deleted)
+        self.assertEqual(deleted["unlinked_projects"], 2)
+
+        st, projects = self.req("GET", "/api/projects")
+        self.assertEqual(st, 200, projects)
+        by_id = {row["id"]: row for row in projects}
+        self.assertIsNone(by_id[first["id"]]["linked_success_profile_id"])
+        self.assertIsNone(by_id[second["id"]]["linked_success_profile_id"])
+        st, missing = self.req(
+            "GET",
+            f"/api/success-pattern/profiles/{profile_id}",
+        )
+        self.assertEqual(st, 404, missing)
+
+    def test_profile_picker_exposes_title_only_rename_and_delete_actions(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        css = (root / "web" / "styles.css").read_text(encoding="utf-8")
+        panel = html.split('id="successProfileMainPanel"', 1)[1].split(
+            "</section>", 1
+        )[0]
+        self.assertIn('id="linkedSuccessProfilePickerButton"', panel)
+        self.assertIn('id="linkedSuccessProfileMenu"', panel)
+        self.assertNotIn('id="linkedSuccessProfileSelect"', panel)
+        self.assertNotIn("<textarea", panel)
+        self.assertNotIn('type="text"', panel)
+        self.assertIn('data-success-profile-rename="${id}"', js)
+        self.assertIn('data-success-profile-delete="${id}"', js)
+        rename_block = js.split("async function renameSuccessProfile(", 1)[1].split(
+            "async function deleteSuccessProfile(", 1
+        )[0]
+        self.assertIn('method: "PUT"', rename_block)
+        self.assertIn("JSON.stringify({ work_title: workTitle })", rename_block)
+        for forbidden in (
+            "hook_style",
+            "pacing_pattern",
+            "dialogue_narration_balance",
+            "style_signature",
+            "summary",
+        ):
+            self.assertNotIn(forbidden, rename_block)
+        delete_block = js.split("async function deleteSuccessProfile(", 1)[1].split(
+            "function setupLinkedSuccessProfileCard()", 1
+        )[0]
+        self.assertIn('method: "DELETE"', delete_block)
+        self.assertIn("project.linked_success_profile_id = null", delete_block)
+        self.assertIn("state.linkedSuccessProfileId = null", delete_block)
+        self.assertIn(".linked-success-profile-icon-button", css)
+        for language in ("ko", "en", "es"):
+            locale = json.loads(
+                (root / "web" / "locales" / f"{language}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for key in (
+                "app.프로파일_이름_수정",
+                "app.프로파일_삭제",
+                "app.이_프로파일을_삭제할까요_연결된_작품에서도_연결이_해제됩니다",
+                "app.프로파일을_삭제했어요_n개_작품_연결_해제",
+            ):
+                self.assertIn(key, locale)
+
 
 if __name__ == "__main__":
     unittest.main()
