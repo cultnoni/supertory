@@ -51,6 +51,16 @@ class SplitDefaultModeUiTests(unittest.TestCase):
         self.assertIn("toggleViewModeMenu", apply_fn)
         self.assertIn('applySplitDefaultOrOpenMenu("main")', self.js)
         self.assertIn('applySplitDefaultOrOpenMenu("focus")', self.js)
+        chrome = self.js.split("function updateSplitChrome", 1)[1].split(
+            "function clearSplitViewerPopupStyles", 1
+        )[0]
+        self.assertNotIn("index.켜기", chrome)
+        self.assertNotIn("index.끄기", chrome)
+        self.assertIn("index.분할", chrome)
+        self.assertIn("app.분할", chrome)
+        self.assertIn("app.팝업_중", chrome)
+        self.assertIn("app.화면_나누기_중", chrome)
+        self.assertIn("splitDefaultButtonTitle()", chrome)
 
     def test_split_menu_has_compact_default_and_hint_options(self) -> None:
         self.assertIn('data-split-default-set="split"', self.html)
@@ -70,9 +80,6 @@ class SplitDefaultModeUiTests(unittest.TestCase):
             "index.기본값_화면_나누기",
             "index.기본값_팝업",
             "index.해제",
-            "index.켜기",
-            "index.끄기",
-            "index.분할_끄기",
             "index.우클릭_안내_숨기기",
             "index.우클릭_안내를_숨겼어요",
             "index.기본_보기_방식을_화면_나누기로_저장했어요",
@@ -94,6 +101,17 @@ class SplitDefaultModeUiTests(unittest.TestCase):
         self.assertIn("z-index: 250;", css.split("#uiFeatureContextMenu", 1)[1][:80])
         palette = css.split(".format-color-palette {", 1)[1][:80]
         self.assertIn("z-index: 250;", palette)
+
+    def test_split_manuscript_page_leaves_room_for_status_bar(self) -> None:
+        css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+        page = css.split(
+            ".scene-workspace.split-active .manuscript-page {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("flex: 1 1 auto !important", page)
+        self.assertIn("min-height: 0 !important", page)
+        self.assertIn("overflow: auto !important", page)
+        self.assertNotIn("height: 100%", page)
+        self.assertNotIn("min-height: 180px", page)
 
 
 if __name__ == "__main__":

@@ -13,6 +13,16 @@ from document_export import (
     safe_download_name,
     validate_hwpx_package,
 )
+from typeset_metrics import (
+    A4_HEIGHT_MM,
+    layout_metrics,
+    letter_spacing_docx_twips,
+    letter_spacing_hwp,
+    letter_spacing_is_em,
+    mm_to_hwp,
+    paper_width_mm,
+    pt_to_hwp,
+)
 
 PLATFORM_ORDER = ("munpia", "kakaopage", "ridibooks", "naver_series")
 
@@ -119,7 +129,6 @@ _HANGUL_FONT_NAMES = {
     "Malgun Gothic": "맑은 고딕",
 }
 
-_HWPUNIT_PER_MM = 7200 / 25.4
 _TYPESET_EXPORT_FORMATS = frozenset({"docx", "hwpx"})
 
 
@@ -266,21 +275,19 @@ def _set_run_rfonts(run, mapped: str, east_asia: str, qn, OxmlElement) -> None:
 
 def _letter_spacing_is_relative(value: float) -> bool:
     """Dropdown 자간(-0.05~0.1) is em; legacy integers stay pt."""
-    return 0 < abs(float(value or 0)) <= 0.5
+    return letter_spacing_is_em(value)
 
 
 def _set_run_letter_spacing(run, letter_spacing_pt: float, font_size_pt: float, qn, OxmlElement) -> None:
-    raw = float(letter_spacing_pt or 0)
-    if not raw:
+    twips = letter_spacing_docx_twips(letter_spacing_pt, font_size_pt)
+    if not twips:
         return
-    size = max(1.0, float(font_size_pt or 10))
-    twips = raw * size * 20 if _letter_spacing_is_relative(raw) else raw * 20
     rPr = run._element.get_or_add_rPr()
     spacing = rPr.find(qn("w:spacing"))
     if spacing is None:
         spacing = OxmlElement("w:spacing")
         rPr.append(spacing)
-    spacing.set(qn("w:val"), str(int(round(twips))))
+    spacing.set(qn("w:val"), str(twips))
 
 
 def _apply_paragraph_format(paragraph, preset: dict, Pt) -> None:
@@ -317,10 +324,13 @@ def build_typeset_docx(plain_text: str, preset: dict) -> bytes:
 
     document = Document()
     section = document.sections[0]
-    section.left_margin = Mm(int(preset["margin_left_mm"]))
-    section.right_margin = Mm(int(preset["margin_right_mm"]))
-    section.top_margin = Mm(int(preset["margin_top_mm"]))
-    section.bottom_margin = Mm(int(preset["margin_bottom_mm"]))
+    metrics = layout_metrics(preset)
+    section.page_width = Mm(metrics["paper_width_mm"])
+    section.page_height = Mm(A4_HEIGHT_MM)
+    section.left_margin = Mm(float(preset["margin_left_mm"]))
+    section.right_margin = Mm(float(preset["margin_right_mm"]))
+    section.top_margin = Mm(float(preset["margin_top_mm"]))
+    section.bottom_margin = Mm(float(preset["margin_bottom_mm"]))
 
     style = document.styles["Normal"]
     style.font.name = mapped
@@ -363,11 +373,11 @@ def build_typeset_docx(plain_text: str, preset: dict) -> bytes:
 
 
 def _hwp_units_from_mm(mm: int) -> int:
-    return int(round(float(mm) * _HWPUNIT_PER_MM))
+    return mm_to_hwp(mm)
 
 
 def _hwp_units_from_pt(pt: int) -> int:
-    return int(pt) * 100
+    return pt_to_hwp(pt)
 
 
 def _xml_attr_escape(text: str) -> str:
@@ -385,12 +395,7 @@ def _patch_hwpx_header(header: str, preset: dict) -> str:
     font_name = _xml_attr_escape(map_hangul_font_family(str(preset.get("font_family") or "바탕체")))
     height = max(100, int(preset["font_size_pt"]) * 100)
     size_pt = max(1, int(preset["font_size_pt"]))
-    raw_spacing = float(preset["letter_spacing_pt"] or 0)
-    if _letter_spacing_is_relative(raw_spacing):
-        spacing = int(round(raw_spacing * 100.0))
-    else:
-        spacing = int(round(raw_spacing / float(size_pt) * 100.0))
-    spacing = max(-50, min(50, spacing))
+    spacing = letter_spacing_hwp(preset["letter_spacing_pt"], size_pt)
     indent_hwp = max(0, _hwp_units_from_pt(int(preset["paragraph_indent_pt"])))
     indent_char = indent_hwp // 2
     after_hwp = max(0, _hwp_units_from_pt(int(preset["paragraph_spacing_pt"])))
@@ -461,7 +466,25 @@ def _patch_hwpx_header(header: str, preset: dict) -> str:
     return _replace_tagged(patched, '<hh:paraPr id="0"', "</hh:paraPr>", patch_para)
 
 
+def _patch_hwpx_page_size(section: str, preset: dict) -> str:
+    width = mm_to_hwp(paper_width_mm(preset["mobile_viewport_px"]))
+    height = mm_to_hwp(A4_HEIGHT_MM)
+    patched = re.sub(
+        r'(<hp:pagePr\b[^>]*\bwidth=")[^"]+"',
+        lambda match: f"{match.group(1)}{width}\"",
+        section,
+        count=1,
+    )
+    return re.sub(
+        r'(<hp:pagePr\b[^>]*\bheight=")[^"]+"',
+        lambda match: f"{match.group(1)}{height}\"",
+        patched,
+        count=1,
+    )
+
+
 def _patch_hwpx_page_margins(section: str, preset: dict) -> str:
+    section = _patch_hwpx_page_size(section, preset)
     left = _hwp_units_from_mm(int(preset["margin_left_mm"]))
     right = _hwp_units_from_mm(int(preset["margin_right_mm"]))
     top = _hwp_units_from_mm(int(preset["margin_top_mm"]))

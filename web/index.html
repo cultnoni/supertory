@@ -39,7 +39,7 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.42">
+    <link rel="stylesheet" href="/styles.css?v=1.4.58">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1176,17 +1176,103 @@
 
         </div>
         <div class="outline-resizer" id="outlineResizer" role="separator" aria-orientation="vertical" aria-label="바인더 너비 조절" data-i18n-aria-label="index.바인더_너비_조절" title="끌어 바인더 너비 조절" data-i18n-title="index.끌어_바인더_너비_조절"></div>
+        <nav id="binderDockRail" class="panel-dock-rail binder-dock-rail" data-dock-side="left" aria-label="바인더 도크" data-i18n-aria-label="index.바인더_도크">
+          <button
+            id="expandBinderPanelButton"
+            type="button"
+            class="panel-dock-expand"
+            title="바인더 펼치기"
+            data-i18n-title="index.바인더_펼치기"
+            aria-label="바인더 펼치기"
+            data-i18n-aria-label="index.바인더_펼치기"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <rect x="4.5" y="5" width="15" height="14" rx="2"/>
+              <path d="M9.25 5v14"/>
+              <path d="M13.2 9.2 17 12l-3.8 2.8"/>
+            </svg>
+          </button>
+          <div class="panel-dock-rail-items" role="toolbar" aria-label="바인더 항목" data-i18n-aria-label="index.바인더_항목">
+            <button type="button" class="panel-dock-item" data-dock-item="manuscript" title="목차" data-i18n-title="app.목차" aria-label="목차" data-i18n-aria-label="app.목차">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <rect x="6.5" y="3.75" width="11.5" height="16.5" rx="1.6"/>
+                <path d="M9.25 3.75v16.5"/>
+                <path d="M11.75 8.5h4M11.75 12h4M11.75 15.5h3"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready is-pinned-dock" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5.5 18.2V12.4"/>
+                <path d="M10.2 18.2V7.5"/>
+                <path d="M14.8 18.2v-6.2"/>
+                <path d="M19.4 18.2V5.8"/>
+                <path d="M4.6 18.2h15.8"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="ideas" title="생각수첩" data-i18n-title="app.생각수첩" aria-label="생각수첩" data-i18n-aria-label="app.생각수첩">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M7 5.5h10a1.5 1.5 0 0 1 1.5 1.5v11.2L16.2 20H7A1.5 1.5 0 0 1 5.5 18.5v-12A1.5 1.5 0 0 1 7 5.5z"/>
+                <path d="M8.8 9.2h6.4M8.8 12.4h6.4M8.8 15.6h4.2"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="world" title="세계관" data-i18n-title="app.세계관" aria-label="세계관" data-i18n-aria-label="app.세계관">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="7.25"/>
+                <path d="M4.8 12h14.4M12 4.8c1.8 2.2 2.7 4.6 2.7 7.2s-.9 5-2.7 7.2c-1.8-2.2-2.7-4.6-2.7-7.2s.9-5 2.7-7.2z"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="characters" title="캐릭터" data-i18n-title="app.캐릭터" aria-label="캐릭터" data-i18n-aria-label="app.캐릭터">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="8.2" r="2.6"/>
+                <path d="M6.8 18.2c.6-3.1 2.6-4.7 5.2-4.7s4.6 1.6 5.2 4.7"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="timeline" title="연대기" data-i18n-title="index.연대기" aria-label="연대기" data-i18n-aria-label="index.연대기">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="12" r="7.25"/>
+                <path d="M12 8.4v4.1l2.9 1.7"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="items" title="아이템" data-i18n-title="app.아이템" aria-label="아이템" data-i18n-aria-label="app.아이템">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M12 4.8 19 8.4v7.2L12 19.2 5 15.6V8.4z"/>
+                <path d="M12 19.2V11.6M5 8.4 12 11.6 19 8.4"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="baits" title="떡밥모음" data-i18n-title="app.떡밥모음" aria-label="떡밥모음" data-i18n-aria-label="app.떡밥모음">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M12 4.6v9.2"/>
+                <path d="M8.4 8.2c0-2 1.6-3.4 3.6-3.4s3.6 1.4 3.6 3.4c0 2.6-3.6 4.2-3.6 4.2S8.4 10.8 8.4 8.2z"/>
+                <circle cx="12" cy="17.6" r="1.5"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="successProfile" title="흥행작 프로파일 연결" data-i18n-title="app.흥행작_프로파일_연결" aria-label="흥행작 프로파일 연결" data-i18n-aria-label="app.흥행작_프로파일_연결">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5.5 16.5 9.2 12l3.1 3.1 6.2-7.6"/>
+                <path d="M5 19h14"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="toryVault" title="토리의 수집창고" data-i18n-title="app.토리의_수집창고" aria-label="토리의 수집창고" data-i18n-aria-label="app.토리의_수집창고">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M4.8 9.2 12 5.4l7.2 3.8v8.4L12 21.2 4.8 17.6z"/>
+                <path d="M8.2 10.8v3.8l3.8 2"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="sources" title="참고자료·출처" data-i18n-title="app.참고자료_출처" aria-label="참고자료·출처" data-i18n-aria-label="app.참고자료_출처">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M10 13.5 8.6 14.9a3.1 3.1 0 0 1-4.4-4.4L7.5 7.2a3.1 3.1 0 0 1 4.4 0"/>
+                <path d="M14 10.5 15.4 9.1a3.1 3.1 0 1 1 4.4 4.4L16.5 16.8a3.1 3.1 0 0 1-4.4 0"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="settingsSearch" title="크로스 레퍼런스 시스템" data-i18n-title="app.크로스_레퍼런스_시스템" aria-label="크로스 레퍼런스 시스템" data-i18n-aria-label="app.크로스_레퍼런스_시스템">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="6.25"/>
+                <path d="M16 16.5 20.5 21"/>
+              </svg>
+            </button>
+          </div>
+        </nav>
       </aside>
-      <button id="expandBinderPanelButton" type="button" class="binder-panel-reopen hidden" title="바인더 열기" data-i18n-title="index.바인더_열기" aria-label="바인더 열기" data-i18n-aria-label="index.바인더_열기">
-        <span class="binder-panel-reopen-inner" aria-hidden="true">
-          <!-- 바인더 아이콘 (viewBox 안쪽 여백으로 왼쪽 잘림 방지) -->
-          <svg class="binder-panel-reopen-icon" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-            <rect x="6.5" y="3.75" width="11.5" height="16.5" rx="1.6"/>
-            <path d="M9.25 3.75v16.5"/>
-            <path d="M11.75 8.5h4M11.75 12h4M11.75 15.5h3"/>
-          </svg>
-        </span>
-      </button>
 
       <section id="workArea" class="work-area">
         <div id="mobileDraftBanner" class="mobile-draft-banner hidden" role="status">
@@ -1196,12 +1282,17 @@
         <div id="welcome" class="welcome-screen">
           <div class="welcome-card">
             <div class="welcome-mascot welcome-mascot-live" aria-hidden="true">
-              <div class="welcome-mascot-stage welcome-mascot-bob">
-                <span class="welcome-sparkle s1"></span>
-                <span class="welcome-sparkle s2"></span>
-                <img class="welcome-tory-body" src="/assets/tori-welcome.png" width="88" height="88" alt="">
-                <img class="welcome-tory-blink" src="/assets/tori-welcome-blink.png" width="88" height="88" alt="">
-                <img class="welcome-pen" src="/assets/tori-welcome-pencil.png" width="20" height="26" alt="">
+              <div class="welcome-mascot-stage">
+                <img
+                  id="welcomeToryMascot"
+                  class="welcome-tory-mascot"
+                  src="/assets/tori-welcome-mascot.webp"
+                  width="148"
+                  height="114"
+                  alt=""
+                  decoding="async"
+                  draggable="false"
+                >
               </div>
             </div>
             <p class="welcome-mascot-hello" id="welcomeSpeech" data-i18n="app.반가워요_작가님">반가워요 작가님</p>
@@ -2327,7 +2418,7 @@
             <div class="character-editor-actions">
               <span id="characterInfo" class="save-info"></span>
               <button type="button" class="secondary compact-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
-              <button type="button" id="characterChronicleButton" class="secondary compact-btn" aria-pressed="false" data-i18n="index.연대기">연대기</button>
+              <button type="button" id="characterChronicleButton" class="secondary compact-btn trait-chronicle-btn" aria-pressed="false" data-i18n="index.연대기" data-i18n-title="index.연대기" title="연대기">연대기</button>
               <button type="button" id="deleteCharacterButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.인물_삭제">인물 삭제</button>
               <button type="submit" class="primary compact-btn" data-i18n="index.인물_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">인물 설정 저장</button>
               <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
@@ -2418,7 +2509,7 @@
             </div>
             <div class="character-editor-actions">
               <span id="itemInfo" class="save-info"></span>
-              <button type="button" id="itemChronicleButton" class="secondary compact-btn" aria-pressed="false" data-i18n="index.연대기">연대기</button>
+              <button type="button" id="itemChronicleButton" class="secondary compact-btn trait-chronicle-btn" aria-pressed="false" data-i18n="index.연대기" data-i18n-title="index.연대기" title="연대기">연대기</button>
               <button type="button" id="deleteItemButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.아이템_삭제">아이템 삭제</button>
               <button type="submit" class="primary compact-btn" data-i18n="index.아이템_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">아이템 설정 저장</button>
               <button type="button" id="closeItemEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
@@ -2805,18 +2896,22 @@
               <button type="button" id="closeSettingsSearchButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
             </div>
           </div>
-          <div class="settings-search-bar">
-            <label class="sr-only" for="settingsSearchInput" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</label>
-            <input
-              id="settingsSearchInput"
-              type="search"
-              autocomplete="off"
-              spellcheck="false"
-              placeholder="이름, 별칭, 설명, 관계 라벨…"
-              data-i18n-placeholder="index.이름_별칭_설명_관계_라벨"
-            >
+          <div id="settingsSearchHome" class="settings-search-home">
+            <div id="settingsSearchLive" class="settings-search-live">
+              <div class="settings-search-bar">
+                <label class="sr-only" for="settingsSearchInput" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</label>
+                <input
+                  id="settingsSearchInput"
+                  type="search"
+                  autocomplete="off"
+                  spellcheck="false"
+                  placeholder="이름, 별칭, 설명, 관계 라벨…"
+                  data-i18n-placeholder="index.이름_별칭_설명_관계_라벨"
+                >
+              </div>
+              <div id="settingsSearchResults" class="settings-search-results" aria-live="polite"></div>
+            </div>
           </div>
-          <div id="settingsSearchResults" class="settings-search-results" aria-live="polite"></div>
         </div>
       </section>
 
@@ -3344,12 +3439,49 @@
           </div>
         </section>
         </div><!-- /.ai-panel-inner -->
+        <nav id="aiDockRail" class="panel-dock-rail ai-dock-rail" data-dock-side="right" aria-label="SuperTORY 도크" data-i18n-aria-label="index.SuperTORY_도크">
+          <button
+            id="expandAiPanelButton"
+            type="button"
+            class="panel-dock-expand"
+            title="SuperTORY 펼치기"
+            data-i18n-title="index.SuperTORY_펼치기"
+            aria-label="SuperTORY 펼치기"
+            data-i18n-aria-label="index.SuperTORY_펼치기"
+          >
+            <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <rect x="4.5" y="5" width="15" height="14" rx="2"/>
+              <path d="M14.75 5v14"/>
+              <path d="M10.8 9.2 7 12l3.8 2.8"/>
+            </svg>
+          </button>
+          <div class="panel-dock-rail-items" role="toolbar" aria-label="SuperTORY 항목" data-i18n-aria-label="index.SuperTORY_항목">
+            <button type="button" class="panel-dock-item" data-dock-item="tools" title="도우미" data-i18n-title="app.도우미" aria-label="도우미" data-i18n-aria-label="app.도우미">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M12 4.6v2.2M12 17.2v2.2M4.6 12h2.2M17.2 12h2.2M7.1 7.1l1.6 1.6M15.3 15.3l1.6 1.6M7.1 16.9l1.6-1.6M15.3 8.7l1.6-1.6"/>
+                <circle cx="12" cy="12" r="3.1"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="chat" title="소통방" data-i18n-title="index.소통방" aria-label="소통방" data-i18n-aria-label="index.소통방">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5.5 6.5h13a1.5 1.5 0 0 1 1.5 1.5v7.2a1.5 1.5 0 0 1-1.5 1.5H9.2L5.5 19.4z"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="priority" title="작가 지침" data-i18n-title="index.작가_지침" aria-label="작가 지침" data-i18n-aria-label="index.작가_지침">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <rect x="6" y="4.8" width="12" height="14.4" rx="1.5"/>
+                <path d="M9 8.4h6M9 11.6h6M9 14.8h3.6"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="notify" title="알림" data-i18n-title="app.알림" aria-label="알림" data-i18n-aria-label="app.알림">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M6.6 15.4h10.8l-1.1-2.1V11a5.3 5.3 0 0 0-10.6 0v2.3z"/>
+                <path d="M10.2 17.4a1.8 1.8 0 0 0 3.6 0"/>
+              </svg>
+            </button>
+          </div>
+        </nav>
       </aside>
-      <button id="expandAiPanelButton" type="button" class="ai-panel-reopen hidden" title="토리 열기" data-i18n-title="index.토리_열기" aria-label="토리 열기" data-i18n-aria-label="index.토리_열기">
-        <span class="ai-panel-reopen-inner" aria-hidden="true">
-          <img class="ai-panel-reopen-logo" src="/assets/tori-mascot.png" width="22" height="22" alt="">
-        </span>
-      </button>
     </main>
 
     <!-- Tory chat history (archived conversations) -->
@@ -5409,6 +5541,14 @@
       <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-only>
         사전 찾기
       </button>
+      <button type="button" role="menuitem" data-context-action="open-character-card" id="openCharacterCardMenuItem" class="hidden">
+        <strong data-i18n="index.인물_카드_보기">인물 카드 보기</strong>
+        <span id="openCharacterCardMenuHint" data-i18n="index.인물_카드_힌트">등록된 인물 요약을 띄워요</span>
+      </button>
+      <button type="button" role="menuitem" data-context-action="cross-ref-search" id="crossRefSearchMenuItem" data-ctx-selection-only>
+        <strong data-i18n="index.크로스_레퍼런스로_검색">크로스 레퍼런스로 검색</strong>
+        <span data-i18n="index.크로스_레퍼런스_검색_힌트">설정집에서 같은 말을 찾아요</span>
+      </button>
       <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-only>
         <strong data-i18n="app.단어찾기">단어 찾기</strong>
         <span data-i18n="index.단어_문장에서_비슷한_표현을_토리가_찾아_줘">단어·문장에서 비슷한 표현을 찾아요</span>
@@ -6267,6 +6407,13 @@
                 </div>
               </div>
               <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
+              <label class="viewer-ctrl viewer-typeset-flow" for="viewerTypesetFlow">
+                <span data-i18n="index.보기_방식">보기 방식</span>
+                <select id="viewerTypesetFlow" aria-label="보기 방식" data-i18n-aria-label="index.보기_방식">
+                  <option value="scroll" selected data-i18n="app.스크롤">스크롤</option>
+                  <option value="page" data-i18n="index.보기_넘기기">넘기기</option>
+                </select>
+              </label>
               <button
                 type="button"
                 id="viewerTypesetDetailsToggle"
@@ -7160,9 +7307,16 @@
       <div class="modal-backdrop" data-close-translation-workspace></div>
       <div class="modal-card translation-workspace-card" role="document">
         <div class="translation-workspace-head">
+          <div class="translation-workspace-head-top">
           <div class="translation-workspace-head-text">
             <h2 id="translationWorkspaceTitle" data-i18n="app.투고용_다국어_번역">투고용 다국어 번역</h2>
             <p class="hint translation-workspace-hint" data-i18n="index.원문과_번역을_나란히_보고_문단마다_승인해요">원문과 번역을 나란히 보고, 문단마다 승인해요.</p>
+          </div>
+          <button type="button" class="secondary compact-btn translation-workspace-close-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
+          </div>
+          <div class="translation-home-tabs" role="tablist" aria-label="번역 작업 보기" data-i18n-aria-label="index.번역_작업_보기">
+            <button type="button" class="translation-home-tab is-active" data-translation-home-tab="new" aria-selected="true" data-i18n="index.새_번역">새 번역</button>
+            <button type="button" class="translation-home-tab" data-translation-home-tab="history" aria-selected="false" data-i18n="index.번역_기록">번역 기록</button>
           </div>
           <div class="translation-workspace-toolbar">
             <div class="translation-toolbar-primary-row">
@@ -7255,7 +7409,6 @@
               </div>
               <button type="button" class="secondary compact-btn hidden" id="translationPackageButton" data-i18n="index.투고_패키지">투고 패키지</button>
               <button type="button" class="secondary compact-btn hidden" id="translationResultButton" data-i18n="index.번역_결과">번역 결과</button>
-              <button type="button" class="secondary compact-btn translation-workspace-close-btn" data-close-translation-workspace data-i18n="app.닫기">닫기</button>
             </div>
             <p class="hint translation-range-hint" data-i18n="index.투고는_보통_로그라인_시놉시스_샘플_3화">투고용 번역은 보통 로그라인+시놉시스+샘플 3화 내외가 적정 분량입니다.</p>
           </div>
@@ -7268,6 +7421,24 @@
           <div class="translation-nouns-actions">
             <button type="button" class="primary" id="translationCreateJobButton" data-i18n="index.이_범위로_작업_만들기">이 범위로 작업 만들기</button>
           </div>
+        </div>
+
+        <div id="translationHistoryPanel" class="translation-history-panel hidden">
+          <div class="translation-history-filters">
+            <label class="translation-history-filter">
+              <span data-i18n="index.상태">상태</span>
+              <select id="translationHistoryStatusFilter" aria-label="상태 필터" data-i18n-aria-label="index.상태">
+                <option value="all" data-i18n="app.전체">전체</option>
+                <option value="active" data-i18n="index.진행_중">진행 중</option>
+                <option value="done" data-i18n="app.완료">완료</option>
+              </select>
+            </label>
+            <label class="translation-history-filter" id="translationHistoryProjectFilterWrap" hidden>
+              <span data-i18n="app.작품">작품</span>
+              <select id="translationHistoryProjectFilter" aria-label="작품 필터" data-i18n-aria-label="app.작품"></select>
+            </label>
+          </div>
+          <div id="translationHistoryList" class="translation-history-list"></div>
         </div>
 
         <div id="translationFormattingPanel" class="translation-nouns-panel">
@@ -7567,6 +7738,7 @@
       </div>
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
-    <script src="/app.js?v=1.4.45"></script>
+    <script src="/typeset_metrics.js?v=1.4.45"></script>
+    <script src="/app.js?v=1.4.58"></script>
   </body>
 </html>

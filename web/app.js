@@ -2085,6 +2085,14 @@ function updateGoalProgressUi({ value, goal, metric }) {
   applyGoalBarColorsToDom();
 }
 
+let lastStatusBarCountSnapshot = {
+  value: 0,
+  goal: 0,
+  metric: "chars_with_space",
+  scope: "current",
+  space: "with",
+};
+
 function updateSceneStats() {
   const sceneStats = computeTextStats(getEditorPlainText());
   const metric = getGoalMetric();
@@ -2101,6 +2109,13 @@ function updateSceneStats() {
     ? Math.max(0, Number($("projectGoalCount")?.value || state.projectGoalCount || 0) || 0)
     : Math.max(0, Number($("sceneGoalCount")?.value || 0) || 0);
   const value = stats[metric] ?? 0;
+  lastStatusBarCountSnapshot = {
+    value,
+    goal,
+    metric,
+    scope: isProject ? "project" : "current",
+    space: spaceModeFromMetric(metric),
+  };
 
   document.querySelectorAll("#statsCounts .stat-chip[data-stat]").forEach((node) => {
     const key = node.dataset.stat;
@@ -2112,9 +2127,10 @@ function updateSceneStats() {
     node.classList.toggle("is-active", key === metric);
   });
 
-  updateGoalProgressUi({ value, goal, metric });
+  updateGoalProgressUi(lastStatusBarCountSnapshot);
   applySpaceSegUi();
   updateChapterSubtitleButtonState(sceneStats.chars_with_space);
+  syncDockStatsTracker();
 }
 
 /* —— Goal gauge colors (right-click): solid + gradient —— */
@@ -9491,7 +9507,11 @@ async function loadProject() {
   syncPurposePickerFromState();
   syncGenrePickerFromState();
   refreshProjectSelectOptions();
-  renderOutline(outline.chapters);
+  // Keep an in-progress outline title/folder input. state.outline is already
+  // refreshed above; the next loadProject after rename redraws the tree.
+  if (!(typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming())) {
+    renderOutline(outline.chapters);
+  }
   renderCharacters();
   renderItems();
   renderIdeaBank();
@@ -10293,6 +10313,8 @@ async function openSettingsSearchBoard() {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
+  closeIdeaFloat(DOCK_SETTINGS_SEARCH_KEY);
+  restoreSettingsSearchLive();
   try { await flushCharacterAutoSave(); } catch (_) { /* continue */ }
   try { await flushItemAutoSave(); } catch (_) { /* continue */ }
   if (sceneDirty && state.sceneId) {
@@ -10342,6 +10364,10 @@ function bindSettingsSearchEvents() {
   $("settingsSearchInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Escape") {
       event.preventDefault();
+      if (ideaFloatWindows.get(DOCK_SETTINGS_SEARCH_KEY)) {
+        closeIdeaFloat(DOCK_SETTINGS_SEARCH_KEY);
+        return;
+      }
       closeSettingsSearchBoard().catch(handleError);
     }
   });
@@ -10950,15 +10976,18 @@ function setRelationLabelAtLineMid(text, midX, midY) {
   text.setAttribute("y", String(midY));
 }
 
-function paintRelationLines() {
-  const svg = $("relationCanvasSvg");
+function paintRelationLines(options = {}) {
+  const svg = options.svg || $("relationCanvasSvg");
   if (!svg) return;
+  const characters = options.characters || relationCanvasData.characters || [];
+  const relations = options.relations || relationCanvasData.relations || [];
+  const interactive = options.interactive !== false;
   const NS = "http://www.w3.org/2000/svg";
   while (svg.firstChild) svg.removeChild(svg.firstChild);
   const byId = {};
-  (relationCanvasData.characters || []).forEach((ch) => { byId[ch.id] = ch; });
+  characters.forEach((ch) => { byId[ch.id] = ch; });
   const groups = new Map();
-  (relationCanvasData.relations || []).forEach((rel) => {
+  relations.forEach((rel) => {
     const a = byId[rel.character_a_id];
     const b = byId[rel.character_b_id];
     if (!a || !b) return;
@@ -10973,13 +11002,6 @@ function paintRelationLines() {
     rels.forEach((rel, index) => {
       const placed = offsetRelationLine(ac, bc, index, rels.length);
       const suggested = rel.status === "suggested";
-      const hit = document.createElementNS(NS, "line");
-      hit.setAttribute("class", "rel-hit");
-      hit.setAttribute("data-rel-id", String(rel.id));
-      hit.setAttribute("x1", String(placed.a.x));
-      hit.setAttribute("y1", String(placed.a.y));
-      hit.setAttribute("x2", String(placed.b.x));
-      hit.setAttribute("y2", String(placed.b.y));
       const line = document.createElementNS(NS, "line");
       line.setAttribute("class", `rel-line ${suggested ? "is-suggested" : ""}`);
       line.setAttribute("data-rel-id", String(rel.id));
@@ -10990,12 +11012,21 @@ function paintRelationLines() {
       const text = document.createElementNS(NS, "text");
       text.setAttribute("class", "rel-label");
       text.textContent = suggested ? `${rel.label}${i18n.t("app.추정_접미사")}` : rel.label;
-      hit.addEventListener("pointerdown", (event) => {
-        event.stopPropagation();
-        event.preventDefault();
-        if (suggested) showRelationSuggestPopup(rel, event);
-      });
-      svg.appendChild(hit);
+      if (interactive) {
+        const hit = document.createElementNS(NS, "line");
+        hit.setAttribute("class", "rel-hit");
+        hit.setAttribute("data-rel-id", String(rel.id));
+        hit.setAttribute("x1", String(placed.a.x));
+        hit.setAttribute("y1", String(placed.a.y));
+        hit.setAttribute("x2", String(placed.b.x));
+        hit.setAttribute("y2", String(placed.b.y));
+        hit.addEventListener("pointerdown", (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          if (suggested) showRelationSuggestPopup(rel, event);
+        });
+        svg.appendChild(hit);
+      }
       svg.appendChild(line);
       svg.appendChild(text);
       setRelationLabelAtLineMid(text, placed.midX, placed.midY);
@@ -11003,24 +11034,32 @@ function paintRelationLines() {
   });
 }
 
-function paintRelationCards() {
-  const host = $("relationCanvasCards");
+function paintRelationCards(options = {}) {
+  const host = options.host || $("relationCanvasCards");
   if (!host) return;
-  const rows = relationCanvasData.characters || [];
+  const rows = options.characters || relationCanvasData.characters || [];
+  const selectedIds = options.selectedIds || relationSelectedIds;
+  const showProfile = options.showProfile !== false;
+  const egoId = Number(options.egoId) || 0;
   if (!rows.length) {
     host.innerHTML = `<p class="character-board-empty">${escapeHtml(i18n.t("app.등록된_인물이_아직_없어요"))}</p>`;
     return;
   }
   host.innerHTML = rows.map((ch) => {
-    const selected = relationSelectedIds.includes(Number(ch.id)) ? "is-selected" : "";
+    const selected = selectedIds.includes(Number(ch.id)) ? "is-selected" : "";
+    const ego = egoId && Number(ch.id) === egoId ? "is-ego" : "";
+    const profile = showProfile
+      ? `<button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>`
+      : "";
     return `
-      <article class="relation-canvas-card ${selected}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px">
+      <article class="relation-canvas-card ${selected} ${ego}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px">
         <span class="relation-canvas-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
         <span class="relation-canvas-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
         <span class="relation-canvas-card-summary">${escapeHtml(relationCardSummary(ch))}</span>
-        <button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>
+        ${profile}
       </article>`;
   }).join("");
+  if (!showProfile) return;
   host.querySelectorAll("[data-rel-profile]").forEach((button) => {
     button.addEventListener("pointerdown", (event) => event.stopPropagation());
     button.addEventListener("click", (event) => {
@@ -11262,12 +11301,12 @@ function syncRelationCanvasFullscreenUi() {
   $("relationFitButton")?.setAttribute("aria-pressed", on ? "true" : "false");
 }
 
-function enterRelationCanvasFullscreen() {
+function enterRelationCanvasFullscreen(options = {}) {
   const canvas = $("relationCanvas");
   if (!canvas || canvas.classList.contains("hidden")) return;
   canvas.classList.add("is-fullscreen");
   syncRelationCanvasFullscreenUi();
-  scheduleFitRelationCanvas();
+  if (!options.skipFit) scheduleFitRelationCanvas();
 }
 
 function exitRelationCanvasFullscreen() {
@@ -11385,7 +11424,10 @@ function bindRelationCanvasEvents() {
       if (!drag.moved) toggleRelationSelection(drag.id);
       else {
         const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
-        if (ch) persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+        if (ch) {
+          persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+          syncDockRelationPosition(ch.id, ch.x, ch.y);
+        }
       }
     }
     if (relationPanDrag) {
@@ -11454,16 +11496,50 @@ async function openRelationCanvas(focus = null) {
   $("relationCanvas")?.classList.remove("hidden");
   bindRelationCanvasEvents();
   relationSelectedIds = [];
+  const focusId = Number(focus?.characterId);
   const focusA = Number(focus?.characterAId);
   const focusB = Number(focus?.characterBId);
-  if (Number.isFinite(focusA) && focusA > 0) relationSelectedIds.push(focusA);
+  if (Number.isFinite(focusId) && focusId > 0) relationSelectedIds.push(focusId);
+  if (Number.isFinite(focusA) && focusA > 0 && !relationSelectedIds.includes(focusA)) {
+    relationSelectedIds.push(focusA);
+  }
   if (Number.isFinite(focusB) && focusB > 0 && !relationSelectedIds.includes(focusB)) {
     relationSelectedIds.push(focusB);
   }
   hideRelationPopups();
   await loadRelationCanvas();
   if (relationSelectedIds.length) paintRelationCanvas();
-  scheduleFitRelationCanvas();
+  const centerId = Number.isFinite(focusId) && focusId > 0 ? focusId : 0;
+  if (focus?.fullscreen) enterRelationCanvasFullscreen({ skipFit: Boolean(centerId) });
+  if (centerId) {
+    scheduleCenterRelationCanvasOnCharacter(centerId);
+  } else if (!focus?.fullscreen) {
+    scheduleFitRelationCanvas();
+  }
+}
+
+function centerRelationCanvasOnCharacter(characterId) {
+  const stage = $("relationCanvasStage");
+  const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === Number(characterId));
+  if (!stage || !ch) {
+    scheduleFitRelationCanvas();
+    return false;
+  }
+  const rect = stage.getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 40) return false;
+  const zoom = Math.max(0.45, Math.min(1.2, relationCanvasZoom || 1));
+  relationCanvasZoom = zoom;
+  relationCanvasPan.x = rect.width / 2 - (Number(ch.x) + REL_CARD_W / 2) * zoom;
+  relationCanvasPan.y = rect.height / 2 - (Number(ch.y) + REL_CARD_H / 2) * zoom;
+  applyRelationTransform();
+  return true;
+}
+
+function scheduleCenterRelationCanvasOnCharacter(characterId) {
+  requestAnimationFrame(() => {
+    if (centerRelationCanvasOnCharacter(characterId)) return;
+    requestAnimationFrame(() => centerRelationCanvasOnCharacter(characterId));
+  });
 }
 
 async function closeRelationCanvas() {
@@ -12725,6 +12801,7 @@ function renderIdeaBank() {
   applyIdeaBankPane();
   if (!list) {
     renderSceneAuthorNotesList();
+    syncDockIdeasFloat();
     return;
   }
   if (!state.projectId) {
@@ -12732,6 +12809,7 @@ function renderIdeaBank() {
     if ($("newIdeaButton")) $("newIdeaButton").disabled = true;
     renderSceneAuthorNotesList();
     renderHeaderIdeaBar();
+    syncDockIdeasFloat();
     return;
   }
   if ($("newIdeaButton")) $("newIdeaButton").disabled = false;
@@ -12755,6 +12833,7 @@ function renderIdeaBank() {
   if (state.ideaBoardOpen) renderIdeaBoard();
   renderSettingsCodex();
   renderHeaderIdeaBar();
+  syncDockIdeasFloat();
 }
 
 function hideCenterViewsForIdeaBoard() {
@@ -13128,7 +13207,7 @@ function syncIdeaCardClips(card, colorKey) {
   });
 }
 
-async function createIdeaNote() {
+async function createIdeaNote({ open = "board" } = {}) {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const colors = IDEA_COLORS.map((item) => item.key);
   const color = colors[state.ideas.length % colors.length];
@@ -13139,7 +13218,8 @@ async function createIdeaNote() {
   state.ideas.push(idea);
   state.openSettingsSection = "ideas";
   renderIdeaBank();
-  openIdeaBoard(idea.id);
+  if (open === "float") openIdeaFloat(idea.id);
+  else openIdeaBoard(idea.id);
   toast(i18n.t('app.새_포스트잇_메모를_만들었어요'));
 }
 
@@ -13225,10 +13305,60 @@ function ideaFloatHost() {
   return host;
 }
 
+function floatStoreKey(raw) {
+  if (raw == null || raw === "") return null;
+  const text = String(raw);
+  if (text.startsWith("dock:")) return text;
+  const num = Number(text);
+  return Number.isFinite(num) && num > 0 ? num : null;
+}
+
+const DOCK_STATS_TRACKER_KEY = "dock:statsTracker";
+const DOCK_TRACKER_OPEN_KEY = "supertory.dock.statsTracker.open";
+const DOCK_TRACKER_LAYOUT_KEY = "supertory.dock.statsTracker.layout";
+const DOCK_CHAR_KEY_PREFIX = "dock:character:";
+const DOCK_CHAR_DEFAULT_W = 280;
+const DOCK_CHAR_DEFAULT_H = 360;
+const DOCK_CHAR_MIN_W = 260;
+const DOCK_CHAR_MIN_H = 280;
+const DOCK_TIMELINE_KEY = "dock:timeline";
+const DOCK_TIMELINE_DEFAULT_W = 360;
+const DOCK_TIMELINE_DEFAULT_H = 420;
+const DOCK_TIMELINE_MIN_W = 280;
+const DOCK_TIMELINE_MIN_H = 240;
+const DOCK_RELATION_KEY = "dock:relationMinimap";
+const DOCK_RELATION_DEFAULT_W = 420;
+const DOCK_RELATION_DEFAULT_H = 380;
+const DOCK_RELATION_MIN_W = 300;
+const DOCK_RELATION_MIN_H = 240;
+const DOCK_SETTINGS_SEARCH_KEY = "dock:settingsSearch";
+const DOCK_SETTINGS_SEARCH_DEFAULT_W = 380;
+const DOCK_SETTINGS_SEARCH_DEFAULT_H = 440;
+const DOCK_SETTINGS_SEARCH_MIN_W = 280;
+const DOCK_SETTINGS_SEARCH_MIN_H = 240;
+const DOCK_RAIL_FLOAT_KEYS = {
+  ideas: "dock:ideas",
+  statsTracker: DOCK_STATS_TRACKER_KEY,
+  characters: "dock:characters",
+  timeline: DOCK_TIMELINE_KEY,
+  settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
+};
+const dockCharacterDetailCache = new Map();
+let pendingDockCharacterId = null;
+let dockTimelineFilterId = 0;
+let dockTimelineLoadGen = 0;
+let dockTimelineCache = { projectId: 0, entries: [] };
+let dockRelationFocusId = 0;
+let dockRelationLoadGen = 0;
+let dockRelationData = { characters: [], relations: [] };
+let dockRelationPan = { x: 16, y: 16 };
+let dockRelationZoom = 0.72;
+let dockRelationDrag = null;
+
 function rememberIdeaFloatLayout(win, ideaId) {
   if (!win) return;
-  const id = Number(ideaId);
-  if (!id) return;
+  const id = floatStoreKey(ideaId);
+  if (id == null) return;
   const rect = win.getBoundingClientRect();
   const z = Number(win.style.zIndex) || ideaFloatZ;
   ideaFloatLayouts.set(id, {
@@ -13238,10 +13368,11 @@ function rememberIdeaFloatLayout(win, ideaId) {
     height: Math.round(rect.height),
     z,
   });
+  if (id === DOCK_STATS_TRACKER_KEY) persistDockTrackerLayout(ideaFloatLayouts.get(id));
 }
 
 function applyIdeaFloatLayout(win, ideaId, fallbackLeft, fallbackTop) {
-  const saved = ideaFloatLayouts.get(Number(ideaId));
+  const saved = ideaFloatLayouts.get(floatStoreKey(ideaId));
   const left = saved ? saved.left : fallbackLeft;
   const top = saved ? saved.top : fallbackTop;
   win.style.left = `${left}px`;
@@ -13259,6 +13390,19 @@ function applyIdeaFloatLayout(win, ideaId, fallbackLeft, fallbackTop) {
 function pruneAndSyncIdeaFloats() {
   const live = new Set((state.ideas || []).map((item) => Number(item.id)));
   for (const id of [...ideaFloatWindows.keys()]) {
+    if (typeof id === "string" && String(id).startsWith("dock:")) {
+      if (id === "dock:ideas") syncDockIdeasFloat();
+      if (id === "dock:characters") syncDockCharactersFloat();
+      if (String(id).startsWith("dock:character:")) {
+        const cid = Number(String(id).slice("dock:character:".length));
+        if (!cid || !(state.characters || []).some((ch) => Number(ch.id) === cid)) {
+          closeIdeaFloat(id, { skipSave: true });
+        } else {
+          syncDockCharacterCard(id);
+        }
+      }
+      continue;
+    }
     if (!live.has(Number(id))) closeIdeaFloat(id, { skipSave: true });
   }
   for (const idea of state.ideas || []) syncIdeaFloatChrome(idea);
@@ -13271,7 +13415,7 @@ function raiseIdeaFloat(win) {
   ideaFloatHost().querySelectorAll(".idea-float").forEach((el) => {
     el.classList.toggle("is-front", el === win);
   });
-  rememberIdeaFloatLayout(win, Number(win.dataset.ideaFloat));
+  rememberIdeaFloatLayout(win, win.dataset.floatKey || win.dataset.ideaFloat);
 }
 
 function syncIdeaFloatChrome(idea) {
@@ -13302,13 +13446,15 @@ function syncIdeaFloatChrome(idea) {
   syncIdeaCardClips(card, colorKey);
 }
 
-function bindIdeaFloatWindow(win, ideaId) {
+function bindIdeaFloatWindow(win, ideaId, options = {}) {
+  const layoutKey = floatStoreKey(ideaId) ?? ideaId;
   const dragBar = win.querySelector(".idea-float-drag");
   const resizeHandle = win.querySelector("[data-resize-edge]");
   let drag = null;
   let resize = null;
-  const MIN_W = 240;
-  const MIN_H = 180;
+  const MIN_W = Number(options.minWidth) > 0 ? Number(options.minWidth) : 240;
+  const MIN_H = Number(options.minHeight) > 0 ? Number(options.minHeight) : 180;
+  const onResize = typeof options.onResize === "function" ? options.onResize : null;
   const lockGeom = () => {
     const rect = win.getBoundingClientRect();
     win.style.left = `${Math.round(rect.left)}px`;
@@ -13317,7 +13463,7 @@ function bindIdeaFloatWindow(win, ideaId) {
     win.style.bottom = "auto";
     win.style.width = `${Math.round(rect.width)}px`;
     win.style.height = `${Math.round(rect.height)}px`;
-    rememberIdeaFloatLayout(win, ideaId);
+    rememberIdeaFloatLayout(win, layoutKey);
     return rect;
   };
   win.addEventListener("pointerdown", () => raiseIdeaFloat(win), true);
@@ -13366,18 +13512,20 @@ function bindIdeaFloatWindow(win, ideaId) {
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
       applyFloatingPopupResize(win, resize, event, MIN_W, MIN_H);
+      onResize?.(win);
     }
   };
   const onUp = (event) => {
     if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
       drag = null;
       document.body.classList.remove("idea-float-dragging");
-      rememberIdeaFloatLayout(win, ideaId);
+      rememberIdeaFloatLayout(win, layoutKey);
     }
     if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
       resize = null;
       document.body.classList.remove("idea-float-resizing");
-      rememberIdeaFloatLayout(win, ideaId);
+      rememberIdeaFloatLayout(win, layoutKey);
+      onResize?.(win);
     }
   };
   dragBar?.addEventListener("pointermove", onMove);
@@ -13388,12 +13536,13 @@ function bindIdeaFloatWindow(win, ideaId) {
   resizeHandle?.addEventListener("pointercancel", onUp);
   win.querySelector('[data-role="close-idea-float"]')?.addEventListener("click", (event) => {
     event.preventDefault();
-    closeIdeaFloat(ideaId);
+    closeIdeaFloat(layoutKey);
   });
 }
 
 function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
-  const id = Number(ideaId);
+  const id = floatStoreKey(ideaId);
+  if (id == null) return;
   const win = ideaFloatWindows.get(id);
   if (!win) return;
   const card = win.querySelector("[data-idea-card]");
@@ -13404,17 +13553,27 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
     }
     saveIdeaFromCard(card, { quiet: true }).catch(() => {});
   }
+  if (id === DOCK_SETTINGS_SEARCH_KEY) restoreSettingsSearchLive();
   win.remove();
   ideaFloatWindows.delete(id);
   ideaFloatLayouts.delete(id);
+  if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false);
+  syncDockRailButtons();
 }
 
 function closeAllIdeaFloats() {
+  const trackerLayout = ideaFloatLayouts.get(DOCK_STATS_TRACKER_KEY);
   for (const id of [...ideaFloatWindows.keys()]) {
+    if (id === DOCK_STATS_TRACKER_KEY) continue;
     closeIdeaFloat(id, { skipSave: true });
   }
   ideaFloatLayouts.clear();
+  if (trackerLayout) ideaFloatLayouts.set(DOCK_STATS_TRACKER_KEY, trackerLayout);
   ideaFloatZ = 1;
+  dockCharacterDetailCache.clear();
+  dockTimelineCache = { projectId: 0, entries: [] };
+  dockTimelineFilterId = 0;
+  if (typeof syncDockRailButtons === "function") syncDockRailButtons();
 }
 
 function openIdeaFloat(ideaId) {
@@ -13445,6 +13604,7 @@ function openIdeaFloat(ideaId) {
   const win = document.createElement("div");
   win.className = "idea-float";
   win.dataset.ideaFloat = String(id);
+  win.dataset.floatKey = String(id);
   win.setAttribute("role", "dialog");
   win.setAttribute("aria-modal", "false");
   const title = ideaDisplayTitle(idea);
@@ -13510,6 +13670,1151 @@ function setupIdeaBank() {
     event.preventDefault();
     setIdeaBankPane(tab.dataset.ideaBankTab);
   });
+}
+
+const DOCK_FLOAT_SPECS = {
+  ideas: {
+    titleKey: "app.생각수첩",
+    side: "left",
+    resize: false,
+    render(body) { renderDockIdeasBody(body); },
+  },
+  statsTracker: {
+    titleKey: "app.글자수_트래커",
+    compact: true,
+    pinned: true,
+    resize: false,
+    fallbackPos() { return dockTrackerFallbackPos(); },
+    seedLayout() { return loadDockTrackerLayout(); },
+    onOpen() {
+      setDockTrackerOpenPref(true);
+      syncDockRailButtons();
+      syncDockStatsTracker();
+    },
+    render(body) { renderDockStatsTracker(body); },
+  },
+  characters: {
+    titleKey: "app.캐릭터",
+    side: "left",
+    resize: false,
+    render(body) { renderDockCharactersBody(body); },
+  },
+  timeline: {
+    titleKey: "index.연대기",
+    windowClass: "dock-float-timeline",
+    side: "left",
+    defaultWidth: DOCK_TIMELINE_DEFAULT_W,
+    defaultHeight: DOCK_TIMELINE_DEFAULT_H,
+    resize: { minWidth: DOCK_TIMELINE_MIN_W, minHeight: DOCK_TIMELINE_MIN_H },
+    render(body) { renderDockTimelineBody(body); },
+  },
+  settingsSearch: {
+    titleKey: "app.크로스_레퍼런스_시스템",
+    windowClass: "dock-float-settings-search",
+    side: "left",
+    defaultWidth: DOCK_SETTINGS_SEARCH_DEFAULT_W,
+    defaultHeight: DOCK_SETTINGS_SEARCH_DEFAULT_H,
+    resize: { minWidth: DOCK_SETTINGS_SEARCH_MIN_W, minHeight: DOCK_SETTINGS_SEARCH_MIN_H },
+    render(body) { renderDockSettingsSearchBody(body); },
+  },
+};
+
+function isDockTrackerOpenPref() {
+  try {
+    const stored = localStorage.getItem(DOCK_TRACKER_OPEN_KEY);
+    if (stored === "0") return false;
+    if (stored === "1") return true;
+  } catch (_) {
+    /* private mode */
+  }
+  return true;
+}
+
+function setDockTrackerOpenPref(open) {
+  try {
+    localStorage.setItem(DOCK_TRACKER_OPEN_KEY, open ? "1" : "0");
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function persistDockTrackerLayout(layout) {
+  if (!layout || !Number.isFinite(Number(layout.left)) || !Number.isFinite(Number(layout.top))) return;
+  try {
+    localStorage.setItem(DOCK_TRACKER_LAYOUT_KEY, JSON.stringify({
+      left: Math.round(Number(layout.left)),
+      top: Math.round(Number(layout.top)),
+      z: Number(layout.z) || 1,
+    }));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function loadDockTrackerLayout() {
+  try {
+    const raw = localStorage.getItem(DOCK_TRACKER_LAYOUT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const left = Number(parsed?.left);
+    const top = Number(parsed?.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    const maxLeft = Math.max(8, window.innerWidth - 48);
+    const maxTop = Math.max(8, window.innerHeight - 40);
+    return {
+      left: Math.min(maxLeft, Math.max(8, Math.round(left))),
+      top: Math.min(maxTop, Math.max(8, Math.round(top))),
+      z: Number(parsed?.z) || 1,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function dockRailFloatKey(itemId) {
+  return DOCK_RAIL_FLOAT_KEYS[itemId] || "";
+}
+
+function isDockRailItemActive(itemId) {
+  const key = dockRailFloatKey(itemId);
+  if (!key) return false;
+  if (ideaFloatWindows.has(key)) return true;
+  if (itemId === "characters") {
+    for (const openKey of ideaFloatWindows.keys()) {
+      if (String(openKey).startsWith(DOCK_CHAR_KEY_PREFIX)) return true;
+    }
+  }
+  return false;
+}
+
+function syncDockRailButtons() {
+  document.querySelectorAll("[data-dock-item]").forEach((btn) => {
+    const itemId = btn.dataset.dockItem;
+    if (!dockRailFloatKey(itemId)) return;
+    const on = isDockRailItemActive(itemId);
+    btn.classList.toggle("is-open", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function syncDockStatsTrackerButton() {
+  syncDockRailButtons();
+}
+
+function toggleDockFloat(itemId, sourceEl) {
+  const key = dockRailFloatKey(itemId);
+  if (key && ideaFloatWindows.has(key)) {
+    closeIdeaFloat(key);
+    return null;
+  }
+  return openDockFloat(itemId, sourceEl);
+}
+
+function dockTrackerFallbackPos() {
+  const width = 210;
+  const height = 96;
+  return {
+    left: Math.max(8, Math.round(window.innerWidth - width - 20)),
+    top: Math.max(8, Math.round(window.innerHeight - height - 20)),
+  };
+}
+
+function dockStatsFlagLabels(snapshot = lastStatusBarCountSnapshot) {
+  const scope = snapshot?.scope === "project" ? "project" : "current";
+  const space = snapshot?.space === "without" ? "without" : "with";
+  return {
+    scope,
+    space,
+    scopeLabel: i18n.t(scope === "project" ? "app.전체" : "app.현재"),
+    spaceLabel: i18n.t(space === "without" ? "app.글자_공제" : "app.글자_공포"),
+    scopeTitle: i18n.t(scope === "project" ? "index.작품_전체를_셉니다" : "index.현재_원고만_셉니다"),
+    spaceTitle: i18n.t(space === "without" ? "index.공백_제외로_셉니다" : "index.공백_포함으로_셉니다"),
+  };
+}
+
+function renderDockStatsTracker(body, snapshot = lastStatusBarCountSnapshot) {
+  if (!body) return;
+  const metric = COUNT_METRIC_LABEL[snapshot?.metric] ? snapshot.metric : "chars_with_space";
+  const value = Math.max(0, Number(snapshot?.value) || 0);
+  const goal = Math.max(0, Number(snapshot?.goal) || 0);
+  const unit = goalExcessUnitWord(metric);
+  const glue = (i18n.getLang?.() || "ko") === "ko" ? "" : " ";
+  const withUnit = (n) => `${formatStatNumber(n)}${glue}${unit}`;
+  const hasGoal = goal > 0;
+  const percent = hasGoal ? Math.min(100, Math.round((value / goal) * 100)) : 0;
+  const remain = hasGoal ? Math.max(0, goal - value) : 0;
+  const valueText = hasGoal
+    ? `${formatStatNumber(value)} / ${withUnit(goal)}`
+    : withUnit(value);
+  const flags = dockStatsFlagLabels(snapshot);
+  const flagsTitle = `${flags.scopeTitle} · ${flags.spaceTitle}`;
+  body.innerHTML = `
+    <div class="dock-stats-card${hasGoal ? " has-goal" : ""}">
+      <div class="dock-stats-line">
+        <span class="dock-stats-flags" title="${escapeHtml(flagsTitle)}">
+          <span class="dock-stats-flag">${escapeHtml(flags.scopeLabel)}</span>
+          <span class="dock-stats-flag-sep" aria-hidden="true">·</span>
+          <span class="dock-stats-flag">${escapeHtml(flags.spaceLabel)}</span>
+        </span>
+        <div class="dock-stats-value">${escapeHtml(valueText)}</div>
+      </div>
+      ${hasGoal ? `<div class="dock-stats-remain">${escapeHtml(i18n.t("index.남은_분량", { n: formatStatNumber(remain), unit }))}</div>` : ""}
+      ${hasGoal ? `<div class="dock-stats-bar"><span style="width:${percent}%"></span></div><div class="dock-stats-pct">${percent}%</div>` : ""}
+    </div>
+  `;
+}
+
+function syncDockStatsTracker() {
+  const win = ideaFloatWindows.get(DOCK_STATS_TRACKER_KEY);
+  if (!win) return;
+  renderDockStatsTracker(win.querySelector("[data-role='dock-float-body']"), lastStatusBarCountSnapshot);
+}
+
+function dockFloatFallbackPos(side, sourceEl, width = 320) {
+  if (sourceEl?.getBoundingClientRect) {
+    const rect = sourceEl.getBoundingClientRect();
+    if (side === "right") {
+      return {
+        left: Math.max(8, Math.round(rect.left - width - 8)),
+        top: Math.max(8, Math.round(rect.top)),
+      };
+    }
+    return {
+      left: Math.round(rect.right + 8),
+      top: Math.max(8, Math.round(rect.top)),
+    };
+  }
+  if (side === "right") {
+    return { left: Math.max(16, window.innerWidth - width - 24), top: 56 };
+  }
+  return { left: 56, top: 56 };
+}
+
+function renderDockIdeasBody(body) {
+  if (!body) return;
+  const ideas = Array.isArray(state.ideas) ? state.ideas : [];
+  const empty = !state.projectId
+    ? i18n.t("app.먼저_작품을_선택해_주세요")
+    : i18n.t("app.아직_메모가_없어요");
+  const cards = ideas.map((idea) => {
+    const pinned = ideaIsPinned(idea);
+    const title = (!idea.title || idea.title === "새 메모") ? i18n.t("app.새_메모") : idea.title;
+    return `
+      <button type="button" class="idea-sticky color-${escapeHtml(idea.color || "yellow")}${pinned ? " is-pinned" : ""}" data-idea="${idea.id}" title="${escapeHtml(idea.title || i18n.t("app.메모"))}${pinned ? " · 목차 하단 고정" : ""}">
+        ${pinned ? `<span class="idea-sticky-pin" title="목차 하단 고정">${ideaPinGlyphHtml(16)}</span>` : ""}
+        <span class="idea-sticky-title">${escapeHtml(title)}</span>
+        <span class="idea-sticky-body">${escapeHtml(ideaPreview(idea.body_md))}</span>
+      </button>`;
+  }).join("");
+  body.innerHTML = `
+    <div class="dock-ideas-toolbar">
+      <button type="button" class="secondary compact-btn" data-role="dock-new-idea"${state.projectId ? "" : " disabled"}>+ ${escapeHtml(i18n.t("app.메모"))}</button>
+    </div>
+    <div class="dock-ideas-list">
+      ${!state.projectId || !ideas.length
+        ? `<p class="hint idea-sticky-empty">${escapeHtml(empty)}</p>`
+        : cards}
+    </div>
+  `;
+  body.querySelector('[data-role="dock-new-idea"]')?.addEventListener("click", () => {
+    createIdeaNote({ open: "float" }).catch(handleError);
+  });
+  body.querySelectorAll("[data-idea]").forEach((button) => {
+    button.addEventListener("click", () => openIdeaFloat(Number(button.dataset.idea)));
+  });
+}
+
+function syncDockIdeasFloat() {
+  const win = ideaFloatWindows.get("dock:ideas");
+  if (!win) return;
+  renderDockIdeasBody(win.querySelector("[data-role='dock-float-body']"));
+}
+
+function dockFloatResizeConfig(spec) {
+  if (!spec || spec.resize === false) return null;
+  const extra = spec.resize && typeof spec.resize === "object" ? spec.resize : {};
+  return {
+    minWidth: Number(extra.minWidth || spec.minWidth) > 0 ? Number(extra.minWidth || spec.minWidth) : 240,
+    minHeight: Number(extra.minHeight || spec.minHeight) > 0 ? Number(extra.minHeight || spec.minHeight) : 180,
+  };
+}
+
+function dockFloatTitle(spec) {
+  if (spec?.title) return String(spec.title);
+  if (spec?.titleKey) return i18n.t(spec.titleKey);
+  return "";
+}
+
+function openDockFloatWindow(key, spec, sourceEl) {
+  if (!key || !spec) return null;
+  const existing = ideaFloatWindows.get(key);
+  if (existing) {
+    raiseIdeaFloat(existing);
+    return existing;
+  }
+  ideaFloatHost();
+  if (typeof spec.seedLayout === "function") {
+    const saved = spec.seedLayout();
+    if (saved) ideaFloatLayouts.set(key, saved);
+  }
+  const title = dockFloatTitle(spec);
+  const win = document.createElement("div");
+  const extraClass = spec.windowClass ? ` ${spec.windowClass}` : "";
+  win.className = `idea-float dock-float${spec.compact ? " dock-float-mini" : ""}${extraClass}`;
+  win.dataset.floatKey = key;
+  if (spec.itemId) win.dataset.dockFloat = spec.itemId;
+  if (spec.characterId) win.dataset.characterId = String(spec.characterId);
+  win.setAttribute("role", "dialog");
+  win.setAttribute("aria-modal", "false");
+  win.setAttribute("aria-label", title);
+  const pos = typeof spec.fallbackPos === "function"
+    ? spec.fallbackPos(sourceEl)
+    : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth);
+  applyIdeaFloatLayout(win, key, pos.left, pos.top);
+  if (!ideaFloatLayouts.get(key)?.width && spec.defaultWidth) {
+    win.style.width = `${spec.defaultWidth}px`;
+  }
+  if (!ideaFloatLayouts.get(key)?.height && spec.defaultHeight) {
+    win.style.height = `${spec.defaultHeight}px`;
+  }
+  const resizeCfg = dockFloatResizeConfig(spec);
+  const resizeHtml = resizeCfg
+    ? `<div class="idea-float-resize" data-resize-edge="se" title="${escapeHtml(i18n.t("app.끌어서_크기_조절"))}" aria-hidden="true"></div>`
+    : "";
+  win.innerHTML = `
+    <div class="idea-float-drag" title="${escapeHtml(i18n.t("index.끌어_이동"))}">
+      <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
+      <strong class="idea-float-title">${escapeHtml(title)}</strong>
+      <button type="button" class="idea-float-close" data-role="close-idea-float" title="${escapeHtml(i18n.t("app.닫기"))}" aria-label="${escapeHtml(i18n.t("app.닫기"))}">×</button>
+    </div>
+    <div class="idea-float-body" data-role="dock-float-body"></div>
+    ${resizeHtml}
+  `;
+  ideaFloatHost().appendChild(win);
+  ideaFloatWindows.set(key, win);
+  ideaFloatProjectId = Number(state.projectId) || ideaFloatProjectId;
+  rememberIdeaFloatLayout(win, key);
+  bindIdeaFloatWindow(win, key, {
+    minWidth: resizeCfg?.minWidth,
+    minHeight: resizeCfg?.minHeight,
+    onResize: typeof spec.onResize === "function" ? spec.onResize : null,
+  });
+  if (typeof spec.render === "function") spec.render(win.querySelector("[data-role='dock-float-body']"));
+  raiseIdeaFloat(win);
+  if (typeof spec.onOpen === "function") spec.onOpen(win);
+  if (typeof spec.onResize === "function") spec.onResize(win);
+  syncDockRailButtons();
+  return win;
+}
+
+function openDockFloat(itemId, sourceEl) {
+  const spec = DOCK_FLOAT_SPECS[itemId];
+  if (!spec) return null;
+  if (itemId === "timeline") return openDockTimelineFloat(0, sourceEl);
+  if (itemId === "settingsSearch") return openDockSettingsSearchFloat("", sourceEl);
+  return openDockFloatWindow(`dock:${itemId}`, { ...spec, itemId }, sourceEl);
+}
+
+function dockCharacterFloatKey(characterId) {
+  return `${DOCK_CHAR_KEY_PREFIX}${Number(characterId) || 0}`;
+}
+
+function dockCharacterIdFromKey(key) {
+  const text = String(key || "");
+  if (!text.startsWith(DOCK_CHAR_KEY_PREFIX)) return 0;
+  return Number(text.slice(DOCK_CHAR_KEY_PREFIX.length)) || 0;
+}
+
+function normalizeDockCharacterCard(source) {
+  const listed = source?.character && typeof source.character === "object" ? source.character : source;
+  const aliases = characterAliasNamesFrom(source?.aliases || listed?.aliases);
+  return {
+    id: Number(listed?.id) || 0,
+    name: String(listed?.name || "").trim(),
+    role: listed?.role || "",
+    short_description: String(listed?.short_description || ""),
+    profile_md: String(listed?.profile_md || ""),
+    strengths_md: String(listed?.strengths_md || ""),
+    weaknesses_md: String(listed?.weaknesses_md || ""),
+    author_notes_md: String(listed?.author_notes_md || ""),
+    portrait_url: String(listed?.portrait_url || ""),
+    aliases,
+  };
+}
+
+function listedDockCharacter(characterId) {
+  const id = Number(characterId);
+  return (state.characters || []).find((item) => Number(item.id) === id) || null;
+}
+
+function dockCharacterCardData(characterId) {
+  const id = Number(characterId);
+  if (dockCharacterDetailCache.has(id)) return dockCharacterDetailCache.get(id);
+  const listed = listedDockCharacter(id);
+  return listed ? normalizeDockCharacterCard(listed) : null;
+}
+
+function dockCharacterFieldHtml(labelKey, text) {
+  const value = String(text || "").trim();
+  if (!value) return "";
+  return `
+    <section class="dock-char-field">
+      <h4>${escapeHtml(i18n.t(labelKey))}</h4>
+      <p>${escapeHtml(value)}</p>
+    </section>`;
+}
+
+function paintDockCharacterCard(body, data) {
+  if (!body || !data) return;
+  const name = data.name || i18n.t("app.이름_없음");
+  const summary = String(data.short_description || "").trim();
+  const profile = String(data.profile_md || "").trim();
+  const aliases = Array.isArray(data.aliases) ? data.aliases : [];
+  const portrait = String(data.portrait_url || "").trim();
+  const portraitHtml = portrait
+    ? `<img class="dock-char-portrait" src="${escapeHtml(portrait)}" alt="">`
+    : `<div class="dock-char-portrait is-empty">${escapeHtml(i18n.t("index.이미지_없음"))}</div>`;
+  body.innerHTML = `
+    <div class="dock-char-card">
+      <div class="dock-char-head">
+        ${portraitHtml}
+        <div class="dock-char-head-text">
+          ${summary ? `<p class="dock-char-summary">${escapeHtml(summary)}</p>` : `<p class="dock-char-summary is-empty">${escapeHtml(i18n.t("app.소개를_적어_보세요"))}</p>`}
+          ${aliases.length ? `<p class="dock-char-aliases">${escapeHtml(aliases.join(" · "))}</p>` : ""}
+        </div>
+      </div>
+      <section class="dock-char-field">
+        <h4>${escapeHtml(i18n.t("app.인물_설정"))}</h4>
+        <p>${profile ? escapeHtml(profile) : escapeHtml(i18n.t("app.인물_설정을_적어_보세요"))}</p>
+      </section>
+      <div class="dock-char-extra">
+        ${characterStoryRole(data.role) ? dockCharacterFieldHtml("index.역할", characterStoryRoleLabel(data.role)) : ""}
+        ${dockCharacterFieldHtml("app.무기_강점", data.strengths_md)}
+        ${dockCharacterFieldHtml("app.약점", data.weaknesses_md)}
+        ${dockCharacterFieldHtml("app.작가_메모", data.author_notes_md)}
+      </div>
+      <div class="dock-char-actions">
+        <button type="button" class="secondary compact-btn" data-role="dock-char-timeline">${escapeHtml(i18n.t("index.연대기_보기"))}</button>
+        <button type="button" class="secondary compact-btn" data-role="dock-char-relations">${escapeHtml(i18n.t("index.관계도_보기"))}</button>
+      </div>
+    </div>
+  `;
+  const win = body.closest(".idea-float");
+  const heading = win?.querySelector(".idea-float-title");
+  if (heading) heading.textContent = name;
+  if (win) win.setAttribute("aria-label", name);
+  body.querySelector("[data-role='dock-char-timeline']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openDockTimelineFloat(data.id, event.currentTarget);
+  });
+  body.querySelector("[data-role='dock-char-relations']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openDockRelationMinimapFloat(data.id, event.currentTarget);
+  });
+}
+
+function renderDockCharacterCard(body, characterId) {
+  if (!body) return;
+  const id = Number(characterId);
+  const data = dockCharacterCardData(id);
+  if (!data) {
+    body.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.아직_인물이_없어요"))}</p>`;
+    return;
+  }
+  paintDockCharacterCard(body, data);
+  if (dockCharacterDetailCache.has(id)) return;
+  api(`/api/characters/${id}`).then((detail) => {
+    const next = normalizeDockCharacterCard(detail);
+    if (!next.id) return;
+    dockCharacterDetailCache.set(id, next);
+    const win = ideaFloatWindows.get(dockCharacterFloatKey(id));
+    if (!win) return;
+    paintDockCharacterCard(win.querySelector("[data-role='dock-float-body']"), next);
+  }).catch(() => { /* keep list snapshot */ });
+}
+
+function syncDockCharacterCard(key) {
+  const id = dockCharacterIdFromKey(key);
+  const win = ideaFloatWindows.get(key);
+  if (!id || !win) return;
+  renderDockCharacterCard(win.querySelector("[data-role='dock-float-body']"), id);
+  syncDockCharacterCardExpanded(win);
+}
+
+function refreshDockCharacterCard(characterId) {
+  const id = Number(characterId);
+  if (!id) return;
+  dockCharacterDetailCache.delete(id);
+  const key = dockCharacterFloatKey(id);
+  if (ideaFloatWindows.get(key)) syncDockCharacterCard(key);
+}
+
+function syncDockCharacterCardExpanded(win) {
+  if (!win?.classList?.contains("dock-float-character")) return;
+  const rect = win.getBoundingClientRect();
+  const expanded = rect.width >= DOCK_CHAR_DEFAULT_W * 1.5 || rect.height >= DOCK_CHAR_DEFAULT_H * 1.5;
+  win.classList.toggle("is-expanded", expanded);
+}
+
+function openCharacterCardFloat(characterId, sourceEl) {
+  const id = Number(characterId);
+  if (!id) return null;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const listed = listedDockCharacter(id);
+  const title = listed?.name || i18n.t("app.인물_카드");
+  const openCount = [...ideaFloatWindows.keys()].filter((key) => String(key).startsWith(DOCK_CHAR_KEY_PREFIX)).length;
+  const offset = openCount % 6;
+  return openDockFloatWindow(dockCharacterFloatKey(id), {
+    title,
+    itemId: "character",
+    characterId: id,
+    windowClass: "dock-float-character",
+    side: "left",
+    defaultWidth: DOCK_CHAR_DEFAULT_W,
+    defaultHeight: DOCK_CHAR_DEFAULT_H,
+    resize: { minWidth: DOCK_CHAR_MIN_W, minHeight: DOCK_CHAR_MIN_H },
+    fallbackPos(el) {
+      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_CHAR_DEFAULT_W);
+      return {
+        left: Math.max(16, 72 + offset * 22),
+        top: Math.max(48, 72 + offset * 22),
+      };
+    },
+    onResize: syncDockCharacterCardExpanded,
+    render(body) { renderDockCharacterCard(body, id); },
+  }, sourceEl);
+}
+
+function renderDockCharactersBody(body) {
+  if (!body) return;
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  const empty = !state.projectId
+    ? i18n.t("app.먼저_작품을_선택해_주세요")
+    : i18n.t("app.아직_인물이_없어요");
+  const rows = people.map((character) => `
+    <button type="button" class="dock-char-list-item" data-dock-character="${character.id}">
+      ${escapeHtml(character.name || i18n.t("app.이름_없음"))}
+    </button>`).join("");
+  body.innerHTML = `
+    <div class="dock-char-list">
+      ${!state.projectId || !people.length
+        ? `<p class="hint idea-sticky-empty">${escapeHtml(empty)}</p>`
+        : rows}
+    </div>
+  `;
+  body.querySelectorAll("[data-dock-character]").forEach((button) => {
+    button.addEventListener("click", () => openCharacterCardFloat(button.dataset.dockCharacter, button));
+  });
+}
+
+function syncDockCharactersFloat() {
+  const win = ideaFloatWindows.get("dock:characters");
+  if (!win) return;
+  renderDockCharactersBody(win.querySelector("[data-role='dock-float-body']"));
+}
+
+function dockTimelineFilterOptionsHtml() {
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  return `<option value="0">${escapeHtml(i18n.t("app.전체"))}</option>`
+    + people.map((character) => (
+      `<option value="${Number(character.id) || 0}">${escapeHtml(character.name || i18n.t("app.이름_없음"))}</option>`
+    )).join("");
+}
+
+function fillDockTimelineFilter(root) {
+  const select = root?.querySelector("[data-role='dock-timeline-filter']");
+  if (!select) return;
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  const current = Number(dockTimelineFilterId) || 0;
+  select.innerHTML = dockTimelineFilterOptionsHtml();
+  if (current > 0 && !people.some((character) => Number(character.id) === current)) {
+    select.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${current}">${escapeHtml(i18n.t("app.캐릭터"))}</option>`,
+    );
+  }
+  select.value = String(current || 0);
+}
+
+function filteredDockTimelineEntries() {
+  const filterId = Number(dockTimelineFilterId) || 0;
+  const rows = Array.isArray(dockTimelineCache.entries) ? dockTimelineCache.entries : [];
+  if (!filterId) return rows;
+  return rows.filter((entry) => Number(entry.character_id) === filterId);
+}
+
+function paintDockTimelineList(win) {
+  const list = win?.querySelector("[data-role='dock-timeline-list']");
+  if (!list) return;
+  renderTraitChronicleList(list, filteredDockTimelineEntries(), "character", {
+    showNames: !Number(dockTimelineFilterId),
+  });
+}
+
+async function loadDockTimelineEntries(options = {}) {
+  const force = Boolean(options.force);
+  const pid = Number(state.projectId) || 0;
+  if (!pid) {
+    dockTimelineCache = { projectId: 0, entries: [] };
+    return [];
+  }
+  if (!force && dockTimelineCache.projectId === pid) return dockTimelineCache.entries;
+  const gen = ++dockTimelineLoadGen;
+  const data = await api(`/api/projects/${pid}/trait-history`);
+  if (gen !== dockTimelineLoadGen) return dockTimelineCache.entries;
+  dockTimelineCache = {
+    projectId: pid,
+    entries: Array.isArray(data?.entries) ? data.entries : [],
+  };
+  return dockTimelineCache.entries;
+}
+
+function renderDockTimelineBody(body) {
+  if (!body) return;
+  const win = body.closest(".idea-float");
+  body.innerHTML = `
+    <div class="dock-timeline">
+      <div class="dock-timeline-toolbar">
+        <label class="dock-timeline-filter-label">
+          <span>${escapeHtml(i18n.t("index.연대기_인물_필터"))}</span>
+          <select data-role="dock-timeline-filter" aria-label="${escapeHtml(i18n.t("index.연대기_인물_필터"))}">
+            ${dockTimelineFilterOptionsHtml()}
+          </select>
+        </label>
+      </div>
+      <p class="hint dock-timeline-hint">${escapeHtml(i18n.t("index.연대기_작품_안내"))}</p>
+      <div class="dock-timeline-list trait-chronicle-list" data-role="dock-timeline-list">
+        <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
+      </div>
+    </div>
+  `;
+  fillDockTimelineFilter(body);
+  body.querySelector("[data-role='dock-timeline-filter']")?.addEventListener("change", (event) => {
+    dockTimelineFilterId = Number(event.target.value) || 0;
+    paintDockTimelineList(win);
+  });
+  loadDockTimelineEntries({ force: true }).then(() => {
+    if (!ideaFloatWindows.get(DOCK_TIMELINE_KEY)) return;
+    paintDockTimelineList(win);
+  }).catch(handleError);
+}
+
+function syncDockTimelineFloat() {
+  const win = ideaFloatWindows.get(DOCK_TIMELINE_KEY);
+  if (!win) return;
+  const people = Array.isArray(state.characters) ? state.characters : [];
+  const current = Number(dockTimelineFilterId) || 0;
+  if (current > 0 && people.length && !people.some((character) => Number(character.id) === current)) {
+    dockTimelineFilterId = 0;
+  }
+  fillDockTimelineFilter(win);
+  if (dockTimelineCache.projectId === Number(state.projectId)) paintDockTimelineList(win);
+}
+
+function openDockTimelineFloat(characterId, sourceEl) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  dockTimelineFilterId = Number(characterId) || 0;
+  const existing = ideaFloatWindows.get(DOCK_TIMELINE_KEY);
+  const spec = DOCK_FLOAT_SPECS.timeline;
+  const win = openDockFloatWindow(DOCK_TIMELINE_KEY, { ...spec, itemId: "timeline" }, sourceEl);
+  if (existing) {
+    fillDockTimelineFilter(existing);
+    if (dockTimelineCache.projectId === Number(state.projectId)) {
+      paintDockTimelineList(existing);
+    } else {
+      loadDockTimelineEntries({ force: true }).then(() => {
+        if (!ideaFloatWindows.get(DOCK_TIMELINE_KEY)) return;
+        paintDockTimelineList(existing);
+      }).catch(handleError);
+    }
+  }
+  return win;
+}
+
+function neighborhoodRelationData(all, characterId) {
+  const id = Number(characterId);
+  const relations = (all?.relations || []).filter((rel) =>
+    Number(rel.character_a_id) === id || Number(rel.character_b_id) === id
+  );
+  const ids = new Set([id]);
+  relations.forEach((rel) => {
+    ids.add(Number(rel.character_a_id));
+    ids.add(Number(rel.character_b_id));
+  });
+  const characters = (all?.characters || []).filter((ch) => ids.has(Number(ch.id)));
+  return { characters, relations };
+}
+
+function dockRelationTitle() {
+  const name = String(
+    (state.characters || []).find((ch) => Number(ch.id) === Number(dockRelationFocusId))?.name || ""
+  ).trim();
+  const base = i18n.t("index.관계도_미니맵");
+  return name ? `${name} · ${base}` : base;
+}
+
+function applyDockRelationTitle(win) {
+  const title = dockRelationTitle();
+  if (!win) return;
+  win.setAttribute("aria-label", title);
+  const el = win.querySelector(".idea-float-title");
+  if (el) el.textContent = title;
+}
+
+function applyDockRelationTransform() {
+  const win = ideaFloatWindows.get(DOCK_RELATION_KEY);
+  const world = win?.querySelector("[data-role='dock-rel-world']");
+  if (!world) return;
+  world.style.transform = `translate(${dockRelationPan.x}px, ${dockRelationPan.y}px) scale(${dockRelationZoom})`;
+}
+
+function paintDockRelationMinimap() {
+  const win = ideaFloatWindows.get(DOCK_RELATION_KEY);
+  if (!win) return;
+  const svg = win.querySelector("[data-role='dock-rel-svg']");
+  const host = win.querySelector("[data-role='dock-rel-cards']");
+  if (!svg || !host) return;
+  paintRelationCards({
+    host,
+    characters: dockRelationData.characters,
+    selectedIds: [],
+    showProfile: false,
+    egoId: dockRelationFocusId,
+  });
+  paintRelationLines({
+    svg,
+    characters: dockRelationData.characters,
+    relations: dockRelationData.relations,
+    interactive: false,
+  });
+  applyDockRelationTransform();
+}
+
+function fitDockRelationMinimap() {
+  const win = ideaFloatWindows.get(DOCK_RELATION_KEY);
+  const stage = win?.querySelector("[data-role='dock-rel-stage']");
+  const rows = dockRelationData.characters || [];
+  if (!stage || !rows.length) return false;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  rows.forEach((ch) => {
+    minX = Math.min(minX, Number(ch.x));
+    minY = Math.min(minY, Number(ch.y));
+    maxX = Math.max(maxX, Number(ch.x) + REL_CARD_W);
+    maxY = Math.max(maxY, Number(ch.y) + REL_CARD_H);
+  });
+  const width = Math.max(120, maxX - minX);
+  const height = Math.max(80, maxY - minY);
+  const rect = stage.getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 40) return false;
+  const zoom = Math.max(0.28, Math.min(1.1, Math.min((rect.width - 36) / width, (rect.height - 36) / height)));
+  dockRelationZoom = zoom;
+  dockRelationPan.x = (rect.width - width * zoom) / 2 - minX * zoom;
+  dockRelationPan.y = (rect.height - height * zoom) / 2 - minY * zoom;
+  applyDockRelationTransform();
+  return true;
+}
+
+function scheduleFitDockRelationMinimap() {
+  requestAnimationFrame(() => {
+    if (fitDockRelationMinimap()) return;
+    requestAnimationFrame(() => fitDockRelationMinimap());
+  });
+}
+
+function syncDockRelationPosition(characterId, x, y) {
+  const id = Number(characterId);
+  let found = false;
+  (dockRelationData.characters || []).forEach((ch) => {
+    if (Number(ch.id) !== id) return;
+    ch.x = x;
+    ch.y = y;
+    found = true;
+  });
+  if (found && ideaFloatWindows.get(DOCK_RELATION_KEY) && !dockRelationDrag) {
+    paintDockRelationMinimap();
+  }
+}
+
+function syncMainRelationPosition(characterId, x, y) {
+  const id = Number(characterId);
+  let found = false;
+  (relationCanvasData.characters || []).forEach((ch) => {
+    if (Number(ch.id) !== id) return;
+    ch.x = x;
+    ch.y = y;
+    found = true;
+  });
+  if (found && state.relationCanvasOpen) paintRelationCanvas();
+}
+
+function bindDockRelationMinimapStage(stage) {
+  if (!stage || stage.dataset.relMinimapBound === "1") return;
+  stage.dataset.relMinimapBound = "1";
+  stage.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    const card = event.target.closest?.("[data-rel-card]");
+    if (!card) return;
+    const id = Number(card.getAttribute("data-rel-card"));
+    const ch = (dockRelationData.characters || []).find((row) => Number(row.id) === id);
+    if (!ch) return;
+    event.preventDefault();
+    dockRelationDrag = {
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      origX: Number(ch.x),
+      origY: Number(ch.y),
+      moved: false,
+    };
+    card.classList.add("is-dragging");
+    stage.setPointerCapture?.(event.pointerId);
+  });
+  stage.addEventListener("pointermove", (event) => {
+    if (!dockRelationDrag) return;
+    const dx = (event.clientX - dockRelationDrag.startX) / dockRelationZoom;
+    const dy = (event.clientY - dockRelationDrag.startY) / dockRelationZoom;
+    if (Math.abs(dx) + Math.abs(dy) > 3) dockRelationDrag.moved = true;
+    const ch = (dockRelationData.characters || []).find((row) => Number(row.id) === dockRelationDrag.id);
+    if (!ch) return;
+    ch.x = dockRelationDrag.origX + dx;
+    ch.y = dockRelationDrag.origY + dy;
+    const el = stage.querySelector(`[data-rel-card="${dockRelationDrag.id}"]`);
+    if (el) {
+      el.style.left = `${ch.x}px`;
+      el.style.top = `${ch.y}px`;
+    }
+    const svg = stage.querySelector("[data-role='dock-rel-svg']");
+    if (svg) {
+      paintRelationLines({
+        svg,
+        characters: dockRelationData.characters,
+        relations: dockRelationData.relations,
+        interactive: false,
+      });
+    }
+  });
+  const endPointer = () => {
+    if (!dockRelationDrag) return;
+    const drag = dockRelationDrag;
+    dockRelationDrag = null;
+    stage.querySelector("[data-rel-card].is-dragging")?.classList.remove("is-dragging");
+    if (!drag.moved) return;
+    const ch = (dockRelationData.characters || []).find((row) => Number(row.id) === drag.id);
+    if (!ch) return;
+    persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+    syncMainRelationPosition(ch.id, ch.x, ch.y);
+  };
+  stage.addEventListener("pointerup", endPointer);
+  stage.addEventListener("pointercancel", endPointer);
+}
+
+async function loadDockRelationMinimapData(characterId) {
+  const pid = Number(state.projectId) || 0;
+  if (!pid) {
+    dockRelationData = { characters: [], relations: [] };
+    return dockRelationData;
+  }
+  const gen = ++dockRelationLoadGen;
+  const data = await api(`/api/projects/${pid}/character-canvas`);
+  if (gen !== dockRelationLoadGen) return dockRelationData;
+  const laid = ensureRelationLayout(Array.isArray(data.characters) ? data.characters : []);
+  const all = {
+    characters: laid.characters,
+    relations: Array.isArray(data.relations) ? data.relations : [],
+  };
+  relationCanvasData = all;
+  if (laid.dirty) {
+    persistRelationPositions(
+      laid.characters.map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y }))
+    ).catch(handleError);
+  }
+  if (state.relationCanvasOpen) paintRelationCanvas();
+  dockRelationData = neighborhoodRelationData(all, characterId);
+  return dockRelationData;
+}
+
+function renderDockRelationMinimapBody(body) {
+  if (!body) return;
+  dockRelationDrag = null;
+  const focusId = Number(dockRelationFocusId) || 0;
+  body.innerHTML = `
+    <div class="dock-relation">
+      <div class="dock-relation-toolbar">
+        <button type="button" class="secondary compact-btn" data-role="dock-rel-fullscreen">${escapeHtml(i18n.t("index.전체화면으로_보기"))}</button>
+      </div>
+      <p class="hint dock-relation-hint">${escapeHtml(i18n.t("index.관계도_미니맵_안내"))}</p>
+      <div class="dock-relation-board" data-role="dock-rel-board">
+        <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
+      </div>
+    </div>
+  `;
+  body.querySelector("[data-role='dock-rel-fullscreen']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openRelationCanvas({ characterId: dockRelationFocusId, fullscreen: true }).catch(handleError);
+  });
+  const board = body.querySelector("[data-role='dock-rel-board']");
+  loadDockRelationMinimapData(focusId).then((data) => {
+    if (!ideaFloatWindows.get(DOCK_RELATION_KEY) || Number(dockRelationFocusId) !== focusId) return;
+    if (!board) return;
+    if (!data.relations.length) {
+      board.innerHTML = `<p class="hint character-board-empty">${escapeHtml(i18n.t("app.아직_등록된_관계가_없어요"))}</p>`;
+      return;
+    }
+    board.innerHTML = `
+      <div class="relation-canvas-stage dock-relation-stage" data-role="dock-rel-stage">
+        <div class="relation-canvas-world" data-role="dock-rel-world">
+          <svg class="relation-canvas-svg" data-role="dock-rel-svg" aria-hidden="true"></svg>
+          <div class="relation-canvas-cards" data-role="dock-rel-cards"></div>
+        </div>
+      </div>
+    `;
+    const stage = board.querySelector("[data-role='dock-rel-stage']");
+    bindDockRelationMinimapStage(stage);
+    paintDockRelationMinimap();
+    scheduleFitDockRelationMinimap();
+  }).catch(handleError);
+}
+
+function openDockRelationMinimapFloat(characterId, sourceEl) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  const id = Number(characterId) || 0;
+  if (!id) return null;
+  dockRelationFocusId = id;
+  const existing = ideaFloatWindows.get(DOCK_RELATION_KEY);
+  const spec = {
+    titleKey: "index.관계도_미니맵",
+    title: dockRelationTitle(),
+    itemId: "relationMinimap",
+    windowClass: "dock-float-relation",
+    side: "left",
+    defaultWidth: DOCK_RELATION_DEFAULT_W,
+    defaultHeight: DOCK_RELATION_DEFAULT_H,
+    resize: { minWidth: DOCK_RELATION_MIN_W, minHeight: DOCK_RELATION_MIN_H },
+    onResize() { scheduleFitDockRelationMinimap(); },
+    render(body) { renderDockRelationMinimapBody(body); },
+  };
+  const win = openDockFloatWindow(DOCK_RELATION_KEY, spec, sourceEl);
+  applyDockRelationTitle(win);
+  if (existing) {
+    applyDockRelationTitle(existing);
+    renderDockRelationMinimapBody(existing.querySelector("[data-role='dock-float-body']"));
+  }
+  return win;
+}
+
+function settingsSearchLiveEl() {
+  return $("settingsSearchLive");
+}
+
+function restoreSettingsSearchLive() {
+  const home = $("settingsSearchHome");
+  const live = settingsSearchLiveEl();
+  if (!home || !live) return;
+  if (live.parentElement !== home) home.appendChild(live);
+}
+
+function adoptSettingsSearchLive(host) {
+  const live = settingsSearchLiveEl();
+  if (!host || !live) return;
+  if (live.parentElement !== host) host.appendChild(live);
+}
+
+function renderDockSettingsSearchBody(body) {
+  adoptSettingsSearchLive(body);
+}
+
+function applyDockSettingsSearchQuery(query) {
+  bindSettingsSearchEvents();
+  const input = $("settingsSearchInput");
+  if (!input) return;
+  const next = String(query ?? "");
+  input.value = next;
+  try { input.focus({ preventScroll: true }); } catch (_) { input.focus(); }
+  if (next.trim()) runSettingsSearch(next).catch(handleError);
+  else renderSettingsSearchResults({}, "");
+}
+
+function openDockSettingsSearchFloat(query, sourceEl) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  hideSettingsSearchBoard();
+  const spec = DOCK_FLOAT_SPECS.settingsSearch;
+  const win = openDockFloatWindow(DOCK_SETTINGS_SEARCH_KEY, { ...spec, itemId: "settingsSearch" }, sourceEl);
+  adoptSettingsSearchLive(win?.querySelector("[data-role='dock-float-body']"));
+  applyDockSettingsSearchQuery(query);
+  return win;
+}
+
+function openSettingsSearchFromSelection() {
+  const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
+  if (!raw) {
+    toast(i18n.t("app.본문에서_단어나_문장을_드래그로_선택한_뒤"));
+    return;
+  }
+  const query = raw.replace(/\s+/g, " ").slice(0, 80);
+  openDockSettingsSearchFloat(query);
+}
+
+function editorTextOffsetFromRange(editor, range) {
+  if (!editor || !range) return -1;
+  try {
+    const pre = document.createRange();
+    pre.selectNodeContents(editor);
+    pre.setEnd(range.startContainer, range.startOffset);
+    return pre.toString().length;
+  } catch (_) {
+    return -1;
+  }
+}
+
+function characterAtTextOffset(text, offset, characters) {
+  const source = String(text || "");
+  const pos = Math.max(0, Math.min(source.length, Number(offset) || 0));
+  let best = null;
+  (characters || []).forEach((character) => {
+    const id = Number(character?.id);
+    if (!id) return;
+    sceneCastLabels(character).forEach((name) => {
+      if (!name) return;
+      let from = 0;
+      while (from < source.length) {
+        const index = source.indexOf(name, from);
+        if (index < 0) break;
+        const end = index + name.length;
+        const prev = index > 0 ? source[index - 1] : "";
+        if (/[가-힣]/.test(prev)) {
+          from = index + 1;
+          continue;
+        }
+        if (!SCENE_CAST_AFTER_OK.test(source.slice(end))) {
+          from = index + 1;
+          continue;
+        }
+        if (pos >= index && pos <= end) {
+          if (!best || name.length > best.name.length) best = { id, name };
+        }
+        from = index + 1;
+      }
+    });
+  });
+  return best;
+}
+
+function characterFromSelectedText(text) {
+  const needle = String(text || "").trim();
+  if (!needle) return null;
+  const people = state.characters || [];
+  for (const character of people) {
+    if (sceneCastLabels(character).some((name) => name === needle)) {
+      return { id: Number(character.id), name: needle };
+    }
+  }
+  return null;
+}
+
+function rangeFromEditorPoint(editor, clientX, clientY) {
+  if (!editor) return null;
+  let range = null;
+  if (document.caretRangeFromPoint) {
+    range = document.caretRangeFromPoint(clientX, clientY);
+  } else if (document.caretPositionFromPoint) {
+    const pos = document.caretPositionFromPoint(clientX, clientY);
+    if (pos) {
+      range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+    }
+  }
+  if (range && !editor.contains(range.commonAncestorContainer)) return null;
+  return range;
+}
+
+function characterFromEditorPoint(editor, clientX, clientY) {
+  if (!editor || !(state.characters || []).length) return null;
+  const range = rangeFromEditorPoint(editor, clientX, clientY);
+  if (!range) return null;
+  const offset = editorTextOffsetFromRange(editor, range);
+  if (offset < 0) return null;
+  return characterAtTextOffset(editor.textContent || "", offset, state.characters);
+}
+
+function isManuscriptBodyEditor(node) {
+  const id = node?.id;
+  return id === "sceneContent" || id === "focusWriteEditor" || id === "splitSceneBodyEditor";
+}
+
+function onManuscriptCharacterNameClick(event) {
+  if (event.button != null && event.button !== 0) return;
+  if (event.detail !== 1) return;
+  if (event.target?.closest?.("a, button, img, .idea-float")) return;
+  const editor = event.currentTarget;
+  if (!isManuscriptBodyEditor(editor)) return;
+  const selection = window.getSelection();
+  if (selection && !selection.isCollapsed && editor.contains(selection.anchorNode)) return;
+  const hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  if (!hit) return;
+  openCharacterCardFloat(hit.id);
+}
+
+function onManuscriptCharacterNameMove(event) {
+  const editor = event.currentTarget;
+  if (!isManuscriptBodyEditor(editor)) return;
+  const hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  editor.classList.toggle("is-over-character-name", Boolean(hit));
+}
+
+function setupDockCharacterNameClicks() {
+  ["sceneContent", "focusWriteEditor", "splitSceneBodyEditor"].forEach((id) => {
+    const editor = $(id);
+    if (!editor || editor.dataset.dockCharBound === "1") return;
+    editor.dataset.dockCharBound = "1";
+    editor.addEventListener("click", onManuscriptCharacterNameClick);
+    editor.addEventListener("mousemove", onManuscriptCharacterNameMove);
+    editor.addEventListener("mouseleave", () => editor.classList.remove("is-over-character-name"));
+  });
+}
+
+function syncOpenCharacterCardMenu(editor, event) {
+  const btn = $("openCharacterCardMenuItem");
+  const hint = $("openCharacterCardMenuHint");
+  pendingDockCharacterId = null;
+  if (!btn) return;
+  let hit = characterFromSelectedText(getSelectedManuscriptText(editor));
+  if (!hit && event && editor) {
+    hit = characterFromEditorPoint(editor, event.clientX, event.clientY);
+  }
+  pendingDockCharacterId = hit?.id || null;
+  btn.classList.toggle("hidden", !pendingDockCharacterId);
+  btn.disabled = !pendingDockCharacterId;
+  if (hint) hint.textContent = hit?.name ? hit.name : "";
+}
+
+function setupPanelDock() {
+  document.querySelectorAll(".panel-dock-rail").forEach((rail) => {
+    rail.addEventListener("click", (event) => {
+      const item = event.target?.closest?.("[data-dock-item]");
+      if (!item || !rail.contains(item)) return;
+      event.preventDefault();
+      toggleDockFloat(item.dataset.dockItem, item);
+    });
+  });
+  setupDockCharacterNameClicks();
+  if (isDockTrackerOpenPref()) openDockFloat("statsTracker");
+  syncDockRailButtons();
 }
 
 async function refreshAiStatus() {
@@ -30014,6 +31319,10 @@ const translationWorkspaceState = {
   rangeEpisodes: [],
   chapterPolish: {},
   submissionResult: null,
+  homeTab: "new",
+  historyJobs: [],
+  historyStatusFilter: "all",
+  historyProjectFilter: "current",
 };
 
 const CULTURE_LEVEL_I18N = {
@@ -30023,6 +31332,7 @@ const CULTURE_LEVEL_I18N = {
 };
 
 let translationWordPopoverAnchor = null;
+let translationHistoryPendingOpen = null;
 
 function isTranslationWorkspaceOpen() {
   return Boolean($("translationWorkspaceModal") && !$("translationWorkspaceModal").classList.contains("hidden"));
@@ -30048,6 +31358,10 @@ function resetTranslationWorkspaceState() {
   translationWorkspaceState.rangeEpisodes = [];
   translationWorkspaceState.chapterPolish = {};
   translationWorkspaceState.submissionResult = null;
+  translationWorkspaceState.homeTab = "new";
+  translationWorkspaceState.historyJobs = [];
+  translationWorkspaceState.historyStatusFilter = "all";
+  translationWorkspaceState.historyProjectFilter = "current";
 }
 
 function translationWorkspaceBelongsToOtherProject(projectId) {
@@ -30069,6 +31383,12 @@ function translationWorkspaceBelongsToOtherProject(projectId) {
 }
 
 function detachTranslationWorkspaceForProjectChange() {
+  if (translationHistoryPendingOpen) {
+    resetTranslationWorkspaceState();
+    translationWorkspaceState.dismissed = false;
+    translationWorkspaceState.hashOpenPending = false;
+    return;
+  }
   resetTranslationWorkspaceState();
   translationWorkspaceState.dismissed = true;
   translationWorkspaceState.hashOpenPending = false;
@@ -30325,7 +31645,7 @@ function selectedTranslationLanguage() {
 }
 
 function translationRangeSetupOpen() {
-  return !translationWorkspaceState.jobId;
+  return translationWorkspaceState.homeTab === "new" && !translationWorkspaceState.jobId;
 }
 
 function currentTranslationRangePayload() {
@@ -30493,6 +31813,220 @@ function syncTranslationRangeSetupVisibility(setup) {
     $("translationScenesPanel")?.classList.add("hidden");
     $("translationProperNounPanel")?.classList.add("hidden");
     $("translationParagraphPanel")?.classList.add("hidden");
+  }
+}
+
+function translationJobIsFinished(job) {
+  const status = String(job?.status || "").trim();
+  return status === "translated" || status === "completed";
+}
+
+function translationHistoryJobIsDone(job) {
+  if (!job) return false;
+  if (translationJobIsFinished(job) || job.is_complete) return true;
+  return Boolean(job.has_submission_package);
+}
+
+function translationLanguageLabel(code) {
+  const map = {
+    en: "app.영어",
+    es: "app.스페인어",
+    fr: "app.프랑스어",
+    zh: "index.중국어_준비중",
+    ja: "index.일본어_준비중",
+  };
+  return i18n.t(map[String(code || "en")] || "app.영어");
+}
+
+function formatTranslationHistoryDate(iso) {
+  const raw = String(iso || "").trim();
+  if (!raw) return "";
+  const parsed = parseViewerCommentTimestamp(raw)
+    || new Date(raw.includes("T") ? raw : raw.replace(" ", "T"));
+  if (!parsed || Number.isNaN(parsed.getTime())) return raw;
+  const year = parsed.getFullYear();
+  const month = parsed.getMonth() + 1;
+  const day = parsed.getDate();
+  const time = `${String(parsed.getHours()).padStart(2, "0")}:${String(parsed.getMinutes()).padStart(2, "0")}`;
+  return `${year}. ${month}. ${day}. ${time}`;
+}
+
+function translationHistoryRangeLabel(job) {
+  if (job?.translate_all_chapters) return i18n.t("index.전체_회차");
+  const start = Number(job?.start_chapter || 1);
+  const end = Number(job?.end_chapter || start);
+  return i18n.t("index.n화_부터_m화", { n: start, m: end });
+}
+
+function leaveOpenedTranslationJob() {
+  stopTranslationWaitPoll();
+  translationWorkspaceState.jobId = null;
+  translationWorkspaceState.job = null;
+  translationWorkspaceState.chapters = [];
+  translationWorkspaceState.segments = [];
+  translationWorkspaceState.properNouns = [];
+  translationWorkspaceState.chat = [];
+  translationWorkspaceState.chapterPolish = {};
+  translationWorkspaceState.submissionResult = null;
+  translationWorkspaceState.busy = false;
+  closeTranslationSubmissionCheerModal();
+  closeTranslationSubmissionResultModal();
+  hideTranslationAskButton();
+  hideTranslationNotesPopover();
+  hideTranslationWordPopover();
+  setTranslationChatOpen(false);
+}
+
+function syncTranslationHomeUi() {
+  const tab = translationWorkspaceState.homeTab === "history" || translationWorkspaceState.homeTab === "job"
+    ? translationWorkspaceState.homeTab
+    : "new";
+  const modal = $("translationWorkspaceModal");
+  modal?.classList.toggle("is-home-new", tab === "new");
+  modal?.classList.toggle("is-home-history", tab === "history");
+  modal?.classList.toggle("is-home-job", tab === "job");
+  document.querySelectorAll("[data-translation-home-tab]").forEach((btn) => {
+    const on = btn.getAttribute("data-translation-home-tab") === (tab === "job" ? "" : tab);
+    btn.classList.toggle("is-active", tab !== "job" && on);
+    btn.setAttribute("aria-selected", tab !== "job" && on ? "true" : "false");
+  });
+  $("translationHistoryPanel")?.classList.toggle("hidden", tab !== "history");
+  $("translationChatDock")?.classList.toggle("hidden", tab !== "job");
+  const resizer = $("translationChatResizer");
+  if (resizer) resizer.classList.toggle("hidden", tab !== "job");
+  if (tab === "new") {
+    syncTranslationRangeSetupVisibility(true);
+  } else if (tab === "history") {
+    syncTranslationRangeSetupVisibility(false);
+    $("translationRangePanel")?.classList.add("hidden");
+    $("translationFormattingPanel")?.classList.add("hidden");
+    $("translationScenesPanel")?.classList.add("hidden");
+    $("translationProperNounPanel")?.classList.add("hidden");
+    $("translationParagraphPanel")?.classList.add("hidden");
+  } else {
+    syncTranslationRangeSetupVisibility(false);
+  }
+  updateTranslationPipelineButtons();
+}
+
+function fillTranslationHistoryProjectFilter(jobs) {
+  const wrap = $("translationHistoryProjectFilterWrap");
+  const select = $("translationHistoryProjectFilter");
+  if (!wrap || !select) return;
+  const projects = (state.projects || []).filter((item) => item && item.id && !item.deleted_at);
+  const ids = new Set(
+    (jobs || []).map((job) => Number(job.local_project_id)).filter((id) => id > 0)
+  );
+  const show = projects.length > 1 || ids.size > 1;
+  wrap.hidden = !show;
+  if (!show) return;
+  const current = String(translationWorkspaceState.historyProjectFilter || "current");
+  const options = [
+    `<option value="current">${escapeHtml(i18n.t("index.이_작품"))}</option>`,
+    `<option value="all">${escapeHtml(i18n.t("index.모든_작품"))}</option>`,
+  ];
+  projects.forEach((project) => {
+    options.push(
+      `<option value="${Number(project.id)}">${escapeHtml(project.title || i18n.t("app.작품"))}</option>`
+    );
+  });
+  select.innerHTML = options.join("");
+  if ([...select.options].some((option) => option.value === current)) select.value = current;
+  else select.value = "current";
+}
+
+function filteredTranslationHistoryJobs() {
+  const status = translationWorkspaceState.historyStatusFilter || "all";
+  const projectFilter = String(translationWorkspaceState.historyProjectFilter || "current");
+  const currentId = Number(state.projectId);
+  return (translationWorkspaceState.historyJobs || []).filter((job) => {
+    const done = translationHistoryJobIsDone(job);
+    if (status === "done" && !done) return false;
+    if (status === "active" && done) return false;
+    if (projectFilter === "all") return true;
+    if (projectFilter === "current") return Number(job.local_project_id) === currentId;
+    return Number(job.local_project_id) === Number(projectFilter);
+  });
+}
+
+function renderTranslationHistoryList() {
+  const host = $("translationHistoryList");
+  if (!host) return;
+  fillTranslationHistoryProjectFilter(translationWorkspaceState.historyJobs);
+  const jobs = filteredTranslationHistoryJobs();
+  if (!jobs.length) {
+    host.innerHTML = `<p class="hint translation-history-empty">${escapeHtml(i18n.t("index.번역_기록이_없어요"))}</p>`;
+    applyTranslations();
+    return;
+  }
+  host.innerHTML = jobs.map((job) => {
+    const done = translationHistoryJobIsDone(job);
+    const stamp = done
+      ? (job.submission_generated_at || job.updated_at)
+      : job.updated_at;
+    const dateLabel = done ? i18n.t("index.완료일") : i18n.t("index.마지막_업데이트");
+    const badge = done ? i18n.t("app.완료") : i18n.t("index.진행_중");
+    const title = escapeHtml(job.project_title || i18n.t("app.작품"));
+    return `<button type="button" class="translation-history-card" data-translation-history-id="${Number(job.id)}">
+      <span class="translation-history-card-title">${title}</span>
+      <span class="translation-history-badge ${done ? "is-done" : "is-active"}">${escapeHtml(badge)}</span>
+      <span class="translation-history-card-meta">
+        <span>${escapeHtml(translationHistoryRangeLabel(job))}</span>
+        <span>${escapeHtml(translationLanguageLabel(job.target_language))}</span>
+        <span>${escapeHtml(dateLabel)} ${escapeHtml(formatTranslationHistoryDate(stamp))}</span>
+      </span>
+    </button>`;
+  }).join("");
+  applyTranslations();
+}
+
+async function loadTranslationHistoryJobs() {
+  const listing = await api("/api/translation/jobs");
+  translationWorkspaceState.historyJobs = listing.jobs || [];
+  renderTranslationHistoryList();
+  return translationWorkspaceState.historyJobs;
+}
+
+async function setTranslationHomeTab(tab) {
+  const next = tab === "history" || tab === "job" ? tab : "new";
+  if ((next === "new" || next === "history") && translationWorkspaceState.jobId) {
+    leaveOpenedTranslationJob();
+  }
+  translationWorkspaceState.homeTab = next;
+  if (next === "new") {
+    await loadTranslationRangeSetup();
+  } else if (next === "history") {
+    try {
+      await loadTranslationHistoryJobs();
+    } catch (error) {
+      handleError(error);
+      renderTranslationHistoryList();
+    }
+  }
+  syncTranslationHomeUi();
+}
+
+async function openTranslationJobFromHistory(job, { openResult = false } = {}) {
+  const jobId = Number(job?.id);
+  const projectId = Number(job?.local_project_id);
+  if (!jobId) return;
+  translationHistoryPendingOpen = { jobId, openResult: Boolean(openResult) };
+  if (projectId && projectId !== Number(state.projectId)) {
+    const select = $("projectSelect");
+    if (select) select.value = String(projectId);
+    state.projectId = projectId;
+    await loadProject();
+  }
+  const pending = translationHistoryPendingOpen;
+  translationHistoryPendingOpen = null;
+  if (!pending || Number(state.projectId) !== projectId) return;
+  const detail = await api(`/api/translation/jobs/${pending.jobId}`);
+  translationWorkspaceState.homeTab = "job";
+  await applyOpenedTranslationJob(detail);
+  if (pending.openResult) {
+    try {
+      await openTranslationSubmissionResultModal();
+    } catch (_) { /* stay on the job workspace */ }
   }
 }
 
@@ -30795,9 +32329,8 @@ function properNounTypeSelectHtml(id, type) {
 }
 
 function setTranslationStage(stage) {
-  if (translationRangeSetupOpen()) {
-    syncTranslationRangeSetupVisibility(true);
-    updateTranslationPipelineButtons();
+  if (translationWorkspaceState.homeTab !== "job") {
+    syncTranslationHomeUi();
     return;
   }
   syncTranslationRangeSetupVisibility(false);
@@ -30825,11 +32358,12 @@ function updateTranslationPipelineButtons() {
   const translated = translationPipelineTranslated();
   const busy = Boolean(translationWorkspaceState.busy);
   const hasJob = Boolean(translationWorkspaceState.jobId);
+  const hasActiveJob = hasJob && !translationJobIsFinished(translationWorkspaceState.job);
   const startBtn = $("translationStartButton");
   if (startBtn) {
     startBtn.disabled = !hasJob || started || busy;
     startBtn.classList.toggle("is-complete", started);
-    startBtn.classList.toggle("is-ready", hasJob && !started && !busy);
+    startBtn.classList.toggle("is-ready", hasJob && !started && busy === false);
     startBtn.classList.toggle("primary", !started);
     startBtn.classList.toggle("secondary", started);
     const startKey = started ? "app.준비_완료" : "app.번역_준비";
@@ -30840,7 +32374,9 @@ function updateTranslationPipelineButtons() {
       : "";
   }
   const createBtn = $("translationCreateJobButton");
-  if (createBtn) createBtn.disabled = busy || hasJob;
+  if (createBtn) {
+    createBtn.disabled = busy || hasActiveJob || translationWorkspaceState.homeTab !== "new";
+  }
   document.querySelectorAll("[data-translation-stage]").forEach((tab) => {
     tab.disabled = !started || busy;
   });
@@ -30992,7 +32528,14 @@ function translationProperNounCardHtml(item, fromIndex) {
   const id = Number(item.id);
   const decision = item.user_decision || "keep_romanized";
   const romanized = String(item.romanized || "").trim();
-  const finalTerm = String(item.final_term || (decision === "keep_romanized" ? romanized : item.source_term) || "").trim();
+  const storedFinal = String(item.final_term || "").trim();
+  const needsTerm = Boolean(item.needs_translation_term)
+    || (!storedFinal && !romanized && decision !== "keep_as_is" && decision !== "rename");
+  const finalTerm = storedFinal || (
+    decision === "keep_romanized" ? romanized
+      : decision === "keep_as_is" ? String(item.source_term || "").trim()
+        : ""
+  );
   const alternatives = Array.isArray(item.suggested_alternatives) ? item.suggested_alternatives : [];
   const fit = item.fit_judgment === "does_not_fit"
     ? i18n.t("index.다시_짓는_편이_좋아요")
@@ -31001,12 +32544,16 @@ function translationProperNounCardHtml(item, fromIndex) {
     || (fromIndex ? i18n.t("index.기존_설정에_있는_이름이에요") : "");
   const renameOpen = decision === "rename";
   const altsBlock = translationNounAltsHtml(id, alternatives, finalTerm, renameOpen);
+  const finalPlaceholder = needsTerm
+    ? i18n.t("index.번역_표기를_입력해_주세요")
+    : i18n.t("index.직접_입력");
   return `<article class="translation-noun-card" data-noun-id="${id}" data-noun-source="${escapeHtml(item.source || item.origin || "")}">
     <div class="translation-noun-head">
       <div class="translation-noun-head-main">
         <span class="translation-noun-term">${escapeHtml(item.source_term || "")}</span>
         ${properNounTypeSelectHtml(id, item.term_type)}
         <span class="translation-noun-fit">${escapeHtml(fit)}</span>
+        ${needsTerm ? `<span class="translation-noun-need-term">${escapeHtml(i18n.t("index.번역_표기_필요"))}</span>` : ""}
       </div>
       <button type="button" class="secondary compact-btn translation-noun-delete" data-noun-delete="${id}">${escapeHtml(i18n.t("app.삭제"))}</button>
     </div>
@@ -31020,7 +32567,7 @@ function translationProperNounCardHtml(item, fromIndex) {
     </div>
     <label class="translation-noun-final">
       <span>${escapeHtml(i18n.t("index.최종_표기"))}</span>
-      <input type="text" data-noun-final="${id}" value="${escapeHtml(finalTerm)}" placeholder="${escapeHtml(i18n.t("index.직접_입력"))}">
+      <input type="text" data-noun-final="${id}" value="${escapeHtml(finalTerm)}" placeholder="${escapeHtml(finalPlaceholder)}">
     </label>
   </article>`;
 }
@@ -32029,15 +33576,23 @@ function hideTranslationNotesPopover() {
   pop.hidden = true;
 }
 
-async function findExistingTranslationJob(projectId = state.projectId) {
-  if (!projectId) throw new Error(i18n.t("index.번역_작업을_열려면_작품을_먼저_선택해_주세요"));
-  const listing = await api(`/api/projects/${projectId}/translation/jobs`);
-  const jobs = listing.jobs || [];
-  const language = selectedTranslationLanguage();
-  const match = jobs.find((job) => String(job.target_language || "en") === language);
+function pickResumableTranslationJob(jobs, language = selectedTranslationLanguage()) {
+  const active = (jobs || []).filter((job) => !translationJobIsFinished(job));
+  const lang = String(language || "en");
+  const match = active.find((job) => String(job.target_language || "en") === lang);
   if (match) return match;
-  if (jobs.length && language === "en") return jobs[0];
+  if (active.length && lang === "en") return active[0];
   return null;
+}
+
+async function findExistingTranslationJob(projectId = state.projectId, jobs = null) {
+  if (!projectId) throw new Error(i18n.t("index.번역_작업을_열려면_작품을_먼저_선택해_주세요"));
+  let list = jobs;
+  if (!Array.isArray(list)) {
+    const listing = await api(`/api/projects/${projectId}/translation/jobs`);
+    list = listing.jobs || [];
+  }
+  return pickResumableTranslationJob(list);
 }
 
 async function loadTranslationProperNouns() {
@@ -32062,6 +33617,7 @@ async function applyOpenedTranslationJob(job) {
   translationWorkspaceState.segments = [];
   translationWorkspaceState.properNouns = [];
   translationWorkspaceState.chat = [];
+  translationWorkspaceState.homeTab = "job";
   syncTranslationRangeSetupVisibility(false);
   await refreshTranslationJob();
   if (Number(state.projectId) !== projectId || Number(translationWorkspaceState.jobId) !== jobId) return;
@@ -32075,6 +33631,7 @@ async function applyOpenedTranslationJob(job) {
   renderTranslationFormatting();
   renderTranslationScenes();
   syncTranslationWorkspaceStageFromJob();
+  syncTranslationHomeUi();
 }
 
 function translationWorkspaceStillOn(jobId, projectId) {
@@ -32140,25 +33697,28 @@ async function openTranslationWorkspace({ quiet = false } = {}) {
   modal.classList.remove("hidden");
   applyTranslations();
   try {
-    const job = await findExistingTranslationJob(projectId);
+    const jobs = await loadTranslationHistoryJobs();
     if (Number(state.projectId) !== projectId || translationWorkspaceState.dismissed) return;
-    if (!job) {
-      translationWorkspaceState.jobId = null;
-      translationWorkspaceState.job = null;
-      translationWorkspaceState.chapters = [];
-      translationWorkspaceState.segments = [];
-      translationWorkspaceState.properNouns = [];
-      translationWorkspaceState.chat = [];
-      translationWorkspaceState.boundProjectId = projectId;
-      await loadTranslationRangeSetup();
-      if (Number(state.projectId) !== projectId || translationWorkspaceState.dismissed) return;
-      updateTranslationCultureBadge();
-      updateTranslationLanguageSelect();
+    if (translationHistoryPendingOpen?.jobId) return;
+    const currentJobs = (jobs || []).filter((job) => Number(job.local_project_id) === projectId);
+    const resumable = await findExistingTranslationJob(projectId, currentJobs);
+    if (Number(state.projectId) !== projectId || translationWorkspaceState.dismissed) return;
+    if (resumable) {
+      await applyOpenedTranslationJob(resumable);
       return;
     }
-    await applyOpenedTranslationJob(job);
+    leaveOpenedTranslationJob();
+    translationWorkspaceState.homeTab = "new";
+    await loadTranslationRangeSetup();
+    if (Number(state.projectId) !== projectId || translationWorkspaceState.dismissed) return;
+    syncTranslationHomeUi();
   } catch (error) {
     handleError(error);
+    if (Number(state.projectId) !== projectId || translationWorkspaceState.dismissed) return;
+    leaveOpenedTranslationJob();
+    translationWorkspaceState.homeTab = "new";
+    await loadTranslationRangeSetup();
+    syncTranslationHomeUi();
   }
 }
 
@@ -32343,6 +33903,7 @@ function setupTranslationWorkspace() {
         if (!job) return;
         if (Number(job.local_project_id) !== Number(state.projectId)) return;
         if (translationWorkspaceState.dismissed) return;
+        translationWorkspaceState.homeTab = "job";
         return applyOpenedTranslationJob(job);
       })
       .catch(handleError)
@@ -32350,6 +33911,30 @@ function setupTranslationWorkspace() {
         translationWorkspaceState.busy = false;
         updateTranslationPipelineButtons();
       });
+  });
+  document.querySelectorAll("[data-translation-home-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const tab = btn.getAttribute("data-translation-home-tab") || "new";
+      setTranslationHomeTab(tab).catch(handleError);
+    });
+  });
+  $("translationHistoryStatusFilter")?.addEventListener("change", (event) => {
+    translationWorkspaceState.historyStatusFilter = event.target.value || "all";
+    renderTranslationHistoryList();
+  });
+  $("translationHistoryProjectFilter")?.addEventListener("change", (event) => {
+    translationWorkspaceState.historyProjectFilter = event.target.value || "current";
+    renderTranslationHistoryList();
+  });
+  $("translationHistoryList")?.addEventListener("click", (event) => {
+    const card = event.target.closest?.("[data-translation-history-id]");
+    if (!card) return;
+    const jobId = Number(card.getAttribute("data-translation-history-id"));
+    const job = (translationWorkspaceState.historyJobs || []).find((item) => Number(item.id) === jobId);
+    if (!job) return;
+    openTranslationJobFromHistory(job, {
+      openResult: translationHistoryJobIsDone(job),
+    }).catch(handleError);
   });
   document.querySelectorAll("[data-translation-stage]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -33185,7 +34770,18 @@ function loadSources() {
   try {
     const raw = localStorage.getItem(sourceStorageKey());
     const arr = raw ? JSON.parse(raw) : [];
-    return Array.isArray(arr) ? arr.filter((item) => item && item.id) : [];
+    if (!Array.isArray(arr)) return [];
+    let dirty = false;
+    const list = arr.filter((item) => item && item.id).map((item) => {
+      const kind = referenceItemKind(item);
+      if (String(item.kind || "") === kind) return item;
+      dirty = true;
+      return { ...item, kind };
+    });
+    if (dirty) {
+      try { localStorage.setItem(sourceStorageKey(), JSON.stringify(list)); } catch (_) { /* ignore */ }
+    }
+    return list;
   } catch (_) {
     return [];
   }
@@ -33529,7 +35125,7 @@ function renderSourceList() {
     const title = escapeHtml(src.title || i18n.t('app.제목_없음'));
     const url = String(src.url || "").trim();
     const note = escapeHtml(src.note || "");
-    const isFile = src.kind === "file" || Boolean(src.fileName);
+    const isFile = sourceEntryIsFile(src);
     const ext = sourceFileExt(src.fileName || src.fileExt || "");
     const kindLabel = isFile ? sourceFileKindLabel(ext || src.fileExt) : "";
     const meta = isFile
@@ -33970,7 +35566,7 @@ async function openSourceInSplit(sourceId, mode = "split") {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const src = loadSources().find((s) => s.id === sourceId);
   if (!src) return toast(i18n.t('app.참고자료를_찾지_못했어요'));
-  const hasFile = src.kind === "file" || Boolean(src.fileName);
+  const hasFile = sourceEntryIsFile(src);
   const url = String(src.url || "").trim();
   if (!hasFile && !url) return toast(i18n.t('app.열_수_있는_파일이나_링크가_없어요'));
 
@@ -34025,7 +35621,7 @@ function fillSplitCompanionSelect() {
   }
   if (sources.length) {
     parts.push(`<optgroup label="${i18n.t('app.참고자료')}">${sources.map((src) => {
-      const isFile = src.kind === "file" || Boolean(src.fileName);
+      const isFile = sourceEntryIsFile(src);
       const url = String(src.url || "").trim();
       if (!isFile && !url) return "";
       const selected = state.splitKind === "source" && String(src.id) === String(state.splitSourceId);
@@ -34102,7 +35698,7 @@ async function renderSplitSourceViewer() {
   const linkFrame = $("splitSourceLink");
   const textEl = $("splitSourceText");
   const msg = $("splitSourceMessage");
-  const hasFile = src.kind === "file" || Boolean(src.fileName);
+  const hasFile = sourceEntryIsFile(src);
   const url = String(src.url || "").trim();
   const ext = sourceFileExt(src.fileName || src.fileExt || "");
   if (badge) badge.textContent = hasFile ? sourceFileKindLabel(ext) : i18n.t('app.링크');
@@ -39197,9 +40793,13 @@ function setupDesktopThemeMenu() {
       }
     }
     const isSettingsDoc = Boolean(editor && (editor.id === "synopsisContent" || editor.id === "synopsisContentB"));
-    // 드래그 선택 후 우클릭: 사전·떡밥·각주만 활성화 (북마크·이미지·페이지색 숨김)
     menu?.classList.toggle("is-text-selection", hasSelection);
     menu?.classList.toggle("is-settings-doc", isSettingsDoc);
+    if (!isSettingsDoc) syncOpenCharacterCardMenu(editor, event);
+    else {
+      pendingDockCharacterId = null;
+      $("openCharacterCardMenuItem")?.classList.add("hidden");
+    }
     setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
     syncSmartPunctuationMenuLabel();
     syncPageThemeScopeUi();
@@ -39444,6 +41044,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "lookup-dict") {
         hideDesktopContextMenu();
         lookupDictionaryFromSelection();
+      } else if (action === "cross-ref-search") {
+        hideDesktopContextMenu();
+        openSettingsSearchFromSelection();
       } else if (action === "similar-words") {
         event.preventDefault();
         event.stopPropagation();
@@ -39487,6 +41090,10 @@ function setupDesktopThemeMenu() {
       } else if (action === "to-body-paragraph") {
         hideDesktopContextMenu();
         convertAuthorNoteToBody();
+      } else if (action === "open-character-card") {
+        hideDesktopContextMenu();
+        if (pendingDockCharacterId) openCharacterCardFloat(pendingDockCharacterId);
+        pendingDockCharacterId = null;
       }
       return;
     }
@@ -39730,10 +41337,25 @@ function newLinkId() {
 /** Filter for scene 참고 자료 panel: all | link | file */
 let referenceKindFilter = "all";
 
+function referenceItemKind(raw = {}) {
+  const explicit = String(raw.kind || "").trim().toLowerCase();
+  const fileName = String(raw.fileName || raw.file_name || "").trim();
+  const url = String(raw.url || "").trim();
+  if (explicit === "link") return "link";
+  if (explicit === "file") {
+    // Stored "file" with a URL and no filename is a mirrored link, not a file.
+    if (!fileName && url) return "link";
+    return "file";
+  }
+  return fileName ? "file" : "link";
+}
+
+function sourceEntryIsFile(src) {
+  return referenceItemKind(src) === "file";
+}
+
 function normalizeReferenceItem(raw = {}) {
-  const kind = raw.kind === "file" || raw.fileName || raw.sourceId
-    ? "file"
-    : "link";
+  const kind = referenceItemKind(raw);
   return {
     id: raw.id || newLinkId(),
     kind,
@@ -39823,10 +41445,12 @@ function scheduleReferenceSourcesSync(index) {
 
 function renderReferenceLinks() {
   const list = $("referenceLinkList");
-  if (!list) return;
   // Ensure kinds on legacy items
   state.referenceLinks = (state.referenceLinks || []).map((item) => normalizeReferenceItem(item));
-  try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
+  if (!list) {
+    try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
+    return;
+  }
 
   document.querySelectorAll(".reference-kind-tab").forEach((btn) => {
     const on = btn.dataset.refKindFilter === referenceKindFilter;
@@ -39845,6 +41469,7 @@ function renderReferenceLinks() {
         ? i18n.t('app.아직_링크가_없어요_링크로_주소를_붙여_두세')
         : i18n.t('app.아직_참고_자료가_없어요_링크_또는_파일로');
     list.innerHTML = `${i18n.t('app.p_class_reference_link', {emptyMsg: emptyMsg})}`;
+    try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
     return;
   }
 
@@ -39890,6 +41515,7 @@ function renderReferenceLinks() {
       if (!state.referenceLinks[index]) return;
       state.referenceLinks[index].title = event.target.value;
       markSceneDirty();
+      try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
     });
     row.querySelector('[data-role="link-title"]')?.addEventListener("change", () => {
       scheduleReferenceSourcesSync(index);
@@ -39906,6 +41532,7 @@ function renderReferenceLinks() {
         else open.setAttribute("aria-disabled", "true");
       }
       markSceneDirty();
+      try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
     });
     row.querySelector('[data-role="link-url"]')?.addEventListener("change", () => {
       scheduleReferenceSourcesSync(index);
@@ -39931,6 +41558,7 @@ function renderReferenceLinks() {
       toast(i18n.t('app.이_회차_참고_자료에서_뺐어요_설정집_참고자'));
     });
   });
+  try { updateReferenceMaterialsBadge(); } catch (_) { /* ignore */ }
 }
 
 function collectReferenceLinksFromState() {
@@ -40093,7 +41721,6 @@ function isAiPanelOpen() {
 function setAiPanelOpen(open, options = {}) {
   const persist = options.persist !== false;
   document.body.classList.toggle("ai-panel-collapsed", !open);
-  $("expandAiPanelButton")?.classList.toggle("hidden", open);
   if (persist) {
     try {
       localStorage.setItem(AI_PANEL_STORAGE_KEY, open ? "1" : "0");
@@ -40125,7 +41752,6 @@ function isBinderPanelOpen() {
 function setBinderPanelOpen(open, options = {}) {
   const persist = options.persist !== false;
   document.body.classList.toggle("binder-panel-collapsed", !open);
-  $("expandBinderPanelButton")?.classList.toggle("hidden", open);
   if (persist) {
     try {
       localStorage.setItem(BINDER_PANEL_STORAGE_KEY, open ? "1" : "0");
@@ -40252,19 +41878,10 @@ function updateAuthorNotesBadge() {
   }
 }
 
-/** Count usable scene reference materials (links with URL + file entries). */
+/** Count scene reference rows currently in the panel (including a newly added empty link). */
 function countReferenceMaterials(list = state.referenceLinks) {
   if (!Array.isArray(list)) return 0;
-  return list.filter((raw) => {
-    const item = typeof normalizeReferenceItem === "function"
-      ? normalizeReferenceItem(raw)
-      : raw;
-    if (!item) return false;
-    if (item.kind === "file") {
-      return Boolean(item.sourceId || item.fileName || item.title);
-    }
-    return Boolean(String(item.url || "").trim());
-  }).length;
+  return list.filter((raw) => raw != null).length;
 }
 
 function updateReferenceMaterialsBadge() {
@@ -40717,6 +42334,8 @@ const defaultViewerSettings = () => ({
   /** "page" = 화면 단위 책 넘김 · "scroll" = 아래로 스크롤 */
   einkFlow: "page",
   typesetPlatform: "munpia",
+  /** "scroll" = 세로 이어보기 · "page" = 뷰어 넘기기 재사용 */
+  typesetFlow: "scroll",
 });
 
 /** 리더기(E-ink) 바탕·잉크 프리셋 — CSS data-eink-style 과 동일 */
@@ -40777,6 +42396,37 @@ function typesetCssFontFamily(name) {
     return `"바탕체", "바탕", Batang, "Apple Myungjo", "Nanum Myeongjo", serif`;
   }
   return `"${raw}", Batang, serif`;
+}
+
+function typesetPtToPx(pt) {
+  return TypesetMetrics.ptToPx(pt);
+}
+
+function typesetMmToPx(mm) {
+  return TypesetMetrics.mmToPx(mm);
+}
+
+function typesetPreviewPadding(spec = null) {
+  const metrics = TypesetMetrics.layoutMetrics(spec || readTypesetDraftFromForm());
+  return {
+    padLeft: metrics.padLeft,
+    padRight: metrics.padRight,
+    padTop: metrics.padTop,
+    padBottom: metrics.padBottom,
+  };
+}
+
+function typesetPreviewFrameSize(spec = null) {
+  const metrics = TypesetMetrics.layoutMetrics(spec || readTypesetDraftFromForm());
+  const stage = $("viewerStage");
+  const stageH = stage?.clientHeight || Math.round(window.innerHeight * 0.7);
+  const maxDeviceH = Math.max(480, stageH - 24);
+  return {
+    width: metrics.viewportPx,
+    height: Math.min(900, Math.max(480, maxDeviceH)),
+    contentWidth: metrics.contentWidthPx,
+    metrics,
+  };
 }
 
 function applyTypesetPresetsPayload(data) {
@@ -41005,10 +42655,7 @@ function readTypesetIndentPt() {
 }
 
 function typesetCssLetterSpacing(value) {
-  const n = Number(value) || 0;
-  if (!n) return "0";
-  if (Math.abs(n) <= 0.5) return `${n}em`;
-  return `${n}pt`;
+  return TypesetMetrics.letterSpacingCss(value);
 }
 
 function onTypesetChoiceSelect(select) {
@@ -41278,14 +42925,70 @@ async function deleteTypesetPreset(platformId) {
 
 function applyTypesetBodyStyles(preset = null) {
   const body = $("viewerBody");
-  if (!body) return;
+  const stage = $("viewerStage");
   const spec = preset || readTypesetDraftFromForm();
-  body.style.fontFamily = typesetCssFontFamily(spec.font_family);
-  body.style.fontSize = `${Number(spec.font_size_pt) || 10}pt`;
-  body.style.lineHeight = `${Number(spec.line_height_percent) || 150}%`;
-  body.style.letterSpacing = typesetCssLetterSpacing(spec.letter_spacing_pt);
-  body.style.setProperty("--typeset-indent", `${Number(spec.paragraph_indent_pt) || 0}pt`);
-  body.style.setProperty("--typeset-para-gap", `${Number(spec.paragraph_spacing_pt) || 0}pt`);
+  const metrics = TypesetMetrics.layoutMetrics(spec);
+  const indent = metrics.indentCss;
+  const paraGap = metrics.paraGapCss;
+  const padCss = `${metrics.padTop}px ${metrics.padRight}px ${metrics.padBottom}px ${metrics.padLeft}px`;
+  if (body) {
+    body.style.fontFamily = typesetCssFontFamily(spec.font_family);
+    body.style.fontSize = metrics.fontSizeCss;
+    body.style.lineHeight = metrics.lineHeightCss;
+    body.style.letterSpacing = metrics.letterSpacingCss;
+    body.style.padding = padCss;
+    body.style.boxSizing = "border-box";
+    body.style.width = `${metrics.viewportPx}px`;
+    body.style.minWidth = `${metrics.viewportPx}px`;
+    body.style.maxWidth = `${metrics.viewportPx}px`;
+    body.style.setProperty("--typeset-indent", indent);
+    body.style.setProperty("--typeset-para-gap", paraGap);
+  }
+  if (stage?.style) {
+    stage.style.setProperty("--typeset-indent", indent);
+    stage.style.setProperty("--typeset-para-gap", paraGap);
+    stage.style.setProperty("--typeset-frame-width", `${metrics.viewportPx}px`);
+    stage.style.setProperty("--typeset-content-width", `${metrics.contentWidthPx}px`);
+    stage.style.setProperty("--typeset-pad-top", `${metrics.padTop}px`);
+    stage.style.setProperty("--typeset-pad-right", `${metrics.padRight}px`);
+    stage.style.setProperty("--typeset-pad-bottom", `${metrics.padBottom}px`);
+    stage.style.setProperty("--typeset-pad-left", `${metrics.padLeft}px`);
+  }
+}
+
+/** Keep scroll-mode text width equal to page mode when a classic scrollbar appears. */
+function syncTypesetScrollbarGutter() {
+  const stage = $("viewerStage");
+  const frame = $("viewerFrame");
+  const scroll = $("viewerScroll");
+  if (!stage || !frame || !scroll || stage.dataset.viewerMode !== "typeset") return 0;
+  const viewportPx = Math.max(
+    40,
+    Number.parseFloat(stage.style.getPropertyValue("--typeset-frame-width"))
+      || Number.parseFloat(getComputedStyle(stage).getPropertyValue("--typeset-frame-width"))
+      || 360
+  );
+  const scrollFlow = stage.dataset.viewerFlow !== "page";
+  if (!scrollFlow) {
+    stage.style.setProperty("--typeset-scrollbar-gutter", "0px");
+    frame.style.width = `${viewportPx}px`;
+    frame.style.minWidth = `${viewportPx}px`;
+    frame.style.maxWidth = `${viewportPx}px`;
+    return 0;
+  }
+  // Measure gutter against the content-sized frame first, then grow chrome by that amount.
+  stage.style.setProperty("--typeset-scrollbar-gutter", "0px");
+  frame.style.width = `${viewportPx}px`;
+  frame.style.minWidth = `${viewportPx}px`;
+  frame.style.maxWidth = `${viewportPx}px`;
+  void scroll.offsetWidth;
+  const gutter = Math.max(0, scroll.offsetWidth - scroll.clientWidth);
+  stage.style.setProperty("--typeset-scrollbar-gutter", `${gutter}px`);
+  const outer = viewportPx + gutter;
+  frame.style.width = `${outer}px`;
+  frame.style.minWidth = `${outer}px`;
+  frame.style.maxWidth = `${outer}px`;
+  return gutter;
 }
 
 async function saveTypesetPresetFromForm() {
@@ -41660,7 +43363,7 @@ function scheduleViewerFullRelayout({ jumpId = null, resetBook = false } = {}) {
   const mode = viewerSettings.mode;
   if (mode === "book") {
     scheduleBookPageLayout({ resetPage: resetBook && !jumpId });
-  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
+  } else if (isDevicePagedMode(mode)) {
     if (jumpId) viewerPendingJumpSceneId = jumpId;
     scheduleDevicePageLayout({ resetPage: resetBook && !jumpId });
   } else if (jumpId) {
@@ -41877,6 +43580,12 @@ function viewerReaderCommentLatestBatch(data) {
   return batches[0] || { batch_id: "", created_at: "", comments: [] };
 }
 
+function viewerReaderCommentPreviousBatches(data) {
+  const persisted = viewerReaderCommentBatches(data)
+    .filter((batch) => (batch?.comments || []).length);
+  return persisted.slice(1);
+}
+
 function parseViewerCommentTimestamp(iso) {
   const raw = String(iso || "").trim();
   if (!raw) return null;
@@ -41970,21 +43679,25 @@ async function prefetchViewerReaderCommentBatches() {
 function syncViewerCommentsHistoryToggle(batches) {
   const list = $("viewerReaderCommentsHistoryList");
   const items = Array.isArray(batches) ? batches : viewerCommentsBatchesCache;
-  const persisted = items.filter((batch) => (batch?.comments || []).length);
+  const previous = viewerReaderCommentPreviousBatches({ batches: items });
   syncViewerCommentsHistoryControls();
   if (!list) return;
-  const show = viewerCommentsHasHistory && viewerCommentsHistoryOpen && persisted.length > 0;
+  const show = viewerCommentsHasHistory && viewerCommentsHistoryOpen;
   list.classList.toggle("hidden", !show);
   if (!show) {
     list.innerHTML = "";
     return;
   }
+  if (!previous.length) {
+    list.innerHTML = `<p class="hint viewer-comments-history-empty">${escapeHtml(i18n.t("app.이전_댓글이_없어요"))}</p>`;
+    return;
+  }
   const dateCounts = new Map();
-  persisted.forEach((batch) => {
+  previous.forEach((batch) => {
     const key = viewerCommentBatchDateKey(batch.created_at || batch.batch_id);
     dateCounts.set(key, (dateCounts.get(key) || 0) + 1);
   });
-  list.innerHTML = persisted.map((batch, index) => {
+  list.innerHTML = previous.map((batch, index) => {
     const stamp = batch.created_at || batch.batch_id;
     const dateKey = viewerCommentBatchDateKey(stamp);
     const includeTime = (dateCounts.get(dateKey) || 0) > 1;
@@ -42059,8 +43772,13 @@ async function loadViewerReaderComments(options = {}) {
   if (!sceneId) return null;
   const token = ++viewerCommentsLoadToken;
   let data = await api(`/api/scenes/${sceneId}/reader-comments`);
+  const hasPersistedBatch = (
+    (Array.isArray(data?.comments) && data.comments.length > 0)
+    || viewerReaderCommentBatches(data).some((batch) => (batch?.comments || []).length)
+  );
   if (
     options.startIfNeeded
+    && !hasPersistedBatch
     && !data?.generating
     && String(data?.last_error_code || "") !== "quota"
   ) {
@@ -42219,7 +43937,7 @@ function jumpViewerToScene(sceneId) {
   }
 
   // phone/eink/typeset continuous scroll: jump inside viewerBody
-  if (mode === "typeset" || ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode))) {
+  if (isDeviceScrollFlow(mode)) {
     const body = $("viewerBody");
     const el = body?.querySelector(`#viewer-episode-${id}`)
       || body?.querySelector(`[data-viewer-scene="${id}"]`);
@@ -42234,7 +43952,7 @@ function jumpViewerToScene(sceneId) {
     }
   }
 
-  if (mode === "pdf" || ((mode === "phone" || mode === "eink") && isDevicePagedMode(mode))) {
+  if (isDevicePagedMode(mode)) {
     const idx = findDevicePageIndexForScene(id);
     if (idx >= 0) {
       setViewerViewAnchor(id, viewerSceneAtPageIndex(idx)?.pageInEpisode || 0);
@@ -42483,6 +44201,7 @@ function loadViewerSettings() {
     const merged = { ...base, ...parsed };
     merged.phoneFlow = normalizeDeviceFlow(merged.phoneFlow, "page");
     merged.einkFlow = normalizeDeviceFlow(merged.einkFlow, "page");
+    merged.typesetFlow = normalizeDeviceFlow(merged.typesetFlow, "scroll");
     merged.typesetPlatform = TYPESET_PLATFORM_ORDER.includes(merged.typesetPlatform)
       ? merged.typesetPlatform
       : "munpia";
@@ -42541,19 +44260,26 @@ function syncViewerControlValues() {
   if ($("viewerPhoneFlow")) $("viewerPhoneFlow").value = s.phoneFlow === "scroll" ? "scroll" : "page";
   if ($("viewerEinkStyle")) $("viewerEinkStyle").value = s.einkStyle;
   if ($("viewerEinkFlow")) $("viewerEinkFlow").value = s.einkFlow === "scroll" ? "scroll" : "page";
+  if ($("viewerTypesetFlow")) $("viewerTypesetFlow").value = s.typesetFlow === "page" ? "page" : "scroll";
   syncTypesetControlValues();
 }
 
-/** phone/eink: page-turn vs continuous scroll-down */
+/** phone / eink / typeset: page-turn vs continuous scroll-down */
+function isDeviceTurnMode(mode = viewerSettings.mode) {
+  return mode === "phone" || mode === "eink" || mode === "typeset";
+}
+
 function isDeviceScrollFlow(mode = viewerSettings.mode) {
-  if (mode === "typeset") return true;
+  if (mode === "typeset") return (viewerSettings.typesetFlow || "scroll") !== "page";
   if (mode === "phone") return (viewerSettings.phoneFlow || "page") === "scroll";
   if (mode === "eink") return (viewerSettings.einkFlow || "page") === "scroll";
   return false;
 }
 
 function normalizeDeviceFlow(value, fallback = "page") {
-  return value === "scroll" ? "scroll" : (fallback === "scroll" ? "scroll" : "page");
+  if (value === "scroll") return "scroll";
+  if (value === "page") return "page";
+  return fallback === "scroll" ? "scroll" : "page";
 }
 
 function applyViewerLayout() {
@@ -42589,9 +44315,23 @@ function applyViewerLayout() {
   body.style.lineHeight = "";
   body.style.removeProperty("--typeset-indent");
   body.style.removeProperty("--typeset-para-gap");
+  const stageEl = $("viewerStage");
+  if (stageEl?.style) {
+    stageEl.style.removeProperty("--typeset-indent");
+    stageEl.style.removeProperty("--typeset-para-gap");
+    stageEl.style.removeProperty("--typeset-frame-width");
+    stageEl.style.removeProperty("--typeset-content-width");
+    stageEl.style.removeProperty("--typeset-pad-top");
+    stageEl.style.removeProperty("--typeset-pad-right");
+    stageEl.style.removeProperty("--typeset-pad-bottom");
+    stageEl.style.removeProperty("--typeset-pad-left");
+  }
   body.style.padding = "";
   body.style.paddingLeft = "";
   body.style.paddingRight = "";
+  body.style.width = "";
+  body.style.maxWidth = "";
+  body.style.boxSizing = "";
   body.style.background = "";
   body.style.color = "";
   body.style.minHeight = "";
@@ -42718,21 +44458,24 @@ function applyViewerLayout() {
       scheduleDevicePageLayout({ resetPage: false });
     }
   } else if (mode === "typeset") {
+    viewerSettings.typesetFlow = normalizeDeviceFlow(viewerSettings.typesetFlow, "scroll");
     const spec = readTypesetDraftFromForm();
-    const width = Math.min(800, Math.max(200, Number(spec.mobile_viewport_px) || 360));
-    const h = Math.min(900, Math.max(480, maxDeviceH));
-    frame.style.width = `${width}px`;
-    frame.style.height = `${h}px`;
-    frame.style.minHeight = `${h}px`;
-    frame.style.maxHeight = `${h}px`;
-    frame.style.maxWidth = "100%";
+    const frameSize = typesetPreviewFrameSize(spec);
+    const scrollFlow = viewerSettings.typesetFlow !== "page";
+    stage.style.setProperty("--typeset-frame-width", `${frameSize.width}px`);
+    stage.style.setProperty("--typeset-scrollbar-gutter", "0px");
+    frame.style.width = `${frameSize.width}px`;
+    frame.style.height = `${frameSize.height}px`;
+    frame.style.minHeight = `${frameSize.height}px`;
+    frame.style.maxHeight = `${frameSize.height}px`;
+    frame.style.minWidth = `${frameSize.width}px`;
+    frame.style.maxWidth = `${frameSize.width}px`;
     frame.style.overflow = "hidden";
     body.style.minHeight = "0";
     body.style.height = "auto";
     body.style.columnCount = "";
     body.style.columnGap = "";
-    body.style.padding = "16px 14px 32px";
-    body.style.display = "";
+    body.style.display = scrollFlow ? "" : "none";
     applyTypesetBodyStyles(spec);
     applyViewerPageColors(body, "#ffffff", "#111111");
     applyViewerPageColors(stage, "#ffffff", "#111111");
@@ -42742,11 +44485,20 @@ function applyViewerLayout() {
       scroll.style.flex = "1 1 auto";
       scroll.style.minHeight = "0";
       scroll.style.height = "100%";
-      scroll.style.overflow = "auto";
+      scroll.style.overflow = scrollFlow ? "auto" : "hidden";
     }
-    stage.dataset.viewerFlow = "scroll";
+    stage.dataset.viewerFlow = scrollFlow ? "scroll" : "page";
     stage.removeAttribute("data-eink-style");
     stage.removeAttribute("data-book-paper");
+    if (scrollFlow) {
+      body.style.display = "";
+      // After flow/overflow settle, reserve classic-scrollbar space outside the text box.
+      requestAnimationFrame(() => syncTypesetScrollbarGutter());
+    } else {
+      body.style.display = "none";
+      syncTypesetScrollbarGutter();
+      scheduleDevicePageLayout({ resetPage: false });
+    }
   } else {
     // eink — page-turn or scroll-down (same as phone)
     viewerSettings.einkFlow = normalizeDeviceFlow(viewerSettings.einkFlow, "page");
@@ -42800,7 +44552,7 @@ function applyViewerLayout() {
   // Book track vs page stack vs continuous body
   const track = $("bookTrack");
   const pageStack = $("viewerPageStack");
-  const deviceScroll = mode === "typeset" || ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode));
+  const deviceScroll = isDeviceScrollFlow(mode);
   if (mode === "book") {
     if (track) track.hidden = false;
     if (pageStack) {
@@ -42836,7 +44588,7 @@ function applyViewerLayout() {
       });
     }
     updateDevicePagerUi();
-  } else if (mode === "pdf" || mode === "phone" || mode === "eink") {
+  } else if (isDevicePagedMode(mode)) {
     cancelBookFlipAnimation();
     if (track) {
       track.hidden = true;
@@ -42889,10 +44641,7 @@ function scheduleDevicePageLayout({ resetPage = false } = {}) {
 }
 
 function isDevicePagedMode(mode = viewerSettings.mode) {
-  // phone/eink scroll-down uses continuous body, not discrete page stack
-  if (mode === "phone" || mode === "eink") {
-    return !isDeviceScrollFlow(mode);
-  }
+  if (isDeviceTurnMode(mode)) return !isDeviceScrollFlow(mode);
   return mode === "pdf";
 }
 
@@ -42935,18 +44684,7 @@ function updateDevicePagerUi() {
     return;
   }
 
-  if (mode === "typeset") {
-    setViewerBookNavVisible(false);
-    if (pager) {
-      pager.textContent = i18n.t("app.스크롤");
-      pager.title = i18n.t("app.아래로_스크롤하여_읽기");
-    }
-    const meta = VIEWER_MODE_META.typeset || {};
-    if ($("viewerHint")) $("viewerHint").textContent = meta.hint || "";
-    return;
-  }
-
-  if (mode === "phone" || mode === "eink") {
+  if (isDeviceTurnMode(mode)) {
     if (isDeviceScrollFlow(mode)) {
       // 스크롤 다운: 책넘김 버튼 숨김 (휠·터치 스크롤만)
       setViewerBookNavVisible(false);
@@ -42956,7 +44694,9 @@ function updateDevicePagerUi() {
       }
       const meta = VIEWER_MODE_META[mode] || {};
       if ($("viewerHint")) {
-        $("viewerHint").textContent = `${i18n.t('app.meta_label_mode_스크롤_다운', {'meta.label || mode': meta.label || mode})}`;
+        $("viewerHint").textContent = mode === "typeset"
+          ? (meta.hint || "")
+          : `${i18n.t('app.meta_label_mode_스크롤_다운', {'meta.label || mode': meta.label || mode})}`;
       }
       return;
     }
@@ -42969,7 +44709,9 @@ function updateDevicePagerUi() {
     if (next) next.disabled = devicePageIndex >= devicePageCount - 1;
     if ($("viewerHint")) {
       const meta = VIEWER_MODE_META[mode] || {};
-      $("viewerHint").textContent = `${i18n.t('app.meta_label_mode_책_넘김_휠', {'meta.label || mode': meta.label || mode})}`;
+      $("viewerHint").textContent = mode === "typeset"
+        ? (meta.hint || "")
+        : `${i18n.t('app.meta_label_mode_책_넘김_휠', {'meta.label || mode': meta.label || mode})}`;
     }
   }
 }
@@ -43118,6 +44860,58 @@ function computeViewerPageBox() {
     if (vw < 40 || vh < 40) return { retry: true };
     innerW = Math.max(40, vw - padX * 2);
     innerH = Math.max(40, vh - padY * 2);
+  } else if (mode === "typeset") {
+    const spec = readTypesetDraftFromForm();
+    const metrics = TypesetMetrics.layoutMetrics(spec);
+    const fontPt = metrics.fontSizePt;
+    fontPx = Math.max(8, metrics.fontSizePx);
+    lineHeight = Math.max(1, metrics.lineHeightPercent / 100);
+    const padL = metrics.padLeft;
+    const padR = metrics.padRight;
+    const padT = metrics.padTop;
+    const padB = metrics.padBottom;
+    padX = Math.round((padL + padR) / 2) || 16;
+    padY = Math.round((padT + padB) / 2) || 16;
+    const frameSize = typesetPreviewFrameSize(spec);
+    const vh = scroll?.clientHeight || Math.max(300, frameSize.height - 50);
+    if (vh < 40) return { retry: true };
+    innerW = metrics.contentWidthPx;
+    innerH = Math.max(40, vh - padT);
+    devicePageMetrics = {
+      padX,
+      padY,
+      padLeft: padL,
+      padRight: padR,
+      padTop: padT,
+      padBottom: padB,
+      fontPx,
+      scale: 100,
+      lineHeight,
+      fontFamily: typesetCssFontFamily(spec.font_family),
+      letterSpacing: metrics.letterSpacingCss,
+      indent: metrics.indentCss,
+      paraGap: metrics.paraGapCss,
+      wordBreak: "keep-all",
+      overflowWrap: "break-word",
+      fontSizeCss: metrics.fontSizeCss,
+      lineHeightCss: metrics.lineHeightCss,
+      previewPadBottom: 0,
+    };
+    return {
+      kind: "device",
+      innerW,
+      innerH,
+      fontPx,
+      lineHeight,
+      fontFamily: devicePageMetrics.fontFamily,
+      letterSpacing: devicePageMetrics.letterSpacing,
+      indent: devicePageMetrics.indent,
+      paraGap: devicePageMetrics.paraGap,
+      wordBreak: devicePageMetrics.wordBreak,
+      overflowWrap: devicePageMetrics.overflowWrap,
+      fontSize: devicePageMetrics.fontSizeCss,
+      lineHeightCss: devicePageMetrics.lineHeightCss,
+    };
   } else {
     fontPx = Math.min(26, Math.max(13, Number(viewerSettings.einkFont) || 17));
     lineHeight = clampViewerLineHeight(viewerSettings.einkLineHeight, 1.8);
@@ -43209,9 +45003,20 @@ function makeDeviceSheet(html, pageIndex, { active = false, sheetH = 400 } = {})
   sheet.style.maxHeight = `${sheetH}px`;
   const inner = document.createElement("div");
   inner.className = "device-sheet-inner";
-  inner.style.padding = `${metrics.padY}px ${metrics.padX}px`;
-  inner.style.fontSize = `${metrics.fontPx}px`;
-  inner.style.lineHeight = String(lh);
+  const sheetPadB = metrics.previewPadBottom != null
+    ? metrics.previewPadBottom
+    : (metrics.padBottom != null ? metrics.padBottom : metrics.padY);
+  inner.style.padding = metrics.padTop != null
+    ? `${metrics.padTop}px ${metrics.padRight}px ${sheetPadB}px ${metrics.padLeft}px`
+    : `${metrics.padY}px ${metrics.padX}px`;
+  inner.style.fontSize = metrics.fontSizeCss || `${metrics.fontPx}px`;
+  inner.style.lineHeight = metrics.lineHeightCss || String(lh);
+  if (metrics.fontFamily) inner.style.fontFamily = metrics.fontFamily;
+  if (metrics.letterSpacing != null) inner.style.letterSpacing = metrics.letterSpacing;
+  if (metrics.indent) inner.style.setProperty("--typeset-indent", metrics.indent);
+  if (metrics.paraGap) inner.style.setProperty("--typeset-para-gap", metrics.paraGap);
+  if (metrics.wordBreak) inner.style.wordBreak = metrics.wordBreak;
+  if (metrics.overflowWrap) inner.style.overflowWrap = metrics.overflowWrap;
   inner.innerHTML = html || "";
   sheet.appendChild(inner);
   return sheet;
@@ -43440,7 +45245,7 @@ async function paginateViewerEpisodesIncremental({
     return;
   }
 
-  const key = `${viewerSettings.mode}:${box.innerW}x${box.innerH}:${box.fontPx}:${box.lineHeight}`;
+  const key = `${viewerSettings.mode}:${box.innerW}x${box.innerH}:${box.fontPx}:${box.lineHeight}:${box.fontFamily || ""}:${box.letterSpacing || ""}:${box.indent || ""}:${box.paraGap || ""}`;
   const prevById = new Map();
   if (key === viewerPageMetricsKey) {
     viewerEpisodePageSlots.forEach((slot) => {
@@ -43476,9 +45281,14 @@ async function paginateViewerEpisodesIncremental({
     const t0 = performance.now();
     const pages = paginateHtmlToPages(slot.html, box.innerW, box.innerH, box.fontPx, {
       lineHeight: box.lineHeight,
+      lineHeightCss: box.lineHeightCss,
+      fontSize: box.fontSize,
       fontFamily: box.fontFamily,
       wordBreak: box.wordBreak,
       overflowWrap: box.overflowWrap,
+      letterSpacing: box.letterSpacing,
+      indent: box.indent,
+      paraGap: box.paraGap,
     });
     slot.pages = pages.length ? pages : [""];
     console.log(
@@ -43649,7 +45459,7 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
     || '"Malgun Gothic","Noto Serif KR",Georgia,serif';
   const measureHost = document.createElement("div");
   measureHost.setAttribute("aria-hidden", "true");
-  measureHost.style.cssText = [
+  const measureCss = [
     "position:absolute",
     "left:-10000px",
     "top:0",
@@ -43658,13 +45468,34 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
     `height:${Math.max(40, pageHeight)}px`,
     "overflow:hidden",
     "box-sizing:border-box",
-    `font-size:${fontSizePx}px`,
+    `font-size:${styleOpts.fontSize || `${fontSizePx}px`}`,
     `font-family:${fontFamily}`,
-    `line-height:${lineHeight}`,
+    `line-height:${styleOpts.lineHeightCss || lineHeight}`,
     `white-space:pre-wrap`,
-    `word-break:${styleOpts.wordBreak || "break-word"}`,
+    `word-break:${styleOpts.wordBreak || "keep-all"}`,
     `overflow-wrap:${styleOpts.overflowWrap || "break-word"}`,
-  ].join(";");
+    `letter-spacing:${styleOpts.letterSpacing || "0"}`,
+    // Must match the on-screen bodies, or measured line breaks drift by a glyph.
+    "text-rendering:auto",
+    "-webkit-font-smoothing:auto",
+    "font-kerning:none",
+    "font-variant-ligatures:none",
+  ];
+  if (styleOpts.indent) measureCss.push(`--typeset-indent:${styleOpts.indent}`);
+  if (styleOpts.paraGap) measureCss.push(`--typeset-para-gap:${styleOpts.paraGap}`);
+  measureHost.style.cssText = measureCss.join(";");
+  if (styleOpts.indent || styleOpts.paraGap) {
+    measureHost.classList.add("viewer-typeset-measure");
+    if (!document.getElementById("viewerTypesetMeasureStyle")) {
+      const measureStyle = document.createElement("style");
+      measureStyle.id = "viewerTypesetMeasureStyle";
+      measureStyle.textContent = [
+        ".viewer-typeset-measure > div > p, .viewer-typeset-measure > div > div { text-indent: var(--typeset-indent, 0pt); margin: 0 0 var(--typeset-para-gap, 0pt); }",
+        ".viewer-typeset-measure > div > p:last-child, .viewer-typeset-measure > div > div:last-child { margin-bottom: 0; }",
+      ].join(" ");
+      document.head.appendChild(measureStyle);
+    }
+  }
   document.body.appendChild(measureHost);
 
   const source = document.createElement("div");
@@ -43757,6 +45588,20 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
     return best;
   };
 
+  const isBreakableSpace = (ch) => {
+    const c = String(ch || "").charCodeAt(0);
+    return c === 32 || c === 9 || c === 10 || c === 13 || c === 160 || c === 0x3000;
+  };
+
+  /** Prefer splitting at the last whitespace so pages do not cut inside a word. */
+  const snapToWhitespace = (text, fitted) => {
+    if (!(fitted > 0) || fitted >= text.length) return fitted;
+    for (let i = fitted - 1; i >= 0; i--) {
+      if (isBreakableSpace(text[i])) return i + 1;
+    }
+    return fitted;
+  };
+
   const appendTextInto = (parent, fullText) => {
     let rest = String(fullText || "");
     if (!rest) return "";
@@ -43796,6 +45641,9 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
         }
         // Empty page: force at least one character so we make progress.
         best = Math.min(1, rest.length) || 1;
+      } else if (best < rest.length) {
+        const snapped = snapToWhitespace(rest, best);
+        if (snapped > 0) best = snapped;
       }
       parent.appendChild(document.createTextNode(rest.slice(0, best)));
       rest = rest.slice(best);
@@ -43815,11 +45663,26 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
   const placeNode = (node, openAncestors = []) => {
     if (!node) return;
 
-    // Ensure wrapper chain exists on current page
+    const wrappersMatch = (liveEl, template) => {
+      if (!liveEl || liveEl.nodeType !== 1 || liveEl.tagName !== template.tagName) return false;
+      if (String(liveEl.className || "") !== String(template.className || "")) return false;
+      const sceneA = liveEl.getAttribute("data-viewer-scene");
+      const sceneB = template.getAttribute("data-viewer-scene");
+      if (sceneA || sceneB) return sceneA === sceneB;
+      return true;
+    };
+
+    // Reuse the open wrapper chain on this page so each text/br chunk does not
+    // become its own <section>+<div> (that changed wrap vs continuous scroll).
     const ensureWrappers = () => {
       let parent = page;
       const live = [];
       for (const anc of openAncestors) {
+        const last = parent.lastElementChild;
+        if (wrappersMatch(last, anc)) {
+          parent = last;
+          continue;
+        }
         const el = anc.cloneNode(false);
         parent.appendChild(el);
         live.push(el);
@@ -43852,23 +45715,19 @@ function paginateHtmlToPages(html, pageWidth, pageHeight, fontSizePx, styleOpts 
       });
     }
 
-    // Need a clean page if current page already has content
-    if (pageHasContent()) {
-      sealPage();
-      const { parent, live } = ensureWrappers();
-      if (tryAppendTo(parent, node)) return;
-      live.forEach((el) => {
-        if (el.parentNode && !el.childNodes.length) el.remove();
-      });
-    }
-
-    // Atomic oversized node: force onto its own page (may clip, but rare)
+    // Atomic oversized node: new page, then force (may clip, but rare).
+    // <br> is unsplittable but must stay in the same flow as following text —
+    // do not seal a br-only page.
     if (ATOMIC_TAGS.has(node.tagName) || node.tagName === "BR") {
+      if (pageHasContent()) sealPage();
       const { parent } = ensureWrappers();
       parent.appendChild(node.cloneNode(true));
-      sealPage();
+      if (node.tagName !== "BR") sealPage();
       return;
     }
+
+    // Block that does not fit as a whole: split children into remaining space
+    // instead of sealing the page (that left a large empty gap).
 
     // Split children into clones of this element across pages
     const kids = [...node.childNodes];
@@ -44591,13 +46450,13 @@ function setupViewerMode() {
     event.preventDefault();
     event.stopPropagation();
     if (viewerSettings.mode === "book") turnBookSpread(-1);
-    else if (viewerSettings.mode === "phone" || viewerSettings.mode === "eink") turnDevicePage(-1);
+    else if (isDeviceTurnMode()) turnDevicePage(-1);
   });
   $("viewerBookNext")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     if (viewerSettings.mode === "book") turnBookSpread(1);
-    else if (viewerSettings.mode === "phone" || viewerSettings.mode === "eink") turnDevicePage(1);
+    else if (isDeviceTurnMode()) turnDevicePage(1);
   });
 
   // Click left/right page area to turn (book + phone/eink page mode; not PDF / not scroll-down)
@@ -44605,9 +46464,9 @@ function setupViewerMode() {
     if (!isViewerOpen()) return;
     if (event.target.closest?.(".viewer-book-nav, .viewer-resize-handle")) return;
     const mode = viewerSettings.mode;
-    if (mode !== "book" && mode !== "phone" && mode !== "eink") return;
+    if (mode !== "book" && !isDeviceTurnMode(mode)) return;
     // Continuous scroll: don't steal clicks for page turns
-    if ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode)) return;
+    if (isDeviceTurnMode(mode) && isDeviceScrollFlow(mode)) return;
     const scroll = $("viewerScroll");
     if (!scroll) return;
     const rect = scroll.getBoundingClientRect();
@@ -44633,7 +46492,7 @@ function setupViewerMode() {
       else turnBookSpread(-1);
       return;
     }
-    if (mode === "phone" || mode === "eink") {
+    if (isDeviceTurnMode(mode)) {
       if (isDeviceScrollFlow(mode)) {
         // Native scroll; refresh pager affordances after a beat
         window.setTimeout(() => updateDevicePagerUi(), 80);
@@ -44662,9 +46521,9 @@ function setupViewerMode() {
   let bookTouch = null;
   $("viewerScroll")?.addEventListener("touchstart", (event) => {
     const mode = viewerSettings.mode;
-    if (mode !== "book" && mode !== "phone" && mode !== "eink") return;
+    if (mode !== "book" && !isDeviceTurnMode(mode)) return;
     // Continuous scroll uses native touch scrolling
-    if ((mode === "phone" || mode === "eink") && isDeviceScrollFlow(mode)) return;
+    if (isDeviceTurnMode(mode) && isDeviceScrollFlow(mode)) return;
     const t = event.changedTouches?.[0];
     if (!t) return;
     bookTouch = { x: t.clientX, y: t.clientY, mode };
@@ -44713,6 +46572,12 @@ function setupViewerMode() {
   });
   $("viewerEinkFlow")?.addEventListener("change", () => {
     viewerSettings.einkFlow = normalizeDeviceFlow($("viewerEinkFlow")?.value, "page");
+    applyViewerLayout();
+    if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: true });
+  });
+  $("viewerTypesetFlow")?.addEventListener("change", () => {
+    viewerSettings.typesetFlow = normalizeDeviceFlow($("viewerTypesetFlow")?.value, "scroll");
+    saveViewerSettings();
     applyViewerLayout();
     if (isDevicePagedMode()) scheduleDevicePageLayout({ resetPage: true });
   });
@@ -44814,7 +46679,7 @@ function setupViewerMode() {
       }
       return;
     }
-    if (mode === "phone" || mode === "eink") {
+    if (isDeviceTurnMode(mode)) {
       if (event.key === "ArrowRight" || event.key === "PageDown" || event.key === " ") {
         event.preventDefault();
         turnDevicePage(1);
@@ -47538,6 +49403,9 @@ let outlineSceneOpenTimer = null;
 function renderOutline(chaptersArg) {
   const outline = $("outline");
   if (!outline) return;
+  // Keep the in-progress title/folder input. Callers may still patch
+  // state.outline; the next loadProject after rename redraws the tree.
+  if (typeof isOutlineInlineRenaming === "function" && isOutlineInlineRenaming()) return;
   const useFolders = shouldUseFoldersOutline();
   const parts = Array.isArray(state.parts) ? state.parts : [];
   const ungrouped = Array.isArray(state.ungroupedChapters)
@@ -48639,6 +50507,18 @@ function renderCharacters() {
   }).join("") : i18n.t('app.p_class_hint_아직_인물이_없어요');
   list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character)));
   renderSettingsCodex();
+  syncDockCharactersFloat();
+  syncDockTimelineFloat();
+  [...ideaFloatWindows.keys()].forEach((id) => {
+    if (!String(id).startsWith(DOCK_CHAR_KEY_PREFIX)) return;
+    const cid = dockCharacterIdFromKey(id);
+    if (!cid || !(state.characters || []).some((ch) => Number(ch.id) === cid)) {
+      closeIdeaFloat(id, { skipSave: true });
+      return;
+    }
+    dockCharacterDetailCache.delete(cid);
+    syncDockCharacterCard(id);
+  });
   if (toryChatHub === "characters" || toryChatHub === "character-room") {
     try { renderToryChatCharacterPicker(); } catch (_) { /* ignore */ }
     if (toryChatHub === "character-room") {
@@ -49018,6 +50898,7 @@ function startWelcomeSpeechCycle() {
   if (welcomeSpeechTimer) return;
   welcomeSpeechIndex = 0;
   speech.textContent = WELCOME_SPEECH_LINES[0];
+  syncWelcomeToryVideo();
   welcomeSpeechTimer = window.setInterval(() => {
     if (!isWelcomeScreenVisible()) {
       stopWelcomeSpeechCycle();
@@ -49028,11 +50909,41 @@ function startWelcomeSpeechCycle() {
   }, 3200);
 }
 
+function syncWelcomeToryVideo() {
+  const mascot = $("welcomeToryMascot") || $("welcomeToryVideo");
+  if (!mascot) return;
+  const reduceMotion = Boolean(window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches);
+  if (mascot.tagName === "VIDEO") {
+    try {
+      if (reduceMotion) {
+        mascot.pause();
+        if (Number.isFinite(mascot.duration) && mascot.duration > 0) {
+          mascot.currentTime = Math.min(0.4, mascot.duration - 0.05);
+        }
+        return;
+      }
+      mascot.muted = true;
+      const play = mascot.play();
+      if (play && typeof play.catch === "function") play.catch(() => {});
+    } catch (_) { /* ignore autoplay policy */ }
+    return;
+  }
+  // Animated WebP: swap to a still frame when the user prefers reduced motion.
+  const animatedSrc = "/assets/tori-welcome-mascot.webp";
+  const stillSrc = "/assets/tori-welcome-mascot-still.png";
+  const nextSrc = reduceMotion ? stillSrc : animatedSrc;
+  if (!String(mascot.getAttribute("src") || "").endsWith(nextSrc.split("/").pop())) {
+    mascot.src = nextSrc;
+  }
+}
+
 function stopWelcomeSpeechCycle() {
   if (welcomeSpeechTimer) {
     window.clearInterval(welcomeSpeechTimer);
     welcomeSpeechTimer = null;
   }
+  const video = $("welcomeToryVideo");
+  try { video?.pause(); } catch (_) { /* ignore */ }
 }
 
 function dismissWelcomePlusGuide() {
@@ -50839,50 +52750,87 @@ async function beginPartRename(titleButton) {
   input.addEventListener("click", (event) => event.stopPropagation());
 }
 
-async function createScene(chapterId, options = {}) {
-  const afterSceneId = options.afterSceneId != null && options.afterSceneId !== ""
-    ? Number(options.afterSceneId)
-    : null;
-  // afterSceneId: 같은 상위 아래(형제)로 만들고 기준 원고 바로 아래에 배치
-  // parentSceneId only: 그 원고의 하위로 만들기
-  let parentSceneId = options.parentSceneId != null && options.parentSceneId !== ""
-    ? Number(options.parentSceneId)
-    : null;
-  if (afterSceneId && options.parentSceneId === undefined) {
-    // 미지정 시 기준 원고의 상위와 맞춤
-    const anchor = findSceneNodeById(afterSceneId);
-    const rawParent = anchor?.parent_scene_id ?? anchor?.parentSceneId;
-    parentSceneId = rawParent != null && rawParent !== "" ? Number(rawParent) : null;
-    if (!Number.isFinite(parentSceneId)) parentSceneId = null;
-  }
-  if (afterSceneId && !Number.isFinite(parentSceneId)) parentSceneId = null;
+let createSceneBusy = false;
 
-  const isAfter = Boolean(afterSceneId);
-  const isChild = !isAfter && Boolean(parentSceneId);
-  const defaultTitle = isChild ? i18n.t('app.새_하위_원고') : i18n.t('app.새_씬');
-  const body = { title: defaultTitle };
-  if (parentSceneId) body.parent_scene_id = parentSceneId;
-  const scene = await api(`/api/chapters/${chapterId}/scenes`, {
-    method: "POST",
-    body: JSON.stringify(body),
+function setOutlineSceneAddButtonsDisabled(disabled) {
+  const root = $("outline");
+  if (!root) return;
+  root.querySelectorAll(
+    "[data-add-after-scene], [data-add-child-scene], button.chapter-add-scene, button.scene-add-btn, .transparent-add-scene",
+  ).forEach((btn) => {
+    btn.disabled = !!disabled;
   });
-  // 기본은 목록 끝 → 기준 원고 바로 아래로 이동
-  if (isAfter && scene?.id) {
-    try {
-      await api(`/api/scenes/${scene.id}/move`, {
-        method: "POST",
-        body: JSON.stringify({ after_scene_id: afterSceneId }),
-      });
-    } catch (_) {
-      /* 생성은 됐으니 끝 위치여도 열기 */
+}
+
+async function createScene(chapterId, options = {}) {
+  // Serialize outline "+" / context-menu creates so overlapping loadProject
+  // calls cannot wipe an in-progress rename or merge scene UI state.
+  if (createSceneBusy) return null;
+  createSceneBusy = true;
+  setOutlineSceneAddButtonsDisabled(true);
+  let delayUnlock = false;
+  try {
+    const afterSceneId = options.afterSceneId != null && options.afterSceneId !== ""
+      ? Number(options.afterSceneId)
+      : null;
+    // afterSceneId: 같은 상위 아래(형제)로 만들고 기준 원고 바로 아래에 배치
+    // parentSceneId only: 그 원고의 하위로 만들기
+    let parentSceneId = options.parentSceneId != null && options.parentSceneId !== ""
+      ? Number(options.parentSceneId)
+      : null;
+    if (afterSceneId && options.parentSceneId === undefined) {
+      // 미지정 시 기준 원고의 상위와 맞춤
+      const anchor = findSceneNodeById(afterSceneId);
+      const rawParent = anchor?.parent_scene_id ?? anchor?.parentSceneId;
+      parentSceneId = rawParent != null && rawParent !== "" ? Number(rawParent) : null;
+      if (!Number.isFinite(parentSceneId)) parentSceneId = null;
     }
-  }
-  if (parentSceneId) setSceneCollapsed(parentSceneId, false);
-  setChapterCollapsed(chapterId, false);
-  await loadProject();
-  if (scene?.id) {
-    await openScene(scene.id, { skipOutlineReload: true, skipEditorFocus: true });
-    window.setTimeout(() => startRenameScene(scene.id), 40);
+    if (afterSceneId && !Number.isFinite(parentSceneId)) parentSceneId = null;
+
+    const isAfter = Boolean(afterSceneId);
+    const isChild = !isAfter && Boolean(parentSceneId);
+    const defaultTitle = isChild ? i18n.t('app.새_하위_원고') : i18n.t('app.새_씬');
+    const body = { title: defaultTitle };
+    if (parentSceneId) body.parent_scene_id = parentSceneId;
+    const scene = await api(`/api/chapters/${chapterId}/scenes`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    // 기본은 목록 끝 → 기준 원고 바로 아래로 이동
+    if (isAfter && scene?.id) {
+      try {
+        await api(`/api/scenes/${scene.id}/move`, {
+          method: "POST",
+          body: JSON.stringify({ after_scene_id: afterSceneId }),
+        });
+      } catch (_) {
+        /* 생성은 됐으니 끝 위치여도 열기 */
+      }
+    }
+    if (parentSceneId) setSceneCollapsed(parentSceneId, false);
+    setChapterCollapsed(chapterId, false);
+    await loadProject();
+    if (scene?.id) {
+      await openScene(scene.id, { skipOutlineReload: true, skipEditorFocus: true });
+      // If another row is still being renamed, leave that input alone.
+      if (!isOutlineInlineRenaming()) {
+        delayUnlock = true;
+        window.setTimeout(() => startRenameScene(scene.id), 40);
+      }
+    }
+    return scene;
+  } finally {
+    // Hold the lock briefly when auto-rename is about to start, so a second
+    // "+" click cannot loadProject() before the rename input mounts.
+    if (delayUnlock) {
+      window.setTimeout(() => {
+        createSceneBusy = false;
+        setOutlineSceneAddButtonsDisabled(false);
+      }, 80);
+    } else {
+      createSceneBusy = false;
+      setOutlineSceneAddButtonsDisabled(false);
+    }
   }
 }
 
@@ -59158,19 +61106,23 @@ function setupCharacterAnalysisModal() {
       claimToriDraftOnInput(el);
     });
   });
-  $("characterChronicleButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    toggleCharacterChronicle().catch(handleError);
-  });
-  $("itemChronicleButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    toggleItemChronicle().catch(handleError);
-  });
+}
+
+function traitChronicleEls(kind) {
+  const isItem = kind === "item";
+  return {
+    panel: $(isItem ? "itemChronicle" : "characterChronicle"),
+    button: $(isItem ? "itemChronicleButton" : "characterChronicleButton"),
+    list: $(isItem ? "itemChronicleList" : "characterChronicleList"),
+    id: isItem ? state.itemId : state.characterId,
+    url: isItem
+      ? `/api/items/${state.itemId}/trait-history`
+      : `/api/characters/${state.characterId}/trait-history`,
+  };
 }
 
 function setChronicleOpen(kind, open) {
-  const panel = $(kind === "item" ? "itemChronicle" : "characterChronicle");
-  const button = $(kind === "item" ? "itemChronicleButton" : "characterChronicleButton");
+  const { panel, button } = traitChronicleEls(kind);
   if (panel) {
     panel.classList.toggle("hidden", !open);
     panel.hidden = !open;
@@ -59215,13 +61167,14 @@ function chronicleEpisodeLabel(entry) {
   return bits.join(" · ") || i18n.t("app.회차");
 }
 
-function renderTraitChronicleList(listEl, entries, kind) {
+function renderTraitChronicleList(listEl, entries, kind, options = {}) {
   if (!listEl) return;
   const rows = Array.isArray(entries) ? entries : [];
   if (!rows.length) {
     listEl.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.아직_짚어_둔_변화가_없어요"))}</p>`;
     return;
   }
+  const showNames = Boolean(options.showNames);
   listEl.innerHTML = rows.map((entry) => {
     const applied = Boolean(entry.applied);
     const status = applied
@@ -59233,8 +61186,13 @@ function renderTraitChronicleList(listEl, entries, kind) {
     const sceneButton = inherited
       ? ""
       : `<button type="button" class="secondary compact-btn" data-chronicle-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`;
+    const who = showNames ? String(entry.character_name || "").trim() : "";
+    const whoBadge = who
+      ? `<span class="trait-chronicle-who">${escapeHtml(who)}</span>`
+      : "";
     return `<article class="trait-chronicle-item">
       <div class="trait-chronicle-item-head">
+        ${whoBadge}
         <span class="trait-chronicle-ep">${escapeHtml(chronicleEpisodeLabel(entry))}</span>
         <span class="trait-chronicle-field">${escapeHtml(chronicleFieldLabel(kind, entry.field_name))}</span>
       </div>
@@ -59253,34 +61211,46 @@ function renderTraitChronicleList(listEl, entries, kind) {
   });
 }
 
-async function loadCharacterChronicle() {
-  const list = $("characterChronicleList");
-  if (!list || !state.characterId) return;
+async function loadTraitChronicle(kind) {
+  const { list, id, url } = traitChronicleEls(kind);
+  if (!list || !id) return;
   list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
-  const data = await api(`/api/characters/${state.characterId}/trait-history`);
-  renderTraitChronicleList(list, data?.entries, "character");
+  const data = await api(url);
+  renderTraitChronicleList(list, data?.entries, kind);
+}
+
+async function loadCharacterChronicle() {
+  return loadTraitChronicle("character");
 }
 
 async function loadItemChronicle() {
-  const list = $("itemChronicleList");
-  if (!list || !state.itemId) return;
-  list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>`;
-  const data = await api(`/api/items/${state.itemId}/trait-history`);
-  renderTraitChronicleList(list, data?.entries, "item");
+  return loadTraitChronicle("item");
+}
+
+async function toggleTraitChronicle(kind) {
+  const { panel } = traitChronicleEls(kind);
+  const open = Boolean(panel?.classList.contains("hidden") || panel?.hidden);
+  setChronicleOpen(kind, open);
+  if (open) await loadTraitChronicle(kind);
 }
 
 async function toggleCharacterChronicle() {
-  const panel = $("characterChronicle");
-  const open = Boolean(panel?.classList.contains("hidden") || panel?.hidden);
-  setChronicleOpen("character", open);
-  if (open) await loadCharacterChronicle();
+  return toggleTraitChronicle("character");
 }
 
 async function toggleItemChronicle() {
-  const panel = $("itemChronicle");
-  const open = Boolean(panel?.classList.contains("hidden") || panel?.hidden);
-  setChronicleOpen("item", open);
-  if (open) await loadItemChronicle();
+  return toggleTraitChronicle("item");
+}
+
+function setupTraitChronicle() {
+  $("characterChronicleButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleTraitChronicle("character").catch(handleError);
+  });
+  $("itemChronicleButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleTraitChronicle("item").catch(handleError);
+  });
 }
 
 async function openChronicleScene(sceneId) {
@@ -59604,6 +61574,7 @@ function applyCharacterSaveToState(payload) {
     listItem.weaknesses_md = payload.weaknesses_md;
     listItem.author_notes_md = payload.author_notes_md;
   }
+  refreshDockCharacterCard(state.characterId);
 }
 
 function markCharacterDirty() {
@@ -59814,6 +61785,8 @@ async function deleteCharacter() {
   characterDirty = false;
   await api(`/api/characters/${state.characterId}`, { method: "DELETE" });
   const deletedId = state.characterId;
+  closeIdeaFloat(dockCharacterFloatKey(deletedId), { skipSave: true });
+  dockCharacterDetailCache.delete(Number(deletedId));
   state.characterId = null;
   state.character = null;
   $("characterEditor")?.classList.add("hidden");
@@ -59847,6 +61820,7 @@ async function uploadCharacterPortrait(file) {
       || state.character.character.row_version;
   }
   renderCharacterPortrait(state.character?.character);
+  refreshDockCharacterCard(state.characterId);
   toast(i18n.t('app.캐릭터_이미지를_넣었어요'));
 }
 
@@ -59859,6 +61833,7 @@ async function clearCharacterPortrait() {
     state.character.character.portrait_file = "";
   }
   renderCharacterPortrait(state.character?.character);
+  refreshDockCharacterCard(state.characterId);
   toast(i18n.t('app.캐릭터_이미지를_제거했어요'));
 }
 
@@ -60317,32 +62292,20 @@ function updateSplitChrome() {
   const focusBtn = $("focusWriteSplitButton");
   const switchBtn = $("switchSplitModeButton");
   const viewer = $("splitViewer");
-  const def = getSplitDefaultMode();
   const syncMainLike = (btn, { iconOnly = false } = {}) => {
     if (!btn) return;
     btn.disabled = !state.sceneId && !state.splitEnabled;
     btn.classList.toggle("is-active", Boolean(state.splitEnabled));
     const labelEl = btn.querySelector(".format-tool-label");
-    if (def) {
-      const labelKey = state.splitEnabled ? "index.끄기" : "index.켜기";
-      if (iconOnly && labelEl) {
-        labelEl.setAttribute("data-i18n", labelKey);
-        labelEl.textContent = i18n.t(labelKey);
-      } else if (!iconOnly) {
-        btn.textContent = i18n.t(labelKey);
-      }
-      btn.title = state.splitEnabled ? i18n.t("index.분할_끄기") : splitDefaultButtonTitle();
-      btn.setAttribute("aria-label", i18n.t(labelKey));
-      return;
-    }
     if (labelEl) {
       labelEl.setAttribute("data-i18n", "index.분할");
       labelEl.textContent = i18n.t("index.분할");
     }
-    btn.setAttribute("aria-label", i18n.t("index.분할"));
     if (!state.splitEnabled) {
       if (!iconOnly) btn.textContent = i18n.t("app.분할");
-      btn.title = splitDefaultButtonTitle();
+      const idleTitle = splitDefaultButtonTitle();
+      btn.title = idleTitle;
+      btn.setAttribute("aria-label", idleTitle);
       return;
     }
     if (state.splitMode === "popup") {
@@ -60352,6 +62315,7 @@ function updateSplitChrome() {
       if (!iconOnly) btn.textContent = i18n.t("app.화면_나누기_중");
       btn.title = i18n.t("app.화면_나누기_중_Ctrl_Alt_P_팝업_E");
     }
+    btn.setAttribute("aria-label", btn.title || i18n.t("index.분할"));
   };
   if (!state.splitEnabled) {
     syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
@@ -60866,7 +62830,7 @@ async function openSecondaryView(mode) {
   if (!state.sceneId) return toast(i18n.t('app.먼저_목차에서_씬_하나를_열어_주세요'));
   const alternative = allScenes().find((scene) => scene.id !== state.sceneId);
   const sources = typeof loadSources === "function" ? loadSources() : [];
-  const usableSources = sources.filter((src) => (src.kind === "file" || src.fileName) || String(src.url || "").trim());
+  const usableSources = sources.filter((src) => sourceEntryIsFile(src) || String(src.url || "").trim());
   if (!alternative && !usableSources.length) {
     toast(i18n.t('app.함께볼_다른_회차나_참고자료가_없어요'));
     return;
@@ -60989,7 +62953,7 @@ async function renderSplitViewer() {
   setSplitSourceUiMode(false);
   const alternatives = allScenes().filter((scene) => scene.id !== state.sceneId);
   const sources = typeof loadSources === "function" ? loadSources() : [];
-  const usableSources = sources.filter((src) => (src.kind === "file" || src.fileName) || String(src.url || "").trim());
+  const usableSources = sources.filter((src) => sourceEntryIsFile(src) || String(src.url || "").trim());
   if (!alternatives.length) {
     if (usableSources.length) {
       await openSourceInSplit(usableSources[0].id, state.splitMode || "split");
@@ -66848,6 +68812,7 @@ safeSetup("setupSourceCollection", setupSourceCollection);
 safeSetup("setupToryVault", setupToryVault);
 safeSetup("setupAiPanelToggle", setupAiPanelToggle);
 safeSetup("setupBinderPanelToggle", setupBinderPanelToggle);
+safeSetup("setupPanelDock", setupPanelDock);
 safeSetup("setupNarrowLayoutAutoCollapse", setupNarrowLayoutAutoCollapse);
 // Theme controls already bound earlier (setupUiThemeToggle); keep a safe re-entry.
 safeSetup("setupUiThemeToggle", setupUiThemeToggle);
@@ -66864,6 +68829,7 @@ safeSetup("setupPurposePicker", setupPurposePicker);
 safeSetup("setupKeywordBox", setupKeywordBox);
 safeSetup("setupProofReportModal", setupProofReportModal);
 safeSetup("setupCharacterAnalysisModal", setupCharacterAnalysisModal);
+safeSetup("setupTraitChronicle", setupTraitChronicle);
 safeSetup("setupWritingLog", setupWritingLog);
 safeSetup("setupHeaderNotices", setupHeaderNotices);
 safeSetup("setupBookmarkListPanel", setupBookmarkListPanel);
