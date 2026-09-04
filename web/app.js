@@ -2131,6 +2131,7 @@ function updateSceneStats() {
   applySpaceSegUi();
   updateChapterSubtitleButtonState(sceneStats.chars_with_space);
   syncDockStatsTracker();
+  scheduleToryCheckRefresh();
 }
 
 /* —— Goal gauge colors (right-click): solid + gradient —— */
@@ -11041,16 +11042,27 @@ async function closeCharacterBoard() {
 }
 
 const REL_CARD_W = 188;
-const REL_CARD_H = 124;
+const REL_CARD_H = 108;
 const REL_CARD_GAP = 36;
 const REL_CARD_COLS = 4;
+const REL_SELECT_MAX = 12;
+const REL_GROUP_PAD = 12;
+/** Matches `.relation-canvas-card { transform: translateY(-2px) }` visual lift. */
+const REL_CARD_Y_NUDGE = 2;
+const REL_GROUP_STACK_GAP = 12;
+/** Peek offset when group cards are piled. */
+const REL_GROUP_STACK_PEEK = 10;
 const REL_BORDER_PRESETS = ["", "#c45c26", "#3b82f6", "#16a34a", "#a855f7", "#e11d48", "#0f766e", "#334155"];
 const REL_DECK_PEEK = 4;
-let relationCanvasData = { characters: [], relations: [] };
+let relationCanvasData = { characters: [], relations: [], groups: [] };
 let relationCanvasPan = { x: 48, y: 36 };
 let relationCanvasZoom = 1;
 let relationSelectedIds = [];
 let relationDrag = null;
+let relationGroupEditId = null;
+let relationGroupMemberIds = null;
+/** @type {Set<number>} */
+let relationExpandedGroupIds = new Set();
 let relationDeckDrag = null;
 let relationPanDrag = null;
 let relationPopupId = null;
@@ -11108,9 +11120,13 @@ function hideRelationPopups() {
   relationPopupId = null;
   relationLabelPair = null;
   relationEditId = null;
+  relationGroupEditId = null;
+  relationGroupMemberIds = null;
   $("relationSuggestPopup")?.classList.add("hidden");
   $("relationLabelModal")?.classList.add("hidden");
   $("relationLabelDeleteButton")?.classList.add("hidden");
+  $("relationGroupModal")?.classList.add("hidden");
+  $("relationGroupDeleteButton")?.classList.add("hidden");
   hideRelationCardMenu();
 }
 
@@ -11202,6 +11218,12 @@ function showRelationCardMenu(characterId, clientX, clientY) {
   if (sendBtn) {
     const canSend = ch && !linked.has(Number(ch.id)) && relationCharacterOnBoard(ch, linked);
     sendBtn.classList.toggle("hidden", !canSend);
+  }
+  const ungroupBtn = $("relationUngroupButton");
+  if (ungroupBtn) {
+    const group = relationGroupByCharacterId(relationCardMenuId);
+    ungroupBtn.classList.toggle("hidden", !group);
+    ungroupBtn.dataset.groupId = group ? String(group.id) : "";
   }
   const swatches = $("relationBorderSwatches");
   if (swatches) {
@@ -11364,13 +11386,23 @@ function paintRelationCards(options = {}) {
     const selected = selectedIds.includes(Number(ch.id)) ? "is-selected" : "";
     const ego = egoId && Number(ch.id) === egoId ? "is-ego" : "";
     const protagonist = characterStoryRole(ch.role) === "protagonist" ? "is-protagonist" : "";
+    const group = relationGroupByCharacterId(ch.id);
+    let groupClass = "";
+    let zStyle = "";
+    if (group) {
+      const ids = (group.character_ids || []).map((cid) => Number(cid));
+      const idx = Math.max(0, ids.indexOf(Number(ch.id)));
+      const expanded = isRelationGroupExpanded(group.id);
+      groupClass = expanded ? "is-group-expanded" : "is-group-stacked";
+      zStyle = `z-index:${10 + idx};`;
+    }
     const border = relationCardBorderColor(ch.id);
     const borderStyle = border ? `border-color:${border};` : "";
     const profile = showProfile
       ? `<button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>`
       : "";
     return `
-      <article class="relation-canvas-card ${selected} ${ego} ${protagonist}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px;${borderStyle}">
+      <article class="relation-canvas-card ${selected} ${ego} ${protagonist} ${groupClass}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px;${borderStyle}${zStyle}">
         <span class="relation-canvas-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
         <span class="relation-canvas-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
         <span class="relation-canvas-card-summary">${escapeHtml(relationCardSummary(ch))}</span>
@@ -11428,8 +11460,10 @@ function paintRelationCanvas() {
   const parts = partitionRelationCharacters();
   paintRelationCards({ parts, characters: parts.board });
   paintRelationLines({ characters: parts.board });
+  paintRelationGroups();
   paintRelationDecks(parts);
   applyRelationTransform();
+  syncRelationSelectionActions();
   requestAnimationFrame(() => syncRelationDeckRailToStage());
 }
 
@@ -11534,9 +11568,14 @@ async function loadRelationCanvas() {
   relationCanvasData = {
     characters: laid.characters,
     relations,
+    groups: Array.isArray(data.groups) ? data.groups : [],
   };
   loadRelationDeckLayoutPrefs();
   loadRelationBorderColors();
+  (relationCanvasData.groups || []).forEach((group) => {
+    const mode = isRelationGroupExpanded(group.id) ? "column" : "stack";
+    arrangeRelationGroupMembers(group.character_ids, { mode });
+  });
   paintRelationCanvas();
   if (laid.dirty) {
     const positions = [
@@ -11562,10 +11601,184 @@ function toggleRelationSelection(characterId) {
   const idx = relationSelectedIds.indexOf(id);
   if (idx >= 0) relationSelectedIds.splice(idx, 1);
   else {
-    if (relationSelectedIds.length >= 2) relationSelectedIds.shift();
+    if (relationSelectedIds.length >= REL_SELECT_MAX) relationSelectedIds.shift();
     relationSelectedIds.push(id);
   }
   paintRelationCanvas();
+  syncRelationSelectionActions();
+}
+
+function syncRelationSelectionActions() {
+  const count = relationSelectedIds.length;
+  const linkBtn = $("relationLinkButton");
+  const groupBtn = $("relationGroupButton");
+  if (linkBtn) {
+    linkBtn.disabled = count !== 2;
+    linkBtn.classList.toggle("is-disabled", count !== 2);
+    linkBtn.setAttribute("aria-disabled", count !== 2 ? "true" : "false");
+  }
+  if (groupBtn) {
+    groupBtn.disabled = count < 2;
+    groupBtn.classList.toggle("is-disabled", count < 2);
+    groupBtn.setAttribute("aria-disabled", count < 2 ? "true" : "false");
+  }
+}
+
+function relationGroupByCharacterId(characterId) {
+  const id = Number(characterId);
+  return (relationCanvasData.groups || []).find((group) => (
+    Array.isArray(group.character_ids) && group.character_ids.some((cid) => Number(cid) === id)
+  )) || null;
+}
+
+function isRelationGroupExpanded(groupId) {
+  return relationExpandedGroupIds.has(Number(groupId));
+}
+
+function relationMemberCardBox(character) {
+  const id = Number(character?.id);
+  const el = id
+    ? document.querySelector(`#relationCanvasCards [data-rel-card="${id}"]`)
+    : null;
+  if (el) {
+    return {
+      left: el.offsetLeft,
+      top: el.offsetTop - REL_CARD_Y_NUDGE,
+      width: el.offsetWidth,
+      height: el.offsetHeight,
+    };
+  }
+  const x = Number(character?.x);
+  const y = Number(character?.y);
+  return {
+    left: Number.isFinite(x) ? x : 0,
+    top: (Number.isFinite(y) ? y : 0) - REL_CARD_Y_NUDGE,
+    width: REL_CARD_W,
+    height: REL_CARD_H,
+  };
+}
+
+function relationGroupBounds(group, characters = relationCanvasData.characters) {
+  const ids = new Set((group?.character_ids || []).map((id) => Number(id)));
+  const rows = (characters || []).filter((ch) => (
+    ids.has(Number(ch.id))
+    && ch.x != null && ch.y != null
+    && Number.isFinite(Number(ch.x)) && Number.isFinite(Number(ch.y))
+  ));
+  if (rows.length < 2) return null;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  rows.forEach((ch) => {
+    const box = relationMemberCardBox(ch);
+    minX = Math.min(minX, box.left);
+    minY = Math.min(minY, box.top);
+    maxX = Math.max(maxX, box.left + box.width);
+    maxY = Math.max(maxY, box.top + box.height);
+  });
+  return {
+    left: minX - REL_GROUP_PAD,
+    top: minY - REL_GROUP_PAD,
+    width: Math.max(80, maxX - minX + REL_GROUP_PAD * 2),
+    height: Math.max(80, maxY - minY + REL_GROUP_PAD * 2),
+  };
+}
+
+function relationGroupMemberRows(characterIds) {
+  const idSet = new Set((characterIds || []).map((id) => Number(id)).filter((id) => id > 0));
+  const rows = (relationCanvasData.characters || []).filter((ch) => (
+    idSet.has(Number(ch.id))
+    && ch.x != null && ch.y != null
+    && Number.isFinite(Number(ch.x)) && Number.isFinite(Number(ch.y))
+  ));
+  rows.sort((a, b) => {
+    const dy = Number(a.y) - Number(b.y);
+    if (Math.abs(dy) > 1) return dy;
+    return Number(a.x) - Number(b.x);
+  });
+  return rows;
+}
+
+/** Arrange group members as a neat pile (`stack`) or vertical column (`column`). */
+function arrangeRelationGroupMembers(characterIds, options = {}) {
+  const mode = options.mode === "column" ? "column" : "stack";
+  const rows = relationGroupMemberRows(characterIds);
+  if (rows.length < 2) return [];
+  const avgX = rows.reduce((sum, ch) => sum + Number(ch.x), 0) / rows.length;
+  const avgCy = rows.reduce((sum, ch) => sum + Number(ch.y) + REL_CARD_H / 2, 0) / rows.length;
+  const positions = [];
+  if (mode === "stack") {
+    const baseX = Math.round(avgX);
+    const baseY = Math.round(avgCy - REL_CARD_H / 2);
+    rows.forEach((ch, index) => {
+      const x = baseX + index * REL_GROUP_STACK_PEEK;
+      const y = baseY + index * REL_GROUP_STACK_PEEK;
+      ch.x = x;
+      ch.y = y;
+      positions.push({ character_id: Number(ch.id), x, y });
+    });
+    return positions;
+  }
+  const totalH = rows.length * REL_CARD_H + (rows.length - 1) * REL_GROUP_STACK_GAP;
+  const startY = Math.round(avgCy - totalH / 2);
+  const x = Math.round(avgX);
+  rows.forEach((ch, index) => {
+    const y = startY + index * (REL_CARD_H + REL_GROUP_STACK_GAP);
+    ch.x = x;
+    ch.y = y;
+    positions.push({ character_id: Number(ch.id), x, y });
+  });
+  return positions;
+}
+
+async function setRelationGroupExpanded(groupId, expanded) {
+  const id = Number(groupId);
+  const group = (relationCanvasData.groups || []).find((row) => Number(row.id) === id);
+  if (!group) return;
+  if (expanded) relationExpandedGroupIds.add(id);
+  else relationExpandedGroupIds.delete(id);
+  const positions = arrangeRelationGroupMembers(group.character_ids, {
+    mode: expanded ? "column" : "stack",
+  });
+  paintRelationCanvas();
+  if (positions.length) await persistRelationPositions(positions);
+}
+
+async function toggleRelationGroupExpanded(groupId) {
+  await setRelationGroupExpanded(groupId, !isRelationGroupExpanded(groupId));
+}
+
+function paintRelationGroups() {
+  const host = $("relationCanvasGroups");
+  if (!host) return;
+  const groups = Array.isArray(relationCanvasData.groups) ? relationCanvasData.groups : [];
+  host.innerHTML = groups.map((group) => {
+    const box = relationGroupBounds(group);
+    if (!box) return "";
+    const gid = Number(group.id);
+    const expanded = isRelationGroupExpanded(gid) ? "is-expanded" : "is-stacked";
+    const color = String(group.color || "").trim() || "var(--accent, #7aa1b6)";
+    return `<div class="relation-canvas-group ${expanded}" data-rel-group="${gid}" style="left:${box.left}px;top:${box.top}px;width:${box.width}px;height:${box.height}px;--rel-group-color:${escapeHtml(color)}">
+      <button type="button" class="relation-canvas-group-label" data-rel-group-edit="${gid}">${escapeHtml(group.name || i18n.t("app.그룹"))}</button>
+    </div>`;
+  }).join("");
+  host.querySelectorAll("[data-rel-group]").forEach((frame) => {
+    frame.addEventListener("pointerdown", (event) => event.stopPropagation());
+    frame.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      const gid = Number(frame.getAttribute("data-rel-group"));
+      const editBtn = event.target.closest?.("[data-rel-group-edit]");
+      const group = (relationCanvasData.groups || []).find((row) => Number(row.id) === gid);
+      if (!group) return;
+      if (editBtn) {
+        showRelationGroupEditModal(group);
+        return;
+      }
+      toggleRelationGroupExpanded(gid).catch(handleError);
+    });
+  });
 }
 
 function showRelationSuggestPopup(rel, event) {
@@ -11611,6 +11824,114 @@ function showRelationLabelModal() {
   modal.style.top = "24px";
   modal.classList.remove("hidden");
   input?.focus();
+}
+
+function syncRelationGroupModalMode() {
+  const del = $("relationGroupDeleteButton");
+  const save = $("relationGroupSaveButton");
+  if (relationGroupEditId) {
+    del?.classList.remove("hidden");
+    if (save) save.textContent = i18n.t("app.저장");
+  } else {
+    del?.classList.add("hidden");
+    if (save) save.textContent = i18n.t("app.그룹_만들기");
+  }
+}
+
+function showRelationGroupModal() {
+  if (relationSelectedIds.length < 2) {
+    toast(i18n.t("app.인물을_두_명_이상_고른_뒤_그룹을_만드세요"));
+    return;
+  }
+  const modal = $("relationGroupModal");
+  if (!modal) return;
+  hideRelationPopups();
+  relationGroupEditId = null;
+  relationGroupMemberIds = relationSelectedIds.slice();
+  const input = $("relationGroupInput");
+  if (input) input.value = "";
+  syncRelationGroupModalMode();
+  modal.style.left = "24px";
+  modal.style.top = "24px";
+  modal.classList.remove("hidden");
+  input?.focus();
+}
+
+function showRelationGroupEditModal(group) {
+  const modal = $("relationGroupModal");
+  if (!modal || !group) return;
+  hideRelationPopups();
+  relationGroupEditId = Number(group.id);
+  relationGroupMemberIds = Array.isArray(group.character_ids)
+    ? group.character_ids.map((id) => Number(id)).filter((id) => id > 0)
+    : [];
+  const input = $("relationGroupInput");
+  if (input) input.value = String(group.name || "");
+  syncRelationGroupModalMode();
+  modal.style.left = "24px";
+  modal.style.top = "24px";
+  modal.classList.remove("hidden");
+  input?.focus();
+  input?.select?.();
+}
+
+async function saveRelationGroup() {
+  const name = String($("relationGroupInput")?.value || "").trim();
+  if (!name) {
+    toast(i18n.t("app.그룹_이름"));
+    return;
+  }
+  if (relationGroupEditId) {
+    const payload = await api(`/api/character-canvas/groups/${relationGroupEditId}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    });
+    if (payload?.canvas) {
+      relationCanvasData.groups = Array.isArray(payload.canvas.groups) ? payload.canvas.groups : [];
+    }
+    hideRelationPopups();
+    toast(i18n.t("app.그룹을_저장했어요"));
+    paintRelationCanvas();
+    return;
+  }
+  if (!state.projectId || !relationGroupMemberIds || relationGroupMemberIds.length < 2) return;
+  const memberIds = relationGroupMemberIds.slice();
+  const arranged = arrangeRelationGroupMembers(memberIds, { mode: "stack" });
+  if (arranged.length) {
+    await persistRelationPositions(arranged);
+  }
+  const payload = await api(`/api/projects/${state.projectId}/character-canvas/groups`, {
+    method: "POST",
+    body: JSON.stringify({
+      name,
+      character_ids: memberIds,
+    }),
+  });
+  if (payload?.canvas) {
+    relationCanvasData.groups = Array.isArray(payload.canvas.groups) ? payload.canvas.groups : [];
+  } else {
+    await loadRelationCanvas();
+  }
+  const created = (relationCanvasData.groups || []).find((group) => {
+    const ids = new Set((group.character_ids || []).map((id) => Number(id)));
+    return memberIds.every((id) => ids.has(Number(id))) && ids.size === memberIds.length;
+  });
+  if (created) relationExpandedGroupIds.delete(Number(created.id));
+  arrangeRelationGroupMembers(memberIds, { mode: "stack" });
+  hideRelationPopups();
+  relationSelectedIds = [];
+  toast(i18n.t("app.그룹을_만들었어요"));
+  paintRelationCanvas();
+}
+
+async function deleteRelationGroup() {
+  if (!relationGroupEditId) return;
+  const gid = Number(relationGroupEditId);
+  await api(`/api/character-canvas/groups/${gid}`, { method: "DELETE" });
+  relationExpandedGroupIds.delete(gid);
+  hideRelationPopups();
+  toast(i18n.t("app.그룹을_해제했어요"));
+  await loadRelationCanvas();
 }
 
 function showRelationEditModal(rel, event) {
@@ -11703,6 +12024,7 @@ async function requestRelationSuggestions() {
       relationCanvasData = {
         characters: laid.characters,
         relations: nextRelations,
+        groups: Array.isArray(result.canvas.groups) ? result.canvas.groups : (relationCanvasData.groups || []),
       };
       paintRelationCanvas();
     } else {
@@ -11854,6 +12176,13 @@ function onRelationCanvasKeydown(event) {
     event.stopImmediatePropagation();
     return;
   }
+  const groupModal = $("relationGroupModal");
+  if (groupModal && !groupModal.classList.contains("hidden")) {
+    hideRelationPopups();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   if (!isRelationCanvasFullscreen()) return;
   event.preventDefault();
   event.stopImmediatePropagation();
@@ -11965,18 +12294,38 @@ function saveRelationDeckLayoutPrefs() {
 
 function relationDeckMetricsFor(kind, stageW, stageH) {
   const prefs = relationDeckLayoutPrefs[normalizeRelationDeckKind(kind)] || REL_DECK_LAYOUT_DEFAULT.minor;
-  const width = Math.min(Math.max(stageW * prefs.widthRatio, 140), Math.min(300, stageW * 0.42));
-  const peek = Math.min(Math.max(stageH * prefs.heightRatio, 96), Math.min(240, stageH * 0.4));
-  const expanded = Math.min(
-    Math.max(peek * 1.85, stageH * Math.min(0.5, prefs.heightRatio * 1.85)),
-    Math.max(180, stageH * 0.58)
-  );
+  const margin = 16;
+  const maxW = Math.max(64, stageW - margin);
+  const preferredW = stageW * Math.max(0.12, Math.min(0.4, Number(prefs.widthRatio) || 0.185));
+  const comfortW = Math.min(140, maxW);
+  const width = Math.round(Math.min(
+    Math.max(preferredW, comfortW),
+    Math.min(300, stageW * 0.5, maxW)
+  ));
+  const maxPeek = Math.max(56, Math.min(240, stageH * 0.38, stageH - margin));
+  const preferredPeek = stageH * Math.max(0.12, Math.min(0.4, Number(prefs.heightRatio) || 0.2));
+  const comfortPeek = Math.min(96, maxPeek);
+  const peek = Math.round(Math.min(Math.max(preferredPeek, comfortPeek), maxPeek));
+  const expanded = Math.round(Math.min(
+    Math.max(peek * 1.85, stageH * Math.min(0.5, (Number(prefs.heightRatio) || 0.2) * 1.85)),
+    Math.max(peek + 24, stageH - margin)
+  ));
   return {
-    width: Math.round(width),
-    peek: Math.round(peek),
-    expanded: Math.round(expanded),
+    width,
+    peek,
+    expanded,
     prefs,
   };
+}
+
+function clampRelationDeckBox(left, top, width, height, stageW, stageH, margin = 8) {
+  const maxW = Math.max(48, stageW - margin * 2);
+  const maxH = Math.max(48, stageH - margin * 2);
+  const w = Math.max(48, Math.min(width, maxW));
+  const h = Math.max(48, Math.min(height, maxH));
+  const l = Math.max(margin, Math.min(stageW - w - margin, left));
+  const t = Math.max(margin, Math.min(stageH - h - margin, top));
+  return { left: l, top: t, width: w, height: h };
 }
 
 function defaultRelationDeckLeft(stageW, width) {
@@ -11994,25 +12343,26 @@ function applyRelationDeckLayout() {
     if (!section) return;
     const m = relationDeckMetricsFor(kind, rect.width, rect.height);
     const prefs = m.prefs;
-    const deckH = Math.max(
-      section.offsetHeight || (m.peek + 44),
-      relationDeckExpanded[kind] ? m.expanded : m.peek + 44
-    );
-    const leftPx = prefs.leftRatio == null
+    const desiredH = relationDeckExpanded[kind] ? m.expanded : m.peek + 44;
+    const rawLeft = prefs.leftRatio == null
       ? defaultRelationDeckLeft(rect.width, m.width)
-      : Math.max(8, Math.min(rect.width - m.width - 8, rect.width * prefs.leftRatio));
-    const topPx = Math.max(
-      8,
-      Math.min(rect.height - Math.min(deckH, rect.height - 16), rect.height * prefs.topRatio)
-    );
-    section.style.setProperty("--deck-w", `${m.width}px`);
-    section.style.setProperty("--deck-peek-h", `${m.peek}px`);
-    section.style.setProperty("--deck-exp-h", `${m.expanded}px`);
-    section.style.setProperty("--deck-left", `${Math.round(leftPx)}px`);
-    section.style.setProperty("--deck-top", `${Math.round(topPx)}px`);
-    section.style.left = `${Math.round(leftPx)}px`;
-    section.style.top = `${Math.round(topPx)}px`;
-    section.style.width = `${m.width}px`;
+      : rect.width * prefs.leftRatio;
+    const rawTop = rect.height * (Number.isFinite(Number(prefs.topRatio)) ? Number(prefs.topRatio) : 0.02);
+    const box = clampRelationDeckBox(rawLeft, rawTop, m.width, desiredH, rect.width, rect.height, 8);
+    const peekH = relationDeckExpanded[kind]
+      ? Math.max(56, box.height - 44)
+      : Math.min(m.peek, Math.max(56, box.height - 44));
+    const expH = Math.max(peekH, box.height);
+    section.style.setProperty("--deck-w", `${Math.round(box.width)}px`);
+    section.style.setProperty("--deck-peek-h", `${Math.round(peekH)}px`);
+    section.style.setProperty("--deck-exp-h", `${Math.round(expH)}px`);
+    section.style.setProperty("--deck-left", `${Math.round(box.left)}px`);
+    section.style.setProperty("--deck-top", `${Math.round(box.top)}px`);
+    section.style.left = `${Math.round(box.left)}px`;
+    section.style.top = `${Math.round(box.top)}px`;
+    section.style.width = `${Math.round(box.width)}px`;
+    section.style.minWidth = "0px";
+    section.style.maxWidth = `${Math.round(box.width)}px`;
   });
 }
 
@@ -12066,9 +12416,9 @@ function updateRelationDeckResize(event) {
     nextTop = drag.startTop + dy;
   }
 
-  nextW = Math.min(Math.max(nextW, 132), Math.min(300, drag.stageW * 0.42));
-  const maxPeek = Math.min(240, drag.stageH * 0.4);
-  nextPeek = Math.min(Math.max(nextPeek, 96), maxPeek);
+  nextW = Math.min(Math.max(nextW, Math.min(132, drag.stageW - 16)), Math.min(300, drag.stageW * 0.5, drag.stageW - 16));
+  const maxPeek = Math.min(240, drag.stageH * 0.4, drag.stageH - 16);
+  nextPeek = Math.min(Math.max(nextPeek, Math.min(96, maxPeek)), maxPeek);
 
   // Keep anchored edges stable after clamping.
   if (corner === "sw" || corner === "nw") {
@@ -12078,8 +12428,11 @@ function updateRelationDeckResize(event) {
     nextTop = drag.startTop + (drag.startPeek - nextPeek);
   }
 
-  nextLeft = Math.max(8, Math.min(drag.stageW - nextW - 8, nextLeft));
-  nextTop = Math.max(8, Math.min(drag.stageH - Math.min(nextPeek + 44, drag.stageH - 16), nextTop));
+  const box = clampRelationDeckBox(nextLeft, nextTop, nextW, nextPeek + 44, drag.stageW, drag.stageH, 8);
+  nextLeft = box.left;
+  nextTop = box.top;
+  nextW = box.width;
+  nextPeek = Math.max(56, Math.min(nextPeek, box.height - 44));
 
   prefs.widthRatio = nextW / Math.max(1, drag.stageW);
   prefs.heightRatio = nextPeek / Math.max(1, drag.stageH);
@@ -12127,10 +12480,11 @@ function updateRelationDeckMove(event) {
   const drag = relationDeckMove;
   const prefs = relationDeckLayoutPrefs[drag.kind];
   if (!prefs) return;
-  const left = Math.max(8, Math.min(drag.stageW - drag.deckW - 8, drag.origLeft + (event.clientX - drag.startX)));
-  const top = Math.max(8, Math.min(drag.stageH - Math.min(drag.deckH, drag.stageH - 16), drag.origTop + (event.clientY - drag.startY)));
-  prefs.leftRatio = left / Math.max(1, drag.stageW);
-  prefs.topRatio = top / Math.max(1, drag.stageH);
+  const left = drag.origLeft + (event.clientX - drag.startX);
+  const top = drag.origTop + (event.clientY - drag.startY);
+  const box = clampRelationDeckBox(left, top, drag.deckW, drag.deckH, drag.stageW, drag.stageH, 8);
+  prefs.leftRatio = box.left / Math.max(1, drag.stageW);
+  prefs.topRatio = box.top / Math.max(1, drag.stageH);
   applyRelationDeckLayout();
 }
 
@@ -12247,6 +12601,11 @@ function bindRelationCanvasEvents() {
       const id = Number(card.getAttribute("data-rel-card"));
       const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === id);
       if (!ch) return;
+      const group = relationGroupByCharacterId(id);
+      const memberIds = group?.character_ids?.map((cid) => Number(cid)).filter((cid) => cid > 0) || [id];
+      const members = memberIds
+        .map((cid) => (relationCanvasData.characters || []).find((row) => Number(row.id) === cid))
+        .filter((row) => row && row.x != null && row.y != null);
       relationDrag = {
         id,
         startX: event.clientX,
@@ -12255,14 +12614,24 @@ function bindRelationCanvasEvents() {
         origY: Number(ch.y),
         moved: false,
         pointerId: event.pointerId,
+        groupId: group ? Number(group.id) : 0,
+        members: members.map((row) => ({
+          id: Number(row.id),
+          origX: Number(row.x),
+          origY: Number(row.y),
+        })),
       };
       card.classList.add("is-dragging");
+      if (group) {
+        members.forEach((row) => {
+          stage.querySelector(`[data-rel-card="${row.id}"]`)?.classList.add("is-dragging");
+        });
+      }
       $("relationCanvasSvg")?.classList.add("is-dragging-cards");
-      try { card.setPointerCapture?.(event.pointerId); }
-      catch (_) { stage.setPointerCapture?.(event.pointerId); }
+      try { card.setPointerCapture(event.pointerId); } catch (_) { /* ignore */ }
       return;
     }
-    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal, .relation-card-menu, .relation-deck-rail")) return;
+    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal, .relation-group-modal, .relation-card-menu, .relation-deck-rail, .relation-canvas-group")) return;
     hideRelationPopups();
     relationPanDrag = {
       startX: event.clientX,
@@ -12310,17 +12679,24 @@ function bindRelationCanvasEvents() {
     const dx = (event.clientX - relationDrag.startX) / relationCanvasZoom;
     const dy = (event.clientY - relationDrag.startY) / relationCanvasZoom;
     if (Math.abs(dx) + Math.abs(dy) > 3) relationDrag.moved = true;
-    const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === relationDrag.id);
-    if (!ch) return;
-    ch.x = relationDrag.origX + dx;
-    ch.y = relationDrag.origY + dy;
-    const el = stage.querySelector(`[data-rel-card="${relationDrag.id}"]`);
-    if (el) {
-      el.style.left = `${ch.x}px`;
-      el.style.top = `${ch.y}px`;
-    }
+    const members = Array.isArray(relationDrag.members) && relationDrag.members.length
+      ? relationDrag.members
+      : [{ id: relationDrag.id, origX: relationDrag.origX, origY: relationDrag.origY }];
+    members.forEach((member) => {
+      const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === Number(member.id));
+      if (!ch) return;
+      ch.x = member.origX + dx;
+      ch.y = member.origY + dy;
+      const el = stage.querySelector(`[data-rel-card="${member.id}"]`);
+      if (el) {
+        el.style.left = `${ch.x}px`;
+        el.style.top = `${ch.y}px`;
+      }
+    });
+    paintRelationGroups();
     const overDeck = relationPointOverDeckRail(event.clientX, event.clientY)
-      && !relationLinkedIds().has(Number(relationDrag.id));
+      && !relationLinkedIds().has(Number(relationDrag.id))
+      && !relationDrag.groupId;
     setRelationDeckDropTarget(overDeck, event.clientX, event.clientY);
     paintRelationLines({ interactive: false });
   };
@@ -12342,33 +12718,47 @@ function bindRelationCanvasEvents() {
     relationDrag = null;
     setRelationDeckDropTarget(false);
     $("relationCanvasSvg")?.classList.remove("is-dragging-cards");
-    stage.querySelector("[data-rel-card].is-dragging")?.classList.remove("is-dragging");
+    stage.querySelectorAll("[data-rel-card].is-dragging").forEach((node) => node.classList.remove("is-dragging"));
     paintRelationLines();
     if (!drag.moved) {
+      if (drag.groupId && !isRelationGroupExpanded(drag.groupId)) {
+        setRelationGroupExpanded(drag.groupId, true).catch(handleError);
+        return;
+      }
       toggleRelationSelection(drag.id);
       return;
     }
     const linked = relationLinkedIds();
     // Only unlinked cards can enter the drawers.
     if (event && relationPointOverDeckRail(event.clientX, event.clientY)) {
-      if (linked.has(Number(drag.id))) {
-        const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
-        if (ch) {
-          ch.x = drag.origX;
-          ch.y = drag.origY;
-          paintRelationCanvas();
-        }
-        toast(i18n.t("app.연결된_인물은_카드집으로_보낼_수_없어요"));
+      if (drag.groupId || linked.has(Number(drag.id))) {
+        const members = Array.isArray(drag.members) ? drag.members : [];
+        members.forEach((member) => {
+          const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === Number(member.id));
+          if (!ch) return;
+          ch.x = member.origX;
+          ch.y = member.origY;
+        });
+        paintRelationCanvas();
+        if (drag.groupId) toast(i18n.t("app.그룹_인물은_카드집으로_보낼_수_없어요"));
+        else toast(i18n.t("app.연결된_인물은_카드집으로_보낼_수_없어요"));
         return;
       }
       sendRelationCharacterToDeck(drag.id).catch(handleError);
       return;
     }
-    const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
-    if (ch) {
-      persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+    const members = Array.isArray(drag.members) && drag.members.length
+      ? drag.members
+      : [{ id: drag.id, origX: drag.origX, origY: drag.origY }];
+    const positions = [];
+    members.forEach((member) => {
+      const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === Number(member.id));
+      if (!ch) return;
+      positions.push({ character_id: ch.id, x: ch.x, y: ch.y });
       syncDockRelationPosition(ch.id, ch.x, ch.y);
-    }
+    });
+    if (positions.length) persistRelationPositions(positions).catch(handleError);
+    paintRelationGroups();
   };
   document.addEventListener("pointermove", onRelationBoardPointerMove);
   document.addEventListener("pointerup", onRelationBoardPointerUp);
@@ -12385,6 +12775,7 @@ function bindRelationCanvasEvents() {
   }
   $("relationSuggestButton")?.addEventListener("click", () => requestRelationSuggestions().catch(handleError));
   $("relationLinkButton")?.addEventListener("click", () => showRelationLabelModal());
+  $("relationGroupButton")?.addEventListener("click", () => showRelationGroupModal());
   $("relationFitButton")?.addEventListener("click", () => onRelationCanvasFitClick());
   $("relationFullscreenExitButton")?.addEventListener("click", () => exitRelationCanvasFullscreen());
   $("relationLayoutButton")?.addEventListener("click", () => autoLayoutRelationCanvas().catch(handleError));
@@ -12397,10 +12788,26 @@ function bindRelationCanvasEvents() {
   $("relationLabelSaveButton")?.addEventListener("click", () => saveManualRelation().catch(handleError));
   $("relationLabelCancelButton")?.addEventListener("click", () => hideRelationPopups());
   $("relationLabelDeleteButton")?.addEventListener("click", () => deleteRelationEdge(relationEditId).catch(handleError));
+  $("relationGroupSaveButton")?.addEventListener("click", () => saveRelationGroup().catch(handleError));
+  $("relationGroupCancelButton")?.addEventListener("click", () => hideRelationPopups());
+  $("relationGroupDeleteButton")?.addEventListener("click", () => deleteRelationGroup().catch(handleError));
+  $("relationUngroupButton")?.addEventListener("click", () => {
+    const gid = Number($("relationUngroupButton")?.dataset?.groupId || 0);
+    hideRelationCardMenu();
+    if (!gid) return;
+    relationGroupEditId = gid;
+    deleteRelationGroup().catch(handleError);
+  });
   $("relationLabelInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       saveManualRelation().catch(handleError);
+    }
+  });
+  $("relationGroupInput")?.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      saveRelationGroup().catch(handleError);
     }
   });
   stage?.addEventListener("contextmenu", (event) => {
@@ -14457,6 +14864,11 @@ const DOCK_TIMELINE_DEFAULT_W = 360;
 const DOCK_TIMELINE_DEFAULT_H = 420;
 const DOCK_TIMELINE_MIN_W = 280;
 const DOCK_TIMELINE_MIN_H = 240;
+const DOCK_APPEARANCES_KEY = "dock:appearances";
+const DOCK_APPEARANCES_DEFAULT_W = 360;
+const DOCK_APPEARANCES_DEFAULT_H = 420;
+const DOCK_APPEARANCES_MIN_W = 280;
+const DOCK_APPEARANCES_MIN_H = 240;
 const DOCK_BAITS_KEY = "dock:baits";
 const DOCK_BAITS_DEFAULT_W = 360;
 const DOCK_BAITS_DEFAULT_H = 420;
@@ -14482,6 +14894,32 @@ const DOCK_SETTINGS_SEARCH_DEFAULT_W = 380;
 const DOCK_SETTINGS_SEARCH_DEFAULT_H = 440;
 const DOCK_SETTINGS_SEARCH_MIN_W = 280;
 const DOCK_SETTINGS_SEARCH_MIN_H = 240;
+const DOCK_TORY_CHECK_KEY = "dock:toryCheck";
+const DOCK_TORY_CHECK_DEFAULT_W = 440;
+const DOCK_TORY_CHECK_DEFAULT_H = 480;
+const DOCK_TORY_CHECK_MIN_W = 320;
+const DOCK_TORY_CHECK_MIN_H = 280;
+const TORY_CHECK_TAB_KEYS = {
+  words: "index.반복_단어",
+  phrases: "index.같은_표현",
+  starts: "index.문장_시작",
+  dialogue: "index.연속_대사",
+  modifiers: "index.수식어",
+  exclaims: "index.감탄사",
+  viewpoint: "index.시점",
+  forbidden: "index.금칙어",
+};
+const toryCheckState = {
+  tab: "words",
+  preset: "normal",
+  viewpoint_person: null,
+  viewpoint_tense: null,
+  forbidden_words: [],
+  loadedProjectId: 0,
+  loadGen: 0,
+  timer: 0,
+  skippedPromptFor: 0,
+};
 const DOCK_RAIL_FLOAT_KEYS = {
   ideas: "dock:ideas",
   statsTracker: DOCK_STATS_TRACKER_KEY,
@@ -14490,11 +14928,13 @@ const DOCK_RAIL_FLOAT_KEYS = {
   world: DOCK_WORLD_KEY,
   items: DOCK_ITEM_KEY,
   timeline: DOCK_TIMELINE_KEY,
+  appearances: DOCK_APPEARANCES_KEY,
   baits: DOCK_BAITS_KEY,
   successProfile: DOCK_SUCCESS_PROFILE_KEY,
   manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
   credits: "dock:credits",
+  toryCheck: DOCK_TORY_CHECK_KEY,
 };
 const dockCharacterDetailCache = new Map();
 const dockItemDetailCache = new Map();
@@ -14505,6 +14945,9 @@ let dockTimelineKind = "character";
 let dockTimelineFilterId = 0;
 let dockTimelineLoadGen = 0;
 let dockTimelineCache = { projectId: 0, kind: "character", filterId: 0, entries: [] };
+let dockAppearancesFilterId = 0;
+let dockAppearancesLoadGen = 0;
+let dockAppearancesCache = { projectId: 0, characterId: 0, scenes: [] };
 let dockBaitsLoadGen = 0;
 let dockBaitsCache = { projectId: 0, threads: [] };
 let dockSuccessProfileLoadGen = 0;
@@ -14556,6 +14999,8 @@ function pruneAndSyncIdeaFloats() {
       if (id === "dock:characters") syncDockCharactersFloat();
       if (id === DOCK_WORLD_KEY) syncDockWorldFloat();
       if (id === DOCK_ITEM_KEY) syncDockItemsFloat();
+      if (id === DOCK_TIMELINE_KEY) syncDockTimelineFloat();
+      if (id === DOCK_APPEARANCES_KEY) syncDockAppearancesFloat();
       if (id === DOCK_BAITS_KEY) syncDockBaitsFloat();
       if (id === DOCK_SUCCESS_PROFILE_KEY) syncDockSuccessProfileFloat();
       if (id === DOCK_MANUSCRIPT_KEY) syncDockManuscriptFloat();
@@ -14738,6 +15183,7 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
   ideaFloatLayouts.delete(id);
   if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false);
   if (id === DOCK_WRITING_TIMER_KEY) setDockWritingTimerOpenPref(false);
+  if (id === DOCK_TORY_CHECK_KEY) clearToryCheckTimer();
   syncDockRailButtons();
 }
 
@@ -14920,6 +15366,15 @@ const DOCK_FLOAT_SPECS = {
     resize: { minWidth: DOCK_TIMELINE_MIN_W, minHeight: DOCK_TIMELINE_MIN_H },
     render(body) { renderDockTimelineBody(body); },
   },
+  appearances: {
+    titleKey: "index.등장_이력",
+    windowClass: "dock-float-appearances",
+    side: "left",
+    defaultWidth: DOCK_APPEARANCES_DEFAULT_W,
+    defaultHeight: DOCK_APPEARANCES_DEFAULT_H,
+    resize: { minWidth: DOCK_APPEARANCES_MIN_W, minHeight: DOCK_APPEARANCES_MIN_H },
+    render(body) { renderDockAppearancesBody(body); },
+  },
   baits: {
     titleKey: "index.열린_떡밥",
     windowClass: "dock-float-baits",
@@ -14967,6 +15422,15 @@ const DOCK_FLOAT_SPECS = {
     resize: false,
     fallbackPos() { return dockCreditsFallbackPos(); },
     render(body) { renderDockCreditsBody(body); },
+  },
+  toryCheck: {
+    titleKey: "index.실시간_토리_체크",
+    windowClass: "dock-float-tory-check",
+    side: "right",
+    defaultWidth: DOCK_TORY_CHECK_DEFAULT_W,
+    defaultHeight: DOCK_TORY_CHECK_DEFAULT_H,
+    resize: { minWidth: DOCK_TORY_CHECK_MIN_W, minHeight: DOCK_TORY_CHECK_MIN_H },
+    render(body) { renderDockToryCheckBody(body); },
   },
 };
 
@@ -15203,6 +15667,435 @@ function renderDockCreditsBody(body) {
       <p class="dock-credits-value" id="dockCreditsValue">—</p>
       <p class="hint dock-credits-hint">${escapeHtml(i18n.t("index.크레딧_연동_준비중"))}</p>
     </div>`;
+}
+
+function toryCheckEngine() {
+  return (typeof globalThis !== "undefined" && globalThis.ToryCheckEngine)
+    || (typeof window !== "undefined" && window.ToryCheckEngine)
+    || null;
+}
+
+function toryCheckSettingsPayload() {
+  return {
+    preset: toryCheckState.preset,
+    viewpoint_person: toryCheckState.viewpoint_person,
+    viewpoint_tense: toryCheckState.viewpoint_tense,
+    forbidden_words: Array.isArray(toryCheckState.forbidden_words)
+      ? toryCheckState.forbidden_words
+      : [],
+  };
+}
+
+function toryCheckViewpointConfigured() {
+  const person = toryCheckState.viewpoint_person;
+  const tense = toryCheckState.viewpoint_tense;
+  return (person === "first" || person === "third")
+    && (tense === "past" || tense === "present");
+}
+
+function clearToryCheckTimer() {
+  if (toryCheckState.timer) {
+    window.clearTimeout(toryCheckState.timer);
+    toryCheckState.timer = 0;
+  }
+}
+
+function scheduleToryCheckRefresh(options = {}) {
+  if (!ideaFloatWindows.get(DOCK_TORY_CHECK_KEY)) return;
+  const engine = toryCheckEngine();
+  const wait = engine?.DEBOUNCE_MS || 400;
+  if (options.immediate) {
+    clearToryCheckTimer();
+    runToryCheckActiveTab();
+    return;
+  }
+  clearToryCheckTimer();
+  toryCheckState.timer = window.setTimeout(() => {
+    toryCheckState.timer = 0;
+    runToryCheckActiveTab();
+  }, wait);
+}
+
+function toryCheckTabIcon(tab) {
+  const icons = {
+    words: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
+    phrases: '<path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .6.92l8.57 3.91a2 2 0 0 0 1.66 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .6.92l8.57 3.91a2 2 0 0 0 1.66 0l8.58-3.9A1 1 0 0 0 22 17"/>',
+    starts: '<path d="M3 6h18"/><path d="M3 12h12"/><path d="M3 18h18"/>',
+    dialogue: '<path d="M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h1v3l3-3h1a2 2 0 0 0 2-2V5a2 2 0 0 0-2-2z"/><path d="M8 15a2 2 0 0 0-2 2v1H5a2 2 0 0 0-2 2v1h7v-4a2 2 0 0 0-2-2z"/>',
+    modifiers: '<path d="M12 3v3"/><path d="M18.4 8.6 16.3 10"/><path d="M21 14h-3"/><path d="M18.4 19.4 16.3 18"/><path d="M12 21v-3"/><path d="M5.6 19.4 7.7 18"/><path d="M3 14h3"/><path d="M5.6 8.6 7.7 10"/><circle cx="12" cy="14" r="2"/>',
+    exclaims: '<path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z"/>',
+    viewpoint: '<path d="M2.062 12.348a1 1 0 0 1 0-.696 10.75 10.75 0 0 1 19.876 0 1 1 0 0 1 0 .696 10.75 10.75 0 0 1-19.876 0"/><circle cx="12" cy="12" r="3"/>',
+    forbidden: '<circle cx="12" cy="12" r="10"/><path d="m4.9 4.9 14.2 14.2"/>',
+  };
+  return `<svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">${icons[tab] || icons.words}</svg>`;
+}
+
+function toryCheckFloatBody() {
+  const win = ideaFloatWindows.get(DOCK_TORY_CHECK_KEY);
+  return win?.querySelector("[data-role='dock-float-body']") || null;
+}
+
+function bindToryCheckBody(body) {
+  if (!body || body.dataset.toryCheckBound === "1") return;
+  body.dataset.toryCheckBound = "1";
+  setupToryCheckViewpointModal();
+  body.addEventListener("click", (event) => {
+    const tabBtn = event.target.closest("[data-tory-check-tab]");
+    if (tabBtn && body.contains(tabBtn)) {
+      const next = tabBtn.getAttribute("data-tory-check-tab");
+      const engine = toryCheckEngine();
+      const tabs = engine?.TABS || Object.keys(TORY_CHECK_TAB_KEYS);
+      if (!tabs.includes(next) || next === toryCheckState.tab) return;
+      toryCheckState.tab = next;
+      syncToryCheckChrome(body);
+      scheduleToryCheckRefresh({ immediate: true });
+      if (next === "viewpoint" && !toryCheckViewpointConfigured()) {
+        openToryCheckViewpointModal();
+      }
+      return;
+    }
+    const removeBtn = event.target.closest("[data-tory-check-remove]");
+    if (removeBtn && body.contains(removeBtn)) {
+      removeToryCheckForbiddenWord(removeBtn.getAttribute("data-tory-check-remove"));
+      return;
+    }
+    if (event.target.closest("[data-tory-check-viewpoint]")) {
+      openToryCheckViewpointModal();
+    }
+  });
+  body.addEventListener("change", (event) => {
+    const select = event.target.closest("[data-role='tory-check-preset']");
+    if (!select || !body.contains(select)) return;
+    const engine = toryCheckEngine();
+    const next = engine?.normalizePreset(select.value) || "normal";
+    toryCheckState.preset = next;
+    persistToryCheckSettings({ preset: next }).catch(handleError);
+    scheduleToryCheckRefresh({ immediate: true });
+  });
+  body.addEventListener("submit", (event) => {
+    const form = event.target.closest("[data-role='tory-check-forbidden-form']");
+    if (!form || !body.contains(form)) return;
+    event.preventDefault();
+    const input = form.querySelector("[data-role='tory-check-forbidden-input']");
+    addToryCheckForbiddenWord(input?.value || "");
+    if (input) input.value = "";
+  });
+}
+
+function toryCheckChromeHtml() {
+  const engine = toryCheckEngine();
+  const tabs = engine?.TABS || Object.keys(TORY_CHECK_TAB_KEYS);
+  const tabButtons = tabs.map((tab) => `
+    <button type="button" class="tory-check-tab${tab === toryCheckState.tab ? " is-active" : ""}" data-tory-check-tab="${escapeHtml(tab)}" title="${escapeHtml(i18n.t(TORY_CHECK_TAB_KEYS[tab] || tab))}">
+      ${toryCheckTabIcon(tab)}
+      <span>${escapeHtml(i18n.t(TORY_CHECK_TAB_KEYS[tab] || tab))}</span>
+    </button>`).join("");
+  return `
+    <div class="tory-check" data-role="tory-check-root">
+      <div class="tory-check-toolbar">
+        <div class="tory-check-tabs" role="tablist">${tabButtons}</div>
+        <div class="tory-check-preset">
+          <label for="toryCheckPreset">${escapeHtml(i18n.t("index.프리셋"))}</label>
+          <select id="toryCheckPreset" data-role="tory-check-preset">
+            <option value="strict">${escapeHtml(i18n.t("index.엄격"))}</option>
+            <option value="normal">${escapeHtml(i18n.t("index.보통"))}</option>
+            <option value="loose">${escapeHtml(i18n.t("index.느슨"))}</option>
+          </select>
+        </div>
+      </div>
+      <div class="tory-check-result" data-role="tory-check-result"></div>
+    </div>`;
+}
+
+function syncToryCheckChrome(body) {
+  if (!body) return;
+  body.querySelectorAll("[data-tory-check-tab]").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.getAttribute("data-tory-check-tab") === toryCheckState.tab);
+  });
+  const select = body.querySelector("[data-role='tory-check-preset']");
+  if (select && select.value !== toryCheckState.preset) select.value = toryCheckState.preset;
+}
+
+function toryCheckEmptyHtml(key) {
+  return `<p class="tory-check-empty">${escapeHtml(i18n.t(key))}</p>`;
+}
+
+function paintToryCheckResult(result) {
+  const pane = toryCheckFloatBody()?.querySelector("[data-role='tory-check-result']");
+  if (!pane) return;
+  const tab = result?.tab || toryCheckState.tab;
+  const text = getEditorPlainText();
+  if (!text.trim() && tab !== "viewpoint" && tab !== "forbidden") {
+    pane.innerHTML = toryCheckEmptyHtml("index.본문이_없어요");
+    return;
+  }
+  const windowNote = result?.windowChars != null
+    ? `<p class="tory-check-meta">${escapeHtml(i18n.t("index.최근_n자", { n: result.windowChars }))}</p>`
+    : "";
+  if (tab === "words") {
+    const items = result.items || [];
+    pane.innerHTML = windowNote + (items.length
+      ? `<p class="tory-check-meta">${escapeHtml(i18n.t("index.강조_기준_n회", { n: result.threshold }))}</p>
+        <ul class="tory-check-list">${items.map((item) => `
+          <li class="tory-check-item${item.flagged ? " is-flagged" : ""}">
+            <span>${escapeHtml(item.word)}</span>
+            <span class="tory-check-count">${escapeHtml(i18n.t("index.n회", { n: item.count }))}</span>
+          </li>`).join("")}</ul>`
+      : toryCheckEmptyHtml("index.반복_없음"));
+    return;
+  }
+  if (tab === "phrases") {
+    const items = result.items || [];
+    pane.innerHTML = windowNote + (items.length
+      ? `<ul class="tory-check-list">${items.map((item) => `
+          <li class="tory-check-item is-flagged">
+            <span>${escapeHtml(item.text)}</span>
+            <span class="tory-check-count">${escapeHtml(i18n.t("index.n회", { n: item.count }))}</span>
+          </li>`).join("")}</ul>`
+      : toryCheckEmptyHtml("index.같은_표현_없음"));
+    return;
+  }
+  if (tab === "starts") {
+    const items = result.items || [];
+    pane.innerHTML = windowNote + (items.length
+      ? `<ul class="tory-check-list">${items.map((item) => `
+          <li class="tory-check-item is-flagged">
+            <span>${escapeHtml(item.token)}</span>
+            <span class="tory-check-count">${escapeHtml(i18n.t("index.n회", { n: item.count }))}</span>
+          </li>`).join("")}</ul>`
+      : toryCheckEmptyHtml("index.문장_시작_없음"));
+    return;
+  }
+  if (tab === "dialogue") {
+    const flagged = result.flagged ? " is-flagged" : "";
+    pane.innerHTML = `${windowNote}
+      <div class="tory-check-stat${flagged}">
+        <strong>${escapeHtml(i18n.t("index.현재_n줄_연속", { n: result.currentStreak || 0 }))}</strong>
+        <span>${escapeHtml(i18n.t("index.최대_n줄_연속", { n: result.maxStreak || 0 }))}</span>
+      </div>`;
+    return;
+  }
+  if (tab === "modifiers") {
+    const items = result.items || [];
+    pane.innerHTML = windowNote + (items.length
+      ? `<ul class="tory-check-list">${items.map((item) => `
+          <li class="tory-check-item is-flagged">
+            <span>${escapeHtml(item.text)}</span>
+            <span class="tory-check-count">${escapeHtml(i18n.t("index.n퍼센트", { n: item.percent }))}</span>
+          </li>`).join("")}</ul>`
+      : toryCheckEmptyHtml("index.수식어_없음"));
+    return;
+  }
+  if (tab === "exclaims") {
+    const items = result.items || [];
+    const flagged = result.flagged ? " is-flagged" : "";
+    pane.innerHTML = `${windowNote}
+      <div class="tory-check-stat${flagged}">
+        <strong>${escapeHtml(i18n.t("index.n회", { n: result.total || 0 }))}</strong>
+      </div>
+      ${items.length ? `<ul class="tory-check-list">${items.map((item) => `
+        <li class="tory-check-item${result.flagged ? " is-flagged" : ""}">
+          <span>${escapeHtml(item.sample || item.id)}</span>
+          <span class="tory-check-count">${escapeHtml(i18n.t("index.n회", { n: item.count }))}</span>
+        </li>`).join("")}</ul>` : toryCheckEmptyHtml("index.감탄사_없음")}`;
+    return;
+  }
+  if (tab === "viewpoint") {
+    if (!result.configured) {
+      pane.innerHTML = `
+        <p class="tory-check-empty">${escapeHtml(i18n.t("index.먼저_시점을_설정해주세요"))}</p>
+        <div class="tory-check-actions">
+          <button type="button" data-tory-check-viewpoint>${escapeHtml(i18n.t("index.시점_설정"))}</button>
+        </div>`;
+      return;
+    }
+    const items = result.items || [];
+    pane.innerHTML = items.length
+      ? `<div class="tory-check-actions">
+          <button type="button" class="secondary" data-tory-check-viewpoint>${escapeHtml(i18n.t("index.시점_설정"))}</button>
+        </div>
+        <ul class="tory-check-list">${items.map((item) => `
+          <li class="tory-check-item is-flagged">
+            <span>${escapeHtml(item.word)} <span class="tory-check-snippet">${escapeHtml(item.snippet || "")}</span></span>
+          </li>`).join("")}</ul>`
+      : `<div class="tory-check-actions">
+          <button type="button" class="secondary" data-tory-check-viewpoint>${escapeHtml(i18n.t("index.시점_설정"))}</button>
+        </div>${toryCheckEmptyHtml("index.시점_어긋남_없음")}`;
+    return;
+  }
+  if (tab === "forbidden") {
+    const words = result.words || [];
+    const chips = words.map((word) => `
+      <span class="tory-check-word-chip">
+        ${escapeHtml(word)}
+        <button type="button" data-tory-check-remove="${escapeHtml(word)}" aria-label="${escapeHtml(i18n.t("app.삭제"))}">×</button>
+      </span>`).join("");
+    const hits = result.items || [];
+    const list = !words.length
+      ? toryCheckEmptyHtml("index.먼저_금칙어를_추가해주세요")
+      : hits.length
+        ? `<ul class="tory-check-list">${hits.map((item) => `
+            <li class="tory-check-item is-forbidden">
+              <span>${escapeHtml(item.word)}${item.hits?.[0]?.snippet ? ` <span class="tory-check-snippet">${escapeHtml(item.hits[0].snippet)}</span>` : ""}</span>
+              <span class="tory-check-count">${escapeHtml(i18n.t("index.n회", { n: item.count }))}</span>
+            </li>`).join("")}</ul>`
+        : toryCheckEmptyHtml("index.금칙어_없음");
+    pane.innerHTML = `
+      <form class="tory-check-forbidden-form" data-role="tory-check-forbidden-form">
+        <input type="text" data-role="tory-check-forbidden-input" maxlength="80" placeholder="${escapeHtml(i18n.t("index.금칙어_입력"))}" aria-label="${escapeHtml(i18n.t("index.금칙어_추가"))}">
+        <button type="submit">${escapeHtml(i18n.t("index.추가"))}</button>
+      </form>
+      <div>${chips}</div>
+      ${list}`;
+  }
+}
+
+function runToryCheckActiveTab() {
+  if (!ideaFloatWindows.get(DOCK_TORY_CHECK_KEY)) return;
+  const engine = toryCheckEngine();
+  if (!engine || typeof engine.analyze !== "function") {
+    const pane = toryCheckFloatBody()?.querySelector("[data-role='tory-check-result']");
+    if (pane) pane.innerHTML = toryCheckEmptyHtml("index.본문이_없어요");
+    return;
+  }
+  const tab = toryCheckState.tab;
+  const result = engine.analyze(tab, getEditorPlainText(), toryCheckSettingsPayload());
+  paintToryCheckResult(result);
+}
+
+async function loadToryCheckSettings(projectId) {
+  const pid = Number(projectId) || 0;
+  if (!pid) {
+    toryCheckState.preset = "normal";
+    toryCheckState.viewpoint_person = null;
+    toryCheckState.viewpoint_tense = null;
+    toryCheckState.forbidden_words = [];
+    toryCheckState.loadedProjectId = 0;
+    return toryCheckState;
+  }
+  const gen = ++toryCheckState.loadGen;
+  const data = await api(`/api/projects/${pid}/tory-check`);
+  if (gen !== toryCheckState.loadGen || Number(state.projectId) !== pid) return toryCheckState;
+  const engine = toryCheckEngine();
+  toryCheckState.preset = engine?.normalizePreset(data.preset) || "normal";
+  toryCheckState.viewpoint_person = data.viewpoint_person || null;
+  toryCheckState.viewpoint_tense = data.viewpoint_tense || null;
+  toryCheckState.forbidden_words = Array.isArray(data.forbidden_words) ? data.forbidden_words : [];
+  toryCheckState.loadedProjectId = pid;
+  return toryCheckState;
+}
+
+async function persistToryCheckSettings(patch) {
+  const pid = Number(state.projectId);
+  if (!pid) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (patch && typeof patch === "object") Object.assign(toryCheckState, patch);
+  const data = await api(`/api/projects/${pid}/tory-check`, {
+    method: "PUT",
+    body: JSON.stringify(patch && typeof patch === "object" ? patch : toryCheckSettingsPayload()),
+  });
+  if (Number(state.projectId) !== pid) return;
+  const engine = toryCheckEngine();
+  toryCheckState.preset = engine?.normalizePreset(data.preset) || toryCheckState.preset;
+  if ("viewpoint_person" in data) toryCheckState.viewpoint_person = data.viewpoint_person;
+  if ("viewpoint_tense" in data) toryCheckState.viewpoint_tense = data.viewpoint_tense;
+  if (Array.isArray(data.forbidden_words)) toryCheckState.forbidden_words = data.forbidden_words;
+  toryCheckState.loadedProjectId = pid;
+  return data;
+}
+
+function addToryCheckForbiddenWord(raw) {
+  const word = String(raw || "").trim();
+  if (!word) return;
+  const next = [...toryCheckState.forbidden_words];
+  if (next.some((item) => String(item).toLowerCase() === word.toLowerCase())) {
+    scheduleToryCheckRefresh({ immediate: true });
+    return;
+  }
+  next.push(word);
+  persistToryCheckSettings({ forbidden_words: next }).then(() => {
+    scheduleToryCheckRefresh({ immediate: true });
+  }).catch(handleError);
+}
+
+function removeToryCheckForbiddenWord(raw) {
+  const word = String(raw || "");
+  const next = toryCheckState.forbidden_words.filter((item) => item !== word);
+  persistToryCheckSettings({ forbidden_words: next }).then(() => {
+    scheduleToryCheckRefresh({ immediate: true });
+  }).catch(handleError);
+}
+
+function closeToryCheckViewpointModal() {
+  const modal = $("toryCheckViewpointModal");
+  if (!modal) return;
+  modal.classList.add("hidden");
+  const pid = Number(state.projectId) || 0;
+  if (pid && !toryCheckViewpointConfigured()) toryCheckState.skippedPromptFor = pid;
+}
+
+function openToryCheckViewpointModal() {
+  setupToryCheckViewpointModal();
+  const modal = $("toryCheckViewpointModal");
+  if (!modal) return;
+  const person = toryCheckState.viewpoint_person || "";
+  const tense = toryCheckState.viewpoint_tense || "";
+  modal.querySelectorAll('input[name="toryCheckPerson"]').forEach((input) => {
+    input.checked = input.value === person;
+  });
+  modal.querySelectorAll('input[name="toryCheckTense"]').forEach((input) => {
+    input.checked = input.value === tense;
+  });
+  modal.classList.remove("hidden");
+}
+
+function setupToryCheckViewpointModal() {
+  if (setupToryCheckViewpointModal.bound) return;
+  setupToryCheckViewpointModal.bound = true;
+  document.querySelectorAll("[data-close-tory-check-viewpoint]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeToryCheckViewpointModal();
+    });
+  });
+  $("toryCheckViewpointForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const person = document.querySelector('input[name="toryCheckPerson"]:checked')?.value || "";
+    const tense = document.querySelector('input[name="toryCheckTense"]:checked')?.value || "";
+    if ((person !== "first" && person !== "third") || (tense !== "past" && tense !== "present")) {
+      toast(i18n.t("index.먼저_시점을_설정해주세요"));
+      return;
+    }
+    persistToryCheckSettings({
+      viewpoint_person: person,
+      viewpoint_tense: tense,
+    }).then(() => {
+      closeToryCheckViewpointModal();
+      scheduleToryCheckRefresh({ immediate: true });
+    }).catch(handleError);
+  });
+}
+
+function renderDockToryCheckBody(body) {
+  if (!body) return;
+  if (!state.projectId) {
+    body.innerHTML = `<p class="hint idea-sticky-empty">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
+    return;
+  }
+  if (!body.querySelector("[data-role='tory-check-root']")) {
+    body.innerHTML = toryCheckChromeHtml();
+    bindToryCheckBody(body);
+  }
+  syncToryCheckChrome(body);
+  const pid = Number(state.projectId);
+  loadToryCheckSettings(pid).then(() => {
+    if (!ideaFloatWindows.get(DOCK_TORY_CHECK_KEY)) return;
+    if (Number(state.projectId) !== pid) return;
+    syncToryCheckChrome(toryCheckFloatBody());
+    if (!toryCheckViewpointConfigured() && toryCheckState.skippedPromptFor !== pid) {
+      openToryCheckViewpointModal();
+    }
+    runToryCheckActiveTab();
+  }).catch(handleError);
 }
 
 function toggleAiDockPanelItem(itemId) {
@@ -15828,6 +16721,7 @@ function openDockFloat(itemId, sourceEl) {
   const spec = DOCK_FLOAT_SPECS[itemId];
   if (!spec) return null;
   if (itemId === "timeline") return openDockTimelineFloat(0, sourceEl);
+  if (itemId === "appearances") return openDockAppearancesFloat(0, sourceEl);
   if (itemId === "settingsSearch") return openDockSettingsSearchFloat("", sourceEl);
   return openDockFloatWindow(`dock:${itemId}`, { ...spec, itemId }, sourceEl);
 }
@@ -15896,6 +16790,7 @@ function paintDockCharacterCard(body, data) {
       <div class="dock-char-head">
         ${portraitHtml}
         <div class="dock-char-head-text">
+          <button type="button" class="dock-char-name" data-role="dock-char-appearances">${escapeHtml(name)}</button>
           ${summary ? `<p class="dock-char-summary">${escapeHtml(summary)}</p>` : `<p class="dock-char-summary is-empty">${escapeHtml(i18n.t("app.소개를_적어_보세요"))}</p>`}
           ${aliases.length ? `<p class="dock-char-aliases">${escapeHtml(aliases.join(" · "))}</p>` : ""}
         </div>
@@ -15912,6 +16807,7 @@ function paintDockCharacterCard(body, data) {
       </div>
       <div class="dock-char-actions">
         <button type="button" class="secondary compact-btn" data-role="dock-char-timeline">${escapeHtml(i18n.t("index.연대기_보기"))}</button>
+        <button type="button" class="secondary compact-btn" data-role="dock-char-appearances">${escapeHtml(i18n.t("index.등장_이력_보기"))}</button>
         <button type="button" class="secondary compact-btn" data-role="dock-char-relations">${escapeHtml(i18n.t("index.관계도_보기"))}</button>
       </div>
     </div>
@@ -15924,6 +16820,13 @@ function paintDockCharacterCard(body, data) {
     event.preventDefault();
     event.stopPropagation();
     openDockTimelineFloat(data.id, event.currentTarget);
+  });
+  body.querySelectorAll("[data-role='dock-char-appearances']").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      openDockAppearancesFloat(data.id, event.currentTarget);
+    });
   });
   body.querySelector("[data-role='dock-char-relations']")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -16724,6 +17627,197 @@ function openDockTimelineFloat(entityId, sourceEl, options = {}) {
   return win;
 }
 
+function dockAppearanceEpisodeLabel(row) {
+  const title = String(row?.title || "").trim();
+  const chapter = String(row?.chapter_title || "").trim();
+  const bits = [];
+  if (chapter && chapter !== title) bits.push(chapter);
+  if (title) bits.push(title);
+  return bits.join(" · ");
+}
+
+function dockAppearancesFilterOptionsHtml() {
+  const characters = Array.isArray(state.characters) ? state.characters : [];
+  return `<option value="0">${escapeHtml(i18n.t("app.전체"))}</option>`
+    + characters.map((character) => (
+      `<option value="${Number(character.id) || 0}">${escapeHtml(character.name || i18n.t("app.이름_없음"))}</option>`
+    )).join("");
+}
+
+function fillDockAppearancesFilter(root) {
+  const select = root?.querySelector("[data-role='dock-appearances-filter']");
+  if (!select) return;
+  const characters = Array.isArray(state.characters) ? state.characters : [];
+  const current = Number(dockAppearancesFilterId) || 0;
+  select.innerHTML = dockAppearancesFilterOptionsHtml();
+  if (current > 0 && !characters.some((character) => Number(character.id) === current)) {
+    select.insertAdjacentHTML(
+      "beforeend",
+      `<option value="${current}">${escapeHtml(i18n.t("app.캐릭터"))}</option>`,
+    );
+  }
+  select.value = String(current || 0);
+}
+
+function paintDockAppearancesList(win) {
+  const list = win?.querySelector("[data-role='dock-appearances-list']");
+  if (!list) return;
+  const rows = Array.isArray(dockAppearancesCache.scenes) ? dockAppearancesCache.scenes : [];
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
+    return;
+  }
+  if (!rows.length) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.등장_이력_없음"))}</p>`;
+    return;
+  }
+  const showNames = !Number(dockAppearancesFilterId);
+  list.innerHTML = rows.map((row, index) => {
+    const sceneId = Number(row?.scene_id) || 0;
+    const latest = Boolean(row?.latest) || index === 0;
+    const ep = dockAppearanceEpisodeLabel(row);
+    const matched = String(row?.matched_label || "").trim();
+    const name = String(row?.character_name || "").trim();
+    const snippet = String(row?.snippet || "").trim();
+    const lastLine = String(row?.last_line || "").trim();
+    const mentioned = String(row?.kind || "") === "mentioned";
+    const kindLabel = mentioned ? i18n.t("app.언급") : i18n.t("app.등장");
+    const metaBits = [];
+    if (showNames && name) metaBits.push(name);
+    if (matched && matched !== name) metaBits.push(matched);
+    metaBits.push(kindLabel);
+    const snippetHtml = snippet
+      ? `<span class="dock-appearance-snippet">${escapeHtml(snippet)}</span>`
+      : "";
+    const lineHtml = lastLine
+      ? `<span class="dock-appearance-line-label">${escapeHtml(i18n.t("index.마지막_대사"))}</span>
+         <span class="dock-appearance-line">「${escapeHtml(lastLine)}」</span>`
+      : "";
+    return `<button type="button" class="dock-appearance-item${latest ? " is-latest" : ""}" data-dock-appearance-scene="${sceneId}">
+      ${latest ? `<span class="dock-appearance-latest">${escapeHtml(i18n.t("index.최근_등장"))}</span>` : ""}
+      <span class="dock-appearance-title">${escapeHtml(ep || i18n.t("app.제목_없음"))}</span>
+      <span class="dock-appearance-meta">${escapeHtml(metaBits.join(" · "))}</span>
+      ${snippetHtml}
+      ${lineHtml}
+    </button>`;
+  }).join("");
+  list.querySelectorAll("[data-dock-appearance-scene]").forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault();
+      openChronicleScene(button.getAttribute("data-dock-appearance-scene")).catch(handleError);
+    });
+  });
+}
+
+async function loadDockAppearances(options = {}) {
+  const force = Boolean(options.force);
+  const pid = Number(state.projectId) || 0;
+  const characterId = Number(dockAppearancesFilterId) || 0;
+  if (!pid) {
+    dockAppearancesCache = { projectId: 0, characterId: 0, scenes: [] };
+    return [];
+  }
+  if (
+    !force
+    && dockAppearancesCache.projectId === pid
+    && dockAppearancesCache.characterId === characterId
+  ) {
+    return dockAppearancesCache.scenes;
+  }
+  const gen = ++dockAppearancesLoadGen;
+  const data = await api(
+    `/api/projects/${pid}/character-appearances?character_id=${characterId}`,
+  );
+  if (gen !== dockAppearancesLoadGen) return dockAppearancesCache.scenes;
+  dockAppearancesCache = {
+    projectId: pid,
+    characterId,
+    scenes: Array.isArray(data?.scenes) ? data.scenes : [],
+  };
+  return dockAppearancesCache.scenes;
+}
+
+function bindDockAppearancesFilter(root, win) {
+  root?.querySelector("[data-role='dock-appearances-filter']")?.addEventListener("change", (event) => {
+    dockAppearancesFilterId = Number(event.target.value) || 0;
+    loadDockAppearances({ force: true }).then(() => {
+      if (!ideaFloatWindows.get(DOCK_APPEARANCES_KEY)) return;
+      paintDockAppearancesList(win);
+    }).catch(handleError);
+  });
+}
+
+function renderDockAppearancesBody(body) {
+  if (!body) return;
+  const win = body.closest(".idea-float");
+  const label = i18n.t("index.등장_이력_인물_필터");
+  body.innerHTML = `
+    <div class="dock-timeline dock-appearances">
+      <div class="dock-timeline-toolbar">
+        <label class="dock-timeline-filter-label">
+          <span data-role="dock-appearances-filter-label">${escapeHtml(label)}</span>
+          <select data-role="dock-appearances-filter" aria-label="${escapeHtml(label)}">
+            ${dockAppearancesFilterOptionsHtml()}
+          </select>
+        </label>
+      </div>
+      <p class="hint dock-timeline-hint">${escapeHtml(i18n.t("index.등장_이력_안내"))}</p>
+      <div class="dock-timeline-list dock-appearances-list" data-role="dock-appearances-list">
+        <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
+      </div>
+    </div>
+  `;
+  fillDockAppearancesFilter(body);
+  bindDockAppearancesFilter(body, win);
+  loadDockAppearances({ force: true }).then(() => {
+    if (!ideaFloatWindows.get(DOCK_APPEARANCES_KEY)) return;
+    paintDockAppearancesList(win);
+  }).catch(handleError);
+}
+
+function syncDockAppearancesFloat() {
+  const win = ideaFloatWindows.get(DOCK_APPEARANCES_KEY);
+  if (!win) return;
+  const characters = Array.isArray(state.characters) ? state.characters : [];
+  const current = Number(dockAppearancesFilterId) || 0;
+  if (current > 0 && characters.length && !characters.some((character) => Number(character.id) === current)) {
+    dockAppearancesFilterId = 0;
+  }
+  fillDockAppearancesFilter(win);
+  const pid = Number(state.projectId) || 0;
+  if (dockAppearancesCache.projectId !== pid) return;
+  if (dockAppearancesCache.characterId !== Number(dockAppearancesFilterId)) return;
+  paintDockAppearancesList(win);
+}
+
+function refreshDockAppearancesFloat() {
+  const win = ideaFloatWindows.get(DOCK_APPEARANCES_KEY);
+  if (!win) return;
+  loadDockAppearances({ force: true }).then(() => {
+    if (!ideaFloatWindows.get(DOCK_APPEARANCES_KEY)) return;
+    paintDockAppearancesList(win);
+  }).catch(handleError);
+}
+
+function openDockAppearancesFloat(characterId, sourceEl) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  dockAppearancesFilterId = Number(characterId) || 0;
+  const existing = ideaFloatWindows.get(DOCK_APPEARANCES_KEY);
+  const spec = DOCK_FLOAT_SPECS.appearances;
+  const win = openDockFloatWindow(DOCK_APPEARANCES_KEY, { ...spec, itemId: "appearances" }, sourceEl);
+  if (existing) {
+    fillDockAppearancesFilter(existing);
+    loadDockAppearances({ force: true }).then(() => {
+      if (!ideaFloatWindows.get(DOCK_APPEARANCES_KEY)) return;
+      paintDockAppearancesList(existing);
+    }).catch(handleError);
+  }
+  return win;
+}
+
 function dockBaitEpisodeLabel(thread) {
   const sceneId = Number(thread?.scene_id) || 0;
   if (!sceneId) return "";
@@ -17502,8 +18596,8 @@ function syncOpenCharacterCardMenu(editor, event) {
 }
 
 const DOCK_RAIL_ORDER_KEYS = {
-  left: "supertory.dockRailOrder.left.v1",
-  right: "supertory.dockRailOrder.right.v2",
+  left: "supertory.dockRailOrder.left.v3",
+  right: "supertory.dockRailOrder.right.v4",
 };
 const DOCK_RAIL_DRAG_THRESHOLD = 6;
 
@@ -17537,17 +18631,38 @@ function restoreDockRailOrder(rail) {
   } catch (_) {
     order = [];
   }
-  const byId = new Map(
-    [...container.querySelectorAll(":scope > [data-dock-item]")]
-      .map((item) => [String(item.dataset.dockItem || ""), item]),
-  );
+  const live = [...container.querySelectorAll(":scope > [data-dock-item]")];
+  const htmlOrder = live
+    .map((item) => String(item.dataset.dockItem || ""))
+    .filter(Boolean);
+  const byId = new Map(live.map((item) => [String(item.dataset.dockItem || ""), item]));
+  const restored = [];
   order.forEach((itemId) => {
     const item = byId.get(itemId);
     if (!item) return;
-    container.appendChild(item);
+    restored.push(item);
     byId.delete(itemId);
   });
-  byId.forEach((item) => container.appendChild(item));
+  // New widgets (not in saved order) keep HTML neighbor position.
+  // Do not bump DOCK_RAIL_ORDER_KEYS just to insert an item.
+  htmlOrder.forEach((itemId) => {
+    const item = byId.get(itemId);
+    if (!item) return;
+    let insertAt = restored.length;
+    const htmlIndex = htmlOrder.indexOf(itemId);
+    for (let index = htmlIndex - 1; index >= 0; index -= 1) {
+      const prevIdx = restored.findIndex(
+        (el) => String(el.dataset.dockItem || "") === htmlOrder[index],
+      );
+      if (prevIdx >= 0) {
+        insertAt = prevIdx + 1;
+        break;
+      }
+    }
+    restored.splice(insertAt, 0, item);
+    byId.delete(itemId);
+  });
+  restored.forEach((item) => container.appendChild(item));
 }
 
 function setupDockRailSorting(rail) {
@@ -53731,6 +54846,7 @@ function renderCharacters() {
   renderSettingsCodex();
   syncDockCharactersFloat();
   syncDockTimelineFloat();
+  syncDockAppearancesFloat();
   [...ideaFloatWindows.keys()].forEach((id) => {
     if (!String(id).startsWith(DOCK_CHAR_KEY_PREFIX)) return;
     const cid = dockCharacterIdFromKey(id);
@@ -62133,6 +63249,7 @@ async function openScene(sceneId, options = {}) {
   renderIllustrations();
   renderReferenceLinks();
   updateSceneStats();
+  scheduleToryCheckRefresh({ immediate: true });
   updateSplitChrome();
   saveLastWorkspace({ projectId: state.projectId, sceneId: nextId });
   applySplitLayout();
@@ -63934,6 +65051,7 @@ async function persistScene(options = {}) {
     try {
       scheduleSceneIndexAfterSave(persistSceneId, body.content_md);
     } catch (_) { /* ignore */ }
+    try { refreshDockAppearancesFloat(); } catch (_) { /* ignore */ }
     if (stillOpen) {
       const nextStatus = String(body.status || saved?.status || lastPersistedSceneStatus || "");
       const becameComplete = nextStatus === "complete" && lastPersistedSceneStatus !== "complete";
@@ -65010,6 +66128,7 @@ async function persistCharacter(options = {}) {
       applyCharacterSaveToState(payload);
       renderCharacters();
     }
+    try { refreshDockAppearancesFloat(); } catch (_) { /* ignore */ }
     const stamp = new Date().toLocaleTimeString("ko-KR", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
     setCharacterSaveStatus(
       quiet

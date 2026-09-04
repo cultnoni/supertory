@@ -9915,6 +9915,220 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   margin: 0;
   font-size: 11px;
 }
+.idea-float.dock-float.dock-float-tory-check {
+  width: 440px;
+  height: 480px;
+  min-width: 320px;
+  min-height: 280px;
+}
+.idea-float.dock-float.dock-float-tory-check .idea-float-body {
+  overflow: hidden;
+  padding: 8px 10px 12px;
+}
+.tory-check {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  height: 100%;
+}
+.tory-check-toolbar {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  min-width: 0;
+}
+.tory-check-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.tory-check-tab {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 2px;
+  min-width: 36px;
+  padding: 4px 5px 5px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface) 82%, var(--selection));
+  color: color-mix(in srgb, var(--ink) 72%, var(--muted));
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.1;
+  font-weight: 650;
+}
+.tory-check-tab svg {
+  width: 14px;
+  height: 14px;
+  stroke: currentColor;
+  fill: none;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.tory-check-tab.is-active {
+  color: var(--accent-dark);
+  border-color: color-mix(in srgb, var(--accent-dark) 42%, var(--line));
+  background: color-mix(in srgb, var(--selection) 78%, var(--surface));
+}
+.tory-check-preset {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 76px;
+}
+.tory-check-preset label {
+  font-size: 10px;
+  color: var(--muted);
+}
+.tory-check-preset select {
+  font-size: 12px;
+  padding: 3px 4px;
+  max-width: 88px;
+}
+.tory-check-result {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 6px 2px 2px;
+}
+.tory-check-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.tory-check-item {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, var(--selection));
+  font-size: 12px;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.tory-check-item.is-flagged {
+  border-color: color-mix(in srgb, #c2410c 45%, var(--line));
+  background: color-mix(in srgb, #c2410c 12%, var(--surface));
+  color: color-mix(in srgb, #9a3412 70%, var(--ink));
+}
+.tory-check-item.is-forbidden {
+  border-color: color-mix(in srgb, var(--danger, #b42318) 50%, var(--line));
+  background: color-mix(in srgb, var(--danger, #b42318) 12%, var(--surface));
+  color: var(--danger, #b42318);
+  font-weight: 700;
+}
+.tory-check-count {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  color: var(--muted);
+}
+.tory-check-item.is-flagged .tory-check-count,
+.tory-check-item.is-forbidden .tory-check-count {
+  color: inherit;
+}
+.tory-check-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  background: color-mix(in srgb, var(--surface) 88%, var(--selection));
+}
+.tory-check-stat strong {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+.tory-check-stat.is-flagged {
+  border-color: color-mix(in srgb, #c2410c 45%, var(--line));
+  background: color-mix(in srgb, #c2410c 12%, var(--surface));
+}
+.tory-check-meta {
+  margin: 0 0 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+.tory-check-empty {
+  margin: 0;
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+.tory-check-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+.tory-check-forbidden-form {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+.tory-check-forbidden-form input {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+}
+.tory-check-word-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin: 0 4px 4px 0;
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  font-size: 11px;
+  background: color-mix(in srgb, var(--surface) 88%, var(--selection));
+}
+.tory-check-word-chip button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 2px;
+  font-size: 13px;
+  line-height: 1;
+}
+.tory-check-snippet {
+  color: var(--muted);
+  font-size: 11px;
+}
+.tory-check-viewpoint-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.tory-check-viewpoint-form fieldset {
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--line) 70%, transparent);
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 16px;
+}
+.tory-check-viewpoint-form legend {
+  padding: 0 4px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.tory-check-viewpoint-card {
+  max-width: 420px;
+}
 .idea-float.dock-float.dock-float-character {
   width: 280px;
   height: 360px;
@@ -9932,6 +10146,93 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 }
 .idea-float.dock-float.dock-float-timeline .idea-float-body {
   overflow: hidden;
+}
+.idea-float.dock-float.dock-float-appearances {
+  width: 360px;
+  height: 420px;
+  min-width: 280px;
+  min-height: 240px;
+}
+.idea-float.dock-float.dock-float-appearances .idea-float-body {
+  overflow: hidden;
+}
+.dock-appearances-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.dock-appearance-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  margin: 0;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-2, transparent);
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-appearance-item:hover {
+  border-color: var(--ink, #333);
+}
+.dock-appearance-item.is-latest {
+  background: color-mix(in srgb, var(--accent, #c45c26) 14%, var(--surface-2, #fff));
+  border-color: color-mix(in srgb, var(--accent, #c45c26) 42%, var(--line));
+}
+.dock-appearance-latest {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--accent, #c45c26);
+}
+.dock-appearance-title {
+  font-size: 13px;
+  font-weight: 750;
+  line-height: 1.35;
+}
+.dock-appearance-meta {
+  font-size: 11px;
+  color: var(--muted);
+}
+.dock-appearance-snippet {
+  font-size: 12px;
+  font-weight: 550;
+  line-height: 1.4;
+  color: inherit;
+}
+.dock-appearance-line-label {
+  margin-top: 2px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: var(--muted);
+}
+.dock-appearance-line {
+  font-size: 12px;
+  font-weight: 650;
+  line-height: 1.4;
+  color: inherit;
+}
+.dock-char-name {
+  display: inline;
+  margin: 0 0 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 800;
+  line-height: 1.3;
+  text-align: left;
+  cursor: pointer;
+}
+.dock-char-name:hover {
+  text-decoration: underline;
 }
 .dock-timeline {
   display: flex;
@@ -15413,14 +15714,38 @@ body[data-ui-scheme="dark"] .world-main-card {
   gap: 12px;
   margin-bottom: 12px;
 }
+.relation-canvas .character-board-toolbar {
+  flex-wrap: wrap;
+  align-items: center;
+  row-gap: 8px;
+}
+.relation-canvas .character-board-toolbar > .relation-canvas-heading {
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+}
 .character-board-title {
   margin: 0 0 2px;
   font-family: Georgia, "Malgun Gothic", serif;
   font-size: 22px;
 }
+.relation-canvas .character-board-title {
+  margin: 0;
+  white-space: nowrap;
+  word-break: keep-all;
+  line-break: strict;
+  overflow: visible;
+  flex: 0 0 auto;
+}
 .relation-canvas-guide-tip {
-  margin-top: 6px;
-  max-width: 42rem;
+  margin: 0;
+  max-width: min(28rem, 100%);
+  flex: 1 1 12rem;
+  align-items: center;
 }
 .relation-canvas-guide-tip .guide-tip-text {
   margin: 0;
@@ -15665,6 +15990,9 @@ body[data-ui-scheme="dark"] .world-main-card {
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
+  flex: 1 1 auto;
+  justify-content: flex-end;
+  min-width: 0;
 }
 .relation-tool-btn {
   display: inline-flex;
@@ -15802,6 +16130,50 @@ body.relation-canvas-fullscreen #toryChatPopup {
   height: 8000px;
   transform-origin: 0 0;
   will-change: transform;
+}
+.relation-canvas-groups {
+  position: absolute;
+  left: 0;
+  top: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.relation-canvas-group {
+  position: absolute;
+  box-sizing: border-box;
+  border: 1.5px dashed color-mix(in srgb, var(--rel-group-color, var(--accent, #7aa1b6)) 70%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--rel-group-color, var(--accent, #7aa1b6)) 14%, transparent);
+  pointer-events: auto;
+  cursor: pointer;
+  padding: 0;
+  margin: 0;
+  text-align: left;
+}
+.relation-canvas-group-label {
+  position: absolute;
+  left: 8px;
+  top: -9px;
+  display: inline-flex;
+  margin: 0;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink);
+  background: color-mix(in srgb, var(--surface, #fff) 88%, transparent);
+  border: 1px solid color-mix(in srgb, var(--rel-group-color, var(--accent, #7aa1b6)) 45%, var(--line));
+  pointer-events: auto;
+  cursor: pointer;
+  font-family: inherit;
+}
+.relation-canvas-group.is-stacked {
+  cursor: pointer;
+}
+.relation-tool-btn.is-disabled,
+.relation-tool-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 /* Theme-colored map tints */
@@ -16146,8 +16518,8 @@ html[data-ui-theme="dark"] .relation-canvas-stage {
   left: var(--deck-left, 12px);
   top: var(--deck-top, 12px);
   width: var(--deck-w, 176px);
-  min-width: 132px;
-  max-width: min(300px, 42vw);
+  min-width: 0;
+  max-width: min(300px, 100%);
   min-height: 0;
   max-height: calc(var(--deck-peek-h, 132px) + 40px);
   display: flex;
@@ -16428,7 +16800,7 @@ html[data-ui-theme="dark"] .relation-canvas-stage {
     pointer-events: none;
   }
   .relation-deck {
-    max-width: min(280px, 46vw);
+    max-width: min(280px, 100%);
     pointer-events: auto;
   }
 }

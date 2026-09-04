@@ -67,7 +67,38 @@
       #relationCanvas.relation-canvas.hidden { display: none !important; }
       #relationCanvas .character-board-toolbar {
         flex: 0 0 auto !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
         overflow: visible !important;
+        row-gap: 8px !important;
+      }
+      #relationCanvas .character-board-toolbar > .relation-canvas-heading {
+        flex: 0 1 auto !important;
+        min-width: 0 !important;
+        max-width: 100% !important;
+        display: flex !important;
+        flex-wrap: wrap !important;
+        align-items: center !important;
+        gap: 8px 12px !important;
+      }
+      #relationCanvas .character-board-title {
+        margin: 0 !important;
+        white-space: nowrap !important;
+        word-break: keep-all !important;
+        line-break: strict !important;
+        overflow: visible !important;
+        flex: 0 0 auto !important;
+      }
+      #relationCanvas .relation-canvas-guide-tip {
+        margin: 0 !important;
+        max-width: min(28rem, 100%) !important;
+        flex: 1 1 12rem !important;
+        align-items: center !important;
+      }
+      #relationCanvas .relation-toolbar-actions {
+        flex: 1 1 auto !important;
+        justify-content: flex-end !important;
+        min-width: 0 !important;
       }
       #relationCanvas.relation-canvas.is-fullscreen .character-board-toolbar {
         align-items: center !important;
@@ -157,8 +188,8 @@
         left: var(--deck-left, 12px) !important;
         top: var(--deck-top, 12px) !important;
         width: var(--deck-w, 176px) !important;
-        max-width: min(300px, 42vw) !important;
-        min-width: 132px !important;
+        max-width: min(300px, 100%) !important;
+        min-width: 0 !important;
         max-height: calc(var(--deck-peek-h, 132px) + 40px) !important;
         flex: none !important;
       }
@@ -228,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.107">
+    <link rel="stylesheet" href="/styles.css?v=1.4.116">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1474,6 +1505,12 @@
               <path d="M10.5 3 8 9l4 13 4-13-2.5-6" />
   <path d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z" />
   <path d="M2 9h20" />
+            </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="appearances" title="등장 이력" data-i18n-title="index.등장_이력" aria-label="등장 이력" data-i18n-aria-label="index.등장_이력">
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+              <circle cx="12" cy="10" r="3" />
             </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="baits" title="열린 떡밥" data-i18n-title="index.열린_떡밥" aria-label="열린 떡밥" data-i18n-aria-label="index.열린_떡밥">
@@ -3077,7 +3114,7 @@
 
         <div id="relationCanvas" class="relation-canvas hidden" data-relation-layout="v92-deck-split" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
           <div class="character-board-toolbar">
-            <div>
+            <div class="relation-canvas-heading">
               <h2 class="character-board-title" data-i18n="app.관계_이어보기">관계 이어보기</h2>
               <div id="relationCanvasTipBox" class="guide-tip-box relation-canvas-guide-tip" data-guide-tip="relationCanvas" role="note">
                 <p class="hint guide-tip-text" data-i18n="index.등장인물_카드를_끌어_배치하고_관계선을">등장인물 카드를 끌어 배치하고, 관계선을 잇거나 AI 제안을 받을 수 있어요.</p>
@@ -3092,6 +3129,10 @@
               <button type="button" class="secondary compact-btn relation-tool-btn" id="relationLinkButton">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
                 <span data-i18n="app.관계_잇기">관계 잇기</span>
+              </button>
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="relationGroupButton">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                <span data-i18n="app.그룹_만들기">그룹 만들기</span>
               </button>
               <button type="button" class="secondary compact-btn relation-tool-btn" id="relationFitButton" aria-pressed="false">
                 <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
@@ -3113,6 +3154,7 @@
           <div class="relation-canvas-body">
           <div id="relationCanvasStage" class="relation-canvas-stage">
             <div id="relationCanvasWorld" class="relation-canvas-world">
+              <div id="relationCanvasGroups" class="relation-canvas-groups" aria-hidden="true"></div>
               <svg id="relationCanvasSvg" class="relation-canvas-svg" aria-hidden="true"></svg>
               <div id="relationCanvasCards" class="relation-canvas-cards"></div>
             </div>
@@ -3132,10 +3174,20 @@
                 <button type="button" class="secondary compact-btn" id="relationLabelCancelButton" data-i18n="app.닫기">닫기</button>
               </div>
             </div>
+            <div id="relationGroupModal" class="relation-label-modal hidden" role="dialog">
+              <label for="relationGroupInput" data-i18n="app.그룹_이름">그룹 이름</label>
+              <input id="relationGroupInput" type="text" maxlength="40" placeholder="예: 황실, 학생회, 악당단" data-i18n-placeholder="index.예_황실_학생회_악당단">
+              <div class="relation-suggest-popup-actions">
+                <button type="button" class="secondary compact-btn danger-btn hidden" id="relationGroupDeleteButton" data-i18n="app.그룹_해제">그룹 해제</button>
+                <button type="button" class="primary compact-btn" id="relationGroupSaveButton" data-i18n="app.그룹_만들기">그룹 만들기</button>
+                <button type="button" class="secondary compact-btn" id="relationGroupCancelButton" data-i18n="app.닫기">닫기</button>
+              </div>
+            </div>
             <div id="relationCardMenu" class="relation-card-menu hidden" role="menu" aria-label="카드 옵션" data-i18n-aria-label="app.카드_옵션">
               <p class="relation-card-menu-title" data-i18n="app.테두리_색">테두리 색</p>
               <div id="relationBorderSwatches" class="relation-border-swatches" role="group"></div>
               <button type="button" class="secondary compact-btn relation-card-menu-action hidden" id="relationSendToDeckButton" data-i18n="app.카드집으로_보내기">카드집으로 보내기</button>
+              <button type="button" class="secondary compact-btn danger-btn relation-card-menu-action hidden" id="relationUngroupButton" data-i18n="app.그룹_해제">그룹 해제</button>
             </div>
             <aside id="relationDeckRail" class="relation-deck-rail" aria-label="미연결 인물" data-i18n-aria-label="app.미연결_인물">
                         <section class="relation-deck" data-deck="minor">
@@ -8134,6 +8186,6 @@
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
     <script src="/typeset_metrics.js?v=1.4.45"></script>
-    <script src="/app.js?v=1.4.107"></script>
+    <script src="/app.js?v=1.4.118"></script>
   </body>
 </html>

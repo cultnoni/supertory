@@ -338,6 +338,52 @@ class CharacterRelationHttpTests(unittest.TestCase):
         self.assertIsNone(by_id[a]["y"])
         self.assertEqual(canvas["relations"][0]["label"], "부부")
 
+    def test_create_and_delete_canvas_group(self) -> None:
+        pid = self._project()
+        a = self._character(pid, "비비", "")
+        b = self._character(pid, "엔케", "")
+        c = self._character(pid, "세린", "")
+        d = self._character(pid, "라온", "")
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{pid}/character-canvas/groups",
+            {"name": "황실", "character_ids": [a, b, c]},
+        )
+        self.assertEqual(status, 201, created)
+        groups = created["canvas"]["groups"]
+        self.assertEqual(len(groups), 1)
+        self.assertEqual(groups[0]["name"], "황실")
+        self.assertEqual(sorted(groups[0]["character_ids"]), sorted([a, b, c]))
+        gid = int(groups[0]["id"])
+        status, renamed = self.request(
+            "PUT",
+            f"/api/character-canvas/groups/{gid}",
+            {"name": "왕실"},
+        )
+        self.assertEqual(status, 200, renamed)
+        self.assertEqual(renamed["canvas"]["groups"][0]["name"], "왕실")
+        status, pair = self.request(
+            "POST",
+            f"/api/projects/{pid}/character-canvas/groups",
+            {"name": "둘", "character_ids": [a, d]},
+        )
+        self.assertEqual(status, 201, pair)
+        pair_groups = pair["canvas"]["groups"]
+        self.assertTrue(any(g["name"] == "둘" for g in pair_groups))
+        pair_id = int(next(g["id"] for g in pair_groups if g["name"] == "둘"))
+        status, too_few = self.request(
+            "POST",
+            f"/api/projects/{pid}/character-canvas/groups",
+            {"name": "하나", "character_ids": [b]},
+        )
+        self.assertEqual(status, 400, too_few)
+        status, deleted = self.request("DELETE", f"/api/character-canvas/groups/{gid}")
+        self.assertEqual(status, 200, deleted)
+        status, deleted_pair = self.request("DELETE", f"/api/character-canvas/groups/{pair_id}")
+        self.assertEqual(status, 200, deleted_pair)
+        status, canvas = self.request("GET", f"/api/projects/{pid}/character-canvas")
+        self.assertEqual(canvas.get("groups") or [], [])
+
     def test_ui_has_relation_canvas(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -349,14 +395,20 @@ class CharacterRelationHttpTests(unittest.TestCase):
         self.assertIn('id="relationDeckRail"', html)
         self.assertIn('id="relationCardMenu"', html)
         self.assertIn('id="relationLabelDeleteButton"', html)
+        self.assertIn('id="relationGroupButton"', html)
+        self.assertIn('id="relationGroupModal"', html)
+        self.assertIn('id="relationCanvasGroups"', html)
         self.assertIn("function openRelationCanvas", app_js)
         self.assertIn("function setRelationLabelAtLineMid", app_js)
         self.assertIn("function showRelationEditModal", app_js)
+        self.assertIn("function showRelationGroupModal", app_js)
+        self.assertIn("function paintRelationGroups", app_js)
         self.assertIn("function paintRelationDecks", app_js)
         self.assertNotIn("placed.midY - 8", app_js)
         self.assertIn("function openDockRelationMinimapFloat", app_js)
         self.assertIn("function neighborhoodRelationData", app_js)
         self.assertIn("interactive: false", app_js)
+        self.assertIn("REL_SELECT_MAX", app_js)
         self.assertIn("showProfile: false", app_js)
         self.assertIn("function centerRelationCanvasOnCharacter", app_js)
 

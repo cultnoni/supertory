@@ -232,6 +232,7 @@ MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
 MIGRATION_083_PATH = ROOT / "db" / "083_linked_success_profile_fk.sql"
 MIGRATION_084_PATH = ROOT / "db" / "084_success_pattern_chapter_notes.sql"
 MIGRATION_085_PATH = ROOT / "db" / "085_character_custom_roles.py"
+MIGRATION_087_PATH = ROOT / "db" / "087_character_canvas_groups.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1662,6 +1663,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_084_PATH.read_text(encoding="utf-8"))
         if 85 not in applied:
             apply_migration_085(connection)
+        if 87 not in applied:
+            connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1670,6 +1673,7 @@ def initialise_database() -> None:
         ensure_character_trait_history_table(connection)
         ensure_item_tables(connection)
         ensure_character_relations_tables(connection)
+        ensure_character_canvas_groups(connection)
         ensure_trait_history_applied_column(connection)
         ensure_trait_history_scene_nullable(connection)
         ensure_character_role_nullable(connection)
@@ -2300,6 +2304,124 @@ def _require_live_project(connection: sqlite3.Connection, project_id: int) -> No
         raise ValueError("소설을 찾을 수 없습니다.")
 
 
+def ensure_character_canvas_groups(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_canvas_group tables (migration 087)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_canvas_group'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (87, 'character_canvas_groups')"
+        )
+    except sqlite3.Error:
+        pass
+
+def _clean_canvas_group_name(value: object) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("그룹 이름을 입력해 주세요.")
+    if len(name) > 40:
+        raise ValueError("그룹 이름은 40자 이내로 적어 주세요.")
+    if "\n" in name or "\r" in name:
+        raise ValueError("그룹 이름이 올바르지 않습니다.")
+    return name
+
+def create_character_canvas_group(project_id: int, body: dict) -> dict:
+    project_id = int(project_id)
+    name = _clean_canvas_group_name((body or {}).get("name"))
+    raw_ids = (body or {}).get("character_ids") or (body or {}).get("members") or []
+    if not isinstance(raw_ids, list):
+        raise ValueError("그룹에 넣을 인물을 골라 주세요.")
+    character_ids: list[int] = []
+    seen: set[int] = set()
+    for item in raw_ids:
+        try:
+            cid = int(item)
+        except (TypeError, ValueError):
+            continue
+        if cid <= 0 or cid in seen:
+            continue
+        seen.add(cid)
+        character_ids.append(cid)
+    if len(character_ids) < 2:
+        raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
+    color = str((body or {}).get("color") or "").strip()[:32]
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        live_ids = {
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM character WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchall()
+        }
+        character_ids = [cid for cid in character_ids if cid in live_ids]
+        if len(character_ids) < 2:
+            raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
+        cursor = connection.execute(
+            "INSERT INTO character_canvas_group(project_id, name, color) VALUES (?, ?, ?)",
+            (project_id, name, color),
+        )
+        group_id = int(cursor.lastrowid)
+        for cid in character_ids:
+            connection.execute(
+                "DELETE FROM character_canvas_group_member "
+                "WHERE project_id = ? AND character_id = ?",
+                (project_id, cid),
+            )
+            connection.execute(
+                "INSERT INTO character_canvas_group_member(group_id, project_id, character_id) "
+                "VALUES (?, ?, ?)",
+                (group_id, project_id, cid),
+            )
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
+
+def update_character_canvas_group(group_id: int, body: dict) -> dict:
+    group_id = int(group_id)
+    name = _clean_canvas_group_name((body or {}).get("name")) if "name" in (body or {}) else None
+    color = None
+    if "color" in (body or {}):
+        color = str((body or {}).get("color") or "").strip()[:32]
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
+            (group_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("그룹을 찾을 수 없습니다.")
+        project_id = int(row["project_id"])
+        if name is not None:
+            connection.execute(
+                "UPDATE character_canvas_group SET name = ? WHERE id = ?",
+                (name, group_id),
+            )
+        if color is not None:
+            connection.execute(
+                "UPDATE character_canvas_group SET color = ? WHERE id = ?",
+                (color, group_id),
+            )
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
+
+def delete_character_canvas_group(group_id: int) -> dict:
+    group_id = int(group_id)
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
+            (group_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("그룹을 찾을 수 없습니다.")
+        project_id = int(row["project_id"])
+        connection.execute("DELETE FROM character_canvas_group WHERE id = ?", (group_id,))
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
+
 def get_character_canvas(project_id: int) -> dict:
     project_id = int(project_id)
     with database() as connection:
@@ -2316,6 +2438,16 @@ def get_character_canvas(project_id: int) -> dict:
         rel_rows = connection.execute(
             "SELECT id, character_a_id, character_b_id, label, status, source, created_at "
             "FROM character_relations WHERE project_id = ? ORDER BY id",
+            (project_id,),
+        ).fetchall()
+        group_rows = connection.execute(
+            "SELECT id, name, color, created_at FROM character_canvas_group "
+            "WHERE project_id = ? ORDER BY id",
+            (project_id,),
+        ).fetchall()
+        member_rows = connection.execute(
+            "SELECT group_id, character_id FROM character_canvas_group_member "
+            "WHERE project_id = ?",
             (project_id,),
         ).fetchall()
     live_ids = {int(item["id"]) for item in people}
@@ -2337,7 +2469,26 @@ def get_character_canvas(project_id: int) -> dict:
         for row in rel_rows
         if int(row["character_a_id"]) in live_ids and int(row["character_b_id"]) in live_ids
     ]
-    return {"characters": characters, "relations": relations}
+    members_by_group: dict[int, list[int]] = {}
+    for row in member_rows:
+        cid = int(row["character_id"])
+        if cid not in live_ids:
+            continue
+        members_by_group.setdefault(int(row["group_id"]), []).append(cid)
+    groups = []
+    for row in group_rows:
+        gid = int(row["id"])
+        member_ids = sorted(members_by_group.get(gid, []))
+        if len(member_ids) < 2:
+            continue
+        groups.append({
+            "id": gid,
+            "name": str(row["name"] or "").strip(),
+            "color": str(row["color"] or "").strip(),
+            "character_ids": member_ids,
+            "created_at": row["created_at"],
+        })
+    return {"characters": characters, "relations": relations, "groups": groups}
 
 
 def save_character_canvas_positions(project_id: int, body: dict) -> dict:
@@ -10939,6 +11090,15 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/character-canvas/groups", path)
+            if match:
+                self.send_json(
+                    create_character_canvas_group(int(match.group(1)), body or {}),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+
             match = re.fullmatch(r"/api/character-relations/(\d+)/accept", path)
             if match:
                 self.send_json(accept_character_relation(int(match.group(1))))
@@ -11719,6 +11879,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(update_character_relation(int(match.group(1)), body or {}))
                 return
 
+            match = re.fullmatch(r"/api/character-canvas/groups/(\d+)", path)
+            if match:
+                self.send_json(update_character_canvas_group(int(match.group(1)), body or {}))
+                return
+
+
             match = re.fullmatch(r"/api/items/(\d+)", path)
             if match:
                 self.save_item(int(match.group(1)), body or {})
@@ -11889,6 +12055,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(delete_character_relation(int(match.group(1))))
                 return
+
+            match = re.fullmatch(r"/api/character-canvas/groups/(\d+)", path)
+            if match:
+                self.send_json(delete_character_canvas_group(int(match.group(1))))
+                return
+
 
             match = re.fullmatch(r"/api/items/(\d+)", path)
             if match:
