@@ -2663,6 +2663,13 @@ main {
   overflow: hidden;
   height: 100%;
 }
+/* 좌·우 패널 폭은 유지하고, 둘 다 펼친 상태에서 가운데만 양쪽으로 1mm 확장 */
+body:not(.binder-panel-collapsed):not(.ai-panel-collapsed) .work-area {
+  width: calc(100% + 2mm);
+  margin-left: -1mm;
+  margin-right: -1mm;
+  z-index: 1;
+}
 body.ai-panel-collapsed main {
   grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--panel-dock-rail-w, 48px);
 }
@@ -2675,7 +2682,7 @@ body.binder-panel-collapsed.ai-panel-collapsed main {
 body.binder-panel-collapsed .outline-panel {
   display: flex;
   flex-direction: column;
-  padding: 0;
+  padding: 0 0 10px;
   min-width: 0;
   overflow: hidden;
 }
@@ -2740,8 +2747,8 @@ body.ai-panel-collapsed .outline-panel {
   padding-right: 0;
 }
 body.ai-panel-collapsed .outline-panel-inner {
-  border-top-right-radius: 0;
-  border-bottom-right-radius: 0;
+  border-top-right-radius: 14px;
+  border-bottom-right-radius: 14px;
 }
 .outline-panel .hint {
   flex-shrink: 0;
@@ -3783,6 +3790,21 @@ body.ai-panel-collapsed .ai-dock-rail {
 .panel-dock-item.is-open {
   color: var(--accent-dark);
   background: color-mix(in srgb, var(--selection) 78%, var(--surface-2));
+}
+.panel-dock-item {
+  touch-action: none;
+}
+.panel-dock-rail.is-dock-ordering .panel-dock-item {
+  cursor: grabbing;
+}
+.panel-dock-item.is-dock-order-dragging {
+  opacity: 0.58;
+  background: color-mix(in srgb, var(--selection) 88%, var(--surface-2));
+  box-shadow: 0 4px 12px color-mix(in srgb, var(--ink) 18%, transparent);
+}
+body.dock-rail-ordering {
+  user-select: none;
+  cursor: grabbing;
 }
 .panel-dock-rail-items {
   flex: 1 1 auto;
@@ -10492,7 +10514,7 @@ body.idea-float-resizing * {
 body.ai-panel-collapsed .ai-panel {
   display: flex;
   flex-direction: column;
-  padding: 0;
+  padding: 0 0 10px;
   min-width: 0;
   overflow: hidden;
 }
@@ -13197,9 +13219,12 @@ html[data-ui-scheme="dark"] .welcome-tip-card {
 .writing-block.manuscript-frame .scene-status-shell {
   flex: 0 0 auto;
   margin: 0;
+  margin-bottom: -2mm; /* 상태바·요약 아래 빈 여백 → 본문 페이지가 위로 붙음 */
   border: 0;
   /* 본문과 같은 종이색 — 별도 크롬 색 없음 */
   background: var(--page-editor-bg, var(--page-bg, var(--paper, #fffdf8)));
+  /* 작성상태·요약 칸만 위로 1mm (높이는 그대로) */
+  transform: translateY(-1mm);
 }
 .scene-workspace .writing-block.manuscript-frame .scene-status-bar,
 .writing-block.manuscript-frame .scene-status-bar {
@@ -13556,10 +13581,11 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   grid-template-columns: max-content auto max-content;
 }
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split {
-  justify-content: flex-start;
+  justify-content: space-between;
   overflow-x: auto;
   overflow-y: hidden;
-  gap: 8px;
+  width: 100%;
+  gap: 0;
 }
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .format-tool-item,
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .format-tool-slot,
@@ -15191,8 +15217,9 @@ button.alias-chip.is-tori-draft {
   flex-direction: column;
   gap: 0;
   margin: 0;
-  /* 좌·우 = 제목 카드·글자수 카드와 동일 */
-  padding: max(0px, calc(10px - 2mm)) var(--ms-h-gutter, calc(8px - 1.5mm)) 0;
+  /* 좌·우 = 제목 카드·글자수 카드와 동일
+     위 = 0 (탭 줄이 좌·우 패널 카드와 같은 위 여백을 직접 가짐) */
+  padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) 0;
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
@@ -15268,7 +15295,9 @@ button.alias-chip.is-tori-draft {
   overflow-x: auto;
   overflow-y: hidden;
   scrollbar-width: thin;
-  padding: 6px 2px 0;
+  /* 위 여백 = 좌·우 패널 카드와 동일 → 탭 상단이 패널 카드 상단과 같은 선에서 시작.
+     줄어든 만큼은 아래 본문 작성 칸 높이로 넘어감 (탭 높이는 그대로) */
+  padding: max(0px, calc(10px - 2mm)) 2px 0;
   margin: 0;
   box-sizing: border-box;
 }

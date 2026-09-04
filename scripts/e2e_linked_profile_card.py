@@ -28,7 +28,11 @@ def main() -> int:
     from playwright.sync_api import sync_playwright
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True)
+        chrome = Path(r"C:\Program Files\Google\Chrome\Application\chrome.exe")
+        launch_args = {"headless": True}
+        if chrome.exists():
+            launch_args["executable_path"] = str(chrome)
+        browser = p.chromium.launch(**launch_args)
         page = browser.new_page(viewport={"width": 1280, "height": 900})
         page.add_init_script(
             "() => { try { localStorage.setItem('tutorial_completed','1'); } catch(e) {} }"
@@ -50,7 +54,7 @@ def main() -> int:
             """async () => {
               const proj = await (await fetch('/api/projects', {
                 method:'POST', headers:{'Content-Type':'application/json'},
-                body: JSON.stringify({title:'연결 카드 테스트', main_genre:'판타지', purpose:'general_novel'})
+                body: JSON.stringify({title:'연결 카드 테스트', main_genre:'fantasy', purpose:'web_novel'})
               })).json();
               const mk = async (title) => (await (await fetch('/api/success-pattern/run', {
                 method:'POST', headers:{'Content-Type':'application/json'},

@@ -13401,6 +13401,7 @@ let dockTimelineLoadGen = 0;
 let dockTimelineCache = { projectId: 0, kind: "character", filterId: 0, entries: [] };
 let dockBaitsLoadGen = 0;
 let dockBaitsCache = { projectId: 0, threads: [] };
+let dockSuccessProfileLoadGen = 0;
 let dockRelationFocusId = 0;
 let dockRelationLoadGen = 0;
 let dockRelationData = { characters: [], relations: [] };
@@ -25311,6 +25312,7 @@ function syncWritingPrefsForm() {
   if ($("writingIdleMinutes")) $("writingIdleMinutes").value = String(p.idle_minutes);
   if ($("writingShowTimer")) $("writingShowTimer").checked = p.show_timer !== false;
   if ($("writingIncludePhoneLog")) $("writingIncludePhoneLog").checked = p.include_phone_log !== false;
+  syncWritingTimerStyleForm();
 }
 
 function maybeCelebrateWritingGoal() {
@@ -64388,7 +64390,7 @@ async function renderSplitViewer() {
   fillSplitSceneBody(scene);
   splitDirty = false;
   suppressSplitDirty = false;
-  setSplitSaveStatus(state.splitEditEnabled ? i18n.t('app.편집_가능') : i18n.t('app.읽기_전용'));
+  setSplitSaveStatus("");
   updateSplitChrome();
   applySplitEditMode();
   if (state.splitMode === "split") {
@@ -64412,7 +64414,7 @@ function setupSplitEditMode() {
     if (Boolean(wantEdit) === Boolean(state.splitEditEnabled)) return;
     if (wantEdit) {
       setSplitEditEnabled(true);
-      setSplitSaveStatus(i18n.t('app.편집_가능'));
+      setSplitSaveStatus("");
       requestAnimationFrame(() => {
         $("splitSceneBodyEditor")?.focus();
       });
@@ -64420,7 +64422,7 @@ function setupSplitEditMode() {
     }
     await flushSplitEdits();
     setSplitEditEnabled(false);
-    setSplitSaveStatus(i18n.t('app.읽기_전용'));
+    setSplitSaveStatus("");
   };
 
   $("splitEditModeGroup")?.addEventListener("click", (event) => {
