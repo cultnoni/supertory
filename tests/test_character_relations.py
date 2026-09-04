@@ -301,6 +301,43 @@ class CharacterRelationHttpTests(unittest.TestCase):
         labels = {row["label"] for row in canvas["relations"]}
         self.assertEqual(labels, {"연인", "주인"})
 
+    def test_clear_position_and_update_relation_label(self) -> None:
+        pid = self._project()
+        a = self._character(pid, "비비", "[관계]\n엔케의 연인")
+        b = self._character(pid, "엔케", "[관계]\n비비의 주인")
+        status, saved = self.request(
+            "PUT",
+            f"/api/projects/{pid}/character-canvas/positions",
+            {"positions": [{"character_id": a, "x": 120, "y": 80}]},
+        )
+        self.assertEqual(status, 200, saved)
+        status, created = self.request(
+            "POST",
+            f"/api/projects/{pid}/character-relations",
+            {"character_a_id": a, "character_b_id": b, "label": "연인"},
+        )
+        self.assertEqual(status, 201, created)
+        rel_id = int(created["relation"]["id"])
+        status, updated = self.request(
+            "PUT",
+            f"/api/character-relations/{rel_id}",
+            {"label": "부부"},
+        )
+        self.assertEqual(status, 200, updated)
+        self.assertEqual(updated["relation"]["label"], "부부")
+        status, cleared = self.request(
+            "PUT",
+            f"/api/projects/{pid}/character-canvas/positions",
+            {"positions": [{"character_id": a, "x": None, "y": None}]},
+        )
+        self.assertEqual(status, 200, cleared)
+        status, canvas = self.request("GET", f"/api/projects/{pid}/character-canvas")
+        self.assertEqual(status, 200, canvas)
+        by_id = {int(item["id"]): item for item in canvas["characters"]}
+        self.assertIsNone(by_id[a]["x"])
+        self.assertIsNone(by_id[a]["y"])
+        self.assertEqual(canvas["relations"][0]["label"], "부부")
+
     def test_ui_has_relation_canvas(self) -> None:
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
@@ -309,8 +346,13 @@ class CharacterRelationHttpTests(unittest.TestCase):
         self.assertIn('id="relationSuggestButton"', html)
         self.assertIn('id="relationFitButton"', html)
         self.assertIn('id="relationFullscreenExitButton"', html)
+        self.assertIn('id="relationDeckRail"', html)
+        self.assertIn('id="relationCardMenu"', html)
+        self.assertIn('id="relationLabelDeleteButton"', html)
         self.assertIn("function openRelationCanvas", app_js)
         self.assertIn("function setRelationLabelAtLineMid", app_js)
+        self.assertIn("function showRelationEditModal", app_js)
+        self.assertIn("function paintRelationDecks", app_js)
         self.assertNotIn("placed.midY - 8", app_js)
         self.assertIn("function openDockRelationMinimapFloat", app_js)
         self.assertIn("function neighborhoodRelationData", app_js)

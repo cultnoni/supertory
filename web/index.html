@@ -39,7 +39,196 @@
         } catch (e2) {}
       })();
     </script>
-    <link rel="stylesheet" href="/styles.css?v=1.4.63">
+    
+    <style id="relationLayoutHardCss">
+      /* v1.4.94: fullscreen covers viewport; no title clip */
+      #relationCanvas.relation-canvas {
+        display: flex !important;
+        flex-direction: column !important;
+        min-height: 0 !important;
+        height: 100% !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+      }
+      #relationCanvas.relation-canvas.is-fullscreen {
+        position: fixed !important;
+        inset: 0 !important;
+        z-index: 280 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        max-width: none !important;
+        margin: 0 !important;
+        padding: 20px !important;
+        overflow: hidden !important;
+      }
+      html.is-electron #relationCanvas.relation-canvas.is-fullscreen {
+        padding-top: calc(20px + env(titlebar-area-height, 32px)) !important;
+      }
+      #relationCanvas.relation-canvas.hidden { display: none !important; }
+      #relationCanvas .character-board-toolbar {
+        flex: 0 0 auto !important;
+        overflow: visible !important;
+      }
+      #relationCanvas.relation-canvas.is-fullscreen .character-board-toolbar {
+        align-items: center !important;
+        margin-bottom: 14px !important;
+        padding-top: 2px !important;
+      }
+      #relationCanvas.relation-canvas.is-fullscreen .character-board-title {
+        line-height: 1.3 !important;
+        overflow: visible !important;
+      }
+      #relationCanvas .relation-canvas-body {
+        display: block !important;
+        flex: 1 1 0% !important;
+        min-height: 0 !important;
+        height: 0 !important;
+        overflow: hidden !important;
+        position: relative !important;
+      }
+      #relationCanvas #relationCanvasStage.relation-canvas-stage {
+        position: relative !important;
+        width: 100% !important;
+        height: 100% !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+        box-sizing: border-box !important;
+        background-image: none !important;
+        background-color: var(--relation-stage-bg, var(--surface, #fffdf8)) !important;
+      }
+      html[data-theme="cabin"] #relationCanvas #relationCanvasStage.relation-canvas-stage,
+      html[data-ui-theme="cabin"] #relationCanvas #relationCanvasStage.relation-canvas-stage {
+        --relation-stage-bg: #c8d4c4;
+      }
+      html[data-theme="library"] #relationCanvas #relationCanvasStage.relation-canvas-stage,
+      html[data-ui-theme="library"] #relationCanvas #relationCanvasStage.relation-canvas-stage,
+      html[data-theme="dawn"] #relationCanvas #relationCanvasStage.relation-canvas-stage,
+      html[data-ui-theme="dawn"] #relationCanvas #relationCanvasStage.relation-canvas-stage {
+        --relation-stage-bg: color-mix(in srgb, var(--selection, #B9C8D4) 58%, var(--accent, #526D82));
+      }
+      html[data-theme="classroom"] #relationCanvas #relationCanvasStage.relation-canvas-stage,
+      html[data-ui-theme="classroom"] #relationCanvas #relationCanvasStage.relation-canvas-stage {
+        --relation-stage-bg: #e8d5b5;
+      }
+      #relationCanvas #relationCanvasStage.relation-canvas-stage::before {
+        content: "" !important;
+        position: absolute !important;
+        inset: 0 !important;
+        z-index: 0 !important;
+        pointer-events: none !important;
+        border-radius: inherit !important;
+        background-image:
+          linear-gradient(var(--relation-map-tint, rgba(200,180,150,0.35)), var(--relation-map-tint, rgba(200,180,150,0.35))),
+          url("/assets/relation-world-map.jpg?v=3") !important;
+        background-position: center !important;
+        background-size: 100% 100% !important;
+        background-repeat: no-repeat !important;
+        background-blend-mode: multiply, normal !important;
+        filter: var(--relation-map-filter, sepia(0.35) saturate(1.05)) !important;
+        opacity: var(--relation-map-opacity, 0.52) !important;
+      }
+      #relationCanvas #relationDeckRail.relation-deck-rail {
+        position: absolute !important;
+        inset: 0 !important;
+        left: 0 !important;
+        top: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        width: auto !important;
+        min-width: 0 !important;
+        max-width: none !important;
+        height: auto !important;
+        max-height: none !important;
+        z-index: 6 !important;
+        display: block !important;
+        overflow: visible !important;
+        box-sizing: border-box !important;
+        pointer-events: none !important;
+        background: transparent !important;
+        border: 0 !important;
+        box-shadow: none !important;
+        outline: none !important;
+        padding: 0 !important;
+        margin: 0 !important;
+      }
+      #relationCanvas #relationDeckRail.relation-deck-rail > .relation-deck {
+        pointer-events: auto !important;
+        position: absolute !important;
+        left: var(--deck-left, 12px) !important;
+        top: var(--deck-top, 12px) !important;
+        width: var(--deck-w, 176px) !important;
+        max-width: min(300px, 42vw) !important;
+        min-width: 132px !important;
+        max-height: calc(var(--deck-peek-h, 132px) + 40px) !important;
+        flex: none !important;
+      }
+      #relationCanvas #relationDeckRail.relation-deck-rail > .relation-deck.is-expanded {
+        max-height: var(--deck-exp-h, 280px) !important;
+      }
+      #relationCanvas #relationDeckRail.relation-deck-rail.is-drop-target .relation-deck.is-drop-hover,
+      #relationCanvas .relation-deck.is-drop-hover {
+        outline: 2px solid var(--accent, #7aa1b6) !important;
+        outline-offset: 1px !important;
+        background: color-mix(in srgb, var(--accent, #7aa1b6) 14%, var(--surface, #fff)) !important;
+      }
+      #relationCanvas .relation-deck {
+        overflow: hidden !important;
+        display: flex !important;
+        flex-direction: column !important;
+        background: var(--relation-panel-bg, color-mix(in srgb, var(--surface, #fff) 88%, transparent)) !important;
+        backdrop-filter: blur(8px);
+        -webkit-backdrop-filter: blur(8px);
+        box-shadow: 0 8px 22px color-mix(in srgb, var(--ink) 14%, transparent) !important;
+        border: 1px solid color-mix(in srgb, var(--line) 70%, transparent) !important;
+        border-radius: 12px !important;
+      }
+      html[data-theme="cabin"] #relationCanvas .relation-deck,
+      html[data-ui-theme="cabin"] #relationCanvas .relation-deck,
+      html[data-theme="cabin"] #relationCanvas .relation-canvas-card,
+      html[data-ui-theme="cabin"] #relationCanvas .relation-canvas-card,
+      html[data-theme="cabin"] #relationCanvas .relation-deck-card,
+      html[data-ui-theme="cabin"] #relationCanvas .relation-deck-card {
+        --relation-panel-bg: color-mix(in srgb, #f7faf5 94%, transparent);
+        background: color-mix(in srgb, #f7faf5 94%, transparent) !important;
+      }
+      html[data-theme="library"] #relationCanvas .relation-deck,
+      html[data-ui-theme="library"] #relationCanvas .relation-deck,
+      html[data-theme="dawn"] #relationCanvas .relation-deck,
+      html[data-ui-theme="dawn"] #relationCanvas .relation-deck,
+      html[data-theme="library"] #relationCanvas .relation-canvas-card,
+      html[data-ui-theme="library"] #relationCanvas .relation-canvas-card,
+      html[data-theme="dawn"] #relationCanvas .relation-canvas-card,
+      html[data-ui-theme="dawn"] #relationCanvas .relation-canvas-card,
+      html[data-theme="library"] #relationCanvas .relation-deck-card,
+      html[data-ui-theme="library"] #relationCanvas .relation-deck-card,
+      html[data-theme="dawn"] #relationCanvas .relation-deck-card,
+      html[data-ui-theme="dawn"] #relationCanvas .relation-deck-card {
+        background: color-mix(in srgb, var(--bg-card, var(--surface, #EDF1F5)) 94%, transparent) !important;
+        border-color: color-mix(in srgb, var(--border, var(--line)) 80%, transparent) !important;
+      }
+      #relationCanvas .relation-deck:not(.is-expanded) .relation-deck-stack {
+        height: var(--deck-peek-h, 132px) !important;
+        min-height: var(--deck-peek-h, 132px) !important;
+      }
+      #relationCanvas .relation-deck-stack {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow: hidden !important;
+      }
+      #relationCanvas .relation-deck.is-expanded .relation-deck-stack {
+        overflow: auto !important;
+        overscroll-behavior: contain !important;
+        -webkit-overflow-scrolling: touch !important;
+      }
+      #relationCanvas .relation-deck-ghost {
+        position: fixed !important;
+        z-index: 2147483000 !important;
+        pointer-events: none !important;
+        transform: translate(-50%, -50%) !important;
+      }
+    </style>
+
+    <link rel="stylesheet" href="/styles.css?v=1.4.107">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -798,7 +987,6 @@
                   <div class="settings-box-toolbar">
                     <button type="button" id="newCharacterButton" class="secondary" title="새 캐릭터" data-i18n-title="app.새_캐릭터" data-i18n="index.캐릭터">+ 캐릭터</button>
                     <button type="button" id="openRelationCanvasButton" class="secondary" data-i18n="app.관계_이어보기">관계 이어보기</button>
-                    <button type="button" class="secondary" id="toriFillCharactersButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
                   </div>
                   <p class="hint" data-i18n="index.인물을_눌러_설정을_수정하거나_오른쪽_아이콘">인물을 눌러 설정을 수정하거나, 오른쪽 → 아이콘으로 메인에서 볼 수 있어요.</p>
                   <nav id="characterList" aria-label="캐릭터 목록" data-i18n-aria-label="index.캐릭터_목록"></nav>
@@ -936,41 +1124,67 @@
                   <div id="readingInvitePanel" class="reading-invite-panel">
                     <div id="readingInviteAuthHint" class="reading-invite-auth-hint hidden" hidden></div>
                     <div id="readingInviteCreateBlock" class="reading-invite-create">
-                      <div id="readingInviteEpisodeList" class="export-scene-list reading-invite-episode-list" role="group" aria-label="공유할 화" data-i18n-aria-label="index.공유할_화"></div>
-                      <fieldset class="reading-invite-permission" role="radiogroup" aria-label="링크 권한" data-i18n-aria-label="app.링크_권한">
-                        <legend data-i18n="app.링크_권한">링크 권한</legend>
-                        <label class="reading-invite-permission-option">
-                          <input type="radio" name="readingInvitePermission" value="read" checked>
-                          <span data-i18n="app.읽기전용">읽기전용</span>
-                        </label>
-                        <label class="reading-invite-permission-option">
-                          <input type="radio" name="readingInvitePermission" value="edit">
-                          <span data-i18n="app.수정가능">수정가능</span>
-                        </label>
-                      </fieldset>
-                      <label class="reading-invite-message-label" for="readingInviteMessage">
-                        <span data-i18n="app.초대_메시지_선택">초대 메시지 (선택)</span>
-                        <textarea
-                          id="readingInviteMessage"
-                          rows="3"
-                          maxlength="2000"
-                          placeholder="예: 병원에서 일하는 네가 볼 때 병원 파트 구조나 위계가 이상한 곳 없는지 봐줄래?"
-                          data-i18n-placeholder="app.초대_메시지_예시"
-                        ></textarea>
-                      </label>
-                      <div class="settings-box-toolbar reading-invite-toolbar">
-                        <button type="button" id="readingInviteCreateButton" class="secondary" data-i18n="app.링크_만들기">링크 만들기</button>
-                      </div>
-                      <div id="readingInviteCreated" class="reading-invite-created hidden" hidden>
-                        <label class="reading-invite-created-label" for="readingInviteCreatedUrl" data-i18n="app.만든_링크">만든 링크</label>
-                        <div class="reading-invite-url-row">
-                          <input type="text" id="readingInviteCreatedUrl" readonly>
-                          <button type="button" id="readingInviteCopyButton" class="secondary" data-i18n="app.복사">복사</button>
+                      <section class="reading-invite-card" aria-labelledby="readingInviteSetupTitle">
+                        <h3 id="readingInviteSetupTitle" class="reading-invite-card-title" data-i18n="app.초대_설정">초대 설정</h3>
+                        <div class="reading-invite-episode-table" role="group" aria-label="공유할 화" data-i18n-aria-label="index.공유할_화">
+                          <div class="reading-invite-episode-head" aria-hidden="true">
+                            <label class="reading-invite-check-cell" title="전체 선택" data-i18n-title="index.전체_선택">
+                              <input type="checkbox" id="readingInviteSelectAll" aria-label="전체 선택" data-i18n-aria-label="index.전체_선택">
+                            </label>
+                            <span class="reading-invite-ep-cat" data-i18n="app.분류">분류</span>
+                            <span class="reading-invite-ep-title" data-i18n="app.회차명">회차명</span>
+                          </div>
+                          <div id="readingInviteEpisodeList" class="reading-invite-episode-list"></div>
                         </div>
-                      </div>
+                        <label class="reading-invite-message-label" for="readingInviteMessage">
+                          <span data-i18n="app.초대_메시지_선택">초대 메시지 (선택)</span>
+                          <textarea
+                            id="readingInviteMessage"
+                            rows="3"
+                            maxlength="2000"
+                            placeholder="예: 병원에서 일하는 네가 볼 때 병원 파트 구조나 위계가 이상한 곳 없는지 봐줄래?"
+                            data-i18n-placeholder="app.초대_메시지_예시"
+                          ></textarea>
+                        </label>
+                        <div class="reading-invite-action-row">
+                          <fieldset class="reading-invite-permission" role="radiogroup" aria-label="링크 권한" data-i18n-aria-label="app.링크_권한">
+                            <legend data-i18n="app.링크_권한">링크 권한</legend>
+                            <div class="reading-invite-seg">
+                              <label class="reading-invite-permission-card">
+                                <input type="radio" name="readingInvitePermission" value="read" checked>
+                                <span class="reading-invite-permission-card-body">
+                                  <span class="reading-invite-permission-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v16"/><path d="M20 19A2 2 0 0 0 22 17V5a2 2 0 0 0-2-2L16 3a5 5 0 0 0-4 2 5 5 0 0 0-4-2H4a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h4a5 5 0 0 1 4 2 5 5 0 0 1 4-2z"/></svg>
+                                  </span>
+                                  <span class="reading-invite-permission-text" data-i18n="app.읽기전용">읽기전용</span>
+                                </span>
+                              </label>
+                              <label class="reading-invite-permission-card">
+                                <input type="radio" name="readingInvitePermission" value="edit">
+                                <span class="reading-invite-permission-card-body">
+                                  <span class="reading-invite-permission-icon" aria-hidden="true">
+                                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+                                  </span>
+                                  <span class="reading-invite-permission-text" data-i18n="app.수정가능">수정가능</span>
+                                </span>
+                              </label>
+                            </div>
+                          </fieldset>
+                          <button type="button" id="readingInviteCreateButton" class="primary reading-invite-create-btn" data-i18n="app.링크_만들기">링크 만들기</button>
+                        </div>
+                        <div id="readingInviteCreated" class="reading-invite-created hidden" hidden>
+                          <label class="reading-invite-created-label" for="readingInviteCreatedUrl" data-i18n="app.만든_링크">만든 링크</label>
+                          <div class="reading-invite-url-row">
+                            <input type="text" id="readingInviteCreatedUrl" readonly>
+                            <button type="button" id="readingInviteCopyButton" class="secondary" data-i18n="app.복사">복사</button>
+                          </div>
+                        </div>
+                      </section>
+                      <section class="reading-invite-manage" aria-labelledby="readingInviteManageTitle">
+                        <h3 id="readingInviteManageTitle" class="reading-invite-card-title" data-i18n="app.만든_링크_관리">만든 링크 관리</h3>
+                        <div id="readingInviteList" class="reading-invite-list"></div>
+                      </section>
                     </div>
-                    <h3 class="reading-invite-heading" data-i18n="app.만든_링크_관리">만든 링크 관리</h3>
-                    <div id="readingInviteList" class="reading-invite-list"></div>
                     <div id="readingInviteFeedback" class="reading-invite-feedback hidden" hidden>
                       <div class="reading-invite-feedback-toolbar">
                         <button type="button" id="readingInviteFeedbackBack" class="secondary compact-btn" data-i18n="app.목록으로">목록으로</button>
@@ -1209,80 +1423,95 @@
           </button>
           <div class="panel-dock-rail-items" role="toolbar" aria-label="바인더 항목" data-i18n-aria-label="index.바인더_항목">
             <button type="button" class="panel-dock-item is-ready" data-dock-item="manuscript" title="목차보기" data-i18n-title="index.목차보기" aria-label="목차보기" data-i18n-aria-label="index.목차보기">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <rect x="6.5" y="3.75" width="11.5" height="16.5" rx="1.6"/>
-                <path d="M9.25 3.75v16.5"/>
-                <path d="M11.75 8.5h4M11.75 12h4M11.75 15.5h3"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M12 5v16" />
+  <path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M5.5 18.2V12.4"/>
-                <path d="M10.2 18.2V7.5"/>
-                <path d="M14.8 18.2v-6.2"/>
-                <path d="M19.4 18.2V5.8"/>
-                <path d="M4.6 18.2h15.8"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M5 21v-6" />
+  <path d="M12 21V3" />
+  <path d="M19 21V9" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="writingTimer" title="기록" data-i18n-title="app.기록" aria-label="기록" data-i18n-aria-label="app.기록">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="8.25"/>
-                <path d="M12 7.5V12l3 2"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="10" />
+  <path d="M12 6v6l4 2" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="ideas" title="생각수첩" data-i18n-title="app.생각수첩" aria-label="생각수첩" data-i18n-aria-label="app.생각수첩">
-              <span class="panel-dock-icon-mask panel-dock-icon-ideas" aria-hidden="true"></span>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5" />
+  <path d="M9 18h6" />
+  <path d="M10 22h4" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="world" title="세계관" data-i18n-title="app.세계관" aria-label="세계관" data-i18n-aria-label="app.세계관">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="7.25"/>
-                <path d="M4.8 12h14.4M12 4.8c1.8 2.2 2.7 4.6 2.7 7.2s-.9 5-2.7 7.2c-1.8-2.2-2.7-4.6-2.7-7.2s.9-5 2.7-7.2z"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <circle cx="12" cy="12" r="10" />
+  <path d="M12 2a14.5 14.5 0 0 0 0 20 14.5 14.5 0 0 0 0-20" />
+  <path d="M2 12h20" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="characters" title="캐릭터" data-i18n-title="app.캐릭터" aria-label="캐릭터" data-i18n-aria-label="app.캐릭터">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="8.2" r="2.6"/>
-                <path d="M6.8 18.2c.6-3.1 2.6-4.7 5.2-4.7s4.6 1.6 5.2 4.7"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+  <circle cx="12" cy="7" r="4" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="timeline" title="연대기" data-i18n-title="index.연대기" aria-label="연대기" data-i18n-aria-label="index.연대기">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M7.4 6.4c0-1.35 1.05-2.2 2.35-2.2h7.4c.75 0 1.35.55 1.35 1.3v12.2c0 1.35-1.05 2.3-2.35 2.3H9.55c-.75 0-1.35-.55-1.35-1.3"/>
-                <path d="M7.4 6.4v11.2c0 .95.75 1.7 1.7 1.7"/>
-                <path d="M10.6 9.1h5.2M10.6 12h5.2M10.6 14.9h3.4"/>
-                <path d="M17.3 4.55c1.15.15 1.95.95 1.95 2.05"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M8 2v3" />
+  <path d="M16 2v3" />
+  <rect x="3" y="3" width="18" height="18" rx="2" />
+  <path d="M3 9h18" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="items" title="아이템" data-i18n-title="app.아이템" aria-label="아이템" data-i18n-aria-label="app.아이템">
-              <span class="panel-dock-icon-mask panel-dock-icon-items" aria-hidden="true"></span>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M10.5 3 8 9l4 13 4-13-2.5-6" />
+  <path d="M17 3a2 2 0 0 1 1.6.8l3 4a2 2 0 0 1 .013 2.382l-7.99 10.986a2 2 0 0 1-3.247 0l-7.99-10.986A2 2 0 0 1 2.4 7.8l2.998-3.997A2 2 0 0 1 7 3z" />
+  <path d="M2 9h20" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="baits" title="열린 떡밥" data-i18n-title="index.열린_떡밥" aria-label="열린 떡밥" data-i18n-aria-label="index.열린_떡밥">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M12 4.8 19 8.4v7.2L12 19.2 5 15.6V8.4z"/>
-                <path d="M12 19.2V11.6M5 8.4 12 11.6 19 8.4"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M11 21.73a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73z" />
+  <path d="M12 22V12" />
+  <polyline points="3.29 7 12 12 20.71 7" />
+  <path d="m7.5 4.27 9 5.15" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="successProfile" title="흥행작 프로파일" data-i18n-title="app.흥행작_프로파일" aria-label="흥행작 프로파일" data-i18n-aria-label="app.흥행작_프로파일">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M5.5 16.5 9.2 12l3.1 3.1 6.2-7.6"/>
-                <path d="M5 19h14"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M16 7h6v6" />
+  <path d="m22 7-8.5 8.5-5-5L2 17" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item" data-dock-item="toryVault" title="토리의 수집창고" data-i18n-title="app.토리의_수집창고" aria-label="토리의 수집창고" data-i18n-aria-label="app.토리의_수집창고">
-              <span class="panel-dock-icon-mask panel-dock-icon-tory-vault" aria-hidden="true"></span>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M11 20H2" />
+  <path d="M11 4.562v16.157a1 1 0 0 0 1.242.97L19 20V5.562a2 2 0 0 0-1.515-1.94l-4-1A2 2 0 0 0 11 4.561z" />
+  <path d="M11 4H8a2 2 0 0 0-2 2v14" />
+  <path d="M14 12h.01" />
+  <path d="M22 20h-3" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item" data-dock-item="sources" title="참고자료·출처" data-i18n-title="app.참고자료_출처" aria-label="참고자료·출처" data-i18n-aria-label="app.참고자료_출처">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M10 13.5 8.6 14.9a3.1 3.1 0 0 1-4.4-4.4L7.5 7.2a3.1 3.1 0 0 1 4.4 0"/>
-                <path d="M14 10.5 15.4 9.1a3.1 3.1 0 1 1 4.4 4.4L16.5 16.8a3.1 3.1 0 0 1-4.4 0"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+  <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+            </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="settingsSearch" title="크로스 레퍼런스 시스템" data-i18n-title="app.크로스_레퍼런스_시스템" aria-label="크로스 레퍼런스 시스템" data-i18n-aria-label="app.크로스_레퍼런스_시스템">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <circle cx="11" cy="11" r="6.25"/>
-                <path d="M16 16.5 20.5 21"/>
-              </svg>
+              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+              <path d="m21 21-4.34-4.34" />
+  <circle cx="11" cy="11" r="8" />
+            </svg>
             </button>
+
           </div>
         </nav>
       </aside>
@@ -2467,6 +2696,8 @@
               <button type="button" class="character-role-chip" data-character-role="antagonist" data-i18n="app.적대자">적대자</button>
               <button type="button" class="character-role-chip" data-character-role="supporting" data-i18n="app.조력자">조력자</button>
               <button type="button" class="character-role-chip" data-character-role="minor" data-i18n="app.단역">단역</button>
+              <span id="characterRoleCustomChips" class="character-role-custom-chips"></span>
+              <button type="button" class="character-role-chip is-add" id="characterRoleAddButton" data-i18n="app.역할_추가">+ 추가</button>
             </div>
           </div>
           <label><span data-i18n="app.한_줄_소개">한 줄 소개</span>
@@ -2844,23 +3075,42 @@
           <div id="characterBoardGrid" class="character-board-grid" aria-label="캐릭터 카드 목록" data-i18n-aria-label="index.캐릭터_카드_목록"></div>
         </div>
 
-        <div id="relationCanvas" class="relation-canvas hidden" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
+        <div id="relationCanvas" class="relation-canvas hidden" data-relation-layout="v92-deck-split" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
           <div class="character-board-toolbar">
             <div>
               <h2 class="character-board-title" data-i18n="app.관계_이어보기">관계 이어보기</h2>
-              <p class="hint" data-i18n="index.등장인물_카드를_끌어_배치하고_관계선을">등장인물 카드를 끌어 배치하고, 관계선을 잇거나 AI 제안을 받을 수 있어요.</p>
+              <div id="relationCanvasTipBox" class="guide-tip-box relation-canvas-guide-tip" data-guide-tip="relationCanvas" role="note">
+                <p class="hint guide-tip-text" data-i18n="index.등장인물_카드를_끌어_배치하고_관계선을">등장인물 카드를 끌어 배치하고, 관계선을 잇거나 AI 제안을 받을 수 있어요.</p>
+                <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="relationCanvas" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+              </div>
             </div>
-            <div class="character-board-actions">
-              <button type="button" class="secondary compact-btn" id="relationSuggestButton" data-i18n="app.AI_제안_받기">AI 제안 받기</button>
-              <button type="button" class="secondary compact-btn" id="relationLinkButton" data-i18n="app.관계_잇기">관계 잇기</button>
-              <button type="button" class="secondary compact-btn" id="relationFitButton" data-i18n="app.전체_보기" aria-pressed="false">전체 보기</button>
-              <button type="button" class="secondary compact-btn hidden" id="relationFullscreenExitButton" data-i18n="app.전체화면_닫기">전체화면 닫기</button>
-              <button type="button" class="secondary compact-btn" id="relationLayoutButton" data-i18n="app.정렬">정렬</button>
+            <div class="character-board-actions relation-toolbar-actions">
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="relationSuggestButton">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg>
+                <span data-i18n="app.AI_제안_받기">AI 제안 받기</span>
+              </button>
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="relationLinkButton">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+                <span data-i18n="app.관계_잇기">관계 잇기</span>
+              </button>
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="relationFitButton" aria-pressed="false">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect width="7" height="7" x="3" y="3" rx="1"/><rect width="7" height="7" x="14" y="3" rx="1"/><rect width="7" height="7" x="14" y="14" rx="1"/><rect width="7" height="7" x="3" y="14" rx="1"/></svg>
+                <span data-i18n="app.전체_보기">전체 보기</span>
+              </button>
+              <button type="button" class="secondary compact-btn hidden relation-tool-btn" id="relationFullscreenExitButton" data-i18n="app.전체화면_닫기">전체화면 닫기</button>
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="relationLayoutButton">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M21 5H3"/><path d="M15 12H3"/><path d="M17 19H3"/></svg>
+                <span data-i18n="app.정렬">정렬</span>
+              </button>
               <button type="button" class="secondary compact-btn" id="relationZoomOutButton" title="축소" data-i18n-title="app.축소" aria-label="축소" data-i18n-aria-label="app.축소">−</button>
               <button type="button" class="secondary compact-btn" id="relationZoomInButton" title="확대" data-i18n-title="app.확대" aria-label="확대" data-i18n-aria-label="app.확대">+</button>
-              <button type="button" class="secondary compact-btn" id="closeRelationCanvasButton" data-i18n="app.닫기">닫기</button>
+              <button type="button" class="secondary compact-btn relation-tool-btn" id="closeRelationCanvasButton">
+                <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                <span data-i18n="app.닫기">닫기</span>
+              </button>
             </div>
           </div>
+          <div class="relation-canvas-body">
           <div id="relationCanvasStage" class="relation-canvas-stage">
             <div id="relationCanvasWorld" class="relation-canvas-world">
               <svg id="relationCanvasSvg" class="relation-canvas-svg" aria-hidden="true"></svg>
@@ -2877,10 +3127,42 @@
               <label for="relationLabelInput" data-i18n="app.관계_이름">관계 이름</label>
               <input id="relationLabelInput" type="text" maxlength="40" placeholder="예: 연인, 라이벌, 이복형제" data-i18n-placeholder="index.예_연인_라이벌_이복형제">
               <div class="relation-suggest-popup-actions">
+                <button type="button" class="secondary compact-btn danger-btn hidden" id="relationLabelDeleteButton" data-i18n="app.삭제">삭제</button>
                 <button type="button" class="primary compact-btn" id="relationLabelSaveButton" data-i18n="app.관계_잇기">관계 잇기</button>
                 <button type="button" class="secondary compact-btn" id="relationLabelCancelButton" data-i18n="app.닫기">닫기</button>
               </div>
             </div>
+            <div id="relationCardMenu" class="relation-card-menu hidden" role="menu" aria-label="카드 옵션" data-i18n-aria-label="app.카드_옵션">
+              <p class="relation-card-menu-title" data-i18n="app.테두리_색">테두리 색</p>
+              <div id="relationBorderSwatches" class="relation-border-swatches" role="group"></div>
+              <button type="button" class="secondary compact-btn relation-card-menu-action hidden" id="relationSendToDeckButton" data-i18n="app.카드집으로_보내기">카드집으로 보내기</button>
+            </div>
+            <aside id="relationDeckRail" class="relation-deck-rail" aria-label="미연결 인물" data-i18n-aria-label="app.미연결_인물">
+                        <section class="relation-deck" data-deck="minor">
+                          <div class="relation-deck-head" data-deck-move="minor">
+                            <h3 class="relation-deck-title" data-i18n="app.단역">단역</h3>
+                            <button type="button" class="secondary compact-btn relation-deck-toggle" data-deck-toggle="minor" aria-expanded="false" data-i18n="app.펼치기">펼치기</button>
+                          </div>
+                          <div id="relationDeckMinor" class="relation-deck-stack" data-deck-stack="minor"></div>
+                          <div class="relation-deck-resize-corner is-nw" data-deck-resize="nw" data-deck-kind="minor" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-ne" data-deck-resize="ne" data-deck-kind="minor" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-sw" data-deck-resize="sw" data-deck-kind="minor" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-se" data-deck-resize="se" data-deck-kind="minor" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                        </section>
+                        <section class="relation-deck" data-deck="waiting">
+                          <div class="relation-deck-head" data-deck-move="waiting">
+                            <h3 class="relation-deck-title" data-i18n="app.대기인물">대기인물</h3>
+                            <button type="button" class="secondary compact-btn relation-deck-toggle" data-deck-toggle="waiting" aria-expanded="false" data-i18n="app.펼치기">펼치기</button>
+                          </div>
+                          <div id="relationDeckWaiting" class="relation-deck-stack" data-deck-stack="waiting"></div>
+                          <div class="relation-deck-resize-corner is-nw" data-deck-resize="nw" data-deck-kind="waiting" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-ne" data-deck-resize="ne" data-deck-kind="waiting" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-sw" data-deck-resize="sw" data-deck-kind="waiting" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                          <div class="relation-deck-resize-corner is-se" data-deck-resize="se" data-deck-kind="waiting" role="separator" tabindex="0" data-i18n-aria-label="app.서랍_크기_조절" aria-label="서랍 크기 조절"></div>
+                        </section>
+                      </aside>
+
+          </div>
           </div>
         </div>
 
@@ -3273,6 +3555,11 @@
                 </div>
                 <p class="hint reader-persona-hint" id="readerPersonaChatHint" data-i18n="index.독자를_한_명_고른_뒤_대화를_시작해요">독자를 한 명 고른 뒤 대화를 시작해요.</p>
                 <div id="readerPersonaChatPane" class="reader-persona-chat-pane">
+                  <section id="readerFavoritePanel" class="reader-favorite-panel" aria-label="자주쓰는 가상독자 모음" data-i18n-aria-label="index.자주쓰는_가상독자_모음">
+                    <h4 class="reader-favorite-title" data-i18n="index.자주쓰는_가상독자_모음">자주쓰는 가상독자 모음</h4>
+                    <div id="readerFavoriteGrid" class="reader-persona-grid reader-favorite-grid" aria-label="자주쓰는 가상독자" data-i18n-aria-label="index.자주쓰는_가상독자"></div>
+                    <p class="hint reader-favorite-empty" id="readerFavoriteEmpty" data-i18n="index.대화한_독자가_여기에_모입니다">대화한 독자가 여기에 모입니다.</p>
+                  </section>
                   <div id="readerPersonaGrid" class="reader-persona-grid" aria-label="가상 독자 목록" data-i18n-aria-label="index.가상_독자_목록"></div>
                   <div class="reader-debate-actions" id="readerChatStartActions">
                     <p class="hint reader-debate-start-hint" id="readerChatStartHint" data-i18n="app.독자를_한_명_골라주세요">독자를 한 명 골라주세요</p>
@@ -3467,31 +3754,64 @@
               <path d="M10.8 9.2 7 12l3.8 2.8"/>
             </svg>
           </button>
-          <div class="panel-dock-rail-items" role="toolbar" aria-label="SuperTORY 항목" data-i18n-aria-label="index.SuperTORY_항목">
-            <button type="button" class="panel-dock-item" data-dock-item="tools" title="도우미" data-i18n-title="app.도우미" aria-label="도우미" data-i18n-aria-label="app.도우미">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M12 4.6v2.2M12 17.2v2.2M4.6 12h2.2M17.2 12h2.2M7.1 7.1l1.6 1.6M15.3 15.3l1.6 1.6M7.1 16.9l1.6-1.6M15.3 8.7l1.6-1.6"/>
-                <circle cx="12" cy="12" r="3.1"/>
+                    <div class="panel-dock-rail-items" role="toolbar" aria-label="SuperTORY 항목" data-i18n-aria-label="index.SuperTORY_항목">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="priority" title="작가 지침" data-i18n-title="index.작가_지침" aria-label="작가 지침" data-i18n-aria-label="index.작가_지침" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <rect width="8" height="4" x="8" y="2" rx="1" ry="1" />
+                <path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+                <path d="M12 11h4" />
+                <path d="M12 16h4" />
+                <path d="M8 11h.01" />
+                <path d="M8 16h.01" />
               </svg>
             </button>
-            <button type="button" class="panel-dock-item" data-dock-item="chat" title="소통방" data-i18n-title="index.소통방" aria-label="소통방" data-i18n-aria-label="index.소통방">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M5.5 6.5h13a1.5 1.5 0 0 1 1.5 1.5v7.2a1.5 1.5 0 0 1-1.5 1.5H9.2L5.5 19.4z"/>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="toryChat" title="토리 1:1 대화창" data-i18n-title="index.토리_1_1_대화창" aria-label="토리 1:1 대화창" data-i18n-aria-label="index.토리_1_1_대화창" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M2.992 16.342a2 2 0 0 1 .094 1.167l-1.065 3.29a1 1 0 0 0 1.236 1.168l3.413-.998a2 2 0 0 1 1.099.092 10 10 0 1 0-4.777-4.719" />
               </svg>
             </button>
-            <button type="button" class="panel-dock-item" data-dock-item="priority" title="작가 지침" data-i18n-title="index.작가_지침" aria-label="작가 지침" data-i18n-aria-label="index.작가_지침">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <rect x="6" y="4.8" width="12" height="14.4" rx="1.5"/>
-                <path d="M9 8.4h6M9 11.6h6M9 14.8h3.6"/>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="characterChat" title="내 캐릭터와 대화하기" data-i18n-title="index.내_캐릭터와_대화하기" aria-label="내 캐릭터와 대화하기" data-i18n-aria-label="index.내_캐릭터와_대화하기" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="12" cy="8" r="5" />
+                <path d="M20 21a8 8 0 0 0-16 0" />
               </svg>
             </button>
-            <button type="button" class="panel-dock-item" data-dock-item="notify" title="알림" data-i18n-title="app.알림" aria-label="알림" data-i18n-aria-label="app.알림">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M6.6 15.4h10.8l-1.1-2.1V11a5.3 5.3 0 0 0-10.6 0v2.3z"/>
-                <path d="M10.2 17.4a1.8 1.8 0 0 0 3.6 0"/>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="readerChat" title="가상 독자와 대화하기" data-i18n-title="index.가상_독자와_대화하기" aria-label="가상 독자와 대화하기" data-i18n-aria-label="index.가상_독자와_대화하기" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M22 17a2 2 0 0 1-2 2H6.828a2 2 0 0 0-1.414.586l-2.202 2.202A.71.71 0 0 1 2 21.286V5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2z" />
+                <path d="M7.5 9.5c0 .687.265 1.383.697 1.844l3.009 3.264a1.14 1.14 0 0 0 .407.314 1 1 0 0 0 .783-.004 1.14 1.14 0 0 0 .398-.31l3.008-3.264A2.77 2.77 0 0 0 16.5 9.5 2.5 2.5 0 0 0 12 8a2.5 2.5 0 0 0-4.5 1.5" />
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="aiResult" title="결과보기" data-i18n-title="index.결과보기" aria-label="결과보기" data-i18n-aria-label="index.결과보기" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z" />
+                <path d="M14 2v5a1 1 0 0 0 1 1h5" />
+                <path d="m9 15 2 2 4-4" />
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="aiHistory" title="히스토리" data-i18n-title="index.히스토리" aria-label="히스토리" data-i18n-aria-label="index.히스토리" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                <path d="M3 3v5h5" />
+                <path d="M12 7v5l4 2" />
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="credits" title="크레딧 잔량" data-i18n-title="index.크레딧_잔량" aria-label="크레딧 잔량" data-i18n-aria-label="index.크레딧_잔량" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M13.744 17.736a6 6 0 1 1-7.48-7.48" />
+                <path d="M15 6h1v4" />
+                <path d="m6.134 14.768.866-.5 2 3.464" />
+                <circle cx="16" cy="8" r="6" />
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item" data-dock-item="toryTalk" title="토리톡" data-i18n-title="index.토리톡" aria-label="토리톡" data-i18n-aria-label="index.토리톡" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
+                <path d="m21.854 2.147-10.94 10.939" />
               </svg>
             </button>
           </div>
+
         </nav>
       </aside>
     </main>
@@ -7814,6 +8134,6 @@
     </div>
     <script src="/vendor/driver.js/driver.js.iife.js"></script>
     <script src="/typeset_metrics.js?v=1.4.45"></script>
-    <script src="/app.js?v=1.4.63"></script>
+    <script src="/app.js?v=1.4.107"></script>
   </body>
 </html>

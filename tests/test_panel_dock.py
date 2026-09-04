@@ -35,7 +35,16 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('class="panel-dock-expand"', self.html)
         self.assertIn('data-dock-item="ideas"', self.html)
         self.assertIn('data-dock-item="manuscript"', self.html)
-        self.assertIn('data-dock-item="tools"', self.html)
+        self.assertIn('data-dock-item="priority"', self.html)
+        self.assertIn('data-dock-item="toryChat"', self.html)
+        self.assertIn('data-dock-item="characterChat"', self.html)
+        self.assertIn('data-dock-item="readerChat"', self.html)
+        self.assertIn('data-dock-item="aiResult"', self.html)
+        self.assertIn('data-dock-item="aiHistory"', self.html)
+        self.assertIn('data-dock-item="credits"', self.html)
+        self.assertIn('data-dock-item="toryTalk"', self.html)
+        self.assertNotIn('data-dock-item="tools"', self.html)
+        self.assertNotIn('data-dock-item="notify"', self.html)
         self.assertNotIn('data-dock-item="intro"', self.html)
         self.assertNotIn('data-dock-item="logsyn"', self.html)
         self.assertNotIn('data-dock-item="keywords"', self.html)
@@ -45,11 +54,11 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_dock_rail_toggle_and_active_state(self) -> None:
         timeline = self.html.split('data-dock-item="timeline"', 1)[1].split("</button>", 1)[0]
-        self.assertIn("2.35-2.2h7.4", timeline)
-        self.assertIn("M10.6 12h5.2", timeline)
-        self.assertNotIn('<circle cx="12" cy="12" r="7.25"/>', timeline)
-        self.assertNotIn("M12 8.4v4.1l2.9 1.7", timeline)
-        self.assertNotIn("M7 4.8v14.4", timeline)
+        self.assertIn('viewBox="0 0 24 24"', timeline)
+        self.assertIn('stroke="currentColor"', timeline)
+        self.assertIn('<path d="M8 2v3" />', timeline)
+        self.assertIn('<rect x="3" y="3" width="18" height="18" rx="2" />', timeline)
+        self.assertNotIn("panel-dock-icon-mask", timeline)
         self.assertIn("function toggleDockFloat(", self.js)
         self.assertIn("function syncDockRailButtons(", self.js)
         self.assertIn("function isDockRailItemActive(", self.js)
@@ -58,16 +67,52 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("expandBinderPanelButton", self.js)
         self.assertIn("setBinderPanelOpen(true)", self.js)
         toggle_fn = self.js.split("function toggleDockFloat(", 1)[1].split("function dockTrackerFallbackPos(", 1)[0]
+        self.assertIn("isAiDockPanelItem(itemId)", toggle_fn)
+        self.assertIn("toggleAiDockPanelItem(itemId)", toggle_fn)
         self.assertIn("closeIdeaFloat(key)", toggle_fn)
         self.assertIn("return openDockFloat(itemId, sourceEl)", toggle_fn)
+        self.assertIn("function toggleAiDockPanelItem(", self.js)
+        self.assertIn("credits:", self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0])
+        self.assertIn("readerFavoritePanel", self.html)
+        self.assertIn("function rememberReaderFavorite(", self.js)
+        right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
+        right_items = [
+            item.split('"', 1)[0]
+            for item in right_rail.split('data-dock-item="')[1:]
+        ]
+        self.assertEqual(
+            right_items,
+            [
+                "priority",
+                "toryChat",
+                "characterChat",
+                "readerChat",
+                "aiResult",
+                "aiHistory",
+                "credits",
+                "toryTalk",
+            ],
+        )
+        dock_svg_css = self.css.split(".panel-dock-expand svg,\n.panel-dock-item svg {", 1)
+        if len(dock_svg_css) < 2:
+            dock_svg_css = self.css.split(".panel-dock-item svg {", 1)
+        self.assertGreaterEqual(len(dock_svg_css), 2)
+        dock_svg_block = dock_svg_css[1].split("}", 1)[0]
+        self.assertIn("width: 18px", dock_svg_block)
+        self.assertIn("height: 18px", dock_svg_block)
+        self.assertIn("stroke-width: 1.7", dock_svg_block)
+        self.assertIn("overflow: visible", dock_svg_block)
+        priority_icon = right_rail.split('data-dock-item="priority"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('stroke="currentColor"', priority_icon)
+        self.assertIn('viewBox="0 0 24 24"', priority_icon)
         active_fn = self.js.split("function isDockRailItemActive(", 1)[1].split("function syncDockRailButtons(", 1)[0]
         self.assertIn("itemId === \"characters\"", active_fn)
         self.assertIn("DOCK_CHAR_KEY_PREFIX", active_fn)
         self.assertIn("btn.classList.toggle(\"is-open\", on)", self.js.split("function syncDockRailButtons(", 1)[1].split("function syncDockStatsTrackerButton(", 1)[0])
         self.assertIn("if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false)", self.js)
         self.assertIn(".panel-dock-item.is-open", self.css)
+        self.assertIn(".panel-dock-expand svg", self.css)
         self.assertIn(".panel-dock-item svg", self.css)
-        self.assertIn("overflow: visible", self.css.split(".panel-dock-item svg {", 1)[1].split("}", 1)[0])
 
     def test_stats_tracker_is_pinned_dock_widget(self) -> None:
         self.assertIn('data-dock-item="statsTracker"', self.html)
@@ -112,8 +157,9 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('data-dock-item="writingTimer"', self.html)
         self.assertIn('data-i18n-title="app.기록"', self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0])
         writing_timer = self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('<circle cx="12" cy="12" r="8.25"/>', writing_timer)
-        self.assertIn("M12 7.5V12l3 2", writing_timer)
+        self.assertIn('<circle cx="12" cy="12" r="10" />', writing_timer)
+        self.assertIn('<path d="M12 6v6l4 2" />', writing_timer)
+        self.assertIn('stroke="currentColor"', writing_timer)
         tool_timer = self.html.split('id="writingLogButton"', 1)[1].split("</button>", 1)[0]
         self.assertIn('<circle cx="12" cy="12" r="8.25"/>', tool_timer)
         self.assertIn("M12 7.5V12l3 2", tool_timer)
@@ -228,7 +274,7 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_dock_rail_order_is_persisted_per_side(self) -> None:
         self.assertIn('left: "supertory.dockRailOrder.left.v1"', self.js)
-        self.assertIn('right: "supertory.dockRailOrder.right.v1"', self.js)
+        self.assertIn('right: "supertory.dockRailOrder.right.v2"', self.js)
         self.assertIn("const DOCK_RAIL_DRAG_THRESHOLD = 6", self.js)
         self.assertIn("function restoreDockRailOrder(", self.js)
         self.assertIn("function persistDockRailOrder(", self.js)
@@ -628,6 +674,10 @@ class PanelDockContractTests(unittest.TestCase):
             "index.바인더_도크",
             "index.SuperTORY_펼치기",
             "index.SuperTORY_도크",
+            "index.토리_1_1_대화창",
+            "index.크레딧_잔량",
+            "index.토리톡",
+            "index.자주쓰는_가상독자_모음",
             "app.글자수_트래커",
             "index.남은_분량",
             "app.인물_카드",

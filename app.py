@@ -231,6 +231,7 @@ MIGRATION_081_PATH = ROOT / "db" / "081_update_reader_personas_v2.py"
 MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
 MIGRATION_083_PATH = ROOT / "db" / "083_linked_success_profile_fk.sql"
 MIGRATION_084_PATH = ROOT / "db" / "084_success_pattern_chapter_notes.sql"
+MIGRATION_085_PATH = ROOT / "db" / "085_character_custom_roles.py"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1659,6 +1660,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_083_PATH.read_text(encoding="utf-8"))
         if 84 not in applied:
             connection.executescript(MIGRATION_084_PATH.read_text(encoding="utf-8"))
+        if 85 not in applied:
+            apply_migration_085(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1670,6 +1673,7 @@ def initialise_database() -> None:
         ensure_trait_history_applied_column(connection)
         ensure_trait_history_scene_nullable(connection)
         ensure_character_role_nullable(connection)
+        ensure_character_custom_roles(connection)
         ensure_world_tori_analysis_table(connection)
         ensure_reader_debate_tables(connection)
         ensure_scene_reader_comments_table(connection)
@@ -1755,6 +1759,10 @@ def apply_migration_053(connection: sqlite3.Connection) -> None:
 
 def apply_migration_081(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_081_PATH).apply(connection)
+
+
+def apply_migration_085(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_085_PATH).apply(connection)
 
 
 def apply_migration_082(connection: sqlite3.Connection) -> None:
@@ -1879,6 +1887,14 @@ def ensure_character_role_nullable(connection: sqlite3.Connection) -> None:
     """Idempotent: character.role may be NULL (migration 071)."""
     try:
         _load_py_migration(MIGRATION_071_PATH).apply(connection)
+    except sqlite3.Error:
+        pass
+
+
+def ensure_character_custom_roles(connection: sqlite3.Connection) -> None:
+    """Idempotent: character.role may be a custom label (migration 085)."""
+    try:
+        _load_py_migration(MIGRATION_085_PATH).apply(connection)
     except sqlite3.Error:
         pass
 
@@ -2348,8 +2364,18 @@ def save_character_canvas_positions(project_id: int, body: dict) -> dict:
                 continue
             if cid not in live_ids:
                 continue
-            x = _clamp_canvas_coord(item.get("x"))
-            y = _clamp_canvas_coord(item.get("y"))
+            x_raw = item.get("x")
+            y_raw = item.get("y")
+            if x_raw is None and y_raw is None:
+                connection.execute(
+                    "DELETE FROM character_canvas_position "
+                    "WHERE project_id = ? AND character_id = ?",
+                    (project_id, cid),
+                )
+                saved += 1
+                continue
+            x = _clamp_canvas_coord(x_raw)
+            y = _clamp_canvas_coord(y_raw)
             connection.execute(
                 "INSERT INTO character_canvas_position(project_id, character_id, x, y, updated_at) "
                 "VALUES (?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
@@ -2512,6 +2538,48 @@ def delete_character_relation(relation_id: int) -> dict:
         _require_live_project(connection, int(row["project_id"]))
         connection.execute("DELETE FROM character_relations WHERE id = ?", (relation_id,))
     return {"ok": True, "id": relation_id}
+
+
+def update_character_relation(relation_id: int, body: dict) -> dict:
+    relation_id = int(relation_id)
+    label = character_relations.clean_label((body or {}).get("label"))
+    if not label:
+        raise ValueError("관계 이름을 입력해 주세요.")
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("관계선을 찾을 수 없습니다.")
+        project_id = int(row["project_id"])
+        _require_live_project(connection, project_id)
+        clash = connection.execute(
+            "SELECT id FROM character_relations "
+            "WHERE project_id = ? AND character_a_id = ? AND character_b_id = ? "
+            "AND label = ? AND id != ?",
+            (
+                project_id,
+                int(row["character_a_id"]),
+                int(row["character_b_id"]),
+                label,
+                relation_id,
+            ),
+        ).fetchone()
+        if clash is not None:
+            raise ValueError("같은 관계 이름이 이미 있어요.")
+        connection.execute(
+            "UPDATE character_relations SET label = ?, status = 'confirmed', source = 'manual' "
+            "WHERE id = ?",
+            (label, relation_id),
+        )
+        row = connection.execute(
+            "SELECT id, project_id, character_a_id, character_b_id, label, status, source, created_at "
+            "FROM character_relations WHERE id = ?",
+            (relation_id,),
+        ).fetchone()
+    return {"ok": True, "relation": _character_relation_row(row)}
 
 
 def ensure_item_tables(connection: sqlite3.Connection) -> None:
@@ -5310,6 +5378,7 @@ _CHARACTER_ROLE_KO = {
     "minor": "단역",
 }
 CHARACTER_STORY_ROLES = frozenset({"protagonist", "antagonist", "supporting", "minor"})
+CHARACTER_CUSTOM_ROLE_MAX_LEN = 40
 CHARACTER_STORY_ROLE_ALIASES = {
     "protagonist": "protagonist",
     "주인공": "protagonist",
@@ -5328,14 +5397,22 @@ CHARACTER_STORY_ROLE_ALIASES = {
 
 
 def normalize_character_story_role(value: object) -> str | None:
-    """Map UI/API role to stored key, or None for 미지정."""
+    """Map UI/API role to stored key/label, or None for 미지정.
+
+    Built-in aliases become protagonist/antagonist/supporting/minor.
+    Any other short label is kept as a custom role string.
+    """
     raw = str(value or "").strip()
     if not raw or raw.lower() in {"unspecified", "none", "null", "미지정"}:
         return None
     mapped = CHARACTER_STORY_ROLE_ALIASES.get(raw) or CHARACTER_STORY_ROLE_ALIASES.get(raw.lower())
     if mapped in CHARACTER_STORY_ROLES:
         return mapped
-    raise ValueError("올바르지 않은 캐릭터 역할입니다.")
+    if len(raw) > CHARACTER_CUSTOM_ROLE_MAX_LEN:
+        raise ValueError("올바르지 않은 캐릭터 역할입니다.")
+    if "\n" in raw or "\r" in raw:
+        raise ValueError("올바르지 않은 캐릭터 역할입니다.")
+    return raw
 
 
 def _clip_recent_episode(episode_content: object, limit: int = WILDCARD_SPARK_MAX_CHARS) -> str:
@@ -11635,6 +11712,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/character-canvas/positions", path)
             if match:
                 self.send_json(save_character_canvas_positions(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/character-relations/(\d+)", path)
+            if match:
+                self.send_json(update_character_relation(int(match.group(1)), body or {}))
                 return
 
             match = re.fullmatch(r"/api/items/(\d+)", path)

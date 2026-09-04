@@ -6803,6 +6803,7 @@ function setupRichEditor() {
 
 const statusLabel = { idea: i18n.t('app.구상'), outline: i18n.t('app.개요'), draft: i18n.t('app.초고'), revision: i18n.t('app.수정'), complete: i18n.t('app.완성') };
 const CHARACTER_STORY_ROLES = ["protagonist", "antagonist", "supporting", "minor"];
+const CHARACTER_CUSTOM_ROLE_MAX_LEN = 40;
 const roleLabel = {
   protagonist: i18n.t('app.주연'),
   antagonist: i18n.t('app.적대자'),
@@ -6812,9 +6813,12 @@ const roleLabel = {
 const CHARACTER_ROLE_FILTER_KEY = "supertory.characterRoleFilter";
 const CHARACTER_BOARD_GROUP_KEY = "supertory.characterBoardGroupView";
 const CHARACTER_ROLE_COLLAPSE_KEY = "supertory.characterRoleGroupsCollapsed";
+const CHARACTER_CUSTOM_ROLES_KEY_PREFIX = "supertory.customCharacterRoles.";
 let characterRoleFilter = "all";
 let characterBoardGroupView = false;
 let characterRoleGroupsCollapsed = {};
+/** @type {string[]} */
+let characterCustomRolesCache = [];
 const purposeLabel = {
   general_novel: i18n.t('app.일반소설'),
   web_novel: i18n.t('app.웹소설'),
@@ -10266,16 +10270,17 @@ async function openSettingsSearchHit(button) {
   const type = button.getAttribute("data-search-type") || "";
   const id = button.getAttribute("data-search-id") || "";
   if (type === "character") {
-    await openCharacter(id);
+    await openCharacter(id, { returnTo: "settingsSearch" });
     return;
   }
   if (type === "item") {
-    await openItem(id);
+    await openItem(id, { returnTo: "settingsSearch" });
     return;
   }
   if (type === "world") {
     await openSettingsDocMain("world", {
       worldField: button.getAttribute("data-search-field") || id,
+      returnTo: "settingsSearch",
     });
     return;
   }
@@ -10283,6 +10288,7 @@ async function openSettingsSearchHit(button) {
     await openRelationCanvas({
       characterAId: Number(button.getAttribute("data-search-a")),
       characterBId: Number(button.getAttribute("data-search-b")),
+      returnTo: "settingsSearch",
     });
   }
 }
@@ -10443,7 +10449,13 @@ async function closeSynopsisMain() {
       /* ignore */
     }
   }
+  const returnTo = settingsDocReturnTo;
+  settingsDocReturnTo = null;
   hideSynopsisMain();
+  if (returnTo === "settingsSearch") {
+    await openSettingsSearchBoard();
+    return;
+  }
   await returnToManuscriptFromSettingsMain();
 }
 
@@ -10486,6 +10498,17 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
+  }
+  const explicitReturn = options?.returnTo;
+  if (explicitReturn === "settingsSearch") {
+    settingsDocReturnTo = explicitReturn;
+  } else if (
+    state.settingsSearchOpen
+    || !$("settingsSearchBoard")?.classList.contains("hidden")
+  ) {
+    settingsDocReturnTo = "settingsSearch";
+  } else {
+    settingsDocReturnTo = null;
   }
   try {
     await flushCharacterAutoSave();
@@ -10644,18 +10667,19 @@ function renderCharacterBoard() {
   }
   if (characterBoardGroupView) {
     grid.classList.add("is-grouped");
-    grid.innerHTML = CHARACTER_STORY_ROLES.concat(["unspecified"]).map((key) => {
+    const groupKeys = CHARACTER_STORY_ROLES.concat(listCustomCharacterRoles(list), ["unspecified"]);
+    grid.innerHTML = groupKeys.map((key) => {
       const members = key === "unspecified"
         ? list.filter((ch) => !characterStoryRole(ch.role))
         : list.filter((ch) => characterStoryRole(ch.role) === key);
       const collapsed = Boolean(characterRoleGroupsCollapsed[key]);
-      const label = key === "unspecified" ? i18n.t("app.미지정") : (roleLabel[key] || key);
+      const label = key === "unspecified" ? i18n.t("app.미지정") : characterStoryRoleLabel(key);
       const cards = members.length
         ? `<div class="character-board-group-cards">${members.map(characterBoardCardHtml).join("")}</div>`
         : `<p class="character-board-group-empty">${escapeHtml(i18n.t("app.이_역할의_인물이_아직_없어요"))}</p>`;
       return `
-        <section class="character-board-group ${collapsed ? "is-collapsed" : ""}" data-character-role-group="${key}">
-          <button type="button" class="character-board-group-head" data-character-role-group-toggle="${key}" aria-expanded="${collapsed ? "false" : "true"}">
+        <section class="character-board-group ${collapsed ? "is-collapsed" : ""}" data-character-role-group="${escapeHtml(key)}">
+          <button type="button" class="character-board-group-head" data-character-role-group-toggle="${escapeHtml(key)}" aria-expanded="${collapsed ? "false" : "true"}">
             <span class="character-board-group-caret" aria-hidden="true">${collapsed ? "▸" : "▼"}</span>
             <span class="character-board-group-title">${escapeHtml(label)} (${members.length})</span>
           </button>
@@ -10671,7 +10695,7 @@ function renderCharacterBoard() {
   }
   grid.querySelectorAll("[data-character-board]").forEach((button) => {
     button.addEventListener("click", () => {
-      openCharacter(button.dataset.characterBoard).catch(handleError);
+      openCharacter(button.dataset.characterBoard, { returnTo: "characterBoard" }).catch(handleError);
     });
   });
   grid.querySelectorAll("[data-character-role-group-toggle]").forEach((button) => {
@@ -10686,14 +10710,70 @@ function renderCharacterBoard() {
   });
 }
 
+function isBuiltInCharacterStoryRole(role) {
+  return CHARACTER_STORY_ROLES.includes(String(role || "").trim());
+}
+
 function characterStoryRole(role) {
-  const key = String(role || "").trim();
-  return CHARACTER_STORY_ROLES.includes(key) ? key : "";
+  return String(role || "").trim();
 }
 
 function characterStoryRoleLabel(role) {
   const key = characterStoryRole(role);
-  return key ? (roleLabel[key] || key) : i18n.t("app.미지정");
+  if (!key) return i18n.t("app.미지정");
+  return roleLabel[key] || key;
+}
+
+function customCharacterRolesStorageKey() {
+  const pid = Number(state.projectId) || 0;
+  return pid > 0 ? `${CHARACTER_CUSTOM_ROLES_KEY_PREFIX}${pid}` : "";
+}
+
+function loadStoredCustomCharacterRoles() {
+  const key = customCharacterRolesStorageKey();
+  if (!key) return [];
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((item) => String(item || "").trim())
+      .filter((item) => item && !isBuiltInCharacterStoryRole(item) && item.length <= CHARACTER_CUSTOM_ROLE_MAX_LEN);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveStoredCustomCharacterRoles(roles) {
+  const key = customCharacterRolesStorageKey();
+  if (!key) return;
+  const clean = [...new Set(
+    (Array.isArray(roles) ? roles : [])
+      .map((item) => String(item || "").trim())
+      .filter((item) => item && !isBuiltInCharacterStoryRole(item) && item.length <= CHARACTER_CUSTOM_ROLE_MAX_LEN)
+  )];
+  characterCustomRolesCache = clean;
+  try {
+    localStorage.setItem(key, JSON.stringify(clean));
+  } catch (_) { /* ignore */ }
+}
+
+function rememberCustomCharacterRole(role) {
+  const key = characterStoryRole(role);
+  if (!key || isBuiltInCharacterStoryRole(key)) return;
+  const next = loadStoredCustomCharacterRoles();
+  if (!next.includes(key)) next.push(key);
+  saveStoredCustomCharacterRoles(next);
+}
+
+function listCustomCharacterRoles(list = state.characters) {
+  const found = new Set(loadStoredCustomCharacterRoles());
+  (Array.isArray(list) ? list : []).forEach((ch) => {
+    const key = characterStoryRole(ch.role);
+    if (key && !isBuiltInCharacterStoryRole(key)) found.add(key);
+  });
+  const current = characterStoryRole($("characterRole")?.value);
+  if (current && !isBuiltInCharacterStoryRole(current)) found.add(current);
+  return [...found].sort((a, b) => a.localeCompare(b, "ko"));
 }
 
 function characterRoleCounts(list) {
@@ -10707,8 +10787,12 @@ function characterRoleCounts(list) {
   };
   list.forEach((ch) => {
     const key = characterStoryRole(ch.role);
-    if (key) counts[key] += 1;
-    else counts.unspecified += 1;
+    if (!key) {
+      counts.unspecified += 1;
+      return;
+    }
+    if (isBuiltInCharacterStoryRole(key)) counts[key] += 1;
+    else counts[key] = (counts[key] || 0) + 1;
   });
   return counts;
 }
@@ -10753,12 +10837,11 @@ function persistCharacterBoardViewPrefs() {
 function loadCharacterBoardViewPrefs() {
   try {
     const filter = String(localStorage.getItem(CHARACTER_ROLE_FILTER_KEY) || "all").trim();
-    characterRoleFilter = (filter === "all" || CHARACTER_STORY_ROLES.includes(filter) || filter === "unspecified")
-      ? filter
-      : "all";
+    characterRoleFilter = filter || "all";
     characterBoardGroupView = localStorage.getItem(CHARACTER_BOARD_GROUP_KEY) === "1";
     const raw = JSON.parse(localStorage.getItem(CHARACTER_ROLE_COLLAPSE_KEY) || "{}");
     characterRoleGroupsCollapsed = raw && typeof raw === "object" ? raw : {};
+    characterCustomRolesCache = loadStoredCustomCharacterRoles();
   } catch (_) {
     characterRoleFilter = "all";
     characterBoardGroupView = false;
@@ -10776,12 +10859,15 @@ function renderCharacterRoleFilterRow(list) {
     ["antagonist", roleLabel.antagonist, counts.antagonist],
     ["supporting", roleLabel.supporting, counts.supporting],
     ["minor", roleLabel.minor, counts.minor],
-    ["unspecified", i18n.t("app.미지정"), counts.unspecified],
   ];
+  listCustomCharacterRoles(list).forEach((role) => {
+    chips.push([role, role, counts[role] || 0]);
+  });
+  chips.push(["unspecified", i18n.t("app.미지정"), counts.unspecified]);
   row.classList.toggle("is-grouped", characterBoardGroupView);
   row.innerHTML = chips.map(([value, label, count]) => {
     const active = !characterBoardGroupView && characterRoleFilter === value ? "is-active" : "";
-    return `<button type="button" class="character-role-filter-chip ${active}" data-character-role-filter="${value}" role="tab" aria-selected="${active ? "true" : "false"}">${escapeHtml(label)} (${count})</button>`;
+    return `<button type="button" class="character-role-filter-chip ${active}" data-character-role-filter="${escapeHtml(value)}" role="tab" aria-selected="${active ? "true" : "false"}">${escapeHtml(label)} (${count})</button>`;
   }).join("");
   row.querySelectorAll("[data-character-role-filter]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -10811,10 +10897,21 @@ function setupCharacterBoardViewControls() {
   }
 }
 
+function renderCharacterRoleCustomChips() {
+  const host = $("characterRoleCustomChips");
+  if (!host) return;
+  const roles = listCustomCharacterRoles();
+  host.innerHTML = roles.map((role) => (
+    `<button type="button" class="character-role-chip is-custom" data-character-role="${escapeHtml(role)}">${escapeHtml(role)}</button>`
+  )).join("");
+}
+
 function syncCharacterRoleChips(role) {
   const key = characterStoryRole(role);
   const hidden = $("characterRole");
   if (hidden) hidden.value = key;
+  if (key && !isBuiltInCharacterStoryRole(key)) rememberCustomCharacterRole(key);
+  renderCharacterRoleCustomChips();
   document.querySelectorAll("#characterRoleChips [data-character-role]").forEach((btn) => {
     const on = btn.getAttribute("data-character-role") === key && Boolean(key);
     btn.classList.toggle("is-active", on);
@@ -10827,6 +10924,12 @@ function setupCharacterRoleChips() {
   if (!host || host.dataset.bound === "1") return;
   host.dataset.bound = "1";
   host.addEventListener("click", (event) => {
+    const addBtn = event.target.closest("#characterRoleAddButton");
+    if (addBtn && host.contains(addBtn)) {
+      event.preventDefault();
+      promptAddCharacterRole().catch(handleError);
+      return;
+    }
     const chip = event.target.closest("[data-character-role]");
     if (!chip || !host.contains(chip)) return;
     event.preventDefault();
@@ -10835,6 +10938,47 @@ function setupCharacterRoleChips() {
     syncCharacterRoleChips(current === next ? "" : next);
     markCharacterDirty();
   });
+  renderCharacterRoleCustomChips();
+}
+
+async function promptAddCharacterRole() {
+  const entered = await promptText({
+    title: i18n.t("app.역할_추가"),
+    message: i18n.t("app.새_역할_이름을_입력해_주세요"),
+    label: i18n.t("index.역할"),
+    placeholder: i18n.t("app.예_멘토_히로인"),
+    maxlength: CHARACTER_CUSTOM_ROLE_MAX_LEN,
+    confirmLabel: i18n.t("app.추가"),
+  });
+  if (entered == null) return;
+  const name = String(entered).trim();
+  if (!name) {
+    toast(i18n.t("app.역할_이름을_입력해_주세요"));
+    return;
+  }
+  if (name.length > CHARACTER_CUSTOM_ROLE_MAX_LEN) {
+    toast(i18n.t("app.역할_이름이_너무_길어요"));
+    return;
+  }
+  const builtInMatch = {
+    주인공: "protagonist",
+    주연: "protagonist",
+    적대자: "antagonist",
+    대립: "antagonist",
+    악역: "antagonist",
+    조력자: "supporting",
+    조연: "supporting",
+    단역: "minor",
+    protagonist: "protagonist",
+    antagonist: "antagonist",
+    supporting: "supporting",
+    minor: "minor",
+  };
+  const mapped = builtInMatch[name] || builtInMatch[name.toLowerCase()] || name;
+  if (!isBuiltInCharacterStoryRole(mapped)) rememberCustomCharacterRole(mapped);
+  syncCharacterRoleChips(mapped);
+  markCharacterDirty();
+  if (state.characterBoardOpen) renderCharacterBoard();
 }
 
 async function openCharacterBoard() {
@@ -10900,22 +11044,183 @@ const REL_CARD_W = 188;
 const REL_CARD_H = 124;
 const REL_CARD_GAP = 36;
 const REL_CARD_COLS = 4;
+const REL_BORDER_PRESETS = ["", "#c45c26", "#3b82f6", "#16a34a", "#a855f7", "#e11d48", "#0f766e", "#334155"];
+const REL_DECK_PEEK = 4;
 let relationCanvasData = { characters: [], relations: [] };
 let relationCanvasPan = { x: 48, y: 36 };
 let relationCanvasZoom = 1;
 let relationSelectedIds = [];
 let relationDrag = null;
+let relationDeckDrag = null;
 let relationPanDrag = null;
 let relationPopupId = null;
 let relationLabelPair = null;
+let relationEditId = null;
 let relationCanvasBound = false;
+let relationDeckExpanded = { waiting: false, minor: false };
+/** @type {"characterBoard"|"settingsSearch"|null} */
+let relationCanvasReturnTo = null;
+/** @type {"itemBoard"|"settingsSearch"|null} */
+let itemEditorReturnTo = null;
+/** @type {"settingsSearch"|null} */
+let settingsDocReturnTo = null;
+const REL_DECK_LAYOUT_DEFAULT = {
+  minor: { widthRatio: 0.185, heightRatio: 0.2, leftRatio: null, topRatio: 0.02 },
+  waiting: { widthRatio: 0.185, heightRatio: 0.2, leftRatio: null, topRatio: 0.34 },
+};
+let relationDeckLayoutPrefs = {
+  minor: { ...REL_DECK_LAYOUT_DEFAULT.minor },
+  waiting: { ...REL_DECK_LAYOUT_DEFAULT.waiting },
+};
+let relationDeckResize = null;
+let relationDeckMove = null;
+let relationCardMenuId = null;
+let relationBorderColors = {};
+/** @type {{ pan: { x: number, y: number }, zoom: number, selectedIds: number[] }|null} */
+let relationCanvasViewSnapshot = null;
+
+function rememberRelationCanvasView() {
+  relationCanvasViewSnapshot = {
+    pan: { x: Number(relationCanvasPan.x) || 0, y: Number(relationCanvasPan.y) || 0 },
+    zoom: Number(relationCanvasZoom) || 1,
+    selectedIds: relationSelectedIds.slice(),
+  };
+}
+
+function restoreRelationCanvasView() {
+  const snap = relationCanvasViewSnapshot;
+  relationCanvasViewSnapshot = null;
+  if (!snap) return false;
+  relationCanvasPan = {
+    x: Number(snap.pan?.x) || 0,
+    y: Number(snap.pan?.y) || 0,
+  };
+  relationCanvasZoom = Math.max(0.25, Math.min(2.5, Number(snap.zoom) || 1));
+  relationSelectedIds = Array.isArray(snap.selectedIds)
+    ? snap.selectedIds.map(Number).filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+  applyRelationTransform();
+  paintRelationCanvas();
+  return true;
+}
 
 function hideRelationPopups() {
   relationPopupId = null;
   relationLabelPair = null;
+  relationEditId = null;
   $("relationSuggestPopup")?.classList.add("hidden");
   $("relationLabelModal")?.classList.add("hidden");
+  $("relationLabelDeleteButton")?.classList.add("hidden");
+  hideRelationCardMenu();
 }
+
+function relationBorderStorageKey(projectId = state.projectId) {
+  return projectId ? `supertory.relationCardBorder.${projectId}` : "";
+}
+
+function loadRelationBorderColors() {
+  relationBorderColors = {};
+  const key = relationBorderStorageKey();
+  if (!key) return;
+  try {
+    const raw = JSON.parse(localStorage.getItem(key) || "{}");
+    if (raw && typeof raw === "object") relationBorderColors = raw;
+  } catch (_) {
+    relationBorderColors = {};
+  }
+}
+
+function saveRelationBorderColors() {
+  const key = relationBorderStorageKey();
+  if (!key) return;
+  try {
+    localStorage.setItem(key, JSON.stringify(relationBorderColors || {}));
+  } catch (_) { /* ignore */ }
+}
+
+function relationCardBorderColor(characterId) {
+  const id = String(characterId || "");
+  const value = String(relationBorderColors?.[id] || "").trim();
+  return /^#[0-9a-fA-F]{6}$/.test(value) ? value : "";
+}
+
+function setRelationCardBorderColor(characterId, color) {
+  const id = String(characterId || "");
+  if (!id) return;
+  const next = String(color || "").trim();
+  if (!next) delete relationBorderColors[id];
+  else relationBorderColors[id] = next;
+  saveRelationBorderColors();
+  paintRelationCanvas();
+}
+
+function relationLinkedIds(relations = relationCanvasData.relations) {
+  const ids = new Set();
+  (relations || []).forEach((rel) => {
+    ids.add(Number(rel.character_a_id));
+    ids.add(Number(rel.character_b_id));
+  });
+  return ids;
+}
+
+function relationCharacterOnBoard(ch, linkedIds) {
+  if (!ch) return false;
+  if (linkedIds.has(Number(ch.id))) return true;
+  return ch.x != null && ch.y != null && Number.isFinite(Number(ch.x)) && Number.isFinite(Number(ch.y));
+}
+
+function partitionRelationCharacters() {
+  const linked = relationLinkedIds();
+  const board = [];
+  const waiting = [];
+  const minor = [];
+  (relationCanvasData.characters || []).forEach((ch) => {
+    if (relationCharacterOnBoard(ch, linked)) {
+      board.push(ch);
+      return;
+    }
+    if (characterStoryRole(ch.role) === "minor") minor.push(ch);
+    else waiting.push(ch);
+  });
+  return { board, waiting, minor, linked };
+}
+
+function hideRelationCardMenu() {
+  relationCardMenuId = null;
+  $("relationCardMenu")?.classList.add("hidden");
+}
+
+function showRelationCardMenu(characterId, clientX, clientY) {
+  const menu = $("relationCardMenu");
+  const stage = $("relationCanvasStage");
+  if (!menu || !stage) return;
+  hideRelationPopups();
+  relationCardMenuId = Number(characterId);
+  const linked = relationLinkedIds();
+  const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === relationCardMenuId);
+  const sendBtn = $("relationSendToDeckButton");
+  if (sendBtn) {
+    const canSend = ch && !linked.has(Number(ch.id)) && relationCharacterOnBoard(ch, linked);
+    sendBtn.classList.toggle("hidden", !canSend);
+  }
+  const swatches = $("relationBorderSwatches");
+  if (swatches) {
+    const current = relationCardBorderColor(relationCardMenuId);
+    swatches.innerHTML = REL_BORDER_PRESETS.map((color) => {
+      const active = (color || "") === (current || "") ? "is-active" : "";
+      const style = color
+        ? `background:${color}`
+        : "background:conic-gradient(from 90deg,#ccc,#fff,#ccc)";
+      const title = color || i18n.t("app.기본");
+      return `<button type="button" class="relation-border-swatch ${active}" data-border-color="${escapeHtml(color)}" title="${escapeHtml(title)}" style="${style}"></button>`;
+    }).join("");
+  }
+  const rect = stage.getBoundingClientRect();
+  menu.style.left = `${Math.min(rect.width - 190, Math.max(8, clientX - rect.left))}px`;
+  menu.style.top = `${Math.min(rect.height - 160, Math.max(8, clientY - rect.top))}px`;
+  menu.classList.remove("hidden");
+}
+
 
 function relationCardSummary(character) {
   const fromProfile = String(character.profile_md || "")
@@ -10983,7 +11288,7 @@ function setRelationLabelAtLineMid(text, midX, midY) {
 function paintRelationLines(options = {}) {
   const svg = options.svg || $("relationCanvasSvg");
   if (!svg) return;
-  const characters = options.characters || relationCanvasData.characters || [];
+  const characters = options.characters || partitionRelationCharacters().board;
   const relations = options.relations || relationCanvasData.relations || [];
   const interactive = options.interactive !== false;
   const NS = "http://www.w3.org/2000/svg";
@@ -11029,6 +11334,11 @@ function paintRelationLines(options = {}) {
           event.preventDefault();
           if (suggested) showRelationSuggestPopup(rel, event);
         });
+        hit.addEventListener("dblclick", (event) => {
+          event.stopPropagation();
+          event.preventDefault();
+          showRelationEditModal(rel, event);
+        });
         svg.appendChild(hit);
       }
       svg.appendChild(line);
@@ -11041,22 +11351,26 @@ function paintRelationLines(options = {}) {
 function paintRelationCards(options = {}) {
   const host = options.host || $("relationCanvasCards");
   if (!host) return;
-  const rows = options.characters || relationCanvasData.characters || [];
+  const parts = options.parts || partitionRelationCharacters();
+  const rows = options.characters || parts.board;
   const selectedIds = options.selectedIds || relationSelectedIds;
   const showProfile = options.showProfile !== false;
   const egoId = Number(options.egoId) || 0;
   if (!rows.length) {
-    host.innerHTML = `<p class="character-board-empty">${escapeHtml(i18n.t("app.등록된_인물이_아직_없어요"))}</p>`;
+    host.innerHTML = "";
     return;
   }
   host.innerHTML = rows.map((ch) => {
     const selected = selectedIds.includes(Number(ch.id)) ? "is-selected" : "";
     const ego = egoId && Number(ch.id) === egoId ? "is-ego" : "";
+    const protagonist = characterStoryRole(ch.role) === "protagonist" ? "is-protagonist" : "";
+    const border = relationCardBorderColor(ch.id);
+    const borderStyle = border ? `border-color:${border};` : "";
     const profile = showProfile
       ? `<button type="button" class="relation-canvas-card-profile" data-rel-profile="${ch.id}">${escapeHtml(i18n.t("app.프로필_보기"))} →</button>`
       : "";
     return `
-      <article class="relation-canvas-card ${selected} ${ego}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px">
+      <article class="relation-canvas-card ${selected} ${ego} ${protagonist}" data-rel-card="${ch.id}" style="left:${Number(ch.x)}px;top:${Number(ch.y)}px;${borderStyle}">
         <span class="relation-canvas-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
         <span class="relation-canvas-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
         <span class="relation-canvas-card-summary">${escapeHtml(relationCardSummary(ch))}</span>
@@ -11069,15 +11383,54 @@ function paintRelationCards(options = {}) {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      openCharacter(button.getAttribute("data-rel-profile")).catch(handleError);
+      rememberRelationCanvasView();
+      openCharacter(button.getAttribute("data-rel-profile"), { returnTo: "relationCanvas" }).catch(handleError);
     });
   });
 }
 
+function paintRelationDeckStack(kind, rows) {
+  const host = document.querySelector(`[data-deck-stack="${kind}"]`);
+  const section = document.querySelector(`.relation-deck[data-deck="${kind}"]`);
+  const toggle = document.querySelector(`[data-deck-toggle="${kind}"]`);
+  if (!host || !section) return;
+  const expanded = Boolean(relationDeckExpanded[kind]);
+  section.classList.toggle("is-expanded", expanded);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+    toggle.textContent = expanded ? i18n.t("app.접기") : i18n.t("app.펼치기");
+  }
+  if (!rows.length) {
+    host.innerHTML = `<p class="relation-deck-empty">${escapeHtml(i18n.t("app.비어_있어요"))}</p>`;
+    return;
+  }
+  const visible = expanded ? rows : rows.slice(0, REL_DECK_PEEK);
+  host.innerHTML = visible.map((ch, index) => {
+    const selected = relationSelectedIds.includes(Number(ch.id)) ? "is-selected" : "";
+    const border = relationCardBorderColor(ch.id);
+    const borderStyle = border ? `border-color:${border};` : "";
+    const top = expanded ? "" : `top:${6 + index * 12}px;z-index:${index + 1};`;
+    return `<button type="button" class="relation-deck-card ${selected}" data-deck-card="${ch.id}" style="${top}${borderStyle}">
+      <span class="relation-deck-card-name">${escapeHtml(ch.name || i18n.t("app.이름_없음"))}</span>
+      <span class="relation-deck-card-role">${escapeHtml(characterStoryRoleLabel(ch.role))}</span>
+    </button>`;
+  }).join("") + ((!expanded && rows.length > REL_DECK_PEEK)
+    ? `<p class="relation-deck-empty">+${rows.length - REL_DECK_PEEK}</p>`
+    : "");
+}
+
+function paintRelationDecks(parts = partitionRelationCharacters()) {
+  paintRelationDeckStack("waiting", parts.waiting);
+  paintRelationDeckStack("minor", parts.minor);
+}
+
 function paintRelationCanvas() {
-  paintRelationCards();
-  paintRelationLines();
+  const parts = partitionRelationCharacters();
+  paintRelationCards({ parts, characters: parts.board });
+  paintRelationLines({ characters: parts.board });
+  paintRelationDecks(parts);
   applyRelationTransform();
+  requestAnimationFrame(() => syncRelationDeckRailToStage());
 }
 
 async function persistRelationPositions(positions) {
@@ -11088,34 +11441,111 @@ async function persistRelationPositions(positions) {
   });
 }
 
-function ensureRelationLayout(characters) {
+function relationDeckMigratedKey(projectId = state.projectId) {
+  return projectId ? `supertory.relationDeckV2.${projectId}` : "";
+}
+
+function relationPointOverDeckRail(clientX, clientY) {
+  const decks = document.querySelectorAll("#relationDeckRail .relation-deck");
+  for (const deck of decks) {
+    const rect = deck.getBoundingClientRect();
+    if (
+      clientX >= rect.left
+      && clientX <= rect.right
+      && clientY >= rect.top
+      && clientY <= rect.bottom
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function setRelationDeckDropTarget(active, clientX = null, clientY = null) {
+  const rail = $("relationDeckRail");
+  if (!rail) return;
+  rail.classList.toggle("is-drop-target", Boolean(active));
+  rail.querySelectorAll(".relation-deck").forEach((deck) => {
+    if (!active || clientX == null || clientY == null) {
+      deck.classList.remove("is-drop-hover");
+      return;
+    }
+    const rect = deck.getBoundingClientRect();
+    const over = clientX >= rect.left && clientX <= rect.right && clientY >= rect.top && clientY <= rect.bottom;
+    deck.classList.toggle("is-drop-hover", over);
+  });
+}
+
+function shouldMigrateUnlinkedToDeck() {
+  const key = relationDeckMigratedKey();
+  if (!key) return false;
+  try {
+    if (localStorage.getItem(key)) return false;
+    localStorage.setItem(key, "1");
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function ensureRelationLayout(characters, relations = relationCanvasData.relations, options = {}) {
   let dirty = false;
-  const laid = characters.map((ch, index) => {
+  const clearIds = [];
+  const linked = relationLinkedIds(relations);
+  const clearUnlinked = Boolean(options.clearUnlinked);
+  let boardIndex = 0;
+  const laid = characters.map((ch) => {
     const next = { ...ch };
-    if (next.x == null || next.y == null || Number.isNaN(Number(next.x)) || Number.isNaN(Number(next.y))) {
-      const pos = defaultRelationPosition(index);
-      next.x = pos.x;
-      next.y = pos.y;
+    const id = Number(next.id);
+    if (linked.has(id)) {
+      if (next.x == null || next.y == null || Number.isNaN(Number(next.x)) || Number.isNaN(Number(next.y))) {
+        const pos = defaultRelationPosition(boardIndex);
+        next.x = pos.x;
+        next.y = pos.y;
+        dirty = true;
+      }
+      boardIndex += 1;
+      return next;
+    }
+    if (clearUnlinked && (next.x != null || next.y != null)) {
+      next.x = null;
+      next.y = null;
+      clearIds.push(id);
       dirty = true;
+      return next;
+    }
+    if (next.x != null && next.y != null && !Number.isNaN(Number(next.x)) && !Number.isNaN(Number(next.y))) {
+      boardIndex += 1;
     }
     return next;
   });
-  return { characters: laid, dirty };
+  return { characters: laid, dirty, clearIds };
 }
 
 async function loadRelationCanvas() {
   if (!state.projectId) return;
   const data = await api(`/api/projects/${state.projectId}/character-canvas`);
-  const laid = ensureRelationLayout(Array.isArray(data.characters) ? data.characters : []);
+  const relations = Array.isArray(data.relations) ? data.relations : [];
+  const laid = ensureRelationLayout(
+    Array.isArray(data.characters) ? data.characters : [],
+    relations,
+    { clearUnlinked: shouldMigrateUnlinkedToDeck() }
+  );
   relationCanvasData = {
     characters: laid.characters,
-    relations: Array.isArray(data.relations) ? data.relations : [],
+    relations,
   };
+  loadRelationDeckLayoutPrefs();
+  loadRelationBorderColors();
   paintRelationCanvas();
   if (laid.dirty) {
-    persistRelationPositions(
-      laid.characters.map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y }))
-    ).catch(handleError);
+    const positions = [
+      ...laid.characters
+        .filter((ch) => ch.x != null && ch.y != null)
+        .map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y })),
+      ...(laid.clearIds || []).map((id) => ({ character_id: id, x: null, y: null })),
+    ];
+    persistRelationPositions(positions).catch(handleError);
   }
 }
 
@@ -11135,7 +11565,7 @@ function toggleRelationSelection(characterId) {
     if (relationSelectedIds.length >= 2) relationSelectedIds.shift();
     relationSelectedIds.push(id);
   }
-  paintRelationCards();
+  paintRelationCanvas();
 }
 
 function showRelationSuggestPopup(rel, event) {
@@ -11151,6 +11581,18 @@ function showRelationSuggestPopup(rel, event) {
   popup.classList.remove("hidden");
 }
 
+function syncRelationLabelModalMode() {
+  const del = $("relationLabelDeleteButton");
+  const save = $("relationLabelSaveButton");
+  if (relationEditId) {
+    del?.classList.remove("hidden");
+    if (save) save.textContent = i18n.t("app.저장");
+  } else {
+    del?.classList.add("hidden");
+    if (save) save.textContent = i18n.t("app.관계_잇기");
+  }
+}
+
 function showRelationLabelModal() {
   if (relationSelectedIds.length !== 2) {
     toast(i18n.t("app.인물을_두_명_고른_뒤_관계를_이으세요"));
@@ -11160,22 +11602,55 @@ function showRelationLabelModal() {
   const stage = $("relationCanvasStage");
   if (!modal || !stage) return;
   hideRelationPopups();
+  relationEditId = null;
   relationLabelPair = relationSelectedIds.slice();
   const input = $("relationLabelInput");
   if (input) input.value = "";
+  syncRelationLabelModalMode();
   modal.style.left = "24px";
   modal.style.top = "24px";
   modal.classList.remove("hidden");
   input?.focus();
 }
 
+function showRelationEditModal(rel, event) {
+  const modal = $("relationLabelModal");
+  const stage = $("relationCanvasStage");
+  if (!modal || !stage || !rel) return;
+  hideRelationPopups();
+  relationEditId = Number(rel.id);
+  relationLabelPair = null;
+  relationPopupId = null;
+  const input = $("relationLabelInput");
+  if (input) input.value = String(rel.label || "");
+  syncRelationLabelModalMode();
+  const rect = stage.getBoundingClientRect();
+  const left = event?.clientX != null ? event.clientX - rect.left - 40 : 24;
+  const top = event?.clientY != null ? event.clientY - rect.top - 20 : 24;
+  modal.style.left = `${Math.min(rect.width - 260, Math.max(8, left))}px`;
+  modal.style.top = `${Math.min(rect.height - 140, Math.max(8, top))}px`;
+  modal.classList.remove("hidden");
+  input?.focus();
+  input?.select?.();
+}
+
 async function saveManualRelation() {
-  if (!state.projectId || !relationLabelPair || relationLabelPair.length !== 2) return;
   const label = String($("relationLabelInput")?.value || "").trim();
   if (!label) {
     toast(i18n.t("app.관계_이름"));
     return;
   }
+  if (relationEditId) {
+    await api(`/api/character-relations/${relationEditId}`, {
+      method: "PUT",
+      body: JSON.stringify({ label }),
+    });
+    hideRelationPopups();
+    toast(i18n.t("app.관계를_수정했어요"));
+    await loadRelationCanvas();
+    return;
+  }
+  if (!state.projectId || !relationLabelPair || relationLabelPair.length !== 2) return;
   await api(`/api/projects/${state.projectId}/character-relations`, {
     method: "POST",
     body: JSON.stringify({
@@ -11199,11 +11674,13 @@ async function acceptSuggestedRelation() {
 }
 
 async function deleteRelationEdge(relationId) {
-  const id = Number(relationId || relationPopupId);
+  const id = Number(relationId || relationEditId || relationPopupId);
   if (!id) return;
+  const row = (relationCanvasData.relations || []).find((rel) => Number(rel.id) === id);
+  const wasSuggested = row?.status === "suggested" && !relationEditId;
   await api(`/api/character-relations/${id}`, { method: "DELETE" });
   hideRelationPopups();
-  toast(i18n.t("app.관계_제안을_거절했어요"));
+  toast(wasSuggested ? i18n.t("app.관계_제안을_거절했어요") : i18n.t("app.관계를_삭제했어요"));
   await loadRelationCanvas();
 }
 
@@ -11218,10 +11695,14 @@ async function requestRelationSuggestions() {
       body: "{}",
     });
     if (result.canvas) {
-      const laid = ensureRelationLayout(result.canvas.characters || relationCanvasData.characters);
+      const nextRelations = result.canvas.relations || [];
+      const laid = ensureRelationLayout(
+        result.canvas.characters || relationCanvasData.characters,
+        nextRelations
+      );
       relationCanvasData = {
         characters: laid.characters,
-        relations: result.canvas.relations || [],
+        relations: nextRelations,
       };
       paintRelationCanvas();
     } else {
@@ -11259,7 +11740,7 @@ function setRelationZoom(next, origin) {
 
 function fitRelationCanvas() {
   const stage = $("relationCanvasStage");
-  const rows = relationCanvasData.characters || [];
+  const rows = partitionRelationCharacters().board;
   if (!stage || !rows.length) return false;
   let minX = Infinity;
   let minY = Infinity;
@@ -11280,6 +11761,7 @@ function fitRelationCanvas() {
   relationCanvasPan.x = (rect.width - width * zoom) / 2 - minX * zoom;
   relationCanvasPan.y = (rect.height - height * zoom) / 2 - minY * zoom;
   applyRelationTransform();
+  syncRelationDeckRailToStage();
   return true;
 }
 
@@ -11293,6 +11775,9 @@ function scheduleFitRelationCanvas() {
 function isRelationCanvasFullscreen() {
   return Boolean($("relationCanvas")?.classList.contains("is-fullscreen"));
 }
+
+/** @type {{ parent: Element, next: ChildNode|null }|null} */
+let relationCanvasFullscreenHome = null;
 
 function syncRelationCanvasFullscreenUi() {
   const on = isRelationCanvasFullscreen();
@@ -11308,9 +11793,22 @@ function syncRelationCanvasFullscreenUi() {
 function enterRelationCanvasFullscreen(options = {}) {
   const canvas = $("relationCanvas");
   if (!canvas || canvas.classList.contains("hidden")) return;
+  // Escape work-area containing block so fixed fullscreen covers AI/binder panels.
+  if (canvas.parentElement !== document.body) {
+    relationCanvasFullscreenHome = {
+      parent: canvas.parentElement,
+      next: canvas.nextSibling,
+    };
+    document.body.appendChild(canvas);
+  }
   canvas.classList.add("is-fullscreen");
   syncRelationCanvasFullscreenUi();
+  syncRelationDeckRailToStage();
   if (!options.skipFit) scheduleFitRelationCanvas();
+  requestAnimationFrame(() => {
+    applyRelationDeckLayout();
+    syncRelationDeckRailToStage();
+  });
 }
 
 function exitRelationCanvasFullscreen() {
@@ -11318,8 +11816,15 @@ function exitRelationCanvasFullscreen() {
   if (!canvas) return;
   const wasOn = canvas.classList.contains("is-fullscreen");
   canvas.classList.remove("is-fullscreen");
+  if (relationCanvasFullscreenHome?.parent?.isConnected) {
+    const { parent, next } = relationCanvasFullscreenHome;
+    if (next && next.parentNode === parent) parent.insertBefore(canvas, next);
+    else parent.appendChild(canvas);
+  }
+  relationCanvasFullscreenHome = null;
   syncRelationCanvasFullscreenUi();
   if (wasOn && state.relationCanvasOpen && !canvas.classList.contains("hidden")) {
+    syncRelationDeckRailToStage();
     scheduleFitRelationCanvas();
   }
 }
@@ -11335,6 +11840,13 @@ function onRelationCanvasFitClick() {
 function onRelationCanvasKeydown(event) {
   if (event.key !== "Escape") return;
   if (!$("relationCanvas") || $("relationCanvas").classList.contains("hidden")) return;
+  const cardMenu = $("relationCardMenu");
+  if (cardMenu && !cardMenu.classList.contains("hidden")) {
+    hideRelationCardMenu();
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    return;
+  }
   const labelModal = $("relationLabelModal");
   if (labelModal && !labelModal.classList.contains("hidden")) {
     hideRelationPopups();
@@ -11349,14 +11861,374 @@ function onRelationCanvasKeydown(event) {
 }
 
 async function autoLayoutRelationCanvas() {
-  const laid = (relationCanvasData.characters || []).map((ch, index) => {
-    const pos = defaultRelationPosition(index);
+  const linked = relationLinkedIds();
+  let boardIndex = 0;
+  const laid = (relationCanvasData.characters || []).map((ch) => {
+    if (!linked.has(Number(ch.id)) && (ch.x == null || ch.y == null)) return { ...ch };
+    const pos = defaultRelationPosition(boardIndex++);
     return { ...ch, x: pos.x, y: pos.y };
   });
   relationCanvasData.characters = laid;
   paintRelationCanvas();
-  await persistRelationPositions(laid.map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y })));
+  await persistRelationPositions(
+    laid
+      .filter((ch) => ch.x != null && ch.y != null)
+      .map((ch) => ({ character_id: ch.id, x: ch.x, y: ch.y }))
+  );
   scheduleFitRelationCanvas();
+}
+
+async function placeRelationCharacterOnBoard(characterId, dropPoint = null) {
+  const id = Number(characterId);
+  const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === id);
+  if (!ch) return;
+  const alreadyOnBoard = ch.x != null && ch.y != null && Number.isFinite(Number(ch.x)) && Number.isFinite(Number(ch.y));
+  if (alreadyOnBoard && !dropPoint) {
+    toggleRelationSelection(id);
+    paintRelationCanvas();
+    return;
+  }
+  const boardCount = partitionRelationCharacters().board.length;
+  const pos = defaultRelationPosition(boardCount);
+  const stage = $("relationCanvasStage");
+  if (dropPoint && Number.isFinite(dropPoint.x) && Number.isFinite(dropPoint.y)) {
+    pos.x = dropPoint.x - REL_CARD_W / 2;
+    pos.y = dropPoint.y - REL_CARD_H / 2;
+  } else if (stage) {
+    const rect = stage.getBoundingClientRect();
+    pos.x = ((rect.width / 2) - relationCanvasPan.x) / relationCanvasZoom - REL_CARD_W / 2;
+    pos.y = ((rect.height / 2) - relationCanvasPan.y) / relationCanvasZoom - REL_CARD_H / 2;
+  }
+  ch.x = pos.x;
+  ch.y = pos.y;
+  paintRelationCanvas();
+  await persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]);
+}
+
+
+
+function relationDeckLayoutKey(projectId = state.projectId) {
+  return projectId ? `supertory.relationDeckLayoutV2.${projectId}` : "supertory.relationDeckLayoutV2";
+}
+
+function normalizeRelationDeckKind(kind) {
+  return kind === "waiting" ? "waiting" : "minor";
+}
+
+function clampRelationDeckPrefs(raw, fallback) {
+  const base = { ...fallback };
+  if (!raw || typeof raw !== "object") return base;
+  if (Number.isFinite(Number(raw.widthRatio))) base.widthRatio = Number(raw.widthRatio);
+  if (Number.isFinite(Number(raw.heightRatio))) base.heightRatio = Number(raw.heightRatio);
+  if (raw.leftRatio == null) base.leftRatio = null;
+  else if (Number.isFinite(Number(raw.leftRatio))) base.leftRatio = Number(raw.leftRatio);
+  if (Number.isFinite(Number(raw.topRatio))) base.topRatio = Number(raw.topRatio);
+  base.widthRatio = Math.min(0.4, Math.max(0.12, base.widthRatio));
+  base.heightRatio = Math.min(0.4, Math.max(0.12, base.heightRatio));
+  if (base.leftRatio != null) base.leftRatio = Math.min(0.92, Math.max(0, base.leftRatio));
+  base.topRatio = Math.min(0.9, Math.max(0, base.topRatio));
+  return base;
+}
+
+function loadRelationDeckLayoutPrefs() {
+  const next = {
+    minor: { ...REL_DECK_LAYOUT_DEFAULT.minor },
+    waiting: { ...REL_DECK_LAYOUT_DEFAULT.waiting },
+  };
+  try {
+    const raw = localStorage.getItem(relationDeckLayoutKey());
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (parsed?.minor || parsed?.waiting) {
+        next.minor = clampRelationDeckPrefs(parsed.minor, next.minor);
+        next.waiting = clampRelationDeckPrefs(parsed.waiting, next.waiting);
+      } else if (parsed && typeof parsed === "object") {
+        // migrate old shared prefs → both decks, stacked on the right
+        const shared = clampRelationDeckPrefs(parsed, next.minor);
+        next.minor = { ...shared, topRatio: shared.topRatio ?? 0.02 };
+        next.waiting = {
+          ...shared,
+          topRatio: Math.min(0.9, (shared.topRatio ?? 0.02) + 0.32),
+          leftRatio: shared.leftRatio,
+        };
+      }
+    }
+  } catch (_) { /* keep defaults */ }
+  relationDeckLayoutPrefs = next;
+}
+
+function saveRelationDeckLayoutPrefs() {
+  try {
+    localStorage.setItem(relationDeckLayoutKey(), JSON.stringify(relationDeckLayoutPrefs));
+  } catch (_) { /* ignore */ }
+}
+
+function relationDeckMetricsFor(kind, stageW, stageH) {
+  const prefs = relationDeckLayoutPrefs[normalizeRelationDeckKind(kind)] || REL_DECK_LAYOUT_DEFAULT.minor;
+  const width = Math.min(Math.max(stageW * prefs.widthRatio, 140), Math.min(300, stageW * 0.42));
+  const peek = Math.min(Math.max(stageH * prefs.heightRatio, 96), Math.min(240, stageH * 0.4));
+  const expanded = Math.min(
+    Math.max(peek * 1.85, stageH * Math.min(0.5, prefs.heightRatio * 1.85)),
+    Math.max(180, stageH * 0.58)
+  );
+  return {
+    width: Math.round(width),
+    peek: Math.round(peek),
+    expanded: Math.round(expanded),
+    prefs,
+  };
+}
+
+function defaultRelationDeckLeft(stageW, width) {
+  return Math.max(8, stageW - width - 12);
+}
+
+function applyRelationDeckLayout() {
+  const stage = $("relationCanvasStage");
+  const rail = $("relationDeckRail");
+  if (!stage || !rail) return;
+  const rect = stage.getBoundingClientRect();
+  if (rect.width < 40 || rect.height < 40) return;
+  ["minor", "waiting"].forEach((kind) => {
+    const section = rail.querySelector(`.relation-deck[data-deck="${kind}"]`);
+    if (!section) return;
+    const m = relationDeckMetricsFor(kind, rect.width, rect.height);
+    const prefs = m.prefs;
+    const deckH = Math.max(
+      section.offsetHeight || (m.peek + 44),
+      relationDeckExpanded[kind] ? m.expanded : m.peek + 44
+    );
+    const leftPx = prefs.leftRatio == null
+      ? defaultRelationDeckLeft(rect.width, m.width)
+      : Math.max(8, Math.min(rect.width - m.width - 8, rect.width * prefs.leftRatio));
+    const topPx = Math.max(
+      8,
+      Math.min(rect.height - Math.min(deckH, rect.height - 16), rect.height * prefs.topRatio)
+    );
+    section.style.setProperty("--deck-w", `${m.width}px`);
+    section.style.setProperty("--deck-peek-h", `${m.peek}px`);
+    section.style.setProperty("--deck-exp-h", `${m.expanded}px`);
+    section.style.setProperty("--deck-left", `${Math.round(leftPx)}px`);
+    section.style.setProperty("--deck-top", `${Math.round(topPx)}px`);
+    section.style.left = `${Math.round(leftPx)}px`;
+    section.style.top = `${Math.round(topPx)}px`;
+    section.style.width = `${m.width}px`;
+  });
+}
+
+function startRelationDeckResize(corner, kind, event) {
+  const stage = $("relationCanvasStage");
+  const deckKind = normalizeRelationDeckKind(kind);
+  const section = document.querySelector(`.relation-deck[data-deck="${deckKind}"]`);
+  if (!stage || !section) return;
+  const stageRect = stage.getBoundingClientRect();
+  const deckRect = section.getBoundingClientRect();
+  const metrics = relationDeckMetricsFor(deckKind, stageRect.width, stageRect.height);
+  const cornerKey = ["nw", "ne", "sw", "se"].includes(String(corner || "")) ? String(corner) : "se";
+  relationDeckResize = {
+    corner: cornerKey,
+    kind: deckKind,
+    startX: event.clientX,
+    startY: event.clientY,
+    startWidth: metrics.width,
+    startPeek: metrics.peek,
+    startLeft: deckRect.left - stageRect.left,
+    startTop: deckRect.top - stageRect.top,
+    startHeight: deckRect.height,
+    stageW: stageRect.width,
+    stageH: stageRect.height,
+  };
+  section.classList.add("is-resizing");
+  section.dataset.resizeCorner = cornerKey;
+}
+
+function updateRelationDeckResize(event) {
+  if (!relationDeckResize) return;
+  const drag = relationDeckResize;
+  const prefs = relationDeckLayoutPrefs[drag.kind];
+  if (!prefs) return;
+  const dx = event.clientX - drag.startX;
+  const dy = event.clientY - drag.startY;
+  const corner = drag.corner;
+  let nextW = drag.startWidth;
+  let nextPeek = drag.startPeek;
+  let nextLeft = drag.startLeft;
+  let nextTop = drag.startTop;
+
+  if (corner === "se" || corner === "ne") nextW = drag.startWidth + dx;
+  if (corner === "sw" || corner === "nw") {
+    nextW = drag.startWidth - dx;
+    nextLeft = drag.startLeft + dx;
+  }
+  if (corner === "se" || corner === "sw") nextPeek = drag.startPeek + dy;
+  if (corner === "ne" || corner === "nw") {
+    nextPeek = drag.startPeek - dy;
+    nextTop = drag.startTop + dy;
+  }
+
+  nextW = Math.min(Math.max(nextW, 132), Math.min(300, drag.stageW * 0.42));
+  const maxPeek = Math.min(240, drag.stageH * 0.4);
+  nextPeek = Math.min(Math.max(nextPeek, 96), maxPeek);
+
+  // Keep anchored edges stable after clamping.
+  if (corner === "sw" || corner === "nw") {
+    nextLeft = drag.startLeft + (drag.startWidth - nextW);
+  }
+  if (corner === "ne" || corner === "nw") {
+    nextTop = drag.startTop + (drag.startPeek - nextPeek);
+  }
+
+  nextLeft = Math.max(8, Math.min(drag.stageW - nextW - 8, nextLeft));
+  nextTop = Math.max(8, Math.min(drag.stageH - Math.min(nextPeek + 44, drag.stageH - 16), nextTop));
+
+  prefs.widthRatio = nextW / Math.max(1, drag.stageW);
+  prefs.heightRatio = nextPeek / Math.max(1, drag.stageH);
+  prefs.leftRatio = nextLeft / Math.max(1, drag.stageW);
+  prefs.topRatio = nextTop / Math.max(1, drag.stageH);
+  applyRelationDeckLayout();
+}
+
+function endRelationDeckResize() {
+  if (!relationDeckResize) return;
+  const kind = relationDeckResize.kind;
+  relationDeckResize = null;
+  document.querySelectorAll(".relation-deck.is-resizing").forEach((node) => {
+    node.classList.remove("is-resizing");
+    delete node.dataset.resizeCorner;
+  });
+  saveRelationDeckLayoutPrefs();
+  applyRelationDeckLayout();
+  void kind;
+}
+
+function startRelationDeckMove(kind, event) {
+  const stage = $("relationCanvasStage");
+  const deckKind = normalizeRelationDeckKind(kind);
+  const section = document.querySelector(`.relation-deck[data-deck="${deckKind}"]`);
+  if (!stage || !section) return;
+  const stageRect = stage.getBoundingClientRect();
+  const deckRect = section.getBoundingClientRect();
+  relationDeckMove = {
+    kind: deckKind,
+    startX: event.clientX,
+    startY: event.clientY,
+    origLeft: deckRect.left - stageRect.left,
+    origTop: deckRect.top - stageRect.top,
+    stageW: stageRect.width,
+    stageH: stageRect.height,
+    deckW: deckRect.width,
+    deckH: deckRect.height,
+  };
+  section.classList.add("is-moving");
+}
+
+function updateRelationDeckMove(event) {
+  if (!relationDeckMove) return;
+  const drag = relationDeckMove;
+  const prefs = relationDeckLayoutPrefs[drag.kind];
+  if (!prefs) return;
+  const left = Math.max(8, Math.min(drag.stageW - drag.deckW - 8, drag.origLeft + (event.clientX - drag.startX)));
+  const top = Math.max(8, Math.min(drag.stageH - Math.min(drag.deckH, drag.stageH - 16), drag.origTop + (event.clientY - drag.startY)));
+  prefs.leftRatio = left / Math.max(1, drag.stageW);
+  prefs.topRatio = top / Math.max(1, drag.stageH);
+  applyRelationDeckLayout();
+}
+
+function endRelationDeckMove() {
+  if (!relationDeckMove) return;
+  const kind = relationDeckMove.kind;
+  relationDeckMove = null;
+  document.querySelector(`.relation-deck[data-deck="${kind}"]`)?.classList.remove("is-moving");
+  saveRelationDeckLayoutPrefs();
+  applyRelationDeckLayout();
+}
+
+function syncRelationDeckRailToStage() {
+  const canvas = $("relationCanvas");
+  const stage = $("relationCanvasStage");
+  const rail = $("relationDeckRail");
+  if (!canvas || !stage || !rail) return;
+  if (canvas.classList.contains("hidden")) return;
+  if (rail.parentElement !== stage) stage.appendChild(rail);
+  applyRelationDeckLayout();
+}
+
+function relationClientToWorld(clientX, clientY, stage = $("relationCanvasStage")) {
+  if (!stage) return null;
+  const rect = stage.getBoundingClientRect();
+  return {
+    x: (clientX - rect.left - relationCanvasPan.x) / relationCanvasZoom,
+    y: (clientY - rect.top - relationCanvasPan.y) / relationCanvasZoom,
+    over:
+      clientX >= rect.left && clientX <= rect.right
+      && clientY >= rect.top && clientY <= rect.bottom,
+    rect,
+  };
+}
+
+function clearRelationDeckGhost() {
+  document.querySelectorAll(".relation-deck-ghost").forEach((node) => node.remove());
+  document.querySelectorAll(".relation-deck-card.is-deck-source").forEach((node) => {
+    node.classList.remove("is-deck-source");
+  });
+}
+
+function ensureRelationDeckGhost(clientX, clientY) {
+  let ghost = document.querySelector(".relation-deck-ghost");
+  if (!ghost && relationDeckDrag?.ghostHtml) {
+    ghost = document.createElement("button");
+    ghost.type = "button";
+    ghost.className = "relation-deck-card relation-deck-ghost";
+    ghost.innerHTML = relationDeckDrag.ghostHtml;
+    document.body.appendChild(ghost);
+  }
+  if (!ghost) return null;
+  ghost.style.left = `${clientX}px`;
+  ghost.style.top = `${clientY}px`;
+  return ghost;
+}
+
+function updateRelationDeckGhost(clientX, clientY) {
+  ensureRelationDeckGhost(clientX, clientY);
+}
+
+function endRelationDeckDrag(event) {
+  if (!relationDeckDrag) return;
+  const drag = relationDeckDrag;
+  relationDeckDrag = null;
+  clearRelationDeckGhost();
+  setRelationDeckDropTarget(false);
+  const stage = $("relationCanvasStage");
+  if (!stage || !drag.moved) {
+    if (!drag.moved) placeRelationCharacterOnBoard(drag.id).catch(handleError);
+    return;
+  }
+  if (!event) return;
+  // Dropped back on the drawer: stay in deck (only unlinked cards live here).
+  if (relationPointOverDeckRail(event.clientX, event.clientY)) return;
+  const mapped = relationClientToWorld(event.clientX, event.clientY, stage);
+  if (!mapped?.over) return;
+  placeRelationCharacterOnBoard(drag.id, { x: mapped.x, y: mapped.y }).catch(handleError);
+}
+
+async function sendRelationCharacterToDeck(characterId) {
+  const id = Number(characterId);
+  const linked = relationLinkedIds();
+  if (linked.has(id)) {
+    toast(i18n.t("app.연결된_인물은_카드집으로_보낼_수_없어요"));
+    return false;
+  }
+  const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === id);
+  if (!ch) return false;
+  ch.x = null;
+  ch.y = null;
+  const kind = characterStoryRole(ch.role) === "minor" ? "minor" : "waiting";
+  relationDeckExpanded[kind] = true;
+  hideRelationCardMenu();
+  setRelationDeckDropTarget(false);
+  paintRelationCanvas();
+  await persistRelationPositions([{ character_id: id, x: null, y: null }]).catch(handleError);
+  return true;
 }
 
 function bindRelationCanvasEvents() {
@@ -11370,6 +12242,7 @@ function bindRelationCanvasEvents() {
     if (profile) return;
     const card = event.target.closest?.("[data-rel-card]");
     if (card) {
+      event.preventDefault();
       hideRelationPopups();
       const id = Number(card.getAttribute("data-rel-card"));
       const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === id);
@@ -11381,12 +12254,15 @@ function bindRelationCanvasEvents() {
         origX: Number(ch.x),
         origY: Number(ch.y),
         moved: false,
+        pointerId: event.pointerId,
       };
       card.classList.add("is-dragging");
-      stage.setPointerCapture?.(event.pointerId);
+      $("relationCanvasSvg")?.classList.add("is-dragging-cards");
+      try { card.setPointerCapture?.(event.pointerId); }
+      catch (_) { stage.setPointerCapture?.(event.pointerId); }
       return;
     }
-    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal")) return;
+    if (event.target.closest?.(".rel-hit, .relation-suggest-popup, .relation-label-modal, .relation-card-menu, .relation-deck-rail")) return;
     hideRelationPopups();
     relationPanDrag = {
       startX: event.clientX,
@@ -11398,42 +12274,14 @@ function bindRelationCanvasEvents() {
     stage.setPointerCapture?.(event.pointerId);
   });
   stage.addEventListener("pointermove", (event) => {
-    if (relationDrag) {
-      const dx = (event.clientX - relationDrag.startX) / relationCanvasZoom;
-      const dy = (event.clientY - relationDrag.startY) / relationCanvasZoom;
-      if (Math.abs(dx) + Math.abs(dy) > 3) relationDrag.moved = true;
-      const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === relationDrag.id);
-      if (!ch) return;
-      ch.x = relationDrag.origX + dx;
-      ch.y = relationDrag.origY + dy;
-      const el = stage.querySelector(`[data-rel-card="${relationDrag.id}"]`);
-      if (el) {
-        el.style.left = `${ch.x}px`;
-        el.style.top = `${ch.y}px`;
-      }
-      paintRelationLines();
-      return;
-    }
+    if (relationDrag || relationDeckDrag) return; /* document handlers own card/deck drags */
     if (relationPanDrag) {
       relationCanvasPan.x = relationPanDrag.origX + (event.clientX - relationPanDrag.startX);
       relationCanvasPan.y = relationPanDrag.origY + (event.clientY - relationPanDrag.startY);
       applyRelationTransform();
     }
   });
-  const endPointer = (event) => {
-    if (relationDrag) {
-      const drag = relationDrag;
-      relationDrag = null;
-      stage.querySelector("[data-rel-card].is-dragging")?.classList.remove("is-dragging");
-      if (!drag.moved) toggleRelationSelection(drag.id);
-      else {
-        const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
-        if (ch) {
-          persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
-          syncDockRelationPosition(ch.id, ch.x, ch.y);
-        }
-      }
-    }
+  const endPointer = () => {
     if (relationPanDrag) {
       relationPanDrag = null;
       stage.classList.remove("is-panning");
@@ -11441,7 +12289,95 @@ function bindRelationCanvasEvents() {
   };
   stage.addEventListener("pointerup", endPointer);
   stage.addEventListener("pointercancel", endPointer);
+  const onRelationBoardPointerMove = (event) => {
+    if (relationDeckMove) {
+      updateRelationDeckMove(event);
+      return;
+    }
+    if (relationDeckResize) {
+      updateRelationDeckResize(event);
+      return;
+    }
+    if (relationDeckDrag) {
+      const dx = event.clientX - relationDeckDrag.startX;
+      const dy = event.clientY - relationDeckDrag.startY;
+      if (Math.abs(dx) + Math.abs(dy) > 3) relationDeckDrag.moved = true;
+      updateRelationDeckGhost(event.clientX, event.clientY);
+      setRelationDeckDropTarget(relationPointOverDeckRail(event.clientX, event.clientY), event.clientX, event.clientY);
+      return;
+    }
+    if (!relationDrag || !stage) return;
+    const dx = (event.clientX - relationDrag.startX) / relationCanvasZoom;
+    const dy = (event.clientY - relationDrag.startY) / relationCanvasZoom;
+    if (Math.abs(dx) + Math.abs(dy) > 3) relationDrag.moved = true;
+    const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === relationDrag.id);
+    if (!ch) return;
+    ch.x = relationDrag.origX + dx;
+    ch.y = relationDrag.origY + dy;
+    const el = stage.querySelector(`[data-rel-card="${relationDrag.id}"]`);
+    if (el) {
+      el.style.left = `${ch.x}px`;
+      el.style.top = `${ch.y}px`;
+    }
+    const overDeck = relationPointOverDeckRail(event.clientX, event.clientY)
+      && !relationLinkedIds().has(Number(relationDrag.id));
+    setRelationDeckDropTarget(overDeck, event.clientX, event.clientY);
+    paintRelationLines({ interactive: false });
+  };
+  const onRelationBoardPointerUp = (event) => {
+    if (relationDeckMove) {
+      endRelationDeckMove();
+      return;
+    }
+    if (relationDeckResize) {
+      endRelationDeckResize();
+      return;
+    }
+    if (relationDeckDrag) {
+      endRelationDeckDrag(event);
+      return;
+    }
+    if (!relationDrag || !stage) return;
+    const drag = relationDrag;
+    relationDrag = null;
+    setRelationDeckDropTarget(false);
+    $("relationCanvasSvg")?.classList.remove("is-dragging-cards");
+    stage.querySelector("[data-rel-card].is-dragging")?.classList.remove("is-dragging");
+    paintRelationLines();
+    if (!drag.moved) {
+      toggleRelationSelection(drag.id);
+      return;
+    }
+    const linked = relationLinkedIds();
+    // Only unlinked cards can enter the drawers.
+    if (event && relationPointOverDeckRail(event.clientX, event.clientY)) {
+      if (linked.has(Number(drag.id))) {
+        const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
+        if (ch) {
+          ch.x = drag.origX;
+          ch.y = drag.origY;
+          paintRelationCanvas();
+        }
+        toast(i18n.t("app.연결된_인물은_카드집으로_보낼_수_없어요"));
+        return;
+      }
+      sendRelationCharacterToDeck(drag.id).catch(handleError);
+      return;
+    }
+    const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === drag.id);
+    if (ch) {
+      persistRelationPositions([{ character_id: ch.id, x: ch.x, y: ch.y }]).catch(handleError);
+      syncDockRelationPosition(ch.id, ch.x, ch.y);
+    }
+  };
+  document.addEventListener("pointermove", onRelationBoardPointerMove);
+  document.addEventListener("pointerup", onRelationBoardPointerUp);
+  document.addEventListener("pointercancel", onRelationBoardPointerUp);
+  window.addEventListener("resize", () => {
+    if (state.relationCanvasOpen) syncRelationDeckRailToStage();
+  });
   stage.addEventListener("wheel", (event) => {
+    if (event.target.closest?.(".relation-deck-rail, .relation-deck, .relation-deck-stack")) return;
     event.preventDefault();
     const factor = event.deltaY > 0 ? 0.92 : 1.08;
     setRelationZoom(relationCanvasZoom * factor, { x: event.clientX, y: event.clientY });
@@ -11460,11 +12396,90 @@ function bindRelationCanvasEvents() {
   $("relationSuggestRejectButton")?.addEventListener("click", () => deleteRelationEdge().catch(handleError));
   $("relationLabelSaveButton")?.addEventListener("click", () => saveManualRelation().catch(handleError));
   $("relationLabelCancelButton")?.addEventListener("click", () => hideRelationPopups());
+  $("relationLabelDeleteButton")?.addEventListener("click", () => deleteRelationEdge(relationEditId).catch(handleError));
   $("relationLabelInput")?.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
       event.preventDefault();
       saveManualRelation().catch(handleError);
     }
+  });
+  stage?.addEventListener("contextmenu", (event) => {
+    const card = event.target.closest?.("[data-rel-card]");
+    if (!card) return;
+    event.preventDefault();
+    showRelationCardMenu(card.getAttribute("data-rel-card"), event.clientX, event.clientY);
+  });
+  $("relationDeckRail")?.addEventListener("wheel", (event) => {
+    event.stopPropagation();
+  }, { passive: true });
+  $("relationDeckRail")?.addEventListener("click", (event) => {
+    const toggle = event.target.closest?.("[data-deck-toggle]");
+    if (!toggle) return;
+    const kind = toggle.getAttribute("data-deck-toggle");
+    if (kind === "waiting" || kind === "minor") {
+      relationDeckExpanded[kind] = !relationDeckExpanded[kind];
+      paintRelationDecks();
+      applyRelationDeckLayout();
+    }
+  });
+  $("relationDeckRail")?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    const resizeEl = event.target.closest?.("[data-deck-resize]");
+    if (resizeEl) {
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = resizeEl.getAttribute("data-deck-kind")
+        || resizeEl.closest?.("[data-deck]")?.getAttribute("data-deck")
+        || "minor";
+      startRelationDeckResize(resizeEl.getAttribute("data-deck-resize") || "se", kind, event);
+      return;
+    }
+    if (event.target.closest?.("[data-deck-toggle]")) return;
+    const moveEl = event.target.closest?.("[data-deck-move]");
+    if (moveEl && !event.target.closest?.("[data-deck-card], [data-deck-toggle], [data-deck-resize]")) {
+      event.preventDefault();
+      event.stopPropagation();
+      const kind = moveEl.getAttribute("data-deck-move")
+        || moveEl.closest?.("[data-deck]")?.getAttribute("data-deck")
+        || "minor";
+      startRelationDeckMove(kind, event);
+      return;
+    }
+    const deckCard = event.target.closest?.("[data-deck-card]");
+    if (!deckCard) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const id = Number(deckCard.getAttribute("data-deck-card"));
+    if (!id) return;
+    hideRelationPopups();
+    relationDeckDrag = {
+      id,
+      startX: event.clientX,
+      startY: event.clientY,
+      moved: false,
+      ghostHtml: deckCard.innerHTML,
+    };
+    deckCard.classList.add("is-deck-source");
+    ensureRelationDeckGhost(event.clientX, event.clientY);
+    try { deckCard.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+  });
+  $("relationDeckRail")?.addEventListener("contextmenu", (event) => {
+    const deckCard = event.target.closest?.("[data-deck-card]");
+    if (!deckCard) return;
+    event.preventDefault();
+    showRelationCardMenu(deckCard.getAttribute("data-deck-card"), event.clientX, event.clientY);
+  });
+  $("relationCardMenu")?.addEventListener("click", (event) => {
+    const swatch = event.target.closest?.("[data-border-color]");
+    if (swatch && relationCardMenuId) {
+      setRelationCardBorderColor(relationCardMenuId, swatch.getAttribute("data-border-color") || "");
+      hideRelationCardMenu();
+      return;
+    }
+  });
+  $("relationSendToDeckButton")?.addEventListener("click", () => {
+    if (!relationCardMenuId) return;
+    sendRelationCharacterToDeck(relationCardMenuId).catch(handleError);
   });
 }
 
@@ -11472,6 +12487,24 @@ async function openRelationCanvas(focus = null) {
   if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
+  }
+  const explicitReturn = focus?.returnTo;
+  if (explicitReturn === "characterBoard" || explicitReturn === "settingsSearch") {
+    relationCanvasReturnTo = explicitReturn;
+  } else if (
+    state.characterBoardOpen
+    || !$("characterBoard")?.classList.contains("hidden")
+  ) {
+    relationCanvasReturnTo = "characterBoard";
+  } else if (
+    state.settingsSearchOpen
+    || !$("settingsSearchBoard")?.classList.contains("hidden")
+  ) {
+    relationCanvasReturnTo = "settingsSearch";
+  } else if (state.openSettingsSection === "characters") {
+    relationCanvasReturnTo = "characterBoard";
+  } else {
+    relationCanvasReturnTo = null;
   }
   try { await flushCharacterAutoSave(); } catch (_) { /* continue */ }
   if (sceneDirty && state.sceneId) {
@@ -11514,12 +12547,31 @@ async function openRelationCanvas(focus = null) {
   await loadRelationCanvas();
   if (relationSelectedIds.length) paintRelationCanvas();
   const centerId = Number.isFinite(focusId) && focusId > 0 ? focusId : 0;
-  if (focus?.fullscreen) enterRelationCanvasFullscreen({ skipFit: Boolean(centerId) });
-  if (centerId) {
+  if (focus?.restoreView) {
+    requestAnimationFrame(() => {
+      if (restoreRelationCanvasView()) {
+        requestAnimationFrame(() => applyRelationTransform());
+        return;
+      }
+      scheduleFitRelationCanvas();
+    });
+  } else if (focus?.fullscreen) {
+    enterRelationCanvasFullscreen({ skipFit: Boolean(centerId) });
+    if (centerId) scheduleCenterRelationCanvasOnCharacter(centerId);
+  } else if (centerId) {
     scheduleCenterRelationCanvasOnCharacter(centerId);
-  } else if (!focus?.fullscreen) {
+  } else {
     scheduleFitRelationCanvas();
   }
+  const hardenLayout = () => {
+    syncRelationDeckRailToStage();
+    requestAnimationFrame(() => {
+      syncRelationDeckRailToStage();
+      setTimeout(() => syncRelationDeckRailToStage(), 50);
+      setTimeout(() => syncRelationDeckRailToStage(), 200);
+    });
+  };
+  hardenLayout();
 }
 
 function centerRelationCanvasOnCharacter(characterId) {
@@ -11527,6 +12579,10 @@ function centerRelationCanvasOnCharacter(characterId) {
   const ch = (relationCanvasData.characters || []).find((row) => Number(row.id) === Number(characterId));
   if (!stage || !ch) {
     scheduleFitRelationCanvas();
+    return false;
+  }
+  if (ch.x == null || ch.y == null || !Number.isFinite(Number(ch.x)) || !Number.isFinite(Number(ch.y))) {
+    placeRelationCharacterOnBoard(ch.id).catch(handleError);
     return false;
   }
   const rect = stage.getBoundingClientRect();
@@ -11547,7 +12603,17 @@ function scheduleCenterRelationCanvasOnCharacter(characterId) {
 }
 
 async function closeRelationCanvas() {
+  const returnTo = relationCanvasReturnTo;
+  relationCanvasReturnTo = null;
   hideRelationCanvas();
+  if (returnTo === "characterBoard") {
+    await openCharacterBoard();
+    return;
+  }
+  if (returnTo === "settingsSearch") {
+    await openSettingsSearchBoard();
+    return;
+  }
   await returnToManuscriptFromSettingsMain();
 }
 
@@ -11555,9 +12621,23 @@ async function closeCharacterEditor() {
   try {
     await flushCharacterAutoSave();
   } catch (_) {
-    /* keep going so the manuscript still opens */
+    /* keep going so navigation still works */
   }
   $("characterEditor")?.classList.add("hidden");
+  const returnTo = characterEditorReturnTo;
+  characterEditorReturnTo = null;
+  if (returnTo === "relationCanvas") {
+    await openRelationCanvas({ restoreView: true });
+    return;
+  }
+  if (returnTo === "characterBoard") {
+    await openCharacterBoard();
+    return;
+  }
+  if (returnTo === "settingsSearch") {
+    await openSettingsSearchBoard();
+    return;
+  }
   await returnToManuscriptFromSettingsMain();
 }
 
@@ -11689,6 +12769,16 @@ async function closeItemEditor() {
     /* keep going */
   }
   $("itemEditor")?.classList.add("hidden");
+  const returnTo = itemEditorReturnTo;
+  itemEditorReturnTo = null;
+  if (returnTo === "itemBoard") {
+    await openItemBoard();
+    return;
+  }
+  if (returnTo === "settingsSearch") {
+    await openSettingsSearchBoard();
+    return;
+  }
   await returnToManuscriptFromSettingsMain();
 }
 
@@ -13404,6 +14494,7 @@ const DOCK_RAIL_FLOAT_KEYS = {
   successProfile: DOCK_SUCCESS_PROFILE_KEY,
   manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
+  credits: "dock:credits",
 };
 const dockCharacterDetailCache = new Map();
 const dockItemDetailCache = new Map();
@@ -13868,6 +14959,15 @@ const DOCK_FLOAT_SPECS = {
     resize: { minWidth: DOCK_SETTINGS_SEARCH_MIN_W, minHeight: DOCK_SETTINGS_SEARCH_MIN_H },
     render(body) { renderDockSettingsSearchBody(body); },
   },
+  credits: {
+    titleKey: "index.크레딧_잔량",
+    windowClass: "dock-float-credits",
+    side: "right",
+    compact: true,
+    resize: false,
+    fallbackPos() { return dockCreditsFallbackPos(); },
+    render(body) { renderDockCreditsBody(body); },
+  },
 };
 
 function isDockTrackerOpenPref() {
@@ -14002,6 +15102,27 @@ function dockRailFloatKey(itemId) {
 }
 
 function isDockRailItemActive(itemId) {
+  if (itemId === "priority") {
+    return Boolean($("toryPriorityBox")?.classList.contains("is-open"));
+  }
+  if (itemId === "toryChat") {
+    return isAiDockChatHubActive("tory");
+  }
+  if (itemId === "characterChat") {
+    return isAiDockChatHubActive("characters") || isAiDockChatHubActive("character-room");
+  }
+  if (itemId === "readerChat") {
+    return isAiDockChatHubActive("reader");
+  }
+  if (itemId === "aiResult") {
+    return isAiDockToolsPaneActive("result");
+  }
+  if (itemId === "aiHistory") {
+    return Boolean($("aiResultHistoryModal") && !$("aiResultHistoryModal").classList.contains("hidden"));
+  }
+  if (itemId === "toryTalk") {
+    return false;
+  }
   const key = dockRailFloatKey(itemId);
   if (!key) return false;
   if (ideaFloatWindows.has(key)) return true;
@@ -14023,10 +15144,38 @@ function isDockRailItemActive(itemId) {
   return false;
 }
 
+const AI_DOCK_PANEL_ITEMS = new Set([
+  "priority",
+  "toryChat",
+  "characterChat",
+  "readerChat",
+  "aiResult",
+  "aiHistory",
+  "toryTalk",
+]);
+
+function isAiDockPanelItem(itemId) {
+  return AI_DOCK_PANEL_ITEMS.has(itemId);
+}
+
+function isAiDockChatHubActive(hub) {
+  if (!isAiPanelOpen()) return false;
+  const chatView = $("aiChatView");
+  if (!chatView || chatView.classList.contains("hidden") || chatView.hidden) return false;
+  return String(toryChatHub || "") === hub;
+}
+
+function isAiDockToolsPaneActive(pane) {
+  if (!isAiPanelOpen()) return false;
+  const toolsView = $("aiToolsView");
+  if (!toolsView || toolsView.classList.contains("hidden") || toolsView.hidden) return false;
+  return String(toolsView.getAttribute("data-helper-pane") || "") === pane;
+}
+
 function syncDockRailButtons() {
   document.querySelectorAll("[data-dock-item]").forEach((btn) => {
     const itemId = btn.dataset.dockItem;
-    if (!dockRailFloatKey(itemId)) return;
+    if (!dockRailFloatKey(itemId) && !isAiDockPanelItem(itemId)) return;
     const on = isDockRailItemActive(itemId);
     btn.classList.toggle("is-open", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -14037,7 +15186,101 @@ function syncDockStatsTrackerButton() {
   syncDockRailButtons();
 }
 
+function dockCreditsFallbackPos() {
+  const width = 200;
+  const height = 88;
+  return {
+    left: Math.max(8, Math.round(window.innerWidth - width - 64)),
+    top: Math.max(8, Math.round(window.innerHeight - height - 24)),
+  };
+}
+
+function renderDockCreditsBody(body) {
+  if (!body) return;
+  body.innerHTML = `
+    <div class="dock-credits-body">
+      <p class="dock-credits-label">${escapeHtml(i18n.t("index.크레딧_잔량"))}</p>
+      <p class="dock-credits-value" id="dockCreditsValue">—</p>
+      <p class="hint dock-credits-hint">${escapeHtml(i18n.t("index.크레딧_연동_준비중"))}</p>
+    </div>`;
+}
+
+function toggleAiDockPanelItem(itemId) {
+  switch (itemId) {
+    case "priority": {
+      const open = Boolean($("toryPriorityBox")?.classList.contains("is-open"));
+      if (open) {
+        setToryPriorityOpen(false);
+      } else {
+        setAiPanelOpen(true);
+        setToryPriorityOpen(true);
+      }
+      break;
+    }
+    case "toryChat": {
+      if (isDockRailItemActive("toryChat")) {
+        setToryChatHub("home", { quiet: true });
+      } else {
+        setAiPanelOpen(true);
+        setAiPanelTab("chat", { chatHub: "tory" });
+      }
+      break;
+    }
+    case "characterChat": {
+      if (isDockRailItemActive("characterChat")) {
+        setToryChatHub("home", { quiet: true });
+      } else {
+        setAiPanelOpen(true);
+        setAiPanelTab("chat", { chatHub: "characters" });
+        try { renderToryChatCharacterPicker?.(); } catch (_) { /* ignore */ }
+      }
+      break;
+    }
+    case "readerChat": {
+      if (isDockRailItemActive("readerChat")) {
+        setToryChatHub("home", { quiet: true });
+      } else {
+        setAiPanelOpen(true);
+        setAiPanelTab("chat", { chatHub: "reader" });
+        try { openReaderPersonaPicker?.(); } catch (_) { /* ignore */ }
+      }
+      break;
+    }
+    case "aiResult": {
+      if (isDockRailItemActive("aiResult")) {
+        setAiHelperPane("direct");
+      } else {
+        setAiPanelOpen(true);
+        setAiPanelTab("tools");
+        setAiHelperPane("result");
+      }
+      break;
+    }
+    case "aiHistory": {
+      const modal = $("aiResultHistoryModal");
+      const open = Boolean(modal && !modal.classList.contains("hidden"));
+      if (open) closeAiResultHistoryModal();
+      else {
+        setAiPanelOpen(true);
+        openAiResultHistoryModal();
+      }
+      break;
+    }
+    case "toryTalk": {
+      toast(i18n.t("app.아직_준비_중인_기능이에요"));
+      break;
+    }
+    default:
+      break;
+  }
+  syncDockRailButtons();
+  return null;
+}
+
 function toggleDockFloat(itemId, sourceEl) {
+  if (isAiDockPanelItem(itemId)) {
+    return toggleAiDockPanelItem(itemId);
+  }
   const key = dockRailFloatKey(itemId);
   if (key && ideaFloatWindows.has(key)) {
     closeIdeaFloat(key);
@@ -16260,7 +17503,7 @@ function syncOpenCharacterCardMenu(editor, event) {
 
 const DOCK_RAIL_ORDER_KEYS = {
   left: "supertory.dockRailOrder.left.v1",
-  right: "supertory.dockRailOrder.right.v1",
+  right: "supertory.dockRailOrder.right.v2",
 };
 const DOCK_RAIL_DRAG_THRESHOLD = 6;
 
@@ -21130,11 +22373,13 @@ function openAiResultHistoryModal() {
   if (!modal) return;
   showAiResultHistoryListView();
   modal.classList.remove("hidden");
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 function closeAiResultHistoryModal() {
   $("aiResultHistoryModal")?.classList.add("hidden");
   aiResultHistoryViewId = null;
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 function restoreAiResultHistoryEntry(entryId) {
@@ -21800,6 +23045,7 @@ function setToryPriorityOpen(open) {
   } else {
     syncToryPriorityPreview();
   }
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 function setupToryPriorityPopupChrome() {
@@ -22198,6 +23444,7 @@ function setToryChatHub(hub, { quiet = false } = {}) {
     renderToryChatMessages();
   }
   updateToryChatSuccessUi();
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
   return true;
 }
 
@@ -22265,6 +23512,7 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
       requestAnimationFrame(() => $("toryChatInput")?.focus());
     }
   }
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 /** 도우미 패널: 직접요청 | 선택하기 | 결과보기 (기본값 직접요청) */
@@ -22306,6 +23554,7 @@ function setAiHelperPane(pane) {
   } else {
     closeAiModePicker?.();
   }
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 /** 결과가 준비되면 결과보기 세그먼트로 전환 */
@@ -23676,6 +24925,8 @@ const READER_PERSONA_CATEGORY_LABELS = {
 const READER_AVATAR_BASE = "/assets/reader_avatars";
 const READER_AVATAR_VERSION = "20260816d";
 const READER_CHAT_SESSION_PREFIX = "supertory.readerChat.sessions.";
+const READER_FAVORITE_PREFIX = "supertory.readerFavorites.";
+const READER_FAVORITE_MAX = 8;
 
 /** @type {Record<string, any[]>|null} */
 let readerPersonaCache = null;
@@ -23691,6 +24942,71 @@ let readerChatAttached = null;
 
 function readerChatSessionStorageKey(projectId = state.projectId) {
   return `${READER_CHAT_SESSION_PREFIX}${projectId || "0"}`;
+}
+
+function readerFavoriteStorageKey(projectId = state.projectId) {
+  return `${READER_FAVORITE_PREFIX}${projectId || "0"}`;
+}
+
+function loadReaderFavorites(projectId = state.projectId) {
+  if (!projectId) return [];
+  try {
+    const raw = localStorage.getItem(readerFavoriteStorageKey(projectId));
+    const list = raw ? JSON.parse(raw) : [];
+    if (!Array.isArray(list)) return [];
+    return list.map((id) => String(id || "").trim()).filter(Boolean).slice(0, READER_FAVORITE_MAX);
+  } catch (_) {
+    return [];
+  }
+}
+
+function saveReaderFavorites(ids, projectId = state.projectId) {
+  if (!projectId) return;
+  const next = (Array.isArray(ids) ? ids : [])
+    .map((id) => String(id || "").trim())
+    .filter(Boolean)
+    .slice(0, READER_FAVORITE_MAX);
+  try {
+    localStorage.setItem(readerFavoriteStorageKey(projectId), JSON.stringify(next));
+  } catch (_) {
+    /* ignore quota */
+  }
+}
+
+function rememberReaderFavorite(personaId) {
+  const id = String(personaId || "").trim();
+  if (!id || !state.projectId) return;
+  const current = loadReaderFavorites().filter((item) => item !== id);
+  current.unshift(id);
+  saveReaderFavorites(current);
+  renderReaderFavoritePanel();
+}
+
+function renderReaderFavoritePanel() {
+  const grid = $("readerFavoriteGrid");
+  const empty = $("readerFavoriteEmpty");
+  const panel = $("readerFavoritePanel");
+  if (!grid || !panel) return;
+  let favoriteIds = loadReaderFavorites();
+  if (!favoriteIds.length) {
+    const sessions = loadReaderChatSessions();
+    favoriteIds = Object.keys(sessions || {}).filter(Boolean).slice(0, READER_FAVORITE_MAX);
+    if (favoriteIds.length) saveReaderFavorites(favoriteIds);
+  }
+  const people = flattenReaderPersonas(readerPersonaCache)
+    .filter((persona) => favoriteIds.includes(String(persona.id)));
+  people.sort((a, b) => favoriteIds.indexOf(String(a.id)) - favoriteIds.indexOf(String(b.id)));
+  if (!people.length) {
+    grid.innerHTML = "";
+    panel.classList.toggle("is-empty", true);
+    if (empty) empty.hidden = false;
+    return;
+  }
+  panel.classList.toggle("is-empty", false);
+  if (empty) empty.hidden = true;
+  grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
+  bindReaderAvatarErrors(grid);
+  syncReaderChatSelectionUi();
 }
 
 function loadReaderChatSessions(projectId = state.projectId) {
@@ -23855,6 +25171,7 @@ async function loadAndRenderReaderPersonas() {
     grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
     bindReaderAvatarErrors(grid);
     syncReaderChatSelectionUi();
+    renderReaderFavoritePanel();
   } catch (error) {
     grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
@@ -23950,6 +25267,7 @@ async function openReaderChatWithPersona(personaId) {
   readerChatAttached = null;
   readerChatSending = false;
   state.readerSessions = loadReaderChatSessions();
+  rememberReaderFavorite(persona.id);
   showReaderChatRoom();
   renderReaderChatPeer();
   renderReaderChatAttachChip();
@@ -24135,7 +25453,7 @@ async function openReaderPersonaAllModal() {
 
 function syncReaderChatSelectionUi() {
   const selected = String(readerChatSelectedId || "").trim();
-  document.querySelectorAll("#readerPersonaGrid [data-reader-persona], #readerPersonaAllGrid [data-reader-persona]").forEach((card) => {
+  document.querySelectorAll("#readerPersonaGrid [data-reader-persona], #readerFavoriteGrid [data-reader-persona], #readerPersonaAllGrid [data-reader-persona]").forEach((card) => {
     const on = card.getAttribute("data-reader-persona") === selected;
     card.classList.toggle("is-selected", on);
     card.setAttribute("aria-pressed", on ? "true" : "false");
@@ -24171,6 +25489,12 @@ function pickReaderPersonaFromCard(card) {
 
 function setupReaderChatUi() {
   $("readerPersonaGrid")?.addEventListener("click", (event) => {
+    const card = event.target.closest?.("[data-reader-persona]");
+    if (!card) return;
+    event.preventDefault();
+    pickReaderPersonaFromCard(card);
+  });
+  $("readerFavoriteGrid")?.addEventListener("click", (event) => {
     const card = event.target.closest?.("[data-reader-persona]");
     if (!card) return;
     event.preventDefault();
@@ -26921,20 +28245,49 @@ function renderReadingInviteEpisodeList() {
   const host = $("readingInviteEpisodeList");
   if (!host) return;
   if (!readingInviteEpisodes.length) {
-    host.innerHTML = `<p class="export-scene-empty">${escapeHtml(i18n.t("app.공유할_화가_없어요"))}</p>`;
+    host.innerHTML = `<p class="reading-invite-empty">${escapeHtml(i18n.t("app.공유할_화가_없어요"))}</p>`;
+    syncReadingInviteSelectAll();
     return;
   }
   host.innerHTML = readingInviteEpisodes.map((ep) => {
     const title = String(ep.title || i18n.t("app.제목_없음")).trim() || i18n.t("app.제목_없음");
-    const chapter = String(ep.chapter_title || "").trim();
-    const label = chapter ? `${chapter} · ${title}` : title;
+    const category = String(ep.chapter_title || "").trim() || i18n.t("app.미분류");
     const complete = ep.status === "complete";
-    const badge = complete ? ` <span class="reading-invite-status">${escapeHtml(i18n.t("app.완성"))}</span>` : "";
-    return `<label class="export-scene-item">`
+    const badge = complete
+      ? ` <span class="reading-invite-ep-badge">${escapeHtml(i18n.t("app.완성"))}</span>`
+      : "";
+    return `<label class="reading-invite-episode-row">`
+      + `<span class="reading-invite-check-cell">`
       + `<input type="checkbox" data-reading-invite-scene="${Number(ep.id)}" ${ep.checked ? "checked" : ""}>`
-      + `<span>${escapeHtml(label)}${badge}</span>`
+      + `</span>`
+      + `<span class="reading-invite-ep-cat">${escapeHtml(category)}</span>`
+      + `<span class="reading-invite-ep-title">${escapeHtml(title)}${badge}</span>`
       + `</label>`;
   }).join("");
+  syncReadingInviteSelectAll();
+}
+
+function syncReadingInviteSelectAll() {
+  const master = $("readingInviteSelectAll");
+  if (!master) return;
+  const boxes = [...document.querySelectorAll("#readingInviteEpisodeList [data-reading-invite-scene]")];
+  if (!boxes.length) {
+    master.checked = false;
+    master.indeterminate = false;
+    master.disabled = true;
+    return;
+  }
+  master.disabled = false;
+  const checked = boxes.filter((box) => box.checked).length;
+  master.checked = checked === boxes.length;
+  master.indeterminate = checked > 0 && checked < boxes.length;
+}
+
+function setReadingInviteSelectAll(checked) {
+  document.querySelectorAll("#readingInviteEpisodeList [data-reading-invite-scene]").forEach((box) => {
+    box.checked = Boolean(checked);
+  });
+  syncReadingInviteSelectAll();
 }
 
 function selectedReadingInviteSceneIds() {
@@ -27510,6 +28863,13 @@ async function checkReadingInviteFeedback(options = {}) {
 function setupReadingInvite() {
   if (setupReadingInvite._bound) return;
   setupReadingInvite._bound = true;
+  $("readingInviteSelectAll")?.addEventListener("change", (event) => {
+    setReadingInviteSelectAll(Boolean(event.target?.checked));
+  });
+  $("readingInviteEpisodeList")?.addEventListener("change", (event) => {
+    if (!event.target?.closest?.("[data-reading-invite-scene]")) return;
+    syncReadingInviteSelectAll();
+  });
   $("readingInviteCreateButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     createReadingInviteLink().catch(handleError);
@@ -43537,6 +44897,7 @@ function setAiPanelOpen(open, options = {}) {
     }
   }
   if (open) refreshAiStatus().catch(handleError);
+  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
 }
 
 function setupAiPanelToggle() {
@@ -49990,6 +51351,7 @@ const GUIDE_TIP_DEFS = [
   { id: "settingsBinder", label: i18n.t('app.설정집_안내_펼치기_폴더_순서') },
   { id: "ideaBoard", label: i18n.t('app.생각수첩_보드_안내') },
   { id: "baits", label: i18n.t('app.떡밥모음_안내') },
+  { id: "relationCanvas", label: i18n.t('app.관계_이어보기_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -52365,7 +53727,7 @@ function renderCharacters() {
       <span class="character-role">${escapeHtml(firstLine)}</span>
     </button>`;
   }).join("") : i18n.t('app.p_class_hint_아직_인물이_없어요');
-  list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character)));
+  list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character, { returnTo: "characterBoard" })));
   renderSettingsCodex();
   syncDockCharactersFloat();
   syncDockTimelineFloat();
@@ -63410,6 +64772,8 @@ const CHARACTER_EDITOR_FIELD_IDS = [
 ];
 const CHARACTER_AUTOSAVE_MS = 900;
 let characterDirty = false;
+/** @type {"characterBoard"|"relationCanvas"|null} */
+let characterEditorReturnTo = null;
 let characterAutoSaveTimer = null;
 let characterAutoSaveInFlight = false;
 let suppressCharacterDirty = false;
@@ -63709,7 +65073,7 @@ function setupCharacterEditorAutosave() {
   }
 }
 
-async function openCharacter(characterId) {
+async function openCharacter(characterId, options = {}) {
   if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
     return;
   }
@@ -63720,6 +65084,20 @@ async function openCharacter(characterId) {
     } catch (_) {
       /* keep going so the next character still opens */
     }
+  }
+  const explicitReturn = options?.returnTo;
+  if (explicitReturn === "relationCanvas" || explicitReturn === "characterBoard") {
+    characterEditorReturnTo = explicitReturn;
+  } else if (state.relationCanvasOpen || !$("relationCanvas")?.classList.contains("hidden")) {
+    characterEditorReturnTo = "relationCanvas";
+  } else if (
+    state.characterBoardOpen
+    || !$("characterBoard")?.classList.contains("hidden")
+    || state.openSettingsSection === "characters"
+  ) {
+    characterEditorReturnTo = "characterBoard";
+  } else {
+    characterEditorReturnTo = null;
   }
   await closeSplitView();
   if (sceneDirty && state.sceneId) {

@@ -53,12 +53,15 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
             "function bindSettingsDocSidebarInput", 1
         )[0]
         self.assertIn("flushCharacterAutoSave", close_fn)
+        self.assertIn("openCharacterBoard", close_fn)
+        self.assertIn("openRelationCanvas", close_fn)
         self.assertIn("returnToManuscriptFromSettingsMain", close_fn)
-        self.assertNotIn("openCharacterBoard", close_fn)
-        open_fn = self.js.split("async function openCharacter(characterId)", 1)[1].split(
+        self.assertIn("characterEditorReturnTo", close_fn)
+        open_fn = self.js.split("async function openCharacter(characterId", 1)[1].split(
             "async function saveCharacter", 1
         )[0]
         self.assertIn("flushCharacterAutoSave", open_fn)
+        self.assertIn("characterEditorReturnTo", open_fn)
         self.assertNotIn("state.sceneId = null", open_fn)
 
     def test_settings_main_close_returns_to_manuscript(self) -> None:

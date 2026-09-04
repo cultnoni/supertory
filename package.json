@@ -15,7 +15,8 @@
   },
   "dependencies": {
     "driver.js": "^1.8.0",
-    "electron-updater": "^6.6.2"
+    "electron-updater": "^6.6.2",
+    "lucide-static": "^1.40.0"
   },
   "devDependencies": {
     "electron": "^37.2.0",
