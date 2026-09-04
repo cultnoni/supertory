@@ -124,6 +124,138 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("body.ai-panel-collapsed .ai-panel {\n  display: none;", self.css)
         self.assertNotIn("margin-left: 0;\n  margin-right: auto;", self.css)
 
+    def test_expanded_center_overhangs_one_mm_without_changing_panel_tracks(self) -> None:
+        expanded = self.css.split(
+            "body:not(.binder-panel-collapsed):not(.ai-panel-collapsed) .work-area {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("width: calc(100% + 2mm)", expanded)
+        self.assertIn("margin-left: -1mm", expanded)
+        self.assertIn("margin-right: -1mm", expanded)
+        self.assertNotIn("--outline-width", expanded)
+        self.assertNotIn("--ai-panel-width", expanded)
+
+    def test_split_icon_spacing_tracks_available_width(self) -> None:
+        split_icons = self.css.split(
+            ".scene-workspace.split-active .format-toolbar-row-icons "
+            ".format-toolbar-row-body.format-toolbar-row-body-split {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("justify-content: space-between", split_icons)
+        self.assertIn("width: 100%", split_icons)
+        self.assertIn("gap: 0", split_icons)
+        self.assertNotIn("gap: 8px", split_icons)
+
+    def test_left_panel_keeps_round_edge_when_ai_collapsed(self) -> None:
+        collapsed = self.css.split(
+            "body.ai-panel-collapsed .outline-panel-inner {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("border-top-right-radius: 14px", collapsed)
+        self.assertIn("border-bottom-right-radius: 14px", collapsed)
+
+    def test_collapsed_rails_keep_panel_bottom_inset(self) -> None:
+        left = self.css.split(
+            "body.binder-panel-collapsed .outline-panel {",
+            1,
+        )[1].split("}", 1)[0]
+        right = self.css.split(
+            "body.ai-panel-collapsed .ai-panel {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("padding: 0 0 10px", left)
+        self.assertIn("padding: 0 0 10px", right)
+
+    def test_episode_tab_row_starts_level_with_side_panel_cards(self) -> None:
+        """Tab row carries the panels' own top inset; the chrome above it is flat.
+
+        Panels use `max(0px, calc(10px - 2mm))` above their card, so the tab bar
+        must use the same value and `.episode-chrome` must add nothing on top.
+        """
+        panel_inset = "max(0px, calc(10px - 2mm))"
+        chrome = self.css.split(".episode-chrome {", 1)[1].split("}", 1)[0]
+        tab_bar = self.css.split(".episode-tab-bar {", 1)[1].split("}", 1)[0]
+        outline = self.css.split("\n.outline-panel {", 1)[1].split("}", 1)[0]
+
+        self.assertIn(f"padding-top: {panel_inset}", outline)
+        self.assertIn("padding: 0 var(--ms-h-gutter", chrome)
+        self.assertIn(f"padding: {panel_inset} 2px 0", tab_bar)
+        # The old 6px lip is what pushed the centre column below the panels.
+        self.assertNotIn("padding: 6px 2px 0", tab_bar)
+        # Tab size itself must stay untouched.
+        tab = self.css.split(".episode-tab {", 1)[1].split("}", 1)[0]
+        self.assertIn("min-height: 28px", tab)
+
+    def test_dock_rail_order_is_persisted_per_side(self) -> None:
+        self.assertIn('left: "supertory.dockRailOrder.left.v1"', self.js)
+        self.assertIn('right: "supertory.dockRailOrder.right.v1"', self.js)
+        self.assertIn("const DOCK_RAIL_DRAG_THRESHOLD = 6", self.js)
+        self.assertIn("function restoreDockRailOrder(", self.js)
+        self.assertIn("function persistDockRailOrder(", self.js)
+        self.assertIn("function setupDockRailSorting(", self.js)
+        setup = self.js.split("function setupPanelDock()", 1)[1].split(
+            "async function refreshAiStatus", 1
+        )[0]
+        self.assertLess(
+            setup.find("restoreDockRailOrder(rail)"),
+            setup.find('rail.addEventListener("click"'),
+        )
+        self.assertIn("suppressDockClickUntil", setup)
+        self.assertIn(".panel-dock-item.is-dock-order-dragging", self.css)
+
+    def test_widget_transparency_is_adjustable_and_persisted(self) -> None:
+        self.assertIn('id="adminWidgetTransparency"', self.html)
+        self.assertIn('id="adminWidgetTransparencyValue"', self.html)
+        self.assertIn('id="adminWidgetGradient"', self.html)
+        self.assertIn('id="adminWidgetGradientValue"', self.html)
+        self.assertIn(
+            'const WIDGET_TRANSPARENCY_STORAGE_KEY = "supertory.widgetTransparency"',
+            self.js,
+        )
+        self.assertIn(
+            'const WIDGET_GRADIENT_STORAGE_KEY = "supertory.widgetGradient"',
+            self.js,
+        )
+        self.assertIn("function applyWidgetTransparency(", self.js)
+        self.assertIn("function applyWidgetGradient(", self.js)
+        self.assertIn("--widget-surface-opacity", self.js)
+        self.assertIn("--widget-gradient-light", self.js)
+        self.assertIn("--widget-gradient-accent", self.js)
+        self.assertIn("setupWidgetTransparency();", self.js)
+        dock_float = self.css.split(".idea-float.dock-float {", 1)[1].split("}", 1)[0]
+        self.assertIn("linear-gradient(", dock_float)
+        self.assertIn("var(--widget-gradient-light, 34%)", dock_float)
+        self.assertIn("var(--widget-gradient-accent, 10%)", dock_float)
+        self.assertIn("--widget-surface: color-mix(in srgb, var(--surface) 74%", dock_float)
+        self.assertIn("var(--widget-surface, var(--surface))", dock_float)
+        self.assertIn("var(--widget-surface-opacity-top, 92%)", dock_float)
+        self.assertIn("var(--widget-surface-opacity-bottom, 82%)", dock_float)
+        self.assertNotIn("backdrop-filter", dock_float)
+        self.assertIn(".idea-float.dock-float.is-front", self.css)
+        dock_header = self.css.split(
+            ".idea-float.dock-float .idea-float-drag {", 1
+        )[1].split("}", 1)[0]
+        self.assertIn("--widget-gradient-header", dock_header)
+        for locale in self.locales.values():
+            self.assertIn("app.위젯_투명도", locale)
+            self.assertIn("app.위젯_투명도_설명", locale)
+            self.assertIn("app.투명도", locale)
+            self.assertIn("app.그라데이션", locale)
+            self.assertIn("app.위젯_그라데이션_강도", locale)
+
+    def test_split_heading_omits_redundant_mode_labels(self) -> None:
+        self.assertNotIn('class="split-scene-caption"', self.html)
+        render = self.js.split("async function renderSplitViewer()", 1)[1].split(
+            "function setupSplitEditMode()", 1
+        )[0]
+        setup = self.js.split("function setupSplitEditMode()", 1)[1].split(
+            '  $("splitEditModeGroup")', 1
+        )[0]
+        self.assertNotIn("app.편집_가능", render)
+        self.assertNotIn("app.읽기_전용", render)
+        self.assertNotIn("app.편집_가능", setup)
+        self.assertNotIn("app.읽기_전용", setup)
+
     def test_ideas_dock_reuses_idea_float_host(self) -> None:
         self.assertIn("function openDockFloat(itemId, sourceEl)", self.js)
         self.assertIn("function openDockFloatWindow(key, spec, sourceEl)", self.js)

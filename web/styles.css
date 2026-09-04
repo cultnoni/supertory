@@ -3376,6 +3376,40 @@ body.ai-panel-collapsed .outline-panel-inner {
   color: var(--muted);
   text-align: right;
 }
+.admin-widget-transparency {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.admin-widget-transparency label {
+  min-width: 5.5em;
+  font-size: 13px;
+  color: var(--ink);
+}
+.admin-widget-transparency input[type="range"] {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
+  height: auto;
+  padding: 0;
+  accent-color: var(--accent-dark, #8d3e2f);
+}
+.admin-widget-transparency + .admin-widget-transparency {
+  margin-top: 10px;
+}
+.admin-widget-transparency select {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.admin-widget-transparency output {
+  flex: 0 0 auto;
+  min-width: 3em;
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+  text-align: right;
+}
 .ambient-admin-list {
   display: flex;
   flex-direction: column;
@@ -9769,8 +9803,43 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   display: flex;
 }
 .idea-float.dock-float {
+  --widget-surface: color-mix(in srgb, var(--surface) 74%, var(--hover-lift-bg, var(--surface-2)));
   width: min(320px, calc(100vw - 24px));
   height: min(420px, calc(100vh - 24px));
+  border-color: color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 40%, var(--line));
+  background:
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--hover-lift-bg, var(--surface)) var(--widget-gradient-light, 34%), transparent) 0%,
+      transparent 48%,
+      color-mix(in srgb, var(--accent) var(--widget-gradient-accent, 10%), transparent) 100%
+    ),
+    linear-gradient(
+      145deg,
+      color-mix(in srgb, var(--widget-surface, var(--surface)) var(--widget-surface-opacity-top, 92%), transparent) 0%,
+      color-mix(in srgb, var(--widget-surface, var(--surface)) var(--widget-surface-opacity-bottom, 82%), transparent) 100%
+    );
+  box-shadow:
+    -6px -6px 16px color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 28%, transparent),
+    10px 14px 30px color-mix(in srgb, var(--ink) 22%, transparent),
+    inset 1px 1px 0 color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 52%, transparent),
+    inset -1px -1px 0 color-mix(in srgb, var(--accent) 12%, transparent);
+}
+.idea-float.dock-float.is-front {
+  box-shadow:
+    -7px -7px 18px color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 32%, transparent),
+    12px 18px 36px color-mix(in srgb, var(--ink) 28%, transparent),
+    inset 1px 1px 0 color-mix(in srgb, var(--hover-lift-bg, var(--surface)) 58%, transparent),
+    inset -1px -1px 0 color-mix(in srgb, var(--accent) 14%, transparent);
+}
+.idea-float.dock-float .idea-float-drag {
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--hover-lift-bg, var(--surface)) var(--widget-gradient-header, 15%), transparent),
+    transparent 56%,
+    color-mix(in srgb, var(--accent) var(--widget-gradient-header, 15%), transparent)
+  );
+  border-bottom-color: color-mix(in srgb, var(--line) 72%, transparent);
 }
 .idea-float.dock-float .idea-float-body {
   display: flex;

@@ -68148,7 +68148,109 @@ function maybeStartOnboardingTutorial() {
   }, 700);
 }
 
+const WIDGET_TRANSPARENCY_STORAGE_KEY = "supertory.widgetTransparency";
+const WIDGET_GRADIENT_STORAGE_KEY = "supertory.widgetGradient";
+const WIDGET_TRANSPARENCY_DEFAULT = 15;
+const WIDGET_TRANSPARENCY_MAX = 70;
+const WIDGET_GRADIENT_DEFAULT = 42;
+
+function normalizedWidgetTransparency(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return WIDGET_TRANSPARENCY_DEFAULT;
+  return Math.max(0, Math.min(WIDGET_TRANSPARENCY_MAX, Math.round(numeric)));
+}
+
+function applyWidgetTransparency(value, { persist = false } = {}) {
+  const transparency = normalizedWidgetTransparency(value);
+  const surfaceOpacity = 100 - transparency;
+  document.documentElement.style.setProperty("--widget-surface-opacity", `${surfaceOpacity}%`);
+  document.documentElement.style.setProperty(
+    "--widget-surface-opacity-top",
+    `${Math.min(100, surfaceOpacity + 7)}%`,
+  );
+  document.documentElement.style.setProperty(
+    "--widget-surface-opacity-bottom",
+    `${Math.max(0, surfaceOpacity - 3)}%`,
+  );
+  document.documentElement.dataset.widgetTransparency = String(transparency);
+  const slider = $("adminWidgetTransparency");
+  const output = $("adminWidgetTransparencyValue");
+  if (slider) slider.value = String(transparency);
+  if (output) output.textContent = `${transparency}%`;
+  if (persist) {
+    try {
+      localStorage.setItem(WIDGET_TRANSPARENCY_STORAGE_KEY, String(transparency));
+    } catch (_) {
+      /* localStorage may be unavailable in hardened browser contexts. */
+    }
+  }
+}
+
+function applyWidgetGradient(value, { persist = false } = {}) {
+  const numeric = Number(value);
+  const strength = Math.max(
+    0,
+    Math.min(100, Math.round(Number.isFinite(numeric) ? numeric : WIDGET_GRADIENT_DEFAULT)),
+  );
+  document.documentElement.style.setProperty(
+    "--widget-surface",
+    "color-mix(in srgb, var(--surface) 74%, var(--hover-lift-bg, var(--surface-2)))",
+  );
+  document.documentElement.style.setProperty(
+    "--widget-gradient-light",
+    `${Math.round(14 + strength * 0.48)}%`,
+  );
+  document.documentElement.style.setProperty(
+    "--widget-gradient-accent",
+    `${Math.round(3 + strength * 0.16)}%`,
+  );
+  document.documentElement.style.setProperty(
+    "--widget-gradient-header",
+    `${Math.round(6 + strength * 0.22)}%`,
+  );
+  document.documentElement.dataset.widgetGradient = String(strength);
+  const slider = $("adminWidgetGradient");
+  const output = $("adminWidgetGradientValue");
+  if (slider) slider.value = String(strength);
+  if (output) output.textContent = `${strength}%`;
+  if (persist) {
+    try {
+      localStorage.setItem(WIDGET_GRADIENT_STORAGE_KEY, String(strength));
+    } catch (_) {
+      /* localStorage may be unavailable in hardened browser contexts. */
+    }
+  }
+}
+
+function setupWidgetTransparency() {
+  let stored = null;
+  let storedGradient = null;
+  try {
+    stored = localStorage.getItem(WIDGET_TRANSPARENCY_STORAGE_KEY);
+    storedGradient = localStorage.getItem(WIDGET_GRADIENT_STORAGE_KEY);
+  } catch (_) {
+    /* use the visual default */
+  }
+  applyWidgetTransparency(stored == null ? WIDGET_TRANSPARENCY_DEFAULT : stored);
+  applyWidgetGradient(storedGradient == null ? WIDGET_GRADIENT_DEFAULT : storedGradient);
+  const slider = $("adminWidgetTransparency");
+  if (slider && slider.dataset.bound !== "1") {
+    slider.dataset.bound = "1";
+    slider.addEventListener("input", (event) => {
+      applyWidgetTransparency(event.target.value, { persist: true });
+    });
+  }
+  const gradientSlider = $("adminWidgetGradient");
+  if (gradientSlider && gradientSlider.dataset.bound !== "1") {
+    gradientSlider.dataset.bound = "1";
+    gradientSlider.addEventListener("input", (event) => {
+      applyWidgetGradient(event.target.value, { persist: true });
+    });
+  }
+}
+
 function setupAdminMode() {
+  setupWidgetTransparency();
   $("adminModeButton")?.addEventListener("click", () => openAdminModal("info"));
   $("adminAuthForm")?.addEventListener("submit", (event) => {
     submitAdminAuthForm(event).catch(handleError);

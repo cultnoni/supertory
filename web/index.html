@@ -5843,6 +5843,43 @@
             <div id="adminThemeList" class="theme-options theme-options-grouped" role="listbox" aria-label="UI 테마" data-i18n-aria-label="index.UI_테마"></div>
           </div>
 
+          <div class="admin-section-box">
+            <div class="admin-trash-heading">
+              <div>
+                <h3 class="admin-section-title" data-i18n="app.위젯_투명도">위젯 투명도</h3>
+                <p class="hint" data-i18n="app.위젯_투명도_설명">떠 있는 위젯 카드의 배경 투명도를 조절합니다. 글자와 버튼은 선명하게 유지됩니다.</p>
+              </div>
+            </div>
+            <div class="admin-widget-transparency">
+              <label for="adminWidgetTransparency" data-i18n="app.투명도">투명도</label>
+              <input
+                id="adminWidgetTransparency"
+                type="range"
+                min="0"
+                max="70"
+                step="1"
+                value="15"
+                aria-label="위젯 투명도"
+                data-i18n-aria-label="app.위젯_투명도"
+              >
+              <output id="adminWidgetTransparencyValue" for="adminWidgetTransparency">15%</output>
+            </div>
+            <div class="admin-widget-transparency">
+              <label for="adminWidgetGradient" data-i18n="app.그라데이션">그라데이션</label>
+              <input
+                id="adminWidgetGradient"
+                type="range"
+                min="0"
+                max="100"
+                step="1"
+                value="42"
+                aria-label="위젯 그라데이션 강도"
+                data-i18n-aria-label="app.위젯_그라데이션_강도"
+              >
+              <output id="adminWidgetGradientValue" for="adminWidgetGradient">42%</output>
+            </div>
+          </div>
+
           <div class="admin-section-box" id="adminAmbientSection">
             <div class="admin-trash-heading">
               <div>
