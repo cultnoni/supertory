@@ -87,66 +87,103 @@ def main() -> int:
         page.wait_for_timeout(800)
         page.evaluate(
             """async () => {
-              if (typeof setActiveBinder === 'function') setActiveBinder('settings');
               if (typeof renderLinkedSuccessProfileCard === 'function') await renderLinkedSuccessProfileCard();
             }"""
         )
         page.wait_for_timeout(400)
-        # Linked + multi dropdown
-        page.locator("#linkedSuccessProfilePanel").scroll_into_view_if_needed()
-        page.screenshot(path=str(OUT / "01_linked_with_dropdown.png"), full_page=False)
-        card = page.locator("#linkedSuccessProfilePanel")
-        page.screenshot(path=str(OUT / "01_card_linked.png"), clip=None)
-        # crop-ish: just card bounding box
-        box = card.bounding_box()
-        if box:
-            page.screenshot(path=str(OUT / "01_card_linked_crop.png"), clip=box)
 
-        status = page.locator("#linkedSuccessProfileStatus").inner_text()
-        select_visible = "hidden" not in (page.locator("#linkedSuccessProfileSelectWrap").get_attribute("class") or "")
-        (OUT / "01_status.txt").write_text(
-            json.dumps({"status": status, "select_visible": select_visible, "info": info}, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
-
-        # Unlink via API+UI refresh (same as button after confirm)
+        # Dock widget: linked summary, direct switch, settings sync, and shortcuts.
         page.evaluate(
-            """async () => {
-              if (typeof linkSuccessProfileToProject === 'function') {
-                await linkSuccessProfileToProject(null, { quiet: true });
-              }
-              if (typeof renderLinkedSuccessProfileCard === 'function') {
-                await renderLinkedSuccessProfileCard();
-              }
+            """() => {
+              document.body.classList.remove('driver-active', 'driver-fade');
+              document.querySelectorAll('.driver-overlay,.driver-popover').forEach((e) => e.remove());
+              setBinderPanelOpen(false);
             }"""
         )
-        page.wait_for_timeout(500)
-        box2 = card.bounding_box()
-        if box2:
-            page.screenshot(path=str(OUT / "02_card_unlinked.png"), clip=box2)
-        status2 = page.locator("#linkedSuccessProfileStatus").inner_text()
-        (OUT / "02_status.txt").write_text(status2, encoding="utf-8")
+        rail_button = page.locator('[data-dock-item="successProfile"]')
+        rail_button.click()
+        widget = page.locator('[data-float-key="dock:successProfile"]')
+        widget.wait_for(state="visible")
+        assert "is-open" in (rail_button.get_attribute("class") or "")
+        assert widget.locator("[data-resize-edge='se']").is_visible()
+        rail_button.click()
+        widget.wait_for(state="detached")
+        assert "is-open" not in (rail_button.get_attribute("class") or "")
+        rail_button.click()
+        widget = page.locator('[data-float-key="dock:successProfile"]')
+        widget.wait_for(state="visible")
+        page.wait_for_function(
+            """(title) => document.querySelector(
+              '[data-float-key="dock:successProfile"]'
+            )?.textContent.includes(title)""",
+            arg=info["bTitle"],
+        )
+        assert widget.locator('[data-role="dock-success-profile-select"]').is_visible()
+        assert widget.locator('[data-role="dock-success-feedback"]').is_enabled()
+        assert widget.locator('[data-role="dock-success-chat"]').is_enabled()
 
-        # Re-link via dropdown to beta
-        page.locator("#linkedSuccessProfilePickerButton").click()
-        page.locator(f'[data-success-profile-pick="{info["bId"]}"]').click()
-        page.wait_for_timeout(700)
-        page.evaluate("async () => { if (typeof renderLinkedSuccessProfileCard === 'function') await renderLinkedSuccessProfileCard(); }")
-        page.wait_for_timeout(300)
-        box3 = card.bounding_box()
-        if box3:
-            page.screenshot(path=str(OUT / "03_card_switched.png"), clip=box3)
-        status3 = page.locator("#linkedSuccessProfileStatus").inner_text()
-        (OUT / "03_status.txt").write_text(status3, encoding="utf-8")
+        widget.locator('[data-role="dock-success-profile-select"]').select_option(str(info["aId"]))
+        page.wait_for_function(
+            """(title) => document.querySelector(
+              '[data-float-key="dock:successProfile"]'
+            )?.textContent.includes(title)""",
+            arg=info["aTitle"],
+        )
+
+        page.evaluate(
+            """async () => {
+              await linkSuccessProfileToProject(null, { quiet: true });
+            }"""
+        )
+        page.wait_for_function(
+            """() => document.querySelector(
+              '[data-float-key="dock:successProfile"]'
+            )?.textContent.includes('아직 연결된 흥행작 프로파일이 없어요')"""
+        )
+        assert widget.locator('[data-role="dock-success-feedback"]').is_disabled()
+        page.evaluate(
+            """async (id) => {
+              await linkSuccessProfileToProject(id, { quiet: true });
+            }""",
+            info["bId"],
+        )
+        page.wait_for_function(
+            """(title) => document.querySelector(
+              '[data-float-key="dock:successProfile"]'
+            )?.textContent.includes(title)""",
+            arg=info["bTitle"],
+        )
+        page.screenshot(path=str(OUT / "05_success_profile_dock_summary.png"), full_page=True)
+
+        widget.locator('[data-role="dock-success-feedback"]').click()
+        assert page.locator("#aiMode").input_value() == "successfeedback"
+        page.evaluate(
+            """() => document.querySelector(
+              '[data-float-key="dock:successProfile"] [data-role="dock-success-chat"]'
+            )?.click()"""
+        )
+        page.wait_for_function("() => getToryChatMode() === 'successAnalysis'")
+        page.evaluate(
+            """() => document.querySelector(
+              '[data-float-key="dock:successProfile"] [data-role="dock-success-full"]'
+            )?.click()"""
+        )
+        page.wait_for_function("() => state.settingsCollectionKind === 'successProfile'")
+        page.evaluate(
+            """() => document.querySelector(
+              '[data-float-key="dock:successProfile"] [data-role="dock-success-new"]'
+            )?.click()"""
+        )
+        page.wait_for_function(
+            "() => !document.querySelector('#successPatternModal')?.classList.contains('hidden')"
+        )
+        page.screenshot(path=str(OUT / "05_success_profile_dock.png"), full_page=True)
 
         # Full settings panel
         page.screenshot(path=str(OUT / "04_settings_full.png"), full_page=True)
         browser.close()
 
     print("OK", info)
-    print("status linked:", status)
-    print("status unlinked:", status2)
-    print("status switched:", status3)
     TD.cleanup()
     server.shutdown()
     return 0

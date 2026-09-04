@@ -9483,6 +9483,9 @@ async function loadProject() {
     if (typeof renderLinkedSuccessProfileCard === "function") {
       renderLinkedSuccessProfileCard().catch(() => {});
     }
+    if (typeof syncDockSuccessProfileFloat === "function") {
+      syncDockSuccessProfileFloat();
+    }
   }
   if (!stillCurrent()) return;
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
@@ -13364,6 +13367,11 @@ const DOCK_BAITS_DEFAULT_W = 360;
 const DOCK_BAITS_DEFAULT_H = 420;
 const DOCK_BAITS_MIN_W = 280;
 const DOCK_BAITS_MIN_H = 240;
+const DOCK_SUCCESS_PROFILE_KEY = "dock:successProfile";
+const DOCK_SUCCESS_PROFILE_DEFAULT_W = 380;
+const DOCK_SUCCESS_PROFILE_DEFAULT_H = 520;
+const DOCK_SUCCESS_PROFILE_MIN_W = 300;
+const DOCK_SUCCESS_PROFILE_MIN_H = 320;
 const DOCK_MANUSCRIPT_KEY = "dock:manuscript";
 const DOCK_MANUSCRIPT_DEFAULT_W = 320;
 const DOCK_MANUSCRIPT_DEFAULT_H = 480;
@@ -13450,6 +13458,7 @@ function pruneAndSyncIdeaFloats() {
       if (id === DOCK_WORLD_KEY) syncDockWorldFloat();
       if (id === DOCK_ITEM_KEY) syncDockItemsFloat();
       if (id === DOCK_BAITS_KEY) syncDockBaitsFloat();
+      if (id === DOCK_SUCCESS_PROFILE_KEY) syncDockSuccessProfileFloat();
       if (id === DOCK_MANUSCRIPT_KEY) syncDockManuscriptFloat();
       if (String(id).startsWith(DOCK_WORLD_KEY_PREFIX)) {
         syncDockWorldCard(id);
@@ -13802,6 +13811,18 @@ const DOCK_FLOAT_SPECS = {
     resize: { minWidth: DOCK_BAITS_MIN_W, minHeight: DOCK_BAITS_MIN_H },
     render(body) { renderDockBaitsBody(body); },
   },
+  successProfile: {
+    titleKey: "app.흥행작_프로파일",
+    windowClass: "dock-float-success-profile",
+    side: "left",
+    defaultWidth: DOCK_SUCCESS_PROFILE_DEFAULT_W,
+    defaultHeight: DOCK_SUCCESS_PROFILE_DEFAULT_H,
+    resize: {
+      minWidth: DOCK_SUCCESS_PROFILE_MIN_W,
+      minHeight: DOCK_SUCCESS_PROFILE_MIN_H,
+    },
+    render(body) { renderDockSuccessProfileBody(body).catch(handleError); },
+  },
   manuscript: {
     titleKey: "index.목차보기",
     windowClass: "dock-float-manuscript",
@@ -14041,6 +14062,173 @@ function syncDockIdeasFloat() {
   const win = ideaFloatWindows.get("dock:ideas");
   if (!win) return;
   renderDockIdeasBody(win.querySelector("[data-role='dock-float-body']"));
+}
+
+function dockSuccessProfileSectionLabel(key, fallback = "") {
+  const labels = {
+    front: i18n.t("app.앞부분"),
+    middle: i18n.t("app.중간부분"),
+    ending: i18n.t("app.결말부분"),
+  };
+  return labels[String(key || "")] || String(fallback || key || "");
+}
+
+function dockSuccessProfileFieldHtml(labelKey, value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  return `
+    <section class="dock-success-profile-field">
+      <h4>${escapeHtml(i18n.t(labelKey))}</h4>
+      <p>${escapeHtml(text)}</p>
+    </section>`;
+}
+
+function openDockSuccessFeedback() {
+  if (!getLinkedSuccessProfileId()) {
+    toast(i18n.t("app.먼저_설정집에서_흥행작_프로파일을_연결해_주세요"));
+    return false;
+  }
+  setAiPanelOpen(true);
+  setAiPanelTab("tools");
+  setAiHelperPane("select");
+  return setAiModeValue("successfeedback");
+}
+
+async function openDockSuccessAnalyst() {
+  if (!getLinkedSuccessProfileId()) {
+    toast(i18n.t("app.먼저_흥행_프로파일을_이_작품에_연결해_주세"));
+    return false;
+  }
+  const profile = await ensureLinkedSuccessProfile();
+  if (!profile) {
+    toast(i18n.t("app.흥행_프로파일을_불러오지_못했어요"));
+    return false;
+  }
+  if (!setToryChatMode("successAnalysis")) return false;
+  setAiPanelOpen(true);
+  setAiPanelTab("chat", { chatHub: "tory" });
+  requestAnimationFrame(() => $("toryChatInput")?.focus());
+  return true;
+}
+
+function openDockSuccessProfileSettings() {
+  return openSettingsCollectionMain("successProfile");
+}
+
+function openDockNewSuccessAnalysis() {
+  setAiPanelOpen(true);
+  setAiPanelTab("tools");
+  setAiHelperPane("select");
+  setAiModeValue("successpattern");
+}
+
+function paintDockSuccessProfileBody(body, profiles, linkedId) {
+  if (!body) return;
+  const catalog = Array.isArray(profiles) ? profiles : [];
+  const profile = linkedId
+    ? catalog.find((item) => Number(item.id) === Number(linkedId)) || null
+    : null;
+  const details = profile?.profile && typeof profile.profile === "object"
+    ? profile.profile
+    : {};
+  const sections = Array.isArray(profile?.analyzed_sections)
+    ? profile.analyzed_sections
+    : [];
+  const analyzedEpisodes = Number(profile?.quantitative?.total_episodes)
+    || sections.reduce((sum, section) => sum + (Number(section?.episode_count) || 0), 0);
+  const sectionText = sections.map((section) => {
+    const label = dockSuccessProfileSectionLabel(section?.key, section?.label);
+    const count = Math.max(0, Number(section?.episode_count) || 0);
+    return count
+      ? i18n.t("index.분석_구간_항목_n화", { label, n: count })
+      : label;
+  }).filter(Boolean).join(" · ");
+  const options = catalog.map((item) => {
+    const id = Number(item.id);
+    const title = String(item.work_title || i18n.t("app.제목_없음")).trim()
+      || i18n.t("app.제목_없음");
+    return `<option value="${id}"${Number(linkedId) === id ? " selected" : ""}>${escapeHtml(title)} (#${id})</option>`;
+  }).join("");
+
+  body.innerHTML = `
+    <div class="dock-success-profile">
+      ${profile ? `
+        <div class="dock-success-profile-heading">
+          <strong>${escapeHtml(profile.work_title || i18n.t("app.제목_없음"))}</strong>
+          <span>#${Number(profile.id)}</span>
+        </div>
+        ${dockSuccessProfileFieldHtml("app.종합_요약", details.summary)}
+        <div class="dock-success-profile-grid">
+          ${dockSuccessProfileFieldHtml("index.끝맺음_훅", details.hook_style)}
+          ${dockSuccessProfileFieldHtml("index.전개_패턴", details.pacing_pattern)}
+          ${dockSuccessProfileFieldHtml("index.대사_지문_비중", details.dialogue_narration_balance)}
+          ${dockSuccessProfileFieldHtml("index.문체_특징", details.style_signature)}
+        </div>
+        <section class="dock-success-profile-stats">
+          <h4>${escapeHtml(i18n.t("index.분석_범위"))}</h4>
+          <p>${escapeHtml(sectionText || i18n.t("app.기록_없음"))}</p>
+          <p class="hint">${escapeHtml(i18n.t("index.분석_n화_원작_총_total화", {
+            n: analyzedEpisodes,
+            total: profile.total_chapters ?? "—",
+          }))}</p>
+        </section>
+      ` : `
+        <div class="dock-success-profile-empty">
+          <strong>${escapeHtml(i18n.t("app.아직_연결된_흥행작_프로파일이_없어요"))}</strong>
+          <p class="hint">${escapeHtml(i18n.t("index.저장된_프로파일을_아래에서_연결해_보세요"))}</p>
+        </div>
+      `}
+      <label class="dock-success-profile-switch">
+        <span>${escapeHtml(i18n.t("app.다른_프로파일로_교체"))}</span>
+        <select data-role="dock-success-profile-select"${catalog.length && state.projectId ? "" : " disabled"}>
+          <option value="">${escapeHtml(catalog.length ? i18n.t("index.프로파일_선택") : i18n.t("index.저장된_프로파일_없음"))}</option>
+          ${options}
+        </select>
+      </label>
+      <div class="dock-success-profile-actions">
+        <button type="button" class="secondary compact-btn" data-role="dock-success-feedback"${profile ? "" : " disabled"}>${escapeHtml(i18n.t("app.흥행_공식_피드백"))}</button>
+        <button type="button" class="secondary compact-btn" data-role="dock-success-chat"${profile ? "" : " disabled"}>${escapeHtml(i18n.t("index.분석가와_대화"))}</button>
+        <button type="button" class="secondary compact-btn" data-role="dock-success-full">${escapeHtml(i18n.t("index.전체_분석_보기"))}</button>
+        <button type="button" class="primary compact-btn" data-role="dock-success-new">${escapeHtml(i18n.t("index.새_분석"))}</button>
+      </div>
+    </div>
+  `;
+
+  body.querySelector("[data-role='dock-success-profile-select']")?.addEventListener("change", (event) => {
+    const nextId = Number(event.currentTarget.value);
+    if (!Number.isFinite(nextId) || nextId <= 0 || nextId === Number(getLinkedSuccessProfileId())) return;
+    linkSuccessProfileToProject(nextId).catch(handleError);
+  });
+  body.querySelector("[data-role='dock-success-feedback']")?.addEventListener("click", openDockSuccessFeedback);
+  body.querySelector("[data-role='dock-success-chat']")?.addEventListener("click", () => {
+    openDockSuccessAnalyst().catch(handleError);
+  });
+  body.querySelector("[data-role='dock-success-full']")?.addEventListener("click", openDockSuccessProfileSettings);
+  body.querySelector("[data-role='dock-success-new']")?.addEventListener("click", openDockNewSuccessAnalysis);
+}
+
+async function renderDockSuccessProfileBody(body) {
+  if (!body) return;
+  const generation = ++dockSuccessProfileLoadGen;
+  const projectId = Number(state.projectId) || 0;
+  body.innerHTML = `<p class="hint">${escapeHtml(
+    projectId ? i18n.t("app.불러오는_중") : i18n.t("app.먼저_작품을_선택해_주세요"),
+  )}</p>`;
+  if (!projectId) {
+    paintDockSuccessProfileBody(body, [], null);
+    return;
+  }
+  const profiles = await listSuccessProfiles();
+  if (generation !== dockSuccessProfileLoadGen || projectId !== Number(state.projectId)) return;
+  paintDockSuccessProfileBody(body, profiles, getLinkedSuccessProfileId());
+}
+
+function syncDockSuccessProfileFloat() {
+  const win = ideaFloatWindows.get(DOCK_SUCCESS_PROFILE_KEY);
+  if (!win) return;
+  renderDockSuccessProfileBody(
+    win.querySelector("[data-role='dock-float-body']"),
+  ).catch(handleError);
 }
 
 function dockFloatResizeConfig(spec) {
@@ -56439,6 +56627,7 @@ async function linkSuccessProfileToProject(profileId, { quiet = false } = {}) {
   if (typeof renderLinkedSuccessProfileCard === "function") {
     await renderLinkedSuccessProfileCard();
   }
+  syncDockSuccessProfileFloat();
   if (!quiet) {
     toast(
       state.linkedSuccessProfileId
@@ -56627,6 +56816,7 @@ async function renameSuccessProfile(profileId) {
   }
   setSuccessProfileMenuOpen(false);
   await renderLinkedSuccessProfileCard();
+  syncDockSuccessProfileFloat();
   toast(i18n.t("app.프로파일_이름을_수정했어요"));
 }
 
@@ -56661,6 +56851,7 @@ async function deleteSuccessProfile(profileId) {
   if (typeof renderAiModePickerMenu === "function") renderAiModePickerMenu();
   if (typeof updateSuccessFeedbackGuideUi === "function") updateSuccessFeedbackGuideUi();
   await renderLinkedSuccessProfileCard();
+  syncDockSuccessProfileFloat();
   toast(i18n.t("app.프로파일을_삭제했어요_n개_작품_연결_해제", {
     n: Number(result?.unlinked_projects) || 0,
   }));
