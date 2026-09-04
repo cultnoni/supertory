@@ -882,6 +882,9 @@
   "app.일시정지_time": "Pausado ${time}",
   "app.기록_중_label_textContent": "Grabando ${label.textContent}",
   "app.기록": "Historial",
+  "app.모래시계": "Reloj de arena",
+  "app.알람_시계": "Despertador",
+  "app.스탑워치": "Cronómetro",
   "app.타이머를_멈췄어요_글자수_시간은_자동_집계가": "Temporizador detenido. El recuento de caracteres/tiempo continúa automáticamente.",
   "app.집필_시간_기록을_멈췄어요_글자수는_자동으로": "Se detuvo el seguimiento del tiempo de escritura. El recuento de caracteres sigue automáticamente.",
   "app.수동_기록을_멈췄어요_글쓴_시간은_자동_집계": "Se detuvo el seguimiento manual. El seguimiento del tiempo de escritura continúa automáticamente.",
@@ -4600,5 +4603,14 @@
   "app.거절됨": "Rechazada",
   "app.수정_조각을_수락했어요": "Se aplicó esa sugerencia al manuscrito.",
   "app.수정_조각을_거절했어요": "Se rechazó esa sugerencia.",
-  "app.수정_n건": "${n} ediciones"
+  "app.수정_n건": "${n} ediciones",
+  "app.위젯_투명도": "Transparencia de widgets",
+  "app.위젯_투명도_설명": "Ajusta la transparencia y la profundidad del degradado de las tarjetas flotantes. El texto y los controles permanecen nítidos.",
+  "app.투명도": "Transparencia",
+  "app.그라데이션": "Degradado",
+  "app.위젯_그라데이션_강도": "Intensidad del degradado del widget",
+  "app.기록_위젯_디자인": "Diseño del widget de registro",
+  "app.기록_위젯_디자인_설명": "Elige el aspecto del widget de registro del riel. Se sincroniza con el botón de registro de la barra.",
+  "app.기록_위젯_대기_안내": "Haz clic para iniciar el seguimiento de escritura",
+  "app.기록_위젯_기록중_안내": "Haz clic para detener el seguimiento"
 }

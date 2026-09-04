@@ -882,6 +882,9 @@
   "app.일시정지_time": "Paused ${time}",
   "app.기록_중_label_textContent": "Recording ${label.textContent}",
   "app.기록": "History",
+  "app.모래시계": "Hourglass",
+  "app.알람_시계": "Alarm clock",
+  "app.스탑워치": "Stopwatch",
   "app.타이머를_멈췄어요_글자수_시간은_자동_집계가": "Timer stopped. Character count/time tracking continues automatically.",
   "app.집필_시간_기록을_멈췄어요_글자수는_자동으로": "Stopped writing time tracking. Character count continues to be tracked automatically.",
   "app.수동_기록을_멈췄어요_글쓴_시간은_자동_집계": "Stopped manual tracking. Writing time tracking continues automatically.",
@@ -4600,5 +4603,14 @@
   "app.거절됨": "Rejected",
   "app.수정_조각을_수락했어요": "Applied that suggested edit to the manuscript.",
   "app.수정_조각을_거절했어요": "Rejected that suggested edit.",
-  "app.수정_n건": "${n} edits"
+  "app.수정_n건": "${n} edits",
+  "app.위젯_투명도": "Widget transparency",
+  "app.위젯_투명도_설명": "Adjust the transparency and gradient depth of floating widget cards. Text and controls remain crisp.",
+  "app.투명도": "Transparency",
+  "app.그라데이션": "Gradient",
+  "app.위젯_그라데이션_강도": "Widget gradient intensity",
+  "app.기록_위젯_디자인": "Log widget design",
+  "app.기록_위젯_디자인_설명": "Choose how the left-rail log widget looks. It stays linked to the toolbar log button.",
+  "app.기록_위젯_대기_안내": "Click to start writing tracking",
+  "app.기록_위젯_기록중_안내": "Click to stop tracking"
 }

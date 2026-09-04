@@ -13332,6 +13332,11 @@ function floatStoreKey(raw) {
 const DOCK_STATS_TRACKER_KEY = "dock:statsTracker";
 const DOCK_TRACKER_OPEN_KEY = "supertory.dock.statsTracker.open";
 const DOCK_TRACKER_LAYOUT_KEY = "supertory.dock.statsTracker.layout";
+const DOCK_WRITING_TIMER_KEY = "dock:writingTimer";
+const DOCK_WRITING_TIMER_OPEN_KEY = "supertory.dock.writingTimer.open";
+const DOCK_WRITING_TIMER_LAYOUT_KEY = "supertory.dock.writingTimer.layout";
+const WRITING_TIMER_STYLE_KEY = "supertory.writingTimerStyle";
+const WRITING_TIMER_STYLES = ["hourglass", "alarm", "stopwatch"];
 const DOCK_CHAR_KEY_PREFIX = "dock:character:";
 const DOCK_CHAR_DEFAULT_W = 280;
 const DOCK_CHAR_DEFAULT_H = 360;
@@ -13390,11 +13395,13 @@ const DOCK_SETTINGS_SEARCH_MIN_H = 240;
 const DOCK_RAIL_FLOAT_KEYS = {
   ideas: "dock:ideas",
   statsTracker: DOCK_STATS_TRACKER_KEY,
+  writingTimer: DOCK_WRITING_TIMER_KEY,
   characters: "dock:characters",
   world: DOCK_WORLD_KEY,
   items: DOCK_ITEM_KEY,
   timeline: DOCK_TIMELINE_KEY,
   baits: DOCK_BAITS_KEY,
+  successProfile: DOCK_SUCCESS_PROFILE_KEY,
   manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
 };
@@ -13431,6 +13438,7 @@ function rememberIdeaFloatLayout(win, ideaId) {
     z,
   });
   if (id === DOCK_STATS_TRACKER_KEY) persistDockTrackerLayout(ideaFloatLayouts.get(id));
+  if (id === DOCK_WRITING_TIMER_KEY) persistDockWritingTimerLayout(ideaFloatLayouts.get(id));
 }
 
 function applyIdeaFloatLayout(win, ideaId, fallbackLeft, fallbackTop) {
@@ -13638,17 +13646,21 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
   ideaFloatWindows.delete(id);
   ideaFloatLayouts.delete(id);
   if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false);
+  if (id === DOCK_WRITING_TIMER_KEY) setDockWritingTimerOpenPref(false);
   syncDockRailButtons();
 }
 
 function closeAllIdeaFloats() {
   const trackerLayout = ideaFloatLayouts.get(DOCK_STATS_TRACKER_KEY);
+  const writingTimerLayout = ideaFloatLayouts.get(DOCK_WRITING_TIMER_KEY);
   for (const id of [...ideaFloatWindows.keys()]) {
     if (id === DOCK_STATS_TRACKER_KEY) continue;
+    if (id === DOCK_WRITING_TIMER_KEY) continue;
     closeIdeaFloat(id, { skipSave: true });
   }
   ideaFloatLayouts.clear();
   if (trackerLayout) ideaFloatLayouts.set(DOCK_STATS_TRACKER_KEY, trackerLayout);
+  if (writingTimerLayout) ideaFloatLayouts.set(DOCK_WRITING_TIMER_KEY, writingTimerLayout);
   ideaFloatZ = 1;
   dockCharacterDetailCache.clear();
   dockItemDetailCache.clear();
@@ -13775,6 +13787,21 @@ const DOCK_FLOAT_SPECS = {
     },
     render(body) { renderDockStatsTracker(body); },
   },
+  writingTimer: {
+    titleKey: "app.기록",
+    compact: true,
+    pinned: true,
+    windowClass: "dock-float-writing-timer",
+    resize: false,
+    fallbackPos() { return dockWritingTimerFallbackPos(); },
+    seedLayout() { return loadDockWritingTimerLayout(); },
+    onOpen() {
+      setDockWritingTimerOpenPref(true);
+      syncDockRailButtons();
+      syncDockWritingTimer();
+    },
+    render(body) { renderDockWritingTimer(body); },
+  },
   characters: {
     titleKey: "app.캐릭터",
     side: "left",
@@ -13895,6 +13922,81 @@ function loadDockTrackerLayout() {
   }
 }
 
+function isDockWritingTimerOpenPref() {
+  try {
+    const stored = localStorage.getItem(DOCK_WRITING_TIMER_OPEN_KEY);
+    if (stored === "0") return false;
+    if (stored === "1") return true;
+  } catch (_) {
+    /* private mode */
+  }
+  return false;
+}
+
+function setDockWritingTimerOpenPref(open) {
+  try {
+    localStorage.setItem(DOCK_WRITING_TIMER_OPEN_KEY, open ? "1" : "0");
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function persistDockWritingTimerLayout(layout) {
+  if (!layout || !Number.isFinite(Number(layout.left)) || !Number.isFinite(Number(layout.top))) return;
+  try {
+    localStorage.setItem(DOCK_WRITING_TIMER_LAYOUT_KEY, JSON.stringify({
+      left: Math.round(Number(layout.left)),
+      top: Math.round(Number(layout.top)),
+      z: Number(layout.z) || 1,
+    }));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function loadDockWritingTimerLayout() {
+  try {
+    const raw = localStorage.getItem(DOCK_WRITING_TIMER_LAYOUT_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const left = Number(parsed?.left);
+    const top = Number(parsed?.top);
+    if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
+    const maxLeft = Math.max(8, window.innerWidth - 48);
+    const maxTop = Math.max(8, window.innerHeight - 40);
+    return {
+      left: Math.min(maxLeft, Math.max(8, Math.round(left))),
+      top: Math.min(maxTop, Math.max(8, Math.round(top))),
+      z: Number(parsed?.z) || 1,
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
+function normalizeWritingTimerStyle(value) {
+  const style = String(value || "").trim().toLowerCase();
+  return WRITING_TIMER_STYLES.includes(style) ? style : "hourglass";
+}
+
+function loadWritingTimerStyle() {
+  try {
+    return normalizeWritingTimerStyle(localStorage.getItem(WRITING_TIMER_STYLE_KEY));
+  } catch (_) {
+    return "hourglass";
+  }
+}
+
+function saveWritingTimerStyle(style) {
+  const next = normalizeWritingTimerStyle(style);
+  try {
+    localStorage.setItem(WRITING_TIMER_STYLE_KEY, next);
+  } catch (_) {
+    /* private mode */
+  }
+  return next;
+}
+
 function dockRailFloatKey(itemId) {
   return DOCK_RAIL_FLOAT_KEYS[itemId] || "";
 }
@@ -13953,6 +14055,16 @@ function dockTrackerFallbackPos() {
   };
 }
 
+function dockWritingTimerFallbackPos() {
+  const width = 220;
+  const height = 210;
+  const base = dockTrackerFallbackPos();
+  return {
+    left: base.left,
+    top: Math.max(8, base.top - height - 12),
+  };
+}
+
 function dockStatsFlagLabels(snapshot = lastStatusBarCountSnapshot) {
   const scope = snapshot?.scope === "project" ? "project" : "current";
   const space = snapshot?.space === "without" ? "without" : "with";
@@ -14002,6 +14114,167 @@ function syncDockStatsTracker() {
   const win = ideaFloatWindows.get(DOCK_STATS_TRACKER_KEY);
   if (!win) return;
   renderDockStatsTracker(win.querySelector("[data-role='dock-float-body']"), lastStatusBarCountSnapshot);
+}
+
+function writingTimerSandRatio(seconds) {
+  const sec = Math.max(0, Number(seconds) || 0);
+  // 한 주기(25분)마다 위→아래 모래가 천천히 이동
+  const cycle = 25 * 60;
+  const t = (sec % cycle) / cycle;
+  return Math.max(0.06, Math.min(0.94, 1 - t));
+}
+
+function dockWritingTimerFaceHtml(style, seconds, recording) {
+  const time = formatRecordingClock(seconds);
+  const idle = recording
+    && writingTracker.lastActivityAt
+    && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
+  const topSand = writingTimerSandRatio(seconds);
+  const botSand = 1 - topSand;
+  if (style === "alarm") {
+    const min = Math.floor(seconds / 60) % 60;
+    const sec = seconds % 60;
+    const minDeg = (min / 60) * 360 + (sec / 60) * 6;
+    const secDeg = (sec / 60) * 360;
+    return `
+      <div class="dock-timer-alarm${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true">
+        <span class="dock-timer-alarm-bell left"></span>
+        <span class="dock-timer-alarm-bell right"></span>
+        <span class="dock-timer-alarm-feet"></span>
+        <div class="dock-timer-alarm-face">
+          <span class="dock-timer-alarm-tick" style="--i:0"></span>
+          <span class="dock-timer-alarm-tick" style="--i:1"></span>
+          <span class="dock-timer-alarm-tick" style="--i:2"></span>
+          <span class="dock-timer-alarm-tick" style="--i:3"></span>
+          <span class="dock-timer-alarm-hand dock-timer-alarm-hand-min" style="--deg:${minDeg}deg"></span>
+          <span class="dock-timer-alarm-hand dock-timer-alarm-hand-sec" style="--deg:${secDeg}deg"></span>
+          <span class="dock-timer-alarm-hub"></span>
+        </div>
+      </div>
+      <div class="dock-timer-readout">${escapeHtml(idle ? i18n.t("app.일시정지_time", { time }) : time)}</div>
+    `;
+  }
+  if (style === "stopwatch") {
+    const ring = Math.min(100, ((seconds % 60) / 60) * 100);
+    return `
+      <div class="dock-timer-stopwatch${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true">
+        <span class="dock-timer-stopwatch-crown"></span>
+        <span class="dock-timer-stopwatch-btn left"></span>
+        <span class="dock-timer-stopwatch-btn right"></span>
+        <div class="dock-timer-stopwatch-ring" style="--ring:${ring}%">
+          <div class="dock-timer-stopwatch-digits">${escapeHtml(time)}</div>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="dock-timer-hourglass${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true"
+      style="--sand-top:${(topSand * 100).toFixed(1)}%; --sand-bot:${(botSand * 100).toFixed(1)}%">
+      <div class="dock-hg-stand">
+        <span class="dock-hg-rail left"></span>
+        <span class="dock-hg-rail right"></span>
+        <div class="dock-hg-bulb top">
+          <div class="dock-hg-sand top"></div>
+          <span class="dock-hg-glint"></span>
+        </div>
+        <div class="dock-hg-neck">
+          <span class="dock-hg-stream"></span>
+          <span class="dock-hg-grain g1"></span>
+          <span class="dock-hg-grain g2"></span>
+          <span class="dock-hg-grain g3"></span>
+        </div>
+        <div class="dock-hg-bulb bot">
+          <div class="dock-hg-sand bot"></div>
+          <span class="dock-hg-glint"></span>
+        </div>
+      </div>
+    </div>
+    <div class="dock-timer-readout">${escapeHtml(idle ? i18n.t("app.일시정지_time", { time }) : time)}</div>
+  `;
+}
+
+function renderDockWritingTimer(body) {
+  if (!body) return;
+  const style = loadWritingTimerStyle();
+  const recording = Boolean(writingTracker.recording);
+  const seconds = recording ? liveRecordingSeconds() : 0;
+  const styleOptions = [
+    { id: "hourglass", labelKey: "app.모래시계" },
+    { id: "alarm", labelKey: "app.알람_시계" },
+    { id: "stopwatch", labelKey: "app.스탑워치" },
+  ].map((item) => `
+    <button type="button"
+      class="dock-timer-style-btn${style === item.id ? " is-active" : ""}"
+      data-role="dock-timer-style"
+      data-style="${item.id}"
+      title="${escapeHtml(i18n.t(item.labelKey))}"
+      aria-label="${escapeHtml(i18n.t(item.labelKey))}"
+      aria-pressed="${style === item.id ? "true" : "false"}">${escapeHtml(i18n.t(item.labelKey))}</button>
+  `).join("");
+  body.innerHTML = `
+    <div class="dock-timer-card" data-timer-style="${escapeHtml(style)}" data-recording="${recording ? "1" : "0"}">
+      <div class="dock-timer-style-picks" role="group" aria-label="${escapeHtml(i18n.t("app.기록_위젯_디자인"))}">
+        ${styleOptions}
+      </div>
+      <button type="button" class="dock-timer-face" data-role="dock-timer-toggle"
+        title="${escapeHtml(recording ? i18n.t("app.클릭_집필_시간_기록_정지_우클릭_달력_설정") : i18n.t("app.클릭_집필_시간_기록_시작_정지_글자수는_자"))}"
+        aria-pressed="${recording ? "true" : "false"}">
+        ${dockWritingTimerFaceHtml(style, seconds, recording)}
+      </button>
+      <p class="dock-timer-hint">${escapeHtml(recording ? i18n.t("app.기록_위젯_기록중_안내") : i18n.t("app.기록_위젯_대기_안내"))}</p>
+    </div>
+  `;
+  body.querySelectorAll("[data-role='dock-timer-style']").forEach((btn) => {
+    btn.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      saveWritingTimerStyle(btn.dataset.style);
+      syncWritingTimerStyleForm();
+      syncDockWritingTimer();
+    });
+  });
+  body.querySelector("[data-role='dock-timer-toggle']")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleWritingRecording();
+  });
+}
+
+function syncDockWritingTimer() {
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  if (!win) return;
+  const body = win.querySelector("[data-role='dock-float-body']");
+  if (!body) return;
+  const style = loadWritingTimerStyle();
+  const recording = Boolean(writingTracker.recording);
+  const seconds = recording ? liveRecordingSeconds() : 0;
+  const card = body.querySelector(".dock-timer-card");
+  const face = body.querySelector("[data-role='dock-timer-toggle']");
+  const hint = body.querySelector(".dock-timer-hint");
+  if (!card || !face) {
+    renderDockWritingTimer(body);
+    return;
+  }
+  card.dataset.timerStyle = style;
+  card.dataset.recording = recording ? "1" : "0";
+  face.setAttribute("aria-pressed", recording ? "true" : "false");
+  face.innerHTML = dockWritingTimerFaceHtml(style, seconds, recording);
+  if (hint) {
+    hint.textContent = recording
+      ? i18n.t("app.기록_위젯_기록중_안내")
+      : i18n.t("app.기록_위젯_대기_안내");
+  }
+  body.querySelectorAll("[data-role='dock-timer-style']").forEach((btn) => {
+    const on = btn.dataset.style === style;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+  });
+}
+
+function syncWritingTimerStyleForm() {
+  const style = loadWritingTimerStyle();
+  document.querySelectorAll('input[name="writingTimerStylePref"]').forEach((input) => {
+    input.checked = input.value === style;
+  });
 }
 
 function dockFloatFallbackPos(side, sourceEl, width = 320) {
@@ -15985,17 +16258,135 @@ function syncOpenCharacterCardMenu(editor, event) {
   if (itemHint) itemHint.textContent = itemHit?.name ? itemHit.name : "";
 }
 
+const DOCK_RAIL_ORDER_KEYS = {
+  left: "supertory.dockRailOrder.left.v1",
+  right: "supertory.dockRailOrder.right.v1",
+};
+const DOCK_RAIL_DRAG_THRESHOLD = 6;
+
+function dockRailOrderStorageKey(rail) {
+  const side = String(rail?.dataset?.dockSide || "").toLowerCase();
+  return DOCK_RAIL_ORDER_KEYS[side] || "";
+}
+
+function persistDockRailOrder(rail) {
+  const key = dockRailOrderStorageKey(rail);
+  const container = rail?.querySelector(".panel-dock-rail-items");
+  if (!key || !container) return;
+  const order = [...container.querySelectorAll(":scope > [data-dock-item]")]
+    .map((item) => String(item.dataset.dockItem || ""))
+    .filter(Boolean);
+  try {
+    localStorage.setItem(key, JSON.stringify(order));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function restoreDockRailOrder(rail) {
+  const key = dockRailOrderStorageKey(rail);
+  const container = rail?.querySelector(".panel-dock-rail-items");
+  if (!key || !container) return;
+  let order = [];
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    if (Array.isArray(parsed)) order = parsed.map(String);
+  } catch (_) {
+    order = [];
+  }
+  const byId = new Map(
+    [...container.querySelectorAll(":scope > [data-dock-item]")]
+      .map((item) => [String(item.dataset.dockItem || ""), item]),
+  );
+  order.forEach((itemId) => {
+    const item = byId.get(itemId);
+    if (!item) return;
+    container.appendChild(item);
+    byId.delete(itemId);
+  });
+  byId.forEach((item) => container.appendChild(item));
+}
+
+function setupDockRailSorting(rail) {
+  const container = rail?.querySelector(".panel-dock-rail-items");
+  if (!container || container.dataset.sortBound === "1") return;
+  container.dataset.sortBound = "1";
+  let gesture = null;
+
+  const finish = (event) => {
+    if (!gesture) return;
+    const { dragged, item } = gesture;
+    gesture = null;
+    if (dragged) {
+      persistDockRailOrder(rail);
+      rail.dataset.suppressDockClickUntil = String(Date.now() + 350);
+      event?.preventDefault?.();
+    }
+    item?.classList.remove("is-dock-order-dragging");
+    rail.classList.remove("is-dock-ordering");
+    document.body.classList.remove("dock-rail-ordering");
+  };
+
+  container.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0 || gesture) return;
+    const item = event.target?.closest?.("[data-dock-item]");
+    if (!item || item.parentElement !== container) return;
+    gesture = {
+      item,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      dragged: false,
+    };
+  });
+
+  document.addEventListener("pointermove", (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    const distance = Math.hypot(
+      event.clientX - gesture.startX,
+      event.clientY - gesture.startY,
+    );
+    if (!gesture.dragged && distance < DOCK_RAIL_DRAG_THRESHOLD) return;
+    if (!gesture.dragged) {
+      gesture.dragged = true;
+      gesture.item.classList.add("is-dock-order-dragging");
+      rail.classList.add("is-dock-ordering");
+      document.body.classList.add("dock-rail-ordering");
+    }
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest?.("[data-dock-item]");
+    if (!target || target === gesture.item || target.parentElement !== container) return;
+    const rect = target.getBoundingClientRect();
+    const before = event.clientY < rect.top + rect.height / 2;
+    container.insertBefore(gesture.item, before ? target : target.nextElementSibling);
+  }, { passive: false });
+
+  document.addEventListener("pointerup", (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    finish(event);
+  });
+  document.addEventListener("pointercancel", (event) => {
+    if (!gesture || event.pointerId !== gesture.pointerId) return;
+    finish(event);
+  });
+}
+
 function setupPanelDock() {
   document.querySelectorAll(".panel-dock-rail").forEach((rail) => {
+    restoreDockRailOrder(rail);
+    setupDockRailSorting(rail);
     rail.addEventListener("click", (event) => {
       const item = event.target?.closest?.("[data-dock-item]");
       if (!item || !rail.contains(item)) return;
       event.preventDefault();
+      if (Number(rail.dataset.suppressDockClickUntil || 0) > Date.now()) return;
       toggleDockFloat(item.dataset.dockItem, item);
     });
   });
   setupDockCharacterNameClicks();
   if (isDockTrackerOpenPref()) openDockFloat("statsTracker");
+  if (isDockWritingTimerOpenPref()) openDockFloat("writingTimer");
   syncDockRailButtons();
 }
 
@@ -25337,14 +25728,17 @@ function updateWritingLogButtonUi() {
     if (el !== label) el.remove();
   });
   btn.replaceChildren(icon, label, badge);
+  syncDockWritingTimer();
 }
 
 function startWritingUiTimer() {
   if (writingTracker.uiTimer) return;
   writingTracker.uiTimer = window.setInterval(() => {
-    // Only need per-second refresh when the clock is visible on the button
-    if (writingTracker.recording && isWritingTimerVisible()) {
+    const dockOpen = ideaFloatWindows.has(DOCK_WRITING_TIMER_KEY);
+    if (writingTracker.recording && (isWritingTimerVisible() || dockOpen)) {
       updateWritingLogButtonUi();
+    } else if (dockOpen) {
+      syncDockWritingTimer();
     }
   }, 1000);
 }
@@ -26134,6 +26528,11 @@ async function selectWritingDay(dayKey, { silent = false } = {}) {
 async function saveWritingPrefsFromForm() {
   const showTimer = Boolean($("writingShowTimer")?.checked);
   saveShowTimerPref(showTimer);
+  const styleInput = document.querySelector('input[name="writingTimerStylePref"]:checked');
+  if (styleInput) {
+    saveWritingTimerStyle(styleInput.value);
+    syncDockWritingTimer();
+  }
   const body = {
     chars_auto: Boolean($("writingCharsAuto")?.checked),
     time_auto: Boolean($("writingTimeAuto")?.checked),

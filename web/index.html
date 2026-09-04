@@ -3788,6 +3788,24 @@
             <span data-i18n="app.기록_버튼에_타이머_표시">기록 버튼에 타이머 표시</span>
           </label>
           <p class="hint" data-i18n="index.끄면_기록_중일_때_버튼에_기록중_만_표시됩">끄면 기록 중일 때 버튼에 「기록중」만 표시됩니다.</p>
+          <fieldset class="writing-pref-fieldset writing-timer-style-fieldset">
+            <legend data-i18n="app.기록_위젯_디자인">기록 위젯 디자인</legend>
+            <p class="hint" data-i18n="app.기록_위젯_디자인_설명">왼쪽 레일 기록 위젯 모양을 고릅니다. 도구 아이콘 기록과 연동됩니다.</p>
+            <div class="writing-timer-style-picks" role="radiogroup" aria-label="기록 위젯 디자인" data-i18n-aria-label="app.기록_위젯_디자인">
+              <label class="writing-timer-style-pick">
+                <input type="radio" name="writingTimerStylePref" value="hourglass" checked>
+                <span data-i18n="app.모래시계">모래시계</span>
+              </label>
+              <label class="writing-timer-style-pick">
+                <input type="radio" name="writingTimerStylePref" value="alarm">
+                <span data-i18n="app.알람_시계">알람 시계</span>
+              </label>
+              <label class="writing-timer-style-pick">
+                <input type="radio" name="writingTimerStylePref" value="stopwatch">
+                <span data-i18n="app.스탑워치">스탑워치</span>
+              </label>
+            </div>
+          </fieldset>
           <div class="modal-actions writing-pref-actions">
             <button type="button" class="primary" id="writingPrefsSave" data-i18n="index.설정_저장">설정 저장</button>
           </div>

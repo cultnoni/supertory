@@ -106,6 +106,44 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertEqual(self.locales["ko"]["app.글자_공제"], "공제")
         self.assertIn(".dock-stats-flags", self.css)
 
+    def test_writing_timer_dock_widget(self) -> None:
+        self.assertIn('data-dock-item="writingTimer"', self.html)
+        self.assertIn('data-i18n-title="app.기록"', self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0])
+        writing_timer = self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('<circle cx="12" cy="12" r="8.25"/>', writing_timer)
+        self.assertIn("M12 7.5V12l3 2", writing_timer)
+        tool_timer = self.html.split('id="writingLogButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('<circle cx="12" cy="12" r="8.25"/>', tool_timer)
+        self.assertIn("M12 7.5V12l3 2", tool_timer)
+        self.assertIn('data-i18n="app.기록"', tool_timer)
+        self.assertIn('name="writingTimerStylePref"', self.html)
+        self.assertIn('value="hourglass"', self.html)
+        self.assertIn('value="alarm"', self.html)
+        self.assertIn('value="stopwatch"', self.html)
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("writingTimer:", spec)
+        writing_spec = spec.split("writingTimer:", 1)[1].split("characters:", 1)[0]
+        self.assertIn('windowClass: "dock-float-writing-timer"', writing_spec)
+        self.assertIn('titleKey: "app.기록"', writing_spec)
+        self.assertIn("compact: true", writing_spec)
+        self.assertIn("function renderDockWritingTimer(", self.js)
+        self.assertIn("function syncDockWritingTimer(", self.js)
+        self.assertIn("supertory.dock.writingTimer.open", self.js)
+        self.assertIn("supertory.writingTimerStyle", self.js)
+        self.assertIn('if (isDockWritingTimerOpenPref()) openDockFloat("writingTimer")', self.js)
+        self.assertIn("if (id === DOCK_WRITING_TIMER_KEY) continue;", self.js)
+        self.assertIn(".dock-timer-hourglass", self.css)
+        self.assertIn(".dock-timer-alarm", self.css)
+        self.assertIn(".dock-timer-stopwatch", self.css)
+        self.assertIn("dock-hg-sand", self.css)
+        for locale in self.locales.values():
+            self.assertIn("app.기록", locale)
+            self.assertIn("app.모래시계", locale)
+            self.assertIn("app.알람_시계", locale)
+            self.assertIn("app.스탑워치", locale)
+            self.assertIn("app.기록_위젯_디자인", locale)
+        self.assertEqual(self.locales["ko"]["app.기록"], "기록")
+
     def test_collapsed_grid_keeps_48px_rails(self) -> None:
         self.assertIn("--panel-dock-rail-w: 48px;", self.css)
         self.assertIn(
