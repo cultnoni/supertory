@@ -1224,11 +1224,14 @@
                 <path d="M4.6 18.2h15.8"/>
               </svg>
             </button>
-            <button type="button" class="panel-dock-item is-ready" data-dock-item="ideas" title="생각수첩" data-i18n-title="app.생각수첩" aria-label="생각수첩" data-i18n-aria-label="app.생각수첩">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="writingTimer" title="기록" data-i18n-title="app.기록" aria-label="기록" data-i18n-aria-label="app.기록">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M7 5.5h10a1.5 1.5 0 0 1 1.5 1.5v11.2L16.2 20H7A1.5 1.5 0 0 1 5.5 18.5v-12A1.5 1.5 0 0 1 7 5.5z"/>
-                <path d="M8.8 9.2h6.4M8.8 12.4h6.4M8.8 15.6h4.2"/>
+                <circle cx="12" cy="12" r="8.25"/>
+                <path d="M12 7.5V12l3 2"/>
               </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="ideas" title="생각수첩" data-i18n-title="app.생각수첩" aria-label="생각수첩" data-i18n-aria-label="app.생각수첩">
+              <span class="panel-dock-icon-mask panel-dock-icon-ideas" aria-hidden="true"></span>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="world" title="세계관" data-i18n-title="app.세계관" aria-label="세계관" data-i18n-aria-label="app.세계관">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -1244,34 +1247,29 @@
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="timeline" title="연대기" data-i18n-title="index.연대기" aria-label="연대기" data-i18n-aria-label="index.연대기">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <circle cx="12" cy="12" r="7.25"/>
-                <path d="M12 8.4v4.1l2.9 1.7"/>
+                <path d="M7.4 6.4c0-1.35 1.05-2.2 2.35-2.2h7.4c.75 0 1.35.55 1.35 1.3v12.2c0 1.35-1.05 2.3-2.35 2.3H9.55c-.75 0-1.35-.55-1.35-1.3"/>
+                <path d="M7.4 6.4v11.2c0 .95.75 1.7 1.7 1.7"/>
+                <path d="M10.6 9.1h5.2M10.6 12h5.2M10.6 14.9h3.4"/>
+                <path d="M17.3 4.55c1.15.15 1.95.95 1.95 2.05"/>
               </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="items" title="아이템" data-i18n-title="app.아이템" aria-label="아이템" data-i18n-aria-label="app.아이템">
+              <span class="panel-dock-icon-mask panel-dock-icon-items" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="baits" title="열린 떡밥" data-i18n-title="index.열린_떡밥" aria-label="열린 떡밥" data-i18n-aria-label="index.열린_떡밥">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M12 4.8 19 8.4v7.2L12 19.2 5 15.6V8.4z"/>
                 <path d="M12 19.2V11.6M5 8.4 12 11.6 19 8.4"/>
               </svg>
             </button>
-            <button type="button" class="panel-dock-item is-ready" data-dock-item="baits" title="열린 떡밥" data-i18n-title="index.열린_떡밥" aria-label="열린 떡밥" data-i18n-aria-label="index.열린_떡밥">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M12 4.6v9.2"/>
-                <path d="M8.4 8.2c0-2 1.6-3.4 3.6-3.4s3.6 1.4 3.6 3.4c0 2.6-3.6 4.2-3.6 4.2S8.4 10.8 8.4 8.2z"/>
-                <circle cx="12" cy="17.6" r="1.5"/>
-              </svg>
-            </button>
-            <button type="button" class="panel-dock-item" data-dock-item="successProfile" title="흥행작 프로파일 연결" data-i18n-title="app.흥행작_프로파일_연결" aria-label="흥행작 프로파일 연결" data-i18n-aria-label="app.흥행작_프로파일_연결">
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="successProfile" title="흥행작 프로파일" data-i18n-title="app.흥행작_프로파일" aria-label="흥행작 프로파일" data-i18n-aria-label="app.흥행작_프로파일">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M5.5 16.5 9.2 12l3.1 3.1 6.2-7.6"/>
                 <path d="M5 19h14"/>
               </svg>
             </button>
             <button type="button" class="panel-dock-item" data-dock-item="toryVault" title="토리의 수집창고" data-i18n-title="app.토리의_수집창고" aria-label="토리의 수집창고" data-i18n-aria-label="app.토리의_수집창고">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M4.8 9.2 12 5.4l7.2 3.8v8.4L12 21.2 4.8 17.6z"/>
-                <path d="M8.2 10.8v3.8l3.8 2"/>
-              </svg>
+              <span class="panel-dock-icon-mask panel-dock-icon-tory-vault" aria-hidden="true"></span>
             </button>
             <button type="button" class="panel-dock-item" data-dock-item="sources" title="참고자료·출처" data-i18n-title="app.참고자료_출처" aria-label="참고자료·출처" data-i18n-aria-label="app.참고자료_출처">
               <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">

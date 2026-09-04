@@ -45,9 +45,11 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_dock_rail_toggle_and_active_state(self) -> None:
         timeline = self.html.split('data-dock-item="timeline"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('<circle cx="12" cy="12" r="7.25"/>', timeline)
-        self.assertIn("M12 8.4v4.1l2.9 1.7", timeline)
-        self.assertNotIn("M8 5.5v13", timeline)
+        self.assertIn("2.35-2.2h7.4", timeline)
+        self.assertIn("M10.6 12h5.2", timeline)
+        self.assertNotIn('<circle cx="12" cy="12" r="7.25"/>', timeline)
+        self.assertNotIn("M12 8.4v4.1l2.9 1.7", timeline)
+        self.assertNotIn("M7 4.8v14.4", timeline)
         self.assertIn("function toggleDockFloat(", self.js)
         self.assertIn("function syncDockRailButtons(", self.js)
         self.assertIn("function isDockRailItemActive(", self.js)
@@ -411,6 +413,67 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.아이템_카드_힌트", locale)
             self.assertIn("index.아직_아이템이_없어요", locale)
             self.assertIn("index.연대기_아이템_필터", locale)
+
+    def test_success_profile_dock_widget(self) -> None:
+        self.assertRegex(
+            self.html,
+            r'class="panel-dock-item is-ready"[^>]*data-dock-item="successProfile"',
+        )
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
+        profile_spec = spec.split("successProfile:", 1)[1].split("manuscript:", 1)[0]
+        self.assertIn('windowClass: "dock-float-success-profile"', profile_spec)
+        self.assertIn(
+            "resize: {\n      minWidth: DOCK_SUCCESS_PROFILE_MIN_W,\n"
+            "      minHeight: DOCK_SUCCESS_PROFILE_MIN_H,",
+            profile_spec,
+        )
+        self.assertIn("successProfile: DOCK_SUCCESS_PROFILE_KEY", self.js)
+        self.assertIn("function renderDockSuccessProfileBody(", self.js)
+        self.assertIn("function syncDockSuccessProfileFloat(", self.js)
+        paint = self.js.split("function paintDockSuccessProfileBody(", 1)[1].split(
+            "async function renderDockSuccessProfileBody(", 1
+        )[0]
+        for field in (
+            "details.summary",
+            "details.hook_style",
+            "details.pacing_pattern",
+            "details.dialogue_narration_balance",
+            "details.style_signature",
+            "profile?.analyzed_sections",
+            "profile?.quantitative?.total_episodes",
+        ):
+            self.assertIn(field, paint)
+        self.assertIn('data-role="dock-success-profile-select"', paint)
+        self.assertIn("linkSuccessProfileToProject(nextId)", paint)
+        self.assertIn("openDockSuccessFeedback", paint)
+        self.assertIn("openDockSuccessAnalyst", paint)
+        self.assertIn("openDockSuccessProfileSettings", paint)
+        self.assertIn("openDockNewSuccessAnalysis", paint)
+        self.assertIn('setAiModeValue("successfeedback")', self.js)
+        self.assertIn('setToryChatMode("successAnalysis")', self.js)
+        self.assertIn('openSettingsCollectionMain("successProfile")', self.js)
+        self.assertIn('setAiModeValue("successpattern")', self.js)
+        link = self.js.split("async function linkSuccessProfileToProject(", 1)[1].split(
+            "/** Cache of all success profiles", 1
+        )[0]
+        self.assertIn("syncDockSuccessProfileFloat()", link)
+        self.assertIn(".idea-float.dock-float.dock-float-success-profile", self.css)
+        self.assertIn(".dock-success-profile-actions", self.css)
+        for locale in self.locales.values():
+            for key in (
+                "app.흥행작_프로파일",
+                "app.아직_연결된_흥행작_프로파일이_없어요",
+                "app.다른_프로파일로_교체",
+                "index.끝맺음_훅",
+                "index.전개_패턴",
+                "index.대사_지문_비중",
+                "index.문체_특징",
+                "index.분석_범위",
+                "index.분석가와_대화",
+                "index.전체_분석_보기",
+                "index.새_분석",
+            ):
+                self.assertIn(key, locale)
 
     def test_timeline_dock_widget(self) -> None:
         self.assertIn('data-dock-item="timeline"', self.html)
