@@ -9,6 +9,15 @@ const path = require("path");
 const fs = require("fs");
 const net = require("net");
 const { spawn } = require("child_process");
+const {
+  collectPidTree,
+  delay,
+  isChildProcessGone,
+  postBackendQuit,
+  rememberPid,
+  runTaskkill,
+  waitForChildExit,
+} = require("./backend-stop");
 
 app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-lcd-text");
@@ -42,7 +51,20 @@ let gitsiPickerSources = [];
 let gitsiBlurPreloadId = null;
 /** @type {import('child_process').ChildProcess | null} */
 let backendProcess = null;
+/** Last spawn PID so we can still taskkill after the ChildProcess handle is gone. */
+let lastBackendPid = null;
+/** Spawn PID plus discovered Windows children (py.exe → python.exe). */
+const trackedBackendPids = new Set();
+let backendWasStarted = false;
+/** Shared in-flight stop; concurrent quit hooks await the same work. */
+let backendStopPromise = null;
+/** After a successful (or timed-out) stop, before-quit must not preventDefault again. */
+let backendQuitFinished = false;
+let appQuitPromise = null;
 let isQuitting = false;
+const BACKEND_STOP_TIMEOUT_MS = 5000;
+const BACKEND_GRACEFUL_MS = 1500;
+const TASKKILL_ATTEMPTS = 2;
 /** True while an update package is downloading after user confirmation. */
 let updateDownloadInProgress = false;
 /** Latest available version string from update-available, if any. */
@@ -268,6 +290,16 @@ function waitForPort(host, port, timeoutMs = 90000) {
   });
 }
 
+function rememberBackendPid(pid) {
+  rememberPid(trackedBackendPids, pid);
+}
+
+async function refreshTrackedBackendChildren() {
+  const next = await collectPidTree([...trackedBackendPids]);
+  trackedBackendPids.clear();
+  next.forEach((pid) => trackedBackendPids.add(pid));
+}
+
 function startBackendServer() {
   fs.mkdirSync(userDataDir(), { recursive: true });
   fs.mkdirSync(userProjectsDir(), { recursive: true });
@@ -289,12 +321,21 @@ function startBackendServer() {
   console.log(`[supertory] cwd: ${launch.cwd}`);
   console.log(`[supertory] DATA: ${userDataDir()}`);
 
+  backendWasStarted = true;
   backendProcess = spawn(launch.command, launch.args, {
     cwd: launch.cwd,
     env,
     stdio: ["ignore", "pipe", "pipe"],
     windowsHide: true,
   });
+  lastBackendPid = backendProcess.pid || null;
+  trackedBackendPids.clear();
+  rememberBackendPid(lastBackendPid);
+  if (lastBackendPid) {
+    setTimeout(() => {
+      refreshTrackedBackendChildren().catch(() => {});
+    }, 400);
+  }
 
   backendProcess.stdout?.on("data", (chunk) => {
     process.stdout.write(`[backend] ${chunk}`);
@@ -319,24 +360,102 @@ function startBackendServer() {
 }
 
 function stopBackendServer() {
-  if (!backendProcess || backendProcess.killed) {
-    backendProcess = null;
+  if (backendStopPromise) return backendStopPromise;
+  backendStopPromise = stopBackendServerImpl().catch((error) => {
+    console.warn("[supertory] failed to stop backend:", error);
+  });
+  return backendStopPromise;
+}
+
+async function stopBackendServerImpl() {
+  const child = backendProcess;
+  rememberBackendPid(lastBackendPid || child?.pid);
+
+  if (!backendWasStarted && !child && !lastBackendPid) {
     return;
   }
-  const child = backendProcess;
+
+  await Promise.race([
+    (async () => {
+      await refreshTrackedBackendChildren();
+      // Only ask our own child to shut down. A start_supertory.bat server on
+      // the same port is not an Electron child and must not receive this.
+      if (child && !isChildProcessGone(child)) {
+        await postBackendQuit({
+          host: HOST,
+          port: PORT,
+          timeoutMs: BACKEND_GRACEFUL_MS,
+        });
+        const graceful = await waitForChildExit(child, BACKEND_GRACEFUL_MS);
+        if (graceful) {
+          backendProcess = null;
+          lastBackendPid = null;
+          trackedBackendPids.clear();
+          return;
+        }
+      }
+
+      if (process.platform === "win32") {
+        for (let attempt = 0; attempt < TASKKILL_ATTEMPTS; attempt += 1) {
+          await refreshTrackedBackendChildren();
+          const pids = [...trackedBackendPids];
+          if (!pids.length && lastBackendPid) pids.push(lastBackendPid);
+          for (const pid of pids) {
+            await runTaskkill(pid);
+          }
+          if (child && !isChildProcessGone(child)) {
+            const gone = await waitForChildExit(child, 1200);
+            if (gone) {
+              backendProcess = null;
+              lastBackendPid = null;
+              trackedBackendPids.clear();
+              return;
+            }
+          } else {
+            await delay(300);
+            backendProcess = null;
+            lastBackendPid = null;
+            trackedBackendPids.clear();
+            return;
+          }
+        }
+      } else if (child && !isChildProcessGone(child)) {
+        try {
+          child.kill("SIGTERM");
+        } catch (error) {
+          console.warn("[supertory] SIGTERM failed:", error);
+        }
+        const gone = await waitForChildExit(child, 1500);
+        if (!gone) {
+          try {
+            child.kill("SIGKILL");
+          } catch (_) { /* ignore */ }
+          await waitForChildExit(child, 1000);
+        }
+      }
+    })(),
+    delay(BACKEND_STOP_TIMEOUT_MS),
+  ]);
+
   backendProcess = null;
-  try {
-    if (process.platform === "win32" && child.pid) {
-      spawn("taskkill", ["/pid", String(child.pid), "/f", "/t"], {
-        stdio: "ignore",
-        windowsHide: true,
-      });
-    } else {
-      child.kill("SIGTERM");
+  lastBackendPid = null;
+  trackedBackendPids.clear();
+}
+
+function quitAfterBackendStops() {
+  if (appQuitPromise) return appQuitPromise;
+  appQuitPromise = (async () => {
+    isQuitting = true;
+    try {
+      await Promise.race([stopBackendServer(), delay(BACKEND_STOP_TIMEOUT_MS)]);
+    } catch (error) {
+      console.warn("[supertory] backend stop failed:", error);
+    } finally {
+      backendQuitFinished = true;
+      app.quit();
     }
-  } catch (error) {
-    console.warn("[supertory] failed to stop backend:", error);
-  }
+  })();
+  return appQuitPromise;
 }
 
 /** Match web `--chrome-bg` / `--ink` so OS caption buttons blend with each UI theme. */
@@ -581,20 +700,26 @@ function installDownloadedUpdate() {
   });
   // Brief delay so the renderer can show status / flush drafts.
   setTimeout(() => {
-    isQuitting = true;
-    stopBackendServer();
-    // isSilent=false shows NSIS progress when needed; isForceRunAfter=true relaunches app.
-    try {
-      autoUpdater.quitAndInstall(false, true);
-    } catch (error) {
-      console.warn("[supertory] quitAndInstall failed:", error?.message || error);
-      updateDownloadInProgress = false;
-      sendUpdateStatus({
-        phase: "error",
-        message: "업데이트 설치를 시작하지 못했습니다. 앱을 종료한 뒤 다시 실행해 주세요.",
-        error: String(error?.message || error),
-      });
-    }
+    void (async () => {
+      isQuitting = true;
+      try {
+        await Promise.race([stopBackendServer(), delay(BACKEND_STOP_TIMEOUT_MS)]);
+      } catch (error) {
+        console.warn("[supertory] backend stop before update failed:", error);
+      }
+      backendQuitFinished = true;
+      try {
+        autoUpdater.quitAndInstall(false, true);
+      } catch (error) {
+        console.warn("[supertory] quitAndInstall failed:", error?.message || error);
+        updateDownloadInProgress = false;
+        sendUpdateStatus({
+          phase: "error",
+          message: "업데이트 설치를 시작하지 못했습니다. 앱을 종료한 뒤 다시 실행해 주세요.",
+          error: String(error?.message || error),
+        });
+      }
+    })();
   }, 1200);
 }
 
@@ -1505,7 +1630,7 @@ async function runGitsiReproSequence() {
   console.log("[gitsi:repro]", JSON.stringify(result, null, 2));
   isQuitting = true;
   closeGitsiMeetingWindow();
-  app.quit();
+  void quitAfterBackendStops();
 }
 
 async function bootstrap() {
@@ -1525,7 +1650,7 @@ async function bootstrap() {
       console.error("[gitsi:repro] failed:", error);
       gitsiDebugLog({ src: "repro", handler: "fatal", error: String(error && error.stack || error) });
       isQuitting = true;
-      app.quit();
+      void quitAfterBackendStops();
     }
     return;
   }
@@ -1557,7 +1682,8 @@ async function bootstrap() {
         "개발 중이라면: python scripts/build_backend.py 후 다시 실행해 주세요."
     );
     isQuitting = true;
-    stopBackendServer();
+    await stopBackendServer();
+    backendQuitFinished = true;
     app.quit();
   }
 }
@@ -1569,15 +1695,14 @@ app.whenReady().then(() => {
   return bootstrap();
 });
 
-app.on("before-quit", () => {
-  isQuitting = true;
-  stopBackendServer();
+app.on("before-quit", (event) => {
+  if (backendQuitFinished) return;
+  event.preventDefault();
+  void quitAfterBackendStops();
 });
 
 app.on("window-all-closed", () => {
-  isQuitting = true;
-  stopBackendServer();
-  app.quit();
+  void quitAfterBackendStops();
 });
 
 app.on("activate", () => {
