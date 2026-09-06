@@ -32,6 +32,25 @@ class ElectronBackendQuitTests(unittest.TestCase):
         stop = STOP_JS.read_text(encoding="utf-8")
         self.assertIn("/api/app/quit", stop)
 
+    def test_dev_electron_uses_repo_data_dir(self) -> None:
+        self.assertIn("const isDev = !app.isPackaged;", self.main)
+        self.assertIn("function userDataDir()", self.main)
+        self.assertIn("function userProjectsDir()", self.main)
+        self.assertIn('path.join(projectRoot(), "data")', self.main)
+        self.assertIn('path.join(projectRoot(), "projects")', self.main)
+        self.assertIn('path.join(app.getPath("userData"), "data")', self.main)
+        self.assertIn('path.join(app.getPath("userData"), "projects")', self.main)
+        data_fn = self.main.split("function userDataDir()", 1)[1].split(
+            "function userProjectsDir()", 1
+        )[0]
+        self.assertIn("if (isDev)", data_fn)
+        self.assertIn('path.join(projectRoot(), "data")', data_fn)
+        projects_fn = self.main.split("function userProjectsDir()", 1)[1].split(
+            "function resolveBackendLaunch()", 1
+        )[0]
+        self.assertIn("if (isDev)", projects_fn)
+        self.assertIn('path.join(projectRoot(), "projects")', projects_fn)
+
     def test_taskkill_uses_process_tree_flag(self) -> None:
         stop = STOP_JS.read_text(encoding="utf-8")
         self.assertIn('["/pid"', stop)
