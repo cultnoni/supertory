@@ -471,3 +471,91 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("app.최소_3명을_골라주세요", js)
         self.assertIn("/api/reader-chat", js)
         self.assertNotIn("가상 독자 대화는 다음 안내에서 이어서 만들어요.", html)
+        self.assertIn("data-reader-fav", js)
+        self.assertIn("function toggleReaderFavorite(", js)
+        self.assertIn("READER_FAVORITE_MAX = 6", js)
+        self.assertIn("즐겨찾기한 가상독자가 없어요", html)
+        self.assertIn("/api/projects/${projectId}/reader-favorites", js)
+        chat_fn = js.split("async function openReaderChatWithPersona(", 1)[1].split(
+            "function closeReaderScenePicker(", 1
+        )[0]
+        self.assertNotIn("toggleReaderFavorite", chat_fn)
+        fav_fn = js.split("function renderReaderFavoritePanel(", 1)[1].split(
+            "function loadReaderChatSessions(", 1
+        )[0]
+        self.assertNotIn("loadReaderChatSessions", fav_fn)
+
+    def _persona_ids(self) -> list[str]:
+        status, grouped = self.request("GET", "/api/reader-personas")
+        self.assertEqual(status, 200, grouped)
+        ids: list[str] = []
+        if isinstance(grouped, dict):
+            for people in grouped.values():
+                if not isinstance(people, list):
+                    continue
+                for item in people:
+                    persona_id = str((item or {}).get("id") or "").strip()
+                    if persona_id:
+                        ids.append(persona_id)
+        return ids
+
+    def test_reader_favorites_start_empty(self) -> None:
+        project_id = self._make_project()
+        status, data = self.request("GET", f"/api/projects/{project_id}/reader-favorites")
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data.get("persona_ids"), [])
+
+    def test_reader_favorites_toggle_and_max_six(self) -> None:
+        project_id = self._make_project()
+        ids = self._persona_ids()
+        self.assertGreaterEqual(len(ids), 7)
+        first = ids[0]
+        status, data = self.request(
+            "POST", f"/api/projects/{project_id}/reader-favorites/{first}"
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["persona_ids"], [first])
+        status, data = self.request(
+            "POST", f"/api/projects/{project_id}/reader-favorites/{first}"
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["persona_ids"], [first])
+        for persona_id in ids[1:6]:
+            status, data = self.request(
+                "POST", f"/api/projects/{project_id}/reader-favorites/{persona_id}"
+            )
+            self.assertEqual(status, 200, data)
+        self.assertEqual(len(data["persona_ids"]), 6)
+        status, data = self.request(
+            "POST", f"/api/projects/{project_id}/reader-favorites/{ids[6]}"
+        )
+        self.assertEqual(status, 400, data)
+        self.assertIn("최대 6명", str(data.get("error") or ""))
+        status, data = self.request(
+            "DELETE", f"/api/projects/{project_id}/reader-favorites/{first}"
+        )
+        self.assertEqual(status, 200, data)
+        self.assertNotIn(first, data["persona_ids"])
+        status, data = self.request(
+            "PUT",
+            f"/api/projects/{project_id}/reader-favorites",
+            {"persona_ids": ids[:3]},
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data["persona_ids"], ids[:3])
+
+    def test_reader_favorites_are_per_project(self) -> None:
+        first_id = self._make_project()
+        second_id = self._make_project()
+        ids = self._persona_ids()
+        self.assertTrue(ids)
+        status, data = self.request(
+            "POST", f"/api/projects/{first_id}/reader-favorites/{ids[0]}"
+        )
+        self.assertEqual(status, 200, data)
+        status, data = self.request(
+            "GET", f"/api/projects/{second_id}/reader-favorites"
+        )
+        self.assertEqual(status, 200, data)
+        self.assertEqual(data.get("persona_ids"), [])
+

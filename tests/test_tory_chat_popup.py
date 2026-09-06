@@ -40,3 +40,29 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertIn("flex-wrap: wrap", self.css)
         hide = self.js.split("function isFeatureHideExempt", 1)[1].split("function isManuscriptWritingSurface", 1)[0]
         self.assertIn("toryChatHighlightButton", hide)
+
+    def test_expand_and_history_icons_are_unified(self) -> None:
+        expand = 'rect x="3" y="5" width="14" height="11" rx="1.5"'
+        footprints = "M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6"
+        prompt = self.html.split('id="aiPromptExpandButton"', 1)[1].split("</button>", 1)[0]
+        result_expand = self.html.split('id="aiResultExpandButton"', 1)[1].split("</button>", 1)[0]
+        chat_expand = self.html.split('id="toryChatPopupOpenButton"', 1)[1].split("</button>", 1)[0]
+        notify_expand = self.html.split('id="toryNotifyPopupOpenButton"', 1)[1].split("</button>", 1)[0]
+        for chunk in (prompt, result_expand, chat_expand, notify_expand):
+            self.assertIn(expand, chunk)
+        chat_history = self.html.split('id="toryChatHistoryButton"', 1)[1].split("</button>", 1)[0]
+        result_history = self.html.split('id="aiResultHistoryButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn(footprints, chat_history)
+        self.assertIn(footprints, result_history)
+        self.assertNotIn("M3 12a9 9 0 1 0 3-6.7", chat_history)
+        self.assertNotIn(">히스토리<", result_history)
+        self.assertNotIn(">크게보기<", result_expand)
+        self.assertNotIn(">크게보기<", prompt)
+
+    def test_tory_notify_has_large_view_popup(self) -> None:
+        self.assertIn('id="toryNotifyPopup"', self.html)
+        self.assertIn('id="toryNotifyPopupDockHint"', self.html)
+        self.assertIn("function openToryNotifyPopup", self.js)
+        self.assertIn("function closeToryNotifyPopup", self.js)
+        self.assertIn(".tory-notify-expand-btn", self.css)
+        self.assertIn(".tory-notify-popup-body", self.css)

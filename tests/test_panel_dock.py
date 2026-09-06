@@ -42,6 +42,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('data-dock-item="aiResult"', self.html)
         self.assertIn('data-dock-item="aiHistory"', self.html)
         self.assertIn('data-dock-item="credits"', self.html)
+        self.assertIn('data-dock-item="screenProtect"', self.html)
         self.assertIn('data-dock-item="toryTalk"', self.html)
         self.assertNotIn('data-dock-item="tools"', self.html)
         self.assertNotIn('data-dock-item="notify"', self.html)
@@ -56,8 +57,8 @@ class PanelDockContractTests(unittest.TestCase):
         timeline = self.html.split('data-dock-item="timeline"', 1)[1].split("</button>", 1)[0]
         self.assertIn('viewBox="0 0 24 24"', timeline)
         self.assertIn('stroke="currentColor"', timeline)
-        self.assertIn('<path d="M8 2v3" />', timeline)
-        self.assertIn('<rect x="3" y="3" width="18" height="18" rx="2" />', timeline)
+        self.assertIn('<rect x="16" y="16" width="6" height="6" rx="1"/>', timeline)
+        self.assertIn('<path d="M5 16v-3a1 1 0 0 1 1-1h12a1 1 0 0 1 1 1v3"/>', timeline)
         self.assertNotIn("panel-dock-icon-mask", timeline)
         self.assertIn("function toggleDockFloat(", self.js)
         self.assertIn("function syncDockRailButtons(", self.js)
@@ -68,13 +69,20 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("setBinderPanelOpen(true)", self.js)
         toggle_fn = self.js.split("function toggleDockFloat(", 1)[1].split("function dockTrackerFallbackPos(", 1)[0]
         self.assertIn("isAiDockPanelItem(itemId)", toggle_fn)
-        self.assertIn("toggleAiDockPanelItem(itemId)", toggle_fn)
+        self.assertIn("toggleAiDockPanelItem(itemId, sourceEl)", toggle_fn)
+        self.assertIn("isAiDockFloatItem(itemId)", toggle_fn)
+        self.assertIn("raiseIdeaFloat(win)", toggle_fn)
         self.assertIn("closeIdeaFloat(key)", toggle_fn)
         self.assertIn("return openDockFloat(itemId, sourceEl)", toggle_fn)
         self.assertIn("function toggleAiDockPanelItem(", self.js)
+        priority_case = self.js.split('case "priority":', 1)[1].split('case "toryTalk":', 1)[0]
+        self.assertIn("setToryPriorityOpen(true, sourceEl)", priority_case)
+        self.assertNotIn("setAiPanelOpen(true)", priority_case)
         self.assertIn("credits:", self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0])
         self.assertIn("readerFavoritePanel", self.html)
-        self.assertIn("function rememberReaderFavorite(", self.js)
+        self.assertIn("function toggleReaderFavorite(", self.js)
+        self.assertIn("READER_FAVORITE_MAX = 6", self.js)
+        self.assertNotIn("function rememberReaderFavorite(", self.js)
         right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
         right_items = [
             item.split('"', 1)[0]
@@ -83,14 +91,18 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertEqual(
             right_items,
             [
+                "writingTimer",
+                "toryCheck",
+                "statsTracker",
                 "priority",
                 "toryChat",
                 "characterChat",
                 "readerChat",
                 "aiResult",
                 "aiHistory",
-                "credits",
                 "toryTalk",
+                "credits",
+                "screenProtect",
             ],
         )
         dock_svg_css = self.css.split(".panel-dock-expand svg,\n.panel-dock-item svg {", 1)
@@ -114,8 +126,216 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn(".panel-dock-expand svg", self.css)
         self.assertIn(".panel-dock-item svg", self.css)
 
+    def test_ai_rail_items_open_dock_floats(self) -> None:
+        panel_items = self.js.split("const AI_DOCK_PANEL_ITEMS = new Set([", 1)[1].split("]);", 1)[0]
+        self.assertIn("priority", panel_items)
+        self.assertIn("toryTalk", panel_items)
+        self.assertNotIn("toryChat", panel_items)
+        self.assertNotIn("characterChat", panel_items)
+        self.assertNotIn("readerChat", panel_items)
+        self.assertNotIn("aiResult", panel_items)
+        self.assertNotIn("aiHistory", panel_items)
+        keys = self.js.split("const DOCK_RAIL_FLOAT_KEYS = {", 1)[1].split("};", 1)[0]
+        self.assertIn("toryChat: DOCK_TORY_CHAT_KEY", keys)
+        self.assertIn("characterChat: DOCK_CHARACTER_CHAT_KEY", keys)
+        self.assertIn("readerChat: DOCK_READER_CHAT_KEY", keys)
+        self.assertIn("aiResult: DOCK_AI_RESULT_KEY", keys)
+        self.assertIn("aiHistory: DOCK_AI_HISTORY_KEY", keys)
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        for name, window_class in (
+            ("toryChat", "dock-float-tory-chat"),
+            ("characterChat", "dock-float-character-chat"),
+            ("readerChat", "dock-float-reader-chat"),
+            ("aiResult", "dock-float-ai-result"),
+            ("aiHistory", "dock-float-ai-history"),
+        ):
+            self.assertIn(f"{name}:", spec)
+            chunk = spec.split(f"{name}:", 1)[1].split("},", 1)[0]
+            self.assertIn(window_class, chunk)
+            self.assertIn("resize:", chunk)
+        self.assertIn("function adoptDockNode(", self.js)
+        self.assertIn("function restoreDockAiHosts(", self.js)
+        self.assertIn("function syncAiDockChatHosts(", self.js)
+        self.assertIn('id="aiResultHistoryContent"', self.html)
+        self.assertIn(".idea-float.dock-float.dock-float-ai-chat", self.css)
+        active_fn = self.js.split("function isDockRailItemActive(", 1)[1].split(
+            "const AI_DOCK_PANEL_ITEMS", 1
+        )[0]
+        self.assertNotIn("isAiDockChatHubActive", active_fn)
+        self.assertNotIn("isAiDockToolsPaneActive", active_fn)
+        ensure_fn = self.js.split("function ensureAiResultVisible(", 1)[1].split(
+            "function ensureAiHelperSelectPane(", 1
+        )[0]
+        self.assertIn('openDockFloat("aiResult")', ensure_fn)
+        self.assertNotIn("setAiHelperPane", ensure_fn)
+        helper_fn = self.js.split("function setAiHelperPane(", 1)[1].split(
+            "function ensureAiResultVisible(", 1
+        )[0]
+        self.assertIn('pane === "result"', helper_fn)
+        self.assertIn('openDockFloat("aiResult")', helper_fn)
+        history_open = self.js.split("function openAiResultHistoryModal(", 1)[1].split(
+            "function closeAiResultHistoryModal(", 1
+        )[0]
+        self.assertIn('openDockFloat("aiHistory")', history_open)
+        toggle_ai = self.js.split("function toggleAiDockPanelItem(", 1)[1].split(
+            "function toggleDockFloat(", 1
+        )[0]
+        self.assertNotIn('case "toryChat":', toggle_ai)
+        self.assertNotIn('case "aiResult":', toggle_ai)
+
+    def test_tory_check_dock_widget(self) -> None:
+        self.assertRegex(
+            self.html,
+            r'class="panel-dock-item is-ready"[^>]*data-dock-item="toryCheck"',
+        )
+        tory_check = self.html.split('data-dock-item="toryCheck"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('viewBox="0 0 24 24"', tory_check)
+        self.assertIn('stroke="currentColor"', tory_check)
+        self.assertIn("M3.85 8.62a4 4 0 0 1 4.78-4.77", tory_check)
+        self.assertIn("m16 9-5.5 5.5L8 12", tory_check)
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("toryCheck:", spec)
+        check_spec = spec.split("toryCheck:", 1)[1].split("};", 1)[0]
+        self.assertIn('windowClass: "dock-float-tory-check"', check_spec)
+        self.assertIn(
+            "resize: { minWidth: DOCK_TORY_CHECK_MIN_W, minHeight: DOCK_TORY_CHECK_MIN_H }",
+            check_spec,
+        )
+        self.assertIn("toryCheck: DOCK_TORY_CHECK_KEY", self.js)
+        self.assertIn("function scheduleToryCheckRefresh(", self.js)
+        self.assertIn("function runToryCheckActiveTab(", self.js)
+        run_fn = self.js.split("function runToryCheckActiveTab(", 1)[1].split(
+            "async function loadToryCheckSettings(", 1
+        )[0]
+        self.assertIn("engine.analyze(tab, getEditorPlainText()", run_fn)
+        self.assertNotIn("TABS.forEach", run_fn)
+        self.assertNotIn("for (const tab of", run_fn)
+        schedule_fn = self.js.split("function scheduleToryCheckRefresh(", 1)[1].split(
+            "function toryCheckTabIcon(", 1
+        )[0]
+        self.assertIn("engine?.DEBOUNCE_MS || 400", schedule_fn)
+        self.assertIn("scheduleToryCheckRefresh();", self.js.split("function updateSceneStats()", 1)[1].split("/* —— Goal gauge colors", 1)[0])
+        self.assertIn(".idea-float.dock-float.dock-float-tory-check", self.css)
+        self.assertIn('id="toryCheckViewpointModal"', self.html)
+        self.assertIn("/api/projects/${pid}/tory-check", self.js)
+        self.assertNotIn("toryCheck", self.js.split("const AI_DOCK_PANEL_ITEMS = new Set([", 1)[1].split("]);", 1)[0])
+        for locale in self.locales.values():
+            for key in (
+                "index.실시간_토리_체크",
+                "index.반복_단어",
+                "index.같은_표현",
+                "index.문장_시작",
+                "index.연속_대사",
+                "index.수식어",
+                "index.감탄사",
+                "index.시점",
+                "index.금칙어",
+                "index.엄격",
+                "index.보통",
+                "index.느슨",
+                "index.먼저_시점을_설정해주세요",
+                "index.먼저_금칙어를_추가해주세요",
+            ):
+                self.assertIn(key, locale)
+
+    def test_appearances_dock_widget(self) -> None:
+        left_rail = self.html.split('id="binderDockRail"', 1)[1].split("</nav>", 1)[0]
+        left_items = [
+            item.split('"', 1)[0]
+            for item in left_rail.split('data-dock-item="')[1:]
+        ]
+        self.assertEqual(left_items.index("appearances"), left_items.index("items") + 1)
+        self.assertEqual(left_items.index("dictionary"), left_items.index("appearances") + 1)
+        self.assertEqual(left_items.index("baits"), left_items.index("dictionary") + 1)
+        self.assertEqual(left_items[6], "appearances")
+        self.assertNotIn("writingTimer", left_items)
+        self.assertNotIn("statsTracker", left_items)
+        self.assertNotIn("toryCheck", left_items)
+        appearances = left_rail.split('data-dock-item="appearances"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('viewBox="0 0 24 24"', appearances)
+        self.assertIn('stroke="currentColor"', appearances)
+        self.assertIn("M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z", appearances)
+        self.assertIn('width="18"', appearances)
+        self.assertIn('stroke-width="1.7"', appearances)
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("appearances:", spec)
+        appearance_spec = spec.split("appearances:", 1)[1].split("};", 1)[0]
+        self.assertIn('windowClass: "dock-float-appearances"', appearance_spec)
+        self.assertIn("appearances: DOCK_APPEARANCES_KEY", self.js)
+        self.assertIn("function openDockAppearancesFloat(", self.js)
+        self.assertIn("function paintDockAppearancesList(", self.js)
+        self.assertIn("openChronicleScene(button.getAttribute(\"data-dock-appearance-scene\")", self.js)
+        self.assertIn("/api/projects/${pid}/character-appearances?character_id=${characterId}", self.js)
+        self.assertIn("openDockAppearancesFloat(data.id, event.currentTarget)", self.js)
+        self.assertIn('data-role="dock-char-appearances"', self.js)
+        self.assertIn(".idea-float.dock-float.dock-float-appearances", self.css)
+        self.assertIn("dock-appearance-snippet", self.js)
+        self.assertIn("dock-appearance-line", self.js)
+        self.assertIn(".dock-appearance-item.is-latest", self.css)
+        for locale in self.locales.values():
+            for key in (
+                "index.등장_이력",
+                "index.등장_이력_보기",
+                "index.등장_이력_인물_필터",
+                "index.등장_이력_안내",
+                "index.등장_이력_없음",
+                "index.최근_등장",
+                "index.마지막_대사",
+            ):
+                self.assertIn(key, locale)
+
+    def test_dictionary_dock_widget(self) -> None:
+        left_rail = self.html.split('id="binderDockRail"', 1)[1].split("</nav>", 1)[0]
+        left_items = [
+            item.split('"', 1)[0]
+            for item in left_rail.split('data-dock-item="')[1:]
+        ]
+        self.assertEqual(left_items.index("dictionary"), left_items.index("appearances") + 1)
+        self.assertEqual(left_items.index("baits"), left_items.index("dictionary") + 1)
+        manuscript = left_rail.split('data-dock-item="manuscript"', 1)[1].split("</button>", 1)[0]
+        dictionary = left_rail.split('data-dock-item="dictionary"', 1)[1].split("</button>", 1)[0]
+        vault = left_rail.split('data-dock-item="toryVault"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20', manuscript)
+        self.assertIn('circle cx="14" cy="15" r="1"', manuscript)
+        self.assertNotIn("M12 5v16", manuscript)
+        self.assertIn("M12 5v16", dictionary)
+        self.assertIn("m16 12 2 2 4-4", dictionary)
+        self.assertIn("v-1.344", dictionary)
+        self.assertIn('title="토리 사전"', dictionary)
+        self.assertIn('rect width="20" height="5" x="2" y="3" rx="1"', vault)
+        self.assertIn('path d="M10 12h4"', vault)
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        self.assertIn("dictionary:", spec)
+        dictionary_spec = spec.split("dictionary:", 1)[1].split("baits:", 1)[0]
+        self.assertIn('windowClass: "dock-float-dictionary"', dictionary_spec)
+        self.assertIn("resize: { minWidth: DOCK_DICTIONARY_MIN_W, minHeight: DOCK_DICTIONARY_MIN_H }", dictionary_spec)
+        self.assertIn("dictionary: DOCK_DICTIONARY_KEY", self.js)
+        self.assertIn("function renderDockDictionaryBody(", self.js)
+        self.assertIn("function addToryDictionaryFromSelection(", self.js)
+        self.assertIn('data-context-action="add-tory-dict"', self.html)
+        self.assertIn(".idea-float.dock-float.dock-float-dictionary", self.css)
+        lookup = self.html.find('data-context-action="lookup-dict"')
+        similar = self.html.find('data-context-action="similar-words"')
+        add_dict = self.html.find('data-context-action="add-tory-dict"')
+        cross = self.html.find('data-context-action="cross-ref-search"')
+        self.assertLess(lookup, similar)
+        self.assertLess(similar, add_dict)
+        self.assertLess(add_dict, cross)
+        self.assertIn('data-context-action="toggle-dict-highlight"', self.html)
+        self.assertIn("function toggleDictHighlight(", self.js)
+        self.assertIn("supertory.dictHighlight.", self.js)
+        for locale in self.locales.values():
+            self.assertIn("app.토리_사전", locale)
+            self.assertIn("index.토리_사전에_추가", locale)
+            self.assertIn("index.이미_kinds_에_같은_이름이_있어요", locale)
+        self.assertEqual(self.locales["ko"]["app.토리_사전"], "토리 사전")
+        self.assertEqual(self.locales["ko"]["index.열린_떡밥"], "열린 떡밥")
+
     def test_stats_tracker_is_pinned_dock_widget(self) -> None:
         self.assertIn('data-dock-item="statsTracker"', self.html)
+        stats_tracker = self.html.split('data-dock-item="statsTracker"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('path d="M4 12V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2"', stats_tracker)
+        self.assertIn('rect x="2" y="16" width="4" height="6" rx="2"', stats_tracker)
         self.assertNotIn("is-pinned-dock", self.html)
         self.assertNotIn("panel-dock-pin", self.html)
         self.assertNotIn(".panel-dock-item.is-pinned-dock", self.css)
@@ -155,10 +375,10 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_writing_timer_dock_widget(self) -> None:
         self.assertIn('data-dock-item="writingTimer"', self.html)
-        self.assertIn('data-i18n-title="app.기록"', self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0])
+        self.assertIn('data-i18n-title="app.기록_타이머"', self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0])
         writing_timer = self.html.split('data-dock-item="writingTimer"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('<circle cx="12" cy="12" r="10" />', writing_timer)
-        self.assertIn('<path d="M12 6v6l4 2" />', writing_timer)
+        self.assertIn("M5 22h14", writing_timer)
+        self.assertIn("M17 22v-4.172a2 2 0 0 0-.586-1.414L12 12l-4.414 4.414A2 2 0 0 0 7 17.828V22", writing_timer)
         self.assertIn('stroke="currentColor"', writing_timer)
         tool_timer = self.html.split('id="writingLogButton"', 1)[1].split("</button>", 1)[0]
         self.assertIn('<circle cx="12" cy="12" r="8.25"/>', tool_timer)
@@ -167,30 +387,260 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('name="writingTimerStylePref"', self.html)
         self.assertIn('value="hourglass"', self.html)
         self.assertIn('value="alarm"', self.html)
-        self.assertIn('value="stopwatch"', self.html)
+        self.assertNotIn('value="stopwatch"', self.html)
+        self.assertIn('value="digits"', self.html)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         self.assertIn("writingTimer:", spec)
         writing_spec = spec.split("writingTimer:", 1)[1].split("characters:", 1)[0]
         self.assertIn('windowClass: "dock-float-writing-timer"', writing_spec)
-        self.assertIn('titleKey: "app.기록"', writing_spec)
+        self.assertIn('titleKey: "app.기록_타이머"', writing_spec)
         self.assertIn("compact: true", writing_spec)
         self.assertIn("function renderDockWritingTimer(", self.js)
         self.assertIn("function syncDockWritingTimer(", self.js)
+        self.assertIn("function togglePomodoro(", self.js)
+        self.assertIn("function dockCountdownHtml(", self.js)
+        self.assertIn("function finishPomodoroPhase(", self.js)
+        self.assertIn("function completePomodoro(", self.js)
+        self.assertIn("function playPomodoroChime(", self.js)
+        self.assertIn("function popupWritingTimerOnAlarm(", self.js)
+        popup_fn = self.js.split("function popupWritingTimerOnAlarm(", 1)[1].split("function completePomodoro(", 1)[0]
+        self.assertIn('openDockFloat("writingTimer"', popup_fn)
+        complete_fn = self.js.split("function completePomodoro(", 1)[1].split("function finishPomodoroPhase(", 1)[0]
+        self.assertIn("popupWritingTimerOnAlarm()", complete_fn)
+        finish_fn = self.js.split("function finishPomodoroPhase(", 1)[1].split("function selectPomodoroPreset(", 1)[0]
+        self.assertIn("popupWritingTimerOnAlarm()", finish_fn)
+        self.assertGreaterEqual(finish_fn.count("popupWritingTimerOnAlarm()"), 3)
         self.assertIn("supertory.dock.writingTimer.open", self.js)
         self.assertIn("supertory.writingTimerStyle", self.js)
+        self.assertIn("supertory.pomodoro.presets", self.js)
+        self.assertIn("supertory.pomodoro.activeId", self.js)
+        self.assertIn("POMODORO_MAX_PRESETS = 8", self.js)
+        self.assertIn("function defaultTimerPresets(", self.js)
+        self.assertIn('writeMin: 25', self.js)
+        self.assertIn("breakMin: 5", self.js)
+        self.assertIn("sets: 4", self.js)
+        self.assertIn("writeMin: 50", self.js)
+        self.assertIn("breakMin: 10", self.js)
+        self.assertIn("writeMin: 52", self.js)
+        self.assertIn("breakMin: 17", self.js)
+        self.assertIn("writeMin: 90", self.js)
+        self.assertIn("breakMin: 20", self.js)
+        self.assertIn("function formatTimerDuration(", self.js)
+        self.assertIn('if (h > 0) return i18n.t("app.타이머_시분"', self.js)
         self.assertIn('if (isDockWritingTimerOpenPref()) openDockFloat("writingTimer")', self.js)
         self.assertIn("if (id === DOCK_WRITING_TIMER_KEY) continue;", self.js)
+        render_fn = self.js.split("function renderDockWritingTimer(", 1)[1].split("function syncDockWritingTimer(", 1)[0]
+        countdown_fn = self.js.split("function dockCountdownHtml(", 1)[1].split("function bindDockWritingTimerBody(", 1)[0]
+        self.assertIn("dock-timer-record", render_fn)
+        self.assertIn("data-role=\"dock-timer-readout\"", render_fn)
+        self.assertIn("dockCountdownHtml()", render_fn)
+        self.assertLess(
+            render_fn.find("dock-timer-record"),
+            render_fn.find("dockCountdownHtml()"),
+        )
+        self.assertNotIn("dock-timer-style-picks", render_fn)
+        self.assertIn('dockTimerCycleSegHtml("style"', countdown_fn)
+        self.assertIn('dockTimerCycleSegHtml("display"', countdown_fn)
+        self.assertIn('dockTimerCycleSegHtml("sound"', countdown_fn)
+        self.assertIn("dock-timer-face", countdown_fn)
+        self.assertLess(
+            countdown_fn.find("app.포모도로_타이머"),
+            countdown_fn.find("dock-timer-quick"),
+        )
+        self.assertLess(
+            countdown_fn.find("dock-timer-quick"),
+            countdown_fn.find("dock-timer-face"),
+        )
+        self.assertLess(
+            countdown_fn.find("dock-countdown-readout"),
+            countdown_fn.find("dock-timer-toggles"),
+        )
+        self.assertLess(
+            countdown_fn.find("dock-timer-toggles"),
+            countdown_fn.find("dock-countdown-presets"),
+        )
+        self.assertLess(
+            countdown_fn.find("dock-timer-face"),
+            countdown_fn.find("dock-timer-toggles"),
+        )
+        self.assertLess(
+            countdown_fn.find("dock-timer-face"),
+            countdown_fn.find('dockTimerCycleSegHtml("style"'),
+        )
+        self.assertLess(
+            countdown_fn.find('dockTimerCycleSegHtml("style"'),
+            countdown_fn.find('dockTimerCycleSegHtml("display"'),
+        )
+        self.assertLess(
+            countdown_fn.find('dockTimerCycleSegHtml("display"'),
+            countdown_fn.find('dockTimerCycleSegHtml("sound"'),
+        )
+        self.assertIn("dock-countdown.is-session .dock-timer-display-picks", self.css)
+        self.assertIn(".dock-countdown.is-session .dock-timer-quick {", self.css)
+        self.assertNotIn(
+            "dock-countdown.is-session .dock-pomodoro-phase",
+            self.css.split(".dock-countdown.is-session .dock-countdown-title", 1)[1].split(".dock-countdown.is-session {", 1)[0],
+        )
+        self.assertIn(".dock-countdown-session-actions", self.css)
+        self.assertIn(".dock-countdown.is-session .dock-countdown-session-actions", self.css)
+        self.assertIn(".dock-countdown-text-btn", self.css)
+        self.assertIn("dock-countdown-session-actions", countdown_fn)
+        self.assertIn("dockTimerQuickStartHtml(running)", countdown_fn)
+        self.assertIn("dock-pomodoro-face", countdown_fn)
+        self.assertIn("is-session", countdown_fn)
+        self.assertIn("is-timer-session", self.js)
+        self.assertNotIn("dock-countdown-toggle", countdown_fn)
+        self.assertNotIn("dock-countdown-clear", countdown_fn)
+        self.assertIn("dock-countdown-reset", countdown_fn)
+        self.assertIn("dock-countdown-back", countdown_fn)
+        self.assertIn("app.타이머_초기화", countdown_fn)
+        self.assertIn("app.타이머_이전화면", countdown_fn)
+        self.assertNotIn("function revealWritingTimerSetup(", self.js)
+        self.assertNotIn("function pomodoroCompactWidget(", self.js)
+        self.assertIn("function startQuickPomodoro(", self.js)
+        self.assertIn("function pomodoroClockSeconds(", self.js)
+        self.assertIn("function fitDockWritingTimerShell(", self.js)
+        self.assertIn("data-role=\"pomodoro-quick-min\"", countdown_fn)
+        self.assertIn("dockTimerQuickStartHtml(running)", countdown_fn)
+        quick_start_fn = self.js.split("function dockTimerQuickStartHtml(", 1)[1].split("function writingTimerStyleButtonsHtml(", 1)[0]
+        self.assertIn("data-role=\"pomodoro-quick-start\"", quick_start_fn)
+        self.assertIn("dock-timer-quick-start", quick_start_fn)
+        self.assertIn("M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z", self.js)
+        self.assertIn('rect x="14" y="3" width="5" height="18" rx="1"', self.js)
+        self.assertNotIn("M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8", self.js)
+        self.assertIn("M9 14 4 9l5-5", self.js)
+        self.assertIn("m12 19-7-7 7-7", self.js)
+        self.assertIn("dock-timer-${cycle}-picks", self.js)
+        self.assertIn("data-role=\"dock-timer-cycle\"", self.js)
+        self.assertIn("pomodoroDisplayButtonsHtml(display)", countdown_fn)
+        self.assertIn("pomodoroSoundButtonsHtml(sound)", countdown_fn)
+        self.assertIn('"pomodoro-display"', self.js)
+        self.assertIn('"pomodoro-sound"', self.js)
+        self.assertIn("app.타이머_바로_시작", self.js)
+        self.assertIn("app.타이머_일시정지", self.js)
+        self.assertIn("app.타이머_남은_시간_표시", self.js)
+        self.assertIn("DOCK_WRITING_TIMER_MIN_W = 148", self.js)
+        self.assertIn("DOCK_WRITING_TIMER_MIN_H = 120", self.js)
+        self.assertIn("function syncDockWritingTimerRail(", self.js)
+        self.assertIn("function applyDockWritingTimerScale(", self.js)
+        self.assertIn("function ensureWritingRecordingOn(", self.js)
+        self.assertIn("ensureWritingRecordingOn({ quiet: true })", self.js.split("function startPomodoro(", 1)[1].split("function stopPomodoroSession(", 1)[0])
+        self.assertIn("DOCK_WRITING_TIMER_MIN_W", writing_spec)
+        self.assertIn("DOCK_WRITING_TIMER_MIN_H", writing_spec)
+        self.assertIn("onResize(win)", writing_spec)
+        self.assertNotIn("resize: false", writing_spec)
+        bind_fn = self.js.split("function bindDockWritingTimerBody(", 1)[1].split(
+            "function syncDockCountdownUi(", 1
+        )[0]
+        self.assertIn("togglePomodoro()", bind_fn)
+        self.assertIn("pausePomodoro()", bind_fn)
+        self.assertIn("resetPomodoro()", bind_fn)
+        self.assertIn("restartPomodoro()", bind_fn)
+        self.assertNotIn("revealWritingTimerSetup()", bind_fn)
+        self.assertNotIn("dock-countdown-toggle", bind_fn)
+        self.assertIn("handleDockTimerCycleClick", bind_fn)
+        self.assertIn('addEventListener("contextmenu"', bind_fn)
+        self.assertIn("function cycleDockTimerChoice(", self.js)
+        self.assertIn("function playPomodoroSoundPatch(", self.js)
+        self.assertIn('POMODORO_SOUNDS = ["chime", "ding", "bell"]', self.js)
+        self.assertNotIn('"wood"', self.js.split("const POMODORO_SOUNDS", 1)[1].split(";", 1)[0])
+        self.assertIn("supertory.pomodoro.sound", self.js)
+        self.assertIn('playPomodoroChime("preview")', self.js)
+        self.assertNotIn('addEventListener("dblclick"', bind_fn)
+        self.assertNotIn("openPomodoroLargeView", self.js)
+        self.assertNotIn("schedulePomodoroFaceToggle", self.js)
+        self.assertNotIn("syncPomodoroLargeView", self.js)
+        self.assertNotIn('id="pomodoroLargeView"', self.html)
+        self.assertNotIn("data-close-pomodoro-large", self.html)
+        self.assertNotIn(".pomodoro-large-view", self.css)
+        self.assertIn('data-role="dock-timer-countdown"', self.html)
+        self.assertIn(".panel-dock-timer-countdown", self.css)
+        self.assertIn(".dock-timer-quick", self.css)
+        self.assertIn(".dock-timer-display-picks", self.css)
+        self.assertIn(".dock-timer-sound-picks", self.css)
+        self.assertIn("min-width: 148px", self.css.split(".idea-float.dock-float.dock-float-writing-timer {", 1)[1].split("}", 1)[0])
+        self.assertIn(".idea-float.dock-float.dock-float-writing-timer.dock-float-mini .idea-float-resize", self.css)
+        self.assertIn("return false; // default: 「기록중」", self.js)
+        self.assertNotIn("checked", self.html.split('id="writingShowTimer"', 1)[1].split(">", 1)[0])
+        self.assertIn("dock-widget-btn", countdown_fn)
+        self.assertIn("app.포모도로_타이머", countdown_fn)
+        self.assertIn("dock-countdown-title", countdown_fn)
+        self.assertIn("pomodoroPresetCardHtml", countdown_fn)
+        self.assertIn("data-role=\"dock-pomodoro-save-new\"", countdown_fn)
+        self.assertIn("data-role=\"dock-pomodoro-preset\"", self.js)
+        self.assertIn("dock-timer-preset-name", self.js)
+        self.assertIn("function pomodoroPresetCardHtml(", self.js)
         self.assertIn(".dock-timer-hourglass", self.css)
         self.assertIn(".dock-timer-alarm", self.css)
-        self.assertIn(".dock-timer-stopwatch", self.css)
+        self.assertNotIn(".dock-timer-stopwatch", self.css)
+        self.assertIn(".dock-timer-digits", self.css)
+        self.assertIn("repeat(3, minmax(0, 1fr))", self.css.split(".dock-timer-toggles {", 1)[1].split("}", 1)[0])
+        self.assertIn(".dock-timer-seg:not(.is-open) .dock-timer-style-btn:not(.is-active)", self.css)
+        self.assertIn(".dock-timer-seg", self.css)
+        self.assertIn(".dock-timer-toggles", self.css)
+        self.assertIn("role=\"radiogroup\"", self.js)
+        self.assertIn("dock-timer-toggles", self.js)
+        self.assertIn(".dock-countdown", self.css)
+        self.assertIn(".dock-countdown-title", self.css)
+        self.assertIn(".is-timer-session", self.css)
+        self.assertIn(".dock-timer-preset-name", self.css)
+        self.assertIn(".dock-timer-record", self.css)
+        self.assertIn(".dock-widget-btn", self.css)
+        self.assertIn(".dock-pomodoro-form", self.css)
         self.assertIn("dock-hg-sand", self.css)
         for locale in self.locales.values():
             self.assertIn("app.기록", locale)
+            self.assertIn("app.기록_타이머", locale)
             self.assertIn("app.모래시계", locale)
             self.assertIn("app.알람_시계", locale)
-            self.assertIn("app.스탑워치", locale)
+            self.assertIn("app.숫자", locale)
             self.assertIn("app.기록_위젯_디자인", locale)
+            self.assertIn("app.포모도로_타이머", locale)
+            self.assertIn("app.타이머_세트_표준", locale)
+            self.assertIn("app.타이머_세트_스프린트", locale)
+            self.assertIn("app.타이머_세트_오십이", locale)
+            self.assertIn("app.타이머_세트_울트라디안", locale)
+            self.assertIn("app.글쓰기_시간_끝_쉬세요", locale)
+            self.assertIn("app.쉬는_시간_끝_글쓰기", locale)
+            self.assertIn("app.포모도로_세트를_마쳤어요", locale)
+            self.assertIn("app.프리셋은_5개까지예요", locale)
+            self.assertIn("app.새_프리셋_저장", locale)
+            self.assertIn("app.타이머_초기화", locale)
+            self.assertIn("app.타이머_이전화면", locale)
+            self.assertIn("app.타이머_정지", locale)
+            self.assertIn("app.타이머_위젯_진행_안내", locale)
+            self.assertIn("app.타이머_남은_시간", locale)
+            self.assertIn("app.타이머_지난_시간", locale)
+            self.assertIn("app.타이머_바로_시작", locale)
+            self.assertIn("app.타이머_일시정지", locale)
+            self.assertIn("app.타이머_글쓰기_시간", locale)
+            self.assertIn("app.타이머_휴식_시간", locale)
+            self.assertIn("app.타이머_남은_시간_표시", locale)
+            self.assertIn("app.타이머_지난_시간_표시", locale)
+            self.assertIn("app.타이머_알람_소리", locale)
+            self.assertIn("app.타이머_알람_종", locale)
+            self.assertIn("app.타이머_알람_딩동", locale)
+            self.assertIn("app.타이머_알람_벨", locale)
+            self.assertNotIn("app.타이머_알람_북", locale)
+            self.assertIn("app.타이머_옵션_순환_안내", locale)
+        self.assertEqual(self.locales["ko"]["app.타이머_이전화면"], "이전화면")
+        self.assertEqual(self.locales["ko"]["app.타이머_남은_시간_표시"], "남은 시간")
+        self.assertEqual(self.locales["ko"]["app.타이머_지난_시간_표시"], "지난 시간")
+        self.assertEqual(self.locales["ko"]["app.타이머_알람_종"], "종소리")
+        self.assertEqual(self.locales["ko"]["app.타이머_알람_딩동"], "딩동")
+        self.assertEqual(self.locales["ko"]["app.타이머_알람_벨"], "벨소리")
+        self.assertEqual(self.locales["ko"]["app.타이머_일시정지"], "일시정지")
+        self.assertEqual(self.locales["ko"]["app.쉬는_시간"], "휴식")
+        self.assertEqual(self.locales["ko"]["app.타이머_글쓰기_시간"], "글쓰기 시간")
+        self.assertEqual(self.locales["ko"]["app.타이머_휴식_시간"], "휴식 시간")
         self.assertEqual(self.locales["ko"]["app.기록"], "기록")
+        self.assertEqual(self.locales["ko"]["app.기록_타이머"], "기록·타이머")
+        self.assertEqual(self.locales["ko"]["app.포모도로_타이머"], "타이머")
+        self.assertEqual(self.locales["ko"]["app.타이머_세트_표준"], "표준 포모도로 사이클 (추천)")
+        self.assertEqual(self.locales["ko"]["app.타이머_세트_스프린트"], "스프린트 세트 (일반 집중)")
+        self.assertEqual(self.locales["ko"]["app.타이머_세트_오십이"], "52/17 세트 (지속 집중)")
+        self.assertEqual(self.locales["ko"]["app.타이머_세트_울트라디안"], "울트라디안 리듬 (고도 집중)")
+        self.assertIn("글쓰기 시간 끝", self.locales["ko"]["app.글쓰기_시간_끝_쉬세요"])
 
     def test_collapsed_grid_keeps_48px_rails(self) -> None:
         self.assertIn("--panel-dock-rail-w: 48px;", self.css)
@@ -273,12 +723,19 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("min-height: 28px", tab)
 
     def test_dock_rail_order_is_persisted_per_side(self) -> None:
-        self.assertIn('left: "supertory.dockRailOrder.left.v1"', self.js)
-        self.assertIn('right: "supertory.dockRailOrder.right.v2"', self.js)
+        self.assertIn('left: "supertory.dockRailOrder.left.v3"', self.js)
+        self.assertIn('right: "supertory.dockRailOrder.right.v4"', self.js)
         self.assertIn("const DOCK_RAIL_DRAG_THRESHOLD = 6", self.js)
         self.assertIn("function restoreDockRailOrder(", self.js)
         self.assertIn("function persistDockRailOrder(", self.js)
         self.assertIn("function setupDockRailSorting(", self.js)
+        restore_fn = self.js.split("function restoreDockRailOrder(", 1)[1].split(
+            "function setupDockRailSorting(", 1
+        )[0]
+        self.assertIn("restored.splice(insertAt, 0, item)", restore_fn)
+        self.assertIn("foundPrev", restore_fn)
+        self.assertIn("htmlIndex + 1", restore_fn)
+        self.assertNotIn("byId.forEach((item) => container.appendChild(item))", restore_fn)
         setup = self.js.split("function setupPanelDock()", 1)[1].split(
             "async function refreshAiStatus", 1
         )[0]
@@ -356,6 +813,9 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_character_card_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="characters"')
+        characters = self.html.split('data-dock-item="characters"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('path d="M16 10h2"', characters)
+        self.assertIn('rect x="2" y="5" width="20" height="14" rx="2"', characters)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
         self.assertIn("characters:", spec)
         self.assertIn("function openDockFloatWindow(key, spec, sourceEl)", self.js)
@@ -465,6 +925,9 @@ class PanelDockContractTests(unittest.TestCase):
             self.html,
             r'class="panel-dock-item is-ready"[^>]*data-dock-item="successProfile"',
         )
+        success_profile = self.html.split('data-dock-item="successProfile"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M10 14.66V17a1 1 0 0 1-1 1 2 2 0 0 0-2 2v2", success_profile)
+        self.assertIn("M6 9a6 6 0 0 0 12 0V3a1 1 0 0 0-1-1H7a1 1 0 0 0-1 1z", success_profile)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
         profile_spec = spec.split("successProfile:", 1)[1].split("manuscript:", 1)[0]
         self.assertIn('windowClass: "dock-float-success-profile"', profile_spec)
@@ -579,6 +1042,9 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_settings_search_dock_widget(self) -> None:
         self.assertIn('data-dock-item="settingsSearch"', self.html)
+        settings_search = self.html.split('data-dock-item="settingsSearch"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8", settings_search)
+        self.assertIn('circle cx="11.5" cy="14.5" r="2.5"', settings_search)
         self.assertIn('id="settingsSearchLive"', self.html)
         self.assertIn('id="settingsSearchHome"', self.html)
         self.assertIn('id="settingsSearchInput"', self.html)
@@ -609,6 +1075,10 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_baits_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="baits"')
+        baits = self.html.split('data-dock-item="baits"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('path d="M12 22v-9"', baits)
+        self.assertIn("M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57", baits)
+        self.assertIn('title="열린 떡밥"', baits)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         self.assertIn("baits:", spec)
         baits_spec = spec.split("baits:", 1)[1].split("settingsSearch:", 1)[0]
@@ -675,9 +1145,14 @@ class PanelDockContractTests(unittest.TestCase):
             "index.SuperTORY_펼치기",
             "index.SuperTORY_도크",
             "index.토리_1_1_대화창",
+            "index.실시간_토리_체크",
             "index.크레딧_잔량",
+            "index.내화면_보호",
+            "index.내화면_보호_해제",
             "index.토리톡",
             "index.자주쓰는_가상독자_모음",
+            "index.즐겨찾기한_가상독자가_없어요",
+            "app.즐겨찾기는_최대_6명까지_등록할_수_있어요",
             "app.글자수_트래커",
             "index.남은_분량",
             "app.인물_카드",
@@ -710,6 +1185,85 @@ class PanelDockContractTests(unittest.TestCase):
         for locale in self.locales.values():
             for key in keys:
                 self.assertIn(key, locale)
+        self.assertEqual(self.locales["ko"]["index.크레딧_잔량"], "도토리 잔량")
+        self.assertEqual(self.locales["ko"]["index.크레딧_연동_준비중"], "도토리 연동은 준비 중이에요.")
+        credits = self.html.split('data-dock-item="credits"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('title="도토리 잔량"', credits)
+        self.assertIn("M12 4C8 4 4.5 6 4 8c-.243.97-.919 1.952-2 3", credits)
+        character_chat = self.html.split('data-dock-item="characterChat"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M16.051 12.616a1 1 0 0 1 1.909.024", character_chat)
+        reader_chat = self.html.split('data-dock-item="readerChat"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M22 5c0 9-4 12-6 12s-6-3-6-12c0-2 2-3 6-3s6 1 6 3", reader_chat)
+        history = self.html.split('data-dock-item="aiHistory"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M22 13a18.15 18.15 0 0 1-20 0", history)
+        viewer = self.html.split('id="viewerModeButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('circle cx="6" cy="15" r="4"', viewer)
+        self.assertIn('circle cx="18" cy="15" r="4"', viewer)
+        self.assertIn('stroke="currentColor"', viewer)
+        self.assertNotIn("#e0b48a", self.css)
+        self.assertNotIn("#f0d0a8", self.css)
+        self.assertNotIn("format-viewer-eye", self.html)
+
+    def test_screen_protect_dock_widget(self) -> None:
+        right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
+        right_items = [
+            item.split('"', 1)[0]
+            for item in right_rail.split('data-dock-item="')[1:]
+        ]
+        self.assertEqual(right_items[-1], "screenProtect")
+        self.assertEqual(right_items[-2], "credits")
+        self.assertIn("priority", right_items)
+        protect = right_rail.split('data-dock-item="screenProtect"', 1)[1].split("</button>", 1)[0]
+        self.assertIn("M20 13c0 5-3.5 7.5-7.66 8.95", protect)
+        self.assertIn("m4.243 5.21 14.39 12.472", protect)
+        self.assertIn('stroke="currentColor"', protect)
+        self.assertNotIn('width="24"', protect)
+        overlay = self.html.split('id="screenProtectOverlay"', 1)[1].split("</div>", 1)[0]
+        self.assertIn("M20 13c0 5-3.5 7.5-7.66 8.95", overlay)
+        self.assertIn("m4.243 5.21 14.39 12.472", overlay)
+        self.assertIn("function toggleScreenProtect(", self.js)
+        self.assertIn("function setScreenProtectOn(", self.js)
+        self.assertIn("function setupScreenProtect(", self.js)
+        toggle_fn = self.js.split("function toggleDockFloat(", 1)[1].split(
+            "function dockTrackerFallbackPos(", 1
+        )[0]
+        self.assertIn('itemId === "screenProtect"', toggle_fn)
+        self.assertIn("toggleScreenProtect()", toggle_fn)
+        self.assertNotIn("screenProtect", self.js.split("const AI_DOCK_PANEL_ITEMS = new Set([", 1)[1].split("]);", 1)[0])
+        self.assertNotIn("screenProtect:", self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0])
+        overlay_css = self.css.split(".screen-protect-overlay {", 1)[1].split("}", 1)[0]
+        self.assertIn("position: fixed", overlay_css)
+        self.assertIn("inset: 0", overlay_css)
+        self.assertIn("backdrop-filter: blur(", overlay_css)
+        self.assertIn("pointer-events: auto", overlay_css)
+        self.assertIn("z-index: 400", overlay_css)
+        icon_css = self.css.split(".screen-protect-overlay svg {", 1)[1].split("}", 1)[0]
+        self.assertIn("width: 56px", icon_css)
+        self.assertIn("height: 56px", icon_css)
+        self.assertIn("setupScreenProtect();", self.js.split("function setupPanelDock()", 1)[1].split("async function refreshAiStatus", 1)[0])
+        for locale in self.locales.values():
+            self.assertIn("index.내화면_보호", locale)
+            self.assertIn("index.내화면_보호_해제", locale)
+        self.assertEqual(self.locales["ko"]["index.내화면_보호"], "내화면 보호")
+
+    def test_manuscript_context_menu_fits_viewport(self) -> None:
+        self.assertIn('id="desktopContextMenu"', self.html)
+        self.assertIn("context-contrast-block", self.html)
+        self.assertIn('data-i18n="index.고대비_모드"', self.html)
+        self.assertIn("#desktopContextMenu {", self.css)
+        desktop_css = self.css.split("#desktopContextMenu {", 1)[1].split("#desktopContextMenu ", 1)[0]
+        self.assertIn("max-height: calc(100vh - 16px)", desktop_css)
+        self.assertIn("overflow-y: auto", desktop_css)
+        self.assertIn(".context-contrast-block {", self.css)
+        show_fn = self.js.split("function showDesktopContextMenu(", 1)[1].split(
+            "function captureManuscriptRangeFromEvent(", 1
+        )[0]
+        self.assertIn("menu.style.maxHeight", show_fn)
+        self.assertIn("window.innerHeight - pad * 2", show_fn)
+        pos_fn = self.js.split("function positionContextMenu(", 1)[1].split(
+            "function updateFolderContextToggleLabels(", 1
+        )[0]
+        self.assertIn("menu.style.maxHeight", pos_fn)
 
 
 if __name__ == "__main__":
