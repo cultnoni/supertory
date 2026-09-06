@@ -25,3 +25,4 @@ build/pyinstaller/
 
 # Generated at installer build time (commit hash + built_at)
 web/build_info.json
+data/snapshots/
