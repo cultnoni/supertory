@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import app
+from services.translation_preparation_service import format_proper_noun_glossary
 from world_import_analysis import compose_worldbuilding_md
 
 
@@ -84,6 +85,28 @@ class ResolveIndexTermTypeTests(unittest.TestCase):
             "place",
         )
 
+    def test_dictionary_is_lowest_priority(self) -> None:
+        self.assertEqual(
+            app._resolve_index_term_type("이오나", "dictionary"),
+            "dictionary",
+        )
+        self.assertEqual(
+            app._resolve_index_term_type("이오나", "dictionary", "character"),
+            "character",
+        )
+        self.assertEqual(
+            app._resolve_index_term_type("이오나", "character", "dictionary"),
+            "character",
+        )
+        self.assertEqual(
+            app._resolve_index_term_type("에테르", "item", "dictionary"),
+            "item",
+        )
+        self.assertEqual(
+            app._resolve_index_term_type("우산골", "dictionary", "place"),
+            "place",
+        )
+
 
 class CollectCharacterWorldIndexTermsTests(unittest.TestCase):
     def setUp(self) -> None:
@@ -149,6 +172,66 @@ class CollectCharacterWorldIndexTermsTests(unittest.TestCase):
         self.assertFalse(
             any("이며" in name or "출처를" in name for name in names)
         )
+
+    def test_dictionary_only_term_is_seeded(self) -> None:
+        with app.database() as connection:
+            project_id = int(
+                connection.execute(
+                    "INSERT INTO project(title) VALUES (?)",
+                    ("사전 시드",),
+                ).lastrowid
+            )
+            connection.execute(
+                "INSERT INTO custom_dictionary_terms(project_id, term, definition) "
+                "VALUES (?, '에테르', '마나의 다른 이름')",
+                (project_id,),
+            )
+            terms = app.collect_character_world_index_terms(connection, project_id)
+        by_name = {item["source_term"]: item["term_type"] for item in terms}
+        self.assertEqual(by_name["에테르"], "dictionary")
+
+    def test_dictionary_overlaps_character_stays_character(self) -> None:
+        with app.database() as connection:
+            project_id = int(
+                connection.execute(
+                    "INSERT INTO project(title) VALUES (?)",
+                    ("사전 인물 겹침",),
+                ).lastrowid
+            )
+            connection.execute(
+                "INSERT INTO character(project_id, name, sort_order) VALUES (?, '이오나', 0)",
+                (project_id,),
+            )
+            connection.execute(
+                "INSERT INTO custom_dictionary_terms(project_id, term, definition) "
+                "VALUES (?, '이오나', '사전에도 있는 이름')",
+                (project_id,),
+            )
+            terms = app.collect_character_world_index_terms(connection, project_id)
+        names = [item["source_term"] for item in terms]
+        self.assertEqual(names.count("이오나"), 1)
+        by_name = {item["source_term"]: item["term_type"] for item in terms}
+        self.assertEqual(by_name["이오나"], "character")
+
+    def test_dictionary_overlaps_world_item_stays_item(self) -> None:
+        md = compose_worldbuilding_md({"special": "에테르"})
+        with app.database() as connection:
+            project_id = int(
+                connection.execute(
+                    "INSERT INTO project(title, worldbuilding_md) VALUES (?, ?)",
+                    ("사전 세계관 겹침", md),
+                ).lastrowid
+            )
+            connection.execute(
+                "INSERT INTO custom_dictionary_terms(project_id, term, definition) "
+                "VALUES (?, '에테르', '사전 뜻')",
+                (project_id,),
+            )
+            terms = app.collect_character_world_index_terms(connection, project_id)
+        names = [item["source_term"] for item in terms]
+        self.assertEqual(names.count("에테르"), 1)
+        by_name = {item["source_term"]: item["term_type"] for item in terms}
+        self.assertEqual(by_name["에테르"], "item")
 
 
 class CollapseStoredProperNounsTests(unittest.TestCase):
@@ -227,3 +310,41 @@ class CollapseStoredProperNounsTests(unittest.TestCase):
                 for item in payload["proper_nouns"]
             )
         )
+
+    def test_dictionary_definition_decide_and_glossary(self) -> None:
+        project_id = int(
+            self.connection.execute(
+                "SELECT local_project_id FROM translation_jobs WHERE id = ?",
+                (self.job_id,),
+            ).fetchone()[0]
+        )
+        self.connection.execute(
+            "INSERT INTO custom_dictionary_terms(project_id, term, definition) "
+            "VALUES (?, '에테르', '마나의 다른 이름')",
+            (project_id,),
+        )
+        self.connection.execute(
+            "INSERT INTO translation_proper_nouns("
+            "translation_job_id, source_term, term_type, source, created_at"
+            ") VALUES (?, '에테르', 'dictionary', 'dictionary_index', datetime('now'))",
+            (self.job_id,),
+        )
+        self.connection.commit()
+        service = app.get_translation_preparation_service(self.connection)
+        payload = service.list_proper_nouns(self.job_id)
+        ether = next(
+            item for item in payload["proper_nouns"] if item["source_term"] == "에테르"
+        )
+        self.assertEqual(ether["term_type"], "dictionary")
+        self.assertEqual(ether["source"], "dictionary_index")
+        self.assertEqual(ether["dictionary_definition"], "마나의 다른 이름")
+        decided = service.decide_proper_noun(
+            int(ether["id"]),
+            {"user_decision": "keep_as_is", "final_term": "ether"},
+        )
+        self.assertEqual(decided["final_term"], "ether")
+        self.assertEqual(decided["user_decision"], "keep_as_is")
+        glossary = format_proper_noun_glossary(
+            [decided]
+        )
+        self.assertIn("에테르→ether", glossary)

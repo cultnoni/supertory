@@ -142,7 +142,12 @@ class TranslationPreparationRepository:
             source = str(
                 noun.get("source") or noun.get("origin") or "ai_detected"
             ).strip()
-            if source not in {"character_index", "ai_detected", "user_added"}:
+            if source not in {
+                "character_index",
+                "dictionary_index",
+                "ai_detected",
+                "user_added",
+            }:
                 source = "ai_detected"
             alternatives = noun.get("suggested_alternatives_json")
             if alternatives is None:

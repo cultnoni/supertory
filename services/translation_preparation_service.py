@@ -8,11 +8,31 @@ from collections.abc import Callable
 from typing import Protocol
 
 import character_import_analysis
+import custom_dictionary
 import translation_prompts
 
 
-PROPER_NOUN_SOURCES = ("character_index", "ai_detected", "user_added")
-PROPER_NOUN_TERM_TYPES = ("character", "place", "item", "organization")
+PROPER_NOUN_SOURCES = (
+    "character_index",
+    "dictionary_index",
+    "ai_detected",
+    "user_added",
+)
+PROPER_NOUN_INDEX_SOURCES = ("character_index", "dictionary_index")
+PROPER_NOUN_TERM_TYPES = (
+    "character",
+    "place",
+    "item",
+    "organization",
+    "dictionary",
+)
+INDEX_TERM_TYPE_RANK = {
+    "character": 3,
+    "organization": 2,
+    "place": 1,
+    "item": 0,
+    "dictionary": -1,
+}
 PROPER_NOUN_FIT_JUDGMENTS = ("fits", "does_not_fit")
 PROPER_NOUN_USER_DECISIONS = ("keep_romanized", "rename", "keep_as_is")
 
@@ -23,6 +43,7 @@ _PROPER_NOUN_TERM_TYPE_MAP = {
     "item": "item",
     "organization": "organization",
     "org": "organization",
+    "dictionary": "dictionary",
 }
 _PROPER_NOUN_FIT_MAP = {
     "fits": "fits",
@@ -89,8 +110,8 @@ def _merged_stored_term_type(name: str, types: list[object]) -> str:
         "place" in kinds or "organization" in kinds
     ):
         return "organization"
-    rank = {"character": 3, "organization": 2, "place": 1, "item": 0}
-    return max(kinds, key=lambda kind: rank.get(kind, 0))
+    rank = INDEX_TERM_TYPE_RANK
+    return max(kinds, key=lambda kind: rank.get(kind, INDEX_TERM_TYPE_RANK["dictionary"]))
 
 
 def _proper_noun_keep_rank(row: dict) -> tuple:
@@ -444,16 +465,21 @@ class TranslationPreparationService:
                 continue
             if is_sentence_like_proper_noun(source_term):
                 continue
+            term_type = item.get("term_type") or "item"
             index_nouns.append({
                 "source_term": source_term,
-                "term_type": item.get("term_type") or "item",
+                "term_type": term_type,
                 "fit_judgment": None,
                 "judgment_reason": "",
                 "romanized": "",
                 "suggested_alternatives": [],
                 "user_decision": None,
                 "final_term": None,
-                "source": "character_index",
+                "source": (
+                    "dictionary_index"
+                    if term_type == "dictionary"
+                    else "character_index"
+                ),
             })
             existing.add(key)
         self.repository.save_proper_nouns(int(job_id), index_nouns)
@@ -512,7 +538,7 @@ class TranslationPreparationService:
                         ),
                         term_type=(
                             None
-                            if source == "character_index"
+                            if source in PROPER_NOUN_INDEX_SOURCES
                             else item.get("term_type")
                         ),
                     )
@@ -629,15 +655,33 @@ class TranslationPreparationService:
         self.repository.commit()
 
     def list_proper_nouns(self, job_id: int) -> dict:
-        self._require_job(job_id)
+        job = self._require_job(job_id)
         self._collapse_duplicate_proper_nouns(int(job_id))
         self._drop_sentence_like_proper_nouns(int(job_id))
-        return {
-            "proper_nouns": [
-                serialize_proper_noun(item)
-                for item in self.repository.get_proper_nouns(int(job_id))
-            ]
-        }
+        nouns = [
+            serialize_proper_noun(item)
+            for item in self.repository.get_proper_nouns(int(job_id))
+        ]
+        self._attach_dictionary_definitions(int(job["local_project_id"]), nouns)
+        return {"proper_nouns": nouns}
+
+    def _attach_dictionary_definitions(
+        self, project_id: int, nouns: list[dict]
+    ) -> None:
+        connection = getattr(self.repository, "connection", None)
+        if connection is None:
+            return
+        try:
+            definitions = custom_dictionary.definition_map(connection, int(project_id))
+        except Exception:
+            return
+        for item in nouns:
+            if item.get("term_type") != "dictionary":
+                continue
+            item["dictionary_definition"] = definitions.get(
+                " ".join(str(item.get("source_term") or "").split()).strip().casefold(),
+                "",
+            )
 
     def decide_proper_noun(self, noun_id: int, payload: dict | None) -> dict:
         data = payload if isinstance(payload, dict) else {}

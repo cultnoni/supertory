@@ -472,12 +472,12 @@ class TranslationJobService:
     def _require_job(self, job_id: int) -> dict:
         row = self.repository.get_job(int(job_id))
         if row is None:
-            raise LookupError("번역 작업을 찾을 수 없습니다.")
+            raise LookupError(f"번역 작업을 찾을 수 없습니다: id={int(job_id)}")
         return row
 
     def _require_project(self, project_id: int) -> None:
         if not self.repository.project_exists(int(project_id)):
-            raise LookupError("작품을 찾을 수 없습니다.")
+            raise LookupError(f"작품을 찾을 수 없습니다: id={int(project_id)}")
 
     @staticmethod
     def _resolve_culture(value: object) -> str:

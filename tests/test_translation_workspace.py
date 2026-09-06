@@ -559,6 +559,29 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(nouns["proper_nouns"], [])
 
+    def test_create_job_missing_project_returns_404_json(self) -> None:
+        missing_id = 999999
+        status, payload = self.request(
+            "POST",
+            f"/api/projects/{missing_id}/translation/jobs",
+            {
+                "target_language": "en",
+                "start_chapter": 1,
+                "end_chapter": 1,
+                "translate_all_chapters": False,
+            },
+        )
+        self.assertEqual(status, 404)
+        self.assertIsInstance(payload, dict)
+        error = str(payload.get("error") or "")
+        self.assertIn("작품을 찾을 수 없습니다", error)
+        self.assertIn(str(missing_id), error)
+        get_status, listing = self.request(
+            "GET", f"/api/projects/{missing_id}/translation/jobs"
+        )
+        self.assertEqual(get_status, 404)
+        self.assertIn("작품을 찾을 수 없습니다", str(listing.get("error") or ""))
+
     def test_approve_toggle_and_culture_reset(self) -> None:
         project_id, _ = self._make_story()
         status, created = self.request(
@@ -1500,6 +1523,18 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
             {"name": "안테레스"},
         )
         self.assertEqual(status, 201)
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/dictionary-terms",
+            {"term": "에테르", "definition": "마나의 다른 이름"},
+        )
+        self.assertEqual(status, 201)
+        status, _ = self.request(
+            "POST",
+            f"/api/projects/{project_id}/dictionary-terms",
+            {"term": "이오나", "definition": "사전과 겹치는 이름"},
+        )
+        self.assertEqual(status, 201)
         with app.database() as connection:
             connection.execute(
                 "INSERT OR IGNORE INTO project_index(project_id) VALUES (?)",
@@ -1532,8 +1567,11 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertIn("안테레스", names)
         self.assertIn("세리나", names)
         self.assertIn("우산골", names)
+        self.assertIn("에테르", names)
         index_item = next(item for item in nouns if item["source_term"] == "이오나")
         self.assertEqual(index_item["source"], "character_index")
+        self.assertEqual(index_item["term_type"], "character")
+        self.assertFalse(str(index_item.get("dictionary_definition") or "").strip())
         self.assertEqual(index_item["romanized"], "Iona")
         self.assertEqual(index_item["fit_judgment"], "fits")
         self.assertTrue(str(index_item.get("judgment_reason") or "").strip())
@@ -1542,6 +1580,10 @@ class TranslationWorkspaceApiTests(unittest.TestCase):
         self.assertEqual(anteres["source"], "character_index")
         self.assertEqual(anteres["romanized"], "Anteres")
         self.assertTrue(str(anteres.get("judgment_reason") or "").strip())
+        ether = next(item for item in nouns if item["source_term"] == "에테르")
+        self.assertEqual(ether["term_type"], "dictionary")
+        self.assertEqual(ether["source"], "dictionary_index")
+        self.assertEqual(ether["dictionary_definition"], "마나의 다른 이름")
         detected = next(item for item in nouns if item["source_term"] == "우산골")
         self.assertEqual(detected["source"], "ai_detected")
         self.assertEqual(detected["fit_judgment"], "does_not_fit")

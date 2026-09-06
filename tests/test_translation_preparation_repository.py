@@ -201,6 +201,16 @@ class TranslationPreparationRepositoryTests(unittest.TestCase):
         self.repository.save_proper_nouns(self.job_id, [noun])
         self.assertEqual(len(self.repository.get_proper_nouns(self.job_id)), 1)
 
+    def test_save_dictionary_index_source(self) -> None:
+        self.repository.save_proper_nouns(self.job_id, [{
+            "source_term": "에테르",
+            "term_type": "dictionary",
+            "source": "dictionary_index",
+        }])
+        saved = self.repository.get_proper_nouns(self.job_id)[0]
+        self.assertEqual(saved["source"], "dictionary_index")
+        self.assertEqual(saved["term_type"], "dictionary")
+
     def test_missing_records_follow_contract(self) -> None:
         self.assertIsNone(self.repository.get_proper_noun(999999))
         with self.assertRaises(LookupError):
