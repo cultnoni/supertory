@@ -41,6 +41,13 @@ def package_version() -> str:
 
 
 def main() -> int:
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if callable(reconfigure):
+            try:
+                reconfigure(encoding="utf-8", errors="replace")
+            except Exception:
+                pass
     commit = _git("rev-parse", "--short=7", "HEAD")
     full = _git("rev-parse", "HEAD")
     dirty = bool(_git("status", "--porcelain"))
@@ -58,9 +65,9 @@ def main() -> int:
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
     if commit:
-        print(f"Wrote {OUT.relative_to(ROOT)} — commit {commit} (dirty={dirty})")
+        print(f"Wrote {OUT.relative_to(ROOT)} - commit {commit} (dirty={dirty})")
     else:
-        print(f"Wrote {OUT.relative_to(ROOT)} — no git commit available", file=sys.stderr)
+        print(f"Wrote {OUT.relative_to(ROOT)} - no git commit available", file=sys.stderr)
     return 0
 
 
