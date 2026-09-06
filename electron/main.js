@@ -170,10 +170,20 @@ function projectRoot() {
 }
 
 function userDataDir() {
+  // Dev (`electron .` / npm start): share the repo data/ with bat and python app.py.
+  // Packaged SuperTory.exe: keep AppData — Program Files is not writable and
+  // updates may wipe files next to the exe. isDev is !app.isPackaged, so a
+  // built exe always takes this AppData branch.
+  if (isDev) {
+    return path.join(projectRoot(), "data");
+  }
   return path.join(app.getPath("userData"), "data");
 }
 
 function userProjectsDir() {
+  if (isDev) {
+    return path.join(projectRoot(), "projects");
+  }
   return path.join(app.getPath("userData"), "projects");
 }
 
@@ -319,7 +329,9 @@ function startBackendServer() {
     `[supertory] backend (${launch.kind}): ${launch.command} ${launch.args.join(" ")}`
   );
   console.log(`[supertory] cwd: ${launch.cwd}`);
-  console.log(`[supertory] DATA: ${userDataDir()}`);
+  console.log(
+    `[supertory] DATA: ${userDataDir()}${isDev ? " (repo)" : " (userData)"}`
+  );
 
   backendWasStarted = true;
   backendProcess = spawn(launch.command, launch.args, {

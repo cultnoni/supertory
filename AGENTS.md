@@ -7,7 +7,7 @@ Guidance for AI coding agents working in this repository.
 **SuperTory** is a **local-only** Korean writing app (Scrivener-like).  
 No cloud account, no install step: double-click `start_supertory.bat` → browser at `http://127.0.0.1:8765`.
 
-- **Source of truth for writing:** `data/supertory.sqlite3`
+- **Source of truth for writing:** `data/supertory.sqlite3` (`start_supertory.bat` / `python app.py` / **dev Electron `npm start` or `electron .`**. Packaged SuperTory.exe still uses `%APPDATA%\supertory\data`.)
 - **External “open this work” handles:** `projects/*.stg` (not the full manuscript)
 - **UI:** static files under `web/` served by a small Python HTTP server in `app.py`
 - **AI (optional):** Gemini via `.env` (`GEMINI_API_KEY`) — never commit secrets
