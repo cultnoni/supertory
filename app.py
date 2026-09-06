@@ -58,11 +58,14 @@ import gemini_client
 import import_hierarchy
 import korean_speller
 import project_package
+import project_snapshot
 import proof_clean
 import proof_diff
 import proof_extract
 import proof_pipeline
 import scene_cast_detect
+import custom_dictionary
+import scene_character_mentions
 import success_pattern
 import tarot_deck
 import translation_context
@@ -232,7 +235,12 @@ MIGRATION_082_PATH = ROOT / "db" / "082_open_threads_resolved.sql"
 MIGRATION_083_PATH = ROOT / "db" / "083_linked_success_profile_fk.sql"
 MIGRATION_084_PATH = ROOT / "db" / "084_success_pattern_chapter_notes.sql"
 MIGRATION_085_PATH = ROOT / "db" / "085_character_custom_roles.py"
+MIGRATION_086_PATH = ROOT / "db" / "086_project_tory_check.sql"
 MIGRATION_087_PATH = ROOT / "db" / "087_character_canvas_groups.sql"
+MIGRATION_088_PATH = ROOT / "db" / "088_scene_character_mentions.sql"
+MIGRATION_089_PATH = ROOT / "db" / "089_custom_dictionary_terms.sql"
+MIGRATION_090_PATH = ROOT / "db" / "090_translation_proper_nouns_dictionary_type.sql"
+MIGRATION_091_PATH = ROOT / "db" / "091_project_reader_favorites.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1287,6 +1295,181 @@ def database() -> sqlite3.Connection:
         connection.close()
 
 
+# Investigation-only: "씬을 찾을 수 없습니다" toast. Do not change lookup behavior.
+_SCENE_LOOKUP_MISS = "씬을 찾을 수 없습니다."
+_SCENE_API_RECENT_LOCK = Lock()
+_SCENE_API_RECENT: list[dict] = []
+_SCENE_API_RECENT_MAX = 80
+
+
+def scene_lookup_debug_log_path() -> Path:
+    return DATA_DIR / "scene_lookup_debug.log"
+
+
+def _parse_scene_id_from_api_path(path: str) -> int | None:
+    match = re.search(r"/api/scenes/(\d+)", str(path or ""))
+    if not match:
+        return None
+    try:
+        return int(match.group(1))
+    except (TypeError, ValueError):
+        return None
+
+
+def _note_scene_api(method: str, path: str) -> None:
+    try:
+        scene_id = _parse_scene_id_from_api_path(path)
+        if scene_id is None:
+            return
+        entry = {
+            "ts": time.time(),
+            "t": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+            "method": str(method or "?"),
+            "path": str(path or ""),
+            "scene_id": scene_id,
+        }
+        with _SCENE_API_RECENT_LOCK:
+            _SCENE_API_RECENT.append(entry)
+            if len(_SCENE_API_RECENT) > _SCENE_API_RECENT_MAX:
+                del _SCENE_API_RECENT[:-_SCENE_API_RECENT_MAX]
+    except Exception:
+        return
+
+
+def _recent_scene_api(scene_id: int | None, within_s: float = 5.0) -> list[dict]:
+    now = time.time()
+    with _SCENE_API_RECENT_LOCK:
+        rows = list(_SCENE_API_RECENT)
+    out = []
+    for item in rows:
+        if now - float(item.get("ts") or 0) > within_s:
+            continue
+        if scene_id is not None and int(item.get("scene_id") or 0) != int(scene_id):
+            continue
+        out.append(
+            {
+                "t": item.get("t"),
+                "method": item.get("method"),
+                "path": item.get("path"),
+                "scene_id": item.get("scene_id"),
+            }
+        )
+    return out
+
+
+def _probe_scene_lookup(scene_id: int | None) -> dict:
+    probe: dict = {
+        "db_path": str(Path(DATABASE_PATH).resolve()),
+        "db_exists": Path(DATABASE_PATH).exists(),
+        "requested_scene_id": scene_id,
+        "scene_present": False,
+        "scene_project_id": None,
+        "scene_chapter_id": None,
+        "scene_deleted_at": None,
+        "current_revision_no": None,
+        "revision_count": 0,
+        "revision_current_count": 0,
+        "project_present": False,
+        "project_deleted_at": None,
+        "likely_reason": "no scene_id in request",
+        "probe_error": None,
+    }
+    if scene_id is None:
+        return probe
+    connection = None
+    try:
+        connection = connect()
+        row = connection.execute(
+            "SELECT id, project_id, chapter_id, deleted_at FROM scene WHERE id = ?",
+            (int(scene_id),),
+        ).fetchone()
+        if row is None:
+            probe["likely_reason"] = "no scene row for this id"
+            return probe
+        probe["scene_present"] = True
+        probe["scene_project_id"] = int(row["project_id"]) if row["project_id"] is not None else None
+        probe["scene_chapter_id"] = int(row["chapter_id"]) if row["chapter_id"] is not None else None
+        probe["scene_deleted_at"] = row["deleted_at"]
+        revs = connection.execute(
+            "SELECT revision_no, is_current FROM scene_revision WHERE scene_id = ? ORDER BY revision_no",
+            (int(scene_id),),
+        ).fetchall()
+        probe["revision_count"] = len(revs)
+        current_nos = []
+        for rev in revs:
+            if int(rev["is_current"] or 0) == 1:
+                current_nos.append(int(rev["revision_no"]))
+        probe["revision_current_count"] = len(current_nos)
+        probe["current_revision_no"] = current_nos[0] if current_nos else None
+        if probe["scene_project_id"] is not None:
+            project = connection.execute(
+                "SELECT id, deleted_at FROM project WHERE id = ?",
+                (probe["scene_project_id"],),
+            ).fetchone()
+            if project is not None:
+                probe["project_present"] = True
+                probe["project_deleted_at"] = project["deleted_at"]
+        if probe["scene_deleted_at"]:
+            probe["likely_reason"] = "scene row exists but deleted_at is set"
+        elif probe["revision_current_count"] == 0:
+            probe["likely_reason"] = "scene exists but no is_current=1 revision (JOIN miss)"
+        elif probe["revision_current_count"] > 1:
+            probe["likely_reason"] = "multiple is_current=1 revisions"
+        elif not probe["project_present"]:
+            probe["likely_reason"] = "scene exists but project row missing (JOIN miss)"
+        else:
+            probe["likely_reason"] = "row exists; handler JOIN/filter still failed"
+        return probe
+    except Exception as error:  # noqa: BLE001
+        probe["probe_error"] = repr(error)
+        return probe
+    finally:
+        if connection is not None:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+
+def _log_scene_lookup_miss(
+    scene_id: int | None,
+    *,
+    method: str,
+    path: str,
+    status: int | None = None,
+) -> None:
+    probe = _probe_scene_lookup(scene_id)
+    recent = _recent_scene_api(scene_id, 5.0)
+    lines = [
+        "[scene-lookup-debug] MISS "
+        + datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ"),
+        f"  method={method} path={path} status={status}",
+        f"  requested_scene_id={scene_id} requested_project_id=(not in URL)",
+        f"  db_path={probe.get('db_path')} db_exists={probe.get('db_exists')}",
+        f"  scene_present={probe.get('scene_present')} "
+        f"scene_project_id={probe.get('scene_project_id')} "
+        f"scene_chapter_id={probe.get('scene_chapter_id')} "
+        f"deleted_at={probe.get('scene_deleted_at')}",
+        f"  current_revision_no={probe.get('current_revision_no')} "
+        f"revision_count={probe.get('revision_count')} "
+        f"revision_current_count={probe.get('revision_current_count')}",
+        f"  project_present={probe.get('project_present')} "
+        f"project_deleted_at={probe.get('project_deleted_at')}",
+        f"  likely_reason={probe.get('likely_reason')}",
+        f"  probe_error={probe.get('probe_error')}",
+        f"  recent_same_scene_5s={json.dumps(recent, ensure_ascii=False)}",
+    ]
+    text = "\n".join(lines)
+    print(text, flush=True)
+    try:
+        log_path = scene_lookup_debug_log_path()
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(text + "\n")
+    except OSError as write_error:
+        print(f"[scene-lookup-debug] log write failed: {write_error}", flush=True)
+
+
 def projects_root() -> Path:
     """External .stg files live next to the data folder (or under the app root)."""
     if _PROJECTS_DIR_ENV:
@@ -1481,6 +1664,7 @@ def initialise_database() -> None:
     DATA_DIR.mkdir(exist_ok=True)
     (DATA_DIR / "illustrations").mkdir(exist_ok=True)
     (DATA_DIR / "ambient_custom").mkdir(exist_ok=True)
+    (DATA_DIR / "snapshots").mkdir(exist_ok=True)
     projects_root()
     _migrate_legacy_database_file()
     with database() as connection:
@@ -1663,8 +1847,18 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_084_PATH.read_text(encoding="utf-8"))
         if 85 not in applied:
             apply_migration_085(connection)
+        if 86 not in applied:
+            connection.executescript(MIGRATION_086_PATH.read_text(encoding="utf-8"))
         if 87 not in applied:
             connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
+        if 88 not in applied:
+            connection.executescript(MIGRATION_088_PATH.read_text(encoding="utf-8"))
+        if 89 not in applied:
+            connection.executescript(MIGRATION_089_PATH.read_text(encoding="utf-8"))
+        if 90 not in applied:
+            connection.executescript(MIGRATION_090_PATH.read_text(encoding="utf-8"))
+        if 91 not in applied:
+            connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1687,6 +1881,11 @@ def initialise_database() -> None:
         ensure_project_genre_detail_column(connection)
         ensure_project_content_rating_column(connection)
         ensure_project_completion_guide_column(connection)
+        ensure_project_tory_check_table(connection)
+        ensure_scene_character_mention_table(connection)
+        ensure_custom_dictionary_terms_table(connection)
+        ensure_translation_proper_nouns_dictionary_type(connection)
+        ensure_project_reader_favorites_table(connection)
         ensure_user_ambient_tracks_table(connection)
         ensure_user_ambient_tracks_custom_category(connection)
         ensure_ambient_track_overrides_table(connection)
@@ -2128,6 +2327,66 @@ def ensure_character_relations_tables(connection: sqlite3.Connection) -> None:
     apply_migration_076(connection)
 
 
+def ensure_character_canvas_groups(connection: sqlite3.Connection) -> None:
+    """Idempotent: character_canvas_group tables (migration 087)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_canvas_group'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (87, 'character_canvas_groups')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_custom_dictionary_terms_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: custom_dictionary_terms (migration 089)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_dictionary_terms'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_089_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (89, 'custom_dictionary_terms')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_scene_character_mention_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: scene_character_mention tables (migration 088)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'scene_character_mention'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_088_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (88, 'scene_character_mentions')"
+        )
+    except sqlite3.Error:
+        pass
+
+
 def apply_migration_076(connection: sqlite3.Connection) -> None:
     """Widen character_relations uniqueness to include label. Copies existing rows."""
     try:
@@ -2304,124 +2563,6 @@ def _require_live_project(connection: sqlite3.Connection, project_id: int) -> No
         raise ValueError("소설을 찾을 수 없습니다.")
 
 
-def ensure_character_canvas_groups(connection: sqlite3.Connection) -> None:
-    """Idempotent: character_canvas_group tables (migration 087)."""
-    try:
-        exists = connection.execute(
-            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'character_canvas_group'"
-        ).fetchone()
-    except sqlite3.Error:
-        return
-    if exists is None:
-        connection.executescript(MIGRATION_087_PATH.read_text(encoding="utf-8"))
-        return
-    try:
-        connection.execute(
-            "INSERT OR IGNORE INTO schema_migration(version, name) "
-            "VALUES (87, 'character_canvas_groups')"
-        )
-    except sqlite3.Error:
-        pass
-
-def _clean_canvas_group_name(value: object) -> str:
-    name = str(value or "").strip()
-    if not name:
-        raise ValueError("그룹 이름을 입력해 주세요.")
-    if len(name) > 40:
-        raise ValueError("그룹 이름은 40자 이내로 적어 주세요.")
-    if "\n" in name or "\r" in name:
-        raise ValueError("그룹 이름이 올바르지 않습니다.")
-    return name
-
-def create_character_canvas_group(project_id: int, body: dict) -> dict:
-    project_id = int(project_id)
-    name = _clean_canvas_group_name((body or {}).get("name"))
-    raw_ids = (body or {}).get("character_ids") or (body or {}).get("members") or []
-    if not isinstance(raw_ids, list):
-        raise ValueError("그룹에 넣을 인물을 골라 주세요.")
-    character_ids: list[int] = []
-    seen: set[int] = set()
-    for item in raw_ids:
-        try:
-            cid = int(item)
-        except (TypeError, ValueError):
-            continue
-        if cid <= 0 or cid in seen:
-            continue
-        seen.add(cid)
-        character_ids.append(cid)
-    if len(character_ids) < 2:
-        raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
-    color = str((body or {}).get("color") or "").strip()[:32]
-    with database() as connection:
-        _require_live_project(connection, project_id)
-        live_ids = {
-            int(row["id"])
-            for row in connection.execute(
-                "SELECT id FROM character WHERE project_id = ? AND deleted_at IS NULL",
-                (project_id,),
-            ).fetchall()
-        }
-        character_ids = [cid for cid in character_ids if cid in live_ids]
-        if len(character_ids) < 2:
-            raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
-        cursor = connection.execute(
-            "INSERT INTO character_canvas_group(project_id, name, color) VALUES (?, ?, ?)",
-            (project_id, name, color),
-        )
-        group_id = int(cursor.lastrowid)
-        for cid in character_ids:
-            connection.execute(
-                "DELETE FROM character_canvas_group_member "
-                "WHERE project_id = ? AND character_id = ?",
-                (project_id, cid),
-            )
-            connection.execute(
-                "INSERT INTO character_canvas_group_member(group_id, project_id, character_id) "
-                "VALUES (?, ?, ?)",
-                (group_id, project_id, cid),
-            )
-    return {"ok": True, "canvas": get_character_canvas(project_id)}
-
-def update_character_canvas_group(group_id: int, body: dict) -> dict:
-    group_id = int(group_id)
-    name = _clean_canvas_group_name((body or {}).get("name")) if "name" in (body or {}) else None
-    color = None
-    if "color" in (body or {}):
-        color = str((body or {}).get("color") or "").strip()[:32]
-    with database() as connection:
-        row = connection.execute(
-            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
-            (group_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("그룹을 찾을 수 없습니다.")
-        project_id = int(row["project_id"])
-        if name is not None:
-            connection.execute(
-                "UPDATE character_canvas_group SET name = ? WHERE id = ?",
-                (name, group_id),
-            )
-        if color is not None:
-            connection.execute(
-                "UPDATE character_canvas_group SET color = ? WHERE id = ?",
-                (color, group_id),
-            )
-    return {"ok": True, "canvas": get_character_canvas(project_id)}
-
-def delete_character_canvas_group(group_id: int) -> dict:
-    group_id = int(group_id)
-    with database() as connection:
-        row = connection.execute(
-            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
-            (group_id,),
-        ).fetchone()
-        if row is None:
-            raise ValueError("그룹을 찾을 수 없습니다.")
-        project_id = int(row["project_id"])
-        connection.execute("DELETE FROM character_canvas_group WHERE id = ?", (group_id,))
-    return {"ok": True, "canvas": get_character_canvas(project_id)}
-
 def get_character_canvas(project_id: int) -> dict:
     project_id = int(project_id)
     with database() as connection:
@@ -2489,6 +2630,109 @@ def get_character_canvas(project_id: int) -> dict:
             "created_at": row["created_at"],
         })
     return {"characters": characters, "relations": relations, "groups": groups}
+
+
+def _clean_canvas_group_name(value: object) -> str:
+    name = str(value or "").strip()
+    if not name:
+        raise ValueError("그룹 이름을 입력해 주세요.")
+    if len(name) > 40:
+        raise ValueError("그룹 이름은 40자 이내로 적어 주세요.")
+    if "\n" in name or "\r" in name:
+        raise ValueError("그룹 이름이 올바르지 않습니다.")
+    return name
+
+
+def create_character_canvas_group(project_id: int, body: dict) -> dict:
+    project_id = int(project_id)
+    name = _clean_canvas_group_name((body or {}).get("name"))
+    raw_ids = (body or {}).get("character_ids") or (body or {}).get("members") or []
+    if not isinstance(raw_ids, list):
+        raise ValueError("그룹에 넣을 인물을 골라 주세요.")
+    character_ids: list[int] = []
+    seen: set[int] = set()
+    for item in raw_ids:
+        try:
+            cid = int(item)
+        except (TypeError, ValueError):
+            continue
+        if cid <= 0 or cid in seen:
+            continue
+        seen.add(cid)
+        character_ids.append(cid)
+    if len(character_ids) < 2:
+        raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
+    color = str((body or {}).get("color") or "").strip()[:32]
+    with database() as connection:
+        _require_live_project(connection, project_id)
+        live_ids = {
+            int(row["id"])
+            for row in connection.execute(
+                "SELECT id FROM character WHERE project_id = ? AND deleted_at IS NULL",
+                (project_id,),
+            ).fetchall()
+        }
+        character_ids = [cid for cid in character_ids if cid in live_ids]
+        if len(character_ids) < 2:
+            raise ValueError("그룹은 인물 두 명 이상이어야 합니다.")
+        cursor = connection.execute(
+            "INSERT INTO character_canvas_group(project_id, name, color) VALUES (?, ?, ?)",
+            (project_id, name, color),
+        )
+        group_id = int(cursor.lastrowid)
+        for cid in character_ids:
+            connection.execute(
+                "DELETE FROM character_canvas_group_member "
+                "WHERE project_id = ? AND character_id = ?",
+                (project_id, cid),
+            )
+            connection.execute(
+                "INSERT INTO character_canvas_group_member(group_id, project_id, character_id) "
+                "VALUES (?, ?, ?)",
+                (group_id, project_id, cid),
+            )
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
+
+
+def update_character_canvas_group(group_id: int, body: dict) -> dict:
+    group_id = int(group_id)
+    name = _clean_canvas_group_name((body or {}).get("name")) if "name" in (body or {}) else None
+    color = None
+    if "color" in (body or {}):
+        color = str((body or {}).get("color") or "").strip()[:32]
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
+            (group_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("그룹을 찾을 수 없습니다.")
+        project_id = int(row["project_id"])
+        if name is not None:
+            connection.execute(
+                "UPDATE character_canvas_group SET name = ? WHERE id = ?",
+                (name, group_id),
+            )
+        if color is not None:
+            connection.execute(
+                "UPDATE character_canvas_group SET color = ? WHERE id = ?",
+                (color, group_id),
+            )
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
+
+
+def delete_character_canvas_group(group_id: int) -> dict:
+    group_id = int(group_id)
+    with database() as connection:
+        row = connection.execute(
+            "SELECT id, project_id FROM character_canvas_group WHERE id = ?",
+            (group_id,),
+        ).fetchone()
+        if row is None:
+            raise ValueError("그룹을 찾을 수 없습니다.")
+        project_id = int(row["project_id"])
+        connection.execute("DELETE FROM character_canvas_group WHERE id = ?", (group_id,))
+    return {"ok": True, "canvas": get_character_canvas(project_id)}
 
 
 def save_character_canvas_positions(project_id: int, body: dict) -> dict:
@@ -2954,6 +3198,26 @@ def ensure_project_content_rating_column(connection: sqlite3.Connection) -> None
         pass
 
 
+def ensure_project_tory_check_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: project_tory_check (migration 086)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'project_tory_check'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_086_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (86, 'project_tory_check')"
+        )
+    except sqlite3.Error:
+        pass
+
+
 def ensure_project_completion_guide_column(connection: sqlite3.Connection) -> None:
     """Idempotent: project.completion_guide_shown (migration 079)."""
     try:
@@ -3098,7 +3362,7 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
                 source_term TEXT NOT NULL,
                 term_type TEXT
                     CHECK (term_type IS NULL
-                           OR term_type IN ('character', 'place', 'item', 'organization')),
+                           OR term_type IN ('character', 'place', 'item', 'organization', 'dictionary')),
                 fit_judgment TEXT
                     CHECK (fit_judgment IS NULL
                            OR fit_judgment IN ('fits', 'does_not_fit')),
@@ -3192,6 +3456,7 @@ def ensure_translation_jobs_tables(connection: sqlite3.Connection) -> None:
         )
         ensure_translation_proper_noun_suppressions(connection)
         ensure_translation_proper_nouns_source_column(connection)
+        ensure_translation_proper_nouns_dictionary_type(connection)
         ensure_translation_pipeline_schema(connection)
         ensure_translation_word_context_cache(connection)
         ensure_translation_segment_manual_review_column(connection)
@@ -3275,6 +3540,123 @@ def ensure_translation_proper_nouns_source_column(connection: sqlite3.Connection
 
 def ensure_translation_proper_nouns_origin_column(connection: sqlite3.Connection) -> None:
     ensure_translation_proper_nouns_source_column(connection)
+
+
+def ensure_project_reader_favorites_table(connection: sqlite3.Connection) -> None:
+    """Idempotent: project_reader_favorites (migration 091)."""
+    try:
+        exists = connection.execute(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'project_reader_favorites'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if exists is None:
+        connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
+        return
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (91, 'project_reader_favorites')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def ensure_translation_proper_nouns_dictionary_type(
+    connection: sqlite3.Connection,
+) -> None:
+    """Idempotent: translation_proper_nouns.term_type may be dictionary (migration 090)."""
+    create_sql = ""
+    try:
+        row = connection.execute(
+            "SELECT sql FROM sqlite_master "
+            "WHERE type = 'table' AND name = 'translation_proper_nouns'"
+        ).fetchone()
+    except sqlite3.Error:
+        return
+    if row:
+        create_sql = str(row[0] or "")
+    if not create_sql:
+        return
+    if "'dictionary'" not in create_sql:
+        _rebuild_translation_proper_nouns_term_type_check(connection)
+    try:
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (90, 'translation_proper_nouns_dictionary_type')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def _rebuild_translation_proper_nouns_term_type_check(
+    connection: sqlite3.Connection,
+) -> None:
+    rows = [
+        dict(item)
+        for item in connection.execute("SELECT * FROM translation_proper_nouns").fetchall()
+    ]
+    connection.execute("PRAGMA foreign_keys = OFF")
+    connection.execute(
+        "ALTER TABLE translation_proper_nouns RENAME TO translation_proper_nouns_old_090"
+    )
+    connection.execute(
+        """
+        CREATE TABLE translation_proper_nouns (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            translation_job_id INTEGER NOT NULL,
+            source_term TEXT NOT NULL,
+            term_type TEXT
+                CHECK (term_type IS NULL
+                       OR term_type IN ('character', 'place', 'item', 'organization', 'dictionary')),
+            fit_judgment TEXT
+                CHECK (fit_judgment IS NULL
+                       OR fit_judgment IN ('fits', 'does_not_fit')),
+            judgment_reason TEXT,
+            suggested_alternatives_json TEXT,
+            user_decision TEXT
+                CHECK (user_decision IS NULL
+                       OR user_decision IN ('keep_romanized', 'rename', 'keep_as_is')),
+            final_term TEXT,
+            source TEXT NOT NULL DEFAULT 'ai_detected',
+            created_at TEXT NOT NULL DEFAULT (datetime('now')),
+            FOREIGN KEY (translation_job_id) REFERENCES translation_jobs(id) ON DELETE CASCADE
+        )
+        """
+    )
+    for item in rows:
+        source = str(item.get("source") or item.get("origin") or "ai_detected").strip()
+        if not source:
+            source = "ai_detected"
+        connection.execute(
+            """
+            INSERT INTO translation_proper_nouns(
+                id, translation_job_id, source_term, term_type, fit_judgment,
+                judgment_reason, suggested_alternatives_json, user_decision,
+                final_term, source, created_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                item.get("id"),
+                item.get("translation_job_id"),
+                item.get("source_term"),
+                item.get("term_type"),
+                item.get("fit_judgment"),
+                item.get("judgment_reason"),
+                item.get("suggested_alternatives_json"),
+                item.get("user_decision"),
+                item.get("final_term"),
+                source,
+                item.get("created_at"),
+            ),
+        )
+    connection.execute("DROP TABLE translation_proper_nouns_old_090")
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS ix_translation_proper_nouns_job "
+        "ON translation_proper_nouns(translation_job_id)"
+    )
+    connection.execute("PRAGMA foreign_keys = ON")
 
 
 TRANSLATION_JOB_STATUSES = (
@@ -3881,8 +4263,9 @@ def _resolve_index_term_type(
             if _index_term_looks_like_organization(name)
             else current_kind
         )
-    rank = {"character": 3, "organization": 2, "place": 1, "item": 0}
-    if rank.get(incoming_kind, 0) > rank.get(current_kind, 0):
+    rank = translation_preparation_service.INDEX_TERM_TYPE_RANK
+    fallback = rank.get("dictionary", -1)
+    if rank.get(incoming_kind, fallback) > rank.get(current_kind, fallback):
         return incoming_kind
     return current_kind
 
@@ -3996,6 +4379,43 @@ def collect_character_world_index_terms(
     for field_id, term_type in field_types.items():
         for token in _split_index_term_tokens(values.get(field_id)):
             add(token, term_type)
+
+    try:
+        dict_exists = connection.execute(
+            "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'custom_dictionary_terms'"
+        ).fetchone()
+    except sqlite3.Error:
+        dict_exists = None
+    if dict_exists is not None:
+        try:
+            dict_cols = {
+                str(col[1])
+                for col in connection.execute(
+                    "PRAGMA table_info(custom_dictionary_terms)"
+                ).fetchall()
+            }
+        except sqlite3.Error:
+            dict_cols = set()
+        if "term" in dict_cols:
+            select_cols = ["term"]
+            if "aliases" in dict_cols:
+                select_cols.append("aliases")
+            try:
+                dict_rows = connection.execute(
+                    f"SELECT {', '.join(select_cols)} FROM custom_dictionary_terms "
+                    "WHERE project_id = ?",
+                    (int(project_id),),
+                ).fetchall()
+            except sqlite3.Error:
+                dict_rows = []
+            for row in dict_rows:
+                data = dict(row)
+                add(data.get("term"), "dictionary")
+                for token in _split_index_term_tokens(data.get("term")):
+                    add(token, "dictionary")
+                if "aliases" in dict_cols:
+                    for token in _split_index_term_tokens(data.get("aliases")):
+                        add(token, "dictionary")
     return collected
 
 
@@ -5249,6 +5669,7 @@ READER_PERSONA_CATEGORIES = (
     "narrative_critic",
     "structure_wildcard",
 )
+READER_FAVORITE_MAX = 6
 READER_CHAT_HISTORY_LIMIT = 20
 READER_CHAT_EPISODE_CAP = 12000
 READER_CHAT_SYNOPSIS_CAP = 1500
@@ -9801,6 +10222,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         return json.loads(self.rfile.read(length).decode("utf-8"))
 
     def api_error(self, message: str, status: HTTPStatus = HTTPStatus.BAD_REQUEST) -> None:
+        if str(message or "").strip() == _SCENE_LOOKUP_MISS:
+            try:
+                path = urlparse(self.path).path.rstrip("/")
+                _log_scene_lookup_miss(
+                    _parse_scene_id_from_api_path(path),
+                    method=str(getattr(self, "command", "?") or "?"),
+                    path=path,
+                    status=int(status),
+                )
+            except Exception:
+                pass
         self.send_json({"error": message}, status)
 
     def _send_reading_invite_error(self, error: ReadingInviteError) -> None:
@@ -9860,6 +10292,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/") or "/"
+        _note_scene_api("GET", path)
         try:
             if path in {"/api/index/rebuild", "/api/index-rebuild"}:
                 self.send_json(self.get_index_rebuild_overview())
@@ -10173,6 +10606,20 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_trash(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/snapshots", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                self.send_json(
+                    {
+                        "snapshots": project_snapshot.list_snapshots(DATA_DIR, project_id),
+                        "keep_count": project_snapshot.KEEP_COUNT,
+                        "interval_days": project_snapshot.interval_days(),
+                    }
+                )
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/characters", path)
             if match:
                 project_id = int(match.group(1))
@@ -10227,6 +10674,16 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/items", path)
             if match:
                 self.send_json(self.list_project_items(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/dictionary-terms", path)
+            if match:
+                self.send_json(self.list_dictionary_terms(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites", path)
+            if match:
+                self.send_json(self.list_project_reader_favorites(int(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/ideas", path)
@@ -10287,6 +10744,11 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.list_open_threads(int(match.group(1))))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-check", path)
+            if match:
+                self.send_json(self.get_tory_check(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/characters", path)
             if match:
                 scene_id = int(match.group(1))
@@ -10317,6 +10779,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             match = re.fullmatch(r"/api/projects/(\d+)/trait-history", path)
             if match:
                 self.send_json(self.project_trait_history(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/character-appearances", path)
+            if match:
+                query = parse_qs(urlparse(self.path).query)
+                raw_cid = (query.get("character_id") or [None])[0]
+                character_id = 0
+                if raw_cid not in (None, ""):
+                    try:
+                        character_id = int(raw_cid)
+                    except (TypeError, ValueError):
+                        character_id = 0
+                self.send_json(
+                    self.project_character_appearances(int(match.group(1)), character_id)
+                )
                 return
 
             match = re.fullmatch(r"/api/items/(\d+)/trait-history", path)
@@ -10475,6 +10952,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
+        _note_scene_api("POST", path)
         try:
             if path == "/api/ambient/upload":
                 self.send_json(upload_custom_ambient_track_from_request(self), HTTPStatus.CREATED)
@@ -10782,6 +11260,29 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     "last_opened_at": stamp,
                     "list_mode": mode,
                 })
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/snapshots", path)
+            if match:
+                project_id = int(match.group(1))
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                created = project_snapshot.create_snapshot(DATABASE_PATH, DATA_DIR, project_id)
+                self.send_json(created, HTTPStatus.CREATED)
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/snapshots/restore", path)
+            if match:
+                project_id = int(match.group(1))
+                filename = str(body.get("filename") or "").strip()
+                if not filename:
+                    raise ValueError("복구할 스냅샷을 선택해 주세요.")
+                with database() as connection:
+                    self.require_project(connection, project_id)
+                result = project_snapshot.restore_snapshot(
+                    DATABASE_PATH, DATA_DIR, project_id, filename
+                )
+                self.send_json(result)
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/checkout", path)
@@ -11098,7 +11599,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 )
                 return
 
-
             match = re.fullmatch(r"/api/character-relations/(\d+)/accept", path)
             if match:
                 self.send_json(accept_character_relation(int(match.group(1))))
@@ -11109,6 +11609,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(
                     self.create_item(int(match.group(1)), body or {}),
                     HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/dictionary-terms", path)
+            if match:
+                self.send_json(
+                    self.create_dictionary_term(int(match.group(1)), body or {}),
+                    HTTPStatus.CREATED,
+                )
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites/([^/]+)", path)
+            if match:
+                self.send_json(
+                    self.add_project_reader_favorite(
+                        int(match.group(1)),
+                        unquote(match.group(2)),
+                    )
                 )
                 return
 
@@ -11268,6 +11786,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "INSERT INTO character_alias(character_id, project_id, alias, alias_type) VALUES (?, ?, ?, ?)",
                         (character_id, character["project_id"], alias, str(body.get("alias_type", "other"))),
                     )
+                    try:
+                        self._reindex_project_character_mentions(
+                            connection, int(character["project_id"])
+                        )
+                    except Exception:
+                        pass
                 self.send_json({"id": cursor.lastrowid}, HTTPStatus.CREATED)
                 return
 
@@ -11776,6 +12300,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def do_PUT(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
+        _note_scene_api("PUT", path)
         try:
             body = self.read_json()
             if path == "/api/user-settings":
@@ -11884,7 +12409,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(update_character_canvas_group(int(match.group(1)), body or {}))
                 return
 
-
             match = re.fullmatch(r"/api/items/(\d+)", path)
             if match:
                 self.save_item(int(match.group(1)), body or {})
@@ -11926,6 +12450,21 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json(self.update_project_settings(int(match.group(1)), body))
                 return
 
+            match = re.fullmatch(r"/api/projects/(\d+)/tory-check", path)
+            if match:
+                self.send_json(self.save_tory_check(int(match.group(1)), body or {}))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites", path)
+            if match:
+                self.send_json(
+                    self.replace_project_reader_favorites(
+                        int(match.group(1)),
+                        body or {},
+                    )
+                )
+                return
+
             match = re.fullmatch(r"/api/projects/(\d+)/title", path)
             if match:
                 self.send_json(self.rename_project(int(match.group(1)), body))
@@ -11940,6 +12479,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(self.update_bait(match.group(1), body))
                 return
+
+            match = re.fullmatch(r"/api/dictionary-terms/(\d+)", path)
+            if match:
+                self.send_json(self.update_dictionary_term(int(match.group(1)), body or {}))
+                return
+        except LookupError as error:
+            self.api_error(str(error), HTTPStatus.NOT_FOUND)
+            return
         except ValueError as error:
             self.api_error(str(error))
             return
@@ -11953,6 +12500,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def do_PATCH(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
+        _note_scene_api("PATCH", path)
         try:
             body = self.read_json()
             match = re.fullmatch(r"/api/ambient/overrides/(.+)", path)
@@ -11980,6 +12528,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
 
     def do_DELETE(self) -> None:  # noqa: N802
         path = urlparse(self.path).path.rstrip("/")
+        _note_scene_api("DELETE", path)
         try:
             match = re.fullmatch(r"/api/reading-invites/([^/]+)", path)
             if match:
@@ -12031,9 +12580,24 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 self.send_json({"ok": True})
                 return
 
+            match = re.fullmatch(r"/api/dictionary-terms/(\d+)", path)
+            if match:
+                self.send_json(self.delete_dictionary_term(int(match.group(1))))
+                return
+
             match = re.fullmatch(r"/api/scenes/(\d+)/purge", path)
             if match:
                 self.send_json(self.purge_scene(int(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/projects/(\d+)/reader-favorites/([^/]+)", path)
+            if match:
+                self.send_json(
+                    self.delete_project_reader_favorite(
+                        int(match.group(1)),
+                        unquote(match.group(2)),
+                    )
+                )
                 return
 
             match = re.fullmatch(r"/api/projects/(\d+)/trash", path)
@@ -12060,7 +12624,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             if match:
                 self.send_json(delete_character_canvas_group(int(match.group(1))))
                 return
-
 
             match = re.fullmatch(r"/api/items/(\d+)", path)
             if match:
@@ -12243,6 +12806,101 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 grouped[category] = []
             grouped[category].append(item)
         return grouped
+
+    def _load_reader_favorite_ids(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> list[str]:
+        rows = connection.execute(
+            "SELECT persona_id FROM project_reader_favorites "
+            "WHERE project_id = ? ORDER BY sort_order ASC, persona_id ASC",
+            (int(project_id),),
+        ).fetchall()
+        return [str(row["persona_id"]) for row in rows]
+
+    def _assert_reader_persona(
+        self, connection: sqlite3.Connection, persona_id: object
+    ) -> str:
+        key = str(persona_id or "").strip()
+        if not key:
+            raise ValueError("가상 독자를 선택해 주세요.")
+        row = connection.execute(
+            "SELECT id FROM virtual_reader_personas WHERE id = ?",
+            (key,),
+        ).fetchone()
+        if row is None:
+            raise LookupError("가상 독자를 찾을 수 없습니다.")
+        return key
+
+    def list_project_reader_favorites(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
+
+    def replace_project_reader_favorites(self, project_id: int, body: dict) -> dict:
+        raw = []
+        if isinstance(body, dict):
+            raw = body.get("persona_ids") or body.get("ids") or []
+        if not isinstance(raw, list):
+            raise ValueError("즐겨찾기 목록이 올바르지 않습니다.")
+        ids: list[str] = []
+        seen: set[str] = set()
+        for item in raw:
+            persona_id = str(item or "").strip()
+            if not persona_id or persona_id in seen:
+                continue
+            seen.add(persona_id)
+            ids.append(persona_id)
+        if len(ids) > READER_FAVORITE_MAX:
+            raise ValueError("즐겨찾기는 최대 6명까지 등록할 수 있어요")
+        with database() as connection:
+            self.require_project(connection, project_id)
+            for persona_id in ids:
+                self._assert_reader_persona(connection, persona_id)
+            connection.execute(
+                "DELETE FROM project_reader_favorites WHERE project_id = ?",
+                (int(project_id),),
+            )
+            for order, persona_id in enumerate(ids):
+                connection.execute(
+                    "INSERT INTO project_reader_favorites"
+                    "(project_id, persona_id, sort_order) VALUES (?, ?, ?)",
+                    (int(project_id), persona_id, order),
+                )
+            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
+
+    def add_project_reader_favorite(self, project_id: int, persona_id: str) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            key = self._assert_reader_persona(connection, persona_id)
+            current = self._load_reader_favorite_ids(connection, project_id)
+            if key in current:
+                return {"persona_ids": current}
+            if len(current) >= READER_FAVORITE_MAX:
+                raise ValueError("즐겨찾기는 최대 6명까지 등록할 수 있어요")
+            row = connection.execute(
+                "SELECT COALESCE(MAX(sort_order), -1) AS max_order "
+                "FROM project_reader_favorites WHERE project_id = ?",
+                (int(project_id),),
+            ).fetchone()
+            next_order = int(row["max_order"] if row is not None else -1) + 1
+            connection.execute(
+                "INSERT INTO project_reader_favorites"
+                "(project_id, persona_id, sort_order) VALUES (?, ?, ?)",
+                (int(project_id), key, next_order),
+            )
+            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
+
+    def delete_project_reader_favorite(self, project_id: int, persona_id: str) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            key = str(persona_id or "").strip()
+            if key:
+                connection.execute(
+                    "DELETE FROM project_reader_favorites "
+                    "WHERE project_id = ? AND persona_id = ?",
+                    (int(project_id), key),
+                )
+            return {"persona_ids": self._load_reader_favorite_ids(connection, project_id)}
 
     def reader_chat_history(self, work_id: object, persona_id: object) -> dict:
         work_key = str(work_id or "").strip()
@@ -24953,6 +25611,43 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
         return {"entries": entries}
 
+    def project_character_appearances(self, project_id: int, character_id: int = 0) -> dict:
+        """Scenes that mention a character name/alias, latest binder appearance first."""
+        with database() as connection:
+            self.require_project(connection, project_id)
+            ensure_scene_character_mention_table(connection)
+            scene_character_mentions.ensure_project_indexed(
+                connection, int(project_id), plain_text_from_content
+            )
+            if character_id:
+                character = connection.execute(
+                    "SELECT id, name FROM character "
+                    "WHERE id = ? AND project_id = ? AND deleted_at IS NULL",
+                    (int(character_id), int(project_id)),
+                ).fetchone()
+                if character is None:
+                    raise ValueError("캐릭터를 찾을 수 없습니다.")
+            binder = self._list_scenes_in_binder_order(connection, int(project_id))
+            scenes = scene_character_mentions.list_mentions(
+                connection,
+                int(project_id),
+                int(character_id or 0),
+                binder,
+                plain_text_from_content,
+            )
+        return {
+            "character_id": int(character_id or 0),
+            "scenes": scenes,
+        }
+
+    def _reindex_project_character_mentions(
+        self, connection: sqlite3.Connection, project_id: int
+    ) -> None:
+        ensure_scene_character_mention_table(connection)
+        scene_character_mentions.reindex_project(
+            connection, int(project_id), plain_text_from_content
+        )
+
     def item_trait_history(self, item_id: int) -> dict:
         with database() as connection:
             row = connection.execute(
@@ -25008,6 +25703,10 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "DELETE FROM scene_character WHERE character_id = ?",
                 (character_id,),
             )
+            try:
+                scene_character_mentions.delete_character_mentions(connection, int(character_id))
+            except sqlite3.OperationalError:
+                pass
             try:
                 connection.execute(
                     "UPDATE item SET owner_character_id = NULL, "
@@ -25079,6 +25778,38 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 "VALUES (?, ?, ?, ?)",
                 (item_id, project_id, alias, "other"),
             )
+
+    def list_dictionary_terms(self, project_id: int) -> list[dict]:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            return custom_dictionary.list_terms(connection, project_id)
+
+    def create_dictionary_term(self, project_id: int, body: dict) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            return custom_dictionary.create_term(connection, project_id, body or {})
+
+    def update_dictionary_term(self, term_id: int, body: dict) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT project_id FROM custom_dictionary_terms WHERE id = ?",
+                (term_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("단어를 찾을 수 없습니다.")
+            self.require_project(connection, int(row["project_id"]))
+            return custom_dictionary.update_term(connection, term_id, body or {})
+
+    def delete_dictionary_term(self, term_id: int) -> dict:
+        with database() as connection:
+            row = connection.execute(
+                "SELECT project_id FROM custom_dictionary_terms WHERE id = ?",
+                (term_id,),
+            ).fetchone()
+            if row is None:
+                raise ValueError("단어를 찾을 수 없습니다.")
+            self.require_project(connection, int(row["project_id"]))
+            return custom_dictionary.delete_term(connection, term_id)
 
     def list_project_items(self, project_id: int) -> list[dict]:
         with database() as connection:
@@ -25790,6 +26521,137 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
         return self.list_open_threads(project_id)
 
+    TORY_CHECK_PRESETS = frozenset({"strict", "normal", "loose"})
+    TORY_CHECK_PERSONS = frozenset({"first", "third"})
+    TORY_CHECK_TENSES = frozenset({"past", "present"})
+    TORY_CHECK_WORD_MAX = 80
+    TORY_CHECK_WORD_LIMIT = 200
+
+    def _tory_check_defaults(self) -> dict:
+        return {
+            "preset": "normal",
+            "viewpoint_person": None,
+            "viewpoint_tense": None,
+            "forbidden_words": [],
+        }
+
+    def _normalize_tory_check_preset(self, value) -> str:
+        key = str(value or "").strip().lower()
+        if key not in self.TORY_CHECK_PRESETS:
+            raise ValueError("프리셋은 엄격/보통/느슨 중 하나여야 합니다.")
+        return key
+
+    def _normalize_tory_check_person(self, value):
+        if value is None or str(value).strip() == "":
+            return None
+        key = str(value).strip().lower()
+        if key not in self.TORY_CHECK_PERSONS:
+            raise ValueError("인칭은 1인칭 또는 3인칭이어야 합니다.")
+        return key
+
+    def _normalize_tory_check_tense(self, value):
+        if value is None or str(value).strip() == "":
+            return None
+        key = str(value).strip().lower()
+        if key not in self.TORY_CHECK_TENSES:
+            raise ValueError("시제는 과거형 또는 현재형이어야 합니다.")
+        return key
+
+    def _normalize_tory_check_words(self, value) -> list[str]:
+        if value is None:
+            return []
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except json.JSONDecodeError as error:
+                raise ValueError("금칙어 목록을 읽지 못했습니다.") from error
+        if not isinstance(value, list):
+            raise ValueError("금칙어 목록은 배열이어야 합니다.")
+        words = []
+        seen = set()
+        for item in value:
+            word = str(item or "").strip()
+            if not word:
+                continue
+            if len(word) > self.TORY_CHECK_WORD_MAX:
+                raise ValueError("금칙어가 너무 깁니다.")
+            key = word.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            words.append(word)
+            if len(words) > self.TORY_CHECK_WORD_LIMIT:
+                raise ValueError("금칙어는 200개까지 넣을 수 있습니다.")
+        return words
+
+    def _tory_check_row_payload(self, row: sqlite3.Row | None) -> dict:
+        payload = self._tory_check_defaults()
+        if row is None:
+            return payload
+        payload["preset"] = row["preset"] if row["preset"] in self.TORY_CHECK_PRESETS else "normal"
+        person = row["viewpoint_person"]
+        tense = row["viewpoint_tense"]
+        payload["viewpoint_person"] = person if person in self.TORY_CHECK_PERSONS else None
+        payload["viewpoint_tense"] = tense if tense in self.TORY_CHECK_TENSES else None
+        try:
+            payload["forbidden_words"] = self._normalize_tory_check_words(
+                row["forbidden_words_json"]
+            )
+        except ValueError:
+            payload["forbidden_words"] = []
+        return payload
+
+    def get_tory_check(self, project_id: int) -> dict:
+        with database() as connection:
+            self.require_project(connection, project_id)
+            ensure_project_tory_check_table(connection)
+            row = connection.execute(
+                "SELECT preset, viewpoint_person, viewpoint_tense, forbidden_words_json "
+                "FROM project_tory_check WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+        return self._tory_check_row_payload(row)
+
+    def save_tory_check(self, project_id: int, body: dict | None) -> dict:
+        body = body or {}
+        current = self.get_tory_check(project_id)
+        if "preset" in body:
+            current["preset"] = self._normalize_tory_check_preset(body.get("preset"))
+        if "viewpoint_person" in body:
+            current["viewpoint_person"] = self._normalize_tory_check_person(
+                body.get("viewpoint_person")
+            )
+        if "viewpoint_tense" in body:
+            current["viewpoint_tense"] = self._normalize_tory_check_tense(
+                body.get("viewpoint_tense")
+            )
+        if "forbidden_words" in body:
+            current["forbidden_words"] = self._normalize_tory_check_words(
+                body.get("forbidden_words")
+            )
+        with database() as connection:
+            self.require_project(connection, project_id)
+            ensure_project_tory_check_table(connection)
+            connection.execute(
+                "INSERT INTO project_tory_check("
+                "project_id, preset, viewpoint_person, viewpoint_tense, forbidden_words_json, "
+                "updated_at) VALUES (?, ?, ?, ?, ?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now')) "
+                "ON CONFLICT(project_id) DO UPDATE SET "
+                "preset = excluded.preset, "
+                "viewpoint_person = excluded.viewpoint_person, "
+                "viewpoint_tense = excluded.viewpoint_tense, "
+                "forbidden_words_json = excluded.forbidden_words_json, "
+                "updated_at = excluded.updated_at",
+                (
+                    project_id,
+                    current["preset"],
+                    current["viewpoint_person"],
+                    current["viewpoint_tense"],
+                    json.dumps(current["forbidden_words"], ensure_ascii=False),
+                ),
+            )
+        return current
+
     def _project_index_previous_context_readonly(self, project_id: int) -> str:
         with database() as connection:
             self.require_project(connection, project_id)
@@ -26239,6 +27101,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             meta,
             payload_in.get("row_version", 0),
         )
+        try:
+            with database() as connection:
+                ensure_scene_character_mention_table(connection)
+                scene_character_mentions.reindex_scene(
+                    connection, int(scene_id), content, plain_text_from_content
+                )
+        except Exception:
+            pass
         if content is not None:
             try:
                 schedule_glump_highlight_analysis(scene_id, content)
@@ -26542,13 +27412,14 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         expected_version = int(body.get("row_version", 0))
         with database() as connection:
             character = connection.execute(
-                "SELECT row_version, project_id FROM character WHERE id = ? AND deleted_at IS NULL",
+                "SELECT row_version, project_id, name FROM character WHERE id = ? AND deleted_at IS NULL",
                 (character_id,),
             ).fetchone()
             if character is None:
                 raise ValueError("캐릭터를 찾을 수 없습니다.")
             if expected_version and character["row_version"] != expected_version:
                 raise ValueError("다른 화면에서 이 캐릭터가 변경되었습니다. 새로 열고 다시 저장해 주세요.")
+            previous_name = str(character["name"] or "")
             connection.execute(
                 "UPDATE character SET name = ?, sort_name = ?, role = ?, short_description = ?, "
                 "profile_md = ?, strengths_md = ?, weaknesses_md = ?, author_notes_md = ? "
@@ -26572,6 +27443,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     int(character["project_id"]),
                     body.get("aliases"),
                 )
+            if previous_name != name or "aliases" in body:
+                try:
+                    self._reindex_project_character_mentions(
+                        connection, int(character["project_id"])
+                    )
+                except Exception:
+                    pass
 
     def get_character_analysis_status(self, project_id: int) -> dict:
         with database() as connection:
@@ -27688,6 +28566,16 @@ def _init_desktop_sync() -> None:
     Thread(target=_run, daemon=True, name="desktop-sync-init").start()
 
 
+def _run_due_project_snapshots() -> None:
+    """Create weekly per-project snapshots without blocking the first page load."""
+    try:
+        created = project_snapshot.maybe_create_due_snapshots(DATABASE_PATH, DATA_DIR)
+        if created:
+            print(f"작품 스냅샷 {len(created)}개를 자동 저장했습니다.")
+    except Exception as error:  # noqa: BLE001
+        print(f"작품 스냅샷 자동 백업을 건너뜁니다: {error}")
+
+
 def main(argv: list[str] | None = None) -> None:
     # Windows consoles often use cp949; paths under OneDrive/文档 must not crash prints.
     for stream in (sys.stdout, sys.stderr):
@@ -27703,6 +28591,7 @@ def main(argv: list[str] | None = None) -> None:
 
     initialise_database()
     _init_desktop_sync()
+    Timer(1.5, _run_due_project_snapshots).start()
     # Electron owns shell integration; skip for frozen/Electron launches.
     if not ELECTRON_MODE and not _is_frozen():
         project_package.register_windows_file_association(ROOT, sys.executable)
@@ -27735,11 +28624,13 @@ def main(argv: list[str] | None = None) -> None:
         print("\nSuperTory (Electron) 서버가 준비되었습니다.")
         print(f"URL: {url}")
         print(f"데이터: {DATA_DIR}")
+        print(f"씬 조회 디버그 로그: {scene_lookup_debug_log_path()}")
         print(f"작품 파일 폴더: {projects_root()}\n")
     else:
         print("\nSuperTory가 열렸습니다.")
         print(f"브라우저가 열리지 않으면 {url} 을 주소창에 입력해 주세요.")
         print(f"데이터: {DATA_DIR}")
+        print(f"씬 조회 디버그 로그: {scene_lookup_debug_log_path()}")
         print(f"작품 파일 폴더: {projects_root()}")
         print("이 창을 닫으면 앱도 종료됩니다.\n")
     if not NO_BROWSER:

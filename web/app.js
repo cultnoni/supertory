@@ -129,7 +129,8 @@ async function setLanguage(lang) {
   await i18n.loadLocale(lang);
   applyTranslations();
   if (typeof applySplitEditMode === "function") applySplitEditMode();
-  if (typeof syncSmartPunctuationMenuLabel === "function") syncSmartPunctuationMenuLabel();
+  if (typeof syncSmartPunctuationAdminUi === "function") syncSmartPunctuationAdminUi();
+  if (typeof syncDictHighlightMenu === "function") syncDictHighlightMenu();
   applyWelcomeAdFeedToDom();
   if (typeof updateSplitChrome === "function") updateSplitChrome();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
@@ -244,6 +245,12 @@ const state = {
   ideas: [],
   /** @type {any[]} 떡밥모음 (DB 캐시; loadBaits 동기 조회용) */
   baits: [],
+  /** @type {any[]} 토리 사전 */
+  dictionaryTerms: [],
+  dictionaryTermsLoadedFor: 0,
+  dictionaryTermId: 0,
+  dictionaryQuery: "",
+  dictionarySort: "updated",
   ideaBoardOpen: false,
   keywordBoardOpen: false,
   /** @type {null|"baits"|"toryVault"|"sources"|"successProfile"|"readingInvite"} 설정집 목록 메인 */
@@ -268,6 +275,7 @@ const state = {
   characterBoardOpen: false,
   relationCanvasOpen: false,
   itemBoardOpen: false,
+  dictionaryBoardOpen: false,
   settingsSearchOpen: false,
   gitsiOpen: false,
   activeBinder: "manuscript", // "manuscript" | "settings"
@@ -831,14 +839,15 @@ function setEditorContent(raw, editorEl = null) {
   if (typeof hydrateFootnoteUi === "function") hydrateFootnoteUi(editor);
   if (typeof hydrateAuthorNoteUi === "function") hydrateAuthorNoteUi(editor);
   updateEditorPlaceholder(editor);
+  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
 }
 
 function stripFindHitMarkup(html) {
   // Transient editor highlights must never be persisted into manuscript HTML.
-  if (!html || !/(find-hit|spell-apply-hit)/i.test(html)) return html || "";
+  if (!html || !/(find-hit|spell-apply-hit|dict-term-hl)/i.test(html)) return html || "";
   const host = document.createElement("div");
   host.innerHTML = html;
-  host.querySelectorAll("mark.find-hit, mark.spell-apply-hit").forEach((mark) => {
+  host.querySelectorAll("mark.find-hit, mark.spell-apply-hit, mark.dict-term-hl").forEach((mark) => {
     const parent = mark.parentNode;
     if (!parent) return;
     while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
@@ -3078,6 +3087,7 @@ function clearFindHighlights(editor = $("sceneContent")) {
   });
   findMatches = [];
   findIndex = -1;
+  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
 }
 
 function updateFindCountUi() {
@@ -3157,6 +3167,7 @@ function runFindInEditor(query) {
   findMatches = marks;
   if (findMatches.length) setFindCurrent(0);
   else updateFindCountUi();
+  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
 }
 
 function openFindBar() {
@@ -3642,10 +3653,20 @@ function setupSimilarWordFind() {
 
 /* —— 타자기 모드 (Typewriter Mode) —— */
 const TYPEWRITER_MODE_STORAGE_KEY = "supertory.typewriterMode";
+const TYPEWRITER_SOUND_STORAGE_KEY = "supertory.typewriterSound";
+const TYPEWRITER_SAMPLE_URL = "/sounds/typewriter-typing.wav";
 const TYPEWRITER_CENTER_RATIO = 0.47; /* 상단 기준 ~47% (45~50% 구간) */
 let typewriterModeOn = false;
+let typewriterSoundOn = false;
 let typewriterSyncRaf = 0;
 let typewriterLastSmooth = false;
+let typewriterAudioCtx = null;
+let typewriterSoundLastAt = 0;
+let typewriterSampleBuffer = null;
+let typewriterSampleLoading = null;
+let typewriterSamplePeaks = [];
+let typewriterLastPeakIndex = -1;
+let typewriterLastKeyWasDelete = false;
 
 function readTypewriterModePref() {
   try {
@@ -3661,6 +3682,274 @@ function writeTypewriterModePref(on) {
   } catch (_) {
     /* ignore */
   }
+}
+
+function readTypewriterSoundPref() {
+  try {
+    return localStorage.getItem(TYPEWRITER_SOUND_STORAGE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeTypewriterSoundPref(on) {
+  try {
+    localStorage.setItem(TYPEWRITER_SOUND_STORAGE_KEY, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function typewriterSoundContextExtras() {
+  return [{
+    label: i18n.t("app.타이핑_사운드"),
+    hint: typewriterSoundOn
+      ? i18n.t("app.타이핑_사운드_켜짐_힌트")
+      : i18n.t("app.타이핑_사운드_꺼짐_힌트"),
+    checked: typewriterSoundOn,
+    run: () => toggleTypewriterSound({ announce: true }),
+  }];
+}
+
+function isTypewriterSoundTarget(target) {
+  return !!target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, .rich-editor, .manuscript-page");
+}
+
+function isScreenProtectBlockingSound() {
+  const overlay = $("screenProtectOverlay");
+  if (!overlay) return false;
+  if (overlay.classList.contains("hidden") || overlay.hasAttribute("hidden")) return false;
+  return true;
+}
+
+function ensureTypewriterAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!typewriterAudioCtx || typewriterAudioCtx.state === "closed") {
+    typewriterAudioCtx = new Ctx();
+    typewriterSampleBuffer = null;
+    typewriterSampleLoading = null;
+    typewriterSamplePeaks = [];
+  }
+  if (typewriterAudioCtx.state === "suspended") {
+    typewriterAudioCtx.resume().catch(() => {});
+  }
+  return typewriterAudioCtx;
+}
+
+function detectTypewriterPeaks(buffer) {
+  if (!buffer) return [];
+  const data = buffer.getChannelData(0);
+  const rate = buffer.sampleRate || 44100;
+  const win = Math.max(32, Math.floor(rate * 0.008));
+  const hop = Math.max(16, Math.floor(rate * 0.004));
+  const energies = [];
+  let maxE = 0;
+  for (let i = 0; i + win < data.length; i += hop) {
+    let sum = 0;
+    for (let j = 0; j < win; j += 1) sum += data[i + j] * data[i + j];
+    const e = Math.sqrt(sum / win);
+    if (e > maxE) maxE = e;
+    energies.push([i / rate, e]);
+  }
+  const thr = maxE * 0.22;
+  const peaks = [];
+  for (const [t, e] of energies) {
+    if (e < thr) continue;
+    if (peaks.length && t - peaks[peaks.length - 1][0] < 0.085) {
+      if (e > peaks[peaks.length - 1][1]) peaks[peaks.length - 1] = [t, e];
+      continue;
+    }
+    peaks.push([t, e]);
+  }
+  return peaks.map((item) => item[0]);
+}
+
+function loadTypewriterSample() {
+  const ctx = ensureTypewriterAudio();
+  if (!ctx) return Promise.resolve(null);
+  if (typewriterSampleBuffer) return Promise.resolve(typewriterSampleBuffer);
+  if (typewriterSampleLoading) return typewriterSampleLoading;
+  typewriterSampleLoading = fetch(TYPEWRITER_SAMPLE_URL, { cache: "force-cache" })
+    .then((res) => {
+      if (!res.ok) throw new Error("typewriter sample missing");
+      return res.arrayBuffer();
+    })
+    .then((arr) => ctx.decodeAudioData(arr.slice(0)))
+    .then((buf) => {
+      typewriterSampleBuffer = buf;
+      typewriterSamplePeaks = detectTypewriterPeaks(buf);
+      return buf;
+    })
+    .catch(() => {
+      typewriterSampleLoading = null;
+      return null;
+    });
+  return typewriterSampleLoading;
+}
+
+function pickTypewriterSlice(kind) {
+  const buf = typewriterSampleBuffer;
+  if (!buf) return null;
+  const dur = kind === "enter" ? 0.16 : kind === "space" ? 0.13 : kind === "backspace" ? 0.1 : 0.11;
+  const peaks = typewriterSamplePeaks;
+  let start = 0.02;
+  if (peaks.length) {
+    let idx = Math.floor(Math.random() * peaks.length);
+    if (peaks.length > 1 && idx === typewriterLastPeakIndex) {
+      idx = (idx + 1 + Math.floor(Math.random() * (peaks.length - 1))) % peaks.length;
+    }
+    typewriterLastPeakIndex = idx;
+    start = Math.max(0, peaks[idx] - 0.012);
+  } else {
+    const maxStart = Math.max(0.02, buf.duration - dur - 0.02);
+    start = 0.02 + Math.random() * maxStart;
+  }
+  if (start + dur > buf.duration) start = Math.max(0, buf.duration - dur);
+  return { start, dur };
+}
+
+function playTypewriterSample(kind) {
+  const buf = typewriterSampleBuffer;
+  const ctx = ensureTypewriterAudio();
+  if (!buf || !ctx || ctx.state !== "running") return false;
+  const slice = pickTypewriterSlice(kind);
+  if (!slice) return false;
+  const src = ctx.createBufferSource();
+  src.buffer = buf;
+  const gain = ctx.createGain();
+  const now = ctx.currentTime;
+  const peak = kind === "enter" ? 0.95 : kind === "space" ? 0.82 : 0.9;
+  gain.gain.setValueAtTime(peak, now);
+  gain.gain.setValueAtTime(peak, now + Math.max(0.03, slice.dur - 0.04));
+  gain.gain.linearRampToValueAtTime(0.0001, now + slice.dur);
+  src.connect(gain);
+  gain.connect(ctx.destination);
+  src.start(now, slice.start, slice.dur);
+  src.stop(now + slice.dur + 0.02);
+  return true;
+}
+
+function typewriterClickKind(event) {
+  if (!event || event.ctrlKey || event.altKey || event.metaKey) return "";
+  if (event.repeat) return "";
+  const key = String(event.key || "");
+  const code = String(event.code || "");
+  if (key === "Backspace" || key === "Delete" || code === "Backspace" || code === "Delete") {
+    typewriterLastKeyWasDelete = true;
+    return "";
+  }
+  typewriterLastKeyWasDelete = false;
+  if (key === "Enter" || code === "Enter" || code === "NumpadEnter") return "enter";
+  if (key === " " || code === "Space") return "space";
+  if (key.length === 1) return "char";
+  const composing = event.isComposing || key === "Process" || key === "Unidentified" || event.keyCode === 229;
+  if (composing) {
+    if (code.startsWith("Arrow") || code === "Tab" || code === "Escape" || code.startsWith("F")) return "";
+    if (key === "Shift" || key === "Control" || key === "Alt" || key === "Meta" || key === "CapsLock" || key === "HangulMode") {
+      return "";
+    }
+    return code === "Space" ? "space" : "char";
+  }
+  if (code.startsWith("Key") || code.startsWith("Digit") || code.startsWith("Numpad")) return "char";
+  return "";
+}
+
+function typewriterInputKind(event) {
+  const type = String(event.inputType || "");
+  if (!type || type.includes("FromPaste") || type.includes("FromDrop") || type.startsWith("history")) return "";
+  if (type.startsWith("delete")) return "";
+  if (type === "insertParagraph" || type === "insertLineBreak") return "enter";
+  if (type.startsWith("insert")) return "char";
+  return "";
+}
+
+function playTypewriterClick(kind = "char") {
+  const ctx = ensureTypewriterAudio();
+  if (!ctx) return;
+  const kick = () => {
+    if (!ctx || ctx.state !== "running") return;
+    if (playTypewriterSample(kind)) return;
+    const now = ctx.currentTime;
+    const thock = kind === "enter" ? 0.08 : kind === "space" ? 0.06 : kind === "backspace" ? 0.04 : 0.05;
+    const peak = kind === "enter" ? 0.46 : kind === "space" ? 0.34 : kind === "backspace" ? 0.28 : 0.4;
+    const osc = ctx.createOscillator();
+    osc.type = "triangle";
+    const startHz = kind === "enter" ? 150 : kind === "space" ? 210 : kind === "backspace" ? 420 : 280 + Math.random() * 90;
+    osc.frequency.setValueAtTime(startHz, now);
+    osc.frequency.exponentialRampToValueAtTime(Math.max(70, startHz * 0.42), now + thock);
+    const oscGain = ctx.createGain();
+    oscGain.gain.setValueAtTime(peak, now);
+    oscGain.gain.exponentialRampToValueAtTime(0.001, now + thock);
+    const frames = Math.max(64, Math.floor(ctx.sampleRate * 0.028));
+    const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i += 1) {
+      data[i] = (Math.random() * 2 - 1) * Math.exp(-(i / frames) * 16);
+    }
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const hp = ctx.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = kind === "enter" ? 700 : 1600;
+    const nGain = ctx.createGain();
+    nGain.gain.setValueAtTime(peak * 0.7, now);
+    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+    osc.connect(oscGain);
+    oscGain.connect(ctx.destination);
+    src.connect(hp);
+    hp.connect(nGain);
+    nGain.connect(ctx.destination);
+    osc.start(now);
+    osc.stop(now + thock + 0.02);
+    src.start(now);
+    src.stop(now + 0.045);
+  };
+  if (ctx.state === "suspended") {
+    ctx.resume().then(() => loadTypewriterSample().then(kick)).catch(() => {});
+    return;
+  }
+  if (!typewriterSampleBuffer) {
+    loadTypewriterSample().then(kick);
+    return;
+  }
+  kick();
+}
+
+function maybePlayTypewriterSound(event) {
+  if (!typewriterModeOn || !typewriterSoundOn) return;
+  if (isScreenProtectBlockingSound()) return;
+  if (event && !isTypewriterSoundTarget(event.target)) return;
+  let kind = "";
+  if (event?.type === "input") kind = typewriterInputKind(event);
+  else if (event?.type === "compositionupdate") kind = typewriterLastKeyWasDelete ? "" : "char";
+  else kind = typewriterClickKind(event);
+  if (!kind || kind === "backspace") return;
+  const t = performance.now();
+  if (t - typewriterSoundLastAt < 32) return;
+  typewriterSoundLastAt = t;
+  playTypewriterClick(kind);
+}
+
+function setTypewriterSound(on, options = {}) {
+  typewriterSoundOn = !!on;
+  writeTypewriterSoundPref(typewriterSoundOn);
+  if (typewriterSoundOn) {
+    ensureTypewriterAudio();
+    loadTypewriterSample();
+    if (options.sample !== false) playTypewriterClick("char");
+  }
+  if (options.announce) {
+    if (typewriterSoundOn && !typewriterModeOn) {
+      toast(i18n.t("app.타자기_모드를_켜면_타이핑_소리가_나요"));
+    } else {
+      toast(typewriterSoundOn ? i18n.t("app.타이핑_사운드를_켰어요") : i18n.t("app.타이핑_사운드를_껐어요"));
+    }
+  }
+}
+
+function toggleTypewriterSound(options = {}) {
+  setTypewriterSound(!typewriterSoundOn, options);
 }
 
 function getTypewriterEditor() {
@@ -3862,15 +4151,22 @@ function setupTypewriterMode() {
   document.documentElement.dataset.typewriterBound = "1";
 
   applyTypewriterModeUi(readTypewriterModePref());
+  typewriterSoundOn = readTypewriterSoundPref();
+  if (typewriterSoundOn) loadTypewriterSample();
 
   $("typewriterModeButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
     if (typeof closeIconGuidePopovers === "function") closeIconGuidePopovers("");
     toggleTypewriterMode({ announce: true });
+    if (typewriterSoundOn) {
+      ensureTypewriterAudio();
+      loadTypewriterSample();
+    }
   });
 
   const onEditorActivity = (event) => {
+    if (event.type === "keydown" || event.type === "input") maybePlayTypewriterSound(event);
     if (!typewriterModeOn) return;
     const target = event.target;
     if (!target?.closest?.("#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, .rich-editor, .manuscript-page")) {
@@ -3890,6 +4186,9 @@ function setupTypewriterMode() {
 
   document.addEventListener("input", onEditorActivity, true);
   document.addEventListener("keydown", onEditorActivity, true);
+  document.addEventListener("compositionupdate", (event) => {
+    maybePlayTypewriterSound(event);
+  }, true);
   document.addEventListener("keyup", onEditorActivity, true);
   document.addEventListener("mouseup", onEditorActivity, true);
   document.addEventListener("selectionchange", () => {
@@ -3904,35 +4203,32 @@ function setupTypewriterMode() {
   });
 }
 
-/* —— 스마트 문장부호 (따옴표 짝 자동완성) ——
- * 뮤블식 '엔터 후 홀수 추측'이 아니라, 코드 에디터 괄호처럼 입력 순간에 짝을 넣어요.
- * 직선 따옴표(" ')만 쓰고, 곡선형(“ ”)로 바꾸지 않아요.
+/* —— 스마트 문장부호 (여는 기호 입력 시 닫는 기호 자동완성) ——
+ * 설정은 관리자 → 설정 옵션 → 문장부호 자동완성.
+ * 직선 따옴표 키(supertory.smartPunctuation)는 그대로 두고, 추가 쌍은 별도 키.
  */
-const SMART_PUNCTUATION_STORAGE_KEY = "supertory.smartPunctuation";
-const SMART_PUNCTUATION_QUOTES = { '"': true, "'": true };
 let smartPunctuationOn = true;
+let smartPunctuationPairs = {};
 let smartPunctuationMute = false;
 
-function readSmartPunctuationPref() {
-  try {
-    const raw = localStorage.getItem(SMART_PUNCTUATION_STORAGE_KEY);
-    if (raw === null) return true;
-    return raw !== "0";
-  } catch (_) {
-    return true;
-  }
+function smartPunctuationApi() {
+  return window.SmartPunctuation || null;
 }
 
-function writeSmartPunctuationPref(on) {
-  try {
-    localStorage.setItem(SMART_PUNCTUATION_STORAGE_KEY, on ? "1" : "0");
-  } catch (_) {
-    /* ignore */
-  }
+function getSmartPunctuationPrefs() {
+  return { quotes: smartPunctuationOn, pairs: smartPunctuationPairs };
 }
 
-function isSmartPunctuationEnabled() {
-  return smartPunctuationOn;
+function loadSmartPunctuationPrefs() {
+  const api = smartPunctuationApi();
+  if (!api) {
+    smartPunctuationOn = true;
+    smartPunctuationPairs = {};
+    return;
+  }
+  const prefs = api.readPrefs(localStorage);
+  smartPunctuationOn = !!prefs.quotes;
+  smartPunctuationPairs = prefs.pairs || {};
 }
 
 function getSmartPunctuationEditor(event) {
@@ -3944,27 +4240,32 @@ function getSmartPunctuationEditor(event) {
   return null;
 }
 
-function syncSmartPunctuationMenuLabel() {
-  const btn = $("smartPunctuationMenuItem");
-  if (!btn) return;
-  btn.textContent = smartPunctuationOn
-    ? i18n.t("index.스마트_문장부호_끄기")
-    : i18n.t("index.스마트_문장부호_켜기");
+function syncSmartPunctuationAdminUi() {
+  const quotes = $("smartPunctQuotes");
+  if (quotes) quotes.checked = !!smartPunctuationOn;
+  document.querySelectorAll("[data-smart-punct]").forEach((el) => {
+    const id = el.dataset.smartPunct;
+    if (!id || id === "quotes") return;
+    el.checked = !!smartPunctuationPairs[id];
+  });
 }
 
-function setSmartPunctuationEnabled(on, options = {}) {
+function setSmartPunctuationEnabled(on) {
+  const api = smartPunctuationApi();
   smartPunctuationOn = !!on;
-  writeSmartPunctuationPref(smartPunctuationOn);
-  syncSmartPunctuationMenuLabel();
-  if (options.announce) {
-    toast(smartPunctuationOn
-      ? i18n.t("index.스마트_문장부호를_켰어요")
-      : i18n.t("index.스마트_문장부호를_껐어요"));
-  }
+  if (api) api.writeQuotesPref(localStorage, smartPunctuationOn);
+  syncSmartPunctuationAdminUi();
 }
 
-function toggleSmartPunctuation(options = {}) {
-  setSmartPunctuationEnabled(!smartPunctuationOn, options);
+function setSmartPunctuationPair(id, on) {
+  const api = smartPunctuationApi();
+  if (!id || id === "quotes") {
+    setSmartPunctuationEnabled(on);
+    return;
+  }
+  smartPunctuationPairs = { ...smartPunctuationPairs, [id]: !!on };
+  if (api) api.writePairPrefs(localStorage, smartPunctuationPairs);
+  syncSmartPunctuationAdminUi();
 }
 
 function peekAdjacentChar(direction) {
@@ -4070,10 +4371,10 @@ function deleteEmptyQuotePairAroundCaret() {
   }
 }
 
-function insertSmartQuotePair(quote, selectedText) {
+function insertSmartPair(open, close, selectedText) {
   smartPunctuationMute = true;
   try {
-    document.execCommand("insertText", false, quote + selectedText + quote);
+    document.execCommand("insertText", false, open + selectedText + close);
     moveCaretOneChar(-1);
   } finally {
     smartPunctuationMute = false;
@@ -4081,58 +4382,79 @@ function insertSmartQuotePair(quote, selectedText) {
 }
 
 function onSmartPunctuationBeforeInput(event) {
-  if (smartPunctuationMute || !smartPunctuationOn) return;
+  if (smartPunctuationMute) return;
   if (event.isComposing || event.defaultPrevented) return;
+  const api = smartPunctuationApi();
+  if (!api) return;
   const editor = getSmartPunctuationEditor(event);
   if (!editor) return;
   const sel = window.getSelection();
   if (!sel || !sel.rangeCount) return;
   if (!editor.contains(sel.anchorNode) && sel.anchorNode !== editor) return;
+  if (event.ctrlKey || event.metaKey || event.altKey) return;
 
   const inputType = String(event.inputType || "");
+  const collapsed = sel.isCollapsed;
+  const prefs = getSmartPunctuationPrefs();
+  let prev = "";
+  let next = "";
   if (inputType === "deleteContentBackward") {
-    if (!sel.isCollapsed) return;
-    const prev = peekAdjacentChar(-1);
-    const next = peekAdjacentChar(1);
-    if (!SMART_PUNCTUATION_QUOTES[prev] || prev !== next) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    if (!collapsed) return;
+    prev = peekAdjacentChar(-1);
+    next = peekAdjacentChar(1);
+  } else if (inputType === "insertText" || inputType === "insertCompositionText") {
+    const typed = event.data || "";
+    if (!typed || typed.length !== 1) return;
+    if (api.RESERVED[typed]) return;
+    const mightWrap = !!api.closerForOpener(typed, prefs);
+    const mightSkip = api.isCloserEnabled(typed, prefs);
+    if (!mightWrap && !mightSkip) return;
+    if (collapsed) {
+      next = peekAdjacentChar(1);
+      if (mightWrap) prev = peekAdjacentChar(-1);
+    }
+  }
+  const decision = api.decide({
+    inputType,
+    data: event.data || "",
+    prev,
+    next,
+    collapsed,
+    selected: collapsed ? "" : sel.toString(),
+    prefs,
+  });
+  if (!decision || decision.action === "ignore") return;
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  if (decision.action === "deletePair") {
     deleteEmptyQuotePairAroundCaret();
     return;
   }
-
-  if (inputType !== "insertText") return;
-  const quote = event.data;
-  if (!quote || !SMART_PUNCTUATION_QUOTES[quote]) return;
-  if (event.ctrlKey || event.metaKey || event.altKey) return;
-
-  if (sel.isCollapsed) {
-    if (peekAdjacentChar(1) === quote) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-      moveCaretOneChar(1);
-      return;
-    }
-    // don't → 영문 축약형은 홑따옴표 하나만. 한글 조사 뒤는 짝을 만들어요.
-    if (quote === "'" && /[A-Za-z0-9]/.test(peekAdjacentChar(-1))) return;
-    event.preventDefault();
-    event.stopImmediatePropagation();
-    insertSmartQuotePair(quote, "");
+  if (decision.action === "skip") {
+    moveCaretOneChar(1);
     return;
   }
-
-  const selected = sel.toString();
-  event.preventDefault();
-  event.stopImmediatePropagation();
-  insertSmartQuotePair(quote, selected);
+  if (decision.action === "wrap") {
+    insertSmartPair(decision.open, decision.close, decision.selected || "");
+  }
 }
 
 function setupSmartPunctuation() {
   if (document.documentElement.dataset.smartPunctuationBound === "1") return;
   document.documentElement.dataset.smartPunctuationBound = "1";
-  smartPunctuationOn = readSmartPunctuationPref();
-  syncSmartPunctuationMenuLabel();
+  loadSmartPunctuationPrefs();
+  syncSmartPunctuationAdminUi();
   document.addEventListener("beforeinput", onSmartPunctuationBeforeInput, true);
+  const box = $("smartPunctAdminBox");
+  if (box && box.dataset.smartPunctBound !== "1") {
+    box.dataset.smartPunctBound = "1";
+    box.addEventListener("change", (event) => {
+      const input = event.target?.closest?.("[data-smart-punct]");
+      if (!input) return;
+      setSmartPunctuationPair(input.dataset.smartPunct, input.checked);
+    });
+  }
 }
 
 function setupSceneStats() {
@@ -4202,6 +4524,7 @@ function setupSceneStats() {
   setupSimilarWordFind();
   setupTypewriterMode();
   setupSmartPunctuation();
+  if (typeof setupDictHighlight === "function") setupDictHighlight();
 }
 
 function updateEditorPlaceholder(editorEl = null) {
@@ -9384,12 +9707,17 @@ async function loadProject() {
   let characters;
   let ideas;
   let items;
+  let dictionaryTerms;
   try {
-    [outline, characters, ideas, items] = await Promise.all([
+    [outline, characters, ideas, items, dictionaryTerms] = await Promise.all([
       api(`/api/projects/${projectIdAtStart}/outline`, apiOpts),
       api(`/api/projects/${projectIdAtStart}/characters`, apiOpts),
       api(`/api/projects/${projectIdAtStart}/ideas`, apiOpts),
       api(`/api/projects/${projectIdAtStart}/items`, apiOpts).catch((error) => {
+        if (isAbortError(error)) throw error;
+        return [];
+      }),
+      api(`/api/projects/${projectIdAtStart}/dictionary-terms`, apiOpts).catch((error) => {
         if (isAbortError(error)) throw error;
         return [];
       }),
@@ -9402,6 +9730,11 @@ async function loadProject() {
   if (!stillCurrent()) return;
   state.characters = characters;
   state.items = Array.isArray(items) ? items : [];
+  state.dictionaryTerms = Array.isArray(dictionaryTerms) ? dictionaryTerms : [];
+  state.dictionaryTermsLoadedFor = projectIdAtStart;
+  if (typeof applyDictHighlightForProject === "function") {
+    applyDictHighlightForProject(projectIdAtStart);
+  }
   state.outline = outline.chapters || [];
   state.parts = Array.isArray(outline.parts) ? outline.parts : [];
   state.ungroupedChapters = Array.isArray(outline.ungrouped_chapters)
@@ -9655,6 +9988,16 @@ function renderSettingsCodex() {
     itemLines.push(first ? `${name} — ${first}` : name);
   }
   renderPreviewElement($("itemsPreview"), itemLines, i18n.t('app.아직_아이템이_없어요_더블클릭_또는'));
+
+  const dictLines = [];
+  for (const entry of (state.dictionaryTerms || [])) {
+    if (dictLines.length >= 2) break;
+    const term = String(entry.term || i18n.t("index.단어")).trim();
+    const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
+    dictLines.push(meaning ? `${term} — ${meaning}` : term);
+  }
+  renderPreviewElement($("dictionaryPreview"), dictLines, i18n.t("index.아직_등록된_단어가_없어요"));
+  renderDictionaryList();
 
   const sources = loadSources();
   const sourceLines = sources.slice(0, 2).map((src) => {
@@ -10386,6 +10729,7 @@ function bindSettingsSearchEvents() {
 
 function hideItemViews() {
   hideItemBoard();
+  hideDictionaryBoard();
   $("itemEditor")?.classList.add("hidden");
 }
 
@@ -13169,6 +13513,832 @@ async function closeItemBoard() {
   await returnToManuscriptFromSettingsMain();
 }
 
+function hideDictionaryBoard() {
+  state.dictionaryBoardOpen = false;
+  $("dictionaryBoard")?.classList.add("hidden");
+}
+
+function dictionaryConflictLabel(conflicts) {
+  const labels = {
+    character: i18n.t("app.캐릭터"),
+    item: i18n.t("app.아이템"),
+    world: i18n.t("app.세계관"),
+  };
+  const kinds = (Array.isArray(conflicts) ? conflicts : [])
+    .map((kind) => labels[kind])
+    .filter(Boolean);
+  if (!kinds.length) return "";
+  return i18n.t("index.이미_kinds_에_같은_이름이_있어요", { kinds: kinds.join("/") });
+}
+
+function paintDictionaryWarning(el, conflicts) {
+  if (!el) return;
+  const text = dictionaryConflictLabel(conflicts);
+  el.textContent = text;
+  el.classList.toggle("hidden", !text);
+}
+
+function filteredDictionaryTerms() {
+  const query = String(state.dictionaryQuery || "").trim().toLowerCase();
+  const sort = state.dictionarySort === "term" ? "term" : "updated";
+  const rows = Array.isArray(state.dictionaryTerms) ? [...state.dictionaryTerms] : [];
+  const filtered = query
+    ? rows.filter((entry) => {
+        const blob = `${entry.term || ""} ${entry.definition || ""} ${entry.memo || ""}`.toLowerCase();
+        return blob.includes(query);
+      })
+    : rows;
+  if (sort === "term") {
+    filtered.sort((a, b) => String(a.term || "").localeCompare(String(b.term || ""), "ko"));
+  }
+  return filtered;
+}
+
+function dictionaryListHtml(rows, selectedId) {
+  if (!rows.length) {
+    return `<p class="hint">${escapeHtml(i18n.t("index.아직_등록된_단어가_없어요"))}</p>`;
+  }
+  return rows.map((entry) => {
+    const active = Number(selectedId) === Number(entry.id) ? "active" : "";
+    const warning = dictionaryConflictLabel(entry.conflicts);
+    const badge = warning
+      ? `<span class="dict-name-warning-badge" title="${escapeHtml(warning)}">!</span>`
+      : "";
+    const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
+    return `<button type="button" class="character-link ${active}" data-dictionary-term="${entry.id}">
+      <span class="character-name">${escapeHtml(entry.term || i18n.t("index.단어"))}${badge}</span>
+      <span class="character-role">${escapeHtml(meaning || i18n.t("index.뜻"))}</span>
+    </button>`;
+  }).join("");
+}
+
+function bindDictionaryListClicks(root) {
+  root?.querySelectorAll("[data-dictionary-term]").forEach((button) => {
+    button.addEventListener("click", () => {
+      selectDictionaryTerm(Number(button.dataset.dictionaryTerm) || 0).catch(handleError);
+    });
+  });
+}
+
+function fillDictionaryEditor(entry) {
+  const isNew = !entry || !Number(entry.id);
+  $("dictionaryTerm") && ($("dictionaryTerm").value = String(entry?.term || ""));
+  $("dictionaryDefinition") && ($("dictionaryDefinition").value = String(entry?.definition || ""));
+  $("dictionaryMemo") && ($("dictionaryMemo").value = String(entry?.memo || ""));
+  if ($("dictionaryDeleteButton")) $("dictionaryDeleteButton").hidden = isNew;
+  paintDictionaryWarning($("dictionaryWarning"), entry?.conflicts || []);
+}
+
+function renderDictionaryList() {
+  const rows = filteredDictionaryTerms();
+  const selected = Number(state.dictionaryTermId) || 0;
+  const sidebar = $("dictionaryList");
+  if (sidebar) {
+    sidebar.innerHTML = dictionaryListHtml(rows, selected);
+    bindDictionaryListClicks(sidebar);
+  }
+  const board = $("dictionaryBoardList");
+  if (board) {
+    board.innerHTML = dictionaryListHtml(rows, selected);
+    bindDictionaryListClicks(board);
+  }
+  const search = $("dictionarySearch");
+  const boardSearch = $("dictionaryBoardSearch");
+  if (search && search !== document.activeElement) search.value = state.dictionaryQuery;
+  if (boardSearch && boardSearch !== document.activeElement) boardSearch.value = state.dictionaryQuery;
+  const sort = $("dictionarySort");
+  const boardSort = $("dictionaryBoardSort");
+  if (sort) sort.value = state.dictionarySort === "term" ? "term" : "updated";
+  if (boardSort) boardSort.value = state.dictionarySort === "term" ? "term" : "updated";
+}
+
+function selectedDictionaryEntry() {
+  const id = Number(state.dictionaryTermId) || 0;
+  if (!id) return null;
+  return (state.dictionaryTerms || []).find((entry) => Number(entry.id) === id) || null;
+}
+
+async function refreshDictionaryTerms(options = {}) {
+  const pid = Number(state.projectId) || 0;
+    if (!pid) {
+    state.dictionaryTerms = [];
+    state.dictionaryTermsLoadedFor = 0;
+    renderDictionaryList();
+    syncDockDictionaryFloat();
+    if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
+    return [];
+  }
+  if (!options.force && state.dictionaryTermsLoadedFor === pid) {
+    renderDictionaryList();
+    syncDockDictionaryFloat();
+    return state.dictionaryTerms;
+  }
+  const rows = await api(`/api/projects/${state.projectId}/dictionary-terms`);
+  if (Number(state.projectId) !== pid) return state.dictionaryTerms;
+  state.dictionaryTerms = Array.isArray(rows) ? rows : [];
+  state.dictionaryTermsLoadedFor = pid;
+  renderDictionaryList();
+  syncDockDictionaryFloat();
+  const dictLines = [];
+  for (const entry of state.dictionaryTerms) {
+    if (dictLines.length >= 2) break;
+    const term = String(entry.term || i18n.t("index.단어")).trim();
+    const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
+    dictLines.push(meaning ? `${term} — ${meaning}` : term);
+  }
+  renderPreviewElement($("dictionaryPreview"), dictLines, i18n.t("index.아직_등록된_단어가_없어요"));
+  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
+  return state.dictionaryTerms;
+}
+
+function startNewDictionaryTerm(prefills = {}) {
+  state.dictionaryTermId = 0;
+  fillDictionaryEditor({
+    term: String(prefills.term || ""),
+    definition: String(prefills.definition || ""),
+    memo: "",
+    conflicts: [],
+  });
+  renderDictionaryList();
+  $("dictionaryTerm")?.focus();
+}
+
+async function selectDictionaryTerm(termId) {
+  const id = Number(termId) || 0;
+  if (!id) {
+    startNewDictionaryTerm();
+    if (!state.dictionaryBoardOpen) await openDictionaryBoard();
+    return;
+  }
+  state.dictionaryTermId = id;
+  const entry = selectedDictionaryEntry();
+  fillDictionaryEditor(entry || { id, term: "", definition: "", memo: "", conflicts: [] });
+  renderDictionaryList();
+  if (!state.dictionaryBoardOpen) await openDictionaryBoard();
+}
+
+async function saveDictionaryTerm(options = {}) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return null;
+  }
+  const term = String(options.term ?? ($("dictionaryTerm")?.value || "")).trim();
+  const definition = String(options.definition ?? ($("dictionaryDefinition")?.value || ""));
+  const memo = String(options.memo ?? ($("dictionaryMemo")?.value || "")).trim();
+  if (!term) {
+    toast(i18n.t("index.단어를_적어_주세요"));
+    return null;
+  }
+  const editingId = Number(options.id ?? state.dictionaryTermId) || 0;
+  const saved = editingId
+    ? await api(`/api/dictionary-terms/${editingId}`, {
+        method: "PUT",
+        body: JSON.stringify({ term, definition, memo }),
+      })
+    : await api(`/api/projects/${state.projectId}/dictionary-terms`, {
+        method: "POST",
+        body: JSON.stringify({ term, definition, memo }),
+      });
+  const nextId = Number(saved?.id) || editingId;
+  await refreshDictionaryTerms({ force: true });
+  state.dictionaryTermId = nextId;
+  fillDictionaryEditor(selectedDictionaryEntry() || saved);
+  renderDictionaryList();
+  paintDictionaryWarning($("dictionaryWarning"), saved?.conflicts || []);
+  toast(editingId ? i18n.t("index.토리_사전을_저장했어요") : i18n.t("index.토리_사전에_넣었어요"));
+  return saved;
+}
+
+async function deleteDictionaryTerm() {
+  const entry = selectedDictionaryEntry();
+  const id = Number(entry?.id || state.dictionaryTermId) || 0;
+  if (!id) return;
+  const name = String(entry?.term || i18n.t("index.단어")).trim();
+  const ok = window.confirm(i18n.t("index.이_단어를_삭제할까요", { term: name }));
+  if (!ok) return;
+  await api(`/api/dictionary-terms/${id}`, { method: "DELETE" });
+  state.dictionaryTermId = 0;
+  await refreshDictionaryTerms({ force: true });
+  startNewDictionaryTerm();
+}
+
+async function openDictionaryBoard() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (typeof isGlumpSprintActive === "function" && isGlumpSprintActive() && !confirmLeaveGlumpSprint()) {
+    return;
+  }
+  if (sceneDirty && state.sceneId) {
+    try { await persistScene({ quiet: true, saveNote: i18n.t("app.자동_저장") }); } catch (_) { /* continue */ }
+  }
+  setActiveBinder("settings");
+  state.openSettingsSection = "dictionary";
+  applySettingsSectionState();
+  hideItemViews();
+  hideCharacterBoard();
+  hideRelationCanvas();
+  hideSynopsisMain();
+  hideSettingsCollectionBoard();
+  hideGitsiWorkspace();
+  hideSettingsSearchBoard();
+  state.ideaBoardOpen = false;
+  state.keywordBoardOpen = false;
+  $("welcome")?.classList.add("hidden");
+  $("ideaBoard")?.classList.add("hidden");
+  $("keywordBoard")?.classList.add("hidden");
+  $("sceneWorkspace")?.classList.add("hidden");
+  $("characterEditor")?.classList.add("hidden");
+  closeSceneToolsDrawer();
+  await closeSplitView().catch(() => {});
+  state.dictionaryBoardOpen = true;
+  $("dictionaryBoard")?.classList.remove("hidden");
+  await refreshDictionaryTerms();
+  const entry = selectedDictionaryEntry();
+  if (entry) fillDictionaryEditor(entry);
+  else if (!Number(state.dictionaryTermId)) fillDictionaryEditor(null);
+}
+
+async function closeDictionaryBoard() {
+  hideDictionaryBoard();
+  await returnToManuscriptFromSettingsMain();
+}
+
+function closeDictionaryModal() {
+  $("dictionaryModal")?.classList.add("hidden");
+}
+
+function openDictionaryModal(term = "") {
+  const modal = $("dictionaryModal");
+  if (!modal) return;
+  $("dictionaryModalTerm") && ($("dictionaryModalTerm").value = String(term || "").trim());
+  $("dictionaryModalDefinition") && ($("dictionaryModalDefinition").value = "");
+  paintDictionaryWarning($("dictionaryModalWarning"), []);
+  modal.classList.remove("hidden");
+  try { $("dictionaryModalDefinition")?.focus({ preventScroll: true }); } catch (_) {
+    $("dictionaryModalDefinition")?.focus();
+  }
+}
+
+function addToryDictionaryFromSelection() {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
+  if (!raw) {
+    toast(i18n.t("app.본문에서_단어나_문장을_드래그로_선택한_뒤"));
+    return;
+  }
+  openDictionaryModal(raw.replace(/\s+/g, " ").slice(0, 80));
+}
+
+async function saveDictionaryModal(event) {
+  event?.preventDefault?.();
+  const saved = await saveDictionaryTerm({
+    id: 0,
+    term: $("dictionaryModalTerm")?.value || "",
+    definition: $("dictionaryModalDefinition")?.value || "",
+    memo: "",
+  });
+  if (!saved) return;
+  paintDictionaryWarning($("dictionaryModalWarning"), saved?.conflicts || []);
+  closeDictionaryModal();
+}
+
+function setupDictionaryUi() {
+  $("newDictionaryButton")?.addEventListener("click", () => {
+    startNewDictionaryTerm();
+    openDictionaryBoard().catch(handleError);
+  });
+  $("newDictionaryMainButton")?.addEventListener("click", () => {
+    startNewDictionaryTerm();
+  });
+  $("closeDictionaryBoardButton")?.addEventListener("click", () => closeDictionaryBoard().catch(handleError));
+  $("dictionaryForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    saveDictionaryTerm().catch(handleError);
+  });
+  $("dictionaryDeleteButton")?.addEventListener("click", () => deleteDictionaryTerm().catch(handleError));
+  const onSearch = (event) => {
+    state.dictionaryQuery = String(event.target.value || "");
+    renderDictionaryList();
+    syncDockDictionaryFloat();
+  };
+  $("dictionarySearch")?.addEventListener("input", onSearch);
+  $("dictionaryBoardSearch")?.addEventListener("input", onSearch);
+  const onSort = (event) => {
+    state.dictionarySort = event.target.value === "term" ? "term" : "updated";
+    renderDictionaryList();
+    syncDockDictionaryFloat();
+  };
+  $("dictionarySort")?.addEventListener("change", onSort);
+  $("dictionaryBoardSort")?.addEventListener("change", onSort);
+  $("dictionaryModalForm")?.addEventListener("submit", (event) => saveDictionaryModal(event).catch(handleError));
+  document.querySelectorAll("[data-close-dictionary-modal]").forEach((el) => {
+    el.addEventListener("click", () => closeDictionaryModal());
+  });
+  $("dictionaryPreview")?.addEventListener("dblclick", () => openDictionaryBoard().catch(handleError));
+  if (typeof setupDictHighlight === "function") setupDictHighlight();
+}
+
+/* —— 본문 고유어 하이라이트 (토리 사전) ——
+ * 프로젝트별 on/off. 저장 HTML에는 넣지 않아요.
+ * CSS Custom Highlight가 되면 DOM을 건드리지 않고, 아니면 잠깐 mark만 감쌌다가 저장 전에 벗깁니다.
+ */
+const DICT_HIGHLIGHT_STORAGE_PREFIX = "supertory.dictHighlight.";
+const DICT_HIGHLIGHT_CSS_NAME = "st-dict-terms";
+const DICT_HIGHLIGHT_EDITOR_SEL = "#sceneContent, #focusWriteEditor, #splitSceneBodyEditor";
+const DICT_HIGHLIGHT_SKIP_SEL = [
+  "[data-author-note]",
+  ".st-author-note",
+  "sup.fn-ref",
+  ".fn-footer",
+  ".fn-item-actions",
+  "script",
+  "style",
+  "mark.dict-term-hl",
+].join(", ");
+let dictHighlightOn = false;
+let dictHighlightTimer = 0;
+let dictHighlightComposing = false;
+let dictHighlightMute = false;
+let dictHighlightHits = [];
+let dictHighlightHoverEditor = null;
+
+function dictHighlightStorageKey(projectId) {
+  const id = Number(projectId || state.projectId) || 0;
+  return id ? `${DICT_HIGHLIGHT_STORAGE_PREFIX}${id}` : "";
+}
+
+function readDictHighlightPref(projectId) {
+  const key = dictHighlightStorageKey(projectId);
+  if (!key) return false;
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function writeDictHighlightPref(projectId, on) {
+  const key = dictHighlightStorageKey(projectId);
+  if (!key) return;
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function dictHighlightSupportsCss() {
+  return typeof CSS !== "undefined"
+    && CSS.highlights
+    && typeof Highlight === "function";
+}
+
+function dictHighlightEditors() {
+  return [...document.querySelectorAll(DICT_HIGHLIGHT_EDITOR_SEL)].filter(Boolean);
+}
+
+function dictionaryTermMatchStrings(entry) {
+  const out = [];
+  const seen = new Set();
+  const push = (text) => {
+    const value = String(text || "").trim();
+    if (!value || seen.has(value)) return;
+    seen.add(value);
+    out.push(value);
+  };
+  const add = (value) => {
+    const raw = String(value || "").trim();
+    if (!raw) return;
+    push(raw);
+    raw.split(/\s*[\/|,、·]\s*/).forEach(push);
+  };
+  add(entry?.term);
+  const aliases = entry?.aliases;
+  if (Array.isArray(aliases)) {
+    aliases.forEach((item) => add(typeof item === "string" ? item : (item?.alias || item?.name)));
+  } else {
+    add(aliases);
+  }
+  add(entry?.alias);
+  return out;
+}
+
+function dictionaryHighlightNeedles() {
+  const map = new Map();
+  for (const entry of state.dictionaryTerms || []) {
+    const termId = Number(entry?.id) || 0;
+    if (!termId) continue;
+    for (const text of dictionaryTermMatchStrings(entry)) {
+      if (!map.has(text)) map.set(text, termId);
+    }
+  }
+  return [...map.entries()]
+    .map(([text, termId]) => ({ text, termId }))
+    .sort((a, b) => b.text.length - a.text.length || a.termId - b.termId);
+}
+
+function dictHighlightSkipNode(node) {
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  if (!el) return true;
+  if (el.closest?.(DICT_HIGHLIGHT_SKIP_SEL)) return true;
+  return false;
+}
+
+function collectDictHighlightHits(editor, needles) {
+  const hits = [];
+  if (!editor || !needles.length) return hits;
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, {
+    acceptNode(node) {
+      if (!node.nodeValue) return NodeFilter.FILTER_REJECT;
+      if (dictHighlightSkipNode(node)) return NodeFilter.FILTER_REJECT;
+      return NodeFilter.FILTER_ACCEPT;
+    },
+  });
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  for (const node of nodes) {
+    const text = node.nodeValue;
+    if (!text) continue;
+    const taken = new Uint8Array(text.length);
+    for (const needle of needles) {
+      const word = needle.text;
+      if (!word) continue;
+      let from = 0;
+      while (from < text.length) {
+        const at = text.indexOf(word, from);
+        if (at < 0) break;
+        let blocked = false;
+        for (let i = 0; i < word.length; i += 1) {
+          if (taken[at + i]) {
+            blocked = true;
+            break;
+          }
+        }
+        if (blocked) {
+          from = at + 1;
+          continue;
+        }
+        for (let i = 0; i < word.length; i += 1) taken[at + i] = 1;
+        hits.push({
+          node,
+          start: at,
+          end: at + word.length,
+          termId: needle.termId,
+          editor,
+        });
+        from = at + word.length;
+      }
+    }
+  }
+  return hits;
+}
+
+function unwrapDictTermMarks(editor) {
+  if (!editor) return;
+  const marks = [...editor.querySelectorAll("mark.dict-term-hl")];
+  if (!marks.length) return;
+  dictHighlightMute = true;
+  try {
+    marks.forEach((mark) => {
+      const parent = mark.parentNode;
+      if (!parent) return;
+      while (mark.firstChild) parent.insertBefore(mark.firstChild, mark);
+      parent.removeChild(mark);
+      parent.normalize?.();
+    });
+  } finally {
+    dictHighlightMute = false;
+  }
+}
+
+function clearDictHighlightPaint() {
+  dictHighlightHits = [];
+  if (dictHighlightSupportsCss()) {
+    try { CSS.highlights.delete(DICT_HIGHLIGHT_CSS_NAME); } catch (_) { /* ignore */ }
+  }
+  dictHighlightEditors().forEach((editor) => {
+    unwrapDictTermMarks(editor);
+    editor.classList.remove("dict-highlight-on", "is-dict-term-hover");
+  });
+  if (dictHighlightHoverEditor) {
+    dictHighlightHoverEditor.classList.remove("is-dict-term-hover");
+    dictHighlightHoverEditor = null;
+  }
+}
+
+function applyDictHighlightMarks(hits) {
+  const grouped = new Map();
+  hits.forEach((hit) => {
+    const list = grouped.get(hit.node) || [];
+    list.push(hit);
+    grouped.set(hit.node, list);
+  });
+  dictHighlightMute = true;
+  try {
+    grouped.forEach((list, node) => {
+      const parent = node.parentNode;
+      if (!parent) return;
+      const ordered = [...list].sort((a, b) => b.start - a.start);
+      ordered.forEach((hit) => {
+        if (hit.start < 0 || hit.end > node.nodeValue.length) return;
+        const range = document.createRange();
+        range.setStart(node, hit.start);
+        range.setEnd(node, hit.end);
+        const mark = document.createElement("mark");
+        mark.className = "dict-term-hl";
+        mark.dataset.dictionaryTermId = String(hit.termId);
+        try {
+          range.surroundContents(mark);
+        } catch (_) {
+          const frag = range.extractContents();
+          mark.appendChild(frag);
+          range.insertNode(mark);
+        }
+      });
+    });
+  } finally {
+    dictHighlightMute = false;
+  }
+}
+
+function paintDictHighlights() {
+  clearDictHighlightPaint();
+  if (!dictHighlightOn) return;
+  const needles = dictionaryHighlightNeedles();
+  if (!needles.length) return;
+  const editors = dictHighlightEditors();
+  const collected = [];
+  editors.forEach((editor) => {
+    editor.classList.add("dict-highlight-on");
+    collectDictHighlightHits(editor, needles).forEach((hit) => collected.push(hit));
+  });
+  if (!collected.length) return;
+  if (dictHighlightSupportsCss()) {
+    const ranges = [];
+    collected.forEach((hit) => {
+      try {
+        const range = document.createRange();
+        range.setStart(hit.node, hit.start);
+        range.setEnd(hit.node, hit.end);
+        hit.range = range;
+        ranges.push(range);
+        dictHighlightHits.push(hit);
+      } catch (_) {
+        /* ignore stale node */
+      }
+    });
+    if (ranges.length) {
+      try { CSS.highlights.set(DICT_HIGHLIGHT_CSS_NAME, new Highlight(...ranges)); } catch (_) { /* ignore */ }
+    }
+    return;
+  }
+  applyDictHighlightMarks(collected);
+}
+
+function scheduleDictHighlightRefresh(delayMs) {
+  if (dictHighlightTimer) {
+    window.clearTimeout(dictHighlightTimer);
+    dictHighlightTimer = 0;
+  }
+  const wait = delayMs == null ? 400 : delayMs;
+  if (wait <= 0) {
+    paintDictHighlights();
+    return;
+  }
+  dictHighlightTimer = window.setTimeout(() => {
+    dictHighlightTimer = 0;
+    if (dictHighlightComposing) return;
+    paintDictHighlights();
+  }, wait);
+}
+
+function hideDictTermPopup() {
+  const popup = $("dictTermPopup");
+  if (!popup) return;
+  popup.classList.add("hidden");
+  popup.dataset.termId = "";
+}
+
+function dictTermById(termId) {
+  const id = Number(termId) || 0;
+  if (!id) return null;
+  return (state.dictionaryTerms || []).find((entry) => Number(entry.id) === id) || null;
+}
+
+function placeDictTermPopup(anchorRect) {
+  const popup = $("dictTermPopup");
+  if (!popup || !anchorRect) return;
+  popup.classList.remove("hidden");
+  const pad = 8;
+  const box = popup.getBoundingClientRect();
+  let left = anchorRect.left;
+  let top = anchorRect.bottom + 8;
+  if (left + box.width > window.innerWidth - pad) left = window.innerWidth - box.width - pad;
+  if (left < pad) left = pad;
+  if (top + box.height > window.innerHeight - pad) top = anchorRect.top - box.height - 8;
+  if (top < pad) top = pad;
+  popup.style.left = `${Math.round(left)}px`;
+  popup.style.top = `${Math.round(top)}px`;
+}
+
+function showDictTermPopup(termId, anchorRect) {
+  const popup = $("dictTermPopup");
+  if (!popup) return;
+  const entry = dictTermById(termId);
+  if (!entry) {
+    hideDictTermPopup();
+    return;
+  }
+  popup.dataset.termId = String(entry.id);
+  const termEl = $("dictTermPopupTerm");
+  const defEl = $("dictTermPopupDef");
+  if (termEl) termEl.textContent = String(entry.term || "").trim();
+  if (defEl) {
+    const meaning = String(entry.definition || "").trim();
+    defEl.textContent = meaning || i18n.t("index.뜻이_아직_없어요");
+  }
+  placeDictTermPopup(anchorRect);
+}
+
+function caretPointFromEvent(event) {
+  if (typeof document.caretRangeFromPoint === "function") {
+    try {
+      return document.caretRangeFromPoint(event.clientX, event.clientY);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  if (typeof document.caretPositionFromPoint === "function") {
+    try {
+      const pos = document.caretPositionFromPoint(event.clientX, event.clientY);
+      if (!pos?.offsetNode) return null;
+      const range = document.createRange();
+      range.setStart(pos.offsetNode, pos.offset);
+      range.collapse(true);
+      return range;
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+function dictRangeContainsCaret(range, caret) {
+  if (!range || !caret) return false;
+  try {
+    const cmp = range.comparePoint(caret.startContainer, caret.startOffset);
+    if (cmp === 0) return true;
+    if (cmp === 1 && caret.startOffset > 0) {
+      return range.comparePoint(caret.startContainer, caret.startOffset - 1) === 0;
+    }
+  } catch (_) {
+    /* stale range */
+  }
+  return false;
+}
+
+function dictHighlightHitAtPoint(event) {
+  const mark = event.target?.closest?.("mark.dict-term-hl");
+  if (mark) {
+    return {
+      termId: Number(mark.dataset.dictionaryTermId) || 0,
+      rect: mark.getBoundingClientRect(),
+    };
+  }
+  const caret = caretPointFromEvent(event);
+  if (!caret) return null;
+  for (const hit of dictHighlightHits) {
+    if (!hit.range || !hit.termId) continue;
+    if (!dictRangeContainsCaret(hit.range, caret)) continue;
+    try {
+      return {
+        termId: hit.termId,
+        rect: hit.range.getBoundingClientRect(),
+      };
+    } catch (_) {
+      /* stale range */
+    }
+  }
+  return null;
+}
+
+function syncDictHighlightMenu() {
+  const btn = $("dictHighlightMenuItem");
+  if (!btn) return;
+  btn.setAttribute("aria-checked", dictHighlightOn ? "true" : "false");
+  btn.classList.toggle("is-checked", dictHighlightOn);
+}
+
+function applyDictHighlightForProject(projectId) {
+  hideDictTermPopup();
+  dictHighlightOn = readDictHighlightPref(projectId);
+  syncDictHighlightMenu();
+  scheduleDictHighlightRefresh(0);
+}
+
+function setDictHighlightEnabled(on, options = {}) {
+  dictHighlightOn = !!on;
+  writeDictHighlightPref(state.projectId, dictHighlightOn);
+  syncDictHighlightMenu();
+  if (!dictHighlightOn) {
+    hideDictTermPopup();
+    clearDictHighlightPaint();
+  } else {
+    scheduleDictHighlightRefresh(0);
+  }
+  if (options.announce) {
+    toast(dictHighlightOn
+      ? i18n.t("index.고유어_표시를_켰어요")
+      : i18n.t("index.고유어_표시를_껐어요"));
+  }
+}
+
+function toggleDictHighlight(options = {}) {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return;
+  }
+  setDictHighlightEnabled(!dictHighlightOn, options);
+}
+
+function dictHighlightEditorFromEvent(event) {
+  return event.target?.closest?.(DICT_HIGHLIGHT_EDITOR_SEL) || null;
+}
+
+function onDictHighlightInput(event) {
+  if (dictHighlightMute || !dictHighlightOn) return;
+  if (!dictHighlightEditorFromEvent(event)) return;
+  if (event.isComposing || dictHighlightComposing) return;
+  scheduleDictHighlightRefresh(400);
+}
+
+function setupDictHighlight() {
+  if (document.documentElement.dataset.dictHighlightBound === "1") return;
+  document.documentElement.dataset.dictHighlightBound = "1";
+  dictHighlightOn = readDictHighlightPref(state.projectId);
+  syncDictHighlightMenu();
+  document.addEventListener("input", onDictHighlightInput, true);
+  document.addEventListener("compositionstart", (event) => {
+    if (!dictHighlightEditorFromEvent(event)) return;
+    dictHighlightComposing = true;
+  }, true);
+  document.addEventListener("compositionend", (event) => {
+    if (!dictHighlightEditorFromEvent(event)) return;
+    dictHighlightComposing = false;
+    if (dictHighlightOn) scheduleDictHighlightRefresh(400);
+  }, true);
+  document.addEventListener("click", (event) => {
+    if (event.target?.closest?.("#dictTermPopup")) return;
+    if (event.button !== 0) return;
+    if (!dictHighlightOn) {
+      hideDictTermPopup();
+      return;
+    }
+    const editor = dictHighlightEditorFromEvent(event);
+    if (!editor) {
+      hideDictTermPopup();
+      return;
+    }
+    if (event.target.closest?.("sup.fn-ref, .fn-item, button, a, [data-author-note], .st-author-note")) {
+      hideDictTermPopup();
+      return;
+    }
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && String(sel.toString() || "").trim()) return;
+    const hit = dictHighlightHitAtPoint(event);
+    if (!hit?.termId) {
+      hideDictTermPopup();
+      return;
+    }
+    showDictTermPopup(hit.termId, hit.rect);
+  }, true);
+  document.addEventListener("mousemove", (event) => {
+    if (!dictHighlightOn) return;
+    const editor = dictHighlightEditorFromEvent(event);
+    if (dictHighlightHoverEditor && dictHighlightHoverEditor !== editor) {
+      dictHighlightHoverEditor.classList.remove("is-dict-term-hover");
+      dictHighlightHoverEditor = null;
+    }
+    if (!editor || !editor.classList.contains("dict-highlight-on")) return;
+    const hit = dictHighlightHitAtPoint(event);
+    editor.classList.toggle("is-dict-term-hover", Boolean(hit?.termId));
+    dictHighlightHoverEditor = editor;
+  }, true);
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") hideDictTermPopup();
+  });
+  window.addEventListener("scroll", hideDictTermPopup, true);
+  window.addEventListener("resize", hideDictTermPopup);
+  $("dictTermPopupEdit")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const id = Number($("dictTermPopup")?.dataset?.termId) || 0;
+    hideDictTermPopup();
+    if (!id) return;
+    selectDictionaryTerm(id).catch(handleError);
+  });
+  if (dictHighlightOn) scheduleDictHighlightRefresh(0);
+}
+
 async function closeItemEditor() {
   try {
     await flushItemAutoSave();
@@ -13894,6 +15064,7 @@ function setupSettingsCodex() {
   $("closeItemEditorButton")?.addEventListener("click", () => closeItemEditor().catch(handleError));
   $("newItemMainButton")?.addEventListener("click", () => createItem().catch(handleError));
   $("deleteItemButton")?.addEventListener("click", () => deleteItem().catch(handleError));
+  setupDictionaryUi();
   bindSettingsSearchEvents();
   setupCharacterBoardViewControls();
   bindSettingsDocSidebarInput("intro");
@@ -14832,8 +16003,43 @@ const DOCK_TRACKER_LAYOUT_KEY = "supertory.dock.statsTracker.layout";
 const DOCK_WRITING_TIMER_KEY = "dock:writingTimer";
 const DOCK_WRITING_TIMER_OPEN_KEY = "supertory.dock.writingTimer.open";
 const DOCK_WRITING_TIMER_LAYOUT_KEY = "supertory.dock.writingTimer.layout";
+const DOCK_WRITING_TIMER_MIN_W = 148;
+const DOCK_WRITING_TIMER_MIN_H = 120;
 const WRITING_TIMER_STYLE_KEY = "supertory.writingTimerStyle";
-const WRITING_TIMER_STYLES = ["hourglass", "alarm", "stopwatch"];
+const WRITING_TIMER_STYLES = ["hourglass", "alarm", "digits"];
+const POMODORO_PRESETS_KEY = "supertory.pomodoro.presets.v2";
+const POMODORO_ACTIVE_ID_KEY = "supertory.pomodoro.activeId";
+const POMODORO_RUN_KEY = "supertory.pomodoro.run";
+const POMODORO_DISPLAY_KEY = "supertory.pomodoro.display";
+const POMODORO_DISPLAYS = ["remaining", "elapsed"];
+const POMODORO_SOUND_KEY = "supertory.pomodoro.sound";
+const POMODORO_SOUNDS = ["chime", "ding", "bell"];
+const POMODORO_QUICK_MIN_KEY = "supertory.pomodoro.quickMin";
+const POMODORO_MAX_PRESETS = 8;
+const POMODORO_DEFAULT_ID = "standard";
+const POMODORO_CLASSIC_ID = "classic";
+const POMODORO_QUICK_ID = "quick";
+const pomodoroState = {
+  ready: false,
+  presets: [],
+  activeId: POMODORO_DEFAULT_ID,
+  running: false,
+  session: false,
+  phase: "write",
+  setIndex: 0,
+  remainingMs: 25 * 60 * 1000,
+  endsAt: 0,
+  tick: 0,
+  justFinished: false,
+  overwriteOpen: false,
+  pendingSave: null,
+  quickMin: 25,
+  display: "remaining",
+};
+let pomodoroAudioCtx = null;
+let writingTimerIdleSnap = null;
+let writingTimerSessionSized = false;
+let writingTimerCycleOpen = "";
 const DOCK_CHAR_KEY_PREFIX = "dock:character:";
 const DOCK_CHAR_DEFAULT_W = 280;
 const DOCK_CHAR_DEFAULT_H = 360;
@@ -14869,6 +16075,11 @@ const DOCK_APPEARANCES_DEFAULT_W = 360;
 const DOCK_APPEARANCES_DEFAULT_H = 420;
 const DOCK_APPEARANCES_MIN_W = 280;
 const DOCK_APPEARANCES_MIN_H = 240;
+const DOCK_DICTIONARY_KEY = "dock:dictionary";
+const DOCK_DICTIONARY_DEFAULT_W = 360;
+const DOCK_DICTIONARY_DEFAULT_H = 440;
+const DOCK_DICTIONARY_MIN_W = 280;
+const DOCK_DICTIONARY_MIN_H = 240;
 const DOCK_BAITS_KEY = "dock:baits";
 const DOCK_BAITS_DEFAULT_W = 360;
 const DOCK_BAITS_DEFAULT_H = 420;
@@ -14899,6 +16110,20 @@ const DOCK_TORY_CHECK_DEFAULT_W = 440;
 const DOCK_TORY_CHECK_DEFAULT_H = 480;
 const DOCK_TORY_CHECK_MIN_W = 320;
 const DOCK_TORY_CHECK_MIN_H = 280;
+const DOCK_TORY_CHAT_KEY = "dock:toryChat";
+const DOCK_CHARACTER_CHAT_KEY = "dock:characterChat";
+const DOCK_READER_CHAT_KEY = "dock:readerChat";
+const DOCK_AI_RESULT_KEY = "dock:aiResult";
+const DOCK_AI_HISTORY_KEY = "dock:aiHistory";
+const DOCK_AI_CHAT_DEFAULT_W = 380;
+const DOCK_AI_CHAT_DEFAULT_H = 560;
+const DOCK_AI_CHAT_MIN_W = 300;
+const DOCK_AI_CHAT_MIN_H = 280;
+const DOCK_AI_RESULT_DEFAULT_W = 380;
+const DOCK_AI_RESULT_DEFAULT_H = 560;
+const DOCK_AI_HISTORY_DEFAULT_W = 380;
+const DOCK_AI_HISTORY_DEFAULT_H = 480;
+const dockAdoptHomes = new Map();
 const TORY_CHECK_TAB_KEYS = {
   words: "index.반복_단어",
   phrases: "index.같은_표현",
@@ -14929,12 +16154,18 @@ const DOCK_RAIL_FLOAT_KEYS = {
   items: DOCK_ITEM_KEY,
   timeline: DOCK_TIMELINE_KEY,
   appearances: DOCK_APPEARANCES_KEY,
+  dictionary: DOCK_DICTIONARY_KEY,
   baits: DOCK_BAITS_KEY,
   successProfile: DOCK_SUCCESS_PROFILE_KEY,
   manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
   credits: "dock:credits",
   toryCheck: DOCK_TORY_CHECK_KEY,
+  toryChat: DOCK_TORY_CHAT_KEY,
+  characterChat: DOCK_CHARACTER_CHAT_KEY,
+  readerChat: DOCK_READER_CHAT_KEY,
+  aiResult: DOCK_AI_RESULT_KEY,
+  aiHistory: DOCK_AI_HISTORY_KEY,
 };
 const dockCharacterDetailCache = new Map();
 const dockItemDetailCache = new Map();
@@ -15178,11 +16409,15 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
     saveIdeaFromCard(card, { quiet: true }).catch(() => {});
   }
   if (id === DOCK_SETTINGS_SEARCH_KEY) restoreSettingsSearchLive();
-  win.remove();
   ideaFloatWindows.delete(id);
+  restoreDockAiHosts(id);
+  win.remove();
   ideaFloatLayouts.delete(id);
   if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false);
-  if (id === DOCK_WRITING_TIMER_KEY) setDockWritingTimerOpenPref(false);
+  if (id === DOCK_WRITING_TIMER_KEY) {
+    setDockWritingTimerOpenPref(false);
+    syncDockWritingTimerRail();
+  }
   if (id === DOCK_TORY_CHECK_KEY) clearToryCheckTimer();
   syncDockRailButtons();
 }
@@ -15325,17 +16560,25 @@ const DOCK_FLOAT_SPECS = {
     render(body) { renderDockStatsTracker(body); },
   },
   writingTimer: {
-    titleKey: "app.기록",
+    titleKey: "app.기록_타이머",
     compact: true,
     pinned: true,
     windowClass: "dock-float-writing-timer",
-    resize: false,
+    resize: { minWidth: DOCK_WRITING_TIMER_MIN_W, minHeight: DOCK_WRITING_TIMER_MIN_H },
     fallbackPos() { return dockWritingTimerFallbackPos(); },
     seedLayout() { return loadDockWritingTimerLayout(); },
-    onOpen() {
+    onOpen(win) {
       setDockWritingTimerOpenPref(true);
       syncDockRailButtons();
+      ensurePomodoroState();
+      if (pomodoroState.running) ensurePomodoroTick();
       syncDockWritingTimer();
+      applyDockWritingTimerScale(win);
+      syncDockWritingTimerRail();
+    },
+    onResize(win) {
+      if (pomodoroSessionActive()) writingTimerSessionSized = true;
+      applyDockWritingTimerScale(win);
     },
     render(body) { renderDockWritingTimer(body); },
   },
@@ -15374,6 +16617,15 @@ const DOCK_FLOAT_SPECS = {
     defaultHeight: DOCK_APPEARANCES_DEFAULT_H,
     resize: { minWidth: DOCK_APPEARANCES_MIN_W, minHeight: DOCK_APPEARANCES_MIN_H },
     render(body) { renderDockAppearancesBody(body); },
+  },
+  dictionary: {
+    titleKey: "app.토리_사전",
+    windowClass: "dock-float-dictionary",
+    side: "left",
+    defaultWidth: DOCK_DICTIONARY_DEFAULT_W,
+    defaultHeight: DOCK_DICTIONARY_DEFAULT_H,
+    resize: { minWidth: DOCK_DICTIONARY_MIN_W, minHeight: DOCK_DICTIONARY_MIN_H },
+    render(body) { renderDockDictionaryBody(body); },
   },
   baits: {
     titleKey: "index.열린_떡밥",
@@ -15431,6 +16683,65 @@ const DOCK_FLOAT_SPECS = {
     defaultHeight: DOCK_TORY_CHECK_DEFAULT_H,
     resize: { minWidth: DOCK_TORY_CHECK_MIN_W, minHeight: DOCK_TORY_CHECK_MIN_H },
     render(body) { renderDockToryCheckBody(body); },
+  },
+  toryChat: {
+    titleKey: "index.토리_1_1_대화창",
+    windowClass: "dock-float-ai-chat dock-float-tory-chat",
+    side: "right",
+    defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
+    defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
+    resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 0); },
+    render(body) { renderDockToryChatBody(body); },
+    onOpen() { prepareDockToryChatFloat(); },
+    onFocus() { focusDockToryChatFloat(); },
+  },
+  characterChat: {
+    titleKey: "index.내_캐릭터와_대화하기",
+    windowClass: "dock-float-ai-chat dock-float-character-chat",
+    side: "right",
+    defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
+    defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
+    resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 1); },
+    render(body) { renderDockCharacterChatBody(body); },
+    onOpen() { prepareDockCharacterChatFloat(); },
+    onFocus() { focusDockCharacterChatFloat(); },
+  },
+  readerChat: {
+    titleKey: "index.가상_독자와_대화하기",
+    windowClass: "dock-float-ai-chat dock-float-reader-chat",
+    side: "right",
+    defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
+    defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
+    resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 2); },
+    render(body) { renderDockReaderChatBody(body); },
+    onOpen() { prepareDockReaderChatFloat(); },
+    onFocus() { focusDockReaderChatFloat(); },
+  },
+  aiResult: {
+    titleKey: "index.결과보기",
+    windowClass: "dock-float-ai-result",
+    side: "right",
+    defaultWidth: DOCK_AI_RESULT_DEFAULT_W,
+    defaultHeight: DOCK_AI_RESULT_DEFAULT_H,
+    resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_RESULT_DEFAULT_W, 3); },
+    render(body) { renderDockAiResultBody(body); },
+  },
+  aiHistory: {
+    titleKey: "index.히스토리",
+    windowClass: "dock-float-ai-history",
+    side: "right",
+    defaultWidth: DOCK_AI_HISTORY_DEFAULT_W,
+    defaultHeight: DOCK_AI_HISTORY_DEFAULT_H,
+    resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_HISTORY_DEFAULT_W, 4); },
+    render(body) { renderDockAiHistoryBody(body); },
+    onOpen() {
+      try { showAiResultHistoryListView?.(); } catch (_) { /* ignore */ }
+    },
   },
 };
 
@@ -15508,11 +16819,14 @@ function setDockWritingTimerOpenPref(open) {
 function persistDockWritingTimerLayout(layout) {
   if (!layout || !Number.isFinite(Number(layout.left)) || !Number.isFinite(Number(layout.top))) return;
   try {
-    localStorage.setItem(DOCK_WRITING_TIMER_LAYOUT_KEY, JSON.stringify({
+    const payload = {
       left: Math.round(Number(layout.left)),
       top: Math.round(Number(layout.top)),
       z: Number(layout.z) || 1,
-    }));
+    };
+    if (Number(layout.width) > 0) payload.width = Math.round(Number(layout.width));
+    if (Number(layout.height) > 0) payload.height = Math.round(Number(layout.height));
+    localStorage.setItem(DOCK_WRITING_TIMER_LAYOUT_KEY, JSON.stringify(payload));
   } catch (_) {
     /* private mode */
   }
@@ -15528,11 +16842,20 @@ function loadDockWritingTimerLayout() {
     if (!Number.isFinite(left) || !Number.isFinite(top)) return null;
     const maxLeft = Math.max(8, window.innerWidth - 48);
     const maxTop = Math.max(8, window.innerHeight - 40);
-    return {
+    const width = Number(parsed?.width);
+    const height = Number(parsed?.height);
+    const layout = {
       left: Math.min(maxLeft, Math.max(8, Math.round(left))),
       top: Math.min(maxTop, Math.max(8, Math.round(top))),
       z: Number(parsed?.z) || 1,
     };
+    if (Number.isFinite(width) && width >= DOCK_WRITING_TIMER_MIN_W) {
+      layout.width = Math.round(width);
+    }
+    if (Number.isFinite(height) && height >= DOCK_WRITING_TIMER_MIN_H) {
+      layout.height = Math.round(height);
+    }
+    return layout;
   } catch (_) {
     return null;
   }
@@ -15540,6 +16863,7 @@ function loadDockWritingTimerLayout() {
 
 function normalizeWritingTimerStyle(value) {
   const style = String(value || "").trim().toLowerCase();
+  if (style === "stopwatch") return "digits";
   return WRITING_TIMER_STYLES.includes(style) ? style : "hourglass";
 }
 
@@ -15561,28 +16885,23 @@ function saveWritingTimerStyle(style) {
   return next;
 }
 
+function cycleDockTimerValue(list, current) {
+  const items = Array.isArray(list) && list.length ? list : [];
+  if (!items.length) return current;
+  const idx = items.indexOf(current);
+  return items[(idx + 1) % items.length];
+}
+
 function dockRailFloatKey(itemId) {
   return DOCK_RAIL_FLOAT_KEYS[itemId] || "";
 }
 
 function isDockRailItemActive(itemId) {
+  if (itemId === "screenProtect") {
+    return isScreenProtectOn();
+  }
   if (itemId === "priority") {
     return Boolean($("toryPriorityBox")?.classList.contains("is-open"));
-  }
-  if (itemId === "toryChat") {
-    return isAiDockChatHubActive("tory");
-  }
-  if (itemId === "characterChat") {
-    return isAiDockChatHubActive("characters") || isAiDockChatHubActive("character-room");
-  }
-  if (itemId === "readerChat") {
-    return isAiDockChatHubActive("reader");
-  }
-  if (itemId === "aiResult") {
-    return isAiDockToolsPaneActive("result");
-  }
-  if (itemId === "aiHistory") {
-    return Boolean($("aiResultHistoryModal") && !$("aiResultHistoryModal").classList.contains("hidden"));
   }
   if (itemId === "toryTalk") {
     return false;
@@ -15610,16 +16929,22 @@ function isDockRailItemActive(itemId) {
 
 const AI_DOCK_PANEL_ITEMS = new Set([
   "priority",
+  "toryTalk",
+]);
+const AI_DOCK_FLOAT_ITEMS = new Set([
   "toryChat",
   "characterChat",
   "readerChat",
   "aiResult",
   "aiHistory",
-  "toryTalk",
 ]);
 
 function isAiDockPanelItem(itemId) {
   return AI_DOCK_PANEL_ITEMS.has(itemId);
+}
+
+function isAiDockFloatItem(itemId) {
+  return AI_DOCK_FLOAT_ITEMS.has(itemId);
 }
 
 function isAiDockChatHubActive(hub) {
@@ -15639,7 +16964,7 @@ function isAiDockToolsPaneActive(pane) {
 function syncDockRailButtons() {
   document.querySelectorAll("[data-dock-item]").forEach((btn) => {
     const itemId = btn.dataset.dockItem;
-    if (!dockRailFloatKey(itemId) && !isAiDockPanelItem(itemId)) return;
+    if (!dockRailFloatKey(itemId) && !isAiDockPanelItem(itemId) && itemId !== "screenProtect") return;
     const on = isDockRailItemActive(itemId);
     btn.classList.toggle("is-open", on);
     btn.setAttribute("aria-pressed", on ? "true" : "false");
@@ -15667,6 +16992,44 @@ function renderDockCreditsBody(body) {
       <p class="dock-credits-value" id="dockCreditsValue">—</p>
       <p class="hint dock-credits-hint">${escapeHtml(i18n.t("index.크레딧_연동_준비중"))}</p>
     </div>`;
+}
+
+function isScreenProtectOn() {
+  const overlay = $("screenProtectOverlay");
+  return Boolean(overlay && !overlay.classList.contains("hidden") && !overlay.hidden);
+}
+
+function setScreenProtectOn(on) {
+  const overlay = $("screenProtectOverlay");
+  if (!overlay) return;
+  const next = Boolean(on);
+  overlay.classList.toggle("hidden", !next);
+  overlay.hidden = !next;
+  overlay.setAttribute("aria-hidden", next ? "false" : "true");
+  document.body.classList.toggle("screen-protect-on", next);
+  syncDockRailButtons();
+  if (next) {
+    try {
+      overlay.focus({ preventScroll: true });
+    } catch (_) {
+      overlay.focus();
+    }
+  }
+}
+
+function toggleScreenProtect() {
+  setScreenProtectOn(!isScreenProtectOn());
+}
+
+function setupScreenProtect() {
+  const overlay = $("screenProtectOverlay");
+  if (!overlay || overlay.dataset.bound === "1") return;
+  overlay.dataset.bound = "1";
+  overlay.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setScreenProtectOn(false);
+  });
 }
 
 function toryCheckEngine() {
@@ -16098,64 +17461,14 @@ function renderDockToryCheckBody(body) {
   }).catch(handleError);
 }
 
-function toggleAiDockPanelItem(itemId) {
+function toggleAiDockPanelItem(itemId, sourceEl) {
   switch (itemId) {
     case "priority": {
       const open = Boolean($("toryPriorityBox")?.classList.contains("is-open"));
       if (open) {
         setToryPriorityOpen(false);
       } else {
-        setAiPanelOpen(true);
-        setToryPriorityOpen(true);
-      }
-      break;
-    }
-    case "toryChat": {
-      if (isDockRailItemActive("toryChat")) {
-        setToryChatHub("home", { quiet: true });
-      } else {
-        setAiPanelOpen(true);
-        setAiPanelTab("chat", { chatHub: "tory" });
-      }
-      break;
-    }
-    case "characterChat": {
-      if (isDockRailItemActive("characterChat")) {
-        setToryChatHub("home", { quiet: true });
-      } else {
-        setAiPanelOpen(true);
-        setAiPanelTab("chat", { chatHub: "characters" });
-        try { renderToryChatCharacterPicker?.(); } catch (_) { /* ignore */ }
-      }
-      break;
-    }
-    case "readerChat": {
-      if (isDockRailItemActive("readerChat")) {
-        setToryChatHub("home", { quiet: true });
-      } else {
-        setAiPanelOpen(true);
-        setAiPanelTab("chat", { chatHub: "reader" });
-        try { openReaderPersonaPicker?.(); } catch (_) { /* ignore */ }
-      }
-      break;
-    }
-    case "aiResult": {
-      if (isDockRailItemActive("aiResult")) {
-        setAiHelperPane("direct");
-      } else {
-        setAiPanelOpen(true);
-        setAiPanelTab("tools");
-        setAiHelperPane("result");
-      }
-      break;
-    }
-    case "aiHistory": {
-      const modal = $("aiResultHistoryModal");
-      const open = Boolean(modal && !modal.classList.contains("hidden"));
-      if (open) closeAiResultHistoryModal();
-      else {
-        setAiPanelOpen(true);
-        openAiResultHistoryModal();
+        setToryPriorityOpen(true, sourceEl);
       }
       break;
     }
@@ -16171,11 +17484,22 @@ function toggleAiDockPanelItem(itemId) {
 }
 
 function toggleDockFloat(itemId, sourceEl) {
+  if (itemId === "screenProtect") {
+    toggleScreenProtect();
+    return null;
+  }
   if (isAiDockPanelItem(itemId)) {
-    return toggleAiDockPanelItem(itemId);
+    return toggleAiDockPanelItem(itemId, sourceEl);
   }
   const key = dockRailFloatKey(itemId);
   if (key && ideaFloatWindows.has(key)) {
+    if (isAiDockFloatItem(itemId)) {
+      const win = ideaFloatWindows.get(key);
+      raiseIdeaFloat(win);
+      const spec = DOCK_FLOAT_SPECS[itemId];
+      if (typeof spec?.onFocus === "function") spec.onFocus(win);
+      return win;
+    }
     closeIdeaFloat(key);
     return null;
   }
@@ -16192,8 +17516,8 @@ function dockTrackerFallbackPos() {
 }
 
 function dockWritingTimerFallbackPos() {
-  const width = 220;
-  const height = 210;
+  const width = 240;
+  const height = 280;
   const base = dockTrackerFallbackPos();
   return {
     left: base.left,
@@ -16253,27 +17577,38 @@ function syncDockStatsTracker() {
 }
 
 function writingTimerSandRatio(seconds) {
+  if (pomodoroSessionActive() || pomodoroState.running) {
+    const total = Math.max(1, pomodoroPhaseTotalMs());
+    const remain = Math.max(0, pomodoroRemainingMs());
+    return Math.max(0.06, Math.min(0.94, remain / total));
+  }
   const sec = Math.max(0, Number(seconds) || 0);
-  // 한 주기(25분)마다 위→아래 모래가 천천히 이동
   const cycle = 25 * 60;
   const t = (sec % cycle) / cycle;
   return Math.max(0.06, Math.min(0.94, 1 - t));
 }
 
 function dockWritingTimerFaceHtml(style, seconds, recording) {
-  const time = formatRecordingClock(seconds);
+  const clockSec = pomodoroClockSeconds();
+  const time = formatRecordingClock(clockSec);
   const idle = recording
     && writingTracker.lastActivityAt
     && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
-  const topSand = writingTimerSandRatio(seconds);
-  const botSand = 1 - topSand;
+  const onClass = `${recording ? " is-on" : ""}${idle ? " is-idle" : ""}`;
+  if (style === "digits") {
+    return `
+      <div class="dock-timer-digits${onClass}" aria-hidden="true">
+        <span class="dock-timer-digits-time">${escapeHtml(time)}</span>
+      </div>
+    `;
+  }
   if (style === "alarm") {
-    const min = Math.floor(seconds / 60) % 60;
-    const sec = seconds % 60;
+    const min = Math.floor(clockSec / 60) % 60;
+    const sec = clockSec % 60;
     const minDeg = (min / 60) * 360 + (sec / 60) * 6;
     const secDeg = (sec / 60) * 360;
     return `
-      <div class="dock-timer-alarm${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true">
+      <div class="dock-timer-alarm${onClass}" aria-hidden="true">
         <span class="dock-timer-alarm-bell left"></span>
         <span class="dock-timer-alarm-bell right"></span>
         <span class="dock-timer-alarm-feet"></span>
@@ -16287,24 +17622,12 @@ function dockWritingTimerFaceHtml(style, seconds, recording) {
           <span class="dock-timer-alarm-hub"></span>
         </div>
       </div>
-      <div class="dock-timer-readout">${escapeHtml(idle ? i18n.t("app.일시정지_time", { time }) : time)}</div>
     `;
   }
-  if (style === "stopwatch") {
-    const ring = Math.min(100, ((seconds % 60) / 60) * 100);
-    return `
-      <div class="dock-timer-stopwatch${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true">
-        <span class="dock-timer-stopwatch-crown"></span>
-        <span class="dock-timer-stopwatch-btn left"></span>
-        <span class="dock-timer-stopwatch-btn right"></span>
-        <div class="dock-timer-stopwatch-ring" style="--ring:${ring}%">
-          <div class="dock-timer-stopwatch-digits">${escapeHtml(time)}</div>
-        </div>
-      </div>
-    `;
-  }
+  const topSand = writingTimerSandRatio(seconds);
+  const botSand = 1 - topSand;
   return `
-    <div class="dock-timer-hourglass${recording ? " is-on" : ""}${idle ? " is-idle" : ""}" aria-hidden="true"
+    <div class="dock-timer-hourglass${onClass}" aria-hidden="true"
       style="--sand-top:${(topSand * 100).toFixed(1)}%; --sand-bot:${(botSand * 100).toFixed(1)}%">
       <div class="dock-hg-stand">
         <span class="dock-hg-rail left"></span>
@@ -16325,54 +17648,1264 @@ function dockWritingTimerFaceHtml(style, seconds, recording) {
         </div>
       </div>
     </div>
-    <div class="dock-timer-readout">${escapeHtml(idle ? i18n.t("app.일시정지_time", { time }) : time)}</div>
   `;
+}
+
+function defaultTimerPresets() {
+  return [
+    { id: "standard", nameKey: "app.타이머_세트_표준", writeMin: 25, breakMin: 5, sets: 4, name: "" },
+    { id: "sprint", nameKey: "app.타이머_세트_스프린트", writeMin: 50, breakMin: 10, sets: 2, name: "" },
+    { id: "fiftytwo", nameKey: "app.타이머_세트_오십이", writeMin: 52, breakMin: 17, sets: 2, name: "" },
+    { id: "ultradian", nameKey: "app.타이머_세트_울트라디안", writeMin: 90, breakMin: 20, sets: 1, name: "" },
+  ];
+}
+
+function fallbackTimerPreset() {
+  return defaultTimerPresets()[0];
+}
+
+function clampPomodoroInt(value, min, max, fallback) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
+function normalizePomodoroActiveId(id) {
+  const raw = String(id || "").trim();
+  if (!raw || raw === POMODORO_CLASSIC_ID) return POMODORO_DEFAULT_ID;
+  if (raw === POMODORO_QUICK_ID) return POMODORO_QUICK_ID;
+  return raw;
+}
+
+function normalizePomodoroPreset(raw, fallbackId) {
+  if (!raw || typeof raw !== "object") return null;
+  const writeMin = clampPomodoroInt(raw.writeMin, 1, 180, 25);
+  const breakMin = clampPomodoroInt(raw.breakMin, 1, 60, 5);
+  const sets = clampPomodoroInt(raw.sets, 1, 12, 4);
+  let id = String(raw.id || fallbackId || "").trim();
+  if (id === POMODORO_CLASSIC_ID) id = POMODORO_DEFAULT_ID;
+  const nameRaw = String(raw.name || "").trim();
+  const nameKey = String(raw.nameKey || "").trim();
+  const name = isLegacyDefaultPresetName(nameKey, nameRaw) ? "" : nameRaw;
+  if (!id) return null;
+  return {
+    id,
+    writeMin,
+    breakMin,
+    sets,
+    name,
+    nameKey,
+  };
+}
+
+function dedupePomodoroPresets(list) {
+  const seen = new Set();
+  const unique = [];
+  for (const item of list || []) {
+    if (!item || seen.has(item.id)) continue;
+    seen.add(item.id);
+    unique.push(item);
+    if (unique.length >= POMODORO_MAX_PRESETS) break;
+  }
+  return unique;
+}
+
+function loadPomodoroPresets() {
+  let raw = null;
+  try {
+    raw = localStorage.getItem(POMODORO_PRESETS_KEY);
+  } catch (_) {
+    raw = null;
+  }
+  if (raw == null) {
+    return savePomodoroPresets(defaultTimerPresets());
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (_) {
+    return savePomodoroPresets(defaultTimerPresets());
+  }
+  if (!Array.isArray(parsed)) {
+    return savePomodoroPresets(defaultTimerPresets());
+  }
+  const normalized = parsed
+    .map((item, index) => normalizePomodoroPreset(item, `p-${index}`))
+    .filter(Boolean);
+  pomodoroState.presets = dedupePomodoroPresets(normalized);
+  return pomodoroState.presets;
+}
+
+function savePomodoroPresets(presets) {
+  const unique = dedupePomodoroPresets(
+    (presets || []).map((item, index) => normalizePomodoroPreset(item, `p-${index}`)).filter(Boolean)
+  );
+  try {
+    localStorage.setItem(POMODORO_PRESETS_KEY, JSON.stringify(unique));
+  } catch (_) {
+    /* private mode */
+  }
+  pomodoroState.presets = unique;
+  return pomodoroState.presets;
+}
+
+function isLegacyDefaultPresetName(nameKey, name) {
+  if (!name) return false;
+  if (nameKey === "app.타이머_세트_표준") {
+    return name === "표준 포모도로 사이클"
+      || name === "Standard Pomodoro cycle"
+      || name === "Ciclo pomodoro estándar";
+  }
+  return false;
+}
+
+function pomodoroPresetLabel(preset) {
+  const p = preset || fallbackTimerPreset();
+  if (p.name) return p.name;
+  if (p.nameKey) return i18n.t(p.nameKey);
+  return i18n.t("app.포모도로_프리셋_라벨", { write: p.writeMin, rest: p.breakMin, sets: p.sets });
+}
+
+function pomodoroPresetCycleText(preset) {
+  const p = preset || fallbackTimerPreset();
+  if ((p.sets || 1) > 1) {
+    return i18n.t("app.타이머_세트_반복", { write: p.writeMin, rest: p.breakMin, sets: p.sets });
+  }
+  return i18n.t("app.타이머_세트_한_번", { write: p.writeMin, rest: p.breakMin });
+}
+
+function pomodoroPresetTotalMinutes(preset) {
+  const p = preset || fallbackTimerPreset();
+  return (Number(p.writeMin) || 0) * (Number(p.sets) || 0) + (Number(p.breakMin) || 0) * (Number(p.sets) || 0);
+}
+
+function formatTimerDuration(minutes) {
+  const min = Math.max(0, Math.round(Number(minutes) || 0));
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  if (m === 0 && h > 0) return i18n.t("app.타이머_시간만", { h });
+  if (h > 0) return i18n.t("app.타이머_시분", { h, m });
+  return i18n.t("app.타이머_분만", { m: min });
+}
+
+function pomodoroPresetTotalText(preset) {
+  return i18n.t("app.타이머_총", { total: formatTimerDuration(pomodoroPresetTotalMinutes(preset)) });
+}
+
+function pomodoroPresetCardHtml(item, running) {
+  const active = item.id === pomodoroState.activeId;
+  return `
+    <button type="button"
+      class="dock-countdown-preset${active ? " is-active" : ""}"
+      data-role="dock-pomodoro-preset"
+      data-id="${escapeHtml(item.id)}"
+      ${running ? "disabled" : ""}>
+      <span class="dock-timer-preset-name">${escapeHtml(pomodoroPresetLabel(item))}</span>
+      <span class="dock-timer-preset-cycle">${escapeHtml(pomodoroPresetCycleText(item))}</span>
+      <span class="dock-timer-preset-total">${escapeHtml(pomodoroPresetTotalText(item))}</span>
+    </button>`;
+}
+
+function getQuickPomodoroPreset(minutes) {
+  const writeMin = clampPomodoroInt(minutes, 1, 180, pomodoroState.quickMin || 25);
+  return {
+    id: POMODORO_QUICK_ID,
+    writeMin,
+    breakMin: 0,
+    sets: 1,
+    name: i18n.t("app.타이머_분만", { m: writeMin }),
+    nameKey: "",
+  };
+}
+
+function loadPomodoroDisplay() {
+  try {
+    const raw = String(localStorage.getItem(POMODORO_DISPLAY_KEY) || "").trim();
+    if (raw === "elapsed") return "elapsed";
+  } catch (_) {
+    /* private mode */
+  }
+  return "remaining";
+}
+
+function savePomodoroDisplay(mode) {
+  const next = POMODORO_DISPLAYS.includes(mode) ? mode : "remaining";
+  pomodoroState.display = next;
+  try {
+    localStorage.setItem(POMODORO_DISPLAY_KEY, next);
+  } catch (_) {
+    /* private mode */
+  }
+  return next;
+}
+
+function normalizePomodoroSound(value) {
+  const sound = String(value || "").trim().toLowerCase();
+  return POMODORO_SOUNDS.includes(sound) ? sound : "chime";
+}
+
+function loadPomodoroSound() {
+  try {
+    return normalizePomodoroSound(localStorage.getItem(POMODORO_SOUND_KEY));
+  } catch (_) {
+    return "chime";
+  }
+}
+
+function savePomodoroSound(sound) {
+  const next = normalizePomodoroSound(sound);
+  try {
+    localStorage.setItem(POMODORO_SOUND_KEY, next);
+  } catch (_) {
+    /* private mode */
+  }
+  return next;
+}
+
+function loadPomodoroQuickMin() {
+  try {
+    const raw = localStorage.getItem(POMODORO_QUICK_MIN_KEY);
+    if (raw == null || raw === "") return 25;
+    return clampPomodoroInt(raw, 1, 180, 25);
+  } catch (_) {
+    /* private mode */
+  }
+  return 25;
+}
+
+function savePomodoroQuickMin(value) {
+  const next = clampPomodoroInt(value, 1, 180, 25);
+  pomodoroState.quickMin = next;
+  try {
+    localStorage.setItem(POMODORO_QUICK_MIN_KEY, String(next));
+  } catch (_) {
+    /* private mode */
+  }
+  return next;
+}
+
+function isPomodoroQuickActive() {
+  return pomodoroState.activeId === POMODORO_QUICK_ID;
+}
+
+function pomodoroPhaseTotalMs(preset) {
+  const next = preset || getActivePomodoroPreset();
+  const minutes = pomodoroState.phase === "break" ? next.breakMin : next.writeMin;
+  return Math.max(1, minutes) * 60 * 1000;
+}
+
+function pomodoroClockSeconds() {
+  if (pomodoroState.justFinished) {
+    return pomodoroState.display === "elapsed"
+      ? Math.ceil(pomodoroPhaseTotalMs() / 1000)
+      : 0;
+  }
+  if (pomodoroState.display === "elapsed") return pomodoroFaceElapsedSeconds();
+  return Math.ceil(pomodoroRemainingMs() / 1000);
+}
+
+function pomodoroDisplayButtonsHtml(mode) {
+  return [
+    { id: "remaining", labelKey: "app.타이머_남은_시간_표시" },
+    { id: "elapsed", labelKey: "app.타이머_지난_시간_표시" },
+  ].map((item) => dockTimerCycleOptionHtml("pomodoro-display", "display", item.id, mode, item.labelKey)).join("");
+}
+
+function pomodoroSoundButtonsHtml(sound) {
+  return [
+    { id: "chime", labelKey: "app.타이머_알람_종" },
+    { id: "ding", labelKey: "app.타이머_알람_딩동" },
+    { id: "bell", labelKey: "app.타이머_알람_벨" },
+  ].map((item) => dockTimerCycleOptionHtml("pomodoro-sound", "sound", item.id, sound, item.labelKey)).join("");
+}
+
+function getActivePomodoroPreset() {
+  if (isPomodoroQuickActive()) return getQuickPomodoroPreset(pomodoroState.quickMin);
+  const presets = pomodoroState.presets.length ? pomodoroState.presets : loadPomodoroPresets();
+  return presets.find((item) => item.id === pomodoroState.activeId) || presets[0] || fallbackTimerPreset();
+}
+
+function persistPomodoroActiveId(id) {
+  pomodoroState.activeId = normalizePomodoroActiveId(id);
+  try {
+    localStorage.setItem(POMODORO_ACTIVE_ID_KEY, pomodoroState.activeId);
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function persistPomodoroRun() {
+  try {
+    localStorage.setItem(POMODORO_RUN_KEY, JSON.stringify({
+      activeId: pomodoroState.activeId,
+      running: pomodoroState.running,
+      session: pomodoroState.session,
+      phase: pomodoroState.phase,
+      setIndex: pomodoroState.setIndex,
+      remainingMs: pomodoroRemainingMs(),
+      endsAt: pomodoroState.running ? pomodoroState.endsAt : 0,
+      justFinished: pomodoroState.justFinished,
+      quickMin: pomodoroState.quickMin,
+    }));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function loadPomodoroActiveId() {
+  try {
+    const raw = String(localStorage.getItem(POMODORO_ACTIVE_ID_KEY) || "").trim();
+    if (raw) return normalizePomodoroActiveId(raw);
+  } catch (_) {
+    /* private mode */
+  }
+  return POMODORO_DEFAULT_ID;
+}
+
+function restorePomodoroRun() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(POMODORO_RUN_KEY) || "null");
+    if (!parsed || typeof parsed !== "object") return;
+    if (parsed.activeId) pomodoroState.activeId = normalizePomodoroActiveId(parsed.activeId);
+    pomodoroState.phase = parsed.phase === "break" ? "break" : "write";
+    pomodoroState.setIndex = Math.max(0, Number(parsed.setIndex) || 0);
+    pomodoroState.justFinished = Boolean(parsed.justFinished);
+    pomodoroState.session = Boolean(parsed.session);
+    if (parsed.quickMin) pomodoroState.quickMin = clampPomodoroInt(parsed.quickMin, 1, 180, pomodoroState.quickMin);
+    if (parsed.running && Number(parsed.endsAt) > Date.now()) {
+      pomodoroState.running = true;
+      pomodoroState.session = true;
+      pomodoroState.endsAt = Number(parsed.endsAt);
+      pomodoroState.remainingMs = Math.max(0, pomodoroState.endsAt - Date.now());
+      return;
+    }
+    pomodoroState.running = false;
+    pomodoroState.endsAt = 0;
+    pomodoroState.remainingMs = Math.max(0, Number(parsed.remainingMs) || 0);
+    if (pomodoroState.session && pomodoroState.remainingMs <= 0 && !pomodoroState.justFinished) {
+      pomodoroState.session = false;
+    }
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function pomodoroRemainingMs() {
+  if (pomodoroState.running && pomodoroState.endsAt) {
+    return Math.max(0, pomodoroState.endsAt - Date.now());
+  }
+  return Math.max(0, Number(pomodoroState.remainingMs) || 0);
+}
+
+function pomodoroFaceElapsedSeconds() {
+  const preset = getActivePomodoroPreset();
+  const totalSec = Math.max(1, (pomodoroState.phase === "break" ? preset.breakMin : preset.writeMin) * 60);
+  if (pomodoroState.justFinished) return totalSec;
+  const remaining = Math.ceil(pomodoroRemainingMs() / 1000);
+  return Math.max(0, totalSec - remaining);
+}
+
+function pomodoroFaceTitle() {
+  if (pomodoroState.running) return i18n.t("app.타이머_위젯_진행_안내");
+  if (pomodoroState.session) return i18n.t("app.타이머_위젯_재개_안내");
+  return i18n.t("app.타이머_위젯_대기_안내");
+}
+
+function pomodoroSessionActive() {
+  return Boolean(pomodoroState.session) || pomodoroState.running;
+}
+
+function resetPomodoroToPreset(preset, options = {}) {
+  const next = preset || getActivePomodoroPreset();
+  pomodoroState.justFinished = false;
+  pomodoroState.overwriteOpen = false;
+  pomodoroState.pendingSave = null;
+  pomodoroState.running = false;
+  pomodoroState.session = Boolean(options.keepSession);
+  pomodoroState.endsAt = 0;
+  pomodoroState.phase = "write";
+  pomodoroState.setIndex = 0;
+  pomodoroState.remainingMs = next.writeMin * 60 * 1000;
+  stopPomodoroTick();
+  persistPomodoroRun();
+  if (options.sync !== false) syncDockCountdownUi();
+}
+
+function stopPomodoroTick() {
+  if (!pomodoroState.tick) return;
+  window.clearInterval(pomodoroState.tick);
+  pomodoroState.tick = 0;
+}
+
+function ensurePomodoroTick() {
+  if (pomodoroState.tick) return;
+  pomodoroState.tick = window.setInterval(() => {
+    if (!pomodoroState.running) {
+      stopPomodoroTick();
+      return;
+    }
+    if (pomodoroRemainingMs() <= 0) {
+      finishPomodoroPhase();
+      return;
+    }
+    syncDockCountdownUi();
+  }, 250);
+}
+
+function applyDockWritingTimerScale(win) {
+  const card = win?.querySelector?.(".dock-timer-card");
+  if (!card) return;
+  const width = win.getBoundingClientRect().width || 248;
+  const scale = Math.max(0.4, Math.min(3.2, width / 248));
+  card.style.setProperty("--face-scale", scale.toFixed(3));
+}
+
+function rememberDockWritingTimerIdleSize(win) {
+  if (writingTimerIdleSnap || !win) return;
+  const rect = win.getBoundingClientRect();
+  writingTimerIdleSnap = {
+    width: Math.round(rect.width),
+    height: Math.round(rect.height),
+  };
+}
+
+function fitDockWritingTimerShell(win) {
+  if (!win) win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  if (!win) return;
+  const session = pomodoroSessionActive();
+  win.classList.toggle("is-timer-session", session);
+  if (session) {
+    rememberDockWritingTimerIdleSize(win);
+    if (!writingTimerSessionSized) win.style.height = "auto";
+  } else if (writingTimerIdleSnap) {
+    win.style.width = `${writingTimerIdleSnap.width}px`;
+    win.style.height = `${writingTimerIdleSnap.height}px`;
+    writingTimerIdleSnap = null;
+    writingTimerSessionSized = false;
+  }
+  applyDockWritingTimerScale(win);
+}
+
+function syncDockWritingTimerRail() {
+  const btn = document.querySelector('[data-dock-item="writingTimer"]');
+  if (!btn) return;
+  const icon = btn.querySelector("svg");
+  let readout = btn.querySelector("[data-role='dock-timer-countdown']");
+  if (!readout) {
+    readout = document.createElement("span");
+    readout.className = "panel-dock-timer-countdown";
+    readout.dataset.role = "dock-timer-countdown";
+    readout.setAttribute("aria-hidden", "true");
+    btn.appendChild(readout);
+  }
+  const widgetOpen = ideaFloatWindows.has(DOCK_WRITING_TIMER_KEY);
+  const showCountdown = pomodoroSessionActive() && !pomodoroState.justFinished && !widgetOpen;
+  const time = formatRecordingClock(pomodoroClockSeconds());
+  const running = Boolean(pomodoroState.running);
+  btn.classList.toggle("is-timer-countdown", showCountdown);
+  btn.classList.toggle("is-timer-running", showCountdown && running);
+  readout.textContent = showCountdown ? time : "";
+  readout.classList.toggle("hidden", !showCountdown);
+  readout.hidden = !showCountdown;
+  readout.classList.toggle("is-long", showCountdown && time.length > 5);
+  if (icon) icon.classList.toggle("hidden", showCountdown);
+  if (showCountdown) {
+    const titleKey = pomodoroState.display === "elapsed" ? "app.타이머_지난_시간" : "app.타이머_남은_시간";
+    btn.title = i18n.t(titleKey, { time });
+    btn.setAttribute("aria-label", i18n.t(titleKey, { time }));
+  } else {
+    btn.title = i18n.t("app.기록_타이머");
+    btn.setAttribute("aria-label", i18n.t("app.기록_타이머"));
+  }
+}
+
+function ensurePomodoroState() {
+  if (pomodoroState.ready) return;
+  pomodoroState.ready = true;
+  loadPomodoroPresets();
+  pomodoroState.quickMin = loadPomodoroQuickMin();
+  pomodoroState.display = loadPomodoroDisplay();
+  persistPomodoroActiveId(loadPomodoroActiveId());
+  if (
+    pomodoroState.activeId !== POMODORO_QUICK_ID
+    && !pomodoroState.presets.some((item) => item.id === pomodoroState.activeId)
+  ) {
+    persistPomodoroActiveId(pomodoroState.presets[0]?.id || POMODORO_DEFAULT_ID);
+  }
+  restorePomodoroRun();
+  if (
+    pomodoroState.activeId !== POMODORO_QUICK_ID
+    && !pomodoroState.presets.some((item) => item.id === pomodoroState.activeId)
+  ) {
+    persistPomodoroActiveId(pomodoroState.presets[0]?.id || POMODORO_DEFAULT_ID);
+  }
+  const preset = getActivePomodoroPreset();
+  if (pomodoroState.setIndex >= preset.sets) pomodoroState.setIndex = 0;
+  if (!pomodoroState.running && pomodoroState.remainingMs <= 0 && !pomodoroState.justFinished) {
+    pomodoroState.remainingMs = preset.writeMin * 60 * 1000;
+  }
+  if (pomodoroState.running) {
+    pomodoroState.session = true;
+    ensurePomodoroTick();
+    ensureWritingRecordingOn({ quiet: true });
+  }
+  if (pomodoroState.running && pomodoroRemainingMs() <= 0) finishPomodoroPhase();
+  syncDockWritingTimerRail();
+}
+
+function readPomodoroForm(pane) {
+  const writeMin = clampPomodoroInt(pane?.querySelector("[data-role='pomodoro-write-min']")?.value, 1, 180, 25);
+  const breakMin = clampPomodoroInt(pane?.querySelector("[data-role='pomodoro-break-min']")?.value, 1, 60, 5);
+  const sets = clampPomodoroInt(pane?.querySelector("[data-role='pomodoro-sets']")?.value, 1, 12, 4);
+  const name = String(pane?.querySelector("[data-role='pomodoro-name']")?.value || "").trim();
+  return {
+    writeMin,
+    breakMin,
+    sets,
+    name: name || i18n.t("app.포모도로_프리셋_라벨", { write: writeMin, rest: breakMin, sets }),
+  };
+}
+
+function ensurePomodoroAudio() {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) return null;
+  if (!pomodoroAudioCtx || pomodoroAudioCtx.state === "closed") {
+    pomodoroAudioCtx = new Ctx();
+  }
+  if (pomodoroAudioCtx.state === "suspended") {
+    pomodoroAudioCtx.resume().catch(() => {});
+  }
+  return pomodoroAudioCtx;
+}
+
+function playPomodoroTone(freq, start, dur, gainVal, type = "sine") {
+  const ctx = ensurePomodoroAudio();
+  if (!ctx) return;
+  const osc = ctx.createOscillator();
+  const gain = ctx.createGain();
+  osc.type = type === "triangle" || type === "square" ? type : "sine";
+  osc.frequency.setValueAtTime(freq, start);
+  if (type === "triangle" || type === "square") {
+    osc.frequency.exponentialRampToValueAtTime(Math.max(40, freq * 0.45), start + dur);
+  }
+  gain.gain.setValueAtTime(0.0001, start);
+  gain.gain.exponentialRampToValueAtTime(gainVal, start + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.0001, start + dur);
+  osc.connect(gain);
+  gain.connect(ctx.destination);
+  osc.start(start);
+  osc.stop(start + dur + 0.02);
+}
+
+function playPomodoroSoundPatch(sound, kind) {
+  const ctx = ensurePomodoroAudio();
+  if (!ctx) return;
+  const now = ctx.currentTime;
+  const complete = kind === "complete";
+  if (sound === "ding") {
+    playPomodoroTone(784, now, 0.16, 0.18);
+    playPomodoroTone(523, now + 0.18, 0.24, 0.16);
+    if (complete) playPomodoroTone(523, now + 0.48, 0.28, 0.12);
+    return;
+  }
+  if (sound === "bell") {
+    playPomodoroTone(880, now, 0.55, 0.16);
+    playPomodoroTone(1760, now, 0.16, 0.05);
+    if (complete) playPomodoroTone(659, now + 0.4, 0.36, 0.12);
+    return;
+  }
+  playPomodoroTone(523, now, 0.18, 0.18);
+  playPomodoroTone(659, now + 0.16, 0.18, 0.18);
+  playPomodoroTone(784, now + 0.32, 0.28, 0.2);
+  if (complete) playPomodoroTone(1047, now + 0.55, 0.28, 0.12);
+}
+
+function playPomodoroChime(kind) {
+  playPomodoroSoundPatch(loadPomodoroSound(), kind);
+}
+
+function pomodoroPhaseLabel(preset) {
+  if (pomodoroState.justFinished) return i18n.t("app.포모도로_완료");
+  const current = Math.min(preset.sets, pomodoroState.setIndex + 1);
+  const base = pomodoroState.phase === "break"
+    ? i18n.t("app.타이머_휴식_시간")
+    : i18n.t("app.타이머_글쓰기_시간");
+  if ((preset.sets || 1) > 1) {
+    return i18n.t("app.타이머_단계_진행", { label: base, current, total: preset.sets });
+  }
+  return base;
+}
+
+function popupWritingTimerOnAlarm() {
+  const source = document.querySelector('[data-dock-item="writingTimer"]');
+  openDockFloat("writingTimer", source);
+}
+
+function completePomodoro() {
+  const preset = getActivePomodoroPreset();
+  pomodoroState.running = false;
+  pomodoroState.session = true;
+  pomodoroState.endsAt = 0;
+  pomodoroState.justFinished = true;
+  pomodoroState.phase = "write";
+  pomodoroState.setIndex = 0;
+  pomodoroState.remainingMs = preset.writeMin * 60 * 1000;
+  stopPomodoroTick();
+  persistPomodoroRun();
+  playPomodoroChime("complete");
+  toast(preset.sets === 1 && preset.breakMin <= 0
+    ? i18n.t("app.타이머가_끝났어요")
+    : i18n.t("app.포모도로_세트를_마쳤어요", { n: preset.sets }));
+  popupWritingTimerOnAlarm();
+  syncDockCountdownUi();
+}
+
+function finishPomodoroPhase() {
+  const preset = getActivePomodoroPreset();
+  if (pomodoroState.phase === "write") {
+    if (preset.breakMin <= 0) {
+      if (pomodoroState.setIndex + 1 >= preset.sets) {
+        completePomodoro();
+        return;
+      }
+      playPomodoroChime("write");
+      toast(i18n.t("app.쉬는_시간_끝_글쓰기"));
+      pomodoroState.setIndex += 1;
+      pomodoroState.phase = "write";
+      pomodoroState.remainingMs = preset.writeMin * 60 * 1000;
+      pomodoroState.endsAt = Date.now() + pomodoroState.remainingMs;
+      pomodoroState.running = true;
+      persistPomodoroRun();
+      ensurePomodoroTick();
+      popupWritingTimerOnAlarm();
+      syncDockCountdownUi();
+      return;
+    }
+    playPomodoroChime("break");
+    toast(i18n.t("app.글쓰기_시간_끝_쉬세요", { m: preset.breakMin }));
+    pomodoroState.phase = "break";
+    pomodoroState.remainingMs = preset.breakMin * 60 * 1000;
+    pomodoroState.endsAt = Date.now() + pomodoroState.remainingMs;
+    pomodoroState.running = true;
+    persistPomodoroRun();
+    ensurePomodoroTick();
+    popupWritingTimerOnAlarm();
+    syncDockCountdownUi();
+    return;
+  }
+  if (pomodoroState.setIndex + 1 >= preset.sets) {
+    completePomodoro();
+    return;
+  }
+  playPomodoroChime("write");
+  toast(i18n.t("app.쉬는_시간_끝_글쓰기"));
+  pomodoroState.setIndex += 1;
+  pomodoroState.phase = "write";
+  pomodoroState.remainingMs = preset.writeMin * 60 * 1000;
+  pomodoroState.endsAt = Date.now() + pomodoroState.remainingMs;
+  pomodoroState.running = true;
+  persistPomodoroRun();
+  ensurePomodoroTick();
+  popupWritingTimerOnAlarm();
+  syncDockCountdownUi();
+}
+
+function selectPomodoroPreset(id) {
+  if (pomodoroState.running || pomodoroState.session) return;
+  const presets = pomodoroState.presets.length ? pomodoroState.presets : loadPomodoroPresets();
+  const next = presets.find((item) => item.id === id) || presets[0];
+  if (!next) return;
+  persistPomodoroActiveId(next.id);
+  savePomodoroQuickMin(next.writeMin);
+  resetPomodoroToPreset(next, { sync: false });
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  renderDockWritingTimer(win?.querySelector("[data-role='dock-float-body']"));
+}
+
+function pausePomodoro() {
+  if (!pomodoroState.running) return;
+  pomodoroState.remainingMs = pomodoroRemainingMs();
+  pomodoroState.running = false;
+  pomodoroState.endsAt = 0;
+  pomodoroState.session = true;
+  stopPomodoroTick();
+  persistPomodoroRun();
+  syncDockCountdownUi();
+}
+
+function startPomodoro() {
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  if (win && !pomodoroSessionActive()) rememberDockWritingTimerIdleSize(win);
+  ensurePomodoroAudio();
+  const preset = getActivePomodoroPreset();
+  pomodoroState.justFinished = false;
+  let remaining = pomodoroRemainingMs();
+  if (remaining <= 0) {
+    pomodoroState.phase = "write";
+    pomodoroState.setIndex = 0;
+    remaining = preset.writeMin * 60 * 1000;
+  }
+  pomodoroState.remainingMs = remaining;
+  pomodoroState.endsAt = Date.now() + remaining;
+  pomodoroState.running = true;
+  pomodoroState.session = true;
+  persistPomodoroRun();
+  ensurePomodoroTick();
+  ensureWritingRecordingOn({ quiet: true });
+  syncDockCountdownUi();
+}
+
+function startQuickPomodoro(minutes) {
+  if (pomodoroState.running) return;
+  const writeMin = savePomodoroQuickMin(minutes);
+  persistPomodoroActiveId(POMODORO_QUICK_ID);
+  resetPomodoroToPreset(getQuickPomodoroPreset(writeMin), { sync: false });
+  startPomodoro();
+}
+
+function stopPomodoroSession() {
+  if (pomodoroState.running) pomodoroState.remainingMs = pomodoroRemainingMs();
+  pomodoroState.running = false;
+  pomodoroState.endsAt = 0;
+  pomodoroState.session = false;
+  stopPomodoroTick();
+  persistPomodoroRun();
+  syncDockCountdownUi();
+}
+
+function togglePomodoro() {
+  if (pomodoroState.running) pausePomodoro();
+  else startPomodoro();
+}
+
+function restartPomodoro() {
+  resetPomodoroToPreset(getActivePomodoroPreset(), { sync: false, keepSession: true });
+  startPomodoro();
+}
+
+function resetPomodoro() {
+  resetPomodoroToPreset(getActivePomodoroPreset());
+}
+
+function newPomodoroPresetId() {
+  return `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function refreshDockWritingTimerPane(pane) {
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  renderDockWritingTimer(pane?.closest("[data-role='dock-float-body']") || win?.querySelector("[data-role='dock-float-body']"));
+}
+
+function applyPomodoroPresetWrite(draft, overwriteId) {
+  const presets = pomodoroState.presets.length ? pomodoroState.presets : loadPomodoroPresets();
+  const payload = {
+    id: overwriteId || newPomodoroPresetId(),
+    writeMin: draft.writeMin,
+    breakMin: draft.breakMin,
+    sets: draft.sets,
+    name: draft.name,
+    nameKey: "",
+  };
+  if (overwriteId) {
+    const idx = presets.findIndex((item) => item.id === overwriteId);
+    if (idx < 0) return { ok: false, reason: "missing" };
+    const prev = presets[idx];
+    presets[idx] = {
+      ...payload,
+      id: overwriteId,
+      nameKey: prev.nameKey || "",
+    };
+    savePomodoroPresets(presets);
+    if (!pomodoroState.running) {
+      persistPomodoroActiveId(overwriteId);
+      resetPomodoroToPreset(getActivePomodoroPreset(), { sync: false });
+    }
+    return { ok: true, overwritten: true };
+  }
+  if (presets.length >= POMODORO_MAX_PRESETS) return { ok: false, reason: "full" };
+  presets.push(payload);
+  savePomodoroPresets(presets);
+  if (!pomodoroState.running) {
+    persistPomodoroActiveId(payload.id);
+    resetPomodoroToPreset(getActivePomodoroPreset(), { sync: false });
+  }
+  return { ok: true, overwritten: false };
+}
+
+function savePomodoroFromForm(pane) {
+  const draft = readPomodoroForm(pane);
+  const selected = getActivePomodoroPreset();
+  const inList = pomodoroState.presets.some((item) => item.id === selected.id);
+  pomodoroState.pendingSave = draft;
+  if (inList) {
+    const result = applyPomodoroPresetWrite(draft, selected.id);
+    pomodoroState.overwriteOpen = false;
+    pomodoroState.pendingSave = null;
+    refreshDockWritingTimerPane(pane);
+    toast(i18n.t(result.overwritten ? "app.프리셋을_덮어썼어요" : "app.프리셋을_저장했어요"));
+    return;
+  }
+  savePomodoroAsNew(pane, draft);
+}
+
+function savePomodoroAsNew(pane, draft) {
+  const nextDraft = draft || readPomodoroForm(pane);
+  pomodoroState.pendingSave = nextDraft;
+  const result = applyPomodoroPresetWrite(nextDraft);
+  if (!result.ok && result.reason === "full") {
+    pomodoroState.overwriteOpen = true;
+    refreshDockWritingTimerPane(pane);
+    toast(i18n.t("app.프리셋은_5개까지예요"));
+    return;
+  }
+  pomodoroState.overwriteOpen = false;
+  pomodoroState.pendingSave = null;
+  refreshDockWritingTimerPane(pane);
+  toast(i18n.t("app.프리셋을_저장했어요"));
+}
+
+function overwritePomodoroPreset(id) {
+  const draft = pomodoroState.pendingSave;
+  if (!draft) return;
+  const result = applyPomodoroPresetWrite(draft, id);
+  if (!result.ok) return;
+  pomodoroState.overwriteOpen = false;
+  pomodoroState.pendingSave = null;
+  refreshDockWritingTimerPane();
+  toast(i18n.t("app.프리셋을_덮어썼어요"));
+}
+
+function deletePomodoroPreset(id) {
+  if (pomodoroState.running) return;
+  if (!id) return;
+  const next = savePomodoroPresets(pomodoroState.presets.filter((item) => item.id !== id));
+  if (pomodoroState.activeId === id) persistPomodoroActiveId(next[0]?.id || POMODORO_DEFAULT_ID);
+  resetPomodoroToPreset(next.find((item) => item.id === pomodoroState.activeId) || fallbackTimerPreset(), { sync: false });
+  refreshDockWritingTimerPane();
+}
+
+function dockTimerIconSvg(paths) {
+  return `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">${paths}</svg>`;
+}
+
+function dockTimerPlayIconHtml() {
+  return dockTimerIconSvg('<path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z"/>');
+}
+
+function dockTimerPauseIconHtml() {
+  return dockTimerIconSvg('<rect x="14" y="3" width="5" height="18" rx="1"/><rect x="5" y="3" width="5" height="18" rx="1"/>');
+}
+
+function dockTimerResetIconHtml() {
+  return dockTimerIconSvg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5a5.5 5.5 0 0 1-5.5 5.5H11"/>');
+}
+
+function dockTimerBackIconHtml() {
+  return dockTimerIconSvg('<path d="m12 19-7-7 7-7"/><path d="M19 12H5"/>');
+}
+
+function dockTimerQuickStartLabel(running) {
+  if (running) return i18n.t("app.타이머_일시정지");
+  if (pomodoroSessionActive()) return i18n.t("app.타이머_위젯_재개_안내");
+  return i18n.t("app.타이머_바로_시작");
+}
+
+function dockTimerQuickStartHtml(running) {
+  const label = dockTimerQuickStartLabel(running);
+  return `
+        <button type="button" class="dock-widget-btn dock-timer-quick-start" data-role="pomodoro-quick-start"
+          title="${escapeHtml(label)}"
+          aria-label="${escapeHtml(label)}"
+          aria-pressed="${running ? "true" : "false"}">
+          ${running ? dockTimerPauseIconHtml() : dockTimerPlayIconHtml()}
+        </button>`;
+}
+
+function writingTimerStyleButtonsHtml(style) {
+  return [
+    { id: "hourglass", labelKey: "app.모래시계" },
+    { id: "alarm", labelKey: "app.알람_시계" },
+    { id: "digits", labelKey: "app.숫자" },
+  ].map((item) => dockTimerCycleOptionHtml("dock-timer-style", "style", item.id, style, item.labelKey)).join("");
+}
+
+function dockTimerCycleOptionHtml(role, dataName, id, activeId, labelKey) {
+  const label = i18n.t(labelKey);
+  const hint = i18n.t("app.타이머_옵션_순환_안내");
+  const on = activeId === id;
+  return `
+    <button type="button"
+      class="dock-timer-style-btn${on ? " is-active" : ""}"
+      data-role="${role}"
+      data-${dataName}="${id}"
+      title="${escapeHtml(`${label} · ${hint}`)}"
+      aria-label="${escapeHtml(label)}"
+      role="radio"
+      aria-checked="${on ? "true" : "false"}">${escapeHtml(label)}</button>`;
+}
+
+function dockTimerCycleSegHtml(cycle, labelKey, innerHtml) {
+  const open = writingTimerCycleOpen === cycle;
+  return `
+        <div class="dock-timer-${cycle}-picks dock-timer-seg${open ? " is-open" : ""}"
+          data-role="dock-timer-cycle" data-cycle="${cycle}"
+          role="radiogroup"
+          aria-label="${escapeHtml(i18n.t(labelKey))}"
+          aria-expanded="${open ? "true" : "false"}"
+          title="${escapeHtml(i18n.t("app.타이머_옵션_순환_안내"))}">
+          ${innerHtml}
+        </div>`;
+}
+
+function applyDockTimerCycleOpen(pane) {
+  if (!pane) return;
+  pane.querySelectorAll("[data-role='dock-timer-cycle']").forEach((seg) => {
+    const open = writingTimerCycleOpen === seg.dataset.cycle;
+    seg.classList.toggle("is-open", open);
+    seg.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+}
+
+function closeDockTimerCycleOpen(pane) {
+  if (!writingTimerCycleOpen) return;
+  writingTimerCycleOpen = "";
+  applyDockTimerCycleOpen(pane);
+}
+
+function syncDockTimerCycleButtons(pane) {
+  if (!pane) return;
+  const style = loadWritingTimerStyle();
+  const sound = loadPomodoroSound();
+  pane.querySelectorAll("[data-role='dock-timer-style']").forEach((btn) => {
+    const on = btn.dataset.style === style;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  pane.querySelectorAll("[data-role='pomodoro-display']").forEach((btn) => {
+    const on = btn.dataset.display === pomodoroState.display;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  pane.querySelectorAll("[data-role='pomodoro-sound']").forEach((btn) => {
+    const on = btn.dataset.sound === sound;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-checked", on ? "true" : "false");
+  });
+  applyDockTimerCycleOpen(pane);
+}
+
+function applyDockTimerCycleChoice(kind, btn) {
+  if (!btn) return;
+  if (kind === "style") {
+    saveWritingTimerStyle(btn.dataset.style);
+    syncWritingTimerStyleForm();
+    syncDockWritingTimer();
+    return;
+  }
+  if (kind === "display") {
+    savePomodoroDisplay(btn.dataset.display);
+    syncDockCountdownUi();
+    return;
+  }
+  if (kind === "sound") {
+    savePomodoroSound(btn.dataset.sound);
+    playPomodoroChime("preview");
+    syncDockCountdownUi();
+  }
+}
+
+function cycleDockTimerChoice(kind) {
+  if (kind === "style") {
+    saveWritingTimerStyle(cycleDockTimerValue(WRITING_TIMER_STYLES, loadWritingTimerStyle()));
+    syncWritingTimerStyleForm();
+    syncDockWritingTimer();
+    return;
+  }
+  if (kind === "display") {
+    savePomodoroDisplay(cycleDockTimerValue(POMODORO_DISPLAYS, pomodoroState.display));
+    syncDockCountdownUi();
+    return;
+  }
+  if (kind === "sound") {
+    savePomodoroSound(cycleDockTimerValue(POMODORO_SOUNDS, loadPomodoroSound()));
+    playPomodoroChime("preview");
+    syncDockCountdownUi();
+  }
+}
+
+function handleDockTimerCycleClick(seg, target) {
+  const kind = String(seg.dataset.cycle || "");
+  if (seg.classList.contains("is-open")) {
+    const btn = target?.closest?.(".dock-timer-style-btn");
+    if (btn && seg.contains(btn)) applyDockTimerCycleChoice(kind, btn);
+    return;
+  }
+  writingTimerCycleOpen = "";
+  applyDockTimerCycleOpen(seg.closest("[data-role='dock-countdown']"));
+  cycleDockTimerChoice(kind);
+}
+
+function dockCountdownHtml() {
+  ensurePomodoroState();
+  const preset = getActivePomodoroPreset();
+  const running = Boolean(pomodoroState.running);
+  const style = loadWritingTimerStyle();
+  const display = pomodoroState.display === "elapsed" ? "elapsed" : "remaining";
+  const sound = loadPomodoroSound();
+  const listed = pomodoroState.presets.length ? pomodoroState.presets : loadPomodoroPresets();
+  const presetCards = listed.map((item) => pomodoroPresetCardHtml(item, running)).join("");
+  const overwrite = pomodoroState.overwriteOpen
+    ? `<div class="dock-pomodoro-overwrite">
+        <p class="dock-countdown-label">${escapeHtml(i18n.t("app.프리셋은_5개까지예요"))}</p>
+        ${listed.map((item) => `
+          <button type="button" class="dock-countdown-preset" data-role="dock-pomodoro-overwrite" data-id="${escapeHtml(item.id)}">${escapeHtml(pomodoroPresetLabel(item))}</button>
+        `).join("")}
+      </div>`
+    : "";
+  const selected = getActivePomodoroPreset();
+  const selectedInList = listed.some((item) => item.id === selected.id);
+  const session = pomodoroSessionActive();
+  const formOpen = pomodoroState.overwriteOpen ? " open" : "";
+  return `
+    <div class="dock-countdown${session ? " is-session" : ""}${running ? " is-running" : ""}" data-role="dock-countdown">
+      <p class="dock-countdown-label dock-countdown-title">${escapeHtml(i18n.t("app.포모도로_타이머"))}</p>
+      <label class="dock-timer-quick">
+        <input type="number" min="1" max="180" step="1" inputmode="numeric" data-role="pomodoro-quick-min"
+          value="${pomodoroState.quickMin}" aria-label="${escapeHtml(i18n.t("app.타이머_분"))}">
+        <span>${escapeHtml(i18n.t("app.타이머_분"))}</span>
+        ${dockTimerQuickStartHtml(running)}
+      </label>
+      <button type="button" class="dock-timer-face" data-role="dock-pomodoro-face"
+        title="${escapeHtml(pomodoroFaceTitle())}"
+        aria-pressed="${running ? "true" : "false"}">
+        ${dockWritingTimerFaceHtml(style, pomodoroFaceElapsedSeconds(), running)}
+      </button>
+      <p class="dock-pomodoro-phase" data-role="dock-pomodoro-phase">${escapeHtml(pomodoroPhaseLabel(preset))}</p>
+      <div class="dock-countdown-readout${running ? " is-on" : ""}${pomodoroState.justFinished ? " is-done" : ""}"
+        data-role="dock-countdown-readout">${escapeHtml(formatRecordingClock(pomodoroClockSeconds()))}</div>
+      <div class="dock-timer-toggles">
+        ${dockTimerCycleSegHtml("style", "app.기록_위젯_디자인", writingTimerStyleButtonsHtml(style))}
+        ${dockTimerCycleSegHtml("display", "app.타이머_시간_표시", pomodoroDisplayButtonsHtml(display))}
+        ${dockTimerCycleSegHtml("sound", "app.타이머_알람_소리", pomodoroSoundButtonsHtml(sound))}
+      </div>
+      <div class="dock-countdown-presets" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">${presetCards}</div>
+      <div class="dock-countdown-session-actions" role="group" aria-label="${escapeHtml(i18n.t("app.포모도로_타이머"))}">
+        <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-reset"
+          title="${escapeHtml(i18n.t("app.타이머_초기화"))}"
+          aria-label="${escapeHtml(i18n.t("app.타이머_초기화"))}">
+          ${dockTimerResetIconHtml()}
+          <span>${escapeHtml(i18n.t("app.타이머_초기화"))}</span>
+        </button>
+        <button type="button" class="dock-widget-btn dock-countdown-text-btn is-quiet" data-role="dock-countdown-back"
+          title="${escapeHtml(i18n.t("app.타이머_이전화면"))}"
+          aria-label="${escapeHtml(i18n.t("app.타이머_이전화면"))}">
+          ${dockTimerBackIconHtml()}
+          <span>${escapeHtml(i18n.t("app.타이머_이전화면"))}</span>
+        </button>
+      </div>
+      <details class="dock-pomodoro-form"${formOpen}>
+        <summary>${escapeHtml(i18n.t("app.프리셋_만들기"))}</summary>
+        <div class="dock-pomodoro-fields">
+          <label>${escapeHtml(i18n.t("app.글쓰기_시간"))}
+            <input type="number" min="1" max="180" step="1" data-role="pomodoro-write-min" value="${selected.writeMin}">
+          </label>
+          <label>${escapeHtml(i18n.t("app.쉬는_시간"))}
+            <input type="number" min="1" max="60" step="1" data-role="pomodoro-break-min" value="${selected.breakMin}">
+          </label>
+          <label>${escapeHtml(i18n.t("app.세트_수"))}
+            <input type="number" min="1" max="12" step="1" data-role="pomodoro-sets" value="${selected.sets}">
+          </label>
+        </div>
+        <label class="dock-pomodoro-name">${escapeHtml(i18n.t("app.프리셋_이름"))}
+          <input type="text" maxlength="48" data-role="pomodoro-name" value="${escapeHtml(pomodoroPresetLabel(selected))}" placeholder="${escapeHtml(pomodoroPresetLabel(selected))}">
+        </label>
+        <div class="dock-countdown-actions">
+          <button type="button" class="dock-widget-btn" data-role="dock-pomodoro-save">${escapeHtml(selectedInList ? i18n.t("app.이_프리셋_저장") : i18n.t("app.프리셋_저장"))}</button>
+          ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-save-new">${escapeHtml(i18n.t("app.새_프리셋_저장"))}</button>` : ""}
+          ${selectedInList ? `<button type="button" class="dock-widget-btn is-quiet" data-role="dock-pomodoro-delete" data-id="${escapeHtml(selected.id)}">${escapeHtml(i18n.t("app.프리셋_삭제"))}</button>` : ""}
+        </div>
+        ${overwrite}
+      </details>
+    </div>
+  `;
+}
+
+function bindDockWritingTimerBody(body) {
+  if (!body || body.dataset.writingTimerBound === "1") return;
+  body.dataset.writingTimerBound = "1";
+  body.addEventListener("click", (event) => {
+    const cycleSeg = event.target.closest("[data-role='dock-timer-cycle']");
+    if (cycleSeg && body.contains(cycleSeg)) {
+      event.preventDefault();
+      handleDockTimerCycleClick(cycleSeg, event.target);
+      return;
+    }
+    if (writingTimerCycleOpen) closeDockTimerCycleOpen(body.querySelector("[data-role='dock-countdown']"));
+    if (event.target.closest("[data-role='dock-timer-toggle']") && body.contains(event.target)) {
+      event.preventDefault();
+      toggleWritingRecording();
+      return;
+    }
+    if (event.target.closest("[data-role='dock-pomodoro-face']") && body.contains(event.target)) {
+      event.preventDefault();
+      togglePomodoro();
+      return;
+    }
+    if (event.target.closest("[data-role='pomodoro-quick-start']") && body.contains(event.target)) {
+      event.preventDefault();
+      if (pomodoroState.running) pausePomodoro();
+      else if (pomodoroSessionActive()) startPomodoro();
+      else {
+        const minutes = body.querySelector("[data-role='pomodoro-quick-min']")?.value;
+        startQuickPomodoro(minutes);
+      }
+      return;
+    }
+    const preset = event.target.closest("[data-role='dock-pomodoro-preset']");
+    if (preset && body.contains(preset)) {
+      event.preventDefault();
+      if (pomodoroState.running) return;
+      selectPomodoroPreset(preset.dataset.id);
+      return;
+    }
+    if (event.target.closest("[data-role='dock-countdown-reset']")) {
+      event.preventDefault();
+      restartPomodoro();
+      return;
+    }
+    if (event.target.closest("[data-role='dock-countdown-back']")) {
+      event.preventDefault();
+      resetPomodoro();
+      return;
+    }
+    const saveBtn = event.target.closest("[data-role='dock-pomodoro-save']");
+    if (saveBtn && body.contains(saveBtn)) {
+      event.preventDefault();
+      savePomodoroFromForm(body.querySelector("[data-role='dock-countdown']"));
+      return;
+    }
+    const saveNewBtn = event.target.closest("[data-role='dock-pomodoro-save-new']");
+    if (saveNewBtn && body.contains(saveNewBtn)) {
+      event.preventDefault();
+      savePomodoroAsNew(body.querySelector("[data-role='dock-countdown']"));
+      return;
+    }
+    const delBtn = event.target.closest("[data-role='dock-pomodoro-delete']");
+    if (delBtn && body.contains(delBtn)) {
+      event.preventDefault();
+      deletePomodoroPreset(delBtn.dataset.id);
+      return;
+    }
+    const overwriteBtn = event.target.closest("[data-role='dock-pomodoro-overwrite']");
+    if (overwriteBtn && body.contains(overwriteBtn)) {
+      event.preventDefault();
+      overwritePomodoroPreset(overwriteBtn.dataset.id);
+    }
+  });
+  body.addEventListener("contextmenu", (event) => {
+    const cycleSeg = event.target.closest("[data-role='dock-timer-cycle']");
+    if (!cycleSeg || !body.contains(cycleSeg)) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const kind = String(cycleSeg.dataset.cycle || "");
+    writingTimerCycleOpen = writingTimerCycleOpen === kind ? "" : kind;
+    applyDockTimerCycleOpen(body.querySelector("[data-role='dock-countdown']"));
+  });
+  body.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter") return;
+    const input = event.target.closest("[data-role='pomodoro-quick-min']");
+    if (!input || !body.contains(input)) return;
+    event.preventDefault();
+    startQuickPomodoro(input.value);
+  });
+  body.addEventListener("change", (event) => {
+    const input = event.target.closest("[data-role='pomodoro-quick-min']");
+    if (!input || !body.contains(input)) return;
+    savePomodoroQuickMin(input.value);
+  });
+}
+
+function syncDockCountdownUi() {
+  syncDockWritingTimerRail();
+  const win = ideaFloatWindows.get(DOCK_WRITING_TIMER_KEY);
+  const body = win?.querySelector("[data-role='dock-float-body']");
+  if (!body) return;
+  const pane = body.querySelector("[data-role='dock-countdown']");
+  if (!pane) {
+    renderDockWritingTimer(body);
+    return;
+  }
+  const preset = getActivePomodoroPreset();
+  const running = Boolean(pomodoroState.running);
+  const session = pomodoroSessionActive();
+  const card = body.querySelector(".dock-timer-card");
+  pane.classList.toggle("is-session", session);
+  pane.classList.toggle("is-running", running);
+  card?.classList.toggle("is-timer-session", session);
+  card?.classList.toggle("is-timer-running", running);
+  const face = pane.querySelector("[data-role='dock-pomodoro-face']");
+  if (face) {
+    const style = loadWritingTimerStyle();
+    face.innerHTML = dockWritingTimerFaceHtml(style, pomodoroFaceElapsedSeconds(), running);
+    face.setAttribute("aria-pressed", running ? "true" : "false");
+    face.title = pomodoroFaceTitle();
+  }
+  const readout = pane.querySelector("[data-role='dock-countdown-readout']");
+  const quickStart = pane.querySelector("[data-role='pomodoro-quick-start']");
+  const phase = pane.querySelector("[data-role='dock-pomodoro-phase']");
+  if (readout) {
+    readout.textContent = formatRecordingClock(pomodoroClockSeconds());
+    readout.classList.toggle("is-on", running);
+    readout.classList.toggle("is-done", Boolean(pomodoroState.justFinished));
+  }
+  if (quickStart) {
+    const label = dockTimerQuickStartLabel(running);
+    quickStart.innerHTML = running ? dockTimerPauseIconHtml() : dockTimerPlayIconHtml();
+    quickStart.setAttribute("title", label);
+    quickStart.setAttribute("aria-label", label);
+    quickStart.setAttribute("aria-pressed", running ? "true" : "false");
+  }
+  if (phase) phase.textContent = pomodoroPhaseLabel(preset);
+  pane.querySelectorAll("[data-role='dock-pomodoro-preset']").forEach((btn) => {
+    btn.classList.toggle("is-active", btn.dataset.id === pomodoroState.activeId);
+    btn.disabled = running;
+  });
+  syncDockTimerCycleButtons(pane);
+  const quickMin = pane.querySelector("[data-role='pomodoro-quick-min']");
+  if (quickMin && document.activeElement !== quickMin) quickMin.value = String(pomodoroState.quickMin);
+  fitDockWritingTimerShell(win);
+}
+
+function writingTimerRecordText(seconds, recording) {
+  const time = formatRecordingClock(seconds);
+  const idle = recording
+    && writingTracker.lastActivityAt
+    && (Date.now() - writingTracker.lastActivityAt) >= idleLimitMs();
+  return idle ? i18n.t("app.일시정지_time", { time }) : time;
 }
 
 function renderDockWritingTimer(body) {
   if (!body) return;
+  ensurePomodoroState();
   const style = loadWritingTimerStyle();
   const recording = Boolean(writingTracker.recording);
+  const running = Boolean(pomodoroState.running);
+  const session = pomodoroSessionActive();
   const seconds = recording ? liveRecordingSeconds() : 0;
-  const styleOptions = [
-    { id: "hourglass", labelKey: "app.모래시계" },
-    { id: "alarm", labelKey: "app.알람_시계" },
-    { id: "stopwatch", labelKey: "app.스탑워치" },
-  ].map((item) => `
-    <button type="button"
-      class="dock-timer-style-btn${style === item.id ? " is-active" : ""}"
-      data-role="dock-timer-style"
-      data-style="${item.id}"
-      title="${escapeHtml(i18n.t(item.labelKey))}"
-      aria-label="${escapeHtml(i18n.t(item.labelKey))}"
-      aria-pressed="${style === item.id ? "true" : "false"}">${escapeHtml(i18n.t(item.labelKey))}</button>
-  `).join("");
   body.innerHTML = `
-    <div class="dock-timer-card" data-timer-style="${escapeHtml(style)}" data-recording="${recording ? "1" : "0"}">
-      <div class="dock-timer-style-picks" role="group" aria-label="${escapeHtml(i18n.t("app.기록_위젯_디자인"))}">
-        ${styleOptions}
-      </div>
-      <button type="button" class="dock-timer-face" data-role="dock-timer-toggle"
+    <div class="dock-timer-card${session ? " is-timer-session" : ""}${running ? " is-timer-running" : ""}" data-timer-style="${escapeHtml(style)}" data-recording="${recording ? "1" : "0"}">
+      <button type="button" class="dock-timer-record" data-role="dock-timer-toggle"
         title="${escapeHtml(recording ? i18n.t("app.클릭_집필_시간_기록_정지_우클릭_달력_설정") : i18n.t("app.클릭_집필_시간_기록_시작_정지_글자수는_자"))}"
         aria-pressed="${recording ? "true" : "false"}">
-        ${dockWritingTimerFaceHtml(style, seconds, recording)}
+        <span class="dock-timer-record-label">${escapeHtml(i18n.t("app.기록"))}</span>
+        <span class="dock-timer-readout" data-role="dock-timer-readout">${escapeHtml(writingTimerRecordText(seconds, recording))}</span>
+        <span class="dock-timer-hint">${escapeHtml(recording ? i18n.t("app.기록_위젯_기록중_안내") : i18n.t("app.기록_위젯_대기_안내"))}</span>
       </button>
-      <p class="dock-timer-hint">${escapeHtml(recording ? i18n.t("app.기록_위젯_기록중_안내") : i18n.t("app.기록_위젯_대기_안내"))}</p>
+      ${dockCountdownHtml()}
     </div>
   `;
-  body.querySelectorAll("[data-role='dock-timer-style']").forEach((btn) => {
-    btn.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      saveWritingTimerStyle(btn.dataset.style);
-      syncWritingTimerStyleForm();
-      syncDockWritingTimer();
-    });
-  });
-  body.querySelector("[data-role='dock-timer-toggle']")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    toggleWritingRecording();
-  });
+  bindDockWritingTimerBody(body);
+  fitDockWritingTimerShell(body.closest(".idea-float"));
 }
 
 function syncDockWritingTimer() {
@@ -16384,16 +18917,25 @@ function syncDockWritingTimer() {
   const recording = Boolean(writingTracker.recording);
   const seconds = recording ? liveRecordingSeconds() : 0;
   const card = body.querySelector(".dock-timer-card");
-  const face = body.querySelector("[data-role='dock-timer-toggle']");
+  const recordToggle = body.querySelector(".dock-timer-record");
+  const readout = body.querySelector("[data-role='dock-timer-readout']");
   const hint = body.querySelector(".dock-timer-hint");
-  if (!card || !face) {
+  const face = body.querySelector(".dock-timer-face");
+  if (!card || !readout || !face) {
     renderDockWritingTimer(body);
     return;
   }
   card.dataset.timerStyle = style;
   card.dataset.recording = recording ? "1" : "0";
-  face.setAttribute("aria-pressed", recording ? "true" : "false");
-  face.innerHTML = dockWritingTimerFaceHtml(style, seconds, recording);
+  card.classList.toggle("is-timer-session", pomodoroSessionActive());
+  card.classList.toggle("is-timer-running", Boolean(pomodoroState.running));
+  if (recordToggle) {
+    recordToggle.setAttribute("aria-pressed", recording ? "true" : "false");
+    recordToggle.title = recording
+      ? i18n.t("app.클릭_집필_시간_기록_정지_우클릭_달력_설정")
+      : i18n.t("app.클릭_집필_시간_기록_시작_정지_글자수는_자");
+  }
+  readout.textContent = writingTimerRecordText(seconds, recording);
   if (hint) {
     hint.textContent = recording
       ? i18n.t("app.기록_위젯_기록중_안내")
@@ -16402,8 +18944,13 @@ function syncDockWritingTimer() {
   body.querySelectorAll("[data-role='dock-timer-style']").forEach((btn) => {
     const on = btn.dataset.style === style;
     btn.classList.toggle("is-active", on);
-    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.setAttribute("aria-checked", on ? "true" : "false");
   });
+  if (!body.querySelector("[data-role='dock-countdown']")) {
+    renderDockWritingTimer(body);
+    return;
+  }
+  syncDockCountdownUi();
 }
 
 function syncWritingTimerStyleForm() {
@@ -16431,6 +18978,179 @@ function dockFloatFallbackPos(side, sourceEl, width = 320) {
     return { left: Math.max(16, window.innerWidth - width - 24), top: 56 };
   }
   return { left: 56, top: 56 };
+}
+
+function dockAiFloatFallbackPos(sourceEl, width, slot = 0) {
+  const base = dockFloatFallbackPos("right", sourceEl, width);
+  const n = Math.max(0, Number(slot) || 0);
+  return {
+    left: Math.max(8, base.left - n * 28),
+    top: Math.max(8, base.top + n * 28),
+  };
+}
+
+function dockFloatBody(key) {
+  return ideaFloatWindows.get(key)?.querySelector("[data-role='dock-float-body']") || null;
+}
+
+function aiChatViewsAreFloated() {
+  return ideaFloatWindows.has(DOCK_TORY_CHAT_KEY)
+    || ideaFloatWindows.has(DOCK_CHARACTER_CHAT_KEY)
+    || ideaFloatWindows.has(DOCK_READER_CHAT_KEY);
+}
+
+function rememberDockAdoptHome(el) {
+  if (!el?.id || dockAdoptHomes.has(el.id)) return;
+  dockAdoptHomes.set(el.id, { parent: el.parentElement, next: el.nextSibling });
+}
+
+function adoptDockNode(el, host) {
+  if (!el || !host) return;
+  rememberDockAdoptHome(el);
+  if (el.parentElement !== host) host.appendChild(el);
+}
+
+function restoreDockNode(id) {
+  const el = $(id);
+  const home = dockAdoptHomes.get(id);
+  if (!el || !home?.parent) return;
+  if (el.parentElement === home.parent) return;
+  if (home.next && home.next.parentNode === home.parent) {
+    home.parent.insertBefore(el, home.next);
+  } else {
+    home.parent.appendChild(el);
+  }
+}
+
+function restoreDockAiHosts(key) {
+  if (key === DOCK_TORY_CHAT_KEY || key === DOCK_CHARACTER_CHAT_KEY) {
+    restoreDockNode("toryChatRoom");
+  }
+  if (key === DOCK_CHARACTER_CHAT_KEY) restoreDockNode("toryChatCharacterPicker");
+  if (key === DOCK_READER_CHAT_KEY) restoreDockNode("toryChatReaderView");
+  if (key === DOCK_AI_RESULT_KEY) restoreDockNode("aiResultWrap");
+  if (key === DOCK_AI_HISTORY_KEY) {
+    restoreDockNode("aiResultHistoryContent");
+    $("aiResultHistoryModal")?.classList.add("hidden");
+  }
+  if (
+    key === DOCK_TORY_CHAT_KEY
+    || key === DOCK_CHARACTER_CHAT_KEY
+    || key === DOCK_READER_CHAT_KEY
+    || key === DOCK_AI_RESULT_KEY
+    || key === DOCK_AI_HISTORY_KEY
+  ) {
+    try { syncAiDockChatHosts(); } catch (_) { /* ignore */ }
+  }
+}
+
+function syncAiChatViewHubAttr() {
+  const chatView = $("aiChatView");
+  if (!chatView) return;
+  chatView.setAttribute("data-chat-hub", aiChatViewsAreFloated() ? "home" : (toryChatHub || "home"));
+}
+
+function syncAiDockChatHosts() {
+  const toryBody = dockFloatBody(DOCK_TORY_CHAT_KEY);
+  const charBody = dockFloatBody(DOCK_CHARACTER_CHAT_KEY);
+  const readerBody = dockFloatBody(DOCK_READER_CHAT_KEY);
+  const charWin = ideaFloatWindows.get(DOCK_CHARACTER_CHAT_KEY);
+  const picker = $("toryChatCharacterPicker");
+  const reader = $("toryChatReaderView");
+  const room = $("toryChatRoom");
+
+  if (charBody && picker) adoptDockNode(picker, charBody);
+  else restoreDockNode("toryChatCharacterPicker");
+
+  if (readerBody && reader) adoptDockNode(reader, readerBody);
+  else restoreDockNode("toryChatReaderView");
+
+  const roomHost = (toryChatHub === "character-room" && charBody) ? charBody : toryBody;
+  if (roomHost && room) adoptDockNode(room, roomHost);
+  else restoreDockNode("toryChatRoom");
+
+  if (charWin) {
+    charWin.setAttribute("data-chat-hub", toryChatHub === "character-room" ? "character-room" : "characters");
+  }
+  syncAiChatViewHubAttr();
+}
+
+function closeLegacyToryChatPopupForDock() {
+  if (typeof toryChatPopupOpen !== "undefined" && toryChatPopupOpen) {
+    try { closeToryChatPopup({ restorePanelTab: false }); } catch (_) { /* ignore */ }
+  }
+}
+
+function prepareDockToryChatFloat() {
+  closeLegacyToryChatPopupForDock();
+  setToryChatHub("tory", { quiet: true });
+  try { renderToryChatMessages?.(); } catch (_) { /* ignore */ }
+  syncAiDockChatHosts();
+  requestAnimationFrame(() => $("toryChatInput")?.focus());
+}
+
+function focusDockToryChatFloat() {
+  setToryChatHub("tory", { quiet: true });
+  syncAiDockChatHosts();
+}
+
+function prepareDockCharacterChatFloat() {
+  closeLegacyToryChatPopupForDock();
+  if (toryChatHub !== "character-room") {
+    setToryChatHub("characters", { quiet: true });
+  }
+  try { renderToryChatCharacterPicker?.(); } catch (_) { /* ignore */ }
+  syncAiDockChatHosts();
+}
+
+function focusDockCharacterChatFloat() {
+  if (toryChatHub !== "character-room" && toryChatHub !== "characters") {
+    setToryChatHub("characters", { quiet: true });
+  } else {
+    syncAiDockChatHosts();
+  }
+}
+
+function prepareDockReaderChatFloat() {
+  closeLegacyToryChatPopupForDock();
+  try { openReaderPersonaPicker?.(); } catch (_) { /* ignore */ }
+  syncAiDockChatHosts();
+}
+
+function focusDockReaderChatFloat() {
+  if (toryChatHub !== "reader") setToryChatHub("reader", { quiet: true });
+  else syncAiDockChatHosts();
+}
+
+function renderDockToryChatBody(body) {
+  if (!body) return;
+  adoptDockNode($("toryChatRoom"), body);
+  syncAiDockChatHosts();
+}
+
+function renderDockCharacterChatBody(body) {
+  if (!body) return;
+  adoptDockNode($("toryChatCharacterPicker"), body);
+  if (toryChatHub === "character-room") adoptDockNode($("toryChatRoom"), body);
+  syncAiDockChatHosts();
+}
+
+function renderDockReaderChatBody(body) {
+  if (!body) return;
+  adoptDockNode($("toryChatReaderView"), body);
+}
+
+function renderDockAiResultBody(body) {
+  if (!body) return;
+  const wrap = $("aiResultWrap");
+  wrap?.classList.remove("hidden");
+  adoptDockNode(wrap, body);
+}
+
+function renderDockAiHistoryBody(body) {
+  if (!body) return;
+  adoptDockNode($("aiResultHistoryContent"), body);
+  $("aiResultHistoryModal")?.classList.add("hidden");
 }
 
 function renderDockIdeasBody(body) {
@@ -16514,8 +19234,7 @@ async function openDockSuccessAnalyst() {
     return false;
   }
   if (!setToryChatMode("successAnalysis")) return false;
-  setAiPanelOpen(true);
-  setAiPanelTab("chat", { chatHub: "tory" });
+  openDockFloat("toryChat");
   requestAnimationFrame(() => $("toryChatInput")?.focus());
   return true;
 }
@@ -17818,6 +20537,102 @@ function openDockAppearancesFloat(characterId, sourceEl) {
   return win;
 }
 
+function paintDockDictionaryList(win) {
+  const list = win?.querySelector("[data-role='dock-dictionary-list']");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
+    return;
+  }
+  const rows = filteredDictionaryTerms();
+  if (!rows.length) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("index.아직_등록된_단어가_없어요"))}</p>`;
+    return;
+  }
+  list.innerHTML = rows.map((entry) => {
+    const warning = dictionaryConflictLabel(entry.conflicts);
+    const badge = warning
+      ? `<span class="dict-name-warning-badge" title="${escapeHtml(warning)}">!</span>`
+      : "";
+    const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
+    const memo = String(entry.memo || "").trim();
+    const selected = Number(state.dictionaryTermId) === Number(entry.id) ? " is-open" : "";
+    return `<article class="dock-dictionary-item${selected}" data-dock-dictionary-id="${entry.id}">
+      <button type="button" class="dock-dictionary-term" data-dock-dictionary-open="${entry.id}">
+        <strong>${escapeHtml(entry.term || i18n.t("index.단어"))}${badge}</strong>
+        <span>${escapeHtml(meaning || i18n.t("index.뜻"))}</span>
+      </button>
+      <div class="dock-dictionary-detail" ${selected ? "" : "hidden"}>
+        <p class="dock-dictionary-meaning">${escapeHtml(meaning || i18n.t("index.뜻"))}</p>
+        ${memo ? `<p class="dock-dictionary-memo">${escapeHtml(memo)}</p>` : ""}
+        ${warning ? `<p class="dict-name-warning">${escapeHtml(warning)}</p>` : ""}
+        <label><span>${escapeHtml(i18n.t("index.뜻"))}</span>
+          <textarea data-dock-dictionary-definition="${entry.id}" rows="3">${escapeHtml(entry.definition || "")}</textarea>
+        </label>
+        <button type="button" class="secondary compact-btn" data-dock-dictionary-save="${entry.id}">${escapeHtml(i18n.t("app.저장"))}</button>
+      </div>
+    </article>`;
+  }).join("");
+  list.querySelectorAll("[data-dock-dictionary-open]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.getAttribute("data-dock-dictionary-open")) || 0;
+      state.dictionaryTermId = Number(state.dictionaryTermId) === id ? 0 : id;
+      paintDockDictionaryList(win);
+    });
+  });
+  list.querySelectorAll("[data-dock-dictionary-save]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const id = Number(button.getAttribute("data-dock-dictionary-save")) || 0;
+      const entry = (state.dictionaryTerms || []).find((item) => Number(item.id) === id);
+      const box = list.querySelector(`[data-dock-dictionary-definition="${id}"]`);
+      saveDictionaryTerm({
+        id,
+        term: entry?.term || "",
+        definition: box?.value || "",
+        memo: entry?.memo || "",
+      }).catch(handleError);
+    });
+  });
+}
+
+function syncDockDictionaryFloat() {
+  const win = ideaFloatWindows.get(DOCK_DICTIONARY_KEY);
+  if (!win) return;
+  const search = win.querySelector("[data-role='dock-dictionary-search']");
+  if (search && search !== document.activeElement) search.value = state.dictionaryQuery;
+  paintDockDictionaryList(win);
+}
+
+function renderDockDictionaryBody(body) {
+  if (!body) return;
+  const win = body.closest(".idea-float");
+  body.innerHTML = `
+    <div class="dock-dictionary">
+      <p class="hint dock-dictionary-hint">${escapeHtml(i18n.t("index.토리_사전_안내"))}</p>
+      <input type="search" data-role="dock-dictionary-search" autocomplete="off" spellcheck="false"
+        placeholder="${escapeHtml(i18n.t("index.단어_뜻_검색"))}"
+        aria-label="${escapeHtml(i18n.t("index.토리_사전_검색"))}"
+        value="${escapeHtml(state.dictionaryQuery || "")}">
+      <div class="dock-dictionary-list" data-role="dock-dictionary-list">
+        <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
+      </div>
+    </div>
+  `;
+  body.querySelector("[data-role='dock-dictionary-search']")?.addEventListener("input", (event) => {
+    state.dictionaryQuery = String(event.target.value || "");
+    const sidebar = $("dictionarySearch");
+    const board = $("dictionaryBoardSearch");
+    if (sidebar) sidebar.value = state.dictionaryQuery;
+    if (board) board.value = state.dictionaryQuery;
+    renderDictionaryList();
+    paintDockDictionaryList(win);
+  });
+  refreshDictionaryTerms().then(() => {
+    if (!ideaFloatWindows.get(DOCK_DICTIONARY_KEY)) return;
+    paintDockDictionaryList(win);
+  }).catch(handleError);
+}
+
 function dockBaitEpisodeLabel(thread) {
   const sceneId = Number(thread?.scene_id) || 0;
   if (!sceneId) return "";
@@ -18649,6 +21464,7 @@ function restoreDockRailOrder(rail) {
     const item = byId.get(itemId);
     if (!item) return;
     let insertAt = restored.length;
+    let foundPrev = false;
     const htmlIndex = htmlOrder.indexOf(itemId);
     for (let index = htmlIndex - 1; index >= 0; index -= 1) {
       const prevIdx = restored.findIndex(
@@ -18656,7 +21472,19 @@ function restoreDockRailOrder(rail) {
       );
       if (prevIdx >= 0) {
         insertAt = prevIdx + 1;
+        foundPrev = true;
         break;
+      }
+    }
+    if (!foundPrev) {
+      for (let index = htmlIndex + 1; index < htmlOrder.length; index += 1) {
+        const nextIdx = restored.findIndex(
+          (el) => String(el.dataset.dockItem || "") === htmlOrder[index],
+        );
+        if (nextIdx >= 0) {
+          insertAt = nextIdx;
+          break;
+        }
       }
     }
     restored.splice(insertAt, 0, item);
@@ -18744,8 +21572,11 @@ function setupPanelDock() {
   });
   setupDockCharacterNameClicks();
   if (isDockTrackerOpenPref()) openDockFloat("statsTracker");
+  ensurePomodoroState();
   if (isDockWritingTimerOpenPref()) openDockFloat("writingTimer");
+  else syncDockWritingTimerRail();
   syncDockRailButtons();
+  setupScreenProtect();
 }
 
 async function refreshAiStatus() {
@@ -23484,17 +26315,18 @@ function openAiResultHistoryDetail(entryId) {
 }
 
 function openAiResultHistoryModal() {
-  const modal = $("aiResultHistoryModal");
-  if (!modal) return;
-  showAiResultHistoryListView();
-  modal.classList.remove("hidden");
-  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
+  $("aiResultHistoryModal")?.classList.add("hidden");
+  try { showAiResultHistoryListView(); } catch (_) { /* ignore */ }
+  openDockFloat("aiHistory");
 }
 
 function closeAiResultHistoryModal() {
   $("aiResultHistoryModal")?.classList.add("hidden");
   aiResultHistoryViewId = null;
-  try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
+  if (ideaFloatWindows.has(DOCK_AI_HISTORY_KEY)) closeIdeaFloat(DOCK_AI_HISTORY_KEY);
+  else {
+    try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
+  }
 }
 
 function restoreAiResultHistoryEntry(entryId) {
@@ -24129,7 +26961,7 @@ function syncToryPriorityPreview() {
   preview.classList.toggle("has-text", Boolean(text));
 }
 
-function setToryPriorityOpen(open) {
+function setToryPriorityOpen(open, sourceEl) {
   const box = $("toryPriorityBox");
   const toggle = $("toryPriorityToggle");
   const popup = $("toryPriorityPopup");
@@ -24142,11 +26974,23 @@ function setToryPriorityOpen(open) {
   if (next) {
     // First open: place near the launcher if no geometry yet
     if (!popup.style.width || !popup.style.left) {
-      const rect = box.getBoundingClientRect();
+      const railBtn = sourceEl?.getBoundingClientRect
+        ? sourceEl
+        : document.querySelector('[data-dock-item="priority"]');
+      const useRail = Boolean(sourceEl) || (typeof isAiPanelOpen === "function" && !isAiPanelOpen());
+      const anchor = (useRail && railBtn) || box;
+      const rect = anchor.getBoundingClientRect();
       const width = Math.min(380, Math.max(280, window.innerWidth - 32));
       const height = Math.min(360, Math.max(220, Math.round(window.innerHeight * 0.42)));
-      let left = Math.round(rect.right - width);
-      let top = Math.round(rect.bottom + 8);
+      let left;
+      let top;
+      if (useRail && railBtn) {
+        left = Math.round(rect.left - width - 8);
+        top = Math.round(rect.top);
+      } else {
+        left = Math.round(rect.right - width);
+        top = Math.round(rect.bottom + 8);
+      }
       left = Math.min(Math.max(8, left), window.innerWidth - width - 8);
       top = Math.min(Math.max(8, top), window.innerHeight - height - 8);
       popup.style.left = `${left}px`;
@@ -24543,13 +27387,12 @@ function setToryChatHub(hub, { quiet = false } = {}) {
   const next = allowed[hub] ? hub : "home";
   if (next === "character-room" && !normalizeToryChatCharacterIds(toryChatCharacterIds).length) {
     toryChatHub = "characters";
-    $("aiChatView")?.setAttribute("data-chat-hub", "characters");
+    try { syncAiDockChatHosts?.(); } catch (_) { /* ignore */ }
     setCharListMode("chat");
     if (!quiet) toast(i18n.t('app.대화할_인물을_먼저_골라_주세요'));
     return false;
   }
   toryChatHub = next;
-  $("aiChatView")?.setAttribute("data-chat-hub", next);
   if (next === "characters") {
     setCharListMode(charListMode || "chat");
   }
@@ -24559,6 +27402,7 @@ function setToryChatHub(hub, { quiet = false } = {}) {
     renderToryChatMessages();
   }
   updateToryChatSuccessUi();
+  try { syncAiDockChatHosts?.(); } catch (_) { /* ignore */ }
   try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
   return true;
 }
@@ -24615,7 +27459,7 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
     if (chatHub) setToryChatHub(chatHub, { quiet: true });
     else if (!toryChatHub) setToryChatHub("home", { quiet: true });
     else {
-      $("aiChatView")?.setAttribute("data-chat-hub", toryChatHub);
+      try { syncAiDockChatHosts?.(); } catch (_) { /* ignore */ }
       if (toryChatHub === "characters") renderToryChatCharacterPicker();
       if (toryChatHub === "reader") syncReaderChatView();
       if (toryChatHub === "tory" || toryChatHub === "character-room") {
@@ -24632,8 +27476,12 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
 
 /** 도우미 패널: 직접요청 | 선택하기 | 결과보기 (기본값 직접요청) */
 function setAiHelperPane(pane) {
+  if (pane === "result") {
+    try { openDockFloat("aiResult"); } catch (_) { /* ignore */ }
+    return;
+  }
   let next = "direct";
-  if (pane === "select" || pane === "result" || pane === "direct") next = pane;
+  if (pane === "select") next = "select";
   else if (pane === "request") next = "direct"; // legacy
   const view = $("aiToolsView");
   const directTab = $("aiHelperPaneDirect");
@@ -24676,8 +27524,7 @@ function setAiHelperPane(pane) {
 function ensureAiResultVisible() {
   const wrap = $("aiResultWrap");
   wrap?.classList.remove("hidden", "is-empty");
-  try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
-  setAiHelperPane("result");
+  try { openDockFloat("aiResult"); } catch (_) { /* ignore */ }
 }
 
 /** 도구 모드를 고를 때 선택하기 탭으로 */
@@ -24793,7 +27640,17 @@ function askToryFromSelection() {
   const quote = raw.replace(/\s+\n/g, "\n").trim().slice(0, 3500);
   const prefill = `「${quote}」\n\n`;
   setToryChatHub("tory", { quiet: true });
-  openToryChatPopup({ prefill, caret: prefill.length });
+  openDockFloat("toryChat");
+  restoreToryChatComposerDraft(prefill);
+  const input = $("toryChatInput");
+  requestAnimationFrame(() => {
+    try {
+      input?.focus();
+      input?.setSelectionRange(prefill.length, prefill.length);
+    } catch (_) {
+      input?.focus();
+    }
+  });
 }
 
 function closeToryChatPopup({ restorePanelTab = true } = {}) {
@@ -25246,12 +28103,9 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   }
   renderToryChatMessages();
   closeToryChatHistoryModal();
-  // Ensure chat UI is visible
-  if (toryChatPopupOpen) {
-    requestAnimationFrame(() => $("toryChatInput")?.focus());
-  } else {
-    setAiPanelTab("chat", { chatHub: toryChatHub });
-  }
+  if (isToryCharacterChatSession(mode)) openDockFloat("characterChat");
+  else openDockFloat("toryChat");
+  requestAnimationFrame(() => $("toryChatInput")?.focus());
   toast(i18n.t('app.이전_대화를_불러왔어요_이어서_이야기할_수'));
 }
 
@@ -25847,24 +28701,56 @@ function renderToryChatCharacterPicker() {
   }
   list.innerHTML = chars.map((ch) => {
     const id = Number(ch.id);
-    const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
-    const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
-    const summary = escapeHtml(
-      String(ch.short_description || "").trim()
-      || String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 80)
-      || "",
-    );
-    const on = selected.has(id);
-    return `
-      <label class="tory-chat-character-row ${on ? "is-selected" : ""}">
-        <input type="checkbox" data-tory-chat-character="${id}" ${on ? "checked" : ""}>
-        <span class="tory-chat-character-row-body">
-          <span class="tory-chat-character-row-name">${name}</span>
-          <span class="tory-chat-character-row-meta">${role}${role && summary ? " · " : ""}${summary}</span>
-        </span>
-      </label>`;
+    return toryChatCharacterPickCardHtml(ch, {
+      selected: selected.has(id),
+      checkAttr: "data-tory-chat-character",
+    });
   }).join("");
   if (startBtn) startBtn.disabled = selected.size === 0;
+}
+
+function toryChatCharacterPickSummary(ch) {
+  return String(ch?.short_description || "").trim()
+    || String(ch?.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 80)
+    || "";
+}
+
+function toryChatCharacterPortraitHtml(ch) {
+  const portrait = String(ch?.portrait_url || "").trim();
+  const name = String(ch?.name || "").trim();
+  const initial = escapeHtml((name || "?").slice(0, 1));
+  if (portrait) {
+    return `<span class="tory-chat-character-card-portrait"><img src="${escapeHtml(portrait)}" alt=""></span>`;
+  }
+  return `<span class="tory-chat-character-card-portrait is-empty" aria-hidden="true">${initial}</span>`;
+}
+
+function toryChatCharacterAllSummary(ch) {
+  const short = String(ch?.short_description || "").trim();
+  if (short) return short;
+  return String(ch?.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 160);
+}
+
+function toryChatCharacterPickCardHtml(ch, { selected = false, disabled = false, checkAttr = "data-tory-chat-character", variant = "pick" } = {}) {
+  const id = Number(ch?.id);
+  const isAll = variant === "all";
+  const name = escapeHtml(String(ch?.name || "").trim() || `${i18n.t("app.인물_id", { id })}`);
+  const role = escapeHtml(roleLabel[ch?.role] || ch?.role || "");
+  const summary = escapeHtml(
+    (isAll ? toryChatCharacterAllSummary(ch) : toryChatCharacterPickSummary(ch))
+    || i18n.t("app.소개가_아직_없어요"),
+  );
+  return `
+      <label class="tory-chat-character-card${isAll ? " tory-chat-character-all-card" : ""}${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}">
+        <input type="checkbox" ${checkAttr}="${id}" ${selected ? "checked" : ""}${disabled ? " disabled" : ""}>
+        <span class="tory-chat-character-card-face">
+          ${toryChatCharacterPortraitHtml(ch)}
+          <span class="tory-chat-character-card-text">
+            <span class="tory-chat-character-card-name">${name}${role ? ` <span class="tory-chat-character-card-role">· ${role}</span>` : ""}</span>
+            <span class="tory-chat-character-card-meta">${summary}</span>
+          </span>
+        </span>
+      </label>`;
 }
 
 function toryChatCharacterFullIdentity(ch) {
@@ -25884,17 +28770,12 @@ function closeToryChatCharacterAllModal() {
 }
 
 function toryChatCharacterAllCardHtml(ch, { selected, disabled, checkAttr }) {
-  const id = Number(ch.id);
-  const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
-  const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
-  const identity = escapeHtml(toryChatCharacterFullIdentity(ch) || i18n.t('app.소개가_아직_없어요'));
-  return `<label class="reader-persona-card reader-debate-card tory-chat-character-all-card${selected ? " is-selected" : ""}${disabled ? " is-disabled" : ""}" data-tory-chat-all-id="${id}">`
-    + `<input type="checkbox" ${checkAttr}="${id}"${selected ? " checked" : ""}${disabled ? " disabled" : ""}>`
-    + `<span class="reader-persona-card-text">`
-    + `<span class="reader-persona-card-name">${name}${role ? ` <span class="tory-chat-character-all-role">· ${role}</span>` : ""}</span>`
-    + `<span class="reader-persona-card-identity">${identity}</span>`
-    + `</span>`
-    + `</label>`;
+  return toryChatCharacterPickCardHtml(ch, {
+    selected,
+    disabled,
+    checkAttr,
+    variant: "all",
+  });
 }
 
 function renderToryChatCharacterAllGrid() {
@@ -25954,7 +28835,7 @@ function openToryChatCharacterAllModal() {
   if (hint) {
     hint.textContent = isSim
       ? i18n.t('app.카드를_눌러_시뮬레이션할_인물을_골라_주세요')
-      : i18n.t('app.소개는_잘리지_않고_전부_보여_줍니다_고른');
+      : i18n.t('app.인물을_고른_뒤_대화_시작을_눌러_주세요');
   }
   renderToryChatCharacterAllGrid();
   modal.classList.remove("hidden");
@@ -26040,8 +28921,7 @@ const READER_PERSONA_CATEGORY_LABELS = {
 const READER_AVATAR_BASE = "/assets/reader_avatars";
 const READER_AVATAR_VERSION = "20260816d";
 const READER_CHAT_SESSION_PREFIX = "supertory.readerChat.sessions.";
-const READER_FAVORITE_PREFIX = "supertory.readerFavorites.";
-const READER_FAVORITE_MAX = 8;
+const READER_FAVORITE_MAX = 6;
 
 /** @type {Record<string, any[]>|null} */
 let readerPersonaCache = null;
@@ -26054,47 +28934,119 @@ let readerChatMessages = [];
 let readerChatSending = false;
 /** @type {{sceneId:number,title:string,content:string}|null} */
 let readerChatAttached = null;
+/** @type {string[]} */
+let readerFavoriteIds = [];
+/** @type {number|string|null} */
+let readerFavoritesProjectId = null;
+let readerFavoriteBusy = false;
+let readerFavoriteStarsBound = false;
 
 function readerChatSessionStorageKey(projectId = state.projectId) {
   return `${READER_CHAT_SESSION_PREFIX}${projectId || "0"}`;
 }
 
-function readerFavoriteStorageKey(projectId = state.projectId) {
-  return `${READER_FAVORITE_PREFIX}${projectId || "0"}`;
+function normalizeReaderFavoriteIds(raw) {
+  const seen = new Set();
+  const out = [];
+  (Array.isArray(raw) ? raw : []).forEach((item) => {
+    const id = String(item || "").trim();
+    if (!id || seen.has(id) || out.length >= READER_FAVORITE_MAX) return;
+    seen.add(id);
+    out.push(id);
+  });
+  return out;
 }
 
-function loadReaderFavorites(projectId = state.projectId) {
-  if (!projectId) return [];
-  try {
-    const raw = localStorage.getItem(readerFavoriteStorageKey(projectId));
-    const list = raw ? JSON.parse(raw) : [];
-    if (!Array.isArray(list)) return [];
-    return list.map((id) => String(id || "").trim()).filter(Boolean).slice(0, READER_FAVORITE_MAX);
-  } catch (_) {
+function isReaderFavorite(personaId) {
+  return readerFavoriteIds.includes(String(personaId || "").trim());
+}
+
+async function ensureReaderFavoritesLoaded(force = false) {
+  const projectId = state.projectId;
+  if (!projectId) {
+    readerFavoriteIds = [];
+    readerFavoritesProjectId = null;
     return [];
   }
-}
-
-function saveReaderFavorites(ids, projectId = state.projectId) {
-  if (!projectId) return;
-  const next = (Array.isArray(ids) ? ids : [])
-    .map((id) => String(id || "").trim())
-    .filter(Boolean)
-    .slice(0, READER_FAVORITE_MAX);
-  try {
-    localStorage.setItem(readerFavoriteStorageKey(projectId), JSON.stringify(next));
-  } catch (_) {
-    /* ignore quota */
+  if (!force && String(readerFavoritesProjectId) === String(projectId)) {
+    return readerFavoriteIds;
   }
+  const data = await api(`/api/projects/${projectId}/reader-favorites`);
+  readerFavoriteIds = normalizeReaderFavoriteIds(data?.persona_ids);
+  readerFavoritesProjectId = projectId;
+  return readerFavoriteIds;
 }
 
-function rememberReaderFavorite(personaId) {
+function readerFavoriteStarButtonHtml(personaId) {
   const id = String(personaId || "").trim();
-  if (!id || !state.projectId) return;
-  const current = loadReaderFavorites().filter((item) => item !== id);
-  current.unshift(id);
-  saveReaderFavorites(current);
-  renderReaderFavoritePanel();
+  const on = isReaderFavorite(id);
+  const label = on ? i18n.t("app.즐겨찾기_해제") : i18n.t("app.즐겨찾기_등록");
+  return `<button type="button" class="reader-persona-fav-btn${on ? " is-on" : ""}" data-reader-fav="${escapeHtml(id)}" aria-pressed="${on ? "true" : "false"}" title="${escapeHtml(label)}" aria-label="${escapeHtml(label)}">`
+    + `<svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true" focusable="false">`
+    + `<path d="M12 3.4 14.6 9.1l6.2.6-4.7 4.1 1.4 6.1L12 16.9 6.5 19.9l1.4-6.1-4.7-4.1 6.2-.6z"/>`
+    + `</svg>`
+    + `</button>`;
+}
+
+function syncReaderFavoriteStars() {
+  document.querySelectorAll("[data-reader-fav]").forEach((btn) => {
+    const on = isReaderFavorite(btn.getAttribute("data-reader-fav"));
+    const label = on ? i18n.t("app.즐겨찾기_해제") : i18n.t("app.즐겨찾기_등록");
+    btn.classList.toggle("is-on", on);
+    btn.setAttribute("aria-pressed", on ? "true" : "false");
+    btn.setAttribute("title", label);
+    btn.setAttribute("aria-label", label);
+  });
+}
+
+function bindReaderFavoriteStarClicks() {
+  if (readerFavoriteStarsBound) return;
+  readerFavoriteStarsBound = true;
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-reader-fav]");
+    if (!btn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    toggleReaderFavorite(btn.getAttribute("data-reader-fav")).catch(handleError);
+  }, true);
+}
+
+async function toggleReaderFavorite(personaId) {
+  const id = String(personaId || "").trim();
+  if (!id) return;
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  if (readerFavoriteBusy) return;
+  const currentlyOn = isReaderFavorite(id);
+  if (!currentlyOn && readerFavoriteIds.length >= READER_FAVORITE_MAX) {
+    toast(i18n.t("app.즐겨찾기는_최대_6명까지_등록할_수_있어요"));
+    return;
+  }
+  readerFavoriteBusy = true;
+  try {
+    await ensureReaderFavoritesLoaded();
+    const on = isReaderFavorite(id);
+    if (!on && readerFavoriteIds.length >= READER_FAVORITE_MAX) {
+      toast(i18n.t("app.즐겨찾기는_최대_6명까지_등록할_수_있어요"));
+      return;
+    }
+    const path = `/api/projects/${state.projectId}/reader-favorites/${encodeURIComponent(id)}`;
+    const data = on
+      ? await api(path, { method: "DELETE" })
+      : await api(path, { method: "POST" });
+    readerFavoriteIds = normalizeReaderFavoriteIds(data?.persona_ids);
+    readerFavoritesProjectId = state.projectId;
+    renderReaderFavoritePanel();
+    syncReaderFavoriteStars();
+  } catch (error) {
+    const message = String(error?.message || "");
+    if (message.includes("최대 6명")) {
+      toast(i18n.t("app.즐겨찾기는_최대_6명까지_등록할_수_있어요"));
+      return;
+    }
+    handleError(error);
+  } finally {
+    readerFavoriteBusy = false;
+  }
 }
 
 function renderReaderFavoritePanel() {
@@ -26102,12 +29054,7 @@ function renderReaderFavoritePanel() {
   const empty = $("readerFavoriteEmpty");
   const panel = $("readerFavoritePanel");
   if (!grid || !panel) return;
-  let favoriteIds = loadReaderFavorites();
-  if (!favoriteIds.length) {
-    const sessions = loadReaderChatSessions();
-    favoriteIds = Object.keys(sessions || {}).filter(Boolean).slice(0, READER_FAVORITE_MAX);
-    if (favoriteIds.length) saveReaderFavorites(favoriteIds);
-  }
+  const favoriteIds = readerFavoriteIds.slice();
   const people = flattenReaderPersonas(readerPersonaCache)
     .filter((persona) => favoriteIds.includes(String(persona.id)));
   people.sort((a, b) => favoriteIds.indexOf(String(a.id)) - favoriteIds.indexOf(String(b.id)));
@@ -26122,6 +29069,7 @@ function renderReaderFavoritePanel() {
   grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
   bindReaderAvatarErrors(grid);
   syncReaderChatSelectionUi();
+  syncReaderFavoriteStars();
 }
 
 function loadReaderChatSessions(projectId = state.projectId) {
@@ -26206,13 +29154,16 @@ function readerPersonaCardHtml(persona, { fullIdentity = false } = {}) {
   const identity = fullIdentity
     ? String(persona.identity || "").replace(/\s+/g, " ").trim()
     : summarizeReaderIdentity(persona.identity);
-  return `<button type="button" class="reader-persona-card" data-reader-persona="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}" aria-pressed="false">`
+  return `<div class="reader-persona-card-wrap">`
+    + `<button type="button" class="reader-persona-card" data-reader-persona="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}" aria-pressed="false">`
     + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
     + `<span class="reader-persona-card-text">`
     + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
     + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
     + `</span>`
-    + `</button>`;
+    + `</button>`
+    + readerFavoriteStarButtonHtml(persona.id)
+    + `</div>`;
 }
 
 function flattenReaderPersonas(grouped) {
@@ -26271,16 +29222,26 @@ async function loadAndRenderReaderPersonas() {
   const grid = $("readerPersonaGrid");
   if (!grid) return;
   if (!state.projectId) {
+    readerFavoriteIds = [];
+    readerFavoritesProjectId = null;
     grid.innerHTML = i18n.t('app.p_class_hint_작품을_먼저_선택해');
+    renderReaderFavoritePanel();
     return;
   }
   try {
     if (!readerPersonaCache) {
       readerPersonaCache = await api("/api/reader-personas");
     }
+    try {
+      await ensureReaderFavoritesLoaded();
+    } catch (favError) {
+      readerFavoriteIds = [];
+      handleError(favError);
+    }
     const people = flattenReaderPersonas(readerPersonaCache);
     if (!people.length) {
       grid.innerHTML = i18n.t('app.p_class_hint_가상_독자를_불러오');
+      renderReaderFavoritePanel();
       return;
     }
     grid.innerHTML = people.map((persona) => readerPersonaCardHtml(persona)).join("");
@@ -26382,7 +29343,6 @@ async function openReaderChatWithPersona(personaId) {
   readerChatAttached = null;
   readerChatSending = false;
   state.readerSessions = loadReaderChatSessions();
-  rememberReaderFavorite(persona.id);
   showReaderChatRoom();
   renderReaderChatPeer();
   renderReaderChatAttachChip();
@@ -26536,6 +29496,12 @@ async function openReaderPersonaAllModal() {
     if (!readerPersonaCache) {
       readerPersonaCache = await api("/api/reader-personas");
     }
+    try {
+      await ensureReaderFavoritesLoaded();
+    } catch (favError) {
+      readerFavoriteIds = [];
+      handleError(favError);
+    }
     if (isDebate) {
       grid.innerHTML = readerDebateSectionsHtml({ fullIdentity: true })
         || i18n.t('app.p_class_hint_가상_독자를_불러오');
@@ -26551,6 +29517,7 @@ async function openReaderPersonaAllModal() {
         syncReaderChatSelectionUi();
       }
     }
+    syncReaderFavoriteStars();
   } catch (error) {
     grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
@@ -26575,11 +29542,6 @@ function syncReaderChatSelectionUi() {
   });
   const startBtn = $("readerChatStartButton");
   if (startBtn) startBtn.disabled = !selected;
-  const hint = $("readerChatStartHint");
-  if (hint) {
-    hint.textContent = selected ? "" : i18n.t('app.독자를_한_명_골라주세요');
-    hint.hidden = Boolean(selected);
-  }
 }
 
 function selectReaderPersonaForChat(personaId) {
@@ -26603,19 +29565,23 @@ function pickReaderPersonaFromCard(card) {
 }
 
 function setupReaderChatUi() {
+  bindReaderFavoriteStarClicks();
   $("readerPersonaGrid")?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-reader-fav]")) return;
     const card = event.target.closest?.("[data-reader-persona]");
     if (!card) return;
     event.preventDefault();
     pickReaderPersonaFromCard(card);
   });
   $("readerFavoriteGrid")?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-reader-fav]")) return;
     const card = event.target.closest?.("[data-reader-persona]");
     if (!card) return;
     event.preventDefault();
     pickReaderPersonaFromCard(card);
   });
   $("readerPersonaAllGrid")?.addEventListener("click", (event) => {
+    if (event.target.closest?.("[data-reader-fav]")) return;
     if (readerListMode === "debate") return;
     const card = event.target.closest?.("[data-reader-persona]");
     if (!card) return;
@@ -26713,14 +29679,17 @@ function readerDebateCardHtml(persona, { fullIdentity = false } = {}) {
     ? String(persona.identity || "").replace(/\s+/g, " ").trim()
     : summarizeReaderIdentity(persona.identity);
   const checked = readerDebateSelectedIds.includes(persona.id) ? " checked" : "";
-  return `<label class="reader-persona-card reader-debate-card" data-reader-debate-id="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}">`
+  return `<div class="reader-persona-card-wrap">`
+    + `<label class="reader-persona-card reader-debate-card" data-reader-debate-id="${escapeHtml(persona.id)}" data-category="${escapeHtml(persona.category || "")}">`
     + `<input type="checkbox" data-reader-debate-check="${escapeHtml(persona.id)}"${checked}>`
     + readerAvatarMarkup(persona.id, persona.name, "reader-persona-avatar")
     + `<span class="reader-persona-card-text">`
     + `<span class="reader-persona-card-name">${escapeHtml(persona.name || "")}</span>`
     + `<span class="reader-persona-card-identity">${escapeHtml(identity)}</span>`
     + `</span>`
-    + `</label>`;
+    + `</label>`
+    + readerFavoriteStarButtonHtml(persona.id)
+    + `</div>`;
 }
 
 function readerDebateSectionsHtml({ fullIdentity = false } = {}) {
@@ -26750,8 +29719,15 @@ async function loadAndRenderReaderDebateGrid() {
     if (!readerPersonaCache) {
       readerPersonaCache = await api("/api/reader-personas");
     }
+    try {
+      await ensureReaderFavoritesLoaded();
+    } catch (favError) {
+      readerFavoriteIds = [];
+      handleError(favError);
+    }
     grid.innerHTML = readerDebateSectionsHtml() || i18n.t('app.p_class_hint_가상_독자를_불러오');
     bindReaderAvatarErrors(grid);
+    syncReaderFavoriteStars();
   } catch (error) {
     grid.innerHTML = i18n.t('app.p_class_hint_독자_목록을_불러오');
     handleError(error);
@@ -26825,7 +29801,6 @@ function setReaderListMode(mode) {
     btn.classList.toggle("is-active", on);
     btn.setAttribute("aria-selected", on ? "true" : "false");
   });
-  $("readerPersonaChatHint")?.classList.toggle("hidden", isDebate);
   $("readerPersonaChatPane")?.classList.toggle("hidden", isDebate);
   $("readerPersonaGrid")?.classList.toggle("hidden", isDebate);
   $("readerDebatePane")?.classList.toggle("hidden", !isDebate);
@@ -27253,15 +30228,17 @@ function setupToryChatHubUi() {
     const kind = pick.getAttribute("data-chat-hub-pick");
     if (kind === "tory") {
       setToryChatHub("tory");
+      openDockFloat("toryChat");
       requestAnimationFrame(() => $("toryChatInput")?.focus());
       return;
     }
     if (kind === "characters") {
-      openToryChatCharacterPicker().catch(handleError);
+      openToryChatCharacterPicker().then(() => openDockFloat("characterChat")).catch(handleError);
       return;
     }
     if (kind === "reader") {
       openReaderPersonaPicker();
+      openDockFloat("readerChat");
     }
   });
   $("toryChatCharacterPickerBack")?.addEventListener("click", () => setToryChatHub("home"));
@@ -27797,7 +30774,164 @@ function flipUnifiedToryNotif(id) {
   toast(item.enabled ? i18n.t('app.알림을_켰어요') : i18n.t('app.알림을_껐어요'));
 }
 
+let toryNotifyPopupOpen = false;
+
+function setToryNotifyPopupDockHint(visible) {
+  const hint = $("toryNotifyPopupDockHint");
+  if (!hint) return;
+  hint.classList.toggle("hidden", !visible);
+  hint.hidden = !visible;
+}
+
+function restoreToryNotifyToPanel() {
+  const box = $("toryNotifyBox");
+  const inner = document.querySelector("#aiPanel .ai-panel-inner");
+  if (!box || !inner) return;
+  if (box.parentElement === inner) return;
+  const hint = $("toryNotifyPopupDockHint");
+  if (hint && hint.parentElement === inner) inner.insertBefore(box, hint);
+  else inner.appendChild(box);
+}
+
+function openToryNotifyPopup() {
+  const popup = $("toryNotifyPopup");
+  const host = $("toryNotifyPopupBody");
+  const box = $("toryNotifyBox");
+  if (!popup || !host || !box) return;
+  if (toryNotifyPopupOpen) return;
+  toryNotifyPopupOpen = true;
+  applyToryNotifyCollapsed(false);
+  host.appendChild(box);
+  popup.classList.remove("hidden");
+  popup.hidden = false;
+  setToryNotifyPopupDockHint(true);
+  if (!popup.style.width) {
+    popup.style.width = `${Math.min(420, window.innerWidth - 32)}px`;
+  }
+  if (!popup.style.height) {
+    popup.style.height = `${Math.min(Math.round(window.innerHeight * 0.62), 560)}px`;
+  }
+  if (!popup.style.left && !popup.style.right) {
+    popup.style.right = "24px";
+    popup.style.top = "72px";
+    popup.style.left = "auto";
+  }
+  toast(i18n.t("app.토리_알림을_팝업으로_열었어요"));
+}
+
+function closeToryNotifyPopup() {
+  const popup = $("toryNotifyPopup");
+  if (!popup || !toryNotifyPopupOpen) return;
+  toryNotifyPopupOpen = false;
+  setToryNotifyPopupDockHint(false);
+  restoreToryNotifyToPanel();
+  popup.classList.add("hidden");
+  popup.hidden = true;
+}
+
+function setupToryNotifyPopupChrome() {
+  const popup = $("toryNotifyPopup");
+  const dragBar = $("toryNotifyPopupDrag");
+  if (!popup || popup.dataset.bound === "1") return;
+  popup.dataset.bound = "1";
+
+  let drag = null;
+  let resize = null;
+  const MIN_W = 300;
+  const MIN_H = 280;
+
+  const lockGeom = () => {
+    const rect = popup.getBoundingClientRect();
+    popup.style.left = `${Math.round(rect.left)}px`;
+    popup.style.top = `${Math.round(rect.top)}px`;
+    popup.style.right = "auto";
+    popup.style.bottom = "auto";
+    popup.style.width = `${Math.round(rect.width)}px`;
+    popup.style.height = `${Math.round(rect.height)}px`;
+    return rect;
+  };
+
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockGeom();
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("tory-chat-popup-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+
+  popup.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockGeom();
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("tory-chat-popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
+  });
+
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = popup.getBoundingClientRect().width || MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      popup.style.left = `${Math.round(left)}px`;
+      popup.style.top = `${Math.round(top)}px`;
+      popup.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      applyFloatingPopupResize(popup, resize, event, MIN_W, MIN_H);
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("tory-chat-popup-dragging");
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+      document.body.classList.remove("tory-chat-popup-resizing");
+    }
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+
+  $("toryNotifyPopupClose")?.addEventListener("click", () => {
+    closeToryNotifyPopup();
+    toast(i18n.t("app.알림_팝업을_닫았어요"));
+  });
+  $("toryNotifyPopupDockButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeToryNotifyPopup();
+  });
+  $("toryNotifyPopupOpenButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openToryNotifyPopup();
+  });
+}
+
 function setupToryNotifyCenter() {
+  setupToryNotifyPopupChrome();
   $("toryNotifyAddButton")?.addEventListener("click", () => openToryNotifyEditModal(null));
   $("toryNotifyEditForm")?.addEventListener("submit", (event) => saveToryNotifyFromModal(event));
   document.querySelectorAll("[data-close-tory-notify-edit]").forEach((el) => {
@@ -27885,7 +31019,7 @@ const writingTracker = {
     last_lonely_notified_day: "",
     first_met_day: "",
     /** 기록 버튼에 경과 시간 표시 (false면 「기록중」만) */
-    show_timer: true,
+    show_timer: false,
   },
   /** 기록 버튼으로 켠 활성 타이머 모드 (시간 수동·글자 수동 시 강제 집계) */
   recording: false,
@@ -28078,7 +31212,7 @@ function loadShowTimerPref() {
   } catch (_) {
     /* ignore */
   }
-  return true; // default: show timer
+  return false; // default: 「기록중」
 }
 
 function saveShowTimerPref(show) {
@@ -28092,7 +31226,7 @@ function saveShowTimerPref(show) {
 }
 
 function isWritingTimerVisible() {
-  return writingTracker.prefs.show_timer !== false;
+  return writingTracker.prefs.show_timer === true;
 }
 
 function updateWritingLogButtonUi() {
@@ -28179,6 +31313,7 @@ function startWritingUiTimer() {
     } else if (dockOpen) {
       syncDockWritingTimer();
     }
+    syncDockWritingTimerRail();
   }, 1000);
 }
 
@@ -28187,6 +31322,35 @@ function stopWritingUiTimer() {
     window.clearInterval(writingTracker.uiTimer);
     writingTracker.uiTimer = null;
   }
+}
+
+function ensureWritingRecordingOn({ quiet = false } = {}) {
+  if (writingTracker.recording) {
+    startWritingUiTimer();
+    updateWritingLogButtonUi();
+    return false;
+  }
+  ensureWritingDayBucket();
+  writingTracker.recording = true;
+  writingTracker.sessionDisplaySeconds = 0;
+  const now = Date.now();
+  writingTracker.lastActivityAt = now;
+  writingTracker.lastTickAt = now;
+  writingTracker.sessionStartedAt = new Date().toISOString();
+  writingTracker.pendingSessionStart = true;
+  writingTracker.lastPlainLen = state.sceneId
+    ? (getEditorPlainText() || "").length
+    : writingTracker.lastPlainLen;
+  startWritingUiTimer();
+  updateWritingLogButtonUi();
+  if (!quiet) {
+    if (writingTracker.prefs.time_auto) {
+      toast(i18n.t('app.기록_타이머_표시_다시_누르면_끕니다'));
+    } else {
+      toast(i18n.t('app.집필_시간_기록_시작_다시_누르면_정지합니다'));
+    }
+  }
+  return true;
 }
 
 function toggleWritingRecording() {
@@ -28210,25 +31374,7 @@ function toggleWritingRecording() {
     }
     return;
   }
-  // start — new visible session clock; forces both char + time while ON
-  ensureWritingDayBucket();
-  writingTracker.recording = true;
-  writingTracker.sessionDisplaySeconds = 0;
-  const now = Date.now();
-  writingTracker.lastActivityAt = now;
-  writingTracker.lastTickAt = now;
-  writingTracker.sessionStartedAt = new Date().toISOString();
-  writingTracker.pendingSessionStart = true;
-  writingTracker.lastPlainLen = state.sceneId
-    ? (getEditorPlainText() || "").length
-    : writingTracker.lastPlainLen;
-  startWritingUiTimer();
-  updateWritingLogButtonUi();
-  if (writingTracker.prefs.time_auto) {
-    toast(i18n.t('app.기록_타이머_표시_다시_누르면_끕니다'));
-  } else {
-    toast(i18n.t('app.집필_시간_기록_시작_다시_누르면_정지합니다'));
-  }
+  ensureWritingRecordingOn();
 }
 
 async function flushWritingHeartbeat({ force = false } = {}) {
@@ -28331,7 +31477,7 @@ function syncWritingPrefsForm() {
   if ($("writingLonelyDays")) $("writingLonelyDays").value = String(p.lonely_days);
   if ($("writingLonelyNotify")) $("writingLonelyNotify").checked = Boolean(p.lonely_notify);
   if ($("writingIdleMinutes")) $("writingIdleMinutes").value = String(p.idle_minutes);
-  if ($("writingShowTimer")) $("writingShowTimer").checked = p.show_timer !== false;
+  if ($("writingShowTimer")) $("writingShowTimer").checked = Boolean(p.show_timer);
   if ($("writingIncludePhoneLog")) $("writingIncludePhoneLog").checked = p.include_phone_log !== false;
   syncWritingTimerStyleForm();
 }
@@ -29240,7 +32386,7 @@ const BOOKMARK_COLORS = [
 ];
 const SETTINGS_BOOKMARK_META = {
   ideas: { title: i18n.t('app.생각수첩'), open: () => openIdeaBoard() },
-  baits: { title: i18n.t('app.떡밥모음'), open: () => openSettingsCollectionMain("baits") },
+  baits: { title: i18n.t('index.열린_떡밥'), open: () => openSettingsCollectionMain("baits") },
   successProfile: {
     title: i18n.t('app.흥행작_프로파일_연결'),
     open: () => openSettingsCollectionMain("successProfile"),
@@ -29274,6 +32420,7 @@ const SETTINGS_BOOKMARK_META = {
   world: { title: i18n.t('app.세계관'), open: () => openSettingsDocMain("world") },
   characters: { title: i18n.t('app.캐릭터'), open: () => openCharacterBoard() },
   items: { title: i18n.t('app.아이템'), open: () => openItemBoard() },
+  dictionary: { title: i18n.t('app.토리_사전'), open: () => openDictionaryBoard() },
   sources: { title: i18n.t('app.참고자료_출처'), open: () => openSettingsCollectionMain("sources") },
   toryVault: { title: i18n.t('app.토리의_수집창고'), open: () => openSettingsCollectionMain("toryVault") },
   readingInvite: { title: i18n.t('app.읽기_권한_초대'), open: () => openSettingsCollectionMain("readingInvite") },
@@ -30074,7 +33221,7 @@ function setupReadingInvite() {
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
 const SETTINGS_COLLECTION_MAIN = {
   baits: {
-    title: i18n.t('app.떡밥모음'),
+    title: i18n.t('index.열린_떡밥'),
     hint: "",
     tipId: "baitsTipBox",
     section: "baits",
@@ -30271,7 +33418,7 @@ const BAIT_STORAGE_PREFIX = "supertory.baits.";
 const SETTINGS_ORDER_PREFIX = "supertory.settingsOrder.";
 // Default 설정집 폴더 순서 (흥행작 프로파일 연결 = 떡밥모음 아래)
 const DEFAULT_SETTINGS_ORDER = [
-  "ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "baits", "successProfile", "toryVault", "readingInvite", "sources",
+  "ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits", "successProfile", "toryVault", "readingInvite", "sources",
 ];
 /** Prior factory defaults — snap exact matches once to the current DEFAULT. */
 const LEGACY_SETTINGS_ORDERS = [
@@ -30279,6 +33426,7 @@ const LEGACY_SETTINGS_ORDERS = [
   ["ideas", "intro", "logsyn", "baits", "keywords", "world", "characters", "toryVault", "sources"],
   ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "toryVault", "sources"],
   ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits", "successProfile", "toryVault", "sources"],
+  ["ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "baits", "successProfile", "toryVault", "readingInvite", "sources"],
 ];
 
 /**
@@ -31330,22 +34478,11 @@ function renderCharDebateCharacters() {
   host.innerHTML = chars.map((ch) => {
     const id = Number(ch.id);
     const on = selected.has(id);
-    const name = escapeHtml(String(ch.name || "").trim() || `${i18n.t('app.인물_id', {id: id})}`);
-    const role = escapeHtml(roleLabel[ch.role] || ch.role || "");
-    const summary = escapeHtml(
-      String(ch.short_description || "").trim()
-      || String(ch.profile_md || "").replace(/\s+/g, " ").trim().slice(0, 80)
-      || "",
-    );
-    const disabled = !on && atMax;
-    return `
-      <label class="tory-chat-character-row ${on ? "is-selected" : ""}${disabled ? " is-disabled" : ""}">
-        <input type="checkbox" data-char-debate-id="${id}" ${on ? "checked" : ""}${disabled ? " disabled" : ""}>
-        <span class="tory-chat-character-row-body">
-          <span class="tory-chat-character-row-name">${name}</span>
-          <span class="tory-chat-character-row-meta">${role}${role && summary ? " · " : ""}${summary}</span>
-        </span>
-      </label>`;
+    return toryChatCharacterPickCardHtml(ch, {
+      selected: on,
+      disabled: !on && atMax,
+      checkAttr: "data-char-debate-id",
+    });
   }).join("");
   updateCharDebatePickHint();
   setCharDebateStep(charDebateState.step);
@@ -36573,12 +39710,13 @@ function properNounTypeLabel(type) {
     place: "app.지명",
     organization: "app.조직",
     item: "app.사물",
+    dictionary: "app.사전",
   };
   return i18n.t(map[String(type || "")] || "app.사물");
 }
 
 function properNounTypeSelectHtml(id, type) {
-  const allowed = ["character", "place", "organization", "item"];
+  const allowed = ["character", "place", "organization", "item", "dictionary"];
   const current = allowed.includes(String(type || "")) ? String(type) : "item";
   const options = allowed.map((value) => {
     const selected = value === current ? " selected" : "";
@@ -36761,8 +39899,14 @@ function renderTranslationProperNouns() {
   const detectedHost = $("translationDetectedNouns");
   if (!indexHost || !detectedHost) return;
   const items = translationWorkspaceState.properNouns || [];
-  const indexItems = items.filter((item) => (item.source || item.origin) === "character_index");
-  const detectedItems = items.filter((item) => (item.source || item.origin) !== "character_index");
+  const indexItems = items.filter((item) => {
+    const source = item.source || item.origin;
+    return source === "character_index" || source === "dictionary_index";
+  });
+  const detectedItems = items.filter((item) => {
+    const source = item.source || item.origin;
+    return source !== "character_index" && source !== "dictionary_index";
+  });
   const empty = `<p class="hint">${escapeHtml(i18n.t("index.아직_발견된_고유명사가_없어요"))}</p>`;
   indexHost.innerHTML = indexItems.length
     ? indexItems.map((item) => translationProperNounCardHtml(item, true)).join("")
@@ -36804,6 +39948,7 @@ function translationProperNounCardHtml(item, fromIndex) {
     : i18n.t("index.잘_맞음");
   const reason = String(item.judgment_reason || "").trim()
     || (fromIndex ? i18n.t("index.기존_설정에_있는_이름이에요") : "");
+  const definition = String(item.dictionary_definition || "").trim();
   const renameOpen = decision === "rename";
   const altsBlock = translationNounAltsHtml(id, alternatives, finalTerm, renameOpen);
   const finalPlaceholder = needsTerm
@@ -36820,6 +39965,7 @@ function translationProperNounCardHtml(item, fromIndex) {
       <button type="button" class="secondary compact-btn translation-noun-delete" data-noun-delete="${id}">${escapeHtml(i18n.t("app.삭제"))}</button>
     </div>
     ${reason ? `<p class="translation-noun-reason">${escapeHtml(reason)}</p>` : ""}
+    ${definition ? `<p class="translation-noun-definition hint">${escapeHtml(i18n.t("index.뜻"))}: ${escapeHtml(definition)}</p>` : ""}
     <div class="translation-noun-choices">
       <label class="translation-noun-choice"><input type="radio" name="noun-decision-${id}" value="keep_romanized" ${decision !== "rename" ? "checked" : ""}> ${escapeHtml(i18n.t("index.로마자_표기_유지"))}${romanized ? ` (${escapeHtml(romanized)})` : ""}</label>
       <div class="translation-noun-rename">
@@ -36894,7 +40040,7 @@ async function deleteTranslationProperNoun(nounId) {
 }
 
 function translationAddNounTypeOptions() {
-  return ["character", "place", "organization", "item"].map((value) => {
+  return ["character", "place", "organization", "item", "dictionary"].map((value) => {
     const selected = value === "character" ? " selected" : "";
     return `<option value="${value}"${selected}>${escapeHtml(properNounTypeLabel(value))}</option>`;
   }).join("");
@@ -40570,6 +43716,19 @@ function loadSettingsOrder() {
       ordered.splice(successAt, 1);
       ordered.splice(ordered.indexOf("baits") + 1, 0, "successProfile");
     }
+    const dictAt = ordered.indexOf("dictionary");
+    const itemsAt = ordered.indexOf("items");
+    const baitsForDict = ordered.indexOf("baits");
+    if (
+      dictAt >= 0
+      && itemsAt >= 0
+      && baitsForDict >= 0
+      && dictAt === ordered.length - 1
+      && dictAt !== itemsAt + 1
+    ) {
+      ordered.splice(dictAt, 1);
+      ordered.splice(ordered.indexOf("items") + 1, 0, "dictionary");
+    }
     const inviteAt = ordered.indexOf("readingInvite");
     const sourcesForInvite = ordered.indexOf("sources");
     if (
@@ -42070,8 +45229,9 @@ function findFolderMetaInState(folderId) {
 
 function positionContextMenu(menu, clientX, clientY, fallbackH = 220) {
   if (!menu) return;
-  menu.classList.remove("hidden");
   const pad = 8;
+  menu.style.maxHeight = `${Math.max(160, window.innerHeight - pad * 2)}px`;
+  menu.classList.remove("hidden");
   const rect = menu.getBoundingClientRect();
   const width = rect.width || 240;
   const height = rect.height || fallbackH;
@@ -44576,9 +47736,9 @@ function showDesktopContextMenu(clientX, clientY) {
   hideBinderContextMenu();
   try { syncUiThemePageColorSwatch(); } catch (_) { /* ignore */ }
   if ($("highContrastToggle")) $("highContrastToggle").checked = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
-  menu.classList.remove("hidden");
   const pad = 8;
-  // Measure after showing so size is correct.
+  menu.style.maxHeight = `${Math.max(160, window.innerHeight - pad * 2)}px`;
+  menu.classList.remove("hidden");
   const rect = menu.getBoundingClientRect();
   let left = clientX;
   let top = clientY;
@@ -45060,6 +48220,8 @@ function setupDesktopThemeMenu() {
     const isSettingsDoc = Boolean(editor && (editor.id === "synopsisContent" || editor.id === "synopsisContentB"));
     menu?.classList.toggle("is-text-selection", hasSelection);
     menu?.classList.toggle("is-settings-doc", isSettingsDoc);
+    $("dictHighlightMenuItem")?.classList.toggle("hidden", isSettingsDoc);
+    if (typeof hideDictTermPopup === "function") hideDictTermPopup();
     if (!isSettingsDoc) syncOpenCharacterCardMenu(editor, event);
     else {
       pendingDockCharacterId = null;
@@ -45070,7 +48232,7 @@ function setupDesktopThemeMenu() {
       $("openItemCardMenuItem")?.classList.add("hidden");
     }
     setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
-    syncSmartPunctuationMenuLabel();
+    syncDictHighlightMenu();
     syncPageThemeScopeUi();
     // 잘라내기 · 복사 · 서식 복사: 선택한 글이 있어야 동작
     const cutItem = $("cutMenuItem");
@@ -45139,6 +48301,14 @@ function setupDesktopThemeMenu() {
         ? `${i18n.t('app.pendingBaitQuote_slice_2', {'pendingBaitQuote.slice(0, 24)': pendingBaitQuote.slice(0, 24), 'pendingBaitQuote.length > 24 ? "…" : ""': pendingBaitQuote.length > 24 ? "…" : ""})}`
         : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
       similarWordsItem.style.opacity = hasSelection ? "1" : "0.45";
+    }
+    const addToryDictItem = $("addToryDictMenuItem");
+    if (addToryDictItem) {
+      addToryDictItem.disabled = !hasSelection;
+      addToryDictItem.title = hasSelection
+        ? i18n.t("index.토리_사전_추가_힌트")
+        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
+      addToryDictItem.style.opacity = hasSelection ? "1" : "0.45";
     }
     const askToryItem = $("askToryMenuItem");
     if (askToryItem) {
@@ -45288,10 +48458,10 @@ function setupDesktopThemeMenu() {
       } else if (action === "copy-format") {
         hideDesktopContextMenu();
         copyFormatFromSelection();
-      } else if (action === "toggle-smart-punctuation") {
+      } else if (action === "toggle-dict-highlight") {
         event.preventDefault();
         event.stopPropagation();
-        toggleSmartPunctuation({ announce: true });
+        toggleDictHighlight({ announce: true });
       } else if (action === "bookmark") {
         hideDesktopContextMenu();
         if (!state.sceneId) {
@@ -45313,14 +48483,17 @@ function setupDesktopThemeMenu() {
       } else if (action === "lookup-dict") {
         hideDesktopContextMenu();
         lookupDictionaryFromSelection();
-      } else if (action === "cross-ref-search") {
-        hideDesktopContextMenu();
-        openSettingsSearchFromSelection();
       } else if (action === "similar-words") {
         event.preventDefault();
         event.stopPropagation();
         hideDesktopContextMenu();
         openSimilarWordsFromSelection(event);
+      } else if (action === "add-tory-dict") {
+        hideDesktopContextMenu();
+        addToryDictionaryFromSelection();
+      } else if (action === "cross-ref-search") {
+        hideDesktopContextMenu();
+        openSettingsSearchFromSelection();
       } else if (action === "ask-tory") {
         hideDesktopContextMenu();
         askToryFromSelection();
@@ -46418,6 +49591,7 @@ function openFocusWrite() {
   focusEd.spellcheck = true;
   applyEditorWideLineHeight(getStoredLineHeight(), [focusEd]);
   updateEditorPlaceholder(focusEd);
+  if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
   modal.classList.remove("hidden");
   document.body.classList.add("focus-write-open");
   // 기본은 전체보기. 사용자가 창 모드로 바꾼 경우(localStorage "0")만 창 모드.
@@ -46449,6 +49623,7 @@ function closeFocusWrite() {
     updateEditorPlaceholder(mainEd);
     updateSceneStats();
     markSceneDirty();
+    if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
   }
   modal.classList.add("hidden");
   document.body.classList.remove("focus-write-open");
@@ -69088,6 +72263,7 @@ function openAdminModal(tab = null) {
   updateFeatureHideCountUi();
   renderHiddenFeaturesList();
   if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
+  if (typeof syncSmartPunctuationAdminUi === "function") syncSmartPunctuationAdminUi();
   refreshAdminInfoPanel();
   refreshAdminAccountPanel().catch(handleError);
   loadTrashList().catch(handleError);
@@ -69121,6 +72297,7 @@ function setAdminTab(tabId) {
     renderHiddenFeaturesList();
     if (typeof renderHiddenGuideTipsList === "function") renderHiddenGuideTipsList();
     if (typeof renderAdminAmbientList === "function") renderAdminAmbientList();
+    loadVersionSnapshots().catch(handleError);
   }
   if (id === "info") {
     refreshAdminInfoPanel();
@@ -69163,6 +72340,147 @@ function renderAdminProjectList() {
         </div>
       </article>`;
   }).join("");
+}
+
+let versionSnapshotKeepCount = 4;
+let versionSnapshotIntervalDays = 7;
+let pendingVersionRestore = null;
+
+function formatSnapshotSize(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function clearLocalDraftsForCurrentProject() {
+  const ids = new Set();
+  const current = Number(state.sceneId);
+  if (current) ids.add(current);
+  try {
+    collectOutlineScenesById().forEach((_, id) => ids.add(Number(id)));
+  } catch (_) {
+    /* outline helpers may not be ready */
+  }
+  ids.forEach((id) => {
+    try { clearLocalSceneDraft(id); } catch (_) { /* ignore */ }
+  });
+  try { sceneDirty = false; } catch (_) { /* ignore */ }
+}
+
+function closeVersionSnapshotConfirm() {
+  pendingVersionRestore = null;
+  $("versionSnapshotConfirmModal")?.classList.add("hidden");
+}
+
+function openVersionSnapshotConfirm(filename, dateLabel) {
+  pendingVersionRestore = filename;
+  const body = $("versionSnapshotConfirmBody");
+  if (body) {
+    body.textContent = i18n.t("index.스냅샷_복구_확인", { date: dateLabel || "" });
+  }
+  $("versionSnapshotConfirmModal")?.classList.remove("hidden");
+}
+
+function renderVersionSnapshotList(payload) {
+  const list = $("versionSnapshotList");
+  const hint = $("versionSnapshotHint");
+  if (!list) return;
+  const snapshots = Array.isArray(payload?.snapshots) ? payload.snapshots : [];
+  versionSnapshotKeepCount = Number(payload?.keep_count) || 4;
+  versionSnapshotIntervalDays = Number(payload?.interval_days) || 7;
+  if (hint) {
+    hint.textContent = state.projectId
+      ? i18n.t("index.스냅샷_보관_안내", {
+          keep: versionSnapshotKeepCount,
+          interval: versionSnapshotIntervalDays,
+        })
+      : i18n.t("index.작품을_선택하면_스냅샷을_볼_수_있어요");
+  }
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint trash-empty">${i18n.t("index.작품을_선택하면_스냅샷을_볼_수_있어요")}</p>`;
+    return;
+  }
+  if (!snapshots.length) {
+    list.innerHTML = `<p class="hint trash-empty">${i18n.t("index.스냅샷_없음")}</p>`;
+    return;
+  }
+  list.innerHTML = snapshots.map((item) => {
+    const filename = escapeHtml(item.filename || "");
+    const when = escapeHtml(item.created_at_label || item.created_on || "");
+    const size = escapeHtml(formatSnapshotSize(item.size_bytes));
+    const date = escapeHtml(item.created_on || "");
+    return `
+      <article class="admin-project-item" data-snapshot-file="${filename}">
+        <div class="admin-project-item-main">
+          <span class="admin-project-item-title">${when}</span>
+          <span class="admin-project-item-meta">${size}</span>
+        </div>
+        <div class="admin-project-item-actions">
+          <button type="button" class="secondary compact-btn admin-danger-btn admin-project-action-btn" data-snapshot-restore="${filename}" data-snapshot-date="${date}">${i18n.t("index.복구하기")}</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+async function loadVersionSnapshots() {
+  const list = $("versionSnapshotList");
+  if (!list) return;
+  if (!state.projectId) {
+    renderVersionSnapshotList({ snapshots: [] });
+    return;
+  }
+  const payload = await api(`/api/projects/${state.projectId}/snapshots`);
+  renderVersionSnapshotList(payload);
+}
+
+async function createVersionSnapshotNow() {
+  if (!state.projectId) {
+    toast(i18n.t("index.작품을_선택하면_스냅샷을_볼_수_있어요"));
+    return;
+  }
+  const btn = $("versionSnapshotCreateButton");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = i18n.t("index.스냅샷_만드는_중");
+  }
+  try {
+    await api(`/api/projects/${state.projectId}/snapshots`, {
+      method: "POST",
+      body: "{}",
+    });
+    await loadVersionSnapshots();
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = i18n.t("index.지금_백업");
+    }
+  }
+}
+
+async function restoreVersionSnapshotNow() {
+  const filename = pendingVersionRestore;
+  if (!filename || !state.projectId) return;
+  const btn = $("versionSnapshotConfirmStart");
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = i18n.t("index.스냅샷_복구_중");
+  }
+  try {
+    clearLocalDraftsForCurrentProject();
+    await api(`/api/projects/${state.projectId}/snapshots/restore`, {
+      method: "POST",
+      body: JSON.stringify({ filename }),
+    });
+    closeVersionSnapshotConfirm();
+    toast(i18n.t("index.스냅샷_복구_완료"));
+    window.setTimeout(() => window.location.reload(), 400);
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = i18n.t("index.복구하기");
+    }
+  }
 }
 
 const INDEX_REBUILD_DEFAULT_SECONDS = 8;
@@ -69412,6 +72730,9 @@ async function deleteProjectFromAdmin(projectId) {
     state.items = [];
     state.itemId = null;
     state.item = null;
+    state.dictionaryTerms = [];
+    state.dictionaryTermsLoadedFor = 0;
+    state.dictionaryTermId = 0;
     state.ideas = [];
     closeAllIdeaFloats();
     state.baits = [];
@@ -70133,9 +73454,15 @@ function showUiFeatureContextMenu(x, y, el, extraItems = []) {
       if (!item?.label) continue;
       const btn = document.createElement("button");
       btn.type = "button";
-      btn.setAttribute("role", "menuitem");
-      btn.dataset.uiFeatureExtra = "1";
-      btn.innerHTML = `<strong>${escapeHtml(item.label)}</strong>${item.hint ? `<span>${escapeHtml(item.hint)}</span>` : ""}`;
+      if (item.checked != null) {
+        btn.setAttribute("role", "menuitemcheckbox");
+        btn.setAttribute("aria-checked", item.checked ? "true" : "false");
+        btn.classList.toggle("is-checked", !!item.checked);
+      }
+      const check = item.checked != null
+        ? `<span class="context-menu-check" aria-hidden="true"></span>`
+        : "";
+      btn.innerHTML = `${check}<strong>${escapeHtml(item.label)}</strong>${item.hint ? `<span>${escapeHtml(item.hint)}</span>` : ""}`;
       btn.addEventListener("click", (event) => {
         event.preventDefault();
         event.stopPropagation();
@@ -70240,6 +73567,17 @@ function onGlobalUiFeatureContextMenu(event) {
         }
       },
     }]);
+    return;
+  }
+
+  if (el.id === "typewriterModeButton" || el.closest?.("#typewriterModeButton")) {
+    const btn = $("typewriterModeButton") || el;
+    if (typewriterSoundOn) {
+      ensureTypewriterAudio();
+      loadTypewriterSample();
+    }
+    setUiFeatureCtxTarget(btn);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, typewriterSoundContextExtras());
     return;
   }
 
@@ -71412,6 +74750,27 @@ function setupAdminMode() {
   });
   $("refreshAdminProjectsButton")?.addEventListener("click", () => {
     loadProjects(state.projectId).then(() => renderAdminProjectList()).catch(handleError);
+  });
+  $("versionSnapshotRefreshButton")?.addEventListener("click", () => {
+    loadVersionSnapshots().catch(handleError);
+  });
+  $("versionSnapshotCreateButton")?.addEventListener("click", () => {
+    createVersionSnapshotNow().catch(handleError);
+  });
+  $("versionSnapshotList")?.addEventListener("click", (event) => {
+    const restoreBtn = event.target.closest?.("[data-snapshot-restore]");
+    if (!restoreBtn) return;
+    event.preventDefault();
+    openVersionSnapshotConfirm(
+      restoreBtn.dataset.snapshotRestore,
+      restoreBtn.dataset.snapshotDate || "",
+    );
+  });
+  document.querySelectorAll("[data-close-version-snapshot-confirm]").forEach((el) => {
+    el.addEventListener("click", closeVersionSnapshotConfirm);
+  });
+  $("versionSnapshotConfirmStart")?.addEventListener("click", () => {
+    restoreVersionSnapshotNow().catch(handleError);
   });
   $("refreshIndexRebuildButton")?.addEventListener("click", () => {
     loadIndexRebuildOverview({ keepSelection: true }).catch(handleError);

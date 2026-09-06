@@ -472,7 +472,7 @@ def main() -> int:
     app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
     index_html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
     checks = [
-        ("DEFAULT baits after characters", 'DEFAULT_SETTINGS_ORDER = ["ideas", "intro", "logsyn", "keywords", "world", "characters", "baits"' in app_js),
+        ("DEFAULT baits after characters", 'DEFAULT_SETTINGS_ORDER = ["ideas", "intro", "logsyn", "keywords", "world", "characters", "items", "dictionary", "baits"' in app_js),
         ("bait API refreshBaitsFromServer", "refreshBaitsFromServer" in app_js and "/baits" in app_js),
         ("bait local migrate", "migrateLocalBaitsToDb" in app_js),
         ("settings context only toggle", "settings-box-toggle[data-settings-toggle]" in app_js),

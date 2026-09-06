@@ -1370,3 +1370,165 @@ class SuperTorySchemaTests(unittest.TestCase):
             "SELECT name FROM schema_migration WHERE version = 76"
         ).fetchone()[0]
         self.assertEqual(version, "character_relations_label_unique")
+
+    def test_project_tory_check_table(self) -> None:
+        import json
+
+        migration = Path(__file__).resolve().parents[1] / "db" / "086_project_tory_check.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO project_tory_check"
+            "(project_id, preset, viewpoint_person, viewpoint_tense, forbidden_words_json) "
+            "VALUES (1, 'strict', 'third', 'present', '[]')"
+        )
+        row = self.db.execute(
+            "SELECT preset, viewpoint_person FROM project_tory_check WHERE project_id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], "strict")
+        self.assertEqual(row[1], "third")
+        self.db.execute(
+            "INSERT INTO project_tory_check(project_id, forbidden_words_json) VALUES (2, ?)",
+            (json.dumps(["금칙"], ensure_ascii=False),),
+        )
+        stored = json.loads(
+            self.db.execute(
+                "SELECT forbidden_words_json FROM project_tory_check WHERE project_id = 2"
+            ).fetchone()[0]
+        )
+        self.assertEqual(stored, ["금칙"])
+        self.assert_integrity_error(
+            "INSERT INTO project_tory_check(project_id, preset) VALUES (1, 'loose')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 86"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_tory_check")
+
+    def test_scene_character_mention_table(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "088_scene_character_mentions.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.create_story()
+        self.create_character()
+        self.db.execute(
+            "INSERT INTO scene_character_mention"
+            "(scene_id, character_id, project_id, matched_label) "
+            "VALUES (30, 40, 1, 'Han')"
+        )
+        row = self.db.execute(
+            "SELECT matched_label FROM scene_character_mention "
+            "WHERE scene_id = 30 AND character_id = 40"
+        ).fetchone()
+        self.assertEqual(row[0], "Han")
+        self.assert_integrity_error(
+            "INSERT INTO scene_character_mention(scene_id, character_id, project_id) "
+            "VALUES (30, 40, 1)"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 88"
+        ).fetchone()[0]
+        self.assertEqual(version, "scene_character_mentions")
+
+    def test_custom_dictionary_terms_table(self) -> None:
+        migration = Path(__file__).resolve().parents[1] / "db" / "089_custom_dictionary_terms.sql"
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO custom_dictionary_terms(project_id, term, definition, memo) "
+            "VALUES (1, '에테르', '마나', '고유어')"
+        )
+        row = self.db.execute(
+            "SELECT term, memo FROM custom_dictionary_terms WHERE project_id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], "에테르")
+        self.assertEqual(row[1], "고유어")
+        self.assert_integrity_error(
+            "INSERT INTO custom_dictionary_terms(project_id, term) VALUES (1, '  ')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 89"
+        ).fetchone()[0]
+        self.assertEqual(version, "custom_dictionary_terms")
+
+    def test_translation_proper_nouns_dictionary_type_is_allowed(self) -> None:
+        root = Path(__file__).resolve().parents[1] / "db"
+        self.db.executescript((root / "061_translation_jobs.sql").read_text(encoding="utf-8"))
+        self.db.executescript(
+            (root / "062_translation_proper_nouns_origin.sql").read_text(encoding="utf-8")
+        )
+        self.db.executescript(
+            (root / "090_translation_proper_nouns_dictionary_type.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        self.db.execute(
+            "INSERT INTO translation_jobs(local_project_id, target_language) VALUES (1, 'en')"
+        )
+        job_id = self.db.execute("SELECT id FROM translation_jobs").fetchone()[0]
+        self.db.execute(
+            "INSERT INTO translation_proper_nouns"
+            "(translation_job_id, source_term, term_type, source) "
+            "VALUES (?, '에테르', 'dictionary', 'dictionary_index')",
+            (job_id,),
+        )
+        stored = self.db.execute(
+            "SELECT term_type, source FROM translation_proper_nouns "
+            "WHERE translation_job_id = ?",
+            (job_id,),
+        ).fetchone()
+        self.assertEqual(tuple(stored), ("dictionary", "dictionary_index"))
+        self.assert_integrity_error(
+            "INSERT INTO translation_proper_nouns"
+            "(translation_job_id, source_term, term_type) VALUES (?, '잘못된', 'unknown')",
+            (job_id,),
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 90"
+        ).fetchone()[0]
+        self.assertEqual(version, "translation_proper_nouns_dictionary_type")
+
+    def test_project_reader_favorites_table(self) -> None:
+        self.db.execute(
+            """
+            CREATE TABLE IF NOT EXISTS virtual_reader_personas (
+                id TEXT PRIMARY KEY,
+                category TEXT NOT NULL DEFAULT 'taste_preference',
+                name TEXT NOT NULL DEFAULT '',
+                identity TEXT NOT NULL DEFAULT '',
+                tone TEXT NOT NULL DEFAULT '',
+                criteria TEXT NOT NULL DEFAULT '[]',
+                forbidden TEXT NOT NULL DEFAULT '',
+                sample_responses TEXT NOT NULL DEFAULT '[]',
+                discussion_attitude TEXT NOT NULL DEFAULT '',
+                display_order INTEGER NOT NULL DEFAULT 0,
+                created_at TEXT NOT NULL DEFAULT ''
+            )
+            """
+        )
+        self.db.execute(
+            "INSERT INTO virtual_reader_personas(id, name, created_at) "
+            "VALUES ('p1', '독자', '2026-01-01T00:00:00.000000Z')"
+        )
+        migration = (
+            Path(__file__).resolve().parents[1] / "db" / "091_project_reader_favorites.sql"
+        )
+        self.db.executescript(migration.read_text(encoding="utf-8"))
+        self.db.execute(
+            "INSERT INTO project_reader_favorites(project_id, persona_id, sort_order) "
+            "VALUES (1, 'p1', 0)"
+        )
+        row = self.db.execute(
+            "SELECT persona_id FROM project_reader_favorites WHERE project_id = 1"
+        ).fetchone()
+        self.assertEqual(row[0], "p1")
+        self.assert_integrity_error(
+            "INSERT INTO project_reader_favorites(project_id, persona_id) "
+            "VALUES (1, 'p1')"
+        )
+        self.assert_integrity_error(
+            "INSERT INTO project_reader_favorites(project_id, persona_id) "
+            "VALUES (1, 'missing')"
+        )
+        version = self.db.execute(
+            "SELECT name FROM schema_migration WHERE version = 91"
+        ).fetchone()[0]
+        self.assertEqual(version, "project_reader_favorites")
+
