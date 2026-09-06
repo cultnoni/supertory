@@ -149,6 +149,11 @@ class ToryCheckApiTests(unittest.TestCase):
         )
         self.assertIn("function runToryCheckActiveTab(", self.js)
         self.assertIn("engine.analyze(tab, getEditorPlainText()", self.js)
+        self.assertIn('id="toryCheckViewpointForm"', self.html)
+        self.assertIn('class="continue-length-options tory-helper-options"', self.html)
+        self.assertIn('name="toryCheckPerson"', self.html)
+        self.assertIn('name="toryCheckTense"', self.html)
+        self.assertNotIn("tory-check-seg-btn", self.html)
 
 
 class ToryCheckSchemaTests(unittest.TestCase):

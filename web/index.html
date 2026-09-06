@@ -259,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.172">
+    <link rel="stylesheet" href="/styles.css?v=1.4.173">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -4010,22 +4010,36 @@
 
     <div id="toryCheckViewpointModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="toryCheckViewpointTitle">
       <div class="modal-backdrop" data-close-tory-check-viewpoint></div>
-      <div class="modal-card tory-check-viewpoint-card">
+      <div class="modal-card tory-helper-card tory-check-viewpoint-card">
         <div class="modal-heading">
           <h2 id="toryCheckViewpointTitle" data-i18n="index.이_작품은_몇_인칭_어느_시제">이 작품은 몇 인칭/어느 시제?</h2>
           <button type="button" class="modal-close" data-close-tory-check-viewpoint title="닫기" data-i18n-title="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" data-i18n="index.시점_설정_안내">대사 밖 지문에서 인칭과 시제가 설정과 다른지 표시해요. 작품마다 따로 저장됩니다.</p>
+        <p class="hint modal-hint tory-helper-hint" data-i18n="index.시점_설정_안내">대사 밖 지문에서 인칭과 시제가 설정과 다른지 표시해요. 작품마다 따로 저장됩니다.</p>
         <form id="toryCheckViewpointForm" class="tory-check-viewpoint-form">
-          <fieldset>
-            <legend data-i18n="index.인칭">인칭</legend>
-            <label><input type="radio" name="toryCheckPerson" value="first"> <span data-i18n="index.일_인칭">1인칭</span></label>
-            <label><input type="radio" name="toryCheckPerson" value="third"> <span data-i18n="index.삼_인칭">3인칭</span></label>
+          <p class="tory-helper-section-label" data-i18n="index.인칭">인칭</p>
+          <fieldset class="continue-length-options tory-helper-options" role="radiogroup" aria-label="인칭" data-i18n-aria-label="index.인칭">
+            <legend class="sr-only" data-i18n="index.인칭">인칭</legend>
+            <label class="continue-length-option">
+              <input type="radio" name="toryCheckPerson" value="first">
+              <span data-i18n="index.일_인칭">1인칭</span>
+            </label>
+            <label class="continue-length-option">
+              <input type="radio" name="toryCheckPerson" value="third">
+              <span data-i18n="index.삼_인칭">3인칭</span>
+            </label>
           </fieldset>
-          <fieldset>
-            <legend data-i18n="index.시제">시제</legend>
-            <label><input type="radio" name="toryCheckTense" value="past"> <span data-i18n="index.과거형">과거형</span></label>
-            <label><input type="radio" name="toryCheckTense" value="present"> <span data-i18n="index.현재형">현재형</span></label>
+          <p class="tory-helper-section-label" data-i18n="index.시제">시제</p>
+          <fieldset class="continue-length-options tory-helper-options" role="radiogroup" aria-label="시제" data-i18n-aria-label="index.시제">
+            <legend class="sr-only" data-i18n="index.시제">시제</legend>
+            <label class="continue-length-option">
+              <input type="radio" name="toryCheckTense" value="past">
+              <span data-i18n="index.과거형">과거형</span>
+            </label>
+            <label class="continue-length-option">
+              <input type="radio" name="toryCheckTense" value="present">
+              <span data-i18n="index.현재형">현재형</span>
+            </label>
           </fieldset>
           <div class="modal-actions">
             <button type="button" class="secondary" data-close-tory-check-viewpoint data-i18n="index.나중에">나중에</button>

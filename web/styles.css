@@ -10585,74 +10585,15 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   color: var(--muted);
   font-size: 11px;
 }
-.tory-check-toggles {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 6px;
-  width: 100%;
-  margin: 0 0 8px;
-}
-.tory-check-toggle-field {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 0;
-}
-.tory-check-seg-label {
-  font-size: 10px;
-  font-weight: 700;
-  color: var(--muted);
-  line-height: 1.2;
-}
-.tory-check-seg {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 2px;
-  width: 100%;
-  min-width: 0;
-  padding: 2px;
-  border-radius: 8px;
-  box-sizing: border-box;
-  background: color-mix(in srgb, var(--bg-surface, var(--surface, #fff)) 88%, var(--bg-main, #fafaf9) 12%);
-  border: 1px solid var(--border-color, var(--line, #d6d3d1));
-}
-.tory-check-seg-btn {
-  appearance: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 100%;
-  min-width: 0;
-  min-height: 26px;
-  margin: 0;
-  border: 1px solid transparent;
-  border-radius: 6px;
-  padding: 4px 2px;
-  background: transparent;
-  color: var(--muted, #78716c);
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: -0.04em;
-  line-height: 1.1;
-  white-space: nowrap;
-  cursor: pointer;
-  box-sizing: border-box;
-}
-.tory-check-seg-btn:hover {
-  color: var(--text-primary, var(--ink, #1c1917));
-  background: color-mix(in srgb, var(--accent-sand, #f5f5f4) 72%, transparent);
-}
-.tory-check-seg-btn.is-active {
-  color: var(--primary, #292524);
-  background: var(--accent-sand, #f5f5f4);
-  border-color: var(--primary, #292524);
-}
 .tory-check-viewpoint-form {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 10px;
 }
-.tory-check-viewpoint-form .tory-check-toggles {
+.tory-check-viewpoint-form .tory-helper-section-label {
+  margin: 2px 0 0;
+}
+.tory-check-viewpoint-form .tory-helper-options {
   margin: 0;
 }
 .tory-check-viewpoint-card {
