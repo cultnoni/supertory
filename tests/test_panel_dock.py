@@ -377,8 +377,8 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("app.글자_공포", locale)
             self.assertIn("app.글자_공제", locale)
             self.assertIn("index.남은_분량", locale)
-        self.assertEqual(self.locales["ko"]["app.글자_공포"], "공포")
-        self.assertEqual(self.locales["ko"]["app.글자_공제"], "공제")
+        self.assertEqual(self.locales["ko"]["app.글자_공포"], "공백포함")
+        self.assertEqual(self.locales["ko"]["app.글자_공제"], "공백제외")
         self.assertIn(".dock-stats-flags", self.css)
 
     def test_writing_timer_dock_widget(self) -> None:
@@ -730,6 +730,35 @@ class PanelDockContractTests(unittest.TestCase):
         tab = self.css.split(".episode-tab {", 1)[1].split("}", 1)[0]
         self.assertIn("min-height: 28px", tab)
 
+    def test_pinned_ideas_stay_on_outline_not_widget_rail(self) -> None:
+        left = self.html.split('id="binderDockRail"', 1)[1].split("</nav>", 1)[0]
+        self.assertNotIn("binderDockRailFooter", left)
+        self.assertNotIn("panel-dock-rail-footer", left)
+        self.assertNotIn("data-dock-pinned-idea", self.html)
+        self.assertNotIn("function renderDockPinnedIdeas(", self.js)
+        self.assertIn('id="headerIdeaBar"', self.html)
+        self.assertIn('id="headerIdeaNotice"', self.html)
+        header_fn = self.js.split("function renderHeaderIdeaBar(", 1)[1].split(
+            "function setupHeaderNotices(", 1
+        )[0]
+        self.assertIn("headerIdeaBar", header_fn)
+        self.assertIn("data-header-idea", header_fn)
+        self.assertIn("openIdeaFloat", header_fn)
+        self.assertNotIn("renderDockPinnedIdeas", header_fn)
+        persist_fn = self.js.split("function persistDockRailOrder(", 1)[1].split(
+            "function restoreDockRailOrder(", 1
+        )[0]
+        self.assertNotIn("data-dock-pinned-idea", persist_fn)
+        sort_fn = self.js.split("function setupDockRailSorting(", 1)[1].split(
+            "function setupPanelDock()", 1
+        )[0]
+        self.assertNotIn("data-dock-pinned-idea", sort_fn)
+        self.assertNotIn(".panel-dock-rail-footer", sort_fn)
+        self.assertNotIn(".panel-dock-pinned-idea", self.css)
+        self.assertNotIn(".panel-dock-rail-footer", self.css)
+        for locale in self.locales.values():
+            self.assertNotIn("index.하단_고정_메모", locale)
+
     def test_dock_rail_order_is_persisted_per_side(self) -> None:
         self.assertIn('left: "supertory.dockRailOrder.left.v3"', self.js)
         self.assertIn('right: "supertory.dockRailOrder.right.v4"', self.js)
@@ -821,16 +850,31 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_dock_widgets_open_centered(self) -> None:
         self.assertIn("function dockFloatCenterPos(", self.js)
+        self.assertIn("function dockFloatResolvedSide(", self.js)
+        self.assertIn("function dockFloatSideLeft(", self.js)
+        side_left = self.js.split("function dockFloatSideLeft(", 1)[1].split(
+            "function dockFloatCenterPos(", 1
+        )[0]
+        self.assertIn('side === "left"', side_left)
+        self.assertIn('side === "right"', side_left)
+        self.assertIn('binderDockRail', side_left)
+        self.assertIn('aiDockRail', side_left)
+        self.assertIn("outlinePanel", side_left)
+        self.assertIn("aiPanel", side_left)
         center = self.js.split("function dockFloatCenterPos(", 1)[1].split(
             "function dockFloatFallbackPos(", 1
         )[0]
-        self.assertIn("Math.round((vw - w) / 2)", center)
+        self.assertIn("dockFloatSideLeft(side, w)", center)
         self.assertIn("Math.round((vh - h) / 2)", center)
         fallback = self.js.split("function dockFloatFallbackPos(", 1)[1].split(
             "function dockAiFloatFallbackPos(", 1
         )[0]
-        self.assertIn("dockFloatCenterPos(width, height)", fallback)
+        self.assertIn("dockFloatCenterPos(width, height, slot, dockFloatResolvedSide(side, sourceEl))", fallback)
         self.assertNotIn("getBoundingClientRect", fallback)
+        ai_fallback = self.js.split("function dockAiFloatFallbackPos(", 1)[1].split(
+            "function dockFloatBody(", 1
+        )[0]
+        self.assertIn('dockFloatFallbackPos("right", sourceEl, width, height, slot)', ai_fallback)
         open_fn = self.js.split("function openDockFloatWindow(key, spec, sourceEl)", 1)[1].split(
             "function openDockFloat(itemId, sourceEl)", 1
         )[0]
@@ -842,8 +886,13 @@ class PanelDockContractTests(unittest.TestCase):
     def test_character_card_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="characters"')
         characters = self.html.split('data-dock-item="characters"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('path d="M16 10h2"', characters)
-        self.assertIn('rect x="2" y="5" width="20" height="14" rx="2"', characters)
+        self.assertIn('path d="M16 2v2"', characters)
+        self.assertIn('path d="M17.915 21a6 6 0 10-12 0"', characters)
+        self.assertIn('path d="M8 2v2"', characters)
+        self.assertIn('circle cx="12" cy="11" r="4"', characters)
+        self.assertIn('rect x="3" y="3" width="18" height="18" rx="2"', characters)
+        self.assertNotIn('path d="M16 10h2"', characters)
+        self.assertNotIn('rect x="2" y="5" width="20" height="14" rx="2"', characters)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
         self.assertIn("characters:", spec)
         self.assertIn("function openDockFloatWindow(key, spec, sourceEl)", self.js)
@@ -1147,6 +1196,8 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("app.해결됨", locale)
             self.assertIn("app.본문_보기", locale)
             self.assertIn("app.토리_사전_안내", locale)
+            self.assertIn("app.토리_사전_메인_안내", locale)
+            self.assertIn("app.토리_사전에_추가_안내", locale)
             self.assertIn("app.등장_이력_안내", locale)
 
     def test_tory_vault_and_sources_dock_widgets(self) -> None:
@@ -1211,7 +1262,7 @@ class PanelDockContractTests(unittest.TestCase):
         paint_fn = self.js.split("function paintDockManuscriptTree(", 1)[1].split("function bindDockManuscriptRoot(", 1)[0]
         self.assertIn("readOnly: true", paint_fn)
         bind_fn = self.js.split("function bindDockManuscriptRoot(", 1)[1].split("function renderDockManuscriptBody(", 1)[0]
-        self.assertIn("openScene(sceneId)", bind_fn)
+        self.assertIn("requestOpenScene(sceneId)", bind_fn)
         self.assertIn("toggleChapterExpanded", bind_fn)
         self.assertIn("togglePartExpanded", bind_fn)
         self.assertIn("toggleSceneExpanded", bind_fn)

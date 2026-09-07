@@ -4290,6 +4290,7 @@ body.dock-rail-ordering {
 /* Dismissible onboarding tips — thin boxed strip (settings / idea board / outline) */
 .guide-tip-box {
   display: flex;
+  flex-wrap: nowrap;
   align-items: flex-start;
   gap: 6px;
   position: relative;
@@ -5951,6 +5952,9 @@ html[data-ui-scheme="dark"] .ai-writing-status {
 .reader-persona-all-modal-card .modal-hint {
   flex: 0 0 auto;
   margin-bottom: 12px;
+}
+.reader-persona-all-modal-card .guide-tip-box.modal-hint {
+  margin-top: 0;
 }
 #readerPersonaAllDebateCount {
   flex: 0 0 auto;
@@ -16312,7 +16316,7 @@ body.ai-panel-collapsed .synopsis-writing-column {
   display: none !important;
 }
 .settings-collection-tip-mount #readingInviteTipBox {
-  display: block;
+  display: flex;
 }
 
 .reading-invite-panel {
@@ -26334,6 +26338,48 @@ html.is-electron .modal:not(.hidden) > .modal-backdrop {
 }
 .modal-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .modal-heading h2 { margin: 0; font-size: 20px; font-family: Georgia, "Malgun Gothic", serif; }
+.dictionary-modal-card {
+  width: min(440px, calc(100vw - 32px));
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.dictionary-modal-card .guide-tip-box {
+  margin: 0;
+}
+.dictionary-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+}
+.dictionary-form .dictionary-field {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: 100%;
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+}
+.dictionary-form .dictionary-field > span {
+  display: block;
+}
+.dictionary-form .dictionary-field input,
+.dictionary-form .dictionary-field textarea {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  font-weight: 400;
+}
+.dictionary-form .dictionary-field textarea {
+  min-height: 7.5em;
+  resize: vertical;
+}
+.dictionary-form .modal-actions {
+  margin-top: 2px;
+}
 .tory-modal-title-cluster {
   display: flex;
   align-items: center;
@@ -28504,20 +28550,13 @@ body[data-ui-scheme="dark"] .tory-opening-hint-btn {
   opacity: 0.4;
   cursor: not-allowed;
 }
-/* 재생성(refresh) 아이콘 — 인라인 SVG라 크기와 상관없이 항상 선명하고,
-   이미지 마스크 관련 문제(흐림/회색 박스 등) 자체가 생기지 않는다. 기본은 검정. */
+/* 소제목 생성(pencil-sparkles) 아이콘 — 인라인 SVG라 크기와 상관없이 항상 선명하고,
+   이미지 마스크 관련 문제(흐림/회색 박스 등) 자체가 생기지 않는다. */
 .chapter-subtitle-regen-icon {
   width: 19px;
   height: 19px;
-  fill: #000;
-}
-html[data-theme="dark"] .chapter-subtitle-regen-icon,
-html[data-ui-theme="dark"] .chapter-subtitle-regen-icon,
-html[data-theme="attic"] .chapter-subtitle-regen-icon,
-html[data-ui-theme="attic"] .chapter-subtitle-regen-icon,
-html[data-theme="deep-dark"] .chapter-subtitle-regen-icon,
-html[data-ui-theme="deep-dark"] .chapter-subtitle-regen-icon {
-  fill: var(--ink);
+  fill: none;
+  stroke: currentColor;
 }
 .chapter-subtitle-modal-card { width: min(760px, calc(100vw - 28px)); }
 .chapter-subtitle-body { min-height: 120px; }

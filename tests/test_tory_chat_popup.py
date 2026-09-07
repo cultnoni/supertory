@@ -40,6 +40,13 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertIn("flex-wrap: wrap", self.css)
         hide = self.js.split("function isFeatureHideExempt", 1)[1].split("function isManuscriptWritingSurface", 1)[0]
         self.assertIn("toryChatHighlightButton", hide)
+        actions = self.html.split('class="tory-chat-toolbar-actions"', 1)[1].split(
+            'id="toryChatSuccessBanner"', 1
+        )[0]
+        self.assertLess(
+            actions.find('id="toryChatHighlightButton"'),
+            actions.find('id="toryChatPopupOpenButton"'),
+        )
 
     def test_expand_and_history_icons_are_unified(self) -> None:
         expand = 'rect x="3" y="5" width="14" height="11" rx="1.5"'
@@ -58,6 +65,12 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertNotIn(">히스토리<", result_history)
         self.assertNotIn(">크게보기<", result_expand)
         self.assertNotIn(">크게보기<", prompt)
+        result_actions = self.html.split('class="ai-result-head-actions"', 1)[1].split("</div>", 1)[0]
+        self.assertLess(
+            result_actions.find('id="aiResultExpandButton"'),
+            result_actions.find('id="aiResultHistoryButton"'),
+        )
+        self.assertNotIn("요청을_넓게_적어요_아래_버튼으로_바로_토리", self.html)
 
     def test_ai_result_modal_is_resizable(self) -> None:
         card = self.html.split('id="aiResultModal"', 1)[1].split('id="chapterSubtitleModal"', 1)[0]

@@ -632,7 +632,7 @@
               </div>
             </div>
             <div id="outlineTipBox" class="outline-tip-box guide-tip-box" data-guide-tip="outline" role="note">
-              <p class="outline-tip-text" data-i18n="index.폴더_폴더_추가_안쪽_하위_폴더_폴더_원고">+폴더: 폴더 추가 · 안쪽 +: 하위 폴더 · 폴더·원고는 끌어 원하는 위치에 놓기 (무한 중첩 가능) · 우클릭: 기능 더 보기</p>
+              <p class="outline-tip-text" data-i18n="index.폴더_폴더_추가_안쪽_하위_폴더_폴더_원고">+폴더: 폴더 추가 · 안쪽 +: 회차추가 · 폴더·회차는 끌어 원하는 위치에 놓기 (무한 중첩 가능) · 우클릭: 기능 더 보기</p>
               <button type="button" id="outlineTipDismiss" class="outline-tip-dismiss" data-guide-tip-dismiss="outline" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
             </div>
             <div id="chapterInsertBanner" class="chapter-insert-banner hidden" role="status">
@@ -1062,8 +1062,11 @@
                 </div>
                 <div class="settings-box-preview" id="successProfilePreview"></div>
                 <div class="settings-box-body" id="successProfileBody" hidden>
+                  <div id="successProfileTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="successProfile" role="note">
+                    <p class="hint guide-tip-text" data-i18n="app.흥행_공식_분석으로_만든_프로파일을_이_작품">흥행 공식 분석으로 만든 프로파일을 이 작품에 연결해 두면, 도우미의 흥행 공식 참고·피드백에 활용할 수 있어요.</p>
+                    <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="successProfile" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+                  </div>
                   <div id="successProfileMainPanel" class="success-profile-panel">
-                    <p class="hint" data-i18n="index.흥행_공식_분석으로_만든_프로파일을_이_작품">흥행 공식 분석으로 만든 프로파일을 이 작품에 연결하면, 도우미의 흥행 공식 참고·피드백에 활용할 수 있어요.</p>
                     <p id="linkedSuccessProfileStatus" class="linked-success-profile-status hint">
                       작품을 선택하면 연결 상태를 볼 수 있어요.
                     </p>
@@ -1462,11 +1465,11 @@
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="characters" title="캐릭터" data-i18n-title="app.캐릭터" aria-label="캐릭터" data-i18n-aria-label="app.캐릭터">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-              <path d="M16 10h2"/>
-              <path d="M16 14h2"/>
-              <path d="M6.17 15a3 3 0 0 1 5.66 0"/>
-              <circle cx="9" cy="11" r="2"/>
-              <rect x="2" y="5" width="20" height="14" rx="2"/>
+              <path d="M16 2v2"/>
+              <path d="M17.915 21a6 6 0 10-12 0"/>
+              <path d="M8 2v2"/>
+              <circle cx="12" cy="11" r="4"/>
+              <rect x="3" y="3" width="18" height="18" rx="2"/>
             </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="timeline" title="연대기" data-i18n-title="index.연대기" aria-label="연대기" data-i18n-aria-label="index.연대기">
@@ -1566,11 +1569,11 @@
             </div>
             <p class="welcome-mascot-hello" id="welcomeSpeech" data-i18n="app.반가워요_작가님">반가워요 작가님</p>
             <div class="welcome-tory-blurb">
-              <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 수퍼토리에 탑재된 AI 어시스턴트예요.</p>
-              <p class="welcome-tory-blurb-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하고, 많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 토리가 작가님의 글을 대신 써드리지는 않아요. 하지만 작품의 인물, 세계관, 줄거리 흐름을 기억해 스스로 보기 어려운 원고의 입체적인 모습을 보여드릴게요.</p>
-              <p class="welcome-tory-blurb-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 작가님 몫이랍니다. ❤️</p>
+              <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 슈퍼토리에 탑재된 창작 도우미예요.</p>
+              <p class="welcome-tory-blurb-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하며, 수많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 작품의 인물과 세계관, 줄거리 흐름을 깊이 기억해 스스로 놓치기 쉬운 원고의 입체적인 모습을 다각도에서 보여드릴게요.</p>
+              <p class="welcome-tory-blurb-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 오롯이 작가님의 몫이랍니다. ❤️</p>
             </div>
-            <h1 class="welcome-card-title" data-i18n-html="index.웰컴_타이틀">우리 함께 <span class="welcome-super-story">수퍼 스토리</span> 만들어 볼까요?</h1>
+            <h1 class="welcome-card-title" data-i18n-html="index.웰컴_타이틀">우리 함께 <span class="welcome-super-story">슈퍼 스토리</span> 만들어 볼까요?</h1>
           </div>
 
           <div class="welcome-tips" aria-label="시작 안내" data-i18n-aria-label="index.시작_안내">
@@ -1803,7 +1806,7 @@
                     disabled
                     aria-label="토리의 소제목 추천" data-i18n-aria-label="index.토리의_소제목_추천"
                     title="회차 본문이 1,200자 이상일 때 사용할 수 있어요" data-i18n-title="app.회차_본문이_1_200자_이상일_때_사용할"
-                  ><svg class="chapter-subtitle-regen-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M17.65 6.35C16.2 4.9 14.21 4 12 4c-4.42 0-7.99 3.58-7.99 8s3.57 8 7.99 8c3.73 0 6.84-2.55 7.73-6h-2.08c-.82 2.33-3.04 4-5.65 4-3.31 0-6-2.69-6-6s2.69-6 6-6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg></button>
+                  ><svg class="chapter-subtitle-regen-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg></button>
                   <input
                     id="sceneTitle"
                     form="sceneEditor"
@@ -3343,7 +3346,10 @@
           <div class="character-board-toolbar">
             <div>
               <h2 class="character-board-title" data-i18n="app.아이템">아이템</h2>
-              <p class="hint" data-i18n="index.아이템_카드를_누르면_가운데에서_상세_설정을">아이템 카드를 누르면 가운데에서 상세 설정을 편집합니다.</p>
+              <div class="guide-tip-box character-board-guide" data-guide-tip="itemBoard" role="note">
+                <p class="hint guide-tip-text" data-i18n="index.아이템_카드를_누르면_가운데에서_상세_설정을">아이템 카드를 누르면 가운데에서 상세 설정을 편집합니다.</p>
+                <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="itemBoard" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+              </div>
             </div>
             <div class="character-board-actions">
               <button type="button" id="newItemMainButton" class="secondary compact-btn" data-i18n="index.아이템">+ 아이템</button>
@@ -3357,7 +3363,10 @@
           <div class="character-board-toolbar">
             <div>
               <h2 class="character-board-title" data-i18n="app.토리_사전">토리 사전</h2>
-              <p class="hint" data-i18n="index.고유어와_세계관_용어를_개인_사전처럼_모아">고유어와 세계관 용어를 개인 사전처럼 모아 둡니다.</p>
+              <div class="guide-tip-box character-board-guide" data-guide-tip="dictionaryBoard" role="note">
+                <p class="hint guide-tip-text" data-i18n="index.고유어와_세계관_용어를_개인_사전처럼_모아">고유어와 세계관 용어를 개인 사전처럼 모아 둡니다.</p>
+                <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="dictionaryBoard" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+              </div>
             </div>
             <div class="character-board-actions">
               <button type="button" id="newDictionaryMainButton" class="secondary compact-btn" data-i18n="index.plus_단어">+ 단어</button>
@@ -3644,18 +3653,18 @@
               <div class="ai-result-head">
                 <span class="ai-result-label tory-helper-section-label" data-i18n="app.결과">결과</span>
                 <div class="ai-result-head-actions">
+                  <button type="button" class="secondary ai-result-expand-btn ai-result-icon-btn" id="aiResultExpandButton" title="결과를 팝업으로 크게 보기" data-i18n-title="index.결과를_팝업으로_크게_보기" aria-label="크게 보기" data-i18n-aria-label="index.크게_보기" aria-haspopup="dialog" aria-controls="aiResultModal">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                      <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                    </svg>
+                  </button>
                   <button type="button" class="secondary ai-result-expand-btn ai-result-icon-btn" id="aiResultHistoryButton" title="이전 결과 목록" data-i18n-title="index.이전_결과_목록" aria-label="히스토리" data-i18n-aria-label="index.히스토리" aria-haspopup="dialog" aria-controls="aiResultHistoryModal">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                       <path d="M4 16v-2.38C4 11.5 2.97 10.5 3 8c.03-2.72 1.49-6 4.5-6C9.37 2 10 3.8 10 5.5c0 3.11-2 5.66-2 8.68V16a2 2 0 1 1-4 0Z"/>
                       <path d="M20 20v-2.38c0-2.12 1.03-3.12 1-5.62-.03-2.72-1.49-6-4.5-6C14.63 6 14 7.8 14 9.5c0 3.11 2 5.66 2 8.68V20a2 2 0 1 0 4 0Z"/>
                       <path d="M16 17h4"/>
                       <path d="M4 13h4"/>
-                    </svg>
-                  </button>
-                  <button type="button" class="secondary ai-result-expand-btn ai-result-icon-btn" id="aiResultExpandButton" title="결과를 팝업으로 크게 보기" data-i18n-title="index.결과를_팝업으로_크게_보기" aria-label="크게 보기" data-i18n-aria-label="index.크게_보기" aria-haspopup="dialog" aria-controls="aiResultModal">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                      <rect x="3" y="5" width="14" height="11" rx="1.5"/>
-                      <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
                     </svg>
                   </button>
                 </div>
@@ -3730,7 +3739,7 @@
                 </button>
                 <strong data-i18n="index.내_캐릭터와_대화하기">내 캐릭터와 대화하기</strong>
                 <div class="tory-chat-subhead-aside">
-                  <button type="button" class="secondary compact-btn" id="toryChatCharacterAllButton" title="인물 카드를 한눈에 펼쳐 보기" data-i18n-title="index.인물_카드를_한눈에_펼쳐_보기" data-i18n="app.전체보기">전체보기</button>
+                  <button type="button" class="secondary compact-btn" id="toryChatCharacterAllButton" title="인물 카드를 한눈에 펼쳐 보기" data-i18n-title="index.인물_카드를_한눈에_펼쳐_보기" data-i18n="app.인물_펼쳐보기">인물 펼쳐보기</button>
                   <button
                     type="button"
                     class="tory-notify-expand-btn"
@@ -3748,7 +3757,10 @@
                 </div>
               </div>
               <div id="toryChatCharacterChatPane" class="tory-chat-character-chat-pane">
-                <p class="hint tory-chat-character-hint" data-i18n="index.한_명_또는_여러_명을_고르면_단톡방으로_이">한 명 또는 여러 명을 고르면 단톡방으로 이야기할 수 있어요.</p>
+                <div class="guide-tip-box tory-chat-character-hint" data-guide-tip="characterChat" role="note">
+                  <p class="hint guide-tip-text" data-i18n="index.여러_명을_고르면_단톡으로_이야기할_수_있어">여러 명을 고르면 단톡으로 이야기할 수 있어요.</p>
+                  <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="characterChat" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+                </div>
                 <div id="toryChatCharacterList" class="tory-chat-character-list" role="group" aria-label="대화 상대 인물" data-i18n-aria-label="index.대화_상대_인물"></div>
                 <div class="tory-chat-character-picker-actions">
                   <button type="button" class="primary" id="toryChatCharacterStart" disabled data-i18n="index.대화_시작">대화 시작</button>
@@ -3756,7 +3768,7 @@
               </div>
               <div id="toryChatCharacterSimPane" class="tory-chat-character-sim-pane hidden">
                 <div id="charDebateStepPick" class="char-debate-step" data-char-debate-step="pick">
-                  <p id="charDebatePickHint" class="hint tory-chat-character-hint" data-i18n="app.2명_이상_골라주세요">2명 이상 골라주세요</p>
+                  <p id="charDebatePickHint" class="hint tory-chat-character-hint hidden" hidden></p>
                   <div id="charDebateCharacterList" class="tory-chat-character-list char-debate-character-list" role="group" aria-label="시뮬레이션 등장인물 선택" data-i18n-aria-label="index.시뮬레이션_등장인물_선택"></div>
                 </div>
                 <div id="charDebateStepScenario" class="char-debate-step hidden" data-char-debate-step="scenario">
@@ -3796,7 +3808,7 @@
                   </button>
                   <strong data-i18n="index.가상_독자_목록">가상 독자 목록</strong>
                   <div class="tory-chat-subhead-aside">
-                    <button type="button" class="secondary compact-btn" id="readerPersonaAllButton" title="독자 카드를 한눈에 펼쳐 보기" data-i18n-title="index.독자_카드를_한눈에_펼쳐_보기" data-i18n="app.전체보기">전체보기</button>
+                    <button type="button" class="secondary compact-btn" id="readerPersonaAllButton" title="독자 카드를 한눈에 펼쳐 보기" data-i18n-title="index.독자_카드를_한눈에_펼쳐_보기" data-i18n="app.인물_펼쳐보기">인물 펼쳐보기</button>
                     <button
                       type="button"
                       class="tory-notify-expand-btn"
@@ -3917,12 +3929,6 @@
                   </svg>
                 </button>
                 <div class="tory-chat-toolbar-actions">
-                  <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화" data-i18n-title="index.크기_조절_가능한_팝업으로_대화" aria-label="팝업창" data-i18n-aria-label="index.팝업창" aria-haspopup="dialog" aria-controls="toryChatPopup">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                      <rect x="3" y="5" width="14" height="11" rx="1.5"/>
-                      <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
-                    </svg>
-                  </button>
                   <button
                     type="button"
                     class="secondary tory-chat-action-btn tory-chat-icon-btn tory-chat-hl-btn feature-hide-exempt"
@@ -3937,6 +3943,12 @@
                       </svg>
                     </span>
                     <span class="tory-chat-hl-bar" id="toryChatHighlightBar" aria-hidden="true"></span>
+                  </button>
+                  <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatPopupOpenButton" title="크기 조절 가능한 팝업으로 대화" data-i18n-title="index.크기_조절_가능한_팝업으로_대화" aria-label="팝업창" data-i18n-aria-label="index.팝업창" aria-haspopup="dialog" aria-controls="toryChatPopup">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                      <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                    </svg>
                   </button>
                   <button type="button" class="secondary tory-chat-action-btn tory-chat-icon-btn" id="toryChatHistoryButton" title="지운 대화·이전 대화 목록" data-i18n-title="index.지운_대화_이전_대화_목록" aria-label="히스토리" data-i18n-aria-label="index.히스토리">
                     <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
@@ -4270,11 +4282,16 @@
           <h2 id="toryChatCharacterAllTitle" data-i18n="app.내_캐릭터_전체보기">내 캐릭터 전체보기</h2>
           <button type="button" class="modal-close" data-close-tory-chat-character-all title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" id="toryChatCharacterAllHint" data-i18n="app.인물을_고른_뒤_대화_시작을_눌러_주세요">인물을 고른 뒤 대화 시작을 눌러 주세요.</p>
+        <div id="toryChatCharacterAllTipBox" class="guide-tip-box modal-hint" data-guide-tip="characterChatAll" role="note">
+          <p class="hint guide-tip-text" id="toryChatCharacterAllHint" data-i18n="app.인물을_고른_뒤_대화_시작을_눌러_주세요">인물을 고른 뒤 대화 시작을 눌러 주세요.</p>
+          <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="characterChatAll" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+        </div>
         <p class="reader-debate-count hidden" id="toryChatCharacterAllCount" aria-live="polite" data-i18n="index.0명_선택됨">0명 선택됨</p>
         <div id="toryChatCharacterAllGrid" class="reader-persona-all-grid" aria-label="내 캐릭터 전체 목록" data-i18n-aria-label="index.내_캐릭터_전체_목록"></div>
         <div class="modal-actions">
           <button type="button" class="secondary" data-close-tory-chat-character-all data-i18n="app.닫기">닫기</button>
+          <button type="button" class="primary" id="toryChatCharacterAllStart" disabled data-i18n="index.대화_시작">대화 시작</button>
+          <button type="button" class="primary hidden" id="toryChatCharacterAllScenario" disabled data-i18n="app.상황_설정하기">상황 설정하기</button>
         </div>
       </div>
     </div>
@@ -4322,7 +4339,7 @@
     <div id="toryChatPopup" class="tory-chat-popup hidden" role="dialog" aria-modal="false" aria-labelledby="toryChatPopupTitle" hidden>
       <div class="tory-chat-popup-drag" id="toryChatPopupDrag" title="끌어 이동" data-i18n-title="index.끌어_이동">
         <span class="tory-chat-popup-grip" aria-hidden="true">⋮⋮</span>
-        <strong id="toryChatPopupTitle" data-i18n="index.크게_보기">크게 보기</strong>
+        <strong id="toryChatPopupTitle">토리와 대화하기</strong>
         <button type="button" class="panel-collapse-btn tory-chat-popup-close" id="toryChatPopupClose" title="팝업 닫기" data-i18n-title="index.팝업_닫기" aria-label="팝업 닫기" data-i18n-aria-label="index.팝업_닫기">×</button>
       </div>
       <div class="tory-chat-popup-body" id="toryChatPopupBody"></div>
@@ -4694,7 +4711,6 @@
           <h2 id="aiPromptModalTitle" data-i18n="app.요청_내용">요청 내용</h2>
           <button type="button" class="modal-close" data-close-ai-prompt title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" data-i18n="index.요청을_넓게_적어요_아래_버튼으로_바로_토리">요청을 넓게 적어요. 아래 버튼으로 바로 토리에게 물어볼 수 있어요.</p>
         <textarea
           id="aiPromptModalBody"
           class="ai-result-modal-body ai-prompt-modal-body"
@@ -6018,10 +6034,6 @@
         <strong data-i18n="app.회차_추가">회차 추가</strong>
         <span data-i18n="index.이_폴더_아래에_새_회차를_만들어요">이 폴더 아래에 새 회차를 만들어요</span>
       </button>
-      <button type="button" role="menuitem" data-chapter-action="rename">
-        <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
-        <span data-i18n="index.이_폴더_이름을_수정해요">이 폴더 이름을 수정해요</span>
-      </button>
       <button type="button" role="menuitem" data-chapter-action="bookmark" id="chapterContextBookmarkItem">
         <strong data-i18n="app.북마크">북마크</strong>
         <span data-i18n="app.목록에서_북마크_표시를_켜요">목록에서 북마크 표시를 켜요</span>
@@ -6050,10 +6062,6 @@
       <button type="button" role="menuitem" data-part-action="add-chapter">
         <strong data-i18n="index.하위_폴더_추가">하위 폴더 추가</strong>
         <span data-i18n="index.이_상자_안에_새_하위_폴더를_만들어요">이 상자 안에 새 하위 폴더를 만들어요</span>
-      </button>
-      <button type="button" role="menuitem" data-part-action="rename">
-        <strong data-i18n="index.이름_바꾸기">이름 바꾸기</strong>
-        <span data-i18n="index.이_폴더_이름을_수정해요">이 폴더 이름을 수정해요</span>
       </button>
       <button type="button" role="menuitem" data-part-action="bookmark" id="partContextBookmarkItem">
         <strong data-i18n="app.북마크">북마크</strong>
@@ -6487,9 +6495,9 @@
                 </span>
                 <span data-i18n="app.토리">토리</span>
               </h4>
-              <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 수퍼토리에 탑재된 AI 어시스턴트예요.</p>
-              <p class="admin-tory-intro-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하고, 많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 토리가 작가님의 글을 대신 써드리지는 않아요. 하지만 작품의 인물, 세계관, 줄거리 흐름을 기억해 스스로 보기 어려운 원고의 입체적인 모습을 보여드릴게요.</p>
-              <p class="admin-tory-intro-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 작가님 몫이랍니다. ❤️</p>
+              <p data-i18n="index.토리는_수퍼토리에_탑재된_AI_어시스턴트예요">토리는 슈퍼토리에 탑재된 창작 도우미예요.</p>
+              <p class="admin-tory-intro-body" data-i18n="index.편집자처럼_원고의_구조를_보고_비평가처럼_장">편집자처럼 원고의 구조를 보고, 비평가처럼 장르와 완성도를 판단하며, 수많은 이야기를 읽어온 독자처럼 몰입감을 살펴요. 작품의 인물과 세계관, 줄거리 흐름을 깊이 기억해 스스로 놓치기 쉬운 원고의 입체적인 모습을 다각도에서 보여드릴게요.</p>
+              <p class="admin-tory-intro-closing" data-i18n="index.창작의_즐거움은_작가님_몫이랍니다">창작의 즐거움은 오롯이 작가님의 몫이랍니다. ❤️</p>
             </div>
             <dl class="admin-info-meta">
               <div class="admin-info-row">
@@ -8035,14 +8043,19 @@
           <h2 id="dictionaryModalTitle" data-i18n="index.토리_사전에_추가">토리 사전에 추가</h2>
           <button type="button" class="modal-close" data-close-dictionary-modal title="닫기" data-i18n-title="app.닫기">×</button>
         </div>
-        <p class="hint modal-hint" data-i18n="index.선택한_단어를_개인_사전에_넣어요">선택한 단어를 개인 사전에 넣어요.</p>
+        <div class="guide-tip-box settings-guide-tip" data-guide-tip="dictionaryModal" role="note">
+          <p class="hint guide-tip-text" data-i18n="index.선택한_단어를_개인_사전에_넣어요">선택한 단어를 개인 사전에 넣어요.</p>
+          <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="dictionaryModal" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+        </div>
         <form id="dictionaryModalForm" class="dictionary-form">
           <p id="dictionaryModalWarning" class="dict-name-warning hidden" role="status"></p>
-          <label><span data-i18n="index.새단어">새단어</span>
+          <label class="dictionary-field" for="dictionaryModalTerm">
+            <span data-i18n="index.새단어">새단어</span>
             <input id="dictionaryModalTerm" type="text" maxlength="80" autocomplete="off" placeholder="고유어·세계관 용어" data-i18n-placeholder="index.고유어_세계관_용어">
           </label>
-          <label><span data-i18n="index.뜻">뜻</span>
-            <textarea id="dictionaryModalDefinition" rows="4" placeholder="이 단어가 이 작품에서 뜻하는 바" data-i18n-placeholder="index.이_단어가_이_작품에서_뜻하는_바"></textarea>
+          <label class="dictionary-field" for="dictionaryModalDefinition">
+            <span data-i18n="index.뜻">뜻</span>
+            <textarea id="dictionaryModalDefinition" rows="5" placeholder="이 단어가 이 작품에서 뜻하는 바" data-i18n-placeholder="index.이_단어가_이_작품에서_뜻하는_바"></textarea>
           </label>
           <div class="modal-actions">
             <button type="button" class="secondary" data-close-dictionary-modal data-i18n="index.취소">취소</button>

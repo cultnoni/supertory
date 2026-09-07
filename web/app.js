@@ -315,7 +315,35 @@ let projectLoadController = typeof AbortController !== "undefined"
   ? new AbortController()
   : null;
 
+/**
+ * Generation token for scene opening. Incremented on every openScene
+ * (and on work switch) so a slower GET /api/scenes/:id cannot overwrite
+ * the episode the user clicked last.
+ */
+let sceneOpenGen = 0;
+/** @type {AbortController|null} */
+let sceneOpenController = typeof AbortController !== "undefined"
+  ? new AbortController()
+  : null;
+
+function bumpSceneOpenGen() {
+  sceneOpenGen += 1;
+  const previous = sceneOpenController;
+  sceneOpenController = typeof AbortController !== "undefined"
+    ? new AbortController()
+    : null;
+  if (previous) {
+    try { previous.abort(); } catch (_) { /* ignore */ }
+  }
+  return sceneOpenGen;
+}
+
+function isCurrentSceneOpenGen(gen) {
+  return Number(gen) === Number(sceneOpenGen);
+}
+
 function bumpProjectLoadGen() {
+  bumpSceneOpenGen();
   projectLoadGen += 1;
   const previous = projectLoadController;
   projectLoadController = typeof AbortController !== "undefined"
@@ -10117,6 +10145,7 @@ async function restoreLastWorkspaceView() {
 async function loadProjects(preferredId = null) {
   const projects = await api("/api/projects");
   applyProjectsListPayload(projects);
+  pruneStaleEpisodeTabStorage(state.projects);
   const select = $("projectSelect");
   if (!state.projects.length) {
     select.innerHTML = i18n.t('app.option_아직_만든_작품이_없어요_op');
@@ -19547,7 +19576,46 @@ function syncWritingTimerStyleForm() {
   });
 }
 
-function dockFloatCenterPos(width = 320, height = 420, slot = 0) {
+function dockFloatResolvedSide(side, sourceEl) {
+  const fromRail = sourceEl?.closest?.("[data-dock-side]")?.dataset?.dockSide;
+  if (fromRail === "left" || fromRail === "right") return fromRail;
+  if (side === "right" || side === "left") return side;
+  return "";
+}
+
+function dockFloatSideLeft(side, width) {
+  const w = Math.max(120, Number(width) || 320);
+  const vw = Number(window.innerWidth) || 1200;
+  const gap = 10;
+  const railPad = 56;
+  if (side === "right") {
+    if (document.body.classList.contains("ai-panel-collapsed")) {
+      const rail = $("aiDockRail");
+      const r = rail?.getBoundingClientRect?.();
+      if (r && r.width > 0) return Math.round(r.left - gap - w);
+    } else {
+      const panel = $("aiPanel");
+      const r = panel?.getBoundingClientRect?.();
+      if (r && r.width > 40) return Math.round(r.left + (r.width - w) / 2);
+    }
+    return Math.round(vw - w - railPad);
+  }
+  if (side === "left") {
+    if (document.body.classList.contains("binder-panel-collapsed")) {
+      const rail = $("binderDockRail");
+      const r = rail?.getBoundingClientRect?.();
+      if (r && r.width > 0) return Math.round(r.right + gap);
+    } else {
+      const panel = $("outlinePanel");
+      const r = panel?.getBoundingClientRect?.();
+      if (r && r.width > 40) return Math.round(r.left + (r.width - w) / 2);
+    }
+    return railPad;
+  }
+  return Math.round((vw - w) / 2);
+}
+
+function dockFloatCenterPos(width = 320, height = 420, slot = 0, side = "") {
   const w = Math.max(120, Number(width) || 320);
   const h = Math.max(120, Number(height) || 420);
   const vw = Number(window.innerWidth) || 1200;
@@ -19556,17 +19624,17 @@ function dockFloatCenterPos(width = 320, height = 420, slot = 0) {
   const maxLeft = Math.max(8, vw - w - 8);
   const maxTop = Math.max(8, vh - h - 8);
   return {
-    left: Math.max(8, Math.min(maxLeft, Math.round((vw - w) / 2) + n * 28)),
+    left: Math.max(8, Math.min(maxLeft, dockFloatSideLeft(side, w) + n * 28)),
     top: Math.max(8, Math.min(maxTop, Math.round((vh - h) / 2) + n * 28)),
   };
 }
 
-function dockFloatFallbackPos(side, sourceEl, width = 320, height = 420) {
-  return dockFloatCenterPos(width, height);
+function dockFloatFallbackPos(side, sourceEl, width = 320, height = 420, slot = 0) {
+  return dockFloatCenterPos(width, height, slot, dockFloatResolvedSide(side, sourceEl));
 }
 
 function dockAiFloatFallbackPos(sourceEl, width, slot = 0, height = 560) {
-  return dockFloatCenterPos(width, height, slot);
+  return dockFloatFallbackPos("right", sourceEl, width, height, slot);
 }
 
 function dockFloatBody(key) {
@@ -20193,8 +20261,8 @@ function openCharacterCardFloat(characterId, sourceEl) {
     defaultWidth: DOCK_CHAR_DEFAULT_W,
     defaultHeight: DOCK_CHAR_DEFAULT_H,
     resize: { minWidth: DOCK_CHAR_MIN_W, minHeight: DOCK_CHAR_MIN_H },
-    fallbackPos() {
-      return dockFloatCenterPos(DOCK_CHAR_DEFAULT_W, DOCK_CHAR_DEFAULT_H, offset);
+    fallbackPos(el) {
+      return dockFloatFallbackPos("left", el, DOCK_CHAR_DEFAULT_W, DOCK_CHAR_DEFAULT_H, offset);
     },
     onResize: syncDockCharacterCardExpanded,
     render(body) { renderDockCharacterCard(body, id); },
@@ -20488,8 +20556,8 @@ function openWorldCardFloat(sectionId, sourceEl) {
     defaultWidth: DOCK_WORLD_DEFAULT_W,
     defaultHeight: DOCK_WORLD_DEFAULT_H,
     resize: { minWidth: DOCK_WORLD_MIN_W, minHeight: DOCK_WORLD_MIN_H },
-    fallbackPos() {
-      return dockFloatCenterPos(DOCK_WORLD_DEFAULT_W, DOCK_WORLD_DEFAULT_H, offset);
+    fallbackPos(el) {
+      return dockFloatFallbackPos("left", el, DOCK_WORLD_DEFAULT_W, DOCK_WORLD_DEFAULT_H, offset);
     },
     onResize: syncDockWorldCardExpanded,
     render(body) { renderDockWorldCard(body, id); },
@@ -20664,8 +20732,8 @@ function openItemCardFloat(itemId, sourceEl) {
     defaultWidth: DOCK_ITEM_DEFAULT_W,
     defaultHeight: DOCK_ITEM_DEFAULT_H,
     resize: { minWidth: DOCK_ITEM_MIN_W, minHeight: DOCK_ITEM_MIN_H },
-    fallbackPos() {
-      return dockFloatCenterPos(DOCK_ITEM_DEFAULT_W, DOCK_ITEM_DEFAULT_H, offset);
+    fallbackPos(el) {
+      return dockFloatFallbackPos("left", el, DOCK_ITEM_DEFAULT_W, DOCK_ITEM_DEFAULT_H, offset);
     },
     onResize: syncDockItemCardExpanded,
     render(body) { renderDockItemCard(body, id); },
@@ -21738,7 +21806,7 @@ function bindDockManuscriptRoot(root) {
       event.stopPropagation();
       const sceneId = sceneBtn.dataset.scene;
       if (!sceneId || Number(sceneId) === Number(state.sceneId)) return;
-      openScene(sceneId).catch(handleError);
+      requestOpenScene(sceneId);
       return;
     }
     const folderTitle = event.target.closest?.(".chapter-title, .part-title");
@@ -28816,6 +28884,33 @@ function setToryChatPopupDockHint(visible) {
   hint.hidden = !visible;
 }
 
+function toryChatPopupFeatureTitle() {
+  if (toryChatHub === "tory") {
+    if (typeof getToryChatMode === "function" && getToryChatMode() === "successAnalysis") {
+      return i18n.t('app.흥행요인_분석가');
+    }
+    return i18n.t('index.토리와_대화하기');
+  }
+  if (toryChatHub === "characters" || toryChatHub === "character-room") {
+    if (toryChatHub === "characters" && charListMode === "sim") {
+      return i18n.t('index.시뮬레이션');
+    }
+    return i18n.t('index.내_캐릭터와_대화하기');
+  }
+  if (toryChatHub === "reader") {
+    if (readerListMode === "debate") {
+      return i18n.t('index.토론_패널');
+    }
+    return i18n.t('index.가상_독자와_대화하기');
+  }
+  return i18n.t('index.소통방');
+}
+
+function syncToryChatPopupTitle() {
+  const el = $("toryChatPopupTitle");
+  if (el) el.textContent = toryChatPopupFeatureTitle();
+}
+
 function restoreToryChatToPanel() {
   const view = $("aiChatView");
   const body = document.querySelector("#aiPanel .ai-panel-body");
@@ -28934,6 +29029,7 @@ function setToryChatHub(hub, { quiet = false } = {}) {
   updateToryChatSuccessUi();
   try { syncAiDockChatHosts?.(); } catch (_) { /* ignore */ }
   try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
+  syncToryChatPopupTitle();
   return true;
 }
 
@@ -28946,6 +29042,7 @@ function setToryChatMode(mode, { quiet = false } = {}) {
   toryChatMode = next;
   updateToryChatSuccessUi();
   renderToryChatMessages();
+  syncToryChatPopupTitle();
   if (!quiet) {
     toast(
       next === "successAnalysis"
@@ -29099,6 +29196,7 @@ function openToryChatPopup() {
   popup.classList.remove("hidden");
   popup.hidden = false;
   setToryChatPopupDockHint(true);
+  syncToryChatPopupTitle();
   restoreToryChatComposerDraft(draft);
   syncToryChatPopupOpenButton();
   syncAiChatViewHubAttr();
@@ -30082,12 +30180,14 @@ function renderToryChatCharacterPicker() {
   if (!state.projectId) {
     list.innerHTML = i18n.t('app.p_class_hint_먼저_작품을_선택해');
     if (startBtn) startBtn.disabled = true;
+    syncToryChatCharacterAllActions();
     return;
   }
   const chars = Array.isArray(state.characters) ? state.characters : [];
   if (!chars.length) {
     list.innerHTML = i18n.t('app.p_class_hint_설정집에_인물이_없');
     if (startBtn) startBtn.disabled = true;
+    syncToryChatCharacterAllActions();
     return;
   }
   list.innerHTML = chars.map((ch) => {
@@ -30098,6 +30198,7 @@ function renderToryChatCharacterPicker() {
     });
   }).join("");
   if (startBtn) startBtn.disabled = selected.size === 0;
+  if (isToryChatCharacterAllOpen()) syncToryChatCharacterAllActions();
 }
 
 function toryChatCharacterPickSummary(ch) {
@@ -30199,6 +30300,7 @@ function renderToryChatCharacterAllGrid() {
     })).join("");
   }
   syncToryChatCharacterAllCount();
+  syncToryChatCharacterAllActions();
 }
 
 function syncToryChatCharacterAllCount() {
@@ -30211,6 +30313,36 @@ function syncToryChatCharacterAllCount() {
   countEl.textContent = `${i18n.t('app.n_CHAR_DEBATE_MAX_명_선택됨', {n: n, CHAR_DEBATE_MAX: CHAR_DEBATE_MAX})}`;
 }
 
+function syncToryChatCharacterAllActions() {
+  const isSim = charListMode === "sim";
+  const startBtn = $("toryChatCharacterAllStart");
+  const scenarioBtn = $("toryChatCharacterAllScenario");
+  startBtn?.classList.toggle("hidden", isSim);
+  scenarioBtn?.classList.toggle("hidden", !isSim);
+  if (startBtn && !isSim) {
+    startBtn.disabled = normalizeToryChatCharacterIds(toryChatCharacterIds).length === 0;
+  }
+  if (scenarioBtn && isSim) {
+    const n = (charDebateState.selectedIds || []).length;
+    scenarioBtn.disabled = n < CHAR_DEBATE_MIN || n > CHAR_DEBATE_MAX;
+  }
+}
+
+function syncToryChatCharacterAllTip(isSim) {
+  const box = $("toryChatCharacterAllTipBox");
+  const hint = $("toryChatCharacterAllHint");
+  const dismiss = box?.querySelector("[data-guide-tip-dismiss]");
+  const tipId = isSim ? "characterSimAll" : "characterChatAll";
+  if (box) box.setAttribute("data-guide-tip", tipId);
+  if (dismiss) dismiss.setAttribute("data-guide-tip-dismiss", tipId);
+  if (hint) {
+    hint.textContent = isSim
+      ? i18n.t('app.카드를_눌러_시뮬레이션할_인물을_골라_주세요')
+      : i18n.t('app.인물을_고른_뒤_대화_시작을_눌러_주세요');
+  }
+  syncGuideTipBoxes?.();
+}
+
 function openToryChatCharacterAllModal() {
   const modal = $("toryChatCharacterAllModal");
   const grid = $("toryChatCharacterAllGrid");
@@ -30221,14 +30353,10 @@ function openToryChatCharacterAllModal() {
   }
   const isSim = charListMode === "sim";
   const title = $("toryChatCharacterAllTitle");
-  const hint = $("toryChatCharacterAllHint");
   if (title) title.textContent = isSim ? i18n.t('app.시뮬레이션_전체보기') : i18n.t('app.내_캐릭터_전체보기');
-  if (hint) {
-    hint.textContent = isSim
-      ? i18n.t('app.카드를_눌러_시뮬레이션할_인물을_골라_주세요')
-      : i18n.t('app.인물을_고른_뒤_대화_시작을_눌러_주세요');
-  }
+  syncToryChatCharacterAllTip(isSim);
   renderToryChatCharacterAllGrid();
+  syncToryChatCharacterAllActions();
   modal.classList.remove("hidden");
   requestAnimationFrame(() => {
     const closeBtn = modal.querySelector("[data-close-tory-chat-character-all].modal-close");
@@ -30258,12 +30386,17 @@ function setCharListMode(mode) {
   });
   $("toryChatCharacterChatPane")?.classList.toggle("hidden", isSim);
   $("toryChatCharacterSimPane")?.classList.toggle("hidden", !isSim);
+  const pickerTitle = $("toryChatCharacterPickerTitle");
+  if (pickerTitle) {
+    pickerTitle.textContent = isSim ? i18n.t('index.캐릭터_고르기') : i18n.t('index.내_캐릭터와_대화하기');
+  }
   if (isSim) {
     void prepareCharDebatePane();
   } else {
     renderToryChatCharacterPicker();
   }
   if (isToryChatCharacterAllOpen()) openToryChatCharacterAllModal();
+  syncToryChatPopupTitle();
 }
 
 async function openToryChatCharacterPicker() {
@@ -30291,6 +30424,7 @@ function startToryChatWithSelectedCharacters() {
   if (!assertClusterFeature("character_chat")) return;
   const ids = normalizeToryChatCharacterIds(toryChatCharacterIds);
   if (!ids.length) return toast(i18n.t('app.대화할_인물을_한_명_이상_골라_주세요'));
+  closeToryChatCharacterAllModal();
   toryChatCharacterIds = ids;
   setToryChatHub("character-room");
   const names = getToryChatPartnerNames();
@@ -30878,9 +31012,15 @@ async function openReaderPersonaAllModal() {
   const countEl = $("readerPersonaAllDebateCount");
   if (title) title.textContent = isDebate ? i18n.t('app.토론_패널_전체보기') : i18n.t('app.가상_독자_전체보기');
   if (hint) {
-    hint.textContent = isDebate
-      ? i18n.t('app.카드를_눌러_토론할_독자를_골라_주세요_소개')
-      : i18n.t('app.카드를_눌러_대화할_독자를_고른_뒤_대화_시');
+    if (isDebate) {
+      hint.textContent = "";
+      hint.hidden = true;
+      hint.classList.add("hidden");
+    } else {
+      hint.hidden = false;
+      hint.classList.remove("hidden");
+      hint.textContent = i18n.t('app.카드를_눌러_대화할_독자를_고른_뒤_대화_시');
+    }
   }
   countEl?.classList.toggle("hidden", !isDebate);
   try {
@@ -31197,6 +31337,7 @@ function setReaderListMode(mode) {
   $("readerDebatePane")?.classList.toggle("hidden", !isDebate);
   if (isDebate) void loadAndRenderReaderDebateGrid();
   else syncReaderChatSelectionUi();
+  syncToryChatPopupTitle();
 }
 
 function openReaderDebateRoom(personaIds) {
@@ -31644,6 +31785,14 @@ function setupToryChatHubUi() {
     if (isToryChatCharacterAllOpen()) renderToryChatCharacterAllGrid();
   });
   $("toryChatCharacterStart")?.addEventListener("click", () => startToryChatWithSelectedCharacters());
+  $("toryChatCharacterAllStart")?.addEventListener("click", () => startToryChatWithSelectedCharacters());
+  $("toryChatCharacterAllScenario")?.addEventListener("click", () => {
+    const n = (charDebateState.selectedIds || []).length;
+    if (n < CHAR_DEBATE_MIN || n > CHAR_DEBATE_MAX) return;
+    closeToryChatCharacterAllModal();
+    setCharDebateStep("scenario");
+    renderCharDebatePresets();
+  });
   $("toryChatCharacterAllButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openToryChatCharacterAllModal();
@@ -34033,6 +34182,15 @@ function readingInviteItemEl(inviteId) {
   return document.querySelector(`#readingInviteList .reading-invite-item[data-invite-id="${CSS.escape(id)}"]`);
 }
 
+function readingInviteListTitle(invite) {
+  const titles = (Array.isArray(invite?.scene_titles) ? invite.scene_titles : [])
+    .map((title) => String(title || "").trim())
+    .filter(Boolean);
+  if (!titles.length) return String(invite?.title || "").trim() || i18n.t("app.제목_없음");
+  if (titles.length === 1) return titles[0];
+  return i18n.t("app.first_외_n건", { first: titles[0], n: titles.length - 1 });
+}
+
 function renderReadingInviteList() {
   const host = $("readingInviteList");
   if (!host) return;
@@ -34065,7 +34223,7 @@ function renderReadingInviteList() {
     const panels = readingInvitePanelState(invite.id);
     return `<article class="reading-invite-item" data-invite-id="${escapeHtml(invite.id)}">`
       + `<div class="reading-invite-item-head">`
-      + `<div class="reading-invite-item-title">${escapeHtml(invite.title || i18n.t("app.제목_없음"))}</div>`
+      + `<div class="reading-invite-item-title">${escapeHtml(readingInviteListTitle(invite))}</div>`
       + `<span class="reading-invite-status is-${escapeHtml(display)}">${escapeHtml(readingInviteStatusLabel(display))}</span>`
       + `</div>`
       + `<div class="reading-invite-item-meta">`
@@ -34718,7 +34876,8 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   successProfile: {
     title: i18n.t('app.흥행작_프로파일_연결'),
-    hint: i18n.t('app.흥행_공식_분석으로_만든_프로파일을_이_작품'),
+    hint: "",
+    tipId: "successProfileTipBox",
     section: "successProfile",
     listId: "successProfileMainPanel",
     addLabel: i18n.t('app.흥행_공식_분석'),
@@ -35822,7 +35981,7 @@ function setupTempoHookModal() {
   }
 }
 
-const CHAR_DEBATE_MIN = 2;
+const CHAR_DEBATE_MIN = 1;
 const CHAR_DEBATE_MAX = 3;
 const CHAR_DEBATE_PRESETS = [
   i18n.t('app.목숨을_건_선택의_기로'),
@@ -35859,8 +36018,15 @@ function updateCharDebatePickHint() {
   const hint = $("charDebatePickHint");
   if (!hint) return;
   const n = charDebateState.selectedIds.length;
-  if (n < CHAR_DEBATE_MIN) hint.textContent = i18n.t('app.2명_이상_골라주세요');
-  else if (n >= CHAR_DEBATE_MAX) hint.textContent = i18n.t('app.3명까지예요_더_고르려면_먼저_선택을_풀어');
+  if (n <= 0) {
+    hint.textContent = "";
+    hint.hidden = true;
+    hint.classList.add("hidden");
+    return;
+  }
+  hint.hidden = false;
+  hint.classList.remove("hidden");
+  if (n >= CHAR_DEBATE_MAX) hint.textContent = i18n.t('app.3명까지예요_더_고르려면_먼저_선택을_풀어');
   else hint.textContent = `${i18n.t('app.n_명_선택됨_최대_3명', {n: n})}`;
 }
 
@@ -35892,6 +36058,7 @@ function setCharDebateStep(step) {
     }
   }
   if (next === "pick") updateCharDebatePickHint();
+  if (isToryChatCharacterAllOpen()) syncToryChatCharacterAllActions();
 }
 
 function formatTrackedFactsForCharacter(facts, character) {
@@ -46409,28 +46576,33 @@ function renderBookmarkBar(options = {}) {
   }
 }
 
+function pinnedIdeaNotes() {
+  return (state.projectId ? state.ideas : []).filter(ideaIsPinned);
+}
+
 function renderHeaderIdeaBar() {
+  const ideas = pinnedIdeaNotes();
   const bar = $("headerIdeaBar");
-  if (!bar) return;
-  const ideas = (state.projectId ? state.ideas : []).filter(ideaIsPinned);
-  setHeaderNoticeFillState("headerIdeaNotice", ideas.length > 0);
-  if (!ideas.length) {
-    bar.innerHTML = "";
-    return;
+  if (bar) {
+    setHeaderNoticeFillState("headerIdeaNotice", ideas.length > 0);
+    if (!ideas.length) {
+      bar.innerHTML = "";
+    } else {
+      bar.innerHTML = ideas.slice(0, 8).map((idea) => {
+        const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || i18n.t('app.메모_2'));
+        return (
+          `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
+          + `${i18n.t('app.data_header_idea_idea_id', {'idea.id': idea.id, label: label})}`
+          + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(14)}</span>`
+          + `<span class="header-idea-chip-label">${label}</span>`
+          + `</button>`
+        );
+      }).join("");
+      bar.querySelectorAll("[data-header-idea]").forEach((btn) => {
+        btn.addEventListener("click", () => openIdeaFloat(Number(btn.dataset.headerIdea)));
+      });
+    }
   }
-  bar.innerHTML = ideas.slice(0, 8).map((idea) => {
-    const label = escapeHtml(idea.title || ideaPreview(idea.body_md, 28) || i18n.t('app.메모_2'));
-    return (
-      `<button type="button" class="header-idea-chip is-pinned color-${escapeHtml(idea.color || "yellow")}" `
-      + `${i18n.t('app.data_header_idea_idea_id', {'idea.id': idea.id, label: label})}`
-      + `<span class="header-idea-chip-pin" aria-hidden="true">${ideaPinGlyphHtml(14)}</span>`
-      + `<span class="header-idea-chip-label">${label}</span>`
-      + `</button>`
-    );
-  }).join("");
-  bar.querySelectorAll("[data-header-idea]").forEach((btn) => {
-    btn.addEventListener("click", () => openIdeaFloat(Number(btn.dataset.headerIdea)));
-  });
 }
 
 function setupHeaderNotices() {
@@ -47509,8 +47681,8 @@ function setupBinderContextMenu() {
     event.preventDefault();
     event.stopPropagation();
     const title =
-      sceneBtn.getAttribute("title")
-      || sceneBtn.querySelector(".scene-title")?.textContent
+      sceneBtn.querySelector(".scene-title")?.textContent
+      || getSceneTitleById(sceneBtn.dataset.scene)
       || "";
     const parentRaw = sceneBtn.dataset.parentScene;
     showBinderContextMenu(event.clientX, event.clientY, {
@@ -57067,7 +57239,14 @@ const GUIDE_TIP_DEFS = [
   { id: "keywordBoard", label: i18n.t('app.장르_키워드_안내') },
   { id: "worldHint", label: i18n.t('app.세계관_안내') },
   { id: "characterBoard", label: i18n.t('app.캐릭터_메인_안내') },
+  { id: "itemBoard", label: i18n.t('app.아이템_메인_안내') },
+  { id: "dictionaryBoard", label: i18n.t('app.토리_사전_메인_안내') },
+  { id: "dictionaryModal", label: i18n.t('app.토리_사전에_추가_안내') },
   { id: "readingInvite", label: i18n.t('app.읽기_권한_초대_안내') },
+  { id: "successProfile", label: i18n.t('app.흥행작_프로파일_안내') },
+  { id: "characterChat", label: i18n.t('app.캐릭터와_대화하기_안내') },
+  { id: "characterChatAll", label: i18n.t('app.내_캐릭터_전체보기_안내') },
+  { id: "characterSimAll", label: i18n.t('app.시뮬레이션_전체보기_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -57954,10 +58133,7 @@ function renderSceneTreeHtml(scenes, {
       ? ""
       : `${i18n.t('app.button_type_button_clas_11', {sid: sid, chapterId: chapterId, parentAttr: parentAttr})}`;
     const dragAttr = readOnly ? "false" : "true";
-    const sceneHint = `${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""}`;
-    const sceneTitle = readOnly
-      ? sceneHint
-      : `${sceneHint} · 더블클릭: 이름 바꾸기 · 끌어 원하는 위치에 놓기 (위/아래: 순서 · 가운데: 하위)`;
+    const sceneTitle = `${escapeHtml(display.tooltip)}${titleExtra ? ` · ${titleExtra}` : ""}${sceneBm ? " · 북마크" : ""}`;
     return `
       <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="${dragAttr}">
         <div class="scene-row">
@@ -58149,9 +58325,7 @@ function renderBinderFolderNodeHtml(node, opts = {}) {
     const folderTreeClass = (!nestedUnderScene && depth > 0) ? " is-folder-tree-child" : "";
     const lastClass = (depth > 0 && isLastSibling) ? " is-last" : "";
     const nestedFoldersClass = childFolders.length ? " has-nested-folders" : "";
-    const folderTitleHint = readOnly
-      ? escapeHtml(node.title)
-      : `${escapeHtml(node.title)} (더블클릭: 이름 바꾸기 · 끌어 이동)`;
+    const folderTitleHint = escapeHtml(node.title);
     const rowDrag = readOnly ? "false" : "true";
     const rowTitle = readOnly ? "" : ` title="${i18n.t('app.끌어_폴더_순서_바꾸기')}"`;
     return `
@@ -58298,9 +58472,7 @@ function renderChapterOutlineHtml(chapter, {
   }
   const chapterDrag = readOnly || nestedUnderScene ? "false" : "true";
   const renameAttr = readOnly ? "" : `data-rename-chapter="${chapter.id}"`;
-  const chapterTitleHint = readOnly
-    ? `${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""}`
-    : `${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""} (더블클릭: 이름 바꾸기${nestedUnderScene ? "" : " · 끌어 이동"})`;
+  const chapterTitleHint = `${escapeHtml(chapter.title)}${allComplete ? " · 완결" : ""}`;
   const rowTitle = readOnly ? "" : ` title="${i18n.t('app.끌어_폴더_순서_바꾸기')}"`;
   return `
     <section class="outline-chapter ${expanded ? "" : "is-collapsed"} ${allComplete ? "is-chapter-complete" : ""}${nestClass}${folderTreeClass}${sceneNestDepthClass}${binderDepthClass}${lastClass}" data-chapter-id="${chapter.id}"${partAttr}${folderIdAttr}${binderDepthAttr}${colorAttr}${colorBrightAttr}${pinAttr}${bmAttr}${boxAttr}${sourceKindAttr} data-expanded="${expanded ? "true" : "false"}" data-depth="${nestedUnderScene ? nestDepth : ""}" draggable="${chapterDrag}">
@@ -58550,7 +58722,7 @@ function renderOutline(chaptersArg) {
       outlineSceneOpenTimer = window.setTimeout(() => {
         outlineSceneOpenTimer = null;
         if (isOutlineInlineRenaming()) return;
-        openScene(sceneId).catch(handleError);
+        requestOpenScene(sceneId);
       }, 220);
     });
     button.addEventListener("dblclick", (event) => {
@@ -61269,7 +61441,7 @@ function setupOutlineOverview() {
       const id = Number(sceneBtn.dataset.overviewScene);
       if (!id) return;
       closeOutlineOverview();
-      openScene(id).catch(handleError);
+      requestOpenScene(id, { force: true });
       return;
     }
     const chapterBtn = event.target.closest?.("[data-overview-chapter]");
@@ -62708,6 +62880,88 @@ const EPISODE_TABS_PREFIX = "supertory.episodeTabs.";
 
 function episodeTabsKey(projectId = state.projectId) {
   return `${EPISODE_TABS_PREFIX}${projectId || "0"}`;
+}
+
+function liveProjectIdSet(projects = state.projects) {
+  const ids = new Set();
+  (Array.isArray(projects) ? projects : []).forEach((project) => {
+    const id = Number(project?.id);
+    if (Number.isFinite(id) && id > 0) ids.add(id);
+  });
+  return ids;
+}
+
+function pruneStaleEpisodeTabStorage(projects = state.projects) {
+  const live = liveProjectIdSet(projects);
+  try {
+    const keys = [];
+    for (let i = 0; i < localStorage.length; i += 1) {
+      const key = localStorage.key(i);
+      if (key && key.startsWith(EPISODE_TABS_PREFIX)) keys.push(key);
+    }
+    keys.forEach((key) => {
+      const pid = Number(key.slice(EPISODE_TABS_PREFIX.length));
+      if (!Number.isFinite(pid) || pid <= 0 || !live.has(pid)) {
+        localStorage.removeItem(key);
+      }
+    });
+  } catch (_) {
+    /* ignore quota / private mode */
+  }
+}
+
+function dropStaleEpisodeTab(sceneId) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  const before = Array.isArray(state.episodeTabs) ? state.episodeTabs : [];
+  const tabs = before.filter((tab) => Number(tab.sceneId) !== id);
+  if (tabs.length === before.length) return;
+  state.episodeTabs = tabs;
+  saveEpisodeTabsToStorage();
+  if (typeof renderEpisodeChrome === "function") renderEpisodeChrome();
+}
+
+function isCurrentOutlineReady() {
+  const pid = liveProjectId();
+  return Boolean(pid) && Number(state.outlineProjectId) === pid;
+}
+
+function sceneBelongsInCurrentOutline(sceneId) {
+  if (!isCurrentOutlineReady()) return null;
+  return sceneExistsInCurrentOutline(sceneId);
+}
+
+function toastForeignOrMissingScene(detail) {
+  const pid = Number(detail?.project_id);
+  const known = Number.isFinite(pid) && pid > 0 && liveProjectIdSet().has(pid);
+  toast(
+    known
+      ? i18n.t("app.이_회차는_지금_연_작품의_원고가_아니에")
+      : i18n.t("app.이_회차가_속한_작품을_찾을_수_없어요_탭"),
+  );
+}
+
+function rejectForeignSceneOpen(sceneId, detail, gen) {
+  dropStaleEpisodeTab(sceneId);
+  if (typeof renderOutline === "function" && isCurrentOutlineReady()) {
+    try { renderOutline(state.outline); } catch (_) { /* ignore */ }
+  }
+  if (!isCurrentSceneOpenGen(gen)) return true;
+  toastForeignOrMissingScene(detail);
+  if (!state.sceneId) showWelcome();
+  return true;
+}
+
+function requestOpenScene(sceneId, options = {}) {
+  const id = Number(sceneId);
+  if (!Number.isFinite(id) || id <= 0) return;
+  if (id === Number(state.sceneId) && !options.force) return;
+  if (sceneBelongsInCurrentOutline(id) === false) {
+    dropStaleEpisodeTab(id);
+    toast(i18n.t("app.이_회차는_지금_연_작품의_원고가_아니에"));
+    return;
+  }
+  openScene(id, options).catch(handleError);
 }
 
 function loadEpisodeTabsFromStorage() {
@@ -67383,7 +67637,7 @@ function setupSynopsisList() {
     const id = Number(btn.dataset.synopsisScene);
     if (!Number.isFinite(id) || id <= 0) return;
     closeSynopsisList();
-    openScene(id).catch(handleError);
+    requestOpenScene(id, { force: true });
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -67473,7 +67727,7 @@ function closeEpisodeTab(sceneId) {
   // Switch to nearest remaining tab, or leave editor.
   if (tabs.length) {
     const next = tabs[tabs.length - 1];
-    openScene(next.sceneId).catch(handleError);
+    requestOpenScene(next.sceneId, { force: true });
   } else {
     // Keep workspace but no scene — go welcome for this project.
     void (async () => {
@@ -67573,7 +67827,7 @@ function setupEpisodeChrome() {
     const tab = event.target.closest?.("[data-episode-tab]");
     if (!tab) return;
     const id = Number(tab.dataset.episodeTab);
-    if (id && id !== Number(state.sceneId)) openScene(id).catch(handleError);
+    if (id) requestOpenScene(id);
   });
   // Middle-click closes tab (browser-like).
   $("episodeTabBar")?.addEventListener("auxclick", (event) => {
@@ -67697,6 +67951,20 @@ function fillSceneEditorFields(scene) {
   if (typeof applySceneCompleteLock === "function") applySceneCompleteLock();
 }
 
+function scenePayloadProjectId(detail) {
+  const pid = Number(detail?.project_id);
+  return Number.isFinite(pid) && pid > 0 ? pid : null;
+}
+
+function draftConflictsWithProject(draft, serverProjectId) {
+  const draftPid = Number(draft?.projectId);
+  if (!Number.isFinite(draftPid) || draftPid <= 0) return false;
+  const serverPid = Number(serverProjectId);
+  if (Number.isFinite(serverPid) && serverPid > 0 && draftPid !== serverPid) return true;
+  const current = liveProjectId();
+  return Boolean(current) && draftPid !== current;
+}
+
 async function openScene(sceneId, options = {}) {
   const nextId = Number(sceneId);
   if (!Number.isFinite(nextId) || nextId <= 0) {
@@ -67712,6 +67980,10 @@ async function openScene(sceneId, options = {}) {
   ) {
     return;
   }
+
+  const gen = bumpSceneOpenGen();
+  const signal = sceneOpenController?.signal;
+  const stillThisOpen = () => isCurrentSceneOpenGen(gen);
 
   // Flush pending edits before leaving the current scene.
   // Wait out an in-flight save too: persistScene({ quiet }) returns immediately
@@ -67729,9 +68001,11 @@ async function openScene(sceneId, options = {}) {
     } else {
       cancelScheduledAutoSave();
     }
+    if (!stillThisOpen()) return;
     if (typeof waitForSceneSaveIdle === "function") {
       await waitForSceneSaveIdle();
     }
+    if (!stillThisOpen()) return;
     if (sceneDirty && state.sceneId && Number(state.sceneId) !== nextId) {
       try {
         await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
@@ -67746,11 +68020,13 @@ async function openScene(sceneId, options = {}) {
     // Do not let that timer fire against the scene we are about to open.
     cancelScheduledAutoSave();
   }
+  if (!stillThisOpen()) return;
   try {
     await flushPendingCodexSaves();
   } catch (_) {
     /* continue into the scene */
   }
+  if (!stillThisOpen()) return;
 
   if (!options.keepBinder) {
     setActiveBinder("manuscript");
@@ -67763,23 +68039,35 @@ async function openScene(sceneId, options = {}) {
   let detail;
   let members;
   let openedFromLocalOnly = false;
+  const apiOpts = signal ? { signal } : {};
   try {
     // Show shell immediately so the center is never a blank dead pane.
     // Lock until fillSceneEditorFields applies the fetched status.
     showSceneEditorPane({ pendingLock: true });
-    detail = await api(`/api/scenes/${nextId}`);
+    detail = await api(`/api/scenes/${nextId}`, apiOpts);
+    if (!stillThisOpen()) return;
     try {
-      members = await api(`/api/scenes/${nextId}/characters`);
-    } catch (_) {
+      members = await api(`/api/scenes/${nextId}/characters`, apiOpts);
+    } catch (charError) {
+      if (isAbortError(charError) || !stillThisOpen()) return;
       members = [];
     }
   } catch (error) {
+    if (isAbortError(error) || !stillThisOpen()) return;
     // Offline / server down: open local draft if we have one so work is never stranded.
     const draft = await readLocalSceneDraft(nextId);
-    if (draft && (draft.content_md != null || draft.title)) {
+    if (!stillThisOpen()) return;
+    const currentPid = liveProjectId();
+    if (draft && draftConflictsWithProject(draft, currentPid)) {
+      clearLocalSceneDraft(nextId);
+    }
+    const usableDraft = draft && !draftConflictsWithProject(draft, currentPid)
+      && (draft.content_md != null || draft.title);
+    if (usableDraft) {
       openedFromLocalOnly = true;
       detail = {
         id: nextId,
+        project_id: Number(draft.projectId) || currentPid || undefined,
         title: draft.title || `${i18n.t('app.씬_nextId', {nextId: nextId})}`,
         status: draft.status || "draft",
         synopsis_md: draft.synopsis_md || "",
@@ -67800,6 +68088,15 @@ async function openScene(sceneId, options = {}) {
       return;
     }
   }
+  if (!stillThisOpen()) return;
+
+  const detailProjectId = scenePayloadProjectId(detail);
+  const currentProjectId = liveProjectId();
+  if (detailProjectId && currentProjectId && detailProjectId !== currentProjectId) {
+    rejectForeignSceneOpen(nextId, detail, gen);
+    return;
+  }
+  if (!stillThisOpen()) return;
 
   state.sceneId = nextId;
   state.scene = detail;
@@ -67820,14 +68117,16 @@ async function openScene(sceneId, options = {}) {
 
   cancelScheduledAutoSave();
   showSceneEditorPane({ pendingLock: true });
+  if (!stillThisOpen()) return;
   fillSceneEditorFields(detail);
   if (!openedFromLocalOnly) {
-    await maybeRestoreLocalDraft(detail);
+    await maybeRestoreLocalDraft(detail, { gen });
   } else {
     sceneDirty = true;
     setSceneSaveStatus(i18n.t('app.오프라인_보관본_연결_시_동기화'));
     scheduleAutoSave();
   }
+  if (!stillThisOpen()) return;
   syncOpeningHintForScene(nextId);
   // Per-episode page color (if set) vs project-wide default
   if (typeof refreshManuscriptPageTheme === "function") {
@@ -67885,6 +68184,7 @@ async function openScene(sceneId, options = {}) {
 
   // Focus manuscript so typing works immediately.
   requestAnimationFrame(() => {
+    if (!stillThisOpen()) return;
     if (options.skipEditorFocus || isOutlineInlineRenaming()) return;
     const editor = $("sceneContent");
     if (!editor) return;
@@ -67903,12 +68203,15 @@ async function openScene(sceneId, options = {}) {
   // Refresh outline highlight without blocking the editor.
   if (!options.skipOutlineReload && !isOutlineInlineRenaming()) {
     loadProject().then(() => {
-      if (isOutlineInlineRenaming()) return;
+      if (!stillThisOpen() || isOutlineInlineRenaming()) return;
       // Outline refresh may update episode labels (chapter renames).
       const refreshed = getEpisodeSequence().find((e) => e.sceneId === nextId);
       if (refreshed?.label) upsertEpisodeTab(nextId, refreshed.shortLabel || refreshed.label);
       renderEpisodeChrome();
-    }).catch(handleError);
+    }).catch((error) => {
+      if (isAbortError(error) || !stillThisOpen()) return;
+      handleError(error);
+    });
   }
   if (state.splitEnabled) {
     renderSplitViewer().catch(handleError);
@@ -68893,15 +69196,30 @@ function notifyLocalDraftKept(error) {
  * After loading server scene, restore a newer local draft if present.
  * Returns true if editor was restored from local storage.
  */
-async function maybeRestoreLocalDraft(serverScene) {
+async function maybeRestoreLocalDraft(serverScene, options = {}) {
   const sceneId = Number(serverScene?.id || state.sceneId);
   if (!sceneId) return false;
+  const gen = options.gen;
+  const stillThisOpen = () => gen == null || isCurrentSceneOpenGen(gen);
   const draft = await readLocalSceneDraft(sceneId);
+  if (!stillThisOpen()) return false;
   if (!draft || draft.content_md == null) return false;
   if (draft.idbOnly && !draft.content_md) {
     const idb = await readLocalSceneDraftIdb(sceneId);
+    if (!stillThisOpen()) return false;
     if (!idb?.content_md) return false;
     Object.assign(draft, idb);
+  }
+
+  const serverPid = scenePayloadProjectId(serverScene) || liveProjectId();
+  if (draftConflictsWithProject(draft, serverPid)) {
+    console.warn("[supertory] dropping local draft from another project", {
+      sceneId,
+      draftProjectId: draft.projectId,
+      serverProjectId: serverPid,
+    });
+    clearLocalSceneDraft(sceneId);
+    return false;
   }
 
   const serverContent = String(serverScene?.content_md || "");
@@ -68925,6 +69243,8 @@ async function maybeRestoreLocalDraft(serverScene) {
     clearLocalSceneDraft(sceneId);
     return false;
   }
+
+  if (!stillThisOpen()) return false;
 
   suppressSceneDirty = true;
   if ($("sceneTitle") && draft.title != null) $("sceneTitle").value = draft.title;
