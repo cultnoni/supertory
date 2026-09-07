@@ -146,9 +146,11 @@ def serialize_invite(
     *,
     comment_count: int = 0,
     edit_count: int = 0,
+    scene_titles: list[str] | None = None,
 ) -> dict[str, Any]:
     token = str(row.get("token") or "")
     permission = normalize_permission(row.get("permission"))
+    titles = [str(title).strip() for title in (scene_titles or []) if str(title).strip()]
     return {
         "id": str(row.get("id") or ""),
         "token": token,
@@ -163,7 +165,43 @@ def serialize_invite(
         "public_url": public_read_url(token) if token else "",
         "comment_count": int(comment_count or 0),
         "edit_count": int(edit_count or 0),
+        "scene_titles": titles,
     }
+
+
+def ordered_scene_titles(rows: list[dict[str, Any]] | None) -> list[str]:
+    ordered = sorted(
+        list(rows or []),
+        key=lambda row: int(row.get("order_index") or 0),
+    )
+    titles: list[str] = []
+    for row in ordered:
+        title = str(row.get("scene_title") or "").strip()
+        if title:
+            titles.append(title)
+    return titles
+
+
+def _scene_titles_by_invite(supabase: Any, invite_ids: list[str]) -> dict[str, list[str]]:
+    ids = [str(invite_id) for invite_id in invite_ids if str(invite_id or "").strip()]
+    if not ids:
+        return {}
+    try:
+        found = (
+            supabase.table("reading_invite_scenes")
+            .select("invite_id, order_index, scene_title")
+            .in_("invite_id", ids)
+            .execute()
+        )
+    except Exception:
+        return {}
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for row in _rows(found):
+        key = str(row.get("invite_id") or "")
+        if not key:
+            continue
+        grouped.setdefault(key, []).append(row)
+    return {key: ordered_scene_titles(items) for key, items in grouped.items()}
 
 
 def create_invite(
@@ -235,7 +273,10 @@ def create_invite(
         except Exception:
             pass
         raise _supabase_fail(error, "화 스냅샷을 올리지 못했습니다") from error
-    return serialize_invite(row)
+    return serialize_invite(
+        row,
+        scene_titles=[str(item.get("scene_title") or "").strip() for item in scene_rows],
+    )
 
 
 def list_invites(
@@ -303,11 +344,13 @@ def list_invites(
                 edit_counts[key] = edit_counts.get(key, 0) + 1
         except Exception:
             edit_counts = {}
+    scene_titles_by_invite = _scene_titles_by_invite(supabase, invite_ids)
     return [
         serialize_invite(
             row,
             comment_count=counts.get(str(row.get("id") or ""), 0),
             edit_count=edit_counts.get(str(row.get("id") or ""), 0),
+            scene_titles=scene_titles_by_invite.get(str(row.get("id") or ""), []),
         )
         for row in invites
     ]
@@ -333,6 +376,49 @@ def revoke_invite(
         )
     except Exception as error:  # noqa: BLE001
         raise _supabase_fail(error, "링크를 끄지 못했습니다") from error
+    row = _first(updated)
+    if not row:
+        raise ReadingInviteError("초대 링크를 찾을 수 없습니다.", status="not_found")
+    return serialize_invite(row)
+
+
+def restore_invite(
+    *,
+    invite_id: str,
+    user: dict[str, Any] | None = None,
+    client: Any | None = None,
+) -> dict[str, Any]:
+    owner, supabase = _require_user_and_client(user=user, client=client)
+    iid = str(invite_id or "").strip()
+    if not iid:
+        raise ReadingInviteError("초대 링크를 찾을 수 없습니다.", status="not_found")
+    try:
+        loaded = (
+            supabase.table("reading_invites")
+            .select("*")
+            .eq("id", iid)
+            .eq("user_id", owner["id"])
+            .execute()
+        )
+    except Exception as error:  # noqa: BLE001
+        raise _supabase_fail(error, "링크를 켜지 못했습니다") from error
+    current = _first(loaded)
+    if not current:
+        raise ReadingInviteError("초대 링크를 찾을 수 없습니다.", status="not_found")
+    if display_status(current) == "expired":
+        raise ReadingInviteError("만료된 링크는 다시 켤 수 없어요.")
+    if str(current.get("status") or "").strip() == "active":
+        return serialize_invite(current)
+    try:
+        updated = (
+            supabase.table("reading_invites")
+            .update({"status": "active"})
+            .eq("id", iid)
+            .eq("user_id", owner["id"])
+            .execute()
+        )
+    except Exception as error:  # noqa: BLE001
+        raise _supabase_fail(error, "링크를 켜지 못했습니다") from error
     row = _first(updated)
     if not row:
         raise ReadingInviteError("초대 링크를 찾을 수 없습니다.", status="not_found")

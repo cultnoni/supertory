@@ -354,6 +354,30 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
         self.assertIn("settings-panel-card-grid", characters_nav)
         self.assertIn('data-guide-tip="characterBoard"', self.html)
         self.assertIn('data-guide-tip-dismiss="characterBoard"', self.html)
+        item_board = self.html.split('id="itemBoard"', 1)[1].split(
+            'id="dictionaryBoard"', 1
+        )[0]
+        self.assertIn('data-guide-tip="itemBoard"', item_board)
+        self.assertIn('data-guide-tip-dismiss="itemBoard"', item_board)
+        self.assertIn("index.아이템_카드를_누르면_가운데에서_상세_설정을", item_board)
+        self.assertIn('{ id: "itemBoard"', self.js)
+        board = self.html.split('id="dictionaryBoard"', 1)[1].split(
+            'id="dictionaryForm"', 1
+        )[0]
+        self.assertIn('data-guide-tip="dictionaryBoard"', board)
+        self.assertIn('data-guide-tip-dismiss="dictionaryBoard"', board)
+        self.assertIn("index.고유어와_세계관_용어를_개인_사전처럼_모아", board)
+        modal = self.html.split('id="dictionaryModal"', 1)[1].split(
+            'id="dictTermPopup"', 1
+        )[0]
+        self.assertIn('data-guide-tip="dictionaryModal"', modal)
+        self.assertIn('data-guide-tip-dismiss="dictionaryModal"', modal)
+        self.assertIn("index.선택한_단어를_개인_사전에_넣어요", modal)
+        self.assertIn('for="dictionaryModalTerm"', modal)
+        self.assertIn('for="dictionaryModalDefinition"', modal)
+        self.assertIn(".dictionary-form .dictionary-field", self.css)
+        self.assertIn('{ id: "dictionaryBoard"', self.js)
+        self.assertIn('{ id: "dictionaryModal"', self.js)
         editor = self.html.split('id="characterEditor"', 1)[1].split(
             'id="itemEditor"', 1
         )[0]
@@ -364,6 +388,48 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
         self.assertIn("newToryVaultButton", vault_body)
         self.assertIn("clearToryVaultButton", vault_body)
         self.assertIn("#toryVaultBody > .settings-box-toolbar", self.css)
+        success_body = self.html.split('id="successProfileBody"', 1)[1].split(
+            'data-settings-section="toryVault"', 1
+        )[0]
+        self.assertIn('id="successProfileTipBox"', success_body)
+        self.assertIn('data-guide-tip="successProfile"', success_body)
+        self.assertIn('data-guide-tip-dismiss="successProfile"', success_body)
+        self.assertIn("app.흥행_공식_분석으로_만든_프로파일을_이_작품", success_body)
+        panel_html = success_body.split('id="successProfileMainPanel"', 1)[1]
+        self.assertNotIn("app.흥행_공식_분석으로_만든_프로파일을_이_작품", panel_html)
+        self.assertIn('tipId: "successProfileTipBox"', self.js)
+        self.assertIn('{ id: "successProfile", label: i18n.t(\'app.흥행작_프로파일_안내\') }', self.js)
+        chat_pane = self.html.split('id="toryChatCharacterChatPane"', 1)[1].split(
+            'id="toryChatCharacterSimPane"', 1
+        )[0]
+        self.assertIn('data-guide-tip="characterChat"', chat_pane)
+        self.assertIn('data-guide-tip-dismiss="characterChat"', chat_pane)
+        self.assertIn("index.여러_명을_고르면_단톡으로_이야기할_수_있어", chat_pane)
+        self.assertIn("여러 명을 고르면 단톡으로 이야기할 수 있어요.", chat_pane)
+        self.assertIn("guide-tip-box", chat_pane)
+        self.assertIn('{ id: "characterChat", label: i18n.t(\'app.캐릭터와_대화하기_안내\') }', self.js)
+        all_modal = self.html.split('id="toryChatCharacterAllModal"', 1)[1].split(
+            'id="genreContextMenu"', 1
+        )[0]
+        self.assertIn('id="toryChatCharacterAllTipBox"', all_modal)
+        self.assertIn('data-guide-tip="characterChatAll"', all_modal)
+        self.assertIn('data-guide-tip-dismiss="characterChatAll"', all_modal)
+        self.assertIn("app.인물을_고른_뒤_대화_시작을_눌러_주세요", all_modal)
+        self.assertIn('id="toryChatCharacterAllStart"', all_modal)
+        self.assertIn('id="toryChatCharacterAllScenario"', all_modal)
+        self.assertIn("index.대화_시작", all_modal)
+        self.assertIn("app.상황_설정하기", all_modal)
+        self.assertIn('{ id: "characterChatAll"', self.js)
+        self.assertIn('{ id: "characterSimAll"', self.js)
+        self.assertIn("function syncToryChatCharacterAllTip(", self.js)
+        self.assertIn("function syncToryChatCharacterAllActions(", self.js)
+        for locale_name in ("ko.json", "en.json", "es.json"):
+            locale = (ROOT / "web" / "locales" / locale_name).read_text(encoding="utf-8")
+            self.assertIn('"index.여러_명을_고르면_단톡으로_이야기할_수_있어"', locale)
+            self.assertIn('"app.캐릭터와_대화하기_안내"', locale)
+            self.assertIn('"app.내_캐릭터_전체보기_안내"', locale)
+            self.assertIn('"app.시뮬레이션_전체보기_안내"', locale)
+            self.assertNotIn('"index.한_명_또는_여러_명을_고르면_단톡방으로_이"', locale)
         invite_body = self.html.split('id="readingInviteBody"', 1)[1].split(
             'data-settings-section="sources"', 1
         )[0]
@@ -371,6 +437,10 @@ class SettingsCodexAutosaveTests(unittest.TestCase):
         self.assertIn("readingInviteCreateBlock", invite_body)
         self.assertIn("만든 링크 관리", invite_body)
         self.assertIn("settings-box-body #readingInviteCreateBlock", self.css)
+        self.assertIn(".settings-collection-tip-mount #readingInviteTipBox", self.css)
+        tip_css = self.css.split(".settings-collection-tip-mount #readingInviteTipBox", 1)[1].split("}", 1)[0]
+        self.assertIn("display: flex", tip_css)
+        self.assertNotIn("display: block", tip_css)
         self.assertIn("function restoreReadingInvite(", self.js)
         self.assertIn("data-toggle-invite-active", self.js)
 

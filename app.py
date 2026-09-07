@@ -113,6 +113,7 @@ from sync.reading_invites import (
     mark_edit_change_status as mark_reading_invite_edit_status,
     normalize_permission as normalize_reading_invite_permission,
     revoke_invite as revoke_reading_invite,
+    restore_invite as restore_reading_invite,
 )
 from sync.supabase_client import (
     get_current_user,
@@ -11670,6 +11671,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                 if not self._require_reading_invite_user():
                     return
                 self.send_json(self.revoke_reading_invite_api(unquote(match.group(1))))
+                return
+
+            match = re.fullmatch(r"/api/reading-invites/([^/]+)/restore", path)
+            if match:
+                if not self._require_reading_invite_user():
+                    return
+                self.send_json(self.restore_reading_invite_api(unquote(match.group(1))))
                 return
 
             match = re.fullmatch(r"/api/reading-invite-changes/([^/]+)/review", path)
@@ -24498,6 +24506,17 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
         except Exception as error:  # noqa: BLE001
             raise ReadingInviteError(
                 f"링크를 끄지 못했습니다: {error}",
+                status="server",
+            ) from error
+
+    def restore_reading_invite_api(self, invite_id: str) -> dict:
+        try:
+            return {"invite": restore_reading_invite(invite_id=str(invite_id or ""))}
+        except ReadingInviteError:
+            raise
+        except Exception as error:  # noqa: BLE001
+            raise ReadingInviteError(
+                f"링크를 켜지 못했습니다: {error}",
                 status="server",
             ) from error
 

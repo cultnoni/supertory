@@ -198,7 +198,15 @@ class ReadingInviteUiContractTests(unittest.TestCase):
         self.assertIn("data-delete-invite", js)
         self.assertIn("reading-invite-item-accordion", js)
         self.assertIn("readingInviteOpenPanels", js)
+        self.assertIn("function readingInviteListTitle", js)
+        self.assertIn("app.first_외_n건", js)
         self.assertNotIn("data-open-invite-feedback", js)
+        ko = (ROOT / "web" / "locales" / "ko.json").read_text(encoding="utf-8")
+        en = (ROOT / "web" / "locales" / "en.json").read_text(encoding="utf-8")
+        es = (ROOT / "web" / "locales" / "es.json").read_text(encoding="utf-8")
+        self.assertIn('"app.first_외_n건": "${first} 외 ${n}건"', ko)
+        self.assertIn("app.first_외_n건", en)
+        self.assertIn("app.first_외_n건", es)
 
 
 class ReadingInviteServiceTests(unittest.TestCase):
@@ -233,6 +241,7 @@ class ReadingInviteServiceTests(unittest.TestCase):
         self.assertTrue(invite["token"])
         self.assertIn("/read/", invite["public_url"])
         self.assertEqual(invite["status"], "active")
+        self.assertEqual(invite["scene_titles"], ["1화", "3화"])
         uploaded = self.client.tables["reading_invite_scenes"].inserts
         self.assertEqual(len(uploaded), 2)
         self.assertEqual([row["scene_title"] for row in uploaded], ["1화", "3화"])
@@ -243,6 +252,49 @@ class ReadingInviteServiceTests(unittest.TestCase):
         self.assertIn("선택 본문", joined)
         self.assertNotIn("비밀 스포일러 주석", joined)
         self.assertNotIn("2화", " ".join(row["scene_title"] for row in uploaded))
+
+    def test_list_invites_includes_ordered_scene_titles(self) -> None:
+        first = reading_invites.create_invite(
+            project_id=7,
+            title="테스트 작품",
+            scenes=[
+                {
+                    "order_index": 1,
+                    "scene_title": "3화",
+                    "content_snapshot": "본문3",
+                    "local_scene_id": 13,
+                },
+                {
+                    "order_index": 0,
+                    "scene_title": "1화",
+                    "content_snapshot": "본문1",
+                    "local_scene_id": 11,
+                },
+            ],
+            user=self.user,
+            client=self.client,
+            now=self.now,
+        )
+        second = reading_invites.create_invite(
+            project_id=7,
+            title="테스트 작품",
+            scenes=[
+                {
+                    "order_index": 0,
+                    "scene_title": "프롤로그",
+                    "content_snapshot": "프롤로그 본문",
+                    "local_scene_id": 10,
+                }
+            ],
+            user=self.user,
+            client=self.client,
+            now=self.now,
+        )
+        listed = reading_invites.list_invites(project_id=7, user=self.user, client=self.client)
+        by_id = {item["id"]: item for item in listed}
+        self.assertEqual(by_id[first["id"]]["scene_titles"], ["1화", "3화"])
+        self.assertEqual(by_id[second["id"]]["scene_titles"], ["프롤로그"])
+        self.assertEqual(by_id[first["id"]]["title"], "테스트 작품")
 
     def test_create_stores_permission_and_optional_message(self) -> None:
         scene = {
@@ -836,6 +888,16 @@ class ReadingInviteApiTests(unittest.TestCase):
         self.assertEqual(status, 200, revoked)
         self.assertEqual(revoked["invite"]["status"], "revoked")
         self.assertEqual(self.client.tables["reading_invites"].rows[0]["status"], "revoked")
+        with (
+            patch.object(app, "get_current_user", return_value=self.user),
+            patch.object(app, "get_supabase_client", return_value=self.client),
+            patch.object(reading_invites, "get_current_user", return_value=self.user),
+            patch.object(reading_invites, "get_supabase_client", return_value=self.client),
+        ):
+            status, restored = self._request("POST", f"/api/reading-invites/{invite_id}/restore", {})
+        self.assertEqual(status, 200, restored)
+        self.assertEqual(restored["invite"]["status"], "active")
+        self.assertEqual(self.client.tables["reading_invites"].rows[0]["status"], "active")
 
     def test_delete_via_api(self) -> None:
         project_id, scene_a, _scene_b = self._seed_project()
