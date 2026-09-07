@@ -166,13 +166,13 @@ class PanelDockContractTests(unittest.TestCase):
         ensure_fn = self.js.split("function ensureAiResultVisible(", 1)[1].split(
             "function ensureAiHelperSelectPane(", 1
         )[0]
-        self.assertIn('openDockFloat("aiResult")', ensure_fn)
-        self.assertNotIn("setAiHelperPane", ensure_fn)
+        self.assertIn("setAiHelperPane", ensure_fn)
+        self.assertNotIn('openDockFloat("aiResult")', ensure_fn)
         helper_fn = self.js.split("function setAiHelperPane(", 1)[1].split(
             "function ensureAiResultVisible(", 1
         )[0]
         self.assertIn('pane === "result"', helper_fn)
-        self.assertIn('openDockFloat("aiResult")', helper_fn)
+        self.assertNotIn('openDockFloat("aiResult")', helper_fn)
         history_open = self.js.split("function openAiResultHistoryModal(", 1)[1].split(
             "function closeAiResultHistoryModal(", 1
         )[0]
@@ -254,7 +254,8 @@ class PanelDockContractTests(unittest.TestCase):
         appearances = left_rail.split('data-dock-item="appearances"', 1)[1].split("</button>", 1)[0]
         self.assertIn('viewBox="0 0 24 24"', appearances)
         self.assertIn('stroke="currentColor"', appearances)
-        self.assertIn("M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z", appearances)
+        self.assertIn("M18 8c0 3.613-3.869 7.429-5.393 8.795a1 1 0 0 1-1.214 0C9.87 15.429 6 11.613 6 8a6 6 0 0 1 12 0", appearances)
+        self.assertIn("M8.714 14h-3.71a1 1 0 0 0-.948.683l-2.004 6A1 1 0 0 0 3 22h18a1 1 0 0 0 .948-1.316l-2-6a1 1 0 0 0-.949-.684h-3.712", appearances)
         self.assertIn('width="18"', appearances)
         self.assertIn('stroke-width="1.7"', appearances)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
@@ -272,6 +273,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("dock-appearance-snippet", self.js)
         self.assertIn("dock-appearance-line", self.js)
         self.assertIn(".dock-appearance-item.is-latest", self.css)
+        self.assertIn('dockGuideTipHtml("dockAppearances"', self.js)
+        self.assertIn('id: "dockAppearances"', self.js)
         for locale in self.locales.values():
             for key in (
                 "index.등장_이력",
@@ -311,6 +314,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("resize: { minWidth: DOCK_DICTIONARY_MIN_W, minHeight: DOCK_DICTIONARY_MIN_H }", dictionary_spec)
         self.assertIn("dictionary: DOCK_DICTIONARY_KEY", self.js)
         self.assertIn("function renderDockDictionaryBody(", self.js)
+        self.assertIn("data-role=\"dock-dictionary-add\"", self.js)
+        self.assertIn("data-dock-dictionary-edit", self.js)
         self.assertIn("function addToryDictionaryFromSelection(", self.js)
         self.assertIn('data-context-action="add-tory-dict"', self.html)
         self.assertIn(".idea-float.dock-float.dock-float-dictionary", self.css)
@@ -329,7 +334,10 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("index.토리_사전에_추가", locale)
             self.assertIn("index.이미_kinds_에_같은_이름이_있어요", locale)
         self.assertEqual(self.locales["ko"]["app.토리_사전"], "토리 사전")
-        self.assertEqual(self.locales["ko"]["index.열린_떡밥"], "열린 떡밥")
+        self.assertEqual(self.locales["ko"]["index.열린_떡밥"], "떡밥 모음")
+        self.assertIn('dockGuideTipHtml("dockDictionary"', self.js)
+        self.assertIn("function dockGuideTipHtml(", self.js)
+        self.assertIn('id: "dockDictionary"', self.js)
 
     def test_stats_tracker_is_pinned_dock_widget(self) -> None:
         self.assertIn('data-dock-item="statsTracker"', self.html)
@@ -811,6 +819,26 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("function setupPanelDock()", self.js)
         self.assertIn('safeSetup("setupPanelDock", setupPanelDock)', self.js)
 
+    def test_dock_widgets_open_centered(self) -> None:
+        self.assertIn("function dockFloatCenterPos(", self.js)
+        center = self.js.split("function dockFloatCenterPos(", 1)[1].split(
+            "function dockFloatFallbackPos(", 1
+        )[0]
+        self.assertIn("Math.round((vw - w) / 2)", center)
+        self.assertIn("Math.round((vh - h) / 2)", center)
+        fallback = self.js.split("function dockFloatFallbackPos(", 1)[1].split(
+            "function dockAiFloatFallbackPos(", 1
+        )[0]
+        self.assertIn("dockFloatCenterPos(width, height)", fallback)
+        self.assertNotIn("getBoundingClientRect", fallback)
+        open_fn = self.js.split("function openDockFloatWindow(key, spec, sourceEl)", 1)[1].split(
+            "function openDockFloat(itemId, sourceEl)", 1
+        )[0]
+        self.assertIn(
+            "dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight)",
+            open_fn,
+        )
+
     def test_character_card_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="characters"')
         characters = self.html.split('data-dock-item="characters"', 1)[1].split("</button>", 1)[0]
@@ -828,10 +856,16 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("syncDockCharacterCardExpanded", self.js)
         self.assertIn('data-context-action="open-character-card"', self.html)
         self.assertIn("function characterAtTextOffset(", self.js)
+        self.assertIn("function namedHitFromEditorPoint(", self.js)
+        self.assertIn("function pointHitsRangeRects(", self.js)
+        self.assertIn("function rangeFromEditorTextOffsets(", self.js)
         self.assertIn(
             "sceneCastLabels(character)",
             self.js.split("function characterAtTextOffset", 1)[1].split("function characterFromSelectedText", 1)[0],
         )
+        char_from_point = self.js.split("function characterFromEditorPoint(", 1)[1].split("function itemAtTextOffset(", 1)[0]
+        self.assertIn("namedHitFromEditorPoint", char_from_point)
+        self.assertIn("pointHitsRangeRects", self.js.split("function namedHitFromEditorPoint(", 1)[1].split("function characterFromEditorPoint(", 1)[0])
         self.assertIn(".idea-float.dock-float.dock-float-character", self.css)
         self.assertIn(".idea-float.dock-float-character.is-expanded .dock-char-extra", self.css)
         ideas_spec = spec.split("ideas:", 1)[1].split("statsTracker:", 1)[0]
@@ -1078,7 +1112,7 @@ class PanelDockContractTests(unittest.TestCase):
         baits = self.html.split('data-dock-item="baits"', 1)[1].split("</button>", 1)[0]
         self.assertIn('path d="M12 22v-9"', baits)
         self.assertIn("M15.17 2.21a1.67 1.67 0 0 1 1.63 0L21 4.57", baits)
-        self.assertIn('title="열린 떡밥"', baits)
+        self.assertIn('title="떡밥 모음"', baits)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         self.assertIn("baits:", spec)
         baits_spec = spec.split("baits:", 1)[1].split("settingsSearch:", 1)[0]
@@ -1086,19 +1120,78 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('windowClass: "dock-float-baits"', baits_spec)
         self.assertIn("function renderDockBaitsBody(", self.js)
         self.assertIn("function loadDockBaits(", self.js)
+        self.assertIn("function loadDockBaitsAndCollected(", self.js)
         self.assertIn("function setDockBaitResolved(", self.js)
         self.assertIn("/api/projects/${pid}/open-threads", self.js)
-        self.assertIn("method: \"PATCH\"", self.js.split("function setDockBaitResolved(", 1)[1].split("function renderDockBaitsBody(", 1)[0])
+        self.assertIn("refreshBaitsFromServer()", self.js.split("function loadDockBaitsAndCollected(", 1)[1].split("function renderDockBaitsBody(", 1)[0])
+        self.assertIn("method: \"PATCH\"", self.js.split("function setDockBaitResolved(", 1)[1].split("function loadDockBaitsAndCollected(", 1)[0])
         self.assertIn("baits: DOCK_BAITS_KEY", self.js)
         self.assertIn(".idea-float.dock-float.dock-float-baits", self.css)
         self.assertIn(".dock-bait-item.is-resolved", self.css)
+        self.assertIn(".dock-baits-tabs", self.css)
         self.assertIn("data-settings-section=\"baits\"", self.html)
+        self.assertIn("index.토리가_짚어둔_떡밥", self.js)
+        self.assertIn("index.내가_모은_떡밥", self.js)
+        self.assertIn('data-dock-baits-tab="tory"', self.js)
+        self.assertIn('data-dock-baits-tab="collected"', self.js)
+        self.assertIn('dockGuideTipHtml("dockBaits"', self.js)
+        self.assertIn('id: "dockBaits"', self.js)
         for locale in self.locales.values():
             self.assertIn("index.열린_떡밥", locale)
             self.assertIn("index.열린_떡밥_안내", locale)
+            self.assertIn("index.토리가_짚어둔_떡밥", locale)
+            self.assertIn("index.내가_모은_떡밥", locale)
             self.assertIn("app.아직_열린_떡밥이_없어요", locale)
+            self.assertIn("app.내가_모은_떡밥이_없어요", locale)
+            self.assertIn("app.떡밥모음_위젯_안내", locale)
             self.assertIn("app.해결됨", locale)
             self.assertIn("app.본문_보기", locale)
+            self.assertIn("app.토리_사전_안내", locale)
+            self.assertIn("app.등장_이력_안내", locale)
+
+    def test_tory_vault_and_sources_dock_widgets(self) -> None:
+        self.assertRegex(
+            self.html,
+            r'class="panel-dock-item is-ready"[^>]*data-dock-item="toryVault"',
+        )
+        self.assertRegex(
+            self.html,
+            r'class="panel-dock-item is-ready"[^>]*data-dock-item="sources"',
+        )
+        spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
+        vault_spec = spec.split("toryVault:", 1)[1].split("sources:", 1)[0]
+        sources_spec = spec.split("sources:", 1)[1].split("credits:", 1)[0]
+        self.assertIn('windowClass: "dock-float-tory-vault"', vault_spec)
+        self.assertIn("resize: { minWidth: DOCK_TORY_VAULT_MIN_W, minHeight: DOCK_TORY_VAULT_MIN_H }", vault_spec)
+        self.assertIn('windowClass: "dock-float-sources"', sources_spec)
+        self.assertIn("resize: { minWidth: DOCK_SOURCES_MIN_W, minHeight: DOCK_SOURCES_MIN_H }", sources_spec)
+        self.assertIn("toryVault: DOCK_TORY_VAULT_KEY", self.js)
+        self.assertIn("sources: DOCK_SOURCES_KEY", self.js)
+        self.assertIn("function renderDockToryVaultBody(", self.js)
+        self.assertIn('dockGuideTipHtml("toryVault"', self.js)
+        self.assertIn('{ id: "toryVault"', self.js)
+        self.assertIn("function renderDockSourcesBody(", self.js)
+        self.assertIn('dockGuideTipHtml("sources"', self.js)
+        self.assertIn('{ id: "sources"', self.js)
+        self.assertIn("function syncDockToryVaultFloat(", self.js)
+        self.assertIn("function syncDockSourcesFloat(", self.js)
+        self.assertIn("promptNewToryVaultNote({ openSettings: false })", self.js)
+        self.assertIn("openSourceModal({})", self.js.split("function renderDockSourcesBody(", 1)[1].split("function dockManuscriptWin(", 1)[0])
+        self.assertIn("handleToryVaultListClick", self.js.split("function renderDockToryVaultBody(", 1)[1].split("function syncDockSourcesFloat(", 1)[0])
+        self.assertIn("handleSourceListClick", self.js.split("function renderDockSourcesBody(", 1)[1].split("function dockManuscriptWin(", 1)[0])
+        self.assertIn(".idea-float.dock-float.dock-float-tory-vault", self.css)
+        self.assertIn(".idea-float.dock-float.dock-float-sources", self.css)
+        self.assertIn(".dock-tory-vault-list", self.css)
+        self.assertIn(".dock-sources-list", self.css)
+        for locale in self.locales.values():
+            self.assertIn("app.토리의_수집창고", locale)
+            self.assertIn("app.토리의_수집창고_안내", locale)
+            self.assertIn("index.토리의_수집창고_안내", locale)
+            self.assertIn("app.참고자료_출처", locale)
+            self.assertIn("app.참고자료_출처_안내", locale)
+            self.assertIn("index.참고자료_출처_안내", locale)
+            self.assertIn("app.토리와_이야기하다_나온_아이디어를_수집하면", locale)
+            self.assertIn("app.링크_출처_또는_PDF_Word_한글_텍스트", locale)
 
     def test_manuscript_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="manuscript"')
@@ -1169,6 +1262,8 @@ class PanelDockContractTests(unittest.TestCase):
             "app.크로스_레퍼런스_시스템",
             "index.크로스_레퍼런스로_검색",
             "index.열린_떡밥",
+            "index.토리가_짚어둔_떡밥",
+            "index.내가_모은_떡밥",
             "app.아직_열린_떡밥이_없어요",
             "app.해결됨",
             "index.목차보기",
@@ -1181,6 +1276,8 @@ class PanelDockContractTests(unittest.TestCase):
             "index.아이템_카드_힌트",
             "index.아직_아이템이_없어요",
             "index.연대기_아이템_필터",
+            "app.토리의_수집창고",
+            "app.참고자료_출처",
         )
         for locale in self.locales.values():
             for key in keys:

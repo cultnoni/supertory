@@ -35,7 +35,7 @@ LOCKED_PURPOSES = frozenset({
     "other",
 })
 
-GENRE_LITERATURE_MAIN = frozenset({"mystery", "thriller", "genre_lit", "sf"})
+GENRE_LITERATURE_MAIN = frozenset({"mystery", "thriller", "genre_lit", "sf", "traditional", "experimental"})
 GENRE_LITERATURE_SUB = frozenset({
     "honkaku", "social", "cozy", "legal", "crime",
     "psycho", "action", "horror", "suspense",
@@ -144,28 +144,35 @@ def genre_detail_label(value: object = "") -> str:
 # cluster sub key → (purpose, main_genre, sub_genre)
 CLUSTER_SUBGENRE_MAP: dict[str, dict[str, tuple[str, str, str]]] = {
     "webnovel": {
-        "romance": ("web_novel", "romance", "modern"),
+        "fantasy": ("web_novel", "fantasy", ""),
+        "urban": ("web_novel", "urban", ""),
+        "martial": ("web_novel", "martial", ""),
+        "historical": ("web_novel", "historical", ""),
+        "sports": ("web_novel", "sports", ""),
+        "romance": ("web_novel", "romance", ""),
         "romfant": ("web_novel", "romance", "romfant"),
-        "bl": ("web_novel", "romance", "bl"),
-        "gl": ("web_novel", "romance", "gl"),
-        "female_fantasy": ("web_novel", "fantasy", "female"),
-        "male_fantasy": ("web_novel", "fantasy", "male"),
+        "bl": ("web_novel", "romance", "blgl"),
+        "gl": ("web_novel", "romance", "blgl"),
+        "female_fantasy": ("web_novel", "romance", "romfant"),
+        "male_fantasy": ("web_novel", "fantasy", ""),
     },
     "genre_literature": {
-        "mystery_detective": ("general_novel", "mystery", "honkaku"),
-        "thriller": ("general_novel", "thriller", "psycho"),
-        "sf": ("general_novel", "sf", "space"),
+        "mystery_detective": ("genre_literature", "mystery", "honkaku"),
+        "thriller": ("genre_literature", "thriller", "psycho"),
+        "sf": ("genre_literature", "sf", "space"),
+        "traditional": ("genre_literature", "traditional", ""),
+        "experimental": ("genre_literature", "experimental", ""),
     },
     "general_literature": {
-        "general_novel": ("general_novel", "contemporary", "daily"),
-        "general_lit": ("general_novel", "literary", "mid"),
-        "literary": ("general_novel", "literary", "long"),
-        "essay": ("essay", "other", "tbd"),
+        "general_lit": ("literature", "general_lit", "mid"),
+        "literary": ("literature", "literary", "long"),
+        "essay": ("literature", "essay", "tbd"),
     },
     "fairytale": {
-        "fairytale": ("fairy_tale", "", ""),
+        "infant": ("fairy_tale", "infant", ""),
         "preschool": ("fairy_tale", "preschool", ""),
         "elementary": ("fairy_tale", "elementary", ""),
+        "fairytale": ("fairy_tale", "preschool", ""),
     },
 }
 
@@ -209,7 +216,9 @@ def infer_cluster_id(
         return "webnovel"
     if purpose_key == "fairy_tale":
         return "fairytale"
-    if purpose_key == "essay":
+    if purpose_key == "genre_literature":
+        return "genre_literature"
+    if purpose_key in {"literature", "essay"}:
         return "general_literature"
     if purpose_key == "general_novel":
         if main_key in GENRE_LITERATURE_MAIN or sub_key in GENRE_LITERATURE_SUB:

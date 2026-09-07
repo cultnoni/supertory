@@ -1385,11 +1385,11 @@ const SETTINGS_DOC_PAIR_CHROME = {
   },
   logline: {
     title: i18n.t('app.로그라인_시놉시스'),
-    hint: i18n.t('app.로그라인과_시놉시스를_나란히_편집합니다'),
+    hint: "",
   },
   synopsis: {
     title: i18n.t('app.로그라인_시놉시스'),
-    hint: i18n.t('app.로그라인과_시놉시스를_나란히_편집합니다'),
+    hint: "",
   },
 };
 
@@ -1492,6 +1492,16 @@ const WORLD_BUILDING_SCHEMA = [
       { id: "conflict", label: i18n.t('app.갈등의_원인'), example: i18n.t('app.재앙_대응_독점을_둘러싼_이권_다툼') },
     ],
   },
+  {
+    id: "geography",
+    title: i18n.t('app.6_지리적_특징_Geography'),
+    blurb: i18n.t('app.땅의_생김새와_이동_경로가_이야기에_미치는'),
+    fields: [
+      { id: "geo_terrain", label: i18n.t('app.지형_기후'), example: i18n.t('app.해안_절벽과_안개가_잦은_항구_내륙은_건조한') },
+      { id: "geo_regions", label: i18n.t('app.주요_지역'), example: i18n.t('app.하버라인_지하_구역_외곽_방파제') },
+      { id: "geo_routes", label: i18n.t('app.경계와_이동'), example: i18n.t('app.지상은_빗물_차단_터널_지하_수로로만_이동') },
+    ],
+  },
 ];
 
 const WORLD_FIELD_IDS = WORLD_BUILDING_SCHEMA.flatMap((sec) => sec.fields.map((f) => f.id));
@@ -1500,6 +1510,7 @@ function emptyWorldBuildingValues() {
   const values = Object.create(null);
   for (const id of WORLD_FIELD_IDS) values[id] = "";
   values.legacy = "";
+  values.extras = [];
   return values;
 }
 
@@ -1548,6 +1559,8 @@ function ensureWorldbuildingMainForm() {
       </article>`;
   }).join("");
   host.innerHTML = `${cards}
+    <div class="worldbuilding-extras" id="worldbuildingExtrasMain" data-world-extras></div>
+    <button type="button" class="secondary compact-btn world-add-extra-btn" data-world-add-extra>${escapeWorldHtml(i18n.t("index.요소_추가"))}</button>
     <article class="world-main-card world-main-card-legacy world-cat-legacy hidden" id="worldCatLegacyMain" data-world-section="legacy" hidden>
       <h3 class="world-main-card-title">기타 · 기존 메모</h3>
       <p class="world-main-card-blurb">구조에 맞지 않던 이전 세계관 텍스트입니다. 위 칸으로 옮겨 정리해도 됩니다.</p>
@@ -1579,6 +1592,7 @@ function readWorldBuildingFormValuesFrom(form) {
     if (!key) return;
     values[key] = String(el.value || "").trim();
   });
+  values.extras = readWorldExtrasFrom(form);
   return values;
 }
 
@@ -1589,6 +1603,135 @@ function readWorldBuildingFormValues() {
     return readWorldBuildingFormValuesFrom($("worldbuildingMainForm") || $("worldbuildingForm"));
   }
   return readWorldBuildingFormValuesFrom($("worldbuildingForm"));
+}
+
+const WORLD_EXTRAS_HEADING = "st-world-extras";
+const WORLD_EXTRAS_BLOCK_RE = /\n*##\s*st-world-extras\s*\n```json\s*\n([\s\S]*?)\n```/i;
+const WORLD_EXTRA_SECTION_RE = /^추가 요소[:：]\s*(.+)$/;
+
+function normalizeWorldExtras(raw) {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, index) => {
+    if (!item || typeof item !== "object") return null;
+    return {
+      id: String(item.id || "").trim() || `extra_${index + 1}`,
+      title: String(item.title || "").trim(),
+      body: String(item.body || "").trim(),
+    };
+  }).filter(Boolean);
+}
+
+function newWorldExtraId() {
+  return `extra_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 6)}`;
+}
+
+function parseWorldExtrasBlock(text) {
+  const extras = [];
+  const cleaned = String(text || "").replace(WORLD_EXTRAS_BLOCK_RE, (_, json) => {
+    try {
+      const data = JSON.parse(json);
+      if (Array.isArray(data)) extras.push(...normalizeWorldExtras(data));
+    } catch (_) { /* ignore */ }
+    return "\n";
+  });
+  return { text: cleaned.trim(), extras };
+}
+
+function readWorldExtrasFrom(form) {
+  if (!form) return [];
+  return [...form.querySelectorAll("[data-world-extra-id]")].map((el, index) => ({
+    id: String(el.dataset.worldExtraId || "").trim() || `extra_${index + 1}`,
+    title: String(el.querySelector("[data-world-extra-title]")?.value || "").trim(),
+    body: String(el.querySelector("[data-world-extra-body]")?.value || "").trim(),
+  }));
+}
+
+function worldExtraArticleHtml(extra, isMain) {
+  const id = escapeWorldHtml(extra.id);
+  const title = extra.title || "";
+  const body = extra.body || "";
+  const titlePh = escapeWorldHtml(i18n.t("index.요소_이름"));
+  const bodyPh = escapeWorldHtml(i18n.t("index.작품에_맞게_적어_주세요"));
+  const removeLabel = escapeWorldHtml(i18n.t("app.삭제"));
+  if (isMain) {
+    return `
+      <article class="world-main-card world-extra-card" data-world-extra-id="${id}">
+        <div class="world-extra-head">
+          <input type="text" class="world-extra-title" data-world-extra-title maxlength="80" value="${escapeWorldHtml(title)}" placeholder="${titlePh}" aria-label="${titlePh}">
+          <button type="button" class="secondary compact-btn world-extra-remove" data-world-extra-remove title="${removeLabel}" aria-label="${removeLabel}">×</button>
+        </div>
+        <label class="world-main-field">
+          <textarea data-world-extra-body rows="4" placeholder="${bodyPh}">${escapeWorldHtml(body)}</textarea>
+        </label>
+      </article>`;
+  }
+  return `
+    <article class="world-cat world-extra-card" data-world-extra-id="${id}">
+      <div class="world-extra-head">
+        <input type="text" class="world-extra-title" data-world-extra-title maxlength="80" value="${escapeWorldHtml(title)}" placeholder="${titlePh}" aria-label="${titlePh}">
+        <button type="button" class="secondary compact-btn world-extra-remove" data-world-extra-remove title="${removeLabel}" aria-label="${removeLabel}">×</button>
+      </div>
+      <label class="world-cat-field">
+        <textarea data-world-extra-body rows="3" placeholder="${bodyPh}">${escapeWorldHtml(body)}</textarea>
+      </label>
+    </article>`;
+}
+
+function renderWorldExtras(form, extras, { force = false } = {}) {
+  const host = form?.querySelector("[data-world-extras]");
+  if (!host) return;
+  const list = normalizeWorldExtras(extras);
+  const active = document.activeElement;
+  const existing = [...host.querySelectorAll("[data-world-extra-id]")];
+  const existingIds = existing.map((el) => el.dataset.worldExtraId);
+  const nextIds = list.map((item) => item.id);
+  const sameStructure = existingIds.length === nextIds.length && existingIds.every((id, i) => id === nextIds[i]);
+  const isMain = form.id === "worldbuildingMainForm";
+  if (!force && sameStructure) {
+    list.forEach((item) => {
+      let article = null;
+      try {
+        article = host.querySelector(`[data-world-extra-id="${CSS.escape(item.id)}"]`);
+      } catch (_) {
+        article = host.querySelector(`[data-world-extra-id="${item.id}"]`);
+      }
+      if (!article) return;
+      const titleEl = article.querySelector("[data-world-extra-title]");
+      const bodyEl = article.querySelector("[data-world-extra-body]");
+      if (titleEl && active !== titleEl) titleEl.value = item.title || "";
+      if (bodyEl && active !== bodyEl) bodyEl.value = item.body || "";
+    });
+    return;
+  }
+  if (!force && host.contains(active)) return;
+  host.innerHTML = list.map((item) => worldExtraArticleHtml(item, isMain)).join("");
+}
+
+function addWorldExtraSection() {
+  const values = readWorldBuildingFormValues();
+  values.extras = [
+    ...normalizeWorldExtras(values.extras),
+    { id: newWorldExtraId(), title: i18n.t("index.새_요소"), body: "" },
+  ];
+  worldbuildingExampleDraft = false;
+  applyWorldBuildingValuesToForm(values, { force: true });
+  pushWorldBuildingFormToState({ commitDraft: true });
+  persistSettingsDoc("world", { quiet: true }).catch(handleError);
+  const host = (isWorldbuildingMainOpen() ? $("worldbuildingMainForm") : $("worldbuildingForm"))
+    ?.querySelector("[data-world-extras]");
+  const last = host?.querySelector("[data-world-extra-id]:last-of-type [data-world-extra-title]");
+  try { last?.focus({ preventScroll: true }); } catch (_) { last?.focus(); }
+}
+
+function removeWorldExtraSection(extraId) {
+  const id = String(extraId || "");
+  if (!id) return;
+  const values = readWorldBuildingFormValues();
+  values.extras = normalizeWorldExtras(values.extras).filter((item) => item.id !== id);
+  worldbuildingExampleDraft = false;
+  applyWorldBuildingValuesToForm(values, { force: true });
+  pushWorldBuildingFormToState({ commitDraft: true });
+  persistSettingsDoc("world", { quiet: true }).catch(handleError);
 }
 
 function composeWorldbuildingMd(values) {
@@ -1605,6 +1748,20 @@ function composeWorldbuildingMd(values) {
       parts.push("");
     }
   }
+  const extras = normalizeWorldExtras(v.extras);
+  for (const extra of extras) {
+    const title = String(extra.title || "").replace(/\s+/g, " ").trim() || i18n.t("index.새_요소");
+    parts.push(`## 추가 요소: ${title}`);
+    parts.push(extra.body || "");
+    parts.push("");
+  }
+  if (extras.length) {
+    parts.push(`## ${WORLD_EXTRAS_HEADING}`);
+    parts.push("```json");
+    parts.push(JSON.stringify(extras));
+    parts.push("```");
+    parts.push("");
+  }
   const legacy = String(v.legacy || "").trim();
   if (legacy) {
     parts.push(i18n.t('app.기타_기존_메모'));
@@ -1620,9 +1777,15 @@ function parseWorldbuildingMd(raw) {
   if (!text) return values;
   if (looksLikeHtml(text)) text = plainTextFromHtml(text).trim();
   if (!text) return values;
+  const extracted = parseWorldExtrasBlock(text);
+  text = extracted.text;
+  if (extracted.extras.length) values.extras = extracted.extras;
 
   const hasStructured = WORLD_BUILDING_SCHEMA.some((sec) => text.includes(sec.title)
-    || text.includes(sec.title.replace(/\s*\([^)]*\)\s*$/, "").trim()));
+    || text.includes(sec.title.replace(/\s*\([^)]*\)\s*$/, "").trim()))
+    || extracted.extras.length
+    || text.includes("## 추가 요소:")
+    || text.includes("## 추가 요소：");
   if (!hasStructured) {
     values.legacy = text;
     return values;
@@ -1637,7 +1800,6 @@ function parseWorldbuildingMd(raw) {
   labelToId[i18n.t('app.기타_기존_메모_2')] = "legacy";
   labelToId[i18n.t('app.기타')] = "legacy";
 
-  // Split on ### headings (field labels) or ## section titles we don't store as fields.
   const chunks = text.split(/\n(?=#{2,3}\s+)/);
   let currentField = null;
   const buffers = Object.create(null);
@@ -1653,13 +1815,27 @@ function parseWorldbuildingMd(raw) {
     }
     const heading = headingMatch[1].replace(/\s+/g, " ").trim();
     const body = chunk.slice(headingMatch[0].length).trim();
-    // Skip top-level section blurbs stored under ## titles.
+    const extraHeading = heading.match(WORLD_EXTRA_SECTION_RE);
+    if (extraHeading) {
+      currentField = null;
+      if (!extracted.extras.length) {
+        values.extras.push({
+          id: `extra_${values.extras.length + 1}`,
+          title: extraHeading[1].trim(),
+          body,
+        });
+      }
+      continue;
+    }
+    if (heading.toLowerCase() === WORLD_EXTRAS_HEADING) {
+      currentField = null;
+      continue;
+    }
     const isSection = WORLD_BUILDING_SCHEMA.some((sec) => sec.title === heading
       || sec.title.replace(/\s*\([^)]*\)\s*$/, "").trim() === heading.replace(/\s*\([^)]*\)\s*$/, "").trim()
       || heading.startsWith(sec.title.slice(0, 8)));
     if (isSection && !labelToId[heading]) {
       currentField = null;
-      // Drop section blurb lines from body; keep leftover only if it looks like author content.
       const cleaned = body
         .split(/\n/)
         .filter((line) => {
@@ -1716,6 +1892,7 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
     applyToriDraftClass(el);
     autoResizeSettingsSidebarTextarea(el, { preserve: false });
   });
+  renderWorldExtras(form, v.extras, { force });
   restoreOverflowScroll(snap);
   const legacyWrap = form.querySelector("[data-world-section='legacy']")
     || (form.id === "worldbuildingForm" ? $("worldCatLegacy") : $("worldCatLegacyMain"));
@@ -1727,6 +1904,7 @@ function applyWorldBuildingValuesToFormRoot(form, values, { force = false } = {}
 }
 
 function applyWorldBuildingValuesToForm(values, { force = false } = {}) {
+  ensureWorldbuildingMainForm();
   const v = values || emptyWorldBuildingValues();
   for (const form of worldBuildingFormRoots()) {
     applyWorldBuildingValuesToFormRoot(form, v, { force });
@@ -7143,10 +7321,14 @@ let characterBoardGroupView = false;
 let characterRoleGroupsCollapsed = {};
 /** @type {string[]} */
 let characterCustomRolesCache = [];
+const PURPOSE_OPTION_KEYS = ["web_novel", "genre_literature", "literature", "fairy_tale", "other"];
 const purposeLabel = {
-  general_novel: i18n.t('app.일반소설'),
   web_novel: i18n.t('app.웹소설'),
+  genre_literature: i18n.t('app.장르문학'),
+  literature: i18n.t('app.문학'),
   fairy_tale: i18n.t('app.동화'),
+  other: i18n.t('app.기타'),
+  general_novel: i18n.t('app.일반소설'),
   short_story: i18n.t('app.단편'),
   essay: i18n.t('app.에세이'),
   translation: i18n.t('app.번역'),
@@ -7158,7 +7340,21 @@ const purposeLabel = {
   diary: i18n.t('app.일기_기록'),
   report: i18n.t('app.보고서'),
   column: i18n.t('app.칼럼_비평'),
-  other: i18n.t('app.기타'),
+};
+const PURPOSE_ALIAS = {
+  novel: "literature",
+  essay: "literature",
+  short_story: "literature",
+  general_literature: "literature",
+  translation: "other",
+  nonfiction: "other",
+  paper: "other",
+  autobiography: "other",
+  poetry: "other",
+  script: "other",
+  diary: "other",
+  report: "other",
+  column: "other",
 };
 
 const KNOWN_CLUSTER_IDS = ["webnovel", "genre_literature", "general_literature", "fairytale", "locked"];
@@ -7166,7 +7362,7 @@ const LOCKED_CLUSTER_PURPOSES = [
   "short_story", "translation", "nonfiction", "paper", "autobiography",
   "poetry", "script", "diary", "report", "column", "other",
 ];
-const GENRE_LITERATURE_MAIN = new Set(["mystery", "thriller", "genre_lit", "sf"]);
+const GENRE_LITERATURE_MAIN = new Set(["mystery", "thriller", "genre_lit", "sf", "traditional", "experimental"]);
 const GENRE_LITERATURE_SUB = new Set([
   "honkaku", "social", "cozy", "legal", "crime",
   "psycho", "action", "horror", "suspense", "detective",
@@ -7178,10 +7374,12 @@ const GENRE_CLUSTERS = [
     labelKey: "app.웹소설",
     status: "active",
     subGenres: [
-      { key: "romance", labelKey: "app.로맨스" },
-      { key: "romfant", labelKey: "app.로판" },
-      { key: "female_fantasy", labelKey: "app.여성향_판타지" },
-      { key: "male_fantasy", labelKey: "app.남성향_판타지" },
+      { key: "fantasy", labelKey: "app.판타지", group: "male" },
+      { key: "urban", labelKey: "app.현대판타지", group: "male" },
+      { key: "martial", labelKey: "app.무협", group: "male" },
+      { key: "historical", labelKey: "app.역사_시대", group: "male" },
+      { key: "sports", labelKey: "app.스포츠", group: "male" },
+      { key: "romance", labelKey: "app.로맨스", group: "female" },
     ],
   },
   {
@@ -7189,17 +7387,18 @@ const GENRE_CLUSTERS = [
     labelKey: "app.장르문학",
     status: "active",
     subGenres: [
-      { key: "mystery_detective", labelKey: "app.추리_미스터리" },
-      { key: "thriller", labelKey: "app.스릴러" },
       { key: "sf", labelKey: "app.SF" },
+      { key: "mystery_detective", labelKey: "app.미스테리_추리" },
+      { key: "thriller", labelKey: "app.스릴러_호러" },
+      { key: "traditional", labelKey: "app.정통판타지" },
+      { key: "experimental", labelKey: "app.실험장르" },
     ],
   },
   {
     id: "general_literature",
-    labelKey: "app.일반소설_문학_에세이",
+    labelKey: "app.문학",
     status: "active",
     subGenres: [
-      { key: "general_novel", labelKey: "app.일반소설" },
       { key: "general_lit", labelKey: "app.일반문학" },
       { key: "literary", labelKey: "app.순문학" },
       { key: "essay", labelKey: "app.에세이" },
@@ -7210,7 +7409,9 @@ const GENRE_CLUSTERS = [
     labelKey: "app.동화",
     status: "active",
     subGenres: [
-      { key: "fairytale", labelKey: "app.동화" },
+      { key: "infant", labelKey: "app.영아" },
+      { key: "preschool", labelKey: "app.유아" },
+      { key: "elementary", labelKey: "app.초등_저학년" },
     ],
   },
   {
@@ -7222,26 +7423,35 @@ const GENRE_CLUSTERS = [
 ];
 const CLUSTER_SUBGENRE_MAP = {
   webnovel: {
-    romance: { purpose: "web_novel", main: "romance", sub: "modern" },
+    fantasy: { purpose: "web_novel", main: "fantasy", sub: "" },
+    urban: { purpose: "web_novel", main: "urban", sub: "" },
+    martial: { purpose: "web_novel", main: "martial", sub: "" },
+    historical: { purpose: "web_novel", main: "historical", sub: "" },
+    sports: { purpose: "web_novel", main: "sports", sub: "" },
+    romance: { purpose: "web_novel", main: "romance", sub: "" },
     romfant: { purpose: "web_novel", main: "romance", sub: "romfant" },
-    female_fantasy: { purpose: "web_novel", main: "fantasy", sub: "female" },
-    male_fantasy: { purpose: "web_novel", main: "fantasy", sub: "male" },
+    bl: { purpose: "web_novel", main: "romance", sub: "blgl" },
+    gl: { purpose: "web_novel", main: "romance", sub: "blgl" },
+    female_fantasy: { purpose: "web_novel", main: "romance", sub: "romfant" },
+    male_fantasy: { purpose: "web_novel", main: "fantasy", sub: "" },
   },
   genre_literature: {
-    mystery_detective: { purpose: "general_novel", main: "mystery", sub: "honkaku" },
-    thriller: { purpose: "general_novel", main: "thriller", sub: "psycho" },
-    sf: { purpose: "general_novel", main: "sf", sub: "space" },
+    mystery_detective: { purpose: "genre_literature", main: "mystery", sub: "honkaku" },
+    thriller: { purpose: "genre_literature", main: "thriller", sub: "psycho" },
+    sf: { purpose: "genre_literature", main: "sf", sub: "space" },
+    traditional: { purpose: "genre_literature", main: "traditional", sub: "" },
+    experimental: { purpose: "genre_literature", main: "experimental", sub: "" },
   },
   general_literature: {
-    general_novel: { purpose: "general_novel", main: "contemporary", sub: "daily" },
-    general_lit: { purpose: "general_novel", main: "literary", sub: "mid" },
-    literary: { purpose: "general_novel", main: "literary", sub: "long" },
-    essay: { purpose: "essay", main: "other", sub: "tbd" },
+    general_lit: { purpose: "literature", main: "general_lit", sub: "mid" },
+    literary: { purpose: "literature", main: "literary", sub: "long" },
+    essay: { purpose: "literature", main: "essay", sub: "tbd" },
   },
   fairytale: {
-    fairytale: { purpose: "fairy_tale", main: "", sub: "" },
+    infant: { purpose: "fairy_tale", main: "infant", sub: "" },
     preschool: { purpose: "fairy_tale", main: "preschool", sub: "" },
     elementary: { purpose: "fairy_tale", main: "elementary", sub: "" },
+    fairytale: { purpose: "fairy_tale", main: "preschool", sub: "" },
   },
 };
 const ALL_CLUSTER_FEATURE_IDS = [
@@ -7303,6 +7513,23 @@ function normalizeClusterId(value) {
   return KNOWN_CLUSTER_IDS.includes(key) ? key : "";
 }
 
+function canonicalizePurposeKey(purpose, mainGenre = "") {
+  const raw = String(purpose || "").trim();
+  if (!raw) return "web_novel";
+  if (raw === "novel") return "literature";
+  if (PURPOSE_OPTION_KEYS.includes(raw)) return raw;
+  if (raw === "general_novel") {
+    const main = String(mainGenre || "").trim();
+    if (GENRE_LITERATURE_MAIN.has(main)) return "genre_literature";
+    return "literature";
+  }
+  if (Object.prototype.hasOwnProperty.call(PURPOSE_ALIAS, raw) && PURPOSE_ALIAS[raw]) {
+    return PURPOSE_ALIAS[raw];
+  }
+  if (purposeLabel[raw]) return "other";
+  return "web_novel";
+}
+
 function inferClusterId(purpose, mainGenre, subGenre, stored) {
   const storedId = normalizeClusterId(stored);
   if (storedId) return storedId;
@@ -7310,17 +7537,13 @@ function inferClusterId(purpose, mainGenre, subGenre, stored) {
   const mainKey = String(mainGenre || "").trim();
   const subKey = String(subGenre || "").trim();
   if (!rawPurpose && !mainKey && !subKey) return "webnovel";
-  const purposeKey = normalizePurposeKey(purpose);
+  const purposeKey = canonicalizePurposeKey(purpose, mainGenre);
   if (purposeKey === "web_novel") return "webnovel";
   if (purposeKey === "fairy_tale") return "fairytale";
-  if (purposeKey === "essay") return "general_literature";
-  if (purposeKey === "general_novel") {
-    if (GENRE_LITERATURE_MAIN.has(mainKey) || GENRE_LITERATURE_SUB.has(subKey)) {
-      return "genre_literature";
-    }
-    return "general_literature";
-  }
-  if (LOCKED_CLUSTER_PURPOSES.includes(purposeKey)) return "locked";
+  if (purposeKey === "genre_literature") return "genre_literature";
+  if (purposeKey === "literature") return "general_literature";
+  if (purposeKey === "other") return "locked";
+  if (LOCKED_CLUSTER_PURPOSES.includes(normalizePurposeKey(purpose))) return "locked";
   return "webnovel";
 }
 
@@ -7379,6 +7602,7 @@ function clusterSubGenreOptions(clusterId) {
   return (cluster?.subGenres || []).map((item) => ({
     key: item.key,
     label: i18n.t(item.labelKey),
+    group: item.group || "",
   }));
 }
 
@@ -7409,12 +7633,12 @@ const GENRE_DETAIL_LABEL_KEYS = {
 const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
   "romance|modern": ["historical"],
   "romance|romfant": ["oriental_romfant"],
-  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "traditional", "sports"],
+  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "sports"],
 };
 const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
   romance: ["historical"],
   romfant: ["oriental_romfant"],
-  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "traditional", "sports"],
+  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "sports"],
 };
 
 function genreDetailLabel(key) {
@@ -7517,6 +7741,10 @@ function inferClusterSubKey(clusterId, mainGenre, subGenre) {
     if (main === "sf" || ["space", "dystopia", "cyberpunk", "timeslip", "postapo"].includes(sub)) {
       return "sf";
     }
+    if (main === "traditional") return "traditional";
+    if (main === "experimental" || ["meta", "form", "hybrid"].includes(sub)) {
+      return "experimental";
+    }
   }
   const entries = Object.entries(mapping);
   const subHit = entries.find(([, mapped]) => mapped.sub && mapped.sub === sub);
@@ -7564,24 +7792,45 @@ function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
   const prevMain = opts.keepMain ? mainSelect.value : (opts.main || opts.clusterSub || "");
   mainWrap?.classList.remove("hidden");
   if ($(`${prefix}MainGenreLabel`)) {
-    $(`${prefix}MainGenreLabel`).textContent = i18n.t("app.세부_장르를_선택해_주세요");
+    $(`${prefix}MainGenreLabel`).textContent = i18n.t("app.메인_장르");
   }
-  mainSelect.innerHTML = `<option value="">${escapeHtml(i18n.t("app.세부_장르를_선택해_주세요"))}</option>`
-    + options.map((item) => `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`).join("");
+  mainSelect.innerHTML = groupedSelectOptionsHtml(options, i18n.t("app.장르를_선택해_주세요"));
   if (prevMain && options.some((item) => item.key === prevMain)) mainSelect.value = prevMain;
   else if (options.length === 1) mainSelect.value = options[0].key;
   else mainSelect.value = "";
   mainSelect.required = true;
   mainSelect.disabled = false;
-  subWrap?.classList.add("hidden");
-  if (subSelect) {
-    subSelect.innerHTML = `<option value="">—</option>`;
-    subSelect.value = "";
-    subSelect.required = false;
-    subSelect.disabled = true;
+
+  const mapped = mapClusterSubgenre(clusterId, mainSelect.value);
+  const details = clusterId === "webnovel" && mapped?.main
+    ? (WEB_NOVEL_DETAIL_GENRES[mapped.main] || [])
+    : [];
+  if (details.length && subSelect) {
+    if ($(`${prefix}SubGenreLabel`)) {
+      $(`${prefix}SubGenreLabel`).textContent = fictionDetailGenreLabel();
+    }
+    subWrap?.classList.remove("hidden");
+    const prevSub = opts.keepSub ? subSelect.value : (opts.sub || mapped.sub || "");
+    subSelect.innerHTML = groupedSelectOptionsHtml(details, i18n.t("app.세부_장르를_선택해_주세요"));
+    subSelect.value = details.some((item) => item.key === prevSub) ? prevSub : "";
+    subSelect.required = true;
+    subSelect.disabled = false;
+  } else {
+    subWrap?.classList.add("hidden");
+    if (subSelect) {
+      subSelect.innerHTML = `<option value="">—</option>`;
+      subSelect.value = "";
+      subSelect.required = false;
+      subSelect.disabled = true;
+    }
+  }
+  if (clusterId === "webnovel") hideModalGenreDetail(prefix);
+  else {
+    applyModalClusterPurpose(prefix);
+    syncModalGenreDetail(prefix);
+    return;
   }
   applyModalClusterPurpose(prefix);
-  syncModalGenreDetail(prefix);
 }
 
 function applyModalClusterPurpose(prefix) {
@@ -7592,10 +7841,18 @@ function applyModalClusterPurpose(prefix) {
     purposeSelect.value = "fairy_tale";
     return;
   }
+  if (clusterId === "genre_literature") {
+    purposeSelect.value = mapClusterSubgenre(clusterId, $(`${prefix}MainGenre`)?.value)?.purpose || "genre_literature";
+    return;
+  }
+  if (clusterId === "general_literature") {
+    purposeSelect.value = mapClusterSubgenre(clusterId, $(`${prefix}MainGenre`)?.value)?.purpose || "literature";
+    return;
+  }
   const mapped = mapClusterSubgenre(clusterId, $(`${prefix}MainGenre`)?.value);
   if (mapped?.purpose) purposeSelect.value = mapped.purpose;
   else if (clusterId === "webnovel") purposeSelect.value = "web_novel";
-  else purposeSelect.value = "general_novel";
+  else purposeSelect.value = "other";
 }
 
 function renderGenreClusterGrid(prefix, selectedId = "") {
@@ -7750,8 +8007,9 @@ const WORK_LANGUAGES = [
 
 /* 동화: 대상 연령 */
 const FAIRY_TALE_AUDIENCES = [
-  { key: "preschool", label: i18n.t('app.유아용') },
-  { key: "elementary", label: i18n.t('app.초등용') },
+  { key: "infant", label: i18n.t('app.영아') },
+  { key: "preschool", label: i18n.t('app.유아') },
+  { key: "elementary", label: i18n.t('app.초등_저학년') },
 ];
 const FAIRY_TALE_SUBS = [
   { key: "adventure", label: i18n.t('app.모험') },
@@ -7762,10 +8020,10 @@ const FAIRY_TALE_SUBS = [
   { key: "other", label: i18n.t('app.기타') },
 ];
 
-/** 19금 is only for general novel / web novel / short story */
+/** 19금 is for web novel / genre literature / literature */
 function purposeAllowsAdult19(purpose = state.projectPurpose) {
-  const p = normalizePurposeKey(purpose);
-  return p === "general_novel" || p === "web_novel" || p === "short_story";
+  const p = canonicalizePurposeKey(purpose, state.mainGenre);
+  return p === "web_novel" || p === "genre_literature" || p === "literature";
 }
 
 function withAdult19Option(subs) {
@@ -7787,45 +8045,81 @@ function withAdult19Option(subs) {
 /* Header main/sub genre taxonomy (keys stored on project; free text uses custom: prefix) */
 const GENRE_CUSTOM_PREFIX = "custom:";
 const ADULT19 = { key: "adult19", label: i18n.t('app.19금') };
-const MAIN_GENRES = [
-  { key: "romance", label: i18n.t('app.로맨스') },
-  { key: "fantasy", label: i18n.t('app.판타지') },
+const WEB_NOVEL_MAIN_GENRES = [
+  { key: "fantasy", label: i18n.t("app.판타지"), group: "male" },
+  { key: "urban", label: i18n.t("app.현대판타지"), group: "male" },
+  { key: "martial", label: i18n.t("app.무협"), group: "male" },
+  { key: "historical", label: i18n.t("app.역사_시대"), group: "male" },
+  { key: "sports", label: i18n.t("app.스포츠"), group: "male" },
+  { key: "romance", label: i18n.t("app.로맨스"), group: "female" },
+  { key: "other", label: i18n.t("app.기타") },
+];
+const WEB_NOVEL_DETAIL_GENRES = {
+  fantasy: [
+    { key: "traditional", label: i18n.t("app.정통판타지") },
+    { key: "urban", label: i18n.t("app.현대_판타지") },
+    { key: "isekai", label: i18n.t("app.이세계_판타지") },
+  ],
+  romance: [
+    { key: "modern", label: i18n.t("app.현대_로맨스") },
+    { key: "period", label: i18n.t("app.사극_로맨스") },
+    { key: "romfant", label: i18n.t("app.로맨스_판타지") },
+    { key: "blgl", label: "BL / GL" },
+  ],
+};
+const GENRE_LITERATURE_MAIN_GENRES = [
   { key: "sf", label: "SF" },
-  { key: "mystery", label: i18n.t('app.미스터리') },
-  { key: "thriller", label: i18n.t('app.스릴러_호러') },
-  { key: "historical", label: i18n.t('app.역사_시대') },
-  { key: "martial", label: i18n.t('app.무협') },
-  { key: "contemporary", label: i18n.t('app.현대_일반') },
-  { key: "youth", label: i18n.t('app.청소년') },
-  { key: "literary", label: i18n.t('app.순문학') },
-  { key: "genre_lit", label: i18n.t('app.장르문학') },
-  { key: "experimental", label: i18n.t('app.실험장르') },
+  { key: "mystery", label: i18n.t("app.미스테리_추리") },
+  { key: "thriller", label: i18n.t("app.스릴러_호러") },
+  { key: "traditional", label: i18n.t("app.정통판타지") },
+  { key: "experimental", label: i18n.t("app.실험장르") },
+];
+const LITERATURE_MAIN_GENRES = [
+  { key: "general_lit", label: i18n.t("app.일반문학") },
+  { key: "literary", label: i18n.t("app.순문학") },
+  { key: "essay", label: i18n.t("app.에세이") },
+];
+const LEGACY_MAIN_GENRE_LABELS = [
+  { key: "contemporary", label: i18n.t("app.현대_일반") },
+  { key: "youth", label: i18n.t("app.청소년") },
+  { key: "genre_lit", label: i18n.t("app.장르문학") },
   { key: "blgl", label: "BL·GL" },
-  { key: "other", label: i18n.t('app.기타') },
+];
+const MAIN_GENRES = [
+  ...WEB_NOVEL_MAIN_GENRES.filter((g) => g.key !== "other"),
+  ...GENRE_LITERATURE_MAIN_GENRES,
+  ...LITERATURE_MAIN_GENRES.filter((g) => g.key !== "literary"),
+  ...LEGACY_MAIN_GENRE_LABELS,
+  { key: "literary", label: i18n.t("app.순문학") },
+  { key: "other", label: i18n.t("app.기타") },
 ];
 const SUB_GENRES = {
   romance: [
-    { key: "modern", label: i18n.t('app.현대로맨스') },
-    { key: "period", label: i18n.t('app.시대로맨스') },
-    { key: "romfant", label: i18n.t('app.로판') },
-    { key: "romcom", label: i18n.t('app.로코') },
-    { key: "genre_lit", label: i18n.t('app.장르문학') },
-    { key: "office", label: i18n.t('app.오피스') },
-    { key: "school", label: i18n.t('app.학원') },
-    { key: "contract", label: i18n.t('app.계약_정략') },
-    { key: "chaebol", label: i18n.t('app.재벌') },
-    { key: "other", label: i18n.t('app.기타') },
+    { key: "modern", label: i18n.t("app.현대_로맨스") },
+    { key: "period", label: i18n.t("app.사극_로맨스") },
+    { key: "romfant", label: i18n.t("app.로맨스_판타지") },
+    { key: "blgl", label: "BL / GL" },
+    { key: "romcom", label: i18n.t("app.로코") },
+    { key: "genre_lit", label: i18n.t("app.장르문학") },
+    { key: "office", label: i18n.t("app.오피스") },
+    { key: "school", label: i18n.t("app.학원") },
+    { key: "contract", label: i18n.t("app.계약_정략") },
+    { key: "chaebol", label: i18n.t("app.재벌") },
+    { key: "bl", label: "BL" },
+    { key: "gl", label: "GL" },
+    { key: "other", label: i18n.t("app.기타") },
   ],
   fantasy: [
-    { key: "high", label: i18n.t('app.하이루판') },
-    { key: "low", label: i18n.t('app.저루판') },
-    { key: "isekai", label: i18n.t('app.이세계') },
-    { key: "game", label: i18n.t('app.게임판타지') },
-    { key: "dark", label: i18n.t('app.다크판타지') },
-    { key: "urban", label: i18n.t('app.어반판타지') },
-    { key: "female", label: i18n.t('app.여성향_판타지') },
-    { key: "male", label: i18n.t('app.남성향_판타지') },
-    { key: "other", label: i18n.t('app.기타') },
+    { key: "traditional", label: i18n.t("app.정통판타지") },
+    { key: "urban", label: i18n.t("app.현대_판타지") },
+    { key: "isekai", label: i18n.t("app.이세계_판타지") },
+    { key: "high", label: i18n.t("app.하이루판") },
+    { key: "low", label: i18n.t("app.저루판") },
+    { key: "game", label: i18n.t("app.게임판타지") },
+    { key: "dark", label: i18n.t("app.다크판타지") },
+    { key: "female", label: i18n.t("app.여성향_판타지") },
+    { key: "male", label: i18n.t("app.남성향_판타지") },
+    { key: "other", label: i18n.t("app.기타") },
   ],
   sf: [
     { key: "space", label: i18n.t('app.스페이스') },
@@ -7886,6 +8180,24 @@ const SUB_GENRES = {
     { key: "experimental", label: i18n.t('app.실험') },
     { key: "other", label: i18n.t('app.기타') },
   ],
+  general_lit: [
+    { key: "short", label: i18n.t('app.단편') },
+    { key: "mid", label: i18n.t('app.중편') },
+    { key: "long", label: i18n.t('app.장편') },
+    { key: "other", label: i18n.t('app.기타') },
+  ],
+  essay: [
+    { key: "daily", label: i18n.t('app.일상') },
+    { key: "growth", label: i18n.t('app.성장') },
+    { key: "tbd", label: i18n.t('app.미정') },
+    { key: "other", label: i18n.t('app.기타') },
+  ],
+  traditional: [
+    { key: "high", label: i18n.t('app.하이루판') },
+    { key: "low", label: i18n.t('app.저루판') },
+    { key: "dark", label: i18n.t('app.다크판타지') },
+    { key: "other", label: i18n.t('app.기타') },
+  ],
   genre_lit: [
     { key: "sf", label: "SF" },
     { key: "other", label: i18n.t('app.기타') },
@@ -7911,27 +8223,170 @@ const SUB_GENRES = {
 
 /**
  * How the two header dropdowns behave for the current work purpose.
- * - fiction: 일반소설 / 웹소설 / 단편 → 메인·서브 장르
- * - translation: 원문 언어 · 번역문 언어
- * - fairy_tale: 유아용 / 초등용 (대상만)
+ * - fiction: 웹소설 / 장르문학 / 문학 → 메인·세부 장르
+ * - fairy_tale: 영아 / 유아 / 초등 저학년
+ * - custom: 기타 → 메인 장르 직접 입력
  * - none: 종류만 선택 (추가 칸 숨김)
  */
 function getPurposeCategoryMode(purpose = state.projectPurpose) {
-  const p = normalizePurposeKey(purpose);
-  if (p === "translation") return "translation";
+  const p = canonicalizePurposeKey(purpose, state.mainGenre);
   if (p === "fairy_tale") return "fairy_tale";
-  if (
-    p === "general_novel"
-    || p === "web_novel"
-    || p === "short_story"
-  ) return "fiction";
+  if (p === "other") return "custom";
+  if (p === "web_novel" || p === "genre_literature" || p === "literature") return "fiction";
   return "none";
 }
 
+function mainGenresForPurpose(purpose = state.projectPurpose) {
+  const p = canonicalizePurposeKey(purpose, state.mainGenre);
+  if (p === "web_novel") return WEB_NOVEL_MAIN_GENRES;
+  if (p === "genre_literature") return GENRE_LITERATURE_MAIN_GENRES;
+  if (p === "literature") return LITERATURE_MAIN_GENRES;
+  if (p === "fairy_tale") return FAIRY_TALE_AUDIENCES;
+  return [];
+}
+
+function isWebNovelPurpose(purpose = state.projectPurpose) {
+  return canonicalizePurposeKey(purpose, state.mainGenre) === "web_novel";
+}
+
+function fictionDetailGenreLabel() {
+  return i18n.t("app.세부_장르");
+}
+
+function canonicalizeWebNovelGenre(main, sub, detail) {
+  let nextMain = String(main || "").trim();
+  let nextSub = String(sub || "").trim();
+  const nextDetail = String(detail || "").trim();
+  if (nextMain === "blgl") {
+    return { main: "romance", sub: nextSub === "adult19" ? "adult19" : "blgl", genre_detail: "" };
+  }
+  if (nextMain === "romance") {
+    if (nextSub === "bl" || nextSub === "gl") nextSub = "blgl";
+    if (nextSub === "modern" && nextDetail === "historical") nextSub = "period";
+    if (nextSub === "romfant" && nextDetail === "oriental_romfant") nextSub = "period";
+    return { main: "romance", sub: nextSub, genre_detail: "" };
+  }
+  if (nextMain === "fantasy") {
+    if (nextSub === "female") {
+      return { main: "romance", sub: "romfant", genre_detail: "" };
+    }
+    if (nextSub === "male") {
+      if (nextDetail === "traditional") return { main: "fantasy", sub: "traditional", genre_detail: "" };
+      if (nextDetail === "urban") return { main: "fantasy", sub: "urban", genre_detail: "" };
+      if (nextDetail === "murim") return { main: "martial", sub: "", genre_detail: "" };
+      if (nextDetail === "sports") return { main: "sports", sub: "", genre_detail: "" };
+      if (nextDetail === "alt_history") return { main: "historical", sub: "", genre_detail: "" };
+      if (nextDetail === "hidden_world") return { main: "urban", sub: "", genre_detail: "" };
+      return { main: "fantasy", sub: "", genre_detail: "" };
+    }
+    return { main: "fantasy", sub: nextSub, genre_detail: "" };
+  }
+  return { main: nextMain, sub: nextSub, genre_detail: "" };
+}
+
+function subGenreChoicesForMain(mainKey) {
+  const key = String(mainKey || "");
+  if (isWebNovelPurpose()) {
+    if (Object.prototype.hasOwnProperty.call(WEB_NOVEL_DETAIL_GENRES, key)) {
+      return WEB_NOVEL_DETAIL_GENRES[key];
+    }
+    if (WEB_NOVEL_MAIN_GENRES.some((item) => item.key === key) && key !== "other") {
+      return [];
+    }
+  }
+  return SUB_GENRES[key] || [];
+}
+
+function groupedSelectOptionsHtml(options, placeholder) {
+  const head = `<option value="">${escapeHtml(placeholder)}</option>`;
+  const list = Array.isArray(options) ? options : [];
+  const optionHtml = (item) =>
+    `<option value="${escapeHtml(item.key)}">${escapeHtml(item.label)}</option>`;
+  if (!list.some((item) => item.group)) {
+    return head + list.map(optionHtml).join("");
+  }
+  const buckets = new Map();
+  const order = [];
+  for (const item of list) {
+    const group = item.group || "";
+    if (!buckets.has(group)) {
+      buckets.set(group, []);
+      order.push(group);
+    }
+    buckets.get(group).push(item);
+  }
+  const groupLabel = (group) => {
+    if (group === "male") return i18n.t("app.남성향");
+    if (group === "female") return i18n.t("app.여성향");
+    return "";
+  };
+  return head + order.map((group) => {
+    const body = buckets.get(group).map(optionHtml).join("");
+    const label = groupLabel(group);
+    return label ? `<optgroup label="${escapeHtml(label)}">${body}</optgroup>` : body;
+  }).join("");
+}
+
+function genreContextMenuItemHtml(kind, opt, current) {
+  const key = String(opt.key ?? "");
+  const active = key === current ? " is-active" : "";
+  return `<button type="button" role="menuitem" class="${active.trim()}" data-genre-kind="${escapeHtml(kind)}" data-genre-key="${escapeHtml(key)}">
+      <strong>${escapeHtml(opt.label)}</strong>
+    </button>`;
+}
+
+function groupedGenreMenuHtml(kind, options, current, unsetLabel) {
+  const unset = { key: "", label: unsetLabel };
+  const list = Array.isArray(options) ? options : [];
+  if (!list.some((item) => item.group)) {
+    return [unset, ...list].map((opt) => genreContextMenuItemHtml(kind, opt, current)).join("");
+  }
+  const male = list.filter((item) => item.group === "male");
+  const female = list.filter((item) => item.group === "female");
+  const rest = list.filter((item) => item.group !== "male" && item.group !== "female");
+  return genreContextMenuItemHtml(kind, unset, current)
+    + `<div class="context-menu-label">${escapeHtml(i18n.t("app.남성향"))}</div>`
+    + male.map((opt) => genreContextMenuItemHtml(kind, opt, current)).join("")
+    + `<div class="context-menu-label">${escapeHtml(i18n.t("app.여성향"))}</div>`
+    + female.map((opt) => genreContextMenuItemHtml(kind, opt, current)).join("")
+    + rest.map((opt) => genreContextMenuItemHtml(kind, opt, current)).join("");
+}
+
+function settingsGenreSummaryLine() {
+  const purposeKey = normalizePurposeKey(state.projectPurpose);
+  const purposeText = purposeLabel[purposeKey]
+    || ($("purposeDisplay")?.textContent || "").trim();
+  const stored = isWebNovelPurpose()
+    ? canonicalizeWebNovelGenre(state.mainGenre, state.subGenre, state.genreDetail)
+    : { main: state.mainGenre, sub: state.subGenre, genre_detail: state.genreDetail };
+  const mainText = stored.main ? mainGenreLabel(stored.main) : "";
+  const subText = stored.sub ? subGenreLabel(stored.main, stored.sub) : "";
+  const detailText = genreDetailLabel(stored.genre_detail || "");
+  const skip = new Set([
+    i18n.t("app.미정"),
+    i18n.t("app.장르"),
+    i18n.t("app.메인_장르"),
+    i18n.t("app.세부_장르"),
+    i18n.t("app.하위_장르"),
+    i18n.t("app.서브_장르"),
+  ]);
+  return [purposeText, mainText, subText, detailText]
+    .map((part) => String(part || "").trim())
+    .filter((part) => part && !skip.has(part));
+}
+
+function updateSettingsGenreSummary() {
+  const el = $("settingsGenreSummary");
+  if (!el) return;
+  const line = settingsGenreSummaryLine().join(" · ");
+  el.textContent = line;
+  el.hidden = !line;
+}
+
 function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
-  if (mode === "translation") return i18n.t('app.원문_언어_번역문_언어');
   if (mode === "fairy_tale") return i18n.t('app.동화_대상_유아용_초등용');
   if (mode === "fiction") return i18n.t('app.메인_서브_장르');
+  if (mode === "custom") return i18n.t('app.메인_장르');
   return i18n.t('app.장르');
 }
 
@@ -7951,17 +8406,14 @@ function updateGenrePickerVisibility() {
   const picker = $("genrePicker");
   if (!picker) return;
   const mode = getPurposeCategoryMode();
-  const show = mode === "fiction" || mode === "translation" || mode === "fairy_tale";
+  const show = mode === "fiction" || mode === "fairy_tale" || mode === "custom";
   picker.classList.toggle("hidden", !show);
   picker.setAttribute("aria-hidden", show ? "false" : "true");
   picker.dataset.mode = mode;
   picker.title = genrePickerTitleForMode(mode);
-  // 동화: 대상(유아용/초등용)만 — 두 번째 칸 숨김
-  // 번역: 원문 + 번역문 둘 다
-  // 소설류: 메인 + 서브
   const subField = $("subGenreSelect")?.closest?.(".genre-field");
   if (subField) {
-    subField.classList.toggle("hidden", mode === "fairy_tale" || mode === "none");
+    subField.classList.toggle("hidden", mode === "fairy_tale" || mode === "none" || mode === "custom");
   }
   const mainField = $("mainGenreSelect")?.closest?.(".genre-field");
   if (mainField) {
@@ -7978,9 +8430,12 @@ function updateGenrePickerVisibility() {
 
 function normalizePurposeKey(purpose) {
   const p = String(purpose || "").trim();
-  if (p === "novel") return "general_novel"; // legacy DB value
-  if (purposeLabel[p]) return p;
-  return "general_novel";
+  if (p === "novel") return "literature";
+  if (PURPOSE_OPTION_KEYS.includes(p)) return p;
+  if (p === "general_novel") return "literature";
+  if (PURPOSE_ALIAS[p]) return PURPOSE_ALIAS[p];
+  if (purposeLabel[p]) return canonicalizePurposeKey(p);
+  return "web_novel";
 }
 
 function isKnownLanguage(key) {
@@ -7998,6 +8453,8 @@ function isKnownMainGenre(key) {
 function isKnownSubGenre(mainKey, key) {
   const k = String(key || "");
   if (!k) return false;
+  if (k === "adult19") return true;
+  if ((WEB_NOVEL_DETAIL_GENRES[mainKey] || []).some((g) => g.key === k)) return true;
   return (SUB_GENRES[mainKey] || []).some((g) => g.key === k)
     || FAIRY_TALE_SUBS.some((g) => g.key === k)
     || isKnownLanguage(k);
@@ -8044,30 +8501,29 @@ function subGenreLabel(mainKey = state.mainGenre, subKey = state.subGenre) {
     return FAIRY_TALE_SUBS.find((g) => g.key === value)?.label || value;
   }
   const listKey = isKnownMainGenre(mainKey) ? mainKey : "other";
-  return (SUB_GENRES[listKey] || []).find((g) => g.key === value)?.label || value;
+  return (WEB_NOVEL_DETAIL_GENRES[listKey] || []).find((g) => g.key === value)?.label
+    || (SUB_GENRES[listKey] || []).find((g) => g.key === value)?.label
+    || value;
 }
 
 function resolveMainGenreSelectValue(stored, mode = getPurposeCategoryMode()) {
   const value = String(stored || "");
-  if (!value) return "";
   if (mode === "none") return "";
-  if (mode === "translation") {
-    if (isKnownLanguage(value)) return value;
-    return "other";
-  }
+  if (mode === "custom") return "other";
   if (mode === "fairy_tale") {
     if (isKnownFairyAudience(value)) return value;
     return "";
   }
-  // fiction
-  if (isKnownMainGenre(value)) return value;
-  return "other"; // custom free-text or custom: prefix
+  if (!value) return "";
+  const allowed = mainGenresForPurpose();
+  if (allowed.some((g) => g.key === value)) return value;
+  return "other";
 }
 
 function resolveSubGenreSelectValue(mainKey, stored, mode = getPurposeCategoryMode()) {
   const value = String(stored || "");
   if (!value) return "";
-  if (mode === "none" || mode === "fairy_tale") return "";
+  if (mode === "none" || mode === "fairy_tale" || mode === "custom") return "";
   if (mode === "translation") {
     if (isKnownLanguage(value)) return value;
     return "other";
@@ -8091,15 +8547,18 @@ function updateGenreCustomVisibility() {
   const mainKey = mainSelect?.value || "";
   const subKey = subSelect?.value || "";
   // Translation / fairy tale: custom only when "기타" language/sub is chosen
-  const showMainCustom = hasProject && mainKey === "other";
-  const showSubCustom = hasProject && Boolean(mainKey) && subKey === "other";
+  const showMainCustom = hasProject && (mode === "custom" || mainKey === "other");
+  const showSubCustom = hasProject && Boolean(mainKey) && subKey === "other" && mode !== "custom";
   if (mainCustom) {
     mainCustom.classList.toggle("hidden", !showMainCustom);
     mainCustom.disabled = !showMainCustom;
     if (!showMainCustom) mainCustom.value = "";
-    if (mode === "translation") mainCustom.placeholder = i18n.t('app.원문_언어_직접_입력');
-    else if (mode === "fairy_tale") mainCustom.placeholder = i18n.t('app.대상_직접_입력');
+    if (mode === "fairy_tale") mainCustom.placeholder = i18n.t('app.대상_직접_입력');
     else mainCustom.placeholder = i18n.t('app.직접_입력');
+  }
+  const mainBtn = $("mainGenreDisplay");
+  if (mainBtn) {
+    mainBtn.classList.toggle("hidden", mode === "custom");
   }
   if (subCustom) {
     subCustom.classList.toggle("hidden", !showSubCustom);
@@ -8122,22 +8581,17 @@ function fillMainGenreSelect(selectedStored = "") {
   }
   const selectValue = resolveMainGenreSelectValue(selectedStored, mode);
   let placeholder = i18n.t('app.메인_장르');
-  let options = MAIN_GENRES;
-  if (mode === "translation") {
-    placeholder = i18n.t('app.원문_언어');
-    options = WORK_LANGUAGES;
-  } else if (mode === "fairy_tale") {
-    placeholder = i18n.t('app.유아용_초등용');
+  let options = mainGenresForPurpose();
+  if (mode === "fairy_tale") {
+    placeholder = i18n.t('app.동화_대상');
     options = FAIRY_TALE_AUDIENCES;
+  } else if (mode === "custom") {
+    placeholder = i18n.t('app.직접_입력');
+    options = [{ key: "other", label: i18n.t('app.기타') }];
   }
   select.setAttribute("aria-label", placeholder);
   select.title = placeholder;
-  select.innerHTML = [
-    `<option value="">${escapeHtml(placeholder)}</option>`,
-    ...options.map((g) =>
-      `<option value="${escapeHtml(g.key)}">${escapeHtml(g.label)}</option>`
-    ),
-  ].join("");
+  select.innerHTML = groupedSelectOptionsHtml(options, placeholder);
   if ([...select.options].some((o) => o.value === selectValue)) select.value = selectValue;
   else select.value = "";
   lockHeaderGenreSelects();
@@ -8148,7 +8602,7 @@ function fillMainGenreSelect(selectedStored = "") {
       mainCustom.classList.add("hidden");
       mainCustom.disabled = true;
       mainCustom.value = "";
-    } else if (selectValue === "other") {
+    } else if (mode === "custom" || selectValue === "other") {
       mainCustom.value = isCustomGenreValue(selectedStored)
         ? customGenreText(selectedStored)
         : (selectedStored && selectedStored !== "other" ? String(selectedStored) : "");
@@ -8162,8 +8616,8 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
   const select = $("subGenreSelect");
   if (!select) return;
   const mode = getPurposeCategoryMode();
-  if (mode === "none" || mode === "fairy_tale") {
-    // 동화는 대상만 선택
+  if (mode === "none" || mode === "fairy_tale" || mode === "custom") {
+    // 동화는 대상만 선택, 기타는 메인 직접 입력
     select.innerHTML = `<option value="">—</option>`;
     select.value = "";
     lockHeaderGenreSelects();
@@ -8171,7 +8625,7 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
     if ($("subGenreCustom")) $("subGenreCustom").disabled = true;
     return;
   }
-  let placeholder = i18n.t('app.서브_장르');
+  let placeholder = mode === "translation" ? i18n.t("app.번역문_언어") : fictionDetailGenreLabel();
   let subs = [];
   let listKey = mainKey;
 
@@ -8182,7 +8636,7 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
   } else if (mode === "fiction") {
     // 일반소설 · 웹소설 · 단편 only; 19금 available in subs
     listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
-    const baseSubs = SUB_GENRES[listKey] || [];
+    const baseSubs = subGenreChoicesForMain(listKey);
     subs = withAdult19Option(baseSubs);
   } else {
     subs = [];
@@ -8252,7 +8706,12 @@ function readGenreValuesFromUi() {
   if (subSelect === "other") {
     sub = subCustom ? toCustomGenreValue(subCustom) : "other";
   }
-  const detail = normalizeGenreDetailKey(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+  const detail = isWebNovelPurpose()
+    ? ""
+    : normalizeGenreDetailKey(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+  if (isWebNovelPurpose()) {
+    return canonicalizeWebNovelGenre(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+  }
   return { main, sub, genre_detail: detail };
 }
 
@@ -8262,6 +8721,7 @@ function syncGenrePickerFromState() {
     state.projectPurpose = normalizePurposeKey(state.projectPurpose);
   }
   updateGenrePickerVisibility();
+  placeGenreBlockForKeywordBoard(Boolean(state.keywordBoardOpen));
   const mode = getPurposeCategoryMode();
   const hasProject = Boolean(state.projectId);
   if (mode === "none") {
@@ -8314,10 +8774,20 @@ function syncGenrePickerFromState() {
     return;
   }
   // fiction
+  if (isWebNovelPurpose()) {
+    const canon = canonicalizeWebNovelGenre(state.mainGenre, state.subGenre, state.genreDetail);
+    state.mainGenre = canon.main;
+    state.subGenre = canon.sub;
+    state.genreDetail = canon.genre_detail;
+  }
   const mainKeyForSubs = resolveMainGenreSelectValue(state.mainGenre || "", mode);
   const subListKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || "");
   fillSubGenreSelect(subListKey, state.subGenre || "");
-  fillGenreDetailSelect(subListKey, state.subGenre || "", state.genreDetail || "");
+  fillGenreDetailSelect(
+    isWebNovelPurpose() ? "" : subListKey,
+    isWebNovelPurpose() ? "" : (state.subGenre || ""),
+    isWebNovelPurpose() ? "" : (state.genreDetail || ""),
+  );
   lockHeaderGenreSelects();
   updateGenreCustomVisibility();
   if (hasProject) {
@@ -8415,7 +8885,7 @@ function syncGenreDisplayButtons() {
     mainBtn.classList.toggle("is-with-detail", Boolean(detailText));
     mainBtn.disabled = !hasProject || mode === "none";
     mainBtn.title = hasProject
-      ? i18n.t('app.우클릭_장르_변경')
+      ? i18n.t('app.클릭_장르_변경')
       : i18n.t('app.작품을_먼저_선택해_주세요_2');
   }
   if (subBtn) {
@@ -8427,14 +8897,15 @@ function syncGenreDisplayButtons() {
       const custom = ($("subGenreCustom")?.value || "").trim();
       if (custom) label = custom;
     }
-    subBtn.textContent = label || i18n.t('app.하위_장르');
+    subBtn.textContent = label || fictionDetailGenreLabel();
     const subHidden = mode === "fairy_tale" || mode === "none";
     // Header <select> is always disabled (value store) — do not gate the display button on it.
     subBtn.disabled = !hasProject || subHidden;
     subBtn.title = hasProject
-      ? (mode === "translation" ? i18n.t('app.우클릭_번역문_언어_변경') : i18n.t('app.우클릭_하위_장르_변경'))
+      ? (mode === "translation" ? i18n.t('app.클릭_번역문_언어_변경') : i18n.t('app.클릭_하위_장르_변경'))
       : i18n.t('app.작품을_먼저_선택해_주세요_2');
   }
+  updateSettingsGenreSummary();
 }
 
 function confirmGenreChange() {
@@ -8443,63 +8914,79 @@ function confirmGenreChange() {
   );
 }
 
-function hideGenreContextMenu() {
-  $("genreContextMenu")?.classList.add("hidden");
+function isPickerMenuOpen(menu) {
+  return Boolean(menu && !menu.classList.contains("hidden"));
 }
 
-function placeGenreContextMenu(clientX, clientY) {
-  const menu = $("genreContextMenu");
-  if (!menu) return;
+function placePickerMenuBelowAnchor(menu, anchor) {
+  if (!menu || !anchor) return;
   menu.classList.remove("hidden");
   const pad = 8;
+  const gap = 4;
+  const a = anchor.getBoundingClientRect();
   const rect = menu.getBoundingClientRect();
-  let left = Number(clientX) || 12;
-  let top = Number(clientY) || 12;
-  const w = rect.width || 200;
+  const w = Math.max(rect.width || 0, a.width, 220);
   const h = rect.height || 160;
+  let left = a.left;
+  let top = a.bottom + gap;
   if (left + w > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - w - pad);
-  if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
+  if (left < pad) left = pad;
+  if (top + h > window.innerHeight - pad) {
+    top = Math.max(pad, a.top - h - gap);
+  }
+  menu.style.minWidth = `${Math.round(Math.max(a.width, 220))}px`;
   menu.style.left = `${Math.round(left)}px`;
   menu.style.top = `${Math.round(top)}px`;
+}
+
+function hideGenreContextMenu() {
+  const menu = $("genreContextMenu");
+  if (menu) {
+    menu.classList.add("hidden");
+    delete menu.dataset.genreKind;
+  }
+  $("mainGenreDisplay")?.setAttribute("aria-expanded", "false");
+  $("subGenreDisplay")?.setAttribute("aria-expanded", "false");
+}
+
+function placeGenreContextMenu(anchor) {
+  placePickerMenuBelowAnchor($("genreContextMenu"), anchor);
 }
 
 function getGenreMenuOptions(kind = "main") {
   const mode = getPurposeCategoryMode();
   if (mode === "none") return { title: i18n.t('app.장르'), options: [] };
   if (kind === "main") {
-    if (mode === "translation") {
-      return { title: i18n.t('app.원문_언어_선택'), options: WORK_LANGUAGES };
-    }
     if (mode === "fairy_tale") {
       return { title: i18n.t('app.동화_대상_선택'), options: FAIRY_TALE_AUDIENCES };
     }
-    return { title: i18n.t('app.메인_장르_선택'), options: MAIN_GENRES };
+    if (mode === "custom") {
+      return { title: i18n.t('app.메인_장르_선택'), options: [] };
+    }
+    return { title: i18n.t('app.메인_장르_선택'), options: mainGenresForPurpose() };
   }
   // sub
-  if (mode === "translation") {
-    return { title: i18n.t('app.번역문_언어_선택'), options: WORK_LANGUAGES };
-  }
-  if (mode === "fairy_tale") {
+  if (mode === "fairy_tale" || mode === "custom") {
     return { title: i18n.t('app.세부'), options: [] };
   }
   const mainKey = $("mainGenreSelect")?.value || "";
   const listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
-  const baseSubs = SUB_GENRES[listKey] || [];
+  const baseSubs = subGenreChoicesForMain(listKey);
   const options = typeof withAdult19Option === "function"
     ? withAdult19Option(baseSubs)
     : baseSubs;
   return {
-    title: mainKey ? i18n.t('app.서브_장르_선택') : i18n.t('app.먼저_메인_장르를_선택하세요'),
+    title: mainKey ? i18n.t("app.서브_장르_선택") : i18n.t("app.먼저_메인_장르를_선택하세요"),
     options: listKey ? options : [],
   };
 }
 
-function showGenreContextMenu(kind, clientX, clientY) {
+function showGenreContextMenu(kind, anchor) {
   hidePurposeContextMenu();
   const menu = $("genreContextMenu");
   const host = $("genreContextMenuItems");
   const labelEl = $("genreContextMenuLabel");
-  if (!menu || !host) return;
+  if (!menu || !host || !anchor) return;
   if (!state.projectId) {
     toast(i18n.t('app.작품을_먼저_선택해_주세요'));
     return;
@@ -8508,23 +8995,11 @@ function showGenreContextMenu(kind, clientX, clientY) {
   if (labelEl) labelEl.textContent = title;
   const select = kind === "main" ? $("mainGenreSelect") : $("subGenreSelect");
   const current = select?.value || "";
-  const rows = [
-    {
-      key: "",
-      label: kind === "main"
-        ? (getPurposeCategoryMode() === "translation" ? i18n.t('app.원문_언어_미정') : i18n.t('app.메인_장르_미정'))
-        : (getPurposeCategoryMode() === "translation" ? i18n.t('app.번역문_언어_미정') : i18n.t('app.서브_장르_미정')),
-    },
-    ...options,
-  ];
-  const mainHtml = rows.map((opt) => {
-    const key = String(opt.key ?? "");
-    const active = key === current ? " is-active" : "";
-    return `<button type="button" role="menuitem" class="${active.trim()}" data-genre-kind="${escapeHtml(kind)}" data-genre-key="${escapeHtml(key)}">
-      <strong>${escapeHtml(opt.label)}</strong>
-    </button>`;
-  }).join("");
-  const detailOptions = getPurposeCategoryMode() === "fiction"
+  const unsetLabel = kind === "main"
+    ? i18n.t("app.메인_장르_미정")
+    : i18n.t("app.서브_장르_미정");
+  const mainHtml = groupedGenreMenuHtml(kind, options, current, unsetLabel);
+  const detailOptions = getPurposeCategoryMode() === "fiction" && !isWebNovelPurpose()
     ? genreDetailOptionsForMainSub(
       $("mainGenreSelect")?.value || state.mainGenre || "",
       $("subGenreSelect")?.value || state.subGenre || "",
@@ -8542,7 +9017,19 @@ function showGenreContextMenu(kind, clientX, clientY) {
       }).join("")
     : "";
   host.innerHTML = mainHtml + detailHtml;
-  placeGenreContextMenu(clientX, clientY);
+  menu.dataset.genreKind = kind;
+  $("mainGenreDisplay")?.setAttribute("aria-expanded", kind === "main" ? "true" : "false");
+  $("subGenreDisplay")?.setAttribute("aria-expanded", kind === "sub" ? "true" : "false");
+  placeGenreContextMenu(anchor);
+}
+
+function toggleGenreContextMenu(kind, btn) {
+  const menu = $("genreContextMenu");
+  if (isPickerMenuOpen(menu) && menu.dataset.genreKind === kind) {
+    hideGenreContextMenu();
+    return;
+  }
+  showGenreContextMenu(kind, btn);
 }
 
 function applyMainGenreChoice(mainKey) {
@@ -8583,7 +9070,7 @@ function applyMainGenreChoice(mainKey) {
   state.subGenre = "";
   state.genreDetail = "";
   fillSubGenreSelect(next, "");
-  fillGenreDetailSelect(next, "", "");
+  fillGenreDetailSelect(isWebNovelPurpose() ? "" : next, "", "");
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -8605,7 +9092,7 @@ function applySubGenreChoice(subKey) {
   state.subGenre = next === "other" ? "other" : next;
   const mainKey = $("mainGenreSelect")?.value || state.mainGenre || "";
   state.genreDetail = "";
-  fillGenreDetailSelect(mainKey, next === "other" ? "other" : next, "");
+  fillGenreDetailSelect(isWebNovelPurpose() ? "" : mainKey, isWebNovelPurpose() ? "" : (next === "other" ? "other" : next), "");
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -8634,7 +9121,7 @@ function setupGenrePicker() {
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
 
-  // Native <select> stays hidden — changes come from right-click menu.
+  // Native <select> stays hidden — changes come from the click dropdown.
   const onCustomInput = () => {
     syncGenreDisplayButtons();
     schedulePersistProjectGenre();
@@ -8650,12 +9137,13 @@ function setupGenrePicker() {
     btn.dataset.genreCtxBound = "1";
     btn.addEventListener("click", (event) => {
       event.preventDefault();
+      event.stopPropagation();
+      if (btn.disabled) return;
+      toggleGenreContextMenu(kind, btn);
     });
     btn.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (btn.disabled) return;
-      showGenreContextMenu(kind, event.clientX, event.clientY);
     });
   };
   bindDisplay("mainGenreDisplay", "main");
@@ -8769,28 +9257,6 @@ function syncKeywordClusterUi() {
     toggle.setAttribute("data-i18n-title", presets ? "index.태그에서_고르기" : "index.태그_직접_추가");
   }
 
-  const hint = $("keywordsHint");
-  if (hint) {
-    hint.textContent = presets
-      ? i18n.t("index.태그를_고르면_이_작품_키워드로_저장됩니다")
-      : i18n.t("index.태그를_직접_입력하면_이_작품_키워드로_저장");
-    hint.setAttribute(
-      "data-i18n",
-      presets ? "index.태그를_고르면_이_작품_키워드로_저장됩니다" : "index.태그를_직접_입력하면_이_작품_키워드로_저장",
-    );
-  }
-
-  const boardHint = $("keywordBoardHint");
-  if (boardHint) {
-    boardHint.textContent = presets
-      ? i18n.t("index.위에서_작품_종류_장르를_보고_바꾸고_아래에")
-      : i18n.t("index.위에서_작품_종류_장르를_보고_바꾸고_태그를");
-    boardHint.setAttribute(
-      "data-i18n",
-      presets ? "index.위에서_작품_종류_장르를_보고_바꾸고_아래에" : "index.위에서_작품_종류_장르를_보고_바꾸고_태그를",
-    );
-  }
-
   const pickerTitle = $("keywordPickerTitle") || document.querySelector("#keywordPickerPanel .keyword-picker-title");
   if (pickerTitle) {
     pickerTitle.textContent = presets ? i18n.t("index.태그_고르기") : i18n.t("index.태그_추가");
@@ -8883,23 +9349,13 @@ function closeKeywordBoard() {
   return returnToManuscriptFromSettingsMain();
 }
 
-/** Move the single genre control block between settings accordion and keyword main board. */
-function placeGenreBlockForKeywordBoard(onBoard) {
+/** Genre pickers live on the keyword main board; the settings panel only shows a one-line summary. */
+function placeGenreBlockForKeywordBoard(_onBoard) {
   const block = $("settingsGenreBlock");
   const boardMount = $("keywordBoardGenreMount");
-  const settingsHost = $("keywordsBody");
-  if (!block || !boardMount || !settingsHost) return;
-  if (onBoard) {
-    if (block.parentElement !== boardMount) boardMount.appendChild(block);
-    block.classList.add("is-on-keyword-board");
-  } else {
-    if (block.parentElement !== settingsHost) {
-      const first = settingsHost.firstElementChild;
-      if (first) settingsHost.insertBefore(block, first);
-      else settingsHost.appendChild(block);
-    }
-    block.classList.remove("is-on-keyword-board");
-  }
+  if (!block || !boardMount) return;
+  if (block.parentElement !== boardMount) boardMount.appendChild(block);
+  block.classList.add("is-on-keyword-board");
 }
 
 function openKeywordBoard() {
@@ -9052,18 +9508,20 @@ function setupKeywordBox() {
   bindCustomCommit(customInput, customAdd);
   bindCustomCommit(boardCustomInput, boardCustomAdd);
 
+  placeGenreBlockForKeywordBoard(true);
+  setKeywordPickerOpen(false);
   renderKeywordBox();
 }
 
-function fillPurposeSelect(selected = "general_novel") {
+function fillPurposeSelect(selected = "web_novel") {
   const select = $("purposeSelect");
   if (!select) return;
-  const keys = Object.keys(purposeLabel);
-  const value = normalizePurposeKey(selected);
+  const keys = PURPOSE_OPTION_KEYS;
+  const value = canonicalizePurposeKey(selected, state.mainGenre);
   select.innerHTML = keys
     .map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(purposeLabel[key])}</option>`)
     .join("");
-  select.value = keys.includes(value) ? value : "general_novel";
+  select.value = keys.includes(value) ? value : "web_novel";
   select.disabled = true;
   select.setAttribute("aria-hidden", "true");
   select.tabIndex = -1;
@@ -9078,82 +9536,76 @@ function syncPurposeDisplayButton() {
   const opt = select?.selectedOptions?.[0];
   const label = (opt && opt.value)
     ? String(opt.textContent || "").trim()
-    : (purposeLabel[normalizePurposeKey(state.projectPurpose)] || i18n.t('app.작품_종류'));
+    : (purposeLabel[canonicalizePurposeKey(state.projectPurpose, state.mainGenre)] || i18n.t('app.작품_종류'));
   btn.textContent = label || i18n.t('app.작품_종류');
   btn.disabled = !hasProject;
-  btn.title = hasProject ? i18n.t('app.우클릭_작품_종류_변경') : i18n.t('app.작품을_먼저_선택해_주세요_2');
+  btn.title = hasProject ? i18n.t('app.클릭_작품_종류_변경') : i18n.t('app.작품을_먼저_선택해_주세요_2');
+  updateSettingsGenreSummary();
 }
 
 function syncPurposePickerFromState() {
   const select = $("purposeSelect");
   if (!select) return;
-  const purpose = normalizePurposeKey(
+  const purpose = canonicalizePurposeKey(
     state.projectPurpose
     || state.projects.find((p) => p.id === state.projectId)?.purpose
-    || "general_novel",
+    || "web_novel",
+    state.mainGenre,
   );
   fillPurposeSelect(purpose);
   syncPurposeDisplayButton();
 }
 
 function hidePurposeContextMenu() {
-  $("purposeContextMenu")?.classList.add("hidden");
-}
-
-function placePurposeContextMenu(clientX, clientY) {
   const menu = $("purposeContextMenu");
-  if (!menu) return;
-  menu.classList.remove("hidden");
-  const pad = 8;
-  const rect = menu.getBoundingClientRect();
-  let left = Number(clientX) || 12;
-  let top = Number(clientY) || 12;
-  const w = rect.width || 200;
-  const h = rect.height || 160;
-  if (left + w > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - w - pad);
-  if (top + h > window.innerHeight - pad) top = Math.max(pad, window.innerHeight - h - pad);
-  menu.style.left = `${Math.round(left)}px`;
-  menu.style.top = `${Math.round(top)}px`;
+  if (menu) menu.classList.add("hidden");
+  $("purposeDisplay")?.setAttribute("aria-expanded", "false");
 }
 
-function showPurposeContextMenu(clientX, clientY) {
+function placePurposeContextMenu(anchor) {
+  placePickerMenuBelowAnchor($("purposeContextMenu"), anchor);
+}
+
+function showPurposeContextMenu(anchor) {
   const host = $("purposeContextMenuItems");
   const menu = $("purposeContextMenu");
-  if (!host || !menu) return;
+  if (!host || !menu || !anchor) return;
   hideGenreContextMenu();
-  const current = normalizePurposeKey($("purposeSelect")?.value || state.projectPurpose || "general_novel");
-  host.innerHTML = Object.keys(purposeLabel).map((key) => {
+  const current = canonicalizePurposeKey($("purposeSelect")?.value || state.projectPurpose || "web_novel", state.mainGenre);
+  host.innerHTML = PURPOSE_OPTION_KEYS.map((key) => {
     const active = key === current ? " is-active" : "";
     return `<button type="button" role="menuitem" class="${active.trim()}" data-purpose-key="${escapeHtml(key)}"><strong>${escapeHtml(purposeLabel[key])}</strong></button>`;
   }).join("");
-  placePurposeContextMenu(clientX, clientY);
+  $("purposeDisplay")?.setAttribute("aria-expanded", "true");
+  placePurposeContextMenu(anchor);
+}
+
+function togglePurposeContextMenu(btn) {
+  if (isPickerMenuOpen($("purposeContextMenu"))) {
+    hidePurposeContextMenu();
+    return;
+  }
+  showPurposeContextMenu(btn);
 }
 
 function applyPurposeChoice(nextRaw) {
   if (!state.projectId) return;
-  const prevPurpose = normalizePurposeKey(state.projectPurpose);
-  const prevMode = getPurposeCategoryMode(prevPurpose);
-  const nextPurpose = normalizePurposeKey(nextRaw || "general_novel");
-  const nextMode = getPurposeCategoryMode(nextPurpose);
+  const prevPurpose = canonicalizePurposeKey(state.projectPurpose, state.mainGenre);
+  const nextPurpose = canonicalizePurposeKey(nextRaw || "web_novel");
   if (nextPurpose === prevPurpose) return;
   if (!confirmGenreChange()) {
     syncPurposePickerFromState();
     return;
   }
   state.projectPurpose = nextPurpose;
-  if (prevMode !== nextMode || nextMode === "none") {
-    state.mainGenre = "";
-    state.subGenre = "";
-    state.genreDetail = "";
-  }
+  state.mainGenre = nextPurpose === "other" ? "other" : "";
+  state.subGenre = "";
+  state.genreDetail = "";
   fillPurposeSelect(nextPurpose);
   syncPurposeDisplayButton();
   syncGenrePickerFromState();
-  persistProjectPurpose({ quiet: false })
-    .then(async () => {
-      if (prevMode !== nextMode || nextMode === "none") {
-        await persistProjectGenre({ quiet: true });
-      }
+  persistProjectPurpose({ quiet: false, includeGenre: true })
+    .then(() => {
       syncGenrePickerFromState();
     })
     .catch((error) => {
@@ -9165,7 +9617,7 @@ function applyPurposeChoice(nextRaw) {
 }
 
 function setupPurposePicker() {
-  fillPurposeSelect("general_novel");
+  fillPurposeSelect("web_novel");
   syncPurposeDisplayButton();
 
   const btn = $("purposeDisplay");
@@ -9173,12 +9625,13 @@ function setupPurposePicker() {
     btn.dataset.purposeCtxBound = "1";
     btn.addEventListener("click", (event) => {
       event.preventDefault();
+      event.stopPropagation();
+      if (btn.disabled) return;
+      togglePurposeContextMenu(btn);
     });
     btn.addEventListener("contextmenu", (event) => {
       event.preventDefault();
       event.stopPropagation();
-      if (btn.disabled) return;
-      showPurposeContextMenu(event.clientX, event.clientY);
     });
   }
 
@@ -9529,25 +9982,45 @@ function setupProjectListContextMenu() {
   });
 }
 
-async function persistProjectPurpose({ quiet = true, projectId: projectIdOpt } = {}) {
+async function persistProjectPurpose({ quiet = true, projectId: projectIdOpt, includeGenre = false } = {}) {
   const projectId = liveProjectId(projectIdOpt ?? state.projectId);
   if (!projectId) return;
   if (liveProjectId() !== projectId) return;
   const select = $("purposeSelect");
-  const purpose = normalizePurposeKey(select?.value || state.projectPurpose || "general_novel");
+  const purpose = canonicalizePurposeKey(select?.value || state.projectPurpose || "web_novel", state.mainGenre);
   const clusterId = inferClusterId(purpose, state.mainGenre, state.subGenre);
+  const payload = { purpose, cluster_id: clusterId };
+  if (includeGenre) {
+    const { main, sub, genre_detail } = readGenreValuesFromUi();
+    payload.main_genre = main;
+    payload.sub_genre = sub;
+    payload.genre_detail = genre_detail;
+  }
   const result = await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
-    body: JSON.stringify({ purpose, cluster_id: clusterId }),
+    body: JSON.stringify(payload),
   });
   if (liveProjectId() !== projectId) return;
-  const next = normalizePurposeKey(result?.purpose || purpose);
+  const savedPurpose = String(result?.purpose || "");
+  const next = PURPOSE_OPTION_KEYS.includes(savedPurpose)
+    ? canonicalizePurposeKey(savedPurpose, includeGenre ? payload.main_genre : state.mainGenre)
+    : purpose;
   state.projectPurpose = next;
   state.clusterId = result?.cluster_id || clusterId;
+  if (includeGenre) {
+    state.mainGenre = payload.main_genre;
+    state.subGenre = payload.sub_genre;
+    state.genreDetail = payload.genre_detail;
+  }
   const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
     project.purpose = next;
     project.cluster_id = state.clusterId;
+    if (includeGenre) {
+      project.main_genre = state.mainGenre;
+      project.sub_genre = state.subGenre;
+      project.genre_detail = state.genreDetail;
+    }
   }
   refreshProjectSelectOptions();
   if (typeof renderSettingsCodex === "function") {
@@ -9943,13 +10416,8 @@ function renderSettingsCodex() {
   renderPreviewElement($("introPreview"), [], i18n.t('app.작품소개_기획의도'));
   renderPreviewElement($("logsynPreview"), [], i18n.t('app.로그라인_시놉시스'));
   {
-    const purposeLabel = ($("purposeDisplay")?.textContent || "").trim();
-    const mainLabel = state.mainGenre ? mainGenreLabel(state.mainGenre) : "";
-    const subLabel = state.subGenre ? subGenreLabel(state.mainGenre, state.subGenre) : "";
-    const genreBits = [purposeLabel, mainLabel, subLabel]
-      .map((s) => String(s || "").trim())
-      .filter((s) => s && s !== i18n.t('app.미정'));
-    const genreLine = genreBits.length ? genreBits.join(" · ") : "";
+    const previewBits = settingsGenreSummaryLine();
+    const genreLine = previewBits.length ? previewBits.join(" · ") : "";
     const kwLine = state.keywords.length ? state.keywords.slice(0, 6).join(" · ") : "";
     const previewLinesKw = [genreLine, kwLine].filter(Boolean);
     renderPreviewElement(
@@ -10134,6 +10602,23 @@ function applySettingsSectionState() {
   });
 }
 
+function isAnySettingsMainViewOpen() {
+  return Boolean(
+    state.ideaBoardOpen
+    || state.keywordBoardOpen
+    || state.characterBoardOpen
+    || state.itemBoardOpen
+    || state.dictionaryBoardOpen
+    || isSettingsDocMainOpen()
+    || isSettingsCollectionMainOpen()
+  );
+}
+
+function collapseSettingsSectionAfterMainOpen() {
+  state.openSettingsSection = null;
+  applySettingsSectionState();
+}
+
 function setOpenSettingsSection(sectionKey) {
   state.openSettingsSection = state.openSettingsSection === sectionKey ? null : sectionKey;
   if (state.openSettingsSection) setActiveBinder("settings");
@@ -10266,6 +10751,7 @@ function syncSettingsDocSidebarFromState(kind) {
   const raw = state[meta.stateKey] || "";
   el.value = looksLikeHtml(raw) ? plainTextFromHtml(raw) : raw;
   autoResizeSettingsSidebarTextarea(el);
+  if (typeof applyToriDraftClass === "function") applyToriDraftClass(el);
 }
 
 /** Push current state into main editor when it shows the same settings doc. */
@@ -10287,6 +10773,7 @@ function syncSettingsDocMainFromState(kind, { force = false } = {}) {
   suppressSynopsisDirty = true;
   setEditorContent(raw, editor);
   suppressSynopsisDirty = false;
+  if (typeof applyToriDraftClass === "function") applyToriDraftClass(editor);
 }
 
 function syncSynopsisSidebarFromState() {
@@ -10303,6 +10790,11 @@ const settingsDocPending = Object.create(null);
 function setSynopsisSaveStatus(text) {
   if ($("synopsisSaveInfo")) $("synopsisSaveInfo").textContent = text;
   if (state.settingsDocKind === "world") setWorldbuildingSaveStatus(text);
+}
+
+function settingsDocIdleSaveStatus(kind) {
+  if (kind === "intro" || kind === "intent" || kind === "logline" || kind === "synopsis") return "";
+  return i18n.t("app.편집_중");
 }
 
 function markSynopsisDirty(kind = null) {
@@ -10327,6 +10819,9 @@ function markSettingsDocEditorDirty(editor) {
   if (editor) {
     lastSettingsDocEditor = editor;
     state.settingsDocFocusKind = kind;
+    if ((kind === "logline" || kind === "synopsis" || kind === "intro" || kind === "intent") && typeof claimToriDraftOnEditor === "function") {
+      claimToriDraftOnEditor(editor);
+    }
   }
   markSynopsisDirty(kind);
 }
@@ -10810,8 +11305,44 @@ function applySettingsDocChrome(kind) {
   const meta = getSettingsDocMeta(kind);
   const title = pairChrome?.title || meta.title;
   const hint = pairChrome?.hint || meta.hint;
+  const isIntroPair = kind === "intro" || kind === "intent";
+  const isLogsynPair = kind === "logline" || kind === "synopsis";
   if ($("settingsDocMainTitle")) $("settingsDocMainTitle").textContent = title;
-  if ($("settingsDocMainHint")) $("settingsDocMainHint").textContent = hint;
+  const hintEl = $("settingsDocMainHint");
+  if (hintEl) {
+    hintEl.textContent = (isIntroPair || isLogsynPair) ? "" : hint;
+    hintEl.classList.toggle("hidden", isIntroPair || isLogsynPair || !hint);
+    if (isIntroPair || isLogsynPair || !hint) hintEl.setAttribute("hidden", "");
+    else hintEl.removeAttribute("hidden");
+  }
+  const introMount = $("settingsDocIntroTipMount");
+  if (introMount) {
+    introMount.classList.toggle("hidden", !isIntroPair);
+    if (isIntroPair) introMount.removeAttribute("hidden");
+    else introMount.setAttribute("hidden", "");
+  }
+  const outlineBlock = $("settingsDocOutlineBlock");
+  if (outlineBlock) {
+    outlineBlock.classList.toggle("hidden", !isLogsynPair);
+    if (isLogsynPair) outlineBlock.removeAttribute("hidden");
+    else outlineBlock.setAttribute("hidden", "");
+  }
+  ["settingsDocLoglineTipMount", "settingsDocSynopsisTipMount"].forEach((id) => {
+    const el = $(id);
+    if (!el) return;
+    el.classList.toggle("hidden", !isLogsynPair);
+    if (isLogsynPair) el.removeAttribute("hidden");
+    else el.setAttribute("hidden", "");
+  });
+  const fillBtn = $("toriFillLogsynButton");
+  if (fillBtn) {
+    const showFill = isLogsynPair || isIntroPair;
+    fillBtn.classList.toggle("hidden", !showFill);
+    fillBtn.hidden = !showFill;
+  }
+  document.querySelector(".synopsis-writing-column")?.classList.toggle("is-logsyn", isLogsynPair);
+  if (isLogsynPair) syncOutlineSummaryInput();
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
 
   const column = document.querySelector(".synopsis-writing-column");
   column?.classList.toggle("is-dual", pair.length >= 2);
@@ -10971,15 +11502,18 @@ async function openSettingsDocMain(kind = "synopsis", options = {}) {
       const loadText = pullSettingsDocFromSidebar(k) || state[meta.stateKey] || "";
       state[meta.stateKey] = loadText;
       const editor = getSettingsDocMainEditor(k);
-      if (editor) setEditorContent(loadText, editor);
+      if (editor) {
+        setEditorContent(loadText, editor);
+        if (typeof applyToriDraftClass === "function") applyToriDraftClass(editor);
+      }
       syncSettingsDocSidebarFromState(k);
     }
     synopsisDirty = false;
     suppressSynopsisDirty = false;
-    setSynopsisSaveStatus(i18n.t('app.편집_중'));
+    setSynopsisSaveStatus(settingsDocIdleSaveStatus(kind));
   } else {
     state.settingsDocFocusKind = kind;
-    setSynopsisSaveStatus(i18n.t('app.편집_중'));
+    setSynopsisSaveStatus(settingsDocIdleSaveStatus(kind));
   }
 
   requestAnimationFrame(() => {
@@ -13406,10 +13940,13 @@ function renderItems() {
     const analysisMark = item.has_tori_analysis
       ? i18n.t("app.span_class_character_li")
       : "";
+    const name = escapeHtml(item.name || i18n.t("app.이름_없음"));
+    const owner = String(item.owner_name || "").trim();
     return `
-    <button class="character-link ${Number(state.itemId) === Number(item.id) ? "active" : ""}" data-item="${item.id}" title="${escapeHtml(item.name)}">
-      <span class="character-name">${escapeHtml(item.name)}${analysisMark}</span>
-      <span class="character-role">${escapeHtml(itemPreviewText(item, 48))}</span>
+    <button type="button" class="character-board-card settings-panel-card ${Number(state.itemId) === Number(item.id) ? "is-active" : ""}" data-item="${item.id}" title="${name}">
+      <span class="character-board-card-name">${name}${analysisMark}</span>
+      <span class="character-board-card-role">${escapeHtml(owner)}</span>
+      <span class="character-board-card-summary">${escapeHtml(itemPreviewText(item, 72))}</span>
     </button>`;
   }).join("") : i18n.t("app.p_class_hint_아직_아이템이_없어요");
   list.querySelectorAll("[data-item]").forEach((button) => {
@@ -13559,15 +14096,15 @@ function dictionaryListHtml(rows, selectedId) {
     return `<p class="hint">${escapeHtml(i18n.t("index.아직_등록된_단어가_없어요"))}</p>`;
   }
   return rows.map((entry) => {
-    const active = Number(selectedId) === Number(entry.id) ? "active" : "";
+    const active = Number(selectedId) === Number(entry.id) ? "is-active" : "";
     const warning = dictionaryConflictLabel(entry.conflicts);
     const badge = warning
       ? `<span class="dict-name-warning-badge" title="${escapeHtml(warning)}">!</span>`
       : "";
     const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
-    return `<button type="button" class="character-link ${active}" data-dictionary-term="${entry.id}">
-      <span class="character-name">${escapeHtml(entry.term || i18n.t("index.단어"))}${badge}</span>
-      <span class="character-role">${escapeHtml(meaning || i18n.t("index.뜻"))}</span>
+    return `<button type="button" class="character-board-card settings-panel-card dictionary-term-card ${active}" data-dictionary-term="${entry.id}">
+      <span class="character-board-card-name">${escapeHtml(entry.term || i18n.t("index.단어"))}${badge}</span>
+      <span class="character-board-card-summary">${escapeHtml(meaning || i18n.t("index.뜻"))}</span>
     </button>`;
   }).join("");
 }
@@ -13587,6 +14124,8 @@ function fillDictionaryEditor(entry) {
   $("dictionaryMemo") && ($("dictionaryMemo").value = String(entry?.memo || ""));
   if ($("dictionaryDeleteButton")) $("dictionaryDeleteButton").hidden = isNew;
   paintDictionaryWarning($("dictionaryWarning"), entry?.conflicts || []);
+  const form = $("dictionaryForm");
+  if (form) form.classList.toggle("hidden", isNew);
 }
 
 function renderDictionaryList() {
@@ -13652,22 +14191,13 @@ async function refreshDictionaryTerms(options = {}) {
 }
 
 function startNewDictionaryTerm(prefills = {}) {
-  state.dictionaryTermId = 0;
-  fillDictionaryEditor({
-    term: String(prefills.term || ""),
-    definition: String(prefills.definition || ""),
-    memo: "",
-    conflicts: [],
-  });
-  renderDictionaryList();
-  $("dictionaryTerm")?.focus();
+  openDictionaryModal(String(prefills.term || ""));
 }
 
 async function selectDictionaryTerm(termId) {
   const id = Number(termId) || 0;
   if (!id) {
     startNewDictionaryTerm();
-    if (!state.dictionaryBoardOpen) await openDictionaryBoard();
     return;
   }
   state.dictionaryTermId = id;
@@ -13719,7 +14249,8 @@ async function deleteDictionaryTerm() {
   await api(`/api/dictionary-terms/${id}`, { method: "DELETE" });
   state.dictionaryTermId = 0;
   await refreshDictionaryTerms({ force: true });
-  startNewDictionaryTerm();
+  fillDictionaryEditor(null);
+  renderDictionaryList();
 }
 
 async function openDictionaryBoard() {
@@ -13773,9 +14304,8 @@ function openDictionaryModal(term = "") {
   $("dictionaryModalDefinition") && ($("dictionaryModalDefinition").value = "");
   paintDictionaryWarning($("dictionaryModalWarning"), []);
   modal.classList.remove("hidden");
-  try { $("dictionaryModalDefinition")?.focus({ preventScroll: true }); } catch (_) {
-    $("dictionaryModalDefinition")?.focus();
-  }
+  const focusEl = String(term || "").trim() ? $("dictionaryModalDefinition") : $("dictionaryModalTerm");
+  try { focusEl?.focus({ preventScroll: true }); } catch (_) { focusEl?.focus(); }
 }
 
 function addToryDictionaryFromSelection() {
@@ -13803,11 +14333,12 @@ async function saveDictionaryModal(event) {
 
 function setupDictionaryUi() {
   $("newDictionaryButton")?.addEventListener("click", () => {
-    startNewDictionaryTerm();
-    openDictionaryBoard().catch(handleError);
+    if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    openDictionaryModal();
   });
   $("newDictionaryMainButton")?.addEventListener("click", () => {
-    startNewDictionaryTerm();
+    if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    openDictionaryModal();
   });
   $("closeDictionaryBoardButton")?.addEventListener("click", () => closeDictionaryBoard().catch(handleError));
   $("dictionaryForm")?.addEventListener("submit", (event) => {
@@ -14908,7 +15439,8 @@ function bindSettingsDocSidebarInput(kind) {
       }
     }
   };
-  el.addEventListener("input", () => {
+  el.addEventListener("input", (event) => {
+    if (typeof claimToriDraftOnInput === "function") claimToriDraftOnInput(el, event);
     autoResizeSettingsSidebarTextarea(el, { shrink: false });
     pushToStateAndMaybeMain();
     scheduleSettingsDocAutoSave(kind);
@@ -14929,6 +15461,7 @@ function bindWorldBuildingFormRoot(form) {
   if (!form || form.dataset.settingsBound === "1") return;
   form.dataset.settingsBound = "1";
   fillWorldBuildingExamplePlaceholders();
+  const worldControl = (event) => event.target?.closest?.("[data-world-field], [data-world-extra-title], [data-world-extra-body]");
   const syncFromThisForm = () => {
     const values = readWorldBuildingFormValuesFrom(form);
     const md = composeWorldbuildingMd(values);
@@ -14944,31 +15477,45 @@ function bindWorldBuildingFormRoot(form) {
     return md;
   };
   form.addEventListener("input", (event) => {
-    const el = event.target?.closest?.("[data-world-field]");
+    const el = worldControl(event);
     if (!el) return;
-    autoResizeSettingsSidebarTextarea(el, { shrink: false });
-    claimToriDraftOnInput(el, event);
+    if (el.matches?.("[data-world-field], [data-world-extra-body]")) {
+      autoResizeSettingsSidebarTextarea(el, { shrink: false });
+      claimToriDraftOnInput(el, event);
+    }
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
     if (isWorldbuildingMainOpen()) setWorldbuildingSaveStatus(i18n.t('app.저장_대기_중'));
   });
   form.addEventListener("compositionend", (event) => {
-    const el = event.target?.closest?.("[data-world-field]");
+    const el = worldControl(event);
     if (!el) return;
     if (claimToriDraftOnInput(el)) syncFromThisForm();
   });
   form.addEventListener("change", (event) => {
-    if (!event.target?.closest?.("[data-world-field]")) return;
+    if (!worldControl(event)) return;
     syncFromThisForm();
     scheduleSettingsDocAutoSave("world");
   });
   form.addEventListener("blur", (event) => {
-    const el = event.target?.closest?.("[data-world-field]");
+    const el = worldControl(event);
     if (!el) return;
     autoResizeSettingsSidebarTextarea(el);
     syncFromThisForm();
     persistSettingsDoc("world", { quiet: true }).catch(handleError);
   }, true);
+  form.addEventListener("click", (event) => {
+    if (event.target?.closest?.("[data-world-add-extra]")) {
+      event.preventDefault();
+      addWorldExtraSection();
+      return;
+    }
+    const removeBtn = event.target?.closest?.("[data-world-extra-remove]");
+    if (!removeBtn) return;
+    event.preventDefault();
+    const article = removeBtn.closest("[data-world-extra-id]");
+    removeWorldExtraSection(article?.dataset?.worldExtraId);
+  });
 }
 
 function bindWorldBuildingFormInputs() {
@@ -15009,7 +15556,9 @@ function setupSettingsCodex() {
       const key = button.dataset.settingsMain;
       const meta = SETTINGS_BOOKMARK_META[key];
       if (!meta?.open) return;
-      Promise.resolve(meta.open()).catch(handleError);
+      Promise.resolve(meta.open()).then(() => {
+        if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+      }).catch(handleError);
     });
   });
   document.querySelectorAll("[data-open-settings-doc]").forEach((button) => {
@@ -15020,7 +15569,9 @@ function setupSettingsCodex() {
       if (!kind) return;
       // Snapshot this field (+ siblings) before opening main.
       pullSettingsDocFamilyFromSidebar(kind);
-      openSettingsDocMain(kind).catch(handleError);
+      openSettingsDocMain(kind).then(() => {
+        if (isAnySettingsMainViewOpen()) collapseSettingsSectionAfterMainOpen();
+      }).catch(handleError);
     });
   });
   document.querySelectorAll("[data-save-settings-doc]").forEach((button) => {
@@ -16063,6 +16614,7 @@ const WORLD_SECTION_LEAD_FIELD = {
   extreme_factor: "extreme_event",
   system_life: "daily",
   factions: "factions",
+  geography: "geo_terrain",
   legacy: "legacy",
 };
 const DOCK_TIMELINE_KEY = "dock:timeline";
@@ -16080,11 +16632,23 @@ const DOCK_DICTIONARY_DEFAULT_W = 360;
 const DOCK_DICTIONARY_DEFAULT_H = 440;
 const DOCK_DICTIONARY_MIN_W = 280;
 const DOCK_DICTIONARY_MIN_H = 240;
+let dockDictionaryEditingId = 0;
+let dockDictionaryAdding = false;
 const DOCK_BAITS_KEY = "dock:baits";
 const DOCK_BAITS_DEFAULT_W = 360;
 const DOCK_BAITS_DEFAULT_H = 420;
 const DOCK_BAITS_MIN_W = 280;
 const DOCK_BAITS_MIN_H = 240;
+const DOCK_TORY_VAULT_KEY = "dock:toryVault";
+const DOCK_TORY_VAULT_DEFAULT_W = 360;
+const DOCK_TORY_VAULT_DEFAULT_H = 420;
+const DOCK_TORY_VAULT_MIN_W = 280;
+const DOCK_TORY_VAULT_MIN_H = 240;
+const DOCK_SOURCES_KEY = "dock:sources";
+const DOCK_SOURCES_DEFAULT_W = 360;
+const DOCK_SOURCES_DEFAULT_H = 420;
+const DOCK_SOURCES_MIN_W = 280;
+const DOCK_SOURCES_MIN_H = 240;
 const DOCK_SUCCESS_PROFILE_KEY = "dock:successProfile";
 const DOCK_SUCCESS_PROFILE_DEFAULT_W = 380;
 const DOCK_SUCCESS_PROFILE_DEFAULT_H = 520;
@@ -16156,6 +16720,8 @@ const DOCK_RAIL_FLOAT_KEYS = {
   appearances: DOCK_APPEARANCES_KEY,
   dictionary: DOCK_DICTIONARY_KEY,
   baits: DOCK_BAITS_KEY,
+  toryVault: DOCK_TORY_VAULT_KEY,
+  sources: DOCK_SOURCES_KEY,
   successProfile: DOCK_SUCCESS_PROFILE_KEY,
   manuscript: DOCK_MANUSCRIPT_KEY,
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
@@ -16181,6 +16747,7 @@ let dockAppearancesLoadGen = 0;
 let dockAppearancesCache = { projectId: 0, characterId: 0, scenes: [] };
 let dockBaitsLoadGen = 0;
 let dockBaitsCache = { projectId: 0, threads: [] };
+let dockBaitsTab = "tory";
 let dockSuccessProfileLoadGen = 0;
 let dockRelationFocusId = 0;
 let dockRelationLoadGen = 0;
@@ -16233,6 +16800,8 @@ function pruneAndSyncIdeaFloats() {
       if (id === DOCK_TIMELINE_KEY) syncDockTimelineFloat();
       if (id === DOCK_APPEARANCES_KEY) syncDockAppearancesFloat();
       if (id === DOCK_BAITS_KEY) syncDockBaitsFloat();
+      if (id === DOCK_TORY_VAULT_KEY) syncDockToryVaultFloat();
+      if (id === DOCK_SOURCES_KEY) syncDockSourcesFloat();
       if (id === DOCK_SUCCESS_PROFILE_KEY) syncDockSuccessProfileFloat();
       if (id === DOCK_MANUSCRIPT_KEY) syncDockManuscriptFloat();
       if (String(id).startsWith(DOCK_WORLD_KEY_PREFIX)) {
@@ -16666,6 +17235,24 @@ const DOCK_FLOAT_SPECS = {
     resize: { minWidth: DOCK_SETTINGS_SEARCH_MIN_W, minHeight: DOCK_SETTINGS_SEARCH_MIN_H },
     render(body) { renderDockSettingsSearchBody(body); },
   },
+  toryVault: {
+    titleKey: "app.토리의_수집창고",
+    windowClass: "dock-float-tory-vault",
+    side: "left",
+    defaultWidth: DOCK_TORY_VAULT_DEFAULT_W,
+    defaultHeight: DOCK_TORY_VAULT_DEFAULT_H,
+    resize: { minWidth: DOCK_TORY_VAULT_MIN_W, minHeight: DOCK_TORY_VAULT_MIN_H },
+    render(body) { renderDockToryVaultBody(body); },
+  },
+  sources: {
+    titleKey: "app.참고자료_출처",
+    windowClass: "dock-float-sources",
+    side: "left",
+    defaultWidth: DOCK_SOURCES_DEFAULT_W,
+    defaultHeight: DOCK_SOURCES_DEFAULT_H,
+    resize: { minWidth: DOCK_SOURCES_MIN_W, minHeight: DOCK_SOURCES_MIN_H },
+    render(body) { renderDockSourcesBody(body); },
+  },
   credits: {
     titleKey: "index.크레딧_잔량",
     windowClass: "dock-float-credits",
@@ -16691,7 +17278,7 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
     defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
     resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
-    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 0); },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 0, DOCK_AI_CHAT_DEFAULT_H); },
     render(body) { renderDockToryChatBody(body); },
     onOpen() { prepareDockToryChatFloat(); },
     onFocus() { focusDockToryChatFloat(); },
@@ -16703,7 +17290,7 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
     defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
     resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
-    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 1); },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 1, DOCK_AI_CHAT_DEFAULT_H); },
     render(body) { renderDockCharacterChatBody(body); },
     onOpen() { prepareDockCharacterChatFloat(); },
     onFocus() { focusDockCharacterChatFloat(); },
@@ -16715,7 +17302,7 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_AI_CHAT_DEFAULT_W,
     defaultHeight: DOCK_AI_CHAT_DEFAULT_H,
     resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
-    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 2); },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_CHAT_DEFAULT_W, 2, DOCK_AI_CHAT_DEFAULT_H); },
     render(body) { renderDockReaderChatBody(body); },
     onOpen() { prepareDockReaderChatFloat(); },
     onFocus() { focusDockReaderChatFloat(); },
@@ -16727,7 +17314,7 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_AI_RESULT_DEFAULT_W,
     defaultHeight: DOCK_AI_RESULT_DEFAULT_H,
     resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
-    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_RESULT_DEFAULT_W, 3); },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_RESULT_DEFAULT_W, 3, DOCK_AI_RESULT_DEFAULT_H); },
     render(body) { renderDockAiResultBody(body); },
   },
   aiHistory: {
@@ -16737,7 +17324,7 @@ const DOCK_FLOAT_SPECS = {
     defaultWidth: DOCK_AI_HISTORY_DEFAULT_W,
     defaultHeight: DOCK_AI_HISTORY_DEFAULT_H,
     resize: { minWidth: DOCK_AI_CHAT_MIN_W, minHeight: DOCK_AI_CHAT_MIN_H },
-    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_HISTORY_DEFAULT_W, 4); },
+    fallbackPos(el) { return dockAiFloatFallbackPos(el, DOCK_AI_HISTORY_DEFAULT_W, 4, DOCK_AI_HISTORY_DEFAULT_H); },
     render(body) { renderDockAiHistoryBody(body); },
     onOpen() {
       try { showAiResultHistoryListView?.(); } catch (_) { /* ignore */ }
@@ -18960,33 +19547,26 @@ function syncWritingTimerStyleForm() {
   });
 }
 
-function dockFloatFallbackPos(side, sourceEl, width = 320) {
-  if (sourceEl?.getBoundingClientRect) {
-    const rect = sourceEl.getBoundingClientRect();
-    if (side === "right") {
-      return {
-        left: Math.max(8, Math.round(rect.left - width - 8)),
-        top: Math.max(8, Math.round(rect.top)),
-      };
-    }
-    return {
-      left: Math.round(rect.right + 8),
-      top: Math.max(8, Math.round(rect.top)),
-    };
-  }
-  if (side === "right") {
-    return { left: Math.max(16, window.innerWidth - width - 24), top: 56 };
-  }
-  return { left: 56, top: 56 };
+function dockFloatCenterPos(width = 320, height = 420, slot = 0) {
+  const w = Math.max(120, Number(width) || 320);
+  const h = Math.max(120, Number(height) || 420);
+  const vw = Number(window.innerWidth) || 1200;
+  const vh = Number(window.innerHeight) || 800;
+  const n = Math.max(0, Number(slot) || 0);
+  const maxLeft = Math.max(8, vw - w - 8);
+  const maxTop = Math.max(8, vh - h - 8);
+  return {
+    left: Math.max(8, Math.min(maxLeft, Math.round((vw - w) / 2) + n * 28)),
+    top: Math.max(8, Math.min(maxTop, Math.round((vh - h) / 2) + n * 28)),
+  };
 }
 
-function dockAiFloatFallbackPos(sourceEl, width, slot = 0) {
-  const base = dockFloatFallbackPos("right", sourceEl, width);
-  const n = Math.max(0, Number(slot) || 0);
-  return {
-    left: Math.max(8, base.left - n * 28),
-    top: Math.max(8, base.top + n * 28),
-  };
+function dockFloatFallbackPos(side, sourceEl, width = 320, height = 420) {
+  return dockFloatCenterPos(width, height);
+}
+
+function dockAiFloatFallbackPos(sourceEl, width, slot = 0, height = 560) {
+  return dockFloatCenterPos(width, height, slot);
 }
 
 function dockFloatBody(key) {
@@ -19047,10 +19627,18 @@ function restoreDockAiHosts(key) {
 function syncAiChatViewHubAttr() {
   const chatView = $("aiChatView");
   if (!chatView) return;
+  if (typeof toryChatPopupOpen !== "undefined" && toryChatPopupOpen) {
+    chatView.setAttribute("data-chat-hub", toryChatHub || "home");
+    return;
+  }
   chatView.setAttribute("data-chat-hub", aiChatViewsAreFloated() ? "home" : (toryChatHub || "home"));
 }
 
 function syncAiDockChatHosts() {
+  if (typeof toryChatPopupOpen !== "undefined" && toryChatPopupOpen) {
+    syncAiChatViewHubAttr();
+    return;
+  }
   const toryBody = dockFloatBody(DOCK_TORY_CHAT_KEY);
   const charBody = dockFloatBody(DOCK_CHARACTER_CHAT_KEY);
   const readerBody = dockFloatBody(DOCK_READER_CHAT_KEY);
@@ -19075,14 +19663,7 @@ function syncAiDockChatHosts() {
   syncAiChatViewHubAttr();
 }
 
-function closeLegacyToryChatPopupForDock() {
-  if (typeof toryChatPopupOpen !== "undefined" && toryChatPopupOpen) {
-    try { closeToryChatPopup({ restorePanelTab: false }); } catch (_) { /* ignore */ }
-  }
-}
-
 function prepareDockToryChatFloat() {
-  closeLegacyToryChatPopupForDock();
   setToryChatHub("tory", { quiet: true });
   try { renderToryChatMessages?.(); } catch (_) { /* ignore */ }
   syncAiDockChatHosts();
@@ -19095,7 +19676,6 @@ function focusDockToryChatFloat() {
 }
 
 function prepareDockCharacterChatFloat() {
-  closeLegacyToryChatPopupForDock();
   if (toryChatHub !== "character-room") {
     setToryChatHub("characters", { quiet: true });
   }
@@ -19112,7 +19692,6 @@ function focusDockCharacterChatFloat() {
 }
 
 function prepareDockReaderChatFloat() {
-  closeLegacyToryChatPopupForDock();
   try { openReaderPersonaPicker?.(); } catch (_) { /* ignore */ }
   syncAiDockChatHosts();
 }
@@ -19171,7 +19750,7 @@ function renderDockIdeasBody(body) {
   }).join("");
   body.innerHTML = `
     <div class="dock-ideas-toolbar">
-      <button type="button" class="secondary compact-btn" data-role="dock-new-idea"${state.projectId ? "" : " disabled"}>+ ${escapeHtml(i18n.t("app.메모"))}</button>
+      <button type="button" class="secondary compact-btn" data-role="dock-new-idea"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.메모"))}</button>
     </div>
     <div class="dock-ideas-list">
       ${!state.projectId || !ideas.length
@@ -19398,7 +19977,7 @@ function openDockFloatWindow(key, spec, sourceEl) {
   win.setAttribute("aria-label", title);
   const pos = typeof spec.fallbackPos === "function"
     ? spec.fallbackPos(sourceEl)
-    : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth);
+    : dockFloatFallbackPos(spec.side, sourceEl, spec.defaultWidth, spec.defaultHeight);
   applyIdeaFloatLayout(win, key, pos.left, pos.top);
   if (!ideaFloatLayouts.get(key)?.width && spec.defaultWidth) {
     win.style.width = `${spec.defaultWidth}px`;
@@ -19614,12 +20193,8 @@ function openCharacterCardFloat(characterId, sourceEl) {
     defaultWidth: DOCK_CHAR_DEFAULT_W,
     defaultHeight: DOCK_CHAR_DEFAULT_H,
     resize: { minWidth: DOCK_CHAR_MIN_W, minHeight: DOCK_CHAR_MIN_H },
-    fallbackPos(el) {
-      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_CHAR_DEFAULT_W);
-      return {
-        left: Math.max(16, 72 + offset * 22),
-        top: Math.max(48, 72 + offset * 22),
-      };
+    fallbackPos() {
+      return dockFloatCenterPos(DOCK_CHAR_DEFAULT_W, DOCK_CHAR_DEFAULT_H, offset);
     },
     onResize: syncDockCharacterCardExpanded,
     render(body) { renderDockCharacterCard(body, id); },
@@ -19677,6 +20252,14 @@ function dockWorldValues() {
 function dockWorldSectionList() {
   const values = dockWorldValues();
   const list = WORLD_BUILDING_SCHEMA.slice();
+  for (const extra of normalizeWorldExtras(values.extras)) {
+    list.push({
+      id: `wx:${extra.id}`,
+      title: extra.title || i18n.t("index.새_요소"),
+      blurb: extra.body || "",
+      fields: [{ id: `__extra__${extra.id}`, label: extra.title || i18n.t("index.새_요소"), example: "" }],
+    });
+  }
   if (String(values.legacy || "").trim()) list.push(dockWorldLegacySection());
   return list;
 }
@@ -19684,6 +20267,9 @@ function dockWorldSectionList() {
 function dockWorldSectionById(sectionId) {
   const id = String(sectionId || "");
   if (id === "legacy") return dockWorldLegacySection();
+  if (id.startsWith("wx:")) {
+    return dockWorldSectionList().find((section) => section.id === id) || null;
+  }
   return WORLD_BUILDING_SCHEMA.find((section) => section.id === id) || null;
 }
 
@@ -19694,6 +20280,11 @@ function dockWorldSectionFields(section) {
 }
 
 function dockWorldFieldValue(values, fieldId) {
+  const extraMatch = String(fieldId || "").match(/^__extra__(.+)$/);
+  if (extraMatch) {
+    const extra = normalizeWorldExtras(values?.extras).find((item) => item.id === extraMatch[1]);
+    return String(extra?.body || "").trim();
+  }
   return String(values?.[fieldId] || "").trim();
 }
 
@@ -19788,7 +20379,7 @@ function worldTermAtTextOffset(text, offset, terms) {
         continue;
       }
       if (pos >= index && pos <= end) {
-        if (!best || name.length > best.name.length) best = { sectionId, name };
+        if (!best || name.length > best.name.length) best = { sectionId, name, start: index, end };
       }
       from = index + 1;
     }
@@ -19809,11 +20400,9 @@ function worldTermFromEditorPoint(editor, clientX, clientY) {
   if (!editor) return null;
   const terms = dockWorldTermIndex();
   if (!terms.length) return null;
-  const range = rangeFromEditorPoint(editor, clientX, clientY);
-  if (!range) return null;
-  const offset = editorTextOffsetFromRange(editor, range);
-  if (offset < 0) return null;
-  return worldTermAtTextOffset(editor.textContent || "", offset, terms);
+  return namedHitFromEditorPoint(editor, clientX, clientY, (text, offset) =>
+    worldTermAtTextOffset(text, offset, terms)
+  );
 }
 
 function paintDockWorldCard(body, section) {
@@ -19899,12 +20488,8 @@ function openWorldCardFloat(sectionId, sourceEl) {
     defaultWidth: DOCK_WORLD_DEFAULT_W,
     defaultHeight: DOCK_WORLD_DEFAULT_H,
     resize: { minWidth: DOCK_WORLD_MIN_W, minHeight: DOCK_WORLD_MIN_H },
-    fallbackPos(el) {
-      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_WORLD_DEFAULT_W);
-      return {
-        left: Math.max(16, 94 + offset * 22),
-        top: Math.max(48, 94 + offset * 22),
-      };
+    fallbackPos() {
+      return dockFloatCenterPos(DOCK_WORLD_DEFAULT_W, DOCK_WORLD_DEFAULT_H, offset);
     },
     onResize: syncDockWorldCardExpanded,
     render(body) { renderDockWorldCard(body, id); },
@@ -20079,12 +20664,8 @@ function openItemCardFloat(itemId, sourceEl) {
     defaultWidth: DOCK_ITEM_DEFAULT_W,
     defaultHeight: DOCK_ITEM_DEFAULT_H,
     resize: { minWidth: DOCK_ITEM_MIN_W, minHeight: DOCK_ITEM_MIN_H },
-    fallbackPos(el) {
-      if (el?.getBoundingClientRect) return dockFloatFallbackPos("left", el, DOCK_ITEM_DEFAULT_W);
-      return {
-        left: Math.max(16, 94 + offset * 22),
-        top: Math.max(48, 94 + offset * 22),
-      };
+    fallbackPos() {
+      return dockFloatCenterPos(DOCK_ITEM_DEFAULT_W, DOCK_ITEM_DEFAULT_H, offset);
     },
     onResize: syncDockItemCardExpanded,
     render(body) { renderDockItemCard(body, id); },
@@ -20466,6 +21047,15 @@ function bindDockAppearancesFilter(root, win) {
   });
 }
 
+function dockGuideTipHtml(id, textKey) {
+  const tipId = String(id || "");
+  const hiddenClass = (typeof isGuideTipHidden === "function" && isGuideTipHidden(tipId)) ? " hidden" : "";
+  return `<div class="guide-tip-box dock-guide-tip${hiddenClass}" data-guide-tip="${escapeHtml(tipId)}" role="note">
+    <p class="hint guide-tip-text">${escapeHtml(i18n.t(textKey))}</p>
+    <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="${escapeHtml(tipId)}" title="${escapeHtml(i18n.t("index.이_안내_숨기기"))}" aria-label="${escapeHtml(i18n.t("index.안내_닫기"))}">×</button>
+  </div>`;
+}
+
 function renderDockAppearancesBody(body) {
   if (!body) return;
   const win = body.closest(".idea-float");
@@ -20480,12 +21070,13 @@ function renderDockAppearancesBody(body) {
           </select>
         </label>
       </div>
-      <p class="hint dock-timeline-hint">${escapeHtml(i18n.t("index.등장_이력_안내"))}</p>
+      ${dockGuideTipHtml("dockAppearances", "index.등장_이력_안내")}
       <div class="dock-timeline-list dock-appearances-list" data-role="dock-appearances-list">
         <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
       </div>
     </div>
   `;
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
   fillDockAppearancesFilter(body);
   bindDockAppearancesFilter(body, win);
   loadDockAppearances({ force: true }).then(() => {
@@ -20537,6 +21128,23 @@ function openDockAppearancesFloat(characterId, sourceEl) {
   return win;
 }
 
+function setDockDictionaryAdding(win, adding) {
+  dockDictionaryAdding = Boolean(adding);
+  const composer = win?.querySelector("[data-role='dock-dictionary-composer']");
+  if (!composer) return;
+  composer.hidden = !dockDictionaryAdding;
+  composer.classList.toggle("hidden", !dockDictionaryAdding);
+  if (dockDictionaryAdding) {
+    const term = composer.querySelector("[data-role='dock-dictionary-new-term']");
+    if (term) {
+      term.value = "";
+      requestAnimationFrame(() => term.focus());
+    }
+    const definition = composer.querySelector("[data-role='dock-dictionary-new-definition']");
+    if (definition) definition.value = "";
+  }
+}
+
 function paintDockDictionaryList(win) {
   const list = win?.querySelector("[data-role='dock-dictionary-list']");
   if (!list) return;
@@ -20554,29 +21162,64 @@ function paintDockDictionaryList(win) {
     const badge = warning
       ? `<span class="dict-name-warning-badge" title="${escapeHtml(warning)}">!</span>`
       : "";
-    const meaning = String(entry.definition || "").replace(/\s+/g, " ").trim();
+    const meaning = String(entry.definition || "").trim();
     const memo = String(entry.memo || "").trim();
     const selected = Number(state.dictionaryTermId) === Number(entry.id) ? " is-open" : "";
+    const editing = Number(dockDictionaryEditingId) === Number(entry.id);
+    let detail = "";
+    if (selected) {
+      if (editing) {
+        detail = `<div class="dock-dictionary-detail">
+        ${warning ? `<p class="dict-name-warning">${escapeHtml(warning)}</p>` : ""}
+        <label><span>${escapeHtml(i18n.t("index.뜻"))}</span>
+          <textarea data-dock-dictionary-definition="${entry.id}" rows="4" placeholder="${escapeHtml(i18n.t("index.이_단어가_이_작품에서_뜻하는_바"))}">${escapeHtml(entry.definition || "")}</textarea>
+        </label>
+        <div class="dock-dictionary-actions">
+          <button type="button" class="primary compact-btn" data-dock-dictionary-save="${entry.id}">${escapeHtml(i18n.t("app.저장"))}</button>
+          <button type="button" class="secondary compact-btn" data-dock-dictionary-cancel="${entry.id}">${escapeHtml(i18n.t("index.취소"))}</button>
+        </div>
+      </div>`;
+      } else {
+        detail = `<div class="dock-dictionary-detail">
+        ${warning ? `<p class="dict-name-warning">${escapeHtml(warning)}</p>` : ""}
+        <p class="dock-dictionary-meaning">${escapeHtml(meaning || i18n.t("index.뜻"))}</p>
+        ${memo ? `<p class="dock-dictionary-memo">${escapeHtml(memo)}</p>` : ""}
+        <div class="dock-dictionary-actions">
+          <button type="button" class="secondary compact-btn" data-dock-dictionary-edit="${entry.id}">${escapeHtml(i18n.t("app.수정"))}</button>
+        </div>
+      </div>`;
+      }
+    }
     return `<article class="dock-dictionary-item${selected}" data-dock-dictionary-id="${entry.id}">
       <button type="button" class="dock-dictionary-term" data-dock-dictionary-open="${entry.id}">
         <strong>${escapeHtml(entry.term || i18n.t("index.단어"))}${badge}</strong>
-        <span>${escapeHtml(meaning || i18n.t("index.뜻"))}</span>
       </button>
-      <div class="dock-dictionary-detail" ${selected ? "" : "hidden"}>
-        <p class="dock-dictionary-meaning">${escapeHtml(meaning || i18n.t("index.뜻"))}</p>
-        ${memo ? `<p class="dock-dictionary-memo">${escapeHtml(memo)}</p>` : ""}
-        ${warning ? `<p class="dict-name-warning">${escapeHtml(warning)}</p>` : ""}
-        <label><span>${escapeHtml(i18n.t("index.뜻"))}</span>
-          <textarea data-dock-dictionary-definition="${entry.id}" rows="3">${escapeHtml(entry.definition || "")}</textarea>
-        </label>
-        <button type="button" class="secondary compact-btn" data-dock-dictionary-save="${entry.id}">${escapeHtml(i18n.t("app.저장"))}</button>
-      </div>
+      ${detail}
     </article>`;
   }).join("");
   list.querySelectorAll("[data-dock-dictionary-open]").forEach((button) => {
     button.addEventListener("click", () => {
       const id = Number(button.getAttribute("data-dock-dictionary-open")) || 0;
-      state.dictionaryTermId = Number(state.dictionaryTermId) === id ? 0 : id;
+      if (Number(state.dictionaryTermId) === id) {
+        state.dictionaryTermId = 0;
+        dockDictionaryEditingId = 0;
+      } else {
+        state.dictionaryTermId = id;
+        if (dockDictionaryEditingId !== id) dockDictionaryEditingId = 0;
+      }
+      paintDockDictionaryList(win);
+    });
+  });
+  list.querySelectorAll("[data-dock-dictionary-edit]").forEach((button) => {
+    button.addEventListener("click", () => {
+      dockDictionaryEditingId = Number(button.getAttribute("data-dock-dictionary-edit")) || 0;
+      if (dockDictionaryEditingId) state.dictionaryTermId = dockDictionaryEditingId;
+      paintDockDictionaryList(win);
+    });
+  });
+  list.querySelectorAll("[data-dock-dictionary-cancel]").forEach((button) => {
+    button.addEventListener("click", () => {
+      dockDictionaryEditingId = 0;
       paintDockDictionaryList(win);
     });
   });
@@ -20585,6 +21228,7 @@ function paintDockDictionaryList(win) {
       const id = Number(button.getAttribute("data-dock-dictionary-save")) || 0;
       const entry = (state.dictionaryTerms || []).find((item) => Number(item.id) === id);
       const box = list.querySelector(`[data-dock-dictionary-definition="${id}"]`);
+      dockDictionaryEditingId = 0;
       saveDictionaryTerm({
         id,
         term: entry?.term || "",
@@ -20608,16 +21252,50 @@ function renderDockDictionaryBody(body) {
   const win = body.closest(".idea-float");
   body.innerHTML = `
     <div class="dock-dictionary">
-      <p class="hint dock-dictionary-hint">${escapeHtml(i18n.t("index.토리_사전_안내"))}</p>
+      ${dockGuideTipHtml("dockDictionary", "index.토리_사전_안내")}
+      <div class="dock-dictionary-toolbar">
+        <button type="button" class="secondary compact-btn" data-role="dock-dictionary-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("index.plus_단어"))}</button>
+      </div>
       <input type="search" data-role="dock-dictionary-search" autocomplete="off" spellcheck="false"
         placeholder="${escapeHtml(i18n.t("index.단어_뜻_검색"))}"
         aria-label="${escapeHtml(i18n.t("index.토리_사전_검색"))}"
         value="${escapeHtml(state.dictionaryQuery || "")}">
+      <div class="dock-dictionary-composer hidden" data-role="dock-dictionary-composer" hidden>
+        <label><span>${escapeHtml(i18n.t("index.새단어"))}</span>
+          <input type="text" maxlength="80" autocomplete="off" data-role="dock-dictionary-new-term"
+            placeholder="${escapeHtml(i18n.t("index.고유어_세계관_용어"))}">
+        </label>
+        <label><span>${escapeHtml(i18n.t("index.뜻"))}</span>
+          <textarea rows="3" data-role="dock-dictionary-new-definition"
+            placeholder="${escapeHtml(i18n.t("index.이_단어가_이_작품에서_뜻하는_바"))}"></textarea>
+        </label>
+        <div class="dock-dictionary-actions">
+          <button type="button" class="primary compact-btn" data-role="dock-dictionary-create">${escapeHtml(i18n.t("app.저장"))}</button>
+          <button type="button" class="secondary compact-btn" data-role="dock-dictionary-add-cancel">${escapeHtml(i18n.t("index.취소"))}</button>
+        </div>
+      </div>
       <div class="dock-dictionary-list" data-role="dock-dictionary-list">
         <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
       </div>
     </div>
   `;
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
+  setDockDictionaryAdding(win, false);
+  body.querySelector("[data-role='dock-dictionary-add']")?.addEventListener("click", () => {
+    if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    setDockDictionaryAdding(win, true);
+  });
+  body.querySelector("[data-role='dock-dictionary-add-cancel']")?.addEventListener("click", () => {
+    setDockDictionaryAdding(win, false);
+  });
+  body.querySelector("[data-role='dock-dictionary-create']")?.addEventListener("click", () => {
+    const term = win.querySelector("[data-role='dock-dictionary-new-term']")?.value || "";
+    const definition = win.querySelector("[data-role='dock-dictionary-new-definition']")?.value || "";
+    saveDictionaryTerm({ id: 0, term, definition, memo: "" }).then((saved) => {
+      if (!saved) return;
+      setDockDictionaryAdding(win, false);
+    }).catch(handleError);
+  });
   body.querySelector("[data-role='dock-dictionary-search']")?.addEventListener("input", (event) => {
     state.dictionaryQuery = String(event.target.value || "");
     const sidebar = $("dictionarySearch");
@@ -20644,27 +21322,15 @@ function dockBaitEpisodeLabel(thread) {
   return bits.join(" · ");
 }
 
-function paintDockBaitsList(win) {
-  const list = win?.querySelector("[data-role='dock-baits-list']");
-  if (!list) return;
-  const rows = Array.isArray(dockBaitsCache.threads) ? dockBaitsCache.threads : [];
-  if (!state.projectId) {
-    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
-    return;
-  }
-  if (!rows.length) {
-    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.아직_열린_떡밥이_없어요"))}</p>`;
-    return;
-  }
-  list.innerHTML = rows.map((thread) => {
-    const text = String(thread?.text || "").trim();
-    const resolved = Boolean(thread?.resolved);
-    const sceneId = Number(thread?.scene_id) || 0;
-    const ep = dockBaitEpisodeLabel(thread);
-    const sceneButton = sceneId
-      ? `<button type="button" class="secondary compact-btn" data-dock-bait-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`
-      : "";
-    return `<article class="dock-bait-item${resolved ? " is-resolved" : ""}">
+function dockToryBaitItemHtml(thread) {
+  const text = String(thread?.text || "").trim();
+  const resolved = Boolean(thread?.resolved);
+  const sceneId = Number(thread?.scene_id) || 0;
+  const ep = dockBaitEpisodeLabel(thread);
+  const sceneButton = sceneId
+    ? `<button type="button" class="secondary compact-btn" data-dock-bait-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`
+    : "";
+  return `<article class="dock-bait-item${resolved ? " is-resolved" : ""}">
       <label class="dock-bait-resolve">
         <input type="checkbox" data-dock-bait-resolved="${escapeHtml(text)}" ${resolved ? "checked" : ""}>
         <span>${escapeHtml(i18n.t("app.해결됨"))}</span>
@@ -20675,7 +21341,78 @@ function paintDockBaitsList(win) {
         ${sceneButton}
       </div>
     </article>`;
-  }).join("");
+}
+
+function dockUserBaitEpisodeLabel(bait) {
+  const sceneId = Number(bait?.plantSceneId || bait?.sourceSceneId) || 0;
+  if (sceneId) {
+    const title = typeof sceneTitleById === "function" ? sceneTitleById(sceneId) : "";
+    return String(title || bait?.sourceTitle || "").trim();
+  }
+  return String(bait?.plantAtNote || bait?.sourceTitle || "").trim();
+}
+
+function dockUserBaitItemHtml(bait) {
+  const quote = String(bait?.quote || "").trim();
+  const summary = String(bait?.summary || "").trim();
+  const text = quote || summary || i18n.t("app.내용_없음");
+  const sceneId = Number(bait?.plantSceneId || bait?.sourceSceneId) || 0;
+  const ep = dockUserBaitEpisodeLabel(bait);
+  const extra = summary && quote && summary !== quote
+    ? `<p class="dock-bait-summary">${escapeHtml(summary)}</p>`
+    : "";
+  const sceneButton = sceneId
+    ? `<button type="button" class="secondary compact-btn" data-dock-bait-scene="${sceneId}">${escapeHtml(i18n.t("app.본문_보기"))}</button>`
+    : "";
+  return `<article class="dock-bait-item dock-bait-item-collected">
+      <p class="dock-bait-text">${escapeHtml(text)}</p>
+      ${extra}
+      <div class="dock-bait-meta">
+        <span class="dock-bait-ep">${escapeHtml(ep)}</span>
+        ${sceneButton}
+      </div>
+    </article>`;
+}
+
+function dockBaitsTabId() {
+  return dockBaitsTab === "collected" ? "collected" : "tory";
+}
+
+function syncDockBaitsTabButtons(win) {
+  const tab = dockBaitsTabId();
+  dockBaitsTab = tab;
+  win?.querySelectorAll("[data-dock-baits-tab]").forEach((btn) => {
+    const on = btn.getAttribute("data-dock-baits-tab") === tab;
+    btn.classList.toggle("is-active", on);
+    btn.setAttribute("aria-selected", on ? "true" : "false");
+  });
+}
+
+function setDockBaitsTab(win, tab) {
+  dockBaitsTab = tab === "collected" ? "collected" : "tory";
+  paintDockBaitsList(win);
+}
+
+function paintDockBaitsList(win) {
+  const list = win?.querySelector("[data-role='dock-baits-list']");
+  if (!list) return;
+  syncDockBaitsTabButtons(win);
+  const threads = Array.isArray(dockBaitsCache.threads) ? dockBaitsCache.threads : [];
+  const collected = typeof loadBaits === "function" ? loadBaits() : [];
+  if (!state.projectId) {
+    list.innerHTML = `<p class="hint">${escapeHtml(i18n.t("app.먼저_작품을_선택해_주세요"))}</p>`;
+    return;
+  }
+  const collectedTab = dockBaitsTabId() === "collected";
+  if (collectedTab) {
+    list.innerHTML = collected.length
+      ? collected.map((bait) => dockUserBaitItemHtml(bait)).join("")
+      : `<p class="hint">${escapeHtml(i18n.t("app.내가_모은_떡밥이_없어요"))}</p>`;
+  } else {
+    list.innerHTML = threads.length
+      ? threads.map((thread) => dockToryBaitItemHtml(thread)).join("")
+      : `<p class="hint">${escapeHtml(i18n.t("app.아직_열린_떡밥이_없어요"))}</p>`;
+  }
   list.querySelectorAll("[data-dock-bait-resolved]").forEach((input) => {
     input.addEventListener("change", () => {
       setDockBaitResolved(input.getAttribute("data-dock-bait-resolved"), input.checked).catch(handleError);
@@ -20723,18 +21460,37 @@ async function setDockBaitResolved(text, resolved) {
   if (win) paintDockBaitsList(win);
 }
 
+function loadDockBaitsAndCollected() {
+  const loadUser = typeof refreshBaitsFromServer === "function"
+    ? refreshBaitsFromServer()
+    : Promise.resolve();
+  return Promise.all([loadDockBaits({ force: true }), loadUser]);
+}
+
 function renderDockBaitsBody(body) {
   if (!body) return;
   const win = body.closest(".idea-float");
+  const tab = dockBaitsTabId();
+  const listLabel = i18n.t("index.열린_떡밥");
   body.innerHTML = `
     <div class="dock-baits">
-      <p class="hint dock-baits-hint">${escapeHtml(i18n.t("index.열린_떡밥_안내"))}</p>
+      ${dockGuideTipHtml("dockBaits", "index.열린_떡밥_안내")}
+      <div class="idea-bank-tabs dock-baits-tabs" role="tablist" aria-label="${escapeHtml(listLabel)}">
+        <button type="button" class="idea-bank-tab${tab !== "collected" ? " is-active" : ""}" data-dock-baits-tab="tory" role="tab" aria-selected="${tab !== "collected" ? "true" : "false"}">${escapeHtml(i18n.t("index.토리가_짚어둔_떡밥"))}</button>
+        <button type="button" class="idea-bank-tab${tab === "collected" ? " is-active" : ""}" data-dock-baits-tab="collected" role="tab" aria-selected="${tab === "collected" ? "true" : "false"}">${escapeHtml(i18n.t("index.내가_모은_떡밥"))}</button>
+      </div>
       <div class="dock-baits-list" data-role="dock-baits-list">
         <p class="hint">${escapeHtml(i18n.t("app.불러오는_중"))}</p>
       </div>
     </div>
   `;
-  loadDockBaits({ force: true }).then(() => {
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
+  body.querySelectorAll("[data-dock-baits-tab]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      setDockBaitsTab(win, btn.getAttribute("data-dock-baits-tab"));
+    });
+  });
+  loadDockBaitsAndCollected().then(() => {
     if (!ideaFloatWindows.get(DOCK_BAITS_KEY)) return;
     paintDockBaitsList(win);
   }).catch(handleError);
@@ -20747,10 +21503,181 @@ function syncDockBaitsFloat() {
     paintDockBaitsList(win);
     return;
   }
-  loadDockBaits({ force: true }).then(() => {
+  loadDockBaitsAndCollected().then(() => {
     if (!ideaFloatWindows.get(DOCK_BAITS_KEY)) return;
     paintDockBaitsList(win);
   }).catch(handleError);
+}
+
+function toryVaultListInnerHtml() {
+  const items = loadToryVault();
+  if (!items.length) return i18n.t("app.p_class_hint_tory_vault");
+  return items.map((item) => {
+    const when = item.createdAt
+      ? new Date(item.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
+      : "";
+    const mode = escapeHtml(aiModeLabel(item.mode));
+    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : "";
+    const body = escapeHtml(item.body || "");
+    return `
+      <article class="tory-vault-card" data-vault-id="${escapeHtml(item.id)}">
+        <div class="tory-vault-card-meta">
+          <strong>${escapeHtml(item.title || i18n.t("app.수집"))}</strong>
+          <span>${mode}</span>
+          ${scene ? `<span>씬: ${scene}</span>` : ""}
+          ${when ? `<span>${escapeHtml(when)}</span>` : ""}
+        </div>
+        <div class="tory-vault-card-body">${body}</div>
+        <div class="tory-vault-card-actions">
+          <button type="button" class="secondary compact-btn" data-vault-copy="${escapeHtml(item.id)}">복사</button>
+          <button type="button" class="secondary compact-btn" data-vault-delete="${escapeHtml(item.id)}">삭제</button>
+        </div>
+      </article>`;
+  }).join("");
+}
+
+function paintToryVaultListEl(listEl) {
+  if (!listEl) return;
+  listEl.innerHTML = toryVaultListInnerHtml();
+}
+
+function syncDockToryVaultFloat() {
+  const win = ideaFloatWindows.get(DOCK_TORY_VAULT_KEY);
+  if (!win) return;
+  paintToryVaultListEl(win.querySelector("[data-role='dock-vault-list']"));
+}
+
+function promptNewToryVaultNote({ openSettings = false } = {}) {
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  promptText({
+    title: i18n.t("app.수집창고_메모"),
+    message: i18n.t("app.수집창고에_넣을_메모를_적어_주세요"),
+    label: i18n.t("app.메모_2"),
+    defaultValue: "",
+    placeholder: i18n.t("app.짧은_메모"),
+    maxlength: 2000,
+    confirmLabel: i18n.t("app.넣기"),
+  }).then((text) => {
+    if (text === null) return;
+    const body = text.trim();
+    if (!body) return toast(i18n.t("app.내용이_비어_있어요"));
+    collectToToryVault({ text: body, title: i18n.t("app.직접_메모"), mode: "note", prompt: "" });
+    if (openSettings) {
+      setActiveBinder("settings");
+      state.openSettingsSection = "toryVault";
+      applySettingsSectionState();
+    }
+  }).catch(handleError);
+}
+
+function clearToryVaultAll() {
+  if (!state.projectId) return;
+  if (!loadToryVault().length) return toast(i18n.t("app.비울_수집이_없어요"));
+  if (!window.confirm(i18n.t("app.토리_수집창고를_모두_비울까요"))) return;
+  saveToryVault([]);
+  renderToryVaultList();
+  renderSettingsCodex();
+  toast(i18n.t("app.수집창고를_비웠어요"));
+}
+
+function copyToryVaultBody(text) {
+  const body = String(text || "");
+  if (!body) return;
+  navigator.clipboard?.writeText(body).then(
+    () => toast(i18n.t("app.복사했어요")),
+    () => {
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = body;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        ta.remove();
+        toast(i18n.t("app.복사했어요"));
+      } catch (_) {
+        toast(i18n.t("app.복사에_실패했어요"));
+      }
+    },
+  );
+}
+
+function handleToryVaultListClick(event) {
+  const copyId = event.target.closest?.("[data-vault-copy]")?.dataset?.vaultCopy;
+  const delId = event.target.closest?.("[data-vault-delete]")?.dataset?.vaultDelete;
+  if (copyId) {
+    const item = loadToryVault().find((v) => v.id === copyId);
+    if (!item?.body) return;
+    copyToryVaultBody(item.body);
+    return;
+  }
+  if (delId) {
+    if (!window.confirm(i18n.t("app.이_수집을_삭제할까요"))) return;
+    saveToryVault(loadToryVault().filter((v) => v.id !== delId));
+    renderToryVaultList();
+    renderSettingsCodex();
+    toast(i18n.t("app.삭제했어요"));
+  }
+}
+
+function renderDockToryVaultBody(body) {
+  if (!body) return;
+  body.innerHTML = `
+    <div class="dock-tory-vault">
+      ${dockGuideTipHtml("toryVault", "index.토리의_수집창고_안내")}
+      <div class="dock-tory-vault-toolbar">
+        <button type="button" class="secondary compact-btn" data-role="dock-vault-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.메모"))}</button>
+        <button type="button" class="secondary compact-btn" data-role="dock-vault-clear"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.비우기"))}</button>
+      </div>
+      <div class="tory-vault-list dock-tory-vault-list" data-role="dock-vault-list"></div>
+    </div>
+  `;
+  body.querySelector("[data-role='dock-vault-add']")?.addEventListener("click", () => {
+    promptNewToryVaultNote({ openSettings: false });
+  });
+  body.querySelector("[data-role='dock-vault-clear']")?.addEventListener("click", () => {
+    clearToryVaultAll();
+  });
+  const list = body.querySelector("[data-role='dock-vault-list']");
+  list?.addEventListener("click", handleToryVaultListClick);
+  paintToryVaultListEl(list);
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
+}
+
+function syncDockSourcesFloat() {
+  const win = ideaFloatWindows.get(DOCK_SOURCES_KEY);
+  if (!win) return;
+  paintDockSourcesList(win);
+}
+
+function paintDockSourcesList(win) {
+  const list = win?.querySelector("[data-role='dock-sources-list']");
+  if (!list) return;
+  if (typeof sourceListInnerHtml === "function") {
+    list.innerHTML = sourceListInnerHtml();
+  }
+}
+
+function renderDockSourcesBody(body) {
+  if (!body) return;
+  body.innerHTML = `
+    <div class="dock-sources">
+      ${dockGuideTipHtml("sources", "index.참고자료_출처_안내")}
+      <div class="dock-sources-toolbar">
+        <button type="button" class="secondary compact-btn" data-role="dock-source-add"${state.projectId ? "" : " disabled"}>${escapeHtml(i18n.t("app.자료_2"))}</button>
+      </div>
+      <div class="source-list dock-sources-list" data-role="dock-sources-list"></div>
+    </div>
+  `;
+  body.querySelector("[data-role='dock-source-add']")?.addEventListener("click", () => {
+    if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    openSourceModal({});
+  });
+  const list = body.querySelector("[data-role='dock-sources-list']");
+  list?.addEventListener("click", (event) => {
+    if (typeof handleSourceListClick === "function") handleSourceListClick(event);
+  });
+  paintDockSourcesList(body.closest(".idea-float"));
+  if (typeof syncGuideTipBoxes === "function") syncGuideTipBoxes();
 }
 
 function dockManuscriptWin() {
@@ -21213,7 +22140,7 @@ function characterAtTextOffset(text, offset, characters) {
           continue;
         }
         if (pos >= index && pos <= end) {
-          if (!best || name.length > best.name.length) best = { id, name };
+          if (!best || name.length > best.name.length) best = { id, name, start: index, end };
         }
         from = index + 1;
       }
@@ -21251,13 +22178,82 @@ function rangeFromEditorPoint(editor, clientX, clientY) {
   return range;
 }
 
+function rangeFromEditorTextOffsets(editor, start, end) {
+  if (!editor) return null;
+  const wantStart = Math.max(0, Number(start) || 0);
+  const wantEnd = Math.max(wantStart, Number(end) || 0);
+  const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+  let pos = 0;
+  let startNode = null;
+  let startOff = 0;
+  let endNode = null;
+  let endOff = 0;
+  while (walker.nextNode()) {
+    const node = walker.currentNode;
+    const len = node.nodeValue ? node.nodeValue.length : 0;
+    if (!startNode && wantStart <= pos + len) {
+      startNode = node;
+      startOff = wantStart - pos;
+    }
+    if (wantEnd <= pos + len) {
+      endNode = node;
+      endOff = wantEnd - pos;
+      break;
+    }
+    pos += len;
+  }
+  if (!startNode) return null;
+  if (!endNode) {
+    endNode = startNode;
+    endOff = startNode.nodeValue ? startNode.nodeValue.length : 0;
+  }
+  try {
+    const range = document.createRange();
+    range.setStart(startNode, Math.min(Math.max(0, startOff), startNode.nodeValue.length));
+    range.setEnd(endNode, Math.min(Math.max(0, endOff), endNode.nodeValue.length));
+    return range;
+  } catch (_) {
+    return null;
+  }
+}
+
+function pointHitsRangeRects(range, clientX, clientY, pad = 3) {
+  if (!range) return false;
+  try {
+    const rects = range.getClientRects();
+    for (const rect of rects) {
+      if (rect.height <= 0) continue;
+      if (
+        clientX >= rect.left - pad
+        && clientX <= rect.right + pad
+        && clientY >= rect.top - pad
+        && clientY <= rect.bottom + pad
+      ) {
+        return true;
+      }
+    }
+  } catch (_) { /* ignore */ }
+  return false;
+}
+
+function namedHitFromEditorPoint(editor, clientX, clientY, locate) {
+  if (!editor || typeof locate !== "function") return null;
+  const caret = rangeFromEditorPoint(editor, clientX, clientY);
+  if (!caret) return null;
+  const offset = editorTextOffsetFromRange(editor, caret);
+  if (offset < 0) return null;
+  const hit = locate(editor.textContent || "", offset);
+  if (!hit || hit.start == null || hit.end == null) return null;
+  const nameRange = rangeFromEditorTextOffsets(editor, hit.start, hit.end);
+  if (!pointHitsRangeRects(nameRange, clientX, clientY)) return null;
+  return hit;
+}
+
 function characterFromEditorPoint(editor, clientX, clientY) {
   if (!editor || !(state.characters || []).length) return null;
-  const range = rangeFromEditorPoint(editor, clientX, clientY);
-  if (!range) return null;
-  const offset = editorTextOffsetFromRange(editor, range);
-  if (offset < 0) return null;
-  return characterAtTextOffset(editor.textContent || "", offset, state.characters);
+  return namedHitFromEditorPoint(editor, clientX, clientY, (text, offset) =>
+    characterAtTextOffset(text, offset, state.characters)
+  );
 }
 
 function itemAtTextOffset(text, offset, items) {
@@ -21284,7 +22280,7 @@ function itemAtTextOffset(text, offset, items) {
           continue;
         }
         if (pos >= index && pos <= end) {
-          if (!best || name.length > best.name.length) best = { id, name };
+          if (!best || name.length > best.name.length) best = { id, name, start: index, end };
         }
         from = index + 1;
       }
@@ -21307,11 +22303,9 @@ function itemFromSelectedText(text) {
 
 function itemFromEditorPoint(editor, clientX, clientY) {
   if (!editor || !(state.items || []).length) return null;
-  const range = rangeFromEditorPoint(editor, clientX, clientY);
-  if (!range) return null;
-  const offset = editorTextOffsetFromRange(editor, range);
-  if (offset < 0) return null;
-  return itemAtTextOffset(editor.textContent || "", offset, state.items);
+  return namedHitFromEditorPoint(editor, clientX, clientY, (text, offset) =>
+    itemAtTextOffset(text, offset, state.items)
+  );
 }
 
 function isManuscriptBodyEditor(node) {
@@ -22132,8 +23126,6 @@ async function runFocusedAnalysisForTarget(sceneId) {
   updateForeshadowPanelVisibility();
   if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const assistBody = {
       mode: "analyze",
@@ -22500,8 +23492,6 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   updateForeshadowPanelVisibility();
   if ($("aiResult")) $("aiResult").value = i18n.t('app.회차를_자세히_요약하는_중');
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const plain = base.plain.length > 12000 ? base.plain.slice(-12000) : base.plain;
     const assistBody = {
@@ -22616,8 +23606,6 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
     $("aiResult").value = `${i18n.t('app.episodes_length_개_회차를_자', {'episodes.length': episodes.length})}`;
   }
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const assistBody = {
       mode: "summarize_multi",
@@ -22703,8 +23691,6 @@ async function runFocusedAnalysis(options = {}) {
   }
   if ($("aiResult")) $("aiResult").value = i18n.t('app.편집자_독자_관점으로_이_회차를_살펴보는_중');
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const assistBody = {
       mode: "analyze",
@@ -24141,8 +25127,6 @@ async function runWorldScanForTarget(sceneId) {
   }
   if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const lore = buildLoreKeeperPayload({
       worldText,
@@ -24260,8 +25244,6 @@ async function runWorldScanMulti(sceneIds) {
     $("aiResult").value = `${i18n.t('app.episodes_length_개_회차의_세', {'episodes.length': episodes.length})}`;
   }
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const lore = buildLoreKeeperPayload({
       worldText,
@@ -24357,8 +25339,6 @@ async function runWorldScan() {
   }
   if ($("aiResult")) $("aiResult").value = i18n.t('app.세계관_캐릭터_설정과_원고를_대조하는_중');
   ensureAiResultVisible();
-  if (isAiResultModalOpen()) syncAiResultModalBody();
-
   try {
     const lore = buildLoreKeeperPayload({
       worldText,
@@ -25933,7 +26913,6 @@ function setContinueStyleActiveTab(style) {
   const text = continueStyleResultsState.texts[key] || "";
   if ($("continueStyleResultBody")) $("continueStyleResultBody").value = text;
   if ($("aiResult")) $("aiResult").value = text;
-  if (isAiResultModalOpen()) syncAiResultModalBody();
 }
 
 function showContinueStyleResults(textsByStyle) {
@@ -26121,13 +27100,223 @@ function syncAiResultModalBody() {
   const body = $("aiResultModalBody");
   if (!body) return;
   const text = String($("aiResult")?.value || "");
-  body.textContent = text || i18n.t('app.결과가_비어_있어요');
+  body.textContent = text || i18n.t("app.결과가_비어_있어요");
   const showContinueBlend = Boolean(
     pendingStyleBlendContext?.source === "continue"
     && pendingStyleBlendContext?.referenceText
     && pendingStyleBlendContext?.targetText
   );
   $("styleBlendOfferModal")?.classList.toggle("hidden", !showContinueBlend);
+}
+
+const AI_RESULT_MODAL_GEOM_KEY = "supertory.aiResultModalGeom";
+const AI_RESULT_MODAL_MIN_W = 400;
+const AI_RESULT_MODAL_MIN_H = 320;
+
+function loadAiResultModalGeom() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(AI_RESULT_MODAL_GEOM_KEY) || "null");
+    if (!raw || typeof raw !== "object") return null;
+    const width = Number(raw.width);
+    const height = Number(raw.height);
+    const left = Number(raw.left);
+    const top = Number(raw.top);
+    if (![width, height, left, top].every(Number.isFinite)) return null;
+    return { width, height, left, top };
+  } catch (_) {
+    return null;
+  }
+}
+
+function saveAiResultModalGeom(card = document.querySelector("#aiResultModal .ai-result-modal-card")) {
+  if (!card) return;
+  const rect = card.getBoundingClientRect();
+  if (rect.width < 80 || rect.height < 80) return;
+  try {
+    localStorage.setItem(AI_RESULT_MODAL_GEOM_KEY, JSON.stringify({
+      left: Math.round(rect.left),
+      top: Math.round(rect.top),
+      width: Math.round(rect.width),
+      height: Math.round(rect.height),
+    }));
+  } catch (_) { /* ignore */ }
+}
+
+function applyAiResultModalGeom(card, geom) {
+  if (!card) return;
+  if (!geom) {
+    card.classList.remove("is-user-sized");
+    card.style.left = "";
+    card.style.top = "";
+    card.style.width = "";
+    card.style.height = "";
+    card.style.right = "";
+    card.style.bottom = "";
+    card.style.position = "";
+    return;
+  }
+  const width = Math.min(window.innerWidth - 16, Math.max(AI_RESULT_MODAL_MIN_W, geom.width));
+  const height = Math.min(window.innerHeight - 16, Math.max(AI_RESULT_MODAL_MIN_H, geom.height));
+  const left = Math.min(Math.max(0, geom.left), window.innerWidth - Math.min(width, window.innerWidth - 8));
+  const top = Math.min(Math.max(0, geom.top), window.innerHeight - Math.min(height, window.innerHeight - 8));
+  card.classList.add("is-user-sized");
+  card.style.position = "fixed";
+  card.style.left = `${Math.round(left)}px`;
+  card.style.top = `${Math.round(top)}px`;
+  card.style.width = `${Math.round(width)}px`;
+  card.style.height = `${Math.round(height)}px`;
+  card.style.right = "auto";
+  card.style.bottom = "auto";
+}
+
+function lockAiResultModalGeom(card) {
+  const rect = card.getBoundingClientRect();
+  applyAiResultModalGeom(card, {
+    left: rect.left,
+    top: rect.top,
+    width: rect.width,
+    height: rect.height,
+  });
+  return rect;
+}
+
+function setupAiResultModalChrome() {
+  const modal = $("aiResultModal");
+  const card = modal?.querySelector(".ai-result-modal-card");
+  const dragBar = $("aiResultModalDrag");
+  if (!modal || !card || modal.dataset.chromeBound === "1") return;
+  modal.dataset.chromeBound = "1";
+
+  let drag = null;
+  let resize = null;
+
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockAiResultModalGeom(card);
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("tory-chat-popup-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+
+  card.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockAiResultModalGeom(card);
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("tory-chat-popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
+  });
+
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = card.getBoundingClientRect().width || AI_RESULT_MODAL_MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      card.style.left = `${Math.round(left)}px`;
+      card.style.top = `${Math.round(top)}px`;
+      card.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      applyFloatingPopupResize(card, resize, event, AI_RESULT_MODAL_MIN_W, AI_RESULT_MODAL_MIN_H);
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("tory-chat-popup-dragging");
+      saveAiResultModalGeom(card);
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+      document.body.classList.remove("tory-chat-popup-resizing");
+      saveAiResultModalGeom(card);
+    }
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+}
+
+function openAiResultModal() {
+  const modal = $("aiResultModal");
+  const card = modal?.querySelector(".ai-result-modal-card");
+  if (!modal) return;
+  syncAiResultModalBody();
+  applyAiResultModalGeom(card, loadAiResultModalGeom());
+  modal.classList.remove("hidden");
+}
+
+function closeAiResultModal() {
+  const card = document.querySelector("#aiResultModal .ai-result-modal-card");
+  if (card?.classList.contains("is-user-sized")) saveAiResultModalGeom(card);
+  $("aiResultModal")?.classList.add("hidden");
+}
+
+function isAiPromptModalOpen() {
+  const modal = $("aiPromptModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
+function openAiPromptModal() {
+  const modal = $("aiPromptModal");
+  const body = $("aiPromptModalBody");
+  if (!modal || !body) return;
+  body.value = $("aiPrompt")?.value || "";
+  modal.classList.remove("hidden");
+  requestAnimationFrame(() => {
+    try { body.focus(); } catch (_) { /* ignore */ }
+  });
+}
+
+function closeAiPromptModal({ apply = true } = {}) {
+  const modal = $("aiPromptModal");
+  const body = $("aiPromptModalBody");
+  if (apply && body && $("aiPrompt")) $("aiPrompt").value = body.value;
+  modal?.classList.add("hidden");
+}
+
+function setupAiPromptModal() {
+  const modal = $("aiPromptModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+  $("aiPromptExpandButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openAiPromptModal();
+  });
+  modal.querySelectorAll("[data-close-ai-prompt]").forEach((el) => {
+    el.addEventListener("click", (event) => {
+      event.preventDefault();
+      closeAiPromptModal({ apply: true });
+    });
+  });
+  $("aiPromptModalClearButton")?.addEventListener("click", () => {
+    if ($("aiPromptModalBody")) $("aiPromptModalBody").value = "";
+  });
+  $("aiPromptModalSubmitButton")?.addEventListener("click", () => {
+    closeAiPromptModal({ apply: true });
+    $("aiForm")?.requestSubmit?.();
+  });
 }
 
 const AI_RESULT_HISTORY_PREFIX = "supertory.aiResultHistory.";
@@ -26189,9 +27378,8 @@ function pushAiResultHistory(entry = {}) {
   return item;
 }
 
-/** Show assist result in the right panel and open the large reader. */
+/** Show assist result in the right panel (or 결과보기 widget). */
 function revealAiAssistResult(options = {}) {
-  const openModal = options.openModal !== false;
   const recordHistory = options.recordHistory !== false;
   setAiPanelOpen(true);
   try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
@@ -26206,36 +27394,9 @@ function revealAiAssistResult(options = {}) {
       sceneTitle: options.sceneTitle,
     });
   }
-  if (isAiResultModalOpen()) syncAiResultModalBody();
   requestAnimationFrame(() => {
     $("aiResultWrap")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
-    if (openModal && text && !isAiResultPendingText(text)) {
-      openAiResultModal();
-    }
   });
-}
-
-function openAiResultModal() {
-  const text = String($("aiResult")?.value || "").trim();
-  if (!text) {
-    toast(i18n.t('app.크게_볼_결과가_없어요_먼저_분석을_실행해'));
-    return;
-  }
-  const modal = $("aiResultModal");
-  if (!modal) return;
-  syncAiResultModalBody();
-  modal.classList.remove("hidden");
-  requestAnimationFrame(() => {
-    $("aiResultModalBody")?.focus?.();
-  });
-}
-
-function closeAiResultModal({ quiet = false } = {}) {
-  const wasOpen = isAiResultModalOpen();
-  $("aiResultModal")?.classList.add("hidden");
-  if (wasOpen && !quiet) {
-    toast(i18n.t('app.닫아도_결과_옆_히스토리에서_다시_확인할_수'));
-  }
 }
 
 function isAiResultHistoryModalOpen() {
@@ -26366,37 +27527,42 @@ function clearAiResultHistory() {
 
 function setupAiResultModal() {
   const modal = $("aiResultModal");
-  if (!modal || modal.dataset.bound === "1") return;
-  modal.dataset.bound = "1";
+  if (modal && modal.dataset.resultBound !== "1") {
+    modal.dataset.resultBound = "1";
+    setupAiResultModalChrome();
+    $("aiResultExpandButton")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      openAiResultModal();
+    });
+    modal.querySelectorAll("[data-close-ai-result]").forEach((el) => {
+      el.addEventListener("click", (event) => {
+        event.preventDefault();
+        closeAiResultModal();
+      });
+    });
+    $("aiResultModalCollectButton")?.addEventListener("click", () => {
+      collectToToryVault({ text: $("aiResult")?.value || "" });
+    });
+    $("aiResultModalCopyButton")?.addEventListener("click", () => copyAiResult().catch(handleError));
+    $("aiResultModalInsertButton")?.addEventListener("click", () => {
+      insertAiResultIntoEditor();
+      closeAiResultModal();
+    });
+    $("styleBlendCheckButtonModal")?.addEventListener("click", () => {
+      runStyleBlendCheck({ scope: "continue" }).catch(handleError);
+    });
+  }
 
-  $("aiResultExpandButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    openAiResultModal();
-  });
+  const historyModal = $("aiResultHistoryModal");
+  if (!historyModal || historyModal.dataset.bound === "1") return;
+  historyModal.dataset.bound = "1";
+
   $("aiResultHistoryButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     openAiResultHistoryModal();
   });
 
-  modal.querySelectorAll("[data-close-ai-result]").forEach((el) => {
-    el.addEventListener("click", (event) => {
-      event.preventDefault();
-      closeAiResultModal();
-    });
-  });
-
-  $("aiResultModalCopyButton")?.addEventListener("click", () => {
-    copyAiResult().catch(handleError);
-  });
-  $("aiResultModalCollectButton")?.addEventListener("click", () => {
-    collectToToryVault({ text: $("aiResult")?.value || "" });
-  });
-  $("aiResultModalInsertButton")?.addEventListener("click", () => {
-    insertAiResultIntoEditor();
-  });
-
-  const historyModal = $("aiResultHistoryModal");
-  historyModal?.querySelectorAll("[data-close-ai-result-history]").forEach((el) => {
+  historyModal.querySelectorAll("[data-close-ai-result-history]").forEach((el) => {
     el.addEventListener("click", (event) => {
       event.preventDefault();
       closeAiResultHistoryModal();
@@ -26431,6 +27597,16 @@ function setupAiResultModal() {
 
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
+    if (isAiPromptModalOpen()) {
+      event.preventDefault();
+      closeAiPromptModal({ apply: true });
+      return;
+    }
+    if (isAiResultModalOpen()) {
+      event.preventDefault();
+      closeAiResultModal();
+      return;
+    }
     if (isAiResultHistoryModalOpen()) {
       event.preventDefault();
       if (aiResultHistoryViewId && !$("aiResultHistoryDetail")?.classList.contains("hidden")) {
@@ -26455,20 +27631,7 @@ function setupAiResultModal() {
       closeAiToolModal({ dismissed: true });
       return;
     }
-    if (isAiPromptModalOpen()) {
-      event.preventDefault();
-      closeAiPromptModal();
-      return;
-    }
-    if (isAiResultModalOpen()) {
-      event.preventDefault();
-      closeAiResultModal();
-    }
   });
-}
-
-function isAiPromptModalOpen() {
-  return Boolean($("aiPromptModal") && !$("aiPromptModal").classList.contains("hidden"));
 }
 
 function commitTextareaIme(el) {
@@ -26478,93 +27641,6 @@ function commitTextareaIme(el) {
   } catch (_) {
     /* ignore */
   }
-}
-
-function syncAiPromptFromModal() {
-  const panel = $("aiPrompt");
-  const body = $("aiPromptModalBody");
-  if (!panel || !body) return;
-  commitTextareaIme(body);
-  const modalVal = String(body.value || "");
-  const panelVal = String(panel.value || "");
-  // 큰 창이 비어 있으면 패널에 이미 있는 글을 지우지 않아요 (IME·포커스 이동 손실 대비)
-  if (!modalVal.trim() && panelVal.trim()) return;
-  panel.value = modalVal;
-}
-
-function syncAiPromptModalFromPanel() {
-  const panel = $("aiPrompt");
-  const body = $("aiPromptModalBody");
-  if (!panel || !body) return;
-  commitTextareaIme(panel);
-  body.value = panel.value || "";
-  body.placeholder = panel.placeholder || i18n.t('app.토리에게_보낼_요청을_적어_주세요');
-  const label = String($("aiPromptLabel")?.textContent || "").trim() || i18n.t('app.요청_내용');
-  if ($("aiPromptModalTitle")) $("aiPromptModalTitle").textContent = label;
-}
-
-function openAiPromptModal() {
-  if ($("aiPromptWrap")?.classList.contains("hidden")) {
-    toast(i18n.t('app.이_모드에서는_요청_칸을_쓰지_않아요'));
-    return;
-  }
-  const modal = $("aiPromptModal");
-  if (!modal) return;
-  syncAiPromptModalFromPanel();
-  modal.classList.remove("hidden");
-  requestAnimationFrame(() => {
-    const body = $("aiPromptModalBody");
-    try {
-      body?.focus({ preventScroll: true });
-    } catch (_) {
-      body?.focus();
-    }
-    // Place caret at end for continued editing
-    if (body) {
-      const len = body.value.length;
-      try { body.setSelectionRange(len, len); } catch (_) { /* ignore */ }
-    }
-  });
-}
-
-function closeAiPromptModal({ quiet = true } = {}) {
-  const wasOpen = isAiPromptModalOpen();
-  syncAiPromptFromModal();
-  $("aiPromptModal")?.classList.add("hidden");
-  if (wasOpen && !quiet) toast(i18n.t('app.요청_내용을_반영했어요'));
-}
-
-function setupAiPromptModal() {
-  const modal = $("aiPromptModal");
-  if (!modal || modal.dataset.bound === "1") return;
-  modal.dataset.bound = "1";
-
-  $("aiPromptExpandButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    openAiPromptModal();
-  });
-  modal.querySelectorAll("[data-close-ai-prompt]").forEach((el) => {
-    el.addEventListener("click", (event) => {
-      event.preventDefault();
-      closeAiPromptModal();
-    });
-  });
-  $("aiPromptModalClearButton")?.addEventListener("click", () => {
-    if ($("aiPromptModalBody")) $("aiPromptModalBody").value = "";
-    syncAiPromptFromModal();
-    toast(i18n.t('app.요청_내용을_비웠어요'));
-  });
-  $("aiPromptModalSubmitButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    syncAiPromptFromModal();
-    closeAiPromptModal({ quiet: true });
-    const fakeEvent = { preventDefault() {} };
-    submitAiAssist(fakeEvent).catch(handleError);
-  });
-  // Live sync while editing in the large editor
-  $("aiPromptModalBody")?.addEventListener("input", () => {
-    syncAiPromptFromModal();
-  });
 }
 
 function setupAiAssist() {
@@ -26614,26 +27690,44 @@ let outlineSummarySaving = false;
 let submissionSynopsisInFlight = false;
 
 function syncOutlineSummaryInput() {
-  const input = $("projectOutlineSummary");
-  if (!input) return;
-  const hasProject = Boolean(state.projectId);
-  input.disabled = !hasProject;
-  const next = hasProject ? String(state.outlineSummary || "") : "";
-  if (document.activeElement !== input) input.value = next;
-  if (!hasProject) {
-    input.placeholder = i18n.t('app.작품을_선택하면_줄거리_개요를_적을_수_있어');
-  } else {
-    input.placeholder = i18n.t('app.시작부터_결말까지_전체_줄거리를_간단히_적어');
+  const value = Boolean(state.projectId) ? String(state.outlineSummary || "") : "";
+  const placeholder = state.projectId
+    ? i18n.t('app.시작부터_결말까지_전체_줄거리를_간단히_적어')
+    : i18n.t('app.작품을_선택하면_줄거리_개요를_적을_수_있어');
+  ["projectOutlineSummary", "settingsDocOutlineMain"].forEach((id) => {
+    const input = $(id);
+    if (!input) return;
+    input.disabled = !state.projectId;
+    if (document.activeElement !== input) input.value = value;
+    input.placeholder = placeholder;
+  });
+}
+
+function liveOutlineSummaryValue() {
+  const focused = document.activeElement;
+  if (focused && (focused.id === "settingsDocOutlineMain" || focused.id === "projectOutlineSummary")) {
+    return String(focused.value || "").slice(0, 20000);
   }
+  const main = $("settingsDocOutlineMain");
+  const side = $("projectOutlineSummary");
+  if (main && String(main.value || "").length) return String(main.value || "").slice(0, 20000);
+  if (side) return String(side.value || "").slice(0, 20000);
+  return String(state.outlineSummary || "").slice(0, 20000);
 }
 
 async function persistOutlineSummary({ quiet = true, projectId: projectIdOpt } = {}) {
   const projectId = liveProjectId(projectIdOpt ?? state.projectId);
   if (!projectId || outlineSummarySaving) return;
   if (liveProjectId() !== projectId) return;
-  const input = $("projectOutlineSummary");
-  const value = String(input?.value ?? state.outlineSummary ?? "").slice(0, 20000);
-  if (value === String(state.outlineSummary || "")) return;
+  const value = liveOutlineSummaryValue();
+  const project = state.projects.find((item) => Number(item.id) === Number(projectId));
+  const lastSaved = project && project.outline_summary != null
+    ? String(project.outline_summary)
+    : "";
+  if (value === lastSaved) {
+    state.outlineSummary = value;
+    return;
+  }
   outlineSummarySaving = true;
   try {
     const result = await api(`/api/projects/${projectId}/settings`, {
@@ -26642,8 +27736,8 @@ async function persistOutlineSummary({ quiet = true, projectId: projectIdOpt } =
     });
     if (liveProjectId() !== projectId) return;
     state.outlineSummary = result.outline_summary != null ? String(result.outline_summary) : value;
-    const project = state.projects.find((item) => Number(item.id) === Number(projectId));
     if (project) project.outline_summary = state.outlineSummary;
+    syncOutlineSummaryInput();
     if (!quiet) toast(i18n.t('app.줄거리_개요를_저장했어요'));
   } catch (error) {
     throw error;
@@ -26653,20 +27747,27 @@ async function persistOutlineSummary({ quiet = true, projectId: projectIdOpt } =
 }
 
 function setupOutlineSummaryField() {
-  const input = $("projectOutlineSummary");
-  if (!input || input.dataset.bound === "1") return;
-  input.dataset.bound = "1";
+  ["projectOutlineSummary", "settingsDocOutlineMain"].forEach((id) => {
+    const input = $(id);
+    if (!input || input.dataset.bound === "1") return;
+    input.dataset.bound = "1";
+    input.addEventListener("input", () => {
+      state.outlineSummary = String(input.value || "");
+      ["projectOutlineSummary", "settingsDocOutlineMain"].forEach((otherId) => {
+        if (otherId === id) return;
+        const other = $(otherId);
+        if (other && document.activeElement !== other) other.value = input.value;
+      });
+      if (outlineSummarySaveTimer) window.clearTimeout(outlineSummarySaveTimer);
+      outlineSummarySaveTimer = window.setTimeout(() => {
+        persistOutlineSummary({ quiet: true, projectId: liveProjectId() }).catch(handleError);
+      }, 700);
+    });
+    input.addEventListener("blur", () => {
+      persistOutlineSummary({ quiet: true }).catch(handleError);
+    });
+  });
   syncOutlineSummaryInput();
-  input.addEventListener("input", () => {
-    state.outlineSummary = String(input.value || "");
-    if (outlineSummarySaveTimer) window.clearTimeout(outlineSummarySaveTimer);
-    outlineSummarySaveTimer = window.setTimeout(() => {
-      persistOutlineSummary({ quiet: true, projectId: liveProjectId() }).catch(handleError);
-    }, 700);
-  });
-  input.addEventListener("blur", () => {
-    persistOutlineSummary({ quiet: true }).catch(handleError);
-  });
 }
 
 function openOutlineSummaryInSettings() {
@@ -26792,7 +27893,9 @@ async function runSubmissionSynopsis(options = {}) {
   if (typeof updateForeshadowPanelVisibility === "function") updateForeshadowPanelVisibility();
 
   // Keep local textarea in sync before reading.
-  const liveOutline = String($("projectOutlineSummary")?.value ?? state.outlineSummary ?? "").trim();
+  const liveOutline = String(typeof liveOutlineSummaryValue === "function"
+    ? liveOutlineSummaryValue()
+    : ($("projectOutlineSummary")?.value ?? state.outlineSummary ?? "")).trim();
   state.outlineSummary = liveOutline;
 
   if (needsOutlineSummaryGate(liveOutline) && !options.skipOutlineGate) {
@@ -26936,10 +28039,432 @@ function setSubmissionLengthWarn(message = "") {
   el.classList.toggle("hidden", !text);
 }
 
+let logsynToriBusy = false;
+let logsynToriLoglines = [];
+let logsynToriFillMode = "logsyn";
+
+function currentSettingsToriFillMode() {
+  const kind = String(state.settingsDocKind || "");
+  if (kind === "intro" || kind === "intent") return "intro";
+  return "logsyn";
+}
+
+function closeLogsynToriFillModal() {
+  $("logsynToriFillModal")?.classList.add("hidden");
+}
+
+function setLogsynToriGroupVisible(id, visible) {
+  const el = $(id);
+  if (!el) return;
+  el.classList.toggle("hidden", !visible);
+  el.hidden = !visible;
+}
+
+function syncLogsynToriFillModeUi() {
+  const introMode = logsynToriFillMode === "intro";
+  setLogsynToriGroupVisible("logsynToriLogsynOptions", !introMode);
+  setLogsynToriGroupVisible("logsynToriIntroOptions", introMode);
+  const lead = $("logsynToriLead");
+  if (lead) {
+    lead.textContent = introMode
+      ? i18n.t("index.토리_작품소개_기획의도_안내")
+      : i18n.t("index.토리_로그라인_시놉시스_안내");
+  }
+  if (!introMode) syncLogsynToriStructureUi();
+  else renderLogsynToriLoglinePicks([]);
+}
+
+function openLogsynToriFillModal() {
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return;
+  }
+  logsynToriFillMode = currentSettingsToriFillMode();
+  syncLogsynToriFillModeUi();
+  setLogsynToriStatus("");
+  $("logsynToriFillModal")?.classList.remove("hidden");
+}
+
+function syncLogsynToriStructureUi() {
+  const want = Boolean($("logsynToriWantSynopsis")?.checked);
+  const box = document.querySelector("#logsynToriFillModal .logsyn-tori-structure");
+  if (!box) return;
+  box.classList.toggle("hidden", !want);
+  box.hidden = !want;
+}
+
+function setLogsynToriStatus(message) {
+  const el = $("logsynToriStatus");
+  if (!el) return;
+  const text = String(message || "").trim();
+  el.textContent = text;
+  el.hidden = !text;
+}
+
+function readLogsynToriLimit() {
+  const raw = String($("logsynToriLimitInput")?.value || "").trim();
+  if (!raw) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.min(20000, n);
+}
+
+function settingsDocLivePlain(kind) {
+  const meta = getSettingsDocMeta(kind);
+  const main = getSettingsDocMainEditor(kind);
+  if (main && isSynopsisWorkspaceOpen()) {
+    return String(getEditorPlainText(main) || "").trim();
+  }
+  const sidebar = $(meta.sidebarId);
+  if (sidebar) return String(sidebar.value || "").trim();
+  const raw = state[meta.stateKey] || "";
+  return looksLikeHtml(raw) ? String(plainTextFromHtml(raw) || "").trim() : String(raw || "").trim();
+}
+
+function settingsDocCanToriOverwrite(kind) {
+  const plain = settingsDocLivePlain(kind);
+  return !plain || isToriDraftText(plain);
+}
+
+function prefixToriText(text) {
+  const body = String(text || "").trim();
+  if (!body) return "";
+  return isToriDraftText(body) ? body : `${TORI_TEXT_PREFIX} ${body}`;
+}
+
+function wrapToriDraftHtml(text) {
+  const prefixed = prefixToriText(text);
+  if (!prefixed) return "";
+  return escapeHtml(prefixed).replace(/\r\n|\r|\n/g, "<br>");
+}
+
+function applyToriSettingsDocText(kind, text) {
+  const body = String(text || "").trim();
+  if (!body) return false;
+  if (!settingsDocCanToriOverwrite(kind)) return false;
+  const html = wrapToriDraftHtml(body);
+  const meta = getSettingsDocMeta(kind);
+  state[meta.stateKey] = html;
+  const editor = getSettingsDocMainEditor(kind);
+  if (editor) {
+    suppressSynopsisDirty = true;
+    setEditorContent(html, editor);
+    applyToriDraftClass(editor);
+    suppressSynopsisDirty = false;
+  }
+  const sidebar = $(meta.sidebarId);
+  if (sidebar && document.activeElement !== sidebar) {
+    sidebar.value = prefixToriText(body);
+    applyToriDraftClass(sidebar);
+  }
+  persistSettingsDoc(kind, { quiet: true }).catch(handleError);
+  return true;
+}
+
+function parseLogsynToriResult(text) {
+  const jsonText = typeof extractJsonObjectText === "function" ? extractJsonObjectText(text) : null;
+  let data = null;
+  if (jsonText) {
+    try { data = JSON.parse(jsonText); } catch (_) { data = null; }
+  }
+  const loglines = [];
+  const rawLines = Array.isArray(data?.loglines) ? data.loglines : [];
+  rawLines.forEach((item) => {
+    const line = String(item || "").replace(/^\s*\d+[\.\)]\s*/, "").trim();
+    if (line) loglines.push(line);
+  });
+  if (!loglines.length) {
+    String(text || "").split(/\r?\n/).forEach((line) => {
+      const cleaned = line.replace(/^\s*(?:[-*]|후보\s*\d+[.:)]|\d+[.:)])\s*/, "").trim();
+      if (cleaned && cleaned.length <= 180) loglines.push(cleaned);
+    });
+  }
+  return {
+    loglines: loglines.slice(0, 5),
+    kisung: String(data?.synopsis_kisung || data?.kisung || "").trim(),
+    flow: String(data?.synopsis_flow || data?.flow || "").trim(),
+    intro: String(data?.intro || data?.intro_md || "").trim(),
+    intent: String(data?.intent || data?.intent_md || "").trim(),
+  };
+}
+
+function composeLogsynToriSynopsis(parsed, wantKisung, wantFlow) {
+  const parts = [];
+  if (wantKisung && parsed.kisung) {
+    parts.push(wantFlow ? `【기승전결】\n${parsed.kisung}` : parsed.kisung);
+  }
+  if (wantFlow && parsed.flow) {
+    parts.push(wantKisung ? `【전체 흐름】\n${parsed.flow}` : parsed.flow);
+  }
+  return parts.join("\n\n").trim();
+}
+
+function renderLogsynToriLoglinePicks(lines) {
+  const host = $("logsynToriLoglinePicks");
+  if (!host) return;
+  logsynToriLoglines = Array.isArray(lines) ? lines.filter(Boolean).slice(0, 5) : [];
+  if (!logsynToriLoglines.length) {
+    host.innerHTML = "";
+    host.classList.add("hidden");
+    host.hidden = true;
+    return;
+  }
+  host.hidden = false;
+  host.classList.remove("hidden");
+  host.innerHTML = logsynToriLoglines.map((line, index) => `
+    <button type="button" class="logsyn-tori-pick" data-logsyn-pick="${index}">
+      <span class="logsyn-tori-pick-n">${index + 1}</span>
+      <span class="logsyn-tori-pick-text">${escapeHtml(line)}</span>
+    </button>`).join("");
+}
+
+function applyLogsynToriLoglinePick(index) {
+  const line = logsynToriLoglines[Number(index)];
+  if (!line) return;
+  if (!settingsDocCanToriOverwrite("logline")) {
+    toast(i18n.t("app.적어_둔_내용은_그대로_두었어요"));
+    return;
+  }
+  const ok = applyToriSettingsDocText("logline", line);
+  if (ok) toast(i18n.t("app.이_로그라인을_넣었어요"));
+}
+
+function settingsDocContextPlain(kind, maxLen = 2000) {
+  return String(settingsDocLivePlain(kind) || "").trim().slice(0, maxLen);
+}
+
+function buildIntroToriPrompt({ wantIntro, wantIntent, limit, regenerate }) {
+  const project = state.projects.find((item) => Number(item.id) === Number(state.projectId));
+  const title = project?.title || "";
+  const outline = String(typeof liveOutlineSummaryValue === "function"
+    ? liveOutlineSummaryValue()
+    : (state.outlineSummary || "")).trim();
+  const currentIntro = settingsDocLivePlain("intro");
+  const currentIntent = settingsDocLivePlain("intent");
+  const lengthRule = limit
+    ? `각 글은 공백 포함 약 ${limit}자 이내로 작성하세요.`
+    : "길이는 작품에 맞게 토리가 적절히 정하세요. 너무 짧거나 장황하지 않게.";
+  const tasks = [];
+  if (wantIntro) {
+    tasks.push(regenerate
+      ? "작품소개를 새로 작성하세요. 독자·투고처가 한눈에 작품의 매력을 알 수 있게."
+      : "작품소개를 작성하세요. 독자·투고처가 한눈에 작품의 매력을 알 수 있게.");
+  }
+  if (wantIntent) {
+    tasks.push(regenerate
+      ? "기획의도를 새로 작성하세요. 왜 이 작품을 쓰는지, 전하고 싶은 주제·메시지를 분명히."
+      : "기획의도를 작성하세요. 왜 이 작품을 쓰는지, 전하고 싶은 주제·메시지를 분명히.");
+  }
+  tasks.push(lengthRule);
+  if (outline) tasks.push("작가가 적어 둔 줄거리 개요가 있으면 모순 없이 참고하세요.");
+  const context = [
+    title ? `작품 제목: ${title}` : "",
+    outline ? `줄거리 개요:\n${outline.slice(0, 8000)}` : "",
+    settingsDocContextPlain("logline", 800) ? `로그라인:\n${settingsDocContextPlain("logline", 800)}` : "",
+    settingsDocContextPlain("synopsis", 2000) ? `시놉시스:\n${settingsDocContextPlain("synopsis", 2000)}` : "",
+    currentIntro ? `현재 작품소개(참고만, 덮어쓰지 않음):\n${currentIntro.slice(0, 2000)}` : "현재 작품소개: (비어 있음)",
+    currentIntent ? `현재 기획의도(참고만, 덮어쓰지 않음):\n${currentIntent.slice(0, 2000)}` : "현재 기획의도: (비어 있음)",
+  ].filter(Boolean).join("\n\n");
+  return [
+    "당신은 소설 기획 도우미 토리입니다. 아래 작품 정보를 바탕으로 요청한 항목만 작성하세요.",
+    context,
+    `할 일:\n- ${tasks.join("\n- ")}`,
+    "출력은 JSON만. 설명·마크다운 금지.",
+    '{ "intro": "작품소개 본문 또는 빈 문자열", "intent": "기획의도 본문 또는 빈 문자열" }',
+    wantIntro ? "intro에 본문을 넣으세요." : 'intro는 "".',
+    wantIntent ? "intent에 본문을 넣으세요." : 'intent는 "".',
+  ].join("\n\n");
+}
+
+function buildLogsynToriPrompt({ wantLogline, wantSynopsis, wantKisung, wantFlow, limit, regenerate }) {
+  const project = state.projects.find((item) => Number(item.id) === Number(state.projectId));
+  const title = project?.title || "";
+  const outline = String(typeof liveOutlineSummaryValue === "function"
+    ? liveOutlineSummaryValue()
+    : (state.outlineSummary || "")).trim();
+  const introMeta = getSettingsDocMeta("intro");
+  const intentMeta = getSettingsDocMeta("intent");
+  const intro = looksLikeHtml(state[introMeta.stateKey] || "")
+    ? plainTextFromHtml(state[introMeta.stateKey] || "")
+    : String(state[introMeta.stateKey] || "");
+  const intent = looksLikeHtml(state[intentMeta.stateKey] || "")
+    ? plainTextFromHtml(state[intentMeta.stateKey] || "")
+    : String(state[intentMeta.stateKey] || "");
+  const currentLogline = settingsDocLivePlain("logline");
+  const currentSynopsis = settingsDocLivePlain("synopsis");
+  const tasks = [];
+  if (wantLogline) {
+    tasks.push(regenerate
+      ? "로그라인 후보를 서로 다른 각도에서 정확히 5개 새로 작성하세요. 한 줄, 작품의 핵심 매력이 드러나게."
+      : "로그라인 후보를 서로 다른 각도에서 정확히 5개 작성하세요. 한 줄, 작품의 핵심 매력이 드러나게.");
+  }
+  if (wantSynopsis) {
+    const structures = [];
+    if (wantKisung) structures.push("기승전결(起承轉結) 구조");
+    if (wantFlow) structures.push("전체 흐름 구조");
+    const lengthRule = limit
+      ? `시놉시스는 공백 포함 약 ${limit}자 이내로 작성하세요.`
+      : "시놉시스 길이는 작품에 맞게 토리가 적절히 정하세요. 너무 짧거나 장황하지 않게.";
+    tasks.push(`시놉시스를 ${structures.join(" 그리고 ")}로 작성하세요. ${lengthRule}`);
+    if (outline) {
+      tasks.push("작가가 적어 둔 줄거리 개요(결말 방향 포함)를 충실히 참고하세요. 개요에 없는 결말을 새로 만들지 마세요.");
+    }
+  }
+  const context = [
+    title ? `작품 제목: ${title}` : "",
+    intro.trim() ? `작품소개:\n${intro.trim().slice(0, 2000)}` : "",
+    intent.trim() ? `기획의도:\n${intent.trim().slice(0, 2000)}` : "",
+    outline ? `작가가 직접 적은 줄거리 개요:\n${outline.slice(0, 8000)}` : "줄거리 개요: (없음)",
+    currentLogline ? `현재 로그라인(참고만, 덮어쓰지 않음):\n${currentLogline.slice(0, 800)}` : "현재 로그라인: (비어 있음)",
+    currentSynopsis ? `현재 시놉시스(참고만, 덮어쓰지 않음):\n${currentSynopsis.slice(0, 2000)}` : "현재 시놉시스: (비어 있음)",
+  ].filter(Boolean).join("\n\n");
+  return [
+    "당신은 소설 기획 도우미 토리입니다. 아래 작품 정보를 바탕으로 요청한 항목만 작성하세요.",
+    context,
+    `할 일:\n- ${tasks.join("\n- ")}`,
+    "출력은 JSON만. 설명·마크다운 금지.",
+    '{ "loglines": ["후보1","후보2","후보3","후보4","후보5"], "synopsis_kisung": "기승전결 시놉시스 또는 빈 문자열", "synopsis_flow": "전체흐름 시놉시스 또는 빈 문자열" }',
+    wantLogline ? "loglines는 반드시 5개." : 'loglines는 [].',
+    wantSynopsis && wantKisung ? "synopsis_kisung에 본문을 넣으세요." : 'synopsis_kisung는 "".',
+    wantSynopsis && wantFlow ? "synopsis_flow에 본문을 넣으세요." : 'synopsis_flow는 "".',
+  ].join("\n\n");
+}
+
+function applyToriFillField(kind, text, filledKey, skippedKey) {
+  if (!String(text || "").trim()) return i18n.t("app.이번에는_못_채웠어요");
+  if (!settingsDocCanToriOverwrite(kind)) return i18n.t("app.적어_둔_내용은_그대로_두었어요");
+  if (applyToriSettingsDocText(kind, text)) return i18n.t(filledKey);
+  return i18n.t(skippedKey || "app.이번에는_못_채웠어요");
+}
+
+async function postSettingsToriAssist(prompt) {
+  const project = state.projects.find((item) => Number(item.id) === Number(state.projectId));
+  return api("/api/ai/assist", {
+    method: "POST",
+    body: JSON.stringify({
+      mode: "free",
+      project_id: state.projectId,
+      project_title: project?.title || "",
+      prompt,
+      user_prompt: prompt,
+      task_prompt: prompt,
+      indexed_prompt: prompt,
+      persona_mode: typeof getToryPersonaMode === "function" ? getToryPersonaMode() : "default",
+      ...buildToryProjectContextPayload(),
+    }),
+  });
+}
+
+async function runIntroToriFill({ regenerate = false } = {}) {
+  const wantIntro = Boolean($("logsynToriWantIntro")?.checked);
+  const wantIntent = Boolean($("logsynToriWantIntent")?.checked);
+  if (!wantIntro && !wantIntent) {
+    toast(i18n.t("app.작품소개와_기획의도_중_하나_이상_골라_주세요"));
+    return;
+  }
+  const limit = readLogsynToriLimit();
+  const prompt = buildIntroToriPrompt({ wantIntro, wantIntent, limit, regenerate });
+  setLogsynToriStatus(i18n.t("app.토리가_로그라인_시놉시스를_쓰는_중"));
+  const result = await postSettingsToriAssist(prompt);
+  const parsed = parseLogsynToriResult(result?.text || "");
+  const notes = [];
+  if (wantIntro) notes.push(applyToriFillField("intro", parsed.intro, "app.작품소개를_채웠어요"));
+  if (wantIntent) notes.push(applyToriFillField("intent", parsed.intent, "app.기획의도를_채웠어요"));
+  setLogsynToriStatus(notes.filter(Boolean).join(" "));
+  if (notes.length) toast(notes[0]);
+}
+
+async function runLogsynToriFill({ regenerate = false } = {}) {
+  if (logsynToriBusy) return;
+  if (!state.projectId) {
+    toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+    return;
+  }
+  const writeBtn = $("logsynToriWriteButton");
+  const regenBtn = $("logsynToriRegenerateButton");
+  logsynToriBusy = true;
+  if (writeBtn) writeBtn.disabled = true;
+  if (regenBtn) regenBtn.disabled = true;
+  try {
+    if (logsynToriFillMode === "intro") {
+      await runIntroToriFill({ regenerate });
+      return;
+    }
+    const wantLogline = Boolean($("logsynToriWantLogline")?.checked);
+    const wantSynopsis = Boolean($("logsynToriWantSynopsis")?.checked);
+    const wantKisung = Boolean($("logsynToriKisung")?.checked);
+    const wantFlow = Boolean($("logsynToriFlow")?.checked);
+    if (!wantLogline && !wantSynopsis) {
+      toast(i18n.t("app.로그라인과_시놉시스_중_하나_이상_골라_주세요"));
+      return;
+    }
+    if (wantSynopsis && !wantKisung && !wantFlow) {
+      toast(i18n.t("app.시놉시스_구조를_하나_이상_골라_주세요"));
+      return;
+    }
+    const limit = readLogsynToriLimit();
+    const prompt = buildLogsynToriPrompt({
+      wantLogline, wantSynopsis, wantKisung, wantFlow, limit, regenerate,
+    });
+    setLogsynToriStatus(i18n.t("app.토리가_로그라인_시놉시스를_쓰는_중"));
+    const result = await postSettingsToriAssist(prompt);
+    const parsed = parseLogsynToriResult(result?.text || "");
+    const notes = [];
+    if (wantLogline) {
+      renderLogsynToriLoglinePicks(parsed.loglines);
+      if (parsed.loglines.length) {
+        notes.push(i18n.t("app.로그라인_후보를_골라_주세요"));
+      } else {
+        notes.push(i18n.t("app.이번에는_못_채웠어요"));
+      }
+    }
+    if (wantSynopsis) {
+      const composed = composeLogsynToriSynopsis(parsed, wantKisung, wantFlow);
+      notes.push(applyToriFillField("synopsis", composed, "app.시놉시스를_채웠어요"));
+    }
+    setLogsynToriStatus(notes.filter(Boolean).join(" "));
+    if (notes.length) toast(notes[0]);
+  } catch (error) {
+    setLogsynToriStatus("");
+    handleError(error);
+  } finally {
+    logsynToriBusy = false;
+    if (writeBtn) writeBtn.disabled = false;
+    if (regenBtn) regenBtn.disabled = false;
+  }
+}
+
+function setupLogsynToriFillUi() {
+  const modal = $("logsynToriFillModal");
+  if (!modal || modal.dataset.bound === "1") return;
+  modal.dataset.bound = "1";
+  $("toriFillLogsynButton")?.addEventListener("click", () => {
+    openLogsynToriFillModal();
+  });
+  modal.querySelectorAll("[data-close-logsyn-tori]").forEach((el) => {
+    el.addEventListener("click", () => closeLogsynToriFillModal());
+  });
+  $("logsynToriWantSynopsis")?.addEventListener("change", () => syncLogsynToriStructureUi());
+  $("logsynToriWriteButton")?.addEventListener("click", () => {
+    runLogsynToriFill({ regenerate: false }).catch(handleError);
+  });
+  $("logsynToriRegenerateButton")?.addEventListener("click", () => {
+    runLogsynToriFill({ regenerate: true }).catch(handleError);
+  });
+  $("logsynToriLoglinePicks")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-logsyn-pick]");
+    if (!btn) return;
+    event.preventDefault();
+    applyLogsynToriLoglinePick(btn.getAttribute("data-logsyn-pick"));
+  });
+  syncLogsynToriFillModeUi();
+}
+
 function setupSubmissionSynopsisUi() {
   $("submissionSynopsisGuideLink")?.addEventListener("click", () => {
     runSubmissionSynopsis().catch(handleError);
   });
+  setupLogsynToriFillUi();
 }
 
 function toryPriorityPreviewText(raw) {
@@ -27291,15 +28816,20 @@ function setToryChatPopupDockHint(visible) {
   hint.hidden = !visible;
 }
 
-function showToryChatPopupInPanelSlot() {
-  const toolsView = $("aiToolsView");
-  toolsView?.classList.add("hidden");
-  if (toolsView) toolsView.hidden = true;
-  $("aiTabTools")?.classList.remove("is-active");
-  $("aiTabTools")?.setAttribute("aria-selected", "false");
-  $("aiTabChat")?.classList.add("is-active");
-  $("aiTabChat")?.setAttribute("aria-selected", "true");
-  setToryChatPopupDockHint(true);
+function restoreToryChatToPanel() {
+  const view = $("aiChatView");
+  const body = document.querySelector("#aiPanel .ai-panel-body");
+  const tools = $("aiToolsView");
+  if (!view || !body) return;
+  if (view.parentElement === body) return;
+  if (tools && tools.parentElement === body) tools.after(view);
+  else body.insertBefore(view, body.firstChild);
+}
+
+function syncToryChatPopupOpenButton() {
+  document.querySelectorAll("#toryChatPopupOpenButton, [data-open-tory-chat-popup]").forEach((btn) => {
+    btn.setAttribute("aria-expanded", toryChatPopupOpen ? "true" : "false");
+  });
 }
 
 function normalizeToryChatMode(mode) {
@@ -27426,7 +28956,7 @@ function setToryChatMode(mode, { quiet = false } = {}) {
   return true;
 }
 
-function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
+function setAiPanelTab(tab, { chatHub = null, skipPopupClose = false } = {}) {
   const next = tab === "chat" ? "chat" : "tools";
   const toolsView = $("aiToolsView");
   const chatView = $("aiChatView");
@@ -27434,27 +28964,21 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
   const chatTab = $("aiTabChat");
   const isChat = next === "chat";
 
-  // Panel chat: ensure chat UI lives in the side panel (not floating popup)
   if (isChat && toryChatPopupOpen && !skipPopupClose) {
     closeToryChatPopup({ restorePanelTab: false });
   }
-  if (isChat && !toryChatPopupOpen) {
-    restoreToryChatToPanel();
-  }
-  if (!isChat) {
-    setToryChatPopupDockHint(false);
-  } else if (toryChatPopupOpen && skipPopupClose) {
-    setToryChatPopupDockHint(true);
-  }
+  if (isChat && !toryChatPopupOpen) restoreToryChatToPanel();
+  if (!isChat) setToryChatPopupDockHint(false);
+  else if (toryChatPopupOpen && skipPopupClose) setToryChatPopupDockHint(true);
 
   toolsView?.classList.toggle("hidden", isChat);
   chatView?.classList.toggle("hidden", !isChat);
   if (toolsView) toolsView.hidden = isChat;
   if (chatView) chatView.hidden = !isChat;
   toolsTab?.classList.toggle("is-active", !isChat);
-  chatTab?.classList.toggle("is-active", isChat || toryChatPopupOpen);
+  chatTab?.classList.toggle("is-active", isChat);
   if (toolsTab) toolsTab.setAttribute("aria-selected", isChat ? "false" : "true");
-  if (chatTab) chatTab.setAttribute("aria-selected", isChat || toryChatPopupOpen ? "true" : "false");
+  if (chatTab) chatTab.setAttribute("aria-selected", isChat ? "true" : "false");
   if (isChat) {
     if (chatHub) setToryChatHub(chatHub, { quiet: true });
     else if (!toryChatHub) setToryChatHub("home", { quiet: true });
@@ -27476,12 +29000,9 @@ function setAiPanelTab(tab, { skipPopupClose = false, chatHub = null } = {}) {
 
 /** 도우미 패널: 직접요청 | 선택하기 | 결과보기 (기본값 직접요청) */
 function setAiHelperPane(pane) {
-  if (pane === "result") {
-    try { openDockFloat("aiResult"); } catch (_) { /* ignore */ }
-    return;
-  }
   let next = "direct";
   if (pane === "select") next = "select";
+  else if (pane === "result") next = "result";
   else if (pane === "request") next = "direct"; // legacy
   const view = $("aiToolsView");
   const directTab = $("aiHelperPaneDirect");
@@ -27524,7 +29045,7 @@ function setAiHelperPane(pane) {
 function ensureAiResultVisible() {
   const wrap = $("aiResultWrap");
   wrap?.classList.remove("hidden", "is-empty");
-  try { openDockFloat("aiResult"); } catch (_) { /* ignore */ }
+  try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
 }
 
 /** 도구 모드를 고를 때 선택하기 탭으로 */
@@ -27556,34 +29077,31 @@ function setupAiHelperPaneTabs() {
   setAiHelperPane("direct");
 }
 
-function restoreToryChatToPanel() {
-  const chat = $("aiChatView");
-  const body = document.querySelector("#aiPanel .ai-panel-body");
-  if (!chat || !body) return;
-  if (chat.parentElement === body) return;
-  const hint = $("toryChatPopupDockHint");
-  if (hint && hint.parentElement === body) body.insertBefore(chat, hint);
-  else body.appendChild(chat);
-}
-
-function openToryChatPopup(options = {}) {
+function openToryChatPopup() {
   const popup = $("toryChatPopup");
   const host = $("toryChatPopupBody");
-  const chat = $("aiChatView");
-  if (!popup || !host || !chat) return;
-
+  const view = $("aiChatView");
+  if (!popup || !host || !view) return;
+  if (toryChatPopupOpen) return;
+  if (view.closest?.(".idea-float.dock-float")) return;
   const draft = captureToryChatComposerDraft({ commitIme: true });
-  // 도우미(직접요청)로 바꾸지 않아요. 패널에 다른 입력칸이 보이면 별도 창처럼 느껴집니다.
+  try { setAiPanelOpen?.(true); } catch (_) { /* ignore */ }
+  setAiPanelTab("chat", { skipPopupClose: true });
+  try {
+    if (ideaFloatWindows.has(DOCK_TORY_CHAT_KEY)) closeIdeaFloat(DOCK_TORY_CHAT_KEY);
+    if (ideaFloatWindows.has(DOCK_CHARACTER_CHAT_KEY)) closeIdeaFloat(DOCK_CHARACTER_CHAT_KEY);
+    if (ideaFloatWindows.has(DOCK_READER_CHAT_KEY)) closeIdeaFloat(DOCK_READER_CHAT_KEY);
+  } catch (_) { /* ignore */ }
   toryChatPopupOpen = true;
-  showToryChatPopupInPanelSlot();
-  host.appendChild(chat);
-  chat.classList.remove("hidden");
-  chat.hidden = false;
+  host.appendChild(view);
+  view.classList.remove("hidden");
+  view.hidden = false;
   popup.classList.remove("hidden");
   popup.hidden = false;
-  $("toryChatPopupOpenButton")?.classList.add("hidden");
-
-  // Default size/position if not yet set
+  setToryChatPopupDockHint(true);
+  restoreToryChatComposerDraft(draft);
+  syncToryChatPopupOpenButton();
+  syncAiChatViewHubAttr();
   if (!popup.style.width) {
     popup.style.width = `${Math.min(420, window.innerWidth - 32)}px`;
   }
@@ -27595,40 +29113,25 @@ function openToryChatPopup(options = {}) {
     popup.style.top = "72px";
     popup.style.left = "auto";
   }
+  toast(i18n.t("app.토리_대화를_팝업으로_열었어요_모서리로_크기"));
+}
 
-  const input = $("toryChatInput");
-  if (options.prefill != null && input) {
-    const text = String(options.prefill).slice(0, 4000);
-    restoreToryChatComposerDraft(text);
-    const caret = Number.isFinite(options.caret)
-      ? Math.max(0, Math.min(text.length, options.caret))
-      : text.length;
-    requestAnimationFrame(() => {
-      try {
-        input.focus();
-        input.setSelectionRange(caret, caret);
-      } catch (_) {
-        input.focus();
-      }
-    });
-  } else {
-    restoreToryChatComposerDraft(draft);
-    requestAnimationFrame(() => input?.focus());
-  }
-
-  renderToryChatMessages();
-  if (!options.silent) {
-    toast(
-      options.prefill
-        ? i18n.t('app.선택_문장을_질문칸에_넣었어요_다듬은_뒤_보')
-        : i18n.t('app.토리_대화를_팝업으로_열었어요_모서리로_크기'),
-    );
+function closeToryChatPopup({ restorePanelTab = true } = {}) {
+  const popup = $("toryChatPopup");
+  if (!popup || !toryChatPopupOpen) return;
+  const draft = captureToryChatComposerDraft({ commitIme: true });
+  toryChatPopupOpen = false;
+  setToryChatPopupDockHint(false);
+  restoreToryChatToPanel();
+  restoreToryChatComposerDraft(draft);
+  syncToryChatPopupOpenButton();
+  popup.classList.add("hidden");
+  popup.hidden = true;
+  if (restorePanelTab) {
+    setAiPanelTab("chat", { skipPopupClose: true });
   }
 }
 
-/**
- * Manuscript selection → 1:1 chat popup with quote prefilled (do not auto-send).
- */
 function askToryFromSelection() {
   if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
   const raw = (pendingBaitQuote || getSelectedManuscriptText() || "").trim();
@@ -27640,7 +29143,7 @@ function askToryFromSelection() {
   const quote = raw.replace(/\s+\n/g, "\n").trim().slice(0, 3500);
   const prefill = `「${quote}」\n\n`;
   setToryChatHub("tory", { quiet: true });
-  openDockFloat("toryChat");
+  setAiPanelTab("chat", { chatHub: "tory" });
   restoreToryChatComposerDraft(prefill);
   const input = $("toryChatInput");
   requestAnimationFrame(() => {
@@ -27651,23 +29154,6 @@ function askToryFromSelection() {
       input?.focus();
     }
   });
-}
-
-function closeToryChatPopup({ restorePanelTab = true } = {}) {
-  const popup = $("toryChatPopup");
-  if (!popup) return;
-  const draft = captureToryChatComposerDraft({ commitIme: true });
-  toryChatPopupOpen = false;
-  setToryChatPopupDockHint(false);
-  restoreToryChatToPanel();
-  restoreToryChatComposerDraft(draft);
-  $("toryChatPopupOpenButton")?.classList.remove("hidden");
-  popup.classList.add("hidden");
-  popup.hidden = true;
-  if (restorePanelTab) {
-    // Return chat view to panel so user can continue there
-    setAiPanelTab("chat", { skipPopupClose: true });
-  }
 }
 
 function applyFloatingPopupResize(popup, resizeState, event, minW, minH) {
@@ -27709,102 +29195,6 @@ function applyFloatingPopupResize(popup, resizeState, event, minW, minH) {
   popup.style.height = `${Math.round(height)}px`;
   popup.style.right = "auto";
   popup.style.bottom = "auto";
-}
-
-function setupToryChatPopupChrome() {
-  const popup = $("toryChatPopup");
-  const dragBar = $("toryChatPopupDrag");
-  if (!popup) return;
-
-  let drag = null;
-  let resize = null;
-  const MIN_W = 300;
-  const MIN_H = 280;
-
-  const lockGeom = () => {
-    const rect = popup.getBoundingClientRect();
-    popup.style.left = `${Math.round(rect.left)}px`;
-    popup.style.top = `${Math.round(rect.top)}px`;
-    popup.style.right = "auto";
-    popup.style.bottom = "auto";
-    popup.style.width = `${Math.round(rect.width)}px`;
-    popup.style.height = `${Math.round(rect.height)}px`;
-    return rect;
-  };
-
-  dragBar?.addEventListener("pointerdown", (event) => {
-    if (event.button != null && event.button !== 0) return;
-    if (event.target.closest("button")) return;
-    const rect = lockGeom();
-    drag = {
-      offsetX: event.clientX - rect.left,
-      offsetY: event.clientY - rect.top,
-      pointerId: event.pointerId,
-    };
-    document.body.classList.add("tory-chat-popup-dragging");
-    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
-    event.preventDefault();
-  });
-
-  popup.querySelectorAll("[data-resize-edge]").forEach((handle) => {
-    handle.addEventListener("pointerdown", (event) => {
-      if (event.button != null && event.button !== 0) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const rect = lockGeom();
-      resize = {
-        edge: handle.getAttribute("data-resize-edge") || "se",
-        startX: event.clientX,
-        startY: event.clientY,
-        startLeft: rect.left,
-        startTop: rect.top,
-        startW: rect.width,
-        startH: rect.height,
-        pointerId: event.pointerId,
-      };
-      document.body.classList.add("tory-chat-popup-resizing");
-      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
-    });
-  });
-
-  const onMove = (event) => {
-    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
-      const vw = popup.getBoundingClientRect().width || MIN_W;
-      const maxLeft = Math.max(8, window.innerWidth - 48);
-      const maxTop = Math.max(8, window.innerHeight - 40);
-      const minLeft = Math.min(8, window.innerWidth - vw);
-      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
-      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
-      popup.style.left = `${Math.round(left)}px`;
-      popup.style.top = `${Math.round(top)}px`;
-      popup.style.right = "auto";
-    }
-    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
-      applyFloatingPopupResize(popup, resize, event, MIN_W, MIN_H);
-    }
-  };
-  const onUp = (event) => {
-    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
-      drag = null;
-      document.body.classList.remove("tory-chat-popup-dragging");
-    }
-    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
-      resize = null;
-      document.body.classList.remove("tory-chat-popup-resizing");
-    }
-  };
-  window.addEventListener("pointermove", onMove);
-  window.addEventListener("pointerup", onUp);
-  window.addEventListener("pointercancel", onUp);
-
-  $("toryChatPopupClose")?.addEventListener("click", () => {
-    closeToryChatPopup({ restorePanelTab: true });
-    toast(i18n.t('app.팝업_대화를_닫았어요'));
-  });
-  $("toryChatPopupDockButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    closeToryChatPopup({ restorePanelTab: true });
-  });
 }
 
 function toryChatStorageKey(projectId = state.projectId, chatMode = getToryChatSessionKey()) {
@@ -28103,8 +29493,9 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   }
   renderToryChatMessages();
   closeToryChatHistoryModal();
-  if (isToryCharacterChatSession(mode)) openDockFloat("characterChat");
-  else openDockFloat("toryChat");
+  setAiPanelTab("chat", {
+    chatHub: isToryCharacterChatSession(mode) ? "character-room" : "tory",
+  });
   requestAnimationFrame(() => $("toryChatInput")?.focus());
   toast(i18n.t('app.이전_대화를_불러왔어요_이어서_이야기할_수'));
 }
@@ -30228,17 +31619,15 @@ function setupToryChatHubUi() {
     const kind = pick.getAttribute("data-chat-hub-pick");
     if (kind === "tory") {
       setToryChatHub("tory");
-      openDockFloat("toryChat");
       requestAnimationFrame(() => $("toryChatInput")?.focus());
       return;
     }
     if (kind === "characters") {
-      openToryChatCharacterPicker().then(() => openDockFloat("characterChat")).catch(handleError);
+      openToryChatCharacterPicker().catch(handleError);
       return;
     }
     if (kind === "reader") {
       openReaderPersonaPicker();
-      openDockFloat("readerChat");
     }
   });
   $("toryChatCharacterPickerBack")?.addEventListener("click", () => setToryChatHub("home"));
@@ -30288,11 +31677,114 @@ function setupToryChatHubUi() {
   });
 }
 
+function setupToryChatPopupChrome() {
+  const popup = $("toryChatPopup");
+  const dragBar = $("toryChatPopupDrag");
+  if (!popup || popup.dataset.bound === "1") return;
+  popup.dataset.bound = "1";
+
+  let drag = null;
+  let resize = null;
+  const MIN_W = 300;
+  const MIN_H = 280;
+
+  const lockGeom = () => {
+    const rect = popup.getBoundingClientRect();
+    popup.style.left = `${Math.round(rect.left)}px`;
+    popup.style.top = `${Math.round(rect.top)}px`;
+    popup.style.right = "auto";
+    popup.style.bottom = "auto";
+    popup.style.width = `${Math.round(rect.width)}px`;
+    popup.style.height = `${Math.round(rect.height)}px`;
+    return rect;
+  };
+
+  dragBar?.addEventListener("pointerdown", (event) => {
+    if (event.button != null && event.button !== 0) return;
+    if (event.target.closest("button")) return;
+    const rect = lockGeom();
+    drag = {
+      offsetX: event.clientX - rect.left,
+      offsetY: event.clientY - rect.top,
+      pointerId: event.pointerId,
+    };
+    document.body.classList.add("tory-chat-popup-dragging");
+    try { dragBar.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    event.preventDefault();
+  });
+
+  popup.querySelectorAll("[data-resize-edge]").forEach((handle) => {
+    handle.addEventListener("pointerdown", (event) => {
+      if (event.button != null && event.button !== 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      const rect = lockGeom();
+      resize = {
+        edge: handle.getAttribute("data-resize-edge") || "se",
+        startX: event.clientX,
+        startY: event.clientY,
+        startLeft: rect.left,
+        startTop: rect.top,
+        startW: rect.width,
+        startH: rect.height,
+        pointerId: event.pointerId,
+      };
+      document.body.classList.add("tory-chat-popup-resizing");
+      try { handle.setPointerCapture?.(event.pointerId); } catch (_) { /* ignore */ }
+    });
+  });
+
+  const onMove = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      const vw = popup.getBoundingClientRect().width || MIN_W;
+      const maxLeft = Math.max(8, window.innerWidth - 48);
+      const maxTop = Math.max(8, window.innerHeight - 40);
+      const minLeft = Math.min(8, window.innerWidth - vw);
+      const left = Math.min(maxLeft, Math.max(minLeft, event.clientX - drag.offsetX));
+      const top = Math.min(maxTop, Math.max(0, event.clientY - drag.offsetY));
+      popup.style.left = `${Math.round(left)}px`;
+      popup.style.top = `${Math.round(top)}px`;
+      popup.style.right = "auto";
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      applyFloatingPopupResize(popup, resize, event, MIN_W, MIN_H);
+    }
+  };
+  const onUp = (event) => {
+    if (drag && (drag.pointerId == null || drag.pointerId === event.pointerId)) {
+      drag = null;
+      document.body.classList.remove("tory-chat-popup-dragging");
+    }
+    if (resize && (resize.pointerId == null || resize.pointerId === event.pointerId)) {
+      resize = null;
+      document.body.classList.remove("tory-chat-popup-resizing");
+    }
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+  window.addEventListener("pointercancel", onUp);
+
+  $("toryChatPopupClose")?.addEventListener("click", () => {
+    closeToryChatPopup();
+  });
+  $("toryChatPopupDockButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    closeToryChatPopup();
+  });
+  document.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("#toryChatPopupOpenButton, [data-open-tory-chat-popup]");
+    if (!btn) return;
+    if (btn.closest(".idea-float.dock-float")) return;
+    event.preventDefault();
+    openToryChatPopup();
+  });
+}
+
 function setupToryChat() {
   setupToryPersonaSelect();
-  setupToryChatPopupChrome();
   setupToryChatHistoryUi();
   setupToryChatHubUi();
+  setupToryChatPopupChrome();
   setupReaderChatUi();
   setupReaderDebateUi();
 
@@ -30303,24 +31795,9 @@ function setupToryChat() {
 
   $("aiTabChat")?.addEventListener("click", () => {
     hideToryPersonaMenu();
-    if (toryChatPopupOpen) {
-      showToryChatPopupInPanelSlot();
-      requestAnimationFrame(() => $("toryChatInput")?.focus());
-      return;
-    }
     setAiPanelTab("chat", { chatHub: "home" });
   });
   setupAiHelperPaneTabs();
-
-  document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") {
-      if (!$("toryChatHistoryModal")?.classList.contains("hidden")) return;
-      if (toryChatPopupOpen && !$("toryChatPopup")?.classList.contains("hidden")) {
-        const otherModal = document.querySelector(".modal:not(.hidden)");
-        if (!otherModal) closeToryChatPopup({ restorePanelTab: true });
-      }
-    }
-  });
 
   $("toryChatForm")?.addEventListener("submit", (event) => {
     sendToryChatMessage(event).catch(handleError);
@@ -30368,12 +31845,6 @@ function setupToryChat() {
     if (collectBtn) {
       event.preventDefault();
       collectFromToryChat();
-      return;
-    }
-    const openBtn = event.target.closest?.("#toryChatPopupOpenButton");
-    if (openBtn) {
-      event.preventDefault();
-      openToryChatPopup();
       return;
     }
     const histBtn = event.target.closest?.("#toryChatHistoryButton");
@@ -32393,12 +33864,7 @@ const SETTINGS_BOOKMARK_META = {
   },
   intro: {
     title: i18n.t('app.작품소개_기획의도'),
-    open: async () => {
-      setActiveBinder("settings");
-      state.openSettingsSection = "intro";
-      applySettingsSectionState();
-      return openSettingsDocMain("intro");
-    },
+    open: () => openSettingsDocMain("intro"),
   },
   intent: {
     title: i18n.t('app.기획의도'),
@@ -32406,12 +33872,7 @@ const SETTINGS_BOOKMARK_META = {
   },
   logsyn: {
     title: i18n.t('app.로그라인_시놉시스'),
-    open: async () => {
-      setActiveBinder("settings");
-      state.openSettingsSection = "logsyn";
-      applySettingsSectionState();
-      return openSettingsDocMain("synopsis");
-    },
+    open: () => openSettingsDocMain("synopsis"),
   },
   keywords: { title: i18n.t('app.장르_키워드'), open: () => openKeywordBoard() },
   // Per-doc keys (field → buttons / bookmarks)
@@ -32599,7 +34060,7 @@ function renderReadingInviteList() {
       ? i18n.t("app.수정_n건", { n: edits })
       : i18n.t("app.받은_수정");
     const permission = invite.permission === "edit" ? "edit" : "read";
-    const canRevoke = display === "active";
+    const canToggle = display === "active" || display === "revoked";
     const showEdits = permission === "edit" || edits > 0;
     const panels = readingInvitePanelState(invite.id);
     return `<article class="reading-invite-item" data-invite-id="${escapeHtml(invite.id)}">`
@@ -32618,9 +34079,11 @@ function renderReadingInviteList() {
       + (showEdits
         ? `<button type="button" class="secondary compact-btn" data-toggle-invite-edits="${escapeHtml(invite.id)}" aria-expanded="${panels.edits ? "true" : "false"}">${escapeHtml(editLabel)}</button>`
         : "")
-      + (canRevoke
-        ? `<button type="button" class="secondary compact-btn" data-revoke-invite="${escapeHtml(invite.id)}">${escapeHtml(i18n.t("app.링크_끄기"))}</button>`
-        : "")
+      + `<label class="reading-invite-switch${canToggle ? "" : " is-disabled"}">`
+      + `<input type="checkbox" data-toggle-invite-active="${escapeHtml(invite.id)}" ${display === "active" ? "checked" : ""} ${canToggle ? "" : "disabled"} aria-label="${escapeHtml(i18n.t("app.링크_활성화"))}">`
+      + `<span class="reading-invite-switch-ui" aria-hidden="true"></span>`
+      + `<span class="reading-invite-switch-label">${escapeHtml(display === "active" ? i18n.t("app.켜짐") : i18n.t("app.꺼짐"))}</span>`
+      + `</label>`
       + `<button type="button" class="secondary compact-btn reading-invite-delete-btn" data-delete-invite="${escapeHtml(invite.id)}">${escapeHtml(i18n.t("app.삭제"))}</button>`
       + `</div>`
       + `<div class="reading-invite-item-accordion${panels.comments ? "" : " hidden"}" data-invite-comments-panel="${escapeHtml(invite.id)}" ${panels.comments ? "" : "hidden"}></div>`
@@ -32780,6 +34243,21 @@ async function revokeReadingInvite(inviteId) {
       body: JSON.stringify({}),
     });
     toast(i18n.t("app.링크를_껐어요"));
+    await refreshReadingInvitePanel();
+  } catch (error) {
+    handleError(error);
+  }
+}
+
+async function restoreReadingInvite(inviteId) {
+  const id = String(inviteId || "").trim();
+  if (!id) return;
+  try {
+    await api(`/api/reading-invites/${encodeURIComponent(id)}/restore`, {
+      method: "POST",
+      body: JSON.stringify({}),
+    });
+    toast(i18n.t("app.링크를_켰어요"));
     await refreshReadingInvitePanel();
   } catch (error) {
     handleError(error);
@@ -33167,6 +34645,7 @@ function setupReadingInvite() {
     openReadingInviteFromCheer();
   });
   $("readingInvitePanel")?.addEventListener("click", (event) => {
+    if (event.target.closest?.(".reading-invite-switch, [data-toggle-invite-active]")) return;
     const copyId = event.target.closest?.("[data-copy-invite]")?.dataset?.copyInvite;
     if (copyId) {
       event.preventDefault();
@@ -33216,6 +34695,13 @@ function setupReadingInvite() {
       toggleReadingInviteEdits(editsId).catch(handleError);
     }
   });
+  $("readingInvitePanel")?.addEventListener("change", (event) => {
+    const input = event.target.closest?.("[data-toggle-invite-active]");
+    if (!input) return;
+    const id = input.dataset.toggleInviteActive;
+    if (input.checked) restoreReadingInvite(id).catch(handleError);
+    else revokeReadingInvite(id).catch(handleError);
+  });
 }
 
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
@@ -33248,7 +34734,8 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   toryVault: {
     title: i18n.t('app.토리의_수집창고'),
-    hint: i18n.t('app.토리와_이야기하다_나온_아이디어를_수집하면'),
+    hint: "",
+    tipId: "toryVaultTipBox",
     section: "toryVault",
     listId: "toryVaultList",
     addLabel: i18n.t('app.메모'),
@@ -33259,7 +34746,8 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   sources: {
     title: i18n.t('app.참고자료_출처'),
-    hint: i18n.t('app.링크_출처_또는_PDF_Word_한글_텍스트'),
+    hint: "",
+    tipId: "sourcesTipBox",
     section: "sources",
     listId: "sourceList",
     addLabel: i18n.t('app.자료_2'),
@@ -33268,7 +34756,8 @@ const SETTINGS_COLLECTION_MAIN = {
   },
   readingInvite: {
     title: i18n.t('app.읽기_권한_초대'),
-    hint: i18n.t('index.완결된_화가_기본으로_선택됩니다_링크를_보낸'),
+    hint: "",
+    tipId: "readingInviteTipBox",
     section: "readingInvite",
     listId: "readingInvitePanel",
     hideAdd: true,
@@ -35043,7 +36532,6 @@ function ensureToryModalTitleMascots() {
     ".tory-helper-modal .modal-heading",
     ".tory-helper-card > .modal-heading",
     "#aiToolModal .modal-heading",
-    "#aiPromptModal .modal-heading",
     "#toryChatHistoryModal .modal-heading",
     "#toryNotifyEditModal .modal-heading",
     "#baitNotifyModal .modal-heading",
@@ -42073,99 +43561,18 @@ function collectToToryVault(options = {}) {
 }
 
 function renderToryVaultList() {
-  const listEl = $("toryVaultList");
-  if (!listEl) return;
-  const items = loadToryVault();
-  if (!items.length) {
-    listEl.innerHTML = i18n.t('app.p_class_hint_tory_vault');
-    return;
-  }
-  listEl.innerHTML = items.map((item) => {
-    const when = item.createdAt
-      ? new Date(item.createdAt).toLocaleString("ko-KR", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })
-      : "";
-    const mode = escapeHtml(aiModeLabel(item.mode));
-    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : "";
-    const body = escapeHtml(item.body || "");
-    return `
-      <article class="tory-vault-card" data-vault-id="${escapeHtml(item.id)}">
-        <div class="tory-vault-card-meta">
-          <strong>${escapeHtml(item.title || i18n.t('app.수집'))}</strong>
-          <span>${mode}</span>
-          ${scene ? `<span>씬: ${scene}</span>` : ""}
-          ${when ? `<span>${escapeHtml(when)}</span>` : ""}
-        </div>
-        <div class="tory-vault-card-body">${body}</div>
-        <div class="tory-vault-card-actions">
-          <button type="button" class="secondary" data-vault-copy="${escapeHtml(item.id)}">복사</button>
-          <button type="button" class="secondary" data-vault-delete="${escapeHtml(item.id)}">삭제</button>
-        </div>
-      </article>`;
-  }).join("");
+  paintToryVaultListEl($("toryVaultList"));
+  if (typeof syncDockToryVaultFloat === "function") syncDockToryVaultFloat();
 }
 
 function setupToryVault() {
   $("newToryVaultButton")?.addEventListener("click", () => {
-    if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
-    promptText({
-      title: i18n.t('app.수집창고_메모'),
-      message: i18n.t('app.수집창고에_넣을_메모를_적어_주세요'),
-      label: i18n.t('app.메모_2'),
-      defaultValue: "",
-      placeholder: i18n.t('app.짧은_메모'),
-      maxlength: 2000,
-      confirmLabel: i18n.t('app.넣기'),
-    }).then((text) => {
-      if (text === null) return;
-      const body = text.trim();
-      if (!body) return toast(i18n.t('app.내용이_비어_있어요'));
-      collectToToryVault({ text: body, title: i18n.t('app.직접_메모'), mode: "note", prompt: "" });
-      setActiveBinder("settings");
-      state.openSettingsSection = "toryVault";
-      applySettingsSectionState();
-    }).catch(handleError);
+    promptNewToryVaultNote({ openSettings: true });
   });
   $("clearToryVaultButton")?.addEventListener("click", () => {
-    if (!state.projectId) return;
-    if (!loadToryVault().length) return toast(i18n.t('app.비울_수집이_없어요'));
-    if (!window.confirm(i18n.t('app.토리_수집창고를_모두_비울까요'))) return;
-    saveToryVault([]);
-    renderToryVaultList();
-    renderSettingsCodex();
-    toast(i18n.t('app.수집창고를_비웠어요'));
+    clearToryVaultAll();
   });
-  $("toryVaultList")?.addEventListener("click", (event) => {
-    const copyId = event.target.closest?.("[data-vault-copy]")?.dataset?.vaultCopy;
-    const delId = event.target.closest?.("[data-vault-delete]")?.dataset?.vaultDelete;
-    if (copyId) {
-      const item = loadToryVault().find((v) => v.id === copyId);
-      if (!item?.body) return;
-      navigator.clipboard?.writeText(item.body).then(
-        () => toast(i18n.t('app.복사했어요')),
-        () => {
-          try {
-            const ta = document.createElement("textarea");
-            ta.value = item.body;
-            document.body.appendChild(ta);
-            ta.select();
-            document.execCommand("copy");
-            ta.remove();
-            toast(i18n.t('app.복사했어요'));
-          } catch (_) {
-            toast(i18n.t('app.복사에_실패했어요'));
-          }
-        },
-      );
-      return;
-    }
-    if (delId) {
-      if (!window.confirm(i18n.t('app.이_수집을_삭제할까요'))) return;
-      saveToryVault(loadToryVault().filter((v) => v.id !== delId));
-      renderToryVaultList();
-      renderSettingsCodex();
-      toast(i18n.t('app.삭제했어요'));
-    }
-  });
+  $("toryVaultList")?.addEventListener("click", handleToryVaultListClick);
   renderToryVaultList();
 }
 
@@ -42521,16 +43928,11 @@ function getSplitSourceDisplayName(src) {
   return fileName || title || i18n.t('app.참고자료');
 }
 
-function renderSourceList() {
-  const list = $("sourceList");
-  if (!list) return;
+function sourceListInnerHtml() {
   const sources = loadSources();
-  if (!sources.length) {
-    list.innerHTML = i18n.t('app.p_class_hint_source_emp');
-    return;
-  }
-  list.innerHTML = sources.map((src) => {
-    const title = escapeHtml(src.title || i18n.t('app.제목_없음'));
+  if (!sources.length) return i18n.t("app.p_class_hint_source_emp");
+  return sources.map((src) => {
+    const title = escapeHtml(src.title || i18n.t("app.제목_없음"));
     const url = String(src.url || "").trim();
     const note = escapeHtml(src.note || "");
     const isFile = sourceEntryIsFile(src);
@@ -42545,17 +43947,17 @@ function renderSourceList() {
     const isPdf = isFile && (src.viewer === "pdf" || sourceFileExt(src.fileName || src.fileExt || "") === ".pdf");
     const sourceId = escapeHtml(src.id);
     const openTitle = isFile
-      ? i18n.t('app.옆에_펼쳐_보기_단독_열람')
-      : i18n.t('app.링크_미리보기_단독_열람');
+      ? i18n.t("app.옆에_펼쳐_보기_단독_열람")
+      : i18n.t("app.링크_미리보기_단독_열람");
     const openLabel = isFile
-      ? i18n.t('app.열기')
-      : i18n.t('app.링크_열기');
+      ? i18n.t("app.열기")
+      : i18n.t("app.링크_열기");
     const openBtn = (isFile || url)
-      ? i18n.t('app.button_type_button_clas_8', { sourceId: sourceId, openTitle: openTitle, openLabel: openLabel })
+      ? i18n.t("app.button_type_button_clas_8", { sourceId: sourceId, openTitle: openTitle, openLabel: openLabel })
       : "";
     const exportBtns = isFile && !isPdf
-      ? `<button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="${i18n.t('app.Word로_내보내기')}">DOCX</button>
-         <button type="button" class="secondary" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="hwpx" title="${i18n.t('app.한글로_내보내기')}">HWPX</button>`
+      ? `<button type="button" class="secondary compact-btn" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="docx" title="${i18n.t("app.Word로_내보내기")}">DOCX</button>
+         <button type="button" class="secondary compact-btn" data-source-export-id="${escapeHtml(src.id)}" data-source-export-fmt="hwpx" title="${i18n.t("app.한글로_내보내기")}">HWPX</button>`
       : "";
     return `
       <article class="source-card ${isFile ? "is-file" : ""}" data-source-id="${escapeHtml(src.id)}">
@@ -42566,11 +43968,17 @@ function renderSourceList() {
         <div class="source-card-actions">
           ${openBtn}
           ${exportBtns}
-          <button type="button" class="secondary" data-source-edit="${escapeHtml(src.id)}">수정</button>
-          <button type="button" class="secondary" data-source-delete="${escapeHtml(src.id)}">삭제</button>
+          <button type="button" class="secondary compact-btn" data-source-edit="${escapeHtml(src.id)}">수정</button>
+          <button type="button" class="secondary compact-btn" data-source-delete="${escapeHtml(src.id)}">삭제</button>
         </div>
       </article>`;
   }).join("");
+}
+
+function renderSourceList() {
+  const list = $("sourceList");
+  if (list) list.innerHTML = sourceListInnerHtml();
+  if (typeof syncDockSourcesFloat === "function") syncDockSourcesFloat();
 }
 
 function syncSourceFilePickedName(file, savedName) {
@@ -43303,43 +44711,7 @@ function setupSourceCollection() {
   document.querySelectorAll("[data-close-source]").forEach((el) => {
     el.addEventListener("click", closeSourceModal);
   });
-  $("sourceList")?.addEventListener("click", (event) => {
-    const openBtn = event.target.closest?.("[data-source-open]");
-    if (openBtn) {
-      openSourceFileInSplit(openBtn.dataset.sourceOpen, "split").catch(handleError);
-      return;
-    }
-    const exportBtn = event.target.closest?.("[data-source-export-id]");
-    if (exportBtn) {
-      exportSourceById(
-        exportBtn.dataset.sourceExportId,
-        exportBtn.dataset.sourceExportFmt || "docx",
-      ).catch(handleError);
-      return;
-    }
-    const editBtn = event.target.closest?.("[data-source-edit]");
-    if (editBtn) {
-      const item = loadSources().find((s) => s.id === editBtn.dataset.sourceEdit);
-      if (item) openSourceModal(item);
-      return;
-    }
-    const delBtn = event.target.closest?.("[data-source-delete]");
-    if (delBtn) {
-      const id = delBtn.dataset.sourceDelete;
-      const list = loadSources();
-      const item = list.find((s) => s.id === id);
-      if (!item) return;
-      if (!window.confirm(`${i18n.t('app.item_title_이_자료_을_를_삭제할', {'item.title || "이 자료"': item.title || "이 자료"})}`)) return;
-      deleteSourceFileBlob(id).catch(() => {});
-      if (state.splitSourceId === id) {
-        closeSplitView().catch(handleError);
-      }
-      saveSources(list.filter((s) => s.id !== id));
-      renderSourceList();
-      renderSettingsCodex();
-      toast(i18n.t('app.참고자료_출처를_삭제했어요'));
-    }
-  });
+  $("sourceList")?.addEventListener("click", handleSourceListClick);
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape" && !$("sourceModal")?.classList.contains("hidden")) {
       closeSourceModal();
@@ -43347,6 +44719,44 @@ function setupSourceCollection() {
   });
   renderSourceList();
   setupSplitSourceEditor();
+}
+
+function handleSourceListClick(event) {
+  const openBtn = event.target.closest?.("[data-source-open]");
+  if (openBtn) {
+    openSourceFileInSplit(openBtn.dataset.sourceOpen, "split").catch(handleError);
+    return;
+  }
+  const exportBtn = event.target.closest?.("[data-source-export-id]");
+  if (exportBtn) {
+    exportSourceById(
+      exportBtn.dataset.sourceExportId,
+      exportBtn.dataset.sourceExportFmt || "docx",
+    ).catch(handleError);
+    return;
+  }
+  const editBtn = event.target.closest?.("[data-source-edit]");
+  if (editBtn) {
+    const item = loadSources().find((s) => s.id === editBtn.dataset.sourceEdit);
+    if (item) openSourceModal(item);
+    return;
+  }
+  const delBtn = event.target.closest?.("[data-source-delete]");
+  if (delBtn) {
+    const id = delBtn.dataset.sourceDelete;
+    const list = loadSources();
+    const item = list.find((s) => s.id === id);
+    if (!item) return;
+    if (!window.confirm(`${i18n.t("app.item_title_이_자료_을_를_삭제할", { 'item.title || "이 자료"': item.title || "이 자료" })}`)) return;
+    deleteSourceFileBlob(id).catch(() => {});
+    if (state.splitSourceId === id) {
+      closeSplitView().catch(handleError);
+    }
+    saveSources(list.filter((s) => s.id !== id));
+    renderSourceList();
+    renderSettingsCodex();
+    toast(i18n.t("app.참고자료_출처를_삭제했어요"));
+  }
 }
 let pendingBaitQuote = "";
 /** @type {string|null} last project id whose baits are in state.baits */
@@ -43384,6 +44794,8 @@ function setBaitCache(list, projectId = state.projectId) {
     renderOutline(state.outline);
   }
   if (typeof renderToryNotifyList === "function") renderToryNotifyList();
+  const baitsWin = typeof ideaFloatWindows !== "undefined" ? ideaFloatWindows.get(DOCK_BAITS_KEY) : null;
+  if (baitsWin && typeof paintDockBaitsList === "function") paintDockBaitsList(baitsWin);
 }
 
 /** @deprecated Prefer create/update/delete APIs. Kept for rare full-list rewrite paths. */
@@ -55642,6 +57054,20 @@ const GUIDE_TIP_DEFS = [
   { id: "ideaBoard", label: i18n.t('app.생각수첩_보드_안내') },
   { id: "baits", label: i18n.t('app.떡밥모음_안내') },
   { id: "relationCanvas", label: i18n.t('app.관계_이어보기_안내') },
+  { id: "dockDictionary", label: i18n.t('app.토리_사전_안내') },
+  { id: "dockAppearances", label: i18n.t('app.등장_이력_안내') },
+  { id: "dockBaits", label: i18n.t('app.떡밥모음_위젯_안내') },
+  { id: "toryVault", label: i18n.t('app.토리의_수집창고_안내') },
+  { id: "sources", label: i18n.t('app.참고자료_출처_안내') },
+  { id: "sceneAuthorNotes", label: i18n.t('app.생각수첩_회차별_작가메모_안내') },
+  { id: "introIntent", label: i18n.t('app.작품소개_기획의도_안내') },
+  { id: "loglineHint", label: i18n.t('app.로그라인_안내') },
+  { id: "outlineSummaryHint", label: i18n.t('app.줄거리_개요_안내') },
+  { id: "synopsisHint", label: i18n.t('app.시놉시스_안내') },
+  { id: "keywordBoard", label: i18n.t('app.장르_키워드_안내') },
+  { id: "worldHint", label: i18n.t('app.세계관_안내') },
+  { id: "characterBoard", label: i18n.t('app.캐릭터_메인_안내') },
+  { id: "readingInvite", label: i18n.t('app.읽기_권한_초대_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -58004,19 +59430,23 @@ function renderCharacters() {
   const list = $("characterList");
   if (!list) return;
   list.innerHTML = state.characters.length ? state.characters.map((character) => {
-    const firstLine = String(character.short_description || "").trim()
+    const name = escapeHtml(character.name || i18n.t("app.이름_없음"));
+    const role = escapeHtml(characterStoryRoleLabel(character.role) || "");
+    const summary = escapeHtml(
+      String(character.short_description || "").trim()
       || String(character.profile_md || "").split(/\n/).map((line) => line.trim()).find(Boolean)
-      || roleLabel[characterStoryRole(character.role)]
-      || "";
+      || ""
+    );
     const analysisMark = character.has_tori_analysis
-      ? i18n.t('app.span_class_character_li')
+      ? i18n.t("app.span_class_character_li")
       : "";
     return `
-    <button class="character-link ${state.characterId === character.id ? "active" : ""}" data-character="${character.id}" title="${escapeHtml(character.name)}">
-      <span class="character-name">${escapeHtml(character.name)}${analysisMark}</span>
-      <span class="character-role">${escapeHtml(firstLine)}</span>
+    <button type="button" class="character-board-card settings-panel-card ${state.characterId === character.id ? "is-active" : ""}" data-character="${character.id}" title="${name}">
+      <span class="character-board-card-name">${name}${analysisMark}</span>
+      <span class="character-board-card-role">${role}</span>
+      <span class="character-board-card-summary">${summary}</span>
     </button>`;
-  }).join("") : i18n.t('app.p_class_hint_아직_인물이_없어요');
+  }).join("") : i18n.t("app.p_class_hint_아직_인물이_없어요");
   list.querySelectorAll("[data-character]").forEach((button) => button.addEventListener("click", () => openCharacter(button.dataset.character, { returnTo: "characterBoard" })));
   renderSettingsCodex();
   syncDockCharactersFloat();
@@ -58492,15 +59922,15 @@ function openNewProjectModal() {
   const purposeSelect = $("newProjectPurpose");
   if (titleInput) titleInput.value = "";
   if (purposeSelect) {
-    const keys = Object.keys(purposeLabel);
+    const keys = PURPOSE_OPTION_KEYS;
     purposeSelect.innerHTML = keys
       .map((key) => `<option value="${escapeHtml(key)}">${escapeHtml(purposeLabel[key])}</option>`)
       .join("");
-    purposeSelect.value = "general_novel";
+    purposeSelect.value = "web_novel";
   }
   setModalClusterId("newProject", "");
   renderGenreClusterGrid("newProject", "");
-  syncModalGenreFields("newProject", purposeSelect?.value || "general_novel");
+  syncModalGenreFields("newProject", purposeSelect?.value || "web_novel");
   resetModalDraftKeywords("newProject");
   const submit = $("newProjectSubmitButton");
   if (submit) {
@@ -58879,7 +60309,7 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
 
   let mainOptions = MAIN_GENRES;
   let mainLabel = i18n.t('app.메인_장르');
-  let subLabel = i18n.t('app.서브_장르');
+  let subLabel = fictionDetailGenreLabel();
   let showSub = true;
   if (mode === "translation") {
     mainOptions = WORK_LANGUAGES;
@@ -58932,7 +60362,7 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
     const mainKey = mainSelect.value;
     const prevPurpose = state.projectPurpose;
     state.projectPurpose = normalizePurposeKey(purpose);
-    subOptions = withAdult19Option(mainKey ? (SUB_GENRES[mainKey] || []) : []);
+    subOptions = withAdult19Option(mainKey ? subGenreChoicesForMain(mainKey) : []);
     state.projectPurpose = prevPurpose;
   }
   const placeholderSub = mode === "translation"
@@ -58963,17 +60393,32 @@ function readModalGenreValues(prefix, purpose) {
     if (!mapped) {
       return {
         ok: false,
-        error: i18n.t("app.세부_장르를_선택해_주세요"),
+        error: i18n.t("app.장르를_선택해_주세요"),
         focusId: `${prefix}MainGenre`,
       };
+    }
+    let sub = mapped.sub;
+    if (clusterId === "webnovel") {
+      const details = WEB_NOVEL_DETAIL_GENRES[mapped.main] || [];
+      if (details.length) {
+        const picked = String($(`${prefix}SubGenre`)?.value || "").trim();
+        if (!picked) {
+          return {
+            ok: false,
+            error: i18n.t("app.세부_장르를_선택해_주세요"),
+            focusId: `${prefix}SubGenre`,
+          };
+        }
+        sub = picked;
+      }
     }
     return {
       ok: true,
       main: mapped.main,
-      sub: mapped.sub,
+      sub,
       purpose: mapped.purpose,
       cluster_id: clusterId,
-      genre_detail: readModalGenreDetail(prefix),
+      genre_detail: clusterId === "webnovel" ? "" : readModalGenreDetail(prefix),
     };
   }
   const mode = getPurposeCategoryMode(purpose);
@@ -64816,7 +66261,6 @@ const STYLE_BLEND_GUIDE_TEXT = (
 
 function setStyleBlendOfferVisible(show) {
   $("styleBlendOffer")?.classList.toggle("hidden", !show);
-  $("styleBlendOfferModal")?.classList.toggle("hidden", !show);
 }
 
 function clearStyleBlendResultViews(scope = "continue") {
@@ -64837,7 +66281,6 @@ function clearStyleBlendResultViews(scope = "continue") {
     return;
   }
   clearPair("styleBlendStatus", "styleBlendResult");
-  clearPair("styleBlendStatusModal", "styleBlendResultModal");
 }
 
 function prepareStyleBlendOffer(context) {
@@ -64989,9 +66432,6 @@ async function runStyleBlendCheck(options = {}) {
 
 function setupStyleBlendUi() {
   $("styleBlendCheckButton")?.addEventListener("click", () => {
-    runStyleBlendCheck({ scope: "continue" }).catch(handleError);
-  });
-  $("styleBlendCheckButtonModal")?.addEventListener("click", () => {
     runStyleBlendCheck({ scope: "continue" }).catch(handleError);
   });
   $("rewriteStyleBlendCheckButton")?.addEventListener("click", () => {
@@ -68535,7 +69975,37 @@ function stripToriTextPrefix(value) {
 
 function applyToriDraftClass(el) {
   if (!el) return;
-  el.classList.toggle("is-tori-draft", isToriDraftText(el.value));
+  const value = el.value != null
+    ? el.value
+    : (typeof getEditorPlainText === "function" ? getEditorPlainText(el) : (el.innerText || el.textContent || ""));
+  el.classList.toggle("is-tori-draft", isToriDraftText(value));
+}
+
+function claimToriDraftOnEditor(el) {
+  if (!el) return false;
+  const value = typeof getEditorPlainText === "function"
+    ? getEditorPlainText(el)
+    : (el.innerText || el.textContent || "");
+  if (!isToriDraftText(value)) {
+    el.classList.remove("is-tori-draft");
+    return false;
+  }
+  const next = stripToriTextPrefix(value);
+  if (next === value) {
+    el.classList.add("is-tori-draft");
+    return false;
+  }
+  const html = String(el.innerHTML || "");
+  const idx = html.indexOf(TORI_TEXT_PREFIX);
+  if (idx >= 0) {
+    el.innerHTML = html.slice(0, idx) + html.slice(idx + TORI_TEXT_PREFIX.length).replace(/^(?:<br\s*\/?>|&nbsp;|\s)+/i, "");
+  } else if (typeof setEditorContent === "function") {
+    setEditorContent(next, el);
+  } else {
+    el.textContent = next;
+  }
+  el.classList.remove("is-tori-draft");
+  return true;
 }
 
 function claimToriDraftOnInput(el, event) {

@@ -23,10 +23,18 @@ class GenreClusterLogicTests(unittest.TestCase):
         )
         self.assertEqual(clusters["webnovel"]["status"], "active")
         self.assertEqual(clusters["locked"]["status"], "locked")
-        self.assertIn("로판", clusters["webnovel"]["sub_genres"])
+        self.assertEqual(
+            clusters["webnovel"]["sub_genres"],
+            ["판타지", "현대판타지", "무협", "역사·시대", "스포츠", "로맨스"],
+        )
         self.assertEqual(
             clusters["genre_literature"]["sub_genres"],
-            ["추리/미스터리", "스릴러", "SF"],
+            ["SF", "미스테리/추리", "스릴러/호러", "정통판타지", "실험장르"],
+        )
+        self.assertEqual(clusters["general_literature"]["label"], "문학")
+        self.assertEqual(
+            clusters["fairytale"]["sub_genres"],
+            ["영아", "유아", "초등 저학년"],
         )
 
     def test_infer_webnovel_and_genre_literature_keep_all_features(self) -> None:
@@ -83,32 +91,49 @@ class GenreClusterLogicTests(unittest.TestCase):
         self.assertEqual(mapped, ("web_novel", "romance", "romfant"))
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("webnovel", "bl"),
-            ("web_novel", "romance", "bl"),
+            ("web_novel", "romance", "blgl"),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("webnovel", "gl"),
-            ("web_novel", "romance", "gl"),
+            ("web_novel", "romance", "blgl"),
+        )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("webnovel", "fantasy"),
+            ("web_novel", "fantasy", ""),
+        )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("webnovel", "urban"),
+            ("web_novel", "urban", ""),
+        )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("genre_literature", "experimental"),
+            ("genre_literature", "experimental", ""),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "mystery_detective"),
-            ("general_novel", "mystery", "honkaku"),
+            ("genre_literature", "mystery", "honkaku"),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "detective"),
-            ("general_novel", "mystery", "honkaku"),
+            ("genre_literature", "mystery", "honkaku"),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "mystery"),
-            ("general_novel", "mystery", "honkaku"),
+            ("genre_literature", "mystery", "honkaku"),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "thriller"),
-            ("general_novel", "thriller", "psycho"),
+            ("genre_literature", "thriller", "psycho"),
         )
         self.assertEqual(
             genre_clusters.map_cluster_subgenre("genre_literature", "sf"),
-            ("general_novel", "sf", "space"),
+            ("genre_literature", "sf", "space"),
         )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("genre_literature", "traditional"),
+            ("genre_literature", "traditional", ""),
+        )
+        self.assertIn("experimental", genre_clusters.GENRE_LITERATURE_MAIN)
 
     def test_genre_detail_allowed_values_and_labels(self) -> None:
         self.assertEqual(
@@ -121,6 +146,7 @@ class GenreClusterLogicTests(unittest.TestCase):
         )
         self.assertEqual(genre_clusters.allowed_genre_details("romance", "bl"), frozenset({""}))
         self.assertEqual(genre_clusters.allowed_genre_details("romance", "gl"), frozenset({""}))
+        self.assertEqual(genre_clusters.allowed_genre_details("romance", "blgl"), frozenset({""}))
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "bl", "historical"), "")
         self.assertEqual(genre_clusters.normalize_genre_detail("romance", "gl", "oriental_romfant"), "")
         self.assertEqual(
@@ -264,6 +290,41 @@ class GenreClusterApiTests(unittest.TestCase):
         )
         self.assertEqual(status, 200)
         self.assertEqual(updated["cluster_id"], "general_literature")
+
+    def test_settings_update_accepts_cluster_purpose_keys(self) -> None:
+        status, project = self.request(
+            "POST",
+            "/api/projects",
+            {"title": "종류 변경", "purpose": "web_novel", "main_genre": "romance", "sub_genre": "modern"},
+        )
+        self.assertEqual(status, 201)
+        status, genre_lit = self.request(
+            "POST",
+            f"/api/projects/{project['id']}/settings",
+            {
+                "purpose": "genre_literature",
+                "cluster_id": "genre_literature",
+                "main_genre": "",
+                "sub_genre": "",
+            },
+        )
+        self.assertEqual(status, 200, genre_lit)
+        self.assertEqual(genre_lit["purpose"], "genre_literature")
+        self.assertEqual(genre_lit["cluster_id"], "genre_literature")
+
+        status, literature = self.request(
+            "POST",
+            f"/api/projects/{project['id']}/settings",
+            {
+                "purpose": "literature",
+                "cluster_id": "general_literature",
+                "main_genre": "general_lit",
+                "sub_genre": "",
+            },
+        )
+        self.assertEqual(status, 200, literature)
+        self.assertEqual(literature["purpose"], "literature")
+        self.assertEqual(literature["cluster_id"], "general_literature")
 
     def test_legacy_row_backfill_on_init(self) -> None:
         with app.database() as connection:

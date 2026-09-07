@@ -59,6 +59,16 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertNotIn(">크게보기<", result_expand)
         self.assertNotIn(">크게보기<", prompt)
 
+    def test_ai_result_modal_is_resizable(self) -> None:
+        card = self.html.split('id="aiResultModal"', 1)[1].split('id="chapterSubtitleModal"', 1)[0]
+        for edge in ("n", "s", "e", "w", "ne", "nw", "se", "sw"):
+            self.assertIn(f'data-resize-edge="{edge}"', card)
+        self.assertIn('id="aiResultModalDrag"', card)
+        self.assertIn("function setupAiResultModalChrome", self.js)
+        self.assertIn("supertory.aiResultModalGeom", self.js)
+        self.assertIn(".ai-result-modal-card.is-user-sized", self.css)
+        self.assertIn("applyFloatingPopupResize(card", self.js)
+
     def test_tory_notify_has_large_view_popup(self) -> None:
         self.assertIn('id="toryNotifyPopup"', self.html)
         self.assertIn('id="toryNotifyPopupDockHint"', self.html)
@@ -66,3 +76,11 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertIn("function closeToryNotifyPopup", self.js)
         self.assertIn(".tory-notify-expand-btn", self.css)
         self.assertIn(".tory-notify-popup-body", self.css)
+
+    def test_panel_chat_hub_stays_in_panel(self) -> None:
+        hub_fn = self.js.split("function setupToryChatHubUi(", 1)[1].split(
+            "function setupToryChatPopupChrome(", 1
+        )[0]
+        self.assertNotIn('openDockFloat("toryChat")', hub_fn)
+        self.assertNotIn('openDockFloat("characterChat")', hub_fn)
+        self.assertNotIn('openDockFloat("readerChat")', hub_fn)
