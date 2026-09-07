@@ -45,6 +45,19 @@ class WorldImportAnalysisUnitTests(unittest.TestCase):
         self.assertEqual(parsed["heritage"], "")
         self.assertIn("heritage", values)
 
+    def test_compose_parse_extras_roundtrip(self) -> None:
+        values = world_import_analysis.empty_world_values()
+        values["locale"] = "하버라인"
+        values["extras"] = [{"id": "extra_1", "title": "종교", "body": "바다신을 섬긴다"}]
+        md = world_import_analysis.compose_worldbuilding_md(values)
+        parsed = world_import_analysis.parse_worldbuilding_md(md)
+        self.assertEqual(parsed["locale"], "하버라인")
+        self.assertEqual(len(parsed["extras"]), 1)
+        self.assertEqual(parsed["extras"][0]["title"], "종교")
+        self.assertEqual(parsed["extras"][0]["body"], "바다신을 섬긴다")
+        self.assertNotIn("바다신을 섬긴다", parsed.get("legacy") or "")
+        self.assertIn("geo_terrain", parsed)
+
 
     def test_infer_prompt_uses_plot(self) -> None:
         system, user = world_import_analysis.build_analysis_prompt(

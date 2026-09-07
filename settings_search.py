@@ -231,7 +231,31 @@ def _search_world(connection: sqlite3.Connection, project_id: int, query: str) -
     for field_id, text in values.items():
         if len(hits) >= MAX_HITS:
             break
-        if not text_matches(text, query):
+        if field_id == "extras":
+            if not isinstance(text, list):
+                continue
+            for extra in text:
+                if len(hits) >= MAX_HITS:
+                    break
+                if not isinstance(extra, dict):
+                    continue
+                title = str(extra.get("title") or "").strip() or "추가 요소"
+                body = str(extra.get("body") or "")
+                blob = f"{title}\n{body}"
+                if not text_matches(blob, query):
+                    continue
+                extra_id = str(extra.get("id") or title)
+                hits.append(_hit(
+                    "world",
+                    extra_id,
+                    title,
+                    extra_id,
+                    title,
+                    make_snippet(blob, query),
+                    section=extra_id,
+                ))
+            continue
+        if not isinstance(text, str) or not text_matches(text, query):
             continue
         label = FIELD_LABELS.get(field_id, "기타 · 기존 메모" if field_id == "legacy" else field_id)
         hits.append(_hit(

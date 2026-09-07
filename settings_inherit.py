@@ -45,7 +45,25 @@ def _copy_worldbuilding(connection: sqlite3.Connection, source_id: int, dest_id:
     raw = str(row["worldbuilding_md"] or "")
     values = parse_worldbuilding_md(raw)
     filled = False
+    extras = values.get("extras")
+    if isinstance(extras, list):
+        marked_extras = []
+        for extra in extras:
+            if not isinstance(extra, dict):
+                continue
+            title = _mark(str(extra.get("title") or ""))
+            body = _mark(str(extra.get("body") or ""))
+            if str(title).strip() or str(body).strip():
+                filled = True
+            marked_extras.append({
+                "id": str(extra.get("id") or "").strip(),
+                "title": title,
+                "body": body,
+            })
+        values["extras"] = marked_extras
     for key, text in list(values.items()):
+        if key == "extras" or not isinstance(text, str):
+            continue
         if str(text or "").strip():
             values[key] = _mark(text)
             filled = True

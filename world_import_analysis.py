@@ -63,6 +63,16 @@ WORLD_BUILDING_SCHEMA: tuple[dict, ...] = (
             ("conflict", "갈등의 원인"),
         ),
     },
+    {
+        "id": "geography",
+        "title": "6. 지리적 특징 (Geography)",
+        "blurb": "땅의 생김새와 이동 경로가 이야기에 미치는 영향입니다.",
+        "fields": (
+            ("geo_terrain", "지형 / 기후"),
+            ("geo_regions", "주요 지역"),
+            ("geo_routes", "경계와 이동"),
+        ),
+    },
 )
 
 SHEET_FIELDS: tuple[tuple[str, str, str], ...] = tuple(
@@ -76,6 +86,13 @@ FIELD_SECTIONS = {field_id: section_id for section_id, field_id, _label in SHEET
 LABEL_TO_FIELD = {label: field_id for _section, field_id, label in SHEET_FIELDS}
 LABEL_TO_FIELD["기타 · 기존 메모"] = "legacy"
 LABEL_TO_FIELD["기타"] = "legacy"
+
+WORLD_EXTRAS_HEADING = "st-world-extras"
+WORLD_EXTRA_SECTION_RE = re.compile(r"^추가 요소[:：]\s*(.+)$")
+WORLD_EXTRAS_BLOCK_RE = re.compile(
+    r"\n*##\s*st-world-extras\s*\n```json\s*\n([\s\S]*?)\n```",
+    re.I,
+)
 
 MAX_MANUSCRIPT_CHARS = 60_000
 MAX_FIELD_CHARS = 4000
@@ -101,7 +118,38 @@ def is_field_empty(value: object) -> bool:
 def empty_world_values() -> dict[str, str]:
     values = {field_id: "" for field_id in SHEET_FIELD_KEYS}
     values["legacy"] = ""
+    values["extras"] = []
     return values
+
+
+def normalize_world_extras(raw: object) -> list[dict[str, str]]:
+    if not isinstance(raw, list):
+        return []
+    extras: list[dict[str, str]] = []
+    for index, item in enumerate(raw):
+        if not isinstance(item, dict):
+            continue
+        extras.append({
+            "id": str(item.get("id") or "").strip() or f"extra_{index + 1}",
+            "title": str(item.get("title") or "").strip(),
+            "body": str(item.get("body") or "").strip()[:MAX_FIELD_CHARS],
+        })
+    return extras
+
+
+def _extract_world_extras_block(text: str) -> tuple[str, list[dict[str, str]]]:
+    extras: list[dict[str, str]] = []
+
+    def _take(match: re.Match[str]) -> str:
+        try:
+            data = json.loads(match.group(1))
+        except json.JSONDecodeError:
+            return "\n"
+        extras.extend(normalize_world_extras(data))
+        return "\n"
+
+    cleaned = WORLD_EXTRAS_BLOCK_RE.sub(_take, str(text or ""))
+    return cleaned.strip(), extras
 
 
 def compose_worldbuilding_md(values: dict | None) -> str:
@@ -116,6 +164,18 @@ def compose_worldbuilding_md(values: dict | None) -> str:
             parts.append(f"### {label}")
             parts.append(text)
             parts.append("")
+    extras = normalize_world_extras(data.get("extras"))
+    for extra in extras:
+        title = re.sub(r"\s+", " ", extra["title"]) or "새 요소"
+        parts.append(f"## 추가 요소: {title}")
+        parts.append(extra["body"])
+        parts.append("")
+    if extras:
+        parts.append(f"## {WORLD_EXTRAS_HEADING}")
+        parts.append("```json")
+        parts.append(json.dumps(extras, ensure_ascii=False))
+        parts.append("```")
+        parts.append("")
     legacy = str(data.get("legacy") or "").strip()
     if legacy:
         parts.append("## 기타 · 기존 메모")
@@ -143,10 +203,13 @@ def parse_worldbuilding_md(raw: object) -> dict[str, str]:
     text = str(raw or "").strip()
     if not text:
         return values
+    text, json_extras = _extract_world_extras_block(text)
+    if json_extras:
+        values["extras"] = json_extras
     has_structured = any(
         section["title"] in text or _plain_title(section["title"]) in text
         for section in WORLD_BUILDING_SCHEMA
-    )
+    ) or bool(json_extras) or "## 추가 요소:" in text or "## 추가 요소：" in text
     if not has_structured:
         values["legacy"] = text
         return values
@@ -164,6 +227,19 @@ def parse_worldbuilding_md(raw: object) -> dict[str, str]:
             continue
         heading = re.sub(r"\s+", " ", heading_match.group(1)).strip()
         body = chunk[heading_match.end() :].strip()
+        extra_match = WORLD_EXTRA_SECTION_RE.match(heading)
+        if extra_match:
+            current_field = None
+            if not json_extras:
+                values["extras"].append({
+                    "id": f"extra_{len(values['extras']) + 1}",
+                    "title": extra_match.group(1).strip(),
+                    "body": body[:MAX_FIELD_CHARS],
+                })
+            continue
+        if heading.lower() == WORLD_EXTRAS_HEADING:
+            current_field = None
+            continue
         if _is_section_heading(heading) and heading not in LABEL_TO_FIELD:
             current_field = None
             cleaned_lines = []
@@ -272,7 +348,10 @@ def build_analysis_prompt(
         '  "daily": "기본 생활",\n'
         '  "class": "계급 / 신분",\n'
         '  "factions": "주요 세력",\n'
-        '  "conflict": "갈등의 원인"\n'
+        '  "conflict": "갈등의 원인",\n'
+        '  "geo_terrain": "지형 / 기후",\n'
+        '  "geo_regions": "주요 지역",\n'
+        '  "geo_routes": "경계와 이동"\n'
         "}\n"
         "JSON 외 텍스트는 출력하지 마세요.\n\n"
     )
