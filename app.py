@@ -8727,7 +8727,7 @@ def _reader_work_genre_label(tokens: list[str]) -> str:
         "romance", "fantasy", "sf", "mystery", "thriller", "historical", "martial",
         "contemporary", "youth", "literary", "romfant", "modern", "high", "low",
         "urban", "hidden_world", "traditional", "isekai", "game", "dark", "school",
-        "classic", "new", "murim", "sports", "chaebol", "office",
+        "classic", "new", "murim", "sports", "chaebol", "office", "blgl", "period",
     }
     labels = [
         item for item in tokens
@@ -15975,6 +15975,8 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "literary": "순문학",
             "genre_lit": "장르문학",
             "experimental": "실험장르",
+            "sports": "스포츠",
+            "traditional": "정통판타지",
             "blgl": "BL·GL",
             "other": "기타",
             "modern": "현대로맨스",
@@ -15990,7 +15992,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "isekai": "이세계",
             "game": "게임판타지",
             "dark": "다크판타지",
-            "urban": "어반판타지",
+            "urban": "현대판타지",
             "female": "여성향 판타지",
             "space": "스페이스",
             "dystopia": "디스토피아",
