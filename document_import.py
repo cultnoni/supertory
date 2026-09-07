@@ -46,6 +46,8 @@ UNSUPPORTED_HINTS = {
 WORK_PURPOSES: dict[str, str] = {
     "general_novel": "일반소설",
     "web_novel": "웹소설",
+    "genre_literature": "장르문학",
+    "literature": "문학",
     "fairy_tale": "동화",
     "short_story": "단편",
     "essay": "에세이",
@@ -152,6 +154,8 @@ def normalise_purpose(value: object) -> str:
         "장편": "general_novel",
         "웹소설": "web_novel",
         "웹": "web_novel",
+        "장르문학": "genre_literature",
+        "문학": "literature",
         "동화": "fairy_tale",
         "아동": "fairy_tale",
         "어린이": "fairy_tale",

@@ -448,5 +448,44 @@ class FolderOutlineReadTests(unittest.TestCase):
         self.assertEqual(short_row.get("body_preview") or "", "테스트88888테스트")
 
 
+class OutlineGuideAndTooltipTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls) -> None:
+        root = Path(__file__).resolve().parents[1]
+        cls.html = (root / "web" / "index.html").read_text(encoding="utf-8")
+        cls.js = (root / "web" / "app.js").read_text(encoding="utf-8")
+        cls.locales = {
+            language: json.loads(
+                (root / "web" / "locales" / f"{language}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            for language in ("ko", "en", "es")
+        }
+
+    def test_outline_tip_uses_episode_wording(self) -> None:
+        tip = self.html.split('id="outlineTipBox"', 1)[1].split("</div>", 1)[0]
+        self.assertIn("안쪽 +: 회차추가", tip)
+        self.assertIn("폴더·회차는 끌어 원하는 위치에 놓기", tip)
+        self.assertNotIn("안쪽 +: 하위 폴더", tip)
+        self.assertNotIn("폴더·원고는", tip)
+        self.assertEqual(
+            self.locales["ko"]["index.폴더_폴더_추가_안쪽_하위_폴더_폴더_원고"],
+            "+폴더: 폴더 추가 · 안쪽 +: 회차추가 · 폴더·회차는 끌어 원하는 위치에 놓기 (무한 중첩 가능) · 우클릭: 기능 더 보기",
+        )
+        self.assertIn("add episode", self.locales["en"]["index.폴더_폴더_추가_안쪽_하위_폴더_폴더_원고"])
+        self.assertIn("agregar episodio", self.locales["es"]["index.폴더_폴더_추가_안쪽_하위_폴더_폴더_원고"])
+
+    def test_scene_tooltip_omits_rename_drag_instructions(self) -> None:
+        self.assertNotIn("더블클릭: 이름 바꾸기", self.js)
+        self.assertNotIn("위/아래: 순서 · 가운데: 하위", self.js)
+        bind = self.js.split("function setupBinderContextMenu(", 1)[1].split(
+            "$(\"binderContextMenu\")", 1
+        )[0]
+        self.assertIn('querySelector(".scene-title")', bind)
+        self.assertIn("getSceneTitleById", bind)
+        self.assertNotIn('getAttribute("title")', bind)
+
+
 if __name__ == "__main__":
     unittest.main()

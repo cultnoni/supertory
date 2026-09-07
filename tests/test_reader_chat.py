@@ -455,8 +455,12 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("대화 시작하기", html)
         self.assertIn("startReaderChatFromPicker", js)
         self.assertIn('id="readerPersonaAllButton"', html)
+        self.assertIn('data-i18n="app.인물_펼쳐보기"', html.split('id="readerPersonaAllButton"', 1)[1].split("</button>", 1)[0])
         self.assertIn('id="readerPersonaAllModal"', html)
         self.assertIn("openReaderPersonaAllModal", js)
+        open_all = js.split("async function openReaderPersonaAllModal", 1)[1][:2200]
+        self.assertNotIn("카드를_눌러_토론할_독자를_골라_주세요_소개", open_all)
+        self.assertIn("카드를_눌러_대화할_독자를_고른_뒤_대화_시", open_all)
         all_modal = html[html.find('id="readerPersonaAllModal"'):html.find('id="toryChatCharacterAllModal"')]
         self.assertIn("modal-close", all_modal)
         self.assertNotIn("modal-actions", all_modal)

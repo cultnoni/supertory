@@ -325,6 +325,13 @@ class SuccessProfileRefTests(unittest.TestCase):
         panel = html.split('id="successProfileMainPanel"', 1)[1].split(
             "</section>", 1
         )[0]
+        body = html.split('id="successProfileBody"', 1)[1].split(
+            "</section>", 1
+        )[0]
+        self.assertIn('id="successProfileTipBox"', body)
+        self.assertIn('data-guide-tip="successProfile"', body)
+        self.assertIn("app.흥행_공식_분석으로_만든_프로파일을_이_작품", body)
+        self.assertNotIn("app.흥행_공식_분석으로_만든_프로파일을_이_작품", panel)
         self.assertIn('id="linkedSuccessProfilePickerButton"', panel)
         self.assertIn('id="linkedSuccessProfileMenu"', panel)
         self.assertNotIn('id="linkedSuccessProfileSelect"', panel)
@@ -363,6 +370,7 @@ class SuccessProfileRefTests(unittest.TestCase):
                 "app.프로파일_삭제",
                 "app.이_프로파일을_삭제할까요_연결된_작품에서도_연결이_해제됩니다",
                 "app.프로파일을_삭제했어요_n개_작품_연결_해제",
+                "app.흥행작_프로파일_안내",
             ):
                 self.assertIn(key, locale)
 

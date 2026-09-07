@@ -127,6 +127,11 @@ class ItemApiTests(unittest.TestCase):
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         self.assertIn('data-settings-section="items"', html)
         self.assertIn('id="itemBoard"', html)
+        board = html.split('id="itemBoard"', 1)[1].split('id="dictionaryBoard"', 1)[0]
+        self.assertIn('data-guide-tip="itemBoard"', board)
+        self.assertIn('data-guide-tip-dismiss="itemBoard"', board)
+        self.assertIn("index.아이템_카드를_누르면_가운데에서_상세_설정을", board)
+        self.assertIn('{ id: "itemBoard"', app_js)
         self.assertIn('id="itemEditor"', html)
         self.assertIn('id="itemAliasList"', html)
         self.assertIn('id="itemOwner"', html)
@@ -142,6 +147,13 @@ class ItemApiTests(unittest.TestCase):
         self.assertIn("toggleTraitChronicle", app_js)
         self.assertIn("renderTraitChronicleList", app_js)
         self.assertIn("/api/items/${state.itemId}/trait-history", app_js)
+        for language in ("ko", "en", "es"):
+            locale = json.loads(
+                (ROOT / "web" / "locales" / f"{language}.json").read_text(
+                    encoding="utf-8"
+                )
+            )
+            self.assertIn("app.아이템_메인_안내", locale)
 
 
 if __name__ == "__main__":

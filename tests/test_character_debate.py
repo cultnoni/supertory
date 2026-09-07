@@ -76,7 +76,18 @@ class CharacterDebateTests(unittest.TestCase):
         self.assertIn("1:1 대화", chunk)
         self.assertIn("시뮬레이션", chunk)
         self.assertIn('id="toryChatCharacterSimPane"', chunk)
+        self.assertIn('id="toryChatCharacterAllButton"', chunk)
+        self.assertIn("인물 펼쳐보기", chunk)
+        self.assertIn('data-i18n="app.인물_펼쳐보기"', chunk)
         self.assertIn('id="toryChatCharacterStart"', chunk)
+        all_modal = html.split('id="toryChatCharacterAllModal"', 1)[1].split(
+            'id="genreContextMenu"', 1
+        )[0]
+        self.assertIn('id="toryChatCharacterAllTipBox"', all_modal)
+        self.assertIn('data-guide-tip="characterChatAll"', all_modal)
+        self.assertIn('id="toryChatCharacterAllStart"', all_modal)
+        self.assertIn('id="toryChatCharacterAllScenario"', all_modal)
+        self.assertIn("function syncToryChatCharacterAllActions(", app_js)
         self.assertIn("function buildCharacterDebatePrompt", app_js)
         self.assertIn("function setCharListMode", app_js)
         self.assertIn("function toryChatCharacterPickCardHtml(", app_js)

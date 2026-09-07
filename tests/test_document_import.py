@@ -85,6 +85,10 @@ class DocumentImportUnitTests(unittest.TestCase):
         self.assertEqual(document_import.normalise_purpose("essay"), "essay")
         self.assertEqual(document_import.normalise_purpose("논문"), "paper")
         self.assertEqual(document_import.normalise_purpose("정보 전달"), "nonfiction")
+        self.assertEqual(document_import.normalise_purpose("genre_literature"), "genre_literature")
+        self.assertEqual(document_import.normalise_purpose("literature"), "literature")
+        self.assertEqual(document_import.normalise_purpose("장르문학"), "genre_literature")
+        self.assertEqual(document_import.normalise_purpose("문학"), "literature")
 
     def test_legacy_blank_lines_still_split_on_one_blank(self) -> None:
         text = "첫 단락입니다.\n\n둘째 단락입니다.\n\n셋째 단락입니다."

@@ -160,6 +160,9 @@ class SceneAuthorNotesIdeaBankTests(unittest.TestCase):
         self.assertIn('document.querySelectorAll("[data-idea-bank-tab]")', self.js.split("function applyIdeaBankPane()", 1)[1].split("function setIdeaBankPane", 1)[0])
         self.assertIn('data-idea-bank-tab="sceneNotes"', self.html)
         self.assertIn('id="ideaBankTabSceneNotes"', self.html)
+        self.assertIn('data-guide-tip="sceneAuthorNotes"', self.html)
+        self.assertIn('data-guide-tip-dismiss="sceneAuthorNotes"', self.html)
+        self.assertIn('{ id: "sceneAuthorNotes"', self.js)
         self.assertIn("function getSceneAuthorNotesSequence()", self.js)
         self.assertIn("getEpisodeSequence()", self.js.split("function getSceneAuthorNotesSequence()", 1)[1])
         self.assertIn("if (!notes.trim() && !sceneAuthorNotesOpenIds.has(sceneId)) continue;", self.js)
@@ -170,6 +173,7 @@ class SceneAuthorNotesIdeaBankTests(unittest.TestCase):
         for text in self.locales.values():
             self.assertIn('"app.회차별_작가메모"', text)
             self.assertIn('"app.회차별_작가메모_안내"', text)
+            self.assertIn('"app.생각수첩_회차별_작가메모_안내"', text)
             self.assertIn('"app.이_화로_이동"', text)
             self.assertIn('"app.작성된_작가메모가_없어요"', text)
 
