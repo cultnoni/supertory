@@ -217,6 +217,17 @@ class PanelDockContractTests(unittest.TestCase):
         )[0]
         self.assertIn("engine?.DEBOUNCE_MS || 400", schedule_fn)
         self.assertIn("scheduleToryCheckRefresh();", self.js.split("function updateSceneStats()", 1)[1].split("/* —— Goal gauge colors", 1)[0])
+        icon_fn = self.js.split("function toryCheckTabIcon(", 1)[1].split(
+            "function toryCheckFloatBody(", 1
+        )[0]
+        self.assertIn('m17 2 4 4-4 4', icon_fn)
+        self.assertIn('rect x="3" y="14" width="7" height="7" rx="1"', icon_fn)
+        self.assertIn('m12 16 4-4-4-4', icon_fn)
+        self.assertIn("M16 3a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2 1 1 0 0 1 1 1v1", icon_fn)
+        self.assertIn("M14 2v5a1 1 0 0 0 1 1h5", icon_fn)
+        self.assertIn("M10 12a1 1 0 0 0-1 1v1a1 1 0 0 1-1 1", icon_fn)
+        self.assertNotIn("M12 17h.01", icon_fn)
+        self.assertNotIn("M8 6h13", icon_fn)
         self.assertIn(".idea-float.dock-float.dock-float-tory-check", self.css)
         self.assertIn('id="toryCheckViewpointModal"', self.html)
         self.assertIn("/api/projects/${pid}/tory-check", self.js)
