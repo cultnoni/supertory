@@ -259,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.173">
+    <link rel="stylesheet" href="/styles.css?v=1.4.186">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -1695,7 +1695,7 @@
               <article class="welcome-tip-card">
                 <span class="welcome-tip-num" aria-hidden="true">✦</span>
                 <strong data-i18n="index.알아두면_유용한_팁">알아두면 유용한 팁</strong>
-                <p data-i18n="index.작성_중인_글은_이_기기에_자동으로_안심_저">작성 중인 글은 이 기기에 자동으로 안심 저장돼요. 본문에서 마우스 우클릭을 하면 북마크, 이미지, 떡밥 메모 등 유용한 메뉴를 바로 쓸 수 있답니다.</p>
+                <p data-i18n="index.작성_중인_글은_이_기기에_자동으로_안심_저">작성 중인 글은 이 기기에 자동으로 안심 저장돼요. 본문에서 마우스 우클릭을 하면 이미지, 떡밥 메모 등 유용한 메뉴를 바로 쓸 수 있답니다.</p>
               </article>
             </div>
           </div>
@@ -2340,20 +2340,47 @@
                     aria-label="분할" data-i18n-aria-label="index.분할"
                   >
                     <span class="format-tool-glyph" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                        <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
-                        <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
-                      </svg>
+                      <span class="split-mode-switch-icon" data-split-chrome="split">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                          <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                          <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                        </svg>
+                      </span>
+                      <span class="split-mode-switch-icon hidden" data-split-chrome="single">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                          <rect width="18" height="18" x="3" y="3" rx="2"/>
+                        </svg>
+                      </span>
+                      <span class="split-mode-switch-icon hidden" data-split-chrome="popup">
+                        <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                          <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                          <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                        </svg>
+                      </span>
                     </span>
                     <span class="format-tool-label" data-i18n="index.분할">분할</span>
                   </button>
                   <div id="viewModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분할 방식" data-i18n-aria-label="index.분할_방식">
                     <button type="button" role="menuitem" data-view-mode="split" title="Ctrl+Alt+S">
-                      <strong data-i18n="index.화면_나누기">↔ 화면 나누기 <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd></strong>
+                      <strong class="view-mode-item-title">
+                        <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                          <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                          <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                        </svg>
+                        <span data-i18n="index.분할">분할</span>
+                        <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd>
+                      </strong>
                       <span data-i18n="index.편집_화면_옆에_나란히_둡니다">편집 화면 옆에 나란히 둡니다</span>
                     </button>
                     <button type="button" role="menuitem" data-view-mode="popup" title="Ctrl+Alt+P">
-                      <strong data-i18n="index.팝업으로_보기">⧉ 팝업으로 보기 <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd></strong>
+                      <strong class="view-mode-item-title">
+                        <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                          <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                          <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                        </svg>
+                        <span data-i18n="index.팝업">팝업</span>
+                        <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd>
+                      </strong>
                       <span data-i18n="index.떠_있는_창으로_참고합니다">떠 있는 창으로 참고합니다</span>
                     </button>
                     <button type="button" role="menuitem" data-view-mode="close" id="viewModeCloseItem" class="hidden" title="Esc">
@@ -2435,7 +2462,18 @@
                   <strong data-i18n="app.북마크">북마크</strong>
                   <button type="button" class="format-btn" id="bookmarkListClose" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">×</button>
                 </div>
-                <p class="bookmark-list-panel-hint" data-i18n="index.회차_설정집에서_우클릭으로_추가해요_이유_칸">회차·설정집에서 우클릭으로 추가해요. 이유 칸에 메모를 적을 수 있어요.</p>
+                <div class="guide-tip-box bookmark-list-guide-tip" data-guide-tip="bookmarkList" role="note">
+                  <p class="hint bookmark-list-panel-hint" data-i18n="index.회차_설정집에서_우클릭으로_추가해요_이유_칸">지금 연 회차를 북마크하거나, 목차·설정집에서 우클릭으로 추가해요. 이유 칸에 메모를 적을 수 있어요.</p>
+                  <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="bookmarkList" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+                </div>
+                <div class="bookmark-list-panel-actions">
+                  <button
+                    type="button"
+                    class="secondary compact-btn bookmark-current-scene-btn"
+                    id="bookmarkCurrentSceneButton"
+                    data-i18n="app.이_회차_북마크하기"
+                  >이 회차 북마크하기</button>
+                </div>
                 <div id="bookmarkBar" class="bookmark-bar" role="list" aria-label="북마크" data-i18n-aria-label="app.북마크"></div>
               </div>
 
@@ -2544,9 +2582,10 @@
                   aria-controls="editorViewZoomMenu"
                 >
                   <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                    <path d="M12 3v14"/>
-                    <path d="M5 10h14"/>
-                    <path d="M5 21h14"/>
+                    <circle cx="11" cy="11" r="8"/>
+                    <line x1="21" x2="16.65" y1="21" y2="16.65"/>
+                    <line x1="11" x2="11" y1="8" y2="14"/>
+                    <line x1="8" x2="14" y1="11" y2="11"/>
                   </svg>
                   <span id="editorViewZoomLabel">100%</span>
                 </button>
@@ -2593,7 +2632,7 @@
                   </span>
                 </div>
                 <span class="status-bar-vsep" aria-hidden="true"></span>
-                <div class="status-bar-progress" id="statusBarProgress" title="우클릭: 게이지 색 선택" data-i18n-title="index.우클릭_게이지_색_선택">
+                <div class="status-bar-progress" id="statusBarProgress" title="클릭: 게이지 색 선택" data-i18n-title="index.우클릭_게이지_색_선택">
                   <div class="scene-goal-progress-labels">
                     <span id="sceneGoalProgressLabel" class="scene-goal-progress-label">—</span>
                     <span id="sceneGoalOverflowLabel" class="scene-goal-overflow-label hidden" aria-live="polite"></span>
@@ -2606,7 +2645,7 @@
                 <div class="status-bar-goal-controls" id="statusBarGoalControls" title="우클릭: 목표 전체 적용" data-i18n-title="index.우클릭_목표_전체_적용">
                   <label class="status-bar-field" title="목표 수 · 우클릭: 전체 적용" data-i18n-title="index.목표_수_우클릭_전체_적용">
                     <span class="status-bar-field-label" id="statsGoalLabel" data-i18n="app.목표">목표</span>
-                    <input id="statsGoalInput" type="number" min="0" step="1" value="0" placeholder="0" size="8" aria-label="목표 수" data-i18n-aria-label="index.목표_수" autocomplete="off">
+                    <input id="statsGoalInput" type="number" min="0" step="1" value="0" placeholder="0" size="6" aria-label="목표 수" data-i18n-aria-label="index.목표_수" autocomplete="off">
                   </label>
                   <!-- Persisted fields (hidden); visible input mirrors the active scope -->
                   <input id="sceneGoalCount" form="sceneEditor" type="hidden" value="0">
@@ -2807,14 +2846,43 @@
                         aria-haspopup="menu"
                         aria-expanded="false"
                         title="화면 나누기 / 팝업 선택 · 닫기" data-i18n-title="index.화면_나누기_팝업_선택_닫기"
-                       data-i18n="app.보기_방식">보기 방식 ▾</button>
+                        aria-label="보기 방식" data-i18n-aria-label="index.보기_방식"
+                      >
+                        <span class="split-mode-switch-icon hidden" data-split-chrome="split" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                            <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                            <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                          </svg>
+                        </span>
+                        <span class="split-mode-switch-icon hidden" data-split-chrome="popup" aria-hidden="true">
+                          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                            <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                            <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                          </svg>
+                        </span>
+                        <span class="split-mode-switch-label" data-i18n="app.보기_방식">보기 방식 ▾</span>
+                      </button>
                       <div id="splitModeDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="보기 방식" data-i18n-aria-label="index.보기_방식">
                         <button type="button" role="menuitem" data-view-mode="split" title="Ctrl+Alt+S">
-                          <strong data-i18n="index.화면_나누기">↔ 화면 나누기 <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd></strong>
+                          <strong class="view-mode-item-title">
+                            <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                              <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                              <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                            </svg>
+                            <span data-i18n="index.분할">분할</span>
+                            <kbd class="shortcut-kbd">Ctrl+Alt+S</kbd>
+                          </strong>
                           <span data-i18n="index.옆에_나란히_둡니다">옆에 나란히 둡니다</span>
                         </button>
                         <button type="button" role="menuitem" data-view-mode="popup" title="Ctrl+Alt+P">
-                          <strong data-i18n="index.팝업으로_보기">⧉ 팝업으로 보기 <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd></strong>
+                          <strong class="view-mode-item-title">
+                            <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                              <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                              <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                            </svg>
+                            <span data-i18n="index.팝업">팝업</span>
+                            <kbd class="shortcut-kbd">Ctrl+Alt+P</kbd>
+                          </strong>
                           <span data-i18n="index.떠_있는_창으로_둡니다">떠 있는 창으로 둡니다</span>
                         </button>
                         <button type="button" role="menuitem" data-view-mode="close" title="Esc">
@@ -3787,7 +3855,7 @@
 
               <div id="aiPromptWrap" class="ai-prompt-wrap">
                 <div class="ai-prompt-head">
-                  <span class="ai-result-label" id="aiPromptLabel" data-i18n="app.추가_요청_선택">추가 요청 (선택)</span>
+                  <span class="ai-result-label" id="aiPromptLabel" data-i18n="app.요청_내용">요청 내용</span>
                   <button
                     type="button"
                     class="secondary ai-result-expand-btn ai-prompt-expand-btn ai-result-icon-btn"
@@ -3814,7 +3882,7 @@
                 <span data-i18n="index.흥행_공식_참고_선택">흥행 공식 참고 (선택)</span>
               </label>
               <div class="ai-submit-row">
-                <button type="submit" class="primary ai-submit-btn" id="aiSubmitButton" data-i18n="app.토리에게_물어보기">토리에게 물어보기</button>
+                <button type="submit" class="primary ai-submit-btn" id="aiSubmitButton" data-i18n="app.보내기">보내기</button>
               </div>
             </form>
 
@@ -3864,7 +3932,7 @@
               <div class="ai-result-actions" role="group" aria-label="결과 활용" data-i18n-aria-label="index.결과_활용">
                 <button type="button" class="ai-result-action-btn" id="aiCollectResultButton" title="이 결과를 토리 수집창고에 저장" data-i18n-title="index.이_결과를_토리_수집창고에_저장" data-i18n="app.수집">수집</button>
                 <button type="button" class="ai-result-action-btn" id="aiCopyButton" data-i18n="app.복사">복사</button>
-                <button type="button" class="ai-result-action-btn is-emphasis" id="aiInsertButton" data-i18n="index.원고_끝에_넣기">원고 끝에 넣기</button>
+                <button type="button" class="ai-result-action-btn" id="aiInsertButton" data-i18n="index.원고_끝에_넣기">원고 끝에 넣기</button>
               </div>
               <div id="styleBlendOffer" class="style-blend-offer hidden" aria-label="스며듦 검사" data-i18n-aria-label="app.스며듦_검사">
                 <p class="style-blend-guide">
@@ -3877,7 +3945,10 @@
               </div>
               </div>
               <div id="aiResultHistoryPane" class="ai-result-history-pane hidden" hidden>
-                <p class="hint ai-panel-history-lead" data-i18n="index.이_작품에서_받은_SuperTORY_결과를">이 작품에서 받은 SuperTORY 결과를 모아 둡니다. 항목을 누르면 다시 읽을 수 있어요.</p>
+                <div id="aiResultHistoryTipBox" class="guide-tip-box ai-panel-history-lead" data-guide-tip="aiResultHistory" role="note">
+                  <p class="hint guide-tip-text" data-i18n="index.이_작품에서_받은_SuperTORY_결과를">이 작품에서 받은 SuperTORY 결과를 모아 둡니다. 항목을 누르면 다시 읽을 수 있어요.</p>
+                  <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="aiResultHistory" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+                </div>
                 <div id="aiPanelHistoryList" class="ai-panel-history-list" aria-label="결과 히스토리 목록" data-i18n-aria-label="index.결과_히스토리_목록"></div>
                 <div id="aiPanelHistoryDetail" class="ai-panel-history-detail hidden" hidden aria-label="결과 내용" data-i18n-aria-label="index.결과_내용">
                   <div class="ai-panel-history-detail-head">
@@ -3885,10 +3956,11 @@
                     <strong id="aiPanelHistoryDetailTitle" data-i18n="app.결과">결과</strong>
                   </div>
                   <pre id="aiPanelHistoryDetailBody" class="ai-panel-history-detail-body" tabindex="0" aria-label="보관된 결과 본문" data-i18n-aria-label="index.보관된_결과_본문"></pre>
-                  <div class="ai-result-actions ai-panel-history-detail-actions" role="group" aria-label="기록 활용" data-i18n-aria-label="index.결과_활용">
-                    <button type="button" class="ai-result-action-btn" id="aiPanelHistoryDeleteButton" data-i18n="index.이_기록_삭제">이 기록 삭제</button>
+                  <div class="ai-result-actions ai-panel-history-detail-actions" role="group" aria-label="결과 활용" data-i18n-aria-label="index.결과_활용">
+                    <button type="button" class="ai-result-action-btn" id="aiPanelHistoryDeleteButton" title="이 기록 삭제" data-i18n-title="index.이_기록_삭제" data-i18n="app.삭제">삭제</button>
+                    <button type="button" class="ai-result-action-btn" id="aiPanelHistoryCollectButton" title="이 결과를 토리 수집창고에 저장" data-i18n-title="index.이_결과를_토리_수집창고에_저장" data-i18n="app.수집">수집</button>
                     <button type="button" class="ai-result-action-btn" id="aiPanelHistoryCopyButton" data-i18n="app.복사">복사</button>
-                    <button type="button" class="ai-result-action-btn is-emphasis" id="aiPanelHistoryRestoreButton" data-i18n="index.다시_열기">다시 열기</button>
+                    <button type="button" class="ai-result-action-btn" id="aiPanelHistoryInsertButton" data-i18n="index.원고_끝에_넣기">원고 끝에 넣기</button>
                   </div>
                 </div>
                 <div class="ai-panel-history-list-actions" id="aiPanelHistoryListActions">
@@ -3930,7 +4002,16 @@
                 </button>
                 <strong data-i18n="index.내_캐릭터와_대화하기">내 캐릭터와 대화하기</strong>
                 <div class="tory-chat-subhead-aside">
-                  <button type="button" class="secondary compact-btn" id="toryChatCharacterAllButton" title="인물 카드를 한눈에 펼쳐 보기" data-i18n-title="index.인물_카드를_한눈에_펼쳐_보기" data-i18n="app.인물_펼쳐보기">인물 펼쳐보기</button>
+                  <button type="button" class="tory-notify-expand-btn" id="toryChatCharacterAllButton" title="인물 카드를 한눈에 펼쳐 보기" data-i18n-title="index.인물_카드를_한눈에_펼쳐_보기" aria-label="인물 펼쳐보기" data-i18n-aria-label="app.인물_펼쳐보기">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                      <path d="M17 21a5 5 0 00-10 0"/>
+                      <path d="M22 10.5a3.5 3.5 0 00-5.507-2.868"/>
+                      <path d="M7.507 7.632A3.5 3.5 0 002 10.5"/>
+                      <circle cx="12" cy="13" r="3"/>
+                      <circle cx="18.5" cy="4.5" r="2.5"/>
+                      <circle cx="5.5" cy="4.5" r="2.5"/>
+                    </svg>
+                  </button>
                   <button
                     type="button"
                     class="tory-notify-expand-btn"
@@ -3999,7 +4080,16 @@
                   </button>
                   <strong data-i18n="index.가상_독자_목록">가상 독자 목록</strong>
                   <div class="tory-chat-subhead-aside">
-                    <button type="button" class="secondary compact-btn" id="readerPersonaAllButton" title="독자 카드를 한눈에 펼쳐 보기" data-i18n-title="index.독자_카드를_한눈에_펼쳐_보기" data-i18n="app.인물_펼쳐보기">인물 펼쳐보기</button>
+                    <button type="button" class="tory-notify-expand-btn" id="readerPersonaAllButton" title="독자 카드를 한눈에 펼쳐 보기" data-i18n-title="index.독자_카드를_한눈에_펼쳐_보기" aria-label="인물 펼쳐보기" data-i18n-aria-label="app.인물_펼쳐보기">
+                      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M17 21a5 5 0 00-10 0"/>
+                        <path d="M22 10.5a3.5 3.5 0 00-5.507-2.868"/>
+                        <path d="M7.507 7.632A3.5 3.5 0 002 10.5"/>
+                        <circle cx="12" cy="13" r="3"/>
+                        <circle cx="18.5" cy="4.5" r="2.5"/>
+                        <circle cx="5.5" cy="4.5" r="2.5"/>
+                      </svg>
+                    </button>
                     <button
                       type="button"
                       class="tory-notify-expand-btn"
@@ -4174,6 +4264,21 @@
                 <span class="tory-chat-success-banner-text" data-i18n="index.흥행요인_분석가_세션_일반_대화와_히스토리가">흥행요인 분석가 세션 · 일반 대화와 히스토리가 분리됩니다</span>
                 <button type="button" class="secondary compact-btn" id="toryChatSuccessExitButton" title="일반 대화로 돌아가기" data-i18n-title="index.일반_대화로_돌아가기" data-i18n="index.일반_대화로">일반 대화로</button>
               </div>
+              <div id="toryChatHistoryPane" class="tory-chat-history-pane hidden" hidden>
+                <p class="hint tory-chat-panel-history-lead" data-i18n="index.대화_지우기로_비운_내용이_여기에_보관됩니다">대화 지우기로 비운 내용이 여기에 보관됩니다. 열어 보거나 다시 이어갈 수 있어요.</p>
+                <div id="toryChatPanelHistoryList" class="tory-chat-history-list" aria-label="이전 대화 목록" data-i18n-aria-label="index.이전_대화_목록"></div>
+                <div id="toryChatPanelHistoryDetail" class="tory-chat-history-detail hidden" hidden aria-label="대화 내용" data-i18n-aria-label="index.대화_내용">
+                  <div class="tory-chat-history-detail-head">
+                    <button type="button" class="secondary compact-btn" id="toryChatPanelHistoryBackButton" data-i18n="index.목록_2">← 목록</button>
+                    <strong id="toryChatPanelHistoryDetailTitle" data-i18n="index.대화">대화</strong>
+                  </div>
+                  <div id="toryChatPanelHistoryDetailMessages" class="tory-chat-history-detail-messages"></div>
+                  <div class="ai-result-actions tory-chat-history-detail-actions" role="group" aria-label="기록 활용" data-i18n-aria-label="index.결과_활용">
+                    <button type="button" class="ai-result-action-btn" id="toryChatPanelHistoryDeleteButton" data-i18n="index.이_기록_삭제">이 기록 삭제</button>
+                    <button type="button" class="ai-result-action-btn is-emphasis" id="toryChatPanelHistoryRestoreButton" data-i18n="index.이_대화_이어가기">이 대화 이어가기</button>
+                  </div>
+                </div>
+              </div>
               <div id="toryChatMessages" class="tory-chat-messages" aria-live="polite" aria-label="대화" data-i18n-aria-label="index.대화"></div>
               <form id="toryChatForm" class="tory-chat-form">
                 <textarea id="toryChatInput" rows="3" maxlength="4000" placeholder="토리에게 말걸기&#10;(Enter 전송 Shift + Enter 줄바꿈)" data-i18n-placeholder="index.토리에게_말걸기_10_Enter_전송_Shi" aria-label="보낼 메시지" data-i18n-aria-label="index.보낼_메시지"></textarea>
@@ -4275,9 +4380,12 @@
               <span class="panel-dock-timer-countdown hidden" data-role="dock-timer-countdown" hidden aria-hidden="true"></span>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="toryCheck" title="실시간 토리 체크" data-i18n-title="index.실시간_토리_체크" aria-label="실시간 토리 체크" data-i18n-aria-label="index.실시간_토리_체크" aria-pressed="false">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M3.85 8.62a4 4 0 0 1 4.78-4.77 4 4 0 0 1 6.74 0 4 4 0 0 1 4.78 4.78 4 4 0 0 1 0 6.74 4 4 0 0 1-4.77 4.78 4 4 0 0 1-6.75 0 4 4 0 0 1-4.78-4.77 4 4 0 0 1 0-6.76Z"/>
-                <path d="m16 9-5.5 5.5L8 12"/>
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M13 5h8"/>
+                <path d="M13 12h8"/>
+                <path d="M13 19h8"/>
+                <path d="m3 17 2 2 4-4"/>
+                <rect x="3" y="4" width="6" height="6" rx="1"/>
               </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커" aria-pressed="false">
@@ -5566,6 +5674,7 @@
           <div class="modal-actions tory-chat-history-detail-actions">
             <button type="button" class="secondary" id="aiResultHistoryDeleteButton" data-i18n="index.이_기록_삭제">이 기록 삭제</button>
             <button type="button" class="secondary" id="aiResultHistoryCopyButton" data-i18n="app.복사">복사</button>
+            <button type="button" class="secondary" id="aiResultHistoryPopupButton" title="결과를 팝업으로 크게 보기" data-i18n-title="index.결과를_팝업으로_크게_보기" data-i18n="index.팝업">팝업</button>
             <button type="button" class="primary" id="aiResultHistoryRestoreButton" data-i18n="index.다시_열기">다시 열기</button>
           </div>
         </div>
@@ -6493,16 +6602,6 @@
           <strong id="selectionCharCountNoSpace">0자</strong>
         </div>
       </div>
-      <div class="context-menu-label" data-ctx-full-only data-i18n="app.이_회차">이 회차</div>
-      <button type="button" role="menuitem" data-context-action="bookmark" id="bookmarkSceneMenuItem" data-ctx-full-only>
-        <strong id="bookmarkSceneMenuTitle" data-i18n="app.북마크하기">북마크하기</strong>
-        <span id="bookmarkSceneMenuHint" data-i18n="app.상단_색_북마크에_이_회차를_고정해요">상단 색 북마크에 이 회차를 고정해요</span>
-      </button>
-      <button type="button" role="menuitem" data-context-action="export-scene" id="exportSceneMenuItem" data-ctx-full-only>
-        <strong data-i18n="index.이_회차만_내보내기">이 회차만 내보내기</strong>
-        <span data-i18n="index.Word_한글_등_파일로_내려받아요">Word·한글 등 파일로 내려받아요</span>
-      </button>
-      <div class="context-menu-divider" data-ctx-full-only></div>
       <div class="context-menu-label" data-ctx-full-only data-i18n="index.본문_편집">본문 편집</div>
       <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-only>
         사전 찾기
@@ -6672,11 +6771,23 @@
     <div id="splitDefaultChangeMenu" class="context-menu hidden" role="menu" aria-label="기본값 변경" data-i18n-aria-label="index.기본값_변경">
       <div class="context-menu-label" data-i18n="index.기본값_변경">기본값 변경</div>
       <button type="button" role="menuitem" data-split-default-set="split">
-        <strong data-i18n="index.화면_나누기">↔ 화면 나누기</strong>
+        <strong class="view-mode-item-title">
+          <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+            <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+          </svg>
+          <span data-i18n="index.분할">분할</span>
+        </strong>
         <span data-i18n="index.편집_화면_옆에_나란히_둡니다">편집 화면 옆에 나란히 둡니다</span>
       </button>
       <button type="button" role="menuitem" data-split-default-set="popup">
-        <strong data-i18n="index.팝업으로_보기">⧉ 팝업으로 보기</strong>
+        <strong class="view-mode-item-title">
+          <svg class="view-mode-item-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+            <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+            <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+          </svg>
+          <span data-i18n="index.팝업">팝업</span>
+        </strong>
         <span data-i18n="index.떠_있는_창으로_참고합니다">떠 있는 창으로 참고합니다</span>
       </button>
     </div>
@@ -7346,22 +7457,65 @@
             <div class="view-mode-control focus-write-view-mode">
               <button
                 type="button"
-                class="secondary compact-btn"
+                class="secondary compact-btn viewer-icon-btn"
                 id="focusWriteSplitButton"
                 aria-haspopup="menu"
                 aria-expanded="false"
                 title="분할: 다른 회차를 화면 나누기 또는 팝업으로 엽니다 (Ctrl+Alt+S / Ctrl+Alt+P)" data-i18n-title="app.분할_다른_회차를_화면_나누기_또는_팝업으로"
-               data-i18n="app.분할">분할 ▾</button>
+                aria-label="분할" data-i18n-aria-label="index.분할"
+              >
+                <span class="split-mode-switch-icon" data-split-chrome="split" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                    <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                    <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                  </svg>
+                </span>
+                <span class="split-mode-switch-icon hidden" data-split-chrome="single" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                    <rect width="18" height="18" x="3" y="3" rx="2"/>
+                  </svg>
+                </span>
+                <span class="split-mode-switch-icon hidden" data-split-chrome="popup" aria-hidden="true">
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                    <rect x="3" y="5" width="14" height="11" rx="1.5"/>
+                    <path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/>
+                  </svg>
+                </span>
+              </button>
             </div>
             <button
               type="button"
-              class="secondary compact-btn"
+              class="secondary compact-btn viewer-icon-btn viewer-max-btn"
               id="focusWriteFullscreenButton"
-              title="전체보기 / 창 모드 (F11)" data-i18n-title="index.전체보기_창_모드_F11"
+              title="화면 전체를 쓰는 집중 모드 (F11)" data-i18n-title="app.화면_전체를_쓰는_집중_모드_F11"
+              aria-label="전체보기" data-i18n-aria-label="app.전체보기"
               aria-pressed="false"
               aria-keyshortcuts="F11"
-             data-i18n="app.전체보기">전체보기</button>
-            <button type="button" class="secondary compact-btn" id="focusWriteCloseButton" data-close-focus-write data-i18n="app.닫기">닫기</button>
+            >
+              <svg class="viewer-max-icon viewer-max-icon-expand" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>
+                <rect x="8.5" y="8.5" width="7" height="7" rx="1"/>
+              </svg>
+              <svg class="viewer-max-icon viewer-max-icon-window" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+                <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+                <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              id="focusWriteCloseButton"
+              data-close-focus-write
+              title="닫기" data-i18n-title="app.닫기"
+              aria-label="닫기" data-i18n-aria-label="app.닫기"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M18 6 6 18"/>
+                <path d="m6 6 12 12"/>
+              </svg>
+            </button>
           </div>
         </div>
         <div class="focus-write-body" id="focusWriteBody">
@@ -7436,15 +7590,55 @@
             >이전 댓글 보기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportTxt" data-i18n="index.텍스트로_내보내기">텍스트로 내보내기</button>
             <button type="button" class="secondary compact-btn hidden" id="viewerTranslationExportDocx" data-i18n="index.DOCX로_내보내기">DOCX로 내보내기</button>
-            <button type="button" class="secondary compact-btn" id="viewerTocToggle" title="목차 열기/닫기" data-i18n-title="index.목차_열기_닫기" aria-expanded="false" aria-controls="viewerTocPanel" data-i18n="app.목차">목차</button>
             <button
               type="button"
-              class="secondary compact-btn"
+              class="secondary compact-btn viewer-icon-btn"
+              id="viewerTocToggle"
+              title="목차 열기/닫기" data-i18n-title="index.목차_열기_닫기"
+              aria-label="목차" data-i18n-aria-label="app.목차"
+              aria-expanded="false"
+              aria-controls="viewerTocPanel"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M3 5h.01"/>
+                <path d="M3 12h.01"/>
+                <path d="M3 19h.01"/>
+                <path d="M8 5h13"/>
+                <path d="M8 12h13"/>
+                <path d="M8 19h13"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn viewer-max-btn"
               id="viewerMaximizeButton"
               title="뷰어 창 최대화" data-i18n-title="app.뷰어_창_최대화"
+              aria-label="최대화" data-i18n-aria-label="app.최대화"
               aria-pressed="false"
-             data-i18n="app.최대화">최대화</button>
-            <button type="button" class="secondary compact-btn" data-close-viewer data-i18n="app.닫기">닫기</button>
+            >
+              <svg class="viewer-max-icon viewer-max-icon-expand" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>
+                <rect x="8.5" y="8.5" width="7" height="7" rx="1"/>
+              </svg>
+              <svg class="viewer-max-icon viewer-max-icon-window" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+                <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+                <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              data-close-viewer
+              title="닫기" data-i18n-title="app.닫기"
+              aria-label="닫기" data-i18n-aria-label="app.닫기"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M18 6 6 18"/>
+                <path d="m6 6 12 12"/>
+              </svg>
+            </button>
           </div>
         </div>
         <div class="viewer-toc-panel hidden" id="viewerTocPanel" aria-label="회차 목차" data-i18n-aria-label="index.회차_목차">
@@ -8990,6 +9184,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.178"></script>
+    <script src="/app.js?v=1.4.182"></script>
   </body>
 </html>

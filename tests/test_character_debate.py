@@ -70,15 +70,16 @@ class CharacterDebateTests(unittest.TestCase):
         self.assertNotIn("캐릭터 가상 논쟁", html[help_i:write_i])
         picker = html.find('id="toryChatCharacterPicker"')
         self.assertGreater(picker, 0)
-        chunk = html[picker: picker + 3500]
+        chunk = html[picker: picker + 5500]
         self.assertIn('data-char-list-mode="chat"', chunk)
         self.assertIn('data-char-list-mode="sim"', chunk)
         self.assertIn("1:1 대화", chunk)
         self.assertIn("시뮬레이션", chunk)
         self.assertIn('id="toryChatCharacterSimPane"', chunk)
         self.assertIn('id="toryChatCharacterAllButton"', chunk)
-        self.assertIn("인물 펼쳐보기", chunk)
-        self.assertIn('data-i18n="app.인물_펼쳐보기"', chunk)
+        self.assertIn('data-i18n-aria-label="app.인물_펼쳐보기"', chunk)
+        self.assertIn("M17 21a5 5 0 00-10 0", chunk)
+        self.assertNotIn(">인물 펼쳐보기<", chunk)
         self.assertIn('id="toryChatCharacterStart"', chunk)
         all_modal = html.split('id="toryChatCharacterAllModal"', 1)[1].split(
             'id="genreContextMenu"', 1

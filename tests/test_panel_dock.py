@@ -176,14 +176,82 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("toggleAiPanelHistoryView()", history_open)
         self.assertNotIn('openDockFloat("aiHistory")', history_open)
         self.assertIn("function setAiPanelHistoryOpen(", self.js)
-        self.assertIn('id="aiResultHistoryPane"', self.html)
-        self.assertIn('id="aiPanelHistoryList"', self.html)
+        self.assertIn("function popupAiResultHistoryEntry(", self.js)
+        self.assertNotIn('id="aiPanelHistoryPopupButton"', self.html)
+        self.assertNotIn('id="aiPanelHistoryRestoreButton"', self.html)
+        self.assertIn('id="aiPanelHistoryCollectButton"', self.html)
+        self.assertIn('id="aiPanelHistoryInsertButton"', self.html)
+        self.assertIn('id="aiResultHistoryPopupButton"', self.html)
+        self.assertIn("data-ai-panel-history-popup", self.js)
+        self.assertIn("data-ai-result-history-popup", self.js)
+        self.assertNotIn("#aiResultExpandButton {", self.css.split(".ai-result-wrap.is-history-view #aiResultLivePane", 1)[1].split(".ai-result-history-pane {", 1)[0])
+        self.assertIn(".ai-history-popup-btn", self.css)
+        for locale in self.locales.values():
+            self.assertIn("app.팝업으로_볼_기록이_없어요", locale)
         self.assertNotIn('aria-haspopup="dialog"', self.html.split('id="aiResultHistoryButton"', 1)[1].split("</button>", 1)[0])
         toggle_ai = self.js.split("function toggleAiDockPanelItem(", 1)[1].split(
             "function toggleDockFloat(", 1
         )[0]
         self.assertNotIn('case "toryChat":', toggle_ai)
         self.assertNotIn('case "aiResult":', toggle_ai)
+
+    def test_panel_result_history_tip_and_detail_actions(self) -> None:
+        pane = self.html.split('id="aiResultHistoryPane"', 1)[1].split('id="aiChatView"', 1)[0]
+        self.assertIn('data-guide-tip="aiResultHistory"', pane)
+        self.assertIn('data-guide-tip-dismiss="aiResultHistory"', pane)
+        self.assertIn("guide-tip-box", pane)
+        self.assertIn("outline-tip-dismiss", pane)
+        self.assertIn("index.이_작품에서_받은_SuperTORY_결과를", pane)
+        self.assertIn('id="aiPanelHistoryDeleteButton"', pane)
+        self.assertIn('data-i18n="app.삭제"', pane.split('id="aiPanelHistoryDeleteButton"', 1)[1].split("</button>", 1)[0])
+        self.assertNotIn("ai-panel-history-delete-btn", pane)
+        self.assertNotIn('d="M4 7h16"', pane)
+        self.assertNotIn('d="M6 7l1 12h10l1-12"', pane)
+        self.assertTrue(
+            pane.split('id="aiPanelHistoryDeleteButton"', 1)[1].split("</button>", 1)[0].rstrip().endswith("삭제")
+        )
+        self.assertIn('id="aiPanelHistoryCollectButton"', pane)
+        self.assertIn('id="aiPanelHistoryCopyButton"', pane)
+        self.assertIn('id="aiPanelHistoryInsertButton"', pane)
+        self.assertNotIn("is-emphasis", pane.split('id="aiPanelHistoryInsertButton"', 1)[0][-80:])
+        insert_btn = pane.split('id="aiPanelHistoryInsertButton"', 1)[0].rsplit("<button", 1)[-1]
+        self.assertNotIn("is-emphasis", insert_btn)
+        self.assertIn("index.원고_끝에_넣기", pane)
+        self.assertNotIn('id="aiPanelHistoryPopupButton"', pane)
+        self.assertNotIn('id="aiPanelHistoryRestoreButton"', pane)
+        self.assertNotIn("index.다시_열기", pane)
+        self.assertNotIn(">이 기록 삭제<", pane)
+        self.assertIn('{ id: "aiResultHistory", label: i18n.t(\'app.결과_히스토리_안내\') }', self.js)
+        collect = self.js.split('$("aiPanelHistoryCollectButton")?.addEventListener("click"', 1)[1].split(
+            '$("aiPanelHistoryInsertButton")', 1
+        )[0]
+        self.assertIn("collectToToryVault", collect)
+        insert = self.js.split('$("aiPanelHistoryInsertButton")?.addEventListener("click"', 1)[1].split(
+            '$("aiPanelHistoryDeleteButton")', 1
+        )[0]
+        self.assertIn("insertAiResultIntoEditor", insert)
+        self.assertIn(".ai-panel-history-detail-actions", self.css)
+        self.assertIn("minmax(0, 1fr) minmax(0, 1fr) minmax(0, 1fr) minmax(8em, 1.85fr)", self.css)
+        self.assertIn(
+            ".ai-result-actions.ai-panel-history-detail-actions .ai-result-action-btn",
+            self.css,
+        )
+        self.assertIn("white-space: nowrap", self.css.split(".ai-result-actions.ai-panel-history-detail-actions", 1)[1].split(".ai-panel-history-detail-body", 1)[0])
+        self.assertIn(
+            ".ai-result-actions.ai-panel-history-detail-actions .ai-result-action-btn:hover",
+            self.css,
+        )
+        self.assertIn(
+            "html[data-theme=\"spring-garden\"] .ai-result-actions .ai-result-action-btn.is-emphasis",
+            self.css,
+        )
+        self.assertIn(
+            "html[data-theme=\"cloud-walk\"] .ai-result-actions .ai-result-action-btn.is-emphasis",
+            self.css,
+        )
+        self.assertIn('[data-guide-tip="aiResultHistory"]', self.css)
+        for locale in self.locales.values():
+            self.assertIn("app.결과_히스토리_안내", locale)
 
     def test_tory_check_dock_widget(self) -> None:
         self.assertRegex(
@@ -193,8 +261,12 @@ class PanelDockContractTests(unittest.TestCase):
         tory_check = self.html.split('data-dock-item="toryCheck"', 1)[1].split("</button>", 1)[0]
         self.assertIn('viewBox="0 0 24 24"', tory_check)
         self.assertIn('stroke="currentColor"', tory_check)
-        self.assertIn("M3.85 8.62a4 4 0 0 1 4.78-4.77", tory_check)
-        self.assertIn("m16 9-5.5 5.5L8 12", tory_check)
+        self.assertIn("M13 5h8", tory_check)
+        self.assertIn("M13 12h8", tory_check)
+        self.assertIn("M13 19h8", tory_check)
+        self.assertIn("m3 17 2 2 4-4", tory_check)
+        self.assertIn('<rect x="3" y="4" width="6" height="6" rx="1"/>', tory_check)
+        self.assertNotIn("m3 7 2 2 4-4", tory_check)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         self.assertIn("toryCheck:", spec)
         check_spec = spec.split("toryCheck:", 1)[1].split("};", 1)[0]
@@ -697,16 +769,33 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("--outline-width", expanded)
         self.assertNotIn("--ai-panel-width", expanded)
 
-    def test_split_icon_spacing_tracks_available_width(self) -> None:
+    def test_format_toolbar_keeps_stable_spacing(self) -> None:
+        split_body = self.css.split(
+            "/* 서식·아이콘 행: 그룹을 한 줄로 풀어 남는 폭을 칸 사이에 같은 비율로 나눔 */",
+            1,
+        )[1].split(".format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split {", 1)[0]
+        self.assertIn("justify-content: space-between", split_body)
+        self.assertNotIn("justify-content: flex-start", split_body)
+        icons = self.css.split(
+            "/* 아이콘바: 12개 도구가 행 폭에 맞춰 같은 비율로 늘어남 */",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("justify-content: space-between", icons)
+        self.assertNotIn("justify-content: flex-start", icons)
+        self.assertIn("gap: 0", icons)
+        format_clusters = self.css.split(
+            ".format-toolbar-row-format .format-toolbar-cluster-start,\n"
+            ".format-toolbar-row-format .format-toolbar-cluster-end {",
+            1,
+        )[1].split("}", 1)[0]
+        self.assertIn("display: contents", format_clusters)
         split_icons = self.css.split(
             ".scene-workspace.split-active .format-toolbar-row-icons "
             ".format-toolbar-row-body.format-toolbar-row-body-split {",
             1,
         )[1].split("}", 1)[0]
         self.assertIn("justify-content: space-between", split_icons)
-        self.assertIn("width: 100%", split_icons)
         self.assertIn("gap: 0", split_icons)
-        self.assertNotIn("gap: 8px", split_icons)
 
     def test_left_panel_keeps_round_edge_when_ai_collapsed(self) -> None:
         collapsed = self.css.split(
@@ -1397,9 +1486,11 @@ class PanelDockContractTests(unittest.TestCase):
             ):
                 self.assertIn(key, locale)
         self.assertEqual(self.locales["ko"]["index.n_퍼센트"], "${n}%")
-        self.assertIn('M12 3v14', bar)
-        self.assertIn('M5 10h14', bar)
-        self.assertIn('M5 21h14', bar)
+        self.assertIn('cx="11"', bar)
+        self.assertIn('cy="11"', bar)
+        self.assertIn('r="8"', bar)
+        self.assertIn('x1="21"', bar)
+        self.assertIn('x2="16.65"', bar)
 
     def test_screen_protect_dock_widget(self) -> None:
         right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]

@@ -455,7 +455,10 @@ class ReaderChatTests(unittest.TestCase):
         self.assertIn("대화 시작하기", html)
         self.assertIn("startReaderChatFromPicker", js)
         self.assertIn('id="readerPersonaAllButton"', html)
-        self.assertIn('data-i18n="app.인물_펼쳐보기"', html.split('id="readerPersonaAllButton"', 1)[1].split("</button>", 1)[0])
+        reader_all = html.split('id="readerPersonaAllButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('data-i18n-aria-label="app.인물_펼쳐보기"', reader_all)
+        self.assertIn("M17 21a5 5 0 00-10 0", reader_all)
+        self.assertNotIn(">인물 펼쳐보기<", reader_all)
         self.assertIn('id="readerPersonaAllModal"', html)
         self.assertIn("openReaderPersonaAllModal", js)
         open_all = js.split("async function openReaderPersonaAllModal", 1)[1][:2200]

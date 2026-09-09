@@ -61,6 +61,16 @@ class SplitDefaultModeUiTests(unittest.TestCase):
         self.assertIn("app.팝업_중", chrome)
         self.assertIn("app.화면_나누기_중", chrome)
         self.assertIn("splitDefaultButtonTitle()", chrome)
+        self.assertIn("[data-split-chrome='single']", chrome)
+        focus_btn = self.html.split('id="focusWriteSplitButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('data-split-chrome="split"', focus_btn)
+        self.assertIn('data-split-chrome="single"', focus_btn)
+        self.assertIn('rect x="3.5" y="4.5" width="7" height="15"', focus_btn)
+        self.assertIn('<rect width="18" height="18" x="3" y="3" rx="2"/>', focus_btn)
+        self.assertNotIn("data-i18n=\"app.분할\"", focus_btn)
+        main_btn = self.html.split('id="splitViewButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('data-split-chrome="single"', main_btn)
+        self.assertIn('<rect width="18" height="18" x="3" y="3" rx="2"/>', main_btn)
 
     def test_split_menu_has_compact_default_and_hint_options(self) -> None:
         self.assertIn('data-split-default-set="split"', self.html)

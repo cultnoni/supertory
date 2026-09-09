@@ -90,10 +90,38 @@ class ToryChatPopupUiTests(unittest.TestCase):
         self.assertIn(".tory-notify-expand-btn", self.css)
         self.assertIn(".tory-notify-popup-body", self.css)
 
-    def test_panel_chat_hub_stays_in_panel(self) -> None:
+    def test_result_history_has_popup_option(self) -> None:
+        self.assertNotIn('id="aiPanelHistoryPopupButton"', self.html)
+        self.assertIn("data-ai-panel-history-popup", self.js)
+        self.assertIn('id="aiResultHistoryPopupButton"', self.html)
+        self.assertIn("function popupAiResultHistoryEntry", self.js)
+        expand_click = self.js.split('$("aiResultExpandButton")?.addEventListener("click"', 1)[1].split(
+            "modal.querySelectorAll", 1
+        )[0]
+        self.assertIn("isAiPanelHistoryOpen()", expand_click)
+        self.assertIn("popupAiResultHistoryEntry", expand_click)
+        hide = self.css.split(".ai-result-wrap.is-history-view #aiResultLivePane", 1)[1].split(
+            ".ai-result-history-pane {", 1
+        )[0]
+        self.assertNotIn("#aiResultExpandButton", hide)
         hub_fn = self.js.split("function setupToryChatHubUi(", 1)[1].split(
             "function setupToryChatPopupChrome(", 1
         )[0]
         self.assertNotIn('openDockFloat("toryChat")', hub_fn)
         self.assertNotIn('openDockFloat("characterChat")', hub_fn)
         self.assertNotIn('openDockFloat("readerChat")', hub_fn)
+
+    def test_tory_chat_history_is_in_panel_except_popup(self) -> None:
+        self.assertIn('id="toryChatHistoryPane"', self.html)
+        self.assertIn("function setToryChatPanelHistoryOpen", self.js)
+        click_fn = self.js.split("function onToryChatHistoryButtonClick", 1)[1].split(
+            "function ", 1
+        )[0]
+        self.assertIn("toryChatPopupOpen", click_fn)
+        self.assertIn("openToryChatHistoryModal", click_fn)
+        hide = self.css.split(".tory-chat-popup .tory-chat-history-pane", 1)[1].split("}", 1)[0]
+        self.assertIn("display: none !important", hide)
+
+
+if __name__ == "__main__":
+    unittest.main()

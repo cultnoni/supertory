@@ -133,6 +133,7 @@ async function setLanguage(lang) {
   if (typeof syncDictHighlightMenu === "function") syncDictHighlightMenu();
   applyWelcomeAdFeedToDom();
   if (typeof updateSplitChrome === "function") updateSplitChrome();
+  if (typeof updateContinuePanelVisibility === "function") updateContinuePanelVisibility();
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
   if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
@@ -2352,7 +2353,7 @@ function updateSceneStats() {
   scheduleToryCheckRefresh();
 }
 
-/* —— Goal gauge colors (right-click): solid + gradient —— */
+/* —— Goal gauge colors (left-click): solid + gradient —— */
 const GOAL_BAR_COLOR_KEY = "supertory.goalBarColors.v5";
 const GOAL_BAR_COLOR_KEY_LEGACY_V4 = "supertory.goalBarColors.v4";
 const GOAL_BAR_SOLID_PRESETS = [
@@ -2891,18 +2892,16 @@ function setupGoalBarColorMenu() {
   ensureGoalBarSwatchesFilled();
   applyGoalBarColorsToDom();
 
-  $("statusBarProgress")?.addEventListener("contextmenu", (event) => {
+  $("statusBarProgress")?.addEventListener("click", (event) => {
+    if (event.button != null && event.button !== 0) return;
     event.preventDefault();
     event.stopPropagation();
+    const menu = $("goalBarColorMenu");
+    if (menu && !menu.classList.contains("hidden")) {
+      hideGoalBarColorMenu();
+      return;
+    }
     const target = $("statusBarProgress");
-    setUiFeatureCtxTarget?.(target);
-    showGoalBarColorMenu(target);
-  });
-  // Also allow right-click directly on the bar fill.
-  $("sceneGoalBar")?.addEventListener("contextmenu", (event) => {
-    event.preventDefault();
-    event.stopPropagation();
-    const target = $("statusBarProgress") || $("sceneGoalBar");
     setUiFeatureCtxTarget?.(target);
     showGoalBarColorMenu(target);
   });
@@ -23794,7 +23793,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -23888,7 +23887,7 @@ async function runFocusedAnalysisBatch(sceneIds) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -23990,7 +23989,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -24159,7 +24158,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -24273,7 +24272,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -24358,7 +24357,7 @@ async function runFocusedAnalysis(options = {}) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -25158,7 +25157,7 @@ async function runBrainstormForScene(base, userTopic = "") {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      button.textContent = prevLabel || i18n.t('app.보내기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
@@ -25223,7 +25222,7 @@ async function runBrainstormNextExists(base, next, userTopic = "") {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      button.textContent = prevLabel || i18n.t('app.보내기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
@@ -25369,7 +25368,7 @@ async function runIdeasForScene(base) {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      button.textContent = prevLabel || i18n.t('app.보내기');
     }
   }
 }
@@ -25429,7 +25428,7 @@ async function runIdeasNextExists(base, next) {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      button.textContent = prevLabel || i18n.t('app.보내기');
     }
   }
 }
@@ -25595,7 +25594,7 @@ async function runDuplicateCheck(targetSceneId) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -25797,7 +25796,7 @@ async function runWorldScanForTarget(sceneId) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -25915,7 +25914,7 @@ async function runWorldScanMulti(sceneIds) {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -26009,7 +26008,7 @@ async function runWorldScan() {
     }
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = i18n.t('app.보내기');
     }
   }
 }
@@ -26482,7 +26481,9 @@ function updateContinuePanelVisibility() {
     updateSuccessProfileRefUi();
   }
   if (promptLabel) {
-    promptLabel.textContent = mode === "free" ? i18n.t('app.요청_내용') : i18n.t('app.추가_요청_선택');
+    const labelKey = mode === "free" ? "app.요청_내용" : "app.추가_요청_선택";
+    promptLabel.setAttribute("data-i18n", labelKey);
+    promptLabel.textContent = i18n.t(labelKey);
   }
   if (prompt && mode === "free") {
     prompt.placeholder = i18n.t('app.예_이_인물의_성격을_3줄로_정리해_줘_이');
@@ -27478,7 +27479,7 @@ async function submitAiAssist(event) {
     handleError(error);
   } finally {
     button.disabled = false;
-    button.textContent = i18n.t('app.토리에게_물어보기');
+    button.textContent = i18n.t('app.보내기');
   }
 }
 
@@ -27524,8 +27525,8 @@ function insertTextIntoSceneEditor(text) {
   return true;
 }
 
-function insertAiResultIntoEditor() {
-  insertTextIntoSceneEditor($("aiResult")?.value || "");
+function insertAiResultIntoEditor(text) {
+  insertTextIntoSceneEditor(text != null ? String(text) : ($("aiResult")?.value || ""));
 }
 
 function hideContinueStyleResults() {
@@ -27699,7 +27700,7 @@ async function runContinueWithThreeStyles() {
   } finally {
     if (sideBtn) {
       sideBtn.disabled = false;
-      sideBtn.textContent = prevSide || i18n.t('app.토리에게_물어보기');
+      sideBtn.textContent = prevSide || i18n.t('app.보내기');
     }
     if (toolBtn) {
       toolBtn.disabled = false;
@@ -27726,12 +27727,31 @@ function isAiResultModalOpen() {
   return Boolean(modal && !modal.classList.contains("hidden"));
 }
 
-function syncAiResultModalBody() {
+let aiResultModalSourceText = null;
+
+function aiResultPopupIconSvg(size = 16) {
+  return `<svg viewBox="0 0 24 24" width="${size}" height="${size}" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><rect x="3" y="5" width="14" height="11" rx="1.5"/><path d="M10 10h8.5A1.5 1.5 0 0 1 20 11.5V19H10z"/></svg>`;
+}
+
+function resetAiResultModalTitle() {
+  const title = $("aiResultModalTitle");
+  if (title) title.textContent = i18n.t("index.SuperTORY_결과");
+}
+
+function resolveAiResultModalText() {
+  if (aiResultModalSourceText != null) return String(aiResultModalSourceText);
+  return String($("aiResult")?.value || "");
+}
+
+function syncAiResultModalBody(options = {}) {
   const body = $("aiResultModalBody");
   if (!body) return;
-  const text = String($("aiResult")?.value || "");
+  const fromHistory = Boolean(options.fromHistory);
+  if (options.text != null) aiResultModalSourceText = String(options.text);
+  else if (!fromHistory) aiResultModalSourceText = null;
+  const text = resolveAiResultModalText();
   body.textContent = text || i18n.t("app.결과가_비어_있어요");
-  const showContinueBlend = Boolean(
+  const showContinueBlend = !fromHistory && Boolean(
     pendingStyleBlendContext?.source === "continue"
     && pendingStyleBlendContext?.referenceText
     && pendingStyleBlendContext?.targetText
@@ -27888,11 +27908,17 @@ function setupAiResultModalChrome() {
   window.addEventListener("pointercancel", onUp);
 }
 
-function openAiResultModal() {
+function openAiResultModal(options = {}) {
   const modal = $("aiResultModal");
   const card = modal?.querySelector(".ai-result-modal-card");
   if (!modal) return;
-  syncAiResultModalBody();
+  syncAiResultModalBody(options);
+  const title = $("aiResultModalTitle");
+  if (title) {
+    title.textContent = options.title
+      ? String(options.title)
+      : i18n.t("index.SuperTORY_결과");
+  }
   applyAiResultModalGeom(card, loadAiResultModalGeom());
   modal.classList.remove("hidden");
 }
@@ -27901,6 +27927,8 @@ function closeAiResultModal() {
   const card = document.querySelector("#aiResultModal .ai-result-modal-card");
   if (card?.classList.contains("is-user-sized")) saveAiResultModalGeom(card);
   $("aiResultModal")?.classList.add("hidden");
+  aiResultModalSourceText = null;
+  resetAiResultModalTitle();
 }
 
 function isAiPromptModalOpen() {
@@ -28061,7 +28089,6 @@ function showAiPanelHistoryListView() {
   aiPanelHistoryViewId = null;
   $("aiPanelHistoryList")?.classList.remove("hidden");
   $("aiPanelHistoryListActions")?.classList.remove("hidden");
-  $("aiResultHistoryPane")?.querySelector(".ai-panel-history-lead")?.classList.remove("hidden");
   const detail = $("aiPanelHistoryDetail");
   detail?.classList.add("hidden");
   if (detail) detail.hidden = true;
@@ -28091,12 +28118,20 @@ function renderAiPanelHistoryList() {
     const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t("app.원고");
     const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t("app.결과"));
     const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 80));
+    const popupTitle = escapeHtml(i18n.t("index.결과를_팝업으로_크게_보기"));
+    const popupLabel = escapeHtml(i18n.t("index.팝업"));
+    const id = escapeHtml(item.id);
     return `
-      <button type="button" class="ai-panel-history-row" data-ai-panel-history="${escapeHtml(item.id)}">
-        <span class="ai-panel-history-when">${escapeHtml(when || "")}</span>
-        <span class="ai-panel-history-title">${label}</span>
-        <span class="ai-panel-history-preview">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 80 ? "…" : ""}` : ""}</span>
-      </button>`;
+      <div class="ai-panel-history-row-wrap">
+        <button type="button" class="ai-panel-history-row" data-ai-panel-history="${id}">
+          <span class="ai-panel-history-when">${escapeHtml(when || "")}</span>
+          <span class="ai-panel-history-title">${label}</span>
+          <span class="ai-panel-history-preview">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 80 ? "…" : ""}` : ""}</span>
+        </button>
+        <button type="button" class="ai-history-popup-btn" data-ai-panel-history-popup="${id}" title="${popupTitle}" aria-label="${popupLabel}">
+          ${aiResultPopupIconSvg(16)}
+        </button>
+      </div>`;
   }).join("");
 }
 
@@ -28110,7 +28145,6 @@ function openAiPanelHistoryDetail(entryId) {
   aiPanelHistoryViewId = item.id;
   $("aiPanelHistoryList")?.classList.add("hidden");
   $("aiPanelHistoryListActions")?.classList.add("hidden");
-  $("aiResultHistoryPane")?.querySelector(".ai-panel-history-lead")?.classList.add("hidden");
   const detail = $("aiPanelHistoryDetail");
   if (detail) {
     detail.classList.remove("hidden");
@@ -28190,12 +28224,20 @@ function renderAiResultHistoryList() {
     const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t('app.원고');
     const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t('app.결과'));
     const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 72));
+    const popupTitle = escapeHtml(i18n.t("index.결과를_팝업으로_크게_보기"));
+    const popupLabel = escapeHtml(i18n.t("index.팝업"));
+    const id = escapeHtml(item.id);
     return `
-      <button type="button" class="tory-chat-history-item" data-ai-result-history="${escapeHtml(item.id)}">
-        <strong>${label}</strong>
-        <span class="count">${when || ""}</span>
-        <span class="meta">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 72 ? "…" : ""}` : ""}</span>
-      </button>`;
+      <div class="tory-chat-history-item-wrap">
+        <button type="button" class="tory-chat-history-item" data-ai-result-history="${id}">
+          <strong>${label}</strong>
+          <span class="count">${when || ""}</span>
+          <span class="meta">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 72 ? "…" : ""}` : ""}</span>
+        </button>
+        <button type="button" class="ai-history-popup-btn" data-ai-result-history-popup="${id}" title="${popupTitle}" aria-label="${popupLabel}">
+          ${aiResultPopupIconSvg(16)}
+        </button>
+      </div>`;
   }).join("");
 }
 
@@ -28232,6 +28274,21 @@ function closeAiResultHistoryModal() {
   else {
     try { syncDockRailButtons?.(); } catch (_) { /* ignore */ }
   }
+}
+
+function popupAiResultHistoryEntry(entryId) {
+  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  if (!item) {
+    toast(i18n.t("app.결과를_찾지_못했어요"));
+    return;
+  }
+  const when = formatAiResultHistoryWhen(item.createdAt);
+  const label = item.modeLabel || aiModeLabel(item.mode) || i18n.t("app.결과");
+  openAiResultModal({
+    text: item.text || "",
+    title: when ? `${label} · ${when}` : label,
+    fromHistory: true,
+  });
 }
 
 function restoreAiResultHistoryEntry(entryId, options = {}) {
@@ -28283,6 +28340,15 @@ function setupAiResultModal() {
     setupAiResultModalChrome();
     $("aiResultExpandButton")?.addEventListener("click", (event) => {
       event.preventDefault();
+      if (isAiPanelHistoryOpen()) {
+        if (aiPanelHistoryViewId) popupAiResultHistoryEntry(aiPanelHistoryViewId);
+        else {
+          const first = loadAiResultHistory()[0];
+          if (first) popupAiResultHistoryEntry(first.id);
+          else toast(i18n.t("app.팝업으로_볼_기록이_없어요"));
+        }
+        return;
+      }
       openAiResultModal();
     });
     modal.querySelectorAll("[data-close-ai-result]").forEach((el) => {
@@ -28292,11 +28358,20 @@ function setupAiResultModal() {
       });
     });
     $("aiResultModalCollectButton")?.addEventListener("click", () => {
-      collectToToryVault({ text: $("aiResult")?.value || "" });
+      collectToToryVault({ text: resolveAiResultModalText() });
     });
-    $("aiResultModalCopyButton")?.addEventListener("click", () => copyAiResult().catch(handleError));
+    $("aiResultModalCopyButton")?.addEventListener("click", async () => {
+      const text = resolveAiResultModalText();
+      if (!String(text || "").trim()) return toast(i18n.t("app.복사할_내용이_없어요"));
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(i18n.t("app.결과를_복사했어요"));
+      } catch (_) {
+        toast(i18n.t("app.복사에_실패했어요"));
+      }
+    });
     $("aiResultModalInsertButton")?.addEventListener("click", () => {
-      insertAiResultIntoEditor();
+      insertAiResultIntoEditor(resolveAiResultModalText());
       closeAiResultModal();
     });
     $("styleBlendCheckButtonModal")?.addEventListener("click", () => {
@@ -28312,13 +28387,24 @@ function setupAiResultModal() {
       toggleAiPanelHistoryView();
     });
     $("aiPanelHistoryList")?.addEventListener("click", (event) => {
+      const popupBtn = event.target.closest?.("[data-ai-panel-history-popup]");
+      if (popupBtn) {
+        event.preventDefault();
+        popupAiResultHistoryEntry(popupBtn.getAttribute("data-ai-panel-history-popup"));
+        return;
+      }
       const btn = event.target.closest?.("[data-ai-panel-history]");
       if (!btn) return;
       openAiPanelHistoryDetail(btn.getAttribute("data-ai-panel-history"));
     });
     $("aiPanelHistoryBackButton")?.addEventListener("click", () => showAiPanelHistoryListView());
-    $("aiPanelHistoryRestoreButton")?.addEventListener("click", () => {
-      if (aiPanelHistoryViewId) restoreAiResultHistoryEntry(aiPanelHistoryViewId, { fromPanel: true });
+    $("aiPanelHistoryCollectButton")?.addEventListener("click", () => {
+      const item = loadAiResultHistory().find((entry) => entry.id === aiPanelHistoryViewId);
+      collectToToryVault({ text: item?.text || "", mode: item?.mode });
+    });
+    $("aiPanelHistoryInsertButton")?.addEventListener("click", () => {
+      const item = loadAiResultHistory().find((entry) => entry.id === aiPanelHistoryViewId);
+      insertAiResultIntoEditor(item?.text || "");
     });
     $("aiPanelHistoryDeleteButton")?.addEventListener("click", () => {
       if (!aiPanelHistoryViewId) return;
@@ -28351,9 +28437,18 @@ function setupAiResultModal() {
   });
   $("aiResultHistoryBackButton")?.addEventListener("click", () => showAiResultHistoryListView());
   $("aiResultHistoryList")?.addEventListener("click", (event) => {
+    const popupBtn = event.target.closest?.("[data-ai-result-history-popup]");
+    if (popupBtn) {
+      event.preventDefault();
+      popupAiResultHistoryEntry(popupBtn.getAttribute("data-ai-result-history-popup"));
+      return;
+    }
     const btn = event.target.closest?.("[data-ai-result-history]");
     if (!btn) return;
     openAiResultHistoryDetail(btn.getAttribute("data-ai-result-history"));
+  });
+  $("aiResultHistoryPopupButton")?.addEventListener("click", () => {
+    if (aiResultHistoryViewId) popupAiResultHistoryEntry(aiResultHistoryViewId);
   });
   $("aiResultHistoryRestoreButton")?.addEventListener("click", () => {
     if (aiResultHistoryViewId) restoreAiResultHistoryEntry(aiResultHistoryViewId);
@@ -28775,7 +28870,7 @@ async function runSubmissionSynopsis(options = {}) {
     submissionSynopsisInFlight = false;
     if (button) {
       button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      button.textContent = prevLabel || i18n.t('app.보내기');
     }
   }
 }
@@ -29738,6 +29833,9 @@ function setToryChatHub(hub, { quiet = false } = {}) {
     return false;
   }
   toryChatHub = next;
+  if (next !== "tory" && next !== "character-room") {
+    try { setToryChatPanelHistoryOpen(false); } catch (_) { /* ignore */ }
+  }
   if (next === "characters") {
     setCharListMode(charListMode || "chat");
   }
@@ -29785,7 +29883,10 @@ function setAiPanelTab(tab, { chatHub = null, skipPopupClose = false } = {}) {
     closeToryChatPopup({ restorePanelTab: false });
   }
   if (isChat && !toryChatPopupOpen) restoreToryChatToPanel();
-  if (!isChat) setToryChatPopupDockHint(false);
+  if (!isChat) {
+    setToryChatPopupDockHint(false);
+    try { setToryChatPanelHistoryOpen(false); } catch (_) { /* ignore */ }
+  }
   else if (toryChatPopupOpen && skipPopupClose) setToryChatPopupDockHint(true);
 
   toolsView?.classList.toggle("hidden", isChat);
@@ -29901,6 +30002,7 @@ function openToryChatPopup() {
   if (!popup || !host || !view) return;
   if (toryChatPopupOpen) return;
   if (view.closest?.(".idea-float.dock-float")) return;
+  try { setToryChatPanelHistoryOpen(false); } catch (_) { /* ignore */ }
   const draft = captureToryChatComposerDraft({ commitIme: true });
   try { setAiPanelOpen?.(true); } catch (_) { /* ignore */ }
   setAiPanelTab("chat", { skipPopupClose: true });
@@ -30205,76 +30307,161 @@ function formatToryChatArchiveWhen(iso) {
   }
 }
 
-function showToryChatHistoryListView() {
-  toryChatHistoryViewId = null;
-  $("toryChatHistoryList")?.classList.remove("hidden");
-  $("toryChatHistoryListActions")?.classList.remove("hidden");
-  $("toryChatHistoryDetail")?.classList.add("hidden");
-  renderToryChatHistoryList();
-}
-
-function renderToryChatHistoryList() {
-  const list = $("toryChatHistoryList");
-  if (!list) return;
-  if (!state.projectId) {
-    list.innerHTML = i18n.t('app.p_class_tory_chat_histo_3');
-    return;
-  }
+function toryChatHistoryListHtml() {
+  if (!state.projectId) return i18n.t("app.p_class_tory_chat_histo_3");
   const mode = getToryChatSessionKey();
   const archives = loadToryChatArchives(mode);
   if (!archives.length) {
     const names = getToryChatPartnerNames();
     const kind = isToryCharacterChatSession(mode)
-      ? (names.length ? names.join(" · ") : i18n.t('app.캐릭터'))
-      : (normalizeToryChatMode(mode) === "successAnalysis" ? i18n.t('app.흥행요인_분석가') : i18n.t('app.일반'));
-    list.innerHTML = `${i18n.t('app.p_class_tory_chat_histo_4', {kind: kind})}`;
-    return;
+      ? (names.length ? names.join(" · ") : i18n.t("app.캐릭터"))
+      : (normalizeToryChatMode(mode) === "successAnalysis" ? i18n.t("app.흥행요인_분석가") : i18n.t("app.일반"));
+    return `${i18n.t("app.p_class_tory_chat_histo_4", { kind })}`;
   }
-  list.innerHTML = archives.map((s) => {
+  return archives.map((s) => {
     const when = formatToryChatArchiveWhen(s.archivedAt);
     const count = s.messageCount || s.messages.length;
     return `
       <button type="button" class="tory-chat-history-item" data-tory-chat-archive="${escapeHtml(s.id)}">
         <strong>${escapeHtml(s.title)}</strong>
         <span class="count">${count}개</span>
-        <span class="meta">${when ? `보관 ${escapeHtml(when)}` : i18n.t('app.이전_대화')}</span>
+        <span class="meta">${when ? `보관 ${escapeHtml(when)}` : i18n.t("app.이전_대화")}</span>
       </button>`;
   }).join("");
+}
+
+function toryChatHistoryDetailHtml(session) {
+  return (session.messages || []).map((m) => {
+    const isUser = m.role === "user";
+    const cls = isUser ? "is-user" : "is-tory";
+    const body = isUser
+      ? escapeHtml(m.content)
+      : (m.contentHtml
+        ? sanitizeToryChatHtml(m.contentHtml)
+        : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
+    return `<div class="tory-chat-bubble ${cls}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
+  }).join("");
+}
+
+function isToryChatPanelHistoryOpen() {
+  return Boolean($("toryChatRoom")?.classList.contains("is-history-view"));
+}
+
+function syncToryChatPanelHistoryChrome(open) {
+  const room = $("toryChatRoom");
+  const pane = $("toryChatHistoryPane");
+  const btn = $("toryChatHistoryButton");
+  room?.classList.toggle("is-history-view", open);
+  if (pane) {
+    pane.classList.toggle("hidden", !open);
+    pane.hidden = !open;
+  }
+  if (!btn || toryChatPopupOpen) return;
+  btn.removeAttribute("aria-haspopup");
+  btn.setAttribute("aria-pressed", open ? "true" : "false");
+  const title = open ? i18n.t("index.현재_대화로") : i18n.t("index.지운_대화_이전_대화_목록");
+  btn.setAttribute("title", title);
+  btn.setAttribute("aria-label", open ? title : i18n.t("index.히스토리"));
+}
+
+function showToryChatPanelHistoryListView() {
+  toryChatHistoryViewId = null;
+  $("toryChatPanelHistoryList")?.classList.remove("hidden");
+  $("toryChatHistoryPane")?.querySelector(".tory-chat-panel-history-lead")?.classList.remove("hidden");
+  const detail = $("toryChatPanelHistoryDetail");
+  detail?.classList.add("hidden");
+  if (detail) detail.hidden = true;
+  renderToryChatHistoryList();
+}
+
+function setToryChatPanelHistoryOpen(open) {
+  if (open) {
+    if (toryChatPopupOpen) return;
+    if (!state.projectId) {
+      toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+      return;
+    }
+    syncToryChatPanelHistoryChrome(true);
+    showToryChatPanelHistoryListView();
+    return;
+  }
+  syncToryChatPanelHistoryChrome(false);
+  if (!isToryChatHistoryModalOpen()) toryChatHistoryViewId = null;
+  const btn = $("toryChatHistoryButton");
+  if (btn && !toryChatPopupOpen) {
+    btn.setAttribute("aria-pressed", "false");
+    btn.setAttribute("title", i18n.t("index.지운_대화_이전_대화_목록"));
+    btn.setAttribute("aria-label", i18n.t("index.히스토리"));
+  }
+}
+
+function onToryChatHistoryButtonClick() {
+  if (toryChatPopupOpen) {
+    openToryChatHistoryModal();
+    return;
+  }
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
+  setToryChatPanelHistoryOpen(!isToryChatPanelHistoryOpen());
+}
+
+function showToryChatHistoryListView() {
+  toryChatHistoryViewId = null;
+  $("toryChatHistoryList")?.classList.remove("hidden");
+  $("toryChatHistoryListActions")?.classList.remove("hidden");
+  $("toryChatHistoryDetail")?.classList.add("hidden");
+  if (isToryChatPanelHistoryOpen()) showToryChatPanelHistoryListView();
+  else renderToryChatHistoryList();
+}
+
+function renderToryChatHistoryList() {
+  const html = toryChatHistoryListHtml();
+  const list = $("toryChatHistoryList");
+  const panelList = $("toryChatPanelHistoryList");
+  if (list) list.innerHTML = html;
+  if (panelList) panelList.innerHTML = html;
 }
 
 function openToryChatHistoryDetail(archiveId) {
   const session = loadToryChatArchives().find((s) => s.id === archiveId);
   if (!session) {
-    toast(i18n.t('app.대화를_찾지_못했어요'));
+    toast(i18n.t("app.대화를_찾지_못했어요"));
     showToryChatHistoryListView();
     return;
   }
   toryChatHistoryViewId = session.id;
+  const html = toryChatHistoryDetailHtml(session);
   $("toryChatHistoryList")?.classList.add("hidden");
   $("toryChatHistoryListActions")?.classList.add("hidden");
-  const detail = $("toryChatHistoryDetail");
-  detail?.classList.remove("hidden");
-  if ($("toryChatHistoryDetailTitle")) {
-    $("toryChatHistoryDetailTitle").textContent = session.title;
+  const modalDetail = $("toryChatHistoryDetail");
+  modalDetail?.classList.remove("hidden");
+  if ($("toryChatHistoryDetailTitle")) $("toryChatHistoryDetailTitle").textContent = session.title;
+  const modalBox = $("toryChatHistoryDetailMessages");
+  if (modalBox) {
+    modalBox.innerHTML = html;
+    modalBox.scrollTop = 0;
   }
-  const box = $("toryChatHistoryDetailMessages");
-  if (box) {
-    box.innerHTML = session.messages.map((m) => {
-      const isUser = m.role === "user";
-      const cls = isUser ? "is-user" : "is-tory";
-      const body = isUser
-        ? escapeHtml(m.content)
-        : (m.contentHtml
-          ? sanitizeToryChatHtml(m.contentHtml)
-          : escapeHtml(m.content).replace(/\r\n|\r|\n/g, "<br>"));
-      return `<div class="tory-chat-bubble ${cls}">${toryChatBubbleMetaHtml(isUser)}<div class="tory-chat-bubble-body">${body}</div></div>`;
-    }).join("");
-    box.scrollTop = 0;
+  $("toryChatPanelHistoryList")?.classList.add("hidden");
+  $("toryChatHistoryPane")?.querySelector(".tory-chat-panel-history-lead")?.classList.add("hidden");
+  const panelDetail = $("toryChatPanelHistoryDetail");
+  if (panelDetail) {
+    panelDetail.classList.remove("hidden");
+    panelDetail.hidden = false;
+  }
+  if ($("toryChatPanelHistoryDetailTitle")) $("toryChatPanelHistoryDetailTitle").textContent = session.title;
+  const panelBox = $("toryChatPanelHistoryDetailMessages");
+  if (panelBox) {
+    panelBox.innerHTML = html;
+    panelBox.scrollTop = 0;
   }
 }
 
+function isToryChatHistoryModalOpen() {
+  const modal = $("toryChatHistoryModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
 function openToryChatHistoryModal() {
-  if (!state.projectId) return toast(i18n.t('app.먼저_작품을_선택해_주세요'));
+  if (!state.projectId) return toast(i18n.t("app.먼저_작품을_선택해_주세요"));
   const modal = $("toryChatHistoryModal");
   if (!modal) return;
   showToryChatHistoryListView();
@@ -30283,7 +30470,7 @@ function openToryChatHistoryModal() {
 
 function closeToryChatHistoryModal() {
   $("toryChatHistoryModal")?.classList.add("hidden");
-  toryChatHistoryViewId = null;
+  if (!isToryChatPanelHistoryOpen()) toryChatHistoryViewId = null;
 }
 
 function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
@@ -30311,6 +30498,7 @@ function restoreToryChatArchive(archiveId, chatMode = getToryChatSessionKey()) {
   }
   renderToryChatMessages();
   closeToryChatHistoryModal();
+  setToryChatPanelHistoryOpen(false);
   setAiPanelTab("chat", {
     chatHub: isToryCharacterChatSession(mode) ? "character-room" : "tory",
   });
@@ -30344,9 +30532,31 @@ function setupToryChatHistoryUi() {
     if (!window.confirm(i18n.t('app.이_대화_기록을_완전히_삭제할까요'))) return;
     deleteToryChatArchive(toryChatHistoryViewId);
   });
+  $("toryChatPanelHistoryList")?.addEventListener("click", (event) => {
+    const btn = event.target.closest?.("[data-tory-chat-archive]");
+    if (!btn) return;
+    openToryChatHistoryDetail(btn.dataset.toryChatArchive);
+  });
+  $("toryChatPanelHistoryBackButton")?.addEventListener("click", () => showToryChatPanelHistoryListView());
+  $("toryChatPanelHistoryRestoreButton")?.addEventListener("click", () => {
+    if (toryChatHistoryViewId) restoreToryChatArchive(toryChatHistoryViewId);
+  });
+  $("toryChatPanelHistoryDeleteButton")?.addEventListener("click", () => {
+    if (!toryChatHistoryViewId) return;
+    if (!window.confirm(i18n.t("app.이_대화_기록을_완전히_삭제할까요"))) return;
+    deleteToryChatArchive(toryChatHistoryViewId);
+  });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !$("toryChatHistoryModal")?.classList.contains("hidden")) {
-      // If detail open, go back to list first
+    if (event.key !== "Escape") return;
+    if (isToryChatPanelHistoryOpen() && !toryChatPopupOpen) {
+      if (toryChatHistoryViewId && !$("toryChatPanelHistoryDetail")?.classList.contains("hidden")) {
+        showToryChatPanelHistoryListView();
+        return;
+      }
+      setToryChatPanelHistoryOpen(false);
+      return;
+    }
+    if (isToryChatHistoryModalOpen()) {
       if (toryChatHistoryViewId && !$("toryChatHistoryDetail")?.classList.contains("hidden")) {
         showToryChatHistoryListView();
         return;
@@ -32719,7 +32929,7 @@ function setupToryChat() {
     const histBtn = event.target.closest?.("#toryChatHistoryButton");
     if (histBtn) {
       event.preventDefault();
-      openToryChatHistoryModal();
+      onToryChatHistoryButtonClick();
     }
   });
   document.addEventListener("contextmenu", (event) => {
@@ -38516,7 +38726,7 @@ async function runSuccessFormulaFeedback() {
   } finally {
     if (button) {
       button.disabled = false;
-      button.textContent = prev || i18n.t('app.토리에게_물어보기');
+      button.textContent = prev || i18n.t('app.보내기');
     }
   }
 }
@@ -47066,6 +47276,50 @@ function addOrToggleBookmark(entry) {
   return item;
 }
 
+function canBookmarkCurrentScene() {
+  return Boolean(state.projectId && state.sceneId) && !isSettingsDocMainOpen();
+}
+
+function toggleBookmarkCurrentScene() {
+  if (!canBookmarkCurrentScene()) {
+    if (isSettingsDocMainOpen()) {
+      toast(i18n.t("app.설정_문서에서는_회차_북마크를_쓸_수_없어요"));
+    } else {
+      toast(i18n.t("app.북마크하려면_먼저_회차를_열어_주세요_2"));
+    }
+    return;
+  }
+  const title = state.scene?.title
+    || $("sceneTitle")?.value
+    || getSceneTitleById(state.sceneId)
+    || i18n.t("app.원고");
+  addOrToggleBookmark({
+    type: "scene",
+    sceneId: state.sceneId,
+    title,
+  });
+}
+
+function syncBookmarkCurrentSceneButton() {
+  const btn = $("bookmarkCurrentSceneButton");
+  if (!btn) return;
+  const sceneOk = canBookmarkCurrentScene();
+  const already = sceneOk
+    ? Boolean(findBookmark(loadBookmarks(), "scene", state.sceneId))
+    : false;
+  btn.disabled = !sceneOk;
+  btn.textContent = already
+    ? i18n.t("app.이_회차_북마크_해제")
+    : i18n.t("app.이_회차_북마크하기");
+  btn.title = !sceneOk
+    ? (isSettingsDocMainOpen()
+      ? i18n.t("app.설정_문서에서는_회차_북마크를_쓸_수_없어요")
+      : i18n.t("app.북마크하려면_먼저_회차를_열어_주세요"))
+    : (already
+      ? i18n.t("app.이_회차_북마크를_해제해요")
+      : i18n.t("app.상단_색_북마크에_이_회차를_고정해요"));
+}
+
 const BOOKMARK_NOTE_MAX = 200;
 
 function updateBookmarkNote(bookmarkId, note) {
@@ -47196,6 +47450,7 @@ function renderBookmarkBar(options = {}) {
 
   if (!state.projectId || !list.length) {
     bar.innerHTML = i18n.t('app.p_class_bookmark_list_e');
+    syncBookmarkCurrentSceneButton();
     if (isBookmarkListPanelOpen()) positionBookmarkListPanel();
     return;
   }
@@ -47308,6 +47563,7 @@ function renderBookmarkBar(options = {}) {
   if (isBookmarkListPanelOpen()) {
     requestAnimationFrame(() => positionBookmarkListPanel());
   }
+  syncBookmarkCurrentSceneButton();
 }
 
 function pinnedIdeaNotes() {
@@ -47349,6 +47605,11 @@ function setupBookmarkListPanel() {
   $("bookmarkListClose")?.addEventListener("click", (event) => {
     event.preventDefault();
     closeBookmarkListPanel();
+  });
+  $("bookmarkCurrentSceneButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleBookmarkCurrentScene();
   });
   document.addEventListener("click", (event) => {
     if (!isBookmarkListPanelOpen()) return;
@@ -50571,39 +50832,6 @@ function setupDesktopThemeMenu() {
         ? i18n.t('app.선택한_글의_서식_글꼴_크기_색_굵기_등_만')
         : i18n.t('app.먼저_본문에서_서식을_복사할_글을_드래그로');
     }
-    // Bookmark current open scene (same system as binder right-click)
-    const bmBtn = $("bookmarkSceneMenuItem");
-    const bmTitle = $("bookmarkSceneMenuTitle");
-    const bmHint = $("bookmarkSceneMenuHint");
-    if (bmBtn) {
-      const sceneOk = Boolean(state.sceneId) && !isSettingsDoc;
-      const already = sceneOk
-        ? Boolean(findBookmark(loadBookmarks(), "scene", state.sceneId))
-        : false;
-      bmBtn.disabled = !sceneOk || hasSelection;
-      bmBtn.style.opacity = sceneOk && !hasSelection ? "1" : "0.45";
-      bmBtn.title = isSettingsDoc
-        ? i18n.t('app.설정_문서에서는_회차_북마크를_쓸_수_없어요')
-        : hasSelection
-          ? i18n.t('app.선택_문장_메뉴에서는_사용할_수_없어요')
-          : sceneOk
-            ? (already ? i18n.t('app.이_회차_북마크를_해제해요') : i18n.t('app.상단_색_북마크에_이_회차를_고정해요'))
-            : i18n.t('app.북마크하려면_먼저_회차를_열어_주세요');
-      if (bmTitle) bmTitle.textContent = already ? i18n.t('app.북마크_해제') : i18n.t('app.북마크하기');
-      if (bmHint) {
-        bmHint.textContent = already
-          ? i18n.t('app.상단_북마크_목록에서_이_회차를_빼요')
-          : i18n.t('app.상단_색_북마크에_이_회차를_고정해요');
-      }
-    }
-    const exportBtn = $("exportSceneMenuItem");
-    if (exportBtn) {
-      exportBtn.disabled = isSettingsDoc || !state.sceneId;
-      exportBtn.style.opacity = (!isSettingsDoc && state.sceneId) ? "1" : "0.45";
-      exportBtn.title = isSettingsDoc
-        ? i18n.t('app.설정_문서에서는_회차_내보내기를_쓸_수_없어')
-        : i18n.t('app.이_회차만_파일로_내려받아요');
-    }
     const dictItem = $("lookupDictMenuItem");
     if (dictItem) {
       dictItem.disabled = !hasSelection;
@@ -50780,24 +51008,6 @@ function setupDesktopThemeMenu() {
         event.preventDefault();
         event.stopPropagation();
         toggleDictHighlight({ announce: true });
-      } else if (action === "bookmark") {
-        hideDesktopContextMenu();
-        if (!state.sceneId) {
-          toast(i18n.t('app.북마크하려면_먼저_회차를_열어_주세요_2'));
-          return;
-        }
-        const title = state.scene?.title
-          || $("sceneTitle")?.value
-          || getSceneTitleById(state.sceneId)
-          || i18n.t('app.원고');
-        addOrToggleBookmark({
-          type: "scene",
-          sceneId: state.sceneId,
-          title,
-        });
-      } else if (action === "export-scene") {
-        hideDesktopContextMenu();
-        openExportModalForCurrentScene();
       } else if (action === "lookup-dict") {
         hideDesktopContextMenu();
         lookupDictionaryFromSelection();
@@ -51875,11 +52085,14 @@ function applyFocusWriteFullscreen(on, { persist = true } = {}) {
   const head = modal.querySelector(".focus-write-head");
   if (head) head.style.removeProperty("padding-right");
   if (btn) {
+    btn.classList.toggle("is-window", enabled);
     btn.setAttribute("aria-pressed", enabled ? "true" : "false");
-    btn.textContent = enabled ? i18n.t('app.창_모드') : i18n.t('app.전체보기');
     btn.title = enabled
-      ? i18n.t('app.큰_창_크기로_돌아가기_F11')
-      : i18n.t('app.화면_전체를_쓰는_집중_모드_F11');
+      ? i18n.t("app.큰_창_크기로_돌아가기_F11")
+      : i18n.t("app.화면_전체를_쓰는_집중_모드_F11");
+    btn.setAttribute("data-i18n-title", enabled ? "app.큰_창_크기로_돌아가기_F11" : "app.화면_전체를_쓰는_집중_모드_F11");
+    btn.setAttribute("aria-label", enabled ? i18n.t("app.창_모드") : i18n.t("app.전체보기"));
+    btn.setAttribute("data-i18n-aria-label", enabled ? "app.창_모드" : "app.전체보기");
   }
   if (persist) saveFocusWriteFullscreen(enabled);
 }
@@ -53753,6 +53966,130 @@ function jumpViewerToScene(sceneId) {
   }
 }
 
+let viewerSentenceWrapToken = 0;
+
+function unwrapTtsSentenceSpans(root) {
+  if (!root || !root.querySelectorAll) return;
+  const spans = [...root.querySelectorAll("span.tts-sentence")];
+  for (const span of spans) {
+    const parent = span.parentNode;
+    if (!parent) continue;
+    while (span.firstChild) parent.insertBefore(span.firstChild, span);
+    parent.removeChild(span);
+  }
+  try {
+    root.normalize();
+  } catch (_) { /* ignore */ }
+}
+
+function collectViewerTextNodes(root) {
+  const nodes = [];
+  if (!root || !document.createTreeWalker) return nodes;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, null);
+  let node = walker.nextNode();
+  while (node) {
+    nodes.push(node);
+    node = walker.nextNode();
+  }
+  return nodes;
+}
+
+function locateTtsSentenceRanges(plain, sentences) {
+  const ranges = [];
+  let cursor = 0;
+  const source = String(plain || "");
+  (sentences || []).forEach((raw, idx) => {
+    const needle = String(raw ?? "");
+    if (!needle) return;
+    let start = source.indexOf(needle, cursor);
+    let len = needle.length;
+    if (start < 0) {
+      const trimmed = needle.trim();
+      if (!trimmed) return;
+      start = source.indexOf(trimmed, cursor);
+      len = trimmed.length;
+    }
+    if (start < 0) return;
+    ranges.push({ idx, start, end: start + len });
+    cursor = start + len;
+  });
+  return ranges;
+}
+
+function wrapTtsRangesInTextNodes(textNodes, ranges) {
+  if (!ranges.length) return;
+  let offset = 0;
+  const pieces = textNodes.map((node) => {
+    const text = node.nodeValue || "";
+    const start = offset;
+    offset += text.length;
+    return { node, text, start, end: start + text.length };
+  });
+  for (const piece of pieces) {
+    const { node, text, start, end } = piece;
+    if (!node.parentNode || !text) continue;
+    const overlaps = [];
+    for (const range of ranges) {
+      const localStart = Math.max(start, range.start) - start;
+      const localEnd = Math.min(end, range.end) - start;
+      if (localStart < localEnd) {
+        overlaps.push({ idx: range.idx, localStart, localEnd });
+      }
+    }
+    if (!overlaps.length) continue;
+    const frag = document.createDocumentFragment();
+    let last = 0;
+    for (const overlap of overlaps) {
+      if (overlap.localStart > last) {
+        frag.appendChild(document.createTextNode(text.slice(last, overlap.localStart)));
+      }
+      const span = document.createElement("span");
+      span.className = "tts-sentence";
+      span.setAttribute("data-sentence-idx", String(overlap.idx));
+      span.textContent = text.slice(overlap.localStart, overlap.localEnd);
+      frag.appendChild(span);
+      last = overlap.localEnd;
+    }
+    if (last < text.length) {
+      frag.appendChild(document.createTextNode(text.slice(last)));
+    }
+    node.parentNode.replaceChild(frag, node);
+  }
+}
+
+async function wrapViewerSentences(containerEl) {
+  const wrapToken = ++viewerSentenceWrapToken;
+  const loadToken = viewerLoadToken;
+  try {
+    if (!containerEl || !containerEl.querySelectorAll) return;
+    const bodies = [...containerEl.querySelectorAll(".viewer-episode-body")];
+    if (!bodies.length) return;
+    for (const episodeBody of bodies) {
+      if (wrapToken !== viewerSentenceWrapToken || loadToken !== viewerLoadToken) return;
+      if (!episodeBody.isConnected) return;
+      const textNodes = collectViewerTextNodes(episodeBody);
+      const plain = textNodes.map((node) => node.nodeValue || "").join("");
+      if (!plain.trim()) continue;
+      const result = await api("/api/tts/split-sentences", {
+        method: "POST",
+        body: JSON.stringify({ text: plain }),
+      });
+      if (wrapToken !== viewerSentenceWrapToken || loadToken !== viewerLoadToken) return;
+      if (!episodeBody.isConnected) return;
+      const sentences = Array.isArray(result?.sentences) ? result.sentences : [];
+      if (!sentences.length) continue;
+      unwrapTtsSentenceSpans(episodeBody);
+      const freshNodes = collectViewerTextNodes(episodeBody);
+      wrapTtsRangesInTextNodes(freshNodes, locateTtsSentenceRanges(
+        freshNodes.map((node) => node.nodeValue || "").join(""),
+        sentences,
+      ));
+    }
+  } catch (error) {
+    console.warn("wrapViewerSentences", error);
+  }
+}
+
 async function paintViewerBody(html, { token, jumpId = null, resetBook = false, titleN = 0 } = {}) {
   const body = $("viewerBody");
   if (!body || token !== viewerLoadToken || !isViewerOpen()) return false;
@@ -53781,6 +54118,7 @@ async function paintViewerBody(html, { token, jumpId = null, resetBook = false, 
   }
   renderViewerToc();
   scheduleViewerFullRelayout({ jumpId, resetBook });
+  wrapViewerSentences(body);
   return true;
 }
 
@@ -53860,6 +54198,7 @@ async function applyViewerFullContentProgressive({ token, jumpToSceneId }) {
   if ($("viewerTocHint")) {
     $("viewerTocHint").textContent = i18n.t('app.회차를_누르면_해당_위치로_이동합니다');
   }
+  wrapViewerSentences(body);
 }
 
 async function applyViewerContent({ resetBook = true, jumpToSceneId = null } = {}) {
@@ -55912,10 +56251,12 @@ function setViewerMaximized(on, { relayout = true } = {}) {
   modal?.classList.toggle("is-maximized", maximized);
   document.body.classList.toggle("viewer-maximized", maximized && isViewerOpen());
   if (btn) {
-    btn.classList.toggle("is-active", maximized);
+    btn.classList.toggle("is-window", maximized);
     btn.setAttribute("aria-pressed", maximized ? "true" : "false");
-    btn.textContent = maximized ? i18n.t('app.창_모드') : i18n.t('app.최대화');
-    btn.title = maximized ? i18n.t('app.원래_창_크기로') : i18n.t('app.뷰어_창_최대화');
+    btn.title = maximized ? i18n.t("app.원래_창_크기로") : i18n.t("app.뷰어_창_최대화");
+    btn.setAttribute("data-i18n-title", maximized ? "app.원래_창_크기로" : "app.뷰어_창_최대화");
+    btn.setAttribute("aria-label", maximized ? i18n.t("app.창_모드") : i18n.t("app.최대화"));
+    btn.setAttribute("data-i18n-aria-label", maximized ? "app.창_모드" : "app.최대화");
   }
   try {
     localStorage.setItem("supertory.viewerMaximized", maximized ? "1" : "0");
@@ -58333,6 +58674,8 @@ const GUIDE_TIP_DEFS = [
   { id: "characterChat", label: i18n.t('app.캐릭터와_대화하기_안내') },
   { id: "characterChatAll", label: i18n.t('app.내_캐릭터_전체보기_안내') },
   { id: "characterSimAll", label: i18n.t('app.시뮬레이션_전체보기_안내') },
+  { id: "bookmarkList", label: i18n.t('app.북마크_안내') },
+  { id: "aiResultHistory", label: i18n.t('app.결과_히스토리_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -68507,7 +68850,7 @@ async function executeRewriteAssist(payload) {
     rewriteAssistInFlight = false;
     if (aiButton) {
       aiButton.disabled = false;
-      aiButton.textContent = prevLabel || i18n.t('app.토리에게_물어보기');
+      aiButton.textContent = prevLabel || i18n.t('app.보내기');
     }
     if (toolSubmit) {
       toolSubmit.disabled = false;
@@ -72910,51 +73253,74 @@ function updateSplitChrome() {
     if (!btn) return;
     btn.disabled = !state.sceneId && !state.splitEnabled;
     btn.classList.toggle("is-active", Boolean(state.splitEnabled));
+    const splitIcon = btn.querySelector("[data-split-chrome='split']");
+    const singleIcon = btn.querySelector("[data-split-chrome='single']");
+    const popupIcon = btn.querySelector("[data-split-chrome='popup']");
+    const hasChrome = Boolean(splitIcon || singleIcon || popupIcon);
+    const popupOn = Boolean(state.splitEnabled && state.splitMode === "popup");
+    const splitOn = Boolean(state.splitEnabled && !popupOn);
+    if (hasChrome) {
+      splitIcon?.classList.toggle("hidden", Boolean(state.splitEnabled));
+      singleIcon?.classList.toggle("hidden", !splitOn);
+      popupIcon?.classList.toggle("hidden", !popupOn);
+    }
     const labelEl = btn.querySelector(".format-tool-label");
     if (labelEl) {
       labelEl.setAttribute("data-i18n", "index.분할");
       labelEl.textContent = i18n.t("index.분할");
     }
     if (!state.splitEnabled) {
-      if (!iconOnly) btn.textContent = i18n.t("app.분할");
+      if (!iconOnly && !hasChrome) btn.textContent = i18n.t("app.분할");
       const idleTitle = splitDefaultButtonTitle();
       btn.title = idleTitle;
       btn.setAttribute("aria-label", idleTitle);
       return;
     }
-    if (state.splitMode === "popup") {
-      if (!iconOnly) btn.textContent = i18n.t("app.팝업_중");
+    if (popupOn) {
+      if (!iconOnly && !hasChrome) btn.textContent = i18n.t("app.팝업_중");
       btn.title = i18n.t("app.팝업으로_보는_중_Ctrl_Alt_S_화면");
     } else {
-      if (!iconOnly) btn.textContent = i18n.t("app.화면_나누기_중");
+      if (!iconOnly && !hasChrome) btn.textContent = i18n.t("app.화면_나누기_중");
       btn.title = i18n.t("app.화면_나누기_중_Ctrl_Alt_P_팝업_E");
     }
     btn.setAttribute("aria-label", btn.title || i18n.t("index.분할"));
   };
+  const paintSplitModeSwitch = (btn, { splitOn, popupOn }) => {
+    if (!btn) return;
+    btn.disabled = false;
+    const splitIcon = btn.querySelector("[data-split-chrome='split']");
+    const popupIcon = btn.querySelector("[data-split-chrome='popup']");
+    const label = btn.querySelector(".split-mode-switch-label");
+    splitIcon?.classList.toggle("hidden", !splitOn || popupOn);
+    popupIcon?.classList.toggle("hidden", !popupOn);
+    label?.classList.toggle("hidden", splitOn);
+    if (label && !splitOn) {
+      label.setAttribute("data-i18n", "app.보기_방식");
+      label.textContent = i18n.t("app.보기_방식");
+    }
+    if (popupOn) {
+      btn.title = i18n.t("app.보기_방식_팝업_중_Ctrl_Alt_S_나누");
+    } else if (splitOn) {
+      btn.title = i18n.t("app.보기_방식_화면_나누기_중_Ctrl_Alt");
+    } else {
+      btn.title = i18n.t("index.화면_나누기_팝업_선택_닫기");
+    }
+    btn.setAttribute("aria-label", btn.title || i18n.t("index.보기_방식"));
+  };
   if (!state.splitEnabled) {
     syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
-    syncMainLike(focusBtn);
-    if (switchBtn) {
-      switchBtn.textContent = i18n.t('app.보기_방식');
-      switchBtn.disabled = false;
-    }
+    syncMainLike(focusBtn, { iconOnly: true });
+    paintSplitModeSwitch(switchBtn, { splitOn: false, popupOn: false });
     $("viewModeCloseItem")?.classList.add("hidden");
     applySplitEditMode();
     return;
   }
   syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
-  syncMainLike(focusBtn);
-  if (switchBtn) {
-    switchBtn.disabled = false;
-    // Keep short so SuperTORY clip / narrow split pane does not hide the control.
-    if (state.splitMode === "popup") {
-      switchBtn.textContent = i18n.t('app.팝업');
-      switchBtn.title = i18n.t('app.보기_방식_팝업_중_Ctrl_Alt_S_나누');
-    } else {
-      switchBtn.textContent = i18n.t('app.나누기');
-      switchBtn.title = i18n.t('app.보기_방식_화면_나누기_중_Ctrl_Alt');
-    }
-  }
+  syncMainLike(focusBtn, { iconOnly: true });
+  paintSplitModeSwitch(switchBtn, {
+    splitOn: true,
+    popupOn: state.splitMode === "popup",
+  });
   $("viewModeCloseItem")?.classList.remove("hidden");
   viewer?.classList.toggle("popup-mode", state.splitMode === "popup");
   applySplitEditMode();
@@ -76559,10 +76925,7 @@ function onGlobalUiFeatureContextMenu(event) {
   if (el.id === "statusBarProgress" || el.id === "sceneGoalBar" || el.closest?.("#statusBarProgress, #sceneGoalBar")) {
     const btn = $("statusBarProgress") || el;
     setUiFeatureCtxTarget(btn);
-    showUiFeatureContextMenu(event.clientX, event.clientY, btn, [{
-      label: i18n.t('app.게이지_색_선택'),
-      run: () => { showGoalBarColorMenu?.(btn); },
-    }]);
+    showUiFeatureContextMenu(event.clientX, event.clientY, btn, []);
     return;
   }
 
