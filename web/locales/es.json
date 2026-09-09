@@ -3289,7 +3289,7 @@
   "index.서식": "Formato ▾",
   "index.오른쪽_클릭_이미지_넣기_페이지_색": "Clic derecho: insertar imagen · color de página",
   "index.글자_수와_목표": "Recuento de caracteres y objetivo",
-  "index.보기_n": "Vista ${n}%",
+  "index.n_퍼센트": "${n}%",
   "index.화면_배율": "Zoom de vista",
   "index.화면_배율_Ctrl_휠로_조절": "Zoom de vista · Ctrl+rueda para ajustar",
   "index.기타_줄임": "Otro…",

@@ -4762,7 +4762,7 @@ function loadEditorViewZoom() {
 }
 
 function editorViewZoomLabelText(zoom = editorViewZoom) {
-  return i18n.t("index.보기_n", { n: clampEditorViewZoom(zoom) });
+  return i18n.t("index.n_퍼센트", { n: clampEditorViewZoom(zoom) });
 }
 
 function isEditorViewZoomMenuOpen() {

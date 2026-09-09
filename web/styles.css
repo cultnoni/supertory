@@ -25126,7 +25126,8 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   height: 22px;
   min-height: 22px;
   margin: 0 0 0 1mm;
-  padding: 0 8px;
+  padding: 0 7px;
+  gap: 4px;
   border: 1px solid var(--border-color, var(--line));
   border-radius: 7px;
   background: color-mix(in srgb, var(--bg-surface, var(--surface, #fff)) 88%, var(--bg-main, var(--surface-2, #FAFAF9)) 12%);
@@ -25139,6 +25140,12 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   white-space: nowrap;
   cursor: pointer;
   box-sizing: border-box;
+}
+.status-view-zoom-btn svg {
+  width: 12px;
+  height: 12px;
+  flex: 0 0 auto;
+  display: block;
 }
 .status-view-zoom-btn:hover,
 .status-view-zoom-btn[aria-expanded="true"] {

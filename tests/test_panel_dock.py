@@ -1378,14 +1378,17 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("formatSize", self.js.split("function applyEditorViewZoom(", 1)[1].split("function nudgeEditorViewZoom(", 1)[0])
         for locale in self.locales.values():
             for key in (
-                "index.보기_n",
+                "index.n_퍼센트",
                 "index.화면_배율",
                 "index.화면_배율_Ctrl_휠로_조절",
                 "index.기타_줄임",
                 "index.배율_퍼센트",
             ):
                 self.assertIn(key, locale)
-        self.assertEqual(self.locales["ko"]["index.보기_n"], "보기 ${n}%")
+        self.assertEqual(self.locales["ko"]["index.n_퍼센트"], "${n}%")
+        self.assertIn('M12 3v14', bar)
+        self.assertIn('M5 10h14', bar)
+        self.assertIn('M5 21h14', bar)
 
     def test_screen_protect_dock_widget(self) -> None:
         right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
