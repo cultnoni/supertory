@@ -499,6 +499,36 @@ class GenreClusterApiTests(unittest.TestCase):
         self.assertEqual(rows["옛 웹소설"], "webnovel")
         self.assertEqual(rows["옛 동화"], "fairytale")
 
+    def test_migration_092_rewrites_urban_main_to_fantasy_male(self) -> None:
+        with app.database() as connection:
+            connection.execute(
+                "INSERT INTO project(title, purpose, main_genre, sub_genre, genre_detail, cluster_id) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                ("urban leftover", "web_novel", "urban", "", "", "webnovel"),
+            )
+            leftover_id = int(
+                connection.execute(
+                    "SELECT id FROM project WHERE title = ?",
+                    ("urban leftover",),
+                ).fetchone()[0]
+            )
+        migration = app._load_py_migration(app.MIGRATION_092_PATH)
+        with app.database() as connection:
+            migration.apply(connection)
+            row = connection.execute(
+                "SELECT main_genre, sub_genre, genre_detail FROM project WHERE id = ?",
+                (leftover_id,),
+            ).fetchone()
+            leftover = connection.execute(
+                "SELECT COUNT(*) FROM project WHERE main_genre = 'urban'"
+            ).fetchone()[0]
+            version = connection.execute(
+                "SELECT name FROM schema_migration WHERE version = 92"
+            ).fetchone()[0]
+        self.assertEqual(tuple(row), ("fantasy", "male", "urban"))
+        self.assertEqual(leftover, 0)
+        self.assertEqual(version, "migrate_urban_main_to_fantasy_male")
+
     def test_create_fantasy_male_details_persist(self) -> None:
         for detail in ("traditional", "urban", "isekai", "hidden_world", "murim", "murim_classic"):
             status, project = self.request(

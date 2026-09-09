@@ -242,6 +242,7 @@ MIGRATION_088_PATH = ROOT / "db" / "088_scene_character_mentions.sql"
 MIGRATION_089_PATH = ROOT / "db" / "089_custom_dictionary_terms.sql"
 MIGRATION_090_PATH = ROOT / "db" / "090_translation_proper_nouns_dictionary_type.sql"
 MIGRATION_091_PATH = ROOT / "db" / "091_project_reader_favorites.sql"
+MIGRATION_092_PATH = ROOT / "db" / "092_migrate_urban_main_to_fantasy_male.py"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1859,6 +1860,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_090_PATH.read_text(encoding="utf-8"))
         if 91 not in applied:
             connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
+        if 92 not in applied:
+            apply_migration_092(connection)
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -1966,6 +1969,10 @@ def apply_migration_081(connection: sqlite3.Connection) -> None:
 
 def apply_migration_085(connection: sqlite3.Connection) -> None:
     _load_py_migration(MIGRATION_085_PATH).apply(connection)
+
+
+def apply_migration_092(connection: sqlite3.Connection) -> None:
+    _load_py_migration(MIGRATION_092_PATH).apply(connection)
 
 
 def apply_migration_082(connection: sqlite3.Connection) -> None:
