@@ -95,24 +95,43 @@ CLUSTER_HIDDEN_FEATURES: dict[str, frozenset[str]] = {
 
 # (main_genre, sub_genre) → allowed genre_detail keys ("" = none).
 GENRE_DETAIL_OPTIONS: dict[tuple[str, str], frozenset[str]] = {
-    ("romance", "modern"): frozenset({"", "historical"}),
+    ("romance", "modern"): frozenset({"", "historical", "period_west"}),
     ("romance", "romfant"): frozenset({"", "oriental_romfant"}),
     ("romance", "bl"): frozenset({""}),
     ("romance", "gl"): frozenset({""}),
-    ("fantasy", "male"): frozenset({"", "alt_history", "murim", "urban", "hidden_world", "traditional", "sports"}),
-    ("fantasy", "female"): frozenset({""}),
+    ("fantasy", "male"): frozenset({
+        "",
+        "alt_history",
+        "murim",
+        "murim_classic",
+        "urban",
+        "hidden_world",
+        "traditional",
+        "sports",
+        "isekai",
+    }),
+    ("fantasy", "female"): frozenset({
+        "",
+        "dimension",
+        "modern",
+        "period_east",
+        "period_west",
+    }),
 }
 
 GENRE_DETAIL_LABELS: dict[str, str] = {
     "": "",
     "historical": "사극",
+    "period_west": "시대 로맨스(서양)",
     "oriental_romfant": "동양로판",
     "alt_history": "대체역사",
     "murim": "무협",
+    "murim_classic": "정통무협",
     "urban": "현대판타지",
     "hidden_world": "어반판타지",
     "traditional": "정통판타지",
     "sports": "스포츠물",
+    "isekai": "이세계판타지",
 }
 
 
@@ -141,19 +160,67 @@ def genre_detail_label(value: object = "") -> str:
     return GENRE_DETAIL_LABELS.get(key, "")
 
 
+def playbook_lookup_keys(
+    main_genre: object = "",
+    sub_genre: object = "",
+    genre_detail: object = "",
+) -> tuple[str, str, str]:
+    """Map stored/UI genre keys onto existing playbook `{main}_{sub}` + delta keys."""
+    main = str(main_genre or "").strip().lower()
+    sub = str(sub_genre or "").strip().lower()
+    detail = str(genre_detail or "").strip().lower()
+    if main == "romfant":
+        if sub == "blgl":
+            sub = "bl"  # 레거시 호환
+        if sub == "period_east":
+            delta = "oriental_romfant"
+        elif sub == "bl":
+            delta = "bl"
+        elif sub == "gl":
+            delta = "gl"
+        else:
+            delta = ""
+        return "romance", "romfant", delta
+    if main == "female_fantasy":
+        if sub in ("dimension", "modern", "period_east", "period_west"):
+            return "fantasy", "female", sub
+        return "fantasy", "female", ""
+    if main == "historical":
+        return "fantasy", "male", "alt_history"
+    if main == "sports":
+        return "fantasy", "male", "sports"
+    if main == "romance":
+        if sub == "period_east" or sub == "period":
+            return "romance", "modern", "historical"
+        if sub == "period_west":
+            return "romance", "modern", "period_west"
+        if sub == "blgl":
+            sub = "bl"  # 레거시 호환
+        if sub == "bl":
+            return "romance", "bl", ""
+        if sub == "gl":
+            return "romance", "gl", ""
+        if sub == "romfant":
+            delta = "oriental_romfant" if detail == "oriental_romfant" else ""
+            return "romance", "romfant", delta
+        if sub == "other" or (isinstance(sub, str) and sub.startswith("custom:")):
+            return "romance", "modern", ""
+        return main, sub, detail
+    return main, sub, detail
+
+
 # cluster sub key → (purpose, main_genre, sub_genre)
 CLUSTER_SUBGENRE_MAP: dict[str, dict[str, tuple[str, str, str]]] = {
     "webnovel": {
         "fantasy": ("web_novel", "fantasy", ""),
-        "urban": ("web_novel", "urban", ""),
         "martial": ("web_novel", "martial", ""),
         "historical": ("web_novel", "historical", ""),
         "sports": ("web_novel", "sports", ""),
         "romance": ("web_novel", "romance", ""),
-        "romfant": ("web_novel", "romance", "romfant"),
+        "romfant": ("web_novel", "romfant", ""),
         "bl": ("web_novel", "romance", "blgl"),
         "gl": ("web_novel", "romance", "blgl"),
-        "female_fantasy": ("web_novel", "romance", "romfant"),
+        "female_fantasy": ("web_novel", "female_fantasy", ""),
         "male_fantasy": ("web_novel", "fantasy", ""),
     },
     "genre_literature": {

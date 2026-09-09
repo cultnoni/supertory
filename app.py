@@ -914,8 +914,7 @@ def load_genre_playbook(main_genre, sub_genre) -> dict | None:
 
     Romance books also carry `reference_tags` from the shared romance archetype dictionary.
     """
-    main = str(main_genre or "").strip().lower()
-    sub = str(sub_genre or "").strip().lower()
+    main, sub, _ = genre_clusters.playbook_lookup_keys(main_genre, sub_genre, "")
     if not main or not sub:
         return None
     item = load_genre_playbooks().get(f"{main}_{sub}")
@@ -933,9 +932,9 @@ def load_genre_playbook(main_genre, sub_genre) -> dict | None:
 
 def load_genre_playbook_delta(main_genre, sub_genre, genre_detail) -> dict | None:
     """Return `deltas[{main}_{sub}__{detail}]`, or nested `_delta[detail]`. Missing → None."""
-    detail = str(genre_detail or "").strip().lower()
-    main = str(main_genre or "").strip().lower()
-    sub = str(sub_genre or "").strip().lower()
+    main, sub, detail = genre_clusters.playbook_lookup_keys(
+        main_genre, sub_genre, genre_detail
+    )
     if not detail or not main or not sub:
         return None
     books = load_genre_playbooks()
@@ -992,7 +991,7 @@ def _join_playbook_tag_list(value) -> str:
 
 def format_genre_playbook_reference_tags_section(main_genre, book=None) -> str:
     """Shared romance archetype vocabulary. Fantasy and missing tags → empty."""
-    if str(main_genre or "").strip().lower() != "romance":
+    if str(main_genre or "").strip().lower() not in {"romance", "romfant"}:
         return ""
     tags = book.get("reference_tags") if isinstance(book, dict) else None
     if not isinstance(tags, dict):
@@ -1220,7 +1219,7 @@ def content_rating_heading(key: str) -> str:
 
 def format_content_rating_section(main_genre, content_rating, kind: str) -> str:
     """Romance-only overlay. Empty/unknown rating or non-romance → no section."""
-    if str(main_genre or "").strip().lower() != "romance":
+    if str(main_genre or "").strip().lower() not in {"romance", "romfant"}:
         return ""
     key = str(content_rating or "").strip().lower()
     if key not in CONTENT_RATING_ALLOWED:
@@ -15981,7 +15980,12 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "other": "기타",
             "modern": "현대로맨스",
             "period": "시대로맨스",
-            "romfant": "로판",
+            "period_east": "시대물(동양)",
+            "period_west": "시대물(서양)",
+            "romfant": "로맨스 판타지",
+            "female_fantasy": "여성향 판타지",
+            "male": "남성향 판타지",
+            "hidden_world": "어반판타지",
             "romcom": "로코",
             "office": "오피스",
             "school": "학원",
@@ -15989,7 +15993,7 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "chaebol": "재벌",
             "high": "하이루판",
             "low": "저루판",
-            "isekai": "이세계",
+            "isekai": "이세계판타지",
             "game": "게임판타지",
             "dark": "다크판타지",
             "urban": "현대판타지",
