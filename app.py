@@ -18759,7 +18759,6 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "순수문학": "순수문학",
             "문학": "문학",
             "실용서": "실용서",
-            "라이트노벨": "라노벨",
             "BL": "BL",
             "GL": "GL",
             "현대로맨스": "현로",
