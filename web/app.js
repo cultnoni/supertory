@@ -136,6 +136,7 @@ async function setLanguage(lang) {
   if (typeof refreshAmbientSoundUi === "function") refreshAmbientSoundUi();
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
   if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
+  if (typeof syncEditorViewZoomChrome === "function") syncEditorViewZoomChrome();
   if (
     typeof refreshAdminAccountPanel === "function"
     && $("adminModal")
@@ -236,6 +237,8 @@ const state = {
   mainGenre: "",
   subGenre: "",
   genreDetail: "",
+  /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
+  contentRating: "",
   /** Per-project: first-complete guide card already shown */
   completionGuideShown: false,
   /** @type {string[]} 설정집 키워드 태그 */
@@ -4731,6 +4734,289 @@ function setupSceneStats() {
   setupTypewriterMode();
   setupSmartPunctuation();
   if (typeof setupDictHighlight === "function") setupDictHighlight();
+  if (typeof setupEditorViewZoom === "function") setupEditorViewZoom();
+}
+
+const EDITOR_VIEW_ZOOM_KEY = "supertory.editorViewZoom";
+const EDITOR_VIEW_ZOOM_WHEEL_STEPS = [50, 75, 90, 100, 110, 125, 150, 175, 200, 250, 300, 400, 600, 800];
+const EDITOR_VIEW_ZOOM_MIN = 25;
+const EDITOR_VIEW_ZOOM_MAX = 800;
+const EDITOR_VIEW_ZOOM_DEFAULT = 100;
+let editorViewZoom = EDITOR_VIEW_ZOOM_DEFAULT;
+let editorViewZoomWheelAcc = 0;
+
+function clampEditorViewZoom(value) {
+  const n = Math.round(Number(value));
+  if (!Number.isFinite(n)) return EDITOR_VIEW_ZOOM_DEFAULT;
+  return Math.max(EDITOR_VIEW_ZOOM_MIN, Math.min(EDITOR_VIEW_ZOOM_MAX, n));
+}
+
+function loadEditorViewZoom() {
+  try {
+    const raw = localStorage.getItem(EDITOR_VIEW_ZOOM_KEY);
+    if (raw == null || String(raw).trim() === "") return EDITOR_VIEW_ZOOM_DEFAULT;
+    const n = Number(raw);
+    if (Number.isFinite(n)) return clampEditorViewZoom(n);
+  } catch (_) { /* private mode */ }
+  return EDITOR_VIEW_ZOOM_DEFAULT;
+}
+
+function editorViewZoomLabelText(zoom = editorViewZoom) {
+  return i18n.t("index.보기_n", { n: clampEditorViewZoom(zoom) });
+}
+
+function isEditorViewZoomMenuOpen() {
+  const menu = $("editorViewZoomMenu");
+  return Boolean(menu && !menu.classList.contains("hidden"));
+}
+
+function hideEditorViewZoomOtherForm() {
+  const form = $("editorViewZoomOtherForm");
+  if (!form) return;
+  form.classList.add("hidden");
+  form.hidden = true;
+}
+
+function hideEditorViewZoomMenu() {
+  const menu = $("editorViewZoomMenu");
+  const btn = $("editorViewZoomButton");
+  menu?.classList.add("hidden");
+  hideEditorViewZoomOtherForm();
+  btn?.setAttribute("aria-expanded", "false");
+}
+
+function syncEditorViewZoomChrome() {
+  const zoom = clampEditorViewZoom(editorViewZoom);
+  const label = $("editorViewZoomLabel");
+  const btn = $("editorViewZoomButton");
+  if (label) label.textContent = editorViewZoomLabelText(zoom);
+  if (btn) {
+    btn.setAttribute("aria-label", `${i18n.t("index.화면_배율")} ${zoom}%`);
+    btn.title = i18n.t("index.화면_배율_Ctrl_휠로_조절");
+  }
+  document.querySelectorAll("#editorViewZoomMenu [data-editor-zoom]").forEach((item) => {
+    const on = Number(item.getAttribute("data-editor-zoom")) === zoom;
+    item.classList.toggle("is-checked", on);
+    item.setAttribute("aria-checked", on ? "true" : "false");
+  });
+}
+
+function preserveEditorViewZoomScroll(page, apply, anchor) {
+  if (!page || typeof apply !== "function") {
+    apply?.();
+    return;
+  }
+  const oldH = Math.max(1, page.scrollHeight);
+  const rect = page.getBoundingClientRect();
+  const yIn = anchor && Number.isFinite(anchor.clientY)
+    ? page.scrollTop + (anchor.clientY - rect.top)
+    : page.scrollTop + page.clientHeight / 2;
+  apply();
+  const newH = Math.max(1, page.scrollHeight);
+  if (anchor && Number.isFinite(anchor.clientY)) {
+    page.scrollTop = (yIn * (newH / oldH)) - (anchor.clientY - rect.top);
+  } else {
+    page.scrollTop = (yIn * (newH / oldH)) - page.clientHeight / 2;
+  }
+}
+
+function applyEditorViewZoom(percent, options = {}) {
+  const persist = options.persist !== false;
+  const zoom = clampEditorViewZoom(percent);
+  const page = $("manuscriptPage");
+  const run = () => {
+    editorViewZoom = zoom;
+    const editor = $("sceneContent");
+    if (editor) {
+      editor.style.zoom = zoom === 100 ? "" : String(zoom / 100);
+    }
+    page?.style.setProperty("--editor-view-zoom", String(zoom / 100));
+    syncEditorViewZoomChrome();
+    if (persist) {
+      try { localStorage.setItem(EDITOR_VIEW_ZOOM_KEY, String(zoom)); } catch (_) { /* private mode */ }
+    }
+  };
+  if (page && options.preserveScroll !== false) {
+    preserveEditorViewZoomScroll(page, run, options.anchor);
+  } else {
+    run();
+  }
+  try { syncTypewriterModeView?.({ smooth: false }); } catch (_) { /* ignore */ }
+  return zoom;
+}
+
+function nudgeEditorViewZoom(direction, anchor) {
+  const cur = clampEditorViewZoom(editorViewZoom);
+  const steps = EDITOR_VIEW_ZOOM_WHEEL_STEPS;
+  let next = cur;
+  if (direction > 0) {
+    next = steps.find((step) => step > cur);
+    if (next == null) next = Math.min(EDITOR_VIEW_ZOOM_MAX, cur + 10);
+  } else {
+    next = [...steps].reverse().find((step) => step < cur);
+    if (next == null) next = Math.max(EDITOR_VIEW_ZOOM_MIN, cur - 10);
+  }
+  if (next === cur) {
+    toast(direction > 0 ? i18n.t("app.더_이상_키울_수_없어요") : i18n.t("app.더_이상_줄일_수_없어요"));
+    return cur;
+  }
+  return applyEditorViewZoom(next, { anchor });
+}
+
+function showEditorViewZoomMenu() {
+  const menu = $("editorViewZoomMenu");
+  const btn = $("editorViewZoomButton");
+  if (!menu || !btn) return;
+  hideEditorViewZoomOtherForm();
+  syncEditorViewZoomChrome();
+  const rect = btn.getBoundingClientRect();
+  menu.classList.remove("hidden");
+  btn.setAttribute("aria-expanded", "true");
+  const pad = 8;
+  const size = menu.getBoundingClientRect();
+  const width = size.width || 148;
+  const height = size.height || 360;
+  let left = rect.left;
+  let top = rect.top - height - 4;
+  if (top < pad) top = Math.min(window.innerHeight - height - pad, rect.bottom + 4);
+  if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
+  if (left < pad) left = pad;
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(Math.max(pad, top))}px`;
+}
+
+function toggleEditorViewZoomMenu() {
+  if (isEditorViewZoomMenuOpen()) hideEditorViewZoomMenu();
+  else showEditorViewZoomMenu();
+}
+
+function showEditorViewZoomOtherForm() {
+  const form = $("editorViewZoomOtherForm");
+  const input = $("editorViewZoomOtherInput");
+  if (!form) return;
+  form.classList.remove("hidden");
+  form.hidden = false;
+  if (input) {
+    input.value = String(clampEditorViewZoom(editorViewZoom));
+    window.setTimeout(() => {
+      input.focus();
+      input.select();
+    }, 0);
+  }
+}
+
+function applyEditorViewZoomOther() {
+  const input = $("editorViewZoomOtherInput");
+  const raw = String(input?.value || "").trim();
+  const n = Number(raw);
+  if (!Number.isFinite(n)) {
+    toast(i18n.t("index.배율은_n_m_사이로", { min: EDITOR_VIEW_ZOOM_MIN, max: EDITOR_VIEW_ZOOM_MAX }));
+    return false;
+  }
+  const zoom = clampEditorViewZoom(n);
+  if (zoom !== Math.round(n)) {
+    toast(i18n.t("index.배율은_n_m_사이로", { min: EDITOR_VIEW_ZOOM_MIN, max: EDITOR_VIEW_ZOOM_MAX }));
+  }
+  applyEditorViewZoom(zoom);
+  hideEditorViewZoomMenu();
+  return true;
+}
+
+function isEditorViewZoomSurface(target) {
+  return Boolean(
+    target?.closest?.(
+      "#manuscriptPage, #sceneContent, #manuscriptStatusWrap, #editorViewZoomButton, #editorViewZoomMenu, .writing-block.manuscript-frame",
+    ),
+  );
+}
+
+function onEditorViewZoomWheel(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (!isEditorViewZoomSurface(event.target)) return;
+  event.preventDefault();
+  event.stopPropagation();
+  const dy = Number(event.deltaY) || 0;
+  if (!dy) return;
+  if (event.deltaMode === 1 || event.deltaMode === 2) {
+    editorViewZoomWheelAcc = 0;
+    nudgeEditorViewZoom(dy > 0 ? -1 : 1, event);
+    return;
+  }
+  editorViewZoomWheelAcc += dy;
+  if (Math.abs(editorViewZoomWheelAcc) < 48) return;
+  const dir = editorViewZoomWheelAcc > 0 ? -1 : 1;
+  editorViewZoomWheelAcc = 0;
+  nudgeEditorViewZoom(dir, event);
+}
+
+function onEditorViewZoomKeydown(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  const inField = event.target.closest?.("input, textarea, select");
+  if (inField && event.target.id !== "editorViewZoomOtherInput") return;
+  const active = document.activeElement;
+  const inEditor = isEditorViewZoomSurface(event.target)
+    || active?.id === "sceneContent"
+    || active?.classList?.contains("rich-editor");
+  if (!inEditor) return;
+  const key = event.key;
+  if (key === "+" || key === "=") {
+    event.preventDefault();
+    nudgeEditorViewZoom(1);
+  } else if (key === "-" || key === "_") {
+    event.preventDefault();
+    nudgeEditorViewZoom(-1);
+  } else if (key === "0") {
+    event.preventDefault();
+    applyEditorViewZoom(100);
+  }
+}
+
+function setupEditorViewZoom() {
+  if (setupEditorViewZoom._bound) {
+    applyEditorViewZoom(loadEditorViewZoom(), { persist: false, preserveScroll: false });
+    return;
+  }
+  setupEditorViewZoom._bound = true;
+  editorViewZoom = loadEditorViewZoom();
+  applyEditorViewZoom(editorViewZoom, { persist: false, preserveScroll: false });
+
+  $("editorViewZoomButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleEditorViewZoomMenu();
+  });
+  $("editorViewZoomMenu")?.addEventListener("click", (event) => {
+    const preset = event.target.closest?.("[data-editor-zoom]");
+    if (preset) {
+      event.preventDefault();
+      applyEditorViewZoom(preset.getAttribute("data-editor-zoom"));
+      hideEditorViewZoomMenu();
+      return;
+    }
+    if (event.target.closest?.("#editorViewZoomOtherButton")) {
+      event.preventDefault();
+      event.stopPropagation();
+      showEditorViewZoomOtherForm();
+    }
+  });
+  $("editorViewZoomOtherForm")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    applyEditorViewZoomOther();
+  });
+  document.addEventListener("click", (event) => {
+    if (!isEditorViewZoomMenuOpen()) return;
+    if (event.target.closest?.("#editorViewZoomMenu, #editorViewZoomButton")) return;
+    hideEditorViewZoomMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && isEditorViewZoomMenuOpen()) {
+      event.preventDefault();
+      hideEditorViewZoomMenu();
+    }
+  });
+  window.addEventListener("resize", hideEditorViewZoomMenu);
+  document.addEventListener("wheel", onEditorViewZoomWheel, { passive: false, capture: true });
+  document.addEventListener("keydown", onEditorViewZoomKeydown);
 }
 
 function updateEditorPlaceholder(editorEl = null) {
@@ -6175,9 +6461,21 @@ function hideFormatColorPalette() {
   formatPaletteTarget = "editor";
 }
 
+function resolveToolbarOverflowAnchor(el) {
+  if (!el || typeof el.closest !== "function") return el;
+  const parked = el.classList?.contains("is-toolbar-overflowed")
+    ? el
+    : el.closest(".is-toolbar-overflowed");
+  if (!parked) return el;
+  const row = parked.closest(".format-toolbar-row");
+  const btn = row?.querySelector(":scope > .format-overflow-slot > .format-overflow-btn");
+  return btn && !btn.hidden ? btn : el;
+}
+
 function showFormatColorPalette(kind, anchorEl, editorEl = null, options = {}) {
   const palette = $("formatColorPalette");
   if (!palette || !anchorEl) return;
+  anchorEl = resolveToolbarOverflowAnchor(anchorEl);
   if (typeof setActiveTooltip === "function") setActiveTooltip("color-palette");
   formatPaletteKind = kind;
   formatPaletteTarget = options.target === "tory-chat" ? "tory-chat" : "editor";
@@ -6541,6 +6839,7 @@ function hideFormatListPalette() {
 function showFormatListPalette(anchorBtn, editor = null) {
   const palette = $("formatListPalette");
   if (!palette || !anchorBtn) return;
+  anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
   if (typeof setActiveTooltip === "function") setActiveTooltip("list-palette");
   hideFormatColorPalette?.();
   hideFormatSpecialPalette?.();
@@ -6669,6 +6968,7 @@ function hideFormatSpecialPalette() {
 function showFormatSpecialPalette(anchorBtn, editor = null) {
   const palette = $("formatSpecialPalette");
   if (!palette || !anchorBtn) return;
+  anchorBtn = resolveToolbarOverflowAnchor(anchorBtn);
   hideFormatColorPalette?.();
   hideFormatListPalette?.();
   formatSpecialPaletteEditor = editor || getActiveRichEditor() || $("sceneContent");
@@ -7403,11 +7703,12 @@ const GENRE_CLUSTERS = [
     status: "active",
     subGenres: [
       { key: "fantasy", labelKey: "app.판타지", group: "male" },
-      { key: "urban", labelKey: "app.현대판타지", group: "male" },
       { key: "martial", labelKey: "app.무협", group: "male" },
       { key: "historical", labelKey: "app.역사_시대", group: "male" },
       { key: "sports", labelKey: "app.스포츠", group: "male" },
       { key: "romance", labelKey: "app.로맨스", group: "female" },
+      { key: "romfant", labelKey: "app.로맨스_판타지", group: "female" },
+      { key: "female_fantasy", labelKey: "app.판타지", group: "female" },
     ],
   },
   {
@@ -7452,15 +7753,14 @@ const GENRE_CLUSTERS = [
 const CLUSTER_SUBGENRE_MAP = {
   webnovel: {
     fantasy: { purpose: "web_novel", main: "fantasy", sub: "" },
-    urban: { purpose: "web_novel", main: "urban", sub: "" },
     martial: { purpose: "web_novel", main: "martial", sub: "" },
     historical: { purpose: "web_novel", main: "historical", sub: "" },
     sports: { purpose: "web_novel", main: "sports", sub: "" },
     romance: { purpose: "web_novel", main: "romance", sub: "" },
-    romfant: { purpose: "web_novel", main: "romance", sub: "romfant" },
+    romfant: { purpose: "web_novel", main: "romfant", sub: "" },
+    female_fantasy: { purpose: "web_novel", main: "female_fantasy", sub: "" },
     bl: { purpose: "web_novel", main: "romance", sub: "blgl" },
     gl: { purpose: "web_novel", main: "romance", sub: "blgl" },
-    female_fantasy: { purpose: "web_novel", main: "romance", sub: "romfant" },
     male_fantasy: { purpose: "web_novel", main: "fantasy", sub: "" },
   },
   genre_literature: {
@@ -7653,20 +7953,23 @@ const GENRE_DETAIL_LABEL_KEYS = {
   oriental_romfant: "app.동양로판",
   alt_history: "app.대체역사",
   murim: "app.무협",
+  murim_classic: "app.정통무협",
   urban: "app.현대판타지",
   hidden_world: "app.어반판타지",
   traditional: "app.정통판타지",
   sports: "app.스포츠물",
+  isekai: "app.이세계판타지",
 };
+const WEB_NOVEL_FANTASY_MALE_DETAILS = ["traditional", "urban", "isekai", "hidden_world"];
 const GENRE_DETAIL_KEYS_BY_MAIN_SUB = {
   "romance|modern": ["historical"],
   "romance|romfant": ["oriental_romfant"],
-  "fantasy|male": ["alt_history", "murim", "urban", "hidden_world", "sports"],
+  "fantasy|male": [...WEB_NOVEL_FANTASY_MALE_DETAILS, "murim", "murim_classic", "alt_history", "sports"],
 };
 const GENRE_DETAIL_KEYS_BY_CLUSTER_SUB = {
   romance: ["historical"],
   romfant: ["oriental_romfant"],
-  male_fantasy: ["alt_history", "murim", "urban", "hidden_world", "sports"],
+  male_fantasy: WEB_NOVEL_FANTASY_MALE_DETAILS,
 };
 
 function genreDetailLabel(key) {
@@ -7749,11 +8052,21 @@ function readModalGenreDetail(prefix) {
   return String(select.value || "").trim();
 }
 
-function inferClusterSubKey(clusterId, mainGenre, subGenre) {
+function inferClusterSubKey(clusterId, mainGenre, subGenre, genreDetail) {
   const cluster = normalizeClusterId(clusterId);
   const mapping = CLUSTER_SUBGENRE_MAP[cluster] || {};
   const main = String(mainGenre || "").trim();
   const sub = String(subGenre || "").trim();
+  const detail = String(genreDetail || "").trim();
+  if (cluster === "webnovel" && main === "fantasy" && (sub === "male" || sub === "") && isWebNovelMurimDetail(detail)) {
+    return "martial";
+  }
+  if (cluster === "webnovel" && main === "fantasy" && (sub === "male" || sub === "") && detail === "alt_history") {
+    return "historical";
+  }
+  if (cluster === "webnovel" && main === "fantasy" && (sub === "male" || sub === "") && detail === "sports") {
+    return "sports";
+  }
   if (cluster === "genre_literature") {
     if (
       main === "mystery_detective"
@@ -7838,7 +8151,17 @@ function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
       $(`${prefix}SubGenreLabel`).textContent = fictionDetailGenreLabel();
     }
     subWrap?.classList.remove("hidden");
-    const prevSub = opts.keepSub ? subSelect.value : (opts.sub || mapped.sub || "");
+    let prevSub = opts.keepSub ? subSelect.value : (opts.sub || mapped.sub || "");
+    if (
+      mapped?.main === "fantasy"
+      && (prevSub === "male" || prevSub === "")
+      && isWebNovelFantasyMaleDetail(opts.genre_detail)
+    ) {
+      prevSub = opts.genre_detail;
+    }
+    if (mapped?.main === "martial" && isWebNovelMurimDetail(opts.genre_detail)) {
+      prevSub = opts.genre_detail;
+    }
     subSelect.innerHTML = groupedSelectOptionsHtml(details, i18n.t("app.세부_장르를_선택해_주세요"));
     subSelect.value = details.some((item) => item.key === prevSub) ? prevSub : "";
     subSelect.required = true;
@@ -8048,51 +8371,77 @@ const FAIRY_TALE_SUBS = [
   { key: "other", label: i18n.t('app.기타') },
 ];
 
-/** 19금 is for web novel / genre literature / literature */
+/** 19금 is independent of genre. Hidden only for children's fairy tales. */
 function purposeAllowsAdult19(purpose = state.projectPurpose) {
   const p = canonicalizePurposeKey(purpose, state.mainGenre);
-  return p === "web_novel" || p === "genre_literature" || p === "literature";
+  return p !== "fairy_tale";
 }
 
-function withAdult19Option(subs) {
-  const list = Array.isArray(subs) ? [...subs] : [];
-  if (!purposeAllowsAdult19()) {
-    return list.filter((g) => g.key !== "adult19");
-  }
-  if (list.some((g) => g.key === "adult19")) return list;
-  // Insert before "기타" when present
-  const otherIdx = list.findIndex((g) => g.key === "other");
-  if (otherIdx >= 0) {
-    list.splice(otherIdx, 0, ADULT19);
-    return list;
-  }
-  list.push(ADULT19);
-  return list;
+function clusterAllowsAdult19(clusterId) {
+  const id = normalizeClusterId(clusterId);
+  return id !== "fairytale";
+}
+
+function isAdult19Rating(value) {
+  const key = String(value || "").trim().toLowerCase();
+  return key === "19" || key === "adult19" || key.startsWith("19_");
+}
+
+function adult19RatingValue(on, current = state.contentRating) {
+  if (!on) return "";
+  const key = String(current || "").trim();
+  return isAdult19Rating(key) ? key : "19_soft";
+}
+
+function readAdult19Toggle(id = "adult19Toggle") {
+  return Boolean($(id)?.checked);
 }
 
 /* Header main/sub genre taxonomy (keys stored on project; free text uses custom: prefix) */
 const GENRE_CUSTOM_PREFIX = "custom:";
-const ADULT19 = { key: "adult19", label: i18n.t('app.19금') };
+const ADULT19_RATING_ON = "19_soft";
 const WEB_NOVEL_MAIN_GENRES = [
   { key: "fantasy", label: i18n.t("app.판타지"), group: "male" },
-  { key: "urban", label: i18n.t("app.현대판타지"), group: "male" },
   { key: "martial", label: i18n.t("app.무협"), group: "male" },
   { key: "historical", label: i18n.t("app.역사_시대"), group: "male" },
   { key: "sports", label: i18n.t("app.스포츠"), group: "male" },
   { key: "romance", label: i18n.t("app.로맨스"), group: "female" },
+  { key: "romfant", label: i18n.t("app.로맨스_판타지"), group: "female" },
+  { key: "female_fantasy", label: i18n.t("app.판타지"), group: "female" },
   { key: "other", label: i18n.t("app.기타") },
 ];
 const WEB_NOVEL_DETAIL_GENRES = {
   fantasy: [
     { key: "traditional", label: i18n.t("app.정통판타지") },
-    { key: "urban", label: i18n.t("app.현대_판타지") },
-    { key: "isekai", label: i18n.t("app.이세계_판타지") },
+    { key: "urban", label: i18n.t("app.현대판타지") },
+    { key: "isekai", label: i18n.t("app.이세계판타지") },
+    { key: "hidden_world", label: i18n.t("app.어반판타지") },
   ],
   romance: [
     { key: "modern", label: i18n.t("app.현대_로맨스") },
-    { key: "period", label: i18n.t("app.사극_로맨스") },
-    { key: "romfant", label: i18n.t("app.로맨스_판타지") },
-    { key: "blgl", label: "BL / GL" },
+    { key: "period_east", label: i18n.t("app.시대_로맨스_동양") },
+    { key: "period_west", label: i18n.t("app.시대_로맨스_서양") },
+    { key: "bl", label: i18n.t("app.BL") },
+    { key: "gl", label: i18n.t("app.GL") },
+    { key: "other", label: i18n.t("app.기타") },
+  ],
+  romfant: [
+    { key: "modern", label: i18n.t("app.현대_로판") },
+    { key: "period_east", label: i18n.t("app.시대_로판_동양") },
+    { key: "period_west", label: i18n.t("app.시대_로판_서양") },
+    { key: "bl", label: i18n.t("app.BL") },
+    { key: "gl", label: i18n.t("app.GL") },
+    { key: "other", label: i18n.t("app.기타") },
+  ],
+  female_fantasy: [
+    { key: "dimension", label: i18n.t("app.차원이동") },
+    { key: "modern", label: i18n.t("app.현대물") },
+    { key: "period_east", label: i18n.t("app.시대물_동양") },
+    { key: "period_west", label: i18n.t("app.시대물_서양") },
+  ],
+  martial: [
+    { key: "murim_classic", label: i18n.t("app.정통무협") },
+    { key: "murim", label: i18n.t("app.신무협") },
   ],
 };
 const GENRE_LITERATURE_MAIN_GENRES = [
@@ -8281,35 +8630,105 @@ function fictionDetailGenreLabel() {
   return i18n.t("app.세부_장르");
 }
 
+function isWebNovelFantasyMaleDetail(key) {
+  return WEB_NOVEL_FANTASY_MALE_DETAILS.includes(String(key || "").trim());
+}
+
+function isWebNovelFantasyMaleStored(main, sub) {
+  const m = String(main || "").trim();
+  const s = String(sub || "").trim();
+  return m === "fantasy" && (s === "male" || isWebNovelFantasyMaleDetail(s));
+}
+
+function fantasyMaleSubPickerValue(sub, detail) {
+  if (isWebNovelFantasyMaleDetail(detail)) return detail;
+  if (isWebNovelFantasyMaleDetail(sub)) return sub;
+  return "";
+}
+
+function isWebNovelMurimDetail(key) {
+  const value = String(key || "").trim();
+  return value === "murim" || value === "murim_classic";
+}
+
+function isWebNovelAltHistoryDetail(key) {
+  return String(key || "").trim() === "alt_history";
+}
+
+function isWebNovelSportsDetail(key) {
+  return String(key || "").trim() === "sports";
+}
+
 function canonicalizeWebNovelGenre(main, sub, detail) {
   let nextMain = String(main || "").trim();
   let nextSub = String(sub || "").trim();
   const nextDetail = String(detail || "").trim();
+  const adult19 = nextSub === "adult19";
+  if (adult19) nextSub = "";
   if (nextMain === "blgl") {
-    return { main: "romance", sub: nextSub === "adult19" ? "adult19" : "blgl", genre_detail: "" };
+    return { main: "romance", sub: "bl", genre_detail: "", adult19 };
   }
   if (nextMain === "romance") {
-    if (nextSub === "bl" || nextSub === "gl") nextSub = "blgl";
-    if (nextSub === "modern" && nextDetail === "historical") nextSub = "period";
-    if (nextSub === "romfant" && nextDetail === "oriental_romfant") nextSub = "period";
-    return { main: "romance", sub: nextSub, genre_detail: "" };
+    if (nextSub === "blgl") nextSub = "bl";
+    if (nextSub === "period") nextSub = "period_east";
+    if (nextSub === "modern" && nextDetail === "historical") {
+      return { main: "romance", sub: "period_east", genre_detail: "", adult19 };
+    }
+    if (nextSub === "romfant") {
+      return {
+        main: "romfant",
+        sub: nextDetail === "oriental_romfant" ? "period_east" : "period_west",
+        genre_detail: "",
+        adult19,
+      };
+    }
+    return { main: "romance", sub: nextSub, genre_detail: "", adult19 };
+  }
+  if (nextMain === "romfant") {
+    if (nextSub === "blgl") nextSub = "bl";
+    if (nextSub === "period") nextSub = "period_west";
+    if (nextDetail === "oriental_romfant") nextSub = "period_east";
+    return { main: "romfant", sub: nextSub, genre_detail: "", adult19 };
+  }
+  if (nextMain === "female_fantasy") {
+    return { main: "female_fantasy", sub: nextSub, genre_detail: "", adult19 };
+  }
+  if (nextMain === "historical") {
+    return { main: "fantasy", sub: "male", genre_detail: "alt_history", adult19 };
+  }
+  if (nextMain === "sports") {
+    return { main: "fantasy", sub: "male", genre_detail: "sports", adult19 };
+  }
+  if (nextMain === "martial") {
+    const kept = isWebNovelMurimDetail(nextSub)
+      ? nextSub
+      : (isWebNovelMurimDetail(nextDetail) ? nextDetail : "murim");
+    return { main: "fantasy", sub: "male", genre_detail: kept, adult19 };
+  }
+  if (nextMain === "urban") {
+    const kept = isWebNovelFantasyMaleDetail(nextSub)
+      ? nextSub
+      : (isWebNovelFantasyMaleDetail(nextDetail) ? nextDetail : "urban");
+    return { main: "fantasy", sub: "male", genre_detail: kept, adult19 };
   }
   if (nextMain === "fantasy") {
     if (nextSub === "female") {
-      return { main: "romance", sub: "romfant", genre_detail: "" };
+      return { main: "female_fantasy", sub: "period_west", genre_detail: "", adult19 };
     }
-    if (nextSub === "male") {
-      if (nextDetail === "traditional") return { main: "fantasy", sub: "traditional", genre_detail: "" };
-      if (nextDetail === "urban") return { main: "fantasy", sub: "urban", genre_detail: "" };
-      if (nextDetail === "murim") return { main: "martial", sub: "", genre_detail: "" };
-      if (nextDetail === "sports") return { main: "sports", sub: "", genre_detail: "" };
-      if (nextDetail === "alt_history") return { main: "historical", sub: "", genre_detail: "" };
-      if (nextDetail === "hidden_world") return { main: "urban", sub: "", genre_detail: "" };
-      return { main: "fantasy", sub: "", genre_detail: "" };
+    const fromSub = isWebNovelFantasyMaleDetail(nextSub) ? nextSub : "";
+    const fromDetail = (
+      isWebNovelFantasyMaleDetail(nextDetail)
+      || isWebNovelMurimDetail(nextDetail)
+      || isWebNovelAltHistoryDetail(nextDetail)
+      || isWebNovelSportsDetail(nextDetail)
+    ) ? nextDetail : "";
+    if (nextSub === "male" || nextSub === "" || fromSub) {
+      const kept = fromSub || fromDetail;
+      return { main: "fantasy", sub: "male", genre_detail: kept, adult19 };
     }
-    return { main: "fantasy", sub: nextSub, genre_detail: "" };
+    return { main: "fantasy", sub: nextSub, genre_detail: "", adult19 };
   }
-  return { main: nextMain, sub: nextSub, genre_detail: "" };
+  return { main: nextMain, sub: nextSub, genre_detail: "", adult19 };
 }
 
 function subGenreChoicesForMain(mainKey) {
@@ -8398,7 +8817,8 @@ function settingsGenreSummaryLine() {
     i18n.t("app.하위_장르"),
     i18n.t("app.서브_장르"),
   ]);
-  return [purposeText, mainText, subText, detailText]
+  const ratingText = isAdult19Rating(state.contentRating) ? i18n.t("app.19금") : "";
+  return [purposeText, mainText, subText, detailText, ratingText]
     .map((part) => String(part || "").trim())
     .filter((part) => part && !skip.has(part));
 }
@@ -8454,6 +8874,41 @@ function updateGenrePickerVisibility() {
     $("mainGenreCustom")?.classList.add("hidden");
     $("subGenreCustom")?.classList.add("hidden");
   }
+  syncAdult19ToggleFromState();
+}
+
+function syncAdult19ToggleFromState() {
+  const wrap = $("adult19ToggleWrap");
+  const toggle = $("adult19Toggle");
+  const allow = purposeAllowsAdult19() && Boolean(state.projectId);
+  if (wrap) wrap.classList.toggle("hidden", !allow);
+  if (toggle) {
+    toggle.disabled = !allow;
+    toggle.checked = allow && isAdult19Rating(state.contentRating);
+  }
+}
+
+function syncModalAdult19Toggle(prefix, clusterId, purpose) {
+  const wrap = $(`${prefix}Adult19Wrap`);
+  const toggle = $(`${prefix}Adult19Toggle`);
+  const allow = clusterId
+    ? clusterAllowsAdult19(clusterId)
+    : purposeAllowsAdult19(purpose);
+  if (wrap) wrap.classList.toggle("hidden", !allow);
+  if (toggle) toggle.disabled = !allow;
+}
+
+function resetModalAdult19(prefix) {
+  const toggle = $(`${prefix}Adult19Toggle`);
+  if (toggle) toggle.checked = false;
+}
+
+function readModalAdult19(prefix, clusterId, purpose) {
+  const allow = clusterId
+    ? clusterAllowsAdult19(clusterId)
+    : purposeAllowsAdult19(purpose);
+  if (!allow) return "";
+  return adult19RatingValue(readAdult19Toggle(`${prefix}Adult19Toggle`), "");
 }
 
 function normalizePurposeKey(purpose) {
@@ -8662,10 +9117,8 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
     subs = WORK_LANGUAGES;
     listKey = "lang";
   } else if (mode === "fiction") {
-    // 일반소설 · 웹소설 · 단편 only; 19금 available in subs
     listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
-    const baseSubs = subGenreChoicesForMain(listKey);
-    subs = withAdult19Option(baseSubs);
+    subs = subGenreChoicesForMain(listKey);
   } else {
     subs = [];
     listKey = "";
@@ -8695,11 +9148,8 @@ function fillSubGenreSelect(mainKey = "", selectedStored = "") {
     selectedStored,
     mode,
   );
-  // adult19 is always valid if present in list
   if ([...select.options].some((o) => o.value === selectValue)) select.value = selectValue;
-  else if (selectedStored === "adult19" && [...select.options].some((o) => o.value === "adult19")) {
-    select.value = "adult19";
-  } else select.value = "";
+  else select.value = "";
   lockHeaderGenreSelects();
   const subCustom = $("subGenreCustom");
   if (subCustom) {
@@ -8721,6 +9171,18 @@ function fillGenreDetailSelect(mainKey = "", selectedSub = "", selectedStored = 
   lockHeaderGenreSelects();
 }
 
+function fillGenreDetailSelectForUi(mainKey = "", subKey = "", storedDetail = "") {
+  if (isWebNovelPurpose() && isWebNovelFantasyMaleStored(mainKey, subKey)) {
+    fillGenreDetailSelect("fantasy", "male", storedDetail || "");
+    return;
+  }
+  if (isWebNovelPurpose()) {
+    fillGenreDetailSelect("", "", "");
+    return;
+  }
+  fillGenreDetailSelect(mainKey || "", subKey || "", storedDetail || "");
+}
+
 function readGenreValuesFromUi() {
   const mainSelect = $("mainGenreSelect")?.value || "";
   const subSelect = $("subGenreSelect")?.value || "";
@@ -8734,11 +9196,20 @@ function readGenreValuesFromUi() {
   if (subSelect === "other") {
     sub = subCustom ? toCustomGenreValue(subCustom) : "other";
   }
-  const detail = isWebNovelPurpose()
-    ? ""
-    : normalizeGenreDetailKey(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+  const keepFantasyMale = isWebNovelPurpose() && isWebNovelFantasyMaleStored(main, sub);
+  const detail = (!isWebNovelPurpose() || keepFantasyMale)
+    ? normalizeGenreDetailKey(
+      keepFantasyMale ? "fantasy" : main,
+      keepFantasyMale ? "male" : sub,
+      $("genreDetailSelect")?.value || state.genreDetail || "",
+    )
+    : "";
   if (isWebNovelPurpose()) {
-    return canonicalizeWebNovelGenre(main, sub, $("genreDetailSelect")?.value || state.genreDetail || "");
+    return canonicalizeWebNovelGenre(
+      main,
+      sub,
+      keepFantasyMale ? (detail || $("genreDetailSelect")?.value || state.genreDetail || "") : "",
+    );
   }
   return { main, sub, genre_detail: detail };
 }
@@ -8802,19 +9273,67 @@ function syncGenrePickerFromState() {
     return;
   }
   // fiction
+  if (state.subGenre === "adult19") {
+    state.subGenre = "";
+    if (!isAdult19Rating(state.contentRating)) state.contentRating = ADULT19_RATING_ON;
+  }
   if (isWebNovelPurpose()) {
     const canon = canonicalizeWebNovelGenre(state.mainGenre, state.subGenre, state.genreDetail);
     state.mainGenre = canon.main;
     state.subGenre = canon.sub;
     state.genreDetail = canon.genre_detail;
+    if (canon.adult19 && !isAdult19Rating(state.contentRating)) {
+      state.contentRating = ADULT19_RATING_ON;
+    }
   }
-  const mainKeyForSubs = resolveMainGenreSelectValue(state.mainGenre || "", mode);
-  const subListKey = isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || "");
-  fillSubGenreSelect(subListKey, state.subGenre || "");
-  fillGenreDetailSelect(
-    isWebNovelPurpose() ? "" : subListKey,
-    isWebNovelPurpose() ? "" : (state.subGenre || ""),
-    isWebNovelPurpose() ? "" : (state.genreDetail || ""),
+  const murimPicker = isWebNovelPurpose()
+    && state.mainGenre === "fantasy"
+    && state.subGenre === "male"
+    && isWebNovelMurimDetail(state.genreDetail);
+  const altHistoryPicker = isWebNovelPurpose()
+    && state.mainGenre === "fantasy"
+    && state.subGenre === "male"
+    && isWebNovelAltHistoryDetail(state.genreDetail);
+  const sportsPicker = isWebNovelPurpose()
+    && state.mainGenre === "fantasy"
+    && state.subGenre === "male"
+    && isWebNovelSportsDetail(state.genreDetail);
+  if (murimPicker) {
+    fillMainGenreSelect("martial");
+  } else if (altHistoryPicker) {
+    fillMainGenreSelect("historical");
+  } else if (sportsPicker) {
+    fillMainGenreSelect("sports");
+  }
+  const mainKeyForSubs = murimPicker
+    ? "martial"
+    : (altHistoryPicker
+      ? "historical"
+      : (sportsPicker
+        ? "sports"
+        : resolveMainGenreSelectValue(state.mainGenre || "", mode)));
+  const subListKey = murimPicker
+    ? "martial"
+    : (altHistoryPicker
+      ? "historical"
+      : (sportsPicker
+        ? "sports"
+        : (isKnownMainGenre(state.mainGenre) ? state.mainGenre : (mainKeyForSubs || ""))));
+  const fantasyMale = isWebNovelPurpose() && isWebNovelFantasyMaleStored(state.mainGenre, state.subGenre);
+  fillSubGenreSelect(
+    subListKey,
+    murimPicker
+      ? state.genreDetail
+      : (altHistoryPicker || sportsPicker
+        ? ""
+        : (fantasyMale
+          ? fantasyMaleSubPickerValue(state.subGenre, state.genreDetail)
+          : (state.subGenre || ""))),
+  );
+  fillGenreDetailSelectForUi(
+    fantasyMale ? "fantasy" : (isWebNovelPurpose() ? "" : subListKey),
+    fantasyMale ? "male" : (isWebNovelPurpose() ? "" : (state.subGenre || "")),
+    fantasyMale ? (state.genreDetail || "") : (isWebNovelPurpose() ? "" : (state.genreDetail || "")),
   );
   lockHeaderGenreSelects();
   updateGenreCustomVisibility();
@@ -8860,6 +9379,9 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   if (liveProjectId() !== projectId) return;
   const { main, sub, genre_detail } = readGenreValuesFromUi();
   const clusterId = inferClusterId(state.projectPurpose, main, sub);
+  const content_rating = purposeAllowsAdult19()
+    ? adult19RatingValue(readAdult19Toggle())
+    : "";
   await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
     body: JSON.stringify({
@@ -8867,12 +9389,14 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
       sub_genre: sub,
       cluster_id: clusterId,
       genre_detail,
+      content_rating,
     }),
   });
   if (liveProjectId() !== projectId) return;
   state.mainGenre = main;
   state.subGenre = sub;
   state.genreDetail = genre_detail;
+  state.contentRating = content_rating;
   state.clusterId = clusterId;
   const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
@@ -8880,6 +9404,7 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
     project.sub_genre = sub;
     project.cluster_id = clusterId;
     project.genre_detail = genre_detail;
+    project.content_rating = content_rating;
   }
   syncGenreDisplayButtons();
   if (typeof renderSettingsCodex === "function") {
@@ -8999,10 +9524,7 @@ function getGenreMenuOptions(kind = "main") {
   }
   const mainKey = $("mainGenreSelect")?.value || "";
   const listKey = isKnownMainGenre(mainKey) ? mainKey : (mainKey ? "other" : "");
-  const baseSubs = subGenreChoicesForMain(listKey);
-  const options = typeof withAdult19Option === "function"
-    ? withAdult19Option(baseSubs)
-    : baseSubs;
+  const options = subGenreChoicesForMain(listKey);
   return {
     title: mainKey ? i18n.t("app.서브_장르_선택") : i18n.t("app.먼저_메인_장르를_선택하세요"),
     options: listKey ? options : [],
@@ -9098,7 +9620,11 @@ function applyMainGenreChoice(mainKey) {
   state.subGenre = "";
   state.genreDetail = "";
   fillSubGenreSelect(next, "");
-  fillGenreDetailSelect(isWebNovelPurpose() ? "" : next, "", "");
+  fillGenreDetailSelectForUi(
+    isWebNovelPurpose() && next === "fantasy" ? "fantasy" : (isWebNovelPurpose() ? "" : next),
+    isWebNovelPurpose() && next === "fantasy" ? "male" : "",
+    "",
+  );
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -9117,10 +9643,21 @@ function applySubGenreChoice(subKey) {
   if (!confirmGenreChange()) return;
 
   select.value = next;
-  state.subGenre = next === "other" ? "other" : next;
   const mainKey = $("mainGenreSelect")?.value || state.mainGenre || "";
-  state.genreDetail = "";
-  fillGenreDetailSelect(isWebNovelPurpose() ? "" : mainKey, isWebNovelPurpose() ? "" : (next === "other" ? "other" : next), "");
+  if (isWebNovelPurpose()) {
+    const canon = canonicalizeWebNovelGenre(mainKey, next, "");
+    state.mainGenre = canon.main;
+    state.subGenre = canon.sub;
+    state.genreDetail = canon.genre_detail;
+    if (canon.main === "fantasy" && canon.sub === "male") {
+      select.value = canon.genre_detail || next;
+    }
+    fillGenreDetailSelectForUi(canon.main, canon.sub, canon.genre_detail);
+  } else {
+    state.subGenre = next === "other" ? "other" : next;
+    state.genreDetail = "";
+    fillGenreDetailSelect(mainKey, next === "other" ? "other" : next, "");
+  }
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
   if (next === "other") {
@@ -9135,9 +9672,23 @@ function applyGenreDetailChoice(detailKey) {
   if (!state.projectId) return;
   const mainKey = $("mainGenreSelect")?.value || state.mainGenre || "";
   const subKey = $("subGenreSelect")?.value || state.subGenre || "";
-  const next = normalizeGenreDetailKey(mainKey, subKey, detailKey);
+  const fantasyMale = isWebNovelFantasyMaleStored(mainKey, subKey);
+  const next = normalizeGenreDetailKey(
+    fantasyMale ? "fantasy" : mainKey,
+    fantasyMale ? "male" : subKey,
+    detailKey,
+  );
   if (state.genreDetail === next && ($("genreDetailSelect")?.value || "") === next) return;
-  fillGenreDetailSelect(mainKey, subKey, next);
+  fillGenreDetailSelectForUi(
+    fantasyMale ? "fantasy" : mainKey,
+    fantasyMale ? "male" : subKey,
+    next,
+  );
+  if (fantasyMale) {
+    state.subGenre = "male";
+    const subSelect = $("subGenreSelect");
+    if (subSelect) subSelect.value = next;
+  }
   syncGenreDisplayButtons();
   persistProjectGenre({ quiet: false }).catch(handleError);
 }
@@ -9176,6 +9727,15 @@ function setupGenrePicker() {
   };
   bindDisplay("mainGenreDisplay", "main");
   bindDisplay("subGenreDisplay", "sub");
+
+  const adultToggle = $("adult19Toggle");
+  if (adultToggle && adultToggle.dataset.adult19Bound !== "1") {
+    adultToggle.dataset.adult19Bound = "1";
+    adultToggle.addEventListener("change", () => {
+      persistProjectGenre({ quiet: true }).catch(handleError);
+      updateSettingsGenreSummary();
+    });
+  }
 
   $("genreContextMenu")?.addEventListener("click", (event) => {
     const item = event.target.closest?.("[data-genre-kind]");
@@ -10331,6 +10891,8 @@ async function loadProject() {
   state.mainGenre = outline.project?.main_genre || fromList?.main_genre || "";
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
   state.genreDetail = outline.project?.genre_detail || fromList?.genre_detail || "";
+  state.contentRating = outline.project?.content_rating || fromList?.content_rating || "";
+  if (fromList) fromList.content_rating = state.contentRating;
   state.completionGuideShown = Boolean(Number(outline.project?.completion_guide_shown))
     || Boolean(Number(fromList?.completion_guide_shown))
     || (completionGuideShownThisSession.has(Number(projectIdAtStart)));
@@ -17544,7 +18106,6 @@ function isDockRailItemActive(itemId) {
 }
 
 const AI_DOCK_PANEL_ITEMS = new Set([
-  "priority",
   "toryTalk",
 ]);
 const AI_DOCK_FLOAT_ITEMS = new Set([
@@ -24007,6 +24568,7 @@ function clearFeatureDropdownPlacement(menu) {
 
 function placeFeatureDropdown(menu, anchor) {
   if (!menu || !anchor) return;
+  anchor = resolveToolbarOverflowAnchor(anchor);
   const rect = anchor.getBoundingClientRect();
   const gap = 6;
   const pad = 8;
@@ -27462,9 +28024,124 @@ function revealAiAssistResult(options = {}) {
       sceneTitle: options.sceneTitle,
     });
   }
+  if (typeof setAiPanelHistoryOpen === "function") setAiPanelHistoryOpen(false);
   requestAnimationFrame(() => {
     $("aiResultWrap")?.scrollIntoView?.({ behavior: "smooth", block: "start" });
   });
+}
+
+let aiPanelHistoryViewId = null;
+
+function isAiPanelHistoryOpen() {
+  return Boolean($("aiResultWrap")?.classList.contains("is-history-view"));
+}
+
+function syncAiPanelHistoryChrome(open) {
+  const wrap = $("aiResultWrap");
+  const pane = $("aiResultHistoryPane");
+  const btn = $("aiResultHistoryButton");
+  const liveLabel = $("aiResultLiveLabel");
+  const histLabel = $("aiResultHistoryLabel");
+  wrap?.classList.toggle("is-history-view", open);
+  if (pane) {
+    pane.classList.toggle("hidden", !open);
+    pane.hidden = !open;
+  }
+  liveLabel?.classList.toggle("hidden", open);
+  histLabel?.classList.toggle("hidden", !open);
+  if (btn) {
+    btn.setAttribute("aria-pressed", open ? "true" : "false");
+    const title = open ? i18n.t("index.현재_결과로") : i18n.t("index.이전_결과_목록");
+    btn.setAttribute("title", title);
+    btn.setAttribute("aria-label", open ? title : i18n.t("index.히스토리"));
+  }
+}
+
+function showAiPanelHistoryListView() {
+  aiPanelHistoryViewId = null;
+  $("aiPanelHistoryList")?.classList.remove("hidden");
+  $("aiPanelHistoryListActions")?.classList.remove("hidden");
+  $("aiResultHistoryPane")?.querySelector(".ai-panel-history-lead")?.classList.remove("hidden");
+  const detail = $("aiPanelHistoryDetail");
+  detail?.classList.add("hidden");
+  if (detail) detail.hidden = true;
+  renderAiPanelHistoryList();
+}
+
+function renderAiPanelHistoryList() {
+  const list = $("aiPanelHistoryList");
+  if (!list) return;
+  if (!state.projectId) {
+    list.innerHTML = String(i18n.t("app.p_class_tory_chat_histo")).replaceAll(
+      "tory-chat-history-empty",
+      "ai-panel-history-empty"
+    );
+    return;
+  }
+  const items = loadAiResultHistory();
+  if (!items.length) {
+    list.innerHTML = String(i18n.t("app.p_class_tory_chat_histo_2")).replaceAll(
+      "tory-chat-history-empty",
+      "ai-panel-history-empty"
+    );
+    return;
+  }
+  list.innerHTML = items.map((item) => {
+    const when = formatAiResultHistoryWhen(item.createdAt);
+    const scene = item.sceneTitle ? escapeHtml(item.sceneTitle) : i18n.t("app.원고");
+    const label = escapeHtml(item.modeLabel || aiModeLabel(item.mode) || i18n.t("app.결과"));
+    const preview = escapeHtml(String(item.text || "").replace(/\s+/g, " ").trim().slice(0, 80));
+    return `
+      <button type="button" class="ai-panel-history-row" data-ai-panel-history="${escapeHtml(item.id)}">
+        <span class="ai-panel-history-when">${escapeHtml(when || "")}</span>
+        <span class="ai-panel-history-title">${label}</span>
+        <span class="ai-panel-history-preview">${scene}${preview ? ` · ${preview}${String(item.text || "").length > 80 ? "…" : ""}` : ""}</span>
+      </button>`;
+  }).join("");
+}
+
+function openAiPanelHistoryDetail(entryId) {
+  const item = loadAiResultHistory().find((entry) => entry.id === entryId);
+  if (!item) {
+    toast(i18n.t("app.결과를_찾지_못했어요"));
+    showAiPanelHistoryListView();
+    return;
+  }
+  aiPanelHistoryViewId = item.id;
+  $("aiPanelHistoryList")?.classList.add("hidden");
+  $("aiPanelHistoryListActions")?.classList.add("hidden");
+  $("aiResultHistoryPane")?.querySelector(".ai-panel-history-lead")?.classList.add("hidden");
+  const detail = $("aiPanelHistoryDetail");
+  if (detail) {
+    detail.classList.remove("hidden");
+    detail.hidden = false;
+  }
+  if ($("aiPanelHistoryDetailTitle")) {
+    const when = formatAiResultHistoryWhen(item.createdAt);
+    const label = item.modeLabel || aiModeLabel(item.mode) || i18n.t("app.결과");
+    $("aiPanelHistoryDetailTitle").textContent = when ? `${label} · ${when}` : label;
+  }
+  const body = $("aiPanelHistoryDetailBody");
+  if (body) body.textContent = item.text || i18n.t("app.내용_없음");
+}
+
+function setAiPanelHistoryOpen(open) {
+  const next = Boolean(open);
+  if (next) {
+    setAiPanelOpen(true);
+    try { setAiPanelTab("tools"); } catch (_) { /* ignore */ }
+    try { setAiHelperPane("result"); } catch (_) { /* ignore */ }
+    $("aiResultWrap")?.classList.remove("hidden");
+    syncAiPanelHistoryChrome(true);
+    showAiPanelHistoryListView();
+  } else {
+    syncAiPanelHistoryChrome(false);
+    aiPanelHistoryViewId = null;
+  }
+}
+
+function toggleAiPanelHistoryView() {
+  setAiPanelHistoryOpen(!isAiPanelHistoryOpen());
 }
 
 function isAiResultHistoryModalOpen() {
@@ -27545,8 +28222,7 @@ function openAiResultHistoryDetail(entryId) {
 
 function openAiResultHistoryModal() {
   $("aiResultHistoryModal")?.classList.add("hidden");
-  try { showAiResultHistoryListView(); } catch (_) { /* ignore */ }
-  openDockFloat("aiHistory");
+  toggleAiPanelHistoryView();
 }
 
 function closeAiResultHistoryModal() {
@@ -27558,16 +28234,21 @@ function closeAiResultHistoryModal() {
   }
 }
 
-function restoreAiResultHistoryEntry(entryId) {
+function restoreAiResultHistoryEntry(entryId, options = {}) {
   const item = loadAiResultHistory().find((entry) => entry.id === entryId);
   if (!item) {
     toast(i18n.t('app.결과를_찾지_못했어요'));
     return;
   }
   if ($("aiResult")) $("aiResult").value = item.text || "";
-  closeAiResultHistoryModal();
+  const fromPanel = Boolean(options.fromPanel);
+  if (fromPanel) {
+    setAiPanelHistoryOpen(false);
+  } else {
+    closeAiResultHistoryModal();
+  }
   revealAiAssistResult({
-    openModal: true,
+    openModal: !fromPanel,
     recordHistory: false,
     mode: item.mode,
   });
@@ -27579,6 +28260,7 @@ function deleteAiResultHistoryEntry(entryId) {
   saveAiResultHistory(list);
   toast(i18n.t('app.기록을_삭제했어요'));
   showAiResultHistoryListView();
+  if (isAiPanelHistoryOpen()) showAiPanelHistoryListView();
 }
 
 function clearAiResultHistory() {
@@ -27591,6 +28273,7 @@ function clearAiResultHistory() {
   saveAiResultHistory([]);
   toast(i18n.t('app.결과_히스토리를_비웠어요'));
   showAiResultHistoryListView();
+  if (isAiPanelHistoryOpen()) showAiPanelHistoryListView();
 }
 
 function setupAiResultModal() {
@@ -27621,14 +28304,44 @@ function setupAiResultModal() {
     });
   }
 
+  const panelWrap = $("aiResultWrap");
+  if (panelWrap && panelWrap.dataset.panelHistoryBound !== "1") {
+    panelWrap.dataset.panelHistoryBound = "1";
+    $("aiResultHistoryButton")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      toggleAiPanelHistoryView();
+    });
+    $("aiPanelHistoryList")?.addEventListener("click", (event) => {
+      const btn = event.target.closest?.("[data-ai-panel-history]");
+      if (!btn) return;
+      openAiPanelHistoryDetail(btn.getAttribute("data-ai-panel-history"));
+    });
+    $("aiPanelHistoryBackButton")?.addEventListener("click", () => showAiPanelHistoryListView());
+    $("aiPanelHistoryRestoreButton")?.addEventListener("click", () => {
+      if (aiPanelHistoryViewId) restoreAiResultHistoryEntry(aiPanelHistoryViewId, { fromPanel: true });
+    });
+    $("aiPanelHistoryDeleteButton")?.addEventListener("click", () => {
+      if (!aiPanelHistoryViewId) return;
+      if (!window.confirm(i18n.t("app.이_결과_기록을_삭제할까요"))) return;
+      deleteAiResultHistoryEntry(aiPanelHistoryViewId);
+    });
+    $("aiPanelHistoryCopyButton")?.addEventListener("click", async () => {
+      const item = loadAiResultHistory().find((entry) => entry.id === aiPanelHistoryViewId);
+      const text = String(item?.text || "").trim();
+      if (!text) return toast(i18n.t("app.복사할_내용이_없어요"));
+      try {
+        await navigator.clipboard.writeText(text);
+        toast(i18n.t("app.결과를_복사했어요"));
+      } catch (_) {
+        toast(i18n.t("app.복사에_실패했어요"));
+      }
+    });
+    $("aiPanelHistoryClearButton")?.addEventListener("click", () => clearAiResultHistory());
+  }
+
   const historyModal = $("aiResultHistoryModal");
   if (!historyModal || historyModal.dataset.bound === "1") return;
   historyModal.dataset.bound = "1";
-
-  $("aiResultHistoryButton")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    openAiResultHistoryModal();
-  });
 
   historyModal.querySelectorAll("[data-close-ai-result-history]").forEach((el) => {
     el.addEventListener("click", (event) => {
@@ -27673,6 +28386,15 @@ function setupAiResultModal() {
     if (isAiResultModalOpen()) {
       event.preventDefault();
       closeAiResultModal();
+      return;
+    }
+    if (isAiPanelHistoryOpen()) {
+      event.preventDefault();
+      if (aiPanelHistoryViewId && !$("aiPanelHistoryDetail")?.classList.contains("hidden")) {
+        showAiPanelHistoryListView();
+      } else {
+        setAiPanelHistoryOpen(false);
+      }
       return;
     }
     if (isAiResultHistoryModalOpen()) {
@@ -28567,11 +29289,9 @@ function setToryPriorityOpen(open, sourceEl) {
   if (next) {
     // First open: place near the launcher if no geometry yet
     if (!popup.style.width || !popup.style.left) {
-      const railBtn = sourceEl?.getBoundingClientRect
-        ? sourceEl
-        : document.querySelector('[data-dock-item="priority"]');
-      const useRail = Boolean(sourceEl) || (typeof isAiPanelOpen === "function" && !isAiPanelOpen());
-      const anchor = (useRail && railBtn) || box;
+      const railBtn = sourceEl?.getBoundingClientRect ? sourceEl : null;
+      const useRail = Boolean(railBtn);
+      const anchor = railBtn || box;
       const rect = anchor.getBoundingClientRect();
       const width = Math.min(380, Math.max(280, window.innerWidth - 32));
       const height = Math.min(360, Math.max(220, Math.round(window.innerHeight * 0.42)));
@@ -35089,7 +35809,8 @@ const KEYWORD_CATALOG = [
       i18n.t('app.이세계'), i18n.t('app.회_빙_환'), i18n.t('app.마법사'), i18n.t('app.이종족'), i18n.t('app.요괴'), i18n.t('app.영지물'), i18n.t('app.게임'), i18n.t('app.기사물'), i18n.t('app.저승'),
       i18n.t('app.황제_황태자'), i18n.t('app.공작_북부공작'), i18n.t('app.기사'), i18n.t('app.성녀'), i18n.t('app.차원이동'), i18n.t('app.상태창_시스템'),
       i18n.t('app.레이드_던전물'), i18n.t('app.아카데미'), i18n.t('app.헌터물'), i18n.t('app.먼치킨_초강력_주인공'), i18n.t('app.천재_재능'),
-      i18n.t('app.착각물'), i18n.t('app.신분상승'), i18n.t('app.대성장'),
+      i18n.t('app.착각물'), i18n.t('app.신분상승'), i18n.t('app.대성장'), i18n.t('app.성좌물'),
+      i18n.t('app.괴물'), i18n.t('app.드래곤'), i18n.t('app.기업_재벌물'), i18n.t('app.여기사'), i18n.t('app.정령'),
     ],
   },
   {
@@ -35100,13 +35821,26 @@ const KEYWORD_CATALOG = [
       i18n.t('app.집착남'), i18n.t('app.다정남'), i18n.t('app.차도남_까칠남'), i18n.t('app.짝사랑'), i18n.t('app.계약연애_계약결혼'), i18n.t('app.사내연애'),
       i18n.t('app.소꿉친구'), i18n.t('app.재회물'), i18n.t('app.삼각관계'), i18n.t('app.잔잔물'), i18n.t('app.애증'), i18n.t('app.후회남'), i18n.t('app.상처녀_상처남'),
       i18n.t('app.달달물'), i18n.t('app.구원물'), i18n.t('app.오해_갈등'), i18n.t('app.힐링'), i18n.t('app.흑막남주'), i18n.t('app.집착남주'),
-      i18n.t('app.능력녀_걸크러시'), i18n.t('app.궁정로맨스'), i18n.t('app.가짜_딸_진짜_딸'),
+      i18n.t('app.능력녀_걸크러시'), i18n.t('app.궁정로맨스'), i18n.t('app.가짜_딸_진짜_딸'), i18n.t('app.로코'), i18n.t('app.츤데레'),
     ],
   },
   {
     key: "blgl",
     title: "BL · GL",
-    tags: ["BL", "GL"],
+    tags: [
+      "BL", "GL",
+      i18n.t('app.미남공'), i18n.t('app.다정공'), i18n.t('app.대형견공'),
+      i18n.t('app.냉혈공'), i18n.t('app.무심공'), i18n.t('app.까칠공'),
+      i18n.t('app.츤데레공'), i18n.t('app.집착공'), i18n.t('app.황제공'),
+      i18n.t('app.절륜공'),
+      i18n.t('app.미남수'), i18n.t('app.병약수'), i18n.t('app.순진수'),
+      i18n.t('app.소심수'), i18n.t('app.헌신수'), i18n.t('app.강수'),
+      i18n.t('app.까칠수'), i18n.t('app.츤데레수'), i18n.t('app.무심수'),
+      i18n.t('app.임신수'),
+      i18n.t('app.오메가버스'), i18n.t('app.가이드버스'), i18n.t('app.OO버스'),
+      i18n.t('app.다공일수'), i18n.t('app.서브공있음'), i18n.t('app.서브수있음'),
+      i18n.t('app.리버스'),
+    ],
   },
   {
     key: "mystery",
@@ -35141,7 +35875,7 @@ const KEYWORD_CATALOG = [
   {
     key: "tone",
     title: i18n.t('app.분위기_소재'),
-    tags: [i18n.t('app.복수물'), i18n.t('app.혐관'), i18n.t('app.정치물'), i18n.t('app.코미디'), i18n.t('app.노예'), i18n.t('app.19금'), i18n.t('app.피폐')],
+    tags: [i18n.t('app.복수물'), i18n.t('app.혐관'), i18n.t('app.정치물'), i18n.t('app.코미디'), i18n.t('app.노예'), i18n.t('app.피폐'), i18n.t('app.연예인_아이돌')],
   },
 ];
 
@@ -56208,6 +56942,7 @@ function refreshManuscriptLayoutAfterChromeChange() {
   if (state.splitEnabled && state.splitMode === "split" && typeof layoutSplitPrimaryPane === "function") {
     requestAnimationFrame(() => layoutSplitPrimaryPane());
   }
+  scheduleToolbarOverflowLayout();
 }
 
 function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = true } = {}) {
@@ -56301,6 +57036,357 @@ function setupManuscriptToolbarCollapse() {
       );
     });
   });
+  setupToolbarOverflow();
+}
+
+function toolbarOverflowRows() {
+  return Array.from(document.querySelectorAll(".format-toolbar-row")).filter((row) => (
+    row.querySelector(":scope > .format-overflow-slot > .format-overflow-btn")
+    && row.querySelector(":scope > .format-toolbar-row-body")
+  ));
+}
+
+function toolbarOverflowParts(row) {
+  const body = row.querySelector(":scope > .format-toolbar-row-body");
+  const slot = row.querySelector(":scope > .format-overflow-slot");
+  const moreBtn = slot?.querySelector(":scope > .format-overflow-btn");
+  const menu = slot?.querySelector(":scope > .format-overflow-menu");
+  return { body, slot, moreBtn, menu };
+}
+
+function toolbarOverflowIconUnits(body) {
+  const list = [];
+  const skip = (el) => (
+    !el
+    || el.classList.contains("format-row-divider")
+    || el.classList.contains("format-icons-divider")
+    || el.classList.contains("format-toolbar-mid-divider")
+    || el.classList.contains("format-overflow-slot")
+    || el.classList.contains("format-overflow-btn")
+    || el.classList.contains("format-overflow-menu")
+  );
+  body.querySelectorAll(":scope > .format-toolbar-cluster").forEach((cluster) => {
+    Array.from(cluster.children).forEach((child) => {
+      if (!skip(child) && !list.includes(child)) list.push(child);
+    });
+  });
+  Array.from(body.children).forEach((child) => {
+    if (child.classList.contains("format-toolbar-cluster")) return;
+    if (!skip(child) && !list.includes(child)) list.push(child);
+  });
+  return list;
+}
+
+function toolbarOverflowFormatUnits(body) {
+  const chips = Array.from(body.querySelectorAll(":scope .format-field-chips > .format-field-chip"));
+  const segs = Array.from(body.querySelectorAll(":scope .format-toolbar-cluster-end > .format-seg"));
+  return [...chips, ...segs];
+}
+
+function toolbarOverflowUnits(row, body) {
+  if (row.classList.contains("format-toolbar-row-icons")) return toolbarOverflowIconUnits(body);
+  return toolbarOverflowFormatUnits(body);
+}
+
+function toolbarBodyOverflows(body) {
+  if (!body || body.clientWidth <= 0) return false;
+  return body.scrollWidth - body.clientWidth > 1;
+}
+
+function syncToolbarOverflowDividers(body) {
+  body.querySelectorAll(":scope .format-row-divider, :scope .format-icons-divider").forEach((div) => {
+    const next = div.nextElementSibling;
+    const prev = div.previousElementSibling;
+    const gone = (el) => !el || el.classList.contains("is-toolbar-overflowed");
+    div.classList.toggle("is-toolbar-overflowed", gone(next) || gone(prev));
+  });
+  const end = body.querySelector(":scope .format-toolbar-cluster-end");
+  const mid = body.querySelector(":scope .format-toolbar-mid-divider");
+  if (end && mid) {
+    const endVisible = Array.from(end.children).some((el) => (
+      !el.classList.contains("is-toolbar-overflowed")
+      && !el.classList.contains("format-row-divider")
+    ));
+    mid.classList.toggle("is-toolbar-overflowed", !endVisible);
+  }
+}
+
+function clearToolbarOverflowState(body) {
+  body.querySelectorAll(".is-toolbar-overflowed").forEach((el) => {
+    el.classList.remove("is-toolbar-overflowed");
+  });
+}
+
+function stripCloneIds(root) {
+  if (!root) return root;
+  if (root.removeAttribute && root.hasAttribute?.("id")) root.removeAttribute("id");
+  root.querySelectorAll?.("[id]").forEach((n) => n.removeAttribute("id"));
+  return root;
+}
+
+function toolbarOverflowSourceButton(unit) {
+  if (!unit) return null;
+  if (unit.matches("button, [data-format], [data-tools-action]")) return unit;
+  return unit.querySelector(":scope > button.format-tool-item, :scope > button[data-format], :scope > [data-tools-action], button");
+}
+
+function toolbarOverflowItemLabel(src) {
+  if (!src) return "";
+  const fromLabel = src.querySelector?.(":scope > .format-tool-label")?.textContent?.replace(/\s+/g, " ").trim();
+  if (fromLabel) return fromLabel;
+  const aria = (src.getAttribute("aria-label") || "").trim();
+  if (aria) return aria;
+  const title = (src.getAttribute("title") || "").split("·")[0].split("(")[0].trim();
+  return title;
+}
+
+function toolbarOverflowItemIcon(src) {
+  const wrap = document.createElement("span");
+  wrap.className = "format-overflow-item-icon";
+  wrap.setAttribute("aria-hidden", "true");
+  const glyph = src.querySelector?.(
+    ":scope > .format-tool-glyph, :scope > .format-hl-icon, :scope > .format-a-icon, :scope > .format-shade-icon, :scope > .format-list-icon, :scope > .format-special-icon, :scope > .format-align-icon, :scope > .format-dan-icon, :scope > svg, :scope > strong, :scope > em, :scope > .u-mark, :scope > .s-mark"
+  );
+  if (glyph) wrap.appendChild(stripCloneIds(glyph.cloneNode(true)));
+  else {
+    const probe = src.cloneNode(true);
+    probe.querySelectorAll("select, .format-tool-label, .format-tool-badge, .view-mode-dropdown").forEach((n) => n.remove());
+    wrap.innerHTML = probe.innerHTML;
+    stripCloneIds(wrap);
+  }
+  return wrap;
+}
+
+function appendToolbarOverflowAction(menu, src, row) {
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.setAttribute("role", "menuitem");
+  btn.className = "format-overflow-item";
+  btn.appendChild(toolbarOverflowItemIcon(src));
+  const lab = document.createElement("span");
+  lab.className = "format-overflow-item-label";
+  lab.textContent = toolbarOverflowItemLabel(src) || (typeof i18n !== "undefined" ? i18n.t("app.더_보기") : "더 보기");
+  btn.appendChild(lab);
+  const activate = () => {
+    closeToolbarOverflowMenu(row);
+    requestAnimationFrame(() => {
+      try { src.click(); } catch (_) { /* ignore */ }
+    });
+  };
+  btn.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    activate();
+  });
+  btn.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    closeToolbarOverflowMenu(row);
+    requestAnimationFrame(() => {
+      src.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+    });
+  });
+  menu.appendChild(btn);
+}
+
+function appendToolbarOverflowChip(menu, chip) {
+  const select = chip.querySelector("select");
+  if (!select) return;
+  const rowEl = document.createElement("div");
+  rowEl.className = "format-overflow-field";
+  rowEl.setAttribute("role", "none");
+  const lab = document.createElement("span");
+  lab.className = "format-overflow-field-label";
+  lab.textContent = (select.getAttribute("aria-label") || select.getAttribute("title") || "").split("(")[0].trim();
+  const clone = select.cloneNode(true);
+  stripCloneIds(clone);
+  clone.value = select.value;
+  clone.addEventListener("change", () => {
+    select.value = clone.value;
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  clone.addEventListener("contextmenu", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    select.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: event.clientX, clientY: event.clientY }));
+  });
+  rowEl.append(lab, clone);
+  menu.appendChild(rowEl);
+}
+
+function fillToolbarOverflowMenu(row, overflowed) {
+  const { menu } = toolbarOverflowParts(row);
+  if (!menu) return;
+  menu.replaceChildren();
+  overflowed.forEach((unit, index) => {
+    const grouped = unit.classList.contains("format-seg") || unit.classList.contains("format-field-chip");
+    if (index > 0 && grouped) {
+      const sep = document.createElement("div");
+      sep.className = "format-overflow-sep";
+      sep.setAttribute("aria-hidden", "true");
+      menu.appendChild(sep);
+    }
+    if (unit.classList.contains("format-field-chip")) {
+      appendToolbarOverflowChip(menu, unit);
+      return;
+    }
+    if (unit.classList.contains("format-seg")) {
+      const buttons = Array.from(unit.querySelectorAll(":scope > .format-btn, :scope > button[data-format]"));
+      buttons.forEach((src, i) => {
+        if (i > 0 && src.classList.contains("format-dan-btn")) {
+          const sep = document.createElement("div");
+          sep.className = "format-overflow-sep";
+          sep.setAttribute("aria-hidden", "true");
+          menu.appendChild(sep);
+        }
+        appendToolbarOverflowAction(menu, src, row);
+      });
+      return;
+    }
+    const src = toolbarOverflowSourceButton(unit);
+    if (src) appendToolbarOverflowAction(menu, src, row);
+  });
+}
+
+function positionToolbarOverflowMenu(row) {
+  const { moreBtn, menu } = toolbarOverflowParts(row);
+  if (!moreBtn || !menu || moreBtn.hidden) return;
+  const rect = moreBtn.getBoundingClientRect();
+  const pad = 8;
+  menu.hidden = false;
+  menu.classList.remove("hidden");
+  const mw = menu.offsetWidth || 188;
+  const mh = menu.offsetHeight || 120;
+  let left = rect.right - mw;
+  let top = rect.bottom + 4;
+  if (left < pad) left = pad;
+  if (left + mw > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - mw - pad);
+  if (top + mh > window.innerHeight - pad) top = Math.max(pad, rect.top - mh - 4);
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function closeToolbarOverflowMenu(row) {
+  const rows = row ? [row] : toolbarOverflowRows();
+  rows.forEach((r) => {
+    const { moreBtn, menu } = toolbarOverflowParts(r);
+    if (moreBtn) moreBtn.setAttribute("aria-expanded", "false");
+    if (menu) {
+      menu.classList.add("hidden");
+      menu.hidden = true;
+    }
+  });
+}
+
+function toggleToolbarOverflowMenu(row) {
+  const { moreBtn, menu } = toolbarOverflowParts(row);
+  if (!moreBtn || !menu || moreBtn.hidden) return;
+  const open = moreBtn.getAttribute("aria-expanded") === "true";
+  closeToolbarOverflowMenu();
+  if (open) return;
+  moreBtn.setAttribute("aria-expanded", "true");
+  hideFormatColorPalette?.();
+  hideFormatListPalette?.();
+  hideFormatSpecialPalette?.();
+  if (typeof closeViewModeMenu === "function") closeViewModeMenu();
+  if (typeof closeAnalyzeMenu === "function") closeAnalyzeMenu();
+  positionToolbarOverflowMenu(row);
+}
+
+function layoutToolbarOverflowRow(row) {
+  if (!row || row.classList.contains("is-collapsed") || row.hidden) return;
+  const { body, moreBtn } = toolbarOverflowParts(row);
+  if (!body || !moreBtn) return;
+  const keepOpen = moreBtn.getAttribute("aria-expanded") === "true";
+  const units = toolbarOverflowUnits(row, body);
+  clearToolbarOverflowState(body);
+  moreBtn.hidden = true;
+  row.classList.remove("has-toolbar-overflow");
+  syncToolbarOverflowDividers(body);
+
+  if (!toolbarBodyOverflows(body)) {
+    fillToolbarOverflowMenu(row, []);
+    if (keepOpen) closeToolbarOverflowMenu(row);
+    return;
+  }
+
+  moreBtn.hidden = false;
+  row.classList.add("has-toolbar-overflow");
+  const overflowed = [];
+  for (let i = units.length - 1; i >= 0; i -= 1) {
+    if (!toolbarBodyOverflows(body)) break;
+    units[i].classList.add("is-toolbar-overflowed");
+    overflowed.unshift(units[i]);
+    syncToolbarOverflowDividers(body);
+  }
+  fillToolbarOverflowMenu(row, overflowed);
+  if (!overflowed.length) {
+    moreBtn.hidden = true;
+    row.classList.remove("has-toolbar-overflow");
+  }
+  if (keepOpen && !moreBtn.hidden) positionToolbarOverflowMenu(row);
+  else if (keepOpen) closeToolbarOverflowMenu(row);
+}
+
+function layoutAllToolbarOverflow() {
+  toolbarOverflowRows().forEach((r) => layoutToolbarOverflowRow(r));
+}
+
+function scheduleToolbarOverflowLayout() {
+  if (scheduleToolbarOverflowLayout._raf) cancelAnimationFrame(scheduleToolbarOverflowLayout._raf);
+  scheduleToolbarOverflowLayout._raf = requestAnimationFrame(() => {
+    scheduleToolbarOverflowLayout._raf = 0;
+    layoutAllToolbarOverflow();
+  });
+}
+
+function setupToolbarOverflow() {
+  if (setupToolbarOverflow._bound) {
+    scheduleToolbarOverflowLayout();
+    return;
+  }
+  setupToolbarOverflow._bound = true;
+
+  toolbarOverflowRows().forEach((row) => {
+    const { moreBtn, menu } = toolbarOverflowParts(row);
+    moreBtn?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleToolbarOverflowMenu(row);
+    });
+    menu?.addEventListener("click", (event) => event.stopPropagation());
+    menu?.addEventListener("mousedown", (event) => {
+      if (event.target.closest("select, button, .format-overflow-field")) event.stopPropagation();
+    });
+  });
+
+  document.addEventListener("mousedown", (event) => {
+    if (event.target.closest(".format-overflow-slot, .format-overflow-menu")) return;
+    closeToolbarOverflowMenu();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") closeToolbarOverflowMenu();
+  });
+  window.addEventListener("resize", () => {
+    closeToolbarOverflowMenu();
+    scheduleToolbarOverflowLayout();
+  });
+
+  if (typeof ResizeObserver === "function") {
+    const ro = new ResizeObserver(() => scheduleToolbarOverflowLayout());
+    toolbarOverflowRows().forEach((row) => {
+      const { body } = toolbarOverflowParts(row);
+      if (body) ro.observe(body);
+      ro.observe(row);
+    });
+    ["formatToolbar", "formatToolbarShell", "synopsisFormatToolbar"]
+      .map((id) => document.getElementById(id))
+      .filter(Boolean)
+      .forEach((el) => ro.observe(el));
+    setupToolbarOverflow._observer = ro;
+  }
+
+  scheduleToolbarOverflowLayout();
 }
 
 function setupSceneFeatureBar() {
@@ -57422,11 +58508,38 @@ function setupGuideTips() {
 }
 
 const OUTLINE_WIDTH_MIN = 180;
-const OUTLINE_WIDTH_MAX = 480;
+const AI_PANEL_WIDTH_MIN = 240;
+
+function layoutMainWidth() {
+  const main = document.querySelector("main");
+  const w = main?.getBoundingClientRect?.().width;
+  return Number.isFinite(w) && w > 0 ? w : (Number(window.innerWidth) || 1200);
+}
+
+function layoutRailWidth() {
+  const n = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--panel-dock-rail-w"));
+  return Number.isFinite(n) && n > 0 ? n : 48;
+}
+
+function layoutVarWidth(name, fallback) {
+  const n = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(name));
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+
+function maxOutlineWidthPx() {
+  const other = isAiPanelOpen() ? layoutVarWidth("--ai-panel-width", 300) : layoutRailWidth();
+  return Math.max(OUTLINE_WIDTH_MIN, Math.floor(layoutMainWidth() - other));
+}
+
+function maxAiPanelWidthPx() {
+  const other = isBinderPanelOpen() ? layoutVarWidth("--outline-width", 270) : layoutRailWidth();
+  return Math.max(AI_PANEL_WIDTH_MIN, Math.floor(layoutMainWidth() - other));
+}
 
 function applyOutlineWidth(widthPx) {
-  const width = Math.max(OUTLINE_WIDTH_MIN, Math.min(OUTLINE_WIDTH_MAX, Math.round(widthPx)));
+  const width = Math.max(OUTLINE_WIDTH_MIN, Math.min(maxOutlineWidthPx(), Math.round(widthPx)));
   document.documentElement.style.setProperty("--outline-width", `${width}px`);
+  scheduleToolbarOverflowLayout();
   return width;
 }
 
@@ -57441,6 +58554,24 @@ function setupOutlineResizer() {
     }
   } catch (_) {
     /* ignore */
+  }
+
+  if (!setupOutlineResizer._resizeBound) {
+    setupOutlineResizer._resizeBound = true;
+    window.addEventListener("resize", () => {
+      let outline = layoutVarWidth("--outline-width", 270);
+      let ai = layoutVarWidth("--ai-panel-width", 300);
+      try {
+        const os = Number(localStorage.getItem(OUTLINE_WIDTH_STORAGE_KEY));
+        if (Number.isFinite(os) && os >= OUTLINE_WIDTH_MIN) outline = os;
+        const as = Number(localStorage.getItem(AI_PANEL_WIDTH_STORAGE_KEY));
+        if (Number.isFinite(as) && as >= AI_PANEL_WIDTH_MIN) ai = as;
+      } catch (_) {
+        /* ignore */
+      }
+      applyOutlineWidth(outline);
+      applyAiPanelWidth(ai);
+    });
   }
 
   let drag = null;
@@ -57485,12 +58616,11 @@ function setupOutlineResizer() {
 }
 
 const AI_PANEL_WIDTH_STORAGE_KEY = "supertory.aiPanelWidth";
-const AI_PANEL_WIDTH_MIN = 240;
-const AI_PANEL_WIDTH_MAX = 560;
 
 function applyAiPanelWidth(widthPx) {
-  const width = Math.max(AI_PANEL_WIDTH_MIN, Math.min(AI_PANEL_WIDTH_MAX, Math.round(widthPx)));
+  const width = Math.max(AI_PANEL_WIDTH_MIN, Math.min(maxAiPanelWidthPx(), Math.round(widthPx)));
   document.documentElement.style.setProperty("--ai-panel-width", `${width}px`);
+  scheduleToolbarOverflowLayout();
   return width;
 }
 
@@ -60103,6 +61233,7 @@ function openNewProjectModal() {
   setModalClusterId("newProject", "");
   renderGenreClusterGrid("newProject", "");
   syncModalGenreFields("newProject", purposeSelect?.value || "web_novel");
+  resetModalAdult19("newProject");
   resetModalDraftKeywords("newProject");
   const submit = $("newProjectSubmitButton");
   if (submit) {
@@ -60164,6 +61295,7 @@ async function submitNewProject(event) {
         main_genre: genres.main,
         sub_genre: genres.sub,
         genre_detail: genres.genre_detail || "",
+        content_rating: genres.content_rating || "",
         cluster_id: genres.cluster_id || getModalClusterId("newProject"),
         keywords: getModalDraftKeywords("newProject"),
     };
@@ -60455,6 +61587,7 @@ function setupTextPromptModal() {
  */
 function syncModalGenreFields(prefix, purpose, opts = {}) {
   const clusterId = getModalClusterId(prefix);
+  syncModalAdult19Toggle(prefix, clusterId, purpose);
   if ($(`${prefix}ClusterGrid`)) {
     if (!clusterId || clusterId === "locked") {
       hideModalGenreSelects(prefix);
@@ -60534,7 +61667,7 @@ function syncModalGenreFields(prefix, purpose, opts = {}) {
     const mainKey = mainSelect.value;
     const prevPurpose = state.projectPurpose;
     state.projectPurpose = normalizePurposeKey(purpose);
-    subOptions = withAdult19Option(mainKey ? subGenreChoicesForMain(mainKey) : []);
+    subOptions = mainKey ? subGenreChoicesForMain(mainKey) : [];
     state.projectPurpose = prevPurpose;
   }
   const placeholderSub = mode === "translation"
@@ -60583,6 +61716,16 @@ function readModalGenreValues(prefix, purpose) {
         }
         sub = picked;
       }
+      const canon = canonicalizeWebNovelGenre(mapped.main, sub, "");
+      return {
+        ok: true,
+        main: canon.main,
+        sub: canon.sub,
+        purpose: mapped.purpose,
+        cluster_id: clusterId,
+        genre_detail: canon.genre_detail,
+        content_rating: readModalAdult19(prefix, clusterId, mapped.purpose),
+      };
     }
     return {
       ok: true,
@@ -60590,7 +61733,8 @@ function readModalGenreValues(prefix, purpose) {
       sub,
       purpose: mapped.purpose,
       cluster_id: clusterId,
-      genre_detail: clusterId === "webnovel" ? "" : readModalGenreDetail(prefix),
+      genre_detail: readModalGenreDetail(prefix),
+      content_rating: readModalAdult19(prefix, clusterId, mapped.purpose),
     };
   }
   const mode = getPurposeCategoryMode(purpose);
@@ -60619,6 +61763,7 @@ function readModalGenreValues(prefix, purpose) {
     purpose: normalizePurposeKey(purpose),
     cluster_id: clusterId || inferClusterId(purpose, main, sub),
     genre_detail: readModalGenreDetail(prefix),
+    content_rating: readModalAdult19(prefix, clusterId, purpose),
   };
 }
 
@@ -71998,6 +73143,7 @@ function layoutSplitPrimaryPane() {
     splitBody.style.height = "100%";
     splitBody.style.overflow = "auto";
   }
+  scheduleToolbarOverflowLayout();
 }
 
 function clearSplitPrimaryPaneLayout() {
@@ -72048,6 +73194,7 @@ function applySplitLeftWidth(widthPx) {
   if (!Number.isFinite(total) || total < SPLIT_LEFT_MIN + SPLIT_RIGHT_MIN + SPLIT_HANDLE) {
     const fallback = Math.max(SPLIT_LEFT_MIN, Math.round(Number(widthPx) || total * 0.55 || 400));
     workspace.style.setProperty("--split-left-width", `${fallback}px`);
+    scheduleToolbarOverflowLayout();
     return fallback;
   }
   const maxLeft = Math.max(SPLIT_LEFT_MIN, total - SPLIT_RIGHT_MIN - SPLIT_HANDLE);
@@ -72055,6 +73202,7 @@ function applySplitLeftWidth(widthPx) {
   const preferred = Number.isFinite(raw) && raw > 0 ? raw : total * 0.55;
   const width = Math.max(SPLIT_LEFT_MIN, Math.min(maxLeft, Math.round(preferred)));
   workspace.style.setProperty("--split-left-width", `${width}px`);
+  scheduleToolbarOverflowLayout();
   return width;
 }
 
@@ -73475,15 +74623,22 @@ function openImportModal(options = {}) {
   setModalClusterId("import", importCluster === "locked" ? "" : importCluster);
   renderGenreClusterGrid("import", importCluster === "locked" ? "" : importCluster);
   syncModalGenreFields("import", $("importPurpose").value, {
-    main: inferClusterSubKey(importCluster, current?.main_genre, current?.sub_genre)
+    main: inferClusterSubKey(
+      importCluster,
+      current?.main_genre,
+      current?.sub_genre,
+      current?.genre_detail,
+    )
       || current?.main_genre
       || "",
     sub: current?.sub_genre || "",
+    genre_detail: current?.genre_detail || "",
   });
   const seedKeywords = mode === "proof"
     ? []
     : normalizeKeywordList(current?.keywords ?? state.keywords ?? []);
   resetModalDraftKeywords("import", seedKeywords);
+  resetModalAdult19("import");
 
   // Title / hints for document vs proof
   if ($("importModalTitle")) {
@@ -73864,6 +75019,7 @@ async function submitImport(event) {
   let subGenre = "";
   let genreDetail = "";
   let importClusterId = getModalClusterId("import");
+  let importContentRating = "";
   const isDocumentImport = importModalMode !== "proof"
     && destination !== "proof_pipeline"
     && destination !== "proof_compare"
@@ -73878,6 +75034,7 @@ async function submitImport(event) {
     mainGenre = genres.main;
     subGenre = genres.sub;
     genreDetail = genres.genre_detail || "";
+    importContentRating = genres.content_rating || "";
     if (genres.purpose) $("importPurpose").value = genres.purpose;
     importClusterId = genres.cluster_id || importClusterId;
   } else {
@@ -73885,6 +75042,7 @@ async function submitImport(event) {
     mainGenre = String(current?.main_genre || state.mainGenre || "").trim();
     subGenre = String(current?.sub_genre || state.subGenre || "").trim();
     genreDetail = String(current?.genre_detail || state.genreDetail || "").trim();
+    importContentRating = String(current?.content_rating || state.contentRating || "").trim();
     importClusterId = inferClusterId(
       current?.purpose || purpose,
       mainGenre,
@@ -73932,6 +75090,7 @@ async function submitImport(event) {
       main_genre: mainGenre,
       sub_genre: subGenre,
       genre_detail: genreDetail,
+      content_rating: importContentRating,
       keywords: isDocumentImport ? getModalDraftKeywords("import") : undefined,
       project_title: projectTitle,
       chapter_title: chapterTitle,
@@ -76505,6 +77664,7 @@ function setupAdminMode() {
   document.querySelectorAll("#adminModal .admin-tab").forEach((btn) => {
     btn.addEventListener("click", () => setAdminTab(btn.dataset.adminTab));
   });
+  if (typeof setupAdminCollapsibleSections === "function") setupAdminCollapsibleSections();
   $("adminHelpSearch")?.addEventListener("input", (event) => {
     renderAdminHelpManual(event.target.value);
   });
@@ -76606,6 +77766,95 @@ function setupAdminMode() {
 const UI_THEME_STORAGE_KEY = "tori-theme";
 const UI_THEME_STORAGE_KEY_LEGACY = "supertory.uiTheme";
 const UI_THEME_LIGHT_STORAGE_KEY = "supertory.uiThemeLight";
+const UI_THEME_RAIL_HIDDEN_KEY = "supertory.uiThemeRailHidden";
+const ADMIN_COLLAPSE_KEY = "supertory.adminCollapse";
+
+function getUiThemeRailHiddenIds() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(UI_THEME_RAIL_HIDDEN_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+    return raw.map((id) => String(id || "")).filter((id) => UI_THEME_IDS.has(id));
+  } catch (_) {
+    return [];
+  }
+}
+
+function isUiThemeEnabledInRail(id) {
+  return !getUiThemeRailHiddenIds().includes(normalizeUiThemeId(id));
+}
+
+function setUiThemeEnabledInRail(id, enabled) {
+  const themeId = normalizeUiThemeId(id);
+  const hidden = new Set(getUiThemeRailHiddenIds());
+  if (enabled) hidden.delete(themeId);
+  else hidden.add(themeId);
+  try {
+    localStorage.setItem(UI_THEME_RAIL_HIDDEN_KEY, JSON.stringify([...hidden]));
+  } catch (_) {
+    /* private mode */
+  }
+  fillUiThemeRail(true);
+  if (isUiThemeRailOpen()) positionUiThemeRail();
+}
+
+function readAdminCollapseState() {
+  try {
+    const raw = JSON.parse(localStorage.getItem(ADMIN_COLLAPSE_KEY) || "{}");
+    return raw && typeof raw === "object" ? raw : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function isAdminSectionOpen(id) {
+  return readAdminCollapseState()[id] === true;
+}
+
+function setAdminSectionOpen(id, open) {
+  const state = readAdminCollapseState();
+  state[id] = Boolean(open);
+  try {
+    localStorage.setItem(ADMIN_COLLAPSE_KEY, JSON.stringify(state));
+  } catch (_) {
+    /* private mode */
+  }
+}
+
+function applyAdminSectionCollapse(id) {
+  const box = document.querySelector(`[data-admin-collapse="${id}"]`);
+  if (!box) return;
+  const open = isAdminSectionOpen(id);
+  const toggle = box.querySelector("[data-admin-collapse-toggle]");
+  const body = box.querySelector("[data-admin-collapse-body]");
+  const title = toggle?.querySelector(".admin-section-title")?.textContent?.trim() || "";
+  box.classList.toggle("is-open", open);
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", open ? "true" : "false");
+    const action = open ? i18n.t("app.접기") : i18n.t("app.펼치기");
+    toggle.setAttribute("aria-label", title ? `${title} — ${action}` : action);
+  }
+  if (body) {
+    if (open) body.removeAttribute("hidden");
+    else body.setAttribute("hidden", "");
+  }
+}
+
+function setupAdminCollapsibleSections() {
+  document.querySelectorAll("[data-admin-collapse]").forEach((box) => {
+    applyAdminSectionCollapse(box.getAttribute("data-admin-collapse"));
+  });
+  if (document.documentElement.dataset.adminCollapseBound === "1") return;
+  document.documentElement.dataset.adminCollapseBound = "1";
+  document.addEventListener("click", (event) => {
+    const btn = event.target?.closest?.("[data-admin-collapse-toggle]");
+    if (!btn) return;
+    event.preventDefault();
+    const id = btn.getAttribute("data-admin-collapse-toggle");
+    if (!id) return;
+    setAdminSectionOpen(id, !isAdminSectionOpen(id));
+    applyAdminSectionCollapse(id);
+  });
+}
 
 /** Themes shown in 관리자 → 설정 옵션 (+ header cycle). */
 const UI_THEME_PRESETS = [
@@ -76863,16 +78112,18 @@ const UI_THEME_SWITCH_TIP_LINES = [
   i18n.t('app.시선의_흐름과_색조가_바뀌면_뇌가_환기되어'),
 ];
 
-function ensureUiThemeRailFilled() {
+function fillUiThemeRail(force = false) {
   const rail = $("uiThemeRail");
   if (!rail) return rail;
   if (rail.parentElement !== document.body) {
     document.body.appendChild(rail);
   }
-  if (rail.dataset.filled === "1") return rail;
+  if (!force && rail.dataset.filled === "1") return rail;
   const tip = `<div class="ui-theme-rail-tip"><span class="theme-switch-tip-mark" aria-hidden="true">💡</span><div class="theme-switch-tip-copy">${UI_THEME_SWITCH_TIP_LINES.map((line) => `<p>${escapeHtml(line)}</p>`).join("")}</div></div>`;
   const rows = UI_THEME_GROUPS.map((group) => {
-    const chips = group.themes.map((item) => {
+    const visible = group.themes.filter((item) => isUiThemeEnabledInRail(item.id));
+    if (!visible.length) return "";
+    const chips = visible.map((item) => {
       const id = item.id;
       const preset = UI_THEME_PRESETS.find((t) => t.id === id) || { id, emoji: "", short: id };
       const swatch = UI_THEME_SWATCH[id] || { bg: "#fff", fg: "#333" };
@@ -76897,9 +78148,17 @@ function ensureUiThemeRailFilled() {
     const label = escapeHtml(group.title);
     return `<div class="ui-theme-rail-row" data-theme-group="${escapeHtml(group.id)}" role="group" aria-label="${label}">${chips}</div>`;
   }).join("");
-  rail.innerHTML = `${tip}<div class="ui-theme-rail-body">${rows}</div>`;
+  const body = rows.trim()
+    ? `<div class="ui-theme-rail-body">${rows}</div>`
+    : `<p class="ambient-empty-hint">${escapeHtml(i18n.t("app.표시할_테마가_없어요"))}</p>`;
+  rail.innerHTML = `${tip}${body}`;
   rail.dataset.filled = "1";
+  syncUiThemeRailActive(getUiTheme());
   return rail;
+}
+
+function ensureUiThemeRailFilled() {
+  return fillUiThemeRail(false);
 }
 
 function syncUiThemeRailActive(theme = getUiTheme()) {
@@ -77258,34 +78517,40 @@ function setUiTheme(theme, options = {}) {
 
 function toggleUiTheme() {
   const current = getUiTheme();
-  const idx = UI_THEME_CYCLE.indexOf(current);
-  const next = UI_THEME_CYCLE[(idx < 0 ? 0 : idx + 1) % UI_THEME_CYCLE.length];
+  const cycle = UI_THEME_CYCLE.filter((id) => isUiThemeEnabledInRail(id));
+  const list = cycle.length ? cycle : UI_THEME_CYCLE;
+  const idx = list.indexOf(current);
+  const next = list[(idx < 0 ? 0 : idx + 1) % list.length];
   applyUiTheme(next, { announce: true });
 }
 
 function renderAdminThemeList() {
   const host = $("adminThemeList");
   if (!host) return;
-  if (host.dataset.filled !== "1") {
-    host.innerHTML = UI_THEME_GROUPS.map((group) => {
-      const sub = group.subtitle ? ` [${escapeHtml(group.subtitle)}]` : "";
-      const heading = `${group.emoji} ${escapeHtml(group.number)}. ${escapeHtml(group.title)}${sub}`;
-      const buttons = group.themes.map((item) => {
-        const preset = UI_THEME_PRESETS.find((t) => t.id === item.id) || { id: item.id, emoji: "", short: item.id };
-        const name = `${preset.emoji || ""} ${preset.short || item.id}`.trim();
-        const caption = item.caption ? `<span class="theme-option-caption">${escapeHtml(item.caption)}</span>` : "";
-        return `<button type="button" role="option" data-ui-theme-pick="${escapeHtml(item.id)}">
+  host.innerHTML = UI_THEME_GROUPS.map((group) => {
+    const sub = group.subtitle ? ` [${escapeHtml(group.subtitle)}]` : "";
+    const heading = `${group.emoji} ${escapeHtml(group.number)}. ${escapeHtml(group.title)}${sub}`;
+    const buttons = group.themes.map((item) => {
+      const preset = UI_THEME_PRESETS.find((t) => t.id === item.id) || { id: item.id, emoji: "", short: item.id };
+      const name = `${preset.emoji || ""} ${preset.short || item.id}`.trim();
+      const caption = item.caption ? `<span class="theme-option-caption">${escapeHtml(item.caption)}</span>` : "";
+      const enabled = isUiThemeEnabledInRail(item.id);
+      return `<div class="theme-option-wrap${enabled ? "" : " is-hidden-from-popup"}">
+        <button type="button" role="option" data-ui-theme-pick="${escapeHtml(item.id)}">
           <span class="theme-option-name">${escapeHtml(name)}</span>${caption}
-        </button>`;
-      }).join("");
-      return `<section class="theme-option-group" data-theme-group="${escapeHtml(group.id)}">
-        <h4 class="theme-option-group-title">${heading}</h4>
-        <p class="theme-option-group-blurb">${escapeHtml(group.blurb)}</p>
-        <div class="theme-option-group-grid">${buttons}</div>
-      </section>`;
+        </button>
+        <label class="ambient-popup-toggle">
+          <input type="checkbox" data-ui-theme-rail-enabled="${escapeHtml(item.id)}" ${enabled ? "checked" : ""}>
+          <span>${escapeHtml(i18n.t("app.토글박스에_표시"))}</span>
+        </label>
+      </div>`;
     }).join("");
-    host.dataset.filled = "1";
-  }
+    return `<section class="theme-option-group" data-theme-group="${escapeHtml(group.id)}">
+      <h4 class="theme-option-group-title">${heading}</h4>
+      <p class="theme-option-group-blurb">${escapeHtml(group.blurb)}</p>
+      <div class="theme-option-group-grid">${buttons}</div>
+    </section>`;
+  }).join("");
   const current = getUiTheme();
   host.querySelectorAll("[data-ui-theme-pick]").forEach((btn) => {
     const id = btn.getAttribute("data-ui-theme-pick");
@@ -77311,6 +78576,14 @@ function setupAdminThemePicker() {
     event.stopPropagation();
     pickAdminTheme(btn.getAttribute("data-ui-theme-pick"));
   }, true);
+  document.addEventListener("change", (event) => {
+    const box = event.target?.closest?.("#adminThemeList [data-ui-theme-rail-enabled]");
+    if (!box) return;
+    const id = box.getAttribute("data-ui-theme-rail-enabled");
+    if (!id) return;
+    setUiThemeEnabledInRail(id, Boolean(box.checked));
+    box.closest(".theme-option-wrap")?.classList.toggle("is-hidden-from-popup", !box.checked);
+  });
 }
 
 const TAROT_THEME_STORAGE_KEY = "supertory.tarotTheme";
@@ -77438,6 +78711,7 @@ function setupUiThemeToggle() {
     });
   }
   setupAdminThemePicker();
+  setupAdminCollapsibleSections();
   setupHighContrastToggle();
   try {
     // Must call applyUiTheme (not setTheme): assigning window.setTheme = () => setTheme()

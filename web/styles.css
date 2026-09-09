@@ -2082,7 +2082,17 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 8px;
 }
-.theme-option-group-grid > button {
+.theme-option-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0;
+  min-width: 0;
+}
+.theme-option-wrap.is-hidden-from-popup > button {
+  opacity: 0.55;
+}
+.theme-option-wrap > button {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -2100,10 +2110,10 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
 }
-.theme-option-group-grid > button:hover {
+.theme-option-wrap > button:hover {
   border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
 }
-.theme-option-group-grid > button.is-active {
+.theme-option-wrap > button.is-active {
   border-color: var(--primary, var(--accent));
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary, var(--accent)) 28%, transparent);
   background: color-mix(in srgb, var(--primary, var(--accent)) 12%, var(--bg-surface, var(--surface)));
@@ -2119,7 +2129,7 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   line-height: 1.35;
   color: var(--muted);
 }
-.theme-option-group-grid > button.is-active .theme-option-caption {
+.theme-option-wrap > button.is-active .theme-option-caption {
   color: color-mix(in srgb, var(--primary, var(--accent-dark)) 72%, var(--muted));
 }
 .theme-switch-tip {
@@ -2155,6 +2165,48 @@ html[data-theme="eink"] .import-proof-method-card:has(input:checked) .import-pro
   border: 1px solid var(--line);
   border-radius: 12px;
   background: var(--surface, #faf6ef);
+}
+.admin-collapse-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  margin: 0;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.admin-collapse-toggle .admin-section-title {
+  margin: 0;
+}
+.admin-collapse-chevron {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1;
+  transition: transform 0.15s ease;
+}
+.admin-section-box.is-collapsible.is-open .admin-collapse-chevron {
+  transform: rotate(180deg);
+}
+.admin-section-box.is-collapsible:not(.is-open) .admin-trash-heading {
+  margin-bottom: 0;
+}
+.admin-collapse-body > .hint {
+  margin: 0 0 10px;
+}
+.admin-collapse-body[hidden] {
+  display: none !important;
 }
 .smart-punct-list {
   display: grid;
@@ -2900,6 +2952,27 @@ body.ai-panel-collapsed .outline-panel-inner {
   flex: 0 0 auto;
   min-width: 112px;
 }
+.adult19-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink);
+  user-select: none;
+}
+.adult19-toggle.hidden,
+.adult19-toggle[hidden] {
+  display: none !important;
+}
+.modal-adult19-toggle {
+  margin-top: 4px;
+}
+.modal-adult19-toggle .modal-genre-label {
+  margin: 0;
+}
 .binder-footer-stack {
   flex: 0 0 auto;
   display: flex;
@@ -3576,26 +3649,47 @@ body.ai-panel-collapsed .outline-panel-inner {
   display: flex;
   flex-direction: column;
   align-items: stretch;
-  gap: 4px;
+  gap: 0;
 }
 .ambient-chip-wrap.is-hidden-from-popup .ambient-chip {
   opacity: 0.55;
 }
 .ambient-popup-toggle {
-  display: flex;
-  align-items: flex-start;
-  gap: 5px;
-  margin: 0;
+  display: inline-flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  margin: -4px 0 0;
+  padding: 0;
   color: var(--muted);
   font-size: 11px;
   font-weight: 650;
-  line-height: 1.3;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
   user-select: none;
 }
-.ambient-popup-toggle input {
-  margin: 2px 0 0;
-  flex: 0 0 auto;
+.theme-option-wrap .ambient-popup-toggle {
+  justify-content: flex-start;
+  padding: 0 12px;
+}
+.ambient-popup-toggle input[type="checkbox"] {
+  appearance: auto;
+  box-sizing: border-box;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  padding: 0;
+  flex: 0 0 13px;
+  align-self: center;
+  accent-color: var(--accent-dark, #8d3e2f);
+  cursor: pointer;
+}
+.ambient-popup-toggle span {
+  display: inline-block;
+  line-height: 13px;
 }
 .ambient-chip-title-input {
   display: block;
@@ -8254,6 +8348,169 @@ html[data-ui-scheme="dark"] .ai-panel-form select.is-coming-mode {
   display: block;
   flex: 0 0 auto;
 }
+#aiResultHistoryButton[aria-pressed="true"] {
+  background: var(--accent-sand, #F5F5F4) !important;
+  color: var(--primary, #292524);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary, #292524) 45%, transparent);
+}
+.ai-result-live-pane {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.ai-result-wrap.is-history-view #aiResultLivePane,
+.ai-result-wrap.is-history-view #aiResultLiveLabel,
+.ai-result-wrap.is-history-view #aiResultExpandButton {
+  display: none !important;
+}
+.ai-result-history-pane {
+  display: none;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+.ai-result-wrap.is-history-view .ai-result-history-pane {
+  display: flex;
+}
+.ai-result-wrap.is-history-view #aiResultHistoryLabel {
+  display: inline !important;
+}
+.ai-panel-history-lead {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.ai-panel-history-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-input, #fffaf2);
+}
+.ai-panel-history-list .tory-chat-history-empty,
+.ai-panel-history-empty {
+  margin: 16px 12px;
+  padding: 0;
+  border: 0;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.ai-panel-history-row {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 5.6em minmax(0, 1fr);
+  column-gap: 10px;
+  row-gap: 2px;
+  width: 100%;
+  margin: 0;
+  padding: 9px 10px;
+  border: 0;
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 78%, transparent);
+  border-radius: 0;
+  background: transparent;
+  color: var(--ink);
+  text-align: left;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.ai-panel-history-row:last-child {
+  border-bottom: 0;
+}
+.ai-panel-history-row:hover,
+.ai-panel-history-row:focus-visible {
+  background: color-mix(in srgb, var(--selection, #efe4d4) 55%, transparent);
+  outline: none;
+}
+.ai-panel-history-when {
+  grid-column: 1;
+  grid-row: 1 / span 2;
+  align-self: start;
+  padding-top: 1px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.ai-panel-history-title {
+  grid-column: 2;
+  font-size: 12.5px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.35;
+}
+.ai-panel-history-preview {
+  grid-column: 2;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-panel-history-detail {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 auto;
+  min-height: 0;
+  gap: 8px;
+}
+.ai-panel-history-detail.hidden {
+  display: none !important;
+}
+.ai-panel-history-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.ai-panel-history-detail-head strong {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12.5px;
+  font-weight: 800;
+  line-height: 1.35;
+}
+.ai-panel-history-detail-body {
+  flex: 1 1 auto;
+  min-height: 140px;
+  margin: 0;
+  padding: 10px 12px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface-input, #fffaf2);
+  color: var(--ink);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: pre-wrap;
+  word-break: break-word;
+  box-sizing: border-box;
+}
+.ai-panel-history-list-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex: 0 0 auto;
+}
+.ai-result-wrap.is-history-view .ai-panel-history-list-actions.hidden,
+.ai-panel-history-list-actions.hidden {
+  display: none !important;
+}
+#aiToolsView[data-helper-pane="result"] .ai-result-wrap.is-history-view .ai-result-history-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+}
 .ai-result-history-detail-body {
   max-height: min(48vh, 420px);
   min-height: 160px;
@@ -8609,7 +8866,7 @@ body[data-ui-scheme="dark"] .ai-panel #aiResult {
 .settings-box-toggle {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 8px;
   flex: 1 1 auto;
   min-width: 0;
@@ -8626,6 +8883,22 @@ body[data-ui-scheme="dark"] .ai-panel #aiResult {
 }
 .settings-box.is-open .settings-box-toggle {
   background: transparent;
+}
+.settings-box-icon {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: inherit;
+}
+.settings-box-icon svg {
+  display: block;
+  width: 15px;
+  height: 15px;
+  overflow: visible;
+  stroke-width: 1.7;
 }
 .settings-box-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 /* 메인에서 보기 — 행 호버 시에만 표시 */
@@ -15180,11 +15453,16 @@ html[data-ui-scheme="dark"] .welcome-tip-card {
 }
 .scene-workspace .format-toolbar-track,
 .scene-workspace .scene-feature-bar-track {
-  overflow-x: auto;
   overflow-y: hidden;
   max-width: 100%;
   min-width: 0;
   flex-wrap: nowrap !important;
+}
+.scene-workspace .format-toolbar-track {
+  overflow-x: hidden;
+}
+.scene-workspace .scene-feature-bar-track {
+  overflow-x: auto;
 }
 /* 뱃지(top:-7px)가 잘리지 않도록 트랙 상단 패딩 확보 */
 .scene-workspace .scene-feature-bar-track {
@@ -15633,7 +15911,7 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   display: flex !important;
   flex-wrap: nowrap;
   max-height: none;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
 }
 .scene-workspace.split-active #sceneEditor > .ms-toolbar-shell[data-toolbar-shell="format"] .format-toolbar-track:has(> .format-toolbar-row) {
@@ -15641,18 +15919,16 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   flex-direction: column;
   flex-wrap: nowrap;
   align-items: stretch;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
 }
-/* 분할 시 서식·아이콘을 압축하지 않고 가로로 밀어 스크롤 */
+/* 분할 시에도 가로 스크롤 대신 » 오버플로 메뉴 */
 .scene-workspace.split-active .format-toolbar-row-body.format-toolbar-row-body-split {
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
-  grid-template-columns: max-content auto max-content;
 }
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split {
-  justify-content: space-between;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
   width: 100%;
   gap: 0;
@@ -15984,16 +16260,16 @@ body.ai-panel-collapsed .synopsis-writing-column {
 .synopsis-workspace #synopsisFormatToolbar .format-toolbar-row {
   width: 100%;
   min-width: 0;
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .synopsis-workspace #synopsisFormatToolbar .format-toolbar-row-body {
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
-  scrollbar-width: thin;
 }
-/* 설정 메인에는 접기 ∧ 열 없음 — 본문 열 폭 전부 서식에 사용 */
+/* 설정 메인에는 접기 ∧ 열 없음 — 본문 열 + » 오버플로 */
 .synopsis-workspace #synopsisFormatToolbar .format-toolbar-row-format {
-  grid-template-columns: minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 .synopsis-workspace .writing-block {
   flex: 1 1 auto;
@@ -19368,7 +19644,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   padding: 0 !important;
 }
 .ms-chrome-stack .format-toolbar-track {
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: visible;
   padding: 0;
   width: 100%;
@@ -19539,9 +19815,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   flex-wrap: nowrap !important;
   align-items: center;
   gap: 4px;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
-  scrollbar-width: thin;
   /* 우측 패딩 없음 — 접기 ∧ 가 요약 행과 같은 세로열에 오도록 */
   padding: 0;
   box-sizing: border-box;
@@ -19553,7 +19828,7 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 }
 .format-toolbar-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) var(--ms-collapse-col, 28px);
+  grid-template-columns: minmax(0, 1fr) auto var(--ms-collapse-col, 28px);
   align-items: center;
   column-gap: 0;
   min-width: 0;
@@ -19566,9 +19841,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   align-items: center;
   gap: 5px;
   min-width: 0;
-  overflow-x: auto;
+  overflow-x: hidden;
   overflow-y: hidden;
-  scrollbar-width: thin;
   padding-right: 0;
 }
 .format-toolbar-row-body > * {
@@ -19580,9 +19854,161 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   margin-left: 0;
 }
 /* 접기 ∧ — 요약/도구/서식 세 행 공통 오른쪽 열 (세로 일렬) */
+.format-overflow-slot {
+  grid-column: 2;
+  justify-self: center;
+  align-self: center;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: auto;
+  min-width: 0;
+  flex: 0 0 auto;
+}
+.format-overflow-slot:has(> .format-overflow-btn[hidden]) {
+  width: 0;
+  min-width: 0;
+  overflow: visible;
+  pointer-events: none;
+}
+.format-overflow-btn {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink, #292524);
+  font-size: 17px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.06em;
+  cursor: pointer;
+  pointer-events: auto;
+}
+.format-overflow-btn[hidden] {
+  display: none !important;
+}
+.format-overflow-btn:hover,
+.format-overflow-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--primary, #292524) 14%, var(--accent-sand, #F5F5F4));
+  color: var(--primary, #292524);
+}
+.format-overflow-chevrons {
+  display: block;
+  transform: translateY(-1px);
+}
+.format-overflow-menu {
+  position: fixed;
+  z-index: 260;
+  min-width: 188px;
+  max-width: min(280px, calc(100vw - 16px));
+  max-height: min(70vh, 440px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+  border: 1px solid var(--line, #e4ddd2);
+  border-radius: 10px;
+  background: var(--surface, #fffdf8);
+  box-shadow: 0 12px 30px #00000028;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+}
+.format-overflow-menu.hidden,
+.format-overflow-menu[hidden] {
+  display: none !important;
+}
+.format-overflow-item {
+  appearance: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 34px;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink, #292524);
+  text-align: left;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.2;
+  box-sizing: border-box;
+}
+.format-overflow-item:hover,
+.format-overflow-item:focus-visible {
+  background: var(--selection, #f3eee6);
+  outline: none;
+}
+.format-overflow-item-icon {
+  flex: 0 0 22px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: inherit;
+}
+.format-overflow-item-icon svg,
+.format-overflow-item-icon .format-tool-glyph,
+.format-overflow-item-icon .format-align-icon,
+.format-overflow-item-icon .format-dan-icon {
+  width: 16px;
+  height: 16px;
+}
+.format-overflow-item-icon .format-tool-glyph svg {
+  width: 16px;
+  height: 16px;
+}
+.format-overflow-item-label {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.format-overflow-sep {
+  height: 0;
+  margin: 4px 6px;
+  border: 0;
+  border-top: 1px solid var(--line, #e4ddd2);
+}
+.format-overflow-field {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 8px;
+  min-height: 34px;
+  box-sizing: border-box;
+}
+.format-overflow-field-label {
+  flex: 0 1 auto;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted, #78716c);
+  white-space: nowrap;
+}
+.format-overflow-field select {
+  flex: 0 0 auto;
+  min-width: 4.5em;
+  max-width: 9em;
+  height: 26px;
+  font-size: 12px;
+}
+.is-toolbar-overflowed {
+  display: none !important;
+}
 .format-toolbar-row > .format-row-collapse-btn,
 .format-toolbar-row > .ms-collapse-col-btn {
-  grid-column: 2;
+  grid-column: 3;
   justify-self: center;
   align-self: center;
   place-self: center;
@@ -19803,21 +20229,21 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 }
 /* 아이콘·서식 행 공통: 왼쪽 묶음 | (서식만 가운데 구분선) | 오른쪽 묶음 */
 .format-toolbar-row-body.format-toolbar-row-body-split {
-  display: grid !important;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  display: flex !important;
   align-items: center;
+  justify-content: space-between;
   column-gap: 0;
   gap: 0;
   width: 100%;
   min-width: 0;
   padding: 0 0 0 8px;
   box-sizing: border-box;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 /* 아이콘바: 12개(작가메모…확장) 전체 폭에 균등 배치 · 좌우 클러스터 경계 없음 */
 .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split {
   display: flex !important;
-  grid-template-columns: none;
   justify-content: space-evenly;
   align-items: center;
   width: 100%;
@@ -19853,8 +20279,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-toolbar-row-icons .format-toolbar-row-body .analyze-menu-control,
 .format-toolbar-row-icons .format-toolbar-row-body .format-split-control,
 .format-toolbar-row-icons .format-toolbar-row-body .view-mode-control {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: max-content;
   max-width: none;
   justify-content: center;
   align-self: stretch;
@@ -20176,14 +20602,14 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-toolbar-row-format .format-toolbar-cluster-start,
 .format-toolbar-row-format .format-toolbar-cluster-end {
   gap: 0;
-  width: 100%;
-  min-width: 0;
+  width: auto;
+  min-width: max-content;
 }
 /* 왼쪽 서식 묶음(실행취소~장평): 가운데 구분선(고정 열)까지 가로로 채움 */
 .format-toolbar-row-format .format-toolbar-cluster-start {
   justify-content: flex-start;
-  width: 100%;
-  min-width: 0;
+  width: auto;
+  min-width: max-content;
 }
 .format-toolbar-row-format .format-toolbar-cluster-start > .format-seg-history {
   flex: 0 0 auto;
@@ -20192,9 +20618,9 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   flex: 0 0 auto;
 }
 .format-toolbar-row-format .format-toolbar-cluster-start > .format-field-chips {
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
+  flex: 0 0 auto;
+  min-width: max-content;
+  width: auto;
   max-width: none;
   display: flex;
   align-items: center;
@@ -20204,13 +20630,13 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
    각 세그먼트 자체는 고정폭 유지(shrink:0) — 폭이 부족하면 row-body의
    가로 스크롤이 대신 받아, 좁은 화면에서도 버튼이 찌그러지지 않는다. */
 .format-toolbar-row-format .format-toolbar-cluster-end {
-  justify-content: space-evenly;
+  justify-content: flex-start;
   align-items: center;
   gap: 0;
   flex-wrap: nowrap;
-  min-width: 0;
-  width: 100%;
-  flex: 1 1 auto;
+  min-width: max-content;
+  width: auto;
+  flex: 0 0 auto;
 }
 .format-toolbar-row-format .format-toolbar-cluster-end > .format-seg {
   flex: 0 0 auto;
@@ -20244,9 +20670,9 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   display: none !important;
 }
 .format-toolbar-row-icons .format-toolbar-row-body {
-  /* split 그리드가 담당 */
   min-height: 0;
-  overflow: visible;
+  overflow-x: hidden;
+  overflow-y: hidden;
 }
 .format-analyze-control {
   position: relative;
@@ -20322,32 +20748,34 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
   align-self: stretch;
 }
 /* 행 전체 폭 절약(오른쪽 끝 특수문자 버튼이 접기 버튼과 겹치지 않도록) */
-.format-toolbar-row-format .format-toolbar-row-body.format-toolbar-row-body-split {
-  gap: 3px;
+.format-toolbar-row-format .format-toolbar-cluster,
+.format-toolbar-row-format .format-seg {
+  flex-shrink: 0;
+  min-width: max-content;
 }
 .format-toolbar-row-format .format-field-chips {
   display: flex;
   align-items: center;
   gap: 0;
-  flex: 1 1 auto;
-  min-width: 0;
-  width: 100%;
+  flex: 0 0 auto;
+  min-width: max-content;
+  width: auto;
 }
-/* 기본: 단락·글꼴은 이전 고정 폭, 크기·줄간격·장평만 남은 공간 균등 */
+/* 기본: 단락·글꼴·크기·줄간격·장평은 자연 폭, 넘치면 » 메뉴 */
 .format-toolbar-row-format .format-field-chip {
   border-radius: 4px;
   flex: 0 0 auto;
-  min-width: 0;
+  min-width: max-content;
   max-width: none;
   justify-content: flex-start;
 }
 .format-toolbar-row-format .format-field-chip:has([data-role="format-size"]),
 .format-toolbar-row-format .format-field-chip:has([data-role="format-line-height"]),
 .format-toolbar-row-format .format-field-chip.format-jangpyeong-chip {
-  flex: 1 1 0;
-  min-width: 0;
+  flex: 0 0 auto;
+  min-width: max-content;
   max-width: none;
-  justify-content: stretch;
+  justify-content: flex-start;
 }
 /* 단락 · 글꼴 · 크기 · 줄간격 · 장평 사이 세로 구분선 */
 .format-toolbar-row-format .format-field-chips .format-field-divider,
@@ -20388,9 +20816,9 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-toolbar-row-format .format-field-chip:has([data-role="format-size"]) select,
 .format-toolbar-row-format .format-field-chip:has([data-role="format-line-height"]) select,
 .format-toolbar-row-format .format-field-chip.format-jangpyeong-chip select {
-  width: 100% !important;
-  max-width: none !important;
-  min-width: 0 !important;
+  width: auto !important;
+  max-width: 4.2em !important;
+  min-width: 3.2em !important;
   text-align: center;
   font-variant-numeric: tabular-nums;
   font-weight: 700 !important;
@@ -24688,7 +25116,98 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   box-sizing: border-box;
 }
 .status-seg-scope {
-  margin-left: 1mm;
+  margin-left: 0;
+}
+.status-view-zoom-btn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  min-height: 22px;
+  margin: 0 0 0 1mm;
+  padding: 0 8px;
+  border: 1px solid var(--border-color, var(--line));
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--bg-surface, var(--surface, #fff)) 88%, var(--bg-main, var(--surface-2, #FAFAF9)) 12%);
+  color: var(--ink, #24211d);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+  white-space: nowrap;
+  cursor: pointer;
+  box-sizing: border-box;
+}
+.status-view-zoom-btn:hover,
+.status-view-zoom-btn[aria-expanded="true"] {
+  background: var(--accent-sand, #F5F5F4);
+  border-color: var(--hover-border, #D6D3D1);
+}
+.editor-view-zoom-menu {
+  min-width: 132px;
+  max-height: min(72vh, 520px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 6px;
+}
+.editor-view-zoom-menu button[data-editor-zoom] {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 5px 8px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--ink);
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+.editor-view-zoom-menu button[data-editor-zoom]:hover,
+.editor-view-zoom-menu button[data-editor-zoom].is-checked {
+  background: color-mix(in srgb, var(--selection, #efe4d4) 70%, transparent);
+}
+.editor-view-zoom-dot {
+  flex: 0 0 6px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0;
+}
+.editor-view-zoom-menu button[aria-checked="true"] .editor-view-zoom-dot,
+.editor-view-zoom-menu button.is-checked .editor-view-zoom-dot {
+  opacity: 1;
+}
+.editor-view-zoom-other {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 4px 2px;
+}
+.editor-view-zoom-other.hidden {
+  display: none !important;
+}
+.editor-view-zoom-other-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+}
+.editor-view-zoom-other input {
+  width: 100%;
+  min-height: 26px;
+  padding: 2px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface-input, #fff);
+  color: var(--ink);
+  font-size: 12px;
+  box-sizing: border-box;
 }
 .status-seg > .status-seg-btn {
   flex: 0 0 auto;
@@ -24824,17 +25343,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   font-size: 11px;
   line-height: 1.1;
 }
-/* 분할 화면: 아이콘 칸이 좁아져도 라벨이 칸 밖으로 넘치지 않고 … 처리 */
-.scene-workspace.split-active .format-toolbar-row-icons .format-tool-label,
-.scene-workspace.split-active .format-toolbar-row-icons .format-tool-label-wrap {
-  display: block;
-  width: auto;
-  max-width: none;
-  min-width: 0;
-  overflow: visible;
-  text-overflow: unset;
-  white-space: nowrap;
-}
+/* 분할 화면: 라벨은 아이콘 칸 폭을 따르고, 넘치는 도구는 » 메뉴로 */
 .format-viewer-comments-dot {
   position: absolute;
   top: 2px;
@@ -25469,6 +25978,19 @@ html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="dark"] .
   border-color: color-mix(in srgb, #fff 22%, transparent);
 }
 /* 현재/전체 · 공백포함/제외 — 본문/설정집 탭과 같은 테마 토큰 */
+.manuscript-status-wrap[data-page-contrast="dark"] .status-view-zoom-btn,
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="dark"] .status-view-zoom-btn {
+  color: color-mix(in srgb, var(--page-ink, #f2ebe3) 88%, transparent);
+  border-color: color-mix(in srgb, var(--primary, var(--accent, #fff)) 38%, transparent);
+  background: color-mix(in srgb, var(--accent-sand, var(--selection)) 42%, transparent);
+}
+.manuscript-status-wrap[data-page-contrast="dark"] .status-view-zoom-btn:hover,
+.manuscript-status-wrap[data-page-contrast="dark"] .status-view-zoom-btn[aria-expanded="true"],
+html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="dark"] .status-view-zoom-btn:hover {
+  color: var(--primary, var(--page-ink, #fff));
+  background: color-mix(in srgb, var(--accent-sand, var(--selection)) 70%, transparent);
+  border-color: color-mix(in srgb, var(--primary, #fff) 35%, transparent);
+}
 .manuscript-status-wrap[data-page-contrast="dark"] .status-seg,
 html[data-ui-scheme="dark"] .manuscript-status-wrap[data-page-contrast="dark"] .status-seg {
   border-color: color-mix(in srgb, var(--primary, var(--accent, #fff)) 38%, transparent);

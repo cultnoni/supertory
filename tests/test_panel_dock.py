@@ -35,7 +35,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('class="panel-dock-expand"', self.html)
         self.assertIn('data-dock-item="ideas"', self.html)
         self.assertIn('data-dock-item="manuscript"', self.html)
-        self.assertIn('data-dock-item="priority"', self.html)
+        self.assertNotIn('data-dock-item="priority"', self.html)
         self.assertIn('data-dock-item="toryChat"', self.html)
         self.assertIn('data-dock-item="characterChat"', self.html)
         self.assertIn('data-dock-item="readerChat"', self.html)
@@ -94,7 +94,6 @@ class PanelDockContractTests(unittest.TestCase):
                 "writingTimer",
                 "toryCheck",
                 "statsTracker",
-                "priority",
                 "toryChat",
                 "characterChat",
                 "readerChat",
@@ -114,9 +113,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("height: 18px", dock_svg_block)
         self.assertIn("stroke-width: 1.7", dock_svg_block)
         self.assertIn("overflow: visible", dock_svg_block)
-        priority_icon = right_rail.split('data-dock-item="priority"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('stroke="currentColor"', priority_icon)
-        self.assertIn('viewBox="0 0 24 24"', priority_icon)
+        self.assertIn('id="toryPriorityBox"', self.html)
         active_fn = self.js.split("function isDockRailItemActive(", 1)[1].split("function syncDockRailButtons(", 1)[0]
         self.assertIn("itemId === \"characters\"", active_fn)
         self.assertIn("DOCK_CHAR_KEY_PREFIX", active_fn)
@@ -128,7 +125,7 @@ class PanelDockContractTests(unittest.TestCase):
 
     def test_ai_rail_items_open_dock_floats(self) -> None:
         panel_items = self.js.split("const AI_DOCK_PANEL_ITEMS = new Set([", 1)[1].split("]);", 1)[0]
-        self.assertIn("priority", panel_items)
+        self.assertNotIn("priority", panel_items)
         self.assertIn("toryTalk", panel_items)
         self.assertNotIn("toryChat", panel_items)
         self.assertNotIn("characterChat", panel_items)
@@ -176,7 +173,12 @@ class PanelDockContractTests(unittest.TestCase):
         history_open = self.js.split("function openAiResultHistoryModal(", 1)[1].split(
             "function closeAiResultHistoryModal(", 1
         )[0]
-        self.assertIn('openDockFloat("aiHistory")', history_open)
+        self.assertIn("toggleAiPanelHistoryView()", history_open)
+        self.assertNotIn('openDockFloat("aiHistory")', history_open)
+        self.assertIn("function setAiPanelHistoryOpen(", self.js)
+        self.assertIn('id="aiResultHistoryPane"', self.html)
+        self.assertIn('id="aiPanelHistoryList"', self.html)
+        self.assertNotIn('aria-haspopup="dialog"', self.html.split('id="aiResultHistoryButton"', 1)[1].split("</button>", 1)[0])
         toggle_ai = self.js.split("function toggleAiDockPanelItem(", 1)[1].split(
             "function toggleDockFloat(", 1
         )[0]
@@ -301,10 +303,15 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('m6 14 1.45-2.9A2 2 0 0 1 9.24 10H20', manuscript)
         self.assertIn('circle cx="14" cy="15" r="1"', manuscript)
         self.assertNotIn("M12 5v16", manuscript)
-        self.assertIn("M12 5v16", dictionary)
-        self.assertIn("m16 12 2 2 4-4", dictionary)
-        self.assertIn("v-1.344", dictionary)
+        self.assertIn("M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19", dictionary)
+        self.assertIn("m8 13 4-7 4 7", dictionary)
+        self.assertIn("M9.1 11h5.7", dictionary)
+        self.assertNotIn("M12 5v16", dictionary)
+        self.assertNotIn("m16 12 2 2 4-4", dictionary)
         self.assertIn('title="토리 사전"', dictionary)
+        settings_dictionary = self.html.split('data-settings-section="dictionary"', 1)[1].split("</section>", 1)[0]
+        self.assertIn("m8 13 4-7 4 7", settings_dictionary)
+        self.assertIn("M9.1 11h5.7", settings_dictionary)
         self.assertIn('rect width="20" height="5" x="2" y="3" rx="1"', vault)
         self.assertIn('path d="M10 12h4"', vault)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
@@ -886,13 +893,16 @@ class PanelDockContractTests(unittest.TestCase):
     def test_character_card_dock_widget(self) -> None:
         self.assertRegex(self.html, r'class="panel-dock-item is-ready"[^>]*data-dock-item="characters"')
         characters = self.html.split('data-dock-item="characters"', 1)[1].split("</button>", 1)[0]
-        self.assertIn('path d="M16 2v2"', characters)
-        self.assertIn('path d="M17.915 21a6 6 0 10-12 0"', characters)
-        self.assertIn('path d="M8 2v2"', characters)
-        self.assertIn('circle cx="12" cy="11" r="4"', characters)
-        self.assertIn('rect x="3" y="3" width="18" height="18" rx="2"', characters)
+        self.assertIn('path d="M15 13a3 3 0 1 0-6 0"', characters)
+        self.assertIn("M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19", characters)
+        self.assertIn('circle cx="12" cy="8" r="2"', characters)
+        self.assertNotIn('path d="M16 2v2"', characters)
+        self.assertNotIn('path d="M17.915 21a6 6 0 10-12 0"', characters)
         self.assertNotIn('path d="M16 10h2"', characters)
         self.assertNotIn('rect x="2" y="5" width="20" height="14" rx="2"', characters)
+        settings_characters = self.html.split('data-settings-section="characters"', 1)[1].split("</section>", 1)[0]
+        self.assertIn('path d="M15 13a3 3 0 1 0-6 0"', settings_characters)
+        self.assertIn('circle cx="12" cy="8" r="2"', settings_characters)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0]
         self.assertIn("characters:", spec)
         self.assertIn("function openDockFloatWindow(key, spec, sourceEl)", self.js)
@@ -1126,8 +1136,11 @@ class PanelDockContractTests(unittest.TestCase):
     def test_settings_search_dock_widget(self) -> None:
         self.assertIn('data-dock-item="settingsSearch"', self.html)
         settings_search = self.html.split('data-dock-item="settingsSearch"', 1)[1].split("</button>", 1)[0]
-        self.assertIn("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8", settings_search)
-        self.assertIn('circle cx="11.5" cy="14.5" r="2.5"', settings_search)
+        self.assertIn("M11 22H5.5a1 1 0 0 1 0-5h4.501", settings_search)
+        self.assertIn("m21 22-1.879-1.878", settings_search)
+        self.assertIn('circle cx="17" cy="18" r="3"', settings_search)
+        self.assertNotIn("M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8", settings_search)
+        self.assertNotIn('circle cx="11.5" cy="14.5" r="2.5"', settings_search)
         self.assertIn('id="settingsSearchLive"', self.html)
         self.assertIn('id="settingsSearchHome"', self.html)
         self.assertIn('id="settingsSearchInput"', self.html)
@@ -1352,6 +1365,28 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertNotIn("#f0d0a8", self.css)
         self.assertNotIn("format-viewer-eye", self.html)
 
+    def test_editor_view_zoom_control(self) -> None:
+        self.assertIn('id="editorViewZoomButton"', self.html)
+        self.assertIn('id="editorViewZoomMenu"', self.html)
+        self.assertIn('id="manuscriptStatusBar"', self.html)
+        bar = self.html.split('id="manuscriptStatusBar"', 1)[1].split('id="statsScopeSeg"', 1)[0]
+        self.assertIn('id="editorViewZoomButton"', bar)
+        self.assertIn("function setupEditorViewZoom(", self.js)
+        self.assertIn("function applyEditorViewZoom(", self.js)
+        self.assertIn("onEditorViewZoomWheel", self.js)
+        self.assertIn('style.zoom', self.js)
+        self.assertNotIn("formatSize", self.js.split("function applyEditorViewZoom(", 1)[1].split("function nudgeEditorViewZoom(", 1)[0])
+        for locale in self.locales.values():
+            for key in (
+                "index.보기_n",
+                "index.화면_배율",
+                "index.화면_배율_Ctrl_휠로_조절",
+                "index.기타_줄임",
+                "index.배율_퍼센트",
+            ):
+                self.assertIn(key, locale)
+        self.assertEqual(self.locales["ko"]["index.보기_n"], "보기 ${n}%")
+
     def test_screen_protect_dock_widget(self) -> None:
         right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
         right_items = [
@@ -1360,7 +1395,7 @@ class PanelDockContractTests(unittest.TestCase):
         ]
         self.assertEqual(right_items[-1], "screenProtect")
         self.assertEqual(right_items[-2], "credits")
-        self.assertIn("priority", right_items)
+        self.assertNotIn("priority", right_items)
         protect = right_rail.split('data-dock-item="screenProtect"', 1)[1].split("</button>", 1)[0]
         self.assertIn("M20 13c0 5-3.5 7.5-7.66 8.95", protect)
         self.assertIn("m4.243 5.21 14.39 12.472", protect)
