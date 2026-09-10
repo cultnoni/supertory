@@ -14,35 +14,54 @@ class TypesetToolbarUiTests(unittest.TestCase):
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+        viewer = html[
+            html.find('data-viewer-controls="typeset"') : html.find('id="viewerStage"')
+        ]
+        page_write = html[html.find('id="pageWriteModal"') : html.find('id="viewerModal"')]
 
-        self.assertIn('id="viewerTypesetDetailsToggle"', html)
-        self.assertIn('id="viewerTypesetDetails"', html)
+        self.assertNotIn('id="viewerTypesetDetailsToggle"', html)
+        self.assertNotIn('id="viewerTypesetDetails"', html)
+        self.assertNotIn("function applyTypesetDetailsOpen", app_js)
+        self.assertNotIn("supertory.viewerTypesetDetailsOpen", app_js)
+        self.assertNotIn(".viewer-typeset-details-toggle", css)
+        self.assertNotIn(".viewer-typeset-details {", css)
+
         self.assertIn("viewer-typeset-presets", html)
         self.assertIn("viewer-typeset-fields", html)
         self.assertIn("viewer-typeset-group", html)
         self.assertIn("viewer-typeset-actions", html)
         self.assertIn("index.상세_설정", html)
         self.assertIn("index.접기", html)
+        self.assertIn('id="pageWriteTypesetDetailsToggle"', page_write)
+        self.assertIn('id="pageWriteTypesetDetails"', page_write)
+        self.assertNotIn("page-write-typeset-summary-row", html)
+        self.assertNotIn("page-write-typeset-summary-row", css)
         self.assertLess(
-            html.find('id="viewerTypesetDetailsToggle"'),
-            html.find('id="viewerTypesetDetails"'),
+            html.find('id="viewerTypesetPlatforms"'),
+            html.find('id="pageWriteTypesetSummary"'),
         )
+        self.assertLess(
+            html.find('id="pageWriteTypesetSummary"'),
+            html.find('id="pageWriteTypesetDetailsToggle"'),
+        )
+        self.assertLess(
+            html.find('id="pageWriteTypesetDetailsToggle"'),
+            html.find('id="pageWriteTypesetDetails"'),
+        )
+        self.assertIn('class="viewer-typeset-pagewrite-link"', html[
+            html.find('id="pageWriteTypesetDetailsToggle"') :
+            html.find('id="pageWriteTypesetDetails"')
+        ])
         self.assertLess(
             html.find('id="viewerTypesetExport"'),
             html.find('id="viewerTypesetExportMenu"'),
         )
-        self.assertGreater(
-            html.find('id="viewerTypesetDetails"'),
-            html.find('id="viewerTypesetPreviewPlatforms"'),
-        )
+        self.assertIn('id="viewerTypesetExport"', viewer)
+        self.assertIn('id="viewerTypesetReadonly"', viewer)
         self.assertNotIn('id="viewerTypesetSave"', html)
-        self.assertIn('id="viewerTypesetExport"', html[html.find('id="viewerTypesetDetails"') :])
 
-        self.assertIn('supertory.viewerTypesetDetailsOpen', app_js)
-        self.assertIn("function applyTypesetDetailsOpen", app_js)
-        self.assertIn("function toggleTypesetDetailsOpen", app_js)
-
-        self.assertIn(".viewer-typeset-details-toggle", css)
+        self.assertIn("function applyPageWriteTypesetDetailsOpen", app_js)
+        self.assertIn(".viewer-typeset-pagewrite-link", css)
         self.assertIn(".viewer-typeset-group + .viewer-typeset-group", css)
         self.assertIn("border-left: 0.5px solid var(--border-strong)", css)
         self.assertIn(".viewer-typeset-field", css)
@@ -51,25 +70,27 @@ class TypesetToolbarUiTests(unittest.TestCase):
         html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
         app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
         page_write = html[html.find('id="pageWriteModal"') : html.find('id="viewerModal"')]
-        details = html[html.find('id="viewerTypesetDetails"') :]
+        viewer = html[
+            html.find('data-viewer-controls="typeset"') : html.find('id="viewerStage"')
+        ]
         self.assertIn('id="pageWriteTypeset"', page_write)
         self.assertIn('id="viewerTypesetFontSize"', page_write)
         self.assertIn('id="viewerTypesetViewport"', page_write)
         self.assertIn('id="viewerTypesetPlatforms"', page_write)
         self.assertIn('id="viewerTypesetUnverified"', page_write)
         self.assertIn('id="viewerTypesetNewPop"', page_write)
-        self.assertNotIn('id="viewerTypesetPlatforms"', details)
-        self.assertNotIn('id="viewerTypesetUnverified"', details)
-        self.assertIn('id="viewerTypesetFlow"', html[html.find('data-viewer-controls="typeset"') :])
-        self.assertIn('id="openPageWriteFromTypeset"', html[html.find('data-viewer-controls="typeset"') :])
-        self.assertIn('id="viewerTypesetPreviewPlatforms"', html[html.find('data-viewer-controls="typeset"') :])
+        self.assertNotIn('id="viewerTypesetPlatforms"', viewer)
+        self.assertNotIn('id="viewerTypesetUnverified"', viewer)
+        self.assertIn('id="viewerTypesetFlow"', viewer)
+        self.assertIn('id="openPageWriteFromTypeset"', viewer)
+        self.assertIn('id="viewerTypesetPreviewPlatforms"', viewer)
         self.assertNotIn('id="viewerTypesetPreviewPlatforms"', page_write)
         self.assertIn('id="pageWriteFullscreenButton"', page_write)
         self.assertIn('id="pageWriteTypesetDetailsToggle"', page_write)
         self.assertIn('id="pageWriteTypesetDetails"', page_write)
-        self.assertNotIn('id="viewerTypesetFontSize"', details)
-        self.assertNotIn('id="viewerTypesetSave"', details)
-        self.assertIn('id="viewerTypesetExport"', details)
+        self.assertNotIn('id="viewerTypesetFontSize"', viewer)
+        self.assertNotIn('id="viewerTypesetSave"', viewer)
+        self.assertIn('id="viewerTypesetExport"', viewer)
         self.assertIn('id="viewerTypesetReadonly"', html)
         self.assertIn("index.쪽쓰기_열기", html)
         self.assertIn(">조판 열기</button>", html)
@@ -90,6 +111,8 @@ class TypesetToolbarUiTests(unittest.TestCase):
         summary_fn = app_js.split("function updateTypesetReadonlySummary()", 1)[1].split("function refreshPageWriteFromTypeset", 1)[0]
         self.assertIn("getTypesetPreviewPlatform", summary_fn)
         self.assertIn("pageWriteTypesetSummary", summary_fn)
+        self.assertNotIn("applyTypesetSummaryFont", summary_fn)
+        self.assertNotIn("function applyTypesetSummaryFont", app_js)
         self.assertIn("function selectTypesetPreviewPlatform", app_js)
         self.assertIn("function setPageWriteFullscreen", app_js)
         self.assertIn("function applyPageWriteTypesetDetailsOpen", app_js)
@@ -175,13 +198,13 @@ class TypesetToolbarUiTests(unittest.TestCase):
         css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         self.assertIn('id="viewerTypesetFlow"', html)
         flow_html = html[
-            html.find('id="viewerTypesetFlow"') : html.find('id="viewerTypesetDetailsToggle"')
+            html.find('id="viewerTypesetFlow"') : html.find('id="openPageWriteFromTypeset"')
         ]
         self.assertIn('value="scroll"', flow_html)
         self.assertIn('value="page"', flow_html)
         self.assertLess(
             html.find('id="viewerTypesetFlow"'),
-            html.find('id="viewerTypesetDetails"'),
+            html.find('id="viewerTypesetReadonly"'),
         )
         self.assertIn("typesetFlow: \"scroll\"", app_js)
         self.assertIn("viewerTypesetFlow", app_js)
@@ -300,6 +323,53 @@ class TypesetToolbarUiTests(unittest.TestCase):
             'overflow-wrap:${styleOpts.overflowWrap || "break-word"}',
         ):
             self.assertIn(prop, measure_css)
+
+    def test_page_write_and_viewer_hints_are_dismissible(self) -> None:
+        html = (ROOT / "web" / "index.html").read_text(encoding="utf-8")
+        app_js = (ROOT / "web" / "app.js").read_text(encoding="utf-8")
+        css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
+        self.assertIn('data-guide-tip="pageWriteHint"', html)
+        self.assertIn('data-guide-tip-dismiss="pageWriteHint"', html)
+        self.assertIn('data-guide-tip="viewerHint"', html)
+        self.assertIn('data-guide-tip-dismiss="viewerHint"', html)
+        self.assertIn('{ id: "pageWriteHint"', app_js)
+        self.assertIn('{ id: "viewerHint"', app_js)
+        self.assertIn("if (raw === \"0\") fullscreen = false", app_js)
+        self.assertIn('setViewerMaximized(raw !== "0"', app_js)
+        self.assertIn("function bindCardWindowResize", app_js)
+        self.assertIn(".page-write-head:has([data-guide-tip=\"pageWriteHint\"].hidden)", css)
+        self.assertIn(".viewer-head:has([data-guide-tip=\"viewerHint\"].hidden)", css)
+        self.assertIn(".page-write-modal:not(.is-maximized) .page-write-card", css)
+        self.assertIn(".viewer-modal:not(.is-maximized) .viewer-card", css)
+        self.assertIn("resize: both", css.split(".page-write-modal:not(.is-maximized) .page-write-card {", 1)[1].split("}", 1)[0])
+        self.assertIn("resize: both", css.split(".viewer-modal:not(.is-maximized) .viewer-card {", 1)[1].split("}", 1)[0])
+        readonly_blocks = css.split(".viewer-typeset-readonly {")[1:]
+        self.assertTrue(
+            any("font-weight: 700" in block.split("}", 1)[0] for block in readonly_blocks)
+        )
+        self.assertTrue(
+            any("Malgun Gothic" in block.split("}", 1)[0] for block in readonly_blocks)
+        )
+        self.assertTrue(
+            any("바탕체" not in block.split("}", 1)[0] and "font-weight: 700" in block.split("}", 1)[0]
+                for block in readonly_blocks)
+        )
+        self.assertIn(".viewer-head-row", css)
+        self.assertIn(".page-write-head-row", css)
+        hint_box = css.split(".page-write-hint-box,", 1)[1].split("}", 1)[0]
+        self.assertIn("align-self: flex-start", hint_box)
+        self.assertIn("width: fit-content", hint_box)
+        self.assertNotIn("width: 100%;", hint_box.replace("max-width: 100%;", ""))
+        hint_text = css.split(".page-write-hint-box > .hint,", 1)[1].split("}", 1)[0]
+        self.assertIn("flex: 0 1 auto", hint_text)
+        self.assertNotIn("바탕체", hint_text)
+        chip = css.split(".viewer-typeset-chip {", 1)[1].split("}", 1)[0]
+        self.assertIn("Malgun Gothic", chip)
+        self.assertNotIn("font: inherit", css.split(".viewer-typeset-chip {", 1)[1].split(".viewer-typeset-chip.is-active", 1)[0])
+        for name in ("ko", "en", "es"):
+            data = json.loads((ROOT / "web" / "locales" / f"{name}.json").read_text(encoding="utf-8"))
+            self.assertTrue(str(data["app.조판_안내"]).strip())
+            self.assertTrue(str(data["app.뷰어_안내"]).strip())
 
 
 if __name__ == "__main__":

@@ -22117,19 +22117,51 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
 .page-write-head {
   flex: 0 0 auto;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 12px 16px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
 }
+.page-write-head-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
 .page-write-title {
-  margin: 0 0 2px;
+  margin: 0;
   font-size: 18px;
+  min-width: 0;
 }
 .page-write-hint {
   margin: 0 !important;
+}
+.page-write-hint-box,
+.viewer-hint-box {
+  align-self: flex-start;
+  width: fit-content;
+  max-width: 100%;
+  align-items: center;
+}
+.page-write-hint-box > .hint,
+.viewer-hint-box > .hint {
+  flex: 0 1 auto;
+}
+.page-write-head:has([data-guide-tip="pageWriteHint"].hidden) {
+  padding: 8px 16px;
+  gap: 0;
+}
+.page-write-modal:not(.is-maximized) .page-write-card {
+  resize: both;
+  min-width: min(640px, 100%);
+  min-height: min(360px, 100%);
+  max-width: 100%;
+}
+.page-write-modal.is-maximized .page-write-card {
+  resize: none;
 }
 .page-write-typeset {
   flex: 0 0 auto;
@@ -22149,14 +22181,13 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   gap: 8px;
   min-width: 0;
 }
-.page-write-typeset-summary-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.page-write-typeset-presets .viewer-typeset-readonly {
+  flex: 0 1 auto;
+  max-width: min(42em, 100%);
 }
-.page-write-typeset-summary-row .viewer-typeset-readonly {
-  flex: 1 1 auto;
+.page-write-typeset-presets .viewer-typeset-pagewrite-link {
+  margin: 0;
+  flex: 0 0 auto;
 }
 .page-write-typeset.is-details-open .viewer-typeset-details-open-label {
   display: none;
@@ -22292,9 +22323,11 @@ html.is-electron .page-write-modal.is-maximized {
 .viewer-typeset-readonly {
   margin: 0;
   min-width: 0;
-  font-size: 12px;
+  font-size: 11px;
+  font-weight: 700;
   line-height: 1.35;
-  color: var(--muted);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -22746,6 +22779,14 @@ body[data-ui-scheme="dark"] .focus-write-head {
   border-radius: 0;
   border-left: 0;
   border-right: 0;
+  resize: none;
+}
+.viewer-modal:not(.is-maximized) .viewer-card {
+  transition: none;
+  resize: both;
+  min-width: min(640px, 100%);
+  min-height: min(360px, 100%);
+  max-width: 100%;
 }
 .viewer-modal.is-maximized .modal-backdrop {
   /* Keep dim layer but card fills the viewport */
@@ -22797,20 +22838,32 @@ html.is-electron .viewer-modal.is-maximized {
 .viewer-head {
   flex: 0 0 auto;
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 10px 12px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
   padding: 10px 14px;
   border-bottom: 1px solid var(--line);
   background: var(--surface-2);
 }
-.viewer-head-text { flex: 1 1 120px; min-width: 0; }
+.viewer-head-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 12px;
+  min-width: 0;
+}
 .viewer-title {
-  margin: 0 0 2px;
+  margin: 0;
+  flex: 1 1 120px;
+  min-width: 0;
   font-family: Georgia, "Malgun Gothic", serif;
   font-size: 18px;
 }
 .viewer-hint { margin: 0 !important; }
+.viewer-head:has([data-guide-tip="viewerHint"].hidden) {
+  padding: 8px 14px;
+  gap: 0;
+}
 .viewer-head-actions {
   margin-left: auto;
   display: inline-flex;
@@ -23232,10 +23285,10 @@ html.is-electron .viewer-modal.is-maximized {
 }
 .viewer-controls.hidden { display: none !important; }
 .viewer-controls[data-viewer-controls="typeset"] {
-  flex-direction: column;
-  flex-wrap: nowrap;
-  align-items: stretch;
-  gap: 6px;
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
 }
 .viewer-ctrl {
   display: inline-flex !important;
@@ -23290,10 +23343,14 @@ html.is-electron .viewer-modal.is-maximized {
 .viewer-typeset-presets {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   width: 100%;
   min-width: 0;
   min-height: 32px;
+}
+.viewer-typeset-presets .viewer-typeset-readonly {
+  flex: 1 1 8em;
 }
 .viewer-typeset-flow {
   display: flex;
@@ -23312,59 +23369,8 @@ html.is-electron .viewer-modal.is-maximized {
 .viewer-typeset-flow select {
   max-width: 110px;
 }
-.viewer-typeset-details-toggle {
-  margin-left: 0;
-  flex: 0 0 auto;
-  min-height: 26px;
-  padding: 3px 10px;
-  border: 1px solid var(--border-color, var(--line));
-  border-radius: 999px;
-  background: var(--surface);
-  color: var(--ink);
-  font-size: 11px;
-  font-weight: 800;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.viewer-typeset-details-toggle:hover {
-  border-color: var(--hover-border, var(--line));
-  background: var(--surface-2, var(--accent-sand));
-}
 .viewer-typeset-details-close-label {
   display: none;
-}
-.viewer-controls[data-viewer-controls="typeset"].is-details-open .viewer-typeset-details-open-label {
-  display: none;
-}
-.viewer-controls[data-viewer-controls="typeset"].is-details-open .viewer-typeset-details-close-label {
-  display: inline;
-}
-.viewer-controls[data-viewer-controls="typeset"].is-details-open .viewer-typeset-details-toggle {
-  border-color: transparent;
-  background: transparent;
-  padding: 2px 4px;
-  color: var(--muted);
-  font-weight: 700;
-  box-shadow: none;
-}
-.viewer-controls[data-viewer-controls="typeset"].is-details-open .viewer-typeset-details-toggle:hover {
-  color: var(--ink);
-  background: transparent;
-  text-decoration: underline;
-}
-.viewer-typeset-details {
-  display: flex;
-  align-items: flex-end;
-  flex-wrap: nowrap;
-  gap: 10px;
-  width: 100%;
-  min-width: 0;
-  min-height: 48px;
-  overflow-x: auto;
-}
-.viewer-typeset-details.hidden,
-.viewer-typeset-details[hidden] {
-  display: none !important;
 }
 .viewer-typeset-fields {
   display: flex;
@@ -23491,12 +23497,15 @@ html.is-electron .viewer-modal.is-maximized {
   border-radius: 999px;
   background: transparent;
   color: var(--muted);
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
 }
 button.viewer-typeset-chip {
-  font: inherit;
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 800;
 }
 .viewer-typeset-chip.is-active {
   background: var(--surface);
@@ -23544,6 +23553,7 @@ button.viewer-typeset-chip {
   border-radius: 999px;
   background: transparent;
   color: var(--accent-dark, var(--ink));
+  font-family: "Malgun Gothic", "Apple SD Gothic Neo", system-ui, sans-serif;
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;

@@ -52550,14 +52550,18 @@ function updateTypesetReadonlySummary() {
   const viewerEl = $("viewerTypesetReadonly");
   if (viewerEl) {
     const previewId = getTypesetPreviewPlatform();
-    viewerEl.textContent = formatTypesetSummary(getTypesetPreset(previewId) || {}, previewId);
+    const previewSpec = getTypesetPreset(previewId) || {};
+    viewerEl.textContent = formatTypesetSummary(previewSpec, previewId);
+    viewerEl.style.fontFamily = "";
   }
   const overlayEl = $("pageWriteTypesetSummary");
   if (overlayEl && typeof readTypesetDraftFromForm === "function") {
     const editId = typeof normalizeTypesetPlatform === "function"
       ? normalizeTypesetPlatform(viewerSettings.typesetPlatform)
       : String(viewerSettings.typesetPlatform || "");
-    overlayEl.textContent = formatTypesetSummary(readTypesetDraftFromForm(), editId);
+    const draft = readTypesetDraftFromForm();
+    overlayEl.textContent = formatTypesetSummary(draft, editId);
+    overlayEl.style.fontFamily = "";
   }
 }
 
@@ -52799,8 +52803,11 @@ function openPageWrite(options = {}) {
     modal.classList.remove("hidden");
     document.body.classList.add("page-write-open");
     if (typeof setPageWriteFullscreen === "function") {
-      let fullscreen = false;
-      try { fullscreen = localStorage.getItem("supertory.pageWriteFullscreen") === "1"; } catch (_) { /* ignore */ }
+      let fullscreen = true;
+      try {
+        const raw = localStorage.getItem("supertory.pageWriteFullscreen");
+        if (raw === "0") fullscreen = false;
+      } catch (_) { /* keep default fullscreen */ }
       setPageWriteFullscreen(fullscreen, { persist: false });
     }
     if (typeof applyPageWriteTypesetDetailsOpen === "function") {
@@ -52864,7 +52871,50 @@ function isPageWriteTypesetDirty() {
 }
 
 const PAGE_WRITE_FULLSCREEN_KEY = "supertory.pageWriteFullscreen";
+const PAGE_WRITE_WINDOW_SIZE_KEY = "supertory.pageWriteWindowSize";
 const PAGE_WRITE_DETAILS_OPEN_KEY = "supertory.pageWriteTypesetDetailsOpen";
+const VIEWER_WINDOW_SIZE_KEY = "supertory.viewerWindowSize";
+
+function applyCardWindowSize(card, storageKey, maximized) {
+  if (!card) return;
+  if (maximized) {
+    card.style.removeProperty("width");
+    card.style.removeProperty("height");
+    return;
+  }
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) return;
+    const parsed = JSON.parse(raw);
+    const w = Number(parsed?.w);
+    const h = Number(parsed?.h);
+    if (w > 80) card.style.width = `${Math.round(w)}px`;
+    if (h > 80) card.style.height = `${Math.round(h)}px`;
+  } catch (_) { /* ignore */ }
+}
+
+function bindCardWindowResize(card, storageKey, isMaximizedFn) {
+  if (!card || card.dataset.windowResizeBound === "1") return;
+  card.dataset.windowResizeBound = "1";
+  let timer = 0;
+  const persist = () => {
+    if (typeof isMaximizedFn === "function" && isMaximizedFn()) return;
+    try {
+      const rect = card.getBoundingClientRect();
+      if (rect.width > 80 && rect.height > 80) {
+        localStorage.setItem(storageKey, JSON.stringify({
+          w: Math.round(rect.width),
+          h: Math.round(rect.height),
+        }));
+      }
+    } catch (_) { /* ignore */ }
+  };
+  const ro = new ResizeObserver(() => {
+    clearTimeout(timer);
+    timer = setTimeout(persist, 200);
+  });
+  ro.observe(card);
+}
 
 function isPageWriteFullscreen() {
   return Boolean($("pageWriteModal")?.classList.contains("is-maximized"));
@@ -52889,6 +52939,7 @@ function setPageWriteFullscreen(on, { persist = true } = {}) {
       localStorage.setItem(PAGE_WRITE_FULLSCREEN_KEY, maximized ? "1" : "0");
     } catch (_) { /* ignore */ }
   }
+  applyCardWindowSize($("pageWriteCard"), PAGE_WRITE_WINDOW_SIZE_KEY, maximized);
 }
 
 function isPageWriteTypesetDetailsOpen() {
@@ -52955,6 +53006,7 @@ function closePageWrite() {
 }
 
 function setupPageWrite() {
+  bindCardWindowResize($("pageWriteCard"), PAGE_WRITE_WINDOW_SIZE_KEY, isPageWriteFullscreen);
   const host = $("pageWritePages");
   if (host && host.dataset.pageWriteBound !== "1") {
     host.dataset.pageWriteBound = "1";
@@ -53856,50 +53908,6 @@ function toggleTypesetExportMenu() {
     menu.hidden = false;
     $("viewerTypesetExport")?.setAttribute("aria-expanded", "true");
   }
-}
-
-const TYPESET_DETAILS_OPEN_KEY = "supertory.viewerTypesetDetailsOpen";
-
-function isTypesetDetailsOpen() {
-  try {
-    return localStorage.getItem(TYPESET_DETAILS_OPEN_KEY) === "1";
-  } catch (_) {
-    return false;
-  }
-}
-
-function applyTypesetDetailsOpen(open, { persist = true, relayout = false } = {}) {
-  const panel = document.querySelector('[data-viewer-controls="typeset"]');
-  const details = $("viewerTypesetDetails");
-  const toggle = $("viewerTypesetDetailsToggle");
-  const next = Boolean(open);
-  if (panel) panel.classList.toggle("is-details-open", next);
-  if (details) {
-    details.classList.toggle("hidden", !next);
-    details.hidden = !next;
-  }
-  if (toggle) {
-    toggle.setAttribute("aria-expanded", next ? "true" : "false");
-    toggle.setAttribute("aria-label", next ? i18n.t("index.접기") : i18n.t("index.상세_설정"));
-    const openLabel = toggle.querySelector(".viewer-typeset-details-open-label");
-    const closeLabel = toggle.querySelector(".viewer-typeset-details-close-label");
-    if (openLabel) openLabel.setAttribute("aria-hidden", next ? "true" : "false");
-    if (closeLabel) closeLabel.setAttribute("aria-hidden", next ? "false" : "true");
-  }
-  if (!next) hideTypesetExportMenu();
-  if (persist) {
-    try {
-      localStorage.setItem(TYPESET_DETAILS_OPEN_KEY, next ? "1" : "0");
-    } catch (_) { /* ignore */ }
-  }
-  if (relayout && viewerSettings.mode === "typeset") {
-    requestAnimationFrame(() => applyViewerLayout());
-  }
-}
-
-function toggleTypesetDetailsOpen() {
-  const panel = document.querySelector('[data-viewer-controls="typeset"]');
-  applyTypesetDetailsOpen(!panel?.classList.contains("is-details-open"), { relayout: true });
 }
 
 function filenameFromContentDisposition(header, fallback) {
@@ -56985,7 +56993,6 @@ function openViewerMode(preferredMode = null, options = {}) {
     viewerSettings.mode = preferredMode;
   }
   syncViewerControlValues();
-  applyTypesetDetailsOpen(isTypesetDetailsOpen(), { persist: false });
   syncViewerScopeTabs();
   setViewerTocOpen(previewSource ? false : viewerTocOpen);
   renderViewerToc();
@@ -57091,6 +57098,7 @@ function setViewerMaximized(on, { relayout = true } = {}) {
   try {
     localStorage.setItem("supertory.viewerMaximized", maximized ? "1" : "0");
   } catch (_) { /* ignore */ }
+  applyCardWindowSize($("viewerCard"), VIEWER_WINDOW_SIZE_KEY, maximized);
 
   if (!relayout || !isViewerOpen()) return;
   // Stage size changed — reflow pages after layout settles
@@ -57107,13 +57115,14 @@ function toggleViewerMaximized() {
 
 function setupViewerMode() {
   viewerSettings = loadViewerSettings();
-  // Restore maximize preference
+  // Restore maximize preference (default: 전체보기)
   try {
-    if (localStorage.getItem("supertory.viewerMaximized") === "1") {
-      setViewerMaximized(true, { relayout: false });
-    }
-  } catch (_) { /* ignore */ }
-  applyTypesetDetailsOpen(isTypesetDetailsOpen(), { persist: false });
+    const raw = localStorage.getItem("supertory.viewerMaximized");
+    setViewerMaximized(raw !== "0", { relayout: false });
+  } catch (_) {
+    setViewerMaximized(true, { relayout: false });
+  }
+  bindCardWindowResize($("viewerCard"), VIEWER_WINDOW_SIZE_KEY, isViewerMaximized);
 
   // Book icon on format toolbar (right of find)
   $("viewerModeButton")?.addEventListener("click", () => {
@@ -57227,10 +57236,6 @@ function setupViewerMode() {
       return;
     }
     apply();
-  });
-  $("viewerTypesetDetailsToggle")?.addEventListener("click", (event) => {
-    event.preventDefault();
-    toggleTypesetDetailsOpen();
   });
   $("viewerTypesetNewConfirm")?.addEventListener("click", () => {
     createTypesetPresetFromPop().catch(handleError);
@@ -59518,6 +59523,8 @@ const GUIDE_TIP_DEFS = [
   { id: "bookmarkList", label: i18n.t('app.북마크_안내') },
   { id: "aiResultHistory", label: i18n.t('app.결과_히스토리_안내') },
   { id: "focusWriteHint", label: i18n.t('app.큰_창_안내') },
+  { id: "pageWriteHint", label: i18n.t('app.조판_안내') },
+  { id: "viewerHint", label: i18n.t('app.뷰어_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -59563,6 +59570,11 @@ function setGuideTipHidden(id, hidden, { quiet = false } = {}) {
   else hiddenGuideTips.delete(key);
   saveHiddenGuideTips();
   syncGuideTipBoxes();
+  if (key === "viewerHint" && typeof isViewerOpen === "function" && isViewerOpen()) {
+    requestAnimationFrame(() => {
+      if (typeof applyViewerLayout === "function") applyViewerLayout();
+    });
+  }
   if (!quiet) {
     const label = GUIDE_TIP_DEFS.find((d) => d.id === key)?.label || i18n.t('app.안내');
     toast(hidden ? `${i18n.t('app.label_을_를_숨겼습니다', {label: label})}` : `${i18n.t('app.label_을_를_다시_표시합니다', {label: label})}`);

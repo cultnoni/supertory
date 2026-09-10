@@ -7637,13 +7637,11 @@
 
     <div id="pageWriteModal" class="modal page-write-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pageWriteTitle">
       <div class="modal-backdrop" data-close-page-write></div>
-      <div class="page-write-card" role="document">
+      <div class="page-write-card" id="pageWriteCard" role="document">
         <div class="page-write-head">
-          <div class="page-write-head-text">
+          <div class="page-write-head-row">
             <h2 id="pageWriteTitle" class="page-write-title" data-i18n="index.쪽쓰기">조판</h2>
-            <p class="hint page-write-hint" id="pageWriteHint" data-i18n="index.쪽쓰기_안내">조판 규격으로 쪽을 나누어 편집합니다. 닫아도 내용은 본문에 반영됩니다.</p>
-          </div>
-          <div class="page-write-actions">
+            <div class="page-write-actions">
             <span id="pageWriteMeta" class="page-write-meta"></span>
             <button
               type="button"
@@ -7678,6 +7676,11 @@
               </svg>
             </button>
           </div>
+          </div>
+          <div class="guide-tip-box page-write-hint-box" data-guide-tip="pageWriteHint" role="note">
+            <p class="hint page-write-hint" id="pageWriteHint" data-i18n="index.쪽쓰기_안내">조판 규격으로 쪽을 나누어 편집합니다. 닫아도 내용은 본문에 반영됩니다.</p>
+            <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="pageWriteHint" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+          </div>
         </div>
         <div class="page-write-typeset" id="pageWriteTypeset">
           <div class="page-write-typeset-presets">
@@ -7701,14 +7704,11 @@
                 </div>
               </div>
             </div>
-            <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
-          </div>
-          <div class="page-write-typeset-summary-row">
             <p id="pageWriteTypesetSummary" class="viewer-typeset-readonly" aria-live="polite"></p>
             <button
               type="button"
               id="pageWriteTypesetDetailsToggle"
-              class="viewer-typeset-details-toggle"
+              class="viewer-typeset-pagewrite-link"
               aria-expanded="true"
               aria-controls="pageWriteTypesetDetails"
               aria-label="상세 설정"
@@ -7717,6 +7717,7 @@
               <span class="viewer-typeset-details-open-label" data-i18n="index.상세_설정">상세 설정</span>
               <span class="viewer-typeset-details-close-label" data-i18n="index.접기" aria-hidden="true">접기</span>
             </button>
+            <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
           </div>
           <div class="page-write-typeset-row" id="pageWriteTypesetDetails">
           <div class="viewer-typeset-fields">
@@ -7888,13 +7889,11 @@
     <!-- 뷰어 모드: PDF / phone / e-ink (view-only) -->
     <div id="viewerModal" class="modal viewer-modal hidden" role="dialog" aria-modal="true" aria-labelledby="viewerTitle">
       <div class="modal-backdrop" data-close-viewer></div>
-      <div class="viewer-card" role="document">
+      <div class="viewer-card" id="viewerCard" role="document">
         <div class="viewer-head">
-          <div class="viewer-head-text">
+          <div class="viewer-head-row">
             <h2 id="viewerTitle" class="viewer-title" data-i18n="index.뷰어_모드">뷰어 모드</h2>
-            <p class="hint viewer-hint" id="viewerHint" data-i18n="index.읽기_전용_미리보기입니다">읽기 전용 미리보기입니다.</p>
-          </div>
-          <div class="viewer-mode-tabs" id="viewerModeTabs" role="tablist" aria-label="뷰어 형식" data-i18n-aria-label="index.뷰어_형식">
+            <div class="viewer-mode-tabs" id="viewerModeTabs" role="tablist" aria-label="뷰어 형식" data-i18n-aria-label="index.뷰어_형식">
             <button type="button" class="viewer-mode-tab is-active" role="tab" data-viewer-mode="pdf" aria-selected="true">PDF</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="book" aria-selected="false" data-i18n="app.종이책">종이책</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="phone" aria-selected="false" data-i18n="app.핸드폰">핸드폰</button>
@@ -7977,6 +7976,11 @@
                 <path d="m6 6 12 12"/>
               </svg>
             </button>
+          </div>
+          </div>
+          <div class="guide-tip-box viewer-hint-box" data-guide-tip="viewerHint" role="note">
+            <p class="hint viewer-hint" id="viewerHint" data-i18n="index.읽기_전용_미리보기입니다">읽기 전용 미리보기입니다.</p>
+            <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="viewerHint" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
           </div>
         </div>
         <div class="viewer-toc-panel hidden" id="viewerTocPanel" aria-label="회차 목차" data-i18n-aria-label="index.회차_목차">
@@ -8130,20 +8134,6 @@
                 data-i18n="index.쪽쓰기_열기"
               >조판 열기</button>
               <p id="viewerTypesetReadonly" class="viewer-typeset-readonly" aria-live="polite"></p>
-              <button
-                type="button"
-                id="viewerTypesetDetailsToggle"
-                class="viewer-typeset-details-toggle"
-                aria-expanded="false"
-                aria-controls="viewerTypesetDetails"
-                aria-label="상세 설정"
-                data-i18n-aria-label="index.상세_설정"
-              >
-                <span class="viewer-typeset-details-open-label" data-i18n="index.상세_설정">상세 설정</span>
-                <span class="viewer-typeset-details-close-label" data-i18n="index.접기" aria-hidden="true">접기</span>
-              </button>
-            </div>
-            <div id="viewerTypesetDetails" class="viewer-typeset-details hidden" hidden>
               <div class="viewer-typeset-actions">
                 <div class="viewer-typeset-export-wrap">
                   <button
