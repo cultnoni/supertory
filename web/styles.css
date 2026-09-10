@@ -22131,6 +22131,40 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
 .page-write-hint {
   margin: 0 !important;
 }
+.page-write-typeset {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 8px 16px 10px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface-2);
+  overflow: visible;
+}
+.page-write-typeset-presets {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+.page-write-typeset-row {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  min-width: 0;
+  overflow-x: auto;
+}
+.page-write-typeset .viewer-typeset-fields {
+  flex: 1 1 auto;
+  flex-wrap: wrap;
+  row-gap: 8px;
+}
+.page-write-apply {
+  flex: 0 0 auto;
+  align-self: flex-end;
+}
 .page-write-actions {
   display: flex;
   align-items: center;
@@ -22165,19 +22199,13 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   margin: 0 0 6px 2px;
 }
 .page-write-page {
-  width: calc(var(--page-write-cols, 16) * var(--page-write-cell, 20px));
+  box-sizing: border-box;
+  width: var(--page-write-viewport, 360px);
   height: calc(var(--page-write-rows, 18) * var(--page-write-line, 28px));
   margin: 0;
-  padding: 0;
+  padding: 0 max(0px, calc((var(--page-write-viewport, 360px) - 2px - (var(--page-write-cols, 16) * var(--page-write-cell, 20px))) / 2));
   border: 1px solid #c9c1b4;
-  background:
-    repeating-linear-gradient(
-      to bottom,
-      #fbf7ef,
-      #fbf7ef calc(var(--page-write-line, 28px) - 1px),
-      #e7e0d4 calc(var(--page-write-line, 28px) - 1px),
-      #e7e0d4 var(--page-write-line, 28px)
-    );
+  background: #fbf7ef;
   color: #1c1917;
   font-size: var(--page-write-cell, 20px);
   line-height: var(--page-write-line, 28px);
@@ -22209,6 +22237,16 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
 }
 .viewer-typeset-pagewrite-link:hover {
   color: var(--ink);
+}
+.viewer-typeset-readonly {
+  margin: 0;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 body.page-write-open #sceneContent {
   caret-color: transparent;
@@ -23208,7 +23246,7 @@ html.is-electron .viewer-modal.is-maximized {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin: 0 0 0 auto;
+  margin: 0;
   flex: 0 0 auto;
   white-space: nowrap;
 }

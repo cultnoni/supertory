@@ -2184,7 +2184,7 @@
                 </button>
                 </div>
                 <div class="format-toolbar-cluster format-toolbar-cluster-end">
-                <!-- 보기 도구 (북마크 · 타자기 · 기록 · 검색 · 뷰어 · 쪽쓰기 · 비교 · 분할 · 확장) -->
+                <!-- 보기 도구 (북마크 · 타자기 · 기록 · 검색 · 뷰어 · 조판 · 비교 · 분할 · 확장) -->
                 <button
                   type="button"
                   class="format-tool-item format-bookmark-btn"
@@ -2257,7 +2257,7 @@
                   class="format-tool-item format-viewer-btn"
                   id="viewerModeButton"
                   data-icon-key="viewer"
-                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 · 조판 (편집 불가)" data-i18n-title="index.뷰어_PDF_종이책_핸드폰_리더기_편집_불가"
+                  title="뷰어 · PDF · 종이책 · 핸드폰 · 리더기 · 조판 미리보기 (편집 불가)" data-i18n-title="index.뷰어_PDF_종이책_핸드폰_리더기_편집_불가"
                   aria-label="뷰어" data-i18n-aria-label="index.뷰어"
                 >
                   <span class="format-tool-glyph" aria-hidden="true">
@@ -2277,16 +2277,13 @@
                   class="format-tool-item format-page-write-btn"
                   id="pageWriteButton"
                   data-icon-key="page-write"
-                  title="쪽쓰기 · 조판 규격으로 편집" data-i18n-title="index.쪽쓰기_조판_규격으로_편집"
-                  aria-label="쪽쓰기" data-i18n-aria-label="index.쪽쓰기"
+                  title="조판 규격으로 편집" data-i18n-title="index.쪽쓰기_조판_규격으로_편집"
+                  aria-label="조판" data-i18n-aria-label="index.쪽쓰기"
                 >
                   <span class="format-tool-glyph" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                      <rect x="6" y="3.75" width="12" height="16.5" rx="1.4"/>
-                      <path d="M9 8.25h6M9 12h6M9 15.75h4"/>
-                    </svg>
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="lucide lucide-book-open-text"><path d="M12 5v16"/><path d="M16 13h2"/><path d="M16 9h2"/><path d="M20.001 19A2 2 0 0022 17V5a2 2 0 00-1.999-2L16 3.002A5 5 0 0012 5a5 5 0 00-4-2H4a2 2 0 00-2 2v12a2 2 0 001.999 2H8a5 5 0 014 2 5 5 0 014-2z"/><path d="M6 13h2"/><path d="M6 9h2"/></svg>
                   </span>
-                  <span class="format-tool-label" data-i18n="index.쪽쓰기">쪽쓰기</span>
+                  <span class="format-tool-label" data-i18n="index.쪽쓰기">조판</span>
                 </button>
                 <button
                   type="button"
@@ -7643,7 +7640,7 @@
       <div class="page-write-card" role="document">
         <div class="page-write-head">
           <div class="page-write-head-text">
-            <h2 id="pageWriteTitle" class="page-write-title" data-i18n="index.쪽쓰기">쪽쓰기</h2>
+            <h2 id="pageWriteTitle" class="page-write-title" data-i18n="index.쪽쓰기">조판</h2>
             <p class="hint page-write-hint" id="pageWriteHint" data-i18n="index.쪽쓰기_안내">조판 규격으로 쪽을 나누어 편집합니다. 닫아도 내용은 본문에 반영됩니다.</p>
           </div>
           <div class="page-write-actions">
@@ -7661,6 +7658,193 @@
                 <path d="m6 6 12 12"/>
               </svg>
             </button>
+          </div>
+        </div>
+        <div class="page-write-typeset" id="pageWriteTypeset">
+          <div class="page-write-typeset-presets">
+            <div class="viewer-typeset-platform-wrap">
+              <div id="viewerTypesetPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
+              <div id="viewerTypesetNewPop" class="viewer-typeset-pop hidden" hidden>
+                <label class="viewer-typeset-pop-label" for="viewerTypesetNewLabel">
+                  <span data-i18n="index.조판양식_이름">조판양식 이름</span>
+                  <input
+                    id="viewerTypesetNewLabel"
+                    type="text"
+                    maxlength="40"
+                    autocomplete="off"
+                    spellcheck="false"
+                    placeholder="예: 조아라" data-i18n-placeholder="index.예_조아라"
+                  >
+                </label>
+                <div class="viewer-typeset-pop-actions">
+                  <button type="button" class="secondary compact-btn" id="viewerTypesetNewCancel" data-i18n="index.취소">취소</button>
+                  <button type="button" class="primary compact-btn" id="viewerTypesetNewConfirm" data-i18n="index.추가">추가</button>
+                </div>
+              </div>
+            </div>
+            <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
+          </div>
+          <div class="page-write-typeset-row">
+          <div class="viewer-typeset-fields">
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field viewer-typeset-field-font" for="viewerTypesetFont">
+                    <span data-i18n="app.글꼴">글꼴</span>
+                    <input id="viewerTypesetFont" type="text" maxlength="40" spellcheck="false" value="바탕체">
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetFontSize">
+                    <span data-i18n="index.글자_크기">글자 크기</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetFontSize" data-typeset-choice="fontSize">
+                        <option value="9">9</option>
+                        <option value="10" selected>10</option>
+                        <option value="11">11</option>
+                        <option value="12">12</option>
+                        <option value="13">13</option>
+                        <option value="14">14</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetFontSizeCustom" class="viewer-typeset-custom-input hidden" type="number" min="1" max="72" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">pt</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetLineHeight">
+                    <span data-i18n="app.줄간격">줄간격</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetLineHeight" data-typeset-choice="lineHeight">
+                        <option value="130">130</option>
+                        <option value="140" selected>140</option>
+                        <option value="150">150</option>
+                        <option value="160">160</option>
+                        <option value="170">170</option>
+                        <option value="180">180</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetLineHeightCustom" class="viewer-typeset-custom-input hidden" type="number" min="50" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">%</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetLetterSpacing">
+                    <span data-i18n="index.자간">자간</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetLetterSpacing" data-typeset-choice="letterSpacing">
+                        <option value="-0.05">-0.05</option>
+                        <option value="0" selected>0</option>
+                        <option value="0.05">0.05</option>
+                        <option value="0.1">0.1</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetLetterSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="-20" max="40" step="0.01" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field" for="viewerTypesetIndent">
+                    <span data-i18n="index.들여쓰기">들여쓰기</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetIndent" data-typeset-choice="indent">
+                        <option value="0" selected>0</option>
+                        <option value="1" data-i18n="index.들여쓰기_1칸">1칸</option>
+                        <option value="2" data-i18n="index.들여쓰기_2칸">2칸</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetIndentCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit viewer-typeset-indent-unit hidden" hidden>pt</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetParaSpacing">
+                    <span data-i18n="index.문단_간격">문단 간격</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetParaSpacing" data-typeset-choice="paraSpacing">
+                        <option value="0" selected>0</option>
+                        <option value="5">5</option>
+                        <option value="10">10</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetParaSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="120" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">pt</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginLeft">
+                    <span data-i18n="index.왼쪽_여백">왼쪽 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginLeft" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginLeftCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginRight">
+                    <span data-i18n="index.오른쪽_여백">오른쪽 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginRight" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginRightCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginTop">
+                    <span data-i18n="index.위_여백">위 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginTop" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginTopCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                  <label class="viewer-typeset-field" for="viewerTypesetMarginBottom">
+                    <span data-i18n="index.아래_여백">아래 여백</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetMarginBottom" data-typeset-choice="margin">
+                        <option value="10">10</option>
+                        <option value="15">15</option>
+                        <option value="20" selected>20</option>
+                        <option value="25">25</option>
+                        <option value="30">30</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetMarginBottomCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">mm</span>
+                    </span>
+                  </label>
+                </div>
+                <div class="viewer-typeset-group">
+                  <label class="viewer-typeset-field viewer-typeset-field-viewport" for="viewerTypesetViewport">
+                    <span data-i18n="index.미리보기_폭">미리보기 폭</span>
+                    <span class="viewer-typeset-input-row">
+                      <select id="viewerTypesetViewport" data-typeset-choice="viewport">
+                        <option value="320">320</option>
+                        <option value="360" selected>360</option>
+                        <option value="375">375</option>
+                        <option value="414">414</option>
+                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
+                      </select>
+                      <input id="viewerTypesetViewportCustom" class="viewer-typeset-custom-input hidden" type="number" min="200" max="800" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
+                      <span class="viewer-typeset-unit">px</span>
+                    </span>
+                  </label>
+                </div>
+          </div>
+          <button type="button" class="primary compact-btn page-write-apply" id="pageWriteApplyButton" data-i18n="index.적용">적용</button>
           </div>
         </div>
         <div class="page-write-body" id="pageWritePages"></div>
@@ -7681,7 +7865,7 @@
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="book" aria-selected="false" data-i18n="app.종이책">종이책</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="phone" aria-selected="false" data-i18n="app.핸드폰">핸드폰</button>
             <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="eink" aria-selected="false" data-i18n="app.리더기">리더기</button>
-            <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="typeset" aria-selected="false" data-i18n="index.조판">조판</button>
+            <button type="button" class="viewer-mode-tab" role="tab" data-viewer-mode="typeset" aria-selected="false" data-i18n="index.조판">조판 미리보기</button>
           </div>
           <div class="viewer-scope-tabs" id="viewerScopeTabs" role="group" aria-label="원고 범위" data-i18n-aria-label="index.원고_범위">
             <button type="button" class="viewer-scope-tab is-active" data-viewer-scope="scene" aria-pressed="true" data-i18n="app.현재_회차">현재 회차</button>
@@ -7897,27 +8081,6 @@
           <!-- Platform typeset (Munpia / KakaoPage / Ridibooks / Naver Series) -->
           <div class="viewer-controls hidden" data-viewer-controls="typeset">
             <div class="viewer-typeset-presets">
-              <div class="viewer-typeset-platform-wrap">
-                <div id="viewerTypesetPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
-                <div id="viewerTypesetNewPop" class="viewer-typeset-pop hidden" hidden>
-                  <label class="viewer-typeset-pop-label" for="viewerTypesetNewLabel">
-                    <span data-i18n="index.조판양식_이름">조판양식 이름</span>
-                    <input
-                      id="viewerTypesetNewLabel"
-                      type="text"
-                      maxlength="40"
-                      autocomplete="off"
-                      spellcheck="false"
-                      placeholder="예: 조아라" data-i18n-placeholder="index.예_조아라"
-                    >
-                  </label>
-                  <div class="viewer-typeset-pop-actions">
-                    <button type="button" class="secondary compact-btn" id="viewerTypesetNewCancel" data-i18n="index.취소">취소</button>
-                    <button type="button" class="primary compact-btn" id="viewerTypesetNewConfirm" data-i18n="index.추가">추가</button>
-                  </div>
-                </div>
-              </div>
-              <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
               <label class="viewer-ctrl viewer-typeset-flow" for="viewerTypesetFlow">
                 <span data-i18n="index.보기_방식">보기 방식</span>
                 <select id="viewerTypesetFlow" aria-label="보기 방식" data-i18n-aria-label="index.보기_방식">
@@ -7929,8 +8092,9 @@
                 type="button"
                 id="openPageWriteFromTypeset"
                 class="viewer-typeset-pagewrite-link"
-                data-i18n="index.이_프리셋으로_쪽쓰기_열기"
-              >이 프리셋으로 쪽쓰기 열기</button>
+                data-i18n="index.쪽쓰기_열기"
+              >조판 열기</button>
+              <p id="viewerTypesetReadonly" class="viewer-typeset-readonly" aria-live="polite"></p>
               <button
                 type="button"
                 id="viewerTypesetDetailsToggle"
@@ -7945,165 +8109,6 @@
               </button>
             </div>
             <div id="viewerTypesetDetails" class="viewer-typeset-details hidden" hidden>
-              <div class="viewer-typeset-fields">
-                <div class="viewer-typeset-group">
-                  <label class="viewer-typeset-field viewer-typeset-field-font" for="viewerTypesetFont">
-                    <span data-i18n="app.글꼴">글꼴</span>
-                    <input id="viewerTypesetFont" type="text" maxlength="40" spellcheck="false" value="바탕체">
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetFontSize">
-                    <span data-i18n="index.글자_크기">글자 크기</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetFontSize" data-typeset-choice="fontSize">
-                        <option value="9">9</option>
-                        <option value="10" selected>10</option>
-                        <option value="11">11</option>
-                        <option value="12">12</option>
-                        <option value="13">13</option>
-                        <option value="14">14</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetFontSizeCustom" class="viewer-typeset-custom-input hidden" type="number" min="1" max="72" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">pt</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetLineHeight">
-                    <span data-i18n="app.줄간격">줄간격</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetLineHeight" data-typeset-choice="lineHeight">
-                        <option value="130">130</option>
-                        <option value="140" selected>140</option>
-                        <option value="150">150</option>
-                        <option value="160">160</option>
-                        <option value="170">170</option>
-                        <option value="180">180</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetLineHeightCustom" class="viewer-typeset-custom-input hidden" type="number" min="50" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">%</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetLetterSpacing">
-                    <span data-i18n="index.자간">자간</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetLetterSpacing" data-typeset-choice="letterSpacing">
-                        <option value="-0.05">-0.05</option>
-                        <option value="0" selected>0</option>
-                        <option value="0.05">0.05</option>
-                        <option value="0.1">0.1</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetLetterSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="-20" max="40" step="0.01" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                    </span>
-                  </label>
-                </div>
-                <div class="viewer-typeset-group">
-                  <label class="viewer-typeset-field" for="viewerTypesetIndent">
-                    <span data-i18n="index.들여쓰기">들여쓰기</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetIndent" data-typeset-choice="indent">
-                        <option value="0" selected>0</option>
-                        <option value="1" data-i18n="index.들여쓰기_1칸">1칸</option>
-                        <option value="2" data-i18n="index.들여쓰기_2칸">2칸</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetIndentCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="400" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit viewer-typeset-indent-unit hidden" hidden>pt</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetParaSpacing">
-                    <span data-i18n="index.문단_간격">문단 간격</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetParaSpacing" data-typeset-choice="paraSpacing">
-                        <option value="0" selected>0</option>
-                        <option value="5">5</option>
-                        <option value="10">10</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetParaSpacingCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="120" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">pt</span>
-                    </span>
-                  </label>
-                </div>
-                <div class="viewer-typeset-group">
-                  <label class="viewer-typeset-field" for="viewerTypesetMarginLeft">
-                    <span data-i18n="index.왼쪽_여백">왼쪽 여백</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetMarginLeft" data-typeset-choice="margin">
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20" selected>20</option>
-                        <option value="25">25</option>
-                        <option value="30">30</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetMarginLeftCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">mm</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetMarginRight">
-                    <span data-i18n="index.오른쪽_여백">오른쪽 여백</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetMarginRight" data-typeset-choice="margin">
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20" selected>20</option>
-                        <option value="25">25</option>
-                        <option value="30">30</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetMarginRightCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">mm</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetMarginTop">
-                    <span data-i18n="index.위_여백">위 여백</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetMarginTop" data-typeset-choice="margin">
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20" selected>20</option>
-                        <option value="25">25</option>
-                        <option value="30">30</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetMarginTopCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">mm</span>
-                    </span>
-                  </label>
-                  <label class="viewer-typeset-field" for="viewerTypesetMarginBottom">
-                    <span data-i18n="index.아래_여백">아래 여백</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetMarginBottom" data-typeset-choice="margin">
-                        <option value="10">10</option>
-                        <option value="15">15</option>
-                        <option value="20" selected>20</option>
-                        <option value="25">25</option>
-                        <option value="30">30</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetMarginBottomCustom" class="viewer-typeset-custom-input hidden" type="number" min="0" max="80" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">mm</span>
-                    </span>
-                  </label>
-                </div>
-                <div class="viewer-typeset-group">
-                  <label class="viewer-typeset-field viewer-typeset-field-viewport" for="viewerTypesetViewport">
-                    <span data-i18n="index.미리보기_폭">미리보기 폭</span>
-                    <span class="viewer-typeset-input-row">
-                      <select id="viewerTypesetViewport" data-typeset-choice="viewport">
-                        <option value="320">320</option>
-                        <option value="360" selected>360</option>
-                        <option value="375">375</option>
-                        <option value="414">414</option>
-                        <option value="__custom__" data-i18n="index.직접입력">직접입력</option>
-                      </select>
-                      <input id="viewerTypesetViewportCustom" class="viewer-typeset-custom-input hidden" type="number" min="200" max="800" step="1" hidden aria-label="직접입력" data-i18n-aria-label="index.직접입력">
-                      <span class="viewer-typeset-unit">px</span>
-                    </span>
-                  </label>
-                </div>
-              </div>
               <div class="viewer-typeset-actions">
                 <button type="button" class="secondary compact-btn" id="viewerTypesetSave" data-i18n="index.조판양식_저장">조판양식 저장</button>
                 <div class="viewer-typeset-export-wrap">

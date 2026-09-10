@@ -844,11 +844,23 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('id="pageWriteModal"', self.html)
         self.assertIn('id="openPageWriteFromTypeset"', self.html)
         self.assertNotIn("index.쪽쓰기_기능은_준비_중입니다", self.js.split('$("pageWriteButton")', 1)[1][:400])
-        for locale in self.locales.values():
+        self.assertIn("lucide-book-open-text", row)
+        self.assertIn('d="M12 5v16"', row)
+        expected_labels = {
+            "ko": ("조판", "조판 열기", "조판 미리보기"),
+            "en": ("Typeset", "Open typeset", "Typeset preview"),
+            "es": ("Composición", "Abrir composición", "Vista previa de composición"),
+        }
+        for lang, locale in self.locales.items():
             self.assertIn("index.쪽쓰기", locale)
-            self.assertIn("index.이_프리셋으로_쪽쓰기_열기", locale)
+            self.assertIn("index.쪽쓰기_열기", locale)
+            self.assertIn("index.쪽쓰기_조판_적용하지_않은_변경", locale)
             self.assertIn("index.쪽쓰기_조판_규격으로_편집", locale)
             self.assertIn("index.쪽쓰기_서식있는_회차는_열_수_없습니다", locale)
+            overlay, open_label, preview = expected_labels[lang]
+            self.assertEqual(locale["index.쪽쓰기"], overlay)
+            self.assertEqual(locale["index.쪽쓰기_열기"], open_label)
+            self.assertEqual(locale["index.조판"], preview)
 
     def test_left_panel_keeps_round_edge_when_ai_collapsed(self) -> None:
         collapsed = self.css.split(
@@ -1461,9 +1473,11 @@ class PanelDockContractTests(unittest.TestCase):
             "index.내화면_보호_해제",
             "index.토리톡",
             "index.쪽쓰기",
-            "index.이_프리셋으로_쪽쓰기_열기",
+            "index.쪽쓰기_열기",
+            "index.쪽쓰기_조판_적용하지_않은_변경",
             "index.쪽쓰기_조판_규격으로_편집",
             "index.쪽쓰기_서식있는_회차는_열_수_없습니다",
+            "index.조판",
             "index.자주쓰는_가상독자_모음",
             "index.즐겨찾기한_가상독자가_없어요",
             "app.즐겨찾기는_최대_6명까지_등록할_수_있어요",

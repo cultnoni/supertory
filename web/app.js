@@ -52513,6 +52513,40 @@ function pageWriteSpecFromTypeset(draft) {
   });
 }
 
+function applyPageWriteSpecFromTypeset() {
+  const draft = typeof readTypesetDraftFromForm === "function" ? readTypesetDraftFromForm() : {};
+  pageWrite.spec = pageWriteSpecFromTypeset(draft);
+  return draft;
+}
+
+function updateTypesetReadonlySummary() {
+  const el = $("viewerTypesetReadonly");
+  if (!el || typeof readTypesetDraftFromForm !== "function") return;
+  const draft = readTypesetDraftFromForm();
+  const id = typeof normalizeTypesetPlatform === "function"
+    ? normalizeTypesetPlatform(viewerSettings.typesetPlatform)
+    : String(viewerSettings.typesetPlatform || "");
+  const name = typeof typesetPresetLabel === "function"
+    ? typesetPresetLabel(id)
+    : id;
+  const size = draft.font_size_pt;
+  const lh = draft.line_height_percent;
+  const vp = draft.mobile_viewport_px;
+  el.textContent = [
+    name,
+    `${i18n.t("index.글자_크기")} ${size}pt`,
+    `${i18n.t("app.줄간격")} ${lh}%`,
+    `${i18n.t("index.미리보기_폭")} ${vp}px`,
+  ].join(" · ");
+}
+
+function refreshPageWriteFromTypeset() {
+  updateTypesetReadonlySummary();
+  if (!isPageWriteOpen()) return;
+  applyPageWriteSpecFromTypeset();
+  renderPageWrite(pageWrite.text, pageWrite.caret);
+}
+
 function paginatePageWrite(text, spec) {
   const charsPerLine = spec.charsPerLine;
   const linesPerPage = spec.linesPerPage;
@@ -52666,6 +52700,14 @@ function renderPageWrite(text, caret, startedAt) {
   host.style.setProperty("--page-write-rows", String(pageWrite.spec.linesPerPage));
   host.style.setProperty("--page-write-cell", `${pageWrite.spec.cellPx}px`);
   host.style.setProperty("--page-write-line", `${pageWrite.spec.linePx}px`);
+  const draft = typeof readTypesetDraftFromForm === "function" ? readTypesetDraftFromForm() : {};
+  const metrics = window.TypesetMetrics?.layoutMetrics?.(draft) || {};
+  const viewportPx = Math.max(
+    320,
+    Number(metrics.viewportPx) || Number(draft.mobile_viewport_px) || 360,
+  );
+  host.style.setProperty("--page-write-viewport", `${Math.round(viewportPx)}px`);
+  const pageFont = typeof typesetCssFontFamily === "function" ? typesetCssFontFamily(draft.font_family) : "";
   host.replaceChildren();
   pageWrite.ranges.forEach((range, index) => {
     const shell = document.createElement("div");
@@ -52681,6 +52723,8 @@ function renderPageWrite(text, caret, startedAt) {
     page.setAttribute("role", "textbox");
     page.setAttribute("aria-label", i18n.t("index.쪽쓰기_쪽", { n: index + 1 }));
     page.textContent = text.slice(range.start, range.end);
+    if (pageFont) page.style.fontFamily = pageFont;
+    if (metrics.letterSpacingCss) page.style.letterSpacing = metrics.letterSpacingCss;
     shell.append(label, page);
     host.append(shell);
   });
@@ -52724,27 +52768,78 @@ function openPageWrite(options = {}) {
   if (!modal || !host) return;
   if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) closeFocusWrite();
   if (typeof isViewerOpen === "function" && isViewerOpen()) closeViewerMode();
-  const spec = options.fromTypeset
-    ? pageWriteSpecFromTypeset(typeof readTypesetDraftFromForm === "function" ? readTypesetDraftFromForm() : {})
-    : loadPageWriteSpec();
-  pageWrite.spec = savePageWriteSpec(spec);
-  pageWrite.composing = false;
-  const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t("index.쪽쓰기");
-  if ($("pageWriteTitle")) $("pageWriteTitle").textContent = title;
-  const source = getPageWriteSourceText($("sceneContent"));
-  modal.classList.remove("hidden");
-  document.body.classList.add("page-write-open");
-  $("pageWriteButton")?.classList.add("is-active");
-  $("pageWriteButton")?.setAttribute("aria-pressed", "true");
-  const editor = $("sceneContent");
-  if (editor) editor.setAttribute("contenteditable", "false");
-  renderPageWrite(source, source.length);
+  const start = () => {
+    if (typeof syncTypesetControlValues === "function") syncTypesetControlValues();
+    applyPageWriteSpecFromTypeset();
+    pageWrite.composing = false;
+    const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t("index.쪽쓰기");
+    if ($("pageWriteTitle")) $("pageWriteTitle").textContent = title;
+    const source = getPageWriteSourceText($("sceneContent"));
+    modal.classList.remove("hidden");
+    document.body.classList.add("page-write-open");
+    $("pageWriteButton")?.classList.add("is-active");
+    $("pageWriteButton")?.setAttribute("aria-pressed", "true");
+    const editor = $("sceneContent");
+    if (editor) editor.setAttribute("contenteditable", "false");
+    renderPageWrite(source, source.length);
+  };
+  if (typeof ensureTypesetPresets === "function" && !typesetPresets) {
+    ensureTypesetPresets().then(start).catch(handleError);
+    return;
+  }
+  start();
+}
+
+const TYPESET_DRAFT_COMPARE_KEYS = [
+  "font_family",
+  "font_size_pt",
+  "line_height_percent",
+  "letter_spacing_pt",
+  "paragraph_indent_pt",
+  "paragraph_spacing_pt",
+  "margin_left_mm",
+  "margin_right_mm",
+  "margin_top_mm",
+  "margin_bottom_mm",
+  "mobile_viewport_px",
+];
+
+function isPageWriteTypesetDirty() {
+  if (typeof readTypesetDraftFromForm !== "function" || typeof getTypesetPreset !== "function") {
+    return false;
+  }
+  const saved = getTypesetPreset();
+  if (!saved) return false;
+  const draft = readTypesetDraftFromForm();
+  for (const key of TYPESET_DRAFT_COMPARE_KEYS) {
+    if (key === "font_family") {
+      const a = String(draft.font_family || "바탕체").trim();
+      const b = String(saved.font_family || "바탕체").trim();
+      if (a !== b) return true;
+      continue;
+    }
+    const left = Number(draft[key]);
+    const right = Number(saved[key]);
+    const a = Number.isFinite(left) ? left : 0;
+    const b = Number.isFinite(right) ? right : 0;
+    if (typeof typesetNumbersClose === "function") {
+      if (!typesetNumbersClose(a, b)) return true;
+    } else if (a !== b) {
+      return true;
+    }
+  }
+  return false;
 }
 
 function closePageWrite() {
   const modal = $("pageWriteModal");
   if (!modal) return;
-  if (!modal.classList.contains("hidden")) {
+  const wasOpen = !modal.classList.contains("hidden");
+  if (wasOpen && isPageWriteTypesetDirty()) {
+    if (!window.confirm(i18n.t("index.쪽쓰기_조판_적용하지_않은_변경"))) return;
+    if (typeof syncTypesetControlValues === "function") syncTypesetControlValues();
+  }
+  if (wasOpen) {
     syncPageWriteToManuscript(readPageWriteAllText() || pageWrite.text);
   }
   modal.classList.add("hidden");
@@ -52817,6 +52912,17 @@ function setupPageWrite() {
   document.querySelectorAll("[data-close-page-write]").forEach((el) => {
     el.addEventListener("click", () => closePageWrite());
   });
+
+  const applyBtn = $("pageWriteApplyButton");
+  if (applyBtn && applyBtn.dataset.pageWriteApplyBound !== "1") {
+    applyBtn.dataset.pageWriteApplyBound = "1";
+    applyBtn.addEventListener("click", (event) => {
+      event.preventDefault();
+      if (typeof saveTypesetPresetFromForm === "function") {
+        saveTypesetPresetFromForm().catch(handleError);
+      }
+    });
+  }
 
   $("openPageWriteFromTypeset")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -53397,6 +53503,7 @@ function syncTypesetControlValues() {
   renderTypesetPlatformTabs();
   const badge = $("viewerTypesetUnverified");
   if (badge) badge.classList.toggle("hidden", Boolean(preset.is_verified));
+  updateTypesetReadonlySummary();
 }
 
 function selectTypesetPlatform(platformId) {
@@ -53404,6 +53511,7 @@ function selectTypesetPlatform(platformId) {
   saveViewerSettings();
   syncTypesetControlValues();
   applyViewerLayout();
+  if (typeof refreshPageWriteFromTypeset === "function") refreshPageWriteFromTypeset();
 }
 
 async function commitTypesetRename(platformId, nextLabel) {
@@ -56959,12 +57067,7 @@ function setupViewerMode() {
     }
     const tab = event.target.closest?.("[data-typeset-platform]");
     if (!tab) return;
-    viewerSettings.typesetPlatform = normalizeTypesetPlatform(tab.dataset.typesetPlatform);
-    saveViewerSettings();
-    const apply = () => {
-      syncTypesetControlValues();
-      applyViewerLayout();
-    };
+    const apply = () => selectTypesetPlatform(tab.dataset.typesetPlatform);
     if (!typesetPresets) {
       ensureTypesetPresets().then(apply).catch(handleError);
       return;
@@ -56997,6 +57100,7 @@ function setupViewerMode() {
   });
 
   const relayoutTypeset = () => {
+    if (typeof refreshPageWriteFromTypeset === "function") refreshPageWriteFromTypeset();
     if (viewerSettings.mode !== "typeset") return;
     applyViewerLayout();
   };
