@@ -369,6 +369,11 @@ body[data-ui-theme="classroom"] {
   --wood-frame-soft: #8AAF8E;
   --wood-frame-deep: #1f4d2e;
   --chalk-board: #1f4d2e;
+  /* 본문 기본: 칠판 초록 + 분필 흰색 (목차 등 UI --ink 와 별개) */
+  --page-bg: #1f4d2e;
+  --page-editor-bg: #1f4d2e;
+  --page-ink: #ffffff;
+  --page-line: #3a6f4a;
   --bg-main: var(--paper);
   --bg-surface: var(--surface);
   --accent-sand: var(--selection);
@@ -15949,7 +15954,8 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   align-items: stretch;
   min-height: 0;
   height: 100%;
-  padding: 8px 8px 0;
+  /* 분할 전·후 좌·우 패널 거터 동일 — 바깥 패딩을 더하면 양쪽이 벌어짐 */
+  padding: 0;
   gap: 0;
   overflow: hidden;
 }
@@ -15958,7 +15964,7 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   flex: 0 0 var(--split-left-width, 55%);
   width: var(--split-left-width, 55%);
   min-width: 240px;
-  max-width: calc(100% - 212px); /* 오른쪽 min 200 + 리사이저 12 */
+  max-width: calc(100% - 206px); /* 오른쪽 min 200 + 리사이저 6 */
   min-height: 0;
   height: 100%;
   align-self: stretch;
@@ -15986,8 +15992,8 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   width: 100%;
   max-width: none;
   margin: 0;
-  /* 분할 모드도 글자수 카드 가로 기준 · 위 2mm → 본문만 증가 */
-  padding: max(0px, calc(6px - 2mm)) var(--ms-h-gutter, calc(8px - 1.5mm)) 0;
+  /* 바깥(바인더 쪽)만 거터 · 안쪽은 리사이저에 붙여 사이 낭비 없음 */
+  padding: max(0px, calc(6px - 2mm)) 0 0 var(--ms-h-gutter, calc(8px - 1.5mm));
   overflow: hidden;
   display: grid !important;
   grid-template-columns: minmax(0, 1fr);
@@ -16121,12 +16127,11 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
 }
 .split-pane-resizer {
   /*
-   * 클릭·호버 슬롯 (12px). 그립은 4px라 양옆 여백이 남고,
-   * 예전 28px 슬롯보다 두 원고가 가깝게 붙습니다.
+   * 클릭 슬롯 6px · 그립 4px. 두 원고 사이 거터를 최소로 둡니다.
    */
-  flex: 0 0 12px;
-  width: 12px;
-  min-width: 12px;
+  flex: 0 0 6px;
+  width: 6px;
+  min-width: 6px;
   align-self: stretch;
   cursor: col-resize;
   z-index: 5;
@@ -16209,13 +16214,61 @@ body.split-pane-resizing * {
   display: flex;
   flex-direction: column;
   z-index: 0;
-  padding: 8px 8px 8px 4px;
+  /* 바깥(토리 쪽)만 거터 · 안쪽은 리사이저에 붙임 · 카드 테두리로 벌어지지 않게 */
+  padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) 10px 0;
+  border: 0;
+  border-radius: 0;
+  background: var(--chrome-bg, var(--header-bg));
+  box-sizing: border-box;
 }
-/* Side pane chrome is fixed; body sheet fills the rest */
-.scene-workspace.split-active #splitViewer:not(.popup-mode) .split-heading,
-.scene-workspace.split-active #splitViewer:not(.popup-mode) .split-edit-bar,
+/* Side pane: 제목·창모드·닫기는 호버 시에만 내려옴. 기본은 원고만. */
 .scene-workspace.split-active #splitViewer:not(.popup-mode) .split-popup-drag-bar {
   flex: 0 0 auto;
+}
+.scene-workspace.split-active #splitViewer:not(.popup-mode) .split-head-hotzone,
+.focus-write-card.is-split #splitViewer:not(.popup-mode) .split-head-hotzone {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 7;
+}
+.scene-workspace.split-active #splitViewer:not(.popup-mode) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode) .split-head-chrome {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 8;
+  flex: 0 0 auto;
+  padding: 8px var(--ms-h-gutter, calc(8px - 1.5mm)) 10px;
+  box-sizing: border-box;
+  background: var(--header-bg, var(--chrome-bg, var(--surface)));
+  box-shadow: 0 8px 22px #00000028;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.22s ease, opacity 0.18s ease;
+}
+.scene-workspace.split-active #splitViewer:not(.popup-mode):has(.split-head-hotzone:hover) .split-head-chrome,
+.scene-workspace.split-active #splitViewer:not(.popup-mode):has(.split-head-chrome:hover) .split-head-chrome,
+.scene-workspace.split-active #splitViewer:not(.popup-mode):has(.split-head-chrome:focus-within) .split-head-chrome,
+.scene-workspace.split-active #splitViewer:not(.popup-mode):has(#switchSplitModeButton[aria-expanded="true"]) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-hotzone:hover) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-chrome:hover) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-chrome:focus-within) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode):has(#switchSplitModeButton[aria-expanded="true"]) .split-head-chrome {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+@media (prefers-reduced-motion: reduce) {
+  .scene-workspace.split-active #splitViewer:not(.popup-mode) .split-head-chrome,
+  .focus-write-card.is-split #splitViewer:not(.popup-mode) .split-head-chrome {
+    transition: none;
+  }
 }
 .scene-workspace.split-active #splitViewer:not(.popup-mode) .split-scene-content {
   flex: 1 1 0 !important;
@@ -16223,6 +16276,16 @@ body.split-pane-resizing * {
   height: auto !important;
   max-height: none !important;
   margin: 0 !important;
+  padding: 0 !important;
+  gap: 0;
+  /* 본문 .manuscript-frame 과 같은 테두리·모서리 */
+  border: 1px solid var(--page-line, var(--line)) !important;
+  border-radius: 10px !important;
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 45%, transparent) inset,
+    0 1px 2px color-mix(in srgb, var(--ink) 4%, transparent);
+  background: var(--page-editor-bg, var(--page-bg, var(--paper, #fffdf8))) !important;
+  box-sizing: border-box;
   display: flex !important;
   flex-direction: column !important;
   overflow: hidden !important;
@@ -22017,6 +22080,17 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   font-size: 18px;
 }
 .focus-write-hint { margin: 0 !important; }
+.focus-write-hint-box {
+  margin-top: 4px;
+  max-width: 42rem;
+}
+.focus-write-modal:not(.is-fullscreen) .focus-write-head:has([data-guide-tip="focusWriteHint"].hidden) {
+  align-items: center;
+  padding: 8px 16px;
+}
+.focus-write-modal:not(.is-fullscreen) .focus-write-head:has([data-guide-tip="focusWriteHint"].hidden) .focus-write-title {
+  margin: 0;
+}
 .focus-write-actions {
   display: flex;
   align-items: center;
@@ -22028,17 +22102,65 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   min-width: 0;
   min-height: 0;
   overflow: auto;
-  background: var(--page-bg, #fffdf8);
+  display: grid;
+  grid-template-columns: 1fr 2px min(794px, calc(100% - 48px)) 2px 1fr;
+  grid-template-rows: minmax(100%, max-content);
+  justify-items: stretch;
+  align-items: stretch;
+  padding: 0;
   margin: 0;
+  box-sizing: border-box;
+  background: var(--page-editor-bg, var(--page-bg, #fffdf8));
+}
+.focus-write-page::before,
+.focus-write-page::after {
+  content: "";
+  width: 2px;
+  background: #d8b996;
+  position: sticky;
+  top: 0;
+  height: 100%;
+  align-self: stretch;
+}
+.focus-write-page::before { grid-column: 2; }
+.focus-write-page::after { grid-column: 4; }
+.focus-write-sheet {
+  /* 뷰어 PDF와 동일: A4 @ 96dpi = 210×297mm → 794×1123. 배율 100% = 이 크기 */
+  grid-column: 3;
+  width: auto;
+  max-width: none;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  background: var(--page-editor-bg, var(--page-bg, #fffdf8));
+  color: var(--page-ink, var(--ink));
+  caret-color: var(--page-ink, var(--ink));
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
 }
 .focus-write-editor {
-  min-height: calc(96vh - 88px) !important;
-  max-width: 720px;
-  margin: 0 auto;
-  padding: 28px 32px 80px !important;
-  font-size: 18px !important;
+  flex: 1 1 auto;
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
+  margin: 0;
+  padding: 48px 56px 72px !important;
+  font-size: 16px !important;
   line-height: 1.85 !important;
   box-sizing: border-box;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  outline: none !important;
+  /* 본문 작성색(--page-ink / 사용자 지정)을 그대로. body --ink 로 떨어지지 않게 */
+  color: var(--page-ink, var(--ink)) !important;
+  caret-color: var(--page-ink, var(--ink)) !important;
+}
+.focus-write-editor:focus {
+  outline: none !important;
+  box-shadow: none !important;
 }
 /* 전체보기: 화면 가장자리까지 채움 */
 .focus-write-modal.is-fullscreen {
@@ -22053,12 +22175,59 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   height: 100%;
   max-height: none;
   border-radius: 0;
-  border-left: 0;
-  border-right: 0;
+  border: 0;
   box-shadow: none;
 }
+.focus-write-head-hotzone {
+  display: none;
+}
+.focus-write-modal.is-fullscreen .focus-write-head-hotzone {
+  display: block;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 28px;
+  z-index: 18;
+}
 .focus-write-modal.is-fullscreen .focus-write-head {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
   padding: 8px 14px;
+  transform: translateY(-100%);
+  opacity: 0;
+  pointer-events: none;
+  transition: transform 0.22s ease, opacity 0.18s ease;
+  box-shadow: 0 8px 22px #00000028;
+}
+.focus-write-modal.is-fullscreen .focus-write-card:has(.focus-write-head-hotzone:hover) .focus-write-head,
+.focus-write-modal.is-fullscreen .focus-write-card:has(.focus-write-head:hover) .focus-write-head,
+.focus-write-modal.is-fullscreen .focus-write-card:has(.focus-write-head:focus-within) .focus-write-head,
+.focus-write-modal.is-fullscreen:has(#focusWriteSplitButton[aria-expanded="true"]) .focus-write-head,
+.focus-write-modal.is-fullscreen:has(#focusWriteZoomButton[aria-expanded="true"]) .focus-write-head {
+  transform: translateY(0);
+  opacity: 1;
+  pointer-events: auto;
+}
+/*
+ * 전체보기 + 분할: 큰 창 헤더 핫존이 가로 전체를 덮으면
+ * 오른쪽 분할 헤더가 호버를 받지 못한다. 왼쪽 원고만 덮고,
+ * 오른쪽 칸은 분할 헤더가 위에 오게 한다.
+ */
+.focus-write-modal.is-fullscreen .focus-write-card.is-split .focus-write-head-hotzone,
+.focus-write-modal.is-fullscreen .focus-write-card.is-split .focus-write-head {
+  right: calc(var(--focus-split-right-width, min(42%, 480px)) + 6px);
+}
+.focus-write-modal.is-fullscreen .focus-write-card.is-split .focus-write-split-slot {
+  z-index: 21;
+}
+@media (prefers-reduced-motion: reduce) {
+  .focus-write-modal.is-fullscreen .focus-write-head {
+    transition: none;
+  }
 }
 /*
   Electron 전체보기: 타이틀바(최소화·최대화·닫기) 아래로 카드 전체를 내림.
@@ -22096,19 +22265,25 @@ html.is-electron-mac .focus-write-modal.is-fullscreen .focus-write-head,
 body.is-electron-mac .focus-write-modal.is-fullscreen .focus-write-head {
   padding-left: max(14px, 78px);
 }
-.focus-write-modal.is-fullscreen .focus-write-hint {
-  display: none;
+.focus-write-modal.is-fullscreen .focus-write-hint,
+.focus-write-modal.is-fullscreen .focus-write-hint-box {
+  display: none !important;
+}
+.focus-write-modal.is-fullscreen .focus-write-body,
+.focus-write-modal.is-fullscreen .focus-write-page {
+  height: 100%;
+}
+.focus-write-modal.is-fullscreen .focus-write-sheet {
+  min-height: 100%;
+  width: auto;
+  max-width: none;
 }
 .focus-write-modal.is-fullscreen .focus-write-editor {
-  min-height: calc(100vh - 56px) !important;
-  max-width: min(820px, 100%);
-  padding: 36px 40px 96px !important;
-  font-size: 19px !important;
-}
-html[data-ui-scheme="dark"] .focus-write-card,
-body[data-ui-scheme="dark"] .focus-write-card {
-  background: var(--paper);
-  border-color: var(--line);
+  min-height: 100%;
+  width: 100%;
+  max-width: none;
+  padding: 48px 56px 72px !important;
+  font-size: 16px !important;
 }
 html[data-ui-scheme="dark"] .focus-write-head,
 body[data-ui-scheme="dark"] .focus-write-head {
@@ -22142,7 +22317,7 @@ body[data-ui-scheme="dark"] .focus-write-head {
   display: flex;
   flex-direction: column;
   border-left: 1px solid var(--line);
-  background: var(--header-bg, var(--surface-2));
+  background: var(--page-bg, var(--paper, #fffdf8));
   overflow: hidden;
 }
 .focus-write-split-slot[hidden] {
@@ -22153,9 +22328,9 @@ body[data-ui-scheme="dark"] .focus-write-head {
 }
 /* Resizer between 큰 창 원고 and 함께보기 (same chrome as main split) */
 .focus-write-split-resizer {
-  flex: 0 0 12px;
-  width: 12px;
-  min-width: 12px;
+  flex: 0 0 6px;
+  width: 6px;
+  min-width: 6px;
   align-self: stretch;
   margin: 0;
   z-index: 5;
@@ -22184,22 +22359,84 @@ body[data-ui-scheme="dark"] .focus-write-head {
   max-width: none !important;
   max-height: none !important;
   margin: 0 !important;
+  padding: 0 !important;
   border: 0 !important;
   border-radius: 0 !important;
   box-shadow: none !important;
+  background: transparent !important;
   resize: none !important;
   z-index: auto !important;
 }
-.focus-write-card.is-split .focus-write-editor {
-  max-width: min(720px, 100%);
+/* 큰 창 창모드 분할: 오른쪽도 본문처럼 페이지 바탕만, 카드 속 회색 여백 없음 */
+.focus-write-card.is-split #splitViewer:not(.popup-mode) .split-scene-content {
+  flex: 1 1 0 !important;
   min-height: 0 !important;
+  height: auto !important;
+  max-height: none !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  gap: 0;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: var(--page-editor-bg, var(--page-bg, var(--paper, #fffdf8))) !important;
+  box-sizing: border-box;
+  display: flex !important;
+  flex-direction: column !important;
+  overflow: hidden !important;
+}
+.focus-write-card.is-split #splitViewer:not(.popup-mode) .split-scene-title-input {
+  flex: 0 0 auto;
+}
+.focus-write-card.is-split #splitViewer:not(.popup-mode) .split-body-editor,
+.focus-write-card.is-split #splitViewer:not(.popup-mode) #splitSceneBodyEditor {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  max-height: none !important;
+  overflow: auto !important;
+  display: block !important;
+}
+.focus-write-card.is-split #splitViewer:not(.popup-mode) #splitSceneBodyEditor.hidden {
+  display: none !important;
+  flex: 0 0 0 !important;
+  min-height: 0 !important;
+  height: 0 !important;
+  overflow: hidden !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  border: 0 !important;
+}
+.focus-write-card.is-split #splitViewer:not(.popup-mode).is-source-file .split-source-viewer {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  display: flex !important;
+  flex-direction: column !important;
+}
+.focus-write-card.is-split #splitViewer:not(.popup-mode).is-source-file .split-source-text {
+  flex: 1 1 0 !important;
+  min-height: 0 !important;
+  height: 100% !important;
+  overflow: auto !important;
+}
+.focus-write-card.is-split .focus-write-sheet {
+  width: auto;
+  max-width: none;
+  min-height: 100%;
+}
+.focus-write-card.is-split .focus-write-editor {
+  width: 100%;
+  max-width: none;
+  min-height: 100%;
   height: auto !important;
 }
 .focus-write-card.is-split .focus-write-page {
   height: 100%;
 }
-.focus-write-modal.is-fullscreen .focus-write-card.is-split .focus-write-editor {
-  max-width: min(780px, 100%);
+.focus-write-modal.is-fullscreen .focus-write-card.is-split .focus-write-sheet {
+  width: auto;
+  max-width: none;
 }
 .focus-write-view-mode {
   position: relative;
@@ -23320,6 +23557,19 @@ html[data-ui-scheme="dark"] .viewer-typeset-badge {
   color: #1a1a1a;
 }
 .pdf-sheet-inner > *:first-child { margin-top: 0; }
+.pdf-sheet-inner table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0.6em 0;
+  table-layout: fixed;
+}
+.pdf-sheet-inner table td,
+.pdf-sheet-inner table th {
+  border: 1px solid #00000033;
+  padding: 5px 7px;
+  vertical-align: top;
+  word-break: break-word;
+}
 .pdf-sheet-inner img {
   max-width: 100%;
   height: auto;
@@ -24565,6 +24815,24 @@ body[data-ui-scheme="dark"] .viewer-toolbar {
   list-style-position: outside;
 }
 .rich-editor li { margin: 0.15em 0; display: list-item; }
+.rich-editor table,
+.rich-editor table.manuscript-table {
+  width: 100%;
+  max-width: 100%;
+  border-collapse: collapse;
+  margin: 0.75em 0;
+  table-layout: fixed;
+}
+.rich-editor table td,
+.rich-editor table th,
+.rich-editor table.manuscript-table td,
+.rich-editor table.manuscript-table th {
+  border: 1px solid color-mix(in srgb, var(--page-ink, #24211d) 28%, transparent);
+  padding: 6px 8px;
+  vertical-align: top;
+  word-break: break-word;
+  min-width: 2.5em;
+}
 /* Footnotes inserted via context menu */
 .rich-editor sup.fn-ref {
   display: inline;
@@ -25457,6 +25725,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-find-btn,
 .format-toolbar-row-icons .format-viewer-btn,
 .format-toolbar-row-icons .format-split-btn,
+.format-toolbar-row-icons .format-compare-btn,
 .format-toolbar-row-icons .format-focus-btn,
 .format-toolbar-row-icons .format-timer-btn,
 .format-toolbar-row-icons .format-tool-item {
@@ -26577,6 +26846,7 @@ body.focus-write-open .split-viewer.popup-mode {
 */
 .split-viewer.popup-mode,
 .split-viewer.popup-mode .split-popup-drag-bar,
+.split-viewer.popup-mode .split-head-chrome,
 .split-viewer.popup-mode .split-heading,
 .split-viewer.popup-mode .split-heading-actions,
 .split-viewer.popup-mode button,
@@ -26647,6 +26917,15 @@ body.popup-dragging * {
 }
 .split-popup-resize-handle {
   display: none !important;
+}
+.split-head-hotzone {
+  display: none;
+}
+.split-head-chrome {
+  display: flex;
+  flex-direction: column;
+  flex: 0 0 auto;
+  min-width: 0;
 }
 .split-heading {
   display: flex;
@@ -26741,6 +27020,61 @@ body.popup-dragging * {
 }
 .split-edit-mode-group.hidden {
   display: none !important;
+}
+.split-compare-chrome {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.split-compare-chrome.hidden {
+  display: none !important;
+}
+#splitViewer.is-compare-view .split-compare-chrome {
+  display: flex;
+}
+#splitViewer.is-compare-view .split-edit-mode-group,
+#splitViewer.is-compare-view .split-scene-label,
+#splitViewer.is-compare-view .split-mode-control {
+  display: none !important;
+}
+.split-compare-label {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.split-compare-refresh {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  color: var(--muted);
+  background: transparent;
+  cursor: pointer;
+}
+.split-compare-refresh:hover {
+  color: var(--ink);
+  background: var(--selection);
+}
+#splitViewer.is-compare-view .split-body-editor {
+  user-select: text;
+  -webkit-user-select: text;
+  caret-color: transparent;
+}
+.format-compare-btn:disabled,
+#focusWriteCompareButton:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
 }
 .split-save-info {
   font-size: 11px;
@@ -32836,9 +33170,9 @@ html[data-ui-theme="eink"] .manuscript-page,
 html[data-eink-editor-lock="1"] .manuscript-page,
 body[data-theme="eink"] .manuscript-page,
 body[data-eink-editor-lock="1"] .manuscript-page,
-html[data-theme="eink"] .focus-write-page,
-html[data-ui-theme="eink"] .focus-write-page,
-html[data-eink-editor-lock="1"] .focus-write-page {
+html[data-theme="eink"] .focus-write-sheet,
+html[data-ui-theme="eink"] .focus-write-sheet,
+html[data-eink-editor-lock="1"] .focus-write-sheet {
   background: #ffffff !important;
   background-color: #ffffff !important;
   border-color: #000000 !important;

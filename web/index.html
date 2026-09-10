@@ -305,7 +305,7 @@
           'background:#000!important;color:#fff!important;border:1px solid #000!important;border-radius:50%!important;}',
           'html[data-theme="eink"] .header-plus-btn:hover .header-plus-glyph,',
           'html[data-theme="eink"] .header-plus-btn[aria-expanded="true"] .header-plus-glyph{color:#fff!important;background:transparent!important;}',
-          'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-page{',
+          'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-sheet{',
           'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
           'html[data-theme="eink"] .rich-editor,html[data-theme="eink"] #sceneContent,',
           'html[data-theme="eink"] .focus-write-editor,html[data-theme="eink"] .split-body-editor,',
@@ -2398,6 +2398,25 @@
                 </div>
                 <button
                   type="button"
+                  class="format-tool-item format-compare-btn"
+                  id="compareSplitButton"
+                  data-icon-key="compare"
+                  title="비교 보기로 열기" data-i18n-title="app.비교_보기로_열기"
+                  aria-label="비교 보기로 열기" data-i18n-aria-label="app.비교_보기로_열기"
+                  aria-pressed="false"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                      <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                      <path d="M15.7 8.2h2.6M15.7 11h2.6"/>
+                      <circle cx="17" cy="15.4" r="1.15" fill="currentColor" stroke="none"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label" data-i18n="index.비교_보기">비교</span>
+                </button>
+                <button
+                  type="button"
                   class="format-tool-item format-tool-focus format-focus-btn"
                   id="focusWriteButton"
                   data-icon-key="focus"
@@ -2808,6 +2827,8 @@
               <span class="split-popup-drag-grip" aria-hidden="true">⋮⋮</span>
               <span class="split-popup-drag-label" data-i18n="index.끌어서_이동">끌어서 이동</span>
             </div>
+            <div class="split-head-hotzone" aria-hidden="true"></div>
+            <div class="split-head-chrome" id="splitHeadChrome">
             <div class="split-heading" id="splitHeading">
               <div class="split-heading-main">
                 <div class="split-heading-title-row">
@@ -2836,6 +2857,23 @@
                       data-split-edit="edit"
                       data-i18n="app.편집모드"
                     >편집모드</button>
+                  </div>
+                  <div id="splitCompareChrome" class="split-compare-chrome hidden">
+                    <span id="splitCompareLabel" class="split-compare-label" data-i18n="app.비교_보기_고정됨">비교 보기 · 고정됨</span>
+                    <button
+                      type="button"
+                      id="refreshCompareSplitButton"
+                      class="split-compare-refresh"
+                      title="원본의 현재 본문으로 비교 보기를 새로고침합니다"
+                      data-i18n-title="app.비교_보기_새로고침"
+                      aria-label="새로고침"
+                      data-i18n-aria-label="index.새로고침"
+                    >
+                      <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M20 12a8 8 0 1 1-2.2-5.5"/>
+                        <path d="M20 4.5v5h-5"/>
+                      </svg>
+                    </button>
                   </div>
                   <div class="split-heading-actions">
                     <div class="view-mode-control split-mode-control">
@@ -2911,6 +2949,7 @@
             <span id="splitViewerModeHint" class="hidden" hidden></span>
             <div class="split-edit-bar">
               <span id="splitSaveInfo" class="save-info split-save-info"></span>
+            </div>
             </div>
             <article id="splitSceneContent" class="split-scene-content" aria-label="분할 내용" data-i18n-aria-label="index.분할_내용">
               <input
@@ -6574,10 +6613,13 @@
         <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-merge" title="서식 병합: 굵기·기울임 등은 남기고, 글꼴·크기·색은 지금 문서에 맞춰요" data-i18n-title="index.서식_병합_굵기_기울임_등은_남기고_글꼴_크" data-i18n="index.서식_병합">서식 병합</button>
         <button type="button" class="paste-option-btn" role="menuitem" data-context-action="paste-text" title="텍스트만 유지: 서식 없이 글자만 넣어요" data-i18n-title="index.텍스트만_유지_서식_없이_글자만_넣어요" data-i18n="index.텍스트만_유지">텍스트만 유지</button>
       </div>
+      <button type="button" role="menuitem" data-context-action="select-all" id="selectAllMenuItem" data-ctx-selection-ok title="본문만 모두 선택해요" data-i18n-title="index.본문만_모두_선택해요">
+        <span data-i18n="index.전체_선택">전체 선택</span>
+      </button>
       <button type="button" role="menuitem" data-context-action="copy-format" id="copyFormatMenuItem" data-ctx-selection-only title="선택한 글의 서식(글꼴·크기·색·굵기 등)만 복사해요" data-i18n-title="app.선택한_글의_서식_글꼴_크기_색_굵기_등_만">
         서식 복사
       </button>
-      <button type="button" role="menuitem" data-context-action="toggle-dict-highlight" id="dictHighlightMenuItem" data-ctx-selection-ok aria-checked="false" title="본문에 등록한 고유어를 색으로 보여 줘요" data-i18n-title="index.고유어_표시_힌트">
+      <button type="button" role="menuitem" data-context-action="toggle-dict-highlight" id="dictHighlightMenuItem" data-ctx-full-only aria-checked="false" title="본문에 등록한 고유어를 색으로 보여 줘요" data-i18n-title="index.고유어_표시_힌트">
         <span class="context-menu-check" aria-hidden="true"></span>
         <span data-i18n="index.고유어_표시">고유어 표시</span>
       </button>
@@ -6646,6 +6688,9 @@
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기
+      </button>
+      <button type="button" role="menuitem" data-context-action="insert-table" data-ctx-full-only title="본문에 표를 넣어요" data-i18n-title="index.본문에_표를_넣어요">
+        <span data-i18n="index.표_넣기">표 넣기</span>
       </button>
       <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-only>
         떡밥 던지기
@@ -7447,13 +7492,34 @@
     <div id="focusWriteModal" class="modal focus-write-modal hidden" role="dialog" aria-modal="true" aria-labelledby="focusWriteTitle">
       <div class="modal-backdrop" data-close-focus-write></div>
       <div class="focus-write-card" id="focusWriteCard" role="document">
+        <div class="focus-write-head-hotzone" aria-hidden="true"></div>
         <div class="focus-write-head">
           <div class="focus-write-head-text">
             <h2 id="focusWriteTitle" class="focus-write-title" data-i18n="app.큰_창">큰 창</h2>
-            <p class="hint focus-write-hint" data-i18n="index.작성에_집중하는_편집_화면입니다_닫아도_내용">작성에 집중하는 편집 화면입니다. 닫아도 내용은 본문에 반영됩니다.</p>
+            <div class="guide-tip-box focus-write-hint-box" data-guide-tip="focusWriteHint" role="note">
+              <p class="hint focus-write-hint" data-i18n="index.작성에_집중하는_편집_화면입니다_닫아도_내용">작성에 집중하는 편집 화면입니다. 닫아도 내용은 본문에 반영됩니다.</p>
+              <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="focusWriteHint" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+            </div>
           </div>
           <div class="focus-write-actions">
             <span id="focusWriteSaveInfo" class="save-info"></span>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              id="focusWriteZoomButton"
+              title="화면 배율 · Ctrl+휠로 조절" data-i18n-title="index.화면_배율_Ctrl_휠로_조절"
+              aria-label="화면 배율" data-i18n-aria-label="index.화면_배율"
+              aria-haspopup="menu"
+              aria-expanded="false"
+              aria-controls="editorViewZoomMenu"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <circle cx="11" cy="11" r="8"/>
+                <line x1="21" x2="16.65" y1="21" y2="16.65"/>
+                <line x1="11" x2="11" y1="8" y2="14"/>
+                <line x1="8" x2="14" y1="11" y2="11"/>
+              </svg>
+            </button>
             <div class="view-mode-control focus-write-view-mode">
               <button
                 type="button"
@@ -7483,6 +7549,23 @@
                 </span>
               </button>
             </div>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              id="focusWriteCompareButton"
+              title="비교 보기로 열기"
+              data-i18n-title="app.비교_보기로_열기"
+              aria-label="비교 보기로 열기"
+              data-i18n-aria-label="app.비교_보기로_열기"
+              aria-pressed="false"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                <path d="M15.7 8.2h2.6M15.7 11h2.6"/>
+                <circle cx="17" cy="15.4" r="1.15" fill="currentColor" stroke="none"/>
+              </svg>
+            </button>
             <button
               type="button"
               class="secondary compact-btn viewer-icon-btn viewer-max-btn"
@@ -7520,6 +7603,7 @@
         </div>
         <div class="focus-write-body" id="focusWriteBody">
           <div class="focus-write-page" id="focusWritePage">
+            <div class="focus-write-sheet">
             <div
               id="focusWriteEditor"
               class="rich-editor focus-write-editor"
@@ -7530,6 +7614,7 @@
               aria-label="큰 창 원고" data-i18n-aria-label="index.큰_창_원고"
               data-placeholder="여기에 원고를 이어서 써 보세요." data-i18n-placeholder="index.여기에_원고를_이어서_써_보세요"
             ></div>
+            </div>
           </div>
           <div
             id="focusWriteSplitResizer"

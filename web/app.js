@@ -285,11 +285,14 @@ const state = {
   activeBinder: "manuscript", // "manuscript" | "settings"
   splitEnabled: false,
   splitMode: null, // "split" | "popup"
-  splitKind: "scene", // "scene" | "source" — side pane shows another scene or reference file
+  splitKind: "scene", // "scene" | "source" | "compare" — side pane shows another scene, reference file, or a frozen snapshot
   splitSceneId: null,
   splitScene: null,
   splitSourceId: null, // reference source file id when splitKind === "source"
   splitEditEnabled: false, // free-edit other scene; sticky until turned off
+  splitCompareHtml: null, // volatile in-memory snapshot for compare view; not persisted
+  splitCompareTitle: "",
+  splitCompareSceneId: null,
   toryFocusSceneId: null, // binder “토리로 분석하기” focus target
   toryFocusSceneTitle: "",
   /** @type {Record<string, string>} persona_id → reader_chat session_id */
@@ -4744,6 +4747,10 @@ const EDITOR_VIEW_ZOOM_DEFAULT = 100;
 let editorViewZoom = EDITOR_VIEW_ZOOM_DEFAULT;
 let editorViewZoomWheelAcc = 0;
 
+function editorViewZoomAnchorButtons() {
+  return [$("editorViewZoomButton"), $("focusWriteZoomButton")].filter(Boolean);
+}
+
 function clampEditorViewZoom(value) {
   const n = Math.round(Number(value));
   if (!Number.isFinite(n)) return EDITOR_VIEW_ZOOM_DEFAULT;
@@ -4778,21 +4785,21 @@ function hideEditorViewZoomOtherForm() {
 
 function hideEditorViewZoomMenu() {
   const menu = $("editorViewZoomMenu");
-  const btn = $("editorViewZoomButton");
   menu?.classList.add("hidden");
   hideEditorViewZoomOtherForm();
-  btn?.setAttribute("aria-expanded", "false");
+  editorViewZoomAnchorButtons().forEach((btn) => btn.setAttribute("aria-expanded", "false"));
 }
 
 function syncEditorViewZoomChrome() {
   const zoom = clampEditorViewZoom(editorViewZoom);
   const label = $("editorViewZoomLabel");
-  const btn = $("editorViewZoomButton");
   if (label) label.textContent = editorViewZoomLabelText(zoom);
-  if (btn) {
-    btn.setAttribute("aria-label", `${i18n.t("index.화면_배율")} ${zoom}%`);
-    btn.title = i18n.t("index.화면_배율_Ctrl_휠로_조절");
-  }
+  const title = i18n.t("index.화면_배율_Ctrl_휠로_조절");
+  const aria = `${i18n.t("index.화면_배율")} ${zoom}%`;
+  editorViewZoomAnchorButtons().forEach((btn) => {
+    btn.setAttribute("aria-label", aria);
+    btn.title = title;
+  });
   document.querySelectorAll("#editorViewZoomMenu [data-editor-zoom]").forEach((item) => {
     const on = Number(item.getAttribute("data-editor-zoom")) === zoom;
     item.classList.toggle("is-checked", on);
@@ -4822,14 +4829,24 @@ function preserveEditorViewZoomScroll(page, apply, anchor) {
 function applyEditorViewZoom(percent, options = {}) {
   const persist = options.persist !== false;
   const zoom = clampEditorViewZoom(percent);
-  const page = $("manuscriptPage");
+  const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
+  const page = focusOpen ? $("focusWritePage") : $("manuscriptPage");
   const run = () => {
     editorViewZoom = zoom;
-    const editor = $("sceneContent");
-    if (editor) {
-      editor.style.zoom = zoom === 100 ? "" : String(zoom / 100);
+    const zoomValue = zoom === 100 ? "" : String(zoom / 100);
+    const sceneEd = $("sceneContent");
+    const focusSheet = document.querySelector("#focusWritePage .focus-write-sheet");
+    const focusEd = $("focusWriteEditor");
+    if (sceneEd) sceneEd.style.zoom = zoomValue;
+    if (focusSheet) {
+      focusSheet.style.zoom = zoomValue;
+      if (focusEd) focusEd.style.zoom = "";
+    } else if (focusEd) {
+      focusEd.style.zoom = zoomValue;
     }
     page?.style.setProperty("--editor-view-zoom", String(zoom / 100));
+    $("manuscriptPage")?.style.setProperty("--editor-view-zoom", String(zoom / 100));
+    $("focusWritePage")?.style.setProperty("--editor-view-zoom", String(zoom / 100));
     syncEditorViewZoomChrome();
     if (persist) {
       try { localStorage.setItem(EDITOR_VIEW_ZOOM_KEY, String(zoom)); } catch (_) { /* private mode */ }
@@ -4862,31 +4879,40 @@ function nudgeEditorViewZoom(direction, anchor) {
   return applyEditorViewZoom(next, { anchor });
 }
 
-function showEditorViewZoomMenu() {
+function showEditorViewZoomMenu(anchorBtn) {
   const menu = $("editorViewZoomMenu");
-  const btn = $("editorViewZoomButton");
+  const btn = anchorBtn || $("editorViewZoomButton");
   if (!menu || !btn) return;
   hideEditorViewZoomOtherForm();
   syncEditorViewZoomChrome();
   const rect = btn.getBoundingClientRect();
   menu.classList.remove("hidden");
-  btn.setAttribute("aria-expanded", "true");
+  editorViewZoomAnchorButtons().forEach((item) => {
+    item.setAttribute("aria-expanded", item === btn ? "true" : "false");
+  });
   const pad = 8;
   const size = menu.getBoundingClientRect();
   const width = size.width || 148;
   const height = size.height || 360;
-  let left = rect.left;
-  let top = rect.top - height - 4;
+  const fromHeader = btn.id === "focusWriteZoomButton";
+  let left = fromHeader ? rect.right - width : rect.left;
+  let top = fromHeader ? rect.bottom + 4 : rect.top - height - 4;
   if (top < pad) top = Math.min(window.innerHeight - height - pad, rect.bottom + 4);
+  if (top + height > window.innerHeight - pad) {
+    top = fromHeader
+      ? Math.max(pad, rect.top - height - 4)
+      : Math.min(window.innerHeight - height - pad, rect.bottom + 4);
+  }
   if (left + width > window.innerWidth - pad) left = Math.max(pad, window.innerWidth - width - pad);
   if (left < pad) left = pad;
   menu.style.left = `${Math.round(left)}px`;
   menu.style.top = `${Math.round(Math.max(pad, top))}px`;
 }
 
-function toggleEditorViewZoomMenu() {
-  if (isEditorViewZoomMenuOpen()) hideEditorViewZoomMenu();
-  else showEditorViewZoomMenu();
+function toggleEditorViewZoomMenu(anchorBtn) {
+  const btn = anchorBtn || $("editorViewZoomButton");
+  if (isEditorViewZoomMenuOpen() && btn?.getAttribute("aria-expanded") === "true") hideEditorViewZoomMenu();
+  else showEditorViewZoomMenu(btn);
 }
 
 function showEditorViewZoomOtherForm() {
@@ -4924,7 +4950,7 @@ function applyEditorViewZoomOther() {
 function isEditorViewZoomSurface(target) {
   return Boolean(
     target?.closest?.(
-      "#manuscriptPage, #sceneContent, #manuscriptStatusWrap, #editorViewZoomButton, #editorViewZoomMenu, .writing-block.manuscript-frame",
+      "#manuscriptPage, #sceneContent, #manuscriptStatusWrap, #editorViewZoomButton, #editorViewZoomMenu, .writing-block.manuscript-frame, #focusWritePage, #focusWriteEditor, #focusWriteZoomButton, .focus-write-sheet",
     ),
   );
 }
@@ -4982,7 +5008,12 @@ function setupEditorViewZoom() {
   $("editorViewZoomButton")?.addEventListener("click", (event) => {
     event.preventDefault();
     event.stopPropagation();
-    toggleEditorViewZoomMenu();
+    toggleEditorViewZoomMenu(event.currentTarget);
+  });
+  $("focusWriteZoomButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    toggleEditorViewZoomMenu(event.currentTarget);
   });
   $("editorViewZoomMenu")?.addEventListener("click", (event) => {
     const preset = event.target.closest?.("[data-editor-zoom]");
@@ -5004,7 +5035,7 @@ function setupEditorViewZoom() {
   });
   document.addEventListener("click", (event) => {
     if (!isEditorViewZoomMenuOpen()) return;
-    if (event.target.closest?.("#editorViewZoomMenu, #editorViewZoomButton")) return;
+    if (event.target.closest?.("#editorViewZoomMenu, #editorViewZoomButton, #focusWriteZoomButton")) return;
     hideEditorViewZoomMenu();
   });
   document.addEventListener("keydown", (event) => {
@@ -5221,6 +5252,63 @@ function jangpyeongPercentFromStyle(styleValue) {
   const pct = raw.match(/([0-9.]+)\s*%/);
   if (pct) return normalizeJangpyeongPercent(pct[1]);
   return 100;
+}
+
+const MANUSCRIPT_SELECT_ALL_SEL = "#sceneContent, #focusWriteEditor, #splitSceneBodyEditor, #synopsisContent, #synopsisContentB";
+
+function manuscriptEditorForSelectAll() {
+  const active = document.activeElement;
+  if (active?.closest?.("#focusWriteEditor")) return $("focusWriteEditor");
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    const focusEd = $("focusWriteEditor");
+    if (focusEd) return focusEd;
+  }
+  if (active?.closest?.("#splitSceneBodyEditor")) return $("splitSceneBodyEditor");
+  if (active?.closest?.("#synopsisContentB")) return $("synopsisContentB");
+  if (active?.closest?.("#synopsisContent")) return $("synopsisContent");
+  return getActiveRichEditor() || $("sceneContent");
+}
+
+function isNonManuscriptEditableTarget(el) {
+  if (!el || el === document.body || el === document.documentElement) return false;
+  if (el.closest?.(MANUSCRIPT_SELECT_ALL_SEL)) return false;
+  const tag = String(el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  if (el.isContentEditable) return true;
+  const host = el.closest?.("input, textarea, select, [contenteditable='true']");
+  if (!host) return false;
+  return !host.closest?.(MANUSCRIPT_SELECT_ALL_SEL);
+}
+
+function selectAllInManuscriptEditor(editorEl = null) {
+  const editor = editorEl || manuscriptEditorForSelectAll();
+  if (!editor) return false;
+  try {
+    editor.focus({ preventScroll: true });
+  } catch (_) {
+    try { editor.focus(); } catch (__) { /* ignore */ }
+  }
+  try {
+    const selection = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(editor);
+    selection.removeAllRanges();
+    selection.addRange(range);
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+function onManuscriptSelectAllKeydown(event) {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey || event.shiftKey) return;
+  if (String(event.key || "").toLowerCase() !== "a") return;
+  if (isNonManuscriptEditableTarget(event.target)) return;
+  const editor = manuscriptEditorForSelectAll();
+  if (!editor) return;
+  event.preventDefault();
+  event.stopPropagation();
+  selectAllInManuscriptEditor(editor);
 }
 
 /** Select all content inside a contenteditable, apply, then restore caret best-effort. */
@@ -7589,6 +7677,9 @@ function setupRichEditorSurface({ editor, toolbar = null, page, onInput, resolve
     } else if (key === "y" || (key === "z" && event.shiftKey)) {
       event.preventDefault();
       applyEditorCommand("redo");
+    } else if (key === "a") {
+      event.preventDefault();
+      selectAllInManuscriptEditor(editor);
     }
     updateEditorPlaceholder(editor);
     updateFormatButtonState(toolbar);
@@ -7628,6 +7719,10 @@ function setupRichEditor() {
       markSettingsDocEditorDirty($("synopsisContentB"));
     },
   });
+  if (!document.documentElement.dataset.manuscriptSelectAllBound) {
+    document.documentElement.dataset.manuscriptSelectAllBound = "1";
+    document.addEventListener("keydown", onManuscriptSelectAllKeydown, true);
+  }
 }
 
 const statusLabel = { idea: i18n.t('app.구상'), outline: i18n.t('app.개요'), draft: i18n.t('app.초고'), revision: i18n.t('app.수정'), complete: i18n.t('app.완성') };
@@ -45522,6 +45617,7 @@ async function openSourceInSplit(sourceId, mode = "split") {
   state.splitSceneId = null;
   state.splitScene = null;
   if (state.splitEditEnabled) setSplitEditEnabled(false, { silent: true });
+  clearCompareSplitState();
   applySplitLayout();
   closeViewModeMenu();
   fillSplitCompanionSelect();
@@ -51001,6 +51097,9 @@ function setupDesktopThemeMenu() {
       } else if (action === "paste-text") {
         hideDesktopContextMenu();
         triggerContextPaste("text").catch(handleError);
+      } else if (action === "select-all") {
+        hideDesktopContextMenu();
+        selectAllInManuscriptEditor();
       } else if (action === "copy-format") {
         hideDesktopContextMenu();
         copyFormatFromSelection();
@@ -51035,6 +51134,9 @@ function setupDesktopThemeMenu() {
           return;
         }
         $("inlineImageFile")?.click();
+      } else if (action === "insert-table") {
+        hideDesktopContextMenu();
+        insertManuscriptTable();
       } else if (action === "throw-bait") {
         hideDesktopContextMenu();
         throwBaitFromSelection();
@@ -51293,6 +51395,28 @@ async function insertInlineImageFromFile(file) {
   } catch (error) {
     handleError(error);
   }
+}
+
+function insertManuscriptTable(rows = 3, cols = 3) {
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return;
+  const rowCount = Math.min(8, Math.max(2, Number(rows) || 3));
+  const colCount = Math.min(8, Math.max(2, Number(cols) || 3));
+  const table = document.createElement("table");
+  table.className = "manuscript-table";
+  const body = document.createElement("tbody");
+  for (let r = 0; r < rowCount; r += 1) {
+    const tr = document.createElement("tr");
+    for (let c = 0; c < colCount; c += 1) {
+      const td = document.createElement("td");
+      td.appendChild(document.createElement("br"));
+      tr.appendChild(td);
+    }
+    body.appendChild(tr);
+  }
+  table.appendChild(body);
+  insertNodeAtManuscriptContext(table, editor);
+  toast(i18n.t("app.본문에_표를_넣었어요"));
 }
 
 function fileToDataUrl(file) {
@@ -52122,6 +52246,13 @@ function openFocusWrite() {
   focusEd.spellcheck = true;
   applyEditorWideLineHeight(getStoredLineHeight(), [focusEd]);
   updateEditorPlaceholder(focusEd);
+  try {
+    const pagePref = typeof getGlobalPageTheme === "function" ? getGlobalPageTheme() : {};
+    const pageTheme = document.body?.dataset?.pageTheme || pagePref.theme;
+    applyReadablePageInk(pageTheme, pagePref.customColor);
+  } catch (_) {
+    paintPageInkOnEditors(getPageInkHexForEditor());
+  }
   if (typeof scheduleDictHighlightRefresh === "function") scheduleDictHighlightRefresh(0);
   modal.classList.remove("hidden");
   document.body.classList.add("focus-write-open");
@@ -52131,6 +52262,7 @@ function openFocusWrite() {
   $("focusWriteButton")?.setAttribute("aria-pressed", "true");
   // Re-host 함께보기 inside / above 큰 창
   if (state.splitEnabled) applySplitLayout();
+  applyEditorViewZoom(editorViewZoom, { persist: false, preserveScroll: false });
 
   requestAnimationFrame(() => {
     focusEd.setAttribute("contenteditable", "true");
@@ -58676,6 +58808,7 @@ const GUIDE_TIP_DEFS = [
   { id: "characterSimAll", label: i18n.t('app.시뮬레이션_전체보기_안내') },
   { id: "bookmarkList", label: i18n.t('app.북마크_안내') },
   { id: "aiResultHistory", label: i18n.t('app.결과_히스토리_안내') },
+  { id: "focusWriteHint", label: i18n.t('app.큰_창_안내') },
 ];
 /** @type {Set<string>} */
 let hiddenGuideTips = new Set();
@@ -69494,6 +69627,9 @@ async function openScene(sceneId, options = {}) {
       await waitForSceneSaveIdle();
     }
     if (!stillThisOpen()) return;
+    if (state.splitEnabled && state.splitKind === "compare") {
+      await closeSplitView().catch(() => {});
+    }
     if (sceneDirty && state.sceneId && Number(state.sceneId) !== nextId) {
       try {
         await persistScene({ quiet: true, saveNote: i18n.t('app.자동_저장') });
@@ -73007,7 +73143,8 @@ function applySplitEditMode() {
   const readBtn = $("splitReadModeButton");
   const editBtn = $("splitEditModeButton");
   const sourceMode = state.splitEnabled && state.splitKind === "source";
-  const on = Boolean(state.splitEditEnabled && state.splitEnabled && !sourceMode);
+  const compareMode = state.splitEnabled && state.splitKind === "compare";
+  const on = Boolean(state.splitEditEnabled && state.splitEnabled && !sourceMode && !compareMode);
   viewer?.classList.toggle("split-edit-on", on);
   if (body) {
     body.setAttribute("contenteditable", on ? "true" : "false");
@@ -73017,13 +73154,13 @@ function applySplitEditMode() {
     title.readOnly = !on;
     title.tabIndex = on ? 0 : -1;
   }
-  if (group) group.classList.toggle("hidden", sourceMode);
+  if (group) group.classList.toggle("hidden", sourceMode || compareMode);
   const syncSeg = (btn, selected) => {
     if (!btn) return;
     btn.classList.toggle("is-active", selected);
     btn.setAttribute("aria-checked", selected ? "true" : "false");
     btn.setAttribute("aria-pressed", selected ? "true" : "false");
-    btn.disabled = sourceMode;
+    btn.disabled = sourceMode || compareMode;
   };
   syncSeg(readBtn, !on);
   syncSeg(editBtn, on);
@@ -73313,6 +73450,7 @@ function updateSplitChrome() {
     paintSplitModeSwitch(switchBtn, { splitOn: false, popupOn: false });
     $("viewModeCloseItem")?.classList.add("hidden");
     applySplitEditMode();
+    updateCompareSplitButtons();
     return;
   }
   syncMainLike(mainBtn, { iconOnly: Boolean(mainBtn?.classList.contains("format-split-btn")) });
@@ -73324,6 +73462,7 @@ function updateSplitChrome() {
   $("viewModeCloseItem")?.classList.remove("hidden");
   viewer?.classList.toggle("popup-mode", state.splitMode === "popup");
   applySplitEditMode();
+  updateCompareSplitButtons();
 }
 
 /** Clear fixed popup geometry so split (side-by-side) layout can size the pane again. */
@@ -73396,6 +73535,7 @@ function applySplitLayout() {
   updateSplitChrome();
   applySplitEditMode();
   if (state.splitKind === "source") setSplitSourceUiMode(true);
+  if (state.splitKind === "compare") applyCompareSplitUi();
   const editor = $("sceneContent");
   if (editor) {
     editor.setAttribute("contenteditable", "true");
@@ -73547,7 +73687,7 @@ function clearSplitPrimaryPaneLayout() {
 const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";
 const SPLIT_LEFT_MIN = 240;
 const SPLIT_RIGHT_MIN = 200;
-const SPLIT_HANDLE = 12; // layout gutter = full click/hover hit (do not overflow into panes)
+const SPLIT_HANDLE = 6; // layout gutter = full click/hover hit (do not overflow into panes)
 const FOCUS_SPLIT_RIGHT_WIDTH_STORAGE_KEY = "supertory.focusSplitRightWidth";
 const FOCUS_SPLIT_RIGHT_MIN = 200;
 const FOCUS_SPLIT_LEFT_MIN = 280;
@@ -73773,6 +73913,153 @@ function setupFocusWriteSplitResizer() {
   });
 }
 
+function isCompareSplitActive() {
+  return Boolean(state.splitEnabled && state.splitKind === "compare");
+}
+
+function isOtherDocumentSplitOpen() {
+  return Boolean(state.splitEnabled && state.splitKind !== "compare");
+}
+
+function capturePrimaryManuscriptHtml() {
+  const focusOpen = typeof isFocusWriteOpen === "function" && isFocusWriteOpen();
+  const editor = (focusOpen && $("focusWriteEditor")) || $("sceneContent");
+  return getEditorContent(editor) || "";
+}
+
+function capturePrimaryManuscriptTitle() {
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    const focusTitle = String($("focusWriteTitle")?.textContent || "").trim();
+    if (focusTitle) return focusTitle;
+  }
+  return ($("sceneTitle")?.value || state.scene?.title || "").trim();
+}
+
+function clearCompareSplitState() {
+  state.splitCompareHtml = null;
+  state.splitCompareTitle = "";
+  state.splitCompareSceneId = null;
+  const body = $("splitSceneBodyEditor");
+  if (body) delete body.dataset.compareFilled;
+  $("splitViewer")?.classList.remove("is-compare-view");
+  $("splitCompareChrome")?.classList.add("hidden");
+}
+
+function applyCompareSplitUi() {
+  const on = isCompareSplitActive();
+  $("splitViewer")?.classList.toggle("is-compare-view", on);
+  $("splitCompareChrome")?.classList.toggle("hidden", !on);
+  const selectWrap = $("splitSceneSelect")?.closest(".split-scene-label");
+  if (on) selectWrap?.classList.add("hidden");
+  else if (state.splitKind !== "source") selectWrap?.classList.remove("hidden");
+  updateCompareSplitButtons();
+}
+
+function fillCompareSplitBody() {
+  const body = $("splitSceneBodyEditor");
+  suppressSplitDirty = true;
+  fillSplitSceneBody({
+    title: state.splitCompareTitle || "",
+    content_md: state.splitCompareHtml || "",
+  });
+  if (body) body.dataset.compareFilled = "1";
+  suppressSplitDirty = false;
+  applySplitEditMode();
+}
+
+function updateCompareSplitButtons() {
+  const otherOpen = isOtherDocumentSplitOpen();
+  const compareOn = isCompareSplitActive();
+  const disabled = !state.sceneId || otherOpen;
+  const title = otherOpen
+    ? i18n.t("app.이미_분할된_상태에서는_비교_보기를_열_수_없어요")
+    : i18n.t("app.비교_보기로_열기");
+  ["compareSplitButton", "focusWriteCompareButton"].forEach((id) => {
+    const btn = $(id);
+    if (!btn) return;
+    btn.disabled = disabled;
+    btn.classList.toggle("is-active", compareOn);
+    btn.setAttribute("aria-pressed", compareOn ? "true" : "false");
+    btn.title = title;
+    btn.setAttribute("aria-label", title);
+  });
+}
+
+async function openCompareSplit() {
+  if (!state.sceneId) return toast(i18n.t("app.먼저_목차에서_씬_하나를_열어_주세요"));
+  if (isOtherDocumentSplitOpen()) {
+    toast(i18n.t("app.이미_분할된_상태에서는_비교_보기를_열_수_없어요"));
+    return;
+  }
+  if (isCompareSplitActive()) return;
+  state.splitCompareHtml = capturePrimaryManuscriptHtml();
+  state.splitCompareTitle = capturePrimaryManuscriptTitle();
+  state.splitCompareSceneId = Number(state.sceneId);
+  state.splitEnabled = true;
+  state.splitMode = "split";
+  state.splitKind = "compare";
+  state.splitSceneId = null;
+  state.splitScene = null;
+  state.splitSourceId = null;
+  applySplitLayout();
+  fillCompareSplitBody();
+  applyCompareSplitUi();
+  applySplitEditMode();
+  updateSplitChrome();
+  toast(i18n.t("app.비교_보기를_열었어요"));
+}
+
+function refreshCompareSplit() {
+  if (!isCompareSplitActive()) return;
+  const body = $("splitSceneBodyEditor");
+  const scrollTop = body?.scrollTop || 0;
+  state.splitCompareHtml = capturePrimaryManuscriptHtml();
+  state.splitCompareTitle = capturePrimaryManuscriptTitle();
+  fillCompareSplitBody();
+  if (body) body.scrollTop = scrollTop;
+  toast(i18n.t("app.비교_보기를_새로고침했어요"));
+}
+
+function setupCompareSplitView() {
+  if (setupCompareSplitView._bound) return;
+  setupCompareSplitView._bound = true;
+  const open = (event) => {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    openCompareSplit().catch(handleError);
+  };
+  $("compareSplitButton")?.addEventListener("click", open);
+  $("focusWriteCompareButton")?.addEventListener("click", open);
+  $("refreshCompareSplitButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    refreshCompareSplit();
+  });
+  const blockEdit = (event) => {
+    if (!isCompareSplitActive()) return;
+    const target = event.target;
+    if (!target?.closest?.("#splitSceneBodyEditor, #splitSceneTitleInput")) return;
+    if (event.type === "keydown") {
+      if (event.ctrlKey || event.metaKey) {
+        const key = String(event.key || "").toLowerCase();
+        if (key === "c" || key === "a") return;
+        event.preventDefault();
+        return;
+      }
+      if (event.key && event.key.length === 1) event.preventDefault();
+      if (["Backspace", "Delete", "Enter"].includes(event.key)) event.preventDefault();
+      return;
+    }
+    event.preventDefault();
+  };
+  $("splitSceneBodyEditor")?.addEventListener("keydown", blockEdit);
+  $("splitSceneBodyEditor")?.addEventListener("beforeinput", blockEdit);
+  $("splitSceneBodyEditor")?.addEventListener("paste", blockEdit);
+  $("splitSceneBodyEditor")?.addEventListener("drop", blockEdit);
+  $("splitSceneBodyEditor")?.addEventListener("cut", blockEdit);
+  updateCompareSplitButtons();
+}
+
 async function closeSplitView() {
   await flushSplitEdits();
   if (splitSourceDirty || splitSourceEditEnabled) {
@@ -73802,6 +74089,7 @@ async function closeSplitView() {
     linkFrame.classList.add("hidden");
   }
   $("splitViewer")?.classList.remove("source-text-editing");
+  clearCompareSplitState();
   setSplitSourceUiMode(false);
   applySplitLayout();
   closeViewModeMenu();
@@ -73823,6 +74111,7 @@ async function openSecondaryView(mode) {
     return;
   }
   await flushSplitEdits();
+  clearCompareSplitState();
   const previousMode = state.splitMode;
   state.splitEnabled = true;
   state.splitMode = mode === "popup" ? "popup" : "split";
@@ -73929,6 +74218,17 @@ function fillSplitSceneBody(scene) {
 
 async function renderSplitViewer() {
   if (!state.splitEnabled) return;
+  if (state.splitKind === "compare") {
+    applyCompareSplitUi();
+    applySplitEditMode();
+    const body = $("splitSceneBodyEditor");
+    if (body && body.dataset.compareFilled !== "1") fillCompareSplitBody();
+    updateSplitChrome();
+    if (state.splitMode === "split") {
+      requestAnimationFrame(() => layoutSplitPrimaryPane());
+    }
+    return;
+  }
   if (state.splitKind === "source") {
     await renderSplitSourceViewer();
     return;
@@ -73977,6 +74277,7 @@ function setupSplitEditMode() {
       toast(i18n.t('app.참고자료_파일은_뷰어_전용이에요_수정할_수'));
       return;
     }
+    if (state.splitKind === "compare") return;
     if (Boolean(wantEdit) === Boolean(state.splitEditEnabled)) return;
     if (wantEdit) {
       setSplitEditEnabled(true);
@@ -78731,7 +79032,7 @@ const EINK_BW_FORCE_CSS = [
   'background:#000!important;color:#fff!important;border:1px solid #000!important;border-radius:50%!important;}',
   'html[data-theme="eink"] .header-plus-btn:hover .header-plus-glyph,',
   'html[data-theme="eink"] .header-plus-btn[aria-expanded="true"] .header-plus-glyph{color:#fff!important;background:transparent!important;}',
-  'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-page{',
+  'html[data-theme="eink"] .manuscript-page,html[data-ui-theme="eink"] .manuscript-page,html[data-theme="eink"] .focus-write-sheet{',
   'background:#fff!important;border-color:#000!important;color:#000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .rich-editor,html[data-theme="eink"] #sceneContent,',
   'html[data-theme="eink"] .focus-write-editor,html[data-theme="eink"] .split-body-editor,',
@@ -80302,6 +80603,7 @@ safeSetup("setupAiPanelResizer", setupAiPanelResizer);
 safeSetup("setupSplitPaneResizer", setupSplitPaneResizer);
 safeSetup("setupFocusWriteSplitResizer", setupFocusWriteSplitResizer);
 safeSetup("setupSplitEditMode", setupSplitEditMode);
+safeSetup("setupCompareSplitView", setupCompareSplitView);
 onEl("projectSelect", "change", (event) => {
   const nextId = Number(event.target.value);
   if (!Number.isFinite(nextId) || nextId <= 0) return;

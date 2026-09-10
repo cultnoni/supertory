@@ -167,7 +167,7 @@ class CustomDictionaryTests(unittest.TestCase):
         self.assertIn("id=\"smartPunctAdminBox\"", html)
         self.assertIn("id=\"smartPunctQuotes\"", html)
         self.assertIn('data-smart-punct="paren"', html)
-        self.assertIn('data-ctx-selection-ok', html[highlight:highlight + 180])
+        self.assertIn('data-ctx-full-only', html[highlight:highlight + 180])
         self.assertIn('id="dictTermPopup"', html)
         self.assertIn('id="dictTermPopupEdit"', html)
         self.assertIn("function toggleDictHighlight", app_js)

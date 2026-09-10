@@ -1491,6 +1491,22 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('r="8"', bar)
         self.assertIn('x1="21"', bar)
         self.assertIn('x2="16.65"', bar)
+        self.assertIn('id="focusWriteZoomButton"', self.html)
+        focus_actions = self.html.split('class="focus-write-actions"', 1)[1].split('id="focusWriteCloseButton"', 1)[0]
+        self.assertLess(
+            focus_actions.find('id="focusWriteZoomButton"'),
+            focus_actions.find('id="focusWriteSplitButton"'),
+        )
+        zoom_btn = focus_actions.split('id="focusWriteZoomButton"', 1)[1].split("</button>", 1)[0]
+        self.assertIn('circle cx="11"', zoom_btn)
+        self.assertIn('line x1="11" x2="11"', zoom_btn)
+        self.assertNotIn("editorViewZoomLabel", zoom_btn)
+        self.assertIn("function editorViewZoomAnchorButtons(", self.js)
+        self.assertIn('$("focusWriteZoomButton")', self.js.split("function editorViewZoomAnchorButtons", 1)[1].split("function clampEditorViewZoom", 1)[0])
+        self.assertIn("#focusWritePage", self.js.split("function isEditorViewZoomSurface", 1)[1].split("function onEditorViewZoomWheel", 1)[0])
+        apply_fn = self.js.split("function applyEditorViewZoom(", 1)[1].split("function nudgeEditorViewZoom(", 1)[0]
+        self.assertIn("focus-write-sheet", apply_fn)
+        self.assertIn("focusWriteEditor", apply_fn)
 
     def test_screen_protect_dock_widget(self) -> None:
         right_rail = self.html.split('id="aiDockRail"', 1)[1].split("</nav>", 1)[0]
@@ -1552,6 +1568,24 @@ class PanelDockContractTests(unittest.TestCase):
             "function updateFolderContextToggleLabels(", 1
         )[0]
         self.assertIn("menu.style.maxHeight", pos_fn)
+        self.assertIn('data-context-action="select-all"', self.html)
+        self.assertIn('data-context-action="insert-table"', self.html)
+        select_idx = self.html.find('data-context-action="select-all"')
+        paste_opt = self.html.find('id="pasteOptionsRow"')
+        insert_img = self.html.find('data-context-action="insert-image"')
+        insert_table = self.html.find('data-context-action="insert-table"')
+        self.assertGreater(select_idx, paste_opt)
+        self.assertGreater(insert_table, insert_img)
+        self.assertIn("function selectAllInManuscriptEditor", self.js)
+        self.assertIn("onManuscriptSelectAllKeydown", self.js)
+        self.assertIn("function insertManuscriptTable", self.js)
+        dict_item = self.html.split('id="dictHighlightMenuItem"', 1)[1][:160]
+        self.assertIn("data-ctx-full-only", dict_item)
+        self.assertNotIn("data-ctx-selection-ok", dict_item.split(">", 1)[0])
+        for locale in self.locales.values():
+            self.assertIn("index.표_넣기", locale)
+            self.assertIn("index.본문만_모두_선택해요", locale)
+            self.assertIn("app.본문에_표를_넣었어요", locale)
 
 
 if __name__ == "__main__":
