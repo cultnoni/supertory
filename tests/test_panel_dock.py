@@ -43,7 +43,9 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn('data-dock-item="aiHistory"', self.html)
         self.assertIn('data-dock-item="credits"', self.html)
         self.assertIn('data-dock-item="screenProtect"', self.html)
-        self.assertIn('data-dock-item="toryTalk"', self.html)
+        self.assertIn('data-dock-item="spellcheck"', self.html)
+        self.assertIn('data-dock-item="analyze"', self.html)
+        self.assertNotIn('data-dock-item="toryTalk"', self.html)
         self.assertNotIn('data-dock-item="tools"', self.html)
         self.assertNotIn('data-dock-item="notify"', self.html)
         self.assertNotIn('data-dock-item="intro"', self.html)
@@ -75,7 +77,7 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("closeIdeaFloat(key)", toggle_fn)
         self.assertIn("return openDockFloat(itemId, sourceEl)", toggle_fn)
         self.assertIn("function toggleAiDockPanelItem(", self.js)
-        priority_case = self.js.split('case "priority":', 1)[1].split('case "toryTalk":', 1)[0]
+        priority_case = self.js.split('case "priority":', 1)[1].split("default:", 1)[0]
         self.assertIn("setToryPriorityOpen(true, sourceEl)", priority_case)
         self.assertNotIn("setAiPanelOpen(true)", priority_case)
         self.assertIn("credits:", self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1].split("};", 1)[0])
@@ -93,13 +95,14 @@ class PanelDockContractTests(unittest.TestCase):
             [
                 "writingTimer",
                 "toryCheck",
+                "spellcheck",
+                "analyze",
                 "statsTracker",
                 "toryChat",
                 "characterChat",
                 "readerChat",
                 "aiResult",
                 "aiHistory",
-                "toryTalk",
                 "credits",
                 "screenProtect",
             ],
@@ -126,7 +129,7 @@ class PanelDockContractTests(unittest.TestCase):
     def test_ai_rail_items_open_dock_floats(self) -> None:
         panel_items = self.js.split("const AI_DOCK_PANEL_ITEMS = new Set([", 1)[1].split("]);", 1)[0]
         self.assertNotIn("priority", panel_items)
-        self.assertIn("toryTalk", panel_items)
+        self.assertNotIn("toryTalk", panel_items)
         self.assertNotIn("toryChat", panel_items)
         self.assertNotIn("characterChat", panel_items)
         self.assertNotIn("readerChat", panel_items)
@@ -138,6 +141,8 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("readerChat: DOCK_READER_CHAT_KEY", keys)
         self.assertIn("aiResult: DOCK_AI_RESULT_KEY", keys)
         self.assertIn("aiHistory: DOCK_AI_HISTORY_KEY", keys)
+        self.assertIn("spellcheck: DOCK_SPELLCHECK_KEY", keys)
+        self.assertIn("analyze: DOCK_ANALYZE_KEY", keys)
         spec = self.js.split("const DOCK_FLOAT_SPECS = {", 1)[1]
         for name, window_class in (
             ("toryChat", "dock-float-tory-chat"),
@@ -145,6 +150,8 @@ class PanelDockContractTests(unittest.TestCase):
             ("readerChat", "dock-float-reader-chat"),
             ("aiResult", "dock-float-ai-result"),
             ("aiHistory", "dock-float-ai-history"),
+            ("spellcheck", "dock-float-spellcheck"),
+            ("analyze", "dock-float-analyze"),
         ):
             self.assertIn(f"{name}:", spec)
             chunk = spec.split(f"{name}:", 1)[1].split("},", 1)[0]
@@ -152,9 +159,26 @@ class PanelDockContractTests(unittest.TestCase):
             self.assertIn("resize:", chunk)
         self.assertIn("function adoptDockNode(", self.js)
         self.assertIn("function restoreDockAiHosts(", self.js)
+        self.assertIn("function restoreDockToolHosts(", self.js)
+        self.assertIn("function renderDockSpellcheckBody(", self.js)
+        self.assertIn("function renderDockAnalyzeBody(", self.js)
         self.assertIn("function syncAiDockChatHosts(", self.js)
         self.assertIn('id="aiResultHistoryContent"', self.html)
+        self.assertIn('id="spellcheckPanel"', self.html)
+        self.assertIn('id="analyzeMenuDropdown"', self.html)
+        self.assertIn('id="analyzeMenuHome"', self.html)
+        self.assertNotIn('id="spellcheckFeatureButton"', self.html)
+        toolbar_icons = self.html.split('data-toolbar-row="format-icons"', 1)[1].split('id="findBar"', 1)[0]
+        self.assertNotIn('data-icon-key="spellcheck"', toolbar_icons)
+        self.assertNotIn('data-icon-key="analyze"', toolbar_icons)
+        self.assertIn('id="findToggleButton"', toolbar_icons)
+        self.assertIn('id="viewerModeButton"', self.html)
+        self.assertIn('id="splitViewButton"', self.html)
+        self.assertIn('id="compareSplitButton"', self.html)
+        self.assertIn('id="focusWriteButton"', self.html)
         self.assertIn(".idea-float.dock-float.dock-float-ai-chat", self.css)
+        self.assertIn(".idea-float.dock-float.dock-float-spellcheck", self.css)
+        self.assertIn(".idea-float.dock-float.dock-float-analyze", self.css)
         active_fn = self.js.split("function isDockRailItemActive(", 1)[1].split(
             "const AI_DOCK_PANEL_ITEMS", 1
         )[0]
@@ -797,6 +821,29 @@ class PanelDockContractTests(unittest.TestCase):
         self.assertIn("justify-content: space-between", split_icons)
         self.assertIn("gap: 0", split_icons)
 
+    def test_view_tool_icons_include_page_write_placeholder(self) -> None:
+        row = self.html.split('data-toolbar-row="format-icons"', 1)[1].split('id="findBar"', 1)[0]
+        keys = []
+        for marker in (
+            'data-icon-key="find"',
+            'data-icon-key="viewer"',
+            'data-icon-key="page-write"',
+            'data-icon-key="compare"',
+            'data-icon-key="split"',
+            'data-icon-key="focus"',
+        ):
+            self.assertIn(marker, row)
+            keys.append(row.index(marker))
+        self.assertEqual(keys, sorted(keys))
+        self.assertEqual(row.count('id="compareSplitButton"'), 1)
+        self.assertIn('id="pageWriteButton"', row)
+        self.assertIn('$("pageWriteButton")', self.js)
+        self.assertIn("index.쪽쓰기_기능은_준비_중입니다", self.js)
+        for locale in self.locales.values():
+            self.assertIn("index.쪽쓰기", locale)
+            self.assertIn("index.쪽쓰기_준비_중", locale)
+            self.assertIn("index.쪽쓰기_기능은_준비_중입니다", locale)
+
     def test_left_panel_keeps_round_edge_when_ai_collapsed(self) -> None:
         collapsed = self.css.split(
             "body.ai-panel-collapsed .outline-panel-inner {",
@@ -1407,6 +1454,8 @@ class PanelDockContractTests(unittest.TestCase):
             "index.내화면_보호",
             "index.내화면_보호_해제",
             "index.토리톡",
+            "index.쪽쓰기",
+            "index.쪽쓰기_기능은_준비_중입니다",
             "index.자주쓰는_가상독자_모음",
             "index.즐겨찾기한_가상독자가_없어요",
             "app.즐겨찾기는_최대_6명까지_등록할_수_있어요",
