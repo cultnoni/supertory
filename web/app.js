@@ -50498,6 +50498,25 @@ function showDesktopContextMenu(clientX, clientY) {
   menu.style.top = `${top}px`;
 }
 
+function clampDesktopContextMenu() {
+  const menu = $("desktopContextMenu");
+  if (!menu || menu.classList.contains("hidden")) return;
+  const pad = 8;
+  const rect = menu.getBoundingClientRect();
+  let left = rect.left;
+  let top = rect.top;
+  if (left + rect.width > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - rect.width - pad);
+  }
+  if (top + rect.height > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - rect.height - pad);
+  }
+  if (left < pad) left = pad;
+  if (top < pad) top = pad;
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
 function captureManuscriptRangeFromEvent(event, editorEl = null) {
   const editor = editorEl || getContextRichEditor() || $("sceneContent");
   if (!editor) return null;
@@ -50760,6 +50779,31 @@ function togglePasteOptionsRow() {
   setPasteOptionsExpanded(!expanded);
 }
 
+function setDividerOptionsExpanded(expanded) {
+  const toggle = $("dividerOptionsToggle");
+  const row = $("dividerOptionsRow");
+  const alignRow = $("dividerAlignRow");
+  const customRow = $("dividerCustomRow");
+  const presetRow = $("dividerPresetRow");
+  if (!toggle || !row) return;
+  toggle.setAttribute("aria-expanded", expanded ? "true" : "false");
+  row.classList.toggle("hidden", !expanded);
+  alignRow?.classList.toggle("hidden", !expanded);
+  customRow?.classList.toggle("hidden", !expanded);
+  if (!expanded) {
+    presetRow?.classList.add("hidden");
+  }
+  if (expanded) {
+    syncDividerOptionUi();
+    requestAnimationFrame(clampDesktopContextMenu);
+  }
+}
+
+function toggleDividerOptionsRow() {
+  const expanded = $("dividerOptionsToggle")?.getAttribute("aria-expanded") === "true";
+  setDividerOptionsExpanded(!expanded);
+}
+
 /** 컨텍스트 메뉴 붙여넣기: mode = null(원본 서식 유지) · "merge"(서식 병합) · "text"(텍스트만 유지) */
 async function triggerContextPaste(mode = null) {
   const editor = getContextRichEditor();
@@ -50978,6 +51022,7 @@ function setupDesktopThemeMenu() {
       $("openItemCardMenuItem")?.classList.add("hidden");
     }
     setPasteOptionsExpanded(false); // 메뉴를 열 때마다 붙여넣기 옵션은 접힌 채로 시작
+    setDividerOptionsExpanded(false);
     syncDictHighlightMenu();
     syncPageThemeScopeUi();
     // 잘라내기 · 복사 · 서식 복사: 선택한 글이 있어야 동작
@@ -51137,6 +51182,32 @@ function setupDesktopThemeMenu() {
       togglePasteOptionsRow();
       return;
     }
+    if (event.target.closest("#dividerOptionsToggle")) {
+      event.preventDefault();
+      event.stopPropagation();
+      toggleDividerOptionsRow();
+      return;
+    }
+    const dividerAlignBtn = event.target.closest("[data-divider-align]");
+    if (dividerAlignBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      writeDividerAlign(dividerAlignBtn.dataset.dividerAlign);
+      return;
+    }
+    const removePresetBtn = event.target.closest("[data-divider-preset-remove]");
+    if (removePresetBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      removeDividerPreset(removePresetBtn.dataset.dividerText);
+      return;
+    }
+    if (event.target.closest("#dividerPresetSaveBtn")) {
+      event.preventDefault();
+      event.stopPropagation();
+      saveDividerPresetFromInput();
+      return;
+    }
     if (event.target.closest("#pageInkColorPicker, #pageInkResetButton, .context-ink-row")) {
       // Ink controls handle themselves; don't treat as theme click.
       if (event.target.closest("#pageInkResetButton")) {
@@ -51208,6 +51279,12 @@ function setupDesktopThemeMenu() {
       } else if (action === "insert-table") {
         hideDesktopContextMenu();
         insertManuscriptTable();
+      } else if (action === "insert-divider") {
+        const inserted = insertManuscriptDivider(
+          actionBtn.dataset.dividerKind,
+          actionBtn.dataset.dividerText,
+        );
+        if (inserted !== false) hideDesktopContextMenu();
       } else if (action === "throw-bait") {
         hideDesktopContextMenu();
         throwBaitFromSelection();
@@ -51274,6 +51351,13 @@ function setupDesktopThemeMenu() {
     }
     applyDesktopTheme(next, null, { announce: true, fromUser: true });
     hideDesktopContextMenu();
+  });
+
+  $("dividerCustomInput")?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.isComposing || event.keyCode === 229) return;
+    event.preventDefault();
+    event.stopPropagation();
+    saveDividerPresetFromInput();
   });
 
   $("desktopColorPicker")?.addEventListener("input", (event) => {
@@ -51466,6 +51550,226 @@ async function insertInlineImageFromFile(file) {
   } catch (error) {
     handleError(error);
   }
+}
+
+const MANUSCRIPT_DIVIDER_LINES = {
+  solid: "────────",
+  dotted: "⋯⋯⋯⋯⋯",
+  stars: "* * *",
+  wave: "~ ~ ~",
+  middot: "· · ·",
+  diamond: "◆ ◆ ◆",
+  dash: "――――――",
+  blank: "",
+};
+const DIVIDER_ALIGN_KEY = "supertory.dividerAlign";
+const DIVIDER_KIND_KEY = "supertory.dividerKind";
+const DIVIDER_CUSTOM_KEY = "supertory.dividerCustom";
+const DIVIDER_PRESETS_KEY = "supertory.dividerPresets";
+const DIVIDER_PRESET_LAST_KEY = "supertory.dividerPresetLast";
+const DIVIDER_PRESET_MAX = 8;
+const DIVIDER_ALIGNS = new Set(["center", "left", "right"]);
+
+function readDividerAlign() {
+  try {
+    const value = localStorage.getItem(DIVIDER_ALIGN_KEY);
+    if (DIVIDER_ALIGNS.has(value)) return value;
+  } catch (_) { /* ignore */ }
+  return "center";
+}
+
+function writeDividerAlign(align) {
+  if (!DIVIDER_ALIGNS.has(align)) return;
+  try { localStorage.setItem(DIVIDER_ALIGN_KEY, align); } catch (_) { /* ignore */ }
+  syncDividerOptionUi();
+}
+
+function readDividerKind() {
+  try {
+    const value = localStorage.getItem(DIVIDER_KIND_KEY);
+    if (
+      value === "preset"
+      || value === "custom"
+      || Object.prototype.hasOwnProperty.call(MANUSCRIPT_DIVIDER_LINES, value)
+    ) {
+      return value;
+    }
+  } catch (_) { /* ignore */ }
+  return "solid";
+}
+
+function writeDividerKind(kind) {
+  try { localStorage.setItem(DIVIDER_KIND_KEY, kind); } catch (_) { /* ignore */ }
+}
+
+function readDividerPresetLast() {
+  try {
+    return String(localStorage.getItem(DIVIDER_PRESET_LAST_KEY) || "").trim();
+  } catch (_) {
+    return "";
+  }
+}
+
+function writeDividerPresetLast(line) {
+  try { localStorage.setItem(DIVIDER_PRESET_LAST_KEY, String(line || "")); } catch (_) { /* ignore */ }
+}
+
+function readDividerPresets() {
+  const out = [];
+  try {
+    const raw = localStorage.getItem(DIVIDER_PRESETS_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) {
+        for (const item of parsed) {
+          const line = String(item || "").trim();
+          if (line && !out.includes(line)) out.push(line);
+        }
+      }
+    }
+    const legacy = String(localStorage.getItem(DIVIDER_CUSTOM_KEY) || "").trim();
+    if (legacy && !out.includes(legacy)) out.unshift(legacy);
+  } catch (_) { /* ignore */ }
+  return out.slice(0, DIVIDER_PRESET_MAX);
+}
+
+function writeDividerPresets(presets) {
+  try {
+    localStorage.setItem(DIVIDER_PRESETS_KEY, JSON.stringify(presets.slice(0, DIVIDER_PRESET_MAX)));
+    localStorage.removeItem(DIVIDER_CUSTOM_KEY);
+  } catch (_) { /* ignore */ }
+}
+
+function renderDividerPresetPills() {
+  const row = $("dividerPresetRow");
+  if (!row) return;
+  const presets = readDividerPresets();
+  const expanded = $("dividerOptionsToggle")?.getAttribute("aria-expanded") === "true";
+  row.classList.toggle("hidden", !expanded || !presets.length);
+  row.replaceChildren();
+  const last = readDividerPresetLast();
+  const kind = readDividerKind();
+  for (const line of presets) {
+    const chip = document.createElement("span");
+    chip.className = "divider-preset-chip";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "paste-option-btn";
+    btn.setAttribute("role", "menuitem");
+    btn.dataset.contextAction = "insert-divider";
+    btn.dataset.dividerKind = "preset";
+    btn.dataset.dividerText = line;
+    btn.textContent = line;
+    btn.title = i18n.t("index.구분선_프리셋_넣기_힌트");
+    if (kind === "preset" && line === last) {
+      btn.classList.add("is-selected");
+      chip.classList.add("is-selected");
+    }
+    const remove = document.createElement("button");
+    remove.type = "button";
+    remove.className = "divider-preset-remove";
+    remove.dataset.dividerPresetRemove = "";
+    remove.dataset.dividerText = line;
+    remove.setAttribute("aria-label", i18n.t("index.구분선_프리셋_지우기"));
+    remove.title = i18n.t("index.구분선_프리셋_지우기");
+    remove.textContent = "×";
+    chip.append(btn, remove);
+    row.appendChild(chip);
+  }
+}
+
+function saveDividerPresetFromInput() {
+  const input = $("dividerCustomInput");
+  const line = String(input?.value || "").trim();
+  if (!line) {
+    toast(i18n.t("app.구분선에_넣을_글을_먼저_적어_주세요"));
+    input?.focus();
+    return false;
+  }
+  const presets = readDividerPresets();
+  if (presets.includes(line)) {
+    toast(i18n.t("app.이미_있는_구분선_프리셋이에요"));
+    if (input) input.value = "";
+    writeDividerKind("preset");
+    writeDividerPresetLast(line);
+    syncDividerOptionUi();
+    return true;
+  }
+  if (presets.length >= DIVIDER_PRESET_MAX) {
+    toast(i18n.t("app.구분선_프리셋은_최대_개까지예요"));
+    return false;
+  }
+  presets.unshift(line);
+  writeDividerPresets(presets);
+  writeDividerKind("preset");
+  writeDividerPresetLast(line);
+  if (input) input.value = "";
+  toast(i18n.t("app.구분선_프리셋으로_저장했어요"));
+  syncDividerOptionUi();
+  requestAnimationFrame(clampDesktopContextMenu);
+  return true;
+}
+
+function removeDividerPreset(text) {
+  const line = String(text || "").trim();
+  if (!line) return;
+  writeDividerPresets(readDividerPresets().filter((item) => item !== line));
+  if (readDividerPresetLast() === line) {
+    try { localStorage.removeItem(DIVIDER_PRESET_LAST_KEY); } catch (_) { /* ignore */ }
+    if (readDividerKind() === "preset") writeDividerKind("solid");
+  }
+  toast(i18n.t("app.구분선_프리셋을_지웠어요"));
+  syncDividerOptionUi();
+}
+
+function syncDividerOptionUi() {
+  const kind = readDividerKind();
+  const align = readDividerAlign();
+  $("dividerOptionsRow")?.querySelectorAll("[data-divider-kind]").forEach((btn) => {
+    const selected = btn.dataset.dividerKind === kind;
+    btn.classList.toggle("is-selected", selected);
+    btn.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+  $("dividerAlignRow")?.querySelectorAll("[data-divider-align]").forEach((btn) => {
+    const selected = btn.dataset.dividerAlign === align;
+    btn.classList.toggle("is-selected", selected);
+    btn.setAttribute("aria-pressed", selected ? "true" : "false");
+  });
+  renderDividerPresetPills();
+}
+
+function insertManuscriptDivider(kind = "solid", presetText = "") {
+  const editor = getContextRichEditor() || getActiveRichEditor() || $("sceneContent");
+  if (!editor) return false;
+  let resolvedKind = Object.prototype.hasOwnProperty.call(MANUSCRIPT_DIVIDER_LINES, kind) ? kind : "solid";
+  let line = MANUSCRIPT_DIVIDER_LINES[resolvedKind];
+  if (kind === "preset" || kind === "custom") {
+    line = String(presetText || "").trim() || readDividerPresetLast();
+    if (!line) {
+      toast(i18n.t("app.구분선에_넣을_글을_먼저_적어_주세요"));
+      $("dividerCustomInput")?.focus();
+      return false;
+    }
+    resolvedKind = "custom";
+    writeDividerKind("preset");
+    writeDividerPresetLast(line);
+  } else {
+    writeDividerKind(resolvedKind);
+  }
+  const align = readDividerAlign();
+  const block = document.createElement("div");
+  block.className = "manuscript-scene-break";
+  block.dataset.divider = resolvedKind;
+  block.dataset.align = align;
+  block.style.textAlign = align;
+  if (resolvedKind === "blank") {
+    block.appendChild(document.createElement("br"));
+  } else {
+    block.textContent = line;
+  }
+  insertNodeAtManuscriptContext(block, editor);
+  toast(i18n.t("app.본문에_구분선을_넣었어요"));
+  return true;
 }
 
 function insertManuscriptTable(rows = 3, cols = 3) {

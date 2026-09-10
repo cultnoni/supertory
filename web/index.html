@@ -6695,6 +6695,30 @@
       <button type="button" role="menuitem" data-context-action="insert-table" data-ctx-full-only title="본문에 표를 넣어요" data-i18n-title="index.본문에_표를_넣어요">
         <span data-i18n="index.표_넣기">표 넣기</span>
       </button>
+      <button type="button" role="menuitem" class="context-menu-expand-btn" id="dividerOptionsToggle" data-ctx-full-only aria-expanded="false" aria-controls="dividerOptionsRow dividerPresetRow dividerAlignRow dividerCustomRow" title="실선·점선·별표 등 구분선을 본문에 넣어요" data-i18n-title="index.구분선_삽입_힌트">
+        <span data-i18n="index.구분선_삽입">구분선 삽입</span>
+        <span class="context-menu-expand-arrow" aria-hidden="true">▶</span>
+      </button>
+      <div class="paste-options-row hidden" id="dividerOptionsRow" role="group" aria-label="구분선 스타일" data-i18n-aria-label="index.구분선_스타일" data-ctx-full-only>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="solid" title="실선 구분선을 넣어요" data-i18n-title="index.구분선_실선_힌트" data-i18n="index.구분선_실선">실선 ───</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="dotted" title="점선 구분선을 넣어요" data-i18n-title="index.구분선_점선_힌트" data-i18n="index.구분선_점선">점선 ⋯⋯⋯</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="stars" title="별표 구분선을 넣어요" data-i18n-title="index.구분선_별표_힌트" data-i18n="index.구분선_별표">별표 * * *</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="wave" title="물결 구분선을 넣어요" data-i18n-title="index.구분선_물결_힌트" data-i18n="index.구분선_물결">물결 ~ ~ ~</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="middot" title="가운뎃점 구분선을 넣어요" data-i18n-title="index.구분선_가운뎃점_힌트" data-i18n="index.구분선_가운뎃점">가운뎃점 · · ·</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="diamond" title="마름모 구분선을 넣어요" data-i18n-title="index.구분선_마름모_힌트" data-i18n="index.구분선_마름모">마름모 ◆ ◆ ◆</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="dash" title="긴줄 구분선을 넣어요" data-i18n-title="index.구분선_대시_힌트" data-i18n="index.구분선_대시">긴줄 ――――</button>
+        <button type="button" class="paste-option-btn" role="menuitem" data-context-action="insert-divider" data-divider-kind="blank" title="글자 없이 장면 전환 공백을 넣어요" data-i18n-title="index.구분선_공백_힌트" data-i18n="index.구분선_공백">공백</button>
+      </div>
+      <div class="paste-options-row hidden" id="dividerPresetRow" role="group" aria-label="내 구분선" data-i18n-aria-label="index.구분선_프리셋" data-ctx-full-only></div>
+      <div class="paste-options-row hidden" id="dividerAlignRow" role="group" aria-label="구분선 정렬" data-i18n-aria-label="index.구분선_정렬" data-ctx-full-only>
+        <button type="button" class="paste-option-btn" data-divider-align="center" aria-pressed="true" title="구분선을 가운데에 넣어요" data-i18n-title="index.구분선_가운데_힌트" data-i18n="index.구분선_가운데">가운데</button>
+        <button type="button" class="paste-option-btn" data-divider-align="left" aria-pressed="false" title="구분선을 왼쪽에 넣어요" data-i18n-title="index.구분선_왼쪽_힌트" data-i18n="index.구분선_왼쪽">왼쪽</button>
+        <button type="button" class="paste-option-btn" data-divider-align="right" aria-pressed="false" title="구분선을 오른쪽에 넣어요" data-i18n-title="index.구분선_오른쪽_힌트" data-i18n="index.구분선_오른쪽">오른쪽</button>
+      </div>
+      <div class="paste-options-row divider-custom-row hidden" id="dividerCustomRow" data-ctx-full-only>
+        <input id="dividerCustomInput" class="divider-custom-input" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="예: ※ 다음 장면 ※" data-i18n-placeholder="index.구분선_직접_입력_자리표시" title="자주 쓰는 구분선을 적어 프리셋으로 추가해요" data-i18n-title="index.구분선_직접_입력_힌트" aria-label="구분선 직접 입력" data-i18n-aria-label="index.구분선_직접_입력">
+        <button type="button" class="paste-option-btn" id="dividerPresetSaveBtn" title="적은 글을 구분선 프리셋으로 추가해요" data-i18n-title="index.구분선_추가_힌트" data-i18n="index.구분선_추가">추가</button>
+      </div>
       <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-only>
         떡밥 던지기
       </button>

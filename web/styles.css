@@ -28931,6 +28931,85 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   background: var(--selection);
   border-color: color-mix(in srgb, var(--accent, #c47b3a) 45%, var(--line));
 }
+.paste-options-row .paste-option-btn.is-selected,
+.paste-options-row .paste-option-btn[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent, #c47b3a) 18%, var(--bg-surface, #fff));
+  border-color: color-mix(in srgb, var(--accent, #c47b3a) 55%, var(--line));
+}
+.divider-custom-row .divider-custom-input {
+  flex: 1 1 140px;
+  min-width: 0;
+  height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--bg-surface, #fff) 88%, var(--bg-main, #FAFAF9) 12%);
+  color: var(--ink);
+  font-size: 12px;
+}
+.divider-preset-chip {
+  display: inline-flex;
+  align-items: stretch;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg-surface, #fff) 88%, var(--bg-main, #FAFAF9) 12%);
+}
+.divider-preset-chip .paste-option-btn {
+  border: 0;
+  border-radius: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  background: transparent;
+}
+.divider-preset-chip.is-selected,
+.divider-preset-chip:has(.paste-option-btn.is-selected) {
+  border-color: color-mix(in srgb, var(--accent, #c47b3a) 55%, var(--line));
+  background: color-mix(in srgb, var(--accent, #c47b3a) 18%, var(--bg-surface, #fff));
+}
+.divider-preset-remove {
+  flex: 0 0 auto;
+  width: 22px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted, var(--ink));
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+.divider-preset-remove:hover {
+  background: var(--selection);
+}
+.rich-editor .manuscript-scene-break {
+  display: block;
+  text-align: center;
+  margin: 0.7em 0;
+  letter-spacing: 0.14em;
+}
+.rich-editor .manuscript-scene-break[data-align="left"] {
+  text-align: left;
+}
+.rich-editor .manuscript-scene-break[data-align="right"] {
+  text-align: right;
+}
+.rich-editor .manuscript-scene-break[data-divider="stars"],
+.rich-editor .manuscript-scene-break[data-divider="wave"],
+.rich-editor .manuscript-scene-break[data-divider="middot"],
+.rich-editor .manuscript-scene-break[data-divider="diamond"] {
+  letter-spacing: 0.28em;
+}
+.rich-editor .manuscript-scene-break[data-divider="blank"] {
+  letter-spacing: 0;
+  min-height: 1.35em;
+}
+.rich-editor .manuscript-scene-break[data-divider="custom"] {
+  letter-spacing: 0.08em;
+}
 /* 서식 복사(포맷 페인터) 대기 중: 다음 선택에 서식을 입힐 준비가 됐다는 커서 표시 */
 .format-painter-armed {
   cursor: copy !important;
