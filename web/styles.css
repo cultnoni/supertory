@@ -10884,6 +10884,51 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
   overflow: hidden;
   padding: 8px 10px 12px;
 }
+.idea-float.dock-float.dock-float-spellcheck {
+  width: 480px;
+  height: 560px;
+  min-width: 320px;
+  min-height: 320px;
+}
+.idea-float.dock-float.dock-float-spellcheck .idea-float-body {
+  overflow: auto;
+  padding: 10px 12px 12px;
+}
+.idea-float.dock-float-spellcheck .spellcheck-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.idea-float.dock-float-spellcheck .spellcheck-result-list {
+  max-height: none;
+}
+.idea-float.dock-float.dock-float-analyze {
+  width: 340px;
+  height: 480px;
+  min-width: 280px;
+  min-height: 280px;
+}
+.idea-float.dock-float.dock-float-analyze .idea-float-body {
+  overflow: auto;
+  padding: 6px 8px 10px;
+}
+.idea-float.dock-float-analyze #analyzeMenuDropdown {
+  position: static !important;
+  inset: auto;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  box-shadow: none;
+  background: transparent;
+  z-index: auto;
+}
+.dock-adopt-home[hidden] {
+  display: none !important;
+}
 .idea-float.dock-float.dock-float-ai-chat,
 .idea-float.dock-float.dock-float-ai-result,
 .idea-float.dock-float.dock-float-ai-history {
@@ -25724,6 +25769,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-bookmark-btn,
 .format-toolbar-row-icons .format-find-btn,
 .format-toolbar-row-icons .format-viewer-btn,
+.format-toolbar-row-icons .format-page-write-btn,
 .format-toolbar-row-icons .format-split-btn,
 .format-toolbar-row-icons .format-compare-btn,
 .format-toolbar-row-icons .format-focus-btn,

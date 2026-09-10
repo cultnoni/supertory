@@ -2147,7 +2147,7 @@
                 <div class="format-toolbar-row format-toolbar-row-icons" role="group" aria-label="도구 아이콘" data-i18n-aria-label="index.도구_아이콘" data-toolbar-row="format-icons">
                 <div class="format-toolbar-row-body format-toolbar-row-body-split">
                 <div class="format-toolbar-cluster format-toolbar-cluster-start">
-                <!-- 씬 기능 (왼쪽부터): 작가메모 · 등장인물 · 참고자료 · 맞춤법 · 분석 -->
+                <!-- 씬 기능 (왼쪽부터): 작가메모 · 등장인물 · 참고자료 -->
                 <button type="button" class="format-tool-item format-tool-scene" data-icon-key="notes" data-tools-action="notes" id="authorNotesChip" title="작가 메모" data-i18n-title="app.작가_메모" aria-label="작가 메모" data-i18n-aria-label="app.작가_메모">
                   <span class="format-tool-glyph" aria-hidden="true">
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
@@ -2182,66 +2182,9 @@
                   <span class="format-tool-label" data-i18n="app.참고자료">참고자료</span>
                   <span class="format-tool-badge feature-chip-count hidden" id="referenceMaterialsCount" aria-hidden="true"></span>
                 </button>
-                <button type="button" class="format-tool-item format-tool-scene" data-icon-key="spellcheck" id="spellcheckFeatureButton" data-tools-action="spellcheck" title="현재 원고의 철자·맞춤법·띄어쓰기를 검사합니다" data-i18n-title="index.현재_원고의_철자_맞춤법_띄어쓰기를_검사합니" aria-label="맞춤법" data-i18n-aria-label="index.맞춤법">
-                  <span class="format-tool-glyph" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                      <path d="M5 17 9.5 7h1L15 17"/>
-                      <path d="M6.5 13.5h7"/>
-                      <path d="m16 14 2 2 4-4.5"/>
-                    </svg>
-                  </span>
-                  <span class="format-tool-label" data-i18n="index.맞춤법">맞춤법</span>
-                </button>
-                <div class="view-mode-control format-analyze-control analyze-menu-control" id="analyzeMenuControl" data-icon-key="analyze">
-                  <button
-                    type="button"
-                    class="format-tool-item format-tool-scene format-tool-analyze"
-                    id="analyzeMenuButton"
-                    aria-haspopup="menu"
-                    aria-expanded="false"
-                    aria-controls="analyzeMenuDropdown"
-                    title="원고 분석 방식 선택" data-i18n-title="index.원고_분석_방식_선택"
-                    aria-label="분석" data-i18n-aria-label="index.분석"
-                  >
-                    <span class="format-tool-glyph" aria-hidden="true">
-                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                        <path d="M5 19V10M10 19V5M15 19v-7M20 19V8"/>
-                      </svg>
-                    </span>
-                    <span class="format-tool-label" data-i18n="index.분석">분석</span>
-                  </button>
-                  <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식" data-i18n-aria-label="index.분석_방식">
-                    <div class="analyze-menu-section-label" aria-hidden="true">
-                      <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
-                      <span data-i18n="app.누르면_바로_실행돼요">누르면 바로 실행돼요</span>
-                    </div>
-                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="focus">
-                      <strong data-i18n="app.피드백_요청">피드백 요청</strong>
-                      <span data-i18n="index.원고를_집중_분석하여_편집자와_독자_관점의">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
-                    </button>
-                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="worldscan">
-                      <strong data-i18n="app.설정_붕괴_감지기">설정 붕괴 감지기</strong>
-                      <span data-i18n="index.세계관_캐릭터_설정과_어긋나는_지점을_찾아요">세계관·캐릭터 설정과 어긋나는 지점을 찾아요</span>
-                    </button>
-                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="dupcheck">
-                      <strong data-i18n="app.중복_체크">중복 체크</strong>
-                      <span data-i18n="index.앞뒤_4회차와_같은_표현_비슷한_내용을_찾아">앞뒤 4회차와 같은 표현·비슷한 내용을 찾아요</span>
-                    </button>
-                    <div class="view-mode-dropdown-divider"></div>
-                    <div class="analyze-menu-section-label" aria-hidden="true">
-                      <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
-                      <span data-i18n="app.작성_후_저장_실행해요">작성 후 저장·실행해요</span>
-                    </div>
-                    <div id="analyzeCustomList" class="analyze-custom-list"></div>
-                    <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="custom-add">
-                      <strong data-i18n="index.직접_작성">직접 작성</strong>
-                      <span data-i18n="index.자주_쓰는_분석_요청을_바로_실행_메뉴에_직">자주 쓰는 분석 요청을 [바로 실행] 메뉴에 직접 넣어요</span>
-                    </button>
-                  </div>
-                </div>
                 </div>
                 <div class="format-toolbar-cluster format-toolbar-cluster-end">
-                <!-- 보기 도구 (북마크 · 타자기 · 기록 · 검색 · 뷰어 · 분할 · 확장) -->
+                <!-- 보기 도구 (북마크 · 타자기 · 기록 · 검색 · 뷰어 · 쪽쓰기 · 비교 · 분할 · 확장) -->
                 <button
                   type="button"
                   class="format-tool-item format-bookmark-btn"
@@ -2329,6 +2272,41 @@
                   <span class="format-tool-label" data-i18n="index.뷰어">뷰어</span>
                   <span class="format-viewer-comments-dot hidden" id="viewerModeCommentsBadge" aria-hidden="true"></span>
                 </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-page-write-btn"
+                  id="pageWriteButton"
+                  data-icon-key="page-write"
+                  title="쪽쓰기 · 준비 중" data-i18n-title="index.쪽쓰기_준비_중"
+                  aria-label="쪽쓰기" data-i18n-aria-label="index.쪽쓰기"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <rect x="6" y="3.75" width="12" height="16.5" rx="1.4"/>
+                      <path d="M9 8.25h6M9 12h6M9 15.75h4"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label" data-i18n="index.쪽쓰기">쪽쓰기</span>
+                </button>
+                <button
+                  type="button"
+                  class="format-tool-item format-compare-btn"
+                  id="compareSplitButton"
+                  data-icon-key="compare"
+                  title="비교 보기로 열기" data-i18n-title="app.비교_보기로_열기"
+                  aria-label="비교 보기로 열기" data-i18n-aria-label="app.비교_보기로_열기"
+                  aria-pressed="false"
+                >
+                  <span class="format-tool-glyph" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
+                      <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
+                      <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
+                      <path d="M15.7 8.2h2.6M15.7 11h2.6"/>
+                      <circle cx="17" cy="15.4" r="1.15" fill="currentColor" stroke="none"/>
+                    </svg>
+                  </span>
+                  <span class="format-tool-label" data-i18n="index.비교_보기">비교</span>
+                </button>
                 <div class="view-mode-control format-split-control" id="formatSplitControl" data-icon-key="split">
                   <button
                     id="splitViewButton"
@@ -2396,25 +2374,6 @@
                     <button type="button" class="view-mode-mini-link" data-split-rightclick-hint="hide" data-i18n="index.우클릭_안내_숨기기">우클릭 안내 숨기기</button>
                   </div>
                 </div>
-                <button
-                  type="button"
-                  class="format-tool-item format-compare-btn"
-                  id="compareSplitButton"
-                  data-icon-key="compare"
-                  title="비교 보기로 열기" data-i18n-title="app.비교_보기로_열기"
-                  aria-label="비교 보기로 열기" data-i18n-aria-label="app.비교_보기로_열기"
-                  aria-pressed="false"
-                >
-                  <span class="format-tool-glyph" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round" focusable="false">
-                      <rect x="3.5" y="4.5" width="7" height="15" rx="1.2"/>
-                      <rect x="13.5" y="4.5" width="7" height="15" rx="1.2"/>
-                      <path d="M15.7 8.2h2.6M15.7 11h2.6"/>
-                      <circle cx="17" cy="15.4" r="1.15" fill="currentColor" stroke="none"/>
-                    </svg>
-                  </span>
-                  <span class="format-tool-label" data-i18n="index.비교_보기">비교</span>
-                </button>
                 <button
                   type="button"
                   class="format-tool-item format-tool-focus format-focus-btn"
@@ -2744,7 +2703,7 @@
                 </div>
               </div>
               <div class="tool-panel hidden" data-tool-panel="spellcheck">
-                <section class="spellcheck-panel" aria-label="맞춤법 검사" data-i18n-aria-label="index.맞춤법_검사">
+                <section id="spellcheckPanel" class="spellcheck-panel" aria-label="맞춤법 검사" data-i18n-aria-label="index.맞춤법_검사">
                   <div class="spellcheck-intro">
                     <p class="hint spellcheck-guide"><strong data-i18n="index.현재_작성_중인_페이지">현재 작성 중인 페이지</strong>만 검사합니다.</p>
                     <p class="hint spellcheck-guide" data-i18n="index.Gemini_검사기_또는_바른한글_검사기">「Gemini 검사기」 또는 「바른한글 검사기」를 누르면 결과가 표시됩니다. 제안은 참고용이니, 작품의 문체와 고유명사는 직접 확인하고 결정해 주세요.</p>
@@ -4427,6 +4386,18 @@
                 <rect x="3" y="4" width="6" height="6" rx="1"/>
               </svg>
             </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="spellcheck" title="현재 원고의 철자·맞춤법·띄어쓰기를 검사합니다" data-i18n-title="index.현재_원고의_철자_맞춤법_띄어쓰기를_검사합니" aria-label="맞춤법" data-i18n-aria-label="index.맞춤법" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5 17 9.5 7h1L15 17"/>
+                <path d="M6.5 13.5h7"/>
+                <path d="m16 14 2 2 4-4.5"/>
+              </svg>
+            </button>
+            <button type="button" class="panel-dock-item is-ready" data-dock-item="analyze" title="원고 분석 방식 선택" data-i18n-title="index.원고_분석_방식_선택" aria-label="분석" data-i18n-aria-label="index.분석" aria-pressed="false">
+              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M5 19V10M10 19V5M15 19v-7M20 19V8"/>
+              </svg>
+            </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="statsTracker" title="글자수" data-i18n-title="app.글자수_트래커" aria-label="글자수" data-i18n-aria-label="app.글자수_트래커" aria-pressed="false">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
                 <path d="M4 12V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.706.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2"/>
@@ -4473,12 +4444,6 @@
                 <path d="M16 6V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
                 <path d="M22 13a18.15 18.15 0 0 1-20 0"/>
                 <rect width="20" height="14" x="2" y="6" rx="2"/>
-              </svg>
-            </button>
-            <button type="button" class="panel-dock-item" data-dock-item="toryTalk" title="토리톡" data-i18n-title="index.토리톡" aria-label="토리톡" data-i18n-aria-label="index.토리톡" aria-pressed="false">
-              <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
-                <path d="M14.536 21.686a.5.5 0 0 0 .937-.024l6.5-19a.496.496 0 0 0-.635-.635l-19 6.5a.5.5 0 0 0-.024.937l7.93 3.18a2 2 0 0 1 1.112 1.11z" />
-                <path d="m21.854 2.147-10.94 10.939" />
               </svg>
             </button>
             <button type="button" class="panel-dock-item is-ready" data-dock-item="credits" title="도토리 잔량" data-i18n-title="index.크레딧_잔량" aria-label="도토리 잔량" data-i18n-aria-label="index.크레딧_잔량" aria-pressed="false">
@@ -4727,6 +4692,47 @@
     </div>
 
     <div id="ideaFloatHost" class="idea-float-host" aria-live="off"></div>
+    <div id="analyzeMenuHome" class="dock-adopt-home" hidden>
+      <button
+        type="button"
+        id="analyzeMenuButton"
+        class="hidden"
+        hidden
+        aria-hidden="true"
+        aria-haspopup="menu"
+        aria-expanded="false"
+        aria-controls="analyzeMenuDropdown"
+        tabindex="-1"
+      ></button>
+      <div id="analyzeMenuDropdown" class="view-mode-dropdown hidden" role="menu" aria-label="분석 방식" data-i18n-aria-label="index.분석_방식">
+        <div class="analyze-menu-section-label" aria-hidden="true">
+          <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
+          <span data-i18n="app.누르면_바로_실행돼요">누르면 바로 실행돼요</span>
+        </div>
+        <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="focus">
+          <strong data-i18n="app.피드백_요청">피드백 요청</strong>
+          <span data-i18n="index.원고를_집중_분석하여_편집자와_독자_관점의">원고를 집중 분석하여 편집자와 독자 관점의 피드백을 드려요.</span>
+        </button>
+        <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="worldscan">
+          <strong data-i18n="app.설정_붕괴_감지기">설정 붕괴 감지기</strong>
+          <span data-i18n="index.세계관_캐릭터_설정과_어긋나는_지점을_찾아요">세계관·캐릭터 설정과 어긋나는 지점을 찾아요</span>
+        </button>
+        <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="dupcheck">
+          <strong data-i18n="app.중복_체크">중복 체크</strong>
+          <span data-i18n="index.앞뒤_4회차와_같은_표현_비슷한_내용을_찾아">앞뒤 4회차와 같은 표현·비슷한 내용을 찾아요</span>
+        </button>
+        <div class="view-mode-dropdown-divider"></div>
+        <div class="analyze-menu-section-label" aria-hidden="true">
+          <span class="analyze-menu-section-icon analyze-menu-tory-icon" aria-hidden="true"></span>
+          <span data-i18n="app.작성_후_저장_실행해요">작성 후 저장·실행해요</span>
+        </div>
+        <div id="analyzeCustomList" class="analyze-custom-list"></div>
+        <button type="button" role="menuitem" class="analyze-menu-action" data-analyze-action="custom-add">
+          <strong data-i18n="index.직접_작성">직접 작성</strong>
+          <span data-i18n="index.자주_쓰는_분석_요청을_바로_실행_메뉴에_직">자주 쓰는 분석 요청을 [바로 실행] 메뉴에 직접 넣어요</span>
+        </button>
+      </div>
+    </div>
 
     <div id="writingLogModal" class="modal hidden" role="dialog" aria-modal="true" aria-labelledby="writingLogModalTitle">
       <div class="modal-backdrop" data-close-writing-log></div>

@@ -17359,6 +17359,16 @@ const DOCK_TORY_CHECK_DEFAULT_W = 440;
 const DOCK_TORY_CHECK_DEFAULT_H = 480;
 const DOCK_TORY_CHECK_MIN_W = 320;
 const DOCK_TORY_CHECK_MIN_H = 280;
+const DOCK_SPELLCHECK_KEY = "dock:spellcheck";
+const DOCK_SPELLCHECK_DEFAULT_W = 480;
+const DOCK_SPELLCHECK_DEFAULT_H = 560;
+const DOCK_SPELLCHECK_MIN_W = 320;
+const DOCK_SPELLCHECK_MIN_H = 320;
+const DOCK_ANALYZE_KEY = "dock:analyze";
+const DOCK_ANALYZE_DEFAULT_W = 340;
+const DOCK_ANALYZE_DEFAULT_H = 480;
+const DOCK_ANALYZE_MIN_W = 280;
+const DOCK_ANALYZE_MIN_H = 280;
 const DOCK_TORY_CHAT_KEY = "dock:toryChat";
 const DOCK_CHARACTER_CHAT_KEY = "dock:characterChat";
 const DOCK_READER_CHAT_KEY = "dock:readerChat";
@@ -17412,6 +17422,8 @@ const DOCK_RAIL_FLOAT_KEYS = {
   settingsSearch: DOCK_SETTINGS_SEARCH_KEY,
   credits: "dock:credits",
   toryCheck: DOCK_TORY_CHECK_KEY,
+  spellcheck: DOCK_SPELLCHECK_KEY,
+  analyze: DOCK_ANALYZE_KEY,
   toryChat: DOCK_TORY_CHAT_KEY,
   characterChat: DOCK_CHARACTER_CHAT_KEY,
   readerChat: DOCK_READER_CHAT_KEY,
@@ -17665,6 +17677,7 @@ function closeIdeaFloat(ideaId, { skipSave = false } = {}) {
   if (id === DOCK_SETTINGS_SEARCH_KEY) restoreSettingsSearchLive();
   ideaFloatWindows.delete(id);
   restoreDockAiHosts(id);
+  restoreDockToolHosts(id);
   win.remove();
   ideaFloatLayouts.delete(id);
   if (id === DOCK_STATS_TRACKER_KEY) setDockTrackerOpenPref(false);
@@ -17956,6 +17969,28 @@ const DOCK_FLOAT_SPECS = {
     resize: { minWidth: DOCK_TORY_CHECK_MIN_W, minHeight: DOCK_TORY_CHECK_MIN_H },
     render(body) { renderDockToryCheckBody(body); },
   },
+  spellcheck: {
+    titleKey: "index.맞춤법_검사",
+    windowClass: "dock-float-spellcheck",
+    side: "right",
+    defaultWidth: DOCK_SPELLCHECK_DEFAULT_W,
+    defaultHeight: DOCK_SPELLCHECK_DEFAULT_H,
+    resize: { minWidth: DOCK_SPELLCHECK_MIN_W, minHeight: DOCK_SPELLCHECK_MIN_H },
+    render(body) { renderDockSpellcheckBody(body); },
+  },
+  analyze: {
+    titleKey: "index.분석",
+    windowClass: "dock-float-analyze",
+    side: "right",
+    defaultWidth: DOCK_ANALYZE_DEFAULT_W,
+    defaultHeight: DOCK_ANALYZE_DEFAULT_H,
+    resize: { minWidth: DOCK_ANALYZE_MIN_W, minHeight: DOCK_ANALYZE_MIN_H },
+    render(body) { renderDockAnalyzeBody(body); },
+    onOpen() {
+      renderCustomAnalyzeMenuItems();
+      ensureAnalyzeMenuSectionMascots();
+    },
+  },
   toryChat: {
     titleKey: "index.토리_1_1_대화창",
     windowClass: "dock-float-ai-chat dock-float-tory-chat",
@@ -18175,9 +18210,6 @@ function isDockRailItemActive(itemId) {
   if (itemId === "priority") {
     return Boolean($("toryPriorityBox")?.classList.contains("is-open"));
   }
-  if (itemId === "toryTalk") {
-    return false;
-  }
   const key = dockRailFloatKey(itemId);
   if (!key) return false;
   if (ideaFloatWindows.has(key)) return true;
@@ -18200,7 +18232,6 @@ function isDockRailItemActive(itemId) {
 }
 
 const AI_DOCK_PANEL_ITEMS = new Set([
-  "toryTalk",
 ]);
 const AI_DOCK_FLOAT_ITEMS = new Set([
   "toryChat",
@@ -18741,10 +18772,6 @@ function toggleAiDockPanelItem(itemId, sourceEl) {
       } else {
         setToryPriorityOpen(true, sourceEl);
       }
-      break;
-    }
-    case "toryTalk": {
-      toast(i18n.t("app.아직_준비_중인_기능이에요"));
       break;
     }
     default:
@@ -20345,6 +20372,43 @@ function restoreDockAiHosts(key) {
   ) {
     try { syncAiDockChatHosts(); } catch (_) { /* ignore */ }
   }
+}
+
+function restoreDockToolHosts(key) {
+  if (key === DOCK_SPELLCHECK_KEY) restoreDockNode("spellcheckPanel");
+  if (key === DOCK_ANALYZE_KEY) {
+    restoreDockNode("analyzeMenuDropdown");
+    const menu = $("analyzeMenuDropdown");
+    if (menu) {
+      menu.classList.add("hidden");
+      menu.classList.remove("is-fixed-dropdown");
+      clearFeatureDropdownPlacement(menu);
+    }
+    $("analyzeMenuButton")?.setAttribute("aria-expanded", "false");
+  }
+}
+
+function isAnalyzeMenuFloated() {
+  return ideaFloatWindows.has(DOCK_ANALYZE_KEY);
+}
+
+function renderDockSpellcheckBody(body) {
+  if (!body) return;
+  const panel = $("spellcheckPanel");
+  if (!panel) return;
+  adoptDockNode(panel, body);
+}
+
+function renderDockAnalyzeBody(body) {
+  if (!body) return;
+  const menu = $("analyzeMenuDropdown");
+  if (!menu) return;
+  adoptDockNode(menu, body);
+  clearFeatureDropdownPlacement(menu);
+  menu.classList.remove("hidden", "is-fixed-dropdown");
+  $("analyzeMenuButton")?.setAttribute("aria-expanded", "true");
+  renderCustomAnalyzeMenuItems();
+  ensureAnalyzeMenuSectionMascots();
 }
 
 function syncAiChatViewHubAttr() {
@@ -24567,6 +24631,7 @@ async function runCustomAnalyzeItem(id) {
 }
 
 function closeAnalyzeMenu() {
+  if (isAnalyzeMenuFloated()) return;
   const menu = $("analyzeMenuDropdown");
   menu?.classList.add("hidden");
   clearFeatureDropdownPlacement(menu);
@@ -24636,6 +24701,7 @@ function portalSplitModeDropdownToBody(enable) {
 }
 
 function portalAnalyzeMenuToBody(enable) {
+  if (isAnalyzeMenuFloated()) return;
   const menu = $("analyzeMenuDropdown");
   if (!menu) return;
   const home = ensureAnalyzeMenuHome();
@@ -24676,7 +24742,10 @@ function placeFeatureDropdown(menu, anchor) {
     && (anchor.id === "focusWriteSplitButton" || Boolean(anchor.closest?.("#focusWriteModal")));
   if (menu.id === "viewModeDropdown") portalViewModeDropdownToBody(true);
   if (menu.id === "splitModeDropdown") portalSplitModeDropdownToBody(true);
-  if (menu.id === "analyzeMenuDropdown") portalAnalyzeMenuToBody(true);
+  if (menu.id === "analyzeMenuDropdown") {
+    if (isAnalyzeMenuFloated()) return;
+    portalAnalyzeMenuToBody(true);
+  }
 
   menu.classList.add("is-fixed-dropdown");
   menu.style.position = "fixed";
@@ -24794,7 +24863,8 @@ function setupAnalyzeMenu() {
     el.addEventListener("click", closeCustomAnalyzeModal);
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#analyzeMenuControl, #analyzeMenuDropdown")) closeAnalyzeMenu();
+    if (isAnalyzeMenuFloated()) return;
+    if (!event.target.closest?.("#analyzeMenuControl, #analyzeMenuDropdown, [data-dock-item='analyze']")) closeAnalyzeMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -24806,6 +24876,7 @@ function setupAnalyzeMenu() {
     closeAnalyzeMenu();
   });
   const reposition = () => {
+    if (isAnalyzeMenuFloated()) return;
     const menu = $("analyzeMenuDropdown");
     const btn = $("analyzeMenuButton");
     if (menu && btn && !menu.classList.contains("hidden")) placeFeatureDropdown(menu, btn);
@@ -57001,9 +57072,11 @@ function handleToolsAction(action) {
     return;
   }
 
-  if (action === "notes" || action === "characters" || action === "links" || action === "spellcheck") {
+  if (action === "notes" || action === "characters" || action === "links") {
     openSceneToolsDrawer(action);
-    // 맞춤법: 패널만 열고, 검사는 「Gemini 검사기」/「바른한글 검사기」에서만 실행
+  }
+  if (action === "spellcheck") {
+    toggleDockFloat("spellcheck");
   }
 }
 
@@ -57900,6 +57973,10 @@ function setupSceneFeatureBar() {
   $("splitViewButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
     applySplitDefaultOrOpenMenu("main");
+  });
+  $("pageWriteButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    toast(i18n.t("index.쪽쓰기_기능은_준비_중입니다"));
   });
   $("switchSplitModeButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
