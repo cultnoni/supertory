@@ -2277,7 +2277,7 @@
                   class="format-tool-item format-page-write-btn"
                   id="pageWriteButton"
                   data-icon-key="page-write"
-                  title="쪽쓰기 · 준비 중" data-i18n-title="index.쪽쓰기_준비_중"
+                  title="쪽쓰기 · 조판 규격으로 편집" data-i18n-title="index.쪽쓰기_조판_규격으로_편집"
                   aria-label="쪽쓰기" data-i18n-aria-label="index.쪽쓰기"
                 >
                   <span class="format-tool-glyph" aria-hidden="true">
@@ -7638,6 +7638,35 @@
       </div>
     </div>
 
+    <div id="pageWriteModal" class="modal page-write-modal hidden" role="dialog" aria-modal="true" aria-labelledby="pageWriteTitle">
+      <div class="modal-backdrop" data-close-page-write></div>
+      <div class="page-write-card" role="document">
+        <div class="page-write-head">
+          <div class="page-write-head-text">
+            <h2 id="pageWriteTitle" class="page-write-title" data-i18n="index.쪽쓰기">쪽쓰기</h2>
+            <p class="hint page-write-hint" id="pageWriteHint" data-i18n="index.쪽쓰기_안내">조판 규격으로 쪽을 나누어 편집합니다. 닫아도 내용은 본문에 반영됩니다.</p>
+          </div>
+          <div class="page-write-actions">
+            <span id="pageWriteMeta" class="page-write-meta"></span>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
+              id="pageWriteCloseButton"
+              data-close-page-write
+              title="닫기" data-i18n-title="app.닫기"
+              aria-label="닫기" data-i18n-aria-label="app.닫기"
+            >
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M18 6 6 18"/>
+                <path d="m6 6 12 12"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+        <div class="page-write-body" id="pageWritePages"></div>
+      </div>
+    </div>
+
     <!-- 뷰어 모드: PDF / phone / e-ink (view-only) -->
     <div id="viewerModal" class="modal viewer-modal hidden" role="dialog" aria-modal="true" aria-labelledby="viewerTitle">
       <div class="modal-backdrop" data-close-viewer></div>
@@ -7896,6 +7925,12 @@
                   <option value="page" data-i18n="index.보기_넘기기">넘기기</option>
                 </select>
               </label>
+              <button
+                type="button"
+                id="openPageWriteFromTypeset"
+                class="viewer-typeset-pagewrite-link"
+                data-i18n="index.이_프리셋으로_쪽쓰기_열기"
+              >이 프리셋으로 쪽쓰기 열기</button>
               <button
                 type="button"
                 id="viewerTypesetDetailsToggle"

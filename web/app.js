@@ -52449,6 +52449,378 @@ function setupFocusWrite() {
   });
 }
 
+const PAGE_WRITE_SPEC_KEY = "supertory.pageWriteSpec";
+const PAGE_WRITE_DEFAULT_SPEC = Object.freeze({
+  charsPerLine: 16,
+  linesPerPage: 18,
+  cellPx: 20,
+  linePx: 28,
+});
+
+const pageWrite = {
+  spec: { ...PAGE_WRITE_DEFAULT_SPEC },
+  text: "",
+  ranges: [],
+  caret: 0,
+  composing: false,
+  lastMs: 0,
+};
+
+function isPageWriteOpen() {
+  const modal = $("pageWriteModal");
+  return Boolean(modal && !modal.classList.contains("hidden"));
+}
+
+function clampPageWriteSpec(raw) {
+  const src = raw && typeof raw === "object" ? raw : {};
+  return {
+    charsPerLine: Math.max(8, Math.min(40, Math.round(Number(src.charsPerLine) || PAGE_WRITE_DEFAULT_SPEC.charsPerLine))),
+    linesPerPage: Math.max(8, Math.min(50, Math.round(Number(src.linesPerPage) || PAGE_WRITE_DEFAULT_SPEC.linesPerPage))),
+    cellPx: Math.max(12, Math.min(32, Math.round(Number(src.cellPx) || PAGE_WRITE_DEFAULT_SPEC.cellPx))),
+    linePx: Math.max(16, Math.min(48, Math.round(Number(src.linePx) || PAGE_WRITE_DEFAULT_SPEC.linePx))),
+  };
+}
+
+function loadPageWriteSpec() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(PAGE_WRITE_SPEC_KEY) || "null");
+    if (parsed) return clampPageWriteSpec(parsed);
+  } catch (_) { /* ignore */ }
+  return { ...PAGE_WRITE_DEFAULT_SPEC };
+}
+
+function savePageWriteSpec(spec) {
+  const next = clampPageWriteSpec(spec);
+  try {
+    localStorage.setItem(PAGE_WRITE_SPEC_KEY, JSON.stringify(next));
+  } catch (_) { /* ignore */ }
+  return next;
+}
+
+function pageWriteSpecFromTypeset(draft) {
+  const metrics = window.TypesetMetrics?.layoutMetrics?.(draft || {}) || {};
+  const fontPx = Math.max(10, Number(metrics.fontSizePx) || 13.333);
+  const contentW = Math.max(40, Number(metrics.contentWidthPx) || 320);
+  const charsPerLine = Math.max(8, Math.min(40, Math.round(contentW / fontPx)));
+  const linePx = Math.max(16, fontPx * ((Number(metrics.lineHeightPercent) || 150) / 100));
+  const viewport = Math.max(320, Number(metrics.viewportPx) || 360);
+  const linesPerPage = Math.max(8, Math.min(40, Math.round((viewport * 1.6) / linePx)));
+  return clampPageWriteSpec({
+    charsPerLine,
+    linesPerPage,
+    cellPx: Math.round(fontPx),
+    linePx: Math.round(linePx),
+  });
+}
+
+function paginatePageWrite(text, spec) {
+  const charsPerLine = spec.charsPerLine;
+  const linesPerPage = spec.linesPerPage;
+  const ranges = [];
+  let pageStart = 0;
+  let col = 0;
+  let line = 0;
+  const closePage = (end) => {
+    ranges.push({ start: pageStart, end });
+    pageStart = end;
+    col = 0;
+    line = 0;
+  };
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === "\n") {
+      line += 1;
+      col = 0;
+      if (line >= linesPerPage) closePage(i + 1);
+    } else {
+      col += 1;
+      if (col >= charsPerLine) {
+        line += 1;
+        col = 0;
+        if (line >= linesPerPage) closePage(i + 1);
+      }
+    }
+  }
+  ranges.push({ start: pageStart, end: text.length });
+  return ranges;
+}
+
+function locatePageWriteCaret(offset, ranges, textLength) {
+  const pos = Math.max(0, Math.min(offset, textLength));
+  for (let i = 0; i < ranges.length; i += 1) {
+    const { start, end } = ranges[i];
+    if (pos < end || (i === ranges.length - 1 && pos <= end)) {
+      return { page: i, local: pos - start };
+    }
+  }
+  const last = Math.max(0, ranges.length - 1);
+  const range = ranges[last] || { start: 0, end: 0 };
+  return { page: last, local: range.end - range.start };
+}
+
+function pageWritePageText(el) {
+  const raw = (el.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return raw === "\n" ? "" : raw;
+}
+
+function readPageWriteAllText() {
+  return [...($("pageWritePages")?.querySelectorAll(".page-write-page") || [])]
+    .map(pageWritePageText)
+    .join("");
+}
+
+function caretOffsetInPageWrite(page) {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return 0;
+  const range = sel.getRangeAt(0);
+  if (!page.contains(range.endContainer) && page !== range.endContainer) return 0;
+  const pre = document.createRange();
+  pre.selectNodeContents(page);
+  pre.setEnd(range.endContainer, range.endOffset);
+  return pre.toString().length;
+}
+
+function globalPageWriteCaret() {
+  const sel = window.getSelection();
+  if (!sel || sel.rangeCount === 0) return pageWrite.caret;
+  const node = sel.focusNode;
+  if (!node) return pageWrite.caret;
+  const page = node.nodeType === 1 ? node.closest(".page-write-page") : node.parentElement?.closest(".page-write-page");
+  if (!page) return pageWrite.caret;
+  const index = Number(page.dataset.page || 0);
+  const start = pageWrite.ranges[index]?.start ?? 0;
+  return start + caretOffsetInPageWrite(page);
+}
+
+function setPageWriteCaret(offset) {
+  pageWrite.caret = Math.max(0, Math.min(offset, pageWrite.text.length));
+  const located = locatePageWriteCaret(pageWrite.caret, pageWrite.ranges, pageWrite.text.length);
+  const page = $("pageWritePages")?.querySelector(`.page-write-page[data-page="${located.page}"]`);
+  if (!page) return;
+  page.focus();
+  const sel = window.getSelection();
+  const range = document.createRange();
+  const walker = document.createTreeWalker(page, NodeFilter.SHOW_TEXT);
+  let left = located.local;
+  let node = walker.nextNode();
+  if (!node) {
+    range.selectNodeContents(page);
+    range.collapse(false);
+    sel.removeAllRanges();
+    sel.addRange(range);
+    return;
+  }
+  while (node) {
+    const size = node.textContent.length;
+    if (left <= size) {
+      range.setStart(node, left);
+      range.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(range);
+      return;
+    }
+    left -= size;
+    node = walker.nextNode();
+  }
+  range.selectNodeContents(page);
+  range.collapse(false);
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+
+function syncPageWriteToManuscript(text) {
+  const editor = $("sceneContent");
+  if (!editor || !state.sceneId) return;
+  editor.innerHTML = escapeHtml(text).replace(/\r\n|\r|\n/g, "<br>");
+  updateEditorPlaceholder(editor);
+  updateSceneStats();
+  markSceneDirty();
+}
+
+function updatePageWriteMeta() {
+  const meta = $("pageWriteMeta");
+  if (!meta) return;
+  meta.textContent = i18n.t("index.쪽쓰기_메타", {
+    chars: pageWrite.text.length,
+    pages: pageWrite.ranges.length,
+    cols: pageWrite.spec.charsPerLine,
+    rows: pageWrite.spec.linesPerPage,
+  });
+}
+
+function renderPageWrite(text, caret, startedAt) {
+  const host = $("pageWritePages");
+  if (!host) return;
+  pageWrite.text = text;
+  pageWrite.ranges = paginatePageWrite(text, pageWrite.spec);
+  host.style.setProperty("--page-write-cols", String(pageWrite.spec.charsPerLine));
+  host.style.setProperty("--page-write-rows", String(pageWrite.spec.linesPerPage));
+  host.style.setProperty("--page-write-cell", `${pageWrite.spec.cellPx}px`);
+  host.style.setProperty("--page-write-line", `${pageWrite.spec.linePx}px`);
+  host.replaceChildren();
+  pageWrite.ranges.forEach((range, index) => {
+    const shell = document.createElement("div");
+    shell.className = "page-write-shell";
+    const label = document.createElement("div");
+    label.className = "page-write-label";
+    label.textContent = i18n.t("index.쪽쓰기_쪽", { n: index + 1 });
+    const page = document.createElement("div");
+    page.className = "page-write-page";
+    page.dataset.page = String(index);
+    page.setAttribute("contenteditable", "true");
+    page.setAttribute("spellcheck", "false");
+    page.setAttribute("role", "textbox");
+    page.setAttribute("aria-label", i18n.t("index.쪽쓰기_쪽", { n: index + 1 }));
+    page.textContent = text.slice(range.start, range.end);
+    shell.append(label, page);
+    host.append(shell);
+  });
+  if (startedAt != null) {
+    pageWrite.lastMs = Math.round((performance.now() - startedAt) * 10) / 10;
+  }
+  updatePageWriteMeta();
+  setPageWriteCaret(caret);
+}
+
+function commitPageWriteFromDom() {
+  const started = performance.now();
+  const caret = globalPageWriteCaret();
+  const text = readPageWriteAllText();
+  renderPageWrite(text, caret, started);
+  syncPageWriteToManuscript(text);
+}
+
+function manuscriptHasPageWriteUnsafeMarkup(editorEl = null) {
+  const editor = editorEl || $("sceneContent");
+  if (!editor) return false;
+  for (const el of editor.querySelectorAll("*")) {
+    if (el.tagName !== "BR") return true;
+  }
+  return false;
+}
+
+function openPageWrite(options = {}) {
+  if (!state.sceneId) {
+    toast(i18n.t("app.먼저_목차에서_씬_하나를_열어_주세요"));
+    return;
+  }
+  if (manuscriptHasPageWriteUnsafeMarkup($("sceneContent"))) {
+    toast(i18n.t("index.쪽쓰기_서식있는_회차는_열_수_없습니다"), 8000, {
+      dismissible: true,
+    });
+    return;
+  }
+  const modal = $("pageWriteModal");
+  const host = $("pageWritePages");
+  if (!modal || !host) return;
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) closeFocusWrite();
+  if (typeof isViewerOpen === "function" && isViewerOpen()) closeViewerMode();
+  const spec = options.fromTypeset
+    ? pageWriteSpecFromTypeset(typeof readTypesetDraftFromForm === "function" ? readTypesetDraftFromForm() : {})
+    : loadPageWriteSpec();
+  pageWrite.spec = savePageWriteSpec(spec);
+  pageWrite.composing = false;
+  const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t("index.쪽쓰기");
+  if ($("pageWriteTitle")) $("pageWriteTitle").textContent = title;
+  const source = getEditorPlainText($("sceneContent"));
+  modal.classList.remove("hidden");
+  document.body.classList.add("page-write-open");
+  $("pageWriteButton")?.classList.add("is-active");
+  $("pageWriteButton")?.setAttribute("aria-pressed", "true");
+  const editor = $("sceneContent");
+  if (editor) editor.setAttribute("contenteditable", "false");
+  renderPageWrite(source, source.length);
+}
+
+function closePageWrite() {
+  const modal = $("pageWriteModal");
+  if (!modal) return;
+  if (!modal.classList.contains("hidden")) {
+    syncPageWriteToManuscript(readPageWriteAllText() || pageWrite.text);
+  }
+  modal.classList.add("hidden");
+  document.body.classList.remove("page-write-open");
+  $("pageWriteButton")?.classList.remove("is-active");
+  $("pageWriteButton")?.setAttribute("aria-pressed", "false");
+  const editor = $("sceneContent");
+  if (editor) editor.setAttribute("contenteditable", "true");
+  requestAnimationFrame(() => {
+    try {
+      editor?.focus({ preventScroll: true });
+    } catch (_) {
+      editor?.focus();
+    }
+  });
+}
+
+function setupPageWrite() {
+  const host = $("pageWritePages");
+  if (host && host.dataset.pageWriteBound !== "1") {
+    host.dataset.pageWriteBound = "1";
+    host.addEventListener("compositionstart", () => {
+      pageWrite.composing = true;
+    });
+    host.addEventListener("compositionend", () => {
+      pageWrite.composing = false;
+      commitPageWriteFromDom();
+    });
+    host.addEventListener("input", (event) => {
+      if (event.isComposing || pageWrite.composing) return;
+      commitPageWriteFromDom();
+    });
+    host.addEventListener("mouseup", () => {
+      pageWrite.caret = globalPageWriteCaret();
+    });
+    host.addEventListener("keyup", () => {
+      if (pageWrite.composing) return;
+      pageWrite.caret = globalPageWriteCaret();
+    });
+    host.addEventListener("keydown", (event) => {
+      if (pageWrite.composing) return;
+      const caret = globalPageWriteCaret();
+      if (event.key === "Backspace" && caret > 0) {
+        const located = locatePageWriteCaret(caret, pageWrite.ranges, pageWrite.text.length);
+        if (located.local === 0) {
+          event.preventDefault();
+          const next = pageWrite.text.slice(0, caret - 1) + pageWrite.text.slice(caret);
+          renderPageWrite(next, caret - 1, performance.now());
+          syncPageWriteToManuscript(next);
+        }
+      }
+      if (event.key === "ArrowLeft" && caret > 0) {
+        const located = locatePageWriteCaret(caret, pageWrite.ranges, pageWrite.text.length);
+        if (located.local === 0) {
+          event.preventDefault();
+          setPageWriteCaret(caret - 1);
+        }
+      }
+      if (event.key === "ArrowRight" && caret < pageWrite.text.length) {
+        const page = event.target.closest?.(".page-write-page");
+        if (!page) return;
+        if (caretOffsetInPageWrite(page) >= pageWritePageText(page).length) {
+          event.preventDefault();
+          setPageWriteCaret(caret + 1);
+        }
+      }
+    });
+  }
+
+  document.querySelectorAll("[data-close-page-write]").forEach((el) => {
+    el.addEventListener("click", () => closePageWrite());
+  });
+
+  $("openPageWriteFromTypeset")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    openPageWrite({ fromTypeset: true });
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key !== "Escape") return;
+    if (!isPageWriteOpen()) return;
+    event.preventDefault();
+    closePageWrite();
+  });
+}
+
 function setupViewModeShortcuts() {
   document.addEventListener("keydown", (event) => {
     // Esc: 함께보기 닫기 (큰 창 Esc 핸들러보다 나중에 와도, 큰 창이 열려 있으면 그쪽이 먼저 처리)
@@ -52459,7 +52831,7 @@ function setupViewModeShortcuts() {
       }
       // Defer slightly so other Esc handlers (modals) can win first via their own listeners
       // Only close split when no higher modal is open
-      const blocked = ["adminModal", "exportModal", "newProjectModal", "textPromptModal", "importModal", "viewerModal", "toryOpeningIdeasModal", "chapterSubtitleModal"]
+      const blocked = ["adminModal", "exportModal", "newProjectModal", "textPromptModal", "importModal", "viewerModal", "toryOpeningIdeasModal", "chapterSubtitleModal", "pageWriteModal"]
         .some((id) => {
           const el = $(id);
           return el && !el.classList.contains("hidden");
@@ -57976,7 +58348,8 @@ function setupSceneFeatureBar() {
   });
   $("pageWriteButton")?.addEventListener("click", (event) => {
     event.preventDefault();
-    toast(i18n.t("index.쪽쓰기_기능은_준비_중입니다"));
+    if (isPageWriteOpen()) closePageWrite();
+    else openPageWrite();
   });
   $("switchSplitModeButton")?.addEventListener("click", (event) => {
     event.stopPropagation();
@@ -80654,6 +81027,7 @@ safeSetup("setupSettingsContextMenu", setupSettingsContextMenu);
 safeSetup("setupSceneFeatureBar", setupSceneFeatureBar);
 safeSetup("setupAnalyzeMenu", setupAnalyzeMenu);
 safeSetup("setupFocusWrite", setupFocusWrite);
+safeSetup("setupPageWrite", setupPageWrite);
 safeSetup("setupViewModeShortcuts", setupViewModeShortcuts);
 safeSetup("setupViewerMode", setupViewerMode);
 safeSetup("setupGenrePicker", setupGenrePicker);
