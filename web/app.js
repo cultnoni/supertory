@@ -52557,9 +52557,19 @@ function locatePageWriteCaret(offset, ranges, textLength) {
   return { page: last, local: range.end - range.start };
 }
 
+function getPageWriteSourceText(editorEl = null) {
+  const editor = editorEl || $("sceneContent");
+  if (!editor) return "";
+  const clone = editor.cloneNode(true);
+  clone.querySelectorAll("[data-author-note], .st-author-note").forEach((el) => el.remove());
+  clone.querySelectorAll("br").forEach((br) => {
+    br.replaceWith("\n");
+  });
+  return (clone.textContent || "").replace(/\u00a0/g, " ");
+}
+
 function pageWritePageText(el) {
-  const raw = (el.innerText || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
-  return raw === "\n" ? "" : raw;
+  return (el.textContent || "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
 }
 
 function readPageWriteAllText() {
@@ -52721,7 +52731,7 @@ function openPageWrite(options = {}) {
   pageWrite.composing = false;
   const title = $("sceneTitle")?.value?.trim() || state.scene?.title || i18n.t("index.쪽쓰기");
   if ($("pageWriteTitle")) $("pageWriteTitle").textContent = title;
-  const source = getEditorPlainText($("sceneContent"));
+  const source = getPageWriteSourceText($("sceneContent"));
   modal.classList.remove("hidden");
   document.body.classList.add("page-write-open");
   $("pageWriteButton")?.classList.add("is-active");
