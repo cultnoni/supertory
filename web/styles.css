@@ -22149,6 +22149,45 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   gap: 8px;
   min-width: 0;
 }
+.page-write-typeset-summary-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.page-write-typeset-summary-row .viewer-typeset-readonly {
+  flex: 1 1 auto;
+}
+.page-write-typeset.is-details-open .viewer-typeset-details-open-label {
+  display: none;
+}
+.page-write-typeset.is-details-open .viewer-typeset-details-close-label {
+  display: inline;
+}
+.page-write-typeset:not(.is-details-open) .viewer-typeset-details-close-label {
+  display: none;
+}
+#pageWriteTypesetDetails.hidden,
+#pageWriteTypesetDetails[hidden] {
+  display: none !important;
+}
+.page-write-modal.is-maximized {
+  padding: 0;
+}
+.page-write-modal.is-maximized .page-write-card {
+  width: 100%;
+  max-width: none;
+  height: 100%;
+  max-height: none;
+  margin: 0;
+  border-radius: 0;
+  border-left: 0;
+  border-right: 0;
+}
+html.is-electron .page-write-modal.is-maximized {
+  padding-top: env(titlebar-area-height, 32px);
+  box-sizing: border-box;
+}
 .page-write-typeset-row {
   display: flex;
   align-items: flex-end;
@@ -22169,6 +22208,18 @@ body[data-ui-scheme="dark"] .feature-chip.is-recording {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.page-write-actions .viewer-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 28px;
+  width: 28px;
+  padding: 0 !important;
+}
+.page-write-actions .viewer-icon-btn svg {
+  display: block;
+  flex: 0 0 auto;
 }
 .page-write-meta {
   font-size: 12px;
@@ -22738,7 +22789,9 @@ html.is-electron .viewer-modal.is-maximized {
 #viewerMaximizeButton.is-window .viewer-max-icon-expand,
 #viewerMaximizeButton:not(.is-window) .viewer-max-icon-window,
 #focusWriteFullscreenButton.is-window .viewer-max-icon-expand,
-#focusWriteFullscreenButton:not(.is-window) .viewer-max-icon-window {
+#focusWriteFullscreenButton:not(.is-window) .viewer-max-icon-window,
+#pageWriteFullscreenButton.is-window .viewer-max-icon-expand,
+#pageWriteFullscreenButton:not(.is-window) .viewer-max-icon-window {
   display: none;
 }
 .viewer-head {
@@ -23441,6 +23494,9 @@ html.is-electron .viewer-modal.is-maximized {
   font-size: 11px;
   font-weight: 800;
   cursor: pointer;
+}
+button.viewer-typeset-chip {
+  font: inherit;
 }
 .viewer-typeset-chip.is-active {
   background: var(--surface);

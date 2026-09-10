@@ -28,14 +28,15 @@ class TypesetToolbarUiTests(unittest.TestCase):
             html.find('id="viewerTypesetDetails"'),
         )
         self.assertLess(
-            html.find('id="viewerTypesetSave"'),
             html.find('id="viewerTypesetExport"'),
+            html.find('id="viewerTypesetExportMenu"'),
         )
         self.assertGreater(
             html.find('id="viewerTypesetDetails"'),
-            html.find('id="viewerTypesetPlatforms"'),
+            html.find('id="viewerTypesetPreviewPlatforms"'),
         )
-        self.assertIn('id="viewerTypesetSave"', html[html.find('id="viewerTypesetDetails"') :])
+        self.assertNotIn('id="viewerTypesetSave"', html)
+        self.assertIn('id="viewerTypesetExport"', html[html.find('id="viewerTypesetDetails"') :])
 
         self.assertIn('supertory.viewerTypesetDetailsOpen', app_js)
         self.assertIn("function applyTypesetDetailsOpen", app_js)
@@ -61,8 +62,14 @@ class TypesetToolbarUiTests(unittest.TestCase):
         self.assertNotIn('id="viewerTypesetUnverified"', details)
         self.assertIn('id="viewerTypesetFlow"', html[html.find('data-viewer-controls="typeset"') :])
         self.assertIn('id="openPageWriteFromTypeset"', html[html.find('data-viewer-controls="typeset"') :])
+        self.assertIn('id="viewerTypesetPreviewPlatforms"', html[html.find('data-viewer-controls="typeset"') :])
+        self.assertNotIn('id="viewerTypesetPreviewPlatforms"', page_write)
+        self.assertIn('id="pageWriteFullscreenButton"', page_write)
+        self.assertIn('id="pageWriteTypesetDetailsToggle"', page_write)
+        self.assertIn('id="pageWriteTypesetDetails"', page_write)
         self.assertNotIn('id="viewerTypesetFontSize"', details)
-        self.assertIn('id="viewerTypesetSave"', details)
+        self.assertNotIn('id="viewerTypesetSave"', details)
+        self.assertIn('id="viewerTypesetExport"', details)
         self.assertIn('id="viewerTypesetReadonly"', html)
         self.assertIn("index.쪽쓰기_열기", html)
         self.assertIn(">조판 열기</button>", html)
@@ -81,7 +88,11 @@ class TypesetToolbarUiTests(unittest.TestCase):
         self.assertIn("function refreshPageWriteFromTypeset", app_js)
         self.assertIn("function updateTypesetReadonlySummary", app_js)
         summary_fn = app_js.split("function updateTypesetReadonlySummary()", 1)[1].split("function refreshPageWriteFromTypeset", 1)[0]
-        self.assertIn("typesetPresetLabel", summary_fn)
+        self.assertIn("getTypesetPreviewPlatform", summary_fn)
+        self.assertIn("pageWriteTypesetSummary", summary_fn)
+        self.assertIn("function selectTypesetPreviewPlatform", app_js)
+        self.assertIn("function setPageWriteFullscreen", app_js)
+        self.assertIn("function applyPageWriteTypesetDetailsOpen", app_js)
         self.assertIn("function refreshPageWriteFromTypeset", app_js)
         self.assertIn("applyPageWriteSpecFromTypeset", app_js)
         self.assertIn('id="pageWriteApplyButton"', page_write)
@@ -93,7 +104,7 @@ class TypesetToolbarUiTests(unittest.TestCase):
         self.assertIn("index.쪽쓰기_조판_적용하지_않은_변경", close_fn)
         self.assertIn("syncTypesetControlValues()", close_fn)
         export_fn = app_js.split("async function exportTypesetFile", 1)[1].split("let viewerResize", 1)[0]
-        self.assertIn("platform_id: normalizeTypesetPlatform(viewerSettings.typesetPlatform)", export_fn)
+        self.assertIn("platform_id: normalizeTypesetPlatform(getTypesetPreviewPlatform())", export_fn)
         self.assertNotIn("readTypesetDraftFromForm", export_fn)
         css = (ROOT / "web" / "styles.css").read_text(encoding="utf-8")
         page_css = css.split(".page-write-page {", 1)[1].split(".page-write-page:focus", 1)[0]

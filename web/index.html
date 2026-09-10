@@ -7647,6 +7647,25 @@
             <span id="pageWriteMeta" class="page-write-meta"></span>
             <button
               type="button"
+              class="secondary compact-btn viewer-icon-btn viewer-max-btn"
+              id="pageWriteFullscreenButton"
+              title="조판 창 최대화" data-i18n-title="app.뷰어_창_최대화"
+              aria-label="최대화" data-i18n-aria-label="app.최대화"
+              aria-pressed="false"
+            >
+              <svg class="viewer-max-icon viewer-max-icon-expand" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M9 4H4v5M15 4h5v5M9 20H4v-5M15 20h5v-5"/>
+                <rect x="8.5" y="8.5" width="7" height="7" rx="1"/>
+              </svg>
+              <svg class="viewer-max-icon viewer-max-icon-window" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+                <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+                <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+              </svg>
+            </button>
+            <button
+              type="button"
               class="secondary compact-btn viewer-icon-btn"
               id="pageWriteCloseButton"
               data-close-page-write
@@ -7684,7 +7703,22 @@
             </div>
             <span id="viewerTypesetUnverified" class="viewer-typeset-badge hidden" data-i18n="index.미검증_기본값">미검증 기본값</span>
           </div>
-          <div class="page-write-typeset-row">
+          <div class="page-write-typeset-summary-row">
+            <p id="pageWriteTypesetSummary" class="viewer-typeset-readonly" aria-live="polite"></p>
+            <button
+              type="button"
+              id="pageWriteTypesetDetailsToggle"
+              class="viewer-typeset-details-toggle"
+              aria-expanded="true"
+              aria-controls="pageWriteTypesetDetails"
+              aria-label="상세 설정"
+              data-i18n-aria-label="index.상세_설정"
+            >
+              <span class="viewer-typeset-details-open-label" data-i18n="index.상세_설정">상세 설정</span>
+              <span class="viewer-typeset-details-close-label" data-i18n="index.접기" aria-hidden="true">접기</span>
+            </button>
+          </div>
+          <div class="page-write-typeset-row" id="pageWriteTypesetDetails">
           <div class="viewer-typeset-fields">
                 <div class="viewer-typeset-group">
                   <label class="viewer-typeset-field viewer-typeset-field-font" for="viewerTypesetFont">
@@ -8081,6 +8115,7 @@
           <!-- Platform typeset (Munpia / KakaoPage / Ridibooks / Naver Series) -->
           <div class="viewer-controls hidden" data-viewer-controls="typeset">
             <div class="viewer-typeset-presets">
+              <div id="viewerTypesetPreviewPlatforms" class="viewer-typeset-platforms" role="tablist" aria-label="플랫폼" data-i18n-aria-label="index.플랫폼"></div>
               <label class="viewer-ctrl viewer-typeset-flow" for="viewerTypesetFlow">
                 <span data-i18n="index.보기_방식">보기 방식</span>
                 <select id="viewerTypesetFlow" aria-label="보기 방식" data-i18n-aria-label="index.보기_방식">
@@ -8110,7 +8145,6 @@
             </div>
             <div id="viewerTypesetDetails" class="viewer-typeset-details hidden" hidden>
               <div class="viewer-typeset-actions">
-                <button type="button" class="secondary compact-btn" id="viewerTypesetSave" data-i18n="index.조판양식_저장">조판양식 저장</button>
                 <div class="viewer-typeset-export-wrap">
                   <button
                     type="button"

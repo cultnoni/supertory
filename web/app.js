@@ -52519,25 +52519,46 @@ function applyPageWriteSpecFromTypeset() {
   return draft;
 }
 
-function updateTypesetReadonlySummary() {
-  const el = $("viewerTypesetReadonly");
-  if (!el || typeof readTypesetDraftFromForm !== "function") return;
-  const draft = readTypesetDraftFromForm();
-  const id = typeof normalizeTypesetPlatform === "function"
-    ? normalizeTypesetPlatform(viewerSettings.typesetPlatform)
-    : String(viewerSettings.typesetPlatform || "");
+function formatTypesetSummary(spec, platformId) {
+  const src = spec && typeof spec === "object" ? spec : {};
   const name = typeof typesetPresetLabel === "function"
-    ? typesetPresetLabel(id)
-    : id;
-  const size = draft.font_size_pt;
-  const lh = draft.line_height_percent;
-  const vp = draft.mobile_viewport_px;
-  el.textContent = [
+    ? typesetPresetLabel(platformId, src)
+    : String(platformId || "");
+  return [
     name,
-    `${i18n.t("index.글자_크기")} ${size}pt`,
-    `${i18n.t("app.줄간격")} ${lh}%`,
-    `${i18n.t("index.미리보기_폭")} ${vp}px`,
+    `${i18n.t("index.글자_크기")} ${src.font_size_pt ?? 10}pt`,
+    `${i18n.t("app.줄간격")} ${src.line_height_percent ?? 150}%`,
+    `${i18n.t("index.미리보기_폭")} ${src.mobile_viewport_px ?? 360}px`,
   ].join(" · ");
+}
+
+function getTypesetPreviewPlatform() {
+  const fallback = typeof normalizeTypesetPlatform === "function"
+    ? normalizeTypesetPlatform(viewerSettings.typesetPlatform)
+    : String(viewerSettings.typesetPlatform || "munpia");
+  if (typeof normalizeTypesetPlatform !== "function") {
+    return String(viewerSettings.typesetPreviewPlatform || fallback);
+  }
+  return normalizeTypesetPlatform(viewerSettings.typesetPreviewPlatform || fallback);
+}
+
+function getTypesetPreviewSpec() {
+  return { ...(getTypesetPreset(getTypesetPreviewPlatform()) || {}) };
+}
+
+function updateTypesetReadonlySummary() {
+  const viewerEl = $("viewerTypesetReadonly");
+  if (viewerEl) {
+    const previewId = getTypesetPreviewPlatform();
+    viewerEl.textContent = formatTypesetSummary(getTypesetPreset(previewId) || {}, previewId);
+  }
+  const overlayEl = $("pageWriteTypesetSummary");
+  if (overlayEl && typeof readTypesetDraftFromForm === "function") {
+    const editId = typeof normalizeTypesetPlatform === "function"
+      ? normalizeTypesetPlatform(viewerSettings.typesetPlatform)
+      : String(viewerSettings.typesetPlatform || "");
+    overlayEl.textContent = formatTypesetSummary(readTypesetDraftFromForm(), editId);
+  }
 }
 
 function refreshPageWriteFromTypeset() {
@@ -52777,6 +52798,17 @@ function openPageWrite(options = {}) {
     const source = getPageWriteSourceText($("sceneContent"));
     modal.classList.remove("hidden");
     document.body.classList.add("page-write-open");
+    if (typeof setPageWriteFullscreen === "function") {
+      let fullscreen = false;
+      try { fullscreen = localStorage.getItem("supertory.pageWriteFullscreen") === "1"; } catch (_) { /* ignore */ }
+      setPageWriteFullscreen(fullscreen, { persist: false });
+    }
+    if (typeof applyPageWriteTypesetDetailsOpen === "function") {
+      applyPageWriteTypesetDetailsOpen(
+        typeof isPageWriteTypesetDetailsOpen === "function" ? isPageWriteTypesetDetailsOpen() : true,
+        { persist: false },
+      );
+    }
     $("pageWriteButton")?.classList.add("is-active");
     $("pageWriteButton")?.setAttribute("aria-pressed", "true");
     const editor = $("sceneContent");
@@ -52831,6 +52863,70 @@ function isPageWriteTypesetDirty() {
   return false;
 }
 
+const PAGE_WRITE_FULLSCREEN_KEY = "supertory.pageWriteFullscreen";
+const PAGE_WRITE_DETAILS_OPEN_KEY = "supertory.pageWriteTypesetDetailsOpen";
+
+function isPageWriteFullscreen() {
+  return Boolean($("pageWriteModal")?.classList.contains("is-maximized"));
+}
+
+function setPageWriteFullscreen(on, { persist = true } = {}) {
+  const modal = $("pageWriteModal");
+  const btn = $("pageWriteFullscreenButton");
+  const maximized = Boolean(on);
+  modal?.classList.toggle("is-maximized", maximized);
+  document.body.classList.toggle("page-write-maximized", maximized && isPageWriteOpen());
+  if (btn) {
+    btn.classList.toggle("is-window", maximized);
+    btn.setAttribute("aria-pressed", maximized ? "true" : "false");
+    btn.title = maximized ? i18n.t("app.원래_창_크기로") : i18n.t("app.뷰어_창_최대화");
+    btn.setAttribute("data-i18n-title", maximized ? "app.원래_창_크기로" : "app.뷰어_창_최대화");
+    btn.setAttribute("aria-label", maximized ? i18n.t("app.창_모드") : i18n.t("app.최대화"));
+    btn.setAttribute("data-i18n-aria-label", maximized ? "app.창_모드" : "app.최대화");
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(PAGE_WRITE_FULLSCREEN_KEY, maximized ? "1" : "0");
+    } catch (_) { /* ignore */ }
+  }
+}
+
+function isPageWriteTypesetDetailsOpen() {
+  try {
+    const raw = localStorage.getItem(PAGE_WRITE_DETAILS_OPEN_KEY);
+    if (raw == null || raw === "") return true;
+    return raw === "1";
+  } catch (_) {
+    return true;
+  }
+}
+
+function applyPageWriteTypesetDetailsOpen(open, { persist = true } = {}) {
+  const bar = $("pageWriteTypeset");
+  const details = $("pageWriteTypesetDetails");
+  const toggle = $("pageWriteTypesetDetailsToggle");
+  const next = Boolean(open);
+  bar?.classList.toggle("is-details-open", next);
+  if (details) {
+    details.classList.toggle("hidden", !next);
+    details.hidden = !next;
+  }
+  if (toggle) {
+    toggle.setAttribute("aria-expanded", next ? "true" : "false");
+    toggle.setAttribute("aria-label", next ? i18n.t("index.접기") : i18n.t("index.상세_설정"));
+    toggle.setAttribute("data-i18n-aria-label", next ? "index.접기" : "index.상세_설정");
+    const openLabel = toggle.querySelector(".viewer-typeset-details-open-label");
+    const closeLabel = toggle.querySelector(".viewer-typeset-details-close-label");
+    if (openLabel) openLabel.setAttribute("aria-hidden", next ? "true" : "false");
+    if (closeLabel) closeLabel.setAttribute("aria-hidden", next ? "false" : "true");
+  }
+  if (persist) {
+    try {
+      localStorage.setItem(PAGE_WRITE_DETAILS_OPEN_KEY, next ? "1" : "0");
+    } catch (_) { /* ignore */ }
+  }
+}
+
 function closePageWrite() {
   const modal = $("pageWriteModal");
   if (!modal) return;
@@ -52844,6 +52940,7 @@ function closePageWrite() {
   }
   modal.classList.add("hidden");
   document.body.classList.remove("page-write-open");
+  document.body.classList.remove("page-write-maximized");
   $("pageWriteButton")?.classList.remove("is-active");
   $("pageWriteButton")?.setAttribute("aria-pressed", "false");
   const editor = $("sceneContent");
@@ -52923,6 +53020,16 @@ function setupPageWrite() {
       }
     });
   }
+
+  $("pageWriteFullscreenButton")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    setPageWriteFullscreen(!isPageWriteFullscreen());
+  });
+
+  $("pageWriteTypesetDetailsToggle")?.addEventListener("click", (event) => {
+    event.preventDefault();
+    applyPageWriteTypesetDetailsOpen(!$("pageWriteTypeset")?.classList.contains("is-details-open"));
+  });
 
   $("openPageWriteFromTypeset")?.addEventListener("click", (event) => {
     event.preventDefault();
@@ -53015,6 +53122,7 @@ const defaultViewerSettings = () => ({
   /** "page" = 화면 단위 책 넘김 · "scroll" = 아래로 스크롤 */
   einkFlow: "page",
   typesetPlatform: "munpia",
+  typesetPreviewPlatform: "munpia",
   /** "scroll" = 세로 이어보기 · "page" = 뷰어 넘기기 재사용 */
   typesetFlow: "scroll",
 });
@@ -53088,7 +53196,7 @@ function typesetMmToPx(mm) {
 }
 
 function typesetPreviewPadding(spec = null) {
-  const metrics = TypesetMetrics.layoutMetrics(spec || readTypesetDraftFromForm());
+  const metrics = TypesetMetrics.layoutMetrics(spec || getTypesetPreviewSpec());
   return {
     padLeft: metrics.padLeft,
     padRight: metrics.padRight,
@@ -53098,7 +53206,7 @@ function typesetPreviewPadding(spec = null) {
 }
 
 function typesetPreviewFrameSize(spec = null) {
-  const metrics = TypesetMetrics.layoutMetrics(spec || readTypesetDraftFromForm());
+  const metrics = TypesetMetrics.layoutMetrics(spec || getTypesetPreviewSpec());
   const stage = $("viewerStage");
   const stageH = stage?.clientHeight || Math.round(window.innerHeight * 0.7);
   const maxDeviceH = Math.max(480, stageH - 24);
@@ -53186,17 +53294,17 @@ function showTypesetNewPop() {
 
 function renderTypesetPlatformTabs() {
   const host = $("viewerTypesetPlatforms");
-  if (!host) return;
   const active = normalizeTypesetPlatform(viewerSettings.typesetPlatform);
   viewerSettings.typesetPlatform = active;
-  const pencil = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 6.5 17.5 11.5"/><path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20z"/></svg>`;
-  const trash = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M7 7l1 13h8l1-13"/></svg>`;
-  const chips = typesetPlatformIds().map((id) => {
-    const preset = typesetPresets?.[id] || {};
-    const label = escapeHtml(typesetPresetLabel(id, preset));
-    const on = id === active;
-    const canDelete = preset.is_default === false && !TYPESET_PLATFORM_ORDER.includes(id);
-    return `
+  if (host) {
+    const pencil = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.5 6.5 17.5 11.5"/><path d="M4 20h4.5L19 9.5 14.5 5 4 15.5V20z"/></svg>`;
+    const trash = `<svg viewBox="0 0 24 24" width="11" height="11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V5h6v2"/><path d="M7 7l1 13h8l1-13"/></svg>`;
+    const chips = typesetPlatformIds().map((id) => {
+      const preset = typesetPresets?.[id] || {};
+      const label = escapeHtml(typesetPresetLabel(id, preset));
+      const on = id === active;
+      const canDelete = preset.is_default === false && !TYPESET_PLATFORM_ORDER.includes(id);
+      return `
       <div class="viewer-typeset-chip${on ? " is-active" : ""}" role="tab" data-typeset-platform="${escapeHtml(id)}" aria-selected="${on ? "true" : "false"}">
         <span class="viewer-typeset-label" data-typeset-label>${label}</span>
         <span class="viewer-typeset-chip-icons">
@@ -53204,9 +53312,36 @@ function renderTypesetPlatformTabs() {
           ${canDelete ? `<button type="button" class="viewer-typeset-icon" data-typeset-delete title="${escapeHtml(i18n.t("index.조판양식_삭제"))}" aria-label="${escapeHtml(i18n.t("index.조판양식_삭제"))}">${trash}</button>` : ""}
         </span>
       </div>`;
-  }).join("");
-  host.innerHTML = `${chips}
+    }).join("");
+    host.innerHTML = `${chips}
     <button type="button" class="viewer-typeset-add" data-typeset-add>${escapeHtml(i18n.t("index.새_조판양식"))}</button>`;
+  }
+  renderTypesetPreviewTabs();
+}
+
+function renderTypesetPreviewTabs() {
+  const host = $("viewerTypesetPreviewPlatforms");
+  if (!host) return;
+  const active = getTypesetPreviewPlatform();
+  viewerSettings.typesetPreviewPlatform = active;
+  const chips = typesetPlatformIds().map((id) => {
+    const preset = typesetPresets?.[id] || {};
+    const label = escapeHtml(typesetPresetLabel(id, preset));
+    const on = id === active;
+    return `
+      <button type="button" class="viewer-typeset-chip${on ? " is-active" : ""}" role="tab" data-typeset-preview="${escapeHtml(id)}" aria-selected="${on ? "true" : "false"}">
+        <span class="viewer-typeset-label">${label}</span>
+      </button>`;
+  }).join("");
+  host.innerHTML = chips;
+}
+
+function selectTypesetPreviewPlatform(platformId) {
+  viewerSettings.typesetPreviewPlatform = normalizeTypesetPlatform(platformId);
+  saveViewerSettings();
+  renderTypesetPreviewTabs();
+  updateTypesetReadonlySummary();
+  if (viewerSettings.mode === "typeset") applyViewerLayout();
 }
 
 const TYPESET_SELECT_CUSTOM = "__custom__";
@@ -53609,7 +53744,7 @@ async function deleteTypesetPreset(platformId) {
 function applyTypesetBodyStyles(preset = null) {
   const body = $("viewerBody");
   const stage = $("viewerStage");
-  const spec = preset || readTypesetDraftFromForm();
+  const spec = preset || getTypesetPreviewSpec();
   const metrics = TypesetMetrics.layoutMetrics(spec);
   const indent = metrics.indentCss;
   const paraGap = metrics.paraGapCss;
@@ -53796,7 +53931,7 @@ async function exportTypesetFile(formatKey = "docx") {
   const exportDir = String(exportPrefs?.export_dir || "").trim();
   const body = {
     chapter_id: Number(state.sceneId),
-    platform_id: normalizeTypesetPlatform(viewerSettings.typesetPlatform),
+    platform_id: normalizeTypesetPlatform(getTypesetPreviewPlatform()),
     format,
     save_to_folder: saveToFolder,
     export_dir: exportDir,
@@ -54793,7 +54928,7 @@ async function paintViewerBody(html, { token, jumpId = null, resetBook = false, 
   } else {
     body.removeAttribute("lang");
   }
-  if (viewerSettings.mode === "typeset") applyTypesetBodyStyles();
+  if (viewerSettings.mode === "typeset") applyTypesetBodyStyles(getTypesetPreviewSpec());
   else applyEditorWideLineHeight(getStoredLineHeight(), [body]);
   if (isTranslationViewerPreview()) {
     if ($("viewerTitle")) {
@@ -55014,6 +55149,8 @@ function loadViewerSettings() {
     merged.typesetPlatform = TYPESET_PLATFORM_ORDER.includes(merged.typesetPlatform)
       ? merged.typesetPlatform
       : "munpia";
+    merged.typesetPreviewPlatform = String(merged.typesetPreviewPlatform || merged.typesetPlatform || "munpia").trim()
+      || merged.typesetPlatform;
     return merged;
   } catch (_) {
     return base;
@@ -55268,7 +55405,7 @@ function applyViewerLayout() {
     }
   } else if (mode === "typeset") {
     viewerSettings.typesetFlow = normalizeDeviceFlow(viewerSettings.typesetFlow, "scroll");
-    const spec = readTypesetDraftFromForm();
+    const spec = getTypesetPreviewSpec();
     const frameSize = typesetPreviewFrameSize(spec);
     const scrollFlow = viewerSettings.typesetFlow !== "page";
     stage.style.setProperty("--typeset-frame-width", `${frameSize.width}px`);
@@ -55670,7 +55807,7 @@ function computeViewerPageBox() {
     innerW = Math.max(40, vw - padX * 2);
     innerH = Math.max(40, vh - padY * 2);
   } else if (mode === "typeset") {
-    const spec = readTypesetDraftFromForm();
+    const spec = getTypesetPreviewSpec();
     const metrics = TypesetMetrics.layoutMetrics(spec);
     const fontPt = metrics.fontSizePt;
     fontPx = Math.max(8, metrics.fontSizePx);
@@ -57080,6 +57217,17 @@ function setupViewerMode() {
     const chip = label.closest("[data-typeset-platform]");
     if (chip) startTypesetRename(chip.dataset.typesetPlatform);
   });
+  $("viewerTypesetPreviewPlatforms")?.addEventListener("click", (event) => {
+    const tab = event.target.closest?.("[data-typeset-preview]");
+    if (!tab) return;
+    event.preventDefault();
+    const apply = () => selectTypesetPreviewPlatform(tab.dataset.typesetPreview);
+    if (!typesetPresets) {
+      ensureTypesetPresets().then(apply).catch(handleError);
+      return;
+    }
+    apply();
+  });
   $("viewerTypesetDetailsToggle")?.addEventListener("click", (event) => {
     event.preventDefault();
     toggleTypesetDetailsOpen();
@@ -57142,9 +57290,6 @@ function setupViewerMode() {
     });
   });
 
-  $("viewerTypesetSave")?.addEventListener("click", () => {
-    saveTypesetPresetFromForm().catch(handleError);
-  });
   $("viewerTypesetExport")?.addEventListener("click", (event) => {
     event.stopPropagation();
     toggleTypesetExportMenu();
