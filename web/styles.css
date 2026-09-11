@@ -14910,20 +14910,15 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   padding: 24px clamp(18px, 4vw, 48px);
 }
 .work-area > #welcome.welcome-screen {
-  /* white card + tips same column; wider for +1 intro font step */
-  --welcome-col-width: 46rem;
-  /* Same chrome gap as .outline-panel / .ai-panel so the card top lines up */
-  --welcome-align-top: max(0px, calc(10px - 2mm));
-  --welcome-card-extra-top: calc(clamp(10px, 2vh, 24px) + 5mm - var(--welcome-align-top));
+  --welcome-col-width: min(64rem, 100%);
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 10px;
   min-height: 100%;
   box-sizing: border-box;
-  padding-top: var(--welcome-align-top);
-  padding-bottom: 12px;
-  justify-content: flex-start;
+  padding: 16px 20px;
 }
 .work-area > #welcome.welcome-screen.hidden {
   display: none !important;
@@ -14934,8 +14929,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   max-width: var(--welcome-col-width);
   width: min(var(--welcome-col-width), 100%);
   margin: 0 auto;
-  /* 위·아래 1cm + 패널 정렬로 생긴 윗여백. 마스코트·인사는 그 안에서 조금 올림 */
-  padding: calc(1cm + var(--welcome-card-extra-top, 0px)) 26px 1cm;
+  padding: 14px 28px 16px;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -14949,7 +14943,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .welcome-mascot {
   display: flex;
   justify-content: center;
-  margin: -4mm 0 2px;
+  margin: 0 0 2px;
 }
 .welcome-mascot-stage {
   position: relative;
@@ -15063,7 +15057,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   flex: 0 0 auto;
 }
 .welcome-tory-blurb {
-  margin: 4mm 0 0;
+  margin: 0;
   text-align: left;
   width: 100%;
   max-width: 100%;
@@ -15113,8 +15107,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .welcome-card h1,
 .welcome-card-title {
   font-family: Georgia, "Times New Roman", serif;
-  /* 위 문구(창작의 즐거움은…)와 1cm 간격 */
-  margin: 1cm 0 0;
+  margin: 10px 0 0;
   padding-top: 0;
   font-size: clamp(1.18rem, 2.1vw, 1.42rem);
   line-height: 1.35;
@@ -15137,8 +15130,8 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 }
 .welcome-tips {
   box-sizing: border-box;
-  max-width: var(--welcome-col-width, 46rem);
-  width: min(var(--welcome-col-width, 46rem), 100%);
+  max-width: var(--welcome-col-width);
+  width: min(var(--welcome-col-width), 100%);
   margin: 0 auto;
   flex: 0 0 auto;
   align-self: center;
@@ -15164,11 +15157,12 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
     gap: 10px;
   }
   .welcome-card {
-    padding: calc(1cm + var(--welcome-card-extra-top, 0px)) 16px 1cm;
+    padding: 12px 16px 14px;
   }
 }
 @media (max-width: 640px) {
   .welcome-tips-grid { grid-template-columns: 1fr; }
+  .welcome-sister-links { grid-template-columns: 1fr; }
 }
 .welcome-tip-card {
   display: grid;
@@ -15227,6 +15221,52 @@ html[data-theme="classroom"] .welcome-tip-card p b,
 html[data-ui-theme="classroom"] .welcome-tip-card p b,
 html[data-theme="classroom"] .welcome-tip-num,
 html[data-ui-theme="classroom"] .welcome-tip-num {
+  color: #F7F1E6;
+}
+.welcome-sister-links {
+  box-sizing: border-box;
+  max-width: var(--welcome-col-width);
+  width: min(var(--welcome-col-width), 100%);
+  margin-top: 0;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  min-width: 0;
+  flex: 0 0 auto;
+  align-self: center;
+}
+.welcome-sister-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 11px;
+  background: color-mix(in srgb, var(--panel) 88%, #fff8ed);
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.03);
+  text-align: left;
+  user-select: none;
+}
+.welcome-sister-card strong {
+  font-size: 13px;
+  font-weight: 800;
+  color: var(--ink);
+  letter-spacing: -0.02em;
+}
+.welcome-sister-card p {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  color: var(--muted);
+}
+html[data-theme="classroom"] .welcome-sister-card strong,
+html[data-ui-theme="classroom"] .welcome-sister-card strong {
+  color: #2A2418;
+}
+html[data-theme="classroom"] .welcome-sister-card p,
+html[data-ui-theme="classroom"] .welcome-sister-card p {
   color: #F7F1E6;
 }
 /* 광고형 공지/이벤트 팝업 — 환영 화면 위 플로팅, ×로 닫기 */
