@@ -49,6 +49,15 @@ class TypewriterSoundContractTests(unittest.TestCase):
         self.assertIn('ctx.state === "suspended"', play_fn)
         self.assertIn("loadTypewriterSample()", play_fn)
         self.assertIn("playTypewriterSample(kind)", play_fn)
+        self.assertIn("typewriterActiveSources", self.js)
+        self.assertIn("function retainTypewriterSource(", self.js)
+        self.assertIn("node.onended = release", self.js)
+        sample_fn = self.js.split("function playTypewriterSample(", 1)[1].split(
+            "function typewriterClickKind(", 1
+        )[0]
+        self.assertIn("retainTypewriterSource(src)", sample_fn)
+        self.assertIn("retainTypewriterSource(osc)", play_fn)
+        self.assertIn("retainTypewriterSource(src)", play_fn)
         setup = self.js.split("function setupTypewriterMode(", 1)[1].split(
             "function scheduleTypewriterSync(", 1
         )[0]

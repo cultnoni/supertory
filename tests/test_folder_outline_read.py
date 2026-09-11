@@ -486,6 +486,39 @@ class OutlineGuideAndTooltipTests(unittest.TestCase):
         self.assertIn("getSceneTitleById", bind)
         self.assertNotIn('getAttribute("title")', bind)
 
+    def test_outline_rename_is_context_menu_not_dblclick(self) -> None:
+        self.assertIn('data-binder-action="rename"', self.html)
+        self.assertIn('data-chapter-action="rename"', self.html)
+        self.assertIn('data-part-action="rename"', self.html)
+        self.assertIn('data-i18n="index.이름_바꾸기"', self.html)
+        self.assertIn('data-i18n="index.이_회차_제목을_수정해요"', self.html)
+        self.assertIn('data-i18n="index.이_폴더_이름을_수정해요"', self.html)
+        binder_click = self.js.split('$("binderContextMenu")?.addEventListener("click"', 1)[1].split(
+            '$("chapterContextMenu")', 1
+        )[0]
+        self.assertIn('action === "rename"', binder_click)
+        self.assertIn("startRenameScene(scene.id)", binder_click)
+        chapter_click = self.js.split('$("chapterContextMenu")?.addEventListener("click"', 1)[1].split(
+            '$("partContextMenu")', 1
+        )[0]
+        self.assertIn("startRenameChapter(chapter.id)", chapter_click)
+        part_click = self.js.split('$("partContextMenu")?.addEventListener("click"', 1)[1].split(
+            "Folder color palette", 1
+        )[0]
+        self.assertIn("startRenamePart(part.id)", part_click)
+        outline_bind = self.js.split('outline.querySelectorAll("[data-scene]")', 1)[1].split(
+            "injectChapterInsertSlots", 1
+        )[0]
+        self.assertNotIn("addEventListener(\"dblclick\"", outline_bind)
+        self.assertNotIn("startRenameScene", outline_bind)
+        self.assertNotIn("beginChapterRename", outline_bind)
+        self.assertNotIn("beginPartRename", outline_bind)
+        self.assertIn("requestOpenScene", outline_bind)
+        for locale in self.locales.values():
+            self.assertIn("index.이름_바꾸기", locale)
+            self.assertIn("index.이_회차_제목을_수정해요", locale)
+            self.assertIn("index.이_폴더_이름을_수정해요", locale)
+
 
 if __name__ == "__main__":
     unittest.main()

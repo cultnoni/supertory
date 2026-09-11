@@ -4085,6 +4085,17 @@ body.dock-rail-ordering {
   overscroll-behavior: contain;
   /* Children size to content; accordion scrolls when taller than the panel */
   align-content: flex-start;
+  /* 첫 행(생각수첩) 헤더가 스크롤포트 상단에 붙으며 잘리지 않게 */
+  padding-top: 4px;
+}
+/* 생각수첩만: 제목 overflow/line-height로 한글 상단이 잘리는 경우 */
+#settingsBinder #ideaBank .settings-box-toggle {
+  line-height: 1.35;
+  overflow: visible;
+}
+#settingsBinder #ideaBank .settings-box-title {
+  line-height: 1.35;
+  overflow: visible;
 }
 #settingsBinder .settings-panel-top {
   flex-shrink: 0;

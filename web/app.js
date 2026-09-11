@@ -3878,6 +3878,8 @@ let typewriterSampleLoading = null;
 let typewriterSamplePeaks = [];
 let typewriterLastPeakIndex = -1;
 let typewriterLastKeyWasDelete = false;
+/** Keep BufferSource/Oscillator alive until ended — Chromium GCs unreferenced nodes and only the first click is heard. */
+const typewriterActiveSources = new Set();
 
 function readTypewriterModePref() {
   try {
@@ -3933,6 +3935,26 @@ function isScreenProtectBlockingSound() {
   return true;
 }
 
+function retainTypewriterSource(node) {
+  if (!node) return;
+  typewriterActiveSources.add(node);
+  const release = () => {
+    typewriterActiveSources.delete(node);
+    try { node.disconnect(); } catch (_) { /* already disconnected */ }
+  };
+  node.onended = release;
+  if (typeof node.addEventListener === "function") {
+    node.addEventListener("ended", release, { once: true });
+  }
+}
+
+function resumeTypewriterAudio(ctx) {
+  if (!ctx) return Promise.resolve(null);
+  if (ctx.state === "closed") return Promise.resolve(null);
+  if (ctx.state === "running") return Promise.resolve(ctx);
+  return ctx.resume().then(() => ctx).catch(() => ctx);
+}
+
 function ensureTypewriterAudio() {
   const Ctx = window.AudioContext || window.webkitAudioContext;
   if (!Ctx) return null;
@@ -3942,7 +3964,7 @@ function ensureTypewriterAudio() {
     typewriterSampleLoading = null;
     typewriterSamplePeaks = [];
   }
-  if (typewriterAudioCtx.state === "suspended") {
+  if (typewriterAudioCtx.state === "suspended" || typewriterAudioCtx.state === "interrupted") {
     typewriterAudioCtx.resume().catch(() => {});
   }
   return typewriterAudioCtx;
@@ -4026,19 +4048,24 @@ function playTypewriterSample(kind) {
   if (!buf || !ctx || ctx.state !== "running") return false;
   const slice = pickTypewriterSlice(kind);
   if (!slice) return false;
-  const src = ctx.createBufferSource();
-  src.buffer = buf;
-  const gain = ctx.createGain();
-  const now = ctx.currentTime;
-  const peak = kind === "enter" ? 0.95 : kind === "space" ? 0.82 : 0.9;
-  gain.gain.setValueAtTime(peak, now);
-  gain.gain.setValueAtTime(peak, now + Math.max(0.03, slice.dur - 0.04));
-  gain.gain.linearRampToValueAtTime(0.0001, now + slice.dur);
-  src.connect(gain);
-  gain.connect(ctx.destination);
-  src.start(now, slice.start, slice.dur);
-  src.stop(now + slice.dur + 0.02);
-  return true;
+  try {
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    const gain = ctx.createGain();
+    const now = ctx.currentTime;
+    const peak = kind === "enter" ? 0.95 : kind === "space" ? 0.82 : 0.9;
+    gain.gain.setValueAtTime(peak, now);
+    gain.gain.setValueAtTime(peak, now + Math.max(0.03, slice.dur - 0.04));
+    gain.gain.linearRampToValueAtTime(0.0001, now + slice.dur);
+    src.connect(gain);
+    gain.connect(ctx.destination);
+    src.start(now, slice.start, slice.dur);
+    src.stop(now + slice.dur + 0.02);
+    retainTypewriterSource(src);
+    return true;
+  } catch (_) {
+    return false;
+  }
 }
 
 function typewriterClickKind(event) {
@@ -4079,45 +4106,52 @@ function playTypewriterClick(kind = "char") {
   const ctx = ensureTypewriterAudio();
   if (!ctx) return;
   const kick = () => {
-    if (!ctx || ctx.state !== "running") return;
-    if (playTypewriterSample(kind)) return;
-    const now = ctx.currentTime;
-    const thock = kind === "enter" ? 0.08 : kind === "space" ? 0.06 : kind === "backspace" ? 0.04 : 0.05;
-    const peak = kind === "enter" ? 0.46 : kind === "space" ? 0.34 : kind === "backspace" ? 0.28 : 0.4;
-    const osc = ctx.createOscillator();
-    osc.type = "triangle";
-    const startHz = kind === "enter" ? 150 : kind === "space" ? 210 : kind === "backspace" ? 420 : 280 + Math.random() * 90;
-    osc.frequency.setValueAtTime(startHz, now);
-    osc.frequency.exponentialRampToValueAtTime(Math.max(70, startHz * 0.42), now + thock);
-    const oscGain = ctx.createGain();
-    oscGain.gain.setValueAtTime(peak, now);
-    oscGain.gain.exponentialRampToValueAtTime(0.001, now + thock);
-    const frames = Math.max(64, Math.floor(ctx.sampleRate * 0.028));
-    const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
-    const data = buffer.getChannelData(0);
-    for (let i = 0; i < frames; i += 1) {
-      data[i] = (Math.random() * 2 - 1) * Math.exp(-(i / frames) * 16);
+    const liveCtx = ensureTypewriterAudio();
+    if (!liveCtx || liveCtx.state !== "running") return;
+    try {
+      if (playTypewriterSample(kind)) return;
+      const now = liveCtx.currentTime;
+      const thock = kind === "enter" ? 0.08 : kind === "space" ? 0.06 : kind === "backspace" ? 0.04 : 0.05;
+      const peak = kind === "enter" ? 0.46 : kind === "space" ? 0.34 : kind === "backspace" ? 0.28 : 0.4;
+      const osc = liveCtx.createOscillator();
+      osc.type = "triangle";
+      const startHz = kind === "enter" ? 150 : kind === "space" ? 210 : kind === "backspace" ? 420 : 280 + Math.random() * 90;
+      osc.frequency.setValueAtTime(startHz, now);
+      osc.frequency.exponentialRampToValueAtTime(Math.max(70, startHz * 0.42), now + thock);
+      const oscGain = liveCtx.createGain();
+      oscGain.gain.setValueAtTime(peak, now);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, now + thock);
+      const frames = Math.max(64, Math.floor(liveCtx.sampleRate * 0.028));
+      const buffer = liveCtx.createBuffer(1, frames, liveCtx.sampleRate);
+      const data = buffer.getChannelData(0);
+      for (let i = 0; i < frames; i += 1) {
+        data[i] = (Math.random() * 2 - 1) * Math.exp(-(i / frames) * 16);
+      }
+      const src = liveCtx.createBufferSource();
+      src.buffer = buffer;
+      const hp = liveCtx.createBiquadFilter();
+      hp.type = "highpass";
+      hp.frequency.value = kind === "enter" ? 700 : 1600;
+      const nGain = liveCtx.createGain();
+      nGain.gain.setValueAtTime(peak * 0.7, now);
+      nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
+      osc.connect(oscGain);
+      oscGain.connect(liveCtx.destination);
+      src.connect(hp);
+      hp.connect(nGain);
+      nGain.connect(liveCtx.destination);
+      osc.start(now);
+      osc.stop(now + thock + 0.02);
+      src.start(now);
+      src.stop(now + 0.045);
+      retainTypewriterSource(osc);
+      retainTypewriterSource(src);
+    } catch (_) {
+      /* overlapping fallback nodes can throw if the context was closed */
     }
-    const src = ctx.createBufferSource();
-    src.buffer = buffer;
-    const hp = ctx.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = kind === "enter" ? 700 : 1600;
-    const nGain = ctx.createGain();
-    nGain.gain.setValueAtTime(peak * 0.7, now);
-    nGain.gain.exponentialRampToValueAtTime(0.001, now + 0.04);
-    osc.connect(oscGain);
-    oscGain.connect(ctx.destination);
-    src.connect(hp);
-    hp.connect(nGain);
-    nGain.connect(ctx.destination);
-    osc.start(now);
-    osc.stop(now + thock + 0.02);
-    src.start(now);
-    src.stop(now + 0.045);
   };
-  if (ctx.state === "suspended") {
-    ctx.resume().then(() => loadTypewriterSample().then(kick)).catch(() => {});
+  if (ctx.state === "suspended" || ctx.state === "interrupted") {
+    resumeTypewriterAudio(ctx).then(() => loadTypewriterSample().then(kick)).catch(() => {});
     return;
   }
   if (!typewriterSampleBuffer) {
@@ -48862,7 +48896,9 @@ function setupBinderContextMenu() {
     const action = button.dataset.binderAction;
     const scene = { ...binderContextScene };
     hideBinderContextMenu();
-    if (action === "title-italic") {
+    if (action === "rename") {
+      window.setTimeout(() => startRenameScene(scene.id), 0);
+    } else if (action === "title-italic") {
       if (!scene.parentSceneId) return toast(i18n.t("app.하위_원고에서만_쓸_수_있어요"));
       toggleSceneTitleItalic(scene.id);
     } else if (action === "add-child") {
@@ -61341,32 +61377,12 @@ function renderOutline(chaptersArg) {
     });
   });
   outline.querySelectorAll("[data-scene]").forEach((button) => {
-    button.addEventListener("click", (event) => {
-      if (event.detail > 1) return;
+    button.addEventListener("click", () => {
       if (isOutlineInlineRenaming()) return;
-      const sceneId = button.dataset.scene;
-      if (Number(sceneId) === Number(state.sceneId)) {
-        startRenameScene(sceneId);
-        return;
-      }
-      if (outlineSceneOpenTimer) window.clearTimeout(outlineSceneOpenTimer);
-      outlineSceneOpenTimer = window.setTimeout(() => {
-        outlineSceneOpenTimer = null;
-        if (isOutlineInlineRenaming()) return;
-        requestOpenScene(sceneId);
-      }, 220);
-    });
-    button.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      if (outlineSceneOpenTimer) {
-        window.clearTimeout(outlineSceneOpenTimer);
-        outlineSceneOpenTimer = null;
-      }
-      startRenameScene(button.dataset.scene);
+      requestOpenScene(button.dataset.scene);
     });
   });
-  // Folder titles: single click = select only; rename via double-click.
+  // Folder titles: single click = select only; rename via right-click menu.
   // Do not stop mousedown propagation — that blocks HTML5 drag from the title.
   outline.querySelectorAll("[data-rename-chapter]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -61375,11 +61391,6 @@ function renderOutline(chaptersArg) {
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
     });
-    button.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      beginChapterRename(button).catch(handleError);
-    });
   });
   outline.querySelectorAll("[data-rename-part]").forEach((button) => {
     button.addEventListener("click", (event) => {
@@ -61387,11 +61398,6 @@ function renderOutline(chaptersArg) {
       event.preventDefault();
       outline.querySelectorAll(".chapter-title.is-selected, .part-title.is-selected").forEach((el) => el.classList.remove("is-selected"));
       button.classList.add("is-selected");
-    });
-    button.addEventListener("dblclick", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      beginPartRename(button).catch(handleError);
     });
   });
   injectChapterInsertSlots(outline);
@@ -61432,11 +61438,16 @@ async function beginChapterRename(titleButton) {
   if (section) section.draggable = false;
 
   let finished = false;
+  const detachInput = () => {
+    if (!input.isConnected) return;
+    try { input.replaceWith(titleButton); } catch (_) { /* ignore */ }
+  };
   const finish = async (save) => {
     if (finished) return;
     finished = true;
     const nextTitle = input.value.trim();
     if (section) section.draggable = true;
+    detachInput();
     if (!save || !nextTitle || nextTitle === original) {
       await loadProject();
       return;
@@ -64496,11 +64507,16 @@ async function beginPartRename(titleButton) {
   input.select();
   if (section) section.draggable = false;
   let finished = false;
+  const detachInput = () => {
+    if (!input.isConnected) return;
+    try { input.replaceWith(titleButton); } catch (_) { /* ignore */ }
+  };
   const finish = async (save) => {
     if (finished) return;
     finished = true;
     const nextTitle = input.value.trim();
     if (section) section.draggable = true;
+    detachInput();
     if (!save || !nextTitle || nextTitle === original) {
       await loadProject();
       return;
