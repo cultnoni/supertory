@@ -981,7 +981,22 @@ _PROJECTS_DIR_ENV = (
     os.environ.get("SUPERTORY_PROJECTS_DIR") or os.environ.get("STORYGUIDE_PROJECTS_DIR") or ""
 ).strip()
 HOST = "127.0.0.1"
-PORT = 8765
+
+
+def _resolve_listen_port() -> int:
+    """Packaged exe stays on 8765; live app.py uses 8766 so the two do not clash."""
+    raw = (os.environ.get("SUPERTORY_PORT") or "").strip()
+    if raw:
+        try:
+            value = int(raw)
+        except ValueError:
+            value = 0
+        if 1 <= value <= 65535:
+            return value
+    return 8765 if _is_frozen() else 8766
+
+
+PORT = _resolve_listen_port()
 # When launched from Electron, skip opening a system browser tab.
 ELECTRON_MODE = (
     os.environ.get("SUPERTORY_ELECTRON") or os.environ.get("STORYGUIDE_ELECTRON") or ""

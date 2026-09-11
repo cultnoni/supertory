@@ -23,7 +23,7 @@ app.disableHardwareAcceleration();
 app.commandLine.appendSwitch("disable-lcd-text");
 
 const HOST = "127.0.0.1";
-const PORT = 8765;
+const PORT = app.isPackaged ? 8765 : 8766;
 const APP_URL = `http://${HOST}:${PORT}/`;
 const SERVER_DIR_NAME = "supertory-server";
 const SERVER_EXE_NAME = "supertory-server.exe";
@@ -373,6 +373,7 @@ function startBackendServer() {
     ...process.env,
     SUPERTORY_ELECTRON: "1",
     SUPERTORY_NO_BROWSER: "1",
+    SUPERTORY_PORT: String(PORT),
     SUPERTORY_DATA_DIR: userDataDir(),
     SUPERTORY_PROJECTS_DIR: userProjectsDir(),
     PYTHONUTF8: "1",
