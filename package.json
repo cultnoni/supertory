@@ -8,6 +8,7 @@
   "private": true,
   "scripts": {
     "start": "electron .",
+    "start:isolated": "set SUPERTORY_DB_MODE=isolated&& electron .",
     "dev": "electron .",
     "build:backend": "python scripts/build_backend.py",
     "build:write-info": "python scripts/write_build_info.py",

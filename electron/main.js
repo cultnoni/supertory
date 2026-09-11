@@ -173,15 +173,25 @@ function projectRoot() {
   return path.join(__dirname, "..");
 }
 
+/**
+ * Dev DB switch (ignored when packaged — exe always uses AppData).
+ * SUPERTORY_DB_MODE=isolated → repo data/
+ * unset / shared → %APPDATA%\supertory\data (same file as the packaged exe)
+ */
+function isIsolatedDevDataDir() {
+  if (app.isPackaged) return false;
+  return String(process.env.SUPERTORY_DB_MODE || "").trim().toLowerCase() === "isolated";
+}
+
+function sharedUserDataDir() {
+  return path.join(app.getPath("appData"), "supertory", "data");
+}
+
 function userDataDir() {
-  // Dev (`electron .` / npm start): share the repo data/ with bat and python app.py.
-  // Packaged SuperTory.exe: keep AppData — Program Files is not writable and
-  // updates may wipe files next to the exe. isDev is !app.isPackaged, so a
-  // built exe always takes this AppData branch.
-  if (isDev) {
+  if (isIsolatedDevDataDir()) {
     return path.join(projectRoot(), "data");
   }
-  return path.join(app.getPath("userData"), "data");
+  return sharedUserDataDir();
 }
 
 function userProjectsDir() {
@@ -374,7 +384,7 @@ function startBackendServer() {
   );
   console.log(`[supertory] cwd: ${launch.cwd}`);
   console.log(
-    `[supertory] DATA: ${userDataDir()}${isDev ? " (repo)" : " (userData)"}`
+    `[supertory] DATA: ${userDataDir()} (${isIsolatedDevDataDir() ? "isolated/repo" : "shared/userData"})`
   );
   console.log(`[supertory] backend crash log: ${backendCrashLogPath()}`);
   beginBackendCrashLog(launch);

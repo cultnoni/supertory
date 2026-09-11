@@ -32,24 +32,39 @@ class ElectronBackendQuitTests(unittest.TestCase):
         stop = STOP_JS.read_text(encoding="utf-8")
         self.assertIn("/api/app/quit", stop)
 
-    def test_dev_electron_uses_repo_data_dir(self) -> None:
+    def test_electron_data_dir_switch_defaults_to_shared_appdata(self) -> None:
         self.assertIn("const isDev = !app.isPackaged;", self.main)
         self.assertIn("function userDataDir()", self.main)
+        self.assertIn("function isIsolatedDevDataDir()", self.main)
+        self.assertIn("SUPERTORY_DB_MODE", self.main)
         self.assertIn("function userProjectsDir()", self.main)
         self.assertIn('path.join(projectRoot(), "data")', self.main)
         self.assertIn('path.join(projectRoot(), "projects")', self.main)
-        self.assertIn('path.join(app.getPath("userData"), "data")', self.main)
+        self.assertIn('path.join(app.getPath("appData"), "supertory", "data")', self.main)
         self.assertIn('path.join(app.getPath("userData"), "projects")', self.main)
         data_fn = self.main.split("function userDataDir()", 1)[1].split(
             "function userProjectsDir()", 1
         )[0]
-        self.assertIn("if (isDev)", data_fn)
+        self.assertIn("isIsolatedDevDataDir()", data_fn)
+        self.assertIn("sharedUserDataDir()", data_fn)
         self.assertIn('path.join(projectRoot(), "data")', data_fn)
+        isolated_fn = self.main.split("function isIsolatedDevDataDir()", 1)[1].split(
+            "function sharedUserDataDir()", 1
+        )[0]
+        self.assertIn("app.isPackaged", isolated_fn)
+        self.assertIn("isolated", isolated_fn)
+        shared_fn = self.main.split("function sharedUserDataDir()", 1)[1].split(
+            "function userDataDir()", 1
+        )[0]
+        self.assertIn('path.join(app.getPath("appData"), "supertory", "data")', shared_fn)
         projects_fn = self.main.split("function userProjectsDir()", 1)[1].split(
             "function resolveBackendLaunch()", 1
         )[0]
         self.assertIn("if (isDev)", projects_fn)
         self.assertIn('path.join(projectRoot(), "projects")', projects_fn)
+        pkg = (ROOT / "package.json").read_text(encoding="utf-8")
+        self.assertIn('"start:isolated"', pkg)
+        self.assertIn("SUPERTORY_DB_MODE=isolated", pkg)
 
     def test_backend_crash_log_wired_without_changing_exit_dialog(self) -> None:
         self.assertIn('BACKEND_CRASH_LOG_NAME = "backend_crash.log"', self.main)

@@ -9,6 +9,9 @@ if not exist "%PYTHON_EXE%" (
   exit /b 1
 )
 
+rem DB location follows SUPERTORY_DB_MODE in app.py (default: shared AppData).
+rem Do not set SUPERTORY_DB_MODE here. Use start_supertory_isolated.bat for repo data.
+
 rem Optional argument: path to a .stg project file (Scrivener-style open).
 "%PYTHON_EXE%" app.py %*
 set "EXIT_CODE=%ERRORLEVEL%"

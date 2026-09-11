@@ -825,16 +825,39 @@ FOLDER_COLORS_BRIGHT = {
 }
 # Electron (and other shells) may point data/projects at a writable user dir.
 # Prefer SUPERTORY_*; accept legacy STORYGUIDE_* env vars from older Electron shells.
-_DATA_DIR_ENV = (
-    os.environ.get("SUPERTORY_DATA_DIR") or os.environ.get("STORYGUIDE_DATA_DIR") or ""
-).strip()
-if _DATA_DIR_ENV:
-    DATA_DIR = Path(_DATA_DIR_ENV).expanduser()
-elif _is_frozen():
-    # Never write into the read-only PyInstaller bundle (_MEIPASS).
-    DATA_DIR = Path(sys.executable).resolve().parent / "data"
-else:
-    DATA_DIR = ROOT / "data"
+# Dev switch SUPERTORY_DB_MODE matches electron/main.js:
+#   isolated → repo data/; unset/shared → %APPDATA%\supertory\data
+SHARED_DATA_APP_NAME = "supertory"
+
+
+def resolve_writable_data_dir(
+    *,
+    environ: dict[str, str] | None = None,
+    frozen: bool | None = None,
+    root: Path | None = None,
+    executable: Path | None = None,
+) -> Path:
+    env = os.environ if environ is None else environ
+    data_env = str(
+        env.get("SUPERTORY_DATA_DIR") or env.get("STORYGUIDE_DATA_DIR") or ""
+    ).strip()
+    if data_env:
+        return Path(data_env).expanduser()
+    is_frozen = _is_frozen() if frozen is None else frozen
+    if is_frozen:
+        exe = Path(sys.executable).resolve() if executable is None else Path(executable)
+        return exe.parent / "data"
+    app_root = ROOT if root is None else Path(root)
+    mode = str(env.get("SUPERTORY_DB_MODE") or "").strip().lower()
+    if mode == "isolated":
+        return app_root / "data"
+    appdata = str(env.get("APPDATA") or "").strip()
+    if appdata:
+        return Path(appdata) / SHARED_DATA_APP_NAME / "data"
+    return app_root / "data"
+
+
+DATA_DIR = resolve_writable_data_dir()
 DATABASE_PATH = DATA_DIR / "supertory.sqlite3"
 BACKEND_CRASH_LOG_NAME = "backend_crash.log"
 _BACKEND_CRASH_LOG_LOCK = Lock()
