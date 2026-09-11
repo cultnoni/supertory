@@ -1084,7 +1084,9 @@ header.app-chrome {
   padding: 0;
   border-bottom: 0; /* 로고·제품명 아래 전체 가로선 제거 */
   background: var(--header-bg);
-  z-index: 20;
+  /* z-index를 두면 로고가 work-area(탭 리프트) 아래에 갇힘 → 브랜드만 따로 올림 */
+  position: relative;
+  z-index: auto;
 }
 /* Window caption strip: logo + name on the left, OS min/max/close on the right (Electron) */
 .app-titlebar {
@@ -1141,36 +1143,10 @@ html.is-electron-mac .app-titlebar {
   min-height: 44px;
   padding: 4px 8px 4px 10px;
 }
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-  flex: 0 0 auto;
-  user-select: none;
-  -webkit-app-region: drag;
-  /* 마스코트·제품명 0.5mm 하향 (직전 1mm에서 0.5mm 상향) */
-  transform: translateY(0.5mm);
-}
-.brand-logo {
-  flex: 0 0 auto;
-  width: 22px;
-  height: 22px;
-  display: block;
-  object-fit: contain;
-}
-.brand-name {
-  flex: 0 0 auto;
-  font-family: Georgia, "Times New Roman", "Malgun Gothic", serif;
-  font-size: 13px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  color: var(--accent-dark);
-  line-height: 1;
-  white-space: nowrap;
-}
 .offline-mode-badge {
   -webkit-app-region: no-drag;
+  position: relative;
+  z-index: 30;
   flex: 0 0 auto;
   display: inline-flex;
   align-items: center;
@@ -2777,7 +2753,11 @@ body.binder-panel-collapsed.ai-panel-collapsed main {
 body.binder-panel-collapsed .outline-panel {
   display: flex;
   flex-direction: column;
-  padding: 0 0 10px;
+  /* 본문 카드와 위·아래 맞춤 (기존 0·10px는 도크만 위로 올림) */
+  padding-top: max(0px, calc(10px - 2mm));
+  padding-right: 0;
+  padding-bottom: calc(10px - 1.2mm);
+  padding-left: 0;
   min-width: 0;
   overflow: hidden;
 }
@@ -2818,9 +2798,9 @@ aside { padding: 18px 14px; min-width: 0; }
   background: var(--chrome-bg, var(--header-bg)) !important;
   background-image: none !important;
 }
-/* 열린 탭 아래 제목 카드와 좌·우 패널 카드 상단을 같은 선에 */
-body:has(.writing-column .episode-tab):not(.binder-panel-collapsed) .outline-panel,
-body:has(.writing-column .episode-tab):not(.ai-panel-collapsed) .ai-panel {
+/* 열린 탭 아래 제목 카드와 좌·우 패널(펼침·접힘 도크) 상단을 같은 선에 */
+body:has(.writing-column .episode-tab) .outline-panel,
+body:has(.writing-column .episode-tab) .ai-panel {
   padding-top: calc(max(0px, 10px - 2mm) + 3px);
 }
 /* 바인더 본체 카드: 작품 제목 · 본문/설정집 · 목차 · 하단 메모까지 */
@@ -13096,9 +13076,18 @@ body.idea-float-resizing * {
 body.ai-panel-collapsed .ai-panel {
   display: flex;
   flex-direction: column;
-  padding: 0 0 10px;
+  /* 본문 카드와 위·아래 맞춤 (기존 0·10px는 도크만 위로 올림) */
+  padding-top: max(0px, calc(10px - 2mm));
+  padding-right: 0;
+  padding-bottom: calc(10px - 1.2mm);
+  padding-left: 0;
   min-width: 0;
   overflow: hidden;
+}
+/* 접힌 도크도 열린 탭이 있으면 제목 카드 상단에 맞춤 (위 규칙보다 뒤에 둬야 함) */
+body.binder-panel-collapsed:has(.writing-column .episode-tab) .outline-panel,
+body.ai-panel-collapsed:has(.writing-column .episode-tab) .ai-panel {
+  padding-top: calc(max(0px, 10px - 2mm) + 3px);
 }
 body.ai-panel-collapsed .ai-panel-inner,
 body.ai-panel-collapsed .ai-panel-resizer {
@@ -29369,8 +29358,6 @@ body[data-ui-scheme="dark"] .proof-diff-card {
   body.binder-panel-collapsed main { grid-template-columns: var(--panel-dock-rail-w, 48px) minmax(0, 1fr) var(--ai-panel-width); }
   body.binder-panel-collapsed.ai-panel-collapsed main { grid-template-columns: var(--panel-dock-rail-w, 48px) minmax(0, 1fr) var(--panel-dock-rail-w, 48px); }
   .app-toolbar { padding: 4px 8px; gap: 6px; }
-  .brand-name { font-size: 12px; }
-  .brand-logo { width: 20px; height: 20px; }
   .project-picker select { min-width: 90px; max-width: 140px; }
   .purpose-picker-label { display: none; }
   .purpose-picker .genre-display,
