@@ -51,6 +51,26 @@ class ElectronBackendQuitTests(unittest.TestCase):
         self.assertIn("if (isDev)", projects_fn)
         self.assertIn('path.join(projectRoot(), "projects")', projects_fn)
 
+    def test_backend_crash_log_wired_without_changing_exit_dialog(self) -> None:
+        self.assertIn('BACKEND_CRASH_LOG_NAME = "backend_crash.log"', self.main)
+        self.assertIn("function backendCrashLogPath()", self.main)
+        self.assertIn("function beginBackendCrashLog(launch)", self.main)
+        self.assertIn("rememberBackendLogChunk", self.main)
+        self.assertIn("----- last captured stdout/stderr -----", self.main)
+        self.assertIn("exit code:", self.main)
+        self.assertIn('stdio: ["ignore", "pipe", "pipe"]', self.main)
+        self.assertIn(
+            '`alert("백엔드 서버가 종료되었습니다. 앱을 다시 시작해 주세요. (code=${code})")`',
+            self.main,
+        )
+        spawn_block = self.main.split("function startBackendServer()", 1)[1].split(
+            "function stopBackendServer()", 1
+        )[0]
+        self.assertIn("beginBackendCrashLog(launch)", spawn_block)
+        self.assertIn("appendBackendCrashLog(rememberBackendLogChunk(chunk))", spawn_block)
+        self.assertIn("backendProcess.on(\"exit\"", spawn_block)
+        self.assertIn("isQuitting: ${isQuitting}", spawn_block)
+
     def test_taskkill_uses_process_tree_flag(self) -> None:
         stop = STOP_JS.read_text(encoding="utf-8")
         self.assertIn('["/pid"', stop)

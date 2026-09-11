@@ -836,6 +836,67 @@ elif _is_frozen():
 else:
     DATA_DIR = ROOT / "data"
 DATABASE_PATH = DATA_DIR / "supertory.sqlite3"
+BACKEND_CRASH_LOG_NAME = "backend_crash.log"
+_BACKEND_CRASH_LOG_LOCK = Lock()
+
+
+def backend_crash_log_path() -> Path:
+    """Writable crash log next to the SQLite DB (Electron sets SUPERTORY_DATA_DIR)."""
+    return DATA_DIR / BACKEND_CRASH_LOG_NAME
+
+
+def _append_backend_crash_log(text: str) -> None:
+    """Append investigation text. Never raise — logging must not change crash behavior."""
+    try:
+        DATA_DIR.mkdir(parents=True, exist_ok=True)
+        payload = text if text.endswith("\n") else f"{text}\n"
+        with _BACKEND_CRASH_LOG_LOCK:
+            with backend_crash_log_path().open("a", encoding="utf-8", errors="replace") as handle:
+                handle.write(payload)
+    except Exception:
+        return
+
+
+def _record_uncaught_exception(exc_type, exc, tb, *, origin: str = "sys.excepthook") -> None:
+    import traceback
+
+    try:
+        stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
+        body = "".join(traceback.format_exception(exc_type, exc, tb))
+        _append_backend_crash_log(
+            f"\n===== PYTHON UNCAUGHT {stamp} origin={origin} =====\n{body}"
+        )
+    except Exception:
+        return
+
+
+def _install_backend_crash_hooks() -> None:
+    """Log unhandled exceptions to backend_crash.log. Does not swallow them."""
+    import threading
+
+    def _excepthook(exc_type, exc, tb):
+        _record_uncaught_exception(exc_type, exc, tb, origin="sys.excepthook")
+        sys.__excepthook__(exc_type, exc, tb)
+
+    sys.excepthook = _excepthook
+
+    if hasattr(threading, "excepthook"):
+        _orig_thread_hook = threading.excepthook
+
+        def _thread_excepthook(args):
+            thread_name = getattr(getattr(args, "thread", None), "name", "?")
+            _record_uncaught_exception(
+                args.exc_type,
+                args.exc_value,
+                args.exc_traceback,
+                origin=f"threading.excepthook thread={thread_name}",
+            )
+            _orig_thread_hook(args)
+
+        threading.excepthook = _thread_excepthook
+
+
+_install_backend_crash_hooks()
 
 
 def get_typeset_service() -> TypesetService:
@@ -28656,12 +28717,14 @@ def main(argv: list[str] | None = None) -> None:
         print(f"URL: {url}")
         print(f"데이터: {DATA_DIR}")
         print(f"씬 조회 디버그 로그: {scene_lookup_debug_log_path()}")
+        print(f"백엔드 크래시 로그: {backend_crash_log_path()}")
         print(f"작품 파일 폴더: {projects_root()}\n")
     else:
         print("\nSuperTory가 열렸습니다.")
         print(f"브라우저가 열리지 않으면 {url} 을 주소창에 입력해 주세요.")
         print(f"데이터: {DATA_DIR}")
         print(f"씬 조회 디버그 로그: {scene_lookup_debug_log_path()}")
+        print(f"백엔드 크래시 로그: {backend_crash_log_path()}")
         print(f"작품 파일 폴더: {projects_root()}")
         print("이 창을 닫으면 앱도 종료됩니다.\n")
     if not NO_BROWSER:

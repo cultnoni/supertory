@@ -65,6 +65,10 @@ let isQuitting = false;
 const BACKEND_STOP_TIMEOUT_MS = 5000;
 const BACKEND_GRACEFUL_MS = 1500;
 const TASKKILL_ATTEMPTS = 2;
+const BACKEND_CRASH_LOG_NAME = "backend_crash.log";
+/** Keep a tail in memory so the exit footer still has recent output if the file write lagged. */
+const BACKEND_LOG_TAIL_MAX = 64 * 1024;
+let backendLogTail = "";
 /** True while an update package is downloading after user confirmation. */
 let updateDownloadInProgress = false;
 /** Latest available version string from update-available, if any. */
@@ -185,6 +189,46 @@ function userProjectsDir() {
     return path.join(projectRoot(), "projects");
   }
   return path.join(app.getPath("userData"), "projects");
+}
+
+function backendCrashLogPath() {
+  return path.join(userDataDir(), BACKEND_CRASH_LOG_NAME);
+}
+
+function appendBackendCrashLog(text) {
+  try {
+    fs.appendFileSync(backendCrashLogPath(), text, "utf8");
+  } catch (error) {
+    console.warn("[supertory] backend crash log write failed:", error?.message || error);
+  }
+}
+
+function rememberBackendLogChunk(chunk) {
+  const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+  backendLogTail += text;
+  if (backendLogTail.length > BACKEND_LOG_TAIL_MAX) {
+    backendLogTail = backendLogTail.slice(-BACKEND_LOG_TAIL_MAX);
+  }
+  return text;
+}
+
+function beginBackendCrashLog(launch) {
+  backendLogTail = "";
+  try {
+    fs.mkdirSync(userDataDir(), { recursive: true });
+    const header = [
+      `===== SuperTory backend log start ${new Date().toISOString()} =====`,
+      `kind: ${launch.kind}`,
+      `command: ${launch.command} ${launch.args.join(" ")}`.trimEnd(),
+      `cwd: ${launch.cwd}`,
+      `data: ${userDataDir()}`,
+      `log: ${backendCrashLogPath()}`,
+      "",
+    ].join("\n");
+    fs.writeFileSync(backendCrashLogPath(), `${header}\n`, "utf8");
+  } catch (error) {
+    console.warn("[supertory] backend crash log init failed:", error?.message || error);
+  }
 }
 
 /**
@@ -332,6 +376,8 @@ function startBackendServer() {
   console.log(
     `[supertory] DATA: ${userDataDir()}${isDev ? " (repo)" : " (userData)"}`
   );
+  console.log(`[supertory] backend crash log: ${backendCrashLogPath()}`);
+  beginBackendCrashLog(launch);
 
   backendWasStarted = true;
   backendProcess = spawn(launch.command, launch.args, {
@@ -343,6 +389,7 @@ function startBackendServer() {
   lastBackendPid = backendProcess.pid || null;
   trackedBackendPids.clear();
   rememberBackendPid(lastBackendPid);
+  appendBackendCrashLog(`pid: ${lastBackendPid || "(none)"}\n`);
   if (lastBackendPid) {
     setTimeout(() => {
       refreshTrackedBackendChildren().catch(() => {});
@@ -350,16 +397,35 @@ function startBackendServer() {
   }
 
   backendProcess.stdout?.on("data", (chunk) => {
+    appendBackendCrashLog(rememberBackendLogChunk(chunk));
     process.stdout.write(`[backend] ${chunk}`);
   });
   backendProcess.stderr?.on("data", (chunk) => {
+    appendBackendCrashLog(rememberBackendLogChunk(chunk));
     process.stderr.write(`[backend] ${chunk}`);
   });
   backendProcess.on("error", (error) => {
     console.error("[supertory] backend spawn error:", error);
+    appendBackendCrashLog(
+      `\n===== backend spawn error ${new Date().toISOString()} =====\n${String(error?.stack || error)}\n`
+    );
   });
   backendProcess.on("exit", (code, signal) => {
     console.log(`[supertory] backend exited code=${code} signal=${signal}`);
+    appendBackendCrashLog(
+      [
+        "",
+        `===== backend process exited ${new Date().toISOString()} =====`,
+        `exit code: ${code}`,
+        `signal: ${signal}`,
+        `pid: ${lastBackendPid}`,
+        `isQuitting: ${isQuitting}`,
+        "----- last captured stdout/stderr -----",
+        backendLogTail || "(no stdout/stderr captured)",
+        "----- end last captured -----",
+        "",
+      ].join("\n")
+    );
     backendProcess = null;
     if (!isQuitting && mainWindow && !mainWindow.isDestroyed()) {
       mainWindow.webContents
