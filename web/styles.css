@@ -2802,8 +2802,8 @@ aside { padding: 18px 14px; min-width: 0; }
   /* 왼쪽 화면 경계에 붙는 엣지 패널 */
   padding-top: max(0px, calc(10px - 2mm));
   padding-left: 0;
-  padding-right: var(--panel-pad-grip); /* room for resizer */
-  padding-bottom: 10px;
+  padding-right: calc(var(--panel-pad-grip) - 1.2mm); /* 본문 쪽으로 1.2mm 확장 */
+  padding-bottom: calc(10px - 1.2mm);
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -4713,8 +4713,8 @@ body.outline-resizing * {
   gap: 0;
   /* 오른쪽 화면 경계에 붙는 엣지 패널 */
   padding-top: max(0px, calc(10px - 2mm));
-  padding-bottom: 10px;
-  padding-left: var(--panel-pad-grip, 12px);
+  padding-bottom: calc(10px - 1.2mm);
+  padding-left: calc(var(--panel-pad-grip, 12px) - 1.2mm);
   padding-right: 0;
   box-sizing: border-box;
   background: var(--chrome-bg, var(--header-bg)) !important;
@@ -15662,7 +15662,7 @@ html[data-ui-scheme="dark"] .welcome-tip-card {
   background: var(--chrome-bg, var(--header-bg));
   /* 글자수 카드 좌·우 기준 → 열린문서·서식·본문 동일 정렬 */
   --ms-h-gutter: calc(8px - 1.5mm);
-  padding-bottom: 10px;
+  padding-bottom: calc(10px - 1.2mm);
   box-sizing: border-box;
 }
 .scene-workspace:not(.split-active) .writing-column {
@@ -16123,7 +16123,7 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   overflow: hidden;
   border-right: 0;
   padding-right: 0;
-  padding-bottom: 10px; /* 좌·우 패널과 동일 하단 여백 */
+  padding-bottom: calc(10px - 1.2mm); /* 좌·우 패널과 동일 하단 여백 */
   margin: 0;
   box-sizing: border-box;
   position: relative;
