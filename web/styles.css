@@ -58,7 +58,7 @@
   /* 준비중 기능 — 웜 뮤트 */
   --ai-coming-mode: #A8A29E;
   --ai-coming-mode-soft: #78716C;
-  --outline-width: 270px;
+  --outline-width: 300px;
   --ai-panel-width: 300px;
   --panel-dock-rail-w: 48px;
   /* Writing page only (right-click theme) — independent of UI day/dark */
@@ -2748,7 +2748,7 @@ main {
   min-height: 0;
   display: grid;
   grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--ai-panel-width);
-  overflow: hidden;
+  overflow: visible;
   height: 100%;
 }
 /* 좌·우 패널 폭은 유지하고, 둘 다 펼친 상태에서 가운데만 양쪽으로 1mm 확장 */
@@ -2756,7 +2756,7 @@ body:not(.binder-panel-collapsed):not(.ai-panel-collapsed) .work-area {
   width: calc(100% + 2mm);
   margin-left: -1mm;
   margin-right: -1mm;
-  z-index: 1;
+  z-index: 21;
 }
 body.ai-panel-collapsed main {
   grid-template-columns: var(--outline-width) minmax(0, 1fr) var(--panel-dock-rail-w, 48px);
@@ -2810,6 +2810,11 @@ aside { padding: 18px 14px; min-width: 0; }
   /* 카드 그림자가 여백 색을 어둡게 보이게 하지 않도록 */
   background: var(--chrome-bg, var(--header-bg)) !important;
   background-image: none !important;
+}
+/* 열린 탭 아래 제목 카드와 좌·우 패널 카드 상단을 같은 선에 */
+body:has(.writing-column .episode-tab):not(.binder-panel-collapsed) .outline-panel,
+body:has(.writing-column .episode-tab):not(.ai-panel-collapsed) .ai-panel {
+  padding-top: calc(max(0px, 10px - 2mm) + 3px);
 }
 /* 바인더 본체 카드: 작품 제목 · 본문/설정집 · 목차 · 하단 메모까지 */
 .outline-panel-inner {
@@ -9628,6 +9633,27 @@ body[data-ui-scheme="dark"] .settings-box.is-open > .settings-box-header {
   gap: 6px;
   margin-bottom: 8px;
 }
+.settings-icon-btn {
+  width: 30px;
+  min-width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
+  line-height: 0;
+}
+.settings-icon-btn svg {
+  width: 16px;
+  height: 16px;
+  display: block;
+  flex: 0 0 auto;
+}
 .dictionary-toolbar {
   display: flex;
   flex-wrap: wrap;
@@ -9835,6 +9861,18 @@ html[data-ui-scheme="dark"] ::highlight(st-dict-terms) {
 }
 .settings-inline-save:hover {
   background: var(--selection) !important;
+}
+.settings-inline-save.settings-icon-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px !important;
+  padding: 0 !important;
+  border-radius: 6px !important;
+}
+.settings-inline-save.settings-icon-btn svg {
+  width: 14px;
+  height: 14px;
 }
 .settings-inline-main {
   flex: 0 0 auto;
@@ -10129,6 +10167,17 @@ textarea.worldbuilding-serialized[hidden] {
   min-height: 22px !important;
   padding: 1px 8px !important;
   font-size: 11px !important;
+}
+.keyword-picker-close.settings-icon-btn {
+  width: 24px;
+  min-width: 24px;
+  height: 24px;
+  min-height: 24px !important;
+  padding: 0 !important;
+}
+.keyword-picker-close.settings-icon-btn svg {
+  width: 14px;
+  height: 14px;
 }
 .keyword-catalog {
   display: grid;
@@ -14800,9 +14849,12 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area {
   min-width: 0;
   min-height: 0;
-  height: 100%;
+  height: calc(100% + 28px);
+  margin-top: -28px;
   padding: 0;
   overflow: hidden;
+  position: relative;
+  z-index: 21;
   /* Stack panes in one cell so only the visible one fills the center column */
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -34224,6 +34276,12 @@ html[data-ui-theme="eink"] #outlineOverviewModal .modal-actions .primary {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.compact-btn.settings-icon-btn,
+.settings-inline-save.settings-icon-btn {
+  overflow: visible;
+  text-overflow: unset;
+  white-space: normal;
 }
 
 html[lang="es"] .compact-btn,

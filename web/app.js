@@ -35992,6 +35992,29 @@ function setupReadingInvite() {
   });
 }
 
+const SETTINGS_ICON_SVG_ATTR = 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"';
+const SETTINGS_ICON_SVG = {
+  stickyNotePlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>`,
+  fileBox: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M14 2v5a1 1 0 001 1h5"/><path d="M14.692 22H18a2 2 0 002-2V8a2.4 2.4 0 00-.706-1.706l-3.588-3.588A2.4 2.4 0 0014 2H6a2 2 0 00-2 2v3.804"/><path d="M2.264 13.752 7 16.5l4.737-2.748"/><path d="M2.995 13.014A2 2 0 002 14.744v3.516a2 2 0 00.996 1.73l3 1.74a2 2 0 002.008 0l3-1.74A2 2 0 0012 18.26v-3.517a2 2 0 00-.995-1.73l-3-1.742a2 2 0 00-1.892-.064z"/><path d="M7 16.5V22"/></svg>`,
+  filePlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M6 22a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h8a2.4 2.4 0 0 1 1.704.706l3.588 3.588A2.4 2.4 0 0 1 20 8v12a2 2 0 0 1-2 2z"/><path d="M14 2v5a1 1 0 0 0 1 1h5"/><path d="M9 15h6"/><path d="M12 18v-6"/></svg>`,
+  layersPlus: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 .83.18 2 2 0 0 0 .83-.18l8.58-3.9a1 1 0 0 0 0-1.831z"/><path d="M16 17h6"/><path d="M19 14v6"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 .825.178"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l2.116-.962"/></svg>`,
+  trash: `<svg ${SETTINGS_ICON_SVG_ATTR}><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>`,
+};
+
+function applySettingsIconButton(btn, { svg, label, labelKey }) {
+  if (!btn) return;
+  btn.classList.add("settings-icon-btn");
+  if (svg) btn.innerHTML = svg;
+  if (labelKey) {
+    btn.setAttribute("data-i18n-title", labelKey);
+    btn.setAttribute("data-i18n-aria-label", labelKey);
+  }
+  if (label) {
+    btn.setAttribute("title", label);
+    btn.setAttribute("aria-label", label);
+  }
+}
+
 /** 설정집 목록형 메인 (떡밥·수집창고·참고자료) — 목록 DOM을 메인으로 옮겨 표시 */
 const SETTINGS_COLLECTION_MAIN = {
   baits: {
@@ -36000,7 +36023,8 @@ const SETTINGS_COLLECTION_MAIN = {
     tipId: "baitsTipBox",
     section: "baits",
     listId: "baitList",
-    addLabel: i18n.t('app.떡밥_2'),
+    addLabelKey: "index.빈_떡밥_추가",
+    addIcon: SETTINGS_ICON_SVG.fileBox,
     onAdd: () => $("newBaitButton")?.click(),
     render: () => renderBaitList(),
   },
@@ -36010,7 +36034,8 @@ const SETTINGS_COLLECTION_MAIN = {
     tipId: "successProfileTipBox",
     section: "successProfile",
     listId: "successProfileMainPanel",
-    addLabel: i18n.t('app.흥행_공식_분석'),
+    addLabelKey: "app.흥행_공식_분석_2",
+    addIcon: SETTINGS_ICON_SVG.filePlus,
     onAdd: () => {
       if ($("aiMode")) $("aiMode").value = "successpattern";
       successPatternState.modalDismissed = false;
@@ -36027,9 +36052,11 @@ const SETTINGS_COLLECTION_MAIN = {
     tipId: "toryVaultTipBox",
     section: "toryVault",
     listId: "toryVaultList",
-    addLabel: i18n.t('app.메모'),
+    addLabelKey: "index.메모로_직접_추가",
+    addIcon: SETTINGS_ICON_SVG.stickyNotePlus,
+    extraLabelKey: "index.수집_전부_비우기",
+    extraIcon: SETTINGS_ICON_SVG.trash,
     onAdd: () => $("newToryVaultButton")?.click(),
-    extraLabel: i18n.t('app.비우기'),
     onExtra: () => $("clearToryVaultButton")?.click(),
     render: () => renderToryVaultList(),
   },
@@ -36039,7 +36066,8 @@ const SETTINGS_COLLECTION_MAIN = {
     tipId: "sourcesTipBox",
     section: "sources",
     listId: "sourceList",
-    addLabel: i18n.t('app.자료_2'),
+    addLabelKey: "index.자료_추가",
+    addIcon: SETTINGS_ICON_SVG.layersPlus,
     onAdd: () => $("newSourceButton")?.click(),
     render: () => renderSourceList(),
   },
@@ -36148,7 +36176,12 @@ function openSettingsCollectionMain(key) {
     } else {
       addBtn.hidden = false;
       addBtn.classList.remove("hidden");
-      addBtn.textContent = cfg.addLabel || i18n.t('app.추가');
+      const addLabelKey = cfg.addLabelKey || "app.추가";
+      applySettingsIconButton(addBtn, {
+        svg: cfg.addIcon || SETTINGS_ICON_SVG.stickyNotePlus,
+        label: i18n.t(addLabelKey),
+        labelKey: addLabelKey,
+      });
       addBtn.onclick = (event) => {
         event.preventDefault();
         cfg.onAdd?.();
@@ -36160,7 +36193,12 @@ function openSettingsCollectionMain(key) {
     if (cfg.onExtra) {
       extraBtn.hidden = false;
       extraBtn.classList.remove("hidden");
-      extraBtn.textContent = cfg.extraLabel || i18n.t('app.추가_작업');
+      const extraLabelKey = cfg.extraLabelKey || "app.추가_작업";
+      applySettingsIconButton(extraBtn, {
+        svg: cfg.extraIcon || SETTINGS_ICON_SVG.trash,
+        label: i18n.t(extraLabelKey),
+        labelKey: extraLabelKey,
+      });
       extraBtn.onclick = (event) => {
         event.preventDefault();
         cfg.onExtra?.();
@@ -60069,7 +60107,7 @@ function maxOutlineWidthPx() {
 }
 
 function maxAiPanelWidthPx() {
-  const other = isBinderPanelOpen() ? layoutVarWidth("--outline-width", 270) : layoutRailWidth();
+  const other = isBinderPanelOpen() ? layoutVarWidth("--outline-width", 300) : layoutRailWidth();
   return Math.max(AI_PANEL_WIDTH_MIN, Math.floor(layoutMainWidth() - other));
 }
 
@@ -60077,6 +60115,7 @@ function applyOutlineWidth(widthPx) {
   const width = Math.max(OUTLINE_WIDTH_MIN, Math.min(maxOutlineWidthPx(), Math.round(widthPx)));
   document.documentElement.style.setProperty("--outline-width", `${width}px`);
   scheduleToolbarOverflowLayout();
+  scheduleEpisodeNavLayout();
   return width;
 }
 
@@ -60096,7 +60135,7 @@ function setupOutlineResizer() {
   if (!setupOutlineResizer._resizeBound) {
     setupOutlineResizer._resizeBound = true;
     window.addEventListener("resize", () => {
-      let outline = layoutVarWidth("--outline-width", 270);
+      let outline = layoutVarWidth("--outline-width", 300);
       let ai = layoutVarWidth("--ai-panel-width", 300);
       try {
         const os = Number(localStorage.getItem(OUTLINE_WIDTH_STORAGE_KEY));
@@ -60158,6 +60197,7 @@ function applyAiPanelWidth(widthPx) {
   const width = Math.max(AI_PANEL_WIDTH_MIN, Math.min(maxAiPanelWidthPx(), Math.round(widthPx)));
   document.documentElement.style.setProperty("--ai-panel-width", `${width}px`);
   scheduleToolbarOverflowLayout();
+  scheduleEpisodeNavLayout();
   return width;
 }
 

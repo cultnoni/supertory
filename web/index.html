@@ -259,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.186">
+    <link rel="stylesheet" href="/styles.css?v=1.4.193">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -704,7 +704,9 @@
                     </div>
                   </div>
                   <div class="settings-box-toolbar" id="ideaBankStickiesToolbar" data-idea-bank-pane="stickies">
-                    <button type="button" id="newIdeaButton" class="secondary" title="새 메모" data-i18n-title="app.새_메모" data-i18n="app.메모">+ 메모</button>
+                    <button type="button" id="newIdeaButton" class="secondary settings-icon-btn" title="새 메모" data-i18n-title="app.새_메모" aria-label="새 메모" data-i18n-aria-label="app.새_메모">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>
+                    </button>
                   </div>
                   <div id="ideaNoteList" class="idea-note-list" data-idea-bank-pane="stickies"></div>
                   <div id="sceneAuthorNotesList" class="scene-author-notes-list hidden" hidden data-idea-bank-pane="sceneNotes"></div>
@@ -732,7 +734,9 @@
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="app.작품소개">작품소개</span>
                     <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save" data-save-settings-doc="intro" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intro" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
                       <button type="button" class="settings-inline-main" data-open-settings-doc="intro" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="작품소개 메인에서 보기" data-i18n-aria-label="index.작품소개_메인에서_보기">→</button>
                     </div>
                   </div>
@@ -740,7 +744,9 @@
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="app.기획의도">기획의도</span>
                     <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save" data-save-settings-doc="intent" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                      <button type="button" class="settings-inline-save settings-icon-btn" data-save-settings-doc="intent" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
                       <button type="button" class="settings-inline-main" data-open-settings-doc="intent" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="기획의도 메인에서 보기" data-i18n-aria-label="index.기획의도_메인에서_보기">→</button>
                     </div>
                   </div>
@@ -770,7 +776,9 @@
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="app.로그라인">로그라인</span>
                     <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save" id="saveLoglineButton" data-save-settings-doc="logline" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                      <button type="button" class="settings-inline-save settings-icon-btn" id="saveLoglineButton" data-save-settings-doc="logline" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
                       <button type="button" class="settings-inline-main" data-open-settings-doc="logline" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="로그라인 메인에서 보기" data-i18n-aria-label="index.로그라인_메인에서_보기">→</button>
                     </div>
                   </div>
@@ -782,7 +790,9 @@
                   <div class="settings-field-head">
                     <span class="settings-field-title" data-i18n="app.시놉시스">시놉시스</span>
                     <div class="settings-field-actions">
-                      <button type="button" class="settings-inline-save" id="saveSynopsisButton" data-save-settings-doc="synopsis" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                      <button type="button" class="settings-inline-save settings-icon-btn" id="saveSynopsisButton" data-save-settings-doc="synopsis" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
                       <button type="button" class="settings-inline-main" data-open-settings-doc="synopsis" title="메인에서 보기" data-i18n-title="index.메인에서_보기" aria-label="시놉시스 메인에서 보기" data-i18n-aria-label="index.시놉시스_메인에서_보기">→</button>
                     </div>
                   </div>
@@ -827,7 +837,9 @@
                   <div id="keywordPickerPanel" class="keyword-picker-panel hidden" role="region" aria-label="키워드 태그 선택" data-i18n-aria-label="index.키워드_태그_선택">
                     <div class="keyword-picker-toolbar">
                       <span class="keyword-picker-title" id="keywordPickerTitle" data-i18n="index.태그_고르기">태그 고르기</span>
-                      <button type="button" id="keywordPickerClose" class="secondary keyword-picker-close" title="닫기" data-i18n-title="app.닫기" data-i18n="app.닫기">닫기</button>
+                      <button type="button" id="keywordPickerClose" class="secondary keyword-picker-close settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                      </button>
                     </div>
                     <div id="keywordCatalog" class="keyword-catalog"></div>
                     <div class="keyword-custom-row">
@@ -868,7 +880,9 @@
                   <div class="settings-field-head is-actions-only">
                     <div class="settings-field-actions">
                       <button type="button" class="secondary compact-btn" id="toriFillWorldButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
-                      <button type="button" class="settings-inline-save" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" data-i18n="app.저장">저장</button>
+                      <button type="button" class="settings-inline-save settings-icon-btn" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                      </button>
                     </div>
                   </div>
                   <div class="worldbuilding-form" id="worldbuildingForm" aria-label="세계관 구조" data-i18n-aria-label="index.세계관_구조">
@@ -1016,8 +1030,12 @@
                 <div class="settings-box-preview" id="charactersPreview"></div>
                 <div class="settings-box-body" id="charactersBody" hidden>
                   <div class="settings-box-toolbar">
-                    <button type="button" id="newCharacterButton" class="secondary" title="새 캐릭터" data-i18n-title="app.새_캐릭터" data-i18n="index.캐릭터">+ 캐릭터</button>
-                    <button type="button" id="openRelationCanvasButton" class="secondary" data-i18n="app.관계_이어보기">관계 이어보기</button>
+                    <button type="button" id="newCharacterButton" class="secondary settings-icon-btn" title="새 캐릭터" data-i18n-title="app.새_캐릭터" aria-label="새 캐릭터" data-i18n-aria-label="app.새_캐릭터">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+                    </button>
+                    <button type="button" id="openRelationCanvasButton" class="secondary settings-icon-btn" title="관계 이어보기" data-i18n-title="app.관계_이어보기" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m11 19-1.106-.552a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0l4.212 2.106a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619V12"/><path d="M15 5.764V12"/><path d="M18 15v6"/><path d="M21 18h-6"/><path d="M9 3.236v15"/></svg>
+                    </button>
                   </div>
                   <nav id="characterList" class="settings-panel-card-grid" aria-label="캐릭터 목록" data-i18n-aria-label="index.캐릭터_목록"></nav>
                 </div>
@@ -1043,7 +1061,9 @@
                 <div class="settings-box-preview" id="itemsPreview"></div>
                 <div class="settings-box-body" id="itemsBody" hidden>
                   <div class="settings-box-toolbar">
-                    <button type="button" id="newItemButton" class="secondary" title="새 아이템" data-i18n-title="app.새_아이템" data-i18n="index.아이템">+ 아이템</button>
+                    <button type="button" id="newItemButton" class="secondary settings-icon-btn" title="새 아이템" data-i18n-title="app.새_아이템" aria-label="새 아이템" data-i18n-aria-label="app.새_아이템">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 22V12"/><path d="M16 17h6"/><path d="M19 14v6"/><path d="M21 10.535V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.675-.955"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 8.997 5.148"/></svg>
+                    </button>
                   </div>
                   <nav id="itemList" class="settings-panel-card-grid" aria-label="아이템 목록" data-i18n-aria-label="index.아이템_목록"></nav>
                 </div>
@@ -1069,7 +1089,9 @@
                 <div class="settings-box-preview" id="dictionaryPreview"></div>
                 <div class="settings-box-body" id="dictionaryBody" hidden>
                   <div class="settings-box-toolbar dictionary-panel-toolbar">
-                    <button type="button" id="newDictionaryButton" class="secondary" title="새 단어" data-i18n-title="index.새_단어" data-i18n="index.plus_단어">+ 단어</button>
+                    <button type="button" id="newDictionaryButton" class="secondary settings-icon-btn" title="새 단어" data-i18n-title="index.새_단어" aria-label="새 단어" data-i18n-aria-label="index.새_단어">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/></svg>
+                    </button>
                   </div>
                   <div class="dictionary-toolbar dictionary-panel-filters">
                     <input id="dictionarySearch" type="search" autocomplete="off" spellcheck="false" placeholder="단어·뜻 검색" data-i18n-placeholder="index.단어_뜻_검색" aria-label="토리 사전 검색" data-i18n-aria-label="index.토리_사전_검색">
@@ -1103,7 +1125,9 @@
                 <div class="settings-box-preview" id="baitsPreview"></div>
                 <div class="settings-box-body" id="baitsBody" hidden>
                   <div class="settings-box-toolbar">
-                    <button type="button" id="newBaitButton" class="secondary" title="빈 떡밥 추가" data-i18n-title="index.빈_떡밥_추가" data-i18n="app.떡밥_2">+ 떡밥</button>
+                    <button type="button" id="newBaitButton" class="secondary settings-icon-btn" title="빈 떡밥 추가" data-i18n-title="index.빈_떡밥_추가" aria-label="빈 떡밥 추가" data-i18n-aria-label="index.빈_떡밥_추가">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M14 2v5a1 1 0 001 1h5"/><path d="M14.692 22H18a2 2 0 002-2V8a2.4 2.4 0 00-.706-1.706l-3.588-3.588A2.4 2.4 0 0014 2H6a2 2 0 00-2 2v3.804"/><path d="M2.264 13.752 7 16.5l4.737-2.748"/><path d="M2.995 13.014A2 2 0 002 14.744v3.516a2 2 0 00.996 1.73l3 1.74a2 2 0 002.008 0l3-1.74A2 2 0 0012 18.26v-3.517a2 2 0 00-.995-1.73l-3-1.742a2 2 0 00-1.892-.064z"/><path d="M7 16.5V22"/></svg>
+                    </button>
                   </div>
                   <div id="baitsTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="baits" role="note">
                     <p class="hint guide-tip-text" data-i18n="index.본문_드래그_우클릭">본문 드래그 → 우클릭 <strong data-i18n="app.떡밥_던지기">떡밥 던지기</strong>, 또는 + 떡밥으로 <strong data-i18n="index.작성_전_아이디어">작성 전 아이디어</strong>를 적어 두세요.</p>
@@ -1197,8 +1221,12 @@
                 <div class="settings-box-preview" id="toryVaultPreview"></div>
                 <div class="settings-box-body" id="toryVaultBody" hidden>
                   <div class="settings-box-toolbar">
-                    <button type="button" id="newToryVaultButton" class="secondary" title="메모로 직접 추가" data-i18n-title="index.메모로_직접_추가" data-i18n="app.메모">+ 메모</button>
-                    <button type="button" id="clearToryVaultButton" class="secondary" title="수집 전부 비우기" data-i18n-title="index.수집_전부_비우기" data-i18n="app.비우기">비우기</button>
+                    <button type="button" id="newToryVaultButton" class="secondary settings-icon-btn" title="메모로 직접 추가" data-i18n-title="index.메모로_직접_추가" aria-label="메모로 직접 추가" data-i18n-aria-label="index.메모로_직접_추가">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>
+                    </button>
+                    <button type="button" id="clearToryVaultButton" class="secondary settings-icon-btn" title="수집 전부 비우기" data-i18n-title="index.수집_전부_비우기" aria-label="수집 전부 비우기" data-i18n-aria-label="index.수집_전부_비우기">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    </button>
                   </div>
                   <div id="toryVaultTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="toryVault" role="note">
                     <p class="hint guide-tip-text" data-i18n="index.토리의_수집창고_안내">토리와 이야기하다 나온 아이디어를 수집하면 여기에 쌓입니다.</p>
@@ -1331,7 +1359,9 @@
                 <div class="settings-box-preview" id="sourcesPreview"></div>
                 <div class="settings-box-body" id="sourcesBody" hidden>
                   <div class="settings-box-toolbar">
-                    <button type="button" id="newSourceButton" class="secondary" title="자료 추가" data-i18n-title="index.자료_추가" data-i18n="app.자료_2">+ 자료</button>
+                    <button type="button" id="newSourceButton" class="secondary settings-icon-btn" title="자료 추가" data-i18n-title="index.자료_추가" aria-label="자료 추가" data-i18n-aria-label="index.자료_추가">
+                      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 .83.18 2 2 0 0 0 .83-.18l8.58-3.9a1 1 0 0 0 0-1.831z"/><path d="M16 17h6"/><path d="M19 14v6"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 .825.178"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l2.116-.962"/></svg>
+                    </button>
                   </div>
                   <div id="sourcesTipBox" class="guide-tip-box settings-guide-tip" data-guide-tip="sources" role="note">
                     <p class="hint guide-tip-text" data-i18n="index.참고자료_출처_안내">링크 출처 또는 PDF·Word·한글·텍스트 파일을 모아 두고, 작성 중 옆에 펼쳐 볼 수 있어요. 분할화면에서 보기도 가능해요.</p>
@@ -1733,8 +1763,12 @@
               </div>
             </div>
             <div class="idea-board-actions">
-              <button type="button" id="ideaBoardAddButton" class="secondary compact-btn" data-idea-bank-pane="stickies" data-i18n="app.메모">+ 메모</button>
-              <button type="button" id="ideaBoardCloseButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="ideaBoardAddButton" class="secondary compact-btn settings-icon-btn" data-idea-bank-pane="stickies" title="새 메모" data-i18n-title="app.새_메모" aria-label="새 메모" data-i18n-aria-label="app.새_메모">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>
+              </button>
+              <button type="button" id="ideaBoardCloseButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div id="ideaBoardGrid" class="idea-board-grid" data-idea-bank-pane="stickies"></div>
@@ -1747,7 +1781,9 @@
               <h2 class="keyword-board-title" data-i18n="app.장르_키워드">장르·키워드</h2>
             </div>
             <div class="keyword-board-actions">
-              <button type="button" id="keywordBoardCloseButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="keywordBoardCloseButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div id="keywordBoardGenreMount" class="keyword-board-genre-mount" aria-label="장르" data-i18n-aria-label="app.장르">
@@ -1871,9 +1907,15 @@
                 <div id="settingsCollectionTipMount" class="settings-collection-tip-mount"></div>
               </div>
               <div class="settings-collection-actions">
-                <button type="button" id="settingsCollectionAddButton" class="secondary compact-btn" data-i18n="app.추가">+ 추가</button>
-                <button type="button" id="settingsCollectionExtraButton" class="secondary compact-btn hidden" data-i18n="app.비우기">비우기</button>
-                <button type="button" id="settingsCollectionCloseButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+                <button type="button" id="settingsCollectionAddButton" class="secondary compact-btn settings-icon-btn" title="추가" data-i18n-title="app.추가" aria-label="추가" data-i18n-aria-label="app.추가">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M15 3v5a1 1 0 0 0 1 1h5"/><path d="M18 15v6"/><path d="M21 12.356V9a2.4 2.4 0 0 0-.706-1.706l-3.588-3.588A2.4 2.4 0 0 0 15 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h7.355"/><path d="M21 18h-6"/></svg>
+                </button>
+                <button type="button" id="settingsCollectionExtraButton" class="secondary compact-btn settings-icon-btn hidden" title="비우기" data-i18n-title="app.비우기" aria-label="비우기" data-i18n-aria-label="app.비우기">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 11v6"/><path d="M14 11v6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M3 6h18"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                </button>
+                <button type="button" id="settingsCollectionCloseButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
               </div>
             </div>
             <div id="settingsCollectionMount" class="settings-collection-mount"></div>
@@ -3006,8 +3048,12 @@
               <button type="button" class="secondary compact-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
               <button type="button" id="characterChronicleButton" class="secondary compact-btn trait-chronicle-btn" aria-pressed="false" data-i18n="index.연대기" data-i18n-title="index.연대기" title="연대기">연대기</button>
               <button type="button" id="deleteCharacterButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.인물_삭제">인물 삭제</button>
-              <button type="submit" class="primary compact-btn" data-i18n="index.인물_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">인물 설정 저장</button>
-              <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="submit" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="인물 설정 저장" data-i18n-aria-label="index.인물_설정_저장">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+              </button>
+              <button type="button" id="closeCharacterEditorButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <section id="characterChronicle" class="trait-chronicle hidden" hidden>
@@ -3099,8 +3145,12 @@
               <span id="itemInfo" class="save-info"></span>
               <button type="button" id="itemChronicleButton" class="secondary compact-btn trait-chronicle-btn" aria-pressed="false" data-i18n="index.연대기" data-i18n-title="index.연대기" title="연대기">연대기</button>
               <button type="button" id="deleteItemButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.아이템_삭제">아이템 삭제</button>
-              <button type="submit" class="primary compact-btn" data-i18n="index.아이템_설정_저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">아이템 설정 저장</button>
-              <button type="button" id="closeItemEditorButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="submit" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="아이템 설정 저장" data-i18n-aria-label="index.아이템_설정_저장">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+              </button>
+              <button type="button" id="closeItemEditorButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <section id="itemChronicle" class="trait-chronicle hidden" hidden>
@@ -3151,8 +3201,12 @@
               <div class="synopsis-main-actions">
                 <span id="synopsisSaveInfo" class="save-info"></span>
                 <button type="button" class="secondary compact-btn hidden" id="toriFillLogsynButton" hidden data-i18n="app.토리야_작성해줘" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로">토리야 작성해줘</button>
-                <button type="button" id="saveSynopsisMainButton" class="primary compact-btn" data-i18n="app.저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">저장</button>
-                <button type="button" id="closeSynopsisMainButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+                <button type="button" id="saveSynopsisMainButton" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                </button>
+                <button type="button" id="closeSynopsisMainButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+                </button>
               </div>
             </div>
             <!-- 본문 format-toolbar-row-format 과 동일 구조 (구형 플랫 서식 폐기) -->
@@ -3439,8 +3493,12 @@
             <div class="worldbuilding-main-actions">
               <span id="worldbuildingSaveInfo" class="save-info"></span>
               <button type="button" class="secondary compact-btn" id="toriFillWorldMainButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
-              <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn" data-i18n="app.저장" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨">저장</button>
-              <button type="button" id="closeWorldbuildingMainButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+              </button>
+              <button type="button" id="closeWorldbuildingMainButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div id="worldbuildingMainTipBox" class="guide-tip-box worldbuilding-main-guide" data-guide-tip="worldHint" role="note">
@@ -3463,10 +3521,16 @@
               </div>
             </div>
             <div class="character-board-actions">
-              <button type="button" class="secondary compact-btn" id="openRelationCanvasMainButton" data-i18n="app.관계_이어보기">관계 이어보기</button>
+              <button type="button" class="secondary compact-btn settings-icon-btn" id="openRelationCanvasMainButton" title="관계 이어보기" data-i18n-title="app.관계_이어보기" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m11 19-1.106-.552a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0l4.212 2.106a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619V12"/><path d="M15 5.764V12"/><path d="M18 15v6"/><path d="M21 18h-6"/><path d="M9 3.236v15"/></svg>
+              </button>
               <button type="button" class="secondary compact-btn" id="toriFillCharactersMainButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
-              <button type="button" id="newCharacterMainButton" class="secondary compact-btn" data-i18n="index.캐릭터">+ 캐릭터</button>
-              <button type="button" id="closeCharacterBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="newCharacterMainButton" class="secondary compact-btn settings-icon-btn" title="새 캐릭터" data-i18n-title="app.새_캐릭터" aria-label="새 캐릭터" data-i18n-aria-label="app.새_캐릭터">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
+              </button>
+              <button type="button" id="closeCharacterBoardButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div class="character-board-view-bar">
@@ -3595,8 +3659,12 @@
               </div>
             </div>
             <div class="character-board-actions">
-              <button type="button" id="newItemMainButton" class="secondary compact-btn" data-i18n="index.아이템">+ 아이템</button>
-              <button type="button" id="closeItemBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="newItemMainButton" class="secondary compact-btn settings-icon-btn" title="새 아이템" data-i18n-title="app.새_아이템" aria-label="새 아이템" data-i18n-aria-label="app.새_아이템">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 22V12"/><path d="M16 17h6"/><path d="M19 14v6"/><path d="M21 10.535V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.729l7 4a2 2 0 0 0 2 .001l1.675-.955"/><path d="M3.29 7 12 12l8.71-5"/><path d="m7.5 4.27 8.997 5.148"/></svg>
+              </button>
+              <button type="button" id="closeItemBoardButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div id="itemBoardGrid" class="character-board-grid" aria-label="아이템 카드 목록" data-i18n-aria-label="index.아이템_카드_목록"></div>
@@ -3612,8 +3680,12 @@
               </div>
             </div>
             <div class="character-board-actions">
-              <button type="button" id="newDictionaryMainButton" class="secondary compact-btn" data-i18n="index.plus_단어">+ 단어</button>
-              <button type="button" id="closeDictionaryBoardButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="newDictionaryMainButton" class="secondary compact-btn settings-icon-btn" title="새 단어" data-i18n-title="index.새_단어" aria-label="새 단어" data-i18n-aria-label="index.새_단어">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12 7v6"/><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H19a1 1 0 0 1 1 1v18a1 1 0 0 1-1 1H6.5a1 1 0 0 1 0-5H20"/><path d="M9 10h6"/></svg>
+              </button>
+              <button type="button" id="closeDictionaryBoardButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div class="dictionary-board-layout">
@@ -3639,7 +3711,9 @@
                 <textarea id="dictionaryMemo" rows="3" placeholder="발음, 출처, 주의할 점 등" data-i18n-placeholder="index.발음_출처_주의할_점_등"></textarea>
               </label>
               <div class="dictionary-editor-actions">
-                <button type="submit" class="primary" id="dictionarySaveButton" data-i18n="app.저장">저장</button>
+                <button type="submit" class="primary settings-icon-btn" id="dictionarySaveButton" title="저장" data-i18n-title="app.저장" aria-label="저장" data-i18n-aria-label="app.저장">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
+                </button>
                 <button type="button" class="secondary" id="dictionaryDeleteButton" data-i18n="app.삭제">삭제</button>
               </div>
             </form>
@@ -3653,7 +3727,9 @@
               <p class="hint" data-i18n="index.캐릭터_아이템_세계관_관계를_한_번에_찾아요">캐릭터·아이템·세계관·관계를 한 번에 찾아요.</p>
             </div>
             <div class="character-board-actions">
-              <button type="button" id="closeSettingsSearchButton" class="secondary compact-btn" data-i18n="app.닫기">닫기</button>
+              <button type="button" id="closeSettingsSearchButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>
+              </button>
             </div>
           </div>
           <div id="settingsSearchHome" class="settings-search-home">
@@ -9386,6 +9462,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.182"></script>
+    <script src="/app.js?v=1.4.185"></script>
   </body>
 </html>
