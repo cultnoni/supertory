@@ -21,6 +21,9 @@ class BackendCrashLogTests(unittest.TestCase):
         app.DATA_DIR = self.original_data_dir
         self.temporary_directory.cleanup()
 
+    def test_force_unbuffered_stdio_does_not_raise(self) -> None:
+        app._force_unbuffered_stdio()
+
     def test_append_writes_under_data_dir(self) -> None:
         app._append_backend_crash_log("hello crash")
         path = app.backend_crash_log_path()

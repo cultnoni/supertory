@@ -861,6 +861,14 @@ def _record_uncaught_exception(exc_type, exc, tb, *, origin: str = "sys.exceptho
     import traceback
 
     try:
+        if sys.stdout is not None:
+            sys.stdout.flush()
+        if sys.stderr is not None:
+            sys.stderr.flush()
+    except Exception:
+        pass
+
+    try:
         stamp = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%fZ")
         body = "".join(traceback.format_exception(exc_type, exc, tb))
         _append_backend_crash_log(
@@ -897,6 +905,32 @@ def _install_backend_crash_hooks() -> None:
 
 
 _install_backend_crash_hooks()
+
+
+def _force_unbuffered_stdio() -> None:
+    """Flush prints to Electron pipes promptly. Does not change log format or crash UI."""
+    for stream in (sys.stdout, sys.stderr):
+        if stream is None:
+            continue
+        reconfigure = getattr(stream, "reconfigure", None)
+        if not callable(reconfigure):
+            continue
+        try:
+            reconfigure(
+                encoding="utf-8",
+                errors="replace",
+                line_buffering=True,
+                write_through=True,
+            )
+        except Exception:
+            try:
+                reconfigure(line_buffering=True)
+            except Exception:
+                pass
+        try:
+            stream.flush()
+        except Exception:
+            pass
 
 
 def get_typeset_service() -> TypesetService:
@@ -28670,13 +28704,8 @@ def _run_due_project_snapshots() -> None:
 
 def main(argv: list[str] | None = None) -> None:
     # Windows consoles often use cp949; paths under OneDrive/文档 must not crash prints.
-    for stream in (sys.stdout, sys.stderr):
-        reconfigure = getattr(stream, "reconfigure", None)
-        if callable(reconfigure):
-            try:
-                reconfigure(encoding="utf-8", errors="replace")
-            except Exception:
-                pass
+    # Also force line-buffered / write-through so crash logs are not stuck in the stdio buffer.
+    _force_unbuffered_stdio()
 
     argv = list(sys.argv[1:] if argv is None else argv)
     package_path = parse_launch_args(argv)

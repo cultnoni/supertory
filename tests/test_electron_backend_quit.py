@@ -67,6 +67,7 @@ class ElectronBackendQuitTests(unittest.TestCase):
             "function stopBackendServer()", 1
         )[0]
         self.assertIn("beginBackendCrashLog(launch)", spawn_block)
+        self.assertIn('PYTHONUNBUFFERED: "1"', spawn_block)
         self.assertIn("appendBackendCrashLog(rememberBackendLogChunk(chunk))", spawn_block)
         self.assertIn("backendProcess.on(\"exit\"", spawn_block)
         self.assertIn("isQuitting: ${isQuitting}", spawn_block)
