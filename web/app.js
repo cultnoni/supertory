@@ -70562,7 +70562,7 @@ function renderEpisodeChrome() {
       return `
         <div class="episode-tab${active ? " is-active" : ""}" role="tab" aria-selected="${active ? "true" : "false"}" data-episode-tab="${id}" title="${escapeHtml(title)}">
           <span class="episode-tab-title">${escapeHtml(title)}</span>
-          <button type="button" class="episode-tab-close" data-episode-close="${id}" title="${i18n.t('app.탭_닫기')}" aria-label="${i18n.t('app.탭_닫기')}">×</button>
+          <button type="button" class="episode-tab-close" data-episode-close="${id}" title="${i18n.t('app.탭_닫기')}" aria-label="${i18n.t('app.탭_닫기')}"><span aria-hidden="true">×</span></button>
         </div>`;
     }).join("");
   }
@@ -70585,15 +70585,23 @@ function setupEpisodeChrome() {
   // Live: long center title shrinks prev/next labels
   $("sceneTitle")?.addEventListener("input", scheduleEpisodeNavLayout);
   window.addEventListener("resize", scheduleEpisodeNavLayout);
+  const episodeTabEventEl = (event) => {
+    const path = typeof event.composedPath === "function" ? event.composedPath() : [];
+    const fromPath = path.find((node) => node instanceof Element);
+    if (fromPath) return fromPath;
+    const target = event.target;
+    return target instanceof Element ? target : target?.parentElement || null;
+  };
   $("episodeTabBar")?.addEventListener("click", (event) => {
-    const closeId = event.target.closest?.("[data-episode-close]")?.dataset?.episodeClose;
+    const el = episodeTabEventEl(event);
+    const closeId = el?.closest?.("[data-episode-close]")?.dataset?.episodeClose;
     if (closeId) {
       event.preventDefault();
       event.stopPropagation();
       closeEpisodeTab(Number(closeId));
       return;
     }
-    const tab = event.target.closest?.("[data-episode-tab]");
+    const tab = el?.closest?.("[data-episode-tab]");
     if (!tab) return;
     const id = Number(tab.dataset.episodeTab);
     if (id) requestOpenScene(id);
@@ -70601,7 +70609,7 @@ function setupEpisodeChrome() {
   // Middle-click closes tab (browser-like).
   $("episodeTabBar")?.addEventListener("auxclick", (event) => {
     if (event.button !== 1) return;
-    const tab = event.target.closest?.("[data-episode-tab]");
+    const tab = episodeTabEventEl(event)?.closest?.("[data-episode-tab]");
     if (!tab) return;
     event.preventDefault();
     closeEpisodeTab(Number(tab.dataset.episodeTab));

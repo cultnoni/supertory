@@ -1121,8 +1121,15 @@ html.is-electron .create-menu,
 html.is-electron .genre-display,
 html.is-electron .purpose-display,
 html.is-electron .offline-mode-badge,
-html.is-electron .offline-mode-hint {
+html.is-electron .offline-mode-hint,
+html.is-electron .work-area,
+html.is-electron .episode-chrome,
+html.is-electron .episode-tab-bar,
+html.is-electron .episode-tab,
+html.is-electron .episode-tab-title,
+html.is-electron .episode-tab-close {
   -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 html.is-electron-mac .app-titlebar {
   padding-left: 78px;
@@ -4104,8 +4111,36 @@ body.dock-rail-ordering {
 }
 #settingsBinder .settings-panel-top {
   flex-shrink: 0;
-  padding-top: 2mm;
-  padding-bottom: calc(6px + 2mm);
+  padding-top: 0;
+  padding-bottom: 6px;
+}
+#settingsBinder .panel-heading {
+  position: relative;
+  display: grid;
+  grid-template-columns: 32px minmax(0, 1fr) 32px;
+  align-items: center;
+  justify-content: stretch;
+  gap: 0;
+  min-height: 28px;
+  margin: 0;
+}
+#settingsBinder .panel-heading h2 {
+  grid-column: 1 / -1;
+  grid-row: 1;
+  margin: 0;
+  padding: 0;
+  text-align: center;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.08em;
+  line-height: 1.2;
+  color: var(--ink);
+}
+#settingsBinder .panel-heading-actions {
+  grid-column: 3;
+  grid-row: 1;
+  justify-self: end;
+  z-index: 1;
 }
 #settingsBinder .settings-guide-tip {
   flex-shrink: 0;
@@ -14849,6 +14884,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area {
   min-width: 0;
   min-height: 0;
+  /* 열린 회차 탭을 타이틀바 쪽으로 올리고, 하단은 main 바닥(=패널)에 맞춤 */
   height: calc(100% + 28px);
   margin-top: -28px;
   padding: 0;
@@ -16188,7 +16224,7 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   overflow-x: hidden;
   overflow-y: hidden;
   width: 100%;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 0;
 }
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .format-tool-item,
@@ -16197,8 +16233,8 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .analyze-menu-control,
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .format-split-control,
 .scene-workspace.split-active .format-toolbar-row-icons .format-toolbar-row-body .view-mode-control {
-  flex: 0 0 auto;
-  min-width: max-content;
+  flex: 1 1 0;
+  min-width: 0;
 }
 .scene-workspace.split-active .format-toolbar-row-format .format-toolbar-cluster,
 .scene-workspace.split-active .format-toolbar-row-format .format-seg {
@@ -16415,6 +16451,14 @@ body.split-pane-resizing * {
   transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
+}
+/* 우측 패널을 접으면 비교/분할 호버 바가 윈도 최소화·최대화 아래에 들어감 */
+html.is-electron body.ai-panel-collapsed .scene-workspace.split-active #splitViewer:not(.popup-mode) .split-head-chrome,
+html.is-electron body.ai-panel-collapsed .focus-write-card.is-split #splitViewer:not(.popup-mode) .split-head-chrome {
+  padding-right: max(
+    var(--ms-h-gutter, 8px),
+    calc(100vw - env(titlebar-area-x, 100vw) - env(titlebar-area-width, 100vw) - var(--panel-dock-rail-w, 48px) + 10px)
+  );
 }
 @media (prefers-reduced-motion: reduce) {
   .scene-workspace.split-active #splitViewer:not(.popup-mode) .split-head-chrome,
@@ -17548,8 +17592,8 @@ body.ai-panel-collapsed .synopsis-writing-column {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   padding: 0;
   border: 0;
   border-radius: 8px;
@@ -19259,6 +19303,8 @@ button.alias-chip.is-tori-draft,
 }
 .episode-tab-close {
   flex: 0 0 auto;
+  position: relative;
+  z-index: 3;
   width: 18px;
   height: 18px;
   padding: 0;
@@ -19272,6 +19318,21 @@ button.alias-chip.is-tori-draft,
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.episode-tab-close > * {
+  pointer-events: none;
+}
+/* 가운데 작업칸이 타이틀바(32px) 위로 28px 겹침 — 드래그 영역이 × 클릭을 먹으면 안 됨 */
+.work-area,
+.episode-chrome,
+.episode-tab-bar,
+.episode-tab,
+.episode-tab-title {
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
 }
 .episode-tab-close:hover {
   background: #00000012;
@@ -20562,8 +20623,8 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 /* 아이콘바: 12개 도구가 행 폭에 맞춰 같은 비율로 늘어남 */
 .format-toolbar-row-icons .format-toolbar-row-body.format-toolbar-row-body-split {
   display: flex !important;
-  justify-content: space-between;
-  align-items: center;
+  justify-content: flex-start;
+  align-items: stretch;
   width: 100%;
   min-width: 0;
   gap: 0;
@@ -20590,15 +20651,16 @@ body[data-ui-scheme="dark"] .writing-block.manuscript-frame .scene-status-shell 
 .format-toolbar-row-icons .format-toolbar-cluster-end {
   display: contents;
 }
-/* 아이콘 균등 폭. 중첩 버튼(분할·분석 래퍼 안)은 아래 규칙에서 flex 해제 */
+/* 아이콘 균등 폭 — 라벨 길이와 무관하게 12칸 동일 */
 .format-toolbar-row-icons .format-toolbar-row-body .format-tool-item,
 .format-toolbar-row-icons .format-toolbar-row-body .format-tool-slot,
 .format-toolbar-row-icons .format-toolbar-row-body .format-analyze-control,
 .format-toolbar-row-icons .format-toolbar-row-body .analyze-menu-control,
 .format-toolbar-row-icons .format-toolbar-row-body .format-split-control,
 .format-toolbar-row-icons .format-toolbar-row-body .view-mode-control {
-  flex: 0 0 auto;
-  min-width: max-content;
+  flex: 1 1 0;
+  width: auto;
+  min-width: 0;
   max-width: none;
   justify-content: center;
   align-self: stretch;
@@ -25490,9 +25552,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 }
 .scene-characters-hint,
 .spellcheck-guide,
-.reference-links-guide,
-.spellcheck-toolbar .hint,
-.reference-links-heading .hint {
+.spellcheck-toolbar .hint {
   margin: 0 !important;
   color: var(--muted) !important;
   font-size: 12px !important;
@@ -25671,31 +25731,12 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   overflow: hidden;
   box-sizing: border-box;
 }
-.reference-links-heading {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 8px;
-  margin-bottom: 8px;
-  min-width: 0;
-}
-.reference-links-guide {
-  flex: 1 1 auto;
-  min-width: 0;
-}
-.reference-links-heading > div:first-child {
-  min-width: 0;
-  flex: 1 1 auto;
-}
-.reference-links-heading h3 {
-  margin: 0 0 2px;
-  font-size: 13px;
-}
 .reference-add-actions {
   display: flex;
   gap: 4px;
   flex-wrap: nowrap;
   flex: 0 0 auto;
+  margin-left: auto;
 }
 .reference-add-actions button {
   white-space: nowrap;
@@ -25709,9 +25750,11 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 }
 .reference-kind-tabs {
   display: flex;
+  align-items: center;
   gap: 5px;
   margin-bottom: 8px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
 }
 .reference-kind-tab {
   border: 1px solid var(--line);
@@ -25724,6 +25767,7 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   cursor: pointer;
   min-height: 28px;
   line-height: 1.2;
+  flex: 0 0 auto;
 }
 .reference-kind-tab.is-active {
   background: color-mix(in srgb, var(--primary, var(--accent)) 14%, var(--bg-surface, var(--surface)));
@@ -26120,14 +26164,22 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-timer-btn,
 .format-toolbar-row-icons .format-tool-item {
   width: auto;
-  min-width: 40px;
+  min-width: 0;
   max-width: none;
   height: auto;
   min-height: 0;
   max-height: none;
-  padding: 3px 4px 4px;
+  padding: 3px 2px 4px;
   overflow: visible;
   line-height: 1;
+}
+.format-toolbar-row-icons .format-tool-label {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 11px;
+  line-height: 1.1;
 }
 .format-toolbar-row-icons .format-tool-glyph {
   width: 24px;
@@ -26137,10 +26189,6 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .format-toolbar-row-icons .format-viewer-icon {
   width: 22px !important;
   height: 22px !important;
-}
-.format-toolbar-row-icons .format-tool-label {
-  font-size: 11px;
-  line-height: 1.1;
 }
 /* 분할 화면: 라벨은 아이콘 칸 폭을 따르고, 넘치는 도구는 » 메뉴로 */
 .format-viewer-comments-dot {
@@ -26171,6 +26219,10 @@ summary { cursor: pointer; color: var(--muted); font-size: 13px; }
   height: 15px;
   font-size: 10px;
   line-height: 15px;
+}
+/* on 배지는 숫자보다 넓어 아이콘을 가림 → 살짝 우측으로 */
+.format-toolbar-row-icons .format-tool-badge.feature-chip-count.feature-chip-on {
+  right: -5px;
 }
 
 /* 테마별 개수 뱃지 — 테마 포인트색보다 한 톤 더 진하고 대비 있게 (크기는 그대로) */

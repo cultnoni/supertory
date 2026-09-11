@@ -259,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.197">
+    <link rel="stylesheet" href="/styles.css?v=1.4.206">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -2793,17 +2793,14 @@
               </div>
               <div class="tool-panel hidden" data-tool-panel="links">
                 <section class="reference-links-panel" aria-label="참고 자료" data-i18n-aria-label="app.참고_자료">
-                  <div class="reference-links-heading">
-                    <p class="hint reference-links-guide" data-i18n="index.링크와_파일을_나눠_저장합니다_설정집">링크와 파일을 나눠 저장합니다. 설정집 <strong data-i18n="app.참고자료_출처">참고자료·출처</strong>에도 함께 보관됩니다.</p>
-                    <div class="reference-add-actions">
-                      <button type="button" id="addReferenceLinkButton" class="secondary" title="웹 링크 추가" data-i18n-title="index.웹_링크_추가" data-i18n="index.링크">+ 링크</button>
-                      <button type="button" id="addReferenceFileButton" class="secondary" title="PDF·Word·한글·텍스트 파일 추가" data-i18n-title="index.PDF_Word_한글_텍스트_파일_추가" data-i18n="index.파일">+ 파일</button>
-                    </div>
-                  </div>
                   <div class="reference-kind-tabs" role="tablist" aria-label="자료 종류" data-i18n-aria-label="index.자료_종류">
                     <button type="button" class="reference-kind-tab is-active" data-ref-kind-filter="all" role="tab" aria-selected="true" data-i18n="app.전체">전체</button>
                     <button type="button" class="reference-kind-tab" data-ref-kind-filter="link" role="tab" aria-selected="false" data-i18n="app.링크">링크</button>
                     <button type="button" class="reference-kind-tab" data-ref-kind-filter="file" role="tab" aria-selected="false" data-i18n="app.파일">파일</button>
+                    <div class="reference-add-actions">
+                      <button type="button" id="addReferenceLinkButton" class="secondary" title="웹 링크 추가" data-i18n-title="index.웹_링크_추가" data-i18n="index.링크">+ 링크</button>
+                      <button type="button" id="addReferenceFileButton" class="secondary" title="PDF·Word·한글·텍스트 파일 추가" data-i18n-title="index.PDF_Word_한글_텍스트_파일_추가" data-i18n="index.파일">+ 파일</button>
+                    </div>
                   </div>
                   <input
                     type="file"
@@ -2872,7 +2869,7 @@
                     >편집모드</button>
                   </div>
                   <div id="splitCompareChrome" class="split-compare-chrome hidden">
-                    <span id="splitCompareLabel" class="split-compare-label" data-i18n="app.비교_보기_고정됨">비교 보기 · 고정됨</span>
+                    <span id="splitCompareLabel" class="split-compare-label" data-i18n="app.비교_보기_고정됨">읽기 모드</span>
                     <button
                       type="button"
                       id="refreshCompareSplitButton"
@@ -9507,6 +9504,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.187"></script>
+    <script src="/app.js?v=1.4.188"></script>
   </body>
 </html>
