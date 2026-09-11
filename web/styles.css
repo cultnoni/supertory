@@ -14912,14 +14912,16 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area > #welcome.welcome-screen {
   /* white card + tips same column; wider for +1 intro font step */
   --welcome-col-width: 46rem;
+  /* Same chrome gap as .outline-panel / .ai-panel so the card top lines up */
+  --welcome-align-top: max(0px, calc(10px - 2mm));
+  --welcome-card-extra-top: calc(clamp(10px, 2vh, 24px) + 5mm - var(--welcome-align-top));
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 12px;
   min-height: 100%;
   box-sizing: border-box;
-  /* Whole welcome block nudged down 5mm; keep tips/card alignment */
-  padding-top: calc(clamp(10px, 2vh, 24px) + 5mm);
+  padding-top: var(--welcome-align-top);
   padding-bottom: 12px;
   justify-content: flex-start;
 }
@@ -14932,8 +14934,8 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   max-width: var(--welcome-col-width);
   width: min(var(--welcome-col-width), 100%);
   margin: 0 auto;
-  /* 위·아래 1cm 여백 */
-  padding: 1cm 26px;
+  /* 위·아래 1cm + 패널 정렬로 생긴 윗여백. 마스코트·인사는 그 안에서 조금 올림 */
+  padding: calc(1cm + var(--welcome-card-extra-top, 0px)) 26px 1cm;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 14px;
@@ -14947,20 +14949,20 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .welcome-mascot {
   display: flex;
   justify-content: center;
-  margin: 0 0 2px;
+  margin: -4mm 0 2px;
 }
 .welcome-mascot-stage {
   position: relative;
-  width: 148px;
-  height: 114px;
+  width: 176px;
+  height: 156px;
   overflow: visible;
   filter: drop-shadow(0 8px 16px rgba(120, 70, 30, 0.18));
 }
 .welcome-tory-mascot,
 .welcome-tory-video {
   display: block;
-  width: 148px;
-  height: 114px;
+  width: 176px;
+  height: 156px;
   object-fit: contain;
   background: transparent;
   pointer-events: none;
@@ -15061,7 +15063,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   flex: 0 0 auto;
 }
 .welcome-tory-blurb {
-  margin: 0;
+  margin: 4mm 0 0;
   text-align: left;
   width: 100%;
   max-width: 100%;
@@ -15162,7 +15164,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
     gap: 10px;
   }
   .welcome-card {
-    padding: 1cm 16px;
+    padding: calc(1cm + var(--welcome-card-extra-top, 0px)) 16px 1cm;
   }
 }
 @media (max-width: 640px) {
