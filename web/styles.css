@@ -16406,10 +16406,12 @@ body.split-pane-resizing * {
 .scene-workspace.split-active #splitViewer:not(.popup-mode):has(.split-head-chrome:hover) .split-head-chrome,
 .scene-workspace.split-active #splitViewer:not(.popup-mode):has(.split-head-chrome:focus-within) .split-head-chrome,
 .scene-workspace.split-active #splitViewer:not(.popup-mode):has(#switchSplitModeButton[aria-expanded="true"]) .split-head-chrome,
+.scene-workspace.split-active #splitViewer:not(.popup-mode).is-head-pinned .split-head-chrome,
 .focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-hotzone:hover) .split-head-chrome,
 .focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-chrome:hover) .split-head-chrome,
 .focus-write-card.is-split #splitViewer:not(.popup-mode):has(.split-head-chrome:focus-within) .split-head-chrome,
-.focus-write-card.is-split #splitViewer:not(.popup-mode):has(#switchSplitModeButton[aria-expanded="true"]) .split-head-chrome {
+.focus-write-card.is-split #splitViewer:not(.popup-mode):has(#switchSplitModeButton[aria-expanded="true"]) .split-head-chrome,
+.focus-write-card.is-split #splitViewer:not(.popup-mode).is-head-pinned .split-head-chrome {
   transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
@@ -17804,7 +17806,8 @@ body[data-ui-scheme="dark"] .world-main-card {
   font-family: Georgia, "Malgun Gothic", serif;
   font-size: 22px;
 }
-.character-board-guide {
+.character-board-guide,
+.settings-search-guide {
   margin: 6px 0 0;
   max-width: 42em;
 }
@@ -22602,7 +22605,8 @@ body.page-write-open #sceneContent {
 .focus-write-modal.is-fullscreen .focus-write-card:has(.focus-write-head:hover) .focus-write-head,
 .focus-write-modal.is-fullscreen .focus-write-card:has(.focus-write-head:focus-within) .focus-write-head,
 .focus-write-modal.is-fullscreen:has(#focusWriteSplitButton[aria-expanded="true"]) .focus-write-head,
-.focus-write-modal.is-fullscreen:has(#focusWriteZoomButton[aria-expanded="true"]) .focus-write-head {
+.focus-write-modal.is-fullscreen:has(#focusWriteZoomButton[aria-expanded="true"]) .focus-write-head,
+.focus-write-modal.is-fullscreen .focus-write-card.is-head-pinned .focus-write-head {
   transform: translateY(0);
   opacity: 1;
   pointer-events: auto;
@@ -22919,7 +22923,8 @@ html.is-electron .viewer-modal.is-maximized {
   overflow-wrap: break-word;
 }
 .viewer-head-actions .viewer-icon-btn,
-.focus-write-actions .viewer-icon-btn {
+.focus-write-actions .viewer-icon-btn,
+.split-heading-actions .viewer-icon-btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -22928,9 +22933,16 @@ html.is-electron .viewer-modal.is-maximized {
   padding: 0 !important;
 }
 .viewer-head-actions .viewer-icon-btn svg,
-.focus-write-actions .viewer-icon-btn svg {
+.focus-write-actions .viewer-icon-btn svg,
+.split-heading-actions .viewer-icon-btn svg {
   display: block;
   flex: 0 0 auto;
+}
+#focusWritePinHeadButton[aria-pressed="true"],
+#splitPinHeadButton[aria-pressed="true"] {
+  color: var(--accent, var(--ink));
+  background: var(--selection, var(--surface-2));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent, currentColor) 55%, transparent);
 }
 #viewerMaximizeButton.is-window .viewer-max-icon-expand,
 #viewerMaximizeButton:not(.is-window) .viewer-max-icon-window,

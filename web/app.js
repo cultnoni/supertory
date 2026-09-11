@@ -138,6 +138,7 @@ async function setLanguage(lang) {
   if (typeof syncAdminAuthModeUi === "function") syncAdminAuthModeUi();
   if (typeof syncOfflineModeBadge === "function") syncOfflineModeBadge();
   if (typeof syncEditorViewZoomChrome === "function") syncEditorViewZoomChrome();
+  if (typeof syncHoverHeadPins === "function") syncHoverHeadPins();
   if (
     typeof refreshAdminAccountPanel === "function"
     && $("adminModal")
@@ -11800,7 +11801,7 @@ function renderSettingsSearchResults(payload, query) {
   if (!root) return;
   const q = String(query || "").trim();
   if (!q) {
-    root.innerHTML = `<p class="hint settings-search-empty">${escapeHtml(i18n.t("index.캐릭터_아이템_세계관_관계를_한_번에_찾아요"))}</p>`;
+    root.innerHTML = "";
     return;
   }
   const groups = [
@@ -52643,6 +52644,71 @@ function saveFocusWriteFullscreen(on) {
   }
 }
 
+const FOCUS_WRITE_HEAD_PIN_KEY = "supertory.focusWriteHeadPinned";
+const SPLIT_HEAD_PIN_KEY = "supertory.splitHeadPinned";
+
+function loadHeadChromePinned(key) {
+  try {
+    return localStorage.getItem(key) === "1";
+  } catch (_) {
+    return false;
+  }
+}
+
+function saveHeadChromePinned(key, on) {
+  try {
+    localStorage.setItem(key, on ? "1" : "0");
+  } catch (_) {
+    /* ignore */
+  }
+}
+
+function syncHeadPinButton(btn, pinned) {
+  if (!btn) return;
+  const key = pinned ? "index.제목_바_고정_해제" : "index.제목_바_고정";
+  btn.setAttribute("aria-pressed", pinned ? "true" : "false");
+  btn.title = i18n.t(key);
+  btn.setAttribute("data-i18n-title", key);
+  btn.setAttribute("aria-label", i18n.t(key));
+  btn.setAttribute("data-i18n-aria-label", key);
+}
+
+function applyFocusWriteHeadPin(on, { persist = true } = {}) {
+  const pinned = Boolean(on);
+  $("focusWriteCard")?.classList.toggle("is-head-pinned", pinned);
+  syncHeadPinButton($("focusWritePinHeadButton"), pinned);
+  if (persist) saveHeadChromePinned(FOCUS_WRITE_HEAD_PIN_KEY, pinned);
+}
+
+function applySplitHeadPin(on, { persist = true } = {}) {
+  const pinned = Boolean(on);
+  $("splitViewer")?.classList.toggle("is-head-pinned", pinned);
+  syncHeadPinButton($("splitPinHeadButton"), pinned);
+  if (persist) saveHeadChromePinned(SPLIT_HEAD_PIN_KEY, pinned);
+}
+
+function syncHoverHeadPins() {
+  applyFocusWriteHeadPin(loadHeadChromePinned(FOCUS_WRITE_HEAD_PIN_KEY), { persist: false });
+  applySplitHeadPin(loadHeadChromePinned(SPLIT_HEAD_PIN_KEY), { persist: false });
+}
+
+function setupHoverHeadPins() {
+  if (!setupHoverHeadPins._bound) {
+    setupHoverHeadPins._bound = true;
+    $("focusWritePinHeadButton")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applyFocusWriteHeadPin(!$("focusWriteCard")?.classList.contains("is-head-pinned"));
+    });
+    $("splitPinHeadButton")?.addEventListener("click", (event) => {
+      event.preventDefault();
+      event.stopPropagation();
+      applySplitHeadPin(!$("splitViewer")?.classList.contains("is-head-pinned"));
+    });
+  }
+  syncHoverHeadPins();
+}
+
 function isFocusWriteFullscreen() {
   return Boolean($("focusWriteModal")?.classList.contains("is-fullscreen"));
 }
@@ -59890,6 +59956,7 @@ const GUIDE_TIP_DEFS = [
   { id: "keywordBoard", label: i18n.t('app.장르_키워드_안내') },
   { id: "worldHint", label: i18n.t('app.세계관_안내') },
   { id: "characterBoard", label: i18n.t('app.캐릭터_메인_안내') },
+  { id: "settingsSearch", label: i18n.t('app.크로스_레퍼런스_안내') },
   { id: "itemBoard", label: i18n.t('app.아이템_메인_안내') },
   { id: "dictionaryBoard", label: i18n.t('app.토리_사전_메인_안내') },
   { id: "dictionaryModal", label: i18n.t('app.토리_사전에_추가_안내') },
@@ -81658,6 +81725,7 @@ safeSetup("setupSettingsContextMenu", setupSettingsContextMenu);
 safeSetup("setupSceneFeatureBar", setupSceneFeatureBar);
 safeSetup("setupAnalyzeMenu", setupAnalyzeMenu);
 safeSetup("setupFocusWrite", setupFocusWrite);
+safeSetup("setupHoverHeadPins", setupHoverHeadPins);
 safeSetup("setupPageWrite", setupPageWrite);
 safeSetup("setupViewModeShortcuts", setupViewModeShortcuts);
 safeSetup("setupViewerMode", setupViewerMode);

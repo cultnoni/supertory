@@ -259,7 +259,7 @@
       }
     </style>
 
-    <link rel="stylesheet" href="/styles.css?v=1.4.194">
+    <link rel="stylesheet" href="/styles.css?v=1.4.197">
     <link rel="stylesheet" href="/vendor/driver.js/driver.css">
     <script>
       /* After CSS: force E ink pure B/W (survives stale styles.css cache) */
@@ -657,8 +657,10 @@
                     data-i18n-aria-label="app.크로스_레퍼런스_시스템"
                   >
                     <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" focusable="false" aria-hidden="true">
-                      <circle cx="11" cy="11" r="6.25"/>
-                      <path d="M16 16.5 20.5 21"/>
+                      <path d="M11 22H5.5a1 1 0 0 1 0-5h4.501"/>
+                      <path d="m21 22-1.879-1.878"/>
+                      <path d="M3 19.5v-15A2.5 2.5 0 0 1 5.5 2H18a1 1 0 0 1 1 1v8"/>
+                      <circle cx="17" cy="18" r="3"/>
                     </svg>
                     <span class="sr-only" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</span>
                   </button>
@@ -879,7 +881,9 @@
                 <div class="settings-box-body" id="worldBody" hidden>
                   <div class="settings-field-head is-actions-only">
                     <div class="settings-field-actions">
-                      <button type="button" class="secondary compact-btn" id="toriFillWorldButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+                      <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillWorldButton" data-tori-fill="world" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+                      </button>
                       <button type="button" class="settings-inline-save settings-icon-btn" id="saveWorldButton" data-save-settings-doc="world" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
                       </button>
@@ -2885,6 +2889,21 @@
                     </button>
                   </div>
                   <div class="split-heading-actions">
+                    <button
+                      type="button"
+                      class="secondary compact-btn viewer-icon-btn"
+                      id="splitPinHeadButton"
+                      title="제목 바 고정" data-i18n-title="index.제목_바_고정"
+                      aria-label="제목 바 고정" data-i18n-aria-label="index.제목_바_고정"
+                      aria-pressed="false"
+                    >
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                        <path d="M12 6v16"/>
+                        <path d="m19 13 2-1a9 9 0 0 1-18 0l2 1"/>
+                        <path d="M9 11h6"/>
+                        <circle cx="12" cy="4" r="2"/>
+                      </svg>
+                    </button>
                     <div class="view-mode-control split-mode-control">
                       <button
                         id="switchSplitModeButton"
@@ -3045,7 +3064,9 @@
             </div>
             <div class="character-editor-actions">
               <span id="characterInfo" class="save-info"></span>
-              <button type="button" class="secondary compact-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+              <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillCharacterEditorButton" data-tori-fill="characters" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+              </button>
               <button type="button" id="characterChronicleButton" class="secondary compact-btn trait-chronicle-btn" aria-pressed="false" data-i18n="index.연대기" data-i18n-title="index.연대기" title="연대기">연대기</button>
               <button type="button" id="deleteCharacterButton" class="secondary compact-btn admin-danger-btn" data-i18n="index.인물_삭제">인물 삭제</button>
               <button type="submit" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="인물 설정 저장" data-i18n-aria-label="index.인물_설정_저장">
@@ -3200,7 +3221,9 @@
               </div>
               <div class="synopsis-main-actions">
                 <span id="synopsisSaveInfo" class="save-info"></span>
-                <button type="button" class="secondary compact-btn hidden" id="toriFillLogsynButton" hidden data-i18n="app.토리야_작성해줘" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로">토리야 작성해줘</button>
+                <button type="button" class="secondary compact-btn settings-icon-btn hidden" id="toriFillLogsynButton" hidden title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+                </button>
                 <button type="button" id="saveSynopsisMainButton" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
                   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
                 </button>
@@ -3492,7 +3515,9 @@
             </div>
             <div class="worldbuilding-main-actions">
               <span id="worldbuildingSaveInfo" class="save-info"></span>
-              <button type="button" class="secondary compact-btn" id="toriFillWorldMainButton" data-tori-fill="world" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+              <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillWorldMainButton" data-tori-fill="world" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+              </button>
               <button type="button" id="saveWorldbuildingMainButton" class="primary compact-btn settings-icon-btn" title="저장 (자동 저장됨)" data-i18n-title="index.저장_자동_저장됨" aria-label="저장" data-i18n-aria-label="app.저장">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M12.5 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h10.2a2 2 0 0 1 1.4.6l3.8 3.8a2 2 0 0 1 .6 1.4v4.35"/><path d="m16 19 2 2 4-4"/><path d="M17 15.13V14a1 1 0 0 0-1-1H8a1 1 0 0 0-1 1v7"/><path d="M7 3v4a1 1 0 0 0 1 1h7"/></svg>
               </button>
@@ -3524,7 +3549,9 @@
               <button type="button" class="secondary compact-btn settings-icon-btn" id="openRelationCanvasMainButton" title="관계 이어보기" data-i18n-title="app.관계_이어보기" aria-label="관계 이어보기" data-i18n-aria-label="app.관계_이어보기">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m11 19-1.106-.552a2 2 0 0 0-1.788 0l-3.659 1.83A1 1 0 0 1 3 19.381V6.618a1 1 0 0 1 .553-.894l4.553-2.277a2 2 0 0 1 1.788 0l4.212 2.106a2 2 0 0 0 1.788 0l3.659-1.83A1 1 0 0 1 21 4.619V12"/><path d="M15 5.764V12"/><path d="M18 15v6"/><path d="M21 18h-6"/><path d="M9 3.236v15"/></svg>
               </button>
-              <button type="button" class="secondary compact-btn" id="toriFillCharactersMainButton" data-tori-fill="characters" title="빈 칸만 채워요. 이미 적어 둔 내용은 그대로 둡니다" data-i18n-title="index.빈_칸만_채워요_이미_적어_둔_내용은_그대로" data-i18n="app.토리야_작성해줘">토리야 작성해줘</button>
+              <button type="button" class="secondary compact-btn settings-icon-btn" id="toriFillCharactersMainButton" data-tori-fill="characters" title="토리야 작성해줘" data-i18n-title="app.토리야_작성해줘" aria-label="토리야 작성해줘" data-i18n-aria-label="app.토리야_작성해줘">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M10 3H8"/><path d="m15.007 5.008 3.987 3.986"/><path d="M20 15v4"/><path d="M21.174 6.813a2.82 2.82 0 0 0-3.986-3.987L3.842 16.175a2 2 0 0 0-.5.83l-1.321 4.352a.5.5 0 0 0 .623.622l4.353-1.32a2 2 0 0 0 .83-.497z"/><path d="M22 17h-4"/><path d="M4 5v4"/><path d="M6 7H2"/><path d="M9 2v2"/></svg>
+              </button>
               <button type="button" id="newCharacterMainButton" class="secondary compact-btn settings-icon-btn" title="새 캐릭터" data-i18n-title="app.새_캐릭터" aria-label="새 캐릭터" data-i18n-aria-label="app.새_캐릭터">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M2 21a8 8 0 0 1 13.292-6"/><circle cx="10" cy="8" r="5"/><path d="M19 16v6"/><path d="M22 19h-6"/></svg>
               </button>
@@ -3724,7 +3751,10 @@
           <div class="character-board-toolbar">
             <div>
               <h2 class="character-board-title" data-i18n="app.크로스_레퍼런스_시스템">크로스 레퍼런스 시스템</h2>
-              <p class="hint" data-i18n="index.캐릭터_아이템_세계관_관계를_한_번에_찾아요">캐릭터·아이템·세계관·관계를 한 번에 찾아요.</p>
+              <div class="guide-tip-box settings-search-guide" data-guide-tip="settingsSearch" role="note">
+                <p class="hint guide-tip-text" data-i18n="index.캐릭터_아이템_세계관_관계를_한_번에_찾아요">캐릭터·아이템·세계관·관계를 한 번에 찾아요.</p>
+                <button type="button" class="outline-tip-dismiss" data-guide-tip-dismiss="settingsSearch" title="이 안내 숨기기" data-i18n-title="index.이_안내_숨기기" aria-label="안내 닫기" data-i18n-aria-label="index.안내_닫기">×</button>
+              </div>
             </div>
             <div class="character-board-actions">
               <button type="button" id="closeSettingsSearchButton" class="secondary compact-btn settings-icon-btn" title="닫기" data-i18n-title="app.닫기" aria-label="닫기" data-i18n-aria-label="app.닫기">
@@ -7632,6 +7662,21 @@
             <button
               type="button"
               class="secondary compact-btn viewer-icon-btn"
+              id="focusWritePinHeadButton"
+              title="제목 바 고정" data-i18n-title="index.제목_바_고정"
+              aria-label="제목 바 고정" data-i18n-aria-label="index.제목_바_고정"
+              aria-pressed="false"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.85" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false">
+                <path d="M12 6v16"/>
+                <path d="m19 13 2-1a9 9 0 0 1-18 0l2 1"/>
+                <path d="M9 11h6"/>
+                <circle cx="12" cy="4" r="2"/>
+              </svg>
+            </button>
+            <button
+              type="button"
+              class="secondary compact-btn viewer-icon-btn"
               id="focusWriteZoomButton"
               title="화면 배율 · Ctrl+휠로 조절" data-i18n-title="index.화면_배율_Ctrl_휠로_조절"
               aria-label="화면 배율" data-i18n-aria-label="index.화면_배율"
@@ -9462,6 +9507,6 @@
     <script src="/typeset_metrics.js?v=1.4.45"></script>
     <script src="/tory-check.js?v=1"></script>
     <script src="/smart-punctuation.js?v=1"></script>
-    <script src="/app.js?v=1.4.185"></script>
+    <script src="/app.js?v=1.4.187"></script>
   </body>
 </html>
