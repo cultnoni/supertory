@@ -3852,7 +3852,7 @@ function setupSimilarWordFind() {
   });
   document.addEventListener("click", (event) => {
     if (Date.now() < similarWordSuppressOutsideClickUntil) return;
-    if (event.target.closest("#similarWordPanel, #similarWordButton, #similarWordsMenuItem, #desktopContextMenu")) {
+    if (event.target.closest("#similarWordPanel, #similarWordButton, #similarWordsMenuItem, #desktopContextMenu, #selectionFloatBar")) {
       return;
     }
     closeSimilarWordPanel();
@@ -50205,6 +50205,550 @@ function hideDesktopContextMenu() {
   menu.classList.remove("is-text-selection");
 }
 
+function hideSelectionFloatBar({ keepMore = false } = {}) {
+  const bar = $("selectionFloatBar");
+  if (!bar) return;
+  bar.classList.add("hidden");
+  if (!keepMore) setSelectionFloatMoreOpen(false);
+  clearSelectionFloatLastRange();
+}
+
+function isSelectionFloatBarOpen() {
+  const bar = $("selectionFloatBar");
+  return Boolean(bar && !bar.classList.contains("hidden"));
+}
+
+function shouldShowSelectionFloatBius() {
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) return true;
+  const formatRow = document.querySelector('[data-toolbar-row="format-format"]');
+  if (!formatRow) return true;
+  if (formatRow.classList.contains("is-collapsed") || formatRow.hidden) return true;
+  if (formatRow.getAttribute("hidden") != null) return true;
+  return false;
+}
+
+function setSelectionFloatMoreOpen(open) {
+  const menu = $("selectionFloatMoreMenu");
+  const btn = $("selectionFloatMoreBtn");
+  if (!menu || !btn) return;
+  menu.classList.toggle("hidden", !open);
+  menu.hidden = !open;
+  btn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (!open) {
+    menu.querySelectorAll("[data-sel-cat]").forEach((cat) => {
+      cat.setAttribute("aria-expanded", "false");
+    });
+    menu.querySelectorAll("[data-sel-cat-panel]").forEach((panel) => {
+      panel.classList.add("hidden");
+      panel.hidden = true;
+    });
+    menu.style.left = "";
+    menu.style.top = "";
+    return;
+  }
+  positionSelectionFloatMoreMenu();
+}
+
+function positionSelectionFloatMoreMenu() {
+  const menu = $("selectionFloatMoreMenu");
+  const btn = $("selectionFloatMoreBtn");
+  if (!menu || !btn || menu.classList.contains("hidden")) return;
+  const pad = 8;
+  const gap = 6;
+  const rect = btn.getBoundingClientRect();
+  // Measure after visible so offsetWidth/Height are real.
+  const mw = menu.offsetWidth || 220;
+  const mh = menu.offsetHeight || 120;
+  let left = rect.right - mw;
+  let top = rect.bottom + gap;
+  if (left < pad) left = pad;
+  if (left + mw > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - mw - pad);
+  }
+  if (top + mh > window.innerHeight - pad) {
+    top = Math.max(pad, rect.top - mh - gap);
+  }
+  menu.style.left = `${Math.round(left)}px`;
+  menu.style.top = `${Math.round(top)}px`;
+}
+
+function setSelectionFloatCategoryOpen(catKey, open) {
+  const menu = $("selectionFloatMoreMenu");
+  if (!menu) return;
+  const catBtn = menu.querySelector(`[data-sel-cat="${catKey}"]`);
+  const panel = menu.querySelector(`[data-sel-cat-panel="${catKey}"]`);
+  if (catBtn) catBtn.setAttribute("aria-expanded", open ? "true" : "false");
+  if (panel) {
+    panel.classList.toggle("hidden", !open);
+    panel.hidden = !open;
+  }
+  // 카테고리 펼침으로 높이가 바뀌면 fixed 메뉴 위치를 다시 맞춤.
+  if (!menu.classList.contains("hidden")) {
+    requestAnimationFrame(() => positionSelectionFloatMoreMenu());
+  }
+}
+
+function syncSelectionFloatActionItems(editor, hasSelection) {
+  const isSettingsDoc = Boolean(editor && (editor.id === "synopsisContent" || editor.id === "synopsisContentB"));
+  const dictItem = $("lookupDictMenuItem");
+  if (dictItem) {
+    dictItem.disabled = !hasSelection;
+    dictItem.title = hasSelection
+      ? `${i18n.t("app.pendingBaitQuote_slice", { pendingBaitQuote })}`
+      : i18n.t("app.먼저_본문에서_단어_문장을_드래그로_선택하세");
+    dictItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const similarWordsItem = $("similarWordsMenuItem");
+  if (similarWordsItem) {
+    similarWordsItem.disabled = !hasSelection;
+    similarWordsItem.title = hasSelection
+      ? `${i18n.t("app.pendingBaitQuote_slice_2", {
+          'pendingBaitQuote.slice(0, 24)': pendingBaitQuote.slice(0, 24),
+          'pendingBaitQuote.length > 24 ? "…" : ""': pendingBaitQuote.length > 24 ? "…" : "",
+        })}`
+      : i18n.t("app.먼저_본문에서_단어_문장을_드래그로_선택하세");
+    similarWordsItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const addToryDictItem = $("addToryDictMenuItem");
+  if (addToryDictItem) {
+    addToryDictItem.disabled = !hasSelection;
+    addToryDictItem.title = hasSelection
+      ? i18n.t("index.토리_사전_추가_힌트")
+      : i18n.t("app.먼저_본문에서_단어_문장을_드래그로_선택하세");
+    addToryDictItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const crossRefItem = $("crossRefSearchMenuItem");
+  if (crossRefItem) {
+    crossRefItem.disabled = !hasSelection;
+    crossRefItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const askToryItem = $("askToryMenuItem");
+  if (askToryItem) {
+    askToryItem.disabled = !hasSelection;
+    askToryItem.title = hasSelection
+      ? i18n.t("app.선택_문장을_토리_1_1_대화_질문칸에_넣고")
+      : i18n.t("app.먼저_본문에서_단어_문장을_드래그로_선택하세");
+    askToryItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const rewriteItem = $("rewriteTextMenuItem") || $("rewriteSentenceMenuItem");
+  if (rewriteItem) {
+    rewriteItem.disabled = !hasSelection;
+    rewriteItem.title = hasSelection
+      ? i18n.t("app.토리는_문장을_억지로_다듬지_않아요_이미_충")
+      : i18n.t("app.먼저_본문에서_다듬을_문장을_드래그로_선택하");
+    rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
+  }
+  const throwItem = $("throwBaitMenuItem");
+  if (throwItem) {
+    const canBait = hasSelection && Boolean(state.sceneId) && !isSettingsDoc;
+    throwItem.disabled = !canBait;
+    throwItem.title = isSettingsDoc
+      ? i18n.t("app.설정_문서에서는_떡밥_던지기를_쓸_수_없어요")
+      : !state.sceneId
+        ? i18n.t("app.떡밥을_심을_회차를_먼저_열어_주세요_2")
+        : hasSelection
+          ? i18n.t("app.선택_문장을_설정집_떡밥모음에_넣어요")
+          : i18n.t("app.먼저_본문에서_문장을_드래그로_선택하세요");
+    throwItem.style.opacity = canBait ? "1" : "0.45";
+  }
+  const footnoteItem = $("addFootnoteMenuItem");
+  if (footnoteItem) {
+    const sceneOk = Boolean(state.sceneId) || isSettingsDoc;
+    const canAdd = sceneOk && hasSelection;
+    footnoteItem.disabled = !canAdd;
+    footnoteItem.style.opacity = canAdd ? "1" : "0.45";
+    footnoteItem.title = !sceneOk
+      ? i18n.t("app.각주를_달려면_먼저_문서를_열어_주세요")
+      : i18n.t("app.선택한_문장에_각주를_답니다");
+  }
+  syncAuthorNoteContextMenu(editor, isSettingsDoc);
+}
+
+function positionSelectionFloatBar() {
+  const bar = $("selectionFloatBar");
+  if (!bar || bar.classList.contains("hidden")) return;
+  const selection = window.getSelection();
+  if (!selection || !selection.rangeCount || selection.isCollapsed) return;
+  let rect;
+  try {
+    rect = selection.getRangeAt(0).getBoundingClientRect();
+  } catch (_) {
+    return;
+  }
+  if (!rect || (rect.width === 0 && rect.height === 0)) {
+    const rects = selection.getRangeAt(0).getClientRects();
+    if (rects && rects.length) rect = rects[0];
+  }
+  if (!rect) return;
+  const pad = 8;
+  const gap = 8;
+  bar.style.left = "0px";
+  bar.style.top = "0px";
+  const barRect = bar.getBoundingClientRect();
+  let left = rect.left + (rect.width / 2) - (barRect.width / 2);
+  let top = rect.top - barRect.height - gap;
+  if (top < pad) top = rect.bottom + gap;
+  if (left < pad) left = pad;
+  if (left + barRect.width > window.innerWidth - pad) {
+    left = Math.max(pad, window.innerWidth - barRect.width - pad);
+  }
+  if (top + barRect.height > window.innerHeight - pad) {
+    top = Math.max(pad, window.innerHeight - barRect.height - pad);
+  }
+  bar.style.left = `${Math.round(left)}px`;
+  bar.style.top = `${Math.round(top)}px`;
+}
+
+function refreshSelectionFloatBiusVisibility() {
+  const bius = $("selectionFloatBius");
+  if (!bius) return;
+  const show = shouldShowSelectionFloatBius();
+  bius.classList.toggle("hidden", !show);
+}
+
+/** Last selection shown on the float bar — used to keep 더보기 open on no-op refresh. */
+let selectionFloatLastEditorId = null;
+let selectionFloatLastRange = null;
+
+function clearSelectionFloatLastRange() {
+  selectionFloatLastEditorId = null;
+  selectionFloatLastRange = null;
+}
+
+function isSameSelectionFloatRange(editor, range) {
+  if (!editor || !range || !selectionFloatLastRange) return false;
+  if ((editor.id || "") !== (selectionFloatLastEditorId || "")) return false;
+  try {
+    return selectionFloatLastRange.compareBoundaryPoints(Range.START_TO_START, range) === 0
+      && selectionFloatLastRange.compareBoundaryPoints(Range.END_TO_END, range) === 0;
+  } catch (_) {
+    // Detached nodes after DOM edits — treat as changed.
+    return false;
+  }
+}
+
+function rememberSelectionFloatRange(editor, range) {
+  selectionFloatLastEditorId = editor?.id || null;
+  try {
+    selectionFloatLastRange = range ? range.cloneRange() : null;
+  } catch (_) {
+    selectionFloatLastRange = null;
+  }
+}
+
+function showSelectionFloatBar(editor) {
+  const bar = $("selectionFloatBar");
+  if (!bar || !editor) return;
+  const quote = getSelectedManuscriptText(editor);
+  if (!quote) {
+    hideSelectionFloatBar();
+    return;
+  }
+  hideDesktopContextMenu();
+  contextMenuEditor = editor;
+  pendingBaitQuote = quote;
+  let currentRange = null;
+  const selection = window.getSelection();
+  if (selection && selection.rangeCount && !selection.isCollapsed) {
+    try {
+      currentRange = selection.getRangeAt(0).cloneRange();
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  const selectionUnchanged = isSameSelectionFloatRange(editor, currentRange);
+  if (currentRange) {
+    manuscriptContextRange = currentRange;
+    rememberSelectionFloatRange(editor, currentRange);
+  }
+  syncSelectionFloatActionItems(editor, true);
+  refreshSelectionFloatBiusVisibility();
+  // 더보기 클릭 → mouseup 갱신처럼 선택이 그대로면 드롭다운을 유지한다.
+  if (!selectionUnchanged) setSelectionFloatMoreOpen(false);
+  bar.classList.remove("hidden");
+  positionSelectionFloatBar();
+}
+
+const SELECTION_FLOAT_EDITOR_SELECTOR =
+  "#sceneContent, #focusWriteEditor, #synopsisContent, #synopsisContentB, #splitSceneBodyEditor";
+
+let selectionFloatPointerDown = false;
+let selectionFloatUpdateTimer = 0;
+
+function findSelectionFloatEditorFromSelection() {
+  const selection = window.getSelection();
+  if (!selection || selection.isCollapsed || !selection.rangeCount) return null;
+  const node = selection.anchorNode || selection.focusNode;
+  if (!node) return null;
+  const el = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+  return el?.closest?.(SELECTION_FLOAT_EDITOR_SELECTOR) || null;
+}
+
+function scheduleSelectionFloatUpdate() {
+  if (selectionFloatUpdateTimer) window.clearTimeout(selectionFloatUpdateTimer);
+  selectionFloatUpdateTimer = window.setTimeout(() => {
+    selectionFloatUpdateTimer = 0;
+    updateSelectionFloatBarFromSelection();
+  }, 16);
+}
+
+function updateSelectionFloatBarFromSelection() {
+  if (selectionFloatPointerDown) return;
+  const menu = $("desktopContextMenu");
+  if (menu && !menu.classList.contains("hidden")) {
+    hideSelectionFloatBar();
+    return;
+  }
+  const editor = findSelectionFloatEditorFromSelection();
+  if (!editor) {
+    hideSelectionFloatBar();
+    return;
+  }
+  if (editor.id === "splitSceneBodyEditor" && !state.splitEditEnabled) {
+    hideSelectionFloatBar();
+    return;
+  }
+  if (editor.id === "focusWriteEditor" && typeof isFocusWriteOpen === "function" && !isFocusWriteOpen()) {
+    hideSelectionFloatBar();
+    return;
+  }
+  const quote = getSelectedManuscriptText(editor);
+  if (!quote) {
+    hideSelectionFloatBar();
+    return;
+  }
+  showSelectionFloatBar(editor);
+}
+
+function applySelectionFloatFormat(format) {
+  const editor = getContextRichEditor() || findSelectionFloatEditorFromSelection() || $("sceneContent");
+  if (!editor) return;
+  editor.focus();
+  if (manuscriptContextRange) {
+    try {
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(manuscriptContextRange);
+    } catch (_) {
+      /* ignore */
+    }
+  }
+  if (format === "bold") applyEditorCommand("bold");
+  else if (format === "italic") applyEditorCommand("italic");
+  else if (format === "underline") applyEditorCommand("underline");
+  else if (format === "strike") applyEditorCommand("strikeThrough");
+  try {
+    const selection = window.getSelection();
+    if (selection && selection.rangeCount) {
+      manuscriptContextRange = selection.getRangeAt(0).cloneRange();
+    }
+  } catch (_) {
+    /* ignore */
+  }
+  positionSelectionFloatBar();
+}
+
+function runContextAction(action, event = null, actionBtn = null) {
+  if (!action) return false;
+  if (actionBtn?.disabled) return true;
+
+  const closeChrome = () => {
+    hideDesktopContextMenu();
+    hideSelectionFloatBar();
+  };
+
+  if (action === "cut") {
+    closeChrome();
+    cutSelectionFromContextMenu();
+  } else if (action === "copy") {
+    closeChrome();
+    copySelectionFromContextMenu();
+  } else if (action === "paste") {
+    closeChrome();
+    triggerContextPaste(null).catch(handleError);
+  } else if (action === "paste-source") {
+    closeChrome();
+    triggerContextPaste(null).catch(handleError);
+  } else if (action === "paste-merge") {
+    closeChrome();
+    triggerContextPaste("merge").catch(handleError);
+  } else if (action === "paste-text") {
+    closeChrome();
+    triggerContextPaste("text").catch(handleError);
+  } else if (action === "select-all") {
+    closeChrome();
+    selectAllInManuscriptEditor();
+  } else if (action === "copy-format") {
+    closeChrome();
+    copyFormatFromSelection();
+  } else if (action === "toggle-dict-highlight") {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    toggleDictHighlight({ announce: true });
+  } else if (action === "lookup-dict") {
+    closeChrome();
+    lookupDictionaryFromSelection();
+  } else if (action === "similar-words") {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+    closeChrome();
+    openSimilarWordsFromSelection(event);
+  } else if (action === "add-tory-dict") {
+    closeChrome();
+    addToryDictionaryFromSelection();
+  } else if (action === "cross-ref-search") {
+    closeChrome();
+    openSettingsSearchFromSelection();
+  } else if (action === "ask-tory") {
+    closeChrome();
+    askToryFromSelection();
+  } else if (action === "rewrite-text" || action === "rewrite-sentence") {
+    closeChrome();
+    runRewriteFromSelection().catch(handleError);
+  } else if (action === "insert-image") {
+    closeChrome();
+    if (!state.sceneId) {
+      toast(i18n.t("app.이미지를_넣으려면_먼저_씬을_열어_주세요"));
+      return true;
+    }
+    $("inlineImageFile")?.click();
+  } else if (action === "insert-table") {
+    closeChrome();
+    insertManuscriptTable();
+  } else if (action === "insert-divider") {
+    const inserted = insertManuscriptDivider(
+      actionBtn?.dataset?.dividerKind,
+      actionBtn?.dataset?.dividerText,
+    );
+    if (inserted !== false) closeChrome();
+  } else if (action === "throw-bait") {
+    closeChrome();
+    throwBaitFromSelection();
+  } else if (action === "add-footnote") {
+    closeChrome();
+    pendingFootnoteId = null;
+    addFootnoteFromSelection();
+  } else if (action === "edit-footnote") {
+    closeChrome();
+    const id = pendingFootnoteId;
+    pendingFootnoteId = null;
+    if (id) editFootnoteById(id);
+    else toast(i18n.t("app.수정할_각주를_찾지_못했어요"));
+  } else if (action === "delete-footnote") {
+    closeChrome();
+    const id = pendingFootnoteId;
+    pendingFootnoteId = null;
+    if (id) deleteFootnoteById(id);
+    else toast(i18n.t("app.삭제할_각주를_찾지_못했어요"));
+  } else if (action === "to-author-note") {
+    closeChrome();
+    convertSelectionToAuthorNote();
+  } else if (action === "to-body-paragraph") {
+    closeChrome();
+    convertAuthorNoteToBody();
+  } else if (action === "open-character-card") {
+    closeChrome();
+    if (pendingDockCharacterId) openCharacterCardFloat(pendingDockCharacterId);
+    pendingDockCharacterId = null;
+    pendingDockWorldSectionId = null;
+    pendingDockItemId = null;
+  } else if (action === "open-world-card") {
+    closeChrome();
+    if (pendingDockWorldSectionId) openWorldCardFloat(pendingDockWorldSectionId);
+    pendingDockCharacterId = null;
+    pendingDockWorldSectionId = null;
+    pendingDockItemId = null;
+  } else if (action === "open-item-card") {
+    closeChrome();
+    if (pendingDockItemId) openItemCardFloat(pendingDockItemId);
+    pendingDockCharacterId = null;
+    pendingDockWorldSectionId = null;
+    pendingDockItemId = null;
+  } else {
+    return false;
+  }
+  return true;
+}
+
+function setupSelectionFloatBar() {
+  const bar = $("selectionFloatBar");
+  if (!bar || bar.dataset.bound === "1") return;
+  bar.dataset.bound = "1";
+
+  document.addEventListener("mousedown", (event) => {
+    if (event.target.closest("#selectionFloatBar")) return;
+    selectionFloatPointerDown = true;
+  }, true);
+  document.addEventListener("mouseup", () => {
+    selectionFloatPointerDown = false;
+    scheduleSelectionFloatUpdate();
+  }, true);
+  document.addEventListener("selectionchange", () => {
+    if (selectionFloatPointerDown) return;
+    scheduleSelectionFloatUpdate();
+  });
+  document.addEventListener("scroll", (event) => {
+    if (!isSelectionFloatBarOpen()) return;
+    // 바 자체 가로 스크롤은 닫지 않고, fixed 더보기 메뉴만 버튼에 다시 붙인다.
+    if (event.target === bar || (event.target?.closest?.("#selectionFloatBar"))) {
+      positionSelectionFloatMoreMenu();
+      return;
+    }
+    hideSelectionFloatBar();
+  }, true);
+  window.addEventListener("resize", () => {
+    if (isSelectionFloatBarOpen()) hideSelectionFloatBar();
+  });
+  window.addEventListener("blur", () => hideSelectionFloatBar());
+
+  bar.addEventListener("mousedown", (event) => {
+    if (event.target.closest("button")) {
+      event.preventDefault();
+    }
+  });
+
+  bar.addEventListener("click", (event) => {
+    const moreBtn = event.target.closest("#selectionFloatMoreBtn");
+    if (moreBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const open = moreBtn.getAttribute("aria-expanded") !== "true";
+      setSelectionFloatMoreOpen(open);
+      return;
+    }
+    const catBtn = event.target.closest("[data-sel-cat]");
+    if (catBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const key = catBtn.dataset.selCat;
+      const open = catBtn.getAttribute("aria-expanded") !== "true";
+      setSelectionFloatCategoryOpen(key, open);
+      return;
+    }
+    const formatBtn = event.target.closest("[data-sel-format]");
+    if (formatBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      applySelectionFloatFormat(formatBtn.dataset.selFormat);
+      return;
+    }
+    const actionBtn = event.target.closest("[data-context-action]");
+    if (actionBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      runContextAction(actionBtn.dataset.contextAction, event, actionBtn);
+    }
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!isSelectionFloatBarOpen()) return;
+    if (event.target.closest("#selectionFloatBar, #selectionFloatMoreMenu")) return;
+    // 선택 유지 중이면 바는 selectionchange/mouseup에서 다시 맞춤. 바깥 클릭 시 더보기만 접음.
+    setSelectionFloatMoreOpen(false);
+    if (!findSelectionFloatEditorFromSelection()) hideSelectionFloatBar();
+  });
+}
+
 /** Footnote currently targeted by context menu (ref or footer item). */
 let pendingFootnoteId = null;
 
@@ -50554,6 +51098,7 @@ function setupFootnoteInteractions() {
 function showDesktopContextMenu(clientX, clientY) {
   const menu = $("desktopContextMenu");
   if (!menu) return;
+  hideSelectionFloatBar();
   hideBinderContextMenu();
   try { syncUiThemePageColorSwatch(); } catch (_) { /* ignore */ }
   if ($("highContrastToggle")) $("highContrastToggle").checked = localStorage.getItem(HIGH_CONTRAST_KEY) === "on";
@@ -51119,77 +51664,8 @@ function setupDesktopThemeMenu() {
         ? i18n.t('app.선택한_글의_서식_글꼴_크기_색_굵기_등_만')
         : i18n.t('app.먼저_본문에서_서식을_복사할_글을_드래그로');
     }
-    const dictItem = $("lookupDictMenuItem");
-    if (dictItem) {
-      dictItem.disabled = !hasSelection;
-      dictItem.title = hasSelection
-        ? `${i18n.t('app.pendingBaitQuote_slice', { pendingBaitQuote: pendingBaitQuote })}`
-        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
-      dictItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const similarWordsItem = $("similarWordsMenuItem");
-    if (similarWordsItem) {
-      similarWordsItem.disabled = !hasSelection;
-      similarWordsItem.title = hasSelection
-        ? `${i18n.t('app.pendingBaitQuote_slice_2', {'pendingBaitQuote.slice(0, 24)': pendingBaitQuote.slice(0, 24), 'pendingBaitQuote.length > 24 ? "…" : ""': pendingBaitQuote.length > 24 ? "…" : ""})}`
-        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
-      similarWordsItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const addToryDictItem = $("addToryDictMenuItem");
-    if (addToryDictItem) {
-      addToryDictItem.disabled = !hasSelection;
-      addToryDictItem.title = hasSelection
-        ? i18n.t("index.토리_사전_추가_힌트")
-        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
-      addToryDictItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const askToryItem = $("askToryMenuItem");
-    if (askToryItem) {
-      askToryItem.disabled = !hasSelection;
-      askToryItem.title = hasSelection
-        ? i18n.t('app.선택_문장을_토리_1_1_대화_질문칸에_넣고')
-        : i18n.t('app.먼저_본문에서_단어_문장을_드래그로_선택하세');
-      askToryItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const rewriteItem = $("rewriteTextMenuItem") || $("rewriteSentenceMenuItem");
-    if (rewriteItem) {
-      rewriteItem.disabled = !hasSelection;
-      rewriteItem.title = hasSelection
-        ? i18n.t('app.토리는_문장을_억지로_다듬지_않아요_이미_충')
-        : i18n.t('app.먼저_본문에서_다듬을_문장을_드래그로_선택하');
-      rewriteItem.style.opacity = hasSelection ? "1" : "0.45";
-    }
-    const throwItem = $("throwBaitMenuItem");
-    if (throwItem) {
-      const canBait = hasSelection && Boolean(state.sceneId) && !isSettingsDoc;
-      throwItem.disabled = !canBait;
-      throwItem.title = isSettingsDoc
-        ? i18n.t('app.설정_문서에서는_떡밥_던지기를_쓸_수_없어요')
-        : !state.sceneId
-          ? i18n.t('app.떡밥을_심을_회차를_먼저_열어_주세요_2')
-          : hasSelection
-            ? i18n.t('app.선택_문장을_설정집_떡밥모음에_넣어요')
-            : i18n.t('app.먼저_본문에서_문장을_드래그로_선택하세요');
-      throwItem.style.opacity = canBait ? "1" : "0.45";
-    }
-    const footnoteItem = $("addFootnoteMenuItem");
     const editFnItem = $("editFootnoteMenuItem");
     const deleteFnItem = $("deleteFootnoteMenuItem");
-    const sceneOk = Boolean(state.sceneId) || isSettingsDoc;
-    if (footnoteItem) {
-      // Hide "add" when targeting an existing footnote; show edit/delete instead.
-      const targetingFn = Boolean(pendingFootnoteId);
-      footnoteItem.classList.toggle("hidden", targetingFn);
-      // 선택 후: 각주 활성 / 빈 우클릭: 각주 달기 가능(캐럿 위치)
-      const canAdd = sceneOk && !targetingFn;
-      footnoteItem.disabled = !canAdd;
-      footnoteItem.style.opacity = canAdd ? "1" : "0.45";
-      footnoteItem.title = !sceneOk
-        ? i18n.t('app.각주를_달려면_먼저_문서를_열어_주세요')
-        : hasSelection
-          ? i18n.t('app.선택한_문장에_각주를_답니다')
-          : i18n.t('app.선택_위치_또는_드래그한_문장_에_각주를_답');
-    }
     if (editFnItem) {
       editFnItem.classList.toggle("hidden", !pendingFootnoteId);
       editFnItem.disabled = !pendingFootnoteId;
@@ -51239,12 +51715,15 @@ function setupDesktopThemeMenu() {
   });
 
   document.addEventListener("click", (event) => {
-    if (!event.target.closest("#desktopContextMenu, #inlineImageFile, #pageInkColorPicker, #desktopColorPicker")) {
+    if (!event.target.closest("#desktopContextMenu, #inlineImageFile, #pageInkColorPicker, #desktopColorPicker, #selectionFloatBar")) {
       hideDesktopContextMenu();
     }
   });
   document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape") hideDesktopContextMenu();
+    if (event.key === "Escape") {
+      hideDesktopContextMenu();
+      hideSelectionFloatBar();
+    }
   });
   window.addEventListener("blur", hideDesktopContextMenu);
   window.addEventListener("resize", hideDesktopContextMenu);
@@ -51294,116 +51773,7 @@ function setupDesktopThemeMenu() {
 
     const actionBtn = event.target.closest("[data-context-action]");
     if (actionBtn) {
-      const action = actionBtn.dataset.contextAction;
-      if (actionBtn.disabled) return;
-      if (action === "cut") {
-        hideDesktopContextMenu();
-        cutSelectionFromContextMenu();
-      } else if (action === "copy") {
-        hideDesktopContextMenu();
-        copySelectionFromContextMenu();
-      } else if (action === "paste") {
-        hideDesktopContextMenu();
-        triggerContextPaste(null).catch(handleError);
-      } else if (action === "paste-source") {
-        hideDesktopContextMenu();
-        triggerContextPaste(null).catch(handleError);
-      } else if (action === "paste-merge") {
-        hideDesktopContextMenu();
-        triggerContextPaste("merge").catch(handleError);
-      } else if (action === "paste-text") {
-        hideDesktopContextMenu();
-        triggerContextPaste("text").catch(handleError);
-      } else if (action === "select-all") {
-        hideDesktopContextMenu();
-        selectAllInManuscriptEditor();
-      } else if (action === "copy-format") {
-        hideDesktopContextMenu();
-        copyFormatFromSelection();
-      } else if (action === "toggle-dict-highlight") {
-        event.preventDefault();
-        event.stopPropagation();
-        toggleDictHighlight({ announce: true });
-      } else if (action === "lookup-dict") {
-        hideDesktopContextMenu();
-        lookupDictionaryFromSelection();
-      } else if (action === "similar-words") {
-        event.preventDefault();
-        event.stopPropagation();
-        hideDesktopContextMenu();
-        openSimilarWordsFromSelection(event);
-      } else if (action === "add-tory-dict") {
-        hideDesktopContextMenu();
-        addToryDictionaryFromSelection();
-      } else if (action === "cross-ref-search") {
-        hideDesktopContextMenu();
-        openSettingsSearchFromSelection();
-      } else if (action === "ask-tory") {
-        hideDesktopContextMenu();
-        askToryFromSelection();
-      } else if (action === "rewrite-text" || action === "rewrite-sentence") {
-        hideDesktopContextMenu();
-        runRewriteFromSelection().catch(handleError);
-      } else if (action === "insert-image") {
-        hideDesktopContextMenu();
-        if (!state.sceneId) {
-          toast(i18n.t('app.이미지를_넣으려면_먼저_씬을_열어_주세요'));
-          return;
-        }
-        $("inlineImageFile")?.click();
-      } else if (action === "insert-table") {
-        hideDesktopContextMenu();
-        insertManuscriptTable();
-      } else if (action === "insert-divider") {
-        const inserted = insertManuscriptDivider(
-          actionBtn.dataset.dividerKind,
-          actionBtn.dataset.dividerText,
-        );
-        if (inserted !== false) hideDesktopContextMenu();
-      } else if (action === "throw-bait") {
-        hideDesktopContextMenu();
-        throwBaitFromSelection();
-      } else if (action === "add-footnote") {
-        hideDesktopContextMenu();
-        pendingFootnoteId = null;
-        addFootnoteFromSelection();
-      } else if (action === "edit-footnote") {
-        hideDesktopContextMenu();
-        const id = pendingFootnoteId;
-        pendingFootnoteId = null;
-        if (id) editFootnoteById(id);
-        else toast(i18n.t('app.수정할_각주를_찾지_못했어요'));
-      } else if (action === "delete-footnote") {
-        hideDesktopContextMenu();
-        const id = pendingFootnoteId;
-        pendingFootnoteId = null;
-        if (id) deleteFootnoteById(id);
-        else toast(i18n.t('app.삭제할_각주를_찾지_못했어요'));
-      } else if (action === "to-author-note") {
-        hideDesktopContextMenu();
-        convertSelectionToAuthorNote();
-      } else if (action === "to-body-paragraph") {
-        hideDesktopContextMenu();
-        convertAuthorNoteToBody();
-      } else if (action === "open-character-card") {
-        hideDesktopContextMenu();
-        if (pendingDockCharacterId) openCharacterCardFloat(pendingDockCharacterId);
-        pendingDockCharacterId = null;
-        pendingDockWorldSectionId = null;
-        pendingDockItemId = null;
-      } else if (action === "open-world-card") {
-        hideDesktopContextMenu();
-        if (pendingDockWorldSectionId) openWorldCardFloat(pendingDockWorldSectionId);
-        pendingDockCharacterId = null;
-        pendingDockWorldSectionId = null;
-        pendingDockItemId = null;
-      } else if (action === "open-item-card") {
-        hideDesktopContextMenu();
-        if (pendingDockItemId) openItemCardFloat(pendingDockItemId);
-        pendingDockCharacterId = null;
-        pendingDockWorldSectionId = null;
-        pendingDockItemId = null;
-      }
+      runContextAction(actionBtn.dataset.contextAction, event, actionBtn);
       return;
     }
 
@@ -51461,6 +51831,7 @@ function setupDesktopThemeMenu() {
   setupManuscriptPasteHandling();
   setupFormatPainterHandling();
   setupFootnoteInteractions();
+  setupSelectionFloatBar();
 }
 
 function isFairyTaleProject() {
@@ -52786,6 +53157,10 @@ function openFocusWrite() {
     } catch (_) {
       focusEd.focus();
     }
+    if (typeof refreshSelectionFloatBiusVisibility === "function" && isSelectionFloatBarOpen()) {
+      refreshSelectionFloatBiusVisibility();
+      positionSelectionFloatBar();
+    }
   });
 }
 
@@ -52806,6 +53181,7 @@ function closeFocusWrite() {
   modal.classList.add("hidden");
   document.body.classList.remove("focus-write-open");
   document.body.classList.remove("focus-write-fullscreen");
+  if (typeof hideSelectionFloatBar === "function") hideSelectionFloatBar();
   $("focusWriteButton")?.classList.remove("is-active");
   $("focusWriteButton")?.setAttribute("aria-pressed", "false");
   // Return 다른 씬 pane to the main workspace layout
@@ -58603,6 +58979,10 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
     if (toastMsg && collapsed) {
       toast(key === "format-icons" ? i18n.t('app.도구_아이콘을_숨겼어요') : i18n.t('app.서식_도구를_숨겼어요'));
     }
+    if (typeof refreshSelectionFloatBiusVisibility === "function" && isSelectionFloatBarOpen()) {
+      refreshSelectionFloatBiusVisibility();
+      positionSelectionFloatBar();
+    }
     return;
   }
 
@@ -58630,6 +59010,10 @@ function applyMsToolbarCollapsed(which, collapsed, { persist = true, toastMsg = 
         : key === "feature" ? i18n.t('app.기능_바를_숨겼어요')
           : i18n.t('app.도구를_숨겼어요');
     toast(msg);
+  }
+  if (typeof refreshSelectionFloatBiusVisibility === "function" && isSelectionFloatBarOpen()) {
+    refreshSelectionFloatBiusVisibility();
+    positionSelectionFloatBar();
   }
 }
 
@@ -70566,6 +70950,9 @@ function renderEpisodeChrome() {
         </div>`;
     }).join("");
   }
+  if (state.splitEnabled && state.splitMode === "split" && typeof syncSplitPaneTopAlign === "function") {
+    requestAnimationFrame(() => syncSplitPaneTopAlign());
+  }
 }
 
 function setupEpisodeChrome() {
@@ -74658,9 +75045,11 @@ function applySplitLayout() {
   if (splitOn && !focusOpen) {
     clearSplitViewerPopupStyles();
     requestAnimationFrame(() => {
+      syncSplitPaneTopAlign();
       ensureSplitLeftWidth();
       layoutSplitPrimaryPane();
       requestAnimationFrame(() => {
+        syncSplitPaneTopAlign();
         ensureSplitLeftWidth();
         layoutSplitPrimaryPane();
         // Source file pane may need a second pass after flex settles
@@ -74708,14 +75097,27 @@ function layoutSplitPrimaryPane() {
   const form = $("sceneEditor");
   const block = form?.querySelector(".writing-block");
   const page = $("manuscriptPage");
-  const status = column?.querySelector(".manuscript-status-bar");
   if (!column || !form || !block || !page) return;
+
+  syncSplitPaneTopAlign();
 
   const colH = column.clientHeight || column.getBoundingClientRect().height || 0;
   if (colH < 80) return;
 
-  const statusH = status ? status.getBoundingClientRect().height : 0;
-  const formBudget = Math.max(200, Math.floor(colH - statusH - 4));
+  // 하단 거터·회차 탭 높이를 제외한 실제 본문 예산 (좌·우 패널 카드 하단과 맞춤)
+  const colStyle = window.getComputedStyle(column);
+  const padBottom = parseFloat(colStyle.paddingBottom) || 0;
+  const episodeChrome = column.querySelector(".episode-chrome");
+  let episodeChromeH = 0;
+  if (
+    episodeChrome
+    && !episodeChrome.classList.contains("hidden")
+    && episodeChrome.querySelector(".episode-tab")
+  ) {
+    episodeChromeH = episodeChrome.getBoundingClientRect().height || 0;
+  }
+  const contentBudget = Math.max(0, colH - padBottom - episodeChromeH);
+  const formBudget = Math.max(200, Math.floor(contentBudget - 2));
   form.style.flex = "1 1 auto";
   form.style.minHeight = "0";
   form.style.height = `${formBudget}px`;
@@ -74727,6 +75129,7 @@ function layoutSplitPrimaryPane() {
   const featureShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="feature"]');
   const findBar = $("findBar");
   const chromeStack = form.querySelector("#msChromeStack, .ms-chrome-stack");
+  const statusWrap = form.querySelector(".manuscript-status-wrap, .manuscript-status-bar");
   const visibleH = (el) => {
     if (!el || el.classList.contains("is-collapsed") || el.classList.contains("hidden")) return 0;
     if (el.hidden) return 0;
@@ -74740,7 +75143,10 @@ function layoutSplitPrimaryPane() {
     visibleH(featureShell) +
     visibleH(findBar) +
     12;
+  const statusH = visibleH(statusWrap);
   const bodyH = Math.max(180, Math.floor(formBudget - chrome));
+  // 프레임 안 원고 높이: 글자수 줄을 남김 (상태바는 writing-block 내부)
+  const pageH = Math.max(160, Math.floor(bodyH - statusH - 4));
 
   block.style.display = "flex";
   block.style.flexDirection = "column";
@@ -74753,7 +75159,7 @@ function layoutSplitPrimaryPane() {
 
   page.style.display = "block";
   page.style.height = "100%";
-  page.style.minHeight = `${Math.max(160, bodyH - 4)}px`;
+  page.style.minHeight = `${pageH}px`;
   page.style.overflowY = "auto";
   page.style.visibility = "visible";
 
@@ -74762,7 +75168,7 @@ function layoutSplitPrimaryPane() {
     content.style.display = "block";
     content.style.visibility = "visible";
     // Fill manuscript sheet so the bottom is writable paper, not a dead solid band
-    content.style.minHeight = `${Math.max(160, bodyH - 8)}px`;
+    content.style.minHeight = `${Math.max(160, pageH - 8)}px`;
     content.style.height = "auto";
     content.setAttribute("contenteditable", "true");
   }
@@ -74809,6 +75215,8 @@ function layoutSplitPrimaryPane() {
 }
 
 function clearSplitPrimaryPaneLayout() {
+  const workspace = $("sceneWorkspace");
+  workspace?.style.removeProperty("--split-pane-top-offset");
   const form = $("sceneEditor");
   const block = form?.querySelector(".writing-block");
   const page = $("manuscriptPage");
@@ -74838,6 +75246,36 @@ function clearSplitPrimaryPaneLayout() {
     el.style.removeProperty("display");
     el.style.removeProperty("flex-direction");
   });
+}
+
+/**
+ * 분할/비교 창·리사이저를 본문 제목 카드(ms-chrome-stack) 상단에 맞춤.
+ * 회차 탭이 타이틀바 쪽으로 올라간 구간은 왼쪽만 쓰고, 오른쪽 분할 창은 제목부터 시작.
+ */
+function syncSplitPaneTopAlign() {
+  const workspace = $("sceneWorkspace");
+  if (!workspace || !workspace.classList.contains("split-active")) {
+    workspace?.style.removeProperty("--split-pane-top-offset");
+    return;
+  }
+  if (typeof isFocusWriteOpen === "function" && isFocusWriteOpen()) {
+    workspace.style.removeProperty("--split-pane-top-offset");
+    return;
+  }
+  const column = workspace.querySelector(".writing-column");
+  const titleCard = workspace.querySelector("#msChromeStack, .ms-chrome-stack");
+  if (!column || !titleCard) {
+    workspace.style.setProperty("--split-pane-top-offset", "0px");
+    return;
+  }
+  const colTop = column.getBoundingClientRect().top;
+  const titleTop = titleCard.getBoundingClientRect().top;
+  if (!Number.isFinite(colTop) || !Number.isFinite(titleTop)) {
+    workspace.style.setProperty("--split-pane-top-offset", "0px");
+    return;
+  }
+  const offset = Math.max(0, Math.round(titleTop - colTop));
+  workspace.style.setProperty("--split-pane-top-offset", `${offset}px`);
 }
 
 const SPLIT_LEFT_WIDTH_STORAGE_KEY = "supertory.splitLeftWidth";

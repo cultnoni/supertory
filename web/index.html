@@ -912,7 +912,7 @@
                     </article>
                     <article class="world-cat" data-world-section="unique_concept">
                       <h3 class="world-cat-title" data-i18n="index.2_세계의_특이점">2. 세계의 특이점 <span class="world-cat-en">(Unique Concept)</span></h3>
-                      <p class="world-cat-blurb" data-i18n="app.이_세계를_다른_세계관과_다르게_만드는_단">이 세계를 다른 세계관과 다르게 만드는 단 하나의 핵심 규칙입니다.</p>
+                      <p class="world-cat-blurb" data-i18n="app.이_세계를_다른_세계관과_다르게_만드는_단">이 세계를 다른 세계관과 다르게 만드는 핵심 규칙들입니다.</p>
                       <label class="world-cat-field"><span class="world-sheet-field-head"><span data-i18n="app.특수_요소">특수 요소</span>
                           <button type="button" class="character-analysis-badge world-analysis-badge hidden" data-world-tori-field="special" title="적어 둔 내용은 그대로 두고, 토리 분석만 보여 줍니다" data-i18n-title="index.적어_둔_내용은_그대로_두고_토리_분석만_보" data-i18n="index.새_분석_있음">새 분석 있음</button>
                         </span>
@@ -6770,21 +6770,6 @@
         </div>
       </div>
       <div class="context-menu-label" data-ctx-full-only data-i18n="index.본문_편집">본문 편집</div>
-      <button type="button" role="menuitem" data-context-action="lookup-dict" id="lookupDictMenuItem" data-ctx-selection-only>
-        사전 찾기
-      </button>
-      <button type="button" role="menuitem" data-context-action="similar-words" id="similarWordsMenuItem" data-ctx-selection-only>
-        <strong data-i18n="app.단어찾기">단어 찾기</strong>
-        <span data-i18n="index.단어_문장에서_비슷한_표현을_토리가_찾아_줘">단어·문장에서 비슷한 표현을 찾아요</span>
-      </button>
-      <button type="button" role="menuitem" data-context-action="add-tory-dict" id="addToryDictMenuItem" data-ctx-selection-only>
-        <strong data-i18n="index.토리_사전에_추가">토리 사전에 추가</strong>
-        <span data-i18n="index.토리_사전_추가_힌트">선택한 단어를 개인 사전에 넣어요</span>
-      </button>
-      <button type="button" role="menuitem" data-context-action="cross-ref-search" id="crossRefSearchMenuItem" data-ctx-selection-only>
-        <strong data-i18n="index.크로스_레퍼런스로_검색">크로스 레퍼런스로 검색</strong>
-        <span data-i18n="index.크로스_레퍼런스_검색_힌트">설정집에서 같은 말을 찾아요</span>
-      </button>
       <button type="button" role="menuitem" data-context-action="open-character-card" id="openCharacterCardMenuItem" class="hidden">
         <strong data-i18n="index.인물_카드_보기">인물 카드 보기</strong>
         <span id="openCharacterCardMenuHint" data-i18n="index.인물_카드_힌트">등록된 인물 요약을 띄워요</span>
@@ -6796,20 +6781,6 @@
       <button type="button" role="menuitem" data-context-action="open-item-card" id="openItemCardMenuItem" class="hidden">
         <strong data-i18n="index.아이템_카드_보기">아이템 카드 보기</strong>
         <span id="openItemCardMenuHint" data-i18n="index.아이템_카드_힌트">등록된 아이템 요약을 띄워요</span>
-      </button>
-      <button type="button" role="menuitem" data-context-action="ask-tory" id="askToryMenuItem" data-ctx-selection-only>
-        토리에게 물어보기
-      </button>
-      <button
-        type="button"
-        role="menuitem"
-        data-context-action="rewrite-text"
-        id="rewriteTextMenuItem"
-        data-ctx-selection-only
-        data-i18n="app.글_다듬기"
-        title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다." data-i18n-title="app.토리는_문장을_억지로_다듬지_않아요_이미_충"
-      >
-        글 다듬기
       </button>
       <button type="button" role="menuitem" data-context-action="insert-image" data-ctx-full-only>
         이미지 넣기
@@ -6841,20 +6812,11 @@
         <input id="dividerCustomInput" class="divider-custom-input" type="text" maxlength="80" autocomplete="off" spellcheck="false" placeholder="예: ※ 다음 장면 ※" data-i18n-placeholder="index.구분선_직접_입력_자리표시" title="자주 쓰는 구분선을 적어 프리셋으로 추가해요" data-i18n-title="index.구분선_직접_입력_힌트" aria-label="구분선 직접 입력" data-i18n-aria-label="index.구분선_직접_입력">
         <button type="button" class="paste-option-btn" id="dividerPresetSaveBtn" title="적은 글을 구분선 프리셋으로 추가해요" data-i18n-title="index.구분선_추가_힌트" data-i18n="index.구분선_추가">추가</button>
       </div>
-      <button type="button" role="menuitem" data-context-action="throw-bait" id="throwBaitMenuItem" data-ctx-selection-only>
-        떡밥 던지기
-      </button>
-      <button type="button" role="menuitem" data-context-action="add-footnote" id="addFootnoteMenuItem" data-ctx-selection-ok>
-        각주 달기
-      </button>
       <button type="button" role="menuitem" data-context-action="edit-footnote" id="editFootnoteMenuItem" class="hidden" data-ctx-selection-ok>
         ✎ 각주 수정
       </button>
       <button type="button" role="menuitem" data-context-action="delete-footnote" id="deleteFootnoteMenuItem" class="hidden binder-action-danger" data-ctx-selection-ok>
         ✕ 각주 삭제
-      </button>
-      <button type="button" role="menuitem" data-context-action="to-author-note" id="toAuthorNoteMenuItem" data-ctx-selection-ok data-i18n="index.주석_단락으로_전환">
-        주석 단락으로 전환
       </button>
       <button type="button" role="menuitem" data-context-action="to-body-paragraph" id="toBodyParagraphMenuItem" class="hidden" data-ctx-selection-ok data-i18n="index.일반_문단으로_전환">
         일반 문단으로 전환
@@ -6922,6 +6884,86 @@
           <span data-i18n="index.고대비_모드">고대비 모드</span>
         </label>
         <p class="hint" data-i18n="index.본문_글자를_순수_검정_흰색으로_진하게_표시">본문 글자를 순수 검정/흰색으로 진하게 표시합니다</p>
+      </div>
+    </div>
+
+    <!-- 드래그 선택 시 자동 표시되는 플로팅 바 (우클릭 메뉴와 분리) -->
+    <div
+      id="selectionFloatBar"
+      class="selection-float-bar hidden"
+      role="toolbar"
+      aria-label="선택 도구"
+      data-i18n-aria-label="index.선택_도구"
+    >
+      <div class="selection-float-bius hidden" id="selectionFloatBius" role="group" aria-label="글자 서식" data-i18n-aria-label="index.글자_서식">
+        <button type="button" class="selection-float-btn selection-float-bius-btn" data-sel-format="bold" title="굵게 (Ctrl+B)" data-i18n-title="index.굵게_Ctrl_B"><strong>B</strong></button>
+        <button type="button" class="selection-float-btn selection-float-bius-btn" data-sel-format="italic" title="기울임 (Ctrl+I)" data-i18n-title="index.기울임_Ctrl_I"><em>I</em></button>
+        <button type="button" class="selection-float-btn selection-float-bius-btn" data-sel-format="underline" title="밑줄 (Ctrl+U)" data-i18n-title="index.밑줄_Ctrl_U"><span class="u-mark">U</span></button>
+        <button type="button" class="selection-float-btn selection-float-bius-btn" data-sel-format="strike" title="취소선 (Ctrl+Shift+X)" data-i18n-title="index.취소선_Ctrl_Shift_X" aria-label="취소선" data-i18n-aria-label="index.취소선"><span class="s-mark">S</span></button>
+      </div>
+      <button
+        type="button"
+        class="selection-float-btn"
+        data-context-action="ask-tory"
+        id="askToryMenuItem"
+        data-i18n="app.토리에게_물어보기"
+      >토리에게 물어보기</button>
+      <button
+        type="button"
+        class="selection-float-btn"
+        data-context-action="rewrite-text"
+        id="rewriteTextMenuItem"
+        data-i18n="app.글_다듬기"
+        title="토리는 문장을 억지로 다듬지 않아요. 이미 충분히 완성도가 높다고 판단되면 대체하기 적합한 다른 문장을 제안해 드려요. 나머지는 작가님의 선택입니다."
+        data-i18n-title="app.토리는_문장을_억지로_다듬지_않아요_이미_충"
+      >글 다듬기</button>
+      <button
+        type="button"
+        class="selection-float-btn"
+        data-context-action="similar-words"
+        id="similarWordsMenuItem"
+        data-i18n="app.단어찾기"
+        title="단어·문장에서 비슷한 표현을 찾아요"
+        data-i18n-title="index.단어_문장에서_비슷한_표현을_토리가_찾아_줘"
+      >단어 찾기</button>
+      <button
+        type="button"
+        class="selection-float-btn"
+        data-context-action="throw-bait"
+        id="throwBaitMenuItem"
+        data-i18n="app.떡밥_던지기"
+      >떡밥 던지기</button>
+      <div class="selection-float-more-wrap">
+        <button
+          type="button"
+          class="selection-float-btn selection-float-more-btn"
+          id="selectionFloatMoreBtn"
+          aria-expanded="false"
+          aria-controls="selectionFloatMoreMenu"
+          aria-label="더보기"
+          data-i18n-aria-label="index.더보기"
+          title="더보기"
+          data-i18n-title="index.더보기"
+        >⋯</button>
+        <div id="selectionFloatMoreMenu" class="selection-float-more-menu hidden" role="menu" hidden>
+          <button type="button" class="selection-float-cat" data-sel-cat="dict" aria-expanded="false" data-i18n="index.사전_참고">사전/참고</button>
+          <div class="selection-float-cat-items hidden" data-sel-cat-panel="dict" hidden>
+            <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="lookup-dict" id="lookupDictMenuItem" data-i18n="index.사전_찾기">사전 찾기</button>
+            <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="add-tory-dict" id="addToryDictMenuItem">
+              <strong data-i18n="index.토리_사전에_추가">토리 사전에 추가</strong>
+              <span data-i18n="index.토리_사전_추가_힌트">선택한 단어를 개인 사전에 넣어요</span>
+            </button>
+            <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="cross-ref-search" id="crossRefSearchMenuItem">
+              <strong data-i18n="index.크로스_레퍼런스로_검색">크로스 레퍼런스로 검색</strong>
+              <span data-i18n="index.크로스_레퍼런스_검색_힌트">설정집에서 같은 말을 찾아요</span>
+            </button>
+          </div>
+          <button type="button" class="selection-float-cat" data-sel-cat="edit" aria-expanded="false" data-i18n="index.편집_도구">편집 도구</button>
+          <div class="selection-float-cat-items hidden" data-sel-cat-panel="edit" hidden>
+            <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="add-footnote" id="addFootnoteMenuItem" data-i18n="app.각주_달기">각주 달기</button>
+            <button type="button" role="menuitem" class="selection-float-menu-item" data-context-action="to-author-note" id="toAuthorNoteMenuItem" data-i18n="index.주석_단락으로_전환">주석 단락으로 전환</button>
+          </div>
+        </div>
       </div>
     </div>
 

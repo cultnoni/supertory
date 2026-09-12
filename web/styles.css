@@ -10304,7 +10304,7 @@ body[data-ui-scheme="dark"] .keyword-picker-panel {
 .keyword-board-title {
   margin: 0;
   font-family: Georgia, "Malgun Gothic", serif;
-  font-size: 28px;
+  font-size: 22px;
 }
 .keyword-board-actions {
   display: flex;
@@ -10721,7 +10721,7 @@ body[data-ui-scheme="dark"] .keyword-board-genre-mount {
 .idea-board-toolbar h2 {
   margin: 0 0 4px;
   font-family: Georgia, "Malgun Gothic", serif;
-  font-size: 28px;
+  font-size: 22px;
 }
 .idea-board-toolbar .hint { margin: 0; }
 .idea-board-actions { display: flex; gap: 8px; flex-shrink: 0; }
@@ -14871,11 +14871,12 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   white-space: nowrap;
 }
 .work-area {
+  --wa-tab-lift: 28px;
   min-width: 0;
   min-height: 0;
   /* 열린 회차 탭을 타이틀바 쪽으로 올리고, 하단은 main 바닥(=패널)에 맞춤 */
-  height: calc(100% + 28px);
-  margin-top: -28px;
+  height: calc(100% + var(--wa-tab-lift));
+  margin-top: calc(0px - var(--wa-tab-lift));
   padding: 0;
   overflow: hidden;
   position: relative;
@@ -14962,6 +14963,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area > #welcome,
 .work-area > #ideaBoard,
 .work-area > #keywordBoard,
+.work-area > #settingsCollectionBoard,
 .work-area > #sceneWorkspace,
 .work-area > #characterEditor,
 .work-area > #synopsisWorkspace,
@@ -14970,6 +14972,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area > #relationCanvas,
 .work-area > #itemBoard,
 .work-area > #itemEditor,
+.work-area > #dictionaryBoard,
 .work-area > #settingsSearchBoard {
   grid-column: 1;
   grid-row: 1;
@@ -14982,6 +14985,7 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
 .work-area > #ideaBoard,
 .work-area > #keywordBoard,
 .work-area > #characterEditor,
+.work-area > #itemEditor,
 .work-area > #worldbuildingWorkspace {
   overflow: auto;
   padding: 24px clamp(18px, 4vw, 48px);
@@ -14993,12 +14997,32 @@ body[data-ui-scheme="dark"] .scene-complete-badge {
   align-items: center;
   justify-content: center;
   gap: 10px;
-  min-height: 100%;
+  /* 탭 리프트 보정 후에도 가운데 정렬 기준이 work-area 전체가 되지 않게 */
+  min-height: calc(100% - var(--wa-tab-lift, 28px));
   box-sizing: border-box;
   padding: 16px 20px;
 }
 .work-area > #welcome.welcome-screen.hidden {
   display: none !important;
+}
+/*
+ * 탭 리프트는 sceneWorkspace의 열린 회차 탭만 사용.
+ * 설정집 메인·부속 편집기 등은 좌·우 패널 카드 상단과 맞추기 위해 리프트만큼 되돌림.
+ * (그리드 height:100% 규칙보다 뒤에 둬야 함 · 닫기 버튼이 타이틀바 드래그와 겹치지 않게)
+ */
+.work-area > *:not(#sceneWorkspace):not(#mobileDraftBanner) {
+  margin-top: var(--wa-tab-lift);
+  height: calc(100% - var(--wa-tab-lift));
+  max-height: calc(100% - var(--wa-tab-lift));
+  align-self: start;
+  box-sizing: border-box;
+}
+/* 회차 탭이 없을 때 본문 편집도 패널 상단에 맞춤 */
+.work-area > #sceneWorkspace:not(:has(.episode-tab)) {
+  margin-top: var(--wa-tab-lift);
+  height: calc(100% - var(--wa-tab-lift));
+  max-height: calc(100% - var(--wa-tab-lift));
+  align-self: start;
 }
 .welcome-card {
   /* Width tuned so the Tory blurb body wraps cleanly at 13.5px (~3–4 lines) */
@@ -15672,6 +15696,8 @@ html[data-ui-scheme="dark"] .welcome-tip-card {
   overflow: hidden;
   position: relative;
   /* 바탕은 공통 --chrome-bg 규칙 */
+  /* 본문·분할 창·좌우 패널 하단 거터 공통 */
+  --ms-bottom-gutter: calc(10px - 1.2mm);
 }
 .scene-workspace.hidden { display: none !important; }
 .writing-column {
@@ -15683,11 +15709,12 @@ html[data-ui-scheme="dark"] .welcome-tip-card {
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  /* 바탕·하단 여백 = 좌·우 패널과 동일 (--chrome-bg · padding-bottom 10px) */
+  /* 바탕·하단 여백 = 좌·우 패널과 동일 (--chrome-bg · padding-bottom) */
   background: var(--chrome-bg, var(--header-bg));
   /* 글자수 카드 좌·우 기준 → 열린문서·서식·본문 동일 정렬 */
   --ms-h-gutter: calc(8px - 1.5mm);
-  padding-bottom: calc(10px - 1.2mm);
+  --ms-bottom-gutter: calc(10px - 1.2mm);
+  padding-bottom: var(--ms-bottom-gutter);
   box-sizing: border-box;
 }
 .scene-workspace:not(.split-active) .writing-column {
@@ -16148,7 +16175,7 @@ body.typewriter-mode-on .format-typewriter-btn .format-tool-label {
   overflow: hidden;
   border-right: 0;
   padding-right: 0;
-  padding-bottom: calc(10px - 1.2mm); /* 좌·우 패널과 동일 하단 여백 */
+  padding-bottom: var(--ms-bottom-gutter, calc(10px - 1.2mm)); /* 좌·우 패널과 동일 하단 여백 */
   margin: 0;
   box-sizing: border-box;
   position: relative;
@@ -16361,9 +16388,6 @@ body.split-pane-resizing .split-pane-resizer-grip {
 .split-pane-resizer.hidden {
   display: none !important;
 }
-.scene-workspace.split-active > .split-pane-resizer {
-  z-index: 5;
-}
 /* 이웃 패널이 히트 패드를 가로채지 않도록 */
 .scene-workspace.split-active .writing-column,
 .scene-workspace.split-active #splitViewer:not(.popup-mode) {
@@ -16380,20 +16404,34 @@ body.split-pane-resizing * {
   flex: 1 1 0;
   min-width: 200px;
   min-height: 0;
-  max-height: none;
-  height: 100%;
-  align-self: stretch;
+  /* 회차 탭·타이틀바 리프트 구간을 비우고 본문 제목 카드부터 맞춤 (--split-pane-top-offset) */
+  --split-pane-top: var(--split-pane-top-offset, 0px);
+  --split-pane-bottom: var(--ms-bottom-gutter, calc(10px - 1.2mm));
+  margin-top: var(--split-pane-top);
+  /* 하단도 본문·좌우 패널 카드와 같은 거터 */
+  height: calc(100% - var(--split-pane-top));
+  max-height: calc(100% - var(--split-pane-top));
+  align-self: flex-start;
   position: relative;
   top: 0;
   overflow: hidden;
   display: flex;
   flex-direction: column;
   z-index: 0;
-  /* 바깥(토리 쪽)만 거터 · 안쪽은 리사이저에 붙임 · 카드 테두리로 벌어지지 않게 */
-  padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) 10px 0;
+  /* 바깥(토리 쪽)만 거터 · 안쪽은 리사이저에 붙임 · 하단 = 패널과 동일 */
+  padding: 0 var(--ms-h-gutter, calc(8px - 1.5mm)) var(--split-pane-bottom) 0;
   border: 0;
   border-radius: 0;
   background: var(--chrome-bg, var(--header-bg));
+  box-sizing: border-box;
+}
+.scene-workspace.split-active > .split-pane-resizer {
+  z-index: 5;
+  margin-top: var(--split-pane-top-offset, 0px);
+  margin-bottom: var(--ms-bottom-gutter, calc(10px - 1.2mm));
+  height: calc(100% - var(--split-pane-top-offset, 0px) - var(--ms-bottom-gutter, calc(10px - 1.2mm)));
+  max-height: calc(100% - var(--split-pane-top-offset, 0px) - var(--ms-bottom-gutter, calc(10px - 1.2mm)));
+  align-self: flex-start;
   box-sizing: border-box;
 }
 /* Side pane: 제목·창모드·닫기는 호버 시에만 내려옴. 기본은 원고만. */
@@ -28954,6 +28992,174 @@ body[data-ui-scheme="dark"] .proof-diff-card {
 }
 #desktopContextMenu.is-text-selection > .context-selection-count[data-ctx-selection-only] {
   display: flex;
+}
+
+/* 드래그 선택 플로팅 바 */
+.selection-float-bar {
+  position: fixed;
+  z-index: 240;
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 10px 28px #0000002e;
+  /* 좁은 화면·집중모드: 헤더 칩 바와 같이 가로 스크롤로 뷰포트 안에 유지 */
+  max-width: calc(100vw - 16px);
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  -webkit-overflow-scrolling: touch;
+}
+.selection-float-bar.hidden {
+  display: none !important;
+}
+.selection-float-bius {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+  margin-right: 2px;
+  border-right: 1px solid var(--line);
+}
+.selection-float-bius.hidden {
+  display: none !important;
+}
+.selection-float-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12.5px;
+  line-height: 1.2;
+  padding: 6px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+.selection-float-btn:hover,
+.selection-float-btn[aria-expanded="true"] {
+  background: color-mix(in srgb, var(--selection) 80%, transparent);
+}
+.selection-float-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.selection-float-bius-btn {
+  min-width: 28px;
+  padding: 6px 7px;
+  font-weight: 700;
+}
+.selection-float-bius-btn .u-mark {
+  text-decoration: underline;
+}
+.selection-float-bius-btn .s-mark {
+  text-decoration: line-through;
+}
+.selection-float-more-btn {
+  min-width: 30px;
+  font-size: 16px;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+}
+.selection-float-more-wrap {
+  position: relative;
+  flex: 0 0 auto;
+}
+.selection-float-more-menu {
+  /* overflow-x:auto 바 안에서 absolute면 세로로 잘림 → fixed로 분리 (context/similar 패널과 동일) */
+  position: fixed;
+  z-index: 250;
+  min-width: 220px;
+  max-width: min(320px, calc(100vw - 24px));
+  padding: 6px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: 0 12px 32px #00000033;
+  display: grid;
+  gap: 2px;
+}
+.selection-float-more-menu.hidden {
+  display: none !important;
+}
+.selection-float-cat {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  text-align: left;
+  padding: 7px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.selection-float-cat::after {
+  content: "▶";
+  font-size: 9px;
+  opacity: 0.7;
+  transition: transform 0.12s ease;
+}
+.selection-float-cat[aria-expanded="true"]::after {
+  transform: rotate(90deg);
+}
+.selection-float-cat:hover {
+  background: color-mix(in srgb, var(--selection) 70%, transparent);
+}
+.selection-float-cat-items {
+  display: grid;
+  gap: 1px;
+  padding: 0 0 4px 4px;
+}
+.selection-float-cat-items.hidden {
+  display: none !important;
+}
+.selection-float-menu-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  padding: 6px 8px;
+  border-radius: 7px;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  width: 100%;
+}
+.selection-float-menu-item strong {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.selection-float-menu-item span {
+  font-size: 11px;
+  opacity: 0.72;
+  line-height: 1.35;
+}
+.selection-float-menu-item:hover {
+  background: color-mix(in srgb, var(--selection) 80%, transparent);
+}
+.selection-float-menu-item:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 .context-selection-count {
   display: flex;
