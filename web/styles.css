@@ -2953,6 +2953,24 @@ body.ai-panel-collapsed .outline-panel-inner {
   flex: 0 0 auto;
   min-width: 112px;
 }
+.genre-lit-romance-axes,
+.genre-lit-romance-blend {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.genre-lit-romance-axes.hidden,
+.genre-lit-romance-blend.hidden,
+.modal-romance-axes.hidden {
+  display: none !important;
+}
+.modal-romance-axes {
+  display: grid;
+  gap: 10px;
+  margin: 0 0 8px;
+}
 .adult19-toggle {
   display: inline-flex;
   align-items: center;

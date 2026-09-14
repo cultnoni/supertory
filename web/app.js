@@ -239,6 +239,12 @@ const state = {
   mainGenre: "",
   subGenre: "",
   genreDetail: "",
+  /** Genre-lit romance structure axis: "" | emotional | plot_driven */
+  romanceStructure: "",
+  /** Genre-lit romance setting axis: "" | contemporary | period */
+  romanceSetting: "",
+  /** Cross-genre romance blend: none | subplot | co_axis | main_axis */
+  romanceBlend: "none",
   /** Independent of genre: "" or a content_rating key such as 19_soft / 19_hard. */
   contentRating: "",
   /** Per-project: first-complete guide card already shown */
@@ -7820,6 +7826,8 @@ const LOCKED_CLUSTER_PURPOSES = [
   "poetry", "script", "diary", "report", "column", "other",
 ];
 const GENRE_LITERATURE_MAIN = new Set(["mystery", "thriller", "genre_lit", "sf", "traditional", "experimental"]);
+// romance is genre-lit only when purpose/cluster is already genre_literature (not reverse-inferred).
+const GENRE_LITERATURE_SELECTABLE_MAIN = new Set([...GENRE_LITERATURE_MAIN, "romance"]);
 const GENRE_LITERATURE_SUB = new Set([
   "honkaku", "social", "cozy", "legal", "crime",
   "psycho", "action", "horror", "suspense", "detective",
@@ -7850,6 +7858,7 @@ const GENRE_CLUSTERS = [
       { key: "thriller", labelKey: "app.스릴러_호러" },
       { key: "traditional", labelKey: "app.정통판타지" },
       { key: "experimental", labelKey: "app.실험장르" },
+      { key: "romance", labelKey: "app.로맨스" },
     ],
   },
   {
@@ -7898,6 +7907,7 @@ const CLUSTER_SUBGENRE_MAP = {
     sf: { purpose: "genre_literature", main: "sf", sub: "space" },
     traditional: { purpose: "genre_literature", main: "traditional", sub: "" },
     experimental: { purpose: "genre_literature", main: "experimental", sub: "" },
+    romance: { purpose: "genre_literature", main: "romance", sub: "" },
   },
   general_literature: {
     general_lit: { purpose: "literature", main: "general_lit", sub: "mid" },
@@ -8077,6 +8087,395 @@ function mapClusterSubgenre(clusterId, subKey) {
   return CLUSTER_SUBGENRE_MAP[cluster]?.[key] || null;
 }
 
+/** Genre-lit romance axes — independent fields (not preset combo enums). */
+const ROMANCE_STRUCTURE_OPTIONS = [
+  { key: "emotional", labelKey: "app.정서형" },
+  { key: "plot_driven", labelKey: "app.사건형" },
+];
+const ROMANCE_SETTING_OPTIONS = [
+  { key: "contemporary", labelKey: "app.현대" },
+  { key: "period", labelKey: "app.사극" },
+];
+const ROMANCE_BLEND_OPTIONS = [
+  { key: "none", labelKey: "app.없음" },
+  { key: "subplot", labelKey: "app.서브플롯" },
+  { key: "co_axis", labelKey: "app.공동축" },
+  { key: "main_axis", labelKey: "app.메인축" },
+];
+const ROMANCE_STRUCTURE_VALUES = new Set(ROMANCE_STRUCTURE_OPTIONS.map((o) => o.key));
+const ROMANCE_SETTING_VALUES = new Set(ROMANCE_SETTING_OPTIONS.map((o) => o.key));
+const ROMANCE_BLEND_VALUES = new Set(ROMANCE_BLEND_OPTIONS.map((o) => o.key));
+const ROMANCE_BLEND_NEEDS_STRUCTURE = new Set(["co_axis", "main_axis"]);
+const MAIN_TOOLSET_BY_GENRE = {
+  sf: "genre_lit_sf",
+  mystery: "genre_lit_mystery",
+  thriller: "genre_lit_thriller",
+  traditional: "genre_lit_traditional",
+  experimental: "genre_lit_experimental",
+  romance: "genre_lit_romance",
+};
+const ROMANCE_STRUCTURE_TOOLSET = {
+  emotional: "genre_lit_romance_emotional",
+  plot_driven: "genre_lit_romance_plot_driven",
+};
+
+function normalizeRomanceStructure(value) {
+  const key = String(value || "").trim().toLowerCase();
+  return ROMANCE_STRUCTURE_VALUES.has(key) ? key : "";
+}
+
+function normalizeRomanceSetting(value) {
+  const key = String(value || "").trim().toLowerCase();
+  return ROMANCE_SETTING_VALUES.has(key) ? key : "";
+}
+
+function normalizeRomanceBlend(value, { mainGenre = "", clusterId = "" } = {}) {
+  if (isGenreLiteratureRomance(mainGenre, clusterId)) return "none";
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "none";
+  return ROMANCE_BLEND_VALUES.has(key) ? key : "none";
+}
+
+function romanceStructureLabel(key) {
+  const opt = ROMANCE_STRUCTURE_OPTIONS.find((o) => o.key === key);
+  return opt ? i18n.t(opt.labelKey) : "";
+}
+
+function romanceSettingLabel(key) {
+  const opt = ROMANCE_SETTING_OPTIONS.find((o) => o.key === key);
+  return opt ? i18n.t(opt.labelKey) : "";
+}
+
+function romanceBlendLabel(key) {
+  const opt = ROMANCE_BLEND_OPTIONS.find((o) => o.key === (key || "none"));
+  return opt ? i18n.t(opt.labelKey) : i18n.t("app.없음");
+}
+
+function isGenreLiteratureContext(clusterId = getProjectClusterId(), purpose = state.projectPurpose, mainGenre = state.mainGenre) {
+  const cid = normalizeClusterId(clusterId) || inferClusterId(purpose, mainGenre, state.subGenre, clusterId);
+  return cid === "genre_literature";
+}
+
+function isGenreLiteratureRomance(mainGenre = state.mainGenre, clusterId = getProjectClusterId()) {
+  return isGenreLiteratureContext(clusterId) && String(mainGenre || "").trim() === "romance";
+}
+
+/** Structure axis: main=romance OR blend co_axis/main_axis. */
+function romanceStructureApplies({
+  clusterId = getProjectClusterId(),
+  purpose = state.projectPurpose,
+  mainGenre = state.mainGenre,
+  romanceBlend = state.romanceBlend,
+} = {}) {
+  if (!isGenreLiteratureContext(clusterId, purpose, mainGenre)) return false;
+  if (isGenreLiteratureRomance(mainGenre, clusterId)) return true;
+  const blend = normalizeRomanceBlend(romanceBlend, { mainGenre, clusterId });
+  return ROMANCE_BLEND_NEEDS_STRUCTURE.has(blend);
+}
+
+/** Setting axis: main=romance only. Future: blend+사극은 별도 이슈. */
+function romanceSettingApplies({
+  clusterId = getProjectClusterId(),
+  mainGenre = state.mainGenre,
+} = {}) {
+  return isGenreLiteratureRomance(mainGenre, clusterId);
+}
+
+function coerceRomanceFieldsForUi({
+  clusterId = getProjectClusterId(),
+  purpose = state.projectPurpose,
+  mainGenre = state.mainGenre,
+  romanceStructure = state.romanceStructure,
+  romanceSetting = state.romanceSetting,
+  romanceBlend = state.romanceBlend,
+} = {}) {
+  if (!isGenreLiteratureContext(clusterId, purpose, mainGenre)) {
+    return { romance_structure: "", romance_setting: "", romance_blend: "none" };
+  }
+  if (isGenreLiteratureRomance(mainGenre, clusterId)) {
+    return {
+      romance_structure: normalizeRomanceStructure(romanceStructure),
+      romance_setting: normalizeRomanceSetting(romanceSetting),
+      romance_blend: "none",
+    };
+  }
+  const blend = normalizeRomanceBlend(romanceBlend, { mainGenre, clusterId });
+  if (ROMANCE_BLEND_NEEDS_STRUCTURE.has(blend)) {
+    return {
+      romance_structure: normalizeRomanceStructure(romanceStructure),
+      romance_setting: "",
+      romance_blend: blend,
+    };
+  }
+  return {
+    romance_structure: "",
+    romance_setting: "",
+    romance_blend: blend,
+  };
+}
+
+function isPeriodSupportModuleEnabled({
+  clusterId = getProjectClusterId(),
+  mainGenre = state.mainGenre,
+  romanceSetting = state.romanceSetting,
+} = {}) {
+  return isGenreLiteratureRomance(mainGenre, clusterId)
+    && normalizeRomanceSetting(romanceSetting) === "period";
+}
+
+/**
+ * 06–09 토리 패널 도구셋 라우팅 훅 (인터페이스만).
+ * TODO: 실제 도구 목록 스위칭·감정선 몰입도 검사기 등은 후속 작업.
+ * empty_toolset_policy: specialty 도구가 비어 있어도 행을 숨기지 말고 placeholder 유지.
+ */
+function resolveGenreToolRouting(opts = {}) {
+  const clusterId = normalizeClusterId(opts.clusterId ?? getProjectClusterId()) || "webnovel";
+  const mainGenre = String(opts.mainGenre ?? state.mainGenre ?? "").trim().toLowerCase();
+  const fields = coerceRomanceFieldsForUi({
+    clusterId,
+    purpose: opts.purpose ?? state.projectPurpose,
+    mainGenre,
+    romanceStructure: opts.romanceStructure ?? state.romanceStructure,
+    romanceSetting: opts.romanceSetting ?? state.romanceSetting,
+    romanceBlend: opts.romanceBlend ?? state.romanceBlend,
+  });
+  const structure = fields.romance_structure;
+  const setting = fields.romance_setting;
+  const blend = fields.romance_blend;
+  const isLit = clusterId === "genre_literature";
+  const isRomance = isLit && mainGenre === "romance";
+  const mainSet = MAIN_TOOLSET_BY_GENRE[mainGenre] || (mainGenre ? `genre_lit_${mainGenre}` : "");
+  const romanceSet = structure
+    ? (ROMANCE_STRUCTURE_TOOLSET[structure] || MAIN_TOOLSET_BY_GENRE.romance)
+    : MAIN_TOOLSET_BY_GENRE.romance;
+  const plan = {
+    cluster_id: clusterId,
+    main_genre: mainGenre,
+    romance_structure: structure,
+    romance_setting: setting,
+    romance_blend: blend,
+    structure_applies: romanceStructureApplies({
+      clusterId,
+      purpose: opts.purpose ?? state.projectPurpose,
+      mainGenre,
+      romanceBlend: blend,
+    }),
+    setting_applies: romanceSettingApplies({ clusterId, mainGenre }),
+    period_support_module: isPeriodSupportModuleEnabled({
+      clusterId,
+      mainGenre,
+      romanceSetting: setting,
+    }),
+    primary_toolset: "",
+    secondary_toolsets: [],
+    auxiliary_toolsets: [],
+    empty_toolset_policy: "keep_visible_with_placeholder",
+    todo: "Wire 06–09 tool catalogs; subplot uses low-weight romance family set without structure split.",
+  };
+  if (!isLit) return plan;
+  if (isRomance) {
+    plan.primary_toolset = romanceSet;
+    return plan;
+  }
+  if (blend === "none") {
+    plan.primary_toolset = mainSet;
+  } else if (blend === "subplot") {
+    plan.primary_toolset = mainSet;
+    plan.secondary_toolsets = romanceSet ? [romanceSet] : [];
+    plan.blend_weight = "low";
+  } else if (blend === "co_axis") {
+    plan.primary_toolset = mainSet;
+    plan.secondary_toolsets = romanceSet ? [romanceSet] : [];
+    plan.blend_weight = "equal";
+  } else if (blend === "main_axis") {
+    plan.primary_toolset = romanceSet;
+    plan.auxiliary_toolsets = mainSet ? [mainSet] : [];
+  } else {
+    plan.primary_toolset = mainSet;
+  }
+  return plan;
+}
+
+function applyGenreToolRoutingHooks() {
+  const plan = resolveGenreToolRouting();
+  // TODO(follow-up): switch 06–09 assist tool lists from plan.primary/secondary/auxiliary.
+  // TODO(follow-up): gate 04 설정집 사극 지원 모듈 with plan.period_support_module.
+  document.documentElement.dataset.genreToolPrimary = plan.primary_toolset || "";
+  document.documentElement.dataset.genreToolBlend = plan.romance_blend || "none";
+  document.documentElement.dataset.periodSupportModule = plan.period_support_module ? "1" : "0";
+  return plan;
+}
+
+function setElHidden(el, hidden) {
+  if (!el) return;
+  el.classList.toggle("hidden", hidden);
+  if (hidden) el.setAttribute("hidden", "");
+  else el.removeAttribute("hidden");
+}
+
+function syncModalRomanceFields(prefix, opts = {}) {
+  const clusterId = getModalClusterId(prefix);
+  const clusterSub = String($(`${prefix}MainGenre`)?.value || "").trim();
+  const mapped = mapClusterSubgenre(clusterId, clusterSub);
+  const axes = $(`${prefix}RomanceAxes`);
+  const blendWrap = $(`${prefix}RomanceBlendWrap`);
+  const structureSel = $(`${prefix}RomanceStructure`);
+  const settingSel = $(`${prefix}RomanceSetting`);
+  const settingWrap = $(`${prefix}RomanceSettingWrap`);
+  const blendSel = $(`${prefix}RomanceBlend`);
+  const isLit = clusterId === "genre_literature";
+  const isRomance = isLit && mapped?.main === "romance";
+  const showBlend = isLit && mapped && mapped.main !== "romance";
+  let blendValue = "none";
+  if (showBlend) {
+    blendValue = normalizeRomanceBlend(
+      opts.romance_blend != null ? opts.romance_blend : (blendSel?.value || "none"),
+      { mainGenre: mapped?.main || "", clusterId },
+    );
+  }
+  const showStructure = isRomance || (showBlend && ROMANCE_BLEND_NEEDS_STRUCTURE.has(blendValue));
+  const showSetting = isRomance;
+  setElHidden(axes, !(showStructure || showSetting));
+  setElHidden(blendWrap, !showBlend);
+  setElHidden(settingWrap, !showSetting);
+  if (structureSel) {
+    structureSel.required = showStructure;
+    structureSel.disabled = !showStructure;
+    if (!showStructure) structureSel.value = "";
+    else if (opts.romance_structure != null) {
+      structureSel.value = normalizeRomanceStructure(opts.romance_structure);
+    }
+  }
+  if (settingSel) {
+    settingSel.required = showSetting;
+    settingSel.disabled = !showSetting;
+    if (!showSetting) settingSel.value = "";
+    else if (opts.romance_setting != null) {
+      settingSel.value = normalizeRomanceSetting(opts.romance_setting);
+    }
+  }
+  if (blendSel) {
+    blendSel.disabled = !showBlend;
+    if (!showBlend) blendSel.value = "none";
+    else {
+      blendSel.value = blendValue || "none";
+      if (blendSel.dataset.romanceBlendBound !== "1") {
+        blendSel.dataset.romanceBlendBound = "1";
+        blendSel.addEventListener("change", () => {
+          syncModalRomanceFields(prefix, {
+            romance_blend: blendSel.value,
+            romance_structure: structureSel?.value || "",
+            romance_setting: settingSel?.value || "",
+          });
+        });
+      }
+    }
+  }
+}
+
+function readModalRomanceFields(prefix, mappedMain, clusterId) {
+  if (clusterId !== "genre_literature") {
+    return { romance_structure: "", romance_setting: "", romance_blend: "none" };
+  }
+  if (mappedMain === "romance") {
+    return {
+      romance_structure: normalizeRomanceStructure($(`${prefix}RomanceStructure`)?.value),
+      romance_setting: normalizeRomanceSetting($(`${prefix}RomanceSetting`)?.value),
+      romance_blend: "none",
+    };
+  }
+  const blend = normalizeRomanceBlend($(`${prefix}RomanceBlend`)?.value, {
+    mainGenre: mappedMain,
+    clusterId,
+  });
+  if (ROMANCE_BLEND_NEEDS_STRUCTURE.has(blend)) {
+    return {
+      romance_structure: normalizeRomanceStructure($(`${prefix}RomanceStructure`)?.value),
+      romance_setting: "",
+      romance_blend: blend,
+    };
+  }
+  return {
+    romance_structure: "",
+    romance_setting: "",
+    romance_blend: blend,
+  };
+}
+
+function syncGenreLitRomanceFieldsUi() {
+  const isLit = isGenreLiteratureContext();
+  const main = String($("mainGenreSelect")?.value || state.mainGenre || "").trim();
+  const isRomance = isLit && main === "romance";
+  const showBlend = isLit && Boolean(main) && main !== "romance";
+  const blendValue = showBlend
+    ? normalizeRomanceBlend(state.romanceBlend, { mainGenre: main, clusterId: getProjectClusterId() })
+    : "none";
+  const showStructure = romanceStructureApplies({
+    mainGenre: main,
+    romanceBlend: blendValue,
+  });
+  const showSetting = romanceSettingApplies({ mainGenre: main });
+  const axes = $("genreLitRomanceAxes");
+  const blend = $("genreLitRomanceBlend");
+  const structureField = $("romanceStructureField");
+  const settingField = $("romanceSettingField");
+  const subField = $("subGenreField") || $("subGenreSelect")?.closest?.(".genre-field");
+  setElHidden(axes, !(showStructure || showSetting));
+  setElHidden(structureField, !showStructure);
+  setElHidden(settingField, !showSetting);
+  setElHidden(blend, !showBlend);
+  if (subField && isLit) {
+    subField.classList.toggle("hidden", isRomance);
+  }
+  const structureSel = $("romanceStructureSelect");
+  const settingSel = $("romanceSettingSelect");
+  const blendSel = $("romanceBlendSelect");
+  if (structureSel) {
+    structureSel.innerHTML = `<option value="">${escapeHtml(i18n.t("app.구조_축"))}</option>`
+      + ROMANCE_STRUCTURE_OPTIONS.map((o) =>
+        `<option value="${escapeHtml(o.key)}">${escapeHtml(i18n.t(o.labelKey))}</option>`
+      ).join("");
+    structureSel.value = showStructure ? normalizeRomanceStructure(state.romanceStructure) : "";
+    structureSel.disabled = true;
+  }
+  if (settingSel) {
+    settingSel.innerHTML = `<option value="">${escapeHtml(i18n.t("app.배경_축"))}</option>`
+      + ROMANCE_SETTING_OPTIONS.map((o) =>
+        `<option value="${escapeHtml(o.key)}">${escapeHtml(i18n.t(o.labelKey))}</option>`
+      ).join("");
+    settingSel.value = showSetting ? normalizeRomanceSetting(state.romanceSetting) : "";
+    settingSel.disabled = true;
+  }
+  if (blendSel) {
+    blendSel.innerHTML = ROMANCE_BLEND_OPTIONS.map((o) =>
+      `<option value="${escapeHtml(o.key)}">${escapeHtml(i18n.t(o.labelKey))}</option>`
+    ).join("");
+    blendSel.value = showBlend ? blendValue : "none";
+    blendSel.disabled = true;
+  }
+  const structureBtn = $("romanceStructureDisplay");
+  const settingBtn = $("romanceSettingDisplay");
+  const blendBtn = $("romanceBlendDisplay");
+  const hasProject = Boolean(state.projectId);
+  if (structureBtn) {
+    structureBtn.disabled = !hasProject || !showStructure;
+    structureBtn.textContent = romanceStructureLabel(structureSel?.value)
+      || i18n.t("app.구조_축");
+  }
+  if (settingBtn) {
+    settingBtn.disabled = !hasProject || !showSetting;
+    settingBtn.textContent = romanceSettingLabel(settingSel?.value)
+      || i18n.t("app.배경_축");
+  }
+  if (blendBtn) {
+    blendBtn.disabled = !hasProject || !showBlend;
+    blendBtn.textContent = showBlend
+      ? (romanceBlendLabel(blendSel?.value) || i18n.t("app.로맨스_결합_강도"))
+      : i18n.t("app.로맨스_결합_강도");
+  }
+  applyGenreToolRoutingHooks();
+}
+
 const GENRE_DETAIL_LABEL_KEYS = {
   historical: "app.사극",
   oriental_romfant: "app.동양로판",
@@ -8215,6 +8614,7 @@ function inferClusterSubKey(clusterId, mainGenre, subGenre, genreDetail) {
     if (main === "experimental" || ["meta", "form", "hybrid"].includes(sub)) {
       return "experimental";
     }
+    if (main === "romance") return "romance";
   }
   const entries = Object.entries(mapping);
   const subHit = entries.find(([, mapped]) => mapped.sub && mapped.sub === sub);
@@ -8240,6 +8640,8 @@ function hideModalGenreSelects(prefix) {
   mainWrap?.classList.add("hidden");
   subWrap?.classList.add("hidden");
   hideModalGenreDetail(prefix);
+  setElHidden($(`${prefix}RomanceAxes`), true);
+  setElHidden($(`${prefix}RomanceBlendWrap`), true);
   if (mainSelect) {
     mainSelect.required = false;
     mainSelect.disabled = true;
@@ -8308,9 +8710,11 @@ function fillModalClusterSubGenres(prefix, clusterId, opts = {}) {
   else {
     applyModalClusterPurpose(prefix);
     syncModalGenreDetail(prefix);
+    syncModalRomanceFields(prefix, opts);
     return;
   }
   applyModalClusterPurpose(prefix);
+  syncModalRomanceFields(prefix, opts);
 }
 
 function applyModalClusterPurpose(prefix) {
@@ -8462,6 +8866,7 @@ function applyClusterFeatureGating() {
     try { closeSettingsCollectionMain(); } catch (_) { /* ignore */ }
   }
   try { syncKeywordClusterUi(); } catch (_) { /* ignore */ }
+  try { applyGenreToolRoutingHooks(); } catch (_) { /* ignore */ }
 }
 
 /* Curated language list for 번역 (source / target). */
@@ -8579,6 +8984,7 @@ const GENRE_LITERATURE_MAIN_GENRES = [
   { key: "thriller", label: i18n.t("app.스릴러_호러") },
   { key: "traditional", label: i18n.t("app.정통판타지") },
   { key: "experimental", label: i18n.t("app.실험장르") },
+  { key: "romance", label: i18n.t("app.로맨스") },
 ];
 const LITERATURE_MAIN_GENRES = [
   { key: "general_lit", label: i18n.t("app.일반문학") },
@@ -8938,6 +9344,19 @@ function settingsGenreSummaryLine() {
   const mainText = stored.main ? mainGenreLabel(stored.main) : "";
   const subText = stored.sub ? subGenreLabel(stored.main, stored.sub) : "";
   const detailText = genreDetailLabel(stored.genre_detail || "");
+  const structureText = romanceStructureApplies({ mainGenre: stored.main, romanceBlend: state.romanceBlend })
+    ? romanceStructureLabel(state.romanceStructure)
+    : "";
+  const settingText = romanceSettingApplies({ mainGenre: stored.main })
+    ? romanceSettingLabel(state.romanceSetting)
+    : "";
+  const blendText = isGenreLiteratureContext()
+    && stored.main
+    && stored.main !== "romance"
+    && state.romanceBlend
+    && state.romanceBlend !== "none"
+    ? romanceBlendLabel(state.romanceBlend)
+    : "";
   const skip = new Set([
     i18n.t("app.미정"),
     i18n.t("app.장르"),
@@ -8947,7 +9366,7 @@ function settingsGenreSummaryLine() {
     i18n.t("app.서브_장르"),
   ]);
   const ratingText = isAdult19Rating(state.contentRating) ? i18n.t("app.19금") : "";
-  return [purposeText, mainText, subText, detailText, ratingText]
+  return [purposeText, mainText, subText, detailText, structureText, settingText, blendText, ratingText]
     .map((part) => String(part || "").trim())
     .filter((part) => part && !skip.has(part));
 }
@@ -8969,7 +9388,14 @@ function genrePickerTitleForMode(mode = getPurposeCategoryMode()) {
 
 /** Header genre <select>s are value stores only — never interactive dropdowns. */
 function lockHeaderGenreSelects() {
-  for (const id of ["mainGenreSelect", "subGenreSelect", "genreDetailSelect"]) {
+  for (const id of [
+    "mainGenreSelect",
+    "subGenreSelect",
+    "genreDetailSelect",
+    "romanceStructureSelect",
+    "romanceSettingSelect",
+    "romanceBlendSelect",
+  ]) {
     const select = $(id);
     if (!select) continue;
     select.disabled = true;
@@ -9356,6 +9782,7 @@ function syncGenrePickerFromState() {
     fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
+    syncGenreLitRomanceFieldsUi();
     return;
   }
   const main = $("mainGenreSelect");
@@ -9368,6 +9795,7 @@ function syncGenrePickerFromState() {
     fillGenreDetailSelect("", "", "");
     updateGenreCustomVisibility();
     syncGenreDisplayButtons();
+    syncGenreLitRomanceFieldsUi();
     return;
   }
   if (mode === "translation") {
@@ -9490,9 +9918,8 @@ function syncGenrePickerFromState() {
     }
   }
   syncGenreDisplayButtons();
+  syncGenreLitRomanceFieldsUi();
 }
-
-let genrePersistTimer = null;
 function schedulePersistProjectGenre() {
   const projectId = liveProjectId();
   if (!projectId) return;
@@ -9511,6 +9938,14 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   const content_rating = purposeAllowsAdult19()
     ? adult19RatingValue(readAdult19Toggle())
     : "";
+  const romance = coerceRomanceFieldsForUi({
+    clusterId,
+    purpose: state.projectPurpose,
+    mainGenre: main,
+    romanceStructure: $("romanceStructureSelect")?.value || state.romanceStructure,
+    romanceSetting: $("romanceSettingSelect")?.value || state.romanceSetting,
+    romanceBlend: $("romanceBlendSelect")?.value || state.romanceBlend,
+  });
   await api(`/api/projects/${projectId}/settings`, {
     method: "POST",
     body: JSON.stringify({
@@ -9519,6 +9954,9 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
       cluster_id: clusterId,
       genre_detail,
       content_rating,
+      romance_structure: romance.romance_structure,
+      romance_setting: romance.romance_setting,
+      romance_blend: romance.romance_blend,
     }),
   });
   if (liveProjectId() !== projectId) return;
@@ -9527,6 +9965,9 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
   state.genreDetail = genre_detail;
   state.contentRating = content_rating;
   state.clusterId = clusterId;
+  state.romanceStructure = romance.romance_structure;
+  state.romanceSetting = romance.romance_setting;
+  state.romanceBlend = romance.romance_blend;
   const project = state.projects.find((p) => Number(p.id) === Number(projectId));
   if (project) {
     project.main_genre = main;
@@ -9534,8 +9975,12 @@ async function persistProjectGenre({ quiet = true, projectId: projectIdOpt } = {
     project.cluster_id = clusterId;
     project.genre_detail = genre_detail;
     project.content_rating = content_rating;
+    project.romance_structure = romance.romance_structure;
+    project.romance_setting = romance.romance_setting;
+    project.romance_blend = romance.romance_blend;
   }
   syncGenreDisplayButtons();
+  syncGenreLitRomanceFieldsUi();
   if (typeof renderSettingsCodex === "function") {
     try { renderSettingsCodex(); } catch (_) { /* ignore */ }
   }
@@ -9629,6 +10074,9 @@ function hideGenreContextMenu() {
   }
   $("mainGenreDisplay")?.setAttribute("aria-expanded", "false");
   $("subGenreDisplay")?.setAttribute("aria-expanded", "false");
+  $("romanceStructureDisplay")?.setAttribute("aria-expanded", "false");
+  $("romanceSettingDisplay")?.setAttribute("aria-expanded", "false");
+  $("romanceBlendDisplay")?.setAttribute("aria-expanded", "false");
 }
 
 function placeGenreContextMenu(anchor) {
@@ -9638,6 +10086,33 @@ function placeGenreContextMenu(anchor) {
 function getGenreMenuOptions(kind = "main") {
   const mode = getPurposeCategoryMode();
   if (mode === "none") return { title: i18n.t('app.장르'), options: [] };
+  if (kind === "romance_structure") {
+    return {
+      title: i18n.t("app.구조_축_선택"),
+      options: ROMANCE_STRUCTURE_OPTIONS.map((o) => ({
+        key: o.key,
+        label: i18n.t(o.labelKey),
+      })),
+    };
+  }
+  if (kind === "romance_setting") {
+    return {
+      title: i18n.t("app.배경_축_선택"),
+      options: ROMANCE_SETTING_OPTIONS.map((o) => ({
+        key: o.key,
+        label: i18n.t(o.labelKey),
+      })),
+    };
+  }
+  if (kind === "romance_blend") {
+    return {
+      title: i18n.t("app.로맨스_결합_강도_선택"),
+      options: ROMANCE_BLEND_OPTIONS.map((o) => ({
+        key: o.key,
+        label: i18n.t(o.labelKey),
+      })),
+    };
+  }
   if (kind === "main") {
     if (mode === "fairy_tale") {
       return { title: i18n.t('app.동화_대상_선택'), options: FAIRY_TALE_AUDIENCES };
@@ -9672,13 +10147,30 @@ function showGenreContextMenu(kind, anchor) {
   }
   const { title, options } = getGenreMenuOptions(kind);
   if (labelEl) labelEl.textContent = title;
-  const select = kind === "main" ? $("mainGenreSelect") : $("subGenreSelect");
-  const current = select?.value || "";
+  const selectByKind = {
+    main: $("mainGenreSelect"),
+    sub: $("subGenreSelect"),
+    romance_structure: $("romanceStructureSelect"),
+    romance_setting: $("romanceSettingSelect"),
+    romance_blend: $("romanceBlendSelect"),
+  };
+  const select = selectByKind[kind] || $("subGenreSelect");
+  const current = select?.value || (kind === "romance_blend" ? "none" : "");
   const unsetLabel = kind === "main"
     ? i18n.t("app.메인_장르_미정")
-    : i18n.t("app.서브_장르_미정");
-  const mainHtml = groupedGenreMenuHtml(kind, options, current, unsetLabel);
+    : kind === "romance_structure"
+      ? i18n.t("app.구조_축")
+      : kind === "romance_setting"
+        ? i18n.t("app.배경_축")
+        : kind === "romance_blend"
+          ? i18n.t("app.없음")
+          : i18n.t("app.서브_장르_미정");
+  const skipUnset = kind === "romance_blend" || kind === "romance_structure" || kind === "romance_setting";
+  const mainHtml = skipUnset
+    ? options.map((opt) => genreContextMenuItemHtml(kind, opt, current)).join("")
+    : groupedGenreMenuHtml(kind, options, current, unsetLabel);
   const detailOptions = getPurposeCategoryMode() === "fiction" && !isWebNovelPurpose()
+    && kind === "sub"
     ? genreDetailOptionsForMainSub(
       $("mainGenreSelect")?.value || state.mainGenre || "",
       $("subGenreSelect")?.value || state.subGenre || "",
@@ -9699,6 +10191,9 @@ function showGenreContextMenu(kind, anchor) {
   menu.dataset.genreKind = kind;
   $("mainGenreDisplay")?.setAttribute("aria-expanded", kind === "main" ? "true" : "false");
   $("subGenreDisplay")?.setAttribute("aria-expanded", kind === "sub" ? "true" : "false");
+  $("romanceStructureDisplay")?.setAttribute("aria-expanded", kind === "romance_structure" ? "true" : "false");
+  $("romanceSettingDisplay")?.setAttribute("aria-expanded", kind === "romance_setting" ? "true" : "false");
+  $("romanceBlendDisplay")?.setAttribute("aria-expanded", kind === "romance_blend" ? "true" : "false");
   placeGenreContextMenu(anchor);
 }
 
@@ -9748,6 +10243,20 @@ function applyMainGenreChoice(mainKey) {
   // fiction
   state.subGenre = "";
   state.genreDetail = "";
+  if (isGenreLiteratureRomance(next)) {
+    state.romanceStructure = "";
+    state.romanceSetting = "";
+    state.romanceBlend = "none";
+  } else if (isGenreLiteratureContext()) {
+    state.romanceStructure = "";
+    state.romanceSetting = "";
+    // keep blend default none when switching non-romance lit genres
+    if (!state.romanceBlend) state.romanceBlend = "none";
+  } else {
+    state.romanceStructure = "";
+    state.romanceSetting = "";
+    state.romanceBlend = "none";
+  }
   fillSubGenreSelect(next, "");
   fillGenreDetailSelectForUi(
     isWebNovelPurpose() && next === "fantasy" ? "fantasy" : (isWebNovelPurpose() ? "" : next),
@@ -9756,6 +10265,7 @@ function applyMainGenreChoice(mainKey) {
   );
   updateGenreCustomVisibility();
   syncGenreDisplayButtons();
+  syncGenreLitRomanceFieldsUi();
   if (next === "other") {
     $("mainGenreCustom")?.focus();
     schedulePersistProjectGenre();
@@ -9822,6 +10332,48 @@ function applyGenreDetailChoice(detailKey) {
   persistProjectGenre({ quiet: false }).catch(handleError);
 }
 
+function applyRomanceStructureChoice(key) {
+  if (!state.projectId || !romanceStructureApplies()) return;
+  const next = normalizeRomanceStructure(key);
+  if (!next) return;
+  if (state.romanceStructure === next) return;
+  state.romanceStructure = next;
+  if ($("romanceStructureSelect")) $("romanceStructureSelect").value = next;
+  syncGenreLitRomanceFieldsUi();
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function applyRomanceSettingChoice(key) {
+  if (!state.projectId || !romanceSettingApplies()) return;
+  const next = normalizeRomanceSetting(key);
+  if (!next) return;
+  if (state.romanceSetting === next) return;
+  state.romanceSetting = next;
+  if ($("romanceSettingSelect")) $("romanceSettingSelect").value = next;
+  syncGenreLitRomanceFieldsUi();
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
+function applyRomanceBlendChoice(key) {
+  if (!state.projectId || !isGenreLiteratureContext()) return;
+  if (isGenreLiteratureRomance()) return;
+  const next = normalizeRomanceBlend(key, {
+    mainGenre: state.mainGenre,
+    clusterId: getProjectClusterId(),
+  });
+  if (state.romanceBlend === next) return;
+  state.romanceBlend = next;
+  if (!ROMANCE_BLEND_NEEDS_STRUCTURE.has(next)) {
+    state.romanceStructure = "";
+    if ($("romanceStructureSelect")) $("romanceStructureSelect").value = "";
+  }
+  state.romanceSetting = "";
+  if ($("romanceSettingSelect")) $("romanceSettingSelect").value = "";
+  if ($("romanceBlendSelect")) $("romanceBlendSelect").value = next;
+  syncGenreLitRomanceFieldsUi();
+  persistProjectGenre({ quiet: false }).catch(handleError);
+}
+
 function setupGenrePicker() {
   fillMainGenreSelect("");
   fillSubGenreSelect("", "");
@@ -9856,6 +10408,9 @@ function setupGenrePicker() {
   };
   bindDisplay("mainGenreDisplay", "main");
   bindDisplay("subGenreDisplay", "sub");
+  bindDisplay("romanceStructureDisplay", "romance_structure");
+  bindDisplay("romanceSettingDisplay", "romance_setting");
+  bindDisplay("romanceBlendDisplay", "romance_blend");
 
   const adultToggle = $("adult19Toggle");
   if (adultToggle && adultToggle.dataset.adult19Bound !== "1") {
@@ -9875,10 +10430,13 @@ function setupGenrePicker() {
     hideGenreContextMenu();
     if (kind === "detail") applyGenreDetailChoice(key);
     else if (kind === "sub") applySubGenreChoice(key);
+    else if (kind === "romance_structure") applyRomanceStructureChoice(key);
+    else if (kind === "romance_setting") applyRomanceSettingChoice(key);
+    else if (kind === "romance_blend") applyRomanceBlendChoice(key);
     else applyMainGenreChoice(key);
   });
   document.addEventListener("click", (event) => {
-    if (!event.target.closest?.("#genreContextMenu, #purposeContextMenu, #mainGenreDisplay, #subGenreDisplay, #purposeDisplay")) {
+    if (!event.target.closest?.("#genreContextMenu, #purposeContextMenu, #mainGenreDisplay, #subGenreDisplay, #purposeDisplay, #romanceStructureDisplay, #romanceSettingDisplay, #romanceBlendDisplay")) {
       hideGenreContextMenu();
       hidePurposeContextMenu();
     }
@@ -11021,6 +11579,9 @@ async function loadProject() {
   state.subGenre = outline.project?.sub_genre || fromList?.sub_genre || "";
   state.genreDetail = outline.project?.genre_detail || fromList?.genre_detail || "";
   state.contentRating = outline.project?.content_rating || fromList?.content_rating || "";
+  state.romanceStructure = outline.project?.romance_structure || fromList?.romance_structure || "";
+  state.romanceSetting = outline.project?.romance_setting || fromList?.romance_setting || "";
+  state.romanceBlend = outline.project?.romance_blend || fromList?.romance_blend || "none";
   if (fromList) fromList.content_rating = state.contentRating;
   state.completionGuideShown = Boolean(Number(outline.project?.completion_guide_shown))
     || Boolean(Number(fromList?.completion_guide_shown))
@@ -63301,6 +63862,9 @@ async function submitNewProject(event) {
         content_rating: genres.content_rating || "",
         cluster_id: genres.cluster_id || getModalClusterId("newProject"),
         keywords: getModalDraftKeywords("newProject"),
+        romance_structure: genres.romance_structure || "",
+        romance_setting: genres.romance_setting || "",
+        romance_blend: genres.romance_blend || "none",
     };
     if (inheritOn && inheritFrom) {
       payload.inherit_from_project_id = inheritFrom;
@@ -63728,7 +64292,35 @@ function readModalGenreValues(prefix, purpose) {
         cluster_id: clusterId,
         genre_detail: canon.genre_detail,
         content_rating: readModalAdult19(prefix, clusterId, mapped.purpose),
+        romance_structure: "",
+        romance_setting: "",
+        romance_blend: "none",
       };
+    }
+    const romance = readModalRomanceFields(prefix, mapped.main, clusterId);
+    if (mapped.main === "romance") {
+      if (!romance.romance_structure) {
+        return {
+          ok: false,
+          error: i18n.t("app.구조_축을_선택해_주세요"),
+          focusId: `${prefix}RomanceStructure`,
+        };
+      }
+      if (!romance.romance_setting) {
+        return {
+          ok: false,
+          error: i18n.t("app.배경_축을_선택해_주세요"),
+          focusId: `${prefix}RomanceSetting`,
+        };
+      }
+    } else if (ROMANCE_BLEND_NEEDS_STRUCTURE.has(romance.romance_blend)) {
+      if (!romance.romance_structure) {
+        return {
+          ok: false,
+          error: i18n.t("app.구조_축을_선택해_주세요"),
+          focusId: `${prefix}RomanceStructure`,
+        };
+      }
     }
     return {
       ok: true,
@@ -63738,6 +64330,7 @@ function readModalGenreValues(prefix, purpose) {
       cluster_id: clusterId,
       genre_detail: readModalGenreDetail(prefix),
       content_rating: readModalAdult19(prefix, clusterId, mapped.purpose),
+      ...romance,
     };
   }
   const mode = getPurposeCategoryMode(purpose);
@@ -77281,6 +77874,9 @@ async function submitImport(event) {
   let genreDetail = "";
   let importClusterId = getModalClusterId("import");
   let importContentRating = "";
+  let importRomanceStructure = "";
+  let importRomanceSetting = "";
+  let importRomanceBlend = "none";
   const isDocumentImport = importModalMode !== "proof"
     && destination !== "proof_pipeline"
     && destination !== "proof_compare"
@@ -77296,6 +77892,9 @@ async function submitImport(event) {
     subGenre = genres.sub;
     genreDetail = genres.genre_detail || "";
     importContentRating = genres.content_rating || "";
+    importRomanceStructure = genres.romance_structure || "";
+    importRomanceSetting = genres.romance_setting || "";
+    importRomanceBlend = genres.romance_blend || "none";
     if (genres.purpose) $("importPurpose").value = genres.purpose;
     importClusterId = genres.cluster_id || importClusterId;
   } else {
@@ -77304,6 +77903,9 @@ async function submitImport(event) {
     subGenre = String(current?.sub_genre || state.subGenre || "").trim();
     genreDetail = String(current?.genre_detail || state.genreDetail || "").trim();
     importContentRating = String(current?.content_rating || state.contentRating || "").trim();
+    importRomanceStructure = String(current?.romance_structure || state.romanceStructure || "").trim();
+    importRomanceSetting = String(current?.romance_setting || state.romanceSetting || "").trim();
+    importRomanceBlend = String(current?.romance_blend || state.romanceBlend || "none").trim() || "none";
     importClusterId = inferClusterId(
       current?.purpose || purpose,
       mainGenre,
@@ -77352,6 +77954,9 @@ async function submitImport(event) {
       sub_genre: subGenre,
       genre_detail: genreDetail,
       content_rating: importContentRating,
+      romance_structure: importRomanceStructure,
+      romance_setting: importRomanceSetting,
+      romance_blend: importRomanceBlend,
       keywords: isDocumentImport ? getModalDraftKeywords("import") : undefined,
       project_title: projectTitle,
       chapter_title: chapterTitle,

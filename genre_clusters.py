@@ -35,13 +35,48 @@ LOCKED_PURPOSES = frozenset({
     "other",
 })
 
-GENRE_LITERATURE_MAIN = frozenset({"mystery", "thriller", "genre_lit", "sf", "traditional", "experimental"})
+GENRE_LITERATURE_MAIN = frozenset({
+    "mystery",
+    "thriller",
+    "genre_lit",
+    "sf",
+    "traditional",
+    "experimental",
+})
+# Selectable on genre_literature UI / cluster map. Not used for general_novel reverse-infer
+# (legacy purpose=novel + main=romance must stay general_literature / webnovel via stored cluster).
+GENRE_LITERATURE_SELECTABLE_MAIN = GENRE_LITERATURE_MAIN | frozenset({"romance"})
 GENRE_LITERATURE_SUB = frozenset({
     "honkaku", "social", "cozy", "legal", "crime",
     "psycho", "action", "horror", "suspense",
     "detective",
     "space", "dystopia", "cyberpunk", "timeslip", "postapo",
 })
+
+# Genre-literature romance axes (independent; stored as separate project columns).
+# Keys are lowercase snake_case (UI labels live in locales).
+#
+# romance_structure is NOT main=romance-only: it also applies when romance_blend is
+# co_axis / main_axis (cross-genre romance involvement). subplot / none do not keep it.
+ROMANCE_STRUCTURE_VALUES = frozenset({"emotional", "plot_driven"})
+ROMANCE_SETTING_VALUES = frozenset({"contemporary", "period"})
+# Cross-genre romance blend intensity (default none). Hidden when main genre is romance.
+ROMANCE_BLEND_VALUES = frozenset({"none", "subplot", "co_axis", "main_axis"})
+ROMANCE_BLEND_NEEDS_STRUCTURE = frozenset({"co_axis", "main_axis"})
+ROMANCE_STRUCTURE_LABELS = {
+    "emotional": "정서형",
+    "plot_driven": "사건형",
+}
+ROMANCE_SETTING_LABELS = {
+    "contemporary": "현대",
+    "period": "사극",
+}
+ROMANCE_BLEND_LABELS = {
+    "none": "없음",
+    "subplot": "서브플롯",
+    "co_axis": "공동축",
+    "main_axis": "메인축",
+}
 
 # Features that can be hidden per cluster. Anything not listed stays visible.
 ALL_CLUSTER_FEATURE_IDS = (
@@ -229,6 +264,7 @@ CLUSTER_SUBGENRE_MAP: dict[str, dict[str, tuple[str, str, str]]] = {
         "sf": ("genre_literature", "sf", "space"),
         "traditional": ("genre_literature", "traditional", ""),
         "experimental": ("genre_literature", "experimental", ""),
+        "romance": ("genre_literature", "romance", ""),
     },
     "general_literature": {
         "general_lit": ("literature", "general_lit", "mid"),
@@ -340,3 +376,203 @@ def is_feature_visible(feature_id: object, cluster_id: object) -> bool:
     if not key:
         return True
     return key not in hidden_features(cluster_id)
+
+
+def is_genre_literature_cluster(
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+) -> bool:
+    resolved = resolve_cluster_id(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    )
+    return resolved == "genre_literature"
+
+
+def is_genre_literature_romance(
+    *,
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+) -> bool:
+    if str(main_genre or "").strip().lower() != "romance":
+        return False
+    return is_genre_literature_cluster(cluster_id, purpose, main_genre, sub_genre)
+
+
+def romance_structure_applies(
+    *,
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+    romance_blend: object = "",
+) -> bool:
+    """True when structure axis (emotional/plot_driven) should be shown/stored.
+
+    - main genre = romance, or
+    - romance_blend in {co_axis, main_axis}
+    subplot / none do not use structure (subplot rides the generic romance auxiliary set).
+    """
+    if not is_genre_literature_cluster(cluster_id, purpose, main_genre, sub_genre):
+        return False
+    if is_genre_literature_romance(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    ):
+        return True
+    blend = normalize_romance_blend(
+        romance_blend,
+        main_genre=main_genre,
+        cluster_id=cluster_id,
+        purpose=purpose,
+        sub_genre=sub_genre,
+    )
+    return blend in ROMANCE_BLEND_NEEDS_STRUCTURE
+
+
+def romance_setting_applies(
+    *,
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+) -> bool:
+    """Setting axis (contemporary/period) is main=romance only.
+
+    # Future: SF+사극 로맨스 등 결합축+사극 조합이 필요하면 별도 이슈로 분리.
+    """
+    return is_genre_literature_romance(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    )
+
+
+def normalize_romance_structure(value: object = "") -> str:
+    key = str(value or "").strip().lower()
+    return key if key in ROMANCE_STRUCTURE_VALUES else ""
+
+
+def normalize_romance_setting(value: object = "") -> str:
+    key = str(value or "").strip().lower()
+    return key if key in ROMANCE_SETTING_VALUES else ""
+
+
+def normalize_romance_blend(
+    value: object = "",
+    *,
+    main_genre: object = "",
+    cluster_id: object = "",
+    purpose: object = "",
+    sub_genre: object = "",
+) -> str:
+    """Return a blend key. Main-genre romance forces 'none' (no duplicate tag)."""
+    if is_genre_literature_romance(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    ):
+        return "none"
+    key = str(value or "").strip().lower()
+    if not key:
+        return "none"
+    return key if key in ROMANCE_BLEND_VALUES else "none"
+
+
+def romance_structure_label(value: object = "") -> str:
+    key = normalize_romance_structure(value)
+    return ROMANCE_STRUCTURE_LABELS.get(key, "")
+
+
+def romance_setting_label(value: object = "") -> str:
+    key = normalize_romance_setting(value)
+    return ROMANCE_SETTING_LABELS.get(key, "")
+
+
+def romance_blend_label(value: object = "") -> str:
+    key = normalize_romance_blend(value)
+    return ROMANCE_BLEND_LABELS.get(key, ROMANCE_BLEND_LABELS["none"])
+
+
+def is_period_support_module_enabled(
+    *,
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+    romance_setting: object = "",
+) -> bool:
+    """04 설정집 '사극 지원 모듈' — genre-lit romance + period setting only."""
+    if not is_genre_literature_romance(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    ):
+        return False
+    return normalize_romance_setting(romance_setting) == "period"
+
+
+def coerce_romance_fields_for_project(
+    *,
+    cluster_id: object = "",
+    purpose: object = "",
+    main_genre: object = "",
+    sub_genre: object = "",
+    romance_structure: object = "",
+    romance_setting: object = "",
+    romance_blend: object = "",
+) -> dict[str, str]:
+    """Normalize romance fields for genre-literature projects.
+
+    romance_structure follows romance involvement (main=romance OR blend co_axis/main_axis).
+    romance_setting stays main=romance only (cleared for blend cases).
+    Existing works (null/empty) stay as empty structure/setting and blend=none.
+    Webnovel / other clusters: axes cleared, blend forced to none.
+    """
+    if not is_genre_literature_cluster(cluster_id, purpose, main_genre, sub_genre):
+        return {
+            "romance_structure": "",
+            "romance_setting": "",
+            "romance_blend": "none",
+        }
+    if is_genre_literature_romance(
+        cluster_id=cluster_id,
+        purpose=purpose,
+        main_genre=main_genre,
+        sub_genre=sub_genre,
+    ):
+        return {
+            "romance_structure": normalize_romance_structure(romance_structure),
+            "romance_setting": normalize_romance_setting(romance_setting),
+            "romance_blend": "none",
+        }
+    blend = normalize_romance_blend(
+        romance_blend,
+        main_genre=main_genre,
+        cluster_id=cluster_id,
+        purpose=purpose,
+        sub_genre=sub_genre,
+    )
+    if blend in ROMANCE_BLEND_NEEDS_STRUCTURE:
+        return {
+            "romance_structure": normalize_romance_structure(romance_structure),
+            "romance_setting": "",
+            "romance_blend": blend,
+        }
+    # none / subplot: no structure axis (subplot uses generic romance auxiliary toolset).
+    return {
+        "romance_structure": "",
+        "romance_setting": "",
+        "romance_blend": blend,
+    }

@@ -16,6 +16,7 @@ import genre_clusters
 
 class GenreClusterLogicTests(unittest.TestCase):
     def test_cluster_catalog_matches_spec(self) -> None:
+        genre_clusters._clusters_cache = None
         clusters = {item["id"]: item for item in genre_clusters.load_clusters()}
         self.assertEqual(
             set(clusters),
@@ -29,7 +30,7 @@ class GenreClusterLogicTests(unittest.TestCase):
         )
         self.assertEqual(
             clusters["genre_literature"]["sub_genres"],
-            ["SF", "미스테리/추리", "스릴러/호러", "정통판타지", "실험장르"],
+            ["SF", "미스테리/추리", "스릴러/호러", "정통판타지", "실험장르", "로맨스"],
         )
         self.assertEqual(clusters["general_literature"]["label"], "문학")
         self.assertEqual(
@@ -135,7 +136,13 @@ class GenreClusterLogicTests(unittest.TestCase):
             genre_clusters.map_cluster_subgenre("genre_literature", "traditional"),
             ("genre_literature", "traditional", ""),
         )
+        self.assertEqual(
+            genre_clusters.map_cluster_subgenre("genre_literature", "romance"),
+            ("genre_literature", "romance", ""),
+        )
         self.assertIn("experimental", genre_clusters.GENRE_LITERATURE_MAIN)
+        self.assertIn("romance", genre_clusters.GENRE_LITERATURE_SELECTABLE_MAIN)
+        self.assertNotIn("romance", genre_clusters.GENRE_LITERATURE_MAIN)
 
     def test_genre_detail_allowed_values_and_labels(self) -> None:
         self.assertEqual(

@@ -52,6 +52,7 @@ import world_import_analysis
 import document_import
 import env_loader
 import genre_clusters
+import genre_tool_routing
 import prompt_pipelines
 import folder_tree
 import gemini_client
@@ -243,6 +244,7 @@ MIGRATION_089_PATH = ROOT / "db" / "089_custom_dictionary_terms.sql"
 MIGRATION_090_PATH = ROOT / "db" / "090_translation_proper_nouns_dictionary_type.sql"
 MIGRATION_091_PATH = ROOT / "db" / "091_project_reader_favorites.sql"
 MIGRATION_092_PATH = ROOT / "db" / "092_migrate_urban_main_to_fantasy_male.py"
+MIGRATION_093_PATH = ROOT / "db" / "093_project_romance_axes.sql"
 WEB_ROOT = ROOT / "web"
 AMBIENT_SOUND_ROOT = ROOT / "assets" / "sounds"
 AMBIENT_SOUND_FOLDERS = ("frequency", "noise", "nature", "ambient")
@@ -1995,6 +1997,8 @@ def initialise_database() -> None:
             connection.executescript(MIGRATION_091_PATH.read_text(encoding="utf-8"))
         if 92 not in applied:
             apply_migration_092(connection)
+        if 93 not in applied:
+            connection.executescript(MIGRATION_093_PATH.read_text(encoding="utf-8"))
         ensure_idea_note_pin_column(connection)
         ensure_scene_reader_comments_started_column(connection)
         ensure_tracked_facts_columns(connection)
@@ -2016,6 +2020,7 @@ def initialise_database() -> None:
         ensure_project_cluster_column(connection)
         ensure_project_genre_detail_column(connection)
         ensure_project_content_rating_column(connection)
+        ensure_project_romance_axes_columns(connection)
         ensure_project_completion_guide_column(connection)
         ensure_project_tory_check_table(connection)
         ensure_scene_character_mention_table(connection)
@@ -5479,6 +5484,120 @@ def set_project_content_rating(
         pass
 
 
+def ensure_project_romance_axes_columns(connection: sqlite3.Connection) -> None:
+    """Idempotent: project.romance_structure / romance_setting / romance_blend (migration 093)."""
+    try:
+        cols = {
+            str(row[1])
+            for row in connection.execute("PRAGMA table_info(project)").fetchall()
+        }
+        if "romance_structure" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN romance_structure TEXT NOT NULL DEFAULT ''"
+            )
+        if "romance_setting" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN romance_setting TEXT NOT NULL DEFAULT ''"
+            )
+        if "romance_blend" not in cols:
+            connection.execute(
+                "ALTER TABLE project ADD COLUMN romance_blend TEXT NOT NULL DEFAULT 'none'"
+            )
+        connection.execute(
+            "INSERT OR IGNORE INTO schema_migration(version, name) "
+            "VALUES (93, 'project_romance_axes')"
+        )
+    except sqlite3.Error:
+        pass
+
+
+def set_project_romance_axes(
+    connection: sqlite3.Connection,
+    project_id: int,
+    *,
+    romance_structure: str = "",
+    romance_setting: str = "",
+    romance_blend: str = "none",
+) -> None:
+    try:
+        connection.execute(
+            "UPDATE project SET romance_structure = ?, romance_setting = ?, romance_blend = ? "
+            "WHERE id = ?",
+            (
+                str(romance_structure or "").strip(),
+                str(romance_setting or "").strip(),
+                str(romance_blend or "none").strip() or "none",
+                int(project_id),
+            ),
+        )
+    except sqlite3.OperationalError:
+        pass
+
+
+def read_project_romance_axes(row: sqlite3.Row | dict | None) -> dict[str, str]:
+    if row is None:
+        return {
+            "romance_structure": "",
+            "romance_setting": "",
+            "romance_blend": "none",
+        }
+    keys = row.keys() if hasattr(row, "keys") else row
+    def _get(name: str, default: str = "") -> str:
+        try:
+            if name in keys:
+                return str(row[name] or "").strip()
+        except (KeyError, TypeError, IndexError):
+            pass
+        return default
+    blend = _get("romance_blend", "none") or "none"
+    return {
+        "romance_structure": _get("romance_structure"),
+        "romance_setting": _get("romance_setting"),
+        "romance_blend": blend,
+    }
+
+
+def attach_romance_axes(item: dict, *, purpose: object = "", cluster_id: object = "") -> dict:
+    if not isinstance(item, dict):
+        return item
+    coerced = genre_clusters.coerce_romance_fields_for_project(
+        cluster_id=cluster_id or item.get("cluster_id"),
+        purpose=purpose or item.get("purpose"),
+        main_genre=item.get("main_genre"),
+        sub_genre=item.get("sub_genre"),
+        romance_structure=item.get("romance_structure"),
+        romance_setting=item.get("romance_setting"),
+        romance_blend=item.get("romance_blend"),
+    )
+    item.update(coerced)
+    item["romance_structure_label"] = genre_clusters.romance_structure_label(
+        coerced["romance_structure"]
+    )
+    item["romance_setting_label"] = genre_clusters.romance_setting_label(
+        coerced["romance_setting"]
+    )
+    item["romance_blend_label"] = genre_clusters.romance_blend_label(
+        coerced["romance_blend"]
+    )
+    item["period_support_module"] = genre_clusters.is_period_support_module_enabled(
+        cluster_id=cluster_id or item.get("cluster_id"),
+        purpose=purpose or item.get("purpose"),
+        main_genre=item.get("main_genre"),
+        sub_genre=item.get("sub_genre"),
+        romance_setting=coerced["romance_setting"],
+    )
+    item["genre_tool_routing"] = genre_tool_routing.resolve_genre_tool_routing(
+        cluster_id=cluster_id or item.get("cluster_id"),
+        purpose=purpose or item.get("purpose"),
+        main_genre=item.get("main_genre"),
+        sub_genre=item.get("sub_genre"),
+        romance_structure=coerced["romance_structure"],
+        romance_setting=coerced["romance_setting"],
+        romance_blend=coerced["romance_blend"],
+    )
+    return item
+
+
 def attach_genre_detail(item: dict) -> dict:
     if not isinstance(item, dict):
         return item
@@ -5489,7 +5608,7 @@ def attach_genre_detail(item: dict) -> dict:
     )
     item["genre_detail"] = detail
     item["genre_detail_label"] = genre_clusters.genre_detail_label(detail)
-    return item
+    return attach_romance_axes(item)
 
 
 GITSI_ROOM_CODE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{1,62}[A-Za-z0-9]$")
@@ -11301,6 +11420,30 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     main_genre, sub_genre, body.get("genre_detail")
                 )
                 content_rating = parse_content_rating(body.get("content_rating"))
+                romance_fields = genre_clusters.coerce_romance_fields_for_project(
+                    cluster_id=cluster_id,
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                    romance_structure=body.get("romance_structure"),
+                    romance_setting=body.get("romance_setting"),
+                    romance_blend=body.get("romance_blend"),
+                )
+                if genre_clusters.is_genre_literature_romance(
+                    cluster_id=cluster_id,
+                    purpose=purpose,
+                    main_genre=main_genre,
+                    sub_genre=sub_genre,
+                ):
+                    if not romance_fields["romance_structure"] or not romance_fields["romance_setting"]:
+                        raise ValueError(
+                            "로맨스 구조(정서형/사건형)와 배경(현대/사극)을 모두 선택해 주세요."
+                        )
+                elif romance_fields["romance_blend"] in genre_clusters.ROMANCE_BLEND_NEEDS_STRUCTURE:
+                    if not romance_fields["romance_structure"]:
+                        raise ValueError(
+                            "로맨스 결합(공동축/메인축)일 때는 구조 축(정서형/사건형)을 선택해 주세요."
+                        )
                 inherit_from_id = None
                 raw_inherit = body.get("inherit_from_project_id") or body.get("inherit_from")
                 if raw_inherit not in (None, "", 0, "0"):
@@ -11351,6 +11494,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     set_project_cluster_id(connection, project_id, cluster_id)
                     set_project_genre_detail(connection, project_id, genre_detail)
                     set_project_content_rating(connection, project_id, content_rating)
+                    set_project_romance_axes(
+                        connection,
+                        project_id,
+                        romance_structure=romance_fields["romance_structure"],
+                        romance_setting=romance_fields["romance_setting"],
+                        romance_blend=romance_fields["romance_blend"],
+                    )
                     package_info = ensure_project_package(connection, project_id)
                     if inherit_from_id:
                         inherit_info = settings_inherit.inherit_project_settings(
@@ -11370,6 +11520,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                         "content_rating": content_rating,
                         "cluster_id": cluster_id,
                         "keywords": keywords,
+                        **romance_fields,
+                        "romance_structure_label": genre_clusters.romance_structure_label(
+                            romance_fields["romance_structure"]
+                        ),
+                        "romance_setting_label": genre_clusters.romance_setting_label(
+                            romance_fields["romance_setting"]
+                        ),
+                        "romance_blend_label": genre_clusters.romance_blend_label(
+                            romance_fields["romance_blend"]
+                        ),
+                        "period_support_module": genre_clusters.is_period_support_module_enabled(
+                            cluster_id=cluster_id,
+                            purpose=purpose,
+                            main_genre=main_genre,
+                            sub_genre=sub_genre,
+                            romance_setting=romance_fields["romance_setting"],
+                        ),
+                        "genre_tool_routing": genre_tool_routing.resolve_genre_tool_routing(
+                            cluster_id=cluster_id,
+                            purpose=purpose,
+                            main_genre=main_genre,
+                            sub_genre=sub_genre,
+                            romance_structure=romance_fields["romance_structure"],
+                            romance_setting=romance_fields["romance_setting"],
+                            romance_blend=romance_fields["romance_blend"],
+                        ),
                         **package_info,
                         **inherit_info,
                     },
@@ -16114,6 +16290,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "literary": "순문학",
             "genre_lit": "장르문학",
             "experimental": "실험장르",
+            "emotional": "정서형",
+            "plot_driven": "사건형",
+            "contemporary": "현대",
+            "period": "시대로맨스",
+            "subplot": "서브플롯",
+            "co_axis": "공동축",
+            "main_axis": "메인축",
             "sports": "스포츠",
             "traditional": "정통판타지",
             "blgl": "BL·GL",
@@ -24124,6 +24307,13 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
                     stored_content_rating = ""
             if "content_rating" in body:
                 stored_content_rating = parse_content_rating(body.get("content_rating"))
+            stored_romance = read_project_romance_axes(row)
+            if "romance_structure" in body:
+                stored_romance["romance_structure"] = str(body.get("romance_structure") or "").strip()
+            if "romance_setting" in body:
+                stored_romance["romance_setting"] = str(body.get("romance_setting") or "").strip()
+            if "romance_blend" in body:
+                stored_romance["romance_blend"] = str(body.get("romance_blend") or "").strip()
             if "keywords" in body:
                 keywords = parse_project_keywords(body.get("keywords"))
             if "purpose" in body:
@@ -24204,6 +24394,22 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             )
             set_project_genre_detail(connection, project_id, genre_detail)
             set_project_content_rating(connection, project_id, stored_content_rating)
+            romance_fields = genre_clusters.coerce_romance_fields_for_project(
+                cluster_id=cluster_id,
+                purpose=purpose,
+                main_genre=main_genre,
+                sub_genre=sub_genre,
+                romance_structure=stored_romance["romance_structure"],
+                romance_setting=stored_romance["romance_setting"],
+                romance_blend=stored_romance["romance_blend"],
+            )
+            set_project_romance_axes(
+                connection,
+                project_id,
+                romance_structure=romance_fields["romance_structure"],
+                romance_setting=romance_fields["romance_setting"],
+                romance_blend=romance_fields["romance_blend"],
+            )
         return {
             "ok": True,
             "synopsis_md": synopsis,
@@ -24223,6 +24429,32 @@ class SuperToryHandler(SimpleHTTPRequestHandler):
             "purpose": purpose,
             "goal_word_count": goal_word_count,
             "linked_success_profile_id": linked_success_profile_id,
+            **romance_fields,
+            "romance_structure_label": genre_clusters.romance_structure_label(
+                romance_fields["romance_structure"]
+            ),
+            "romance_setting_label": genre_clusters.romance_setting_label(
+                romance_fields["romance_setting"]
+            ),
+            "romance_blend_label": genre_clusters.romance_blend_label(
+                romance_fields["romance_blend"]
+            ),
+            "period_support_module": genre_clusters.is_period_support_module_enabled(
+                cluster_id=cluster_id,
+                purpose=purpose,
+                main_genre=main_genre,
+                sub_genre=sub_genre,
+                romance_setting=romance_fields["romance_setting"],
+            ),
+            "genre_tool_routing": genre_tool_routing.resolve_genre_tool_routing(
+                cluster_id=cluster_id,
+                purpose=purpose,
+                main_genre=main_genre,
+                sub_genre=sub_genre,
+                romance_structure=romance_fields["romance_structure"],
+                romance_setting=romance_fields["romance_setting"],
+                romance_blend=romance_fields["romance_blend"],
+            ),
         }
 
     def rename_project(self, project_id: int, body: dict) -> dict:

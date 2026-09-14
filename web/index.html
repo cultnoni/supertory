@@ -1860,6 +1860,58 @@
                           >
                         </label>
                         <select id="genreDetailSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled></select>
+                        <div id="genreLitRomanceAxes" class="genre-lit-romance-axes hidden" hidden>
+                          <label class="genre-field" id="romanceStructureField">
+                            <select id="romanceStructureSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                              <option value="" data-i18n="app.구조_축">구조 축</option>
+                            </select>
+                            <button
+                              type="button"
+                              id="romanceStructureDisplay"
+                              class="genre-display"
+                              aria-haspopup="menu"
+                              aria-expanded="false"
+                              aria-controls="genreContextMenu"
+                              aria-label="구조 축 (정서형/사건형)" data-i18n-aria-label="index.구조_축_클릭으로_변경"
+                              title="클릭: 구조 축 변경" data-i18n-title="app.클릭_구조_축_변경"
+                              disabled
+                             data-i18n="app.구조_축">구조 축</button>
+                          </label>
+                          <label class="genre-field" id="romanceSettingField">
+                            <select id="romanceSettingSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                              <option value="" data-i18n="app.배경_축">배경 축</option>
+                            </select>
+                            <button
+                              type="button"
+                              id="romanceSettingDisplay"
+                              class="genre-display"
+                              aria-haspopup="menu"
+                              aria-expanded="false"
+                              aria-controls="genreContextMenu"
+                              aria-label="배경 축 (현대/사극)" data-i18n-aria-label="index.배경_축_클릭으로_변경"
+                              title="클릭: 배경 축 변경" data-i18n-title="app.클릭_배경_축_변경"
+                              disabled
+                             data-i18n="app.배경_축">배경 축</button>
+                          </label>
+                        </div>
+                        <div id="genreLitRomanceBlend" class="genre-lit-romance-blend hidden" hidden>
+                          <label class="genre-field" id="romanceBlendField">
+                            <select id="romanceBlendSelect" class="genre-select-hidden" aria-hidden="true" tabindex="-1" disabled>
+                              <option value="none" data-i18n="app.로맨스_결합_강도">로맨스 결합 강도</option>
+                            </select>
+                            <button
+                              type="button"
+                              id="romanceBlendDisplay"
+                              class="genre-display"
+                              aria-haspopup="menu"
+                              aria-expanded="false"
+                              aria-controls="genreContextMenu"
+                              aria-label="로맨스 결합 강도" data-i18n-aria-label="index.로맨스_결합_강도_클릭으로_변경"
+                              title="클릭: 로맨스 결합 강도 변경" data-i18n-title="app.클릭_로맨스_결합_강도_변경"
+                              disabled
+                             data-i18n="app.로맨스_결합_강도">로맨스 결합 강도</button>
+                          </label>
+                        </div>
                       </div>
                       <label class="adult19-toggle" id="adult19ToggleWrap">
                         <span data-i18n="app.19금">19금</span>
@@ -6036,6 +6088,33 @@
                 <option value="" data-i18n="app.세부_장르를_선택해_주세요">세부 장르를 선택해 주세요</option>
               </select>
             </label>
+            <div id="newProjectRomanceAxes" class="modal-romance-axes hidden" hidden>
+              <label id="newProjectRomanceStructureWrap">
+                <span class="modal-genre-label" data-i18n="app.구조_축">구조 축</span>
+                <select id="newProjectRomanceStructure">
+                  <option value="" data-i18n="app.구조_축을_선택해_주세요">구조 축을 선택해 주세요</option>
+                  <option value="emotional" data-i18n="app.정서형">정서형</option>
+                  <option value="plot_driven" data-i18n="app.사건형">사건형</option>
+                </select>
+              </label>
+              <label id="newProjectRomanceSettingWrap">
+                <span class="modal-genre-label" data-i18n="app.배경_축">배경 축</span>
+                <select id="newProjectRomanceSetting">
+                  <option value="" data-i18n="app.배경_축을_선택해_주세요">배경 축을 선택해 주세요</option>
+                  <option value="contemporary" data-i18n="app.현대">현대</option>
+                  <option value="period" data-i18n="app.사극">사극</option>
+                </select>
+              </label>
+            </div>
+            <label id="newProjectRomanceBlendWrap" class="hidden" hidden>
+              <span class="modal-genre-label" data-i18n="app.로맨스_결합_강도">로맨스 결합 강도</span>
+              <select id="newProjectRomanceBlend">
+                <option value="none" data-i18n="app.없음">없음</option>
+                <option value="subplot" data-i18n="app.서브플롯">서브플롯</option>
+                <option value="co_axis" data-i18n="app.공동축">공동축</option>
+                <option value="main_axis" data-i18n="app.메인축">메인축</option>
+              </select>
+            </label>
             <label class="adult19-toggle modal-adult19-toggle" id="newProjectAdult19Wrap">
               <span class="modal-genre-label" data-i18n="app.19금">19금</span>
               <span class="tory-switch">
@@ -6216,6 +6295,33 @@
             <label id="importSubGenreWrap"><span class="modal-genre-label" id="importSubGenreLabel" data-i18n="app.세부_장르">세부 장르</span>
               <select id="importSubGenre" required>
                 <option value="" data-i18n="app.세부_장르를_선택해_주세요">세부 장르를 선택해 주세요</option>
+              </select>
+            </label>
+            <div id="importRomanceAxes" class="modal-romance-axes hidden" hidden>
+              <label id="importRomanceStructureWrap">
+                <span class="modal-genre-label" data-i18n="app.구조_축">구조 축</span>
+                <select id="importRomanceStructure">
+                  <option value="" data-i18n="app.구조_축을_선택해_주세요">구조 축을 선택해 주세요</option>
+                  <option value="emotional" data-i18n="app.정서형">정서형</option>
+                  <option value="plot_driven" data-i18n="app.사건형">사건형</option>
+                </select>
+              </label>
+              <label id="importRomanceSettingWrap">
+                <span class="modal-genre-label" data-i18n="app.배경_축">배경 축</span>
+                <select id="importRomanceSetting">
+                  <option value="" data-i18n="app.배경_축을_선택해_주세요">배경 축을 선택해 주세요</option>
+                  <option value="contemporary" data-i18n="app.현대">현대</option>
+                  <option value="period" data-i18n="app.사극">사극</option>
+                </select>
+              </label>
+            </div>
+            <label id="importRomanceBlendWrap" class="hidden" hidden>
+              <span class="modal-genre-label" data-i18n="app.로맨스_결합_강도">로맨스 결합 강도</span>
+              <select id="importRomanceBlend">
+                <option value="none" data-i18n="app.없음">없음</option>
+                <option value="subplot" data-i18n="app.서브플롯">서브플롯</option>
+                <option value="co_axis" data-i18n="app.공동축">공동축</option>
+                <option value="main_axis" data-i18n="app.메인축">메인축</option>
               </select>
             </label>
             <label class="adult19-toggle modal-adult19-toggle" id="importAdult19Wrap">
