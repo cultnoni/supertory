@@ -24505,11 +24505,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.피드백_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.피드백_요청_중');
@@ -24552,10 +24548,7 @@ async function runFocusedAnalysisForTarget(sceneId) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -24576,11 +24569,7 @@ async function runFocusedAnalysisBatch(sceneIds) {
   const sequence = typeof getEpisodeSequence === "function" ? getEpisodeSequence() : [];
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.피드백_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.피드백_요청_중');
@@ -24646,10 +24635,7 @@ async function runFocusedAnalysisBatch(sceneIds) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -24698,11 +24684,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.피드백_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.피드백_요청_중');
@@ -24748,10 +24730,7 @@ async function runFocusedAnalysisMulti(sceneIds) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -24871,11 +24850,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.요약_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.회차_요약_중');
@@ -24917,10 +24892,7 @@ async function runDetailedSceneSummaryForTarget(sceneId) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -24983,11 +24955,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.요약_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.회차_요약_중');
@@ -25031,10 +24999,7 @@ async function runDetailedSceneSummaryMulti(sceneIds) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -25073,11 +25038,7 @@ async function runFocusedAnalysis(options = {}) {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.피드백_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.피드백_요청_중');
@@ -25116,10 +25077,7 @@ async function runFocusedAnalysis(options = {}) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -25383,6 +25341,13 @@ function placeFeatureDropdown(menu, anchor) {
   menu.style.top = `${Math.round(top)}px`;
 }
 
+
+function setAnalyzeMenuButtonBusy(busy) {
+  const button = $("analyzeMenuButton");
+  if (!button) return;
+  button.disabled = Boolean(busy);
+}
+
 function toggleAnalyzeMenu() {
   const menu = $("analyzeMenuDropdown");
   const btn = $("analyzeMenuButton");
@@ -25394,7 +25359,10 @@ function toggleAnalyzeMenu() {
     ensureAnalyzeMenuSectionMascots();
     menu.classList.remove("hidden");
     btn.setAttribute("aria-expanded", "true");
-    requestAnimationFrame(() => placeFeatureDropdown(menu, btn));
+    const anchor = (typeof resolveToolbarOverflowAnchor === "function")
+      ? resolveToolbarOverflowAnchor(btn)
+      : btn;
+    requestAnimationFrame(() => placeFeatureDropdown(menu, anchor || btn));
   } else {
     closeAnalyzeMenu();
   }
@@ -25470,7 +25438,7 @@ function setupAnalyzeMenu() {
   });
   document.addEventListener("click", (event) => {
     if (isAnalyzeMenuFloated()) return;
-    if (!event.target.closest?.("#analyzeMenuControl, #analyzeMenuDropdown, [data-dock-item='analyze']")) closeAnalyzeMenu();
+    if (!event.target.closest?.("#analyzeMenuControl, #analyzeMenuButton, #analyzeMenuDropdown")) closeAnalyzeMenu();
   });
   document.addEventListener("keydown", (event) => {
     if (event.key !== "Escape") return;
@@ -25485,7 +25453,12 @@ function setupAnalyzeMenu() {
     if (isAnalyzeMenuFloated()) return;
     const menu = $("analyzeMenuDropdown");
     const btn = $("analyzeMenuButton");
-    if (menu && btn && !menu.classList.contains("hidden")) placeFeatureDropdown(menu, btn);
+    if (menu && btn && !menu.classList.contains("hidden")) {
+      const anchor = (typeof resolveToolbarOverflowAnchor === "function")
+        ? resolveToolbarOverflowAnchor(btn)
+        : btn;
+      placeFeatureDropdown(menu, anchor || btn);
+    }
   };
   window.addEventListener("resize", reposition);
   window.addEventListener("scroll", reposition, true);
@@ -26274,11 +26247,7 @@ async function runDuplicateCheck(targetSceneId) {
 
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.중복_체크_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = i18n.t('app.중복_체크_중');
@@ -26360,10 +26329,7 @@ async function runDuplicateCheck(targetSceneId) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -26517,11 +26483,7 @@ async function runWorldScanForTarget(sceneId) {
   updateForeshadowPanelVisibility();
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.검사_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
@@ -26562,10 +26524,7 @@ async function runWorldScanForTarget(sceneId) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -26632,11 +26591,7 @@ async function runWorldScanMulti(sceneIds) {
   updateForeshadowPanelVisibility();
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.검사_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
@@ -26680,10 +26635,7 @@ async function runWorldScanMulti(sceneIds) {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -26729,11 +26681,7 @@ async function runWorldScan() {
   const subGenre = state.subGenre || project?.sub_genre || "";
   const button = $("analyzeMenuButton");
   const aiButton = $("aiSubmitButton");
-  const prevLabel = button?.textContent;
-  if (button) {
-    button.disabled = true;
-    button.textContent = i18n.t('app.검사_중');
-  }
+  setAnalyzeMenuButtonBusy(true);
   if (aiButton) {
     aiButton.disabled = true;
     aiButton.textContent = SETTING_BREAK_SCAN_BUSY;
@@ -26774,10 +26722,7 @@ async function runWorldScan() {
   } catch (error) {
     handleError(error);
   } finally {
-    if (button) {
-      button.disabled = false;
-      button.textContent = prevLabel || i18n.t('app.분석');
-    }
+    setAnalyzeMenuButtonBusy(false);
     if (aiButton) {
       aiButton.disabled = false;
       aiButton.textContent = i18n.t('app.보내기');
@@ -47739,6 +47684,17 @@ function bookmarkColorMeta(key) {
   return BOOKMARK_COLORS.find((c) => c.key === key) || BOOKMARK_COLORS[0];
 }
 
+/** 목차 회차 북마크 아이콘 (꽉 찬 색 · --bm-color / currentColor) */
+const SCENE_BOOKMARK_ICON_SVG = `<svg class="scene-bookmark-icon" xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="none" aria-hidden="true" focusable="false"><path d="M17 3a2 2 0 0 1 2 2v15a1 1 0 0 1-1.496.868l-4.512-2.578a2 2 0 0 0-1.984 0l-4.512 2.578A1 1 0 0 1 5 20V5a2 2 0 0 1 2-2z"/></svg>`;
+
+function sceneBookmarkMarkHtml(colorKey) {
+  const meta = bookmarkColorMeta(colorKey);
+  const label = escapeHtml(meta.label || "");
+  const hex = meta.hex || "#e74c3c";
+  const title = `${escapeHtml(i18n.t("app.북마크"))} · ${label}`;
+  return `<span class="scene-bookmark-slot" title="${title}"><span class="scene-bookmark-mark" style="--bm-color:${hex}" aria-label="${escapeHtml(i18n.t("app.북마크"))}">${SCENE_BOOKMARK_ICON_SVG}</span></span>`;
+}
+
 function nextFreeBookmarkColor(list) {
   const used = new Set(list.map((b) => b.color));
   return BOOKMARK_COLORS.find((c) => !used.has(c.key)) || null;
@@ -48439,48 +48395,57 @@ function setupBookmarkListPanel() {
 
 function ensureSceneBookmarkMark(el, colorKey) {
   if (!el) return;
-  // 작성 상태 열 정렬을 위해 북마크는 항상 고정 폭 슬롯 안에만 둔다.
-  let slot = null;
-  for (const child of el.children) {
-    if (child.classList?.contains("scene-bookmark-slot")) {
-      slot = child;
-      break;
-    }
+  // 북마크는 호버 박스(.scene-link) 밖 · 트리/lead 열에 둔다
+  const row = el.closest?.(".scene-row") || el.parentElement;
+  let lead = row?.querySelector?.(":scope > .scene-lead");
+  if (!lead && row) {
+    lead = document.createElement("span");
+    lead.className = "scene-lead";
+    row.insertBefore(lead, row.firstChild);
+  }
+  const host = lead || el;
+  let slot = host.querySelector?.(":scope > .scene-bookmark-slot");
+  if (!slot) {
+    slot = Array.from(host.children || []).find((c) => c.classList?.contains("scene-bookmark-slot")) || null;
   }
   if (!slot) {
     slot = document.createElement("span");
     slot.className = "scene-bookmark-slot";
     slot.setAttribute("aria-hidden", "true");
-    let statusEl = null;
-    for (const child of el.children) {
-      if (
-        child.classList?.contains("scene-status")
-        || child.classList?.contains("scene-complete-badge")
-        || child.classList?.contains("scene-status-slot")
-      ) {
-        statusEl = child;
-        break;
-      }
-    }
-    if (statusEl) el.insertBefore(slot, statusEl);
-    else el.insertBefore(slot, el.firstChild);
+    // 떡밥 슬롯·접기 버튼보다 앞(왼쪽)
+    const bait = host.querySelector?.(":scope > .scene-bait-slot");
+    const twistie = host.querySelector?.(":scope > .scene-twistie, :scope > .scene-twistie-spacer, :scope > [data-toggle-scene]");
+    if (bait) host.insertBefore(slot, bait);
+    else if (twistie) host.insertBefore(slot, twistie);
+    else host.insertBefore(slot, host.firstChild);
   }
   let mark = slot.querySelector(".scene-bookmark-mark");
   if (!colorKey) {
     if (mark) mark.remove();
     slot.removeAttribute("title");
+    slot.setAttribute("aria-hidden", "true");
+    // 빈 슬롯은 lead에서 제거해 공간만 차지하지 않게 (lead 폭은 CSS가 고정)
+    if (!slot.querySelector(".scene-bookmark-mark")) {
+      slot.remove();
+    }
     return;
   }
   const meta = bookmarkColorMeta(colorKey);
+  slot.removeAttribute("aria-hidden");
   if (!mark) {
     mark = document.createElement("span");
     mark.className = "scene-bookmark-mark";
-    mark.setAttribute("aria-label", i18n.t('app.북마크'));
+    mark.setAttribute("aria-label", i18n.t("app.북마크"));
+    mark.innerHTML = SCENE_BOOKMARK_ICON_SVG;
     slot.appendChild(mark);
+  } else if (!mark.querySelector(".scene-bookmark-icon")) {
+    mark.innerHTML = SCENE_BOOKMARK_ICON_SVG;
   }
   mark.style.setProperty("--bm-color", meta.hex);
-  mark.title = `${i18n.t('app.북마크_meta_label', {'meta.label || ""': meta.label || ""})}`;
-  slot.title = mark.title;
+  slot.style.setProperty("--bm-color", meta.hex);
+  const tip = i18n.t("app.북마크_meta_label", { "meta.label || \"\"": meta.label || "" });
+  mark.title = tip;
+  slot.title = tip;
 }
 
 function markBookmarkedTargets() {
@@ -60445,16 +60410,23 @@ function isFormatRowKey(key) {
 }
 
 function syncFormatShellFromRows() {
-  const shell = document.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
-  if (!shell) return;
+  const formatShell = document.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
+  const iconsShell = document.querySelector(
+    '.ms-toolbar-shell[data-toolbar-shell="format-icons-host"], #formatIconsShell'
+  );
   const iconsRow = document.querySelector('[data-toolbar-row="format-icons"]');
   const formatRow = document.querySelector('[data-toolbar-row="format-format"]');
   const iconsGone = !iconsRow || iconsRow.classList.contains("is-collapsed");
   const formatGone = !formatRow || formatRow.classList.contains("is-collapsed");
-  const bothGone = iconsGone && formatGone;
-  shell.classList.toggle("is-collapsed", bothGone);
-  shell.classList.toggle("format-icons-collapsed", iconsGone);
-  shell.classList.toggle("format-format-collapsed", formatGone);
+  // 아이콘·서식 셸이 분리됨 — 각 행이 접히면 해당 셸만 접기
+  if (formatShell) {
+    formatShell.classList.toggle("is-collapsed", formatGone);
+    formatShell.classList.toggle("format-format-collapsed", formatGone);
+    formatShell.classList.toggle("format-icons-collapsed", iconsGone);
+  }
+  if (iconsShell) {
+    iconsShell.classList.toggle("is-collapsed", iconsGone);
+  }
   // Hide find bar when the icons row (find toggle lives there) is collapsed
   if (iconsGone) {
     $("findBar")?.classList.add("hidden");
@@ -62730,16 +62702,13 @@ function renderSceneTreeHtml(scenes, {
     const isComplete = scene.status === "complete";
     const statusText = statusLabel[scene.status] || scene.status || "";
     // 작성 상태는 고정 폭 슬롯 → 북마크 유무와 관계없이 열 정렬
-    const statusInner = isComplete
-      ? i18n.t('app.span_class_scene_comple')
-      : `<span class="scene-status">${escapeHtml(statusText)}</span>`;
+    // 모든 상태 동일 텍스트 뱃지 · 완성만 is-complete 틴트 배경
+    const statusInner = `<span class="scene-status${isComplete ? " is-complete" : ""}">${escapeHtml(statusText)}</span>`;
     const statusMarkup = `<span class="scene-status-slot">${statusInner}</span>`;
     const sid = Number(scene.id);
-    // 북마크는 작성 상태 왼쪽 고정 슬롯 (없어도 자리는 유지)
+    // 북마크·떡밥: 작성상태 왼쪽 · 호버 박스 밖(트리/폴더 아이콘 열)
     const sceneBm = findBookmark(bookmarksSnapshot, "scene", sid);
-    const bookmarkMark = sceneBm
-      ? `${i18n.t('app.span_class_scene_bookma', {'escapeHtml(bookmarkColorMeta(sceneBm.color).label || "")': escapeHtml(bookmarkColorMeta(sceneBm.color).label || ""), 'bookmarkColorMeta(sceneBm.color).hex': bookmarkColorMeta(sceneBm.color).hex})}`
-      : `<span class="scene-bookmark-slot" aria-hidden="true"></span>`;
+    const bookmarkMark = sceneBm ? sceneBookmarkMarkHtml(sceneBm.color) : "";
     const kids = scene.children || [];
     const childFolders = Array.isArray(scene.child_chapters) ? scene.child_chapters : [];
     const hasKids = kids.length > 0;
@@ -62774,12 +62743,20 @@ function renderSceneTreeHtml(scenes, {
       display.isPreview ? "scene-title is-body-preview" : "scene-title",
       italicOn ? "is-title-italic" : "",
     ].filter(Boolean).join(" ");
-    // 하위가 있을 때만 접기 버튼. 잎도 같은 폭 스페이서로 작성상태 열을 맞춤
     const expanded = childExpanded ? "true" : "false";
     const twistieTitle = childExpanded ? i18n.t('app.하위_접기') : i18n.t('app.하위_펼치기');
     const twistie = hasNest
       ? i18n.t('app.button_type_button_clas_10', { sid: sid, expanded: expanded, title: twistieTitle })
-      : `<span class="scene-twistie-spacer" aria-hidden="true"></span>`;
+      : "";
+    const baitSlot = baitIcons ? `<span class="scene-bait-slot">${baitIcons}</span>` : "";
+    // 북마크·떡밥·접기: 트리 라인 쪽(절대 배치, 폭 0) · 작성상태는 폴더 아이콘 열
+    const leadParts = [];
+    if (bookmarkMark) leadParts.push(bookmarkMark);
+    if (baitSlot) leadParts.push(baitSlot);
+    if (hasNest) leadParts.push(twistie);
+    const leadMarkup = leadParts.length
+      ? `<span class="scene-lead">${leadParts.join("")}</span>`
+      : "";
     // Folders render after child manuscripts under the same parent.
     // Route through recursive binder renderer (non-box chapter path → same markup).
     const nestDepth = Math.min(depth + 1, 8);
@@ -62826,12 +62803,10 @@ function renderSceneTreeHtml(scenes, {
     return `
       <div class="scene-tree-item depth-${Math.min(depth, 8)} ${isLast ? "is-last" : ""} ${hasNest ? "" : "is-leaf"} ${childExpanded || !hasNest ? "" : "is-collapsed"}" data-scene-node="${sid}" data-depth="${depth}" draggable="${dragAttr}">
         <div class="scene-row">
-          ${twistie}
+          ${leadMarkup}
+          ${statusMarkup}
           <button type="button" draggable="${dragAttr}" class="scene-link ${Number(state.sceneId) === sid ? "active" : ""} ${isComplete ? "is-complete" : ""} ${isPinned ? "is-pinned" : ""} ${sceneBm ? "is-bookmarked" : ""}" data-scene="${sid}" data-chapter-id="${chapterId}" data-parent-scene="${parentAttr}" title="${sceneTitle}">
-            ${bookmarkMark}
-            ${statusMarkup}
             ${pinIcon}
-            ${baitIcons}
             <span class="${titleClass}">${escapeHtml(display.label)}</span>
           </button>
           ${addAfterBtn}
@@ -72513,8 +72488,35 @@ function renderEpisodeChrome() {
         </div>`;
     }).join("");
   }
+  const addBtn = $("episodeTabAddButton");
+  if (addBtn) {
+    const openIds = new Set((state.episodeTabs || []).map((t) => Number(t.sceneId)));
+    const hasMore = sequence.some((ep) => !openIds.has(Number(ep.sceneId)));
+    const hasNext = idx >= 0 && idx < sequence.length - 1;
+    addBtn.disabled = !(hasMore || hasNext);
+    addBtn.hidden = !(state.episodeTabs || []).length;
+  }
   if (state.splitEnabled && state.splitMode === "split" && typeof syncSplitPaneTopAlign === "function") {
     requestAnimationFrame(() => syncSplitPaneTopAlign());
+  }
+}
+
+function openAdjacentEpisodeAsTab() {
+  const sequence = getEpisodeSequence();
+  if (!sequence.length) return;
+  const openIds = new Set((state.episodeTabs || []).map((t) => Number(t.sceneId)));
+  const idx = findEpisodeIndex(state.sceneId, sequence);
+  // Prefer next unopened after current, then wrap; else just go next.
+  for (let step = 1; step <= sequence.length; step += 1) {
+    const ep = sequence[(Math.max(idx, 0) + step) % sequence.length];
+    if (!ep) continue;
+    if (!openIds.has(Number(ep.sceneId))) {
+      requestOpenScene(ep.sceneId);
+      return;
+    }
+  }
+  if (idx >= 0 && idx < sequence.length - 1) {
+    requestOpenScene(sequence[idx + 1].sceneId);
   }
 }
 
@@ -72563,6 +72565,9 @@ function setupEpisodeChrome() {
     if (!tab) return;
     event.preventDefault();
     closeEpisodeTab(Number(tab.dataset.episodeTab));
+  });
+  $("episodeTabAddButton")?.addEventListener("click", () => {
+    openAdjacentEpisodeAsTab();
   });
   renderEpisodeChrome();
 }
@@ -76687,8 +76692,13 @@ function layoutSplitPrimaryPane() {
   form.style.maxHeight = `${formBudget}px`;
   form.style.overflow = "hidden";
 
-  // Sum chrome rows still in the form flow (서식 등). 요약은 본문 프레임 안 상태바로 이동.
-  const formatShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]');
+  // 제목·아이콘 카드 + 기능바/찾기 (서식·작성상태는 본문 프레임 안)
+  const toolsCard = block.querySelector("#msToolsCard, .ms-tools-card")
+    || form.querySelector("#msToolsCard, .ms-tools-card");
+  const toolsInFrame = Boolean(toolsCard && block.contains(toolsCard));
+  const formatShell = (!toolsCard || !toolsInFrame)
+    ? form.querySelector('.ms-toolbar-shell[data-toolbar-shell="format"]')
+    : null;
   const featureShell = form.querySelector('.ms-toolbar-shell[data-toolbar-shell="feature"]');
   const findBar = $("findBar");
   const chromeStack = form.querySelector("#msChromeStack, .ms-chrome-stack");
@@ -76702,14 +76712,16 @@ function layoutSplitPrimaryPane() {
   };
   const chrome =
     visibleH(chromeStack) +
+    (toolsInFrame ? 0 : visibleH(toolsCard)) +
     visibleH(formatShell) +
     visibleH(featureShell) +
     visibleH(findBar) +
     12;
   const statusH = visibleH(statusWrap);
+  const toolsH = toolsInFrame ? visibleH(toolsCard) : 0;
   const bodyH = Math.max(180, Math.floor(formBudget - chrome));
-  // 프레임 안 원고 높이: 글자수 줄을 남김 (상태바는 writing-block 내부)
-  const pageH = Math.max(160, Math.floor(bodyH - statusH - 4));
+  // 프레임 안: 서식/작성상태 + 글자수 줄을 남기고 원고 높이 배분
+  const pageH = Math.max(160, Math.floor(bodyH - statusH - toolsH - 4));
 
   block.style.display = "flex";
   block.style.flexDirection = "column";
@@ -82278,7 +82290,8 @@ const EINK_BW_FORCE_CSS = [
   'html[data-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field select,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:not(.status-seg-btn):hover,html[data-theme="eink"] .manuscript-status-wrap .stat-chip:not(.status-seg-btn).is-active,html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-field input,html[data-ui-theme="eink"] .manuscript-status-wrap .scene-goal-bar{background:#fff!important;background-color:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
   'html[data-theme="eink"] .manuscript-status-wrap .stat-chip,html[data-theme="eink"] .manuscript-status-wrap .stat-chip strong,html[data-theme="eink"] .manuscript-status-wrap .status-bar-counts,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field,html[data-theme="eink"] .manuscript-status-wrap .status-bar-field-label,html[data-theme="eink"] .manuscript-status-wrap .scene-goal-progress-label{color:#000!important;-webkit-text-fill-color:#000!important;}',
   'html[data-theme="eink"] .manuscript-status-wrap .scene-goal-bar-fill:not(.is-empty){background:#000!important;box-shadow:none!important;}',
-  'html[data-theme="eink"] .manuscript-status-wrap .status-save-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn{background:#fff!important;color:#000!important;border:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-save-btn,html[data-ui-theme="eink"] .manuscript-status-wrap .status-save-btn{background:transparent!important;color:#000!important;border:0!important;border-left:1px solid #000!important;box-shadow:none!important;}',
+  'html[data-theme="eink"] .manuscript-status-wrap .status-bar-goal-combo,html[data-ui-theme="eink"] .manuscript-status-wrap .status-bar-goal-combo{border:1px solid #000!important;background:#fff!important;}',
 ].join("");
 
 /** Keep / remove the runtime pure B/W sheet (beats stale styles.css + hardcoded tints). */
